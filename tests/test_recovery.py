@@ -1347,3 +1347,38 @@ def test_refutations_blocks_heavy_stun_you_within_its_buff():
     assert calm_plan.box == plain.box and "no stun within the buff" in calm_plan.how
     # a stun at 3.9 s: Parried under 3.9 s of 13, 3.65 s lost: under x(1 + 0.5 x 0.3) x 0.72 = 0.83, not worth it
     assert models.parry_plan([refutation], stats, True, refute=(3.9, "late")).box == 0
+
+
+def test_consecrated_ground_share_from_the_builds_own_uses(monkeypatch):
+    """MECHC30 (MD-3): Consecrate 8 s and Holy Descent 4 s per use, overlapping as independent, x0.75 standing in it;
+    "increased Effect of Consecrated Ground" scales both lines; the stationary line is left to PoB when standing still."""
+    from types import SimpleNamespace
+
+    from builder.search import assumptions
+
+    texts = ["20% increased Effect of Consecrated Ground you create"]
+    stationary = {"on": False}
+
+    def call(name, **_):
+        if name == "sourceLines":
+            return {"lines": [{"text": t} for t in texts]}
+        if name == "getConfig":
+            return {"input": {"conditionStationary": stationary["on"]}}
+        raise AssertionError(name)
+
+    build = SimpleNamespace(call=call, equipped={}, groups=lambda: [])
+    rates = {"Consecrate": (0.0625, "every 16 s"), "Holy Descent": (0.125, "every 8 s")}
+    monkeypatch.setattr(assumptions, "group_uses", lambda b, gem: rates.get(gem))
+    hook = assumptions.Assumptions.__new__(assumptions.Assumptions)
+    hook.build = build
+    mods, notes = hook.consecrated_ground()
+    laid = 1 - (1 - 0.5) * (1 - 0.5)
+    up = laid * 0.75
+    assert [m["scale"] for m in mods] == pytest.approx([5 * 1.2 * up, 50 * 1.2 * up], abs=0.01)
+    assert f"{up:.0%}" in notes[0]["value"]
+    texts.append("You have Consecrated Ground around you while stationary")
+    stationary["on"] = True
+    mods, notes = hook.consecrated_ground()
+    assert mods == [] and "PoB applies itself" in notes[0]["basis"]
+    monkeypatch.setattr(assumptions, "group_uses", lambda b, gem: None)
+    assert hook.consecrated_ground() == ([], [])

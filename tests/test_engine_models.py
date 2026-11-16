@@ -3124,3 +3124,31 @@ def test_parry_heavy_stun_reads_the_builds_threshold(engine):
     chance, how = recovery.parry_stun_of(search.build)
     print("PROBE parry", chance, how)
     assert 0 <= chance <= 1 and "x0.60" in how and "Parry's own -40% final" in how
+
+
+def test_sanguis_heroum_consecrated_ground_at_its_charm_uses(engine):
+    """MECHC30 (PATCH_CHECK MD-3): Sanguis Heroum's "Creates Consecrated Ground on use" lays 4 s of ground per charm use;
+    you stand in it 75% of that (the user's Leylines reasoning); the regen and reduced Curse effect go on PoB weighted by
+    the share (PoB's own box was never set)."""
+    import json
+
+    from builder.search.assumptions import Assumptions
+    from builder.search.context import ItemOption
+
+    search = spark_with(engine, [])
+    build = search.build
+    hook = Assumptions(build)
+    assert hook.consecrated_ground() == ([], [])
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "data" / "pob-bb52d6b368" / "uniques.json"
+    data = json.load(open(path, encoding="utf8"))
+    raw = next(u["raw"] for u in data["uniques"] if u["name"] == "Sanguis Heroum")
+    charm = ItemOption(name="Sanguis Heroum", base="Staunching Charm", type="Charm", sub_type=None, raw=raw, unique=True,
+                       price=1.0, confidence="high", level=1)
+    build.equip("Charm 1", charm)
+    mods, notes = hook.consecrated_ground()
+    print("PROBE consecrated", mods, notes)
+    assert notes and "Sanguis Heroum" in notes[0]["basis"] and "Leylines" in notes[0]["basis"]
+    for mod in mods:
+        assert 0 < mod["scale"] <= 50 * 0.75 + 1e-6

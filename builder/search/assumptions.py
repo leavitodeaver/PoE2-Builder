@@ -672,6 +672,48 @@ def ward_shares(build: Build) -> tuple[float, float, str]:
 TEMPORAL_RIFT, PHASED_DELAY = "Temporal Rift", 4.0
 
 
+# Consecrated Ground (MECHC30; PATCH_CHECK MD-3; plans/kw-consecrated-ground.md). KeywordPopups ConsecratedGround: "You and
+# Allies standing on your Consecrated Ground Regenerate 5% of their maximum Life per second, and Curses have 50% reduced
+# effect on them" (PoB CalcPerform 2010-2014 the same, scaled by ConsecratedGroundEffect; only its config box or the
+# stationary line sets it). Its sources in the game, current (checked: the 78 Stats ids holding "consecrat" and their Mods,
+# PassiveSkills and stat-set users, build 26476662; PoB's uniques.json; the plan's poe2db check; the five unique mods on no
+# current item, ConsecrateOnCrit / OnBlock / OnShatter / UtilityFlaskConsecrate / the flask area, are PoE1 leftovers):
+# - the Consecrate skill (StaffConsecratePlayer, a staff's): base_skill_effect_duration 8000;
+# - Holy Descent (support): support_holy_descent_consecrated_ground_base_duration_ms 4000 "on landing";
+# - Sanguis Heroum (charm): charm_create_consecrated_ground_when_used_duration_ms 4000 ("Creates Consecrated Ground on use");
+# - Gifts from Above / Loreweave, "You have Consecrated Ground around you while stationary": PoB applies it itself under
+#   Stationary (ModCache, as the plan found), so it is left to PoB when the build stands still (never counted twice);
+# - Legacy of Sulphur (Mage's Legacy, plans/kw-mage-s-legacy.md): not read here (UNVERIFIED that it is league-obtainable).
+# Before, nothing set the ground for the first three: an UNDERCOUNT of Life recovery (no DPS effect: no player source
+# makes your ground hurt enemies, the plan's check). Uptime from the build's own uses (no flat rate): each source's uses a
+# second x its duration (the group's use rate: on its cooldown, else the search's press choice, else 0; the charm's
+# flasks.uses_per_second), sources overlapping as independent (MEDIUM), then x0.75 for standing in it: the ground is laid
+# around you, and by the user's Leylines reasoning (15 Nov via the manager 01:15: "assume you're trying to stand in them if
+# you take the ability, so 75%"; the manager applied it to Sigil of Power, 16:11), LOW. On PoB as "Regenerate 1% of maximum
+# Life per second" x 5 x effect x share and "1% reduced Effect of Curses on you" x 50 x effect x share, effect = 1 + the
+# build's "N% increased Effect of Consecrated Ground" lines. Duration modifiers aren't read (an undercount, LOW).
+CONSECRATE_SKILL, HOLY_DESCENT = "Consecrate", "Holy Descent"
+CONSECRATED_SECONDS = {CONSECRATE_SKILL: 8.0, HOLY_DESCENT: 4.0, "charm": 4.0}
+CONSECRATED_STAND = 0.75
+CONSECRATED_REGEN, CONSECRATED_CURSE = 5.0, 50.0
+CONSECRATED_CHARM = re.compile(r"^creates consecrated ground on use$", re.I)
+CONSECRATED_STATIONARY = re.compile(r"^you have consecrated ground around you while stationary$", re.I)
+CONSECRATED_EFFECT = re.compile(r"^(\d+(?:\.\d+)?)% increased effect of consecrated ground(?: you create)?$", re.I)
+
+
+def group_uses(build: Build, gem: str) -> tuple[float, str] | None:
+    """(uses a second, how) of the enabled group holding `gem` (an active skill or a support), None without one: on its
+    cooldown, else the search's press choice, else 0 (temporal_rift_uses' way)."""
+    groups = [g for g in build.call("groups")["groups"] if g.get("enabled") is not False]
+    index = next((g["index"] for g in groups for n in g.get("gems") or []
+                  if n["name"] == gem and n.get("enabled", True)), None)
+    if index is None:
+        return None
+    rate = next((r for r in build.call("useRates", indices=[index])["rates"]), {})
+    uses, how, _ = models.press_use_rate(rate, models.press_choice(rate, models.press_choices(build)))
+    return uses, how
+
+
 def temporal_rift_uses(build: Build) -> tuple[float, str] | None:
     """(Temporal Rift's uses a second, how), None without it: its group's rate (on its cooldown, else the search's chosen
     press rate, else 0). Phased Form's clearing (phased_form_kept) and the pools' reset (recovery.rift_income, MECHC29)."""
@@ -2684,6 +2726,8 @@ class Assumptions:
         notes += demon_notes
         soul_mods, soul_notes = self.soul_eater()  # (MECH-C: Soul Eater's souls from the build's hits, MECHC29)
         mods, notes = mods + soul_mods, notes + soul_notes
+        holy_mods, holy_notes = self.consecrated_ground()  # (MECH-C: your Consecrated Ground, MECHC30, MD-3)
+        mods, notes = mods + holy_mods, notes + holy_notes
         stun_mods, stun_notes = self.heavy_stunned_self(main)  # (MECH-C: Heavy Stun on you while channelling a raised shield, MECHC30)
         mods, notes = mods + stun_mods, notes + stun_notes
         frost_mods, frost_notes = self.frostflame(main, skills)  # (MECH-B: Frostflame Nova's ice while Ignited, MECHB13)
@@ -3075,6 +3119,58 @@ class Assumptions:
         if souls <= 0:
             return [], [note]
         return [models.line(SOUL_LINE, souls)], [note]
+
+    def consecrated_ground(self) -> tuple[list[dict], list[dict]]:
+        """Your Consecrated Ground's Life regeneration and reduced Curse effect at the share of the fight you stand in it
+        (the comment at CONSECRATED_SECONDS)."""
+        from builder.search import flasks
+
+        build = self.build
+        texts = [line["text"].strip() for line in build.call("sourceLines")["lines"]]
+        sources, parts = [], []
+        # (a real Build has groups(); the tests' stand-in builds don't, as MECHC29's Second Wind III guard)
+        for gem in (CONSECRATE_SKILL, HOLY_DESCENT) if hasattr(build, "groups") else ():
+            found = group_uses(build, gem)
+            if found is not None:
+                uses, how = found
+                share = min(1.0, uses * CONSECRATED_SECONDS[gem])
+                sources.append(share)
+                parts.append(f"{gem}: {uses:.3f} uses/s ({how}) x {CONSECRATED_SECONDS[gem]:g} s = {share:.0%}")
+        charms = [option for slot in flasks.CHARM_SLOTS
+                  if (option := (getattr(build, "equipped", {}) or {}).get(slot)) is not None
+                  and any(CONSECRATED_CHARM.match(t.strip()) for t in option.raw.splitlines())]
+        if charms:
+            gain = flasks.Charges.of(build)
+            for option in charms:
+                info = build.call("flaskData", raws=[option.raw])["results"][0]
+                uses, how = flasks.uses_per_second(info or {}, gain, option.raw, None)
+                share = min(1.0, uses * CONSECRATED_SECONDS["charm"])
+                sources.append(share)
+                parts.append(f"{option.name}: {uses:.3f} uses/s ({how}) x {CONSECRATED_SECONDS['charm']:g} s = {share:.0%}")
+        if not sources:
+            return [], []
+        stationary = any(CONSECRATED_STATIONARY.match(t) for t in texts)
+        if stationary and build.call("getConfig")["input"].get("conditionStationary"):
+            return [], [{"label": "Consecrated Ground (yours)*", "value": "all fight (PoB: while stationary)",
+                         "confidence": "MEDIUM", "basis": "you have Consecrated Ground around you while stationary and the "
+                         "build stands still, which PoB applies itself; " + "; ".join(parts) + " add nothing on top"}]
+        laid = 1.0
+        for share in sources:
+            laid *= 1 - share
+        laid = 1 - laid
+        up = laid * CONSECRATED_STAND
+        effect = 1 + sum(float(m.group(1)) for t in texts if (m := CONSECRATED_EFFECT.match(t))) / 100
+        note = {"label": "Consecrated Ground: you stand in your own*", "value": f"{up:.0%} of the fight",
+                "confidence": "LOW",
+                "basis": ("; ".join(parts) + f": laid {laid:.0%} of the fight (sources overlapping as independent, MEDIUM), "
+                          f"x{CONSECRATED_STAND:g} standing in it (the user's Leylines reasoning, LOW): {up:.0%}, so "
+                          f"{CONSECRATED_REGEN * effect * up:.2f}% of maximum Life regenerated a second and "
+                          f"{CONSECRATED_CURSE * effect * up:.0f}% reduced Curse effect on you (effect x{effect:.2f}); "
+                          "duration modifiers not read (LOW)")}
+        if up <= 0:
+            return [], [note]
+        return [models.line("Regenerate 1% of maximum Life per second", CONSECRATED_REGEN * effect * up),
+                models.line("1% reduced Effect of Curses on you", CONSECRATED_CURSE * effect * up)], [note]
 
     def heavy_stunned_self(self, main: str | None) -> tuple[list[dict], list[dict]]:
         """Heavy Stuns on you from channelling Resonating Shield as the main skill (recovery.channel_stun_of: the bar never
