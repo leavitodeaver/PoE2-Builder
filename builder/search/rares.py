@@ -118,7 +118,7 @@ class AffixPools:
 
     def pool(self, base_name: str) -> list[Affix]:
         if base_name not in self._pools:
-            tags = set(self.ctx.bases_by_name[base_name].get("tags") or [])
+            tags = pool_tags(self.ctx.bases_by_name[base_name])
             groups: dict[tuple[str, str], list[dict]] = {}
             weights: dict[str, int] = {}  # spawn weight of each affix this base can roll at this item level
             totals = {"Prefix": 0, "Suffix": 0}
@@ -188,6 +188,27 @@ class AffixPools:
             return None
         return (Affix(effect_mod["id"], effect_mod["group"], effect_mod["type"], 1, lines, crafted=True, ranged=True),
                 float(found.group(1)))
+
+
+# An implicit that widens the base's mod pool (COV36; RESEARCH27's loreweave-grasping-mail.md, R27): Grasping Mail's
+# "Can roll Ring Modifiers" is game Mods ItemCanAlsoRollRingMods, whose Tags are ring, genesis_tree_caster and
+# genesis_tree_minion (Tags.json 2 / 1302 / 1303; build 26476662 and 26650308 agree). PoB keeps the line as implicit
+# text only (its base tags: armour, body_armour, default, str_dex_int_armour), so the pool read only those and Grasping
+# Mail rares never rolled a ring mod (adds to Attacks, cast speed, Mana, Accuracy, ...), a Genesis Tree caster mod
+# (+1 to Level of all Spell Skills, spell damage) or a minion mod: an UNDERCOUNT. The tags join the base's; each mod's
+# own spawn-weight order still decides (the first of its tags the item has: IncreasedEvasionRating lists body_armour 0
+# before ring 1, so it stays out, as in the game). The only implicit of this kind in PoB's bases (checked: every
+# base's implicit text for "Can roll" / "Modifiers": the four Grasping Mail rows; game Mods ids "CanAlsoRoll":
+# ItemCanAlsoRollRingMods only).
+IMPLICIT_POOL_TAGS = {"Can roll Ring Modifiers": ("ring", "genesis_tree_caster", "genesis_tree_minion")}
+
+
+def pool_tags(base: dict) -> set[str]:
+    """The tags a base's affixes spawn by: its own, plus those an implicit adds (IMPLICIT_POOL_TAGS)."""
+    tags = set(base.get("tags") or [])
+    for line in (base.get("implicit") or "").splitlines():
+        tags.update(IMPLICIT_POOL_TAGS.get(line.strip(), ()))
+    return tags
 
 
 def excluded_by(mod: dict) -> frozenset[str]:

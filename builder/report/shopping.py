@@ -29,7 +29,7 @@ from builder.data.trade import TradeClient
 from builder.request.schema import GearTier
 from builder.search.radius import TAG, variants_of
 from builder.search import anoints, granted_rolls, models
-from builder.search.rares import EFFECT, JEWEL_CRAFTS, RANGE, TIER_RULES, boosted, conflicts, mod_lines, roll
+from builder.search.rares import EFFECT, JEWEL_CRAFTS, RANGE, TIER_RULES, boosted, conflicts, mod_lines, pool_tags, roll
 
 NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
 SLOT_ORDER = ["Weapon 1", "Weapon 2", "Helmet", "Body Armour", "Gloves", "Boots", "Amulet", "Ring 1", "Ring 2", "Ring 3", "Belt"]
@@ -76,7 +76,7 @@ def mod_odds(data: GameData, base_name: str, pool: str, item_level: int) -> dict
     key = (id(data), base_name, pool, item_level)
     if key not in _ODDS:
         base = next(b for b in data.bases if b["name"] == base_name)
-        tags = set(base.get("tags") or [])
+        tags = pool_tags(base)  # with an implicit's pool tags (Grasping Mail's ring mods, rares.IMPLICIT_POOL_TAGS)
         weights, totals = {}, {"Prefix": 0, "Suffix": 0}
         for mod in data.mods.get(pool, []):
             if mod.get("type") not in ("Prefix", "Suffix") or mod.get("level", 0) > item_level:
@@ -96,7 +96,7 @@ def ranked_affixes(data: GameData, base_name: str, pool: str) -> list[tuple[dict
     if key in _RANKED:
         return _RANKED[key]
     base = next(b for b in data.bases if b["name"] == base_name)
-    tags = set(base.get("tags") or [])
+    tags = pool_tags(base)
     groups: dict[tuple[str, str], list[dict]] = {}
     for mod in data.mods.get(pool, []):
         if mod.get("type") not in ("Prefix", "Suffix"):
