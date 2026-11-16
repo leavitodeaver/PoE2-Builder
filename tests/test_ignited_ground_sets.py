@@ -452,3 +452,47 @@ def test_the_curse_templates_are_lines_pob_applies(engine):
     assert chaos["supported"] and chaos["parsed"][0]["name"] == "EnemyModifier"
     assert chaos["parsed"][0]["value"] == "ChaosResist"
     assert all(r["supported"] for r in out)
+
+
+# MECH80 (RESEARCH26 R26-11 (c)): Berek's Grip makes a Whirlwind carry Shocked Ground's Shock onto the boss inside it
+BEREKS_GRIP = "Wind Skills which can be boosted by Elemental Ground Surfaces count as being boosted by Shocked Ground"
+
+
+def test_a_ring_boosted_whirlwind_shocks_the_boss_beside_your_own_ground():
+    gains = {"Lightning": (1.0, "ring")}
+    share, how = conditions.whirlwind_shock("Whirling Slash", [BEREKS_GRIP], gains)
+    assert share == 1.0 and "MEDIUM-LOW" in how
+    assert conditions.whirlwind_shock("Twister", [BEREKS_GRIP], gains) == (0.0, "")  # (not a Whirlwind skill)
+    assert conditions.whirlwind_shock("Whirling Slash", [], gains) == (0.0, "")  # (no ring: its own ground already counts)
+    pass_line = BEREKS_GRIP.replace("Shocked", "Chilled")
+    assert conditions.whirlwind_shock("Whirlwind Lance", [pass_line], {"Cold": (1.0, "")}) == (0.0, "")  # (not modelled)
+    both = {"_shocked_ground": (0.3, "ground"), "_whirlwind_shock": (0.5, "wind")}
+    assert conditions._ground_shocked(both)[0] == pytest.approx(1 - 0.7 * 0.5)
+    assert conditions.shock_share(both) == pytest.approx(1 - 0.7 * 0.5)  # (no hits: the two sources)
+    assert conditions._ground_shocked({})[0] == 0.0
+
+
+def test_corrupted_blood_climbs_to_ten_when_each_stack_refreshes_all():
+    from builder.search import models
+
+    assert models.cry_stacks(0.5, 100.0) == (pytest.approx((sum(range(1, 11)) * 2 + 10 * 80) / 100), 2.5)
+    assert models.cry_stacks(0.1, 100.0) == (0.5, 0.5)  # (a stack every 10 s runs out first: both rules agree)
+    assert models.cry_stacks(0.5, None)[0] == 10.0  # (the fight's length unknown: the climb not counted)
+    assert models.cry_stacks(0.5, 5.0)[0] == pytest.approx((1 * 2 + 2 * 2 + 3 * 1) / 5)
+    assert models.cry_stacks(0.0, 100.0) == (0.0, 0.0)
+
+
+# MECH80 (RESEARCH26 R26-14): the extra 100% is dealt while ANY live Bleed is Aggravated
+def test_aggravated_extra_runs_while_any_live_bleed_is_aggravated():
+    import math
+
+    from builder.search import models
+
+    crit = "20% chance to Aggravate Bleeding on targets you Critically Hit with Attacks"
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 10, "BleedDuration": 5.0}
+    own = models.aggravated_share(5.0, 2.0 * 0.1 * 0.2, None, 2.0)
+    assert models.aggravate_model([crit], stats, {"Attack"})[0][0]["scale"] == pytest.approx(100 * own, rel=1e-3)  # (no chance read)
+    mods, notes = models.aggravate_model([crit], {**stats, "BleedChancePerHit": 100}, {"Attack"})
+    want = 1 - math.exp(-2.0 * 5.0 * own)  # (2 Bleeds a second, 5 s each)
+    assert mods[0]["scale"] == pytest.approx(100 * want, rel=1e-3) and want > own
+    assert notes[0]["confidence"] == "MEDIUM-LOW" and f"{own:.0%}" in notes[0]["play"]

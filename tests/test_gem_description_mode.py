@@ -203,15 +203,24 @@ def test_inexorable_critical_off_the_main_skill_sets_nothing():
     assert any(n["entry"] == models.INEXORABLE_ENTRY and "Arc" in n["basis"] for n in notes)
 
 
-@pytest.mark.parametrize("speed, press, stages", [
-    (0.25, None, 9.0),    # a warcry every 4 s: each new stack refreshes all (ASSUMED, R26-15), so they reach the cap
-    (0.25, 0.5, -0.375),  # pressed half the time (8 s apart): 0.625 stacks, so less than one stack's damage
-    (0.1, None, -0.5),    # every 10 s: one stack half the time
-    (3.0, None, 9.0),     # spammed: capped at 10 stacks, PoB's placeholder
+@pytest.mark.parametrize("speed, press, stacks", [
+    # (MECH80, RESEARCH26 R26-15: each new stack refreshes all, over a 100 s fight with the climb to 10 counted)
+    (0.25, None, (sum(range(1, 11)) * 4 + 10 * 60) / 100),  # a warcry every 4 s: 8.2 (1.25 on own timers)
+    (0.25, 0.5, 0.625),   # pressed half the time: one every 8 s, each runs out first: 0.625 under both rules
+    (0.1, None, 0.5),     # every 10 s: one stack half the time (GEM15's case; both rules agree)
+    (3.0, None, None),    # spammed: the climb takes 3.3 s, then 10
 ])
-def test_corrupting_crys_stacks_follow_the_warcrys_use_rate(speed, press, stages):
+def test_corrupting_crys_stacks_follow_the_warcrys_use_rate(speed, press, stacks):
+    from builder.search import bosses, conditions
+
     spark, cry, cc = Skill("Spark", 1, spell=True), Skill("Infernal Cry", 2), Skill("Corrupted Cry", 2, triggered=True)
-    mods, notes = models.gem_stat_model([spark, cry, cc], stats={"Speed": 1.4}, main=spark,
+    dps = conditions.boss_pool(bosses.of({}).name) / 100  # (a 100 s fight)
+    rate = speed * (press if press is not None else 1.0)
+    want = models.cry_stacks(rate, 100.0)[0]
+    if stacks is not None:
+        assert want == pytest.approx(stacks)
+    stages = want - 1
+    mods, notes = models.gem_stat_model([spark, cry, cc], stats={"Speed": 1.4, "FullDPS": dps}, main=spark,
                                         groups={2: {"speed": speed, "_press": press, "name": "Infernal Cry"}})
     assert [m["value"] for m in mods if m.get("name") == models.CRY_MULTIPLIER] == [0]  # (one stack: PoB floors it)
     assert [m["value"] for m in mods if m.get("name") == "Damage" and m.get("skill") == "Corrupted Cry"] == [
@@ -219,7 +228,8 @@ def test_corrupting_crys_stacks_follow_the_warcrys_use_rate(speed, press, stages
     assert models.gem_stat_side_groups([spark, cry, cc], spark) == [2]
     note = next(n for n in notes if n.get("entry") == models.CRY_ENTRY)
     own = min(10.0, speed * (press if press is not None else 1.0) * 5)  # each stack its own 5 s: the "without" row
-    assert f"its own 5 s instead: {own:.2f}" in note["basis"] and f"Without that rhythm: {own:.2f}" in note["play"]
+    # (GEM15's "without" row, in MECH80's wording: MECH81 reconciled the two, the manager 16 Nov 04:23)
+    assert f"{own:.2f} if each stack keeps its own 5 s" in note["basis"] and f"own 5 s): {own:.2f}" in note["play"]
 
 
 @pytest.mark.parametrize("uses, less", [

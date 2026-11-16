@@ -101,7 +101,9 @@ def test_eye_of_winter_through_an_orb_of_storms_gains_lightning(engine):
 
 def test_a_whirlwind_boosted_by_bereks_grip_gains_lightning_without_shocking_the_boss(engine):
     """Berek's Grip (PoB doesn't parse it): Whirling Slash's Whirlwinds count as boosted by Shocked Ground all fight. The
-    tool sets only the gain's PoB condition: the boss isn't made Shocked by it (PoB's own box would)."""
+    tool sets only the gain's PoB condition, not PoB's own box (which would Shock the boss outright); since MECH80
+    (RESEARCH26 R26-11 (c), the manager 21:16) the Whirlwind's Shocked Ground debuff on the boss counts as a labelled share
+    through shock_share (whirlwind_shock), with its basis said."""
     search = _search(engine, "Whirling Slash", "Amazon")
     build = search.build
     ring = "\n".join(["Rarity: Unique", "Berek's Grip", "Two-Stone Ring", "Item Level: 82", "Implicits: 1",
@@ -115,7 +117,9 @@ def test_a_whirlwind_boosted_by_bereks_grip_gains_lightning_without_shocking_the
                        fields=["FullDPS"])["stats"]
     print("WHIRL", on, off, enemy)
     assert off["FullDPS"] < on and enemy["FullDPS"] == pytest.approx(on)
-    assert not search.conditions.active.get("conditionEnemyShocked")
+    found = search.conditions.evidence()
+    print("WHIRL SHOCK", found.get("conditionEnemyShocked"), found.get("conditionShockEffect"))
+    assert "Whirlwind counts as boosted by Shocked Ground" in str(found.get("conditionShockEffect"))
 
 
 def test_viciousness_counts_the_one_boss_in_close_range():

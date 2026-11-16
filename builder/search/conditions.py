@@ -99,6 +99,8 @@ WITHER_FIELDS = ("Speed", "HitChance", "IgniteChancePerHit", "IgniteDuration", "
 # Darkness). Withered has no base duration in the game files (KeywordPopups Withered, the stat descriptions) or on poe2db's
 # Withered page (fetched 13 Nov 2026: "no duration value is listed"): taken as the shortest stated one, 2 s (Ritual of
 # Shadows, the monster mods), the lower reading, LOW (a flat number where the game decides and no data gives it).
+# (RESEARCH26 R26-74, LOW-MEDIUM: ASSUMED 2 s per stack, each on its own timer: PoE1's documented base 2 s and PoE2's
+# generic "inflict Withered for 2 seconds on Hit"; if it were 4 s these two lines' stacks would double.)
 # The Wasting line: at the main skill's hits x the share the boss is Wasted (models.boss_power's: 6 s per Hit, Infinite
 # Duration), only with an "Inflict Abyssal Wasting on Hit" source. The minions' line: one minion's hits (PoB's
 # Minion.Speed x Minion.HitChance for the main skill's minion), the others not counted (an undercount, labelled); 0 when
@@ -3611,6 +3613,32 @@ def element_gain_shares(skill: str, stats: dict, texts: list[str], orbs: dict[st
     return out
 
 
+# The Whirlwind's ground debuff on the boss (MECH80; the manager 21:16, RESEARCH26 R26-11 (c), MEDIUM-LOW, an UNDERCOUNT
+# before: the note above left "the ground's debuff it puts on the boss" uncounted). KeywordPopups Whirlwind: a Whirlwind
+# that takes on a ground's element applies "the Ground Surface's debuff to enemies inside the Whirlwind for 8 seconds";
+# Berek's Grip "Wind Skills which can be boosted by Elemental Ground Surfaces count as being boosted by Shocked Ground".
+# The game ties the gain and the debuff in one rule, so a Whirlwind the ring boosts takes both (RESEARCH26's reading; no
+# source says outright that "count as" gives the debuff: the cautious reading is the gain only, the play guide's "without
+# it" row). Counted: Shocked Ground's Shock (ground_shock_magnitude) on the boss for the share of the fight the main
+# Whirlwind skill holds Lightning from the ring, the Whirlwind taken as kept live at the boss (the main skill used all
+# fight, MEDIUM-LOW). Its own ground's share is already Shocked Ground's (shock_share): only the ring's part is added.
+# Not counted (labelled): Berek's Pass (Chilled Ground's Chill: not modelled on the boss from any ground yet) and Berek's
+# Respite (Ignited Ground: would need no_hit_ignite's 50% Flammability); Twister (it consumes Whirlwinds; not the rule).
+def whirlwind_shock(skill: str, texts: list[str], gains: dict | None) -> tuple[float, str]:
+    """(share of the fight the boss carries Shocked Ground's Shock from the main skill's ring-boosted Whirlwind, how)."""
+    if skill not in WHIRLWINDS:
+        return 0.0, ""
+    joined = " ".join(t.strip() for t in texts)
+    ringed = {GROUND_OF[g] for m in WIND_GROUND_BOOST.finditer(joined)
+              for g in re.findall(r"Ignited|Shocked|Chilled", m.group(1), re.I)}
+    if "Lightning" not in ringed:
+        return 0.0, ""
+    share, _ = (gains or {}).get("Lightning") or (0.0, "")
+    return share, (f"{skill}'s Whirlwind counts as boosted by Shocked Ground (an item line) {share:.0%} of the fight and "
+                   "puts Shocked Ground's Shock on the boss inside it for 8 s (KeywordPopups Whirlwind; RESEARCH26 "
+                   "R26-11, MEDIUM-LOW: the Whirlwind kept live at the boss; without it, the gain only)")
+
+
 def _element_gain(var: str, element: str) -> Callable[[list[str], dict], tuple[object, str]]:
     def value(lines: list[str], stats: dict) -> tuple[object, str]:
         skill = stats.get("_main_skill") or ""
@@ -4332,7 +4360,9 @@ def shocked_ground(stats: dict, texts: list[str]) -> tuple[float, str]:
 # per use, none on an existing patch, skill_jagged_ground_base_duration_ms 4000), Stampede (a patch per footstep; its
 # closing slam explodes them, whether they end then: UNVERIFIED, counted), Furious Slam (only when it spends Rage, 4 s),
 # Jagged Ground I (when the supported Slam consumes an Endurance Charge, 4 s), Jagged Ground II (each Aftershock of the
-# supported Slam, 4 s). Each patch is taken to be made on the boss, and the boss to stay in it (LOW, as Shocked Ground).
+# supported Slam, 4 s). Each patch is taken to be made on the boss, and the boss to stay in it (LOW, as Shocked Ground;
+# RESEARCH26 R26-19 keeps this headline, ASSUMED, LOW: a "boss moving" row would come from the preset's dash rate x the
+# traversal and the next Earthquake, not modelled).
 JAGGED_GROUND_SECONDS = 4.0
 # Its duration modifiers (MECH68; AUDIT32 A32-12, an UNDERCOUNT: fixed 4 s / 6 s before): jagged_ground_duration_+%,
 # "N% increased Jagged Ground Duration" (checked: every Stats.json id with "jagged" and the five tables above: its only
@@ -4403,8 +4433,9 @@ def jagged_ground(main: str | None, main_types: set[str], main_gems: set[str], s
 
 
 def shock_share(stats: dict) -> float:
-    """The boss Shocked: by hits (ailment_uptime) or by standing in your Shocked Ground, taken as independent."""
-    ground = (stats.get("_shocked_ground") or (0.0, ""))[0]
+    """The boss Shocked: by hits (ailment_uptime) or by standing in your Shocked Ground (or a Whirlwind carrying its
+    debuff: _ground_shocked), taken as independent."""
+    ground = _ground_shocked(stats)[0]
     if "Shock" in (stats.get("_consumes") or {}):  # (consumed: the ground reapplies it after the 1 s immunity too)
         chance = min(number(stats.get("ShockChancePerHit")) / 100.0, 1.0)
         return consumed_share(number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0, chance, ground)
@@ -4420,11 +4451,20 @@ def shock_share(stats: dict) -> float:
 def _ground_shock_effect(lines: list[str], stats: dict) -> tuple[object, str]:
     """PoB's "Effect of Shock" box at the ground's base Shock: PoB applies the strongest of it and the hits' own, as the game
     does. Set only with a ground; PoB gates it on the Shocked box, which carries the combined share (shock_share)."""
-    share, how = stats.get("_shocked_ground") or (0.0, "")
+    share, how = _ground_shocked(stats)
     if share < MIN_UPTIME:
         return 0.0, ""
     value, basis = ground_shock_magnitude(stats.get("_sg_magnitude"))
-    return value, f"the boss stands in your Shocked Ground {share:.0%} of the fight: {how}; its Shock {basis}"
+    return value, f"the boss under your Shocked Ground's Shock {share:.0%} of the fight: {how}; its Shock {basis}"
+
+
+def _ground_shocked(stats: dict) -> tuple[float, str]:
+    """(share of the fight the boss carries Shocked Ground's Shock, how): standing in your ground, or inside a Whirlwind
+    a ring makes count as boosted by it (whirlwind_shock, MECH80), taken as independent."""
+    ground, ground_how = stats.get("_shocked_ground") or (0.0, "")
+    wind, wind_how = stats.get("_whirlwind_shock") or (0.0, "")
+    share = 1.0 - (1.0 - min(1.0, max(0.0, ground))) * (1.0 - min(1.0, max(0.0, wind)))
+    return share, "; ".join(filter(None, [ground_how, wind_how]))
 
 
 def ground_shock_magnitude(mag: dict | None) -> tuple[float, str]:
@@ -5817,9 +5857,10 @@ class Conditions:
         if self.main_skill in ELEMENT_GAIN_VARS:  # (MECH78, MA-2 / MA-6 / MA-7: its element from the grounds in its path)
             orbs = self._orb_uptimes() if self.main_skill == EYE_OF_WINTER else None
             stats["_element_gain"] = element_gain_shares(self.main_skill, stats, texts, orbs)
+        stats["_whirlwind_shock"] = whirlwind_shock(self.main_skill, texts, stats.get("_element_gain"))  # (MECH80)
         if any(REVEAL_WEAKNESS.match(t.strip()) for t in texts):  # (MECH78, MC-1: its share of the fight's time)
             stats["_open_weakness"] = self._open_weakness(texts)
-        if stats["_shocked_ground"][0] >= MIN_UPTIME:  # its Shock's magnitude (ground_shock_magnitude)
+        if _ground_shocked(stats)[0] >= MIN_UPTIME:  # its Shock's magnitude (ground_shock_magnitude)
             stats["_sg_magnitude"] = self.build.call("shockMagnitude")
         self.parry_plan = None
         if any(n in gem_types for n in models.PARRY_SKILLS) or any(PARRY_GRANT.search(t) for t in texts):  # (Parried)

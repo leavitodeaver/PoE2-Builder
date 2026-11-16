@@ -31,6 +31,7 @@ BOSS_POWER = 20  # "Unique monsters always have 20 Power" (https://poe2db.tw/us/
 DAMAGE_TYPES = ("Physical", "Fire", "Cold", "Lightning", "Chaos")
 # PoB stats the models read (beyond the objective's own fields)
 MODEL_FIELDS = sorted({
+    "FullDPS",  # (MECH80: the fight's length for Corrupted Blood's ramp, cry_stacks)
     "Speed", "HitChance", "CritChance", "HazardRearmChance", "SpiritUnreserved", "Mana", "ManaPerSecondCost", "EnergyShield", "EnergyShieldRechargeDelay",
     "IgniteAvoidChance", "SelfIgniteDuration", "AilmentThreshold",
     "EnergyShieldRegenRecovery", "EnergyShieldRecharge", "PresenceRadius", "MovementSpeedMod",
@@ -4427,13 +4428,38 @@ def inexorable_model(skills: list[Skill], stats: dict, main: Skill | None,
 # group's warcry, the bridge's useRates for it times the share the search presses it (PoB's own rate when no share is
 # chosen, said). Not counted (labelled): the build's Skill Effect Duration modifiers on the 5 s, Paquate's Pact's own
 # Twisted Pact (another skill).
-# (GEM15, RESEARCH26 R26-15: research/corrupted-blood-anaemia-r26.md) Whether a new stack refreshes every stack's 5 s is
-# ASSUMED yes (MEDIUM-LOW): poe2wiki's Corrupted Blood page, "Applying a new stack to the target will refresh the duration
-# of all existing stacks" (uncited, since Jan 2025), PoE1's documented rule (poewiki, a 3.14 reddit test); no PoE2 test or
-# GGG statement; patch notes 0.1-0.5.5 give no stacking rule. So the headline: with warcries less than 5 s apart the stacks
-# climb to the cap and stay there (the steady state; the climb, CRY_MAX warcries, isn't counted: the precedent of the
-# other stack ramps, and the 0.5 guide's advice to pre-stack the boss), else rate x 5 s as before. Each stack on its own
-# 5 s timer (the old figure, min(10, rate x 5 s)) is the "without" row in the note and the guide.
+# (GEM15, RESEARCH26 R26-15: research/corrupted-blood-anaemia-r26.md; reconciled by MECH81 at the manager's word, 16 Nov
+# 04:23: ONE implementation, MECH80's cry_stacks with the climb counted, GEM15's sourcing kept) Whether a new stack
+# refreshes every stack's 5 s is ASSUMED yes (MEDIUM-LOW): poe2wiki's Corrupted Blood page, "Applying a new stack to the
+# target will refresh the duration of all existing stacks" (uncited, since Jan 2025), PoE1's documented rule (poewiki, a
+# 3.14 reddit test); no PoE2 test or GGG statement; patch notes 0.1-0.5.5 give no stacking rule.
+# Refresh-all (MECH80; the manager 21:16 / 22:15, RESEARCH26 R26-15, MEDIUM-LOW): "Applying a new stack to the target
+# will refresh the duration of all existing stacks of Corrupted Blood" (poe2wiki, uncited, in its first revision of
+# 4 Jan 2025; the PoE1 wiki's rule, cited to a 2021 reddit comment: most likely carried over). The game's text says only
+# "Up to 10 Corrupted Blood debuffs can be inflicted on each target" (KeywordPopups CorruptedBlood, checked on 26650308),
+# and no patch note names a refresh rule (grep_notes "Corrupted Blood": 0.5.0's trigger change and its hotfix only). So
+# the headline is refresh-all: while warcries come less than 5 s apart the stacks climb by one a warcry to 10 and stay;
+# averaged over the fight (the boss's Life + ES over the build's Full DPS, as conditions.uruk_taken; MEDIUM) with the
+# climb counted. Each stack on its own 5 s timer (min(10, rate x 5 s), the figure before) is the play guide's "without it"
+# row. A raised number: an OVERCOUNT of up to x4 if the game keeps own timers (an in-game test: cry every 2 s on a dummy
+# and count the stacks after 20 s: 10 means refresh-all, about 3 own timers).
+def cry_stacks(rate: float, fight: float | None, seconds: float = 5.0, cap: float = 10.0) -> tuple[float, float]:
+    """(average stacks with each new debuff refreshing all of them, average with each on its own timer) for one stack a
+    warcry at `rate` a second over a `fight`-second fight (None: the climb to the cap not counted)."""
+    own = min(cap, rate * seconds)
+    if rate <= 0:
+        return 0.0, 0.0
+    gap = 1.0 / rate
+    if gap > seconds:  # (each stack runs out before the next: the two rules agree)
+        return own, own
+    if not fight or fight <= 0:
+        return cap, own
+    m = int(fight // gap)
+    total = sum(min(k + 1, cap) * gap for k in range(min(m, int(cap)))) + max(0, m - int(cap)) * cap * gap
+    total += min(m + 1, cap) * (fight - m * gap)
+    return total / fight, own
+
+
 CORRUPTED_CRY = "Corrupted Cry"
 CRY_MULTIPLIER = "Multiplier:CorruptingCryStageAfterFirst"
 CRY_ENTRY = "model-gem10-corrupting-cry-stacks"
@@ -4460,24 +4486,25 @@ def corrupting_cry_model(skills: list[Skill], stats: dict, main: Skill | None, g
                                                             else " at PoB's rate (no press share chosen)"))
         rate += max(r, 0.0)
         parts.append(f"{where}: {max(r, 0.0):.3g}/s")
-    own = min(CRY_MAX, rate * CRY_SECONDS)  # each stack its own 5 s (the "without" row)
-    stacks = CRY_MAX if rate * CRY_SECONDS > 1.0 else own  # a new stack refreshes all (ASSUMED, R26-15)
-    climb = CRY_MAX / rate if rate > 0 else 0.0
+    from builder.search import conditions as conditions_mod
+
+    dps = number(stats.get("FullDPS"))
+    fight = conditions_mod.boss_pool(bosses.of(stats).name) / dps if dps > 0 else None
+    stacks, own = cry_stacks(rate, fight, CRY_SECONDS, CRY_MAX)  # (MECH80: refresh-all, R26-15)
     # (PoB floors a Multiplier tag, ModStore.lua 530: a fractional n - 1 would round down, and n < 1 to 100% less; so
     # the stages are held at one stack and the rest goes on as one "more" on Corrupted Cry: probe POE2T2078)
     return [raw_mod(CRY_MULTIPLIER, "OVERRIDE", 0), raw_mod("Damage", "MORE", 100 * (stacks - 1), CORRUPTED_CRY)], [{
         "label": "Corrupting Cry: Corrupted Blood stacks on the boss", "value": f"{stacks:.2f}",
-        "basis": (f"one stack per warcry ({'; '.join(parts)}), each new stack refreshing every stack's 5 s (ASSUMED, "
-                  "MEDIUM-LOW: poe2wiki's rule and PoE1's; no PoE2 test; RESEARCH26 R26-15): "
-                  + (f"warcries {1 / rate:.2f} s apart keep the stacks at the cap, {stacks:g}, once {CRY_MAX:g} warcries "
-                     f"({climb:.0f} s) have built them (that climb isn't counted)" if stacks == CRY_MAX and rate > 0
-                     else f"warcries 5 s or more apart: {stacks:.2f} on average")
-                  + f"; if each stack keeps its own 5 s instead: {own:.2f}. PoB: 10 (its config placeholder); Corrupted "
-                  "Blood scored at the first"),
+        "basis": (f"one stack per warcry ({'; '.join(parts)}), each new one refreshing all (the wikis' rule, carried "
+                  f"from PoE1: MEDIUM-LOW, RESEARCH26 R26-15): {stacks:.2f} on average"
+                  + (f" over a {fight:.0f} s fight (the boss's Life + ES at {dps:,.0f} Full DPS), the climb to 10 counted"
+                     if fight else " (the fight's length not read: the climb to 10 not counted)")
+                  + f"; {own:.2f} if each stack keeps its own 5 s; PoB's placeholder is 10. Corrupted Blood scored at "
+                  f"{stacks:.2f}"),
         "confidence": "theory", "entry": CRY_ENTRY,
-        "play": (f"Warcry less than 5 s apart: each warcry adds a Corrupted Blood stack and (assumed) refreshes the "
-                 f"rest, so they climb to {CRY_MAX:g}; build them before the boss can be hit. Without that rhythm: "
-                 f"{own:.2f} stacks (each its own 5 s); with it: {stacks:.2f}.")}]
+        "play": (f"Corrupted Blood: one stack per warcry, up to 10. If a new stack refreshes all (assumed): keep warcrying "
+                 f"under every 5 s and the stacks climb to 10: {stacks:.2f} on average. Without that rule (each stack its "
+                 f"own 5 s): {own:.2f}.")}]
 
 
 # Hexblast's detonations (GEM10; PATCH_CHECK L2-2, an OVERCOUNT). The game (ActiveSkills hexblast; PoB's description):
@@ -7850,14 +7877,34 @@ def aggravate_model(texts: list[str], stats: dict, main_types: set[str], moving:
     rate = (hits - emp_hits) * (1 - miss) + emp_hits * (1 - emp_miss)
     gap = min(older) if older else None
     share = aggravated_share(duration, rate, gap, hits)
+    # (MECH80; the manager 21:16, RESEARCH26 R26-14, MEDIUM-LOW: a GGG answer for PoE1, Mark_GGG thread 3537253, Aug 2024:
+    # "'Base Bleeding Damage' and 'Extra Bleeding Damage' are distinct things. You can only be affected by one of each, but
+    # they don't have to be from the same bleeding, just the highest in each category"; PoE2's KeywordPopups Bleeding /
+    # Aggravate keep the per-Bleed "100% extra damage" form and say nothing against it, checked on 26650308) the extra is
+    # dealt whenever ANY live Bleed is Aggravated: live Bleeds come at hits x BleedChancePerHit a second, each Aggravated
+    # `share` of its D s, so the live Aggravated ones are Poisson with mean that x D x share: the extra is on
+    # 1 - exp(-mean) of the time (its size taken as a typical Bleed's, PoB's: LOW, the aggravated one may be smaller than
+    # the top one). The share alone (each Bleed's own extra only) is the "without it" row; without a Bleed chance read,
+    # the share alone is kept.
+    bleeds = hits * min(max(number(stats.get("BleedChancePerHit")), 0.0), 100.0) / 100.0
+    own = share
+    if bleeds > 0 and share > 0:
+        share = 1.0 - math.exp(-bleeds * duration * own)
     how = (f"{'; '.join(used)}: the main skill's {hits:.2f} Attack hits/s, {crit:.0%} critical, Aggravate a hit's Bleeds "
            f"with {1 - miss:.0%} chance ({rate:.2f}/s)" + (f", and any hit once a Bleed is {gap:g} s old" if older else "")
            + (f"; {emp_hits:.3f} Empowered hits/s ({emp_how or 'no skill of the build Empowers it'})" if on_emp else "")
            + f"; a {duration:.2f} s Bleed is Aggravated {share:.0%} of its time (from the first such hit after it is "
            "inflicted, hits random in time; the hit that inflicts it taken not to Aggravate it: UNVERIFIED, the lower "
-           "reading): 100% extra Bleeding damage for that share (KeywordPopups Aggravate)")
-    note = {"label": label, "value": round(share, 3), "confidence": "MEDIUM", "basis": how,
-            "play": "Keep attacking: each Bleed is Aggravated only by a hit after it was inflicted"}
+           "reading)" + (f"; {bleeds:.2f} Bleeds/s live {duration:.2f} s each, so some live Bleed is Aggravated "
+                         f"{share:.0%} of the time, and the boss takes the strongest Bleed's base plus an Aggravated "
+                         f"one's extra (Mark_GGG's PoE1 rule, RESEARCH26 R26-14: MEDIUM-LOW): 100% extra Bleeding damage "
+                         f"for {share:.0%}" if share != own else ": 100% extra Bleeding damage for that share") +
+           " (KeywordPopups Aggravate)")
+    note = {"label": label, "value": round(share, 3), "confidence": "MEDIUM-LOW" if share != own else "MEDIUM",
+            "basis": how,
+            "play": ("Keep attacking: each Bleed is Aggravated only by a hit after it was inflicted"
+                     + (f". With the extra from any Aggravated Bleed (assumed): {share:.0%} of the time; without it (each "
+                        f"Bleed's own extra only): {own:.0%}" if share != own else ""))}
     if share <= 0:
         return [], [note]
     return [line("1% more Damage with Bleeding", 100 * share)], [note]

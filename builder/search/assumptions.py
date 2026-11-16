@@ -48,7 +48,8 @@ REMNANT_SOURCES = {
     "Sanguine Revelry": (0.0, "once every 2 s while hitting a Bleeding target (hit_remnant_rate)"),
     "Mana Remnants": (0.0, "once every 2 s while critting an Elementally Ailmented target (hit_remnant_rate)"),
     "Life Remnants": (0.0, "once every 3 s on hit (hit_remnant_rate)"),
-    "Snap": (0.25, "per cast, before cooldown recovery"),
+    "Snap": (0.25, "per cast that Consumes an ailment on the boss, before cooldown recovery (a Snap on a Frostbolt "
+                   "leaves no Remnant: RESEARCH26 R26-13, ASSUMED, MEDIUM: patch 0.3.0's final note keeps 'from enemies')"),
     "Frost Bomb": (0.1667, "per cast, before cooldown recovery"),
     "Lingering Illusion": (0.352, "the boss destroys one of your dodge-roll copies every 5 s (the user's rate, 9 Nov), "
                                   "1.76 Power Charge Remnants each"),
@@ -1703,7 +1704,8 @@ class Assumptions:
             empowered = self.empowered_uses(stats, None) if any(
                 models.AGGRAVATE_EMPOWERED.match(t.strip()) for t in texts) else None
             agg_mods, agg_notes = models.aggravate_model(
-                texts, {**stats, **build.call("stats", fields=["BleedDuration"])}, agg_types, moving, empowered)
+                texts, {**stats, **build.call("stats", fields=["BleedDuration", "BleedChancePerHit"])}, agg_types,
+                moving, empowered)  # (MECH80: Bleeds a second, R26-14)
             hand_mods, hand_notes = hand_mods + agg_mods, hand_notes + agg_notes
         passive_mods, passive_notes = passive_models.build_models(build, inputs, texts, found, main, supports)  # (COV-B)
         hand_mods, hand_notes = hand_mods + passive_mods, hand_notes + passive_notes
