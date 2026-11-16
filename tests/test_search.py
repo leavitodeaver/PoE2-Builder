@@ -3709,3 +3709,32 @@ def test_a_chance_to_not_remove_consumed_charges_keeps_them():
     assert _charges_held("Frenzy")(source, dict(stats))[0] == 0.1  # (without it: half the uses, none held)
     more = source + ["Skills have 75% chance to not remove Charges but still count as consuming them"]
     assert _charges_held("Frenzy")(more, dict(stats))[0] == 3  # (0.5/s left x 15 s, at most 3)
+
+
+def test_runeforged_and_runemastered_copies_are_offered_only_with_a_price_or_in_ssf():
+    """SEARCH25 (item 5; COV32 section 9, COV33's hook): a unique's Runeforged / Runemastered copies
+    (base_variants.offered_copies) are options of their own: the unique's plain name (bans and required uniques still
+    match), the copy's base, its version and price note; no price, no offer; in SSF every copy the anvil makes is
+    offered; a banned unique's copies are banned too."""
+    from builder.search.context import copy_key
+
+    def options(request, copy_prices):
+        payload = make_payload(request)
+        payload["unique_prices"] = {"Svalinn": [2.0, 100]}
+        payload["copy_prices"] = copy_prices
+        ctx = Context(payload)
+        return [o for opts in ctx.item_options.values() for o in opts if o.name == "Svalinn"]
+
+    priced = {copy_key("Svalinn", "Runemastered Crucible Tower Shield", "Runic Ward 250"): [2.3, 50, "high", "poe.ninja: test"]}
+    found = options(BuildRequest(main_skill="Shield Charge"), priced)
+    plain = [o for o in found if not o.version]
+    copies = [o for o in found if o.version]
+    assert plain and plain[0].base == "Crucible Tower Shield" and plain[0].price == 2.0
+    assert [(o.base, o.price, o.price_note, o.version) for o in copies] == [
+        ("Runemastered Crucible Tower Shield", 2.3, "poe.ninja: test", "Runemastered, Runic Ward 250")]
+    assert copies[0].describe()["version"] == "Runemastered, Runic Ward 250"
+    assert "Runeforged Crucible Tower Shield" not in {o.base for o in found}  # (no price, no offer)
+    ssf = options(BuildRequest(main_skill="Shield Charge", budget={"ssf": True}), {})
+    assert {"Runeforged Crucible Tower Shield", "Runemastered Crucible Tower Shield"} <= {o.base for o in ssf}
+    banned = options(BuildRequest(main_skill="Shield Charge", forbid={"uniques": ["Svalinn"]}), priced)
+    assert banned == []

@@ -23,7 +23,7 @@ from builder.data.rules import rules as game_rules
 from builder.ledger import gap_list, item_lines, translate, wrong
 from builder.request.constraints import PRESSED_PERSISTENT, CompiledRequest, compile_request
 from builder.request.schema import BuildRequest, DefenceStyle, GearTier
-from builder.search import anoints, cultivated, granted_rolls
+from builder.search import anoints, base_variants, cultivated, granted_rolls
 
 # Most a single unique may cost at each gear tier (divine), on top of the request's divine cap
 TIER_UNIQUE_CAP = {GearTier.LEAGUE_START: 1.0, GearTier.MID: 20.0, GearTier.ENDGAME: 300.0, GearTier.MIRROR: math.inf}
@@ -212,6 +212,11 @@ class ItemOption:
     anoints: tuple[str, ...] = ()  # notables it allocates by instilling (builder/search/anoints.py)
     variants: tuple[str, ...] = ()  # a unique's chosen variants, when the search chose them (radius.py)
     granted_assumed: int | None = None  # a rolled granted level assumed, not priced (granted_rolls.ENDGAME_LEVEL)
+    # (SEARCH25) a Runeforged / Runemastered copy of a unique (base_variants.offered_copies): its version ("Runemastered",
+    # with its base row where the rows differ) and how its price was found (base_variants.copy_price). `name` stays the
+    # unique's plain name, so everything keyed by it (bans, required uniques, rules) treats the copy as that unique
+    version: str = ""
+    price_note: str = ""
 
     @property
     def granted_basis(self) -> str:
@@ -228,6 +233,9 @@ class ItemOption:
             described["variants"] = list(self.variants)
         if self.granted_assumed:
             described["granted_level"] = self.granted_assumed  # an endgame copy, assumed until priced (granted_versions)
+        if self.version:
+            described["version"] = self.version
+            described["price_note"] = self.price_note
         return described
 
 
@@ -284,6 +292,8 @@ class Context:
         self.request = BuildRequest.model_validate(payload["request"])
         self.data = GameData()
         self.unique_prices: dict[str, list] = payload.get("unique_prices") or {}
+        # (SEARCH25) Runeforged / Runemastered copies' prices, {copy_key: [divine, listings, confidence, how]} (copy_prices)
+        self.copy_prices: dict[str, list] = payload.get("copy_prices") or {}
         self.gem_prices: dict[str, float] = payload.get("gem_prices") or {}
         self.augment_prices: dict[str, float] = payload.get("augment_prices") or {}
         self.emotion_prices: dict[str, float] = payload.get("emotion_prices") or {}  # Liquid Emotions, for anoints
@@ -567,8 +577,12 @@ class Context:
         forbidden = self.compiled.filters.forbidden_uniques
         floors = self.requested_floors
         for unique in self.data.uniques:
+            if unique["name"] in forbidden or unique["name"] in GONE_UNIQUES:
+                continue
+            for option in self.copy_options(unique, floors):  # (SEARCH25: Runeforged / Runemastered copies)
+                options.setdefault(option.type, []).append(option)
             base = self.bases_by_name.get(unique["base"])
-            if unique["name"] in forbidden or unique["name"] in GONE_UNIQUES or base is None or not self._base_ok(base, unique=True) or not self._style_ok(base):
+            if base is None or not self._base_ok(base, unique=True) or not self._style_ok(base):
                 continue
             if rules.blocked_floors(unique["raw"]) & floors:
                 continue  # e.g. Veil of the Night under a resistance floor (game_rules.yaml floor_blockers)
@@ -581,6 +595,41 @@ class Context:
                 self.corrected_raw(unique["name"], unique["raw"]), True,
                 price, confidence, (base.get("req") or {}).get("level") or 0)))
         return options
+
+    def copy_options(self, unique: dict, floors: set[str]) -> list[ItemOption]:
+        """(SEARCH25, COV32 section 9 / COV33's hook design; the manager, 15 Nov) A unique's Runeforged / Runemastered
+        copies (base_variants.offered_copies: PoB's own base versions, split per base row where the anvil makes rows that
+        differ), each its own option on its own base (its level: Runemastered bases need 55+). Price: copy_prices (the
+        cheaper of the copy's own poe.ninja line and the plain unique + the Verisium Anvil recipe's materials); no price,
+        no offer (the user's rule). SSF: a copy the anvil makes is offered at no price (Verisium and Crests drop); one no
+        recipe makes isn't. A copy granting a skill at a rolled level gets the endgame level assumed, as an unpriced
+        plain unique does (granted_versions' trade prices are for the plain unique)."""
+        rules = game_rules()
+        out = []
+        for copy in base_variants.offered_copies(unique, set(self.bases_by_name)):
+            base = self.bases_by_name.get(copy["base"])
+            if base is None or not self._base_ok(base, unique=True) or not self._style_ok(base):
+                continue
+            if rules.blocked_floors(copy["raw"]) & floors:
+                continue
+            version = copy["version"] + (f", {copy['row']}" if copy.get("row") else "")
+            if self.ssf:
+                if not copy.get("anvil", True):
+                    continue
+                price, confidence, how = None, "ssf", "forge it at the Verisium Anvil"
+            else:
+                entry = self.copy_prices.get(copy_key(unique["name"], copy["base"], copy.get("row")))
+                if not entry or entry[0] is None or entry[0] > self.price_cap:
+                    continue
+                price, confidence, how = entry[0], entry[2] or "unknown", entry[3]
+            raw = self.corrected_raw(unique["name"], copy["raw"])
+            option = ItemOption(unique["name"], base["name"], base["type"], base.get("subType"), raw, True, price,
+                                confidence, (base.get("req") or {}).get("level") or 0, version=version, price_note=how)
+            if granted_rolls.rolled(raw) and not self.ssf:
+                option = dataclasses.replace(option, raw=granted_rolls.with_level(raw, granted_rolls.ENDGAME_LEVEL),
+                                             granted_assumed=granted_rolls.ENDGAME_LEVEL)
+            out.append(option)
+        return out
 
     @cached_property
     def requested_floors(self) -> set[str]:
@@ -737,7 +786,30 @@ def make_payload(request: BuildRequest, prices=None) -> dict:
         "craft_prices": craft_prices(prices),
         "unique_versions": version_prices(league),
         "cultivation_prices": cultivated.payload_prices(prices),  # CULT: Vaal Cultivation Orb crafts (cultivated.py)
+        "copy_prices": copy_prices(prices),  # (SEARCH25) Runeforged / Runemastered copies
     }
+
+
+def copy_key(unique: str, base: str, row: str | None = None) -> str:
+    return f"{unique}|{base}|{row or ''}"
+
+
+def copy_prices(prices) -> dict[str, list]:
+    """(SEARCH25) Each Runeforged / Runemastered copy's price (base_variants.copy_price, COV33), for Context.copy_options:
+    {copy_key: [divine, listings, confidence, how]}; a copy with no price is left out (not offered)."""
+    if prices is None:
+        return {}
+    data = GameData()
+    names = {b["name"] for b in data.bases}
+    out: dict[str, list] = {}
+    for unique in data.uniques:
+        for copy in base_variants.offered_copies(unique, names):
+            found = base_variants.copy_price(prices, unique["name"], copy["base"], anvil=copy.get("anvil", True),
+                                             row=copy.get("row"))
+            if found is not None and found.get("divine") is not None:
+                out[copy_key(unique["name"], copy["base"], copy.get("row"))] = [
+                    found["divine"], found.get("listings"), found.get("confidence"), found.get("how") or ""]
+    return out
 
 
 def version_prices(league: str | None) -> dict[str, dict]:

@@ -363,6 +363,10 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
                 # The search chose these (builder/search/jewels.py); the feed's price is for any version
                 index = index if index is not None else stat_index(stats)
                 version_entry(entry, gear, data, prices.get("unique_versions"), index)
+            if gear.get("version"):  # (SEARCH25) a Runeforged / Runemastered copy: which one, and how it was priced
+                entry["version"] = gear["version"]
+                how = f"Buy the {gear['version']} version on {gear['base']}: {gear.get('price_note') or ''}".rstrip(": ")
+                entry["note"] = f"{entry['note']} {how}" if entry.get("note") else how
             raw = gear.get("raw") or next((u["raw"] for u in data.uniques if u["name"] == gear["name"]), "")
             if granted := granted_roll_note(raw, gear.get("variants"), gear.get("granted_level")):
                 entry["note"] = f"{entry['note']} {granted}" if entry.get("note") else granted
