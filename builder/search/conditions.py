@@ -3966,6 +3966,40 @@ def ground_ignite(pieces: list, stats: dict) -> tuple[float, str]:
         " (its Ignite's damage not added: only the Ignited state)")
 
 
+# Uruk's Smelting's Physical damage taken (MECH80; PATCH_CHECK G2-4, an UNDERCOUNT: PoB maps the support's
+# support_increased_armour_break_armour_break_amount_+%_final (break_amount_scale, MECH66) but not
+# support_demolisher_physical_damage_taken_+%_on_fully_armour_breaking_up_to_20% (no SkillStatMap or Modules entry), and
+# nothing here read it). The gem: "Fully Breaking Armour with Supported Skills permanently increases the Physical Damage
+# taken by those affected, up to a cap" (PoB sup_str.lua 7858; 5 per Full Break, the stat's id caps it at 20%). A boss
+# Fully Broken k times takes min(5k, 20)% increased Physical Damage for the rest of the fight. Its average over the fight
+# (the damage-taken INC is linear, so the time-weighted average gives the time-weighted DPS): the k-th Full Break at
+# k / the Full Break rate (_full_break_rate, the Armour Break cycle; the first taken one cycle in, MEDIUM), the fight's
+# length from the boss's Life + ES over the build's Full DPS before this line (MEDIUM: a fight this line shortens is
+# averaged as the longer one, a small undercount). Applied as "Nearby Enemies take N% increased Physical Damage"
+# (ModParser 1399: an unconditional enemy PhysicalDamageTaken INC). Every Full Break the build makes is counted, though
+# only the supported skills' feed it (Battershout's Warcry breaks with Uruk's on the main skill: a small OVERCOUNT,
+# labelled).
+URUK = "Uruk's Smelting"
+URUK_STAT = "support_demolisher_physical_damage_taken_+%_on_fully_armour_breaking_up_to_20%"
+URUK_CAP = 20.0
+
+
+def uruk_taken(per_break: float, rate: float, fight: float, cap: float = URUK_CAP) -> tuple[float, str]:
+    """(the fight-average % increased Physical Damage taken, how) from `per_break`% a Full Break at `rate` Full Breaks
+    a second over a `fight`-second fight, up to `cap`%."""
+    if per_break <= 0 or rate <= 0 or fight <= 0:
+        return 0.0, ""
+    total, k, steps = 0.0, 0, []
+    while per_break * k < cap:
+        k += 1
+        step = min(per_break, cap - per_break * (k - 1))
+        at = k / rate
+        total += step * max(0.0, fight - at) / fight
+        steps.append(f"{at:.0f} s")
+    return total, (f"{per_break:g}% a Full Break up to {cap:g}%: Full Breaks at {', '.join(steps)} "
+                   f"({rate:.3f}/s) in a {fight:.0f} s fight: {total:.1f}% on average (MEDIUM)")
+
+
 # Incinerate's fuel (MECH79; before, nothing read it and Incinerate scored as channelled all fight, an OVERCOUNT where
 # the build spends little Mana on other skills). Game: IncineratePlayer "Gain fuel by spending Mana on any Skill, then
 # use the accumulated fuel ... Cannot gain fuel while using this skill"; incinerate_fuel_gain_per_mana_spent (ms of
@@ -5154,6 +5188,23 @@ class Conditions:
                                + (f", shared with {', '.join(sorted(fire - {name}))}" if fire - {name} else ""))
         return out
 
+    def _uruk_taken(self, rate: float) -> tuple[float, str]:
+        """(the fight-average % increased Physical Damage taken, how) from Uruk's Smelting on the main skill (MECH80,
+        uruk_taken): its stat at the gem's level, the Full Break rate, the fight's length from the boss's pool over the
+        build's Full DPS."""
+        raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=[URUK_STAT])
+        main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
+        per = number((main.get("supportStats") or {}).get(URUK_STAT))
+        if per <= 0:
+            return 0.0, f"{URUK}'s Physical Damage taken stat not read: 0"
+        boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+        pool = boss_pool(boss)
+        dps = number(self.build.call("stats", fields=["FullDPS"]).get("FullDPS"))
+        if pool <= 0 or dps <= 0:
+            return 0.0, f"{URUK}: no fight length (the build's Full DPS is 0): 0"
+        share, how = uruk_taken(per, rate, pool / dps)
+        return share, f"{URUK}: {how}; the boss's {pool:,.0f} Life + ES at {dps:,.0f} Full DPS"
+
     def _incinerate_fuel(self) -> tuple[float, float, str]:
         """(share of the fight channelling Incinerate, one channel's s, how) (MECH79, incinerate_channel): the Mana the
         build's other enabled groups spend per second (each at its use rate, skill_use_rate, x PoB's ManaCost)."""
@@ -5757,6 +5808,8 @@ class Conditions:
                 broken = _box(up, basis)
                 stats["_full_break_rate"] = (number(armour_stats.get("_battershout_breaks"))
                                              or up / models.full_break_duration(texts))
+        if URUK in main_gems and number(stats.get("_full_break_rate")) > 0:  # (MECH80, G2-4: models.uruk_mods)
+            stats["_uruk"] = self._uruk_taken(number(stats["_full_break_rate"]))
         # (MECH69) the Exposure supports on the main skill, by their stats (_exposure_support_sources)
         if any(line["source"].startswith("gem:") and EXPOSURE_WORD.search(line["text"]) for line in lines):
             raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=list(EXPOSURE_SUPPORT_STATS))
@@ -5830,6 +5883,7 @@ class Conditions:
         self.build.ignited_ground_up = stats.get("_ignited_ground") or (0.0, "")
         # (MECH79, models.compound_ignite_mods) the main skill's Compounding Ignite: (skill, factor, how) or None
         self.build.compound_ignite = ((self.main_skill, *stats["_compound"]) if stats.get("_compound") else None)
+        self.build.uruk_taken = stats.get("_uruk") or (0.0, "")  # (MECH80: Uruk's Smelting, models.uruk_mods)
         # (MECH78, MC-1; for COV-A's OpenWeakness ledger condition, the manager 12:43: one share for both) the share of
         # the fight's TIME the boss has an Open Weakness: open_weakness_up(build)
         self.build.open_weakness_up = stats.get("_open_weakness") or (0.0, "")

@@ -1538,6 +1538,8 @@ class Assumptions:
         # (MECH79, MECH-A) Incinerate's fuel (its idle line) and the main skill's Compounding Ignite
         compound_mods, compound_notes = models.compound_ignite_mods(name or "", getattr(build, "compound_ignite", None))
         mods, notes = mods + compound_mods, notes + compound_notes
+        uruk_mods, uruk_notes = models.uruk_mods(getattr(build, "uruk_taken", None))  # (MECH80, G2-4)
+        mods, notes = mods + uruk_mods, notes + uruk_notes
         if power[1]:
             mods += models.power_mods(power[0])
             notes.append({"label": "Boss Power (your Power lines)*", "value": f"{power[0]:g}", "basis": power[1],

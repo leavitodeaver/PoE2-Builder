@@ -351,3 +351,47 @@ def test_an_electrocuted_boss_turns_on_the_lines_for_enemies_affected_by_ailment
     ringed = gain()
     print("ELECTROCUTED gain without the ring", bare, "with it", ringed)
     assert ringed > bare * 1.05
+
+
+# MECH80 (PATCH_CHECK G2-4): Uruk's Smelting's Physical Damage taken, 5% a Full Break up to 20%, for the rest of the fight
+def test_uruks_smelting_averages_its_permanent_steps_over_the_fight():
+    from builder.search import models
+
+    share, how = conditions.uruk_taken(5.0, 0.1, 120.0)  # (Full Breaks at 10, 20, 30, 40 s)
+    assert share == pytest.approx(5 * (110 + 100 + 90 + 80) / 120) and "20%" in how
+    assert conditions.uruk_taken(5.0, 0.01, 60.0)[0] == 0.0  # (no Full Break before the fight ends)
+    assert conditions.uruk_taken(0.0, 1.0, 60.0) == (0.0, "")
+    assert conditions.uruk_taken(15.0, 1.0, 100.0)[0] == pytest.approx((15 * 99 + 5 * 98) / 100)  # (the cap's last step)
+    mods, notes = models.uruk_mods((12.5, "x"))
+    assert mods[0]["line"] == models.URUK_LINE and mods[0]["scale"] == pytest.approx(12.5) and notes
+    assert models.uruk_mods((0.0, "")) == ([], [])
+
+
+def test_uruks_line_is_an_enemy_physical_damage_taken_and_the_support_is_read_on_a_real_build(engine):
+    from builder.request.schema import BuildRequest
+    from builder.search import models
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    parsed = engine.call("parseLines", lines=[models.URUK_LINE])["results"][0]
+    print("URUK PARSE", parsed)
+    assert parsed["supported"] and parsed["parsed"][0]["name"] == "EnemyModifier"
+    assert parsed["parsed"][0]["value"] == "PhysicalDamageTaken"
+    payload = make_payload(BuildRequest(main_skill="Rolling Slam"))
+    skeleton = enumerate_skeletons(Context(payload), ["Rolling Slam"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    search.settle()
+    build = search.build
+    group = build.main_group()
+    gems = [{"name": g["name"], "level": g.get("level", 20), "quality": g.get("quality", 0)} for g in group["gems"]]
+    build.set_group(index=group["index"], gems=gems + [{"name": conditions.URUK, "level": 1, "quality": 0}])
+    search.settle()
+    taken = getattr(build, "uruk_taken", None)
+    print("URUK", taken)
+    assert taken is not None  # (this bare build never Fully Breaks the boss: (0.0, ""), POE2T3157)
+    # the support's stat at its level and the fight's length, on this build, at a given Full Break rate
+    share, how = search.conditions._uruk_taken(0.1)
+    print("URUK at 0.1/s", share, how)
+    assert "5% a Full Break up to 20%" in how and "Full DPS" in how and 0.0 <= share <= 20.0

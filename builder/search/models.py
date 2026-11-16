@@ -7325,6 +7325,20 @@ def compound_ignite_mods(main: str, compound: tuple | None) -> tuple[list[dict],
     return mods, notes
 
 
+
+# Uruk's Smelting's Physical damage taken (MECH80; conditions.uruk_taken): the fight-average % as an unconditional enemy
+# PhysicalDamageTaken INC (ModParser 1399 "^nearby enemies take ": applyToEnemy, modSuffix Taken).
+URUK_LINE = "Nearby Enemies take 1% increased Physical Damage"
+
+
+def uruk_mods(taken: tuple | None) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) from Conditions' build.uruk_taken = (the fight-average %, how)."""
+    if not taken or taken[0] <= 0:
+        return [], []
+    return [line(URUK_LINE, scale=taken[0])], [{"label": "Uruk's Smelting: Physical Damage taken after Full Breaks*",
+                                                "value": f"{taken[0]:.1f}% on average", "basis": taken[1],
+                                                "confidence": "MEDIUM"}]
+
 # Grisly Pyre's Ignite from another group (MECH74; AUDIT35, an UNDERCOUNT: with His Winnowing Flame as the main skill,
 # or a main skill that doesn't Ignite, the Pyre read the main skill's Ignite, 0). The Ignite to Consume comes from the
 # build's other skill group that Ignites, scored as PoB scores it as the main skill (bridge.useRates' IgniteDPS,
