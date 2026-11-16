@@ -294,7 +294,11 @@ EQUILIBRIUM_SHIFT = {"Fire": "Lightning", "Lightning": "Cold", "Cold": "Fire"}
 EXTRA_INFUSION_REMNANT = re.compile(r"(\d+(?:\.\d+)?)% chance to spawn an additional Infusion Remnant", re.I)
 EXTRA_INFUSION = re.compile(r"(\d+(?:\.\d+)?)% chance to gain an additional Infusion$", re.I)
 OTHER_INFUSION = re.compile(r"(\d+(?:\.\d+)?)% chance when collecting an Elemental Infusion to gain another different", re.I)
-KEEP_INFUSION = re.compile(r"^(\d+(?:\.\d+)?)% chance to not remove an Infusion but still count as consuming", re.I)
+# (MECHC33: also the game's "Skills have N% chance to not remove Elemental Infusions but still count as consuming them",
+# PoB ModCache 9391 / 9398 / 9400, parsed to nothing, which the older pattern missed: an UNDERCOUNT. The variant "... if
+# you've lost an Archon Buff in the past 6 seconds" (9397) needs the Archon-loss share: not read, an undercount.)
+KEEP_INFUSION = re.compile(r"^(?:Skills have )?(\d+(?:\.\d+)?)% chance to not remove (?:an Infusion|Elemental "
+                           r"Infusions) but still count as consuming(?: them| it)?$", re.I)
 VERISIUM_EVERY = re.compile(r"Every (?:(\d+(?:\.\d+)?) )?seconds?, gain an? Verisium Infusion", re.I)
 GRANTED_SKILL = re.compile(r"Grants Skill: (?:Level \S+ )?(.+?)\s*$")  # (context.granted_by's pattern)
 SECOND_WIND, SECOND_WIND_PCT = "Second Wind III", 1.0  # (MECHC29, G4-6: restore_%_life_on_skill_use_per_1000_ms_cooldown)
@@ -323,9 +327,29 @@ def orb_remnants(build, skill: dict) -> tuple[float, str]:
                   "orb_cycle, which isn't exposed to this yet: an undercount there)")
 
 
+# Infusion Remnants out of reach (MECHC33; RESEARCH26 R26-35, ASSUMED: spawn spots HIGH from the skill text, the base
+# pickup radius UNVERIFIED): each Remnant appears where its event happens: Snap's and Living Bomb's at the boss ("leaves
+# behind"), Siphon Elements' at the target (LOW), Frost Bomb's at its Orb, which pulses on "nearby enemies" so sits at the
+# boss (LOW, an inference); Orb of Storms' where the Orb is, which can be cast at your own feet (its bolts still reach the
+# boss: the play row). "Walking over a Remnant collects it" (KeywordPopups Remnant). So a build that counts standing
+# still at a ranged distance (PoB's conditionStationary with enemyDistance beyond melee) can't collect the boss-spot
+# ones: before, both were counted (an OVERCOUNT). A melee build next to the boss collects them (radius UNVERIFIED,
+# labelled). inner.choose_stationary already scores standing still against moving, so the search keeps the better of
+# the two. Without the rule: every Remnant collected.
+BOSS_SPOT_INFUSIONS = ("Snap", "Living Bomb", "Frost Bomb", "Siphon Elements")
+
+
+def still_far(config: dict) -> bool:
+    """Whether the build counts standing still at a ranged distance (PoB's configuration input: conditionStationary,
+    enemyDistance in tenths of a metre beyond conditions.MELEE_DISTANCE)."""
+    inputs = config.get("input") or config
+    return bool(inputs.get("conditionStationary")) and number(inputs.get("enemyDistance")) > (
+        conditions_mod.MELEE_DISTANCE * 10 + 1e-6)
+
+
 def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[str] | dict[str, float],
                     siphon: tuple[float, str] = (0.0, ""), bomb: tuple[float, str] = (0.0, ""),
-                    orb: tuple[float, str] = (0.0, "")) -> tuple[dict[str, float], list[str]]:
+                    orb: tuple[float, str] = (0.0, ""), far: bool = False) -> tuple[dict[str, float], list[str]]:
     """Elemental Infusions per second by element ("Any": Verisium Infusions, usable as any element), and what makes them.
     `present`: the build's enabled skills by name; `lines`: its modifier lines; `ailments`: the resolver's active
     condition vars (which ailment Snap consumes), a set (each always up) or each var's share of the fight; `siphon`: Siphon Elements' Cold Remnants per second and how
@@ -337,6 +361,10 @@ def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[st
     for name, element in INFUSION_SOURCES.items():
         skill = present.get(name)
         if skill is None:
+            continue
+        if far and name in BOSS_SPOT_INFUSIONS:  # (MECHC33, R26-35)
+            used.append(f"{name} 0/s: its Remnants appear at the boss, out of reach while you stand still at range "
+                        "(without standing still: collected)")
             continue
         rate = REMNANT_SOURCES[name][0] * ((skill.get("cooldownRecovery") or 1.0) if name in COOLDOWN_SOURCES else 1.0)
         if name == LIVING_BOMB:  # (living_bomb_rate, from the caller)
@@ -365,9 +393,13 @@ def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[st
         else:
             made[element] = made.get(element, 0.0) + rate
             used.append(f"{name} {rate:.2f}/s {element}")
-    if SIPHON in present:
+    if SIPHON in present and far:
+        used.append(f"{SIPHON} 0/s: its Remnants appear at the target, out of reach while you stand still at range")
+    elif SIPHON in present:
         made["Cold"] = made.get("Cold", 0.0) + siphon[0]
         used.append(f"{SIPHON} {siphon[0]:.2f}/s Cold ({siphon[1]})")
+    if far and ORB_OF_STORMS in present:
+        used.append(f"{ORB_OF_STORMS}: cast at your feet so its Remnants land within reach while you stand still (LOW)")
     used += [why for name, why in INFUSION_UNCOUNTED.items() if name in present]
     texts = [t.strip() for t in lines]
     if any(EQUILIBRIUM.search(t) for t in texts):
@@ -4104,7 +4136,8 @@ class Assumptions:
         bomb = living_bomb_rate(build.call("stats", fields=list(LIVING_BOMB_FIELDS)),
                                 present[LIVING_BOMB].get("castTime") or 0.0) if LIVING_BOMB in present else (0.0, "")
         orb = orb_remnants(build, present[ORB_OF_STORMS]) if ORB_OF_STORMS in present else (0.0, "")
-        supply, used = infusion_supply(present, lines, ailments, siphon, bomb, orb)
+        supply, used = infusion_supply(present, lines, ailments, siphon, bomb, orb,
+                                       far=still_far(build.call("getConfig")))
         keep = min(1.0, sum(float(m.group(1)) for t in lines if (m := KEEP_INFUSION.search(t.strip()))) / 100.0)
         uses = float(build.call("stats", fields=["Speed"]).get("Speed") or 0.0)
         # (MECH46: the main skill's casts net of the time pressing Snap / Frost Bomb takes, whether or not that press

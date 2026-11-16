@@ -1664,3 +1664,30 @@ def test_a_main_skill_that_cant_gain_power_charges_while_used_feeds_none():
     rate, how = _charge_rate(second, "Power", {**stats, "_rolling": 0.1})
     assert rate == pytest.approx(0.025) and "can't gain Power Charges while used" in how and "without it: 0.25" in how
     assert _charge_rate("20% chance to gain a Frenzy Charge on Hit", "Frenzy", stats)[0] == pytest.approx(0.4)
+
+
+def test_standing_still_at_range_leaves_the_boss_spot_infusion_remnants():
+    """MECHC33 (RESEARCH26 R26-35): Snap's, Living Bomb's, Frost Bomb's and Siphon Elements' Remnants appear at the boss;
+    standing still at a ranged distance can't collect them (an OVERCOUNT before); Orb of Storms cast at your feet can."""
+    from builder.search.assumptions import infusion_supply, still_far
+
+    present = {"Living Bomb": {}, "Orb of Storms": {}}
+    near, _ = infusion_supply(present, [], set(), bomb=(0.5, ""), orb=(0.2, ""))
+    far, used = infusion_supply(present, [], set(), bomb=(0.5, ""), orb=(0.2, ""), far=True)
+    assert near["Fire"] == pytest.approx(0.5) and far["Fire"] == 0.0
+    assert far["Lightning"] == near["Lightning"] == pytest.approx(0.2)
+    assert any("out of reach" in u for u in used) and any("at your feet" in u for u in used)
+    assert still_far({"input": {"conditionStationary": True, "enemyDistance": 50}})
+    assert not still_far({"input": {"conditionStationary": True, "enemyDistance": 20}})
+    assert not still_far({"input": {"enemyDistance": 50}})
+
+
+def test_the_games_elemental_infusions_not_removed_line_is_read():
+    """MECHC33: "Skills have N% chance to not remove Elemental Infusions but still count as consuming them" (PoB: no mod)
+    feeds KEEP_INFUSION as the older wording did; the Archon-conditional variant isn't read (named)."""
+    from builder.search.assumptions import KEEP_INFUSION
+
+    assert KEEP_INFUSION.search("Skills have 10% chance to not remove Elemental Infusions but still count as consuming them")
+    assert KEEP_INFUSION.search("50% chance to not remove an Infusion but still count as consuming it")
+    assert not KEEP_INFUSION.search("Skills have 45% chance to not remove Elemental Infusions but still count as consuming "
+                                    "them if you've lost an Archon Buff in the past 6 seconds")

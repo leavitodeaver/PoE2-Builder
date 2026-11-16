@@ -5671,7 +5671,7 @@ class Conditions:
         """assumptions.infusion_supply for the build as it stands: Infusions per second by element and what makes them
         (with Living Bomb's when `bomb`, as Assumptions.infusion_share counts them)."""
         from builder.search.assumptions import (LIVING_BOMB, LIVING_BOMB_FIELDS, ORB_OF_STORMS, SIPHON, infusion_supply,
-                                                living_bomb_rate, orb_remnants, siphon_freezes)
+                                                living_bomb_rate, orb_remnants, siphon_freezes, still_far)
 
         raw = self.build.call("activeSkills")["skills"]
         present = {s["name"]: s for s in raw if not s["disabled"]}
@@ -5681,7 +5681,8 @@ class Conditions:
         living = (living_bomb_rate(self.build.call("stats", fields=list(LIVING_BOMB_FIELDS)),
                                    present[LIVING_BOMB].get("castTime") or 0.0)
                   if bomb and LIVING_BOMB in present else (0.0, ""))
-        return infusion_supply(present, [line["text"] for line in lines], self.found_uptimes, siphon, living, orb)
+        return infusion_supply(present, [line["text"] for line in lines], self.found_uptimes, siphon, living, orb,
+                               far=still_far(self.build.call("getConfig")))
 
     def _open_weakness(self, texts: list[str]) -> tuple[float, str]:
         """(share of the fight's time the boss has an Open Weakness, how): open_weakness_share of PoB's Full DPS with
