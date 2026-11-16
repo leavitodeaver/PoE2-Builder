@@ -577,7 +577,20 @@ def test_item_lines_a_model_reads_count_as_the_models():
         "You lose all Endurance Charges on reaching maximum Endurance Charges": "model-lose-all-charges-on-maximum",
         "Enemies you Curse have -(8-5)% to Chaos Resistance": "model-read-enemies-you-curse-chaos-resistance",
         "Enemies you Curse have -5% to Chaos Resistance": "model-read-enemies-you-curse-chaos-resistance",
+        # (COV38: MECH81's Critical Weakness, MECHC32's Redflare Shock, Coat of Red Bleed and charges not removed)
+        "Critical Hits with Spells apply (1-3) Stack of Critical Weakness": "model-read-critical-weakness-lines",
+        "Critical Hits with Spells apply 5 Stacks of Critical Weakness": "model-read-critical-weakness-lines",
+        "Parrying applies 10 Stacks of Critical Weakness": "model-read-critical-weakness-lines",
+        "Warcries inflict 3 Critical Weakness on Enemies": "model-read-critical-weakness-lines",
+        "Shocks you when you reach maximum Power Charges": "model-read-shocks-you-on-maximum-charges",
+        "25% chance to be inflicted with Bleeding when Hit": "model-read-inflicted-with-bleeding-when-hit",
+        "Skills have (10-15)% chance to not remove Charges but still count as consuming them": "model-read-charges-not-removed",
     }
+    from builder.search import boss_hits, conditions, models
+    assert models.CW_SPELL_CRIT.match("Critical Hits with Spells apply 2 Stack of Critical Weakness")
+    assert conditions.SELF_SHOCK_ON_MAX.match("Shocks you when you reach maximum Power Charges")
+    assert boss_hits.SELF_BLEED.match("25% chance to be inflicted with Bleeding when Hit")
+    assert conditions.charges_kept_chance(["Skills have 12% chance to not remove Charges but still count as consuming them"]) == 0.12
     for line, entry in cases.items():
         assert (found := model_entry(line)) is not None and found.id == entry, line
     for line in ("+2 metres to Dodge Roll distance if you haven't Dodge Rolled Recently",
@@ -594,6 +607,15 @@ def test_debuff_lines_whose_event_the_model_rates_count_as_resolver_sources():
         found = coverage.resolver_condition(line)
         assert found is not None and found.var == "conditionEnemyBlinded", line
     assert coverage.resolver_condition("Blind Enemies when you Kill them") is None
+
+
+def test_an_onslaught_line_on_a_named_event_counts_as_the_resolvers():
+    """COV38: conditions._onslaught_source rates a Mark / Warcry / Totem / Flask event from the build (event_rates, 0
+    without one), so the audit counts such a line; Companions' Onslaught isn't the player's and stays open."""
+    found = coverage.resolver_condition("Gain Onslaught for 4 seconds when your Marks Activate")
+    assert found is not None and found.var == "buffOnslaught"
+    assert coverage.resolver_condition("Companions gain Onslaught for 4 seconds on Hitting your Marked targets") is None
+    assert coverage.resolver_condition("You gain Onslaught for 20 seconds on using a Vaal Skill") is None
 
 
 def test_a_freeze_cull_stat_is_damage_not_behaviour():

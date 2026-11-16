@@ -662,11 +662,13 @@ def resolver_condition(line: str):
         elif var == "buffOnslaught" and (m := c.ONSLAUGHT_SOURCE.search(rolled)) and \
                 not c.ONSLAUGHT_NOT_SOURCE.search(rolled) and (
                     not m.group(2).strip() or re.search(r"\bkill|culling strike|minion|during effect|maximum frenzy|"
-                                                        r"\bhit\b|critical", m.group(2), re.I)) and \
+                                                        r"\bhit\b|critical", m.group(2), re.I)
+                    or c.FLASK_EVENT.search(m.group(2)) or any(p.search(m.group(2)) for p in c.EVENT_WORDS.values())) and \
                 not re.search(r"vaal skill", m.group(2), re.I) and not re.match(r"with an? .+ socketed", rolled, re.I):
             # (COV17: conditions._onslaught_source rates these from the build's events; a Vaal skill's line it rates 0,
             # a wording it has no event for gets its flat default (LOW), and a "With a ... Jewel Socketed" line's
-            # condition it doesn't check, so those stay open here)
+            # condition it doesn't check, so those stay open here. COV38: a Warcry, Totem, Mark or Flask event too, which
+            # _named_event rates from the build's own skills and flasks (event_rates, MECH48), 0 without one)
             return condition
         elif var == "conditionEnemyArmourBroken" and c.ARMOUR_BREAK_LINE.search(rolled) and                not c.ARMOUR_BREAK_NOT_SOURCE.search(rolled):
             return condition

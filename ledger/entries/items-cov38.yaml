@@ -1,0 +1,68 @@
+# COV38 (COV-A), 16 Nov 2026: item lines a model already reads, so the audit counts them (each model's regex and its live
+# caller checked by hand; scratch/cov38/scan_all.txt lists the leads). These entries only say a model reads the line: an
+# empty replace adds nothing to PoB. The model's own labels and confidence stay as its lane wrote them. The bridge rolls a
+# ranged line before the models read it (bridge.lua sourceLines, itemLib.applyRange), so the models' plain-number
+# patterns see "(1-3)" lines as numbers; the matches here take both forms.
+
+- id: model-read-critical-weakness-lines
+  title: 'Critical Weakness from spell crits, Parry, warcries and consumed Marks (models.critical_weakness_stacks)'
+  kind: pob_gap
+  model: critical_weakness
+  match: '^(Critical Hits with Spells apply (\(\d+-\d+\)|\d+) Stacks? of Critical Weakness|Parrying applies (\(\d+-\d+\)|\d+) Stacks? of Critical Weakness|Warcries inflict (\(\d+-\d+\)|\d+) Critical Weakness on Enemies|Apply (\(\d+-\d+\)|\d+) Critical Weakness to Enemies when Consuming a Mark on them)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.CW_SPELL_CRIT / CW_PARRY / CW_WARCRY / CW_MARK in critical_weakness_stacks, called from assumptions.py 1816-1828
+    (MECH81): stacks held = min(20, stacks a second x their seconds), from the main skill's spell crits, a parry every
+    PARRY_EVERY s with Parry / Refutation in the build, the build's warcries a second, Mark Activations; +0.5% base
+    Critical Hit Chance a stack (critical_weakness_mods). PoB doesn't parse the spell-crit, Parry and warcry lines, and
+    parses the Mark line only into the ApplyCriticalWeakness flag that shows its Configuration box (ConfigOptions 1908),
+    which nothing turns on. Effigy of Cruelty, Silverthorne; the warcry line is the Howling Beast notable's (a passive row
+    this entry also closes).
+  sources: [builder/search/models.py (CW_*, critical_weakness_stacks, critical_weakness_mods), builder/search/assumptions.py 1816]
+  status: proposed
+
+- id: model-read-shocks-you-on-maximum-charges
+  title: '"Shocks you when you reach maximum Power Charges" (conditions._self_shocked, self_shock_taken_mods)'
+  kind: pob_gap
+  model: self_shock
+  match: '^Shocks you when you reach maximum (Power|Frenzy|Endurance) Charges$'
+  replace: []
+  confidence: theory
+  notes: >-
+    conditions.SELF_SHOCK_ON_MAX (MECHC32; Redflare Conduit, a downside PoB ignores, so an OVERCOUNT before it): the
+    "Are you Shocked?" box at the share of the fight the refills keep you Shocked (_self_shocked, a registered box), and
+    the Shock's damage taken at the game's base 20% over PoB's 15% box while Shocked (self_shock_taken_mods, called from
+    assumptions.py 1676).
+  sources: [builder/search/conditions.py (SELF_SHOCK_ON_MAX, self_shocks_on_maximum, _self_shocked, self_shock_taken_mods)]
+  status: proposed
+
+- id: model-read-inflicted-with-bleeding-when-hit
+  title: '"N% chance to be inflicted with Bleeding when Hit" (boss_hits.self_bleed)'
+  kind: pob_gap
+  model: self_bleed
+  match: '^(\(\d+-\d+\)|\d+(?:\.\d+)?)% chance to be inflicted with Bleeding when Hit$'
+  replace: []
+  confidence: theory
+  notes: >-
+    boss_hits.SELF_BLEED / self_bleed (MECHC32; Coat of Red, a downside PoB ignores, so an OVERCOUNT before it), called
+    from assumptions.py 1772-1780: the chance x the boss's landed hits a second x its Physical share, Life-only damage
+    over time through Build.added_stats (SelfBleedPerSecond) to objective.self_bleed_taken (the manager's 09:09 ruling).
+  sources: [builder/search/boss_hits.py (SELF_BLEED, self_bleed), builder/search/assumptions.py 1772]
+  status: proposed
+
+- id: model-read-charges-not-removed
+  title: '"Skills have N% chance to not remove Charges but still count as consuming them" (conditions.charges_kept_chance)'
+  kind: pob_gap
+  model: charges
+  match: '^Skills have (\(\d+-\d+\)|\d+(?:\.\d+)?)% chance to not remove Charges but still count as consuming them$'
+  replace: []
+  confidence: theory
+  notes: >-
+    conditions.CHARGES_KEPT / charges_kept_chance (MECHC32, COV37's find via the manager 09:09), read at conditions.py
+    972 in the Power / Frenzy / Endurance charge count: the charges a consumer removes a second are its spends x (1 -
+    chance), so more are held and more of its uses find one. PoB parses the line only in part (ModCache with leftover
+    text), so applies nothing. The Vaal outcome, TimeInfluenceCharges1/2, the Idol of Eramir rune; also the Fabled Stag
+    notable's line (a passive row this entry closes).
+  sources: [builder/search/conditions.py (CHARGES_KEPT, charges_kept_chance, the charge count at 972)]
+  status: proposed
