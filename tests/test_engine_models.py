@@ -3155,3 +3155,32 @@ def test_sanguis_heroum_consecrated_ground_at_its_charm_uses(engine):
     assert notes and "Sanguis Heroum" in notes[0]["basis"] and "Leylines" in notes[0]["basis"]
     for mod in mods:
         assert 0 < mod["scale"] <= 50 * 0.75 + 1e-6
+
+
+def test_an_assumption_override_beats_turtle_charms_and_the_new_tags_reach_pob(engine):
+    """MECHC32 (probe, LANE_RULES: "PoB already does X" needs a probe): Turtle Charm's "Maximum Block chance is 75%" is a
+    passive OVERRIDE; our assumption OVERRIDE joins env.modDB first (the config tab's mods, CalcSetup 1033, before the
+    passives', 1789) and ModDB:Override takes the first, so the lower reading lands. raw_mod's not_condition and slots
+    reach PoB as a negated Condition and a SlotName tag (Stalking Panther's once-doubling)."""
+    search = _skeleton_search(engine, "Shield Charge", "Warbringer")
+    build = search.build
+    build.call("allocate", add=[52068], fields=[])  # Turtle Charm
+    build.call("setAssumptions", mods=[], fields=[])
+    assert build.call("stats", fields=["BlockChanceMax"])["BlockChanceMax"] == 75
+    turtle = models.raw_mod("BlockChanceMax", "OVERRIDE", 60, tag="TurtleCharm")
+    build.call("setAssumptions", mods=[turtle], fields=[])
+    assert build.call("stats", fields=["BlockChanceMax"])["BlockChanceMax"] == 60
+    life = build.call("stats", fields=["Life"])["Life"]
+    build.call("setAssumptions", mods=[models.raw_mod("Life", "MORE", -50, not_condition="BeenHitRecently")], fields=[])
+    halved = build.call("stats", fields=["Life"])["Life"]
+    build.call("setAssumptions", mods=[models.raw_mod("Life", "MORE", -50, condition="BeenHitRecently")], fields=[])
+    kept = build.call("stats", fields=["Life"])["Life"]
+    build.call("setAssumptions", mods=[models.raw_mod("Life", "MORE", -50, slots=["Helmet", "Boots", "Gloves"])],
+               fields=[])
+    slotted = build.call("stats", fields=["Life"])["Life"]
+    print("PROBE turtle / tags", life, halved, kept, slotted)
+    # (whichever way the tool sets Been Hit Recently, exactly one of the two applies; Life isn't a slot's defence, so the
+    # SlotName-tagged mod doesn't touch it)
+    assert sorted([halved, kept]) == [pytest.approx(life / 2, abs=2), pytest.approx(life)]
+    assert slotted == pytest.approx(life)
+    build.call("setAssumptions", mods=[], fields=[])

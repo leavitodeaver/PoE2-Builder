@@ -2059,19 +2059,65 @@ def overcharge_sources(groups: dict, main_skill: str, stats: dict, rows: dict,
     return out
 
 
+# Redflare Conduit's "Shocks you when you reach maximum Power Charges" (MECHC32; the manager, 16 Nov 03:54, routed from
+# COV36: a downside nothing counted, an OVERCOUNT of the item; PoB parses the line to no mod, ModCache 9355 {nil, ...}).
+# How often: the build's own Power Charge sources reaching the maximum (_reaching_maximum: with Redflare's own "Lose all
+# Power Charges on reaching maximum Power Charges", each refill, gains / maximum; else 0 once held, or each spend's
+# refill). Each Shock lasts SELF_SHOCK_SECONDS (KeywordPopups Shock, "lasts 4 seconds on players"), less your Shock
+# avoidance; the refills come about evenly spaced (many gains each), so its share is min(1, rate x 4 s) (the higher
+# reading against evenly random: the cautious side for a downside), joined with Overcharge's as independent. Its
+# magnitude: the line names none, so the game's base 20% (KeywordPopups Shock; LOW-MEDIUM), over PoB's 15% box as
+# DamageTaken INC while Shocked (self_shock_taken_mods). Other "Shocks you when you reach maximum <kind> Charges" lines:
+# read the same way (checked: PoB's ModCache holds only the Power one).
+SELF_SHOCK_ON_MAX = re.compile(r"^Shocks you when you reach maximum (Power|Frenzy|Endurance) Charges$", re.I)
+
+
+def self_shocks_on_maximum(stats: dict) -> list[tuple[str, float, str]]:
+    """[(what, Shocks a second, how)] from "Shocks you when you reach maximum <kind> Charges" lines (stats["_texts"])."""
+    out = []
+    for text in stats.get("_texts") or []:
+        if m := SELF_SHOCK_ON_MAX.match(text.strip()):
+            kind = m.group(1).capitalize()
+            rate, how = _reaching_maximum(kind, 1.0, stats)
+            out.append((f"Shocks you on reaching maximum {kind} Charges", rate, how))
+    return out
+
+
 def _self_shocked(lines: list[str], stats: dict) -> tuple[object, str, float] | tuple[float, str]:
-    """PoB's "Are you Shocked?" box at the share of the fight Overcharge's reflected Shocks keep you Shocked."""
-    if not stats.get("_overcharge"):
+    """PoB's "Are you Shocked?" box at the share of the fight Overcharge's reflected Shocks and Redflare Conduit's Shocks
+    on reaching maximum Power Charges keep you Shocked."""
+    maxed = self_shocks_on_maximum(stats)
+    if not stats.get("_overcharge") and not maxed:
         return 0.0, ""
-    sources = [s for s in stats["_overcharge"] if s[1] > 0]
+    sources = [s for s in stats.get("_overcharge") or [] if s[1] > 0]
     avoid = min(max(number(stats.get("ShockAvoidChance")), 0.0), 100.0) / 100.0
     if avoid >= 1.0:
-        return 0.0, "Overcharge reflects your Shocks back to you, but you can't be Shocked (PoB's Shock avoidance 100%)"
+        return 0.0, ("you're Shocked by your own Overcharge or item, but you can't be Shocked (PoB's Shock avoidance "
+                     "100%)")
     rate = sum(r for _, r in sources) * (1.0 - avoid)
     up = 1.0 - math.exp(-rate * SELF_SHOCK_SECONDS) if rate > 0 else 0.0
-    named = ", ".join(f"{n} {r:.2f}/s" for n, r in sources) or "no Shocks from the supported skills"
-    return _box(up, f"Overcharge reflects your Shocks back to you ({named}, {avoid:.0%} avoided, {SELF_SHOCK_SECONDS:g} s "
-                    f"each on players): Shocked {up:.0%} of the fight ({shared(up)}; MEDIUM)")
+    parts = []
+    if stats.get("_overcharge"):
+        named = ", ".join(f"{n} {r:.2f}/s" for n, r in sources) or "no Shocks from the supported skills"
+        parts.append(f"Overcharge reflects your Shocks back to you ({named}, {avoid:.0%} avoided, {SELF_SHOCK_SECONDS:g} s "
+                     f"each on players): {up:.0%} (MEDIUM)")
+    for what, each, how in maxed:
+        share = min(1.0, each * (1.0 - avoid) * SELF_SHOCK_SECONDS)
+        up = 1.0 - (1.0 - up) * (1.0 - share)
+        parts.append(f"{what} ({how}; {avoid:.0%} avoided, {SELF_SHOCK_SECONDS:g} s each, the refills about evenly "
+                     f"spaced): {share:.0%} (MEDIUM rate, LOW-MEDIUM magnitude: the game's base 20%); without it: none")
+    return _box(up, "; ".join(parts) + f": Shocked {up:.0%} of the fight ({shared(up)})")
+
+
+def self_shock_taken_mods(texts: list[str], overcharge: list[dict]) -> tuple[list[dict], str]:
+    """Redflare's Shock (self_shocks_on_maximum) at the game's base 20% over PoB's 15% box, while Shocked; none when
+    Overcharge's own reflected-Shock mod is already there (it's the larger: its 50% more effect)."""
+    if overcharge or not any(SELF_SHOCK_ON_MAX.match(t.strip()) for t in texts):
+        return [], ""
+    extra = SHOCK_BASE - POB_SELF_SHOCK
+    return ([models.raw_mod("DamageTaken", "INC", extra, condition="Shocked")],
+            f"the Shock your item puts on you at the game's base {SHOCK_BASE:g}% increased damage taken (the line names "
+            f"no magnitude; LOW-MEDIUM), {extra:g}% over PoB's {POB_SELF_SHOCK:g}% box, only while you are Shocked")
 
 
 def overcharge_taken_mods(build, main_skill: str) -> tuple[list[dict], str]:
@@ -4731,11 +4777,46 @@ def _minion_death_events(stats: dict) -> tuple[float, str]:
     return max(rate, 0.0), f"your minions dying {max(rate, 0.0):.3f}/s ({how})"
 
 
+# Deaths in waves (MECHC32; MECHC31's brief item 7, MECHB33's 7.5 s revive): models.minion_deaths caps the rate by
+# revival, N k / (N + T k) (N Reviving minions, kills at k a second, each revives T s after the LAST death: KeywordPopups
+# Reviving, "This delay is reset whenever another Reviving Minion dies"). So the deaths aren't evenly random: N of them
+# 1 / k s apart, then none for T s. A buff of d s on each death (or "died Recently", 4 s) covers the wave plus d, not
+# 1 - e^(-rate d): with many minions killed fast that was an OVERCOUNT (10 minions at 2 a second, 7.5 s: 68% up, not 96%),
+# with one minion an undercount (the deaths are evenly spaced). The cycle's coverage, each death's chance independent,
+# from Conditions.evidence's stats["_minion_waves"] = (N, T) beside "_minion_deaths" (the same skills; models.
+# revive_seconds). Without it (a reader given only the rate): evenly random, as before.
+def minion_wave_uptime(rate: float, count: float, revive: float, window: float, chance: float = 1.0) -> float | None:
+    """Share of the fight within `window` s after a minion death that triggers (each with `chance`), for deaths at `rate`
+    a second in waves of `count` with a `revive` s wait after each wave's last; None when the waves can't be read."""
+    if rate <= 0 or count < 1 or revive <= 0 or window <= 0:
+        return None
+    room = count - revive * rate
+    if room <= 1e-9:
+        return None
+    kills = rate * count / room  # (the build's own kills a second, from rate = N k / (N + T k))
+    gap, n = 1 / kills, int(round(count))
+    cycle = n * gap + revive
+    deaths = [i * gap for i in range(n)]
+    steps = 600
+    up = 0.0
+    for j in range(steps):
+        t = (j + 0.5) * cycle / steps
+        seen = sum(1 for d in deaths for back in (0.0, cycle, 2 * cycle, 3 * cycle) if 0 <= t + back - d < window)
+        up += 1 - (1 - min(chance, 1.0)) ** seen
+    return min(up / steps, 1.0)
+
+
 def _minion_death_uptime(stats: dict, chance: float, duration: float) -> tuple[float, str]:
-    """(uptime, how) of a buff gained for `duration` s on a minion of yours dying, deaths taken as evenly random (LOW)."""
+    """(uptime, how) of a buff gained for `duration` s on a minion of yours dying: over the deaths' waves
+    (minion_wave_uptime) when stats["_minion_waves"] is read, else deaths taken as evenly random (LOW)."""
     events, how = _minion_death_events(stats)
-    up = 1 - math.exp(-events * duration * min(chance, 1.0))
-    return up, f"{chance:.0%} x {how}, {duration:g} s: {up:.0%} up (deaths taken as evenly random, LOW)"
+    even = 1 - math.exp(-events * duration * min(chance, 1.0))
+    count, revive = stats.get("_minion_waves") or (0.0, 0.0)
+    wave = minion_wave_uptime(events, count, revive, duration, chance)
+    if wave is None:
+        return even, f"{chance:.0%} x {how}, {duration:g} s: {even:.0%} up (deaths taken as evenly random, LOW)"
+    return wave, (f"{chance:.0%} x {how}, {duration:g} s: {wave:.0%} up (the deaths come in waves of {count:g}, then "
+                  f"{revive:.3g} s to revive: MEDIUM; evenly random they'd give {even:.0%})")
 
 
 def _minion_died_recently(lines: list[str], stats: dict) -> tuple[object, str]:
@@ -4747,6 +4828,11 @@ def _minion_died_recently(lines: list[str], stats: dict) -> tuple[object, str]:
     if rate <= 0:
         return 0.0, f"no minion of yours dies against the boss: {how}"
     up = 1.0 - math.exp(-rate * RECENTLY)
+    count, revive = stats.get("_minion_waves") or (0.0, 0.0)
+    wave = minion_wave_uptime(rate, count, revive, RECENTLY)
+    if wave is not None:  # (MECHC32: the deaths' waves, minion_wave_uptime)
+        return _box(wave, f"one of your minions died in the past {RECENTLY:g} s {wave:.0%} of the fight: {how} (MEDIUM: "
+                          f"in waves of {count:g}, then {revive:.3g} s to revive; evenly random would give {up:.0%})")
     return _box(up, f"one of your minions died in the past {RECENTLY:g} s {up:.0%} of the fight: {how} (LOW: deaths taken "
                     f"as evenly random)")
 
@@ -5228,6 +5314,14 @@ class Conditions:
     def _minion_deaths(self) -> tuple[float, str]:
         """Your minions Killed per second against a boss and how (models.minion_deaths, from the build's skills; MECHC7)."""
         return models.minion_deaths(*self._minion_inputs())
+
+    @staticmethod
+    def _minion_waves(skills: list) -> tuple[float, float]:
+        """(N, T) of the deaths' waves (minion_wave_uptime): the build's Persistent Reviving minions (models.minion_deaths'
+        own filter) and their revival time (models.revive_seconds)."""
+        reviving = [s for s in skills if s.summon and s.summon.get("persistent") and not number(s.summon.get("duration"))]
+        count = sum(number(s.summon.get("limit")) for s in reviving)
+        return (count, models.revive_seconds(reviving)[0]) if count > 0 else (0.0, 0.0)
 
     def minion_ignite(self, names: set[str]) -> tuple[float, str]:
         """(MECH76) (share of the fight the boss is Ignited by your minions' Infernal Legion, how), from MECH-B's
@@ -5827,7 +5921,9 @@ class Conditions:
         if any(INVIGORATING_HATE.search(t) for t in texts):  # (MECHC21: shifts back to Human form, from the build's presses)
             stats["_human_shifts"] = self._human_shifts(number(stats.get("Speed")))
         if any(MINION_DIES.search(t) for t in texts):  # (MECHC7: "when a Minion Dies" lines, from the build's own sources)
-            stats["_minion_deaths"] = self._minion_deaths()
+            inputs = self._minion_inputs()
+            stats["_minion_deaths"] = models.minion_deaths(*inputs)
+            stats["_minion_waves"] = self._minion_waves(inputs[0])  # (MECHC32: the deaths' waves under revival)
         if any(MARK_ACTIVATED.search(t) for t in texts):  # (MECHC27, K2-2: a Mark's own charge on Activation)
             marks = {n for n, types in gem_types.items() if "Mark" in types}
             uses = self._group_uses(self.build.call("groups")["groups"], marks) if marks else {}

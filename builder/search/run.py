@@ -64,6 +64,9 @@ def recovery_text(recovery: dict) -> str:
         text += f"; {pool} recharge never starts: the build's own damage over time keeps resetting its delay"
     if recovery.get("deflect"):  # (MECHC5: Deflection against red-flash hits is LOW, #78)
         text += f"; without Deflection {min(recovery['no_deflect_share'], 9.99):.0%}"
+    if "biggest_share" in recovery:  # (MECHC32: the manager's 03:28 ruling, the biggest-hit row; boss_hits.biggest_reading)
+        from builder.search.boss_hits import BIGGEST_LABEL
+        text += f"; {BIGGEST_LABEL}:{min(recovery['biggest_share'], 9.99):.0%}"
     return text
 FINALIZE_MAX = 60.0
 # What finalize does after its polish (export, reload check, blind spots, facts): 3-10 s in the gate runs of 8 Nov, so

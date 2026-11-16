@@ -533,6 +533,56 @@ SOUL_LINE = "1% increased Skill Speed"
 
 BLOCK_CAP = 90.0  # PoB's data.misc.BlockChanceCap (MECHC30: heavy_stunned_self's raised-shield Block)
 RAISED_TAG = "RaisedShield"  # (the raised-shield Block and Evasion mods' source tag, Assumption:RaisedShield)
+# Turtle Charm (MECHC32; RESEARCH27 R27-5, wording-rule-exceptions.md; the manager, 15 Nov 23:30: "override" vs "75 +
+# adders, capped at 90", the lower the headline). The Warbringer notable's "Maximum Block chance is 75%" (stat
+# maximum_block_chance_override) beside "+N% to maximum Block chance" (additional_maximum_block_%) lines: PoB OVERRIDEs
+# and ignores every adder (CalcDefence 1008), so a NEGATIVE adder (Svalinn's -(20-10)%, a unique amulet's -10%) is lost:
+# an OVERCOUNT if the game adds it. Unsettled (UNVERIFIED: no test or GGG word; one forum guess that Svalinn's minus still
+# applies, 3826682 p38): both readings, the lower the headline (the user's wording rule, mod-wording-sets-vs-adds.md:
+# set-plus-adder pairs show both). On PoB as an assumption OVERRIDE, which PoB reads before the notable's own: the
+# config tab's mods join env.modDB before the passives' (CalcSetup 1033 vs 1789) and ModDB:Override takes the first
+# (ModDB.lua 344-364); probed by test_engine_models' Turtle Charm test. Lines that add to the maximum (checked: PoB's
+# ModCache, every BlockChanceMax BASE line is "+/-N% to maximum Block chance"; the game's other stat,
+# additional_maximum_block_%_if_blocked_with_active_block_recently, a rune's "+5% ... if you've Blocked with a raised
+# Shield Recently", which PoB doesn't parse: not counted, named in the note). Saffell's Frame ("Modifiers to Maximum
+# Block Chance instead apply to Maximum Resistances"): the adders go to resistances, so no Block reading; PoB converts 0
+# with the override (CalcDefence 951), the game unknown: named in the note.
+TURTLE_SET = re.compile(r"^Maximum Block chance is (\d+(?:\.\d+)?)%$", re.I)
+MAX_BLOCK_ADDER = re.compile(r"^([+-]\d+(?:\.\d+)?)% to maximum Block chance$", re.I)
+MAX_BLOCK_CONDITIONAL = re.compile(r"^[+-]\d+(?:\.\d+)?% to maximum Block chance (?:if|while|when) ", re.I)
+MAX_BLOCK_TO_RES = re.compile(r"^Modifiers to Maximum Block Chance instead apply to Maximum Resistances$", re.I)
+TURTLE_TAG = "TurtleCharm"
+# Stalking Panther + "Evasion Rating is doubled if you have not been Hit Recently" (MECHC32; RESEARCH27 R27-4 (3),
+# wording-sets-vs-adds-audit.md item 3; the manager, 15 Nov 23:30: "x2 headline vs x4, labelled UNVERIFIED"). PoB parses
+# the Huntress notable's "Evasion Rating from Equipped Helmet, Gloves and Boots is doubled" as Evasion MORE 100 on those
+# slots with no globalLimit (ModParser 2782) and the unique's line as MORE 100 under not BeenHitRecently with its own
+# globalLimit "EvasionDoubledLimit" (ModCache 7401), so the two multiply: x4 on those slots. The user's wording rule:
+# "doubled" doubles once (a forum test of Lycosidae + Resolute Technique), but the two lines cover different scopes (three
+# slots vs all Evasion), so the game might apply both: UNVERIFIED (no test or GGG word). Both readings, the lower the
+# headline (a defence): those slots' Evasion at x2, not x4, while not Hit Recently (Evasion MORE -50 on the three slots
+# under the same condition, so it moves only while PoB applies the unique's doubling); PoB's x4 is the other reading.
+# Other "doubled" Evasion lines (checked: PoB's ModCache, every Evasion MORE 100 line: these two only; "doubled against
+# Projectile / Melee Attacks" are other stats, ProjectileEvasion / MeleeEvasion, ModParser 4263-4264, not stacked here).
+PANTHER_LINE = re.compile(r"^Evasion Rating from Equipped Helmet, Gloves and Boots is doubled$", re.I)
+EVASION_DOUBLED_NOT_HIT = re.compile(r"^Evasion Rating is doubled if you have not been Hit Recently$", re.I)
+PANTHER_SLOTS = ["Helmet", "Boots", "Gloves"]
+PANTHER_TAG = "StalkingPantherOnce"
+
+
+def turtle_charm_readings(texts: list[str]) -> dict | None:
+    """{set, adders, override, added, headline, conditional, saffell} for a build with a "Maximum Block chance is N%" line
+    (None without one): `override` = PoB's reading (the set value, adders ignored), `added` = set + adders capped at
+    BLOCK_CAP, `headline` = the lower of the two."""
+    lines = [t.strip() for t in texts]
+    sets = [float(m.group(1)) for t in lines if (m := TURTLE_SET.match(t))]
+    if not sets:
+        return None
+    value = min(sets)
+    adders = [float(m.group(1)) for t in lines if (m := MAX_BLOCK_ADDER.match(t))]
+    saffell = any(MAX_BLOCK_TO_RES.match(t) for t in lines)
+    added = value if saffell else min(value + sum(adders), BLOCK_CAP)
+    return {"set": value, "adders": adders, "override": value, "added": added, "headline": min(value, added),
+            "conditional": [t for t in lines if MAX_BLOCK_CONDITIONAL.match(t)], "saffell": saffell}
 
 
 def soul_eater_average(fight: float, segments: list[tuple[float, float]] | None, inside: float, outside: float,
@@ -1599,6 +1649,15 @@ class Assumptions:
             if overcharge_how:
                 hand_notes.append({"label": "Overcharge: your Shocks reflected back to you*", "value": "damage taken",
                                    "basis": overcharge_how, "confidence": "MEDIUM"})
+        else:
+            overcharge = []
+        # (MECHC32: Redflare Conduit's Shock on you on reaching maximum Power Charges, at the base 20% over PoB's 15%)
+        redflare, redflare_how = conditions_mod.self_shock_taken_mods(texts, overcharge)
+        exposure_flags += redflare
+        if redflare_how:
+            hand_notes.append({"label": "Shocked by your own item on reaching maximum Charges*", "value": "damage taken",
+                               "basis": redflare_how + " (how often: the \"Are you Shocked?\" box's note)",
+                               "confidence": "LOW-MEDIUM"})
         embodiment, kaom_busy = (0.0, ""), 0.0
         cry = next((s for s in found if s.name == models.ANCESTRAL_CRY and s.group is not None), None)
         boosted = main is not None and main.attack and ("Slam" in main_types or ("Strike" in main_types and main.melee))
@@ -1669,6 +1728,22 @@ class Assumptions:
         if burn > 0:
             hand_mods = hand_mods + [models.line("1 Fire Damage taken per second", burn)]
         hand_notes = hand_notes + burn_notes
+        # (MECHC32) Coat of Red's "25% chance to be inflicted with Bleeding when Hit", at the boss's landed Physical hits
+        # (the defence cadence): in PoB as Physical damage taken per second (boss_hits.self_bleed)
+        from builder.search import boss_hits
+
+        if any(boss_hits.SELF_BLEED.match(e["text"].strip()) for e in source_lines):
+            seen = dict(build.call("stats", fields=list(boss_hits.SELF_BLEED_FIELDS)))
+            boss_name = getattr(getattr(build, "ctx", None), "request", None)
+            if getattr(boss_name, "boss", None):
+                seen["_boss"] = boss_name.boss
+            seen["_rolling"] = sum(float(m.group(1)) / 100 for n in hand_notes  # (Search.rolling_share's reading)
+                                   if str(n.get("label", "")).startswith("Time spent dodge rolling")
+                                   and (m := re.match(r"([\d.]+)%", str(n.get("value")))))
+            bleed, bleed_notes = boss_hits.self_bleed([e["text"] for e in source_lines], seen)
+            if bleed > 0:
+                hand_mods = hand_mods + [models.line("1 Physical Damage taken per second", bleed)]
+            hand_notes = hand_notes + bleed_notes
         jiquani_mods, jiquani_notes = models.jiquani_model([e["text"] for e in source_lines])  # (MECHC9, A12-2)
         hand_mods, hand_notes = hand_mods + jiquani_mods, hand_notes + jiquani_notes
         unbound_mods, unbound_notes = models.unbound_model([e["text"] for e in source_lines])  # (MECHC10)
@@ -2761,6 +2836,10 @@ class Assumptions:
         mods, notes = mods + holy_mods, notes + holy_notes
         stun_mods, stun_notes = self.heavy_stunned_self(main)  # (MECH-C: Heavy Stun on you while channelling a raised shield, MECHC30)
         mods, notes = mods + stun_mods, notes + stun_notes
+        turtle_mods, turtle_notes = self.turtle_charm(texts, mods)  # (MECH-C: Turtle Charm's two readings, MECHC32)
+        mods, notes = mods + turtle_mods, notes + turtle_notes
+        panther_mods, panther_notes = self.evasion_doublings(texts)  # (MECH-C: Stalking Panther doubles once, MECHC32)
+        mods, notes = mods + panther_mods, notes + panther_notes
         frost_mods, frost_notes = self.frostflame(main, skills)  # (MECH-B: Frostflame Nova's ice while Ignited, MECHB13)
         mods, notes = mods + frost_mods, notes + frost_notes
         # the boss the numbers are scored against (MECH50: bridge resetConfig sets its resistances; bosses.py)
@@ -3241,6 +3320,66 @@ class Assumptions:
         if share > 0:
             mods.append(models.line("1% more Attack and Cast Speed", -100 * share, skill=main))
         return mods, [note]
+
+    def turtle_charm(self, texts: list[str], mods: list[dict]) -> tuple[list[dict], list[dict]]:
+        """Turtle Charm's set maximum Block beside "+/-N% to maximum Block chance" lines (turtle_charm_readings, the
+        comment at TURTLE_SET): the lower reading on PoB. When the headline is under the set value, an assumption OVERRIDE
+        (or, with Resonating Shield's raised-shield override already in `mods`, that one lowered to it: one OVERRIDE,
+        as PoB reads only the first). Returns (mods to add, notes); `mods` is changed in place for the merge."""
+        found = turtle_charm_readings(texts)
+        if found is None or (not found["adders"] and not found["conditional"] and not found["saffell"]):
+            return [], []
+        value, added, head = found["set"], found["added"], found["headline"]
+        total = sum(found["adders"])
+        new = []
+        if head < value:
+            raised = next((m for m in mods if m.get("kind") == "Raw" and m.get("name") == "BlockChanceMax"
+                           and m.get("type") == "OVERRIDE"), None)
+            if raised is not None:
+                raised["value"] = min(raised["value"], head)
+            else:
+                new.append(models.raw_mod("BlockChanceMax", "OVERRIDE", head, tag=TURTLE_TAG))
+        rows = [f"set {value:g}%, adders ignored (PoB's OVERRIDE): {value:g}%"]
+        if found["saffell"]:
+            rows.append("Saffell's Frame sends the adders to Maximum Resistances, so none reach Block (PoB converts 0 "
+                        "with the override, CalcDefence 951; the game: UNVERIFIED)")
+        else:
+            rows.append(f"set {value:g}% + adders {total:+g}% (capped at {BLOCK_CAP:g}%): {added:g}%")
+        if found["conditional"]:
+            rows.append("not counted in either: " + "; ".join(found["conditional"]) + " (PoB doesn't parse it)")
+        return new, [{
+            "label": "Turtle Charm: maximum Block chance*",
+            "value": f"{head:g}% (the lower reading)" + (f"; {max(value, added):g}% in the other" if added != value else ""),
+            "basis": ("Turtle Charm's \"Maximum Block chance is 75%\" beside \"+/-N% to maximum Block chance\" lines: "
+                      "whether the game adds them is UNVERIFIED (no test or GGG word; RESEARCH27 R27-5), so both "
+                      "readings, the lower as the headline: " + "; ".join(rows)
+                      + (". " + (f"{head:g}% on PoB (it ignored the {total:+g}%: an OVERCOUNT before)" if head < value
+                                 else f"PoB's {value:g}% kept; the adders' {added:g}% would be an UNDERCOUNT if the game "
+                                      "adds them"))),
+            "confidence": "UNVERIFIED (set vs add); the lines HIGH (PoB's parse)"}]
+
+    def evasion_doublings(self, texts: list[str]) -> tuple[list[dict], list[dict]]:
+        """Stalking Panther's slot doubling with the unique's "doubled if not Hit Recently" (the comment at PANTHER_LINE):
+        the headline doubles those slots once (x2), PoB's x4 the other reading."""
+        lines = [t.strip() for t in texts]
+        if not (any(PANTHER_LINE.match(t) for t in lines) and any(EVASION_DOUBLED_NOT_HIT.match(t) for t in lines)):
+            return [], []
+        stats = self.build.call("stats", fields=[f"EvasionOn{s}" for s in PANTHER_SLOTS])
+        slots = sum(number(stats.get(f"EvasionOn{s}")) for s in PANTHER_SLOTS)
+        mod = models.raw_mod("Evasion", "MORE", -50, tag=PANTHER_TAG, not_condition="BeenHitRecently",
+                             slots=PANTHER_SLOTS)
+        return [mod], [{
+            "label": "Stalking Panther with \"Evasion Rating is doubled if you have not been Hit Recently\"*",
+            "value": "helmet, gloves and boots' Evasion x2 while not Hit Recently (the lower reading); x4 in the other "
+                     "(PoB's)",
+            "basis": ("PoB multiplies the two doublings (the notable's MORE 100 on those slots has no globalLimit, the "
+                      "unique's has its own), so those slots' Evasion was x4 while not Hit Recently. The user's wording "
+                      "rule (\"doubled\" doubles once) against the two lines' different scopes: UNVERIFIED (RESEARCH27 "
+                      "R27-4), so both readings, the lower as the headline: those slots once (x2), the rest of your "
+                      f"Evasion x2 from the unique as before; on PoB as 50% less on the three slots while not Hit Recently "
+                      f"(their base Evasion {slots:,.0f} before modifiers). Hit Recently: the unique's doubling is off and the slots' x2 "
+                      "stays, so no change"),
+            "confidence": "UNVERIFIED (once vs twice); the lines HIGH (PoB's parse)"}]
 
     def demon_form(self, skills: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
         """Demon Form's Demonflame and its share of the fight (MECHC28; PATCH_CHECK S2-4 / K1-o4: PoB keeps you in the form

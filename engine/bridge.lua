@@ -3508,6 +3508,14 @@ local function installAssumptions()
 				if mod.condition then  -- (MECH75: models.raw_mod's condition, e.g. "Shocked": only while you are)
 					tags[#tags + 1] = { type = "Condition", var = mod.condition }
 				end
+				-- (MECHC32: models.raw_mod's not_condition, only while the condition is off, as PoB's "if you have not been
+				-- Hit Recently" lines; slots, only on those items' own defences, as PoB's SlotName lines, CalcDefence 1212-1301)
+				if mod.notCondition then
+					tags[#tags + 1] = { type = "Condition", var = mod.notCondition, neg = true }
+				end
+				if mod.slots then
+					tags[#tags + 1] = { type = "SlotName", slotNameList = mod.slots }
+				end
 				if mod.kind == "SkillData" then
 					self.modList:NewMod("SkillData", "LIST", { key = mod.key, value = mod.value }, "Assumption", unpack(tags))
 				elseif mod.kind == "Condition" then  -- a ledger condition the build's skills switch on

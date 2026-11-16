@@ -3659,3 +3659,27 @@ def test_life_bars_lengthen_the_fight_and_keep_the_cull_to_the_last_bar():
     saved = 0.05 / 1.45  # (the threshold's share of one bar, over the whole fight)
     assert bars == pytest.approx((saved / (1 - saved)) / (0.05 / 0.95), rel=1e-3)
     assert c.block_cull_saving(0.05 / 1.45, 1.45e7, 1e6, 1e9)[0] == pytest.approx(saved, rel=1e-3)
+
+
+def test_minion_deaths_come_in_waves_under_revival():
+    """MECHC32 (MECHC31's brief item 7; MECHB33's 7.5 s revive): models.minion_deaths' rate N k / (N + T k) comes in waves
+    (N deaths 1 / k s apart, then T s to revive after the last), so buffs on a death and "died Recently" cover the wave
+    plus their duration, not 1 - e^(-rate d): many minions killed fast were an OVERCOUNT, one minion an undercount."""
+    from builder.search.conditions import CONDITIONS, minion_wave_uptime, onslaught_uptime
+
+    n, k, t = 10, 2.0, 7.5
+    rate = n * k / (n + t * k)
+    wave = minion_wave_uptime(rate, n, t, 4.0)
+    assert wave == pytest.approx((9 / k + 4) / (n / k + t), abs=0.01)  # (8.5 s covered of a 12.5 s cycle: 68%)
+    assert wave < 1 - math.exp(-rate * 4)  # (evenly random: 96%)
+    one = minion_wave_uptime(1 * 0.5 / (1 + t * 0.5), 1, t, 4.0)  # (one minion, every 9.5 s)
+    assert one == pytest.approx(4 / 9.5, abs=0.01) and one > 1 - math.exp(-(1 / 9.5) * 4)
+    half = minion_wave_uptime(rate, n, t, 4.0, chance=0.5)
+    assert 0 < half < wave
+    assert minion_wave_uptime(0.0, n, t, 4.0) is None and minion_wave_uptime(rate, 0, t, 4.0) is None
+    stats = {"Speed": 1.0, "HitChance": 100, "_minion_deaths": (rate, "Sacrifice"), "_minion_waves": (n, t)}
+    _, how, up = onslaught_uptime(["Gain Onslaught for 4 seconds when a Minion Dies"], stats)
+    assert up == pytest.approx(wave) and "waves of 10" in how
+    recently = next(c for c in CONDITIONS if c.var == "conditionMinionsDiedRecently")
+    on, basis, share = recently.value_fn(["40% increased Spell Damage if one of your Minions has died Recently"], stats)
+    assert share == pytest.approx(wave) and "evenly random would give 96%" in basis

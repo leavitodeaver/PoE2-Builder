@@ -172,7 +172,8 @@ RECOVERY_INPUTS = sorted({f for fields, cost in RECOVERY_POOLS.values() for f in
                             "AilmentThreshold", "Life"}  # (es_recharge, and the Ignites boss_hits.es_dot reads)
                          | {"LifeRecharge", "LifeRechargeDelay", "EnergyShield", "PhysicalTakenDotMult",
                             "FireTakenDotMult"}  # (own_loss)
-                         | {f"{t}{f}" for t in RECOVERY_DAMAGE_TYPES for f in ("BuildDegen", "EnergyShieldBypass")})
+                         | {f"{t}{f}" for t in RECOVERY_DAMAGE_TYPES for f in ("BuildDegen", "EnergyShieldBypass")}
+                         | set(boss_hits.BIGGEST_FIELDS))  # (the biggest-hit row: Armour against a bigger hit)
 
 
 def boss_taken(stats: dict, every: float | None = None) -> tuple[dict[str, float], float, float]:
@@ -370,9 +371,13 @@ def boss_recovery(stats: dict) -> dict:
               "recharge_stopped": [name for pool, name, field in (("EnergyShield", "Energy Shield", "EnergyShieldRecharge"),
                                                                   ("Life", "Life", "LifeRecharge"))
                                    if number(stats.get(field)) > 0 and own_loss(stats)[pool] > 0]}
-    if deflect < 1:
-        bare = boss_recovery({**stats, "DeflectChance": 0})
+    if deflect < 1 and not stats.get("_biggest"):
+        bare = boss_recovery({**stats, "DeflectChance": 0, "_biggest": True})
         result["no_deflect_share"] = bare["share"]
+    # (MECHC32; the manager's 03:28 ruling) the share with every landed hit at its type's biggest ordinary hit, a harsh
+    # bound beside the headline's average hit (boss_hits.biggest_reading; None when no type's biggest differs)
+    if not stats.get("_biggest") and (big := boss_hits.biggest_reading(stats)) is not None:
+        result["biggest_share"] = boss_recovery(big)["share"]
     return result
 
 

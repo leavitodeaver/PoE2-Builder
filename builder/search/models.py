@@ -109,14 +109,19 @@ def derived(name: str, fn: str, value: float, **args) -> dict:
 
 
 def raw_mod(name: str, kind: str, value: float, skill: str | None = None, tag: str | None = None,
-            condition: str | None = None) -> dict:
+            condition: str | None = None, not_condition: str | None = None, slots: list[str] | None = None) -> dict:
     """A PoB modifier by its internal name (no text to parse): `kind` "INC" / "MORE" / "BASE" / "FLAG", tagged to
     `skill` if given (SkillName). For what PoB has no parseable line for, such as one skill's DebuffEffect MORE.
     `tag`: its source becomes "Assumption:<tag>", which a bridge read can leave out (TOTEM_ONE_TAG). `condition`: PoB
-    applies it only under that player condition (MECH75: "Shocked")."""
+    applies it only under that player condition (MECH75: "Shocked"); `not_condition` only while it's off (MECHC32);
+    `slots`: only on those items' own defences (PoB's SlotName tag, e.g. ["Helmet", "Boots", "Gloves"]; MECHC32)."""
     mod: dict = {"kind": "Raw", "name": name, "type": kind, "value": _round(value)}
     if condition:
         mod["condition"] = condition
+    if not_condition:
+        mod["notCondition"] = not_condition
+    if slots:
+        mod["slots"] = list(slots)
     if skill:
         mod["skill"] = skill
     if tag:

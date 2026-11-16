@@ -22,6 +22,7 @@ blocked or dodge-rolled) when they're there, and its own table below otherwise.
 from __future__ import annotations
 
 import math
+import re
 
 
 
@@ -357,6 +358,56 @@ def type_taken(stats: dict) -> float:
     return sum(max(number(stats.get(f"{t}TakenHit")), 0.0) * weights[t] for t in TYPES)
 
 
+# The biggest-hit row (MECHC32; the manager's ruling, 16 Nov 03:28: "show the biggest-hit reading as a row where it moves
+# a defence number"). PoB gets each type's AVERAGE ordinary hit (config_vars, mean_hits; each skill once, LOW), which is
+# right for readings of many hits (damage taken a second, stun buildup over a fight). The second figure takes EVERY hit
+# at its type's biggest ordinary hit (hit_sizes, nukes still out): a harsh bound, not a likely fight. PoB's
+# {Type}TakenHit is rescaled by biggest / average; Physical also by Armour's smaller cut of a bigger hit (PoB's
+# calcs.armourReductionF: Armour / (Armour + 10 x hit), CalcDefence 57-65 and 2594-2599, Data.lua ArmourRatio 10; the
+# other reductions in PoB's PhysicalDamageReduction kept; capped at PhysicalDamageReductionMax, 90 if not read). Armour
+# that applies to elemental hits ("Armour applies to Fire damage") isn't rescaled: linear there (LOW-MEDIUM: a small
+# undercount of the bigger elemental hit's damage when such a line is taken).
+ARMOUR_RATIO = 10.0  # PoB Data.lua data.misc.ArmourRatio
+BIGGEST_LABEL = "every hit at its type's biggest ordinary hit (a harsh bound; the headline uses the average hit)"
+BIGGEST_FIELDS = ("Armour", "PhysicalDamageReduction", "PhysicalDamageReductionMax")
+
+
+def physical_kept_ratio(stats: dict, big: float, mean: float) -> float:
+    """(damage kept of a `big` Physical hit) / (kept of a `mean` one) from the build's Armour (PoB's formula), 1.0 when no
+    Armour is read."""
+    armour = number(stats.get("Armour"))
+    if armour <= 0 or big <= 0 or mean <= 0:
+        return 1.0
+    cap = number(stats.get("PhysicalDamageReductionMax")) or 90.0
+    total = min(max(number(stats.get("PhysicalDamageReduction")), 0.0), cap)  # (at PoB's hit: the average)
+
+    def armour_dr(hit: float) -> float:
+        return min(100 * armour / (armour + ARMOUR_RATIO * hit), cap)
+
+    other = max(total - armour_dr(mean), 0.0)
+    kept_mean = 1 - total / 100
+    kept_big = 1 - min(armour_dr(big) + other, cap) / 100
+    return kept_big / kept_mean if kept_mean > 0 else 1.0
+
+
+def biggest_reading(stats: dict) -> dict | None:
+    """The build's stats with each {Type}TakenHit at the boss's biggest ordinary hit of the type instead of its average
+    (the comment above); None when no type's biggest differs from its average (no row to show)."""
+    name = boss_name(stats)
+    big, mean = hit_sizes(name), mean_hits(name)
+    if all(abs(big[t] - mean[t]) < 0.5 or f"{t}TakenHit" not in stats for t in TYPES):
+        return None
+    read = {**stats, "_biggest": True}
+    for t in TYPES:
+        key = f"{t}TakenHit"
+        if key in stats and mean[t] > 0:
+            factor = big[t] / mean[t]
+            if t == "Physical":
+                factor *= physical_kept_ratio(stats, big[t], mean[t])
+            read[key] = number(stats[key]) * factor
+    return read
+
+
 def survival(stats: dict) -> dict:
     """Can the build take one hit of each type the boss deals? Per reading, the types it can't (MaximumHitTaken, with
     Darkness once objective.prepare has run, against hit_sizes)."""
@@ -647,6 +698,73 @@ def deflect_kept(stats: dict, what: str) -> tuple[float, str]:
         return 1.0, ""
     chance = min(max(number(stats.get("DeflectChance")), 0.0), 100.0) / 100
     return 1 - chance, f" x {1 - chance:.0%} not Deflected (Deflected Hits cannot inflict {what} on you)"
+
+
+# Coat of Red's "25% chance to be inflicted with Bleeding when Hit" (MECHC32; the manager, 16 Nov 03:54, routed from COV36:
+# a downside nothing counted, an OVERCOUNT of the item; PoB parses it to no mod, ModCache 3205 {{}, leftover text}).
+# KeywordPopups Bleeding (game 26650308): "lasts 5 seconds by default. Damage from Bleeding bypasses Energy Shield.
+# Bleeding deals an extra 100% damage while the target is moving ... The base Magnitude of Bleeding is Physical damage per
+# second equal to 15% of the Pre-mitigation Physical damage of the Hit that inflicted it." The model:
+# - rate: the line's chance x the boss's landed hits a second at the DEFENCE cadence (PoB's enemySkillTime, the faster of
+#   the two hit rates: the cautious side for a downside, as the manager ruled; the slower "when hit" benefit pace is for
+#   gains) x the Physical share of its hits (a hit with no Physical damage inflicts a Bleed of magnitude 0: LOW-MEDIUM,
+#   taken as no Bleed) x Deflection's share where a "Deflected Hits cannot inflict Bleeding" line holds;
+# - only the strongest Bleed deals damage (ailments of a kind don't stack on a player: MEDIUM, as Ignite), so Bleeding
+#   1 - e^(-rate x 5 s) of the fight (hits taken as evenly random);
+# - damage while Bleeding: 15% of the boss's AVERAGE Physical hit (mean_hits, what PoB's hits use) a second, x2 for the
+#   share of the fight you move (stats["_rolling"], the build's dodge rolls; 0 when not read: standing while attacking),
+#   the biggest ordinary Physical hit as a row; your damage-over-time-taken modifiers apply on PoB (PhysicalTakenDotMult).
+# On PoB as "N Physical Damage taken per second" (the average, as Heartbound Loop's), so recovery, the Life flask's
+# dips and sustain see it. PoB has no Life-only damage over time: it lets Energy Shield take its Physical share (LOW: on
+# an Energy Shield build the game's Bleed goes to Life and doesn't stop ES Recharge; PoB's split and the steady loss
+# understate Life's loss and stop the Recharge: named in the note).
+SELF_BLEED = re.compile(r"^(\d+(?:\.\d+)?)% chance to be inflicted with Bleeding when Hit$", re.I)
+BLEED_SECONDS, BLEED_SHARE_PER_SECOND, BLEED_MOVING_MORE = 5.0, 0.15, 1.0
+SELF_BLEED_FIELDS = ("enemySkillTime", "EvadeChance", "EffectiveBlockChance", "DeflectChance", "EnergyShield")
+
+
+def self_bleed(texts: list[str], stats: dict) -> tuple[float, list[dict]]:
+    """(Physical damage a second, before your damage-over-time modifiers, notes) from "N% chance to be inflicted with
+    Bleeding when Hit" lines; (0.0, []) without one."""
+    chance = min(sum(float(m.group(1)) for t in texts if (m := SELF_BLEED.match(t.strip()))), 100.0) / 100
+    if chance <= 0:
+        return 0.0, []
+    name = boss_name(stats)
+    every = number(stats.get("enemySkillTime")) or 0.7
+    land = land_share(stats) / every
+    physical = type_shares(name).get("Physical", 0.0)
+    kept, kept_how = deflect_kept(stats, "Bleed")
+    rate = chance * land * physical * kept
+    bleeding = 1 - math.exp(-rate * BLEED_SECONDS) if rate > 0 else 0.0
+    moving = min(max(number(stats.get("_rolling")), 0.0), 1.0)
+    mean, big = mean_hits(name)["Physical"], hit_sizes(name)["Physical"]
+
+    def dot(hit: float) -> float:
+        return bleeding * BLEED_SHARE_PER_SECOND * hit * (1 + BLEED_MOVING_MORE * moving)
+
+    taken, harsh = dot(mean), dot(big)
+    es = number(stats.get("EnergyShield")) > 0
+    if rate <= 0:
+        basis = (f"{chance:.0%} chance when Hit, but none of the boss's landed hits deal Physical damage (or none land), so "
+                 "no Bleed (LOW-MEDIUM: a hit with no Physical damage taken to inflict none)")
+    else:
+        basis = (f"{chance:.0%} x {land:.2f} landed boss hits/s (the defence cadence, one every {every:g} s: the faster "
+                 f"rate, the cautious side for a downside) x {physical:.0%} of its hits that deal Physical{kept_how} = "
+                 f"{rate:.3f} Bleeds/s; only the strongest Bleed deals damage (MEDIUM), {BLEED_SECONDS:g} s each, so "
+                 f"Bleeding {bleeding:.0%} of the fight; {BLEED_SHARE_PER_SECOND:.0%} of the boss's average Physical hit "
+                 f"({mean:,.0f}) a second" + (f", x2 for the {moving:.0%} of the fight you move" if moving else
+                                              " (standing while attacking; x2 while you move)")
+                 + f": {taken:,.0f} a second on average before your damage-over-time modifiers; at its biggest ordinary "
+                 f"Physical hit ({big:,.0f}): {harsh:,.0f}. Without it: 0. On PoB as Physical damage taken per second")
+        if es:
+            basis += (" (PoB lets Energy Shield take part of it and treats it as a steady loss, which stops ES Recharge; "
+                      "the game's Bleeding bypasses Energy Shield: LOW for this build)")
+    return taken, [{"label": "Bleeding inflicted on you when Hit (your item's downside)*",
+                    "value": f"{taken:,.0f} Physical damage a second (Bleeding {bleeding:.0%} of the fight)",
+                    "basis": basis, "confidence": "MEDIUM (rate, the game's numbers) / LOW (a hit with no Physical "
+                                                  "damage, the moving share)",
+                    "play": (f"you Bleed {bleeding:.0%} of the fight from your own item: {taken:,.0f} a second "
+                             "(without it: none)") if taken > 0 else ""}]
 
 
 def ailment_rate(stats: dict, ailment: str, land: float) -> tuple[float, str]:

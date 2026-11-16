@@ -1452,3 +1452,81 @@ def test_life_and_mana_flasks_are_drunk_only_below_full():
     caster = replace(idle, mana_cost=20.0, main_rate=2.0)
     assert uses_per_second(flask, caster, "", "Mana")[0] == pytest.approx(1.0)
     assert pool_dips(replace(hit, mom=40.0), "Mana")[0] == pytest.approx(0.4)
+
+
+def test_the_biggest_hit_row_rescales_each_hit_and_armour_cuts_less_of_a_bigger_one():
+    """MECHC32 (the manager's ruling, 16 Nov 03:28: "show the biggest-hit reading as a row where it moves a defence
+    number"): PoB gets each type's average hit; the row takes every hit at its type's biggest ordinary hit. Physical
+    also loses Armour's share (PoB's Armour / (Armour + 10 x hit)), so it grows by more than biggest / average."""
+    from builder.search import boss_hits
+    from builder.search.objective import boss_recovery
+    from builder.search.run import recovery_text
+
+    big, mean = boss_hits.hit_sizes("Arbiter of Ash"), boss_hits.mean_hits("Arbiter of Ash")
+    stats = {"_boss": "Arbiter of Ash", "PhysicalTakenHit": 500.0, "FireTakenHit": 600.0, "enemySkillTime": 0.7,
+             "LifeRegenRecovery": 300.0}
+    read = boss_hits.biggest_reading(stats)
+    assert read["FireTakenHit"] == pytest.approx(600 * big["Fire"] / mean["Fire"])
+    assert read["PhysicalTakenHit"] == pytest.approx(500 * big["Physical"] / mean["Physical"])  # (no Armour read)
+    armoured = boss_hits.biggest_reading({**stats, "Armour": 5000.0, "PhysicalDamageReduction": 40.0})
+
+    def dr(hit: float) -> float:
+        return 100 * 5000 / (5000 + 10 * hit)
+
+    kept = (1 - (dr(big["Physical"]) + 40 - dr(mean["Physical"])) / 100) / 0.6
+    assert kept > 1 and armoured["PhysicalTakenHit"] == pytest.approx(500 * big["Physical"] / mean["Physical"] * kept)
+    # the recovery share's row: lower than the headline, and in the report's text
+    r = boss_recovery(stats)
+    assert r["biggest_share"] < r["share"] and "biggest ordinary hit" in recovery_text(r)
+    # no row when the boss's biggest hit of each type is its average (nothing would move)
+    assert boss_hits.biggest_reading({**stats, "_boss": "Arbiter of Ash", "PhysicalTakenHit": 0.0}) is not None
+    one = {"_boss": "Arbiter of Ash", "ColdTakenHit": 100.0}  # (a type it doesn't deal: average = biggest = 0)
+    assert boss_hits.biggest_reading(one) is None
+    # Heavy Stun from a channelled raised shield: the row shows the harsher share
+    st = {**stats, "StunThreshold": 3000.0}
+    row = recovery._biggest_row(st, lambda s: recovery.channel_heavy_stun(s)[0], lambda v: f"{v:.0%} of the fight")
+    assert row.startswith("; every hit at its type's biggest") and row.endswith("of the fight")
+    assert recovery.channel_heavy_stun(boss_hits.biggest_reading(st))[0] > recovery.channel_heavy_stun(st)[0]
+
+
+def test_coat_of_reds_bleed_on_you_reads_the_bosss_landed_physical_hits():
+    """MECHC32 (the manager, 16 Nov 03:54, from COV36): "25% chance to be inflicted with Bleeding when Hit" at the boss's
+    landed hits at the DEFENCE cadence (the faster: the cautious side) x its Physical share; only the strongest Bleed
+    deals damage, 5 s each; 15% of the boss's average Physical hit a second (KeywordPopups Bleeding), x2 while moving."""
+    from builder.search import boss_hits
+
+    line = "25% chance to be inflicted with Bleeding when Hit"
+    stats = {"_boss": "Arbiter of Ash", "enemySkillTime": 0.7, "EvadeChance": 0, "EffectiveBlockChance": 0}
+    taken, notes = boss_hits.self_bleed([line], stats)
+    physical = boss_hits.type_shares("Arbiter of Ash")["Physical"]
+    rate = 0.25 * boss_hits.land_share(stats) / 0.7 * physical
+    bleeding = 1 - math.exp(-rate * 5)
+    mean = boss_hits.mean_hits("Arbiter of Ash")["Physical"]
+    assert taken == pytest.approx(bleeding * 0.15 * mean)
+    assert "Without it: 0" in notes[0]["basis"] and "the cautious side" in notes[0]["basis"]
+    assert f"{bleeding * 0.15 * boss_hits.hit_sizes('Arbiter of Ash')['Physical']:,.0f}" in notes[0]["basis"]  # (biggest)
+    moving = boss_hits.self_bleed([line], {**stats, "_rolling": 0.5})[0]
+    assert moving == pytest.approx(taken * 1.5)
+    assert "Energy Shield" in boss_hits.self_bleed([line], {**stats, "EnergyShield": 500})[1][0]["basis"]
+    assert boss_hits.self_bleed(["+100 to maximum Life"], stats) == (0.0, [])
+    dodged = boss_hits.self_bleed([line], {**stats, "EvadeChance": 50})[0]
+    assert 0 < dodged < taken
+
+
+def test_redflares_shock_on_you_at_the_rate_its_power_charges_refill():
+    """MECHC32 (the manager, 16 Nov 03:54, from COV36): Redflare Conduit's "Shocks you when you reach maximum Power
+    Charges" at the build's own refills of the maximum (with its "Lose all Power Charges on reaching maximum": gains /
+    maximum), 4 s each on players (KeywordPopups Shock), into PoB's "Are you Shocked?" box; the base 20% over PoB's 15%."""
+    from builder.search.conditions import CONDITIONS, self_shock_taken_mods
+
+    texts = ["20% chance to gain a Power Charge on Hit", "Lose all Power Charges on reaching maximum Power Charges",
+             "Shocks you when you reach maximum Power Charges"]
+    stats = {"Speed": 2.0, "HitChance": 100, "PowerChargesMax": 3, "_texts": texts}
+    shocked = next(c for c in CONDITIONS if c.var == "conditionShocked")
+    on, basis, share = shocked.value_fn(texts, stats)
+    assert share == pytest.approx(min(1.0, 0.2 * 2.0 / 3 * 4)) and "without it: none" in basis
+    assert shocked.value_fn(texts, {**stats, "ShockAvoidChance": 100})[0] == 0.0
+    mods, how = self_shock_taken_mods(texts, [])
+    assert mods[0]["value"] == pytest.approx(5.0) and mods[0]["condition"] == "Shocked"
+    assert self_shock_taken_mods(texts, [{"kind": "Raw"}]) == ([], "")  # (Overcharge's own mod is there)
+    assert shocked.value_fn(texts[:2], {**stats, "_texts": texts[:2]}) == (0.0, "")

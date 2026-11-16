@@ -5708,3 +5708,52 @@ def test_flammability_stacks_raise_the_ignite_chance_and_the_main_skills_ignite(
     mods, notes = m.flammability_mods("Fireball", (2.5, "x"))
     assert mods[0]["line"] == m.COMPOUND_LINE and mods[0]["scale"] == pytest.approx(150.0) and notes
     assert m.flammability_mods("Fireball", (1.0, "")) == ([], [])
+
+
+def test_turtle_charm_takes_the_lower_of_its_two_readings():
+    """MECHC32 (RESEARCH27 R27-5; the manager, 15 Nov 23:30): Turtle Charm's "Maximum Block chance is 75%" beside
+    "+/-N% to maximum Block chance": PoB's OVERRIDE ignores the adders; "75 + adders, capped at 90" is the other reading;
+    the lower is the headline, on PoB as one OVERRIDE (Resonating Shield's lowered to it, not a second)."""
+    from types import SimpleNamespace
+
+    from builder.search.assumptions import Assumptions, turtle_charm_readings
+
+    turtle = "Maximum Block chance is 75%"
+    assert turtle_charm_readings(["+5% to maximum Block chance"]) is None
+    minus = turtle_charm_readings([turtle, "-15% to maximum Block chance", "+3% to maximum Block chance"])
+    assert minus["override"] == 75 and minus["added"] == 63 and minus["headline"] == 63
+    plus = turtle_charm_readings([turtle, "+10% to maximum Block chance", "+8% to maximum Block chance"])
+    assert plus["added"] == 90 and plus["headline"] == 75  # (capped at 90; the override is the lower)
+    saffell = turtle_charm_readings([turtle, "-15% to maximum Block chance",
+                                     "Modifiers to Maximum Block Chance instead apply to Maximum Resistances"])
+    assert saffell["headline"] == 75  # (the adders go to resistances)
+    a = Assumptions(SimpleNamespace(call=None))
+    mods, notes = a.turtle_charm([turtle, "-15% to maximum Block chance"], [])
+    assert mods == [models.raw_mod("BlockChanceMax", "OVERRIDE", 60, tag="TurtleCharm")]
+    assert "60% (the lower reading); 75% in the other" in notes[0]["value"] and "UNVERIFIED" in notes[0]["confidence"]
+    raised = [models.raw_mod("BlockChanceMax", "OVERRIDE", 80, tag="RaisedShield")]
+    assert a.turtle_charm([turtle, "-15% to maximum Block chance"], raised)[0] == [] and raised[0]["value"] == 60
+    mods, notes = a.turtle_charm([turtle, "+10% to maximum Block chance"], [])
+    assert mods == [] and "UNDERCOUNT" in notes[0]["basis"]
+    assert a.turtle_charm([turtle], []) == ([], [])  # (no adder: nothing to show)
+    cond = a.turtle_charm([turtle, "+5% to maximum Block chance if you've Blocked with a raised Shield Recently"], [])
+    assert cond[0] == [] and "not counted in either" in cond[1][0]["basis"]
+
+
+def test_stalking_panther_doubles_its_slots_once_beside_the_uniques_doubling():
+    """MECHC32 (RESEARCH27 R27-4 (3)): PoB multiplies Stalking Panther's slot doubling with "Evasion Rating is doubled if
+    you have not been Hit Recently" (x4 on helmet, gloves and boots); the headline doubles once (x2): 50% less on those
+    slots while not Hit Recently."""
+    from types import SimpleNamespace
+
+    from builder.search.assumptions import Assumptions
+
+    call = lambda name, **kw: {"EvasionOnHelmet": 300, "EvasionOnBoots": 200, "EvasionOnGloves": 100}
+    a = Assumptions(SimpleNamespace(call=call))
+    panther = "Evasion Rating from Equipped Helmet, Gloves and Boots is doubled"
+    unique = "Evasion Rating is doubled if you have not been Hit Recently"
+    mods, notes = a.evasion_doublings([panther, unique])
+    assert mods == [{"kind": "Raw", "name": "Evasion", "type": "MORE", "value": -50, "notCondition": "BeenHitRecently",
+                     "slots": ["Helmet", "Boots", "Gloves"], "tag": "StalkingPantherOnce"}]
+    assert "x4 in the other" in notes[0]["value"] and "600" in notes[0]["basis"]
+    assert a.evasion_doublings([panther]) == ([], []) and a.evasion_doublings([unique]) == ([], [])

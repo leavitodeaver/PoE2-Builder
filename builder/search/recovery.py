@@ -999,7 +999,20 @@ STEADFAST_CHANNEL = "support_steadfast_stun_threshold_+%_final_while_channelling
 HEAVY_STUN_SUPPORT_STATS = (UNBREAKABLE_HEAVY, STEADFAST_CHANNEL)
 ACTIVE_BLOCK_CHANNELS = frozenset({"Resonating Shield"})  # a main skill that holds the shield raised all fight
 HEAVY_STUN_FIELDS = (*(f"{t}TakenHit" for t in ("Physical", "Fire", "Cold", "Lightning", "Chaos")), "StunThreshold",
-                     "EvadeChance", "enemySkillTime")
+                     "EvadeChance", "enemySkillTime",
+                     "Armour", "PhysicalDamageReduction", "PhysicalDamageReductionMax")  # (boss_hits.BIGGEST_FIELDS)
+
+
+def _biggest_row(stats: dict, read, show) -> str:
+    """'; <the biggest-hit row>' (MECHC32; the manager's 03:28 ruling) when reading the build's stats with every hit at its
+    type's biggest ordinary hit (boss_hits.biggest_reading) moves the figure `read` gives; "" otherwise."""
+    from builder.search import boss_hits
+
+    big = boss_hits.biggest_reading(stats)
+    if big is None:
+        return ""
+    head, worse = show(read(stats)), show(read(big))
+    return f"; {boss_hits.BIGGEST_LABEL}: {worse}" if worse != head else ""
 
 
 def heavy_buildups(stats: dict, scale: float = 1.0) -> tuple[list[tuple[float, float]], str]:
@@ -1113,6 +1126,7 @@ def parry_stun_of(build) -> tuple[float, str]:
     stats, support, texts = _heavy_stun_reads(build, "Parry")
     scale, what = heavy_stun_scale(texts, support, parry=True)
     chance, how = parry_heavy_stun(stats, scale)
+    how += _biggest_row(stats, lambda s: parry_heavy_stun(s, scale)[0], lambda c: f"{c:.0%} of parries")
     return chance, how + f" (threshold: {', '.join(what)})"
 
 
@@ -1124,6 +1138,7 @@ def channel_stun_of(build, main: str | None) -> tuple[float, float, str]:
     stats, support, texts = _heavy_stun_reads(build, main)
     scale, what = heavy_stun_scale(texts, support, raised=True, channel=True)
     share, rate, how = channel_heavy_stun(stats, scale)
+    how += _biggest_row(stats, lambda s: channel_heavy_stun(s, scale)[0], lambda v: f"{v:.0%} of the fight")
     return share, rate, how + (f" (threshold: {', '.join(what)})" if what else "")
 
 
@@ -1169,5 +1184,7 @@ def refutation_stun_of(build) -> tuple[float, str]:
     ward = max(_num(build.call("stats", fields=["Ward"]).get("Ward")), 0.0)
     scale = REFUTATION_THRESHOLD * (1 + REFUTATION_PER_10_WARD * ward / 10)
     at, how = refutation_heavy_stun(stats, scale)
+    how += _biggest_row(stats, lambda s: refutation_heavy_stun(s, scale)[0],
+                        lambda t: f"Heavy Stun {t:.1f} s into the buff" if t > 0 else "no Heavy Stun in the buff")
     return at, how + (f" (threshold x{scale:.2f}: Refutation's 50% less, 5% more per 10 of the {ward:,.0f} Runic Ward "
                       "spent)")
