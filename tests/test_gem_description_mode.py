@@ -597,3 +597,26 @@ def test_resonating_shield_gets_no_warcry_empowers():
     assert notes[0]["entry"] == models.WARCRY_PROOF_ENTRY
     assert models.warcry_proof_model(spark) == ([], [])
     assert models.warcry_proof_model(shield, {models.WARCRY_PROOF_ENTRY}) == ([], [])
+
+
+@pytest.mark.parametrize("speed, duration, press, more", [
+    (0.1, 4.0, None, 20.0),   # a storm every 10 s lasting 4 s: 40% of the fight, x 50%
+    (1.0, 6.0, 0.5, 50.0),    # pressed half the time, still always up
+    (0.0, 6.0, None, 0.0),    # no use rate: not counted
+])
+def test_overgrown_plants_follow_the_builds_thunderstorm(speed, duration, press, more):
+    vine, storm = Skill("Vine Arrow", 1, attack=True), Skill("Thunderstorm", 2, spell=True)
+    groups = {2: {"speed": speed, "duration": duration, "_press": press, "name": "Thunderstorm"}}
+    assert models.gem_stat_side_groups([vine, storm], vine) == [2]
+    mods, notes = models.overgrown_model([vine, storm], vine, groups)
+    assert [m["value"] for m in mods] == ([pytest.approx(more)] if more else [])
+    assert notes[0]["entry"] == models.OVERGROWN_ENTRY and "Without it: +0" in notes[0]["play"]
+
+
+def test_overgrown_needs_a_plant_main_skill():
+    spark, storm = Skill("Spark", 1, spell=True), Skill("Thunderstorm", 2, spell=True)
+    assert models.overgrown_model([spark, storm], spark, {2: {"speed": 1, "duration": 5}}) == ([], [])
+    assert models.gem_stat_side_groups([spark, storm], spark) == []
+    vine = Skill("Vine Arrow", 1, attack=True)
+    mods, notes = models.overgrown_model([vine], vine, {})
+    assert mods == [] and notes[0]["value"] == "not counted"

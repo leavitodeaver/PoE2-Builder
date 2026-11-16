@@ -43,3 +43,47 @@
     maximum to Multiplier:IncinerateMaxStages and the per-stage damage to a MORE per Multiplier:IncinerateStage, which
     nothing sets (grep of PoB's Modules / Classes / Data, engine/ and builder/: only the skill's own lines and two
     ModParser lines). At 0% a stage, any stage count gives the same damage. Fuel is MECH79's model.
+
+- id: no-effect-gem15-feast-of-flesh-no-spell-damage
+  title: "Feast of Flesh deals no spell damage: PoB gives it none either (probe)"
+  kind: gem_stat
+  match: '^base_deal_no_spell_damage$'
+  replace: []
+  stats: ["base_deal_no_spell_damage"]
+  skill: [Feast of Flesh]
+  confidence: datamined
+  notes: >-
+    Probe POE2T2148 (scratch/gem15/probe_noeffect.py, real PoB, Feast of Flesh the main skill after the search's setup):
+    its one stat set "Feast of Flesh" scores AverageHit 0, AverageDamage 0, TotalDPS 0, and the build's FullDPS 0. Its
+    PoB set has no damage stats (act_int.lua FeastOfFleshPlayer: area, recovery duration, corpses, movement). So the
+    game's "deals no spell damage" is already what PoB scores: nothing to subtract.
+
+- id: no-effect-gem15-fragmentation-rounds-explosion-fires-no-projectiles
+  title: "Fragmentation Rounds' Vs Frozen explosion fires no projectiles: PoB doesn't multiply it by projectiles (probe)"
+  kind: gem_stat
+  match: '^projectiles_are_not_fired$'
+  replace: []
+  stats: ["projectiles_are_not_fired"]
+  skill: [Fragmentation Rounds]
+  confidence: datamined
+  notes: >-
+    The stat is on the "Vs Frozen" set only (act_str.lua FragmentationRoundsPlayer; no base_number_of_projectiles there).
+    Probes POE2T2148 / POE2T2149 (scratch/gem15/probe_noeffect*.py, real PoB, each set in its own environment): Vs Frozen
+    ProjectileCount 2, AverageDamage 8,343, TotalDPS = AverageDamage x Speed (6,152 = 8,343 x 0.737); with "Skills fire
+    an additional Projectile" its ProjectileCount went 2 -> 3 and AverageDamage stayed 8,343. So PoB scores one
+    explosion per use, as the game's text means. The Projectile set's fragments are models' shotgun_fragments (GEM2).
+
+- id: model-gem15-overgrown-plants
+  title: "Vine Arrow, Thrashing Vines, Brambles: 50% more damage while Overgrown (Thunderstorm's area), at the share of the fight the build's storm covers the boss"
+  kind: model
+  model: overgrown
+  stats: ["plant_skill_damage_+%_final_when_wet"]
+  skill: [Vine Arrow, Thrashing Vines, Brambles]
+  confidence: LOW
+  notes: >-
+    models.overgrown_model (GEM15): an UNDERCOUNT before (PoB has no reader). Game text "More [Plant|Overgrown]
+    damage@{0}%", 50 on all three. Overgrow sources (checked: "Overgrown" in ActiveSkills, KeywordPopups, PassiveSkills,
+    Mods, BaseItemTypes and every stat description of 26650308): Thunderstorm ("Plants in the area become Overgrown")
+    and Navira's Oasis (a djinn command, no use rate read: not counted). Main skill only; Damage MORE 50 x min(1,
+    Thunderstorm's uses a second x its Duration), from the bridge's useRates (the play: cast the storm on the boss, make
+    the plants in it). LOW: whether a plant outliving the storm stays Overgrown is UNVERIFIED.

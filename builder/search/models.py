@@ -3443,6 +3443,8 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
     mods, notes = mods + cost_mods, notes + cost_notes
     proof_mods, proof_notes = warcry_proof_model(main, forbidden)
     mods, notes = mods + proof_mods, notes + proof_notes
+    grown_mods, grown_notes = overgrown_model(skills, main, groups or {}, forbidden)
+    mods, notes = mods + grown_mods, notes + grown_notes
     return mods, notes
 
 
@@ -5760,7 +5762,9 @@ def gem_stat_side_groups(skills: list[Skill], main: Skill | None) -> list[int]:
             found.add(skill.group)
     # (GEM12: Vruun's Aftermath's Warcries and crystal makers, Uhtred's Rite's skills: their use rates)
     found.update(g for g in vruun_aftermath_groups(skills) | uhtred_rite_groups(skills) | frost_bomb_groups(skills)
-                 if main is None or g != main.group)  # (GEM13: Frost Bomb's casts, frost_bomb_exposure_model)
+                 | overgrow_groups(skills, main)
+                 if main is None or g != main.group)  # (GEM13: Frost Bomb's casts, frost_bomb_exposure_model; GEM15:
+    # Thunderstorm's casts and duration, overgrown_model)
     for skill in skills:  # (a side skill whose support makes you lose Life per use: gem_stat_life_loss reads its rate)
         if skill.group is not None and (main is None or skill.group != main.group) and any(
                 number(skill.support_stats.get(stat)) for stat in LIFE_LOSS_STATS):
@@ -6094,6 +6098,67 @@ def warcry_proof_model(main: Skill | None, forbidden: set[str] = frozenset()) ->
         "entry": WARCRY_PROOF_ENTRY,
         "basis": (f"The game: \"Cannot be Empowered by Warcries\" ({main.name}'s own stat); PoB Empowers it like any Melee "
                   "attack (probe: Infernal Cry +19% Full DPS). Its Warcry Empowers are set to none")}]
+
+
+# Overgrown Plants (GEM15; an UNDERCOUNT: PoB never reads plant_skill_damage_+%_final_when_wet, "More [Plant|Overgrown]
+# damage@{0}%", gem / skill_stat_descriptions.csd). Game files 26650308: the stat is 50 on VineArrowPlayer, ThrashingVinesPlayer
+# and TriggeredBrambleslamPlayer (Brambles) (checked: GrantedEffectStatSets; the one monster carrier is a Vine Arrow set;
+# PoB's data has it on both Vine Arrow sets, Thrashing Vines and Brambles; no SkillStatMap or Modules reader). KeywordPopups
+# Plant: "Plants created by Plant Skills can be Overgrown ... This generally cannot be caused by the Skill that creates
+# the Plants, and requires a different Skill or effect". What Overgrows them (checked: "Overgrown" in ActiveSkills,
+# KeywordPopups, PassiveSkills, Mods, BaseItemTypes and every stat description of 26650308; patch notes: nothing on it):
+# Thunderstorm ("Plants in the area become Overgrown") and Navira's Oasis, a Water Djinn command on Chilled Ground (a
+# minion skill: no player use rate is read, so not counted: 0, said). The play that feeds it: Thunderstorm cast on the
+# boss, the plants made inside it. Counted on the main skill as Damage MORE 50% x the share of the fight a storm covers the
+# boss, min(1, Thunderstorm's uses a second x its Duration with the build's modifiers: the bridge's useRates); plants made
+# while a storm is up count as Overgrown for their damage (LOW: whether a plant that outlives the storm stays Overgrown,
+# and where in the storm it must stand, are UNVERIFIED). Vine Arrow's arrow hit is counted too: PoB puts the stat on both
+# its sets (MEDIUM). Brambles as a side skill (Brambleslam's) isn't scaled here (its rate is brambles_model's): the main
+# skill only.
+OVERGROW_SKILLS = ("Thunderstorm",)
+OVERGROWN_MORE = {"Vine Arrow": 50.0, "Thrashing Vines": 50.0, "Brambles": 50.0}
+OVERGROWN_ENTRY = "model-gem15-overgrown-plants"
+
+
+def overgrow_groups(skills: list[Skill], main: Skill | None) -> set[int]:
+    """Thunderstorm's groups, when the main skill is a Plant skill with an Overgrown bonus (overgrown_model reads them)."""
+    if main is None or main.name not in OVERGROWN_MORE:
+        return set()
+    return {s.group for s in skills if s.name in OVERGROW_SKILLS and s.group is not None}
+
+
+def overgrown_model(skills: list[Skill], main: Skill | None, groups: dict,
+                    forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """The main Plant skill's "more damage while Overgrown" at the share of the fight the build's Thunderstorm covers."""
+    if main is None or main.name not in OVERGROWN_MORE or OVERGROWN_ENTRY in forbidden:
+        return [], []
+    more = OVERGROWN_MORE[main.name]
+    label = f"{main.name}: Overgrown Plants deal more damage*"
+    up, parts = 0.0, []
+    for storm in sorted({s.group for s in skills if s.name in OVERGROW_SKILLS and s.group is not None}):
+        row = groups.get(storm) or {}
+        press = row.get("_press")
+        rate = max(number(row.get("speed")) * number(press if press is not None else 1.0), 0.0)
+        duration = max(number(row.get("duration")), 0.0)
+        share = min(1.0, rate * duration)
+        up = 1 - (1 - up) * (1 - share)
+        parts.append(f"{row.get('name') or 'Thunderstorm'} {rate:.3g}/s" + (f" pressed {number(press):.0%}" if press
+                     is not None else " at PoB's rate") + f" x {duration:.2f} s = {share:.0%}")
+    if up <= 0:
+        return [], [{"label": label, "value": "not counted", "confidence": "LOW", "entry": OVERGROWN_ENTRY,
+                     "basis": (f"{more:g}% more damage while its Plants are Overgrown (PoB never reads it); nothing the "
+                               "build uses Overgrows them: Thunderstorm isn't in the build (or has no use rate), and "
+                               "Navira's Oasis (a Water Djinn command) has no use rate read: 0"),
+                     "play": (f"Cast Thunderstorm on the boss and make your plants inside it: they become Overgrown "
+                              f"and deal {more:g}% more damage. Without it: +0; with it: up to {more:g}% more.")}]
+    value = more * up
+    return [raw_mod("Damage", "MORE", value, main.name)], [{
+        "label": label, "value": f"{value:.1f}% more", "confidence": "LOW", "entry": OVERGROWN_ENTRY,
+        "basis": (f"{more:g}% more damage while its Plants are Overgrown (PoB never reads it), at the share of the fight "
+                  f"a Thunderstorm covers the boss: {'; '.join(parts)} -> {up:.0%} (LOW: plants made in the storm counted "
+                  "Overgrown; Navira's Oasis not counted)"),
+        "play": (f"Cast Thunderstorm on the boss and make your plants inside it (Overgrown: {more:g}% more damage). "
+                 f"Without it: +0; with this build's storms: {value:.1f}% more.")}]
 
 
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
