@@ -715,9 +715,10 @@ def deflect_kept(stats: dict, what: str) -> tuple[float, str]:
 # second equal to 15% of the Pre-mitigation Physical damage of the Hit that inflicted it." The model:
 # - rate: the line's chance x the boss's landed hits a second at the DEFENCE cadence (PoB's enemySkillTime, the faster of
 #   the two hit rates: the cautious side for a downside, as the manager ruled; the slower "when hit" benefit pace is for
-#   gains) x the Physical share of its hits (a hit with no Physical damage inflicts a Bleed of magnitude 0: LOW-MEDIUM,
-#   taken as no Bleed) x Deflection's share where a "Deflected Hits cannot inflict Bleeding" line holds;
-# - only the strongest Bleed deals damage (ailments of a kind don't stack on a player: MEDIUM, as Ignite), so Bleeding
+#   gains) x the Physical share of its hits (a hit with no Physical damage inflicts a Bleed of magnitude 0: HIGH,
+#   RESEARCH28 R28-3, taken as no Bleed) x Deflection's share where a "Deflected Hits cannot inflict Bleeding" line holds
+#   x the share of those hits that reach Life (life_reach, MECHC33: a hit Energy Shield takes whole inflicts none);
+# - only the strongest Bleed deals damage (MEDIUM-HIGH, RESEARCH28 R28-4), so Bleeding
 #   1 - e^(-rate x 5 s) of the fight (hits taken as evenly random);
 # - damage while Bleeding: 15% of the boss's AVERAGE Physical hit (mean_hits, what PoB's hits use) a second, x2 for the
 #   share of the fight you move (stats["_rolling"], the build's dodge rolls; 0 when not read: standing while attacking),
@@ -732,6 +733,52 @@ BLEED_SECONDS, BLEED_SHARE_PER_SECOND, BLEED_MOVING_MORE = 5.0, 0.15, 1.0
 SELF_BLEED_FIELDS = ("enemySkillTime", "EvadeChance", "EffectiveBlockChance", "DeflectChance", "EnergyShield")
 
 
+# Hits that reach Life (MECHC33; RESEARCH28 R28-3, the manager's 09:36 ruling: "a hit must reach Life to Bleed",
+# MEDIUM-LOW, wiki snippets only): on an Energy Shield build a hit Energy Shield takes whole inflicts no Bleed on you, so
+# Coat of Red's rate counted every landed Physical hit (an OVERCOUNT for ES builds). Per boss skill that deals `kind`
+# (ordinary hits, each skill once, as mean_hits: LOW), its whole hit after your mitigation (each part rescaled by PoB's
+# {Type}TakenHit / the type's average hit, which is what PoB was given): it reaches Life when any of its damage types
+# bypasses Energy Shield (PoB's {Type}EnergyShieldBypass above 0), or when it's bigger than the Energy Shield you have.
+# You're on Full Energy Shield recovery.full_es_share of the fight (MEDIUM): then a hit reaches Life only when bigger than
+# your maximum. Below full the ES left isn't modelled: the headline takes every such hit to reach Life (the cautious side
+# for a downside, as the defence cadence; LOW), the row takes the ES left as anywhere from 0 to full (min(1, hit / ES)).
+# Mind over Matter's share is taken as still reaching Life (the rest of the hit does).
+def life_reach(stats: dict, kind: str = "Physical") -> tuple[float, float, str]:
+    """(share of the boss's landed `kind` hits that reach Life (headline), the same with the ES left spread from 0 to
+    full (row), how); (1.0, 1.0, "") with no Energy Shield. `stats`: PoB's recovery outputs (objective.RECOVERY_INPUTS)."""
+    es = number(stats.get("EnergyShield"))
+    if es <= 0:
+        return 1.0, 1.0, ""
+    from builder.search import recovery
+
+    name = boss_name(stats)
+    mean = mean_hits(name)
+
+    def scale(t: str) -> float:
+        key = f"{t}TakenHit"
+        return max(number(stats[key]), 0.0) / mean[t] if key in stats and mean[t] > 0 else 1.0
+
+    hits: list[tuple[float, bool]] = []
+    for row in skill_hits(name):
+        if row.get("nuke") or kind not in row["hit"]:
+            continue
+        size = sum(raw * part_factor(t, origin) * scale(t) for t, (raw, origin) in row["hit"].items())
+        bypass = any(number(stats.get(f"{t}EnergyShieldBypass")) > 0 for t in row["hit"])
+        hits.append((size, bypass))
+    if not hits:  # (the worst-case pinnacle, or a preset with no sized skill: the type's average hit after mitigation)
+        hits = [(max(number(stats.get(f"{kind}TakenHit")), 0.0), number(stats.get(f"{kind}EnergyShieldBypass")) > 0)]
+    full, _ = recovery.full_es_share(stats)
+    over = sum(1.0 for size, bypass in hits if bypass or size > es) / len(hits)
+    spread = sum(1.0 if bypass else min(1.0, size / es) for size, bypass in hits) / len(hits)
+    head = full * over + (1 - full)
+    row = full * over + (1 - full) * spread
+    how = (f" x {head:.0%} of them reaching Life (Energy Shield {es:,.0f}: on Full Energy Shield {full:.0%} of the fight, "
+           f"where {over:.0%} of the boss's {len(hits)} {kind} hit(s) are bigger than it or bypass it; below full every "
+           f"hit taken to reach it, the cautious side: LOW; a hit Energy Shield takes whole inflicts none: MEDIUM-LOW, "
+           f"RESEARCH28)")
+    return head, row, how
+
+
 def self_bleed(texts: list[str], stats: dict) -> tuple[float, list[dict]]:
     """(Physical damage a second, before your damage-over-time modifiers, notes) from "N% chance to be inflicted with
     Bleeding when Hit" lines; (0.0, []) without one."""
@@ -743,32 +790,42 @@ def self_bleed(texts: list[str], stats: dict) -> tuple[float, list[dict]]:
     land = land_share(stats) / every
     physical = type_shares(name).get("Physical", 0.0)
     kept, kept_how = deflect_kept(stats, "Bleed")
-    rate = chance * land * physical * kept
-    bleeding = 1 - math.exp(-rate * BLEED_SECONDS) if rate > 0 else 0.0
+    reach, reach_spread, reach_how = life_reach(stats) if physical > 0 else (1.0, 1.0, "")
+    rate = chance * land * physical * kept * reach
     moving = min(max(number(stats.get("_rolling")), 0.0), 1.0)
     mean, big = mean_hits(name)["Physical"], hit_sizes(name)["Physical"]
 
-    def dot(hit: float) -> float:
-        return bleeding * BLEED_SHARE_PER_SECOND * hit * (1 + BLEED_MOVING_MORE * moving)
+    def bleeding_at(r: float) -> float:
+        return 1 - math.exp(-r * BLEED_SECONDS) if r > 0 else 0.0
 
+    def dot(hit: float, r: float = rate) -> float:
+        return bleeding_at(r) * BLEED_SHARE_PER_SECOND * hit * (1 + BLEED_MOVING_MORE * moving)
+
+    bleeding = bleeding_at(rate)
     taken, harsh = dot(mean), dot(big)
     if rate <= 0:
-        basis = (f"{chance:.0%} chance when Hit, but none of the boss's landed hits deal Physical damage (or none land), so "
-                 "no Bleed (LOW-MEDIUM: a hit with no Physical damage taken to inflict none)")
+        basis = (f"{chance:.0%} chance when Hit, but none of the boss's landed hits deal Physical damage (or none land, or "
+                 "none reach Life), so no Bleed (a hit with no Physical damage inflicts a Bleed of 0: HIGH, RESEARCH28)")
     else:
+        rows = ""
+        if reach < 1:
+            rows = (f"; with the Energy Shield left below full spread from 0 to full: {dot(mean, rate / reach * reach_spread):,.0f}"
+                    f"; counting every landed hit (no Life rule): {dot(mean, rate / reach):,.0f}")
         basis = (f"{chance:.0%} x {land:.2f} landed boss hits/s (the defence cadence, one every {every:g} s: the faster "
-                 f"rate, the cautious side for a downside) x {physical:.0%} of its hits that deal Physical{kept_how} = "
-                 f"{rate:.3f} Bleeds/s; only the strongest Bleed deals damage (MEDIUM), {BLEED_SECONDS:g} s each, so "
-                 f"Bleeding {bleeding:.0%} of the fight; {BLEED_SHARE_PER_SECOND:.0%} of the boss's average Physical hit "
-                 f"({mean:,.0f}) a second" + (f", x2 for the {moving:.0%} of the fight you move" if moving else
-                                              " (standing while attacking; x2 while you move)")
+                 f"rate, the cautious side for a downside) x {physical:.0%} of its hits that deal Physical (none from a "
+                 f"hit with no Physical damage: HIGH){kept_how}{reach_how} = "
+                 f"{rate:.3f} Bleeds/s; only the strongest Bleed deals damage (MEDIUM-HIGH, RESEARCH28), "
+                 f"{BLEED_SECONDS:g} s each, so Bleeding {bleeding:.0%} of the fight; {BLEED_SHARE_PER_SECOND:.0%} of the "
+                 f"boss's average Physical hit ({mean:,.0f}) a second" + (f", x2 for the {moving:.0%} of the fight you move"
+                                                                        if moving else
+                                                                        " (standing while attacking; x2 while you move)")
                  + f": {taken:,.0f} a second on average before your damage-over-time modifiers; at its biggest ordinary "
-                 f"Physical hit ({big:,.0f}): {harsh:,.0f}. Without it: 0. Taken from Life only (Bleeding bypasses Energy Shield; it stops Life Recharge, not ES "
-                 "Recharge)")
+                 f"Physical hit ({big:,.0f}): {harsh:,.0f}{rows}. Without it: 0. Taken from Life only (Bleeding bypasses "
+                 "Energy Shield; it stops Life Recharge, not ES Recharge)")
     return taken, [{"label": "Bleeding inflicted on you when Hit (your item's downside)*",
                     "value": f"{taken:,.0f} Physical damage a second (Bleeding {bleeding:.0%} of the fight)",
-                    "basis": basis, "confidence": "MEDIUM (rate, the game's numbers) / LOW (a hit with no Physical "
-                                                  "damage, the moving share)",
+                    "basis": basis, "confidence": "MEDIUM (rate, the game's numbers) / MEDIUM-LOW (only hits reaching "
+                                                  "Life) / LOW (the Energy Shield left below full, the moving share)",
                     "play": (f"you Bleed {bleeding:.0%} of the fight from your own item: {taken:,.0f} a second "
                              "(without it: none)") if taken > 0 else ""}]
 

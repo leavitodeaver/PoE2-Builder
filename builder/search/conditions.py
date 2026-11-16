@@ -508,6 +508,10 @@ def _hit_restriction(when: str, stats: dict) -> str | None:
 # PoB's sup_dex.lua Ferocity); read from the main skill's own stats and its supports' in the build, so any other carrier
 # counts too
 NO_FRENZY_STAT = "skill_cannot_generate_frenzy_charges"
+# (MECHC33) "You cannot gain Power Charges while using this Skill" (skill_stat_descriptions; Flicker Strike's stat set,
+# PoB act_int.lua FlickerStrikePlayer: Display Only); read from the main skill's own stats and its supports', so any
+# other carrier counts too
+NO_POWER_STAT = "cannot_gain_power_charges_during_skill"
 PIN_MORE_SUPPORT, PIN_MORE_STAT = "Pin III", "support_pin_pin_duration_+%_final"  # (MECH66: "Pin caused by Supported
 # Skills has 30% more duration", gem_stat_descriptions.csd; read by models.pin_duration_scale)
 NO_BLIND_STAT = "cannot_inflict_blind"  # Blindside (sup_dex.lua SupportBlindsidePlayer; Stats.json)
@@ -524,6 +528,18 @@ ONCE_EVERY = re.compile(r"no more than once (?:per second|every (\d+(?:\.\d+)?) 
 
 def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
     """(charges per second, how) from one line, or None if it isn't a source of that charge."""
+    if kind == "Power" and stats.get("_main_no_power"):
+        # (MECHC33, GEM15's find: Flicker Strike's "You cannot gain Power Charges while using this Skill",
+        # cannot_gain_power_charges_during_skill, PoB: Display Only) the main skill's hits make none, and any other
+        # gain lands only in the share of the fight spent away from it (dodge rolls as read; other presses not read:
+        # LOW, the lower reading of a gain)
+        away = min(max(number(stats.get("_rolling")), 0.0), 1.0)
+        got = _charge_rate(text, kind, {**stats, "_main_no_power": None, "Speed": 0.0, "CritChance": 0.0})
+        if got is None:
+            return None
+        return got[0] * away, (f"{got[1]}; x {away:.0%} of the fight away from the main skill, which can't gain Power "
+                               f"Charges while used ({stats['_main_no_power']}): its hits make none (without it: "
+                               f"{_charge_rate(text, kind, {**stats, '_main_no_power': None})[0]:.2f}/s)")
     got = _charge_rate_uncapped(text, kind, stats)
     cap = ONCE_EVERY.search(text)
     if got is None or cap is None:
@@ -571,6 +587,8 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
         return chance * hits, f"{chance:.0%} x {hits:.2f} hits/s"
     if m2 := re.search(r"every (\d+(?:\.\d+)?)? ?seconds?|once per second|every second", when):
         every = float(m2.group(1)) if m2.groups() and m2.group(1) else 1.0
+        if NOT_LOST_RECENTLY.search(when):  # (MECHC33: the Cultivated Redflare's line)
+            return _while_not_lost(kind, chance / every, text, stats)
         return chance / every, f"one every {every:g} s"
     if (named := _named_event(when, stats)) is not None:
         return chance * named[0], f"{chance:.0%} x {named[0]:.3f}/s ({named[1]})"
@@ -614,6 +632,50 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
         return chance * boss * block, (f"{chance:.0%} x {boss * block:.2f} blocks/s (the time its lava takes to fill "
                                        f"isn't read: LOW)")
     return chance / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed (LOW)"
+
+
+# "Gain a Power Charge every Second if you haven't lost Power Charges Recently" (MECHC33; RESEARCH28 R28-5, the manager's
+# 09:36 ruling; the Cultivated Redflare Conduit's UniqueMutatedVaalGainPowerChargesNotLostRecently, stat
+# gain_power_charge_per_second_if_have_not_lost_power_charge_recently, PoB: no mod). Before, _charge_rate read it as a
+# plain one a second: an OVERCOUNT wherever the charges are lost. "Recently" is the last 4 s (KeywordPopups Recently).
+# - With "Lose all <kind> Charges on reaching maximum" (the same Redflare): after each loss only the build's other gains
+#   (g a second) run for 4 s, then the line adds its own; the maximum M is reached every T = 4 + (M - 4 g) / (r + g)
+#   seconds (r the line's rate), and the line runs (T - 4) / T of the cycle; with 4 g >= M the other gains refill it
+#   inside the 4 s and the line never runs. (A cycle's gains sum to M, so _reaching_maximum's gains / M = 1 / T.)
+# - Without it, a skill spending the charges (stats["_consumers"], evenly spaced uses): consumed charges taken as lost
+#   (UNVERIFIED: "lost" isn't defined in the game's text; the lower reading of a gain), so the line runs only in the
+#   part of each gap between spends past 4 s: max(0, 1 - 4 x spends a second).
+# - Nothing loses them: one a second, as before (it then only refreshes a held maximum).
+NOT_LOST_RECENTLY = re.compile(r"if you haven't lost (\w+) charges recently", re.I)
+RECENTLY_SECONDS = 4.0
+
+
+def _while_not_lost(kind: str, rate: float, text: str, stats: dict) -> tuple[float, str]:
+    """(charges per second, how) for a "<rate> if you haven't lost <kind> Charges Recently" line (the comment above)."""
+    if stats.get("_not_lost"):
+        return 0.0, "a 'not lost Recently' line inside another: not followed"
+    texts = stats.get("_texts") or []
+    inner = {**stats, "_not_lost": True, "_reaching": True}
+    others = sum(r[0] for t in texts if t != text and (r := _charge_rate(t, kind, inner)) is not None)
+    most = number(stats.get(f"{kind}ChargesMax"))
+    spent = sum((stats.get("_consumers") or {}).get(kind, {}).values())
+    wait = RECENTLY_SECONDS
+    if most > 0 and any(re.search(rf"lose all {kind} charges on reaching maximum", t, re.I) for t in texts):
+        if others * wait >= most:
+            return 0.0, (f"your other {kind} gains ({others:.2f}/s) refill the maximum ({most:g}) within {wait:g} s of each "
+                         f"loss (all lost on reaching it), so 'not lost Recently' never holds: 0 (without the loss: "
+                         f"{rate:g}/s)")
+        cycle = wait + (most - others * wait) / (rate + others)
+        share = (cycle - wait) / cycle
+        return rate * share, (f"{rate:g}/s only while no {kind} Charge was lost in the last {wait:g} s: all are lost on "
+                              f"reaching the maximum ({most:g}), refilled every {cycle:.1f} s with your other gains "
+                              f"({others:.2f}/s), so on {share:.0%} of the time (MEDIUM; without the loss: {rate:g}/s)")
+    if spent > 0:
+        share = max(0.0, 1 - wait * spent)
+        return rate * share, (f"{rate:g}/s only while no {kind} Charge was lost in the last {wait:g} s: your skills spend "
+                              f"{spent:.2f}/s (evenly spaced; a consumed charge taken as lost: UNVERIFIED), so on "
+                              f"{share:.0%} of the time (without the spends: {rate:g}/s)")
+    return rate, f"one every {1 / rate:g} s (nothing makes you lose {kind} Charges)" if rate > 0 else "none"
 
 
 CHARGE_EVENT_FIELDS = ("HitChance", "IgniteChancePerHit", "PowerChargesMax", "PowerChargesDuration",
@@ -1404,6 +1466,40 @@ def full_es_uptime(lines: list[str], stats: dict) -> tuple[object, str, float] |
     return True, f"on Full Energy Shield {share:.0%} of the fight: {how}", share
 
 
+# PoB's "Current Energy Shield percentage" box (MECHC33; COV37 via the manager, 16 Nov 09:09: an UNDERCOUNT of defence,
+# never set before): multiplierCurrentEnergyShield (ConfigOptions 157: Condition:UseCurrentEnergyShield +
+# Multiplier:CurrentEnergyShield, read up to 150) is what Silks of Veneration's "Current Energy Shield also grants
+# Elemental Damage reduction" and The Mutable Star's "Defend against Hits as though you had 1% more Armour per 1% current
+# Energy Shield" scale by (checked: their ModCache entries 7052 / 7195 and ModParser 3332-3338 are the only users of
+# that multiplier and condition in PoB's ModCache and ModParser). The value is your Energy Shield when a hit lands, as a
+# share of its maximum: on Full Energy Shield recovery.full_es_share of the fight (MEDIUM); below full the ES left isn't
+# modelled, so the headline counts it as empty (the lower reading, the rule for a defence; LOW), with the ES left spread
+# from 0 to full (half on average) as the other reading in the note. Overflowed Energy Shield (above 100%) isn't read:
+# an undercount for a build with an overflow line (named).
+CURRENT_ES_LINE = re.compile(r"\bcurrent energy shield\b", re.I)
+# (a "count" box: PoB applies its placeholder 100 while the input is unset OR 0, ConfigTab 1184-1187, so before this
+# PoB read every such build at 100%: an OVERCOUNT, not the undercount COV37 named; 0% is sent as this stand-in. Probe:
+# test_engine_models' test_pobs_current_energy_shield_box_reads_its_placeholder_unless_set)
+CURRENT_ES_EMPTY = 1e-6
+
+
+def current_es_percent(lines: list[str], stats: dict) -> tuple[float, str]:
+    """(PoB's current Energy Shield % box, how) for a build with a current-Energy-Shield line (the comment above)."""
+    if not any(CURRENT_ES_LINE.search(t) for t in lines):
+        return 0.0, ""
+    got = stats.get("_full_es")
+    if not got:  # (no Energy Shield share read: as empty, not PoB's placeholder 100)
+        return CURRENT_ES_EMPTY, "no Energy Shield share read: current Energy Shield taken as 0% (not PoB's placeholder 100%)"
+    share, how = got
+    head = round(100 * share)
+    spread = round(100 * (share + (1 - share) / 2))
+    return float(head) or CURRENT_ES_EMPTY, (
+        f"your Energy Shield when a hit lands, as a % of its maximum: {head}% (on Full Energy Shield {share:.0%} of the "
+        f"fight, below full counted as empty: the lower reading for a defence, LOW); with the Energy Shield left below "
+        f"full spread from 0 to full: {spread}%; PoB alone reads 100% (its placeholder, an OVERCOUNT before); overflow "
+        f"above 100% not read. Full Energy Shield: {how}")
+
+
 def full_life_uptime(lines: list[str], stats: dict) -> tuple[object, str, float] | tuple[float, str]:
     """(True, how, share on Full Life) for a build with a Full Life line; (0, how) when it's never on Full Life."""
     got = stats.get("_full_life")
@@ -2088,8 +2184,9 @@ def overcharge_sources(groups: dict, main_skill: str, stats: dict, rows: dict,
 # refill). Each Shock lasts SELF_SHOCK_SECONDS (KeywordPopups Shock, "lasts 4 seconds on players"), less your Shock
 # avoidance; the refills come about evenly spaced (many gains each), so its share is min(1, rate x 4 s) (the higher
 # reading against evenly random: the cautious side for a downside), joined with Overcharge's as independent. Its
-# magnitude: the line names none, so the game's base 20% (KeywordPopups Shock; LOW-MEDIUM), over PoB's 15% box as
-# DamageTaken INC while Shocked (self_shock_taken_mods). Other "Shocks you when you reach maximum <kind> Charges" lines:
+# magnitude: the line names none, so the game's base 20% (KeywordPopups Shock; HIGH, RESEARCH28 R28-5) x your "effect
+# of Shock on you" modifiers (MEDIUM; MECHC33), against PoB's 15% box as DamageTaken INC while Shocked
+# (self_shock_taken_mods; PoB's box ignores those modifiers: probed). Other "Shocks you when you reach maximum <kind> Charges" lines:
 # read the same way (checked: PoB's ModCache holds only the Power one).
 SELF_SHOCK_ON_MAX = re.compile(r"^Shocks you when you reach maximum (Power|Frenzy|Endurance) Charges$", re.I)
 
@@ -2127,19 +2224,36 @@ def _self_shocked(lines: list[str], stats: dict) -> tuple[object, str, float] | 
         share = min(1.0, each * (1.0 - avoid) * SELF_SHOCK_SECONDS)
         up = 1.0 - (1.0 - up) * (1.0 - share)
         parts.append(f"{what} ({how}; {avoid:.0%} avoided, {SELF_SHOCK_SECONDS:g} s each, the refills about evenly "
-                     f"spaced): {share:.0%} (MEDIUM rate, LOW-MEDIUM magnitude: the game's base 20%); without it: none")
+                     f"spaced): {share:.0%} (MEDIUM rate; magnitude: the game's base 20% x your Shock effect on you); without it: none")
     return _box(up, "; ".join(parts) + f": Shocked {up:.0%} of the fight ({shared(up)})")
 
 
-def self_shock_taken_mods(texts: list[str], overcharge: list[dict]) -> tuple[list[dict], str]:
-    """Redflare's Shock (self_shocks_on_maximum) at the game's base 20% over PoB's 15% box, while Shocked; none when
-    Overcharge's own reflected-Shock mod is already there (it's the larger: its 50% more effect)."""
+def self_shock_taken_mods(texts: list[str], overcharge: list[dict], effect: float = 100.0,
+                          inflict: float = 1.0) -> tuple[list[dict], str]:
+    """Redflare's Shock (self_shocks_on_maximum) at the game's base 20% x the build's "effect of Shock on you" (`effect`:
+    PoB's SelfShockEffect output, 100 = unmodified), over PoB's 15% box, while Shocked; none when Overcharge's own
+    reflected-Shock mod is already there (it's the larger: its 50% more effect). `inflict`: the build's own Shock
+    magnitude multiplier (its "Magnitude of Shock you inflict" lines), shown as a row only (MECHC33; RESEARCH28 R28-5).
+    The probe test_pobs_shocked_box_ignores_the_effect_of_shock_on_you: PoB's box stays 15% whatever SelfShockEffect is,
+    so the whole 20% is scaled here (a reduction past 25% takes part of PoB's box back off)."""
     if overcharge or not any(SELF_SHOCK_ON_MAX.match(t.strip()) for t in texts):
         return [], ""
-    extra = SHOCK_BASE - POB_SELF_SHOCK
-    return ([models.raw_mod("DamageTaken", "INC", extra, condition="Shocked")],
-            f"the Shock your item puts on you at the game's base {SHOCK_BASE:g}% increased damage taken (the line names "
-            f"no magnitude; LOW-MEDIUM), {extra:g}% over PoB's {POB_SELF_SHOCK:g}% box, only while you are Shocked")
+    scale = max(effect, 0.0) / 100
+    size = SHOCK_BASE * scale
+    extra = size - POB_SELF_SHOCK
+    how = (f"the Shock your item puts on you at the game's base {SHOCK_BASE:g}% increased damage taken (the line names "
+           f"no magnitude: HIGH, RESEARCH28)" + (f" x {scale:.0%} (your \"effect of Shock on you\" modifiers, PoB's "
+                                                  f"SelfShockEffect; applying them here: MEDIUM)" if abs(scale - 1) > 1e-9
+                                                  else "") +
+           f" = {size:g}%, {extra:+g}% against PoB's {POB_SELF_SHOCK:g}% box (which ignores them: probed), only while "
+           f"you are Shocked")
+    if abs(inflict - 1) > 1e-9:
+        how += (f"; with your own \"Magnitude of Shock you inflict\" modifiers too (x{inflict:.2f}, UNVERIFIED whether "
+                f"they apply to a Shock your item inflicts on you; the cautious row): {size * inflict:g}%")
+    how += "; without it: no Shock"
+    if abs(extra) < 1e-9:
+        return [], how
+    return [models.raw_mod("DamageTaken", "INC", extra, condition="Shocked")], how
 
 
 def overcharge_taken_mods(build, main_skill: str) -> tuple[list[dict], str]:
@@ -5111,6 +5225,8 @@ CONDITIONS: list[Condition] = [
     Condition("buffOnslaught", "Onslaught", value_fn=lambda lines, stats: onslaught_uptime(lines, stats),
               fields=("Speed", "HitChance", "CritChance", "enemySkillTime", "EvadeChance")),
     Condition("onLeyline", "On a Leyline", value_fn=lambda lines, stats: leyline_uptime(lines, stats)),
+    Condition("multiplierCurrentEnergyShield", "Current Energy Shield percentage (MECHC33)",
+              value_fn=lambda lines, stats: current_es_percent(lines, stats), fields=()),
     Condition("conditionFullEnergyShield", "On Full Energy Shield", value_fn=lambda lines, stats: full_es_uptime(lines, stats),
               fields=()),
     Condition("conditionFullLife", "On Full Life", value_fn=lambda lines, stats: full_life_uptime(lines, stats), fields=()),
@@ -6125,7 +6241,8 @@ class Conditions:
             stats["_full_life"] = self._full_life()
         if any(LEECHING_LINE.search(t) for t in texts):  # (MECHC31, R26-40 (c): Leech only while its pool is below full)
             stats["_leeching"] = self._leeching(texts, set(gem_types))
-        if any(FULL_ES_LINE.search(t) for t in texts) or any(m in gem_types for m in MYSTICISM):  # (MECHC27, MC-5)
+        if (any(FULL_ES_LINE.search(t) or CURRENT_ES_LINE.search(t) for t in texts)  # (MECHC33: current ES lines)
+                or any(m in gem_types for m in MYSTICISM)):  # (MECHC27, MC-5)
             stats["_full_es"] = self._full_life(es=True)
         if any(KILL_LINE.search(t) for t in texts):  # (MECHC9, A23-4: on-kill lines at the build's kills)
             stats["_kills"] = self._kills()
@@ -6171,6 +6288,14 @@ class Conditions:
             if number((main.get("supportStats") or {}).get(NO_FRENZY_STAT)) or number(
                     (main.get("levelStats") or {}).get(NO_FRENZY_STAT)):
                 stats["_main_no_frenzy"] = NO_FRENZY_STAT
+        if any(re.search(r"Power Charge", t, re.I) for t in texts):
+            # (MECHC33) a main skill that can't gain Power Charges while used (Flicker Strike's NO_POWER_STAT): only the
+            # time away from it feeds Power Charge lines (_charge_rate)
+            raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=[NO_POWER_STAT])
+            main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
+            if number((main.get("supportStats") or {}).get(NO_POWER_STAT)) or number(
+                    (main.get("levelStats") or {}).get(NO_POWER_STAT)):
+                stats["_main_no_power"] = NO_POWER_STAT
         if any(BLIND_LINE.search(t) for t in texts):
             # a main skill that "cannot themselves inflict Blind" (Blindside's cannot_inflict_blind, on the skill or a
             # support of it; RESEARCH9 / COVE3's OVERCOUNT, MECH55): its hits and crits feed no Blind line (_debuff_source)

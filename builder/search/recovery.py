@@ -1190,3 +1190,34 @@ def refutation_stun_of(build) -> tuple[float, str]:
                         lambda t: f"Heavy Stun {t:.1f} s into the buff" if t > 0 else "no Heavy Stun in the buff")
     return at, how + (f" (threshold x{scale:.2f}: Refutation's 50% less, 5% more per 10 of the {ward:,.0f} Runic Ward "
                       "spent)")
+
+
+# A channelled skill on a cooldown pays its per-minute cost only while channelled (MECHC33; GEM15's find via the manager,
+# 16 Nov 10:02: "Flameblast's per-minute cost may be charged all fight despite its cooldown", UNVERIFIED until probed).
+# PoB turns a per-minute cost straight into <Resource>PerSecondCost (CalcOffence 2300-2316: the PerMinute costs become
+# PerSecond, never times a use rate) and charges it all fight, while its damage counts one release per cooldown (Speed =
+# 1 / cooldown). The skills it touches: the main skill with SkillTypes Channel and Cooldown and a per-second cost (in
+# PoB's Data/Skills today: Flameblast, Flame Breath (Rage per minute), Runic Tempering, Temper Weapon; PoB's data only,
+# the game files not searched, but the check reads the skill's types, so any other such skill is covered). Share of the fight
+# channelled = PoB's ChannelTime (the stages it channels per release, at the build's cast speed) / the cycle. The cycle:
+# the cooldown starting as the channel starts (cycle = max(cooldown, channel): the higher share, the cautious side for a
+# cost; LOW, the game's text doesn't say when the cooldown starts), with the cooldown starting at release (channel +
+# cooldown) as the other reading. Applied as the skill's own <Type>Cost MORE (PoB scales the per-second cost by it,
+# CalcOffence 2313-2316), only when the skill has no upfront cost of that type (Flame Breath's upfront Mana stays whole;
+# its Rage per minute is scaled). No ChannelTime from PoB (Temper Weapon, Runic Tempering: no stage multiplier): kept
+# whole, said in the note. The rest of each cycle the build casts other skills, whose own costs aren't the main skill's.
+CHANNEL_COST_FIELDS = ("ChannelTime", "Cooldown", "Speed")
+
+
+def channel_cost_share(stats: dict) -> tuple[float, float, str]:
+    """(share of the fight the main skill channels (headline), the other reading, how) from PoB's ChannelTime and
+    Cooldown; (1.0, 1.0, how) when PoB gives no channel time or no cooldown."""
+    channel, cooldown = _num(stats.get("ChannelTime")), _num(stats.get("Cooldown"))
+    if channel <= 0 or cooldown <= 0:
+        return 1.0, 1.0, ("its per-minute cost counted all fight (PoB gives no channel time or cooldown for it: an "
+                          "overcount of the cost if it rests between channels; LOW)")
+    head = min(1.0, channel / max(cooldown, channel))
+    other = channel / (channel + cooldown)
+    return head, other, (f"channelled {channel:.2f} s a release on its {cooldown:.2f} s cooldown: its per-minute cost runs "
+                         f"{head:.0%} of the fight (the cooldown taken to start with the channel, the cautious side for a "
+                         f"cost; LOW), {other:.0%} if it starts at release; PoB counts it all fight (without this: 100%)")

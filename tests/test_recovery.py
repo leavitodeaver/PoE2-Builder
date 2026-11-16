@@ -1513,6 +1513,37 @@ def test_coat_of_reds_bleed_on_you_reads_the_bosss_landed_physical_hits():
     assert 0 < dodged < taken
 
 
+def test_coat_of_reds_bleed_needs_a_hit_that_reaches_life():
+    """MECHC33 (RESEARCH28 R28-3, the manager's 09:36 ruling): a hit Energy Shield takes whole inflicts no Bleed, so on an
+    ES build only the share of hits reaching Life counts: on Full ES those bigger than it (or bypassing it), below full
+    all of them (the cautious headline), the ES left spread from 0 to full as a row."""
+    from builder.search import boss_hits
+
+    line = "25% chance to be inflicted with Bleeding when Hit"
+    base = {"_boss": "Arbiter of Ash", "enemySkillTime": 0.7, "EvadeChance": 0, "EffectiveBlockChance": 0}
+    no_es = boss_hits.self_bleed([line], base)[0]
+    mean = boss_hits.mean_hits("Arbiter of Ash")
+    hits = {f"{t}TakenHit": mean[t] for t in boss_hits.TYPES}
+    # a huge Energy Shield that regenerates past every hit: on Full ES all fight, no hit bigger than it: no Bleed
+    big = {**base, **hits, "EnergyShield": 1e7, "EnergyShieldRegenRecovery": 1e9}
+    full, _ = __import__("builder.search.recovery", fromlist=["x"]).full_es_share(big)
+    assert full > 0.99
+    head, row, how = boss_hits.life_reach(big)
+    assert head < 0.02 and row <= head and "reaching Life" in how
+    assert boss_hits.self_bleed([line], big)[0] < no_es * 0.05
+    # every type bypassing ES: every hit reaches Life, as with no ES
+    bypass = {**big, **{f"{t}EnergyShieldBypass": 100 for t in boss_hits.TYPES}}
+    assert boss_hits.life_reach(bypass)[0] == pytest.approx(1.0)
+    assert boss_hits.self_bleed([line], bypass)[0] == pytest.approx(no_es)
+    # a small ES with no recovery: never full again, every hit taken to reach Life (headline); the row is lower
+    small = {**base, **hits, "EnergyShield": 1e6}
+    head, row, _ = boss_hits.life_reach(small)
+    assert head == pytest.approx(1.0) and row < 1.0
+    taken, notes = boss_hits.self_bleed([line], {**small, "EnergyShield": 50.0})
+    assert taken == pytest.approx(no_es) and "MEDIUM-HIGH" in notes[0]["basis"]
+    assert boss_hits.life_reach({**base, **hits})[0] == 1.0  # (no Energy Shield: every hit reaches Life)
+
+
 def test_redflares_shock_on_you_at_the_rate_its_power_charges_refill():
     """MECHC32 (the manager, 16 Nov 03:54, from COV36): Redflare Conduit's "Shocks you when you reach maximum Power
     Charges" at the build's own refills of the maximum (with its "Lose all Power Charges on reaching maximum": gains /
@@ -1529,7 +1560,37 @@ def test_redflares_shock_on_you_at_the_rate_its_power_charges_refill():
     mods, how = self_shock_taken_mods(texts, [])
     assert mods[0]["value"] == pytest.approx(5.0) and mods[0]["condition"] == "Shocked"
     assert self_shock_taken_mods(texts, [{"kind": "Raw"}]) == ([], "")  # (Overcharge's own mod is there)
+    # (MECHC33, RESEARCH28 R28-5) x your "effect of Shock on you" (PoB's SelfShockEffect): the Cultivated Redflare's 50%
+    # reduced makes it 10%, 5% under PoB's box; your own inflicted magnitude is a row only
+    mods, how = self_shock_taken_mods(texts, [], effect=50.0, inflict=1.5)
+    assert mods[0]["value"] == pytest.approx(-5.0) and "x 50%" in how and "15%" in how and "cautious row" in how
+    assert self_shock_taken_mods(texts, [], effect=75.0)[0] == []  # (exactly PoB's 15%)
     assert shocked.value_fn(texts[:2], {**stats, "_texts": texts[:2]}) == (0.0, "")
+
+
+def test_a_power_charge_every_second_only_while_none_was_lost_recently():
+    """MECHC33 (RESEARCH28 R28-5): the Cultivated Redflare's "Gain a Power Charge every Second if you haven't lost Power
+    Charges Recently" runs only 4 s past the last loss: with "Lose all on reaching maximum", (T - 4) / T of each refill
+    cycle; under a charge-spending skill, the part of each gap past 4 s; with nothing losing them, one a second."""
+    from builder.search.conditions import _charge_rate, _reaching_maximum
+
+    line = "Gain a Power Charge every Second if you haven't lost Power Charges Recently"
+    hit = "20% chance to gain a Power Charge on Hit"
+    lose = "Lose all Power Charges on reaching maximum Power Charges"
+    texts = [line, hit, lose]
+    stats = {"Speed": 2.0, "HitChance": 100, "PowerChargesMax": 3, "_texts": texts}
+    rate, how = _charge_rate(line, "Power", stats)
+    cycle = 4 + (3 - 0.4 * 4) / (1 + 0.4)  # (others 0.4/s: 5 s a refill)
+    assert rate == pytest.approx((cycle - 4) / cycle) and "without the loss" in how
+    assert _reaching_maximum("Power", 1.0, stats)[0] == pytest.approx(1 / cycle)
+    # the other gains alone refill it inside 4 s: never on
+    fast = {**stats, "Speed": 10.0}
+    assert _charge_rate(line, "Power", fast)[0] == 0.0
+    # no loss line, a skill spending one every 2 s: never 4 s without a loss; every 8 s: half the time
+    keep = {**stats, "_texts": [line, hit]}
+    assert _charge_rate(line, "Power", {**keep, "_consumers": {"Power": {"Skill": 0.5}}})[0] == 0.0
+    assert _charge_rate(line, "Power", {**keep, "_consumers": {"Power": {"Skill": 0.125}}})[0] == pytest.approx(0.5)
+    assert _charge_rate(line, "Power", keep)[0] == pytest.approx(1.0)
 
 
 def test_widows_reign_and_your_own_bleed_reach_life_only():
@@ -1560,3 +1621,46 @@ def test_widows_reign_and_your_own_bleed_reach_life_only():
     for text in ("Life that would be lost by taking Damage is instead Reserved\nuntil you take no Damage to Life for 3 seconds",
                  "Life that would be lost by taking Damage is instead Reserved until you take no Damage to Life for 3 seconds"):
         assert LIFE_RESERVED.search(text).group(1) == "3"  # (the item's two lines, or one)
+
+
+def test_the_current_energy_shield_box_reads_the_share_on_full_energy_shield():
+    """MECHC33 (COV37 via the manager, 16 Nov 09:09): Silks of Veneration's and The Mutable Star's current-ES lines read
+    PoB's "Current Energy Shield percentage" box, which the tool now sets from recovery.full_es_share: on full that share
+    of the fight, below full counted as empty (the lower reading for a defence), the spread reading in the note; 0% is
+    sent as CURRENT_ES_EMPTY (PoB reads 0 as its placeholder 100)."""
+    from builder.search.conditions import CONDITIONS, CURRENT_ES_EMPTY, current_es_percent
+
+    star = ["Defend against Hits as though you had 1% more Armour per 1% current Energy Shield"]
+    value, how = current_es_percent(star, {"_full_es": (0.6, "refilled at 100/s")})
+    assert value == 60 and "80%" in how and "lower reading" in how  # (spread: 60 + 40 / 2)
+    assert current_es_percent(star, {"_full_es": (0.0, "never full")})[0] == CURRENT_ES_EMPTY
+    assert current_es_percent(star, {})[0] == CURRENT_ES_EMPTY
+    assert current_es_percent(["+10 to maximum Life"], {"_full_es": (0.6, "")}) == (0.0, "")
+    assert any(c.var == "multiplierCurrentEnergyShield" for c in CONDITIONS)
+
+
+def test_a_channelled_skill_on_a_cooldown_pays_its_cost_only_while_channelled():
+    """MECHC33 (GEM15's find): PoB charges a per-minute cost all fight; Flameblast channels ChannelTime per release on its
+    cooldown, so the cost runs channel / max(cooldown, channel) of the fight (the cautious headline), channel /
+    (channel + cooldown) the other reading; no channel time from PoB: kept whole."""
+    from builder.search import recovery
+
+    share, other, how = recovery.channel_cost_share({"ChannelTime": 2.5, "Cooldown": 10.0, "Speed": 0.1})
+    assert share == pytest.approx(0.25) and other == pytest.approx(2.5 / 12.5) and "without this: 100%" in how
+    assert recovery.channel_cost_share({"ChannelTime": 12.0, "Cooldown": 10.0})[0] == 1.0
+    assert recovery.channel_cost_share({"Cooldown": 10.0})[:2] == (1.0, 1.0)
+
+
+def test_a_main_skill_that_cant_gain_power_charges_while_used_feeds_none():
+    """MECHC33 (GEM15's find): Flicker Strike's "You cannot gain Power Charges while using this Skill": its hits make no
+    Power Charges, and other gains land only in the share of the fight away from it (dodge rolls, as read)."""
+    from builder.search.conditions import NO_POWER_STAT, _charge_rate
+
+    hit = "20% chance to gain a Power Charge on Hit"
+    second = "Gain a Power Charge every 4 seconds"
+    stats = {"Speed": 2.0, "HitChance": 100, "PowerChargesMax": 3, "_main_no_power": NO_POWER_STAT}
+    assert _charge_rate(hit, "Power", {**stats, "_main_no_power": None})[0] == pytest.approx(0.4)
+    assert _charge_rate(hit, "Power", stats)[0] == 0.0
+    rate, how = _charge_rate(second, "Power", {**stats, "_rolling": 0.1})
+    assert rate == pytest.approx(0.025) and "can't gain Power Charges while used" in how and "without it: 0.25" in how
+    assert _charge_rate("20% chance to gain a Frenzy Charge on Hit", "Frenzy", stats)[0] == pytest.approx(0.4)

@@ -3184,3 +3184,81 @@ def test_an_assumption_override_beats_turtle_charms_and_the_new_tags_reach_pob(e
     assert sorted([halved, kept]) == [pytest.approx(life / 2, abs=2), pytest.approx(life)]
     assert slotted == pytest.approx(life)
     build.call("setAssumptions", mods=[], fields=[])
+
+
+def test_pobs_shocked_box_ignores_the_effect_of_shock_on_you(engine):
+    """MECHC33 (probe, LANE_RULES; RESEARCH28 R28-5): PoB's "Are you Shocked?" box (ConfigOptions 1100) adds a flat 15%
+    DamageTaken INC under Condition:Shocked; "N% reduced effect of Shock on you" (SelfShockEffect) only sets PoB's
+    SelfShockEffect output (CalcDefence 2049), not the box. So conditions.self_shock_taken_mods scales the whole 20% by
+    the build's own Shock-effect-on-you lines, not only the 5% above PoB's box."""
+    search = _skeleton_search(engine, "Shield Charge", "Warbringer")
+    build = search.build
+    fields = ["PhysicalTakenHit", "FireTakenHit", "SelfShockEffect"]
+    build.call("setAssumptions", mods=[], fields=[])
+    off = build.call("setConfig", vars={"conditionShocked": False}, fields=fields)["stats"]
+    on = build.call("setConfig", vars={"conditionShocked": True}, fields=fields)["stats"]
+    build.call("setAssumptions", mods=[models.raw_mod("SelfShockEffect", "INC", -50, tag="ShockProbe")], fields=[])
+    reduced = build.call("stats", fields=fields)
+    print("PROBE shocked box", off, on, reduced)
+    assert on["PhysicalTakenHit"] == pytest.approx(off["PhysicalTakenHit"] * 1.15, rel=0.02)  # (the box's 15%)
+    assert reduced["SelfShockEffect"] == pytest.approx(on["SelfShockEffect"] / 2)  # (the line reaches PoB...)
+    assert reduced["PhysicalTakenHit"] == pytest.approx(on["PhysicalTakenHit"])  # (...but doesn't scale the box)
+    build.call("setAssumptions", mods=[], fields=[])
+    build.call("setConfig", vars={"conditionShocked": False}, fields=[])
+
+
+def test_pobs_current_energy_shield_box_reads_its_placeholder_unless_set(engine):
+    """MECHC33 (probe, LANE_RULES): PoB's "Current Energy Shield percentage" box (ConfigOptions 157) is a "count" box with
+    a placeholder of 100, and ConfigTab:BuildModList (1184-1187) applies the placeholder while the input is unset or 0.
+    So unless the tool sets it, The Mutable Star's "1% more Armour per 1% current Energy Shield" (and Silks of
+    Veneration's line, the same box) read 100%; an input of 0 reads 100% too, so conditions.CURRENT_ES_EMPTY stands in
+    for 0."""
+    from builder.search import conditions
+
+    search = _skeleton_search(engine, "Shield Charge", "Warbringer")
+    build = search.build
+    star = models.line("Defend against Hits as though you had 1% more Armour per 1% current Energy Shield")
+    fields = ["PhysicalTakenHit", "Armour", "ArmourDefense"]
+    build.call("setAssumptions", mods=[], fields=[])
+    bare = build.call("stats", fields=fields)
+    build.call("setAssumptions", mods=[star], fields=[])
+    unset = build.call("stats", fields=fields)
+    zero = build.call("setConfig", vars={"multiplierCurrentEnergyShield": 0}, fields=fields)["stats"]
+    half = build.call("setConfig", vars={"multiplierCurrentEnergyShield": 50}, fields=fields)["stats"]
+    full = build.call("setConfig", vars={"multiplierCurrentEnergyShield": 100}, fields=fields)["stats"]
+    empty = build.call("setConfig", vars={"multiplierCurrentEnergyShield": conditions.CURRENT_ES_EMPTY},
+                       fields=fields)["stats"]
+    print("PROBE current ES box", bare, unset, zero, half, full, empty)
+    assert bare["Armour"] > 0
+    assert unset["PhysicalTakenHit"] == pytest.approx(full["PhysicalTakenHit"])
+    assert full["PhysicalTakenHit"] < bare["PhysicalTakenHit"]
+    assert zero["PhysicalTakenHit"] == pytest.approx(full["PhysicalTakenHit"])  # (0 reads the placeholder)
+    assert full["PhysicalTakenHit"] <= half["PhysicalTakenHit"] < bare["PhysicalTakenHit"]
+    assert half["ArmourDefense"] == pytest.approx(full["ArmourDefense"] / 2)  # (the box's value reaches PoB)
+    assert empty["PhysicalTakenHit"] == pytest.approx(bare["PhysicalTakenHit"], rel=1e-4)
+    build.call("setAssumptions", mods=[], fields=[])
+    build.call("setConfig", vars={"multiplierCurrentEnergyShield": False}, fields=[])
+
+
+def test_flameblasts_per_minute_cost_runs_all_fight_in_pob_and_a_skill_cost_more_scales_it(engine):
+    """MECHC33 (probe, LANE_RULES; GEM15's find): PoB charges Flameblast's per-minute Mana cost all fight
+    (ManaPerSecondCost = the level's per-minute cost / 60 x its multipliers) though it releases once per 10 s cooldown;
+    its ChannelTime is the stages' channel per release. A skill-tagged ManaCost MORE scales that per-second cost and not
+    its damage (it has no upfront cost), which is how recovery.channel_cost_share's share is applied."""
+    from builder.search import recovery
+
+    search = _skeleton_search(engine, "Flameblast", "Stormweaver")
+    build = search.build
+    fields = [*recovery.CHANNEL_COST_FIELDS, "ManaCost", "ManaPerSecondCost", "AverageDamage", "FullDPS"]
+    build.call("setAssumptions", mods=[], fields=[])
+    bare = build.call("stats", fields=fields)
+    build.call("setAssumptions", mods=[models.raw_mod("ManaCost", "MORE", -50, skill="Flameblast")], fields=[])
+    halved = build.call("stats", fields=fields)
+    print("PROBE flameblast cost", bare, halved, recovery.channel_cost_share(bare))
+    assert bare["ManaPerSecondCost"] > 0 and not bare.get("ManaCost")
+    assert bare["Cooldown"] > 0 and bare["ChannelTime"] > 0
+    assert halved["ManaPerSecondCost"] == pytest.approx(bare["ManaPerSecondCost"] / 2, rel=0.02)
+    assert halved["AverageDamage"] == pytest.approx(bare["AverageDamage"])
+    share = recovery.channel_cost_share(bare)[0]
+    assert 0 < share < 1
+    build.call("setAssumptions", mods=[], fields=[])

@@ -1673,7 +1673,31 @@ class Assumptions:
         else:
             overcharge = []
         # (MECHC32: Redflare Conduit's Shock on you on reaching maximum Power Charges, at the base 20% over PoB's 15%)
-        redflare, redflare_how = conditions_mod.self_shock_taken_mods(texts, overcharge)
+        effect, inflict = 100.0, 1.0
+        if not overcharge and any(conditions_mod.SELF_SHOCK_ON_MAX.match(t.strip()) for t in texts):
+            # (MECHC33, RESEARCH28 R28-5: x the build's "effect of Shock on you"; its own inflicted magnitude a row)
+            read = build.call("stats", fields=["SelfShockEffect"]).get("SelfShockEffect")
+            effect = number(read) if read is not None else 100.0
+            mag = build.call("shockMagnitude") or {}
+            inflict = (1 + number(mag.get("inc")) / 100) * (number(mag.get("more")) if mag.get("more") is not None else 1.0)
+        redflare, redflare_how = conditions_mod.self_shock_taken_mods(texts, overcharge, effect, inflict)
+        if main is not None and not main.triggered and {"Channel", "Cooldown"} <= set(main_types):
+            # (MECHC33, GEM15's find: a channelled skill on a cooldown pays its per-minute cost only while channelled)
+            kinds = ("Mana", "Life", "ES", "Rage")
+            seen = build.call("stats", fields=[*recovery_mod.CHANNEL_COST_FIELDS, *(f"{k}Cost" for k in kinds),
+                                               *(f"{k}PerSecondCost" for k in kinds)])
+            over = [k for k in kinds if number(seen.get(f"{k}PerSecondCost")) > 0 and number(seen.get(f"{k}Cost")) <= 0]
+            if over:
+                share, other, how = recovery_mod.channel_cost_share(seen)
+                if share < 1:
+                    hand_mods = hand_mods + [models.raw_mod(f"{k}Cost", "MORE", (share - 1) * 100, skill=main.name,
+                                                            tag="ChannelCost") for k in over]
+                hand_notes = hand_notes + [{
+                    "label": f"{main.name}: per-minute cost only while channelled*",
+                    "value": f"{share:.0%} of the fight ({', '.join(over)})",
+                    "basis": how + ("; its upfront costs stay whole" if any(number(seen.get(f'{k}Cost')) > 0
+                                                                            for k in kinds) else ""),
+                    "confidence": "MEDIUM (channel time, PoB's) / LOW (when the cooldown starts)"}]
         exposure_flags += redflare
         if redflare_how:
             hand_notes.append({"label": "Shocked by your own item on reaching maximum Charges*", "value": "damage taken",
@@ -1770,7 +1794,12 @@ class Assumptions:
 
         build.self_bleed = 0.0
         if any(boss_hits.SELF_BLEED.match(e["text"].strip()) for e in source_lines):
-            seen = dict(build.call("stats", fields=list(boss_hits.SELF_BLEED_FIELDS)))
+            # (MECHC33: the recovery outputs too, for the share of hits that reach Life past Energy Shield)
+            from builder.search import objective
+
+            added = getattr(build, "added_stats", None)
+            seen = {**build.call("stats", fields=sorted(set(boss_hits.SELF_BLEED_FIELDS) | set(objective.RECOVERY_INPUTS))),
+                    **(added() if callable(added) else {})}
             boss_name = getattr(getattr(build, "ctx", None), "request", None)
             if getattr(boss_name, "boss", None):
                 seen["_boss"] = boss_name.boss
