@@ -5437,3 +5437,30 @@ def test_ice_tipped_arrows_empowers_its_attacks_in_its_own_cycle():
     time, share, per_second, _ = models.ice_tipped_cycle(0.25, 6, 12.0)  # (6 slow attacks fill more than the cooldown)
     assert per_second == pytest.approx(6 / 24.7) and share == pytest.approx(1.0)
     assert models.ice_tipped_cycle(0.0, 4, 12.0)[1] == 0.0
+
+
+def test_hazards_on_the_boss_per_use_come_from_the_field_and_the_boss_footprint():
+    """MECHB33 (the manager 15 Nov 20:28, Q1): PoB counts one hazard hit a use; Spearfield makes 1 spear per 0.2 m of
+    its radius (at most 70) and Conductive Runes 10 in an 80 degree cone of 8.5 m (x the area's radius share). The boss
+    sets off those under its footprint: at least PoB's one, at most the use's count. Escalating Mayhem reads the same."""
+    spear = Skill("Spearfield", group=1, attack=True)
+    r = models.BOSS_FOOTPRINT_RADIUS  # (GEM11's SALVO_BOSS_RADIUS: one boss size for the tool)
+    assert r == models.SALVO_BOSS_RADIUS
+    count, how = models.hazards_on_boss(spear, {"AreaOfEffectRadius": 60})  # 30 spears, 90 degrees, 6 m
+    assert count == pytest.approx(30 * math.pi * r ** 2 / (math.pi / 4 * 36)) and "30 made a use" in how
+    assert models.hazards_on_boss(spear, {"AreaOfEffectRadius": 60}, radius=1.0)[0] == pytest.approx(30 / 9)
+    assert models.hazards_on_boss(spear, {"AreaOfEffectRadius": 90})[0] < count  # more area spreads them thinner
+    assert models.hazards_on_boss(spear, {"AreaOfEffectRadius": 40}, radius=3.0)[0] == 20  # capped at the use's count
+    assert models.hazards_on_boss(spear, {"AreaOfEffectRadius": 2000}, radius=0.01)[0] == 1.0  # at least one
+    assert models.hazards_on_boss(spear, {})[0] == 1.0  # no radius read: PoB's one
+    runes = Skill("Conductive Runes", group=1, attack=True)
+    assert models.hazards_on_boss(runes, {"AreaOfEffectMod": 1.0})[0] == pytest.approx(
+        10 * math.pi * (r + 0.5) ** 2 / (math.radians(80) / 2 * 8.5 ** 2))
+    assert models.hazards_on_boss(Skill("Ice Shards", group=1, attack=True), {"AreaOfEffectRadius": 25})[0] == 1.0
+    mods, notes = models.hazard_count_model(spear, {"AreaOfEffectRadius": 60})
+    assert mods == [models.line("1% more Damage", 100 * (count - 1), skill="Spearfield")]
+    assert "without it" in notes[0]["play"] and notes[0]["confidence"].startswith("LOW")
+    assert models.hazard_count_model(Skill("Spark", group=1, spell=True), {}) == ([], [])
+    texts = ["10% increased Damage for each Hazard triggered Recently, up to 50%"]
+    mods, notes = models.escalating_mayhem_model(texts, {"Speed": 0.2, "AreaOfEffectRadius": 60}, spear, {})
+    assert mods[0]["scale"] == pytest.approx(min(50.0, 10 * 0.2 * count * 4))

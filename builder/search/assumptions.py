@@ -1660,12 +1660,18 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + gun_mods, hand_notes + gun_notes
         early_mods, early_notes = models.hazard_early_model(found, stats, forbidden)  # (MECH-B: hazards set off early)
         hand_mods, hand_notes = hand_mods + early_mods, hand_notes + early_notes
+        count_mods, count_notes = models.hazard_count_model(main, stats)  # (MECHB33: a use's hazards on the boss)
+        hand_mods, hand_notes = hand_mods + count_mods, hand_notes + count_notes
         hand_notes = hand_notes + models.channel_windup_note(main)  # (MECH-B: a channel's wind-up, labelled, not counted)
         if main is not None and main.name == models.ORB_OF_STORMS and main.group is not None:  # (MECH-B: its recast
             # bolt, labelled; MECHB29: its bolts, frequency and duration from its own useRates row)
             orb_rows = build.call("useRates", indices=[main.group])["rates"]
             hand_notes = hand_notes + models.orb_of_storms_note(main, stats, orb_rows[0] if orb_rows else None)
         hand_notes = hand_notes + models.coursing_current_note(found)  # (MECH-B: 0 on a lone boss, as PoB scores it)
+        if any(models.SHRAPNEL_SKILL in names for names in supports.values()):  # (MECHB33, GEM14: wired; 0 with its
+            # reason until the presets carry add Life and a Pin share on the adds, never a flat guess)
+            hand_notes = hand_notes + models.bone_shrapnel_model(
+                models.number(stats.get(bosses.KILLS_STAT)), None, None, None, 1.0)[1]
         danse_mods, danse_notes = models.danse_macabre_model(found, supports)  # (MECH-B: Danse Macabre's second skeleton)
         hand_mods, hand_notes = hand_mods + danse_mods, hand_notes + danse_notes
         warcries = {s.name for s in found if "Warcry" in ((build.ctx.gems.get(s.name) or {}).get("skillTypes") or [])}
@@ -2246,7 +2252,10 @@ class Assumptions:
         need, seeds, duration, hit, casts, _ = self.untether_inputs(index)
         stats = self.build.call("stats", fields=list(LIVING_BOMB_FIELDS))
         added = number(getattr(getattr(self.build, "objective", None), "added_dps", 0.0))
-        rate, how = models.untether_rate(need, per_second(stats) + max(added, 0.0), hit, seeds, duration, casts)
+        feed = per_second(stats) + max(added, 0.0)
+        rate, how = models.untether_rate(need, feed, hit, seeds, duration, casts)
+        one, _ = models.untether_rate(need, feed, hit, 1.0, duration, casts)  # (MECHB33, the manager 20:28: both cases)
+        how += f"; one seed per enemy (UNVERIFIED either way): {one:.3f}/s"
         return models.PressCap(rate, f"Untether: {how}", 0.0, "MEDIUM")
 
     def glory_caps(self) -> dict[str, tuple[float, str]]:
@@ -2469,6 +2478,9 @@ class Assumptions:
         added = number(getattr(getattr(self.build, "objective", None), "added_dps", 0.0))
         feed = max(number(stats.get("FullDPS")) - hits, 0.0) + max(added, 0.0)
         rate, how = models.untether_rate(need, feed, hit, seeds, duration, speed)
+        one, _ = models.untether_rate(need, feed, hit, 1.0, duration, speed)  # (MECHB33, the manager 20:28: both cases)
+        how += (f"; if only one seed can sit on the boss (UNVERIFIED either way): {one:.3f} explosions/s"
+                + (f", {one / speed:.1%} of PoB's casts" if speed > 0 else ""))
         share = max(rate / speed, LIVING_BOMB_FLOOR) if speed > 0 else 1.0
         self.untether_speed = share
         if share >= 1.0:
@@ -2476,9 +2488,11 @@ class Assumptions:
         return ([models.line("1% more Attack and Cast Speed", -100 * (1 - share), skill=models.UNTETHER)],
                 [{"label": "Untether: one explosion per seed filled*", "value": f"{share:.1%} of PoB's casts",
                   "basis": how + " (PoB counts an explosion every cast)",
-                  "play": ("plant seeds as fast as they explode (up to 5 at once); the build's other damage sets how fast "
-                           "they fill" if rate > 0 else "the build's other damage is too low for a seed to explode "
-                           "within its duration: Untether deals nothing here"),
+                  "play": ((f"plant seeds as fast as they explode (up to {seeds:g} at once); the build's other damage sets "
+                            f"how fast they fill. Several seeds on the boss: {share:.1%} of PoB's casts explode; one seed "
+                            f"per enemy: {min(1.0, one / speed) if speed > 0 else 0.0:.1%} (which holds is UNVERIFIED)")
+                           if rate > 0 else "the build's other damage is too low for a seed to explode within its "
+                           "duration: Untether deals nothing here"),
                   "confidence": "MEDIUM (game files' stats; several seeds on the one boss UNVERIFIED)"}])
 
     def wanted(self) -> tuple[list[dict], list[dict]]:

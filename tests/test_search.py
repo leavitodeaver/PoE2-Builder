@@ -3497,6 +3497,8 @@ def test_untether_as_the_main_skill_is_cut_to_its_explosions():
     mods, notes = run(full=400.0 + 2000.0)  # (2,000/s of other damage, 200 an explosion)
     rate = 5 * 2000 / (10000 - 5 * 200)
     assert mods[0]["scale"] == pytest.approx(-100 * (1 - rate / 2.0), rel=1e-3) and "Untether" in notes[0]["label"]
+    one = 2000 / (10000 - 200)  # (MECHB33: the one-seed-per-enemy case shown beside it)
+    assert f"one seed per enemy: {one / 2.0:.1%}" in notes[0]["play"] and f"{one:.3f} explosions/s" in notes[0]["basis"]
     assert run(full=400.0 + 50000.0)[0] == []  # (fills faster than it's cast: PoB's casts kept)
 
 

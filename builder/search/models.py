@@ -6382,9 +6382,11 @@ def escalating_mayhem_model(texts: list[str], stats: dict, main: Skill | None,
     parts, rate = [], 0.0
     if main is not None and main.name in HAZARD_SKILLS:
         rearm = min(100.0, number(stats.get("HazardRearmChance"))) / 100
-        own = number(stats.get("Speed")) * (1 + rearm)
+        per_use, _ = hazards_on_boss(main, stats)  # (MECHB33: the same count as the damage's, hazard_count_model)
+        own = number(stats.get("Speed")) * (1 + rearm) * per_use
         rate += own
-        parts.append(f"{main.name} {own:.2f}/s (one a use" + (f", x{1 + rearm:.2f} rearms" if rearm else "") + ")")
+        parts.append(f"{main.name} {own:.2f}/s ({per_use:.2g} a use" + (f", x{1 + rearm:.2f} rearms" if rearm else "")
+                     + ")")
     for name, value in sorted(rates.items()):
         if name in HAZARD_SKILLS and (main is None or name != main.name) and number(value) > 0:
             rate += number(value)
@@ -6392,11 +6394,89 @@ def escalating_mayhem_model(texts: list[str], stats: dict, main: Skill | None,
     count = rate * RECENTLY
     value = sum(min(cap, per * count) for per, cap in found)
     basis = (f"hazards set off {rate:.2f}/s ({'; '.join(parts) or 'no hazard skill in the build'}): {count:.2g} in the "
-             f"past {RECENTLY:g} s, so {value:.3g}% increased Damage (one hazard a use: a lower bound; evenly spaced, "
-             "MEDIUM; PoB's count box is never set: 0 before)")
+             f"past {RECENTLY:g} s, so {value:.3g}% increased Damage (a use's hazards on the boss as its damage counts "
+             "them, hazards_on_boss: LOW where above one; evenly spaced, MEDIUM; PoB's count box is never set: 0 before)")
     return ([line("1% increased Damage", value)] if value > 0 else []), [{
         "label": "Escalating Mayhem: hazards set off recently", "value": round(count, 2), "basis": basis,
         "confidence": "MEDIUM"}]
+
+
+# Hazards a boss sets off per use (MECHB33; the manager 15 Nov 20:28, Q1: "work the count out from the build and the
+# boss"). PoB scores each hazard skill as ONE hazard hit per use (checked: vendor PoB act_dex.lua SpearfieldPlayer and
+# other.lua ConductiveRunesPlayer: the scored Explosion sets show an average hit at the use rate, and no stat multiplies
+# it by spear_wall_cm_per_spear / rune_hazard_number_of_runes_to_create; no model of ours read them). The game makes
+# more (game files 26476662, GrantedEffectStatSets; poe2db agrees):
+#   - Spearfield: "Creates 1 Spear per 0.2 metres of Radius" (spear_wall_cm_per_spear 20), "Maximum 70 active spears"
+#     (spear_wall_maximum_active_spears), in a cone as long as the skill's radius (4-6.9 m at levels 1-20, PoB's
+#     AreaOfEffectRadius with the build's area modifiers). Its angle is in no data or guide: SPEARFIELD_CONE_DEGREES, LOW.
+#     A spear explodes when an enemy touches it (ActiveSkills text): those under the boss's footprint.
+#   - Conductive Runes: rune_hazard_number_of_runes_to_create 10, rune_hazard_cone_angle 80, the cone's radius
+#     active_skill_base_area_of_effect_radius 85 (8.5 m, scaled by PoB's AreaOfEffectMod: its scored set is the 1.4 m
+#     explosion), active_skill_base_secondary_area_of_effect_radius 5 taken as the rune's trigger reach (0.5 m, LOW).
+#   - Ice Shards: one shard per bolt fired at the ground (IceShardsPlayer projectiles_fire_at_ground; the shard set
+#     is_hazard), which is PoB's one a use already: unchanged. Permafrost Bolts, Caltrops, Brambles, Doedre's Dark
+#     Design: one a use / trigger, unchanged (no count of several per use to read).
+# The play (the user's Leylines precedent; a player who takes Spearfield keeps the boss in the field): the field is laid
+# under the boss, so the hazards the boss touches = the use's count x its footprint's share of the field
+# (pi (r + reach)^2 over the cone's (angle / 2) R^2), at least PoB's one, at most the use's count (a spent hazard can't
+# hit twice; the active limit is above one use's count, so it caps nothing more; the oldest replaced at the limit,
+# UNVERIFIED). BOSS_FOOTPRINT_RADIUS (LOW) is GEM11's SALVO_BOSS_RADIUS, one boss size for the whole tool: no datamined
+# boss hit radius (MonsterVarieties.ObjectSize, 3-6 for the presets' bosses and 0 / 4 in Character.ot's object_size /
+# secondary_object_size, is in no stated unit) nor a published one (searched 15 Nov); Maxroll's Spear Huntress guide:
+# Spearfield hits "very hard against larger bosses because many of its spears land on the same enemy". The note gives
+# the count at HAZARD_SMALL_BOSS too (the size's weight shown). Not counted (a lower bound): spears the boss walks into
+# later as it moves.
+# Hazards set off at once take MECH-A's / MECHB2's 80% less (hazard_early_model), which multiplies on top.
+SPEARFIELD_CONE_DEGREES = 90.0  # LOW: in no data (poe2db gives only the cone's length)
+BOSS_FOOTPRINT_RADIUS = SALVO_BOSS_RADIUS  # metres, LOW (see above)
+HAZARD_SMALL_BOSS = 1.0  # metres: the smaller boss the note also shows
+HAZARD_LAYOUTS = {  # name: (per metre of radius, fixed count, max active, cone degrees, base radius m or None, reach m)
+    "Spearfield": (1 / 0.2, 0.0, 70.0, SPEARFIELD_CONE_DEGREES, None, 0.0),
+    "Conductive Runes": (0.0, 10.0, 20.0, 80.0, 8.5, 0.5),
+}
+MODEL_FIELDS.extend(f for f in ("AreaOfEffectRadius", "AreaOfEffectMod") if f not in MODEL_FIELDS)
+
+
+def hazards_on_boss(main: Skill | None, stats: dict,
+                    radius: float = BOSS_FOOTPRINT_RADIUS) -> tuple[float, str]:
+    """(hazards of one use the boss sets off, how) for the main skill (see above): 1.0 where nothing says more."""
+    layout = HAZARD_LAYOUTS.get(main.name) if main is not None else None
+    if layout is None:
+        return 1.0, "one a use (PoB's count)"
+    per_metre, fixed, cap, degrees, base, reach = layout
+    if base is None:
+        field = number(stats.get("AreaOfEffectRadius")) / 10
+    else:
+        mod = number(stats.get("AreaOfEffectMod")) or 1.0
+        field = base * math.sqrt(max(mod, 0.0))
+    if field <= 0:
+        return 1.0, "one a use (PoB gave no area radius for it)"
+    made = min(cap, fixed or math.floor(per_metre * field + 1e-9))
+    if made <= 1:
+        return 1.0, f"{made:g} made a use"
+    cone = math.radians(degrees) / 2 * field ** 2
+    under = made * math.pi * (radius + reach) ** 2 / cone
+    count = min(made, max(1.0, under))
+    return count, (f"{made:g} made a use in a {degrees:g} degree cone {field:.2g} m long ({cone:.3g} m2); the boss's "
+                   f"footprint {math.pi * (radius + reach) ** 2:.2g} m2 (a {radius:g} m radius, LOW"
+                   + (f", + {reach:g} m trigger reach" if reach else "") + f") holds {under:.2g}, so {count:.2g} a use")
+
+
+def hazard_count_model(main: Skill | None, stats: dict) -> tuple[list[dict], list[dict]]:
+    """A main hazard skill's hazards on the boss per use (hazards_on_boss) as "1% more Damage" over PoB's one."""
+    if main is None or main.name not in HAZARD_LAYOUTS:
+        return [], []
+    count, how = hazards_on_boss(main, stats)
+    small, _ = hazards_on_boss(main, stats, HAZARD_SMALL_BOSS)
+    note = {"label": f"{main.name}: hazards the boss sets off per use*", "value": round(count, 2),
+            "basis": f"{how} ({small:.2g} a use for a {HAZARD_SMALL_BOSS:g} m boss); PoB counts one a use; the boss "
+                     "walking into more later isn't counted (a lower bound)",
+            "play": (f"Lay {main.name} under the boss and keep it there: without it (one a use, PoB's count) x1.00; "
+                     f"with it x{count:.2f} on {main.name}'s damage"),
+            "confidence": "LOW (the cone's angle and the boss's footprint aren't in the game data; the counts are)"}
+    if count <= 1.0:
+        return [], [note]
+    return [line("1% more Damage", 100 * (count - 1), skill=main.name)], [note]
 
 
 # Faerie Fire (MECHB31, PATCH_CHECK MB-11, an UNDERCOUNT): Periphery grants Azmerian Swarms (PoB other.lua 1786): "summons
