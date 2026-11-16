@@ -635,7 +635,7 @@ def full_pool_cap(info: dict, gain: Charges, pool: str | None, raw: str = "") ->
     total = info.get("lifeTotal" if pool == "Life" else "manaTotal") or 0
     length = duration(info, gain)
     inc = gain.life_recovery_inc if pool == "Life" else gain.mana_recovery_inc
-    less = (1 - min(gain.life_flask_less, 100) / 100) if pool == "Life" else 1.0
+    less = (1 - min(gain.life_flask_less, 100) / 100) if pool == "Life" else low_mana_more(raw, pool)  # (MECHC34, K5-3)
     rate = total * (1 + inc / 100) * less / length if length > 0 else 0.0
     hits = gain.taken_hit * gain.boss_hits
     if pool == "Life":
@@ -751,6 +751,24 @@ def uses_per_second(info: dict, gain: Charges, raw: str, pool: str | None) -> tu
     return uses, how
 
 
+# "N% more Recovery if used while on Low Mana" (MECHC34; PATCH_CHECK K5-3, an UNDERCOUNT): a Mana flask affix (Mods
+# FlaskIncreasedRecoveryOnLowMana1-5, 51-60% up to 91-100%; patch 0.3.0's bug fix made it work). PoB's ModCache gives it
+# leftover text ("  if used  ") and a Life-flask stat (FlaskLifeRecoveryLowLife), so PoB never applies it (a partly
+# parsed line: Item.lua 2785 / 2839) and manaTotal lacks it. A build carrying it drinks the Mana flask at Low Mana (35%
+# of maximum or less, KeywordPopups LowMana) on purpose (CLAUDE.md's play-strategy rule): its uses are already capped
+# at its charges and the dips below full (uses_per_second), and waiting for Low Mana costs no use when the build spends
+# Mana faster than it regenerates (MEDIUM; a build whose Mana never falls that low gets no benefit and needs none). Not
+# read: the build's own "while on Low Mana" lines switching on while it waits (not counted either way).
+LOW_MANA_MORE = re.compile(r"^(\d+(?:\.\d+)?)% more Recovery if used while on Low Mana$", re.I | re.M)
+
+
+def low_mana_more(raw: str, pool: str | None) -> float:
+    """The Mana flask's recovery multiplier from its "more Recovery if used while on Low Mana" line (1 without one)."""
+    if pool != "Mana" or not raw:
+        return 1.0
+    return 1.0 + sum(float(m.group(1)) for m in LOW_MANA_MORE.finditer(raw)) / 100
+
+
 def recovery_per_second(info: dict, gain: Charges, pool: str, raw: str = "", own: bool = False) -> float:
     """A Life or Mana flask's recovery per second at the rate its generated charges allow (one use
     at a time: never faster than one per duration). 0 where PoB already counts it whole (pob_counts_whole), unless
@@ -766,7 +784,7 @@ def recovery_per_second(info: dict, gain: Charges, pool: str, raw: str = "", own
     total = info.get("lifeTotal" if pool == "Life" else "manaTotal") or 0
     used = charges_per_use(info, gain)
     inc = gain.life_recovery_inc if pool == "Life" else gain.mana_recovery_inc
-    less = (1 - min(gain.life_flask_less, 100) / 100) if pool == "Life" else 1.0
+    less = (1 - min(gain.life_flask_less, 100) / 100) if pool == "Life" else low_mana_more(raw, pool)  # (MECHC34, K5-3)
     if (info.get("constant") or reverie_constant(info, gain, pool)) and total > 0:
         # theory: its effect is its recovery, applied without a use, so the whole amount over every duration, end to end
         length = info.get("duration") or 0

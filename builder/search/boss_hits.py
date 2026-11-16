@@ -235,15 +235,31 @@ NUKE_OVER = 3.0
 _SKILL_HITS: dict | None = None
 
 
-def skill_hits(name: str | None = None) -> list[dict]:
-    """The preset's damaging skills from builder/data/boss_skill_hits.json ([] for a name it doesn't hold)."""
+def skill_hits(name: str | None = None, adds: bool = False) -> list[dict]:
+    """The preset's damaging skills from builder/data/boss_skill_hits.json ([] for a name it doesn't hold); with `adds`,
+    instead its adds' hits (rows marked "add": the Royal Acolytes' explosion, MECHC34), which aren't the boss's own."""
     global _SKILL_HITS
     if _SKILL_HITS is None:
         import json
         from pathlib import Path
         path = Path(__file__).resolve().parent.parent / "data" / "boss_skill_hits.json"
         _SKILL_HITS = json.loads(path.read_text(encoding="utf-8"))["presets"]
-    return _SKILL_HITS.get(name or DEFAULT_BOSS, [])
+    return [r for r in _SKILL_HITS.get(name or DEFAULT_BOSS, []) if bool(r.get("add")) == adds]
+
+
+# Adds that hit you (MECHC34; RESEARCH26 R26-29 (a), routed to MECH-C by the manager 16 Nov ~00:30 while MECH-D is
+# paused): Atziri phase 1's Royal Acolytes explode on reaching you, a Physical hit (boss_skill_hits.json's "add" row).
+# The headline kills them before they reach you (bosses.PRESETS' kill source, which gives the on-kill gains), so the
+# explosion isn't in the hit sizes, the averages PoB gets or the cadence; a row says what each one that reaches you does.
+def add_hits_text(name: str) -> str:
+    """The hits_note clause for a preset's adds' hits ("" without any)."""
+    parts = []
+    for row in skill_hits(name, adds=True):
+        size = sum(raw for raw, _ in row["hit"].values())  # (a Normal monster: no unique 35% less; Physical: no level more)
+        kinds = "/".join(row["hit"])
+        parts.append(f"{row['id']} {size:,.0f} {kinds} raw, one per {row.get('every', 0):g} s at least, only from those "
+                     f"that reach you (the headline kills them first; {row.get('note', '')})")
+    return ("; adds: " + "; ".join(parts)) if parts else ""
 
 
 def part_factor(kind: str, origin: str, reading: str = "headline") -> float:
@@ -482,7 +498,7 @@ def hits_note(name: str | None = None) -> dict:
     nukes = nuke_hits(name)
     nuke = ("; red-flash nukes (walk out): " + ", ".join(f"{t} {v:,.0f} ({k})" for t, (v, k) in nukes.items())
             if nukes else "")
-    return {"label": f"Boss hit sizes: {name}", "value": value + nuke,
+    return {"label": f"Boss hit sizes: {name}", "value": value + nuke + add_hits_text(name),
             "basis": "each type's biggest ordinary hit from the boss's own skills in the game files (" + sources_text(name)
                      + "), not PoB's Pinnacle default (965 per type and 386 Chaos, all in one hit): spells by their own "
                      "effectiveness, attacks by the level's damage x the boss's multiplier x the skill's own; x unique 35% "

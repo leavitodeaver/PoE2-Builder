@@ -4253,6 +4253,23 @@
 "converted"
 ]
 }
+},
+{
+"id": "VaalZealotSuicideExplosion",
+"monster": "VaalZealotSacrifice",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"add": true,
+"rarity": "Normal",
+"every": 45.0,
+"hit": {
+"Physical": [
+353.67,
+"attack"
+]
+},
+"note": "Atziri's Royal Acolytes (her 45 s Summon Cultists; at least 1 a wave, the size UNVERIFIED) explode on reaching you: Physical (the monster's physical_affinity tag, LOW-MEDIUM; RESEARCH26 R26-29 (a)), sized as the level-82 monster Damage 353.67 x its DamageMultiplier 100% (the explosion's own multiplier unknown, LOW); a Normal monster: no unique 35% less. Not one of Atziri's own hits: kept out of the hit sizes, averages and cadence"
 }
 ],
 "Atziri, the Fell Serpent": [

@@ -40,6 +40,9 @@ KINDS: dict[str, tuple[str, str]] = {
                                          "Shield recovery and Recharge bring you back (MECHC27, MEDIUM)"),
     "conditionFullLife": (FIGHT, "you're on Full Life: the boss's landed hits and your Life costs take you off it, your "
                                  "Life recovery brings you back (MECHC27: the share from both, MEDIUM)"),
+    "conditionShapeshiftToAnimal": (PLAYER, "shift between Human and animal form at least every 4 s (your presses of "
+                                            "skills the form can't use shift you back; MECHC34, MEDIUM)"),
+    "conditionShapeshiftToHuman": (PLAYER, "shift back to Human form at least every 4 s (MECHC34, MEDIUM)"),
 }
 # PoB options the resolver never sets: the guide tries each switched on. (label, kind, play). Low Life: "A player or
 # monster is on Low Life if it has 35% of its Maximum Life or less" (game files, KeywordPopups).
@@ -385,6 +388,9 @@ def kept_flask_rows(search: Any, headline: float) -> list[dict]:
         if not SWITCH_ON <= up < FULL_UPTIME:
             continue
         parts = []
+        if (more := flasks.low_mana_more(option.raw, pool)) > 1:  # (MECHC34, K5-3)
+            parts.append(f"drink it only at Low Mana (35% of maximum or less): x{more:g} recovery a use, counted; "
+                         "without waiting for Low Mana: x1")
         targets = [(pool, f"{pool}RegenRecovery", flasks.recovery_per_second(info, gain, pool, option.raw, own=True))]
         if pool == "Life" and gain.life_flask_to_es:
             targets.append(("Energy Shield", "EnergyShieldRegenRecovery", flasks.es_recovery_per_second(info, gain, option.raw)))

@@ -1723,3 +1723,124 @@ def test_twister_hits_one_boss_once_a_cast_in_the_open_and_more_off_walls():
                                   "AreaOfEffectRadiusMetres": 0.5}, 0.4)[1]
     assert fast == pytest.approx(4.24, abs=0.05)
     assert recovery.twister_hits({}, 0.4)[1] == pytest.approx(walled)  # (PoB gives nothing: the base numbers)
+
+
+def test_sprinting_counts_0_in_the_headline_and_a_play_row_only_with_sprint_lines():
+    """MECHC34 (RESEARCH26 R26-22): no sprint line, no row; Unwavering Stance, 0; otherwise the headline stays 0 and the
+    row sprints 6 m after each boss reposition at 3.7 m/s x (MovementSpeedMod + (50 + sprint increases) / 100)."""
+    assert recovery.sprint_row(["10% increased maximum Life"], {}, "The Bodach") is None
+    guard = ("When you stop Sprinting, gain Guard equal to 4% of maximum Life per second spent Sprinting, up to a maximum "
+             "of 20%, for 4 seconds")
+    lines = ["25% increased Evasion Rating while Sprinting", guard, "20% increased Guard gained",
+             "10% increased Movement Speed while Sprinting", "Lose 5% of maximum Life per second while Sprinting"]
+    assert "can't sprint" in recovery.sprint_row(lines + ["Cannot Dodge Roll or Sprint"], {}, "The Bodach")["value"]
+    row = recovery.sprint_row(lines, {"MovementSpeedMod": 1.4}, "Xesht, We That Are One")
+    each = 6.0 / (3.7 * (1.4 + 0.6))  # 0.81 s a sprint
+    assert row["value"].startswith("0 headline") and f"{0.1 * each:.1%}" in row["value"]
+    assert f"Guard of {4 * each * 1.2:.1f}% of maximum Life" in row["basis"] and "40% of the fight" in row["basis"]
+    assert "25% increased Evasion" in row["play"] and f"{5 * each:.1f}% of maximum Life lost" in row["basis"]
+    worst = recovery.sprint_row(lines, {"MovementSpeedMod": 1.4}, "Pinnacle (worst case)")
+    assert "Arbiter of Ash's row" in worst["basis"] and f"{0.55 * each:.1%}" in worst["value"]
+    # a long sprint hits the 20% cap: the lower reading (cap after the increase) heads, the other is named
+    slow = recovery.sprint_row([guard.replace("4%", "8%"), "50% increased Guard gained"], {"MovementSpeedMod": 0.1}, "The Bodach")
+    assert "Guard of 20.0%" in slow["basis"] and "before it 30.0%" in slow["basis"]
+
+
+def test_times_hit_recently_counts_the_bosss_landed_hits_in_4_seconds():
+    """MECHC34 (PATCH_CHECK MB-17): Unbending's "for each time you've been Hit by an Enemy Recently" reads PoB's count box,
+    never set before (0); now the boss's landed hits a second (gain_hits) x 4 s; no such line, 0."""
+    from builder.search import boss_hits, conditions
+
+    line = "10% increased Stun Threshold for each time you've been Hit by an Enemy Recently, up to 100%"
+    stats = {"EvadeChance": 20, "EffectiveBlockChance": 0, "enemySkillTime": 0.7, "_boss": "The Bodach"}
+    count, how = conditions.hits_recently([line], stats)
+    assert count == pytest.approx(boss_hits.gain_hits(stats)[0] * 4, abs=0.01) and count > 0 and "4 s" in how
+    assert conditions.hits_recently(["10% increased Stun Threshold"], stats) == (0.0, "")
+    assert any(c.var == "multiplierBeenHitRecently" for c in conditions.CONDITIONS)
+
+
+def test_shapeshifted_recently_lines_read_the_builds_shifts():
+    """MECHC34 (PATCH_CHECK MB-8): PoB's two "Shapeshifted to ... recently?" boxes, never set before, now from the build's
+    shifts (human_shifts): min(1, 4 s x shifts a second) of the fight; no shift after the start, 0."""
+    from builder.search import conditions
+
+    animal = conditions.shifted_recently(conditions.SHIFTED_ANIMAL_RECENTLY, "an Animal")
+    human = conditions.shifted_recently(conditions.SHIFTED_HUMAN_RECENTLY, "Human")
+    line = "30% increased Attack Damage if you have Shapeshifted to an Animal form Recently"
+    on, how, share = animal([line], {"_human_shifts": (0.1, "Wolf presses")})
+    assert on is True and share == pytest.approx(0.4) and "Wolf presses" in how
+    assert animal([line], {"_human_shifts": (0.5, "")})[2] == 1.0
+    assert animal([line], {"_human_shifts": (0.0, "none")})[0] == 0.0
+    assert animal(["12% increased Spell Damage if you have Shapeshifted to Human form Recently"], {}) == (0.0, "")
+    assert human(["12% increased Spell Damage if you have Shapeshifted to Human form Recently"],
+                 {"_human_shifts": (0.2, "")})[2] == pytest.approx(0.8)
+    names = {c.var for c in conditions.CONDITIONS}
+    assert {"conditionShapeshiftToAnimal", "conditionShapeshiftToHuman"} <= names
+
+
+def test_fragile_regrowth_climbs_between_landed_hits():
+    """MECHC34 (PATCH_CHECK MB-13): Dustbloom's stacks, 1 a second up to 10, all lost on each landed hit (rate h, at
+    random): (1 - e^(-10 h)) / h; PoB's count box was never set (0)."""
+    from builder.search import boss_hits, conditions
+
+    lines = ["Maximum 10 Fragile Regrowth", "0.5% of maximum Life Regenerated per second per Fragile Regrowth",
+             "Lose all Fragile Regrowth when Hit", "Gain 1 Fragile Regrowth each second"]
+    stats = {"EvadeChance": 50, "EffectiveBlockChance": 0, "enemySkillTime": 2.0}
+    h = boss_hits.landing_hits(stats)
+    count, how = conditions.fragile_regrowth(lines, stats)
+    assert 0 < count < 10 and count == pytest.approx((1 - math.exp(-10 * h)) / h, abs=0.01) and "MEDIUM" in how
+    assert conditions.fragile_regrowth(lines[:2] + lines[3:], stats)[0] == 10.0  # (nothing loses it)
+    assert conditions.fragile_regrowth(["Maximum 10 Fragile Regrowth"], stats) == (0.0, "")
+    assert any(c.var == "multiplierFragileRegrowth" for c in conditions.CONDITIONS)
+
+
+def test_wooden_wall_takes_hits_from_the_nearest_totems_life():
+    """MECHC34 (PATCH_CHECK MD-6): PoB's Total Totem Life box was never set (0), so Wooden Wall's 20% never reached a
+    totem; now PoB's TotemLife for a totem main skill; none without a totem main skill."""
+    from builder.search import conditions
+
+    line = "20% of Damage from Hits is taken from your nearest Totem's Life before you"
+    assert conditions.totem_life_before_you([line], {"TotemLife": 4321.4})[0] == 4321
+    assert conditions.totem_life_before_you([line], {})[0] == 0.0
+    assert conditions.totem_life_before_you(["10% increased Totem Life"], {"TotemLife": 100}) == (0.0, "")
+    assert any(c.var == "TotalTotemLife" for c in conditions.CONDITIONS) and "TotemLife" in conditions.EVIDENCE_FIELDS
+
+
+def test_a_mana_flask_drunk_at_low_mana_recovers_its_more():
+    """MECHC34 (PATCH_CHECK K5-3): "N% more Recovery if used while on Low Mana", which PoB never applies (leftover text),
+    multiplies a Mana flask's recovery; nothing on a Life flask or without the line."""
+    from builder.search import flasks
+
+    raw = "Rarity: Magic\nUltimate Mana Flask of the Wise\n76% more Recovery if used while on Low Mana\n"
+    assert flasks.low_mana_more(raw, "Mana") == pytest.approx(1.76)
+    assert flasks.low_mana_more(raw, "Life") == 1.0 and flasks.low_mana_more("Ultimate Mana Flask", "Mana") == 1.0
+
+
+def test_royal_acolytes_explosion_is_an_add_hit_kept_out_of_atziris_own():
+    """MECHC34 (R26-29 (a)): the acolyte's explosion is in the hit data as an add (Physical, 353.67 raw, one per 45 s at
+    least), named in the boss-hit row, and not in Atziri's hit sizes or averages."""
+    from builder.search import boss_hits
+
+    name = "Atziri, the Red Queen"
+    adds = boss_hits.skill_hits(name, adds=True)
+    assert [r["id"] for r in adds] == ["VaalZealotSuicideExplosion"] and adds[0]["hit"] == {"Physical": [353.67, "attack"]}
+    assert all(not r.get("add") for r in boss_hits.skill_hits(name))
+    assert "VaalZealotSuicideExplosion 354 Physical" in boss_hits.hits_note(name)["value"]
+    assert boss_hits.add_hits_text("Arbiter of Ash") == ""
+
+
+def test_raise_shield_taps_heavy_stun_only_on_a_blocked_hit_that_fills_the_bar():
+    """MECHC34 (MECHC30's leftover (c)): each 0.55 s tap blocks a hit 1 - e^(-0.55 x Blockable rate) of the time; it stuns
+    when that hit fills the bar alone (the bar empties between taps), less Evasion's avoidance; 3 s a stun."""
+    from builder.search import bosses, boss_hits
+
+    weights = boss_hits.type_shares(bosses.DEFAULT)
+    stats = {"PhysicalTakenHit": 3000, "FireTakenHit": 100, "StunThreshold": 2000, "enemySkillTime": 0.7,
+             "_boss": bosses.DEFAULT}
+    unavoidable, evadable = boss_hits.shares(stats)
+    caught = 1 - math.exp(-0.55 * max(1 - unavoidable - evadable, 0.0) / 0.7)
+    share, how = recovery.raised_tap_heavy_stun(stats, 1.0, 0.25)
+    assert share == pytest.approx(0.25 * caught * weights["Physical"] * 3) and "Raise Shield tap" in how
+    assert recovery.raised_tap_heavy_stun({**stats, "EvadeChance": 50}, 1.0, 0.25)[0] == pytest.approx(share / 2)
+    assert recovery.raised_tap_heavy_stun(stats, 2.0 * 5, 0.25)[0] == 0.0  # (Dionadair-sized threshold: no full bar)
+    assert recovery.raised_tap_heavy_stun(stats, 1.0, 0.0) == (0.0, "")

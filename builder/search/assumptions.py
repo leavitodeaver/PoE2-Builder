@@ -1755,6 +1755,9 @@ class Assumptions:
                 "basis": how + f"; boss radius: {radius_how}",
                 "confidence": "HIGH (the 0.66 s cap) / MEDIUM (open arena: 1) / LOW (the walled row)",
                 "play": f"in an arena with walls your twisters bounce back: about {walled:.2f} hits a cast instead of 1"}]
+        if any(recovery_mod.SPRINT_LINE.search(t) for t in texts):  # (MECHC34, R26-22: the headline sprints 0; a row)
+            sprint = recovery_mod.sprint_row(texts, build.call("stats", fields=["MovementSpeedMod"]), boss)
+            hand_notes = hand_notes + ([sprint] if sprint else [])
         if main is not None and not main.triggered and {"Channel", "Cooldown"} <= set(main_types):
             # (MECHC33, GEM15's find: a channelled skill on a cooldown pays its per-minute cost only while channelled)
             kinds = ("Mana", "Life", "ES", "Rage")
@@ -1910,6 +1913,14 @@ class Assumptions:
             plan = models.raised_plan(found, raised_texts, metres, taps)  # (its taps are presses: the button cap's)
             if plan.taps > 0:
                 presses[models.RAISE_SHIELD] = (plan.taps, plan.how)
+                # (MECHC34, MECHC30's leftover (c): the taps' blocked hits can Heavy Stun you)
+                tap_stun, tap_how = recovery_mod.raised_tap_stun_of(build, plan.taps)
+                if main is not None and main.name != models.RAISE_SHIELD and tap_stun > 0:
+                    hand_mods = hand_mods + [models.line("1% more Attack and Cast Speed", -100 * tap_stun, skill=main.name)]
+                if tap_how:
+                    hand_notes = hand_notes + [{"label": "Heavy Stun on you from Raise Shield taps*",
+                                                "value": f"{tap_stun:.1%} of the fight", "basis": tap_how,
+                                                "confidence": "MEDIUM-LOW"}]
         setattr(build, models.ITEM_PRESSES, presses)
         roar_mods, roar_notes = models.roar_model(found, {**stats, "_texts": [e["text"] for e in source_lines]}, main)
         hand_mods, hand_notes = hand_mods + roar_mods, hand_notes + roar_notes

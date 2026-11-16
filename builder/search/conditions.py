@@ -58,6 +58,7 @@ EVIDENCE_FIELDS = [
     "ShockAvoidChance",  # (Overcharge's reflected Shocks, _self_shocked; MECH75)
     "LifeUnreserved",  # (Clash: the most Life % you fight at, _clash; MECH76)
     "FireDot",  # (the main skill's own Fire damage over time: the boss Burning, _enemy_burning; MECH80)
+    "TotemLife",  # (Warbringer's Wooden Wall: the nearest totem's Life, totem_life_before_you; MECHC34)
 ]
 RECENTLY = 4.0  # seconds ("Recently": the past 4 seconds)
 
@@ -1548,6 +1549,96 @@ def current_es_percent(lines: list[str], stats: dict) -> tuple[float, str]:
         f"fight, below full counted as empty: the lower reading for a defence, LOW); with the Energy Shield left below "
         f"full spread from 0 to full: {spread}%; PoB alone reads 100% (its placeholder, an OVERCOUNT before); overflow "
         f"above 100% not read. Full Energy Shield: {how}")
+
+
+# PoB's "# of times you have been Hit Recently" box (MECHC34; PATCH_CHECK MB-17): a "count" box with no placeholder, never
+# set, so "10% increased Stun Threshold for each time you've been Hit by an Enemy Recently, up to 100%" (the notable
+# Unbending; PoB: StunThreshold INC per Multiplier:BeenHitRecently, limit 100) read 0: an UNDERCOUNT of the Stun Threshold
+# the Heavy Stun model reads. Now the boss's landed hits a second x 4 s (boss_hits.gain_hits: a gain, so the worst case
+# reads the lowest real preset's rate; the mean count, MEDIUM). (checked: Stats ids holding hit_recently / been_hit with
+# per / each / time, their Mods and PassiveSkills users in game 26650308: Unbending's
+# stun_threshold_+%_for_each_time_hit_recently_up_to_100% is the one source; number_of_times_have_been_hit_recently has
+# no Mods / passive user; PoB's ModCache: line 1697 the one Multiplier:BeenHitRecently user.)
+HIT_RECENTLY_COUNT = re.compile(r"for each time you've been Hit by an Enemy Recently", re.I)
+
+
+def hits_recently(lines: list[str], stats: dict) -> tuple[float, str]:
+    """(PoB's times-Hit-Recently box, how) for a build with a per-time-Hit-Recently line."""
+    if not any(HIT_RECENTLY_COUNT.search(t) for t in lines):
+        return 0.0, ""
+    rate, how = boss_hits.gain_hits(stats)
+    count = round(rate * RECENTLY, 2)
+    return count, f"the boss's landed hits in the past {RECENTLY:g} s: {how} x {RECENTLY:g} s = {count:g} (MEDIUM)"
+
+
+# "if you have Shapeshifted to an Animal form Recently" / "... to Human form Recently" (MECHC34; PATCH_CHECK MB-8: the
+# Attack damage / Critical Hit chance / Stun buildup / Spell damage passives; PoB: Condition ShapeshiftToAnimal /
+# ShapeshiftToHuman, set only by its two config boxes, which the tool never set: an UNDERCOUNT, 0 before). Each shift
+# back to Human form (human_shifts, from the build's presses: MECHC21's model) is followed by a shift into the animal form
+# again (the main skill's next use, or the next press of the Shapeshift skill), so both shifts come at the same rate h a
+# second, evenly spaced (the cycle), and "Recently" (4 s) covers min(1, 4 h) of the fight (MEDIUM). With no shift back
+# (an animal main skill and no press that leaves the form) the one shift at the fight's start counts 0 (the literal
+# reading; LOW). A change from one animal form to another isn't read (as human_shifts).
+SHIFTED_ANIMAL_RECENTLY = re.compile(r"if you have Shapeshifted to an Animal form Recently", re.I)
+SHIFTED_HUMAN_RECENTLY = re.compile(r"if you have Shapeshifted to Human form Recently", re.I)
+# Dustbloom's Fragile Regrowth (MECHC34; PATCH_CHECK MB-13, an UNDERCOUNT): "Maximum 10 Fragile Regrowth", "0.5% of
+# maximum Life Regenerated per second per Fragile Regrowth", "10% increased Mana Regeneration Rate per Fragile Regrowth",
+# "Lose all Fragile Regrowth when Hit", "Gain 1 Fragile Regrowth each second" (PoB parses the two per-stack lines on its
+# "# of Fragile Regrowth Stacks" count box, never set before, so 0 stacks; the gain / loss / maximum lines it doesn't).
+# The stacks climb 1 a second from each landed boss hit (boss_hits.landing_hits: the defence pace, more hits, the lower
+# count for a gain lost on hits), capped at the maximum: with hits at random (Poisson, rate h) the mean is
+# E[min(t, M)] = (1 - e^(-h M)) / h (MEDIUM). Hits you evade or block don't count (not "Hit").
+FRAGILE_GAIN = re.compile(r"^Gain (\d+) Fragile Regrowth each second$", re.I)
+FRAGILE_MAX = re.compile(r"^Maximum (\d+) Fragile Regrowth$", re.I)
+FRAGILE_LOSE = re.compile(r"^Lose all Fragile Regrowth when Hit$", re.I)
+FRAGILE_DEFAULT_MAX = 10.0
+# Warbringer's Wooden Wall (MECHC34; PATCH_CHECK MD-6, an UNDERCOUNT of defence): "20% of Damage from Hits is taken from
+# your nearest Totem's Life before you" (PoB: TakenFromTotemsBeforeYou under Condition HaveTotem, on whenever the main
+# skill is a totem, CalcPerform 424-425; the pool is its "Total Totem Life" box, countAllowZero, never set: 0, so no hit
+# was ever taken by a totem, CalcDefence 488-489 / 3668). Now the box is the nearest totem's Life: PoB's TotemLife for a
+# totem main skill (one totem: "nearest"; MEDIUM). A totem the build presses beside a non-totem main skill isn't read (0).
+TOTEM_BEFORE_YOU = re.compile(r"of Damage from Hits is taken from your nearest Totem's Life before you", re.I)
+
+
+def fragile_regrowth(lines: list[str], stats: dict) -> tuple[float, str]:
+    """(PoB's Fragile Regrowth stacks box, how) for Dustbloom (the comment above FRAGILE_GAIN)."""
+    if not any(FRAGILE_GAIN.search(t) for t in lines):
+        return 0.0, ""
+    cap = max((float(m.group(1)) for t in lines if (m := FRAGILE_MAX.search(t))), default=FRAGILE_DEFAULT_MAX)
+    gain = sum(float(m.group(1)) for t in lines if (m := FRAGILE_GAIN.search(t)))
+    land = boss_hits.landing_hits(stats)
+    if not any(FRAGILE_LOSE.search(t) for t in lines) or land <= 0:
+        return cap, f"{cap:g} Fragile Regrowth (gained {gain:g} a second; nothing loses it)"
+    mean = min(cap, gain * (1 - math.exp(-land * cap / gain)) / land)
+    return round(mean, 2), (f"gained {gain:g} a second up to {cap:g}, all lost on each landed boss hit ({land:.2f}/s, at "
+                            f"random): {mean:.2f} on average (g (1 - e^(-h M / g)) / h; MEDIUM)")
+
+
+def totem_life_before_you(lines: list[str], stats: dict) -> tuple[float, str]:
+    """(PoB's Total Totem Life box, how) for a build with "taken from your nearest Totem's Life before you" (the comment
+    above TOTEM_BEFORE_YOU)."""
+    if not any(TOTEM_BEFORE_YOU.search(t) for t in lines):
+        return 0.0, ""
+    life = number(stats.get("TotemLife"))
+    if life <= 0:
+        return 0.0, ("the main skill isn't a totem, so PoB gives no totem Life (a pressed totem's isn't read: an "
+                     "undercount, UNVERIFIED how much); 0")
+    return round(life), (f"the nearest totem's Life, {life:,.0f} (PoB's TotemLife for the main skill: one totem, its "
+                         "Life once, a re-placed totem not counted; MEDIUM)")
+
+
+def shifted_recently(pattern: re.Pattern, form: str):
+    """value_fn for PoB's "Shapeshifted to <form> recently?" box: (True, how, share) or (0, how)."""
+    def read(lines: list[str], stats: dict) -> tuple:
+        if not any(pattern.search(t) for t in lines):
+            return 0.0, ""
+        shifts, how = stats.get("_human_shifts") or (0.0, "the build's shifts weren't read, 0")
+        share = min(1.0, RECENTLY * shifts)
+        if share <= 0:
+            return 0.0, f"no shift to {form} form after the fight's start: {how}"
+        return True, (f"shifted to {form} form Recently {share:.0%} of the fight ({shifts:.2f} shifts a second each way, "
+                      f"evenly spaced, x {RECENTLY:g} s; MEDIUM): {how}"), share
+    return read
 
 
 def full_life_uptime(lines: list[str], stats: dict) -> tuple[object, str, float] | tuple[float, str]:
@@ -5442,6 +5533,16 @@ CONDITIONS: list[Condition] = [
     Condition("onLeyline", "On a Leyline", value_fn=lambda lines, stats: leyline_uptime(lines, stats)),
     Condition("multiplierCurrentEnergyShield", "Current Energy Shield percentage (MECHC33)",
               value_fn=lambda lines, stats: current_es_percent(lines, stats), fields=()),
+    Condition("multiplierBeenHitRecently", "Times you've been Hit Recently (MECHC34, MB-17)",
+              value_fn=lambda lines, stats: hits_recently(lines, stats), fields=("EvadeChance", "enemySkillTime")),
+    Condition("multiplierFragileRegrowth", "Fragile Regrowth stacks (Dustbloom; MECHC34, MB-13)",
+              value_fn=fragile_regrowth, fields=("EvadeChance", "enemySkillTime")),
+    Condition("TotalTotemLife", "Totem Life taken before yours (Wooden Wall; MECHC34, MD-6)",
+              value_fn=totem_life_before_you, fields=("TotemLife",)),
+    Condition("conditionShapeshiftToAnimal", "Shapeshifted to an Animal form Recently (MECHC34, MB-8)",
+              value_fn=shifted_recently(SHIFTED_ANIMAL_RECENTLY, "an Animal"), fields=("Speed",)),
+    Condition("conditionShapeshiftToHuman", "Shapeshifted to Human form Recently (MECHC34, MB-8)",
+              value_fn=shifted_recently(SHIFTED_HUMAN_RECENTLY, "Human"), fields=("Speed",)),
     Condition("conditionFullEnergyShield", "On Full Energy Shield", value_fn=lambda lines, stats: full_es_uptime(lines, stats),
               fields=()),
     Condition("conditionFullLife", "On Full Life", value_fn=lambda lines, stats: full_life_uptime(lines, stats), fields=()),
@@ -6471,7 +6572,8 @@ class Conditions:
             for n in [n for n, u in rage_spend.items() if u is None]:
                 each = uses.get(n, self._chosen_use(n))
                 rage_spend[n] = RAGE_PER_USE[n] * each if n in RAGE_PER_USE else RAGE_PER_SECOND[n] * min(1.0, each)
-        if any(INVIGORATING_HATE.search(t) for t in texts):  # (MECHC21: shifts back to Human form, from the build's presses)
+        if any(INVIGORATING_HATE.search(t) or SHIFTED_ANIMAL_RECENTLY.search(t) or SHIFTED_HUMAN_RECENTLY.search(t)
+               for t in texts):  # (MECHC21: shifts back to Human form, from the build's presses; MECHC34: MB-8)
             stats["_human_shifts"] = self._human_shifts(number(stats.get("Speed")))
         if any(MINION_DIES.search(t) for t in texts):  # (MECHC7: "when a Minion Dies" lines, from the build's own sources)
             inputs = self._minion_inputs()

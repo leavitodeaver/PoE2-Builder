@@ -1173,6 +1173,50 @@ def channel_stun_of(build, main: str | None) -> tuple[float, float, str]:
 # during the buff). A stun at t s into the buff ends the buff there and costs 3 s.
 REFUTATION_THRESHOLD, REFUTATION_PER_10_WARD = 0.5, 0.05
 REFUTATION_BUFF_SECONDS = 4.0
+# Raise Shield taps (MECHC34; MECHC30's leftover (c)): Bastion of Light's taps (models.raised_plan: one tap of RAISE_TAP
+# 0.55 s per Blind duration, 4 s at base) raise the shield, which Blocks all Blockable hits, "but Blocking too much damage
+# may Heavy Stun you. You cannot Evade while your Shield is raised, but Evasion instead grants an equal chance to avoid this
+# Heavy Stun buildup" (ActiveSkills shield_block). The bar empties between taps (2 s delay, then 50% a second: empty 4 s
+# after a full bar; taps 4 s apart at base), so a tap stuns only on a blocked hit that fills the bar alone (as
+# parry_heavy_stun), threshold x2 with Dionadair (heavy_stun_scale raised). Hits within a tap: the Blockable share of the
+# boss's hits, one every enemySkillTime, at random (Poisson): P(one or more) = 1 - e^(-0.55 x rate). Each stun costs 3 s
+# of the main skill. Not counted: a stunned tap's lost Block and Evasion in the defence floors; shorter Blind durations
+# leaving bar between taps (LOW).
+RAISED_TAP_SECONDS = 0.55  # (= models.RAISE_TAP)
+
+
+def raised_tap_heavy_stun(stats: dict, scale: float, taps: float, tap: float = RAISED_TAP_SECONDS) -> tuple[float, str]:
+    """(share of the fight Heavily Stunned by Raise Shield taps, how): the comment above RAISED_TAP_SECONDS."""
+    from builder.search import boss_hits
+
+    if taps <= 0:
+        return 0.0, ""
+    buildups, how = heavy_buildups(stats, scale)
+    unavoidable, evadable = boss_hits.shares(stats)
+    evade, _ = boss_hits.evade_block(stats)
+    every = _num(stats.get("enemySkillTime")) or 0.7
+    blockable = max(1 - unavoidable - evadable, 0.0)
+    caught = 1 - math.exp(-tap * blockable / every)
+    full = sum(w for w, b in buildups if b >= 1)
+    chance = caught * full * (1 - evade)
+    share = min(1.0, taps * chance * PLAYER_HEAVY_STUN_SECONDS)
+    return share, (f"each {tap:g} s Raise Shield tap ({taps:.2f} a second) blocks a boss hit {caught:.0%} of the time "
+                   f"(the {blockable:.0%} that are Blockable, one hit every {every:g} s, at random); it Heavy Stuns you "
+                   f"when that hit fills the bar alone ({how}): {full:.0%} of the boss's hits do"
+                   + (f", less {evade:.0%} Evasion's chance to avoid the buildup" if evade > 0 else "")
+                   + f": {chance:.1%} of taps, {PLAYER_HEAVY_STUN_SECONDS:g} s each, {share:.1%} of the fight off the main "
+                   "skill (MEDIUM-LOW; the bar taken as empty at each tap)")
+
+
+def raised_tap_stun_of(build, taps: float) -> tuple[float, str]:
+    """(share of the fight Heavily Stunned by the build's Raise Shield taps, how) for Assumptions (models.raised_plan)."""
+    if taps <= 0:
+        return 0.0, ""
+    stats, support, texts = _heavy_stun_reads(build, "Raise Shield")
+    scale, what = heavy_stun_scale(texts, support, raised=True)
+    share, how = raised_tap_heavy_stun(stats, scale, taps)
+    how += _biggest_row(stats, lambda s: raised_tap_heavy_stun(s, scale, taps)[0], lambda v: f"{v:.1%} of the fight")
+    return share, how + (f" (threshold: {', '.join(what)})" if what else "")
 
 
 def refutation_heavy_stun(stats: dict, scale: float, buff: float = REFUTATION_BUFF_SECONDS) -> tuple[float, str]:
@@ -1273,3 +1317,108 @@ def twister_hits(stats: dict, boss_radius: float) -> tuple[float, float, str]:
         f"(twisters bouncing in a {TWISTER_ROAM:g} m roam space: LOW, a named assumption) {walled:.2f} a cast, at most "
         f"{k} ({duration:.2f} s / {TWISTER_INTERVAL:g} s + 1, shared by the {count:g} twister(s) of a cast); each hit rolls "
         f"your on-hit lines (on-hit charges x{walled:.2f} in that row; ASSUMED)")
+
+
+# Sprinting between boss attacks (MECHC34; RESEARCH26 R26-22, sprint-between-boss-attacks.md, ASSUMED MEDIUM for the
+# shape; MECHC33's scoping). HEADLINE: 0 sprint time: players sprint only to reposition (patch 0.3.0: sprint is made for
+# travel; it ends when you use a skill; a hit while sprinting knocks you down), so every "while Sprinting" line stays at 0
+# in the headline (PoB's Condition:Sprinting box is never set). A PLAY ROW only for a build carrying a sprint line (the
+# Evasion / Movement Speed "while Sprinting" passives, the Cultivated "(100-150)% increased Evasion Rating while
+# Sprinting", Running Assault, the boots Soul Cores Emergent Protection / Emergent Possibility / Carved Tenacity /
+# Guatelitzi's Thesis, the Rune of the Hunt) that can sprint: it sprints after each boss reposition, as such a build plays
+# to use them (CLAUDE.md's play-strategy rule):
+# - repositions a second: the preset's dash / leap / charge uses (bosses.MOVING_CEILING's skills, each off cooldown) plus
+#   one teleport skill off its shortest cooldown (RESEARCH22 #122's table): a CEILING (the AI also picks its many
+#   cooldown-0 skills), LOW; which Atziri phase owns which teleport is my reading (LOW); the King's 3 s TeleportFlee (a
+#   flee from a close player) left out; the worst-case preset reads the Arbiter of Ash's row (bosses.WORST's rule for
+#   MECH-C tables keyed by name), the highest of them.
+# - each reposition is crossed by sprinting SPRINT_GAP metres (the 6 m roam-space radius TWISTER_ROAM names: LOW) at
+#   3.7 m/s (Character.ot base_speed 37, MEDIUM) x (PoB's MovementSpeedMod + (50 + the build's "N% increased Movement
+#   Speed while Sprinting") / 100): Character.ot's sprint_movement_speed_+% = 50 (HIGH), added to the other increases as
+#   PoB adds the "while Sprinting" lines (MovementSpeed INC; the additive reading with PoB's "more" folded in: MEDIUM-LOW).
+# - the sprint share s = min(1, repositions/s x time a sprint) comes off the main skill (sprinting ends on any skill use).
+# - gains in the row: "N% increased Evasion Rating while Sprinting" on the boss hits landing in s; Emergent Protection's
+#   Guard = min(cap, N% x seconds sprinted) x (1 + "increased Guard gained") of maximum Life (the cap taken after the
+#   increase: the lower reading for a defence, UNVERIFIED; before it the other row) for its 4 s after each stop, covering
+#   min(1, repositions/s x 4 s) of the fight; "Cannot be Heavy Stunned while Sprinting", "Unaffected by Slows while
+#   Sprinting", Ward regeneration while sprinting: named. Costs: "Lose N% of maximum Life per second while Sprinting"
+#   (Guatelitzi's Thesis) per sprint, and s of main-skill time.
+# (checked: every Stats id holding "sprint" in game build 26650308 over Mods, PassiveSkills, GrantedEffectStatSets(+
+# PerLevel) and SoulCoreStats: the sources above, plus Ab Aeterno's Slows line and the "cannot_sprint" uniques; PoB's
+# ModCache: the Evasion / Movement Speed / Heavy Stun lines parse under Condition:Sprinting, the Guard, Ward, Life-loss and
+# Slows lines aren't parsed; `git grep -i sprint builder engine`: nothing read them before this; second source: the patch
+# notes 0.3.0 / 0.3.0c / 0.4.0 / 0.5.0 sprint entries and PoB's ModRunes.lua rows, which match the game text.)
+SPRINT_LINE = re.compile(r"\bSprint(?:ing|ed)?\b", re.I)
+CANNOT_SPRINT = re.compile(r"^(?:You cannot Sprint|Cannot Dodge Roll or Sprint)$", re.I)
+SPRINT_SPEED = re.compile(r"^(\d+(?:\.\d+)?)% increased Movement Speed while Sprinting$", re.I)
+SPRINT_EVASION = re.compile(r"^(\d+(?:\.\d+)?)% increased Evasion Rating while Sprinting$", re.I)
+SPRINT_GUARD = re.compile(r"^When you stop Sprinting, gain Guard equal to (\d+(?:\.\d+)?)% of maximum Life per second "
+                          r"spent Sprinting, up to a maximum of (\d+(?:\.\d+)?)%, for (\d+(?:\.\d+)?) seconds$", re.I)
+GUARD_GAINED = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) Guard gained$", re.I)
+SPRINT_LIFE_LOSS = re.compile(r"^Lose (\d+(?:\.\d+)?)% of maximum Life per second while Sprinting$", re.I)
+SPRINT_NAMED = (("Cannot be Heavy Stunned while Sprinting", "no Heavy Stun from hits while sprinting"),
+                ("Your speed is Unaffected by Slows while Sprinting", "Slows don't slow the sprint"),
+                ("Runic Ward Regeneration Rate while Sprinting", "faster Runic Ward regeneration while sprinting"))
+SPRINT_BASE_SPEED, SPRINT_OWN_INC, SPRINT_GAP = 3.7, 50.0, 6.0
+SPRINT_REPOSITIONS: dict[str, tuple[float, str]] = {  # uses a second, each skill off cooldown (a ceiling, LOW)
+    "Arbiter of Ash": (0.55, "Dash Slash x3 / Jump Slam Combo 0.45 + Teleport 10 s"),
+    "Arbiter of Divinity": (0.089, "Swoop Slam / Blink Slam 0.06 + Storm Blink 35 s"),
+    "Xesht, We That Are One": (0.1, "Teleport 10 s"),
+    "The King in the Mists": (0.197, "four dashes on one 6 s timer, first form (0.072) + Teleport 8 s"),
+    "Zarokh, the Temporal": (0.133, "teleport 7.5 s"),
+    "The Raven Trickster": (0.125, "teleport 8 s"),
+    "The Bodach": (0.067, "Reposition (burrow) 15 s"),
+    "Olroth, Origin of the Fall": (0.25, "three dashes, 12 s each"),
+    "The Aberration": (0.214, "three leaps, 14 s each"),
+    "Vessel of Kulemak": (0.09, "Head Charge 20 s + Teleport Slam 25 s"),
+    "Atziri, the Red Queen": (0.117, "Lightning Dash 20 s + Blood Warp 15 s (phase owner: LOW)"),
+    "Atziri, the Fell Serpent": (0.258, "Beast Dash 12 s, Dash Arc 8 s + Beast Teleport 20 s (phase owner: LOW)"),
+}
+
+
+def sprint_row(texts: list[str], stats: dict, boss: str) -> dict | None:
+    """The play guide's optional sprint row (a note dict) for a build with a sprint line, else None. The headline keeps
+    0 sprint time."""
+    lines = [t.strip() for t in texts]
+    if not any(SPRINT_LINE.search(t) and not CANNOT_SPRINT.match(t) for t in lines):
+        return None
+    head = ("headline: no time sprinting (players sprint only to reposition: patch 0.3.0 made sprint for travel, it "
+            "ends on any skill use and a hit knocks you down; RESEARCH26 R26-22, MEDIUM), so your 'while Sprinting' "
+            "lines count 0 in every number")
+    if any(CANNOT_SPRINT.match(t) for t in lines):
+        return {"label": "Sprinting to reposition (a play row)*", "value": "0 (you can't sprint)",
+                "basis": head + "; you can't sprint (Unwavering Stance or 'You cannot Sprint'), so no row",
+                "confidence": "HIGH"}
+    reps, reps_how = SPRINT_REPOSITIONS.get(boss) or SPRINT_REPOSITIONS["Arbiter of Ash"]
+    who = boss if boss in SPRINT_REPOSITIONS else f"{boss} (the Arbiter of Ash's row, the highest)"
+    inc = SPRINT_OWN_INC + sum(float(m.group(1)) for t in lines if (m := SPRINT_SPEED.match(t)))
+    speed = SPRINT_BASE_SPEED * ((_num(stats.get("MovementSpeedMod")) or 1.0) + inc / 100)
+    each = SPRINT_GAP / speed
+    share = min(1.0, reps * each)
+    gains, costs = [], [f"{share:.1%} of the fight off your main skill (sprinting ends on any skill use)"]
+    evasion = sum(float(m.group(1)) for t in lines if (m := SPRINT_EVASION.match(t)))
+    if evasion:
+        gains.append(f"{evasion:g}% increased Evasion Rating on the boss hits landing in that {share:.1%}")
+    guard_inc = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+                    for t in lines if (m := GUARD_GAINED.match(t)))
+    for t in lines:
+        if m := SPRINT_GUARD.match(t):
+            per, cap, last = float(m.group(1)), float(m.group(2)), float(m.group(3))
+            low = min(cap, per * each * (1 + guard_inc / 100))
+            high = min(cap, per * each) * (1 + guard_inc / 100)
+            other = (f" (the cap taken after 'increased Guard gained': UNVERIFIED; before it {high:.1f}%)"
+                     if abs(high - low) > 0.05 else "")
+            gains.append(f"Guard of {low:.1f}% of maximum Life for {last:g} s after each sprint{other}, up "
+                         f"{min(1.0, reps * last):.0%} of the fight")
+        if m := SPRINT_LIFE_LOSS.match(t):
+            costs.append(f"{float(m.group(1)) * each:.1f}% of maximum Life lost each sprint")
+    gains += [what for line, what in SPRINT_NAMED if any(line.lower() in t.lower() for t in lines)]
+    how = (f"{head}. Row: you sprint {SPRINT_GAP:g} m (a named roam space, LOW) after each boss reposition, {reps:g} a "
+           f"second against {who} ({reps_how}; each off cooldown: a ceiling, LOW), at {speed:.1f} m/s (3.7 m/s x "
+           f"(MovementSpeedMod + {inc:g}% sprint increases), MEDIUM-LOW): {each:.2f} s a sprint, {share:.1%} of the "
+           f"fight. Gains: {'; '.join(gains) or 'none modelled'}. Costs: {'; '.join(costs)}")
+    return {"label": "Sprinting to reposition (a play row)*", "value": f"0 headline ({share:.1%} in the row)",
+            "basis": how, "confidence": "MEDIUM (the 0 headline) / LOW (the row)",
+            "play": (f"without it: you never sprint and the sprint lines do nothing; with it: sprint to each spot the "
+                     f"boss moves to ({each:.2f} s, {share:.1%} of the fight off your main skill)"
+                     + (f", gaining {'; '.join(gains)}" if gains else ""))}
