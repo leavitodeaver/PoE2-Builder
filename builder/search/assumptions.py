@@ -1662,6 +1662,10 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + early_mods, hand_notes + early_notes
         count_mods, count_notes = models.hazard_count_model(main, stats)  # (MECHB33: a use's hazards on the boss)
         hand_mods, hand_notes = hand_mods + count_mods, hand_notes + count_notes
+        comp_mods, comp_notes = self.companions(skills, [e["text"] for e in source_lines], main)  # (MECHB33: the limit)
+        hand_mods, hand_notes = hand_mods + comp_mods, hand_notes + comp_notes
+        zarokh_mods, zarokh_notes = models.zarokh_model(main, supports.get(main.group, []) if main else [], stats)  # (MECHB33)
+        hand_mods, hand_notes = hand_mods + zarokh_mods, hand_notes + zarokh_notes
         hand_notes = hand_notes + models.channel_windup_note(main)  # (MECH-B: a channel's wind-up, labelled, not counted)
         if main is not None and main.name == models.ORB_OF_STORMS and main.group is not None:  # (MECH-B: its recast
             # bolt, labelled; MECHB29: its bolts, frequency and duration from its own useRates row)
@@ -2253,9 +2257,11 @@ class Assumptions:
         stats = self.build.call("stats", fields=list(LIVING_BOMB_FIELDS))
         added = number(getattr(getattr(self.build, "objective", None), "added_dps", 0.0))
         feed = per_second(stats) + max(added, 0.0)
-        rate, how = models.untether_rate(need, feed, hit, seeds, duration, casts)
-        one, _ = models.untether_rate(need, feed, hit, 1.0, duration, casts)  # (MECHB33, the manager 20:28: both cases)
-        how += f"; one seed per enemy (UNVERIFIED either way): {one:.3f}/s"
+        # (MECHB33; RESEARCH26 mechb33-hazards-untether-r26.md: one seed per enemy is the headline, the lower case, so no
+        # overcount on an unverified reading; several seeds on the boss is the other row)
+        rate, how = models.untether_rate(need, feed, hit, 1.0, duration, casts)
+        several, _ = models.untether_rate(need, feed, hit, seeds, duration, casts)
+        how += f" (one seed per enemy, UNVERIFIED either way); if {seeds:g} seeds can sit on the boss: {several:.3f}/s"
         return models.PressCap(rate, f"Untether: {how}", 0.0, "MEDIUM")
 
     def glory_caps(self) -> dict[str, tuple[float, str]]:
@@ -2440,6 +2446,53 @@ class Assumptions:
                            "explode within its duration: Living Bomb deals nothing here"),
                   "confidence": "game files' rule and 0.3.0's note; UNVERIFIED as labelled"}])
 
+    def companions(self, skills: list[dict], texts: list[str], main: "models.Skill | None") -> tuple[list[dict], list[dict]]:
+        """(MECH-B, MECHB33) The Companion limit (models.companion_limit / companion_plan): the build's Companion groups
+        past its limit deal nothing, and the per-different-Companion line reads the kept count. Each group's Full DPS
+        share is PoB's Full DPS with and without the group in it (put back after)."""
+        groups = {}
+        for s in skills:
+            if not s.get("companion") or s.get("disabled") or s.get("group") is None or s["name"] in models.COMPANION_FREE:
+                continue
+            kind, names = groups.get(s["group"], (None, []))
+            if kind is None or s["name"].startswith("Companion:"):  # (Tame Beast's beast names the type)
+                kind = s["name"]
+            groups[s["group"]] = (kind, names + [s["name"]])
+        enabled = {g["index"]: g for g in self.build.groups() if g["enabled"]}
+        groups = {i: v for i, v in groups.items() if i in enabled}
+        limit, raiser = models.companion_limit(texts)
+        rows = []
+        if len(groups) > 1:
+            full = number(self.build.call("stats", fields=["FullDPS"]).get("FullDPS"))
+            for index, (kind, _) in groups.items():
+                share = 0.0
+                if enabled[index].get("fullDPS"):
+                    off = self.build.call("setGroup", index=index, fullDPS=False, fields=["FullDPS"])["stats"]
+                    self.build.call("setGroup", index=index, fullDPS=True, fields=[])
+                    share = max(full - number(off.get("FullDPS")), 0.0)
+                rows.append((index, kind, share, main is not None and main.group == index))
+        else:
+            rows = [(i, k, 0.0, True) for i, (k, _) in groups.items()]
+        kept, dropped = models.companion_plan(rows, limit)
+        mods, notes = models.companion_per_type_model(texts, len(kept))
+        if dropped:
+            for index in dropped:
+                mods += [models.line("Minions deal 1% more Damage", -100, skill=name) for name in groups[index][1]]
+            names = ", ".join(groups[i][0] for i in dropped)
+            notes.append({"label": "Companion limit: Companions past it deal nothing*", "value": len(dropped),
+                          "basis": f"{len(groups)} Companion groups, limit {limit:g} ({raiser}), one per type: kept "
+                                   f"{', '.join(groups[i][0] for i in kept)}; not counted: {names} (PoB has no limit and "
+                                   "counted them; their buffs aren't removed, a small overcount where they carry one)",
+                          "play": (f"Only {limit:g} Companion(s) of different types can be out: without a raiser "
+                                   f"{names} can't be summoned. A limit raiser (Trusted Kinship, Yriel's Fostering, "
+                                   "Sylvan's Effigy) would allow more"),
+                          "confidence": "HIGH (the limit, KeywordPopups); MEDIUM (which skills count, what a type is)"})
+        elif len(groups) > 1:
+            notes.append({"label": "Companions within the limit", "value": len(kept),
+                          "basis": f"{len(kept)} Companions of different types, allowed by {raiser}",
+                          "confidence": "HIGH"})
+        return mods, notes
+
     def untether_inputs(self, index: int | None) -> tuple[float, float, float, float, float, float]:
         """(MECH-B, MECHB32) Untether's (need, seeds, duration, hit, casts/s, PoB's TotalDPS) for its group `index`:
         need = its threshold % of PoB's EnemyAilmentThreshold; seeds, threshold from its level stats (models.UNTETHER_STATS,
@@ -2477,10 +2530,11 @@ class Assumptions:
         hit = hits / number(stats.get("Speed")) if number(stats.get("Speed")) > 0 else 0.0
         added = number(getattr(getattr(self.build, "objective", None), "added_dps", 0.0))
         feed = max(number(stats.get("FullDPS")) - hits, 0.0) + max(added, 0.0)
-        rate, how = models.untether_rate(need, feed, hit, seeds, duration, speed)
-        one, _ = models.untether_rate(need, feed, hit, 1.0, duration, speed)  # (MECHB33, the manager 20:28: both cases)
-        how += (f"; if only one seed can sit on the boss (UNVERIFIED either way): {one:.3f} explosions/s"
-                + (f", {one / speed:.1%} of PoB's casts" if speed > 0 else ""))
+        # (MECHB33; RESEARCH26: one seed per enemy is the headline, the lower case; several seeds the other row)
+        rate, how = models.untether_rate(need, feed, hit, 1.0, duration, speed)
+        several, _ = models.untether_rate(need, feed, hit, seeds, duration, speed)
+        how += (f" (one seed per enemy, UNVERIFIED either way); if {seeds:g} seeds can sit on the boss: {several:.3f} "
+                "explosions/s" + (f", {min(1.0, several / speed):.1%} of PoB's casts" if speed > 0 else ""))
         share = max(rate / speed, LIVING_BOMB_FLOOR) if speed > 0 else 1.0
         self.untether_speed = share
         if share >= 1.0:
@@ -2488,12 +2542,13 @@ class Assumptions:
         return ([models.line("1% more Attack and Cast Speed", -100 * (1 - share), skill=models.UNTETHER)],
                 [{"label": "Untether: one explosion per seed filled*", "value": f"{share:.1%} of PoB's casts",
                   "basis": how + " (PoB counts an explosion every cast)",
-                  "play": ((f"plant seeds as fast as they explode (up to {seeds:g} at once); the build's other damage sets "
-                            f"how fast they fill. Several seeds on the boss: {share:.1%} of PoB's casts explode; one seed "
-                            f"per enemy: {min(1.0, one / speed) if speed > 0 else 0.0:.1%} (which holds is UNVERIFIED)")
+                  "play": ((f"plant a new seed as each one explodes; the build's other damage sets how fast it fills. "
+                            f"One seed per enemy (counted): {share:.1%} of PoB's casts explode; if several seeds (up to "
+                            f"{seeds:g}) can sit on the boss: {min(1.0, several / speed) if speed > 0 else 0.0:.1%} "
+                            "(which holds is UNVERIFIED)")
                            if rate > 0 else "the build's other damage is too low for a seed to explode within its "
                            "duration: Untether deals nothing here"),
-                  "confidence": "MEDIUM (game files' stats; several seeds on the one boss UNVERIFIED)"}])
+                  "confidence": "MEDIUM (game files' stats); one seed per enemy taken, the lower case (UNVERIFIED)"}])
 
     def wanted(self) -> tuple[list[dict], list[dict]]:
         skills = self.build.call("activeSkills", levelStats=[

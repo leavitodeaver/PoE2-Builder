@@ -1403,22 +1403,24 @@ def test_cast_on_minion_death_gains_energy_only_from_minions_the_build_kills():
     # Sacrifice: each corpse use takes a zombie: 6 x 2 / (6 + 7.5 x 2) = 0.571/s
     sacrifice = models.Skill("Sacrifice")
     rate, how = models.minion_deaths([zombies, sacrifice, main], main, {"Speed": 2.0})
-    assert rate == pytest.approx(6 * 2 / (6 + 7.5 * 2)) and "UNVERIFIED" in how
+    assert rate == pytest.approx(6 * 2 / (6 + 7.5 * 2)) and "R26-68" in how
     energy, basis = models.energy_gain("Cast on Minion Death", {"_minion_deaths": (rate, how)}, "Detonate Dead")
     assert energy == pytest.approx(50 * rate) and "100% relative Power assumed" in basis
     assert models.energy_gain("Cast on Minion Death", {"_minion_deaths": (0.0, "x")}, "Spark")[0] == 0.0
     assert models.energy_gain("Cast on Minion Death", {}, "Spark")[0] == 0.0
     # MECHB2: Sacrifice's 40% slower revival (PoB's MinionRevivalSpeed x0.6, which the bridge reports); MECHB5 (AUDIT15
-    # A15-2): on the skill's own 12 s base: 12 / 0.6 = 20 s, with the constant's 7.5 / 0.6 = 12.5 s beside it
+    # A15-2): MECHB33 (RESEARCH26 R26-12, a GGG staff post): the constant's 7.5 / 0.6 = 12.5 s, the skill's own 12 s
+    # base (12 / 0.6 = 20 s) beside it
     slow = models.Skill("Raise Zombie", summon={"limit": 6, "duration": 0, "persistent": True, "undead": True,
                                                 "reviveSpeed": 0.6, "reviveBase": 12})
     rate, how = models.minion_deaths([slow, sacrifice, main], main, {"Speed": 2.0})
-    assert rate == pytest.approx(6 * 2 / (6 + 20 * 2)) and "12.5 s" in how and "base 12 s" in how and "20 s" in how
+    assert rate == pytest.approx(6 * 2 / (6 + 12.5 * 2)) and "12.5 s" in how and "base 7.5 s" in how and "20 s" in how
     # a skill with its own 12 s beside one without (the Infernal Hound, the djinns: 7.5 s): the count-weighted mean
     own = models.Skill("Raise Zombie", summon={"limit": 6, "duration": 0, "persistent": True, "undead": True,
                                                "reviveBase": 12})
     hound = models.Skill("Summon Infernal Hound", summon={"limit": 2, "duration": 0, "persistent": True})
-    assert models.revive_seconds([own, hound])[0] == pytest.approx((6 * 12 + 2 * 7.5) / 8)
+    assert models.revive_seconds([own, hound])[0] == pytest.approx(7.5)  # (MECHB33: the constant for all)
+    assert "(10.9 s, PoB's BaseReviveTime) instead: 10.9 s" in models.revive_seconds([own, hound])[1]
     assert models.revive_seconds([hound])[0] == 7.5
     # Explosive Demise: one of the other minions every 3 s / cooldown recovery
     arsonist = models.Skill("Skeletal Arsonist Minion", cooldown_recovery=1.5,
@@ -2888,7 +2890,8 @@ def test_a_side_orb_of_storms_fires_a_bolt_for_each_main_spell_cast_up_to_its_ma
 
 def test_danse_macabre_needs_a_second_skeleton_per_offering_cast():
     """MECHB6 (RESEARCH22 #133): each Danse Macabre Offering uses 2 skeletons and gives nothing without the second; the
-    build's skeletons revive 12 s after the last use, so 4 skeletons keep Pain Offering (6 s) up 12 s of every 18 s."""
+    build's skeletons revive 7.5 s after the last use (MECHB33: the game constant, RESEARCH26 R26-12; was 12 s), so 4
+    skeletons keep Pain Offering (6 s) up 12 s of every 13.5 s."""
     pain = Skill("Pain Offering", group=3, spell=True)
     supports = {3: ["Danse Macabre"]}
     one = Skill("Skeletal Warrior", group=1, summon={"limit": 1, "persistent": True, "duration": 0, "reviveBase": 12})
@@ -2896,13 +2899,13 @@ def test_danse_macabre_needs_a_second_skeleton_per_offering_cast():
     assert {m["value"] for m in mods} == {-100} and notes[0]["value"] == "0%"
     four = replace(one, summon={"limit": 4, "persistent": True, "duration": 0, "reviveBase": 12})
     mods, notes = models.danse_macabre_model([pain, four], supports)
-    assert notes[0]["value"] == "67%" and all(m["value"] == pytest.approx(-100 / 3, abs=0.01) for m in mods)
+    assert notes[0]["value"] == "89%" and all(m["value"] == pytest.approx(-100 / 9, abs=0.01) for m in mods)
     assert models.danse_macabre_model([pain, four], {3: []}) == ([], [])
     many = replace(one, summon={"limit": 8, "persistent": True, "duration": 0, "reviveBase": 12})
-    assert models.danse_macabre_model([pain, many], supports)[1][0]["value"] == "80%"  # (each use resets the revive)
-    quick = replace(one, summon={"limit": 2, "persistent": True, "duration": 0, "reviveBase": 6})
-    mods, notes = models.danse_macabre_model([pain, quick], supports)
-    assert mods == [] and notes[0]["value"] == "100%"
+    assert models.danse_macabre_model([pain, many], supports)[1][0]["value"] == "94%"  # (each use resets the revive)
+    two = replace(one, summon={"limit": 2, "persistent": True, "duration": 0, "reviveBase": 12})
+    mods, notes = models.danse_macabre_model([pain, two], supports)
+    assert notes[0]["value"] == "80%" and all(m["value"] == pytest.approx(-20.0, abs=0.01) for m in mods)
 
 
 def test_coursing_current_is_noted_as_zero_on_a_lone_boss():
@@ -3539,9 +3542,16 @@ def test_sacrifice_supplies_corpses_at_the_builds_own_undead_minion_deaths():
     skills = [skeletons, sacrifice, detonate]
     deaths, _ = models.minion_deaths(skills, detonate, stats)
     rate, how = models.sacrifice_corpses(skills, detonate, stats)
-    revive = 12 / 0.6
+    revive = 7.5 / 0.6  # (MECHB33: the game constant, RESEARCH26 R26-12; the skill's own 12 s in the note)
     assert rate == pytest.approx(deaths) == pytest.approx(6 * 1.0 / (6 + revive * 1.0))
-    assert "LOW" in how and "Without Sacrifice: 0" in how
+    assert "MEDIUM-HIGH" in how and "Without Sacrifice: 0" in how
+    # MECHB33 (RESEARCH26 R26-68): Sacrifice uses a LIVING minion, so Minion Pact's deaths leave no corpse: with Pact on
+    # the corpse skill the deaths rise, the corpses are only the corpse skill's own uses' share of them
+    pact = replace(detonate, support_stats={models.MINION_PACT_STAT: 100})
+    with_pact = [skeletons, sacrifice, pact]
+    all_deaths, _ = models.minion_deaths(with_pact, pact, {**stats, "Life": 1000, "_minion_lives": {"Summon Skeletal Warriors": 500}})
+    corpses, why = models.sacrifice_corpses(with_pact, pact, {**stats, "Life": 1000, "_minion_lives": {"Summon Skeletal Warriors": 500}})
+    assert 0 < corpses < all_deaths and "leave no corpse" in why
     full = {**stats, models.SACRIFICE_CORPSES_STAT: (rate, how)}
     assert models.corpse_supply({"Sacrifice"}, full) == pytest.approx(rate)
     assert models.corpse_supply(set(), full) == 0.0  # (Sacrifice not in the build: its key isn't read)
@@ -3549,11 +3559,12 @@ def test_sacrifice_supplies_corpses_at_the_builds_own_undead_minion_deaths():
     rates = {m["skill"]: m["value"] for m in mods if m["key"] == "triggerRate"}
     assert rates == {"Detonate Dead": pytest.approx(rate, abs=1e-3)} and "Sacrifice" in notes[0]["basis"]
     assert notes[0]["confidence"].startswith("LOW")
-    # (half the Reviving minions undead: half the deaths are corpses)
+    # (MECHB33: half the Reviving minions undead: only the 6 undead ones are used, capped by their own revival)
     hounds = models.Skill("Summon Infernal Hound", group=5, summon={"limit": 6, "persistent": True})
     both = skills + [hounds]
-    assert models.sacrifice_corpses(both, detonate, stats)[0] == pytest.approx(
-        models.minion_deaths(both, detonate, stats)[0] / 2)
+    t = models.revive_seconds([skeletons, hounds])[0]
+    assert models.sacrifice_corpses(both, detonate, stats)[0] == pytest.approx(min(
+        models.minion_deaths(both, detonate, stats)[0], 6 * 1.0 / (6 + t * 1.0)))
     # (nothing kills them: the main skill doesn't use corpses; no undead minions; no Sacrifice)
     spark = models.Skill("Spark", group=1, spell=True)
     assert models.sacrifice_corpses([skeletons, sacrifice, spark], spark, stats)[0] == 0.0
@@ -5464,3 +5475,37 @@ def test_hazards_on_the_boss_per_use_come_from_the_field_and_the_boss_footprint(
     texts = ["10% increased Damage for each Hazard triggered Recently, up to 50%"]
     mods, notes = models.escalating_mayhem_model(texts, {"Speed": 0.2, "AreaOfEffectRadius": 60}, spear, {})
     assert mods[0]["scale"] == pytest.approx(min(50.0, 10 * 0.2 * count * 4))
+
+
+def test_companion_limit_is_one_unless_a_raiser_line_allows_more_of_different_types():
+    """MECHB33 (RESEARCH26 R26-11; the user via the manager 21:50): one Companion by default; "You can have two
+    Companions of different types" (Trusted Kinship, Yriel's Fostering) 2; "... any number ..." (Sylvan's Effigy) all,
+    one per type. The main skill's group first, then by Full DPS share."""
+    assert models.companion_limit([])[0] == 1.0
+    assert models.companion_limit(["You can have two Companions of different types"])[0] == 2.0
+    both = ["You can have two Companions of different types"] * 2
+    assert models.companion_limit(both)[0] == 2.0  # (Kinship + Yriel's: 2, not 3, UNVERIFIED)
+    assert models.companion_limit(["You can have any number of Companions of different types"])[0] == math.inf
+    rows = [(1, "Wolf Pack", 50.0, False), (2, "Summon Infernal Hound", 80.0, False), (3, "Companion: Bear", 20.0, True)]
+    assert models.companion_plan(rows, 1.0) == ([3], [2, 1])  # (the main skill's group kept first)
+    assert models.companion_plan(rows, 2.0) == ([3, 2], [1])
+    same = [(1, "Companion: Bear", 50.0, False), (2, "Companion: Bear", 80.0, False)]
+    assert models.companion_plan(same, math.inf) == ([2], [1])  # (one per type)
+    mods, notes = models.companion_per_type_model(["8% increased Damage per each different Companion in your Presence"], 2)
+    assert mods == [models.line("1% increased Damage", 16.0)] and notes[0]["confidence"] == "MEDIUM"
+    assert models.companion_per_type_model(["8% increased Damage"], 2) == ([], [])
+
+
+def test_zarokhs_revolt_breaks_every_seal_gained_in_its_cooldown_each_cast():
+    """MECHB33 (probe POE2T3234): PoB's Seal bonus for Spark (0.7 s, SealCooldown 0.35 s, CastRate 1.4286) is 1 +
+    round(1 / 0.35 / (1.4286 x 1.1) x 0.8, 2) = 2.45 hits a cast; one cast per 10.03 s cooldown breaks all 5 Seals:
+    1 + 5 x 0.8 = 5."""
+    spark = Skill("Spark", group=1, spell=True)
+    stats = {"SealCooldown": 0.35, "SealMax": 5, "Cooldown": 10.032, "CastRate": 1.4285714}
+    mods, notes = models.zarokh_model(spark, ["Zarokh's Revolt"], stats)
+    assert mods == [models.raw_mod("DPS", "MORE", (5 / 2.45 - 1) * 100, skill="Spark")]
+    assert "wait for Max Seals" in notes[0]["play"]
+    short = {**stats, "Cooldown": 1.05}  # (a cooldown shorter than 5 Seals' fill: 3 Seals)
+    assert models.zarokh_model(spark, ["Zarokh's Revolt"], short)[0][0]["value"] == pytest.approx(
+        ((1 + 3 * 0.8) / 2.45 - 1) * 100, abs=0.01)
+    assert models.zarokh_model(spark, [], stats) == ([], [])

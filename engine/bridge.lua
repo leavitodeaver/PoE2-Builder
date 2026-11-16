@@ -4118,6 +4118,8 @@ function bridge.activeSkills(args)
 			minionConsumes = minionConsumes(activeSkill),
 			-- it summons minions (assumptions.NEEDS_MINIONS: Grim Feast's Remnants come from their deaths)
 			minions = types[SkillType.CreatesMinion] and true or nil,
+			-- (MECHB33) a Companion skill (the game's Companion / CreatesCompanion types): models.companion_plan's limit
+			companion = (types[SkillType.Companion] or types[SkillType.CreatesCompanion]) and true or nil,
 			-- current PoB keeps the flags on the stat set (activeSkill.skillFlags is v0.23's)
 			disabled = (activeSkill.skillFlags or (activeSkill.activeEffect.statSet or { }).skillFlags or { }).disable or false,
 			-- for the custom models: what kind of skill, its base cast time, its group, and

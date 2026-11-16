@@ -777,23 +777,27 @@ def own_uses(main: Skill | None, stats: dict) -> tuple[float, str]:
     return number(stats.get("Speed")), "PoB's Speed"
 
 
-def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict) -> tuple[float, str]:
+def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict,
+                  sacrifice_only: bool = False) -> tuple[float, str]:
     """Your Persistent, Reviving minions Killed per second against a boss, from the build's own sources (see above), capped
-    by their revival (N r / (N + revive r: revive_seconds)), and how. 0 with a note when nothing in the build kills them."""
+    by their revival (N r / (N + revive r: revive_seconds)), and how. 0 with a note when nothing in the build kills them.
+    `sacrifice_only` (MECHB33, R26-68): only the deaths that are the corpse skill's own uses with Sacrifice, their share
+    of the capped total (the other sources still take minions off the field)."""
     names = {s.name for s in skills}
     reviving = [s for s in skills if s.summon and s.summon.get("persistent") and not number(s.summon.get("duration"))]
     count = sum(number(s.summon.get("limit")) for s in reviving)
     if count <= 0:
         return 0.0, "the build has no Persistent minions to be Killed (temporary minions expiring aren't Killed)"
-    kills, parts = 0.0, []
+    kills, parts, sacrificed = 0.0, [], 0.0
     if SACRIFICE in names and main is not None and main.corpses:
         undead = sum(number(s.summon.get("limit")) for s in reviving if s.summon.get("undead"))
         uses, source = own_uses(main, stats)
         if undead > 0 and uses > 0:
             kills += uses
-            parts.append(f"Sacrifice: {main.name} uses one of your {undead:g} undead minions as its corpse each use "
-                         f"({uses:.2f} uses/s, {source}; one corpse per use assumed; that it is Killed is UNVERIFIED, "
-                         "LOW)")
+            sacrificed = uses
+            parts.append(f"Sacrifice: {main.name} uses one of your {undead:g} living undead minions as its corpse each use "
+                         f"({uses:.2f} uses/s, {source}; one corpse per use; RESEARCH26 R26-68: a living minion, consumed, "
+                         "that revives later, MEDIUM-HIGH)")
     pact = number(main.support_stats.get(MINION_PACT_STAT)) if main is not None else 0.0
     if pact > 0 and number(stats.get("Speed")) > 0:
         uses = number(stats.get("Speed"))
@@ -822,6 +826,15 @@ def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict) -> tuple
     if defaults:  # (AUDIT29 A29-2: no count stat in the game files or PoB)
         how += (f"; {', '.join(defaults)}: one minion each (no count stat in the game files or PoB; UNVERIFIED, an "
                 "undercount if a gem summons more)")
+    if sacrifice_only:
+        undead = sum(number(s.summon.get("limit")) for s in reviving if s.summon.get("undead"))
+        cap = undead * sacrificed / (undead + revive * sacrificed) if sacrificed > 0 else 0.0  # (only undead ones used)
+        used = min(rate * sacrificed / kills, cap)
+        others = [p for p in parts if not p.startswith("Sacrifice")]
+        return used, (f"{used:.3f} corpses a second: " + "; ".join(p for p in parts if p.startswith("Sacrifice"))
+                      + f", capped by the {undead:g} undead minions' revival and their share of all {rate:.3f} deaths a "
+                      "second" + (f" (the others leave no corpse: {'; '.join(others)})" if others else "")
+                      + f"; each revives {revive:.3g} s after the last death ({how})")
     return rate, (f"{rate:.3f} of your {count:g} Reviving minions Killed per second: " + "; ".join(parts)
                   + f"; each revives {revive:.3g} s after the last death (KeywordPopups Reviving: the delay "
                     f"resets on each death; {how}), so {count:g} x {kills:.2f} / ({count:g} + {revive:.3g} x {kills:.2f}); "
@@ -847,17 +860,20 @@ def revive_seconds(reviving: list[Skill]) -> tuple[float, str]:
     total = sum(w for w, _, _ in rows)
     if total <= 0:
         rows, total = [(1.0, RESUMMON_SECONDS, 1.0)], 1.0
-    seconds = sum(w * b / v for w, b, v in rows) / total
-    constant = sum(w * RESUMMON_SECONDS / v for w, _, v in rows) / total
+    # (MECHB33; RESEARCH26 R26-12, cast-on-minion-death-power-r26.md: Mark_GGG, forum 3788466, 9 Jun 2025, minions revive
+    # at "12.5% (1/8th) of a revive per second"; a player timed 8 s, a Feb 2025 thread 8 s, nobody reports 12 s. So the
+    # game constant 7.5 s is the headline (MEDIUM), the skills' own 12 s base the other row.)
+    own = sum(w * b / v for w, b, v in rows) / total
+    seconds = sum(w * RESUMMON_SECONDS / v for w, _, v in rows) / total
     base = sum(w * b for w, b, _ in rows) / total
-    speed = base / seconds if seconds else 1.0
+    speed = RESUMMON_SECONDS / seconds if seconds else 1.0
     if abs(base - RESUMMON_SECONDS) > 1e-6:
-        bases = (f"base {base:.3g} s, the skills' own minion_base_resummon_time_ms (PoB's BaseReviveTime); "
-                 f"{constant:.3g} s with the game constant {RESUMMON_SECONDS:g} s instead (LOW until an in-game test: "
-                 "the 0.2.0e notes say a shorter, capped delay)")
+        bases = (f"base {RESUMMON_SECONDS:g} s, the game constant (MEDIUM: a GGG staff post, 9 Jun 2025, \"12.5% (1/8th) "
+                 f"of a revive per second\", and players' ~8 s timings); with the skills' own minion_base_resummon_time_ms "
+                 f"({base:.3g} s, PoB's BaseReviveTime) instead: {own:.3g} s, fewer deaths")
     else:
-        bases = (f"base {RESUMMON_SECONDS:g} s, the game constant (the skills carry no base of their own; LOW: the 0.2.0e "
-                 "notes say each later death adds less)")
+        bases = (f"base {RESUMMON_SECONDS:g} s, the game constant (MEDIUM: a GGG staff post, 9 Jun 2025, ~8 s; the skills "
+                 "carry no base of their own)")
     if abs(speed - 1.0) < 1e-6:
         return seconds, bases
     return seconds, (f"{bases}; revival speed x{speed:.2f} (PoB's MinionRevivalSpeed: Sacrifice's 40% slower at level "
@@ -1576,12 +1592,11 @@ def corpse_supply(present: set[str], stats: dict | None = None) -> float:
 # Sacrifice's corpses (MECHB19; AUDIT27 A27-4, for MECH-C's "recover when you Consume a corpse" and every corpse user).
 # The game (ActiveSkills sacrifice; sacrifice.csd): "While active, your undead [Reviving] [Minion|Minions] can be used in
 # place of [Corpse|Corpses] by your skills, but your [Minion|Minions] [Reviving|Revive] more slowly." The text doesn't say
-# whether the minion used is alive or dead (Unearth's says "dead [Reviving] [Minion|Minions]"): both readings give one
-# corpse per undead Reviving minion death, so the supply is the build's own undead Reviving minion deaths
-# (minion_deaths, the user's no-flat-rates rule: the corpse skill's own uses with Sacrifice, Minion Pact, Explosive
-# Demise; each capped by revival, which Sacrifice slows 40% at level 20), times the undead share of the build's Reviving
-# minions (deaths spread evenly, assumed). LOW: that a Minion Pact or Explosive Demise death leaves a usable corpse
-# (reading "dead"), and one corpse per death. No source kills them: 0, with the note (no flat guess). Not counted
+# whether the minion used is alive or dead; RESEARCH26 R26-68 (sacrifice-living-minions-eternal-hunt-r26.md, MEDIUM-HIGH:
+# maxroll, forum 3630664 / 3888711, the 0.1.0e / 0.1.1 / 0.4.0d fixes, Unearth naming dead minions apart from Corpses):
+# a LIVING undead minion, consumed, which revives later. So the supply is the corpse skill's own uses on them (MECHB33:
+# minion_deaths(sacrifice_only=True), their share of all deaths capped by revival, which Sacrifice slows 40% at level 20);
+# Minion Pact / Explosive Demise deaths leave no corpse (MECHB19 counted them: an OVERCOUNT). One corpse per use. No source kills them: 0, with the note (no flat guess). Not counted
 # (labelled): the minions' damage lost while they're dead (an OVERCOUNT where a build relies on both their damage and
 # their corpses), the boss killing them (an undercount).
 SACRIFICE_CORPSES_STAT = "_sacrifice_corpses"  # stats key: (corpses per second, how), set by Assumptions.models
@@ -1601,14 +1616,13 @@ def sacrifice_corpses(skills: list[Skill], main: Skill | None, stats: dict) -> t
     undead = sum(number(s.summon.get("limit")) for s in reviving if s.summon.get("undead"))
     if undead <= 0:
         return 0.0, "Sacrifice: the build has no undead Reviving minions to use in place of corpses (0)"
-    deaths, how = minion_deaths(skills, main, stats)
-    if deaths <= 0:
-        return 0.0, f"Sacrifice: none of your undead Reviving minions die, so none is a corpse (0, no flat rate: {how})"
-    rate = deaths * undead / total
-    return rate, (f"Sacrifice: {rate:.3f} corpses/s, one per undead Reviving minion death ({undead:g} of your {total:g} "
-                  f"Reviving minions are undead; deaths spread evenly, assumed): {how}. LOW: one corpse per death, and "
-                  "that a minion killed another way (Minion Pact, Explosive Demise) can be used dead (Sacrifice's text "
-                  "doesn't say alive or dead); their damage while dead isn't taken off. Without Sacrifice: 0")
+    rate, how = minion_deaths(skills, main, stats, sacrifice_only=True)
+    if rate <= 0:
+        return 0.0, (f"Sacrifice: the corpse skill doesn't use your living undead minions here, so none is a corpse (0, "
+                     f"no flat rate; minions killed another way leave none, RESEARCH26 R26-68: {how})")
+    return rate, (f"Sacrifice: {rate:.3f} corpses/s, one per use of the corpse skill on a living undead Reviving minion "
+                  f"(MEDIUM-HIGH, RESEARCH26 R26-68): {how}. Minion Pact / Explosive Demise deaths give none (was counted "
+                  "before: an OVERCOUNT); their damage while dead isn't taken off. Without Sacrifice: 0")
 
 
 def add_corpses_note(stats: dict | None) -> str:
@@ -6477,6 +6491,115 @@ def hazard_count_model(main: Skill | None, stats: dict) -> tuple[list[dict], lis
     if count <= 1.0:
         return [], [note]
     return [line("1% more Damage", 100 * (count - 1), skill=main.name)], [note]
+
+
+# The Companion limit (MECHB33; RESEARCH26 R26-11, plans1-four-tests-r26.md; the user, 15 Nov via the manager 21:50: "there's
+# a keystone that lets you run two companions, plus the unique sceptre ... make sure those are all taken into account").
+# KeywordPopups Companion: "By default you can only have one Companion of any type summoned at a time"; players report
+# the second refused ("Companion Limit Reached"; forum 3759141). PoB has no limit and parses none of the raisers
+# (ModCache 9871-9874: nil, the whole text left over), so a build with two Companion groups in Full DPS scored both: an
+# OVERCOUNT. The raisers (checked: the 103 Stats ids holding "companion" in game 26650308 and their users in Mods,
+# PassiveSkills, GrantedEffectStatSets / PerLevel / QualityStats, SoulCoreStats, Expedition2Runes (scratch/mechb33/
+# comp_search.py); PoB Data/Uniques and TreeData 0_5; poe2db / trade via RESEARCH26):
+#   - "You can have two Companions of different types": Trusted Kinship (keystone_2_companions; its "30% more / 20% less
+#     Reservation Efficiency" lines parse on their own in PoB, ModCache 3809 / 3018, so PoB applies them) and Yriel's
+#     Fostering (can_have_2_companions). Both together: 2, not 3 (both read as "you can have two", UNVERIFIED).
+#   - "You can have any number of Companions of different types": Sylvan's Effigy (can_have_unlimited_companions; PoB
+#     files the line under "Bitterbloom": matched on the line, never the name).
+#   - additional_companions_from_wolf_packs / _hyena_cackles: no Mod, passive or stat set grants them (the same search);
+#     Wolf Pack and Cackling Companions are one Companion each "for effects that count or limit Companions" (their texts).
+# What takes a slot: every skill the game types Companion / CreatesCompanion (the bridge's `companion`), except Wild
+# Protector ("The Bear Spirit does not count toward your Companion limit") and His Grave Command (it commands, it summons
+# nothing). Rhoa Mount and Summon Companion count (their texts call them Companions; no exemption line: MEDIUM). A
+# group is one Companion; its type is its Companion skill's name ("Companion: <beast>" for Tame Beast, so two different
+# beasts are two types: RESEARCH26's reading, UNVERIFIED). Kept: the main skill's group first, then the most Full DPS,
+# one per type, up to the limit; the rest deal nothing (their minions "100% less Damage"; their buffs aren't removed, a
+# small OVERCOUNT where an extra one carries a buff, labelled).
+COMPANION_TWO = re.compile(r"^You can have two Companions of different types$", re.I)
+COMPANION_ANY = re.compile(r"^You can have any number of Companions of different types$", re.I)
+COMPANION_FREE = {"Wild Protector": "its Bear Spirit does not count toward your Companion limit (its text)",
+                  "His Grave Command": "it commands your Companions; it summons none"}
+COMPANION_PER_TYPE = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) Damage per each different Companion in your "
+                                r"Presence$", re.I)
+
+
+def companion_limit(texts: list[str]) -> tuple[float, str]:
+    """(how many Companions of different types the build may have, which line allows it)."""
+    lines = [t.strip() for t in texts]
+    if any(COMPANION_ANY.match(t) for t in lines):
+        return math.inf, "\"You can have any number of Companions of different types\" (Sylvan's Effigy)"
+    if any(COMPANION_TWO.match(t) for t in lines):
+        return 2.0, ("\"You can have two Companions of different types\" (Trusted Kinship or Yriel's Fostering; both "
+                     "together read as 2, UNVERIFIED)")
+    return 1.0, "no limit raiser: one Companion (KeywordPopups Companion)"
+
+
+def companion_plan(groups: list[tuple[int, str, float, bool]], limit: float) -> tuple[list[int], list[int]]:
+    """(kept group indices, dropped ones) from (index, type, its Full DPS share, holds the main skill) for each Companion
+    group: the main skill's group first, then by Full DPS, one per type, at most `limit`."""
+    kept, dropped, types = [], [], set()
+    for index, kind, _, _ in sorted(groups, key=lambda g: (not g[3], -g[2], g[0])):
+        if kind in types or len(kept) >= limit:
+            dropped.append(index)
+        else:
+            kept.append(index)
+            types.add(kind)
+    return kept, dropped
+
+
+def zarokh_model(main: Skill | None, supports: list[str], stats: dict) -> tuple[list[dict], list[dict]]:
+    """Zarokh's Revolt on the main Spell: each cast (one per cooldown) breaks every Seal gained since, at most SealMax,
+    each a Repeat at 80% damage, against PoB's Seal bonus (see ZAROKH below). A DPS MORE of the ratio, and a note."""
+    if main is None or ZAROKH not in supports:
+        return [], []
+    seal_cd, most, cooldown = (number(stats.get(k)) for k in ("SealCooldown", "SealMax", "Cooldown"))
+    rate = number(stats.get("CastRate"))
+    if seal_cd <= 0 or most <= 0 or cooldown <= 0 or rate <= 0:
+        return [], []
+    pob = 1 + round(1 / seal_cd / (rate * 1.1) * ZAROKH_REPEAT, 2)
+    seals = min(most, cooldown / seal_cd)
+    game = 1 + seals * ZAROKH_REPEAT
+    factor = game / pob
+    note = {"label": f"Zarokh's Revolt: every Seal broken each cast ({main.name})*", "value": f"x{factor:.3f}",
+            "basis": f"one cast per {cooldown:.2f} s cooldown breaks {seals:g} Seals (one per {seal_cd:.2f} s, at most "
+                     f"{most:g}), each a Repeat at {ZAROKH_REPEAT:.0%}: {game:.2f} hits a cast; PoB gives {pob:.2f} (its Seal "
+                     "bonus at the uncapped cast rate, CalcOffence 1291-1323, while its Speed is held to the cooldown)",
+            "play": (f"Cast {main.name} each time its cooldown ends (the Seals fill in {most * seal_cd:.2f} s): x{factor:.2f} "
+                     "on PoB's number. Never PoB's \"wait for Max Seals\" box: it lifts the cooldown (x5.7 too high on "
+                     "a 0.7 s Spark, probe POE2T3234)"),
+            "confidence": "MEDIUM (the game files' stats; Seals taken to keep filling through the cooldown)"}
+    if abs(factor - 1) < 1e-6:
+        return [], [note]
+    return [raw_mod("DPS", "MORE", (factor - 1) * 100, skill=main.name)], [note]
+
+
+# Zarokh's Revolt (MECHB33; GEM14's find, the manager 22:15): a lineage support (sup_int.lua SupportZarokhsRevoltPlayer:
+# cooldown 10 s, storedUses 1; support_%_of_total_cast_time_as_base_skill_seal_gain_interval 50, base_maximum_seals_for_skill
+# 5, skill_rapid_fire_repeats_per_broken_seal 1, support_spell_rapid_fire_repeat_use_damage_+%_final -20; game files the
+# same). PoB maps all three (SkillStatMap 2329-2338) and flags DamageSeal, but its bonus (CalcOffence 1291-1323) is the
+# Seals gained per cast at the uncapped cast rate, while Speed is held to 1 / cooldown (CalcOffence 3008): ~2.45 hits a
+# cast for Spark against the game's 1 + 5 x 0.8 = 5 (the Seals fill in 2.5 cast times, far inside the 10 s). Probe
+# POE2T3234 (p3234z.log): Spark 16.6 DPS with it; 194 with PoB's waitForMaxSeals, which also lifts the cooldown (never
+# set). Counted: 1 + min(SealMax, cooldown / SealCooldown) x 0.8 over PoB's own bonus, rebuilt from its outputs
+# (SealCooldown, SealMax, Cooldown, CastRate: no feedback from this line). Patch notes: no hit (not proof).
+ZAROKH = "Zarokh's Revolt"
+ZAROKH_REPEAT = 0.8  # 1 + support_spell_rapid_fire_repeat_use_damage_+%_final (-20) / 100
+MODEL_FIELDS.extend(f for f in ("SealCooldown", "SealMax", "Cooldown", "CastRate") if f not in MODEL_FIELDS)
+
+
+def companion_per_type_model(texts: list[str], kinds: int) -> tuple[list[dict], list[dict]]:
+    """"N% increased Damage per each different Companion in your Presence" (an Idol's; PoB doesn't parse it: 0 before)
+    at the build's kept Companion types, all taken to be in your Presence (MEDIUM)."""
+    found = [float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+             for t in texts if (m := COMPANION_PER_TYPE.match(t.strip()))]
+    if not found:
+        return [], []
+    value = sum(found) * kinds
+    note = {"label": "Damage per different Companion in your Presence", "value": round(value, 1),
+            "basis": f"{sum(found):g}% x {kinds} different Companion type(s) the build keeps (within its limit), all taken "
+                     "to be in your Presence (MEDIUM); PoB doesn't parse the line: 0 before",
+            "confidence": "MEDIUM"}
+    return ([line("1% increased Damage", value)] if value else []), [note]
 
 
 # Faerie Fire (MECHB31, PATCH_CHECK MB-11, an UNDERCOUNT): Periphery grants Azmerian Swarms (PoB other.lua 1786): "summons
