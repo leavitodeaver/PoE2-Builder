@@ -3065,14 +3065,17 @@ def test_tuls_avalanche_echoes_once_per_seal_from_the_builds_blocks():
     tul = {"skill_echoes_per_seal_broken": 1, "base_maximum_seals_for_skill": 4}
     spell = models.Skill("Frost Bomb", group=1, spell=True, support_stats=tul)
     base = {"Speed": 2.0, "enemySkillTime": 1.0, "EvadeChance": 0, "EffectiveBlockChance": 50}
-    mods, _ = models.gem_stat_model([spell], main=spell, stats=base)  # 0.5 blocks/s -> 0.25 Seals/s over 2 casts/s
+    # (GEM14: Frost Bomb's own Exposure growth adds a DebuffEffect mod; this test is about the Seals, so it's left out)
+    seals = lambda ms: [m for m in ms if m.get("name") != "DebuffEffect"]
+    mods, _ = models.gem_stat_model([spell], main=spell, stats=base)
+    mods = seals(mods)  # 0.5 blocks/s -> 0.25 Seals/s over 2 casts/s
     assert [(m["line"], round(m["scale"], 6), m.get("skill")) for m in mods] == [("1% more Damage", 12.5, "Frost Bomb")]
     mods, notes = models.gem_stat_model([spell], main=spell, stats={**base, "EffectiveBlockChance": 0})
-    assert mods == [] and "Block" in notes[0]["basis"]
+    assert seals(mods) == [] and any("Block" in n["basis"] for n in notes)
     side = models.Skill("Frost Bomb", group=2, spell=True, support_stats=tul)
     assert models.gem_stat_model([side], main=spell, stats=base)[0] == []
     other = models.Skill("Frost Bomb", group=1, spell=True, support_stats={**tul, "base_maximum_seals_for_skill": 7})
-    assert models.gem_stat_model([other], main=other, stats=base)[0] == []  # (another Seal support: A13-4)
+    assert seals(models.gem_stat_model([other], main=other, stats=base)[0]) == []  # (another Seal support: A13-4)
 
 
 def test_witchtoads_explode_at_their_curse_areas_share_and_count_as_minions_dying():

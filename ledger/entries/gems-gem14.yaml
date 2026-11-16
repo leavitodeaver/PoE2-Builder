@@ -513,3 +513,42 @@
   sources: ["builder/search/models.py (Danse Macabre, MECHB6)"]
   test_in_game: "Not needed here: MECHB6's tests cover it."
   status: proposed
+
+- id: model-gem14-frost-bomb-exposure-growth
+  title: "Frost Bomb: its Exposure grows 2% a pulse from 20% (a pulse every 0.5 s, LOW), the bomb's last pulse held between casts"
+  kind: model
+  model: frost_bomb_exposure
+  stats: ["active_skill_all_elemental_exposure_compounding_magnitude", "active_skill_all_elemental_exposure_compounding_magnitude_cap"]
+  skill: [Frost Bomb]
+  confidence: LOW
+  notes: >-
+    models.frost_bomb_magnitude (GEM14, the manager 20:28): M = min(50, 20 + 2 x the pulses before the 4 s Detonation),
+    a pulse every 0.5 s (LOW: no data gives it; one player's count on the official forum, thread 3846514, 7 Sep 2025:
+    9 small pulses at 4 s, 13 at Long Fuse II's 6.8 s, 1 at Short Fuse II's 0.8 s; 0.5 s fits the last two and gives 8
+    at 4 s, the lower reading): 36%. Held whole when recast within the 8 s Exposure (its 6 s cooldown), else a 4 s ramp
+    then 8 s at M. Counted as Frost Bomb's DebuffEffect x M / 20 with the uptime. Probe POE2T2125 (Frostbolt, boss 82,
+    level-20 Frost Bomb): Cold resistance 35 -> 27, Full DPS 261.2 -> 293.3. Not counted (UNVERIFIED): new bombs
+    compounding on an older bomb's Exposure toward 50%; Long / Short Fuse's detonation time.
+  sources: ["builder/search/models.py (frost_bomb_magnitude, frost_bomb_exposure_model)",
+            "https://www.pathofexile.com/forum/view-thread/3846514 (7 Sep 2025)", "https://poe2db.tw/us/Frost_Bomb (15 Nov 2026)",
+            "scratch/manager/research/patchnotes 0.3.0"]
+  test_in_game: "Frost Bomb on a boss: count its pulses over the 4 s and read the Exposure on the boss at the Detonation."
+  status: proposed
+
+- id: model-gem14-combo-decay-check
+  title: "Combo skills lose their Combo after 4 s (Combo Finisher) / 8 s (Tempest Bell, Mantra) without a gain: a builder slower than that can't build them (usage's decay check)"
+  kind: model
+  model: combo_rotation
+  stats: ["base_combo_stacks_decay_delay_ms"]
+  skill: [Combo Finisher I, Combo Finisher II, Tempest Bell, Mantra of Destruction]
+  confidence: MEDIUM
+  notes: >-
+    usage.COMBO_DECAY / combo_decayed (GEM14; RESEARCH25: decay is a check, not a rate): a builder whose Strikes are
+    further apart than the delay, one Strike short of the count, isn't a builder (combo_rate skips it; combo_blocker
+    names it). The Combo taken as lost all at once (patch 0.2.0 "lose Combo if you generate no Combo for 4 seconds";
+    MEDIUM). "Skills lose Combo N% slower" isn't read (UNVERIFIED what it slows). Culmination I / II and Vruun's
+    Inevitability (caps, not requirements) stay open.
+  sources: ["builder/search/usage.py (COMBO_DECAY, combo_decayed, combo_rate, combo_blocker)",
+            "data/game-26476662 GrantedEffectStatSets", "scratch/manager/research/patchnotes 0.2.0, 0.5.0"]
+  test_in_game: "Not needed for the delay (game files and patch notes agree)."
+  status: proposed

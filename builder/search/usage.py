@@ -88,6 +88,18 @@ sustainable source for what a use needs:
   the side of fewer uses: the Combo skill's own Strikes building its next use and Combo from several hits of one use
   (checked: every game-table row holding a Stats id with "combo", scratch/covc5/where.py; RULE_AUDIT row 12 lists the
   same carriers)
+  The decay check (GEM14; RESEARCH25 combo-gain-decay.md: "decay is a check, not a rate"): KeywordPopups Combo: "Combo
+  will fall off after a short time without this happening"; each Combo skill's base_combo_stacks_decay_delay_ms (game
+  files 26476662, GrantedEffectStatSets: TempestBellPlayer 8000, MantraOfDestructionPlayer 8000,
+  SupportComboFinisherPlayer / PlayerTwo 4000; patch 0.2.0, the newest entry on it: "Combo Finisher now causes
+  Supported Skills to lose Combo if you generate no Combo for 4 seconds (previously 8)"). A builder whose Strikes come
+  further apart than that (1 / its uses a second) loses each gain before the next, so it never reaches a count above one
+  Strike's gain: it isn't a builder for that skill (COMBO_DECAY). Labelled: the lost Combo taken as all of it at once
+  (the patch wording "lose Combo"; MEDIUM). Not read (UNVERIFIED, left on the side of fewer uses): "Skills lose Combo
+  N% slower" (combo_falloff_speed_+%: the Disciplined Training passive -20, the Flow support -60, which PoB's gem data
+  doesn't hold; checked: the stat's columns in Mods, PassiveSkills, GrantedEffectStatSets and PerLevel): patch 0.5.0
+  names "Combo count loss ... 50% slower" beside the delay, so it slows the loss, not the delay, at a rate no source
+  gives.
 - a banner's placed effect (Requirement kind "placed banner", never a blocker; COVC8, COVC7's find). War, Dread and
   Defiance Banner (the three banners; checked: PoB Data/Skills SkillType.Banner, and the game's ActiveSkills ids
   holding "banner": the same three, each with a _reservation twin) are two effects (PoB: WarBannerReservationPlayer etc., HasReservation and Persistent, which "While
@@ -210,6 +222,8 @@ ANCESTRAL_BOND = "Ancestral Bond"  # the keystone (module docstring: totems' cha
 # The Invoker's Combo passives (module docstring)
 MARTIAL_MASTER = "Martial Master"
 MARTIAL_ADEPT = "Martial Adept"
+# Seconds without a Combo gain before a Combo skill loses its Combo (module docstring: the decay check; game files 26476662)
+COMBO_DECAY = {"Tempest Bell": 8.0, "Mantra of Destruction": 8.0, "Combo Finisher I": 4.0, "Combo Finisher II": 4.0}
 # Build-up and pool requirements of four item / tree skills (module docstring: COVC10)
 MANA_POOL = "mana_required_to_activate_skill"  # The Stars Answer: 10000
 WARD_SHARE = "rune_ward_requires_%_maximum_ward_to_perform"  # Runic Reprieve: 20
@@ -391,6 +405,9 @@ class Usage:
         if not builders:
             return "and no skill of the build Strikes to build it (Combo comes from Strikes on the same weapon set)"
         if self.combo_groups(name) and self.combo_rate(name, need.amount) is None:
+            if self.combo_decays(name, need.amount):
+                return (f"and every builder Strikes less than once per {COMBO_DECAY[name]:g} s, so its Combo is lost "
+                        "between Strikes before it reaches the count (the decay check)")
             return "and no builder's Strikes reach it (no group of the build Strikes at a use rate PoB gives)"
         if uncapped := self.uncapped_groups(name):
             return (f"and its group {uncapped[0]} counts in Full DPS without a press cap (neither the main skill nor a "
@@ -487,10 +504,26 @@ class Usage:
         adept = 1.0 if self.has_passive(MARTIAL_ADEPT) else 0.0
         chance = self.combo_chance()
         gain = lambda r: 1.0 + adept + min(chance + self.group_combo_chance(r["index"]), 100.0) / 100
-        builder = max((r for r in rates if r["index"] != mine[0]["index"] and number(r.get("speed")) > 0),
-                      key=lambda r: number(r.get("speed")) * gain(r), default=builder)
+        builder = max((r for r in rates if r["index"] != mine[0]["index"] and number(r.get("speed")) > 0
+                       and not combo_decayed(name, amount, number(r.get("speed")), gain(r))),
+                      key=lambda r: number(r.get("speed")) * gain(r), default=None)
+        if builder is None:  # (every builder's Strikes too far apart to keep its Combo: the decay check)
+            return None
         uses, share = combo_rotation(amount, number(builder["speed"]), own, gain(builder))
         return uses, share, builder["name"]
+
+    def combo_decays(self, name: str, amount: float) -> bool:
+        """Do all of `name`'s builders with a use rate lose its Combo between Strikes (the decay check, module docstring)?"""
+        builders = [b for b in self.combo_builders(name) if b[0] is not None]
+        mine = self.combo_groups(name)
+        if not builders or not mine or mine[0].get("index") is None or name not in COMBO_DECAY:
+            return False
+        rates = self.build.call("useRates", indices=sorted({i for i, _ in builders}))["rates"]
+        adept = 1.0 if self.has_passive(MARTIAL_ADEPT) else 0.0
+        chance = self.combo_chance()
+        live = [r for r in rates if r["index"] != mine[0]["index"] and number(r.get("speed")) > 0]
+        return bool(live) and all(combo_decayed(name, amount, number(r.get("speed")), 1.0 + adept + min(
+            chance + self.group_combo_chance(r["index"]), 100.0) / 100) for r in live)
 
     def combo_chance(self) -> float:
         """% chance to build an additional Combo on Hit from the build's passives and items (module docstring)."""
@@ -620,6 +653,16 @@ def throw_cost(base: float, used_inc: float = 0.0, used_more: float = 1.0, not_c
     """Average flask charges a Concoction throw takes (module docstring; MEDIUM): `base` (5) x (1 + increased / reduced
     Flask Charges used %/100) x their more / less multiplier x (1 - chance to not consume %/100), never below 0."""
     return max(0.0, base * (1 + used_inc / 100) * used_more * (1 - min(max(not_consume, 0.0), 100.0) / 100))
+
+
+def combo_decayed(name: str, amount: float, builder_speed: float, gain: float = 1.0) -> bool:
+    """True when a builder Striking `builder_speed` times a second loses `name`'s Combo between Strikes before reaching
+    `amount` (the decay check, module docstring): its Strikes are more than COMBO_DECAY[name] s apart and one Strike's
+    `gain` is short of the count. A skill with no known delay never decays here."""
+    delay = COMBO_DECAY.get(name)
+    if delay is None or builder_speed <= 0 or gain >= amount:
+        return False
+    return 1.0 / builder_speed > delay
 
 
 def combo_rotation(amount: float, builder_speed: float, speed: float, gain: float = 1.0) -> tuple[float, float]:

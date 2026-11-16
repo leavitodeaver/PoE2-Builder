@@ -3359,6 +3359,7 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
     mods, notes = mods + ember_mods, notes + ember_notes
     rake_mods, rake_notes = rake_distance_model(main, stats or {}, forbidden)
     mods, notes = mods + rake_mods, notes + rake_notes
+    notes += shield_charge_distance_model(main, stats or {})[1]
     bomb_mods, bomb_notes = frost_bomb_exposure_model(skills, stats or {}, main, groups or {}, boss_level, forbidden)
     mods, notes = mods + bomb_mods, notes + bomb_notes
     return mods, notes
@@ -4949,8 +4950,13 @@ def primal_spirits(rows: dict, shocked: float | None, how: str = "") -> tuple[fl
 # named <Name>EmpoweredAttacks, Name the warcry's name less " Cry", "'s" and spaces), which Infernal Cry's uptime
 # (CalcOffence ~3487) and Assumptions.empowered_uses (bridge useRates warcryEmpowers) read: so the 2 go to PoB as
 # <Name>EmpoweredAttacks BASE, scoped by its name to that one warcry. The other Empowering skills (Barrage's one
-# Empowered attack, Unleash's next spell, Mantra, Ice-Tipped Arrows, the totem) are counted by MECH-B's models, not
-# here: said in the note (an undercount until they read it).
+# Empowered attack, Unleash's next spell, Mantra, Ice-Tipped Arrows, the totem) get their extra uses from MECH-B's
+# models since MECHB32 (fff7ac60: Assumptions.empowered_uses x (1 + extra), assumptions.barrage): said in the note.
+# Arctic Howl (GEM14; MECHB33's find) is a Warcry with EmpowersOtherSkill, but PoB makes no Warcry buff for it: its stat
+# sets (act_str.lua WolfArcticHowlPlayer) lack warcry_count_power_from_enemies, the one stat SkillStatMap (2958-2960)
+# maps to a GlobalEffect of effectType "Warcry", and CalcPerform computes Num<Name>Empowers (2197-2211) only for such a
+# buff. So an ArcticHowlEmpoweredAttacks mod would read nothing; its extra uses come from empowered_uses' last branch
+# (its warcryEmpowers is 0 there), as the other non-Warcry Empowerers', and the note says so.
 OLROTH_STAT = "support_empowers_x_additional_other_skills"
 OLROTH_ENTRY = "model-gem11-olroth-extra-empowers"
 
@@ -4975,9 +4981,12 @@ def olroth_model(skills: list[Skill], forbidden: set[str] = frozenset()) -> tupl
                                    "PoB's Infernal Cry uptime and the tool's Empowered-use count read)",
                           "play": f"Each {s.name} now Empowers {extra:g} more Attacks: use them before the next cry."})
         else:
-            notes.append({"label": label, "value": 0, "confidence": "theory", "entry": OLROTH_ENTRY,
-                          "basis": f"{s.name}'s {extra:g} extra Empowered uses aren't counted yet (its Empower is counted "
-                                   "by MECH-B's models, which don't read the support: an undercount, said)"})
+            howl = (" (PoB makes no Warcry buff for Arctic Howl, so no Empowered count of its own)"
+                    if s.name == "Arctic Howl" else "")
+            notes.append({"label": label, "value": f"x{1 + extra:g} Empowered uses a use", "confidence": "theory",
+                          "entry": OLROTH_ENTRY,
+                          "basis": f"{s.name}'s {extra:g} extra Empowered uses are counted with its Empowered uses{howl}: "
+                                   f"each use Empowers 1 + {extra:g} (the tool's Empowered-use count; Barrage's model)"})
     return mods, notes
 
 
@@ -5349,8 +5358,8 @@ def meteor_rate_model(main: Skill | None, sets: list[dict], uptime: float | None
 # from range needs the player to step back first: per use, (1 + more x d / 5 m) for 1 / Speed + d / walking speed. The
 # better end is taken (the ratio is monotone in d): d = 5 m (step back each use: the play that feeds it) or d = 0 (PoB's
 # number), walking at VOLT_WALK_SPEED x the build's MovementSpeedMod (A9-4's base run speed, LOW). A dodge roll back
-# isn't used (its cooldown-free distance: an undercount at most). Shield Charge's own stat is left open (its charge
-# distance and knockback aren't modelled).
+# isn't used (its cooldown-free distance: an undercount at most). Shield Charge: shield_charge_distance_model (GEM14), a
+# note only (no source gives its distance).
 RAKE_SKILL = "Rake"
 RAKE_ENTRY = "model-gem12-rake-dash-distance"
 RAKE_STAT = "base_additional_damage_from_distance_+%_final"
@@ -5384,6 +5393,51 @@ def rake_distance_model(main: Skill | None, stats: dict,
     return [raw_mod("DPS", "MORE", 100 * (factor - 1), RAKE_SKILL)], [note]
 
 
+# Shield Charge's distance bonus (GEM14; the manager 20:28: research it, then model with a labelled assumption). The game
+# (26476662): ShieldChargePlayer base_additional_damage_from_distance_+%_final 100 ("up to 100% more Damage, based on the
+# distance travelled", patch 0.3.0, the newest entry on the bonus; +0-40% from quality), shield_charge_extra_distance 80
+# ("80% increased maximum travel distance"), shield_charge_base_movement_speed 90, base_minimum_channel_time_ms 1300;
+# channel_shield_charge: "Channel to charge in the target direction. You will crash into enemies on your path, stopping
+# your charge". No source gives the base travel distance or the bonus's shape (checked: the game files' stat set and
+# stat texts, PoB's data, poe2db's page with its 13 hidden stats (15 Nov), the patch notes --history "Shield Charge",
+# mobalytics / fextralife / poe2gems; the only metre figure found is PoE1's 6 m, another game). PoB counts 0% of it.
+# Against one boss the charge ends at the boss, so a charge from d metres needs a step back first: per use
+# (1 + more x d / D) for t0 + d / walk + d / charge (t0 = PoB's 1 / Speed). Whatever D is, that beats PoB's one use only
+# if D < t0 / (1 / walk + 1 / charge) <= t0 x walk (an instant charge: the upper bound used here). The charge itself
+# covers at least SHIELD_CHARGE_MIN_TRAVEL (its 1.3 s minimum channel at walking speed, the charge speed shown as
+# movement speed: display_charge_speed_is_move_speed; LOW) when nothing stops it, taken as at most its full-bonus
+# distance. So where t0 x walk is under that, stepping back never pays and PoB's number is the play's (a note, no
+# mod); otherwise it might, at a distance no source gives: not counted (an UNDERCOUNT, labelled; in-game test). Not
+# counted either way (labelled): distance the player covers anyway (a moving boss, repositioning).
+SHIELD_CHARGE = "Shield Charge"
+SHIELD_CHARGE_MIN_TRAVEL = 1.3 * VOLT_WALK_SPEED  # metres (LOW, comment above)
+
+
+def shield_charge_distance_model(main: Skill | None, stats: dict) -> tuple[list[dict], list[dict]]:
+    """Shield Charge's more damage by distance: whether stepping back to charge could beat charging from melee range
+    (comment above). A note only: no source gives the distance."""
+    if main is None or main.name != SHIELD_CHARGE:
+        return [], []
+    speed = number(stats.get("Speed"))
+    if speed <= 0:
+        return [], []
+    walk = VOLT_WALK_SPEED * (number(stats.get("MovementSpeedMod")) or 1.0)
+    even = walk / speed  # the largest full-bonus distance at which stepping back could pay (an instant charge)
+    label = "Shield Charge: more damage the farther it charges*"
+    if even < SHIELD_CHARGE_MIN_TRAVEL:
+        return [], [{"label": label, "value": "x1.000", "confidence": "LOW",
+                     "basis": (f"Up to 100% more at its full travel distance (no source gives the distance). Stepping "
+                               f"back to charge pays only if that distance is under {even:.2f} m (PoB's {1 / speed:.2f} s "
+                               f"use, walking {walk:.2f} m/s, even an instant charge); a charge covers at least "
+                               f"{SHIELD_CHARGE_MIN_TRAVEL:.1f} m (its 1.3 s minimum channel at walking speed, LOW), so it "
+                               "never pays against one boss: PoB's 0% kept. Distance you cover anyway (a moving boss) "
+                               "isn't counted (an undercount)"),
+                     "play": "Charge from where you stand: stepping back for distance costs more time than the bonus gives."}]
+    return [], [{"label": label, "value": "not counted", "confidence": "LOW",
+                 "basis": (f"Up to 100% more at its full travel distance, which no source gives; stepping back could pay "
+                           f"if that distance is under {even:.2f} m (PoB's {1 / speed:.2f} s use, walking {walk:.2f} m/s): "
+                           "not counted (an undercount, labelled; an in-game test would settle it)")}]
+
 # Frost Bomb's Elemental Exposure (GEM13; plans/term-elemental-exposure.md item D; an OVERCOUNT below gem level 18, and
 # where the build doesn't keep it pressed). PoB maps active_skill_all_elemental_exposure_magnitude 20 to Fire / Cold /
 # Lightning Exposure as a Debuff of Frost Bomb (SkillStatMap.lua 1770) and applies it whenever the skill is in an enabled
@@ -5399,16 +5453,44 @@ def rake_distance_model(main: Skill | None, stats: dict,
 #    lasts 8 s (base_secondary_skill_effect_duration 8000; 0.2.0e "Exposure duration of 8 seconds"), so one cast keeps it
 #    up 12 s: up min(1, uses/s x 12) (the build's own rate: _skill_rate, its group's useRates x the press share; on its
 #    6 s cooldown that's 100%, PoB's number). Duration modifiers aren't read (they only lengthen it: an undercount at most).
-# Not counted (an UNDERCOUNT, labelled): the growth "Initially applies 20% Elemental Exposure and 2% Exposure per pulse, up
-# to a maximum of 50%" (+0.5 a quality to the cap; 0.3.0's notes say the same). The pulse interval isn't given (checked:
-# PoB's FrostBombPlayer stat set and stat text, poe2db's Frost Bomb page (no pulse stat, hidden stats included), the
-# patch notes' --history "Frost Bomb"; GEM13 turn 2: the game files 26476662, FrostBombPlayer's stat set and every Stats id
-# holding frost_bomb or pulse_frequency: no Frost Bomb pulse stat; the rate is the game's, not data), so PoB's
-# 20% stays (the plan: "Don't invent a pulse rate").
+# 3. The growth (GEM14; the manager 20:28: research it, then model with a labelled assumption): "Initially applies 20%
+#    Elemental Exposure and 2% Exposure per pulse, up to a maximum of 50%" (FrostBombPlayer active_skill_all_elemental_
+#    exposure_magnitude 20, _compounding_magnitude 2, _compounding_magnitude_cap 50; patch 0.3.0, the newest entry on it).
+#    The pulse interval is in no data (checked: the game files 26476662, FrostBombPlayer's stat set and every Stats id
+#    holding frost_bomb or pulse_frequency; PoB's stat set and text; poe2db's Frost Bomb page, hidden stats included, 15
+#    Nov; patch notes --history "Frost Bomb"; mobalytics / fextralife / game8 pages: none). The one measurement: a
+#    player's count on the official forum (gr0o0ve, 7 Sep 2025, thread 3846514, after 0.3.0): at the base 4 s Detonation
+#    "11 pulses, although the last one is probably just the explosion ... the initial pulse (20% exposure) and 9 small
+#    pulses (2% each) accumulating to 38%"; Long Fuse II's 6.8 s: 14 pulses, 46%; Short Fuse II's 0.8 s: two, 22%;
+#    Prolonged Duration: the same count. So a pulse every FROST_BOMB_PULSE = 0.5 s (LOW, a flat number where the game
+#    decides it and no data gives it: named in GEM14's report; it fits the 6.8 s and 0.8 s counts and gives 8 small
+#    pulses, 36%, at 4 s against the count's 9: the lower reading). One bomb ends at M = min(cap, 20 + 2 x 8) = 36%.
+#    Exposure from the next cast doesn't lower it (the higher Exposure is taken to hold, MEDIUM): recast within the 8 s
+#    the last pulse's Exposure lasts, the boss keeps M throughout (the 6 s cooldown does); cast rarer, each window is 4 s
+#    of ramp (its average (20 + M) / 2) and 8 s at M. Whether a new bomb's pulses compound on the old bomb's Exposure
+#    (toward the cap over several casts) is UNVERIFIED (the forum post's "up to like 60-69% on white mobs" mixes in other
+#    supports): not counted, the lower reading. Detonation-time modifiers (Long / Short Fuse) aren't read: the base 4 s.
+#    Counted as Frost Bomb's DebuffEffect x M / 20 on top of the uptime (PoB's 20 scales with it, its halving on a boss
+#    included).
 FROST_BOMB = "Frost Bomb"
 FROST_BOMB_ENTRY = "model-gem13-frost-bomb-exposure"
 FROST_BOMB_LEVEL_STAT = "frost_bomb_exposure_does_not_apply_to_enemies_of_level_higher_than_X"
 FROST_BOMB_WINDOW = 4.0 + 8.0  # seconds of Exposure one cast gives: pulses to its Detonation, then each pulse's 8 s
+FROST_BOMB_DETONATION, FROST_BOMB_EXPOSURE = 4.0, 8.0  # base_skill_detonation_time 4000, base_secondary_skill_effect_duration 8000
+FROST_BOMB_PULSE = 0.5  # seconds between pulses (LOW: one player's count, comment above)
+FROST_BOMB_BASE, FROST_BOMB_STEP, FROST_BOMB_CAP = 20.0, 2.0, 50.0  # its three Exposure stats
+
+
+def frost_bomb_magnitude(rate: float, quality: float = 0.0) -> tuple[float, int]:
+    """(average Exposure magnitude while Frost Bomb's Exposure is up, small pulses a bomb) at `rate` casts a second
+    (comment above, item 3): M = min(cap + quality / 2, 20 + 2 x the pulses before its Detonation), held whole when
+    recast within 8 s, else a 4 s ramp then 8 s at M."""
+    pulses = int(FROST_BOMB_DETONATION / FROST_BOMB_PULSE + 1e-9)
+    top = min(FROST_BOMB_CAP + max(quality, 0.0) / 2, FROST_BOMB_BASE + FROST_BOMB_STEP * pulses)
+    if rate > 0 and 1 / rate <= FROST_BOMB_EXPOSURE:
+        return top, pulses
+    ramp = (FROST_BOMB_BASE + top) / 2
+    return (FROST_BOMB_DETONATION * ramp + FROST_BOMB_EXPOSURE * top) / FROST_BOMB_WINDOW, pulses
 
 
 def frost_bomb_exposure_model(skills: list[Skill], stats: dict, main: Skill | None, groups: dict, boss_level: int = 0,
@@ -5419,8 +5501,8 @@ def frost_bomb_exposure_model(skills: list[Skill], stats: dict, main: Skill | No
     if bomb is None or FROST_BOMB_ENTRY in forbidden:
         return [], []
     label = "Frost Bomb: its Elemental Exposure on the boss*"
-    growth = ("The game's growth of 2% a pulse up to 50% isn't counted: its pulse interval isn't in the game files' "
-              "stats, PoB's data, poe2db or the patch notes (an undercount), so PoB's 20% stays")
+    growth = ("The game's growth of 2% a pulse up to 50% isn't counted here (no use rate read for it), so PoB's 20% "
+              "stays")
     cap = number(bomb.level_stats.get(FROST_BOMB_LEVEL_STAT))
     if 0 < cap < 100 and boss_level > cap:
         return [raw_mod("DebuffEffect", "MORE", -100, FROST_BOMB)], [{
@@ -5432,15 +5514,21 @@ def frost_bomb_exposure_model(skills: list[Skill], stats: dict, main: Skill | No
         return [], []  # (no use rate read for it: PoB's always-on number stays, never zeroed; gem_stat_side_groups asks)
     rate, how = _skill_rate(bomb, stats, main, groups)
     up = min(1.0, rate * FROST_BOMB_WINDOW)
+    magnitude, pulses = frost_bomb_magnitude(rate, number(bomb.level_stats.get("quality")))
+    factor = up * magnitude / FROST_BOMB_BASE
     basis = (f"{how} {rate:.3g}/s, {FROST_BOMB_WINDOW:g} s of Exposure a cast (pulses to its 4 s Detonation, then 8 s): "
-             f"up {up:.0%} of the fight (PoB: always). " + growth)
-    play = ("Cast Frost Bomb on cooldown near the boss: its Exposure (-20% to the boss's elemental resistances) then "
-            f"never drops. Without it: no Exposure from it; with it: up {up:.0%} now.")
-    note = {"label": label, "value": f"{up:.0%} uptime", "confidence": "MEDIUM", "entry": FROST_BOMB_ENTRY,
-            "basis": basis, "play": play}
-    if up >= 1.0:
+             f"up {up:.0%} of the fight (PoB: always). Its Exposure grows 2% a pulse from 20%: a pulse every "
+             f"{FROST_BOMB_PULSE:g} s (LOW: one player's count, 9 small pulses in 4 s; no data gives it) is {pulses} "
+             f"pulses a bomb, {FROST_BOMB_BASE + FROST_BOMB_STEP * pulses:g}% at its end, {magnitude:.1f}% on average while "
+             "up (held between casts when recast within 8 s; MEDIUM); new bombs compounding on old ones toward 50% not "
+             f"counted (UNVERIFIED). x{factor:.2f} of PoB's 20%")
+    play = ("Cast Frost Bomb on cooldown near the boss: its Exposure then never drops and holds the bomb's last pulse "
+            f"({magnitude:.0f}%). Without it: no Exposure from it; with it: up {up:.0%} now at {magnitude:.0f}%.")
+    note = {"label": label, "value": f"{up:.0%} uptime at {magnitude:.0f}%", "confidence": "LOW",
+            "entry": FROST_BOMB_ENTRY, "basis": basis, "play": play}
+    if abs(factor - 1.0) < 1e-9:
         return [], [note]
-    return [raw_mod("DebuffEffect", "MORE", -100 * (1 - up), FROST_BOMB)], [note]
+    return [raw_mod("DebuffEffect", "MORE", 100 * (factor - 1), FROST_BOMB)], [note]
 
 
 def frost_bomb_groups(skills: list[Skill]) -> set[int]:

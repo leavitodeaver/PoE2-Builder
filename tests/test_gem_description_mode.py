@@ -340,6 +340,11 @@ def test_olroths_conviction_adds_its_empowers_to_the_warcry_by_name_only():
     assert [(m["name"], m["value"]) for m in mods if m.get("name", "").endswith("EmpoweredAttacks")] == [
         ("InfernalEmpoweredAttacks", 2)]
     assert any(n["entry"] == models.OLROTH_ENTRY and "Barrage" in n["basis"] for n in notes)
+    # GEM14 (MECHB33's find): Arctic Howl is a Warcry PoB makes no Warcry buff for, so no ArcticHowlEmpoweredAttacks
+    # mod; its extra uses are counted with its Empowered uses (Assumptions.empowered_uses x (1 + extra), MECHB32)
+    howl = Skill("Arctic Howl", 4, support_stats={models.OLROTH_STAT: 2})
+    mods, notes = models.olroth_model([howl])
+    assert mods == [] and "no Warcry buff for Arctic Howl" in notes[0]["basis"] and notes[0]["value"] == "x3 Empowered uses a use"
 
 
 def test_a_combo_skill_is_scored_over_its_whole_combo_not_the_set_pob_keeps():
@@ -504,12 +509,17 @@ def test_frost_bombs_exposure_stops_above_its_level_cap_and_follows_its_casts():
     assert mods == [models.raw_mod("DebuffEffect", "MORE", -100, "Frost Bomb")] and notes[0]["value"] == "none"
     high = Skill("Frost Bomb", 2, spell=True, level_stats={models.FROST_BOMB_LEVEL_STAT: 100})
     mods, notes = models.frost_bomb_exposure_model([main, high], {"Speed": 2.0}, main, groups, boss_level=82)
-    assert mods == [] and notes[0]["value"] == "100% uptime"  # on its 6 s cooldown: 12 s a cast covers it
+    # on its 6 s cooldown: 12 s a cast covers it; GEM14: a pulse every 0.5 s (LOW) is 8 small pulses, 20 + 16 = 36%,
+    # held between casts (recast within 8 s): x36/20 of PoB's 20%
+    assert [m["value"] for m in mods] == [pytest.approx(80, abs=0.01)] and notes[0]["value"] == "100% uptime at 36%"
+    assert models.frost_bomb_magnitude(1 / 6) == (36.0, 8)
+    assert models.frost_bomb_magnitude(1 / 24)[0] == pytest.approx((4 * 28 + 8 * 36) / 12)  # a 4 s ramp, then 8 s
     mods, notes = models.frost_bomb_exposure_model([main, low], {"Speed": 2.0}, main, groups, boss_level=75)
-    assert mods == []  # (a boss at or under the cap)
+    assert [m["value"] for m in mods] == [pytest.approx(80, abs=0.01)]  # (a boss at or under the cap: the growth only)
     rare = {2: {**groups[2], "_press": 0.25}}  # pressed a quarter of its cooldowns: one cast / 24 s, up 12 / 24
     mods, notes = models.frost_bomb_exposure_model([main, high], {"Speed": 2.0}, main, rare, boss_level=82)
-    assert [m["value"] for m in mods] == [pytest.approx(-50, abs=0.01)]
+    average = (4 * 28 + 8 * 36) / 12  # (no recast within 8 s: each window ramps again)
+    assert [m["value"] for m in mods] == [pytest.approx(100 * (0.5 * average / 20 - 1), abs=0.01)]
     mods, notes = models.frost_bomb_exposure_model([main, high], {"Speed": 2.0}, main, {}, boss_level=82)
     assert (mods, notes) == ([], [])  # (no rate read: PoB's number kept, never zeroed)
     assert "Frost Bomb" in models.gem_stat_skills()  # (its level stats are read)
@@ -533,3 +543,14 @@ def test_plasma_blasts_quality_is_more_shock_duration():
     mods, notes = models.gem_stat_model([blast], main=blast)
     assert [(m["line"], m["scale"], m.get("skill")) for m in mods
             if "Shock" in m["line"]] == [("1% more Shock Duration", 30, "Plasma Blast")]
+
+
+def test_shield_charge_steps_back_only_where_its_distance_could_pay():
+    """GEM14: no source gives Shield Charge's travel distance; stepping back pays only below t0 x walk (an instant
+    charge), and a charge covers at least 1.3 s x walking speed, so at a short use time PoB's 0% stays (a note)."""
+    charge = Skill("Shield Charge", 1, attack=True)
+    mods, notes = models.shield_charge_distance_model(charge, {"Speed": 1 / 0.6})
+    assert mods == [] and notes[0]["value"] == "x1.000" and "never pays" in notes[0]["basis"]
+    mods, notes = models.shield_charge_distance_model(charge, {"Speed": 1 / 1.9})  # (a use time with the channel in it)
+    assert mods == [] and notes[0]["value"] == "not counted"
+    assert models.shield_charge_distance_model(Skill("Rake", 1), {"Speed": 2.0}) == ([], [])

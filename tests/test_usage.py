@@ -11,7 +11,7 @@ import pytest
 from builder.data import GameData
 from builder.request.schema import BuildRequest
 from builder.search.context import Context, make_payload
-from builder.search.usage import (Usage, combo_rotation, requirements, throw_cost, travel_rotation,
+from builder.search.usage import (Usage, combo_decayed, combo_rotation, requirements, throw_cost, travel_rotation,
                                   travel_seconds)
 
 ZERPHI = {"stats": {"active_skill_requires_X_glory": 50, "active_skill_generates_%_of_life_spent_as_glory": 5}}
@@ -210,6 +210,29 @@ def test_combo_finishers_name_the_builds_strikes_and_their_rate(fresh_rules):
     assert usage.combo_chance() == 110  # (capped at 100% in the gain: 1 + 1 + 1 = 3 a gain)
     assert abs(usage.combo_rate("Combo Finisher II", 6)[0] - 1 / (2 / 3 + 1)) < 1e-9
 
+
+def test_combo_decays_between_strikes_further_apart_than_its_delay(fresh_rules):
+    """GEM14 (RESEARCH25: decay is a check, not a rate): a builder Striking less than once per the Combo skill's
+    base_combo_stacks_decay_delay_ms (Combo Finisher 4 s, Tempest Bell / Mantra 8 s; game files 26476662, patch 0.2.0)
+    loses each gain before the next, so it never builds the count; one Strike giving the whole count is fine."""
+    assert combo_decayed("Combo Finisher II", 5, 0.2) and not combo_decayed("Combo Finisher II", 5, 0.25)
+    assert not combo_decayed("Combo Finisher II", 5, 0.2, gain=5)  # (one Strike gives all 5)
+    assert combo_decayed("Tempest Bell", 4, 0.1) and not combo_decayed("Tempest Bell", 4, 0.2)
+    assert not combo_decayed("Some Other Skill", 4, 0.01)  # (no known delay: no check)
+    rules = {"Combo Finisher II": {"addsUsageCondition": True,
+                                   "stats": {"support_combo_finisher_required_number_of_combo_stacks": 5}}}
+    types = {"Combo Finisher II": [], "Falling Thunder": ["Attack", "Melee", "Area"],
+             "Quarterstaff Strike": ["Attack", "Melee"], "Lazy Strike": ["Attack", "Melee"]}
+    build = ComboBuild(rules, types, [combo_group(0, "Falling Thunder", "Combo Finisher II"),
+                                      combo_group(1, "Lazy Strike")],
+                       {"Falling Thunder": 1.0, "Quarterstaff Strike": 2.5, "Lazy Strike": 0.2})
+    usage = Usage(build, FakeConditions())
+    assert usage.combo_rate("Combo Finisher II", 5) is None and usage.combo_decays("Combo Finisher II", 5)
+    assert "decay check" in usage.blockers("Combo Finisher II")[0]
+    # A faster builder beside it is picked; the slow one isn't
+    build.group_list = build.group_list + [combo_group(2, "Quarterstaff Strike")]
+    assert usage.combo_rate("Combo Finisher II", 5)[2] == "Quarterstaff Strike"
+    assert not usage.combo_decays("Combo Finisher II", 5) and usage.blockers("Combo Finisher II") == []
 
 def test_concoctions_need_a_mana_flask_that_gains_charges(fresh_rules):
     """A8-2 / COVC4: 5 Mana Flask charges a throw (flasks.THROW_CHARGES, all five Concoctions, though PoB's data has the
