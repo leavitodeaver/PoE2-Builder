@@ -2259,7 +2259,11 @@ CURSE_ON_HIT = re.compile(r"\bcurse (?:non-cursed )?enemies with (.+?) on hit\b"
 CURSED_LINES = (
     (re.compile(r"Enemies you Curse take (\d+)% increased Damage", re.I), "Enemies you Curse take 1% increased Damage"),
     (re.compile(r"Enemies you Curse have ([+-]?\d+)% to Chaos Resistance", re.I),
-     "Enemies you Curse have +1% to Chaos Resistance"),  # PoB's "to" form needs the sign (ModParser "^([%+%-]...)%? to")
+     # (MECH80, COV35's probe POE2T2588: PoB never applies "Enemies you Curse have N% to Chaos Resistance": 330.2 DPS with
+     # or without it at -50%, against 462.3 for the "Nearby Enemies" form; this template counted 0 before, an UNDERCOUNT.
+     # The line is scaled to the cursed share here, so the unconditional enemy form is exact; the sign is needed by PoB's
+     # "to" form, ModParser "^([%+%-]...)%? to")
+     "Nearby Enemies have +1% to Chaos Resistance"),
     (re.compile(r"(\d+)% increased duration of Ailments you inflict against Cursed Enemies", re.I),
      "1% increased duration of Ailments you inflict against Cursed Enemies"),
 )
@@ -7588,27 +7592,34 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
     if fill <= 0:
         return 0.0, "Cold hits build no Heavy Stun (the game's Cold text; PoB counts them)"
     t = 1 / fill
-    every = repeat_every(t, *HEAVY_STUN_REPEAT)
+    # (MECH80, RESEARCH26 R26-45 (a1), an OVERCOUNT before: the bar doesn't fill while the boss is Heavy Stunned, so the
+    # next fill starts after the stun: each cycle = the stun + the refill at x6 for what's left of the 16.5 s after it)
+    d = bosses.of(stats).heavy_stun_s
+    times, window = HEAVY_STUN_REPEAT
+    every = d + repeat_every(t, times, max(window - d, 0.0))
     basis = (f"{per_hit:.2%} of the boss's Stun bar per hit (PoB){f', {1 - uncold:.0%} of it Cold, which builds none' if uncold < 1 else ''}, "
              f"x{scale:.2f} for {bosses.of(stats).name}'s threshold ({bosses.of(stats).poise}%, the game files; PoB's is 938%), "
              + (f"x{daze:.2f} for the boss Dazed {dazed:.0%} of the fight (50% more Stun Buildup while Dazed"
                 + (", PoB's box at the full 50% taken back" if stats.get("_dazed_box") else "") + "), "
                 if dazed or stats.get("_dazed_box") else "")
              + f"{hits:.2f} hits/s: "
-             f"full in {t:.1f} s, then +500% threshold for 16.5 s after each stun: one every {every:.1f} s")
+             f"full in {t:.1f} s; the bar doesn't fill during the {d:g} s stun (RESEARCH26, MEDIUM), then +500% threshold "
+             f"for the rest of the 16.5 s after it: one every {every:.1f} s")
     return 1 / every, basis
 
 
 def heavy_stunned_share(stats: dict) -> tuple[float, str]:
     """Share of the fight the boss is Heavy Stunned by the main skill's hits (MECHD1; RESEARCH19 #98): one stun every
-    1 / heavy_stun_rate s, each lasting the boss's own Heavy Stun duration (BossBase.ot 4 s; Olroth 6.07 s): min(1,
-    duration / every). A "vs Heavy Stunned" line counted always on is an overcount once the bar takes over ~0.67 s to
-    fill (4 / 6). The stun's own wait isn't taken off the next fill (buildup during a Heavy Stun: UNVERIFIED)."""
+    1 / heavy_stun_rate s, each lasting the boss's own Heavy Stun duration (BossBase.ot 4 s; Olroth 6.07 s): duration /
+    every. The bar doesn't fill while the boss is Heavy Stunned (MECH80; RESEARCH26 R26-45 (a1), SETTLED at MEDIUM:
+    poe2wiki Stunning, patch 0.2.0's player rule; the stat cannot_accumulate_heavy_stun_poise exists but where the game
+    sets it isn't in the tables), so a stun never covers the whole fight: a 0.5 s fill gives 4 / (4 + 3) = 57% (it read
+    100% before, an OVERCOUNT). The drain after the stun isn't known: taken as 0 (the higher reading of the fixes)."""
     rate, how = heavy_stun_rate(stats)
     if rate <= 0:
         return 0.0, how
     d = bosses.of(stats).heavy_stun_s
-    share = min(1.0, d * rate)
+    share = min(1.0, d * rate)  # (d / (d + refill) < 1 since MECH80)
     return share, f"{how}; each lasts {d:g} s ({bosses.of(stats).name}): Heavy Stunned {share:.0%} of the fight"
 
 
@@ -8110,7 +8121,8 @@ def guided_hand_model(inputs: Inputs, lines: list[dict], stats: dict, main: Skil
     # (the bridge works the share out again from each calculation's own buildup and attack speed)
     mods = [line("1% increased Attack Damage", boost / UNIT, when=when, per=GUIDED_HAND),
             derived(GUIDED_HAND, "guidedHand", share * UNIT, boss=bosses.threshold_scale(stats),
-                    physical=HEAVY_STUN_PHYSICAL, times=HEAVY_STUN_REPEAT[0], window=HEAVY_STUN_REPEAT[1])]
+                    physical=HEAVY_STUN_PHYSICAL, times=HEAVY_STUN_REPEAT[0], window=HEAVY_STUN_REPEAT[1],
+                    stun=bosses.of(stats).heavy_stun_s)]  # (MECH80: no buildup during the stun)
     if slam:
         mods.append(line("1% more Damage", ANCESTRAL_SLAM_MORE / UNIT, when=when, per=GUIDED_HAND, skill=main.name))
     return mods, [{

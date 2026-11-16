@@ -641,7 +641,10 @@ function DERIVED.guidedHand(out, a)
 		return 0
 	end
 	local t = 1 / fill
-	local every = a.times * t <= a.window and a.times * t or a.window + (1 - a.window / (a.times * t)) * t
+	-- (MECH80, RESEARCH26 R26-45: the bar doesn't fill during the a.stun s stun; x(times) for what's left of the window)
+	local stun = a.stun or 0
+	local window = math.max(a.window - stun, 0)
+	local every = stun + (a.times * t <= window and a.times * t or window + (1 - window / (a.times * t)) * t)
 	return math.floor(DERIVED_UNIT * math.min(1, (1 / every) / speed) + 0.5)
 end
 

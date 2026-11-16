@@ -438,3 +438,17 @@ def test_flame_wall_sets_the_boss_burning_on_a_real_build(engine):
                                                                                 "conditionEnemyIgnited")})
     print("BURNING off / on", off, on)
     assert sum(on.values()) > sum(off.values()) * 1.05
+
+
+# MECH80 (COV35's routed find, probe POE2T2588): curse_model's templates must be lines PoB applies
+def test_the_curse_templates_are_lines_pob_applies(engine):
+    from builder.search import models
+
+    texts = [template for _, template in models.CURSED_LINES]
+    out = engine.call("parseLines", lines=texts)["results"]
+    print("CURSE TEMPLATES", out)
+    by = dict(zip(texts, out))
+    chaos = by["Nearby Enemies have +1% to Chaos Resistance"]
+    assert chaos["supported"] and chaos["parsed"][0]["name"] == "EnemyModifier"
+    assert chaos["parsed"][0]["value"] == "ChaosResist"
+    assert all(r["supported"] for r in out)

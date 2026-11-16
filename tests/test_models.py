@@ -940,13 +940,17 @@ def test_heavy_stuns_come_from_the_hits_buildup_less_cold_at_the_game_files_thre
     phys = {"HeavyStunBuildupAvg": 10.0, "Speed": 2.0, "HitChance": 100, "PhysicalHitAverage": 1000}
     stuns, basis = models.heavy_stun_rate(phys)
     t = 1 / (0.10 * 9.38 / 12.35 * 2.0)  # 6.58 s to fill at the plain threshold; 6t > 16.5 s
-    assert stuns == pytest.approx(1 / (16.5 + (1 - 16.5 / (6 * t)) * t)) and "one every 20.3 s" in basis
-    fast = {**phys, "HeavyStunBuildupAvg": 50.0}  # 6t = 7.9 s: within the +500% window
-    assert models.heavy_stun_rate(fast)[0] == pytest.approx(0.50 * 9.38 / 12.35 * 2.0 / 6)
+    # (MECH80, RESEARCH26 R26-45: no buildup during the Arbiter's 4 s stun; x6 for the 12.5 s left of the window after it)
+    assert stuns == pytest.approx(1 / (4 + 12.5 + (1 - 12.5 / (6 * t)) * t)) and "one every 21.0 s" in basis
+    fast = {**phys, "HeavyStunBuildupAvg": 50.0}  # 6t = 7.9 s: within the 12.5 s left of the +500% window
+    assert models.heavy_stun_rate(fast)[0] == pytest.approx(1 / (4 + 6 / (0.50 * 9.38 / 12.35 * 2.0)))
     # half the weighted hit Cold (Physical counts x1.5): Cold's share builds none
     mixed = {**phys, "PhysicalHitAverage": 1000, "ColdHitAverage": 1500}
     t = 1 / (0.10 * 0.5 * 9.38 / 12.35 * 2.0)
-    assert models.heavy_stun_rate(mixed)[0] == pytest.approx(1 / (16.5 + (1 - 16.5 / (6 * t)) * t))
+    assert models.heavy_stun_rate(mixed)[0] == pytest.approx(1 / (4 + 12.5 + (1 - 12.5 / (6 * t)) * t))
+    # (R26-45's example: a 0.5 s fill: one stun every 4 + 3 s, Heavy Stunned 4 / 7 of the fight, not 100%)
+    quick = {**phys, "HeavyStunBuildupAvg": 100 / (0.5 * 2.0 * 9.38 / 12.35)}
+    assert models.heavy_stunned_share(quick)[0] == pytest.approx(4 / 7)
     assert models.heavy_stun_rate({**phys, "PhysicalHitAverage": 0, "ColdHitAverage": 1000})[0] == 0
     assert models.heavy_stun_rate({"Speed": 2.0, "HitChance": 100})[0] == 0
 
@@ -958,11 +962,11 @@ def test_guided_hand_boosts_the_attacks_after_a_heavy_stun():
     slam = models.Skill("Boneshatter", attack=True, melee=True)
     stats = {"Speed": 2.0, "HitChance": 100, "PhysicalHitAverage": 1000, "HeavyStunBuildupAvg": 10.0}
     mods, notes = models.guided_hand_model(passive, lines, stats, slam)
-    stuns = models.heavy_stun_rate(stats)[0]  # one per 20.3 s against 2 attacks per second
+    stuns = models.heavy_stun_rate(stats)[0]  # one per 21.0 s against 2 attacks per second (MECH80: 20.3 s before)
     (text, value, when), = effective(mods)
     assert text == "1% increased Attack Damage" and value == 30 * stuns / 2.0 and when == [{"var": "GuidedHand"}]
     assert mods[1]["fn"] == "guidedHand" and mods[1]["value"] == round(stuns / 2.0 * models.UNIT)
-    assert "20.3 s" in notes[0]["basis"]
+    assert "21.0 s" in notes[0]["basis"]
     # no buildup (a Cold attack): nothing boosted
     cold = models.guided_hand_model(passive, lines, {**stats, "PhysicalHitAverage": 0, "ColdHitAverage": 1000}, slam)
     assert effective(cold[0])[0][1] == 0.0
@@ -3225,12 +3229,13 @@ def test_boss_model_fields_mechd1():
     assert models.ailment_scale(stats, "Freeze") == pytest.approx(models.AILMENT_BOSS)
     olroth = {**stats, "_boss": "Olroth, Origin of the Fall"}
     t = 1 / (0.10 * 938 / 703 * 2.0)
-    every = models.repeat_every(t, 6.0, 16.5)
+    d = bosses.of(olroth).heavy_stun_s  # (MECH80: the bar doesn't fill during the stun, RESEARCH26 R26-45)
+    every = d + models.repeat_every(t, 6.0, 16.5 - d)
     assert models.heavy_stun_rate(olroth)[0] == pytest.approx(1 / every)
-    assert models.heavy_stunned_share(olroth)[0] == pytest.approx(min(1.0, 6.066 / every))
-    # Heavy Stunned share at a 2 s fill (A16-3): 6t = 12 s <= 16.5 s, so 4 / 12
+    assert models.heavy_stunned_share(olroth)[0] == pytest.approx(d / every)
+    # Heavy Stunned share at a 2 s fill (A16-3): the 4 s stun, then 6t = 12 s inside the 12.5 s left: 4 / 16 (4 / 12 before)
     fast = {**stats, "HeavyStunBuildupAvg": 25 / (938 / 1235)}  # 25% of the bar per hit at 2 hits/s: 2 s
-    assert models.heavy_stunned_share(fast)[0] == pytest.approx(4 / 12)
+    assert models.heavy_stunned_share(fast)[0] == pytest.approx(4 / 16)
     zarokh = {"_boss": "Zarokh, the Temporal", "Speed": 2, "HitChance": 100, "FreezeBuildupAvg": 50,
               "ElectrocuteBuildupAvg": 50, "PinBuildupAvg": 50}
     assert models.buildup_rate(zarokh, "Freeze") == 0.0 and models.buildup_rate(zarokh, "Electrocute") == 0.0
