@@ -7,7 +7,15 @@ Energy Shield, resistances (capped at 75%) and physical maximum hit. The target 
 reference's boss DPS with every floor met, within the time limit. Both sides are measured with
 the same objective (on-death damage left out).
 
-Usage: uv run python benchmarks/gate4.py [name-filter ...] [--seconds 600] [--workers N] [--events FILE] [--cpu] [--seed-base N]
+Each reference is scored two ways, and both ratios are printed and saved: with its author's own PoB config (the
+"toggled" reference: hand-set toggles such as 2b75c's enemy Frozen / Shocked / Blinded / Maimed, 6 Frenzy + 3 Power
+charges, Rage 30, which no build the search makes ever gets: SEARCH23's probe POE2T2341), and the way the search scores
+its own builds (fair_reference, the "fair" reference). The PASS / FAIL verdict uses the fair one (the manager's
+decision, 15 Nov 20:50, after the user's "I'm not hearing a question"); --author-toggles puts the verdict back on the
+toggled one, for comparison with older runs. A row's reference_dps / ratio / passed follow the verdict's reference;
+reference_dps_fair / ratio_fair and reference_dps_toggled / ratio_toggled keep both.
+
+Usage: uv run python benchmarks/gate4.py [name-filter ...] [--seconds 600] [--workers N] [--events FILE] [--cpu] [--seed-base N] [--author-toggles]
 """
 
 from __future__ import annotations
@@ -86,6 +94,45 @@ def reference_request(name: str, facts: dict, keystones: list[str]) -> BuildRequ
     )
 
 
+def fair_reference(engine: PobEngine, xml: str, request: BuildRequest) -> dict:
+    """The reference scored as the search scores its own builds (the verdict's reference): the same build (tree, items, gems, groups and
+    their Full DPS flags kept), its PoB config reset as for every build the search makes (bridge resetConfig: the
+    boss's preset; the author's quest choices are kept, resetConfig keeps every quest input), then the search's own
+    scoring steps, as finalize_task runs them on a finished build: conditions and assumptions settled (Search.settle),
+    the conditions round, the play choices, press rates and exact uptimes. Returns its DPS, the floors it reads short
+    and the conditions it was granted."""
+    from builder.search.inner import Search, boss_config, boss_stats
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(request)
+    skeleton = enumerate_skeletons(Context(payload), [request.main_skill])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0, full=True)
+    build = search.build
+    build.call("loadXml", xml=xml)
+    build.call("resetConfig", **boss_config(request))
+    build.boss_stats = boss_stats(request)
+    build.refresh()
+    for _ in range(4):
+        if not search.settle():
+            break
+    search.conditions_round()
+    search.choose_play()
+    search.resolve()
+    search.press_round(float("inf"))
+    search.weigh_uptimes()
+    return {"dps": build.objective.dps(build.stats), "short": [d[0] for d in build.objective.deficits(build.stats)],
+            "conditions": sorted(search.conditions.active)}
+
+
+def verdict(dps: float, feasible: bool, toggled: float, fair: float, author_toggles: bool = False) -> dict:
+    """A row's verdict fields: PASS needs every floor met and DPS at least the verdict's reference, the fair one
+    (fair_reference) unless author_toggles; reference_dps / ratio name the verdict's reference, and both are kept."""
+    reference = toggled if author_toggles else fair
+    return {"reference_dps": reference, "ratio": dps / reference if reference else 0.0,
+            "verdict": "toggled" if author_toggles else "fair", "passed": feasible and dps >= reference,
+            "reference_dps_toggled": toggled, "ratio_toggled": dps / toggled if toggled else 0.0}
+
+
 def commit() -> str | None:
     """The checkout's commit, so gate_median.py can group a set of runs."""
     try:
@@ -108,6 +155,11 @@ def main() -> None:
                         help="take draw set N (SEARCH20): every task seed moves by run.SEED_STRIDE x N, and the run "
                              "and its workers hash strings with PYTHONHASHSEED=N, so the same N on two commits takes "
                              "the same draws on the Python side; gate_median.py reads a set of such runs")
+    parser.add_argument("--author-toggles", action="store_true",
+                        help="give the PASS / FAIL verdict against each reference as scored with its author's own PoB "
+                             "config (the gate's verdict before 15 Nov), not against the fair reference (fair_reference: "
+                             "scored as the search scores its own builds); both ratios are printed and saved either way")
+    parser.add_argument("--fair", action="store_true", help="(the default since 15 Nov: accepted, does nothing)")
     args = parser.parse_args()
     if args.seed_base is not None and os.environ.get("PYTHONHASHSEED") != str(args.seed_base):
         # (Python fixes its string hashing at start-up: run again with the hash seed set; the workers inherit it)
@@ -120,6 +172,7 @@ def main() -> None:
     files = sorted(p for p in REFERENCE_DIR.glob("*.txt") if not args.names or any(f in p.stem for f in args.names))
     references = []
     engine = PobEngine()
+    fair_engine = None
     for path in files:
         try:
             xml = codes.decode(path.read_text(encoding="utf-8").strip())
@@ -141,11 +194,21 @@ def main() -> None:
         if reference_dps <= 0:
             print(f"{path.stem}: skipped, PoB gives its main skill ({main_skill(facts)}) no damage")
             continue
-        references.append((path.stem, request, reference_dps))
-    del engine
+        # (its own engine: the search's settle installs assumptions and play choices in the engine it scores in, which
+        # must not reach the next reference's own-config score)
+        fair_engine = fair_engine or PobEngine()
+        fair = fair_reference(fair_engine, xml, request)
+        if fair["dps"] <= 0 and not args.author_toggles:
+            print(f"{path.stem}: skipped, its main skill scores no damage the search's way")
+            continue
+        print(f"{path.stem}: reference {reference_dps:,.0f} with its own PoB config, {fair['dps']:,.0f} scored as the "
+              f"search scores its builds (x{fair['dps'] / reference_dps:.2f}); "
+              + ("all floors met" if not fair["short"] else "reads short: " + ", ".join(fair["short"])), flush=True)
+        references.append((path.stem, request, reference_dps, fair))
+    del engine, fair_engine
 
     rows = []
-    for name, request, reference_dps in references:
+    for name, request, reference_dps, fair in references:
         on_event = None
         if args.events:
             def on_event(event: dict, name: str = name) -> None:
@@ -156,22 +219,26 @@ def main() -> None:
                           cpu_clock=args.cpu, seed_base=args.seed_base or 0)
         dps = (result.get("dps") or {}).get("full", 0.0)
         failing = [c["label"] for c in result.get("checks", []) if c["ok"] is False]
-        passed = result.get("feasible", False) and dps >= reference_dps
-        rows.append({"name": name, "skeleton": result.get("label"), "reference_dps": reference_dps, "dps": dps,
-                     "ratio": dps / reference_dps, "feasible": result.get("feasible"), "failing": failing,
-                     "passed": passed, "request": request.model_dump(mode="json"), "code": result.get("code"),
+        judged = verdict(dps, bool(result.get("feasible")), reference_dps, fair["dps"], args.author_toggles)
+        passed = judged["passed"]
+        rows.append({"name": name, "skeleton": result.get("label"), "dps": dps, **judged,
+                     "feasible": result.get("feasible"), "failing": failing, "request": request.model_dump(mode="json"), "code": result.get("code"),
                      "play_guide": result.get("play_guide"), "evaluations": result.get("evaluations"),
                      "wall_seconds": result.get("wall_seconds"), "workers": result.get("workers"),
                      "checks": result.get("checks")})  # (each floor's row: the sustain and recovery rows' delivered values)
-        print(f"[{'PASS' if passed else 'FAIL'}] {name} {result.get('label')}: {dps:,.0f} vs reference "
-              f"{reference_dps:,.0f} (x{dps / reference_dps:.2f}); "
+        rows[-1].update({"reference_dps_fair": fair["dps"], "ratio_fair": dps / fair["dps"] if fair["dps"] else None,
+                         "reference_fair_short": fair["short"], "reference_fair_conditions": fair["conditions"]})
+        print(f"[{'PASS' if passed else 'FAIL'}] {name} {result.get('label')}: {dps:,.0f} vs the reference scored the "
+              f"search's way {fair['dps']:,.0f} (x{dps / fair['dps'] if fair['dps'] else 0:.2f}) and with its author's "
+              f"toggles {reference_dps:,.0f} (x{dps / reference_dps:.2f}); verdict on the "
+              + ("toggled" if args.author_toggles else "fair") + " one; "
               + ("all floors met" if result.get("feasible") else "short: " + ", ".join(failing))
               + f"; {result.get('evaluations', 0):,} evaluations, {result.get('wall_seconds', 0):,.0f} s wall"
               + (" (processor-time clock)" if args.cpu else ""), flush=True)
     RESULT_DIR.mkdir(parents=True, exist_ok=True)
     out = RESULT_DIR / f"gate4-{datetime.now():%Y%m%d-%H%M%S}.json"
     out.write_text(json.dumps({"seconds": args.seconds, "cpu_clock": args.cpu, "seed_base": args.seed_base,
-                               "hash_seed": os.environ.get("PYTHONHASHSEED"), "commit": commit(), "boss": BOSS, "rows": rows}, indent=1), encoding="utf-8")
+                               "hash_seed": os.environ.get("PYTHONHASHSEED"), "commit": commit(), "boss": BOSS, "verdict": "toggled" if args.author_toggles else "fair", "rows": rows}, indent=1), encoding="utf-8")
     print(f"gate 4: {sum(r['passed'] for r in rows)}/{len(rows)} pass; wrote {out.relative_to(ROOT)}")
 
 

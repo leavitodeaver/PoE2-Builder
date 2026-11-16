@@ -68,3 +68,77 @@ def test_a_tasks_gear_census_names_its_empty_gear_slots_but_not_flasks_or_charms
     search.gear = SimpleNamespace(slots={"Ring 1": 0, "Ring 2": 0, "Flask 1": 0, "Charm 1": 0}, resume="Ring 2", lam=0.02)
     search.build = SimpleNamespace(equipped={"Ring 1": ring}, spent=lambda: 12.0)
     assert search.gear_census() == {"empty": ["Ring 2"], "resume": "Ring 2", "spent": 12.0, "lam": 0.02}
+
+
+def test_gate4_fair_scores_the_reference_with_the_searchs_own_steps_and_a_reset_config(monkeypatch):
+    """SEARCH24 (item 3, SEARCH23's yardstick finding): gate4 also scores each reference the way the search scores its
+    own builds (fair_reference, the verdict's reference since 15 Nov): the same build, its PoB config reset (bridge resetConfig) and the search's settle / conditions /
+    play / press / uptime steps, as finalize_task runs them."""
+    import types
+
+    from builder.search import inner, skeletons
+
+    spec = importlib.util.spec_from_file_location("gate4", ROOT / "benchmarks" / "gate4.py")
+    gate4 = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate4)
+    calls, settles = [], [True, True, False]
+
+    class Objective:
+        def dps(self, stats):
+            return stats["dps"]
+
+        def deficits(self, stats):
+            return [("Spirit", 0.3, True)]
+
+    class Search:
+        def __init__(self, engine, report, payload, skeleton, seed, full=False):
+            assert full and report is None
+            self.build = types.SimpleNamespace(objective=Objective(), stats={"dps": 0.0}, boss_stats=None,
+                                               call=lambda name, **kw: calls.append(name),
+                                               refresh=lambda: calls.append("refresh"))
+            self.conditions = types.SimpleNamespace(active={"EnemyFrozen"})
+
+        def settle(self):
+            calls.append("settle")
+            return settles.pop(0)
+
+        def conditions_round(self):
+            calls.append("conditions")
+
+        def choose_play(self):
+            calls.append("play")
+
+        def resolve(self):
+            calls.append("resolve")
+
+        def press_round(self, deadline):
+            calls.append("press")
+
+        def weigh_uptimes(self):
+            calls.append("uptimes")
+            self.build.stats["dps"] = 621.0
+
+    monkeypatch.setattr(inner, "Search", Search)
+    monkeypatch.setattr(skeletons, "enumerate_skeletons",
+                        lambda ctx, names: [[types.SimpleNamespace(as_dict=lambda: {})]])
+    monkeypatch.setattr(gate4, "make_payload", lambda request: {})
+    monkeypatch.setattr(gate4, "Context", lambda payload: None)
+    request = types.SimpleNamespace(main_skill="Explosive Spear", boss=None)
+    fair = gate4.fair_reference(None, "<xml/>", request)
+    assert fair == {"dps": 621.0, "short": ["Spirit"], "conditions": ["EnemyFrozen"]}
+    assert calls == ["loadXml", "resetConfig", "refresh", "settle", "settle", "settle", "conditions", "play", "resolve",
+                     "press", "uptimes"]
+
+
+def test_gate4_judges_against_the_fair_reference_unless_asked_for_the_authors_toggles():
+    """The manager, 15 Nov 20:50 (the user: "I'm not hearing a question"): both ratios are shown, PASS / FAIL uses the
+    reference scored the search's way, and --author-toggles keeps the old verdict for comparison."""
+    spec = importlib.util.spec_from_file_location("gate4", ROOT / "benchmarks" / "gate4.py")
+    gate4 = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate4)
+    row = gate4.verdict(400.0, True, toggled=1400.0, fair=300.0)
+    assert row["passed"] and row["verdict"] == "fair" and row["reference_dps"] == 300.0
+    assert abs(row["ratio"] - 4 / 3) < 1e-9 and abs(row["ratio_toggled"] - 400 / 1400) < 1e-9
+    assert not gate4.verdict(400.0, False, 1400.0, 300.0)["passed"]  # (a floor short never passes)
+    old = gate4.verdict(400.0, True, 1400.0, 300.0, author_toggles=True)
+    assert not old["passed"] and old["verdict"] == "toggled" and old["reference_dps"] == 1400.0
