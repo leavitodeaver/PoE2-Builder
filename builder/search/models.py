@@ -4377,6 +4377,13 @@ def inexorable_model(skills: list[Skill], stats: dict, main: Skill | None,
 # group's warcry, the bridge's useRates for it times the share the search presses it (PoB's own rate when no share is
 # chosen, said). Not counted (labelled): the build's Skill Effect Duration modifiers on the 5 s, Paquate's Pact's own
 # Twisted Pact (another skill).
+# (GEM15, RESEARCH26 R26-15: research/corrupted-blood-anaemia-r26.md) Whether a new stack refreshes every stack's 5 s is
+# ASSUMED yes (MEDIUM-LOW): poe2wiki's Corrupted Blood page, "Applying a new stack to the target will refresh the duration
+# of all existing stacks" (uncited, since Jan 2025), PoE1's documented rule (poewiki, a 3.14 reddit test); no PoE2 test or
+# GGG statement; patch notes 0.1-0.5.5 give no stacking rule. So the headline: with warcries less than 5 s apart the stacks
+# climb to the cap and stay there (the steady state; the climb, CRY_MAX warcries, isn't counted: the precedent of the
+# other stack ramps, and the 0.5 guide's advice to pre-stack the boss), else rate x 5 s as before. Each stack on its own
+# 5 s timer (the old figure, min(10, rate x 5 s)) is the "without" row in the note and the guide.
 CORRUPTED_CRY = "Corrupted Cry"
 CRY_MULTIPLIER = "Multiplier:CorruptingCryStageAfterFirst"
 CRY_ENTRY = "model-gem10-corrupting-cry-stacks"
@@ -4403,16 +4410,24 @@ def corrupting_cry_model(skills: list[Skill], stats: dict, main: Skill | None, g
                                                             else " at PoB's rate (no press share chosen)"))
         rate += max(r, 0.0)
         parts.append(f"{where}: {max(r, 0.0):.3g}/s")
-    stacks = min(CRY_MAX, rate * CRY_SECONDS)
+    own = min(CRY_MAX, rate * CRY_SECONDS)  # each stack its own 5 s (the "without" row)
+    stacks = CRY_MAX if rate * CRY_SECONDS > 1.0 else own  # a new stack refreshes all (ASSUMED, R26-15)
+    climb = CRY_MAX / rate if rate > 0 else 0.0
     # (PoB floors a Multiplier tag, ModStore.lua 530: a fractional n - 1 would round down, and n < 1 to 100% less; so
     # the stages are held at one stack and the rest goes on as one "more" on Corrupted Cry: probe POE2T2078)
     return [raw_mod(CRY_MULTIPLIER, "OVERRIDE", 0), raw_mod("Damage", "MORE", 100 * (stacks - 1), CORRUPTED_CRY)], [{
         "label": "Corrupting Cry: Corrupted Blood stacks on the boss", "value": f"{stacks:.2f}",
-        "basis": (f"one 5 s stack per warcry ({'; '.join(parts)}): {stacks:.2f} on average, against PoB's 10 (its "
-                  "config placeholder); Corrupted Blood scored at that"),
+        "basis": (f"one stack per warcry ({'; '.join(parts)}), each new stack refreshing every stack's 5 s (ASSUMED, "
+                  "MEDIUM-LOW: poe2wiki's rule and PoE1's; no PoE2 test; RESEARCH26 R26-15): "
+                  + (f"warcries {1 / rate:.2f} s apart keep the stacks at the cap, {stacks:g}, once {CRY_MAX:g} warcries "
+                     f"({climb:.0f} s) have built them (that climb isn't counted)" if stacks == CRY_MAX and rate > 0
+                     else f"warcries 5 s or more apart: {stacks:.2f} on average")
+                  + f"; if each stack keeps its own 5 s instead: {own:.2f}. PoB: 10 (its config placeholder); Corrupted "
+                  "Blood scored at the first"),
         "confidence": "theory", "entry": CRY_ENTRY,
-        "play": (f"Corrupted Blood stacks once per warcry for 5 s: to keep n stacks up, warcry n times every 5 s. "
-                 f"Without that (PoB): 10 stacks; with this build's warcries: {stacks:.2f}.")}]
+        "play": (f"Warcry less than 5 s apart: each warcry adds a Corrupted Blood stack and (assumed) refreshes the "
+                 f"rest, so they climb to {CRY_MAX:g}; build them before the boss can be hit. Without that rhythm: "
+                 f"{own:.2f} stacks (each its own 5 s); with it: {stacks:.2f}.")}]
 
 
 # Hexblast's detonations (GEM10; PATCH_CHECK L2-2, an OVERCOUNT). The game (ActiveSkills hexblast; PoB's description):
@@ -8540,6 +8555,10 @@ GLORY_SKILLS = {  # skill: (Glory per use, {event: Glory per event on a boss})
 # The per-event Glory above is mp_% of the boss's 20 Power (every event but Spear of Solaris' Ignite and Shock, which are
 # active_skill_hundred_times_generates_glory_per_ignite / _shock: flat; checked: GrantedEffectStatSets of each skill, game
 # 26476662), so with the build's Power lines (boss_power, MECH67) those scale with the boss's Power.
+# (GEM15, RESEARCH26 R26-18: research/spear-of-solaris-glory-r26.md) Spear of Solaris' 20 Glory per Freeze on a unique boss
+# is kept: 100% of the monster's Power (KeywordPopups Glory: "equal to the monster's Power"; every other Glory stat is
+# Power-based, Spear's Ignite / Shock the only flat ones, made new in 0.4.0, whose "1" is a Power-1 monster). MEDIUM-HIGH,
+# no in-game measurement.
 GLORY_FLAT_EVENTS = {("Spear of Solaris", "ignite"), ("Spear of Solaris", "shock")}
 GLORY_FROM_LIFE = {"Zerphi's Infamy": (50, 0.05)}  # Glory per use, share of Life spent on skills that becomes Glory
 # KeywordPopups Glory (build 26476662): "each Skill can only generate Glory once every 0.5 seconds per monster" (MECHC2,

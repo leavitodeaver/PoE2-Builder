@@ -208,6 +208,9 @@
     corrupted_blood_debuffs_to_inflict 1), 5 s each. models.corrupting_cry_model overrides the stage multiplier with
     n - 1, n = min(10, the warcries' uses a second x 5 s) from the bridge's useRates and the search's press share (damage
     is linear in the stacks, so this is the average). Not counted (labelled): Skill Effect Duration on the 5 s.
+    GEM15 (RESEARCH26 R26-15): a new stack refreshes every stack's 5 s (ASSUMED, MEDIUM-LOW: poe2wiki and PoE1's rule;
+    no PoE2 test), so with warcries under 5 s apart the stacks sit at the cap (the climb not counted); each stack on
+    its own 5 s, min(10, rate x 5 s), is the "without" row.
   sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ConfigOptions.lua 338-341",
             "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_str.lua (Corrupting Cry I / II, Corrupted Cry)",
             "scratch/gem10/probe_s2.json (POE2T2077)", "scratch/manager/PATCH_CHECK.md S2-3"]

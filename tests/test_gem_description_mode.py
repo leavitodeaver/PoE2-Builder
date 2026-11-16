@@ -204,8 +204,9 @@ def test_inexorable_critical_off_the_main_skill_sets_nothing():
 
 
 @pytest.mark.parametrize("speed, press, stages", [
-    (0.25, None, 0.25),   # a warcry every 4 s: 1.25 stacks on average (stage multiplier stacks - 1)
-    (0.25, 0.5, -0.375),  # pressed half the time: 0.625 stacks, so less than one stack's damage
+    (0.25, None, 9.0),    # a warcry every 4 s: each new stack refreshes all (ASSUMED, R26-15), so they reach the cap
+    (0.25, 0.5, -0.375),  # pressed half the time (8 s apart): 0.625 stacks, so less than one stack's damage
+    (0.1, None, -0.5),    # every 10 s: one stack half the time
     (3.0, None, 9.0),     # spammed: capped at 10 stacks, PoB's placeholder
 ])
 def test_corrupting_crys_stacks_follow_the_warcrys_use_rate(speed, press, stages):
@@ -216,6 +217,9 @@ def test_corrupting_crys_stacks_follow_the_warcrys_use_rate(speed, press, stages
     assert [m["value"] for m in mods if m.get("name") == "Damage" and m.get("skill") == "Corrupted Cry"] == [
         pytest.approx(100 * stages)]
     assert models.gem_stat_side_groups([spark, cry, cc], spark) == [2]
+    note = next(n for n in notes if n.get("entry") == models.CRY_ENTRY)
+    own = min(10.0, speed * (press if press is not None else 1.0) * 5)  # each stack its own 5 s: the "without" row
+    assert f"its own 5 s instead: {own:.2f}" in note["basis"] and f"Without that rhythm: {own:.2f}" in note["play"]
 
 
 @pytest.mark.parametrize("uses, less", [

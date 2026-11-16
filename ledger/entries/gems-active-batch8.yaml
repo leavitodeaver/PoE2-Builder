@@ -21,7 +21,10 @@
     The game's description of the shot (CrossbowRequiemPlayer, also PoB's skill data): "Does not use Ammunition and can
     be fired freely until the Requiem ends". Counted as PoB's ChanceToNotConsumeAmmo 100 on the shot, so PoB gives it
     its firing rate with no reload (CalcOffence.lua 3036). The fight's share it's up (12 s per 42 s) is the anguish cap
-    (usage.anguish_rate, model-stats-compose-requiem-anguish), applied on top.
+    (usage.anguish_rate, model-stats-compose-requiem-anguish), applied on top. RESEARCH26 R26-51 (GEM15 cites it;
+    research/requiem-fire-rate.md): the no-reload rule SETTLED by the game's text; the rate ASSUMED = PoB's
+    (AttackSpeedMultiplier 300 = x4, poe2wiki "400% of base"; no measured rate published); impacts land within 2.4 m of
+    the target (1.6 m radius), so rare misses on a large boss aren't counted (LOW).
   sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua CrossbowRequiemPlayer",
             "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua 381-407, 3019-3036",
             "https://poe2db.tw/us/Compose_Requiem"]
