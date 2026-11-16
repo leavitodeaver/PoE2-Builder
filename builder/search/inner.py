@@ -71,6 +71,8 @@ TREE_REBUILD_SHARE = 0.4  # of the task's time left that the regrow may take
 # share in Full DPS, Objective.press_busy otherwise). Search.press_round; POE2_SEARCH_PRESS=0 turns the round off.
 PRESS_RATES = (0.0, 0.25, 0.5, 1.0, 2.0)
 PRESS_ROUND = os.environ.get("POE2_SEARCH_PRESS", "1") != "0"
+# (SEARCH25, A36-14) a granted pressed skill tried in Full DPS on the finished build (Search.include_granted)
+GRANTED_PRESS = os.environ.get("POE2_SEARCH_GRANTED_PRESS", "1") != "0"
 FINALIZE_SWEEP_MIN = 20.0  # finalize's polish sweeps supports on Full DPS first when it has this long (finalize_task)
 # How far past its deadline a search may run before its build stops it at the next evaluation (Build.stop_at): a share
 # of the task's time, at least STOP_GRACE_MIN seconds, so a step that watches the deadline itself finishes normally
@@ -522,7 +524,8 @@ class Search:
         busy = 0.0
         for name, rate in kept.items():
             row = self.press_rows[name]["row"]
-            if objective.full and pressed_group(present[name], self.build.ctx.gems):
+            if objective.full and pressed_group(present[name], self.build.ctx.gems,
+                                                getattr(self.build.ctx, "all_gems", None)):  # (SEARCH25: A36-14)
                 continue  # (press_model charges it: Assumptions.rate_presses)
             uses, _, _ = press_use_rate(row, rate)
             busy += uses / number(row.get("speed"))
@@ -1320,6 +1323,55 @@ class Search:
                 self.assumptions.rate_presses()
                 self.press_sync()
 
+    def include_granted(self) -> bool:
+        """(SEARCH25: AUDIT36 A36-14's safer form, an UNDERCOUNT) An item- or tree-granted skill the player presses
+        beside the main skill (a Voltaic Staff's Lightning Bolt, a spear's Spear Throw) never joins Full DPS in the
+        rounds (include_in_full_dps skips granted groups), so it counted 0. SEARCH23's A36-14 let it join in the rounds
+        and offered it in every press round: gate POE2T2371 on 2b75c came out 100,077, floors short, against 361,003
+        with all floors met without it (POE2T2372, same draws), so it was dropped. Now it is judged only on the finished
+        build, here, once (finalize_task): each granted group pressed_group calls pressed goes into Full DPS, the press
+        round rates it (fit_buttons first: a granted skill in Full DPS is a button, constraints.item_skill_used, so it
+        comes out again over the request's cap), and it stays only if the build scores higher and meets every floor it
+        met before; else the build goes back (by hand: groups' flags, scoring state, buttons probe, taps). POE2_SEARCH_GRANTED_PRESS=0 turns it off. True if one stayed."""
+        build = self.build
+        granted = getattr(build.ctx, "all_gems", None)
+        if not GRANTED_PRESS or not build.objective.full or not granted:
+            return False
+        kept = False
+        for group in build.groups():
+            if group["main"] or not group["fromItem"] or not group["enabled"] or group["fullDPS"]:
+                continue
+            if not pressed_group({**group, "fullDPS": True}, build.ctx.gems, granted):
+                continue
+            # (put back by hand, not by a snapshot: the finished build's exported XML failed to reload in PoB in the test
+            # build, Item.lua's slotModList nil, POE2T2388; so the groups' flags, the scoring state, the buttons probe's
+            # findings and the raised-shield taps go back as they were)
+            flags = {g["index"]: (g["enabled"], g["fullDPS"]) for g in build.groups()}
+            saved, score, short = self._scoring_state(), build.score, self.shortfall(build.stats)
+            used = set(getattr(build, gems_module.USED_ITEM_SKILLS, None) or ())
+            taps = getattr(build.objective, "raised_taps", None)
+            build.set_group(index=group["index"], fullDPS=True)
+            self.assumptions.rate_presses()
+            self.press_sync()
+            self.press_round(float("inf"))
+            self._rescore()
+            joined = next((g["fullDPS"] for g in build.groups() if g["index"] == group["index"]), False)
+            if joined and build.score > score + EPSILON and self.shortfall(build.stats) <= short + 1e-9:
+                kept = True
+                continue
+            for g in build.groups():
+                if g["index"] in flags and (g["enabled"], g["fullDPS"]) != flags[g["index"]]:
+                    enabled, full = flags[g["index"]]
+                    build.set_group(index=g["index"], enabled=enabled, fullDPS=full)
+            self._put_scoring_state(saved)
+            setattr(build, gems_module.USED_ITEM_SKILLS, used)
+            if taps is not None:
+                build.objective.raised_taps = taps
+            self.assumptions.rate_presses()
+            self.press_sync()
+            self._rescore()
+        return kept
+
     def note_feasible(self) -> None:
         """Remember the build if it meets every requirement and beats the best such build on the goal."""
         stats = self.build.stats
@@ -1735,6 +1787,8 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     trace.append(["resolve", round(build.score, 4)])
     search.press_round(float("inf"))  # (the finished build's rates and their play guide rows)
     trace.append(["press rates", round(build.score, 4)])
+    if search.include_granted():  # (SEARCH25, A36-14: a granted pressed skill, judged on the finished build only)
+        trace.append(["granted presses", round(build.score, 4)])
     search.weigh_uptimes()  # exact for the finished build
     trace.append(["uptimes", round(build.score, 4)])
     # (the user, 14 Nov: an empty slot gets the cheapest item that adds defence or movement speed, score, floors and

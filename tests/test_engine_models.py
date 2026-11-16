@@ -3641,3 +3641,34 @@ def test_full_mana_box_turns_on_for_a_line_that_reads_it(engine):
     stats = build.call("stats", fields=["ManaPerSecondCost", "ManaRegenRecovery"])
     print("PROBE full mana", on, stats)
     assert on
+
+
+def test_a_granted_pressed_skill_joins_full_dps_only_on_the_finished_build(engine):
+    """SEARCH25 (AUDIT36 A36-14's safer form, an UNDERCOUNT): a spear's granted Spear Throw stays out of Full DPS in the
+    rounds (include_in_full_dps skips granted groups: A36-14 in the rounds cost 2b75c 100,077 vs 361,003, POE2T2371 /
+    2372); Search.include_granted, run once by finalize_task on the finished build, puts it in, press-rated, and keeps it
+    only if the score rises (else the build is put back to the unit)."""
+    from builder.search.assumptions import pressed_group
+
+    payload = make_payload(BuildRequest(main_skill="Explosive Spear", ascendancies=["Ritualist"], level=90))
+    skeleton = enumerate_skeletons(Context(payload), ["Explosive Spear"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0, full=True)
+    search.setup(quests=False)
+    build = search.build
+    throw = next((g for g in build.call("groups")["groups"] if g.get("fromItem")
+                  and any(n["name"] == "Spear Throw" for n in g.get("gems") or [])), None)
+    assert throw is not None, [g["gems"] for g in build.groups()]
+    assert pressed_group({**throw, "fullDPS": True}, build.ctx.gems, build.ctx.all_gems)
+    search.include_in_full_dps()
+    assert not next(g for g in build.groups() if g["index"] == throw["index"])["fullDPS"]  # (the rounds: left out)
+    before, scales_before = build.score, dict(build.objective.press_scales or {})
+    kept = search.include_granted()
+    joined = next(g for g in build.groups() if g["index"] == throw["index"])["fullDPS"]
+    print("PROBE include_granted", kept, "joined", joined, "score", before, "->", build.score,
+          "press_scales", build.objective.press_scales)
+    assert kept == joined
+    if kept:
+        assert build.score > before
+    else:
+        assert abs(build.score - before) < 1e-6
+        assert not joined and build.objective.press_scales == scales_before

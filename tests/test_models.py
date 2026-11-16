@@ -6072,3 +6072,22 @@ def test_cannons_ready_totems_act_only_as_often_as_you_fire_projectile_attacks()
     assert models.cannons_ready_model([], [("Artillery Ballista", 1.0)], None) == ([], [])
     raw = {"name": "Ballista Bolt", "group": 1, "byTotem": True, "projectileAttack": False}
     assert models.Skill.of(raw).by_totem and not models.Skill.of(raw).projectile_attack
+
+
+def test_pressed_group_judges_a_granted_group_only_with_the_granted_lookup():
+    """SEARCH25 (AUDIT36 A36-14's safer form): with Context.all_gems passed, an item- or tree-granted group in Full DPS
+    whose skill is pressed counts (press_model rates it); PoB's own Thorns group and a persistent granted skill never do;
+    without the lookup, the old answer (no)."""
+    from builder.search.assumptions import pressed_group
+    gems = {"Frost Bomb": {"skillTypes": ["Spell", "Cooldown"], "support": False},
+            "Herald of Ice": {"skillTypes": ["Persistent", "Buff"], "support": False}}
+
+    def group(name, full=True, label=None):
+        return {"enabled": True, "fullDPS": full, "fromItem": True, "label": label,
+                "gems": [{"name": name, "enabled": True, "support": False}]}
+
+    assert not pressed_group(group("Frost Bomb"), gems)
+    assert pressed_group(group("Frost Bomb"), {}, gems)
+    assert not pressed_group(group("Frost Bomb", full=False), {}, gems)
+    assert not pressed_group(group("Frost Bomb", label="Thorns"), {}, gems)
+    assert not pressed_group(group("Herald of Ice"), {}, gems)

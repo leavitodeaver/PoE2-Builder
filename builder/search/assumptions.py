@@ -824,19 +824,28 @@ def resisted_leech(build: Build) -> dict[str, float]:
                                        recovery_mod.leech_resistance(enemy_level(build)))
 
 
-def pressed_group(group: dict, gems: dict[str, dict]) -> bool:
+def pressed_group(group: dict, gems: dict[str, dict], granted: dict[str, dict] | None = None) -> bool:
     """A non-main group in Full DPS whose damage comes from a skill the player presses now and then: not triggered by a
     meta skill (Cast on X), not a totem or an Invocation (they use their skills on their own), not a Mark carrier
     (Pounce: the Mark model rates it), not granted by an item. (MECH-B, MECHB32) Except Untether: The Master's Reach
     grants it, it is a cast Spell (ActiveSkills abyssal_living_bomb: Spell, no Persistent / Meta / Triggered type), so
     a build counting it in Full DPS presses it (THE USER, 14 Nov: "Count it if used"), and its seeds' cap
     (Assumptions.untether_cap) must hold PoB's explosion-every-cast count; it isn't in Context's gem list yet
-    (COV34 adds it at bridge load only), so it is named here."""
+    (COV34 adds it at bridge load only), so it is named here.
+    (SEARCH25, AUDIT36 A36-14's safer form) With `granted` (Context.all_gems: Context.gems leaves granted skills out), an
+    item- or tree-granted group in Full DPS is judged by its skill like any other, so press_model rates it instead of
+    PoB counting it used nonstop (an OVERCOUNT on a loaded build's ticked granted group); PoB's own Thorns group never
+    counts (the Thorns model rates it). The search puts a granted group in Full DPS only on the finished build
+    (Search.include_granted, finalize_task)."""
     if (group["enabled"] and group["fullDPS"]
             and any(g["enabled"] and not g["support"] and g["name"] == models.UNTETHER for g in group["gems"])):
         return True
-    if not group["enabled"] or not group["fullDPS"] or group["fromItem"]:
+    if not group["enabled"] or not group["fullDPS"] or group.get("label") == models.THORNS_GROUP:
         return False
+    if group["fromItem"]:
+        if not granted:
+            return False
+        gems = {**granted, **gems}
     active = [{**gems[g["name"]], "name": g["name"]} for g in group["gems"]
               if g["enabled"] and not g["support"] and g["name"] in gems]
     if any(g["name"] in models.MARK_CARRIERS for g in active):
@@ -2579,7 +2588,8 @@ class Assumptions:
         build = self.build
         groups = build.call("groups")
         main = groups["mainSocketGroup"]
-        pressed = {g["index"] for g in groups["groups"] if g["index"] != main and pressed_group(g, build.ctx.gems)}
+        pressed = {g["index"] for g in groups["groups"] if g["index"] != main
+                   and pressed_group(g, build.ctx.gems, getattr(build.ctx, "all_gems", None))}  # (SEARCH25: A36-14)
         # (MECH62: the Cull models' scales, reset beside press_scales and set again by cull_window)
         build.objective.whole_scales, build.objective.cull_scale = {}, 1.0
         build.orb_presses = {}  # (MECHB29, for MECH-C's orb_remnants: {skill: (Orbs a second, how)}, set below)
@@ -4406,7 +4416,8 @@ class Assumptions:
         build = self.build
         group = build.main_group()
         main_index = group["index"] if group else None
-        pressed = {g["index"] for g in build.groups() if g["index"] != main_index and pressed_group(g, build.ctx.gems)}
+        pressed = {g["index"] for g in build.groups() if g["index"] != main_index
+                   and pressed_group(g, build.ctx.gems, getattr(build.ctx, "all_gems", None))}  # (SEARCH25: A36-14)
         busy, parts = 0.0, []
         for skill in skills:
             name = skill["name"]
