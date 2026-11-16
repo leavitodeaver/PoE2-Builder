@@ -1428,6 +1428,9 @@ class Assumptions:
                                   bool(main and main.attack), main.name if main else "")
         stats = {**stats, "_boss_power": power}
         mods, notes = models.archon_model(inputs, stats, main, main_gems)
+        # (MECH79, MECH-A) Incinerate's fuel (its idle line) and the main skill's Compounding Ignite
+        compound_mods, compound_notes = models.compound_ignite_mods(name or "", getattr(build, "compound_ignite", None))
+        mods, notes = mods + compound_mods, notes + compound_notes
         if power[1]:
             mods += models.power_mods(power[0])
             notes.append({"label": "Boss Power (your Power lines)*", "value": f"{power[0]:g}", "basis": power[1],

@@ -3841,6 +3841,94 @@ def ignited_ground(makers: dict[str, tuple[float, str]], texts: list[str], stats
     return share, "; ".join(parts + notes + [f"on Ignited Ground {share:.0%} of the fight ({IGNITED_NOT_COUNTED})"])
 
 
+# Incinerate's fuel (MECH79; before, nothing read it and Incinerate scored as channelled all fight, an OVERCOUNT where
+# the build spends little Mana on other skills). Game: IncineratePlayer "Gain fuel by spending Mana on any Skill, then
+# use the accumulated fuel ... Cannot gain fuel while using this skill"; incinerate_fuel_gain_per_mana_spent (ms of
+# channelling per Mana: 7 at gem levels 1-10 down to 2 from level 20, GrantedEffectStatSetsPerLevel), incinerate_maximum_
+# fuel 5000, incinerate_minimum_fuel_to_use 1000; patch 0.4.0 "Now gains 7-2 milliseconds of fuel per Mana spent ... Now
+# can store up to 5 seconds", 0.4.0b no fuel while your Spell Totem uses it (grep_notes --history "fuel", newest
+# 0.4.0b). So each second of fuel is a second of channelling: the Mana the build's other skills spend per second of the
+# fight (their fight-average use rates) x that rate gives the channelling per fight second, as a share of the main
+# skill's time the score leaves after those presses (Objective.busy), at most 1 (in Full DPS, where a pressed group is
+# charged through press_scales instead, busy is 0 and the press time isn't taken off: a small OVERCOUNT). The play: store
+# a full tank and channel it out (the longest channel, which Compounding Ignite rewards): each channel lasts the tank
+# (5 s), or what one gap's fuel gives if the build never fills it (at least the 1 s needed to start).
+INCINERATE = "Incinerate"
+INCINERATE_FUEL_STAT = "incinerate_fuel_gain_per_mana_spent"
+INCINERATE_MAX_FUEL_STAT, INCINERATE_MIN_FUEL_STAT = "incinerate_maximum_fuel", "incinerate_minimum_fuel_to_use"
+INCINERATE_CHANNEL_VAR = "bridgeConditionIncinerateChannelling"  # (bridge: Condition:IncinerateChannelling)
+
+
+def incinerate_channel(mana_per_second: float, ms_per_mana: float, max_ms: float = 5000.0,
+                       min_ms: float = 1000.0, busy: float = 0.0) -> tuple[float, float, str]:
+    """(share of the main skill's time spent channelling, one channel's length s, how) from the Mana the build's other
+    skills spend per second of the fight (their fight-average use rates; see the note above). `busy`: the share of the
+    fight the score already takes from the main skill for those presses (Objective.busy), so the channel's share of
+    what's left is fuel / (1 - busy). (0, 0, how) with no Mana spent."""
+    fuel = mana_per_second * ms_per_mana / 1000.0  # seconds of channelling gained per second of the fight
+    if fuel <= 0:
+        return 0.0, 0.0, ("no other skill of the build spends Mana, so Incinerate gains no fuel: 0 (feed it by pressing "
+                          "Mana-costing skills)")
+    left = 1.0 - min(max(busy, 0.0), 1.0)
+    if left <= 1e-9:
+        return 0.0, 0.0, "the presses that make its fuel take the whole fight: no time left to channel, 0"
+    share = min(1.0, fuel / left)
+    channel = max(min_ms, max_ms) / 1000.0
+    return share, channel, (f"{mana_per_second:.1f} Mana/s spent on other skills x {ms_per_mana:g} ms of fuel per Mana = "
+                            f"{fuel:.2f} s of channelling per second of the fight"
+                            + (f", over the {1 - busy:.0%} left after pressing them" if busy > 0 else "")
+                            + f": channelling {share:.0%} of that time, in {channel:g} s channels (a full tank each "
+                            "time, MEDIUM)")
+
+
+# Compounding Ignite (MECH79; plans/term-ignites.md item 1, kw-compounding-ignite.md; the manager 16:11 from GEM13).
+# KeywordPopups CompoundIgnite: "When Igniting a target which has already been Ignited by the same use of this Skill, the
+# existing Ignite is removed to boost the new Ignite, multiplying its Magnitude by the total number of Ignites compounded
+# this way"; active_skill_compounding_ignites on IncineratePlayer and WyvernFlameBreathPlayer only among player skills
+# (checked: PLANS5's stat search over mods, passives and every stat set; poe2db's Compounding_Ignite page lists the same
+# two); patch 0.4.0 Incinerate "Ignites from a single use of this Skill Compound if not from Ignited Ground". PoB has no
+# Compounding (no reader of the stat). A use is one channel: the k-th Ignite of a channel is k x its own magnitude (read:
+# the new hit's magnitude x the count, MEDIUM), the last one living out its duration after the channel ends; one Ignite
+# is live at a time (the strongest: a previous channel's last Ignite outlives the next channel's first small ones).
+# The model: the Ignite's average magnitude over the cycle (channel + gap), with compounding over without (same Ignite
+# times, chance and duration), applied as more Ignite Magnitude on the skill. Flame Breath's channel: its free window
+# (channelled_skill_suppress_ongoing_rage_cost_for_first_X_ms, 4 s + quality) recast at once ("do not go on cooldown on
+# finishing channel"); Rage prolonging it isn't counted (an UNDERCOUNT, labelled).
+COMPOUNDING_SKILLS = {INCINERATE, "Flame Breath"}
+FLAME_BREATH_FREE_STAT = "channelled_skill_suppress_ongoing_rage_cost_for_first_X_ms"
+COMPOUND_STEP = 0.01  # s, the sampling step of compounding_factor
+
+
+def compounding_factor(rate: float, channel: float, gap: float, duration: float) -> tuple[float, int]:
+    """(average Ignite magnitude with Compounding / without, Ignites per channel) for Ignites landing at `rate` per
+    second during each `channel` s, `gap` s between channels, each lasting `duration` s."""
+    if rate <= 0 or channel <= 0 or duration <= 0:
+        return 1.0, 0
+    n = max(1, int(math.floor(rate * channel - 1e-9)) + 1)  # (the first at the channel's start)
+    times = [k / rate for k in range(n)]
+    cycle = channel + max(gap, 0.0)
+    tail = times[-1] - cycle  # (the previous channel's last Ignite, n strong)
+    comp = plain = 0.0
+    steps = max(1, int(round(cycle / COMPOUND_STEP)))
+    for i in range(steps):
+        t = (i + 0.5) * cycle / steps
+        live = [k for k, at in enumerate(times) if at <= t < at + duration]
+        own = (max(live) + 1) if live else 0
+        prev = n if t < tail + duration else 0
+        comp += max(own, prev)
+        plain += 1 if (own or prev) else 0
+    return (comp / plain if plain else 1.0), n
+
+
+def _incinerate_channelling(lines: list[str], stats: dict) -> tuple[object, str]:
+    """The Channelling Incinerate box at the share of the fight its fuel allows (MECH79; off, its damage 100% less:
+    models.compound_ignite_mods)."""
+    if stats.get("_main_skill") != INCINERATE:
+        return 0.0, ""
+    share, _, how = stats.get("_incinerate_fuel") or (0.0, 0.0, "fuel not read")
+    return _box(share, f"Incinerate channelled {share:.0%} of the fight: {how}")
+
+
 def _covered(uses: float, chance: float, duration: float) -> float:
     """Share of the fight a ground made with `chance` per use, at `uses` per second, lasting `duration`, is down."""
     n = uses * duration
@@ -4410,6 +4498,8 @@ CONDITIONS: list[Condition] = [
               fields=()),  # (MECH78, MC-1)
     Condition(OPEN_WEAKNESS_VARS[1], "An enemy with an Open Weakness in your Presence", value_fn=_open_weakness(True),
               fields=("PresenceRadius",)),  # (MECH78, MC-1)
+    Condition(INCINERATE_CHANNEL_VAR, "Channelling Incinerate (its fuel: Mana spent on other skills)",
+              value_fn=_incinerate_channelling, fields=()),  # (MECH79)
     Condition("multiplierCurseExpiredOnEnemy", "A curse of yours past its threshold of Curse Duration",
               value_fn=_curse_expired, fields=()),  # (MECH78, MD-8)
     *(Condition(var, f"You {PAST_TENSE[APPLIED_RECENTLY[var]].lower()} an enemy Recently",
@@ -4937,6 +5027,57 @@ class Conditions:
                                + (f", shared with {', '.join(sorted(fire - {name}))}" if fire - {name} else ""))
         return out
 
+    def _incinerate_fuel(self) -> tuple[float, float, str]:
+        """(share of the fight channelling Incinerate, one channel's s, how) (MECH79, incinerate_channel): the Mana the
+        build's other enabled groups spend per second (each at its use rate, skill_use_rate, x PoB's ManaCost)."""
+        raw = self.build.call("activeSkills", levelStats=[INCINERATE])["skills"]
+        got = next((s.get("levelStats") or {} for s in raw if s["name"] == INCINERATE
+                    and INCINERATE_FUEL_STAT in (s.get("levelStats") or {})), {})
+        per_mana = number(got.get(INCINERATE_FUEL_STAT))
+        if per_mana <= 0:
+            return 0.0, 0.0, "Incinerate's fuel per Mana not read: 0"
+        groups = self.build.call("groups")
+        main = groups["mainSocketGroup"]
+        others = [g["index"] for g in groups["groups"] if g.get("enabled") is not False and g["index"] != main]
+        spend, parts = 0.0, []
+        if others:
+            choices = models.press_choices(self.build)
+            for row in self.build.call("useRates", indices=others)["rates"]:
+                cost = number(row.get("manaCost"))
+                if cost > 0:
+                    rate = skill_use_rate(row, choices)[0]
+                    spend += rate * cost
+                    parts.append(f"{row.get('name')} {rate:.2f}/s x {cost:.0f}")
+        objective = getattr(self.build, "objective", None)
+        busy = number(objective.busy()) if objective is not None and hasattr(objective, "busy") else 0.0
+        share, channel, how = incinerate_channel(spend, per_mana, number(got.get(INCINERATE_MAX_FUEL_STAT)) or 5000.0,
+                                                 number(got.get(INCINERATE_MIN_FUEL_STAT)) or 1000.0, busy)
+        return share, channel, how + (f" ({'; '.join(parts)})" if parts else "")
+
+    def _compounding(self, stats: dict, fuel: tuple[float, float, str] | None) -> tuple[float, str]:
+        """(Compounding Ignite's more Ignite Magnitude factor, how) for the main skill (MECH79, compounding_factor)."""
+        rate = number(stats.get("Speed")) * min(number(stats.get("IgniteChancePerHit")), 100.0) / 100.0 * min(
+            number(stats.get("HitChance")) or 100.0, 100.0) / 100.0
+        duration = (number(self.build.call("stats", fields=["IgniteDuration"]).get("IgniteDuration"))
+                    or AILMENT_DURATION["Ignite"])
+        if self.main_skill == INCINERATE:
+            share, channel, _ = fuel or (0.0, 0.0, "")
+            if share <= 0:
+                return 1.0, "Incinerate isn't channelled (no fuel): no Compounding"
+            gap = channel * (1 - share) / share
+            play = f"{channel:g} s channels, {gap:.1f} s between them (its fuel)"
+        else:
+            raw = self.build.call("activeSkills", levelStats=[self.main_skill])["skills"]
+            got = next((s.get("levelStats") or {} for s in raw if s["name"] == self.main_skill), {})
+            channel = (number(got.get(FLAME_BREATH_FREE_STAT)) or 4000.0) / 1000.0
+            gap = 0.0
+            play = (f"{channel:g} s channels (its Rage-free window), recast at once; Rage prolonging it not counted (an "
+                    "UNDERCOUNT)")
+        factor, n = compounding_factor(rate, channel, gap, duration)
+        return factor, (f"{rate:.2f} Ignites/s ({number(stats.get('IgniteChancePerHit')):.0f}% a hit), {n} a channel, "
+                        f"each {duration:g} s; {play}: the Ignite averages x{factor:.2f} its magnitude (the k-th Ignite "
+                        "of a use x k, one live at a time; MEDIUM)")
+
     def _ignited_charms(self, lines: list[dict]) -> dict[str, tuple[float, str]]:
         """{charm line making Ignited Ground: (the charm's uses per second, how)} (MECH79; Beira's Anguish's line doesn't
         end "on use", so _item_uses doesn't read it)."""
@@ -5342,6 +5483,10 @@ class Conditions:
         stats["_shocked_ground"] = shocked_ground(stats, texts)
         stats["_chilled_ground"] = chilled_ground(stats, texts, main_gems)  # (MECH76, for COV-A's Desert's Scorn)
         # (MECH79) the build's Ignited Ground at the boss: the ground gains' Fire, COV-A's Desert's Scorn cold half
+        if self.main_skill == INCINERATE:  # (MECH79: its fuel, the Channelling box's share)
+            stats["_incinerate_fuel"] = self._incinerate_fuel()
+        if self.main_skill in COMPOUNDING_SKILLS:  # (MECH79: Compounding Ignite, models.compound_ignite_mods)
+            stats["_compound"] = self._compounding(stats, stats.get("_incinerate_fuel"))
         stats["_ignited_ground"] = ignited_ground(
             self._ignited_makers(lines, stats) if (set(gem_types) | {self.main_skill}) & set(IGNITED_GROUND_MAKERS)
             else {}, texts, stats, self._ignited_charms(lines))
@@ -5540,6 +5685,8 @@ class Conditions:
         self.build.chilled_ground_up = stats.get("_chilled_ground") or (0.0, "")
         # (MECH79, for COV-A: Desert's Scorn's "Enemies standing on Ignited Ground take 25% increased Cold Damage")
         self.build.ignited_ground_up = stats.get("_ignited_ground") or (0.0, "")
+        # (MECH79, models.compound_ignite_mods) the main skill's Compounding Ignite: (skill, factor, how) or None
+        self.build.compound_ignite = ((self.main_skill, *stats["_compound"]) if stats.get("_compound") else None)
         # (MECH78, MC-1; for COV-A's OpenWeakness ledger condition, the manager 12:43: one share for both) the share of
         # the fight's TIME the boss has an Open Weakness: open_weakness_up(build)
         self.build.open_weakness_up = stats.get("_open_weakness") or (0.0, "")

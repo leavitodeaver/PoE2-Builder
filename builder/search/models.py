@@ -6822,6 +6822,31 @@ def grisly_pyre_model(uses: float, ignited: float, ignite_dps: float, duration: 
                  f"every {every:.2f} s: {pyre:,.0f} each); Aggravated Ignite's 3 more pillars not counted")
 
 
+# Incinerate's fuel and Compounding Ignite (MECH79; conditions' INCINERATE / COMPOUNDING_SKILLS notes hold the game
+# facts). Incinerate's damage is 100% less while the Channelling box is off (conditions.INCINERATE_CHANNEL_VAR, at the
+# share of the fight its fuel allows: Search.weigh_uptimes then counts it only for that share, and Full DPS keeps the
+# other skills); the main skill's Compounding Ignite as more Ignite Magnitude on it (conditions.compounding_factor).
+INCINERATE_IDLE_LINE = "100% less Damage"
+COMPOUND_LINE = "1% more Magnitude of Ignite"
+
+
+def compound_ignite_mods(main: str, compound: tuple | None) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for the main skill `main`: Incinerate's idle line, and `compound` = (skill, factor, how) from
+    Conditions (build.compound_ignite)."""
+    from builder.search import conditions as conditions_mod
+
+    mods: list[dict] = []
+    notes: list[dict] = []
+    if main == conditions_mod.INCINERATE:
+        mods.append(line(INCINERATE_IDLE_LINE, skill=main,
+                         when=[{"pob": conditions_mod.INCINERATE_CHANNEL_VAR[len("bridgeCondition"):], "neg": True}]))
+    if compound and compound[0] == main and compound[1] > 1.0 + 1e-6:
+        mods.append(line(COMPOUND_LINE, scale=(compound[1] - 1.0) * 100.0, skill=main))
+        notes.append({"label": f"{main}'s Compounding Ignite*", "value": f"x{compound[1]:.2f} Ignite Magnitude",
+                      "basis": compound[2], "confidence": "MEDIUM"})
+    return mods, notes
+
+
 # Grisly Pyre's Ignite from another group (MECH74; AUDIT35, an UNDERCOUNT: with His Winnowing Flame as the main skill,
 # or a main skill that doesn't Ignite, the Pyre read the main skill's Ignite, 0). The Ignite to Consume comes from the
 # build's other skill group that Ignites, scored as PoB scores it as the main skill (bridge.useRates' IgniteDPS,

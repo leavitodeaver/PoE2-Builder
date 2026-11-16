@@ -3599,6 +3599,8 @@ function bridge.useRates(args)
 				-- (MECHB10) a DetonatesAfterTime skill's fuse, PoB's DetonationTime (base x inc x more)
 				detonationTime = output.DetonationTime and jsonNumber(output.DetonationTime) or nil,
 				speed = jsonNumber(output.Speed or 0), cooldown = output.Cooldown and jsonNumber(output.Cooldown) or nil,
+				-- (MECH79, conditions' Incinerate fuel) one use's Mana cost, PoB's ManaCost
+				manaCost = type(output.ManaCost) == "number" and jsonNumber(output.ManaCost) or nil,
 				repeats = jsonNumber(output.Repeats or 1),
 				-- (MECH57) its minion's counted skill's uses per second, PoB's minion Speed (cooldown-capped, CalcOffence 3008)
 				minionSpeed = env.minion and env.minion.output and type(env.minion.output.Speed) == "number"

@@ -58,14 +58,16 @@ def engine():
 
 @pytest.mark.parametrize("skill,label", [("Incinerate", "Ignited Ground"), ("Ball Lightning", "Ignited Ground"),
                                          ("Oil Grenade", "Oil Ground")])
-def test_the_search_keeps_the_skills_own_cast_not_the_grounds_hits(engine, skill, label):
+def test_the_search_keeps_the_skills_own_cast_not_the_grounds_hits(engine, skill, label, monkeypatch):
     """POE2T3127 (before the fix): the search kept the ground set, Incinerate 2,666 DPS of Hits vs 273 for the channel,
-    Ball Lightning 549 vs 166; POE2T3128: Oil Grenade's Oil Ground 45.5 vs 22.0."""
+    Ball Lightning 549 vs 166; POE2T3128: Oil Grenade's Oil Ground 45.5 vs 22.0. (Incinerate given a full tank of fuel
+    here: the bare build has none, which would score every set 0.)"""
     from builder.request.schema import BuildRequest
     from builder.search.context import Context, make_payload
     from builder.search.inner import Search
     from builder.search.skeletons import enumerate_skeletons
 
+    monkeypatch.setattr(conditions, "incinerate_channel", lambda *a, **k: (1.0, 5.0, "test: a full tank"))
     payload = make_payload(BuildRequest(main_skill=skill))
     skeleton = enumerate_skeletons(Context(payload), [skill])[0][0]
     search = Search(engine, None, payload, skeleton.as_dict(), 0)
@@ -143,3 +145,74 @@ def test_beiras_anguish_makes_ignited_ground_at_the_charms_uses_on_a_real_build(
     share, how = build.ignited_ground_up
     print("BEIRA", share, how)
     assert "charm's ground" in how and "not in use" not in how
+
+
+def test_incinerate_channels_only_the_fuel_its_builds_other_skills_buy():
+    """conditions.incinerate_channel (MECH79): fuel only from Mana spent on other skills; none, 0."""
+    share, channel, how = conditions.incinerate_channel(0.0, 2)
+    assert share == 0.0 and "no other skill" in how
+    # 100 Mana/s at 2 ms per Mana: 0.2 s of channelling per fight second, 5 s channels; with 20% of the fight already
+    # taken for the presses, 0.2 / 0.8 of the main skill's time left
+    share, channel, how = conditions.incinerate_channel(100.0, 2)
+    assert share == pytest.approx(0.2) and channel == 5.0
+    assert conditions.incinerate_channel(100.0, 2, busy=0.2)[0] == pytest.approx(0.25)
+    assert conditions.incinerate_channel(100.0, 2, busy=1.0)[0] == 0.0
+    assert conditions.incinerate_channel(1e6, 7)[0] == pytest.approx(1.0, abs=1e-3)
+
+
+def test_compounding_multiplies_the_kth_ignite_of_a_channel_by_k():
+    """conditions.compounding_factor (MECH79): one Ignite a channel is x1; more Ignites a channel compound."""
+    assert conditions.compounding_factor(0.1, 5.0, 0.0, 4.0) == (1.0, 1)
+    assert conditions.compounding_factor(0.0, 5.0, 0.0, 4.0) == (1.0, 0)
+    # 2 Ignites/s over a 5 s channel, 4 s Ignites, a long gap: during the channel 1..10, then x10 for 4 s, then nothing
+    factor, n = conditions.compounding_factor(2.0, 5.0, 20.0, 4.0)
+    assert n == 10
+    expected = (sum(k * 0.5 for k in range(1, 10)) + 10 * 0.5 + 10 * 3.5) / (5.0 + 3.5)  # (the 10th lands at 4.5 s)
+    assert factor == pytest.approx(expected, rel=0.01)
+    # recast at once: the last channel's x10 outlives the next channel's first Ignites (one live at a time)
+    assert conditions.compounding_factor(2.0, 5.0, 0.0, 4.0)[0] > factor
+
+
+def test_the_compounding_and_idle_lines_go_to_the_main_skill_only():
+    from builder.search import models
+
+    mods, notes = models.compound_ignite_mods("Incinerate", ("Incinerate", 3.0, "how"))
+    idle = next(m for m in mods if m["line"] == models.INCINERATE_IDLE_LINE)
+    assert idle["skill"] == "Incinerate" and idle["when"] == [{"pob": "IncinerateChannelling", "neg": True}]
+    more = next(m for m in mods if m["line"] == models.COMPOUND_LINE)
+    assert more["scale"] == pytest.approx(200.0) and more["skill"] == "Incinerate" and notes
+    assert models.compound_ignite_mods("Flame Breath", ("Incinerate", 3.0, "how")) == ([], [])
+    assert models.compound_ignite_mods("Flame Breath", ("Flame Breath", 1.0, "how")) == ([], [])
+
+
+def test_pob_reads_the_lines_as_ignite_magnitude_and_less_damage(engine):
+    from builder.search import models
+
+    out = engine.call("parseLines", lines=[models.COMPOUND_LINE, models.INCINERATE_IDLE_LINE])["results"]
+    print("PARSE", out)
+    assert all(r["supported"] for r in out)
+    ignite, idle = out[0]["parsed"][0], out[1]["parsed"][0]
+    assert ignite["name"] == "AilmentMagnitude" and ignite["type"] == "MORE" and ignite["keywordFlags"]
+    assert idle["name"] == "Damage" and idle["type"] == "MORE" and idle["value"] == -100
+
+
+def test_incinerate_without_fuel_scores_nothing_on_a_real_build(engine):
+    """A bare Incinerate build spends no Mana on other skills: no fuel, the Channelling box off, its damage 0. (Fed by a
+    pressed Fireball, POE2T3139: 0.5/s, 104 Mana, 2 ms a Mana: channelling 26% of the 40% the presses leave, 28.4 vs 273.)"""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Incinerate"))
+    skeleton = enumerate_skeletons(Context(payload), ["Incinerate"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    search.settle()
+    build = search.build
+    print("FUEL", search.conditions.active.get(conditions.INCINERATE_CHANNEL_VAR), main_dps(build.stats))
+    # (the skeleton's other groups, Spellslinger and Raise Shield, spend no Mana: POE2T3138)
+    share, _, how = search.conditions._incinerate_fuel()
+    assert share == 0.0 and "no other skill" in how
+    assert not search.conditions.active.get(conditions.INCINERATE_CHANNEL_VAR)
+    assert main_dps(build.stats) == pytest.approx(0.0, abs=1e-6)
