@@ -1,0 +1,55 @@
+# Item lines PoB doesn't parse whole (COV35, 15 Nov 2026).
+
+# Olrovasara (PATCH_CHECK G3-3): "On Hitting an enemy, gains maximum added Lightning damage equal to" / "the enemy's
+# Power for 20 seconds, up to a total of 500". The game's stat says what it counts:
+# local_maximum_added_lightning_damage_equal_to_total_monster_power_of_enemies_hit_in_past_20_seconds_up_to_X (Stats
+# 20284; main_hand_ / off_hand_ forms 20285 / 20286): the summed Power of the enemies hit in the past 20 s, each enemy
+# once, as this weapon's maximum added Lightning damage. PoB parses neither half nor the joined sentence (ModCache 8854,
+# 8855, 10018: nil), so it counted 0.
+
+- id: EnemyPowerHit20s
+  title: Summed Power of the enemies hit in the past 20 seconds (Olrovasara), up to 500
+  kind: condition
+  # Assumptions.enemy_power_hit_count(20, 500): the boss's Power (models.boss_power: 20, with the build's Power lines)
+  # plus the adds the build kills x 20 s x Power 1 (LOW), 0 when the main skill doesn't hit; a count in whole percent
+  enemy_power_hit: 20
+  cap: 500
+  shown_for: '(?:the enemy''s Power for 20 seconds|^LedgerShare:EnemyPowerHit20s$)'
+  confidence: theory
+  sources: ["data/game-26476662/tables/Stats.json (20284)", "data/game-26476662/tables/KeywordPopups.json (Power)",
+            "https://poe2db.tw/us/Olrovasara"]
+  status: proposed
+
+- id: items-olrovasara-power-lightning-first-line
+  title: Olrovasara, "On Hitting an enemy, gains maximum added Lightning damage equal to" (first half; counted by the second)
+  kind: pob_gap
+  match: '^On Hitting an enemy, gains maximum added Lightning damage equal to$'
+  replace: []
+  confidence: datamined
+  notes: Carried by items-olrovasara-power-lightning (the second half holds the numbers).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:8854"]
+  status: proposed
+
+- id: items-olrovasara-power-lightning
+  title: Olrovasara, maximum added Lightning equal to the Power of the enemies hit in the past 20 seconds, at EnemyPowerHit20s's count
+  kind: pob_gap
+  match: '^the enemy''s Power for 20 seconds, up to a total of (\d+)$'
+  replace: ['share:EnemyPowerHit20s Attacks with this Weapon have Adds 0 to 1 Lightning Damage']
+  confidence: theory
+  notes: >-
+    The stand-in is this weapon's own maximum added Lightning, 1 per Power counted (EnemyPowerHit20s, in whole
+    percent: a lone boss 20 -> 2000, so +20 maximum). PoB parses "Attacks with this Weapon have Adds 0 to 1 Lightning
+    Damage" to LightningMin / Max BASE under Condition {Hand}Attack and the Attack skill type (ModParser 1291), which
+    Item.lua fills in with the weapon's own hand. Probe POE2T2578 (scratch/cov35/probe_olro.py, probe2578.log; Torment
+    Club "Adds 1 to 70", Boneshatter, character 90): plain 108.23 TotalDPS; PoB's own two lines 108.23 (nothing);
+    the weapon's line raised to "Adds 1 to 90" (truth at Power 20) 123.42; the stand-in at count 2000 123.42, the same;
+    Spark 88.37 with or without it (attacks only); in the off hand beside a plain mace 124.28 -> 134.14, the same as
+    the off hand's raised line (that hand only; "Adds ... to Attacks" without "with this Weapon" gave 142.66, both
+    hands: not used). The added damage goes through PoB's added-damage path (CalcOffence 4132-4136: source + added x
+    AddedDamage effectiveness), the same as the weapon's local flat damage unless the build has "increased Added
+    Damage" lines (none in this probe). Joined, the two halves still don't parse, so PoB doesn't join them into the
+    stand-in. A boss Power raised by the build's Power lines and the adds come from the condition.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:8855", "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua:1291",
+            "scratch/cov35/probe2578.log"]
+  test_in_game: "Hit a boss with Olrovasara: the weapon's Lightning damage tooltip rises by about 20 (its Power) for 20 s."
+  status: proposed

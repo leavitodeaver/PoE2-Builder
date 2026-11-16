@@ -3862,6 +3862,21 @@ class Assumptions:
                                       "stay full: these lines count only for that part of the fight",
                               "confidence": "MEDIUM-LOW (MECH-C's Ward spending; spends taken one at a time)"})
                 continue
+            if condition.get("enemy_power_hit"):
+                # (COV35, PATCH_CHECK G3-3: Olrovasara) a count: the summed Power of the enemies the build hit in the
+                # past N seconds, up to the line's cap (enemy_power_hit_count), in whole percent; its lines are `share:`
+                if not self.has_line(condition.get("shown_for") or "$^"):
+                    continue
+                power, how = self.enemy_power_hit_count(float(condition["enemy_power_hit"]),
+                                                        float(condition.get("cap") or 0), main, main_types)
+                percent = round(100 * power)
+                if percent > 0:
+                    self.ledger_shares[condition["id"]] = percent
+                    found.append(condition["id"])
+                notes.append({"label": condition["title"], "value": round(power, 1), "basis": how,
+                              "play": "Hit the boss (and any adds) at least once every 20 seconds",
+                              "confidence": "MEDIUM (the boss's Power with your Power lines); LOW for the adds"})
+                continue
             if condition["id"] == "JaggedGround":  # (from the build's own sources, not names or text: MECH51)
                 share, how = self.jagged_ground_share(main, main_types, main_group)
                 # its ledger lines are `share:JaggedGround` (COV11): each counts its full value x this share (bridge
@@ -4101,6 +4116,35 @@ class Assumptions:
             return missing, f"missing Runic Ward {missing:.0%} of the fight: {how}"
         return 1.0 - missing, f"on full Runic Ward {1.0 - missing:.0%} of the fight (missing it {missing:.0%}): {how}"
 
+    def enemy_power_hit_count(self, window: float, cap: float, main: str | None,
+                              main_types: set[str]) -> tuple[float, str]:
+        """(the summed Power of the enemies hit in the past `window` s, up to `cap`; how) for the `enemy_power_hit`
+        conditions (COV35, PATCH_CHECK G3-3). Olrovasara's stat says what it counts: local_maximum_added_lightning_damage_
+        equal_to_total_monster_power_of_enemies_hit_in_past_20_seconds_up_to_X (game Stats 20284): each enemy once, so
+        a lone boss hit at all gives its Power (models.boss_power: 20, "Unique monsters always have 20 Power",
+        KeywordPopups Power, raised by the build's Power lines). The boss preset's adds the build kills (build.kills,
+        models.kill_rate; 0 on a lone boss) are each hit within the window they die in: kills/s x window, each at
+        ADD_POWER (Normal, Power 1: the presets don't give the adds' rarity or Power, LOW, the lower reading). A build
+        whose main skill doesn't hit counts 0 (other hitting skills beside it aren't read: LOW, an undercount)."""
+        build = self.build
+        stats = build.call("stats", fields=models.MODEL_FIELDS)
+        if models.hits_per_second(stats) <= 0:
+            return 0.0, "the main skill doesn't hit: no enemy hit, 0"
+        texts = [e["text"] for e in build.call("sourceLines")["lines"]]
+        distance = number(build.call("getConfig")["input"].get("enemyDistance")) or None
+        boss, basis = models.boss_power(texts, {**stats, "_main_types": main_types}, distance,
+                                        "Attack" in main_types, main or "")
+        kills = getattr(build, "kills", None)
+        enemies = float(kills[0]) if kills else 0.0
+        adds = enemies * window * ADD_POWER
+        total = boss + adds
+        told = (f"the boss's Power {boss:g}" + (f" ({basis})" if basis else "")
+                + (f" + {adds:.1f} from the adds ({enemies:.3f} kills/s x {window:g} s, Power {ADD_POWER:g} each, LOW)"
+                   if adds > 0 else " (no adds killed: a lone boss)"))
+        if cap and total > cap:
+            return cap, f"{told}: {total:.1f}, capped at the line's {cap:g}"
+        return total, told
+
     def spell_crits_recently(self, window: float, main_types: set[str]) -> tuple[float, str]:
         """(Critical Hits dealt with Spells in the past `window` seconds, how), on average over the fight (COV17): the main
         skill's uses a second x its hit chance x its Critical Hit chance (models.crits_per_second) x the window, when the
@@ -4297,6 +4341,12 @@ class Assumptions:
 # stat, base_number_of_fissures on Forge Hammer and Starborn Onslaught, additional-fissure supports only add to skills
 # that already create them; UNVERIFIED whether any other support or item makes a Slam create Fissures.)
 CRATER = "Crater"
+
+
+# (COV35, PATCH_CHECK G3-3) An add's Power for Olrovasara's "total monster Power of enemies hit": the boss presets give
+# the adds' kill rate but not their rarity or Power (conditions.kill_events reads them as Normal or Magic); Normal = 1
+# ("An average monster has a Power of 1 ... Normal: 1, Magic: 2, Rare: 5", KeywordPopups Power). LOW, the lower reading.
+ADD_POWER = 1.0
 
 
 def mountain_splitter_slam(main: str | None, main_types: set[str], main_info: dict, skills: list[dict],

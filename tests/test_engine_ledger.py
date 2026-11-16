@@ -105,3 +105,32 @@ def test_a_share_line_with_a_percent_stat_counts_its_exact_share(engine):
     assert abs((dps(fixed, 100) - none) - own) < 1e-6 * own
     assert abs((dps(fixed, 50) - none) - own / 2) <= 0.02 * own
     assert abs(dps(fixed, 0) - none) < 1e-9
+
+
+def test_olrovasaras_power_line_adds_maximum_lightning_to_its_own_attacks(engine):
+    """COV35 (PATCH_CHECK G3-3): Olrovasara's "maximum added Lightning damage equal to the enemy's Power" (PoB parses
+    none of it) counts through its ledger stand-in at EnemyPowerHit20s's count: at 2000 (a lone boss's Power 20) the
+    same DPS as the weapon's own "Adds 1 to 70" raised to "Adds 1 to 90", and nothing for a Spell (probe POE2T2578)."""
+    from builder.ledger import translate
+    from builder.search import models
+
+    second = "the enemy's Power for 20 seconds, up to a total of 500"
+    stand_in = translate(second)[1][0].replace("share:EnemyPowerHit20s ", "LedgerShare:EnemyPowerHit20s ")
+    head = "Rarity: Unique\nOlrovasara\nTorment Club\nItem Level: 80\n--------\n"
+
+    def dps(adds_max, extra=(), share=None, skill="Boneshatter 20/0 1"):
+        engine.call("newBuild")
+        engine.call("setLevel", level=90)
+        engine.call("equip", slot="Weapon 1", fields=[],
+                    raw=head + "\n".join([f"Adds 1 to {adds_max} Lightning Damage", *extra]))
+        engine.call("addSkillGroup", text=skill, main=True)
+        engine.call("setAssumptions", mods=[] if share is None else
+                    [models.raw_mod("Multiplier:LedgerShareEnemyPowerHit20s", "BASE", share)])
+        return engine.call("stats", fields=["TotalDPS"])["TotalDPS"]
+
+    own = ["On Hitting an enemy, gains maximum added Lightning damage equal to", second]
+    plain = dps(70)
+    assert dps(70, own) == plain  # PoB's own parse: nothing
+    assert abs(dps(70, own + [stand_in], 2000) - dps(90)) < 1e-6 * plain
+    assert dps(70, own + [stand_in], 0) == plain
+    assert dps(70, own + [stand_in], 2000, skill="Spark 20/0 1") == dps(70, skill="Spark 20/0 1")
