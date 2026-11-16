@@ -987,8 +987,7 @@ def rift_income(income: Income, stats: dict, uses: float, how: str) -> None:
 # high threshold, MEDIUM). Decay modifiers (Defender's Resolve, the Amanamu shield suffix, Resolute Reprisal: all faster)
 # change nothing below: a channel never decays, and 5 s between parries already empties the bar at the base rate.
 # Not counted yet (named in the notes): Refutation's blocks during its buff, Raise Shield taps, Runic Reprieve's channel,
-# Hazardous Holdout; and Evasion while the shield is raised ("You cannot Evade while your Shield is raised": PoB's
-# Evasion still counts, an overcount of defence). Block while channelling: assumptions.heavy_stunned_self.
+# Hazardous Holdout. Block and Evasion while channelling: assumptions.heavy_stunned_self.
 HEAVY_STUN_SCALE_PLAYER = 0.65
 PLAYER_HEAVY_STUN_SECONDS = 3.0
 HEAVY_DECAY_DELAY, HEAVY_DECAY_PER_SECOND = 2.0, 0.5
@@ -1035,10 +1034,12 @@ def channel_heavy_stun(stats: dict, scale: float = 1.0) -> tuple[float, float, s
 
     buildups, how = heavy_buildups(stats, scale)
     unavoidable, evadable = boss_hits.shares(stats)
-    evade, _ = boss_hits.evade_block(stats)
     every = _num(stats.get("enemySkillTime")) or 0.7
     blockable = max(1 - unavoidable - evadable, 0.0)
-    blocked = blockable * (1 - evade) / every  # blockable hits whose buildup evasion doesn't avoid
+    # (the manager, 15 Nov 20:55: "While the shield is raised there's no Evasion: no evaded hits, so every hit builds
+    # stun"; Resonating Shield's own text has no "Evasion instead grants an equal chance to avoid" clause, which Raise
+    # Shield's and Parry's do)
+    blocked = blockable / every
     mean = sum(w * b for w, b in buildups)
     if blocked <= 0 or mean <= 0:
         return 0.0, 0.0, f"no blocked boss hit builds Heavy Stun ({how})"
@@ -1048,8 +1049,8 @@ def channel_heavy_stun(stats: dict, scale: float = 1.0) -> tuple[float, float, s
     share = PLAYER_HEAVY_STUN_SECONDS / cycle
     return share, 1 / cycle, (
         f"channelling holds the shield raised and the bar never decays: {blocked:.2f} blocked boss hits a second (the "
-        f"{blockable:.0%} that are Blockable, one every {every:g} s, less {evade:.0%} Evasion's chance to avoid the "
-        f"buildup), {mean:.0%} of the bar each on average ({how}), so a Heavy Stun every {hits} blocked hits ({fill:.1f} s), "
+        f"{blockable:.0%} that are Blockable, one every {every:g} s; no Evasion while raised, so each builds stun: the "
+        f"manager's ruling), {mean:.0%} of the bar each on average ({how}), so a Heavy Stun every {hits} blocked hits ({fill:.1f} s), "
         f"{PLAYER_HEAVY_STUN_SECONDS:g} s each with no attacking, Block or Evasion: {share:.0%} of the fight. Releasing "
         "early to let it decay costs more time (2 s delay + up to 2 s of decay per bar), so not chosen (MEDIUM)")
 

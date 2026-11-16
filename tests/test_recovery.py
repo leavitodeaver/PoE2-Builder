@@ -1277,7 +1277,8 @@ def test_channelling_a_raised_shield_heavy_stuns_you_when_the_bar_fills():
     assert "every 1 blocked hits" in how
     small = {**big, **{f"{t}TakenHit": 1 for t in boss_hits.TYPES}, "StunThreshold": 100000}
     assert 0 < recovery.channel_heavy_stun(small)[0] < 0.01
-    assert recovery.channel_heavy_stun({**big, "EvadeChance": 100})[0] == 0.0
+    # (the manager, 20:55: no Evasion while the shield is raised, so it avoids no buildup)
+    assert recovery.channel_heavy_stun({**big, "EvadeChance": 100})[0] == pytest.approx(share)
     assert recovery.channel_heavy_stun({**big, "StunThreshold": 1000 * 2})[0] == pytest.approx(share)  # (still >= 1 bar)
 
 
@@ -1382,3 +1383,18 @@ def test_consecrated_ground_share_from_the_builds_own_uses(monkeypatch):
     assert mods == [] and "PoB applies itself" in notes[0]["basis"]
     monkeypatch.setattr(assumptions, "group_uses", lambda b, gem: None)
     assert hook.consecrated_ground() == ([], [])
+
+
+def test_consecrated_row_shows_inside_and_outside():
+    """MECHC30 (the manager, 20:55: inside / outside rows): Life regenerated inside, none outside, the same DPS."""
+    from types import SimpleNamespace
+
+    from builder.search import play_guide
+
+    search = SimpleNamespace(build=SimpleNamespace(consecrated_ground=(0.375, 0.5, 1.2, "Consecrate every 16 s"),
+                                                   stats={"Life": 5000}))
+    row = play_guide.consecrated_row(search, 1000.0)
+    assert row["dps_with"] == row["dps_without"] == 1000.0 and "Inside it: 6.0%" in row["play"] and "300 Life/s" in row["play"]
+    assert "outside it" in row["play"] and ("37%" in row["play"] or "38%" in row["play"])
+    search.build.consecrated_ground = None
+    assert play_guide.consecrated_row(search, 1000.0) is None

@@ -3110,9 +3110,12 @@ def test_resonating_shield_heavy_stuns_you_from_blocked_hits(engine):
     assert raw["BlockChanceMax"]["value"] == pytest.approx(min(90.0, 100 * (1 - share)), abs=0.01)
     search.resolve()  # (on PoB: its EffectiveBlockChance, which every defence reader sees)
     share = recovery.channel_stun_of(build, "Resonating Shield")[0]
-    block = build.call("stats", fields=["EffectiveBlockChance"])["EffectiveBlockChance"]
-    print("PROBE resonating block", share, block)
+    read = build.call("stats", fields=["EffectiveBlockChance", "EvadeChance"])
+    block = read["EffectiveBlockChance"]
+    print("PROBE resonating block", share, block, "evade", read["EvadeChance"])
     assert block == pytest.approx(min(90.0, 100 * (1 - share)), abs=1.0)
+    assert read["EvadeChance"] == 0  # (no Evasion raised or stunned: the manager's ruling, 15 Nov 20:55)
+    assert "CannotEvade" in raw
     assert recovery.channel_stun_of(build, "Spark") == (0.0, 0.0, "")
 
 

@@ -189,6 +189,8 @@ def guide(search: Any) -> list[dict]:
         rows.append(row)
     if row := heavy_stunned_row(search, headline):
         rows.append(row)
+    if row := consecrated_row(search, headline):
+        rows.append(row)
     if row := orb_near_row(search, headline):
         rows.append(row)
     if row := curse_lapse_row(search, headline):
@@ -445,6 +447,27 @@ def heavy_stunned_row(search: Any, headline: float) -> dict | None:
                      "Evasion (an equal chance to avoid the buildup) cuts them"),
             "dps_with": headline, "dps_without": without, "change": (headline - without) / without,
             "confidence": "MEDIUM (the buildup factor is the game's constant; its formula PoB's for monsters)"}
+
+
+def consecrated_row(search: Any, headline: float) -> dict | None:
+    """Your Consecrated Ground, inside / outside (MECHC30; the manager, 15 Nov 20:55, the user's Leylines ruling: "75% with
+    a note in the build result showing dps for both inside and outside"): it moves no DPS (no player source makes your
+    ground hurt enemies), so the row gives the Life regenerated and the Curse effect on you inside it and outside it; the
+    headline's recovery counts 75% of the time it's laid (assumptions.consecrated_ground)."""
+    found = getattr(search.build, "consecrated_ground", None)
+    if not found:
+        return None
+    up, laid, effect, how = found
+    life = float((search.build.stats or {}).get("Life") or 0.0)
+    regen = 5.0 * effect
+    return {"var": "consecratedGround", "label": "Consecrated Ground: standing inside it / outside it*", "kind": PLAYER,
+            "counted": True,
+            "play": (f"{how}: laid {laid:.0%} of the fight. Inside it: {regen:.1f}% of maximum Life regenerated a second "
+                     f"({regen / 100 * life:,.0f} Life/s) and {50 * effect:.0f}% reduced Curse effect on you; outside it: "
+                     f"neither. The recovery counts you inside {up:.0%} of the fight (75% of the time it's laid: the "
+                     f"user's Leylines ruling). DPS is the same inside and outside ({headline:,.0f})"),
+            "dps_with": headline, "dps_without": headline, "change": 0.0,
+            "confidence": "LOW (standing in it 75% of the time it's laid)"}
 
 
 # MECH-B's side-Orb note (models.orb_cycle, MECHB28) and the words its basis carries when the main Spell feeds the Orb

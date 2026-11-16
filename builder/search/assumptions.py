@@ -531,6 +531,7 @@ SOUL_LINE = "1% increased Skill Speed"
 
 
 BLOCK_CAP = 90.0  # PoB's data.misc.BlockChanceCap (MECHC30: heavy_stunned_self's raised-shield Block)
+RAISED_TAG = "RaisedShield"  # (the raised-shield Block and Evasion mods' source tag, Assumption:RaisedShield)
 
 
 def soul_eater_average(fight: float, segments: list[tuple[float, float]] | None, inside: float, outside: float,
@@ -3147,6 +3148,7 @@ class Assumptions:
                 share = min(1.0, uses * CONSECRATED_SECONDS["charm"])
                 sources.append(share)
                 parts.append(f"{option.name}: {uses:.3f} uses/s ({how}) x {CONSECRATED_SECONDS['charm']:g} s = {share:.0%}")
+        build.consecrated_ground = None
         if not sources:
             return [], []
         stationary = any(CONSECRATED_STATIONARY.match(t) for t in texts)
@@ -3160,6 +3162,7 @@ class Assumptions:
         laid = 1 - laid
         up = laid * CONSECRATED_STAND
         effect = 1 + sum(float(m.group(1)) for t in texts if (m := CONSECRATED_EFFECT.match(t))) / 100
+        build.consecrated_ground = (up, laid, effect, "; ".join(parts))  # (play_guide.consecrated_row: inside / outside)
         note = {"label": "Consecrated Ground: you stand in your own*", "value": f"{up:.0%} of the fight",
                 "confidence": "LOW",
                 "basis": ("; ".join(parts) + f": laid {laid:.0%} of the fight (sources overlapping as independent, MEDIUM), "
@@ -3176,7 +3179,7 @@ class Assumptions:
         """Heavy Stuns on you from channelling Resonating Shield as the main skill (recovery.channel_stun_of: the bar never
         decays while the shield is raised): the share of the fight Heavily Stunned is lost from the main skill's time, as
         "1% more Attack and Cast Speed" x -100 x that share (parry_model's way); Block on PoB at 1 - that share (the
-        raised shield Blocks every Blockable hit while channelling, nothing while stunned). Evasion isn't removed yet."""
+        raised shield Blocks every Blockable hit while channelling, nothing while stunned); no Evasion in either state."""
         share, rate, how = recovery_mod.channel_stun_of(self.build, main)
         self.build.heavy_stunned_self = (share, rate, how)  # (play_guide.heavy_stunned_row)
         if not how:
@@ -3190,14 +3193,21 @@ class Assumptions:
         # PoB knew neither (its ordinary shield Block chance: an undercount while channelling, an overcount while
         # stunned). On PoB as its Block chance at its maximum, the maximum overridden to 1 - share (PoB's 90% cap kept:
         # data.misc BlockChanceCap), so every reader of EffectiveBlockChance (boss_hits' land and block shares, the
-        # recovery and defence floors, PoB's EHP) sees it; red-flash hits stay unblockable (boss_hits.shares). Not done:
-        # "You cannot Evade while your Shield is raised" (Raise Shield's text): PoB's Evasion still applies, an overcount
-        # of defence (named), because the stun model needs the Evasion chance you'd have (it avoids the buildup)
+        # recovery and defence floors, PoB's EHP) sees it; red-flash hits stay unblockable (boss_hits.shares).
+        # Evasion (the manager, 15 Nov 20:55: "While the shield is raised there's no Evasion: no evaded hits, so every hit
+        # builds stun. Outside the channel, Evasion counts as usual", weighted by the channel share): "You cannot Evade
+        # while your Shield is raised" (Raise Shield's text) and "While Heavily Stunned players cannot ... Evade"
+        # (KeywordPopups HeavyStunPlayer), so a channelling main skill has no Evasion in either of its two states (raised,
+        # or stunned) and no time outside both: PoB's CannotEvade (CalcDefence 1496: every EvadeChance 0), tagged
+        # RAISED_TAG. The stun model needs no Evasion read of its own under the ruling (recovery.channel_heavy_stun: no
+        # avoidance while raised), so no bridge read leaving the tag out is needed while the channel is all fight
         block = min(BLOCK_CAP, 100 * (1 - share))
         note["basis"] += (f"; Block: all Blockable hits while channelling, none while stunned: {block:.0f}% on PoB (its Block "
-                          "at a maximum set to that; PoB's 90% cap kept). Your Evasion still counts in PoB, though a "
-                          "raised shield can't Evade (an overcount of defence, LOW)")
-        mods = [models.raw_mod("BlockChanceMax", "OVERRIDE", block), models.raw_mod("MaxBlockIfNotBlockedRecently", "FLAG", 1)]
+                          "at a maximum set to that; PoB's 90% cap kept); Evasion: none, raised or stunned (PoB's "
+                          "CannotEvade)")
+        mods = [models.raw_mod("BlockChanceMax", "OVERRIDE", block, tag=RAISED_TAG),
+                models.raw_mod("MaxBlockIfNotBlockedRecently", "FLAG", 1, tag=RAISED_TAG),
+                models.raw_mod("CannotEvade", "FLAG", 1, tag=RAISED_TAG)]
         if share > 0:
             mods.append(models.line("1% more Attack and Cast Speed", -100 * share, skill=main))
         return mods, [note]
