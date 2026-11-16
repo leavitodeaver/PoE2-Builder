@@ -137,7 +137,14 @@ def needs(mods: list[dict]) -> list[str]:
                 actor, _, cond = var.rpartition(":")
                 found.append(("enemy:" if actor == "enemy" else "") + "Condition:" + cond)
             elif kind == "Multiplier" and var:
-                found.append(("enemy:" if enemy else "") + "Multiplier:" + var)
+                # (COV36) a Multiplier tag with an actor ("Multiplier=player:IdolsInEquipment", Idolatry) names the actor's
+                # multiplier: "player" / "parent" (a minion's parent) are yours, "enemy" the enemy's; before, the actor stayed
+                # in the name, which no setter matches, so CalcSetup's IdolsInEquipment read "nothing sets it"
+                actor, sep, name = var.partition(":")
+                if sep and actor in ("player", "parent", "enemy"):
+                    found.append(("enemy:" if enemy or actor == "enemy" else "") + "Multiplier:" + name)
+                else:
+                    found.append(("enemy:" if enemy else "") + "Multiplier:" + var)
     return found
 
 

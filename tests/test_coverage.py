@@ -463,9 +463,9 @@ def test_a_downside_pob_parses_but_nothing_reads_is_routed_as_an_overcount():
         pytest.skip("no coverage.json")
     records = [r for r in coverage.audit()["records"] if r["line"] == line]
     assert records
-    for r in records:
-        assert r["status"] == "none" and r["entry"] == entry.id and r["routed"] == "MECH-B"
-        assert r.get("overcount") and not r.get("undercount") and "OVERCOUNT" in r["reason"]
+    # COV36: models.ignite_self_damage (MECHB25) reads it, so it counts as that model's (items-cov36.yaml); the overcount
+    # route is coverage.py's for any parsed_unused line no model reads
+    assert all(r["status"] == "model" and r["entry"] == "model-read-fireflower" for r in records)
 
 
 def test_a_never_on_line_a_model_reads_is_counted_and_one_nothing_reads_stays_open():
@@ -482,3 +482,24 @@ def test_a_never_on_line_a_model_reads_is_counted_and_one_nothing_reads_stays_op
     assert melee and all(r["status"] == "model" for r in melee)
     moving = [r for line, r in never.items() if line.endswith("increased Mana Regeneration Rate while moving")]
     assert moving and all(r["status"] == "none" for r in moving)
+
+
+def test_a_line_pobs_item_code_reads_is_pobs():
+    """COV36: "This item gains bonuses from Socketed Items as though it was a Body Armour" isn't parsed by ModParser, but
+    PoB's Item.lua reads it (probe POE2T2594, tests/test_as_though_body_armour.py); the Soul Core form isn't probed."""
+    status, entry, reason = coverage.ignored_line_status(
+        "This item gains bonuses from Socketed Items as though it was a Body Armour", False)
+    assert status == "pob" and "Item.lua" in reason
+    assert coverage.ignored_line_status("This item gains bonuses from Socketed Items as though it was Gloves", False)[0] == "pob"
+    assert coverage.ignored_line_status(
+        "This item gains bonuses from Socketed Soul Cores as though it was also a Helmet", False)[0] != "pob"
+
+
+def test_a_multiplier_tag_with_an_actor_names_that_actors_multiplier():
+    """COV36: Idolatry's "per Idol in your Equipment" parses with actor="player" on its Multiplier tag; the audit kept
+    "player:" in the name, which no setter matches, so CalcSetup's IdolsInEquipment read "nothing sets it"."""
+    from builder.ledger.parse_audit import needs
+
+    assert needs([{"g": ["Multiplier=player:IdolsInEquipment"]}]) == ["Multiplier:IdolsInEquipment"]
+    assert needs([{"g": ["Multiplier=enemy:ChillEffect"]}]) == ["enemy:Multiplier:ChillEffect"]
+    assert needs([{"g": ["Multiplier=Rage"]}]) == ["Multiplier:Rage"]

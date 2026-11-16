@@ -521,11 +521,25 @@ def cached_templates(src: Path = POB_SRC) -> dict[str, bool]:
     return found
 
 
+# Lines ModParser ignores but PoB's Classes/Item.lua reads from the item text itself (COV36), each with its probe:
+# - "This item gains bonuses from Socketed Items as though it was <type>" (Darkness Enthroned's five variants, The Bringer
+#   of Rain, Grasping Ring): Item.lua 1279 captures <type> into socketedAugmentTypeOverride and GetSocketedAugmentTypes
+#   applies the augments' <type> lines. Probe POE2T2594 (tests/test_as_though_body_armour.py): The Bringer of Rain takes
+#   Amanamu's Gaze's body armour line (more Armour than without the line), Darkness Enthroned (a belt) Desert Rune's.
+#   The Soul Core form ("... Soul Cores as though it was also <type>", Item.lua 1280 / 1527) isn't probed: left open.
+ITEM_TEXT_READS = [
+    (re.compile(r"^This item gains bonuses from Socketed Items as though it was a? ?.+$", re.I),
+     "PoB's Item.lua reads it from the item text (socketedAugmentTypeOverride, Item.lua 1279; probe POE2T2594)"),
+]
+
+
 def ignored_line_status(line: str, on_passive: bool) -> tuple[str, str | None, str]:
     """Status of a line PoB's parser ignores: a ledger translation, a custom model, or nothing."""
     if RANGE_TEXT.search(line) and cached_templates().get(template(line)):
         # A unique's roll range like "+(-40-40)%" fails at its middle roll ("0%"); rolled, PoB parses it
         return "pob", None, "PoB parses the rolled line (only the range text fails)"
+    if not on_passive and (read := next((why for rx, why in ITEM_TEXT_READS if rx.match(line.strip())), None)):
+        return "pob", None, read
     if entry := model_entry(line):
         return "model", entry.id, f"fed to the {entry.raw['model']} model"
     if translated := translate(line):

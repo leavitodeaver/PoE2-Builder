@@ -1,0 +1,92 @@
+# COV36 (COV-A), 16 Nov 2026: item-line entries.
+
+- id: parse-hand-wraps-attack-crit-chance-is
+  title: '"Critical Hit chance for Attacks is X%" (Maligaro''s hand wraps): PoB sets the final chance (UNVERIFIED)'
+  kind: parse_checked
+  match: '^Critical Hit chance for Attacks is [(\d.\-)]+%$'
+  confidence: theory
+  notes: >-
+    The line is the hand-wraps form of Maligaro's Virtuosity (Way of the Stonefist; game Mods
+    HandWrapsUniqueCriticalStrikeMultiplierOverride1, stat attack_crit_chance_override_% 25-40, builds 26476662 and
+    26650308). PoB parses it as CritChance OVERRIDE for Attacks (ModCache "Critical Hit chance for Attacks is 33%":
+    flags 1 = Attack, type OVERRIDE), so every increased / more crit chance modifier does nothing for attacks while it is
+    worn, and "Base Critical Hit Chance ... is N%" / "This Weapon's Critical Hit Chance is N%" lines are overridden too.
+    That matches the wording by the user's working rule (memory mod-wording-sets-vs-adds.md, MEDIUM: "X is N" with no
+    "Base" sets the final value; a stat id's "override" doesn't decide, Gloamgown's 0.3.0 fix), but no test or developer
+    statement settles it (RESEARCH27, wording-rule-exceptions.md "Hand wraps ...": UNVERIFIED; the manager, 15 Nov 23:30:
+    "PoB treats it as the final chance, which matches the wording but is untested. Label it in the ledger"). If the game
+    treats it as a base that increases still scale, PoB under-counts attack crit with it. Left as PoB parses it.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua (Critical Hit chance for Attacks is 33%)",
+            "data/game-26476662/tables/Mods.json (HandWrapsUniqueCriticalStrikeMultiplierOverride1)",
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/wording-rule-exceptions.md (RESEARCH27, R27-5)"]
+  test_in_game: "With the hand wraps on, the attack's crit chance on its tooltip stays at the line's roll when an increased Critical Hit Chance modifier is added or removed (final), or rises with it (a base)."
+  status: proposed
+
+- id: items-minions-revive-slower
+  title: '"Minions Revive N% slower": PoB reads only "faster", so the downside was dropped (an OVERCOUNT for minion builds)'
+  kind: pob_gap
+  match: '^Minions Revive (-?\d+(?:\.\d+)?)% slower$'
+  replace: ['mod:MinionRevivalSpeed INC {-g1}']
+  confidence: datamined
+  notes: >-
+    The game stat minion_resummon_speed_+% (Mods: MinionReviveSpeed1-4, JewelMinionReviveSpeed, UniqueMinionReviveSpeed1-3,
+    UniqueHeartPrefixMinionReviveSpeed, UniqueLoreweaveHeartbound2 / 2BigRange; build 26476662, unchanged in 26650308)
+    reads "Minions Revive N% faster" for a positive value and "N% slower" for a negative one (UniqueMinionReviveSpeed3
+    -50; Loreweave's Heartbound effect with Ventor's wider roll, -25 to 25). PoB's ModParser has only
+    "minions revive (%d+)% faster" -> MinionRevivalSpeed INC (4748), so "slower" lines parse to nothing (ModCache 8624 /
+    8629 keep the leftover text) and every reader of MinionRevivalSpeed (CalcOffence 1616's revival time, which the
+    bridge reports as summon.reviveSpeed for models.revive_seconds: minion deaths, Cast on Minion Death, Grim Feast) saw
+    the faster revival. The line is the raw modifier MinionRevivalSpeed INC -N (a negative N, "-10% slower", is +10).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua 4748", "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua 8624-8632",
+            "data/game-26476662/tables/Mods.json (minion_resummon_speed_+%)"]
+  test_in_game: "A Reviving minion's revive time with the line is longer by 1 / (1 - N/100) against without it."
+  status: proposed
+
+# Lines a model already reads that the coverage audit listed as open (COV36; checked: the model's regex matches the line,
+# and its function is called on a live path). Empty replace: nothing added to PoB (no second count).
+
+- id: model-read-fireflower
+  title: models.ignite_self_damage reads it (Fireflower's Fire damage taken per Ignite)
+  kind: pob_gap
+  model: ignite_self_damage
+  match: '^Take (\d+(?:\.\d+)?) Fire Damage when you Ignite an Enemy$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.FIREFLOWER / ignite_self_damage (MECHB25), called from assumptions.py (Assumptions' source lines, 1613): 100 x
+    the main skill's Ignites per second, handed to PoB as Fire damage taken per second. parsed-unused.yaml's
+    unused-fire-damage-taken-on-ignite stays (PoB itself still reads nothing: without it the audit would take PoB's
+    wildcard "...Damage" match as a read); the audit's unused_status asks the models first, so the line counts as this
+    model's. This entry only says a model reads the line; it adds nothing to PoB.
+  sources: [builder/search/models.py (FIREFLOWER, ignite_self_damage), builder/search/assumptions.py 1613]
+  status: proposed
+
+- id: model-read-es-recharge-on-mana-flask
+  title: flasks.es_recharge_starts reads it (Bitterbloom)
+  kind: pob_gap
+  model: es_recharge_starts
+  match: '^Energy Shield Recharge starts when you use a Mana Flask$'
+  replace: []
+  confidence: theory
+  notes: >-
+    flasks.ES_START_MANA_FLASK / es_recharge_starts (MECH-C), called from assumptions.py 3134: the Mana flask's uses a
+    second start Energy Shield Recharge (recovery). This entry only says a model reads the line; it adds nothing to PoB.
+  sources: [builder/search/flasks.py (ES_START_MANA_FLASK, es_recharge_starts), builder/search/assumptions.py 3097-3134]
+  status: proposed
+
+- id: model-melee-range-if-projectile-hit-recently
+  title: '"+N metres to Melee Strike Range if you''ve dealt a Projectile Attack Hit in the past eight seconds" at the build''s own share'
+  kind: pob_gap
+  model: projectile_hit_recently
+  match: '^\+(\d+(?:\.\d+)?) metres to Melee Strike Range if you''ve dealt a Projectile Attack Hit in the past eight seconds$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Adaptable Assault (passive notable). PoB parses it (ModCache 93) under Condition:HitProjectileRecently, which only its
+    unset Configuration box sets: 0 before. models.projectile_hit_recently_model (COV35's, widened by COV36) adds
+    "+N metres to Melee Strike Range" at N x the share of the fight with a Projectile Attack Hit in the past 8 s
+    (1 - e^(-8 s x the build's Projectile Attack hits/s); none: 0). PoB reads strike range only for skills whose area is
+    the weapon's range (CalcOffence 570 / 1516). Empty replace: the model's line is the only count.
+  sources: ["builder/search/models.py (PROJECTILE_HIT_RANGE, projectile_hit_recently_model)",
+            "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua 93"]
+  status: proposed

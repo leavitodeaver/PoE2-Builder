@@ -69,3 +69,14 @@ def test_a_real_build_reads_its_own_projectile_attack_hits(engine):
 
     assert share("Lightning Arrow") > 0.9
     assert share("Spark") == 0
+
+
+def test_adaptable_assaults_strike_range_counts_at_the_same_share():
+    """COV36: "+0.4 metres to Melee Strike Range if you've dealt a Projectile Attack Hit in the past eight seconds"."""
+    rng = "+0.4 metres to Melee Strike Range if you've dealt a Projectile Attack Hit in the past eight seconds"
+    mods, notes = models.projectile_hit_recently_model([rng], {"Spear Throw": (0.25, "chosen press rate")})
+    share = 1 - math.exp(-0.25 * 8)
+    assert len(mods) == 1 and mods[0]["line"] == "+1 metres to Melee Strike Range"
+    assert abs(mods[0]["scale"] - round(0.4 * share, 6)) < 1e-4
+    assert models.projectile_hit_recently_model([rng], {})[0] == []
+    assert model_entry(rng).id == "model-melee-range-if-projectile-hit-recently"

@@ -11348,21 +11348,32 @@ def tornado_copy_model(main: Skill | None, main_types: set[str], stats: dict, to
 PROJECTILE_HIT_RECENTLY = re.compile(r"^(\d+(?:\.\d+)?)% increased Melee Damage if you've dealt a Projectile Attack Hit "
                                      r"in the past eight seconds$", re.I)
 PROJECTILE_HIT_WINDOW = 8.0  # "in the past eight seconds" (the line's own window)
+# (COV36) Adaptable Assault's "+0.4 metres to Melee Strike Range if you've dealt a Projectile Attack Hit in the past
+# eight seconds" (a Martial Artist-side notable; ModCache 93: MeleeWeaponRangeMetre / UnarmedRangeMetre BASE under the
+# same never-set condition): the same share, as "+N metres to Melee Strike Range" at N x share (PoB reads the range only
+# for skills whose area is the weapon's range, CalcOffence 570 / 1516; an average range for a radius is LOW).
+PROJECTILE_HIT_RANGE = re.compile(r"^\+(\d+(?:\.\d+)?) metres to Melee Strike Range if you've dealt a Projectile Attack "
+                                  r"Hit in the past eight seconds$", re.I)
 
 
 def projectile_hit_recently_model(texts: list[str], rates: dict[str, tuple[float, str]]) -> tuple[list[dict], list[dict]]:
     """(mods, notes): the "Melee Damage if you've dealt a Projectile Attack Hit in the past eight seconds" lines at the
     share of the fight with such a hit in the window, from `rates` ({Projectile Attack skill: (hits a second, how)})."""
     total_line = sum(float(m.group(1)) for t in texts if (m := PROJECTILE_HIT_RECENTLY.search(t.strip())))
-    if not total_line:
+    metres = sum(float(m.group(1)) for t in texts if (m := PROJECTILE_HIT_RANGE.search(t.strip())))
+    if not total_line and not metres:
         return [], []
     hits = sum(max(0.0, number(r)) for r, _ in rates.values())
     share = 1 - math.exp(-hits * PROJECTILE_HIT_WINDOW)
     parts = "; ".join(f"{name}: {number(r):.2f}/s ({how})" for name, (r, how) in sorted(rates.items()))
     basis = (f"Projectile Attack hits {hits:.2f}/s ({parts or 'no Projectile Attack skill in the build: 0'}): one in the "
              f"past {PROJECTILE_HIT_WINDOW:g} s {share:.0%} of the fight (hits taken as evenly random, the lower reading); "
-             f"{total_line:g}% increased Melee Damage counts as {total_line * share:.3g}% (PoB's box is never set: 0 before)")
+             + (f"{total_line:g}% increased Melee Damage counts as {total_line * share:.3g}%; " if total_line else "")
+             + (f"+{metres:g} metres to Melee Strike Range counts as +{metres * share:.3g}; " if metres else "")
+             + "(PoB's box is never set: 0 before)")
     mods = [line("1% increased Melee Damage", total_line * share)] if total_line * share > 0 else []
+    if metres * share > 0:
+        mods.append(line("+1 metres to Melee Strike Range", metres * share))
     return mods, [{"label": "Projectile Attack Hit in the past 8 s: share of the fight", "value": round(share, 3),
                    "basis": basis, "play": "Hit with a Projectile Attack at least every few seconds (a thrown spear, an "
                                            "arrow) to keep the melee bonus up",

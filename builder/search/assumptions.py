@@ -1899,7 +1899,8 @@ class Assumptions:
         mods, notes = mods + reload_mods, notes + reload_notes
         ally_mods, ally_notes = models.ally_in_presence_model([e["text"] for e in source_lines], found)  # (MECHB31, MB-9)
         mods, notes = mods + ally_mods, notes + ally_notes
-        if any(models.PROJECTILE_HIT_RECENTLY.search(e["text"].strip()) for e in source_lines):  # (COV35)
+        if any(models.PROJECTILE_HIT_RECENTLY.search(e["text"].strip()) or models.PROJECTILE_HIT_RANGE.search(e["text"].strip())
+               for e in source_lines):  # (COV35; the strike-range line COV36)
             hit_mods, hit_notes = models.projectile_hit_recently_model(
                 [e["text"] for e in source_lines], self.projectile_attack_rates(main.name if main else None, stats))
             mods, notes = mods + hit_mods, notes + hit_notes
