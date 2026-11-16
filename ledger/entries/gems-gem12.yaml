@@ -160,7 +160,8 @@
     RakePlayer's statMap, SkillStatMap.lua). models.rake_distance_model: per use (1 + more x d / 5 m) over 1 / Speed +
     d / walking speed (VOLT_WALK_SPEED x MovementSpeedMod, A9-4 LOW), the better of d = 5 m (step back before each
     use) and d = 0 (PoB's number). The ramp's shape is PoB's reading (UNVERIFIED against the game text: game files were
-    off-limits during the 26579160 download). Shield Charge's same stat is left open (its charge distance / knockback
+    off-limits during the 26579160 download; GEM13 turn 2, 26476662's text: "Deals up to {0}% more Damage, based on the
+    distance travelled": the maximum, no shape). Shield Charge's same stat is left open (its charge distance / knockback
     aren't modelled).
   sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_dex.lua (RakePlayer)",
             "vendor/PathOfBuilding-PoE2/src/Classes/ModStore.lua (DistanceRamp)"]
@@ -192,7 +193,7 @@
   title: "Leap Slam's quality: more Damage against Enemies with Fully Broken Armour"
   kind: gem_stat
   match: '^active_skill_damage_\+%_final_vs_fully_broken_armour$'
-  replace: ["1% more Damage against Enemies with Fully Broken Armour"]
+  replace: ["1% more Damage with Hits against Enemies with Fully Broken Armour"]
   stats: ["active_skill_damage_+%_final_vs_fully_broken_armour"]
   skill: [Leap Slam]
   confidence: theory
@@ -201,8 +202,9 @@
     SkillStatMap.lua, LeapSlamPlayer's statMap). Given as PoB's own parsed line: ModParser 2107 "against enemies with
     fully broken armour" is the enemy's ArmourFullyBroken condition, which the conditions' Armour Broken box sets
     (ConfigOptions 1687) and weighs by MECH-A's Fully Broken share (conditions.armour_broken_uptime): 0 with no
-    Armour Break source in the build. The stat's game text wasn't read (game files off-limits during the 26579160
-    download): the id's reading, UNVERIFIED, to recheck.
+    Armour Break source in the build. The game text (skill_stat_descriptions.csd, 26476662; GEM13 turn 2): "{0}% more
+    Damage with Hits against Enemies with Fully Broken Armour": "with Hits" (ModParser 1078, KeywordFlag.Hit), so the
+    line no longer raises damage over time (GEM12's plain "more Damage" did: a small overcount on ailments).
   sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua (LeapSlamPlayer)",
             "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (2107)"]
   test_in_game: "With 20% quality, Leap Slam on a Fully Armour Broken dummy should hit 20% harder than on an unbroken one."

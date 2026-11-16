@@ -15,8 +15,9 @@
     the stat id and "level higher than": only the skill data and its stat text; no patch-note hit, which isn't proof
     of no change). models.frost_bomb_exposure_model: above the cap, DebuffEffect MORE -100 on Frost Bomb (its Exposure
     off); else up min(1, uses/s x 12 s) (4 s to Detonation, then each pulse's 8 s Exposure), the build's own casts.
-    Not counted (an undercount, labelled): the growth of 2% a pulse up to 50% (pulse interval UNVERIFIED: not in PoB's
-    data, poe2db or the patch notes; game files not read during the 26579160 download).
+    Not counted (an undercount, labelled): the growth of 2% a pulse up to 50% (no pulse interval in the game files'
+    stats (26476662: FrostBombPlayer's set, Stats ids with frost_bomb / pulse_frequency), PoB's data, poe2db or the
+    patch notes; routed to RESEARCH).
   sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua (FrostBombPlayer)",
             "vendor/PathOfBuilding-PoE2/src/Data/StatDescriptions/Specific_Skill_Stat_Descriptions/frost_bomb.lua",
             "vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua 2477-2482",
@@ -110,4 +111,23 @@
   sources: ["builder/search/models.py (AGONY_SHARE, inevitable_agony_model)",
             "builder/search/assumptions.py (inevitable_agony)"]
   test_in_game: "Not needed here: the model's own tests cover it."
+  status: proposed
+
+- id: gem-gem13-plasma-blast-shock-duration
+  title: "Plasma Blast's quality: more Shock duration"
+  kind: gem_stat
+  match: '^active_skill_shock_duration_\+%_final$'
+  replace: ["1% more Shock Duration"]
+  stats: ["active_skill_shock_duration_+%_final"]
+  skill: [Plasma Blast]
+  confidence: datamined
+  notes: >-
+    Plasma Blast's quality stat (1.5 a quality, act_str.lua qualityStats); game text (skill_stat_descriptions.csd,
+    26476662): "{0}% more [Shock] duration". PoB maps it to nothing (checked: SkillStatMap.lua, the skill's statMap).
+    Given as PoB's line: ModParser 821 "shock duration" = EnemyShockDuration, which CalcOffence 5728-5730 applies INC
+    and MORE to the Shock duration; conditions' Shock share reads that ShockDuration (conditions.py 3789).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua (Plasma Blast)",
+            "data/game-26476662/files/data/statdescriptions/skill_stat_descriptions.csd",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua 5728-5730"]
+  test_in_game: "Not needed: a Shock duration line."
   status: proposed

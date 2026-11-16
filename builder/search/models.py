@@ -5329,8 +5329,9 @@ def meteor_rate_model(main: Skill | None, sets: list[dict], uptime: float | None
 # base_melee_dash_range 50 (5 m). PoB means to read it as a DistanceRamp {{0, 0}, {50, 1}} on the dash distance, but its
 # statMap key is "base_dash_additional_damage_from_distance_+%_final", not the gem's stat id, so it never applies (checked:
 # RakePlayer's statMap in act_dex.lua and SkillStatMap.lua: no entry for base_additional_damage_from_distance_+%_final).
-# The ramp (0% at 0 m to the full value at the 5 m dash) is PoB's reading: UNVERIFIED against the game text (the game
-# files are off-limits during the 26579160 download; to recheck). Against one boss the dash ends next to it, so a dash
+# The game text (skill_stat_descriptions.csd, 26476662): "Deals up to {0}% more Damage, based on the distance travelled":
+# the full value at the dash's full distance ("up to"); the text gives no shape, so the linear ramp (0% at 0 m to the
+# full value at the 5 m dash) is PoB's reading (LOW). Against one boss the dash ends next to it, so a dash
 # from range needs the player to step back first: per use, (1 + more x d / 5 m) for 1 / Speed + d / walking speed. The
 # better end is taken (the ratio is monotone in d): d = 5 m (step back each use: the play that feeds it) or d = 0 (PoB's
 # number), walking at VOLT_WALK_SPEED x the build's MovementSpeedMod (A9-4's base run speed, LOW). A dodge roll back
@@ -5358,7 +5359,7 @@ def rake_distance_model(main: Skill | None, stats: dict,
     note = {"label": "Rake: more damage the farther it dashes*", "value": f"x{factor:.3f}", "confidence": "LOW",
             "entry": RAKE_ENTRY,
             "basis": (f"{more:g}% more at a {RAKE_RANGE:g} m dash (PoB's own 0-to-{RAKE_RANGE:g} m ramp, never applied: "
-                      f"its statMap key doesn't match the stat; UNVERIFIED shape). Stepping back {RAKE_RANGE:g} m before "
+                      f"its statMap key doesn't match the stat; the game text gives the maximum, not the shape: LOW). Stepping back {RAKE_RANGE:g} m before "
                       f"each use at {walk:.2f} m/s: x{far:.3f} of PoB's {speed:.2f} uses/s; dashing from melee range: "
                       f"x1.000. " + ("Stepping back is better here" if stepped else "Staying close is better here")
                       + " (walking speed LOW, A9-4)"),
@@ -5387,7 +5388,8 @@ def rake_distance_model(main: Skill | None, stats: dict,
 # Not counted (an UNDERCOUNT, labelled): the growth "Initially applies 20% Elemental Exposure and 2% Exposure per pulse, up
 # to a maximum of 50%" (+0.5 a quality to the cap; 0.3.0's notes say the same). The pulse interval isn't given (checked:
 # PoB's FrostBombPlayer stat set and stat text, poe2db's Frost Bomb page (no pulse stat, hidden stats included), the
-# patch notes' --history "Frost Bomb"; the game files not read during the 26579160 download: UNVERIFIED there), so PoB's
+# patch notes' --history "Frost Bomb"; GEM13 turn 2: the game files 26476662, FrostBombPlayer's stat set and every Stats id
+# holding frost_bomb or pulse_frequency: no Frost Bomb pulse stat; the rate is the game's, not data), so PoB's
 # 20% stays (the plan: "Don't invent a pulse rate").
 FROST_BOMB = "Frost Bomb"
 FROST_BOMB_ENTRY = "model-gem13-frost-bomb-exposure"
@@ -5403,8 +5405,8 @@ def frost_bomb_exposure_model(skills: list[Skill], stats: dict, main: Skill | No
     if bomb is None or FROST_BOMB_ENTRY in forbidden:
         return [], []
     label = "Frost Bomb: its Elemental Exposure on the boss*"
-    growth = ("The game's growth of 2% a pulse up to 50% isn't counted: its pulse interval isn't in PoB's data, "
-              "poe2db or the patch notes (UNVERIFIED in the game files; an undercount), so PoB's 20% stays")
+    growth = ("The game's growth of 2% a pulse up to 50% isn't counted: its pulse interval isn't in the game files' "
+              "stats, PoB's data, poe2db or the patch notes (an undercount), so PoB's 20% stays")
     cap = number(bomb.level_stats.get(FROST_BOMB_LEVEL_STAT))
     if 0 < cap < 100 and boss_level > cap:
         return [raw_mod("DebuffEffect", "MORE", -100, FROST_BOMB)], [{

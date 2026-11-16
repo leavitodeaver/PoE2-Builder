@@ -492,7 +492,8 @@ def test_leap_slams_quality_is_more_damage_against_fully_broken_armour():
                  level_stats={"active_skill_damage_+%_final_vs_fully_broken_armour": 20})
     mods, notes = models.gem_stat_model([slam], main=slam)
     assert [(m["line"], m["scale"], m.get("skill")) for m in mods
-            if "Fully Broken" in m["line"]] == [("1% more Damage against Enemies with Fully Broken Armour", 20, "Leap Slam")]
+            if "Fully Broken" in m["line"]] == [("1% more Damage with Hits against Enemies with Fully Broken Armour", 20,
+                                          "Leap Slam")]
 
 
 def test_frost_bombs_exposure_stops_above_its_level_cap_and_follows_its_casts():
@@ -525,3 +526,10 @@ def test_his_scattering_calamity_fires_its_wellsprites_as_a_fusillade_like_ember
     assert mods[0]["skill"] == "His Scattering Calamity" and "Wellsprites" in notes[0]["label"]
     assert notes[0]["entry"] == "model-gem13-scattering-calamity-fusillade"
     assert models.ember_fusillade_model(hsc, {"Speed": speed}, forbidden={notes[0]["entry"]}) == ([], [])
+
+
+def test_plasma_blasts_quality_is_more_shock_duration():
+    blast = Skill("Plasma Blast", 1, attack=True, level_stats={"active_skill_shock_duration_+%_final": 30})
+    mods, notes = models.gem_stat_model([blast], main=blast)
+    assert [(m["line"], m["scale"], m.get("skill")) for m in mods
+            if "Shock" in m["line"]] == [("1% more Shock Duration", 30, "Plasma Blast")]
