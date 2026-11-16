@@ -652,6 +652,8 @@ def test_cadence_stacks_from_the_use_rate_and_keeps_below_its_lockout():
     # a Sustained skill (the game: "will instead gain Attack speed periodically"): no pacing of its hit rate, no lockout
     shield = models.Skill("Resonating Shield", group=1, attack=True, support_stats=stats)
     mods, notes = models.gem_stat_model([shield], stats={"Speed": 4.0}, main=shield)
+    # (its "Cannot be Empowered by Warcries" lines, GEM15's warcry_proof_model, aren't Cadence's)
+    mods = [m for m in mods if not str(m.get("name", "")).endswith("EmpoweredAttacks")]
     assert mods == [] and "Sustained" in notes[0]["basis"] and notes[0]["value"] == "not counted"
     # not the main skill: no rate, so 0 and a note
     other = models.Skill("Boneshatter", group=2, attack=True, support_stats=stats)
