@@ -1559,7 +1559,7 @@ class Assumptions:
         levels = {g["name"]: g["level"] for grp in build.groups() for g in grp["gems"] if g.get("level")}
         totem_mods, totem_notes = models.totem_model(found, stats, [e["text"] for e in source_lines], levels, main)
         energy_mods, energy_notes = energy_mods + totem_mods, energy_notes + totem_notes
-        count_mods, count_notes = models.totem_count_model(found, main, [e["text"] for e in source_lines])  # (MECH-B, MECHB8: other totems' count)
+        count_mods, count_notes = models.totem_count_model(found, main, [e["text"] for e in source_lines], stats)  # (MECH-B, MECHB8: other totems' count)
         energy_mods, energy_notes = energy_mods + count_mods, energy_notes + count_notes
         pact_mods, pact_notes = models.minion_pact_model(found, main, stats)  # (MECH-B, MECHB11: A23-2)
         energy_mods, energy_notes = energy_mods + pact_mods, energy_notes + pact_notes
@@ -1642,7 +1642,7 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + toad_mods, hand_notes + toad_notes
         hex_mods, hex_notes = models.hexblast_model(found, curses, stats, main)  # (GEM10: L2-2, the curse cycle)
         hand_mods, hand_notes = hand_mods + hex_mods, hand_notes + hex_notes
-        doom_mods, doom_notes, doom_groups = models.doom_blast_model(found, curses)  # (MECHB12: Impending Doom's expiries)
+        doom_mods, doom_notes, doom_groups = models.doom_blast_model(found, curses, models.press_choices(build))  # (MECHB12: Impending Doom's expiries)
         hand_mods, hand_notes = hand_mods + doom_mods, hand_notes + doom_notes
         # (MECHB29: Hayoxi's Fulmination's Annihilation, one per Cursed Ground area that persists 7 s)
         annihilation_mods, annihilation_notes, annihilation_groups = models.annihilation_model(found, curses, main)

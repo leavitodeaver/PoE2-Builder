@@ -4021,6 +4021,10 @@ end
 local modelSupportStats = {
 	["number_of_totems_allowed_is_1"] = true,
 	["support_splinter_totem_X_times"] = true,
+	-- (MECHB34) Splinter Totem's actions per stage and its per-splinter less damage / skill speed (models.splinter_factor)
+	["support_splinter_totem_splinter_after_X_actions"] = true,
+	["support_splinter_totem_damage_+%_final_each_splinter"] = true,
+	["support_splinter_totem_skill_speed_+%_final_each_splinter"] = true,
 	["support_minion_pact_user_life_%_removed_from_nearby_minion"] = true,
 	["support_minion_pact_damage_+%_final"] = true,
 	-- (MECH63) Eternal Mark's "Marks are not Consumed the first time they Activate" (models.mark_model)

@@ -739,8 +739,9 @@ OWN_USE_GAINS = ("crit", "ailment", "melee hit", "cast")
 #    the note.
 # Not counted (labelled): Dark Pact ("Sacrifices 13% of Minion's life", skeletal_chains_aoe_%_health_dealt_as_chaos_damage
 # 13 at level 20) and Abyssal Pact (20%, ..._as_physical_damage): PoB has no skill for them, so the build has no use rate
-# to read (no source, so 0); whether "13% of life" is of maximum or current Life is UNVERIFIED (of current Life it never
-# brings a minion to 0; of maximum, ~8 / 5 uses each). The boss killing your minions (their Life and defences against
+# to read (no source, so 0); "13% of life" is taken as of maximum Life (ASSUMED, MEDIUM, RESEARCH26 R26-77: Abyssal
+# Pact's text "of a damageable Minion's maximum life"; Sacrifice "can lead to their death"): ~8 / 5 uses kill a minion
+# (of current Life it would never bring one to 0). The boss killing your minions (their Life and defences against
 # the boss preset's hits), Offerings (the skeleton becomes the spike: whether it's Killed is UNVERIFIED, not counted),
 # minions taking damage for you, other on-minion-death lines.
 RESUMMON_SECONDS = 7.5  # global_resummon_time_ms (PoB Misc.lua)
@@ -1426,8 +1427,10 @@ MARK_BUFF_DURATION = 10.0
 # (skill_wolf_mark_damage_taken_+%_per_nearby_enemy 3, _cap 45). It's consumed when the target dies (triggering Summon
 # Wolf; PoB gives Summon Wolf a limit of 0) or when Cross Slash hits it with both gouges (ActiveSkills
 # wolf_cross_slash: "Hitting a Marked enemy with both gouges will Activate the Mark"; Summon Wolf "is Triggered when
-# Predator's Mark Activates", whatever activates it, so Cross Slash on a Marked boss may summon wolves: A22-3, UNVERIFIED,
-# held for the user's in-game test). Pounce has a weapon requirement (WeaponRequirements; PoB: Talisman). PoB (act_str.lua
+# Predator's Mark Activates", whatever activates it, so Cross Slash on a Marked boss summons wolves: A22-3, SETTLED by
+# RESEARCH26 R26-50, MEDIUM-HIGH: the game text chains it, the wolf skill's +1-if-Unique stat names Cross Slash, and two
+# poe-vault 0.5 Oracle guides tell players to "use the combination of Pounce ... and then Cross Slash (to consume the Mark
+# and resummon your wolves)"). Pounce has a weapon requirement (WeaponRequirements; PoB: Talisman). PoB (act_str.lua
 # WolfPounceMarkPlayer): DamageTaken INC 3% per MinionPresenceCount (your minions at their limit), capped at 45, always
 # on; it never counts you, and it applies the Mark even when PoB disables Pounce for the wrong weapon. With a Mark gem in
 # Pounce, PoB applies that Mark instead (probe POE2T435), as the game does.
@@ -1439,11 +1442,13 @@ PREDATOR_RADIUS = 6.0
 # skill of the Pounce gem): triggered when Predator's Mark activates on the marked enemy's death, summons one Wolf
 # (+0 more if the enemy was Rare, +1 if Unique: skill_cross_slash_triggered_summon_+_wolves_if_rare 0, _if_unique 1),
 # no_minion_duration ("follows you as long as it lives"), at most number_of_wolves_allowed (GrantedEffectStatSetsPerLevel:
-# 4 at levels 1-6, 5 at 7-13, 6 at 14-21, 7 at 22-30, 8 at 31-40). On a lone boss none are summoned by a death; Cross
-# Slash's two gouges Activating the Mark on the boss may summon them (A22-3: the game text above; UNVERIFIED, held for the
-# user's in-game test; the stat's own name, skill_cross_slash_triggered_summon_+_wolves_if_unique, points that way), so
-# the user's choice
-# (11 Nov, "Count them, labelled"): the wolves are carried in from earlier kills, assumed at their limit (LOW). PoB counts
+# 4 at levels 1-6, 5 at 7-13, 6 at 14-21, 7 at 22-30, 8 at 31-40). On a lone boss none are summoned by a death. With
+# Cross Slash in the build (MECHB34, R26-50): each Pounce marks the boss and Cross Slash's two gouges Activate the Mark,
+# summoning 2 wolves (1 + 1 on a Unique), one Activation per Pounce use, so the wolves refill to their limit within
+# ceil(limit / 2) Pounce uses and are kept there as they die (MEDIUM-HIGH; the first seconds' ramp isn't taken off: a
+# small overcount, said). Cross Slash is a press within the button cap when it isn't the main skill. Without Cross Slash
+# the user's choice (11 Nov, "Count them, labelled"): the wolves are carried in from earlier kills, assumed at their
+# limit (LOW). PoB counts
 # 0 of them: number_of_wolves_allowed maps to ActiveWolfLimit (SkillStatMap) while the Wolf Companion minion reads
 # WolfLimit (Minions.lua WolfMinion), so its MinionPresenceCount leaves them out.
 SUMMON_WOLF = "Summon Wolf"
@@ -2084,17 +2089,27 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
                 # (objective.Objective.entry_scales). Not a more-Damage line: one wolf hitting x6 harder isn't six
                 # wolves (PoE2's ailment chances grow with the hit: POE2T450 read x12.7 for +500%)
                 scales[SUMMON_WOLF] = carried
-                basis += (f"; plus {wolves:g} Pounce wolves* (MEDIUM: Summon Wolf's limit at its level, game files; none "
-                          "are summoned by a death on a lone boss (Cross Slash hitting the Marked boss with both gouges "
-                          "Activates the Mark, which may summon them: UNVERIFIED, A22-3), so they're assumed carried in "
-                          "from earlier marked kills, alive "
-                          "and within 6 m of the boss: they follow you through area transitions, on the user's word, "
-                          "11 Nov; PoB counts 0 of them). Their own hits count at that number* (LOW: each wolf's damage is "
-                          "PoB's Wolf Companion, a monster table our game-file extract doesn't hold; PoB's Full DPS "
-                          f"counts one, counted x{carried:g})")
-                play = ("Keep your Pounce wolves alive into the boss: kill a few Marked enemies on the way in (with Cross "
-                        "Slash, hitting the Marked boss with both gouges Activates the Mark and may summon more: "
-                        "UNVERIFIED).")
+                slasher = any(s.name == "Cross Slash" for s in skills)
+                if slasher:  # (MECHB34, R26-50: summoned on the boss itself)
+                    uses_needed = math.ceil(carried / 2)
+                    source = (f"summoned on the boss: each Pounce (every {period:.1f} s) marks it and Cross Slash's two "
+                              f"gouges Activate the Mark, 2 wolves per Activation on a Unique boss, so {carried:g} wolves "
+                              f"after {uses_needed} Pounce uses, refilled as they die (MEDIUM-HIGH, RESEARCH26 R26-50: the "
+                              "game text and two 0.5 Oracle guides; the first seconds' ramp not taken off)")
+                else:
+                    source = ("none are summoned by a death on a lone boss and the build has no Cross Slash to Activate "
+                              "the Mark on it, so they're assumed carried in from earlier marked kills (LOW)")
+                basis += (f"; plus {wolves:g} Pounce wolves* (MEDIUM: Summon Wolf's limit at its level, game files; {source}, "
+                          "alive and within 6 m of the boss: they follow you through area transitions, on the user's "
+                          "word, 11 Nov; PoB counts 0 of them). Their own hits count at that number* (LOW: each wolf's "
+                          "damage is PoB's Wolf Companion, a monster table our game-file extract doesn't hold; PoB's "
+                          f"Full DPS counts one, counted x{carried:g})")
+                play = (f"Pounce, then Cross Slash the Marked boss with both gouges: each Activation summons 2 wolves, up "
+                        f"to {carried:g}. Without it: the wolves you carry in only; with it: kept at {carried:g}."
+                        if slasher else
+                        "Keep your Pounce wolves alive into the boss: kill a few Marked enemies on the way in. Adding "
+                        "Cross Slash would refill them on the boss (Pounce, then both gouges on the Marked boss: 2 "
+                        "wolves per Activation).")
         elif mark.name == "Sniper's Mark":
             crits = crits_per_second(stats)
             if use.on_demand:
@@ -8194,13 +8209,16 @@ def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], ma
         unique = unique and shapeshifted
         if not unique and not both and embodied <= 0:
             return [], unique_note
-        fist = min(1.0, 1 / (cooldown * speed)) if cooldown > 0 else 0.0
+        # (MECHB34, R26-58 (b): "no more than once every T seconds" starts at each boosted slam, and the next boost waits
+        # for the first slam after T: half a slam's time on average, so 1 / (T r + 0.5); PoB's own ratio is 1 / (T r))
+        fist = min(1.0, 1 / (cooldown * speed + 0.5)) if cooldown > 0 else 0.0
+        fist_pob = min(1.0, 1 / (cooldown * speed)) if cooldown > 0 else 0.0
         pob = max(number(stats.get(k)) for k in ("AncestralEmpowermentUptimeRatio",
                                                   "AncestralEmpowermentCombinedUptimeRatio", "FistOfWarUptimeRatio")) / 100
         if empowerment and cooldown > 0:  # (PoB hides Fist of War's own ratio once it's combined)
-            pob = max(pob, min(1.0, 0.5 + fist))
+            pob = max(pob, min(1.0, 0.5 + fist_pob))
         elif cooldown > 0:
-            pob = max(pob, fist)
+            pob = max(pob, fist_pob)
         elif empowerment:
             pob = max(pob, 0.5)
         # (MECHB29) while embodying Kaom every Slam is boosted; outside it, the other sources' share (one boost a use)
@@ -8221,7 +8239,8 @@ def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], ma
             if empowerment else []) + ([f"Fist of War once per {cooldown:g} s"] if cooldown > 0 else []) + (
             [f"every Slam while embodying Kaom (Ancestral Cry), {embodied:.0%} of the fight: {embodied_how}"]
             if embodied > 0 else [])
-        upper = max(pob, min(1.0, 0.5 + fist)) if cooldown > 0 else pob
+        # (the higher reading, each boost on a different Slam, with the cooldown's wait: 0.5 + 1 / (T r + 1), R26-58 (b))
+        upper = min(1.0, 0.5 + 1 / (cooldown * speed + 1)) if cooldown > 0 else pob
         upper_factor = (1 + more * upper) / (1 + more * pob)
         if embodied > 0 and not unique and not both:
             play = (f"Use Ancestral Cry each time its Glory is full (Ignite the boss to fill it): without it x1.000, with "
@@ -8233,14 +8252,16 @@ def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], ma
             play = (f"Ancestral Empowerment with Fist of War: x{factor:.3f} at the lower reading (Fist of War's charge "
                     f"spent on a Slam Ancestral Empowerment already boosts, {share:.0%} boosted)")
         if cooldown > 0:
-            play += (f"; with the higher reading (each boost on a different Slam, {upper:.0%} boosted, PoB's): "
+            play += (f"; with the higher reading (each boost on a different Slam, {upper:.0%} boosted; PoB's "
+                     f"{pob:.0%} leaves out the wait for the next Slam after Fist of War's {cooldown:g} s): "
                      f"x{upper_factor:.3f} (RESEARCH #153, an in-game check)")
         return mods, unique_note + [{
             "label": label,
             "value": f"{share:.0%} of {main.name}'s uses boosted ({more:.0%} more), against PoB's {pob:.0%}: x{factor:.3f}",
             "basis": f"{'; '.join(sources)}; one boost per use; {speed:.2f} uses/s"
                      + ("; Fist of War's charge taken as spent on an already boosted slam (the lower reading, UNVERIFIED; "
-                        f"the upper reading, PoB's, is {min(1.0, 0.5 + fist):.0%})" if cooldown > 0 else "")
+                        f"the upper reading is {upper:.0%}, PoB's {pob:.0%} without the wait for the next Slam after "
+                        "the cooldown: RESEARCH26 R26-58 (b))" if cooldown > 0 else "")
                      + "; the 25% increased area and the Empowered-only lines on the extra share aren't counted",
             "play": play,
             "confidence": "LOW" if cooldown > 0 else "MEDIUM" if embodied > 0 else "theory",
@@ -8591,7 +8612,9 @@ def brambles_model(slam: str, slam_rate: float, slam_basis: str, row: dict) -> l
                        "the -80% early hit is the hazard model's); PoB scored them at its own "
                        f"{pob:.3g} a second whatever the slams' rate, so its Brambles entry x{scale:.3g}. "
                        "The 20-Bramble limit doesn't bind (set-off Brambles are gone); an Earthquake's aftershock "
-                       "isn't counted as a slam (UNVERIFIED)"),
+                       "makes no Brambles (MEDIUM, RESEARCH26 R26-61: they trigger on the slam, "
+                       "triggered_by_briarpatch_support_on_slam_%, and the Aftershock is a second stat set of the same "
+                       "use; forum 3831945: \"Earthquake doesn't spawn extra brambles from its secondary effect\")"),
              "play": (f"Slam where the boss stands: with it {rate:.3g} Brambles a second; without it (the boss away "
                       "from them) +0"),
              "confidence": "LOW", "full_dps": {BRAMBLES: round(scale, 4)}}]
@@ -8884,9 +8907,13 @@ def glory_mark_rate(skills: list[Skill], stats: dict) -> tuple[float, str]:
 # maximum stages", "Stage duration is 10 seconds"; "Expend a stage of Deadly Resolve when an enemy Hits you to Trigger a
 # deadly slash", "Can Trigger Deadly Resolve once every 0.3 seconds". PoB counts the slash at its own use rate (1 s at the
 # build's attack speed: 1.34 per second on 2b75d's reference). On a boss it comes at most once per stage, one per second
-# of channelling, and only when the boss hits you: hits that land (one per boss skill use, bosses.benefit_skill_time, MECHC11; was 0.7 s; less those evaded
-# and blocked; poe2db doesn't say whether blocked or evaded hits count, so they're assumed not to). Channelled for the
-# whole fight while the supported skill is the main skill; otherwise not counted.
+# of channelling, and only when the boss hits you: one hit per boss skill use (bosses.benefit_skill_time, MECHC11; was
+# 0.7 s), less those evaded; BLOCKED hits count (MECHB34; RESEARCH26 R26-33, MEDIUM: "Expend a stage ... when an enemy
+# Hits you"; KeywordPopups Block: "Blocking completely prevents the damage of an incoming Hit", the Hit still lands,
+# Evasion prevents it "from Hitting you at all"; the user's Thorns ruling 14 Nov, "Yes, blocked hits count", on the same
+# "when an enemy Hits you" wording; before, blocked hits were taken out too, an UNDERCOUNT for block builds). Read as
+# boss_hits.gain_hits with Block at 0 (the lowest real boss on the worst case, as before). Channelled for the whole fight
+# while the supported skill is the main skill; otherwise not counted.
 
 DEADLY_RESOLVE = "Deadly Resolve"
 DEADLY_RESOLVE_STAGE_EVERY = 1.0  # seconds of channelling per stage
@@ -8905,14 +8932,19 @@ def deadly_resolve_model(skills: list[Skill], stats: dict, main: Skill | None) -
             "confidence": "theory", "entry": "deadly-resolve-rate"}]
     every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
     # (MECHB6: red-flash hits always land; MECHC20: a gain, so the worst case reads the lowest real boss's landed hits)
-    hits, landed_how = boss_hits.gain_hits(stats)
+    hits, landed_how = boss_hits.gain_hits({**stats, "EffectiveBlockChance": 0})  # (MECHB34: blocked hits count)
+    landed = boss_hits.gain_hits(stats)[0]
     rate = min(1 / DEADLY_RESOLVE_STAGE_EVERY, hits, 1 / DEADLY_RESOLVE_COOLDOWN)
-    limit = "a stage per second of channelling" if rate < hits else "the boss's hits that land"
+    without = min(1 / DEADLY_RESOLVE_STAGE_EVERY, landed, 1 / DEADLY_RESOLVE_COOLDOWN)
+    limit = "a stage per second of channelling" if rate < hits else "the boss's hits on you"
     return trigger_rate(DEADLY_RESOLVE, rate), [{
         "label": "Deadly Resolve slashes per second", "value": round(rate, 3),
         "basis": f"one per stage (a stage per {DEADLY_RESOLVE_STAGE_EVERY:g} s of channelling {main.name}) when the boss hits you: "
-                 f"{hits:.2f} hits/s land (one every {every:g} s, less evaded and blocked hits, red-flash hits always landing: {landed_how}; blocked and "
-                 f"evaded hits assumed not to count); limited by {limit}. PoB alone counts it at its own use rate.",
+                 f"{hits:.2f} hits/s reach you (one every {every:g} s, less evaded hits, red-flash hits always landing: {landed_how}); "
+                 "blocked hits count (MEDIUM, RESEARCH26 R26-33: the trigger is \"when an enemy Hits you\" and a Blocked hit "
+                 "still Hits, only its damage is prevented, KeywordPopups Block; the user's Thorns ruling, 14 Nov)"
+                 + (f"; if they didn't: {without:.3f}/s" if abs(without - rate) > 1e-9 else "")
+                 + f"; limited by {limit}. PoB alone counts it at its own use rate.",
         "play": "Channel the supported skill through the fight and let the boss hit you; stepping out of its hits stops the slashes.",
         "confidence": "theory", "entry": "deadly-resolve-rate"}]
 
@@ -9258,9 +9290,22 @@ CHALLENGE_RAISE = re.compile(r"^Inflicts Runefather's Challenge on enemies ([\d.
 # Raise Shield's own hit (AUDIT31 A31-5, an UNDERCOUNT): "Release immediately after Blocking when an enemy is close to
 # perform a Shield Bash, damaging and Stunning enemies" (PoB's ShieldBlockPlayer description; it's a shieldAttack skill):
 # an off-hand Hit per blocked hit. Blocks against the boss: one telegraphed hit every PARRY_EVERY s (the user's Parry
-# cadence). Every shield base granting it says "Grants Skill: Raise Shield" (PoB's bases). "Close": 2 m (LOW).
+# cadence). Every shield base granting it says "Grants Skill: Raise Shield" (PoB's bases). "Close": its reach (MECHB34;
+# RESEARCH26 R26-63, MEDIUM, was a LOW 2 m): the unarmed base reach 0.8 m (Characters MaxAttackDistance 8 for all 12
+# classes; the bash uses the off-hand unarmed attack with the shield's stats, replace_off_hand_unarmed_attack_stats_with_
+# shield_type, and shields have no reach of their own: ShieldTypes holds only Block, WeaponTypes no shield) + Raise
+# Shield's melee_strike_bonus_attack_distance 14 (1.4 m) = 2.2 m, plus the build's "+N metres to Melee Strike Range"
+# lines, unconditional or "while Holding a Shield" (stat_descriptions melee_range_+_while_wielding_shield; conditional
+# ones, e.g. "while Unarmed" or after a Projectile hit, not counted). Measured edge to edge or centre to centre:
+# UNVERIFIED (centre to centre taken, the shorter).
 RAISE_SHIELD_GRANT = re.compile(r"Grants Skill:[^.;]*\bRaise Shield\b", re.I)
-SHIELD_BASH_RANGE = 20.0  # units
+SHIELD_BASH_RANGE = 22.0  # units: 0.8 m unarmed + 1.4 m Raise Shield
+SHIELD_BASH_REACH_LINE = re.compile(r"^\+([\d.]+) metres to Melee Strike Range(?: while Holding a Shield)?$", re.I)
+
+
+def shield_bash_reach(texts: list[str]) -> float:
+    """Raise Shield's Shield Bash reach in units: SHIELD_BASH_RANGE + the build's Melee Strike Range lines (see above)."""
+    return SHIELD_BASH_RANGE + 10 * sum(float(m.group(1)) for t in texts if (m := SHIELD_BASH_REACH_LINE.match(t.strip())))
 SHIELD_HITTERS = frozenset({"Shield Wave", "Magma Spray", "Resonating Shield", "Shield Charge", "Shield Wall", "Parry",
                             "Soaring Midnight", "Embrace The Fall"})  # PoB's shieldAttack skills (Data/Skills)
 
@@ -9277,16 +9322,16 @@ def challenge_share(texts: list[str], stats: dict, distance: float | None, main:
                      f"(within {raise_line.group(1)} m): the boss stays Challenged")
     if off_hand:
         hits = hits_per_second(stats) if main in SHIELD_HITTERS else 0.0
-        bash = (1 / PARRY_EVERY if any(RAISE_SHIELD_GRANT.search(t) for t in texts) and far <= SHIELD_BASH_RANGE
-                else 0.0)
+        reach = shield_bash_reach(texts)
+        bash = (1 / PARRY_EVERY if any(RAISE_SHIELD_GRANT.search(t) for t in texts) and far <= reach else 0.0)
         if hits + bash > 0:
             share = min(1.0, (hits + bash) * CHALLENGE_DURATION)
             how = [f"{main} hits with the shield, {hits:.2f} hits/s"] if hits else []
             if bash:
                 how.append(f"a Shield Bash after blocking one telegraphed boss hit every {PARRY_EVERY:g} s with Raise "
-                           f"Shield (the Parry cadence the user called fair; the boss within {SHIELD_BASH_RANGE / 10:g} m, "
-                           "LOW: the game says only \"when an enemy is close\"; the time raised isn't taken from the "
-                           "main skill)")
+                           f"Shield (the Parry cadence the user called fair; the boss within the bash's {reach / 10:g} m "
+                           "reach, MEDIUM: 0.8 m unarmed + Raise Shield's 1.4 m + the build's Melee Strike Range lines, "
+                           "RESEARCH26 R26-63; the time raised isn't taken from the main skill)")
             return share, "; ".join(how) + f": Challenged {share:.0%} of the fight"
     why = [f"no off-hand (shield) hits from {main or 'the main skill'}"] if off_hand else []
     if raise_line:
@@ -9931,8 +9976,10 @@ def different_skills_counts(skills: list[Skill], main: Skill | None, persistent:
 # Aftershock chance, summed (MECHB5, 12 Nov 2026; FIX_QUEUE COVD8's finding, RESEARCH7 aftershock-chance-stacking.md).
 # KeywordPopups Aftershock: "If not otherwise specified, the Aftershock will deal the same damage as the initial impact, in
 # the same area. Only Attack damage can cause Aftershocks." The game sums every chance source into one chance per hand
-# (the virtual_*_slam_aftershock_chance_% stats) and rolls it once (RESEARCH7, MEDIUM-HIGH; over 100% taken as one extra
-# Aftershock, UNVERIFIED, research INDEX #40). The ledger turns each item / passive line into its own "more" (Hymn's
+# (the virtual_*_slam_aftershock_chance_% stats) and rolls it once (RESEARCH7, MEDIUM-HIGH); over 100% is one extra
+# Aftershock (SETTLED, MEDIUM-HIGH, RESEARCH26 R26-32: Hymn and Earthbreaker raise the same stat,
+# your_slam_aftershock_chance_%, and KeywordPopups SurpassChance says chance stats cap at 100% unless they "surpass";
+# all 41 aftershock stat ids checked; a Mobalytics "in addition" snippet disagrees with the files). The ledger turns each item / passive line into its own "more" (Hymn's
 # "Slam Skills have 100% more DPS", the four aftershock-chance entries' "Slam Skills deal N% more Damage"), so:
 #   - lines multiply instead of adding (Hymn + Earthbreaker x2.5 where the game gives x2: an overcount);
 #   - the Aftershock I-III supports' slam_aftershock_chance_% (25 / 35 / 15, GrantedEffectStatSets) maps in PoB to
@@ -10109,8 +10156,9 @@ def aftershock_model(texts: list[str], stats: dict, main: Skill | None, main_typ
 # The game (ActiveSkills orb_of_storms, OrbOfStormsPlayer's constant stats, build 26476662; poe2db's gem page): "Fires a
 # bolt every 4 seconds, and when you cast a Spell near the Orb" (orb_of_storms_base_bolt_frequency_ms 4000), "Limit 1 Orb
 # of Storms" (orb_of_storms_base_maximum_number_of_orbs 1), 12 s duration (base_skill_effect_duration 12000), "Orb expires
-# after firing 6 bolts" (orb_of_storms_maximum_number_of_hits 6: our stat descriptions have no text for it, poe2db's page
-# does, MEDIUM). The cast itself deals no hit; PoB prices each cast as one bolt (no statMap, no module reads the skill:
+# after firing 6 bolts" (orb_of_storms_maximum_number_of_hits 6: HIGH, the game's own text "[Orb] expires after firing
+# {0} bolts" in skill_stat_descriptions.csd, patch 0.3.0 and poe2db agree: RESEARCH26 R26-56; COVC9's "no game text"
+# was wrong). The cast itself deals no hit; PoB prices each cast as one bolt (no statMap, no module reads the skill:
 # COVC9's grep). What a recast does is not in any source: whether casting a new Orb is "a Spell cast near" the old one, and
 # whether the old one is gone first (UNVERIFIED either way). With it, each cast fires one bolt from the orb it replaces,
 # and the 6-bolt cap never binds (one bolt per orb): PoB's count. Without it, the orb fires on its timer only: 3 bolts
@@ -10435,14 +10483,23 @@ def toad_model(skills: list[Skill], curses: list[CurseUse]) -> tuple[list[dict],
 #     modifiers, AUDIT25 A25-41), landing as the last one runs out (its 1.5 s delay), so it expires once a cast:
 #     1 / duration a second (MEDIUM: whether a curse replaced at the
 #     moment it ends counts as expiring is UNVERIFIED; a player can let it lapse first, at the cost of curse uptime);
-#     a Cursed Ground area (Doedre's Undoing) is counted the same (when its curse expires on the boss: UNVERIFIED);
+#     a Cursed Ground area (Doedre's Undoing) is counted the same (when its curse expires on the boss);
+#   - (MECHB34, RESEARCH26 R26-78 (b), MEDIUM: poe-vault's 0.5 Impending Doom Gemling guide, "As new areas overwrite
+#     existing ones, the previous Curse expires and immediately triggers Doom Blast"; Cursed Ground's Limit 2,
+#     maximum_curse_zones_allowed) a curse laid as Cursed Ground (Cursed Ground, Doedre's Undoing, Hayoxi's Fulmination)
+#     recast faster than its duration: each cast past the Limit removes the oldest area, one Doom Blast a cast, at most
+#     one per DOOM_BLAST_COOLDOWN (its 3-4 stored uses only buffer bursts). Counted at the press rate the search chose
+#     for the curse (press_choices); with none, the per-duration rate, and the overwrite play as a note row. A plain
+#     recast of a curse still on the boss refreshes it, no Doom Blast (forum 3324070, a PoE1 test: ASSUMED for PoE2);
 #   - "Curses you inflict have infinite Duration" (CURSE_FOREVER): the curse never expires on a boss that lives, 0;
 #   - any other application (a meta's trigger, Blasphemy's Aura, an item's curse on hit): the support excludes it, 0;
 #   - its curse's group is counted in Full DPS when the rate is above 0 (before, only if another model put it there).
 DOOM_BLAST = "Doom Blast"
+DOOM_BLAST_COOLDOWN = 0.15  # DoomBlastPlayer Cooldown 150 ms (GrantedEffectsPerLevel)
 
 
-def doom_blast_model(skills: list[Skill], curses: list[CurseUse]) -> tuple[list[dict], list[dict], set[int]]:
+def doom_blast_model(skills: list[Skill], curses: list[CurseUse],
+                     choices: dict[str, float] | None = None) -> tuple[list[dict], list[dict], set[int]]:
     """Doom Blast's rate from its curse's expiries (see above): (lines, notes, groups to count in Full DPS)."""
     blasts = [s for s in skills if s.name == DOOM_BLAST and s.group is not None]
     mods: list[dict] = []
@@ -10462,6 +10519,21 @@ def doom_blast_model(skills: list[Skill], curses: list[CurseUse]) -> tuple[list[
             rate = curse.share / curse.duration
             how = (f"{curse.name} cast by hand every {curse.duration:.3g} s (its duration), expiring once a cast as the next lands (MEDIUM: "
                    "whether a curse replaced as it ends counts as expiring is UNVERIFIED)")
+            if curse.zone:  # (MECHB34, R26-78 (b): areas overwritten past the Limit)
+                chosen = number((choices or {}).get(curse.name))
+                cap = 1 / DOOM_BLAST_COOLDOWN
+                if chosen > rate:
+                    rate = min(chosen, cap)
+                    how = (f"{curse.name} laid as {curse.zone}'s Cursed Ground and recast {chosen:.3g} times a second* "
+                           f"(the rate the search chose): past the Limit of {CURSE_AREAS} areas each cast removes the "
+                           "oldest, whose curse expires: one Doom Blast a cast (MEDIUM, RESEARCH26 R26-78: poe-vault's "
+                           "0.5 Impending Doom guide)" + (f", at most one per {DOOM_BLAST_COOLDOWN:g} s cooldown"
+                                                           if chosen > cap else ""))
+                else:
+                    how += (f"; laid as {curse.zone}'s Cursed Ground, recasting it faster would overwrite areas past the "
+                            f"Limit of {CURSE_AREAS}, one Doom Blast a cast (RESEARCH26 R26-78; up to one per "
+                            f"{DOOM_BLAST_COOLDOWN:g} s), each cast taking the main skill's time: not counted, as the "
+                            "search offers no press rate for a skill with a duration yet")
         mods += trigger_rate(DOOM_BLAST, rate)
         if rate > 0:
             groups.add(blast.group)
@@ -10792,22 +10864,52 @@ def ignite_self_damage(texts: list[str], stats: dict) -> tuple[float, float, lis
 # Splinter Totem I / II (support_splinter_totem_X_times 2): its totem "splinter[s] into smaller versions of itself after
 # it uses an Attack or Spell ... up to a maximum", each splinter dealing 20% / 15% less damage per splinter (poe2db
 # Splinter_Totem_I, 12 Nov 2026; gem_stat_descriptions "can splinter up to {0} times"; no KeywordPopups entry): the
-# splinters are more totems, but how many each splinter makes isn't stated (UNVERIFIED). Counted as one totem, as the
-# hits are (an UNDERCOUNT side for Splinter Totem builds, labelled in the note; open for RESEARCH).
+# splinters are more totems, but how many each splinter makes isn't stated (UNVERIFIED). MECHB34 (RESEARCH26 R26-76,
+# ASSUMED, LOW-MEDIUM: forum 3885913, Dec 2025, "I was anticipating basically 4 mini totems in its final form ... upon
+# reaching the smallest size, they all die"; the gem's "smaller versions of itself", plural; "Only one Totem can be
+# splintering at a time"; no patch note since 0.4.0c changes it): two per splinter, so stage k holds 2^k totems, each
+# acting support_splinter_totem_splinter_after_X_actions (1) times at (1 + damage%)^k damage and (1 + speed%)^k skill speed
+# (the "_final_each_splinter" stats, -20 / -10 with I, -15 / -7 with II; read by nothing in PoB: SkillStatMap, Modules),
+# for support_splinter_totem_X_times (2) splinters; the last stage dies after acting, and the totem is placed again (its
+# cast time, the totem skill's base: LOW). PoB scores one full totem acting the whole time. Two readings of the time a
+# stage takes: its totems act AT ONCE (each stage one action time) or IN TURN (one after another): the lower is the
+# headline (the overcount side), the other a row; the stays-one-totem reading (PoB's) a row too. Ailments: still one
+# totem's (one_totem_ailments).
 TOTEM_ONE_STAT = "number_of_totems_allowed_is_1"
 TOTEM_ONE_TAG = "OneTotem"
 TOTEM_SPLINTER_STAT = "support_splinter_totem_X_times"
+SPLINTER_ACTIONS_STAT = "support_splinter_totem_splinter_after_X_actions"
+SPLINTER_DAMAGE_STAT = "support_splinter_totem_damage_+%_final_each_splinter"
+SPLINTER_SPEED_STAT = "support_splinter_totem_skill_speed_+%_final_each_splinter"
+SPLINTER_PER = 2  # totems per splinter (ASSUMED, R26-76)
+
+
+def splinter_factor(times: float, actions: float, damage: float, speed: float, action_time: float,
+                    place_time: float) -> tuple[float, float, str]:
+    """(the lower reading's factor on PoB's one-totem DPS, the higher one's, how) for Splinter Totem (see above)."""
+    stages = range(int(times) + 1)
+    dealt = sum(actions * SPLINTER_PER ** k * (1 + damage / 100) ** k for k in stages)
+    at_once = sum(actions * action_time / (1 + speed / 100) ** k for k in stages) + place_time
+    in_turn = sum(actions * SPLINTER_PER ** k * action_time / (1 + speed / 100) ** k for k in stages) + place_time
+    high, low = dealt * action_time / at_once, dealt * action_time / in_turn
+    how = (f"one placed totem acts {sum(actions * SPLINTER_PER ** k for k in stages):g} times (1 -> 2 -> 4 totems, "
+           f"{actions:g} action a stage, {damage:g}% damage and {speed:g}% skill speed per splinter): {dealt:.2f} full-totem "
+           f"actions, then placed again ({place_time:.2f} s); PoB counts one full totem acting every {action_time:.2f} s. "
+           f"Its splinters acting at once: x{high:.3f}; one after another: x{low:.3f}")
+    return low, high, how
 TOTEM_OWN_MODEL = {"Spell Totem", "Ancestral Warrior Totem"}
 
 
-def totem_count_model(skills: list[Skill], main: Skill | None,
-                      texts: Iterable[str] = ()) -> tuple[list[dict], list[dict]]:
+def totem_count_model(skills: list[Skill], main: Skill | None, texts: Iterable[str] = (),
+                      stats: dict | None = None) -> tuple[list[dict], list[dict]]:
     """More totems than one for the main skill's totem (see above): a speed line on the main skill and its note."""
     if main is None or main.group is None:
         return [], []
     group = [s for s in skills if s.group == main.group]
     if any(number(s.support_stats.get(TOTEM_ONE_STAT)) > 0 for s in group):
-        return one_totem_ailments(main, group)  # ("Supported Skills can only have one active Totem": no extra speed)
+        mods, notes = one_totem_ailments(main, group)  # ("Supported Skills can only have one active Totem": no extra speed)
+        more, more_notes = splinter_model(main, group, stats or {})
+        return mods + more, notes + more_notes
     if any(s.name in TOTEM_OWN_MODEL for s in group):
         return [], []
     summoner = next((s for s in group if s.totem_limit > 0), None)
@@ -10837,6 +10939,31 @@ def totem_count_model(skills: list[Skill], main: Skill | None,
                    "confidence": "MEDIUM"}]
 
 
+def splinter_model(main: Skill, group: list[Skill], stats: dict) -> tuple[list[dict], list[dict]]:
+    """Splinter Totem's splinters as a DPS factor on the main skill (see above, R26-76)."""
+    carrier = next((s for s in group if number(s.support_stats.get(TOTEM_SPLINTER_STAT)) > 0), None)
+    speed_now = number(stats.get("Speed"))
+    if carrier is None or speed_now <= 0:
+        return [], []
+    support = carrier.support_stats
+    times = number(support.get(TOTEM_SPLINTER_STAT))
+    actions = number(support.get(SPLINTER_ACTIONS_STAT)) or 1.0
+    damage = number(support.get(SPLINTER_DAMAGE_STAT)) or -20.0
+    speed = number(support.get(SPLINTER_SPEED_STAT)) or -10.0
+    summoner = next((s for s in group if s.totem_limit > 0), None)
+    place = (summoner.cast_time if summoner is not None and summoner.cast_time else 1.0)
+    low, high, how = splinter_factor(times, actions, damage, speed, 1 / speed_now, place)
+    return [raw_mod("DPS", "MORE", 100 * (low - 1), main.name)], [{
+        "label": f"{main.name}: Splinter Totem's splinters*", "value": f"x{low:.3f}",
+        "basis": how + f"; counted: x{low:.3f}, the lower reading (whether a stage's totems act at once is UNVERIFIED); "
+                       "two totems a splinter and the smallest dying after acting: ASSUMED (LOW-MEDIUM, RESEARCH26 R26-76, "
+                       "forum 3885913); placing again takes the totem skill's base cast time (LOW); ailments stay one "
+                       "totem's",
+        "play": (f"Place the totem again once its smallest splinters die. Stays one totem (PoB): x1; splinters one "
+                 f"after another: x{low:.3f}; all at once: x{high:.3f}"),
+        "confidence": "LOW"}]
+
+
 def one_totem_ailments(main: Skill, group: list[Skill]) -> tuple[list[dict], list[dict]]:
     """PoB's ailment stacks for a one-totem support's skill held to one totem (A24-3, see above)."""
     count = main.ailment_totems
@@ -10848,9 +10975,9 @@ def one_totem_ailments(main: Skill, group: list[Skill]) -> tuple[list[dict], lis
         "label": f"{main.name}: one totem's ailments*", "value": 1,
         "basis": f"A support makes it \"only have one active Totem\" (number_of_totems_allowed_is_1); PoB multiplied its "
                  f"Ignite / Poison / Bleed stacks by its Totem Limit {limit:g} (CalcOffence 5264): held to 1"
-                 + ("; Splinter Totem's splinters are more totems, how many isn't stated (UNVERIFIED): not counted, an "
-                    "undercount side" if splinter else ""),
-        "confidence": "HIGH (the support's own text)" if not splinter else "MEDIUM (splinters not counted)"}]
+                 + ("; Splinter Totem's splinters' own ailments not counted (their hits: the splinters row)"
+                    if splinter else ""),
+        "confidence": "HIGH (the support's own text)" if not splinter else "MEDIUM (splinters' ailments not counted)"}]
 
 
 # Minion Pact's damage when no minion is left (AUDIT23 A23-2's other half, MECHB11; an OVERCOUNT): PoB gives the 30% /
@@ -10974,31 +11101,44 @@ def pustule_stored(rates: list[dict], poison_dps: float, fuse: float) -> tuple[f
 def pustule_cap(rates: list[dict], name: str = PUSTULE_SKILL, poison_dps: float = 0.0) -> tuple[list[dict], list[dict]]:
     """The Pustule Explosion held to one a fuse (Poison Spores, Toxic Domain: one per enemy) or to its Limit a fuse
     (Toxic Growth) (see above). `rates`: bridge useRates for each group's `name` skill. `poison_dps`: PoB's PoisonDPS
-    on the boss, for the stored-Poison "with it" row (pustule_stored; never scored)."""
+    on the boss, for the stored-Poison harder burst (pustule_stored; scored for Poison Spores / Toxic Domain since MECHB34,
+    R26-79)."""
     speed = sum(number(r.get("speed")) * (number(r.get("repeats")) or 1.0) for r in rates)
     if speed <= 0:
         return [], []
     fuses = [number(r.get("detonationTime")) for r in rates if number(r.get("detonationTime")) > 0]
     fuse = min(fuses) if fuses else PUSTULE_FUSE
     stored_more, stored_how = pustule_stored(rates, poison_dps, fuse)
-    stored = [] if stored_more <= 0 else [{
-        "label": f"{name}: stored Poison's harder burst, not counted*", "value": f"x1 (with it: x{1 + stored_more / 100:.2f})",
-        "basis": "The game: Pustules \"store expected damage of Poisons inflicted on them\" and burst up to 300% harder. "
-                 "UNVERIFIED whether the Poisons you inflict on the boss reach the Pustule attached to it (no game text or "
-                 f"second source says so), so it isn't scored. If they all did: {stored_how}. Its sooner burst isn't "
-                 "sized (the stat's units are UNVERIFIED), so with it the explosions would come at least that much harder",
-        "play": f"Without it: as scored. With it (if your Poisons on the boss feed its Pustule): the explosion x"
-                f"{1 + stored_more / 100:.2f}, sooner too",
-        "confidence": "LOW (in-game test: the explosion's damage with and without Poisoning the boss)"}]
     ground = name in PUSTULE_LIMIT
+    stored_mods: list[dict] = []
+    if stored_more > 0 and not ground:  # (MECHB34, R26-79: scored; Toxic Growth's ground Pustules aren't carried)
+        stored_mods = [line("1% more Damage", stored_more, skill=name)]
+        stored = [{
+            "label": f"{name}: stored Poison's harder burst*", "value": f"x{1 + stored_more / 100:.2f} (without it: x1)",
+            "basis": "The game: Pustules \"store expected damage of Poisons inflicted on them\" and burst up to 300% "
+                     "harder; the Poisons you inflict on the boss are taken to reach the Pustule attached to it (ASSUMED, "
+                     "LOW-MEDIUM, RESEARCH26 R26-79: Toxic Domain's own text, its Pustules \"can be Poisoned\" and are "
+                     "only ever on enemies; Poison Spores \"can also be Poisoned\"; patch 0.4.0's shared rule): "
+                     f"{stored_how}. Its sooner burst isn't sized (the stat's units are UNVERIFIED): bursting sooner "
+                     "stores less per burst but bursts more often, not counted either way",
+            "play": f"Poison the boss while its Pustule waits. Without it: x1; with it: the explosion x"
+                    f"{1 + stored_more / 100:.2f}, sooner too",
+            "confidence": "LOW-MEDIUM"}]
+    else:
+        stored = [] if stored_more <= 0 else [{
+            "label": f"{name}: stored Poison's harder burst, not counted*",
+            "value": f"x1 (with it: x{1 + stored_more / 100:.2f})",
+            "basis": "Toxic Growth's Pustules are on the ground, hit directly, not attached to the boss: the Poisons you "
+                     f"inflict on the boss don't reach them (RESEARCH26 R26-79). If they did: {stored_how}",
+            "confidence": "LOW"}]
     limits = [number(r.get("pustuleLimit")) for r in rates if number(r.get("pustuleLimit")) > 0]
     limit = (max(limits) if limits else float(PUSTULE_LIMIT[name])) if ground else 1.0
     share = min(1.0, limit / fuse / speed)
     if share >= 1.0:
-        return [], stored
+        return stored_mods, stored
     fuse_text = f"{fuse:.1f} s fuse{'' if fuses else ' (base; PoB gave no Detonation Time)'}"
     if ground:
-        return [raw_mod("DPS", "MORE", 100 * (share - 1), name)], [{
+        return [raw_mod("DPS", "MORE", 100 * (share - 1), name)] + stored_mods, [{
             "label": f"{name}: at most its Pustule Limit bursts a fuse*", "value": f"x{share:.3f}",
             "basis": f"PoB counts {speed:.2f} explosions/s; the game keeps {limit:g} Pustules at a time "
                      f"(Limit{'' if limits else ', base'}: a new one makes the oldest disappear), each bursting after "
@@ -11009,12 +11149,12 @@ def pustule_cap(rates: list[dict], name: str = PUSTULE_SKILL, poison_dps: float 
                     "replaces the waiting ones (spammed, without the pacing: no bursts at all)",
             "confidence": "LOW-MEDIUM (game files give the Limit, the fuse and what the Limit does; the hits on the "
                           "boss are UNVERIFIED)"}] + stored
-    return [raw_mod("DPS", "MORE", 100 * (share - 1), name)], [{
+    return [raw_mod("DPS", "MORE", 100 * (share - 1), name)] + stored_mods, [{
         "label": f"{name}: one Pustule on the boss at a time*", "value": f"x{share:.3f}",
         "basis": f"PoB counts {speed:.2f} Pustule Explosions/s; the game allows one Pustule per enemy, bursting after its "
                  f"{fuse_text}: {1 / fuse:.3f}/s. Not "
-                 "counted (undercount side): stored Poison making it burst sooner and up to 300% harder (UNVERIFIED "
-                 "whether Poisons on the boss feed it), and Pustules on adds",
+                 "counted (undercount side): stored Poison making it burst sooner (its harder burst: the stored-Poison "
+                 "row), and Pustules on adds",
         "confidence": "MEDIUM (game files and poe2db agree on one Pustule and the 15 s fuse)"}] + stored
 
 

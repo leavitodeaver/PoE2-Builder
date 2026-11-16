@@ -1027,10 +1027,13 @@ def test_deadly_resolve_slashes_once_per_stage_when_the_boss_hits(arbiter_defaul
     # 1/0.7 x 0.96 x 0.75 = 1.03 hits land per second; a stage per second of channelling caps it at 1
     assert next(m["value"] for m in mods if m["key"] == "triggerRate") == pytest.approx(1.0)
     assert "a stage per second" in notes[0]["basis"]
-    # a build that blocks half and evades half: 0.36 hits/s
-    few = models.deadly_resolve_model([shield, slash], {"enemySkillTime": 0.7, "EvadeChance": 50, "EffectiveBlockChance": 50}, shield)[0]
-    land = boss_hits.land_share({"EvadeChance": 50, "EffectiveBlockChance": 50})  # (MECHB6: red-flash hits land)
+    # a build that blocks half and evades half: blocked hits count (MECHB34, R26-33), evaded ones don't
+    few, few_notes = models.deadly_resolve_model([shield, slash], {"enemySkillTime": 0.7, "EvadeChance": 50,
+                                                                   "EffectiveBlockChance": 50}, shield)
+    land = boss_hits.land_share({"EvadeChance": 50, "EffectiveBlockChance": 0})  # (MECHB6: red-flash hits land)
     assert next(m["value"] for m in few if m["key"] == "triggerRate") == pytest.approx(land / 0.7, rel=1e-3)
+    blocked_out = boss_hits.land_share({"EvadeChance": 50, "EffectiveBlockChance": 50}) / 0.7
+    assert "blocked hits count" in few_notes[0]["basis"] and f"if they didn't: {blocked_out:.3f}/s" in few_notes[0]["basis"]
     # not the main skill's group: not channelled through the fight
     other = Skill("Boneshatter", group=1, attack=True, melee=True)
     assert next(m["value"] for m in models.deadly_resolve_model([other, slash], stats, other)[0] if m["key"] == "triggerRate") == 0.0
@@ -1275,6 +1278,11 @@ def test_predators_mark_counts_you_and_your_minions_near_the_boss():
     _, notes = models.mark_model([slash, pounce, predator], stats, slash, [], 2.0)
     assert notes[0]["full_dps"] == {"Pounce": pytest.approx(1.0)} and "held 1.0 s" in notes[0]["basis"]
     assert notes[0]["value"] == pytest.approx(round(3.0 * 1.0 / 5.0, 1))
+    # MECHB34 (R26-50, SETTLED): with Cross Slash the wolves are summoned on the boss, 2 per Activation, one per Pounce
+    _, notes = models.mark_model([slash, pounce, predator, wolf6], stats, slash, [], 2.0)
+    assert "summoned on the boss" in notes[0]["basis"] and "after 3 Pounce uses" in notes[0]["basis"]
+    assert "R26-50" in notes[0]["basis"] and "Cross Slash the Marked boss" in notes[0]["play"]
+    assert notes[0]["full_dps"]["Summon Wolf"] == 6
     by_line, notes = lines([spell, pounce, predator, wolf6, zombies], 2.0)  # still capped at 45%
     assert by_line["Enemies you Mark take 1% increased Damage"] == pytest.approx(45.0)
     by_line, _ = lines([spell, pounce, predator, wolf], 8.0)  # no level stats: the level-1 limit, 4 (you beyond 6 m)
@@ -3160,6 +3168,26 @@ def test_ancestral_bonds_doubling_counts_the_builds_totem_adders_on_every_totem_
                                      {"Spell Totem": 20}, main)
     assert notes[0]["value"] == 3 and "+1 from the build's lines" in notes[0]["basis"]
 
+
+def test_splinter_totems_splinters_count_at_the_lower_reading():
+    """MECHB34 (RESEARCH26 R26-76, LOW): Splinter Totem I's totem acts 1 + 2 + 4 times (5.16 full-totem actions at -20%
+    damage per splinter), then is placed again; the stages acting at once (x>1) or in turn (x<1): the lower counted."""
+    low, high, how = models.splinter_factor(2, 1, -20, -10, 1.0, 1.0)
+    at_once = 1 + 1 / 0.9 + 1 / 0.81 + 1.0
+    in_turn = 1 + 2 / 0.9 + 4 / 0.81 + 1.0
+    assert high == pytest.approx(5.16 / at_once) and low == pytest.approx(5.16 / in_turn) and low < 1 < high
+    assert "acts 7 times" in how and "5.16 full-totem" in how
+    totem = Skill("Shockwave Totem", group=1, totem_limit=1, cast_time=0.6,
+                  support_stats={models.TOTEM_ONE_STAT: 1, models.TOTEM_SPLINTER_STAT: 2,
+                                 models.SPLINTER_ACTIONS_STAT: 1, models.SPLINTER_DAMAGE_STAT: -20,
+                                 models.SPLINTER_SPEED_STAT: -10})
+    slam = Skill("Shockwave Slam", group=1, attack=True)
+    mods, notes = models.totem_count_model([totem, slam], slam, [], {"Speed": 2.0})
+    want = models.splinter_factor(2, 1, -20, -10, 0.5, 0.6)[0]
+    assert mods == [models.raw_mod("DPS", "MORE", 100 * (want - 1), "Shockwave Slam")]
+    assert notes[0]["value"] == f"x{want:.3f}" and "R26-76" in notes[0]["basis"] and "Stays one totem (PoB): x1" in notes[0]["play"]
+    assert models.totem_count_model([totem, slam], slam) == ([], [])  # (no Speed read: as before)
+
 def test_wildwoods_gifts_blooms_give_flasks_and_charms_charges():
     """MECHC7 (#105): one Ancient Bloom per breach_flame_spawn_rate_ms, a third each kind (LOW-MEDIUM), 5 charges to every
     flask / charm of its kind; the Blooms' increased effect only in the note (UNVERIFIED that it scales the 5)."""
@@ -3294,10 +3322,11 @@ def test_toxic_growth_bursts_at_most_its_pustule_limit_a_fuse():
     assert models.pustule_cap([{"speed": 0.3, "detonationTime": 15}], "Toxic Growth") == ([], [])  # (under 5 / 15: as PoB)
 
 
-def test_pustule_stored_poison_is_sized_as_a_with_it_row_never_scored():
-    """MECHB15 (AUDIT25 A25-8): stored Poison's up-to-300%-harder burst. Whether the boss's Poisons reach its Pustule is
-    UNVERIFIED, so it's never scored: a "with it" row from PoB's Poison DPS x the fuse, 1% more per X (969 at level 20),
-    capped at the set's maximum; nothing with no Poison or no stat read."""
+def test_pustule_stored_poison_is_scored_for_a_carried_pustule():
+    """MECHB15 (AUDIT25 A25-8): stored Poison's up-to-300%-harder burst, from PoB's Poison DPS x the fuse, 1% more per X
+    (969 at level 20), capped at the set's maximum; nothing with no Poison or no stat read. MECHB34 (RESEARCH26 R26-79,
+    ASSUMED LOW-MEDIUM): the boss's Poisons reach its attached Pustule, so it's scored (x1 the "without it" row); Toxic
+    Growth's ground Pustules stay a row."""
     from builder.search import models
 
     rate = {"speed": 1.2, "detonationTime": 15, "storedPoisonPerPercent": 969, "storedPoisonMaxMore": 300}
@@ -3308,10 +3337,13 @@ def test_pustule_stored_poison_is_sized_as_a_with_it_row_never_scored():
     assert models.pustule_stored([{"speed": 1.2}], 10_000, 15) == (0.0, "")
     mods, notes = models.pustule_cap([rate], "Poison Spores", 10_000)
     scored, _ = models.pustule_cap([rate], "Poison Spores")
-    assert mods == scored  # (the score doesn't move)
-    assert len(notes) == 2 and "with it: x2.55" in notes[1]["value"] and "UNVERIFIED" in notes[1]["basis"]
+    assert mods[:1] == scored and mods[1] == models.line("1% more Damage", 150_000 / 969, skill="Poison Spores")
+    assert len(notes) == 2 and notes[1]["value"] == "x2.55 (without it: x1)" and "R26-79" in notes[1]["basis"]
+    assert notes[1]["confidence"] == "LOW-MEDIUM" and "Without it: x1" in notes[1]["play"]
     mods, notes = models.pustule_cap([{**rate, "speed": 0.05}], "Poison Spores", 10_000)  # (under 1 / 15 a second)
-    assert mods == [] and len(notes) == 1 and "x2.55" in notes[0]["value"]
+    assert mods == [models.line("1% more Damage", 150_000 / 969, skill="Poison Spores")] and len(notes) == 1
+    mods, notes = models.pustule_cap([{**rate, "pustuleLimit": 6}], "Toxic Growth", 10_000)  # (ground: not scored)
+    assert not [m for m in mods if m.get("line") == "1% more Damage"] and "with it: x2.55" in notes[-1]["value"]
 
 
 def test_a_one_totem_support_keeps_one_totem_up():
@@ -3496,7 +3528,7 @@ def test_a_one_totem_support_holds_pobs_ailment_stacks_to_one_totem():
     assert mods == [models.raw_mod("ActiveTotemLimit", "BASE", -2, "Shockwave Slam", tag=models.TOTEM_ONE_TAG)]
     assert mods[0]["tag"] == "OneTotem" and notes[0]["value"] == 1 and "UNVERIFIED" not in notes[0]["basis"]
     slam.support_stats = {models.TOTEM_ONE_STAT: 1, models.TOTEM_SPLINTER_STAT: 2}
-    assert "UNVERIFIED" in models.totem_count_model([slam], slam)[1][0]["basis"]  # (splinters: labelled, not counted)
+    assert "splinters' own ailments" in models.totem_count_model([slam], slam)[1][0]["basis"]  # (MECHB34: their hits counted apart)
     slam.ailment_totems = {"limit": 1}
     assert models.totem_count_model([slam], slam) == ([], [])  # (already one)
     slam.ailment_totems = {"limit": 3, "override": 2}
@@ -3781,6 +3813,17 @@ def test_a_curses_own_duration_sets_its_uptime_recast_time_and_doom_blasts():
     assert next(m for m in mods if m["key"] == "triggerRate")["value"] == pytest.approx(1 / 11.1, abs=1e-3)
     (base,) = models.curse_uses(hand, gems, {}, 8.0)
     assert base.duration == models.CURSE_DURATION and "level-20 base" in base.how
+    # MECHB34 (R26-78 (b)): a zone curse recast at a chosen press rate overwrites areas past the Limit: one Doom Blast a
+    # cast, at most one per 0.15 s; with no choice, the per-duration rate and the overwrite play in the note
+    zoned = replace(use, zone="Doedre's Undoing")
+    mods, notes, _ = models.doom_blast_model([despair, blast], [zoned], {"Despair": 0.5})
+    assert next(m for m in mods if m["key"] == "triggerRate")["value"] == pytest.approx(0.5)
+    assert "R26-78" in notes[0]["basis"] and "the rate the search chose" in notes[0]["basis"]
+    mods, notes, _ = models.doom_blast_model([despair, blast], [zoned], {"Despair": 10.0})
+    assert next(m for m in mods if m["key"] == "triggerRate")["value"] == pytest.approx(1 / 0.15, abs=1e-3)
+    mods, notes, _ = models.doom_blast_model([despair, blast], [zoned])
+    assert next(m for m in mods if m["key"] == "triggerRate")["value"] == pytest.approx(1 / 11.1, abs=1e-3)
+    assert "not counted" in notes[0]["basis"] and "overwrite areas" in notes[0]["basis"]
 
 
 def test_a_curse_hexblast_detonates_is_recast_once_a_cycle_not_once_a_duration():
@@ -4476,7 +4519,7 @@ def test_ancestral_boost_sources_combine_as_one_boost_per_slam_at_the_lower_read
              "AncestralEmpowermentDamageMultiplier": 0.3}
     mods, notes = models.ancestral_boost_model([UNIQUE_SLAM, EMPOWERMENT], stats, [slam], slam,
                                                {"Attack", "Slam", "Shapeshift"})
-    share, pob = 0.5 + 0.5 / 6, 0.5 + 1 / 6
+    share, pob = 0.5 + 0.5 / 6.5, 0.5 + 1 / 6  # (MECHB34, R26-58 (b): the wait for the next slam after the cooldown)
     assert mods == [models.raw_mod("Damage", "MORE", 100 * ((1 + 0.3 * share) / (1 + 0.3 * pob) - 1), "Bear Slam")]
     assert notes[0]["confidence"] == "LOW" and "UNVERIFIED" in notes[0]["basis"]
     # (Ancestral Empowerment alone: PoB's 50% already, the unique adds nothing)
@@ -4540,11 +4583,12 @@ def test_ancestral_empowerment_with_fist_of_war_takes_the_lower_reading_without_
     stats = {"Speed": 1.0, "FistOfWarCooldown": 6, "AncestralEmpowermentCombinedUptimeRatio": 100 * (0.5 + 1 / 6),
              "AncestralEmpowermentDamageMultiplier": 0.3}
     mods, notes = models.ancestral_boost_model([EMPOWERMENT], stats, [slam], slam, {"Attack", "Slam", "Melee"})
-    share, pob = 0.5 + 0.5 / 6, 0.5 + 1 / 6
+    share, pob = 0.5 + 0.5 / 6.5, 0.5 + 1 / 6  # (MECHB34, R26-58 (b): 1 / (T r + 0.5))
     factor = (1 + 0.3 * share) / (1 + 0.3 * pob)
     assert mods == [models.raw_mod("Damage", "MORE", 100 * (factor - 1), "Boneshatter")], mods
     assert len(notes) == 1 and notes[0]["confidence"] == "LOW"
-    assert "with the higher reading" in notes[0]["play"] and "x1.000" in notes[0]["play"]
+    upper = (1 + 0.3 * (0.5 + 1 / 7)) / (1 + 0.3 * pob)
+    assert "with the higher reading" in notes[0]["play"] and f"x{upper:.3f}" in notes[0]["play"]
     assert f"x{factor:.3f}" in notes[0]["play"] and "Shapeshifted" not in notes[0]["basis"]
     # (PoB's combined ratio alone, without the passive's text, is enough to find it)
     assert models.ancestral_boost_model([], stats, [slam], slam, {"Attack", "Slam"}) == ([], [])  # (no texts: nothing)
@@ -5243,6 +5287,12 @@ def test_runefathers_challenge_raises_the_bosss_power_at_the_builds_own_uptime()
     assert models.boss_power(granted, stats, distance=15, main="Lightning Arrow")[0] == 25
     assert models.boss_power(granted, stats, distance=50, main="Lightning Arrow")[0] == 20
     assert models.boss_power(off_hand, stats, distance=15, main="Lightning Arrow")[0] == 20
+    # MECHB34 (R26-63): the bash reaches 2.2 m (0.8 m unarmed + Raise Shield's 1.4 m) plus Melee Strike Range lines
+    assert models.boss_power(granted, stats, distance=21, main="Lightning Arrow")[0] == 25
+    assert models.boss_power(granted, stats, distance=25, main="Lightning Arrow")[0] == 20
+    longer = granted + ["+0.4 metres to Melee Strike Range while Holding a Shield"]
+    assert models.boss_power(longer, stats, distance=25, main="Lightning Arrow")[0] == 25
+    assert models.shield_bash_reach(granted + ["+0.3 metres to Melee Strike Range while Unarmed"]) == 22
 
 
 def test_living_bomb_as_the_main_skill_explodes_once_per_seed_from_the_builds_other_damage():
@@ -5272,7 +5322,7 @@ def test_brambles_are_scaled_to_three_a_slam_capped_by_their_cooldown():
     per its 0.15 s cooldown."""
     note = models.brambles_model("Earthquake", 1.05, "the main skill's Speed", {"speed": 1.4, "cooldown": 0.15})[0]
     assert note["full_dps"] == {"Brambles": pytest.approx(3 * 1.05 / 1.4, abs=1e-4)} and note["confidence"] == "LOW"
-    assert note["value"] == pytest.approx(3.15) and "UNVERIFIED" in note["basis"] and "without it" in note["play"]
+    assert note["value"] == pytest.approx(3.15) and "R26-61" in note["basis"] and "without it" in note["play"]
     fast = models.brambles_model("Earthquake", 4.0, "x", {"speed": 1.4, "cooldown": 0.15})[0]
     assert fast["value"] == pytest.approx(1 / 0.15, abs=1e-3) and "cooldown" in fast["basis"]
     assert models.brambles_model("Earthquake", 1.0, "x", {"speed": 0.0})[0]["full_dps"] == {"Brambles": 0.0}

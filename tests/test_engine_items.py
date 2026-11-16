@@ -977,7 +977,7 @@ def test_poison_spores_pustule_explosion_is_held_to_one_a_fuse(engine):
     assert build.call("useRates", indices=[group["index"]])["rates"][0]["name"].startswith("Lightning Arrow")  # (put back)
     mods, notes = search.assumptions.pustule_cap(found)
     share = 1 / 15 / rate["speed"]
-    assert mods == [models.raw_mod("DPS", "MORE", 100 * (share - 1), "Poison Spores")], mods
+    assert mods[0] == models.raw_mod("DPS", "MORE", 100 * (share - 1), "Poison Spores"), mods  # (then any stored line)
     assert notes[0]["value"] == f"x{share:.3f}"
 
 def test_tornado_copies_read_tornado_shots_level_and_use_rate(engine):
