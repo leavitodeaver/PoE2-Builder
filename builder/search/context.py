@@ -484,6 +484,9 @@ class Context:
         """A unique's text with ledger corrections: lines standing in for the ones PoB ignores are
         added at the end, and lines PoB gets wrong are replaced in place. Each correction keeps its
         line's variant tags, so only the selected version of the unique counts."""
+        from builder.search import loreweave  # (the plain Loreweave the generic price buys: SEARCH24, RESEARCH27)
+
+        raw = loreweave.offered(name, raw)
         ignored = self.unique_gaps.get(name, set())
         lines, added = [], []
         for line in raw.split("\n"):

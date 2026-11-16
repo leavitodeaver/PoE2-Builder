@@ -3595,3 +3595,25 @@ def test_ember_fusillade_consumes_one_infusion_a_fusillade():
     # (5 Embers at 4 casts/s: 5 x 1.1 / (1.25 + 1.3) beats fewer casts, so a Fusillade every 2.55 s)
     assert rate == pytest.approx(1 / (5 / 4.0 + 1.3)) and "one Infusion" in how
     assert rate < 4.0 / 3  # (fewer Infusions than one a cast)
+
+
+def test_the_search_offers_the_plain_loreweave_the_generic_price_buys():
+    """RESEARCH27 (the manager, 15 Nov 23:30): PoB's generated Loreweave carries only the Ventor's (BigRange) base lines
+    (maximum resistances 66% at the middle roll) and a fixed trio of ring effects, priced at poe.ninja's generic line,
+    which buys a random-effect item: an OVERCOUNT of value per divine. The search offers the normal-range base lines
+    (game Mods 26650308) and no ring effect; other uniques are unchanged."""
+    from builder.data import GameData
+    import re
+
+    from builder.search import loreweave
+
+    raw = next(u["raw"] for u in GameData().uniques if u["name"] == "Loreweave")
+    text = loreweave.offered("Loreweave", raw)
+    lines = [re.sub(r"^(?:\{[^}]*\})*", "", line) for line in text.split("\n")]
+    assert "Your Maximum Resistances are (75-80)%" in lines and "(7-10)% increased Cast Speed" in lines
+    assert "+(20-30) to maximum Mana" in lines and "Adds (1-4) to (8-12) Physical Damage to Attacks" in lines
+    assert not any("(50-82)" in line or "(-15-15)" in line for line in lines)  # (no BigRange line left)
+    assert "{variant:" not in text and not any(line.startswith("Selected Variant") for line in lines)  # (no ring effect)
+    assert not any("Extra Chaos" in line or "Ignites you inflict spread" in line for line in lines)
+    assert "Selected Base Variant: 1" in text and "{base:2}Runemastered Ornate Ringmail" in text  # (base versions kept)
+    assert loreweave.offered("Kaom's Heart", raw) == raw
