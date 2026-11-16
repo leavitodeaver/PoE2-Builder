@@ -45,7 +45,7 @@
     record).
   sources: ["https://poe2db.tw/us/Pragmatism"]
   test_in_game: "Wear Pragmatism with a charm: it should trigger with an empty charge bar."
-  status: proposed
+  status: retired  # COV35: MECH-C reads it since MECHC25 (flasks.CHARMS_FREE); models-read-cov35.yaml model-read-charms-free
 
 # PoB's buildup rule (ModParser 3904 / 3907) builds the flag name from the line's own word, and these two lines say
 # "Electrocution", so PoB makes LightningCanElectrocution / CanElectrocution, while its calculation reads only

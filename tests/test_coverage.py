@@ -429,9 +429,10 @@ def test_a_parsed_line_pob_reads_but_the_tool_doesnt_count_is_reported_not_appli
     assert not entry.replace and parsed_unused(satchel + " during Effect") == entry
     status, found, reason = coverage.unused_status(satchel, entry)
     assert (status, found) == ("none", entry.id) and "MECH-C" in reason
-    # a line nothing reads at all keeps its no-op reason, now with the entry naming its owner
+    # (COV35) "Charms use no Charges" was the no-op example with an entry naming its owner; MECH-C reads it since
+    # MECHC25 (flasks.CHARMS_FREE), so its parsed_unused entry is retired and the no-op is closed by the model
     status, found, reason = coverage.noop_status("Charms use no Charges", ["CharmsUseNoCharges"], True)
-    assert (status, found) == ("none", "unused-charms-use-no-charges") and reason.startswith("parsed, but no calculation")
+    assert (status, found) == ("model", "model-read-charms-free") and reason.startswith("parsed, but no calculation")
     assert parsed_unused("Life Recovery from Flasks also applies to Mana") is None
 
 
@@ -465,3 +466,19 @@ def test_a_downside_pob_parses_but_nothing_reads_is_routed_as_an_overcount():
     for r in records:
         assert r["status"] == "none" and r["entry"] == entry.id and r["routed"] == "MECH-B"
         assert r.get("overcount") and not r.get("undercount") and "OVERCOUNT" in r["reason"]
+
+
+def test_a_never_on_line_a_model_reads_is_counted_and_one_nothing_reads_stays_open():
+    """COV35: the never-on check (a parsed line whose PoB condition nothing sets) now asks the models and the condition
+    resolver, as the ignored and no-op paths do: "You gain Onslaught for 3 seconds on Kill" is parsed under
+    Condition:KilledRecently, but conditions.onslaught_uptime rates it at the build's kills; "Melee Damage if you've dealt
+    a Projectile Attack Hit in the past eight seconds" is models.projectile_hit_recently_model's. A never-on line no model
+    reads stays open."""
+    records = coverage.audit()["records"]
+    never = {r["line"]: r for r in records if r["category"] == "never-on"}
+    onslaught = [r for line, r in never.items() if line.startswith("You gain Onslaught for") and line.endswith("on Kill")]
+    assert onslaught and all(r["status"] == "model" for r in onslaught)
+    melee = [r for line, r in never.items() if "increased Melee Damage if you've dealt a Projectile Attack Hit" in line]
+    assert melee and all(r["status"] == "model" for r in melee)
+    moving = [r for line, r in never.items() if line.endswith("increased Mana Regeneration Rate while moving")]
+    assert moving and all(r["status"] == "none" for r in moving)

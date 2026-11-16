@@ -811,9 +811,19 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
         for source_type, line, kind, weight, source in parsed:
             mods = line.get("mods") or []
             if blocked := parse_audit.never_on(mods, setters):
-                add("never-on", source, kind, line["line"], "none", None,
-                    "parsed, but its condition can't switch on: "
-                    + "; ".join(f"{need} ({detail})" for need, _, detail in blocked), weight, of=source_type,
+                why = "parsed, but its condition can't switch on: " + "; ".join(f"{need} ({detail})" for need, _, detail in blocked)
+                # (COV35) a model or the condition resolver may count the line itself (bridge.sourceLines gives it every
+                # line, parsed or not), as ignored_line_status / noop_status already ask: "You gain Onslaught for 3
+                # seconds on Kill" is parsed under Condition:KilledRecently, which nothing sets, but conditions.
+                # onslaught_uptime rates it at the build's kills and sets PoB's Onslaught box itself
+                if model := model_entry(line["line"]):
+                    status, entry, why = "model", model.id, f"{why}; fed to the {model.raw['model']} model"
+                elif condition := resolver_condition(line["line"]):
+                    status, entry, why = ("model", f"condition:{condition.var}",
+                                          f"{why}; a source of {condition.label} for the condition resolver")
+                else:
+                    status, entry = "none", None
+                add("never-on", source, kind, line["line"], status, entry, why, weight, of=source_type,
                     needs=[need for need, _, _ in blocked], config_only=all(st == "config-off" for _, st, _ in blocked))
             for finding in parse_audit.lost(line["line"], mods):
                 checked = checked_parse(line["line"], line.get("unique") or line.get("node"))

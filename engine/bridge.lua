@@ -4450,8 +4450,11 @@ local function modDesc(mod)
 	for _, tag in ipairs(mod) do
 		local value = tag.var or (tag.varList and table.concat(tag.varList, "|")) or tag.skillType or tag.skillName
 			or tag.stat or (tag.statList and table.concat(tag.statList, "|")) or tag.keyword or tag.skillId
-		if tag.actor and tag.var then
-			value = tag.actor .. ":" .. tag.var
+		-- (COV35) the actor on a varList too: "while a Rare or Unique Enemy is in your Presence" is an enemy ActorCondition
+		-- with varList {NearbyRareOrUniqueEnemy, RareOrUnique}; without the actor the audit read it as the player's own
+		-- conditions and called it never set (the boss Configuration sets the enemy's RareOrUnique, ConfigOptions 1980-2099)
+		if tag.actor and (tag.var or tag.varList) then
+			value = tag.actor .. ":" .. value
 		end
 		tags[#tags + 1] = (tag.neg and "!" or "") .. tostring(tag.type) .. (value ~= nil and ("=" .. tostring(value)) or "")
 	end
