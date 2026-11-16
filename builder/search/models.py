@@ -7416,6 +7416,36 @@ def flammability_mods(main: str, scale: tuple | None) -> tuple[list[dict], list[
          "confidence": "MEDIUM"}]
 
 
+# Lit Oil Ground's Ignite damage (MECH82; conditions' Oil Ground note holds the game facts): each Oil skill's Ignite, 20%
+# of 150% / 100% of its Oil Ground set's Fire hit a second, "unscalable" (no Ignite modifiers), through the boss's Fire
+# resistance (the config's enemyFireResist: the Oil's own Exposure and other resistance changes not counted, a lower
+# reading), for the share of the fight the lit oil keeps the boss Ignited; only the strongest Ignite deals damage, so it
+# adds what it beats the build's own Ignite (PoB's IgniteDPS) by. Added beside PoB's total (the bridge's LedgerAddedDPS).
+def oil_ignite_model(found: list | None, fire_resist: float, own_ignite: float) -> tuple[float, list[dict]]:
+    """(added DPS, notes) from Conditions' build.oil_ignite = [(skill, share Ignited by its lit oil, its Ignite's DPS
+    before resistance, how)]."""
+    added, notes = 0.0, []
+    for name, share, base, how, *rest in found or ():
+        ignite = base * (1 - fire_resist / 100)
+        gain = share * max(0.0, ignite - own_ignite)
+        added += gain
+        lit = rest[0] if rest else share
+        other = (f". If lit Oil Ground Ignites without the 50% Flammability (the Oil keyword's \"Ignited Ground or "
+                 f"Detonator Skills will Ignite Oil-covered enemies\" read as unconditional: UNVERIFIED), it would be "
+                 f"+{lit * max(0.0, ignite - own_ignite):,.1f} DPS ({lit:.0%} of the fight)" if lit > share else "")
+        notes.append({
+            "label": f"{name}: its lit Oil Ground Ignites the boss*", "value": f"+{gain:,.1f} DPS",
+            "confidence": "LOW",
+            "basis": (f"{how}. Its Ignite: {base:,.1f} a second (20% of that, no Ignite modifiers: 'unscalable') through "
+                      f"the boss's {fire_resist:g}% Fire resistance = {ignite:,.1f} DPS; only the strongest Ignite counts, "
+                      f"so +{max(0.0, ignite - own_ignite):,.1f} over the build's own {own_ignite:,.1f}, {share:.0%} of "
+                      f"the fight{other}. Not counted: the boss covered in Oil taking 200% more Flammability (an "
+                      "undercount)"),
+            "play": (f"Throw {name} at the boss and light the Oil (a Detonator, your Ignites or Ignited Ground): without "
+                     f"it +0 DPS; with it +{gain:,.1f} DPS. If the boss walks out of the Oil, the gain drops with it.")})
+    return added, notes
+
+
 # Critical Weakness on the boss (MECH81; PATCH_CHECK K3-1, an UNDERCOUNT: PoB's conditionEnemyCriticalWeakness box has
 # no default and nothing set it, and PoB doesn't parse the spell-crit, Parry and warcry lines at all, so every source
 # scored 0). KeywordPopups CriticalWeakness (26650308): "Critical Weakness causes hits against affected targets to have
@@ -7933,6 +7963,32 @@ AGGRAVATE_EMPOWERED = re.compile(r"^(\d+(?:\.\d+)?)% chance to Aggravate Bleedin
                                  r"Attacks$", re.I)  # (aggravate_bleeding_on_exerted_attack_hit_chance_%; MECH66: at the
 # build's own Empowered uses, Assumptions.empowered_uses over every Empowering skill, not pob-gaps-boss.yaml's flat 10%)
 AGGRAVATE_ALWAYS = re.compile(r"^Bleeding you inflict is Aggravated$", re.I)
+# Beetlebite's "Aggravate Bleeding on Enemies when they Enter your Presence" (MECH82; RESEARCH26 R26-34, RESEARCH8
+# presence-enter-aggravate.md: each re-entry aggravates the current Bleeds, ASSUMED MEDIUM: the game writes "for the first
+# time" where it means once (the Plants line) and tracks "entered your Presence Recently", a repeating event; no limit
+# stat). How often the boss enters is the build's play, not a flat rate: you roll every DODGE_EVERY s against a boss (the
+# user's default, 7 Nov) and a roll of the build's own distance (dodge_roll) carries you out of your Presence when the
+# boss stands inside it and the roll reaches past its edge; rolling out and back in alternately, the boss enters once
+# every 2 x DODGE_EVERY s (presence_reentries). Fighting outside your Presence, or with a roll too short to leave it, it
+# never re-enters (0). Each entry aggravates every live Bleed, taken as Poisson with the entries' rate in
+# aggravated_share (the periodic (D - T/2) / D of RESEARCH8 is a little higher: the lower reading). The other Presence-
+# entry lines (Withered on entering, Mother's Declaration's Intimidate, crit vs entered Recently) aren't read here.
+BEETLEBITE = re.compile(r"^Aggravate Bleeding on Enemies when they Enter your Presence$", re.I)
+
+
+def presence_reentries(texts: list[str], stats: dict, metres: float) -> tuple[float, str]:
+    """(times a second the boss enters your Presence, how), from the build's dodge rolls (see BEETLEBITE's note)."""
+    radius = number(stats.get("PresenceRadius")) / 10
+    if radius <= 0 or metres > radius:
+        return 0.0, f"the boss {metres:g} m away stays outside your Presence ({radius:.1f} m): it never enters"
+    roll = dodge_roll(texts, stats)["metres"]
+    if metres + roll <= radius:
+        return 0.0, (f"a {roll:.1f} m roll from {metres:g} m doesn't leave your {radius:.1f} m Presence: the boss never "
+                     "re-enters")
+    every = 2 * DODGE_EVERY
+    return 1.0 / every, (f"rolling out of your {radius:.1f} m Presence and back in (a {roll:.1f} m roll every "
+                         f"{DODGE_EVERY:g} s, the boss {metres:g} m away): it enters once every {every:g} s (a way to "
+                         "play the build: MEDIUM)")
 AGGRAVATE_MODEL = "aggravate"  # (custom-models.yaml entries feeding these lines to aggravate_model)
 
 
@@ -7951,7 +8007,8 @@ def aggravated_share(duration: float, rate: float, older: float | None, hits: fl
 
 
 def aggravate_model(texts: list[str], stats: dict, main_types: set[str], moving: bool = False,
-                    empowered: tuple[float, str] | None = None) -> tuple[list[dict], list[dict]]:
+                    empowered: tuple[float, str] | None = None,
+                    entries: tuple[float, str] | None = None) -> tuple[list[dict], list[dict]]:
     """The main skill's Bleeding damage x (1 + its Aggravated share) from the build's Aggravate lines, at its own hits/s,
     crit chance and Bleed duration (PoB's BleedDuration). Lines another ledger entry already translates are left to it."""
     from builder import ledger
@@ -7970,13 +8027,19 @@ def aggravate_model(texts: list[str], stats: dict, main_types: set[str], moving:
             on_crit.append(float(m.group(1) or 100) / 100)
         elif (m := AGGRAVATE_OLDER.match(text)) and ours(text):
             older.append(float(m.group(1)))
+        elif BEETLEBITE.match(text) and entries is not None:  # (MECH82: the pob_gap entry removes nothing; read here)
+            pass
         else:
             continue
         used.append(text)
     if not used:
         return [], []
     label = "Aggravated Bleeding from Attack hits"
-    if "Attack" not in main_types:
+    beetle = entries is not None and any(BEETLEBITE.match(t) for t in used)
+    entry_rate, entry_how = entries if beetle else (0.0, "")
+    if "Attack" not in main_types and beetle:
+        on_hit, on_crit, older, on_emp = [], [], [], []  # (only the entries Aggravate: the hit lines need Attacks)
+    elif "Attack" not in main_types:
         return [], [{"label": label, "value": 0, "confidence": "MEDIUM",
                      "basis": f"{'; '.join(used)}: the main skill isn't an Attack, so its hits Aggravate nothing (other "
                               "skills' hits aren't counted: an undercount if they Attack and Bleed the boss)"}]
@@ -7992,6 +8055,9 @@ def aggravate_model(texts: list[str], stats: dict, main_types: set[str], moving:
     emp_hits = min(emp_rate * number(stats.get("HitChance")) / 100, hits) if on_emp else 0.0
     emp_miss = miss * math.prod(1 - p for p in on_emp)
     rate = (hits - emp_hits) * (1 - miss) + emp_hits * (1 - emp_miss)
+    if "Attack" not in main_types:
+        rate = 0.0
+    rate += entry_rate  # (MECH82: Beetlebite, each entry into your Presence Aggravates every live Bleed)
     gap = min(older) if older else None
     share = aggravated_share(duration, rate, gap, hits)
     # (MECH80; the manager 21:16, RESEARCH26 R26-14, MEDIUM-LOW: a GGG answer for PoE1, Mark_GGG thread 3537253, Aug 2024:
@@ -8010,6 +8076,7 @@ def aggravate_model(texts: list[str], stats: dict, main_types: set[str], moving:
     how = (f"{'; '.join(used)}: the main skill's {hits:.2f} Attack hits/s, {crit:.0%} critical, Aggravate a hit's Bleeds "
            f"with {1 - miss:.0%} chance ({rate:.2f}/s)" + (f", and any hit once a Bleed is {gap:g} s old" if older else "")
            + (f"; {emp_hits:.3f} Empowered hits/s ({emp_how or 'no skill of the build Empowers it'})" if on_emp else "")
+           + (f"; Beetlebite: {entry_how} ({entry_rate:.2f} entries/s; without that play: none)" if entry_how else "")
            + f"; a {duration:.2f} s Bleed is Aggravated {share:.0%} of its time (from the first such hit after it is "
            "inflicted, hits random in time; the hit that inflicts it taken not to Aggravate it: UNVERIFIED, the lower "
            "reading)" + (f"; {bleeds:.2f} Bleeds/s live {duration:.2f} s each, so some live Bleed is Aggravated "

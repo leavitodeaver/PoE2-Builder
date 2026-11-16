@@ -676,3 +676,97 @@ def test_stacked_flammability_raises_a_low_chance_ignite_on_a_real_build(engine)
     print("FLAMMABILITY with / without", note, pob, without)
     assert models.number(pob.get("IgniteDPS")) == pytest.approx(models.number(without.get("IgniteDPS")) * scale[0],
                                                                  rel=0.02)
+
+
+# MECH82 (PATCH_CHECK G4-4 / G2-3): Oil Grenade's / Oil Barrage's lit Oil Ground Ignites the boss
+def test_oil_ground_is_lit_by_detonators_ignites_or_your_ignited_ground():
+    assert conditions.oil_lit_chance(0.0) == 0.0
+    assert conditions.oil_lit_chance(1 / 6) == pytest.approx(1 - math.exp(-1))
+    assert conditions.oil_lit_chance(0.0, 0.5) == pytest.approx(0.5)
+    pieces: list = []
+    found, how = conditions.oil_ground({"Oil Grenade": (0.25, 1000.0, "0.25 uses/s")}, [("a Detonator", 1.0)], 0.0,
+                                       pieces)
+    (name, lit, damage), = found
+    assert name == "Oil Grenade" and damage == pytest.approx(1500.0)  # 150% of the set's Fire hit
+    assert lit == pytest.approx(1 - math.exp(-6.0))  # 6 s of Oil a 4 s use: up all fight, lit unless nothing comes
+    assert pieces == [("Oil Grenade's lit Oil Ground", lit, 6.0, 1500.0)] and "lit" in how
+    # nothing lights it: no Ignite from it
+    assert conditions.oil_ground({"Oil Barrage": (1.0, 1000.0, "")}, [], 0.0)[0] == []
+    # half the uses: 3 s of Oil a 2 s gap... up 6 s x 0.125 = 75%
+    found, _ = conditions.oil_ground({"Oil Barrage": (0.125, 1000.0, "")}, [], 1.0)
+    assert found == [("Oil Barrage", pytest.approx(0.75), pytest.approx(1000.0))]
+
+
+def test_the_oil_ignite_adds_only_what_it_beats_the_builds_own_ignite_by():
+    from builder.search import models
+
+    added, notes = models.oil_ignite_model([("Oil Grenade", 0.5, 300.0, "how")], 20.0, 100.0)
+    assert added == pytest.approx(0.5 * (300.0 * 0.8 - 100.0)) and "+70.0 DPS" in notes[0]["value"]
+    assert "without it +0 DPS" in notes[0]["play"]
+    assert models.oil_ignite_model([("Oil Grenade", 0.5, 300.0, "how")], 20.0, 500.0)[0] == 0.0
+    assert models.oil_ignite_model(None, 20.0, 0.0) == (0.0, [])
+    added, notes = models.oil_ignite_model([("Oil Grenade", 0.0, 300.0, "how", 0.6)], 20.0, 100.0)  # (never at 50%)
+    assert added == 0.0 and "+84.0 DPS (60% of the fight)" in notes[0]["basis"]  # (the reading without the 50% rule)
+
+
+def test_oil_grenades_oil_ground_set_is_rated_and_read_on_a_real_build(engine):
+    """MECH82: the bridge's useRates rates the Oil Ground set (statSets) of a side Oil Grenade, whose Fire hit (its 100%
+    Physical converted) the lit ground's Ignite reads; the evidence passes the lit share and the Ignite to the model."""
+    from builder.request.schema import BuildRequest
+    from builder.search import models
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Explosive Grenade"))
+    skeleton = enumerate_skeletons(Context(payload), ["Explosive Grenade"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    group = build.set_group(gems=[{"name": "Oil Grenade", "level": 20, "quality": 0}])
+    search.settle()
+    index = group["index"]
+    grenade = build.call("useRates", indices=[index])["rates"][0]
+    ground = build.call("useRates", indices=[index], statSets=[conditions.OIL_GROUND_SET])["rates"][0]
+    again = build.call("useRates", indices=[index])["rates"][0]
+    keys = ("name", "MainHand.FireHitAverage", "MainHand.PhysicalHitAverage")
+    print("OIL sets", {k: grenade.get(k) for k in keys}, {k: ground.get(k) for k in keys}, sorted(ground))
+    # (the ground set converts all its Physical to Fire; the grenade's own set deals no Fire)
+    assert models.number(ground.get("MainHand.FireHitAverage")) > 0
+    assert not models.number(ground.get("MainHand.PhysicalHitAverage"))
+    assert models.number(grenade.get("MainHand.PhysicalHitAverage")) > 0
+    assert again.get("MainHand.PhysicalHitAverage") == grenade.get("MainHand.PhysicalHitAverage")  # (put back)
+    search.conditions.evidence()
+    oil = getattr(build, "oil_ignite", None)
+    print("OIL ignite", oil)
+    assert oil and oil[0][0] == "Oil Grenade" and oil[0][2] > 0 and "Explosive Grenade's hits (a Detonator)" in oil[0][3]
+    search.assumptions.apply()
+    note = next(n for n in search.assumptions.active if "lit Oil Ground" in n["label"])
+    print("OIL note", note)
+    assert "only the strongest Ignite counts" in note["basis"]
+
+
+# MECH82 (RESEARCH26 R26-34): Beetlebite Aggravates the live Bleeds each time the boss re-enters your Presence
+def test_the_boss_reenters_your_presence_once_every_two_rolls_when_a_roll_leaves_it():
+    from builder.search import models
+
+    stats = {"PresenceRadius": 40, "MovementSpeedMod": 1.0}  # (PoB's units: 10 a metre)
+    rate, how = models.presence_reentries([], stats, 1.0)
+    assert rate == pytest.approx(1 / (2 * models.DODGE_EVERY)) and "once every 4 s" in how
+    assert models.presence_reentries([], stats, 5.0)[0] == 0.0  # (fighting outside the Presence)
+    assert models.presence_reentries([], {**stats, "PresenceRadius": 80}, 1.0)[0] == 0.0  # (a 4.6 m roll stays inside)
+
+
+def test_beetlebite_aggravates_bleeds_at_the_reentry_rate_for_any_main_skill():
+    from builder.search import models
+
+    line = "Aggravate Bleeding on Enemies when they Enter your Presence"
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 0, "BleedDuration": 5.0}
+    assert models.aggravate_model([line], stats, {"Attack"})[0] == []  # (no re-entry rate given: not read)
+    entries = (0.25, "rolling out and back")
+    own = models.aggravated_share(5.0, 0.25, None, 2.0)
+    for types in ({"Attack"}, {"Spell"}):
+        mods, notes = models.aggravate_model([line], stats, types, entries=entries)
+        assert mods[0]["scale"] == pytest.approx(100 * own, rel=1e-3) and "Beetlebite" in notes[0]["basis"]
+    mods, notes = models.aggravate_model([line], stats, {"Spell"}, entries=(0.0, "outside"))
+    assert not any(m.get("scale") for m in mods) and "Beetlebite: outside" in notes[0]["basis"]

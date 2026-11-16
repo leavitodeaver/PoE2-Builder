@@ -3655,9 +3655,35 @@ function bridge.useRates(args)
 		if group and active and active > 0 then
 			group.mainActiveSkill = active
 		end
+		-- (MECH82: Oil Ground's Ignite, conditions.oil_ground) args.statSets[n], if given, is the stat set of that group's
+		-- active gems to rate (CALCULATOR mode reads gemInstance.statSet[grantedEffect.id]: CalcSetup 2300-2304), e.g. Oil
+		-- Grenade's "Oil Ground" set, whose Fire damage the lit ground's Ignite adds; put back after
+		local statSetIndex = args.statSets and tonumber(args.statSets[n])
+		local savedSets = { }
+		if group and statSetIndex and statSetIndex > 0 then
+			for _, gemInstance in ipairs(group.gemList or { }) do
+				local effect = gemInstance.gemData and gemInstance.gemData.grantedEffect
+				if effect and not effect.support then
+					savedSets[#savedSets + 1] = { gemInstance, gemInstance.statSet, effect.id,
+						gemInstance.statSet and gemInstance.statSet[effect.id] }
+					gemInstance.statSet = gemInstance.statSet or { }
+					gemInstance.statSet[effect.id] = statSetIndex
+				end
+			end
+		end
 		local ok, env = pcall(calcs.initEnv, build, "CALCULATOR")
 		if group and active and active > 0 then
 			group.mainActiveSkill = savedActive
+		end
+		-- (initEnv copied the index into each activeEffect.statSet, a new table: the gems' own choice can go back now)
+		for _, saved in ipairs(savedSets) do
+			local gemInstance, table0, id, index0 = saved[1], saved[2], saved[3], saved[4]
+			if table0 == nil then
+				gemInstance.statSet = nil
+			else
+				gemInstance.statSet = table0
+				table0[id] = index0
+			end
 		end
 		local skill = ok and env and env.player.mainSkill
 		if skill and pcall(calcs.perform, env, true) then
@@ -3767,6 +3793,11 @@ function bridge.useRates(args)
 					local field = kind .. part .. "Average"
 					if type(output[field]) == "number" then
 						entry[field] = jsonNumber(output[field])
+					end
+					-- (MECH82: an attack's per-hand figures, PoB's output.MainHand: Oil Ground's Ignite adds a share of
+					-- "main hand total attack fire damage", conditions.oil_ground)
+					if output.MainHand and type(output.MainHand[field]) == "number" then
+						entry["MainHand." .. field] = jsonNumber(output.MainHand[field])
 					end
 				end
 			end

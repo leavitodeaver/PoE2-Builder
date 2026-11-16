@@ -1789,15 +1789,21 @@ class Assumptions:
                 models.critical_weakness_stacks(texts, found, stats, main, cw_metres, cries))
             hand_mods, hand_notes = hand_mods + cw_mods, hand_notes + cw_notes
         if any(p.match(t.strip()) for t in texts for p in (models.AGGRAVATE_HIT, models.AGGRAVATE_CRIT,
-                                                            models.AGGRAVATE_OLDER, models.AGGRAVATE_EMPOWERED)):
+                                                            models.AGGRAVATE_OLDER, models.AGGRAVATE_EMPOWERED,
+                                                            models.BEETLEBITE)):
             # (MECH66: Aggravated Bleeding at the main skill's own hits, crits and Bleed duration)
             agg_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if name else set()
             moving = bool(build.call("getConfig")["input"].get("conditionEnemyMoving"))
             empowered = self.empowered_uses(stats, None) if any(
                 models.AGGRAVATE_EMPOWERED.match(t.strip()) for t in texts) else None
+            entries = None
+            if any(models.BEETLEBITE.match(t.strip()) for t in texts):  # (MECH82, R26-34: re-entries from your rolls)
+                agg_metres = (models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10
+                              or natural_distance(agg_types, name or ""))
+                entries = models.presence_reentries(texts, stats, agg_metres)
             agg_mods, agg_notes = models.aggravate_model(
                 texts, {**stats, **build.call("stats", fields=["BleedDuration", "BleedChancePerHit"])}, agg_types,
-                moving, empowered)  # (MECH80: Bleeds a second, R26-14)
+                moving, empowered, entries)  # (MECH80: Bleeds a second, R26-14)
             hand_mods, hand_notes = hand_mods + agg_mods, hand_notes + agg_notes
         passive_mods, passive_notes = passive_models.build_models(build, inputs, texts, found, main, supports)  # (COV-B)
         hand_mods, hand_notes = hand_mods + passive_mods, hand_notes + passive_notes
@@ -1954,6 +1960,11 @@ class Assumptions:
         legion, legion_notes = infernal_legion(build, stats)  # (MECHB30, H1-7: PoB rates no boss Ignite from it)
         hand_mods += [models.added_input("InfernalLegion", legion)] if legion > 0 else []
         hand_notes += legion_notes
+        oil, oil_notes = (models.oil_ignite_model(  # (MECH82, G4-4: lit Oil Ground's Ignite; PoB scores it 0)
+            build.oil_ignite, number(build.call("getConfig")["input"].get("enemyFireResist")),
+            number(stats.get("IgniteDPS"))) if getattr(build, "oil_ignite", None) else (0.0, []))
+        hand_mods += [models.added_input("OilGround", oil)] if oil > 0 else []
+        hand_notes += oil_notes
         briar, briar_notes = briarpatch(build, main, found)  # (MECHB31: Briarpatch's creation hit, PoB 0)
         hand_mods += [models.added_input("Briarpatch", briar)] if briar > 0 else []
         hand_notes += briar_notes
@@ -1971,7 +1982,7 @@ class Assumptions:
                                    "Elemental Discharge": discharge, "Broken Stance": stance, "Grisly Pyre": pyre,
                                    "Battershout": shout, "Crackling Palm": palm, "Blood Hunt": blood, "Ancestral Spirits": spirits,
                                    "Inevitable Agony": agony, "Impale": impaled + impaled_others, "Infernal Legion": legion,
-                                   "Briarpatch": briar, "Ice-Tipped Fragments": frost})
+                                   "Briarpatch": briar, "Ice-Tipped Fragments": frost, "Oil Ground": oil})
         # A model whose effect follows the build's own numbers and that the bridge can't work out again per calculation
         # would make every item what-if a real trial (Build.item_deltas). All of today's are worked out in the bridge
         # (models.derived): uptimes from Mana and regeneration, Life spent, attack speed, Mana > Life, Maelstrom's pulses.

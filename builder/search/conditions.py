@@ -4200,6 +4200,75 @@ def ground_ignite(pieces: list, stats: dict) -> tuple[float, str]:
         " (its Ignite's damage not added: only the Ignited state)")
 
 
+# Lit Oil Ground under the boss (MECH82; PATCH_CHECK G4-4 / G2-3, an UNDERCOUNT: MECH79 kept the Oil Ground sets from being
+# scored as Hits, NO_HIT_STAT_SETS, and nothing counted their Ignite). The game (26650308): KeywordPopups OilGround
+# "Enemies standing in Oil Ground have their movement speed Slowed and are inflicted with Exposure. Ignited enemies,
+# Ignited Ground, or Detonator Skills that touch the Oil cause it to catch fire, Igniting enemies instead of Slowing them,
+# but still inflicting the Exposure"; OilGrenadeOilGroundPlayer / OilBarrageOilPlayer: skill_main_hand_total_attack_fire_
+# damage_permyriad_to_add_as_unscalable_damage_to_oil_ground_ignite 15000 / 10000, 100% Physical converted to Fire,
+# display_statset_no_hit_damage; the Oil Ground lasts 6 s (Oil Grenade's base_secondary_skill_effect_duration 6000, Oil
+# Barrage's base_skill_effect_duration 6000). Patch notes (grep_notes "oil (grenade|barrage|ground)", oldest first; the
+# newest of each kept): 0.3.0 "Oil Ground's duration is now refreshed when it catches fire"; 0.4.0 "Oil Ground now has
+# Once Ignited, Oil Ground adds 150% of this Attack's Fire Damage as unscalable Damage to the Ignite", cooldown 4 s, 6 s;
+# 0.5.0 its Ignites can't compound; 0.5.5 Chaos-damage Ignites light it too. Counted:
+#   - the ground at the boss (the grenade thrown at it, MEDIUM; the boss taken as standing in it: the boss-still
+#     headline), up _covered(uses, 1, 6 s); Oil Barrage's only on unempowered volleys: with Power Charges held, every
+#     volley is taken as the Power-Charged barrage, which makes no Oil Ground (the lower reading, labelled);
+#   - lit when something lights it within its 6 s: a Detonator's hits on the boss (the main skill's landing hits, other
+#     groups' uses; PoB's gems.json skillTypes "Detonator"), the boss's own Ignites (the build's Ignite applications a
+#     second: flammability_sources at PoB's per-hit chance, the lower reading) and your Ignited Ground under the boss;
+#     a patch lit with chance 1 - (1 - ground) x exp(-lights/s x 6 s), and once lit it burns a refreshed 6 s, taken to
+#     make up the wait before it catches (MEDIUM);
+#   - the lit ground Ignites as Ignited Ground does (a no-Hit Ignite: KeywordPopups Flammability's "such as Ignited
+#     Ground"; 0.3.0 fixed Ignited Oil Ground igniting Whirlwinds, a ground effect), so only while the boss holds 50%
+#     Flammability (no_hit_ignite), as though dealing 150% / 100% of the Oil Ground set's Fire hit (PoB's useRates on that
+#     set, crit-weighted, the bridge's statSets), which is also the Ignite's base (the lower reading: whether the set's
+#     own Fire damage also counts toward the Ignite beside the "added" 150% is UNVERIFIED; it would make 250%);
+#   - its damage (models.oil_ignite_model): 20% of that base a second, through the boss's Fire resistance, no Ignite
+#     modifiers ("unscalable"); only the strongest Ignite deals damage, so it adds what it beats the build's own Ignite
+#     by (PoB's IgniteDPS), for the share the boss is Ignited by the lit oil.
+# Not counted (labelled): the boss covered in Oil taking 200% more Flammability (KeywordPopups Oil; removed when it Ignites:
+# an UNDERCOUNT of the 50% reach); a lit ground re-lighting the next grenade's oil; the boss moving out (the play guide's
+# boss-moving row). The Oil's Exposure is PoB's own (SkillStatMap 1775, a Debuff of the skill applied while the gem is in
+# an enabled group): a grenade every 4 s keeps 6 s of Oil up, so its always-on figure holds for a pressed Oil Grenade.
+OIL_GROUND_SKILLS = {"Oil Grenade": 1.5, "Oil Barrage": 1.0}  # the permyriad stat / 10000 (game files above)
+OIL_GROUND_SET = 2  # PoB's "Oil Ground" stat set of both (act_str.lua OilBarragePlayer / OilGrenadePlayer statSets[2])
+OIL_GROUND_SECONDS = 6.0  # s, both skills' Oil Ground (game files above; duration modifiers not read)
+DETONATOR = "Detonator"  # PoB's skill type for "Detonator Skills" (KeywordPopups Detonator)
+
+
+def oil_lit_chance(lights: float, ground: float = 0.0, seconds: float = OIL_GROUND_SECONDS) -> float:
+    """Chance a patch of Oil Ground catches fire within its `seconds`: `lights` lighting events a second on the boss
+    (Poisson) or your Ignited Ground under the boss `ground` of the fight."""
+    return 1.0 - (1.0 - min(max(ground, 0.0), 1.0)) * math.exp(-max(lights, 0.0) * seconds)
+
+
+def oil_ground(makers: dict[str, tuple[float, float, str]], lighters: list[tuple[str, float]], ground: float,
+               pieces: list | None = None) -> tuple[list[tuple[str, float, float]], str]:
+    """([(skill, share of the fight its lit Oil Ground is under the boss, the Fire it Ignites as though dealing)], how);
+    see the note above. `makers`: {skill: (its Oil-making uses a second, its Oil Ground set's Fire hit, how)};
+    `lighters`: [(what, lights a second)]; `ground`: your Ignited Ground's share under the boss. Each counted ground is
+    appended to `pieces` as ground_ignite reads them."""
+    lights = sum(rate for _, rate in lighters if rate > 0)
+    chance = oil_lit_chance(lights, ground)
+    said = ", ".join(f"{what} {rate:.2f}/s" for what, rate in lighters if rate > 0)
+    if ground > 0:
+        said = ", ".join(filter(None, [said, f"your Ignited Ground under the boss {ground:.0%}"]))
+    out, parts = [], []
+    for name, (uses, fire, how) in sorted(makers.items()):
+        up = _covered(uses, 1.0, OIL_GROUND_SECONDS)
+        lit = up * chance
+        damage = OIL_GROUND_SKILLS[name] * fire
+        parts.append(f"{name}'s Oil Ground ({how}; {OIL_GROUND_SECONDS:g} s, thrown at the boss, MEDIUM) up {up:.0%}, lit "
+                     f"{chance:.0%} of the time ({said or 'nothing lights it'}): {lit:.0%} of the fight, Igniting as though "
+                     f"dealing {OIL_GROUND_SKILLS[name]:.0%} of its {fire:,.0f} Fire hit = {damage:,.0f}")
+        if lit > 0 and damage > 0:
+            out.append((name, lit, damage))
+            if pieces is not None:
+                pieces.append((f"{name}'s lit Oil Ground", lit, OIL_GROUND_SECONDS, damage))
+    return out, "; ".join(parts)
+
+
 # Uruk's Smelting's Physical damage taken (MECH80; PATCH_CHECK G2-4, an UNDERCOUNT: PoB maps the support's
 # support_increased_armour_break_armour_break_amount_+%_final (break_amount_scale, MECH66) but not
 # support_demolisher_physical_damage_taken_+%_on_fully_armour_breaking_up_to_20% (no SkillStatMap or Modules entry), and
@@ -5601,6 +5670,54 @@ class Conditions:
                                + (f", shared with {', '.join(sorted(fire - {name}))}" if fire - {name} else ""))
         return out
 
+    def _oil_ground(self, texts: list[str], stats: dict, pieces: list) -> list[tuple[str, float, float]]:
+        """The build's lit Oil Ground under the boss (MECH82, oil_ground): each Oil skill's uses a second (the main skill's
+        Speed, else its group's rate, else the search's chosen rate) and its Oil Ground set's Fire hit (the bridge's
+        useRates on that set); the lighters: Detonators' hits / uses, the boss's own Ignites, your Ignited Ground."""
+        groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
+        where = {n["name"]: g["index"] for g in groups for n in g.get("gems") or []
+                 if n.get("enabled", True) and n["name"] in OIL_GROUND_SKILLS}
+        if not where:
+            return []
+        uses = self._group_uses(groups, set(where) - {self.main_skill})
+        indices = sorted(set(where.values()))
+        rows = {r.get("index"): r for r in self.build.call(
+            "useRates", indices=indices, statSets=[OIL_GROUND_SET] * len(indices))["rates"]}
+        power = _charges_held("Power")(texts, stats)[0] if "Oil Barrage" in where else 0.0
+        makers = {}
+        for name, index in where.items():
+            rate = (number(stats.get("Speed")) if name == self.main_skill
+                    else uses.get(name, self._chosen_use(name)))
+            how = f"{rate:.2f} uses/s"
+            if name == "Oil Barrage" and power > 0:
+                rate, how = 0.0, (f"{power:.1f} Power Charges held: every volley taken as the Power-Charged barrage, "
+                                  "which makes no Oil Ground (the lower reading)")
+            row = rows.get(index) or {}
+            if not str(row.get("name") or "").startswith(name):  # (the group rates another active skill: not read)
+                row, how = {}, how + "; its Oil Ground set not rated (its group calculates another skill)"
+            crit = min(max(number(row.get("CritChance")), 0.0), 100.0) / 100.0
+            hand = "MainHand." if row.get("MainHand.FireHitAverage") is not None else ""  # (an attack: its main hand's)
+            hit = number(row.get(hand + "FireHitAverage"))
+            fire = hit * (1 - crit) + (number(row.get(hand + "FireCritAverage")) or hit) * crit
+            makers[name] = (rate, fire, how)
+        gems = self.build.ctx.gems
+        lighters = []
+        main_types = stats.get("_main_types") or set()
+        if DETONATOR in main_types:
+            hits = number(stats.get("Speed")) * min(number(stats.get("HitChance")) or 100.0, 100.0) / 100.0
+            lighters.append((f"{self.main_skill}'s hits (a Detonator)", hits))
+        side = {n["name"] for g in groups for n in g.get("gems") or [] if n.get("enabled", True)
+                and n["name"] != self.main_skill and DETONATOR in ((gems.get(n["name"]) or {}).get("skillTypes") or ())}
+        if side:
+            rates = self._group_uses(groups, side)
+            lighters += [(f"{n}'s uses (a Detonator)", rates.get(n, self._chosen_use(n))) for n in sorted(side)]
+        ignites = sum(r * min(m, 100.0) / 100.0 for _, r, m in flammability_sources(stats))
+        if ignites > 0:
+            lighters.append(("the boss's Ignites", ignites))
+        found, how = oil_ground(makers, lighters, number((stats.get("_ignited_ground") or (0.0, ""))[0]), pieces)
+        stats["_oil_ground_how"] = how
+        return found
+
     def _uruk_taken(self, rate: float) -> tuple[float, str]:
         """(the fight-average % increased Physical Damage taken, how) from Uruk's Smelting on the main skill (MECH80,
         uruk_taken): its stat at the gem's level, the Full Break rate, the fight's length from the boss's pool over the
@@ -6176,6 +6293,7 @@ class Conditions:
         # (MECH75: Radiant Grief's aura; MECH76: MECHB30's Infernal Legion, routed; MECH80: your Ignited Ground) the
         # Ignited share from sources that don't Hit, after the other groups' Ignites: the aura and the ground Ignite
         # only while the boss holds 50% Flammability (no_hit_ignite, ground_ignite)
+        oil = self._oil_ground(texts, stats, ground_pieces)  # (MECH82: lit Oil Ground, another no-Hit Ignite source)
         aura = presence_ignite(texts, stats)
         if aura[0] > 0 or any(p[1] > 0 and p[3] for p in ground_pieces):  # (the build's Flammability Magnitude lines)
             stats["_flammability_mod"] = self.build.call("flammabilityMagnitude") or {}
@@ -6185,6 +6303,11 @@ class Conditions:
             aura = (aura[0] * reach, f"{aura[1]}; it Ignites only at 50% Flammability: {how}")
         legion = self.minion_ignite(names)
         burning = ground_ignite(ground_pieces, stats)
+        stats["_oil_ignite"] = []  # (MECH82: models.oil_ignite_model) (skill, share Ignited by it, its Ignite's DPS, how)
+        for name, lit, damage in oil:
+            reach, how = no_hit_ignite(stats, damage, OIL_GROUND_SECONDS)
+            stats["_oil_ignite"].append((name, lit * reach, models.IGNITE_BASE * damage,
+                                         f"{stats.get('_oil_ground_how', '')}; {how}", lit))
         if aura[1] or legion[1] or burning[1]:
             share = 1 - (1 - aura[0]) * (1 - legion[0]) * (1 - burning[0])  # (independent sources)
             aura = (share, "; ".join(filter(None, [aura[1], legion[1], burning[1]])))
@@ -6322,6 +6445,7 @@ class Conditions:
         self.build.uruk_taken = stats.get("_uruk") or (0.0, "")  # (MECH80: Uruk's Smelting, models.uruk_mods)
         self.build.stormfire = stats.get("_stormfire") or (0.0, "")  # (MECH81: Stormfire, models.stormfire_mods)
         self.build.flammability_scale = stats.get("_flammability_scale") or (1.0, "")  # (MECH81)
+        self.build.oil_ignite = list(stats.get("_oil_ignite") or [])  # (MECH82: lit Oil Ground, models.oil_ignite_model)
         # (MECH78, MC-1; for COV-A's OpenWeakness ledger condition, the manager 12:43: one share for both) the share of
         # the fight's TIME the boss has an Open Weakness: open_weakness_up(build)
         self.build.open_weakness_up = stats.get("_open_weakness") or (0.0, "")
