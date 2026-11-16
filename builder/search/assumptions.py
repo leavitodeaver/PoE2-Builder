@@ -1622,7 +1622,10 @@ class Assumptions:
         main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if name else set()
         echo_mods, echo_notes = models.repeat_echo_model([e["text"] for e in source_lines], main_types, forbidden, main)
         hand_mods, hand_notes = hand_mods + echo_mods, hand_notes + echo_notes
-        parry_mods, parry_notes = models.parry_model(found, stats, main, bool(({name} | main_gems) & models.PARRY_CONSUMERS))
+        parry_stun = (recovery_mod.parry_stun_of(build) if any(s.name == "Parry" for s in found)
+                      else (0.0, ""))  # (MECH-C: Heavy Stun from parrying, MECHC30)
+        parry_mods, parry_notes = models.parry_model(found, stats, main, bool(({name} | main_gems) & models.PARRY_CONSUMERS),
+                                                     parry_stun)
         hand_mods, hand_notes = hand_mods + parry_mods, hand_notes + parry_notes
         presses: dict[str, tuple[float, str]] = {}  # (item-granted skills the build presses: models.ITEM_PRESSES)
         if any(models.RAISED_BLIND.search(e["text"]) for e in source_lines):  # (Bastion of Light's shield taps, MECHC21)
@@ -2676,6 +2679,8 @@ class Assumptions:
         notes += demon_notes
         soul_mods, soul_notes = self.soul_eater()  # (MECH-C: Soul Eater's souls from the build's hits, MECHC29)
         mods, notes = mods + soul_mods, notes + soul_notes
+        stun_mods, stun_notes = self.heavy_stunned_self(main)  # (MECH-C: Heavy Stun on you while channelling a raised shield, MECHC30)
+        mods, notes = mods + stun_mods, notes + stun_notes
         frost_mods, frost_notes = self.frostflame(main, skills)  # (MECH-B: Frostflame Nova's ice while Ignited, MECHB13)
         mods, notes = mods + frost_mods, notes + frost_notes
         # the boss the numbers are scored against (MECH50: bridge resetConfig sets its resistances; bosses.py)
@@ -3065,6 +3070,23 @@ class Assumptions:
         if souls <= 0:
             return [], [note]
         return [models.line(SOUL_LINE, souls)], [note]
+
+    def heavy_stunned_self(self, main: str | None) -> tuple[list[dict], list[dict]]:
+        """Heavy Stuns on you from channelling Resonating Shield as the main skill (recovery.channel_stun_of: the bar never
+        decays while the shield is raised): the share of the fight Heavily Stunned is lost from the main skill's time, as
+        "1% more Attack and Cast Speed" x -100 x that share (parry_model's way). Its lost Block / Evasion in the defence
+        floors isn't counted yet (an overcount of defence, named)."""
+        share, rate, how = recovery_mod.channel_stun_of(self.build, main)
+        self.build.heavy_stunned_self = (share, rate, how)  # (play_guide.heavy_stunned_row)
+        if not how:
+            return [], []
+        note = {"label": "Heavily Stunned while channelling with your shield raised*",
+                "value": f"{share:.0%} of the fight ({rate * 60:.1f} Heavy Stuns a minute)", "confidence": "MEDIUM",
+                "basis": how + ("; the time lost comes off the main skill (its DPS x" + f"{1 - share:.2f}); the lost Block and "
+                                "Evasion while stunned aren't in the defence floors yet (an overcount of defence)")}
+        if share <= 0:
+            return [], [note]
+        return [models.line("1% more Attack and Cast Speed", -100 * share, skill=main)], [note]
 
     def demon_form(self, skills: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
         """Demon Form's Demonflame and its share of the fight (MECHC28; PATCH_CHECK S2-4 / K1-o4: PoB keeps you in the form

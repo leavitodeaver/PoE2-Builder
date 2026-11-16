@@ -955,3 +955,171 @@ def rift_income(income: Income, stats: dict, uses: float, how: str) -> None:
             income.add(f"{pool}RiftRecovery", share * drain,
                        f"Temporal Rift ({how}): {share:.0%} of {pool}'s net loss of {drain:,.1f}/s back (reset to {RIFT_SECONDS:g} "
                        f"s ago)")
+
+
+# Heavy Stun on you (MECHC30; MECHC29's "Item 4"; RESEARCH #59, parry-player-heavy-stun.md). The rules (KeywordPopups
+# HeavyStunPlayer, build 26476662): players "can receive Heavy Stun buildup where specifically mentioned while taking
+# specific actions (such as raising their Shield, Parrying with a Buckler ...). A player's stun bar only empties when they
+# are not taking these actions or Heavily Stunned. While Heavily Stunned players cannot Block, Deflect or Evade." The
+# skills whose descriptions mention it: Raise Shield, Resonating Shield (its channel raises the shield and Blocks all
+# Blockable hits), Parry, Refutation, Runic Reprieve (ActiveSkills); the five carrying active_skill_does_not_decay_heavy_
+# stun_during_action and active_skill_heavy_stun_decay_after_action_delay_ms 2000 are ShieldBlockPlayer,
+# ResonatingShieldPlayer, ParryPlayer, HazardousHoldoutPlayer and RunicReprievePlayer (GrantedEffectStatSets). After the
+# action the bar waits 2 s, then empties 50% of the bar a second (PoB Data/Misc.lua 207-208 characterConstants, exported
+# from the game: poise_decay_delay_ms 2000, poise_decay_%_per_second 50). A player Heavy Stun lasts 3 s (0.2.0 "Heavy Stun
+# duration on players is now 3 seconds"; PoB characterConstants base_heavy_stun_duration_ms 3000; --history "Heavy Stun":
+# no later change, newest 0.5.1). Buildup per hit (no published formula: poe2wiki and poe2db describe it only as "based on
+# the damage of the hit" against the Stun Threshold, MECHC30's search): the game's own constant HeavyStunDamageScalePlayer
+# 0.65 (PoB Data/Misc.lua 52, gameConstants exported from GameConstants.dat; the monster twin HeavyStunDamageScale 0.58 is
+# what PoB's CalcOffence 5575 multiplies a hit's damage / the target's poise threshold by), so a hit fills 0.65 x its
+# damage / your Stun Threshold of the bar (the factor sourced, its use as PoB's monster formula MEDIUM), the boss's
+# Physical x2 and its Melee x1.33 (KeywordPopups Stun; recovery.stuns_taken's constants and bosses.melee_share), at each
+# type's full hit size after mitigation (PoB's {Type}TakenHit; one type per hit, as stuns_taken: LOW). Evasion "instead
+# grants an equal chance to avoid this Heavy Stun buildup" (Raise Shield's and Parry's descriptions; 0.2.0's note).
+# Threshold: PoB's StunThreshold (Life, or ES / Mana with their keystones, plus its lines), x0.6 while parrying (ParryPlayer
+# stun_threshold_+%_final_while_performing_action -40: very likely 0.3.1's "Reduced the Heavy Stun buildup a player gains
+# when Parrying a hit by approximately 30%" itself, as 1/0.6 against 1/0.4 is 33% less, so no extra x0.7: UNVERIFIED which),
+# x2 with "Double Stun Threshold while Shield is Raised" (Dionadair) while the shield is raised, x(1 + 30%) with Unbreakable
+# (support_stability_heavy_stun_threshold_+%_final_while_performing_action 30) and x(1 + 50%) with Steadfast I / II while
+# channelling (support_steadfast_stun_threshold_+%_final_while_channelling 50): PoB maps neither support stat (checked:
+# grep of PoB's src finds them only in StatDescriptions and Steadfast's gem data, no SkillStatMap entry), and
+# "N% increased Stun Threshold while Parrying" (jewels) as x(1 + N%) (in game it adds to your other increases: a slightly
+# high threshold, MEDIUM). Decay modifiers (Defender's Resolve, the Amanamu shield suffix, Resolute Reprisal: all faster)
+# change nothing below: a channel never decays, and 5 s between parries already empties the bar at the base rate.
+# Not counted yet (named in the notes): Refutation's blocks during its buff, Raise Shield taps, Runic Reprieve's channel,
+# Hazardous Holdout; and the Heavy Stunned share's lost Block / Evasion in the defence floors (an overcount of defence).
+HEAVY_STUN_SCALE_PLAYER = 0.65
+PLAYER_HEAVY_STUN_SECONDS = 3.0
+HEAVY_DECAY_DELAY, HEAVY_DECAY_PER_SECOND = 2.0, 0.5
+PARRY_STUN_THRESHOLD = 0.6
+RAISED_DOUBLE = re.compile(r"^double stun threshold while shield is raised$", re.I)
+PARRY_THRESHOLD_INC = re.compile(rf"^{NUM}% increased stun threshold while parrying$", re.I)
+UNBREAKABLE_HEAVY = "support_stability_heavy_stun_threshold_+%_final_while_performing_action"
+STEADFAST_CHANNEL = "support_steadfast_stun_threshold_+%_final_while_channelling"
+HEAVY_STUN_SUPPORT_STATS = (UNBREAKABLE_HEAVY, STEADFAST_CHANNEL)
+ACTIVE_BLOCK_CHANNELS = frozenset({"Resonating Shield"})  # a main skill that holds the shield raised all fight
+HEAVY_STUN_FIELDS = (*(f"{t}TakenHit" for t in ("Physical", "Fire", "Cold", "Lightning", "Chaos")), "StunThreshold",
+                     "EvadeChance", "enemySkillTime")
+
+
+def heavy_buildups(stats: dict, scale: float = 1.0) -> tuple[list[tuple[float, float]], str]:
+    """([(share of the boss's hits, bars of Heavy Stun buildup one such blocked hit gives)], how) against PoB's
+    StunThreshold x `scale` (the action's own threshold multipliers)."""
+    from builder.search import boss_hits, bosses
+
+    threshold = _num(stats.get("StunThreshold")) * scale
+    if threshold <= 0:
+        return [], "no Stun Threshold read"
+    melee_of = getattr(bosses, "melee_share", None)
+    melee, _ = melee_of(stats) if melee_of is not None else (0.0, "")
+    melee = min(max(melee, 0.0), 1.0)
+    out, parts = [], []
+    for t, w in boss_hits.type_shares(boss_hits.boss_name(stats)).items():
+        size = max(_num(stats.get(f"{t}TakenHit")), 0.0)
+        if w <= 0 or size <= 0:
+            continue
+        bars = HEAVY_STUN_SCALE_PLAYER * size * (PHYSICAL_STUN_MORE if t == "Physical" else 1.0) / threshold
+        out += [(w * melee, bars * MONSTER_MELEE_STUN_MORE), (w * (1 - melee), bars)]
+        parts.append(f"{t} {w:.0%} of hits, {bars:.0%} of the bar ({bars * MONSTER_MELEE_STUN_MORE:.0%} if Melee)")
+    return [(w, b) for w, b in out if w > 0], (
+        f"{'; '.join(parts) or 'no damaging hit'}: 0.65 (the game's HeavyStunDamageScalePlayer) x the hit after mitigation / "
+        f"Stun Threshold {threshold:,.0f}, a monster's Physical x2, its Melee x1.33 on {melee:.0%} of hits")
+
+
+def channel_heavy_stun(stats: dict, scale: float = 1.0) -> tuple[float, float, str]:
+    """(share of the fight Heavily Stunned, Heavy Stuns a second, how) for a main skill that channels with the shield raised
+    all fight (Resonating Shield): the bar never decays during the channel, so every blocked boss hit adds to it; at a
+    full bar 3 s Heavily Stunned (the bar then starts over, as a monster's: MEDIUM), then channelling again."""
+    from builder.search import boss_hits
+
+    buildups, how = heavy_buildups(stats, scale)
+    unavoidable, evadable = boss_hits.shares(stats)
+    evade, _ = boss_hits.evade_block(stats)
+    every = _num(stats.get("enemySkillTime")) or 0.7
+    blockable = max(1 - unavoidable - evadable, 0.0)
+    blocked = blockable * (1 - evade) / every  # blockable hits whose buildup evasion doesn't avoid
+    mean = sum(w * b for w, b in buildups)
+    if blocked <= 0 or mean <= 0:
+        return 0.0, 0.0, f"no blocked boss hit builds Heavy Stun ({how})"
+    hits = max(1, math.ceil(1 / mean - 1e-9))
+    fill = hits / blocked
+    cycle = fill + PLAYER_HEAVY_STUN_SECONDS
+    share = PLAYER_HEAVY_STUN_SECONDS / cycle
+    return share, 1 / cycle, (
+        f"channelling holds the shield raised and the bar never decays: {blocked:.2f} blocked boss hits a second (the "
+        f"{blockable:.0%} that are Blockable, one every {every:g} s, less {evade:.0%} Evasion's chance to avoid the "
+        f"buildup), {mean:.0%} of the bar each on average ({how}), so a Heavy Stun every {hits} blocked hits ({fill:.1f} s), "
+        f"{PLAYER_HEAVY_STUN_SECONDS:g} s each with no attacking, Block or Evasion: {share:.0%} of the fight. Releasing "
+        "early to let it decay costs more time (2 s delay + up to 2 s of decay per bar), so not chosen (MEDIUM)")
+
+
+def parry_heavy_stun(stats: dict, scale: float = PARRY_STUN_THRESHOLD) -> tuple[float, str]:
+    """(chance one parry Heavy Stuns you, how): parries come models.PARRY_EVERY (5 s) apart and the bar empties between
+    them (the 0.75 s retaliation, the 2 s delay, then at most 2 s at 50% a second), so a parry stuns only when that hit
+    alone fills the bar; the parried hit drawn from the boss's hits by type."""
+    from builder.search import boss_hits
+
+    buildups, how = heavy_buildups(stats, scale)
+    evade, _ = boss_hits.evade_block(stats)
+    full = sum(w for w, b in buildups if b >= 1)
+    chance = full * (1 - evade)
+    return chance, (f"a parried hit Heavy Stuns you when it fills the bar alone ({how}; your threshold x{scale:.2f} while "
+                    f"parrying): {full:.0%} of the boss's hits do"
+                    + (f", less {evade:.0%} Evasion's chance to avoid the buildup" if evade > 0 else "")
+                    + f": {chance:.0%} of parries, {PLAYER_HEAVY_STUN_SECONDS:g} s each with no attacking, Block or "
+                    "Evasion; the bar empties between parries 5 s apart (2 s delay, then 50% a second)")
+
+
+def heavy_stun_scale(texts: list[str], support: dict | None, parry: bool = False, raised: bool = False,
+                     channel: bool = False) -> tuple[float, list[str]]:
+    """(your Stun Threshold's multiplier during the action, what) from the lines and the action skill's support stats."""
+    scale, what = 1.0, []
+    if parry:
+        scale *= PARRY_STUN_THRESHOLD
+        what.append("x0.6 Parry's own -40% final")
+        inc = sum(float(m.group(1)) for t in texts if (m := PARRY_THRESHOLD_INC.match(t.strip())))
+        if inc:
+            scale *= 1 + inc / 100
+            what.append(f"x{1 + inc / 100:.2f} from {inc:g}% increased while Parrying")
+    if raised and any(RAISED_DOUBLE.match(t.strip()) for t in texts):
+        scale *= 2
+        what.append("x2 while the shield is raised")
+    support = support or {}
+    if (u := _num(support.get(UNBREAKABLE_HEAVY))) > 0:
+        scale *= 1 + u / 100
+        what.append(f"x{1 + u / 100:.2f} Unbreakable")
+    if channel and (s := _num(support.get(STEADFAST_CHANNEL))) > 0:
+        scale *= 1 + s / 100
+        what.append(f"x{1 + s / 100:.2f} Steadfast while channelling")
+    return scale, what
+
+
+def _heavy_stun_reads(build, skill: str) -> tuple[dict, dict, list[str]]:
+    """(PoB's stats with the boss named, the action skill's support stats, the build's lines) for the two readers below."""
+    boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None)
+    stats = dict(build.call("stats", fields=list(HEAVY_STUN_FIELDS)))
+    if boss:
+        stats["_boss"] = boss
+    raw = build.call("activeSkills", supportStats=list(HEAVY_STUN_SUPPORT_STATS))["skills"]
+    found = next((s for s in raw if s.get("name") == skill and not s.get("disabled")), None)
+    texts = [line["text"].strip() for line in build.call("sourceLines")["lines"]]
+    return stats, dict((found or {}).get("supportStats") or {}), texts
+
+
+def parry_stun_of(build) -> tuple[float, str]:
+    """(chance a parry Heavy Stuns you, how) for models.parry_plan, from the build's own Stun Threshold and lines."""
+    stats, support, texts = _heavy_stun_reads(build, "Parry")
+    scale, what = heavy_stun_scale(texts, support, parry=True)
+    chance, how = parry_heavy_stun(stats, scale)
+    return chance, how + f" (threshold: {', '.join(what)})"
+
+
+def channel_stun_of(build, main: str | None) -> tuple[float, float, str]:
+    """(share of the fight Heavily Stunned, Heavy Stuns a second, how) when the main skill is an active-block channel
+    (ACTIVE_BLOCK_CHANNELS); (0, 0, "") otherwise."""
+    if main not in ACTIVE_BLOCK_CHANNELS:
+        return 0.0, 0.0, ""
+    stats, support, texts = _heavy_stun_reads(build, main)
+    scale, what = heavy_stun_scale(texts, support, raised=True, channel=True)
+    share, rate, how = channel_heavy_stun(stats, scale)
+    return share, rate, how + (f" (threshold: {', '.join(what)})" if what else "")

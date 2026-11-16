@@ -5513,8 +5513,11 @@ class Conditions:
         if any(n in gem_types for n in models.PARRY_SKILLS) or any(PARRY_GRANT.search(t) for t in texts):  # (Parried)
             raw = self.build.call("activeSkills")
             found = [models.Skill.of(s) for s in raw["skills"] if not s.get("disabled")]
+            from builder.search import recovery  # (MECH-C: Heavy Stun from parrying, MECHC30)
+
+            stun = recovery.parry_stun_of(self.build) if any(s.name == "Parry" for s in found) else (0.0, "")
             stats["_parry_plan"] = self.parry_plan = models.parry_plan(
-                found, stats, "Attack" in main_types, bool(({self.main_skill} | main_gems) & models.PARRY_CONSUMERS))
+                found, stats, "Attack" in main_types, bool(({self.main_skill} | main_gems) & models.PARRY_CONSUMERS), stun)
         if any(STUNS_YOU.search(t) for t in texts):  # (Blinding Flash, MECHC25: the boss's Light Stuns on you)
             from builder.search import flasks
 

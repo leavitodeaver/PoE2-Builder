@@ -3077,3 +3077,41 @@ def test_sigil_of_power_stages_from_mana_spent_with_inside_and_outside_rows(engi
         row = next((r for r in play_guide.guide(search) if r["var"] == "sigilOfPowerStages"), None)
         print("PROBE sigil row", row)
         assert row is not None and row["dps_without"] <= headline <= row["dps_with"] and "inside" in row["play"]
+
+
+def _skeleton_search(engine, main: str, ascendancy: str):
+    from builder.request.schema import Choices
+
+    payload = make_payload(BuildRequest(main_skill=main, ascendancies=[ascendancy], require=Choices()))
+    skeleton = enumerate_skeletons(Context(payload), [main])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    return search
+
+
+def test_resonating_shield_heavy_stuns_you_from_blocked_hits(engine):
+    """MECHC30: channelling Resonating Shield holds the shield raised and the bar never decays, so the boss's blocked hits
+    Heavy Stun you (0.65 x hit / Stun Threshold each, 3 s per stun); the stunned share comes off the main skill's time."""
+    from builder.search import recovery
+    from builder.search.assumptions import Assumptions
+
+    search = _skeleton_search(engine, "Resonating Shield", "Titan")
+    build = search.build
+    share, rate, how = recovery.channel_stun_of(build, "Resonating Shield")
+    print("PROBE resonating", share, rate, how)
+    assert 0 <= share < 1 and "never decays" in how and "HeavyStunDamageScalePlayer" in how
+    mods, notes = Assumptions(build).heavy_stunned_self("Resonating Shield")
+    assert notes and "Heavily Stunned" in notes[0]["label"]
+    if share > 0:
+        assert mods and mods[0]["scale"] == pytest.approx(-100 * share, abs=0.01)
+    assert recovery.channel_stun_of(build, "Spark") == (0.0, 0.0, "")
+
+
+def test_parry_heavy_stun_reads_the_builds_threshold(engine):
+    """MECHC30: Parry's chance to Heavy Stun you per parry from the build's own Stun Threshold at x0.6."""
+    from builder.search import recovery
+
+    search = _skeleton_search(engine, "Parry", "Titan")
+    chance, how = recovery.parry_stun_of(search.build)
+    print("PROBE parry", chance, how)
+    assert 0 <= chance <= 1 and "x0.60" in how and "Parry's own -40% final" in how

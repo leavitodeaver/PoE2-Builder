@@ -7710,6 +7710,7 @@ REFUTATION_BUFF = 4.0  # base_skill_effect_duration; duration modifiers aren't r
 # only one hit every enemySkillTime, 0.55-0.7 s by boss since MECHD4), so the cadence is assumed: one telegraphed hit every 5 s, which the user
 # called fair (11 Nov 2026, ~17:45): MEDIUM.
 PARRY_EVERY = 5.0
+PLAYER_HEAVY_STUN_SECONDS = 3.0  # (MECHC30: recovery.PLAYER_HEAVY_STUN_SECONDS, its sources there)
 
 
 @dataclass(frozen=True)
@@ -7719,13 +7720,15 @@ class ParryPlan:
     how: str
 
 
-def parry_plan(skills: list[Skill], stats: dict, attack: bool, consumes: bool = False) -> ParryPlan:
+def parry_plan(skills: list[Skill], stats: dict, attack: bool, consumes: bool = False,
+               stun: tuple[float, str] = (0.0, "")) -> ParryPlan:
     """How a reasonable player uses the build's Parry / Refutation against the boss, if it pays (only Attack damage gains):
     Parry: the player attacks all the time and parries the boss's telegraphed hits (PARRY_EVERY), each parry losing its
     retaliation and leaving the boss Parried for part of the attacking time; Refutation: cast on its cooldown, the boss
     Parried from its first blocked hit until 2 s after the buff, attacking throughout (the cast time is lost). The better
     of the two; neither when it doesn't beat not parrying. A main skill that consumes Parried (`consumes`) gains on one
-    hit per Parried (chance not to consume isn't read: an undercount)."""
+    hit per Parried (chance not to consume isn't read: an undercount). `stun`: (the chance a parry Heavy Stuns you, how;
+    MECHC30's recovery.parry_stun_of): a stunned parry costs 3 s more of attacking and its Parried window passes unused."""
     names = {s.name: s for s in skills if s.name in PARRY_SKILLS}
     if not names:
         return ParryPlan(0.0, 0.0, "")
@@ -7738,17 +7741,22 @@ def parry_plan(skills: list[Skill], stats: dict, attack: bool, consumes: bool = 
     eaten = " (the main skill consumes Parried: one hit per Parried gains)" if consumes else ""
     options = []
     if "Parry" in names:  # the user (11 Nov): attack as often as possible, parry only the boss's telegraphed hits
-        lost = PARRY_ACTION / PARRY_EVERY
-        attacking = PARRY_EVERY - PARRY_ACTION
-        share = min(1.0, (PARRIED_SECONDS - PARRY_ACTION / 2) / attacking)
-        box = min(share, 1 / (hps * attacking)) if consumes and hps > 0 else share
+        stunned = min(max(stun[0], 0.0), 1.0)  # (MECHC30: Heavy Stun from parrying, recovery.parry_heavy_stun)
+        stun_lost = stunned * PLAYER_HEAVY_STUN_SECONDS
+        lost = (PARRY_ACTION + stun_lost) / PARRY_EVERY
+        attacking = max(PARRY_EVERY - PARRY_ACTION - stun_lost, 1e-9)
+        share = min(1.0, (1 - stunned) * (PARRIED_SECONDS - PARRY_ACTION / 2) / attacking)
+        box = min(share, (1 - stunned) / (hps * attacking)) if consumes and hps > 0 else share
         options.append(((1 + PARRIED_MORE * box) * (1 - lost), ParryPlan(
             box, lost, f"Parry the boss's telegraphed hits (one every {PARRY_EVERY:g} s, assumed; the user called it fair, MEDIUM) and attack the rest "
                        f"of the time: each parry costs its {PARRY_ACTION:g} s retaliation ({lost:.0%} of the main skill's "
                        f"time) and leaves the boss Parried {PARRIED_SECONDS:g} s from the parry, taken as half-way through "
                        f"the retaliation (LOW), so {share:.0%} of the main skill's hits land on a Parried boss (the play "
                        "guide shows the DPS while Parried and while not; the retaliation's own damage, attack speed "
-                       "and Parried duration modifiers aren't counted, LOW)")))
+                       "and Parried duration modifiers aren't counted, LOW)"
+                       + (f"; Heavy Stun from parrying: {stunned:.0%} of parries ({stun[1]}), {stun_lost:.1f} s more lost a "
+                          "parry and that parry's Parried window spent stunned" if stunned > 0 else
+                          f"; Heavy Stun from parrying: none ({stun[1]})" if stun[1] else ""))))
     if (ref := names.get("Refutation")) is not None:
         if number(stats.get("Ward")) <= 0:
             options.append((0.0, ParryPlan(0.0, 0.0, "Refutation spends Runic Ward, and the build has none: not used")))
@@ -7773,11 +7781,12 @@ def parry_plan(skills: list[Skill], stats: dict, attack: bool, consumes: bool = 
     return ParryPlan(best.box, best.lost, best.how + eaten + f" (x{gain:.2f} the main skill's Attack damage, 50% more taken)")
 
 
-def parry_model(skills: list[Skill], stats: dict, main: Skill | None, consumes: bool = False) -> tuple[list[dict], list[dict]]:
+def parry_model(skills: list[Skill], stats: dict, main: Skill | None, consumes: bool = False,
+                stun: tuple[float, str] = (0.0, "")) -> tuple[list[dict], list[dict]]:
     """The main skill's time spent parrying (parry_plan; the box itself is conditions' parryActive)."""
     if main is None or not any(s.name in PARRY_SKILLS for s in skills):
         return [], []
-    plan = parry_plan(skills, stats, main.attack, consumes)
+    plan = parry_plan(skills, stats, main.attack, consumes, stun)
     notes = [{"label": "Parried (how the build parries the boss)", "value": f"{plan.box:.0%} of the main skill's hits",
               "basis": plan.how, "confidence": "theory"}] if plan.how else []
     if plan.lost <= 0:

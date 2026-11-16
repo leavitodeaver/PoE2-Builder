@@ -187,6 +187,8 @@ def guide(search: Any) -> list[dict]:
         rows.append(row)
     if row := raised_row(search, headline):
         rows.append(row)
+    if row := heavy_stunned_row(search, headline):
+        rows.append(row)
     if row := orb_near_row(search, headline):
         rows.append(row)
     if row := curse_lapse_row(search, headline):
@@ -423,6 +425,26 @@ def raised_row(search: Any, headline: float) -> dict | None:
                      "counts as a button while you tap it; at the button cap, leave the taps (and Bastion's Blind) out"),
             "dps_with": headline, "dps_without": without,
             "change": (headline - without) / without if without > 0 else 0.0, "confidence": "theory (the tap's length LOW)"}
+
+
+HEAVY_STUNNED_SELF = "heavy_stunned_self"  # (assumptions.heavy_stunned_self sets it: (share, Heavy Stuns/s, how))
+
+
+def heavy_stunned_row(search: Any, headline: float) -> dict | None:
+    """Heavy Stuns on you while channelling with the shield raised (MECHC30, assumptions.heavy_stunned_self): the headline
+    counts the stunned share off the main skill's time; the row gives the DPS if no blocked hit ever stunned you (the
+    line is "more Attack and Cast Speed" x -100 x share, so DPS / (1 - share)), and what raises the threshold."""
+    share, rate, how = getattr(search.build, HEAVY_STUNNED_SELF, None) or (0.0, 0.0, "")
+    if share <= 0 or share >= 1:
+        return None
+    without = headline / (1 - share)
+    return {"var": "heavyStunnedSelf", "label": f"Heavily Stunned {share:.0%} of the fight while channelling with your "
+                                                "shield raised*", "kind": PLAYER, "counted": True,
+            "play": (f"{how}. {headline:,.0f} DPS with the Heavy Stuns (the headline), {without:,.0f} if none landed. "
+                     "A higher Stun Threshold (Life; Unbreakable, Steadfast; Dionadair's double while raised) or more "
+                     "Evasion (an equal chance to avoid the buildup) cuts them"),
+            "dps_with": headline, "dps_without": without, "change": (headline - without) / without,
+            "confidence": "MEDIUM (the buildup factor is the game's constant; its formula PoB's for monsters)"}
 
 
 # MECH-B's side-Orb note (models.orb_cycle, MECHB28) and the words its basis carries when the main Spell feeds the Orb

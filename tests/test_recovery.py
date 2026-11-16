@@ -1235,3 +1235,88 @@ def test_soul_eater_souls_from_hits_with_the_games_decay():
     assert 0 < weak < always
     assert soul_eater_average(300.0, None, 0.0, 0.0) == 0
     assert soul_eater_average(300.0, None, 2.0, 2.0, cap=10) == pytest.approx(10 * (300 - 2.5) / 300, rel=0.02)
+
+
+def test_heavy_stun_threshold_multipliers_for_each_action():
+    """MECHC30: Parry's own -40% final, "increased Stun Threshold while Parrying", Dionadair's double while the shield is
+    raised, Unbreakable's +30% final and Steadfast's +50% final only while channelling (none mapped by PoB)."""
+    scale, what = recovery.heavy_stun_scale(["20% increased Stun Threshold while Parrying"], {}, parry=True)
+    assert scale == pytest.approx(0.6 * 1.2) and len(what) == 2
+    double = ["Double Stun Threshold while Shield is Raised"]
+    support = {recovery.UNBREAKABLE_HEAVY: 30, recovery.STEADFAST_CHANNEL: 50}
+    assert recovery.heavy_stun_scale(double, support, raised=True)[0] == pytest.approx(2 * 1.3)
+    assert recovery.heavy_stun_scale(double, support, raised=True, channel=True)[0] == pytest.approx(2 * 1.3 * 1.5)
+    assert recovery.heavy_stun_scale(double, {}, parry=True)[0] == pytest.approx(0.6)  # (not raised: no double)
+
+
+def test_heavy_stun_buildup_per_blocked_hit_is_065_of_the_hit_over_the_threshold():
+    """0.65 (HeavyStunDamageScalePlayer) x hit / Stun Threshold, a monster's Physical x2, its Melee x1.33."""
+    from builder.search import bosses, boss_hits
+
+    stats = {"PhysicalTakenHit": 1000, "StunThreshold": 4000, "_boss": bosses.DEFAULT}
+    buildups, how = recovery.heavy_buildups(stats)
+    w = boss_hits.type_shares(bosses.DEFAULT)["Physical"]
+    melee = bosses.melee_share(stats)[0]
+    base = 0.65 * 1000 * 2 / 4000
+    assert sorted(buildups) == sorted([(w * melee, base * 1.33), (w * (1 - melee), base)])
+    assert "HeavyStunDamageScalePlayer" in how
+    assert recovery.heavy_buildups({**stats, "StunThreshold": 0})[0] == []
+
+
+def test_channelling_a_raised_shield_heavy_stuns_you_when_the_bar_fills():
+    """Resonating Shield: the bar never decays while channelling, so every blocked hit adds; a hit worth a full bar
+    stuns at each blocked hit, 3 s each; Evasion avoids the buildup; tiny hits take many hits to fill."""
+    from builder.search import bosses, boss_hits
+
+    big = {f"{t}TakenHit": 50000 for t in boss_hits.TYPES} | {"StunThreshold": 1000, "enemySkillTime": 0.7,
+                                                             "_boss": bosses.DEFAULT}
+    unavoidable, evadable = boss_hits.shares(big)
+    blocked = (1 - unavoidable - evadable) / 0.7
+    share, rate, how = recovery.channel_heavy_stun(big)
+    assert share == pytest.approx(3 / (1 / blocked + 3)) and rate == pytest.approx(1 / (1 / blocked + 3))
+    assert "every 1 blocked hits" in how
+    small = {**big, **{f"{t}TakenHit": 1 for t in boss_hits.TYPES}, "StunThreshold": 100000}
+    assert 0 < recovery.channel_heavy_stun(small)[0] < 0.01
+    assert recovery.channel_heavy_stun({**big, "EvadeChance": 100})[0] == 0.0
+    assert recovery.channel_heavy_stun({**big, "StunThreshold": 1000 * 2})[0] == pytest.approx(share)  # (still >= 1 bar)
+
+
+def test_a_parry_heavy_stuns_only_when_its_hit_fills_the_bar_alone():
+    """Parries 5 s apart: the bar empties between them, so a parry stuns only on a hit worth a full bar at 0.6 x the
+    threshold; Evasion avoids the buildup."""
+    from builder.search import bosses, boss_hits
+
+    weights = boss_hits.type_shares(bosses.DEFAULT)
+    stats = {"PhysicalTakenHit": 3000, "FireTakenHit": 100, "StunThreshold": 4000, "_boss": bosses.DEFAULT}
+    # Physical: 0.65 x 3000 x 2 / 2400 = 1.63 bars, stuns; Fire: 0.03 bars, doesn't
+    chance, how = recovery.parry_heavy_stun(stats)
+    assert chance == pytest.approx(weights["Physical"]) and "x0.60" in how
+    assert recovery.parry_heavy_stun({**stats, "EvadeChance": 50})[0] == pytest.approx(weights["Physical"] / 2)
+    assert recovery.parry_heavy_stun({**stats, "StunThreshold": 40000})[0] == 0.0
+
+
+def test_parry_plan_counts_the_heavy_stuns_of_parrying():
+    """MECHC30: a stunned parry loses 3 s more and its Parried window; at 10% of parries the Parry plan no longer pays."""
+    from builder.search import models
+
+    parry = models.Skill("Parry", attack=True, cast_time=1.0)
+    stats = {"enemySkillTime": 0.7}
+    plain = models.parry_plan([parry], stats, True)
+    assert plain.box > 0
+    calm = models.parry_plan([parry], stats, True, stun=(0.0, "no hit fills the bar"))
+    assert calm.box == plain.box and "Heavy Stun from parrying: none (no hit fills the bar)" in calm.how
+    stunned = models.parry_plan([parry], stats, True, stun=(0.1, "big slams"))
+    assert stunned.box == 0 and "Heavy Stun from parrying: 10%" in stunned.how and "not worth" in stunned.how
+
+
+def test_heavy_stunned_row_gives_the_dps_without_the_stuns():
+    """MECHC30: the play guide's row: the headline with the Heavy Stuns, headline / (1 - share) without; none at 0."""
+    from types import SimpleNamespace
+
+    from builder.search import play_guide
+
+    search = SimpleNamespace(build=SimpleNamespace(heavy_stunned_self=(0.25, 0.1, "a Heavy Stun every 2 blocked hits")))
+    row = play_guide.heavy_stunned_row(search, 750.0)
+    assert row["dps_with"] == 750.0 and row["dps_without"] == pytest.approx(1000.0) and "25%" in row["label"]
+    search.build.heavy_stunned_self = (0.0, 0.0, "")
+    assert play_guide.heavy_stunned_row(search, 750.0) is None
