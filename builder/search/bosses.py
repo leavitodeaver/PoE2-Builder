@@ -349,7 +349,9 @@ def _worst_hits() -> tuple[dict[str, str], dict[str, int]]:
     source, pooled = {}, {t: 0 for t in boss_hits.TYPES}
     for t in boss_hits.TYPES:
         dealt = [n for n in REAL if boss_hits.HIT_TABLE[n][1].get(t)]
-        source[t] = max(dealt, key=lambda n: boss_hits.HIT_TABLE[n][0])
+        # (MECHC31: by the preset's own biggest hit of the type, boss_hits.hit_sizes from each skill's size; before, by
+        # its raw damage multiplier, which no longer sizes a hit: spells don't scale with it)
+        source[t] = max(dealt, key=lambda n: boss_hits.hit_sizes(n)[t])
         for n in REAL:
             pooled[t] += boss_hits.HIT_TABLE[n][1].get(t, 0)
     return source, pooled
@@ -500,8 +502,9 @@ def config_vars(name: str = DEFAULT) -> dict[str, float]:
     # The boss's hits per type (MECHD5): the bridge wrote the Arbiter of Ash's for every boss (nothing passed bossHits),
     # so a named boss's PoB hits were the Arbiter's while boss_hits weighed them by its own mix; now its own sizes
     # (boss_hits.config_vars), the worst case's from worst_hit_sizes.
-    hits = ({f"enemy{t}Damage": round(v) for t, v in worst_hit_sizes().items()} if name == WORST
-            else boss_hits.config_vars(name))
+    # (MECHC31: every boss's, the worst case's too, are boss_hits.config_vars: each type's average hit, the worst case
+    # the highest average of any real preset; worst_hit_sizes stays the survival check's biggest hits)
+    hits = boss_hits.config_vars(name)
     return {"enemyFireResist": b.fire, "enemyColdResist": b.cold, "enemyLightningResist": b.lightning,
             "enemyChaosResist": b.chaos, "enemySpeed": round(defence_hit_every(name) * 1000),
             "cullingStrikeUniqueThreshold": round(cull_threshold(name), 4), **hits}

@@ -590,7 +590,8 @@ function DERIVED.manaTempest(out, a)
 		return 0
 	end
 	local on, off = mana / deficit, mana / refill
-	return math.floor(DERIVED_UNIT * on / (on + off) + 0.5)
+	-- (MECHC31: its effects linger args.linger s after the storm: 2 s plus its quality's 0.1 s per 1%)
+	return math.floor(DERIVED_UNIT * math.min(1, (on + (a.linger or 2)) / (on + off)) + 0.5)
 end
 
 -- Lunar Blessing (models.lunar_blessing_uptime): its duration plus args.perRage per Rage, against
@@ -3387,8 +3388,8 @@ end
 -- by default the invented worst-case pinnacle (MECHD5, the user's decision 12 Nov 2026: each stat the worst of the 12
 -- real presets), its hits per type included. Must equal bosses.config_vars(bosses.DEFAULT) (tests/test_models.py).
 local BOSS_DEFAULT = { enemyFireResist = 45, enemyColdResist = 45, enemyLightningResist = 45, enemyChaosResist = 25,
-	enemySpeed = 510, cullingStrikeUniqueThreshold = 4.6086, enemyPhysicalDamage = 1223, enemyFireDamage = 4138,
-	enemyColdDamage = 4892, enemyLightningDamage = 4892, enemyChaosDamage = 2069 }
+	enemySpeed = 510, cullingStrikeUniqueThreshold = 4.6086, enemyPhysicalDamage = 1467, enemyFireDamage = 8993,
+	enemyColdDamage = 4059, enemyLightningDamage = 3490, enemyChaosDamage = 1471 }
 -- Broken boss faces (Facebreaker's "+3 to +4 per Boss's Face Broken"; COV32, PATCH_CHECK MB-5 / R5): a count the
 -- character builds over its campaign and keeps (KeywordPopups 868: each World Screen "Boss Encounter" icon beaten), not
 -- a per-fight rate. PoB's box has no default, so it counted 0. 56 for a finished campaign + Interludes: the lower of the
@@ -3401,7 +3402,7 @@ local BOSS_FACES_BROKEN = 56
 -- it in data.gameConstants, which CalcOffence reads (4071 / 4075); every resetConfig puts PoB's back first.
 local POB_CULL_UNIQUE  -- (read at the first resetConfig, once PoB's data is loaded)
 -- The Arbiter of Ash's hits (MECHC6): must equal boss_hits.config_vars(boss_hits.DEFAULT_BOSS) (tests/test_models.py)
-local BOSS_HITS_DEFAULT = { enemyPhysicalDamage = 1034, enemyFireDamage = 4138, enemyColdDamage = 0,
+local BOSS_HITS_DEFAULT = { enemyPhysicalDamage = 1074, enemyFireDamage = 1282, enemyColdDamage = 0,
 	enemyLightningDamage = 0, enemyChaosDamage = 0 }
 
 -- A loaded code's configuration isn't evidence (PLAN.md §5.4): the active config set goes back

@@ -1398,3 +1398,57 @@ def test_consecrated_row_shows_inside_and_outside():
     assert "outside it" in row["play"] and ("37%" in row["play"] or "38%" in row["play"])
     search.build.consecrated_ground = None
     assert play_guide.consecrated_row(search, 1000.0) is None
+
+
+def test_leeching_runs_only_while_its_pool_is_below_full():
+    """MECHC31 (RESEARCH26 R26-40 (c), an OVERCOUNT): "all Life Leech is removed when Life is filled" (KeywordPopups), so
+    PoB's Leeching box (on all fight for any Leech line before) is set at the share the leeched pool is below full: Life
+    1 - full_life_share, Mana its spending over its refill; "Leeching" is any of them. The Life / Mana / Energy Shield
+    boxes (never set before) get their own pool's share. Leech that isn't removed at full Life keeps it on all fight."""
+    from builder.search.conditions import LEECHING_LINE, leeching_shares, leeching_uptime
+    from builder.search.recovery import full_life_share
+
+    assert LEECHING_LINE.search("40% increased Damage while Leeching Life")
+    assert LEECHING_LINE.search("You are Unaffected by Bleeding while Leeching")
+    assert not LEECHING_LINE.search("10% of Physical Attack Damage Leeched as Life")
+    stats = {"enemySkillTime": 1.0, "EvadeChance": 0, "EffectiveBlockChance": 0, "PhysicalTakenHit": 200,
+             "Life": 2000, "LifeRegenRecovery": 100.0, "LifeLeechRate": 200.0}
+    shares = leeching_shares(stats, [], set())
+    assert set(shares) == {"Life"}
+    assert shares["Life"][0] == pytest.approx(1 - full_life_share(stats)[0]) and 0 < shares["Life"][0] < 1
+    value, how, share = leeching_uptime(None)([], {"_leeching": shares})
+    assert value is True and share == pytest.approx(shares["Life"][0]) and "MEDIUM" in how
+    assert leeching_uptime("Mana")([], {"_leeching": shares})[0] == 0.0
+    # Mana Leech: the Mana spent a second over the refill; both pools: either one
+    both = leeching_shares({**stats, "ManaLeechRate": 50.0, "ManaRegenRecovery": 50.0, "ManaPerSecondCost": 25.0}, [], set())
+    assert both["Mana"][0] == pytest.approx(25.0 / 100.0)
+    assert leeching_uptime(None)([], {"_leeching": both})[2] == pytest.approx(1 - (1 - both["Life"][0]) * 0.75)
+    # not removed at full Life: all fight; no Leech rate: never; no Leeching line: the box is left alone
+    assert leeching_shares(stats, ["Life Leech effects are not removed when Unreserved Life is Filled"], set())["Life"][0] == 1.0
+    assert leeching_shares(stats, [], {"Life Leech III"})["Life"][0] == 1.0
+    assert leeching_uptime(None)([], {"_leeching": {}})[0] == 0.0
+    assert leeching_uptime(None)([], {}) == (0.0, "")
+
+
+def test_life_and_mana_flasks_are_drunk_only_below_full():
+    """MECHC31 (RESEARCH26 R26-25 (a), R26-29 (b), an OVERCOUNT): a Life flask can't be used at full Life without
+    Enduring Elixirs (0.5.0's fix wording), a Mana flask not at full Mana (assumed the same). Uses are capped at the dips
+    a second below full: the boss's landed hits that reach the pool and the main skill's uses that cost it."""
+    from dataclasses import replace
+
+    from builder.search.flasks import Charges, pool_dips, uses_per_second
+
+    flask = {"kind": "Flask", "chargesUsed": 1, "duration": 2.0}
+    idle = Charges(flask=1.0)
+    rate, how = uses_per_second(flask, idle, "", "Life")
+    assert rate == 0.0 and "never below full Life" in how
+    hit = replace(idle, boss_hits=0.4, taken_hit=500.0)
+    rate, how = uses_per_second(flask, hit, "", "Life")
+    assert rate == pytest.approx(0.4) and "dip" in how  # (charges allow 1/s; the boss's 0.4 landed hits/s cap it)
+    assert uses_per_second(flask, replace(hit, life_effect_kept=True), "", "Life")[0] == pytest.approx(1.0)
+    assert pool_dips(replace(idle, life_degen=5.0), "Life") is None  # (your own damage over time: never full)
+    # Mana: the main skill's uses that cost Mana, and Mind over Matter's share of hits
+    assert uses_per_second(flask, hit, "", "Mana")[0] == 0.0
+    caster = replace(idle, mana_cost=20.0, main_rate=2.0)
+    assert uses_per_second(flask, caster, "", "Mana")[0] == pytest.approx(1.0)
+    assert pool_dips(replace(hit, mom=40.0), "Mana")[0] == pytest.approx(0.4)

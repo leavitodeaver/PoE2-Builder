@@ -938,6 +938,13 @@ def test_resonance_and_conduit_move_the_charges_a_build_gains():
     assert held == 0.0 and "Conduit" in basis
     assert _charges_held("Power")(["Gain a Power Charge on Critical Hit", conduit.replace("a Charge", "an Endurance Charge")],
                                   stats)[0] == 3  # the one-kind wording leaves the others
+    # MECHC31 (RESEARCH26 R26-46 (a)): with "Allies in your Presence share Charges with you" and a minion, each gain the
+    # allies take comes back to you as a copy; without a minion, still 0 (with the reason)
+    share = "Allies in your Presence share Charges with you"
+    held, basis = _charges_held("Frenzy")([crit_frenzy, conduit, share], {**stats, "_has_ally": True})
+    assert held == alone[0] and "copy" in basis and "0 without the share-back" in basis
+    held, basis = _charges_held("Frenzy")([crit_frenzy, conduit, share], stats)
+    assert held == 0.0 and "no minion skill" in basis
 
 
 def test_resonance_switches_the_use_box_of_the_kind_it_feeds():

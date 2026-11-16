@@ -676,6 +676,36 @@ def charm_charges_used(charms: list[tuple[dict, str]], gain: Charges) -> tuple[f
     return total, "; ".join(how)
 
 
+# A Life flask can't be drunk at full Life, nor a Mana flask at full Mana (MECHC31; RESEARCH26 R26-25 (a), SETTLED
+# MEDIUM-HIGH: 0.5.0's fix "Life Flasks could not always be used while at full life with the Enduring Elixirs ...
+# despite it allowing their effect to stay on you" makes use at full Life part of Enduring Elixirs, so without it a
+# Life flask can't be used at full Life; R26-29 (b), ASSUMED MEDIUM: Mana the same, no Enduring-style source for Mana,
+# checked by RESEARCH17 / RESEARCH26 over every "Full Mana / not removed / used while" line). Before, uses counted every
+# time the charges allowed: an OVERCOUNT of presses, "when you use a Life / Mana Flask" lines and on-use effects for a
+# build that's seldom below full. A player drinks at a dip, so uses are capped at the dips a second: the boss's landed
+# hits that reach the pool (Life: all but Mind over Matter's share, none when Energy Shield regeneration covers them;
+# Mana: Mind over Matter's share) and the main skill's uses when they cost that pool (Life also its per-use Life loss);
+# the build's own damage over time on Life keeps it below full (no cap). Enduring Elixirs (life_effect_kept) lifts the
+# cap for Life flasks. No dip: no use, with the reason.
+def pool_dips(gain: Charges, pool: str) -> tuple[float, str] | None:
+    """(dips a second that leave `pool` below full, how), or None when the flask can be drunk at full (Enduring
+    Elixirs for Life) or the pool is below full all fight (a steady own loss on Life)."""
+    if pool == "Life":
+        if gain.life_effect_kept:
+            return None
+        if gain.life_degen > 0:
+            return None
+        hits = gain.boss_hits if gain.taken_hit > 0 and gain.mom < 100 and not (
+            gain.energy_shield > 0 and gain.es_regen >= gain.taken_hit * gain.boss_hits) else 0.0
+        own = gain.main_rate if (gain.life_cost > 0 or gain.life_loss_per_use > 0) else 0.0
+    else:
+        hits = gain.boss_hits if gain.taken_hit > 0 and gain.mom > 0 else 0.0
+        own = gain.main_rate if gain.mana_cost > 0 else 0.0
+    if own <= 0 and gain.life_cost > 0 and pool == "Life" or own <= 0 and gain.mana_cost > 0 and pool == "Mana":
+        own = 1.0  # (a cost a second with no main-skill rate read: a dip a second, LOW)
+    return hits + own, f"{hits:.2f} landed boss hits/s reach {pool}, {own:.2f} uses/s spend it"
+
+
 def uses_per_second(info: dict, gain: Charges, raw: str, pool: str | None) -> tuple[float, str]:
     """(uses per second, how) of one flask or charm against a boss: as often as its generated charges pay for a use,
     never again while its effect lasts (as charm_charges_used; a player feeding a "when you use a Flask" line uses it
@@ -696,6 +726,11 @@ def uses_per_second(info: dict, gain: Charges, raw: str, pool: str | None) -> tu
         return 0.0, f"its charges are thrown by {gain.main_skill}"
     made = drink_charges(info, gain, pool)
     uses, how = made / used, f"{made:.2f} charges/s / {used:g} per use"
+    if pool in ("Life", "Mana") and info.get("kind") == "Flask" and (dips := pool_dips(gain, pool)) is not None:
+        if dips[0] <= 0:
+            return 0.0, f"never below full {pool}, so never drunk (can't be used at full {pool}: {dips[1]})"
+        if dips[0] < uses:
+            uses, how = dips[0], how + f", at most once a dip below full {pool} ({dips[1]})"
     if pool not in ("Life", "Mana") and (length := duration(info, gain)) > 0 and uses > 1 / length:
         uses, how = 1 / length, how + f", at most once per its {length:.1f} s effect"
     if info.get("kind") == "Charm" and (event := trigger_rate(raw, gain)) is not None and event[0] < uses:

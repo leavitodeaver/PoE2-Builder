@@ -173,14 +173,19 @@ def note(stats: dict) -> dict:
 # ---------------------------------------------------------------------------------------------------------------------
 LEVEL = 82  # PoB's Pinnacle minimum and the presets' level (MEDIUM: poe2wiki 80-82 by tier)
 BASE_DAMAGE = 353.67  # DefaultMonsterStats.Damage at level 82 (game files; PoB's monsterDamageTable[82]): HIGH
-SKILL_MULT = 1.0  # the boss skill's own multiplier: 0.8-1.2 (average 1.0) for Fireball Impact, x1.3 on slams. LOW stand-in
 UNIQUE_LESS = 0.65  # MonsterUnique5 monster_rarity_damage_+%_final -35 (RESEARCH13): MEDIUM-HIGH that it applies
 LEVEL_MORE = {"elemental": 4.0, "chaos": 2.0}  # MoreElementalDamage 300 / MoreChaosDamage 100 at 80+ (RESEARCH14): MEDIUM
 TYPES = ("Physical", "Fire", "Cold", "Lightning", "Chaos")
-CONFIDENCE_HITS = {"raw": "HIGH (MonsterVarieties.DamageMultiplier; poe2db prints it)",
+CONFIDENCE_HITS = {"raw": "HIGH (each skill's own size from the game files: spells by their own effectiveness, which "
+                          "reproduces poe2db's printed damage; attacks by the level's damage x the boss's multiplier x the "
+                          "skill's own BaseMultiplier; RESEARCH26 boss-damage-scale-r26.md)",
+                   "variety": "MEDIUM (the boss's damage multiplier on attacks only, not spells: PoB's boss exporter and "
+                              "poe2db)",
                    "unique": "MEDIUM-HIGH (MonsterUnique5; no second source that pinnacles get it)",
-                   "level": "MEDIUM (hidden *_from_monster_level stats; all elemental vs converted-only unsettled)",
-                   "skill": "LOW (the skill's own multiplier: 1.0 stands in for the average boss skill)",
+                   "level": "MEDIUM (hidden *_from_monster_level stats with no wording; all elemental vs converted-only "
+                            "unsettled: the low bound gives base elemental spells none)",
+                   "biggest": "LOW-MEDIUM (the biggest ordinary hit of each type the boss deals; red-flash nukes made to "
+                              "be walked out of have their own row; a hit of two types counts each part as its type's hit)",
                    "mix": "LOW (each type's share of hits = its share of the boss's damaging skills; no use rates)"}
 # boss: (raw DamageMultiplier, damaging skills per type). Multipliers: RESEARCH13's MonsterVarieties table (HIGH).
 # Skill counts per type: RESEARCH13's pinnacle-ailments-on-player.md (game stat sets); a count of 1 where the note names
@@ -207,6 +212,47 @@ HIT_TABLE: dict[str, tuple[float, dict[str, int]]] = {
 READINGS = ("headline", "harsh", "low")
 
 
+# Each boss skill's own hit (MECHC31; RESEARCH26 R26-1, boss-damage-scale-r26.md; the manager 15 Nov 22:15 "BOSS HIT
+# SIZES"). Before, every hit was 353.67 x 1.0 x the boss's damage multiplier: wrong for spells (a monster spell scales by
+# its own effectiveness, not the level's monster damage, and gets no variety multiplier) and too low for attacks (each
+# has its own x1.1-2.0). builder/data/boss_skill_hits.json holds every damaging skill of each preset's own monsters,
+# made from the game files by scratch/mechc31/bosshits.py (game 26476662, level 82), each hit split by type, raw (before
+# the unique 0.65 and the level's more), with its origin:
+# - "spell": 3.885209 (SkillDamageBaseEffectiveness) x BaseEffectiveness x (1 + IncrementalEffectiveness (L-1)) x
+#   (1 + DamageIncrementalEffectiveness)^(L-1) x the spell_min/max_base_<type>_damage multipliers (HIGH: reproduces
+#   poe2db's printed damage to the decimal);
+# - "attack": Damage[82] 353.67 x the monster's DamageMultiplier x (1 + BaseMultiplier / 10000), Physical, before the
+#   skill's conversions; "converted": the part an attack converts or adds as another type.
+# A red-flash hit over NUKE_OVER x the preset's biggest ordinary hit is a nuke (the Arbiter of Ash's Flame Seed and
+# Bullet Hell High, 28,825 Fire raw; the Fell Serpent's Flesh Bubble Explosion; the King's Bug Bomb impact): made to be
+# walked out of, not tanked. hit_sizes leaves them out and nuke_hits gives them their own row (LOW: the 3x line is ours).
+# The readings per part: headline x0.65 x the level's more on every Elemental (x4) / Chaos (x2) part; harsh without the
+# 0.65; low with the level's more only on parts converted from Physical (base elemental spells none, PoE1's rule).
+# Types the RESEARCH13 count (HIT_TABLE) gives no skill stay at 0, so the hit sizes and the type shares agree (the
+# King's toads' Fire: not counted, LOW).
+NUKE_OVER = 3.0
+_SKILL_HITS: dict | None = None
+
+
+def skill_hits(name: str | None = None) -> list[dict]:
+    """The preset's damaging skills from builder/data/boss_skill_hits.json ([] for a name it doesn't hold)."""
+    global _SKILL_HITS
+    if _SKILL_HITS is None:
+        import json
+        from pathlib import Path
+        path = Path(__file__).resolve().parent.parent / "data" / "boss_skill_hits.json"
+        _SKILL_HITS = json.loads(path.read_text(encoding="utf-8"))["presets"]
+    return _SKILL_HITS.get(name or DEFAULT_BOSS, [])
+
+
+def part_factor(kind: str, origin: str, reading: str = "headline") -> float:
+    """One part of a boss hit, raw to its size under a reading: the unique 0.65 (not in harsh) x the level's more."""
+    unique = 1.0 if reading == "harsh" else UNIQUE_LESS
+    if kind == "Physical" or (reading == "low" and origin != "converted"):
+        return unique
+    return unique * (LEVEL_MORE["chaos"] if kind == "Chaos" else LEVEL_MORE["elemental"])
+
+
 def type_factor(kind: str, reading: str = "headline") -> float:
     """The level's more for a damage type under a reading (none on Physical; none at all in the converted-only one)."""
     if reading == "low" or kind == "Physical":
@@ -219,16 +265,75 @@ def hit_table(name: str | None) -> tuple[float, dict[str, int]]:
     return HIT_TABLE.get(name or DEFAULT_BOSS, HIT_TABLE[DEFAULT_BOSS])
 
 
+def _biggest(name: str, reading: str, nukes: bool) -> dict[str, tuple[float, str]]:
+    """{type: (the biggest part of that type under the reading, the skill)} over the preset's ordinary hits (or nukes)."""
+    out: dict[str, tuple[float, str]] = {}
+    for row in skill_hits(name):
+        if bool(row.get("nuke")) != nukes:
+            continue
+        for kind, (raw, origin) in row["hit"].items():
+            size = raw * part_factor(kind, origin, reading)
+            if size > out.get(kind, (0.0, ""))[0]:
+                out[kind] = (size, row["id"])
+    return out
+
+
 def hit_sizes(name: str | None = None, reading: str = "headline") -> dict[str, float]:
-    """One hit of each damage type the boss deals, before your mitigation (0 for the types it doesn't deal). The
-    worst-case pinnacle: each type at the biggest any real preset deals (bosses.WORST_HIT_FROM)."""
+    """The biggest ordinary hit of each damage type the boss deals, before your mitigation (0 for the types it doesn't
+    deal; red-flash nukes not counted: nuke_hits). The worst-case pinnacle: each type at the biggest any real preset
+    deals (bosses.WORST_HIT_FROM, picked by these sizes)."""
     if name is not None and name == _worst():
         from builder.search import bosses
         return {t: (hit_sizes(bosses.WORST_HIT_FROM[t], reading)[t] if t in bosses.WORST_HIT_FROM else 0.0) for t in TYPES}
-    raw, counts = hit_table(name)
-    unique = 1.0 if reading == "harsh" else UNIQUE_LESS
-    return {t: (BASE_DAMAGE * SKILL_MULT * raw * unique * type_factor(t, reading) if counts.get(t) else 0.0)
-            for t in TYPES}
+    name = name or DEFAULT_BOSS
+    counts = hit_table(name)[1]
+    own = _biggest(name, reading, nukes=False)
+    out = {}
+    for t in TYPES:
+        if not counts.get(t):
+            out[t] = 0.0
+        elif t in own:
+            out[t] = own[t][0]
+        else:  # (a counted type with no sized skill: the old one-size base, labelled in hits_note)
+            out[t] = BASE_DAMAGE * hit_table(name)[0] * part_factor(t, "converted", reading)
+    return out
+
+
+def mean_hits(name: str | None = None, reading: str = "headline") -> dict[str, float]:
+    """Each damage type's AVERAGE ordinary hit (each of the boss's skills that deals the type counted once: LOW, no use
+    rates; nukes left out: walked out of), what PoB gets as the boss's hit (config_vars), so readings of one average
+    hit (damage taken, Heavy Stun and ailment buildup, flasks' Life lost) don't take every hit at the biggest. The
+    worst-case pinnacle: the highest average of any real preset per type."""
+    if name is not None and name == _worst():
+        from builder.search import bosses
+        return {t: max(mean_hits(n, reading)[t] for n in bosses.REAL) for t in TYPES}
+    name = name or DEFAULT_BOSS
+    counts, big = hit_table(name)[1], hit_sizes(name, reading)
+    parts: dict[str, list[float]] = {}
+    for row in skill_hits(name):
+        if row.get("nuke"):
+            continue
+        for kind, (raw, origin) in row["hit"].items():
+            parts.setdefault(kind, []).append(raw * part_factor(kind, origin, reading))
+    return {t: (sum(parts[t]) / len(parts[t]) if counts.get(t) and parts.get(t) else big[t]) for t in TYPES}
+
+
+def biggest_skills(name: str | None = None) -> dict[str, str]:
+    """{type: the skill whose hit hit_sizes gives (headline)} for a real preset."""
+    return {t: v[1] for t, v in _biggest(name or DEFAULT_BOSS, "headline", nukes=False).items()}
+
+
+def nuke_hits(name: str | None = None, reading: str = "headline") -> dict[str, tuple[float, str]]:
+    """{type: (size, skill)} of the boss's red-flash nukes (the worst case: the biggest any real preset has)."""
+    if name is not None and name == _worst():
+        from builder.search import bosses
+        out: dict[str, tuple[float, str]] = {}
+        for n in bosses.REAL:
+            for t, (size, skill) in nuke_hits(n, reading).items():
+                if size > out.get(t, (0.0, ""))[0]:
+                    out[t] = (size, f"{n}'s {skill}")
+        return out
+    return _biggest(name or DEFAULT_BOSS, reading, nukes=True)
 
 
 def type_shares(name: str | None = None) -> dict[str, float]:
@@ -239,10 +344,10 @@ def type_shares(name: str | None = None) -> dict[str, float]:
 
 
 def config_vars(name: str | None = None) -> dict[str, int]:
-    """PoB config inputs for the boss's hits: each type it deals at its full headline size, the others 0. PoB adds the
-    five into one hit; consumers that sum them weight each type by its share (type_taken), so Armour still meets a
-    full-sized Physical hit."""
-    return {f"enemy{t}Damage": round(v) for t, v in hit_sizes(name).items()}
+    """PoB config inputs for the boss's hits: each type it deals at its average headline hit (mean_hits; MECHC31: was
+    one size per type from the boss's multiplier), the others 0. PoB adds the five into one hit; consumers that sum
+    them weight each type by its share (type_taken), so Armour still meets a whole Physical hit."""
+    return {f"enemy{t}Damage": round(v) for t, v in mean_hits(name).items()}
 
 
 def type_taken(stats: dict) -> float:
@@ -276,18 +381,41 @@ def survival_text(stats: dict) -> tuple[str, str, bool | None, str]:
     else:
         verdict = "one hit kills: " + ", ".join(s["fails"]["headline"]) + (
             " (even at the low bound)" if s["fails"]["low"] else " (survives the converted-only low bound)")
-    raw = (f"raw per type from the real preset that hits hardest with it: {worst_sources()}"
-           if s["boss"] == _worst() else f"raw {hit_table(s['boss'])[0]:g}")
-    note = (f"{s['boss']}: level {LEVEL} base {BASE_DAMAGE:g} x skill {SKILL_MULT:g} x {raw} "
-            f"x unique {UNIQUE_LESS:g} x the level's more (Elemental x{LEVEL_MORE['elemental']:g}, Chaos "
-            f"x{LEVEL_MORE['chaos']:g}); " + "; ".join(f"{k} {v}" for k, v in CONFIDENCE_HITS.items()))
+    note = (f"{s['boss']}: each type's biggest ordinary hit, {sources_text(s['boss'])}; level {LEVEL}; spells by "
+            f"their own effectiveness, attacks {BASE_DAMAGE:g} x the boss's multiplier x the skill's own; x unique "
+            f"{UNIQUE_LESS:g} x the level's more (Elemental x{LEVEL_MORE['elemental']:g}, Chaos x{LEVEL_MORE['chaos']:g}); "
+            + nuke_text(stats, s["boss"]) + "; ".join(f"{k} {v}" for k, v in CONFIDENCE_HITS.items()))
     return f"one hit of each type: {want}", f"max hit {got}: {verdict}", None, note
 
 
 def worst_sources() -> str:
-    """'Physical: <preset> (raw x), ...' for the worst-case pinnacle's hit sizes."""
+    """'Physical Vessel of Kulemak, ...': the real preset each of the worst case's hit sizes comes from."""
     from builder.search import bosses
-    return ", ".join(f"{t} {n} (x{HIT_TABLE[n][0]:g})" for t, n in bosses.WORST_HIT_FROM.items())
+    return ", ".join(f"{t} {n}" for t, n in bosses.WORST_HIT_FROM.items())
+
+
+def sources_text(name: str) -> str:
+    """Which skill each type's hit size comes from (the worst case: which preset's)."""
+    from builder.search import bosses
+    if name == _worst():
+        return "from the real preset that hits hardest with it: " + ", ".join(
+            f"{t} {n}'s {biggest_skills(n).get(t, '?')}" for t, n in bosses.WORST_HIT_FROM.items())
+    return "from " + ", ".join(f"{t} {k}" for t, k in biggest_skills(name).items() if hit_table(name)[1].get(t))
+
+
+def nuke_text(stats: dict, name: str) -> str:
+    """The red-flash nukes' own row: their size, and whether the build lives through one (reported, not a floor: they
+    are made to be walked out of)."""
+    rows = nuke_hits(name)
+    if not rows:
+        return ""
+    parts = []
+    for t, (size, skill) in rows.items():
+        low = nuke_hits(name, "low").get(t, (0.0, ""))[0]
+        kept = number(stats.get(f"{t}MaximumHitTaken"))
+        fate = "survived" if kept >= size else ("survived only at the low bound" if kept >= low else "kills")
+        parts.append(f"{t} {size:,.0f} ({skill}; {low:,.0f} at the low bound): {fate}")
+    return "red-flash nukes, made to be walked out of, not in the row above: " + "; ".join(parts) + "; "
 
 
 def hits_note(name: str | None = None) -> dict:
@@ -295,14 +423,20 @@ def hits_note(name: str | None = None) -> dict:
     name = name or DEFAULT_BOSS
     rows = {r: hit_sizes(name, r) for r in READINGS}
     weights = type_shares(name)
-    value = "; ".join(f"{t} {rows['headline'][t]:,.0f} ({weights[t]:.0%} of hits; without the 0.65 {rows['harsh'][t]:,.0f}, "
-                      f"low bound {rows['low'][t]:,.0f})" for t in TYPES if rows["headline"][t] > 0)
-    worst = (f"; each type at the biggest any real preset deals ({worst_sources()}), the share of hits pooled over the "
-             "12 real presets' damaging skills (LOW)") if name == _worst() else ""
-    return {"label": f"Boss hit sizes: {name}", "value": value,
-            "basis": "the game's monster tables, not PoB's Pinnacle default (965 per type and 386 Chaos, all in one hit): "
-                     "level base damage x skill x the boss's damage multiplier x unique 35% less x the level's more for "
-                     "Elemental (x4) and Chaos (x2)" + worst,
+    mean = mean_hits(name)
+    value = "; ".join(f"{t} {rows['headline'][t]:,.0f} at most, {mean[t]:,.0f} on average ({weights[t]:.0%} of hits; "
+                      f"without the 0.65 {rows['harsh'][t]:,.0f}, low bound {rows['low'][t]:,.0f})"
+                      for t in TYPES if rows["headline"][t] > 0)
+    worst = ("; the share of hits pooled over the 12 real presets' damaging skills (LOW)") if name == _worst() else ""
+    nukes = nuke_hits(name)
+    nuke = ("; red-flash nukes (walk out): " + ", ".join(f"{t} {v:,.0f} ({k})" for t, (v, k) in nukes.items())
+            if nukes else "")
+    return {"label": f"Boss hit sizes: {name}", "value": value + nuke,
+            "basis": "each type's biggest ordinary hit from the boss's own skills in the game files (" + sources_text(name)
+                     + "), not PoB's Pinnacle default (965 per type and 386 Chaos, all in one hit): spells by their own "
+                     "effectiveness, attacks by the level's damage x the boss's multiplier x the skill's own; x unique 35% "
+                     "less x the level's more for Elemental (x4) and Chaos (x2); PoB gets each type's average hit (each skill "
+                     "once, LOW), the survival check the biggest" + worst,
             "confidence": "; ".join(f"{k} {v}" for k, v in CONFIDENCE_HITS.items()) + "; " + CADENCE_NOTE}
 
 
@@ -672,11 +806,11 @@ def real_readings(stats: dict) -> list[tuple[str, dict]]:
     from builder.search import bosses
 
     worst = _worst()
-    sizes = hit_sizes(worst)
+    sizes = mean_hits(worst)  # (MECHC31: the average hits PoB was given, config_vars)
     scored = number(stats.get("enemySkillTime")) or bosses.defence_hit_every(worst)
     out = []
     for name in bosses.REAL:
-        own = hit_sizes(name)
+        own = mean_hits(name)
         read = {**stats, "_boss": name,
                 "enemySkillTime": scored * bosses.defence_hit_every(name) / bosses.defence_hit_every(worst)}
         for t in TYPES:

@@ -3002,15 +3002,18 @@ def unbound_model(texts: list[str]) -> tuple[list[dict], list[dict]]:
 
 
 def unbound_uptime(stats: dict, duration: float, on: bool) -> tuple[float, str, float]:
-    """(share of the fight Unbound, how, the share if the cooldown ticks while Unbound). Fury from the main skill's
+    """(share of the fight Unbound, how, the share if the cooldown waited for the buff's end). Fury from the main skill's
     hits: Ignite and Shock at PoB's chance per hit, Chill on hits that can Chill, 1 each; Freezes and Electrocutes from
     buildup_rate, 6 each. `on`: the stats were taken with the Unbound box on, so its 80% more chance and 40% more
     buildup come back out (no Fury while Unbound: the bar fills with the buff down). Not counted: other skills'
     ailments (an undercount), increased duration and cooldown recovery on the skill (undercounts). Whether a hit on a
-    boss already carrying the ailment "inflicts" it again: taken as yes (each hit's new instance; UNVERIFIED). Whether
-    the cooldown ticks while Unbound: UNVERIFIED (the game has a stat ailment_bearer_cooldown_does_not_tick that the
-    skill's stat set doesn't hold); the headline takes the lower reading, cooldown from the buff's end: a cycle of
-    duration + max(cooldown, fill); the other reading (max(cooldown, duration + fill)) is the second figure."""
+    boss already carrying the ailment "inflicts" it again: taken as yes (each hit's new instance; UNVERIFIED). The
+    cooldown ticks while Unbound (MECHC31; RESEARCH26 R26-75, SETTLED MEDIUM-HIGH: the skills whose cooldown pauses
+    carry "Cooldown does not recover during Buff effect", Mana Tempest, Dark Tempest, Convalescence, Forge Hammer,
+    Refutation; Unbound Avatar had it in 0.1 and the 0.4.0 rework dropped it; the game's ailment_bearer_cooldown_does_
+    not_tick isn't in the skill's stat set): a cycle of max(cooldown, duration + fill), the Fury bar filling only after
+    the buff ("Cannot gain Unbound Fury while Unbound"). Before, the headline took the cooldown from the buff's end
+    (duration + max(cooldown, fill)): an UNDERCOUNT; that reading is the second figure now."""
     if duration <= 0:
         return 0.0, "", 0.0
     chance_div = 1 + UNBOUND_CHANCE_MORE / 100 if on else 1.0
@@ -3038,13 +3041,13 @@ def unbound_uptime(stats: dict, duration: float, on: bool) -> tuple[float, str, 
         return 0.0, ("Unbound Avatar: the main skill's hits inflict no Elemental Ailment, so no Unbound Fury: never "
                      "Unbound, 0"), 0.0
     fill = UNBOUND_FURY / fury
-    up = duration / (duration + max(UNBOUND_COOLDOWN, fill))
-    alt = duration / max(UNBOUND_COOLDOWN, duration + fill)
-    how = (f"Unbound {duration:g} s per cycle of {duration + max(UNBOUND_COOLDOWN, fill):.1f} s: 100 Unbound Fury in "
+    up = duration / max(UNBOUND_COOLDOWN, duration + fill)
+    alt = duration / (duration + max(UNBOUND_COOLDOWN, fill))
+    how = (f"Unbound {duration:g} s per cycle of {max(UNBOUND_COOLDOWN, duration + fill):.1f} s: 100 Unbound Fury in "
            f"{fill:.1f} s ({fury:.2f}/s: {hits:.2f} hits/s x (Ignite {ignite:.0%} + Shock {shock:.0%} + Chill "
            f"{chill:.0%}, hits over the 30% Chill floor only) x 1, Freeze and Electrocute {heavy:.3f}/s x 6; the main skill's hits only), then the "
-           f"{UNBOUND_COOLDOWN:g} s cooldown counted from the buff's end (UNVERIFIED; {alt:.0%} if it ticks while "
-           f"Unbound); pressed once a cycle")
+           f"{UNBOUND_COOLDOWN:g} s cooldown ticking while Unbound (RESEARCH26 R26-75, MEDIUM-HIGH; {alt:.0%} if it "
+           f"waited for the buff's end); pressed once a cycle")
     return up, how, alt
 
 
@@ -6116,8 +6119,11 @@ def mana_tempest_uptime(skill: Skill, stats: dict) -> tuple[float, str, str]:
     it "Empowers your Mana-costing Spells", so a main skill that costs no Mana (a meta-triggered spell, a Life-cost spell)
     gets nothing: 0 (before, counted in full: an overcount); "30% of Mana and Life spent while in the storm is added to this
     Skill's Mana Cost per Second", so Life spent (LifePerSecondCost) drains the storm too (before, Mana only: an
-    overcount for skills that also cost Life). Not counted: its effects "linger for 2 seconds after leaving the Tempest"
-    (0.4.0), whether that also follows a storm ended by running out of Mana is UNVERIFIED (a small undercount)."""
+    overcount for skills that also cost Life). Its effects linger after the storm (MECHC31; RESEARCH26 R26-6): 2 s
+    (0.4.0) plus 0.1 s per 1% quality (HIGH: GrantedEffectQualityStats, mana_tempest_effects_linger_X_ms, read from the
+    gem's level stats; 2 s where they aren't read, labelled), so up = min(1, (on + linger) / (on + off)). The linger
+    after a storm that ends from running out of Mana is ASSUMED (LOW-MEDIUM: no source says either way); the note gives
+    the figure without it. Before, no linger was counted at all (a zeroed mechanic)."""
     mana, regen, spend = number(stats.get("Mana")), number(stats.get("ManaRegenRecovery")), number(stats.get("ManaPerSecondCost"))
     life_spend = number(stats.get("LifePerSecondCost"))
     spent_share = _mana_tempest_spent(skill)
@@ -6137,11 +6143,23 @@ def mana_tempest_uptime(skill: Skill, stats: dict) -> tuple[float, str, str]:
     if refill <= 0:
         return 0.0, f"the main skill alone spends {spend:,.0f} Mana/s against {regen:,.0f}/s regenerated: no Mana left to keep a storm", ""
     off = mana / refill
-    up = on / (on + off)
+    linger, read = mana_tempest_linger(skill)
+    up = min(1.0, (on + linger) / (on + off))
     return up, (f"the storm drains {drain:,.0f} Mana/s (1% of {mana:,.0f} Mana and {paid}) on top of the main skill's "
-                f"{spend:,.0f}/s against {regen:,.0f}/s regenerated: {mana:,.0f} Mana lasts {on:.1f} s; then {off:.1f} s to "
-                "refill without it, recast at full Mana; the 2 s its effects linger after a storm isn't counted (UNVERIFIED "
-                "when the storm ends from running out of Mana)"),         "Assumes you recast it whenever your Mana is full again and stand in it; recasting earlier gives shorter storms."
+                f"{spend:,.0f}/s against {regen:,.0f}/s regenerated: {mana:,.0f} Mana lasts {on:.1f} s, its effects linger "
+                f"{linger:g} s more ({read}; ASSUMED to follow a storm ended by running out of Mana, LOW-MEDIUM: "
+                f"{on / (on + off):.0%} without it); then {off:.1f} s to refill without it, recast at full Mana"),         "Assumes you recast it whenever your Mana is full again and stand in it; recasting earlier gives shorter storms."
+
+
+MANA_TEMPEST_LINGER = 2.0  # seconds (0.4.0's "linger for 2 seconds after leaving the Tempest"; the quality adds to it)
+
+
+def mana_tempest_linger(skill: Skill) -> tuple[float, str]:
+    """(seconds Mana Tempest's effects linger after the storm, where it comes from)."""
+    ms = number(skill.level_stats.get("mana_tempest_effects_linger_X_ms"))
+    if ms > 0:
+        return ms / 1000, "the gem's mana_tempest_effects_linger_X_ms, its quality in it"
+    return MANA_TEMPEST_LINGER, "2 s base; the gem's quality not read"
 
 
 def _lunar_blessing_times(skill: Skill) -> tuple[float, float, float]:
@@ -6164,7 +6182,8 @@ def lunar_blessing_uptime(skill: Skill, stats: dict) -> tuple[float, str, str]:
 UPTIMES = {"mana_tempest": mana_tempest_uptime, "lunar_blessing": lunar_blessing_uptime}
 # the same uptimes as the bridge works them out (DERIVED.manaTempest, DERIVED.lunarBlessing): (fn, args) for a skill
 UPTIME_INPUTS = {
-    "mana_tempest": lambda skill: ("manaTempest", {"spent": _mana_tempest_spent(skill)}),
+    "mana_tempest": lambda skill: ("manaTempest", {"spent": _mana_tempest_spent(skill),
+                                                   "linger": mana_tempest_linger(skill)[0]}),
     "lunar_blessing": lambda skill: ("lunarBlessing", dict(zip(("duration", "perRage", "cooldown"), _lunar_blessing_times(skill)))),
 }
 

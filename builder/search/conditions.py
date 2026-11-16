@@ -866,6 +866,15 @@ CHARGE_INSTEAD = re.compile(r"\bgain (power|frenzy|endurance) charges instead of
 CHARGE_TO_ALLIES = re.compile(r"\bif you would gain an? ?(power|frenzy|endurance)? charge, allies\b[^.;]*\bgain that charge "
                               r"instead", re.I)
 CHARGE_REDIRECTED = "gained instead of"  # (in a basis: the use box goes on from the redirected sources)
+# Conduit with a share-back (MECHC31; RESEARCH26 R26-46 (a), research20-in-game-checks-r26.md: an UNDERCOUNT, the player
+# held 0 under Conduit): "Allies in your Presence share Charges with you" (allies_in_your_presence_share_charges_with_you:
+# the Idol of Eramir Soul Core, Sceptres) means "when A gains a charge, B will also gain a charge" (Mark_GGG's ruling on
+# the same PoE1 wording, SETTLED as the rule, MEDIUM), one way. So with Conduit, a gain you'd have made goes to the allies
+# in your Presence, and each that gains it gives you a copy: you hold the charges your sources make, as without
+# Conduit, once you have an ally (a minion skill in the build: the ally must be able to hold the charge; a minion holds
+# 3 of each, Monster.ot). One copy per gain, not one per minion (ASSUMED, LOW-MEDIUM); the 0 without the share-back is
+# the other figure.
+CHARGE_SHARE_BACK = re.compile(r"\ballies in your presence share charges with you\b", re.I)
 
 
 def _charge_sources(lines: list[str], kind: str) -> tuple[list[str], str]:
@@ -898,9 +907,15 @@ def _charges_held(kind: str):
         kinds, redirected = _charge_sources(lines, kind)
         allies = next((t for t in lines if (m := CHARGE_TO_ALLIES.search(t))
                        and (m.group(1) is None or m.group(1).capitalize() == kind)), None)
-        if allies is not None:  # (a basis with 0 switches the use box off: Conditions.resolve)
+        share_back = next((t for t in lines if CHARGE_SHARE_BACK.search(t)), None)
+        if allies is not None and not (share_back and stats.get("_has_ally")):  # (a basis with 0 switches the box off)
             sourced = any(_charge_rate(t, k, stats) is not None for t in lines for k in {*kinds, kind})
-            return 0.0, (f"'{allies}': allies in your Presence gain the {kind} Charges instead (Conduit)" if sourced else "")
+            why = (" ('" + share_back + "' needs an ally in your Presence: the build has no minion skill)") if share_back else ""
+            return 0.0, (f"'{allies}': allies in your Presence gain the {kind} Charges instead (Conduit){why}"
+                         if sourced else "")
+        shared_note = (f"; Conduit gives your {kind} Charges to your minions and '{share_back}' gives you a copy of each "
+                       "(RESEARCH26 R26-46: one copy per gain, ASSUMED LOW-MEDIUM; 0 without the share-back)"
+                       if allies is not None else "")
         gains, bonus, how = 0.0, 0.0, []
         by_kind = {}  # (G4-2: gains per the kind its source names, before Resonance moves it)
         profusion = stats.get("_profusion") or {}  # gem description -> (chance of one more, of a random one)
@@ -963,7 +978,7 @@ def _charges_held(kind: str):
                 basis += (f"; '{reset[:70]}': the count climbs to {most:g} and drops to 0, so {cycling:.1f} held on "
                           f"average ({left:.2f} gains/s kept)")
         return round(count, 1), ((redirected + "; ") if redirected else "") + (
-            f"{basis} = {count:.1f} held, at most {most:g}: " + "; ".join(how[:3]))
+            f"{basis} = {count:.1f} held, at most {most:g}: " + "; ".join(how[:3]) + shared_note)
     return held
 
 
@@ -1374,6 +1389,71 @@ def full_life_uptime(lines: list[str], stats: dict) -> tuple[object, str, float]
     if share <= 0:
         return 0.0, f"never on Full Life: {how}"
     return True, f"on Full Life {share:.0%} of the fight: {how}", share
+
+
+# While Leeching (MECHC31; RESEARCH26 R26-40 (c), plans5-five-in-game-checks-r26.md, an OVERCOUNT): KeywordPopups
+# LifeLeech, "all Life Leech is removed when Life is filled" (HIGH; Mana and Energy Shield Leech the same for their
+# pools). conditionLeeching was on all fight for any build with a Leech line, though Leech runs only while the pool it
+# fills is below full. Now each pool's Leech runs the share of the fight that pool is below full, from the build's own
+# flows: Life 1 - recovery.full_life_share (the boss's landed hits and Life costs against its recovery), Energy Shield
+# 1 - full_es_share, Mana the Mana spent a second against its refill (recovery.refill_rate; Mind over Matter's share of
+# hits not read, a lower reading). "Leeching" = any of them (taken as independent: MEDIUM). PoB's "...Leeching Life /
+# Mana / Energy Shield" boxes were never set (an UNDERCOUNT for those lines): each now at its pool's share. The sources
+# that keep Life Leech at full Life (checked by RESEARCH26: uses.py over the Stats ids holding leech with full /
+# not_removed: Life Leech III, base_life_leech_does_not_stop_at_full_life's two uniques, Vaal Pact since 0.5.0) keep
+# Life Leeching all fight; PoB also sets Leeching itself for the two lines it parses (CalcPerform 776-779). A pool
+# needs a Leech rate from PoB (LifeLeechRate / ManaLeechRate / EnergyShieldLeechRate) to count.
+LEECHING_LINE = re.compile(r"\bwhile (?:not )?leeching\b|\bif you are leeching\b", re.I)
+LEECH_AT_FULL = re.compile(r"leech\w*[^.;]*\bnot (?:be )?removed\b[^.;]*\b(?:full|filled)\b"
+                           r"|leech\w*[^.;]*\b(?:does not|doesn't) stop at full life", re.I)
+LEECH_AT_FULL_GEMS = ("Life Leech III",)
+LEECH_POOLS = {"Life": "LifeLeechRate", "Mana": "ManaLeechRate", "EnergyShield": "EnergyShieldLeechRate"}
+
+
+def leeching_shares(stats: dict, texts: list[str], gems: set[str]) -> dict[str, tuple[float, str]]:
+    """{pool: (share of the fight its Leech runs, how)} for the pools the build Leeches (stats: full_life_share's,
+    with the Leech rates; texts: the build's lines; gems: its enabled gem names)."""
+    from builder.search import recovery
+
+    out: dict[str, tuple[float, str]] = {}
+    for pool, rate in LEECH_POOLS.items():
+        if number(stats.get(rate)) <= 0:
+            continue
+        if pool == "Life" and (any(LEECH_AT_FULL.search(t) for t in texts) or gems & set(LEECH_AT_FULL_GEMS)):
+            out[pool] = (1.0, "Life Leech isn't removed at full Life (the build's line or Life Leech III): all fight")
+        elif pool == "Life":
+            full, how = recovery.full_life_share(stats)
+            out[pool] = (1 - full, f"Life below full {1 - full:.0%} of the fight ({how})")
+        elif pool == "EnergyShield":
+            full, how = recovery.full_es_share(stats)
+            out[pool] = (1 - full, f"Energy Shield below full {1 - full:.0%} of the fight ({how})")
+        else:
+            refill, how = recovery.refill_rate(stats, "Mana")
+            spend = max(number(stats.get("ManaPerSecondCost")), 0.0)
+            below = 1.0 if spend > 0 and refill <= 0 else (min(1.0, spend / refill) if refill > 0 else 0.0)
+            out[pool] = (below, f"Mana below full {below:.0%} of the fight ({spend:,.1f} Mana/s spent; {how})")
+    return out
+
+
+def leeching_uptime(pool: str | None) -> Callable[[list[str], dict], tuple]:
+    """value_fn for PoB's "Leeching" box (pool None: any Leech) and its Life / Mana / Energy Shield boxes."""
+    def value(lines: list[str], stats: dict) -> tuple:
+        shares = stats.get("_leeching")
+        if shares is None:
+            return 0.0, ""
+        if not shares:
+            return 0.0, "no Leech rate in PoB: never Leeching"
+        if pool is None:
+            idle = 1.0
+            for share, _ in shares.values():
+                idle *= 1 - share
+            share, how = 1 - idle, "; ".join(f"{p}: {h}" for p, (_, h) in shares.items())
+        else:
+            share, how = shares.get(pool, (0.0, f"no {pool} Leech"))
+        if share <= 0:
+            return 0.0, f"never Leeching: {how}"
+        return True, f"Leeching {share:.0%} of the fight (Leech stops when its pool is full, MEDIUM): {how}", share
+    return value
 
 
 # In Demon Form (MECHC28; PATCH_CHECK S2-4): PoB's "Are you in Demon Form?" (inDemonForm, ConfigOptions 356, on by
@@ -4554,7 +4634,7 @@ def _unbound(lines: list[str], stats: dict) -> tuple:
     if up <= 0:
         return 0.0, how
     return (*_box(up, f"Unbound {up:.0%} of the fight ({shared(up)}): {how}"), False,
-            (alt, "if Unbound Avatar's cooldown ticks while you are Unbound"))
+            (alt, "if Unbound Avatar's cooldown waited for the buff's end (RESEARCH26 R26-75: it ticks while Unbound)"))
 
 
 def _divinity(lines: list[str], stats: dict) -> tuple[object, str]:
@@ -4644,8 +4724,11 @@ CONDITIONS: list[Condition] = [
               fields=("Speed", "HitChance", "CritChance", "Mana", "ManaPerSecondCost", "Devotion")),
     Condition("multiplierRage", "Rage held", value_fn=lambda lines, stats: rage_held(lines, stats),
               fields=("Speed", "HitChance", "CritChance", "MaximumRage", "enemySkillTime", "EvadeChance")),
-    Condition("conditionLeeching", "Leeching", (r"\bleech\w*\b[^.;]*\b(?:life|mana|energy shield)\b",),
-              (r"while leeching|if you are leeching|leech\w* is instant",)),
+    Condition("conditionLeeching", "Leeching", value_fn=leeching_uptime(None), fields=()),
+    Condition("conditionLeechingLife", "Leeching Life", value_fn=leeching_uptime("Life"), fields=()),
+    Condition("conditionLeechingMana", "Leeching Mana", value_fn=leeching_uptime("Mana"), fields=()),
+    Condition("conditionLeechingEnergyShield", "Leeching Energy Shield", value_fn=leeching_uptime("EnergyShield"),
+              fields=()),
     Condition("conditionCritRecently", "Crit recently",
               stat=lambda s: _uptime({"CritRecently": s.get("CritChance"), "Speed": s.get("Speed")}, "CritRecently"),
               fields=("CritChance", "Speed")),
@@ -5466,6 +5549,16 @@ class Conditions:
         return share({**self.build.call("stats", fields=fields),
                       **(added() if callable(added) else {})})
 
+    def _leeching(self, texts: list[str], gems: set[str]) -> dict[str, tuple[float, str]]:
+        """(MECHC31) leeching_shares on PoB's recovery outputs, its Leech rates and the search's added recovery stats."""
+        from builder.search import objective
+
+        fields = sorted(set(objective.RECOVERY_INPUTS) | set(FULL_LIFE_FIELDS) | set(LEECH_POOLS.values())
+                        | {"ManaPerSecondCost"})
+        added = getattr(self.build, "added_stats", None)
+        return leeching_shares({**self.build.call("stats", fields=fields), **(added() if callable(added) else {})},
+                               texts, gems)
+
     def evidence(self) -> dict[str, tuple[object, str]]:
         """What the build can sustain now: var -> (value, evidence)."""
         lines = self.build.call("sourceLines")["lines"]
@@ -5555,6 +5648,8 @@ class Conditions:
             stats["_sigil"] = (self._skill_duration(SIGIL), number(pool.get("Mana")), number(pool.get("ManaPerSecondCost")))
         if any(FULL_LIFE_LINE.search(t) for t in texts):  # (MECHC27: the share on Full Life, recovery.full_life_share)
             stats["_full_life"] = self._full_life()
+        if any(LEECHING_LINE.search(t) for t in texts):  # (MECHC31, R26-40 (c): Leech only while its pool is below full)
+            stats["_leeching"] = self._leeching(texts, set(gem_types))
         if any(FULL_ES_LINE.search(t) for t in texts) or any(m in gem_types for m in MYSTICISM):  # (MECHC27, MC-5)
             stats["_full_es"] = self._full_life(es=True)
         if any(KILL_LINE.search(t) for t in texts):  # (MECHC9, A23-4: on-kill lines at the build's kills)
@@ -5574,7 +5669,8 @@ class Conditions:
             ON_USE.search(line["text"]) and line["source"].startswith(USED_SLOTS) for line in lines) or any(
             FLASK_EVENT.search(t) for t in texts) else {}
         boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
-        stats = {**stats, "_gem_names": set(gem_types), "_boss": boss, "_events": events, "_item_uses": item_uses, "_texts": texts, "_weapon": getattr(self.build.equipped.get("Weapon 1"), "type", ""), "_consumers": consumers, "_rage_spend": rage_spend,
+        stats = {**stats, "_has_ally": any(t & {"Minion", "CreatesMinion"} for t in gem_types.values()),  # (MECHC31, Conduit)
+                 "_gem_names": set(gem_types), "_boss": boss, "_events": events, "_item_uses": item_uses, "_texts": texts, "_weapon": getattr(self.build.equipped.get("Weapon 1"), "type", ""), "_consumers": consumers, "_rage_spend": rage_spend,
                  "_main_channel_rage": self.main_skill in RAGE_PER_SECOND, "_main_types": main_types, "_main_skill": self.main_skill, "_distance_choice": self.distance,
                  "_weapon_types": [o.type for slot in ("Weapon 1", "Weapon 2")
                                    if (o := (getattr(self.build, "equipped", None) or {}).get(slot)) is not None],

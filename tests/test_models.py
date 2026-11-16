@@ -568,7 +568,7 @@ def test_gem_stats_pob_never_reads_become_scaled_lines():
     assert len(notes) == 1 and notes[0]["confidence"] == "theory" and "uptime 100%" in notes[0]["basis"] and notes[0]["play"]
     # it can't keep it up: 2000 Mana last 2000/(100 + 50 - 120) = 66.7 s, then 2000/(120 - 100) = 100 s to refill
     mods, notes = models.gem_stat_model([tempest], stats={"Mana": 2000, "ManaRegenRecovery": 120, "ManaPerSecondCost": 100})
-    assert effective(mods)[0][1] == pytest.approx(78 * 66.667 / 166.667, rel=1e-3)
+    assert effective(mods)[0][1] == pytest.approx(78 * (66.667 + 2) / 166.667, rel=1e-3)  # (+ the 2 s linger, MECHC31)
     # switched off by forbidding the entry, and nothing without the skill or with no Mana
     assert models.gem_stat_model([tempest], {"gem-mana-tempest-lightning"}, rich) == ([], [])
     assert models.gem_stat_model([models.Skill("Spark")], stats=rich) == ([], [])
@@ -885,7 +885,13 @@ def test_mana_tempest_empowers_only_mana_costing_spells_and_life_spent_drains_it
     up_mana = models.mana_tempest_uptime(tempest, mana_only)[0]
     up_life, why, _ = models.mana_tempest_uptime(tempest, {**mana_only, "LifePerSecondCost": 100})
     # drain 20 + 30% of (100 + 100) = 80: 2000 Mana last 2000 / (100 + 80 - 120) = 33.3 s; refill 100 s
-    assert up_life == pytest.approx(33.333 / 133.333, rel=1e-3) and up_life < up_mana and "100 Life" in why
+    assert up_life == pytest.approx((33.333 + 2) / 133.333, rel=1e-3) and up_life < up_mana and "100 Life" in why
+    # MECHC31 (RESEARCH26 R26-6): the linger from the gem's stat, its quality in it (20%: 4 s); without it 2 s
+    quality = models.Skill("Mana Tempest", level_stats={"mana_tempest_mana_cost_%_to_add_to_cost_per_second": 30,
+                                                        "mana_tempest_effects_linger_X_ms": 4000})
+    up_q, why_q, _ = models.mana_tempest_uptime(quality, {**mana_only, "LifePerSecondCost": 100})
+    assert up_q == pytest.approx((33.333 + 4) / 133.333, rel=1e-3) and "25% without it" in why_q
+    assert models.UPTIME_INPUTS["mana_tempest"](quality)[1]["linger"] == 4.0
 
 
 def test_lunar_blessing_uptime_from_rage_and_cooldown():
@@ -2104,7 +2110,7 @@ def test_flask_use_ignites_and_reaching_maximum_read_the_build_not_4s():
     "if an Attack Ignites" the main Attack's hits x Ignite chance (0 for a Spell); "on reaching maximum Power Charges"
     0 while nothing spends them, gains / maximum when all are lost on reaching it."""
     from builder.search import conditions, flasks
-    gain = flasks.Charges(flask=1.0)
+    gain = flasks.Charges(flask=1.0, boss_hits=1.0, taken_hit=500.0)  # (MECHC31: a Life flask needs Life missing)
     flask = {"kind": "Flask", "chargesUsed": 10, "duration": 2.0}
     assert flasks.uses_per_second(flask, gain, "Ruby Flask", "Life")[0] == pytest.approx(0.1)
     # Life / Mana flask effects queue (RESEARCH A5-6; MECHC3, merged in MECHC4): capped by charges only, not 1 / effect
@@ -2534,7 +2540,7 @@ def test_reverie_s_life_flasks_apply_constantly_and_are_never_used():
 
     from builder.search.flasks import Charges, recovery_per_second, uptime, uses_per_second
     life = {"kind": "Flask", "chargesMax": 60, "chargesUsed": 10, "duration": 4, "lifeTotal": 400}
-    gain = Charges(flask=1.0)
+    gain = Charges(flask=1.0, boss_hits=1.0, taken_hit=500.0)  # (MECHC31: a Life flask needs Life missing)
     assert uses_per_second(life, gain, "", "Life")[0] == pytest.approx(0.1)  # (effects queue: not capped at 1 / 4 s)
     assert recovery_per_second(life, gain, "Life") == pytest.approx(400 * 0.1)
     reverie = replace(gain, life_flask_unusable=True, life_flask_constant=True, life_flask_less=50)
@@ -3025,21 +3031,36 @@ def test_apocalypse_disasters_fire_a_third_each_while_its_buff_is_up():
 
 
 def test_boss_hits_per_damage_type_from_the_games_tables(arbiter_default):
-    """MECHC6 (the manager's ruling ~11:02; RESEARCH13 / RESEARCH14): one Arbiter of Ash hit = level 82 base 353.67 x 4.50
-    x 0.65 x the level's more (Elemental x4, Chaos x2); without the 0.65 the harsher reading; the converted-only low bound
-    has no level more. PoB gets each type the boss deals at its full size (the bridge's default equals config_vars), and
-    sums of damage taken weight each type by its share of the boss's hits."""
+    """MECHC6, MECHC31 (RESEARCH26 R26-1): each boss skill's own hit from the game files at level 82: spells by their own
+    effectiveness (the Arbiter's Pulsing Ball 1,441 Fire raw, Fireball Impact 649), attacks by 353.67 x the boss's
+    multiplier x the skill's own BaseMultiplier (Chasm Slam x2.0, 30% of it Fire); x0.65 x the level's more (Elemental
+    x4, Chaos x2); without the 0.65 the harsher reading; the converted-only low bound gives base elemental spells no
+    level more. The survival check takes each type's biggest ordinary hit; Flame Seed / Bullet Hell High (28,825 Fire
+    raw, red flash) are nukes with their own row. PoB gets each type's average hit (config_vars, the bridge's default),
+    and sums of damage taken weight each type by its share of the boss's hits."""
     from builder import ENGINE_DIR
     from builder.search import boss_hits
 
     head = boss_hits.hit_sizes("Arbiter of Ash")
-    assert head["Physical"] == pytest.approx(353.67 * 2.925) and head["Fire"] == pytest.approx(353.67 * 11.70)
+    assert head["Fire"] == pytest.approx(1441.0 * 0.65 * 4, rel=1e-3)  # Pulsing Ball
+    assert head["Physical"] == pytest.approx(353.67 * 4.5 * 2.0 * 0.7 * 0.65, rel=1e-3)  # Chasm Slam's Physical part
     assert head["Cold"] == head["Lightning"] == head["Chaos"] == 0.0  # (RESEARCH13: Fire 17, Physical 7 skills)
+    assert boss_hits.biggest_skills("Arbiter of Ash") == {"Physical": "GADemonClawBossChasmSlam",
+                                                          "Fire": "MPSDemonClawBossPulsingBall"}
     harsh = boss_hits.hit_sizes("Arbiter of Ash", "harsh")
-    assert harsh["Fire"] == pytest.approx(353.67 * 18.0) and harsh["Physical"] == pytest.approx(353.67 * 4.5)
-    assert boss_hits.hit_sizes("Arbiter of Ash", "low")["Fire"] == pytest.approx(head["Physical"])
-    king = boss_hits.hit_sizes("The King in the Mists")
-    assert king["Chaos"] == pytest.approx(353.67 * 1.88 * 0.65 * 2)
+    assert harsh["Fire"] == pytest.approx(head["Fire"] / 0.65) and harsh["Physical"] == pytest.approx(head["Physical"] / 0.65)
+    # low bound: no level more on base elemental spells; Chasm Slam's converted Fire keeps it (955 x 0.65 x 4)
+    assert boss_hits.hit_sizes("Arbiter of Ash", "low")["Fire"] == pytest.approx(353.67 * 4.5 * 2.0 * 0.3 * 0.65 * 4, rel=1e-3)
+    nukes = boss_hits.nuke_hits("Arbiter of Ash")
+    assert nukes["Fire"][0] == pytest.approx(28825 * 0.65 * 4, rel=1e-3)
+    assert "BulletHell" in nukes["Fire"][1] or "FlameSeed" in nukes["Fire"][1]  # (both 28,825 raw)
+    assert not boss_hits.nuke_hits("Vessel of Kulemak")
+    # Kulemak's Cleave (BaseEffectiveness 17.5): 2,522 Cold raw (RESEARCH26's table)
+    assert boss_hits.hit_sizes("Vessel of Kulemak")["Cold"] == pytest.approx(2522 * 0.65 * 4, rel=2e-3)
+    # PoB's per-hit input: each type's average ordinary hit, at most its biggest
+    mean = boss_hits.mean_hits("Arbiter of Ash")
+    assert 0 < mean["Fire"] < head["Fire"] and 0 < mean["Physical"] <= head["Physical"]
+    assert boss_hits.config_vars("Arbiter of Ash")["enemyFireDamage"] == round(mean["Fire"])
     assert boss_hits.type_shares()["Fire"] == pytest.approx(17 / 24)
     assert boss_hits.type_taken({"PhysicalTakenHit": 700, "FireTakenHit": 1700}) == pytest.approx(700 * 7 / 24 + 1700 * 17 / 24)
     # the bridge's resetConfig default is the Arbiter's config_vars
@@ -3049,13 +3070,14 @@ def test_boss_hits_per_damage_type_from_the_games_tables(arbiter_default):
         assert f"{var} = {value}" in block
     # the report row: survives, passes only at the headline, one hit kills
     tough = {"PhysicalMaximumHitTaken": "inf", "FireMaximumHitTaken": 7000}
-    assert "survives every reading" in boss_hits.survival_text(tough)[1]
-    middle = boss_hits.survival({"PhysicalMaximumHitTaken": 2000, "FireMaximumHitTaken": 5000})
+    text = boss_hits.survival_text(tough)
+    assert "survives every reading" in text[1] and "nukes" in text[3] and "kills" in text[3]
+    middle = boss_hits.survival({"PhysicalMaximumHitTaken": 2500, "FireMaximumHitTaken": 4500})
     assert middle["headline_only"] and middle["fails"]["harsh"] == ["Fire"]
-    assert "unique 35% less" in boss_hits.survival_text({"PhysicalMaximumHitTaken": 2000, "FireMaximumHitTaken": 5000})[1]
-    weak = boss_hits.survival_text({"PhysicalMaximumHitTaken": 2000, "FireMaximumHitTaken": 3000})
+    assert "unique 35% less" in boss_hits.survival_text({"PhysicalMaximumHitTaken": 2500, "FireMaximumHitTaken": 4500})[1]
+    weak = boss_hits.survival_text({"PhysicalMaximumHitTaken": 2500, "FireMaximumHitTaken": 2000})
     assert "one hit kills: Fire" in weak[1] and "low bound" in weak[1] and weak[2] is None
-    assert "4,138" in boss_hits.hits_note()["value"]
+    assert "3,747 at most" in boss_hits.hits_note()["value"] and "walk out" in boss_hits.hits_note()["value"]
 
 
 def test_flasks_weight_the_damage_taken_per_type_by_the_bosss_hits(arbiter_default):
@@ -3494,7 +3516,7 @@ def test_two_part_time_flasks_share_the_using_flask_flag():
 
 def test_unbound_uptime_from_the_builds_ailments():
     """MECHC10: Unbound Fury 1 per Ignite / Shock / Chill, 6 per Freeze / Electrocute (KeywordPopups UnboundFury);
-    100 to use; the cooldown counted from the buff's end (the lower reading; the other as the second figure)."""
+    100 to use; the cooldown ticks while Unbound (MECHC31, R26-75; counted from the buff's end as the second figure)."""
     from builder.search import conditions
 
     stats = {"Speed": 4.0, "HitChance": 100.0, "ShockChancePerHit": 50.0, "ChillChanceOnHit": 0.0}
@@ -3504,21 +3526,21 @@ def test_unbound_uptime_from_the_builds_ailments():
     fast = {**stats, "ShockChancePerHit": 100.0, "ChillChanceOnHit": 100.0, "Speed": 10.0,
             "ChillHitDamage": 1000.0, "ChillCritDamage": 1500.0, "EnemyAilmentThreshold": 1000.0}  # a 100% Chill
     up, _, alt = models.unbound_uptime(fast, 9.9, False)  # 20 Fury/s: 5 s, under the cooldown
-    assert up == pytest.approx(9.9 / 21.9) and alt == pytest.approx(9.9 / 14.9)
+    assert up == pytest.approx(9.9 / 14.9) and alt == pytest.approx(9.9 / 21.9)
     # AUDIT25 A25-3 (MECHC11): a Chill under the game's 30% floor earns no Fury (PoB Chills from 1%)
     weak = {**fast, "ChillHitDamage": 200.0, "ChillCritDamage": 300.0}  # 20% / 30%: crits only, at 25% crit chance
-    _, how, alt = models.unbound_uptime({**weak, "CritChance": 25.0}, 9.9, False)  # 10 + 2.5 Fury/s: 8 s
-    assert alt == pytest.approx(9.9 / (9.9 + 100 / 12.5)) and "30% Chill floor" in how
-    assert models.unbound_uptime({**weak, "CritChance": 0.0}, 9.9, False)[2] == pytest.approx(9.9 / 19.9)  # Shock only
+    up, how, _ = models.unbound_uptime({**weak, "CritChance": 25.0}, 9.9, False)  # 10 + 2.5 Fury/s: 8 s
+    assert up == pytest.approx(9.9 / (9.9 + 100 / 12.5)) and "30% Chill floor" in how
+    assert models.unbound_uptime({**weak, "CritChance": 0.0}, 9.9, False)[0] == pytest.approx(9.9 / 19.9)  # Shock only
     # with the box on, the 40% more Elemental Damage comes out of the magnitude: 1000 -> 714, still over 30%
     on = models.unbound_uptime({**fast, "ShockChancePerHit": 180.0, "ChillChanceOnHit": 100.0}, 9.9, True)
-    assert on[2] == pytest.approx(9.9 / 14.9)
+    assert on[0] == pytest.approx(9.9 / 14.9)
     # taken with the box on: the 80% more chance comes back out
     assert models.unbound_uptime({**stats, "ShockChancePerHit": 90.0}, 9.9, True)[0] == pytest.approx(up_ := 9.9 / 59.9)
     assert models.unbound_uptime({"Speed": 4.0, "HitChance": 100.0}, 9.9, False)[0] == 0
     assert conditions._unbound(["Some other line"], stats) == (0.0, "")
     box = conditions._unbound(["Grants Skill: Unbound Avatar"], {**fast, "_unbound": (9.9, False)})
-    assert box[0] is True and box[2] == pytest.approx(9.9 / 21.9) and box[4][0] == pytest.approx(9.9 / 14.9)
+    assert box[0] is True and box[2] == pytest.approx(9.9 / 14.9) and box[4][0] == pytest.approx(9.9 / 21.9)
     assert [m["when"] for m in models.unbound_model(["Grants Skill: Unbound Avatar"])[0]] == [[{"pob": "Unbound"}]] * 4
 
 
@@ -3700,8 +3722,9 @@ def test_the_default_boss_is_an_invented_worst_case_pinnacle():
     sizes = bosses.worst_hit_sizes()
     for t in boss_hits.TYPES:
         assert sizes[t] == max(boss_hits.hit_sizes(n)[t] for n in bosses.REAL) > 0
-    cv = bosses.config_vars()
-    assert cv["enemyColdDamage"] == round(sizes["Cold"]) and cv["enemyPhysicalDamage"] == round(sizes["Physical"])
+    cv = bosses.config_vars()  # (MECHC31: PoB gets the highest AVERAGE hit of any real preset per type)
+    for t in boss_hits.TYPES:
+        assert cv[f"enemy{t}Damage"] == round(max(boss_hits.mean_hits(n)[t] for n in bosses.REAL)) <= round(sizes[t])
     assert sum(bosses.worst_type_shares().values()) == pytest.approx(1.0)
     # the unavoidable shares boss_hits reads: the highest of each (Xesht 4 / 11, Kulemak 2 / 9)
     assert boss_hits.shares({}) == pytest.approx((4 / 11, 2 / 9))

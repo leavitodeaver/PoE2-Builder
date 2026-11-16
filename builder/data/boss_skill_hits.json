@@ -1,0 +1,4739 @@
+{
+"_source": "MECHC31 scratch/mechc31/bosshits.py from game 26476662's GrantedEffectStatSets(/PerLevel), ActiveSkills and RESEARCH13's MonsterVarieties export; level 82; raw before rarity / level more",
+"presets": {
+"Arbiter of Ash": [
+{
+"id": "EAADemonClawBossChasmShenanigans",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "EAADemonClawBossChasmSlamLong",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "EAADemonClawBossChasmSlamMid",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "EAADemonClawBossChasmSlamShort",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "EAADemonClawBossDashSlashForward",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "EAADemonClawBossDashSlashLeft",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "EAADemonClawBossDashSlashRight",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "EAADemonClawBossDodgeBackwards",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "EAADemonClawBossDodgeForwards",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "EAADemonClawBossDodgeLeft",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "EAADemonClawBossDodgeRight",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "EAADemonClawBossJumpSlamCombo",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "EAADemonClawBossMeleeSlamSeeds",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "GADemonClawBossBigOlChasmSlash",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+1750.7,
+"attack"
+]
+}
+},
+{
+"id": "GADemonClawBossChasmBurst",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+1241.4,
+"attack"
+],
+"Fire": [
+827.6,
+"converted"
+]
+}
+},
+{
+"id": "GADemonClawBossChasmSlam",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+2228.1,
+"attack"
+],
+"Fire": [
+954.9,
+"converted"
+]
+}
+},
+{
+"id": "GADemonClawBossDashSlashForward",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+2069.0,
+"attack"
+]
+}
+},
+{
+"id": "GADemonClawBossDashSlashLeft",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "GADemonClawBossDashSlashRight",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "GADemonClawBossMeleeSlamSeedsGroundSlam",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+2069.0,
+"attack"
+]
+}
+},
+{
+"id": "GADemonClawBossMeleeSlamSeedsStabSeed",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1655.2,
+"attack"
+],
+"Fire": [
+413.8,
+"converted"
+]
+}
+},
+{
+"id": "GADemonClawBossMeleeSlamSeedsSwordCleave",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1114.1,
+"attack"
+],
+"Fire": [
+477.5,
+"converted"
+]
+}
+},
+{
+"id": "GADemonClawBossOffscreenSlam",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+1655.2,
+"attack"
+],
+"Fire": [
+413.8,
+"converted"
+]
+}
+},
+{
+"id": "GADemonClawBossSwordSlam",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+2069.0,
+"attack"
+]
+}
+},
+{
+"id": "GPSDemonClawBossWingBombMega",
+"monster": "DemonClawBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+144.1,
+"spell"
+]
+}
+},
+{
+"id": "GSDemonClawBossBulletHellDamageHigh",
+"monster": "DemonClawBoss",
+"kind": "Spell",
+"red": true,
+"nuke": true,
+"hit": {
+"Fire": [
+28825.3,
+"spell"
+]
+}
+},
+{
+"id": "GSDemonClawBossFireVortex",
+"monster": "DemonClawBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+144.1,
+"spell"
+]
+}
+},
+{
+"id": "GSDemonClawBossFireVortexGiga",
+"monster": "DemonClawBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+144.1,
+"spell"
+]
+}
+},
+{
+"id": "GSDemonClawBossFireballImpact",
+"monster": "DemonClawBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+648.6,
+"spell"
+]
+}
+},
+{
+"id": "GSDemonClawBossFlameSeedDonutNuke",
+"monster": "DemonClawBoss",
+"kind": "Spell",
+"red": true,
+"nuke": true,
+"hit": {
+"Fire": [
+28825.3,
+"spell"
+]
+}
+},
+{
+"id": "GSDemonClawBossPulsingBallExplosion",
+"monster": "DemonClawBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+21.2,
+"spell"
+]
+}
+},
+{
+"id": "MASDemonClawBossDoubleSlash",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1909.8,
+"attack"
+]
+}
+},
+{
+"id": "MASDemonClawBossFire",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1114.1,
+"attack"
+],
+"Fire": [
+477.5,
+"converted"
+]
+}
+},
+{
+"id": "MASDemonClawBossJumpSlamCombo",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "MASDemonClawBossTripleSlash",
+"monster": "DemonClawBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1909.8,
+"attack"
+]
+}
+},
+{
+"id": "MPSDemonClawBossFireball",
+"monster": "DemonClawBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+144.1,
+"spell"
+]
+}
+},
+{
+"id": "MPSDemonClawBossPulsingBall",
+"monster": "DemonClawBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+1441.3,
+"spell"
+]
+}
+},
+{
+"id": "MPSDemonClawBossWingBombsMini",
+"monster": "DemonClawBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+648.6,
+"spell"
+]
+}
+}
+],
+"Arbiter of Divinity": [
+{
+"id": "EAAAoDP1_DodgeLeft",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "EAAAoDP1_DodgeRight",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "EAAAoDP1_ExtendoSpearCombo",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "EAAAoDP1_SwoopSlam",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "EAAAoDP1_WingFlapCombo",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "EAAAoDP2_BlinkSlam",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "EAAAoDP2_DodgeLeft",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "EAAAoDP2_DodgeRight",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "EAAAoDP2_TriangulateCloneDash",
+"monster": "ArbiterOfDivinityTriangulateClone",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "EAAAoDP2_TriangulateEnd",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "EAAAoDP2_TriangulateRepeat",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "EAAAoDP2_TriangulateStart",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP1_CloneBoltDetonate",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+3168.9,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP1_ExtendoSpearComboDashStab",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1471.3,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP1_ExtendoSpearComboLacerate1",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1833.4,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP1_ExtendoSpearComboLacerate2",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1833.4,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP1_ExtendoSpearComboLacerate3",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1833.4,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP1_ExtendoSpearComboSlam1",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+3168.9,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP1_ExtendoSpearComboSlam2",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+3055.7,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP1_SpearTossImpact",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+1641.0,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP1_SpearTossSuperHeroLanding",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+747.0,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP1_SpearTossSweep",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+2093.7,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP1_SwoopSlamDashStab",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1301.5,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP1_SwoopSlamImpact",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1697.6,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP1_WingFlapComboLeft",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+831.8,
+"attack"
+],
+"Lightning": [
+356.5,
+"converted"
+]
+}
+},
+{
+"id": "GAAoDP1_WingFlapComboMiddle",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+950.7,
+"attack"
+],
+"Lightning": [
+407.4,
+"converted"
+]
+}
+},
+{
+"id": "GAAoDP1_WingFlapComboRight",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+831.8,
+"attack"
+],
+"Lightning": [
+356.5,
+"converted"
+]
+}
+},
+{
+"id": "GAAoDP2_BasicMeleeRectSlam",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP2_BlinkSlam",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1244.9,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP2_ExtendoSpearComboCleave1",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP2_ExtendoSpearComboCleave2",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP2_ExtendoSpearComboCleave3",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP2_SpearTossCleave",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP2_SpearTossImpact",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+1641.0,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP2_SpellComboCleave",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1414.7,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP2_SpellComboStab",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1244.9,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP2_TriangulateCloneDash",
+"monster": "ArbiterOfDivinityTriangulateClone",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1833.4,
+"attack"
+]
+}
+},
+{
+"id": "GAAoDP2_TriangulateSplitRect",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1584.4,
+"attack"
+],
+"Lightning": [
+1584.4,
+"converted"
+]
+}
+},
+{
+"id": "GSAoDP1_ExtendoSpearComboVolatileExplode",
+"monster": "ArbiterofDivinity_",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+2882.5,
+"spell"
+]
+}
+},
+{
+"id": "GSAoDP1_ExtendoSpearComboZapBeams",
+"monster": "ArbiterofDivinity_",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+216.2,
+"spell"
+]
+}
+},
+{
+"id": "GSAoDP2_SoulReleaseProjImpact",
+"monster": "ArbiterofDivinity_",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+475.6,
+"spell"
+]
+}
+},
+{
+"id": "GSAoDP2_StormBlinkBolt",
+"monster": "ArbiterofDivinity_",
+"kind": "Spell",
+"red": true,
+"nuke": false,
+"hit": {
+"Lightning": [
+1873.6,
+"spell"
+]
+}
+},
+{
+"id": "GSAoDP2_TriangulateSplitSidewaysRect",
+"monster": "ArbiterofDivinity_",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+936.8,
+"spell"
+]
+}
+},
+{
+"id": "LGAoDP1_OrbitTotemOrbiterBwd",
+"monster": "ArbiterofDivinityOrbitTotem",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+648.6,
+"spell"
+]
+}
+},
+{
+"id": "LGAoDP1_OrbitTotemOrbiterFwd",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+648.6,
+"spell"
+]
+}
+},
+{
+"id": "MAASAoDP1_BasicMelee",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+633.8,
+"attack"
+],
+"Lightning": [
+158.4,
+"converted"
+]
+}
+},
+{
+"id": "MAASAoDP1_BoltCloneSpin",
+"monster": "ArbiterofDivinityBoltClone",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1125.0,
+"attack"
+],
+"Lightning": [
+482.1,
+"converted"
+]
+}
+},
+{
+"id": "MAASAoDP1_SuckerPunchEmerge",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+905.4,
+"attack"
+]
+}
+},
+{
+"id": "MAASAoDP1_SuckerPunchEmergeQuick",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+905.4,
+"attack"
+]
+}
+},
+{
+"id": "MAASAoDP2_BasicMelee",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1041.2,
+"attack"
+],
+"Lightning": [
+260.3,
+"converted"
+]
+}
+},
+{
+"id": "MAASAoDP2_ExtendoSpearCombo",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+2546.4,
+"attack"
+]
+}
+},
+{
+"id": "MMSAoDP2_SoulReleaseProj",
+"monster": "ArbiterofDivinity_",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+432.4,
+"spell"
+]
+}
+},
+{
+"id": "MPAAoDP1_SpearToss",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+56.6,
+"attack"
+]
+}
+},
+{
+"id": "MPAAoDP2_SpearToss",
+"monster": "ArbiterofDivinity_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+56.6,
+"attack"
+]
+}
+},
+{
+"id": "MPSAoDP1_ExtendoSpearComboSpellProj",
+"monster": "ArbiterofDivinity_",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+288.3,
+"spell"
+]
+}
+},
+{
+"id": "MPSAoDP2_SpellComboProj1",
+"monster": "ArbiterofDivinity_",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+216.2,
+"spell"
+]
+}
+},
+{
+"id": "MPSAoDP2_SpellComboProj2",
+"monster": "ArbiterofDivinity_",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+216.2,
+"spell"
+]
+}
+}
+],
+"Xesht, We That Are One": [
+{
+"id": "EAABreachBossHandSlamPuppeteer",
+"monster": "HandSlamLeft",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+353.7,
+"attack"
+]
+}
+},
+{
+"id": "EDABreachBossHandSlamLeft",
+"monster": "ItThatReturned",
+"kind": "Attack",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+3183.0,
+"attack"
+]
+}
+},
+{
+"id": "EDABreachBossHandSlamRight",
+"monster": "ItThatReturned",
+"kind": "Attack",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+3183.0,
+"attack"
+]
+}
+},
+{
+"id": "GABreachBossHandSlamImpact",
+"monster": "ItThatReturned",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1061.0,
+"attack"
+]
+}
+},
+{
+"id": "GABreachBossTitanHandSlam",
+"monster": "HandPortal",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1237.8,
+"attack"
+]
+}
+},
+{
+"id": "GABreachBossTitanHandSlamBelow",
+"monster": "HandPortal",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1237.8,
+"attack"
+]
+}
+},
+{
+"id": "GABreachBossTitanHandSlamMega",
+"monster": "HandPortalMega",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+707.3,
+"attack"
+]
+}
+},
+{
+"id": "GSBreachBossEshCorpseNova",
+"monster": "EshCorpse",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+1153.0,
+"spell"
+]
+}
+},
+{
+"id": "GSBreachBossHandClapBlast",
+"monster": "ItThatReturned",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+3459.0,
+"spell"
+]
+}
+},
+{
+"id": "GSBreachBossHeadFireballImpact",
+"monster": "ItThatReturned",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+3459.0,
+"spell"
+]
+}
+},
+{
+"id": "GSBreachBossMultiFlickImpact",
+"monster": "ItThatReturned",
+"kind": "Spell",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+2161.9,
+"spell"
+]
+}
+},
+{
+"id": "GSBreachBossPistolFlickSonicWave",
+"monster": "ItThatReturned",
+"kind": "Spell",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+3459.0,
+"spell"
+]
+}
+},
+{
+"id": "MAASNoLineOfSight",
+"monster": "HandPortal",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+707.3,
+"attack"
+]
+}
+},
+{
+"id": "MPSBreachBossFlickProjectile",
+"monster": "ItThatReturned",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+21.2,
+"spell"
+]
+}
+},
+{
+"id": "MPSBreachBossMultiFlick",
+"monster": "ItThatReturned",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+2161.9,
+"spell"
+]
+}
+},
+{
+"id": "MPSBreachBossTulProjectile",
+"monster": "TulCorpse",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Cold": [
+648.6,
+"spell"
+]
+}
+},
+{
+"id": "MeleeAtAnimationSpeedUnique",
+"monster": "ItThatReturned",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1061.0,
+"attack"
+]
+}
+}
+],
+"The King in the Mists": [
+{
+"id": "GAVoodooKingDeathEffigyPulse",
+"monster": "VoodooKingDeathEffigy",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+21.2,
+"spell"
+]
+}
+},
+{
+"id": "GAVoodooKingVineCascadeBig",
+"monster": "VoodooKingBoss2MAP",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+398.9,
+"attack"
+],
+"Chaos": [
+266.0,
+"converted"
+]
+}
+},
+{
+"id": "GAVoodooKingVineCascadeSmall",
+"monster": "VoodooKingBoss2MAP",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+349.1,
+"attack"
+],
+"Chaos": [
+149.6,
+"converted"
+]
+}
+},
+{
+"id": "GAVoodooKingVineSlam",
+"monster": "VoodooKingBoss2MAP",
+"kind": "Attack",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+1396.3,
+"attack"
+],
+"Chaos": [
+598.4,
+"converted"
+]
+}
+},
+{
+"id": "GPSVoodooKingBugBomb",
+"monster": "VoodooKingBoss3MAP",
+"kind": "Spell",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+15.9,
+"spell"
+],
+"Chaos": [
+5.3,
+"spell"
+]
+}
+},
+{
+"id": "GSAzmeriSwampToadExplode",
+"monster": "ExplosiveToad",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+540.5,
+"spell"
+],
+"Chaos": [
+180.2,
+"spell"
+]
+}
+},
+{
+"id": "GSVoodooKingBugBombImpact",
+"monster": "VoodooKingBoss3MAP",
+"kind": "Spell",
+"red": true,
+"nuke": true,
+"hit": {
+"Physical": [
+2702.4,
+"spell"
+]
+}
+},
+{
+"id": "GSVoodooKingSporeExplode",
+"monster": "VoodooKingBoss3MAP",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Chaos": [
+720.6,
+"spell"
+]
+}
+},
+{
+"id": "MPSVoodooKing2SpellProjectile",
+"monster": "VoodooKingBoss2MAP",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+486.4,
+"spell"
+],
+"Chaos": [
+162.1,
+"spell"
+]
+}
+},
+{
+"id": "MPSVoodooKing3SpellProjectile",
+"monster": "VoodooKingBoss3MAP",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+219.8,
+"spell"
+],
+"Chaos": [
+219.8,
+"spell"
+]
+}
+},
+{
+"id": "MeleeAtAnimationSpeedUnique",
+"monster": "VoodooKingBoss2MAP",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+664.9,
+"attack"
+]
+}
+},
+{
+"id": "VoodooKingPunishment",
+"monster": "VoodooKingBoss2MAP",
+"kind": "Spell",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+720.6,
+"spell"
+]
+}
+}
+],
+"Zarokh, the Temporal": [
+{
+"id": "GASilentSpiresApparitionDeathTouch",
+"monster": "SilentSpiresApparition",
+"kind": "Attack",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+2785.2,
+"attack"
+]
+}
+},
+{
+"id": "GSSilentSpiresApparitionRewindPlayerBlast",
+"monster": "SilentSpiresApparition",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+2306.0,
+"spell"
+]
+}
+},
+{
+"id": "GSSilentSpiresApparitionSummonElipticalOrbitImpact",
+"monster": "SilentSpiresApparition",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+648.6,
+"spell"
+]
+}
+},
+{
+"id": "GSSilentSpiresApparitionTemporalChainsLightningImpact",
+"monster": "SilentSpiresApparition",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1297.1,
+"spell"
+]
+}
+},
+{
+"id": "GSSilentSpiresApparitionTimeTrapExplode",
+"monster": "SilentSpiresApparition",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+648.6,
+"spell"
+]
+}
+},
+{
+"id": "MPSSilentSpiresApparitionPortalBallLightningCentre",
+"monster": "SilentSpiresApparition",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+648.6,
+"spell"
+]
+}
+},
+{
+"id": "MPSSilentSpiresApparitionPortalBallLightningLeft",
+"monster": "SilentSpiresApparition",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+648.6,
+"spell"
+]
+}
+},
+{
+"id": "MPSSilentSpiresApparitionPortalBallLightningRight",
+"monster": "SilentSpiresApparition",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+648.6,
+"spell"
+]
+}
+},
+{
+"id": "MPSSilentSpiresApparitionPortalBallLightningSingle",
+"monster": "SilentSpiresApparition",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+648.6,
+"spell"
+]
+}
+},
+{
+"id": "MPSSilentSpiresApparitionTemporalChainsLightning",
+"monster": "SilentSpiresApparition",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+144.1,
+"spell"
+]
+}
+},
+{
+"id": "SilentSpiresApparitionThrowLightning",
+"monster": "SilentSpiresApparition",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+144.1,
+"spell"
+]
+}
+},
+{
+"id": "SilentSpiresApparitionThrowLightningLeft",
+"monster": "SilentSpiresApparition",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+144.1,
+"spell"
+]
+}
+},
+{
+"id": "TBSilentSpiresApparitionLightningTendrilSingle",
+"monster": "SilentSpiresApparition",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+144.1,
+"spell"
+]
+}
+}
+],
+"The Raven Trickster": [
+{
+"id": "GADeliriumMinionDisgustTentacleSlamDamage",
+"monster": "DeliriumMinionDisgust",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+375.8,
+"attack"
+],
+"Chaos": [
+66.3,
+"converted"
+]
+}
+},
+{
+"id": "GAFuryCascadeSlam",
+"monster": "DeliriumMinionFury",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+99.0,
+"attack"
+],
+"Fire": [
+396.1,
+"converted"
+]
+}
+},
+{
+"id": "GAFuryCascadeSlamEnd",
+"monster": "DeliriumMinionFury",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+99.0,
+"attack"
+],
+"Fire": [
+396.1,
+"converted"
+]
+}
+},
+{
+"id": "GPSMaliceTrackingProjectile",
+"monster": "DeliriumMinionMalice",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Cold": [
+180.2,
+"spell"
+]
+}
+},
+{
+"id": "GSRageBeamDamage",
+"monster": "DeliriumMinionRage",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+72.1,
+"spell"
+]
+}
+},
+{
+"id": "GSTangmazuBigBoyBeam",
+"monster": "TangmazuBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+2882.5,
+"spell"
+]
+}
+},
+{
+"id": "GSTangmazuFrostComet",
+"monster": "TangmazuBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Cold": [
+2882.5,
+"spell"
+]
+}
+},
+{
+"id": "GSTangmazuFrostShard",
+"monster": "TangmazuBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Cold": [
+648.6,
+"spell"
+]
+}
+},
+{
+"id": "GSTangmazuFrostShard2",
+"monster": "TangmazuBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Cold": [
+648.6,
+"spell"
+]
+}
+},
+{
+"id": "GSTangmazuFrostWallDamage",
+"monster": "TangmazuBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Cold": [
+972.9,
+"spell"
+]
+}
+},
+{
+"id": "GSTangmazuMirrorBeamDamage",
+"monster": "TangmazuBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Cold": [
+1441.3,
+"spell"
+]
+}
+},
+{
+"id": "GSTangmazuMirrorBeamDamageChoas",
+"monster": "TangmazuBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Chaos": [
+936.8,
+"spell"
+]
+}
+},
+{
+"id": "GSTangmazuMirrorBeamDamageCold",
+"monster": "TangmazuBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Cold": [
+1441.3,
+"spell"
+]
+}
+},
+{
+"id": "GSTangmazuMirrorBeamDamageFire",
+"monster": "TangmazuBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+1441.3,
+"spell"
+]
+}
+},
+{
+"id": "GSTangmazuMirrorBeamDamageLightning",
+"monster": "TangmazuBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+1297.1,
+"spell"
+]
+}
+},
+{
+"id": "GSTangmazuMirrorBeamDamagePoison",
+"monster": "TangmazuBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1441.3,
+"spell"
+]
+}
+},
+{
+"id": "GSTangmazuPhaseChangeBlast",
+"monster": "TangmazuBoss",
+"kind": "Spell",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+288.3,
+"spell"
+]
+}
+},
+{
+"id": "GSTangmazuPillarFallDamage",
+"monster": "TangmazuBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+2882.5,
+"spell"
+]
+}
+},
+{
+"id": "GSTangmazuPillarUpwardDamage",
+"monster": "TangmazuBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+972.9,
+"spell"
+]
+}
+},
+{
+"id": "GSTangmazuRavenWave",
+"monster": "TangmazuBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+648.6,
+"spell"
+]
+}
+},
+{
+"id": "GSTangmazuStormCall",
+"monster": "TangmazuBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+1931.3,
+"spell"
+]
+}
+},
+{
+"id": "GSTangmazuVolatileFlameBlast",
+"monster": "TangmazuBoss",
+"kind": "Spell",
+"red": true,
+"nuke": false,
+"hit": {
+"Lightning": [
+2666.3,
+"spell"
+]
+}
+},
+{
+"id": "MPSTangmazuFireball",
+"monster": "TangmazuBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+828.7,
+"spell"
+]
+}
+},
+{
+"id": "MPSTangmazuFireballPhase1",
+"monster": "TangmazuBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+828.7,
+"spell"
+]
+}
+},
+{
+"id": "MPSTangmazuFrostShards",
+"monster": "TangmazuBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Cold": [
+216.2,
+"spell"
+]
+}
+},
+{
+"id": "MPSTangmazuRedirectingFireball",
+"monster": "TangmazuBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+648.6,
+"spell"
+]
+}
+},
+{
+"id": "MeleeAtAnimationSpeed",
+"monster": "DeliriumMinionDisgust",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+353.7,
+"attack"
+]
+}
+},
+{
+"id": "MeleeAtAnimationSpeedBoss",
+"monster": "TangmazuBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+2864.7,
+"attack"
+]
+}
+},
+{
+"id": "TBTangmazuRefractionBeam",
+"monster": "TangmazuBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+7.0,
+"spell"
+],
+"Cold": [
+7.0,
+"spell"
+],
+"Lightning": [
+7.0,
+"spell"
+]
+}
+},
+{
+"id": "TBTangmazuRefractionBeamBounce",
+"monster": "TangmazuBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+7.0,
+"spell"
+],
+"Cold": [
+7.0,
+"spell"
+],
+"Lightning": [
+7.0,
+"spell"
+]
+}
+},
+{
+"id": "TBTangmazuRefractionBeamBounceChaos",
+"monster": "TangmazuBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Chaos": [
+1931.3,
+"spell"
+]
+}
+},
+{
+"id": "TBTangmazuRefractionBeamBounceCold",
+"monster": "TangmazuBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Cold": [
+1931.3,
+"spell"
+]
+}
+},
+{
+"id": "TBTangmazuRefractionBeamBounceFire",
+"monster": "TangmazuBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+1931.3,
+"spell"
+]
+}
+},
+{
+"id": "TBTangmazuRefractionBeamBounceLightning",
+"monster": "TangmazuBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+1931.3,
+"spell"
+]
+}
+},
+{
+"id": "TBTangmazuRefractionBeamBouncePoison",
+"monster": "TangmazuBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1931.3,
+"spell"
+]
+}
+},
+{
+"id": "TBTangmazuStormCall",
+"monster": "TangmazuBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "TBTangmazuStormCallStart",
+"monster": "TangmazuBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "TBTangmazuStormCallStartPhase1",
+"monster": "TangmazuBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+}
+],
+"The Bodach": [
+{
+"id": "EAARitualWendigoP2_BackwardsSwipeout",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "EAARitualWendigoP2_BossTaunt",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "EAARitualWendigoP2_SlamMeteor",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "EAARitualWendigoP2_SlamMeteorCombo",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "EAARitualWendigoP2_SlamMeteorSolarisSeed",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "GARitualWendigoBossFistSlam",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1471.3,
+"attack"
+]
+}
+},
+{
+"id": "GARitualWendigoBossHeadSlam",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+2489.8,
+"attack"
+]
+}
+},
+{
+"id": "GARitualWendigoBossRemoteFistLeft",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1697.6,
+"attack"
+]
+}
+},
+{
+"id": "GARitualWendigoBossRemoteFistRight",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1697.6,
+"attack"
+]
+}
+},
+{
+"id": "GARitualWendigoBossShadowArmIntroSlam",
+"monster": "RitualWendigoDarknessArm",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+23.7,
+"attack"
+]
+}
+},
+{
+"id": "GARitualWendigoBossShadowArmOuterRingSlam",
+"monster": "RitualWendigoDarknessArm",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+663.5,
+"attack"
+]
+}
+},
+{
+"id": "GARitualWendigoBossShadowArmVacuumKnockdown",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1471.3,
+"attack"
+]
+}
+},
+{
+"id": "GARitualWendigoBossVacuumBeatdownBig",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+3168.9,
+"attack"
+]
+}
+},
+{
+"id": "GARitualWendigoBossVacuumBeatdownSmall",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1471.3,
+"attack"
+]
+}
+},
+{
+"id": "GARitualWendigoP2_BackwardsSwipeoutSwipe1",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1833.4,
+"attack"
+]
+}
+},
+{
+"id": "GARitualWendigoP2_BackwardsSwipeoutSwipe2",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1833.4,
+"attack"
+]
+}
+},
+{
+"id": "GARitualWendigoP2_SlamMeteorComboMeteorImpact",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+3168.9,
+"attack"
+]
+}
+},
+{
+"id": "GARitualWendigoP2_SlamMeteorComboPunch1",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1471.3,
+"attack"
+]
+}
+},
+{
+"id": "GARitualWendigoP2_SlamMeteorComboPunch2",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1471.3,
+"attack"
+]
+}
+},
+{
+"id": "GARitualWendigoP2_SlamMeteorComboPunch3",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1471.3,
+"attack"
+]
+}
+},
+{
+"id": "GARitualWendigoP2_SlamMeteorImpact",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+3168.9,
+"attack"
+]
+}
+},
+{
+"id": "GARitualWendigoP2_SlamMeteorImpactSolarisSeed",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+3168.9,
+"attack"
+]
+}
+},
+{
+"id": "GSRitualWendigoBossBasicProjImpact",
+"monster": "RitualWendigoBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+648.6,
+"spell"
+]
+}
+},
+{
+"id": "GSRitualWendigoBossCorridorBallBurst",
+"monster": "MDRitualWendigoCorridorMothball",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+648.6,
+"spell"
+]
+}
+},
+{
+"id": "GSRitualWendigoBossHeadGeyserImpact",
+"monster": "RitualWendigoBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1297.1,
+"spell"
+]
+}
+},
+{
+"id": "GSRitualWendigoBossMothBallBurst",
+"monster": "MDRitualWendigoBossFistSlamMothball",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1153.0,
+"spell"
+]
+}
+},
+{
+"id": "GSRitualWendigoBossMothrowerLeft",
+"monster": "RitualWendigoBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+432.4,
+"spell"
+]
+}
+},
+{
+"id": "GSRitualWendigoBossMothrowerRight",
+"monster": "RitualWendigoBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+972.9,
+"spell"
+]
+}
+},
+{
+"id": "GSRitualWendigoBossVacuumBlobShunt",
+"monster": "RitualWendigoBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+72.1,
+"spell"
+]
+}
+},
+{
+"id": "GSRitualWendigoBossVacuumVomit",
+"monster": "RitualWendigoBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+2882.5,
+"spell"
+]
+}
+},
+{
+"id": "GSRitualWendigoP2_BombardImpact",
+"monster": "RitualWendigoBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1441.3,
+"spell"
+]
+}
+},
+{
+"id": "GSRitualWendigoP2_BombardSecondaryImpact",
+"monster": "RitualWendigoBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+720.6,
+"spell"
+]
+}
+},
+{
+"id": "MAASRitualWendigoBossBasicSwipes",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "MAASRitualWendigoBossForwardScoop",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "MAASRitualWendigoBossLeftScoop",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "MAASRitualWendigoBossRepositionAttackEnter",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1833.4,
+"attack"
+]
+}
+},
+{
+"id": "MAASRitualWendigoBossRightScoop",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "MAASRitualWendigoBossShadowArm",
+"monster": "RitualWendigoDarknessArm",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+473.9,
+"attack"
+]
+}
+},
+{
+"id": "MAASRitualWendigoP2_TeleMelee",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "MAASRitualWendigoP2_TeleMelee2",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "MPARitualWendigoBossChainedAttackRubble",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+452.7,
+"attack"
+]
+}
+},
+{
+"id": "MPARitualWendigoBossChainedAttackRubbleCluster",
+"monster": "RitualWendigoBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+373.5,
+"attack"
+]
+}
+}
+],
+"Olroth, Origin of the Fall": [
+{
+"id": "EAAOlrothCleave",
+"monster": "Olroth",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+901.9,
+"attack"
+],
+"Cold": [
+159.2,
+"converted"
+]
+}
+},
+{
+"id": "EAAOlrothDash1",
+"monster": "Olroth",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1352.8,
+"attack"
+],
+"Cold": [
+238.7,
+"converted"
+]
+}
+},
+{
+"id": "EAAOlrothDash2",
+"monster": "Olroth",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1037.1,
+"attack"
+],
+"Cold": [
+183.0,
+"converted"
+]
+}
+},
+{
+"id": "EAAOlrothDash3",
+"monster": "Olroth",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+901.9,
+"attack"
+],
+"Cold": [
+159.2,
+"converted"
+]
+}
+},
+{
+"id": "EDSOlrothGroundSlamAftershockLarge",
+"monster": "Olroth",
+"kind": "Spell",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+1153.0,
+"spell"
+]
+}
+},
+{
+"id": "EDSOlrothGroundSlamAftershockSmall",
+"monster": "Olroth",
+"kind": "Spell",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+501.8,
+"spell"
+]
+}
+},
+{
+"id": "GAOlrothCleaveShrapnel3",
+"monster": "Olroth",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1061.0,
+"attack"
+]
+}
+},
+{
+"id": "GAOlrothDash1",
+"monster": "Olroth",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+732.1,
+"attack"
+]
+}
+},
+{
+"id": "GAOlrothDash2",
+"monster": "Olroth",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1347.5,
+"attack"
+]
+}
+},
+{
+"id": "GAOlrothDash3",
+"monster": "Olroth",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+488.1,
+"attack"
+]
+}
+},
+{
+"id": "GAOlrothGroundSlamInitial",
+"monster": "Olroth",
+"kind": "Attack",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+1114.1,
+"attack"
+],
+"Cold": [
+1114.1,
+"converted"
+]
+}
+},
+{
+"id": "GAOlrothIntroSwing",
+"monster": "Olroth",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+848.8,
+"attack"
+]
+}
+},
+{
+"id": "GAOlrothPostDashStab",
+"monster": "Olroth",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1343.8,
+"attack"
+],
+"Cold": [
+237.1,
+"converted"
+]
+}
+},
+{
+"id": "GAOlrothPostDashSwing",
+"monster": "Olroth",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+901.9,
+"attack"
+],
+"Cold": [
+159.2,
+"converted"
+]
+}
+},
+{
+"id": "GPAOlrothThrowBack",
+"monster": "Olroth",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1061.0,
+"attack"
+]
+}
+},
+{
+"id": "GSOlrothRelicFireballImpact",
+"monster": "OlrothRelic",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Cold": [
+1153.0,
+"spell"
+]
+}
+},
+{
+"id": "GSOlrothSwordGrabExplosion",
+"monster": "Olroth",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Cold": [
+1153.0,
+"spell"
+]
+}
+},
+{
+"id": "IonCannonCage",
+"monster": "OlrothRelic",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Cold": [
+396.3,
+"spell"
+]
+}
+},
+{
+"id": "MPWOlrothCleave1",
+"monster": "Olroth",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+180.4,
+"attack"
+],
+"Cold": [
+721.5,
+"converted"
+]
+}
+},
+{
+"id": "MPWOlrothCleave2",
+"monster": "Olroth",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+180.4,
+"attack"
+],
+"Cold": [
+721.5,
+"converted"
+]
+}
+},
+{
+"id": "MPWOlrothCleave3",
+"monster": "Olroth",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+360.7,
+"attack"
+],
+"Cold": [
+541.1,
+"converted"
+]
+}
+},
+{
+"id": "MPWOlrothThrowOut",
+"monster": "Olroth",
+"kind": "Attack",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+1411.1,
+"attack"
+]
+}
+},
+{
+"id": "MeleeAtAnimationSpeedWithDirectionalKnockbackOlroth",
+"monster": "Olroth",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+901.9,
+"attack"
+],
+"Cold": [
+159.2,
+"converted"
+]
+}
+},
+{
+"id": "OlrothRelicGroundSearingLaser",
+"monster": "OlrothRelic",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Cold": [
+864.8,
+"spell"
+]
+}
+},
+{
+"id": "OlrothRelicTriProjectile",
+"monster": "OlrothRelic",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Cold": [
+1153.0,
+"spell"
+]
+}
+}
+],
+"The Aberration": [
+{
+"id": "EAACyclopsSpiderLeapBack",
+"monster": "CyclopsSpiderBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "EAACyclopsSpiderLeapForward",
+"monster": "CyclopsSpiderBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "EAACyclopsSpiderLeapForwardFar",
+"monster": "CyclopsSpiderBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "EASCyclopsSpiderBossTrample",
+"monster": "CyclopsSpiderBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "GACyclopsSpiderBossLegStomp",
+"monster": "CyclopsSpiderBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+2263.5,
+"attack"
+]
+}
+},
+{
+"id": "GACyclopsSpiderBossRipSlamLeft",
+"monster": "CyclopsSpiderBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1833.4,
+"attack"
+]
+}
+},
+{
+"id": "GACyclopsSpiderBossRipSlamRight",
+"monster": "CyclopsSpiderBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1833.4,
+"attack"
+]
+}
+},
+{
+"id": "GACyclopsSpiderBossRipSlamUpward",
+"monster": "CyclopsSpiderBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1833.4,
+"attack"
+]
+}
+},
+{
+"id": "GACyclopsSpiderBossTrampleComboBodyImpact",
+"monster": "CyclopsSpiderBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+3168.9,
+"attack"
+]
+}
+},
+{
+"id": "GACyclopsSpiderBossTrampleComboSlam",
+"monster": "CyclopsSpiderBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+3168.9,
+"attack"
+]
+}
+},
+{
+"id": "GACyclopsSpiderDontBeUnderMe",
+"monster": "CyclopsSpiderBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1358.1,
+"attack"
+]
+}
+},
+{
+"id": "GACyclopsSpiderDontBeUnderMeSpider",
+"monster": "CyclopsSpiderBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1358.1,
+"attack"
+]
+}
+},
+{
+"id": "GACyclopsSpiderFloatingMeleeImpact",
+"monster": "CyclopsSpiderBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "GPSCyclopsSpiderBossRipSlamProj",
+"monster": "CyclopsSpiderBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+288.3,
+"spell"
+]
+}
+},
+{
+"id": "GPSProcessedVerisium",
+"monster": "CyclopsSpiderBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+144.1,
+"spell"
+]
+}
+},
+{
+"id": "GSCyclopsSpiderBeam",
+"monster": "CyclopsSpiderBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Cold": [
+240.0,
+"spell"
+],
+"Lightning": [
+240.0,
+"spell"
+]
+}
+},
+{
+"id": "GSCyclopsSpiderBossComboBeamDamage",
+"monster": "CyclopsSpiderBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Cold": [
+2882.5,
+"spell"
+]
+}
+},
+{
+"id": "GSCyclopsSpiderFloatingBeam",
+"monster": "CyclopsSpiderBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+972.9,
+"spell"
+]
+}
+},
+{
+"id": "GSCyclopsSpiderVerisiumStormImpact",
+"monster": "CyclopsSpiderBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1441.3,
+"spell"
+]
+}
+},
+{
+"id": "GSCyclopsSpiderVerisiumTorpedoImpact",
+"monster": "CyclopsSpiderBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1441.3,
+"spell"
+]
+}
+},
+{
+"id": "GSProcessedVerisiumProjectileImpact",
+"monster": "CyclopsSpiderBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1008.9,
+"spell"
+]
+}
+},
+{
+"id": "MAASCyclopsSpiderBossCleave",
+"monster": "CyclopsSpiderBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+735.6,
+"attack"
+]
+}
+},
+{
+"id": "MAASCyclopsSpiderBossShotgunCombo",
+"monster": "CyclopsSpiderBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1833.4,
+"attack"
+]
+}
+},
+{
+"id": "MAASCyclopsSpiderBossStationaryShotgunCombo",
+"monster": "CyclopsSpiderBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1833.4,
+"attack"
+]
+}
+},
+{
+"id": "MAASCyclopsSpiderBossTrampleCombo",
+"monster": "CyclopsSpiderBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1131.7,
+"attack"
+]
+}
+},
+{
+"id": "MPWCyclopsSpiderBossShotgunComboProjectile",
+"monster": "CyclopsSpiderBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+147.1,
+"attack"
+]
+}
+},
+{
+"id": "MSSCyclopsSpiderMortar",
+"monster": "CyclopsSpiderBoss",
+"kind": "Spell",
+"red": true,
+"nuke": false,
+"hit": {
+"Physical": [
+605.3,
+"spell"
+]
+}
+},
+{
+"id": "MeleeAtAnimationSpeedBoss",
+"monster": "VerisiumWall",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+2546.4,
+"attack"
+]
+}
+}
+],
+"Vessel of Kulemak": [
+{
+"id": "EAAKulemakBossDoubleCleave",
+"monster": "KulemakBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1881.5,
+"attack"
+]
+}
+},
+{
+"id": "EAAKulemakBossDoubleCleaveAugment",
+"monster": "KulemakBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+3048.1,
+"attack"
+]
+}
+},
+{
+"id": "EAAKulemakBossDoubleSlam",
+"monster": "KulemakBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1881.5,
+"attack"
+]
+}
+},
+{
+"id": "EAAKulemakBossTeleportEscape",
+"monster": "KulemakBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1881.5,
+"attack"
+]
+}
+},
+{
+"id": "EAAKulemakBossTeleportEscapeNoCD",
+"monster": "KulemakBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1881.5,
+"attack"
+]
+}
+},
+{
+"id": "GAKulemakBossTeleportSlam",
+"monster": "KulemakBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+3010.4,
+"attack"
+]
+}
+},
+{
+"id": "GAKulemakBossTeleportSlamTriggered",
+"monster": "KulemakBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+3010.4,
+"attack"
+]
+}
+},
+{
+"id": "GSKulemakBossCleave",
+"monster": "KulemakBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Cold": [
+2522.2,
+"spell"
+]
+}
+},
+{
+"id": "GSKulemakBossCleaveGreen",
+"monster": "KulemakBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+2017.8,
+"spell"
+],
+"Cold": [
+504.4,
+"spell"
+]
+}
+},
+{
+"id": "GSKulemakBossMegaBeam",
+"monster": "KulemakBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+432.4,
+"spell"
+]
+}
+},
+{
+"id": "GSKulemakBossMegaBeamSides",
+"monster": "KulemakBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+432.4,
+"spell"
+]
+}
+},
+{
+"id": "GSKulemakBossProximityMine",
+"monster": "KulemakBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+936.8,
+"spell"
+]
+}
+},
+{
+"id": "GSKulemakBossTotemLaser",
+"monster": "KulemakBoss",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+1441.3,
+"spell"
+]
+}
+},
+{
+"id": "MASKulemakMeleeTriggeredSlam",
+"monster": "KulemakBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1881.5,
+"attack"
+]
+}
+},
+{
+"id": "MeleeAtAnimationSpeedBoss",
+"monster": "KulemakBoss",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+3386.7,
+"attack"
+]
+}
+}
+],
+"Atziri, the Red Queen": [
+{
+"id": "AtziriElementalSpearCombo",
+"monster": "AtziriBossPhaseOne",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+806.4,
+"converted"
+],
+"Lightning": [
+806.4,
+"converted"
+]
+}
+},
+{
+"id": "AtziriSpinningFlameWall",
+"monster": "AtziriBossPhaseOne",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+403.2,
+"attack"
+],
+"Fire": [
+1612.7,
+"converted"
+]
+}
+},
+{
+"id": "GAAtziriBloodSpear",
+"monster": "AtziriBossPhaseOne",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+443.5,
+"attack"
+]
+}
+},
+{
+"id": "GAAtziriLightningDashDamage",
+"monster": "AtziriBossPhaseOne",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1142.4,
+"attack"
+]
+}
+},
+{
+"id": "GAAtziriSpinningFlameWall",
+"monster": "AtziriBossPhaseOne",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+2015.9,
+"attack"
+]
+}
+},
+{
+"id": "GSAtziriBloodCannon",
+"monster": "AtziriBossPhaseOne",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+3459.0,
+"spell"
+]
+}
+},
+{
+"id": "GSAtziriBloodProjImpact",
+"monster": "AtziriBossPhaseOne",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1225.1,
+"spell"
+]
+}
+},
+{
+"id": "GSAtziriBloodProjImpactTerrain",
+"monster": "AtziriBossPhaseOne",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1261.1,
+"spell"
+]
+}
+},
+{
+"id": "GSAtziriFireProjImpact",
+"monster": "AtziriBossPhaseOne",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+1801.6,
+"spell"
+]
+}
+},
+{
+"id": "GSAtziriFireProjImpactTerrain",
+"monster": "AtziriBossPhaseOne",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+1873.6,
+"spell"
+]
+}
+},
+{
+"id": "GSAtziriFlameblast",
+"monster": "AtziriBossPhaseOne",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+2161.9,
+"spell"
+]
+}
+},
+{
+"id": "GSAtziriFlameblastClone",
+"monster": "AtziriBossPhaseOne",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+2161.9,
+"spell"
+]
+}
+},
+{
+"id": "GSAtziriFlameblastEmpowered",
+"monster": "AtziriBossPhaseOne",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+3242.8,
+"spell"
+]
+}
+},
+{
+"id": "GSAtziriFlameblastEmpoweredTriggered",
+"monster": "AtziriBossPhaseOne",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+3242.8,
+"spell"
+]
+}
+},
+{
+"id": "GSAtziriLightningProjImpact",
+"monster": "AtziriBossPhaseOne",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+1801.6,
+"spell"
+]
+}
+},
+{
+"id": "GSAtziriLightningProjImpactTerrain",
+"monster": "AtziriBossPhaseOne",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+1873.6,
+"spell"
+]
+}
+},
+{
+"id": "GSAtziriStormCallSingle",
+"monster": "AtziriBossPhaseOne",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+1153.0,
+"spell"
+]
+}
+},
+{
+"id": "GSAtziriStormCallSingleEmpowered",
+"monster": "AtziriBossPhaseOne",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+1729.5,
+"spell"
+]
+}
+},
+{
+"id": "MPSAtziriBloodProj",
+"monster": "AtziriBossPhaseOne",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+648.6,
+"spell"
+]
+}
+},
+{
+"id": "MPSAtziriBloodSpearPulse",
+"monster": "AtziriBossPhaseOne",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1153.0,
+"spell"
+]
+}
+},
+{
+"id": "MPSAtziriFireProj",
+"monster": "AtziriBossPhaseOne",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+648.6,
+"spell"
+]
+}
+},
+{
+"id": "MPSAtziriLightningProj",
+"monster": "AtziriBossPhaseOne",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+648.6,
+"spell"
+]
+}
+},
+{
+"id": "MPSAtziriLightningSpearProj",
+"monster": "AtziriBossPhaseOne",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+648.6,
+"spell"
+]
+}
+},
+{
+"id": "MPWAtziriBloodSpearTeleport",
+"monster": "AtziriBossPhaseOne",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1343.9,
+"attack"
+]
+}
+},
+{
+"id": "MeleeAtAnimationSpeedBoss",
+"monster": "AtziriBossPhaseOne",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+2419.1,
+"attack"
+]
+}
+},
+{
+"id": "MeleeAtAnimationSpeedFire",
+"monster": "AtziriBossPhaseOne",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+268.8,
+"attack"
+],
+"Fire": [
+1075.2,
+"converted"
+]
+}
+},
+{
+"id": "MeleeAtAnimationSpeedLightning",
+"monster": "AtziriBossPhaseOne",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+268.8,
+"attack"
+],
+"Lightning": [
+1075.2,
+"converted"
+]
+}
+}
+],
+"Atziri, the Fell Serpent": [
+{
+"id": "AtziriBeastDash",
+"monster": "AtziriBossPhaseTwo______",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "AtziriBeastTeleport",
+"monster": "AtziriBossPhaseTwo______",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "AtziriElementalSpearCombo",
+"monster": "AtziriBossPhaseTwo______",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+954.9,
+"converted"
+],
+"Lightning": [
+954.9,
+"converted"
+]
+}
+},
+{
+"id": "AtziriSpinningFlameWall",
+"monster": "AtziriBossPhaseTwo______",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+477.5,
+"attack"
+],
+"Fire": [
+1909.8,
+"converted"
+]
+}
+},
+{
+"id": "EAAAtziriDashArcLeft",
+"monster": "AtziriBossPhaseTwo______",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "EAAAtziriDashArcRight",
+"monster": "AtziriBossPhaseTwo______",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "GAAtziriBeastTeleportSlam",
+"monster": "AtziriBossPhaseTwo______",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "GAAtziriBloodSpear",
+"monster": "AtziriBossPhaseTwo______",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+525.2,
+"attack"
+]
+}
+},
+{
+"id": "GAAtziriSpinningFlameWall",
+"monster": "AtziriBossPhaseTwo______",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+2387.3,
+"attack"
+]
+}
+},
+{
+"id": "GSAtziriBloodCannon",
+"monster": "AtziriBossPhaseTwo______",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+3459.0,
+"spell"
+]
+}
+},
+{
+"id": "GSAtziriFlameblastEmpowered2",
+"monster": "AtziriBossPhaseTwo______",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+3242.8,
+"spell"
+]
+}
+},
+{
+"id": "GSAtziriFlameblastEmpoweredTriggered",
+"monster": "AtziriBossPhaseTwo______",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+3242.8,
+"spell"
+]
+}
+},
+{
+"id": "GSAtziriFleshBubbleExplosion",
+"monster": "AtziriBossPhaseTwo______",
+"kind": "Spell",
+"red": true,
+"nuke": true,
+"hit": {
+"Physical": [
+28825.3,
+"spell"
+]
+}
+},
+{
+"id": "GSAtziriStormCallSingleEmpowered",
+"monster": "AtziriBossPhaseTwo______",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+1729.5,
+"spell"
+]
+}
+},
+{
+"id": "MPSAtziriBloodSpearPulse",
+"monster": "AtziriBossPhaseTwo______",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1153.0,
+"spell"
+]
+}
+},
+{
+"id": "MeleeAtAnimationSpeed40Dist",
+"monster": "AtziriBossPhaseTwo______",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1591.5,
+"attack"
+]
+}
+},
+{
+"id": "MeleeAtAnimationSpeedBoss",
+"monster": "AtziriBossPhaseTwo______",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+2864.7,
+"attack"
+]
+}
+}
+],
+"The Trialmaster": [
+{
+"id": "GATheTrialMasterBossBloodSlam",
+"monster": "TheTrialmaster_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+3947.0,
+"attack"
+]
+}
+},
+{
+"id": "GATheTrialMasterBossGroundSpearImpact",
+"monster": "TheTrialmaster_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+657.8,
+"attack"
+]
+}
+},
+{
+"id": "GATheTrialMasterBossGroundSpearNova",
+"monster": "TheTrialmaster_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+921.0,
+"attack"
+]
+}
+},
+{
+"id": "GATrialmasterAbyssSlamImpact",
+"monster": "TheTrialmaster_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1315.7,
+"attack"
+]
+}
+},
+{
+"id": "GATrialmasterBloodSlamBuildUp",
+"monster": "TheTrialmaster_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1315.7,
+"attack"
+]
+}
+},
+{
+"id": "GATrialmasterLacerate",
+"monster": "TheTrialmaster_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1315.7,
+"attack"
+]
+}
+},
+{
+"id": "GPATrialMasterBossThrowWeapon",
+"monster": "TheTrialmaster_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1315.7,
+"attack"
+]
+}
+},
+{
+"id": "GSTrialMasterBossOmegaProjectileExplode",
+"monster": "TheTrialmaster_",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+302.7,
+"spell"
+]
+}
+},
+{
+"id": "GSTrialmasterColdBoltImpact",
+"monster": "TheTrialmaster_",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Cold": [
+576.5,
+"spell"
+]
+}
+},
+{
+"id": "GSTrialmasterFireBoltImpact",
+"monster": "TheTrialmaster_",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Fire": [
+576.5,
+"spell"
+]
+}
+},
+{
+"id": "GSTrialmasterLightningBoltImpact",
+"monster": "TheTrialmaster_",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Lightning": [
+576.5,
+"spell"
+]
+}
+},
+{
+"id": "MASTrialmasterSpinningCombo",
+"monster": "TheTrialmaster_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1315.7,
+"attack"
+]
+}
+},
+{
+"id": "MPSTheTrialMasterOmegaBolt",
+"monster": "TheTrialmaster_",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+864.8,
+"spell"
+]
+}
+},
+{
+"id": "MPSTheTrialMasterOmegaBoltNormal",
+"monster": "TheTrialmaster_",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+864.8,
+"spell"
+]
+}
+},
+{
+"id": "MPSTheTrialMasterOmegaBoltTriggered",
+"monster": "TheTrialmaster_",
+"kind": "Spell",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+576.5,
+"spell"
+]
+}
+},
+{
+"id": "MeleeAtAnimationSpeedUnique",
+"monster": "TheTrialmaster_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1315.7,
+"attack"
+]
+}
+},
+{
+"id": "TheTrialMasterBossAbyssSlam",
+"monster": "TheTrialmaster_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1315.7,
+"attack"
+]
+}
+},
+{
+"id": "TheTrialMasterBossAbyssSlamNormal",
+"monster": "TheTrialmaster_",
+"kind": "Attack",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+1315.7,
+"attack"
+]
+}
+},
+{
+"id": "TrialmasterTetherSpike",
+"monster": "TheTrialmaster_",
+"kind": "?",
+"red": false,
+"nuke": false,
+"hit": {
+"Physical": [
+288.3,
+"spell"
+]
+}
+}
+]
+}
+}

@@ -1119,8 +1119,8 @@ def test_a_new_build_is_scored_against_the_boss_preset(engine):
     name = ctx.request.boss or bosses.DEFAULT  # (None: the bridge's BOSS_HITS_DEFAULT, then BOSS_DEFAULT over it)
     for var, value in {**boss_hits.config_vars(name), **bosses.config_vars(name)}.items():  # resistances, hits per type
         assert config.get(var) == value, var
-    if name == bosses.WORST:
-        for t, size in bosses.worst_hit_sizes().items():
+    if name == bosses.WORST:  # (MECHC31: the highest average hit of any real preset per type, boss_hits.mean_hits)
+        for t, size in boss_hits.mean_hits(name).items():
             assert config.get(f"enemy{t}Damage") == round(size), t
 
 
