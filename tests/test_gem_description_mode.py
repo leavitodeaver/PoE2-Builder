@@ -554,3 +554,19 @@ def test_shield_charge_steps_back_only_where_its_distance_could_pay():
     mods, notes = models.shield_charge_distance_model(charge, {"Speed": 1 / 1.9})  # (a use time with the channel in it)
     assert mods == [] and notes[0]["value"] == "not counted"
     assert models.shield_charge_distance_model(Skill("Rake", 1), {"Speed": 2.0}) == ([], [])
+
+
+def test_cast_speed_raises_a_channelled_skills_per_minute_cost():
+    """GEM15: "Modifiers to cast speed also affect this skill's cost" (Bonestorm, Flameblast, Volcano): each per-minute cost
+    is overridden to its raw cost x the cast speed multiplier; upfront costs and skills without the stat are left alone."""
+    from builder.search import models
+
+    bone = models.Skill("Bonestorm", over_time_cost={"perMinute": {"ManaPerMinute": 3634}, "castSpeed": 1.32})
+    volcano = models.Skill("Volcano", over_time_cost={"perMinute": {"ManaPerMinute": 3680}, "castSpeed": 1.0})
+    other = models.Skill("Incinerate")
+    mods, notes = models.over_time_cost_model([bone, volcano, other, bone])
+    assert mods == [models.raw_mod("BaseManaPerMinuteCostOverride", "OVERRIDE", 3634 * 1.32, "Bonestorm")]
+    assert [n["value"] for n in notes] == ["x1.32"] and notes[0]["entry"] == models.OVER_TIME_COST_ENTRY
+    assert models.over_time_cost_model([bone], {models.OVER_TIME_COST_ENTRY}) == ([], [])
+    slow = models.Skill("Flameblast", over_time_cost={"perMinute": {"ManaPerMinute": 3450}, "castSpeed": 0.8})
+    assert models.over_time_cost_model([slow])[0][0]["value"] == 3450 * 0.8

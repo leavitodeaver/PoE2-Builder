@@ -244,6 +244,8 @@ class Skill:
     # a totem skill's count PoB multiplies its ailment stacks by: {override, limit} (bridge ailmentTotems; totem_count_model)
     ailment_totems: dict | None = None
     mark_duration: float = 0.0  # a Mark's duration with the build's modifiers (bridge activeSkills markDuration; MECH62)
+    # its raw per-minute costs and cast speed multiplier if cast speed also scales its cost (bridge overTimeCost; GEM15)
+    over_time_cost: dict | None = None
 
     @classmethod
     def of(cls, raw: dict) -> Skill:
@@ -254,7 +256,7 @@ class Skill:
                    bool(raw.get("corpses")), raw.get("level"), raw.get("minion"), raw.get("summon"),
                    dict(raw.get("supportStats") or {}), raw.get("earlyHazard"), number(raw.get("energyFinal")),
                    number(raw.get("totalTimeAdded")), raw.get("statSet"), number(raw.get("totemLimit")),
-                   raw.get("ailmentTotems"), number(raw.get("markDuration")))
+                   raw.get("ailmentTotems"), number(raw.get("markDuration")), raw.get("overTimeCost"))
 
 
 def hits_per_second(stats: dict) -> float:
@@ -3366,6 +3368,8 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
     notes += shield_charge_distance_model(main, stats or {})[1]
     bomb_mods, bomb_notes = frost_bomb_exposure_model(skills, stats or {}, main, groups or {}, boss_level, forbidden)
     mods, notes = mods + bomb_mods, notes + bomb_notes
+    cost_mods, cost_notes = over_time_cost_model(skills, forbidden)
+    mods, notes = mods + cost_mods, notes + cost_notes
     return mods, notes
 
 
@@ -5872,6 +5876,51 @@ def broken_stance_model(vault_hit: float, vault_hits: float, dazed: float, hits:
     play = (f"Daze the boss with another skill or line, then hit it with {STANCE_SKILL}'s shockwave (without it: 0; "
             f"with it: {dps:,.0f} DPS)")
     return dps, [{"label": label, "value": f"{dps:,.0f} DPS", "basis": basis, "confidence": conf, "play": play}]
+
+
+# Cast speed raises a channelled skill's cost (GEM15; GEM14's trace, an OVERCOUNT of mana sustain). The game:
+# cast_speed_modifiers_apply_to_over_time_cost, "Modifiers to cast speed also affect this skill's cost" (stat descriptions,
+# builds 26476662 / 26650308), on the player sets FlameblastPlayer, VolcanoPlayer and BonestormPlayer (checked by GEM14:
+# GrantedEffectStatSets ImplicitStats / IgnoredStats; not in PerLevel, Mods or PassiveSkills; two monster sets carry it).
+# PoB maps it to nothing ("Display Only", SkillStatMap) and turns their ManaPerMinute cost into a fixed ManaPerSecondCost
+# (CalcOffence 2302). Probe POE2T2135 (scratch/gem15/probe_cost.py): +20% increased Cast Speed took Bonestorm's Speed 8.8 ->
+# 10.56 and Volcano's 1.25 -> 1.5 with ManaPerSecondCost unchanged (60, 61). So each per-minute cost is set to its level's raw
+# cost x the skill's cast speed multiplier (calcLib.mod Speed, as CalcOffence 1293 builds cast speed; the bridge's
+# overTimeCost) through PoB's Base<resource>CostOverride, which replaces only that per-minute cost: in the probe it took
+# Volcano's ManaPerSecondCost 61 -> 73 and left its upfront 73 Mana alone (a ManaCost MORE scaled both). Nothing else sets
+# the override (checked: grep CostOverride in PoB's src, Data/Uniques included, and builder/ / engine/: CalcOffence 2226
+# only). The cost x the whole multiplier, "more" cast speed included (MEDIUM: the text says modifiers to cast speed affect
+# the cost, not by how much; linear is the plain reading, no second source gives a number); slower casting lowers it alike.
+OVER_TIME_COST_ENTRY = "model-gem15-cast-speed-over-time-cost"
+
+
+def over_time_cost_model(skills: list[Skill], forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Per-minute costs scaled by the skill's cast speed multiplier, for skills whose cost cast speed affects."""
+    if OVER_TIME_COST_ENTRY in forbidden:
+        return [], []
+    mods: list[dict] = []
+    notes: list[dict] = []
+    done: set[str] = set()
+    for skill in skills:
+        info = skill.over_time_cost
+        if not info or skill.name in done:
+            continue
+        done.add(skill.name)
+        speed = number(info.get("castSpeed"))
+        costs = {k: number(v) for k, v in (info.get("perMinute") or {}).items() if number(v) > 0}
+        if speed <= 0 or not costs or abs(speed - 1.0) < 1e-6:
+            continue
+        for resource, raw in sorted(costs.items()):
+            mods.append(raw_mod(f"Base{resource}CostOverride", "OVERRIDE", raw * speed, skill.name))
+        what = ", ".join(f"{k.replace('PerMinute', '')} {v / 60:.1f}/s" for k, v in sorted(costs.items()))
+        notes.append({
+            "label": f"{skill.name}: cast speed raises its cost while channelling*", "value": f"x{speed:.2f}",
+            "confidence": "MEDIUM", "entry": OVER_TIME_COST_ENTRY,
+            "basis": (f"The game: \"Modifiers to cast speed also affect this skill's cost\"; PoB keeps the per-minute cost "
+                      f"fixed. Its base cost ({what} before cost modifiers) x its cast speed multiplier {speed:.2f}: the "
+                      "cost per second scales with the whole multiplier (MEDIUM: the text gives no formula; linear is the "
+                      "plain reading)")})
+    return mods, notes
 
 
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------

@@ -4217,6 +4217,34 @@ function bridge.activeSkills(args)
 			end)
 			skills[#skills].totalTimeAdded = ok and added ~= 0 and added or nil
 		end
+		-- (GEM15) "Modifiers to cast speed also affect this skill's cost" (cast_speed_modifiers_apply_to_over_time_cost,
+		-- PoB "Display Only": Bonestorm, Flameblast, Volcano): the skill's raw per-minute costs from its level data (never
+		-- the override models.over_time_cost_model sets, so every pass reads the same) and its cast speed multiplier as
+		-- CalcOffence 1293 builds it (calcLib.mod Speed); PoB keeps the per-minute cost fixed
+		do
+			local ok, info = pcall(function()
+				local cost = activeSkill.activeEffect.grantedEffectLevel.cost or { }
+				local perMinute
+				for resource, value in pairs(cost) do
+					if resource:match("PerMinute$") then
+						perMinute = perMinute or setmetatable({ }, { __jsontype = "object" })
+						perMinute[resource] = value
+					end
+				end
+				if not perMinute then
+					return nil
+				end
+				for _, set in ipairs(effect.statSets or { }) do
+					for _, stat in ipairs(set.stats or { }) do
+						if stat == "cast_speed_modifiers_apply_to_over_time_cost" then
+							return { perMinute = perMinute, castSpeed = jsonNumber(
+								calcLib.mod(activeSkill.skillModList, activeSkill.skillCfg, "Speed")) }
+						end
+					end
+				end
+			end)
+			skills[#skills].overTimeCost = ok and info or nil
+		end
 		-- A totem-summoning skill's Totem Limit (models.totem_count_model, MECHB8): PoB reports ActiveTotemLimit only for the
 		-- skill it calculates, and the damaging part beside it (Shockwave Slam, Ballista Bolt, Vile Effusion) has none.
 		-- Both reads leave out the one-totem correction (source "Assumption:OneTotem", models.TOTEM_ONE_TAG), so the model
