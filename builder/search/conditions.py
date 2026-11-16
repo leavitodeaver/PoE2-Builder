@@ -3893,7 +3893,9 @@ def incinerate_channel(mana_per_second: float, ms_per_mana: float, max_ms: float
 # The model: the Ignite's average magnitude over the cycle (channel + gap), with compounding over without (same Ignite
 # times, chance and duration), applied as more Ignite Magnitude on the skill. Flame Breath's channel: its free window
 # (channelled_skill_suppress_ongoing_rage_cost_for_first_X_ms, 4 s + quality) recast at once ("do not go on cooldown on
-# finishing channel"); Rage prolonging it isn't counted (an UNDERCOUNT, labelled).
+# finishing channel"). Rage would prolong it, but the skill can't gain Rage while in use (skill_cannot_gain_rage_during_use)
+# and back-to-back channels leave no time between them to gain any, so each starts with none: the free window is the
+# channel (MEDIUM; a play that pauses to refill Rage for longer channels isn't modelled).
 COMPOUNDING_SKILLS = {INCINERATE, "Flame Breath"}
 FLAME_BREATH_FREE_STAT = "channelled_skill_suppress_ongoing_rage_cost_for_first_X_ms"
 COMPOUND_STEP = 0.01  # s, the sampling step of compounding_factor
@@ -5071,8 +5073,8 @@ class Conditions:
             got = next((s.get("levelStats") or {} for s in raw if s["name"] == self.main_skill), {})
             channel = (number(got.get(FLAME_BREATH_FREE_STAT)) or 4000.0) / 1000.0
             gap = 0.0
-            play = (f"{channel:g} s channels (its Rage-free window), recast at once; Rage prolonging it not counted (an "
-                    "UNDERCOUNT)")
+            play = (f"{channel:g} s channels (its Rage-free window), recast at once (it can't gain Rage while in use, so "
+                    "back-to-back channels start with none to prolong it; MEDIUM)")
         factor, n = compounding_factor(rate, channel, gap, duration)
         return factor, (f"{rate:.2f} Ignites/s ({number(stats.get('IgniteChancePerHit')):.0f}% a hit), {n} a channel, "
                         f"each {duration:g} s; {play}: the Ignite averages x{factor:.2f} its magnitude (the k-th Ignite "
