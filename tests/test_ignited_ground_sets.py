@@ -4,6 +4,7 @@ conditions.NO_HIT_STAT_SETS; with Oil Grenade's / Oil Barrage's "Oil Ground" and
 from __future__ import annotations
 
 import faulthandler
+import math
 
 import pytest
 
@@ -216,3 +217,137 @@ def test_incinerate_without_fuel_scores_nothing_on_a_real_build(engine):
     assert share == 0.0 and "no other skill" in how
     assert not search.conditions.active.get(conditions.INCINERATE_CHANNEL_VAR)
     assert main_dps(build.stats) == pytest.approx(0.0, abs=1e-6)
+
+
+# MECH80: Ignites that don't Hit (Radiant Grief's aura, your Ignited Ground) need the boss at 50% Flammability
+GRIEF = "Enemies in your Presence are Ignited as though dealt 200 Base Fire Damage"
+THRESHOLD = {"EnemyAilmentThreshold": 71303.0}  # (PoB's monster table at level 82)
+
+
+def test_flammability_reach_is_the_poisson_tail_of_the_live_stacks():
+    """1 application a second of 10% each, live 8 s: 8 stacks on average, 5 needed for 50%."""
+    want = 1 - sum(math.exp(-8) * 8 ** k / math.factorial(k) for k in range(5))
+    assert conditions.flammability_reach([("x", 1.0, 10.0)]) == pytest.approx(want)
+    assert conditions.flammability_reach([("x", 1.0, 60.0)]) == pytest.approx(1 - math.exp(-8))  # (one stack is enough)
+    assert conditions.flammability_reach([]) == 0.0
+
+
+def test_an_aura_alone_never_lifts_a_boss_to_50_percent_but_a_fire_builds_hits_do():
+    """Radiant Grief's 200 Fire is 0.06% a application on a level-82 boss: it Ignites only on the build's Flammability."""
+    assert conditions.no_hit_ignite(THRESHOLD, 200.0, 8.0)[0] < 1e-6
+    hitting = {**THRESHOLD, "Speed": 3.0, "IgniteChancePerHit": 20.0, "HitChance": 100.0}
+    reach, how = conditions.no_hit_ignite(hitting, 200.0, 8.0)
+    assert reach > 0.99 and "LOW" in how
+    weak = {**THRESHOLD, "Speed": 1.0, "IgniteChancePerHit": 3.0}
+    assert conditions.no_hit_ignite(weak, 200.0, 8.0)[0] < 0.01
+    # (the other groups' Ignites count too: 2 hits/s at 25% a hit)
+    others = {**THRESHOLD, "_ailment_others": {"Ignite": [("Fireball", 2.0, 0.25, 4.0)]}}
+    assert conditions.no_hit_ignite(others, 200.0, 8.0)[0] > 0.99
+
+
+def test_the_grounds_ignite_reads_its_as_though_damage_from_your_life():
+    life = {**THRESHOLD, "Life": 3000.0}
+    assert conditions._as_though_life(BEIRA, life) == pytest.approx(15000.0)
+    assert conditions._as_though_life(FURY, life) == pytest.approx(300.0)
+    assert conditions._as_though_life(GRIEF, life) is None
+    # the build's Flammability Magnitude modifiers scale the source's own applications (the bridge's flammabilityMagnitude)
+    raw = conditions.as_though_flammability(15000.0, life)
+    assert raw == pytest.approx(15000 / 71303 * 20)
+    boosted = {**life, "_flammability_mod": {"inc": 100.0, "more": 1.5}}
+    assert conditions.as_though_flammability(15000.0, boosted) == pytest.approx(raw * 2 * 1.5)
+    # Beira's 15,000 Fire: 4.2% a application, 8 in its 4 s: short of 50% alone most of the time
+    share, how = conditions.ground_ignite([("the charm's ground", 0.3, 4.0, 15000.0)], life)
+    assert 0.0 < share < 0.3 * 0.5 and "15000 Fire" in how
+    # with a fire build's hits under it, the ground's share is the Ignited share
+    hitting = {**life, "Speed": 3.0, "IgniteChancePerHit": 20.0}
+    assert conditions.ground_ignite([("the charm's ground", 0.3, 4.0, 15000.0)], hitting)[0] == pytest.approx(0.3, 1e-3)
+    # Incinerate's ground: its own damage isn't read, so only the build's Flammability lifts the boss
+    _, how = conditions.ground_ignite([("Incinerate's ground", 0.5, 8.0, None)], life)
+    assert "UNDERCOUNT" in how
+    assert conditions.ground_ignite([], life) == (0.0, "")
+
+
+def test_radiant_grief_and_birth_of_fury_dont_ignite_the_boss_on_a_build_without_fire(engine):
+    """Rolling Slam (no Fire) with Radiant Grief and Birth of Fury: before MECH80 the aura counted the boss Ignited all the
+    fight; now neither lifts it to 50% Flammability."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, ItemOption, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Rolling Slam"))
+    skeleton = enumerate_skeletons(Context(payload), ["Rolling Slam"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    search.settle()
+    build = search.build
+    helmet = "\n".join(["Rarity: Unique", "Radiant Grief", "Lace Hood", "Item Level: 82", "Implicits: 0", GRIEF])
+    boots = "\n".join(["Rarity: Unique", "Birth of Fury", "Stone Greaves", "Item Level: 82", "Implicits: 0", FURY,
+                       "50% increased Flammability Magnitude"])
+    for slot, raw, kind in (("Helmet", helmet, "Helmet"), ("Boots", boots, "Boots")):
+        lines = raw.split("\n")
+        option = ItemOption(name=lines[1], base=lines[2], type=kind, sub_type=None, raw=raw, unique=True, price=None,
+                            confidence="ssf", level=1)
+        build.equip(slot, option)
+    search.settle()
+    share, how = (build.ailment_ground or {}).get("Ignite") or (0.0, "")
+    print("GROUND IGNITE", share, how)
+    mod = build.call("flammabilityMagnitude")
+    print("FLAMMABILITY MOD", mod)
+    assert mod["inc"] >= 50 and mod["more"] == pytest.approx(1.0)
+    assert "50% Flammability" in how and "Ignited Ground Ignites the boss" in how
+    assert "its own" in how.split("Ignited Ground Ignites the boss")[0]  # (the aura's own 200 Fire read)
+    assert share < 0.05
+
+
+# MECH80 (PATCH_CHECK L4-3): Electrocute is an Ailment and an Elemental Ailment (KeywordPopups; patch 0.2.0 / 0.2.0e)
+AILING = "30% increased Damage with Hits against Enemies affected by Ailments"
+ELEMENTAL = "25% increased Damage with Hits against Enemies affected by Elemental Ailments"
+FEW = "20% increased Damage against Frozen, Shocked or Ignited Enemies"
+
+
+def test_the_ailment_lists_count_electrocute_but_a_named_few_stay_as_written(engine):
+    out = engine.call("parseLines", lines=[AILING, ELEMENTAL, FEW])["results"]
+    print("PARSE", out)
+    lists = [" ".join(m.get("varLists") or []) for r in out for m in r["parsed"][:1]]
+    assert "Electrocuted" in lists[0] and "Poisoned" in lists[0]
+    assert "Electrocuted" in lists[1] and "Poisoned" not in lists[1]
+    assert "Shocked" in lists[2] and "Electrocuted" not in lists[2]
+
+
+def test_an_electrocuted_boss_turns_on_the_lines_for_enemies_affected_by_ailments(engine):
+    """A real build with the two lines on a ring: the boss Electrocuted and nothing else, the damage goes up."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, ItemOption, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Rolling Slam"))
+    skeleton = enumerate_skeletons(Context(payload), ["Rolling Slam"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    search.settle()
+    build = search.build
+    off = {f"conditionEnemy{a}": False for a in ("Frozen", "Chilled", "Shocked", "Ignited", "Poisoned", "Bleeding")}
+
+    def gain() -> float:
+        """TotalDPS with the boss Electrocuted (and no other ailment) over without, on the build as it stands."""
+        before = build.call("getConfig")["input"]
+        try:
+            plain = build.call("setConfig", vars={**off, "conditionEnemyElectrocuted": False},
+                               fields=["TotalDPS"])["stats"]["TotalDPS"]
+            shocked = build.call("setConfig", vars={**off, "conditionEnemyElectrocuted": True},
+                                 fields=["TotalDPS"])["stats"]["TotalDPS"]
+        finally:
+            build.call("setConfig", vars={k: before.get(k, False) for k in [*off, "conditionEnemyElectrocuted"]})
+        return shocked / plain
+
+    bare = gain()  # (other things on the build read Electrocuted too: POE2T3146 doubled without telling them apart)
+    raw = "\n".join(["Rarity: Rare", "Test Loop", "Iron Ring", "Item Level: 82", "Implicits: 0", AILING, ELEMENTAL])
+    option = ItemOption(name="Test Loop", base="Iron Ring", type="Ring", sub_type=None, raw=raw, unique=False,
+                        price=None, confidence="ssf", level=1)
+    build.equip("Ring 1", option)
+    search.settle()
+    ringed = gain()
+    print("ELECTROCUTED gain without the ring", bare, "with it", ringed)
+    assert ringed > bare * 1.05

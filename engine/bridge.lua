@@ -90,6 +90,62 @@ do
 	end
 end
 
+-- Electrocute counts as an Ailment and an Elemental Ailment on the enemy (MECH80; PATCH_CHECK L4-3, an UNDERCOUNT where
+-- Electrocute is the boss's only ailment). The game: KeywordPopups Ailments "The list of Ailments is: Bleeding, Ignite,
+-- Chill, Freeze, Shock, Electrocute, and Poison", ElementalAilments "Ignite, Chill, Freeze, Shock, and Electrocute";
+-- patch 0.2.0 "Fixed a bug where conditional effects that looked for ailments on the target didn't count electrocute",
+-- 0.2.0e "... Electrocute was not counting towards "per Elemental Ailment on the Enemy"". PoB's lists for "against
+-- enemies (that are) affected by (no) (elemental) ailments" and "you and enemies in your presence count as moving while
+-- affected by elemental ailments" (ModParser 2154-2157, 2497-2498) leave Electrocuted out; its own "while affected by
+-- an ailment" (1917), the per-type lines (3876-3892) and the Armour Break line (4341) have it. A list that names Frozen,
+-- Chilled, Shocked and Ignited (a whole elemental-ailment list) gains Electrocuted, on every parse from now on and on
+-- the passive trees parsed at startup; lists naming a few (e.g. "frozen, shocked or ignited") are left as written.
+do
+	local function addElectrocuted(list)
+		for _, mod in ipairs(list or { }) do
+			local tags = { }
+			for _, tag in ipairs(mod) do
+				tags[#tags + 1] = tag
+			end
+			if type(mod.value) == "table" and type(mod.value.mod) == "table" then  -- (an EnemyModifier's inner mod)
+				for _, tag in ipairs(mod.value.mod) do
+					tags[#tags + 1] = tag
+				end
+			end
+			for _, tag in ipairs(tags) do
+				if (tag.type == "ActorCondition" or tag.type == "Condition") and tag.varList then
+					local has = { }
+					for _, var in ipairs(tag.varList) do
+						has[var] = true
+					end
+					if has.Frozen and has.Chilled and has.Shocked and has.Ignited and not has.Electrocuted then
+						local vars = copyTable(tag.varList)
+						vars[#vars + 1] = "Electrocuted"
+						tag.varList = vars
+					end
+				end
+			end
+		end
+	end
+	local parseBefore = modLib.parseMod
+	modLib.parseMod = function(line, ...)
+		local list, extra = parseBefore(line, ...)
+		if list then
+			addElectrocuted(list)
+		end
+		return list, extra
+	end
+	for _, tree in pairs(__mainObject__.main.tree or { }) do
+		for _, node in pairs(tree.nodes or { }) do
+			for _, entry in pairs(node.mods or { }) do
+				if type(entry) == "table" then
+					addElectrocuted(entry.list)
+				end
+			end
+		end
+	end
+end
+
 -- Lucky spell crits (MECHB10; COV8's tested patch, POE2T2401; RESEARCH3's undercount): PoB parses "N% chance for Spell
 -- Damage with Critical Hits to be Lucky" only in part (ModCache: Damage BASE with " for    to be Lucky " left over), so
 -- never applies it. As PoB's own LuckyHitsChance on spell hits in the crit pass (CalcOffence 4205 sets
@@ -4825,14 +4881,18 @@ function bridge.parseLines(args)
 		local list, extra = modLib.parseMod(line)
 		local parsed = { }
 		for _, mod in ipairs(list or { }) do
-			local tags = { }
+			local tags, varLists = { }, { }
 			for _, tag in ipairs(mod) do
 				tags[#tags + 1] = tostring(tag.type) .. (tag.var and (":" .. tostring(tag.var)) or "")
 					.. (tag.skillType and (":" .. tostring(tag.skillType)) or "")
+				if tag.varList then  -- (MECH80: a tag's list of conditions, e.g. the enemy's ailments, L4-3)
+					varLists[#varLists + 1] = tostring(tag.type) .. ":" .. table.concat(tag.varList, ",")
+				end
 			end
 			parsed[#parsed + 1] = { name = mod.name, type = mod.type,
 				value = type(mod.value) == "table" and (mod.value.mod and mod.value.mod.name or "table") or mod.value,
-				flags = mod.flags, keywordFlags = mod.keywordFlags, tags = tags }
+				flags = mod.flags, keywordFlags = mod.keywordFlags, tags = tags,
+				varLists = #varLists > 0 and varLists or nil }  -- (only when a tag has one: exact-match tests compare the rest)
 		end
 		results[i] = { line = line, supported = list ~= nil and #list > 0 and not extra, mods = list and #list or 0,
 			extra = extra, parsed = parsed }
@@ -5821,6 +5881,19 @@ function bridge.shockMagnitude()
 		inc = inc, more = more, enemy = calcLib.mod(env.enemyDB, nil, "SelfShockMagnitude", "AilmentMagnitude"),
 		max = max, left = left,
 	}
+end
+
+-- The build's Flammability Magnitude modifiers for an Ignite that doesn't Hit (MECH80: Radiant Grief's aura, your
+-- Ignited Ground; conditions.as_though_flammability). PoB parses "Flammability Magnitude" as EnemyIgniteChance
+-- (ModParser 789) and scales a hit's Flammability by INC / MORE of EnemyIgniteChance and AilmentChance and the enemy's
+-- SelfIgniteChance (CalcOffence 5619-5621). The aura or ground isn't the main skill, so only the player's global mods
+-- are read (env.player.modDB, no skill cfg): a skill's own lines (Incendiary Shot's "more Flammability") are left out.
+function bridge.flammabilityMagnitude()
+	local env = build.calcsTab.mainEnv
+	local db = env.player.modDB
+	local inc = db:Sum("INC", nil, "EnemyIgniteChance", "AilmentChance") + env.enemyDB:Sum("INC", nil, "SelfIgniteChance")
+	local more = db:More(nil, "EnemyIgniteChance", "AilmentChance") * env.enemyDB:More(nil, "SelfIgniteChance")
+	return { inc = inc, more = more }
 end
 
 function bridge.equipped()

@@ -3805,16 +3805,20 @@ IGNITED_NOT_COUNTED = "Explosive Spear's, Spear of Solaris's and Burning Inscrip
 
 
 def ignited_ground(makers: dict[str, tuple[float, str]], texts: list[str], stats: dict,
-                   charms: dict[str, tuple[float, str]] | None = None) -> tuple[float, str]:
+                   charms: dict[str, tuple[float, str]] | None = None,
+                   pieces: list | None = None) -> tuple[float, str]:
     """(share of the fight the boss stands in your Ignited Ground, how); see the note above. `makers`: {skill: (its
     Fire-Infused casts per second, how)}; `charms`: {line text: (the charm's uses per second, how)}. (0.0, "") with no
-    source."""
+    source. `pieces` (MECH80, ground_ignite): each counted source is appended as (label, its share, its ground's s, the
+    Fire damage it Ignites as though dealing, or None where it isn't read)."""
     parts, notes, off = [], [], 1.0
     for name, (rate, how) in makers.items():
         seconds = IGNITED_GROUND_MAKERS[name]
         up = _covered(rate, 1.0, seconds)
         parts.append(f"{name}'s ground on its Fire-Infused casts ({how}; {seconds:g} s, made at the boss, LOW): {up:.0%}")
         off *= 1 - up
+        if pieces is not None:
+            pieces.append((f"{name}'s ground", up, seconds, None))
     near = _boss_metres(stats) <= IGNITED_GROUND_RADIUS
     for text, (uses, how) in (charms or {}).items():
         if m := IGNITED_ON_USE.search(text.strip()):
@@ -3825,6 +3829,8 @@ def ignited_ground(makers: dict[str, tuple[float, str]], texts: list[str], stats
             up = _covered(uses, 1.0, int(m.group(1)))
             parts.append(f"the charm's ground at your feet ({how}; {m.group(1)} s, {IGNITED_GROUND_RADIUS:g} m): {up:.0%}")
             off *= 1 - up
+            if pieces is not None:
+                pieces.append(("the charm's ground", up, float(m.group(1)), _as_though_life(text, stats)))
     for text in texts:
         if m := IGNITED_WHILE_MOVING.search(text):
             if stats.get("_stationary") and not number(stats.get("_rolling")):
@@ -3835,11 +3841,129 @@ def ignited_ground(makers: dict[str, tuple[float, str]], texts: list[str], stats
                 parts.append(f"the trail while moving ({m.group(1)} s): walk or roll through the boss's spot at least "
                              f"every {m.group(1)} s (a way to play the build; without it, the trail adds nothing): 100%")
                 off = 0.0
+                if pieces is not None:
+                    pieces.append(("the trail while moving", 1.0, float(m.group(1)), _as_though_life(text, stats)))
             break
     if not parts and not notes:
         return 0.0, ""
     share = 1 - off
     return share, "; ".join(parts + notes + [f"on Ignited Ground {share:.0%} of the fight ({IGNITED_NOT_COUNTED})"])
+
+
+# Flammability for the Ignites that don't Hit (MECH80; plans/kw-ignited-ground.md item 2, kw-fire-damage.md item C).
+# Patch 0.3.0: "Effects which don't Hit but Ignite targets as though they did (such as from Incinerate or Ignited Ground)
+# also inflict Flammability, but are not able to ignite targets until the target has 50% Flammability"; Flammability
+# "lasts for 8 seconds on Monsters"; "Multiple hits can stack up Flammability independently" (grep_notes "Flammability":
+# no later entry changes the 50%, the 8 s or the stacking; 0.4.0 makes igniting auras "including Ignited Ground" apply
+# regular Ignites, reapplied "the next time the aura applies flammability"). KeywordPopups Flammability: "1% chance to
+# Ignite the target for every 5% of the target's Ailment Threshold dealt as Fire damage" (PoB: IgniteChanceMultiplier 20,
+# Data/Misc.lua 73, and CalcOffence 5613-5629 computes IgniteChanceOnHit that way from the hit, so PoB's
+# IgniteChancePerHit is a hit's Flammability). The boss's Flammability = its live stacks: the main skill's landing hits
+# (IgniteChancePerHit each), the other groups' Ignites (stats["_ailment_others"]: their chance a hit) and the no-Hit
+# source's own applications (as-though damage / EnemyAilmentThreshold x 20 each), live for 8 s, their count Poisson
+# (applications independent; one average magnitude per stack, MEDIUM). The share of the time it holds 50% is the share
+# the no-Hit source can Ignite the boss.
+#   - The aura's / ground's application interval isn't in the game data or the patch notes (checked: the exported
+#     tables' stats holding "flammab" (15 ids, none an interval); grep_notes "Flammability"; poe2db's Ignited Ground page
+#     (via search excerpts) doesn't give one; poe2wiki refuses automated reads): NO_HIT_TICK, LOW, named to the manager.
+#   - The source's own applications are scaled by the build's global Flammability Magnitude modifiers (the bridge's
+#     flammabilityMagnitude: EnemyIgniteChance / AilmentChance INC and MORE, the enemy's SelfIgniteChance, as PoB's
+#     CalcOffence 5619-5621 scales a hit's), stats["_flammability_mod"]. Whether a damage modifier also raises the
+#     as-though damage isn't stated anywhere I could read (UNVERIFIED): not applied, the line's number taken raw.
+#   - Not read (each an UNDERCOUNT where it would lift the boss to 50%): Incinerate's / Ball Lightning's ground damage
+#     (their own applications count 0 here, so their ground Ignites only on the build's other Flammability); stacking
+#     among the main skill's own hits (ailment_uptime still takes each hit's chance alone, as PoB).
+#   - Its Ignite's damage isn't added (as Radiant Grief's note): only the boss's Ignited state is.
+FLAMMABILITY_SECONDS = 8.0  # s on monsters (patch 0.3.0)
+FLAMMABILITY_PER_THRESHOLD = 20.0  # % per 100% of the Ailment Threshold dealt (KeywordPopups Flammability: 1% per 5%)
+NO_HIT_IGNITE_AT = 50.0  # % Flammability before a no-Hit effect can Ignite (patch 0.3.0)
+NO_HIT_TICK = 0.5  # s between an aura's / a ground's applications (LOW: not in the game data; see the note above)
+AS_THOUGH_LIFE = re.compile(r"as though dealing Fire Damage equal to (\d+)% of your maximum Life", re.I)
+POISSON_TAIL = 20000  # stacks: past this many needed, the share is taken as 0
+
+
+def _as_though_life(text: str, stats: dict) -> float | None:
+    """The Fire damage a line Ignites as though dealing, "equal to N% of your maximum Life" (Beira's Anguish, Birth of
+    Fury), from the build's Life; None when the line names none."""
+    m = AS_THOUGH_LIFE.search(text)
+    return float(m.group(1)) / 100.0 * number(stats.get("Life")) if m else None
+
+
+def flammability_sources(stats: dict) -> list[tuple[str, float, float]]:
+    """[(source, applications per second, Flammability % each)]: the main skill's landing hits and the other groups'
+    Ignites (see the note above)."""
+    out = []
+    hits = number(stats.get("Speed")) * min(number(stats.get("HitChance")) or 100.0, 100.0) / 100.0
+    each = min(number(stats.get("IgniteChancePerHit")), 100.0)
+    if hits > 0 and each > 0:
+        out.append(("the main skill's hits", hits, each))
+    for name, h, c, _ in (stats.get("_ailment_others") or {}).get("Ignite") or ():
+        if h > 0 and c > 0:
+            out.append((name, h, min(c, 1.0) * 100.0))
+    return out
+
+
+def as_though_flammability(damage: float | None, stats: dict) -> float:
+    """Flammability % one application of a no-Hit Ignite gives, as though dealing `damage` Fire (see the note above)."""
+    threshold = number(stats.get("EnemyAilmentThreshold"))
+    if not damage or threshold <= 0:
+        return 0.0
+    mod = stats.get("_flammability_mod") or {}
+    scale = max(0.0, 1 + number(mod.get("inc")) / 100) * (number(mod.get("more")) if "more" in mod else 1.0)
+    return min(100.0, number(damage) / threshold * FLAMMABILITY_PER_THRESHOLD * scale)
+
+
+def flammability_reach(sources: list[tuple[str, float, float]], window: float = FLAMMABILITY_SECONDS) -> float:
+    """Share of the time the boss's live Flammability stacks total at least NO_HIT_IGNITE_AT: their count Poisson with
+    mean (applications a second x `window`), at the sources' average magnitude (see the note above)."""
+    mean = sum(r for _, r, _ in sources) * window
+    total = sum(r * m for _, r, m in sources) * window
+    if mean <= 0 or total <= 0:
+        return 0.0
+    need = math.ceil(NO_HIT_IGNITE_AT / (total / mean) - 1e-9)
+    if need > POISSON_TAIL:
+        return 0.0
+    term, below = math.exp(-mean), 0.0  # P(N < need) = sum of the first `need` Poisson terms
+    if term == 0.0:  # (a mean past ~745: underflow; the count sits near its mean)
+        return 1.0 if mean >= need else 0.0
+    for k in range(need):
+        below += term
+        term *= mean / (k + 1)
+    return min(1.0, max(0.0, 1.0 - below))
+
+
+def no_hit_ignite(stats: dict, damage: float | None, window: float) -> tuple[float, str]:
+    """(share of its time a no-Hit Ignite source can Ignite the boss, how): the build's Flammability plus the source's
+    own applications every NO_HIT_TICK for `window` s (at most the stacks' 8 s) reaching 50%."""
+    own = as_though_flammability(damage, stats)
+    found = flammability_sources(stats)
+    span = min(window, FLAMMABILITY_SECONDS)
+    sources = found + ([("its own", 1.0 / NO_HIT_TICK, own)] if own > 0 else [])
+    # (its own stacks live only while it lasts: scaled to the 8 s window)
+    sources = [(n, r * (span / FLAMMABILITY_SECONDS) if n == "its own" else r, m) for n, r, m in sources]
+    reach = flammability_reach(sources)
+    level = sum(r * m for _, r, m in sources) * FLAMMABILITY_SECONDS
+    said = ", ".join(f"{n} {r:.2f}/s x {m:.2f}%" for n, r, m in sources) or "no Flammability source"
+    return reach, (f"the boss at {level:.0f}% Flammability on average ({said}; 8 s stacks; the source's applications every "
+                   f"{NO_HIT_TICK:g} s, LOW): at 50% or more {reach:.0%} of the time")
+
+
+def ground_ignite(pieces: list, stats: dict) -> tuple[float, str]:
+    """(share of the fight your Ignited Ground keeps the boss Ignited, how) from ignited_ground's `pieces`: each source's
+    share x the share of it the boss holds 50% Flammability (no_hit_ignite), sources independent."""
+    off, parts = 1.0, []
+    for label, up, seconds, damage in pieces:
+        if up <= 0:
+            continue
+        reach, how = no_hit_ignite(stats, damage, seconds)
+        dealt = f"as though dealing {damage:.0f} Fire" if damage else "its own damage not read (an UNDERCOUNT)"
+        parts.append(f"{label} ({dealt}) {up:.0%} of the fight; {how}")
+        off *= 1 - up * reach
+    if not parts:
+        return 0.0, ""
+    share = 1 - off
+    return share, "Ignited Ground Ignites the boss " + f"{share:.0%} of the fight: " + "; ".join(parts) + (
+        " (its Ignite's damage not added: only the Ignited state)")
 
 
 # Incinerate's fuel (MECH79; before, nothing read it and Incinerate scored as channelled all fight, an OVERCOUNT where
@@ -5490,23 +5614,15 @@ class Conditions:
             stats["_incinerate_fuel"] = self._incinerate_fuel()
         if self.main_skill in COMPOUNDING_SKILLS:  # (MECH79: Compounding Ignite, models.compound_ignite_mods)
             stats["_compound"] = self._compounding(stats, stats.get("_incinerate_fuel"))
+        ground_pieces: list = []  # (MECH80: each source, for ground_ignite once the other groups' Ignites are known)
         stats["_ignited_ground"] = ignited_ground(
             self._ignited_makers(lines, stats) if (set(gem_types) | {self.main_skill}) & set(IGNITED_GROUND_MAKERS)
-            else {}, texts, stats, self._ignited_charms(lines))
+            else {}, texts, stats, self._ignited_charms(lines), ground_pieces)
         if self.main_skill in ELEMENT_GAIN_VARS:  # (MECH78, MA-2 / MA-6 / MA-7: its element from the grounds in its path)
             orbs = self._orb_uptimes() if self.main_skill == EYE_OF_WINTER else None
             stats["_element_gain"] = element_gain_shares(self.main_skill, stats, texts, orbs)
         if any(REVEAL_WEAKNESS.match(t.strip()) for t in texts):  # (MECH78, MC-1: its share of the fight's time)
             stats["_open_weakness"] = self._open_weakness(texts)
-        aura = presence_ignite(texts, stats)  # (MECH75: Radiant Grief)
-        legion = self.minion_ignite(names)  # (MECH76: MECHB30's Infernal Legion, routed)
-        if aura[1] or legion[1]:
-            share = 1 - (1 - aura[0]) * (1 - legion[0])  # (independent sources)
-            aura = (share, "; ".join(filter(None, [aura[1], legion[1]])))
-            stats["_ailment_ground"] = {"Ignite": aura}
-            if aura[0] > 0:
-                said = stats.setdefault("_ailment_others_how", {})
-                said["Ignite"] = "; ".join(filter(None, [said.get("Ignite"), aura[1]]))
         if stats["_shocked_ground"][0] >= MIN_UPTIME:  # its Shock's magnitude (ground_shock_magnitude)
             stats["_sg_magnitude"] = self.build.call("shockMagnitude")
         self.parry_plan = None
@@ -5577,6 +5693,25 @@ class Conditions:
             stats["_ailment_others"] = {"Ignite": others}
             said = stats.setdefault("_ailment_others_how", {})  # (Radiant Grief's aura may be said already)
             said["Ignite"] = "; ".join(filter(None, [others_how, said.get("Ignite")]))
+        # (MECH75: Radiant Grief's aura; MECH76: MECHB30's Infernal Legion, routed; MECH80: your Ignited Ground) the
+        # Ignited share from sources that don't Hit, after the other groups' Ignites: the aura and the ground Ignite
+        # only while the boss holds 50% Flammability (no_hit_ignite, ground_ignite)
+        aura = presence_ignite(texts, stats)
+        if aura[0] > 0 or any(p[1] > 0 and p[3] for p in ground_pieces):  # (the build's Flammability Magnitude lines)
+            stats["_flammability_mod"] = self.build.call("flammabilityMagnitude") or {}
+        if aura[0] > 0:
+            reach, how = no_hit_ignite(stats, float(PRESENCE_IGNITE.match(next(
+                t.strip() for t in texts if PRESENCE_IGNITE.match(t.strip()))).group(1)), FLAMMABILITY_SECONDS)
+            aura = (aura[0] * reach, f"{aura[1]}; it Ignites only at 50% Flammability: {how}")
+        legion = self.minion_ignite(names)
+        burning = ground_ignite(ground_pieces, stats)
+        if aura[1] or legion[1] or burning[1]:
+            share = 1 - (1 - aura[0]) * (1 - legion[0]) * (1 - burning[0])  # (independent sources)
+            aura = (share, "; ".join(filter(None, [aura[1], legion[1], burning[1]])))
+            stats["_ailment_ground"] = {"Ignite": aura}
+            if aura[0] > 0:
+                said = stats.setdefault("_ailment_others_how", {})
+                said["Ignite"] = "; ".join(filter(None, [said.get("Ignite"), aura[1]]))
         stats["_daze_others"] = [
             {"name": name, "types": sorted(every[name].get("skillTypes") or []),
              "uses": uses.get(name, self._chosen_use(name)), "chance": d.get("base_chance_to_daze_%", 0.0),
