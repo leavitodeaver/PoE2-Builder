@@ -179,3 +179,20 @@ def test_the_masters_reach_grants_untether_from_the_games_rows(setup):
         build.call("equip", slot="Gloves", fields=[])
         build.call("equip", slot="Amulet", fields=[])
         build.call("setLevel", level=ctx.level)
+
+
+def test_a_bought_rares_inherent_skill_is_at_its_item_levels_skill_level():
+    """COV35 (PATCH_CHECK K3-2): a base's "Grants Skill: Level (1-20) X" is set by the item's item level, not rolled, so a
+    generated rare carries the item level's skill level (rares.INHERENT_SKILL_LEVELS: 82 -> 18, 68 -> 16), not the
+    middle of the range (10 at every gear tier before); a range is kept within its bounds, and a line below the table is
+    rolled as before."""
+    from builder.search import rares
+
+    wand = {"name": "Withered Wand", "type": "Wand", "implicit": "Grants Skill: Level (1-20) Chaos Bolt"}
+    assert "Grants Skill: Level 18 Chaos Bolt" in rares.rare_text("Weapon 1", wand, 82, []).splitlines()
+    assert "Grants Skill: Level 16 Chaos Bolt" in rares.rare_text("Weapon 1", wand, 68, []).splitlines()
+    assert "Grants Skill: Level 20 Chaos Bolt" in rares.rare_text("Weapon 1", wand, 90, []).splitlines()
+    assert rares.implicit_lines(wand) == ["Grants Skill: Level 10 Chaos Bolt"]  # (no item level: the middle roll)
+    assert rares.inherent_skill_line("Grants Skill: Level (5-10) Lightning Bolt", 86) == "Grants Skill: Level 10 Lightning Bolt"
+    assert rares.inherent_skill_line("Grants Skill: Level (1-20) Chaos Bolt", 40) is None
+    assert rares.inherent_skill_line("Adds (1-3) to (5-8) Physical Damage", 82) is None

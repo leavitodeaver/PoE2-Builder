@@ -202,9 +202,37 @@ def conflicts(mods: list[dict]) -> list[tuple[dict, dict]]:
             if other is not mod and set(other.get("tags") or ()) & excluded_by(mod)]
 
 
-def implicit_lines(base: dict, fraction: float = 0.5) -> list[str]:
+def implicit_lines(base: dict, fraction: float = 0.5, item_level: int | None = None) -> list[str]:
     implicit = implicit_variant(base.get("implicit"))  # (build_rare puts a chosen variant's line in, untagged)
-    return [roll(line, fraction) for line in implicit.splitlines()] if implicit else []
+    return [inherent_skill_line(line, item_level) or roll(line, fraction) for line in implicit.splitlines()] if implicit else []
+
+
+# A base's inherent skill ("Grants Skill: Level (1-20) Chaos Bolt" on a Withered Wand; PATCH_CHECK K3-2, COV35): its level
+# is set by the item's item level, not rolled (poe2wiki Granted skills: "The level of the granted skill ... is determined
+# by the item's item level"; the official forum, Jan 2025: an item level 84 wand gave level 19; 0.3.0: "Items with
+# inherent Skills can now rarely drop with Skill levels up to level 20 in high-tier Maps"). No game table gives the item
+# level -> skill level steps (the export has none: granted_rolls.py's note), so they come from trade listings of
+# item-granted skills by item level (granted_rolls.py's 10-11 Nov samples: 54 -> 13, 65 -> 14, 67 -> 15, 68 -> 16,
+# 76 -> 17, 79-81 -> 18, 82-84 -> 18 or 19) and the forum's 84 -> 19, 90 -> 20, taking the lower level where the
+# samples differ (MEDIUM). Before, the middle of the range (10 or 11) at every gear tier: an UNDERCOUNT at endgame.
+# PoB still caps the level at what the character meets (getGrantedSkillLevel, 0.5.4's rule; granted_rolls.py). A Perfect
+# Flux ("Upgrades the Skills on an item to Level 20", poe2db) on a bought rare isn't offered (no price read for it).
+INHERENT_SKILL_LEVELS = ((54, 13), (65, 14), (67, 15), (68, 16), (76, 17), (79, 18), (84, 19), (90, 20))
+INHERENT_SKILL = re.compile(r"^Grants Skill: Level \((\d+)-(\d+)\) (.+)$")
+
+
+def inherent_skill_level(item_level: int) -> int | None:
+    """The inherent skill level an item of this item level carries (INHERENT_SKILL_LEVELS), None below the table."""
+    return max((level for at, level in INHERENT_SKILL_LEVELS if item_level >= at), default=None)
+
+
+def inherent_skill_line(line: str, item_level: int | None) -> str | None:
+    """A base's "Grants Skill: Level (a-b) X" line at the item level's skill level (clamped to a-b), or None (roll it)."""
+    m = INHERENT_SKILL.match(line.strip())
+    level = inherent_skill_level(item_level) if m and item_level else None
+    if level is None:
+        return None
+    return f"Grants Skill: Level {min(max(level, int(m.group(1))), int(m.group(2)))} {m.group(3)}"
 
 
 # Item quality (COV6, PLANS2's plans/kw-quality.md; the manager's ruling 12 Nov ~09:00): an item text with no "Quality:"
@@ -234,7 +262,7 @@ def rare_text(slot: str, base: dict, item_level: int, affixes: list[Affix], rune
         # upgrades it), and a parsed item without this line has none
         lines.append("Radius: Small")
     lines += socket_lines(runes)
-    implicits = implicit_lines(base)
+    implicits = implicit_lines(base, item_level=item_level)
     lines += [f"Implicits: {len(implicits)}", *implicits]
     for affix in affixes:
         lines += affix.lines
@@ -243,7 +271,7 @@ def rare_text(slot: str, base: dict, item_level: int, affixes: list[Affix], rune
 
 def magic_text(slot: str, base: dict, item_level: int, affixes: list[Affix]) -> str:
     """A magic item (flasks and charms): one prefix and one suffix at most."""
-    implicits = implicit_lines(base)
+    implicits = implicit_lines(base, item_level=item_level)
     lines = ["Rarity: Magic", base["name"], f"Item Level: {item_level}", *quality_lines(base),
              f"Implicits: {len(implicits)}", *implicits]
     for affix in affixes:
