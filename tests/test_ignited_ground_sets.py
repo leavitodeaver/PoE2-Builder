@@ -875,3 +875,23 @@ def test_pob_puts_your_withered_magnitude_on_the_minions_withered_and_the_mod_ta
     boosted, fixed = dps(texts, []), dps(texts, mods)
     print("WITHER", alone, boosted, fixed, mods, how)
     assert boosted > alone * 1.001 and fixed == pytest.approx(alone, rel=1e-4)
+
+
+# MECH82 (the manager 10:02, GEM15's routing): Arctic Howl Freezes a unique boss once it is Primed at 70% buildup
+def test_arctic_howl_freezes_the_boss_at_the_first_howl_after_70_percent():
+    from builder.search import models
+
+    assert models.primed_refill(10.0, 0.0) == 10.0  # (no Howl: the full bar)
+    # Howls every 10 s, the bar's last 30% takes 3 s: a Howl lands in it 30% of the time, 1.5 s early on average
+    assert models.primed_refill(10.0, 0.1) == pytest.approx(10.0 - 0.1 * 3.0 * 3.0 / 2)  # (9.55 s)
+    assert models.primed_refill(10.0, 1.0) == pytest.approx(7.0 + 0.5)  # (a Howl every 1 s: at 70% + half a second)
+    assert models.primed_refill(10.0, 100.0) == pytest.approx(7.0, abs=0.02)  # (Howling all the time: at 70%)
+
+
+# MECH82 (the manager 10:02, GEM16's routing): "Overgrown Plant Skills Break 50% increased Armour" at the Overgrown share
+def test_overgrown_plants_break_more_armour_at_their_overgrown_share():
+    line = "Overgrown Plant Skills Break 50% increased Armour"
+    scale, how = conditions.break_amount_scale([line, "Break 20% increased Armour"], {"_overgrown": (0.4, "storm")})
+    assert scale == pytest.approx(1 + (20 + 50 * 0.4) / 100) and "Overgrown Plants" in how
+    scale, how = conditions.break_amount_scale([line], {})  # (no share read: 0, labelled)
+    assert scale == 1.0 and "x 0%" in how

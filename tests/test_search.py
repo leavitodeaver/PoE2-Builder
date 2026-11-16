@@ -2950,6 +2950,11 @@ def test_empowered_uses_come_from_the_skills_murderous_intent_supports():
     assert run("Infernal Cry", stab, {"speed": 0.125, "warcryEmpowers": 4})[0] == pytest.approx(0.5)
     # (MECH64: KeywordPopups Warcry Empowers "subsequent Melee Attacks"; Explosive Spear is thrown)
     assert run("Infernal Cry", spear, {"speed": 0.125, "warcryEmpowers": 4})[0] == 0.0
+    # (MECH82, GEM15's routing: Resonating Shield cannot be Empowered by Warcries, by PoB's count or one per use)
+    shield = {"name": "Resonating Shield", "attack": True, "melee": True}
+    rate, how = run("Infernal Cry", shield, {"speed": 0.125, "warcryEmpowers": 4})
+    assert rate == 0.0 and "cannot be Empowered by Warcries" in how
+    assert run("Infernal Cry", shield, {"speed": 0.125, "warcryEmpowers": 0})[0] == 0.0
     rate, how = run("Temper Weapon", spear, {"speed": 10.0})
     assert rate == 2.0 and "LOW" in how  # (capped at the main skill's uses)
     # (MECH64: Murderous Intent needs a skill that can Empower others, requireSkillTypes EmpowersOtherSkill)

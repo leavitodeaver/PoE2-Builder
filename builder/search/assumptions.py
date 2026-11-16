@@ -2385,10 +2385,18 @@ class Assumptions:
                 # GrantedEffect adds that type; checked GrantedEffects 26476662. So Ferocious Roar, Rallying Cry and
                 # Battlemage's Cry, Warcries without the type, get nothing even with PoB's Empower count)
                 parts.append(f"{name} can't Empower other skills: Murderous Intent does nothing there")
+            elif (("Warcry" in ((getattr(getattr(build, "ctx", None), "gems", None) or {}).get(name) or {}).get(
+                    "skillTypes", ()) or "warcryEmpowers" in rate)  # (useRates sets it for Warcries only)
+                  and any(s.get("name") in models.WARCRY_PROOF for s in mains)):
+                # (MECH82; the manager 10:02, GEM15's routing: Resonating Shield's cannot_be_empowered_by_warcries,
+                # models.warcry_proof_model: a Warcry Empowers none of its uses, by PoB's count or the one-per-use branch)
+                parts.append(f"{name} is a Warcry, and the main skill cannot be Empowered by Warcries: 0")
             elif number(rate.get("warcryEmpowers")) > 0:
                 n = number(rate["warcryEmpowers"])
                 # (MECH71: the Heavy Stunned share reads the Dazed boss's 50% more Stun Buildup: heavy_stun_rate)
-                what, fits, share, why = warcry_empowers(name, mains, {**stats, **models.dazed_stats(build)})
+                what, fits, share, why = warcry_empowers(name, mains, {**stats, **models.dazed_stats(build), **(
+                    {"_primed_freeze": build.primed_freeze} if getattr(build, "primed_freeze", None) else {})})
+                # (MECH82: Arctic Howl's own Freezes of a Primed boss, from the conditions' rate)
                 if not fits:
                     parts.append(f"{name} Empowers {what}, and the main skill isn't one")
                     continue

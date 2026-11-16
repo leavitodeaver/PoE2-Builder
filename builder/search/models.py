@@ -8065,15 +8065,42 @@ def buildup_rate(stats: dict, ailment: str) -> float:
     return 1 / period if period > 0 else 0.0
 
 
+# Arctic Howl Freezes a boss Primed for Freeze (MECH82; the manager 10:02, GEM15's routing, an UNDERCOUNT). Arctic
+# Howl's description (ActiveSkills arctic_howl, 26650308): "let out an icy howl that damages enemies and Freezes Primed
+# enemies" (has_freeze_cull, "Freeze enemies that are Primed for Freeze"); KeywordPopups PrimedFreeze: "Normal enemies are
+# Primed for Freeze when they have at least 40% Freeze buildup. Magic enemies are instead Primed at 50% buildup, Rare at
+# 60%, and Unique at 70%". Neither PoB nor our models read Primed (checked by GEM15: "primed" in conditions.py /
+# models.py, PrimedFreeze in PoB's Modules: none). So with Arctic Howl used at r a second (conditions' _primed_freeze:
+# the main skill's Speed or its group's rate), the boss Freezes at the first Howl after the bar reaches 70%, or at 100%
+# if none comes first: the refill R becomes E[min(R, 0.7 R + w)] with the wait w uniform over the Howls' 1/r (periodic
+# uses, MEDIUM; the refill to 70% taken as 0.7 R, MEDIUM where the x6 window ends inside it). The Howl taken to reach
+# the boss (its area around you: a play where you fight near it, MEDIUM); its own Freeze buildup not added (an
+# undercount). The boss presets are Unique (bosses.PRESETS), so 70%.
+PRIMED_FREEZE_UNIQUE = 0.70  # KeywordPopups PrimedFreeze, Unique enemies
+
+
+def primed_refill(refill: float, rate: float, primed: float = PRIMED_FREEZE_UNIQUE) -> float:
+    """The expected seconds to the next Freeze when a Freezing-Primed skill is used at `rate`/s (see the note above)."""
+    if rate <= 0 or refill <= 0:
+        return refill
+    every, gap = 1.0 / rate, (1.0 - primed) * refill
+    if gap >= every:
+        return primed * refill + every / 2
+    return refill - rate * gap * gap / 2
+
+
 def immobilise_period(stats: dict, ailment: str) -> float:
     """Seconds from one Freeze / Electrocute to the next (0 with no buildup): its duration, then the time to fill the bar
-    again at x6 for the rest of the 14 / 15 s after it."""
+    again at x6 for the rest of the 14 / 15 s after it (a Freeze sooner with Arctic Howl: primed_refill)."""
     fill = hits_per_second(stats) * number(stats.get(f"{ailment}BuildupAvg")) / 100 * ailment_scale(stats, ailment)
     if fill <= 0:
         return 0.0
     d = immobilise_duration(stats, ailment)
     times, window = AILMENT_REPEAT[ailment]
-    return d + repeat_every(1 / fill, times, max(window - d, 0.0))
+    refill = repeat_every(1 / fill, times, max(window - d, 0.0))
+    if ailment == "Freeze" and (primed := stats.get("_primed_freeze")):
+        refill = primed_refill(refill, number(primed[0]))
+    return d + refill
 
 
 def immobilise_duration(stats: dict, ailment: str) -> float:
@@ -8156,6 +8183,9 @@ def immobilised_share(stats: dict, ailment: str) -> tuple[float, str]:
                        f"{min(1.0, last / kept):.0%})")
     share = min(1.0, d / period)
     longer = f" ({pin_duration_scale(stats)[1]})" if ailment == "Pin" and pin_duration_scale(stats)[1] else ""
+    if ailment == "Freeze" and (primed := stats.get("_primed_freeze")):
+        longer += (f" (Arctic Howl Freezes the boss once Primed at {PRIMED_FREEZE_UNIQUE:.0%} buildup: {primed[1]}; "
+                   "without it, one Freeze every full bar)")
     return share, (f"{fill * 100:.1f}% of the bar per s (PoB's buildup per hit x {hits_per_second(stats):.2f} hits/s, "
                    f"{bosses.of(stats).name}'s threshold); {d:g} s each{longer}, one every {period:.1f} s (x6 threshold for "
                    f"{window:g} s after each, buildup paused while it lasts, the user's word, MEDIUM): {share:.0%}")

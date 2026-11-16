@@ -2574,12 +2574,27 @@ BREAK_MORE_SUPPORTS = ("Armour Demolisher I", "Armour Demolisher II", "Uruk's Sm
 BREAK_MORE_STAT = "support_increased_armour_break_armour_break_amount_+%_final"
 
 
+# Return to Nature's "Overgrown Plant Skills Break 50% increased Armour" (MECH82; the manager 10:02, GEM15 / GEM16's
+# routing, an UNDERCOUNT: PoB's ModCache has no entry for it). Counted on a Plant main skill (PoB's skillTypes "Plant":
+# Briarpatch, Entangle, Thrashing Vines, Toxic Domain, Toxic Growth, Vine Arrow) at the share of its plants that are
+# Overgrown, GEM16's models.overgrown_share (Thunderstorm, Boundless Growth, Idol of Yeena), which the evidence reads
+# into stats["_overgrown"]; 0 where nothing Overgrows them, or before GEM16's function is on this branch (labelled).
+BREAK_OVERGROWN = re.compile(r"^Overgrown Plant Skills Break (\d+(?:\.\d+)?)% (increased|reduced) Armour$", re.I)
+
+
 def break_amount_scale(lines: list[str], stats: dict) -> tuple[float, str]:
-    """(x on the Armour each Break takes, how): the build's "Break X% increased Armour" lines x the main skill's support."""
+    """(x on the Armour each Break takes, how): the build's "Break X% increased Armour" lines x the main skill's support,
+    and the Overgrown Plant line at its share (see the note above)."""
     inc = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
               for t in lines if (m := BREAK_INCREASED.match(t.strip())))
     more = number(stats.get("_break_more"))
     parts = ([f"{inc:+g}% increased"] if inc else []) + ([f"{more:+g}% more from its support"] if more else [])
+    grown = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+                for t in lines if (m := BREAK_OVERGROWN.match(t.strip())))
+    if grown:
+        share, why = stats.get("_overgrown") or (0.0, "the main skill isn't a Plant skill, or nothing Overgrows its plants")
+        inc += grown * share
+        parts.append(f"{grown * share:+g}% increased from Overgrown Plants ({grown:+g}% x {share:.0%}: {why})")
     return max(0.0, 1 + inc / 100) * (1 + more / 100), ", ".join(parts)
 
 
@@ -4397,6 +4412,7 @@ def ground_ignite(pieces: list, stats: dict) -> tuple[float, str]:
 # an UNDERCOUNT of the 50% reach); a lit ground re-lighting the next grenade's oil; the boss moving out (the play guide's
 # boss-moving row). The Oil's Exposure is PoB's own (SkillStatMap 1775, a Debuff of the skill applied while the gem is in
 # an enabled group): a grenade every 4 s keeps 6 s of Oil up, so its always-on figure holds for a pressed Oil Grenade.
+ARCTIC_HOWL = "Arctic Howl"  # (MECH82: it Freezes a Primed boss, models.primed_refill)
 OIL_GROUND_SKILLS = {"Oil Grenade": 1.5, "Oil Barrage": 1.0}  # the permyriad stat / 10000 (game files above)
 OIL_GROUND_SET = 2  # PoB's "Oil Ground" stat set of both (act_str.lua OilBarragePlayer / OilGrenadePlayer statSets[2])
 OIL_GROUND_SECONDS = 6.0  # s, both skills' Oil Ground (game files above; duration modifiers not read)
@@ -5887,6 +5903,34 @@ class Conditions:
         stats["_oil_ground_how"] = how
         return found
 
+    def _overgrown(self, texts: list[str]) -> tuple[float, str]:
+        """(share of the main Plant skill's plants that are Overgrown, how), from GEM16's models.overgrown_share."""
+        if "Plant" not in set((self.build.ctx.gems.get(self.main_skill) or {}).get("skillTypes") or ()):
+            return 0.0, f"{self.main_skill} isn't a Plant skill"
+        share_fn = getattr(models, "overgrown_share", None)
+        if share_fn is None:
+            return 0.0, "the Overgrown share isn't modelled on this branch yet (GEM16's overgrown_share): 0, labelled"
+        raw = self.build.call("activeSkills")
+        skills = [models.Skill.of(s) for s in raw["skills"] if not s.get("disabled")]
+        storms = sorted({s.group for s in skills if s.name in getattr(models, "OVERGROW_SKILLS", ()) and s.group is not None})
+        press = getattr(self.build.objective, "press_scales", None) or {}
+        groups = {r["index"]: {**r, "_press": press.get(r["name"])}
+                  for r in self.build.call("useRates", indices=storms)["rates"]} if storms else {}
+        up, parts, _ = share_fn(skills, groups, texts)
+        return up, "; ".join(parts) or "nothing Overgrows its plants"
+
+    def _primed_freeze(self, stats: dict) -> tuple[float, str] | None:
+        """(Arctic Howl's uses a second, how) for models.primed_refill: the main skill's Speed if it is the Howl, else its
+        group's rate (else the search's chosen rate, else 0); None at 0."""
+        if self.main_skill == ARCTIC_HOWL:
+            rate = number(stats.get("Speed"))
+        else:
+            groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
+            rate = self._group_uses(groups, {ARCTIC_HOWL}).get(ARCTIC_HOWL, self._chosen_use(ARCTIC_HOWL))
+        if rate <= 0:
+            return None
+        return rate, f"{ARCTIC_HOWL} {rate:.3f} uses/s, its howl taken to reach the boss (MEDIUM)"
+
     def _uruk_taken(self, rate: float) -> tuple[float, str]:
         """(the fight-average % increased Physical Damage taken, how) from Uruk's Smelting on the main skill (MECH80,
         uruk_taken): its stat at the gem's level, the Full Break rate, the fight's length from the boss's pool over the
@@ -6374,6 +6418,11 @@ class Conditions:
                                     * (1 + ground_inc / 100))
         stats["_sg_charged_mark"] = self.charged_mark(stats) if CHARGED_MARK in names else None
         stats["_sg_death_storm"] = self.death_storm() if DEATH_STORM_SUMMON in names else None
+        if any(BREAK_OVERGROWN.match(t.strip()) for t in texts):  # (MECH82: GEM16's overgrown_share, break_amount_scale)
+            stats["_overgrown"] = self._overgrown(texts)
+        if ARCTIC_HOWL in names or self.main_skill == ARCTIC_HOWL:  # (MECH82: Primed for Freeze, models.primed_refill)
+            stats["_primed_freeze"] = self._primed_freeze(stats)
+        self.build.primed_freeze = stats.get("_primed_freeze")
         # (MECH76: MECHB30's Shattering Roar, routed) the Skeletal Brutes' Intimidate, one more Intimidated source
         roar = self.shattering_roar(texts) if any(SKELETAL_BRUTE in n for n in names) else None
         stats["_debuff_extra"] = {"conditionEnemyIntimidated": roar} if roar and roar[0] > 0 else {}
