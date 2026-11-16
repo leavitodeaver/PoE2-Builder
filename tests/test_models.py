@@ -5627,3 +5627,62 @@ def test_zarokhs_revolt_breaks_every_seal_gained_in_its_cooldown_each_cast():
     assert models.zarokh_model(spark, ["Zarokh's Revolt"], short)[0][0]["value"] == pytest.approx(
         ((1 + 3 * 0.8) / 2.45 - 1) * 100, abs=0.01)
     assert models.zarokh_model(spark, [], stats) == ([], [])
+
+
+def test_freeze_buildup_during_the_consume_immunity_is_lost():
+    """MECH81 (RESEARCH26 R26-30 (c), an OVERCOUNT before): after a consumed Freeze / Electrocute the boss is immune for
+    1 s (KeywordPopups Consume); buildup during that second is taken as lost (ASSUMED, the lower reading), so the refill
+    starts after it: one every last + 1 s + refill, not last + max(1 s, refill). The kept reading stays in the text."""
+    from builder.search import models as m
+
+    freeze = {"Speed": 2.0, "HitChance": 100, "FreezeBuildupAvg": 50}
+    fill = m.hits_per_second(freeze) * 0.5 * m.ailment_scale(freeze, "Freeze")
+    last = min(m.immobilise_duration(freeze, "Freeze"), 1 / m.hits_per_second(freeze))
+    times, window = m.AILMENT_REPEAT["Freeze"]
+    share, how = m.immobilised_share({**freeze, "_consumes": {"Freeze": "X"}}, "Freeze")
+    lost = last / (last + m.CONSUME_IMMUNE + m.repeat_every(1 / fill, times, window - last - m.CONSUME_IMMUNE))
+    kept = last / (last + max(m.CONSUME_IMMUNE, m.repeat_every(1 / fill, times, window - last)))
+    assert share == pytest.approx(lost) and share < kept
+    assert "taken as lost" in how and f"{kept:.0%}" in how
+    # a skill beside the main one consuming it: the same rule
+    side, side_how = m.immobilised_share({**freeze, "_side_consumes": {"Freeze": (0.5, "Icestorm", "MEDIUM")}}, "Freeze")
+    every = (1 - math.exp(-0.5 * 4.0)) / 0.5
+    assert side == pytest.approx(every / (every + 1 + m.repeat_every(1 / fill, times, window - every - 1)))
+    assert "taken as lost" in side_how
+
+
+def test_critical_weakness_stacks_come_from_the_builds_own_sources():
+    """MECH81 (PATCH_CHECK K3-1, an UNDERCOUNT before: nothing set PoB's box and PoB doesn't parse most source lines):
+    stacks held = min(20, stacks a second x their seconds), each source at the build's own rate."""
+    from builder.search import models as m
+
+    spell = m.Skill(name="Spark", spell=True)
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 50, "PresenceRadius": 40}
+    # a unique focus: 3 a spell crit x 1 crit/s x 4 s = 12
+    stacks, how = m.critical_weakness_stacks(["Critical Hits with Spells apply 3 Stacks of Critical Weakness"],
+                                             [spell], stats, spell, 2.0)
+    assert stacks == pytest.approx(12.0) and "spell crit" in how
+    # an attack doesn't feed it
+    attack = m.Skill(name="Rolling Slam", attack=True)
+    assert m.critical_weakness_stacks(["Critical Hits with Spells apply 3 Stacks of Critical Weakness"],
+                                      [attack], stats, attack, 2.0)[0] == 0.0
+    # the Presence helmet: 15 stacks inside a 4 m Presence, none when the boss stands 6 m away
+    presence = ["Every second, inflicts Critical Weakness on enemies in your Presence for 15 seconds"]
+    assert m.critical_weakness_stacks(presence, [spell], stats, spell, 2.0)[0] == 15.0
+    assert m.critical_weakness_stacks(presence, [spell], stats, spell, 6.0)[0] == 0.0
+    # capped at 20 together
+    both = presence + ["Critical Hits with Spells apply 3 Stacks of Critical Weakness"]
+    assert m.critical_weakness_stacks(both, [spell], stats, spell, 2.0)[0] == 20.0
+    # Parry: 10 a parry every PARRY_EVERY s, only with a Parry skill
+    parry = ["Parrying applies 10 Stacks of Critical Weakness"]
+    assert m.critical_weakness_stacks(parry, [attack], stats, attack, 2.0)[0] == 0.0
+    with_parry = m.critical_weakness_stacks(parry, [attack, m.Skill(name="Parry")], stats, attack, 2.0)[0]
+    assert with_parry == pytest.approx(10 / m.PARRY_EVERY * 4)
+    # warcries at the build's rate
+    cry = ["Warcries inflict 3 Critical Weakness on Enemies"]
+    assert m.critical_weakness_stacks(cry, [attack], stats, attack, 2.0, (0.25, "x"))[0] == pytest.approx(3.0)
+    # the mods: +0.5% base crit a stack; nothing without a source line
+    mods, notes = m.critical_weakness_mods((12.0, "x"))
+    assert mods[0]["name"] == "CritChance" and mods[0]["value"] == pytest.approx(6.0) and notes
+    assert m.critical_weakness_mods((0.0, "")) == ([], [])
+    assert m.critical_weakness_stacks(["Grants Onslaught"], [spell], stats, spell, 2.0) == (0.0, "")

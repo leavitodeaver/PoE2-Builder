@@ -1541,6 +1541,8 @@ class Assumptions:
         mods, notes = mods + compound_mods, notes + compound_notes
         uruk_mods, uruk_notes = models.uruk_mods(getattr(build, "uruk_taken", None))  # (MECH80, G2-4)
         mods, notes = mods + uruk_mods, notes + uruk_notes
+        storm_mods, storm_notes = models.stormfire_mods(name or "", getattr(build, "stormfire", None))  # (MECH81, G2-2)
+        mods, notes = mods + storm_mods, notes + storm_notes
         if power[1]:
             mods += models.power_mods(power[0])
             notes.append({"label": "Boss Power (your Power lines)*", "value": f"{power[0]:g}", "basis": power[1],
@@ -1696,6 +1698,19 @@ class Assumptions:
         rod_mods, rod_notes = models.rod_model(found, stats, main)
         hand_mods, hand_notes = hand_mods + rod_mods, hand_notes + rod_notes
         texts = [e["text"] for e in source_lines]
+        if any(p.match(t.strip()) for t in texts for p in (models.CW_PRESENCE, models.CW_SPELL_CRIT, models.CW_PARRY,
+                                                            models.CW_WARCRY, models.CW_MARK)):  # (MECH81, K3-1)
+            cries = (0.0, "")
+            if any(models.CW_WARCRY.match(t.strip()) for t in texts):
+                cries = conditions_mod.event_rates(
+                    build.call("groups")["groups"], build.ctx.gems, name or "", main_types, models.number(stats.get("Speed")),
+                    lambda idx: build.call("useRates", indices=idx)["rates"], ["when you use a Warcry"],
+                    models.press_choices(build)).get("Warcry", (0.0, ""))
+            cw_metres = (models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10
+                         or natural_distance(main_types, name or ""))
+            cw_mods, cw_notes = models.critical_weakness_mods(
+                models.critical_weakness_stacks(texts, found, stats, main, cw_metres, cries))
+            hand_mods, hand_notes = hand_mods + cw_mods, hand_notes + cw_notes
         if any(p.match(t.strip()) for t in texts for p in (models.AGGRAVATE_HIT, models.AGGRAVATE_CRIT,
                                                             models.AGGRAVATE_OLDER, models.AGGRAVATE_EMPOWERED)):
             # (MECH66: Aggravated Bleeding at the main skill's own hits, crits and Bleed duration)

@@ -2314,8 +2314,12 @@ def _dazed(lines: list[str], stats: dict) -> tuple[object, str]:
 # files' KeywordPopups ArmourBreak: Breaking lowers a target's Armour; at 0 it is Fully Broken for 12 seconds (non-players;
 # then +20% Physical damage taken from Hits, which is what PoB's box applies). Each line's Armour broken per second, from
 # the main skill's hits (PoB's average hit and crit per damage type), against the boss's Armour (PoB's enemy Armour): it
-# takes armour / rate s to Fully Break, then 12 s Broken, so up 12 / (12 + that). Partial Break assumed not to wear off
-# before it's full (the game files give it no duration). Full Breaks on Heavy Stun at heavy_stun_rate; "Break #% of Armour
+# takes armour / rate s to Fully Break, then 12 s Broken, so up 12 / (12 + that). Partial Break doesn't wear off
+# before it's full while the main skill hits at least once every 12 s (MECH81, PATCH_CHECK L5-o1, checked: KeywordPopups
+# ArmourBreak (26650308) gives a duration only for the Full Break; patch 0.2.0e "Fixed a bug where partial Armour Break
+# had an infinite duration" (so it expires); poe2wiki Fully broken: "Reapplying Armour Break on a target will refresh the
+# duration of the debuff", and guides give the partial break the same 12 s; MEDIUM: a build breaking less often than
+# once per 12 s would lose it, not modelled, an edge case no repeated-hit main skill meets). Full Breaks on Heavy Stun at heavy_stun_rate; "Break #% of Armour
 # when Freezing or Electrocuting" at buildup_rate. Minions' breaks, Parried, Maimed and Poison wordings, and Frenzy Charge
 # consumption: not rated (0, labelled). The box is on at UPTIME, else explicitly off with its basis.
 ARMOUR_BREAK_LINE = re.compile(r"\bbreaks? (?:enemy )?armour\b|\bbreaks? [\d,.]+ armour|\bfully break\w* armour|"
@@ -4236,6 +4240,89 @@ def _enemy_burning(lines: list[str], stats: dict) -> tuple[object, str]:
                        "damage over time not counted)")
 
 
+# The boss Isolated (MECH81; PATCH_CHECK MD-2, mirror sweep D: PoB's conditionEnemyIsolated, ConfigOptions 1893, which
+# nothing set, so Vorana's Siege's 20% more Hit damage counted 0, an UNDERCOUNT). KeywordPopups Isolated (26650308): "A
+# target is Isolated if none of its allies are within 6m of it." Readers: Vorana's Siege's
+# support_voranas_siege_hit_damage_+%_final_vs_isolated_enemies (PoB other.lua 20682, gated on the enemy's Isolated) is
+# the one player stat (checked: every Stats id holding "isolat" on 26650308: that one; PassiveSkills /
+# GrantedEffectStatSets hold no other; Mods' "Isolation" rows are Delirium affliction names; PoB ModCache var="Isolated":
+# none, NOTES2 part_MD; poe2db's Vorana's Siege page is the same stat). The boss stands alone except while its
+# killable adds are up (bosses.PRESETS kills: the King's totems 43% of the fight, Atziri phase 1's acolytes all of it):
+# during those parts taken as NOT Isolated (an add within 6 m of the boss all that time: the cautious reading, MEDIUM-LOW;
+# where the adds stand isn't in the data). Bosses whose adds have no known rate (Kulemak, Olroth, the Raven) are taken as
+# Isolated all fight (UNVERIFIED: a possible OVERCOUNT there, labelled). Only set when the build carries Vorana's Siege.
+VORANAS_SIEGE = "Vorana's Siege"
+ISOLATED_RADIUS = 6.0  # m (KeywordPopups Isolated)
+
+
+def _enemy_isolated(lines: list[str], stats: dict) -> tuple[object, str]:
+    """The Isolated box: the share of the fight the boss has no add near it (MECH81, MD-2)."""
+    if VORANAS_SIEGE not in (stats.get("_gem_names") or ()):
+        return 0.0, ""
+    boss = bosses.of(stats)
+    adds = min(1.0, sum(k.share for k in boss.kills))
+    share = 1.0 - adds
+    if boss.kills:
+        how = (f"not while its adds are up ({adds:.0%} of the fight: "
+               + "; ".join(k.what.split(" (")[0] for k in boss.kills)
+               + f"; an add taken within {ISOLATED_RADIUS:g} m all that time, MEDIUM-LOW)")
+    else:
+        how = (f"no killable adds with a known rate against {boss.name}: alone all fight (UNVERIFIED where its adds "
+               "have no known rate)")
+    return _box(share, f"Isolated {share:.0%} of the fight (KeywordPopups: no ally within {ISOLATED_RADIUS:g} m; "
+                       f"Vorana's Siege's more Hit damage): {how}")
+
+
+# Stormfire (MECH81; PATCH_CHECK G2-2, an UNDERCOUNT: PoB maps its stat nowhere). Game (patch 0.4.0, the newest entry
+# by grep_notes --history "Stormfire": "Now causes enemies Shocked by Supported Skills to take a percentage of Ignite
+# damage as Lightning damage as well as Fire damage"; PoB sup_int.lua 8214 / the game's SupportStormfirePlayer:
+# support_stormfire_targets_shocked_by_this_take_%_of_damage_from_ignite_as_lightning_damage 20). While the boss is
+# Shocked by the supported skill it takes that % of the Ignite's damage again, as Lightning ("as well as Fire": an
+# extra, not a conversion; MEDIUM on the wording). Counted on the main skill's own Ignite (PoB's IgniteDPS) as more Ignite
+# Magnitude: % x the main skill's own Shock uptime (ailment_uptime: Shocks from Shocked Ground or other skills aren't
+# "Shocked by Supported Skills") x (1 - the boss's Lightning resistance) / (1 - its Fire resistance) (the preset's base
+# resistances; curses / Exposure lowering one of them not counted, MEDIUM). Stormfire on another group, and other
+# Ignites on the boss (Ignited Ground, other groups'), not counted (labelled).
+STORMFIRE = "Stormfire"
+STORMFIRE_STAT = "support_stormfire_targets_shocked_by_this_take_%_of_damage_from_ignite_as_lightning_damage"
+
+
+def stormfire_more(pct: float, shocked: float, fire: float, lightning: float) -> tuple[float, str]:
+    """(% more Ignite Magnitude, how): Stormfire's `pct` of Ignite damage again as Lightning for the `shocked` share of
+    the fight, rescaled from the boss's Fire resistance to its Lightning resistance (percent values)."""
+    if pct <= 0 or shocked <= 0:
+        return 0.0, f"{STORMFIRE}: the main skill doesn't Shock the boss (0)" if pct > 0 else ""
+    ratio = (1 - min(lightning, 100) / 100) / max(1e-9, 1 - min(fire, 99.9) / 100)
+    more = pct * min(1.0, shocked) * ratio
+    return more, (f"{STORMFIRE}: {pct:g}% of the Ignite's damage again as Lightning while the boss is Shocked by the main "
+                  f"skill ({min(1.0, shocked):.0%} of the fight), at {lightning:g}% Lightning vs {fire:g}% Fire "
+                  f"resistance: {more:.1f}% more Ignite damage (other Ignites on the boss not counted)")
+
+
+# Unravelling (MECH81; PATCH_CHECK K1-1, an UNDERCOUNT: an Unravelling Acolyte of Chayula got no ailment value from its
+# Chaos damage). KeywordPopups UnravellingBuff (26650308): "While affected by Unravelling, your Chaos Damage randomly
+# either also contributes to Freeze buildup, Flammability and Ignite Magnitudes, or Shock chance - changing which it
+# contributes to every two seconds" (patch 0.3.0, no later line). PoB parses "Grants Unravelling" to a flag (ModParser
+# 3428) and gives Chaos the element's ailment (ChaosCanFreeze / Ignite / Shock, CalcPerform 771-774) only under
+# Condition:<Cold|Fire|Lightning>Unravel, which its config list conditionUnravelling (one value, no default) sets: nothing
+# set it. Each element is taken as on a third of the fight ("randomly", equal odds: UNVERIFIED, MEDIUM), set as three
+# bridge conditions (engine/bridge.lua bridgeCondition<Name>) each weighed at 1/3 (Search.weigh_uptimes; the three taken
+# as independent there, labelled), so each element's ailment value counts at a third. Only when a build line grants it.
+UNRAVEL_LINE = re.compile(r"^grants unravelling$", re.I)
+UNRAVEL_ELEMENTS = {"Cold": "Freeze buildup", "Fire": "Flammability and Ignite Magnitude", "Lightning": "Shock chance"}
+
+
+def _unravelling(element: str) -> Callable[[list[str], dict], tuple[object, str]]:
+    def value(lines: list[str], stats: dict) -> tuple[object, str]:
+        if not any(UNRAVEL_LINE.match(t.strip()) for t in lines):
+            return 0.0, ""
+        share = 1 / len(UNRAVEL_ELEMENTS)
+        return _box(share, f"Unravelling: Chaos damage also counts toward {UNRAVEL_ELEMENTS[element]} {share:.0%} of the "
+                           "fight (KeywordPopups UnravellingBuff: one element at random, changing every 2 s; equal odds "
+                           "UNVERIFIED, MEDIUM)")
+    return value
+
+
 def _incinerate_channelling(lines: list[str], stats: dict) -> tuple[object, str]:
     """The Channelling Incinerate box at the share of the fight its fuel allows (MECH79; off, its damage 100% less:
     models.compound_ignite_mods)."""
@@ -4833,6 +4920,14 @@ CONDITIONS: list[Condition] = [
               value_fn=_incinerate_channelling, fields=()),  # (MECH79)
     Condition("conditionEnemyBurning", "Burning (Fire damage over time that isn't an Ignite)",
               value_fn=_enemy_burning, fields=("FireDot",)),  # (MECH80, MD-5)
+    Condition("conditionEnemyIsolated", "Isolated (no ally within 6 m: Vorana's Siege)",
+              value_fn=_enemy_isolated, fields=()),  # (MECH81, MD-2)
+    Condition("bridgeConditionColdUnravel", "Unravelling Cold (Chaos damage also builds Freeze)",
+              value_fn=_unravelling("Cold"), fields=()),  # (MECH81, K1-1)
+    Condition("bridgeConditionFireUnravel", "Unravelling Fire (Chaos damage also builds Ignite)",
+              value_fn=_unravelling("Fire"), fields=()),  # (MECH81, K1-1)
+    Condition("bridgeConditionLightningUnravel", "Unravelling Lightning (Chaos damage also builds Shock)",
+              value_fn=_unravelling("Lightning"), fields=()),  # (MECH81, K1-1)
     Condition("multiplierCurseExpiredOnEnemy", "A curse of yours past its threshold of Curse Duration",
               value_fn=_curse_expired, fields=()),  # (MECH78, MD-8)
     *(Condition(var, f"You {PAST_TENSE[APPLIED_RECENTLY[var]].lower()} an enemy Recently",
@@ -5996,6 +6091,12 @@ class Conditions:
                                              or up / models.full_break_duration(texts))
         if URUK in main_gems and number(stats.get("_full_break_rate")) > 0:  # (MECH80, G2-4: models.uruk_mods)
             stats["_uruk"] = self._uruk_taken(number(stats["_full_break_rate"]))
+        if STORMFIRE in main_gems and number(stats.get("IgniteChancePerHit")) > 0:  # (MECH81, G2-2: models.stormfire_mods)
+            raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=[STORMFIRE_STAT])
+            sf = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
+            preset = bosses.of(stats)
+            stats["_stormfire"] = stormfire_more(number((sf.get("supportStats") or {}).get(STORMFIRE_STAT)),
+                                                 ailment_uptime(stats, "Shock"), preset.fire, preset.lightning)
         # (MECH69) the Exposure supports on the main skill, by their stats (_exposure_support_sources)
         if any(line["source"].startswith("gem:") and EXPOSURE_WORD.search(line["text"]) for line in lines):
             raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=list(EXPOSURE_SUPPORT_STATS))
@@ -6070,6 +6171,7 @@ class Conditions:
         # (MECH79, models.compound_ignite_mods) the main skill's Compounding Ignite: (skill, factor, how) or None
         self.build.compound_ignite = ((self.main_skill, *stats["_compound"]) if stats.get("_compound") else None)
         self.build.uruk_taken = stats.get("_uruk") or (0.0, "")  # (MECH80: Uruk's Smelting, models.uruk_mods)
+        self.build.stormfire = stats.get("_stormfire") or (0.0, "")  # (MECH81: Stormfire, models.stormfire_mods)
         # (MECH78, MC-1; for COV-A's OpenWeakness ledger condition, the manager 12:43: one share for both) the share of
         # the fight's TIME the boss has an Open Weakness: open_weakness_up(build)
         self.build.open_weakness_up = stats.get("_open_weakness") or (0.0, "")

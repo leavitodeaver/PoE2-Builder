@@ -7389,6 +7389,98 @@ def uruk_mods(taken: tuple | None) -> tuple[list[dict], list[dict]]:
                                                 "value": f"{taken[0]:.1f}% on average", "basis": taken[1],
                                                 "confidence": "MEDIUM"}]
 
+# Stormfire's Ignite damage again as Lightning on a Shocked boss (MECH81; conditions.stormfire_more holds the game facts):
+# the fight-average % as more Ignite Magnitude on the main skill (COMPOUND_LINE's form).
+def stormfire_mods(main: str, more: tuple | None) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) from Conditions' build.stormfire = (% more Ignite Magnitude, how)."""
+    if not more or more[0] <= 0:
+        return [], [] if not more or not more[1] else [{"label": "Stormfire: Ignite damage as Lightning on Shocked "
+                                                        "enemies*", "value": "0", "basis": more[1], "confidence": "MEDIUM"}]
+    return [line(COMPOUND_LINE, scale=more[0], skill=main)], [
+        {"label": "Stormfire: Ignite damage as Lightning on Shocked enemies*", "value": f"+{more[0]:.1f}% Ignite damage",
+         "basis": more[1], "confidence": "MEDIUM"}]
+
+# Critical Weakness on the boss (MECH81; PATCH_CHECK K3-1, an UNDERCOUNT: PoB's conditionEnemyCriticalWeakness box has
+# no default and nothing set it, and PoB doesn't parse the spell-crit, Parry and warcry lines at all, so every source
+# scored 0). KeywordPopups CriticalWeakness (26650308): "Critical Weakness causes hits against affected targets to have
+# +0.5% to Critical Hit Chance, and can stack up to 20 times. If not otherwise specified, each stack lasts for 4 seconds."
+# Player sources (checked: every Stats id holding "critical_weakness" on 26650308 and their users in Mods / PassiveSkills /
+# GrantedEffectStatSets; PoB ModCache / ModParser 4636-4640): Mods UniqueEnemiesInPresenceGainCritWeakness1 (a unique
+# helmet: "Every second, inflicts Critical Weakness on enemies in your Presence for N seconds"),
+# UniqueCriticalWeaknessOnSpellCrit1 (a unique focus: "Critical Hits with Spells apply N Stacks"),
+# UniqueCriticalWeaknessOnParry1 (a unique shield: "Parrying applies 10 Stacks"); passives wolf14 ("Warcries inflict 3
+# Critical Weakness on Enemies") and AscendancyRanger1Notable8 (Deadeye: "Apply 10 Critical Weakness to Enemies when
+# Consuming a Mark on them"); on Hit: the Sand Djinn's skills and Kelari's Corpse Beetles' explosion (minion / djinn
+# skills: not counted here, labelled, MECH-B's / MECH49's skills). Stacks held = min(20, sum of stacks a second x their
+# seconds) (stacks taken as own timers, each 4 s unless the line says; the steady state, the climb at the fight's start
+# not taken off: MEDIUM). Rates from the build: the main skill's spell crits a second (Speed x HitChance x CritChance);
+# the Presence line while the boss stands in your Presence (the search's distance vs PoB's PresenceRadius), one stack a
+# second each lasting the line's N s (MEDIUM: one stack per inflict); a parry every PARRY_EVERY s when the build carries
+# Parry / Refutation (the user's 11 Nov cadence); the build's warcries a second (conditions.event_rates); Mark
+# Activations a second (glory_mark_rate: a Mark that Activates is Consumed). Counted as PoB counts the debuff: +0.5% base
+# Critical Hit Chance a stack (CalcOffence 3881 adds the enemy's SelfCritChance to the hit's BASE CritChance, as a
+# player's "CritChance BASE" mod), for every skill hitting the boss.
+CRIT_WEAKNESS_SECONDS, CRIT_WEAKNESS_MAX, CRIT_WEAKNESS_PER = 4.0, 20.0, 0.5
+CW_PRESENCE = re.compile(r"^Every second, inflicts Critical Weakness on enemies in your Presence for (\d+(?:\.\d+)?) "
+                         r"seconds?$", re.I)
+CW_SPELL_CRIT = re.compile(r"^Critical Hits with Spells apply (\d+) Stacks? of Critical Weakness$", re.I)
+CW_PARRY = re.compile(r"^Parrying applies (\d+) Stacks? of Critical Weakness$", re.I)
+CW_WARCRY = re.compile(r"^Warcries inflict (\d+) Critical Weakness on Enemies$", re.I)
+CW_MARK = re.compile(r"^Apply (\d+) Critical Weakness to Enemies when Consuming a Mark on them$", re.I)
+
+
+def critical_weakness_stacks(texts: list[str], skills: list[Skill], stats: dict, main: Skill | None,
+                             metres: float, warcries: tuple[float, str] = (0.0, "")) -> tuple[float, str]:
+    """(Critical Weakness stacks held on the boss, how) from the build's own sources (see the note above)."""
+    def total(pattern: re.Pattern) -> float:
+        return sum(float(m.group(1)) for t in texts if (m := pattern.match(t.strip())))
+
+    held, parts = 0.0, []
+    if n := total(CW_PRESENCE):
+        radius = number(stats.get("PresenceRadius")) / 10
+        if radius >= metres:
+            held += n
+            parts.append(f"your Presence ({radius:.1f} m, the boss {metres:g} m away): one stack a second lasting {n:g} s")
+        else:
+            parts.append(f"your Presence ({radius:.1f} m) doesn't reach the boss {metres:g} m away: 0")
+    if n := total(CW_SPELL_CRIT):
+        crits = (hits_per_second(stats) * min(number(stats.get("CritChance")), 100) / 100
+                 if main is not None and main.spell else 0.0)
+        held += n * crits * CRIT_WEAKNESS_SECONDS
+        parts.append(f"{n:g} a spell crit x {crits:.2f} spell crits/s" + ("" if main is not None and main.spell
+                                                                          else " (the main skill isn't a spell)"))
+    if n := total(CW_PARRY):
+        parry = 1 / PARRY_EVERY if any(s.name in PARRY_SKILLS for s in skills) else 0.0
+        held += n * parry * CRIT_WEAKNESS_SECONDS
+        parts.append(f"{n:g} a parry x {parry:.2f} parries/s" + (f" (a telegraphed hit every {PARRY_EVERY:g} s, the "
+                                                                 "user's cadence, MEDIUM)" if parry else
+                                                                 " (no Parry / Refutation in the build)"))
+    if n := total(CW_WARCRY):
+        held += n * warcries[0] * CRIT_WEAKNESS_SECONDS
+        parts.append(f"{n:g} a warcry x {warcries[0]:.2f} warcries/s ({warcries[1] or 'none read'})")
+    if n := total(CW_MARK):
+        rate, which = glory_mark_rate(skills, stats)
+        held += n * rate * CRIT_WEAKNESS_SECONDS
+        parts.append(f"{n:g} a consumed Mark x {rate:.2f} Activations/s ({which or 'no Mark'})")
+    if not parts:
+        return 0.0, ""
+    stacks = min(CRIT_WEAKNESS_MAX, held)
+    return stacks, (f"{stacks:.1f} of {CRIT_WEAKNESS_MAX:g} stacks held ({'; '.join(parts)}; each stack "
+                    f"{CRIT_WEAKNESS_SECONDS:g} s unless the line says, own timers, MEDIUM); minions' and the djinn's "
+                    "on-Hit stacks not counted")
+
+
+def critical_weakness_mods(stacks: tuple[float, str]) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): +0.5% base Critical Hit Chance a stack held (as PoB's enemy SelfCritChance)."""
+    if not stacks[1]:
+        return [], []
+    note = [{"label": "Critical Weakness on the boss*", "value": f"{stacks[0]:.1f} stacks, "
+             f"+{stacks[0] * CRIT_WEAKNESS_PER:.1f}% Critical Hit Chance", "basis": stacks[1], "confidence": "MEDIUM"}]
+    if stacks[0] <= 0:
+        return [], note
+    return [raw_mod("CritChance", "BASE", stacks[0] * CRIT_WEAKNESS_PER)], note
+
+
 # Grisly Pyre's Ignite from another group (MECH74; AUDIT35, an UNDERCOUNT: with His Winnowing Flame as the main skill,
 # or a main skill that doesn't Ignite, the Pyre read the main skill's Ignite, 0). The Ignite to Consume comes from the
 # build's other skill group that Ignites, scored as PoB scores it as the main skill (bridge.useRates' IgniteDPS,
@@ -7760,28 +7852,37 @@ def immobilised_share(stats: dict, ailment: str) -> tuple[float, str]:
     window = AILMENT_REPEAT[ailment][1]
     if ailment in (stats.get("_consumes") or {}) and (hits := hits_per_second(stats)) > 0:
         # the main skill consumes it: it ends on the next hit, then the boss is immune for 1 s (KeywordPopups Consume;
-        # RESEARCH18 #92, MECH51); buildup during that second taken as kept (UNVERIFIED, #99), so the next one comes after
-        # max(1 s, the refill)
+        # RESEARCH18 #92, MECH51); buildup during that second taken as LOST (MECH81, RESEARCH26 R26-30 (c): ASSUMED, the
+        # lower reading, consistent with buildup pausing while Frozen, the user's 11 Nov rule; KeywordPopups Consume says
+        # only "immune to that Debuff for 1 seconds"; an OVERCOUNT before, which took it as kept: max(1 s, the refill)),
+        # so the refill starts after the immunity, with what's left of the x6 window
         last = min(d, 1 / hits)
         times = AILMENT_REPEAT[ailment][0]
-        period = last + max(CONSUME_IMMUNE, repeat_every(1 / fill, times, max(window - last, 0.0)))
+        period = last + CONSUME_IMMUNE + repeat_every(1 / fill, times, max(window - last - CONSUME_IMMUNE, 0.0))
+        kept = last + max(CONSUME_IMMUNE, repeat_every(1 / fill, times, max(window - last, 0.0)))
         share = min(1.0, last / period)
-        return share, (f"{fill * 100:.1f}% of the bar per s ({hits:.2f} hits/s, Arbiter of Ash threshold); consumed by "
-                       f"{stats['_consumes'][ailment]} on the next hit ({last:.2f} s), then immune {CONSUME_IMMUNE:g} s "
-                       f"(KeywordPopups Consume): one every {period:.2f} s: {share:.0%} (buildup during the immunity taken "
-                       f"as kept: UNVERIFIED)")
+        return share, (f"{fill * 100:.1f}% of the bar per s ({hits:.2f} hits/s, {bosses.of(stats).name}'s threshold); "
+                       f"consumed by {stats['_consumes'][ailment]} on the next hit ({last:.2f} s), then immune "
+                       f"{CONSUME_IMMUNE:g} s (KeywordPopups Consume): one every {period:.2f} s: {share:.0%} (buildup "
+                       f"during the immunity taken as lost: ASSUMED, LOW, RESEARCH26 R26-30 (c); if it's kept: one every "
+                       f"{kept:.2f} s, {min(1.0, last / kept):.0%})")
     if side := (stats.get("_side_consumes") or {}).get(ailment):
         # a skill beside the main one consumes it (MECH53; conditions.side_consumes): each Freeze lasts until its next use
         # or d, (1 - e^(-r d)) / r on average with uses random in time; the bar refills from then (buildup paused while
-        # Frozen), at least the 1 s immunity (buildup during it taken as kept: UNVERIFIED, #99)
+        # Frozen) after the 1 s immunity (buildup during it taken as LOST: MECH81, RESEARCH26 R26-30 (c), as above; an
+        # OVERCOUNT before, max(1 s, the refill))
         rate = side[0]
         last = (1 - math.exp(-rate * d)) / rate
-        period = last + max(CONSUME_IMMUNE, period - d)
+        times = AILMENT_REPEAT[ailment][0]
+        kept = last + max(CONSUME_IMMUNE, period - d)
+        period = last + CONSUME_IMMUNE + repeat_every(1 / fill, times, max(window - last - CONSUME_IMMUNE, 0.0))
         share = min(1.0, last / period)
         return share, (f"{fill * 100:.1f}% of the bar per s ({hits_per_second(stats):.2f} hits/s, "
                        f"{bosses.of(stats).name}'s threshold); consumed by {side[1]} ({side[2]}): each lasts "
-                       f"{last:.2f} s of its {d:g} s on average, then the bar refills (at least the 1 s immunity, "
-                       f"KeywordPopups Consume): one every {period:.2f} s: {share:.0%}")
+                       f"{last:.2f} s of its {d:g} s on average, then immune {CONSUME_IMMUNE:g} s (KeywordPopups Consume) "
+                       f"and the bar refills after it: one every {period:.2f} s: {share:.0%} (buildup during the immunity "
+                       f"taken as lost: ASSUMED, LOW, RESEARCH26 R26-30 (c); if it's kept: one every {kept:.2f} s, "
+                       f"{min(1.0, last / kept):.0%})")
     share = min(1.0, d / period)
     longer = f" ({pin_duration_scale(stats)[1]})" if ailment == "Pin" and pin_duration_scale(stats)[1] else ""
     return share, (f"{fill * 100:.1f}% of the bar per s (PoB's buildup per hit x {hits_per_second(stats):.2f} hits/s, "

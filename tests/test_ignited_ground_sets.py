@@ -496,3 +496,150 @@ def test_aggravated_extra_runs_while_any_live_bleed_is_aggravated():
     want = 1 - math.exp(-2.0 * 5.0 * own)  # (2 Bleeds a second, 5 s each)
     assert mods[0]["scale"] == pytest.approx(100 * want, rel=1e-3) and want > own
     assert notes[0]["confidence"] == "MEDIUM-LOW" and f"{own:.0%}" in notes[0]["play"]
+
+
+# MECH81 (PATCH_CHECK MD-2): the boss Isolated (no ally within 6 m) for Vorana's Siege, except while its adds are up
+def test_the_boss_is_isolated_except_while_its_adds_are_up():
+    from builder.search import bosses
+
+    vorana = {"_gem_names": {conditions.VORANAS_SIEGE}}
+    assert conditions._enemy_isolated([], {"_gem_names": set()}) == (0.0, "")
+    alone = next(n for n, b in bosses.PRESETS.items() if not b.kills)
+    on, how, up = conditions._enemy_isolated([], {**vorana, "_boss": alone})
+    assert on is True and up == 1.0 and "no killable adds" in how
+    king = next(n for n, b in bosses.PRESETS.items() if b.kills and sum(k.share for k in b.kills) < 1)
+    share = 1 - sum(k.share for k in bosses.PRESETS[king].kills)
+    assert conditions._enemy_isolated([], {**vorana, "_boss": king})[2] == pytest.approx(share)
+    swarmed = next(n for n, b in bosses.PRESETS.items() if b.kills and sum(k.share for k in b.kills) >= 1)
+    assert conditions._enemy_isolated([], {**vorana, "_boss": swarmed})[2] == 0.0
+
+
+def test_voranas_siege_sets_the_isolated_box_and_pob_reads_it(engine):
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Rolling Slam"))
+    skeleton = enumerate_skeletons(Context(payload), ["Rolling Slam"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    search.settle()
+    build = search.build
+    group = build.main_group()
+    gems = [{"name": g["name"], "level": g.get("level", 20), "quality": g.get("quality", 0)} for g in group["gems"]]
+    build.set_group(index=group["index"], gems=gems + [{"name": conditions.VORANAS_SIEGE, "level": 1, "quality": 0}])
+    search.settle()
+    found = search.conditions.evidence()
+    print("ISOLATED", found.get("conditionEnemyIsolated"))
+    assert found["conditionEnemyIsolated"][0] is True and "Isolated" in found["conditionEnemyIsolated"][1]
+    before = build.call("getConfig")["input"]
+    try:
+        off = build.call("setConfig", vars={"conditionEnemyIsolated": False}, fields=["TotalDPS"])["stats"]
+        on = build.call("setConfig", vars={"conditionEnemyIsolated": True}, fields=["TotalDPS"])["stats"]
+    finally:
+        build.call("setConfig", vars={"conditionEnemyIsolated": before.get("conditionEnemyIsolated", False)})
+    print("ISOLATED off / on", off, on)
+    assert on["TotalDPS"] > off["TotalDPS"] * 1.15  # the support's 20% more Hit damage
+
+
+# MECH81 (PATCH_CHECK G2-2): Stormfire, a Shocked boss takes 20% of the Ignite's damage again as Lightning
+def test_stormfire_adds_its_share_of_ignite_as_lightning_while_the_main_skill_shocks():
+    from builder.search import models
+
+    more, how = conditions.stormfire_more(20, 0.5, 45, 0)  # the Arbiter of Ash: 45% Fire, 0% Lightning
+    assert more == pytest.approx(20 * 0.5 / 0.55) and "Lightning" in how
+    assert conditions.stormfire_more(20, 0.0, 45, 0)[0] == 0.0
+    assert conditions.stormfire_more(0, 1.0, 45, 0) == (0.0, "")
+    mods, notes = models.stormfire_mods("Fireball", (10.0, "x"))
+    assert mods[0]["line"] == models.COMPOUND_LINE and mods[0]["scale"] == 10.0 and notes[0]["basis"] == "x"
+    assert models.stormfire_mods("Fireball", (0.0, "")) == ([], [])
+
+
+def test_stormfire_is_read_on_a_real_build(engine):
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Fireball"))
+    skeleton = enumerate_skeletons(Context(payload), ["Fireball"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    search.settle()
+    build = search.build
+    group = build.main_group()
+    gems = [{"name": g["name"], "level": g.get("level", 20), "quality": g.get("quality", 0)} for g in group["gems"]]
+    build.set_group(index=group["index"], gems=gems + [{"name": conditions.STORMFIRE, "level": 1, "quality": 0}])
+    search.settle()
+    raw = build.call("activeSkills", levelStats=["Fireball"], supportStats=[conditions.STORMFIRE_STAT])
+    main = next(s for s in raw["skills"] if s["name"] == "Fireball" and not s.get("disabled"))
+    print("STORMFIRE stat", main.get("supportStats"), getattr(build, "stormfire", None))
+    assert (main.get("supportStats") or {}).get(conditions.STORMFIRE_STAT) == 20
+    search.conditions.evidence()
+    assert getattr(build, "stormfire", None) is not None
+
+
+# MECH81 (PATCH_CHECK K1-1): Unravelling, Chaos damage also builds one element's ailment, a third of the fight each
+def test_unravelling_sets_each_element_a_third_of_the_fight_only_when_granted():
+    on, how, up = conditions._unravelling("Cold")(["Grants Unravelling"], {})
+    assert on is True and up == pytest.approx(1 / 3) and "Freeze" in how
+    assert conditions._unravelling("Lightning")(["Grants Onslaught"], {}) == (0.0, "")
+    assert {c.var for c in conditions.CONDITIONS} >= {f"bridgeCondition{e}Unravel" for e in ("Cold", "Fire", "Lightning")}
+
+
+def test_unravelling_lets_chaos_damage_ignite_in_pob(engine):
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, ItemOption, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Rolling Slam"))
+    skeleton = enumerate_skeletons(Context(payload), ["Rolling Slam"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    search.settle()
+    raw = chr(10).join(["Rarity: Rare", "Test Loop", "Iron Ring", "Item Level: 82", "Implicits: 0",
+                        "Grants Unravelling", "Adds 200 to 300 Chaos damage to Attacks"])
+    search.build.equip("Ring 1", ItemOption(name="Test Loop", base="Iron Ring", type="Ring", sub_type=None, raw=raw,
+                                            unique=False, price=None, confidence="ssf", level=1))
+    search.settle()
+    found = search.conditions.evidence()
+    print("UNRAVEL", {k: v for k, v in found.items() if "Unravel" in k})
+    assert all(f"bridgeCondition{e}Unravel" in found for e in ("Cold", "Fire", "Lightning"))
+    names = ["bridgeConditionColdUnravel", "bridgeConditionFireUnravel", "bridgeConditionLightningUnravel"]
+    before = search.build.call("getConfig")["input"]
+    try:
+        off = search.build.call("setConfig", vars={n: False for n in names}, fields=["IgniteChancePerHit"])["stats"]
+        fire = search.build.call("setConfig", vars={"bridgeConditionFireUnravel": True},
+                                 fields=["IgniteChancePerHit"])["stats"]
+    finally:
+        search.build.call("setConfig", vars={n: before.get(n, False) for n in names})
+    print("UNRAVEL ignite chance off / Fire", off, fire)
+    assert fire.get("IgniteChancePerHit", 0) > off.get("IgniteChancePerHit", 0)  # (PoB leaves out a 0)
+
+
+def test_critical_weakness_from_a_spell_crit_line_raises_crit_on_a_real_build(engine):
+    """MECH81 (K3-1): a Spark build with the unique focus's "Critical Hits with Spells apply 3 Stacks of Critical
+    Weakness" line (on a ring here: PoB doesn't parse it, the model reads the text) holds stacks from its own spell crits,
+    and PoB's crit chance rises by 0.5% base a stack."""
+    from builder.request.schema import BuildRequest
+    from builder.search import models
+    from builder.search.context import Context, ItemOption, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Spark"))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    before = models.number(search.build.call("stats", fields=["CritChance"]).get("CritChance"))
+    raw = chr(10).join(["Rarity: Rare", "Test Loop", "Iron Ring", "Item Level: 82", "Implicits: 0",
+                        "Critical Hits with Spells apply 3 Stacks of Critical Weakness"])
+    search.build.equip("Ring 1", ItemOption(name="Test Loop", base="Iron Ring", type="Ring", sub_type=None, raw=raw,
+                                            unique=False, price=None, confidence="ssf", level=1))
+    search.assumptions.apply()
+    note = next(n for n in search.assumptions.active if n["label"].startswith("Critical Weakness on the boss"))
+    after = models.number(search.build.call("stats", fields=["CritChance"]).get("CritChance"))
+    print("CRITICAL WEAKNESS", note, before, after)
+    assert "spell crit" in note["basis"] and after > before

@@ -1,0 +1,32 @@
+# MECH81 (MECH-A lane, 16 Nov 2026): mechanics a model knowingly leaves out, recorded as labelled undercounts (the
+# manager's brief, 16 Nov ~00:30: "Doedre's second curse area stays HELD ... Write it as a labelled undercount in the
+# ledger, with those reasons"). These entries carry no `stats` and no `match` on purpose: an entry with `stats` would mark
+# the stat as read in the audit (coverage.stat_entries), hiding the undercount. The stat stays open there.
+
+- id: model-mech81-doedre-second-curse-area-held
+  title: "Doedre's Undoing: a second cursed area (the support's Limit 2) isn't counted: an UNDERCOUNT, held"
+  kind: model
+  model: toad
+  skill: ["Doedre's Undoing"]
+  direction: undercount
+  owner: MECH-B
+  confidence: LOW
+  notes: >-
+    Game files (GrantedEffectStatSets SupportDoedresUndoingPlayer): maximum_curse_zones_allowed 2,
+    max_toads_per_doedre_cursed_ground 4, doedre_cursed_ground_toad_spawn_interval_ms 250. models.toad_model (MECH-B's,
+    MECHB8 / MECHB28) counts one area: the curse's own share of the fight x one Witchtoad every 0.25 s. A curse area
+    already counts the curse on the boss all fight, so a second area would add only Witchtoads (Dark Consequences
+    explosions and Witchtoad deaths). Not counted, an UNDERCOUNT, held for three reasons (MECH80's proposal, the manager's
+    brief to MECH81): (1) the toad model is MECH-B's function; (2) its per-area rate is already a LOW 4 explosions a
+    second, itself a possible OVERCOUNT held for a question no source answers yet (a Witchtoad's seconds from spawn to
+    explosion: checked by MECHB28, every game table naming toad / Witchtoad / frog, PoB sup_int.lua 3110, poe2db,
+    patch notes --history "Doedre's Undoing"), so doubling it would compound an unverified number; (3) done right, the
+    second area is a play the search chooses (cast the curse twice a duration to keep two areas, a press each), which
+    needs a SEARCH toggle as Withering Hex's curse-lapse gap did. Whether both areas' toads reach the boss is
+    UNVERIFIED. The model's own note and play line already say "a second area ... isn't counted, an undercount".
+    Proposal: MECH-B adds the second area as that play, with SEARCH's toggle, once the toad-time question is answered.
+  sources: ["builder/search/models.py (toad_model, CURSE_AREAS, TOADS_PER_AREA, TOAD_SPAWN_SECONDS)",
+            "scratch/manager/workers/MECH80.report.md (Turn 2: Doedre's second curse area, HELD)",
+            "ledger/entries/gems-gem14.yaml (model-gem14-doedre-toad-limit-read: maximum_curse_zones_allowed left open)"]
+  test_in_game: "Not proposed (the user's rule: in-game checks only if 100% necessary; the toad-time question goes to research first)."
+  status: proposed
