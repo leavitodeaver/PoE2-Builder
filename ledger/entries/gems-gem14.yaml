@@ -1,0 +1,515 @@
+# GEM14 (GEM lane, 15 Nov 2026): gem stats PoB never reads that our models already read (bookkeeping: no number moves).
+# Each entry names the model and where it reads the stat; checked by reading the model's code, not only by finding the
+# id in a comment. Stats whose id appears in our code but which no model reads for the listed skill stay open (GEM14's
+# report lists them with the reason).
+
+- id: model-gem14-curse-zone-supports-read
+  title: "Cursed Ground, Doedre's Undoing, Hayoxi's Fulmination: the curse as an area on the ground (curse model), Doedre's toad Limit and Hayoxi's 7 s trigger and 2 areas"
+  kind: model
+  model: curse_zone
+  stats: ["curse_apply_as_curse_zone"]
+  skill: [Cursed Ground, "Doedre's Undoing", "Hayoxi's Fulmination"]
+  confidence: MEDIUM
+  notes: >-
+    models.CURSE_ZONE_SUPPORTS / CURSE_ZONE_NOTE (MECH73): a curse these supports make into an area is taken as on the
+    boss while the area lasts, the boss standing in it (MEDIUM, an overcount wherever the boss walks out; labelled in the
+    note). Doedre's Witchtoads (toad_model) and Hayoxi's Annihilation (MECHB29) build on the same area.
+  sources: ["builder/search/models.py (CURSE_ZONE_SUPPORTS, CURSE_ZONE_NOTE; toad_model; Hayoxi's Annihilation model)"]
+  test_in_game: "Not needed here: the curse and toad models' tests cover it."
+  status: proposed
+
+- id: model-gem14-doedre-toad-limit-read
+  title: "Doedre's Undoing: at most 4 live Witchtoads an area caps the explosions (toad model)"
+  kind: model
+  model: toad
+  stats: ["max_toads_per_doedre_cursed_ground"]
+  skill: ["Doedre's Undoing"]
+  confidence: LOW
+  notes: >-
+    models.TOADS_PER_AREA 4 (toad_model, MECHB28): explosions capped at 4 / (a toad's seconds from spawn to explosion);
+    no source gives that time, so 4 a second is kept, labelled LOW in the model. maximum_curse_zones_allowed stays open
+    for Doedre's Undoing and Cursed Ground: the toad model counts one area (a second area: an undercount, labelled there).
+  sources: ["builder/search/models.py (TOADS_PER_AREA, toad_model)"]
+  test_in_game: "Not needed here: the toad model's tests cover it."
+  status: proposed
+
+- id: model-gem14-hayoxi-annihilation-read
+  title: "Hayoxi's Fulmination's Annihilation: the 7 s trigger, the Limit of 2 areas, 6 hits over 2 s (MECHB29's model)"
+  kind: model
+  model: hayoxi_annihilation
+  stats: ["trigger_from_hayhoxis_binding_after_x_ms", "maximum_curse_zones_allowed", "annihilation_blast_duration_ms",
+          "annihilation_hit_intervals"]
+  skill: ["Hayoxi's Fulmination", Annihilation]
+  confidence: MEDIUM
+  notes: >-
+    models.HAYOXI_DELAY 7, ANNIHILATION_HITS 6: two areas under the boss (the support's Limit 2), a new one cast every
+    3.5 s, each erupting at 7 s: 2 eruptions per 7 s, 6 hits each on the boss over the 2 s blast (its staying in the
+    1.7 m column all 2 s: LOW, labelled in the model). How long an area lasts is UNVERIFIED there (both readings in its
+    note).
+  sources: ["builder/search/models.py (HAYOXI_DELAY, HAYOXI_COOLDOWN, ANNIHILATION_HITS)"]
+  test_in_game: "Not needed here: MECHB29's tests cover it."
+  status: proposed
+
+- id: model-gem14-barbs-hits-read
+  title: "Barbs I / II: Thorns damage on the next 4 / 6 hits after each Retaliation (Thorns model)"
+  kind: model
+  model: thorns
+  stats: ["deal_thorns_damage_on_hit_for_X_hits_after_thorns_trigger"]
+  skill: [Barbs I, Barbs II]
+  confidence: MEDIUM
+  notes: >-
+    models.BARBS {"Barbs I": (4, 1), "Barbs II": (6, 1), "Barbs III": (1, 2)} (MECHB22-24): min(Retaliations/s x N, the
+    supported main skill's hits/s) x PoB's Barbs hit, PoB's own Speed-1 entry scaled to 0.
+  sources: ["builder/search/models.py (BARBS, thorns_hit)"]
+  test_in_game: "Not needed here: the Thorns model's tests cover it."
+  status: proposed
+
+- id: model-gem14-spear-of-solaris-glory-read
+  title: "Spear of Solaris: 1 Glory per Ignite (Glory model, a flat event)"
+  kind: model
+  model: glory_plan
+  stats: ["active_skill_hundred_times_generates_glory_per_ignite"]
+  skill: [Spear of Solaris]
+  confidence: MEDIUM
+  notes: >-
+    models GLORY_SKILLS "Spear of Solaris": ignite 1 and GLORY_FLAT_EVENTS (flat, not a share of the boss's Power), with
+    the 0.5 s per-skill Glory window (MECHC2 / MECHC11).
+  sources: ["builder/search/models.py (GLORY_SKILLS, GLORY_FLAT_EVENTS)"]
+  test_in_game: "Not needed here: the Glory model's tests cover it."
+  status: proposed
+
+- id: model-gem14-unbound-avatar-buff-read
+  title: "Unbound Avatar: 40% more Elemental Damage and 40% more elemental immobilisation buildup while Unbound (Unbound model)"
+  kind: model
+  model: unbound_avatar
+  stats: ["ailment_bearer_elemental_damage_+%_final", "unbound_ailment_hit_damage_elemental_immobilisation_multiplier_+%_final"]
+  skill: [Unbound Avatar]
+  confidence: MEDIUM
+  notes: >-
+    models.UNBOUND_BUFF (MECHC10): "1% more Elemental Damage" x 40 and "1% more Freeze / Electrocute Buildup" x 40 under
+    Condition:Unbound, at the buff's uptime from the build's Unbound Fury.
+  sources: ["builder/search/models.py (UNBOUND_BUFF, UNBOUND_BUILDUP_MORE)"]
+  test_in_game: "Not needed here: MECHC10's tests cover it."
+  status: proposed
+
+- id: model-gem14-blood-hunt-read
+  title: "Blood Hunt: its explosion at 25% of the Blood Loss as Life Loss, set off by any Blood Loss (Blood Hunt model)"
+  kind: model
+  model: blood_hunt
+  stats: ["blood_hunt_explosion_%_blood_loss_to_deal_as_life_loss", "blood_hunt_X_blood_loss_consumed_to_explode"]
+  skill: [Blood Hunt]
+  confidence: MEDIUM
+  notes: >-
+    models.BLOOD_HUNT_STAT / BLOOD_HUNT_PCT 25 (blood_hunt_model, MECH75): every hit that finds Blood Loss explodes (the
+    stat's 1: one Blood Loss is enough), consuming it all in turn. Life Loss taken to bypass mitigation: MEDIUM, labelled.
+  sources: ["builder/search/models.py (BLOOD_HUNT_STAT, blood_hunt_model)"]
+  test_in_game: "Not needed here: MECH75's tests cover it."
+  status: proposed
+
+- id: model-gem14-briarpatch-read
+  title: "Briarpatch: its stored-damage cap by gem level and one patch every 8 s (Briarpatch model)"
+  kind: model
+  model: briarpatch
+  stats: ["briarpatch_maximum_stored_physical_damage", "briarpatch_ground_creation_delay_ms"]
+  skill: [Briarpatch]
+  confidence: MEDIUM
+  notes: >-
+    models.BRIAR_CAP (the 40 gem levels) and BRIAR_DELAY 8 (MECHB31): the creation hit deals min(cap, 1% of the main
+    skill's Physical Attack damage a second x 8 s), one patch per 8 s. The ticks while the boss moves aren't counted (a
+    lower bound, labelled there).
+  sources: ["builder/search/models.py (BRIAR_CAP, BRIAR_STORE, BRIAR_DELAY)"]
+  test_in_game: "Not needed here: MECHB31's tests cover it."
+  status: proposed
+
+- id: model-gem14-brambleslam-read
+  title: "Brambleslam: 3 Brambles a slam, each triggered (Brambles model)"
+  kind: model
+  model: brambles
+  stats: ["create_X_briar_thorns_on_slam", "triggered_by_briarpatch_support_on_slam_%"]
+  skill: [Brambleslam, Brambles]
+  confidence: MEDIUM
+  notes: >-
+    models.BRAMBLES_PER_SLAM 3 (brambles_model, MECHB24): Brambles a second = min(the supported slam's uses/s x 3,
+    1 / Brambles' cooldown), every slam taken to trigger them (the stat's 100%).
+  sources: ["builder/search/models.py (BRAMBLES_PER_SLAM, brambles_model)"]
+  test_in_game: "Not needed here: MECHB24's tests cover it."
+  status: proposed
+
+- id: model-gem14-charged-mark-read
+  title: "Charged Mark: Shocked Ground on every Activation of the Mark (conditions' charged_mark)"
+  kind: model
+  model: charged_mark
+  stats: ["chance_to_trigger_shocked_ground_on_mark_activated_%"]
+  skill: [""]
+  confidence: HIGH
+  notes: >-
+    conditions.charged_mark (MECH61 / MECH62): Activations per second from models.mark_activations at the Mark's own
+    duration, the stat's 100% (research/shocked-ground-sources.md). PoB's data names the triggered skill (TriggeredChargedMarkPlayer) with an
+    empty name, so `skill` is the empty name.
+  sources: ["builder/search/conditions.py (charged_mark)"]
+  test_in_game: "Not needed here: MECH61's tests cover it."
+  status: proposed
+
+- id: model-gem14-energy-capacitor-read
+  title: "Energy Capacitor: 80% increased Maximum Energy on the supported Invocation (energy model)"
+  kind: model
+  model: energy
+  stats: ["skill_maximum_energy_+%"]
+  skill: [Energy Capacitor]
+  confidence: datamined
+  notes: >-
+    models.ENERGY_CAPACITY_SUPPORTS / invocation_max_energy (MECHB25, commit 80912553): the Invocation's store is
+    500 x (1 + (80 + the build's Invocated-skills increase) / 100). gem-stat-energy.yaml's header still lists this stat
+    as open: written before MECHB25 (COV-A's file). Feral Invocation's generic_ongoing_trigger_maximum_energy and
+    energy_generated_+% stay open (models.NOT_MODELED_YET).
+  sources: ["builder/search/models.py (ENERGY_CAPACITY_SUPPORTS, invocation_max_energy)"]
+  test_in_game: "Not needed here: MECHB25's tests cover it."
+  status: proposed
+
+- id: model-gem14-living-bomb-read
+  title: "Living Bomb: one seed, exploding at 200% of the boss's Ailment Threshold (Living Bomb model)"
+  kind: model
+  model: living_bomb
+  stats: ["living_bomb_damage_threshold_%_of_ailment_threshold", "living_bomb_base_number_of_bombs_allowed"]
+  skill: [Living Bomb]
+  confidence: MEDIUM
+  notes: >-
+    assumptions.py Living Bomb (MECHC1 / MECHC26): one seed planted, exploding when the main skill's CombinedDPS reaches
+    200% of PoB's EnemyAilmentThreshold within its 15 s (a seed that runs out doesn't explode, 0.3.0).
+  sources: ["builder/search/assumptions.py (Living Bomb)"]
+  test_in_game: "Not needed here: MECHC1's tests cover it."
+  status: proposed
+
+- id: model-gem14-summon-wolf-read
+  title: "Summon Wolf (Pounce / Predator's Mark): the wolves held at their limit, kept with no duration (wolf model)"
+  kind: model
+  model: summon_wolf
+  stats: ["skill_cross_slash_triggered_summon_+_wolves_if_rare", "skill_cross_slash_triggered_summon_+_wolves_if_unique",
+          "no_minion_duration"]
+  skill: [Summon Wolf]
+  confidence: LOW
+  notes: >-
+    models.py Summon Wolf (MECH35; the user's choice, 11 Nov: "Count them, labelled"): the wolves are carried in from
+    earlier kills and assumed at their limit (number_of_wolves_allowed by gem level; LOW), kept since they have no
+    duration; so the per-kill count (+0 Rare, +1 Unique) only decides how soon the limit is reached, which the model
+    takes as already done. Whether Cross Slash's gouges summon them on the boss is held for the user's in-game test.
+  sources: ["builder/search/models.py (Summon Wolf, MECH35)"]
+  test_in_game: "Held already (MECH35): Cross Slash on a boss marked with Predator's Mark: do wolves appear?"
+  status: proposed
+
+- id: model-gem14-grisly-pyre-read
+  title: "His Winnowing Flame / Grisly Pyre: one pillar per Consumed Ignite, 30% of its remaining damage (Grisly Pyre model)"
+  kind: model
+  model: grisly_pyre
+  stats: ["unique_pillar_of_flame_consume_ignite_to_create_X_pillars", "unique_flame_pillar_fire_damage_equal_to_%_of_remaining_ignite_damage"]
+  skill: [His Winnowing Flame, Grisly Pyre]
+  confidence: MEDIUM
+  notes: >-
+    models.py His Winnowing Flame (MECH71): each use that finds the boss Ignited makes 1 pillar dealing 30% of the
+    Ignite's expected remaining damage (patch 0.5.0's 30%), PoB holding no damage for Grisly Pyre. The Consume side is
+    conditions.CONSUME_STATS'.
+  sources: ["builder/search/models.py (His Winnowing Flame's Grisly Pyres, MECH71)", "builder/search/conditions.py (CONSUME_STATS)"]
+  test_in_game: "Not needed here: MECH71's tests cover it."
+  status: proposed
+
+- id: model-gem14-frost-nexus-read
+  title: "Frost Nexus: Chilled Ground for 8 s around a Frozen boss (Chilled Ground model)"
+  kind: model
+  model: chilled_ground
+  stats: ["chilling_ice_create_chilled_ground_on_freeze_base_duration_ms"]
+  skill: [Frost Nexus]
+  confidence: MEDIUM
+  notes: >-
+    conditions.FROST_NEXUS_SECONDS 8: at the boss's Freezes a second, the frozen boss in the patch for its duration
+    (MEDIUM, the manager's FIX_QUEUE 442 ruling).
+  sources: ["builder/search/conditions.py (FROST_NEXUS, FROST_NEXUS_SECONDS)"]
+  test_in_game: "Not needed here: the Chilled Ground tests cover it."
+  status: proposed
+
+- id: model-gem14-daze-skill-stats-read
+  title: "Daze from the main skill's own stats: Wind Blast's and Siphoning Strike's chance, Concussive Spells' on crits, Vaulting Impact's none (Daze model)"
+  kind: model
+  model: daze
+  stats: ["base_chance_to_daze_%", "spell_daze_on_critical_hit_dealing_physical_damage", "cannot_daze"]
+  skill: [Wind Blast, Siphoning Strike, Concussive Spells, Vaulting Impact]
+  confidence: MEDIUM
+  notes: >-
+    conditions.DAZE_SKILL_STATS (MECH70): the main skill's own base_chance_to_daze_% (its level / quality stats; Wind
+    Blast's distance falloff not in any file: a possible overcount, labelled), Concussive Spells on a Spell main skill's
+    Physical crits, and cannot_daze switching the main skill's Daze off.
+  sources: ["builder/search/conditions.py (DAZE_SKILL_STATS, the _daze stats)"]
+  test_in_game: "Not needed here: the Daze tests cover it."
+  status: proposed
+
+- id: model-gem14-crackling-palm-read
+  title: "Crackling Palm: a bolt on Unarmed Melee hits, at most 5 every 0.5 s (Crackling Palm model)"
+  kind: model
+  model: crackling_palm
+  stats: ["thunderfist_number_of_bolts_delays", "thunderfist_bolt_delay_ms"]
+  skill: [Crackling Palm]
+  confidence: MEDIUM
+  notes: >-
+    conditions.CRACKLING_PALM_CAP 5 / 0.5 (MECH76): bolts at the main skill's Unarmed Melee hits a second, capped at 10.
+    Gelid Palm's same two stats stay open (nothing reads them for it).
+  sources: ["builder/search/conditions.py (CRACKLING_PALM, CRACKLING_PALM_CAP, crackling_palm_rate)"]
+  test_in_game: "Not needed here: MECH76's tests cover it."
+  status: proposed
+
+- id: model-gem14-alignment-delay-read
+  title: "Alignment I-III: the aiming delay inside the 1.5 s between matched attacks (Alignment model)"
+  kind: model
+  model: alignment
+  stats: ["called_shot_aiming_delay_ms"]
+  skill: [Alignment I, Alignment II, Alignment III]
+  confidence: LOW
+  notes: >-
+    models.ALIGNMENT_MATCH_SECONDS 1.5 (RESEARCH10, the manager's ruling 12 Nov ~09:52): at most one matched attack per
+    (the hidden 1 s delay + repositioning round the boss), a flat LOW number named in its report; the delay is part of it.
+  sources: ["builder/search/models.py (ALIGNMENT_MATCH_SECONDS)"]
+  test_in_game: "Already held (RESEARCH10): how often Alignment's direction can be matched on a boss."
+  status: proposed
+
+- id: model-gem14-tuls-avalanche-read
+  title: "Tul's Avalanche: a Seal every 2 Blocks (seal_echo)"
+  kind: model
+  model: seal_echo
+  stats: ["skill_gain_seal_every_x_hits_blocked"]
+  skill: ["Tul's Avalanche"]
+  confidence: MEDIUM
+  notes: >-
+    passive_models.TULS_BLOCKS_PER_SEAL 2 and models' seal_echo share (COVE11): Seals from the build's own Blocks (the
+    boss's landing hits x Block chance / 2), each broken by a use and Echoing once.
+  sources: ["builder/search/passive_models.py (TULS_BLOCKS_PER_SEAL)", "builder/search/models.py (seal_echo)"]
+  test_in_game: "Not needed here: COVE11's tests cover it."
+  status: proposed
+
+- id: model-gem14-combo-finisher-read
+  title: "Combo Finisher I / II: 3 / 5 Combo needed (usage's Combo requirement)"
+  kind: model
+  model: combo_rotation
+  stats: ["support_combo_finisher_required_number_of_combo_stacks"]
+  skill: [Combo Finisher I, Combo Finisher II]
+  confidence: MEDIUM
+  notes: >-
+    usage.py's Requirement kind "combo" (RULE_AUDIT row 2b): the build's other Strikes build the Combo the supported
+    skill needs (usage.combo_builders / combo_rotation). The decay check (base_combo_stacks_decay_delay_ms) stays open
+    (GEM13: an overcount only for a builder slower than a hit per 4 s).
+  sources: ["builder/search/usage.py (combo requirement, combo_builders, combo_rotation)"]
+  test_in_game: "Not needed here: the usage tests cover it."
+  status: proposed
+
+- id: model-gem14-rageforged-skip-read
+  title: "Rageforged II: 30% chance not to spend its Rage (Rage model)"
+  kind: model
+  model: rage
+  stats: ["rage_skip_consume_chance_%"]
+  skill: [Rageforged II]
+  confidence: MEDIUM
+  notes: >-
+    conditions.py (MECHC24): its own 10 Rage spent on 70% of uses, 7 a use on average; the supported skill's own spend
+    is not lowered (the line's scope).
+  sources: ["builder/search/conditions.py (Rage spent per use, MECHC24)"]
+  test_in_game: "Not needed here: MECHC24's tests cover it."
+  status: proposed
+
+- id: model-gem14-molten-crash-rage-read
+  title: "Molten Crash: 10 Rage spent a use (Rage model)"
+  kind: model
+  model: rage
+  stats: ["molten_crash_optionally_consume_X_rage_for_fissures"]
+  skill: [Molten Crash]
+  confidence: MEDIUM
+  notes: "conditions.py's Rage spent per use (MECHC24): molten_crash_optionally_consume_X_rage_for_fissures 10."
+  sources: ["builder/search/conditions.py (Rage spent per use)"]
+  test_in_game: "Not needed here: the Rage tests cover it."
+  status: proposed
+
+- id: model-gem14-overcharge-reflect-read
+  title: "Overcharge: its Shocks reflected to you (survival model)"
+  kind: model
+  model: overcharge_reflect
+  stats: ["shocks_reflected_to_self"]
+  skill: [Overcharge]
+  confidence: MEDIUM
+  notes: >-
+    conditions.py (MECH75, PATCH_CHECK L4-1): each Shock a supported skill inflicts Shocks you, at its hits x Shock
+    chance, less your Shock avoidance (patch 0.2.0, the newest entry).
+  sources: ["builder/search/conditions.py (Overcharge's reflected Shocks, MECH75)"]
+  test_in_game: "Not needed here: MECH75's tests cover it."
+  status: proposed
+
+- id: model-gem14-shocking-leap-radius-read
+  title: "Shocking Leap: its Shocked Ground's 2 m radius (Shocked Ground model)"
+  kind: model
+  model: shocked_ground
+  stats: ["support_shocking_leap_shocked_ground_radius"]
+  skill: [Shocking Leap]
+  confidence: MEDIUM
+  notes: "conditions.py's per-source Shocked Ground radii (MECH58): Shocking Leap 2.0 m, for 'you on it'."
+  sources: ["builder/search/conditions.py (Shocked Ground radii, MECH58)"]
+  test_in_game: "Not needed here: MECH58's tests cover it."
+  status: proposed
+
+- id: model-gem14-siphon-elements-read
+  title: "Siphon Elements: 5% chance per Power of a Cold Infusion on Freeze (Remnant model)"
+  kind: model
+  model: remnants
+  stats: ["infusion_remnants_%_chance_to_spawn_cold_infusion_on_freezing_an_enemy"]
+  skill: [Siphon Elements]
+  confidence: MEDIUM
+  notes: >-
+    assumptions.SIPHON_FREEZE_PER_POWER 0.05 x models.BOSS_POWER (a Unique has 20 Power, KeywordPopups Power), capped
+    at 1, at the boss's Freezes a second.
+  sources: ["builder/search/assumptions.py (SIPHON, SIPHON_FREEZE_PER_POWER)"]
+  test_in_game: "Not needed here: the Remnant tests cover it."
+  status: proposed
+
+- id: model-gem14-runic-reprieve-read
+  title: "Runic Reprieve: Blocked hits' damage also taken to Runic Ward (Ward-damaged-recently share)"
+  kind: model
+  model: runic_ward_damaged
+  stats: ["non_ward_damage_taken_from_blocked_hits_is_taken_to_ward_as_well"]
+  skill: [Runic Reprieve]
+  confidence: LOW
+  notes: >-
+    assumptions.py (MECHC15; AUDIT26 A26-1): channelled into the boss's hits as far as Ward regeneration pays,
+    1 - exp(-4 s x blocked hits a second) (Poisson, LOW).
+  sources: ["builder/search/assumptions.py (Runic Ward damaged recently, MECHC15)"]
+  test_in_game: "Not needed here: MECHC15's tests cover it."
+  status: proposed
+
+- id: model-gem14-rain-of-arrows-limit-read
+  title: "Rain of Arrows: 1 rain at a time, a new one replacing the old (Rain of Arrows model)"
+  kind: model
+  model: rain_of_arrows
+  stats: ["base_number_of_arrow_rains_allowed"]
+  skill: [Rain of Arrows]
+  confidence: MEDIUM
+  notes: >-
+    models.py Rain of Arrows: hits run on while the player attacks at least once per rain, and fall to Speed x N x i of
+    the time when rains are shorter than the time between attacks.
+  sources: ["builder/search/models.py (Rain of Arrows, rain_hit_delay_ms reader)"]
+  test_in_game: "Not needed here: the Rain of Arrows tests cover it."
+  status: proposed
+
+- id: model-gem14-into-the-breach-read
+  title: "Into the Breach: a Flame of Chayula every 1.21 s (Remnant model)"
+  kind: model
+  model: remnants
+  stats: ["breach_flame_spawn_rate_ms"]
+  skill: [Into the Breach]
+  confidence: MEDIUM
+  notes: "assumptions.py REMNANT rates: Into the Breach 1 / 1.21 s = 0.82645 a second at level 20 (game files 26476662)."
+  sources: ["builder/search/assumptions.py (BREACH, the Remnant rates)"]
+  test_in_game: "Not needed here: the Remnant tests cover it."
+  status: proposed
+
+- id: model-gem14-demon-form-cooldown-read
+  title: "Demon Form: its cooldown doesn't tick in the form, so a stint ends before it runs (Demon Form model)"
+  kind: model
+  model: demon_form
+  stats: ["demon_transformation_cooldown_does_not_tick"]
+  skill: [Demon Form]
+  confidence: MEDIUM
+  notes: "recovery.py Demon Form (DEMON_STEP, DEMON_HORIZON): a stint ends, then the cooldown runs."
+  sources: ["builder/search/recovery.py (Demon Form)"]
+  test_in_game: "Not needed here: the Demon Form tests cover it."
+  status: proposed
+
+- id: model-gem14-barrage-cooldown-read
+  title: "Barrage: its Empowerment cooldown of 2 s + a share of attack time, at most 30 s (Barrage model)"
+  kind: model
+  model: barrage
+  stats: ["empower_barrage_cooldown_%_of_attack_time", "empowered_barrage_maximum_cooldown_ms"]
+  skill: [Barrage]
+  confidence: MEDIUM
+  notes: >-
+    models.barrage_model: cooldown = min((BARRAGE_COOLDOWN + pct / 100 x attack time) / recovery, BARRAGE_MAX_COOLDOWN
+    30); assumptions.py reads the pct from the gem's level stats.
+  sources: ["builder/search/models.py (barrage_model, BARRAGE_MAX_COOLDOWN)", "builder/search/assumptions.py (barrage)"]
+  test_in_game: "Not needed here: the Barrage tests cover it."
+  status: proposed
+
+- id: model-gem14-orb-of-storms-limit-read
+  title: "Orb of Storms: Limit 1 Orb (MECH-B's Orb of Storms models)"
+  kind: model
+  model: orb_cycle
+  stats: ["orb_of_storms_base_maximum_number_of_orbs"]
+  skill: [Orb of Storms]
+  confidence: MEDIUM
+  notes: >-
+    models.py Orb of Storms (MECHB6): one Orb, a recast replacing it (whether that fires a bolt is UNVERIFIED, both
+    readings there). GEM13's model-gem13-orb-of-storms-hits-and-bolts-read covers its other two stats.
+  sources: ["builder/search/models.py (Orb of Storms, MECHB6)"]
+  test_in_game: "Not needed here: the Orb models' tests cover it."
+  status: proposed
+
+- id: model-gem14-ghost-dance-read
+  title: "Ghost Dance: 2% of Evasion as ES a second after losing a Shroud recently (recovery model)"
+  kind: model
+  model: recovery
+  stats: ["skill_base_ghost_dance_grants_%_evasion_as_es_regeneration_per_minute_if_have_lost_ghost_dance_shroud_recently"]
+  skill: [Ghost Dance]
+  confidence: MEDIUM
+  notes: "recovery.GHOST_REGEN_STAT / ghost_dance_share: the share 1 - e^(-4 h) (Poisson hits), MEDIUM."
+  sources: ["builder/search/recovery.py (GHOST_REGEN_STAT, ghost_dance_share)"]
+  test_in_game: "Not needed here: the recovery tests cover it."
+  status: proposed
+
+- id: model-gem14-hailstorm-bolts-read
+  title: "Apocalypse's Hailstorm: 9 bolts a trigger (Apocalypse model)"
+  kind: model
+  model: apocalypse
+  stats: ["unleash_blizzard_number_of_bolts"]
+  skill: [Hailstorm]
+  confidence: LOW
+  notes: >-
+    models.APOCALYPSE_SUBS {"Hailstorm": 9}: all 9 on the boss (LOW: each lands at a random spot in the 2 m area; held,
+    in-game test #109).
+  sources: ["builder/search/models.py (APOCALYPSE_SUBS)"]
+  test_in_game: "Already held (#109)."
+  status: proposed
+
+- id: model-gem14-battershout-warcry-consume-read
+  title: "Battershout: counts as a Warcry, and Consumes Fully Broken Armour to explode (bridge + Battershout model)"
+  kind: model
+  model: battershout
+  stats: ["is_warcry", "consume_armour_break_to_trigger_battershout_explosion"]
+  skill: [Battershout]
+  confidence: MEDIUM
+  notes: >-
+    engine/bridge.lua battershoutHit gives the explosion the Warcry keyword (patch 0.2.0g, is_warcry), so the Warcry
+    damage lines apply; conditions.py (MECH72): each use of the supported Warcry while the boss is Fully Broken ends the
+    Full Break. GEM13's model-gem13-battershout-explosion-read covers the 40%.
+  sources: ["engine/bridge.lua (battershoutHit)", "builder/search/conditions.py (Battershout, MECH72)"]
+  test_in_game: "Not needed here: MECH72's tests cover it."
+  status: proposed
+
+- id: model-gem14-kurgals-leash-read
+  title: "Kurgal's Leash: Unholy Might for 15 s for you and the minion on each Command (Unholy Might model)"
+  kind: model
+  model: unholy_might
+  stats: ["gain_unholy_might_for_X_ms_on_command", "minion_gain_unholy_might_for_X_ms_on_command"]
+  skill: ["Kurgal's Leash"]
+  confidence: MEDIUM
+  notes: >-
+    conditions.py (MECHC27; PATCH_CHECK MD-1): up min(1, 15 s x the supported minion's Commands a second), its group's
+    use rate.
+  sources: ["builder/search/conditions.py (Unholy Might from Kurgal's Leash, MECHC27)"]
+  test_in_game: "Not needed here: MECHC27's tests cover it."
+  status: proposed
+
+- id: model-gem14-danse-macabre-read
+  title: "Danse Macabre: each Offering uses a second skeleton (Danse Macabre model)"
+  kind: model
+  model: danse_macabre
+  stats: ["skill_offering_targets_an_additional_skeleton"]
+  skill: [Danse Macabre]
+  confidence: MEDIUM
+  notes: >-
+    models.danse_macabre_model (MECHB6; RESEARCH22 #133): each cast uses 2 skeletons; with N skeletons an Offering is
+    cast N // 2 times a wave, then waits for their revive, and only that share of its damage and Buff effect counts
+    (fewer than 2 skeletons: none).
+  sources: ["builder/search/models.py (Danse Macabre, MECHB6)"]
+  test_in_game: "Not needed here: MECHB6's tests cover it."
+  status: proposed
