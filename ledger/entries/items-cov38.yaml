@@ -173,3 +173,20 @@
     ground-targeted arrows, if the reduction scales them (UNVERIFIED).
   sources: [scratch/manager/research/bow-projectile-range.md (R29-2), builder/search/conditions.py (RANGED_DISTANCE, distance_candidates)]
   status: proposed
+
+- id: model-read-ground-ignite-as-though-life
+  title: 'Beira''s Anguish''s and Birth of Fury''s Ignited Ground, "Ignit(ing / es) ... as though dealing Fire Damage equal to N% of your maximum Life" (conditions.ignited_ground, models.ground_life_ignite_model)'
+  kind: pob_gap
+  model: grounds
+  match: '^(Creates Ignited Ground for \d+ seconds when used, Igniting enemies as though dealing Fire damage equal to (\(\d+-\d+\)|\d+)% of your maximum Life|Drop Ignited Ground while moving, which lasts \d+ seconds and Ignites as though dealing Fire Damage equal to (\(\d+-\d+\)|\d+)% of your maximum Life)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Read whole since MECH83 (8d9f2fc1, train 70): conditions.ignited_ground / ground_ignite count the share of the fight
+    the ground keeps the boss Ignited (the charm's uses within its 2 m; the trail while you move through the boss's spot,
+    0 standing still or fighting outside 2 m; only at 50% Flammability, no_hit_ignite), and models.ground_life_ignite_model
+    (assumptions.py 2163) adds its Ignite's damage, 20% of the named Fire a second through the boss's Fire resistance,
+    above the build's own Ignite (LOW, the model's labels). Before MECH83 only the Ignited state was counted (COV37 / COV38
+    left these open as a partial read). PoB ignores the lines.
+  sources: [builder/search/conditions.py (IGNITED_ON_USE, IGNITED_WHILE_MOVING, AS_THOUGH_LIFE, ground_ignite), builder/search/models.py (ground_life_ignite_model)]
+  status: proposed

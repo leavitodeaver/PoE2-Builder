@@ -595,6 +595,11 @@ def test_item_lines_a_model_reads_count_as_the_models():
             "model-read-keep-elemental-infusions",
         "Gain a Power Charge every Second if you haven't lost Power Charges Recently":
             "model-read-charge-every-second-if-not-lost",
+        # (COV38: MECH83's ground Ignite damage, train 70)
+        "Creates Ignited Ground for 4 seconds when used, Igniting enemies as though dealing Fire damage equal to 500% of "
+        "your maximum Life": "model-read-ground-ignite-as-though-life",
+        "Drop Ignited Ground while moving, which lasts 8 seconds and Ignites as though dealing Fire Damage equal to 10% of "
+        "your maximum Life": "model-read-ground-ignite-as-though-life",
     }
     from builder.search import boss_hits, conditions, models
     assert models.CW_SPELL_CRIT.match("Critical Hits with Spells apply 2 Stack of Critical Weakness")
