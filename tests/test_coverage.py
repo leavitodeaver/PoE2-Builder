@@ -590,12 +590,27 @@ def test_item_lines_a_model_reads_count_as_the_models():
         # (COV38, the manager 15:24 for MECHC33: read at the Mana flask's uses since train 67)
         "Recover (8-10)% of maximum Life when you use a Mana Flask": "model-read-life-on-mana-flask-use",
         "Recover 2% of maximum Life when you use a Mana Flask": "model-read-life-on-mana-flask-use",
+        # (COV38: MECHC33 widened KEEP_INFUSION to the item / tree wording; Snakepit's outcome)
+        "Skills have (5-10)% chance to not remove Elemental Infusions but still count as consuming them":
+            "model-read-keep-elemental-infusions",
+        "Gain a Power Charge every Second if you haven't lost Power Charges Recently":
+            "model-read-charge-every-second-if-not-lost",
     }
     from builder.search import boss_hits, conditions, models
     assert models.CW_SPELL_CRIT.match("Critical Hits with Spells apply 2 Stack of Critical Weakness")
     assert conditions.SELF_SHOCK_ON_MAX.match("Shocks you when you reach maximum Power Charges")
     assert boss_hits.SELF_BLEED.match("25% chance to be inflicted with Bleeding when Hit")
     assert conditions.charges_kept_chance(["Skills have 12% chance to not remove Charges but still count as consuming them"]) == 0.12
+    from builder.search import assumptions, cultivated
+    assert assumptions.KEEP_INFUSION.search("Skills have 8% chance to not remove Elemental Infusions but still count as consuming them")
+    archon = ("Skills have 45% chance to not remove Elemental Infusions but still count as consuming them if you've lost an "
+              "Archon Buff in the past 6 seconds")
+    assert (found := model_entry(archon)) is None or found.id != "model-read-keep-elemental-infusions"
+    snakepit = [o for o in cultivated.outcomes("Snakepit") if o["mod"] == "UniqueMutatedVaalChanceToNotConsumeInfusion"]
+    assert snakepit and cultivated.outcome_lines(snakepit[0])  # (offered now)
+    redflare = [o for o in cultivated.outcomes("Redflare Conduit") if o["mod"] == "UniqueMutatedVaalGainPowerChargesNotLostRecently"]
+    assert redflare and cultivated.outcome_lines(redflare[0])
+    assert conditions.NOT_LOST_RECENTLY.search("Gain a Power Charge every Second if you haven't lost Power Charges Recently")
     for line, entry in cases.items():
         assert (found := model_entry(line)) is not None and found.id == entry, line
     for line in ("+2 metres to Dodge Roll distance if you haven't Dodge Rolled Recently",

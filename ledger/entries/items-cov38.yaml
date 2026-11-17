@@ -82,3 +82,36 @@
     RecoverLifeInstantlyOnManaFlaskUnique__1. (COV38, the manager 15:24.)
   sources: [builder/search/recovery.py (MANA_FLASK_LIFE, mana_flask_income), builder/search/assumptions.py]
   status: proposed
+
+- id: model-read-keep-elemental-infusions
+  title: '"Skills have N% chance to not remove Elemental Infusions but still count as consuming them" (assumptions.KEEP_INFUSION; Snakepit''s outcome)'
+  kind: pob_gap
+  model: infusions
+  match: '^Skills have (\(\d+-\d+\)|\d+(?:\.\d+)?)% chance to not remove Elemental Infusions but still count as consuming them$'
+  replace: []
+  confidence: theory
+  notes: >-
+    assumptions.KEEP_INFUSION, widened by MECHC33 to this wording (COV35's find), read at assumptions.py 4202 in the
+    Infusion share: a consuming cast keeps the Infusion on that chance. PoB parses none of these lines (ModCache 9391 /
+    9398 / 9400, {} with leftover text). Anchored at "them" so the belt craft "... if you've lost an Archon Buff in the
+    past 6 seconds" (ModCache 9397) stays open: KEEP_INFUSION doesn't read it (it needs the Archon-loss share). The
+    stand-in lets cultivated.outcome_lines offer Snakepit's Cultivated outcome UniqueMutatedVaalChanceToNotConsumeInfusion
+    (the bridge rolls its "(5-10)%" before the model reads it). The tree's 10% / 5% nodes are passive rows this also closes.
+  sources: [builder/search/assumptions.py (KEEP_INFUSION and its read at 4202), builder/search/cultivated.py (outcome_lines)]
+  status: proposed
+
+- id: model-read-charge-every-second-if-not-lost
+  title: '"Gain a Power Charge every Second if you haven''t lost Power Charges Recently" (conditions._while_not_lost; the Cultivated Redflare)'
+  kind: pob_gap
+  model: charges
+  match: '^Gain an? (Power|Frenzy|Endurance) Charge every Second if you haven''t lost \1 Charges Recently$'
+  replace: []
+  confidence: theory
+  notes: >-
+    conditions.NOT_LOST_RECENTLY / _while_not_lost (MECHC33), read in the charge count's rate (_charge_rate's "every
+    second" branch): one a second only while no charge was lost in the past 4 s; with Redflare's own "Lose all Power
+    Charges on reaching maximum" the line runs (T - 4) / T of each refill cycle, with a consumer only past 4 s of each gap
+    between spends, else one a second. PoB ignores the line. The stand-in lets cultivated.outcome_lines offer Redflare
+    Conduit's Cultivated outcome UniqueMutatedVaalGainPowerChargesNotLostRecently.
+  sources: [builder/search/conditions.py (NOT_LOST_RECENTLY, _while_not_lost, _charge_rate)]
+  status: proposed
