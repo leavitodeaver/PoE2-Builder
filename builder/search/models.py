@@ -7848,17 +7848,17 @@ def oil_ignite_model(found: list | None, fire_resist: float, own_ignite: float) 
         gain = share * max(0.0, ignite - own_ignite)
         added += gain
         lit = rest[0] if rest else share
-        other = (f". If lit Oil Ground Ignites without the 50% Flammability (the Oil keyword's \"Ignited Ground or "
-                 f"Detonator Skills will Ignite Oil-covered enemies\" read as unconditional: UNVERIFIED), it would be "
-                 f"+{lit * max(0.0, ignite - own_ignite):,.1f} DPS ({lit:.0%} of the fight)" if lit > share else "")
+        other = (f". If the lit ground itself also Ignited without 50% Flammability (against RESEARCH28 R28-12's 0.3.0 "
+                 f"reading, MEDIUM), it would be +{lit * max(0.0, ignite - own_ignite):,.1f} DPS ({lit:.0%} of the fight)"
+                 if lit > share else "")
         notes.append({
             "label": f"{name}: its lit Oil Ground Ignites the boss*", "value": f"+{gain:,.1f} DPS",
             "confidence": "LOW",
             "basis": (f"{how}. Its Ignite: {base:,.1f} a second (20% of that, no Ignite modifiers: 'unscalable') through "
                       f"the boss's {fire_resist:g}% Fire resistance = {ignite:,.1f} DPS; only the strongest Ignite counts, "
                       f"so +{max(0.0, ignite - own_ignite):,.1f} over the build's own {own_ignite:,.1f}, {share:.0%} of "
-                      f"the fight{other}. Not counted: the boss covered in Oil taking 200% more Flammability (an "
-                      "undercount)"),
+                      f"the fight{other}. The base: the set's Fire + the added share (250% / 200%, R28-12, MEDIUM). Not "
+                      "counted: the boss covered in Oil taking 200% more Flammability (an undercount)"),
             "play": (f"Throw {name} at the boss and light the Oil (a Detonator, your Ignites or Ignited Ground): without "
                      f"it +0 DPS; with it +{gain:,.1f} DPS. If the boss walks out of the Oil, the gain drops with it.")})
     return added, notes

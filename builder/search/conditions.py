@@ -4511,9 +4511,10 @@ def ground_ignite(pieces: list, stats: dict) -> tuple[float, str]:
 #     make up the wait before it catches (MEDIUM);
 #   - the lit ground Ignites as Ignited Ground does (a no-Hit Ignite: KeywordPopups Flammability's "such as Ignited
 #     Ground"; 0.3.0 fixed Ignited Oil Ground igniting Whirlwinds, a ground effect), so only while the boss holds 50%
-#     Flammability (no_hit_ignite), as though dealing 150% / 100% of the Oil Ground set's Fire hit (PoB's useRates on that
-#     set, crit-weighted, the bridge's statSets), which is also the Ignite's base (the lower reading: whether the set's
-#     own Fire damage also counts toward the Ignite beside the "added" 150% is UNVERIFIED; it would make 250%);
+#     Flammability (no_hit_ignite), as though dealing the Oil Ground set's Fire hit (PoB's useRates on that set,
+#     crit-weighted, the bridge's statSets) plus the added 150% / 100%, which is also the Ignite's base: 250% / 200%
+#     (MECH83: RESEARCH28 R28-12, MEDIUM; MECH82 took the added share alone, an UNDERCOUNT); and each lit oiling Ignites
+#     the Oil-covered boss outright first (KeywordPopups Oil, HIGH: oil_ignite_share);
 #   - its damage (models.oil_ignite_model): 20% of that base a second, through the boss's Fire resistance, no Ignite
 #     modifiers ("unscalable"); only the strongest Ignite deals damage, so it adds what it beats the build's own Ignite
 #     by (PoB's IgniteDPS), for the share the boss is Ignited by the lit oil.
@@ -4522,7 +4523,13 @@ def ground_ignite(pieces: list, stats: dict) -> tuple[float, str]:
 # boss-moving row). The Oil's Exposure is PoB's own (SkillStatMap 1775, a Debuff of the skill applied while the gem is in
 # an enabled group): a grenade every 4 s keeps 6 s of Oil up, so its always-on figure holds for a pressed Oil Grenade.
 ARCTIC_HOWL = "Arctic Howl"  # (MECH82: it Freezes a Primed boss, models.primed_refill)
-OIL_GROUND_SKILLS = {"Oil Grenade": 1.5, "Oil Barrage": 1.0}  # the permyriad stat / 10000 (game files above)
+# (MECH83, RESEARCH28 R28-12, oil-ground-ignite.md, the manager 16:11) the Ignite's base: the Oil Ground set's own Fire
+# PLUS the added unscalable 150% / 100% ("adds", 0.4.0): 250% / 200% (MEDIUM; MECH82 took 150% / 100% alone, an
+# UNDERCOUNT). And the Oil on the boss (KeywordPopups Oil: "Ignited Ground or Detonator Skills will Ignite Oil-covered
+# enemies. This removes the Oil") is Ignited OUTRIGHT, no Flammability needed (HIGH), once per oiling; the lit ground
+# itself needs 50% Flammability after that (the 0.3.0 no-Hit rule, MEDIUM): oil_ignite_share.
+OIL_ADDED = {"Oil Grenade": 1.5, "Oil Barrage": 1.0}  # the permyriad stat / 10000 (game files above)
+OIL_GROUND_SKILLS = {name: 1.0 + added for name, added in OIL_ADDED.items()}  # the set's own Fire + the added share
 OIL_GROUND_SET = 2  # PoB's "Oil Ground" stat set of both (act_str.lua OilBarragePlayer / OilGrenadePlayer statSets[2])
 OIL_GROUND_SECONDS = 6.0  # s, both skills' Oil Ground (game files above; duration modifiers not read)
 DETONATOR = "Detonator"  # PoB's skill type for "Detonator Skills" (KeywordPopups Detonator)
@@ -4532,6 +4539,15 @@ def oil_lit_chance(lights: float, ground: float = 0.0, seconds: float = OIL_GROU
     """Chance a patch of Oil Ground catches fire within its `seconds`: `lights` lighting events a second on the boss
     (Poisson) or your Ignited Ground under the boss `ground` of the fight."""
     return 1.0 - (1.0 - min(max(ground, 0.0), 1.0)) * math.exp(-max(lights, 0.0) * seconds)
+
+
+def oil_ignite_share(lit: float, oilings: float, reach: float, seconds: float) -> tuple[float, float]:
+    """(share of the fight the boss is Ignited by your lit Oil, the outright part) (R28-12): each lit oiling (`oilings` a
+    second) Ignites the Oil-covered boss outright for the Ignite's `seconds` (_covered: evenly spaced, as the ground's
+    own share; a grenade on its cooldown), at most the lit
+    share; the rest of the lit time Ignites only at 50% Flammability (`reach`, no_hit_ignite)."""
+    outright = min(lit, _covered(max(oilings, 0.0), 1.0, seconds)) if lit > 0 else 0.0
+    return outright + (lit - outright) * min(max(reach, 0.0), 1.0), outright
 
 
 def oil_ground(makers: dict[str, tuple[float, float, str]], lighters: list[tuple[str, float]], ground: float,
@@ -4552,9 +4568,9 @@ def oil_ground(makers: dict[str, tuple[float, float, str]], lighters: list[tuple
         damage = OIL_GROUND_SKILLS[name] * fire
         parts.append(f"{name}'s Oil Ground ({how}; {OIL_GROUND_SECONDS:g} s, thrown at the boss, MEDIUM) up {up:.0%}, lit "
                      f"{chance:.0%} of the time ({said or 'nothing lights it'}): {lit:.0%} of the fight, Igniting as though "
-                     f"dealing {OIL_GROUND_SKILLS[name]:.0%} of its {fire:,.0f} Fire hit = {damage:,.0f}")
+                     f"dealing its {fire:,.0f} Fire hit + the added {OIL_ADDED[name]:.0%} = {damage:,.0f} (MEDIUM)")
         if lit > 0 and damage > 0:
-            out.append((name, lit, damage))
+            out.append((name, lit, damage, uses * chance))
             if pieces is not None:
                 pieces.append((f"{name}'s lit Oil Ground", lit, OIL_GROUND_SECONDS, damage))
     return out, "; ".join(parts)
@@ -4991,6 +5007,80 @@ def shock_share(stats: dict) -> float:
         by_hits = 1.0 - (1.0 - chance) ** (hits * duration) if hits > 0 and chance > 0 else 0.0
         return side_consumed(1.0 - (1.0 - by_hits) * (1.0 - ground), stats, "Shock", hits, chance, ground)
     return 1.0 - (1.0 - ailment_uptime(stats, "Shock")) * (1.0 - ground)
+
+
+# Two Shocks / two Chills at once (MECH83; RESEARCH28 R28-11 CD-12 / CD-13, the manager 16:11: an UNDERCOUNT of up to
+# x2 Shock, and the second Chill). Strike Twice (passive; can_apply_additional_shock: "Targets can be affected by two of
+# your Shocks at the same time") and Heavy Snows / the hand-wrap unique (can_apply_additional_chill, "... two of your
+# Chills ..."): PoB parses them (ModParser 3376-3377: ShockCanStack / ChillCanStack, Stacks max 2; 3337: "You can apply
+# up to N Shocks to each enemy") but counts the stacks from its ShockStacks / ChillStacks boxes, "count" boxes whose
+# placeholder 1 applies when unset (ConfigOptions 1801 / 1841), and nothing wrote them: one Shock's 20% counted, however
+# often the build Shocks. Written here from the build's own rate: the main skill's applications (hits x the per-hit chance,
+# as ailment_uptime / chill_share read it) over the ailment's duration, taken as random in time (Poisson, mean m): the
+# share of the Shocked time with two or more live is (1 - e^-m - m e^-m) / (1 - e^-m), the lower reading against evenly
+# spaced hits (MEDIUM); the box is 2 for that share and 1 the rest (PoB floors a Multiplier: the uptime weighting, with
+# the Shocked box's own share). With a cap above 2, the mean E[min(N, k) | N >= 1] is spread the same way. Not counted
+# (the lower reading): other groups' and Shocked Ground's Shocks as the second one; a consumed Shock stays at 1. PoB's
+# Chill stacking adds its slow only in its breakdown pass (CalcPerform 3213-3217: the ActionSpeed mod sits inside "if
+# breakdown"), so in the tool's calculations a stacking Chill sets CurrentChill (num x stacks, the "per Chill effect"
+# lines) but no boss slow at all (a PoB bug, UNVERIFIED by probe: a defence UNDERCOUNT for Heavy Snows builds, noted).
+STACKS_TWO = re.compile(r"^Targets can be affected by two of your (Shocks|Chills) at the same time$", re.I)
+STACKS_UP_TO = re.compile(r"^You can apply up to (\d+) (Shocks|Chills) to each Enemy$", re.I)
+
+
+def ailment_stack_cap(lines: list[str], kind: str) -> int:
+    """The most of `kind` ("Shock" / "Chill") your lines let the boss carry at once (1 without a line)."""
+    cap = 1
+    for text in (t.strip() for t in lines):
+        if (m := STACKS_TWO.match(text)) and m.group(1).lower().startswith(kind.lower()):
+            cap = max(cap, 2)
+        elif (m := STACKS_UP_TO.match(text)) and m.group(2).lower().startswith(kind.lower()):
+            cap = max(cap, int(m.group(1)))
+    return cap
+
+
+def stacked_mean(m: float, cap: int) -> float:
+    """E[min(N, cap) | N >= 1] for N Poisson with mean m (1 when nothing lands)."""
+    if m <= 0 or cap <= 1:
+        return 1.0
+    p0, total, pk = math.exp(-m), 0.0, math.exp(-m)
+    for k in range(1, cap):
+        pk *= m / k
+        total += k * pk
+    rest = 1.0 - p0 - sum(math.exp(-m) * m ** k / math.factorial(k) for k in range(1, cap))
+    return (total + cap * max(rest, 0.0)) / (1.0 - p0)
+
+
+def ailment_stacks(kind: str) -> Callable[[list[str], dict], tuple[object, str]]:
+    def stacks(lines: list[str], stats: dict) -> tuple[object, str]:
+        cap = ailment_stack_cap(lines, kind)
+        if cap <= 1:
+            return 0.0, ""
+        hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
+        if kind == "Shock":
+            chance = min(number(stats.get("ShockChancePerHit")) / 100.0, 1.0)
+            duration = number(stats.get("ShockDuration")) or AILMENT_DURATION["Shock"]
+        else:
+            chance = min(number(stats.get("ChillChanceOnHit")) / 100.0, 1.0)
+            if chance > 0 and number(stats.get("EnemyAilmentThreshold")) > 0:  # (chill_share's 30% floor)
+                normal, critical, _ = chill_effect(stats)
+                crit = min(max(number(stats.get("CritChance")), 0.0), 100.0) / 100.0
+                chance = (1.0 - crit) * (normal >= CHILL_FLOOR) + crit * (critical >= CHILL_FLOOR)
+            duration = number(stats.get("ChillDuration")) or CHILL_SECONDS
+        if kind in (stats.get("_consumes") or {}):
+            return 1.0, f"the main skill consumes its {kind}s: one at a time"
+        m = hits * chance * duration
+        mean = stacked_mean(m, cap)
+        share = (mean - 1.0) / (cap - 1)
+        basis = (f"{cap} {kind}s at once (your line): {hits:.2f} hits/s x {chance:.0%} x {duration:g} s = {m:.2f} live on "
+                 f"average (random in time, MEDIUM): {mean:.2f} while {kind}ed, so {cap} for {share:.0%} of it, else 1 "
+                 "(other skills' and grounds' as the extra one not counted)")
+        if share >= FULL_UPTIME:
+            return float(cap), basis
+        if share >= SWITCH_ON:
+            return float(cap), basis + f" ({shared(share)})", share, 1
+        return 1.0, basis
+    return stacks
 
 
 def _ground_shock_effect(lines: list[str], stats: dict) -> tuple[object, str]:
@@ -5484,6 +5574,11 @@ CONDITIONS: list[Condition] = [
               fields=("Speed", "EffectiveBlockChance", "EnduranceChargesMax", "EnduranceChargesDuration", *CHARGE_EVENT_FIELDS, *models.IMMOBILISE_FIELDS)),
     Condition("multiplierWitheredStackCount", "Withered stacks on the boss", value_fn=_withered_stacks,
               fields=WITHER_FIELDS),
+    # (MECH83, R28-11 CD-12 / CD-13: Strike Twice, Heavy Snows; PoB's count boxes otherwise sit at their placeholder 1)
+    Condition("ShockStacks", "Shocks on the boss at once (two of your Shocks)", value_fn=ailment_stacks("Shock"),
+              fields=("Speed", "HitChance", "ShockChancePerHit", "ShockDuration")),
+    Condition("ChillStacks", "Chills on the boss at once (two of your Chills)", value_fn=ailment_stacks("Chill"),
+              fields=("Speed", "HitChance", "ChillChanceOnHit", "ChillDuration", "CritChance", "EnemyAilmentThreshold")),
     Condition("conditionShocked", "Shocked yourself (Overcharge reflects your Shocks back to you; MECH75)",
               value_fn=_self_shocked, fields=("Speed", "HitChance", "ShockChancePerHit", "ShockAvoidChance")),
     Condition("conditionIgnited", "Ignited yourself (Grinning Immolation, on your critical hits; the boss's Fire hits)",
@@ -6676,10 +6771,18 @@ class Conditions:
                     label, up * reach, models.IGNITE_BASE * damage,
                     f"{label} under the boss {up:.0%} of the fight, as though dealing {damage:,.0f} Fire; {how}"))
         stats["_oil_ignite"] = []  # (MECH82: models.oil_ignite_model) (skill, share Ignited by it, its Ignite's DPS, how)
-        for name, lit, damage in oil:
+        for name, lit, damage, oilings in oil:
             reach, how = no_hit_ignite(stats, damage, OIL_GROUND_SECONDS)
-            stats["_oil_ignite"].append((name, lit * reach, models.IGNITE_BASE * damage,
-                                         f"{stats.get('_oil_ground_how', '')}; {how}", lit))
+            seconds = number(stats.get("IgniteDuration")) or AILMENT_DURATION["Ignite"]
+            share, outright = oil_ignite_share(lit, oilings, reach, seconds)  # (MECH83, R28-12)
+            stats["_oil_ignite"].append((name, share, models.IGNITE_BASE * damage,
+                                         f"{stats.get('_oil_ground_how', '')}; each lit oiling ({oilings:.2f}/s) Ignites the "
+                                         f"Oil-covered boss outright for {seconds:g} s ({outright:.0%} of the fight, HIGH: "
+                                         f"KeywordPopups Oil); the rest of the lit time {how}", lit))
+            if outright > 0:  # (the outright part isn't in ground_ignite's 50%-gated share: joined as independent)
+                burning = (1 - (1 - burning[0]) * (1 - outright),
+                           "; ".join(filter(None, [burning[1], f"{name}'s lit Oil Ignites the Oil-covered boss outright "
+                                                                 f"{outright:.0%} of the fight"])))
         if aura[1] or legion[1] or burning[1]:
             share = 1 - (1 - aura[0]) * (1 - legion[0]) * (1 - burning[0])  # (independent sources)
             aura = (share, "; ".join(filter(None, [aura[1], legion[1], burning[1]])))

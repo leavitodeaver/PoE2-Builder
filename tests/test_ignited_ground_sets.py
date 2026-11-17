@@ -695,15 +695,27 @@ def test_oil_ground_is_lit_by_detonators_ignites_or_your_ignited_ground():
     pieces: list = []
     found, how = conditions.oil_ground({"Oil Grenade": (0.25, 1000.0, "0.25 uses/s")}, [("a Detonator", 1.0)], 0.0,
                                        pieces)
-    (name, lit, damage), = found
-    assert name == "Oil Grenade" and damage == pytest.approx(1500.0)  # 150% of the set's Fire hit
+    (name, lit, damage, oilings), = found
+    assert name == "Oil Grenade" and damage == pytest.approx(2500.0)  # the set's Fire + the added 150% (MECH83, R28-12)
     assert lit == pytest.approx(1 - math.exp(-6.0))  # 6 s of Oil a 4 s use: up all fight, lit unless nothing comes
-    assert pieces == [("Oil Grenade's lit Oil Ground", lit, 6.0, 1500.0)] and "lit" in how
+    assert oilings == pytest.approx(0.25 * (1 - math.exp(-6.0)))
+    assert pieces == [("Oil Grenade's lit Oil Ground", lit, 6.0, 2500.0)] and "lit" in how
     # nothing lights it: no Ignite from it
     assert conditions.oil_ground({"Oil Barrage": (1.0, 1000.0, "")}, [], 0.0)[0] == []
     # half the uses: 3 s of Oil a 2 s gap... up 6 s x 0.125 = 75%
     found, _ = conditions.oil_ground({"Oil Barrage": (0.125, 1000.0, "")}, [], 1.0)
-    assert found == [("Oil Barrage", pytest.approx(0.75), pytest.approx(1000.0))]
+    assert found == [("Oil Barrage", pytest.approx(0.75), pytest.approx(2000.0), pytest.approx(0.125))]
+
+
+def test_each_lit_oiling_ignites_the_oil_covered_boss_outright_then_the_ground_needs_50_percent():
+    # (MECH83, R28-12) one lit oiling every 8 s, 4 s Ignites (evenly spaced uses, _covered): outright half the fight,
+    # the rest of the lit time only at the 50% reach
+    share, outright = conditions.oil_ignite_share(0.9, 0.125, 0.0, 4.0)
+    assert outright == pytest.approx(0.5) and share == pytest.approx(0.5)
+    share, _ = conditions.oil_ignite_share(0.9, 0.125, 0.5, 4.0)
+    assert share == pytest.approx(0.5 + 0.4 * 0.5)
+    assert conditions.oil_ignite_share(0.3, 0.25, 0.0, 4.0) == (pytest.approx(0.3), pytest.approx(0.3))  # (capped)
+    assert conditions.oil_ignite_share(0.0, 0.25, 1.0, 4.0) == (0.0, 0.0)
 
 
 def test_the_oil_ignite_adds_only_what_it_beats_the_builds_own_ignite_by():
@@ -1071,3 +1083,52 @@ def test_anaemia_raises_the_corrupted_blood_cap_while_the_main_skills_hits_keep_
     assert models.anaemia_cap([line], {"Speed": 0.125, "HitChance": 100})[0] == pytest.approx(1.5)  # (a hit per 8 s)
     assert models.anaemia_cap([], {"Speed": 2.0}) == (0.0, "")
     assert models.cry_stacks(1.0, None, 5.0, 13.0)[0] == 13.0  # (refresh-all climbs to the raised cap)
+
+
+# MECH83 (R28-11 CD-12 / CD-13, the manager 16:11): two Shocks / two Chills at once from the build's own rate
+def test_strike_twice_writes_the_shock_stacks_from_the_builds_shock_rate():
+    line = ["Targets can be affected by two of your Shocks at the same time"]
+    fn = conditions.ailment_stacks("Shock")
+    assert fn([], {"Speed": 4.0, "ShockChancePerHit": 50}) == (0.0, "")  # (no line: the box untouched)
+    m = 1.0 * 0.25 * 8.0  # 1 hit/s x 25% x 8 s = 2 live on average
+    got = fn(line, {"Speed": 1.0, "HitChance": 100, "ShockChancePerHit": 25, "ShockDuration": 8.0})
+    share = (1 - math.exp(-m) - m * math.exp(-m)) / (1 - math.exp(-m))
+    assert got[0] == 2.0 and got[2] == pytest.approx(share) and got[3] == 1
+    assert fn(line, {"Speed": 10.0, "HitChance": 100, "ShockChancePerHit": 100})[0] == 2.0  # (always two)
+    assert fn(line, {"Speed": 4.0, "ShockChancePerHit": 100, "_consumes": {"Shock": 1}})[0] == 1.0
+    assert conditions.ailment_stack_cap(["You can apply up to 3 Shocks to each Enemy"], "Shock") == 3
+    assert conditions.ailment_stack_cap(line, "Chill") == 1
+    assert conditions.stacked_mean(50.0, 3) == pytest.approx(3.0)
+
+
+def test_heavy_snows_writes_the_chill_stacks_from_the_builds_chill_rate():
+    line = ["Targets can be affected by two of your Chills at the same time"]
+    got = conditions.ailment_stacks("Chill")(line, {"Speed": 0.25, "HitChance": 100, "ChillChanceOnHit": 100,
+                                                    "ChillDuration": 8.0})
+    m = 0.25 * 8.0
+    assert got[0] == 2.0 and got[2] == pytest.approx((1 - math.exp(-m) - m * math.exp(-m)) / (1 - math.exp(-m)))
+
+
+def test_pob_counts_a_second_shock_only_with_strike_twice_and_the_box_at_two(engine):
+    """(MECH83, CD-12) PoB's ShockStacks box: with the line, 2 adds a second Shock's damage taken; without it, nothing."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Spark"))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+
+    def dps(stacks: int, extra: list[str]) -> float:
+        build.call("equip", slot="Amulet", raw="\n".join(["Rarity: Rare", "Test Amulet", "Gold Amulet",
+                                                          "Item Level: 82", "Implicits: 0", *extra]), fields=[])
+        build.call("setConfig", vars={"conditionEnemyShocked": True, "ShockStacks": stacks}, fields=[])
+        return build.call("stats", fields=["TotalDPS"])["TotalDPS"]
+
+    line = ["Targets can be affected by two of your Shocks at the same time"]
+    print("PROBE stacks", dps(1, line), dps(2, line), dps(1, []), dps(2, []))
+    assert dps(2, line) > 1.05 * dps(1, line)
+    assert dps(2, []) == pytest.approx(dps(1, []), rel=1e-6)
