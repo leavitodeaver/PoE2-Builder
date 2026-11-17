@@ -1,0 +1,28 @@
+# GEM18 (16 Nov 2026): gem stats PoB never reads.
+- id: model-gem18-flameblast-stages
+  title: "Flameblast: channelled to its stages (PoB scored 1 of 10) and released once per channel + end animation + cooldown"
+  kind: model
+  model: flameblast
+  stats: ["charged_blast_spell_damage_+%_final_per_stack", "flameblast_maximum_stages",
+          "channel_skill_end_animation_duration_override_ms", "base_minimum_channel_time_ms"]
+  skill: [Flameblast]
+  confidence: MEDIUM
+  notes: >-
+    models.flameblast_model (GEM18), hooked in Assumptions after the detonation hook. Game: ActiveSkills flameblast
+    "Releasing the energy causes a devastating explosion that is larger and more intense the longer you Channel for";
+    FlameblastPlayer 75% more damage a stage up to 10 stages, 0.49 s minimum channel, 0.6 s end animation, 10 s
+    cooldown. PoB takes the stage count from the gem's stage box (1; CalcActiveSkill.lua 890-899), which nothing in our
+    code sets: probe POE2T3405 average hit 317.5 at 1 stage (an UNDERCOUNT of x4.86 at 10). PoB's release rate is
+    min(cast rate, 1 / cooldown) with the channel left out (CalcOffence 3005-3008); the cooldown starts at the release
+    (RESEARCH28 R28-14), so one use = channel (stages / cast rate, at least 0.49 s) + 0.6 s + cooldown (the manager's
+    brief, 16 Nov; the end animation inside the cooldown in the note). The stage count is the one dealing the most a
+    second over 1..max (a full channel unless stages come slower than ~2.2 a second with no cooldown). Stage line:
+    Multiplier:FlameblastStage BASE (stages - 1) on Flameblast; rate: a DPS line (PoB's Ignite uptime still reads its
+    Speed: flagged for MECH-A). Triggered Flameblast left as PoB scores it; a totem's taken as channelling the same
+    way (UNVERIFIED).
+  sources: ["builder/search/models.py (flameblast_model)", "data/game-26650308/tables/ActiveSkills.json (flameblast)",
+            "data/game-26650308/tables/GrantedEffectStatSets.json (FlameblastPlayer)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcActiveSkill.lua 890-899", "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua 2989-3008",
+            "scratch/manager/research/channel-cooldown-start.md (RESEARCH28 R28-14)", "scratch/gem17/probe_flameblast.json (POE2T3405)"]
+  test_in_game: "Optional: Flameblast's tooltip / a boss kill time at a full channel vs a tap release."
+  status: proposed

@@ -2206,6 +2206,9 @@ class Assumptions:
             det_mods, det_notes = models.detonated_set_model(main, main.stat_set, sets, number(stats.get("Speed")),
                                                              det_rate, det_how, forbidden)
             hand_mods, hand_notes = hand_mods + det_mods, hand_notes + det_notes
+        if main is not None and main.name == models.FLAMEBLAST:  # (GEM18: its stages and its channel + cooldown cycle)
+            fb_mods, fb_notes = models.flameblast_model(main, stats, forbidden)
+            hand_mods, hand_notes = hand_mods + fb_mods, hand_notes + fb_notes
         side_mods, side_notes = self.multi_set_side(main)  # (MECH-B, MECHB16: Rolling Slam in a Full DPS group)
         hand_mods, hand_notes = hand_mods + side_mods, hand_notes + side_notes
         cap_mods, cap_notes = self.main_cap(group, name)  # (MECH-B: the press hook on the main skill, MECHB5)

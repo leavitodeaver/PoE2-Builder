@@ -6697,6 +6697,95 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
                  f"{plain + det:,.0f}.")}]
 
 
+# Flameblast's stages and release rate (GEM18; an UNDERCOUNT of about x5 at base, an OVERCOUNT of the releases where the
+# cooldown is short). The game (ActiveSkills flameblast, 26650308): "Channel to build destructive energy around you.
+# Releasing the energy causes a devastating explosion that is larger and more intense the longer you Channel for";
+# FlameblastPlayer: charged_blast_spell_damage_+%_final_per_stack 75 (patch 0.2.0: 75% more per Stage), up to
+# flameblast_maximum_stages 10, base_minimum_channel_time_ms 490, channel_skill_end_animation_duration_override_ms 600,
+# a 10 s cooldown. PoB maps the per-stage more on Multiplier:FlameblastStage, which comes from the gem's stage-count box
+# alone (CalcActiveSkill.lua 890-899: max(skillStageCount or 1, 1 + FlameblastMinimumStage)); nothing in our code sets
+# that box (checked: grep skillStageCount / StageCount / FlameblastStage in builder/, engine/: only the bridge's
+# Calcs-pass guard reads it) nor any minimum stage (checked: grep MinimumStage in vendor src: only that line reads it),
+# so PoB scores 1 stage: probe POE2T3405 average hit 317.5 at 1 stage, 1,678.6 at 11 (x1.75 vs x9.25: the per-stage
+# more alone). Its release rate is Speed = min(cast rate, 1 / Cooldown) (CalcOffence 3005-3008); the channel time it
+# computes (stages / cast rate, at least 0.49 s: 2989-2995) never enters Speed. RESEARCH28 R28-14: a channelled skill's
+# cooldown starts at RELEASE by default (the stat channelled_skill_do_not_go_on_cooldown_on_finishing_channel is only on
+# Flame Breath; patch 0.4.0c), so one use takes the channel, the 0.6 s end animation and the cooldown (the manager's
+# brief, 16 Nov: channel + end animation + cooldown is the headline; the end animation run inside the cooldown is the
+# note's other reading). The stage count is the player's choice: the one that deals the most a second, (1 + 75% x s) /
+# (max(s / cast rate, 0.49 s) + 0.6 s + cooldown) over s = 1..max (a full channel whenever 0.6 s + the cooldown is over
+# 1.33 / the cast rate: always at 2.2 casts a second or more). Stages come one a cast time (PoB's channelTimeMultiplier / cast rate: MEDIUM, the game files carry no
+# stage-interval stat for it: checked Stats ids holding "flameblast" / "stage"). Items: no Mods row carries a Flameblast
+# stage stat (checked: every table's stat columns for flameblast_maximum_stages, flameblast_starts_with_X_additional_
+# stages, flameblast_and_incinerate_base_cooldown_modifier_ms, skill_X_fewer_maximum_stages: only the skill's own sets
+# and the Nadir support, which PoB lacks, carry them). Ailments: the stages scale each release's Ignite with the hit;
+# the rate cut is a DPS line, so PoB's Ignite uptime (hits x chance x duration at its Speed) still reads PoB's rate (an
+# overcount of the Ignite uptime where it's under 100%: MECH-A's readers, flagged). A triggered Flameblast is left as PoB
+# scores it (no channel); a totem's is taken as channelling the same way (UNVERIFIED). MEDIUM.
+FLAMEBLAST, FLAMEBLAST_ENTRY = "Flameblast", "model-gem18-flameblast-stages"
+FLAMEBLAST_MORE_STAT, FLAMEBLAST_MAX_STAT = "charged_blast_spell_damage_+%_final_per_stack", "flameblast_maximum_stages"
+FLAMEBLAST_END_STAT, FLAMEBLAST_MIN_STAT = "channel_skill_end_animation_duration_override_ms", "base_minimum_channel_time_ms"
+FLAMEBLAST_MORE, FLAMEBLAST_MAX, FLAMEBLAST_END, FLAMEBLAST_MIN = 75.0, 10, 0.6, 0.49  # (the game's values, as fallbacks)
+FLAMEBLAST_POB_STAGE = 1  # PoB's stage-count box, never set by our code (see above)
+
+
+def flameblast_cycle(stages: int, cast_rate: float, cooldown: float, end: float = FLAMEBLAST_END,
+                     minimum: float = FLAMEBLAST_MIN, overlap: bool = False) -> float:
+    """Seconds one Flameblast use takes at `stages`: the channel, the end animation and the cooldown from the release
+    (`overlap`: the end animation run inside the cooldown, the other reading)."""
+    channel = max(stages / cast_rate, minimum)
+    return channel + (max(cooldown, end) if overlap else end + cooldown)
+
+
+def flameblast_model(main: Skill | None, stats: dict,
+                     forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Flameblast at the stage count that deals the most a second, released once a cycle (comment above). `stats`: the
+    main skill's PoB output (CastRate, Speed, Cooldown)."""
+    if main is None or main.name != FLAMEBLAST or FLAMEBLAST_ENTRY in forbidden or main.triggered:
+        return [], []
+    level = main.level_stats or {}
+    more = number(level.get(FLAMEBLAST_MORE_STAT)) or FLAMEBLAST_MORE
+    top = int(number(level.get(FLAMEBLAST_MAX_STAT)) or FLAMEBLAST_MAX)
+    end = number(level.get(FLAMEBLAST_END_STAT)) / 1000 or FLAMEBLAST_END
+    minimum = number(level.get(FLAMEBLAST_MIN_STAT)) / 1000 or FLAMEBLAST_MIN
+    cast_rate, speed = number(stats.get("CastRate")), number(stats.get("Speed"))
+    cooldown = number(stats.get("Cooldown"))
+    if cooldown <= 0 and main.cooldown:
+        cooldown = number(main.cooldown) / (main.cooldown_recovery or 1.0)
+    if cast_rate <= 0 or speed <= 0 or top < 1:
+        return [], []
+    def value(s: int) -> float:
+        return (1 + more / 100 * s) / flameblast_cycle(s, cast_rate, cooldown, end, minimum)
+    stages = max(range(1, top + 1), key=lambda s: (value(s), s))
+    cycle = flameblast_cycle(stages, cast_rate, cooldown, end, minimum)
+    other = flameblast_cycle(stages, cast_rate, cooldown, end, minimum, overlap=True)
+    rate = 1 / cycle
+    factor = rate / speed
+    mods = []
+    if stages != FLAMEBLAST_POB_STAGE:
+        mods.append(raw_mod(f"Multiplier:{FLAMEBLAST}Stage", "BASE", stages - FLAMEBLAST_POB_STAGE, main.name))
+    if abs(factor - 1) > 1e-9:
+        mods.append(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name))
+    gain = (1 + more / 100 * stages) / (1 + more / 100 * FLAMEBLAST_POB_STAGE)
+    one = (1 + more / 100) / flameblast_cycle(1, cast_rate, cooldown, end, minimum)
+    totem = main.totem_limit > 0
+    return mods, [{
+        "label": f"{main.name}: {stages} stage{'s' if stages != 1 else ''} a channel, one release every {cycle:.2f} s*",
+        "value": f"x{gain * factor:.3f}", "confidence": "MEDIUM", "entry": FLAMEBLAST_ENTRY,
+        "basis": (f"PoB scored 1 stage (its stage box; {1 + more / 100:.2f}x) at {speed:.3f} releases a second (its cast "
+                  f"rate or 1 / the {cooldown:.2f} s cooldown, the channel not counted). The game: {more:g}% more a stage, "
+                  f"{stages} of {top} (the most damage a second), x{gain:.2f} on each release; one use = the channel "
+                  f"{max(stages / cast_rate, minimum):.2f} s ({stages} / {cast_rate:.2f} casts a second, at least "
+                  f"{minimum:.2f} s) + the {end:.1f} s end animation + the cooldown from the release (RESEARCH28 R28-14) = "
+                  f"{cycle:.2f} s, x{factor:.3f} on PoB's rate (with the end animation inside the cooldown: {other:.2f} s, "
+                  f"x{speed and (1 / other) / speed:.3f})"
+                  + ("; a totem taken as channelling the same way (UNVERIFIED)" if totem else "")),
+        "play": (f"Channel {main.name} to {stages} stage{'s' if stages != 1 else ''} before each release"
+                 + (" (its maximum)" if stages == top else "") + ", and recast as its cooldown ends"
+                 + (f". Releasing at 1 stage: x{one / value(stages):.2f} of this." if stages != 1 else
+                    f": more stages take longer than they pay at {cast_rate:.2f} casts a second."))}]
+
+
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
 # "Hit damage is taken from Mana before Life if your current Mana is higher than your current Life" (poe2db): counted as
 # 100% Mind over Matter while the build's unreserved Mana is above its Life, both pools full (the manager's ruling,

@@ -822,3 +822,52 @@ def test_detonated_share_counts_the_spears_lying_there():
     assert models.detonated_share("Storm Lance", 0.1, 0.05) == pytest.approx(0.3)  # 0.6 spears lying x 0.05 / 0.1
     assert models.detonated_share("Storm Lance", 1.0, 0.0) == 0.0
 
+
+
+FLAMEBLAST_LEVEL = {"charged_blast_spell_damage_+%_final_per_stack": 75, "flameblast_maximum_stages": 10,
+                    "channel_skill_end_animation_duration_override_ms": 600, "base_minimum_channel_time_ms": 490}
+
+
+def _flameblast(**kw) -> Skill:
+    return Skill("Flameblast", 1, spell=True, cooldown=10.0, level_stats=dict(FLAMEBLAST_LEVEL), **kw)
+
+
+def _by_name(mods: list[dict]) -> dict:
+    return {m["name"]: m["value"] for m in mods}
+
+
+def test_flameblast_is_channelled_to_full_stages_and_released_once_a_cycle():
+    # (GEM18) probe POE2T3405's numbers: cast rate 4.8, PoB's Speed 1 / its 10.032 s cooldown
+    mods, notes = models.flameblast_model(_flameblast(), {"CastRate": 4.8, "Speed": 1 / 10.032, "Cooldown": 10.032})
+    got = _by_name(mods)
+    assert got["Multiplier:FlameblastStage"] == 9  # PoB's 1 + 9 = the 10 stages
+    cycle = 10 / 4.8 + 0.6 + 10.032  # the channel, the end animation, the cooldown from the release
+    assert got["DPS"] == pytest.approx(100 * ((1 / cycle) * 10.032 - 1), abs=0.01)
+    assert notes[0]["entry"] == "model-gem18-flameblast-stages" and "10 stages" in notes[0]["label"]
+    assert all(m["skill"] == "Flameblast" for m in mods)
+
+
+def test_flameblast_with_a_short_cooldown_is_held_to_its_channel():
+    # cast-rate bound in PoB (a release every cast) is the big overcount: one per channel + end animation + cooldown
+    mods, _ = models.flameblast_model(_flameblast(), {"CastRate": 4.8, "Speed": 4.8, "Cooldown": 0.1})
+    got = _by_name(mods)
+    assert got["Multiplier:FlameblastStage"] == 9
+    assert got["DPS"] == pytest.approx(100 * (1 / (10 / 4.8 + 0.7) / 4.8 - 1), abs=0.01)
+
+
+def test_flameblast_releases_early_when_stages_come_slower_than_they_pay():
+    # 1 cast a second, no cooldown: (1 + 0.75 s) / (s + 0.6) is highest at 1 stage, PoB's own: no stage line
+    mods, notes = models.flameblast_model(Skill("Flameblast", 1, spell=True, level_stats=dict(FLAMEBLAST_LEVEL)),
+                                          {"CastRate": 1.0, "Speed": 1.0, "Cooldown": 0})
+    got = _by_name(mods)
+    assert "Multiplier:FlameblastStage" not in got
+    assert got["DPS"] == pytest.approx(100 * (1 / 1.6 - 1), abs=0.01)
+    assert "1 stage a channel" in notes[0]["label"]
+
+
+def test_flameblast_model_leaves_triggered_forbidden_and_other_skills():
+    stats = {"CastRate": 4.8, "Speed": 0.1, "Cooldown": 10.0}
+    assert models.flameblast_model(_flameblast(triggered=True), stats) == ([], [])
+    assert models.flameblast_model(_flameblast(), stats, {"model-gem18-flameblast-stages"}) == ([], [])
+    assert models.flameblast_model(Skill("Incinerate", 1), stats) == ([], [])
+    assert models.flameblast_model(_flameblast(), {"CastRate": 0, "Speed": 0.1, "Cooldown": 10.0}) == ([], [])
