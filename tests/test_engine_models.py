@@ -2279,6 +2279,25 @@ def test_the_unleasheds_bypass_moves_nothing_while_energy_shield_is_under_six_ti
     assert stats["PhysicalTotalHitPool"] == pytest.approx(plain["PhysicalTotalHitPool"])
 
 
+def test_the_unleasheds_ranged_bypass_line_is_read(engine):
+    """MECHC34 (COV38's probe POE2T3814, an OVERCOUNT of defence): the unique as the search offers it keeps its line as
+    a range, "(15-25)% of Damage taken ...", which the bridge's pattern never matched, so no bypass was applied; now
+    resolved at the line's roll (PoB's default roll: the middle, 20%) and the hit pool loses its share."""
+    search = spark_with(engine, [])
+    build = search.build
+    fields = ["EsBypassBelowHalf", "EsBypassPoolLost", "PhysicalTotalHitPool"]
+    head = ["Rarity: Unique", "The Unleashed", "Revered Vestments", "Implicits: 0", "+3000 to maximum Energy Shield",
+            "Maximum Life becomes 1, Immune to Chaos Damage"]
+    build.call("equip", slot="Body Armour", raw="\n".join(head), fields=[])
+    plain = build.call("stats", fields=fields)
+    build.call("equip", slot="Body Armour", raw="\n".join(
+        [*head, "(15-25)% of Damage taken from Hits bypasses Energy Shield if Energy Shield is below half"]), fields=[])
+    stats = build.call("stats", fields=fields)
+    print("PROBE Unleashed ranged bypass", plain, stats)
+    assert 15 <= stats["EsBypassBelowHalf"] <= 25
+    assert stats["EsBypassPoolLost"] > 0 and stats["PhysicalTotalHitPool"] < plain["PhysicalTotalHitPool"]
+
+
 def test_shavronnes_satchel_gives_energy_shield_the_life_flasks_recovery(engine):
     """MECHC23 (AUDIT33 A33-1, an UNDERCOUNT): PoB reads LifeFlaskAppliesToEnergyShield only for the flask tooltip; the
     bridge flags the line, and life_mana_income puts the Life flask's recovery on Energy Shield in recovery_sources'

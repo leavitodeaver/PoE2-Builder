@@ -1162,7 +1162,15 @@ local function setEsBypassBelowHalf(env, output)
 				item.runeModLines, item.crucibleModLines }) do
 				for _, line in ipairs(list or { }) do
 					if type(line) == "table" and type(line.line) == "string" then
-						local value = line.line:lower():match(ES_BYPASS_HALF_TEXT)
+						-- (MECHC34; COV38's probe POE2T3814, an OVERCOUNT of defence: a unique's line is kept as its range,
+						-- "(15-25)% of Damage ...", which the pattern never matched, so The Unleashed's bypass was lost;
+						-- resolved at the line's own roll as PoB does, Item.lua 1290 / this file's 5184)
+						local text = line.line
+						if text:find("%((%-?%d+%.?%d*)%-(%-?%d+%.?%d*)%)") then
+							text = itemLib.applyRange(text, line.range or main.defaultItemAffixQuality or 0.5,
+								line.valueScalar, line.corruptedRange)
+						end
+						local value = text:lower():match(ES_BYPASS_HALF_TEXT)
 						if value then
 							b = b + (tonumber(value) or 0)
 						end
