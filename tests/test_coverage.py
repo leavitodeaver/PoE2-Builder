@@ -638,6 +638,19 @@ def test_an_onslaught_line_on_a_named_event_counts_as_the_resolvers():
     assert coverage.resolver_condition("You gain Onslaught for 20 seconds on using a Vaal Skill") is None
 
 
+def test_the_animal_aspect_grants_have_no_effect():
+    """COV38: PoE1's "Grants Level 20 Aspect of the Cat / Avian / Crab / Spider Skill" name no PoE2 skill (game
+    26650308: no ActiveSkills / GrantedEffects / ModGrantedSkills row; poe2db only buff stubs): a no-effect entry."""
+    from builder.ledger import translate
+    for animal in ("Cat", "Avian", "Crab", "Spider"):
+        found = translate(f"Grants Level 20 Aspect of the {animal} Skill")
+        assert found and found[0].id == "no-effect-animal-aspect-grants" and not found[1], animal
+    for line in ("When socketed into a Unique Kalguuran or Ezomyte item, destroys the item to create a Rune imbued with "
+                 "that item's power", "Corrupting will always result in change"):
+        found = translate(line)
+        assert found and found[0].id == "no-effect-crafting-only-socketables" and not found[1], line
+
+
 def test_a_freeze_cull_stat_is_damage_not_behaviour():
     """COV37 (GEM15): Arctic Howl's has_freeze_cull ("Freeze enemies that are Primed for Freeze") changes Freeze uptime."""
     assert coverage.stat_mechanic("has_freeze_cull") == "damage"

@@ -115,3 +115,42 @@
     Conduit's Cultivated outcome UniqueMutatedVaalGainPowerChargesNotLostRecently.
   sources: [builder/search/conditions.py (NOT_LOST_RECENTLY, _while_not_lost, _charge_rate)]
   status: proposed
+
+- id: no-effect-animal-aspect-grants
+  title: '"Grants Level 20 Aspect of the Cat / Avian / Crab / Spider Skill": no such skill exists in PoE2'
+  kind: pob_gap
+  match: '^Grants Level \d+ Aspect of the (Cat|Avian|Crab|Spider) Skill$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    PoE1's animal aspects (GrantsCatAspect1 / GrantsBirdAspect1_ / GrantsSpiderAspect1 / GrantsCrabAspect1_, unique-only,
+    GenerationType 3, no spawn weight; GrantsCatAspectCrafted and the other three Crafted ones, GenerationType 2, spawn
+    weight 0). The line grants nothing a PoE2 character can use, whoever carries it: (checked, game 26650308: no
+    ActiveSkills row named or with an id for any of the four aspects (the only "CatAspect" hit is the MTX Polymorph's
+    icon), no GrantedEffects / GrantedEffectsPerLevel row, no ModGrantedSkills row, no SkillGems or BaseItemTypes row;
+    only their buff definitions and stats (cat_aspect, bird_aspect, local_display_grants_skill_*_aspect_level, crab /
+    spider aspect stats) remain; PoB-PoE2's Data/Skills and Data/Uniques hold no "Aspect of the" skill or carrier; second
+    source: poe2db shows Aspect_of_the_Cat and Aspect_of_the_Avian only as internal buff definitions (no skill page, no
+    granting item) and has no Aspect_of_the_Spider page (404), 16 Nov; the patch-notes archive has no hit (not evidence
+    of absence).) Not checked: whether any game table outside the 10 exported Mods-referencing ones points at these mod
+    rows; it doesn't matter to the line's effect. Their companion lines ("100% increased Aspect of the Avian Buff
+    Effect", "... grants Avian's Might and Avian's Flight to nearby Allies") are PoB-parsed and left as they are.
+  sources: ["https://poe2db.tw/us/Aspect_of_the_Cat", "https://poe2db.tw/us/Aspect_of_the_Avian", data/game-26650308/tables (ActiveSkills, GrantedEffects, ModGrantedSkills, SkillGems, Mods)]
+  status: proposed
+
+- id: no-effect-crafting-only-socketables
+  title: 'Crafting-only socketable lines (Aldur''s Legacy''s rune-making, Atziri''s Soul Cores'' "Corrupting will always result in change")'
+  kind: pob_gap
+  match: '^(When socketed into a Unique Kalguuran or Ezomyte item, destroys the item to create a Rune imbued with that item''s power|Corrupting will always result in change)$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    Each line says what happens to the item when it's crafted, not a stat a character has: Aldur's Legacy (armour /
+    caster / weapon) destroys a Kalguuran or Ezomyte unique to make a "Legacy of ..." rune, and those runes are their own
+    lines in the rune data (runes.json, e.g. Legacy of Duality, Legacy of The Unleashed), scored where a build sockets
+    them; Atziri's Soul Cores of Alacrity / Devotion / Inoculation / Vitality guarantee that corrupting the item changes
+    it (an outcome of a Vaal Orb, which the search doesn't use), beside each core's own stat line, which stays as it is.
+    No combat number moves (checked: the lines' own words; the cores' other lines and the Legacy runes are separate rows
+    of the audit).
+  sources: [data/pob-bb52d6b368/runes.json]
+  status: proposed
