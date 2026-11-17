@@ -1970,6 +1970,24 @@ class Assumptions:
                                                 "value": f"{tap_stun:.1%} of the fight", "basis": tap_how,
                                                 "confidence": "MEDIUM-LOW"}]
         setattr(build, models.ITEM_PRESSES, presses)
+        if any(s.name == RUNIC_REPRIEVE for s in found) and any(
+                "Runic Ward has been damaged Recently" in e["text"] for e in source_lines):
+            # (MECHC35, MECHC34's next step: a build playing Reprieve into the boss's hits, ward_damaged_share, loses
+            # each channel's wind-up and its Heavy Stuns from the main skill: an OVERCOUNT of DPS before)
+            self.ward_damaged_share(skills)
+            paid, windup = getattr(build, "reprieve_paid", (0.0, 0.0))
+            stun, stun_how = recovery_mod.reprieve_stun_of(build, paid)
+            busy = min(paid * windup + stun, 0.95)
+            if main is not None and main.name != RUNIC_REPRIEVE and busy > 0:
+                hand_mods = hand_mods + [models.line("1% more Attack and Cast Speed", -100 * busy, skill=main.name)]
+            hand_notes = hand_notes + [{
+                "label": "Runic Reprieve's channels and Heavy Stuns off the main skill*",
+                "value": f"{busy:.1%} of the fight",
+                "basis": (f"{paid:.2f} channels a second (ward_damaged_share's play), each at least its {windup:.2f} s "
+                          f"wind-up ({paid * windup:.1%} of the fight; the hold to the hit not added: a lower bound)"
+                          + (f"; {stun_how}" if stun_how else "; no Heavy Stun")),
+                "confidence": "MEDIUM-LOW", "play": (f"channel Runic Reprieve into the boss's hits: {busy:.1%} of the "
+                                                     "fight off your main skill (with it); without it: no Ward damage")}]
         if recovery_mod.stunned_recently_lines([e["text"] for e in source_lines]):
             # (MECHC35, MECHC34's find: PoB's Stunned Recently box never set; each line at its time-average)
             read = dict(build.call("stats", fields=list(recovery_mod.STUNNED_FIELDS)))
@@ -5051,13 +5069,13 @@ class Assumptions:
             paid = 0.0
         share = 1.0 - math.exp(-ROUGHLY_RECENTLY * paid)
         windup = number(reprieve.get("castTime")) * CHANNEL_START_REPRIEVE
+        self.build.reprieve_paid = (paid, windup)  # (MECHC35: models() takes the channels' time and Heavy Stuns off)
         return share, (f"Runic Reprieve channelled into {paid:.2f} of the boss's {uses:.2f} damaging uses a second, as "
                        f"Runic Ward regeneration {regen:,.0f}/s pays for {per_hit:,.0f} Ward a blocked hit (PoB's "
                        "WardRegenRecovery; other Ward sources and Ward-cost skills' spending not counted here; the "
                        "20% of maximum Ward Reprieve needs to start not checked), within 4 s of one "
-                       f"{share:.0%} of the fight (Poisson, LOW). The time channelling (at least its {windup:.2f} s "
-                       "wind-up a block) isn't taken from the DPS: an overcount of DPS for a build playing it, "
-                       f"{paid * windup:.0%} of the fight at most from the wind-up alone")
+                       f"{share:.0%} of the fight (Poisson, LOW). Each channel's {windup:.2f} s wind-up "
+                       f"({paid * windup:.1%} of the fight) and its Heavy Stuns come off the main skill (MECHC35)")
 
     @staticmethod
     def boss_hit_recently_share(boss: str, kind: str) -> tuple[float, str]:

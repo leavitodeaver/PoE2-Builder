@@ -1617,3 +1617,35 @@ def stunned_recently_mods(texts: list[str], stats: dict, heavy_rate: float) -> t
            f"Shield taps not added: an undercount); 1 - e^(-4 s x the rate). " + "; ".join(parts)
            + " (PoB's box was never set: the 'haven't' lines counted all fight, the others never; without this: so)")
     return mods, how
+
+
+# Runic Reprieve's channel time and Heavy Stun (MECHC35; MECHC34's next step: Assumptions.ward_damaged_share channels it
+# into the boss's hits, MECHC15, but took neither its time nor its Heavy Stun off the DPS: an OVERCOUNT of DPS for a build
+# playing it). RunicReprievePlayer: channel_start_duration_as_%_of_cast_time 200 (the wind-up, CHANNEL_START_REPRIEVE)
+# and active_skill_does_not_decay_heavy_stun_during_action (MECHC29's find): each channel blocks one of the boss's hits
+# into Ward, and that hit builds Heavy Stun with no decay during it. Channels come one per paid boss hit
+# (ward_damaged_share's `paid`, the "when hit" pace, more than 4 s apart at every preset's cadence: the bar empties
+# between them, 2 s delay then 50% a second), so a channel stuns only on a hit that fills the bar alone (as the taps and
+# parries); its text gives no Evasion clause (no avoidance). Each stun costs PLAYER_HEAVY_STUN_SECONDS of the main skill;
+# each channel at least its wind-up (castTime x 2; the hold after it to the hit isn't added: a lower bound, said).
+def reprieve_heavy_stun(stats: dict, scale: float, paid: float) -> tuple[float, str]:
+    """(share of the fight Heavily Stunned by Runic Reprieve's channels, how) at `paid` channels a second."""
+    if paid <= 0:
+        return 0.0, ""
+    buildups, how = heavy_buildups(stats, scale)
+    full = sum(w for w, b in buildups if b >= 1)
+    share = min(1.0, paid * full * PLAYER_HEAVY_STUN_SECONDS)
+    return share, (f"each Runic Reprieve channel ({paid:.2f} a second) blocks one boss hit into Ward with no Heavy Stun "
+                   f"decay; it Heavy Stuns you when that hit fills the bar alone ({how}): {full:.0%} of the boss's hits "
+                   f"do, {PLAYER_HEAVY_STUN_SECONDS:g} s each: {share:.1%} of the fight (MEDIUM-LOW; the bar taken as "
+                   "empty at each channel)")
+
+
+def reprieve_stun_of(build, paid: float) -> tuple[float, str]:
+    if paid <= 0:
+        return 0.0, ""
+    stats, support, texts = _heavy_stun_reads(build, "Runic Reprieve")
+    scale, what = heavy_stun_scale(texts, support, channel=True)
+    share, how = reprieve_heavy_stun(stats, scale, paid)
+    how += _biggest_row(stats, lambda s: reprieve_heavy_stun(s, scale, paid)[0], lambda v: f"{v:.1%} of the fight")
+    return share, how + (f" (threshold: {', '.join(what)})" if what else "")

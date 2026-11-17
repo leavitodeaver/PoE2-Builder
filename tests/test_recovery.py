@@ -1856,6 +1856,21 @@ def test_raise_shield_taps_heavy_stun_only_on_a_blocked_hit_that_fills_the_bar()
     assert recovery.raised_tap_heavy_stun(stats, 1.0, 0.0) == (0.0, "")
 
 
+
+def test_runic_reprieve_channels_heavy_stun_only_on_a_hit_that_fills_the_bar():
+    """MECHC35 (MECHC34's next step): each Reprieve channel blocks one boss hit with no Heavy Stun decay; it stuns when
+    that hit fills the bar alone (no Evasion clause), 3 s a stun, at the channels' rate."""
+    from builder.search import bosses, boss_hits
+
+    weights = boss_hits.type_shares(bosses.DEFAULT)
+    stats = {"PhysicalTakenHit": 3000, "FireTakenHit": 100, "StunThreshold": 2000, "enemySkillTime": 0.7,
+             "_boss": bosses.DEFAULT}
+    share, how = recovery.reprieve_heavy_stun(stats, 1.0, 0.2)
+    assert share == pytest.approx(0.2 * weights["Physical"] * 3) and "Runic Reprieve" in how
+    assert recovery.reprieve_heavy_stun({**stats, "EvadeChance": 50}, 1.0, 0.2)[0] == pytest.approx(share)
+    assert recovery.reprieve_heavy_stun(stats, 10.0, 0.2)[0] == 0.0
+    assert recovery.reprieve_heavy_stun(stats, 1.0, 0.0) == (0.0, "")
+
 def test_each_boss_gets_its_own_armour_and_evasion_and_no_penetration():
     """MECHC34 (R28-11 CD-1..3): the level-82 table x (1 + MonsterTypes' +%), no elemental penetration; the King's two
     forms by fight share; the worst case the highest per form (Olroth's +80% Armour, the King's first form's +40%)."""
