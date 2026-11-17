@@ -443,10 +443,11 @@ class Gear:
                 continue
             info, pool = self.flask_info([option.raw])[0], slot_pool(slot)
             share = uptime(info, self.charges, pool, option.raw)
+            # (MECHC34 via the manager 22:08: the row reads the flask's text as its score does, Gear.recovery_stats)
             rows.append({"slot": slot, "name": option.name, "pool": pool, "uptime": share,
                          "counted": self.counts(slot, info, option.raw),
                          "part_time": FLASK_ON <= share < FLASK_WHOLE,  # counted at its share (weigh_uptimes)
-                         "recovery": recovery_per_second(info, self.charges, pool) if pool else 0.0,
+                         "recovery": recovery_per_second(info, self.charges, pool, option.raw) if pool else 0.0,
                          "full_pool": self.full_pool_reason(info, pool, option.raw, share)})
         return rows
 

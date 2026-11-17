@@ -3738,3 +3738,26 @@ def test_runeforged_and_runemastered_copies_are_offered_only_with_a_price_or_in_
     assert {"Runeforged Crucible Tower Shield", "Runemastered Crucible Tower Shield"} <= {o.base for o in ssf}
     banned = options(BuildRequest(main_skill="Shield Charge", forbid={"uniques": ["Svalinn"]}), priced)
     assert banned == []
+
+
+def test_the_flask_report_reads_each_flasks_own_text_for_its_recovery(monkeypatch):
+    """MECHC34 (the manager 22:08): Gear.flask_report's recovery called recovery_per_second without the flask's text, so
+    a line that changes the recovery ("Effect is not removed when Unreserved Life is Filled" and the like) showed x1 there
+    while Gear.recovery_stats, the score's path, read it. Now both pass the text."""
+    from types import SimpleNamespace
+
+    from builder.search import gear as gear_module
+
+    seen = []
+    monkeypatch.setattr(gear_module, "recovery_per_second",
+                        lambda info, charges, pool, raw="", own=False: seen.append(raw) or 1.0)
+    monkeypatch.setattr(gear_module, "uptime", lambda *a, **k: 1.0)
+    flask = SimpleNamespace(name="Ultimate Life Flask", raw="Rarity: Magic\nUltimate Life Flask\nflask line")
+    g = gear_module.Gear.__new__(gear_module.Gear)
+    g.build = SimpleNamespace(equipped={"Flask 1": flask})
+    g.charges = None
+    g.flask_info = lambda raws: [{}]
+    g.counts = lambda slot, info, raw: True
+    g.full_pool_reason = lambda info, pool, raw, share: None
+    rows = g.flask_report()
+    assert rows and rows[0]["recovery"] == 1.0 and seen == [flask.raw]
