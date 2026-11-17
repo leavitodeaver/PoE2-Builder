@@ -1892,6 +1892,8 @@ class Assumptions:
         hex_mods, hex_notes = models.hexblast_model(found, curses, stats, main)  # (GEM10: L2-2, the curse cycle)
         hand_mods, hand_notes = hand_mods + hex_mods, hand_notes + hex_notes
         doom_mods, doom_notes, doom_groups = models.doom_blast_model(found, curses, models.press_choices(build))  # (MECHB12: Impending Doom's expiries)
+        item_mods, item_notes, item_groups = models.item_trigger_model(texts, stats, found, main)  # (MECHB36: item triggers)
+        doom_mods, doom_notes, doom_groups = doom_mods + item_mods, doom_notes + item_notes, doom_groups | item_groups
         hand_mods, hand_notes = hand_mods + doom_mods, hand_notes + doom_notes
         # (MECHB29: Hayoxi's Fulmination's Annihilation, one per Cursed Ground area that persists 7 s)
         annihilation_mods, annihilation_notes, annihilation_groups = models.annihilation_model(found, curses, main)

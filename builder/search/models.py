@@ -12292,6 +12292,70 @@ def guided_shrine_notes(texts: list[str]) -> list[dict]:
     return out
 
 
+# Skills an item triggers (MECHB36; the catalog's "Skills triggered by items and passives", the coverage ranking's #106
+# and #141). PoB parses the unique's "Grants Skill: Level N X" line (ModCache ExtraSkill: Choir of the Storm's
+# UniqueBreachLightningBoltPlayer, Brutus' Lead Sprinkler's TriggeredMoltenShowerPlayer), so the granted skill has its own
+# group (fromItem), but not its trigger line (Molten Shower's ModCache 5942 is {{}, leftover}; neither line in ModParser
+# or CalcTriggers, checked), and the search never puts an item's group in Full DPS (inner.include_in_full_dps skips
+# fromItem groups): so each scored 0, an UNDERCOUNT. The model gives the granted skill its trigger rate from the build
+# (models.trigger_rate) and counts its group in Full DPS:
+#   - Choir of the Storm, "Trigger Lightning Bolt Skill on Critical Hit": the main skill's crits a second
+#     (crits_per_second: Speed x HitChance x CritChance), at most one per its Cooldown, 0.5 s (GrantedEffectsPerLevel
+#     UniqueBreachLightningBoltPlayer: Cooldown 500, 5 stored uses that only buffer bursts). Side skills' crits not read
+#     (an undercount, said). MEDIUM.
+#   - Brutus' Lead Sprinkler, "Hits with this Weapon have 5% chance to Trigger Molten Shower per 25 Strength": chance =
+#     5% x floor(Strength / 25), at most 100%, x the main skill's hits a second when it is an Attack (taken as using this
+#     weapon: an attack skill the build presses with its weapon), at most one per 0.25 s (TriggeredMoltenShowerPlayer
+#     Cooldown 250). A main skill that isn't an Attack: 0 (no flat rate). MEDIUM.
+# Not here (their own models are next): Dusk Vigil's Ember Fusillade (an Ember a spell cast, its limit and launch delay:
+# ember_fusillade_model's maths), Tempest Caller's Elemental Storm (a storm with a duration on a 3 s Cooldown), Double
+# Vision's Gemini Surge (it grants Surges, a resource: MECH-C's topic, not damage).
+ITEM_TRIGGERS = (
+    (re.compile(r"^Trigger Lightning Bolt Skill on Critical Hit$", re.I), "Lightning Bolt", "crit", 0.5, None),
+    (re.compile(r"^Hits with this Weapon have (\d+(?:\.\d+)?)% chance to Trigger Molten Shower per (\d+) Strength$", re.I),
+     "Molten Shower", "weapon_hit", 0.25, "Str"),
+)
+
+
+def item_trigger_model(texts: list[str], stats: dict, skills: list[Skill], main: Skill | None
+                       ) -> tuple[list[dict], list[dict], set[int]]:
+    """Item-triggered skills' rates from the build (see above): (lines, notes, groups to count in Full DPS)."""
+    mods: list[dict] = []
+    notes: list[dict] = []
+    groups: set[int] = set()
+    for pattern, name, event, cooldown, per in ITEM_TRIGGERS:
+        match = next((m for t in texts if (m := pattern.search(t.strip()))), None)
+        if match is None:
+            continue
+        granted = next((s for s in skills if s.name == name and s.group is not None
+                        and (main is None or s.group != main.group)), None)
+        if granted is None:
+            continue
+        if event == "crit":
+            rate = crits_per_second(stats) if main is not None else 0.0
+            how = (f"the main skill's crits ({rate:.2f} a second: speed x hit chance x crit chance)" if rate > 0 else
+                   "the main skill doesn't crit: 0")
+        else:
+            chance = min(100.0, float(match.group(1)) * math.floor(number(stats.get(per)) / float(match.group(2))))
+            hits = hits_per_second(stats) if main is not None and main.attack else 0.0
+            rate = hits * chance / 100
+            how = (f"{chance:g}% a hit ({match.group(1)}% per {match.group(2)} Strength, {number(stats.get(per)):g} "
+                   f"Strength) x the main attack's {hits:.2f} hits a second" if hits > 0 else
+                   "the main skill isn't an Attack with this weapon: 0 (no flat rate)")
+        capped = min(rate, 1 / cooldown)
+        mods += trigger_rate(name, capped)
+        if capped > 0:
+            groups.add(granted.group)
+        notes.append({"label": f"{name} triggered by your item, per second*", "value": round(capped, 3),
+                      "basis": (f"{how}" + (f", at most one per its {cooldown:g} s Cooldown" if rate > capped else "")
+                                + "; PoB makes the skill but never triggers it, and its group wasn't in Full DPS (0 "
+                                "before); side skills' events not counted (an undercount)"),
+                      "play": (f"{name} triggers on its own from your item: without it +0; with it {capped:.2f} a second"
+                               if capped > 0 else f"Nothing in the build sets off {name}"),
+                      "confidence": "MEDIUM" if capped > 0 else "HIGH"})
+    return mods, notes, groups
+
+
 # Different Non-Instant skills used per 8 s (MECHB4; AUDIT7 A7-2, research/cast-speed-per-different-spell.md) -------------
 # Counts COV-B's Emboldening Casts / Enhancing Attacks read (PoB multipliers LedgerDifferentNonInstantSpells8s /
 # LedgerDifferentNonInstantAttacks8s, passive_models.different_skills_model), and PoB's NonInstantSpellCastRecently, which

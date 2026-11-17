@@ -1,0 +1,31 @@
+# MECH-B's model entries (MECHB36).
+
+- id: model-read-choir-of-the-storm-lightning-bolt
+  title: '"Trigger Lightning Bolt Skill on Critical Hit" (models.item_trigger_model)'
+  kind: pob_gap
+  model: item_trigger
+  match: '^Trigger Lightning Bolt Skill on Critical Hit$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Choir of the Storm. PoB makes the granted Lightning Bolt (ExtraSkill) but never triggers it, and the search kept item
+    groups out of Full DPS: 0 before. models.item_trigger_model: the main skill's crits a second, at most one per its
+    0.5 s Cooldown (GrantedEffectsPerLevel UniqueBreachLightningBoltPlayer), its group in Full DPS. Probe POE2T3302
+    (Spark Stormweaver): Full DPS 110.3 -> 112.1, Spark's entry unchanged.
+  sources: [builder/search/models.py (ITEM_TRIGGERS, item_trigger_model), scratch/mechb36/p3302.log]
+  status: proposed
+
+- id: model-read-brutus-molten-shower
+  title: '"Hits with this Weapon have N% chance to Trigger Molten Shower per N Strength" (models.item_trigger_model)'
+  kind: pob_gap
+  model: item_trigger
+  match: '^Hits with this Weapon have (\d+(?:\.\d+)?)% chance to Trigger Molten Shower per (\d+) Strength$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Brutus' Lead Sprinkler. PoB parses only part of the line (ModCache {{}, leftover}) and never triggers the granted
+    Molten Shower: 0 before. models.item_trigger_model: 5% x floor(Strength / 25), at most 100%, x the main attack's hits a
+    second, at most one per 0.25 s (TriggeredMoltenShowerPlayer Cooldown 250); a main skill that isn't an Attack: 0.
+    Probe POE2T3302 (Boneshatter Titan): Full DPS 561.6 -> 563.7.
+  sources: [builder/search/models.py (ITEM_TRIGGERS, item_trigger_model), scratch/mechb36/p3302.log]
+  status: proposed

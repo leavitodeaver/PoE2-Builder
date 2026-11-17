@@ -5937,3 +5937,25 @@ def test_buffs_on_you_expire_slower_stretches_lunar_blessing_sanguine_tide_mana_
     row = recovery.sprint_row([guard], {"MovementSpeedMod": 1.4, **slow}, "Xesht, We That Are One")
     assert "for 5 s after each sprint" in row["basis"] and "50% of the fight" in row["basis"]
     assert "for 4 s after each sprint" in recovery.sprint_row([guard], {"MovementSpeedMod": 1.4}, "Xesht, We That Are One")["basis"]
+
+
+def test_an_items_triggered_skill_gets_its_rate_from_the_build():
+    """MECHB36: Choir of the Storm's Lightning Bolt on the main skill's crits (cap one per 0.5 s), Brutus' Lead
+    Sprinkler's Molten Shower at 5% per 25 Strength of the main attack's hits (cap one per 0.25 s); groups in Full DPS."""
+    main = Skill("Lightning Arrow", group=1, attack=True)
+    bolt = Skill("Lightning Bolt", group=5, spell=True, triggered=True)
+    stats = {"Speed": 4.0, "HitChance": 100, "CritChance": 25, "Str": 110}
+    mods, notes, groups = models.item_trigger_model(["Trigger Lightning Bolt Skill on Critical Hit"], stats, [main, bolt], main)
+    rate = next(m for m in mods if m["key"] == "triggerRate")["value"]
+    assert rate == pytest.approx(1.0) and groups == {5}
+    stats["CritChance"] = 75  # 3 crits a second, capped at 2
+    mods, notes, _ = models.item_trigger_model(["Trigger Lightning Bolt Skill on Critical Hit"], stats, [main, bolt], main)
+    assert next(m for m in mods if m["key"] == "triggerRate")["value"] == pytest.approx(2.0) and "Cooldown" in notes[0]["basis"]
+    shower = Skill("Molten Shower", group=6, attack=True, triggered=True)
+    line = "Hits with this Weapon have 5% chance to Trigger Molten Shower per 25 Strength"
+    mods, notes, groups = models.item_trigger_model([line], stats, [main, shower], main)  # 4 x 25 = 100 Str: 20%
+    assert next(m for m in mods if m["key"] == "triggerRate")["value"] == pytest.approx(4.0 * 0.20) and groups == {6}
+    spell_main = Skill("Spark", group=1, spell=True)
+    mods, notes, groups = models.item_trigger_model([line], stats, [spell_main, shower], spell_main)
+    assert next(m for m in mods if m["key"] == "triggerRate")["value"] == 0 and groups == set()
+    assert models.item_trigger_model(["+10 to Strength"], stats, [main, bolt], main) == ([], [], set())
