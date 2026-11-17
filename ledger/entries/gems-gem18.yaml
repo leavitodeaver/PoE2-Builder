@@ -26,3 +26,62 @@
             "scratch/manager/research/channel-cooldown-start.md (RESEARCH28 R28-14)", "scratch/gem17/probe_flameblast.json (POE2T3405)"]
   test_in_game: "Optional: Flameblast's tooltip / a boss kill time at a full channel vs a tap release."
   status: proposed
+
+- id: model-gem18-boneshatter-shockwave-heavy-stun
+  title: "Boneshatter: the Shockwave only when the Strike Heavy Stuns the boss (PoB scored one on every Strike)"
+  kind: model
+  model: stun_set
+  stats: []
+  skill: [Boneshatter]
+  confidence: MEDIUM
+  notes: >-
+    models.stun_set_model (GEM18), hooked in Assumptions after Flameblast's. Game: ActiveSkills boneshatter "The Strike
+    will cause a Heavy Stun on enemies that are Primed for Stun. Upon causing a Heavy Stun it will also create a
+    Shockwave"; KeywordPopups PrimedStun: Unique enemies are Primed at 70% Heavy Stun buildup. PoB scores the
+    "Shockwave" set as if every Strike made one: probe POE2T3411 kept it at 382.1 vs the Initial Strike's 53.8 (an
+    OVERCOUNT, x7.1). The Strike's own hit builds no stun (BoneshatterPlayer active_skill_hit_damage_stun_multiplier_
+    +%_final -100 with crushing_blow; PoB's Strike reads 0 buildup: probe POE2T3412), so the boss is Primed by the
+    build's other skills: their Heavy Stun buildup a second (useRates per group, Cold out, at their press shares,
+    unpressed groups not counted: Assumptions.stun_primers); Heavy Stuns a second = models.heavy_stun_rate on that / 0.70; DPS = Strike + Shockwave x
+    min(1, stuns / Strikes). No other stunning skill: 0 shockwaves. A Shockwave set with no stun gets the Strike x 0.9
+    (a Damage line) so the search keeps the Strike.
+  sources: ["builder/search/models.py (stun_set_model)", "data/game-26650308/tables/ActiveSkills.json (boneshatter)",
+            "data/game-26650308/tables/KeywordPopups.json (PrimedStun, CrushingBlow)", "scratch/gem18/probe_sets6.json (POE2T3411)"]
+  test_in_game: "Optional: Boneshatter on a boss: a shockwave only on the strikes that Heavy Stun it."
+  status: proposed
+
+- id: model-gem18-wing-blast-shockwave-heavy-stun
+  title: "Wing Blast: the shockwave only on a boss Primed for Heavy Stun (PoB scored one every use)"
+  kind: model
+  model: stun_set
+  stats: []
+  skill: [Wing Blast]
+  confidence: MEDIUM
+  notes: >-
+    models.stun_set_model (GEM18). Game: ActiveSkills wing_blast "Enemies Primed for Heavy Stun will be stunned, release
+    a shockwave"; Unique enemies Primed at 70% (KeywordPopups PrimedStun). Probe POE2T3411 kept "Shockwave" 330.5 vs
+    "Wing Blast" 58.3 (x5.7). Its own hit builds no stun either (WingBlastPlayer: -100% stun multiplier, crushing_blow):
+    as Boneshatter's entry, shockwaves = the Heavy Stuns the build's other skills Prime (70% of the bar). Its chance to
+    grant a Power Charge on that stun not counted here.
+  sources: ["builder/search/models.py (stun_set_model)", "data/game-26650308/tables/ActiveSkills.json (wing_blast)",
+            "scratch/gem18/probe_sets6.json (POE2T3411)"]
+  test_in_game: "Optional: Wing Blast on a boss: a shockwave only when it Heavy Stuns."
+  status: proposed
+
+- id: model-gem18-stormblast-bolts-detonation
+  title: "Stormblast Bolts: its lodged bolts explode only when a Detonator skill hits them (PoB scored every bolt exploding)"
+  kind: model
+  model: detonated_set
+  stats: ["stormblast_bolts_maximum_active_bolt_count"]
+  skill: [Stormblast Bolts]
+  confidence: MEDIUM-LOW
+  notes: >-
+    models.detonated_set_model (GEM17's, GEM18 adds Stormblast Bolts). Game: ActiveSkills stormblast_bolts "lodging in
+    the ground for a duration. Detonator Skills will cause these bolts to explode"; 3 bolts a shot, 10 s, at most 30
+    active (10 shots' bolts). Probe POE2T3411 kept "Explosion" 275.3 vs "Impact" 31.0 with no Detonator (x8.9).
+    Detonated share from the build's Detonators (Assumptions.detonator_rate), each use setting off every bolt lying
+    there; a build's extra projectiles lowering the 10-shot cap not read (UNVERIFIED).
+  sources: ["builder/search/models.py (DETONATED_SETS)", "data/game-26650308/tables/ActiveSkills.json (stormblast_bolts)",
+            "data/game-26650308/tables/GrantedEffectStatSets.json (StormblastBoltsPlayer)", "scratch/gem18/probe_sets6.json (POE2T3411)"]
+  test_in_game: "Optional: Stormblast Bolts alone on a dummy: no explosions without a Detonator."
+  status: proposed

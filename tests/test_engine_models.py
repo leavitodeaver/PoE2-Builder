@@ -2457,8 +2457,11 @@ def test_the_dazed_box_moves_pobs_damage_against_dazed_enemies(engine):
 
 def test_a_dazed_boss_takes_more_stun_buildup_at_its_share_not_pobs_full_box(engine):
     """The probe behind models.DAZED_STUN_MORE (MECH70): PoB's Dazed box applies the whole 50% to the main skill's Heavy
-    Stun buildup, so heavy_stun_rate takes it back while the box is on and applies it at the Dazed share."""
-    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    Stun buildup, so heavy_stun_rate takes it back while the box is on and applies it at the Dazed share. (GEM18: with
+    models.stun_set_model the search keeps Boneshatter's Initial Strike, whose own hit builds no stun (the game's -100%);
+    its entry is forbidden here so the Shockwave set this probe measures the box on stays scored.)"""
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"],
+                                        forbid_ledger_entries=["model-gem18-boneshatter-shockwave-heavy-stun"]))
     skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
     search = Search(engine, None, payload, skeleton.as_dict(), 0)
     search.setup(quests=False)

@@ -871,3 +871,59 @@ def test_flameblast_model_leaves_triggered_forbidden_and_other_skills():
     assert models.flameblast_model(_flameblast(), stats, {"model-gem18-flameblast-stages"}) == ([], [])
     assert models.flameblast_model(Skill("Incinerate", 1), stats) == ([], [])
     assert models.flameblast_model(_flameblast(), {"CastRate": 0, "Speed": 0.1, "Cooldown": 10.0}) == ([], [])
+
+
+def _bone_sets(strike=53.8, wave=382.1, speed=1.5):
+    return [{"label": "Initial Strike", "TotalDPS": strike, "Speed": speed, "AverageDamage": 36.0},
+            {"label": "Shockwave", "TotalDPS": wave, "Speed": speed, "AverageDamage": 255.0}]
+
+
+MAIN_STUN_STATS = {"HeavyStunBuildupAvg": 0.0, "Speed": 1.5, "HitChance": 100, "CritChance": 0, "ColdHitAverage": 500.0}
+
+
+def test_boneshatter_shockwave_comes_only_when_other_skills_prime_the_boss():
+    # (GEM18) probe POE2T3411: the search kept the Shockwave set (382.1 vs 53.8); the Strike's own hit builds no stun
+    primed = 2.0  # % of the bar a second from the build's other skills
+    flat = {f"{t}{k}Average": 0.0 for t in models.DAMAGE_TYPES for k in ("Hit", "Crit")}
+    rate, _ = models.heavy_stun_rate({**MAIN_STUN_STATS, **flat, "PhysicalHitAverage": 1.0, "Speed": 1.0,
+                                      "HeavyStunBuildupAvg": primed / 0.70})
+    share = min(1.0, rate / 1.5)
+    mods, notes = models.stun_set_model(Skill("Boneshatter", 1, attack=True, melee=True), "Shockwave", _bone_sets(),
+                                        MAIN_STUN_STATS, primed, "a side skill")
+    total = 53.8 + 382.1 * share
+    assert 0 < share < 1
+    assert mods[0]["name"] == "DPS" and mods[0]["value"] == pytest.approx(100 * (total / 382.1 - 1), abs=0.01)
+    assert notes[0]["entry"] == "model-gem18-boneshatter-shockwave-heavy-stun"
+
+
+def test_boneshatter_with_nothing_priming_the_boss_keeps_the_strike():
+    mods, notes = models.stun_set_model(Skill("Boneshatter", 1), "Shockwave", _bone_sets(), MAIN_STUN_STATS, 0.0, "none")
+    assert mods[0]["name"] == "Damage"  # (the 0.9 steer, as a Damage line so its ailments shrink too)
+    assert mods[0]["value"] == pytest.approx(100 * (53.8 * 0.9 / 382.1 - 1), abs=0.01)
+    mods, _ = models.stun_set_model(Skill("Boneshatter", 1), "Initial Strike", _bone_sets(), MAIN_STUN_STATS, 0.0, "none")
+    assert mods == []  # the strike alone: PoB's own number
+
+
+def test_stun_uncold_takes_cold_out_and_weighs_physical():
+    assert models.stun_uncold({"PhysicalHitAverage": 100.0, "ColdHitAverage": 150.0}) == pytest.approx(0.5)
+    assert models.stun_uncold({}) == 1.0
+
+
+def test_stun_set_model_leaves_forbidden_and_other_skills():
+    entry = "model-gem18-wing-blast-shockwave-heavy-stun"
+    sets = [{"label": "Wing Blast", "TotalDPS": 58.3, "Speed": 1.0}, {"label": "Shockwave", "TotalDPS": 330.5, "Speed": 1.0}]
+    assert models.stun_set_model(Skill("Wing Blast", 1), "Shockwave", sets, MAIN_STUN_STATS, 1.0, "", {entry}) == ([], [])
+    assert models.stun_set_model(Skill("Sunder", 1), "Wave", sets, MAIN_STUN_STATS, 1.0, "") == ([], [])
+    assert models.stun_set_model(Skill("Wing Blast", 1), "Shockwave", sets, MAIN_STUN_STATS, 1.0, "")[1][0]["entry"] == entry
+
+
+def test_stormblast_bolts_explode_only_when_detonated():
+    # (GEM18) probe POE2T3411: Explosion 275.3 vs Impact 31.0, kept with no Detonator
+    sets = [{"label": "Impact", "TotalDPS": 31.0}, {"label": "Explosion", "TotalDPS": 275.3}]
+    sb = Skill("Stormblast Bolts", 1, attack=True)
+    mods, notes = models.detonated_set_model(sb, "Explosion", sets, 1.2, 0.0, "no Detonator")
+    assert mods[0]["name"] == "Damage" and mods[0]["value"] == pytest.approx(100 * (31.0 * 0.9 / 275.3 - 1), abs=0.01)
+    assert "bolts" in notes[0]["play"] and "spears" not in notes[0]["play"]
+    # 10 shots' bolts at most (30 / 3), 10 s each: at 0.5 Detonator uses a second every bolt goes off
+    assert models.detonated_share("Stormblast Bolts", 1.2, 0.5) == 1.0
+    assert models.detonated_share("Stormblast Bolts", 1.2, 0.05) == pytest.approx(0.05 * 10 / 1.2)

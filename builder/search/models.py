@@ -6646,7 +6646,15 @@ def ailment_set_model(main: Skill | None, scored: str | None, sets: list[dict], 
 DETONATED_SETS = {
     "Storm Lance": (("Projectile", "Lodged Spear"), "Detonation", 3, 6.0, "model-gem17-storm-lance-detonation"),
     "Rapid Assault": (("Normal Strikes", "Final Strike"), "Explosion", 5, 30.0, "model-gem17-rapid-assault-explosion"),
+    # (GEM18) Stormblast Bolts: "fires charged bolts that land around the target location, dealing damage and lodging in
+    # the ground for a duration. Detonator Skills will cause these bolts to explode" (ActiveSkills stormblast_bolts,
+    # 26650308); StormblastBoltsPlayer: base_number_of_projectiles 3, base_skill_effect_duration 10000,
+    # stormblast_bolts_maximum_active_bolt_count 30, so the cap is 30 / 3 = 10 shots' bolts (more projectiles from the
+    # build would lower it: not read, UNVERIFIED; Skill Effect Duration not read). Probe POE2T3411: Explosion 275.3 vs
+    # Impact 31.0 (x8.9), kept with no Detonator. PoB's Explosion set taken as one shot's bolts exploding.
+    "Stormblast Bolts": (("Impact",), "Explosion", 10, 10.0, "model-gem18-stormblast-bolts-detonation"),
 }
+DETONATED_WORD = {"Stormblast Bolts": "bolts"}  # (what lies there to detonate; spears otherwise)
 
 
 def detonated_share(skill: str, uses: float, detonations: float) -> float:
@@ -6675,6 +6683,7 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
     if plain <= 0:
         return [], []
     s = detonated_share(main.name, number(uses), number(detonations))
+    word = DETONATED_WORD.get(main.name, "spears")
     total = plain + det * s
     factor = total / dps[scored]
     steer = scored == det_label and s <= 0
@@ -6688,12 +6697,12 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
         "label": f"{main.name}: its {det_label} needs another skill to Detonate it*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM-LOW", "entry": entry,
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; {plain_label} {plain:,.0f}, {det_label} "
-                  f"{det:,.0f}). The game sets the {det_label} off only when a Detonator skill hits the spears: {s:.0%} of "
+                  f"{det:,.0f}). The game sets the {det_label} off only when a Detonator skill hits the {word}: {s:.0%} of "
                   f"them ({how}), so {plain_label} + {det_label} x {s:.0%} = {total:,.0f} DPS"
                   + (f"; with none, the {det_label} set is kept 10% under the {plain_label} so the search keeps it"
                      if steer else "")),
-        "play": (f"Hit {main.name}'s spears with a Detonator skill (Detonating Arrow, Explosive Spear, a grenade, ...) to "
-                 f"set off the {det_label}. Without one: {plain:,.0f}; with this build's: {total:,.0f}; every spear: "
+        "play": (f"Hit {main.name}'s {word} with a Detonator skill (Detonating Arrow, Explosive Spear, a grenade, ...) to "
+                 f"set off the {det_label}. Without one: {plain:,.0f}; with this build's: {total:,.0f}; every {word[:-1]}: "
                  f"{plain + det:,.0f}.")}]
 
 
@@ -6784,6 +6793,86 @@ def flameblast_model(main: Skill | None, stats: dict,
                  + (" (its maximum)" if stages == top else "") + ", and recast as its cooldown ends"
                  + (f". Releasing at 1 stage: x{one / value(stages):.2f} of this." if stages != 1 else
                     f": more stages take longer than they pay at {cast_rate:.2f} casts a second."))}]
+
+
+# Shockwaves only on a Heavy Stun (GEM18; OVERCOUNTS: PoB scores the Shockwave set as if every use made one, and the
+# search kept it: probe POE2T3411, level-90 searches, Boneshatter "Shockwave" 382.1 vs "Initial Strike" 53.8 (x7.1),
+# Wing Blast "Shockwave" 330.5 vs "Wing Blast" 58.3 (x5.7)). The game (ActiveSkills, 26650308): Boneshatter "The Strike
+# will cause a Heavy Stun on enemies that are Primed for Stun. Upon causing a Heavy Stun it will also create a Shockwave";
+# Wing Blast "Enemies Primed for Heavy Stun will be stunned, release a shockwave". KeywordPopups PrimedStun: "Unique
+# [enemies are Primed] at 70%" Heavy Stun buildup; CrushingBlow: "cause a Heavy Stun on enemies that are Primed". Both
+# uses' own hits build NO stun: BoneshatterPlayer and WingBlastPlayer carry active_skill_hit_damage_stun_multiplier_+%_final
+# -100 with crushing_blow (GrantedEffectStatSets; PoB's Boneshatter set reads 0 buildup: probe POE2T3412). So the boss is
+# Primed by the build's OTHER skills: their Heavy Stun buildup a second (the bridge's useRates per group: PoB's
+# HeavyStunBuildupAvg x hits a second, Cold's share taken out as heavy_stun_rate does, at the share of their nonstop uses
+# the press model gives them, a group it doesn't press not counted: Assumptions.stun_primers), and the next use Heavy Stuns it at 70% of the bar. Heavy Stuns
+# a second = heavy_stun_rate on that buildup / 0.70 (MECH-D's boss threshold, +500% for 16.5 s after each stun, the bar
+# not filling during the stun, Daze). DPS = the plain set + the Shockwave set x min(1, Heavy Stuns a second / uses a
+# second). No other stunning skill: 0 shockwaves (no source, no flat rate). The Shockwave's own buildup lands while the
+# boss is stunned (not counted, as heavy_stun_rate's stun). A Shockwave set with no stun gets the plain set x
+# FIRESTORM_BOLTS_MARGIN as a Damage line. Boneshatter's "50% more against Unique Enemies" (patch 0.3.0) is in PoB's
+# set. MEDIUM.
+STUN_SETS = {"Boneshatter": ("Initial Strike", "Shockwave", "model-gem18-boneshatter-shockwave-heavy-stun"),
+             "Wing Blast": ("Wing Blast", "Shockwave", "model-gem18-wing-blast-shockwave-heavy-stun")}
+PRIMED_STUN_UNIQUE = 0.70  # KeywordPopups PrimedStun, Unique enemies
+
+
+def stun_uncold(row: dict) -> float:
+    """The share of a hit's Heavy Stun buildup that isn't Cold (heavy_stun_rate's weighting: crit-weighted hit
+    averages, Physical x1.5), from a bridge stats / useRates row."""
+    crit = min(number(row.get("CritChance")), 100) / 100
+    weight = {t: (number(row.get(f"{t}HitAverage")) * (1 - crit) + number(row.get(f"{t}CritAverage")) * crit)
+              * (HEAVY_STUN_PHYSICAL if t == "Physical" else 1.0) for t in DAMAGE_TYPES}
+    total = sum(weight.values())
+    return 1 - weight["Cold"] / total if total > 0 else 1.0
+
+
+def stun_set_model(main: Skill | None, scored: str | None, sets: list[dict], stats: dict, primed: float, how: str,
+                   forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """A STUN_SETS skill's shockwave only on a Heavy Stun (see above): `sets` the bridge's setRates for its group,
+    `stats` the main skill's PoB output (the boss and Daze fields heavy_stun_rate reads), `primed` the other skills'
+    Heavy Stun buildup a second (% of the bar, Cold taken out, at their use shares), `how` its basis."""
+    if main is None or main.name not in STUN_SETS:
+        return [], []
+    plain_label, wave_label, entry = STUN_SETS[main.name]
+    if entry in forbidden or scored not in (plain_label, wave_label):
+        return [], []
+    rows = {s.get("label"): s for s in sets}
+    dps = {label: number(r.get("TotalDPS")) for label, r in rows.items()}
+    plain, wave = dps.get(plain_label, 0.0), dps.get(wave_label, 0.0)
+    if plain <= 0 or dps.get(scored, 0.0) <= 0:
+        return [], []
+    uses = number(rows[plain_label].get("Speed")) or number(stats.get("Speed"))
+    rate, stun_how = 0.0, how
+    if primed > 0:
+        flat = {f"{t}{k}Average": 0.0 for t in DAMAGE_TYPES for k in ("Hit", "Crit")}
+        rate, stun_how = heavy_stun_rate({**stats, **flat, "PhysicalHitAverage": 1.0, "Speed": 1.0, "HitChance": 100,
+                                          "CritChance": 0, "HeavyStunBuildupAvg": primed / PRIMED_STUN_UNIQUE})
+        stun_how = f"{how}; {stun_how}"
+    share = min(1.0, rate / uses) if uses > 0 else 0.0
+    total = plain + wave * share
+    factor = total / dps[scored]
+    steer = scored == wave_label and share <= 0
+    if steer:
+        factor *= FIRESTORM_BOLTS_MARGIN  # (steer the search to the plain set)
+    # (steered: "Damage", so the Shockwave's ailments shrink too, as detonated_set_model learnt in probe POE2T2199)
+    mods = ([raw_mod("Damage" if steer else "DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9
+            else [])
+    every = f"one every {1 / rate:.1f} s" if rate > 0 else "none"
+    return mods, [{
+        "label": f"{main.name}: its {wave_label} only on a Heavy Stun*", "value": f"x{factor:.3f}",
+        "confidence": "MEDIUM", "entry": entry,
+        "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; {plain_label} {plain:,.0f}, {wave_label} "
+                  f"{wave:,.0f}) as if every use made one. The game makes it when a use Heavy Stuns the boss Primed for "
+                  f"Stun (70% of the bar for a Unique); the use's own hit builds no stun (its -100% stun multiplier), so "
+                  f"the boss is Primed by the build's other skills: {primed:.2f}% of the bar a second ({stun_how}): Heavy "
+                  f"Stuns {every}, {share:.1%} of the {uses:.2f} uses a second, so {plain_label} + {wave_label} x "
+                  f"{share:.1%} = {total:,.0f} DPS"
+                  + (f"; with none, the {wave_label} set is kept 10% under the {plain_label} so the search keeps it"
+                     if steer else "")),
+        "play": (f"{main.name}'s {wave_label} comes only when it hits a boss Primed for Stun, and its own hit builds no "
+                 f"stun: use other skills that build Heavy Stun (Physical / Melee hits, Daze) to Prime the boss. "
+                 f"Without them: {plain:,.0f}; with this build's: {total:,.0f}; every use: {plain + wave:,.0f}.")}]
 
 
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------

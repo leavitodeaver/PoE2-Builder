@@ -2209,6 +2209,11 @@ class Assumptions:
         if main is not None and main.name == models.FLAMEBLAST:  # (GEM18: its stages and its channel + cooldown cycle)
             fb_mods, fb_notes = models.flameblast_model(main, stats, forbidden)
             hand_mods, hand_notes = hand_mods + fb_mods, hand_notes + fb_notes
+        if main is not None and group and main.name in models.STUN_SETS:  # (GEM18: a shockwave only on a Heavy Stun)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            primed, primed_how = self.stun_primers(group["index"])
+            stun_mods, stun_notes = models.stun_set_model(main, main.stat_set, sets, stats, primed, primed_how, forbidden)
+            hand_mods, hand_notes = hand_mods + stun_mods, hand_notes + stun_notes
         side_mods, side_notes = self.multi_set_side(main)  # (MECH-B, MECHB16: Rolling Slam in a Full DPS group)
         hand_mods, hand_notes = hand_mods + side_mods, hand_notes + side_notes
         cap_mods, cap_notes = self.main_cap(group, name)  # (MECH-B: the press hook on the main skill, MECHB5)
@@ -4901,6 +4906,31 @@ class Assumptions:
             parts.append(f"{row.get('name')} {r:.2f}/s" + (f" (pressed {number(share):.0%})" if share is not None
                                                            else " (PoB's rate: no press share chosen)"))
         return rate, "Detonators: " + "; ".join(parts)
+
+    def stun_primers(self, main_index: int) -> tuple[float, str]:
+        """(% of the boss's Heavy Stun bar a second, how) built by the build's enabled groups outside the main one (GEM18,
+        models.stun_set_model): each group's useRates HeavyStunBuildupAvg x its hits a second (speed x HitChance), Cold's
+        share out (models.stun_uncold), x the search's press share for it (a group with none isn't counted: the main skill
+        has the time, as models.heavy_stun_buff_side)."""
+        build = self.build
+        indices = [g["index"] for g in build.groups() if g.get("enabled", True) and g["index"] != main_index]
+        if not indices:
+            return 0.0, "no other skill builds Heavy Stun"
+        press = getattr(build.objective, "press_scales", None) or {}
+        total, parts = 0.0, []
+        for row in build.call("useRates", indices=indices)["rates"]:
+            per_hit = number(row.get("HeavyStunBuildupAvg"))
+            hits = number(row.get("speed")) * (number(row.get("HitChance", 100)) or 100.0) / 100
+            if per_hit <= 0 or hits <= 0:
+                continue
+            share = press.get(row.get("name"))
+            if not share:  # (not pressed beside the main skill: no time to use it, as heavy_stun_buff_side)
+                parts.append(f"{row.get('name')} not counted (the press model gives it no uses)")
+                continue
+            built = per_hit * hits * models.stun_uncold(row) * number(share)
+            total += built
+            parts.append(f"{row.get('name')} {built:.3f}%/s (pressed {number(share):.0%})")
+        return total, ("Heavy Stun buildup: " + "; ".join(parts)) if parts else "no other skill builds Heavy Stun"
 
     def gated_set_share(self, skill: str, texts: list[str], main_types: set[str]) -> tuple[float, str]:
         """(share, how) of a models.GATED_SETS skill's uses its resource covers (GEM17): Furious Slam's Rage from the
