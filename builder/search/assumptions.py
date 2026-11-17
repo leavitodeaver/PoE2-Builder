@@ -2073,6 +2073,11 @@ class Assumptions:
             gate_share, gate_how = self.gated_set_share(main.name, texts, main_types)
             gate_mods, gate_notes = models.gated_set_model(main, main.stat_set, sets, gate_share, gate_how, forbidden)
             hand_mods, hand_notes = hand_mods + gate_mods, hand_notes + gate_notes
+        if main is not None and group and main.name in models.AILMENT_SETS:  # (GEM17: Snipe / Sundering consume ailments)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            up, up_how = models.ailment_up_of(build)
+            ail_mods, ail_notes = models.ailment_set_model(main, main.stat_set, sets, up, up_how, forbidden)
+            hand_mods, hand_notes = hand_mods + ail_mods, hand_notes + ail_notes
         side_mods, side_notes = self.multi_set_side(main)  # (MECH-B, MECHB16: Rolling Slam in a Full DPS group)
         hand_mods, hand_notes = hand_mods + side_mods, hand_notes + side_notes
         cap_mods, cap_notes = self.main_cap(group, name)  # (MECH-B: the press hook on the main skill, MECHB5)

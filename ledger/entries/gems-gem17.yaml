@@ -60,3 +60,44 @@
             "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua (OilBarragePlayer)", "scratch/gem17/probe_infused_sets.json (POE2T2184)"]
   test_in_game: "Optional: Oil Barrage with and without Power Charges: the electrified barrage only with them."
   status: proposed
+
+- id: model-gem17-snipe-icy-blast-freeze
+  title: "Snipe: the Icy Blast only when its release consumes a Freeze (PoB scored it always); a release is the arrow plus its explosion"
+  kind: model
+  model: ailment_set
+  stats: ["perfectly_timed"]
+  skill: [Snipe]
+  confidence: MEDIUM
+  notes: >-
+    models.ailment_set_model (GEM17), hooked in Assumptions after the gated-set hook. Game: ActiveSkills snipe
+    "Releasing with Perfect Timing causes the arrow to explode on impact and Consume Freeze on directly Hitting.
+    Consuming Freeze enhances the explosion". PoB scores Arrow, Explosion and Icy Blast (SnipeFrozenExplosionPlayer)
+    alone with no Freeze check: probe POE2T2190 (no Freeze source) kept Icy Blast at 945.1 vs Explosion 308.8, Arrow
+    45.6 (an OVERCOUNT, x2.7 over arrow + explosion). DPS = Arrow + Explosion x (1 - f) + Icy Blast x f, f the boss's
+    Frozen share after the consume cut; every release Perfectly Timed (as conditions reads Snipe's consume). The arrow and
+    explosion together (an UNDERCOUNT before). Icy Blast with no Freeze gets the result x 0.9 so the search keeps a fed set.
+  sources: ["builder/search/models.py (ailment_set_model)", "data/game-26650308/tables/ActiveSkills.json (snipe)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_dex.lua (SnipePlayer)", "scratch/gem17/probe_sets5.json (POE2T2190)"]
+  test_in_game: "Optional: Snipe with Perfect Timing on a Frozen and an unfrozen boss."
+  status: proposed
+
+- id: model-gem17-elemental-sundering-ailments
+  title: "Elemental Sundering: one explosion per Freeze / Ignite / Shock it consumes, nothing without them (PoB scored an explosion always)"
+  kind: model
+  model: ailment_set
+  stats: []
+  skill: [Elemental Sundering]
+  confidence: MEDIUM
+  notes: >-
+    models.ailment_set_model (GEM17). Game: ActiveSkills elemental_sundering "emit a pulse that Consumes Freeze, Shock and
+    Ignite on a number of nearby enemies, Allies and Corpses. The pulse itself deals no damage, but each Ailment Consumed
+    causes an explosion of the corresponding elemental damage type". PoB scores its Cold / Fire / Lightning sets alone
+    with no ailment check: probe POE2T2190 (no ailment source) kept Cold at 634.4 (an OVERCOUNT: the game gives 0).
+    DPS = Cold x Frozen share + Fire x Ignited share + Lightning x Shocked share (MECH-A's uptimes after the consume
+    cut, which take Sundering's own consumes off); with no ailment held at 1% of PoB's set, not 0 (at 0 the next pass
+    reads every set as 0 and the model loses its scale: probe POE2T2191; PoB rounds a MORE product to two decimals, so
+    0.1% read as 0: probe POE2T2193). Allies' and corpses' ailments not counted (labelled).
+  sources: ["builder/search/models.py (ailment_set_model)", "data/game-26650308/tables/ActiveSkills.json (elemental_sundering)",
+            "scratch/gem17/probe_sets5.json (POE2T2190)"]
+  test_in_game: "Optional: Elemental Sundering on a boss with no ailment: no damage."
+  status: proposed

@@ -773,3 +773,25 @@ def test_gated_set_shares_follow_the_builds_resource():
     assert models.oil_barrage_share(0.4) == pytest.approx(0.6)  # 0.4 charges/s x 1.5 s
     assert models.oil_barrage_share(0.0) == 0.0
 
+
+SNIPE_SETS = [{"label": "Arrow", "TotalDPS": 45.6}, {"label": "Explosion", "TotalDPS": 308.8},
+              {"label": "Icy Blast", "TotalDPS": 945.1}]
+SUNDER_SETS = [{"label": "Pulse", "TotalDPS": 0}, {"label": "Cold", "TotalDPS": 634.4}, {"label": "Fire", "TotalDPS": 151.0},
+               {"label": "Lightning", "TotalDPS": 169.3}]
+
+
+@pytest.mark.parametrize("skill, sets, scored, up, factor", [
+    ("Snipe", SNIPE_SETS, "Icy Blast", {}, (45.6 + 308.8) / 945.1 * 0.9),  # (probe POE2T2190: no Freeze, steered)
+    ("Snipe", SNIPE_SETS, "Explosion", {}, (45.6 + 308.8) / 308.8),       # arrow + explosion together
+    ("Snipe", SNIPE_SETS, "Explosion", {"Freeze": 0.5}, (45.6 + 308.8 * 0.5 + 945.1 * 0.5) / 308.8),
+    ("Elemental Sundering", SUNDER_SETS, "Cold", {}, models.AILMENT_FLOOR),  # nothing to consume: no damage (held at 1%)
+    ("Elemental Sundering", SUNDER_SETS, "Cold", {"Freeze": 0.2, "Ignite": 0.5, "Shock": 1.0},
+     (634.4 * 0.2 + 151.0 * 0.5 + 169.3) / 634.4),
+])
+def test_snipe_and_sundering_need_ailments_on_the_boss(skill, sets, scored, up, factor):
+    mods, notes = models.ailment_set_model(Skill(skill, 1), scored, sets, up, "test")
+    more = [m["value"] for m in mods if m["name"] == "DPS"]
+    assert 1 + more[0] / 100 == pytest.approx(factor, rel=1e-4, abs=1e-6)
+    assert notes[0]["entry"] == models.AILMENT_SETS[skill] and "Without" in notes[0]["play"]
+    assert models.ailment_set_model(Skill(skill, 1), scored, sets, up, "", {models.AILMENT_SETS[skill]}) == ([], [])
+

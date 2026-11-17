@@ -6549,6 +6549,75 @@ def gated_set_model(main: Skill | None, scored: str | None, sets: list[dict], sh
                  f"{base:,.0f}; with this build's: {total:,.0f}; always: {gated:,.0f}.")}]
 
 
+# Stat sets that need an ailment on the boss to consume (GEM17; OVERCOUNTS: PoB scores each set alone with no ailment
+# check, and the search kept the strongest; probe POE2T2190, level-90 searches):
+# - Snipe: "Releasing with Perfect Timing causes the arrow to explode on impact and Consume Freeze on directly Hitting.
+#   Consuming Freeze enhances the explosion" (ActiveSkills snipe, 26650308). PoB's sets "Arrow", "Explosion"
+#   (SnipeExplosionPlayer) and "Icy Blast" (SnipeFrozenExplosionPlayer): the probe, with no Freeze source, kept Icy
+#   Blast at 945.1 vs Explosion 308.8 and Arrow 45.6. A release is the arrow plus its explosion (every release
+#   Perfectly Timed, as conditions reads Snipe's consume: MEDIUM), enhanced to the Icy Blast while the boss is Frozen:
+#   DPS = Arrow + Explosion x (1 - f) + Icy Blast x f, f the boss's Frozen share (MECH-A's uptime after the consume
+#   cut). The arrow and explosion counted together (PoB scores one: an UNDERCOUNT before, as Falling Thunder's).
+# - Elemental Sundering: "emit a pulse that Consumes Freeze, Shock and Ignite on a number of nearby enemies ... The pulse
+#   itself deals no damage, but each Ailment Consumed causes an explosion of the corresponding elemental damage type"
+#   (ActiveSkills elemental_sundering). PoB's sets "Pulse" (0), "Cold", "Fire", "Lightning": the probe, with no ailment
+#   source, kept Cold at 634.4. A use explodes once per ailment the boss carries: DPS = Cold x f_freeze + Fire x
+#   f_ignite + Lightning x f_shock (the uptimes after the consume cut, which already take Sundering's own consumes off),
+#   0 with none (the skill deals nothing then). Allies' and corpses' ailments not counted (an undercount where a build
+#   feeds them, labelled).
+# A set scored that the boss can't feed (Icy Blast with no Freeze) gets the result x FIRESTORM_BOLTS_MARGIN so the search
+# keeps a fed set. MEDIUM.
+AILMENT_SETS = {"Snipe": "model-gem17-snipe-icy-blast-freeze", "Elemental Sundering": "model-gem17-elemental-sundering-ailments"}
+SUNDERING_SETS = {"Cold": "Freeze", "Fire": "Ignite", "Lightning": "Shock"}
+AILMENT_FLOOR = 0.01  # (a use with nothing to consume: 1% of PoB's set, see ailment_set_model)
+
+
+def ailment_set_model(main: Skill | None, scored: str | None, sets: list[dict], up: dict, how: str,
+                      forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Snipe's / Elemental Sundering's use as the game makes it (see above): `sets` the bridge's setRates for its group,
+    `up` the boss's ailment uptimes {"Ignite" / "Shock" / "Freeze": share} (ailment_up_of), `how` their basis."""
+    if main is None or main.name not in AILMENT_SETS or AILMENT_SETS[main.name] in forbidden:
+        return [], []
+    entry = AILMENT_SETS[main.name]
+    dps = {s.get("label"): number(s.get("TotalDPS")) for s in sets}
+    if scored not in dps or dps.get(scored, 0.0) <= 0:
+        return [], []
+    share = {k: min(1.0, max(0.0, number(up.get(k)))) for k in ("Ignite", "Shock", "Freeze")}
+    if main.name == "Snipe":
+        arrow, blast, icy = (dps.get(k, 0.0) for k in ("Arrow", "Explosion", "Icy Blast"))
+        f = share["Freeze"]
+        total = arrow + blast * (1 - f) + icy * f
+        steer = scored == "Icy Blast" and f <= 0
+        what = (f"the arrow ({arrow:,.0f}) plus its explosion ({blast:,.0f}), enhanced to the Icy Blast ({icy:,.0f}) "
+                f"while the boss is Frozen ({f:.0%})")
+        play = (f"Release Snipe with Perfect Timing: the arrow explodes. Freeze the boss with another skill first and the "
+                f"explosion becomes the Icy Blast. Without a Freeze: {arrow + blast:,.0f}; with this build's: {total:,.0f}.")
+    else:
+        parts = [(label, dps.get(label, 0.0), share[ailment], ailment) for label, ailment in SUNDERING_SETS.items()]
+        total = sum(d * s for _, d, s, _ in parts)
+        steer = False
+        what = "; ".join(f"{label} {d:,.0f} x {a} {s:.0%}" for label, d, s, a in parts) + (
+            " (no ailment on the boss: nothing explodes)" if total <= 0 else "")
+        play = ("Elemental Sundering deals damage only by consuming Freeze, Ignite and Shock on the boss: apply them with "
+                f"other skills, then plunge. Without them: 0; with this build's: {total:,.0f}.")
+    factor = total / dps[scored]
+    if steer:
+        factor *= FIRESTORM_BOLTS_MARGIN  # (steer the search to a set the boss can feed)
+    # (no damage at all: held at AILMENT_FLOOR, not 0, since the next pass reads PoB's sets with this line in: at 0 they
+    # all read 0 and the model could no longer tell what to scale; probe POE2T2191 flipped between 0 and PoB's number.
+    # 1%, not less: PoB rounds a MORE product to two decimals (ModDB.lua MoreInternal, round(modResult, 2)), so x0.001
+    # read as x0.00: probe POE2T2193)
+    factor = max(factor, AILMENT_FLOOR)
+    mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9 else []
+    return mods, [{
+        "label": f"{main.name}: its parts need ailments on the boss to consume*", "value": f"x{factor:.3f}",
+        "confidence": "MEDIUM", "entry": entry,
+        "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS) with no ailment check. The game: {what} "
+                  f"({how}): {total:,.0f} DPS" + ("; scored on the Icy Blast with no Freeze, it's kept 10% under so the "
+                                                  "search keeps a fed set" if steer else "")),
+        "play": play}]
+
+
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
 # "Hit damage is taken from Mana before Life if your current Mana is higher than your current Life" (poe2db): counted as
 # 100% Mind over Matter while the build's unreserved Mana is above its Life, both pools full (the manager's ruling,
