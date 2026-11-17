@@ -171,7 +171,8 @@ RECOVERY_INPUTS = sorted({f for fields, cost in RECOVERY_POOLS.values() for f in
                          | {"EnergyShieldRecharge", "EnergyShieldRechargeDelay", "IgniteAvoidChance", "SelfIgniteDuration",
                             "AilmentThreshold", "Life"}  # (es_recharge, and the Ignites boss_hits.es_dot reads)
                          | {"LifeRecharge", "LifeRechargeDelay", "EnergyShield", "PhysicalTakenDotMult",
-                            "FireTakenDotMult", "ChaosTakenDotMult", "BleedAvoidChance"}  # (own_loss; es_dot)
+                            "FireTakenDotMult", "ChaosTakenDotMult", "BleedAvoidChance",  # (own_loss; es_dot)
+                            "EverlastingSacrifice"}  # (MECHC36, the bridge's: recovery.full_es_share never full with it)
                          | {f"{t}{f}" for t in RECOVERY_DAMAGE_TYPES for f in ("BuildDegen", "EnergyShieldBypass")}
                          | set(boss_hits.BIGGEST_FIELDS))  # (the biggest-hit row: Armour against a bigger hit)
 # (LIFE_RESERVED_SECONDS isn't a PoB field: Build.added_stats gives it)

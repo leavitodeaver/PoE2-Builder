@@ -811,18 +811,27 @@ def refill_rate(stats: dict, pool: str = "Mana") -> tuple[float, str]:
 # (regeneration, leech, on-hit, recoup, the added sources and Recharge at the share of the fight it runs between the
 # boss's hits: objective.es_recharge), after any steady own loss on ES (objective.own_loss). No Energy Shield: the box
 # stays off, as PoB has it (whether 0 of 0 counts as full in game: UNVERIFIED). MEDIUM.
-def full_es_share(stats: dict) -> tuple[float, str]:
-    """(share of the fight on Full Energy Shield, how); stats as full_life_share's."""
+def _es_flows(stats: dict) -> tuple[float, float, float, float]:
+    """(the boss's landed hits on Energy Shield a second, its recovery a second, Recharge's part of it, your own steady
+    loss on it a second): full_es_share's pieces."""
     from builder.search import objective
 
-    if _num(stats.get("EnergyShield")) <= 0:
-        return 0.0, "no Energy Shield: the box stays off, as PoB has it (UNVERIFIED whether 0 of 0 counts as full)"
     taken, hits, _ = objective.boss_taken(stats)
     dips = sum(v * (1 - min(max(_num(stats.get(f"{t}EnergyShieldBypass")), 0.0), 100.0) / 100) for t, v in taken.items())
     fields, _ = objective.RECOVERY_POOLS["EnergyShield"]
     recharged = objective.es_recharge(stats, hits)[0]
     back = sum(_num(stats.get(f)) for f in fields) + objective.recoup(stats, taken, "EnergyShield") + recharged
-    steady = objective.own_loss(stats)["EnergyShield"]
+    return dips, back, recharged, objective.own_loss(stats)["EnergyShield"]
+
+
+def full_es_share(stats: dict) -> tuple[float, str]:
+    """(share of the fight on Full Energy Shield, how); stats as full_life_share's."""
+    if _num(stats.get("EnergyShield")) <= 0:
+        return 0.0, "no Energy Shield: the box stays off, as PoB has it (UNVERIFIED whether 0 of 0 counts as full)"
+    if _num(stats.get(EVERLASTING_FIELD)) > 0:  # (MECHC36: Everlasting Sacrifice empties it the moment it's full)
+        return 0.0, ("Everlasting Sacrifice: you Sacrifice all Energy Shield the moment it's full, so never on Full Energy "
+                     "Shield for longer than an instant (without the shield: the share from your recovery)")
+    dips, back, recharged, steady = _es_flows(stats)
     if dips <= 0 and steady <= 0:
         return 1.0, "no landed boss hit reaches Energy Shield and nothing of yours drains it: on Full Energy Shield all fight"
     net = back - steady
@@ -833,6 +842,56 @@ def full_es_share(stats: dict) -> tuple[float, str]:
     return 1 - below, (f"{dips:,.1f} Energy Shield/s from the boss's landed hits, refilled at {net:,.1f}/s (Recharge "
                        f"{recharged:,.1f}/s of it, at the share of the fight it runs between hits): below full {below:.0%} "
                        f"of the fight, so on Full Energy Shield {1 - below:.0%} (MEDIUM)")
+
+
+# Everlasting Sacrifice (MECHC36; PATCH_CHECK MB-14), Mahuxotl's Machination's line. KeywordPopups EverlastingSacrifice:
+# "When you reach full Energy Shield, Sacrifice all Energy Shield to gain +5% to all Maximum Resistances for 4 seconds";
+# KeywordPopups Sacrifice: a loss that "does not count as taking damage" (so it doesn't hold Energy Shield Recharge off).
+# (checked: the only Stats id with "everlasting", keystone_everlasting_sacrifice, is on one Mods row,
+# UniqueEverlastingSacrifice1, no PassiveSkills / SoulCoreStats row, game 26650308; PoB-PoE2: Mahuxotl's Machination's
+# {variant:2,3} line only, Data/Uniques/shield.lua 388; the patch notes name neither: no hit is not absence.) PoB sets
+# Condition:EverlastingSacrifice from the line (ModCache 7404) but its "+5% to all maximum resistances" box
+# (ConfigOptions 1612) is never set, and its hit pools count all the Energy Shield: an UNDERCOUNT of the resistances and an
+# OVERCOUNT of the pools. Here, from the build's own Energy Shield flows (full_es_share's pieces): it refills from 0 at
+# its recovery less the boss's landed hits on it and your own steady loss (g a second); with g > 0 a cycle lasts ES / g
+# s, the buff (keystone_everlasting_sacrifice_resistance, Buff category: "Buffs on you expire slower" stretches it) is up
+# min(1, 4 s x expiry / cycle) of the fight, and Energy Shield climbs from 0 to full each cycle, so a boss hit meets half
+# of it on average (a linear refill, MEDIUM). With g <= 0 the opening Sacrifice (you start full) is never refilled: no
+# buff after it, and no Energy Shield held (the fluid reading's edge; MEDIUM-LOW). The bridge (setEverlastingSacrifice)
+# takes the Energy Shield not held out of every hit pool under PoB's condition, so a what-if without the shield keeps its
+# full pool; the +5% goes on PoB as ElementalResistMax / ChaosResistMax BASE 5 x uptime under the same condition.
+# Not counted: ES-based "while on Low / below half Energy Shield" lines other than Full Energy Shield (the Unleashed's
+# bypass below half reads the pool from full: named).
+EVERLASTING = re.compile(r"^Everlasting Sacrifice$", re.I)
+EVERLASTING_FIELD = "EverlastingSacrifice"  # (the bridge's output: 1 with the line equipped)
+EVERLASTING_SECONDS, EVERLASTING_RES = 4.0, 5.0
+
+
+def everlasting_sacrifice(stats: dict, expiry: tuple[float, str] | None = None) -> tuple[float, float, str]:
+    """(share of the fight the +5% maximum resistances are up, the share of maximum Energy Shield a boss hit meets on
+    average, how). `stats` as full_es_share's; `expiry`: conditions.buff_expiry's (factor, how)."""
+    es = _num(stats.get("EnergyShield"))
+    if es <= 0:
+        return 0.0, 1.0, ("no Energy Shield: never full, so never Sacrificed (UNVERIFIED whether 0 of 0 counts as full; "
+                          "PoB's pools stand)")
+    dips, back, recharged, steady = _es_flows(stats)
+    factor, expiry_how = expiry or (1.0, "")
+    seconds = EVERLASTING_SECONDS * factor
+    gain = back - steady - dips
+    flows = (f"Energy Shield recovers {back:,.1f}/s (Recharge {recharged:,.1f}/s of it, at the share of the fight it runs "
+             f"between hits) against the boss's landed hits on it {dips:,.1f}/s"
+             + (f" and your own steady loss {steady:,.1f}/s" if steady > 0 else ""))
+    if gain <= 0:
+        return 0.0, 0.0, (f"{flows}: after the opening Sacrifice (you start full) it never refills to full, so no buff "
+                          f"after the first {seconds:g} s and no Energy Shield left to meet the boss's hits (the edge of "
+                          "a steady-flow reading, MEDIUM-LOW; without the shield: PoB's full pool)")
+    cycle = es / gain
+    up = min(1.0, seconds / cycle)
+    return up, 0.5, (f"{flows}: it refills from 0 to {es:,.0f} in {cycle:.1f} s, then is Sacrificed again; +5% to all "
+                     f"maximum resistances for {seconds:.3g} s"
+                     + (f" ({expiry_how})" if factor != 1.0 else "")
+                     + f" of each cycle, up {up:.0%} of the fight; a boss hit meets half the Energy Shield on average "
+                     "(a linear refill, MEDIUM)")
 
 
 # Ghost Dance (MECHC27; PATCH_CHECK H1-9's rest): "Regenerate Energy Shield equal to 2% of your Evasion Rating per second
@@ -1427,12 +1486,15 @@ def sprint_row(texts: list[str], stats: dict, boss: str) -> dict | None:
     for t in lines:
         if m := SPRINT_GUARD.match(t):
             per, cap, last = float(m.group(1)), float(m.group(2)), float(m.group(3))
+            # ("Buffs on you expire N% slower", MECHC36: Guard is in the game's Buff category, RESEARCH29: x the factor)
+            expiry, expiry_how = stats.get("_buff_expiry") or (1.0, "")
+            last *= expiry
             low = min(cap, per * each * (1 + guard_inc / 100))
             high = min(cap, per * each) * (1 + guard_inc / 100)
             other = (f" (the cap taken after 'increased Guard gained': UNVERIFIED; before it {high:.1f}%)"
                      if abs(high - low) > 0.05 else "")
-            gains.append(f"Guard of {low:.1f}% of maximum Life for {last:g} s after each sprint{other}, up "
-                         f"{min(1.0, reps * last):.0%} of the fight")
+            gains.append(f"Guard of {low:.1f}% of maximum Life for {last:.3g} s after each sprint{other}"
+                         + (f" ({expiry_how})" if expiry != 1.0 else "") + f", up {min(1.0, reps * last):.0%} of the fight")
         if m := SPRINT_LIFE_LOSS.match(t):
             costs.append(f"{float(m.group(1)) * each:.1f}% of maximum Life lost each sprint")
     gains += [what for line, what in SPRINT_NAMED if any(line.lower() in t.lower() for t in lines)]

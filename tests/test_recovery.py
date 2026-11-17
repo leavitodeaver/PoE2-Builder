@@ -1084,8 +1084,16 @@ def test_charges_from_an_event_named_before_the_gain_read_that_event_not_one_per
     magma = ("While active, increases your Block Chance passively and imbues your Shield with lava over time. When fully "
              "imbued, your next Block with your Shield raised will expend the lava to Trigger the Magma Spray skill and "
              "grant you an Endurance Charge.")
+    # (MECHC36, K2-6: a Block with the shield RAISED after the lava's 8 s charge-up; no raised shield, none)
     rate, how = _charge_rate(magma, "Endurance", stats)
-    assert 0 < rate < 0.25 and "blocks/s" in how
+    assert rate == 0.0 and "never raises" in how
+    from builder.search import bosses
+
+    boss = 1 / bosses.benefit_skill_time(stats)  # (the "when hit" pace the charge readers use)
+    rate, how = _charge_rate(magma, "Endurance", {**stats, "_raised_share": 1.0})
+    assert rate == pytest.approx(1 / (8.0 + 1 / boss)) and "8 s charge-up" in how
+    rate, how = _charge_rate(magma, "Endurance", {**stats, "_raised_share": 0.25})
+    assert rate == pytest.approx(1 / (8.0 + 1 / (boss * 0.25)))
     frenzy = ("Gain a Frenzy Charge when you Freeze, Electrocute or Pin an enemy, no more than once every 6.1 seconds")
     fast = {**stats, "Speed": 40.0, "FreezeBuildupAvg": 50.0, "ColdHitAverage": 100.0}
     rate, how = _charge_rate(frenzy, "Frenzy", fast)
@@ -2003,3 +2011,28 @@ def test_buffs_on_you_expire_slower_slows_the_buffs_timer_not_their_increased_du
     assert slowed == pytest.approx(12.5 / (12.5 + 20 + 5)) and slowed > plain
     on, _, share = conditions.unholy_might_uptime([], {"_kurgal": (0.02, "x"), "_buff_expiry": (1.25, "y")})
     assert share == pytest.approx(min(1.0, 15 * 1.25 * 0.02))
+
+
+def test_everlasting_sacrifice_cycles_from_the_builds_energy_shield_refill():
+    """MECHC36 (PATCH_CHECK MB-14): "When you reach full Energy Shield, Sacrifice all Energy Shield to gain +5% to all
+    Maximum Resistances for 4 seconds". A cycle lasts ES / (recovery - the boss's hits on ES - own loss); the +5% is up
+    min(1, 4 s x expiry / cycle); a boss hit meets half the Energy Shield (linear refill); never refilled: none held, no
+    buff; with the line, never on Full Energy Shield."""
+    from builder.search import conditions, objective
+    from builder.search.recovery import everlasting_sacrifice, full_es_share
+
+    stats = {"enemySkillTime": 1.0, "EvadeChance": 0, "EffectiveBlockChance": 0, "PhysicalTakenHit": 200,
+             "EnergyShield": 1000, "EnergyShieldRegenRecovery": 300.0}
+    taken = sum(objective.boss_taken(stats)[0].values())
+    up, held, how = everlasting_sacrifice(stats)
+    cycle = 1000 / (300.0 - taken)
+    assert up == pytest.approx(min(1.0, 4 / cycle)) and held == 0.5 and f"{cycle:.1f} s" in how
+    slow = everlasting_sacrifice(stats, conditions.buff_expiry(["Buffs on you expire 20% slower"]))
+    assert slow[0] == pytest.approx(min(1.0, 5 / cycle)) and "slower" in slow[2]
+    dry = everlasting_sacrifice({**stats, "EnergyShieldRegenRecovery": 0.0})
+    assert dry[:2] == (0.0, 0.0) and "never refills" in dry[2]
+    assert everlasting_sacrifice({**stats, "EnergyShield": 0})[:2] == (0.0, 1.0)
+    assert full_es_share(stats)[0] > 0
+    assert full_es_share({**stats, "EverlastingSacrifice": 1}) == (0.0, full_es_share({**stats, "EverlastingSacrifice": 1})[1])
+    assert "Everlasting Sacrifice" in full_es_share({**stats, "EverlastingSacrifice": 1})[1]
+    assert "EverlastingSacrifice" in objective.RECOVERY_INPUTS

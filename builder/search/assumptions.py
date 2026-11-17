@@ -1608,6 +1608,13 @@ def brambles(build: Build, main: models.Skill | None) -> list[dict]:
         notes += models.brambles_model(slam["name"], number(slam.get("speed")) * own, basis, row)
     return notes
 
+def _zerphi_lines() -> tuple:
+    """Zerphi's Genesis's two transfer lines (flasks.ZERPHI_TO_LIFE / ZERPHI_TO_CHARM; MECHC36)."""
+    from builder.search import flasks
+
+    return flasks.ZERPHI_TO_LIFE, flasks.ZERPHI_TO_CHARM
+
+
 class Assumptions:
     def __init__(self, build: Build) -> None:
         self.build = build
@@ -1772,7 +1779,8 @@ class Assumptions:
                 "play": (f"fire many twisters and fight near walls so they bounce back through the boss: {head:.2f} hits a "
                          f"cast counted (with it); in an open arena 1 a cast (without it)")}]
         if any(recovery_mod.SPRINT_LINE.search(t) for t in texts):  # (MECHC34, R26-22: the headline sprints 0; a row)
-            sprint = recovery_mod.sprint_row(texts, build.call("stats", fields=["MovementSpeedMod"]), boss)
+            sprint = recovery_mod.sprint_row(texts, {**build.call("stats", fields=["MovementSpeedMod"]),
+                                                     "_buff_expiry": stats.get("_buff_expiry")}, boss)
             hand_notes = hand_notes + ([sprint] if sprint else [])
         if any(recovery_mod.OVERENCUMBRANCE.match(t.strip()) for t in texts):  # (MECHC35: Ab Aeterno's own Slow)
             reliant = any(s.name == "Cast on Dodge" for s in found) or any(
@@ -1983,6 +1991,41 @@ class Assumptions:
             if shocked > 0:
                 hand_mods = hand_mods + [models.raw_mod("DamageTaken", "INC", shocked, tag="SelfShockChance")]
             hand_notes = hand_notes + ail_notes
+        if any(recovery_mod.EVERLASTING.match(t.strip()) for t in texts):
+            # (MECHC36, PATCH_CHECK MB-14: Everlasting Sacrifice from the build's Energy Shield flows; the bridge's
+            # setEverlastingSacrifice cuts the hit pools, both under PoB's Condition:EverlastingSacrifice)
+            from builder.search import objective
+
+            added = getattr(build, "added_stats", None)
+            seen = {**build.call("stats", fields=sorted(objective.RECOVERY_INPUTS)), **(added() if callable(added) else {})}
+            request = getattr(getattr(build, "ctx", None), "request", None)
+            if getattr(request, "boss", None):
+                seen["_boss"] = request.boss
+            up, held, how = recovery_mod.everlasting_sacrifice(seen, stats.get("_buff_expiry"))
+            res = recovery_mod.EVERLASTING_RES * up
+            hand_mods = hand_mods + [
+                models.raw_mod("ElementalResistMax", "BASE", res, condition="EverlastingSacrifice"),
+                models.raw_mod("ChaosResistMax", "BASE", res, condition="EverlastingSacrifice"),
+                models.raw_mod("EverlastingEsLost", "BASE", (1 - held) * 100, condition="EverlastingSacrifice")]
+            hand_notes = hand_notes + [{
+                "label": "Everlasting Sacrifice*", "value": f"+{res:.1f}% max resistances; {held:.0%} of Energy Shield held",
+                "basis": how + ("; PoB's box (+5% all fight) is never set and its pools count all the Energy Shield: the "
+                                "maximum resistances at their uptime, the hit pools at the Energy Shield a hit meets"),
+                "confidence": "MEDIUM (the refill reading) / HIGH (the line's words)",
+                "play": (f"with it: +{res:.1f}% to all maximum resistances on average, the boss's hits meeting "
+                         f"{held:.0%} of your Energy Shield; without it (another shield): no bonus, all of it")}]
+        if any(p.search(t) for p in _zerphi_lines() for t in texts):
+            # (MECHC36, H2-3: Zerphi's Genesis's charge transfers, counted inside flasks.Charges.of: the note only)
+            from builder.search import flasks
+
+            granted = flasks.Charges.of(build)
+            hand_notes = hand_notes + [{
+                "label": "Zerphi's Genesis: charges moved between charms and the Life Flask*",
+                "value": f"+{granted.granted_life:.3f}/s to the Life Flask, +{granted.granted_charm:.3f}/s to each charm",
+                "basis": granted.granted_how or "no Life Flask or charm equipped: nothing moves",
+                "confidence": "MEDIUM-LOW (the split and the unscaled grant are the lower readings, UNVERIFIED)",
+                "play": "use the charms and the Life Flask whenever they can be: each feeds the other (without the belt: "
+                        "their own charges only)"}]
         jiquani_mods, jiquani_notes = models.jiquani_model([e["text"] for e in source_lines])  # (MECHC9, A12-2)
         hand_mods, hand_notes = hand_mods + jiquani_mods, hand_notes + jiquani_notes
         unbound_mods, unbound_notes = models.unbound_model([e["text"] for e in source_lines])  # (MECHC10)

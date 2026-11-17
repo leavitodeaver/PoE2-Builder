@@ -3368,7 +3368,7 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
                 why = f"; uptime {factor:.0%}: {why}"
                 # (worked out again by the bridge on every calculation, so an item or passive that changes it shows)
                 uptime = "Uptime" + re.sub(r"\W", "", name)
-                fn, args = UPTIME_INPUTS[entry.raw["uptime"]](skill)
+                fn, args = UPTIME_INPUTS[entry.raw["uptime"]](skill, stats or {})  # (MECHC36: the buff-expiry factor)
                 if values:
                     mods.append(derived(uptime, fn, factor * UNIT, **args))
             elif entry.raw.get("share") in SHARES:  # a share of the skill's uses, from the build's own output (SHARES)
@@ -7676,7 +7676,7 @@ def mana_tempest_uptime(skill: Skill, stats: dict) -> tuple[float, str, str]:
     if refill <= 0:
         return 0.0, f"the main skill alone spends {spend:,.0f} Mana/s against {regen:,.0f}/s regenerated: no Mana left to keep a storm", ""
     off = mana / refill
-    linger, read = mana_tempest_linger(skill)
+    linger, read = mana_tempest_linger(skill, stats)
     up = min(1.0, (on + linger) / (on + off))
     return up, (f"the storm drains {drain:,.0f} Mana/s (1% of {mana:,.0f} Mana and {paid}) on top of the main skill's "
                 f"{spend:,.0f}/s against {regen:,.0f}/s regenerated: {mana:,.0f} Mana lasts {on:.1f} s, its effects linger "
@@ -7687,12 +7687,19 @@ def mana_tempest_uptime(skill: Skill, stats: dict) -> tuple[float, str, str]:
 MANA_TEMPEST_LINGER = 2.0  # seconds (0.4.0's "linger for 2 seconds after leaving the Tempest"; the quality adds to it)
 
 
-def mana_tempest_linger(skill: Skill) -> tuple[float, str]:
-    """(seconds Mana Tempest's effects linger after the storm, where it comes from)."""
+def mana_tempest_linger(skill: Skill, stats: dict | None = None) -> tuple[float, str]:
+    """(seconds Mana Tempest's effects linger after the storm, where it comes from). "Buffs on you expire N% slower"
+    (conditions.buff_expiry, MECHC36): the Mana Tempest buff on you (mana_tempest_buff) is in the game's Buff category
+    (BuffDefinitions BuffCategory 1, RESEARCH29), so its linger after you leave the storm is taken as its own timer and
+    slowed: x the factor (MEDIUM-LOW: that the linger is the buff's timer is UNVERIFIED; the storm itself has no timer,
+    it lasts while your Mana does)."""
     ms = number(skill.level_stats.get("mana_tempest_effects_linger_X_ms"))
-    if ms > 0:
-        return ms / 1000, "the gem's mana_tempest_effects_linger_X_ms, its quality in it"
-    return MANA_TEMPEST_LINGER, "2 s base; the gem's quality not read"
+    seconds, read = ((ms / 1000, "the gem's mana_tempest_effects_linger_X_ms, its quality in it") if ms > 0 else
+                     (MANA_TEMPEST_LINGER, "2 s base; the gem's quality not read"))
+    expiry, expiry_how = (stats or {}).get("_buff_expiry") or (1.0, "")
+    if expiry != 1.0:
+        return seconds * expiry, f"{read}; {expiry_how}, the linger taken as the buff's own timer (MEDIUM-LOW)"
+    return seconds, read
 
 
 def _lunar_blessing_times(skill: Skill) -> tuple[float, float, float]:
@@ -7702,22 +7709,34 @@ def _lunar_blessing_times(skill: Skill) -> tuple[float, float, float]:
     return duration, per_rage, (skill.cooldown or 22.0) / (skill.cooldown_recovery or 1.0)
 
 
+def _lunar_blessing_expiry(stats: dict | None) -> tuple[float, str]:
+    """"Buffs on you expire N% slower" on Lunar Blessing (MECHC36): its buff, wolf_lunar_blessing, is in the game's Buff
+    category (BuffDefinitions BuffCategory 1, read from RESEARCH29's export), so its timer runs slower: x the factor on
+    its whole length (the Rage extension included). These times are the gem's base ones, so PoB's own +N% Duration
+    reading of the line (ModCache 6798) isn't counted twice."""
+    return (stats or {}).get("_buff_expiry") or (1.0, "")
+
+
 def lunar_blessing_uptime(skill: Skill, stats: dict) -> tuple[float, str, str]:
     rage = number(stats.get("MaximumRage"))
     duration, per_rage, cooldown = _lunar_blessing_times(skill)
-    length = duration + per_rage * rage
+    expiry, expiry_how = _lunar_blessing_expiry(stats)
+    length = (duration + per_rage * rage) * expiry
     up = min(1.0, length / max(cooldown, length))
-    return up, (f"lasts {duration:g} s + {per_rage:g} s per Rage spent ({rage:.0f} Rage: {length:.1f} s); its cooldown, {cooldown:.1f} s, "
-                "recovers while it lasts"), \
+    return up, (f"lasts {duration:g} s + {per_rage:g} s per Rage spent ({rage:.0f} Rage: {length:.1f} s"
+                + (f", x{expiry:.3f}: {expiry_how}" if expiry != 1.0 else "")
+                + f"); its cooldown, {cooldown:.1f} s, recovers while it lasts"), \
         "Assumes you use it off cooldown with full Rage; using it with less Rage shortens it by 0.2 s per Rage."
 
 
 UPTIMES = {"mana_tempest": mana_tempest_uptime, "lunar_blessing": lunar_blessing_uptime}
 # the same uptimes as the bridge works them out (DERIVED.manaTempest, DERIVED.lunarBlessing): (fn, args) for a skill
-UPTIME_INPUTS = {
-    "mana_tempest": lambda skill: ("manaTempest", {"spent": _mana_tempest_spent(skill),
-                                                   "linger": mana_tempest_linger(skill)[0]}),
-    "lunar_blessing": lambda skill: ("lunarBlessing", dict(zip(("duration", "perRage", "cooldown"), _lunar_blessing_times(skill)))),
+UPTIME_INPUTS = {  # (skill, stats): the bridge's DERIVED args (stats carries "_buff_expiry", MECHC36)
+    "mana_tempest": lambda skill, stats=None: ("manaTempest", {"spent": _mana_tempest_spent(skill),
+                                                               "linger": mana_tempest_linger(skill, stats)[0]}),
+    "lunar_blessing": lambda skill, stats=None: ("lunarBlessing", dict(zip(
+        ("duration", "perRage", "cooldown"),
+        (t * _lunar_blessing_expiry(stats)[0] if i < 2 else t for i, t in enumerate(_lunar_blessing_times(skill)))))),
 }
 
 
@@ -11207,14 +11226,18 @@ def sanguine_model(inputs: Inputs, stats: dict, flask_charges: float | None = No
     when = inputs.condition(SANGUINE, True)
     if when is None:
         return [], []
-    gain = SANGUINE_PER_PERCENT * spent / life * 100 if life > 0 and spent > 0 else 0.0
+    # "Buffs on you expire N% slower" (MECHC36): Sanguine Tide (blood_mage_life_flask_buff) is in the game's Buff category
+    # (BuffDefinitions BuffCategory 1, RESEARCH29), so its 5 s lasts x the factor
+    expiry, expiry_how = stats.get("_buff_expiry") or (1.0, "")
+    per_percent = SANGUINE_PER_PERCENT * expiry
+    gain = per_percent * spent / life * 100 if life > 0 and spent > 0 else 0.0
     cap = SANGUINE_CONSUMED * flask_charges if flask_charges is not None else None
     capped = cap is not None and gain > cap
     if cap is not None:
         gain = min(gain, cap)
     # (worked out again by the bridge from each calculation's Life and Life cost, capped by the flask)
     mods = [line("Gain 1% of Damage as Extra Physical Damage", 1 / UNIT, when=when, per=SANGUINE),
-            derived(SANGUINE, "sanguine", gain * UNIT, perPercent=SANGUINE_PER_PERCENT,
+            derived(SANGUINE, "sanguine", gain * UNIT, perPercent=per_percent,
                     **({"cap": cap} if cap is not None else {}))]
     if cap == 0:
         return mods, [{"label": "Sanguine Tides", "value": "not counted",
@@ -11226,7 +11249,8 @@ def sanguine_model(inputs: Inputs, stats: dict, flask_charges: float | None = No
     return mods, [{
         "label": "Sanguine Tides: damage gained as Physical", "value": f"{gain:.1f}%",
         "basis": f"the main skill spends {spent:,.0f} Life/s ({spent / life:.1%} of {life:,.0f} per second): 1 Life Flask charge per 2% spent, "
-                 "40% of the full flask's charges consumed on Hit, 1% each for 5 s; the buff refreshes, it doesn't stack "
+                 f"40% of the full flask's charges consumed on Hit, 1% each for {5 * expiry:.3g} s"
+                 + (f" ({expiry_how})" if expiry != 1.0 else "") + "; the buff refreshes, it doesn't stack "
                  "(SETTLED, MEDIUM-HIGH: the game's BuffDefinitions MergeMode 3, one copy refreshed; RESEARCH26 R26-28)"
                  + (f", so it is capped at {cap:.0f}% (40% of the Life Flask's {flask_charges:.0f} charges)" if capped else
                     (f"; the flask refills too slowly to keep its {cap:.0f}% up, so it is up part of the time" if cap else ""))

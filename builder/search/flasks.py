@@ -149,6 +149,11 @@ class Charges:
     life_flask_to_es: bool = False
     life_flask_es_instead: bool = False
     es_recovery_mod: float = 1.0
+    # (MECHC36, PATCH_CHECK H2-3) Zerphi's Genesis's transfers, charges a second granted (not scaled by charge-gain
+    # increases): to the Life Flask, and to each charm (zerphi_transfer)
+    granted_life: float = 0.0
+    granted_charm: float = 0.0
+    granted_how: str = ""
 
     @classmethod
     def of(cls, build) -> Charges:
@@ -187,6 +192,15 @@ class Charges:
                 infos = build.call("flaskData", raws=raws)["results"]
                 gain = replace(gain, charm_another=another,
                                charm_extra=charm_free_uses(list(zip(infos, raws)), replace(gain, charm_another=another)))
+        if drunk and texts_now:  # (MECHC36, H2-3: Zerphi's Genesis; both transfers need the Life Flask and a charm)
+            to_life = sum(float(m.group(1)) for t in texts_now for m in ZERPHI_TO_LIFE.finditer(t))
+            to_charm = sum(float(m.group(1)) for t in texts_now for m in ZERPHI_TO_CHARM.finditer(t))
+            equipped = getattr(build, "equipped", None) or {}
+            raws = [o.raw for slot in CHARM_SLOTS[:gain.charm_limit] if (o := equipped.get(slot)) is not None]
+            if (to_life > 0 or to_charm > 0) and raws:
+                life_raw = equipped[life_slot].raw
+                infos = build.call("flaskData", raws=[life_raw, *raws])["results"]
+                gain = zerphi_transfer(gain, list(zip(infos[1:], raws)), (infos[0] or {}, life_raw), to_life, to_charm)
         groups = [int(i) for i in data.get("perfectGroups") or [] if i]
         if groups and gain.perfect_main_rate <= 0:
             from dataclasses import replace
@@ -479,8 +493,8 @@ def charges_per_second(info: dict, gain: Charges, pool: str | None) -> float:
     """Charges an item gains per second: generated, and from the boss's adds killed (kill_charges)."""
     kills = kill_charges(gain) if gain.add_kills > 0 else 0.0
     if info.get("kind") == "Charm":
-        generated, inc = (gain.charm + info.get("gainBase", 0) + bloom_charges(gain, "Charm") + kills,
-                          gain.charm_gain_inc)
+        generated, inc, granted = (gain.charm + info.get("gainBase", 0) + bloom_charges(gain, "Charm") + kills,
+                                   gain.charm_gain_inc, gain.granted_charm)
     else:
         specific = gain.life_flask if pool == "Life" else gain.mana_flask if pool == "Mana" else 0.0
         # (MECHC5, A14-2: "Gain a Flask Charge when you deal a Critical Hit" gives each flask a charge, at the main skill's
@@ -488,7 +502,46 @@ def charges_per_second(info: dict, gain: Charges, pool: str | None) -> float:
         on_crit = min(gain.flask_on_crit, 100) / 100 * gain.crit_rate
         generated, inc = (gain.flask + specific + on_crit + info.get("gainBase", 0) + bloom_charges(gain, pool) + kills,
                           gain.flask_gain_inc)
-    return max(0.0, generated * (1 + (inc + info.get("gainInc", 0)) / 100) * info.get("gainMod", 1))
+        granted = gain.granted_life if pool == "Life" else 0.0
+    return max(0.0, generated * (1 + (inc + info.get("gainInc", 0)) / 100) * info.get("gainMod", 1) + granted)
+
+
+# Zerphi's Genesis (MECHC36; PATCH_CHECK H2-3, an UNDERCOUNT): "50% of Charges consumed by used Charms are granted to your
+# Life Flasks" (every variant) and, since 0.5.0, "50% of Charges consumed by used Life Flasks are granted to your Charms"
+# (PoB-PoE2 belt.lua 296-297: {variant:3}; PoB parses neither, so no charge moved before). Each side's spend depends on
+# the other's grant, so the two are solved together (a fixed point: each pass re-reads the uses, which keep their caps:
+# a charm once per its effect and its trigger, the Life Flask once a dip below full Life; converges, each pass x0.25 at
+# most). Granted charges are taken as not scaled by "increased Flask / Charm Charges gained" (UNVERIFIED: the lower
+# reading); "granted to your Charms" is split evenly between the equipped charms (UNVERIFIED: the lower reading; each
+# charm receiving it all is the upper one, in the note); charges a full flask or charm can't hold are lost as the use
+# caps say. Throwing the Life Flask's charges (a Concoction) isn't "using" it (UNVERIFIED): nothing granted from it.
+# (checked: the game's Mods rows with these stats, game 26650308; PoB-PoE2 Data/Uniques: Zerphi's Genesis only.)
+ZERPHI_TO_LIFE = re.compile(r"(\d+(?:\.\d+)?)% of Charges consumed by used Charms are granted to your Life Flasks", re.I)
+ZERPHI_TO_CHARM = re.compile(r"(\d+(?:\.\d+)?)% of Charges consumed by used Life Flasks are granted to your Charms", re.I)
+
+
+def zerphi_transfer(gain: Charges, charms: list[tuple[dict, str]], life: tuple[dict, str], to_life: float,
+                    to_charm: float) -> Charges:
+    """`gain` with Zerphi's Genesis's granted charges (granted_life, granted_charm, granted_how): `charms` [(flaskData
+    info, item text)], `life` the Life Flask's (info, text), the two lines' percentages."""
+    from dataclasses import replace
+
+    info, raw = life
+    count = max(len(charms), 1)
+    now, spent_c, spent_l = gain, 0.0, 0.0
+    for _ in range(40):
+        spent_c = charm_charges_used(charms, now)[0]
+        spent_l = uses_per_second(info, now, raw, "Life")[0] * charges_per_use(info, now)
+        nxt = replace(now, granted_life=to_life / 100 * spent_c, granted_charm=to_charm / 100 * spent_l / count)
+        done = (abs(nxt.granted_life - now.granted_life) < 1e-6 and abs(nxt.granted_charm - now.granted_charm) < 1e-6)
+        now = nxt
+        if done:
+            break
+    how = (f"Zerphi's Genesis: charms spend {spent_c:.3f} charges/s, {to_life:g}% to the Life Flask (+{now.granted_life:.3f}"
+           f"/s); the Life Flask spends {spent_l:.3f}/s, {to_charm:g}% to the charms (+{now.granted_charm:.3f}/s each, "
+           f"split between {count}: UNVERIFIED, the lower reading; each getting it all: +{to_charm / 100 * spent_l:.3f}/s); "
+           "granted charges not scaled by charge-gain increases (UNVERIFIED)")
+    return replace(now, granted_how=how)
 
 
 CHARM_NOT_CONSUME = re.compile(r"(\d+(?:\.\d+)?)% chance for Charms you use to not consume Charges", re.I)

@@ -661,8 +661,9 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
     # the lower of the main skill's crits and the build's Mark uses, stats["_mark_uses"]), Profane Ritual's "Mark a Corpse
     # ... the Corpse is consumed and you gain a Power Charge" (one corpse a gain: the preset's killed adds, one corpse each,
     # LOW, as models.corpse_supply; Sacrifice's own corpses aren't read here: an undercount for such a build) and Magma
-    # Barrier's "your next Block with your Shield raised will expend the lava ... grant you an Endurance Charge" (the boss's
-    # blocked hits; the time the lava takes to fill isn't read: an overcount for a build that blocks faster, LOW)
+    # Barrier's "your next Block with your Shield raised will expend the lava ... grant you an Endurance Charge" (MECHC36,
+    # an OVERCOUNT before: every Block counted, uncapped: magma_barrier_rate, a Block with the shield RAISED after the
+    # lava's charge-up)
     before = text[:m.start()].lower()
     full = text.lower()
     if re.search(r"\bkill|\bcull", before):
@@ -679,11 +680,40 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
         corpses = max(number(kills[0]), 0.0)
         return chance * corpses, (f"{chance:.0%} x {corpses:.3f} corpses/s (the boss preset's killed adds, one corpse "
                                   f"each, LOW; your own corpse sources not read: none on a lone boss)")
+    if "with your shield raised" in full and "lava" in full:
+        rate, how = magma_barrier_rate(stats, boss)
+        return chance * rate, f"{chance:.0%} x {how}"
     if "block" in full:
         block = boss_hits.block_share(stats, evaded_first=False)
-        return chance * boss * block, (f"{chance:.0%} x {boss * block:.2f} blocks/s (the time its lava takes to fill "
-                                       f"isn't read: LOW)")
+        return chance * boss * block, f"{chance:.0%} x {boss * block:.2f} blocks/s"
     return chance / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed (LOW)"
+
+
+# Magma Barrier (MECHC36; PATCH_CHECK K2-6, an OVERCOUNT): "imbues your Shield with lava over time. When fully imbued,
+# your next Block with your Shield raised will expend the lava to Trigger the Magma Spray skill and grant you an
+# Endurance Charge" (PoB act_str.lua 13452: igneous_shield_charge_up_time_ms 8000, igneous_shield_charge_up_time_+% 0).
+# Before, every Block counted (boss hits x Block chance), with no charge-up: now one gain per cycle of the 8 s charge-up
+# plus the wait for the next Block made with the shield raised. Raised blocks a second: the boss's hits x the share of the
+# fight the shield is up (stats["_raised_share"]: 1 for a main skill that holds it raised all fight, recovery.
+# ACTIVE_BLOCK_CHANNELS; else Raise Shield taps a second x 0.55 s each; else 0), every Blockable hit Blocked while raised
+# (as recovery.raised_block_taken), the waits taken as Poisson: rate = 1 / (T + 1 / raised blocks). No raised shield: 0
+# (a play row: raise the shield to feed it). "Charge-up time" increases on the gem aren't read (an undercount where they
+# shorten it; the gem's level stats aren't in the resolver), and whether the lava keeps filling while the shield is
+# raised is taken as yes (UNVERIFIED).
+MAGMA_CHARGE_UP = 8.0  # igneous_shield_charge_up_time_ms 8000 (PoB act_str.lua; the game's stat set): HIGH
+
+
+def magma_barrier_rate(stats: dict, boss: float) -> tuple[float, str]:
+    """(Endurance Charges a second from Magma Barrier, how): `boss` the boss's hits a second (the "when hit" pace)."""
+    raised = min(max(number(stats.get("_raised_share")), 0.0), 1.0)
+    blocks = boss * raised
+    if blocks <= 0:
+        return 0.0, ("0: Magma Barrier's lava is spent by a Block with your shield RAISED, and the build never raises "
+                     "it (no channelled shield skill, no Raise Shield taps); before, every Block counted")
+    cycle = MAGMA_CHARGE_UP + 1 / blocks
+    return 1 / cycle, (f"one per {cycle:.1f} s: the lava's {MAGMA_CHARGE_UP:g} s charge-up, then the next of "
+                       f"{blocks:.2f} raised-shield Blocks/s (the boss's {boss:.2f} hits/s x the shield raised "
+                       f"{raised:.0%} of the fight; MEDIUM)")
 
 
 # "Gain a Power Charge every Second if you haven't lost Power Charges Recently" (MECHC33; RESEARCH28 R28-5, the manager's
@@ -1512,7 +1542,22 @@ ONSLAUGHT_NOT_SOURCE = re.compile(r"companions|minions (?:have|gain)|onslaught t
 # at most 75% slower (MEDIUM-HIGH), on top of increased duration. PoB reads it as +N% increased Duration of your own
 # Buff-tagged skills only (ModParser 4664 / ModCache 6798): the readers here use their own base durations, so nothing is
 # counted twice; PoB's reading is shown as a row. Applied in Onslaught's, Arcane Surge's, Unholy Might's and the Archons'
-# uptimes; the other Buff readers (Tailwind, Elusive, Fortify, Guard, the Offerings) don't read it yet (an undercount).
+# uptimes, and (MECHC36) Lunar Blessing's length, Sanguine Tide's 5 s, Mana Tempest's linger after the storm (taken as
+# the buff's own timer, MEDIUM-LOW) and the sprint row's Guard (models.lunar_blessing_uptime / sanguine_model /
+# mana_tempest_linger, recovery.sprint_row; each from the gem's or line's base time, so no double count with PoB's
+# +N%). Not changed, with why (MECHC36; categories from RESEARCH29's BuffDefinitions export):
+# - Tailwind (models.tailwind_model): its stacks last until you're Hit, no timer (checked: KeywordPopups Tailwind and
+#   BuffDefinitions' text name no duration; no Stats id with "tailwind" holds a duration, game 26650308; a hidden timer
+#   UNVERIFIED), so the factor has nothing to slow;
+# - Elusive, Fortify, Steelskin, Iron Ward, Berserk, Arctic Armour, aura buffs: no model of ours reads their time
+#   (PoB's own: Elusive and Fortify only through config boxes the bridge doesn't set; Steelskin's skill duration gets
+#   PoB's +N% Duration reading); auras and persistent buffs (Iron Ward, Arctic Armour) have no timer; Berserk ends with
+#   your Rage, not a timer (UNVERIFIED);
+# - the Offerings (offering_* buffs, Buff category): their buffs come from the spike and "are lost if they die"
+#   (KeywordPopups Offering); whether a slower timer outlasts the spike is UNVERIFIED, so left as it is (a RESEARCH
+#   question; PoB's +N% on an Offering skill's Duration lengthens the spike itself, possibly an overcount);
+# - Thrill of the Kill / Enhanced Culling (models.cull_buff_share, GEM's section) and Voltaic / Freezing Mark's damage
+#   buff (MARK_BUFF_DURATION, MECH-A's): Buff category, routed to those lanes (an undercount until then).
 BUFF_EXPIRY = re.compile(r"buffs on you expire (\d+(?:\.\d+)?)% (slower|faster)", re.I)
 BUFF_EXPIRY_CAP = 0.75
 
@@ -7083,6 +7128,15 @@ class Conditions:
             stats["_human_shifts"] = self._human_shifts(number(stats.get("Speed")))
         if any(BUFF_EXPIRY.search(t) for t in texts):  # (MECHC35: "Buffs on you expire N% slower", buff_expiry)
             stats["_buff_expiry"] = buff_expiry(texts)
+        if any("with your shield raised" in t.lower() and "lava" in t.lower() for t in texts):
+            # (MECHC36, K2-6: Magma Barrier's charge needs a Block with the shield raised: the share it's up)
+            from builder.search import recovery
+
+            presses = getattr(self.build, models.ITEM_PRESSES, None) or {}
+            stats["_raised_share"] = (
+                1.0 if self.main_skill in recovery.ACTIVE_BLOCK_CHANNELS else
+                min(1.0, presses[models.RAISE_SHIELD][0] * recovery.RAISED_TAP_SECONDS)
+                if models.RAISE_SHIELD in presses else 0.0)
         if any(MINION_DIES.search(t) for t in texts):  # (MECHC7: "when a Minion Dies" lines, from the build's own sources)
             inputs = self._minion_inputs()
             stats["_minion_deaths"] = models.minion_deaths(*inputs)

@@ -2301,6 +2301,32 @@ def test_the_unleasheds_ranged_bypass_line_is_read(engine):
     assert stats["EsBypassPoolLost"] > 0 and stats["PhysicalTotalHitPool"] < plain["PhysicalTotalHitPool"]
 
 
+def test_everlasting_sacrifice_cuts_the_hit_pools_only_with_the_line(engine):
+    """MECHC36 (PATCH_CHECK MB-14): PoB counts all the Energy Shield in its hit pools; with the line equipped the bridge's
+    setEverlastingSacrifice takes the share Assumptions.models sends (EverlastingEsLost, under PoB's
+    Condition:EverlastingSacrifice) out of each pool and flags EverlastingSacrifice; the +5% maximum resistances go on
+    under the same condition, so the same mods do nothing on a shield without the line."""
+    search = spark_with(engine, [])
+    build = search.build
+    fields = ["EverlastingSacrifice", "EverlastingEsPoolLost", "PhysicalTotalHitPool", "FireResist", "MissingFireResist", "EnergyShield"]
+    head = ["Rarity: Unique", "Mahuxotl's Machination", "Omen Crest Shield", "Implicits: 0", "+2000 to maximum Energy Shield"]
+    sent = [models.raw_mod("ElementalResistMax", "BASE", 5, condition="EverlastingSacrifice"),
+            models.raw_mod("EverlastingEsLost", "BASE", 50, condition="EverlastingSacrifice")]
+    build.call("equip", slot="Weapon 2", raw="\n".join(head), fields=[])
+    build.call("setAssumptions", mods=sent, fields=[])
+    plain = build.call("stats", fields=fields)
+    build.call("equip", slot="Weapon 2", raw="\n".join([*head, "Everlasting Sacrifice"]), fields=[])
+    stats = build.call("stats", fields=fields)
+    build.call("setAssumptions", mods=[], fields=[])
+    print("PROBE Everlasting Sacrifice", plain, stats)
+    assert plain["EverlastingSacrifice"] == 0 and plain["EverlastingEsPoolLost"] == 0
+    top = lambda st: st["FireResist"] + st["MissingFireResist"]  # noqa: E731 (PoB outputs no maximum itself)
+    assert stats["EverlastingSacrifice"] == 1 and top(stats) == pytest.approx(top(plain) + 5)
+    assert stats["EnergyShield"] == pytest.approx(plain["EnergyShield"])  # (maximum ES, and so its Recharge, untouched)
+    assert stats["EverlastingEsPoolLost"] > 0
+    assert stats["PhysicalTotalHitPool"] == pytest.approx(plain["PhysicalTotalHitPool"] - stats["EverlastingEsPoolLost"])
+
+
 def test_shavronnes_satchel_gives_energy_shield_the_life_flasks_recovery(engine):
     """MECHC23 (AUDIT33 A33-1, an UNDERCOUNT): PoB reads LifeFlaskAppliesToEnergyShield only for the flask tooltip; the
     bridge flags the line, and life_mana_income puts the Life flask's recovery on Energy Shield in recovery_sources'

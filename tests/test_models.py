@@ -5904,3 +5904,36 @@ def test_guiding_palms_shrines_are_a_labelled_zero():
     assert len(notes) == 1 and notes[0]["value"] == 0 and "2.5 s" in notes[0]["basis"]
     assert "ASSUMED" in models.guided_shrine_notes(["Grants effect of Guided Freezing Shrine"])[0]["basis"]
     assert models.guided_shrine_notes(["Grants effect of Meteoric Shrine"]) == []
+
+
+def test_buffs_on_you_expire_slower_stretches_lunar_blessing_sanguine_tide_mana_tempests_linger_and_sprint_guard():
+    """MECHC36 (RESEARCH29; MECHC35's next step): "Buffs on you expire N% slower" slows the timer of Buff-category buffs
+    on you, x 1 / (1 - S): Lunar Blessing's whole length (wolf_lunar_blessing), Sanguine Tide's 5 s, Mana Tempest's linger
+    after the storm (taken as the buff's timer) and the sprint row's Guard; the bridge's DERIVED args carry it too."""
+    from builder.search import conditions, recovery
+
+    expiry = conditions.buff_expiry(["Buffs on you expire 20% slower"])  # x1.25
+    assert expiry[0] == pytest.approx(1.25)
+    slow = {"_buff_expiry": expiry}
+    lunar = models.Skill("Lunar Blessing", cooldown=22.0, cooldown_recovery=1.0,
+                         level_stats={"base_skill_effect_duration": 5000, "skill_lunar_blessing_extend_buff_by_X_ms_per_rage": 200})
+    up, why, _ = models.lunar_blessing_uptime(lunar, {"MaximumRage": 30, **slow})
+    assert up == pytest.approx(11 * 1.25 / 22) and "x1.250" in why
+    assert models.lunar_blessing_uptime(lunar, {"MaximumRage": 30})[0] == pytest.approx(11 / 22)  # without it
+    fn, args = models.UPTIME_INPUTS["lunar_blessing"](lunar, slow)
+    assert fn == "lunarBlessing" and args == pytest.approx({"duration": 6.25, "perRage": 0.25, "cooldown": 22.0})
+    assert models.UPTIME_INPUTS["lunar_blessing"](lunar)[1]["duration"] == 5.0
+    tempest = models.Skill("Mana Tempest", level_stats={"mana_tempest_mana_cost_%_to_add_to_cost_per_second": 30})
+    mana = {"Mana": 2000, "ManaRegenRecovery": 120, "ManaPerSecondCost": 100, "LifePerSecondCost": 100}
+    up_t, why_t, _ = models.mana_tempest_uptime(tempest, {**mana, **slow})
+    assert up_t == pytest.approx((33.333 + 2.5) / 133.333, rel=1e-3) and "MEDIUM-LOW" in why_t
+    assert models.UPTIME_INPUTS["mana_tempest"](tempest, slow)[1]["linger"] == pytest.approx(2.5)
+    passive = models.Inputs(flags={"SanguineTides"})
+    mods, notes = models.sanguine_model(passive, {"Life": 2000, "LifePerSecondCost": 100, **slow})  # 5% of Life/s
+    assert effective(mods)[0][1] == pytest.approx(12.5 * 1.25) and "6.25 s" in notes[0]["basis"]
+    assert [m for m in mods if m.get("fn") == "sanguine"][0]["args"]["perPercent"] == pytest.approx(2.5 * 1.25)
+    guard = ("When you stop Sprinting, gain Guard equal to 4% of maximum Life per second spent Sprinting, up to a maximum "
+             "of 20%, for 4 seconds")
+    row = recovery.sprint_row([guard], {"MovementSpeedMod": 1.4, **slow}, "Xesht, We That Are One")
+    assert "for 5 s after each sprint" in row["basis"] and "50% of the fight" in row["basis"]
+    assert "for 4 s after each sprint" in recovery.sprint_row([guard], {"MovementSpeedMod": 1.4}, "Xesht, We That Are One")["basis"]

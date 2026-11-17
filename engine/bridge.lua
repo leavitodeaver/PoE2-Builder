@@ -1263,6 +1263,54 @@ local function setEsBypassBelowHalf(env, output)
 	end
 end
 
+-- Everlasting Sacrifice (MECHC36; recovery.everlasting_sacrifice): "When you reach full Energy Shield, Sacrifice all
+-- Energy Shield to gain +5% to all Maximum Resistances for 4 seconds". PoB sets Condition:EverlastingSacrifice from the
+-- line (ModCache 7404) and counts the whole Energy Shield in its hit pools. Assumptions.models sends the share of maximum
+-- Energy Shield a boss hit doesn't meet (a raw EverlastingEsLost BASE, %, under that condition, so a what-if without the
+-- shield keeps its full pool); each {Type}TotalHitPool loses the difference (Energy Shield taken first at the type's
+-- own bypass, Chaos doubled on it, as setEsBypassBelowHalf's split without the half), and {Type}MaximumHitTaken is
+-- scaled by the same ratio. Read after setEsBypassBelowHalf: with both lines the two cuts stack approximately (named).
+-- Sets output.EverlastingSacrifice (1 with the line) for recovery.full_es_share and output.EverlastingEsPoolLost (the
+-- Physical hit pool lost) for the build's notes.
+local function setEverlastingSacrifice(env, output)
+	if not env or not env.player or not output then
+		return
+	end
+	local modDB = env.player.modDB
+	output.EverlastingSacrifice = 0
+	output.EverlastingEsPoolLost = 0
+	if not modDB:Flag(nil, "Condition:EverlastingSacrifice") then
+		return
+	end
+	output.EverlastingSacrifice = 1
+	local share = math.min(math.max(modDB:Sum("BASE", nil, "EverlastingEsLost") / 100, 0), 1)
+	local cap = math.min(output.EnergyShieldRecoveryCap or output.EnergyShield or 0, output.EnergyShield or 0)
+	if share <= 0 or cap <= 0 or modDB:Flag(nil, "EternalLife") then
+		return
+	end
+	for _, damageType in ipairs({ "Physical", "Lightning", "Cold", "Fire", "Chaos" }) do
+		local e = (output[damageType.."EnergyShieldBypass"] or 0) / 100
+		local life = output[damageType.."MoMHitPool"]
+		local pool = output[damageType.."TotalHitPool"]
+		if e < 1 and life and pool and pool > 0 then
+			local doubled = damageType == "Chaos" and not modDB:Flag(nil, "ChaosNotDoubleESDamage") and 2 or 1
+			local es = cap / doubled
+			local lost = splitPoolDamage(es, 0, life, e, e) - splitPoolDamage(es * (1 - share), 0, life, e, e)
+			if lost > 0 then
+				local newPool = math.max(pool - lost, 0)
+				local hit = output[damageType.."MaximumHitTaken"]
+				if type(hit) == "number" and hit == hit and hit < math.huge then
+					output[damageType.."MaximumHitTaken"] = hit * newPool / pool
+				end
+				output[damageType.."TotalHitPool"] = newPool
+				if damageType == "Physical" then
+					output.EverlastingEsPoolLost = lost
+				end
+			end
+		end
+	end
+end
+
 -- Indigon's "Mana Recovery other than Regeneration cannot Recover Mana" (MECHC14; COV17, an OVERCOUNT): PoB parses it to no
 -- mod (ModCache: {nil, "<the whole line>"}), so its Mana leech, Mana on Hit / Kill / Block and Mana Recoup outputs stayed
 -- in the sustain and recovery floors. Zeroed here after PoB's calculation; regeneration stays. Mana flasks: chargeGain's
@@ -1965,6 +2013,7 @@ local function installDerived()
 		local function finish(...)
 			setLowLifeCap(env, env and env.player and env.player.output)
 			setEsBypassBelowHalf(env, env and env.player and env.player.output)
+			setEverlastingSacrifice(env, env and env.player and env.player.output)
 			setLifeRecharge(env)
 			setManaRegenOnly(env)
 			markShowAverage(env)
