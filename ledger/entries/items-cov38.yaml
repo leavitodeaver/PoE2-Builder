@@ -154,3 +154,22 @@
     of the audit).
   sources: [data/pob-bb52d6b368/runes.json]
   status: proposed
+
+- id: no-effect-reduced-projectile-range-at-5m
+  title: '"50% reduced Projectile Range" (Artillery / Obliterator Bow implicit, Fairgraves'' Curse): no effect at 5 m; the base range is an assumption (R29-2)'
+  kind: pob_gap
+  match: '^(\(\d+-\d+\)|\d+)% reduced Projectile Range$'
+  replace: []
+  confidence: theory
+  notes: >-
+    The manager 22:08 from RESEARCH29 (research/bow-projectile-range.md, R29-2, MEDIUM-LOW): a half-range arrow still
+    reaches a boss at the tool's ranged distance (conditions.RANGED_DISTANCE 5 m) or the 2 m melee distance, so nothing
+    is applied (as PoB applies nothing: ModCache 4687 parses it only in part, ProjectileCount -50 with leftover " Range ").
+    ASSUMED: PoE2's default arrow range is at least 10 m (the game shortens Firebolt / Fireball to 10 / 12 m with
+    projectile_maximum_range_override; PoE1's wikis give 120-150 units; no PoE2 file read gives the number). Not
+    covered, flagged: conditions.distance_candidates also tries 0.5 m beyond a "further than N m" line (a build with
+    projectile_damage_+%_vs_enemies_further_than_6m_distance is tried at 6.5 m), where a half of 120 units (6 m) wouldn't
+    reach (UNVERIFIED limit); skills with their own short range (Tornado Shot's nova 6 m, Escape Shot 2 m) and
+    ground-targeted arrows, if the reduction scales them (UNVERIFIED).
+  sources: [scratch/manager/research/bow-projectile-range.md (R29-2), builder/search/conditions.py (RANGED_DISTANCE, distance_candidates)]
+  status: proposed

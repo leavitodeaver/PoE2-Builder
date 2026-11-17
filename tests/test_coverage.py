@@ -649,6 +649,9 @@ def test_the_animal_aspect_grants_have_no_effect():
                  "that item's power", "Corrupting will always result in change"):
         found = translate(line)
         assert found and found[0].id == "no-effect-crafting-only-socketables" and not found[1], line
+    # (COV38, the manager 22:08 from RESEARCH29 R29-2: no effect at the tool's 5 m, the base range assumed)
+    found = translate("50% reduced Projectile Range")
+    assert found and found[0].id == "no-effect-reduced-projectile-range-at-5m" and not found[1]
 
 
 def test_a_freeze_cull_stat_is_damage_not_behaviour():
