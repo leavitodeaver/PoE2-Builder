@@ -1645,9 +1645,12 @@ def test_a_channelled_skill_on_a_cooldown_pays_its_cost_only_while_channelled():
     (channel + cooldown) the other reading; no channel time from PoB: kept whole."""
     from builder.search import recovery
 
-    share, other, how = recovery.channel_cost_share({"ChannelTime": 2.5, "Cooldown": 10.0, "Speed": 0.1})
-    assert share == pytest.approx(0.25) and other == pytest.approx(2.5 / 12.5) and "without this: 100%" in how
-    assert recovery.channel_cost_share({"ChannelTime": 12.0, "Cooldown": 10.0})[0] == 1.0
+    # (MECHC34, R28-14: the cooldown starts at release by default, at the channel's start for Flame Breath only)
+    share, other, how = recovery.channel_cost_share({"ChannelTime": 2.5, "Cooldown": 10.0, "Speed": 0.1}, "Flameblast")
+    assert share == pytest.approx(2.5 / 12.5) and other == pytest.approx(0.25) and "without this: 100%" in how
+    breath = recovery.channel_cost_share({"ChannelTime": 2.5, "Cooldown": 10.0}, "Flame Breath")
+    assert breath[:2] == (pytest.approx(0.25), pytest.approx(2.5 / 12.5))
+    assert recovery.channel_cost_share({"ChannelTime": 12.0, "Cooldown": 10.0}, "Flame Breath")[0] == 1.0
     assert recovery.channel_cost_share({"Cooldown": 10.0})[:2] == (1.0, 1.0)
 
 
@@ -1844,3 +1847,22 @@ def test_raise_shield_taps_heavy_stun_only_on_a_blocked_hit_that_fills_the_bar()
     assert recovery.raised_tap_heavy_stun({**stats, "EvadeChance": 50}, 1.0, 0.25)[0] == pytest.approx(share / 2)
     assert recovery.raised_tap_heavy_stun(stats, 2.0 * 5, 0.25)[0] == 0.0  # (Dionadair-sized threshold: no full bar)
     assert recovery.raised_tap_heavy_stun(stats, 1.0, 0.0) == (0.0, "")
+
+
+def test_each_boss_gets_its_own_armour_and_evasion_and_no_penetration():
+    """MECHC34 (R28-11 CD-1..3): the level-82 table x (1 + MonsterTypes' +%), no elemental penetration; the King's two
+    forms by fight share; the worst case the highest per form (Olroth's +80% Armour, the King's first form's +40%)."""
+    from builder.search import bosses
+
+    olroth = bosses.defence_vars("Olroth, Origin of the Fall")
+    assert olroth == {"enemyArmour": round(5375 * 1.8), "enemyEvasion": 941, "enemyLightningPen": 0, "enemyColdPen": 0,
+                      "enemyFirePen": 0}
+    assert bosses.defence_vars("Xesht, We That Are One")["enemyArmour"] == 5375
+    king = bosses.defence_vars("The King in the Mists")
+    assert king["enemyArmour"] == round(5375 * (1 + (0.43 * 20 + 0.57 * 65) / 100))
+    assert king["enemyEvasion"] == round(941 * (1 + 0.43 * 0.4))
+    worst = bosses.defence_vars(bosses.WORST)
+    assert worst["enemyArmour"] == max(bosses.defence_vars(n)["enemyArmour"] for n in bosses.REAL)
+    assert worst["enemyEvasion"] == round(941 * 1.4)
+    assert set(bosses.BOSS_DEFENCES) >= set(bosses.REAL)
+    assert "3% penetration" in bosses.note()["basis"] and "Armour 9,675" in bosses.note()["basis"]

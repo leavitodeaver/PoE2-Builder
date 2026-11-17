@@ -694,7 +694,9 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
 #   seconds (r the line's rate), and the line runs (T - 4) / T of the cycle; with 4 g >= M the other gains refill it
 #   inside the 4 s and the line never runs. (A cycle's gains sum to M, so _reaching_maximum's gains / M = 1 / T.)
 # - Without it, a skill spending the charges (stats["_consumers"], evenly spaced uses): consumed charges taken as lost
-#   (UNVERIFIED: "lost" isn't defined in the game's text; the lower reading of a gain), so the line runs only in the
+#   (RESEARCH28 R28-13, power-charge-consumed-vs-lost.md: unsettled, leaning yes, MEDIUM-LOW: consuming removes charges,
+#   GGG's 2011 diary and the game's "not remove Charges but still count as consuming them" wording; the lower reading of
+#   a gain; the other reading, only "Lose" events count, is the note's row), so the line runs only in the
 #   part of each gap between spends past 4 s: max(0, 1 - 4 x spends a second).
 # - Nothing loses them: one a second, as before (it then only refreshes a held maximum).
 NOT_LOST_RECENTLY = re.compile(r"if you haven't lost (\w+) charges recently", re.I)
@@ -724,8 +726,8 @@ def _while_not_lost(kind: str, rate: float, text: str, stats: dict) -> tuple[flo
     if spent > 0:
         share = max(0.0, 1 - wait * spent)
         return rate * share, (f"{rate:g}/s only while no {kind} Charge was lost in the last {wait:g} s: your skills spend "
-                              f"{spent:.2f}/s (evenly spaced; a consumed charge taken as lost: UNVERIFIED), so on "
-                              f"{share:.0%} of the time (without the spends: {rate:g}/s)")
+                              f"{spent:.2f}/s (evenly spaced; a consumed charge taken as lost: RESEARCH28 R28-13, leaning yes, "
+                              f"MEDIUM-LOW), so on {share:.0%} of the time (if only \"Lose\" events count: {rate:g}/s)")
     return rate, f"one every {1 / rate:g} s (nothing makes you lose {kind} Charges)" if rate > 0 else "none"
 
 

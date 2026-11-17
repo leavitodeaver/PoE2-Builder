@@ -3391,7 +3391,10 @@ end
 -- real presets), its hits per type included. Must equal bosses.config_vars(bosses.DEFAULT) (tests/test_models.py).
 local BOSS_DEFAULT = { enemyFireResist = 45, enemyColdResist = 45, enemyLightningResist = 45, enemyChaosResist = 25,
 	enemySpeed = 510, cullingStrikeUniqueThreshold = 4.6086, enemyPhysicalDamage = 1467, enemyFireDamage = 8993,
-	enemyColdDamage = 4059, enemyLightningDamage = 3490, enemyChaosDamage = 1471 }
+	enemyColdDamage = 4059, enemyLightningDamage = 3490, enemyChaosDamage = 1471,
+	-- (MECHC34, R28-11 CD-1..3: the worst case's Armour +80% / Evasion +40% of the level-82 table, no penetration; PoB's
+	-- Pinnacle preset gave 150% / 124.9% (PoE1 bosses' means) and 3% penetration of your elemental resistances)
+	enemyArmour = 9675, enemyEvasion = 1317, enemyLightningPen = 0, enemyColdPen = 0, enemyFirePen = 0 }
 -- Broken boss faces (Facebreaker's "+3 to +4 per Boss's Face Broken"; COV32, PATCH_CHECK MB-5 / R5): a count the
 -- character builds over its campaign and keeps (KeywordPopups 868: each World Screen "Boss Encounter" icon beaten), not
 -- a per-fight rate. PoB's box has no default, so it counted 0. 56 for a finished campaign + Interludes: the lower of the

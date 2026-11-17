@@ -1765,7 +1765,7 @@ class Assumptions:
                                                *(f"{k}PerSecondCost" for k in kinds)])
             over = [k for k in kinds if number(seen.get(f"{k}PerSecondCost")) > 0 and number(seen.get(f"{k}Cost")) <= 0]
             if over:
-                share, other, how = recovery_mod.channel_cost_share(seen)
+                share, other, how = recovery_mod.channel_cost_share(seen, main.name)
                 if share < 1:
                     hand_mods = hand_mods + [models.raw_mod(f"{k}Cost", "MORE", (share - 1) * 100, skill=main.name,
                                                             tag="ChannelCost") for k in over]
@@ -1774,7 +1774,7 @@ class Assumptions:
                     "value": f"{share:.0%} of the fight ({', '.join(over)})",
                     "basis": how + ("; its upfront costs stay whole" if any(number(seen.get(f'{k}Cost')) > 0
                                                                             for k in kinds) else ""),
-                    "confidence": "MEDIUM (channel time, PoB's) / LOW (when the cooldown starts)"}]
+                    "confidence": "MEDIUM (channel time, PoB's) / HIGH (when the cooldown starts)"}]
         exposure_flags += redflare
         if redflare_how:
             hand_notes.append({"label": "Shocked by your own item on reaching maximum Charges*", "value": "damage taken",

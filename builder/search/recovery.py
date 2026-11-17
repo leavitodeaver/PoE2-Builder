@@ -1260,27 +1260,36 @@ def refutation_stun_of(build) -> tuple[float, str]:
 # PoB's Data/Skills today: Flameblast, Flame Breath (Rage per minute), Runic Tempering, Temper Weapon; PoB's data only,
 # the game files not searched, but the check reads the skill's types, so any other such skill is covered). Share of the fight
 # channelled = PoB's ChannelTime (the stages it channels per release, at the build's cast speed) / the cycle. The cycle:
-# the cooldown starting as the channel starts (cycle = max(cooldown, channel): the higher share, the cautious side for a
-# cost; LOW, the game's text doesn't say when the cooldown starts), with the cooldown starting at release (channel +
-# cooldown) as the other reading. Applied as the skill's own <Type>Cost MORE (PoB scales the per-second cost by it,
+# the cooldown starts at RELEASE by default (MECHC34; RESEARCH28 R28-14, channel-cooldown-start.md, HIGH: the game stat
+# channelled_skill_do_not_go_on_cooldown_on_finishing_channel, which moves it to the channel's start, is on Flame Breath
+# only (RESEARCH28's check of the stat sets; 0.4.0c moved Flame Breath's to the start), so cycle = channel + cooldown
+# (Flameblast, Meditate, Runic Tempering, Temper Weapon), and max(cooldown, channel) for COOLDOWN_AT_CHANNEL_START; the
+# other reading a row. (MECHC33 had max() for all, as the cautious side for a cost: an overcount of Flameblast's cost.) Applied as the skill's own <Type>Cost MORE (PoB scales the per-second cost by it,
 # CalcOffence 2313-2316), only when the skill has no upfront cost of that type (Flame Breath's upfront Mana stays whole;
 # its Rage per minute is scaled). No ChannelTime from PoB (Temper Weapon, Runic Tempering: no stage multiplier): kept
 # whole, said in the note. The rest of each cycle the build casts other skills, whose own costs aren't the main skill's.
 CHANNEL_COST_FIELDS = ("ChannelTime", "Cooldown", "Speed")
 
 
-def channel_cost_share(stats: dict) -> tuple[float, float, str]:
+COOLDOWN_AT_CHANNEL_START = frozenset({"Flame Breath"})
+
+
+def channel_cost_share(stats: dict, skill: str = "") -> tuple[float, float, str]:
     """(share of the fight the main skill channels (headline), the other reading, how) from PoB's ChannelTime and
     Cooldown; (1.0, 1.0, how) when PoB gives no channel time or no cooldown."""
     channel, cooldown = _num(stats.get("ChannelTime")), _num(stats.get("Cooldown"))
     if channel <= 0 or cooldown <= 0:
         return 1.0, 1.0, ("its per-minute cost counted all fight (PoB gives no channel time or cooldown for it: an "
                           "overcount of the cost if it rests between channels; LOW)")
-    head = min(1.0, channel / max(cooldown, channel))
-    other = channel / (channel + cooldown)
-    return head, other, (f"channelled {channel:.2f} s a release on its {cooldown:.2f} s cooldown: its per-minute cost runs "
-                         f"{head:.0%} of the fight (the cooldown taken to start with the channel, the cautious side for a "
-                         f"cost; LOW), {other:.0%} if it starts at release; PoB counts it all fight (without this: 100%)")
+    at_start = min(1.0, channel / max(cooldown, channel))
+    at_release = channel / (channel + cooldown)
+    if skill in COOLDOWN_AT_CHANNEL_START:
+        head, other, when, rest = at_start, at_release, "starts with the channel (its own stat)", "at release"
+    else:
+        head, other, when, rest = at_release, at_start, "starts at release (the game's default)", "with the channel"
+    return head, other, (f"channelled {channel:.2f} s a release on its {cooldown:.2f} s cooldown, which {when}: its "
+                         f"per-minute cost runs {head:.0%} of the fight (RESEARCH28 R28-14, HIGH), {other:.0%} if the "
+                         f"cooldown started {rest}; PoB counts it all fight (without this: 100%)")
 
 
 # Twister's hits on one boss per cast (MECHC33; RESEARCH28 R28-10, twister-hits-on-boss.md, the manager 16 Nov 10:56; the

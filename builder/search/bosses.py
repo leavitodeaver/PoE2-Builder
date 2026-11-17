@@ -383,6 +383,65 @@ def _worst_red_flash() -> tuple[tuple[float, str], tuple[float, str]]:
 
 
 (_UNAVOIDABLE, _UNA_FROM), (_UNBLOCKABLE, _EVA_FROM) = _worst_red_flash()
+# The boss's Armour, Evasion and penetration (MECHC34; RESEARCH28 R28-11 CD-1 / CD-2 / CD-3, config-defaults-audit.md,
+# the manager 16 Nov 16:11). PoB's Pinnacle preset fills three boxes the tool never wrote, from PoE1 data:
+# enemyLightning / Cold / FirePen = data.misc.pinnacleBossPen 3% (Data.lua 298: every boss hit penetrated 3% of your
+# elemental resistances: an OVERCOUNT of elemental damage taken, ~12% more at 75% resistance); enemyArmour = the level-82
+# monster Armour x 150% and enemyEvasion = the level-82 monster Evasion x 124.9% (ConfigOptions 2095-2096: Data.lua
+# 872-873's PinnacleArmourMean / PinnacleEvasionMean, averages of PoB's 22 PoE1 bosses in Data/Bosses.lua). The game:
+# - Armour / Evasion: each preset's MonsterTypes Armour / Evasion "+%" over the level table (RESEARCH10 #55 from poe2db,
+#   RESEARCH28 from MonsterTypes; re-read by me from scratch/research13's MonsterVarieties -> MonsterTypes export, whose
+#   EnergyShieldFromLife column matches es_from_life above: MEDIUM-HIGH that it's "+%" of the table, PoB's own 100 + mult
+#   reading). No rarity mod adds either (checked: game 26650308's Mods MonsterUnique* / MonsterRare* / MonsterMagic* /
+#   PinnacleAtlasBoss* / MonsterMapBoss* for armour / evasion / damage-reduction / penetration stats: none). The King's
+#   two forms by their share of the fight (first form, Armour +20% / Evasion +40%, 43%; second, Armour +65%, 57%: the
+#   fight-share mean of the multiplier, MEDIUM). Level 82's table values (PoB Data/Misc.lua monsterArmourTable[82]
+#   5,375, monsterEvasionTable[82] 941, exported from the game's DefaultMonsterStats).
+# - Penetration: none (checked by RESEARCH28: the 13 presets' own Mods and the 430 GrantedEffectStatSets rows named for
+#   them, for "penetrat" / "overwhelm": none; poe2db's Arbiter of Ash page shows none: MEDIUM; penetration comes from map /
+#   waystone mods, which the presets don't model). Written as 0 (countAllowZero boxes: 0 sticks). PoB's 3% is a row.
+# The worst case: the highest of each over the real presets, per form (Olroth's +80% Armour, the King's first form's +40%
+# Evasion), the user's worst-per-stat rule.
+MONSTER_ARMOUR_82, MONSTER_EVASION_82, POB_BOSS_PEN = 5375, 941, 3.0
+POB_ARMOUR_PCT, POB_EVASION_PCT = 50.0, 24.9  # PoB's Pinnacle preset's "+%" (150% / 124.9% of the table)
+BOSS_DEFENCES: dict[str, tuple[float, float, str]] = {  # name: (Armour +%, Evasion +%, where from)
+    "Arbiter of Ash": (20, 0, "DemonClawBoss"),
+    "Arbiter of Divinity": (40, 0, "ArbiterofDivinity"),
+    "Xesht, We That Are One": (0, 0, "ItThatReturned"),
+    "The King in the Mists": (0.43 * 20 + 0.57 * 65, 0.43 * 40,
+                              "VoodooKingBoss2MAP +20% / +40% for 43%, VoodooKingBoss3MAP +65% / 0 for 57%"),
+    "Zarokh, the Temporal": (0, 0, "SilentSpiresApparitionSTANDALONE"),
+    "The Raven Trickster": (15, 0, "TangmazuBoss"),
+    "The Bodach": (75, 0, "RitualWendigoBoss"),
+    "Olroth, Origin of the Fall": (80, 0, "Olroth"),
+    "The Aberration": (50, 0, "CyclopsSpiderBoss"),
+    "Vessel of Kulemak": (50, 0, "KulemakBoss"),
+    "Atziri, the Red Queen": (33, 0, "AtziriBossPhaseOne"),
+    "Atziri, the Fell Serpent": (33, 0, "AtziriBossPhaseTwo"),
+}
+BOSS_DEFENCES[WORST] = (80, 40, "the highest of each, per form: Olroth's Armour +80%, the King's first form's Evasion +40%")
+
+
+def defence_vars(name: str | None = None) -> dict[str, float]:
+    """PoB config inputs for the boss's Armour, Evasion and elemental penetration (the comment above BOSS_DEFENCES)."""
+    armour, evasion, _ = BOSS_DEFENCES.get(name or DEFAULT, BOSS_DEFENCES[WORST])
+    return {"enemyArmour": round(MONSTER_ARMOUR_82 * (1 + armour / 100)),
+            "enemyEvasion": round(MONSTER_EVASION_82 * (1 + evasion / 100)),
+            "enemyLightningPen": 0, "enemyColdPen": 0, "enemyFirePen": 0}
+
+
+def defence_text(name: str | None = None) -> str:
+    """The boss row's Armour / Evasion / penetration clause, with PoB's Pinnacle preset as the "without it" row."""
+    armour, evasion, where = BOSS_DEFENCES.get(name or DEFAULT, BOSS_DEFENCES[WORST])
+    got = defence_vars(name)
+    return (f"Armour {got['enemyArmour']:,} (+{armour:.4g}%) and Evasion {got['enemyEvasion']:,} (+{evasion:.4g}%) over "
+            f"the level-82 monster table ({where}; MonsterTypes, MEDIUM-HIGH), no penetration of your elemental "
+            f"resistances (none found on any preset, MEDIUM); PoB's Pinnacle preset (PoE1 bosses' averages): Armour "
+            f"{round(MONSTER_ARMOUR_82 * (1 + POB_ARMOUR_PCT / 100)):,}, Evasion "
+            f"{round(MONSTER_EVASION_82 * (1 + POB_EVASION_PCT / 100)):,} and {POB_BOSS_PEN:g}% penetration of your "
+            "Fire / Cold / Lightning resistances (about 12% more elemental damage taken at 75%), not used")
+
+
 _POISE_FROM = max(REAL, key=lambda n: PRESETS[n].poise)
 _ES_FROM = max(REAL, key=lambda n: PRESETS[n].es_from_life)
 WORST_SOURCES = {
@@ -409,6 +468,8 @@ WORST_SOURCES = {
     "ailments on you": "every ailment any preset inflicts (for defence readings; not a rate for a 'while you are "
                        "<ailment>' benefit)",
     "Slow taken": "50% less, as every Unique",
+    "Armour / Evasion": "Armour +80% (Olroth), Evasion +40% (the King's first form) over the level-82 table; no "
+                        "penetration of your resistances (no preset has any)",
 }
 PRESETS[WORST] = Boss(
     WORST, 45, 45, 45, 25, PRESETS["Arbiter of Ash"].life, None,
@@ -507,7 +568,8 @@ def config_vars(name: str = DEFAULT) -> dict[str, float]:
     hits = boss_hits.config_vars(name)
     return {"enemyFireResist": b.fire, "enemyColdResist": b.cold, "enemyLightningResist": b.lightning,
             "enemyChaosResist": b.chaos, "enemySpeed": round(defence_hit_every(name) * 1000),
-            "cullingStrikeUniqueThreshold": round(cull_threshold(name), 4), **hits}
+            "cullingStrikeUniqueThreshold": round(cull_threshold(name), 4), **hits,
+            **defence_vars(name)}  # (MECHC34, R28-11 CD-1..3: the boss's own Armour / Evasion, no penetration)
 
 
 def note(name: str = DEFAULT) -> dict:
@@ -528,7 +590,7 @@ def note(name: str = DEFAULT) -> dict:
                      f"Energy Shield {1 / life_share_of_pool(name) - 1:.1%} of Life (MEDIUM-LOW), so Culling Strike "
                      f"takes {cull_threshold(name):g}% of the pool, not 5%; hits every {defence_hit_every(name):g} s for "
                      f"defences, every {HIT_EVERY[name]:g} s for \"when hit\" benefits (LOW); "
-                     f"add kills {kills * 60:.2f}/min ({how})" + (f"; {b.note}" if b.note else ""),
+                     f"add kills {kills * 60:.2f}/min ({how}); " + defence_text(name) + (f"; {b.note}" if b.note else ""),
             "confidence": "MEDIUM-HIGH (recheck after the 12 Nov game update)"}
 
 

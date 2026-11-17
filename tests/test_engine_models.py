@@ -3266,11 +3266,42 @@ def test_flameblasts_per_minute_cost_runs_all_fight_in_pob_and_a_skill_cost_more
     bare = build.call("stats", fields=fields)
     build.call("setAssumptions", mods=[models.raw_mod("ManaCost", "MORE", -50, skill="Flameblast")], fields=[])
     halved = build.call("stats", fields=fields)
-    print("PROBE flameblast cost", bare, halved, recovery.channel_cost_share(bare))
+    print("PROBE flameblast cost", bare, halved, recovery.channel_cost_share(bare, "Flameblast"))
+    # (MECHC34, R28-14: the cooldown starts at release, so a release comes every channel + cooldown; PoB's Speed shown
+    # beside 1 / cooldown and 1 / (channel + cooldown), for GEM's DPS rate)
+    print("PROBE flameblast rate: PoB Speed", bare.get("Speed"), "1/cooldown", 1 / bare["Cooldown"],
+          "1/(channel+cooldown)", 1 / (bare["Cooldown"] + bare["ChannelTime"]))
     assert bare["ManaPerSecondCost"] > 0 and not bare.get("ManaCost")
     assert bare["Cooldown"] > 0 and bare["ChannelTime"] > 0
     assert halved["ManaPerSecondCost"] == pytest.approx(bare["ManaPerSecondCost"] / 2, rel=0.02)
     assert halved["AverageDamage"] == pytest.approx(bare["AverageDamage"])
-    share = recovery.channel_cost_share(bare)[0]
+    share = recovery.channel_cost_share(bare, "Flameblast")[0]
     assert 0 < share < 1
+    build.call("setAssumptions", mods=[], fields=[])
+
+
+def test_the_bosses_own_armour_evasion_and_no_penetration_reach_pob(engine):
+    """MECHC34 (probe, LANE_RULES; RESEARCH28 R28-11 CD-1..3): with the boxes cleared PoB reads its Pinnacle preset's
+    placeholders (3% penetration of your elemental resistances, Armour 150% / Evasion 124.9% of the level-82 table);
+    bosses.defence_vars writes the game's (no penetration; the worst case's Armour +80%, Evasion +40%). Before / after:
+    the Fire taken from the boss's hit drops without the 3%; the attack's hit chance and DPS move with the boss's Evasion
+    and Armour."""
+    from builder.search import bosses
+
+    search = _skeleton_search(engine, "Shield Charge", "Warbringer")
+    build = search.build
+    fields = ["FireTakenHit", "ColdTakenHit", "LightningTakenHit", "HitChance", "TotalDPS"]
+    clear = {k: False for k in bosses.defence_vars()}
+    # (penetration only cuts a positive resistance: the skeleton gets resistances to show it)
+    build.call("setAssumptions", mods=[models.line("+150% to all Elemental Resistances")], fields=[])
+    ours = build.call("setConfig", vars=bosses.defence_vars(), fields=fields)["stats"]
+    pob = build.call("setConfig", vars=clear, fields=fields)["stats"]
+    ash = build.call("setConfig", vars=bosses.defence_vars("Arbiter of Ash"), fields=fields)["stats"]
+    print("PROBE boss defences: ours (worst case)", ours, "PoB's Pinnacle placeholders", pob, "Arbiter of Ash", ash)
+    for t in ("Fire", "Cold", "Lightning"):
+        if pob[f"{t}TakenHit"] > 0:
+            assert ours[f"{t}TakenHit"] < pob[f"{t}TakenHit"]  # (no 3% penetration)
+    assert ours["HitChance"] <= pob["HitChance"] <= ash["HitChance"]  # (Evasion 1,317 > PoB's 1,175 > Ash's 941)
+    assert ours["TotalDPS"] < pob["TotalDPS"] < ash["TotalDPS"]  # (Armour 9,675 > PoB's 8,063 > Ash's 6,450)
+    build.call("setConfig", vars=bosses.defence_vars(), fields=[])
     build.call("setAssumptions", mods=[], fields=[])
