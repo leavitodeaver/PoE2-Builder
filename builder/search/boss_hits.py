@@ -607,6 +607,12 @@ def es_dot(stats: dict, ignite: bool = True, land: float = 0.0) -> list[tuple[fl
             out.append((fire * chance * (1 - avoid), IGNITE_SECONDS * scale, "Ignite"))
     if blood := corrupted_blood(name):
         out.append((*blood, "Corrupted Blood"))
+    # (MECHC35) with Decree of Loyalty's "Damage over Time cannot bypass your Energy Shield" (objective.DOT_HITS_ES) the
+    # boss's Bleeds land on Energy Shield too, so they hold its Recharge off as well (Olroth's, _bleed_share)
+    if number(stats.get("DotCannotBypassEnergyShield")) > 0 and (bleed := _bleed_share(name)) > 0:
+        kept, _ = deflect_kept(stats, "Bleed")
+        avoid_bleed = min(max(number(stats.get("BleedAvoidChance")), 0.0), 100) / 100
+        out.append((bleed * kept * (1 - avoid_bleed), BLEED_SECONDS, "Bleeding (your Energy Shield takes it)"))
     return out
 
 
@@ -844,6 +850,148 @@ def self_bleed(texts: list[str], stats: dict) -> tuple[float, list[dict]]:
                                                   "Life) / LOW (the Energy Shield left below full, the moving share)",
                     "play": (f"you Bleed {bleeding:.0%} of the fight from your own item: {taken:,.0f} a second "
                              "(without it: none)") if taken > 0 else ""}]
+
+
+# "+N% chance to be Poisoned / Ignited / Shocked" on your own items (MECHC35; COV38's downside sweep, the manager 21:50
+# 16 Nov: OVERCOUNTS while nothing counted them; PoB parses none of them: Apep's Supremacy's "+25% chance to be Poisoned"
+# and the Exclusive mods IncreasedChanceToBeIgnitedUnique* "+25% chance to be Ignited", ChanceToBeShockedUnique__1 / 2
+# "+20% / +50% chance to be Shocked"). Coat of Red's pattern (self_bleed): each landed boss hit at the DEFENCE cadence
+# (enemySkillTime, the cautious side for a downside) rolls the line's chance, read as a flat chance added to each hit's
+# own (the "+" wording; MEDIUM-LOW, no second source); KeywordPopups (game 26650308) give the rest:
+# - Poison: "Damage does not Contribute to Poison chance, so it cannot be inflicted without an explicit source of Poison
+#   chance" (the line is one), "lasts 2 seconds", "bypasses Energy Shield", magnitude "20% of the Pre-mitigation Physical
+#   and Chaos damage of the Hit" a second: so only the boss's hits with Physical or Chaos damage (none with neither: a
+#   magnitude of 0, as Bleed's), x Deflection's share where a "Deflected Hits cannot inflict Poison" line holds, x the
+#   hits that reach Life (life_reach: Bleed's rule, MEDIUM-LOW, taken for Poison too). Poisons on you all stack (UNVERIFIED:
+#   no text limits them on players; the one-at-a-time reading a row): rate x 2 s of them at once. Life only, through
+#   Build.added_stats (SelfPoisonPerSecond: objective.self_bleed_taken, at PoB's ChaosTakenDotMult), as the Bleed.
+# - Ignite: "lasts 4 seconds", magnitude "20% of the Fire damage dealt by the Hit" a second ("not any modifiers on the
+#   target": the boss's average Fire hit before your mitigation, mean_hits; PoB's Fire degen then applies your
+#   resistance); only the strongest Ignite deals damage (taken as Bleed's, MEDIUM-HIGH); the chance adds to each Fire hit's
+#   Flammability (ignite_chance), Fire hits only (no Fire, no magnitude). Counted: the Ignited share WITH the line less the
+#   share without it (the boss's own Ignites on you aren't scored for any build yet: an UNDERCOUNT named in the note), as
+#   Fire damage taken a second on PoB (Ignite doesn't bypass Energy Shield).
+# - Shock: "20% increased damage", "4 seconds on players"; its magnitude doesn't depend on the hit, so with an explicit
+#   chance every landed hit may Shock (UNVERIFIED; the Lightning-hits-only reading a row), Lightning hits adding their
+#   own chance (1% per 4% of your Ailment Threshold, ailment_rate's). Counted: the Shocked share with the line less the
+#   share without it, x 20% x your "effect of Shock on you" (PoB's SelfShockEffect), as DamageTaken INC (the boss's own
+#   Shocks on you aren't scored for any build yet: an UNDERCOUNT named in the note).
+# Your avoidance (PoB's {Ailment}AvoidChance) and ailment duration on you (PoB's Self{Ailment}Duration) apply.
+SELF_AILMENT_CHANCE = re.compile(r"^\+(\d+(?:\.\d+)?)% chance to be (Poisoned|Ignited|Shocked)$", re.I)
+SELF_AILMENT_FIELDS = ("IgniteAvoidChance", "ShockAvoidChance", "PoisonAvoidChance", "SelfIgniteDuration",
+                       "SelfShockDuration", "SelfPoisonDuration", "SelfShockEffect", "FireTakenHit", "LightningTakenHit",
+                       "AilmentThreshold", "Life", "ChaosTakenDotMult")
+POISON_SECONDS, POISON_SHARE_PER_SECOND, IGNITE_SHARE_PER_SECOND, SHOCK_ON_PLAYER_SECONDS = 2.0, 0.20, 0.20, 4.0
+
+
+def self_ailment_chances(texts: list[str]) -> dict[str, float]:
+    """{"Poison" / "Ignite" / "Shock": the summed "+N% chance to be ..." of the build's lines, as a fraction}."""
+    out: dict[str, float] = {}
+    for t in texts:
+        if m := SELF_AILMENT_CHANCE.match(t.strip()):
+            kind = {"poisoned": "Poison", "ignited": "Ignite", "shocked": "Shock"}[m.group(2).lower()]
+            out[kind] = min(out.get(kind, 0.0) + float(m.group(1)) / 100, 1.0)
+    return out
+
+
+def self_ailments(texts: list[str], stats: dict) -> tuple[float, float, float, list[dict]]:
+    """(Poison Chaos damage a second on Life before your damage-over-time modifiers, Ignite Fire damage a second for PoB,
+    increased damage taken % from Shock, notes) from the build's "+N% chance to be Poisoned / Ignited / Shocked" lines
+    (the comment above); zeros and no notes without one."""
+    chances = self_ailment_chances(texts)
+    if not chances:
+        return 0.0, 0.0, 0.0, []
+    name = boss_name(stats)
+    every = number(stats.get("enemySkillTime")) or 0.7
+    land = land_share(stats) / every
+    shares = type_shares(name)
+
+    def avoid(kind: str) -> float:
+        return 1 - min(max(number(stats.get(f"{kind}AvoidChance")), 0.0), 100.0) / 100
+
+    def seconds(kind: str, base: float) -> float:
+        key = f"Self{kind}Duration"
+        return base * (number(stats.get(key)) / 100 if key in stats else 1.0)
+
+    def up(rate: float, length: float) -> float:
+        return 1 - math.exp(-rate * length) if rate > 0 else 0.0
+
+    poison = ignite = shock = 0.0
+    notes: list[dict] = []
+    if (x := chances.get("Poison", 0.0)) > 0:
+        rows = [r for r in skill_hits(name) if not r.get("nuke")]
+        if rows:
+            carry = sum(1.0 for r in rows if {"Physical", "Chaos"} & set(r["hit"])) / len(rows)
+        else:
+            carry = min(1.0, shares.get("Physical", 0.0) + shares.get("Chaos", 0.0))
+        kept, kept_how = deflect_kept(stats, "Poison")
+        reach, _, reach_how = life_reach(stats) if carry > 0 else (1.0, 1.0, "")
+        rate = x * land * carry * kept * reach * avoid("Poison")
+        length = seconds("Poison", POISON_SECONDS)
+        mean = mean_hits(name)
+        hit = mean.get("Physical", 0.0) + mean.get("Chaos", 0.0)
+        poison = rate * length * POISON_SHARE_PER_SECOND * hit
+        single = up(rate, length) * POISON_SHARE_PER_SECOND * hit
+        notes.append({"label": "Poisoned when Hit (your item's downside)*",
+                      "value": f"{poison:,.0f} Chaos damage a second on Life",
+                      "basis": (f"+{x:.0%} chance to be Poisoned x {land:.2f} landed boss hits/s (the defence cadence, the "
+                                f"cautious side for a downside) x {carry:.0%} of its hits dealing Physical or Chaos damage "
+                                f"(no magnitude without: KeywordPopups Poison){kept_how}{reach_how} x {avoid('Poison'):.0%} "
+                                f"not avoided = {rate:.3f} Poisons/s, {length:g} s each, all stacking (UNVERIFIED), "
+                                f"{POISON_SHARE_PER_SECOND:.0%} of the boss's average Physical + Chaos hit ({hit:,.0f}, "
+                                f"before mitigation) a second each: {poison:,.0f} a second before your damage-over-time "
+                                f"modifiers; one Poison at a time: {single:,.0f}. Bypasses Energy Shield (Life only). "
+                                "Without it: 0"),
+                      "confidence": "MEDIUM-LOW (the chance read as flat, the stacking UNVERIFIED)",
+                      "play": (f"you are Poisoned by your own item: {poison:,.0f} a second (without it: none)"
+                               if poison > 0 else "")})
+    if (x := chances.get("Ignite", 0.0)) > 0:
+        fire = shares.get("Fire", 0.0)
+        own, own_how = ignite_chance(stats, land) if fire > 0 else (0.0, "")
+        length = seconds("Ignite", IGNITE_SECONDS)
+        without = up(land * fire * own * avoid("Ignite"), length)
+        with_line = up(land * fire * min(1.0, own + x) * avoid("Ignite"), length)
+        hit = mean_hits(name).get("Fire", 0.0)
+        ignite = (with_line - without) * IGNITE_SHARE_PER_SECOND * hit
+        notes.append({"label": "More often Ignited (your item's downside)*",
+                      "value": (f"{ignite:,.0f} Fire damage a second (Ignited {with_line:.0%} of the fight, "
+                                f"{without:.0%} without it)"),
+                      "basis": (f"+{x:.0%} chance to be Ignited added to each of the boss's Fire hits ({fire:.0%} of its "
+                                f"hits; {land:.2f} landed hits/s, the defence cadence) over their own {own:.0%} "
+                                f"({own_how or 'no Fire hits'}), x {avoid('Ignite'):.0%} not avoided, {length:g} s each: "
+                                f"Ignited {with_line:.0%} of the fight instead of {without:.0%}; only the strongest Ignite "
+                                f"burns: {IGNITE_SHARE_PER_SECOND:.0%} of the boss's average Fire hit ({hit:,.0f}) a second "
+                                f"for the extra share = {ignite:,.0f} a second, as Fire damage taken (your resistance and "
+                                "Energy Shield apply). The boss's own Ignites on you aren't scored for any build yet (an "
+                                "UNDERCOUNT); without the line: 0"),
+                      "confidence": "MEDIUM-LOW (the chance read as flat)"})
+    if (x := chances.get("Shock", 0.0)) > 0:
+        lightning = shares.get("Lightning", 0.0)
+        key = "LightningTakenHit"
+        taken = max(number(stats.get(key)) if key in stats else hit_sizes(name).get("Lightning", 0.0), 0.0)
+        threshold = number(stats.get("AilmentThreshold")) or 0.5 * number(stats.get("Life"))
+        own = (min(1.0, taken / threshold * SHOCK_PER_THRESHOLD * _factor(name, SHOCK_FACTORS, "Lightning"))
+               if threshold > 0 and lightning > 0 else 0.0)
+        length = seconds("Shock", SHOCK_ON_PLAYER_SECONDS)
+        effect = number(stats.get("SelfShockEffect")) / 100 if "SelfShockEffect" in stats else 1.0
+        without = up(land * lightning * own * avoid("Shock"), length)
+        every_hit = up(land * (lightning * min(1.0, own + x) + (1 - lightning) * x) * avoid("Shock"), length)
+        lightning_only = up(land * lightning * min(1.0, own + x) * avoid("Shock"), length)
+        shock = 20.0 * effect * (every_hit - without)
+        notes.append({"label": "More often Shocked (your item's downside)*",
+                      "value": (f"{shock:.1f}% increased damage taken on average (Shocked {every_hit:.0%} of the fight, "
+                                f"{without:.0%} without it)"),
+                      "basis": (f"+{x:.0%} chance to be Shocked on each of the boss's {land:.2f} landed hits/s (the "
+                                f"defence cadence; every hit, as Shock's magnitude doesn't depend on the hit: UNVERIFIED), "
+                                f"its Lightning hits ({lightning:.0%}) adding their own {own:.0%} (1% per 4% of your "
+                                f"Ailment Threshold), x {avoid('Shock'):.0%} not avoided, {length:g} s each: Shocked "
+                                f"{every_hit:.0%} of the fight instead of {without:.0%}; 20% increased damage taken x "
+                                f"{effect:.0%} (your effect of Shock on you) for the extra share = {shock:.1f}%. Lightning "
+                                f"hits only: Shocked {lightning_only:.0%}, "
+                                f"{20.0 * effect * (lightning_only - without):.1f}%. The boss's own Shocks on you aren't "
+                                "scored for any build yet (an UNDERCOUNT); without the line: 0"),
+                      "confidence": "MEDIUM-LOW (the chance read as flat; every hit UNVERIFIED)"})
+    return poison, ignite, shock, notes
 
 
 def ailment_rate(stats: dict, ailment: str, land: float) -> tuple[float, str]:

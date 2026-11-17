@@ -3324,3 +3324,32 @@ def test_the_bosses_own_armour_evasion_and_no_penetration_reach_pob(engine):
     assert ours["TotalDPS"] < pob["TotalDPS"] < ash["TotalDPS"]  # (Armour 9,675 > PoB's 8,063 > Ash's 6,450)
     build.call("setConfig", vars=bosses.defence_vars(), fields=[])
     build.call("setAssumptions", mods=[], fields=[])
+
+
+def test_twister_hits_on_the_boss_rise_with_its_twisters(engine):
+    """MECHC35 (the user's answer 16 Nov ~21:10: "it depends on the number of twisters"): the twister-count reading is
+    the headline: the main skill's DPS x hits a cast (PoB scores one hit a use); more twisters, more hits, never past k."""
+    from builder.search import models, recovery
+    from builder.search.assumptions import Assumptions
+
+    search = _skeleton_search(engine, "Twister", "Amazon")
+    build = search.build
+
+    def read():
+        mods, notes, _ = Assumptions(build).models(build.call("activeSkills")["skills"])
+        dps = [m for m in mods if m.get("name") == "DPS" and m.get("skill") == recovery.TWISTER]
+        note = next(n for n in notes if n["label"].startswith("Twister hits on the boss"))
+        seen = build.call("stats", fields=list(recovery.TWISTER_FIELDS))
+        return dps, note, seen
+
+    one, one_note, one_seen = read()
+    build.call("setAssumptions", mods=[models.raw_mod("ProjectileCount", "BASE", 8)], fields=[])
+    many, many_note, many_seen = read()
+    build.call("setAssumptions", mods=[], fields=[])
+    print("PROBE twister", one_seen, one, one_note["value"], "|", many_seen, many, many_note["value"])
+    head_one = float(one_note["value"].split()[0])
+    head_many = float(many_note["value"].split()[0])
+    k = int(many_seen.get("Duration", 3.0) / recovery.TWISTER_INTERVAL + 1e-9) + 1
+    assert many_seen["ProjectileCount"] > one_seen["ProjectileCount"]
+    assert 1 < head_one < head_many <= k and "open arena: 1" in many_note["value"]
+    assert many and many[0]["value"] == pytest.approx((head_many - 1) * 100, abs=0.1)

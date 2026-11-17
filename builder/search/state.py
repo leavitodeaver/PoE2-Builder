@@ -321,6 +321,12 @@ class Build:
         # (MECHC32, a MECH-C hook: the Bleed your own item inflicts on you, Life only: objective.self_bleed_taken)
         if (bleed := getattr(self, "self_bleed", 0.0) or 0.0) > 0:
             own["SelfBleedPerSecond"] = bleed
+        # (MECHC35, the same hook: the Poison your own item's "+N% chance to be Poisoned" brings, Life only)
+        if (poison := getattr(self, "self_poison", 0.0) or 0.0) > 0:
+            own["SelfPoisonPerSecond"] = poison
+        # (MECHC35: Decree of Loyalty's "Damage over Time cannot bypass your Energy Shield", objective.DOT_HITS_ES)
+        if getattr(self, "dot_hits_es", False):
+            own["DotCannotBypassEnergyShield"] = 1
         return {**self.recovery_sources, **self.extra_stats, **self.boss_stats, **own}
 
     # Snapshots ---------------------------------------------------------------------------------

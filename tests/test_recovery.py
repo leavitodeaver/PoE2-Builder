@@ -1711,21 +1711,28 @@ def test_life_when_you_use_a_mana_flask_at_the_flasks_uses():
     assert empty.pool("Life") == 0.0
 
 
-def test_twister_hits_one_boss_once_a_cast_in_the_open_and_more_off_walls():
-    """MECHC33 (RESEARCH28 R28-10, the manager 10:56): headline 1 hit a cast (open arena, PoB's number); the walled row
-    1 + (k - 1)(1 - e^(-N 2 rho v 0.66 / A)), k = floor(D / 0.66) + 1, A = pi 6^2: RESEARCH28's table: plain 1.30 on the
-    Arbiter (0.4 m) / 1.27 on the worst case (0.3 m); 7 twisters at 3x speed 4.24 / 4.08."""
+def test_twister_hits_rise_with_the_number_of_twisters_and_never_pass_the_cap():
+    """MECHC35 (the user's answer 16 Nov ~21:10, "it depends on the number of twisters"; RESEARCH28 R28-10): the headline
+    is 1 + (k - 1)(1 - e^(-N 2 rho v 0.66 / A)), k = floor(D / 0.66) + 1, A = pi 6^2; the open arena's 1 a row.
+    RESEARCH28's table: plain 1.30 on the Arbiter (0.4 m) / 1.27 on the worst case (0.3 m); 7 twisters at 3x speed 4.24.
+    Hits rise with the twisters, duration, area and speed, and never pass k."""
     from builder.search import recovery
 
-    head, walled, how = recovery.twister_hits({"ProjectileCount": 1, "ProjectileSpeedMod": 1.0, "Duration": 3.0,
-                                               "AreaOfEffectRadiusMetres": 0.5}, 0.4)
-    assert head == 1.0 and walled == pytest.approx(1.30, abs=0.01) and "at most 5" in how
     base = {"ProjectileCount": 1, "ProjectileSpeedMod": 1.0, "Duration": 3.0, "AreaOfEffectRadiusMetres": 0.5}
-    assert recovery.twister_hits(base, 0.3)[1] == pytest.approx(1.27, abs=0.01)
-    fast = recovery.twister_hits({"ProjectileCount": 7, "ProjectileSpeedMod": 3.0, "Duration": 3.0,
-                                  "AreaOfEffectRadiusMetres": 0.5}, 0.4)[1]
-    assert fast == pytest.approx(4.24, abs=0.05)
-    assert recovery.twister_hits({}, 0.4)[1] == pytest.approx(walled)  # (PoB gives nothing: the base numbers)
+    head, open_row, how = recovery.twister_hits(base, 0.4)
+    assert open_row == 1.0 and head == pytest.approx(1.30, abs=0.01) and "at most 5" in how
+    assert "the user's observation" in how and "open arena 1" in how
+    assert recovery.twister_hits(base, 0.3)[0] == pytest.approx(1.27, abs=0.01)
+    many = recovery.twister_hits({**base, "ProjectileCount": 7, "ProjectileSpeedMod": 3.0}, 0.4)[0]
+    assert many == pytest.approx(4.24, abs=0.05)
+    assert recovery.twister_hits({}, 0.4)[0] == pytest.approx(head)  # (PoB gives nothing: the base numbers)
+    for key, more in (("ProjectileCount", 4), ("Duration", 5.0), ("AreaOfEffectRadiusMetres", 1.0),
+                      ("ProjectileSpeedMod", 2.0)):
+        assert recovery.twister_hits({**base, key: more}, 0.4)[0] > head, key
+    huge = {"ProjectileCount": 60, "ProjectileSpeedMod": 5.0, "Duration": 3.0, "AreaOfEffectRadiusMetres": 2.0}
+    capped = recovery.twister_hits(huge, 1.0)[0]
+    assert 4.9 < capped <= 5.0  # (k = 5 at 3 s)
+    assert recovery.twister_hits({**huge, "Duration": 6.0}, 1.0)[0] <= 10.0  # (k = floor(6 / 0.66) + 1 = 10)
 
 
 def test_sprinting_counts_0_in_the_headline_and_a_play_row_only_with_sprint_lines():
@@ -1866,3 +1873,101 @@ def test_each_boss_gets_its_own_armour_and_evasion_and_no_penetration():
     assert worst["enemyEvasion"] == round(941 * 1.4)
     assert set(bosses.BOSS_DEFENCES) >= set(bosses.REAL)
     assert "3% penetration" in bosses.note()["basis"] and "Armour 9,675" in bosses.note()["basis"]
+
+
+def test_ab_aeternos_overencumbrance_slows_you_at_your_own_roll_pace():
+    """MECHC35 (COV38's sweep): Ab Aeterno's current line "Gain Overencumbrance for 4 seconds when you Dodge Roll"
+    (Overencumbered: 10% Slow a stack, stacking and refreshing): a roll every 5 s (one per telegraphed hit) keeps one
+    stack 80% of the time, 8%; a build relying on rolling plays at most one roll every 4 s, one stack all the time, 10%;
+    Slowing Potency lines scale it; "Your speed is unaffected by Slows" cancels it; no line, nothing."""
+    from builder.search import recovery
+
+    line = "Gain Overencumbrance for 4 seconds when you Dodge Roll"
+    assert recovery.overencumbrance_slow(["+10 to maximum Life"], False) == (0.0, "")
+    slow, how = recovery.overencumbrance_slow([line], False)
+    assert slow == pytest.approx(8.0) and "80% of the time" in how
+    slow, how = recovery.overencumbrance_slow([line], True)
+    assert slow == pytest.approx(10.0) and "no cap found" in how
+    assert recovery.overencumbrance_slow([line, "20% reduced Slowing Potency of Debuffs on You"], True)[0] == \
+        pytest.approx(8.0)
+    assert recovery.overencumbrance_slow([line, "Your speed is unaffected by Slows"], True)[0] == 0.0
+
+
+def test_chance_to_be_poisoned_ignited_shocked_lines_cost_you_at_the_bosss_hits():
+    """MECHC35 (COV38's sweep, Coat of Red's pattern): "+25% chance to be Poisoned" Poisons on the boss's landed hits with
+    Physical or Chaos damage (2 s each, 20% of the hit a second, Life only); "+25% chance to be Ignited" and "+20% chance
+    to be Shocked" count only the share they add over the boss's own; your avoidance cancels each; no line, nothing."""
+    from builder.search import boss_hits, bosses
+
+    base = {"_boss": bosses.DEFAULT, "enemySkillTime": 1.0, "Life": 4000.0, "AilmentThreshold": 4000.0,
+            "FireTakenHit": 1000.0, "LightningTakenHit": 1000.0}
+    assert boss_hits.self_ailments(["+10 to maximum Life"], base) == (0.0, 0.0, 0.0, [])
+    lines = ["+25% chance to be Poisoned", "+25% chance to be Ignited", "+20% chance to be Shocked"]
+    poison, burn, shock, notes = boss_hits.self_ailments(lines, base)
+    assert poison > 0 and burn > 0 and shock > 0 and len(notes) == 3
+    assert "Life only" in notes[0]["basis"] and "without it" in notes[1]["value"]
+    immune = {**base, "PoisonAvoidChance": 100, "IgniteAvoidChance": 100, "ShockAvoidChance": 100}
+    assert boss_hits.self_ailments(lines, immune)[:3] == (0.0, 0.0, 0.0)
+    more = boss_hits.self_ailments(["+50% chance to be Shocked"], base)[2]
+    assert more > shock
+    # the Poison doubles with twice the chance (all Poisons stack); the Ignite / Shock shares never pass 100%
+    assert boss_hits.self_ailments(["+50% chance to be Poisoned"], base)[0] == pytest.approx(2 * poison)
+    assert boss_hits.self_ailments(["+100% chance to be Shocked"], base)[2] <= 20.0
+
+
+def test_damage_from_blocks_with_a_raised_shield_counts_only_the_raised_blocks():
+    """MECHC35 (COV38's sweep): the Ulaman suffix "You take 12% of damage from Blocked Hits with a raised Shield": a
+    channelled shield all fight, every Block raised (12%); taps up 10% of the fight against a 50% Block chance, 10 / 55
+    of the Blocks raised (2.2%); never raised, 0."""
+    from builder.search import recovery
+
+    line = ["You take 12% of damage from Blocked Hits with a raised Shield"]
+    assert recovery.raised_block_taken(["+10 to maximum Life"], 1.0, 0.5) == (0.0, "")
+    assert recovery.raised_block_taken(line, 1.0, 0.5)[0] == pytest.approx(12.0)
+    assert recovery.raised_block_taken(line, 0.1, 0.5)[0] == pytest.approx(12 * 0.1 / 0.55)
+    got, how = recovery.raised_block_taken(line, 0.0, 0.5)
+    assert got == 0.0 and "never raises" in how
+
+
+def test_decree_of_loyalty_puts_your_own_bleed_and_poison_on_energy_shield():
+    """MECHC35 (COV38's sweep, an UNDERCOUNT): "Damage over Time cannot bypass your Energy Shield": your own Bleed and
+    Poison (Life only otherwise) and your damage over time land on Energy Shield; the boss's Bleeds (Olroth's) then hold
+    Energy Shield Recharge off too."""
+    from builder.search import boss_hits, objective
+
+    stats = {"EnergyShield": 3000.0, "SelfBleedPerSecond": 100.0, "SelfPoisonPerSecond": 50.0,
+             "ChaosBuildDegen": 40.0, "ChaosEnergyShieldBypass": 100.0}
+    plain = objective.own_loss(stats)
+    assert plain["Life"] == pytest.approx(150.0 + 40.0) and plain["EnergyShield"] == 0.0
+    held = objective.own_loss({**stats, objective.DOT_HITS_ES: 1})
+    assert held["Life"] == 0.0 and held["EnergyShield"] == pytest.approx(190.0)
+    assert objective.own_loss({**stats, "EnergyShield": 0.0, objective.DOT_HITS_ES: 1})["EnergyShield"] == 0.0
+    olroth = {"_boss": "Olroth, Origin of the Fall", "IgniteAvoidChance": 100}
+    assert not [d for d in boss_hits.es_dot(olroth) if d[2].startswith("Bleeding")]
+    assert [d for d in boss_hits.es_dot({**olroth, objective.DOT_HITS_ES: 1}) if d[2].startswith("Bleeding")]
+
+
+def test_stunned_recently_lines_count_at_the_share_of_the_fight_you_were_stunned():
+    """MECHC35 (MECHC34's find: PoB's Stunned Recently box never set): the "haven't been Stunned Recently" bonus loses
+    the stunned share (it was on all fight), the "have been" lines gain it, Last Stand's Heavy line only the Heavy share,
+    "for each time" the expected Stuns in 4 s; a build the boss never Stuns keeps its whole "haven't" bonus."""
+    from builder.search import bosses, recovery
+
+    lines = ["20% increased Stun Threshold if you haven't been Stunned Recently",
+             "25% increased Attack Damage if you have been Heavy Stunned Recently",
+             "100% increased Stun Threshold for each time you've been Stunned Recently",
+             "40% faster start of Energy Shield Recharge if you've been Stunned Recently"]
+    kinds = [k for _, _, k in recovery.stunned_recently_lines(lines)]
+    assert kinds == ["havent", "heavy", "each", "have"]
+    stats = {"_boss": bosses.DEFAULT, "enemySkillTime": 1.0, "StunThreshold": 1500.0, "PhysicalTakenHit": 3000.0,
+             "FireTakenHit": 3000.0, "ColdTakenHit": 3000.0, "LightningTakenHit": 3000.0, "ChaosTakenHit": 3000.0}
+    mods, how = recovery.stunned_recently_mods(lines, stats, 0.0)
+    by = {m["line"]: m["scale"] for m in mods}
+    threshold = [m["scale"] for m in mods if m["line"] == "1% increased Stun Threshold"]
+    assert "1% increased Attack Damage" not in by  # (no Heavy Stuns)
+    assert len(threshold) == 2 and -20 < min(threshold) < 0 < max(threshold)  # (the "haven't" share off; "each" on)
+    assert 0 < by["1% faster start of Energy Shield Recharge"] <= 40
+    heavy, _ = recovery.stunned_recently_mods(lines, stats, 0.5)
+    assert {m["line"]: m["scale"] for m in heavy}["1% increased Attack Damage"] == pytest.approx(25 * (1 - math.exp(-2)), abs=0.01)
+    calm = {**stats, "StunAvoidChance": 100}
+    assert recovery.stunned_recently_mods(lines, calm, 0.0)[0] == []

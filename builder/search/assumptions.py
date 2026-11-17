@@ -471,6 +471,9 @@ def enemy_level(build: Build) -> int:
     return int(min(recovery_mod.MAX_ENEMY_LEVEL, level or recovery_mod.MAX_ENEMY_LEVEL))
 
 
+DOT_HITS_ES_LINE = re.compile(r"^Damage over Time cannot bypass your Energy Shield$", re.I)  # (MECHC35, Decree of Loyalty)
+
+
 # Purple Flames of Chayula (MECHC26, G1-1): "for 8 seconds, and stacks up to 10 times" (KeywordPopups FlamesOfChayula)
 PURPLE_SECONDS, PURPLE_MAX = 8.0, 10
 
@@ -1749,15 +1752,30 @@ class Assumptions:
         if main is not None and main.name == recovery_mod.TWISTER:  # (MECHC33, R28-10: hits on the boss per cast)
             seen = build.call("stats", fields=list(recovery_mod.TWISTER_FIELDS))
             radius, radius_how = bosses.hit_radius({"_boss": boss})
-            head, walled, how = recovery_mod.twister_hits(seen, radius)
+            head, open_row, how = recovery_mod.twister_hits(seen, radius)
+            # (MECHC35, the user's answer 16 Nov ~21:10: the twister-count reading is the headline; PoB scores one hit)
+            if head > 1 + 1e-9:
+                hand_mods = hand_mods + [models.raw_mod("DPS", "MORE", (head - 1) * 100, skill=main.name)]
             hand_notes = hand_notes + [{
-                "label": "Twister hits on the boss per cast*", "value": f"{head:g} (walled arena: {walled:.2f})",
+                "label": "Twister hits on the boss per cast*", "value": f"{head:.2f} (open arena: {open_row:g})",
                 "basis": how + f"; boss radius: {radius_how}",
-                "confidence": "HIGH (the 0.66 s cap) / MEDIUM (open arena: 1) / LOW (the walled row)",
-                "play": f"in an arena with walls your twisters bounce back: about {walled:.2f} hits a cast instead of 1"}]
+                "confidence": "MEDIUM-LOW (the user's observation; the roam space LOW) / HIGH (the 0.66 s cap)",
+                "play": (f"fire many twisters and fight near walls so they bounce back through the boss: {head:.2f} hits a "
+                         f"cast counted (with it); in an open arena 1 a cast (without it)")}]
         if any(recovery_mod.SPRINT_LINE.search(t) for t in texts):  # (MECHC34, R26-22: the headline sprints 0; a row)
             sprint = recovery_mod.sprint_row(texts, build.call("stats", fields=["MovementSpeedMod"]), boss)
             hand_notes = hand_notes + ([sprint] if sprint else [])
+        if any(recovery_mod.OVERENCUMBRANCE.match(t.strip()) for t in texts):  # (MECHC35: Ab Aeterno's own Slow)
+            reliant = any(s.name == "Cast on Dodge" for s in found) or any(
+                ROLL_RELIANT.search(t) and not recovery_mod.OVERENCUMBRANCE.match(t.strip()) for t in texts)
+            slow, slow_how = recovery_mod.overencumbrance_slow(texts, reliant)
+            if slow > 0:
+                hand_mods = hand_mods + [models.raw_mod("ActionSpeed", "INC", -slow, tag="Overencumbrance")]
+            hand_notes = hand_notes + [{
+                "label": "Overencumbered by your own dodge rolls*", "value": f"{slow:.1f}% Slow on average",
+                "basis": slow_how, "confidence": "MEDIUM (the roll pace LOW; no stack cap found: UNVERIFIED)",
+                "play": ("roll no more often than every 4 s while wearing it, so the Slow never stacks (with it: one "
+                         "stack; rolling every 2 s: a stack more each roll; never rolling: none)")}]
         if main is not None and not main.triggered and {"Channel", "Cooldown"} <= set(main_types):
             # (MECHC33, GEM15's find: a channelled skill on a cooldown pays its per-minute cost only while channelled)
             kinds = ("Mana", "Life", "ES", "Rage")
@@ -1888,6 +1906,36 @@ class Assumptions:
             # Physical degen, which Energy Shield would take)
             build.self_bleed = bleed
             hand_notes = hand_notes + bleed_notes
+        # (MECHC35, COV38's sweep, an UNDERCOUNT: Decree of Loyalty) your own Bleed / Poison / damage over time on Energy
+        # Shield, not Life (objective.own_loss), and the boss's Bleeds holding Energy Shield Recharge off (boss_hits.es_dot)
+        build.dot_hits_es = any(DOT_HITS_ES_LINE.match(e["text"].strip()) for e in source_lines)
+        if build.dot_hits_es:
+            hand_notes = hand_notes + [{
+                "label": "Damage over time can't bypass your Energy Shield (Decree of Loyalty)*", "value": "on",
+                "basis": ("your own Bleed and Poison (which bypass Energy Shield: KeywordPopups) and your own damage over "
+                          "time land on Energy Shield instead of Life, and the boss's Bleeds (Olroth's) now hold Energy "
+                          "Shield Recharge off; PoB parses the line to nothing (without it: they hit Life)"),
+                "confidence": "MEDIUM (the line's own words; whether a DoT that can't bypass removes double Energy "
+                              "Shield as Chaos does is UNVERIFIED: not counted)"}]
+        build.self_poison = 0.0
+        if boss_hits.self_ailment_chances([e["text"] for e in source_lines]):
+            # (MECHC35, COV38's sweep: "+N% chance to be Poisoned / Ignited / Shocked", Coat of Red's pattern above)
+            from builder.search import objective
+
+            added = getattr(build, "added_stats", None)
+            seen = {**build.call("stats", fields=sorted(set(boss_hits.SELF_BLEED_FIELDS) | set(objective.RECOVERY_INPUTS)
+                                                        | set(boss_hits.SELF_AILMENT_FIELDS))),
+                    **(added() if callable(added) else {})}
+            request = getattr(getattr(build, "ctx", None), "request", None)
+            if getattr(request, "boss", None):
+                seen["_boss"] = request.boss
+            poison, burn, shocked, ail_notes = boss_hits.self_ailments([e["text"] for e in source_lines], seen)
+            build.self_poison = poison  # (Life only, through Build.added_stats: objective.self_bleed_taken)
+            if burn > 0:
+                hand_mods = hand_mods + [models.line("1 Fire Damage taken per second", burn)]
+            if shocked > 0:
+                hand_mods = hand_mods + [models.raw_mod("DamageTaken", "INC", shocked, tag="SelfShockChance")]
+            hand_notes = hand_notes + ail_notes
         jiquani_mods, jiquani_notes = models.jiquani_model([e["text"] for e in source_lines])  # (MECHC9, A12-2)
         hand_mods, hand_notes = hand_mods + jiquani_mods, hand_notes + jiquani_notes
         unbound_mods, unbound_notes = models.unbound_model([e["text"] for e in source_lines])  # (MECHC10)
@@ -1922,6 +1970,30 @@ class Assumptions:
                                                 "value": f"{tap_stun:.1%} of the fight", "basis": tap_how,
                                                 "confidence": "MEDIUM-LOW"}]
         setattr(build, models.ITEM_PRESSES, presses)
+        if recovery_mod.stunned_recently_lines([e["text"] for e in source_lines]):
+            # (MECHC35, MECHC34's find: PoB's Stunned Recently box never set; each line at its time-average)
+            read = dict(build.call("stats", fields=list(recovery_mod.STUNNED_FIELDS)))
+            request = getattr(getattr(build, "ctx", None), "request", None)
+            if getattr(request, "boss", None):
+                read["_boss"] = request.boss
+            heavy_rate = recovery_mod.channel_stun_of(build, main.name if main is not None else None)[1]
+            stun_mods, stun_how = recovery_mod.stunned_recently_mods([e["text"] for e in source_lines], read, heavy_rate)
+            hand_mods = hand_mods + stun_mods
+            hand_notes = hand_notes + [{"label": "Stunned Recently: its lines at the share of the fight*",
+                                        "value": stun_how.split(":")[0], "basis": stun_how,
+                                        "confidence": "MEDIUM-LOW (the boss's cadence and hit sizes LOW)"}]
+        if any(recovery_mod.RAISED_BLOCK_TAKEN.match(e["text"].strip()) for e in source_lines):
+            # (MECHC35, COV38's sweep: the Ulaman suffix's damage taken from Blocks made with the shield raised)
+            raised = (1.0 if main is not None and main.name in recovery_mod.ACTIVE_BLOCK_CHANNELS else
+                      min(1.0, presses[models.RAISE_SHIELD][0] * recovery_mod.RAISED_TAP_SECONDS)
+                      if models.RAISE_SHIELD in presses else 0.0)
+            block = models.number(build.call("stats", fields=["EffectiveBlockChance"]).get("EffectiveBlockChance")) / 100
+            effect, effect_how = recovery_mod.raised_block_taken([e["text"] for e in source_lines], raised, block)
+            if effect > 0:
+                hand_mods = hand_mods + [models.raw_mod("BlockEffect", "BASE", effect, tag="RaisedBlockTaken")]
+            hand_notes = hand_notes + [{"label": "Damage from Blocks with your shield raised (your item's downside)*",
+                                        "value": f"{effect:.1f}% of each Blocked hit", "basis": effect_how,
+                                        "confidence": "MEDIUM (the raised share from the build's own shield use)"}]
         roar_mods, roar_notes = models.roar_model(found, {**stats, "_texts": [e["text"] for e in source_lines]}, main)
         hand_mods, hand_notes = hand_mods + roar_mods, hand_notes + roar_notes
         rod_mods, rod_notes = models.rod_model(found, stats, main)
@@ -3726,7 +3798,8 @@ class Assumptions:
         """Into the Breach's Purple Flame stacks (MECHC26; PATCH_CHECK G1-1, the largest OVERCOUNT found: nothing set
         PoB's purpleFlameStacks, whose default is 10, ConfigOptions 474, so every Into the Breach build had 10 stacks of
         7% x Remnant effect damage as extra Chaos). The build's own stacks: flames at REMNANT_SOURCES' 1 per 1.21 s x the
-        Remnant multiplier lines, the Purple share (recovery.flame_shares: a third, or all / none with a Choice notable),
+        Remnant multiplier lines, the Purple share (recovery.flame_shares: a third, the user's observation from play,
+        16 Nov, MEDIUM; or all / none with a Choice notable),
         each stack 8 s (KeywordPopups FlamesOfChayula: "7% of damage as extra Chaos damage for 8 seconds, and stacks up
         to 10 times"; 0.4.0: 8 s, was 5), at most 10 (purple_stacks, min(10, 8 s x the rate)). PoB's Multiplier:PurpleFlamesCount is moved from
         its config value to ours by a BASE line. No Into the Breach: nothing."""
@@ -3751,7 +3824,8 @@ class Assumptions:
                       f"at most {PURPLE_MAX}: min({PURPLE_MAX}, {PURPLE_SECONDS:g} s x the rate), each giving PoB's 7% x Remnant "
                       "effect of damage as extra Chaos (with Choice of Power every flame is Purple: HIGH, PoB's flag)"),
             "play": "walk onto each Purple Flame as it appears (with them: the stacks above; without: none)",
-            "confidence": "MEDIUM (the colour weights UNVERIFIED without a Choice notable, LOW; every flame taken as collected)"}]
+            "confidence": ("MEDIUM (without a Choice notable a third Purple: the user's observation from play, 16 Nov, "
+                           "MEDIUM; every flame taken as collected)")}]
 
     def es_flask_income(self, income, texts: list[str], lowered: list[str]) -> float:
         """(MECHC23; AUDIT33 A33-1, an UNDERCOUNT for Energy Shield builds) Energy Shield from the Life flask under "Life
@@ -3852,7 +3926,9 @@ class Assumptions:
                  "recoup and Life on Block": objective.recoup(hit, taken, "Life") + objective.on_block(hit, "Life", every),
                  "kills, Remnants, charms, events and spending": max(before, 0.0)}
         costs = (number(hit.get("LifePerSecondCost")) + max(number(hit.get(objective.BUILD_DEGEN)), 0.0) * share
-                 + objective.self_bleed_taken({**hit, objective.SELF_BLEED_PER_SECOND: getattr(build, "self_bleed", 0.0)}))
+                 + (0.0 if getattr(build, "dot_hits_es", False) and es > 0 else objective.self_bleed_taken(
+                     {**hit, objective.SELF_BLEED_PER_SECOND: getattr(build, "self_bleed", 0.0),
+                      objective.SELF_POISON_PER_SECOND: getattr(build, "self_poison", 0.0)})))
         # (MECHC32: your own item's Bleed, Life only)
         refill = max(sum(gains.values()) - costs, 0.0)
         refill_how = (", ".join(f"{k} {v:,.1f}" for k, v in gains.items() if v > 0) or "no other Life recovery") + (

@@ -670,7 +670,9 @@ def leech_income(income: Income, stats: dict, level: float) -> list[dict]:
 # _mana_leech_% 20; 0.5.0: 20%, was 15% since 0.4.0, 7% before), x Remnant effect (the bridge's remnantGain FlameLife /
 # FlameMana, as PoB builds it). A flame every breach_flame_spawn_rate_ms 1210 (REMNANT_SOURCES), each collected (the
 # Remnant play note). Its colour: "All Flames of Chayula that you manifest are Red / Blue / Purple" (Choice of Life / Mana /
-# Power, Acolyte of Chayula) sets it; without one, a third each (UNVERIFIED: the game files give no weights; LOW). Not a
+# Power, Acolyte of Chayula) sets it; without one, a third each: Purple a third is THE USER'S OBSERVATION FROM PLAY
+# (16 Nov ~21:10, relayed by the manager 21:16: "About a third"; MEDIUM; the game files give no weights), Red and Blue
+# splitting the other two thirds evenly (UNVERIFIED, LOW). Not a
 # hit against the boss, so its Leech resistance doesn't apply ("Leech from Hits against them"). Held under PoB's maximum
 # leech rate less the hit leech the build keeps (one cap for all Leech, a lower reading: "You can only recover from a
 # single instance of Life Leech at a time" is UNVERIFIED against PoB's several).
@@ -684,7 +686,9 @@ def flame_shares(texts: list[str]) -> tuple[dict[str, float], str]:
     if chosen:
         return ({c: 1.0 / len(chosen) if c in chosen else 0.0 for c in ("red", "blue", "purple")},
                 "all " + " / ".join(sorted(chosen)) + " (the build's 'All Flames of Chayula ... are' line)")
-    return {c: 1 / 3 for c in ("red", "blue", "purple")}, "a third each colour (no weights in the game files: UNVERIFIED, LOW)"
+    return {c: 1 / 3 for c in ("red", "blue", "purple")}, (
+        "a third Purple (the user's observation from play, 16 Nov: \"about a third\"; MEDIUM; no weights in the game "
+        "files), Red and Blue a third each (the other two thirds split evenly: UNVERIFIED, LOW)")
 
 
 def flame_income(income: Income, stats: dict, flames: float, gain: dict, texts: list[str], how: str) -> None:
@@ -1292,26 +1296,33 @@ def channel_cost_share(stats: dict, skill: str = "") -> tuple[float, float, str]
                          f"cooldown started {rest}; PoB counts it all fight (without this: 100%)")
 
 
-# Twister's hits on one boss per cast (MECHC33; RESEARCH28 R28-10, twister-hits-on-boss.md, the manager 16 Nov 10:56; the
-# manager's earlier ruling: no flat number, work it out from the twister's movement and area and the boss's radius).
+# Twister's hits on one boss per cast (MECHC33; RESEARCH28 R28-10, twister-hits-on-boss.md; MECHC35: the HEADLINE is the
+# twister-count reading since the USER's answer, 16 Nov ~21:10, relayed by the manager 21:16: "I don't use the twister
+# build, but I've seen other people play it and they can get a pretty huge number of twisters up that all bounce around
+# and definitely hit more than once. I think the real answer is 'it depends on the number of twisters'").
 # TwisterPlayer (game files): base_skill_effect_duration 3000, active_skill_base_area_of_effect_radius 5 (0.5 m),
 # twister_hit_interval_ms 660 ("Twisters fired at the same time can Hit the same target no more than once every 0.66
 # seconds": HIGH, shared by the group: MEDIUM-HIGH), projectile speed 7.5 m/s (poe2vault: MEDIUM). Cap k = floor(D /
-# 0.66) + 1. HEADLINE, an open arena: a straight pass overlaps the boss for 2 (R + r) / v, 0.2-0.4 s, under one window,
-# so 1 hit a cast, PoB's number (MEDIUM). The walled row (LOW, a named assumption: twisters bounce around a roam space of
-# a 6 m radius): hits = 1 + (k - 1)(1 - e^(-N x 2 rho x v x 0.66 / A)), rho = the twister's radius (PoB's
-# AreaOfEffectRadiusMetres, else 0.5 m x sqrt(area modifier)) + the boss's hit radius (bosses.hit_radius), v = 7.5 m/s x
-# PoB's ProjectileSpeedMod, N = PoB's ProjectileCount, D = PoB's Duration. Each hit rolls the build's on-hit lines (R26-45
-# (d), ASSUMED), so on-hit charge gains scale by the row's hits too (a row: the headline keeps 1). Twisters made by
-# Whirlwinds or Barrage repeats as separate groups: UNVERIFIED, not counted.
+# 0.66) + 1. HEADLINE (the user's observation, MEDIUM-LOW): the twisters bounce around a roam space A = pi x 6^2 m^2
+# (TWISTER_ROAM, LOW, RESEARCH28's named assumption: the one number neither the build nor the boss gives):
+# hits = 1 + (k - 1)(1 - e^(-N x 2 rho x v x 0.66 / A)), rho = the twister's radius (PoB's AreaOfEffectRadiusMetres,
+# else 0.5 m x sqrt(area modifier)) + the boss's hit radius (bosses.hit_radius), v = 7.5 m/s x PoB's ProjectileSpeedMod,
+# N = PoB's ProjectileCount (the twisters fired together, from the build), D = PoB's Duration. It rises with N, D, the
+# area and the speed and never passes k. LOWER ROW, an open arena: a straight pass overlaps the boss for 2 (R + r) / v,
+# 0.2-0.4 s, under one window, so 1 hit a cast (PoB's number: PoB maps neither the interval nor the duration to hits,
+# act_dex.lua TwisterPlayer). Assumptions.models scales the main skill's DPS by the headline (PoB scores one hit a use).
+# Each hit rolls the build's on-hit lines (R26-45 (d), ASSUMED), but the tool's on-hit readers (charges, ailment
+# buildup) read PoB's casts a second and stay at one hit a cast: an UNDERCOUNT for those, said in the note. Twisters made
+# by Whirlwinds or Barrage repeats as separate groups: UNVERIFIED, not counted.
 TWISTER = "Twister"
 TWISTER_FIELDS = ("ProjectileCount", "ProjectileSpeedMod", "Duration", "AreaOfEffectRadiusMetres", "AreaOfEffectMod")
 TWISTER_SPEED, TWISTER_RADIUS, TWISTER_INTERVAL, TWISTER_DURATION = 7.5, 0.5, 0.66, 3.0
-TWISTER_ROAM = 6.0  # metres: the walled row's roam space radius (LOW, RESEARCH28's named assumption)
+TWISTER_ROAM = 6.0  # metres: the roam space radius (LOW, RESEARCH28's named assumption)
 
 
 def twister_hits(stats: dict, boss_radius: float) -> tuple[float, float, str]:
-    """(hits on the boss a cast: headline 1, the walled row, how) from PoB's Twister outputs."""
+    """(hits on the boss a cast: the headline from the twister count, the open-arena row 1, how) from PoB's Twister
+    outputs."""
     duration = _num(stats.get("Duration")) or TWISTER_DURATION
     k = math.floor(duration / TWISTER_INTERVAL + 1e-9) + 1
     count = max(_num(stats.get("ProjectileCount")), 1.0)
@@ -1319,13 +1330,16 @@ def twister_hits(stats: dict, boss_radius: float) -> tuple[float, float, str]:
     own = _num(stats.get("AreaOfEffectRadiusMetres")) or TWISTER_RADIUS * math.sqrt(_num(stats.get("AreaOfEffectMod")) or 1.0)
     rho = own + max(boss_radius, 0.0)
     area = math.pi * TWISTER_ROAM ** 2
-    walled = 1 + (k - 1) * (1 - math.exp(-count * 2 * rho * speed * TWISTER_INTERVAL / area))
-    return 1.0, walled, (
-        f"1 hit a cast in an open arena (a pass crosses the boss in 2 x ({own:.2f} + {boss_radius:.2f}) m / {speed:.1f} "
-        f"m/s = {2 * rho / speed:.2f} s, under one {TWISTER_INTERVAL:g} s window: PoB's number, MEDIUM); in a walled arena "
-        f"(twisters bouncing in a {TWISTER_ROAM:g} m roam space: LOW, a named assumption) {walled:.2f} a cast, at most "
-        f"{k} ({duration:.2f} s / {TWISTER_INTERVAL:g} s + 1, shared by the {count:g} twister(s) of a cast); each hit rolls "
-        f"your on-hit lines (on-hit charges x{walled:.2f} in that row; ASSUMED)")
+    head = 1 + (k - 1) * (1 - math.exp(-count * 2 * rho * speed * TWISTER_INTERVAL / area))
+    return head, 1.0, (
+        f"{head:.2f} hits a cast from your {count:g} twister(s) fired together (the user's observation, 16 Nov: many "
+        f"twisters bounce around and hit more than once, \"it depends on the number of twisters\"; MEDIUM-LOW): "
+        f"1 + ({k} - 1) x (1 - e^(-{count:g} x 2 x {rho:.2f} m x {speed:.1f} m/s x {TWISTER_INTERVAL:g} s / "
+        f"{area:.0f} m^2)), at most {k} ({duration:.2f} s / {TWISTER_INTERVAL:g} s + 1, shared by the group: HIGH / "
+        f"MEDIUM-HIGH); the roam space a {TWISTER_ROAM:g} m radius (LOW, a named assumption); in an open arena 1 a cast "
+        f"(a pass crosses the boss in 2 x ({own:.2f} + {boss_radius:.2f}) m / {speed:.1f} m/s = {2 * rho / speed:.2f} s, "
+        f"under one {TWISTER_INTERVAL:g} s window: PoB's number). On-hit charges and ailment buildup still read one hit "
+        f"a cast (an UNDERCOUNT for those)")
 
 
 # Sprinting between boss attacks (MECHC34; RESEARCH26 R26-22, sprint-between-boss-attacks.md, ASSUMED MEDIUM for the
@@ -1431,3 +1445,175 @@ def sprint_row(texts: list[str], stats: dict, boss: str) -> dict | None:
             "play": (f"without it: you never sprint and the sprint lines do nothing; with it: sprint to each spot the "
                      f"boss moves to ({each:.2f} s, {share:.1%} of the fight off your main skill)"
                      + (f", gaining {'; '.join(gains)}" if gains else ""))}
+
+
+# Overencumbrance from your own dodge rolls (MECHC35; COV38's downside sweep, the manager 21:50 16 Nov). Ab Aeterno's
+# CURRENT variant (patch 0.5.0, the newest note: "no longer grant 10% less Movement and Skill Speed per Dodge Roll in the
+# past 20 seconds ... now has ... Gain Overencumbrance for 4 seconds when you Dodge Roll"; PoB's boots.lua 279-281 tags the
+# old line {variant:1,2}, and PoB equips the last variant by default, Item.lua 409 / 1794, so the old line never reaches a
+# league-obtainable item: nothing to model for it; checked: the stat unique_movement_speed_and_skill_speed_-%_final_per_
+# number_of_times_dodge_rolled_in_past_20_seconds is on one Mods row, UniqueSpeedPerDodgeRoll20Seconds1, and no passive,
+# stat set or Soul Core, game 26650308). PoB parses the Overencumbrance line to nothing (ModCache 7787: leftover text).
+# KeywordPopups Overencumbered: "Slows by 10%, reapplying this Debuff stacks and refreshes it's duration" (stat
+# overencumbered_action_speed_+%_final; the only Mods row granting it is UniqueOverencumbranceOnDodge1, checked over
+# Mods / PassiveSkills / stat sets by its stat ids). Rolls: the build's own pace (assumptions.ROLL_RELIANT's rule:
+# models.DODGE_EVERY for a build that relies on rolling, else models.PARRY_EVERY, one per telegraphed boss hit), the
+# Overencumbrance line itself not counted as a reason to roll. A pace of T >= 4 s keeps one stack up 4 / T of the time.
+# Faster than every 4 s the stacks refresh each other and grow with every roll, with no cap in the files we have
+# (UNVERIFIED: no buff table extracted): so the wearer plays to roll at most every 4 s (CLAUDE.md's play-strategy rule):
+# one stack all the time. x the build's "Slowing Potency of Debuffs on You" lines (PoB parses none, ModCache 1763 ...);
+# "Your speed is unaffected by Slows" (slows_have_no_potency_on_you, unconditional) cancels it. Into PoB as ActionSpeed INC (PoB's own slow path, which its
+# UnaffectedBySlows flag skips; the game's "final" and PoB's INC agree while no other Slow is on you: PoB sets none).
+OVERENCUMBRANCE = re.compile(r"^Gain Overencumbrance for (\d+(?:\.\d+)?) seconds? when you Dodge Roll$", re.I)
+OVERENCUMBERED_SLOW = 10.0  # % a stack (KeywordPopups Overencumbered: "Slows by 10%")
+SLOW_POTENCY = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) Slowing Potency of Debuffs on You$", re.I)
+NO_SLOW_POTENCY = re.compile(r"^Your speed is unaffected by Slows$", re.I)  # (slows_have_no_potency_on_you)
+
+
+def overencumbrance_slow(texts: list[str], reliant: bool) -> tuple[float, str]:
+    """(the average Slow on you, %, how) from "Gain Overencumbrance for N seconds when you Dodge Roll" at the build's own
+    roll pace (`reliant`: a build relying on rolling), 0 without the line."""
+    from builder.search import models
+
+    lines = [t.strip() for t in texts]
+    seconds = next((float(m.group(1)) for t in lines if (m := OVERENCUMBRANCE.match(t))), 0.0)
+    if seconds <= 0:
+        return 0.0, ""
+    if any(NO_SLOW_POTENCY.match(t) for t in lines):
+        return 0.0, "Overencumbrance on each dodge roll: no effect (your speed is unaffected by Slows)"
+    potency = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+                  for t in lines if (m := SLOW_POTENCY.match(t)))
+    every = models.DODGE_EVERY if reliant else models.PARRY_EVERY
+    played = max(every, seconds)
+    per_stack = OVERENCUMBERED_SLOW * max(1 + potency / 100, 0.0)
+    slow = per_stack * min(1.0, seconds / played)
+    pace = ("a roll every %g s (the build relies on rolling)" % every if reliant else
+            "a roll every %g s, one per telegraphed boss hit (the manager's ruling on PLANS2)" % every)
+    how = (f"Overencumbered ({OVERENCUMBERED_SLOW:g}% Slow a stack, {seconds:g} s, each roll stacks and refreshes it: "
+           f"KeywordPopups) at {pace}" + (
+               f"; faster than every {seconds:g} s the stacks would grow with each roll (no cap found: UNVERIFIED), so "
+               f"you roll at most every {seconds:g} s while wearing it" if every < seconds else "")
+           + f": one stack {min(1.0, seconds / played):.0%} of the time" + (
+               f", x{1 + potency / 100:.2f} Slowing Potency on you" if potency else "")
+           + f" = {slow:.1f}% less action speed on average (PoB applies none: without it 0%; never rolling: 0%)")
+    return slow, how
+
+
+# "You take (8-15)% of damage from Blocked Hits with a raised Shield" (MECHC35; COV38's downside sweep: the Ulaman shield
+# suffix AbyssModShieldUlamanSuffixLightningTakenAsPhysAndGlancingWhileActiveBlocking, PoB ModVeiled 199; PoB parses the
+# line to nothing, ModCache 9946: leftover text). A Block normally takes no damage; this line makes the hits you Block
+# with your shield raised deal the line's share. Only those: the share of your Blocks made with the shield raised is
+# t / (t + (1 - t) x b), t = the share of the fight the shield is raised (1 for a main skill that channels it all fight,
+# ACTIVE_BLOCK_CHANNELS: "you will Block all incoming Blockable hits"; Raise Shield taps: taps a second x
+# RAISED_TAP_SECONDS; else 0: the line does nothing), b = your ordinary Block chance (PoB's EffectiveBlockChance; a
+# raised shield Blocks every Blockable hit). Into PoB as its BlockEffect BASE (the same stat PoB gives "You take N% of
+# damage from Blocked Hits", ModCache 9947) at line x that share (an average: PoB's BlockEffect is one number).
+RAISED_BLOCK_TAKEN = re.compile(r"^You take (\d+(?:\.\d+)?)% of damage from Blocked Hits with a raised Shield$", re.I)
+
+
+def raised_block_taken(texts: list[str], raised: float, block: float) -> tuple[float, str]:
+    """(PoB BlockEffect BASE to add, how) for the raised-shield line: `raised` the share of the fight the shield is up,
+    `block` your ordinary Block chance (0-1); (0.0, "") without the line."""
+    taken = sum(float(m.group(1)) for t in texts if (m := RAISED_BLOCK_TAKEN.match(t.strip())))
+    if taken <= 0:
+        return 0.0, ""
+    raised = min(max(raised, 0.0), 1.0)
+    block = min(max(block, 0.0), 1.0)
+    share = raised / (raised + (1 - raised) * block) if raised > 0 else 0.0
+    if share <= 0:
+        return 0.0, (f"you take {taken:g}% of damage from Blocked Hits with a raised Shield, but the build never raises "
+                     "its shield (no channelled shield skill, no Raise Shield taps): 0")
+    return taken * share, (
+        f"you take {taken:g}% of damage from the hits you Block with your shield raised: the shield is up {raised:.0%} of "
+        f"the fight (Blocking every Blockable hit then) against your {block:.0%} Block chance otherwise, so {share:.0%} of "
+        f"your Blocks are raised: {taken * share:.1f}% of each Blocked hit on average (PoB's BlockEffect; without it: 0%)")
+
+
+# "Stunned Recently" lines (MECHC35; MECHC34's find: PoB's conditionStunnedRecently box and its multiplierStunnedRecently
+# count were never set). So PoB applied "N% increased Stun Threshold if you haven't been Stunned Recently" (ModCache 2037
+# / 2983 / 3378; the stat stun_threshold_+%_when_not_stunned_recently on 17 passives and two jewel mods) to EVERY build,
+# even one the boss Stuns (an OVERCOUNT), and never applied "... if you've been Stunned Recently"
+# (energy_shield_delay_-%_if_stunned_recently: "faster start of Energy Shield Recharge"; the Soul Core's
+# stun_threshold_+%_if_stunned_recently), Last Stand's "Attack Damage if you have been Heavy Stunned Recently"
+# (attack_damage_+%_if_been_heavy_stunned_recently; PoB maps Heavy to the same StunnedRecently condition, ModParser 1924)
+# or "Stun Threshold for each time you've been Stunned Recently" (per_number_of_times_stunned_recently): undercounts.
+# (checked: every Stats id holding stunned + recently / in_past / times_stunned in game 26650308 over Mods, PassiveSkills,
+# GrantedEffectStatSets and SoulCoreStats; PoB ModCache's eight lines and ModParser 1923-1925 / 2016.) Not through PoB's
+# box (one condition for both Light and Heavy, and the box's part-time weighing checks floors with it off): each line goes
+# on PoB as its own stat at its time-average, the condition stripped: x u for "if you've been", x -u for "if you haven't
+# been" (taking that share back off PoB's full bonus), x u_heavy for the Heavy-only line, x the expected count 4 s x r for
+# "for each time". u = 1 - e^(-4 s x r): r = the Light Stuns the boss's hits put on you at the DEFENCE cadence
+# (stuns_taken at PoB's enemySkillTime: the cautious side, the "haven't" bonus being the overcount; the real boss, not
+# gain_floor) plus the build's Heavy Stuns from a channelled raised shield (channel_stun_of); parries', Refutation's and
+# Raise Shield taps' Heavy Stuns aren't added (an undercount of u, said). "You cannot be Light Stunned if you've been
+# Stunned Recently" (shield35) holds the Light Stuns to r / (1 + 4 r) (4 s without one after each). PoB's StunThreshold
+# still holds the whole "haven't" bonus when r is read: one correction step re-reads r with that bonus at (1 - u)
+# (LOW: other Stun Threshold increases taken as absent from the scaling).
+STUNNED_RECENTLY = re.compile(r"^(\d+(?:\.\d+)?)% (.+?) (if you(?:'ve| have) been (heavy )?stunned recently|"
+                              r"if you haven't been stunned recently|for each time you(?:'ve| have) been stunned "
+                              r"recently)$", re.I)
+NO_LIGHT_AFTER_STUN = re.compile(r"^You cannot be Light Stunned if you've been Stunned Recently$", re.I)
+STUNNED_FIELDS = ("StunThreshold", "StunAvoidChance", "enemySkillTime", "EvadeChance", "EffectiveBlockChance",
+                  "DeflectChance", "DeflectEffect", "PhysicalTakenHit", "FireTakenHit", "ColdTakenHit",
+                  "LightningTakenHit", "ChaosTakenHit")
+
+
+def stunned_recently_lines(texts: list[str]) -> list[tuple[float, str, str]]:
+    """[(magnitude, the line's stat text written at 1, "have" / "heavy" / "havent" / "each")] of the build's lines."""
+    out = []
+    for t in texts:
+        if m := STUNNED_RECENTLY.match(t.strip()):
+            tail = m.group(3).lower()
+            kind = ("havent" if "haven't" in tail else "each" if tail.startswith("for each") else
+                    "heavy" if m.group(4) else "have")
+            out.append((float(m.group(1)), f"1% {m.group(2)}", kind))
+    return out
+
+
+def stunned_recently_mods(texts: list[str], stats: dict, heavy_rate: float) -> tuple[list[dict], str]:
+    """(PoB lines at their time-averages, how) for the build's "Stunned Recently" lines (the comment above); `stats` PoB's
+    STUNNED_FIELDS and "_boss"; `heavy_rate` the build's own Heavy Stuns a second."""
+    lines = stunned_recently_lines(texts)
+    if not lines:
+        return [], ""
+    from builder.search import boss_hits, models, objective  # (objective imports this module)
+
+    _, _, deflect = objective.boss_taken(stats)
+    landed = boss_hits.land_share(stats) / (_num(stats.get("enemySkillTime")) or 0.7)
+    weights = boss_hits.type_shares(boss_hits.boss_name(stats))
+    sizes = {t: max(_num(stats.get(f"{t}TakenHit")), 0.0) * deflect for t in objective.RECOVERY_DAMAGE_TYPES}
+    capped = any(NO_LIGHT_AFTER_STUN.match(t.strip()) for t in texts)
+    havent = sum(v for v, text, k in lines if k == "havent" and "stun threshold" in text.lower())
+    threshold = _num(stats.get("StunThreshold"))
+
+    def light_at(share: float) -> tuple[float, str]:
+        scaled = dict(stats)
+        if havent > 0 and threshold > 0:  # (the "haven't" bonus at its share of the fight not Stunned Recently)
+            scaled["StunThreshold"] = threshold * (100 + havent * (1 - share)) / (100 + havent)
+        rate, how = stuns_taken(scaled, sizes, weights, landed)
+        return (rate / (1 + RECENT_STUN_SECONDS * rate) if capped and rate > 0 else rate), how
+
+    def stunned(rate: float) -> float:
+        return 1 - math.exp(-RECENT_STUN_SECONDS * rate) if rate > 0 else 0.0
+
+    light, light_how = light_at(0.0)
+    share = stunned(light + heavy_rate)
+    if havent > 0:
+        light, light_how = light_at(share)
+        share = stunned(light + heavy_rate)
+    heavy = stunned(heavy_rate)
+    count = RECENT_STUN_SECONDS * (light + heavy_rate)
+    scales = {"have": share, "heavy": heavy, "havent": -share, "each": count}
+    rows = {"have": f"x {share:.0%} (Stunned Recently)", "heavy": f"x {heavy:.0%} (Heavy Stunned Recently)",
+            "havent": f"x {1 - share:.0%} (not Stunned Recently)", "each": f"x {count:.2f} Stuns in the past 4 s"}
+    mods, parts = [], []
+    for value, text, kind in lines:
+        if abs(scales[kind] * value) > 1e-9:
+            mods.append(models.line(text, scales[kind] * value))
+        parts.append(f"'{value:g}{text[1:]}' {rows[kind]}")
+    how = (f"Stunned Recently {share:.0%} of the fight: {light * 60:.1f} Light Stuns a minute at the boss's defence "
+           f"cadence ({light_how})" + (" (none for 4 s after each: your 'cannot be Light Stunned' line)" if capped else "")
+           + f" + {heavy_rate * 60:.1f} Heavy Stuns a minute from a raised-shield channel (parries, Refutation and Raise "
+           f"Shield taps not added: an undercount); 1 - e^(-4 s x the rate). " + "; ".join(parts)
+           + " (PoB's box was never set: the 'haven't' lines counted all fight, the others never; without this: so)")
+    return mods, how

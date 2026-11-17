@@ -171,7 +171,7 @@ RECOVERY_INPUTS = sorted({f for fields, cost in RECOVERY_POOLS.values() for f in
                          | {"EnergyShieldRecharge", "EnergyShieldRechargeDelay", "IgniteAvoidChance", "SelfIgniteDuration",
                             "AilmentThreshold", "Life"}  # (es_recharge, and the Ignites boss_hits.es_dot reads)
                          | {"LifeRecharge", "LifeRechargeDelay", "EnergyShield", "PhysicalTakenDotMult",
-                            "FireTakenDotMult"}  # (own_loss)
+                            "FireTakenDotMult", "ChaosTakenDotMult", "BleedAvoidChance"}  # (own_loss; es_dot)
                          | {f"{t}{f}" for t in RECOVERY_DAMAGE_TYPES for f in ("BuildDegen", "EnergyShieldBypass")}
                          | set(boss_hits.BIGGEST_FIELDS))  # (the biggest-hit row: Armour against a bigger hit)
 # (LIFE_RESERVED_SECONDS isn't a PoB field: Build.added_stats gives it)
@@ -254,28 +254,41 @@ SELF_DAMAGE = {"Physical": SELF_PER_SECOND, "Fire": SELF_FIRE_PER_SECOND}  # the
 # PoB, because "Damage from Bleeding bypasses Energy Shield" (KeywordPopups Bleeding) and PoB has no Life-only damage over
 # time (its Physical degen would let Energy Shield take it and stop ES Recharge). Counted as Life's own steady loss (it
 # stops Life Recharge, never ES Recharge) at PoB's PhysicalTakenDotMult, and as incoming in the recovery share.
+# (MECHC35) The Poison your own item's "+N% chance to be Poisoned" brings (boss_hits.self_ailments) the same way: "Damage
+# from Poison bypasses Energy Shield" (KeywordPopups Poison), Chaos damage over time at PoB's ChaosTakenDotMult.
 SELF_BLEED_PER_SECOND = "SelfBleedPerSecond"
+SELF_POISON_PER_SECOND = "SelfPoisonPerSecond"
 
 
 def self_bleed_taken(stats: dict) -> float:
-    """Life lost a second to the Bleed your own item inflicts on you (the comment above), after your DoT modifiers."""
-    raw = max(number(stats.get(SELF_BLEED_PER_SECOND)), 0.0)
-    if raw <= 0:
+    """Life lost a second to the Bleed and Poison your own items inflict on you (the comments above), after your DoT
+    modifiers."""
+    bleed = max(number(stats.get(SELF_BLEED_PER_SECOND)), 0.0)
+    poison = max(number(stats.get(SELF_POISON_PER_SECOND)), 0.0)
+    if bleed <= 0 and poison <= 0:
         return 0.0
-    return raw * (number(stats.get("PhysicalTakenDotMult")) if "PhysicalTakenDotMult" in stats else 1.0)
+    return (bleed * (number(stats.get("PhysicalTakenDotMult")) if "PhysicalTakenDotMult" in stats else 1.0)
+            + poison * (number(stats.get("ChaosTakenDotMult")) if "ChaosTakenDotMult" in stats else 1.0))
+
+
+# (MECHC35; COV38's sweep, an UNDERCOUNT) Decree of Loyalty's "Damage over Time cannot bypass your Energy Shield" (PoB
+# parses it to nothing): with Energy Shield, your own Bleed and Poison (which "bypass Energy Shield", KeywordPopups) and
+# your own damage over time land on Energy Shield instead of Life (no bypass for them), Build.added_stats' flag.
+DOT_HITS_ES = "DotCannotBypassEnergyShield"
 
 
 def own_loss(stats: dict) -> dict[str, float]:
     """The build's own steady loss per second on each pool ({"EnergyShield": ..., "Life": ...}), without the per-event
     Heartbound damage (own_events)."""
-    out = {"EnergyShield": 0.0, "Life": self_bleed_taken(stats)}
     es = number(stats.get("EnergyShield")) > 0
+    held = es and number(stats.get(DOT_HITS_ES)) > 0
+    out = {"EnergyShield": self_bleed_taken(stats) if held else 0.0, "Life": 0.0 if held else self_bleed_taken(stats)}
     for t in RECOVERY_DAMAGE_TYPES:
         degen = max(number(stats.get(f"{t}BuildDegen")), 0.0)
         if t in SELF_DAMAGE:
             dot = number(stats.get(f"{t}TakenDotMult")) if f"{t}TakenDotMult" in stats else 1.0
             degen = max(degen - max(number(stats.get(SELF_DAMAGE[t])), 0.0) * dot, 0.0)
-        bypass = min(max(number(stats.get(f"{t}EnergyShieldBypass")), 0.0), 100) / 100 if es else 1.0
+        bypass = (0.0 if held else min(max(number(stats.get(f"{t}EnergyShieldBypass")), 0.0), 100) / 100) if es else 1.0
         out["EnergyShield"] += degen * (1 - bypass)
         out["Life"] += degen * bypass
     return out
