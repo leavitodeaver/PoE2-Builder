@@ -101,3 +101,41 @@
             "scratch/gem17/probe_sets5.json (POE2T2190)"]
   test_in_game: "Optional: Elemental Sundering on a boss with no ailment: no damage."
   status: proposed
+
+- id: model-gem17-storm-lance-detonation
+  title: "Storm Lance: the Detonation volley only when another skill Detonates the spear (PoB scored it always)"
+  kind: model
+  model: detonated_set
+  stats: ["overcharged_spear_detonate_number_of_beams"]
+  skill: [Storm Lance]
+  confidence: MEDIUM-LOW
+  notes: >-
+    models.detonated_set_model (GEM17), hooked in Assumptions (detonator_rate). Game: ActiveSkills storm_lance "If the
+    Spear is Detonated by another Skill, it immediately unleashes a volley of bolts and expires"; 3 spears at once, 6 s
+    each. PoB scores Projectile, Lodged Spear and Detonation alone: probe POE2T2190 (no Detonator) kept Detonation at
+    107.1 vs 30.7 / 35.9 (an OVERCOUNT, x3). Share of spears detonated = min(1, Detonator uses/s x min(3, throws/s x
+    6 s) / throws/s), the Detonators the build's other groups with PoB's Detonator type at their press-share rates,
+    each use taken to reach every spear (UNVERIFIED); DPS = the best plain set + Detonation x share (the zaps a
+    detonation cuts short not taken off: labelled). The Frenzy-Charged self-detonation is its own gated set.
+  sources: ["builder/search/models.py (detonated_set_model)", "data/game-26650308/tables/ActiveSkills.json (storm_lance)",
+            "data/game-26650308/tables/GrantedEffectStatSets.json (StormLancePlayer)", "scratch/gem17/probe_sets5.json (POE2T2190)"]
+  test_in_game: "Optional: Storm Lance with and without a Detonator skill hitting its spear."
+  status: proposed
+
+- id: model-gem17-rapid-assault-explosion
+  title: "Rapid Assault: the spearhead Explosion only when a Detonator skill sets it off (PoB scored it always)"
+  kind: model
+  model: detonated_set
+  stats: ["rapid_assault_attached_spear_limit"]
+  skill: [Rapid Assault]
+  confidence: MEDIUM-LOW
+  notes: >-
+    models.detonated_set_model (GEM17). Game: ActiveSkills rapid_assault "The final stab inflicts Bleeding and leaves a
+    spearhead stuck in the target ... Detonator Skills will cause the stuck spearheads to explode"; up to 5 spearheads,
+    30 s each. PoB scores Normal Strikes, Final Strike and Explosion alone: probe POE2T2190 (no Detonator) kept Explosion
+    at 80.2 vs 31.9 / 7.6 (an OVERCOUNT, x2.5). Share of spearheads exploded = min(1, Detonator uses/s x min(5, uses/s x
+    30 s) / uses/s); DPS = the best plain set + Explosion x share.
+  sources: ["builder/search/models.py (detonated_set_model)", "data/game-26650308/tables/ActiveSkills.json (rapid_assault)",
+            "data/game-26650308/tables/GrantedEffectStatSets.json (RapidAssaultFinalHitPlayer)", "scratch/gem17/probe_sets5.json (POE2T2190)"]
+  test_in_game: "Optional: Rapid Assault's spearheads with and without a Detonator skill."
+  status: proposed

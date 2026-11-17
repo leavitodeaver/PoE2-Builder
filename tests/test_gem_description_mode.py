@@ -795,3 +795,30 @@ def test_snipe_and_sundering_need_ailments_on_the_boss(skill, sets, scored, up, 
     assert notes[0]["entry"] == models.AILMENT_SETS[skill] and "Without" in notes[0]["play"]
     assert models.ailment_set_model(Skill(skill, 1), scored, sets, up, "", {models.AILMENT_SETS[skill]}) == ([], [])
 
+
+LANCE_SETS = [{"label": "Projectile", "TotalDPS": 30.7}, {"label": "Frenzy-Charged", "TotalDPS": 143.4},
+              {"label": "Lodged Spear", "TotalDPS": 35.9}, {"label": "Detonation", "TotalDPS": 107.1}]
+
+
+@pytest.mark.parametrize("scored, uses, detonations, factor", [
+    ("Detonation", 1.0, 0.0, 35.9 / 107.1 * 0.9),         # (probe POE2T2190: no Detonator, steered to the plain set)
+    ("Lodged Spear", 1.0, 0.0, None),                       # PoB's number
+    ("Lodged Spear", 1.0, 0.1, (35.9 + 107.1 * 0.3) / 35.9),  # 3 spears lying, a Detonator every 10 s: 30%
+    ("Detonation", 1.0, 1.0, (35.9 + 107.1) / 107.1),        # every spear detonated: plain + detonation
+])
+def test_storm_lances_detonation_needs_a_detonator(scored, uses, detonations, factor):
+    mods, notes = models.detonated_set_model(Skill("Storm Lance", 1, attack=True), scored, LANCE_SETS, uses, detonations,
+                                             "test")
+    more = [m["value"] for m in mods if m["name"] in ("DPS", "Damage")]
+    assert (1 + more[0] / 100 if more else None) == (pytest.approx(factor, rel=1e-4) if factor else None)
+    assert all(m["name"] == ("Damage" if scored == "Detonation" and not detonations else "DPS") for m in mods)
+    assert notes[0]["entry"] == "model-gem17-storm-lance-detonation" and "Without one" in notes[0]["play"]
+    assert models.detonated_set_model(Skill("Storm Lance", 1), "Frenzy-Charged", LANCE_SETS, uses, detonations, "") == ([], [])
+
+
+def test_detonated_share_counts_the_spears_lying_there():
+    assert models.detonated_share("Rapid Assault", 1.0, 0.1) == pytest.approx(0.5)  # 5 spearheads x 0.1/s over 1 use/s
+    assert models.detonated_share("Rapid Assault", 0.1, 0.05) == 1.0  # 3 lying (0.1/s x 30 s), 0.15/s >= 0.1/s
+    assert models.detonated_share("Storm Lance", 0.1, 0.05) == pytest.approx(0.3)  # 0.6 spears lying x 0.05 / 0.1
+    assert models.detonated_share("Storm Lance", 1.0, 0.0) == 0.0
+

@@ -2089,6 +2089,12 @@ class Assumptions:
             up, up_how = models.ailment_up_of(build)
             ail_mods, ail_notes = models.ailment_set_model(main, main.stat_set, sets, up, up_how, forbidden)
             hand_mods, hand_notes = hand_mods + ail_mods, hand_notes + ail_notes
+        if main is not None and group and main.name in models.DETONATED_SETS:  # (GEM17: detonations need a Detonator)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            det_rate, det_how = self.detonator_rate(group["index"])
+            det_mods, det_notes = models.detonated_set_model(main, main.stat_set, sets, number(stats.get("Speed")),
+                                                             det_rate, det_how, forbidden)
+            hand_mods, hand_notes = hand_mods + det_mods, hand_notes + det_notes
         side_mods, side_notes = self.multi_set_side(main)  # (MECH-B, MECHB16: Rolling Slam in a Full DPS group)
         hand_mods, hand_notes = hand_mods + side_mods, hand_notes + side_notes
         cap_mods, cap_notes = self.main_cap(group, name)  # (MECH-B: the press hook on the main skill, MECHB5)
@@ -4742,6 +4748,27 @@ class Assumptions:
         return share, (f"{how}: {paid:.3f} attacks a second paid ({per_use:g} charges each, 10% of "
                        f"{number(flask.get('chargesMax')):g}) of {main}'s {speed:.2f}: {share:.1%} of its attacks deal "
                        "the added damage")
+
+    def detonator_rate(self, main_index: int) -> tuple[float, str]:
+        """(uses a second, how) of the build's Detonator skills outside the main group (GEM17, models.detonated_set_model):
+        each enabled group holding a gem of PoB's "Detonator" skill type (as conditions' Oil lighters) at its useRates
+        speed x the search's press share for it (PoB's rate when no share is chosen, said)."""
+        build = self.build
+        gems = build.ctx.gems
+        indices = [g["index"] for g in build.groups() if g.get("enabled", True) and g["index"] != main_index
+                   and any(conditions_mod.DETONATOR in ((gems.get(x["name"]) or {}).get("skillTypes") or ())
+                           for x in g.get("gems") or [] if x.get("enabled", True))]
+        if not indices:
+            return 0.0, "no Detonator skill in the build"
+        press = getattr(build.objective, "press_scales", None) or {}
+        rate, parts = 0.0, []
+        for row in build.call("useRates", indices=indices)["rates"]:
+            share = press.get(row.get("name"))
+            r = max(0.0, number(row.get("speed")) * (number(share) if share is not None else 1.0))
+            rate += r
+            parts.append(f"{row.get('name')} {r:.2f}/s" + (f" (pressed {number(share):.0%})" if share is not None
+                                                           else " (PoB's rate: no press share chosen)"))
+        return rate, "Detonators: " + "; ".join(parts)
 
     def gated_set_share(self, skill: str, texts: list[str], main_types: set[str]) -> tuple[float, str]:
         """(share, how) of a models.GATED_SETS skill's uses its resource covers (GEM17): Furious Slam's Rage from the

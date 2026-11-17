@@ -6618,6 +6618,79 @@ def ailment_set_model(main: Skill | None, scored: str | None, sets: list[dict], 
         "play": play}]
 
 
+# Parts set off only by another skill's Detonation (GEM17; OVERCOUNTS: PoB scores each set alone and the search kept the
+# detonation with no Detonator in the build; probe POE2T2190, level-90 searches):
+# - Storm Lance: "Throw an electrified Spear that lodges in the ground and periodically zaps nearby enemies with Lightning
+#   bolts. If the Spear is Detonated by another Skill, it immediately unleashes a volley of bolts and expires"
+#   (ActiveSkills storm_lance, 26650308); StormLancePlayer: base_skill_effect_duration 6000,
+#   base_number_of_overcharged_spears_allowed 3, overcharged_spear_detonate_number_of_beams 16. The probe kept
+#   "Detonation" 107.1 vs "Projectile" 30.7 / "Lodged Spear" 35.9. Its Frenzy-Charged self-detonation is the
+#   "Frenzy-Charged" set, gated already (conditions.STAT_SET_NEEDS useFrenzyCharges).
+# - Rapid Assault: "The final stab ... leaves a spearhead stuck in the target ... Detonator Skills will cause the stuck
+#   spearheads to explode" (ActiveSkills rapid_assault); RapidAssaultFinalHitPlayer: rapid_assault_attached_spear_limit
+#   5, base_skill_effect_duration 30000. The probe kept "Explosion" 80.2 vs "Final Strike" 31.9 / "Normal Strikes" 7.6.
+# Spears detonated a second = min(the main skill's uses a second, Detonator uses a second x the spears lying there),
+# the spears lying there min(the limit, uses a second x their duration) (each Detonator use taken to set off all of
+# them: MEDIUM, UNVERIFIED for Storm Lance's spears in the ground around the boss); share s = that / uses. Detonator
+# uses: the build's other groups whose gems carry PoB's "Detonator" skill type (as conditions' Oil lighters), each at
+# its group's rate x the search's press share (Assumptions.detonator_rate), every use taken to reach the spears (LOW).
+# DPS = the best plain set (PoB's) + the detonation set x s: the detonation adds to a use (for Storm Lance it also ends
+# the spear's remaining zaps early: not taken off, a small overcount where s > 0, labelled). A detonation set scored with
+# no Detonator gets the plain set x FIRESTORM_BOLTS_MARGIN so the search keeps it. MEDIUM-LOW.
+DETONATED_SETS = {
+    "Storm Lance": (("Projectile", "Lodged Spear"), "Detonation", 3, 6.0, "model-gem17-storm-lance-detonation"),
+    "Rapid Assault": (("Normal Strikes", "Final Strike"), "Explosion", 5, 30.0, "model-gem17-rapid-assault-explosion"),
+}
+
+
+def detonated_share(skill: str, uses: float, detonations: float) -> float:
+    """The share of a DETONATED_SETS skill's spears another skill detonates (see above)."""
+    _, _, limit, seconds, _ = DETONATED_SETS[skill]
+    if uses <= 0 or detonations <= 0:
+        return 0.0
+    lying = min(float(limit), uses * seconds)
+    return min(1.0, detonations * lying / uses)
+
+
+def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict], uses: float, detonations: float,
+                        how: str, forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Storm Lance's / Rapid Assault's use with the detonations the build's Detonators give (see above): `sets` the
+    bridge's setRates, `uses` the main skill's uses a second, `detonations` the build's Detonator uses a second."""
+    if main is None or main.name not in DETONATED_SETS:
+        return [], []
+    plain_labels, det_label, _, _, entry = DETONATED_SETS[main.name]
+    if entry in forbidden:
+        return [], []
+    dps = {s.get("label"): number(s.get("TotalDPS")) for s in sets}
+    if scored not in plain_labels + (det_label,) or dps.get(scored, 0.0) <= 0:
+        return [], []
+    plain_label = max(plain_labels, key=lambda k: dps.get(k, 0.0))
+    plain, det = dps.get(plain_label, 0.0), dps.get(det_label, 0.0)
+    if plain <= 0:
+        return [], []
+    s = detonated_share(main.name, number(uses), number(detonations))
+    total = plain + det * s
+    factor = total / dps[scored]
+    steer = scored == det_label and s <= 0
+    if steer:
+        factor *= FIRESTORM_BOLTS_MARGIN  # (steer the search to the plain set)
+    # (steered: "Damage" rather than "DPS", so the ailments PoB derives from the detonation's hit shrink with it: probe
+    # POE2T2199, Rapid Assault's Explosion set kept its Bleed under a DPS line and stayed the search's choice)
+    mods = ([raw_mod("Damage" if steer else "DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9
+            else [])
+    return mods, [{
+        "label": f"{main.name}: its {det_label} needs another skill to Detonate it*", "value": f"x{factor:.3f}",
+        "confidence": "MEDIUM-LOW", "entry": entry,
+        "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; {plain_label} {plain:,.0f}, {det_label} "
+                  f"{det:,.0f}). The game sets the {det_label} off only when a Detonator skill hits the spears: {s:.0%} of "
+                  f"them ({how}), so {plain_label} + {det_label} x {s:.0%} = {total:,.0f} DPS"
+                  + (f"; with none, the {det_label} set is kept 10% under the {plain_label} so the search keeps it"
+                     if steer else "")),
+        "play": (f"Hit {main.name}'s spears with a Detonator skill (Detonating Arrow, Explosive Spear, a grenade, ...) to "
+                 f"set off the {det_label}. Without one: {plain:,.0f}; with this build's: {total:,.0f}; every spear: "
+                 f"{plain + det:,.0f}.")}]
+
+
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
 # "Hit damage is taken from Mana before Life if your current Mana is higher than your current Life" (poe2db): counted as
 # 100% Mind over Matter while the build's unreserved Mana is above its Life, both pools full (the manager's ruling,
