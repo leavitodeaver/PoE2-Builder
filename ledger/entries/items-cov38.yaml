@@ -66,3 +66,19 @@
     notable's line (a passive row this entry closes).
   sources: [builder/search/conditions.py (CHARGES_KEPT, charges_kept_chance, the charge count at 972)]
   status: proposed
+
+- id: model-read-life-on-mana-flask-use
+  title: '"Recover N% of maximum Life when you use a Mana Flask" (recovery.mana_flask_income)'
+  kind: pob_gap
+  model: recovery
+  match: '^Recover (\(\d+-\d+\)|\d+(?:\.\d+)?)% of maximum Life when you use a Mana Flask$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.MANA_FLASK_LIFE / mana_flask_income (MECHC33, 80fe7876 / a21c8dc8 on main, train 67; COV37's find), called
+    from assumptions.py's recovery income: N% of maximum Life at each use of the equipped Mana flask, at
+    flasks.uses_per_second's rate for it (its charges, capped at the dips below full Mana), 0 with no Mana flask. PoB
+    ignores the line. The Waters of Life notable's line (a passive row this entry also closes) and
+    RecoverLifeInstantlyOnManaFlaskUnique__1. (COV38, the manager 15:24.)
+  sources: [builder/search/recovery.py (MANA_FLASK_LIFE, mana_flask_income), builder/search/assumptions.py]
+  status: proposed

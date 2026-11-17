@@ -585,6 +585,11 @@ def test_item_lines_a_model_reads_count_as_the_models():
         "Shocks you when you reach maximum Power Charges": "model-read-shocks-you-on-maximum-charges",
         "25% chance to be inflicted with Bleeding when Hit": "model-read-inflicted-with-bleeding-when-hit",
         "Skills have (10-15)% chance to not remove Charges but still count as consuming them": "model-read-charges-not-removed",
+        # (COV38, the manager 15:24 for MECH82: Beetlebite's line, once a no-effect entry; R26-34, MECH82's model)
+        "Aggravate Bleeding on Enemies when they Enter your Presence": "model-read-presence-aggravate",
+        # (COV38, the manager 15:24 for MECHC33: read at the Mana flask's uses since train 67)
+        "Recover (8-10)% of maximum Life when you use a Mana Flask": "model-read-life-on-mana-flask-use",
+        "Recover 2% of maximum Life when you use a Mana Flask": "model-read-life-on-mana-flask-use",
     }
     from builder.search import boss_hits, conditions, models
     assert models.CW_SPELL_CRIT.match("Critical Hits with Spells apply 2 Stack of Critical Weakness")

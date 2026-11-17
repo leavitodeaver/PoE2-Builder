@@ -198,13 +198,21 @@
   absorbed_by: "builder/search/usage.py combo_rotation adds the chance to each Combo gain of the build's Strikes (COVC8, from bridge sourceLines), so a Combo skill's use rate rises with it. Per-use effects are NOT counted: PoB counts Combo at 0, since nothing sets its Configuration count multiplierCombo (checked: grep of builder/ and engine/ for multiplierCombo / ComboStacks, nothing; RESEARCH10 #18ac), so Culmination's more damage per Combo, Combo Finisher's per Combo, Vruun's area per stack and Power Charges per Combo spent all count 0 (an UNDERCOUNT, for MECH-B's Combo model: set multiplierCombo from the Combo per use)"
   status: approved
 
-- id: no-effect-presence-aggravate
-  title: Aggravate Bleeding when enemies enter your Presence (a boss enters once, before it bleeds)
+- id: model-read-presence-aggravate
+  title: 'Beetlebite''s "Aggravate Bleeding on Enemies when they Enter your Presence" (models.BEETLEBITE, the boss re-entering your Presence)'
   kind: pob_gap
+  model: aggravate
   match: '^Aggravate Bleeding on Enemies when they Enter your Presence$'
   replace: []
-  confidence: reported
-  sources: ["https://poe2db.tw/us/Aggravated_Bleeding"]
+  confidence: theory
+  notes: >-
+    Was no-effect-presence-aggravate ("a boss enters once, before it bleeds"); RESEARCH26 R26-34 (presence-enter-aggravate-r26.md; RESEARCH8
+    presence-enter-aggravate.md) contradicts that: each re-entry Aggravates the live Bleeds (ASSUMED MEDIUM). Since MECH82
+    models.BEETLEBITE / presence_reentries counts it (assumptions.py 1831-1838): the boss re-enters your Presence once
+    every 2 x DODGE_EVERY s when the build's own dodge roll carries you out of it and back, 0 when you fight outside your
+    Presence or the roll can't leave it; each entry Aggravates every live Bleed (aggravated_share). PoB ignores the line;
+    the empty replace adds nothing. (COV38, the manager 15:24 for MECH82.)
+  sources: ["https://poe2db.tw/us/Aggravated_Bleeding", builder/search/models.py (BEETLEBITE, presence_reentries), scratch/manager/research/presence-enter-aggravate.md, scratch/manager/research/presence-enter-aggravate-r26.md]
   status: approved
 
 - id: no-effect-adapt
