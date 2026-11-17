@@ -11701,8 +11701,9 @@ def offering_placement_notes(skills: list[Skill]) -> list[dict]:
 # each set's per-cast damage PoB's (setRates TotalDPS / Speed: one dart, one explosion, one chunk), against the scored
 # set's, as DPS "more" on the main skill.
 # - h, darts on the boss a cast: 1 (KeywordPopups Projectile: "only one Projectile in the group can hit each target
-#   unless otherwise specified"; the text says the darts "launch towards the target" and no more: UNVERIFIED whether
-#   all hit, the note's row counts all of PoB's ProjectileCount).
+#   unless otherwise specified"; Frost Darts carries no projectiles_can_shotgun, which six skills carry and nothing
+#   grants; PoB scores one too; the guides' "all darts" counts are their writers' arithmetic, not tests: MEDIUM,
+#   RESEARCH29 R29-1, research/frost-darts-shotgun.md; the note's row still counts all of PoB's ProjectileCount).
 # - chilled: the boss Chilled or Frozen. Frost Darts never Chills (never_freeze_or_chill), so from the build's Chilled
 #   Ground (MECH-A's chilled_ground_up) and its Freeze uptime, taken as independent; other skills' Chills not counted (an
 #   undercount, labelled). No source: 0.
@@ -11763,8 +11764,8 @@ def frost_darts_model(main: str | None, scored: str | None, sets: list[dict], pr
                       f"({infused_how}): its explosion ({blast:,.0f}) and {FROST_CHUNKS_AN_EXPLOSION} more chunks; each "
                       f"chunk ({chunk:,.0f}) lands on the boss {q:.0%} of the time (a {radius:g} m boss; 0.5-1.7 m from "
                       f"the hit, 0.8 m radius): {each:,.0f} a cast against PoB's {scored} set alone ({per[scored]:,.0f}). "
-                      f"Rows: if all {every:g} darts hit the boss, x{factor * every:.3f} (RESEARCH28 R28-7: the files' group rule vs "
-                      f"players' reports, unsettled); chunks spread evenly over the ring's area, {q_area:.0%} land: "
+                      f"Rows: if all {every:g} darts hit the boss, x{factor * every:.3f} (not the reading: RESEARCH29 R29-1, MEDIUM: "
+                      f"one projectile of a group per target, and Frost Darts can't shotgun); chunks spread evenly over the ring's area, {q_area:.0%} land: "
                       f"x{each_area / per[scored]:.3f} (R28-8). Other skills' "
                       "Chills not counted"),
             "play": (f"Frost Darts' chunks need a Chilled boss (Chilled Ground, or another skill that Chills) and its "
