@@ -942,7 +942,11 @@ def djinn_commands(build: Build, main: models.Skill | None) -> tuple[float, list
     minion_main = main is not None and bool(set(build.ctx.gems.get(main.name, {}).get("skillTypes") or ()) & {"Minion"})
     player = 0.0 if minion_main else per_second(build.call("stats", fields=HUNT_FIELDS))
     chilled = (getattr(build, "chilled_ground_up", None) or (0.0, ""))[0]
-    dps, mods, notes, presses = models.djinn_commands_model(rows, player, chilled)
+    from builder.search import bosses  # (as Assumptions' boss readers import it)
+
+    boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+    radius = bosses.hit_radius({"_boss": boss})  # (MECH84: Brutality's blades on the boss, RESEARCH29 R29-3)
+    dps, mods, notes, presses = models.djinn_commands_model(rows, player, chilled, radius)
     held = getattr(build, models.ITEM_PRESSES, None)
     if isinstance(held, dict):  # (each Command a press: the button cap counts it, models.ITEM_PRESSES)
         held.update(presses)

@@ -8204,13 +8204,18 @@ def ground_life_ignite_model(found: list | None, fire_resist: float, own_ignite:
 #   - one use per cooldown (PoB's minion Cooldown with the build's recovery; GrantedEffectsPerLevel 26650308: Brutality
 #     5 s (2 uses), Deception 5 s (3 uses), Judgment 12 s, Trap 8 s, Reckoning 12 s, Fury 7 s, Zealotry 4 s, Fracturing
 #     5 s; Brand none), each a press under the button cap (Assumptions' item_presses), each costing the main skill the
-#     Command's 0.4 s cast (CommandSandDjinn*Player CastTime 400; whether a Command stops your skill is UNVERIFIED, the
-#     safe side, as Eternal Hunt); a net loss isn't pressed (0);
-#   - hits per use, the lower readings (LOW, rows with the higher): Brutality one knife's Eruption of its 12
-#     (djinn_knife_throw_number_of_knives_created 12, 3 m eruptions spread at the target: how many reach one boss is
-#     UNVERIFIED); Deception one blast, x its sequence bonus (below); Judgment one shockwave at full channel (4 stages,
+#     Command's 0.4 s cast (CommandSandDjinn*Player CastTime 400; a Command stops your skill for that cast: RESEARCH29
+#     R29-3, MEDIUM); a net loss isn't pressed (0);
+#   - hits per use (MECH84, from RESEARCH29 R29-3, research/djinn-command-hits.md): Brutality's 12 erupting blades
+#     ("Creates erupting blades within 3 metre radius", "Eruption radius is 1 metre"), spread evenly over the 3 m circle:
+#     12 x ((1 + r) / 3)^2 reach a boss of hit radius r (bosses.hit_radius: 2.3 at the worst-case 0.3 m, 5.3 at 1 m;
+#     MEDIUM-LOW, was 1, an UNDERCOUNT); Deception's blast plus, on a use while the last clone lives, the clone's
+#     explosion ("using it again while a clone from a previous use is still alive causes that clone to explode, dealing
+#     even more damage"; its own stat set, PoB's "Hidden", set 2: HIGH that it hits), both x its sequence bonus (below;
+#     the bonus on the clone's explosion LOW-MEDIUM, the row without it); Judgment one shockwave at full channel (4 stages,
 #     +125% more per stage after the first: x4.75; the channel's time costs the main skill, 4 x 0.5 s); Reckoning its
-#     Emergence and its Fire Wave (two hits); Fury one ember's explosion of its 2 x 20 (UNVERIFIED how many hit);
+#     Emergence and its Fire Wave (two hits); Fury's 2 volleys of 20 embers, one ember a volley on one boss (the
+#     projectile rule Frost Darts follows): 2 explosions a use (MEDIUM-LOW, was 1; all 40 a row);
 #     Zealotry one strike per cooldown while you use damaging skills (Barya of Ruzhan's ascendancy_enable_fire_djinn_
 #     passive); Brand one brand per its 3 s detonation (3 allowed: up to one a second, pressed: LOW); Trap 0 on a boss
 #     that doesn't walk onto the runes (labelled); Fracturing only with the boss on Chilled Ground (chilled_ground's
@@ -8237,7 +8242,7 @@ class DjinnCommand:
 
 DJINN_COMMANDS = (
     DjinnCommand("Kelari's Brutality", DJINNS["Kelari"], "KnifeThrowSandDjinn", (2,), False, 5.0),
-    DjinnCommand("Kelari's Deception", DJINNS["Kelari"], "ExplosiveTeleportSandDjinn", (1,), True, 5.0),
+    DjinnCommand("Kelari's Deception", DJINNS["Kelari"], "ExplosiveTeleportSandDjinn", (1, 2), True, 5.0),
     DjinnCommand("Kelari's Judgment", DJINNS["Kelari"], "HandSlamSandDjinn", (1,), True, 12.0),
     DjinnCommand("Ruzhan's Brand", DJINNS["Ruzhan"], "LivingBombFireDjinn", (1,), False, 0.0),
     DjinnCommand("Ruzhan's Trap", DJINNS["Ruzhan"], "FireRuneFireDjinn", (3,), True, 8.0),
@@ -8249,6 +8254,8 @@ DJINN_COMMANDS = (
 DJINN_COMMAND_CAST = 0.4  # s (Command*DjinnPlayer CastTime 400)
 KNIVES = 12  # djinn_knife_throw_number_of_knives_created
 EMBERS = 40  # two volleys of base_number_of_projectiles 20
+EMBER_VOLLEYS = 2  # one ember a volley reaches one boss (RESEARCH29 R29-3)
+BLADE_SPREAD, BLADE_RADIUS = 3.0, 1.0  # m: blades within 3 m, each eruption 1 m (RESEARCH29 R29-3)
 JUDGMENT_STAGES, JUDGMENT_PER_STAGE, JUDGMENT_STAGE_SECONDS = 4, 1.25, 0.5  # 4 stages, +125% more each after the first
 DECEPTION_PER, DECEPTION_CAP, DECEPTION_CLONE, DECEPTION_USES = 0.5, 3.0, 4.0, 3  # +50% a use, at most +300%, 4 s, 3 uses
 BRAND_DETONATION, BRAND_LIMIT = 3.0, 3  # base_skill_detonation_time 3000, living_bomb_base_number_of_bombs_allowed 3
@@ -8259,6 +8266,20 @@ def djinn_commands_available(djinns: set[str], texts: list[str]) -> list[DjinnCo
     """The Commands the build has: each djinn's own (Brutality / Brand / Zealotry) and the granted ones (see the note)."""
     granted = {m.group(1).strip() for t in texts if (m := GRANTS_SKILL.match(t.strip()))}
     return [c for c in DJINN_COMMANDS if c.djinn in djinns and (not c.granted or c.name in granted)]
+
+
+def blades_on_boss(radius: float) -> float:
+    """Kelari's Brutality's erupting blades that reach a boss of hit radius `radius` (m): 12 spread evenly over the 3 m
+    circle, each 1 m, so those within 1 + r of its centre (RESEARCH29 R29-3)."""
+    return KNIVES * min(1.0, ((BLADE_RADIUS + max(radius, 0.0)) / BLADE_SPREAD) ** 2)
+
+
+def clone_explosions(cooldown: float, clone: float = DECEPTION_CLONE, uses: int = DECEPTION_USES) -> float:
+    """Kelari's Deception's clone explosions a use: every use with the cooldown within the clone's life; else, with the
+    stored uses spent together, all but the first of each burst (the last clone runs out unexploded)."""
+    if cooldown <= clone:
+        return 1.0
+    return max(uses - 1, 0) / max(uses, 1)
 
 
 def deception_factor(cooldown: float, clone: float = DECEPTION_CLONE, uses: int = DECEPTION_USES) -> tuple[float, str]:
@@ -8273,11 +8294,13 @@ def deception_factor(cooldown: float, clone: float = DECEPTION_CLONE, uses: int 
                   f"x{mean:.2f} a use (x1 if used one at a time)")
 
 
-def djinn_commands_model(rows: list[tuple[DjinnCommand, dict]], player_dps: float, chilled: float = 0.0
+def djinn_commands_model(rows: list[tuple[DjinnCommand, dict]], player_dps: float, chilled: float = 0.0,
+                         radius: tuple[float, str] = (0.3, "the worst-case 0.3 m")
                          ) -> tuple[float, list[dict], list[dict], dict]:
     """(added DPS, mods, notes, presses {Command: (uses a second, how)}) for the djinn Commands. `rows`: each Command
     the build has with {stat set: the bridge's minionSkillHit with it}; `player_dps`: the main skill's DPS a press's
-    0.4 s costs (0 for a minion main skill); `chilled`: the share of the fight the boss stands on your Chilled Ground."""
+    0.4 s costs (0 for a minion main skill); `chilled`: the share of the fight the boss stands on your Chilled Ground;
+    `radius`: the scored boss's hit radius (bosses.hit_radius), for Brutality's blades."""
     total, notes, presses = 0.0, [], {}
     for command, hits in rows:
         label = f"{command.name} (a djinn Command, added to the boss DPS)*"
@@ -8291,11 +8314,22 @@ def djinn_commands_model(rows: list[tuple[DjinnCommand, dict]], player_dps: floa
         factor, how, more = 1.0, "", ""
         cost = DJINN_COMMAND_CAST if command.pressed else 0.0
         if command.skill == "KnifeThrowSandDjinn":
-            how = f"one knife's Eruption of its {KNIVES} (how many reach one boss: UNVERIFIED, the lower reading)"
-            more = f"; all {KNIVES} knives: {KNIVES * each / max(cooldown, 0.1):,.1f} DPS"
+            factor = blades_on_boss(radius[0])
+            how = (f"{factor:.1f} of its {KNIVES} blades' 1 m eruptions reach the boss (spread evenly over 3 m; "
+                   f"{radius[1]}; RESEARCH29 R29-3, MEDIUM-LOW)")
+            more = f"; all {KNIVES} blades: {KNIVES * each / max(cooldown, 0.1):,.1f} DPS"
         elif command.skill == "ExplosiveTeleportSandDjinn":
-            factor, how = deception_factor(cooldown)
-            how = f"one blast a use (its clone's own explosion not counted: the lower reading), {how}"
+            blast = number(hits.get(1, {}).get("AverageDamage")) or number(hits.get(1, {}).get("AverageHit"))
+            clone = number(hits.get(2, {}).get("AverageDamage")) or number(hits.get(2, {}).get("AverageHit"))
+            seq, seq_how = deception_factor(cooldown)
+            booms = clone_explosions(cooldown)
+            each = blast + clone * booms
+            factor = seq
+            how = (f"its blast {blast:,.0f} + the clone's explosion {clone:,.0f} (PoB's \"Hidden\" set) x {booms:.2f} a use "
+                   f"(a use while the last clone lives explodes it: RESEARCH29 R29-3, HIGH), both {seq_how}")
+            more = (f"; the sequence bonus on the blast only: "
+                    f"{(blast * seq + clone * booms) / max(cooldown, 0.1):,.1f} DPS before the cast cost"
+                    + ("" if clone > 0 else "; PoB gave the clone's set no hit (0, labelled)"))
         elif command.skill == "HandSlamSandDjinn":
             factor = 1 + JUDGMENT_PER_STAGE * (JUDGMENT_STAGES - 1)
             cost += JUDGMENT_STAGES * JUDGMENT_STAGE_SECONDS
@@ -8314,7 +8348,9 @@ def djinn_commands_model(rows: list[tuple[DjinnCommand, dict]], player_dps: floa
         elif command.skill == "MeteorFireDjinn":
             how = "its Emergence and its Fire Wave, one hit each"
         elif command.skill == "MassFusilladeFireDjinn":
-            how = f"one ember's explosion of its {EMBERS} (how many hit one boss: UNVERIFIED, the lower reading)"
+            factor = float(EMBER_VOLLEYS)
+            how = (f"one ember of each of its {EMBER_VOLLEYS} volleys on the boss, of {EMBERS} (RESEARCH29 R29-3, "
+                   "MEDIUM-LOW)")
             more = f"; all {EMBERS}: {EMBERS * each / max(cooldown, 0.1):,.1f} DPS"
         elif command.skill == "FlameSliceFireDjinn":
             how = "one strike a cooldown while you use damaging skills (Barya of Ruzhan's passive; no press)"
@@ -8327,8 +8363,8 @@ def djinn_commands_model(rows: list[tuple[DjinnCommand, dict]], player_dps: floa
         basis = (f"{command.name}: {each:,.0f} a use's hit (PoB's {command.djinn.split(',')[0]} with it chosen), {how}; "
                  f"one use every {every:.3g} s (its cooldown with your recovery"
                  + (", a press under the button cap" if command.pressed else "")
-                 + f"), less {lost:,.1f} DPS for your {cost:g} s of it ({player_dps:,.0f} main-skill DPS; whether a "
-                   f"Command stops your skill: UNVERIFIED): {dps:,.1f} DPS{more}")
+                 + f"), less {lost:,.1f} DPS for your {cost:g} s of it ({player_dps:,.0f} main-skill DPS; a Command "
+                   f"stops your skill for its cast: RESEARCH29 R29-3, MEDIUM): {dps:,.1f} DPS{more}")
         if dps <= 0:
             basis += "; a net loss, so not used (0)"
             dps = 0.0

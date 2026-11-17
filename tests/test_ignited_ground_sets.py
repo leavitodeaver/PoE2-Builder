@@ -1023,7 +1023,7 @@ def test_each_djinn_command_adds_its_hit_a_cooldown_less_the_presses_time():
             (by["Ruzhan's Trap"], {3: {"AverageDamage": 9999.0, "Cooldown": 8.0}}),
             (by["Navira's Fracturing"], {1: {"AverageDamage": 5000.0, "Cooldown": 5.0}})]
     dps, mods, notes, presses = models.djinn_commands_model(rows, 500.0, chilled=0.0)
-    brutality = 1000 / 5 - 500 * 0.4 / 5
+    brutality = 1000 * 12 * (1.3 / 3) ** 2 / 5 - 500 * 0.4 / 5  # (MECH84, R29-3: the blades on a 0.3 m boss)
     reckoning = 6000 / 12 - 500 * 0.4 / 12
     zealotry = 400 / 4  # (no press: no cost)
     assert dps == pytest.approx(brutality + reckoning + zealotry)
@@ -1035,6 +1035,26 @@ def test_each_djinn_command_adds_its_hit_a_cooldown_less_the_presses_time():
     # a net loss isn't pressed
     weak = models.djinn_commands_model([(by["Kelari's Brutality"], {2: {"AverageDamage": 10.0, "Cooldown": 5.0}})], 500.0)
     assert weak[0] == 0.0 and weak[3] == {}
+
+
+def test_djinn_hits_per_use_follow_research29():
+    """MECH84 (RESEARCH29 R29-3): Brutality's blades from the boss's radius, Fury's one ember a volley (2), Deception's
+    blast plus the clone's explosion on a chained use, both under the sequence bonus."""
+    from builder.search import models
+
+    assert models.blades_on_boss(0.3) == pytest.approx(12 * (1.3 / 3) ** 2)
+    assert models.blades_on_boss(1.0) == pytest.approx(12 * (2 / 3) ** 2) and models.blades_on_boss(5.0) == 12
+    by = {c.name: c for c in models.DJINN_COMMANDS}
+    fury = models.djinn_commands_model([(by["Ruzhan's Fury"], {2: {"AverageDamage": 700.0, "Cooldown": 7.0}})], 0.0)
+    assert fury[0] == pytest.approx(2 * 700 / 7)
+    assert by["Kelari's Deception"].sets == (1, 2)
+    chained = models.djinn_commands_model(
+        [(by["Kelari's Deception"], {1: {"AverageDamage": 1000.0, "Cooldown": 4.0}, 2: {"AverageDamage": 300.0}})], 0.0)
+    assert chained[0] == pytest.approx((1000 + 300) * 4.0 / 4.0)  # (within the clone's life: every use explodes one)
+    burst = models.djinn_commands_model(
+        [(by["Kelari's Deception"], {1: {"AverageDamage": 1000.0, "Cooldown": 5.0}, 2: {"AverageDamage": 300.0}})], 0.0)
+    assert burst[0] == pytest.approx((1000 + 300 * 2 / 3) * 1.5 / 5.0)
+    assert models.clone_explosions(5.0) == pytest.approx(2 / 3) and models.clone_explosions(3.0) == 1.0
 
 
 def test_explosive_spears_frenzy_charged_throws_make_ignited_ground_at_their_rate():
@@ -1069,6 +1089,8 @@ def test_kelaris_commands_add_damage_on_a_real_disciple_build(engine):
     second = build.call("minionSkillHit", index=group["index"], active=n, skill="KnifeThrowSandDjinn", statSet=2)
     print("PROBE knives", first, second)
     assert second.get("statSet") == 2 and first.get("statSet") == 1
+    clone = build.call("minionSkillHit", index=group["index"], active=n, skill="ExplosiveTeleportSandDjinn", statSet=2)
+    print("PROBE deception clone", clone)  # (MECH84: the clone's explosion set, R29-3)
     dps, mods, notes = amod.djinn_commands(build, None)
     print("PROBE djinn", dps, notes)
     labels = " ".join(n["label"] for n in notes)
