@@ -3353,3 +3353,128 @@ def test_twister_hits_on_the_boss_rise_with_its_twisters(engine):
     assert many_seen["ProjectileCount"] > one_seen["ProjectileCount"]
     assert 1 < head_one < head_many <= k and "open arena: 1" in many_note["value"]
     assert many and many[0]["value"] == pytest.approx((head_many - 1) * 100, abs=0.1)
+
+
+def test_your_curses_reflected_back_to_you_curse_you_through_pobs_own_path(engine):
+    """MECH84 (COV38's downside sweep, an OVERCOUNT): Atziri's Allure on Enfeeble puts Enfeeble on you too (PoB parses
+    no reflection): bridge.cursesInflicted names it, supported; conditions.reflected_curse_mods turns it into PoB's
+    ExtraCurse applyToPlayer, and Enfeeble's less damage then lowers your own hit."""
+    from builder.search import conditions as cmod
+
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.set_group(gems=[{"name": "Enfeeble", "level": 10, "quality": 0},
+                          {"name": "Atziri's Allure", "level": 1, "quality": 0}])
+    curses = build.call("cursesInflicted")["curses"]
+    print("PROBE curses", curses)
+    enfeeble = next(c for c in curses if c["name"] == "Enfeeble")
+    assert enfeeble["atziri"] and enfeeble["skillId"] == "EnfeeblePlayer" and enfeeble["more"] < 1  # (20% less)
+    mods, how = cmod.reflected_curse_mods([], curses)
+    assert mods and mods[0]["name"] == "ExtraCurse" and "Atziri's Allure" in how
+    assert cmod.reflected_curse_mods([], [{**enfeeble, "atziri": False}]) == ([], "")
+    assert cmod.reflected_curse_mods(["Curses you inflict are reflected back to you"],
+                                     [{**enfeeble, "atziri": False}])[0]
+    fields = ["AverageHit", "TotalDPS"]
+    plain = build.call("setAssumptions", mods=[], fields=fields)["stats"]
+    cursed = build.call("setAssumptions", mods=mods, fields=fields)["stats"]
+    print("PROBE hit", plain, cursed)
+    assert cursed["AverageHit"] < plain["AverageHit"] * 0.99
+    # the lower row: without carrying your curse-effect modifiers, the 20% less of Atziri's isn't on you, so more
+    bare = build.call("setAssumptions", mods=mods[:1], fields=fields)["stats"]
+    print("PROBE bare", bare)
+    assert cursed["AverageHit"] > bare["AverageHit"]
+    build.call("setAssumptions", mods=[], fields=[])
+
+
+def test_your_hits_cannot_stun_zeroes_heavy_and_light_stuns(engine):
+    """MECH84 (COV38's downside sweep, an OVERCOUNT): "Your Hits cannot Stun enemies" (PoB parses nothing) zeroes PoB's
+    Heavy Stun buildup through its own CannotHeavyStun flag, and the bridge's Flag:CannotStun stops Light Stuns."""
+    from builder.search import conditions as cmod
+
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    mods, how = cmod.cannot_stun_mods(["Your Hits cannot Stun enemies"])
+    assert len(mods) == 2 and "never Heavy Stunned" in how
+    assert cmod.cannot_stun_mods(["Your Hits cannot be Evaded"]) == ([], "")
+    fields = ["HeavyStunBuildupAvg", "Flag:CannotStun"]
+    plain = build.call("setAssumptions", mods=[], fields=fields)["stats"]
+    barred = build.call("setAssumptions", mods=mods, fields=fields)["stats"]
+    print("PROBE stun", plain, barred)
+    assert plain["Flag:CannotStun"] is False and barred["Flag:CannotStun"] is True
+    assert plain["HeavyStunBuildupAvg"] > 0 and barred["HeavyStunBuildupAvg"] == 0
+    assert models.light_stun_rate({**barred, "Speed": 2, "LightningHitAverage": 10 ** 9})[0] == 0
+    assert models.heavy_stun_rate({**plain, "Flag:CannotStun": True})[0] == 0
+    build.call("setAssumptions", mods=[], fields=[])
+
+
+def test_thorns_hits_build_up_the_boss_bars_from_pobs_thorns_group(engine, monkeypatch):
+    """MECH84 (PATCH_CHECK L4-2): PoB's Thorns group's useRates row carries its own buildup, and Conditions._thorns_fill
+    turns MECH-B's Thorns hits a second (models.thorns_procs, stood in for here) into a Heavy Stun fill."""
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.call("equip", slot="Amulet", raw="\n".join(["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82",
+                                                      "Implicits: 0", "150 to 250 Physical Thorns damage"]),
+               fields=[])
+    group = next(g for g in build.groups() if g["fromItem"] and g["label"] == models.THORNS_GROUP and g["gems"])
+    row = build.call("useRates", indices=[group["index"]])["rates"][0]
+    print("PROBE thorns row", {k: v for k, v in row.items() if "Buildup" in k or "HitAverage" in k})
+    assert row.get("HeavyStunBuildupAvg", 0) > 0
+    stats = build.call("stats", fields=models.MODEL_FIELDS)
+    monkeypatch.setattr(models, "thorns_procs", lambda r, texts, s, main: (1.0, "stand-in"), raising=False)
+    fill = search.conditions._thorns_fill([], stats)
+    print("PROBE fill", fill)
+    assert fill.get("HeavyStun", 0) > 0 and "stand-in" in fill["how"]
+    monkeypatch.delattr(models, "thorns_procs")
+    assert search.conditions._thorns_fill([], stats) == {}
+
+
+def test_burning_inscription_rates_its_ground_from_the_casts_it_supports(engine):
+    """MECH84: Burning Inscription on Enfeeble: one Inscription a cast, rated from Enfeeble's group (or the chosen rate,
+    else 0), and ignited_ground counts its 4 s ground."""
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.set_group(gems=[{"name": "Enfeeble", "level": 10, "quality": 0},
+                          {"name": "Burning Inscription", "level": 1, "quality": 0}])
+    groups = [g for g in build.call("groups")["groups"] if g.get("enabled") is not False]
+    stats = build.call("stats", fields=models.MODEL_FIELDS)
+    rate, how = search.conditions._inscriptions(groups, stats)
+    print("PROBE inscriptions", rate, how)
+    assert rate >= 0 and ("Enfeeble" in how or rate == 0)
+    makers = search.conditions._ignited_makers([], stats)
+    assert "Burning Inscription" in makers
+
+
+def test_a_second_chill_slows_the_boss_again_when_chills_can_stack(engine):
+    """MECH84 (probe POE2T4043): with "Targets can be affected by two of your Chills at the same time", PoB's box slows a
+    Chilled boss once whatever the stacks; the bridge's boss-slow wrapper adds the second Chill as its own Slow, so two
+    stacks slow it more than one, and without the line the stacks change nothing."""
+    payload = make_payload(BuildRequest(main_skill="Frostbolt", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Frostbolt"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+
+    def skill_time(lines: list[str], stacks: int) -> float:
+        build.call("equip", slot="Amulet", raw="\n".join(["Rarity: Rare", "Test Amulet", "Gold Amulet",
+                                                          "Item Level: 82", "Implicits: 0", *lines]), fields=[])
+        build.set_config({"conditionEnemyChilled": True, "conditionEnemyChilledEffect": 30, "ChillStacks": stacks})
+        return build.call("stats", fields=["enemySkillTime"])["enemySkillTime"]
+
+    two = ["Targets can be affected by two of your Chills at the same time"]
+    plain1, plain2 = skill_time([], 1), skill_time([], 2)
+    one, both = skill_time(two, 1), skill_time(two, 2)
+    print("PROBE chill", plain1, plain2, one, both)
+    assert plain1 == pytest.approx(plain2) and one == pytest.approx(plain1)
+    assert both > one * 1.1

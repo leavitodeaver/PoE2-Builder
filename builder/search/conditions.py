@@ -2471,6 +2471,86 @@ def overcharge_taken_mods(build, main_skill: str) -> tuple[list[dict], str]:
             + f"), {extra:+g}% against PoB's {POB_SELF_SHOCK:g}% box, applied only while you are Shocked")
 
 
+# Your curses on you (MECH84; COV38's downside sweep, an OVERCOUNT: PoB parses neither source, so the build kept its
+# curses' benefit on the boss and paid nothing). Game files 26650308: stat curses_reflected_to_self, "[Curse|Curses] you
+# inflict are reflected back to you" (stat_descriptions), on Mods UniqueReflectCurseToSelf1 (Shackles of the Wretched)
+# and HandWrapsUniqueReflectCurseToSelf1 (a hand-wraps line), and in SupportAtzirisAllurePlayer's implicit stats beside
+# curse_ignores_curse_limit (PoB's sup_int.lua: "Supports Curse Spells you cast yourself, causing those Curses to ignore
+# the usual Curse Limit, but be reflected back to you when inflicted"; PoB maps its 20% less Curse effect and
+# curse_ignores_curse_limit (SkillStatMap 1720), not curses_reflected_to_self).
+# (checked: every table row naming the stat: those two Mods and the support; reflect_curses / map_*_curses_are_reflected
+# are other stats (Curse Reflection: monsters' and maps'); PoB ModCache 7068 / 9903 hold the item line as leftover text
+# only, and no PoB module reads curses_reflected_to_self; patch notes: 0.4.0 Atziri's Allure 20% less (was 25%), 0.5.0
+# Shackles of the Wretched's rolls changed, no entry removing the reflection.) Model: each player curse PoB puts on the
+# boss (bridge.cursesInflicted: its curse slots; a Mark isn't a Curse, checked: KeywordPopups Mark: "Marks are a family of
+# Debuffs", Curse its own entry; PoB's isMark keeps them apart; poe2db not checked) that the item line covers (all of them) or Atziri's Allure
+# supports goes on you through PoB's own "You are Cursed with" path (an ExtraCurse with applyToPlayer, CalcPerform
+# 2957-2987: the curse skill at its level, your "effect of Curses on you" and AvoidCurse applied, PoB's Cursed condition
+# set). The reflected curse is taken as the curse you inflict: your own curse-effect modifiers for it (INC CurseEffect,
+# MORE CurseEffect x Magnitude, Atziri's 20% less among them) go in as CurseEffectOnSelf for that skill, added to your
+# "effect of Curses on you" as PoB adds the boss's (CalcPerform 2503); the boss's 50% less (Unique) doesn't apply to you
+# (KeywordPopups Curse: "50% less Curse effect on Unique monsters"; you aren't one). MEDIUM: that the reflected copy
+# carries your curse-effect modifiers is UNVERIFIED (the lower row: your own "effect of Curses on you" only); gem quality
+# isn't carried (PoB's path builds the curse at quality 0); it lasts while the curse is on the boss: models.curse_model's
+# uptime scale ("more Effect of your Curses" for that skill) is in the MORE carried over, so a curse up half the fight
+# reflects at half effect, the same averaging as on the boss. Enfeeble on you is less damage dealt and Temporal Chains a slow (PoB applies both through the curse's own mods);
+# the elemental / chaos curses lower your resistances (the defence floors see it).
+CURSE_REFLECT = re.compile(r"^curses you inflict are reflected back to you$", re.I)
+ATZIRIS_ALLURE = "Atziri's Allure"
+
+
+def reflected_curse_mods(texts: list[str], curses: list[dict]) -> tuple[list[dict], str]:
+    """(mods, how) putting your reflected curses on you (see the note above). `curses`: bridge.cursesInflicted's list."""
+    every = any(CURSE_REFLECT.match(t.strip()) for t in texts)
+    mods, parts = [], []
+    for curse in curses:
+        if not (every or curse.get("atziri")):
+            continue
+        name = str(curse.get("name") or "")
+        if not name or not curse.get("skillId"):
+            continue
+        inc, more = number(curse.get("inc")), number(curse.get("more", 1.0))
+        mods.append({"kind": "Raw", "name": "ExtraCurse", "type": "LIST",
+                     "value": {"skillId": curse["skillId"], "level": int(number(curse.get("level")) or 1),
+                               "applyToPlayer": True}})
+        if inc:
+            mods.append(models.raw_mod("CurseEffectOnSelf", "INC", inc, skill=name))
+        if more > 0 and abs(more - 1.0) > 1e-9:
+            mods.append(models.raw_mod("CurseEffectOnSelf", "MORE", (more - 1.0) * 100, skill=name))
+        why = "Atziri's Allure" if curse.get("atziri") else "Curses you inflict are reflected back to you"
+        parts.append(f"{name} (level {int(number(curse.get('level')) or 1)}, your {inc:+g}% / x{more:.2f} curse effect; "
+                     f"{why})")
+    if not parts:
+        return [], ""
+    return mods, ("on you as well as the boss: " + "; ".join(parts) + ". Through PoB's \"You are Cursed with\" path, "
+                  "with your \"effect of Curses on you\"; without the reflection the build would keep the curse's "
+                  "benefit for free. The lower row: your own curse-effect modifiers not carried (UNVERIFIED which)")
+
+
+# "Your Hits cannot Stun enemies" (MECH84; COV38's downside sweep, an OVERCOUNT: PoB parses it as leftover text only,
+# ModCache 9975, so the build's Heavy Stuns and Light Stuns of the boss still counted). Game files 26650308: stat
+# cannot_stun, "Your [Hit|Hits] cannot [Stun] enemies" (stat_descriptions), on Mods HandWrapsUniqueCannotImmobilise1;
+# the other rows naming it are monster skills' stat sets (checked: every table field naming the stat: that one item Mod
+# plus ~80 GrantedEffectStatSets ImplicitStats of monster skills; PoB's ModCache holds the line once, 9975;
+# poe2db not checked). KeywordPopups Stun: "There are two types of Stun:
+# Light Stuns ... Heavy Stuns", so both stop. PoB's own flags: CannotHeavyStun zeroes HeavyStunBuildupAvg (CalcOffence
+# 5584-5588: "Cannot"..ailment), which models.heavy_stun_rate reads, and CannotStun, which PoB reads nowhere (checked:
+# grep over PoB's Modules) and the bridge's "Flag:CannotStun" stat hands to models.light_stun_rate. Freeze, Electrocute,
+# Pin and Daze aren't Stuns and keep their buildup. Read as all your skills' hits (totems' too, as PoB's flag does: LOW
+# for a totem's hits); minions' hits aren't yours.
+CANNOT_STUN = re.compile(r"^your hits cannot stun enemies$", re.I)
+
+
+def cannot_stun_mods(texts: list[str]) -> tuple[list[dict], str]:
+    """(mods, how) for "Your Hits cannot Stun enemies" (see the note above)."""
+    if not any(CANNOT_STUN.match(t.strip()) for t in texts):
+        return [], ""
+    return ([models.raw_mod("CannotHeavyStun", "FLAG", 1), models.raw_mod("CannotStun", "FLAG", 1)],
+            "Your Hits cannot Stun enemies: the boss is never Heavy Stunned or Light Stunned by your hits (PoB's "
+            "CannotHeavyStun zeroes the Heavy Stun buildup; Light Stuns read the flag); its \"when you Stun\" and "
+            "\"against Heavy Stunned enemies\" lines count nothing")
+
+
 def debuff_uptime(var: str) -> Callable[[list[str], dict], tuple[object, str]]:
     def uptime(lines: list[str], stats: dict) -> tuple[object, str]:
         main_types = stats.get("_main_types") or set()
@@ -4446,15 +4526,33 @@ def chilled_ground(stats: dict, texts: list[str], main_gems: set[str]) -> tuple[
 #     throws a second: the Frenzy Charges the build makes shared over its Frenzy consumers by uses (_charges_held's
 #     charge flow, MECH-C's), at most the spear's own throws; the ground made at the boss (the spear exploding on its
 #     impact, LOW), its own Ignite damage not read (as Incinerate's);
-#   - NOT counted yet (an UNDERCOUNT, labelled in the row): Spear of Solaris's skybeam ground, Burning Inscription (the
-#     support's runes).
+#   - counted (MECH84): Spear of Solaris's skybeam (ActiveSkills spear_of_solaris: "On landing the spear deals heavy
+#     damage in an area, then calls a divine skybeam that pulses periodically and creates expanding Ignited Ground"), at
+#     its uses a second, the ones its Glory pays for (models.glory_uses, MECH-C's / GEM15's Glory plan); the ground taken
+#     to last the skybeam's 20 pulses 0.2 s apart, 4 s (SpearOfSolarisPulsePlayer solaris_spear_number_of_pulses 20,
+#     solaris_spear_pulse_delay_ms 200; no ground duration stat in its stat sets: LOW), at the boss (the spear is thrown
+#     at the target, LOW); its own Ignite stays PoB's "Ignited Ground" set (a search choice, MECH79's note);
+#   - counted (MECH84): Burning Inscription (SupportBurningRunesPlayer, PoB: "Supports any Skill which creates Runic
+#     Inscriptions when Cast, causing those Runic Inscriptions to trigger Burning Inscription when they expire. Burning
+#     Inscription is a Spell which creates Ignited Ground based off of your Maximum Mana"; it supports curses, Bone Blast
+#     and Profane Ritual, PoB's requireSkillTypes AppliesCurse / CreatesGroundRune; KeywordPopups RunicInscription:
+#     "Certain Skills which create Areas of Effect on the ground create Runic Inscriptions"): one ground per cast of a
+#     supported skill (one Inscription each, triggered when it expires: the delay doesn't change the rate), lasting
+#     TriggeredBurningRunesPlayer's base_skill_effect_duration 4 s (duration modifiers not read), radius 2 m, made where
+#     the skill was cast, at the boss (a curse is cast on it, LOW). Its own Ignite (20% of maximum Mana, PoB's
+#     IgniteFireHitDamage on the triggered skill) is PoB's triggered skill's: not added here (no double count; whether
+#     the triggered skill reaches Full DPS at the casts' rate is MECH-B's trigger-rate item).
 IGNITED_GROUND_RADIUS = 2.0  # m (KeywordPopups IgnitedGround's default)
-IGNITED_GROUND_MAKERS = {"Incinerate": 8.0, "Ball Lightning": 4.0, "Explosive Spear": 8.0}  # s, the charged uses' ground
+SPEAR_OF_SOLARIS, BURNING_INSCRIPTION = "Spear of Solaris", "Burning Inscription"
+IGNITED_GROUND_MAKERS = {"Incinerate": 8.0, "Ball Lightning": 4.0, "Explosive Spear": 8.0,  # s, the charged uses' ground
+                         SPEAR_OF_SOLARIS: 4.0, BURNING_INSCRIPTION: 4.0}
 EXPLOSIVE_SPEAR = "Explosive Spear"
-MAKER_USES = {EXPLOSIVE_SPEAR: "Frenzy-Charged throws"}  # (else "Fire-Infused casts")
+INFUSED_MAKERS = ("Incinerate", "Ball Lightning")  # (the ones a Fire Infusion gates)
+MAKER_USES = {EXPLOSIVE_SPEAR: "Frenzy-Charged throws", SPEAR_OF_SOLARIS: "uses its Glory pays for",
+              BURNING_INSCRIPTION: "supported casts' Inscriptions"}  # (else "Fire-Infused casts")
 IGNITED_ON_USE = re.compile(r"Creates Ignited Ground for (\d+) seconds when used", re.I)
 IGNITED_WHILE_MOVING = re.compile(r"Drop Ignited Ground while moving, which lasts (\d+) seconds", re.I)
-IGNITED_NOT_COUNTED = "Spear of Solaris's and Burning Inscription's ground not counted yet"
+IGNITED_NOT_COUNTED = "each ground's duration modifiers not read"
 
 
 def ignited_ground(makers: dict[str, tuple[float, str]], texts: list[str], stats: dict,
@@ -5154,9 +5252,9 @@ def shock_share(stats: dict) -> float:
 # spaced hits (MEDIUM); the box is 2 for that share and 1 the rest (PoB floors a Multiplier: the uptime weighting, with
 # the Shocked box's own share). With a cap above 2, the mean E[min(N, k) | N >= 1] is spread the same way. Not counted
 # (the lower reading): other groups' and Shocked Ground's Shocks as the second one; a consumed Shock stays at 1. PoB's
-# Chill stacking adds its slow only in its breakdown pass (CalcPerform 3213-3217: the ActionSpeed mod sits inside "if
-# breakdown"), so in the tool's calculations a stacking Chill sets CurrentChill (num x stacks, the "per Chill effect"
-# lines) but no boss slow at all (a PoB bug, UNVERIFIED by probe: a defence UNDERCOUNT for Heavy Snows builds, noted).
+# Chill stacking adds its stacked slow only in its breakdown pass (CalcPerform 3281-3287), but the "Is the enemy
+# Chilled?" box adds one Chill row of its own, so the boss was slowed by one Chill, not none (MECH84's probe POE2T4043
+# refuted MECH83's "no boss slow at all"); the second Chill's Slow is added in the bridge's boss-slow wrapper (MECH84).
 STACKS_TWO = re.compile(r"^Targets can be affected by two of your (Shocks|Chills) at the same time$", re.I)
 STACKS_UP_TO = re.compile(r"^You can apply up to (\d+) (Shocks|Chills) to each Enemy$", re.I)
 
@@ -6190,7 +6288,11 @@ class Conditions:
         out = {}
         if EXPLOSIVE_SPEAR in names:  # (MECH83: its Frenzy-Charged throws, from the Frenzy Charges the build makes)
             out[EXPLOSIVE_SPEAR] = self._frenzy_charged(lines, stats)
-        if not names & (set(IGNITED_GROUND_MAKERS) - {EXPLOSIVE_SPEAR}):
+        if SPEAR_OF_SOLARIS in names:  # (MECH84: its uses its Glory pays for)
+            out[SPEAR_OF_SOLARIS] = self._solaris_uses(lines)
+        if BURNING_INSCRIPTION in names:  # (MECH84: one Inscription a cast of each skill it supports)
+            out[BURNING_INSCRIPTION] = self._inscriptions(groups, stats)
+        if not names & set(INFUSED_MAKERS):
             return out
         fire = {n for n in names if "Fire" in INFUSION_CONSUMERS.get(n, ())}
         others = self._group_uses(groups, fire - {self.main_skill})
@@ -6199,12 +6301,57 @@ class Conditions:
         supply, made = self._infusion_supply(lines)
         have = supply["Fire"] + supply["Any"]
         total = sum(uses.values())
-        for name in sorted(names & (set(IGNITED_GROUND_MAKERS) - {EXPLOSIVE_SPEAR})):
+        for name in sorted(names & set(INFUSED_MAKERS)):
             rate = min(uses[name], have * uses[name] / total) if total > 0 else 0.0
             out[name] = (rate, f"{rate:.2f} of its {uses[name]:.2f} casts/s Fire-Infused: {have:.2f} Fire Infusions/s "
                                f"from {', '.join(made) or 'nothing'}"
                                + (f", shared with {', '.join(sorted(fire - {name}))}" if fire - {name} else ""))
         return out
+
+    def _thorns_fill(self, texts: list[str], stats: dict) -> dict:
+        """models.thorns_fills for the build's Thorns hits (MECH84, PATCH_CHECK L4-2): PoB's Thorns group's useRates row
+        and MECH-B's models.thorns_procs (its hits a second); {} without Thorns damage or until thorns_procs is on main."""
+        group = next((g for g in self.build.groups() if g.get("fromItem") and g.get("label") == models.THORNS_GROUP
+                      and g.get("gems")), None)
+        procs_of = getattr(models, "thorns_procs", None)
+        if group is None or procs_of is None:
+            return {}
+        row = next(iter(self.build.call("useRates", indices=[group["index"]]).get("rates") or []), None)
+        if not row or models.thorns_hit(row) <= 0:
+            return {}
+        found = [models.Skill.of(s) for s in self.build.call("activeSkills")["skills"] if not s["disabled"]]
+        main_group = self.build.main_group()
+        main = next((s for s in found if main_group and s.group == main_group["index"] and s.name == self.main_skill),
+                    None)
+        procs, how = procs_of(row, texts, {**stats, **self.build.call("stats", fields=models.THORNS_FIELDS)}, main)
+        return models.thorns_fills(row, number(procs), how)
+
+    def _solaris_uses(self, lines: list) -> tuple[float, str]:
+        """(Spear of Solaris's uses a second, how) (MECH84, ignited_ground): the uses its Glory pays for
+        (models.glory_uses), as _banner_share reads a banner's."""
+        found = [models.Skill.of(s) for s in self.build.call("activeSkills")["skills"] if not s["disabled"]]
+        group = self.build.main_group()
+        main = next((s for s in found if group and s.group == group["index"] and s.name == self.main_skill), None)
+        texts = [line["text"] if isinstance(line, dict) else line for line in lines]
+        uses, how = models.glory_uses([SPEAR_OF_SOLARIS], self.build.call("stats", fields=models.MODEL_FIELDS),
+                                      main, found, texts)
+        return uses, f"{uses:.3f} uses/s ({how})"
+
+    def _inscriptions(self, groups: list[dict], stats: dict) -> tuple[float, str]:
+        """(Burning Inscriptions a second, how) (MECH84, ignited_ground): the casts of the active skills in each enabled
+        group Burning Inscription supports (the main skill at its speed, another at its group's rate, else the chosen
+        rate, else 0)."""
+        gems = self.build.ctx.gems
+        held = {n["name"] for g in groups
+                if any(x.get("enabled", True) and x["name"] == BURNING_INSCRIPTION for x in g.get("gems") or [])
+                for n in g.get("gems") or [] if n.get("enabled", True) and not (gems.get(n["name"]) or {}).get("support")}
+        others = self._group_uses(groups, held - {self.main_skill})
+        rates = {n: number(stats.get("Speed")) if n == self.main_skill else others.get(n, self._chosen_use(n))
+                 for n in sorted(held)}
+        total = sum(rates.values())
+        if total <= 0:
+            return 0.0, "no cast of a skill it supports is rated: 0"
+        return total, ", ".join(f"{n} {r:.2f}/s" for n, r in rates.items()) + " (one Inscription a cast)"
 
     def _frenzy_charged(self, lines: list, stats: dict) -> tuple[float, str]:
         """(Explosive Spear's Frenzy-Charged throws a second, how) (MECH83, ignited_ground): the Frenzy Charges consumed
@@ -6816,8 +6963,7 @@ class Conditions:
             stats["_compound"] = self._compounding(stats, stats.get("_incinerate_fuel"))
         ground_pieces: list = []  # (MECH80: each source, for ground_ignite once the other groups' Ignites are known)
         stats["_ignited_ground"] = ignited_ground(
-            self._ignited_makers(lines, stats) if (set(gem_types) | {self.main_skill}) & set(IGNITED_GROUND_MAKERS)
-            else {}, texts, stats, self._ignited_charms(lines), ground_pieces)
+            self._ignited_makers(lines, stats), texts, stats, self._ignited_charms(lines), ground_pieces)
         if self.main_skill in ELEMENT_GAIN_VARS:  # (MECH78, MA-2 / MA-6 / MA-7: its element from the grounds in its path)
             orbs = self._orb_uptimes() if self.main_skill == EYE_OF_WINTER else None
             stats["_element_gain"] = element_gain_shares(self.main_skill, stats, texts, orbs)
@@ -6951,6 +7097,8 @@ class Conditions:
                      uses.get(models.STANCE_SKILL, self._chosen_use(models.STANCE_SKILL))))
             stats["_broken_stance"] = {"vault_hits": vault, "hits": main_hits,
                                        "limit": number((stance.get("levelStats") or {}).get("broken_stance_hit_limit"))}
+        stats["_thorns_fill"] = self._thorns_fill(texts, stats)  # (MECH84: Thorns hits' buildup, models.thorns_fills)
+        self.build.thorns_fill = dict(stats["_thorns_fill"])
         stats["_dazed_share"] = number((_dazed(texts, stats) + (0.0,))[2])
         stats["_dazed_box"] = "conditionEnemyDazed" in self.active  # (PoB's box as it is now: heavy_stun_rate)
         broken = None  # Armour Broken first: Exposure on a Full Break reads its rate

@@ -101,7 +101,7 @@ def test_the_builds_ignited_ground_at_the_boss_from_its_fire_infused_casts_charm
     near, far = {"_distance_choice": (1.0, "")}, {"_distance_choice": (8.0, "")}
     assert conditions.ignited_ground({}, [], near) == (0.0, "")
     share, how = conditions.ignited_ground({"Incinerate": (0.05, "x"), "Ball Lightning": (0.1, "y")}, [], far)
-    assert share == pytest.approx(1 - (1 - 0.05 * 8) * (1 - 0.1 * 4)) and "not counted yet" in how
+    assert share == pytest.approx(1 - (1 - 0.05 * 8) * (1 - 0.1 * 4)) and conditions.IGNITED_NOT_COUNTED in how
     # Beira's Anguish: at your feet, so only when you fight within its 2 m
     assert conditions.ignited_ground({}, [], near, {BEIRA: (0.05, "charm")})[0] == pytest.approx(0.05 * 4)
     share, how = conditions.ignited_ground({}, [], far, {BEIRA: (0.05, "charm")})
@@ -1132,3 +1132,16 @@ def test_pob_counts_a_second_shock_only_with_strike_twice_and_the_box_at_two(eng
     print("PROBE stacks", dps(1, line), dps(2, line), dps(1, []), dps(2, []))
     assert dps(2, line) > 1.05 * dps(1, line)
     assert dps(2, []) == pytest.approx(dps(1, []), rel=1e-6)
+
+
+def test_spear_of_solaris_and_burning_inscription_make_ignited_ground_at_their_own_rates():
+    """MECH84: Spear of Solaris's skybeam ground at its Glory-paid uses and Burning Inscription's at its supported casts,
+    each 4 s (the skybeam's 20 pulses 0.2 s apart; TriggeredBurningRunesPlayer's base duration), as independent."""
+    far = {"_distance_choice": (8.0, "")}
+    share, how = conditions.ignited_ground({"Spear of Solaris": (0.05, "Glory")}, [], far)
+    assert share == pytest.approx(0.05 * 4) and "uses its Glory pays for" in how
+    share, how = conditions.ignited_ground({"Burning Inscription": (0.5, "Enfeeble 0.50/s")}, [], far)
+    assert share == pytest.approx(1.0) and "Inscriptions" in how
+    both = conditions.ignited_ground({"Spear of Solaris": (0.05, ""), "Burning Inscription": (0.1, "")}, [], far)[0]
+    assert both == pytest.approx(1 - (1 - 0.2) * (1 - 0.4))
+    assert set(conditions.INFUSED_MAKERS) == {"Incinerate", "Ball Lightning"}

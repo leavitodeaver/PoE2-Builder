@@ -1795,6 +1795,21 @@ class Assumptions:
                     "basis": how + ("; its upfront costs stay whole" if any(number(seen.get(f'{k}Cost')) > 0
                                                                             for k in kinds) else ""),
                     "confidence": "MEDIUM (channel time, PoB's) / HIGH (when the cooldown starts)"}]
+        # (MECH84: COV38's downsides: your curses reflected back to you, and "Your Hits cannot Stun enemies")
+        reflecting = any(conditions_mod.CURSE_REFLECT.match(t.strip()) for t in texts) or any(
+            g["name"] == conditions_mod.ATZIRIS_ALLURE for grp in build.groups() for g in grp["gems"]
+            if grp["enabled"] and g.get("enabled", True))
+        reflected, reflected_how = conditions_mod.reflected_curse_mods(
+            texts, (build.call("cursesInflicted") or {}).get("curses") or []) if reflecting else ([], "")
+        if reflected_how:
+            exposure_flags += reflected
+            hand_notes.append({"label": "Your curses reflected back to you*", "value": "cursed yourself",
+                               "basis": reflected_how, "confidence": "MEDIUM (the reflected curse's magnitude)"})
+        no_stun, no_stun_how = conditions_mod.cannot_stun_mods(texts)
+        if no_stun_how:
+            exposure_flags += no_stun
+            hand_notes.append({"label": "Your Hits cannot Stun enemies*", "value": "no Stuns of the boss",
+                               "basis": no_stun_how, "confidence": "HIGH"})
         exposure_flags += redflare
         if redflare_how:
             hand_notes.append({"label": "Shocked by your own item on reaching maximum Charges*", "value": "damage taken",

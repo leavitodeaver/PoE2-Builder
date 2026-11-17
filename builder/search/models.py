@@ -8024,7 +8024,8 @@ def dazed_share(build) -> float:
 def dazed_stats(build) -> dict:
     """The two Daze fields heavy_stun_rate reads: the published share and whether PoB's Dazed box is on now."""
     return {"_dazed_share": dazed_share(build),
-            "_dazed_box": bool((build.call("getConfig").get("input") or {}).get("conditionEnemyDazed"))}
+            "_dazed_box": bool((build.call("getConfig").get("input") or {}).get("conditionEnemyDazed")),
+            "_thorns_fill": dict(getattr(build, "thorns_fill", None) or {})}  # (MECH84: thorns_fill)
 
 
 # His Winnowing Flame's Grisly Pyres (MECH71; GEM5's verdict 14 Nov: The Unborn Lich is league-obtainable, an Abyss core
@@ -8654,9 +8655,12 @@ def repeat_every(t: float, times: float, window: float) -> float:
 
 def heavy_stun_rate(stats: dict) -> tuple[float, str]:
     """Heavy Stuns of the boss per second from the main skill's hits, and how it was worked out."""
+    if stats.get("Flag:CannotStun"):  # (MECH84: PoB's CannotHeavyStun beside it zeroes the buildup too)
+        return 0.0, "Your Hits cannot Stun enemies: no Heavy Stuns"
     per_hit = number(stats.get("HeavyStunBuildupAvg")) / 100
     hits = hits_per_second(stats)
-    if per_hit <= 0 or hits <= 0:
+    thorns = thorns_fill(stats, "HeavyStun")  # (MECH84: Thorns hits' own buildup, PATCH_CHECK L4-2)
+    if (per_hit <= 0 or hits <= 0) and thorns <= 0:
         return 0.0, "the main skill's hits build no Heavy Stun"
     crit = min(number(stats.get("CritChance")), 100) / 100
     weight = {t: (number(stats.get(f"{t}HitAverage")) * (1 - crit) + number(stats.get(f"{t}CritAverage")) * crit)
@@ -8666,7 +8670,7 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
     scale = bosses.threshold_scale(stats)  # (938 / the boss's own threshold: MECHD1, RESEARCH18 #91)
     dazed = min(1.0, max(0.0, number(stats.get("_dazed_share"))))
     daze = (1 + DAZED_STUN_MORE * dazed) / ((1 + DAZED_STUN_MORE) if stats.get("_dazed_box") else 1.0)
-    fill = per_hit * uncold * scale * daze * hits  # bars per second at the plain threshold
+    fill = (per_hit * uncold * hits + thorns) * scale * daze  # bars per second at the plain threshold
     if fill <= 0:
         return 0.0, "Cold hits build no Heavy Stun (the game's Cold text; PoB counts them)"
     t = 1 / fill
@@ -8680,7 +8684,9 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
              + (f"x{daze:.2f} for the boss Dazed {dazed:.0%} of the fight (50% more Stun Buildup while Dazed"
                 + (", PoB's box at the full 50% taken back" if stats.get("_dazed_box") else "") + "), "
                 if dazed or stats.get("_dazed_box") else "")
-             + f"{hits:.2f} hits/s: "
+             + f"{hits:.2f} hits/s"
+             + (f" + Thorns {thorns:.2%} of the bar a second ({(stats.get('_thorns_fill') or {}).get('how', '')})"
+                if thorns > 0 else "") + ": "
              f"full in {t:.1f} s; the bar doesn't fill during the {d:g} s stun (RESEARCH26, MEDIUM), then +500% threshold "
              f"for the rest of the 16.5 s after it: one every {every:.1f} s")
     return 1 / every, basis
@@ -8758,10 +8764,54 @@ def primed_refill(refill: float, rate: float, primed: float = PRIMED_FREEZE_UNIQ
     return refill - rate * gap * gap / 2
 
 
+# Thorns hits' buildup (MECH84; PATCH_CHECK L4-2, an UNDERCOUNT for Thorns builds). Patch 0.2.0 (grep_notes "Thorns can
+# now"): "Thorns can now cause Stun, Freeze, Electrocute, Pin, Armour Break, Daze and Knockback" (a bug fix; no later entry
+# takes it back: grep_notes --history "Thorns"). PoB builds its Thorns group's own hit and buildup (the bridge's useRates
+# row for it: HeavyStunBuildupAvg, FreezeBuildupAvg, ElectrocuteBuildupAvg, PinBuildupAvg, its per-type averages), but no
+# PoB number counts Thorns hits (MECHB22), so their buildup never reached the boss's bars. Here each kind's fill from Thorns
+# is its hits a second (models.thorns_procs, MECH-B's count of Retaliations and "deal your Thorns damage" procs, the same
+# one thorns_model scores the damage at; read through getattr: 0, labelled, until it is on main) x the Thorns hit's buildup
+# (% of the bar at PoB's threshold), the Heavy Stun one less its Cold share (the game's Cold text, as heavy_stun_rate
+# takes it off the main skill's hits). It adds to the main skill's fill in heavy_stun_rate, immobilise_period and
+# immobilised_share (the same threshold scale, the same repeat window). stats["_thorns_fill"] =
+# {kind: bars a second, "how": text} (Conditions.evidence; dazed_stats hands on the published build.thorns_fill).
+# Not counted: Thorns' Armour Break and Daze (their models read the main skill's hits; an UNDERCOUNT, named), Knockback
+# (no boss effect modelled).
+THORNS_BUILDUPS = ("HeavyStun", "Freeze", "Electrocute", "Pin")
+
+
+def thorns_fill(stats: dict, ailment: str) -> float:
+    """Bars a second the build's Thorns hits add to `ailment` at PoB's threshold (stats["_thorns_fill"]; 0 without)."""
+    return max(0.0, number((stats.get("_thorns_fill") or {}).get(ailment)))
+
+
+def thorns_fills(row: dict | None, procs: float, how: str) -> dict:
+    """{kind: bars a second, "how"} from the Thorns group's useRates row and its hits a second (see the note above)."""
+    row = row or {}
+    if procs <= 0 or not row:
+        return {}
+    weight = {t: number(row.get(f"{t}HitAverage")) * (HEAVY_STUN_PHYSICAL if t == "Physical" else 1.0)
+              for t in DAMAGE_TYPES}
+    total = sum(weight.values())
+    uncold = 1 - weight["Cold"] / total if total > 0 else 1.0
+    out = {}
+    for kind in THORNS_BUILDUPS:
+        each = number(row.get(f"{kind}BuildupAvg")) / 100 * (uncold if kind == "HeavyStun" else 1.0)
+        if each > 0:
+            out[kind] = procs * each
+    if not out:
+        return {}
+    out["how"] = (f"{procs:.3g} Thorns hits/s ({how}) x the Thorns hit's own buildup (PoB's Thorns group: "
+                  + ", ".join(f"{k} {number(row.get(f'{k}BuildupAvg')):.3g}%" for k in THORNS_BUILDUPS
+                              if number(row.get(f"{k}BuildupAvg")) > 0) + ")")
+    return out
+
+
 def immobilise_period(stats: dict, ailment: str) -> float:
     """Seconds from one Freeze / Electrocute to the next (0 with no buildup): its duration, then the time to fill the bar
     again at x6 for the rest of the 14 / 15 s after it (a Freeze sooner with Arctic Howl: primed_refill)."""
-    fill = hits_per_second(stats) * number(stats.get(f"{ailment}BuildupAvg")) / 100 * ailment_scale(stats, ailment)
+    fill = (hits_per_second(stats) * number(stats.get(f"{ailment}BuildupAvg")) / 100
+            + thorns_fill(stats, ailment)) * ailment_scale(stats, ailment)  # (MECH84: Thorns hits' buildup, L4-2)
     if fill <= 0:
         return 0.0
     d = immobilise_duration(stats, ailment)
@@ -8812,7 +8862,8 @@ def immobilised_share(stats: dict, ailment: str) -> tuple[float, str]:
     fill the bar again, buildup paused while the boss is Frozen / Electrocuted (the user, 11 Nov 2026: it pauses; the game
     files don't say, MEDIUM), the threshold x6 for the rest of the
     14 / 15 s after each one (AILMENT_REPEAT)."""
-    fill = hits_per_second(stats) * number(stats.get(f"{ailment}BuildupAvg")) / 100 * ailment_scale(stats, ailment)
+    fill = (hits_per_second(stats) * number(stats.get(f"{ailment}BuildupAvg")) / 100
+            + thorns_fill(stats, ailment)) * ailment_scale(stats, ailment)  # (MECH84: Thorns hits' buildup, L4-2)
     if fill <= 0:
         return 0.0, ""
     d, period = immobilise_duration(stats, ailment), immobilise_period(stats, ailment)
@@ -12861,7 +12912,10 @@ LIGHT_STUN_FLOOR = 0.15
 
 def light_stun_rate(stats: dict, melee: bool = False) -> tuple[float, str]:
     """Light Stuns of the boss per second from the main skill's hits: each hit's chance is its damage (Physical x1.5, all
-    x1.5 for a player Melee skill) over the boss's maximum Life (bosses.of(stats).life), 0 under 15%."""
+    x1.5 for a player Melee skill) over the boss's maximum Life (bosses.of(stats).life), 0 under 15%. None with "Your
+    Hits cannot Stun enemies" (MECH84: PoB's CannotStun flag, conditions.cannot_stun_mods, read as "Flag:CannotStun")."""
+    if stats.get("Flag:CannotStun"):
+        return 0.0, "Your Hits cannot Stun enemies: no Light Stuns"
     life = bosses.of(stats).life
     hits = hits_per_second(stats)
     if life <= 0 or hits <= 0:
@@ -12875,6 +12929,9 @@ def light_stun_rate(stats: dict, melee: bool = False) -> tuple[float, str]:
                      "Stuns (KeywordPopups LightStun)")
     return hits * chance, (f"{hits:.2f} hits/s x {chance:.0%} Light Stun chance (a {hit:,.0f} hit of the boss's {life:,} "
                            "Life; KeywordPopups LightStun, linear: LOW)")
+
+
+MODEL_FIELDS.extend(f for f in ("Flag:CannotStun",) if f not in MODEL_FIELDS)  # (MECH84: conditions.cannot_stun_mods)
 
 
 def stun_rate(stats: dict, melee: bool = False) -> tuple[float, str]:

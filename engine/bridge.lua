@@ -386,6 +386,13 @@ local function pickStats(output, fields)
 				value = output[parent][child]
 			end
 		end
+		if value == nil and field:match("^Flag:") then
+			-- (MECH84) "Flag:<Name>": whether the main skill's mod list holds that PoB flag (models.light_stun_rate reads
+			-- Flag:CannotStun, which conditions.cannot_stun_mods sets for "Your Hits cannot Stun enemies")
+			local env = build.calcsTab and build.calcsTab.mainEnv
+			local skill = env and env.player and env.player.mainSkill
+			value = skill and skill.skillModList and skill.skillModList:Flag(skill.skillCfg, field:sub(6)) or false
+		end
 		if type(value) == "number" then
 			picked[field] = jsonNumber(value)
 		elseif type(value) == "string" or type(value) == "boolean" then
@@ -988,6 +995,15 @@ end
 -- resolver writes (config input mechFreezeShare, conditions.FREEZE_SHARE_INPUT: the Frozen box's uptime) the speed is
 -- x (1 - share), the fight average (an UNDERCOUNT of the boss's hits below a 70% share, an overcount above it, before).
 -- Without it, PoB's row as before.
+-- Stacking Chills (MECH84; MECH83's question, probed in POE2T4043): with "Targets can be affected by two of your Chills
+-- at the same time" (PoB's ChillCanStack), CalcPerform 3281-3287 sets CurrentChill (the Chill x the stacks, its
+-- ChillStacks box capped at ChillStacksMax) but adds its stacked ActionSpeed row only in its breakdown pass. The boss is
+-- still slowed by one Chill (the "Is the enemy Chilled?" box's own row: probe, a Frostbolt build, enemySkillTime 0.51 ->
+-- 0.68 s Chilled, with or without the line and at 2 stacks), so MECH83's "no Chill slow at all" is refuted; the second
+-- Chill's Slow was missing (an UNDERCOUNT of the boss's Slow). Here, with ChillCanStack and a Chill row, each stack past
+-- the first counts as another Chill Slow of the same size, multiplied with the rest (KeywordPopups Slow: "always
+-- multiplicative"; the line's own "affected by two of your Chills" overrides the Debuff rule that same-type Debuffs
+-- don't stack; MEDIUM).
 local FREEZE_SHARE_INPUT = "mechFreezeShare"
 local bossSlowInstalled = false
 local function installBossSlow()
@@ -1027,7 +1043,16 @@ local function installBossSlow()
 			end
 		end
 		if chill < 0 and not unaffected then
-			mult = mult * math.max(0, 1 + chill * potency / 100)
+			local each = math.max(0, 1 + chill * potency / 100)
+			mult = mult * each
+			local player = actor.enemy  -- (MECH84: stacking Chills, the note above)
+			if player and player.modDB and player.modDB:Flag(nil, "ChillCanStack") then
+				local cap = player.modDB:Override(nil, "ChillStacksMax") or player.modDB:Sum("BASE", nil, "ChillStacksMax")
+				local extra = math.min(modDB:Sum("BASE", nil, "Multiplier:ChillStacks"), cap) - 1
+				if extra > 0 then
+					mult = mult * each ^ extra
+				end
+			end
 		end
 		local chains = modDB:Sum("INC", nil, "TemporalChainsActionSpeed")
 		if chains >= 0 then
@@ -3793,7 +3818,9 @@ function bridge.useRates(args)
 			-- another group's Ignite, assumptions.grisly_pyre)
 			-- (MECH75: ShockChancePerHit, the group's Shocks: Overcharge reflects them back to you, conditions._self_shocked)
 			-- (MECH76: the Ledger Impale fields, setImpale's, with AverageHit / TotalDPS: another group's Impales, models.impale_model)
-			for _, field in ipairs({ "HeavyStunBuildupAvg", "HitChance", "CritChance", "IgniteDuration",
+			-- (MECH84: Freeze / Electrocute / Pin BuildupAvg, the Thorns group's buildup, models.thorns_fills)
+			for _, field in ipairs({ "HeavyStunBuildupAvg", "FreezeBuildupAvg", "ElectrocuteBuildupAvg", "PinBuildupAvg",
+					"HitChance", "CritChance", "IgniteDuration",
 					"PhysicalStoredCombinedAvg", "PhysicalStoredHitAvg", "IgniteDPS", "IgniteChancePerHit",
 					"ShockChancePerHit", "LedgerImpaleChance", "LedgerImpaleChanceCrit", "LedgerImpaleEffect",
 					"LedgerImpaleCount", "LedgerImpaleExtract", "AverageHit", "TotalDPS" }) do
@@ -5967,6 +5994,52 @@ function bridge.flammabilityMagnitude()
 	local inc = db:Sum("INC", nil, "EnemyIgniteChance", "AilmentChance") + env.enemyDB:Sum("INC", nil, "SelfIgniteChance")
 	local more = db:More(nil, "EnemyIgniteChance", "AilmentChance") * env.enemyDB:More(nil, "SelfIgniteChance")
 	return { inc = inc, more = more }
+end
+
+-- The curses you put on the boss (MECH84; conditions.reflected_curse_mods: "Curses you inflict are reflected back to
+-- you", Shackles of the Wretched / a hand-wraps line, and the Atziri's Allure support): each player curse (not a Mark)
+-- in PoB's curse slots (env.curseSlots, CalcPerform 3073: the ones the curse limit lets onto the boss), with its skill's
+-- grantedEffect id and level (for PoB's ExtraCurse applyToPlayer path, CalcPerform 2957-2987) and its own curse-effect
+-- modifiers as CalcPerform 2503-2507 reads them for the boss, without the boss's CurseEffectOnSelf: inc (INC CurseEffect,
+-- plus AuraEffect for an aura curse) and more (MORE CurseEffect x the skill's Magnitude); atziri: Atziri's Allure
+-- supports it.
+function bridge.cursesInflicted()
+	local env = build.calcsTab.mainEnv
+	local out = { }
+	local seen = { }
+	for _, slot in ipairs(env.curseSlots or { }) do
+		if slot.fromPlayer and not slot.isMark and slot.name and not seen[slot.name] then
+			for _, skill in ipairs(env.player.activeSkillList) do
+				local found = false
+				for _, buff in ipairs(skill.buffList or { }) do
+					if buff.type == "Curse" and buff.name == slot.name then
+						found = true
+					end
+				end
+				if found and not seen[slot.name] then
+					seen[slot.name] = true
+					local mods, cfg = skill.skillModList, skill.skillCfg
+					local inc = mods:Sum("INC", cfg, "CurseEffect")
+					if skill.skillTypes[SkillType.Aura] then
+						inc = inc + mods:Sum("INC", cfg, "AuraEffect")
+					end
+					local more = mods:More(cfg, "CurseEffect") * calcLib.mod(mods, cfg, "Magnitude")
+					local atziri = false
+					for _, support in ipairs(skill.supportList or { }) do
+						if support.grantedEffect and support.grantedEffect.id == "SupportAtzirisAllurePlayer" then
+							atziri = true
+						end
+					end
+					local effect = skill.activeEffect
+					out[#out + 1] = {
+						name = effect.grantedEffect.name or slot.name, skillId = effect.grantedEffect.id, level = effect.level or 1,
+						inc = jsonNumber(inc), more = jsonNumber(more), atziri = atziri,
+					}
+				end
+			end
+		end
+	end
+	return { curses = out }
 end
 
 function bridge.equipped()
