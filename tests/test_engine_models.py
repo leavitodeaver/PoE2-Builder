@@ -3478,3 +3478,20 @@ def test_a_second_chill_slows_the_boss_again_when_chills_can_stack(engine):
     print("PROBE chill", plain1, plain2, one, both)
     assert plain1 == pytest.approx(plain2) and one == pytest.approx(plain1)
     assert both > one * 1.1
+
+
+def test_the_armour_break_readers_take_the_bosses_own_armour(engine):
+    """MECH84 (the manager, CD-3 / MECHC34): the Armour Break readers (conditions' Full Break time, Battershout's
+    explosion, Ferocious Roar) read bridge.activeSkills' enemyArmour, PoB's enemy base Armour, which MECHC34's
+    bosses.defence_vars now sets per boss: the worst case's +80% and the Arbiter of Ash's own reach it unchanged."""
+    from builder.search import bosses
+
+    search = _skeleton_search(engine, "Shield Charge", "Warbringer")
+    build = search.build
+    for name in (None, "Arbiter of Ash"):
+        want = bosses.defence_vars(name)["enemyArmour"]
+        build.call("setConfig", vars=bosses.defence_vars(name), fields=[])
+        got = build.call("activeSkills")["enemyArmour"]
+        print("PROBE boss armour", name, want, got)
+        assert got == pytest.approx(want)
+    build.call("setConfig", vars=bosses.defence_vars(), fields=[])
