@@ -600,6 +600,9 @@ def test_item_lines_a_model_reads_count_as_the_models():
         "your maximum Life": "model-read-ground-ignite-as-though-life",
         "Drop Ignited Ground while moving, which lasts 8 seconds and Ignites as though dealing Fire Damage equal to 10% of "
         "your maximum Life": "model-read-ground-ignite-as-though-life",
+        # (COV38: MECHC34's bridge fix reads The Unleashed's ranged line, train 71)
+        "(15-25)% of Damage taken from Hits bypasses Energy Shield if Energy Shield is below half": "model-read-es-bypass-below-half",
+        "25% of Damage taken from Hits bypasses Energy Shield if Energy Shield is below half": "model-read-es-bypass-below-half",
     }
     from builder.search import boss_hits, conditions, models
     assert models.CW_SPELL_CRIT.match("Critical Hits with Spells apply 2 Stack of Critical Weakness")

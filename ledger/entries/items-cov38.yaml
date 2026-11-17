@@ -190,3 +190,19 @@
     left these open as a partial read). PoB ignores the lines.
   sources: [builder/search/conditions.py (IGNITED_ON_USE, IGNITED_WHILE_MOVING, AS_THOUGH_LIFE, ground_ignite), builder/search/models.py (ground_life_ignite_model)]
   status: proposed
+
+- id: model-read-es-bypass-below-half
+  title: '"N% of Damage taken from Hits bypasses Energy Shield if Energy Shield is below half" (bridge.setEsBypassBelowHalf; The Unleashed, the Legacy rune)'
+  kind: pob_gap
+  model: es_bypass
+  match: '^(\(\d+-\d+\)|\d+(?:\.\d+)?)% of Damage taken from Hits bypasses Energy Shield if Energy Shield is below half$'
+  replace: []
+  confidence: theory
+  notes: >-
+    MECHC22's bridge.setEsBypassBelowHalf takes the bypass out of the hit pools (ES/2 first, then the split, then Life)
+    and scales maximum hit taken, with models.es_bypass_note for the build's notes. Since MECHC34 (bfa90ce2, train 71) it
+    rolls a unique's ranged line before matching it (COV38's probe POE2T3814: The Unleashed's "(15-25)%" read 0 before,
+    an OVERCOUNT of defence; test_the_unleasheds_ranged_bypass_line_is_read). PoB parses the line with leftover text and
+    applies nothing. The Unleashed, its Exclusive mod, Legacy of The Unleashed.
+  sources: [engine/bridge.lua (ES_BYPASS_HALF_TEXT, setEsBypassBelowHalf), builder/search/models.py (es_bypass_note), tests/test_engine_models.py]
+  status: proposed
