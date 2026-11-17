@@ -914,6 +914,38 @@ def eternal_hunt(build: Build, main: models.Skill | None) -> tuple[float, list[d
     return 0.0, [], []
 
 
+def djinn_commands(build: Build, main: models.Skill | None) -> tuple[float, list[dict], list[dict]]:
+    """(added DPS, mods, notes) for the Disciple of Varashta's djinn Commands (models.djinn_commands_model, MECH83): the
+    djinns' groups (the Barya notables' granted summons), the Commands the tree grants, each scored by the bridge's
+    minionSkillHit with that minion skill and its damage stat set; the presses go on build.item_presses."""
+    where = {}
+    for group in build.groups():
+        if group.get("enabled") is False:
+            continue
+        for n, skill in enumerate(group["skills"], 1):
+            if skill["name"] in models.DJINNS.values() and not skill.get("disabled"):
+                where.setdefault(skill["name"], (group["index"], n))
+    if not where:
+        return 0.0, [], []
+    texts = [line["text"] for line in build.call("sourceLines")["lines"]]
+    rows = []
+    for command in models.djinn_commands_available(set(where), texts):
+        index, n = where[command.djinn]
+        hits = {}
+        for stat_set in command.sets:
+            got = build.call("minionSkillHit", index=index, active=n, skill=command.skill, statSet=stat_set)
+            hits[stat_set] = got if isinstance(got, dict) else {}  # (an empty Lua table reaches Python as a list)
+        rows.append((command, hits))
+    minion_main = main is not None and bool(set(build.ctx.gems.get(main.name, {}).get("skillTypes") or ()) & {"Minion"})
+    player = 0.0 if minion_main else per_second(build.call("stats", fields=HUNT_FIELDS))
+    chilled = (getattr(build, "chilled_ground_up", None) or (0.0, ""))[0]
+    dps, mods, notes, presses = models.djinn_commands_model(rows, player, chilled)
+    held = getattr(build, models.ITEM_PRESSES, None)
+    if isinstance(held, dict):  # (each Command a press: the button cap counts it, models.ITEM_PRESSES)
+        held.update(presses)
+    return dps, mods, notes
+
+
 def inevitable_agony(build: Build, main: models.Skill | None) -> tuple[float, float, list[dict], list[dict]]:
     """(added DPS, presses a second, mods, notes) for Chronomancer's Inevitable Agony (models.inevitable_agony_model,
     MECHB30): the main skill's hit DPS (PoB's TotalDPS, the minion's for a minion main skill), the debuff's duration with
@@ -2108,6 +2140,13 @@ class Assumptions:
             number(stats.get("IgniteDPS"))) if getattr(build, "oil_ignite", None) else (0.0, []))
         hand_mods += [models.added_input("OilGround", oil)] if oil > 0 else []
         hand_notes += oil_notes
+        burn, burn_notes = (models.ground_life_ignite_model(  # (MECH83: Beira's Anguish / Birth of Fury; PoB 0)
+            build.ground_life_ignite, number(build.call("getConfig")["input"].get("enemyFireResist")),
+            number(stats.get("IgniteDPS"))) if getattr(build, "ground_life_ignite", None) else (0.0, []))
+        hand_mods += [models.added_input("IgnitedGroundIgnite", burn)] if burn > 0 else []
+        hand_notes += burn_notes
+        djinn, djinn_mods, djinn_notes = djinn_commands(build, main)  # (MECH83: the Disciple's djinn Commands; PoB 0)
+        hand_mods, hand_notes = hand_mods + djinn_mods, hand_notes + djinn_notes
         briar, briar_notes = briarpatch(build, main, found)  # (MECHB31: Briarpatch's creation hit, PoB 0)
         hand_mods += [models.added_input("Briarpatch", briar)] if briar > 0 else []
         hand_notes += briar_notes
@@ -2125,7 +2164,8 @@ class Assumptions:
                                    "Elemental Discharge": discharge, "Broken Stance": stance, "Grisly Pyre": pyre,
                                    "Battershout": shout, "Crackling Palm": palm, "Blood Hunt": blood, "Ancestral Spirits": spirits,
                                    "Inevitable Agony": agony, "Impale": impaled + impaled_others, "Infernal Legion": legion,
-                                   "Briarpatch": briar, "Ice-Tipped Fragments": frost, "Oil Ground": oil})
+                                   "Briarpatch": briar, "Ice-Tipped Fragments": frost, "Oil Ground": oil,
+                                   "Ignited Ground's Ignite": burn, "Djinn Commands": djinn})
         # A model whose effect follows the build's own numbers and that the bridge can't work out again per calculation
         # would make every item what-if a real trial (Build.item_deltas). All of today's are worked out in the bridge
         # (models.derived): uptimes from Mana and regeneration, Life spent, attack speed, Mana > Life, Maelstrom's pulses.

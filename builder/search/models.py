@@ -3412,7 +3412,8 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
     mods, notes = mods + muster_mods, notes + muster_notes
     crit_mods, crit_notes = inexorable_model(skills, stats or {}, main, forbidden)
     mods, notes = mods + crit_mods, notes + crit_notes
-    cry_mods, cry_notes = corrupting_cry_model(skills, stats or {}, main, groups or {}, forbidden)
+    cry_mods, cry_notes = corrupting_cry_model(skills, stats or {}, main, groups or {}, forbidden,
+                                               anaemia_cap(texts or [], stats or {}))  # (MECH83: Anaemia's cap)
     mods, notes = mods + cry_mods, notes + cry_notes
     burgeon_mods, burgeon_notes = burgeon_model(skills, main, forbidden)
     mods, notes = mods + burgeon_mods, notes + burgeon_notes
@@ -4491,6 +4492,30 @@ def inexorable_model(skills: list[Skill], stats: dict, main: Skill | None,
 # climb counted. Each stack on its own 5 s timer (min(10, rate x 5 s), the figure before) is the play guide's "without it"
 # row. A raised number: an OVERCOUNT of up to x4 if the game keeps own timers (an in-game test: cry every 2 s on a dummy
 # and count the stacks after 20 s: 10 means refresh-all, about 3 own timers).
+# Anaemia (MECH83; RESEARCH26 R26-16, research/anaemia-duration-r26.md; before, nothing read it: an UNDERCOUNT of the
+# Corrupted Blood cap). stat_descriptions apply_anaemia_magnitude_on_hit: "Inflict Anaemia on Hit / Anaemia allows {0:+d}
+# Corrupted Blood debuffs to be inflicted on enemies" (Mods GenesisTreeAmuletAnaemiaOnHit / ...Crafted, 2-3); KeywordPopups
+# Anaemia: "allows more than 10 Corrupted Blood debuffs to be applied to a target"; PoB parses neither line (checked:
+# ModCache and the Modules hold no "anaemia"). No duration anywhere (R26-16, checked there: KeywordPopups, the 4 stat ids,
+# every .csd, poe2db): ASSUMED 4 s, the usual on-Hit debuff default (LOW), so it is up min(1, the main skill's hits a
+# second x 4 s) of the fight (other skills' hits not counted: an undercount for a slow main skill), and the cap is 10 +
+# N x that share (the average; whether extra stacks fall off when it lapses is UNVERIFIED, moot at 100%).
+ANAEMIA = re.compile(r"Anaemia allows \+(\d+) Corrupted Blood debuffs to be inflicted on enemies", re.I)
+ANAEMIA_SECONDS = 4.0
+
+
+def anaemia_cap(texts: list[str], stats: dict) -> tuple[float, str]:
+    """(extra Corrupted Blood debuffs Anaemia allows on average, how) (ANAEMIA's note); (0, "") without the line."""
+    extra = sum(float(m.group(1)) for t in texts if (m := ANAEMIA.search(t)))
+    if extra <= 0:
+        return 0.0, ""
+    hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) / 100 if "HitChance" in stats else 1.0)
+    up = min(1.0, hits * ANAEMIA_SECONDS)
+    return extra * up, (f"Anaemia (+{extra:g} Corrupted Blood debuffs) up {up:.0%} of the fight: the main skill's "
+                        f"{hits:.2f} hits/s, each keeping it {ANAEMIA_SECONDS:g} s (no duration in the game data: the "
+                        "usual on-Hit debuff default, LOW)")
+
+
 def cry_stacks(rate: float, fight: float | None, seconds: float = 5.0, cap: float = 10.0) -> tuple[float, float]:
     """(average stacks with each new debuff refreshing all of them, average with each on its own timer) for one stack a
     warcry at `rate` a second over a `fight`-second fight (None: the climb to the cap not counted)."""
@@ -4515,7 +4540,8 @@ CRY_SECONDS, CRY_MAX = 5.0, 10.0
 
 
 def corrupting_cry_model(skills: list[Skill], stats: dict, main: Skill | None, groups: dict,
-                         forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+                         forbidden: set[str] = frozenset(),
+                         anaemia: tuple[float, str] = (0.0, "")) -> tuple[list[dict], list[dict]]:
     """The OVERRIDE of PoB's Corrupted Blood stages with the stacks the build's warcries keep up, and its note."""
     if CRY_ENTRY in forbidden:
         return [], []
@@ -4538,7 +4564,8 @@ def corrupting_cry_model(skills: list[Skill], stats: dict, main: Skill | None, g
 
     dps = number(stats.get("FullDPS"))
     fight = conditions_mod.boss_pool(bosses.of(stats).name) / dps if dps > 0 else None
-    stacks, own = cry_stacks(rate, fight, CRY_SECONDS, CRY_MAX)  # (MECH80: refresh-all, R26-15)
+    cap = CRY_MAX + anaemia[0]  # (MECH83: Anaemia's extra Corrupted Blood debuffs, anaemia_cap)
+    stacks, own = cry_stacks(rate, fight, CRY_SECONDS, cap)  # (MECH80: refresh-all, R26-15)
     # (PoB floors a Multiplier tag, ModStore.lua 530: a fractional n - 1 would round down, and n < 1 to 100% less; so
     # the stages are held at one stack and the rest goes on as one "more" on Corrupted Cry: probe POE2T2078)
     return [raw_mod(CRY_MULTIPLIER, "OVERRIDE", 0), raw_mod("Damage", "MORE", 100 * (stacks - 1), CORRUPTED_CRY)], [{
@@ -4548,7 +4575,7 @@ def corrupting_cry_model(skills: list[Skill], stats: dict, main: Skill | None, g
                   + (f" over a {fight:.0f} s fight (the boss's Life + ES at {dps:,.0f} Full DPS), the climb to 10 counted"
                      if fight else " (the fight's length not read: the climb to 10 not counted)")
                   + f"; {own:.2f} if each stack keeps its own 5 s; PoB's placeholder is 10. Corrupted Blood scored at "
-                  f"{stacks:.2f}"),
+                  f"{stacks:.2f}" + (f"; the cap {cap:.3g}: {anaemia[1]}" if anaemia[0] > 0 else "")),
         "confidence": "theory", "entry": CRY_ENTRY,
         "play": (f"Corrupted Blood: one stack per warcry, up to 10. If a new stack refreshes all (assumed): keep warcrying "
                  f"under every 5 s and the stacks climb to 10: {stacks:.2f} on average. Without that rule (each stack its "
@@ -7837,6 +7864,191 @@ def oil_ignite_model(found: list | None, fire_resist: float, own_ignite: float) 
     return added, notes
 
 
+# Your Ignited Ground's own Ignite damage (MECH83; COV36 / COV37's routing, an UNDERCOUNT: conditions.ignited_ground and
+# ground_ignite counted only the boss's Ignited state from these grounds). Beira's Anguish (Mods
+# UniqueCharmIgniteEnemiesInPresence1, charm_ignite_ground_as_though_dealing_fire_damage_equal_to_x%_of_your_maximum_life_
+# when_used 500: "Creates Ignited Ground for 4 seconds when used, Igniting enemies as though dealing Fire damage equal to
+# 500% of your maximum Life") and Birth of Fury (UniqueBurningGroundWhileMovingMaximumLife1, unique_boots_secondary_ground_
+# ignite_while_moving_base_fire_damage_%_of_life 10: "... Ignites as though dealing Fire Damage equal to 10% of your
+# maximum Life"); PoB parses neither (ModCache 5082 / 5227: leftover text, never applied). The ground's Ignite: 20% of
+# that Fire a second (KeywordPopups Ignite: "20% of the Fire damage dealt by the Hit ... not further affected by any
+# modifiers to the damage you deal"), through the boss's Fire resistance. Whether the build's Ignite Magnitude modifiers
+# raise it is UNVERIFIED: not applied (the lower reading). Only the strongest Ignite deals damage: the grounds sorted by
+# their Ignite, each counts where it is the strongest one up (its share x the shares the stronger ones are off,
+# independent) and only by what it beats the build's own Ignite by (PoB's IgniteDPS). Lit Oil Ground's Ignite
+# (oil_ignite_model) is added apart: a build with both double counts their overlap (an OVERCOUNT only there, labelled).
+def ground_life_ignite_model(found: list | None, fire_resist: float, own_ignite: float) -> tuple[float, list[dict]]:
+    """(added DPS, notes) from Conditions' build.ground_life_ignite = [(label, share the ground Ignites the boss, its
+    Ignite's DPS before resistance, how)] (the note above)."""
+    rows = sorted(((label, share, base, base * (1 - fire_resist / 100), how) for label, share, base, how in found or ()
+                   if share > 0 and base > 0), key=lambda r: -r[3])
+    added, notes, stronger_off = 0.0, [], 1.0
+    for label, share, base, ignite, how in rows:
+        top = share * stronger_off
+        gain = top * max(0.0, ignite - own_ignite)
+        stronger_off *= 1 - share
+        added += gain
+        notes.append({
+            "label": f"{label}: its Ignited Ground Ignites the boss*", "value": f"+{gain:,.1f} DPS",
+            "confidence": "LOW",
+            "basis": (f"{how}. Its Ignite: {base:,.1f} a second "
+                      f"(20% of the Fire it Ignites as though dealing; your Ignite modifiers not applied, UNVERIFIED) "
+                      f"through the boss's {fire_resist:g}% Fire resistance = {ignite:,.1f} DPS; only the strongest "
+                      f"Ignite counts: +{max(0.0, ignite - own_ignite):,.1f} over the build's own {own_ignite:,.1f}, "
+                      f"{top:.0%} of the fight (Ignited by it {share:.0%}, less the time a stronger ground's Ignite is "
+                      "up; with lit Oil Ground in the build too, their overlap counts twice: an overcount)"),
+            "play": (f"Keep the boss in {label}: without it +0 DPS; with it +{gain:,.1f} DPS.")})
+    return added, notes
+
+
+# The Disciple of Varashta's djinn Commands (MECH83; FIX_QUEUE 75 / COV3, PATCH_CHECK H4-2, MECH49's open item: an
+# UNDERCOUNT, they scored 0). The Barya notables grant the djinns (tree.lua: "Grants Skill: Kelari, the Tainted Sands" /
+# "Ruzhan, the Blazing Sword" / "Navira, the Last Mirage"), the other notables one Command each ("Grants Skill: Kelari's
+# Deception", ...; PoB parses those as nothing: ModCache 5723-5877, {nil, nil}). PoB builds each djinn as a minion whose
+# skill list holds every Command (Minions.lua SandDjinn / FireDjinn), but scores only its first (Knife Throw / Living
+# Bomb), and the tool never makes a tree-granted skill the main one (context.gems leaves fromTree out), so no Command
+# reached the score. Each Command is scored here with the bridge's minionSkillHit (that minion skill chosen, its damage
+# stat set) and added at the build's own use rate:
+#   - one use per cooldown (PoB's minion Cooldown with the build's recovery; GrantedEffectsPerLevel 26650308: Brutality
+#     5 s (2 uses), Deception 5 s (3 uses), Judgment 12 s, Trap 8 s, Reckoning 12 s, Fury 7 s, Zealotry 4 s, Fracturing
+#     5 s; Brand none), each a press under the button cap (Assumptions' item_presses), each costing the main skill the
+#     Command's 0.4 s cast (CommandSandDjinn*Player CastTime 400; whether a Command stops your skill is UNVERIFIED, the
+#     safe side, as Eternal Hunt); a net loss isn't pressed (0);
+#   - hits per use, the lower readings (LOW, rows with the higher): Brutality one knife's Eruption of its 12
+#     (djinn_knife_throw_number_of_knives_created 12, 3 m eruptions spread at the target: how many reach one boss is
+#     UNVERIFIED); Deception one blast, x its sequence bonus (below); Judgment one shockwave at full channel (4 stages,
+#     +125% more per stage after the first: x4.75; the channel's time costs the main skill, 4 x 0.5 s); Reckoning its
+#     Emergence and its Fire Wave (two hits); Fury one ember's explosion of its 2 x 20 (UNVERIFIED how many hit);
+#     Zealotry one strike per cooldown while you use damaging skills (Barya of Ruzhan's ascendancy_enable_fire_djinn_
+#     passive); Brand one brand per its 3 s detonation (3 allowed: up to one a second, pressed: LOW); Trap 0 on a boss
+#     that doesn't walk onto the runes (labelled); Fracturing only with the boss on Chilled Ground (chilled_ground's
+#     share);
+#   - Kelari's Deception's "50% more damage per teleport in sequence" (djinn_damage_+%_final_per_teleport_in_sequence;
+#     PoB maps it nowhere: coverage.json), capped at 300% more since 0.5.0b Hotfix 2 ("Kelari's Deception's damage bonus
+#     from consecutive uses is now capped at 300% more damage", the newest entry): a use while the last clone lives
+#     (base_skill_effect_duration 4 s) continues the sequence. With the cooldown at or under the clone's life the chain
+#     never breaks: the cap (x4) from the 7th use on (the climb not taken off: MEDIUM); else the stored uses are spent
+#     together as they refill: x the mean of 1, 1.5, ... over the stored uses (x1.5 with 3), the same uses a second.
+DJINNS = {"Kelari": "Kelari, the Tainted Sands", "Ruzhan": "Ruzhan, the Blazing Sword", "Navira": "Navira, the Last Mirage"}
+
+
+@dataclass(frozen=True)
+class DjinnCommand:
+    name: str
+    djinn: str  # the summon skill's name (DJINNS)
+    skill: str  # the djinn's minion skill (PoB's Minions.lua skillList)
+    sets: tuple[int, ...]  # its stat sets that deal the damage, summed per use
+    granted: bool  # a "Grants Skill: <name>" notable (else it comes with the djinn)
+    cooldown: float  # s, the game's (GrantedEffectsPerLevel), when PoB gives none
+    pressed: bool = True  # a Command you press (Zealotry is the djinn's own)
+
+
+DJINN_COMMANDS = (
+    DjinnCommand("Kelari's Brutality", DJINNS["Kelari"], "KnifeThrowSandDjinn", (2,), False, 5.0),
+    DjinnCommand("Kelari's Deception", DJINNS["Kelari"], "ExplosiveTeleportSandDjinn", (1,), True, 5.0),
+    DjinnCommand("Kelari's Judgment", DJINNS["Kelari"], "HandSlamSandDjinn", (1,), True, 12.0),
+    DjinnCommand("Ruzhan's Brand", DJINNS["Ruzhan"], "LivingBombFireDjinn", (1,), False, 0.0),
+    DjinnCommand("Ruzhan's Trap", DJINNS["Ruzhan"], "FireRuneFireDjinn", (3,), True, 8.0),
+    DjinnCommand("Ruzhan's Reckoning", DJINNS["Ruzhan"], "MeteorFireDjinn", (1, 2), True, 12.0),
+    DjinnCommand("Ruzhan's Fury", DJINNS["Ruzhan"], "MassFusilladeFireDjinn", (2,), True, 7.0),
+    DjinnCommand("Ruzhan's Zealotry", DJINNS["Ruzhan"], "FlameSliceFireDjinn", (1,), False, 4.0, pressed=False),
+    DjinnCommand("Navira's Fracturing", DJINNS["Navira"], "ChilledGroundBurstWaterDjinn", (1,), True, 5.0),
+)
+DJINN_COMMAND_CAST = 0.4  # s (Command*DjinnPlayer CastTime 400)
+KNIVES = 12  # djinn_knife_throw_number_of_knives_created
+EMBERS = 40  # two volleys of base_number_of_projectiles 20
+JUDGMENT_STAGES, JUDGMENT_PER_STAGE, JUDGMENT_STAGE_SECONDS = 4, 1.25, 0.5  # 4 stages, +125% more each after the first
+DECEPTION_PER, DECEPTION_CAP, DECEPTION_CLONE, DECEPTION_USES = 0.5, 3.0, 4.0, 3  # +50% a use, at most +300%, 4 s, 3 uses
+BRAND_DETONATION, BRAND_LIMIT = 3.0, 3  # base_skill_detonation_time 3000, living_bomb_base_number_of_bombs_allowed 3
+GRANTS_SKILL = re.compile(r"^Grants Skill: (.+)$", re.I)
+
+
+def djinn_commands_available(djinns: set[str], texts: list[str]) -> list[DjinnCommand]:
+    """The Commands the build has: each djinn's own (Brutality / Brand / Zealotry) and the granted ones (see the note)."""
+    granted = {m.group(1).strip() for t in texts if (m := GRANTS_SKILL.match(t.strip()))}
+    return [c for c in DJINN_COMMANDS if c.djinn in djinns and (not c.granted or c.name in granted)]
+
+
+def deception_factor(cooldown: float, clone: float = DECEPTION_CLONE, uses: int = DECEPTION_USES) -> tuple[float, str]:
+    """Kelari's Deception's mean sequence bonus a use (the note above)."""
+    if cooldown <= clone:
+        return 1 + DECEPTION_CAP, (f"a use every {cooldown:.3g} s, within the clone's {clone:g} s: the sequence never "
+                                   f"breaks, at the cap (+{DECEPTION_CAP:.0%}) from use "
+                                   f"{int(DECEPTION_CAP / DECEPTION_PER) + 1} on (the climb not taken off, MEDIUM)")
+    steps = [1 + min(DECEPTION_PER * k, DECEPTION_CAP) for k in range(max(uses, 1))]
+    mean = sum(steps) / len(steps)
+    return mean, (f"its {uses} stored uses spent together as they refill (each within the last clone's {clone:g} s): "
+                  f"x{mean:.2f} a use (x1 if used one at a time)")
+
+
+def djinn_commands_model(rows: list[tuple[DjinnCommand, dict]], player_dps: float, chilled: float = 0.0
+                         ) -> tuple[float, list[dict], list[dict], dict]:
+    """(added DPS, mods, notes, presses {Command: (uses a second, how)}) for the djinn Commands. `rows`: each Command
+    the build has with {stat set: the bridge's minionSkillHit with it}; `player_dps`: the main skill's DPS a press's
+    0.4 s costs (0 for a minion main skill); `chilled`: the share of the fight the boss stands on your Chilled Ground."""
+    total, notes, presses = 0.0, [], {}
+    for command, hits in rows:
+        label = f"{command.name} (a djinn Command, added to the boss DPS)*"
+        each = sum(number(h.get("AverageDamage")) or number(h.get("AverageHit")) for h in hits.values())
+        if each <= 0:
+            notes.append({"label": label, "value": 0, "confidence": "LOW",
+                          "basis": f"PoB gave no hit for the djinn with {command.name} chosen: not counted (0)"})
+            continue
+        found = [number(h.get("Cooldown")) for h in hits.values() if number(h.get("Cooldown")) > 0]
+        cooldown = min(found) if found else command.cooldown
+        factor, how, more = 1.0, "", ""
+        cost = DJINN_COMMAND_CAST if command.pressed else 0.0
+        if command.skill == "KnifeThrowSandDjinn":
+            how = f"one knife's Eruption of its {KNIVES} (how many reach one boss: UNVERIFIED, the lower reading)"
+            more = f"; all {KNIVES} knives: {KNIVES * each / max(cooldown, 0.1):,.1f} DPS"
+        elif command.skill == "ExplosiveTeleportSandDjinn":
+            factor, how = deception_factor(cooldown)
+            how = f"one blast a use (its clone's own explosion not counted: the lower reading), {how}"
+        elif command.skill == "HandSlamSandDjinn":
+            factor = 1 + JUDGMENT_PER_STAGE * (JUDGMENT_STAGES - 1)
+            cost += JUDGMENT_STAGES * JUDGMENT_STAGE_SECONDS
+            how = (f"one shockwave at the full {JUDGMENT_STAGES} stages (+{JUDGMENT_PER_STAGE:.0%} more a stage after the "
+                   f"first: x{factor:g}; PoB maps no stage bonus), your channel alongside, {JUDGMENT_STAGES} x "
+                   f"{JUDGMENT_STAGE_SECONDS:g} s (LOW)")
+        elif command.skill == "LivingBombFireDjinn":
+            cooldown = BRAND_DETONATION / BRAND_LIMIT
+            how = (f"no cooldown: up to {BRAND_LIMIT} brands live, each exploding after {BRAND_DETONATION:g} s, so one "
+                   f"press every {cooldown:g} s at most (LOW)")
+        elif command.skill == "FireRuneFireDjinn":
+            notes.append({"label": label, "value": 0, "confidence": "LOW",
+                          "basis": ("its runes erupt only when an enemy steps on one; a boss standing still at the target "
+                                    "isn't taken to walk onto them (0, labelled: a moving boss would trigger them)")})
+            continue
+        elif command.skill == "MeteorFireDjinn":
+            how = "its Emergence and its Fire Wave, one hit each"
+        elif command.skill == "MassFusilladeFireDjinn":
+            how = f"one ember's explosion of its {EMBERS} (how many hit one boss: UNVERIFIED, the lower reading)"
+            more = f"; all {EMBERS}: {EMBERS * each / max(cooldown, 0.1):,.1f} DPS"
+        elif command.skill == "FlameSliceFireDjinn":
+            how = "one strike a cooldown while you use damaging skills (Barya of Ruzhan's passive; no press)"
+        elif command.skill == "ChilledGroundBurstWaterDjinn":
+            factor = chilled
+            how = f"only with the boss on your Chilled Ground, {chilled:.0%} of the fight"
+        every = max(cooldown, cost, 0.1)
+        lost = player_dps * cost / every
+        dps = each * factor / every - lost
+        basis = (f"{command.name}: {each:,.0f} a use's hit (PoB's {command.djinn.split(',')[0]} with it chosen), {how}; "
+                 f"one use every {every:.3g} s (its cooldown with your recovery"
+                 + (", a press under the button cap" if command.pressed else "")
+                 + f"), less {lost:,.1f} DPS for your {cost:g} s of it ({player_dps:,.0f} main-skill DPS; whether a "
+                   f"Command stops your skill: UNVERIFIED): {dps:,.1f} DPS{more}")
+        if dps <= 0:
+            basis += "; a net loss, so not used (0)"
+            dps = 0.0
+        elif command.pressed:
+            presses[command.name] = (1 / every, f"Command {command.name} every {every:.3g} s")
+        total += dps
+        notes.append({"label": label, "value": round(dps, 1), "basis": basis, "confidence": "LOW",
+                      "play": ((f"Command {command.name} each time it is up" if command.pressed else command.name)
+                               + f" (every {every:.3g} s): with it +{dps:,.1f} DPS; without it +0.")})
+    return total, ([added_input("DjinnCommands", total)] if total > 0 else []), notes, presses
+
+
 # Critical Weakness on the boss (MECH81; PATCH_CHECK K3-1, an UNDERCOUNT: PoB's conditionEnemyCriticalWeakness box has
 # no default and nothing set it, and PoB doesn't parse the spell-crit, Parry and warcry lines at all, so every source
 # scored 0). KeywordPopups CriticalWeakness (26650308): "Critical Weakness causes hits against affected targets to have
@@ -8393,7 +8605,8 @@ AGGRAVATE_ALWAYS = re.compile(r"^Bleeding you inflict is Aggravated$", re.I)
 # every 2 x DODGE_EVERY s (presence_reentries). Fighting outside your Presence, or with a roll too short to leave it, it
 # never re-enters (0). Each entry aggravates every live Bleed, taken as Poisson with the entries' rate in
 # aggravated_share (the periodic (D - T/2) / D of RESEARCH8 is a little higher: the lower reading). The other Presence-
-# entry lines (Withered on entering, Mother's Declaration's Intimidate, crit vs entered Recently) aren't read here.
+# entry lines read the same rate elsewhere: Wither Away's Withered on entering (conditions.WITHER_ENTRY, MECH83) and Her
+# Declaration's Intimidate (conditions.her_declaration, MECH83); crit vs entered Recently is MECH-C's (MD-9).
 BEETLEBITE = re.compile(r"^Aggravate Bleeding on Enemies when they Enter your Presence$", re.I)
 
 

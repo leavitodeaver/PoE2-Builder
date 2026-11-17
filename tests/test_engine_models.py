@@ -2655,6 +2655,17 @@ def test_overcharge_shocks_you_and_raises_the_damage_you_take(engine):
     with_mod = taken(True) / taken(False)
     print("PROBE taken", pob_only, with_mod)
     assert with_mod > pob_only * 1.1
+    # (MECH83; MECHC33's probe: PoB's box ignores "effect of Shock on you") the reflected Shock halves with 50% reduced
+    def reflected(extra: list[str]) -> tuple[float, str]:
+        build.call("equip", slot="Amulet", raw="\n".join(["Rarity: Rare", "Test Amulet", "Gold Amulet",
+                                                          "Item Level: 82", "Implicits: 0", *extra]), fields=[])
+        got, how = cmod.overcharge_taken_mods(build, "Spark")
+        return (got[0]["value"] if got else 0.0) + cmod.POB_SELF_SHOCK, how  # (none: exactly PoB's 15)
+
+    full, _ = reflected([])
+    halved, how = reflected(["50% reduced effect of Shock on you"])
+    print("PROBE halved", full, halved, how)
+    assert halved == pytest.approx(full / 2) and (not how or "effect of Shock on you" in how)
 
 
 def number_of(value) -> float:

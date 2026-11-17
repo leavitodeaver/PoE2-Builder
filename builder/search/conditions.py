@@ -91,7 +91,8 @@ WITHERING_PRESENCE_STATS = ("skill_withering_presence_frequency_ms", "base_skill
 WITHER_SUPPORT_STATS = ("support_withered_base_duration_ms",
                         "withered_on_hit_chance_%_for_every_100%_target_ailment_threshold_dealt_as_chaos_damage")
 WITHER_FIELDS = ("Speed", "HitChance", "IgniteChancePerHit", "IgniteDuration", "PresenceRadius", "ChaosHitAverage",
-                 "MainHand.ChaosHitAverage", "EnemyAilmentThreshold", "Minion.Speed", "Minion.HitChance")
+                 "MainHand.ChaosHitAverage", "EnemyAilmentThreshold", "Minion.Speed", "Minion.HitChance",
+                 "MovementSpeedMod")  # (MECH83: Wither Away's entries, models.presence_reentries' roll length)
 # (MECH67; RESEARCH22 #130, RESEARCH11 withered-sources.md #48) Two chance lines with no duration in their text:
 # chance_to_inflict_wither_%_against_enemies_with_abyssal_wasting ("N% chance to inflict Withered with Hits against targets
 # affected by Abyssal Wasting": Kurgal's Passage mods, a Grip of Kulemak Desecrated line) and
@@ -119,8 +120,34 @@ WITHER_MINIONS = re.compile(r"^Minions have (\d+)% chance to inflict Withered on
 # second (the triggers taken as evenly spaced, MEDIUM), each x the share the build's other curses are off. Not offered:
 # letting a hand-cast curse lapse on purpose (5 stacks every duration + CURSE_DELAY, the curse off the delay each time).
 WITHER_HEX = re.compile(r"^Non-Cursed enemies you Curse have (\d+) Withered stacks inflicted on them$", re.I)
-# Lines that inflict Withered but aren't counted (labelled in the basis): on entering your Presence (once on a lone boss),
-# on curse
+# Wither Away (MECH83; MECH82's Handover step 3, RESEARCH26 R26-34's "same for WITHER_UNCOUNTED's entry line"; before, the
+# line counted 0: an UNDERCOUNT). The passive chaos38 (PassiveSkills, 26650308: withered_magnitude_+% 20
+# and inflict_withered_for_x_seconds_on_unwithered_enemies_when_they_enter_your_presence 8; stat_descriptions "Unwithered
+# enemies are Withered for {0} seconds when they enter your Presence"). (checked: Stats.json for every stat id holding
+# "enter" and "presence": this one, Beetlebite's Aggravate, the Plants' Overgrow and the crit vs entered Recently; every
+# table row referencing it: chaos38 only, no Mods, no stat set; PoB's ModCache 6836 / ModParser 3209 read it only as
+# Condition:CanWither, which lets the box's stacks count but sets none.) Counted: an entry inflicts one Withered stack
+# (Withered "can be inflicted up to 10 times", KeywordPopups; one stack per infliction, MEDIUM) for its seconds, and only
+# on a boss carrying none ("Unwithered"). Entries come at models.presence_reentries' rate r (the build's rolls out of and
+# back into its Presence; 0 when the boss stays outside it or the roll can't leave it, CLAUDE.md: no flat rate). Taken as
+# random in time, an entry stack lasting D is on rD / (1 + rD) of the fight when nothing else Withers the boss (an entry
+# during it finds the boss Withered and does nothing; the next after it lands): 2/3 at one entry per 4 s and 8 s. With
+# other sources keeping s stacks on average (Poisson count), the boss carries at least one 1 - e^-s x (1 - rD / (1 + rD))
+# of the fight (the lower reading: an entry while the others' stacks are up is lost). Only that "at least one" matters to
+# PoB's whole count when s < 1: the box is 1 stack for that share (the uptime weighting, Blackflame's way); from s >= 1 the
+# entry's expected stacks join the others'. Duration modifiers on Withered aren't read (as the other lines).
+WITHER_ENTRY = re.compile(r"^Unwithered enemies are Withered for (\d+(?:\.\d+)?) seconds? when they enter your Presence$",
+                          re.I)
+
+
+def wither_entry_share(rate: float, duration: float) -> float:
+    """Share of the fight one entry-inflicted Withered stack is on a boss nothing else Withers (WITHER_ENTRY's note)."""
+    if rate <= 0 or duration <= 0:
+        return 0.0
+    return rate * duration / (1 + rate * duration)
+
+
+# Lines that inflict Withered but aren't counted (labelled in the basis): on curse
 WITHER_UNCOUNTED = re.compile(r"withered .*when they enter your presence|minions have .*withered|abyssal wasting.*|"
                               r"withered with hits against|curse .*withered|withered .*curse", re.I)
 
@@ -178,7 +205,7 @@ def _withered_stacks(lines: list[str], stats: dict) -> tuple:
     hit = number(stats.get("HitChance")) / 100 if "HitChance" in stats else 1.0
     rate = number(stats.get("Speed")) * hit  # hits per second
     spell = "Spell" in (stats.get("_main_types") or set())
-    stacks, sources, idle = 0.0, [], []
+    stacks, sources, idle, entry_seconds = 0.0, [], [], []
     wasting = any(models.WASTING_ON_HIT.match(t) for t in lines)
     wasted = (1.0 if any(models.WASTING_INFINITE.match(t) for t in lines) else min(1.0, rate * models.WASTING_DURATION)
               ) if wasting and rate > 0 else 0.0
@@ -213,6 +240,8 @@ def _withered_stacks(lines: list[str], stats: dict) -> tuple:
             stacks += float(m.group(1)) * each * WITHER_DEFAULT_DURATION
             sources.append(f"{text} ({why}; {WITHER_DEFAULT_DURATION:g} s each, no duration in the game data: the "
                            "shortest stated one, LOW)")
+        elif m := WITHER_ENTRY.match(text.strip()):  # (MECH83: at the Presence re-entry rate, below)
+            entry_seconds.append(float(m.group(1)))
         elif WITHER_UNCOUNTED.search(text) and not models.WASTING_ON_HIT.match(text):
             idle.append(text)
     name, own = stats.get("_wither_main") or ("", {})
@@ -239,7 +268,28 @@ def _withered_stacks(lines: list[str], stats: dict) -> tuple:
                            f"Presence ({radius:.1f} m, the boss {metres:g} m away)")
         else:
             idle.append(f"{WITHERING_PRESENCE} (the boss {metres:g} m away, outside your {radius:.1f} m Presence)")
-    left = f"; not counted: {'; '.join(t[:70] for t in idle)}" if idle else ""
+    entry_up, entry_how = 0.0, ""
+    if entry_seconds:  # (MECH83: Wither Away, WITHER_ENTRY's note)
+        rate, how = models.presence_reentries(lines, stats, _boss_distance(lines, stats)[0] / 10)
+        seconds = max(entry_seconds)
+        entry_up = wither_entry_share(rate, seconds)
+        entry_how = (f"Unwithered enemies are Withered for {seconds:g} seconds when they enter your Presence: {how}; one "
+                     f"stack {seconds:g} s per entry on an Unwithered boss, {entry_up:.0%} of the fight (MEDIUM)")
+        if entry_up <= 0:
+            idle.append(entry_how)
+    left = f"; not counted: {'; '.join(t[:90] for t in idle)}" if idle else ""
+    if entry_up > 0 and min(float(WITHERED_MAX), stacks) < 1:
+        up = 1 - math.exp(-stacks) * (1 - entry_up)
+        basis = (f"{entry_how}" + (f"; with {'; '.join(sources)} ({stacks:.2f} stacks on average)" if sources else "")
+                 + f": at least one Withered stack {up:.0%} of the fight{left}")
+        if up >= FULL_UPTIME:
+            return 1.0, basis
+        if up >= SWITCH_ON:
+            return 1.0, basis + f" ({shared(up)})", up, False
+        return 0.0, basis
+    if entry_up > 0:
+        sources.append(f"{entry_how}, x e^-{stacks:.1f} for the share the other stacks leave the boss Unwithered")
+        stacks += entry_up * math.exp(-stacks)
     if not sources:
         return 0.0, ""
     if any(WITHER_FOREVER.search(t) for t in lines):
@@ -2004,6 +2054,7 @@ CHILL_FIELDS = ("ChillChanceOnHit", "Speed", "HitChance", "ChillDuration", "Chil
                 "CritChance", "ChillHitDamage", "ChillCritDamage", *(f"{t}{a}" for t in models.DAMAGE_TYPES for a in ("HitAverage", "CritAverage")))
 EVIDENCE_FIELDS.extend(f for f in CHILL_FIELDS if f not in EVIDENCE_FIELDS)
 EVIDENCE_FIELDS.extend(f for f in ("IgniteDuration", "IgniteStackPotential") if f not in EVIDENCE_FIELDS)  # (MECH81)
+EVIDENCE_FIELDS.extend(f for f in ("MovementSpeedMod",) if f not in EVIDENCE_FIELDS)  # (MECH83: presence_reentries' roll)
 
 
 def chill_effect(stats: dict) -> tuple[float, float, str]:
@@ -2131,8 +2182,10 @@ def _self_ignited(lines: list[str], stats: dict) -> tuple[object, str, float] | 
 # the skill inflicts: the base 20% x the main skill's Shock-magnitude modifiers with Overcharge's own 50% put back
 # (bridge.shockMagnitude leaves it out), or 20% x 1.5 for a supported skill beside the main one; capped at the Shock
 # maximum. The difference over PoB's 15 goes in as DamageTaken INC under Condition:Shocked (overcharge_taken_mods), so it
-# applies only while the box is on. Labelled MEDIUM: the reflected Shock's magnitude taken as the inflicted one, your own
-# "reduced effect of Shock on you" not read (a higher reading, the cautious side); the box is on at the share of the fight
+# applies only while the box is on. Labelled MEDIUM: the reflected Shock's magnitude taken as the inflicted one, then x
+# your "effect of Shock on you" (PoB's SelfShockEffect; MECH83, MECHC33's probe: PoB's box ignores it, so below 75% the
+# mod is negative and takes PoB's 15 down; SelfShockEffect also carries the enemy's own EnemyShockMagnitude /
+# AilmentMagnitude (CalcDefence 2026), which the tool sets nowhere (checked: bosses.py, bridge.lua): LOW-MEDIUM); the box is on at the share of the fight
 # (MIN_UPTIME), so the defence floors (the worse of on / off) see you Shocked. The boss's own Shocks on you aren't set here
 # (boss_hits.ailment_rate gives their rate; not wired into the box: a separate OVERCOUNT of survival for every build,
 # left for the boss-side lane).
@@ -2271,13 +2324,18 @@ def overcharge_taken_mods(build, main_skill: str) -> tuple[list[dict], str]:
     else:
         raw, top = SHOCK_BASE * (1 + OVERCHARGE_EFFECT / 100), 100.0
         how = f"Overcharge's own {OVERCHARGE_EFFECT:g}% (the other modifiers of the skill beside the main one not read)"
-    value = max(0.0, min(raw, top))
-    extra = value - POB_SELF_SHOCK
-    if extra <= 0:
+    # (MECH83; MECHC33's probe POE2T3637: PoB's box ignores "effect of Shock on you", so the reflected Shock is scaled
+    # by PoB's SelfShockEffect here, as MECHC33 does for Redflare's: 100 with no such line, 0 when unaffected by Shock)
+    effect = number((build.call("stats", fields=["SelfShockEffect"]) or {}).get("SelfShockEffect", 100.0))
+    value = max(0.0, min(raw, top)) * max(effect, 0.0) / 100
+    extra = round(value - POB_SELF_SHOCK, 6)
+    if extra == 0:
         return [], ""
     return ([models.raw_mod("DamageTaken", "INC", extra, condition="Shocked")],
-            f"the reflected Shock {value:g}% increased damage taken ({SHOCK_BASE:g}% x {how}), {extra:g}% over PoB's "
-            f"{POB_SELF_SHOCK:g}% box, applied only while you are Shocked")
+            f"the reflected Shock {value:g}% increased damage taken ({SHOCK_BASE:g}% x {how}"
+            + (f", x your {effect:g}% effect of Shock on you (PoB's SelfShockEffect; its box ignores it)"
+               if effect != 100 else "")
+            + f"), {extra:+g}% against PoB's {POB_SELF_SHOCK:g}% box, applied only while you are Shocked")
 
 
 def debuff_uptime(var: str) -> Callable[[list[str], dict], tuple[object, str]]:
@@ -2301,6 +2359,45 @@ def debuff_uptime(var: str) -> Callable[[list[str], dict], tuple[object, str]]:
         basis = f"{name} up {up:.0%} of the fight ({shared(up)}): " + "; ".join(how[:3])
         return _box(up, basis)
     return uptime
+
+
+# Her Declaration (MECH83; MECH82's Handover step 3; before, it counted 0: an UNDERCOUNT). A lineage support, new in 0.5.0
+# (patch-notes archive --history "Declaration": "New Lineage Support: Her Declaration", no later entry; no later hit isn't
+# proof of no change). GemEffects HerDeclarationSupport: "Supports Persistent Buff Skills, causing enemies that enter your
+# Presence to become Intimidated while the Skill is active"; GrantedEffectStatSets SupportHerDeclarationPlayer (26650308):
+# support_mothers_declaration_intimidate_enemies_when_they_enter_your_presence_base_duration_ms 4000 (PoB's other.lua 8548:
+# the same, requireSkillTypes Persistent AND Buff; nothing in PoB reads the stat: SkillStatMap and the Calc modules have
+# no hit for it). Intimidate (KeywordPopups): "10% increased damage taken and 10% reduced damage dealt" (PoB's
+# conditionEnemyIntimidated). Counted: with the support in an enabled group beside an enabled Persistent Buff gem (gems'
+# skillTypes; a Persistent Buff stays active), each entry of the boss into your Presence (models.presence_reentries: the
+# build's rolls out and back in; 0 when it stays outside or the roll can't leave it, CLAUDE.md) Intimidates it for 4 s x
+# the "increased Intimidate Duration" lines; entries taken as random in time, so Intimidated 1 - e^(-rate x 4 s) of the
+# fight (the lower reading: rolls every DODGE_EVERY s are regular, which would give min(1, rate x 4 s)); combined with
+# the box's other sources as independent (debuff_uptime).
+HER_DECLARATION = "Her Declaration"
+HER_DECLARATION_SECONDS = 4.0  # support_mothers_declaration_..._base_duration_ms 4000
+
+
+def her_declaration(groups: list[dict], gems: dict, texts: list[str], stats: dict,
+                    metres: float) -> tuple[float, str] | None:
+    """(share of the fight the boss is Intimidated by Her Declaration, how), None without the support on a Persistent
+    Buff (HER_DECLARATION's note)."""
+    buffs = []
+    for group in groups:
+        if group.get("enabled") is False:
+            continue
+        present = [g["name"] for g in group.get("gems") or [] if g.get("enabled", True)]
+        if HER_DECLARATION in present:
+            buffs += [n for n in present if not (gems.get(n) or {}).get("support")
+                      and {"Persistent", "Buff"} <= set((gems.get(n) or {}).get("skillTypes") or [])]
+    if not buffs:
+        return None
+    rate, how = models.presence_reentries(texts, stats, metres)
+    duration = HER_DECLARATION_SECONDS * models.duration_scale(list(texts), "Intimidate")
+    up = 1 - math.exp(-rate * duration) if rate > 0 else 0.0
+    return up, (f"Her Declaration on {', '.join(sorted(set(buffs)))}: the boss Intimidated {duration:g} s each time it "
+                f"enters your Presence ({how}): {up:.0%} of the fight (entries taken as random in time, the lower "
+                "reading)")
 
 
 # Dazed (MECH70; plans/term-dazed-enemies.md, an UNDERCOUNT before: nothing set PoB's conditionEnemyDazed box, so every
@@ -4210,13 +4307,21 @@ def chilled_ground(stats: dict, texts: list[str], main_gems: set[str]) -> tuple[
 #   - counted: Birth of Fury (UniqueBurningGroundWhileMovingMaximumLife1, "Drop Ignited Ground while moving, which
 #     lasts 8 seconds"): a play style, as Shocked Ground's trail (walk or roll through the boss's spot every 8 s), only
 #     when you fight within 2 m and don't stand still;
-#   - NOT counted yet (an UNDERCOUNT, labelled in the row): Explosive Spear's Frenzy-Charged explosion, Spear of
-#     Solaris's skybeam ground, Burning Inscription (the support's runes).
+#   - counted (MECH83): Explosive Spear's Frenzy-Charged explosion (ActiveSkills explosive_spear: "Consumes a Frenzy
+#     Charge if you have one to explode immediately, dealing more damage in a cross-shaped area and creating Ignited
+#     Ground"; ExplosiveSpearInfusedExplodePlayer base_skill_effect_duration 8000, 26650308), at its Frenzy-Charged
+#     throws a second: the Frenzy Charges the build makes shared over its Frenzy consumers by uses (_charges_held's
+#     charge flow, MECH-C's), at most the spear's own throws; the ground made at the boss (the spear exploding on its
+#     impact, LOW), its own Ignite damage not read (as Incinerate's);
+#   - NOT counted yet (an UNDERCOUNT, labelled in the row): Spear of Solaris's skybeam ground, Burning Inscription (the
+#     support's runes).
 IGNITED_GROUND_RADIUS = 2.0  # m (KeywordPopups IgnitedGround's default)
-IGNITED_GROUND_MAKERS = {"Incinerate": 8.0, "Ball Lightning": 4.0}  # s, the Fire-Infused casts' ground
+IGNITED_GROUND_MAKERS = {"Incinerate": 8.0, "Ball Lightning": 4.0, "Explosive Spear": 8.0}  # s, the charged uses' ground
+EXPLOSIVE_SPEAR = "Explosive Spear"
+MAKER_USES = {EXPLOSIVE_SPEAR: "Frenzy-Charged throws"}  # (else "Fire-Infused casts")
 IGNITED_ON_USE = re.compile(r"Creates Ignited Ground for (\d+) seconds when used", re.I)
 IGNITED_WHILE_MOVING = re.compile(r"Drop Ignited Ground while moving, which lasts (\d+) seconds", re.I)
-IGNITED_NOT_COUNTED = "Explosive Spear's, Spear of Solaris's and Burning Inscription's ground not counted yet"
+IGNITED_NOT_COUNTED = "Spear of Solaris's and Burning Inscription's ground not counted yet"
 
 
 def ignited_ground(makers: dict[str, tuple[float, str]], texts: list[str], stats: dict,
@@ -4230,7 +4335,8 @@ def ignited_ground(makers: dict[str, tuple[float, str]], texts: list[str], stats
     for name, (rate, how) in makers.items():
         seconds = IGNITED_GROUND_MAKERS[name]
         up = _covered(rate, 1.0, seconds)
-        parts.append(f"{name}'s ground on its Fire-Infused casts ({how}; {seconds:g} s, made at the boss, LOW): {up:.0%}")
+        parts.append(f"{name}'s ground on its {MAKER_USES.get(name, 'Fire-Infused casts')} ({how}; {seconds:g} s, made at "
+                     f"the boss, LOW): {up:.0%}")
         off *= 1 - up
         if pieces is not None:
             pieces.append((f"{name}'s ground", up, seconds, None))
@@ -4288,7 +4394,8 @@ def ignited_ground(makers: dict[str, tuple[float, str]], texts: list[str], stats
 #   - Not read (each an UNDERCOUNT where it would lift the boss to 50%): Incinerate's / Ball Lightning's ground damage
 #     (their own applications count 0 here, so their ground Ignites only on the build's other Flammability); stacking
 #     among the main skill's own hits (ailment_uptime still takes each hit's chance alone, as PoB).
-#   - Its Ignite's damage isn't added (as Radiant Grief's note): only the boss's Ignited state is.
+#   - Its Ignite's damage isn't added here (as Radiant Grief's note): only the boss's Ignited state is; for grounds that
+#     name their Fire (Beira's Anguish, Birth of Fury) models.ground_life_ignite_model adds it (MECH83).
 FLAMMABILITY_SECONDS = 8.0  # s on monsters (patch 0.3.0)
 FLAMMABILITY_PER_THRESHOLD = 20.0  # % per 100% of the Ailment Threshold dealt (KeywordPopups Flammability: 1% per 5%)
 NO_HIT_IGNITE_AT = 50.0  # % Flammability before a no-Hit effect can Ignite (patch 0.3.0)
@@ -4394,7 +4501,9 @@ def ground_ignite(pieces: list, stats: dict) -> tuple[float, str]:
 # 0.5.0 its Ignites can't compound; 0.5.5 Chaos-damage Ignites light it too. Counted:
 #   - the ground at the boss (the grenade thrown at it, MEDIUM; the boss taken as standing in it: the boss-still
 #     headline), up _covered(uses, 1, 6 s); Oil Barrage's only on unempowered volleys: with Power Charges held, every
-#     volley is taken as the Power-Charged barrage, which makes no Oil Ground (the lower reading, labelled);
+#     volley is taken as the Power-Charged barrage, which makes no Oil Ground (ActiveSkills oil_barrage, 26476662 and
+#     26650308 alike: "Consumes Power Charges if possible to instead Channel a sustained barrage of electrified Oil that
+#     does not create Oil Ground"; the lower reading, labelled);
 #   - lit when something lights it within its 6 s: a Detonator's hits on the boss (the main skill's landing hits, other
 #     groups' uses; PoB's gems.json skillTypes "Detonator"), the boss's own Ignites (the build's Ignite applications a
 #     second: flammability_sources at PoB's per-hit chance, the lower reading) and your Ignited Ground under the boss;
@@ -5840,6 +5949,11 @@ class Conditions:
         names = {n["name"] for g in groups for n in g.get("gems") or [] if n.get("enabled", True)} | {self.main_skill}
         if not names & set(IGNITED_GROUND_MAKERS):
             return {}
+        out = {}
+        if EXPLOSIVE_SPEAR in names:  # (MECH83: its Frenzy-Charged throws, from the Frenzy Charges the build makes)
+            out[EXPLOSIVE_SPEAR] = self._frenzy_charged(lines, stats)
+        if not names & (set(IGNITED_GROUND_MAKERS) - {EXPLOSIVE_SPEAR}):
+            return out
         fire = {n for n in names if "Fire" in INFUSION_CONSUMERS.get(n, ())}
         others = self._group_uses(groups, fire - {self.main_skill})
         uses = {n: number(stats.get("Speed")) if n == self.main_skill else others.get(n, self._chosen_use(n))
@@ -5847,13 +5961,27 @@ class Conditions:
         supply, made = self._infusion_supply(lines)
         have = supply["Fire"] + supply["Any"]
         total = sum(uses.values())
-        out = {}
-        for name in sorted(names & set(IGNITED_GROUND_MAKERS)):
+        for name in sorted(names & (set(IGNITED_GROUND_MAKERS) - {EXPLOSIVE_SPEAR})):
             rate = min(uses[name], have * uses[name] / total) if total > 0 else 0.0
             out[name] = (rate, f"{rate:.2f} of its {uses[name]:.2f} casts/s Fire-Infused: {have:.2f} Fire Infusions/s "
                                f"from {', '.join(made) or 'nothing'}"
                                + (f", shared with {', '.join(sorted(fire - {name}))}" if fire - {name} else ""))
         return out
+
+    def _frenzy_charged(self, lines: list, stats: dict) -> tuple[float, str]:
+        """(Explosive Spear's Frenzy-Charged throws a second, how) (MECH83, ignited_ground): the Frenzy Charges consumed
+        a second (_charges_held's charge flow over the build's Frenzy consumers, stats["_consumers"]), the spear's share
+        of them by uses."""
+        texts = [line["text"] if isinstance(line, dict) else line for line in lines]
+        scratch = {**stats, "_charge_flow": {}}
+        _charges_held("Frenzy")(texts, scratch)
+        flow = scratch["_charge_flow"].get("Frenzy")
+        wanted = {n: number(u) for n, u in ((stats.get("_consumers") or {}).get("Frenzy") or {}).items()}
+        spear, total = wanted.get(EXPLOSIVE_SPEAR, 0.0), sum(wanted.values())
+        if not flow or total <= 0 or spear <= 0:
+            return 0.0, "no Frenzy Charge reaches it (no source, or the spear's throws not rated)"
+        rate = min(spear, flow[0] * spear / total)
+        return rate, f"{rate:.2f} of its {spear:.2f} throws/s Frenzy-Charged ({flow[1]})"
 
     def _oil_ground(self, texts: list[str], stats: dict, pieces: list) -> list[tuple[str, float, float]]:
         """The build's lit Oil Ground under the boss (MECH82, oil_ground): each Oil skill's uses a second (the main skill's
@@ -6425,7 +6553,15 @@ class Conditions:
         self.build.primed_freeze = stats.get("_primed_freeze")
         # (MECH76: MECHB30's Shattering Roar, routed) the Skeletal Brutes' Intimidate, one more Intimidated source
         roar = self.shattering_roar(texts) if any(SKELETAL_BRUTE in n for n in names) else None
-        stats["_debuff_extra"] = {"conditionEnemyIntimidated": roar} if roar and roar[0] > 0 else {}
+        intimidated = [roar] if roar and roar[0] > 0 else []
+        if HER_DECLARATION in names:  # (MECH83: on each Presence entry, her_declaration)
+            declared = her_declaration(self.build.groups(), self.build.ctx.gems, texts, stats,
+                                       _boss_distance(texts, stats)[0] / 10)
+            if declared and declared[0] > 0:
+                intimidated.append(declared)
+        stats["_debuff_extra"] = ({"conditionEnemyIntimidated": (
+            1 - math.prod(1 - min(max(u, 0.0), 1.0) for u, _ in intimidated), "; ".join(h for _, h in intimidated))}
+            if intimidated else {})
         stats["_stationary"] = not self.stationary_off and any(STATIONARY_LINE.search(t) for t in texts)
         # (MECH67) the boss's Power with the build's Power lines (models.boss_power): Glory, the roar's Empowers
         stats["_boss_power"] = models.boss_power(texts, stats, _boss_distance(texts, stats)[0], "Attack" in main_types,
@@ -6530,6 +6666,15 @@ class Conditions:
             aura = (aura[0] * reach, f"{aura[1]}; it Ignites only at 50% Flammability: {how}")
         legion = self.minion_ignite(names)
         burning = ground_ignite(ground_pieces, stats)
+        # (MECH83: the Ignite damage of grounds that name their Fire, Beira's Anguish / Birth of Fury: models.
+        # ground_life_ignite_model) (label, share the ground Ignites the boss, its Ignite's DPS, how)
+        stats["_ground_life_ignite"] = []
+        for label, up, seconds, damage in ground_pieces:
+            if up > 0 and damage:
+                reach, how = no_hit_ignite(stats, damage, seconds)
+                stats["_ground_life_ignite"].append((
+                    label, up * reach, models.IGNITE_BASE * damage,
+                    f"{label} under the boss {up:.0%} of the fight, as though dealing {damage:,.0f} Fire; {how}"))
         stats["_oil_ignite"] = []  # (MECH82: models.oil_ignite_model) (skill, share Ignited by it, its Ignite's DPS, how)
         for name, lit, damage in oil:
             reach, how = no_hit_ignite(stats, damage, OIL_GROUND_SECONDS)
@@ -6673,6 +6818,7 @@ class Conditions:
         self.build.stormfire = stats.get("_stormfire") or (0.0, "")  # (MECH81: Stormfire, models.stormfire_mods)
         self.build.flammability_scale = stats.get("_flammability_scale") or (1.0, "")  # (MECH81)
         self.build.oil_ignite = list(stats.get("_oil_ignite") or [])  # (MECH82: lit Oil Ground, models.oil_ignite_model)
+        self.build.ground_life_ignite = list(stats.get("_ground_life_ignite") or [])  # (MECH83: ground_life_ignite_model)
         # (MECH78, MC-1; for COV-A's OpenWeakness ledger condition, the manager 12:43: one share for both) the share of
         # the fight's TIME the boss has an Open Weakness: open_weakness_up(build)
         self.build.open_weakness_up = stats.get("_open_weakness") or (0.0, "")

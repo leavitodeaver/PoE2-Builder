@@ -3849,6 +3849,21 @@ function bridge.minionSkillHit(args)
 		return { reason = "the minion has no such skill" }
 	end
 	local saved, oldSkill, oldActive = build.mainSocketGroup, instance.skillMinionSkill, group.mainActiveSkill
+	-- (MECH83) args.statSet: that stat set of the minion skill (CalcActiveSkill 1133-1145 reads
+	-- srcInstance.skillMinionSkillStatSetIndexLookup[the summon's id][the skill's position]), put back after
+	local oldLookup = instance.skillMinionSkillStatSetIndexLookup
+	if tonumber(args.statSet) then
+		local lookup, per = { }, { }
+		for key, value in pairs(oldLookup or { }) do
+			lookup[key] = value
+		end
+		for key, value in pairs((oldLookup or { })[granted.id] or { }) do
+			per[key] = value
+		end
+		per[found] = tonumber(args.statSet)
+		lookup[granted.id] = per
+		instance.skillMinionSkillStatSetIndexLookup = lookup
+	end
 	build.mainSocketGroup, group.mainActiveSkill, instance.skillMinionSkill = args.index, position, found
 	local result = { reason = "PoB calculated no minion" }  -- (never an empty table: it would reach Python as a list)
 	local ok, env = pcall(calcs.initEnv, build, "CALCULATOR")
@@ -3867,9 +3882,11 @@ function bridge.minionSkillHit(args)
 			result.AverageHit = jsonNumber(hand.AverageHit)
 		end
 		result.name = env.minion.mainSkill and env.minion.mainSkill.activeEffect.grantedEffect.name or nil
+		local set = env.minion.mainSkill and env.minion.mainSkill.activeEffect.statSet
+		result.statSet = set and set.index or nil  -- (MECH83: the stat set PoB used)
 	end
 	-- the minion's own counted skill's TotalDPS (what it loses while it performs the other skill)
-	instance.skillMinionSkill = oldSkill
+	instance.skillMinionSkill, instance.skillMinionSkillStatSetIndexLookup = oldSkill, oldLookup
 	ok, env = pcall(calcs.initEnv, build, "CALCULATOR")
 	if ok and env and pcall(calcs.perform, env, true) and env.minion then
 		local output = env.minion.output or { }
