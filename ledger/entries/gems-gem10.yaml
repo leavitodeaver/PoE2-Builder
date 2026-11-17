@@ -212,7 +212,14 @@
     no PoE2 test), so with warcries under 5 s apart the stacks climb to the cap; MECH81 (the manager, 16 Nov 04:23)
     reconciled GEM15's and MECH80's versions to MECH80's models.cry_stacks: averaged over the fight (the boss's Life +
     ES / Full DPS) with the climb counted; each stack on its own 5 s, min(10, rate x 5 s), is the "without" row.
+    GEM17 (RESEARCH28 CD-9): the box is a "count" box, so unset, 0 and a cleared input all read 10 and "no extra stage"
+    is 1 (probe POE2T2182: stage multiplier 9 for unset / 0 / False, 0 for 1). Nothing writes the box; but before the
+    models see a Corrupted Cry (the search's support what-ifs, scored with the lines last installed) PoB's 10 came
+    back: probe POE2T2183, Boneshatter + Infernal Cry, the what-if adding Corrupting Cry I read 3,386 Full DPS (517
+    without it; 695 once settled). models.cry_stage_floor now holds the multiplier at one stack whenever the model left
+    no line: the same what-if reads 804. With this entry forbidden PoB's 10 stays.
   sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ConfigOptions.lua 338-341",
+            "scratch/gem17/probe_cry.py (POE2T2182 / 2183)", "scratch/manager/research/config-defaults-audit.md CD-9",
             "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_str.lua (Corrupting Cry I / II, Corrupted Cry)",
             "scratch/gem10/probe_s2.json (POE2T2077)", "scratch/manager/PATCH_CHECK.md S2-3"]
   test_in_game: "Warcry once on a dummy with Corrupting Cry: one Corrupted Blood stack for 5 s; twice within 5 s: two."

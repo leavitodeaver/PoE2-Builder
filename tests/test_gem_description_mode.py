@@ -232,6 +232,18 @@ def test_corrupting_crys_stacks_follow_the_warcrys_use_rate(speed, press, stacks
     assert f"{own:.2f} if each stack keeps its own 5 s" in note["basis"] and f"own 5 s): {own:.2f}" in note["play"]
 
 
+def test_corrupting_crys_stages_are_held_at_one_stack_until_the_model_sees_a_cry():
+    # (GEM17, RESEARCH28 CD-9) PoB's stages box reads its placeholder 10 when unset: with no Corrupted Cry yet (a support
+    # what-if adds one) the multiplier is held at one stack; the model's own line wins; a forbidden entry leaves PoB's
+    floor = models.cry_stage_floor([])
+    assert [(m["name"], m["type"], m["value"]) for m in floor] == [(models.CRY_MULTIPLIER, "OVERRIDE", 0)]
+    spark, cry, cc = Skill("Spark", 1, spell=True), Skill("Infernal Cry", 2), Skill("Corrupted Cry", 2, triggered=True)
+    mods, _ = models.gem_stat_model([spark, cry, cc], stats={"Speed": 1.4, "FullDPS": 1000.0}, main=spark,
+                                    groups={2: {"speed": 0.25, "_press": None, "name": "Infernal Cry"}})
+    assert models.cry_stage_floor(mods) == []
+    assert models.cry_stage_floor([], {models.CRY_ENTRY}) == []
+
+
 @pytest.mark.parametrize("uses, less", [
     ([], 100.0),  # no curse to detonate
     ([models.CurseUse("Despair", 1.0, "cast by hand", True, 7.4)], 100 * (1 - 1 / (0.6 + 1.5 + 3.7))),

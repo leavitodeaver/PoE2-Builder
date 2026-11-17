@@ -1710,6 +1710,7 @@ class Assumptions:
                                                       self.mods, build.call("getConfig")["input"], side_groups,
                                                       [e["text"] for e in source_lines],  # (GEM11: Salvo's Seal lines)
                                                       enemy_level(build))  # (GEM13: Frost Bomb's level cap)
+        stat_mods = stat_mods + models.cry_stage_floor(stat_mods, forbidden)  # (GEM17: PoB's stages box reads 10)
         harmony_mods, harmony_notes = models.harmony_model(inputs, stats)
         ring_mods, ring_notes = models.resist_rings_model(source_lines) if models.RESIST_ENTRY not in forbidden else ([], [])
         main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if main is not None else set()

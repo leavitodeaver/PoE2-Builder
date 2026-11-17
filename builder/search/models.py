@@ -4582,6 +4582,22 @@ def corrupting_cry_model(skills: list[Skill], stats: dict, main: Skill | None, g
                  f"own 5 s): {own:.2f}.")}]
 
 
+# (GEM17, RESEARCH28 CD-9) PoB's stages box is a "count" box with a placeholder of 10 (ConfigOptions.lua 338-341;
+# ConfigTab BuildModList applies a count box's input only when set and non-zero, else its placeholder): unset, 0 and a
+# cleared input all read 10 stacks, and "no extra stage" is 1. Nothing in our code writes the box (checked: grep
+# "CorruptingCry" in builder/, engine/, tests/, ledger/); corrupting_cry_model overrides the multiplier it feeds instead.
+# But that OVERRIDE exists only once the models have seen a Corrupted Cry: the search's support what-ifs (gemDeltas,
+# scored with the lines last installed) and any trial before the models re-run read PoB's 10 (probe POE2T2182). So the
+# stage multiplier is held at 0 (one stack, the box's "1") whenever corrupting_cry_model left no line of its own: the
+# multiplier is read only by Corrupted Cry (checked: grep CorruptingCryStageAfterFirst in vendor PoB: sup_str.lua's three
+# Corrupting Cry gems and the config box), so the line moves nothing else. With the entry forbidden, PoB's own 10 stays.
+def cry_stage_floor(mods: list[dict], forbidden: set[str] = frozenset()) -> list[dict]:
+    """`Multiplier:CorruptingCryStageAfterFirst` OVERRIDE 0 unless `mods` already set it (see above)."""
+    if CRY_ENTRY in forbidden or any(m.get("name") == CRY_MULTIPLIER for m in mods):
+        return []
+    return [raw_mod(CRY_MULTIPLIER, "OVERRIDE", 0)]
+
+
 # Hexblast's detonations (GEM10; PATCH_CHECK L2-2, an OVERCOUNT). The game (ActiveSkills hexblast; PoB's description):
 # "Detonate a Curse on every enemy in an area, causing explosions of Chaos damage but removing the Curse. Can only
 # detonate Curses for which at least half of the duration has expired." Patch 0.2.0 (grep_notes.py --history
