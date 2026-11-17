@@ -1986,3 +1986,20 @@ def test_stunned_recently_lines_count_at_the_share_of_the_fight_you_were_stunned
     assert {m["line"]: m["scale"] for m in heavy}["1% increased Attack Damage"] == pytest.approx(25 * (1 - math.exp(-2)), abs=0.01)
     calm = {**stats, "StunAvoidChance": 100}
     assert recovery.stunned_recently_mods(lines, calm, 0.0)[0] == []
+
+
+def test_buffs_on_you_expire_slower_slows_the_buffs_timer_not_their_increased_duration():
+    """MECHC35 (RESEARCH29): "Buffs on you expire 10% slower" lines add, and a Buff lasts x 1 / (1 - S), capped at 75%
+    slower (x4); "faster" lines subtract; the Archon's duration and Unholy Might's 15 s read it."""
+    from builder.search import conditions, models
+
+    assert conditions.buff_expiry(["+10 to maximum Life"]) == (1.0, "")
+    two, how = conditions.buff_expiry(["Buffs on you expire 10% slower", "Buffs on you expire 10% slower"])
+    assert two == pytest.approx(1 / 0.8) and "PoB's reading" in how
+    assert conditions.buff_expiry(["Buffs on you expire 50% slower"] * 2)[0] == pytest.approx(4.0)
+    assert conditions.buff_expiry(["Buffs on you expire 10% faster"])[0] == pytest.approx(1 / 1.1)
+    plain = models.archon_uptime(0.0, 0.0, 5.0)
+    slowed = models.archon_uptime(0.0, 0.0, 5.0, expiry=1.25)
+    assert slowed == pytest.approx(12.5 / (12.5 + 20 + 5)) and slowed > plain
+    on, _, share = conditions.unholy_might_uptime([], {"_kurgal": (0.02, "x"), "_buff_expiry": (1.25, "y")})
+    assert share == pytest.approx(min(1.0, 15 * 1.25 * 0.02))

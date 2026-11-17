@@ -1666,6 +1666,8 @@ class Assumptions:
         power = models.boss_power(texts, stats, models.number(build.call("getConfig")["input"].get("enemyDistance")) or None,
                                   bool(main and main.attack), main.name if main else "")
         stats = {**stats, "_boss_power": power}
+        if any(conditions_mod.BUFF_EXPIRY.search(e["text"]) for e in source_lines):  # (MECHC35, RESEARCH29)
+            stats = {**stats, "_buff_expiry": conditions_mod.buff_expiry([e["text"] for e in source_lines])}
         mods, notes = models.archon_model(inputs, stats, main, main_gems)
         # (MECH79, MECH-A) Incinerate's fuel (its idle line) and the main skill's Compounding Ignite
         compound_mods, compound_notes = models.compound_ignite_mods(name or "", getattr(build, "compound_ignite", None))

@@ -289,11 +289,12 @@ ARCHON_INPUTS = ("ArchonDuration", "ArchonRecovery", "ArchonEffect", "ArchonCrit
 ARCHON_TIMING = ("ArchonDuration", "ArchonRecovery")
 
 
-def archon_uptime(duration_inc: float, recovery_faster: float, wait: float, no_recovery: bool = False) -> float:
+def archon_uptime(duration_inc: float, recovery_faster: float, wait: float, no_recovery: bool = False,
+                  expiry: float = 1.0) -> float:
     """Share of a long fight with the Archon Buff up: it lasts D, then the recovery period R, then
     the next gain comes `wait` seconds later. "Expires X% faster/slower" changes how fast the
-    recovery period passes."""
-    duration = ARCHON_DURATION * max(0.0, 1 + duration_inc / 100)
+    recovery period passes. `expiry`: "Buffs on you expire N% slower" (conditions.buff_expiry, MECHC35), x the duration."""
+    duration = ARCHON_DURATION * max(0.0, 1 + duration_inc / 100) * expiry
     if duration <= 0:
         return 0.0
     recovery = 0.0
@@ -353,13 +354,13 @@ def flame_pause_share(mana: float, cost: float) -> float:
     return cast / (cast + pause)
 
 
-def archon_effects(x: dict, wait: float, no_recovery: bool, flame: float = 0.0) -> dict[str, float]:
+def archon_effects(x: dict, wait: float, no_recovery: bool, flame: float = 0.0, expiry: float = 1.0) -> dict[str, float]:
     """The Archon Buff's effects averaged over a fight, in percent. `flame`: Seething Body's Infernal Flame cycle in
     seconds (flame_uptime), which replaces the duration and the wait."""
     if flame > 0:
         uptime = flame_uptime(flame, x["ArchonRecovery"], no_recovery)[0]
     else:
-        uptime = archon_uptime(x["ArchonDuration"], x["ArchonRecovery"], wait, no_recovery)
+        uptime = archon_uptime(x["ArchonDuration"], x["ArchonRecovery"], wait, no_recovery, expiry)
     effect = max(0.0, 1 + x["ArchonEffect"] / 100)
     return {"uptime": uptime, "effect": effect, "more": ELEMENTAL_ARCHON_MORE * effect * uptime,
             "crit_chance": x["ArchonCritChance"] * effect * uptime,
@@ -436,9 +437,9 @@ def archon_sources(stats: dict, main_gems: set[str]) -> list[ArchonSource]:
 
 
 def archon_block(x0: dict, passive: dict, wait: float, no_recovery: bool, when: list, nonelemental: bool,
-                 flame: float = 0.0) -> list[dict]:
+                 flame: float = 0.0, expiry: float = 1.0) -> list[dict]:
     def effect(key: str) -> Callable[[dict], float]:
-        return lambda x: archon_effects(x, wait, no_recovery, flame)[key]
+        return lambda x: archon_effects(x, wait, no_recovery, flame, expiry)[key]
 
     mods = more_lines("1% more Elemental Damage with Spells", effect("more"), x0, passive,
                       ("ArchonDuration", "ArchonRecovery", "ArchonEffect"), when)
@@ -446,7 +447,7 @@ def archon_block(x0: dict, passive: dict, wait: float, no_recovery: bool, when: 
     mods += increased_lines("1% increased Critical Damage Bonus", effect("crit_damage"), x0, passive, ARCHON_INPUTS, when)
     if nonelemental:  # "No Non-Elemental Damage from Spells" while it lasts
         def lost(x: dict) -> float:
-            return -100 * archon_effects(x, wait, no_recovery, flame)["uptime"]
+            return -100 * archon_effects(x, wait, no_recovery, flame, expiry)["uptime"]
         for kind in ("Physical", "Chaos"):
             mods += more_lines(f"1% more {kind} Damage with Spells", lost, x0, passive, ARCHON_TIMING, when)
     return mods
@@ -466,6 +467,7 @@ def archon_model(inputs: Inputs, stats: dict, main: Skill | None, main_gems: set
         return [], notes
     x0 = {k: inputs.total(k) for k in ARCHON_INPUTS}
     passive = {k: inputs.passive.get(k, 0.0) for k in ARCHON_INPUTS}
+    expiry, expiry_how = stats.get("_buff_expiry") or (1.0, "")  # (MECHC35: "Buffs on you expire N% slower")
     hit = sum(number(stats.get(f"{t}HitAverage")) for t in DAMAGE_TYPES)
     nonelemental = hit > 0 and (number(stats.get("PhysicalHitAverage")) + number(stats.get("ChaosHitAverage"))) > 0.01 * hit
     mods: list[dict] = []
@@ -479,12 +481,13 @@ def archon_model(inputs: Inputs, stats: dict, main: Skill | None, main_gems: set
         for no_recovery in (False, True):
             state = inputs.condition("ArchonNoRecovery", no_recovery)
             if state is not None:
-                mods += archon_block(x0, passive, source.wait, no_recovery, when + state, nonelemental, source.flame)
+                mods += archon_block(x0, passive, source.wait, no_recovery, when + state, nonelemental, source.flame,
+                                     expiry)
     notes = []
     if current is not None:
         no_recovery = inputs.has("ArchonNoRecovery")
-        e = archon_effects(x0, current.wait, no_recovery, current.flame)
-        duration = ARCHON_DURATION * max(0.0, 1 + x0["ArchonDuration"] / 100)
+        e = archon_effects(x0, current.wait, no_recovery, current.flame, expiry)
+        duration = ARCHON_DURATION * max(0.0, 1 + x0["ArchonDuration"] / 100) * expiry
         recovery = 0.0 if no_recovery else ARCHON_RECOVERY / max(1 + x0["ArchonRecovery"] / 100, 1e-9)
         regained = current.wait
         if current.flame > 0:
@@ -503,7 +506,10 @@ def archon_model(inputs: Inputs, stats: dict, main: Skill | None, main_gems: set
             "basis": (f"also {', '.join(parts)}; " if parts else "") + f"up {e['uptime']:.0%} of the time: lasts {duration:.1f}s, then "
                      + ("no recovery period" if no_recovery else f"a {recovery:.1f}s recovery period")
                      + f", regained {regained:.1f}s later ({current.name}: {current.basis}); "
-                     f"effect ×{e['effect']:.2f} (duration and recovery datamined; how soon it's regained assumed)",
+                     f"effect ×{e['effect']:.2f} (duration and recovery datamined; how soon it's regained assumed)"
+                     + (f"; the duration x{expiry:.3f}: {expiry_how} (the Archon Recovery is a Buff too, so read "
+                        f"literally it would pass slower as well: {archon_uptime(x0['ArchonDuration'], ((1 + x0['ArchonRecovery'] / 100) / expiry - 1) * 100, current.wait, no_recovery, expiry):.0%} up, a row, UNVERIFIED)"
+                        if expiry != 1.0 and current.flame <= 0 else ""),
             "confidence": "theory"})
         if current.counter_may_run:  # the other reading, shown and not counted (accuracy first: the headline takes the lower)
             alt_wait = max(0.0, current.wait - duration - recovery)

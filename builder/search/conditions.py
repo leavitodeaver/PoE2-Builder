@@ -1430,6 +1430,39 @@ ONSLAUGHT_NOT_SOURCE = re.compile(r"companions|minions (?:have|gain)|onslaught t
                                   r"while you have onslaught|instead", re.I)
 
 
+# "Buffs on you expire N% slower / faster" (MECHC35; RESEARCH29, buff-expire-slower.md, the manager 17 Nov 22:35): stat
+# buff_time_passed_+%_only_buff_category, on Prolonged Assault, Flow of Time, Lasting Boons, two Chronomancer smalls and
+# two Soul Core bonuses (-10 each; checked by RESEARCH29: every exported table with a stat column). It covers ONLY the
+# game's Buff category on you (HIGH, the 0.1.0d fix): Onslaught, Arcane Surge, the Archons, Unholy Might, Tailwind,
+# Elusive, Fortify, Guard, the Offerings ...; NOT charges, flask / charm effects, Infusions, Grim Feast, Soul Eater,
+# Demonflame, Heralds, curses or debuffs. It slows the buff's timer: duration x 1 / (1 - S), S the lines' sum (adding),
+# at most 75% slower (MEDIUM-HIGH), on top of increased duration. PoB reads it as +N% increased Duration of your own
+# Buff-tagged skills only (ModParser 4664 / ModCache 6798): the readers here use their own base durations, so nothing is
+# counted twice; PoB's reading is shown as a row. Applied in Onslaught's, Arcane Surge's, Unholy Might's and the Archons'
+# uptimes; the other Buff readers (Tailwind, Elusive, Fortify, Guard, the Offerings) don't read it yet (an undercount).
+BUFF_EXPIRY = re.compile(r"buffs on you expire (\d+(?:\.\d+)?)% (slower|faster)", re.I)
+BUFF_EXPIRY_CAP = 0.75
+
+
+def buff_expiry(lines: list[str]) -> tuple[float, str]:
+    """(the factor on a Buff's duration, how) from the build's "Buffs on you expire N% slower / faster" lines; (1.0, "")
+    without one."""
+    total = sum(float(m.group(1)) * (1 if m.group(2).lower() == "slower" else -1)
+                for t in lines for m in BUFF_EXPIRY.finditer(t))
+    if total == 0:
+        return 1.0, ""
+    slow = min(total / 100, BUFF_EXPIRY_CAP)
+    factor = 1 / (1 - slow)
+    return factor, (f"Buffs on you expire {abs(total):g}% {'slower' if total > 0 else 'faster'}"
+                    + (f" (capped at {BUFF_EXPIRY_CAP:.0%})" if total / 100 > BUFF_EXPIRY_CAP else "")
+                    + f": the timer runs at {1 - slow:.2f}, so each Buff lasts x{factor:.3f} (RESEARCH29, MEDIUM-HIGH; "
+                    f"PoB's reading, +{total:g}% increased Duration on your own Buff skills only: x{1 + total / 100:.2f})")
+
+
+def _buff_scale(stats: dict) -> float:
+    return (stats.get("_buff_expiry") or (1.0, ""))[0]
+
+
 def _onslaught_source(text: str, lines: list[str], stats: dict) -> tuple[float, str] | None:
     """(uptime, how) of one line, or None if it isn't a source of Onslaught for you."""
     m = ONSLAUGHT_SOURCE.search(text)
@@ -1439,6 +1472,7 @@ def _onslaught_source(text: str, lines: list[str], stats: dict) -> tuple[float, 
     when = m.group(2).lower()
     d = re.search(r"for (\d+(?:\.\d+)?) seconds?", when)
     duration = float(d.group(1)) if d else ONSLAUGHT_DURATION
+    duration *= _buff_scale(stats)  # (MECHC35: "Buffs on you expire N% slower")
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
     every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
     # (red-flash hits always land, MECHC5; MECHC20: a gain, so the worst case reads the lowest real boss's landed hits)
@@ -1860,8 +1894,9 @@ def unholy_might_uptime(lines: list[str], stats: dict) -> tuple[object, str, flo
     uses, how = got
     if uses <= 0:
         return 0.0, f"Kurgal's Leash: {how}, so no Command grants Unholy Might (no source, 0)"
-    share = min(1.0, KURGAL_SECONDS * uses)
-    return True, (f"Unholy Might {share:.0%} of the fight from Kurgal's Leash: {KURGAL_SECONDS:g} s a Command x {how} "
+    seconds = KURGAL_SECONDS * _buff_scale(stats)  # (MECHC35: "Buffs on you expire N% slower")
+    share = min(1.0, seconds * uses)
+    return True, (f"Unholy Might {share:.0%} of the fight from Kurgal's Leash: {seconds:g} s a Command x {how} "
                   f"(MEDIUM)"), share
 
 
@@ -1879,6 +1914,8 @@ def onslaught_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
         return 0.0, ""
     up = 1 - down
     basis = f"Onslaught up {up:.0%} of the fight ({shared(up)}): " + "; ".join(how[:3])
+    if (expiry := stats.get("_buff_expiry")) and expiry[1]:
+        basis += f"; durations x{expiry[0]:.3f} ({expiry[1]})"
     return _box(up, basis)
 
 
@@ -1914,6 +1951,7 @@ def _arcane_surge_source(text: str, lines: list[str], stats: dict) -> tuple[floa
     when = m.group(2).lower()
     d = re.search(r"for (\d+(?:\.\d+)?) seconds?", when)
     duration = float(d.group(1)) if d else ARCANE_SURGE_DURATION
+    duration *= _buff_scale(stats)  # (MECHC35: "Buffs on you expire N% slower")
     if not when.strip(" .") or re.fullmatch(r"\s*on you\W*", when):
         return 1.0, "always (the line grants it)"
     if spend := re.search(r"spending a total of (\d+(?:\.\d+)?)(%? of your maximum mana| mana)", when):
@@ -1977,6 +2015,8 @@ def arcane_surge_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
         return 0.0, ""
     up, high = 1 - down, 1 - down_high
     basis = f"Arcane Surge up {up:.0%} of the fight ({shared(up)}): " + "; ".join(how[:3])
+    if (expiry := stats.get("_buff_expiry")) and expiry[1]:
+        basis += f"; durations x{expiry[0]:.3f} ({expiry[1]})"
     if high > up:  # (the play guide's "if Mana spent during the buff counts" row: ArcaneSurgeAlternative)
         return (*_box(up, basis), False, (high, "if Mana spent while Arcane Surge is up counts toward the next one "
                                                 "(unsettled, LOW: research/mana-spend-counters.md; an in-game test: "
@@ -6577,6 +6617,8 @@ class Conditions:
         if any(INVIGORATING_HATE.search(t) or SHIFTED_ANIMAL_RECENTLY.search(t) or SHIFTED_HUMAN_RECENTLY.search(t)
                for t in texts):  # (MECHC21: shifts back to Human form, from the build's presses; MECHC34: MB-8)
             stats["_human_shifts"] = self._human_shifts(number(stats.get("Speed")))
+        if any(BUFF_EXPIRY.search(t) for t in texts):  # (MECHC35: "Buffs on you expire N% slower", buff_expiry)
+            stats["_buff_expiry"] = buff_expiry(texts)
         if any(MINION_DIES.search(t) for t in texts):  # (MECHC7: "when a Minion Dies" lines, from the build's own sources)
             inputs = self._minion_inputs()
             stats["_minion_deaths"] = models.minion_deaths(*inputs)
