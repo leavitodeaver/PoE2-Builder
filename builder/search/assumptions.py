@@ -2059,6 +2059,20 @@ class Assumptions:
             charges = number(build.call("stats", fields=["RemovablePowerCharges"]).get("RemovablePowerCharges"))
             thunder_mods, thunder_notes = models.falling_thunder_model(main, main.stat_set, sets, charges, forbidden)
             hand_mods, hand_notes = hand_mods + thunder_mods, hand_notes + thunder_notes
+        if main is not None and group and main.name == models.ICESTORM:  # (GEM17: improved bolts need Chill / Freeze)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            up, up_how = models.ailment_up_of(build)
+            ground, ground_how = self.chilled_ground_share()
+            frozen = up.get("Freeze", 0.0)
+            ice_mods, ice_notes = models.icestorm_model(
+                main, main.stat_set, sets, number(stats.get("Speed")), ground, frozen, models.power_of(stats),
+                f"Chilled Ground {ground:.0%}: {ground_how}; Frozen {frozen:.0%}: {up_how}", forbidden)
+            hand_mods, hand_notes = hand_mods + ice_mods, hand_notes + ice_notes
+        if main is not None and group and main.name in models.GATED_SETS:  # (GEM17: Enraged / Empowered need a resource)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            gate_share, gate_how = self.gated_set_share(main.name, texts, main_types)
+            gate_mods, gate_notes = models.gated_set_model(main, main.stat_set, sets, gate_share, gate_how, forbidden)
+            hand_mods, hand_notes = hand_mods + gate_mods, hand_notes + gate_notes
         side_mods, side_notes = self.multi_set_side(main)  # (MECH-B, MECHB16: Rolling Slam in a Full DPS group)
         hand_mods, hand_notes = hand_mods + side_mods, hand_notes + side_notes
         cap_mods, cap_notes = self.main_cap(group, name)  # (MECH-B: the press hook on the main skill, MECHB5)
@@ -4712,6 +4726,33 @@ class Assumptions:
         return share, (f"{how}: {paid:.3f} attacks a second paid ({per_use:g} charges each, 10% of "
                        f"{number(flask.get('chargesMax')):g}) of {main}'s {speed:.2f}: {share:.1%} of its attacks deal "
                        "the added damage")
+
+    def gated_set_share(self, skill: str, texts: list[str], main_types: set[str]) -> tuple[float, str]:
+        """(share, how) of a models.GATED_SETS skill's uses its resource covers (GEM17): Furious Slam's Rage from the
+        build's Rage gains (conditions._rage_gain, the reader rage_held uses) over 10 a slam; Oil Barrage's Power Charges
+        from the build's gains (conditions._charge_rate) x 1.5 s each."""
+        stats = {**self.build.call("stats", fields=models.MODEL_FIELDS + ["MaximumRage", "enemySkillTime", "EvadeChance",
+                                                                          "EffectiveBlockChance"]),
+                 "_main_types": main_types}
+        found = []
+        if skill == "Furious Slam":
+            gain = 0.0
+            for t in texts:
+                if conditions_mod.qualifies(t, main_types) and (r := conditions_mod._rage_gain(t, stats, True)) is not None:
+                    gain += r[0]
+                    found.append(f"{t[:50]} ({r[0]:.2g}/s)")
+            uses, most = number(stats.get("Speed")), number(stats.get("MaximumRage"))
+            share = models.furious_slam_share(gain, uses, most)
+            return share, (f"{gain:.2f} Rage/s gained ({'; '.join(found[:3]) or 'no source'}) over "
+                           f"{models.FURIOUS_RAGE_A_SLAM:g} a slam at {uses:.2f} slams/s, Maximum Rage {most:g}; other "
+                           f"Rage spenders not taken off")
+        gains = 0.0
+        for t in texts:
+            if (r := conditions_mod._charge_rate(t, "Power", stats)) is not None:
+                gains += r[0]
+                found.append(f"{t[:50]} ({r[0]:.2g}/s)")
+        return models.oil_barrage_share(gains), (f"{gains:.2f} Power Charges/s gained ({'; '.join(found[:3]) or 'no source'})"
+                                                 f", one consumed per {models.OIL_CHARGE_SECONDS:g} s of the barrage")
 
     def chilled_ground_share(self) -> tuple[float, str]:
         """(share of the fight the boss stands on the build's Chilled Ground, how) for BossOnChilledGround (COV32):

@@ -1,0 +1,62 @@
+# GEM17 (16 Nov 2026): gem stats PoB never reads.
+- id: model-gem17-icestorm-improved-bolts
+  title: "Icestorm: improved bolts only from Chill / Freeze it consumes (PoB scored a storm of improved bolts)"
+  kind: model
+  model: icestorm
+  stats: ["firestorm_improved_bolts_per_chill_consumed", "firestorm_improved_bolts_per_monster_power_of_freeze_consumed"]
+  skill: [Icestorm]
+  confidence: MEDIUM
+  notes: >-
+    models.icestorm_model (GEM17), hooked in Assumptions after Falling Thunder's. Game: ActiveSkills icestorm "Chill and
+    Freeze on enemies in front of you are Consumed to fuel the Icestorm by creating improved bolts"; IcestormPlayer: 1
+    improved bolt per Chill consumed, 1 per monster Power of a Freeze consumed ("Unique monsters always have 20 Power",
+    KeywordPopups Power); Icestorm can't Chill or Freeze itself. PoB scores the "Storm" and "Improved Bolt" sets each as a
+    storm of that bolt at the 0.15 s per-target limit and reads neither stat: probe POE2T2184 (no Chill / Freeze source)
+    kept the Improved Bolt set at 1,110 DPS vs the Storm's 182 (an OVERCOUNT, x6.1). Improved bolts a second = casts/s
+    (PoB's Speed) x (Chilled Ground share + Frozen share x the boss's Power); headline: they share the per-target limit,
+    so that share (x 0.15 s, at most all) of the hits are improved; one limit per bolt kind in the note (UNVERIFIED
+    which). Other skills' Chills not counted (no build-wide Chill share published: an undercount, MECH-A). An Improved
+    Bolt set with no improved bolt gets the Storm x 0.9 so the search keeps the Storm set.
+  sources: ["builder/search/models.py (icestorm_model)", "data/game-26650308/tables/ActiveSkills.json (icestorm)",
+            "data/game-26650308/tables/KeywordPopups.json (Power)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua (IcestormPlayer)",
+            "patch 0.4.0 (per-target hit limits displayed)", "scratch/gem17/probe_infused_sets.json (POE2T2184)"]
+  test_in_game: "Optional: Icestorm on a boss with and without a Chill from another skill: improved bolts only with it."
+  status: proposed
+
+- id: model-gem17-furious-slam-rage
+  title: "Furious Slam: the Enraged slam only when it spends 10 Rage (PoB scored it on every slam)"
+  kind: model
+  model: gated_set
+  stats: ["bear_slam_spend_X_rage_for_stronger_slam"]
+  skill: [Furious Slam]
+  confidence: MEDIUM
+  notes: >-
+    models.gated_set_model (GEM17), hooked in Assumptions (gated_set_share). Game: ActiveSkills furious_slam "Can spend
+    Rage to create larger shockwaves that leave behind Jagged Ground"; 10 Rage a slam. PoB scores the Base and Enraged
+    sets alone and reads no gate: probe POE2T2184 (no Rage source) kept Enraged at 111.0 vs Base 52.4 (an OVERCOUNT,
+    x2.1). Share of slams that spend Rage = min(1, the build's Rage gained a second / (10 x slams a second)), 0 under 10
+    Maximum Rage; other Rage spenders beside it not taken off (labelled). An Enraged set with no Rage gets the Base x 0.9
+    so the search keeps the Base set.
+  sources: ["builder/search/models.py (gated_set_model)", "data/game-26650308/tables/ActiveSkills.json (furious_slam)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua (FuriousSlamPlayer)", "scratch/gem17/probe_infused_sets.json (POE2T2184)"]
+  test_in_game: "Optional: Furious Slam with 0 and with 10+ Rage: larger shockwaves only with it."
+  status: proposed
+
+- id: model-gem17-oil-barrage-power-charges
+  title: "Oil Barrage: the Empowered barrage only while it consumes Power Charges (PoB scored it always)"
+  kind: model
+  model: gated_set
+  stats: ["electric_spit_empowered_channel_consume_power_charge_per_X_ms"]
+  skill: [Oil Barrage]
+  confidence: MEDIUM
+  notes: >-
+    models.gated_set_model (GEM17), hooked in Assumptions (gated_set_share). Game: ActiveSkills oil_barrage "Consumes
+    Power Charges if possible to instead Channel a sustained barrage of electrified Oil that does not create Oil Ground";
+    one Power Charge per 1.5 s (electric_spit_empowered_channel_consume_power_charge_per_X_ms 1500). PoB scores the
+    Base and Empowered sets alone and reads no gate: probe POE2T2184 (no Power Charge source) kept Empowered at 349.1 vs
+    Base 210.6 (an OVERCOUNT, x1.66). Share of the time empowered = min(1, Power Charges gained a second x 1.5 s), the
+    stock at the fight's start not counted. An Empowered set with no charges gets the Base x 0.9.
+  sources: ["builder/search/models.py (gated_set_model)", "data/game-26650308/tables/ActiveSkills.json (oil_barrage)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua (OilBarragePlayer)", "scratch/gem17/probe_infused_sets.json (POE2T2184)"]
+  test_in_game: "Optional: Oil Barrage with and without Power Charges: the electrified barrage only with them."
+  status: proposed

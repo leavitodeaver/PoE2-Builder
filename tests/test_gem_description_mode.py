@@ -728,3 +728,48 @@ def test_thunderstorms_drenched_follows_its_level_cap_and_casts(level_cap, speed
 def test_thunderstorm_without_a_use_rate_keeps_pobs_drenched():
     spark, storm = Skill("Spark", 1, spell=True), Skill("Thunderstorm", 2, spell=True)
     assert models.drenched_model([spark, storm], {}, spark, {}, 82) == ([], [])
+
+
+ICE_SETS = [{"label": "Storm", "TotalDPS": 182.0}, {"label": "Improved Bolt", "TotalDPS": 1110.0}]
+
+
+@pytest.mark.parametrize("scored, casts, chilled, frozen, factor", [
+    ("Improved Bolt", 0.7, 0.0, 0.0, 182.0 / 1110 * 0.9),  # (probe POE2T2184: nothing to consume, steered to the Storm)
+    ("Storm", 0.7, 0.0, 0.0, None),                          # the plain storm: PoB's number
+    ("Storm", 0.7, 0.5, 0.0, (182 * (1 - 0.0525) + 1110 * 0.0525) / 182),  # 0.35 bolts/s: 5.25% of the hits
+    ("Storm", 0.7, 0.0, 0.5, 1110.0 / 182),                  # a Frozen boss half the time: 7 bolts/s, past the limit
+    ("Improved Bolt", 0.7, 0.0, 0.5, None),                  # the same, on the Improved set: PoB's number
+])
+def test_icestorm_makes_improved_bolts_only_from_chill_and_freeze_it_consumes(scored, casts, chilled, frozen, factor):
+    mods, notes = models.icestorm_model(Skill("Icestorm", 1, spell=True), scored, ICE_SETS, casts, chilled, frozen, 20.0,
+                                        "test")
+    more = [m["value"] for m in mods if m["name"] == "DPS"]
+    assert (1 + more[0] / 100 if more else None) == (pytest.approx(factor, rel=1e-4) if factor else None)
+    assert notes[0]["entry"] == models.ICESTORM_ENTRY and "Without" in notes[0]["play"]
+    assert models.icestorm_model(Skill("Spark", 1, spell=True), scored, ICE_SETS, casts, chilled, frozen, 20.0, "") == ([], [])
+
+
+SLAM_SETS = [{"label": "Base", "TotalDPS": 52.4}, {"label": "Enraged", "TotalDPS": 111.0}]
+
+
+@pytest.mark.parametrize("scored, share, factor", [
+    ("Enraged", 0.0, 52.4 / 111.0 * 0.9),   # (probe POE2T2184: no Rage, steered to the Base set)
+    ("Base", 0.0, None),                     # PoB's number
+    ("Base", 0.5, (52.4 * 0.5 + 111.0 * 0.5) / 52.4),
+    ("Enraged", 1.0, None),                  # every slam spends Rage: PoB's number
+])
+def test_furious_slams_enraged_part_needs_rage(scored, share, factor):
+    mods, notes = models.gated_set_model(Skill("Furious Slam", 1, attack=True), scored, SLAM_SETS, share, "test")
+    more = [m["value"] for m in mods if m["name"] == "DPS"]
+    assert (1 + more[0] / 100 if more else None) == (pytest.approx(factor, rel=1e-4) if factor else None)
+    assert notes[0]["entry"] == "model-gem17-furious-slam-rage" and "Without Rage" in notes[0]["play"]
+    assert models.gated_set_model(Skill("Furious Slam", 1), scored, SLAM_SETS, share, "", {notes[0]["entry"]}) == ([], [])
+
+
+def test_gated_set_shares_follow_the_builds_resource():
+    assert models.furious_slam_share(5.0, 1.0, 30.0) == pytest.approx(0.5)  # 5 Rage/s over 10 a slam at 1 slam/s
+    assert models.furious_slam_share(50.0, 1.0, 30.0) == 1.0
+    assert models.furious_slam_share(50.0, 1.0, 5.0) == 0.0  # can't hold 10 Rage
+    assert models.oil_barrage_share(0.4) == pytest.approx(0.6)  # 0.4 charges/s x 1.5 s
+    assert models.oil_barrage_share(0.0) == 0.0
+

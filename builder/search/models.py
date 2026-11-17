@@ -6422,6 +6422,133 @@ def falling_thunder_model(main: Skill | None, scored: str | None, sets: list[dic
                  f"{max(charges, 1):g}: slam + projectiles ({slam + bolts:,.0f}, PoB's numbers).")}]
 
 
+# Icestorm's improved bolts (GEM17; an OVERCOUNT up to x6). The game: "Conjure a hail of icy bolts over the targeted area.
+# [Chill] and [Freeze] on enemies in front of you are [Consume|Consumed] to fuel the Icestorm by creating improved bolts"
+# (ActiveSkills icestorm, 26650308); IcestormPlayer's stats firestorm_improved_bolts_per_chill_consumed 1 and
+# firestorm_improved_bolts_per_monster_power_of_freeze_consumed 1, and "Unique monsters always have 20 Power"
+# (KeywordPopups Power): one improved bolt per Chill consumed, one per Power of a Freeze consumed (20 on a boss, or
+# models.boss_power with the build's Power lines). Icestorm itself never Chills or Freezes (cold_damage_cannot_chill,
+# never_freeze). PoB scores its "Storm" set (normal bolts) and "Improved Bolt" set (IcestormEmpoweredPlayer) each ALONE as
+# a storm of that bolt at one hit per rain_hit_delay_ms 150 (the per-target hit limit; patch 0.4.0: "The per-target hit
+# limits on Firestorm, Icestorm ... are now displayed") and reads neither consume stat: probe POE2T2184, a level-90
+# search with no Chill or Freeze source, kept the Improved Bolt set at 1,110 DPS against the Storm's 182.
+# Here: improved bolts a second k = casts a second (PoB's Speed: the main skill cast on) x (chilled + frozen x Power),
+# chilled / frozen the share of the fight the boss carries another source's Chill (the build's Chilled Ground, MECH76's
+# share, and its Freeze, taken as independent: Assumptions.chilled_ground_share as Frost Darts) or Freeze (MECH-A's
+# uptime after the consume cut). Headline: the improved bolts share the storm's per-target limit with the normal ones, so
+# a share u = min(1, k x 0.15 s) of the hits on the boss are improved: DPS = Storm x (1 - u) + Improved x u (the lower
+# reading); one limit per bolt kind (Storm + min(k x 0.15, 1) x Improved) in the note (UNVERIFIED which, as Firestorm's).
+# Not counted (labelled): other skills' Chills (MECH-A publishes no build-wide Chill share: an undercount), bolts
+# landing off the boss (PoB's: every bolt hits). An Improved Bolt set scored alone gets the result x
+# FIRESTORM_BOLTS_MARGIN when no improved bolt is made, so the search keeps the Storm set (PoB has no stat-set tag).
+# MEDIUM (the consume rule is the game's text; the shared limit and the cast rate are readings).
+ICESTORM = "Icestorm"
+ICESTORM_SETS = ("Storm", "Improved Bolt")
+ICESTORM_LIMIT = 0.15  # s (rain_hit_delay_ms 150, the per-target hit limit)
+ICESTORM_ENTRY = "model-gem17-icestorm-improved-bolts"
+
+
+def icestorm_model(main: Skill | None, scored: str | None, sets: list[dict], casts: float, chilled: float,
+                   frozen: float, power: float, how: str, forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Icestorm's normal and improved bolts as the game makes them (see above): `sets` the bridge's setRates for its group,
+    `casts` its casts a second, `chilled` / `frozen` the boss's Chill (from other sources) / Freeze shares, `power` the
+    boss's Power, `how` their basis."""
+    if main is None or main.name != ICESTORM or ICESTORM_ENTRY in forbidden or scored not in ICESTORM_SETS:
+        return [], []
+    dps = {s.get("label"): number(s.get("TotalDPS")) for s in sets}
+    storm, improved = (dps.get(k, 0.0) for k in ICESTORM_SETS)
+    if storm <= 0 or dps.get(scored, 0.0) <= 0:
+        return [], []
+    chilled, frozen = (min(1.0, max(0.0, number(x))) for x in (chilled, frozen))
+    k = max(0.0, number(casts)) * (chilled + frozen * max(0.0, number(power)))
+    u = min(1.0, k * ICESTORM_LIMIT)
+    total = storm * (1 - u) + improved * u
+    high = storm + improved * u
+    factor = total / dps[scored]
+    if scored != "Storm" and k <= 0:
+        factor *= FIRESTORM_BOLTS_MARGIN  # (steer the search to the Storm set)
+    mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), ICESTORM)] if abs(factor - 1) > 1e-9 else []
+    return mods, [{
+        "label": "Icestorm: improved bolts from Chill / Freeze consumed*", "value": f"x{factor:.3f}",
+        "confidence": "MEDIUM", "entry": ICESTORM_ENTRY,
+        "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; Storm {storm:,.0f}, Improved Bolt "
+                  f"{improved:,.0f}, each a storm of that bolt). The game: one improved bolt per Chill and one per Power "
+                  f"of a Freeze consumed at the cast. {casts:.3g} casts/s x (Chilled {chilled:.0%} + Frozen {frozen:.0%} x "
+                  f"Power {power:g}) = {k:.3g} improved bolts/s ({how}); {u:.0%} of the hits under the 0.15 s per-target "
+                  f"limit: {total:,.0f} DPS. One limit per bolt kind (UNVERIFIED which): {high:,.0f}"
+                  + ("; no improved bolt, so the Improved Bolt set is kept 10% under the Storm" if scored != "Storm"
+                     and k <= 0 else "")),
+        "play": (f"Icestorm makes improved bolts only by consuming Chill (1 bolt) or Freeze (1 per Power: {power:g} on this "
+                 f"boss) on enemies in front of you: Chill or Freeze the boss with another skill, then cast. Without: the "
+                 f"plain storm ({storm:,.0f}); with this build's Chill / Freeze: {total:,.0f}.")}]
+
+
+# Stat sets used only while a resource is there (GEM17; OVERCOUNTS where the build lacks it). PoB scores each set alone and
+# reads no gate, so the search keeps the stronger one (probe POE2T2184, level-90 searches):
+# - Furious Slam's "Enraged" (FuriousSlamEnragedPlayer, larger shockwaves and Jagged Ground): "Can spend [Rage] to create
+#   larger shockwaves" (ActiveSkills furious_slam, 26650308), bear_slam_spend_X_rage_for_stronger_slam 10. Probe: Enraged
+#   111.0 vs Base 52.4, kept with no Rage source. The share of slams that spend Rage = min(1, the build's Rage gained a
+#   second / (10 x slams a second)), 0 with a Maximum Rage under 10 (the gain from MECH-C's conditions._rage_gain over
+#   the build's lines, the same reader rage_held uses; other Rage spenders beside it not taken off: an overcount where a
+#   build has them, labelled). MEDIUM.
+# - Oil Barrage's "Empowered" (OilBarrageEmpoweredPlayer, 40% of Physical as Lightning): "Consumes [Charges|Power Charges]
+#   if possible to instead [Channelling|Channel] a sustained barrage of electrified [Oil] that does not create [OilGround|
+#   Oil Ground]" (ActiveSkills oil_barrage), electric_spit_empowered_channel_consume_power_charge_per_X_ms 1500. Probe:
+#   Empowered 349.1 vs Base 210.6, kept with no Power Charge source. The share of the time empowered = min(1, Power
+#   Charges gained a second (conditions._charge_rate over the build's lines, as Jagged Ground I's Endurance) x 1.5 s);
+#   the stock held when the fight starts not counted (a short undercount). MEDIUM.
+# DPS = base x (1 - share) + gated x share at PoB's per-set numbers; a gated set scored with no resource gets the base x
+# FIRESTORM_BOLTS_MARGIN so the search keeps the base set (PoB has no stat-set tag).
+GATED_SETS = {"Furious Slam": ("Base", "Enraged", "Rage", "model-gem17-furious-slam-rage"),
+              "Oil Barrage": ("Base", "Empowered", "Power Charges", "model-gem17-oil-barrage-power-charges")}
+FURIOUS_RAGE_A_SLAM = 10.0  # bear_slam_spend_X_rage_for_stronger_slam
+OIL_CHARGE_SECONDS = 1.5  # electric_spit_empowered_channel_consume_power_charge_per_X_ms 1500
+
+
+def furious_slam_share(gain: float, uses: float, maximum: float) -> float:
+    """The share of Furious Slams that spend Rage: `gain` Rage a second, `uses` slams a second, Maximum Rage `maximum`."""
+    if maximum < FURIOUS_RAGE_A_SLAM or gain <= 0 or uses <= 0:
+        return 0.0
+    return min(1.0, gain / (FURIOUS_RAGE_A_SLAM * uses))
+
+
+def oil_barrage_share(gains: float) -> float:
+    """The share of Oil Barrage's time spent empowered with `gains` Power Charges a second (one consumed per 1.5 s)."""
+    return min(1.0, max(0.0, gains) * OIL_CHARGE_SECONDS)
+
+
+def gated_set_model(main: Skill | None, scored: str | None, sets: list[dict], share: float, how: str,
+                    forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """A GATED_SETS skill's use as the game makes it (see above): `sets` the bridge's setRates for its group, `share` of
+    its uses (or time) the resource covers, `how` its basis."""
+    if main is None or main.name not in GATED_SETS:
+        return [], []
+    base_label, gated_label, resource, entry = GATED_SETS[main.name]
+    if entry in forbidden or scored not in (base_label, gated_label):
+        return [], []
+    dps = {s.get("label"): number(s.get("TotalDPS")) for s in sets}
+    base, gated = dps.get(base_label, 0.0), dps.get(gated_label, 0.0)
+    if base <= 0 or dps.get(scored, 0.0) <= 0:
+        return [], []
+    share = min(1.0, max(0.0, number(share)))
+    total = base * (1 - share) + gated * share
+    factor = total / dps[scored]
+    steer = scored == gated_label and share <= 0
+    if steer:
+        factor *= FIRESTORM_BOLTS_MARGIN  # (steer the search to the base set)
+    mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9 else []
+    return mods, [{
+        "label": f"{main.name}: its {gated_label} part needs {resource}*", "value": f"x{factor:.3f}",
+        "confidence": "MEDIUM", "entry": entry,
+        "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; {base_label} {base:,.0f}, {gated_label} "
+                  f"{gated:,.0f}) and reads no gate. The game uses the {gated_label} part only with {resource}: {share:.0%} "
+                  f"({how}), so {total:,.0f} DPS"
+                  + (f"; with none, the {gated_label} set is kept 10% under the {base_label} so the search keeps it"
+                     if steer else "")),
+        "play": (f"{main.name}'s {gated_label} part runs on {resource}: feed it to keep it up. Without {resource}: "
+                 f"{base:,.0f}; with this build's: {total:,.0f}; always: {gated:,.0f}.")}]
+
+
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
 # "Hit damage is taken from Mana before Life if your current Mana is higher than your current Life" (poe2db): counted as
 # 100% Mind over Matter while the build's unreserved Mana is above its Life, both pools full (the manager's ruling,
