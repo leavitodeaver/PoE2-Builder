@@ -1,0 +1,230 @@
+# COV43 (COV-A): item lines a custom model already reads (model-read entries, `replace: []`), so the audit counts them
+# as modelled and the search re-scores items carrying them with a real trial (models.item_read_by_models). Each was
+# checked to feed a number (DPS, a defence floor, charges, flasks), not a play row alone: the function named in
+# `sources` reads the line and its result reaches the score. Left open on purpose (no number moves): Guiding Palm's
+# Guided Shrines (models.guided_shrine_notes: a labelled 0), "N metres to Dodge Roll distance if you haven't Dodge
+# Rolled Recently" (models.dodge_roll skips it), "N% increased Guard gained" (scales the modelled Guard sources only,
+# not PoB's own Guard skills), sprint lines (recovery.sprint_row: a play row).
+
+- id: model-read-lucky-crit-against-parried
+  title: 'Ulaman''s Gaze, "Critical Hit chance is Lucky against Parried enemies" (models.parry_line_mods, MECH87)'
+  kind: pob_gap
+  model: parry
+  match: '^Critical Hit chance is Lucky against Parried enemies$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.ULAMANS_GAZE: CritChanceLucky under PoB's ParryActive at the parry plan's share (MECH87, e6188820; MEDIUM).
+  sources: ["builder/search/models.py (ULAMANS_GAZE, parry_line_mods)"]
+  status: proposed
+
+- id: model-read-bloodstone-lance-cap
+  title: 'Atziri''s Contempt, "Spear Skills inflict a Bloodstone Lance on Hit, up to a maximum of N on each target" (Shattering Spite, GEM20)'
+  kind: pob_gap
+  model: shattering_spite
+  match: '^Spear Skills inflict a Bloodstone Lance on Hit, up to a maximum of \d+ on each target$'
+  replace: []
+  confidence: theory
+  notes: >-
+    The lance cap feeds models.shattering_spite_model (its lances, 20% more each) with the build's spear hits a second,
+    for a Shattering Spite main skill (assumptions.models).
+  sources: ["builder/search/models.py (SPITE_LANCE_LINE)", "builder/search/assumptions.py (models: SHATTERING_SPITE)"]
+  status: proposed
+
+- id: model-read-zerphi-charge-transfer
+  title: 'Zerphi''s Genesis, "N% of Charges consumed by used Life Flasks / Charms are granted to your Charms / Life Flasks" (MECHC36)'
+  kind: pob_gap
+  model: flasks
+  match: '^\d+(?:\.\d+)?% of Charges consumed by used (Life Flasks|Charms) are granted to your (Charms|Life Flasks)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    flasks.ZERPHI_TO_LIFE / ZERPHI_TO_CHARM: the transferred charges join the flask and charm charge gains
+    (flasks.Charges.of), so their uptimes.
+  sources: ["builder/search/flasks.py (ZERPHI_TO_LIFE, ZERPHI_TO_CHARM, Charges.of)"]
+  status: proposed
+
+- id: model-read-chill-on-you
+  title: 'Shackles of the Wretched / Sierran Inheritance: the Chill on you (boss_hits.boss_chill_on_you, MECHC38)'
+  kind: pob_gap
+  model: boss_hits
+  match: '^(You cannot be Chilled for \d+(?:\.\d+)? seconds after being Chilled|All Damage taken from Hits Contributes to Magnitude of Chill inflicted on you)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    boss_hits.CHILL_IMMUNE_AFTER (the immune window after each Chill) and ALL_DAMAGE_CHILLS (every damage type builds
+    the Chill) set the boss's Chill on you, counted as action speed (6d259418: the manager's ruling (i), 18 Nov).
+  sources: ["builder/search/boss_hits.py (CHILL_IMMUNE_AFTER, ALL_DAMAGE_CHILLS, boss_chill_on_you)"]
+  status: proposed
+
+- id: model-read-rage-fill-on-use
+  title: 'Ngamahu''s Chosen, "Grants up to your maximum Rage on use" (conditions._rage_gain, MECHC38)'
+  kind: pob_gap
+  model: rage
+  match: '^Grants up to your maximum Rage on use$'
+  replace: []
+  confidence: theory
+  notes: >-
+    conditions.RAGE_FILL_ON_USE: a Rage source at the charm's uses (conditions._rage_gain), so the Rage held.
+  sources: ["builder/search/conditions.py (RAGE_FILL_ON_USE, _rage_gain)"]
+  status: proposed
+
+- id: model-read-divinity
+  title: 'Immaculate Adherence''s Divinity lines (recovery.divinity, RESEARCH31 R31-3)'
+  kind: pob_gap
+  model: divinity
+  match: '^(Skills Cost Divinity instead of Mana or Life|\d+(?:\.\d+)?% (increased|reduced) maximum Divinity( per Corrupted Item Equipped)?|Convert \d+(?:\.\d+)?% of maximum Energy Shield to maximum Divinity)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.DIVINITY_COST / DIVINITY_INC / DIVINITY_PER_CORRUPTED / DIVINITY_CONVERT: the Divinity pool and its costs
+    (ab184db1, the manager's ruling 18 Nov 02:47). "Create a Fragment of Divinity" (The Ordained) is another mechanic
+    and stays open.
+  sources: ["builder/search/recovery.py (divinity, has_divinity)"]
+  status: proposed
+
+- id: model-read-afflicted-when-hit
+  title: 'The Infinite Pursuit, "N% increased Chance to be afflicted by Ailments when Hit" (boss_hits.afflicted_inc)'
+  kind: pob_gap
+  model: boss_hits
+  match: '^\d+(?:\.\d+)?% (increased|reduced) Chance to be afflicted by Ailments when Hit$'
+  replace: []
+  confidence: theory
+  notes: >-
+    boss_hits.SELF_AFFLICTED scales the chance the boss's hits afflict you (build.afflicted_inc).
+  sources: ["builder/search/boss_hits.py (SELF_AFFLICTED, afflicted_inc)", "builder/search/assumptions.py (afflicted_inc)"]
+  status: proposed
+
+- id: model-read-drawbacks-on-you
+  title: 'Drawbacks a recovery model counts: reflected Poison, Mana costs as damage, Soul Mantle''s curses, DoT bypassing ES (MECHC37 / 38)'
+  kind: pob_gap
+  model: recovery
+  match: '^(Poison you inflict is Reflected to you|Take \d+(?:\.\d+)?% of Mana Costs you pay for Skills as Physical Damage|Inflicts a random Curse on you when your Totems die(, ignoring Curse limit)?|Damage over Time bypasses your Energy Shield)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.REFLECT_POISON (reflected_poison: Chaos damage a second on your Life), COST_DAMAGE (cost_damage), SOUL_MANTLE
+    (soul_mantle: the curse on you, in the floors' switch), assumptions.DOT_BYPASSES_ES_LINE (build.dot_bypasses_es: your
+    damage over time and the boss's Ignites land on Life). COV40's routed OVERCOUNTS, modelled by MECH-C (a4e713f7 et al.).
+  sources: ["builder/search/recovery.py (REFLECT_POISON, COST_DAMAGE, SOUL_MANTLE)", "builder/search/assumptions.py (DOT_BYPASSES_ES_LINE)"]
+  status: proposed
+
+- id: model-read-raised-shield-stun-threshold
+  title: 'Dionadair / Legacy of Dionadair, "Double Stun Threshold while Shield is Raised" (recovery.heavy_stun_scale)'
+  kind: pob_gap
+  model: recovery
+  match: '^Double Stun Threshold while Shield is Raised$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.RAISED_DOUBLE doubles the stun threshold for the share of the boss's hits taken with the shield raised.
+  sources: ["builder/search/recovery.py (RAISED_DOUBLE, heavy_stun_scale)"]
+  status: proposed
+
+- id: model-read-life-flask-instant
+  title: 'Belly of the Beast / Reverie: Life Flask recovery instant or never instant (flasks.Charges.of)'
+  kind: pob_gap
+  model: flasks
+  match: '^(Life Recovery from Flasks is instant|Recovery from Life Flasks cannot be Instant)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    flasks.LIFE_FLASK_INSTANT / LIFE_NEVER_INSTANT set how the Life flask's recovery lands (life_flask_instant /
+    life_flask_never_instant in the flask gain).
+  sources: ["builder/search/flasks.py (LIFE_FLASK_INSTANT, LIFE_NEVER_INSTANT)"]
+  status: proposed
+
+- id: model-read-charges-to-allies
+  title: '"If you would gain a (Power / Frenzy / Endurance) Charge, Allies in your Presence gain that Charge instead" and "Allies in your Presence share Charges with you" (conditions._charges_held)'
+  kind: pob_gap
+  model: charges
+  match: '^(If you would gain an? (Power |Frenzy |Endurance )?Charge, Allies in your Presence gain that Charge instead|Allies in your Presence share Charges with you)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    conditions.CHARGE_TO_ALLIES: the build holds 0 of that kind of charge; CHARGE_SHARE_BACK (Idol of Eramir) gives one
+    copy back per gain with an ally in your Presence (RESEARCH26 R26-46, LOW-MEDIUM). Also the Conduit keystone's line
+    (same text form).
+  sources: ["builder/search/conditions.py (CHARGE_TO_ALLIES, CHARGE_SHARE_BACK, _charges_held)"]
+  status: proposed
+
+- id: model-read-guard-sources
+  title: 'Guard a recovery model counts: Mana Flask Guard (Glowswarm, Loreweave), charms'' "Also grants N Guard" (MECHC38)'
+  kind: pob_gap
+  model: recovery
+  match: '^(Using a Mana Flask grants Guard equal to \d+(?:\.\d+)?% of (the )?Flask''s recovery amount for \d+(?:\.\d+)? seconds|Also grants \d+ Guard)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.MANA_FLASK_GUARD (mana_flask_guard) and CHARM_GUARD (charm_guard_row): Guard up all fight counts in the
+    defence floors through PoB's Guard pool (the manager's ruling (ii), 18 Nov); part-time Guard is a row.
+  sources: ["builder/search/recovery.py (MANA_FLASK_GUARD, CHARM_GUARD, full_guard_mods)", "builder/search/assumptions.py (life_mana_income)"]
+  status: proposed
+
+- id: model-read-emergent-vigour
+  title: 'Emergent Vigour, "Gain Maximum Energy Shield equal to N% of total" / "Strength Requirements of Equipped Armour Items" (recovery.emergent_vigour)'
+  kind: pob_gap
+  model: recovery
+  match: '^(Gain Maximum Energy Shield equal to \d+(?:\.\d+)?% of total|Strength Requirements of Equipped Armour Items)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    The rune's two text lines (PoB parses neither); recovery.VIGOUR_FIRST / VIGOUR_SECOND add EnergyShield BASE from the
+    armour items' Strength requirements (MECHC38).
+  sources: ["builder/search/recovery.py (VIGOUR_FIRST, VIGOUR_SECOND, emergent_vigour)"]
+  status: proposed
+
+- id: model-read-flask-cross-cost
+  title: 'Flask suffixes "Removes N% of Life / Mana Recovered from Mana / Life when used" (flasks.flask_cross_cost)'
+  kind: pob_gap
+  model: flasks
+  match: '^Removes \d+(?:\.\d+)?% of (Life|Mana) Recovered from (Life|Mana) when used$'
+  replace: []
+  confidence: theory
+  notes: >-
+    flasks.CROSS_COST: the other pool's loss a second at the flask's uses (flask_cross_cost), in the sustain.
+  sources: ["builder/search/flasks.py (CROSS_COST, flask_cross_cost)", "builder/search/assumptions.py (life_mana_income)"]
+  status: proposed
+
+
+# "if you haven't Dodge Rolled Recently" (Kurgal's Gaze in boots: Mana Cost Efficiency; Rune of Acrobatics in boots:
+# Armour). PoB ignores both lines (the audit), so they counted 0: an UNDERCOUNT. MECH88's condition kind
+# not_dodge_rolled_recently (8de68af3 on main, train 81: conditions.not_dodge_rolled_recently, 1 - 4 s / the roll cadence: 20% of
+# the fight at a roll every 5 s, 0 for a build that relies on rolling; LOW) gives the share; the lines count at it.
+
+- id: NotDodgeRolledRecently
+  title: Share of the fight with no Dodge Roll in the past 4 seconds
+  kind: condition
+  not_dodge_rolled_recently: true
+  shown_for: '(?:if you haven''t Dodge Rolled Recently$|^LedgerShare:NotDodgeRolledRecently$)'
+  confidence: theory
+  sources: ["builder/search/conditions.py (not_dodge_rolled_recently, MECH88)", "builder/search/assumptions.py (ledger_conditions)"]
+  notes: >-
+    shown_for also matches the item stand-in "LedgerShare:NotDodgeRolledRecently" (bridge sourceLines' shares): on
+    items a `share:` line replaces its line in place, so the plain text alone would never switch the condition on
+    (COV43; the items-cov35 / coverage-batch1 precedent).
+  status: proposed
+
+- id: items-armour-if-not-dodge-rolled-recently
+  title: 'Rune of Acrobatics, "N% increased Armour if you haven''t Dodge Rolled Recently" at NotDodgeRolledRecently'
+  kind: pob_gap
+  match: '^(\d+(?:\.\d+)?)% increased Armour if you haven''t Dodge Rolled Recently$'
+  replace: ['share:NotDodgeRolledRecently {1}% increased Armour']
+  confidence: theory
+  notes: >-
+    PoB's own "N% increased Armour" (Armour INC) at the share of the fight with no roll in the past 4 s (MECH88's
+    condition; the roll cadence LOW). PoB ignores the conditional line, so it counted 0.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModRunes.lua (Rune of Acrobatics, boots)"]
+  status: proposed
+
+- id: items-mana-cost-efficiency-if-not-dodge-rolled-recently
+  title: 'Kurgal''s Gaze, "N% increased Mana Cost Efficiency if you haven''t Dodge Rolled Recently" at NotDodgeRolledRecently'
+  kind: pob_gap
+  match: '^(\d+(?:\.\d+)?)% increased Mana Cost Efficiency if you haven''t Dodge Rolled Recently$'
+  replace: ['share:NotDodgeRolledRecently {1}% increased Mana Cost Efficiency']
+  confidence: theory
+  notes: >-
+    PoB's own "N% increased Mana Cost Efficiency" at the share of the fight with no roll in the past 4 s (MECH88's
+    condition; LOW). PoB ignores the conditional line, so it counted 0.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModRunes.lua (Kurgal's Gaze, boots)"]
+  status: proposed

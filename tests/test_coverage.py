@@ -863,3 +863,75 @@ def test_r32_3_settled_unique_only_rows():
         assert rows[mod]["status"] == "unreachable" and "DNT-UNUSED" in rows[mod]["reason"]
     assert rows["UniqueCharmRandomPossess1"]["status"] == "none" and "UNVERIFIED" not in rows["UniqueCharmRandomPossess1"]["reason"]
     assert rows["DemigodsVirtue1"]["status"] == "ledger"
+
+
+def test_cov43_model_read_item_lines_are_the_models_own():
+    """COV43: item lines a model already reads are model-read (the audit's "model", the search's real-trial re-score);
+    each line is checked against the model's own pattern, so an entry can't outlive the model reading it. The lines a
+    model reads without moving a number (a labelled 0, a skipped condition, a play row) stay open."""
+    from builder.ledger import model_entry
+    from builder.search import assumptions, boss_hits, conditions, flasks, models, recovery
+
+    cases = {
+        "Critical Hit chance is Lucky against Parried enemies": ("model-read-lucky-crit-against-parried", models.ULAMANS_GAZE),
+        "Spear Skills inflict a Bloodstone Lance on Hit, up to a maximum of 30 on each target":
+            ("model-read-bloodstone-lance-cap", models.SPITE_LANCE_LINE),
+        "50% of Charges consumed by used Life Flasks are granted to your Charms":
+            ("model-read-zerphi-charge-transfer", flasks.ZERPHI_TO_CHARM),
+        "50% of Charges consumed by used Charms are granted to your Life Flasks":
+            ("model-read-zerphi-charge-transfer", flasks.ZERPHI_TO_LIFE),
+        "You cannot be Chilled for 6 seconds after being Chilled": ("model-read-chill-on-you", boss_hits.CHILL_IMMUNE_AFTER),
+        "All Damage taken from Hits Contributes to Magnitude of Chill inflicted on you":
+            ("model-read-chill-on-you", boss_hits.ALL_DAMAGE_CHILLS),
+        "Grants up to your maximum Rage on use": ("model-read-rage-fill-on-use", conditions.RAGE_FILL_ON_USE),
+        "Skills Cost Divinity instead of Mana or Life": ("model-read-divinity", recovery.DIVINITY_COST),
+        "50% increased maximum Divinity": ("model-read-divinity", recovery.DIVINITY_INC),
+        "20% reduced maximum Divinity per Corrupted Item Equipped": ("model-read-divinity", recovery.DIVINITY_PER_CORRUPTED),
+        "Convert 100% of maximum Energy Shield to maximum Divinity": ("model-read-divinity", recovery.DIVINITY_CONVERT),
+        "90% increased Chance to be afflicted by Ailments when Hit": ("model-read-afflicted-when-hit", boss_hits.SELF_AFFLICTED),
+        "Poison you inflict is Reflected to you": ("model-read-drawbacks-on-you", recovery.REFLECT_POISON),
+        "Take 50% of Mana Costs you pay for Skills as Physical Damage": ("model-read-drawbacks-on-you", recovery.COST_DAMAGE),
+        "Inflicts a random Curse on you when your Totems die, ignoring Curse limit":
+            ("model-read-drawbacks-on-you", recovery.SOUL_MANTLE),
+        "Damage over Time bypasses your Energy Shield": ("model-read-drawbacks-on-you", assumptions.DOT_BYPASSES_ES_LINE),
+        "Double Stun Threshold while Shield is Raised": ("model-read-raised-shield-stun-threshold", recovery.RAISED_DOUBLE),
+        "Life Recovery from Flasks is instant": ("model-read-life-flask-instant", flasks.LIFE_FLASK_INSTANT),
+        "Recovery from Life Flasks cannot be Instant": ("model-read-life-flask-instant", flasks.LIFE_NEVER_INSTANT),
+        "If you would gain a Power Charge, Allies in your Presence gain that Charge instead":
+            ("model-read-charges-to-allies", conditions.CHARGE_TO_ALLIES),
+        "If you would gain a Charge, Allies in your Presence gain that Charge instead":
+            ("model-read-charges-to-allies", conditions.CHARGE_TO_ALLIES),
+        "Allies in your Presence share Charges with you": ("model-read-charges-to-allies", conditions.CHARGE_SHARE_BACK),
+        "Using a Mana Flask grants Guard equal to 100% of Flask's recovery amount for 4 seconds":
+            ("model-read-guard-sources", recovery.MANA_FLASK_GUARD),
+        "Also grants 150 Guard": ("model-read-guard-sources", recovery.CHARM_GUARD),
+        "Gain Maximum Energy Shield equal to 50% of total": ("model-read-emergent-vigour", recovery.VIGOUR_FIRST),
+        "Strength Requirements of Equipped Armour Items": ("model-read-emergent-vigour", recovery.VIGOUR_SECOND),
+        "Removes 15% of Mana Recovered from Life when used": ("model-read-flask-cross-cost", flasks.CROSS_COST),
+        "Removes 15% of Life Recovered from Mana when used": ("model-read-flask-cross-cost", flasks.CROSS_COST),
+    }
+    for line, (entry, pattern) in cases.items():
+        assert (found := model_entry(line)) is not None and found.id == entry, line
+        assert pattern.search(line), line
+    for line in ("Grants effect of Guided Meteoric Shrine", "20% increased Guard gained",
+                 "Create a Fragment of Divinity in your Presence every 4 seconds",
+                 "+2 metres to Dodge Roll distance if you haven't Dodge Rolled Recently"):
+        assert (found := model_entry(line)) is None or not found.id.startswith("model-read-"), line
+
+
+def test_cov43_not_dodge_rolled_lines_share_the_mech88_condition():
+    """COV43: the two "if you haven't Dodge Rolled Recently" rune lines are `share:` lines at NotDodgeRolledRecently (MECH88's
+    condition kind not_dodge_rolled_recently), whose shown_for also finds the item stand-in (a `share:` line replaces its
+    line on items, bridge sourceLines' "LedgerShare:<Name>")."""
+    import re
+
+    from builder.ledger import conditions, translate
+
+    for line, plain in (("30% increased Armour if you haven't Dodge Rolled Recently", "30% increased Armour"),
+                        ("15% increased Mana Cost Efficiency if you haven't Dodge Rolled Recently",
+                         "15% increased Mana Cost Efficiency")):
+        assert translate(line)[1] == [f"share:NotDodgeRolledRecently {plain}"]
+    condition = next(c for c in conditions() if c["id"] == "NotDodgeRolledRecently")
+    assert condition.get("not_dodge_rolled_recently")
+    assert re.search(condition["shown_for"], "LedgerShare:NotDodgeRolledRecently")
+    assert re.search(condition["shown_for"], "30% increased Armour if you haven't Dodge Rolled Recently")

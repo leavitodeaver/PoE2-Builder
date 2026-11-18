@@ -428,3 +428,35 @@ def test_the_pharisee_idols_physical_gain_counts_per_ten_percent_missing_mana(en
     flat = dps(["Sockets: S", "Rune: Idol of the Pharisee", "Implicits: 1",
                 "Gain 10% of Damage as Extra Physical Damage"], 0)
     assert five > plain and five == pytest.approx(flat, rel=1e-6)
+
+
+def test_the_not_dodge_rolled_armour_line_counts_at_its_share(engine):
+    """COV43: Rune of Acrobatics' "30% increased Armour if you haven't Dodge Rolled Recently" (PoB: 0) becomes PoB's own
+    "30% increased Armour" at the share NotDodgeRolledRecently sets (MECH88's condition kind): 0 nothing, 100 the same as
+    a global 30% increased Armour."""
+    from builder.ledger.items import corrected_item
+    from builder.search import models
+
+    payload = make_payload(BuildRequest(main_skill="Spark"))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    head = ["Rarity: Rare", "Test Boots", "Adherent Leggings"]
+
+    def armour(lines, share, extra=()):
+        build.call("setAssumptions", mods=[models.raw_mod("Multiplier:LedgerShareNotDodgeRolledRecently", "BASE", share),
+                                           *extra])
+        build.call("equip", slot="Boots", raw="\n".join(head + lines), fields=[])
+        return build.call("stats", fields=["Armour"])["Armour"]
+
+    line = "30% increased Armour if you haven't Dodge Rolled Recently"
+    rune = corrected_item("\n".join(head + ["Implicits: 0", line])).split("\n")[3:]
+    assert rune != ["Implicits: 0", line]  # (the ledger replaced the line)
+    plain = armour(["Implicits: 0", line], 100)  # PoB alone: no Armour from it
+    assert armour(rune, 0) == pytest.approx(plain, rel=1e-9)
+    full = armour(rune, 100)
+    # (global, as the rune's line is: ModRunes localMod = false, stat 4390; a plain "30% increased Armour" on the boots
+    # would be local and raise only their own Armour)
+    assert full > plain and full == pytest.approx(armour(["Implicits: 0"], 0, [models.raw_mod("Armour", "INC", 30)]),
+                                                  rel=1e-6)
