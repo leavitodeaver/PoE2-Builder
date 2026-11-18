@@ -960,7 +960,40 @@ local function setAugmentCounts(env)
 	end
 	modDB.multipliers["IdolsInEquipment"] = idols
 	modDB.multipliers["NonIdolAugmentsInEquipment"] = others
+	-- (COV43; RESEARCH32 R32-5, MEDIUM-HIGH: patch 0.5.4 fixed Runes tattooed with Martial Artist's Runic Meridians to
+	-- "count towards the total number of Runes you had socketed") plus the Runes in the character rune slots, counted
+	-- when PoB socketed them (its SocketRunesOnCharacter flag) by the initEnv wrapper (characterRuneCount)
+	if env.bridgeCharacterRunes and modDB:Flag(nil, "SocketRunesOnCharacter") then
+		runeCount = runeCount + env.bridgeCharacterRunes
+	end
 	modDB.multipliers["RunesInEquipment"] = runeCount
+end
+
+-- Runes (ModRunes type "Rune") in the character rune slots (Runic Meridians), with a what-if's replaced slot as PoB's
+-- CalcSetup 1195-1207 reads it (override.repSlotName / repRune); 0 without the slots
+local function characterRuneCount(override)
+	local slots = build and build.itemsTab and build.itemsTab.runeSlots
+	if not slots then
+		return 0
+	end
+	local runes = data.itemMods and data.itemMods.Runes or { }
+	local count = 0
+	for slotName, slot in pairs(slots) do
+		local rune = slot.GetSelValue and slot:GetSelValue()
+		if override and slotName == override.repSlotName then
+			rune = override.repRune
+		end
+		local name = rune and rune.name
+		if name and name ~= "None" then
+			for _, entry in pairs(runes[name] or { }) do
+				if type(entry) == "table" and entry.type == "Rune" then
+					count = count + 1
+					break
+				end
+			end
+		end
+	end
+	return count
 end
 
 -- "Your Critical Hit Chance cannot be Rerolled" (Maligaro's Virtuosity; MECH53, an OVERCOUNT). KeywordPopups RerollCrit
@@ -2752,7 +2785,14 @@ installRadiusModel = function()
 			end
 			return ...
 		end
-		return restore(pcall(initEnv, buildArg, mode, override, specEnv))
+		-- (COV43) the character rune slots' Runes, for setAugmentCounts' RunesInEquipment
+		local function tagRunes(env, ...)
+			if type(env) == "table" and build and buildArg == build then
+				env.bridgeCharacterRunes = characterRuneCount(override)
+			end
+			return env, ...
+		end
+		return restore(pcall(function() return tagRunes(initEnv(buildArg, mode, override, specEnv)) end))
 	end
 	calcs.initEnv = wrappedInitEnv
 end

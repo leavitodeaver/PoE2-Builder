@@ -460,3 +460,32 @@ def test_the_not_dodge_rolled_armour_line_counts_at_its_share(engine):
     # would be local and raise only their own Armour)
     assert full > plain and full == pytest.approx(armour(["Implicits: 0"], 0, [models.raw_mod("Armour", "INC", 30)]),
                                                   rel=1e-6)
+
+
+def test_runes_tattooed_with_runic_meridians_count_as_socketed_runes(engine):
+    """COV43 (RESEARCH32 R32-5, MEDIUM-HIGH: patch 0.5.4 fixed Runic Meridians' tattooed Runes to "count towards the total
+    number of Runes you had socketed"): the per-Rune count (Multiplier RunesInEquipment) also takes the Runes in the
+    character rune slots, in a what-if (characterRuneDeltas) and once committed. Read through a Life line the per-Rune
+    hook reads; the rune itself adds no Life."""
+    engine.call("newBuild")
+    engine.call("setClass", className="Monk", ascendancy="Martial Artist")
+    engine.call("setLevel", level=90)
+    engine.call("allocate", add=[39552])
+    assert engine.call("characterRunes")["active"]
+    rune = "Greater Desert Rune"
+
+    def life(lines):
+        engine.call("equip", slot="Gloves", raw="\n".join(["Rarity: Rare", "Test Gloves", "Stocky Mitts", "Implicits: 0",
+                                                           *lines]), fields=[])
+        base = engine.call("stats", fields=["Life"])["Life"]
+        (case,) = engine.call("characterRuneDeltas", cases=[{"slot": "Boots Rune #1", "rune": rune}],
+                              fields=["Life"])["results"]
+        return base, case["Life"]
+
+    assert life(["+10 to Strength"])[0] == life(["+10 to Strength"])[1]  # (the rune alone: no Life)
+    base, one = life(["+10 to maximum Life per Rune Socketed in Equipped Items"])
+    assert one > base  # (a what-if's rune counts)
+    engine.call("setCharacterRune", slot="Boots Rune #1", rune=rune, fields=[])
+    engine.call("setCharacterRune", slot="Gloves Rune #1", rune=rune, fields=[])
+    two = engine.call("stats", fields=["Life"])["Life"]
+    assert two - base == pytest.approx(2 * (one - base), abs=1)  # (both committed slots count)
