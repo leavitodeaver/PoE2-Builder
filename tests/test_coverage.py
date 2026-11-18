@@ -484,8 +484,10 @@ def test_a_never_on_line_a_model_reads_is_counted_and_one_nothing_reads_stays_op
     melee = [r for line, r in never.items() if "increased Melee Damage if you've dealt a Projectile Attack Hit" in line]
     assert melee and all(r["status"] == "model" for r in melee)
     # (MECH86: the "while moving" lines this case used left the never-on list once conditions.conditionMoving set
-    # PoB's box; another never-on line nothing reads stands in)
-    open_ = [r for line, r in never.items() if line.endswith("increased Cast Speed while on Full Mana")]
+    # PoB's box; another never-on line nothing reads stands in. The manager, train 76: "Cast Speed while on Full Mana"
+    # left it too once MECHC37's conditionFullMana set its box, so "Armour while Bleeding" (bleeding yourself: nothing
+    # sets PoB's box; checked with coverage.audit() on train 76's tree, 5 such rows, all status none) stands in)
+    open_ = [r for line, r in never.items() if line.endswith("increased Armour while Bleeding")]
     assert open_ and all(r["status"] == "none" for r in open_)
     assert not [line for line in never if line.endswith("increased Mana Regeneration Rate while moving")]
 
