@@ -2202,18 +2202,48 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + ail_mods, hand_notes + ail_notes
         if main is not None and group and main.name in models.DETONATED_SETS:  # (GEM17: detonations need a Detonator)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
-            det_rate, det_how = self.detonator_rate(group["index"])
+            if main.name in models.DETONATED_BY:  # (GEM19: Earthshatter's spikes shatter on a Warcry, not a Detonator)
+                event = models.DETONATED_BY[main.name][0]
+                det_rate, det_how = conditions_mod.event_rates(
+                    build.call("groups")["groups"], build.ctx.gems, name or "", main_types, number(stats.get("Speed")),
+                    lambda idx: build.call("useRates", indices=idx)["rates"], ["when you use a Warcry"],
+                    models.press_choices(build)).get(event, (0.0, f"no {event} in the build"))
+                det_how = det_how or f"no {event} in the build"
+                # (patch 0.3.0, no later entry: "Detonation now also triggers existing spikes": Detonators too)
+                bomb_rate, bomb_how = self.detonator_rate(group["index"])
+                det_rate, det_how = det_rate + bomb_rate, f"{event}s: {det_how}; {bomb_how}"
+            else:
+                det_rate, det_how = self.detonator_rate(group["index"])
             det_mods, det_notes = models.detonated_set_model(main, main.stat_set, sets, number(stats.get("Speed")),
                                                              det_rate, det_how, forbidden)
             hand_mods, hand_notes = hand_mods + det_mods, hand_notes + det_notes
         if main is not None and main.name == models.FLAMEBLAST:  # (GEM18: its stages and its channel + cooldown cycle)
             fb_mods, fb_notes = models.flameblast_model(main, stats, forbidden)
             hand_mods, hand_notes = hand_mods + fb_mods, hand_notes + fb_notes
+        staged = {models.SLAM: models.supercharged_slam_model, models.DETONATING: models.detonating_arrow_model}
+        if main is not None and group and main.name in staged:  # (GEM19: stages PoB leaves at 1, and the end animation)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            line = f"Multiplier:{main.name.replace(' ', '')}Stage"
+            now = 1 + sum(number(m.get("value")) for m in self.mods or [] if m.get("name") == line)  # (PoB's stage now)
+            stage_stats = {**stats, **build.call("stats", fields=["HitSpeed", "Time"])}
+            stage_mods, stage_notes = staged[main.name](main, main.stat_set, sets, stage_stats, int(round(now)), forbidden)
+            hand_mods, hand_notes = hand_mods + stage_mods, hand_notes + stage_notes
         if main is not None and group and main.name in models.STUN_SETS:  # (GEM18: a shockwave only on a Heavy Stun)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             primed, primed_how = self.stun_primers(group["index"])
             stun_mods, stun_notes = models.stun_set_model(main, main.stat_set, sets, stats, primed, primed_how, forbidden)
             hand_mods, hand_notes = hand_mods + stun_mods, hand_notes + stun_notes
+        if main is not None and group and main.name in models.SHOCK_SETS:  # (GEM19: a part only on a Shocked boss)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            shock, shock_how = self.shock_set_share(group["index"], main.name, models.SHOCK_SETS[main.name][2])
+            sh_mods, sh_notes = models.shock_set_model(main, main.stat_set, sets, shock, shock_how, forbidden)
+            hand_mods, hand_notes = hand_mods + sh_mods, hand_notes + sh_notes
+        if main is not None and group and main.name in models.PARRIED_SETS:  # (GEM19: a part only on a Parried boss)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            plan = models.parry_plan(found, stats, main.attack, True, parry_stun, refute_stun)  # (as parry_model's)
+            pa_mods, pa_notes = models.shock_set_model(main, main.stat_set, sets, plan.box,
+                                                       plan.how or "no Parry or Refutation in the build", forbidden)
+            hand_mods, hand_notes = hand_mods + pa_mods, hand_notes + pa_notes
         side_mods, side_notes = self.multi_set_side(main)  # (MECH-B, MECHB16: Rolling Slam in a Full DPS group)
         hand_mods, hand_notes = hand_mods + side_mods, hand_notes + side_notes
         cap_mods, cap_notes = self.main_cap(group, name)  # (MECH-B: the press hook on the main skill, MECHB5)
@@ -4932,6 +4962,75 @@ class Assumptions:
             parts.append(f"{row.get('name')} {built:.3f}%/s (pressed {number(share):.0%})")
         return total, ("Heavy Stun buildup: " + "; ".join(parts)) if parts else "no other skill builds Heavy Stun"
 
+    def shock_set_share(self, main_index: int, main_skill: str, consumes: bool) -> tuple[float, str]:
+        """(share of the main skill's hits that find the boss Shocked, how) for a models.SHOCK_SETS skill (GEM19), which
+        never Shocks itself: the resolver's Shocked share (build.ailment_uptimes, models.ailment_up_of: Shocked Ground,
+        after the main skill's consume) joined with the build's other groups' Shocks, which that share doesn't hold (only
+        Ignite has _ailment_others). Each other group: its uses a second (conditions.skill_use_rate with the search's
+        press choices, as conditions.overcharge_sources; a triggered group at its own rate) x HitChance x its Shock
+        chance per hit (PoB's ShockChance; the bridge's rows don't carry it yet, so 0 until they do: an UNDERCOUNT,
+        labelled). A consumer (Siphoning Strike, Shockchain Arrow): conditions.consumed_share with those
+        applications as `extra` (the Shock ends on the next hit, then 1 s immune); else each Shock lasts the main skill's
+        ShockDuration (the global duration modifiers; a group's own not read), applications random in time:
+        1 - e^(-applications x duration), joined with the resolver's share as independent."""
+        build = self.build
+        stats = dict(build.call("stats", fields=["Speed", "HitChance", "ShockDuration", *models.IMMOBILISE_FIELDS]))
+        request = getattr(getattr(build, "ctx", None), "request", None)
+        if getattr(request, "boss", None):  # (the boss's Electrocute threshold, as MECHC35's Stunned Recently reader)
+            stats["_boss"] = request.boss
+        up, up_how = models.ailment_up_of(build)
+        base = up.get("Shock", 0.0)
+        hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
+        indices = [g["index"] for g in build.groups() if g.get("enabled", True) and g["index"] != main_index]
+        choices = models.press_choices(build)
+        applied, parts = 0.0, []
+        for row in (build.call("useRates", indices=indices)["rates"] if indices else []):
+            # (PoB writes Shock's chance per hit as ShockChance (CalcOffence 5117, calcAilmentDamage); "<Ailment>ChancePerHit"
+            # only for the damaging ailments (calcDamagingAilmentOutputs, 5196-5226): probe POE2T3426 found no
+            # ShockChancePerHit even at 100%. The bridge's rows carry neither yet (its useRates field list): read either)
+            chance = min(number(row.get("ShockChance")) or number(row.get("ShockChancePerHit")), 100.0) / 100.0
+            if chance <= 0:
+                continue
+            uses = number(row.get("speed")) if row.get("triggered") else conditions_mod.skill_use_rate(row, choices)[0]
+            rate = uses * min(number(row.get("HitChance")) or 100.0, 100.0) / 100.0 * chance
+            if rate > 0:
+                applied += rate
+                parts.append(f"{row.get('name')} {rate:.2f} Shocks/s")
+            else:
+                parts.append(f"{row.get('name')} not counted (no uses: no cooldown, duration or press chosen)")
+        others = "; ".join(parts) or ("no other skill's Shock chance read (the bridge's rows don't carry PoB's "
+                                      "ShockChance yet: an UNDERCOUNT where other skills Shock)")
+        share, how = self._shocked_hits(base, up_how, hits, applied, others, consumes, stats)
+        if main_skill == "Siphoning Strike":  # (it reads Shock alone; the other two any Lightning Ailment)
+            return share, how
+        # (Electrocute is a Lightning Ailment too, KeywordPopups LightningAilment, and isn't consumed by them: the main
+        # skill's own Electrocute share joins as independent (Shockburst Rounds' is 0: its -100% Electrocute
+        # buildup); other skills' Electrocutes aren't published yet: not counted, an UNDERCOUNT, labelled)
+        electro, electro_how = models.immobilised_share(stats, "Electrocute")
+        if electro <= 0:
+            return share, how
+        return 1.0 - (1.0 - share) * (1.0 - electro), f"{how}; its own Electrocute {electro:.0%} ({electro_how})"
+
+    @staticmethod
+    def _shocked_hits(base: float, up_how: str, hits: float, applied: float, others: str, consumes: bool,
+                      stats: dict) -> tuple[float, str]:
+        """(share of the main skill's hits finding the boss Shocked, how) for shock_set_share (see there)."""
+        if consumes:
+            if hits <= 0:
+                return 0.0, "the skill doesn't hit the boss"
+            last = 1.0 / hits
+            # (the resolver's share for a consumer that never Shocks is consumed_share(hits, 0, ground): the ground's
+            # share back out of it, so the other groups' Shocks join it the way the resolver joins them for Ignite)
+            ground = min(1.0, base * (last + models.CONSUME_IMMUNE) / last)
+            share = conditions_mod.consumed_share(hits, 0.0, ground, extra=applied)
+            return share, (f"{others}; Shocked Ground {ground:.0%}; each Shock consumed by the next of {hits:.2f} hits/s, "
+                           f"then immune {models.CONSUME_IMMUNE:g} s (KeywordPopups Consume)")
+        duration = number(stats.get("ShockDuration")) or conditions_mod.AILMENT_DURATION["Shock"]
+        by_others = 1.0 - math.exp(-applied * duration) if applied > 0 else 0.0
+        share = 1.0 - (1.0 - base) * (1.0 - by_others)
+        return share, (f"{others}: Shocked {by_others:.0%} of the fight ({duration:.2f} s each, random in time); "
+                       f"the resolver's share {base:.0%} ({up_how})")
+
     def gated_set_share(self, skill: str, texts: list[str], main_types: set[str]) -> tuple[float, str]:
         """(share, how) of a models.GATED_SETS skill's uses its resource covers (GEM17): Furious Slam's Rage from the
         build's Rage gains (conditions._rage_gain, the reader rage_held uses) over 10 a slam; Oil Barrage's Power Charges
@@ -4951,11 +5050,17 @@ class Assumptions:
             return share, (f"{gain:.2f} Rage/s gained ({'; '.join(found[:3]) or 'no source'}) over "
                            f"{models.FURIOUS_RAGE_A_SLAM:g} a slam at {uses:.2f} slams/s, Maximum Rage {most:g}; other "
                            f"Rage spenders not taken off")
+        kind = "Frenzy" if skill == "Glacial Lance" else "Power"
         gains = 0.0
         for t in texts:
-            if (r := conditions_mod._charge_rate(t, "Power", stats)) is not None:
+            if (r := conditions_mod._charge_rate(t, kind, stats)) is not None:
                 gains += r[0]
                 found.append(f"{t[:50]} ({r[0]:.2g}/s)")
+        if skill == "Glacial Lance":  # (GEM19: one Frenzy Charge a lance, if there is one)
+            uses = number(stats.get("Speed"))
+            share = min(1.0, gains / uses) if uses > 0 else 0.0
+            return share, (f"{gains:.2f} Frenzy Charges/s gained ({'; '.join(found[:3]) or 'no source'}), one consumed a "
+                           f"lance at {uses:.2f} lances/s; other Frenzy spenders not taken off")
         return models.oil_barrage_share(gains), (f"{gains:.2f} Power Charges/s gained ({'; '.join(found[:3]) or 'no source'})"
                                                  f", one consumed per {models.OIL_CHARGE_SECONDS:g} s of the barrage")
 

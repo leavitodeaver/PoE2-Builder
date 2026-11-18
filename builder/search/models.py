@@ -6505,8 +6505,17 @@ def icestorm_model(main: Skill | None, scored: str | None, sets: list[dict], cas
 #   the stock held when the fight starts not counted (a short undercount). MEDIUM.
 # DPS = base x (1 - share) + gated x share at PoB's per-set numbers; a gated set scored with no resource gets the base x
 # FIRESTORM_BOLTS_MARGIN so the search keeps the base set (PoB has no stat-set tag).
+# - (GEM19) Glacial Lance's "Explosion" (GlacialLanceWallsPlayer): "Consumes a Frenzy Charge if possible to cause the
+#   glacial fragments created by the first Projectile to explode outwards after a short duration, peppering enemies with
+#   shrapnel" (ActiveSkills glacial_lance, 26650308; PoB's skill types ConsumesCharges, SkillConsumesFrenzyChargesOnUse).
+#   Probe POE2T3411: Explosion 177.3 vs Spear 95.4 (x1.9), kept with no Frenzy source. The explosion ADDS to the lance
+#   (GATED_ADDS: Spear + Explosion x share). The share of lances with a charge = min(1, Frenzy Charges gained a second
+#   (conditions._charge_rate over the build's lines) / lances a second); the stock held at the fight's start and other
+#   Frenzy spenders beside it not counted (a short undercount / an overcount where a build has them, labelled). MEDIUM.
 GATED_SETS = {"Furious Slam": ("Base", "Enraged", "Rage", "model-gem17-furious-slam-rage"),
-              "Oil Barrage": ("Base", "Empowered", "Power Charges", "model-gem17-oil-barrage-power-charges")}
+              "Oil Barrage": ("Base", "Empowered", "Power Charges", "model-gem17-oil-barrage-power-charges"),
+              "Glacial Lance": ("Spear", "Explosion", "Frenzy Charges", "model-gem19-glacial-lance-frenzy-charge")}
+GATED_ADDS = {"Glacial Lance"}  # (the gated part comes on top of the base set, not instead of it)
 FURIOUS_RAGE_A_SLAM = 10.0  # bear_slam_spend_X_rage_for_stronger_slam
 OIL_CHARGE_SECONDS = 1.5  # electric_spit_empowered_channel_consume_power_charge_per_X_ms 1500
 
@@ -6537,12 +6546,15 @@ def gated_set_model(main: Skill | None, scored: str | None, sets: list[dict], sh
     if base <= 0 or dps.get(scored, 0.0) <= 0:
         return [], []
     share = min(1.0, max(0.0, number(share)))
-    total = base * (1 - share) + gated * share
+    adds = main.name in GATED_ADDS
+    total = base + gated * share if adds else base * (1 - share) + gated * share
     factor = total / dps[scored]
     steer = scored == gated_label and share <= 0
     if steer:
         factor *= FIRESTORM_BOLTS_MARGIN  # (steer the search to the base set)
-    mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9 else []
+    # (GEM19: a steered additive part as a Damage line, so its ailments shrink too, as detonated_set_model: POE2T2199)
+    mods = ([raw_mod("Damage" if steer and adds else "DPS", "MORE", 100 * (factor - 1), main.name)]
+            if abs(factor - 1) > 1e-9 else [])
     return mods, [{
         "label": f"{main.name}: its {gated_label} part needs {resource}*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM", "entry": entry,
@@ -6552,7 +6564,7 @@ def gated_set_model(main: Skill | None, scored: str | None, sets: list[dict], sh
                   + (f"; with none, the {gated_label} set is kept 10% under the {base_label} so the search keeps it"
                      if steer else "")),
         "play": (f"{main.name}'s {gated_label} part runs on {resource}: feed it to keep it up. Without {resource}: "
-                 f"{base:,.0f}; with this build's: {total:,.0f}; always: {gated:,.0f}.")}]
+                 f"{base:,.0f}; with this build's: {total:,.0f}; always: {base + gated if adds else gated:,.0f}.")}]
 
 
 # Stat sets that need an ailment on the boss to consume (GEM17; OVERCOUNTS: PoB scores each set alone with no ailment
@@ -6653,8 +6665,22 @@ DETONATED_SETS = {
     # build would lower it: not read, UNVERIFIED; Skill Effect Duration not read). Probe POE2T3411: Explosion 275.3 vs
     # Impact 31.0 (x8.9), kept with no Detonator. PoB's Explosion set taken as one shot's bolts exploding.
     "Stormblast Bolts": (("Impact",), "Explosion", 10, 10.0, "model-gem18-stormblast-bolts-detonation"),
+    # (GEM19) Earthshatter: "Slam the ground, sending out a fissure ... and thrusts a spike from the ground when it ends.
+    # Warcries performed near the spike will cause it to shatter, damaging surrounding enemies" (ActiveSkills
+    # earthshatter, 26650308); EarthshatterPlayer: spike_slam_max_spikes 6, base_skill_effect_duration 6000. Probe
+    # POE2T3411: Explosion 129.5 vs Slam 25.8 (x5.0), kept with no Warcry. Set off by the build's Warcries
+    # (DETONATED_BY) and its Detonators too (patch 0.3.0: "Detonation now also triggers existing spikes"; no later entry,
+    # grep_notes --history "Earthshatter"; the game's description names only Warcries: both written down, both
+    # counted). Each use taken to shatter every spike lying there (the slams land on the boss's spot and the cry is
+    # used beside them: MEDIUM-LOW, as the spears'); one spike a slam (more fissures not read); the limit 6 (patch
+    # 0.4.0 made it a modifiable Limit, Overabundance: a raised limit not read, an UNDERCOUNT there, UNVERIFIED).
+    "Earthshatter": (("Slam",), "Explosion", 6, 6.0, "model-gem19-earthshatter-warcry-shatter"),
 }
-DETONATED_WORD = {"Stormblast Bolts": "bolts"}  # (what lies there to detonate; spears otherwise)
+DETONATED_WORD = {"Stormblast Bolts": "bolts", "Earthshatter": "spikes"}  # (what lies there to detonate; spears otherwise)
+# What sets the parts off when it isn't a Detonator skill (GEM19): (the event conditions.event_rates counts, how the note
+# names it, the play guide's examples)
+DETONATED_BY = {"Earthshatter": ("Warcry", "a Warcry is used near them or a Detonator skill hits them",
+                                  "a Warcry (Infernal Cry, Seismic Cry, ...) or a Detonator skill")}
 
 
 def detonated_share(skill: str, uses: float, detonations: float) -> float:
@@ -6693,17 +6719,19 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
     # POE2T2199, Rapid Assault's Explosion set kept its Bleed under a DPS line and stayed the search's choice)
     mods = ([raw_mod("Damage" if steer else "DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9
             else [])
+    _, by_note, by_play = DETONATED_BY.get(main.name, ("", "a Detonator skill hits the " + word,
+                                                       "a Detonator skill (Detonating Arrow, Explosive Spear, a grenade, ...)"))
     return mods, [{
-        "label": f"{main.name}: its {det_label} needs another skill to Detonate it*", "value": f"x{factor:.3f}",
+        "label": (f"{main.name}: its {det_label} needs another skill to "
+                  + ("set it off*" if main.name in DETONATED_BY else "Detonate it*")), "value": f"x{factor:.3f}",
         "confidence": "MEDIUM-LOW", "entry": entry,
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; {plain_label} {plain:,.0f}, {det_label} "
-                  f"{det:,.0f}). The game sets the {det_label} off only when a Detonator skill hits the {word}: {s:.0%} of "
+                  f"{det:,.0f}). The game sets the {det_label} off only when {by_note}: {s:.0%} of "
                   f"them ({how}), so {plain_label} + {det_label} x {s:.0%} = {total:,.0f} DPS"
                   + (f"; with none, the {det_label} set is kept 10% under the {plain_label} so the search keeps it"
                      if steer else "")),
-        "play": (f"Hit {main.name}'s {word} with a Detonator skill (Detonating Arrow, Explosive Spear, a grenade, ...) to "
-                 f"set off the {det_label}. Without one: {plain:,.0f}; with this build's: {total:,.0f}; every {word[:-1]}: "
-                 f"{plain + det:,.0f}.")}]
+        "play": (f"Set off {main.name}'s {word} with {by_play} to get the {det_label}. Without one: {plain:,.0f}; with "
+                 f"this build's: {total:,.0f}; every {word[:-1]}: {plain + det:,.0f}.")}]
 
 
 # Flameblast's stages and release rate (GEM18; an UNDERCOUNT of about x5 at base, an OVERCOUNT of the releases where the
@@ -6795,6 +6823,153 @@ def flameblast_model(main: Skill | None, stats: dict,
                     f": more stages take longer than they pay at {cast_rate:.2f} casts a second."))}]
 
 
+# Supercharged Slam's stages (GEM19; PoB scored 1 stage and one set). The game (26650308): ActiveSkills supercharged_slam
+# "Channel to charge up a heavy swing ... Release to Slam the ground, dealing damage in an area around the impact,
+# followed by Aftershocks dealing damage in a larger area. This Skill has its own Attack time, which is not affected by
+# your weapon's attack speed and cannot be modified"; its stat text (statdescriptions supercharged_slam statset_0.csd)
+# "Maximum {0} Stages / Channelling ends 1 second after reaching maximum Stages / Releases 1 Aftershock per Stage", "{0}%
+# more Damage with Hits for each stage"; SuperchargedSlamPlayer channelled_slam_damage_+%_final_per_stage 40,
+# channelled_slam_max_stages 3 (quality +0.05 a %), base_minimum_channel_time_ms 1000,
+# channel_skill_end_animation_duration_override_ms 1000. PoB (act_str.lua SuperchargedSlamPlayer): the stage comes from
+# its stage box (CalcActiveSkill 890-899, as Flameblast's; nothing sets it: stage 1); each of the "Impact" and
+# "Aftershock" sets carries Damage MORE 40% a stage and DPS MORE 100% a stage (x(1 + s)), and the hit time is the
+# per-stage time x s (hitTimeMultiplier), at least the 1 s minimum channel (CalcOffence 3146-3150); the end animation is
+# not in it. So PoB scores ONE set x (1 + s) where a release is the Impact + s Aftershocks, and leaves out the 1 s end
+# animation (an OVERCOUNT of the rate). Here: stages s = the count dealing the most a second, (1 + 0.4 s)(I + s A) /
+# (max(s T, 1 s) + 1 s) over 1..max, T PoB's per-stage time (its output.Time, the 0.85 s attack time of patch 0.4.0), I / A the
+# Impact's and one Aftershock's hits (their ratio from PoB's two sets, which share every stage multiplier); the stage as
+# Multiplier:SuperchargedSlamStage BASE (s - 1), and a DPS MORE turning PoB's X (1 + s) / H into (I + s A) / (H + 1 s).
+# Each Aftershock taken to hit the boss (their radius grows: MEDIUM). MEDIUM.
+SLAM, SLAM_ENTRY = "Supercharged Slam", "model-gem19-supercharged-slam-stages"
+SLAM_MORE_STAT, SLAM_MAX_STAT = "channelled_slam_damage_+%_final_per_stage", "channelled_slam_max_stages"
+SLAM_MORE, SLAM_MAX, SLAM_END, SLAM_MIN = 40.0, 3, 1.0, 1.0  # (the game's values, as fallbacks)
+SLAM_SETS = ("Impact", "Aftershock")
+
+
+def supercharged_slam_model(main: Skill | None, scored: str | None, sets: list[dict], stats: dict, pob_stage: int,
+                            forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Supercharged Slam at the stage count that deals the most a second, a release = the Impact + one Aftershock a
+    stage, plus the end animation (comment above). `sets`: the bridge's setRates for its group; `stats`: the main skill's
+    PoB output (Time, HitSpeed, else Speed); `pob_stage`: the stage PoB calculates now (1 + this model's own stage line, if applied)."""
+    if main is None or main.name != SLAM or SLAM_ENTRY in forbidden or main.triggered or scored not in SLAM_SETS:
+        return [], []
+    level = main.level_stats or {}
+    more = (number(level.get(SLAM_MORE_STAT)) or SLAM_MORE) / 100
+    top = max(1, int(number(level.get(SLAM_MAX_STAT)) or SLAM_MAX))
+    end = number(level.get(FLAMEBLAST_END_STAT)) / 1000 or SLAM_END
+    minimum = number(level.get(FLAMEBLAST_MIN_STAT)) / 1000 or SLAM_MIN
+    dps = {s.get("label"): number(s.get("TotalDPS")) for s in sets}
+    impact, after = dps.get("Impact", 0.0), dps.get("Aftershock", 0.0)
+    speed = number(stats.get("HitSpeed")) or number(stats.get("Speed"))  # (PoB's DPS runs on HitSpeed here)
+    if impact <= 0 or speed <= 0 or pob_stage < 1:
+        return [], []
+    ratio = after / impact  # (one Aftershock's hit over the Impact's: PoB's sets share every stage multiplier)
+    # (PoB's per-stage time, its output.Time (HitTime = Time x stages, CalcOffence 3146); else its hit time now / the stage,
+    # which reads the minimum channel where the stage is short of it)
+    per_stage = number(stats.get("Time")) or (1 / speed) / pob_stage
+
+    def hold(s: int) -> float:
+        return max(s * per_stage, minimum)
+
+    def value(s: int) -> float:
+        return (1 + more * s) * (1 + s * ratio) / (hold(s) + end)
+
+    stages = max(range(1, top + 1), key=lambda s: (value(s), s))
+    release = (1 + stages * ratio) if scored == "Impact" else (1 / ratio + stages) if ratio > 0 else 1.0
+    factor = release / (1 + stages) * hold(stages) / (hold(stages) + end)
+    mods = []
+    if stages != 1:
+        mods.append(raw_mod(f"Multiplier:{SLAM.replace(' ', '')}Stage", "BASE", stages - 1, main.name))
+    if abs(factor - 1) > 1e-9:
+        mods.append(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name))
+    pob1 = (1 + more) * 2 / hold(1)  # (PoB's own reading at stage 1, in the same units as value())
+    scored_one = 1.0 if scored == "Impact" else ratio
+    return mods, [{
+        "label": f"{main.name}: {stages} stage{'s' if stages != 1 else ''} a channel, Impact + {stages} Aftershock"
+                 f"{'s' if stages != 1 else ''}*",
+        "value": f"x{value(stages) / (pob1 * scored_one):.3f}", "confidence": "MEDIUM", "entry": SLAM_ENTRY,
+        "basis": (f"PoB scored the {scored} set alone at 1 stage (its stage box), x2 for that stage, and no end "
+                  f"animation. The game: {more * 100:g}% more a stage, one Aftershock a stage after the Impact (an "
+                  f"Aftershock {ratio:.2f}x the Impact's hit, from PoB's two sets), {stages} of {top} stages (the most "
+                  f"damage a second: a {hold(stages):.2f} s channel, {per_stage:.2f} s a stage, at least {minimum:g} s, + "
+                  f"the {end:g} s end animation)"),
+        "play": (f"Channel {main.name} to {stages} stage{'s' if stages != 1 else ''} before releasing"
+                 + (" (its maximum)" if stages == top else "") + f"; each stage adds an Aftershock. Releasing at 1 "
+                 f"stage: x{value(1) / value(stages):.2f} of this.")}]
+
+
+# Detonating Arrow's stages (GEM19). The game (26650308): ActiveSkills detonating_arrow "Channel to charge up before
+# firing off a burning arrow. At maximum stages, the arrow will create a Detonating explosion at the end of its flight";
+# DetonatingArrowPlayer detonating_arrow_max_number_of_stages 4, detonating_arrow_all_damage_%_to_gain_as_fire_per_stage
+# 120, channel_skill_end_animation_duration_multiplier_permyriad 2344 (taken as an end animation of 23.44% of the attack
+# time: MEDIUM-LOW). PoB (DetonatingArrowPlayer): the stage from its stage box (1; nothing sets it); the "Arrow" set gains
+# 120% as Fire a stage, the "Explosion" set (DetonatingArrowExplosionPlayer) has no stage check, hit time = attack time x
+# stages, no end animation. So PoB scored the Explosion as if every release made one at a 1-stage channel (an
+# OVERCOUNT) or the Arrow at 1 stage. Here: stages s = the count dealing the most a second, (Arrow(s) + Explosion if s is
+# the maximum) / (s T + 0.2344 T), T PoB's attack time (output.Time), Arrow(s) / Arrow(p) taken as (1 + 1.2 s) / (1 +
+# 1.2 p) for the choice (PoB computes the hit at s itself once the stage line is in), the Explosion / Arrow ratio from
+# PoB's two sets; Multiplier:DetonatingArrowStage BASE (s - 1) and a DPS MORE from PoB's X / (s T) to that. MEDIUM.
+DETONATING, DETONATING_ENTRY = "Detonating Arrow", "model-gem19-detonating-arrow-stages"
+DETONATING_GAIN, DETONATING_MAX, DETONATING_END = 1.2, 4, 0.2344  # (the game's values)
+
+
+def detonating_arrow_model(main: Skill | None, scored: str | None, sets: list[dict], stats: dict, pob_stage: int,
+                           forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Detonating Arrow at the stage count that deals the most a second, its Explosion only at the maximum stage, plus
+    its end animation (comment above). `stats`: the main skill's PoB output (Time); `pob_stage`: PoB's stage now."""
+    if (main is None or main.name != DETONATING or DETONATING_ENTRY in forbidden or main.triggered
+            or scored not in ("Arrow", "Explosion")):
+        return [], []
+    level = main.level_stats or {}
+    top = max(1, int(number(level.get("detonating_arrow_max_number_of_stages")) or DETONATING_MAX))
+    gain = (number(level.get("detonating_arrow_all_damage_%_to_gain_as_fire_per_stage")) or DETONATING_GAIN * 100) / 100
+    end_share = (number(level.get("channel_skill_end_animation_duration_multiplier_permyriad")) or DETONATING_END
+                 * 10000) / 10000
+    dps = {s.get("label"): number(s.get("TotalDPS")) for s in sets}
+    arrow, blast = dps.get("Arrow", 0.0), dps.get("Explosion", 0.0)
+    per = number(stats.get("Time"))
+    if arrow <= 0 or per <= 0 or pob_stage < 1:
+        return [], []
+    ratio = blast / arrow  # (the Explosion's hit over the Arrow's at PoB's stage now: the same speed and lines)
+    end = end_share * per
+
+    def hit(s: int) -> float:  # (the release's damage over PoB's Arrow hit now)
+        return (1 + gain * s) / (1 + gain * pob_stage) + (ratio if s == top else 0.0)
+
+    def value(s: int) -> float:
+        return hit(s) / (s * per + end)
+
+    stages = max(range(1, top + 1), key=lambda s: (value(s), s))
+    arrow_s = (1 + gain * stages) / (1 + gain * pob_stage)  # (PoB's Arrow at s, in the same units)
+    scored_hit = arrow_s if scored == "Arrow" else ratio
+    factor = (hit(stages) / scored_hit) * (stages * per) / (stages * per + end) if scored_hit > 0 else 1.0
+    steer = scored == "Explosion" and stages != top  # (no explosion played: the Arrow set kept, as the other sets' steers)
+    if steer:
+        factor *= FIRESTORM_BOLTS_MARGIN
+    mods = []
+    if stages != 1:
+        mods.append(raw_mod(f"Multiplier:{DETONATING.replace(' ', '')}Stage", "BASE", stages - 1, main.name))
+    if abs(factor - 1) > 1e-9:
+        mods.append(raw_mod("Damage" if steer else "DPS", "MORE", 100 * (factor - 1), main.name))
+    pob_now = (1.0 if scored == "Arrow" else ratio) / (pob_stage * per)
+    return mods, [{
+        "label": f"{main.name}: {stages} stage{'s' if stages != 1 else ''} a channel"
+                 + (", with its Detonating explosion*" if stages == top else ", no explosion*"),
+        "value": f"x{value(stages) / pob_now:.3f}" if pob_now > 0 else "", "confidence": "MEDIUM",
+        "entry": DETONATING_ENTRY,
+        "basis": (f"PoB scored the {scored} set alone at {pob_stage} stage{'s' if pob_stage != 1 else ''} (its stage "
+                  f"box), the Explosion with no stage check, and no end animation. The game: {gain * 100:g}% gained as "
+                  f"Fire a stage, the explosion only at the maximum {top} stages (its hit {ratio:.2f}x the Arrow's now, "
+                  f"from PoB's two sets), {per:.2f} s a stage + an end animation of {end_share:.2%} of it ({end:.2f} s; "
+                  f"MEDIUM-LOW): {stages} stage{'s' if stages != 1 else ''} deal{'' if stages != 1 else 's'} the most a "
+                  "second" + ("; scored on the Explosion with none played, it's kept 10% under the Arrow so the search "
+                              "keeps the Arrow" if steer else "")),
+        "play": (f"Channel {main.name} to {stages} stage{'s' if stages != 1 else ''} before releasing"
+                 + (" (its maximum: the arrow explodes and Detonates)" if stages == top else
+                    " (short of the maximum: no explosion)") + f". Releasing at 1 stage: x{value(1) / value(stages):.2f} "
+                 "of this.")}]
+
+
 # Shockwaves only on a Heavy Stun (GEM18; OVERCOUNTS: PoB scores the Shockwave set as if every use made one, and the
 # search kept it: probe POE2T3411, level-90 searches, Boneshatter "Shockwave" 382.1 vs "Initial Strike" 53.8 (x7.1),
 # Wing Blast "Shockwave" 330.5 vs "Wing Blast" 58.3 (x5.7)). The game (ActiveSkills, 26650308): Boneshatter "The Strike
@@ -6873,6 +7048,107 @@ def stun_set_model(main: Skill | None, scored: str | None, sets: list[dict], sta
         "play": (f"{main.name}'s {wave_label} comes only when it hits a boss Primed for Stun, and its own hit builds no "
                  f"stun: use other skills that build Heavy Stun (Physical / Melee hits, Daze) to Prime the boss. "
                  f"Without them: {plain:,.0f}; with this build's: {total:,.0f}; every use: {plain + wave:,.0f}.")}]
+
+
+# Parts that need a Shocked boss (GEM19; OVERCOUNTS: PoB scores each set alone and the search kept the Shock-fed one;
+# probe POE2T3411, level-90 searches). The game (ActiveSkills, 26650308):
+# - Siphoning Strike: "Dash to a target and Strike them ... If the target is Shocked, Consume their Shock to release a
+#   Lightning shockwave around the target and grant you a Power Charge". Kept "Shockwave" 386.2 vs "Dash" 69.7.
+# - Shockburst Rounds: "Rapidly fire charged bolts which release damaging pulses upon Hitting an enemy affected by a
+#   Lightning Ailment". Kept "Pulse" 183.3 vs "Projectile" 41.2. No consume.
+# - Shockchain Arrow: "Hitting such an enemy [afflicted by Lightning Ailments] will cause your arrow to release a damaging
+#   shockwave and Chain towards nearby targets ... Consumes Shock from enemies it Hits, but not Electrocution". Kept
+#   "Shockwave" 239.0 vs "Projectile" 95.3. Its Chains go to other targets (none beside a lone boss).
+# None of the three can feed itself: each main stat set carries never_shock (GrantedEffectStatSets SiphoningStrikePlayer,
+# ShockburstRoundsPlayer, ShockchainArrowPlayer, 26650308), and Shockburst Rounds also
+# active_skill_electrocutes_as_though_dealt_damage_+%_final -100. So the Shock comes from the build's other skills or its
+# Shocked Ground (assumptions.Assumptions.shock_set_share): the share f of the skill's hits that find the boss Shocked
+# (hits taken as random in time, so the share of hits = the share of time). DPS = the plain set + the Shock set x f (the
+# extra part adds to a use). A Shock set scored with nothing feeding it: the plain set x FIRESTORM_BOLTS_MARGIN as a
+# Damage line, so the search keeps the plain one. Electrocute counts as a Lightning Ailment for Shockburst Rounds and
+# Shockchain Arrow (KeywordPopups LightningAilment) but no other skill's Electrocute share is published yet (an UNDERCOUNT
+# where the build Electrocutes with other skills, labelled; MECH-A's item). Siphoning Strike's Power Charge on a consume
+# is not counted here (MECH-C's charges). MEDIUM.
+SHOCK_SETS = {
+    "Siphoning Strike": ("Dash", "Shockwave", True, "model-gem19-siphoning-strike-shock"),
+    "Shockburst Rounds": ("Projectile", "Pulse", False, "model-gem19-shockburst-rounds-lightning-ailment"),
+    "Shockchain Arrow": ("Projectile", "Shockwave", True, "model-gem19-shockchain-arrow-lightning-ailment"),
+}
+
+
+# Parts that need a Parried boss (GEM19; OVERCOUNTS: probe POE2T3411 kept them with no Parry in the build):
+# - Fangs of Frost: "Hitting a Parried target Consumes the Debuff to cause an explosion of frost and leave Chilled Ground"
+#   (ActiveSkills fangs_of_frost, 26650308; FangsOfFrostPlayer consume_parried_on_hit). Kept "Explosion" 205.3 vs
+#   "Stab" 120.7.
+# - Disengage: "Consumes the Parried Debuff on Hitting enemies to release a shockwave and grant you a Frenzy Charge"
+#   (ActiveSkills disengage). Kept "Shockwave" 79.1 vs "Initial Strike" 37.0.
+# The share of the main skill's hits that find the boss Parried is MECH-A's parry plan's (models.parry_plan with
+# consumes: one hit per Parried; 0 when the build has no Parry / Refutation or the plan finds parrying not worth its
+# time). The plan weighs only Parried's 50% more Attack damage taken, not the consumer's own payoff (the explosion /
+# shockwave): where that payoff would make parrying worth it, an UNDERCOUNT, labelled (MECH-A's item). Disengage's Frenzy
+# Charge on a consume not counted here (MECH-C's charges). MEDIUM.
+PARRIED_SETS = {
+    "Fangs of Frost": ("Stab", "Explosion", True, "model-gem19-fangs-of-frost-parried"),
+    "Disengage": ("Initial Strike", "Shockwave", True, "model-gem19-disengage-parried"),
+}
+
+
+def shock_set_model(main: Skill | None, scored: str | None, sets: list[dict], share: float, how: str,
+                    forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """A SHOCK_SETS skill's extra part only on a Shocked boss, or a PARRIED_SETS skill's only on a Parried one (see
+    above): `sets` the bridge's setRates for its group, `share` the share of its hits that find the boss so, `how` its
+    basis."""
+    if main is None or (main.name not in SHOCK_SETS and main.name not in PARRIED_SETS):
+        return [], []
+    parried = main.name in PARRIED_SETS
+    plain_label, extra_label, consumes, entry = (PARRIED_SETS if parried else SHOCK_SETS)[main.name]
+    if entry in forbidden or scored not in (plain_label, extra_label):
+        return [], []
+    dps = {s.get("label"): number(s.get("TotalDPS")) for s in sets}
+    plain, extra = dps.get(plain_label, 0.0), dps.get(extra_label, 0.0)
+    if plain <= 0 or dps.get(scored, 0.0) <= 0:
+        return [], []
+    share = min(1.0, max(0.0, share))
+    total = plain + extra * share
+    factor = total / dps[scored]
+    steer = scored == extra_label and share <= 0
+    if steer:
+        factor *= FIRESTORM_BOLTS_MARGIN  # (steer the search to the plain set)
+    factor = max(factor, AILMENT_FLOOR)  # (PoB rounds a MORE to 2 decimals: see ailment_set_model)
+    mods = ([raw_mod("Damage" if steer else "DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9
+            else [])
+    if parried:
+        return mods, [{
+            "label": f"{main.name}: its {extra_label} only on a Parried boss*", "value": f"x{factor:.3f}",
+            "confidence": "MEDIUM", "entry": entry,
+            "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; {plain_label} {plain:,.0f}, "
+                      f"{extra_label} {extra:,.0f}) as if every hit made one. The game makes it only when the hit "
+                      f"Consumes Parried on the boss: {share:.1%} of its hits ({how}; the parry plan weighs Parried's 50% "
+                      f"more Attack damage taken, not this {extra_label}: an UNDERCOUNT where it would make parrying "
+                      f"worth it), so {plain_label} + {extra_label} x {share:.1%} = {total:,.0f} DPS"
+                      + (f"; with none, the {extra_label} set is kept 10% under the {plain_label} so the search keeps "
+                         "it" if steer else "")),
+            "play": (f"{main.name}'s {extra_label} comes only when it hits a Parried boss: Parry (or Refutation) the "
+                     f"boss's telegraphed hits, then hit it. Without it: {plain:,.0f}; with this build's: {total:,.0f}; "
+                     f"every hit: {plain + extra:,.0f}.")}]
+    ailment = "Shocked" if main.name == "Siphoning Strike" else "Shocked (a Lightning Ailment)"
+    return mods, [{
+        "label": f"{main.name}: its {extra_label} only on a Shocked boss*", "value": f"x{factor:.3f}",
+        "confidence": "MEDIUM", "entry": entry,
+        "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; {plain_label} {plain:,.0f}, {extra_label} "
+                  f"{extra:,.0f}) as if every hit made one. The game makes it only when the hit finds the boss {ailment}"
+                  + (", and consumes the Shock" if consumes else "") + f"; the skill never Shocks itself (never_shock), "
+                  f"so the Shock comes from the build's other skills: {share:.1%} of its hits ({how}), so {plain_label} + "
+                  f"{extra_label} x {share:.1%} = {total:,.0f} DPS"
+                  + ("" if main.name == "Siphoning Strike" else
+                     "; other skills' Electrocutes not counted (not published yet: an UNDERCOUNT where the build "
+                     "Electrocutes)")
+                  + (f"; with none, the {extra_label} set is kept 10% under the {plain_label} so the search keeps it"
+                     if steer else "")),
+        "play": (f"{main.name}'s {extra_label} comes only when it hits a Shocked boss, and it never Shocks by itself: "
+                 f"Shock the boss with another skill (or stand it in your Shocked Ground) first"
+                 + (", and each hit Consumes that Shock" if consumes else "") + f". Without one: {plain:,.0f}; with "
+                 f"this build's: {total:,.0f}; every hit: {plain + extra:,.0f}.")}]
 
 
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------

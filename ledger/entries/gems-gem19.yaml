@@ -1,0 +1,202 @@
+- id: model-gem19-siphoning-strike-shock
+  title: "Siphoning Strike: the shockwave only when the Strike finds the boss Shocked (PoB scored one on every Strike)"
+  kind: model
+  model: shock_set
+  stats: []
+  skill: [Siphoning Strike]
+  confidence: MEDIUM
+  notes: >-
+    models.shock_set_model (GEM19), hooked in Assumptions after the Heavy Stun sets'. Game: ActiveSkills siphoning_strike
+    "If the target is Shocked, Consume their Shock to release a Lightning shockwave around the target and grant you a
+    Power Charge". PoB scores the "Shockwave" set as if every Strike made one: probe POE2T3411 kept it at 386.2 vs the
+    Dash's 69.7 (an OVERCOUNT, x5.5). The Strike never Shocks (SiphoningStrikePlayer never_shock; no stat removes it:
+    checked every table's stat columns for never_shock / virtual_never_shock, 18 skill and support stat sets carry it,
+    no Mods row), so the Shock comes from the build's other skills (each group's uses a second at the search's press
+    choices x HitChance x its Shock chance per hit, PoB's ShockChance, which the bridge's useRates rows don't carry
+    yet: 0 until they do, an UNDERCOUNT where other skills Shock, labelled; probe POE2T3426) and Shocked Ground: Assumptions.shock_set_share, the share of Strikes that
+    find the boss Shocked, consumed on the next Strike then 1 s immune (conditions.consumed_share). DPS = Dash +
+    Shockwave x that share. None: 0 shockwaves; a Shockwave set scored with none gets the Dash x 0.9 (a Damage line) so
+    the search keeps the Dash. The Power Charge on a consume is not counted here (MECH-C's charges).
+  sources: ["builder/search/models.py (shock_set_model)", "builder/search/assumptions.py (shock_set_share)",
+            "data/game-26650308/tables/ActiveSkills.json (siphoning_strike)",
+            "data/game-26650308/tables/GrantedEffectStatSets.json (SiphoningStrikePlayer)",
+            "scratch/gem18/probe_sets6.json (POE2T3411)", "scratch/gem19/probe_shock.json"]
+  test_in_game: "Optional: Siphoning Strike on an unshocked boss: no shockwave."
+  status: proposed
+
+- id: model-gem19-shockburst-rounds-lightning-ailment
+  title: "Shockburst Rounds: the pulses only on a boss with a Lightning Ailment (PoB scored one on every bolt)"
+  kind: model
+  model: shock_set
+  stats: []
+  skill: [Shockburst Rounds]
+  confidence: MEDIUM
+  notes: >-
+    models.shock_set_model (GEM19). Game: ActiveSkills shockburst_rounds "Rapidly fire charged bolts which release
+    damaging pulses upon Hitting an enemy affected by a Lightning Ailment"; KeywordPopups LightningAilment "Shock and
+    Electrocute are Lightning Ailments". PoB scores the "Pulse" set as if every bolt made one: probe POE2T3411 kept it at
+    183.3 vs the Projectile's 41.2 (an OVERCOUNT, x4.5). The bolts never Shock (ShockburstRoundsPlayer never_shock) or
+    Electrocute (active_skill_electrocutes_as_though_dealt_damage_+%_final -100), so the boss's Shock comes from other
+    skills (their Shocks a second, each lasting the main skill's ShockDuration, random in time) and Shocked Ground; no
+    consume. DPS = Projectile + Pulse x that share. Other skills' Electrocutes are not published yet: not counted (an
+    UNDERCOUNT where the build Electrocutes with them, labelled; MECH-A). None: the Projectile x 0.9 steer.
+  sources: ["builder/search/models.py (shock_set_model)", "data/game-26650308/tables/ActiveSkills.json (shockburst_rounds)",
+            "data/game-26650308/tables/KeywordPopups.json (LightningAilment)", "scratch/gem18/probe_sets6.json (POE2T3411)"]
+  test_in_game: "Optional: Shockburst Rounds on a boss with no Shock: no pulses."
+  status: proposed
+
+- id: model-gem19-shockchain-arrow-lightning-ailment
+  title: "Shockchain Arrow: the shockwave only on a boss with a Lightning Ailment (PoB scored one on every arrow)"
+  kind: model
+  model: shock_set
+  stats: []
+  skill: [Shockchain Arrow]
+  confidence: MEDIUM
+  notes: >-
+    models.shock_set_model (GEM19). Game: ActiveSkills shockchain_arrow "Hitting such an enemy [afflicted by Lightning
+    Ailments] will cause your arrow to release a damaging shockwave and Chain towards nearby targets ... Consumes Shock
+    from enemies it Hits, but not Electrocution"; patch notes 0.2.0 ("Shockwaves now also hit the monster from which the
+    Shockwave originated") and 0.4.0 ("the initial projectile now consumes Shock to create a Chaining secondary
+    projectile"). PoB scores the "Shockwave" set on every arrow: probe POE2T3411 kept it at 239.0 vs the Projectile's
+    95.3 (an OVERCOUNT, x2.5). The arrow never Shocks (ShockchainArrowPlayer never_shock): the Shock comes from other
+    skills and Shocked Ground, consumed by the next arrow (as Siphoning Strike's); its own Electrocute (not consumed;
+    models.immobilised_share) joins as independent. DPS = Projectile + Shockwave x that share. Its Chains go to other
+    targets (none beside a lone boss). Other skills' Electrocutes not counted (UNDERCOUNT, labelled). None: the
+    Projectile x 0.9 steer.
+  sources: ["builder/search/models.py (shock_set_model)", "data/game-26650308/tables/ActiveSkills.json (shockchain_arrow)",
+            "scratch/manager/research/patchnotes (0.2.0, 0.4.0)", "scratch/gem18/probe_sets6.json (POE2T3411)"]
+  test_in_game: "Optional: Shockchain Arrow on an unshocked boss: no shockwave."
+  status: proposed
+
+- id: model-gem19-earthshatter-warcry-shatter
+  title: "Earthshatter: the spike shatters only on a Warcry or a Detonation (PoB scored a shatter on every Slam)"
+  kind: model
+  model: detonated_set
+  stats: []
+  skill: [Earthshatter]
+  confidence: MEDIUM-LOW
+  notes: >-
+    models.detonated_set_model (GEM17's, with DETONATED_BY, GEM19). Game: ActiveSkills earthshatter "Slam the ground,
+    sending out a fissure ... and thrusts a spike from the ground when it ends. Warcries performed near the spike will
+    cause it to shatter, damaging surrounding enemies"; EarthshatterPlayer spike_slam_max_spikes 6,
+    base_skill_effect_duration 6000. Patch 0.3.0 (no later entry): "Detonation now also triggers existing spikes"; the
+    description names only Warcries: both written down, both counted. PoB scores the "Explosion" set as if every Slam
+    shattered: probe POE2T3411 kept it at 129.5 vs the Slam's 25.8 (an OVERCOUNT, x5.0). Shatters a second: the build's
+    Warcry uses (conditions.event_rates at skill_use_rate / the search's press choices) + its Detonator uses
+    (Assumptions.detonator_rate), each taken to shatter every spike lying there (min(6, slams x 6 s)); DPS = Slam +
+    Explosion x min(1, shatters x spikes / slams). None: 0; an Explosion set scored with none gets the Slam x 0.9 (a
+    Damage line). A raised spike Limit (Overabundance, patch 0.4.0) not read (UNVERIFIED).
+  sources: ["builder/search/models.py (DETONATED_SETS, DETONATED_BY)", "data/game-26650308/tables/ActiveSkills.json (earthshatter)",
+            "scratch/manager/research/patchnotes (0.3.0, 0.4.0)", "scratch/gem18/probe_sets6.json (POE2T3411)"]
+  test_in_game: "Optional: Earthshatter's spikes on a boss with no Warcry used: no shatter."
+  status: proposed
+
+- id: model-gem19-glacial-lance-frenzy-charge
+  title: "Glacial Lance: the fragments explode only when a lance spends a Frenzy Charge (PoB scored it on every lance)"
+  kind: model
+  model: gated_set
+  stats: []
+  skill: [Glacial Lance]
+  confidence: MEDIUM
+  notes: >-
+    models.gated_set_model (GEM17's, with GATED_ADDS, GEM19); Assumptions.gated_set_share. Game: ActiveSkills
+    glacial_lance "Consumes a Frenzy Charge if possible to cause the glacial fragments created by the first Projectile to
+    explode outwards after a short duration, peppering enemies with shrapnel"; patch 0.4.0 "Frenzy-Charge-Empowered
+    explosion". PoB scores the "Explosion" set (GlacialLanceWallsPlayer) alone with no charge check: probe POE2T3411 kept
+    it at 177.3 vs the Spear's 95.4 (an OVERCOUNT, x1.9). The share of lances with a charge = min(1, the build's Frenzy
+    Charges gained a second (conditions._charge_rate over its lines) / lances a second); DPS = Spear + Explosion x that
+    share (the explosion adds to the lance). Other Frenzy spenders not taken off (an overcount where the build has them,
+    labelled); the stock held at the start not counted. None: the Spear x 0.9 (a Damage line).
+  sources: ["builder/search/models.py (GATED_SETS, GATED_ADDS)", "data/game-26650308/tables/ActiveSkills.json (glacial_lance)",
+            "scratch/manager/research/patchnotes (0.4.0)", "scratch/gem18/probe_sets6.json (POE2T3411)"]
+  test_in_game: "Optional: Glacial Lance with no Frenzy Charges: no fragment explosion."
+  status: proposed
+
+- id: model-gem19-fangs-of-frost-parried
+  title: "Fangs of Frost: the explosion only when the Stab Consumes Parried (PoB scored one on every Stab)"
+  kind: model
+  model: parried_set
+  stats: []
+  skill: [Fangs of Frost]
+  confidence: MEDIUM
+  notes: >-
+    models.shock_set_model's PARRIED_SETS (GEM19). Game: ActiveSkills fangs_of_frost "Hitting a Parried target Consumes
+    the Debuff to cause an explosion of frost and leave Chilled Ground" (FangsOfFrostPlayer consume_parried_on_hit). PoB
+    scores the "Explosion" set as if every Stab made one: probe POE2T3411 kept it at 205.3 vs the Stab's 120.7 (an
+    OVERCOUNT, x1.7). The share of Stabs that find the boss Parried is the parry plan's (models.parry_plan with
+    consumes: one hit per Parried; 0 with no Parry / Refutation or when the plan finds parrying not worth it). DPS = Stab +
+    Explosion x that share. The plan weighs Parried's 50% more Attack damage taken, not the explosion (an UNDERCOUNT where
+    the explosion would make parrying pay; MECH-A); the quality's chance not to consume Parried (patch 0.3.0) not read
+    (an undercount). None: the Stab x 0.9 (a Damage line).
+  sources: ["builder/search/models.py (PARRIED_SETS, shock_set_model)", "data/game-26650308/tables/ActiveSkills.json (fangs_of_frost)",
+            "scratch/manager/research/patchnotes (0.3.0)", "scratch/gem18/probe_sets6.json (POE2T3411)"]
+  test_in_game: "Optional: Fangs of Frost on a boss you haven't Parried: no explosion."
+  status: proposed
+
+- id: model-gem19-disengage-parried
+  title: "Disengage: the shockwave only when it Consumes Parried (PoB scored one on every use)"
+  kind: model
+  model: parried_set
+  stats: []
+  skill: [Disengage]
+  confidence: MEDIUM
+  notes: >-
+    models.shock_set_model's PARRIED_SETS (GEM19). Game: ActiveSkills disengage "Consumes the Parried Debuff on Hitting
+    enemies to release a shockwave and grant you a Frenzy Charge" (patch 0.4.0: two to three Frenzy Charges by gem
+    level). PoB scores the "Shockwave" set on every use: probe POE2T3411 kept it at 79.1 vs the Initial Strike's 37.0 (an
+    OVERCOUNT, x2.1). The share of uses that find the boss Parried is the parry plan's, as Fangs of Frost's; DPS =
+    Initial Strike + Shockwave x that share. The Frenzy Charges on a consume not counted here (MECH-C); the quality's
+    chance of an additional Shockwave not read (an undercount). None: the Initial Strike x 0.9 (a Damage line).
+  sources: ["builder/search/models.py (PARRIED_SETS, shock_set_model)", "data/game-26650308/tables/ActiveSkills.json (disengage)",
+            "scratch/manager/research/patchnotes (0.3.0, 0.4.0)", "scratch/gem18/probe_sets6.json (POE2T3411)"]
+  test_in_game: "Optional: Disengage on a boss you haven't Parried: no shockwave."
+  status: proposed
+
+- id: model-gem19-supercharged-slam-stages
+  title: "Supercharged Slam: channelled to its best stage, a release = the Impact + one Aftershock a stage, + its end animation"
+  kind: model
+  model: supercharged_slam
+  stats: []
+  skill: [Supercharged Slam]
+  confidence: MEDIUM
+  notes: >-
+    models.supercharged_slam_model (GEM19), hooked in Assumptions before the Heavy Stun sets'. Game (26650308): stat text
+    "Maximum {0} Stages / Channelling ends 1 second after reaching maximum Stages / Releases 1 Aftershock per Stage",
+    "40% more Damage with Hits for each stage"; SuperchargedSlamPlayer max stages 3 (quality +0-1, patch 0.3.0), 1 s
+    minimum channel, 1 s end animation; a fixed 0.85 s attack time (patch 0.4.0; PoB's levels the same). PoB: the stage
+    from its stage box (1; nothing sets it), each of its two sets x(1 + stage) (DPS MORE 100% a stage), hit time = attack
+    time x stages, at least 1 s, no end animation. So PoB scored one set at 1 stage x2 and left the end animation out.
+    Here: the stage count with the most damage a second, (1 + 0.4 s)(Impact + s Aftershocks) / (max(s x 0.85 s, 1 s) +
+    1 s), the Aftershock / Impact ratio from PoB's two sets; Multiplier:SuperchargedSlamStage BASE (s - 1) and a DPS MORE
+    from PoB's X (1 + s) / H to (I + s A) / (H + 1 s). Every Aftershock taken to hit the boss. Quality's extra stage read
+    only where the bridge gives the skill's level stats (else the game's 3).
+  sources: ["builder/search/models.py (supercharged_slam_model)",
+            "data/game-26650308/files/data/statdescriptions/specific_skill_stat_descriptions/supercharged_slam/statset_0.csd",
+            "data/game-26650308/tables/GrantedEffectStatSets.json (SuperchargedSlamPlayer)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua (SuperchargedSlamPlayer)",
+            "scratch/manager/research/patchnotes (0.3.0, 0.4.0)", "scratch/gem19/probe_shock.json"]
+  test_in_game: "Optional: Supercharged Slam at 3 stages: the Impact and 3 Aftershocks per release."
+  status: proposed
+
+- id: model-gem19-detonating-arrow-stages
+  title: "Detonating Arrow: channelled to its best stage, its explosion only at the maximum stage, + its end animation"
+  kind: model
+  model: detonating_arrow
+  stats: []
+  skill: [Detonating Arrow]
+  confidence: MEDIUM
+  notes: >-
+    models.detonating_arrow_model (GEM19). Game (26650308): ActiveSkills detonating_arrow "At maximum stages, the arrow
+    will create a Detonating explosion at the end of its flight"; DetonatingArrowPlayer max stages 4 (quality +0-1,
+    patch 0.3.0), 120% of damage gained as Fire a stage, channel_skill_end_animation_duration_multiplier_permyriad 2344
+    (taken as an end animation of 23.44% of the attack time: MEDIUM-LOW). PoB: the stage from its stage box (1; nothing
+    sets it), the "Explosion" set with no stage check (scored as if every release exploded), hit time = attack time x
+    stages, no end animation. Here: the stage count with the most damage a second, (Arrow(s) + Explosion at the maximum)
+    / (s T + 0.2344 T); Multiplier:DetonatingArrowStage BASE (s - 1) and a DPS MORE to that. A release short of the
+    maximum doesn't Detonate (Assumptions.detonator_rate still counts every Detonating Arrow use as a Detonator: at the
+    maximum, as this model plays it, that holds).
+  sources: ["builder/search/models.py (detonating_arrow_model)", "data/game-26650308/tables/ActiveSkills.json (detonating_arrow)",
+            "data/game-26650308/tables/GrantedEffectStatSets.json (DetonatingArrowPlayer)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills (DetonatingArrowPlayer)", "scratch/manager/research/patchnotes (0.3.0)"]
+  test_in_game: "Optional: Detonating Arrow released short of 4 stages: no explosion."
+  status: proposed

@@ -927,3 +927,138 @@ def test_stormblast_bolts_explode_only_when_detonated():
     # 10 shots' bolts at most (30 / 3), 10 s each: at 0.5 Detonator uses a second every bolt goes off
     assert models.detonated_share("Stormblast Bolts", 1.2, 0.5) == 1.0
     assert models.detonated_share("Stormblast Bolts", 1.2, 0.05) == pytest.approx(0.05 * 10 / 1.2)
+
+
+def test_siphoning_strike_shockwave_at_the_shocked_share():
+    # (GEM19) probe POE2T3411: the search kept the Shockwave set (386.2 vs Dash 69.7); the Strike never Shocks
+    sets = [{"label": "Dash", "TotalDPS": 69.7}, {"label": "Shockwave", "TotalDPS": 386.2}]
+    ss = Skill("Siphoning Strike", 1, attack=True, melee=True)
+    mods, notes = models.shock_set_model(ss, "Shockwave", sets, 0.25, "a side skill Shocks")
+    total = 69.7 + 386.2 * 0.25
+    assert mods[0]["name"] == "DPS" and mods[0]["value"] == pytest.approx(100 * (total / 386.2 - 1), abs=0.01)
+    assert notes[0]["entry"] == "model-gem19-siphoning-strike-shock"
+    # scored on the Dash with a Shock: the Shockwave adds
+    mods, _ = models.shock_set_model(ss, "Dash", sets, 0.25, "")
+    assert mods[0]["value"] == pytest.approx(100 * (total / 69.7 - 1), abs=0.01)
+
+
+def test_shock_sets_with_no_shock_keep_the_plain_set():
+    sets = [{"label": "Projectile", "TotalDPS": 41.2}, {"label": "Pulse", "TotalDPS": 183.3}]
+    sb = Skill("Shockburst Rounds", 1, attack=True)
+    mods, notes = models.shock_set_model(sb, "Pulse", sets, 0.0, "no Shock")
+    assert mods[0]["name"] == "Damage" and mods[0]["value"] == pytest.approx(100 * (41.2 * 0.9 / 183.3 - 1), abs=0.01)
+    assert "Electrocute" in notes[0]["basis"]
+    assert models.shock_set_model(sb, "Projectile", sets, 0.0, "no Shock")[0] == []  # (PoB's own number)
+
+
+def test_shock_set_model_leaves_forbidden_and_other_skills():
+    entry = "model-gem19-shockchain-arrow-lightning-ailment"
+    sets = [{"label": "Projectile", "TotalDPS": 95.3}, {"label": "Shockwave", "TotalDPS": 239.0}]
+    arrow = Skill("Shockchain Arrow", 1, attack=True)
+    assert models.shock_set_model(arrow, "Shockwave", sets, 0.5, "", {entry}) == ([], [])
+    assert models.shock_set_model(Skill("Lightning Arrow", 1), "Shockwave", sets, 0.5, "") == ([], [])
+    assert models.shock_set_model(arrow, "Shockwave", sets, 0.5, "")[1][0]["entry"] == entry
+
+
+def test_earthshatter_spikes_shatter_only_on_warcries():
+    # (GEM19) probe POE2T3411: Explosion 129.5 vs Slam 25.8, kept with no Warcry
+    sets = [{"label": "Slam", "TotalDPS": 25.8}, {"label": "Explosion", "TotalDPS": 129.5}]
+    es = Skill("Earthshatter", 1, attack=True, melee=True)
+    mods, notes = models.detonated_set_model(es, "Explosion", sets, 1.0, 0.0, "no Warcry in the build")
+    assert mods[0]["name"] == "Damage" and mods[0]["value"] == pytest.approx(100 * (25.8 * 0.9 / 129.5 - 1), abs=0.01)
+    assert notes[0]["entry"] == "model-gem19-earthshatter-warcry-shatter" and "Warcry" in notes[0]["play"]
+    # a Warcry every 8 s, a slam a second: 6 spikes lie there, each cry shatters them all: 0.125 x 6 / 1 = 75%
+    mods, _ = models.detonated_set_model(es, "Explosion", sets, 1.0, 0.125, "a Warcry")
+    assert mods[0]["name"] == "DPS"
+    assert mods[0]["value"] == pytest.approx(100 * ((25.8 + 129.5 * 0.75) / 129.5 - 1), abs=0.01)
+
+
+def test_glacial_lance_explosion_adds_at_the_frenzy_share():
+    # (GEM19) probe POE2T3411: Explosion 177.3 vs Spear 95.4, kept with no Frenzy source; the explosion adds to the lance
+    sets = [{"label": "Spear", "TotalDPS": 95.4}, {"label": "Explosion", "TotalDPS": 177.3}]
+    gl = Skill("Glacial Lance", 1, attack=True)
+    mods, notes = models.gated_set_model(gl, "Explosion", sets, 0.4, "a Frenzy source")
+    assert mods[0]["name"] == "DPS"
+    assert mods[0]["value"] == pytest.approx(100 * ((95.4 + 177.3 * 0.4) / 177.3 - 1), abs=0.01)
+    assert notes[0]["entry"] == "model-gem19-glacial-lance-frenzy-charge"
+    mods, _ = models.gated_set_model(gl, "Explosion", sets, 0.0, "none")
+    assert mods[0]["name"] == "Damage" and mods[0]["value"] == pytest.approx(100 * (95.4 * 0.9 / 177.3 - 1), abs=0.01)
+
+
+def test_fangs_of_frost_explosion_at_the_parried_share():
+    # (GEM19) probe POE2T3411: Explosion 205.3 vs Stab 120.7, kept with no Parry
+    sets = [{"label": "Stab", "TotalDPS": 120.7}, {"label": "Explosion", "TotalDPS": 205.3}]
+    fof = Skill("Fangs of Frost", 1, attack=True, melee=True)
+    mods, notes = models.shock_set_model(fof, "Explosion", sets, 0.1, "Parry every 5 s")
+    assert mods[0]["value"] == pytest.approx(100 * ((120.7 + 205.3 * 0.1) / 205.3 - 1), abs=0.01)
+    assert notes[0]["entry"] == "model-gem19-fangs-of-frost-parried" and "Parried" in notes[0]["label"]
+    mods, _ = models.shock_set_model(fof, "Explosion", sets, 0.0, "no Parry")
+    assert mods[0]["name"] == "Damage"
+    assert models.parry_plan([fof], {"Speed": 2.0}, True, True).box == 0.0  # (no Parry skill: none)
+
+
+def _slam(stage_stats=None):
+    return Skill("Supercharged Slam", 1, attack=True, melee=True, stat_set="Impact",
+                 level_stats=stage_stats or {"channelled_slam_damage_+%_final_per_stage": 40,
+                                             "channelled_slam_max_stages": 3,
+                                             "channel_skill_end_animation_duration_override_ms": 1000,
+                                             "base_minimum_channel_time_ms": 1000})
+
+
+def test_supercharged_slam_channels_to_its_stages_with_one_aftershock_each():
+    # (GEM19) PoB: one set x(1 + stage), stage 1, no end animation. Impact = Aftershock hit here, 1 s a stage
+    sets = [{"label": "Impact", "TotalDPS": 100.0}, {"label": "Aftershock", "TotalDPS": 100.0}]
+    mods, notes = models.supercharged_slam_model(_slam(), "Impact", sets, {"HitSpeed": 1.0}, 1)
+    # value(s) = (1 + 0.4 s)(1 + s) / (s + 1): s = 3 best (2.2 vs 1.4, 1.8)
+    assert mods[0] == models.raw_mod("Multiplier:SuperchargedSlamStage", "BASE", 2, "Supercharged Slam")
+    factor = (1 + 3) / (1 + 3) * 3 / (3 + 1)  # Impact + 3 Aftershocks over PoB's x(1 + 3); 3 s / (3 s + 1 s)
+    assert mods[1]["name"] == "DPS" and mods[1]["value"] == pytest.approx(100 * (factor - 1), abs=0.01)
+    assert notes[0]["entry"] == "model-gem19-supercharged-slam-stages"
+    # the next pass, PoB at stage 3 (3 s a release): the same lines (a fixed point)
+    again, _ = models.supercharged_slam_model(_slam(), "Impact", sets, {"HitSpeed": 1 / 3}, 3)
+    assert again == mods
+
+
+def test_supercharged_slam_with_weak_aftershocks_keeps_one_stage():
+    sets = [{"label": "Impact", "TotalDPS": 100.0}, {"label": "Aftershock", "TotalDPS": 5.0}]
+    mods, _ = models.supercharged_slam_model(_slam(), "Impact", sets, {"HitSpeed": 1.0}, 1)
+    # s = 1: 1.4 x 1.05 / 2 = 0.735; s = 3: 2.2 x 1.15 / 4 = 0.6325
+    assert [m["name"] for m in mods] == ["DPS"]
+    assert mods[0]["value"] == pytest.approx(100 * (1.05 / 2 * 1 / 2 - 1), abs=0.01)
+    assert models.supercharged_slam_model(_slam(), "Impact", sets, {"HitSpeed": 1.0}, 1,
+                                          {"model-gem19-supercharged-slam-stages"}) == ([], [])
+
+
+def test_supercharged_slam_reads_pobs_per_stage_time():
+    # (GEM19) 0.85 s a stage (patch 0.4.0): 3 stages = 2.55 s + 1 s end; at stage 1 the hit time is the 1 s minimum
+    sets = [{"label": "Impact", "TotalDPS": 100.0}, {"label": "Aftershock", "TotalDPS": 100.0}]
+    mods, _ = models.supercharged_slam_model(_slam(), "Impact", sets, {"HitSpeed": 1.0, "Time": 0.85}, 1)
+    assert mods[1]["value"] == pytest.approx(100 * (2.55 / 3.55 - 1), abs=0.01)
+
+
+def test_detonating_arrow_explodes_only_at_its_maximum_stage():
+    # (GEM19) PoB: the Explosion with no stage check, 1 stage, no end animation
+    da = Skill("Detonating Arrow", 1, attack=True, stat_set="Explosion")
+    sets = [{"label": "Arrow", "TotalDPS": 100.0}, {"label": "Explosion", "TotalDPS": 300.0}]
+    mods, notes = models.detonating_arrow_model(da, "Explosion", sets, {"Time": 0.5}, 1)
+    # value(s) = ((1 + 1.2 s) / 2.2 + 3 [s = 4]) / (0.5 s + 0.1172): s = 4 (5.64 / 2.117 = 2.66 vs 1 / 0.617 = 1.62)
+    assert mods[0] == models.raw_mod("Multiplier:DetonatingArrowStage", "BASE", 3, "Detonating Arrow")
+    hit4 = 5.8 / 2.2 + 3.0
+    factor = hit4 / 3.0 * 2.0 / (2.0 + 0.1172)
+    assert mods[1]["value"] == pytest.approx(100 * (factor - 1), abs=0.01)
+    assert notes[0]["entry"] == "model-gem19-detonating-arrow-stages" and "explosion" in notes[0]["label"]
+    # the next pass at stage 4 (the ratio now over the stage-4 Arrow): a fixed point
+    sets4 = [{"label": "Arrow", "TotalDPS": 100.0 * 5.8 / 2.2}, {"label": "Explosion", "TotalDPS": 300.0}]
+    again, _ = models.detonating_arrow_model(da, "Explosion", sets4, {"Time": 0.5}, 4)
+    assert again[0] == mods[0] and again[1]["value"] == pytest.approx(mods[1]["value"], abs=0.02)
+
+
+def test_detonating_arrow_at_one_stage_steers_off_the_explosion():
+    # (GEM19) probe POE2T3425: 1.85 s a stage, the Explosion 0.40x the Arrow: 1 stage is best, no explosion played
+    da = Skill("Detonating Arrow", 1, attack=True, stat_set="Explosion")
+    sets = [{"label": "Arrow", "TotalDPS": 87.8}, {"label": "Explosion", "TotalDPS": 35.1}]
+    mods, notes = models.detonating_arrow_model(da, "Explosion", sets, {"Time": 1.852}, 1)
+    factor = (1 / (35.1 / 87.8)) * 1.852 / (1.852 + 0.2344 * 1.852) * 0.9
+    assert [m["name"] for m in mods] == ["Damage"] and mods[0]["value"] == pytest.approx(100 * (factor - 1), abs=0.05)
+    mods, _ = models.detonating_arrow_model(da, "Arrow", sets, {"Time": 1.852}, 1)
+    assert mods[0]["name"] == "DPS" and mods[0]["value"] == pytest.approx(100 * (1 / 1.2344 - 1), abs=0.01)
