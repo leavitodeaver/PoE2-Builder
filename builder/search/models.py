@@ -12299,6 +12299,19 @@ def guided_shrine_notes(texts: list[str]) -> list[dict]:
     return out
 
 
+def cooldown_trigger_rate(uses: float, chance: float, cooldown: float) -> float:
+    """Triggers a second from `uses` a second each triggering with `chance` (0-1), at most one per `cooldown` s (MECHB37):
+    after a trigger the next use past the Cooldown, then the uses until one triggers: uses / (ceil(cooldown x uses) +
+    1 / chance - 1). Exact for evenly spaced uses; min(uses x chance, 1 / cooldown), what item_trigger_model used before,
+    overstates it whenever the two are close (4 uses a second at 25%, 0.5 s: 0.8 a second, not 1.0)."""
+    if uses <= 0 or chance <= 0:
+        return 0.0
+    chance = min(chance, 1.0)
+    if cooldown <= 0:
+        return uses * chance
+    return uses / (math.ceil(cooldown * uses - 1e-9) + 1 / chance - 1)
+
+
 # Skills an item triggers (MECHB36; the catalog's "Skills triggered by items and passives", the coverage ranking's #106
 # and #141). PoB parses the unique's "Grants Skill: Level N X" line (ModCache ExtraSkill: Choir of the Storm's
 # UniqueBreachLightningBoltPlayer, Brutus' Lead Sprinkler's TriggeredMoltenShowerPlayer), so the granted skill has its own
@@ -12349,12 +12362,14 @@ def item_trigger_model(texts: list[str], stats: dict, skills: list[Skill], main:
             how = (f"{chance:g}% a hit ({match.group(1)}% per {match.group(2)} Strength, {number(stats.get(per)):g} "
                    f"Strength) x the main attack's {hits:.2f} hits a second" if hits > 0 else
                    "the main skill isn't an Attack with this weapon: 0 (no flat rate)")
-        capped = min(rate, 1 / cooldown)
+        uses = number(stats.get("Speed"))  # (MECHB37: the cooldown's dead time, not min(rate, 1 / Cooldown))
+        capped = cooldown_trigger_rate(uses, rate / uses, cooldown) if uses > 0 and rate > 0 else 0.0
         mods += trigger_rate(name, capped)
         if capped > 0:
             groups.add(granted.group)
         notes.append({"label": f"{name} triggered by your item, per second*", "value": round(capped, 3),
-                      "basis": (f"{how}" + (f", at most one per its {cooldown:g} s Cooldown" if rate > capped else "")
+                      "basis": (f"{how}" + (f", with its {cooldown:g} s Cooldown (after each trigger, the next use past the "
+                                                "Cooldown, then the uses until one triggers)" if rate > capped else "")
                                 + "; PoB makes the skill but never triggers it, and its group wasn't in Full DPS (0 "
                                 "before); side skills' events not counted (an undercount)"),
                       "play": (f"{name} triggers on its own from your item: without it +0; with it {capped:.2f} a second"
@@ -12404,6 +12419,202 @@ def spell_cascade_model(main: Skill | None, stats: dict, boss_radius: float, bos
     if hits <= 1:
         return [], [note]
     return [raw_mod("DPS", "MORE", 100 * (hits - 1), main.name)], [note] + part_notes
+
+
+# Dusk Vigil's Ember Fusillade (MECHB37; the catalog's "Skills triggered by items and passives", the coverage ranking's
+# #103, an UNDERCOUNT: 0 before). Dusk Vigil (Ashen Staff, PoB Uniques/staff.lua) "Grants Skill: Level (1-20) Ember
+# Fusillade" (PoB ModCache ExtraSkill EmberFusilladePlayer, its own group fromItem) and "Trigger Ember Fusillade Skill on
+# casting a Spell" (ModCache {nil, leftover}: PoB never triggers it, and the search never counts a fromItem group). The
+# game's own version (GrantedEffects UniqueDuskVigilTriggeredBlazingClusterPlayer, game files 26650308) has the gem's
+# stats plus triggered_on_spell_cast_% 100, no Cooldown (GrantedEffectsPerLevel: none), and the gem's text: "Recasting
+# this spell resets the duration for all active Embers" (ActiveSkills unique_dusk_vigil_triggered_blazing_cluster). So
+# each spell cast adds an Ember and resets the wait; the Embers fire only once the player stops casting Spells for the
+# Ember duration (1.3 s base). That a triggered Ember resets the wait like a cast: from the same description (MEDIUM).
+# The play: k casts of the main spell (k / Speed s, one Ember each, up to the cap), then a pause of the Embers' duration D
+# with no spell cast, when n = min(cap, k) Embers fire, the i-th at (1 + 5% x (i - 1)) (ember_fusillade_model's maths):
+#   with the pause: (main DPS x k / Speed + Ember hit x n (1 + m (n - 1) / 2)) / (k / Speed + D)
+#   without (casting nonstop): main DPS, no Ember fires.
+# The model takes the best k, and the pause only if it beats casting nonstop; then the main skill's DPS is x (k / Speed)
+# / (k / Speed + D) (it isn't cast during the pause) and Ember Fusillade's group gets that many Embers' worth a second
+# (models.trigger_rate) in Full DPS. Inputs from the build: the main spell's Speed and damage a second, the Ember's hit
+# (PoB's setRates AverageDamage for its group) and duration (PoB's, with the build's modifiers; else 1.3 s), its level's
+# cap and more per Ember. Labelled: one Ember a trigger (extra projectiles on the granted skill not read: an
+# undercount); side spells' casts not counted (an undercount); the Embers' 100 ms launch spacing not counted as time and
+# the pause filled by nothing else (dodging fits in it); a main skill that is Ember Fusillade itself, or not a Spell: no
+# Embers counted (PoB's 0 kept, said).
+DUSK_VIGIL = re.compile(r"^Trigger Ember Fusillade Skill on casting a Spell$", re.I)
+DUSK_TAG = "dusk_vigil"  # the main skill's "less" carries it, so the next pass reads the main skill's damage without it
+
+
+def dusk_vigil_model(texts: list[str], stats: dict, skills: list[Skill], main: Skill | None, main_dps: float,
+                     ember_hit: float, ember_wait: float) -> tuple[list[dict], list[dict], set[int], float]:
+    """Dusk Vigil's triggered Embers (comment above): (lines, notes, groups for Full DPS, the main skill's DPS scale)."""
+    if not any(DUSK_VIGIL.search(t.strip()) for t in texts):
+        return [], [], set(), 1.0
+    granted = next((s for s in skills if s.name == EMBER_SKILL and s.group is not None
+                    and (main is None or s.group != main.group)), None)
+    if granted is None:
+        return [], [], set(), 1.0
+    label = "Ember Fusillade from Dusk Vigil*"
+    speed = number(stats.get("Speed"))
+    if main is None or not main.spell or main.triggered or main.name == EMBER_SKILL or speed <= 0:
+        why = ("the main skill is Ember Fusillade itself (how the two sets of Embers share a Fusillade isn't modelled)"
+               if main is not None and main.name == EMBER_SKILL else "the main skill isn't a Spell you cast")
+        return (trigger_rate(EMBER_SKILL, 0), [{"label": label, "value": "0", "confidence": "MEDIUM",
+                                                "basis": f"{why}: no Embers counted (PoB's 0 kept; side spells not read)",
+                                                "play": "Nothing in the build casts the Spells that trigger the Embers"}],
+                set(), 1.0)
+    cap = int(number(granted.level_stats.get(EMBER_CAP_STAT)) or EMBER_CAP)
+    more = number(granted.level_stats.get(EMBER_MORE_STAT)) or EMBER_MORE
+    wait = ember_wait if ember_wait > 0 else EMBER_DURATION
+    best = None
+    for casts in range(1, cap + 1):
+        worth = casts * (1 + more / 100 * (casts - 1) / 2)
+        cycle = casts / speed + wait
+        total = (main_dps * casts / speed + ember_hit * worth) / cycle
+        if best is None or total > best[0]:
+            best = (total, casts, worth, cycle)
+    total, casts, worth, cycle = best
+    keep = casts / speed / cycle
+    rows = (f"casting nonstop: {main_dps:,.1f} DPS, no Ember fires; {casts} casts then a {wait:.2f} s pause: "
+            f"{total:,.1f} DPS ({main_dps * keep:,.1f} from the main skill, {ember_hit * worth / cycle:,.1f} from "
+            f"{worth / cycle:.2f} Embers' worth a second)")
+    if ember_hit <= 0 or total <= main_dps:
+        return (trigger_rate(EMBER_SKILL, 0),
+                [{"label": label, "value": "0", "confidence": "MEDIUM",
+                  "basis": (f"each spell cast adds an Ember and resets their {wait:.2f} s wait, so they fire only in a "
+                            f"pause from casting; no pause pays here ({rows})"),
+                  "play": f"Keep casting {main.name}: pausing for the Embers loses more than they deal ({rows})"}],
+                set(), 1.0)
+    note = {"label": label, "value": f"{worth / cycle:.2f} Embers' worth a second", "confidence": "MEDIUM",
+            "basis": (f"each cast of {main.name} ({speed:.2f} a second) adds an Ember and resets their {wait:.2f} s wait "
+                      f"(the game's text, MEDIUM for a triggered one); {casts} casts then a pause: {casts} Embers, each "
+                      f"{more:g}% more than the one before, cap {cap}: {rows}. The main skill x{keep:.3f} (not cast in "
+                      "the pause). One Ember a cast (extra projectiles not read), side spells not counted, the launch "
+                      "spacing not counted as time (LOW parts)"),
+            "play": (f"Cast {main.name} {casts} times, then stop casting Spells for {wait:.1f} s so Dusk Vigil's "
+                     f"Embers fire (dodge then). Without it (casting nonstop) {main_dps:,.1f} DPS; with it {total:,.1f}")}
+    return (trigger_rate(EMBER_SKILL, worth / cycle) + [raw_mod("DPS", "MORE", 100 * (keep - 1), main.name, tag=DUSK_TAG)], [note],
+            {granted.group}, keep)
+
+
+# Tempest Caller's Elemental Storm (MECHB37; the coverage ranking's #88). Stormweaver's notable (PassiveSkills
+# AscendancySorceress1Notable3, trigger_elemental_storm_on_crit; game files 26650308) grants Elemental Storm
+# (ElementalStormPlayer: Cooldown 3 s, 1 stored use; base_skill_effect_duration 5000; tornado_base_damage_interval_ms 250,
+# which PoB maps to hitTimeOverride; number_of_tornados_allowed 50; radius 1.8 m): "Create a stationary Fire, Cold or
+# Lightning storm at a target location for a duration, based on the highest Elemental Damage type for the Hit that
+# Triggered the storm. Hits which do not deal Elemental Damage will not Trigger the storm." PoB parses the grant
+# (ExtraSkill) but not the trigger (ModCache 9662 {nil, leftover}): its group is marked fromItem, so the search never put it
+# in Full DPS (0 before); as a group PoB scores one storm always up, TotalDPS = the hit / 0.25 s, Speed 0 (probe POE2T3315:
+# Lightning set 30.8 a hit, 123.2). In the game: storms a second r from the main spell's casts a second s, each a crit
+# with chance p, and the Cooldown T (PoB's, with recovery): r = cooldown_trigger_rate(s, p, T) (after each storm the next
+# cast past the Cooldown, then the casts until one crits);
+# each lasts D (PoB's Duration) and hits every 0.25 s, so r x D storms are up at once on average: storm DPS = the storm's
+# hit x 4 x r x D, as DPS "more" on Elemental Storm against PoB's number. Its element: the main skill's highest Elemental
+# damage type (PoB's FireHitAverage / ColdHitAverage / LightningHitAverage), the matching stat set. The boss stays in each storm all its
+# duration (an OVERCOUNT where it walks out: MEDIUM). Side spells' crits not counted (an undercount); no Elemental
+# damage on the main skill's hit: 0.
+TEMPEST_CALLER = re.compile(r"^Trigger Elemental Storm on Critical Hit with Spells", re.I)
+STORM_SKILL = "Elemental Storm"
+STORM_INTERVAL, STORM_COOLDOWN, STORM_DURATION = 0.25, 3.0, 5.0
+STORM_FIELDS = ("FireHitAverage", "ColdHitAverage", "LightningHitAverage")  # (PoB's per-type hit averages)
+
+
+def storm_element(stats: dict) -> str | None:
+    """The main skill's highest Elemental damage type for Elemental Storm (None: no Elemental damage)."""
+    sums = {kind: number(stats.get(f"{kind}HitAverage")) for kind in ("Fire", "Cold", "Lightning")}
+    kind = max(sums, key=sums.get)
+    return kind if sums[kind] > 0 else None
+
+
+def tempest_caller_model(texts: list[str], stats: dict, skills: list[Skill], main: Skill | None, storm: dict
+                         ) -> tuple[list[dict], list[dict], set[int]]:
+    """Tempest Caller's storms at the build's crit rate (comment above). `storm`: the storm group's PoB numbers,
+    {"hit", "cooldown", "duration", "element"}: (lines, notes, groups for Full DPS)."""
+    if not any(TEMPEST_CALLER.search(t.strip()) for t in texts):
+        return [], [], set()
+    granted = next((s for s in skills if s.name == STORM_SKILL and s.group is not None
+                    and (main is None or s.group != main.group)), None)
+    if granted is None:
+        return [], [], set()
+    label = "Elemental Storm from Tempest Caller*"
+    crits = crits_per_second(stats) if main is not None and main.spell else 0.0
+    element = storm.get("element")
+    if crits <= 0 or element is None or number(storm.get("hit")) <= 0:
+        why = ("the main skill isn't a Spell that crits" if crits <= 0 else
+               "the main skill's hit deals no Elemental damage" if element is None else "PoB scores the storm 0")
+        return ([raw_mod("DPS", "MORE", -100, STORM_SKILL)],
+                [{"label": label, "value": "0", "confidence": "MEDIUM",
+                  "basis": f"{why}: no storm counted (side spells' crits not read: an undercount)",
+                  "play": "Nothing in the build triggers Elemental Storm"}], set())
+    cooldown = number(storm.get("cooldown")) or STORM_COOLDOWN
+    duration = number(storm.get("duration")) or STORM_DURATION
+    rate = cooldown_trigger_rate(number(stats.get("Speed")), crits / number(stats.get("Speed")), cooldown)
+    up = rate * duration
+    dps = number(storm.get("hit")) / STORM_INTERVAL * up
+    factor = up
+    note = {"label": label, "value": f"{dps:,.1f} DPS", "confidence": "MEDIUM",
+            "basis": (f"{rate:.3f} storms a second (the main spell's {crits:.2f} crits a second and the {cooldown:.2f} s "
+                      f"Cooldown: the next cast past the Cooldown, then the casts until one crits), each {duration:.2f} s: {up:.2f} up at once, each hitting "
+                      f"every {STORM_INTERVAL:g} s for {number(storm.get('hit')):,.1f} ({element}, the main hit's highest "
+                      f"element); PoB counts one storm always up (hit / 0.25 s) and the search left the group out of Full "
+                      f"DPS (0 before), so x{factor:.3f} on PoB's number. The boss taken to stay in each storm (an OVERCOUNT where it walks out); "
+                      "side spells' crits not counted"),
+            "play": (f"Storms come from {main.name}'s crits on their own; cast at the boss so it stands in them. Without "
+                     f"Tempest Caller +0; with it +{dps:,.1f} DPS")}
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), STORM_SKILL)], [note], {granted.group}
+
+
+# Lioneye's Glare's Repeats out of Presence (MECHB37; the coverage ranking's #155-156, an UNDERCOUNT: 0 before). The
+# bow (PoB Uniques/bow.lua, current variant): "Repeatable Attacks with this Bow Repeat +2 times if no enemies are in your
+# Presence" (pre-0.4.0 +1). PoB leaves it unparsed (ModCache 9309-9311 {nil, leftover}; CalcTriggers' one "Lioneye" is a
+# PoE1 comment), so it adds nothing. KeywordPopups (26650308): Presence "By default this has a 4 metre radius";
+# Repeat: "perform the part of the skill where it fires off projectiles ... multiple times in quick succession from a
+# single use"; "Trigger[ed] skills, Instant skills, and Channelling skills cannot Repeat"; "Skills take 5% longer to
+# perform for each time they Repeat" (PoB applies no such time: checked, CalcOffence's Repeats code). So with the boss
+# beyond the build's Presence radius (its distance: PoB's enemyDistance as the search set it, else the natural one), a
+# Repeatable bow attack used yourself gets +N Repeats and N x 5% longer uses (a Speed "less"): x (1 + N) / (1 + 0.05 N) on
+# its hits. PoB's RepeatCount is set too, so its own Repeat modifiers apply, but PoB counts a Repeat's hits only for
+# traps and mines (CalcOffence 1229-1231: DPS "more" x Repeats there only; probe POE2T3316: RepeatCount alone moved no
+# DPS), so the hits are a DPS "more" x (1 + N) here. Each Repeat taken to hit the boss as the use does
+# (aimed where the use was: MEDIUM). Not counted (labelled): adds inside the Presence switch it off (one boss taken);
+# Freezing Salvo's own Seal Repeats model isn't combined with it (an undercount there).
+LIONEYE = re.compile(r"^Repeatable Attacks with this Bow Repeat \+(\d+) times? if no enemies are in your Presence$", re.I)
+LIONEYE_SKIP = ("Freezing Salvo",)
+
+
+def lioneye_model(texts: list[str], stats: dict, main: Skill | None, metres: float, bow_skill: bool
+                  ) -> tuple[list[dict], list[dict]]:
+    """Lioneye's Glare's extra Repeats while the boss stands outside the Presence (comment above)."""
+    # (the bridge's sourceLines lists every variant's lines of a unique: both +1 and +2 here, probe POE2T3317; the
+    # largest is the current one: game files 26650308 UniqueRepeatNoEnemyInPresence 2, patch 0.4.0 "previously 1")
+    found = [float(m.group(1)) for t in texts if (m := LIONEYE.search(t.strip()))]
+    if not found or main is None:
+        return [], []
+    repeats = max(found)
+    radius = number(stats.get("PresenceRadius")) / 10
+    label = f"{main.name}: Lioneye's Glare's +{repeats:g} Repeats*"
+    if not (main.attack and bow_skill) or main.triggered or main.name in LIONEYE_SKIP:
+        why = (f"{main.name}'s own Repeat model isn't combined with it (an undercount)" if main.name in LIONEYE_SKIP else
+               "the main skill isn't a bow Attack you use yourself (triggered skills can't Repeat)")
+        return [], [{"label": label, "value": "+0", "basis": why, "confidence": "MEDIUM",
+                     "play": "Lioneye's Glare's Repeats don't apply to the main skill"}]
+    if radius <= 0 or metres <= radius:
+        return [], [{"label": label, "value": "+0", "confidence": "MEDIUM",
+                     "basis": (f"the boss at {metres:g} m is inside your {radius:.1f} m Presence, so the bow doesn't "
+                               "Repeat (standing further back is the search's distance choice)"),
+                     "play": (f"Stand more than {radius:.1f} m from the boss for +{repeats:g} Repeats a use "
+                              f"(x{(1 + repeats) / (1 + REPEAT_TIME * repeats):.2f})")}]
+    factor = (1 + repeats) / (1 + REPEAT_TIME * repeats)
+    note = {"label": label, "value": f"x{factor:.3f}", "confidence": "MEDIUM",
+            "basis": (f"the boss at {metres:g} m, outside your {radius:.1f} m Presence: each use Repeats {repeats:g} more "
+                      f"times, each Repeat {REPEAT_TIME:.0%} longer (KeywordPopups Repeat): x{1 + repeats:g} hits in "
+                      f"x{1 + REPEAT_TIME * repeats:.2f} the time; each Repeat taken to hit the boss (MEDIUM); PoB "
+                      "doesn't read the line (0 before); adds in the Presence would switch it off (one boss taken)"),
+            "play": (f"Keep the boss more than {radius:.1f} m away (no enemy in your Presence): without it x1; with it "
+                     f"x{factor:.3f}")}
+    return [raw_mod("RepeatCount", "BASE", repeats, main.name), raw_mod("DPS", "MORE", 100 * repeats, main.name),
+            raw_mod("Speed", "MORE", 100 * (1 / (1 + REPEAT_TIME * repeats) - 1), main.name)], [note]
 
 
 # Different Non-Instant skills used per 8 s (MECHB4; AUDIT7 A7-2, research/cast-speed-per-different-spell.md) -------------

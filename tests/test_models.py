@@ -5947,10 +5947,12 @@ def test_an_items_triggered_skill_gets_its_rate_from_the_build():
     stats = {"Speed": 4.0, "HitChance": 100, "CritChance": 25, "Str": 110}
     mods, notes, groups = models.item_trigger_model(["Trigger Lightning Bolt Skill on Critical Hit"], stats, [main, bolt], main)
     rate = next(m for m in mods if m["key"] == "triggerRate")["value"]
-    assert rate == pytest.approx(1.0) and groups == {5}
-    stats["CritChance"] = 75  # 3 crits a second, capped at 2
+    # (MECHB37) 4 uses a second at 25%, 0.5 s Cooldown: the use 2 past a trigger, then 3 more on average: 4 / 5
+    assert rate == pytest.approx(0.8) and groups == {5}
+    stats["CritChance"] = 75  # 3 crits a second: 4 / (2 + 1 / 0.75 - 1)
     mods, notes, _ = models.item_trigger_model(["Trigger Lightning Bolt Skill on Critical Hit"], stats, [main, bolt], main)
-    assert next(m for m in mods if m["key"] == "triggerRate")["value"] == pytest.approx(2.0) and "Cooldown" in notes[0]["basis"]
+    assert next(m for m in mods if m["key"] == "triggerRate")["value"] == pytest.approx(4 / (2 + 1 / 0.75 - 1), rel=1e-4)
+    assert "Cooldown" in notes[0]["basis"]
     shower = Skill("Molten Shower", group=6, attack=True, triggered=True)
     line = "Hits with this Weapon have 5% chance to Trigger Molten Shower per 25 Strength"
     mods, notes, groups = models.item_trigger_model([line], stats, [main, shower], main)  # 4 x 25 = 100 Str: 20%
@@ -5972,3 +5974,67 @@ def test_spell_cascades_side_areas_hit_a_boss_inside_their_reach():
     assert models.spell_cascade_model(main, {"AreaOfEffectRadius": 40}, 1.0, "a 1 m boss")[1][0]["value"] == "x3"
     assert models.spell_cascade_model(Skill("Comet", group=1, spell=True), {"AreaOfEffectRadius": 25}, 0.3, "") == ([], [])
     assert "Catha's Brilliance" in models.INFERNAL_LEGION
+
+
+def test_a_trigger_with_a_cooldown_waits_for_the_next_use_past_it():
+    """MECHB37: uses / (ceil(cooldown x uses) + 1 / chance - 1); no Cooldown: uses x chance."""
+    assert models.cooldown_trigger_rate(4, 1.0, 0.5) == pytest.approx(2.0)
+    assert models.cooldown_trigger_rate(4, 0.25, 0.5) == pytest.approx(0.8)
+    assert models.cooldown_trigger_rate(4, 0.2, 0.0) == pytest.approx(0.8)
+    assert models.cooldown_trigger_rate(0, 0.5, 1.0) == 0.0 and models.cooldown_trigger_rate(2, 0.0, 1.0) == 0.0
+
+
+def test_dusk_vigils_embers_fire_only_in_a_pause_that_pays():
+    """MECHB37: each spell cast adds an Ember and resets the wait; the pause is taken only if the Embers beat casting."""
+    line = "Trigger Ember Fusillade Skill on casting a Spell"
+    main = Skill("Spark", group=1, spell=True)
+    ember = Skill("Ember Fusillade", group=3, spell=True,
+                  level_stats={models.EMBER_CAP_STAT: 6, models.EMBER_MORE_STAT: 5})
+    stats = {"Speed": 1.4286}
+    # the probe POE2T3315's numbers: Spark 272 DPS, an Ember 24.7, 1.32 s: casting nonstop wins
+    mods, notes, groups, keep = models.dusk_vigil_model([line], stats, [main, ember], main, 272.3, 24.7, 1.32)
+    assert groups == set() and keep == 1.0 and notes[0]["value"] == "0"
+    assert next(m for m in mods if m.get("key") == "triggerRate")["value"] == 0
+    # a strong Ember: 6 casts then the pause; the main skill x (6 / 1.4286) / (6 / 1.4286 + 1.32)
+    mods, notes, groups, keep = models.dusk_vigil_model([line], stats, [main, ember], main, 100.0, 200.0, 1.32)
+    cycle = 6 / 1.4286 + 1.32
+    assert groups == {3} and keep == pytest.approx((6 / 1.4286) / cycle)
+    assert next(m for m in mods if m.get("key") == "triggerRate")["value"] == pytest.approx(6 * 1.125 / cycle, rel=1e-3)
+    less = next(m for m in mods if m.get("name") == "DPS")
+    assert less["value"] == pytest.approx(100 * (keep - 1), rel=1e-3) and less["tag"] == models.DUSK_TAG
+    attack = Skill("Bow Shot", group=1, attack=True)
+    assert models.dusk_vigil_model([line], stats, [attack, ember], attack, 100.0, 200.0, 1.32)[2] == set()
+    assert models.dusk_vigil_model(["+10 to Strength"], stats, [main, ember], main, 100.0, 200.0, 1.32) == ([], [], set(), 1.0)
+
+
+def test_tempest_callers_storms_come_from_the_main_spells_crits():
+    """MECHB37: storms a second from the casts' crits and the 3 s Cooldown, each up 5 s: x (rate x duration) on PoB's
+    one-storm-always-up number; no crit or no Elemental damage: x0."""
+    line = "Trigger Elemental Storm on Critical Hit with Spells"
+    main = Skill("Spark", group=1, spell=True)
+    storm = Skill("Elemental Storm", group=4, spell=True, triggered=True)
+    stats = {"Speed": 1.4286, "HitChance": 100, "CritChance": 10}
+    info = {"hit": 30.8, "cooldown": 3.003, "duration": 5.016, "element": "Lightning", "set": 3}
+    mods, notes, groups = models.tempest_caller_model([line], stats, [main, storm], main, info)
+    rate = 1.4286 / (math.ceil(3.003 * 1.4286) + 10 - 1)
+    assert groups == {4} and mods[0]["value"] == pytest.approx(100 * (rate * 5.016 - 1), rel=1e-3)
+    assert models.tempest_caller_model([line], {**stats, "CritChance": 0}, [main, storm], main, info)[0][0]["value"] == -100
+    assert models.tempest_caller_model([line], stats, [main, storm], main, {**info, "element": None})[2] == set()
+    assert models.storm_element({"FireHitAverage": 2, "LightningHitAverage": 11}) == "Lightning"
+    assert models.storm_element({}) is None
+
+
+def test_lioneyes_glare_repeats_only_with_the_boss_outside_the_presence():
+    """MECHB37: +2 Repeats (PoB's RepeatCount) and 5% longer uses per Repeat for a bow attack, the boss beyond the
+    Presence radius; inside it, or not a bow attack: nothing."""
+    line = "Repeatable Attacks with this Bow Repeat +2 times if no enemies are in your Presence"
+    main = Skill("Lightning Arrow", group=1, attack=True)
+    mods, notes = models.lioneye_model([line], {"PresenceRadius": 40}, main, 5.0, True)
+    assert mods[0]["name"] == "RepeatCount" and mods[0]["value"] == 2
+    assert mods[1]["name"] == "DPS" and mods[1]["value"] == 200
+    assert mods[2]["value"] == pytest.approx(100 * (1 / 1.1 - 1), rel=1e-3) and notes[0]["value"] == "x2.727"
+    assert models.lioneye_model([line], {"PresenceRadius": 60}, main, 5.0, True)[0] == []
+    assert models.lioneye_model([line], {"PresenceRadius": 40}, main, 5.0, False)[0] == []
+    assert models.lioneye_model(["+10 to Dexterity"], {"PresenceRadius": 40}, main, 5.0, True) == ([], [])
+    both = [line.replace("+2 times", "+1 time"), line]  # (both variants' lines reach the models: the current, +2, counts)
+    assert models.lioneye_model(both, {"PresenceRadius": 40}, main, 5.0, True)[0][0]["value"] == 2

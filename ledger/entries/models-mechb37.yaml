@@ -1,0 +1,50 @@
+# MECH-B's model entries (MECHB37).
+
+- id: model-read-dusk-vigil-ember-fusillade
+  title: '"Trigger Ember Fusillade Skill on casting a Spell" (models.dusk_vigil_model)'
+  kind: pob_gap
+  model: dusk_vigil
+  match: '^Trigger Ember Fusillade Skill on casting a Spell$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Dusk Vigil. PoB makes the granted Ember Fusillade (ExtraSkill) but never triggers it, and the search keeps item groups
+    out of Full DPS: 0 before. The game's own version (UniqueDuskVigilTriggeredBlazingClusterPlayer) has no Cooldown and
+    the gem's "Recasting this spell resets the duration for all active Embers": the Embers fire only in a pause from
+    casting Spells. models.dusk_vigil_model takes the pause (k casts, then the Ember duration) only if it beats casting
+    nonstop, with the main skill's DPS x its casting share. Probe POE2T3317 (Spark Stormweaver): the pause loses (237.7
+    against 272.6), so 0 and the play row "keep casting".
+  sources: [builder/search/models.py (DUSK_VIGIL, dusk_vigil_model), scratch/mechb37/p3315.log, scratch/mechb37/p3317.log]
+  status: proposed
+
+- id: model-read-tempest-caller-elemental-storm
+  title: '"Trigger Elemental Storm on Critical Hit with Spells" (models.tempest_caller_model)'
+  kind: pob_gap
+  model: tempest_caller
+  match: '^Trigger Elemental Storm on Critical Hit with Spells'
+  replace: []
+  confidence: theory
+  notes: >-
+    Tempest Caller (Stormweaver). PoB parses the grant but not the trigger; the storm's group is marked fromItem, so the
+    search never counted it: 0 before. models.tempest_caller_model: storms a second from the main spell's casts and crit
+    chance with the 3 s Cooldown (cooldown_trigger_rate), each up its Duration (5 s base) and hitting every 0.25 s, in
+    the main hit's highest Elemental type's stat set; the boss taken to stay in each storm (MEDIUM). Probe POE2T3317
+    (Spark): Full DPS 98.2 -> 161.0 (the storm 62.8).
+  sources: [builder/search/models.py (TEMPEST_CALLER, tempest_caller_model), scratch/mechb37/p3317.log]
+  status: proposed
+
+- id: model-read-lioneyes-glare-repeats
+  title: '"Repeatable Attacks with this Bow Repeat +N times if no enemies are in your Presence" (models.lioneye_model)'
+  kind: pob_gap
+  model: lioneye
+  match: '^Repeatable Attacks with this Bow Repeat \+(\d+) times? if no enemies are in your Presence$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Lioneye's Glare (current +2: game files UniqueRepeatNoEnemyInPresence 2; patch 0.4.0 "previously 1"). PoB leaves it
+    unparsed. models.lioneye_model: with the boss beyond the Presence radius, +N Repeats (PoB's RepeatCount for its own
+    Repeat modifiers, and the hits as DPS "more" x (1 + N): PoB counts Repeat hits for traps and mines only) and 5%
+    longer uses per Repeat (KeywordPopups Repeat). Probe POE2T3317 (Lightning Arrow Deadeye, +1 read then): Full DPS
+    295.5 -> 561.5.
+  sources: [builder/search/models.py (LIONEYE, lioneye_model), scratch/mechb37/p3317.log]
+  status: proposed

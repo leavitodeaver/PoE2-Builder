@@ -1894,6 +1894,11 @@ class Assumptions:
         doom_mods, doom_notes, doom_groups = models.doom_blast_model(found, curses, models.press_choices(build))  # (MECHB12: Impending Doom's expiries)
         item_mods, item_notes, item_groups = models.item_trigger_model(texts, stats, found, main)  # (MECHB36: item triggers)
         doom_mods, doom_notes, doom_groups = doom_mods + item_mods, doom_notes + item_notes, doom_groups | item_groups
+        # (MECHB37: Dusk Vigil's Embers in a pause from casting; Tempest Caller's storms at the main spell's crits)
+        dusk_mods, dusk_notes, dusk_groups = self.dusk_vigil(texts, stats, found, main)
+        storm_mods, storm_notes, storm_groups = self.tempest_caller(texts, stats, found, main)
+        doom_mods, doom_notes = doom_mods + dusk_mods + storm_mods, doom_notes + dusk_notes + storm_notes
+        doom_groups = doom_groups | dusk_groups
         hand_mods, hand_notes = hand_mods + doom_mods, hand_notes + doom_notes
         # (MECHB29: Hayoxi's Fulmination's Annihilation, one per Cursed Ground area that persists 7 s)
         annihilation_mods, annihilation_notes, annihilation_groups = models.annihilation_model(found, curses, main)
@@ -2077,6 +2082,11 @@ class Assumptions:
         parry_mods, parry_notes = models.parry_model(found, {**stats, "_texts": texts}, main, bool(({name} | main_gems) & models.PARRY_CONSUMERS),
                                                      parry_stun, refute_stun)
         hand_mods, hand_notes = hand_mods + parry_mods, hand_notes + parry_notes
+        if any(models.LIONEYE.search(t.strip()) for t in texts):  # (MECHB37: Lioneye's Glare's Repeats out of Presence)
+            metres = models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10 or natural_distance(main_types, name or "")
+            bow = "Bow" in set((build.ctx.gems.get(name) or {}).get("weaponTypes") or []) if name else False
+            lion_mods, lion_notes = models.lioneye_model(texts, stats, main, metres, bow)
+            hand_mods, hand_notes = hand_mods + lion_mods, hand_notes + lion_notes
         presses: dict[str, tuple[float, str]] = {}  # (item-granted skills the build presses: models.ITEM_PRESSES)
         if any(models.RAISED_BLIND.search(e["text"]) for e in source_lines):  # (Bastion of Light's shield taps, MECHC21)
             metres = models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10 or natural_distance(main_types, name or "")
@@ -2559,7 +2569,7 @@ class Assumptions:
         vessel_groups = models.spirit_vessel_groups(skills)  # (its companion's damage is in Full DPS only)
         return mods, notes, {**{g: None for g in energy_groups | mirage_groups | vessel_groups | toad_groups | doom_groups
                                                     | annihilation_groups},
-                             **expression_groups}
+                             **expression_groups, **storm_groups}
 
     def rate_presses(self) -> list[dict]:
         """Pressed non-main skills in Full DPS count at their real use, the main skill at the time they leave it
@@ -5622,6 +5632,59 @@ class Assumptions:
                                                   any("Shapeshift" in t for t in main_types))[0]
         rage = conditions_mod.rage_held(texts, stats)[0] if main == "Furious Slam" else 0.0
         return conditions_mod.jagged_ground(main, main_types, main_gems, stats, gains, aftershock, rage, texts)
+
+    def skill_spot(self, index: int | None, name: str) -> tuple[int, int] | None:
+        """(group index, active position) of the named skill in that group, for setRates / useRates."""
+        return next(((g["index"], position) for g in self.build.groups() if g["index"] == index
+                     for position, skill in enumerate(g["skills"], start=1) if skill["name"] == name), None)
+
+    def dusk_vigil(self, texts: list[str], stats: dict, found: list[models.Skill], main: models.Skill | None
+                   ) -> tuple[list[dict], list[dict], set[int]]:
+        """Dusk Vigil's triggered Embers (models.dusk_vigil_model) with the Ember's hit and wait from PoB."""
+        if not any(models.DUSK_VIGIL.search(t.strip()) for t in texts):
+            return [], [], set()
+        build = self.build
+        granted = next((s for s in found if s.name == models.EMBER_SKILL and s.group is not None
+                        and (main is None or s.group != main.group)), None)
+        hit = wait = 0.0
+        spot = self.skill_spot(granted.group, models.EMBER_SKILL) if granted is not None else None
+        if spot is not None:
+            answer = build.call("setRates", index=spot[0], active=spot[1])
+            sets = answer.get("sets") or []
+            row = next((s for s in sets if s.get("label") == (granted.stat_set or answer.get("chosen"))),
+                       sets[0] if sets else {})
+            hit = number(row.get("AverageDamage"))
+            wait = number(next(iter(build.call("useRates", indices=[spot[0]], actives=[spot[1]])["rates"]), {})
+                          .get("duration"))
+        # the main skill's damage a second without this model's own "less" (installed from the last pass)
+        before = 1.0
+        for mod in self.mods or []:
+            if mod.get("tag") == models.DUSK_TAG:
+                before *= 1 + number(mod.get("value")) / 100
+        dps = per_second({**stats, **build.call("stats", fields=list(LIVING_BOMB_FIELDS))}) / (before or 1.0)
+        mods, notes, groups, _ = models.dusk_vigil_model(texts, stats, found, main, dps, hit, wait)
+        return mods, notes, groups
+
+    def tempest_caller(self, texts: list[str], stats: dict, found: list[models.Skill], main: models.Skill | None
+                       ) -> tuple[list[dict], list[dict], dict[int, int | None]]:
+        """Tempest Caller's storms (models.tempest_caller_model) with the storm's numbers from PoB."""
+        if not any(models.TEMPEST_CALLER.search(t.strip()) for t in texts):
+            return [], [], {}
+        build = self.build
+        granted = next((s for s in found if s.name == models.STORM_SKILL and s.group is not None
+                        and (main is None or s.group != main.group)), None)
+        spot = self.skill_spot(granted.group, models.STORM_SKILL) if granted is not None else None
+        storm: dict = {}
+        if spot is not None:
+            element = models.storm_element(build.call("stats", fields=list(models.STORM_FIELDS)))
+            sets = build.call("setRates", index=spot[0], active=spot[1]).get("sets") or []
+            row = next((s for s in sets if element and element.lower() in (s.get("label") or "").lower()), None)
+            rate = next(iter(build.call("useRates", indices=[spot[0]], actives=[spot[1]])["rates"]), {})
+            storm = {"hit": number((row or {}).get("AverageDamage")), "speed": number((row or {}).get("Speed")),
+                     "cooldown": rate.get("cooldown"), "duration": rate.get("duration"), "element": element,
+                     "set": (row or {}).get("index")}
+        mods, notes, groups = models.tempest_caller_model(texts, stats, found, main, storm)
+        return mods, notes, {g: storm.get("set") for g in groups}
 
     def apply(self) -> bool:
         """Match PoB's assumed modifiers to the build. True if they changed."""
