@@ -574,6 +574,35 @@ GROUNDS_NOTE = ("the boss's damaging grounds aren't counted: step out of them (8
                 "the Bodach's and Kulemak's all-fight grounds: not counted, an undercount on those bosses)")
 
 
+# "N% increased Chance to be afflicted by Ailments when Hit" (MECHC37; COV40's routed OVERCOUNT: The Infinite Pursuit's
+# drawback, "(80-100)% increased Chance to be afflicted by Ailments when Hit"; PoB parses it to nothing, ModCache 1805,
+# leftover text): the boss's chance to Ignite and Shock you x (1 + N%), capped at 100% (MEDIUM: an "increased chance"
+# read as scaling the final chance, as the attacker's "increased chance to inflict" scales Flammability's magnitude,
+# KeywordPopups Flammability). Not applied: Freeze (buildup, not a chance: UNVERIFIED whether the line reaches it) and
+# Olroth's Bleed (its skills' own chance unread: a lower reading). Read from Build.added_stats' SelfAilmentChanceInc, else
+# the build's lines in stats["_texts"]. (checked: Stats ids holding "chance_to_be" with "ailment" in game 26650308:
+# chance_to_be_inflicted_with_an_ailment_+%, on one Mods row, UniqueAilmentChanceRecieved1, no PassiveSkills /
+# SoulCoreStats row; PoB-PoE2 Uniques: The Infinite Pursuit only; the "+N% chance to be Poisoned / Ignited / Shocked"
+# lines are self_ailments'.)
+SELF_AFFLICTED = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) Chance to be afflicted by Ailments when Hit$", re.I)
+SELF_AFFLICTED_FIELD = "SelfAilmentChanceInc"
+
+
+def afflicted_inc(texts: list[str]) -> float:
+    """The summed "N% increased / reduced Chance to be afflicted by Ailments when Hit" of the build's lines, in %."""
+    return sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+               for t in texts if (m := SELF_AFFLICTED.match(t.strip())))
+
+
+def afflicted_scale(stats: dict) -> float:
+    """1 + the build's increased chance to be afflicted by Ailments (see the note above), at least 0."""
+    if SELF_AFFLICTED_FIELD in stats:
+        inc = number(stats.get(SELF_AFFLICTED_FIELD))
+    else:
+        inc = afflicted_inc([str(t) for t in stats.get("_texts") or []])
+    return max(1 + inc / 100, 0.0)
+
+
 def ignite_chance(stats: dict, land: float = 0.0) -> tuple[float, str]:
     """Chance a landed Fire hit of the boss Ignites you (before your Ignite avoidance), and how it was worked out.
     `land` is the boss's landed hits per second (their Fire share stacks Flammability over FLAMMABILITY_SECONDS)."""
@@ -587,17 +616,21 @@ def ignite_chance(stats: dict, land: float = 0.0) -> tuple[float, str]:
     increase = sum(IGNITE_INCREASE.get(name, ())) / count if count else 0.0
     per_hit = max(taken, 0.0) / threshold * FLAMMABILITY_PER_THRESHOLD * (1 + increase / 100)
     others = max(land, 0.0) * fire * FLAMMABILITY_SECONDS
-    chance = min(1.0, per_hit * (1 + others))
+    scale = afflicted_scale(stats)
+    chance = min(1.0, per_hit * (1 + others) * scale)
     return chance, (f"a {taken:,.0f} Fire hit against your {threshold:,.0f} Ailment Threshold gives {per_hit:.1%} "
                     f"Flammability (+{increase:.1f}% increased from the boss's skills), plus that of the "
                     f"{others:.1f} other Fire hits landed in the last {FLAMMABILITY_SECONDS:g} s (Flammability on players, patch "
-                    f"0.3.0): {chance:.0%} to Ignite (MEDIUM-LOW)")
+                    f"0.3.0)" + (f", x {scale:.2f} (your increased chance to be afflicted by Ailments, MEDIUM)"
+                                 if scale != 1 else "") + f": {chance:.0%} to Ignite (MEDIUM-LOW)")
 
 
 def es_dot(stats: dict, ignite: bool = True, land: float = 0.0) -> list[tuple[float, float, str]]:
     """(share of the boss's landed hits that leave damage over time on your Energy Shield, its seconds, what)."""
     name = boss_name(stats)
     out = []
+    if number(stats.get("DotBypassesEnergyShield")) > 0 and not number(stats.get("DotCannotBypassEnergyShield")) > 0:
+        return out  # (MECHC37: The Black Doubt: no damage over time reaches Energy Shield, so none holds its Recharge)
     fire = type_shares(name)["Fire"]
     avoid = min(max(number(stats.get("IgniteAvoidChance")), 0.0), 100) / 100
     if ignite and fire > 0 and avoid < 1:
@@ -968,11 +1001,8 @@ def self_ailments(texts: list[str], stats: dict) -> tuple[float, float, float, l
                       "confidence": "MEDIUM-LOW (the chance read as flat)"})
     if (x := chances.get("Shock", 0.0)) > 0:
         lightning = shares.get("Lightning", 0.0)
-        key = "LightningTakenHit"
-        taken = max(number(stats.get(key)) if key in stats else hit_sizes(name).get("Lightning", 0.0), 0.0)
         threshold = number(stats.get("AilmentThreshold")) or 0.5 * number(stats.get("Life"))
-        own = (min(1.0, taken / threshold * SHOCK_PER_THRESHOLD * _factor(name, SHOCK_FACTORS, "Lightning"))
-               if threshold > 0 and lightning > 0 else 0.0)
+        own = own_shock_chance(stats, name) if threshold > 0 and lightning > 0 else 0.0
         length = seconds("Shock", SHOCK_ON_PLAYER_SECONDS)
         effect = number(stats.get("SelfShockEffect")) / 100 if "SelfShockEffect" in stats else 1.0
         without = up(land * lightning * own * avoid("Shock"), length)
@@ -1044,7 +1074,8 @@ def own_shock_chance(stats: dict, name: str | None = None) -> float:
     threshold = number(stats.get("AilmentThreshold")) or 0.5 * number(stats.get("Life"))
     if threshold <= 0:
         return 1.0
-    return min(1.0, taken / threshold * SHOCK_PER_THRESHOLD * _factor(name, SHOCK_FACTORS, "Lightning"))
+    return min(1.0, taken / threshold * SHOCK_PER_THRESHOLD * _factor(name, SHOCK_FACTORS, "Lightning")
+               * afflicted_scale(stats))
 
 
 def boss_ailments_on_you(stats: dict, shocked_box: bool = False) -> dict:
@@ -1164,7 +1195,7 @@ def ailment_rate(stats: dict, ailment: str, land: float) -> tuple[float, str]:
             chance, how = 1.0, f"no Ailment Threshold read: every landed {kind} hit taken to {ailment} (LOW)"
         elif ailment == "Shock":
             factor = _factor(name, SHOCK_FACTORS, kind)
-            chance = min(1.0, taken / threshold * SHOCK_PER_THRESHOLD * factor)
+            chance = min(1.0, taken / threshold * SHOCK_PER_THRESHOLD * factor * afflicted_scale(stats))
             how = (f"a {taken:,.0f} Lightning hit against your {threshold:,.0f} Ailment Threshold: 1% per 4% dealt x "
                    f"{factor:.2f} from the boss's Shock chance stats = {chance:.0%} to Shock (MEDIUM-LOW)")
         else:

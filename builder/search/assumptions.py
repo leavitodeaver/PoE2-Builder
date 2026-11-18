@@ -472,6 +472,7 @@ def enemy_level(build: Build) -> int:
 
 
 DOT_HITS_ES_LINE = re.compile(r"^Damage over Time cannot bypass your Energy Shield$", re.I)  # (MECHC35, Decree of Loyalty)
+DOT_BYPASSES_ES_LINE = re.compile(r"^Damage over Time bypasses your Energy Shield$", re.I)  # (MECHC37, The Black Doubt)
 
 
 # Purple Flames of Chayula (MECHC26, G1-1): "for 8 seconds, and stacks up to 10 times" (KeywordPopups FlamesOfChayula)
@@ -660,20 +661,7 @@ def zenith_share(stats: dict) -> tuple[float, str]:
     (ManaPerSecondCost >= regeneration), it never stays at the top: 0. Otherwise each cast drops it from (near) full by
     its cost, and it's below 90% for (cost - 10% of maximum) / regeneration seconds of each cast's 1 / Speed (refilled
     before the next cast, as cost x Speed < regeneration)."""
-    mana, cost = number(stats.get("Mana")), number(stats.get("ManaCost"))
-    speed, regen = number(stats.get("Speed")), number(stats.get("ManaRegenRecovery"))
-    spend = number(stats.get("ManaPerSecondCost")) or cost * speed
-    if mana <= 0:
-        return 0.0, "no Mana pool"
-    if spend <= 0:
-        return 1.0, "the main skill costs no Mana: always at the top"
-    if regen <= spend:
-        return 0.0, (f"spends {spend:,.1f} Mana/s against {regen:,.1f} regenerated: never held above 90% (Mana flasks "
-                     "and leech not counted)")
-    below = max(cost - (1 - ZENITH_ABOVE) * mana, 0.0) / regen
-    share = max(0.0, 1.0 - below * speed) if speed > 0 else 1.0
-    return share, (f"each {cost:,.1f}-Mana cast from near full ({mana:,.0f}) leaves it below 90% for {below:.2f} s of its "
-                   f"{1 / speed if speed > 0 else 0:.2f} s, refilled at {regen:,.1f}/s")
+    return conditions_mod.mana_above_share(stats, ZENITH_ABOVE)  # (MECHC37: shared with the Full Mana box)
 
 
 # Low / Missing Runic Ward (MECHC26; NOTES3 DEAD-1 / DEAD-2, the manager 15 Nov 01:25, for COV-A's rune lines):
@@ -1916,6 +1904,14 @@ class Assumptions:
         if build.self_damage > 0:  # (MECHC9: in PoB as Physical damage over time, so recovery and the Life flask see it)
             hand_mods = hand_mods + [models.line("1 Physical Damage taken per second", build.self_damage)]
         hand_notes = hand_notes + models.kills_note(build.kills) + heart_notes
+        # (MECHC37; COV40's routed OVERCOUNT, Scold's Bridle) "Take N% of Mana Costs you pay for Skills as Physical
+        # Damage": one Physical hit per paid use, at the main skill's Mana cost a second; in PoB as Physical damage over
+        # time as Heartbound Loop's (build.cost_damage = (per second, events per second): Build.added_stats)
+        cost_burn, cost_events, cost_notes = recovery_mod.cost_damage([e["text"] for e in source_lines], stats)
+        build.cost_damage = (cost_burn, cost_events)
+        if cost_burn > 0:
+            hand_mods = hand_mods + [models.line("1 Physical Damage taken per second", cost_burn)]
+        hand_notes = hand_notes + cost_notes
         # (MECHB25, COV28) Fireflower's Fire damage taken per Ignite, at the main skill's Ignite rate: in PoB as Fire
         # damage taken per second (recovery sees it); build.ignite_self_damage = (per second, Ignites per second)
         burn, ignites, burn_notes = models.ignite_self_damage([e["text"] for e in source_lines], stats)
@@ -1972,6 +1968,23 @@ class Assumptions:
                           "Shield Recharge off; PoB parses the line to nothing (without it: they hit Life)"),
                 "confidence": "MEDIUM (the line's own words; whether a DoT that can't bypass removes double Energy "
                               "Shield as Chaos does is UNVERIFIED: not counted)"}]
+        # (MECHC37; COV40's routed OVERCOUNT, The Black Doubt) "Damage over Time bypasses your Energy Shield": your own
+        # damage over time and the boss's Ignites / Corrupted Blood land on Life (objective.own_loss, the Life refill
+        # costs), and no longer hold Energy Shield Recharge off (boss_hits.es_dot); PoB parses it to nothing (ModCache
+        # 7129). With Decree of Loyalty's opposite line too, Decree's is taken (UNVERIFIED which wins; no item pair known).
+        build.dot_bypasses_es = (not build.dot_hits_es
+                                 and any(DOT_BYPASSES_ES_LINE.match(e["text"].strip()) for e in source_lines))
+        if build.dot_bypasses_es:
+            hand_notes = hand_notes + [{
+                "label": "Damage over time bypasses your Energy Shield (The Black Doubt)*", "value": "on",
+                "basis": ("your own damage over time and the boss's Ignites (and Atziri's Corrupted Blood) land on Life, "
+                          "not Energy Shield, so they no longer stop Energy Shield Recharge but your Life must carry them "
+                          "(with Chaos Inoculation's 1 Life they are lethal); PoB parses the line to nothing; without it: "
+                          "Energy Shield takes them first"),
+                "confidence": "MEDIUM (the line's own words)"}]
+        # (MECHC37; COV40's routed OVERCOUNT, The Infinite Pursuit) "N% increased Chance to be afflicted by Ailments when
+        # Hit": the boss's Ignite and Shock chances on you x (1 + N%) (boss_hits.afflicted_scale, through added_stats)
+        build.afflicted_inc = boss_hits.afflicted_inc([e["text"] for e in source_lines])
         build.self_poison = 0.0
         build.boss_ignite = 0.0  # (MECHC37: the boss's Ignites on you, Build.added_stats' BossIgnitePerSecond)
         # (MECHC37) one read for the boss's ailments on you: its own, for every build (boss_hits.boss_ailments_on_you, the
@@ -1985,6 +1998,7 @@ class Assumptions:
         request = getattr(getattr(build, "ctx", None), "request", None)
         if getattr(request, "boss", None):
             seen["_boss"] = request.boss
+        seen[boss_hits.SELF_AFFLICTED_FIELD] = build.afflicted_inc
         if boss_hits.self_ailment_chances([e["text"] for e in source_lines]):
             # (MECHC35, COV38's sweep: "+N% chance to be Poisoned / Ignited / Shocked", Coat of Red's pattern above)
             poison, burn, shocked, ail_notes = boss_hits.self_ailments([e["text"] for e in source_lines], seen)
@@ -1995,6 +2009,12 @@ class Assumptions:
             if shocked > 0:
                 hand_mods = hand_mods + [models.raw_mod("DamageTaken", "INC", shocked, tag="SelfShockChance")]
             hand_notes = hand_notes + ail_notes
+        if any(recovery_mod.REFLECT_POISON.match(t.strip()) for t in texts):
+            # (MECHC37; COV40's routed OVERCOUNT) your main skill's Poisons reflected to you, Life only, as the Poison above
+            reflected, reflect_notes = recovery_mod.reflected_poison(
+                texts, build.call("stats", fields=list(recovery_mod.REFLECT_POISON_FIELDS)))
+            build.self_poison += reflected
+            hand_notes = hand_notes + reflect_notes
         config_in = build.call("getConfig")["input"]  # (PoB's Shocked box ticked: its Shock already counts all fight)
         on_you = boss_hits.boss_ailments_on_you(seen, bool(config_in.get("conditionShocked")
                                                            or config_in.get("conditionOnShockedGround")))
@@ -4008,7 +4028,15 @@ class Assumptions:
             return [], []
         stats = self.build.call("stats", fields=["Mana", "ManaCost", "Speed", "ManaRegenRecovery", "ManaPerSecondCost"])
         share, how = zenith_share(stats)
-        mods = [models.line("1% more Spell Damage", more * share, skill=main)] if share > 0 else []
+        counted = share
+        if self.build.call("getConfig")["input"].get("conditionFullMana"):
+            # (MECHC37: the Full Mana box is on for another line (conditions._full_mana), and PoB maps Zenith to the same
+            # condition, so its share of Zenith is PoB's: only the rest, from 90% to full, is added here)
+            texts = [e["text"] for e in self.build.call("sourceLines")["lines"]]
+            full, _ = conditions_mod.mana_above_share(stats, conditions_mod.full_mana_at(texts))
+            counted = max(share - full, 0.0)
+            how += f"; PoB's Full Mana box is on ({full:.0%} of the fight), which turns Zenith on in PoB: only the rest added"
+        mods = [models.line("1% more Spell Damage", more * counted, skill=main)] if counted > 0 else []
         return mods, [{"label": "Zenith: above 90% of maximum Mana*", "value": f"{share:.0%} of the fight ({more:g}% more "
                        f"Spell damage then)", "basis": how + ". PoB's FullMana condition is never set, so before this its "
                        "share was 0", "play": "keep Mana near the top: cast when above 90% (with it: the share above; "
@@ -4146,12 +4174,13 @@ class Assumptions:
                  "Life flasks": number(extra.get(flasks.RECOVERY_FIELDS["Life"])),
                  "recoup and Life on Block": objective.recoup(hit, taken, "Life") + objective.on_block(hit, "Life", every),
                  "kills, Remnants, charms, events and spending": max(before, 0.0)}
-        costs = (number(hit.get("LifePerSecondCost")) + max(number(hit.get(objective.BUILD_DEGEN)), 0.0) * share
+        dot_share = 1.0 if getattr(build, "dot_bypasses_es", False) else share  # (MECHC37: The Black Doubt, all on Life)
+        costs = (number(hit.get("LifePerSecondCost")) + max(number(hit.get(objective.BUILD_DEGEN)), 0.0) * dot_share
                  + (0.0 if getattr(build, "dot_hits_es", False) and es > 0 else objective.self_bleed_taken(
                      {**hit, objective.SELF_BLEED_PER_SECOND: getattr(build, "self_bleed", 0.0),
                       objective.SELF_POISON_PER_SECOND: getattr(build, "self_poison", 0.0)}))
                  + objective.boss_ignite_taken({**hit, objective.BOSS_IGNITE_PER_SECOND: getattr(build, "boss_ignite", 0.0)})
-                 * share)  # (MECHC37: the boss's Ignites, at the Life share like the degen)
+                 * dot_share)  # (MECHC37: the boss's Ignites, at the Life share like the degen)
         # (MECHC32: your own item's Bleed, Life only)
         refill = max(sum(gains.values()) - costs, 0.0)
         refill_how = (", ".join(f"{k} {v:,.1f}" for k, v in gains.items() if v > 0) or "no other Life recovery") + (

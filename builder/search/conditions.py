@@ -2520,6 +2520,53 @@ def reflected_ignite_burn(lines: list[str], stats: dict) -> tuple[float, str]:
                   f"degen; without the line: none)")
 
 
+# On Full Mana (MECHC37; COV40's routed UNDERCOUNT: PoB's Condition:FullMana, "Are you always on Full Mana?", is set by
+# nothing of ours, so "N% increased Attack / Cast Speed while on Full Mana" (17.7 / 12.0) and the rest counted 0). The
+# box is on at the share of the fight the build sits at full Mana: each main-skill cast drops it by its cost, refilled at
+# its Mana regeneration (mana_above_share, Zenith's reading, MECHC26), so 1 - spend / regeneration at the top, 0 when it
+# spends at least what it regenerates (Mana flasks and leech not counted: a lower reading). Idle Hands' "You count as on
+# Full Mana while at N% of maximum Mana or above" (PoB: FullManaPercentage, read by no module of the pinned PoB for the
+# box) lowers the line to N%. Only when a line reads it ("on Full Mana"); Zenith's own model (Assumptions.zenith) takes
+# PoB's share off while the box is on (PoB maps Zenith to the same condition).
+FULL_MANA_USE = re.compile(r"\bon Full Mana\b", re.I)
+FULL_MANA_AT = re.compile(r"^You count as on Full Mana while at (\d+(?:\.\d+)?)% of maximum Mana or above$", re.I)
+FULL_MANA_FIELDS = ("Mana", "ManaCost", "Speed", "ManaRegenRecovery", "ManaPerSecondCost")
+
+
+def mana_above_share(stats: dict, above: float) -> tuple[float, str]:
+    """(share of the fight at or above `above` x maximum Mana, how) for a build casting its main skill at `Speed` a
+    second, each cast costing `ManaCost`, regenerating `ManaRegenRecovery` a second (Zenith's reading, MECHC26)."""
+    mana, cost = number(stats.get("Mana")), number(stats.get("ManaCost"))
+    speed, regen = number(stats.get("Speed")), number(stats.get("ManaRegenRecovery"))
+    spend = number(stats.get("ManaPerSecondCost")) or cost * speed
+    if mana <= 0:
+        return 0.0, "no Mana pool"
+    if spend <= 0:
+        return 1.0, "the main skill costs no Mana: always at the top"
+    if regen <= spend:
+        return 0.0, (f"spends {spend:,.1f} Mana/s against {regen:,.1f} regenerated: never held at {above:.0%} (Mana "
+                     "flasks and leech not counted)")
+    below = max(cost - (1 - above) * mana, 0.0) / regen
+    share = max(0.0, 1.0 - below * speed) if speed > 0 else 1.0
+    return share, (f"each {cost:,.1f}-Mana cast from near full ({mana:,.0f}) leaves it below {above:.0%} for {below:.2f} "
+                   f"s of its {1 / speed if speed > 0 else 0:.2f} s, refilled at {regen:,.1f}/s")
+
+
+def full_mana_at(lines: list[str]) -> float:
+    """The share of maximum Mana that counts as Full Mana: 1, or the lowest "You count as on Full Mana while at N%"."""
+    return min((float(m.group(1)) / 100 for t in lines if (m := FULL_MANA_AT.match(t.strip()))), default=1.0)
+
+
+def _full_mana(lines: list[str], stats: dict) -> tuple[object, str, float] | tuple[float, str]:
+    if not any(FULL_MANA_USE.search(t) and not FULL_MANA_AT.match(t.strip()) for t in lines):
+        return 0.0, ""
+    at = full_mana_at(lines)
+    share, how = mana_above_share(stats, at)
+    return _box(share, f"on Full Mana {share:.0%} of the fight ({shared(share)}): {how}"
+                + (f" (you count as on Full Mana from {at:.0%}: your line)" if at < 1 else "")
+                + "; with it: keep Mana topped up; without it: the 'on Full Mana' lines count 0")
+
+
 # Overcharge's reflected Shocks (MECH75; PATCH_CHECK L4-1, an OVERCOUNT of survival: neither PoB (SkillStatMap doesn't map
 # shocks_reflected_to_self) nor the tool counted it). The support (PoB sup_dex.lua, game 26476662's
 # SupportOverchargePlayer: shock_effect_+% 50 and shocks_reflected_to_self): "making its Shocks more effective but
@@ -6179,6 +6226,8 @@ CONDITIONS: list[Condition] = [
               fields=("Speed", "HitChance", "ChillChanceOnHit", "ChillDuration", "CritChance", "EnemyAilmentThreshold")),
     Condition("conditionShocked", "Shocked yourself (Overcharge reflects your Shocks back to you; MECH75)",
               value_fn=_self_shocked, fields=("Speed", "HitChance", "ShockChancePerHit", "ShockAvoidChance")),
+    Condition("conditionFullMana", "On Full Mana (MECHC37: the main skill's costs against Mana regeneration)",
+              value_fn=_full_mana, fields=FULL_MANA_FIELDS),
     Condition("conditionIgnited", "Ignited yourself (Grinning Immolation, on your critical hits; the boss's Fire hits; "
               "Self Immolation's reflected Ignites)",
               value_fn=_self_ignited,

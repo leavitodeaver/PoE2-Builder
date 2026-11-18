@@ -311,10 +311,13 @@ class Build:
         own = {}
         damage = getattr(self, "self_damage", 0.0) or 0.0
         burn, ignites = getattr(self, "ignite_self_damage", None) or (0.0, 0.0)
-        if damage > 0 or burn > 0:
+        # (MECHC37: Scold's Bridle's Physical damage per paid use, build.cost_damage = (per second, uses per second))
+        cost, cost_events = getattr(self, "cost_damage", None) or (0.0, 0.0)
+        if damage > 0 or burn > 0 or cost > 0:
             died = getattr(self, "minion_died", None)
-            events = (float(died[0]) if damage > 0 and died else 0.0) + (max(float(ignites), 0.0) if burn > 0 else 0.0)
-            own = {"SelfDamagePerSecond": damage, "SelfFireDamagePerSecond": burn, "SelfDamageEvents": events}
+            events = ((float(died[0]) if damage > 0 and died else 0.0) + (max(float(ignites), 0.0) if burn > 0 else 0.0)
+                      + (max(float(cost_events), 0.0) if cost > 0 else 0.0))
+            own = {"SelfDamagePerSecond": damage + cost, "SelfFireDamagePerSecond": burn, "SelfDamageEvents": events}
         # (MECHC32, a MECH-C hook: Widow's Reign's window, objective.life_reserved_open)
         if (held := getattr(self, "life_reserved_seconds", 0.0) or 0.0) > 0:
             own["LifeReservedOnDamageSeconds"] = held
@@ -327,6 +330,12 @@ class Build:
         # (MECHC37, the same hook: the boss's Ignites on you, objective.boss_ignite_taken; not PoB's degen)
         if (ignite := getattr(self, "boss_ignite", 0.0) or 0.0) > 0:
             own["BossIgnitePerSecond"] = ignite
+        # (MECHC37: "N% increased Chance to be afflicted by Ailments when Hit", boss_hits.afflicted_scale)
+        if (afflicted := getattr(self, "afflicted_inc", 0.0) or 0.0) != 0:
+            own["SelfAilmentChanceInc"] = afflicted
+        # (MECHC37: The Black Doubt's "Damage over Time bypasses your Energy Shield", objective.DOT_BYPASSES_ES)
+        if getattr(self, "dot_bypasses_es", False):
+            own["DotBypassesEnergyShield"] = 1
         # (MECHC35: Decree of Loyalty's "Damage over Time cannot bypass your Energy Shield", objective.DOT_HITS_ES)
         if getattr(self, "dot_hits_es", False):
             own["DotCannotBypassEnergyShield"] = 1

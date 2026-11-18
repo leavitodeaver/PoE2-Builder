@@ -292,6 +292,9 @@ def boss_ignite_taken(stats: dict) -> float:
 # parses it to nothing): with Energy Shield, your own Bleed and Poison (which "bypass Energy Shield", KeywordPopups) and
 # your own damage over time land on Energy Shield instead of Life (no bypass for them), Build.added_stats' flag.
 DOT_HITS_ES = "DotCannotBypassEnergyShield"
+# (MECHC37; COV40's routed OVERCOUNT) The Black Doubt's "Damage over Time bypasses your Energy Shield": the reverse, your
+# own damage over time all on Life (boss_hits.es_dot drops the boss's Ignites / Corrupted Blood from the Recharge wait).
+DOT_BYPASSES_ES = "DotBypassesEnergyShield"
 
 
 def own_loss(stats: dict) -> dict[str, float]:
@@ -306,6 +309,8 @@ def own_loss(stats: dict) -> dict[str, float]:
             dot = number(stats.get(f"{t}TakenDotMult")) if f"{t}TakenDotMult" in stats else 1.0
             degen = max(degen - max(number(stats.get(SELF_DAMAGE[t])), 0.0) * dot, 0.0)
         bypass = (0.0 if held else min(max(number(stats.get(f"{t}EnergyShieldBypass")), 0.0), 100) / 100) if es else 1.0
+        if es and not held and number(stats.get(DOT_BYPASSES_ES)) > 0:
+            bypass = 1.0
         out["EnergyShield"] += degen * (1 - bypass)
         out["Life"] += degen * bypass
     return out

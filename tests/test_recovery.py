@@ -1990,6 +1990,55 @@ def test_glowswarm_and_encase_in_jade_guard_are_rows_and_jade_heritage_counts_te
     assert "3.2% reduction" in jade["play"]
 
 
+def test_cov40_drawbacks_scolds_bridle_reflected_poison_black_doubt_and_ailment_chance_on_you():
+    """MECHC37 (COV40's routed OVERCOUNTS): Scold's Bridle takes N% of the main skill's Mana cost a second as Physical
+    damage, one loss per use; reflected Poison lands PoB's poison damage on your Life; The Black Doubt's DoT-bypass puts
+    your own damage over time on Life and stops the boss's Ignite holding Energy Shield Recharge; The Infinite Pursuit's
+    increased chance to be afflicted scales the boss's Ignite and Shock chances."""
+    from builder.search import boss_hits, objective, recovery
+
+    line = ["Take 50% of Mana Costs you pay for Skills as Physical Damage"]
+    assert recovery.cost_damage(["+10 to maximum Life"], {"ManaPerSecondCost": 40.0, "Speed": 2.0}) == (0.0, 0.0, [])
+    taken, uses, notes = recovery.cost_damage(line, {"ManaPerSecondCost": 40.0, "Speed": 2.0})
+    assert taken == pytest.approx(20.0) and uses == 2.0 and "without it: 0" in notes[0]["basis"]
+    assert recovery.cost_damage(line, {"ManaPerSecondCost": 0.0, "Speed": 2.0})[:2] == (0.0, 0.0)
+    assert recovery.reflected_poison(["Poison you inflict is Reflected to you"], {"PoisonDPS": 900.0})[0] == 900.0
+    assert recovery.reflected_poison(["+10 to maximum Life"], {"PoisonDPS": 900.0}) == (0.0, [])
+    stats = {"EnergyShield": 3000.0, "FireBuildDegen": 50.0, "FireEnergyShieldBypass": 0.0}
+    assert objective.own_loss(stats) == {"EnergyShield": 50.0, "Life": 0.0}
+    assert objective.own_loss({**stats, objective.DOT_BYPASSES_ES: 1}) == {"EnergyShield": 0.0, "Life": 50.0}
+    ash = {"_boss": "Arbiter of Ash", "enemySkillTime": 1.0, "Life": 4000.0, "AilmentThreshold": 2000.0,
+           "FireTakenHit": 500.0, "LightningTakenHit": 500.0}
+    assert [d for d in boss_hits.es_dot(ash) if d[2] == "Ignite"]
+    assert boss_hits.es_dot({**ash, objective.DOT_BYPASSES_ES: 1}) == []
+    pursuit = "90% increased Chance to be afflicted by Ailments when Hit"
+    assert boss_hits.afflicted_inc([pursuit, "+10 to maximum Life"]) == 90.0
+    plain = boss_hits.ignite_chance(ash, 0.5)[0]
+    more = boss_hits.ignite_chance({**ash, boss_hits.SELF_AFFLICTED_FIELD: 90.0}, 0.5)[0]
+    assert more == pytest.approx(min(1.0, plain * 1.9))
+    assert boss_hits.ignite_chance({**ash, "_texts": [pursuit]}, 0.5)[0] == pytest.approx(more)
+    divinity = {**ash, "_boss": "Arbiter of Divinity"}
+    assert boss_hits.own_shock_chance({**divinity, boss_hits.SELF_AFFLICTED_FIELD: 90.0}) == pytest.approx(
+        min(1.0, boss_hits.own_shock_chance(divinity) * 1.9))
+
+
+def test_full_mana_box_is_on_at_the_share_the_build_sits_at_full_mana():
+    """MECHC37 (COV40's routed UNDERCOUNT: PoB's FullMana condition set by nothing): the box is on only for a line that
+    reads "on Full Mana", at 1 - spend / regeneration of the fight; Idle Hands' "count as on Full Mana while at 90%" lowers
+    the line; spending more than it regenerates, never."""
+    from builder.search import conditions
+
+    stats = {"Mana": 1000.0, "ManaCost": 20.0, "Speed": 2.0, "ManaRegenRecovery": 100.0, "ManaPerSecondCost": 40.0}
+    assert conditions._full_mana(["+10 to maximum Life"], stats) == (0.0, "")
+    on, how, share = conditions._full_mana(["25% increased Attack Speed while on Full Mana"], stats)
+    assert on and share == pytest.approx(0.6) and "without it" in how
+    idle = conditions._full_mana(["25% increased Attack Speed while on Full Mana",
+                                  "You count as on Full Mana while at 90% of maximum Mana or above"], stats)
+    assert idle[2] == pytest.approx(1.0)
+    starved = conditions._full_mana(["10% increased Cast Speed while on Full Mana"], {**stats, "ManaRegenRecovery": 30.0})
+    assert starved[2] == 0.0 and not starved[0]
+
+
 def test_damage_from_blocks_with_a_raised_shield_counts_only_the_raised_blocks():
     """MECHC35 (COV38's sweep): the Ulaman suffix "You take 12% of damage from Blocked Hits with a raised Shield": a
     channelled shield all fight, every Block raised (12%); taps up 10% of the fight against a 50% Block chance, 10 / 55

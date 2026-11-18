@@ -1790,6 +1790,62 @@ def mana_flask_guard_row(texts: list[str], amount: float, uses: float, uses_how:
                      "the fight (without it: no Guard)" if guard > 0 and up > 0 else "")}
 
 
+# Scold's Bridle (MECHC37; COV40's routed OVERCOUNT): "Take (25-100)% of Mana Costs you pay for Skills as Physical Damage"
+# (PoB parses ManaCostAsPhysical with leftover text, ModCache 9577, so it never applies it: LANE_RULES "PoB never applies
+# a line it parses only in part"). Counted: N% x PoB's ManaPerSecondCost (the main skill's Mana cost x its uses a second)
+# as Physical damage, one loss per use (the main skill's Speed), through Heartbound Loop's path (PoB's Physical degen for
+# the totals, Build.added_stats' SelfDamageEvents for the Recharge stops). Other skills' costs not counted (an
+# undercount of the damage, named); Armour not applied to a self-inflicted loss (UNVERIFIED, the cautious side).
+# (checked: Stats ids holding "mana_cost" with "physical" / "damage" in game 26650308: skills_deal_you_x%_of_mana_cost_
+# as_physical_damage on one Mods row, UniquePhysicalDamageOnSkillUse1, no PassiveSkills / SoulCoreStats row (the rest
+# are added-damage stats); PoB-PoE2 Uniques: Scold's Bridle only.)
+COST_DAMAGE = re.compile(r"^Take (\d+(?:\.\d+)?)% of Mana Costs you pay for Skills as Physical Damage$", re.I)
+
+
+def cost_damage(texts: list[str], stats: dict) -> tuple[float, float, list[dict]]:
+    """(Physical damage a second, losses a second, notes) from COST_DAMAGE lines; zeros without one."""
+    pct = sum(float(m.group(1)) for t in texts if (m := COST_DAMAGE.match(t.strip())))
+    if pct <= 0:
+        return 0.0, 0.0, []
+    paid = max(_num(stats.get("ManaPerSecondCost")), 0.0)
+    uses = max(_num(stats.get("Speed")), 0.0) if paid > 0 else 0.0
+    taken = pct / 100 * paid
+    return taken, uses, [{
+        "label": "Mana costs taken as Physical damage (Scold's Bridle)*", "value": f"{taken:,.0f} Physical damage a second",
+        "basis": (f"{pct:g}% of the {paid:,.1f} Mana a second your main skill's costs take ({uses:.2f} uses a second, one "
+                  "loss each, which resets Recharge as a hit does); other skills' costs not counted (an undercount); "
+                  "Armour not applied (UNVERIFIED); PoB parses the line only in part and never applies it; without it: 0"),
+        "confidence": "MEDIUM (the line's words; the main skill's costs only)",
+        "play": (f"every cast costs you {pct:g}% of its Mana cost in Life / Energy Shield: {taken:,.0f} a second"
+                 if taken > 0 else "")}]
+
+
+# Reflected Poison (MECHC37; COV40's routed OVERCOUNT: a Vaal-mutated Hand Wraps line, "Poison you inflict is Reflected to
+# you"; PoB parses it to nothing, ModCache 8940). Each Poison your main skill inflicts on the boss lands on you too: Chaos
+# damage over time on Life only ("Damage from Poison bypasses Energy Shield", KeywordPopups Poison), at PoB's poison
+# damage a second against the boss (TotalPoisonDPS, else PoisonDPS: after the boss's own Chaos resistance and damage-taken
+# modifiers, where the game's reflected magnitude has neither: the lower reading where the boss resists Chaos, LOW-MEDIUM)
+# through Build.added_stats' SelfPoisonPerSecond, then your Chaos damage-over-time multiplier. Other skills' Poisons
+# not counted (an undercount, named).
+REFLECT_POISON = re.compile(r"^Poison you inflict is Reflected to you$", re.I)
+REFLECT_POISON_FIELDS = ("TotalPoisonDPS", "PoisonDPS")
+
+
+def reflected_poison(texts: list[str], stats: dict) -> tuple[float, list[dict]]:
+    """(Chaos damage a second on your Life before your damage-over-time modifiers, notes) from REFLECT_POISON."""
+    if not any(REFLECT_POISON.match(t.strip()) for t in texts):
+        return 0.0, []
+    dps = max(_num(stats.get("TotalPoisonDPS")) or _num(stats.get("PoisonDPS")), 0.0)
+    return dps, [{
+        "label": "Your Poisons reflected to you*", "value": f"{dps:,.0f} Chaos damage a second on Life",
+        "basis": (f"your main skill's Poison on the boss, {dps:,.0f} a second (PoB's), lands on you too: Life only (Poison "
+                  "bypasses Energy Shield), before your Chaos resistance and damage-over-time modifiers; PoB's figure is "
+                  "after the boss's Chaos resistance (the lower reading if it resists); other skills' Poisons not "
+                  "counted; PoB counts none; without it: 0"),
+        "confidence": "LOW-MEDIUM (the magnitude reading)",
+        "play": (f"your own Poisons hit you for {dps:,.0f} Chaos damage a second" if dps > 0 else "")}]
+
+
 def jade_heritage(texts: list[str], life: float, quality: float = 0.0, seconds: float = ENCASE_SECONDS,
                   expiry: tuple[float, str] | None = None) -> tuple[float, dict | None]:
     """(Physical Damage Reduction % counted, the row) for Jade Heritage (see the note above): (0, None) without it."""

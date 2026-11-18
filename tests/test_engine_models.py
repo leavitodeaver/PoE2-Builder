@@ -3594,3 +3594,50 @@ def test_jade_heritage_counts_ten_percent_and_glowswarms_guard_is_only_a_row(eng
     print("PROBE jade / guard", before, jade, row["value"])
     assert jade["PhysicalDamageReduction"] == pytest.approx(before["PhysicalDamageReduction"] + 10)
     assert "Guard for 4 s a use" in row["value"]
+
+
+def test_cov40_drawback_lines_reach_a_real_build(engine):
+    """MECHC37 (COV40's routed OVERCOUNTS): with Scold's Bridle's line the build's Physical degen in PoB rises by N% of its
+    Mana cost a second and its losses join SelfDamageEvents; The Black Doubt's and The Infinite Pursuit's lines reach
+    Build.added_stats (DotBypassesEnergyShield, SelfAilmentChanceInc)."""
+    search = spark_with(engine, [])
+    build = search.build
+    fields = ["PhysicalBuildDegen", "ManaPerSecondCost", "PhysicalTakenDotMult"]
+    before = build.call("stats", fields=fields)
+    helmet = chr(10).join(["Rarity: Rare", "Test Helmet", "Jade Tiara", "Item Level: 82", "Implicits: 0",
+                           "Take 100% of Mana Costs you pay for Skills as Physical Damage"])
+    body = chr(10).join(["Rarity: Rare", "Test Robe", "Hexer's Robe", "Item Level: 82", "Implicits: 0",
+                         "Damage over Time bypasses your Energy Shield"])
+    boots = chr(10).join(["Rarity: Rare", "Test Boots", "Straw Sandals", "Item Level: 82", "Implicits: 0",
+                          "90% increased Chance to be afflicted by Ailments when Hit"])
+    for slot, raw in (("Helmet", helmet), ("Body Armour", body), ("Boots", boots)):
+        build.call("equip", slot=slot, raw=raw, fields=[])
+    search.settle()
+    after = build.call("stats", fields=fields)
+    added = build.added_stats()
+    note = next(n for n in search.assumptions.active if n["label"].startswith("Mana costs taken as Physical damage"))
+    print("PROBE cov40 drawbacks", before, after, note["value"], {k: added.get(k) for k in (
+        "SelfDamagePerSecond", "SelfDamageEvents", "DotBypassesEnergyShield", "SelfAilmentChanceInc")})
+    assert after["ManaPerSecondCost"] > 0
+    assert after["PhysicalBuildDegen"] - before.get("PhysicalBuildDegen", 0) == pytest.approx(
+        after["ManaPerSecondCost"] * after["PhysicalTakenDotMult"], rel=0.05)
+    assert added["SelfDamageEvents"] > 0 and added["DotBypassesEnergyShield"] == 1
+    assert added["SelfAilmentChanceInc"] == 90.0
+
+
+def test_full_mana_box_turns_on_for_a_line_that_reads_it(engine):
+    """MECHC37 (COV40's routed UNDERCOUNT): with "N% increased Cast Speed while on Full Mana" and Mana regeneration well
+    above the main skill's spend, the resolver ticks PoB's "Are you always on Full Mana?" box at its share; without such a
+    line it stays off."""
+    search = spark_with(engine, [])
+    build = search.build
+    assert not build.call("getConfig")["input"].get("conditionFullMana")
+    amulet = chr(10).join(["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82", "Implicits: 0",
+                           "+500 to maximum Mana", "Regenerate 400 Mana per second",
+                           "30% increased Cast Speed while on Full Mana"])
+    build.call("equip", slot="Amulet", raw=amulet, fields=[])
+    search.settle()
+    on = build.call("getConfig")["input"].get("conditionFullMana")
+    stats = build.call("stats", fields=["ManaPerSecondCost", "ManaRegenRecovery"])
+    print("PROBE full mana", on, stats)
+    assert on
