@@ -6157,3 +6157,19 @@ def test_consumed_a_corpse_recently_follows_the_builds_corpse_rate():
     assert value == 0.0 and "Without a corpse source: 0" in basis
     assert conditions._corpse_consumed_recently([], {}) == (0.0, "")
     assert any(c.var == "conditionConsumedCorpseRecently" for c in conditions.CONDITIONS)
+
+
+def test_dark_defiler_gains_chaos_per_undead_minion_alive():
+    """MECHB38: The Dark Defiler's "Gain 5% of Damage as Chaos Damage per Undead Minion" (PoB: a minion modifier with
+    leftover text, never applied): 5% x the Persistent undead minions alive; temporary ones not counted, said."""
+    line = ["Gain 5% of Damage as Chaos Damage per Undead Minion"]
+    warriors = Skill("Skeletal Warrior Minion", group=2, summon={"persistent": True, "undead": True, "limit": 4})
+    wolf = Skill("Summon Wolf", group=3, summon={"persistent": True, "undead": False, "limit": 2})
+    constructs = Skill("Unearth", group=4, summon={"persistent": False, "undead": True, "limit": 3, "duration": 8})
+    spark = Skill("Spark", group=1, spell=True)
+    mods, notes = models.dark_defiler_model(line, [spark, warriors, wolf, constructs], spark, {})
+    assert mods == [models.line("Gain 1% of Damage as Extra Chaos Damage", 20.0)]
+    assert notes[0]["value"] == "+20.0%" and "Unearth" in notes[0]["basis"]
+    mods, notes = models.dark_defiler_model(line, [spark, wolf], spark, {})
+    assert mods == [] and notes[0]["value"] == "+0.0%"
+    assert models.dark_defiler_model(["+10 to Strength"], [spark, warriors], spark, {}) == ([], [])

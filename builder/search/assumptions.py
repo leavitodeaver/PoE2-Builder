@@ -1911,9 +1911,10 @@ class Assumptions:
         cannon_mods, cannon_notes = self.cannons_ready(texts, found)  # (MECHB37: Cannons, Ready!'s totems act on your shots)
         # (MECHB38: Valako's Charge at the rate the boss's Lightning hits fill it; its side group in Full DPS)
         valako_mods, valako_notes, valako_groups = self.valakos_charge(stats, found, main)
+        defiler_mods, defiler_notes = models.dark_defiler_model(texts, found, main, stats)  # (MECHB38)
         storm_groups = {**storm_groups, **valako_groups}
-        doom_mods = doom_mods + dusk_mods + storm_mods + cannon_mods + valako_mods
-        doom_notes = doom_notes + dusk_notes + storm_notes + cannon_notes + valako_notes
+        doom_mods = doom_mods + dusk_mods + storm_mods + cannon_mods + valako_mods + defiler_mods
+        doom_notes = doom_notes + dusk_notes + storm_notes + cannon_notes + valako_notes + defiler_notes
         doom_groups = doom_groups | dusk_groups
         hand_mods, hand_notes = hand_mods + doom_mods, hand_notes + doom_notes
         # (MECHB29: Hayoxi's Fulmination's Annihilation, one per Cursed Ground area that persists 7 s)

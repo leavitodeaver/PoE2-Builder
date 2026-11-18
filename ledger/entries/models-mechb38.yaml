@@ -32,3 +32,19 @@
     skill or supply: 0, said.
   sources: [builder/search/models.py (CONSUMED_CORPSE, corpses_consumed), builder/search/conditions.py (_corpse_consumed_recently)]
   status: proposed
+
+- id: model-read-dark-defiler-chaos-per-undead-minion
+  title: '"Gain N% of Damage as Chaos Damage per Undead Minion" (The Dark Defiler; models.dark_defiler_model)'
+  kind: pob_gap
+  model: dark_defiler
+  match: '^Gain (\d+(?:\.\d+)?)% of Damage as Chaos Damage per Undead Minion$'
+  replace: []
+  confidence: theory
+  notes: >-
+    PoB's ModCache reads the line as a MinionModifier with leftover text ("per Undead"), so it never applies: 0 before.
+    The player gains N% of Damage as extra Chaos per Undead minion alive on average: the build's Persistent
+    CreatesUndeadMinion summons at their limit, less the share dead (the build's own minion deaths x revive time);
+    temporary undead minions not counted. Probe POE2T3347 (Spark + the sceptre's 2 Skeletal Warriors): +10%, Full DPS
+    97.2 -> 110.6.
+  sources: [builder/search/models.py (DARK_DEFILER, dark_defiler_model), scratch/mechb38/p3347.log]
+  status: proposed

@@ -13386,6 +13386,51 @@ def valako_model(skill: Skill | None, main: bool, stats: dict, threshold: float,
 
 
 
+
+# The Dark Defiler (MECHB38; the coverage ranking's section C, an UNDERCOUNT: 0 before). The sceptre's "Gain (3 / 5)% of
+# Damage as Chaos Damage per Undead Minion" (PoB Uniques/sceptre.lua; Pre 0.1.1 3%, Current 5%): PoB's ModCache reads it
+# as a MinionModifier with leftover text ("   per Undead  "), and PoB never applies a line parsed only in part, so 0.
+# The player gains it (the line is on your sceptre; "Gain X% of Damage as Y" is extra damage, PoB's DamageGainAsChaos).
+# Undead: the game's Monster Category (KeywordPopups MonsterCategory); a minion skill of PoB's CreatesUndeadMinion type is
+# taken as summoning Undead (MEDIUM). Count: the build's Persistent undead minions at their limit, less the share dead
+# (the build's own minion deaths a second, minion_deaths, their undead share, x the revive time, revive_seconds); no
+# source kills them: all alive. Temporary undead minions (a duration) not counted (an UNDERCOUNT, said).
+DARK_DEFILER = re.compile(r"^Gain (\d+(?:\.\d+)?)% of Damage as Chaos Damage per Undead Minion$", re.I)
+
+
+def dark_defiler_model(texts: list[str], skills: list[Skill], main: Skill | None, stats: dict
+                       ) -> tuple[list[dict], list[dict]]:
+    """The Dark Defiler's Chaos gain per Undead minion alive on average (see above)."""
+    pct = max((float(m.group(1)) for t in texts if (m := DARK_DEFILER.search(t.strip()))), default=0.0)
+    if pct <= 0:
+        return [], []
+    reviving = [s for s in skills if s.summon and s.summon.get("persistent") and not number(s.summon.get("duration"))]
+    undead = [s for s in reviving if s.summon.get("undead")]
+    total = sum(number(s.summon.get("limit")) for s in reviving)
+    count = sum(number(s.summon.get("limit")) for s in undead)
+    temporary = sorted({s.name for s in skills if s.summon and s.summon.get("undead") and number(s.summon.get("duration"))})
+    dead, how = 0.0, "nothing in the build kills them: all alive"
+    if count > 0:
+        deaths, death_how = minion_deaths(skills, main, stats)
+        if deaths > 0:
+            revive, _ = revive_seconds(reviving)
+            dead = min(count, deaths * count / total * revive)
+            how = f"{dead:.2f} down on average ({death_how}; {revive:.3g} s to revive)"
+    alive = max(count - dead, 0.0)
+    gain = pct * alive
+    note = {"label": "The Dark Defiler: Chaos damage per Undead minion*", "value": f"+{gain:.1f}%",
+            "confidence": "MEDIUM",
+            "basis": (f"{pct:g}% of Damage as extra Chaos per Undead minion; {alive:.2f} Persistent undead minions alive "
+                      f"on average ({count:g} at their limit: "
+                      + (", ".join(f"{s.name} {number(s.summon.get('limit')):g}" for s in undead) or "none")
+                      + f"; {how}); PoB reads the line as a minion modifier with leftover text and never applies it (0 "
+                      "before). Undead: PoB's CreatesUndeadMinion skills (MEDIUM)"
+                      + (f"; temporary undead minions not counted ({', '.join(temporary)}: an UNDERCOUNT)" if temporary
+                         else "")),
+            "play": (f"Keep your undead minions up: without them +0%; with them +{gain:.0f}% of Damage as Chaos"
+                     if gain > 0 else "The build has no Persistent undead minions for The Dark Defiler: +0%")}
+    return ([line("Gain 1% of Damage as Extra Chaos Damage", gain)] if gain > 0 else []), [note]
+
 # Corpses consumed a second (MECHB37's draft, applied by MECHB38; COV40's route, the manager 00:08 18 Nov): "N% increased
 # Damage if you have Consumed a Corpse Recently" (the Corpses jewel line, PoB ModCache) and PoB's other
 # ConsumedCorpseRecently lines (ModParser 1999 / 2003 / 3214 / 4405) sit behind Condition:ConsumedCorpseRecently, which only
