@@ -15,6 +15,7 @@ from __future__ import annotations
 from functools import lru_cache
 import functools
 import math
+import pathlib
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -849,6 +850,46 @@ def projectile_reach(lines: list[str], main_types: set[str]) -> tuple[float | No
 STATIONARY_LINE = re.compile(r"\bstationary\b|\bstand(?:ing)? still\b", re.I)
 
 
+# Moving (MECH86; the manager's 22:10 routing of COV40's rows; the catalog's moving-stationary entry). PoB's
+# Condition:Moving (ConfigOptions 133, "Are you always moving?") is what every "while moving" line reads (ModCache:
+# "N% increased Attack Damage / Evasion Rating / Mana Regeneration Rate / Accuracy Rating ... while moving", Condition
+# var "Moving"), and nothing of ours set it (checked by COV40 and the manager: no conditionMoving / Condition:Moving in
+# builder/ or engine/), so all of them counted 0: an UNDERCOUNT of the gains and an OVERCOUNT where the line is a
+# drawback (Spray and Pray, slow_mitigation15: attack_damage_+%_while_moving with accuracy_rating_+%_while_moving -20 and a
+# smaller movement penalty while performing actions, PassiveSkills 26650308). In PoE2 a player can walk while using skills
+# (at a movement-speed penalty: "Movement Speed Penalty from using Skills while moving", which PoB parses unconditionally),
+# so moving is the player's play: a build that takes "while moving" lines walks while it attacks or casts, all fight, if
+# that scores better (Search's choice, conditions.moving: the full score, defence floors included, as choose_stationary
+# does), and then it isn't standing still; choose_stationary's "moving scored better" means the same play. Otherwise the
+# box is off: the player stands while using skills, and its dodge rolls (Search.rolling_share) are moving time with no hits
+# in them, so the damage and Accuracy lines lose nothing there; the time-based ones (Evasion, regeneration) during rolls
+# aren't counted (an undercount, LOW). The penalty to movement speed isn't scored (no number of ours reads it).
+# PoB's own second source, "You and Enemies in your Presence count as Moving while affected by Elemental Ailments"
+# (ModParser 2494-2497: Condition:Moving under your own Frozen / Chilled / Shocked / Ignited conditions, and the same on
+# the enemy), is PoB's: it switches on with the self-ailment boxes the resolver sets (conditionIgnited, conditionShocked,
+# ...), so it needs nothing here.
+MOVING_LINE = re.compile(r"\bwhile moving\b", re.I)
+MOVING_NOT = re.compile(r"movement speed penalty", re.I)  # (parsed without the condition: no reason to move)
+
+
+def moving_candidates(texts: list[str]) -> bool:
+    """Whether walking while using skills is worth a trial for this build: it has a "while moving" line PoB reads under
+    Condition:Moving (the note above)."""
+    return any(MOVING_LINE.search(t) and not MOVING_NOT.search(t) for t in texts)
+
+
+def _moving(lines: list[str], stats: dict) -> tuple[object, str]:
+    if not moving_candidates(lines):
+        return 0.0, ""
+    if stats.get("_moving") or stats.get("_stationary_off") == "moving scored better":
+        return True, ("walk while attacking or casting, all fight (a play choice the search keeps while it scores better, "
+                      "defence floors included; without it: standing while using skills, these lines off)")
+    rolling = number(stats.get("_rolling"))
+    return 0.0, ("standing while using skills scores better (the search's choice)"
+                 + (f"; the dodge rolls ({rolling:.0%} of the fight) move you but carry no hits: the time-based "
+                    "'while moving' lines during them aren't counted (LOW)" if rolling else ""))
+
+
 LOW_LIFE_LINE = re.compile(r"low life", re.I)  # (the player's own Low Life lines match too: the boss's then changes nothing)
 LOW_LIFE_SHARE = 0.35  # "A player or monster is on Low Life if it has 35% of its Maximum Life or less" (KeywordPopups)
 
@@ -856,8 +897,8 @@ LOW_LIFE_SHARE = 0.35  # "A player or monster is on Low Life if it has 35% of it
 def _standing_still(lines: list[str], stats: dict) -> tuple[float, str]:
     """On for a build with a stationary line, unless Search.choose_stationary switched it off (its dodge rolls, or moving
     scored better): a real trial of a new stationary line sees its gain."""
-    if stats.get("_stationary_off") or not any(STATIONARY_LINE.search(t) for t in lines):
-        return 0.0, ""
+    if stats.get("_stationary_off") or stats.get("_moving") or not any(STATIONARY_LINE.search(t) for t in lines):
+        return 0.0, ""  # (MECH86: a build walking while it uses skills isn't standing still)
     rolling = number(stats.get("_rolling"))
     return True, ("stand still while attacking or casting (the build has stationary lines; a play-style choice, kept while "
                   "it scores better than moving, sustain and defence floors included)"
@@ -5577,6 +5618,26 @@ def _on_own_ground(kind: str):
     return value
 
 
+# PoB's check boxes (MECH86; found while modelling conditionMoving, probe POE2T4072). The resolver writes a value
+# function's (0.0, reason) as the number 0, and bridge.setConfig stores it as given; PoB's ConfigTab applies a check
+# box whenever its input is truthy (ConfigTab.lua 1179-1181: `if input[varData.var] then varData.apply(true, ...)`), and
+# 0 is truthy in Lua, so every such "0 with a reason" switched its box ON: an OVERCOUNT for every check box a value
+# function rated 0 with a note (and an overcount of drawbacks' cost the other way). PoB's count options apply only when
+# not 0 (1184), so they were fine; its list options use 0 as a real value ("None", Gamblesprint 0%), so only the check
+# boxes, read from ConfigOptions.lua, are turned off by a 0.
+_CHECK_VARS: frozenset[str] | None = None
+
+
+def pob_check_vars() -> frozenset[str]:
+    """The var names of PoB's type "check" Configuration options (vendor ConfigOptions.lua; read once)."""
+    global _CHECK_VARS
+    if _CHECK_VARS is None:
+        path = pathlib.Path(__file__).resolve().parents[2] / "vendor" / "PathOfBuilding-PoE2" / "src" / "Modules" / "ConfigOptions.lua"
+        text = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+        _CHECK_VARS = frozenset(re.findall(r'\bvar = "(\w+)", type = "check"', text))
+    return _CHECK_VARS
+
+
 FREEZE_SHARE_INPUT = "mechFreezeShare"  # (the bridge's boss action speed: Freeze as a stop for this share; MECH55)
 
 
@@ -6086,6 +6147,7 @@ CONDITIONS: list[Condition] = [
     Condition("enemyDistance", "Boss distance (play-style assumption; 10 units a metre)", value_fn=_boss_distance,
               fields=("PresenceRadius",)),
     Condition("conditionStationary", "Standing still (play-style choice)", value_fn=_standing_still, fields=()),
+    Condition("conditionMoving", "Moving while using skills (play-style choice; MECH86)", value_fn=_moving, fields=()),
     Condition("conditionHitMeleeRecently", "Melee hit recently (a melee main skill)", main_types=("Melee",)),
     Condition("conditionAtCloseRange", "Enemy at close range (a melee main skill)", main_types=("Melee",)),
     *(Condition(var, label, value_fn=debuff_uptime(var),
@@ -6199,6 +6261,7 @@ class Conditions:
         self.distance: tuple[float, str] | None = None  # (metres, why) chosen by score (Search.choose_distance)
         self.parry_plan: models.ParryPlan | None = None  # the last evidence round's Parry plan (the play guide's rows)
         self.stationary_off: str | None = None  # why a build with stationary lines doesn't stand still (choose_stationary)
+        self.moving = False  # (MECH86) the build walks while using skills, all fight (the search's choice, moving_candidates)
         self.rolling = 0.0  # share of the fight spent dodge rolling (Search.rolling_share)
         self.found_uptimes: dict[str, float] = {}  # var -> share of the fight, from the last evidence
         self.uptimes: dict[str, float] = {}  # the active ones up for only part of it (Search.weigh_uptimes)
@@ -7081,7 +7144,7 @@ class Conditions:
                  "_main_channel_rage": self.main_skill in RAGE_PER_SECOND, "_main_types": main_types, "_main_skill": self.main_skill, "_distance_choice": self.distance,
                  "_weapon_types": [o.type for slot in ("Weapon 1", "Weapon 2")
                                    if (o := (getattr(self.build, "equipped", None) or {}).get(slot)) is not None],
-                 "_stationary_off": self.stationary_off, "_rolling": self.rolling,
+                 "_stationary_off": self.stationary_off, "_rolling": self.rolling, "_moving": self.moving,
                  "_curse_uses": curse_uses(self.build, stats, texts, (self.distance or (natural_distance(main_types, self.main_skill), ""))[0])
                  if any("AppliesCurse" in types for types in gem_types.values())
                  or any(models.CURSE_ON_HIT.search(t) for t in texts) else []}
@@ -7206,7 +7269,8 @@ class Conditions:
         stats["_debuff_extra"] = ({"conditionEnemyIntimidated": (
             1 - math.prod(1 - min(max(u, 0.0), 1.0) for u, _ in intimidated), "; ".join(h for _, h in intimidated))}
             if intimidated else {})
-        stats["_stationary"] = not self.stationary_off and any(STATIONARY_LINE.search(t) for t in texts)
+        stats["_stationary"] = (not self.stationary_off and not self.moving
+                                and any(STATIONARY_LINE.search(t) for t in texts))
         # (MECH67) the boss's Power with the build's Power lines (models.boss_power): Glory, the roar's Empowers
         stats["_boss_power"] = models.boss_power(texts, stats, _boss_distance(texts, stats)[0], "Attack" in main_types,
                                                  self.main_skill)
@@ -7526,6 +7590,9 @@ class Conditions:
         changes: dict[str, object] = {}
         for condition in CONDITIONS:
             want = found.get(condition.var)
+            if (want is not None and not isinstance(want[0], bool) and isinstance(want[0], (int, float))
+                    and want[0] <= 0 and condition.var in pob_check_vars()):
+                want = (False, want[1])  # (MECH86: a 0 on a PoB check box is off, not Lua's truthy 0; pob_check_vars)
             if want is not None and want[0] is False:
                 # explicitly off (charges whose sources a boss fight doesn't feed): switch it off and don't list it as on
                 self.off_reasons = getattr(self, "off_reasons", {})

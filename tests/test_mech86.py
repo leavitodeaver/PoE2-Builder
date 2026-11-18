@@ -145,3 +145,51 @@ def test_the_empowered_buildup_lines_hand_pob_lines_it_parses(engine):
                                                "20% increased Freeze Buildup with Empowered Attacks"])["results"]
     print("PROBE empowered buildup", results)
     assert [r["supported"] for r in results] == [True, True, False, False]
+
+
+# Moving: PoB's conditionMoving from the player's play (walking while using skills, the search's choice) --------------
+
+SPRAY = ["12% increased Attack Damage while moving", "20% reduced Accuracy Rating while moving",
+         "30% less Movement Speed Penalty from using Skills while moving"]
+
+
+def test_moving_is_the_players_choice_and_never_with_standing_still():
+    assert conditions.moving_candidates(SPRAY)
+    assert not conditions.moving_candidates(["15% reduced Movement Speed Penalty from using Skills while moving"])
+    assert conditions._moving(SPRAY, {}) [0] == 0.0  # (not chosen: standing while using skills)
+    on = conditions._moving(SPRAY, {"_moving": True})
+    assert on[0] is True and "without it" in on[1]
+    assert conditions._moving(SPRAY, {"_stationary_off": "moving scored better"})[0] is True
+    assert "dodge rolls (30%" in conditions._moving(SPRAY, {"_rolling": 0.3})[1]
+    assert conditions._moving(["10% increased Spell Damage"], {"_moving": True}) == (0.0, "")
+    still = ["20% increased Damage while Stationary"]
+    assert conditions._standing_still(still, {})[0] is True
+    assert conditions._standing_still(still, {"_moving": True}) == (0.0, "")  # (walking: not standing still)
+
+
+def test_moving_switches_pobs_while_moving_lines_on_a_real_build(engine):
+    """Probe (before / after): Spray and Pray (23736: 12% increased Attack Damage and 20% reduced Accuracy while moving).
+    Before, nothing set PoB's conditionMoving: both lines counted 0; walking while attacking (the search's choice) turns
+    them on: Accuracy falls, and the box is off again when the build stands."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Lightning Arrow", ascendancies=["Deadeye"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Lightning Arrow"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.call("allocate", add=[23736], fields=[])
+    search.settle()
+    standing = (bool(build.call("getConfig")["input"].get("conditionMoving")), build.call("stats", fields=["MainHand.Accuracy", "HitChance"]))
+    search.conditions.moving = True
+    search.settle()
+    walking = (bool(build.call("getConfig")["input"].get("conditionMoving")), build.call("stats", fields=["MainHand.Accuracy", "HitChance"]))
+    search.conditions.moving = False
+    search.settle()
+    back = bool(build.call("getConfig")["input"].get("conditionMoving"))
+    print("PROBE moving", standing, walking, back)
+    assert not standing[0] and walking[0] and not back
+    assert walking[1]["MainHand.Accuracy"] < standing[1]["MainHand.Accuracy"]

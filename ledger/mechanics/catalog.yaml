@@ -247,7 +247,7 @@
   game_source: https://poe2db.tw/us/Keywords
   pob: config-only
   pob_check: "conditionStationary is a time count, conditionMoving a box."
-  handling: "Both left off: their lines count 0."
+  handling: "Both left off: their lines count 0. MECH86 (18 Nov): PoB's conditionMoving ('while moving' lines: Attack Damage, Evasion, regeneration, Spray and Pray's Accuracy drawback), which nothing set, is now the player's play: walking while using skills all fight when the search finds it scores better (Conditions.moving; the scored trial is SEARCH's), then not standing still; otherwise off (dodge rolls carry no hits). PoB's 'count as Moving while affected by Elemental Ailments' follows the self-ailment boxes. Also: a check box a value function rated 0 with a reason is now off (PoB applied the Lua-truthy 0 as on: Heavy Stunned / Frozen / Immobilised on most builds, an OVERCOUNT)."
   plan: {approach: labelled assumption, how: "A share of the fight standing still (casters and totems more, melee less) scales the lines: add each line at that share as an unconditional correction.", inputs: [main skill type]}
   what_if: visible
   guide_note: "Assumed stationary X% of the fight (casting) and moving Y%."

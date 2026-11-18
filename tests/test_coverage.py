@@ -483,8 +483,11 @@ def test_a_never_on_line_a_model_reads_is_counted_and_one_nothing_reads_stays_op
     assert onslaught and all(r["status"] == "model" for r in onslaught)
     melee = [r for line, r in never.items() if "increased Melee Damage if you've dealt a Projectile Attack Hit" in line]
     assert melee and all(r["status"] == "model" for r in melee)
-    moving = [r for line, r in never.items() if line.endswith("increased Mana Regeneration Rate while moving")]
-    assert moving and all(r["status"] == "none" for r in moving)
+    # (MECH86: the "while moving" lines this case used left the never-on list once conditions.conditionMoving set
+    # PoB's box; another never-on line nothing reads stands in)
+    open_ = [r for line, r in never.items() if line.endswith("increased Cast Speed while on Full Mana")]
+    assert open_ and all(r["status"] == "none" for r in open_)
+    assert not [line for line in never if line.endswith("increased Mana Regeneration Rate while moving")]
 
 
 def test_a_line_pobs_item_code_reads_is_pobs():
