@@ -6059,6 +6059,55 @@ STUNNED_ENEMY_RECENTLY = re.compile(r"\bstunned an enemy\b[^.]*\brecently\b", re
 STUN_FIELDS = (*models.IMMOBILISE_FIELDS, "Flag:CannotStun")  # (light_stun_rate reads the hit / crit averages too)
 
 
+# "if you've dealt a Non-Critical Hit Recently" (MECH86; the manager's 22:55 routing of COV40's row, 13.4: PoB's
+# Condition:NonCritRecently, ModParser 1947, ConfigOptions 1167's box, which nothing set: an UNDERCOUNT of e.g. "N%
+# increased Critical Damage Bonus if you've dealt a Non-Critical Hit Recently"). From the main skill's hits that land
+# (Speed x HitChance) and its crit chance c: the share of the fight with at least one non-critical hit in the last 4 s
+# (KeywordPopups Recently), 1 - c^(4 x hits), hits taken as random in time. A main skill that always crits (c = 100%)
+# never deals one: off. Other skills' hits aren't read (an undercount, LOW).
+NON_CRIT_RECENTLY = re.compile(r"\bnon-critical hit recently\b", re.I)
+
+
+def _non_crit_recently(lines: list[str], stats: dict) -> tuple[object, str]:
+    if not any(NON_CRIT_RECENTLY.search(t) for t in lines):
+        return 0.0, ""
+    crit = min(max(number(stats.get("CritChance")), 0.0), 100.0) / 100.0
+    hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) / 100.0 if "HitChance" in stats else 1.0)
+    if hits <= 0:
+        return 0.0, "the main skill doesn't hit: no Non-Critical Hits"
+    if crit >= 1.0:
+        return 0.0, "the main skill always crits: no Non-Critical Hits (without crits it would be on)"
+    up = 1.0 - crit ** (RECENTLY * hits)
+    return _box(up, f"{hits:.2f} hits a second, {1 - crit:.0%} of them non-critical: one in the last {RECENTLY:g} s "
+                    f"{up:.0%} of the fight ({shared(up)}; hits taken as random in time)")
+
+
+# "if you've gained a Power Charge Recently" (MECH86; the manager's 22:55 routing of COV40's row, 12.0: PoB's
+# Condition:GainedPowerChargeRecently, ConfigOptions 1316's box, which nothing set: an UNDERCOUNT). From the build's own
+# Power Charge gains a second (the charge model's _charge_rate over every line, MECH-C's: the boss's events, crits,
+# kills, uses), each gain an event (MEDIUM: whether a gain at the maximum, which only refreshes them, counts as
+# "gained" is UNVERIFIED; taken to count, as the game refreshes the charges then), at random in time: the share of the
+# fight with one in the last 4 s (KeywordPopups Recently), 1 - e^(-4 x gains). No source: off.
+GAINED_POWER_RECENTLY = re.compile(r"\bgained a power charge recently\b", re.I)
+GAINED_CHARGE_CONDITION = re.compile(r"\b(?:you've|you have|you haven't|you have not)\s+gained an? \w+ charge\b", re.I)
+
+
+def _gained_power_recently(lines: list[str], stats: dict) -> tuple[object, str]:
+    if not any(GAINED_POWER_RECENTLY.search(t) for t in lines):
+        return 0.0, ""
+    # (MECH87) a line conditioned on a gain ("... if you've / you haven't gained a Power Charge Recently") is no source:
+    # _charge_rate reads its "gained a Power Charge" as one at a guessed one per 4 s (routed to MECH-C as an overcount)
+    rates = [(t, r) for t in lines
+             if not GAINED_CHARGE_CONDITION.search(t) and (r := _charge_rate(t, "Power", stats)) is not None]
+    gains = sum(r[0] for _, r in rates)
+    if gains <= 0:
+        return 0.0, "no Power Charge source a boss fight feeds (without one: off)"
+    up = 1.0 - math.exp(-RECENTLY * gains)
+    how = "; ".join(f"{t[:50]} ({r[1]})" for t, r in rates[:3])
+    return _box(up, f"{gains:.2f} Power Charge gains a second ({how}): one in the last {RECENTLY:g} s {up:.0%} of the "
+                    f"fight ({shared(up)}; gains taken as random in time, a gain at the maximum counted, MEDIUM)")
+
+
 def _stunned_enemy_recently(lines: list[str], stats: dict) -> tuple[object, str]:
     if not any(STUNNED_ENEMY_RECENTLY.search(t) for t in lines):
         return 0.0, ""
@@ -6173,6 +6222,8 @@ CONDITIONS: list[Condition] = [
     Condition("conditionSkillCritRecently", "Skills crit recently",
               stat=lambda s: _uptime({"CritRecently": s.get("CritChance"), "Speed": s.get("Speed")}, "CritRecently"),
               fields=("CritChance", "Speed")),
+    Condition("conditionNonCritRecently", "Dealt a Non-Critical Hit recently (MECH86: the main skill's hits)",
+              value_fn=_non_crit_recently, fields=("CritChance", "Speed", "HitChance")),
     Condition("conditionEnemyShocked", "Shocked", stat=lambda s: shock_share(s) >= MIN_UPTIME, uptime_fn=shock_share,
               fields=("ShockChancePerHit", "Speed", "HitChance", "ShockDuration", "CritChance")),
     Condition("conditionShockEffect", "Shock from your Shocked Ground", value_fn=_ground_shock_effect, fields=()),
@@ -6274,6 +6325,10 @@ CONDITIONS: list[Condition] = [
               fields=("EnergyShield",)),
     # Grinning Immolation (Infernalist): "Become Ignited when you deal a Critical Hit": with crits landing you stay Ignited,
     # so every "while Ignited" line of the build counts (its self-damage is a drain outside the checked defences)
+    Condition("conditionGainedPowerChargeRecently", "Gained a Power Charge recently (MECH86: the build's gains)",
+              value_fn=_gained_power_recently,
+              fields=("Speed", "CritChance", "PowerChargesMax", "PowerChargesDuration", *CHARGE_EVENT_FIELDS,
+                      *models.IMMOBILISE_FIELDS)),
     Condition("overridePowerCharges", "Power Charges held", value_fn=_charges_held("Power"),
               fields=("Speed", "CritChance", "PowerChargesMax", "PowerChargesDuration", *CHARGE_EVENT_FIELDS, *models.IMMOBILISE_FIELDS)),
     Condition("overrideFrenzyCharges", "Frenzy Charges held", value_fn=_charges_held("Frenzy"),
