@@ -6218,3 +6218,26 @@ def test_umbilicus_immortalis_stops_minion_pact_kills_while_the_life_flask_is_up
     rate, how = models.minion_deaths([zombies, sacrifice, detonate], detonate,
                                      {"Speed": 2.0, models.MINION_DEATHLESS_STAT: (0.4, "the line")})
     assert rate == pytest.approx(base) and "taken not to stop Sacrifice" in how and "x0.60" in how
+
+
+def test_lust_for_sacrifice_counts_with_two_different_offerings_up():
+    """MECHB39 (an UNDERCOUNT before: PoB leaves the line part-parsed, 0): "50% increased Minion Damage while you have at
+    least two different active Offerings" counts with two different Offering skills and two Persistent Skeletons, times
+    each one's Danse Macabre share; one Offering or too few Skeletons: 0 with the reason."""
+    text = ["50% increased Minion Damage while you have at least two different active Offerings"]
+    bones = models.Skill("Summon Skeletal Warriors", group=1,
+                         summon={"limit": 4, "duration": 0, "persistent": True, "skeleton": True})
+    pain = models.Skill("Pain Offering", group=2, spell=True)
+    soul = models.Skill("Soul Offering", group=3, spell=True)
+    assert models.lust_for_sacrifice_model(["+10 to Strength"], [bones, pain, soul], {}) == ([], [])
+    mods, notes = models.lust_for_sacrifice_model(text, [bones, pain], {})
+    assert mods == [] and notes[0]["value"] == "+0%" and "two different ones are needed" in notes[0]["basis"]
+    one = replace(bones, summon={**bones.summon, "limit": 1})
+    mods, notes = models.lust_for_sacrifice_model(text, [one, pain, soul], {})
+    assert mods == [] and "1 Persistent Skeleton to skewer" in notes[0]["basis"]
+    mods, notes = models.lust_for_sacrifice_model(text, [bones, pain, soul], {})
+    assert mods == [models.line("Minions deal 1% increased Damage", 50.0)] and notes[0]["confidence"] == "MEDIUM"
+    # Danse Macabre on Pain Offering: 4 Skeletons, 2 casts of 2 every 6 s, revive 7.5 s: up 12 of 13.5 s
+    mods, notes = models.lust_for_sacrifice_model(text, [bones, pain, soul], {2: [models.DANSE_MACABRE]})
+    assert mods == [models.line("Minions deal 1% increased Damage", 50.0 * 12 / 13.5)]
+    assert notes[0]["confidence"] == "MEDIUM-LOW" and "Pain Offering with Danse Macabre" in notes[0]["basis"]

@@ -2328,6 +2328,8 @@ class Assumptions:
                 models.number(stats.get(bosses.KILLS_STAT)), None, None, None, 1.0)[1]
         danse_mods, danse_notes = models.danse_macabre_model(found, supports)  # (MECH-B: Danse Macabre's second skeleton)
         hand_mods, hand_notes = hand_mods + danse_mods, hand_notes + danse_notes
+        lust_mods, lust_notes = models.lust_for_sacrifice_model(texts, found, supports)  # (MECHB39: Lust for Sacrifice)
+        hand_mods, hand_notes = hand_mods + lust_mods, hand_notes + lust_notes
         hand_notes = hand_notes + models.offering_placement_notes(found)  # (MECHB35: R26-38, labelled by placement)
         warcries = {s.name for s in found if "Warcry" in ((build.ctx.gems.get(s.name) or {}).get("skillTypes") or [])}
         if warcries:  # (MECH-B: Echoing Cry's Echoes; COV-E's support_part_scale "warcry_echo")

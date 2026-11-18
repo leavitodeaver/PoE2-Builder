@@ -16,3 +16,17 @@
     in the note).
   sources: [builder/search/models.py (MINION_DEATHLESS, minion_deathless, minion_deaths), builder/search/assumptions.py (minion_deathless)]
   status: proposed
+
+- id: model-read-lust-for-sacrifice-two-offerings
+  title: '"N% increased Minion Damage while you have at least two different active Offerings" (Lust for Sacrifice; models.lust_for_sacrifice_model)'
+  kind: pob_gap
+  model: lust_for_sacrifice
+  match: '^(\d+(?:\.\d+)?)% increased Minion Damage while you have at least two different active Offerings$'
+  replace: []
+  confidence: theory
+  notes: >-
+    PoB reads it as a minion modifier with leftover text and never applies it (0, an UNDERCOUNT). Counted with two or
+    more different Offering skills and two Persistent Skeletons to skewer, both up as PoB keeps each Offering up, times
+    each one's Danse Macabre share (danse_share); else 0 with the reason. "Minions deal N% increased Damage".
+  sources: [builder/search/models.py (LUST_FOR_SACRIFICE, lust_for_sacrifice_model)]
+  status: proposed

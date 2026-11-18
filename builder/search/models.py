@@ -14110,6 +14110,19 @@ OFFERING_SECONDS = {"Bone Offering": 8.0, "Pain Offering": 6.0, "Soul Offering":
 DANSE_MACABRE = "Danse Macabre"
 
 
+def danse_share(every: float, skeletons: list[Skill], count: int, revive: float, how: str) -> tuple[float, str]:
+    """(share of the fight a Danse Macabre Offering kept up every `every` s finds its 2 skeletons, why; see above)."""
+    casts = count // 2
+    if casts <= 0:
+        return 0.0, (f"the build has {count} skeleton{'s' if count != 1 else ''}: each cast needs 2, so no cast gets "
+                     "damage or Buff effect")
+    cycle = max(casts * every, (casts - 1) * every + revive)
+    return casts * every / cycle, (
+        f"{count} skeletons ({', '.join(s.name for s in skeletons)}): {casts} cast{'s' if casts > 1 else ''} of 2 each, "
+        f"one every {every:g} s (its base spike duration), then they revive {revive:.3g} s after the last ({how}): up "
+        f"{casts * every:g} s of every {cycle:.3g} s")
+
+
 def danse_macabre_model(skills: list[Skill], supports: dict[int, list[str]] | None) -> tuple[list[dict], list[dict]]:
     """Danse Macabre's Offerings count only the share of the fight the build's skeletons let them keep up (see above)."""
     offerings = [s for s in skills if s.name in OFFERING_SECONDS and s.group is not None
@@ -14122,17 +14135,7 @@ def danse_macabre_model(skills: list[Skill], supports: dict[int, list[str]] | No
     revive, how = revive_seconds(skeletons) if skeletons else (RESUMMON_SECONDS, "no skeletons")
     mods, notes = [], []
     for offering in offerings:
-        every = OFFERING_SECONDS[offering.name]
-        casts = count // 2
-        if casts <= 0:
-            share, why = 0.0, (f"the build has {count} skeleton{'s' if count != 1 else ''}: each cast needs 2, so no "
-                               "cast gets damage or Buff effect")
-        else:
-            cycle = max(casts * every, (casts - 1) * every + revive)
-            share = casts * every / cycle
-            why = (f"{count} skeletons ({', '.join(s.name for s in skeletons)}): {casts} cast{'s' if casts > 1 else ''} of 2 "
-                   f"each, one every {every:g} s (its base spike duration), then they revive {revive:.3g} s after the last "
-                   f"({how}): up {casts * every:g} s of every {cycle:.3g} s")
+        share, why = danse_share(OFFERING_SECONDS[offering.name], skeletons, count, revive, how)
         if share < 1:
             mods += [raw_mod("Damage", "MORE", -100 * (1 - share), skill=offering.name),
                      raw_mod("BuffEffect", "MORE", -100 * (1 - share), skill=offering.name)]
@@ -14176,6 +14179,64 @@ def offering_placement_notes(skills: list[Skill]) -> list[dict]:
                                "assumes it survives its duration; a spike killed early loses its buff (not counted)"),
                       "confidence": "LOW"})
     return notes
+
+
+# Lust for Sacrifice (MECHB39; the coverage ranking's section B, an UNDERCOUNT: 0 before). The notable's "50% increased
+# Minion Damage while you have at least two different active Offerings" (PassiveSkills corpses17, stat
+# minion_damage_+%_while_you_have_at_least_two_different_active_offerings): PoB's ModCache 4596 reads it as a MinionModifier
+# with leftover text ("   while you have at least two different active Offerings "), and PoB never applies a line parsed
+# only in part. (checked: game files 26650308, every Stats id holding "offering", their Mods, PassiveSkills and
+# GrantedEffectStatSets rows: Lust for Sacrifice is the one source of this stat; the player-damage twin
+# damage_+%_while_you_have_at_least_two_different_active_offerings has no source in those tables.) Counted when the build
+# has two or more different Offering skills (Bone / Pain / Soul Offering, OFFERING_SECONDS) and at least two Persistent
+# Skeletons for them to skewer (each Offering targets a Skeleton); then both are taken as up as PoB takes each Offering
+# (its whole duration, recast as it ends: a play strategy under the button cap), times each one's Danse Macabre share
+# when that support needs 2 Skeletons a cast (danse_share; both shares multiplied, as independent: MEDIUM-LOW). Not
+# counted: the boss killing a spike early (offering_placement_notes, LOW), two Offerings and Danse Macabre sharing the
+# same Skeletons beyond each one's own share (a possible small overcount, said), Unwilling Offering's cullable-enemy
+# targets (UNVERIFIED on a boss), Blood Offering (a unique's granted skill, DisplayGrantsBloodOfferingUnique__1_) as one of
+# the two (whether it is an Offering here is UNVERIFIED: an undercount if it is).
+LUST_FOR_SACRIFICE = re.compile(
+    r"^(\d+(?:\.\d+)?)% increased Minion Damage while you have at least two different active Offerings$", re.I)
+
+
+def lust_for_sacrifice_model(texts: list[str], skills: list[Skill], supports: dict[int, list[str]] | None
+                             ) -> tuple[list[dict], list[dict]]:
+    """Lust for Sacrifice's Minion Damage at the share of the fight two different Offerings are up (see above)."""
+    pct = sum(float(m.group(1)) for t in texts if (m := LUST_FOR_SACRIFICE.search(t.strip())))
+    if pct <= 0:
+        return [], []
+    offerings = {s.name: s for s in skills if s.name in OFFERING_SECONDS and s.group is not None}
+    skeletons = [s for s in skills if s.summon and s.summon.get("persistent") and is_skeleton(s)
+                 and not number(s.summon.get("duration"))]
+    count = int(sum(number(s.summon.get("limit")) for s in skeletons))
+    share, parts = 0.0, []
+    if len(offerings) < 2:
+        why = (f"the build has {len(offerings)} Offering skill{'s' if len(offerings) != 1 else ''} "
+               f"({', '.join(offerings) or 'none'}): two different ones are needed")
+    elif count < 2:
+        why = (f"two Offerings ({', '.join(offerings)}) but {count} Persistent Skeleton{'s' if count != 1 else ''} to "
+               "skewer: each Offering needs one, so both are never up together")
+    else:
+        revive, how = revive_seconds(skeletons)
+        share = 1.0
+        for name, s in offerings.items():
+            if DANSE_MACABRE in (supports or {}).get(s.group, []):
+                own, own_why = danse_share(OFFERING_SECONDS[name], skeletons, count, revive, how)
+                share *= own
+                parts.append(f"{name} with Danse Macabre up {own:.0%} ({own_why})")
+        why = (f"{', '.join(offerings)} kept up as PoB keeps each (recast as it ends), {count} Persistent Skeletons to "
+               "skewer" + (f"; {'; '.join(parts)} (taken as independent, MEDIUM-LOW)" if parts else ""))
+    gain = pct * share
+    note = {"label": "Lust for Sacrifice: Minion Damage with two different Offerings up*", "value": f"+{gain:.0f}%",
+            "confidence": "MEDIUM" if share in (0.0, 1.0) else "MEDIUM-LOW",
+            "basis": (f"{pct:g}% increased Minion Damage while two different Offerings are active, up {share:.0%} of the "
+                      f"fight: {why}. PoB reads the line with leftover text and never applies it (0 before). Not "
+                      "counted: the boss killing a spike early (LOW), Offerings sharing Skeletons beyond each one's own "
+                      "share (a possible small overcount), Blood Offering as one of the two (UNVERIFIED)"),
+            "play": (f"Keep two different Offerings up: without them +0%; with them +{gain:.0f}% Minion Damage"
+                     if gain > 0 else "Lust for Sacrifice needs two different Offerings up and Skeletons to skewer: +0%")}
+    return ([line("Minions deal 1% increased Damage", gain)] if gain > 0 else []), [note]
 
 
 # Frost Darts over one cast (MECHB35; MECHB33's finding, plans/term-explode.md D). ActiveSkills frost_darts: "Conjures a
