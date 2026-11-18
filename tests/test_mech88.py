@@ -103,3 +103,19 @@ def test_dark_and_abyssal_pact_rows_read_the_minions_life_and_count_only_if_a_ca
     assert f"{((21 + 40) / 2 + 0.15 * 2000) * 1.07:,.0f} a cast" in abyss["basis"]
     assert "UNDERCOUNT" in models.pact_model("Dark Pact", 20, {"Brute": 4000.0}, 0.0, 100.0)[0]["basis"]
     assert models.PACT_LEVEL.search("Grants Skill: Level 17 Dark Pact").group(1) == "17"
+
+
+def test_a_zero_use_skills_ailment_leaves_pobs_best_ailment_row():
+    rows = [{"name": "Best Poison DPS", "dps": 2000.0, "source": "Decompose"},
+            {"name": "Best Ignite DPS", "dps": 16000.0, "source": "Transmutation Explosion"},
+            {"name": "Best Bleed DPS", "dps": 500.0, "source": "Decompose: Second Part"}]
+    rates = [{"name": "Decompose", "PoisonDPS": 2000.0, "BleedDPS": 500.0},
+             {"name": "Transmutation Explosion", "IgniteDPS": 16000.0, "PoisonDPS": 600.0}]
+    scales, notes = models.zero_use_ailment_scales(rows, {"Decompose"}, rates)
+    assert scales == {"Best Poison DPS from Decompose": pytest.approx(0.3),  # (the next best, Transmutation's 600)
+                      "Best Bleed DPS from Decompose: Second Part": 0.0}  # (no other Bleed source)
+    assert "Transmutation Explosion's 600" in notes[0]["basis"]
+    # a row press_model already scales stays as it is; a used skill's row is untouched
+    assert models.zero_use_ailment_scales(rows, {"Decompose"}, rates, {"Best Poison DPS from Decompose": 0.5})[0] == {
+        "Best Bleed DPS from Decompose: Second Part": 0.0}
+    assert models.zero_use_ailment_scales(rows, set(), rates) == ({}, [])

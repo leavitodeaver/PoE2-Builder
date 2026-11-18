@@ -2407,6 +2407,12 @@ function bridge.characterRunes()
 				names[#names + 1] = { name = rune.name, limit = rune.limit, level = rune.req }
 			end
 		end
+		-- (MECH88: the slot's list comes in an order that changes between processes, which went stale in recordings,
+		-- POE2T4124: sorted by name, then level, for a steady answer; nothing reads a position in it)
+		table.sort(names, function(a, b)
+			if a.name ~= b.name then return tostring(a.name) < tostring(b.name) end
+			return (tonumber(a.level) or 0) < (tonumber(b.level) or 0)
+		end)
 		slots[#slots + 1] = { slot = slotName, rune = (slot:GetSelValue() or { }).name or "None", runes = names }
 	end
 	return { active = active, slots = slots }
@@ -3975,7 +3981,10 @@ function bridge.useRates(args)
 					"HitChance", "CritChance", "IgniteDuration",
 					"PhysicalStoredCombinedAvg", "PhysicalStoredHitAvg", "IgniteDPS", "IgniteChancePerHit",
 					"ShockChancePerHit", "LedgerImpaleChance", "LedgerImpaleChanceCrit", "LedgerImpaleEffect",
-					"LedgerImpaleCount", "LedgerImpaleExtract", "AverageHit", "TotalDPS" }) do
+					"LedgerImpaleCount", "LedgerImpaleExtract", "AverageHit", "TotalDPS",
+					-- (MECH88: each group's own ailment DPS, for the "Best <ailment> DPS" row when its source is used 0 times a
+					-- second: Assumptions.zero_use_ailments takes the next-best group's)
+					"PoisonDPS", "BleedDPS", "CorruptingBloodDPS", "BurningGroundDPS", "CausticGroundDPS" }) do
 				if type(output[field]) == "number" then
 					entry[field] = jsonNumber(output[field])
 				end
@@ -6220,12 +6229,48 @@ function bridge.cursesInflicted()
 	return { curses = out }
 end
 
+-- (MECH88; SEARCH27's ReplayMismatch flake, the manager 11:35) PoB's Item:BuildRaw writes an item's base-variant lines by
+-- iterating pairs(self.baseLines) (Classes/Item.lua 2034 / 2064), so their order changes between processes and recorded
+-- answers go stale. The bridge's copy sorts each run of consecutive base-variant lines (a line naming one of the item's
+-- baseLines after its "{...}" prefixes); item.raw itself, what PoB parses, is left as it is.
+local function steadyRaw(item)
+	local raw = item.raw
+	if type(raw) ~= "string" or not next(item.baseLines or { }) then
+		return raw
+	end
+	local lines, run, out = { }, { }, { }
+	for text in (raw .. "\n"):gmatch("(.-)\r?\n") do
+		lines[#lines + 1] = text
+	end
+	local function flush()
+		table.sort(run)
+		for _, text in ipairs(run) do
+			out[#out + 1] = text
+		end
+		run = { }
+	end
+	for _, text in ipairs(lines) do
+		local bare = text:gsub("^%b{}", ""):gsub("^%b{}", ""):gsub("^%b{}", "")
+		if item.baseLines[bare] and bare ~= text then
+			run[#run + 1] = text
+		else
+			flush()
+			out[#out + 1] = text
+		end
+	end
+	flush()
+	if out[#out] == "" and raw:sub(-1) ~= "\n" then
+		out[#out] = nil
+	end
+	return table.concat(out, "\n")
+end
+
 function bridge.equipped()
 	local slots = { }
 	for name, slot in pairs(build.itemsTab.slots) do
 		local item = slot.selItemId and build.itemsTab.items[slot.selItemId]
 		if item then
-			slots[name] = item.raw
+			slots[name] = steadyRaw(item)
 		end
 	end
 	return { slots = slots }

@@ -3605,12 +3605,37 @@ class Assumptions:
         mods, notes = mods + panther_mods, notes + panther_notes
         frost_mods, frost_notes = self.frostflame(main, skills)  # (MECH-B: Frostflame Nova's ice while Ignited, MECHB13)
         mods, notes = mods + frost_mods, notes + frost_notes
+        notes += self.zero_use_ailments(mods)  # (MECH88: a 0-use skill's ailment out of PoB's "Best <ailment> DPS"; last)
         # the boss the numbers are scored against (MECH50: bridge resetConfig sets its resistances; bosses.py)
         from builder.search import bosses
 
         from builder.search import boss_hits  # (MECHC6: how hard it hits, per damage type)
         boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         return mods, [bosses.note(boss), boss_hits.hits_note(boss)] + notes + condition_notes + self.unbuilt_grants(skills)  # (the boss first)
+
+    def zero_use_ailments(self, mods: list[dict]) -> list[dict]:
+        """MECH88 (models.zero_use_ailment_scales): a "Best <ailment> DPS" row whose source the models use 0 times a second
+        (a SkillData triggerRate of 0 in `mods`, or an entry_scales of 0) is scaled to the next-best Full DPS group's own
+        ailment DPS, on objective.press_scales (Full DPS only: that's where the row counts). Returns its notes."""
+        build = self.build
+        objective = getattr(build, "objective", None)
+        if objective is None or not getattr(objective, "full", False):
+            return []
+        zero = {str(m["skill"]) for m in mods if m.get("kind") == "SkillData" and m.get("key") == "triggerRate"
+                and m.get("skill") and models.number(m.get("value")) <= 0}
+        zero |= {name for name, v in (getattr(objective, "entry_scales", None) or {}).items()
+                 if models.number(v) <= 0 and " from " not in name}
+        if not zero:
+            return []
+        rows = build.call("stats", fields=["SkillDPS"]).get("SkillDPS") or []
+        best = [e for e in rows if e.get("name") in models.BEST_AILMENT_FIELDS and models.named(e.get("source"), zero)]
+        if not best:
+            return []
+        indices = [g["index"] for g in build.groups() if g.get("fullDPS") and g.get("enabled", True)]
+        rates = build.call("useRates", indices=indices)["rates"] if indices else []
+        scales, notes = models.zero_use_ailment_scales(best, zero, rates, objective.press_scales)
+        objective.press_scales.update(scales)
+        return notes
 
     def ward_paid(self, skills: list[dict], mods: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
         """Runic Ward pays for the Ward-cost skills (MECHB13, models.ward_plan): every Ward-cost skill the build uses

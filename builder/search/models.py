@@ -11991,6 +11991,51 @@ def press_key(name: str, source: str | None) -> str:
     return f"{name} from {source}" if source and source != name else name
 
 
+# A skill the models use 0 times a second still feeds PoB's "Best <ailment> DPS" (MECH88; SEARCH27's finding, the manager's
+# 11:35 routing: an OVERCOUNT). PoB's Full DPS takes each ailment's best single source over the Full DPS skills (Calcs.lua
+# mergeFullDPSPass, mode "max", the row's source = that skill) and works a skill's ailment out at its own stacks whatever
+# use rate a model hands it, so a skill a model sets to 0 uses (a SkillData triggerRate of 0: corpse_model's Decompose with
+# no corpses, a trigger with no Energy ...; or an entry_scales of 0) can still be the best Poison / Ignite / Bleed source:
+# s25-pick's 2b75b build, the Acrid Wand's Decompose at 0 uses, Best Poison DPS 2,144, +8.7% (SEARCH27's POE2T4260).
+# Such a row is scaled to the best OTHER Full DPS group's own ailment DPS (the bridge's useRates: each group calculated
+# alone, as PoB's Full DPS does) over the row's, 0 when no other group deals it; pressed groups keep press_model's own
+# scales (theirs come first). The other groups' values are read at the resolve, as press_model's.
+BEST_AILMENT_FIELDS = {"Best Ignite DPS": "IgniteDPS", "Best Poison DPS": "PoisonDPS", "Best Bleed DPS": "BleedDPS",
+                       "Best Corr. Blood DPS": "CorruptingBloodDPS", "Best Burning Ground DPS": "BurningGroundDPS",
+                       "Best Caustic Ground DPS": "CausticGroundDPS"}
+
+
+def named(label: str | None, names: set[str]) -> bool:
+    """Whether a PoB label (a Full DPS source, a useRates row name) is one of `names` or a part of one ("<name>: <part>")."""
+    label = str(label or "")
+    return any(label == n or label.startswith(f"{n} ") or label.startswith(f"{n}:") for n in names)
+
+
+def zero_use_ailment_scales(skill_dps: list[dict], zero: set[str], rows: list[dict],
+                            taken: dict | None = None) -> tuple[dict[str, float], list[dict]]:
+    """({press_key: scale}, notes) for the "Best <ailment> DPS" rows whose source is used 0 times (see above); `rows` the
+    Full DPS groups' useRates rows, `taken` the scales already set (press_model's)."""
+    scales, notes = {}, []
+    for entry in skill_dps:
+        name, source = entry.get("name"), entry.get("source")
+        field = BEST_AILMENT_FIELDS.get(name)
+        key = press_key(name, source)
+        if field is None or not named(source, zero) or key in (taken or {}):
+            continue
+        current = number(entry.get("dps"))
+        others = [(number(r.get(field)), r.get("name")) for r in rows if not named(r.get("name"), zero)]
+        best, who = max(others, default=(0.0, None))
+        scale = min(best / current, 1.0) if current > 0 else 0.0
+        scales[key] = scale
+        notes.append({"label": f"{name}: not from {source}", "value": round(current * scale, 1),
+                      "basis": (f"PoB's best {field[:-3]} source is {source}, which the build uses 0 times a second (its "
+                                f"own model), so its {current:,.0f} doesn't count; "
+                                + (f"the next best, {who}'s {best:,.0f}, does instead" if best > 0 else
+                                   "no other Full DPS skill deals it: 0")),
+                      "confidence": "theory"})
+    return scales, notes
+
+
 # A pressed skill with no cooldown, no duration and nothing else setting its use (MECH55; THE USER, 12 Nov, card: "Search
 # picks the rate"): the search chooses how often it's pressed as a play strategy, its time charged against the main
 # skill (press_model's busy share), with a "without it" row in the play guide. SEARCH sets the choice on
