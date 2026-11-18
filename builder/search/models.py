@@ -5534,16 +5534,27 @@ def uhtred_rite_groups(skills: list[Skill]) -> set[int]:
 # TotalDPS, as DPS "more" / "less" on the skill. k = the maximum stages (3; Whirlwind Lance's Frenzy Charge stage not
 # counted: Frenzy Charges are MECH-C's, an undercount said). LOW: crossing the edge taken to cost no time (Whirling Slash
 # moves you with the slash; Whirlwind Lance needs a step into it); the boss inside the Whirlwind.
+# (GEM22) The stages now go to PoB as its own Multiplier:WhirlwindStageAfterFirst BASE k - 1 (the per-stage Damage more
+# and radius on the Whirlwind set, act_dex.lua 10664 / 10876, limit 2 / 3), as flameblast_model's stages, so PoB scores
+# the stage-k collapse's hit and the ailments it inflicts; the DPS line is then the cycle's rate alone. Before, PoB
+# scored a stage-1 collapse and a x2.34 DPS line carried the rest (probe POE2T3492, Whirling Slash + Bleed III): its
+# Bleed rose only x1.16 (one Bleed counts: PoB's stacks were capped, 2.99 -> 7.00), from a hit 4x smaller than the
+# collapse that inflicts it (an UNDERCOUNT of its Bleed / Ignite). With the stage-k collapse once a cycle of k uses
+# (3 / Speed s, under Bleed's 5 s and Ignite's 4 s at 0.75 uses a second or more), its Bleed / Ignite stays the
+# strongest one on the boss, as PoB reads a single counted Bleed / Ignite (maxStacks 1); Poison stacks follow the line
+# (k slash Poisons + one collapse Poison a cycle = the line x the collapse's).
 WHIRL_SKILLS = {"Whirling Slash": "Melee", "Whirlwind Lance": "Spear"}  # skill: its own hit's set (PoB's labels)
 WHIRL_SET = "Whirlwind"
 WHIRL_ENTRY = "model-gem12-whirlwind-stages"
 WHIRL_MORE_STAT, WHIRL_STAGES_STAT = "sandstorm_swipe_storm_damage_+%_final_per_stage", "sandstorm_swipe_max_stages"
 WHIRL_MORE, WHIRL_STAGES = 150.0, 3  # the base values (used when the gem's own aren't read)
+WHIRL_MULTIPLIER = "Multiplier:WhirlwindStageAfterFirst"  # (PoB's, from its whirlwindStages box; GEM22 sets it)
 
 
-def whirlwind_stage_model(main: Skill | None, sets: list[dict],
-                          forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
-    """Whirling Slash / Whirlwind Lance as k uses then one collapse at stage k (comment above). `sets`: setRates."""
+def whirlwind_stage_model(main: Skill | None, sets: list[dict], forbidden: set[str] = frozenset(),
+                          previous: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
+    """Whirling Slash / Whirlwind Lance as k uses then one collapse at stage k (comment above). `sets`: setRates;
+    `previous`: the mods of the pass `sets` were read under (Assumptions.mods: whether its stage multiplier is in)."""
     if main is None or main.name not in WHIRL_SKILLS or WHIRL_ENTRY in forbidden:
         return [], []
     rows = {s.get("label"): (number(s.get("TotalDPS")), number(s.get("Speed"))) for s in sets}
@@ -5556,20 +5567,30 @@ def whirlwind_stage_model(main: Skill | None, sets: list[dict],
     more = read if read >= WHIRL_MORE else WHIRL_MORE + read
     stages = int(number(main.level_stats.get(WHIRL_STAGES_STAT)) or WHIRL_STAGES)
     hit, speed = rows[own][0] / rows[own][1], rows[own][1]
-    collapse = rows[WHIRL_SET][0] / rows[WHIRL_SET][1]
-    cycle = stages * hit + collapse * (1 + more / 100 * (stages - 1))
+    staged = 1 + more / 100 * (stages - 1)
+    applied = any(m.get("name") == WHIRL_MULTIPLIER and m.get("skill") == main.name for m in previous or [])
+    # (the stage-k collapse's hit: PoB's own once its multiplier is in, mitigated by the boss's armour at its own size;
+    # before that, PoB's stage-1 hit x the stage more, a first pass the next one replaces: probe POE2T3498 read x7.05
+    # at stage 3 against x4.8 before armour, KeywordPopups Armour "more effective at reducing smaller hits")
+    collapse = rows[WHIRL_SET][0] / rows[WHIRL_SET][1] * (1.0 if applied else staged)
+    cycle = stages * hit + collapse
     average = cycle / (stages / speed)
-    factor = average / rows[scored][0]
+    # (the scored set as PoB scores it once the multiplier is in: the Whirlwind set at stage k)
+    pob = rows[scored][0] * (staged if scored == WHIRL_SET and not applied else 1.0)
+    factor = average / pob
     note = {"label": f"{main.name}: {stages} stages, then the Whirlwind collapses*", "value": f"x{factor:.3f}",
             "confidence": "LOW", "entry": WHIRL_ENTRY,
             "basis": (f"{stages} uses ({own} {hit:,.0f} each at {speed:.2f}/s) over one Whirlwind, then its collapse at "
-                      f"stage {stages}: {collapse:,.0f} x{1 + more / 100 * (stages - 1):.2f} ({more:g}% more a stage after "
-                      f"the first): {average:,.0f} DPS against PoB's {scored} set at every use ({rows[scored][0]:,.0f}; "
-                      "PoB's whirlwindStages is never set). LOW: crossing the edge costs no time; the boss inside it"
+                      f"stage {stages} ({more:g}% more a stage after the first, x{staged:.2f} before the boss's armour): "
+                      f"{collapse:,.0f} a collapse{' (PoB, armour in)' if applied else ' (first pass)'}: {average:,.0f} DPS against PoB's {scored} set at every use ({pob:,.0f}"
+                      + (f", its collapse at stage {stages}: PoB's Whirlwind stage multiplier set to {stages - 1}, so the "
+                         "collapse's Bleed / Ignite is the stage's" if scored == WHIRL_SET else "")
+                      + "). LOW: crossing the edge costs no time; the boss inside it"
                       + ("; the Frenzy Charge's extra stage not counted" if main.name == "Whirlwind Lance" else "")),
             "play": (f"Use {main.name} {stages} times on the same Whirlwind, then cross its edge to collapse it. "
-                     f"Collapsing every use: x{(hit + collapse) / rows[scored][0]:.3f}; {stages} stages first: x{factor:.3f}.")}
-    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], [note]
+                     f"PoB's {scored} set at every use: {pob:,.0f} DPS; {stages} stages first: {average:,.0f} DPS.")}
+    return [raw_mod(WHIRL_MULTIPLIER, "BASE", stages - 1, main.name),
+            raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], [note]
 
 
 # Ember Fusillade's Fusillade (GEM12; an OVERCOUNT for fast casters, an undercount with extra projectiles). act_int.lua

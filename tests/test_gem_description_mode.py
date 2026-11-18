@@ -475,8 +475,19 @@ def test_whirling_slash_builds_three_stages_then_collapses_once():
     slash = Skill("Whirling Slash", 1, attack=True, melee=True, stat_set="Whirlwind")
     average = (3 * 100 + 60 * (1 + 1.5 * 2)) / (3 / 2.0)  # 360 DPS
     mods, notes = models.whirlwind_stage_model(slash, sets)
-    assert [m["value"] for m in mods] == [pytest.approx(100 * (average / 120 - 1), abs=0.01)]
-    assert notes[0]["entry"] == models.WHIRL_ENTRY
+    # (GEM22: PoB's own stage multiplier at 2, so it scores the stage-3 collapse (120 x 4) and its ailments; the DPS line
+    # is the cycle's rate alone)
+    assert mods[0] == {**mods[0], "name": models.WHIRL_MULTIPLIER, "type": "BASE", "value": 2}
+    assert [m["value"] for m in mods[1:]] == [pytest.approx(100 * (average / (120 * 4) - 1), abs=0.01)]
+    assert notes[0]["entry"] == models.WHIRL_ENTRY and "360 DPS" in notes[0]["play"]
+    # (the next pass reads the sets with the multiplier in: the same line)
+    staged = [sets[0], {**sets[1], "TotalDPS": 480.0}]
+    again, _ = models.whirlwind_stage_model(slash, staged, previous=mods)
+    assert again[1]["value"] == pytest.approx(mods[1]["value"])
+    # (the slash's own set scored: the line against it, the multiplier still set for the Whirlwind set)
+    melee = Skill("Whirling Slash", 1, attack=True, melee=True, stat_set="Melee")
+    mods, _ = models.whirlwind_stage_model(melee, sets)
+    assert [m["value"] for m in mods] == [2, pytest.approx(100 * (average / 200 - 1), abs=0.01)]
     assert models.whirlwind_stage_model(Skill("Ice Strike", 1, stat_set="Melee"), sets) == ([], [])
 
 
@@ -486,7 +497,7 @@ def test_whirlwind_stage_more_read_as_quality_on_top_of_the_whirlwind_sets_150()
                   level_stats={models.WHIRL_MORE_STAT: 40})  # (the first set's levelStats: the quality part only)
     average = (3 * 100 + 60 * (1 + 1.9 * 2)) / (3 / 2.0)
     mods, _ = models.whirlwind_stage_model(slash, sets)
-    assert [m["value"] for m in mods] == [pytest.approx(100 * (average / 120 - 1), abs=0.01)]
+    assert [m["value"] for m in mods] == [2, pytest.approx(100 * (average / (120 * 4.8) - 1), abs=0.01)]
 
 
 def test_meteors_fall_at_the_games_rate_with_every_15th_large_and_walking_calamitys_uptime():

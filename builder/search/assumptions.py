@@ -2425,7 +2425,7 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + frost_mods, hand_notes + frost_notes
         if main is not None and group and main.name in models.WHIRL_SKILLS:  # (GEM12: Whirlwind stages, then collapse)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
-            whirl_mods, whirl_notes = models.whirlwind_stage_model(main, sets, forbidden)
+            whirl_mods, whirl_notes = models.whirlwind_stage_model(main, sets, forbidden, previous=self.mods)
             hand_mods, hand_notes = hand_mods + whirl_mods, hand_notes + whirl_notes
         if main is not None and group and main.name in models.METEOR_SKILLS:  # (GEM12: the meteors' rate and mix)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]

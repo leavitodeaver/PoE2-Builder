@@ -113,7 +113,9 @@
     (k - 1))), over k uses' time, against the kept set's TotalDPS (an UNDERCOUNT mostly; an OVERCOUNT of a collapse
     every use where PoB kept the Whirlwind set with a large collapse). LOW: crossing the edge costs no time; the boss
     inside; Whirlwind Lance's Frenzy Charge stage not counted (MECH-C's charges). The per-stage more: 150 + the quality part the bridge reads off the first stat set (probe POE2T2102: 40 at 20 quality). The radius per stage isn't needed
-    against one boss.
+    against one boss. GEM22: the model now sets PoB's own Multiplier:WhirlwindStageAfterFirst to k - 1, so PoB scores
+    the stage-k collapse's hit and the Bleed / Ignite / Poison it inflicts (before, a stage-1 collapse's, under a DPS
+    line that raised a capped Bleed only x1.16: probe POE2T3492, an UNDERCOUNT); the DPS line is the cycle's rate alone.
   sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_dex.lua (WhirlingSlashPlayer, WhirlwindLancePlayer)",
             "vendor/PathOfBuilding-PoE2/src/Modules/ConfigOptions.lua (whirlwindStages)", "KeywordPopups Whirlwind",
             "data/game-26476662/files/data/statdescriptions/skill_stat_descriptions.csd (sandstorm_swipe_storm_damage_+%_final_per_stage)",
