@@ -6901,8 +6901,8 @@ def supercharged_slam_model(main: Skill | None, scored: str | None, sets: list[d
 # Detonating Arrow's stages (GEM19). The game (26650308): ActiveSkills detonating_arrow "Channel to charge up before
 # firing off a burning arrow. At maximum stages, the arrow will create a Detonating explosion at the end of its flight";
 # DetonatingArrowPlayer detonating_arrow_max_number_of_stages 4, detonating_arrow_all_damage_%_to_gain_as_fire_per_stage
-# 120, channel_skill_end_animation_duration_multiplier_permyriad 2344 (taken as an end animation of 23.44% of the attack
-# time: MEDIUM-LOW). PoB (DetonatingArrowPlayer): the stage from its stage box (1; nothing sets it); the "Arrow" set gains
+# 120, channel_skill_end_animation_duration_multiplier_permyriad 2344 (an end animation of 23.44% of the attack time:
+# RESEARCH30 R30-2 (e), MEDIUM). PoB (DetonatingArrowPlayer): the stage from its stage box (1; nothing sets it); the "Arrow" set gains
 # 120% as Fire a stage, the "Explosion" set (DetonatingArrowExplosionPlayer) has no stage check, hit time = attack time x
 # stages, no end animation. So PoB scored the Explosion as if every release made one at a 1-stage channel (an
 # OVERCOUNT) or the Arrow at 1 stage. Here: stages s = the count dealing the most a second, (Arrow(s) + Explosion if s is
@@ -6961,7 +6961,7 @@ def detonating_arrow_model(main: Skill | None, scored: str | None, sets: list[di
                   f"box), the Explosion with no stage check, and no end animation. The game: {gain * 100:g}% gained as "
                   f"Fire a stage, the explosion only at the maximum {top} stages (its hit {ratio:.2f}x the Arrow's now, "
                   f"from PoB's two sets), {per:.2f} s a stage + an end animation of {end_share:.2%} of it ({end:.2f} s; "
-                  f"MEDIUM-LOW): {stages} stage{'s' if stages != 1 else ''} deal{'' if stages != 1 else 's'} the most a "
+                  f"RESEARCH30, MEDIUM): {stages} stage{'s' if stages != 1 else ''} deal{'' if stages != 1 else 's'} the most a "
                   "second" + ("; scored on the Explosion with none played, it's kept 10% under the Arrow so the search "
                               "keeps the Arrow" if steer else "")),
         "play": (f"Channel {main.name} to {stages} stage{'s' if stages != 1 else ''} before releasing"
@@ -6977,8 +6977,9 @@ def detonating_arrow_model(main: Skill | None, scored: str | None, sets: list[di
 # DpsMultiplier = stages, hit time = ceil(stages / projectiles) x the cast time, at least the 0.3 s minimum: so 1 spike
 # per 0.3 s where a full channel fires one per 0.125 s. Here: Multiplier:BonestormStage BASE (top - 1), top the most
 # spikes allowed (PoB caps the stage at its own MaxStages); past 0.3 s of channel every spike costs the same time, so
-# the full channel deals the most a second (a release animation, if skill_animation_duration_multiplier_override 6 is
-# one, would favour it more; not counted: UNVERIFIED, an OVERCOUNT of the rate if it's real). MEDIUM.
+# the full channel deals the most a second. skill_animation_duration_multiplier_override 6 is not a release animation
+# (RESEARCH30 R30-2 (d), MEDIUM: likely the looping channel animation); a ~1 s fixed extra per cast is a LOW reading,
+# not counted (it would only favour the full channel more). MEDIUM.
 BONESTORM, BONESTORM_ENTRY = "Bonestorm", "model-gem19-bonestorm-spikes"
 BONESTORM_MAX = 20  # base_number_of_allowed_bone_storm_projectiles
 
@@ -6996,8 +6997,8 @@ def bonestorm_model(main: Skill | None, forbidden: set[str] = frozenset()) -> tu
         "entry": BONESTORM_ENTRY,
         "basis": (f"PoB scored 1 spike a release (its stage box) at the 0.3 s minimum channel. The game: a spike a cast "
                   f"time, up to {top}; past the minimum every spike costs the same time, so a full channel ({top}) deals "
-                  "the most a second (PoB's own hit time and spike count follow the stage; a release animation not "
-                  "counted, UNVERIFIED)"),
+                  "the most a second (PoB's own hit time and spike count follow the stage; no release animation: "
+                  "RESEARCH30 R30-2 (d), MEDIUM)"),
         "play": f"Channel {main.name} to its {top} spikes before releasing; short channels lose time to the 0.3 s minimum."}]
 
 

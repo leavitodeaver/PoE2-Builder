@@ -2211,7 +2211,12 @@ class Assumptions:
                 det_how = det_how or f"no {event} in the build"
                 # (patch 0.3.0, no later entry: "Detonation now also triggers existing spikes": Detonators too)
                 bomb_rate, bomb_how = self.detonator_rate(group["index"])
-                det_rate, det_how = det_rate + bomb_rate, f"{event}s: {det_how}; {bomb_how}"
+                cries_only = models.detonated_share(main.name, number(stats.get("Speed")), det_rate)
+                # (RESEARCH30 R30-2 (f): whether Detonations still shatter the spikes is unsettled; Detonators stay
+                # counted, MEDIUM-LOW, and the description's Warcries-only reading is a row)
+                det_rate, det_how = det_rate + bomb_rate, (
+                    f"{event}s: {det_how}; {bomb_how} (Detonators: patch 0.3.0, MEDIUM-LOW, RESEARCH30 R30-2 (f) "
+                    f"unsettled; with {event}s only, the description's reading: {cries_only:.0%} of spikes)")
             else:
                 det_rate, det_how = self.detonator_rate(group["index"])
             det_mods, det_notes = models.detonated_set_model(main, main.stat_set, sets, number(stats.get("Speed")),

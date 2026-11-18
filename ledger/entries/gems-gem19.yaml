@@ -80,7 +80,8 @@
     sending out a fissure ... and thrusts a spike from the ground when it ends. Warcries performed near the spike will
     cause it to shatter, damaging surrounding enemies"; EarthshatterPlayer spike_slam_max_spikes 6,
     base_skill_effect_duration 6000. Patch 0.3.0 (no later entry): "Detonation now also triggers existing spikes"; the
-    description names only Warcries: both written down, both counted. PoB scores the "Explosion" set as if every Slam
+    description names only Warcries: both written down, both counted (RESEARCH30 R30-2 (f): unsettled; Detonators
+    MEDIUM-LOW, the Warcries-only share a row in the note). PoB scores the "Explosion" set as if every Slam
     shattered: probe POE2T3411 kept it at 129.5 vs the Slam's 25.8 (an OVERCOUNT, x5.0). Shatters a second: the build's
     Warcry uses (conditions.event_rates at skill_use_rate / the search's press choices) + its Detonator uses
     (Assumptions.detonator_rate), each taken to shatter every spike lying there (min(6, slams x 6 s)); DPS = Slam +
@@ -189,7 +190,7 @@
     models.detonating_arrow_model (GEM19). Game (26650308): ActiveSkills detonating_arrow "At maximum stages, the arrow
     will create a Detonating explosion at the end of its flight"; DetonatingArrowPlayer max stages 4 (quality +0-1,
     patch 0.3.0), 120% of damage gained as Fire a stage, channel_skill_end_animation_duration_multiplier_permyriad 2344
-    (taken as an end animation of 23.44% of the attack time: MEDIUM-LOW). PoB: the stage from its stage box (1; nothing
+    (an end animation of 23.44% of the attack time: RESEARCH30 R30-2 (e), MEDIUM). PoB: the stage from its stage box (1; nothing
     sets it), the "Explosion" set with no stage check (scored as if every release exploded), hit time = attack time x
     stages, no end animation. Here: the stage count with the most damage a second, (Arrow(s) + Explosion at the maximum)
     / (s T + 0.2344 T); Multiplier:DetonatingArrowStage BASE (s - 1) and a DPS MORE to that. A release short of the
@@ -215,7 +216,7 @@
     stage from its stage box (1; nothing sets it), DpsMultiplier = stages, hit time = ceil(stages / projectiles) x cast
     time, at least 0.3 s: one spike per 0.3 s (an UNDERCOUNT of about x2.4 against one per 0.125 s). Here:
     Multiplier:BonestormStage BASE (20 - 1); PoB caps it at its own maximum and computes the hit time and spike count.
-    A release animation (skill_animation_duration_multiplier_override 6, if it is one) not counted (UNVERIFIED).
+    skill_animation_duration_multiplier_override 6 is not a release animation (RESEARCH30 R30-2 (d), MEDIUM).
   sources: ["builder/search/models.py (bonestorm_model)", "data/game-26650308/tables/GrantedEffectStatSets.json (BonestormPlayer)",
             "data/game-26650308/tables/GrantedEffects.json (BonestormPlayer CastTime)",
             "vendor/PathOfBuilding-PoE2/src/Data/Skills (BonestormPlayer preDamageFunc)"]
