@@ -117,7 +117,7 @@
   title: "Fangs of Frost: the explosion only when the Stab Consumes Parried (PoB scored one on every Stab)"
   kind: model
   model: parried_set
-  stats: []
+  stats: [consume_parried_on_hit]  # (GEM21: the stat this model reads by its meaning)
   skill: [Fangs of Frost]
   confidence: MEDIUM
   notes: >-

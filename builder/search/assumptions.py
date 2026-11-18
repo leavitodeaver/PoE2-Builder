@@ -2395,12 +2395,14 @@ class Assumptions:
         if main is not None and group and main.name in models.GATED_SETS:  # (GEM17: Enraged / Empowered need a resource)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             gate_share, gate_how = self.gated_set_share(main.name, texts, main_types)
-            gate_mods, gate_notes = models.gated_set_model(main, main.stat_set, sets, gate_share, gate_how, forbidden)
+            gate_mods, gate_notes = models.gated_set_model(main, main.stat_set, sets, gate_share, gate_how, forbidden,
+                                                           previous=self.mods)
             hand_mods, hand_notes = hand_mods + gate_mods, hand_notes + gate_notes
         if main is not None and group and main.name in models.AILMENT_SETS:  # (GEM17: Snipe / Sundering consume ailments)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             up, up_how = models.ailment_up_of(build)
-            ail_mods, ail_notes = models.ailment_set_model(main, main.stat_set, sets, up, up_how, forbidden)
+            ail_mods, ail_notes = models.ailment_set_model(main, main.stat_set, sets, up, up_how, forbidden,
+                                                             previous=self.mods)
             hand_mods, hand_notes = hand_mods + ail_mods, hand_notes + ail_notes
         if main is not None and group and main.name in models.DETONATED_SETS:  # (GEM17: detonations need a Detonator)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
@@ -2427,7 +2429,8 @@ class Assumptions:
                     "activeSkills", levelStats=[main.name])["skills"] if x["name"] == main.name), {})
                 per_spike = number(got.get(models.EARTHSHATTER_SPIKE_STAT))
             det_mods, det_notes = models.detonated_set_model(main, main.stat_set, sets, number(stats.get("Speed")),
-                                                             det_rate, det_how, forbidden, per_spike)
+                                                             det_rate, det_how, forbidden, per_spike,
+                                                             previous=self.mods)
             hand_mods, hand_notes = hand_mods + det_mods, hand_notes + det_notes
         if main is not None and main.name == models.EYE:  # (GEM19: its first hit a use, 900% more, never read by PoB)
             eye_stats = build.call("stats", fields=["AverageDamage", "Speed", "TotalDPS"])
@@ -2452,13 +2455,15 @@ class Assumptions:
         if main is not None and group and main.name in models.STUN_SETS:  # (GEM18: a shockwave only on a Heavy Stun)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             primed, primed_how = self.stun_primers(group["index"])
-            stun_mods, stun_notes = models.stun_set_model(main, main.stat_set, sets, stats, primed, primed_how, forbidden)
+            stun_mods, stun_notes = models.stun_set_model(main, main.stat_set, sets, stats, primed, primed_how, forbidden,
+                                                          previous=self.mods)
             hand_mods, hand_notes = hand_mods + stun_mods, hand_notes + stun_notes
         consume_gains: dict[str, tuple[float, str]] = {}  # (MECHC38: charges granted on a consume, conditions' reader)
         if main is not None and group and main.name in models.SHOCK_SETS:  # (GEM19: a part only on a Shocked boss)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             shock, shock_how = self.shock_set_share(group["index"], main.name, models.SHOCK_SETS[main.name][2])
-            sh_mods, sh_notes = models.shock_set_model(main, main.stat_set, sets, shock, shock_how, forbidden)
+            sh_mods, sh_notes = models.shock_set_model(main, main.stat_set, sets, shock, shock_how, forbidden,
+                                                       previous=self.mods)
             consume_gains.update(conditions_mod.consume_gain(build, main.name, shock, "of its hits Consume a Shock"))
             hand_mods, hand_notes = hand_mods + sh_mods, hand_notes + sh_notes
         if main is not None and group and main.name in models.PARRIED_SETS:  # (GEM19: a part only on a Parried boss)
@@ -2466,7 +2471,8 @@ class Assumptions:
             plan = models.parry_plan(found, {**stats, "_texts": texts}, main.attack, True,
                                      parry_stun, refute_stun, models.parried_payoff(main.name, sets))  # (as parry_model's)
             pa_mods, pa_notes = models.shock_set_model(main, main.stat_set, sets, plan.box,
-                                                       plan.how or "no Parry or Refutation in the build", forbidden)
+                                                       plan.how or "no Parry or Refutation in the build", forbidden,
+                                                       previous=self.mods)
             consume_gains.update(conditions_mod.consume_gain(build, main.name, plan.box, "of its hits Consume the Parried Debuff"))
             hand_mods, hand_notes = hand_mods + pa_mods, hand_notes + pa_notes
         if main is not None and group and main.name == models.GAS_ARROW:  # (GEM20: clouds explode on Ignite / Detonation)
@@ -5360,8 +5366,13 @@ class Assumptions:
 
     def detonator_rate(self, main_index: int) -> tuple[float, str]:
         """(uses a second, how) of the build's Detonator skills outside the main group (GEM17, models.detonated_set_model):
-        each enabled group holding a gem of PoB's "Detonator" skill type (as conditions' Oil lighters) at its useRates
-        speed x the search's press share for it (PoB's rate when no share is chosen, said)."""
+        each enabled group holding a gem of PoB's "Detonator" skill type (as conditions' Oil lighters). A group the press
+        model rates (pressed in Full DPS): its useRates speed x its press share. Any other group (GEM21; MECHB38's lead,
+        the manager 05:40: before, PoB's full rate, an OVERCOUNT for a skill with no cooldown, as if spammed beside the
+        main skill): conditions.skill_use_rate, as other_shocks: on its cooldown, else once per its duration, else the
+        search's chosen press rate, else 0 (no source, labelled). A Detonator needing a weapon in neither hand (bridge
+        activeSkills wrongWeapon: a swap-set grenade beside a bow) is used from the weapon swap: the swap's time isn't
+        taken off the main skill (a small OVERCOUNT, labelled; the press model's)."""
         build = self.build
         gems = build.ctx.gems
         indices = [g["index"] for g in build.groups() if g.get("enabled", True) and g["index"] != main_index
@@ -5370,13 +5381,28 @@ class Assumptions:
         if not indices:
             return 0.0, "no Detonator skill in the build"
         press = getattr(build.objective, "press_scales", None) or {}
+        choices = models.press_choices(build)
+        swap = {s.get("name") for s in build.call("activeSkills")["skills"]
+                if s.get("wrongWeapon") and s.get("group") in indices}
         rate, parts = 0.0, []
         for row in build.call("useRates", indices=indices)["rates"]:
             share = press.get(row.get("name"))
-            r = max(0.0, number(row.get("speed")) * (number(share) if share is not None else 1.0))
+            if share is not None:
+                r = max(0.0, number(row.get("speed")) * number(share))
+                why = f"pressed {number(share):.0%} of its {number(row.get('speed')):.2f}/s"
+            elif row.get("triggered"):
+                r, why = max(0.0, number(row.get("speed"))), "triggered, at its own rate"
+            else:
+                r, why, _ = conditions_mod.skill_use_rate(row, choices)
+                if r <= 0 and "Persistent" in ((gems.get(str(row.get("name"))) or {}).get("skillTypes") or ()):
+                    # (Skeletal Arsonist's minion Command, Black Powder Blitz's dodge roll: PoB's speed is the summon's /
+                    # buff's own cast, not a detonation rate; before, counted at it: an OVERCOUNT)
+                    why += ("; a Persistent skill: its Detonations come with its Command / dodge roll, a rate no data "
+                            "gives (whether they set these off: UNVERIFIED; an UNDERCOUNT if they do and you use them)")
             rate += r
-            parts.append(f"{row.get('name')} {r:.2f}/s" + (f" (pressed {number(share):.0%})" if share is not None
-                                                           else " (PoB's rate: no press share chosen)"))
+            parts.append(f"{row.get('name')} {r:.2f}/s ({why})" + (
+                "; from the weapon swap (it needs a weapon in neither hand): the swap's time not taken off the main "
+                "skill, a small OVERCOUNT" if row.get("name") in swap else ""))
         return rate, "Detonators: " + "; ".join(parts)
 
     def stun_primers(self, main_index: int) -> tuple[float, str]:
@@ -5602,7 +5628,8 @@ class Assumptions:
 
     def spear_hits(self, main_index: int) -> tuple[float, str]:
         """(the build's other Spear-skill hits a second, how) for models.shattering_spite_model (GEM20): groups whose
-        enabled active gems carry PoB's Spear skill type (_side_rows) x HitChance, one hit a use. Skills are looked up
+        enabled active gems carry PoB's Spear skill type (_side_rows) x HitChance, one hit a use (Rapid Assault six:
+        models.SPEAR_HITS_A_USE; GEM21, R31-10). Skills are looked up
         in every gem (ctx.all_gems, as MECH75's hitters), so the spear's own granted skills (Spear Stab, Spear Throw)
         count."""
         gems = getattr(self.build.ctx, "all_gems", None) or self.build.ctx.gems
@@ -5612,12 +5639,13 @@ class Assumptions:
                        ((gems.get(x["name"]) or {}).get("skillTypes") or ()) for x in g.get("gems") or [])
         total, parts = 0.0, []
         for row, uses, why in self._side_rows(main_index, spear):
-            hits = uses * min(number(row.get("HitChance")) or 100.0, 100.0) / 100.0
+            each = models.SPEAR_HITS_A_USE.get(str(row.get("name")), 1)  # (GEM21, R31-10: one lance a strike that Hits)
+            hits = uses * each * min(number(row.get("HitChance")) or 100.0, 100.0) / 100.0
             if hits <= 0:
                 parts.append(f"{row.get('name')} not counted (no uses: {why})")
                 continue
             total += hits
-            parts.append(f"{row.get('name')} {hits:.2f} hits/s ({why})")
+            parts.append(f"{row.get('name')} {hits:.2f} hits/s ({why}" + (f"; {each} hits a use" if each > 1 else "") + ")")
         return total, ("; ".join(parts) if parts else "no other Spear skill in the build")
 
     def lingering_arrows(self, main_index: int) -> tuple[float, float, str, float]:

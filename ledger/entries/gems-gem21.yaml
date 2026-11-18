@@ -1,0 +1,22 @@
+# GEM21 (18 Nov 2026): gem stats PoB never reads, checked against what the build's models already do.
+
+- id: gem-gem21-shockwave-cannot-create-jagged-ground
+  title: "Shockwave Totem / Shockwave Slam: cannot create Jagged Ground (no Jagged Ground counted for them)"
+  kind: gem_stat
+  skill: [Shockwave Totem, Shockwave Slam]
+  match: '^cannot_create_jagged_ground$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    PoB never reads the stat, but nothing it or our models compute gives these skills Jagged Ground: PoB gives them the
+    skill type CannotCreateJaggedGround (vendor act_str.lua 17409 / 17554) and Jagged Ground I / II exclude that type
+    (sup_str.lua 4755 / 4788: the supports can't socket with them); conditions.jagged_ground counts Jagged Ground from
+    the main skill only, by Earthquake / Stampede / Furious Slam by name and Jagged Ground I / II on its group, and
+    reads the type for its Slam sources (checked: conditions.jagged_ground and Assumptions.jagged_ground_share, 18 Nov,
+    the only callers of the JaggedGround condition's share). Game stats creating Jagged Ground (Stats ids holding
+    "jagged": can_create_jagged_ground, aftershocks_create_jagged_ground, support_create_jagged_ground_if_consumed_
+    endurance_charge, support_jagged_ground_chance_%) reach the model only through those skills and supports. So no
+    line moves; recorded so the row isn't counted open.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua (ShockwaveTotem)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_str.lua (Jagged Ground I / II)",
+            "builder/search/conditions.py (jagged_ground)", "data/game-26650308/tables/Stats.json"]
+  status: proposed

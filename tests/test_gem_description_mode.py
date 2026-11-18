@@ -1233,7 +1233,10 @@ def test_enervating_nova_more_at_the_far_edge():
     mods, notes = models.enervating_nova_model(nova, 1.0, 2.6, 100, 5.0)
     assert mods[0]["name"] == "Damage" and mods[0]["value"] == pytest.approx(100.0)
     assert "outside the ring" in notes[0]["basis"] and notes[0]["entry"] == "model-gem20-enervating-nova-distance"
-    assert models.enervating_nova_model(nova, 1.0, 2.6, 100, 2.0)[1][0]["basis"].endswith("x1.62")
+    assert models.enervating_nova_model(nova, 1.0, 2.6, 100, 2.0)[1][0]["basis"].endswith(
+        "x1.62 (ramping from your position instead: x1.77)")  # (GEM21, R31-10: the ramp's origin a row)
+    assert models.nova_distance_more(2.0, 1.0, 2.6, 100, 0.0) == pytest.approx(1 + 2.0 / 2.6)
+    assert models.nova_distance_more(2.6, 1.0, 2.6, 100, 0.0) == pytest.approx(2.0)
     assert models.enervating_nova_model(Skill("Spark", 1), 1.0, 2.6, 100, 2.0) == ([], [])
 
 
@@ -1241,6 +1244,7 @@ def test_shattering_spite_explodes_with_bloodstone_lances():
     # (GEM20) "Explosions deal 20% more Damage per Bloodstone Lance"; lances from other Spear skills' hits, max 30
     assert models.spite_lances(3.0, 0.5, 30) == pytest.approx(6.0)
     assert models.spite_lances(30.0, 0.5, 30) == 30
+    assert models.SPEAR_HITS_A_USE["Rapid Assault"] == 6  # (GEM21, R31-10: one lance a stab, "six rapid stabs")
     spite = Skill("Shattering Spite", 1, attack=True)
     mods, notes = models.shattering_spite_model(spite, 0.5, 3.0, 30, 20, "Spear Throw 3 hits/s")
     assert mods[0]["name"] == "Damage" and mods[0]["value"] == pytest.approx(120.0)
@@ -1260,3 +1264,57 @@ def test_galvanic_field_orb_only_after_a_shock():
     assert mods[0]["value"] == pytest.approx(100 * (6.0 / (1 / 1.54 + 1.0 + 6.0) - 1), abs=0.01)
     assert notes[0]["entry"] == "model-gem20-galvanic-field-orb"
     assert models.galvanic_field_model(gf, "Buff", 1.54, 1.0, "") == ([], [])
+
+
+def test_a_side_detonator_counts_at_its_real_use_rate():
+    # (GEM21, MECHB38's lead) an unpressed side Detonator was counted at PoB's full rate: now on its cooldown, else the
+    # search's chosen rate, else 0; a pressed one at its press share; a swap-weapon one labelled
+    from types import SimpleNamespace
+    from builder.search.assumptions import Assumptions
+
+    gems = {"Explosive Spear": {"skillTypes": ["Attack", "Detonator"]},
+            "Explosive Grenade": {"skillTypes": ["Attack", "Cooldown", "Detonator"]},
+            "Skeletal Arsonist": {"skillTypes": ["Minion", "Persistent", "Detonator"]}, "Storm Lance": {"skillTypes": []}}
+    rows = {1: {"name": "Explosive Spear", "speed": 1.5}, 2: {"name": "Explosive Grenade", "speed": 0.24,
+                                                                "cooldown": 4.1666667}, 3: {"name": "Skeletal Arsonist", "speed": 1.2}}
+
+    class FakeBuild:
+        def __init__(self, press=None, choices=None):
+            self.ctx = SimpleNamespace(gems=gems)
+            self.objective = SimpleNamespace(press_scales=press or {}, press_choices=choices or {})
+
+        def groups(self):
+            return [{"index": i, "gems": [{"name": n}]} for i, n in
+                    ((0, "Storm Lance"), (1, "Explosive Spear"), (2, "Explosive Grenade"), (3, "Skeletal Arsonist"))]
+
+        def call(self, what, **kw):
+            if what == "activeSkills":
+                return {"skills": [{"name": "Explosive Grenade", "group": 2, "wrongWeapon": True}]}
+            return {"rates": [rows[i] for i in kw["indices"]]}
+
+    a = Assumptions.__new__(Assumptions)
+    a.build = FakeBuild()
+    rate, how = a.detonator_rate(0)
+    assert rate == pytest.approx(0.24, abs=1e-6)  # (the spear unpressed: 0; the grenade on its cooldown; the minions 0)
+    assert "weapon swap" in how and "Persistent skill" in how
+    a.build = FakeBuild(choices={"Explosive Spear": 0.5})
+    assert a.detonator_rate(0)[0] == pytest.approx(0.74, abs=1e-6)  # (the search's chosen 0.5 presses a second)
+    a.build = FakeBuild(press={"Explosive Spear": 0.2})
+    assert a.detonator_rate(0)[0] == pytest.approx(0.24 + 0.3, abs=1e-6)  # (pressed: 20% of its 1.5/s)
+
+
+def test_a_set_models_note_shows_pobs_set_dps_without_its_own_last_line():
+    # (GEM21) setRates' TotalDPS carries the model's own previous line on every set: the note takes it back out; the
+    # factor (a ratio between sets) is the same either way
+    entry = "model-gem17-storm-lance-detonation"
+    sets = [{"label": "Projectile", "TotalDPS": 33.69}, {"label": "Lodged Spear", "TotalDPS": 39.33},
+            {"label": "Detonation", "TotalDPS": 117.48}]
+    previous = [models.raw_mod("DPS", "MORE", 17.0, "Storm Lance", tag=entry),
+                models.raw_mod("DPS", "MORE", 50.0, "Storm Lance", tag="other")]
+    assert models.unscale_own(sets, previous, entry)["Projectile"] == pytest.approx(33.69 / 1.17)
+    assert models.unscale_own(sets, None, entry)["Projectile"] == pytest.approx(33.69)
+    lance = Skill("Storm Lance", 1, attack=True)
+    plain = models.detonated_set_model(lance, "Projectile", sets, 0.84, 0.0, "none")
+    unscaled = models.detonated_set_model(lance, "Projectile", sets, 0.84, 0.0, "none", previous=previous)
+    assert plain[0][0]["value"] == pytest.approx(unscaled[0][0]["value"]) and unscaled[0][0]["tag"] == entry
+    assert "Lodged Spear 34" in unscaled[1][0]["basis"] and "Lodged Spear 39" in plain[1][0]["basis"]

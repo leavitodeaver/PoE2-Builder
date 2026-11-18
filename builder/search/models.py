@@ -6550,8 +6550,22 @@ def oil_barrage_share(gains: float) -> float:
     return min(1.0, max(0.0, gains) * OIL_CHARGE_SECONDS)
 
 
+def unscale_own(sets: list[dict], previous: list[dict] | None, entry: str) -> dict[str, float]:
+    """{label: TotalDPS} of a skill's sets from the bridge's setRates, with the model's own line from the previous pass
+    (tagged `entry`, in `previous`, Assumptions.mods) taken back out (GEM21): setRates' TotalDPS carries it on every set
+    of the skill, so a note printed it scaled (Storm Lance's "Projectile 34" was PoB's 29 x1.17). The ratios between
+    sets, and so the models' factors, don't change. Not AverageDamage x Speed (set_dps_unscaled): probe POE2T3466 found
+    sets where that isn't TotalDPS even with no line (Storm Lance's Frenzy-Charged x5.95, Lodged Spear x1.49; Snipe x0.75)."""
+    own = 1.0
+    for mod in previous or []:
+        if mod.get("tag") == entry and mod.get("type") == "MORE" and mod.get("name") in ("DPS", "Damage"):
+            own *= 1.0 + number(mod.get("value")) / 100.0
+    own = own if own > 0 else 1.0
+    return {x.get("label"): number(x.get("TotalDPS")) / own for x in sets}
+
+
 def gated_set_model(main: Skill | None, scored: str | None, sets: list[dict], share: float, how: str,
-                    forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+                    forbidden: set[str] = frozenset(), previous: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
     """A GATED_SETS skill's use as the game makes it (see above): `sets` the bridge's setRates for its group, `share` of
     its uses (or time) the resource covers, `how` its basis."""
     if main is None or main.name not in GATED_SETS:
@@ -6559,7 +6573,7 @@ def gated_set_model(main: Skill | None, scored: str | None, sets: list[dict], sh
     base_label, gated_label, resource, entry = GATED_SETS[main.name]
     if entry in forbidden or scored not in (base_label, gated_label):
         return [], []
-    dps = {s.get("label"): number(s.get("TotalDPS")) for s in sets}
+    dps = unscale_own(sets, previous, entry)  # (GEM21: its own previous line out, for the note)
     base, gated = dps.get(base_label, 0.0), dps.get(gated_label, 0.0)
     if base <= 0 or dps.get(scored, 0.0) <= 0:
         return [], []
@@ -6571,7 +6585,7 @@ def gated_set_model(main: Skill | None, scored: str | None, sets: list[dict], sh
     if steer:
         factor *= FIRESTORM_BOLTS_MARGIN  # (steer the search to the base set)
     # (GEM19: a steered additive part as a Damage line, so its ailments shrink too, as detonated_set_model: POE2T2199)
-    mods = ([raw_mod("Damage" if steer and adds else "DPS", "MORE", 100 * (factor - 1), main.name)]
+    mods = ([raw_mod("Damage" if steer and adds else "DPS", "MORE", 100 * (factor - 1), main.name, tag=entry)]
             if abs(factor - 1) > 1e-9 else [])
     return mods, [{
         "label": f"{main.name}: its {gated_label} part needs {resource}*", "value": f"x{factor:.3f}",
@@ -6609,13 +6623,13 @@ AILMENT_FLOOR = 0.01  # (a use with nothing to consume: 1% of PoB's set, see ail
 
 
 def ailment_set_model(main: Skill | None, scored: str | None, sets: list[dict], up: dict, how: str,
-                      forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+                      forbidden: set[str] = frozenset(), previous: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
     """Snipe's / Elemental Sundering's use as the game makes it (see above): `sets` the bridge's setRates for its group,
     `up` the boss's ailment uptimes {"Ignite" / "Shock" / "Freeze": share} (ailment_up_of), `how` their basis."""
     if main is None or main.name not in AILMENT_SETS or AILMENT_SETS[main.name] in forbidden:
         return [], []
     entry = AILMENT_SETS[main.name]
-    dps = {s.get("label"): number(s.get("TotalDPS")) for s in sets}
+    dps = unscale_own(sets, previous, entry)  # (GEM21: its own previous line out, for the note)
     if scored not in dps or dps.get(scored, 0.0) <= 0:
         return [], []
     share = {k: min(1.0, max(0.0, number(up.get(k)))) for k in ("Ignite", "Shock", "Freeze")}
@@ -6644,7 +6658,7 @@ def ailment_set_model(main: Skill | None, scored: str | None, sets: list[dict], 
     # 1%, not less: PoB rounds a MORE product to two decimals (ModDB.lua MoreInternal, round(modResult, 2)), so x0.001
     # read as x0.00: probe POE2T2193)
     factor = max(factor, AILMENT_FLOOR)
-    mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9 else []
+    mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=entry)] if abs(factor - 1) > 1e-9 else []
     return mods, [{
         "label": f"{main.name}: its parts need ailments on the boss to consume*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM", "entry": entry,
@@ -6729,7 +6743,7 @@ def detonated_share(skill: str, uses: float, detonations: float) -> float:
 
 def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict], uses: float, detonations: float,
                         how: str, forbidden: set[str] = frozenset(),
-                        per_spike: float = 0.0) -> tuple[list[dict], list[dict]]:
+                        per_spike: float = 0.0, previous: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
     """Storm Lance's / Rapid Assault's use with the detonations the build's Detonators give (see above): `sets` the
     bridge's setRates, `uses` the main skill's uses a second, `detonations` the build's Detonator uses a second,
     `per_spike` Earthshatter's "% more Damage with Hits for each Spike" (GEM20, spike_standing)."""
@@ -6738,7 +6752,7 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
     plain_labels, det_label, _, _, entry = DETONATED_SETS[main.name]
     if entry in forbidden:
         return [], []
-    dps = {s.get("label"): number(s.get("TotalDPS")) for s in sets}
+    dps = unscale_own(sets, previous, entry)  # (GEM21: its own previous line out, for the note)
     if scored not in plain_labels + (det_label,) or dps.get(scored, 0.0) <= 0:
         return [], []
     plain_label = max(plain_labels, key=lambda k: dps.get(k, 0.0))
@@ -6756,7 +6770,7 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
         factor *= FIRESTORM_BOLTS_MARGIN  # (steer the search to the plain set)
     # (steered: "Damage" rather than "DPS", so the ailments PoB derives from the detonation's hit shrink with it: probe
     # POE2T2199, Rapid Assault's Explosion set kept its Bleed under a DPS line and stayed the search's choice)
-    mods = ([raw_mod("Damage" if steer else "DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9
+    mods = ([raw_mod("Damage" if steer else "DPS", "MORE", 100 * (factor - 1), main.name, tag=entry)] if abs(factor - 1) > 1e-9
             else [])
     _, by_note, by_play = DETONATED_BY.get(main.name, ("", "a Detonator skill hits the " + word,
                                                        "a Detonator skill (Detonating Arrow, Explosive Spear, a grenade, ...)"))
@@ -7190,7 +7204,7 @@ def stun_uncold(row: dict) -> float:
 
 
 def stun_set_model(main: Skill | None, scored: str | None, sets: list[dict], stats: dict, primed: float, how: str,
-                   forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+                   forbidden: set[str] = frozenset(), previous: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
     """A STUN_SETS skill's shockwave only on a Heavy Stun (see above): `sets` the bridge's setRates for its group,
     `stats` the main skill's PoB output (the boss and Daze fields heavy_stun_rate reads), `primed` the other skills'
     Heavy Stun buildup a second (% of the bar, Cold taken out, at their use shares), `how` its basis."""
@@ -7200,7 +7214,7 @@ def stun_set_model(main: Skill | None, scored: str | None, sets: list[dict], sta
     if entry in forbidden or scored not in (plain_label, wave_label):
         return [], []
     rows = {s.get("label"): s for s in sets}
-    dps = {label: number(r.get("TotalDPS")) for label, r in rows.items()}
+    dps = unscale_own(sets, previous, entry)  # (GEM21: its own previous line out, for the note)
     plain, wave = dps.get(plain_label, 0.0), dps.get(wave_label, 0.0)
     if plain <= 0 or dps.get(scored, 0.0) <= 0:
         return [], []
@@ -7218,7 +7232,7 @@ def stun_set_model(main: Skill | None, scored: str | None, sets: list[dict], sta
     if steer:
         factor *= FIRESTORM_BOLTS_MARGIN  # (steer the search to the plain set)
     # (steered: "Damage", so the Shockwave's ailments shrink too, as detonated_set_model learnt in probe POE2T2199)
-    mods = ([raw_mod("Damage" if steer else "DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9
+    mods = ([raw_mod("Damage" if steer else "DPS", "MORE", 100 * (factor - 1), main.name, tag=entry)] if abs(factor - 1) > 1e-9
             else [])
     every = f"one every {1 / rate:.1f} s" if rate > 0 else "none"
     return mods, [{
@@ -7295,7 +7309,7 @@ def parried_payoff(main_name: str | None, sets: list[dict]) -> float:
 
 
 def shock_set_model(main: Skill | None, scored: str | None, sets: list[dict], share: float, how: str,
-                    forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+                    forbidden: set[str] = frozenset(), previous: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
     """A SHOCK_SETS skill's extra part only on a Shocked boss, or a PARRIED_SETS skill's only on a Parried one (see
     above): `sets` the bridge's setRates for its group, `share` the share of its hits that find the boss so, `how` its
     basis."""
@@ -7305,7 +7319,7 @@ def shock_set_model(main: Skill | None, scored: str | None, sets: list[dict], sh
     plain_label, extra_label, consumes, entry = (PARRIED_SETS if parried else SHOCK_SETS)[main.name]
     if entry in forbidden or scored not in (plain_label, extra_label):
         return [], []
-    dps = {s.get("label"): number(s.get("TotalDPS")) for s in sets}
+    dps = unscale_own(sets, previous, entry)  # (GEM21: its own previous line out, for the note)
     plain, extra = dps.get(plain_label, 0.0), dps.get(extra_label, 0.0)
     if plain <= 0 or dps.get(scored, 0.0) <= 0:
         return [], []
@@ -7316,7 +7330,7 @@ def shock_set_model(main: Skill | None, scored: str | None, sets: list[dict], sh
     if steer:
         factor *= FIRESTORM_BOLTS_MARGIN  # (steer the search to the plain set)
     factor = max(factor, AILMENT_FLOOR)  # (PoB rounds a MORE to 2 decimals: see ailment_set_model)
-    mods = ([raw_mod("Damage" if steer else "DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9
+    mods = ([raw_mod("Damage" if steer else "DPS", "MORE", 100 * (factor - 1), main.name, tag=entry)] if abs(factor - 1) > 1e-9
             else [])
     if parried:
         return mods, [{
@@ -7614,7 +7628,8 @@ def magnetic_salvo_model(main: Skill | None, scored: str | None, sets: list[dict
         "label": f"{main.name}: its missiles explode only by a lingering Lightning arrow*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM", "entry": MAGNETIC_SALVO_ENTRY,
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; Impact {impact:,.0f}, Explosion "
-                  f"{blast:,.0f}) as if every missile exploded. The game explodes a missile only by a lingering bolt or "
+                  f"{blast:,.0f})" + (" as if every missile exploded" if scored == "Explosion" else
+                                      ", no missile exploding") + f". The game explodes a missile only by a lingering bolt or "
                   f"arrow another Lightning Attack left, and destroys it: {arrows:.2f} arrows a second for {uses:.2f} "
                   f"uses x {missiles:g} missiles ({how}): {e:.1%} explode, each its own hit on the boss (PoB's set is one "
                   f"missile), so Impact x {1 - e:.1%} + Explosion x {e * count:.2f} = {total:,.0f} DPS (the missiles "
@@ -7707,11 +7722,14 @@ def shield_wall_model(main: Skill | None, scored: str | None, sets: list[dict], 
 # +%_final, so it scores the ring at x1 wherever the boss stands). The game (26650308): ActiveSkills enervating_nova
 # "Enemies close to you take no damage while enemies at the edge of the ring take significantly more damage";
 # EnervatingNovaPlayer active_skill_base_area_of_effect_radius 26 (2.6 m, the ring's outer edge),
-# active_skill_base_secondary_area_of_effect_radius 10 (1.0 m: taken as the no-damage centre, UNVERIFIED),
+# active_skill_base_secondary_area_of_effect_radius 10 (1.0 m: the "Ring inner radius" in enervating_nova.csd, the
+# no-damage centre: RESEARCH31 R31-10, HIGH; area modifiers taken to scale it, MEDIUM),
 # new_shock_nova_distance_based_damage_+%_final 100, its text (specific_skill_stat_descriptions/enervating_nova.csd)
 # "Deals more damage to enemies based on distance from you, up to {0}% to enemies on the far edge of the ring". The
-# shape between the centre and the edge isn't in the files: taken as linear from 0 at the inner radius to the full more
-# at the outer (UNVERIFIED, MEDIUM-LOW); a boss inside the inner radius takes none (the description). The boss's
+# shape between the centre and the edge isn't in the files: taken as linear (R31-10, MEDIUM-LOW) from 0 at the inner
+# radius to the full more at the outer (the headline: the lower number inside the ring); from 0 at your position is
+# the row (R31-10: the origin UNVERIFIED; at the far edge both give the full more); a boss inside the inner radius takes
+# none (the description). The boss's
 # distance: the player keeps the boss at the far edge (a play strategy: the skill is built for it, CLAUDE.md's rule that
 # a player who takes a mechanic plays to feed it); the row: the distance the build is configured at (PoB's
 # enemyDistance: the search's chosen one, else conditions.natural_distance, 5 m for a spell, which lies outside this
@@ -7722,14 +7740,16 @@ ENERVATING_NOVA_ENTRY = "model-gem20-enervating-nova-distance"
 ENERVATING_NOVA_STAT = "new_shock_nova_distance_based_damage_+%_final"
 
 
-def nova_distance_more(metres: float, inner: float, outer: float, more: float) -> float:
-    """Enervating Nova's damage multiplier for a boss `metres` away (see above): 0 inside `inner`, then linear to
-    1 + more / 100 at `outer` (and beyond it, where its body still meets the ring)."""
+def nova_distance_more(metres: float, inner: float, outer: float, more: float, origin: float | None = None) -> float:
+    """Enervating Nova's damage multiplier for a boss `metres` away (see above): 0 inside `inner`, then linear from
+    `origin` (the inner radius when None: the headline; 0, your position: the row) to 1 + more / 100 at `outer` (and
+    beyond it, where its body still meets the ring)."""
     if metres < inner:
         return 0.0
-    if outer <= inner:
+    start = inner if origin is None else origin
+    if outer <= start:
         return 1.0 + more / 100.0
-    return 1.0 + more / 100.0 * min(1.0, (metres - inner) / (outer - inner))
+    return 1.0 + more / 100.0 * min(1.0, max(0.0, metres - start) / (outer - start))
 
 
 def enervating_nova_model(main: Skill | None, inner: float, outer: float, more: float, configured: float | None,
@@ -7746,13 +7766,15 @@ def enervating_nova_model(main: Skill | None, inner: float, outer: float, more: 
         row_text = (f"at the build's configured {configured:g} m the boss is outside the ring (the distance model's "
                     "default for a spell; the nova's reach isn't in it: named for its owner)")
     else:
-        row_text = f"at the build's configured {configured:g} m: x{nova_distance_more(configured, inner, outer, more):.2f}"
+        row_text = (f"at the build's configured {configured:g} m: x{nova_distance_more(configured, inner, outer, more):.2f}"
+                    f" (ramping from your position instead: x{nova_distance_more(configured, inner, outer, more, 0.0):.2f})")
     return mods, [{
         "label": f"{main.name}: more damage by the boss's distance, none up close*", "value": f"x{factor:.2f}",
         "confidence": "MEDIUM-LOW", "entry": ENERVATING_NOVA_ENTRY,
         "basis": (f"PoB never reads '{more:g}% more damage to enemies on the far edge of the ring'. The ring runs from "
-                  f"{inner:.1f} m (no damage inside, the description; the secondary radius taken as that edge, "
-                  f"UNVERIFIED) to {outer:.1f} m; linear between (UNVERIFIED). The boss kept at the far edge (a play "
+                  f"{inner:.1f} m (no damage inside, the description; the secondary radius, its 'Ring inner radius': "
+                  f"RESEARCH31 R31-10, HIGH) to {outer:.1f} m; linear between (R31-10, MEDIUM-LOW; from the inner "
+                  f"edge, or from your position: the same at the far edge). The boss kept at the far edge (a play "
                   f"strategy): x{factor:.2f} (a Damage line: its Electrocute buildup follows the hit); {row_text}"),
         "play": (f"Cast Enervating Nova with the boss at the far edge of its {outer:.1f} m ring: x{factor:.2f} there, "
                  f"less closer in, nothing inside {inner:.1f} m.")}]
@@ -7768,17 +7790,23 @@ def enervating_nova_model(main: Skill | None, inner: float, outer: float, more: 
 # Lance on Hit, up to a maximum of 30 on each target" (checked: every stat id holding "bloodstone" in the stat sets,
 # Mods and passives: UniqueSpearsInflictBloodstoneLanceOnHit1 is the only carrier; inflict_bloodstone_lance_on_hit is in
 # no table; PoB's Uniques/spear.lua and ModCache the same; patch notes: only 0.5.0's Spite ailment / leech change). No
-# duration stat for a lance (UNVERIFIED: taken to stay until shattered). So with Spite as the main skill the lances a
-# use = min(30, the build's other Spear-skill hits a second / Spite's uses a second), each group's uses at its
-# triggered rate or the search's press choice (Assumptions._side_rows) x HitChance, one lance a hit (a use's extra
-# projectiles / strikes not read: an UNDERCOUNT there); DPS x (1 + 20% x lances); no lances: no explosion (the
-# description: lances on each enemy), held at 1%. Its area / leech thresholds aren't damage on a lone boss. MEDIUM-LOW.
+# duration stat for a lance: they stay until shattered (RESEARCH31 R31-10, MEDIUM: no duration stat on either stat, the
+# unique or the skill, no KeywordPopups entry; guides stack 30 with no timer). One lance per Spear Hit (R31-10, HIGH:
+# "on Hit"), so a multi-strike skill adds one a strike that Hits: Rapid Assault "a series of six rapid stabs" (ActiveSkills
+# rapid_assault, 26650308; no patch note changes the count, grep_notes --history: 0.2.0e / 0.3.0 / 0.4.0 touch its
+# Explosion and spearheads only) gives 6 a use (SPEAR_HITS_A_USE; PoB's useRates speed is a whole use, its attack speed
+# multiplier -60%). So with Spite as the main skill the lances a use = min(30, the build's other Spear-skill hits a second
+# / Spite's uses a second), each group's uses at its triggered rate or the search's press choice (Assumptions._side_rows)
+# x hits a use x HitChance (other skills' extra projectiles / strikes not read: an UNDERCOUNT there, UNVERIFIED which
+# hit the boss); DPS x (1 + 20% x lances); no lances: no explosion (the description: lances on each enemy), held at 1%.
+# Its area / leech thresholds aren't damage on a lone boss. MEDIUM-LOW.
 SHATTERING_SPITE = "Shattering Spite"
 SHATTERING_SPITE_ENTRY = "model-gem20-shattering-spite-lances"
 SPITE_STAT = "damage_per_bloodstone_lance_+%_final"
 SPITE_LANCE_LINE = re.compile(r"^Spear Skills inflict a Bloodstone Lance on Hit, up to a maximum of (\d+) on each target$",
                               re.I)
 SPITE_LANCE_TYPE = "Spear"  # (PoB's SkillType.Spear: the "Spear Skills" the line names)
+SPEAR_HITS_A_USE = {"Rapid Assault": 6}  # (Spear skills hitting more than once a use: the game's description, R31-10)
 
 
 def spite_lances(hits: float, uses: float, cap: float) -> float:
@@ -7806,7 +7834,7 @@ def shattering_spite_model(main: Skill | None, uses: float, hits: float, cap: fl
                   f"{cap:g} a target): {how}; {lances:.1f} lances a use at {uses:.2f} uses a second: x{factor:.2f}"
                   + (" (no lances: no explosion, held at 1%)" if lances <= 0 else "")
                   + (f"; at the cap of {cap:g}: x{full:.1f}" if cap > 0 else "; no lance line in the build")
-                  + ". A lance's lifetime taken as until shattered (UNVERIFIED); one lance a hit"),
+                  + ". Lances last until shattered (RESEARCH31 R31-10, MEDIUM); one lance a Spear Hit (R31-10, HIGH)"),
         "play": (f"Hit the boss with your Spear skills to stack Bloodstone Lances (up to {cap:g}), then stamp Shattering "
                  f"Spite: {per_lance:g}% more per lance. With this build's hits: x{factor:.2f}; without other Spear hits: "
                  f"nothing; at {cap:g} lances: x{full:.1f}.")}]
