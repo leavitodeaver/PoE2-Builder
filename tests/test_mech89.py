@@ -166,3 +166,15 @@ def test_mark_for_death_breaks_with_every_hit_on_the_marked_boss():
     assert got[0][1] == pytest.approx(0.10 * 1000 * 1.0 * 0.5)
     assert break_others([_skill()], {2: ROW}, GROUPS, {"Armour Piercing Rounds"}, 1, [], EVERY, None,
                         (10.0, 0.0, "")) == []
+
+
+def test_brittle_armour_breaks_with_every_hit_on_the_frozen_boss():
+    """MECH89: Brittle Armour on the main skill (no reader before, an UNDERCOUNT): every hit's Physical x N% at the
+    Frozen share."""
+    stats = {"Speed": 1.0, "HitChance": 100, "CritChance": 0, "_main_types": {"Attack"}, "_enemy_armour": 1200,
+             "PhysicalHitAverage": 2000.0, "_brittle_break": (10.0, 0.25, "test: Frozen a quarter of the fight")}
+    up, basis = _armour_broken([], stats)  # 10% x 2,000 x 25% = 50 a second: 24 s to break, 12 s Broken
+    assert up == pytest.approx(12 / 36) and "Brittle Armour" in basis and "Frozen" in basis
+    got = break_others([_skill()], {2: ROW}, GROUPS, {"Armour Piercing Rounds"}, 1, [], EVERY, None, None,
+                       (10.0, 0.25, ""))
+    assert got[0][1] == pytest.approx(0.10 * 1000 * 1.0 * 0.25)

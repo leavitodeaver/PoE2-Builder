@@ -3330,11 +3330,12 @@ def _armour_broken(lines: list[str], stats: dict) -> tuple[float, str]:
             continue
         rate, share, full = rate + r[0], share + r[1], full + r[2]
         how.append(f"{text[:60]} ({r[3]})")
-    marked = stats.get("_mark_break")  # (MECH89: Mark for Death on your Mark: (%, Marked share, how))
-    if marked and marked[1] > 0 and (r := _armour_break_source(MARK_BREAK_LINE.format(f"{marked[0]:g}"), stats)):
-        rate += r[0] * marked[1]
-        how.append(f"Mark for Death: {marked[0]:g}% of the main skill's Physical hit on the Marked boss ({r[3]}) x "
-                   f"{marked[1]:.0%} Marked ({marked[2]})")
+    for key, (name, state) in CONDITIONAL_BREAKS.items():  # (MECH89: Mark for Death, Brittle Armour: (%, share, how))
+        got = stats.get(key)
+        if got and got[1] > 0 and (r := _armour_break_source(MARK_BREAK_LINE.format(f"{got[0]:g}"), stats)):
+            rate += r[0] * got[1]
+            how.append(f"{name}: {got[0]:g}% of the main skill's Physical hit on the {state} boss ({r[3]}) x "
+                       f"{got[1]:.0%} {state} ({got[2]})")
     others = stats.get("_break_others") or []  # (MECH89: the other hitting groups' Breaks, break_others)
     if not how and not others:
         return 0.0, ""
@@ -4194,16 +4195,25 @@ CANNOT_BREAK = "cannot_break_armour"
 # that share, at the share of the fight the boss carries the Mark (Conditions._marked_share, models.mark_model's).
 MARK_BREAK_STAT = "marked_target_%_physical_damage_taken_as_armour_break"
 MARK_BREAK_LINE = "Break Armour equal to {}% of Physical Damage dealt"
+# Brittle Armour (MECH89, an UNDERCOUNT before: no reader): "Hits against targets Frozen by Supported Skills Break Armour
+# equal to {0}% of Physical damage dealt" (gem_stat_descriptions; SupportBrittleArmourPlayer, PoB sup_int.lua; it
+# supports Attacks, Damage skills and crossbow ammo). Counted when it supports the main skill: every hit of yours (the
+# main skill's and each other hitting group's) x that share of its Physical hit, while the boss is Frozen
+# (models.immobilised_share, the main skill's Freeze on the boss's one bar with the other groups' buildup in it: those
+# Freezes are taken as the supported skill's, MEDIUM). On a side skill only: 0, labelled (its own Freeze share isn't
+# modelled apart from the bar).
+BRITTLE_BREAK_STAT = "freeze_applies_%_physical_damage_taken_as_armour_break"
+CONDITIONAL_BREAKS = {"_mark_break": ("Mark for Death", "Marked"), "_brittle_break": ("Brittle Armour", "Frozen")}
 SIDE_BREAK_SKIP = re.compile(r"heavy stun|stunning|when (?:freezing|electrocuting)", re.I)
 
 
 def break_others(skills: list[dict], rows: dict, groups: list[dict], hitters: set[str], main_index,
                  build_lines: list[str], every: dict, choices: dict[str, float] | None = None,
-                 marked: tuple | None = None) -> list[tuple]:
+                 marked: tuple | None = None, frozen: tuple | None = None) -> list[tuple]:
     """[(name, Armour broken a second, how)] for the build's other hitting groups (see the note above). `skills`: the
     bridge's activeSkills entries with levelStats and supportStats (BREAK_STATS, BREAK_MORE_STAT, CANNOT_BREAK) for the
     hitters; `rows`: {group index: useRates row}; `build_lines`: the build's lines that aren't gem lines; `marked`:
-    (Mark for Death's %, the Marked share, how) or None (MARK_BREAK_STAT)."""
+    (Mark for Death's %, the Marked share, how) or None (MARK_BREAK_STAT); `frozen`: Brittle Armour's, the same."""
     names = {g["index"]: [n["name"] for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in hitters]
              for g in groups if g.get("enabled") is not False}
     by_name: dict[str, dict] = {}
@@ -4221,7 +4231,8 @@ def break_others(skills: list[dict], rows: dict, groups: list[dict], hitters: se
         types = set((every.get(names[index][0]) or {}).get("skillTypes") or ())
         texts = [BREAK_STATS[stat].format(f"{value:g}") for stat, value in got.items() if stat in BREAK_STATS]
         texts += [t for t in build_lines if ARMOUR_BREAK_LINE.search(t) and qualifies(t, types)]
-        if not texts and not (marked and marked[1] > 0):
+        conditional = [(n, st, c) for (n, st), c in zip(CONDITIONAL_BREAKS.values(), (marked, frozen)) if c and c[1] > 0]
+        if not texts and not conditional:
             continue
         if got.get(CANNOT_BREAK):
             out.append((name, 0.0, f"{name} cannot Break Armour (cannot_break_armour)"))
@@ -4245,9 +4256,10 @@ def break_others(skills: list[dict], rows: dict, groups: list[dict], hitters: se
                 continue
             rate += r[0]
             parts.append(f"{text[:50]} ({r[3]})")
-        if marked and marked[1] > 0 and (r := _armour_break_source(MARK_BREAK_LINE.format(f"{marked[0]:g}"), side)):
-            rate += r[0] * marked[1]
-            parts.append(f"Mark for Death {marked[0]:g}% of its Physical hit on the Marked boss ({r[3]}) x {marked[1]:.0%}")
+        for cname, state, c in conditional:
+            if r := _armour_break_source(MARK_BREAK_LINE.format(f"{c[0]:g}"), side):
+                rate += r[0] * c[1]
+                parts.append(f"{cname} {c[0]:g}% of its Physical hit on the {state} boss ({r[3]}) x {c[1]:.0%}")
         more = number((skill.get("supportStats") or {}).get(BREAK_MORE_STAT))
         if more:
             rate *= 1 + more / 100
@@ -7895,7 +7907,7 @@ class Conditions:
                   and not (every.get(n["name"]) or {"support": True}).get("support")}
         raw = self.build.call("activeSkills", levelStats=[self.main_skill, *sorted(beside)],
                               supportStats=[*DAZE_SKILL_STATS, *BREAK_STATS, BREAK_MORE_STAT, CANNOT_BREAK,
-                                            MARK_BREAK_STAT])
+                                            MARK_BREAK_STAT, BRITTLE_BREAK_STAT])
         effects: dict[str, list[dict]] = {}
         for entry in raw["skills"]:
             if not entry.get("disabled"):
@@ -7936,12 +7948,18 @@ class Conditions:
                         if not s.get("disabled") and s["name"] in (*models.MARKS, models.PREDATORS_MARK)), default=0.0)
         if mark_pct > 0:
             stats["_mark_break"] = (mark_pct, *self._marked_share())
+        # (MECH89) Brittle Armour on the main skill, at the Frozen share (BRITTLE_BREAK_STAT)
+        brittle = max((number((s.get("supportStats") or {}).get(BRITTLE_BREAK_STAT)) for s in raw["skills"]
+                       if not s.get("disabled") and s["name"] == self.main_skill), default=0.0)
+        if brittle > 0:
+            frozen_up, frozen_how = models.immobilised_share(stats, "Freeze")
+            stats["_brittle_break"] = (brittle, frozen_up, frozen_how or "the main skill doesn't Freeze the boss")
         # (MECH89) the other groups' Armour Break, for _armour_broken (break_others): the same rows and hitters
         stats["_break_others"] = break_others(raw["skills"], group_rows, groups_now, hitters,
                                               groups_all.get("mainSocketGroup"),
                                               [line["text"] for line in lines if not line["source"].startswith("gem:")],
                                               every, models.press_choices(self.build),
-                                              stats.get("_mark_break")) if hitters else []
+                                              stats.get("_mark_break"), stats.get("_brittle_break")) if hitters else []
         if others:
             stats["_ailment_others"] = {"Ignite": others}
             said = stats.setdefault("_ailment_others_how", {})  # (Radiant Grief's aura may be said already)
@@ -8017,7 +8035,7 @@ class Conditions:
         if "Ferocious Roar" in gem_types and (roar := self.roar_evidence()):
             broken, stats["_full_break_rate"] = roar, roar[2] / models.full_break_duration([line["text"] for line in lines])
         elif (any(ARMOUR_BREAK_LINE.search(line["text"]) for line in lines) or stats.get("_break_others")
-              or stats.get("_mark_break")):
+              or stats.get("_mark_break") or stats.get("_brittle_break")):
             raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=list(BREAK_STATS))
             main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
             gem_lines = [BREAK_STATS[stat].format(f"{value:g}") for part in ("levelStats", "supportStats")
