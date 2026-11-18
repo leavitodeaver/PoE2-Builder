@@ -1,0 +1,76 @@
+- id: model-gem20-gas-arrow-ignite-explosion
+  title: "Gas Arrow: a cloud explodes only if the boss is Ignited while it lasts or a Detonator hits it (PoB scored the Explosion on every arrow)"
+  kind: model
+  model: gas_arrow
+  stats: []
+  skill: [Gas Arrow]
+  confidence: MEDIUM
+  notes: >-
+    models.gas_arrow_model + Assumptions.gas_arrow_share (GEM20). Game (26650308): ActiveSkills gas_arrow "The cloud
+    will detonate if hit by a [Detonator] skill or if an [Ignite|Ignited] enemy touches it, creating a fiery explosion";
+    GasArrowGasDegenPlayer 4 s, number_of_poison_cloud_allowed 6, display_statset_no_hit_damage;
+    GasArrowGasExplosionPlayer 100% Physical to Fire. RESEARCH30 R30-2 (a): an Ignited boss sets off each cloud at once;
+    waiting clouds go at the next Ignite (HIGH rule, MEDIUM self-feeding). PoB scores each set alone: probe POE2T3441
+    kept "Explosion" 162.4 vs Arrow 38.0 / Poison Cloud 88.6 (a fake hit in PoB; the cloud's damage is its Poison) at
+    every use (an OVERCOUNT). Share of clouds that explode = 1 - (1 - Detonated) x (1 - P), P = 1 - (1 - u)^((d + w) /
+    d): the boss Ignited at some moment of the cloud's life w (4 s, less when the 6-cloud limit replaces the oldest), u
+    the Ignited share from conditions.ailment_uptime over the resolver's other Ignites and grounds plus the main skill's
+    own (the explosions' at uses x share: a fixed point from 0). Hits = Arrow + Explosion x share (a DPS line, the
+    scored set's ailments stay); with no Ignite and no Detonator the Explosion set gets the Arrow x 0.9 (a Damage line).
+    The Explosion's own Ignite stays whole where it is scored (a small OVERCOUNT where clouds don't all explode); an
+    exploded cloud's Poison ending early not taken off (UNVERIFIED).
+  sources: ["builder/search/models.py (gas_arrow_model)", "builder/search/assumptions.py (gas_arrow_share)",
+            "data/game-26650308/tables/ActiveSkills.json (gas_arrow)",
+            "data/game-26650308/tables/GrantedEffectStatSets.json (GasArrowPlayer, GasArrowGasDegenPlayer, GasArrowGasExplosionPlayer)",
+            "scratch/manager/research/gem19-skill-questions.md (R30-2 a)", "scratch/gem20/probe_gas.json", "scratch/gem20/probe_gas2.json"]
+  test_in_game: "Optional: Gas Arrow on a boss nothing Ignites: the clouds never explode."
+  status: proposed
+
+- id: model-gem20-frozen-locus-crystal-breaks
+  title: "Frozen Locus: an explosion only when its Ice Crystal is destroyed (PoB scored one at every cast)"
+  kind: model
+  model: frozen_locus
+  stats: []
+  skill: [Frozen Locus]
+  confidence: MEDIUM-LOW
+  notes: >-
+    models.frozen_locus_model + Assumptions.locus_breaks (GEM20). Game (26650308): ActiveSkills frozen_locus "call
+    forth an Ice Crystal which can be damaged by you and enemies. If the Crystal is destroyed it causes an icy
+    explosion"; FrozenLocusPlayer 10 s, limit 1, no cooldown; frost_wall_maximum_life 9,536 and +832% damage taken from
+    enemies at gem 20; KeywordPopups IceCrystals "Skills which Consume Freeze will instantly shatter Ice Crystals". PoB
+    scores the Explosion at every cast: probe POE2T3441 254.3 at 0.98 casts a second (an OVERCOUNT). Breakers (RESEARCH30
+    R30-2 (b); checked every GrantedEffectStatSets row for destroy_frost_wall_segment_on_hit and
+    support_warcries_explode_ice_crystals): Freeze consumers (conditions.side_consumes), Fragmentation Rounds, Glacial
+    Cascade, Gelid Palm, Embrace The Fall, Warcries supported by Vruun's Aftermath, each at its triggered rate or the
+    search's press choice; and the boss's damaging uses (bosses.benefit_skill_time, every one taken to land on the crystal
+    at its feet: LOW; the manager's brief counts them, R30-2 calls them a row; the build-only figure is in the note).
+    Explosions a second = q / (cast + q / R), q = 1 - e^(-10 R). Expiry and recast not counted (UNVERIFIED); the
+    player's ordinary hits on the crystal's Life not counted (an UNDERCOUNT, named). Frozen Locus as the main skill only.
+  sources: ["builder/search/models.py (frozen_locus_model)", "builder/search/assumptions.py (locus_breaks)",
+            "data/game-26650308/tables/ActiveSkills.json (frozen_locus)", "data/game-26650308/tables/KeywordPopups.json (IceCrystals)",
+            "scratch/manager/research/gem19-skill-questions.md (R30-2 b)", "scratch/gem20/probe_gas.json", "scratch/gem20/probe_gas2.json"]
+  test_in_game: "Optional: Frozen Locus beside a boss with nothing breaking it: how long until the boss's hits break it."
+  status: proposed
+
+- id: model-gem20-magnetic-salvo-lingering-arrows
+  title: "Magnetic Salvo: a missile explodes only by a lingering Lightning arrow, destroying it (PoB scored every missile exploding)"
+  kind: model
+  model: magnetic_salvo
+  stats: []
+  skill: [Magnetic Salvo]
+  confidence: MEDIUM
+  notes: >-
+    models.magnetic_salvo_model + Assumptions.lingering_arrows (GEM20). Game (26650308): ActiveSkills magnetic_salvo
+    "The missiles explode if they land close to a lingering bolt or arrow, dealing more damage in a larger area but
+    destroying that bolt or arrow in the process"; MagneticSalvoPlayer 8 projectiles. PoB scores each set alone: probe
+    POE2T3441 kept "Explosion" 82.6 vs Impact 42.5 (an OVERCOUNT). The arrows (RESEARCH30 R30-2 (c); no stat names them:
+    checked magnetic_salvo stat descriptions and every stat holding "lingering" / "magnetic"): Lightning Rod (HIGH) and
+    Shockchain Arrow's Lightning Rod (MEDIUM), one a use, counted; Stormcaller Arrow (1) and Stormblast Bolts (3 a shot)
+    MEDIUM-LOW, a row in the note. Share of missiles exploding e = min(1, arrows a second / (uses x ProjectileCount));
+    DPS = Impact x (1 - e) + Explosion x e. No arrows: the Explosion set gets the Impact x 0.9 (a Damage line). Extra
+    arrows a use from more projectiles not read (an UNDERCOUNT).
+  sources: ["builder/search/models.py (magnetic_salvo_model)", "builder/search/assumptions.py (lingering_arrows)",
+            "data/game-26650308/tables/ActiveSkills.json (magnetic_salvo, lightning_rod, shockchain_arrow, stormcaller_arrow)",
+            "scratch/manager/research/gem19-skill-questions.md (R30-2 c)", "scratch/gem20/probe_gas.json", "scratch/gem20/probe_gas2.json"]
+  test_in_game: "Optional: Magnetic Salvo with no Lightning Rod out: no explosions."
+  status: proposed

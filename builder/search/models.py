@@ -7294,6 +7294,245 @@ def shock_set_model(main: Skill | None, scored: str | None, sets: list[dict], sh
                  f"this build's: {total:,.0f}; every hit: {plain + extra:,.0f}.")}]
 
 
+# Gas Arrow's explosion only when a cloud is set off (GEM20; an OVERCOUNT: PoB scores each set alone and the search kept
+# the Explosion on every arrow; probe POE2T3441, level 90: Arrow 38.0, Poison Cloud 88.6, Explosion 162.4, kept
+# "Explosion"). The game (26650308): ActiveSkills gas_arrow "Fire a noxious arrow at the ground, creating a cloud of
+# flammable poisonous gas at the end of its flight. The cloud will detonate if hit by a [Detonator] skill or if an
+# [Ignite|Ignited] enemy touches it, creating a fiery explosion"; GasArrowGasDegenPlayer base_skill_effect_duration 4000,
+# number_of_poison_cloud_allowed 6; GasArrowGasExplosionPlayer 100% Physical to Fire (a Fire hit: it can Ignite).
+# RESEARCH30 R30-2 (a): a cloud explodes as soon as an Ignited boss touches it; waiting clouds go at the next Ignite
+# (HIGH for the rule, MEDIUM for the self-feeding part). A cloud on the boss explodes if the boss is Ignited at any
+# moment of its life (4 s, or 6 / uses a second when more than 6 would be out: the oldest goes): with Ignites as the
+# resolver counts them (independent applications, each lasting its duration d; conditions.ailment_uptime), the boss is
+# Ignited somewhere in a window w iff an application lands in the d + w before its end, so P = 1 - (1 - u)^((d + w) / d)
+# with u the Ignited share (gas_ignite_within). The explosions' own Ignites feed the next clouds: a fixed point from 0
+# (Assumptions.gas_arrow_share), so with no other Ignite and no Detonator nothing ever explodes. A Detonator use sets off
+# every cloud lying there (as detonated_share). The arrow's hit and its cloud come with every use; the Poison Cloud set
+# PoB scores as a hit (display_fake_attack_hit_poison) whose damage in the game is its Poison only (GasArrowGasDegenPlayer
+# display_statset_no_hit_damage): so hits = Arrow + Explosion x s whichever set is scored (a DPS line: the scored set's
+# ailments stay, the cloud's Poison where the Poison Cloud is scored; the Explosion's own Ignite where it is scored, an
+# OVERCOUNT of that Ignite where s < 1, small at a boss's Ignite chances, labelled). An exploded cloud's Poison ending
+# early is not taken off (UNVERIFIED how long a cloud keeps poisoning). Explosion scored with s = 0: the Arrow x 0.9 (a
+# Damage line) so the search keeps a fed set. MEDIUM.
+GAS_ARROW = "Gas Arrow"
+GAS_ARROW_ENTRY = "model-gem20-gas-arrow-ignite-explosion"
+GAS_ARROW_SETS = ("Arrow", "Poison Cloud", "Explosion")
+GAS_CLOUD_SECONDS = 4.0  # (GasArrowGasDegenPlayer base_skill_effect_duration 4000)
+GAS_CLOUD_LIMIT = 6  # (number_of_poison_cloud_allowed)
+
+
+def gas_cloud_life(uses: float) -> float:
+    """Seconds a Gas Arrow cloud waits on the boss: its 4 s, or less when the 6-cloud limit replaces the oldest."""
+    if uses <= 0:
+        return GAS_CLOUD_SECONDS
+    return min(GAS_CLOUD_SECONDS, GAS_CLOUD_LIMIT / uses)
+
+
+def gas_ignite_within(up: float, duration: float, window: float) -> float:
+    """The chance the boss is Ignited at some moment of a `window`-second stretch, from its Ignited share `up` with Ignites
+    of `duration` s landing independently (see above): 1 - (1 - up)^((duration + window) / duration)."""
+    up = min(1.0, max(0.0, up))
+    if up >= 1.0:
+        return 1.0
+    if up <= 0.0 or duration <= 0:
+        return 0.0
+    return 1.0 - (1.0 - up) ** ((duration + max(window, 0.0)) / duration)
+
+
+def set_dps_unscaled(sets: list[dict]) -> dict[str, float]:
+    """{label: DPS} of a skill's sets as PoB scores each before this pass's DPS lines (GEM20): setRates' TotalDPS carries
+    the previous pass's DPS MORE lines on the skill, its AverageDamage x Speed doesn't (TotalDPS when either is absent)."""
+    out = {}
+    for s in sets:
+        avg, speed = number(s.get("AverageDamage")), number(s.get("Speed"))
+        out[s.get("label")] = avg * speed if avg > 0 and speed > 0 else number(s.get("TotalDPS"))
+    return out
+
+
+def gas_arrow_model(main: Skill | None, scored: str | None, sets: list[dict], share: float, how: str,
+                    forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Gas Arrow's use as the game makes it (see above): `sets` the bridge's setRates for its group, `share` the share of
+    its clouds that explode (Assumptions.gas_arrow_share), `how` its basis."""
+    if main is None or main.name != GAS_ARROW or GAS_ARROW_ENTRY in forbidden or scored not in GAS_ARROW_SETS:
+        return [], []
+    dps = set_dps_unscaled(sets)
+    arrow, cloud, blast = (dps.get(k, 0.0) for k in GAS_ARROW_SETS)
+    if dps.get(scored, 0.0) <= 0 or arrow + blast <= 0:
+        return [], []
+    share = min(1.0, max(0.0, share))
+    total = arrow + blast * share
+    factor = total / dps[scored]
+    steer = scored == "Explosion" and share <= 0
+    if steer:
+        factor *= FIRESTORM_BOLTS_MARGIN  # (steer the search to a set the build feeds)
+    factor = max(factor, AILMENT_FLOOR)  # (PoB rounds a MORE to 2 decimals: see ailment_set_model)
+    mods = ([raw_mod("Damage" if steer else "DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9
+            else [])
+    return mods, [{
+        "label": f"{main.name}: its clouds explode only on an Ignited boss or a Detonation*", "value": f"x{factor:.3f}",
+        "confidence": "MEDIUM", "entry": GAS_ARROW_ENTRY,
+        "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; Arrow {arrow:,.0f}, Poison Cloud "
+                  f"{cloud:,.0f} as a hit, Explosion {blast:,.0f}). The game: every use hits with the arrow and leaves a "
+                  f"cloud whose damage is its Poison (no hit); the cloud explodes only if the boss is Ignited while it "
+                  f"lasts or a Detonator hits it: {share:.1%} of clouds ({how}), so Arrow + Explosion x {share:.1%} = "
+                  f"{total:,.0f} hit DPS"
+                  + ("; the Explosion set's own Ignite stays whole (an OVERCOUNT of it where clouds don't explode)"
+                     if scored == "Explosion" and not steer else "")
+                  + ("; the Poison Cloud set's Poison stays (the cloud's real damage)" if scored == "Poison Cloud" else "")
+                  + ("; with none, the Explosion set is kept 10% under the Arrow so the search keeps a fed set"
+                     if steer else "")),
+        "play": ("Gas Arrow's clouds explode only when the boss is Ignited while it stands in them, or a Detonator skill "
+                 "hits them: Ignite the boss with another skill (Flame Wall, a Fire attack), then keep firing; each "
+                 f"explosion can Ignite it again. Without it: {arrow:,.0f}; with this build's: {total:,.0f}; every cloud: "
+                 f"{arrow + blast:,.0f} (hits; the cloud's Poison on top).")}]
+
+
+# Frozen Locus's explosion only when its Ice Crystal is destroyed (GEM20; an OVERCOUNT: PoB scores the Explosion set at
+# every cast; probe POE2T3441, level 90: Crystal 0, Explosion 254.3 at 0.98 casts a second). The game (26650308):
+# ActiveSkills frozen_locus "call forth an [IceCrystals|Ice Crystal] which can be damaged by you and enemies. If the
+# Crystal is destroyed it causes an icy explosion. This skill can be used while using other skills"; FrozenLocusPlayer
+# base_skill_effect_duration 10000, base_number_of_frozen_locus_allowed 1, no cooldown (GrantedEffectsPerLevel Cooldown
+# 0); frost_wall_maximum_life 9,536 and frost_wall_damage_taken_+%_final_from_enemies +832 at gem 20. KeywordPopups
+# IceCrystals: "Skills which [Consume] [Freeze] will instantly shatter Ice Crystals". RESEARCH30 R30-2 (b): what destroys
+# it is damage to its Life (any boss hit that lands on it: ~1,023 damage x 9.32 at gem 20; the player's hits at their
+# normal damage), Freeze consumers, the 'Hits destroy Ice Crystals' skills (destroy_frost_wall_segment_on_hit, checked
+# every GrantedEffectStatSets row's stats: FragmentationRoundsPlayer, GlacialCascadeLastSpikePlayer, GelidPalmBoltPlayer,
+# NightfallEmbraceTheFallPlayer (Embrace The Fall) on the player side; the rest are monster sets) and Warcries
+# supported by Vruun's Aftermath (support_warcries_explode_ice_crystals, on SupportVruunsAftermath alone among the stat
+# sets; checked too: every other table's stat columns in 26650308 (Mods, passives, BaseItemTypes, ...: neither stat) and
+# PoB's ModCache (no line destroys a crystal; its two Ice Crystal lines change their Life: a bigger crystal may outlast a
+# boss hit, not read)); not the boss walking into it (0.4.0 "Ice Crystal no longer has collision"); expiry at 10 s or a recast
+# replacing it not counted as destroyed (UNVERIFIED: R30-2 left it open). Breaks taken as random in time at R a second
+# (the build's breaker uses, Assumptions.locus_breaks, + the boss's damaging uses, bosses.benefit_skill_time, every one
+# taken to land on the crystal placed at the boss: LOW, the manager's brief counts them, R30-2 calls them a row): a cast
+# (PoB's cast time) then a wait for the first break, at most the crystal's 10 s; explosions a second = q / (cast + q / R),
+# q = 1 - e^(-10 R) the share of crystals broken before they expire. The player's ordinary hits on the crystal's Life
+# (9,536 at gem 20, the damage they'd take off the boss) are not counted (an UNDERCOUNT where the build breaks it that
+# way, named). MEDIUM-LOW.
+FROZEN_LOCUS = "Frozen Locus"
+FROZEN_LOCUS_ENTRY = "model-gem20-frozen-locus-crystal-breaks"
+FROZEN_LOCUS_SECONDS = 10.0  # (FrozenLocusPlayer base_skill_effect_duration 10000)
+ICE_BREAKERS = ("Fragmentation Rounds", "Glacial Cascade", "Gelid Palm", "Embrace The Fall")  # (destroy_frost_wall_segment_on_hit)
+ICE_WARCRY_SUPPORT = "Vruun's Aftermath"  # (support_warcries_explode_ice_crystals)
+
+
+def locus_explosions(cast: float, breaks: float, seconds: float = FROZEN_LOCUS_SECONDS) -> float:
+    """Frozen Locus explosions a second (see above): a `cast` s use, then breaks at `breaks` a second, at most `seconds`."""
+    if breaks <= 0:
+        return 0.0
+    broken = 1.0 - math.exp(-breaks * seconds)
+    return broken / (max(cast, 0.0) + broken / breaks)
+
+
+def frozen_locus_model(main: Skill | None, scored: str | None, sets: list[dict], speed: float, breaks: float,
+                       boss_breaks: float, how: str, forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Frozen Locus's explosions at the rate its crystal is destroyed (see above): `speed` PoB's casts a second, `breaks`
+    the build's breaker uses a second, `boss_breaks` the boss's damaging uses a second."""
+    if main is None or main.name != FROZEN_LOCUS or FROZEN_LOCUS_ENTRY in forbidden or scored != "Explosion":
+        return [], []
+    dps = set_dps_unscaled(sets)
+    if dps.get(scored, 0.0) <= 0 or speed <= 0:
+        return [], []
+    cast = 1.0 / speed
+    rate = locus_explosions(cast, breaks + boss_breaks)
+    own = locus_explosions(cast, breaks)
+    factor = max(rate / speed, AILMENT_FLOOR)
+    mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9 else []
+    blast = dps[scored] / speed  # (one explosion's damage)
+    return mods, [{
+        "label": f"{main.name}: an explosion only when its crystal is destroyed*", "value": f"x{factor:.3f}",
+        "confidence": "MEDIUM-LOW (the boss's hits LOW)", "entry": FROZEN_LOCUS_ENTRY,
+        "basis": (f"PoB scored an Explosion at every cast ({speed:.2f} a second, {dps[scored]:,.0f} DPS). The game "
+                  f"explodes the Ice Crystal only when it's destroyed: {how}; a cast then the wait for the first break "
+                  f"(at most its 10 s; expiry and recasts not counted): {rate:.2f} explosions a second, {rate * blast:,.0f}"
+                  f" DPS (the build's own breakers only: {own:.2f} a second, {own * blast:,.0f}). The player's ordinary "
+                  "hits on the crystal's Life are not counted (an UNDERCOUNT where the build breaks it that way)"),
+        "play": (f"Place Frozen Locus at the boss and break it: hit it with a Freeze-consuming skill, Fragmentation Rounds, "
+                 f"Glacial Cascade's last spike, Gelid Palm or Embrace The Fall, or a Warcry with Vruun's Aftermath; the "
+                 f"boss's own hits break it too. Recast as soon as it breaks. Without breakers (the boss's hits alone): "
+                 f"{locus_explosions(cast, boss_breaks) * blast:,.0f}; with this build's: {rate * blast:,.0f}; one a "
+                 f"cast: {dps[scored]:,.0f}.")}]
+
+
+# Magnetic Salvo's explosion only near a lingering Lightning arrow or bolt (GEM20; an OVERCOUNT: PoB scores each set alone
+# and the search kept the Explosion on every missile; probe POE2T3441, level 90: Impact 42.5, Explosion 82.6, kept
+# "Explosion"). The game (26650308): ActiveSkills magnetic_salvo "fire energy missiles at lingering bolts or arrows
+# created by other [Lightning] [Attack|Attacks] in front of you. The missiles explode if they land close to a lingering
+# bolt or arrow, dealing more damage in a larger area but destroying that bolt or arrow in the process";
+# MagneticSalvoPlayer base_number_of_projectiles 8. No stat names the sources (RESEARCH30 R30-2 (c), checked:
+# magnetic_salvo stat descriptions, every stat holding "lingering" / "magnetic"; poe2db). By meaning (R30-2 (c)): Lightning
+# Rod ("The arrow remains in the ground", 20 s, limit 10: HIGH; one arrow a use, base_number_of_projectiles absent) and
+# Shockchain Arrow ("After the final Chain, the arrow lodges into the ground as a Lightning Rod": MEDIUM, one a use);
+# Stormcaller Arrow (embeds 1.5 s, then a bolt destroys it) and Stormblast Bolts (3 bolts a shot; a crossbow, so a weapon
+# swap) MEDIUM-LOW: a row, not counted in the headline; Storm Lance (a spear, LOW that it counts) and Lightning Arrow (leaves nothing) not counted (R30-2 (c), by ActiveSkills descriptions; UNVERIFIED beyond them). Each explosion destroys one
+# arrow, so explosions a second = min(Salvo's missiles a second, the arrows made a second); the share of missiles that
+# explode e = min(1, arrows / (uses x missiles)), missiles PoB's ProjectileCount (8 when absent). DPS = Impact x (1 - e) +
+# Explosion x e (the missile explodes instead of its plain impact). The arrows' makers are counted at their triggered
+# rate or the search's press share (Assumptions.lingering_arrows; a group the press model gives no uses isn't counted,
+# as stun_primers). More arrows a use from extra projectiles not read (an UNDERCOUNT there). MEDIUM.
+MAGNETIC_SALVO = "Magnetic Salvo"
+MAGNETIC_SALVO_ENTRY = "model-gem20-magnetic-salvo-lingering-arrows"
+LINGERING_ARROWS = {"Lightning Rod": 1, "Shockchain Arrow": 1}  # (arrows left a use; HIGH / MEDIUM)
+LINGERING_ARROWS_ROW = {"Stormcaller Arrow": 1, "Stormblast Bolts": 3}  # (MEDIUM-LOW: the row)
+MAGNETIC_SALVO_MISSILES = 8  # (MagneticSalvoPlayer base_number_of_projectiles)
+
+
+def salvo_share(uses: float, missiles: float, arrows: float) -> float:
+    """The share of Magnetic Salvo's missiles that land by a lingering arrow and explode (see above)."""
+    if uses <= 0 or arrows <= 0:
+        return 0.0
+    return min(1.0, arrows / (uses * max(missiles, 1.0)))
+
+
+def magnetic_salvo_model(main: Skill | None, scored: str | None, sets: list[dict], uses: float, missiles: float,
+                         arrows: float, row_arrows: float, how: str, feeder_speed: float = 0.0,
+                         forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Magnetic Salvo's missiles exploding at the share the build's lingering arrows allow (see above): `arrows` the
+    headline makers' arrows a second, `row_arrows` the MEDIUM-LOW ones' (the row), `feeder_speed` the fastest headline
+    maker's uses a second if pressed all the time (for the note's feeding check)."""
+    if main is None or main.name != MAGNETIC_SALVO or MAGNETIC_SALVO_ENTRY in forbidden:
+        return [], []
+    if scored not in ("Impact", "Explosion"):
+        return [], []
+    dps = set_dps_unscaled(sets)
+    impact, blast = dps.get("Impact", 0.0), dps.get("Explosion", 0.0)
+    if dps.get(scored, 0.0) <= 0 or impact <= 0:
+        return [], []
+    e = salvo_share(uses, missiles, arrows)
+    e_row = salvo_share(uses, missiles, arrows + row_arrows)
+    total = impact * (1 - e) + blast * e
+    factor = total / dps[scored]
+    steer = scored == "Explosion" and e <= 0
+    if steer:
+        factor *= FIRESTORM_BOLTS_MARGIN  # (steer the search to the Impact set)
+    factor = max(factor, AILMENT_FLOOR)
+    mods = ([raw_mod("Damage" if steer else "DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9
+            else [])
+    with_row = impact * (1 - e_row) + blast * e_row
+    # (feeding on purpose, CLAUDE.md: a second spent on the arrow maker instead of Salvo gives feeder_speed arrows, each
+    # worth one missile's Explosion over its Impact, (blast - impact) / (uses x missiles) a second each, against the
+    # Salvo's impact DPS that second loses; the maker's own hit not added)
+    feed_gain = feeder_speed * (blast - impact) / (uses * max(missiles, 1.0)) if uses > 0 else 0.0
+    feed = ("" if feeder_speed <= 0 else
+            f"; firing the arrow maker more to feed it: each second on it gains {feed_gain:,.0f} of Salvo damage and "
+            f"costs {impact:,.0f}, so " + ("worth it, but the press model sets the maker's rate (not chosen here: an "
+                                           "UNDERCOUNT)" if feed_gain > impact else "not worth it"))
+    return mods, [{
+        "label": f"{main.name}: its missiles explode only by a lingering Lightning arrow*", "value": f"x{factor:.3f}",
+        "confidence": "MEDIUM", "entry": MAGNETIC_SALVO_ENTRY,
+        "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; Impact {impact:,.0f}, Explosion "
+                  f"{blast:,.0f}) as if every missile exploded. The game explodes a missile only by a lingering bolt or "
+                  f"arrow another Lightning Attack left, and destroys it: {arrows:.2f} arrows a second for {uses:.2f} "
+                  f"uses x {missiles:g} missiles ({how}): {e:.1%} explode, so Impact x {1 - e:.1%} + Explosion x "
+                  f"{e:.1%} = {total:,.0f} DPS; with Stormcaller Arrow / Stormblast Bolts counted too (MEDIUM-LOW): "
+                  f"{e_row:.1%}, {with_row:,.0f}" + feed
+                  + ("; with none, the Explosion set is kept 10% under the Impact so the search keeps it" if steer
+                     else "")),
+        "play": (f"Magnetic Salvo's missiles explode only at arrows your other Lightning Attacks leave in the ground: "
+                 f"fire Lightning Rod (or Shockchain Arrow) at the boss first, then Salvo. Without them: {impact:,.0f}; "
+                 f"with this build's: {total:,.0f}; every missile: {blast:,.0f}.")}]
+
+
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
 # "Hit damage is taken from Mana before Life if your current Mana is higher than your current Life" (poe2db): counted as
 # 100% Mind over Matter while the build's unreserved Mana is above its Life, both pools full (the manager's ruling,

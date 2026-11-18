@@ -2258,6 +2258,35 @@ class Assumptions:
             pa_mods, pa_notes = models.shock_set_model(main, main.stat_set, sets, plan.box,
                                                        plan.how or "no Parry or Refutation in the build", forbidden)
             hand_mods, hand_notes = hand_mods + pa_mods, hand_notes + pa_notes
+        if main is not None and group and main.name == models.GAS_ARROW:  # (GEM20: clouds explode on Ignite / Detonation)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            gas, gas_how = self.gas_arrow_share(group["index"], main.stat_set)
+            gas_mods, gas_notes = models.gas_arrow_model(main, main.stat_set, sets, gas, gas_how, forbidden)
+            hand_mods, hand_notes = hand_mods + gas_mods, hand_notes + gas_notes
+        if main is not None and group and main.name == models.FROZEN_LOCUS:  # (GEM20: an explosion when it breaks)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            breaks, breaks_how = self.locus_breaks(group["index"], main.name)
+            from builder.search import bosses
+            read = dict(build.call("stats", fields=["enemySkillTime"]))
+            request = getattr(getattr(build, "ctx", None), "request", None)
+            if getattr(request, "boss", None):
+                read["_boss"] = request.boss
+            every = bosses.benefit_skill_time(read)
+            boss = 1.0 / every if every > 0 else 0.0
+            fl_mods, fl_notes = models.frozen_locus_model(
+                main, main.stat_set, sets, number(stats.get("Speed")), breaks, boss,
+                f"{breaks_how}; the boss's damaging uses, one every {every:.2f} s (bosses.benefit_skill_time, LOW), "
+                "each taken to land on the crystal at its feet (LOW)", forbidden)
+            hand_mods, hand_notes = hand_mods + fl_mods, hand_notes + fl_notes
+        if main is not None and group and main.name == models.MAGNETIC_SALVO:  # (GEM20: explosions need lingering arrows)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            arrows, row_arrows, arrows_how, feeder = self.lingering_arrows(group["index"])
+            missiles = number(build.call("stats", fields=["ProjectileCount"]).get("ProjectileCount")) \
+                or models.MAGNETIC_SALVO_MISSILES
+            ms_mods, ms_notes = models.magnetic_salvo_model(main, main.stat_set, sets, number(stats.get("Speed")),
+                                                            missiles, arrows, row_arrows, arrows_how, feeder,
+                                                            forbidden)
+            hand_mods, hand_notes = hand_mods + ms_mods, hand_notes + ms_notes
         side_mods, side_notes = self.multi_set_side(main)  # (MECH-B, MECHB16: Rolling Slam in a Full DPS group)
         hand_mods, hand_notes = hand_mods + side_mods, hand_notes + side_notes
         cap_mods, cap_notes = self.main_cap(group, name)  # (MECH-B: the press hook on the main skill, MECHB5)
@@ -5079,6 +5108,107 @@ class Assumptions:
         share = 1.0 - (1.0 - base) * (1.0 - by_others)
         return share, (f"{others}: Shocked {by_others:.0%} of the fight ({duration:.2f} s each, random in time); "
                        f"the resolver's share {base:.0%} ({up_how})")
+
+    def gas_arrow_share(self, main_index: int, scored: str | None) -> tuple[float, str]:
+        """(share of Gas Arrow's clouds that explode, how) for models.gas_arrow_model (GEM20): a Detonator use sets off
+        every cloud lying there (detonator_rate, as detonated_share); the boss Ignited at some moment of a cloud's life
+        (models.gas_ignite_within) with Ignites as the resolver counts them (conditions.ailment_uptime over the other
+        groups' Ignites and Ignite grounds the resolver published, build.ailment_others / ailment_ground) plus the main
+        skill's own: the Explosion set's at its uses x the share that explode (a fixed point from 0: no seed, no
+        explosion), the Arrow set's at every use; the Poison Cloud set's fake hit taken to Ignite nothing."""
+        build = self.build
+        stats = dict(build.call("stats", fields=["Speed", "HitChance", "IgniteChancePerHit", "IgniteDuration"]))
+        uses = number(stats.get("Speed"))
+        if uses <= 0:
+            return 0.0, "Gas Arrow isn't used"
+        life = models.gas_cloud_life(uses)
+        lying = min(float(models.GAS_CLOUD_LIMIT), uses * life)
+        det_rate, det_how = self.detonator_rate(main_index)
+        detonated = min(1.0, det_rate * lying / uses) if det_rate > 0 else 0.0
+        duration = number(stats.get("IgniteDuration")) or conditions_mod.AILMENT_DURATION["Ignite"]
+        others = dict(getattr(build, "ailment_others", None) or {})
+        ground = dict(getattr(build, "ailment_ground", None) or {})
+        own = scored in ("Explosion", "Arrow") and number(stats.get("IgniteChancePerHit")) > 0
+        share, up, within = detonated, 0.0, 0.0
+        for _ in range(40):  # (the fixed point, from the share Detonators alone give)
+            own_uses = (uses * share if scored == "Explosion" else uses) if own else 0.0
+            read = {"Speed": own_uses, "HitChance": stats.get("HitChance"),
+                    "IgniteChancePerHit": stats.get("IgniteChancePerHit") if own else 0.0, "IgniteDuration": duration,
+                    "_ailment_others": others, "_ailment_ground": ground}
+            up = ailment_uptime(read, "Ignite")
+            within = models.gas_ignite_within(up, duration, life)
+            new = 1.0 - (1.0 - detonated) * (1.0 - within)
+            if abs(new - share) < 1e-6:
+                share = new
+                break
+            share = new
+        others_n = len([o for o in others.get("Ignite") or () if o])
+        source = ("the explosions' own Ignites" if own and scored == "Explosion" else
+                  "the arrow's own Ignites" if own else "no own Ignite read")
+        return share, (f"the boss Ignited {up:.1%} of the fight ({others_n} other Ignite source(s); {source}; "
+                       f"{duration:.1f} s each), so at some moment of a cloud's {life:.1f} s {within:.1%}; "
+                       f"Detonators set off {detonated:.0%} ({det_how})")
+
+    def _side_rows(self, main_index: int, pick) -> list[tuple[dict, float, str]]:
+        """[(useRates row, uses a second, how)] for the build's enabled groups outside the main one that `pick(group)`
+        accepts (GEM20): a triggered group at PoB's trigger rate, else conditions.skill_use_rate with the search's press
+        choices (its cooldown, its duration, else the chosen press rate, else 0: no source, 0)."""
+        build = self.build
+        indices = [g["index"] for g in build.groups() if g.get("enabled", True) and g["index"] != main_index and pick(g)]
+        if not indices:
+            return []
+        choices = models.press_choices(build)
+        out = []
+        for row in build.call("useRates", indices=indices)["rates"]:
+            if row.get("triggered"):
+                out.append((row, number(row.get("speed")), "PoB's trigger rate"))
+            else:
+                uses, why, _ = conditions_mod.skill_use_rate(row, choices)
+                out.append((row, uses, why))
+        return out
+
+    def locus_breaks(self, main_index: int, main_skill: str) -> tuple[float, str]:
+        """(the build's Ice Crystal breaker uses a second, how) for models.frozen_locus_model (GEM20): its groups with an
+        ICE_BREAKERS skill or a Warcry supported by Vruun's Aftermath (_side_rows), and its Freeze consumers
+        (conditions.side_consumes, at its rates), each group once."""
+        on = lambda g: [x["name"] for x in g.get("gems") or [] if x.get("enabled", True)]
+        consumers = (conditions_mod.side_consumes(self.build, main_skill).get("Freeze") or (0.0, "", ""))
+        named = set(re.findall(r"(?:^|; )([^;(]+?) \(", consumers[1]))  # (the consumers side_consumes names)
+        rows = self._side_rows(main_index, lambda g: any(
+            n in models.ICE_BREAKERS and n not in named for n in on(g)) or models.ICE_WARCRY_SUPPORT in on(g))
+        total, parts = number(consumers[0]), ([f"Freeze consumers: {consumers[1]}"] if consumers[0] else [])
+        for row, uses, why in rows:
+            if uses <= 0:
+                parts.append(f"{row.get('name')} not counted (no uses: {why})")
+                continue
+            total += uses
+            parts.append(f"{row.get('name')} {uses:.2f} uses/s ({why})")
+        return total, ("; ".join(parts) if parts else "no Freeze consumer, crystal-destroying skill or Vruun's "
+                       "Aftermath Warcry in the build")
+
+    def lingering_arrows(self, main_index: int) -> tuple[float, float, str, float]:
+        """(headline arrows a second, the MEDIUM-LOW row's arrows a second, how, the fastest headline maker's PoB speed)
+        for models.magnetic_salvo_model (GEM20): the build's groups using a LINGERING_ARROWS / LINGERING_ARROWS_ROW skill
+        (_side_rows) x its arrows a use."""
+        every = {**models.LINGERING_ARROWS, **models.LINGERING_ARROWS_ROW}
+        rows = self._side_rows(main_index, lambda g: any(
+            x.get("enabled", True) and x["name"] in every for x in g.get("gems") or []))
+        head, row_rate, parts, fastest = 0.0, 0.0, [], 0.0
+        for row, uses, why in rows:
+            name = row.get("name")
+            per = every.get(name, 0)
+            if name in models.LINGERING_ARROWS:
+                fastest = max(fastest, number(row.get("speed")) * per)
+            if uses <= 0 or not per:
+                parts.append(f"{name} not counted (no uses: {why})")
+                continue
+            if name in models.LINGERING_ARROWS:
+                head += uses * per
+            else:
+                row_rate += uses * per
+            parts.append(f"{name} {uses * per:.2f}/s ({uses:.2f} uses/s, {why}"
+                         + (", MEDIUM-LOW: the row" if name in models.LINGERING_ARROWS_ROW else "") + ")")
+        return head, row_rate, ("; ".join(parts) if parts else "no Lightning Rod or Shockchain Arrow in the build"), fastest
 
     def gated_set_share(self, skill: str, texts: list[str], main_types: set[str]) -> tuple[float, str]:
         """(share, how) of a models.GATED_SETS skill's uses its resource covers (GEM17): Furious Slam's Rage from the

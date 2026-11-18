@@ -1105,3 +1105,60 @@ def test_eye_of_winter_first_hit_adds_nine_hits_a_use():
     # the next pass reads PoB's TotalDPS with that line in: the same line (a fixed point)
     again, _ = models.eye_of_winter_model(eye, {**stats, "TotalDPS": 390.0}, mods[0]["value"])
     assert again[0]["value"] == pytest.approx(mods[0]["value"], abs=0.01)
+
+
+def test_gas_arrow_explodes_only_on_ignite_or_detonation():
+    # (GEM20) probe POE2T3441: Arrow 38.0, Poison Cloud 88.6, Explosion 162.4, kept "Explosion"
+    sets = [{"label": "Arrow", "TotalDPS": 38.0}, {"label": "Poison Cloud", "TotalDPS": 88.6},
+            {"label": "Explosion", "TotalDPS": 162.4}]
+    ga = Skill("Gas Arrow", 1, attack=True)
+    mods, notes = models.gas_arrow_model(ga, "Explosion", sets, 0.0, "nothing Ignites")
+    assert mods[0]["name"] == "Damage" and mods[0]["value"] == pytest.approx(100 * (38.0 * 0.9 / 162.4 - 1), abs=0.01)
+    assert notes[0]["entry"] == "model-gem20-gas-arrow-ignite-explosion"
+    mods, _ = models.gas_arrow_model(ga, "Explosion", sets, 0.5, "")
+    assert mods[0]["name"] == "DPS" and mods[0]["value"] == pytest.approx(100 * ((38.0 + 81.2) / 162.4 - 1), abs=0.01)
+    # the Poison Cloud set's fake hit is replaced by the hits; its Poison stays (a DPS line)
+    mods, notes = models.gas_arrow_model(ga, "Poison Cloud", sets, 0.5, "")
+    assert mods[0]["value"] == pytest.approx(100 * ((38.0 + 81.2) / 88.6 - 1), abs=0.01)
+    assert "Poison stays" in notes[0]["basis"]
+    assert models.gas_arrow_model(ga, "Explosion", sets, 0.5, "", {"model-gem20-gas-arrow-ignite-explosion"}) == ([], [])
+    assert models.gas_arrow_model(Skill("Lightning Rod", 1), "Explosion", sets, 0.5, "") == ([], [])
+
+
+def test_gas_cloud_ignite_window():
+    # Ignited 50% with 4 s Ignites: some moment of a 4 s cloud life is Ignited with 1 - 0.5^2
+    assert models.gas_ignite_within(0.5, 4.0, 4.0) == pytest.approx(0.75)
+    assert models.gas_ignite_within(0.0, 4.0, 4.0) == 0.0 and models.gas_ignite_within(1.0, 4.0, 4.0) == 1.0
+    assert models.gas_cloud_life(1.2) == 4.0 and models.gas_cloud_life(3.0) == pytest.approx(2.0)
+
+
+def test_frozen_locus_explodes_when_its_crystal_breaks():
+    # (GEM20) probe POE2T3441: Crystal 0, Explosion 254.3 at 0.98 casts a second
+    sets = [{"label": "Crystal", "TotalDPS": 0.0}, {"label": "Explosion", "TotalDPS": 254.3}]
+    fl = Skill("Frozen Locus", 1)
+    mods, notes = models.frozen_locus_model(fl, "Explosion", sets, 0.98, 0.0, 0.5, "the boss")
+    import math
+    q = 1 - math.exp(-5.0)
+    rate = q / (1 / 0.98 + q / 0.5)
+    assert mods[0]["name"] == "DPS" and mods[0]["value"] == pytest.approx(100 * (rate / 0.98 - 1), abs=0.01)
+    assert notes[0]["entry"] == "model-gem20-frozen-locus-crystal-breaks"
+    # nothing breaks it: no explosions (floored), expiry not counted
+    assert models.locus_explosions(1.0, 0.0) == 0.0
+    # breakers at once: one explosion a cast
+    assert models.locus_explosions(1.0, 1e6) == pytest.approx(1.0, rel=1e-3)
+    assert models.frozen_locus_model(fl, "Crystal", sets, 0.98, 1.0, 0.5, "") == ([], [])
+
+
+def test_magnetic_salvo_explodes_only_by_lingering_arrows():
+    # (GEM20) probe POE2T3441: Impact 42.5, Explosion 82.6 at 0.6 uses a second, kept "Explosion"
+    sets = [{"label": "Impact", "TotalDPS": 42.5}, {"label": "Explosion", "TotalDPS": 82.6}]
+    ms = Skill("Magnetic Salvo", 1, attack=True)
+    mods, notes = models.magnetic_salvo_model(ms, "Explosion", sets, 0.6, 8, 0.0, 0.0, "none")
+    assert mods[0]["name"] == "Damage" and mods[0]["value"] == pytest.approx(100 * (42.5 * 0.9 / 82.6 - 1), abs=0.01)
+    # Lightning Rod at 1.44 arrows a second against 0.6 x 8 missiles: 30% explode
+    e = 1.44 / 4.8
+    mods, notes = models.magnetic_salvo_model(ms, "Explosion", sets, 0.6, 8, 1.44, 0.0, "Lightning Rod")
+    assert mods[0]["name"] == "DPS"
+    assert mods[0]["value"] == pytest.approx(100 * ((42.5 * (1 - e) + 82.6 * e) / 82.6 - 1), abs=0.01)
+    assert notes[0]["entry"] == "model-gem20-magnetic-salvo-lingering-arrows"
+    assert models.salvo_share(0.6, 8, 100.0) == 1.0
