@@ -10601,6 +10601,27 @@ PARRY_SKILLS = ("Parry", "Refutation")
 # consume_parry_debuff_on_hit_to_gain_X_frenzy_charges (the Frenzied Riposte support), and Disengage's description, are
 # every stat or ActiveSkills description naming it): a main skill with one gains on one hit per Parried
 PARRY_CONSUMERS = frozenset({"Fangs of Frost", "Disengage", "Frenzied Riposte"})
+# The chance a consuming hit leaves Parried on (MECH89; MECH88's Handover step 3, GEM21's routing, an UNDERCOUNT before:
+# one consuming hit a Parried). Game files 26650308: chance_to_not_consume_parried_% is Fangs of Frost's quality stat
+# (GrantedEffectQualityStats, 0.75 a quality point: 15% at 20; PoB act_dex.lua the same, truncated as CalcTools 167);
+# no Mod, passive or support carries it (checked: the Stats ids holding "parr" and "consum" (three: this,
+# consume_parried_on_hit, Frenzied Riposte's frenzy one) against Mods, PassiveSkills, GrantedEffectQualityStats and
+# GrantedEffectStatSets: only the quality row; PoB's ModCache has no "consume Parried" line). Read from the main skill's
+# own stats (parried_keep); with chance c each Parried feeds 1 / (1 - c) consuming hits on average (independent rolls),
+# so the share of hits on a Parried boss is capped by that many hits per Parried instead of one. Capped at 99%.
+# A hit that leaves Parried on is read as still making Fangs of Frost's Explosion (its text: "Hitting a Parried target
+# Consumes the Debuff to cause an explosion"; the stat's own words "{0}% chance to not consume Parried Debuff"): MEDIUM,
+# UNVERIFIED (the other reading: each Parried makes one Explosion, the extra hits only take the 50% more).
+PARRIED_KEEP_STAT = "chance_to_not_consume_parried_%"
+
+
+def parried_keep(build, main_name: str | None) -> float:
+    """The main skill's chance (0-0.99) not to consume Parried on hit (PARRIED_KEEP_STAT, its gem's quality)."""
+    if not main_name:
+        return 0.0
+    raw = build.call("activeSkills", levelStats=[main_name])
+    got = next((s for s in raw["skills"] if s["name"] == main_name and not s.get("disabled")), {})
+    return min(max(number((got.get("levelStats") or {}).get(PARRIED_KEEP_STAT)) / 100, 0.0), 0.99)
 PARRIED_SECONDS = 2.0  # base_parry_duration_ms; "increased Parried Debuff Duration" lines aren't read (LOW, an undercount)
 PARRIED_MORE = 0.5  # base magnitude; magnitude modifiers are PoB's own
 PARRY_ACTION = 0.75  # Parry's retaliation (attackTime 750 ms); attack speed isn't counted (an undercount of its rate)
@@ -10634,13 +10655,13 @@ PARRIED_SPELL_INSTEAD = re.compile(r"^Parried enemies take more Spell Damage ins
 
 def parry_plan(skills: list[Skill], stats: dict, attack: bool, consumes: bool = False,
                stun: tuple[float, str] = (0.0, ""), refute: tuple[float, str] = (0.0, ""),
-               payoff: float = 0.0) -> ParryPlan:
+               payoff: float = 0.0, keep: float = 0.0) -> ParryPlan:
     """How a reasonable player uses the build's Parry / Refutation against the boss, if it pays (only Attack damage gains):
     Parry: the player attacks all the time and parries the boss's telegraphed hits (PARRY_EVERY), each parry losing its
     retaliation and leaving the boss Parried for part of the attacking time; Refutation: cast on its cooldown, the boss
     Parried from its first blocked hit until 2 s after the buff, attacking throughout (the cast time is lost). The better
     of the two; neither when it doesn't beat not parrying. A main skill that consumes Parried (`consumes`) gains on one
-    hit per Parried (chance not to consume isn't read: an undercount). `stun`: (the chance a parry Heavy Stuns you, how;
+    hit per Parried, or 1 / (1 - `keep`) hits with a chance not to consume it (MECH89, parried_keep). `stun`: (the chance a parry Heavy Stuns you, how;
     MECHC30's recovery.parry_stun_of): a stunned parry costs 3 s more of attacking and its Parried window passes unused.
     `refute`: (seconds into Refutation's buff its blocks Heavy Stun you, 0.0 for none; how; recovery.refutation_stun_of):
     the buff ends there, the 3 s stun is lost time, and the Parried it left runs out during the stun.
@@ -10661,7 +10682,10 @@ def parry_plan(skills: list[Skill], stats: dict, attack: bool, consumes: bool = 
     every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
     wait = every / 2
     hps = hits_per_second(stats)
-    eaten = " (the main skill consumes Parried: one hit per Parried gains)" if consumes else ""
+    keep = min(max(number(keep), 0.0), 0.99) if consumes else 0.0
+    per = 1 / (1 - keep)  # (MECH89: consuming hits a Parried feeds on average, parried_keep)
+    eaten = (" (the main skill consumes Parried: " + (f"{per:.2f} hits per Parried gain, its {keep:.0%} chance not to "
+             "consume it" if keep > 0 else "one hit per Parried gains") + ")") if consumes else ""
     payoff = max(number(payoff), 0.0) if consumes else 0.0
     more = PARRIED_MORE + payoff  # (MECH87: a consumer's own payoff per Parried hit, beside the 50% more)
     if payoff > 0:
@@ -10674,7 +10698,7 @@ def parry_plan(skills: list[Skill], stats: dict, attack: bool, consumes: bool = 
         lost = (PARRY_ACTION + stun_lost) / PARRY_EVERY
         attacking = max(PARRY_EVERY - PARRY_ACTION - stun_lost, 1e-9)
         share = min(1.0, (1 - stunned) * (PARRIED_SECONDS - PARRY_ACTION / 2) / attacking)
-        box = min(share, (1 - stunned) / (hps * attacking)) if consumes and hps > 0 else share
+        box = min(share, (1 - stunned) * per / (hps * attacking)) if consumes and hps > 0 else share
         options.append(((1 + more * box) * (1 - lost), ParryPlan(
             box, lost, parries=(1 - stunned) / PARRY_EVERY, how=f"Parry the boss's telegraphed hits (one every {PARRY_EVERY:g} s, assumed; the user called it fair, MEDIUM) and attack the rest "
                        f"of the time: each parry costs its {PARRY_ACTION:g} s retaliation ({lost:.0%} of the main skill's "
@@ -10701,7 +10725,8 @@ def parry_plan(skills: list[Skill], stats: dict, attack: bool, consumes: bool = 
                 buff_up = REFUTATION_BUFF
                 up = min(1.0, (REFUTATION_BUFF - wait + PARRIED_SECONDS) / period)
             if consumes and hps > 0:  # re-applied by each blocked boss hit in the buff, eaten by the next main-skill hit
-                up = min(up, (min(hps, 1 / every) * max(buff_up - wait, 0.0) + (0 if stun_at else 1)) / (hps * period))
+                up = min(up, per * (min(hps, 1 / every) * max(buff_up - wait, 0.0) + (0 if stun_at else 1))
+                         / (hps * period))
             cast = ref.cast_time or 0.65
             lost = min((cast + (PLAYER_HEAVY_STUN_SECONDS if stun_at else 0.0)) / period, 1.0)
             options.append(((1 + more * up) * (1 - lost), ParryPlan(
@@ -10721,11 +10746,11 @@ def parry_plan(skills: list[Skill], stats: dict, attack: bool, consumes: bool = 
 
 def parry_model(skills: list[Skill], stats: dict, main: Skill | None, consumes: bool = False,
                 stun: tuple[float, str] = (0.0, ""), refute: tuple[float, str] = (0.0, ""),
-                payoff: float = 0.0) -> tuple[list[dict], list[dict]]:
+                payoff: float = 0.0, keep: float = 0.0) -> tuple[list[dict], list[dict]]:
     """The main skill's time spent parrying (parry_plan; the box itself is conditions' parryActive)."""
     if main is None or not any(s.name in PARRY_SKILLS for s in skills):
         return [], []
-    plan = parry_plan(skills, stats, main.attack, consumes, stun, refute, payoff)
+    plan = parry_plan(skills, stats, main.attack, consumes, stun, refute, payoff, keep)
     notes = [{"label": "Parried (how the build parries the boss)", "value": f"{plan.box:.0%} of the main skill's hits",
               "basis": plan.how, "confidence": "theory"}] if plan.how else []
     line_mods, line_notes = parry_line_mods(plan, stats, main)
@@ -12547,7 +12572,7 @@ RAISED_PARRIED = re.compile(r"^raise shield inflicts parried for (\d+(?:\.\d+)?)
 
 
 def raised_parried(plan: RaisedPlan, texts: list[str], main: Skill, hps: float = 0.0,
-                   consumes: bool = False) -> tuple[float, str]:
+                   consumes: bool = False, keep: float = 0.0) -> tuple[float, str]:
     """(share of the main skill's hits on a Parried boss, how) from "Raise Shield inflicts Parried ..." at the plan's taps."""
     from builder.ledger import translate
 
@@ -12560,15 +12585,18 @@ def raised_parried(plan: RaisedPlan, texts: list[str], main: Skill, hps: float =
         return 0.0, "Raise Shield inflicts Parried: Parried raises only Attack damage taken, and the main skill isn't an Attack"
     seconds = max(n for _, n in found)
     share = min(1.0, seconds * plan.taps)
-    box = min(share, plan.taps / hps) if consumes and hps > 0 else share
+    per = 1 / (1 - min(max(number(keep), 0.0), 0.99))  # (MECH89: hits a tap's Parried feeds, parried_keep)
+    box = min(share, plan.taps * per / hps) if consumes and hps > 0 else share
     return box, (f"each Raise Shield tap ({plan.taps:.2f} a second) leaves the boss Parried {seconds:g} s: "
                  f"{box:.0%} of the main skill's hits land on a Parried boss (50% more Attack damage taken)"
-                 + (" (the main skill consumes Parried: one hit per tap gains)" if consumes else "")
+                 + ((" (the main skill consumes Parried: " + (f"{per:.2f} hits per tap gain)" if per > 1
+                                                                  else "one hit per tap gains)")) if consumes else "")
                  + "; without the taps: none")
 
 
 def raised_model(skills: list[Skill], texts: list[str], metres: float, main: Skill | None,
-                 taps: bool = True, hps: float = 0.0, consumes: bool = False) -> tuple[list[dict], list[dict]]:
+                 taps: bool = True, hps: float = 0.0, consumes: bool = False,
+                 keep: float = 0.0) -> tuple[list[dict], list[dict]]:
     """The main skill's time spent tapping the shield (raised_plan; the Blinded box itself is conditions'), and the
     Parried its taps inflict (raised_parried)."""
     if main is None or main.name == RAISE_SHIELD:
@@ -12584,7 +12612,7 @@ def raised_model(skills: list[Skill], texts: list[str], metres: float, main: Ski
                          "debuff), so its taps add none here (an undercount, LOW)") if any(
             RAISED_PARRIED.search(t.strip()) for t in texts) else ""
     else:
-        box, how = raised_parried(plan, texts, main, hps, consumes)
+        box, how = raised_parried(plan, texts, main, hps, consumes, keep)
     if box > 0:
         mods.append(line("1% more Attack Damage", 100 * PARRIED_MORE * box, skill=main.name))
     if how:

@@ -2407,6 +2407,7 @@ CHILL_FIELDS = ("ChillChanceOnHit", "Speed", "HitChance", "ChillDuration", "Chil
 EVIDENCE_FIELDS.extend(f for f in CHILL_FIELDS if f not in EVIDENCE_FIELDS)
 EVIDENCE_FIELDS.extend(f for f in ("IgniteDuration", "IgniteStackPotential") if f not in EVIDENCE_FIELDS)  # (MECH81)
 EVIDENCE_FIELDS.extend(f for f in ("MovementSpeedMod",) if f not in EVIDENCE_FIELDS)  # (MECH83: presence_reentries' roll)
+EVIDENCE_FIELDS.extend(f for f in ("PoisonDPS",) if f not in EVIDENCE_FIELDS)  # (MECH89: Corrosion's Poison Armour Break)
 
 
 def chill_effect(stats: dict) -> tuple[float, float, str]:
@@ -2494,6 +2495,19 @@ SELF_IGNITE_LINE = re.compile(r"become ignited when you deal a critical hit", re
 SELF_IGNITED_USE = re.compile(r"\bwhile (?:you are )?(?:ignited|burning)\b", re.I)
 
 
+def grinning_ignited(stats: dict) -> tuple[float, str]:
+    """(share of the fight you are Ignited by your own crits (SELF_IGNITE_LINE), how)."""
+    avoid = min(max(number(stats.get("IgniteAvoidChance")), 0.0), 100.0) / 100.0
+    crits = models.crits_per_second(stats)
+    scale = number(stats.get("SelfIgniteDuration")) / 100 if "SelfIgniteDuration" in stats else 1.0
+    seconds = AILMENT_DURATION["Ignite"] * scale
+    up = 1.0 - avoid ** (crits * seconds) if crits > 0 and avoid < 1.0 else 0.0  # (no crit Ignite got through)
+    if avoid >= 1.0:
+        return 0.0, "you can't be Ignited (PoB's Ignite avoidance 100%: immune)"
+    return up, (f"{crits:.2f} crits/s, {1 - avoid:.0%} not avoided, Ignited {seconds:.1f} s each: up {up:.0%} of the "
+                f"fight ({shared(up)}; avoidance taken to apply, MEDIUM)")
+
+
 def _self_ignited(lines: list[str], stats: dict) -> tuple[object, str, float] | tuple[float, str]:
     grinning = any(SELF_IGNITE_LINE.search(t) for t in lines)
     boss, boss_how = bosses.self_ignite_uptime(stats) if any(SELF_IGNITED_USE.search(t) for t in lines) else (0.0, "")
@@ -2503,16 +2517,7 @@ def _self_ignited(lines: list[str], stats: dict) -> tuple[object, str, float] | 
     parts = []
     up = 0.0
     if grinning:
-        avoid = min(max(number(stats.get("IgniteAvoidChance")), 0.0), 100.0) / 100.0
-        crits = models.crits_per_second(stats)
-        scale = number(stats.get("SelfIgniteDuration")) / 100 if "SelfIgniteDuration" in stats else 1.0
-        seconds = AILMENT_DURATION["Ignite"] * scale
-        up = 1.0 - avoid ** (crits * seconds) if crits > 0 and avoid < 1.0 else 0.0  # (no crit Ignite got through)
-        if avoid >= 1.0:
-            how = "you can't be Ignited (PoB's Ignite avoidance 100%: immune)"
-        else:
-            how = (f"{crits:.2f} crits/s, {1 - avoid:.0%} not avoided, Ignited {seconds:.1f} s each: up {up:.0%} of the "
-                   f"fight ({shared(up)}; avoidance taken to apply, MEDIUM)")
+        up, how = grinning_ignited(stats)
         parts.append("Grinning Immolation: become Ignited when you crit: " + how)
     if boss > 0:
         parts.append(boss_how)
@@ -2570,6 +2575,37 @@ def empowered_buildup(texts: list[str]) -> dict[str, float]:
     return out
 REFLECTED_IGNITE_FIELDS = ("IgniteChancePerHit", "Speed", "HitChance", "IgniteDuration", "IgniteAvoidChance",
                            "SelfIgniteDuration", "IgniteDPS", "IgniteEffMult", "SelfIgniteEffect")
+# Grinning Immolation's burn (MECH89; COV43's routed OVERCOUNT candidate, impact 15.0): "Become Ignited when you deal a
+# Critical Hit, taking 15% of your maximum Life and Energy Shield as Fire Damage per second". PoB leaves the line unparsed
+# (ModCache 6720: nil); _self_ignited (MECH53) turns the Ignited box on from it, so the "while Ignited" benefits counted
+# and the burn didn't. Now: N% x (PoB's Life + Energy Shield) a second x the share of the fight you are Ignited by it
+# (grinning_ignited: your crits, your Ignite avoidance and self-Ignite duration), handed to PoB as "1 Fire Damage taken
+# per second" (PoB's degen, through your Fire resistance, as Self Immolation's reflected burn: whether resistance
+# applies is UNVERIFIED, the usual rule for a Fire damage over time on you). Your "Magnitude of Ignite on you" modifiers
+# (PoB's SelfIgniteEffect) are taken to scale it (an Ignite's damage; UNVERIFIED: the unscaled reading is in the note).
+# With another Ignite on you as well (the boss's, Self Immolation's) the two burns are added (only the strongest Ignite
+# may deal damage: then this is high, the cost side, LOW).
+GRINNING_BURN = re.compile(r"become ignited when you deal a critical hit, taking (\d+(?:\.\d+)?)% of your maximum life "
+                           r"and energy shield as fire damage per second", re.I)
+GRINNING_FIELDS = ("Life", "EnergyShield", "CritChance", "Speed", "HitChance", "IgniteAvoidChance", "SelfIgniteDuration",
+                   "SelfIgniteEffect")
+
+
+def grinning_burn(lines: list[str], stats: dict) -> tuple[float, str]:
+    """(Fire damage a second you take on average from Grinning Immolation's self-Ignite, before your Fire resistance,
+    how); (0.0, "") without the line."""
+    pct = max((float(m.group(1)) for t in lines if (m := GRINNING_BURN.search(t))), default=0.0)
+    if pct <= 0:
+        return 0.0, ""
+    up, how = grinning_ignited(stats)
+    pool = number(stats.get("Life")) + number(stats.get("EnergyShield"))
+    effect = number(stats.get("SelfIgniteEffect")) / 100 if "SelfIgniteEffect" in stats else 1.0
+    per = pct / 100 * pool
+    burn = per * max(effect, 0.0) * up
+    return burn, (f"{how}; burning {pct:g}% of your {pool:,.0f} Life + Energy Shield = {per:,.0f} Fire a second while "
+                  f"Ignited, x your Magnitude of Ignite on you {effect:.0%} (UNVERIFIED; unscaled: {per * up:,.0f}) = "
+                  f"{burn:,.0f} a second on average, then your Fire resistance (PoB's degen, UNVERIFIED); without the "
+                  "line: none")
 
 
 def reflected_ignite_share(lines: list[str], stats: dict) -> tuple[float, str]:
@@ -3191,6 +3227,12 @@ BREAK_STATS = {
     # reading, SkillStatMap 2980's CanArmourBreak under the enemy's Crushed, moves no DPS: probe POE2T4088, Shield Charge
     # 137.99 with and without the box, so this counts it once)
     "crushed_target_%_physical_damage_taken_as_armour_break": "Break Armour equal to {}% of Physical Damage dealt",
+    # (MECH89, an UNDERCOUNT before: _armour_break_source gave every Poison wording 0) Corrosion: "Poison applied by
+    # supported Skills also Breaks Armour equal to {0}% of Poison damage" (gem_stat_descriptions; SupportCorrosionPlayer).
+    # Read as that share of the skill's Poison damage a second, PoB's PoisonDPS (all its stacks, after the boss's Chaos
+    # resistance, CalcOffence 5398-5406: MEDIUM, "damage" read as dealt). Poisonburst Arrow's alternate quality carries
+    # the same stat; the builder sets no alternate qualities.
+    "armour_break_for_%_of_poison_damage_over_poison_duration": "Poison Breaks Armour equal to {}% of Poison damage",
 }
 BREAK_DAMAGE = {"physical": ("Physical",), "fire": ("Fire",), "chaos": ("Chaos",), "hit": models.DAMAGE_TYPES,
                 "damage from hits": models.DAMAGE_TYPES}
@@ -3209,6 +3251,11 @@ def _armour_break_source(text: str, stats: dict) -> tuple[float, float, float, s
     low = text.lower()
     if re.match(r"minions?\b", low):
         return 0.0, 0.0, 0.0, "Minions' breaks: not counted (0)"
+    if m := re.search(r"breaks armour equal to ([\d.]+)% of poison damage", low):  # (MECH89: Corrosion)
+        poison = number(stats.get("PoisonDPS"))
+        per = float(m.group(1)) / 100 * poison
+        return per, 0.0, 0.0, (f"{m.group(1)}% of its Poison damage, {poison:,.0f} a second (PoB's PoisonDPS: all stacks, "
+                               "after the boss's resistance; MEDIUM)")
     if re.search(r"parried|maim|poison|frenzy charge", low):
         return 0.0, 0.0, 0.0, "its rate isn't modelled (0, labelled)"
     if "heavy stun" in low and "fully break" in low:
@@ -3283,12 +3330,23 @@ def _armour_broken(lines: list[str], stats: dict) -> tuple[float, str]:
             continue
         rate, share, full = rate + r[0], share + r[1], full + r[2]
         how.append(f"{text[:60]} ({r[3]})")
-    if not how:
+    marked = stats.get("_mark_break")  # (MECH89: Mark for Death on your Mark: (%, Marked share, how))
+    if marked and marked[1] > 0 and (r := _armour_break_source(MARK_BREAK_LINE.format(f"{marked[0]:g}"), stats)):
+        rate += r[0] * marked[1]
+        how.append(f"Mark for Death: {marked[0]:g}% of the main skill's Physical hit on the Marked boss ({r[3]}) x "
+                   f"{marked[1]:.0%} Marked ({marked[2]})")
+    others = stats.get("_break_others") or []  # (MECH89: the other hitting groups' Breaks, break_others)
+    if not how and not others:
         return 0.0, ""
     scale, scaled = break_amount_scale(lines, stats)
     if scaled:
         rate, share = rate * scale, share * scale
         how.insert(0, f"each Break takes x{scale:.2f} Armour ({scaled})")
+    if others:  # (their own more is in each; the build's "Break X% increased Armour" lines apply to them too)
+        side_scale = break_amount_scale(lines, {})[0]
+        rate += sum(o[1] for o in others) * side_scale
+        how.append("beside the main skill: " + " | ".join(o[2] for o in others)
+                   + (f" (x{side_scale:.2f} from the build's Break lines)" if side_scale != 1 else ""))
     rate += share * armour
     to_break = 0.0 if armour <= 0 else (armour / rate if rate > 0 else float("inf"))
     held = models.full_break_duration(lines)  # (12 s x the Armour Break Duration lines)
@@ -3302,7 +3360,7 @@ def _armour_broken(lines: list[str], stats: dict) -> tuple[float, str]:
                                                                                                  shouts)
         how.insert(0, shout)
     return up, (f"Armour Fully Broken {up:.0%} of the fight ({shared(up)}): {rate:,.0f} Armour broken/s against "
-                f"the boss's {armour:,.0f} (PoB), {held:g} s each Full Break: " + "; ".join(how[:3]))
+                f"the boss's {armour:,.0f} (PoB), {held:g} s each Full Break: " + "; ".join(how[:5]))
 
 
 # Riven Armour (MECH69; GEM1's note, a possible OVERCOUNT): game files, KeywordPopups RivenArmour: "Enemies with Riven
@@ -4110,6 +4168,91 @@ def buildup_others(rows: dict, groups: list[dict], hitters: set[str], main_index
     if not any(a in out for a in BUILDUP_SHARED):
         return {}
     out["how"] = "; ".join(parts) + " (MECH87: each group's buildup as PoB scores it as the main skill; one hit per use)"
+    return out
+
+
+# The other hitting groups' Armour Break (MECH89; MECH88's Handover step 2, GEM21's routing, an UNDERCOUNT before: only
+# the main skill's hits Broke Armour in _armour_broken, so High Velocity Rounds beside Armour Piercing Rounds, or a
+# second skill with Armour Break I-III, never Fully Broke the boss). Each enabled group beside the main one whose skill
+# hits on use (daze_hitter, the same hitters as buildup_others) Breaks with (a) its own and its supports' BREAK_STATS
+# (game files 26650308, GrantedEffectStatSets / PerLevel: Armour Piercing Rounds, Armour Breaker and Resonating Shield's
+# apply_X_armour_break_on_hit; Smash to Smithereens' fire share; the Armour Break, Uul-Netol and Styrn's supports) and
+# (b) the build's own per-hit Break lines that qualify for its skill types (an item's "Hits Break N Armour" breaks with
+# every hit). Each at its group's hits a second (its useRates row: PoB's trigger rate, else skill_use_rate at the press
+# choices, x HitChance; one hit per use, as buildup_others) and its own hit and crit (the row's <Type>HitAverage /
+# CritAverage, PoB's, as _armour_break_source reads the main skill's), x its own Armour Demolisher / Uruk's Smelting
+# (BREAK_MORE_STAT). A group whose skill or supports say cannot_break_armour (High Velocity Rounds, Sunder, Leap Slam,
+# Battershout) breaks nothing. Not rated for side groups (0, labelled): the Heavy Stun, "when Freezing / Electrocuting"
+# and "Stunning" wordings (they ride the boss's shared bars, which _armour_broken rates once from the main skill), and
+# the support stats outside BREAK_STATS (Rending Apex's final strike, Mark for Death's Marked target, Brittle Armour's
+# Freeze, Tumult's Frenzy Charge, Corrosion's Poison, Outmaneuver's Parried: not read for the main skill either).
+CANNOT_BREAK = "cannot_break_armour"
+# Mark for Death (MECH89, an UNDERCOUNT before: no reader): "Hits against targets Marked by Supported Skills Break Armour
+# equal to {0}% of Physical damage dealt" (gem_stat_descriptions; SupportMarkForDeathPlayer 10, ...PlayerTwo 15; PoB
+# sup_str.lua maps it only to Condition:CanArmourBreak, its own Armour Break output, which no box reads). It supports a
+# Mark, so every hit of yours on the Marked boss Breaks: the main skill's and each other hitting group's Physical hit x
+# that share, at the share of the fight the boss carries the Mark (Conditions._marked_share, models.mark_model's).
+MARK_BREAK_STAT = "marked_target_%_physical_damage_taken_as_armour_break"
+MARK_BREAK_LINE = "Break Armour equal to {}% of Physical Damage dealt"
+SIDE_BREAK_SKIP = re.compile(r"heavy stun|stunning|when (?:freezing|electrocuting)", re.I)
+
+
+def break_others(skills: list[dict], rows: dict, groups: list[dict], hitters: set[str], main_index,
+                 build_lines: list[str], every: dict, choices: dict[str, float] | None = None,
+                 marked: tuple | None = None) -> list[tuple]:
+    """[(name, Armour broken a second, how)] for the build's other hitting groups (see the note above). `skills`: the
+    bridge's activeSkills entries with levelStats and supportStats (BREAK_STATS, BREAK_MORE_STAT, CANNOT_BREAK) for the
+    hitters; `rows`: {group index: useRates row}; `build_lines`: the build's lines that aren't gem lines; `marked`:
+    (Mark for Death's %, the Marked share, how) or None (MARK_BREAK_STAT)."""
+    names = {g["index"]: [n["name"] for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in hitters]
+             for g in groups if g.get("enabled") is not False}
+    by_name: dict[str, dict] = {}
+    for s in skills:
+        if not s.get("disabled"):
+            by_name.setdefault(s["name"], s)
+    out = []
+    for index, row in sorted(rows.items(), key=lambda kv: str(kv[0])):
+        if index == main_index or not names.get(index):
+            continue
+        name = row.get("name") or names[index][0]
+        skill = by_name.get(name) or by_name.get(names[index][0]) or {}
+        got = {stat: number(value) for part in ("levelStats", "supportStats")
+               for stat, value in (skill.get(part) or {}).items() if value}
+        types = set((every.get(names[index][0]) or {}).get("skillTypes") or ())
+        texts = [BREAK_STATS[stat].format(f"{value:g}") for stat, value in got.items() if stat in BREAK_STATS]
+        texts += [t for t in build_lines if ARMOUR_BREAK_LINE.search(t) and qualifies(t, types)]
+        if not texts and not (marked and marked[1] > 0):
+            continue
+        if got.get(CANNOT_BREAK):
+            out.append((name, 0.0, f"{name} cannot Break Armour (cannot_break_armour)"))
+            continue
+        if row.get("triggered"):
+            uses, why = number(row.get("speed")), "PoB's trigger rate"
+        else:
+            uses, why, _ = skill_use_rate(row, choices)
+        side = {**row, "Speed": uses, "HitChance": number(row.get("HitChance")) or 100.0}
+        if (own := number(row.get("speed"))) > 0:  # (its Poison as PoB scores it at its own speed, to its use rate)
+            side["PoisonDPS"] = number(row.get("PoisonDPS")) * min(uses / own, 1.0)
+        if models.hits_per_second(side) <= 0:
+            out.append((name, 0.0, f"{name} not counted (no uses: no cooldown, duration or press chosen)"))
+            continue
+        rate, parts = 0.0, []
+        for text in texts:
+            if SIDE_BREAK_SKIP.search(text):
+                parts.append(f"{text[:50]} (on a shared bar: rated from the main skill only, 0 here)")
+                continue
+            if (r := _armour_break_source(text, side)) is None:
+                continue
+            rate += r[0]
+            parts.append(f"{text[:50]} ({r[3]})")
+        if marked and marked[1] > 0 and (r := _armour_break_source(MARK_BREAK_LINE.format(f"{marked[0]:g}"), side)):
+            rate += r[0] * marked[1]
+            parts.append(f"Mark for Death {marked[0]:g}% of its Physical hit on the Marked boss ({r[3]}) x {marked[1]:.0%}")
+        more = number((skill.get("supportStats") or {}).get(BREAK_MORE_STAT))
+        if more:
+            rate *= 1 + more / 100
+            parts.append(f"{more:+g}% more from its support")
+        out.append((name, rate, f"{name} at {why}: " + "; ".join(parts)))
     return out
 
 
@@ -7725,9 +7868,10 @@ class Conditions:
             if self.main_skill in models.PARRIED_SETS and (group := self.build.main_group()):
                 payoff = models.parried_payoff(self.main_skill, self.build.call(
                     "setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"])
+            eats = bool(({self.main_skill} | main_gems) & models.PARRY_CONSUMERS)
             stats["_parry_plan"] = self.parry_plan = models.parry_plan(
-                found, stats, "Attack" in main_types, bool(({self.main_skill} | main_gems) & models.PARRY_CONSUMERS), stun,
-                refute, payoff)
+                found, stats, "Attack" in main_types, eats, stun, refute, payoff,
+                models.parried_keep(self.build, self.main_skill) if eats else 0.0)  # (MECH89: parried_keep)
         if any(STUNS_YOU.search(t) for t in texts):  # (Blinding Flash, MECHC25: the boss's Light Stuns on you)
             from builder.search import flasks
 
@@ -7750,7 +7894,8 @@ class Conditions:
                   if n.get("enabled", True) and n["name"] != self.main_skill
                   and not (every.get(n["name"]) or {"support": True}).get("support")}
         raw = self.build.call("activeSkills", levelStats=[self.main_skill, *sorted(beside)],
-                              supportStats=list(DAZE_SKILL_STATS))
+                              supportStats=[*DAZE_SKILL_STATS, *BREAK_STATS, BREAK_MORE_STAT, CANNOT_BREAK,
+                                            MARK_BREAK_STAT])
         effects: dict[str, list[dict]] = {}
         for entry in raw["skills"]:
             if not entry.get("disabled"):
@@ -7786,6 +7931,17 @@ class Conditions:
         stats["_buildup_others"] = buildup_others(group_rows, groups_now, hitters, groups_all.get("mainSocketGroup"),
                                                   models.press_choices(self.build))
         self.build.buildup_others = dict(stats["_buildup_others"])
+        # (MECH89) Mark for Death on the build's Mark, at the Marked share (MARK_BREAK_STAT)
+        mark_pct = max((number((s.get("supportStats") or {}).get(MARK_BREAK_STAT)) for s in raw["skills"]
+                        if not s.get("disabled") and s["name"] in (*models.MARKS, models.PREDATORS_MARK)), default=0.0)
+        if mark_pct > 0:
+            stats["_mark_break"] = (mark_pct, *self._marked_share())
+        # (MECH89) the other groups' Armour Break, for _armour_broken (break_others): the same rows and hitters
+        stats["_break_others"] = break_others(raw["skills"], group_rows, groups_now, hitters,
+                                              groups_all.get("mainSocketGroup"),
+                                              [line["text"] for line in lines if not line["source"].startswith("gem:")],
+                                              every, models.press_choices(self.build),
+                                              stats.get("_mark_break")) if hitters else []
         if others:
             stats["_ailment_others"] = {"Ignite": others}
             said = stats.setdefault("_ailment_others_how", {})  # (Radiant Grief's aura may be said already)
@@ -7860,7 +8016,8 @@ class Conditions:
         self.riven_how = ""
         if "Ferocious Roar" in gem_types and (roar := self.roar_evidence()):
             broken, stats["_full_break_rate"] = roar, roar[2] / models.full_break_duration([line["text"] for line in lines])
-        elif any(ARMOUR_BREAK_LINE.search(line["text"]) for line in lines):
+        elif (any(ARMOUR_BREAK_LINE.search(line["text"]) for line in lines) or stats.get("_break_others")
+              or stats.get("_mark_break")):
             raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=list(BREAK_STATS))
             main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
             gem_lines = [BREAK_STATS[stat].format(f"{value:g}") for part in ("levelStats", "supportStats")

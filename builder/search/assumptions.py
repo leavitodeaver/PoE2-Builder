@@ -1834,6 +1834,16 @@ class Assumptions:
                                "value": f"{burn:,.0f} Fire a second", "basis": burn_how,
                                "confidence": "MEDIUM (avoidance applied; the reflected Ignite's duration yours, "
                                              "UNVERIFIED; the main skill's Ignite only)"})
+        if any(conditions_mod.GRINNING_BURN.search(t) for t in texts):
+            # (MECH89: Grinning Immolation's 15% of Life + ES a second while you are Ignited by your crits, COV43)
+            burn, burn_how = conditions_mod.grinning_burn(
+                texts, build.call("stats", fields=list(conditions_mod.GRINNING_FIELDS)))
+            if burn > 0:
+                hand_mods = hand_mods + [models.line("1 Fire Damage taken per second", burn)]
+            hand_notes.append({"label": "Ignited by your own crits (Grinning Immolation)*",
+                               "value": f"{burn:,.0f} Fire a second", "basis": burn_how,
+                               "confidence": "MEDIUM (avoidance applied; Fire resistance and Ignite magnitude on you "
+                                             "applied, UNVERIFIED)"})
         if (emp_buildup := conditions_mod.empowered_buildup(texts)) and main is not None:
             # (MECH86: Bravado / cold49 / cold50: buildup on Empowered Attacks at the main skill's Empowered share)
             emp_uses, emp_how = self.empowered_uses(stats, None) if main.attack else (0.0, "the main skill isn't an Attack")
@@ -2147,9 +2157,12 @@ class Assumptions:
                 "setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"])
         parry_metres = (models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10
                         or natural_distance(main_types, name or ""))  # (MECH88: Counterstancing's projectile parries)
+        parry_eats = bool(({name} | main_gems) & models.PARRY_CONSUMERS)
+        parry_keep = (models.parried_keep(build, name) if parry_eats and any(s.name in models.PARRY_SKILLS for s in found)
+                      else 0.0)  # (MECH89: Fangs of Frost's chance not to consume Parried)
         parry_mods, parry_notes = models.parry_model(found, {**stats, "_texts": texts, "_main_types": main_types,
-                                                             "_distance": parry_metres}, main, bool(({name} | main_gems) & models.PARRY_CONSUMERS),
-                                                     parry_stun, refute_stun, parried_payoff)
+                                                             "_distance": parry_metres}, main, parry_eats,
+                                                     parry_stun, refute_stun, parried_payoff, parry_keep)
         hand_mods, hand_notes = hand_mods + parry_mods, hand_notes + parry_notes
         if any(models.LIONEYE.search(t.strip()) for t in texts):  # (MECHB37: Lioneye's Glare's Repeats out of Presence)
             metres = models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10 or natural_distance(main_types, name or "")
@@ -2177,8 +2190,8 @@ class Assumptions:
             metres = models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10 or natural_distance(main_types, name or "")
             raised_texts, taps = [e["text"] for e in source_lines], models.raised_taps_on(build)
             raised_mods, raised_notes = models.raised_model(
-                found, raised_texts, metres, main, taps, models.hits_per_second(stats),
-                bool(({name} | main_gems) & models.PARRY_CONSUMERS))
+                found, raised_texts, metres, main, taps, models.hits_per_second(stats), parry_eats,
+                models.parried_keep(build, name) if parry_eats else 0.0)
             hand_mods, hand_notes = hand_mods + raised_mods, hand_notes + raised_notes
             plan = models.raised_plan(found, raised_texts, metres, taps)  # (its taps are presses: the button cap's)
             if plan.taps > 0:
@@ -2470,7 +2483,8 @@ class Assumptions:
         if main is not None and group and main.name in models.PARRIED_SETS:  # (GEM19: a part only on a Parried boss)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             plan = models.parry_plan(found, {**stats, "_texts": texts}, main.attack, True,
-                                     parry_stun, refute_stun, models.parried_payoff(main.name, sets))  # (as parry_model's)
+                                     parry_stun, refute_stun, models.parried_payoff(main.name, sets),
+                                     models.parried_keep(build, main.name))  # (as parry_model's)
             pa_mods, pa_notes = models.shock_set_model(main, main.stat_set, sets, plan.box,
                                                        plan.how or "no Parry or Refutation in the build", forbidden,
                                                        previous=self.mods)
