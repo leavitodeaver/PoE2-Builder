@@ -5509,8 +5509,8 @@ class Assumptions:
             read["_boss"] = request.boss
         every = bosses.benefit_skill_time(read)
         return (1.0 / every if every > 0 else 0.0), (
-            f"the boss's damaging uses, one every {every:.2f} s (bosses.benefit_skill_time, LOW), each taken to land on "
-            "it at the boss's feet (LOW)")
+            f"the boss's damaging uses, one every {every:.2f} s (bosses.benefit_skill_time, LOW), each taken to reach it "
+            "(LOW: a Frozen Locus crystal at its feet, a Shield Wall between you)")
 
     def wall_shatters(self, main_index: int) -> tuple[float, str]:
         """(the build's Slam / Warcry / Shield Charge uses a second, how) for models.shield_wall_model (GEM20): groups

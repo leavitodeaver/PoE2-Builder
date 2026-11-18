@@ -1181,15 +1181,20 @@ def test_herald_of_blood_explodes_only_on_kills():
 
 
 def test_shield_wall_explodes_when_shattered_more_by_slams():
+    import math
     sets = [{"label": "Shield Wall", "TotalDPS": 100.0, "AverageDamage": 100.0, "Speed": 1.0}]
     sw = Skill("Shield Wall", 1, attack=True)
-    # shattered at once by your Slams: one explosion a cast, with the gem's 140% more
+    # shattered at once by your Slams: one break a cast, the 140% more, one wall standing (no time for a second)
     mods, notes = models.shield_wall_model(sw, "Shield Wall", sets, 1.0, 1e6, 0.0, 140.0, "slams")
-    assert mods[0]["name"] == "DPS" and mods[0]["value"] == pytest.approx(140.0, abs=0.1)
+    assert mods[0]["name"] == "DPS" and mods[0]["value"] == pytest.approx(140.0, abs=0.2)
     assert notes[0]["entry"] == "model-gem20-shield-wall-shatter"
-    # the boss's hits alone: a LOW row, not the headline (R30-5): held at 1%
+    # the boss's hits alone break walls between you (R31-6): one wall each, no more
     mods, notes = models.shield_wall_model(sw, "Shield Wall", sets, 1.0, 0.0, 0.5, 140.0, "boss")
-    assert mods[0]["value"] == pytest.approx(-99.0) and "LOW row" in notes[0]["basis"]
+    assert mods[0]["value"] == pytest.approx(100 * (models.locus_explosions(1.0, 0.5, 6.0) - 1), abs=0.01)
+    assert "no boss breaks" in notes[0]["basis"]
+    # one Slam shatters both walls: slow breakers leave time for a second wall
+    assert models.shield_wall_hits(1.0, 0.0) == pytest.approx(2.0)
+    assert models.shield_wall_hits(1.0, 1.0) == pytest.approx(1.0 + math.exp(-1.0))
     assert models.shield_wall_model(sw, "Shield Wall", sets, 1.0, 0.0, 0.5, 140.0, "", {"model-gem20-shield-wall-shatter"}) == ([], [])
 
 

@@ -94,7 +94,9 @@
     Loss"; HeraldOfBloodExplosionPlayer radius 1.5 m. PoB scores the Explosion at 1 a second as a main skill (GEM18's
     probe POE2T3411: 35.0, Buff 0; an OVERCOUNT). The boss's death ends the fight, so only the preset's killable adds
     feed it (bosses.kills_per_second: the King in the Mists 0.017/s, Atziri the Red Queen 0.022/s, 0 for the rest), each
-    taken to carry Blood Loss and die within 1.5 m of the boss (LOW, fight-decided; without Blood Loss: 0). None: the set
+    taken to carry Blood Loss and die within 1.5 m of the boss (LOW, fight-decided; without Blood Loss: 0). Any Blood
+    Loss counts, not only Bleeding (RESEARCH31 R31-6 (3), HIGH: all Physical damage over time, and hits via Atziri's
+    Acuity). None: the set
     held at 1% (a DPS line). As a persistent side group it isn't in Full DPS (gems.persistent_round adds no fullDPS),
     so only a Herald of Blood main skill moves.
   sources: ["builder/search/models.py (herald_of_blood_model)", "builder/search/bosses.py (kills_per_second)",
@@ -117,9 +119,12 @@
     shield_wall_damage_+%_final_when_slammed 100 (+2 a quality), stat text "{0}% more Damage if destroyed by your
     Skills". PoB scores one explosion a cast and never reads the stat (the coverage audit's open row). Explosions a
     second as Frozen Locus's (a cast, then the first shatter within 6 s): the build's Slam / Warcry groups and Shield
-    Charge at their triggered rate or the search's press choice; the boss's damaging uses a LOW row, as Frozen Locus's
-    (RESEARCH30 R30-5 (1); Shield Wall's "Enemies can attack your wall segments" may say more: UNVERIFIED, a research
-    question). Your shatters deal the more. Nothing in the build shatters it: held at 1%. One explosion a shatter (UNVERIFIED: both walls and
+    Charge at their triggered rate or the search's press choice, and the boss's damaging uses breaking a wall that stands
+    between you (RESEARCH31 R31-6, the manager 04:25: the wall blocks movement, MEDIUM, and the game expects enemies to
+    break it; whether a boss aims at it UNVERIFIED). The two compete for each wall: your share deals the more; a boss
+    break first costs it (one wall, no more). One Slam shatters every segment of every wall (HIGH), one explosion hit a
+    wall on the boss (MEDIUM): up to 2 at the base limit (the second standing if no break came in its cast time). The
+    row: no boss breaks. Nothing breaks it: held at 1%. One explosion a shatter (UNVERIFIED: both walls and
     every segment).
   sources: ["builder/search/models.py (shield_wall_model)", "builder/search/assumptions.py (wall_shatters, boss_hit_rate)",
             "data/game-26650308/tables/ActiveSkills.json (shield_wall)",

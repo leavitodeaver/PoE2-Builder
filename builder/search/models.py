@@ -7624,18 +7624,30 @@ def magnetic_salvo_model(main: Skill | None, scored: str | None, sets: list[dict
 # shield_wall_damage_+%_final_when_slammed 100 (+2 a quality in PoB's gem data; its stat text "{0}% more Damage if
 # destroyed by your Skills"), shield_wall_maximum_life 12,714 at gem 20. Breaks as Frozen Locus's (locus_explosions, its
 # 6 s): the build's Slam / Warcry skills and Shield Charge (each group's triggered rate or the search's press choice,
-# Assumptions._side_rows) in the headline; the boss's damaging uses (Assumptions.boss_hit_rate, each landing on the wall)
-# a LOW row, as Frozen Locus's (RESEARCH30 R30-5 (1), the manager 01:50; Shield Wall's own text "Enemies can attack your
-# wall segments" may say more than the crystal's: UNVERIFIED whether a boss aims at them, a research question). A shatter
-# by the build's skills deals the "more"; the boss's wouldn't (and would take MECH-B's hazard_early_model first-0.5 s
-# penalty). One explosion a break, as PoB scores (both walls and every segment a Slam
-# shatters, and how many reach the boss, not read: UNVERIFIED). MEDIUM-LOW.
+# Assumptions._side_rows), and the boss's damaging uses (Assumptions.boss_hit_rate) breaking a wall that stands between
+# you and the boss (RESEARCH31 R31-6 (1), the manager 04:25: unlike Frozen Locus's crystal, the wall blocks movement (no
+# patch removed its collision, MEDIUM) and the game expects enemies to break it: "Enemies can attack your wall
+# segments", 0.3.0's "less damage if destroyed by enemies in the first 0.5 s"; whether a boss aims at it UNVERIFIED).
+# The two compete for each wall (breaks random in time): your share own / (own + boss) deals the "more"; a boss break
+# first costs it (and takes MECH-B's hazard_early_model first-0.5 s penalty where the build has no breaker), so the boss
+# counts only for walls your breakers wouldn't reach first. The row: no boss breaks. One Slam / Warcry / Shield Charge
+# shatters every segment of every wall (HIGH), each wall's explosion hitting the boss once (MEDIUM; 0.5.0 "Shockwaves
+# from a single Shield Wall cannot hit the same enemy multiple times"): up to SHIELD_WALL_LIMIT (2) a shatter: the
+# second wall stands at a shatter if no break came in the cast time it took (e^(-R x cast)); a boss break takes one
+# wall. MEDIUM-LOW.
 SHIELD_WALL = "Shield Wall"
 SHIELD_WALL_ENTRY = "model-gem20-shield-wall-shatter"
 SHIELD_WALL_SECONDS = 6.0
 SHIELD_WALL_STAT = "shield_wall_damage_+%_final_when_slammed"
 SHIELD_WALL_BREAK_TYPES = ("Slam", "Warcry")
 SHIELD_WALL_CHARGE = "Shield Charge"
+SHIELD_WALL_LIMIT = 2  # (base_number_of_shield_walls_allowed; Overabundance's raised Limit not read)
+
+
+def shield_wall_hits(cast: float, breaks: float, limit: int = SHIELD_WALL_LIMIT) -> float:
+    """Walls standing (explosion hits on the boss) when your breaker shatters them (see above): 1, plus a second the
+    share of breaks that come after the time a second cast takes."""
+    return 1.0 + (limit - 1) * math.exp(-max(breaks, 0.0) * max(cast, 0.0)) if limit > 1 else 1.0
 
 
 def shield_wall_model(main: Skill | None, scored: str | None, sets: list[dict], speed: float, own_breaks: float,
@@ -7650,28 +7662,30 @@ def shield_wall_model(main: Skill | None, scored: str | None, sets: list[dict], 
         return [], []
     cast = 1.0 / speed
     own_breaks, boss_breaks = max(own_breaks, 0.0), max(boss_breaks, 0.0)
-    rate = locus_explosions(cast, own_breaks, SHIELD_WALL_SECONDS)  # (the headline: your shatters, R30-5 (1))
-    per = 1.0 + more / 100.0
+    both = own_breaks + boss_breaks
+    rate = locus_explosions(cast, both, SHIELD_WALL_SECONDS)  # (the headline: your shatters and the boss's, R31-6)
+    mine = own_breaks / both if both > 0 else 0.0
+    walls = shield_wall_hits(cast, both)
+    per = mine * (1.0 + more / 100.0) * walls + (1.0 - mine)  # (a boss break takes one wall, without the more)
     factor = max(rate * per / speed, AILMENT_FLOOR)
-    row = locus_explosions(cast, own_breaks + boss_breaks, SHIELD_WALL_SECONDS)  # (the LOW row: the boss's hits too)
-    mine = own_breaks / (own_breaks + boss_breaks) if own_breaks + boss_breaks > 0 else 0.0
-    row_dps = row * (1.0 + more / 100.0 * mine) * dps[scored] / speed
+    row = locus_explosions(cast, own_breaks, SHIELD_WALL_SECONDS)  # (the row: no boss breaks)
+    row_dps = row * (1.0 + more / 100.0) * shield_wall_hits(cast, own_breaks) * dps[scored] / speed
     mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9 else []
     blast = dps[scored] / speed
     return mods, [{
-        "label": f"{main.name}: an explosion only when your skills shatter it, {more:g}% more*",
+        "label": f"{main.name}: an explosion only when it's shattered, {more:g}% more by your skills*",
         "value": f"x{factor:.3f}", "confidence": "MEDIUM-LOW", "entry": SHIELD_WALL_ENTRY,
         "basis": (f"PoB scored one explosion a cast ({speed:.2f} a second, {dps[scored]:,.0f} DPS) without the gem's "
                   f"'{more:g}% more Damage if destroyed by your Skills'. The game explodes the segments when shattered: "
-                  f"{how}; a cast then the wait for your first shatter (at most its 6 s): {rate:.2f} explosions a "
-                  f"second, x{per:.2f} each: {rate * per * blast:,.0f} DPS"
-                  + ("; nothing in the build shatters it: held at 1%" if rate <= 0 else "")
-                  + f"; one explosion a shatter (both walls and the segments a Slam shatters not read). The boss's hits "
-                  f"a LOW row, not counted (as Frozen Locus's, RESEARCH30 R30-5): with every boss damaging use landing "
-                  f"on it too, {row:.2f} a second, {row_dps:,.0f} DPS"),
-        "play": (f"Raise Shield Wall at the boss and shatter it with a Slam, a Warcry or Shield Charge for {more:g}% more "
-                 f"damage; the boss may break it too if it attacks the wall (LOW). With your shatters (the headline): "
-                 f"{rate * per * blast:,.0f}; with the boss's hits landing on it too: {row_dps:,.0f}; one a cast: "
+                  f"{how}; a cast then the wait for the first break (at most its 6 s): {rate:.2f} breaks a second, "
+                  f"{mine:.0%} yours (x{1 + more / 100:.2f}, {walls:.2f} walls' explosions each: one Slam shatters "
+                  f"every wall, R31-6), the rest the boss's through a wall between you (one wall, no more): x{per:.2f} "
+                  f"a break, {rate * per * blast:,.0f} DPS"
+                  + ("; nothing breaks it: held at 1%" if rate <= 0 else "")
+                  + f". The row, no boss breaks: {row:.2f} a second, {row_dps:,.0f} DPS"),
+        "play": (f"Raise Shield Wall between you and the boss and shatter it with a Slam, a Warcry or Shield Charge for "
+                 f"{more:g}% more damage, both walls at once; a boss swing through it first breaks it without the more. "
+                 f"This build: {rate * per * blast:,.0f}; if the boss never breaks it: {row_dps:,.0f}; one a cast: "
                  f"{dps[scored]:,.0f}.")}]
 
 
@@ -7790,7 +7804,9 @@ def shattering_spite_model(main: Skill | None, uses: float, hits: float, cap: fl
 # "All [Physical] damage over time taken by a target (including [Bleeding]) is accumulated as Blood Loss";
 # HeraldOfBloodExplosionPlayer radius 15 (1.5 m). The boss's own death ends the fight, so only the boss preset's
 # killable adds feed it (bosses.kills_per_second: every add killed, as the on-kill lines read them; 0 against a lone
-# boss: no source, 0, CLAUDE.md). Each slain add taken to carry Blood Loss (a player who takes Herald of Blood deals
+# boss: no source, 0, CLAUDE.md). Any Blood Loss counts, not only Bleeding (RESEARCH31 R31-6 (3), HIGH: all Physical
+# damage over time accumulates as Blood Loss, and hits can cause it (Atziri's Acuity); the stat id's "bleeding_enemies"
+# is a leftover name, the text wins). Each slain add taken to carry Blood Loss (a player who takes Herald of Blood deals
 # Physical damage over time: LOW, the "without it" row is 0) and to die within the explosion's 1.5 m of the boss (LOW,
 # fight-decided, as Bone Shrapnel's `near`: the manager's to ask). The Blood Loss part of the explosion's damage is
 # PoB's (not read here). With no explosions the set is held at AILMENT_FLOOR (a DPS line). LOW.
@@ -7822,7 +7838,8 @@ def herald_of_blood_model(main: Skill | None, scored: str | None, sets: list[dic
                   f"taken to carry Blood Loss and to die within 1.5 m of the boss (LOW): {kills:.3f} explosions a "
                   f"second, {kills * blast:,.0f} DPS" + ("; none: held at 1%" if floor else "")),
         "play": (f"Herald of Blood explodes only when you kill an enemy with Blood Loss (Physical damage over time on "
-                 f"it): against a lone boss it deals nothing. Kill the boss's adds beside it with Bleeding on them: "
+                 f"it): against a lone boss it deals nothing. Kill the boss's adds beside it with Blood Loss on them "
+                 f"(any Physical damage over time, Bleeding or not): "
                  f"with this fight's adds {kills * blast:,.0f}; without Blood Loss on them: 0.")}]
 
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
