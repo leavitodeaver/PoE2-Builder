@@ -13351,9 +13351,13 @@ def valako_rate(stats: dict, threshold: float, pob_rate: float, cooldown: float)
         k = max(1, math.ceil(threshold / hit - 1e-9)) if hit > 0 else 0
         rate = u / max(k, math.ceil(cooldown * u - 1e-9)) if k and cooldown > 0 else (u / k if k else 0.0)
         smooth = min(u * hit / threshold, 1 / cooldown if cooldown > 0 else math.inf)
+        # (RESEARCH31 R31-7: charge building during the Cooldown leans yes, MEDIUM-LOW: the headline; the row without it:
+        # the k hits only after the Cooldown ends)
+        row = u / (k + math.ceil(cooldown * u - 1e-9)) if k and cooldown > 0 else rate
         return rate, (f"{name}: {u:.2f} landed hits a second carry Lightning ({share:.0%} of its hits, at the \"when "
-                      f"hit\" pace), each {hit:,.0f} Lightning taken: {k} a charge (the smooth reading, damage a "
-                      f"second / threshold: {smooth:.3f} a second)")
+                      f"hit\" pace), each {hit:,.0f} Lightning taken: {k} a charge, charge past full lost (MEDIUM, "
+                      f"RESEARCH31 R31-7) and building during the Cooldown (MEDIUM-LOW); if it doesn't build then: "
+                      f"{row:.3f} a second; the smooth reading, damage a second / threshold: {smooth:.3f} a second)")
 
     rate, how = boss_hits.gain_floor(stats, one)
     return (min(rate, pob_rate) if pob_rate > 0 else rate), how
