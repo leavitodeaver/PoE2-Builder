@@ -1,0 +1,89 @@
+# MECH85 (MECH-A lane, 17 Nov 2026): the mechanics catalog's MECH-A lines (MECH84's ranked tranche), damaging-ailments
+# first. Two kinds here: translations into lines PoB parses whole (each replacement checked by
+# tests/test_engine_ledger.py's test_every_replacement_line_parses), and entries saying a MECH-A model reads the line
+# (empty replace: nothing is added to PoB, so nothing counts twice).
+
+- id: mech85-shapeshift-elemental-ailment-application
+  title: '"N% increased Elemental Ailment Application if you have Shapeshifted to an Animal form Recently", as its four parts'
+  kind: pob_gap
+  match: '^(\d+)% increased Elemental Ailment Application if you have Shapeshifted to an Animal form Recently$'
+  replace: ['{1}% increased chance to Shock if you have Shapeshifted to an Animal form Recently',
+            '{1}% increased Flammability Magnitude if you have Shapeshifted to an Animal form Recently',
+            '{1}% increased Freeze Buildup if you have Shapeshifted to an Animal form Recently',
+            '{1}% increased Electrocute Buildup if you have Shapeshifted to an Animal form Recently']
+  confidence: datamined
+  notes: >-
+    The passives Shapeshifting Elemental Ailment Chance (20%) and Wyvern's Breath (40%) (tree.json). PoB reads the
+    condition but leaves "Elemental Ailment Application" over (ModCache: no mods), and never applies a line with leftover
+    text, so it counted nothing (an UNDERCOUNT). The game's definition (KeywordPopups AilmentApplication, 26650308):
+    "Modifiers to Ailment Application apply to: Bleeding, Poison and Shock chance; Flammability, Freeze and Electrocute
+    Buildup"; Elemental Ailments are "Ignite, Chill, Freeze, Shock, and Electrocute" (KeywordPopups). So the elemental
+    ones are Shock chance, Flammability (PoB's EnemyIgniteChance, "flammability magnitude"), Freeze Buildup
+    (EnemyFreezeBuildup) and Electrocute Buildup (EnemyElectrocuteBuildup): the same INC on each, under PoB's
+    Condition:ShapeshiftToAnimal, which conditions' conditionShapeshiftToAnimal box sets from the build's shapeshifts
+    (MECHC34, MB-8). Chill has no application in the definition, so it isn't touched.
+  sources: ["data/game-26650308/tables/KeywordPopups.json (AilmentApplication, ElementalAilments)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (modNameList 780-789, 880-883; 1787 the condition)",
+            "builder/search/conditions.py (SHIFTED_ANIMAL_RECENTLY, conditionShapeshiftToAnimal)"]
+  test_in_game: "Not proposed (the definition is the game's own)."
+  status: proposed
+
+- id: model-read-mech85-self-immolation
+  title: '"Ignites you cause are reflected back to you" (conditions.reflected_ignite_share / reflected_ignite_burn)'
+  kind: pob_gap
+  model: self_ignite
+  match: '^Ignites you cause are reflected back to you$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Self Immolation (MECH85, an OVERCOUNT of survival and an UNDERCOUNT of its "while Ignited" lines): PoB leaves the line
+    unparsed. conditions.reflected_ignite_share sets the Ignited-yourself box (conditionIgnited) at the boss's Ignited
+    share less your avoidance; assumptions hands PoB the burn (your Ignite before the boss's mitigation x your Magnitude
+    of Ignite on you, as "N Fire Damage taken per second"). This entry only says a model reads the line.
+  sources: ["builder/search/conditions.py (SELF_IMMOLATION_LINE, reflected_ignite_share, reflected_ignite_burn)",
+            "builder/search/assumptions.py (the Self Immolation hook after cannot_stun_mods)"]
+  status: proposed
+
+- id: model-read-mech85-endless-circuit
+  title: '"N% chance on Consuming a Shock on an Enemy to reapply it" (conditions.consume_reapply_chances)'
+  kind: pob_gap
+  model: consumed_ailments
+  match: '^(\(\d+-\d+\)|\d+)% chance on Consuming a Shock on an Enemy to reapply it$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Endless Circuit (MECH85, an UNDERCOUNT of the Shocked share for a Shock consumer): PoB leaves it unparsed.
+    conditions.consumed_share's `kept` and side_consumed: a consumption that reapplies keeps the boss Shocked with no
+    immunity or wait. This entry only says a model reads the line.
+  sources: ["builder/search/conditions.py (CONSUME_REAPPLY, consume_reapply_chances, consumed_share, side_consumed)"]
+  status: proposed
+
+- id: model-read-mech85-crushing-blows
+  title: '"Your Hits are Crushing Blows" (models.crushing_source, heavy_stun_rate)'
+  kind: pob_gap
+  model: heavy_stun
+  match: '^Your Hits are Crushing Blows$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Crushing Impacts (MECH85, an UNDERCOUNT of the boss's Heavy Stuns): KeywordPopups CrushingBlow "Crushing Blows cause a
+    Heavy Stun on enemies that are Primed for Stun", Primed at 70% for a Unique. PoB maps crushing_blow to nothing.
+    models.heavy_stun_rate's refill becomes 70% of the bar plus the wait for the next hit (primed_hit_refill); the same
+    for the skills whose own stat sets carry crushing_blow (Boneshatter, Staggering Palm, Wing Blast, Seismic Cry) as the
+    main skill. This entry only says a model reads the line.
+  sources: ["builder/search/models.py (CRUSHING_BLOW_LINE, CRUSHING_BLOW_SKILLS, crushing_source, primed_hit_refill)"]
+  status: proposed
+
+- id: model-read-mech85-pin-primed
+  title: '"Pin Enemies which are Primed for Pinning" (models.pins_primed, immobilise_period)'
+  kind: pob_gap
+  model: immobilise
+  match: '^Pin Enemies which are Primed for Pinning$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Constricting Command (MECH85, an UNDERCOUNT of the boss's Pins): KeywordPopups PrimedPin, a Unique Primed at 70% of
+    its Pin buildup. PoB leaves the line unparsed. models.immobilise_period("Pin")'s refill becomes 70% of the bar plus
+    the wait for the next hit. This entry only says a model reads the line.
+  sources: ["builder/search/models.py (PIN_PRIMED_LINE, pins_primed, primed_hit_refill)"]
+  status: proposed

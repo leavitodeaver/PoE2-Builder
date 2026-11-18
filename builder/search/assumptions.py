@@ -1814,6 +1814,16 @@ class Assumptions:
             exposure_flags += no_stun
             hand_notes.append({"label": "Your Hits cannot Stun enemies*", "value": "no Stuns of the boss",
                                "basis": no_stun_how, "confidence": "HIGH"})
+        if any(conditions_mod.SELF_IMMOLATION_LINE.match(t.strip()) for t in texts):
+            # (MECH85: Self Immolation's "Ignites you cause are reflected back to you": the burn on you, PoB's degen)
+            burn, burn_how = conditions_mod.reflected_ignite_burn(
+                texts, build.call("stats", fields=list(conditions_mod.REFLECTED_IGNITE_FIELDS)))
+            if burn > 0:
+                hand_mods = hand_mods + [models.line("1 Fire Damage taken per second", burn)]
+            hand_notes.append({"label": "Your Ignites reflected back to you (Self Immolation)*",
+                               "value": f"{burn:,.0f} Fire a second", "basis": burn_how,
+                               "confidence": "MEDIUM (avoidance applied; the reflected Ignite's duration yours, "
+                                             "UNVERIFIED; the main skill's Ignite only)"})
         exposure_flags += redflare
         if redflare_how:
             hand_notes.append({"label": "Shocked by your own item on reaching maximum Charges*", "value": "damage taken",

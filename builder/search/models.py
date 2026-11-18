@@ -8861,7 +8861,10 @@ def dazed_stats(build) -> dict:
     """The two Daze fields heavy_stun_rate reads: the published share and whether PoB's Dazed box is on now."""
     return {"_dazed_share": dazed_share(build),
             "_dazed_box": bool((build.call("getConfig").get("input") or {}).get("conditionEnemyDazed")),
-            "_thorns_fill": dict(getattr(build, "thorns_fill", None) or {})}  # (MECH84: thorns_fill)
+            "_thorns_fill": dict(getattr(build, "thorns_fill", None) or {}),  # (MECH84: thorns_fill)
+            # (MECH85: Crushing Blows and Primed-for-Pin Pins, published by Conditions.evidence)
+            "_crushing": tuple(getattr(build, "crushing", None) or (False, "")),
+            "_pin_primed": bool(getattr(build, "pin_primed", False))}
 
 
 # His Winnowing Flame's Grisly Pyres (MECH71; GEM5's verdict 14 Nov: The Unborn Lich is league-obtainable, an Abyss core
@@ -9550,7 +9553,11 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
     # next fill starts after the stun: each cycle = the stun + the refill at x6 for what's left of the 16.5 s after it)
     d = bosses.of(stats).heavy_stun_s
     times, window = HEAVY_STUN_REPEAT
-    every = d + repeat_every(t, times, max(window - d, 0.0))
+    refill = repeat_every(t, times, max(window - d, 0.0))
+    crushing, crush_how = crushing_blows(stats)  # (MECH85: a Crushing Blow Heavy Stuns the boss once Primed)
+    if crushing:
+        refill = primed_hit_refill(refill, hits)
+    every = d + refill
     basis = (f"{per_hit:.2%} of the boss's Stun bar per hit (PoB){f', {1 - uncold:.0%} of it Cold, which builds none' if uncold < 1 else ''}, "
              f"x{scale:.2f} for {bosses.of(stats).name}'s threshold ({bosses.of(stats).poise}%, the game files; PoB's is 938%), "
              + (f"x{daze:.2f} for the boss Dazed {dazed:.0%} of the fight (50% more Stun Buildup while Dazed"
@@ -9560,8 +9567,64 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
              + (f" + Thorns {thorns:.2%} of the bar a second ({(stats.get('_thorns_fill') or {}).get('how', '')})"
                 if thorns > 0 else "") + ": "
              f"full in {t:.1f} s; the bar doesn't fill during the {d:g} s stun (RESEARCH26, MEDIUM), then +500% threshold "
-             f"for the rest of the 16.5 s after it: one every {every:.1f} s")
+             f"for the rest of the 16.5 s after it"
+             + (f"; {crush_how}: Heavy Stunned once Primed at {PRIMED_UNIQUE:.0%} of the bar, on the next hit"
+                if crushing else "") + f": one every {every:.1f} s")
     return 1 / every, basis
+
+
+# Crushing Blows and Primed for Pinning (MECH85; the catalog's kw-crushing-blows / kw-primed-for-pin entries, UNDERCOUNTS
+# of the boss's Heavy Stuns and Pins). KeywordPopups (26650308): CrushingBlow "Crushing Blows cause a Heavy Stun on enemies
+# that are Primed for Stun"; PrimedStun / PrimedPin "Normal enemies are Primed ... at least 40% ... buildup. Magic enemies
+# ... 50%, Rare at 60%, and Unique at 70%" (the boss presets are Unique, as PRIMED_FREEZE_UNIQUE). Sources (checked:
+# Stats.json ids holding crushing / primed / almost_pinned, and every Mods, PassiveSkills and GrantedEffectStatSets row
+# using them): crushing_blow on the passive AscendancyWarrior1Notable4 ("Your Hits are Crushing Blows", Crushing Impacts)
+# and in the skills Boneshatter, Staggering Palm, Wing Blast and Seismic Cry (their own hits: counted when it is the main
+# skill), HollowFocusNovaPlayer (no PoB skill of that id: not counted, UNVERIFIED which gem grants it), Boneshatter's
+# brute minion and a rogue exile (not the player); Syzygy's crushing_blow_vs_ignited_and_fully_armour_broken (conditional:
+# not counted here, an UNDERCOUNT, named); pin_almost_pinned_enemies on Mods UniquePinAlmostPinnedEnemies1 ("Pin Enemies
+# which are Primed for Pinning", Constricting Command). PoB maps none of them (checked: SkillStatMap.lua and Modules/*.lua
+# hold no crushing_blow, and ModCache leaves both lines unparsed). So the bar need only reach 70%: the refill to the next
+# Heavy Stun / Pin becomes 70% of it plus the wait for the next hit (the first hit after Primed taken to land it, MEDIUM:
+# whether the hit that primes the boss itself stuns is UNVERIFIED; that reading would drop the wait), never longer than
+# the full refill. The Heavy Stun's own +500% threshold for 16.5 s after each one stays in the refill (Primed is a share
+# of the bar, so it scales with it). Thorns hits counted as hits for the wait (their buildup already adds to the fill).
+PRIMED_UNIQUE = 0.70  # KeywordPopups PrimedStun / PrimedPin, Unique enemies
+CRUSHING_BLOW_LINE = re.compile(r"^your hits are crushing blows$", re.I)
+CRUSHING_BLOW_SKILLS = ("Boneshatter", "Staggering Palm", "Wing Blast", "Seismic Cry")  # (crushing_blow, game files)
+PIN_PRIMED_LINE = re.compile(r"^pin enemies which are primed for pinning$", re.I)
+
+
+def crushing_source(texts, main: str) -> tuple[bool, str]:
+    """(the main skill's hits are Crushing Blows, which source) from the build's lines and main skill (the note above)."""
+    if any(CRUSHING_BLOW_LINE.match(str(t).strip()) for t in texts or ()):
+        return True, "your Hits are Crushing Blows (Crushing Impacts)"
+    if main in CRUSHING_BLOW_SKILLS:
+        return True, f"{main}'s hits are Crushing Blows (the game's crushing_blow)"
+    return False, ""
+
+
+def crushing_blows(stats: dict) -> tuple[bool, str]:
+    """crushing_source from stats: the published stats["_crushing"] (Conditions.evidence, dazed_stats), else _texts /
+    _main_skill."""
+    if "_crushing" in stats:
+        got = stats["_crushing"] or (False, "")
+        return bool(got[0]), str(got[1])
+    return crushing_source(stats.get("_texts"), stats.get("_main_skill") or "")
+
+
+def pins_primed(stats: dict) -> bool:
+    if "_pin_primed" in stats:
+        return bool(stats["_pin_primed"])
+    return any(PIN_PRIMED_LINE.match(str(t).strip()) for t in stats.get("_texts") or ())
+
+
+def primed_hit_refill(refill: float, hits: float, primed: float = PRIMED_UNIQUE) -> float:
+    """Seconds to the next Heavy Stun / Pin when it lands on the first hit after the bar reaches `primed` of it."""
+    if refill <= 0:
+        return refill
+    wait = 1.0 / hits if hits > 0 else 0.0
+    return min(refill, primed * refill + wait)
 
 
 def heavy_stunned_share(stats: dict) -> tuple[float, str]:
@@ -9691,6 +9754,8 @@ def immobilise_period(stats: dict, ailment: str) -> float:
     refill = repeat_every(1 / fill, times, max(window - d, 0.0))
     if ailment == "Freeze" and (primed := stats.get("_primed_freeze")):
         refill = primed_refill(refill, number(primed[0]))
+    if ailment == "Pin" and pins_primed(stats):  # (MECH85: Constricting Command Pins the boss once Primed)
+        refill = primed_hit_refill(refill, hits_per_second(stats))
     return d + refill
 
 

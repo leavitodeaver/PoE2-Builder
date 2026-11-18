@@ -2082,6 +2082,9 @@ WHEN_YOU_AILMENT = re.compile(r"\bwhen you (poison|ignite|shock)\b", re.I)
 STUNS_YOU = re.compile(r"\bwhen they stun you\b", re.I)
 
 
+SHAPESHIFT_TYPES = {"Shapeshift", "Bear", "Wolf", "Wyvern"}  # (PoB skill types of the forms' skills)
+
+
 def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[float, str] | None:
     """(uptime, how) of one line for this debuff, or None if it isn't a source of it."""
     m = _debuff_pattern(var).search(text)
@@ -2131,6 +2134,21 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
         n = events * duration
         up = 1 - (1 - min(chance, 1.0)) ** n if chance < 1 else min(1.0, n)
         return up, f"{chance:.0%} x {how}, {duration:g} s, the boss taken to be near the kill (LOW): {up:.0%} up"
+    if "heavy stun" in when and not re.search(r"\bkill|immobilis|burning|socketed|\bfrozen by\b", when):
+        # (MECH85; the catalog's kw-stun entry, an UNDERCOUNT: "Enemies you Heavy Stun (while Shapeshifted) are
+        # Intimidated for 6 seconds", Bashing Beast; "<debuff> Enemies on Heavy Stun"; before, 0 for every build) at the
+        # main skill's Heavy Stuns of the boss (models.heavy_stun_rate: one every so many seconds, so the share is
+        # min(1, rate x duration) for a sure debuff). "while Shapeshifted": counted when the main skill is a Shapeshift
+        # form's skill (its types), else 0 (another skill's stuns in form aren't tracked: an undercount, LOW).
+        events, how = models.heavy_stun_rate(stats)
+        if "shapeshift" in when and not (SHAPESHIFT_TYPES & set(stats.get("_main_types") or ())):
+            return 0.0, (f"'{when.strip()[:40]}': only Heavy Stuns while Shapeshifted count, and the main skill isn't a "
+                         "Shapeshift form's skill (0)")
+        if events <= 0:
+            return 0.0, f"no Heavy Stuns of the boss ({how}): 0"
+        up = 1 - (1 - min(chance, 1.0)) ** (events * duration) if chance < 1 else min(1.0, events * duration)
+        return up, (f"the boss Heavy Stunned {events:.3f}/s by the main skill ({how}), each debuff {duration:g} s: "
+                    f"{up:.0%} up (without Heavy Stuns: 0)")
     if re.search(r"\bkill|heavy stun|immobilis|shapeshift|burning|socketed|\bfrozen by\b", when):
         return 0.0, f"'{when.strip()[:30]}': its rate isn't modelled (0, labelled)"
     if "maximum endurance" in when:
@@ -2278,7 +2296,8 @@ SELF_IGNITED_USE = re.compile(r"\bwhile (?:you are )?(?:ignited|burning)\b", re.
 def _self_ignited(lines: list[str], stats: dict) -> tuple[object, str, float] | tuple[float, str]:
     grinning = any(SELF_IGNITE_LINE.search(t) for t in lines)
     boss, boss_how = bosses.self_ignite_uptime(stats) if any(SELF_IGNITED_USE.search(t) for t in lines) else (0.0, "")
-    if not grinning and boss <= 0:
+    reflect, reflect_how = reflected_ignite_share(lines, stats)  # (MECH85: Self Immolation)
+    if not grinning and boss <= 0 and reflect <= 0:
         return 0.0, ""
     parts = []
     up = 0.0
@@ -2297,9 +2316,68 @@ def _self_ignited(lines: list[str], stats: dict) -> tuple[object, str, float] | 
     if boss > 0:
         parts.append(boss_how)
         up = 1.0 - (1.0 - up) * (1.0 - boss)
-    if grinning and boss > 0:
+    if reflect > 0:
+        parts.append(reflect_how)
+        up = 1.0 - (1.0 - up) * (1.0 - reflect)
+    if sum(1 for x in (grinning, boss > 0, reflect > 0) if x) > 1:
         parts.append(f"together (independent): {up:.0%}")
     return _box(up, "; ".join(parts))
+
+
+# Self Immolation (MECH85; the catalog's damaging-ailments entry, an OVERCOUNT of survival and an UNDERCOUNT of the "while
+# Ignited" lines it is taken for): the notable reads "Ignites you cause are reflected back to you" and "40% reduced
+# Magnitude of Ignite on you" (tree.json). PoB parses the second (SelfIgniteEffect INC -40) and leaves the first unparsed
+# (ModCache: no mods, the whole line left over), so neither the Ignited-yourself box nor the burn was counted. Each Ignite
+# you inflict lands on you too: Ignited yourself at the share of the fight the boss is Ignited (ailment_uptime), less your
+# Ignite avoidance over the applications in one of your own Ignites' duration (as Grinning Immolation's: avoidance taken
+# to apply to a reflected Ignite, MEDIUM, Overcharge's reading for its reflected Shocks). The burn while it lasts: your
+# Ignite's damage a second before the boss's mitigation (PoB's IgniteDPS / IgniteEffMult: the boss's Fire resistance and
+# damage-taken modifiers divided back out) x your "Magnitude of Ignite on you" (PoB's SelfIgniteEffect, the notable's 40%
+# reduced in it), handed to PoB as "N Fire Damage taken per second" (FireDegen: your Fire resistance and damage-over-time
+# taken modifiers apply there, CalcDefence 3874-3884), at that share. Only the main skill's Ignite is read (another
+# group's Ignites reflect too: not counted, LOW). Whether a reflected Ignite keeps the inflicted one's duration or yours:
+# yours taken (PoB's SelfIgniteDuration, UNVERIFIED). The other "reflected to you" ailment lines (Poison, Bleeding,
+# Elemental Ailments other than Freeze) sit on Mutated Vaal / Exclusive mods the coverage audit finds no current carrier
+# for (its reason text, UNVERIFIED): not modelled here.
+SELF_IMMOLATION_LINE = re.compile(r"^ignites you cause are reflected back to you$", re.I)
+REFLECTED_IGNITE_FIELDS = ("IgniteChancePerHit", "Speed", "HitChance", "IgniteDuration", "IgniteAvoidChance",
+                           "SelfIgniteDuration", "IgniteDPS", "IgniteEffMult", "SelfIgniteEffect")
+
+
+def reflected_ignite_share(lines: list[str], stats: dict) -> tuple[float, str]:
+    """(share of the fight a reflected Ignite of yours burns you, how) for Self Immolation's line (the comment above)."""
+    if not any(SELF_IMMOLATION_LINE.match(t.strip()) for t in lines):
+        return 0.0, ""
+    boss = ailment_uptime(stats, "Ignite")
+    if boss <= 0:
+        return 0.0, "Self Immolation: your Ignites reflected back to you: the boss is never Ignited, so you aren't"
+    avoid = min(max(number(stats.get("IgniteAvoidChance")), 0.0), 100.0) / 100.0
+    if avoid >= 1.0:
+        return 0.0, "Self Immolation: your Ignites reflected back to you: you can't be Ignited (PoB's avoidance 100%)"
+    chance = min(number(stats.get("IgniteChancePerHit")) / 100.0, 1.0)
+    hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
+    scale = number(stats.get("SelfIgniteDuration")) / 100 if "SelfIgniteDuration" in stats else 1.0
+    seconds = AILMENT_DURATION["Ignite"] * scale
+    landed = 1.0 - avoid ** (hits * chance * seconds) if avoid > 0 and hits * chance > 0 else 1.0
+    up = boss * landed
+    return up, (f"Self Immolation: your Ignites reflected back to you: the boss Ignited {boss:.0%} of the fight, "
+                f"{1 - avoid:.0%} of the reflected ones not avoided over {seconds:.1f} s: Ignited yourself {up:.0%} "
+                f"({shared(up)}; avoidance taken to apply, MEDIUM)")
+
+
+def reflected_ignite_burn(lines: list[str], stats: dict) -> tuple[float, str]:
+    """(Fire damage a second you take on average from your own reflected Ignites, before your Fire resistance, how)."""
+    up, how = reflected_ignite_share(lines, stats)
+    if up <= 0:
+        return 0.0, how
+    eff = number(stats.get("IgniteEffMult")) or 1.0
+    per = number(stats.get("IgniteDPS")) / eff
+    effect = number(stats.get("SelfIgniteEffect")) / 100 if "SelfIgniteEffect" in stats else 1.0
+    burn = per * max(effect, 0.0) * up
+    return burn, (f"{how}; burning {per:,.0f} Fire a second before the boss's mitigation (PoB's Ignite DPS "
+                  f"{number(stats.get('IgniteDPS')):,.0f} / its effective multiplier {eff:.2f}) x your Magnitude of "
+                  f"Ignite on you {effect:.0%} = {burn:,.0f} a second on average, then your Fire resistance (PoB's "
+                  f"degen; without the line: none)")
 
 
 # Overcharge's reflected Shocks (MECH75; PATCH_CHECK L4-1, an OVERCOUNT of survival: neither PoB (SkillStatMap doesn't map
@@ -3353,7 +3431,7 @@ def ailment_uptime(stats: dict, ailment: str) -> float:
         return 0.0
     extra = sum(h * c for _, h, c, _ in others)  # (the other groups' applications a second)
     if ailment in (stats.get("_consumes") or {}):
-        return consumed_share(hits, chance, ground, extra=extra)
+        return consumed_share(hits, chance, ground, extra=extra, kept=consume_reapply(stats, ailment))
     if ailment == "Ignite" and ailment not in (stats.get("_side_consumes") or {}):
         # (MECH81: a hit's chance is all the live Flammability on the boss, stacked_ignite_chance; a consumer beside the
         # main skill clears it with each Ignite it consumes, patch 0.3.0, so the per-hit chance stays there)
@@ -3502,13 +3580,15 @@ def _minion_consumes(skill: dict) -> set[str]:
     return {a for a, on in (skill.get("minionConsumes") or {}).items() if a != "skill" and on is True}
 
 
-def consumed_share(hits: float, chance: float, ground: float = 0.0, extra: float = 0.0) -> float:
+def consumed_share(hits: float, chance: float, ground: float = 0.0, extra: float = 0.0, kept: float = 0.0) -> float:
     """Share of the fight the boss carries an ailment the main skill consumes: it lasts until the next hit (1 / hits), then
     the boss is immune for 1 s, then it waits to be reapplied: (1 - ground) / (hits x chance + extra) (a ground reapplies
-    it at once the share of the time the boss stands in it; `extra`, other groups' applications a second, MECH75)."""
+    it at once the share of the time the boss stands in it; `extra`, other groups' applications a second, MECH75).
+    `kept` (MECH85: Endless Circuit's "N% chance on Consuming a Shock on an Enemy to reapply it"): each consumption puts it
+    straight back with that chance, so it lasts 1 / (1 - kept) consuming hits on average before the gap."""
     if hits <= 0:
         return 0.0
-    last = 1.0 / hits
+    last = 1.0 / hits / max(1.0 - min(max(kept, 0.0), 0.99), 0.01)
     if chance > 0 or extra > 0:
         return last / (last + models.CONSUME_IMMUNE + (1.0 - ground) / (hits * max(chance, 0.0) + extra))
     return ground * last / (last + models.CONSUME_IMMUNE)
@@ -3731,7 +3811,34 @@ def side_consumed(share: float, stats: dict, ailment: str, hits: float, chance: 
     if not side or share <= 0 or ailment in (stats.get("_consumes") or {}):
         return share
     wait = (1.0 - ground) / (hits * chance) if hits > 0 and chance > 0 else 0.0
-    return share / (1.0 + share * side[0] * (models.CONSUME_IMMUNE + wait))
+    rate = side[0] * (1.0 - consume_reapply(stats, ailment))  # (MECH85: a reapplied one isn't lost)
+    return share / (1.0 + share * rate * (models.CONSUME_IMMUNE + wait))
+
+
+# Endless Circuit (MECH85; the catalog's damaging-ailments entry, an UNDERCOUNT of the Shocked share for a build that
+# consumes Shock): "25% chance on Consuming a Shock on an Enemy to reapply it" (tree.json; PoB's ModCache leaves it
+# unparsed, no mods). A consumption that reapplies leaves the boss Shocked with no 1 s immunity and no wait, so the main
+# skill's Shock lasts 1 / (1 - p) consuming hits on average (consumed_share's `kept`) and a consumer beside it removes it
+# at (1 - p) x its rate (side_consumed). The reapplied Shock taken as a fresh one at the consumed Shock's magnitude
+# (MEDIUM: the line's words; whether it carries the old magnitude or the consumer's is UNVERIFIED, so the Shock effect
+# isn't changed). Chances from several lines add, capped below 100%. Only Shock has such a line, and only this passive
+# carries it (checked: Stats.json ids holding reapply / re_appl / not_consume: one, reapply_enemy_shock_on_consuming_enemy_
+# shock_chance_%, used by PassiveSkills lightning38__ alone, no Mods or GrantedEffectStatSets row; tree.json, uniques.json
+# and mods.json for "on Consuming a ... reapply"; patch notes: 0.3.0 took it off Lightning Conduit's quality).
+CONSUME_REAPPLY = re.compile(r"^(\d+(?:\.\d+)?)% chance on Consuming an? (Shock) on an Enemy to reapply it$", re.I)
+
+
+def consume_reapply_chances(texts: list[str]) -> dict[str, float]:
+    """{ailment: chance (0-0.99) a consumption reapplies it} from the build's lines (Endless Circuit)."""
+    out: dict[str, float] = {}
+    for t in texts:
+        if m := CONSUME_REAPPLY.match(t.strip()):
+            out[m.group(2).title()] = min(out.get(m.group(2).title(), 0.0) + float(m.group(1)) / 100, 0.99)
+    return out
+
+
+def consume_reapply(stats: dict, ailment: str) -> float:
+    return number((stats.get("_consume_reapply") or {}).get(ailment))
 
 
 # Culling Strike against the boss, hit by hit (MECH57; plans/kw-culling-strike.md item 1, an OVERCOUNT). KeywordPopups
@@ -5230,7 +5337,8 @@ def shock_share(stats: dict) -> float:
     ground = _ground_shocked(stats)[0]
     if "Shock" in (stats.get("_consumes") or {}):  # (consumed: the ground reapplies it after the 1 s immunity too)
         chance = min(number(stats.get("ShockChancePerHit")) / 100.0, 1.0)
-        return consumed_share(number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0, chance, ground)
+        return consumed_share(number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0, chance, ground,
+                              kept=consume_reapply(stats, "Shock"))  # (MECH85: Endless Circuit)
     if (stats.get("_side_consumes") or {}).get("Shock"):  # (consumed beside: on the combined share, the ground reapplying)
         hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
         chance = min(number(stats.get("ShockChancePerHit")) / 100.0, 1.0)
@@ -5377,6 +5485,42 @@ def _on_shocked_ground(lines: list[str], stats: dict) -> tuple[object, str]:
         return 0.0, f"you stand {metres:g} m from the boss, outside your Shocked Ground ({SHOCKED_GROUND_RADIUS:g} m assumed)"
     return _box(share, f"in your own Shocked Ground at the boss {share:.0%} of the fight ({shared(share)}): {how}; your own "
                        f"ground counts (the user, 11 Nov 2026; MEDIUM, not tested in game)")
+
+
+# You on your own Chilled / Ignited Ground (MECH85; the catalog's damaging-ailments entry, an UNDERCOUNT: Frostwalker's
+# "Gain 15% of Damage as Extra Cold Damage while on Chilled Ground" and Flamewalker's "... Extra Fire Damage while on
+# Ignited Ground", tree.json, parse to PoB's Condition:OnChilledGround / OnIgnitedGround, whose boxes nothing set: the
+# coverage records' "parsed, but its condition can't switch on"). As _on_shocked_ground: the share of the fight the
+# build's own ground is at the boss (chilled_ground / ignited_ground, the shares the boss-side lines already use), if you
+# stand within its radius of the boss (Ignited Ground 2 m, KeywordPopups IgnitedGround; Chilled Ground has no radius in
+# its definition: Ignited Ground's 2 m taken, LOW), your own ground counting for "on <kind> Ground" as the user ruled for
+# Shocked Ground (11 Nov 2026; MEDIUM, not tested in game). PoB's boxes set only the OnXGround condition (ConfigOptions
+# 1061-1066; their implyCond is the Configuration tab's display only, ConfigTab 221-231), so you aren't Chilled or
+# Ignited by it, as your own ground doesn't affect you. Enemy-made ground isn't counted on a lone boss (as Shocked's).
+ON_CHILLED_GROUND = re.compile(r"\bwhile on chilled ground\b", re.I)
+ON_IGNITED_GROUND = re.compile(r"\bwhile on (?:ignited|burning) ground\b", re.I)
+CHILLED_GROUND_RADIUS = IGNITED_GROUND_RADIUS  # m (LOW: ChilledGround's definition gives none)
+
+
+def _on_own_ground(kind: str):
+    pattern, key, radius = {"Chilled": (ON_CHILLED_GROUND, "_chilled_ground", CHILLED_GROUND_RADIUS),
+                            "Ignited": (ON_IGNITED_GROUND, "_ignited_ground", IGNITED_GROUND_RADIUS)}[kind]
+
+    def value(lines: list[str], stats: dict) -> tuple[object, str]:
+        if not any(pattern.search(t) for t in lines):
+            return 0.0, ""
+        share, how = stats.get(key) or (0.0, "")
+        share = min(1.0, max(0.0, number(share)))
+        if share < MIN_UPTIME:
+            return 0.0, f"no {kind} Ground of your own at the boss (enemy-made ground not counted on a lone boss)"
+        metres = _boss_metres(stats)
+        if metres > radius:
+            return 0.0, (f"you stand {metres:g} m from the boss, outside your {kind} Ground ({radius:g} m"
+                         f"{'' if kind == 'Ignited' else ', LOW'}; standing in it: on {share:.0%} of the fight)")
+        return _box(share, f"in your own {kind} Ground at the boss {share:.0%} of the fight ({shared(share)}): {how}; "
+                           f"your own ground counts (as the user ruled for Shocked Ground, 11 Nov 2026; MEDIUM; "
+                           f"without it: off)")
+    return value
 
 
 FREEZE_SHARE_INPUT = "mechFreezeShare"  # (the bridge's boss action speed: Freeze as a stop for this share; MECH55)
@@ -5630,6 +5774,25 @@ def _divinity(lines: list[str], stats: dict) -> tuple[object, str]:
 PARRY_GRANT = re.compile(r"Grants Skill:[^.;]*\bParry\b", re.I)  # (a Buckler's implicit)
 
 
+# "if you've successfully Parried Recently" (MECH85; the catalog's parry-blind entry, an UNDERCOUNT: Swift Interruption's
+# attack and movement speed parse to PoB's Condition:ParriedRecently, whose box nothing set). On when the build's Parry
+# plan parries (models.parry_plan: Parry chosen, a parry each telegraphed boss hit, one every PARRY_EVERY s, the user's
+# "fair" 5 s, MEDIUM): Recently is the last 4 s (the game's usual window), so on 4 / 5 of the fight. Refutation's Parried
+# comes from blocks while its buff lasts; whether that counts as "successfully Parried" is UNVERIFIED: not counted (an
+# undercount, named). The plan doesn't weigh these speed lines when it decides whether to parry (an undercount where
+# they would tip it).
+def _parried_recently(lines: list[str], stats: dict) -> tuple[object, str]:
+    plan = stats.get("_parry_plan")
+    if plan is None or not plan.how:
+        return 0.0, ""
+    if plan.lost <= 0 or not plan.how.startswith("Parry the boss"):
+        return 0.0, "the build doesn't parry with Parry (Refutation's blocks not counted as parrying: UNVERIFIED)"
+    up = min(1.0, RECENTLY / models.PARRY_EVERY)
+    return _box(up, f"a parry every {models.PARRY_EVERY:g} s (each telegraphed boss hit, the user's fair 5 s, MEDIUM): "
+                    f"Parried in the last {RECENTLY:g} s {up:.0%} of the fight ({shared(up)}; without "
+                    f"parrying: off)")
+
+
 def _parried(lines: list[str], stats: dict) -> tuple[object, str]:
     """PoB's "Enemy has Parry Debuff" box (50% more Attack damage taken) at the share of the main skill's hits that land on
     a Parried boss (models.parry_plan; MECH39: before, nothing set it, so Parry and Refutation counted 0)."""
@@ -5720,6 +5883,10 @@ CONDITIONS: list[Condition] = [
               fields=("ShockChancePerHit", "Speed", "HitChance", "ShockDuration", "CritChance")),
     Condition("conditionShockEffect", "Shock from your Shocked Ground", value_fn=_ground_shock_effect, fields=()),
     Condition("conditionOnShockedGround", "You on your Shocked Ground", value_fn=_on_shocked_ground, fields=()),
+    Condition("conditionOnChilledGround", "You on your Chilled Ground (MECH85: Frostwalker)",
+              value_fn=_on_own_ground("Chilled"), fields=()),
+    Condition("conditionOnIgnitedGround", "You on your Ignited Ground (MECH85: Flamewalker)",
+              value_fn=_on_own_ground("Ignited"), fields=()),
     Condition("conditionEnemyIgnited", "Ignited", stat=_ailment_up("Ignite"), uptime_fn=_ailment_share("Ignite"),
               fields=("IgniteChancePerHit", "Speed", "HitChance", "IgniteDuration")),
     Condition("conditionEnemyPoisoned", "Poisoned", stat=_ailment_up("Poison"), uptime_fn=_ailment_share("Poison"),
@@ -5729,6 +5896,8 @@ CONDITIONS: list[Condition] = [
     Condition("conditionEnemyChilled", "Chilled", stat=lambda s: chill_share(s) >= MIN_UPTIME, uptime_fn=chill_share,
               fields=CHILL_FIELDS),
     Condition("parryActive", "Parried", value_fn=_parried, fields=("enemySkillTime", "Ward")),
+    Condition("conditionParriedRecently", "Parried recently (MECH85: the build's Parry plan)",
+              value_fn=_parried_recently, fields=("enemySkillTime", "Ward")),
     Condition("clashCondition", "The boss's Life % above yours (Clash)", value_fn=_clash,
               fields=("Life", "LifeUnreserved")),  # (MECH76)
     Condition("arcLightningInfused", "Arc Lightning-Infused", value_fn=_arc_infused),  # (MECH77, MA-1)
@@ -5822,10 +5991,12 @@ CONDITIONS: list[Condition] = [
               fields=("Speed", "HitChance", "ChillChanceOnHit", "ChillDuration", "CritChance", "EnemyAilmentThreshold")),
     Condition("conditionShocked", "Shocked yourself (Overcharge reflects your Shocks back to you; MECH75)",
               value_fn=_self_shocked, fields=("Speed", "HitChance", "ShockChancePerHit", "ShockAvoidChance")),
-    Condition("conditionIgnited", "Ignited yourself (Grinning Immolation, on your critical hits; the boss's Fire hits)",
+    Condition("conditionIgnited", "Ignited yourself (Grinning Immolation, on your critical hits; the boss's Fire hits; "
+              "Self Immolation's reflected Ignites)",
               value_fn=_self_ignited,
               fields=("CritChance", "Speed", "HitChance", "IgniteAvoidChance", "SelfIgniteDuration", "AilmentThreshold",
-                      "Life", "FireTakenHit", "enemySkillTime", "EvadeChance", "EffectiveBlockChance")),
+                      "Life", "FireTakenHit", "enemySkillTime", "EvadeChance", "EffectiveBlockChance",
+                      "IgniteChancePerHit", "IgniteDuration")),
     Condition("conditionHitsAlwaysHeavyStun", "Heavy Contact: Culling Strike on Heavy Stuns (MECH59)",
               value_fn=_heavy_contact, fields=models.IMMOBILISE_FIELDS),
     Condition(PRESENCE_SECONDS_VAR, "Seconds the boss has been in your Presence (the fight's average, MECH59)",
@@ -5836,7 +6007,8 @@ CONDITIONS: list[Condition] = [
     Condition("conditionHitMeleeRecently", "Melee hit recently (a melee main skill)", main_types=("Melee",)),
     Condition("conditionAtCloseRange", "Enemy at close range (a melee main skill)", main_types=("Melee",)),
     *(Condition(var, label, value_fn=debuff_uptime(var),
-                fields=("Speed", "HitChance", "CritChance", "enemySkillTime", "EvadeChance", "EffectiveBlockChance"))
+                fields=("Speed", "HitChance", "CritChance", "enemySkillTime", "EvadeChance", "EffectiveBlockChance",
+                        *models.IMMOBILISE_FIELDS))  # (MECH85: debuffs on Heavy Stun read heavy_stun_rate)
       for var, label in (("conditionEnemyBlinded", "Blinded"), ("conditionEnemyMaimed", "Maimed"),
                          ("conditionEnemyHindered", "Hindered"), ("conditionEnemyIntimidated", "Intimidated"),
                          ("conditionEnemyUnnerved", "Unnerved"), ("conditionEnemyCoveredInAsh", "Covered in Ash"),
@@ -6912,6 +7084,8 @@ class Conditions:
             stats["_consumes"] = consumes
         if side := side_consumes(self.build, self.main_skill):  # (MECH53: skills beside the main one)
             stats["_side_consumes"] = side
+        if reapply := consume_reapply_chances(texts):  # (MECH85: Endless Circuit)
+            stats["_consume_reapply"] = reapply
         if set(BREAK_MORE_SUPPORTS) & main_gems:  # (MECH66: Armour Demolisher / Uruk's Smelting, break_amount_scale)
             raw = self.build.call("activeSkills", supportStats=[BREAK_MORE_STAT])
             main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
@@ -7099,6 +7273,9 @@ class Conditions:
                                        "limit": number((stance.get("levelStats") or {}).get("broken_stance_hit_limit"))}
         stats["_thorns_fill"] = self._thorns_fill(texts, stats)  # (MECH84: Thorns hits' buildup, models.thorns_fills)
         self.build.thorns_fill = dict(stats["_thorns_fill"])
+        stats["_crushing"] = models.crushing_source(texts, self.main_skill)  # (MECH85: Crushing Blows, heavy_stun_rate)
+        stats["_pin_primed"] = any(models.PIN_PRIMED_LINE.match(t.strip()) for t in texts)  # (MECH85: Primed Pins)
+        self.build.crushing, self.build.pin_primed = stats["_crushing"], stats["_pin_primed"]
         stats["_dazed_share"] = number((_dazed(texts, stats) + (0.0,))[2])
         stats["_dazed_box"] = "conditionEnemyDazed" in self.active  # (PoB's box as it is now: heavy_stun_rate)
         broken = None  # Armour Broken first: Exposure on a Full Break reads its rate

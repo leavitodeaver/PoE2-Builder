@@ -1558,7 +1558,8 @@ def test_debuffs_on_only_when_their_sources_keep_them_up():
     assert intimidated(["Enemies you Curse are Intimidated"], stats)[2] < 0.9
     assert intimidated(["Enemies you Curse are Intimidated"], {**stats, "_curse_uses": [models.CurseUse("Vulnerability", 1.0, "cast by hand")]})[2] >= 0.9
     stun = intimidated(["Enemies you Heavy Stun while Shapeshifted are Intimidated for 6 seconds"], stats)
-    assert stun[2] < 0.9 and "isn't modelled" in stun[1]
+    # (MECH85: rated at the main skill's Heavy Stuns now; "while Shapeshifted" needs a Shapeshift form's main skill)
+    assert stun[2] < 0.9 and "only Heavy Stuns while Shapeshifted count" in stun[1]
     assert intimidated(["20% more Damage against Intimidated Enemies"], stats) == (0.0, "")
     assert hindered(["10% chance to Hinder Enemies on Hit with Spells"], stats) == (0.0, "")  # not a Spell
     assert hindered(["10% chance to Hinder Enemies on Hit with Spells"], {**stats, "_main_types": {"Spell"}})[2] < 0.9
