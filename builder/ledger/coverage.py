@@ -726,6 +726,29 @@ NOT_OBTAINABLE = {
         "\"(15-25)% chance to Crush on Hit\" has no PoE2 Essence behind it (RESEARCH30 R30-1, MEDIUM-HIGH; checked "
         "there: no EssenceMods row (Mod, DisplayMod or OutcomeMods) points at it, spawn weight 0 in game Mods and PoB "
         "ModItem, it sits among PoE1-style Essence leftovers; poe2db Crush / Crushed list no Essence; game 26650308)"),
+    # (COV41, RESEARCH30 R30-4, the manager 00:03 18 Nov; research/essence-leftover-mods.md) six more level-63 "of the
+    # Essence" suffixes matching PoE1's corrupted-Essence mods. Checked there in game 26650308: no table references them
+    # (EssenceMods Mod / DisplayMod / OutcomeMods over all 95 Essences rows incl. the corrupted four, Abyss, Breach and the
+    # 13 Alloys; BaseItemTypes.Implicit_Mods; Essences.MonsterMod; ModGrantedSkills), no HandWraps twin, spawn weight 0, no
+    # other obtainable Mods row with their stats; poe2db's current Essence page shows none. Omens unchecked (not in the
+    # exported tables, UNVERIFIED).
+    **{mod: (f"\"{text}\" has no PoE2 Essence behind it (RESEARCH30 R30-4, {conf}; checked there: no game-table "
+             "reference (EssenceMods Mod / DisplayMod / OutcomeMods over all 95 Essences rows incl. Perfect, the "
+             "corrupted four, Abyss, Breach and the 13 Alloys; BaseItemTypes implicits; Essences.MonsterMod), no "
+             f"HandWraps twin, spawn weight 0; poe2db's current Essence page lacks it; a PoE1 corrupted-Essence mod{extra}; "
+             "Omens unchecked, UNVERIFIED; game 26650308)")
+       for mod, text, conf, extra in (
+           ("NearbyEnemiesChilledOnBlockEssence1", "Chill Nearby Enemies when you Block", "MEDIUM-HIGH", ""),
+           ("ChanceToRecoverManaOnSkillUseEssence1", "10% chance to Recover 10% of maximum Mana when you use a Skill",
+            "MEDIUM-HIGH", ""),
+           ("SocketedGemsNonCurseAuraEffectEssence1", "Socketed Non-Curse Aura Gems have 20% increased Aura Effect", "HIGH",
+            "; PoE2 item sockets hold augments, not skill gems"),
+           ("SocketedAuraGemLevelsEssence1", "+2 to Level of Socketed Aura Gems", "HIGH",
+            "; PoE2 item sockets hold augments, not skill gems"),
+           ("FireBurstOnHitEssence1", "Cast Level 20 Fire Burst on Hit", "HIGH",
+            "; no player Fire Burst skill in ActiveSkills / GrantedEffects"),
+           ("SpiritMinionEssence1", "+3 to maximum number of Spectral Spirits", "HIGH",
+            "; no Spectral Spirits skill in ActiveSkills / GrantedEffects"))},
 }
 
 def legacy_variant_templates(data_dir: Path) -> dict[tuple[str, str], list[str]]:

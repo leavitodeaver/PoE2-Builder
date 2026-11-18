@@ -761,6 +761,14 @@ def test_researched_unobtainable_item_mods_are_unreachable():
     report = coverage.audit()
     crush = [r for r in report["records"] if r["source"] == "Item CrushOnHitChanceEssence1"]
     assert crush and all(r["status"] == "unreachable" and "RESEARCH30" in r["reason"] for r in crush)
+    # (COV41, RESEARCH30 R30-4, the manager 00:03 18 Nov) six more PoE1 corrupted-Essence suffixes
+    six = ("NearbyEnemiesChilledOnBlockEssence1", "ChanceToRecoverManaOnSkillUseEssence1",
+           "SocketedGemsNonCurseAuraEffectEssence1", "SocketedAuraGemLevelsEssence1", "FireBurstOnHitEssence1",
+           "SpiritMinionEssence1")
+    assert all("R30-4" in coverage.NOT_OBTAINABLE[m] for m in six)
+    rows = [r for r in report["records"] if r["source"] in {f"Item {m}" for m in six}]
+    assert {r["source"].split()[1] for r in rows} == set(six)
+    assert all(r["status"] == "unreachable" and "R30-4" in r["reason"] for r in rows)
 
 
 def test_slot_names_built_by_concatenation_count_as_read():
