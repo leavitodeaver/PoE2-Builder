@@ -1995,9 +1995,13 @@ VIGOUR_FIRST = re.compile(r"^Gain Maximum Energy Shield equal to (\d+(?:\.\d+)?)
 VIGOUR_SECOND = re.compile(r"^Strength Requirements of Equipped Armour Items$", re.I)
 VIGOUR_SLOTS = ("Helmet", "Body Armour", "Gloves", "Boots")
 VIGOUR_FIELDS = tuple(f"StrRequirementsOn{slot}" for slot in VIGOUR_SLOTS)
+# (MECHC39, R31-13 (b): KeywordPopups EquipArmour, "Armour ... include Helmets, Body Armours, Gloves, Boots, Shields and
+# Foci"; Bucklers are Shields: HIGH) the off hand counts when it holds a Shield or Focus
+VIGOUR_OFFHAND_FIELD = "StrRequirementsOnWeapon 2"
+VIGOUR_OFFHAND_TYPES = ("Shield", "Focus")
 
 
-def emergent_vigour(texts: list[str], stats: dict) -> tuple[float, dict | None]:
+def emergent_vigour(texts: list[str], stats: dict, off_hand_armour: bool = False) -> tuple[float, dict | None]:
     """(maximum Energy Shield to add as PoB's EnergyShield BASE, its row) for Emergent Vigour (the note above); (0, None)
     without the line. `stats`: PoB's VIGOUR_FIELDS."""
     lines = [t.strip() for t in texts]
@@ -2007,6 +2011,8 @@ def emergent_vigour(texts: list[str], stats: dict) -> tuple[float, dict | None]:
         return 0.0, None
     pct = sum(float(m.group(1)) for m in found)
     reqs = {slot: max(_num(stats.get(field)), 0.0) for slot, field in zip(VIGOUR_SLOTS, VIGOUR_FIELDS)}
+    if off_hand_armour:  # (a Shield or Focus: R31-13 (b))
+        reqs["off-hand Shield / Focus"] = max(_num(stats.get(VIGOUR_OFFHAND_FIELD)), 0.0)
     total = sum(reqs.values())
     es = pct / 100 * total
     return es, {"label": "Emergent Vigour: Energy Shield from Strength requirements*",
@@ -2014,7 +2020,7 @@ def emergent_vigour(texts: list[str], stats: dict) -> tuple[float, dict | None]:
                 "basis": (f"{pct:g}% of the {total:,.0f} total Strength requirement of your equipped armour ("
                           + ", ".join(f"{slot} {v:,.0f}" for slot, v in reqs.items() if v) + ") = "
                           f"{es:,.0f}, as PoB's own Armour form of the line (EnergyShield BASE, scaled by your increased "
-                          "Energy Shield); an off-hand Shield / Focus not counted (UNVERIFIED); PoB parses none of it; "
+                          "Energy Shield); an off-hand Shield / Focus counts (KeywordPopups EquipArmour: HIGH); PoB parses none of it; "
                           "without it: 0"),
                 "confidence": "MEDIUM (the slots; base vs final Energy Shield read as PoB reads the Armour form)",
                 "play": ""}
@@ -2129,8 +2135,8 @@ def soul_mantle(texts: list[str], deaths: float, deaths_how: str, full: bool = F
 # PoB's ManaCost and LifeCost MORE -100 (tag Divinity), so the Mana pool stays full (Archmage, "while on Full Mana"),
 # the sustain floor sees no cost, a Life cost resets no recharge, and the Mana-spent feeds (Arcane Surge, Mana Tempest,
 # Archon of the Storm, "per N Mana spent") read 0: the manager's headline ("Mana-spent feeds 0 as the HEADLINE and the
-# old feed as a row"; UNVERIFIED whether the game counts Divinity spent as Mana spent; its own divinity_spent_per_minute
-# stat suggests not). The cost the main skill would pay a second (PoB's ManaPerSecondCost + LifePerSecondCost without
+# old feed as a row"; R32-1: not Mana spent, MEDIUM: the game tracks its own divinity_spent_per_minute
+# stat apart). The cost the main skill would pay a second (PoB's ManaPerSecondCost + LifePerSecondCost without
 # the tag) against the regeneration: above it, the main skill is held to the share Divinity pays (DPS MORE, the Runic
 # Ward hold's form; the starting pool's burst not counted, a fight-long average). Other skills' costs not counted (as
 # every Mana-spent reader here: an undercount of the spend, named).
@@ -2208,10 +2214,11 @@ def divinity(texts: list[str], max_es: float, corrupted: int, mana_cost: float, 
                        "(MEDIUM-LOW); other skills' costs not counted; you have no Energy Shield (PoB applies it). "
                        "Without the model: PoB charges the costs to Mana / Life as if the amulet had no cost line"),
              "confidence": "MEDIUM (costs 1:1; the increases adding)", "play": ""},
-            {"label": "Mana-spent effects under Divinity*", "value": "0: no Mana is spent on skills",
-             "basis": ("the manager's headline (R31-3): Arcane Surge, Mana Tempest, Archon of the Storm and \"per N Mana "
-                       "spent\" lines get no Mana spent. If the game counts Divinity spent as Mana spent (UNVERIFIED; its "
-                       f"own divinity_spent_per_minute stat suggests not), they would read {cost:,.1f} spent a second, as "
-                       "without the amulet's cost line"),
-             "confidence": "UNVERIFIED", "play": ""}]
+            {"label": "Mana-spent effects under Divinity*", "value": "0: no Mana is spent or cost",
+             "basis": ("Divinity spent is not Mana spent (R32-1 / R31-8b, MEDIUM: the game tracks divinity_spent_per_minute apart and bridges another resource into Mana spent only with its own stat or wording; none for Divinity). So "
+                       "Arcane Surge, Archon of the Storm and \"per N Mana spent\" lines get nothing; Incinerate gains no fuel; "
+                       "Mana Tempest Empowers only Mana-costing Spells, so none; and \"% of Mana Cost\" / \"Spells that cost Mana\" "
+                       "lines (Manaweave, Arc / Crackling Lance, Forbidden Rite / Dark Pact) read the zeroed Mana cost (UNVERIFIED). "
+                       f"The other reading (Divinity spent counts): {cost:,.1f} spent a second, as without the amulet's cost line"),
+             "confidence": "MEDIUM (not Mana spent); UNVERIFIED (the Mana-cost lines)", "play": ""}]
     return mods, rows, pool

@@ -2085,7 +2085,8 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + div_mods, hand_notes + div_rows
         if any(recovery_mod.VIGOUR_FIRST.match(t.strip()) for t in texts):  # (MECHC38, COV41: Emergent Vigour)
             vigour, vigour_row = recovery_mod.emergent_vigour(
-                texts, build.call("stats", fields=list(recovery_mod.VIGOUR_FIELDS)))
+                texts, build.call("stats", fields=[*recovery_mod.VIGOUR_FIELDS, recovery_mod.VIGOUR_OFFHAND_FIELD]),
+                getattr((getattr(build, "equipped", None) or {}).get("Weapon 2"), "type", "") in recovery_mod.VIGOUR_OFFHAND_TYPES)
             if vigour_row:
                 if vigour > 0:
                     hand_mods = hand_mods + [models.raw_mod("EnergyShield", "BASE", vigour, tag="EmergentVigour")]

@@ -2323,6 +2323,9 @@ def test_emergent_vigour_adds_energy_shield_from_armour_strength_requirements():
     assert es == pytest.approx(150.0) and "+150 maximum Energy Shield" in row["value"]
     assert recovery.emergent_vigour([" ".join(lines)], stats)[0] == pytest.approx(150.0)
     assert recovery.emergent_vigour(lines[:1], stats) == (0.0, None)
+    shield = {**stats, recovery.VIGOUR_OFFHAND_FIELD: 100.0}  # (MECHC39, R31-13 (b): a Shield / Focus counts)
+    assert recovery.emergent_vigour(lines, shield, off_hand_armour=True)[0] == pytest.approx(200.0)
+    assert recovery.emergent_vigour(lines, shield)[0] == pytest.approx(150.0)  # (a weapon there: not armour)
 
 
 def test_soul_mantle_curses_you_at_the_totem_death_rate():
