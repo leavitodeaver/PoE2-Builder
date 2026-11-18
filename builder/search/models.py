@@ -10833,7 +10833,9 @@ def parry_line_mods(plan: ParryPlan, stats: dict, main: Skill | None) -> tuple[l
 # Queen's Procession (MECH88; RESEARCH31 R31-9, queens-procession-locust-stacks.md; the Ritualist's "Devotion to the King":
 # "Grants Skill: Queen's Procession", which PoB has no skill for, ModCache {nil}). Game 26650308, GrantedEffect
 # QueensProcessionReservationPlayer, stat set 8281: while Sprinting you are a locust swarm that Hits everything within
-# 3 m every 0.5 s (base_cooldown_modifiable_repeat_interval_ms 500; cooldown recovery speeds it: not read, LOW) for its own
+# 3 m every 0.5 s (base_cooldown_modifiable_repeat_interval_ms 500; cooldown_recovery_modifiers_also_apply_to_repeat_interval:
+# the build's "increased Cooldown Recovery Rate" lines speed its hits and so its stack gain, 2 x (1 + CDR) a second, HIGH,
+# RESEARCH32 R32-4; the stacks a bout reaches don't change, only how fast: MECH88) for its own
 # Physical Attack damage (BaseResolvedValues: level 20 171-256, base crit 6%), +2% more per Swarm's Advance
 # (locust_dash_damage_+%_final_per_stack 2, maximum_locust_stacks 50). Each tick that Hits gains a stack and Hits YOU for
 # its self damage (level 20 34-51 Physical) with 100% more Stun buildup (locust_dash_self_hit_stun_multiplier_+%_final);
@@ -10842,10 +10844,14 @@ def parry_line_mods(plan: ParryPlan, stats: dict, main: Skill | None) -> tuple[l
 # starts over once the stacks are gone and the bar has emptied (4 s, then up to 2 s of decay). Stacks reached =
 # min(50, ticks in a bout) (MEDIUM: R31-9's reading). Your Heavy Stun buildup per self-hit: 0.65 (HeavyStunDamageScalePlayer,
 # recovery's) x the self-hit after Armour (A / (A + 10 x hit), PoB's Armour; other Physical reduction not read) x 1.5 x 2
-# / PoB's StunThreshold: x1.5 as Player Physical damage (KeywordPopups Stun, game 26650308: "Player Physical damage and
-# Melee Damage each have 50% more Light Stun chance and Heavy Stun buildup"; the self-hit read as your own skill's
-# damage, MEDIUM; the skill has no Melee type: ActiveSkills queens_procession_reservation's types), x2 the skill's own
-# 100% more; a monster's x2 Physical is for monster damage. The skill's level: a tree
+# / PoB's StunThreshold: x1.5 as Physical damage (KeywordPopups HeavyStun, game 26650308: "[Physical] damage, and player
+# (but not monster) [Melee] Damage, each cause 50% more [HeavyStun|Heavy Stun] buildup": "player" limits the Melee bonus
+# only, so any Physical hit gets it, HIGH, RESEARCH32 R32-4; PoB's CalcDefence applies the same to hits you take; no Melee
+# bonus: the skill has no Melee type, ActiveSkills queens_procession_reservation's types), x2 the skill's own 100% more.
+# The skill's level (MECH88, R32-4, MEDIUM): "+N to Level of all Skills / Attack Skills / Physical Skills" lines (its
+# SkillGems tags: buff, attack, persistent, area, physical) most likely reach a tree-granted skill, which PoB levels from
+# character level only (getGrantedSkillLevel: an UNDERCOUNT), so the headline adds them (to its 40-level table's top);
+# the character-level-only reading is a row. The level from character level: a tree
 # grant takes the highest level whose requirement your character level meets (PoB's getGrantedSkillLevel for tree skills,
 # the gem requirement table, natural maximum 20). PoB can't scale its damage by the build's modifiers (no skill): the
 # swarm's DPS is the UNSCALED base, an undercount. Sprinting stops the main skill, so the play uses it only when its DPS
@@ -10856,7 +10862,14 @@ QP_DAMAGE = {  # level: (min, max) swarm Physical, (min, max) self damage (Grant
     1: (6, 9, 1, 2), 2: (10, 16, 2, 3), 3: (16, 24, 3, 5), 4: (22, 33, 4, 7), 5: (28, 43, 6, 9), 6: (35, 53, 7, 11),
     7: (42, 64, 8, 13), 8: (50, 75, 10, 15), 9: (58, 87, 12, 17), 10: (66, 99, 13, 20), 11: (75, 112, 15, 22),
     12: (84, 126, 17, 25), 13: (94, 140, 19, 28), 14: (103, 155, 21, 31), 15: (114, 170, 23, 34), 16: (124, 186, 25, 37),
-    17: (135, 203, 27, 41), 18: (147, 220, 29, 44), 19: (158, 238, 32, 48), 20: (171, 256, 34, 51)}
+    17: (135, 203, 27, 41), 18: (147, 220, 29, 44), 19: (158, 238, 32, 48), 20: (171, 256, 34, 51),
+    21: (183, 275, 37, 55), 22: (196, 294, 39, 59), 23: (209, 314, 42, 63), 24: (223, 335, 45, 67), 25: (237, 356, 47, 71),
+    26: (252, 378, 50, 76), 27: (267, 400, 53, 80), 28: (282, 423, 56, 85), 29: (297, 446, 59, 89), 30: (313, 470, 63, 94),
+    31: (330, 495, 66, 99), 32: (347, 520, 69, 104), 33: (364, 546, 73, 109), 34: (381, 572, 76, 114),
+    35: (399, 599, 80, 120), 36: (418, 626, 84, 125), 37: (436, 654, 87, 131), 38: (455, 683, 91, 137),
+    39: (475, 712, 95, 142), 40: (495, 742, 99, 148)}
+QP_LEVEL_LINE = re.compile(r"^\+(\d+) to Level of all (?:(?:Attack|Physical) )?Skills$", re.I)  # (R32-4: its tags)
+QP_CDR_LINE = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) Cooldown Recovery Rate$", re.I)
 QP_LEVEL_REQUIREMENT = (0, 3, 6, 10, 14, 18, 22, 26, 31, 36, 41, 46, 52, 58, 64, 66, 72, 78, 84, 90)  # PoB's gem table
 QP_TICK, QP_PER_STACK, QP_MAX_STACKS, QP_SELF_STUN_MORE, QP_CRIT = 0.5, 0.02, 50, 2.0, 0.06
 QP_PLAYER_PHYSICAL_STUN = 1.5  # (KeywordPopups Stun: Player Physical damage, 50% more Heavy Stun buildup)
@@ -10867,12 +10880,30 @@ def queens_procession_level(character_level: int) -> int:
     return max((i + 1 for i, req in enumerate(QP_LEVEL_REQUIREMENT) if req <= character_level), default=1)
 
 
-def queens_procession_model(character_level: int, stats: dict, main_dps: float) -> list[dict]:
+def queens_procession_model(character_level: int, stats: dict, main_dps: float, texts: list[str] = ()) -> list[dict]:
     """The rows for a build granted Queen's Procession (see above): its swarm's unscaled DPS while sprinting at the build's
-    own stack reach, against the main skill's DPS; it counts 0 unless sprinting beats the main skill."""
+    own stack reach, against the main skill's DPS; it counts 0 unless sprinting beats the main skill. `texts`: the build's
+    lines (its +levels and Cooldown Recovery Rate)."""
+    texts = [str(x).strip() for x in texts or ()]
+    own = queens_procession_level(int(character_level or 1))
+    bonus = sum(int(m.group(1)) for x in texts if (m := QP_LEVEL_LINE.match(x)))
+    cdr = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+              for x in texts if (m := QP_CDR_LINE.match(x))) / 100
+    rows = _queens_procession_rows(min(40, own + bonus), character_level, stats, main_dps, max(1 + cdr, 0.1),
+                                   f"level {min(40, own + bonus)} (character level {character_level}: {own}"
+                                   + (f", +{bonus} from your +level lines" if bonus else "") + ")")
+    if bonus:
+        base = _queens_procession_rows(own, character_level, stats, main_dps, max(1 + cdr, 0.1),
+                                       f"level {own} (character level {character_level} only, as PoB levels it)")[0]
+        rows.append({**base, "label": f"{QUEENS_PROCESSION}: at character level only (PoB's reading)*",
+                     "confidence": "MEDIUM (R32-4: whether +level lines reach a tree-granted skill)"})
+    return rows
+
+
+def _queens_procession_rows(level: int, character_level: int, stats: dict, main_dps: float, speed: float,
+                            level_how: str) -> list[dict]:
     from builder.search import recovery  # (recovery imports nothing of models at load)
 
-    level = queens_procession_level(int(character_level or 1))
     lo, hi, self_lo, self_hi = QP_DAMAGE[level]
     hit = (lo + hi) / 2 * (1 + QP_CRIT)  # (base crit 6% at the base +100% bonus)
     self_hit = (self_lo + self_hi) / 2
@@ -10897,11 +10928,12 @@ def queens_procession_model(character_level: int, stats: dict, main_dps: float) 
     else:
         mult = sum(1 + QP_PER_STACK * min(k, QP_MAX_STACKS) for k in range(ticks)) / ticks
         stacks = min(QP_MAX_STACKS, ticks)
-    sprint_dps = hit * mult / QP_TICK if ticks > 0 else 0.0
+    sprint_dps = hit * mult * speed / QP_TICK if ticks > 0 else 0.0
     need = main_dps / sprint_dps if sprint_dps > 0 else float("inf")
     used = sprint_dps > main_dps > 0
     rows = [{"label": f"{QUEENS_PROCESSION}: the locust swarm while sprinting*", "value": 0,
-             "basis": (f"level {level} (character level {character_level}): {lo}-{hi} Physical a Hit every {QP_TICK:g} s, "
+             "basis": (f"{level_how}: {lo}-{hi} Physical a Hit every {QP_TICK / speed:.2f} s ({QP_TICK:g} s / (1 + "
+                       f"{speed - 1:.0%} Cooldown Recovery Rate)), "
                        f"+{QP_PER_STACK:.0%} more a Swarm's Advance; {how}: up to {stacks} stacks, x{mult:.2f} on average, "
                        f"{sprint_dps:,.0f} DPS while sprinting UNSCALED (PoB has no skill for it, so the build's Attack and "
                        f"Physical modifiers aren't applied: an undercount) against the main skill's {main_dps:,.0f}; "
@@ -10909,9 +10941,9 @@ def queens_procession_model(character_level: int, stats: dict, main_dps: float) 
                        + (f": the build's modifiers would have to multiply it x{need:,.1f} (UNVERIFIED whether they do), so "
                           "it counts 0" if not used else ": it beats the main skill even unscaled, but its time isn't "
                           "modelled: counted 0 (an UNDERCOUNT, named)")),
-             "confidence": "MEDIUM (stacks, R31-9) / LOW (unscaled damage)",
+             "confidence": "MEDIUM (stacks, R31-9) / HIGH (the x1.5 and the hit rate, R32-4) / LOW (unscaled damage)",
              "play": (f"Without it: the main skill all fight. With it: sprint through the boss in bouts of {ticks} ticks "
-                      f"({ticks * QP_TICK:g} s), stop before the stun, and wait {QP_LOSS_DELAY + QP_BAR_EMPTY:g} s for the stacks "
+                      f"({ticks * QP_TICK / speed:.1f} s), stop before the stun, and wait {QP_LOSS_DELAY + QP_BAR_EMPTY:g} s for the stacks "
                       f"and the bar to clear; {sprint_dps:,.0f} DPS unscaled while sprinting") if ticks > 0 else
                      "Sprinting would Heavy Stun you at the first swarm hit: don't sprint into the boss"}]
     return rows

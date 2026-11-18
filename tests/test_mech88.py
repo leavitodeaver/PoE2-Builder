@@ -119,3 +119,15 @@ def test_a_zero_use_skills_ailment_leaves_pobs_best_ailment_row():
     assert models.zero_use_ailment_scales(rows, {"Decompose"}, rates, {"Best Poison DPS from Decompose": 0.5})[0] == {
         "Best Bleed DPS from Decompose: Second Part": 0.0}
     assert models.zero_use_ailment_scales(rows, set(), rates) == ({}, [])
+
+
+def test_queens_procession_takes_your_plus_levels_and_cooldown_recovery():
+    texts = ["+3 to Level of all Attack Skills", "+1 to Level of all Skills", "+2 to Level of all Spell Skills",
+             "30% increased Cooldown Recovery Rate"]
+    rows = models.queens_procession_model(92, {"StunThreshold": 1105.0}, 50_000.0, texts)
+    assert [r["label"] for r in rows] == ["Queen's Procession: the locust swarm while sprinting*",
+                                          "Queen's Procession: at character level only (PoB's reading)*"]
+    assert "level 24 (character level 92: 20, +4 from your +level lines)" in rows[0]["basis"]  # (not the Spell line)
+    assert "every 0.38 s" in rows[0]["basis"] and "level 20 (character level 92 only" in rows[1]["basis"]
+    plain = models.queens_procession_model(92, {"StunThreshold": 1105.0}, 50_000.0)
+    assert len(plain) == 1 and "every 0.50 s" in plain[0]["basis"]

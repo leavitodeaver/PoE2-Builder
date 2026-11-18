@@ -4607,7 +4607,8 @@ class Assumptions:
         an undercount, said rather than dropped silently. Not modelled yet."""
         built = {s["name"] for s in skills}
         notes, seen = [], set()
-        for line in self.build.call("sourceLines")["lines"]:
+        lines = self.build.call("sourceLines")["lines"]
+        for line in lines:
             m = GRANTED_SKILL.search(line["text"])
             if not m or m.group(1) in built or m.group(1) in seen:
                 continue
@@ -4617,7 +4618,8 @@ class Assumptions:
 
                 stats = self.build.call("stats", fields=["Armour", "StunThreshold", "PhysicalDamageReductionMax"])
                 notes += models.queens_procession_model(getattr(getattr(self.build, "ctx", None), "level", 1) or 1, stats,
-                                                        main_dps(getattr(self.build, "stats", None) or {}))
+                                                        main_dps(getattr(self.build, "stats", None) or {}),
+                                                        [entry["text"] for entry in lines])  # (+levels, CDR: R32-4)
                 continue
             if m.group(1) in models.PACTS:  # (MECH88: a cast's unscaled damage against the main skill's)
                 from builder.search.objective import main_dps

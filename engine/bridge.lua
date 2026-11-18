@@ -1059,7 +1059,14 @@ local function setNoCritReroll(env)
 		if type(item) == "table" then
 			for _, lines in ipairs({ item.explicitModLines or { }, item.implicitModLines or { } }) do
 				for _, modLine in ipairs(lines) do
-					local inVariant = not item.variant or not modLine.variantList or modLine.variantList[item.variant]
+					-- (MECH88; COV42's routed item) PoB's own variant test (Item.lua 1336: the selected variant, alt variants,
+					-- variant groups and versions), as sourceLines uses; the plain variantList check missed alt variants
+					local inVariant
+					if item.CheckModLineVariant then
+						inVariant = item:CheckModLineVariant(modLine)
+					else
+						inVariant = not item.variant or not modLine.variantList or modLine.variantList[item.variant]
+					end
 					if inVariant and type(modLine.line) == "string"
 						and modLine.line:lower():find("critical hit chance cannot be rerolled", 1, true) then
 						noCritRerollDB = env.modDB
