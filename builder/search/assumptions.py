@@ -2661,6 +2661,9 @@ class Assumptions:
             build.objective.entry_scales.update(note.get("full_dps") or {})
         puppet_mods, puppet_notes = models.puppet_master_model(found, [e["text"] for e in source_lines])  # (MECHB30)
         hand_mods, hand_notes = hand_mods + puppet_mods, hand_notes + puppet_notes
+        # (MECHB39: the Genesis Tree belt's Minion Damage per different Command used in the past 15 s)
+        command_mods, command_notes = models.different_commands_model(found, [e["text"] for e in source_lines])
+        hand_mods, hand_notes = hand_mods + command_mods, hand_notes + command_notes
         barrage_mods, barrage_notes = barrage(build, main, found)  # (MECHB30: PoB's +2% for one empowered attack a cooldown)
         hand_mods, hand_notes = hand_mods + barrage_mods, hand_notes + barrage_notes
         press_mods, press_notes = empowered_presses(build, main)  # (MECHB32: Mantra, Unleash; PoB 0)

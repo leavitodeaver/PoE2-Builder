@@ -6241,3 +6241,20 @@ def test_lust_for_sacrifice_counts_with_two_different_offerings_up():
     mods, notes = models.lust_for_sacrifice_model(text, [bones, pain, soul], {2: [models.DANSE_MACABRE]})
     assert mods == [models.line("Minions deal 1% increased Damage", 50.0 * 12 / 13.5)]
     assert notes[0]["confidence"] == "MEDIUM-LOW" and "Pain Offering with Danse Macabre" in notes[0]["basis"]
+
+
+def test_minion_damage_per_different_command_counts_the_builds_own_commands():
+    """MECHB39 (an UNDERCOUNT before: PoB leaves the Genesis Tree belt line part-parsed, 0): N% increased Minion Damage
+    per different Command used in the past 15 s, each of the build's minions' Commands pressed on its cooldown; one
+    slower than 15 s counts at 15 / its period; no Command: 0 with a note."""
+    text = ["10% increased Minion Damage per different Command Skill used in the past 15 seconds"]
+    mage = models.Skill("Summon Skeletal Frost Mage", summon={"limit": 2, "duration": 0, "persistent": True})
+    brute = models.Skill("Summon Skeletal Brute", summon={"limit": 1, "duration": 0, "persistent": True})
+    assert models.different_commands_model([mage], ["+10 to Strength"]) == ([], [])
+    mods, notes = models.different_commands_model([mage, brute], text)  # (Ice Bomb 8 s, Ice Armour 12 s, Roar 8 s)
+    assert mods == [models.line("Minions deal 1% increased Damage", 30.0)] and notes[0]["value"] == "+30%"
+    slow = replace(mage, cooldown_recovery=0.5)  # (16 s and 24 s: 15/16 and 15/24 of the windows)
+    mods, _ = models.different_commands_model([slow], text)
+    assert mods == [models.line("Minions deal 1% increased Damage", 10 * (15 / 16 + 15 / 24))]
+    mods, notes = models.different_commands_model([models.Skill("Raise Zombie", summon={"limit": 3})], text)
+    assert mods == [] and notes[0]["value"] == "+0%"

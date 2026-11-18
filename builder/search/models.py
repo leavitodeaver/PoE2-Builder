@@ -1135,6 +1135,54 @@ def command_uses(skills: list[Skill]) -> tuple[float, list[str]]:
     return total, parts
 
 
+# Different Command Skills used in the past 15 seconds (MECHB39; the coverage ranking's section C, an UNDERCOUNT: 0
+# before). The Genesis Tree belt mod "N% increased Minion Damage per different Command Skill used in the past 15
+# seconds" (minion_damage_+%_per_different_command_skills_used_in_last_15_seconds: GenesisTreeBeltMinionDamagePer
+# DifferentCommandSkillUsedLast15Seconds and its Crafted copy; the Genesis Tree is core since 0.5.0): PoB's ModCache 1659
+# reads it as a MinionModifier with leftover text and never applies it. (checked: game files 26650308, every Stats id
+# holding "command", their Mods / PassiveSkills / GrantedEffectStatSets rows: those two belt mods are the only sources;
+# Brequel's "Instructor's" reward node only raises the crafted chance.) The count, from the build (CLAUDE.md's no-flat-
+# rate rule): a build that takes the line presses its minions' Commands (a play strategy, as puppet_master_model), each
+# on its own cooldown over your Cooldown Recovery (COMMANDS, command_uses); a Command used at least every 15 s counts
+# whole, a slower one at 15 / its period (the mean of the count: the damage is linear in it). Not counted (labelled):
+# djinn Commands (MECH-A's) and the other Commands COMMANDS doesn't map (an undercount), presses lost while every
+# minion of a kind is fallen (a small overcount for death-fed builds).
+COMMAND_WINDOW = 15.0
+DIFFERENT_COMMANDS = re.compile(r"^(\d+(?:\.\d+)?)% increased Minion Damage per different Command Skill used in the past "
+                                r"15 seconds$", re.I)
+
+
+def different_commands_model(skills: list[Skill], texts: list[str]) -> tuple[list[dict], list[dict]]:
+    """The minions' damage per different Command used in the past 15 s, at the build's own Commands (see above)."""
+    pct = sum(float(m.group(1)) for t in texts if (m := DIFFERENT_COMMANDS.search(t.strip())))
+    if pct <= 0:
+        return [], []
+    count, parts, seen = 0.0, [], set()
+    for skill in skills:
+        if not skill.summon or not number(skill.summon.get("limit")):
+            continue
+        for minion, commands in COMMANDS.items():
+            if minion not in skill.name or minion in seen:
+                continue
+            seen.add(minion)
+            for name, cooldown, cast in commands:
+                every = max(cooldown / (skill.cooldown_recovery or 1.0), cast)
+                share = min(1.0, COMMAND_WINDOW / every)
+                count += share
+                parts.append(f"{name} every {every:.3g} s" + (f" ({share:.0%} of windows)" if share < 1 else ""))
+    gain = pct * count
+    note = {"label": "Minion Damage per different Command used in the past 15 s*", "value": f"+{gain:.0f}%",
+            "confidence": "MEDIUM",
+            "basis": (f"{pct:g}% a Command; {count:.2f} different Commands in any 15 s: "
+                      + ("; ".join(parts) if parts else "the build's minions have no Command this model maps")
+                      + ". Each pressed on its cooldown (a play strategy under the button cap). PoB reads the line with "
+                      "leftover text and never applies it (0 before). Not counted: djinn Commands and Commands of minions "
+                      "the table doesn't map (an undercount), presses lost while those minions are fallen"),
+            "play": (f"Press each of your minions' Commands at least every 15 s: without them +0%; with them +{gain:.0f}% "
+                     "Minion Damage" if gain > 0 else "No minion Command to press: +0%")}
+    return ([line("Minions deal 1% increased Damage", gain)] if gain > 0 else []), [note]
+
+
 def _summed(pattern: re.Pattern, texts: list[str], signed: bool = False) -> float:
     total = 0.0
     for text in texts:

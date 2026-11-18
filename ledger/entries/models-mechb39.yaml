@@ -30,3 +30,17 @@
     each one's Danse Macabre share (danse_share); else 0 with the reason. "Minions deal N% increased Damage".
   sources: [builder/search/models.py (LUST_FOR_SACRIFICE, lust_for_sacrifice_model)]
   status: proposed
+
+- id: model-read-minion-damage-per-different-command
+  title: '"N% increased Minion Damage per different Command Skill used in the past 15 seconds" (Genesis Tree belt; models.different_commands_model)'
+  kind: pob_gap
+  model: different_commands
+  match: '^(\d+(?:\.\d+)?)% increased Minion Damage per different Command Skill used in the past 15 seconds$'
+  replace: []
+  confidence: theory
+  notes: >-
+    PoB reads it as a minion modifier with leftover text and never applies it (0, an UNDERCOUNT). Counted at the build's
+    own minions' Commands (models.COMMANDS), each pressed on its cooldown over Cooldown Recovery: whole when used at
+    least every 15 s, else 15 / its period. Djinn Commands and unmapped Commands not counted (an undercount, said).
+  sources: [builder/search/models.py (DIFFERENT_COMMANDS, different_commands_model)]
+  status: proposed
