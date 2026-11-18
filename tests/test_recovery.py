@@ -2021,7 +2021,9 @@ def test_the_bosss_chill_slows_you_and_sierran_inheritance_reverses_it():
     immune, _ = boss_hits.boss_chill_on_you(base, ["You cannot be Chilled for 6 seconds after being Chilled"])
     assert immune == pytest.approx(-2.0 / (6 + 1 / cold) * 50.0)
     assert boss_hits.boss_chill_on_you(base, [], chilled_box=True) == (0.0, [])
-    assert boss_hits.boss_chill_on_you({**base, "_boss": "Arbiter of Ash"}, []) == (0.0, [])
+    ash, ash_rows = boss_hits.boss_chill_on_you({**base, "_boss": "Arbiter of Ash"}, [])  # (no Cold hits: a said 0)
+    assert ash == 0.0 and ash_rows[0]["value"].startswith("0") and "Ailment Threshold" in ash_rows[0]["basis"]
+    assert "avoid every Chill" in boss_hits.boss_chill_on_you({**base, "ChillAvoidChance": 100}, [])[1][0]["basis"]
     scold = {**small, "_boss": "Arbiter of Ash", "ManaPerSecondCost": 2000.0, "Speed": 2.0}  # 1,000 Physical a cast
     lines = [reverse, every, "Take 100% of Mana Costs you pay for Skills as Physical Damage"]
     with_scold, rows = boss_hits.boss_chill_on_you(scold, lines)

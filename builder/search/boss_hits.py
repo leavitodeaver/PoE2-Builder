@@ -1280,7 +1280,12 @@ def boss_chill_on_you(stats: dict, texts: list[str], chilled_box: bool = False) 
                                     + ("" if all_types else " (without the all-damage line only Cold hits Chill)")
                                     + "; without it: 0"),
                           "confidence": "MEDIUM (PoB's magnitude formula)", "play": ""}]
-        return 0.0, []
+        # (MECHC39, the train 78 measurement: 2b75b / 2b75c had no row at all; a 0 is said, never silent)
+        why = (f"you avoid every Chill ({100 * avoid:g}% Chill avoidance)" if avoid >= 1.0 else
+               f"no hit of the boss's reaches the 30% of your {threshold:,.0f} Ailment Threshold a Chill needs"
+               + ("" if all_types else " (only Cold hits Chill you)"))
+        return 0.0, [{"label": "The boss Chills you*", "value": "0: no Chill on you", "basis": why,
+                      "confidence": "MEDIUM (PoB's magnitude formula)", "play": ""}]
     mean = sum(r * m for r, m, _ in sources) / rate
     seconds = CHILL_SECONDS_PLAYER * (number(stats.get("SelfChillDuration")) / 100 if "SelfChillDuration" in stats
                                       else 1.0)
