@@ -5675,11 +5675,16 @@ class Assumptions:
     def gated_set_share(self, skill: str, texts: list[str], main_types: set[str]) -> tuple[float, str]:
         """(share, how) of a models.GATED_SETS skill's uses its resource covers (GEM17): Furious Slam's Rage from the
         build's Rage gains (conditions._rage_gain, the reader rage_held uses) over 10 a slam; Oil Barrage's Power Charges
-        from the build's gains (conditions._charge_rate) x 1.5 s each."""
+        from the build's gains (conditions._charge_rate) x 1.5 s each; High Velocity Rounds' Fully Broken share (GEM21)."""
         stats = {**self.build.call("stats", fields=models.MODEL_FIELDS + ["MaximumRage", "enemySkillTime", "EvadeChance",
                                                                           "EffectiveBlockChance"]),
                  "_main_types": main_types}
         found = []
+        if skill == models.RIVEN_SKILL:  # (GEM21: its "Vs Armour Broken" hits only a Fully Broken boss: MECH87's share)
+            share, how = getattr(self.build, "full_break_up", None) or (0.0, "")
+            share = min(max(number(share), 0.0), 1.0)
+            return share, (f"the boss's Armour Fully Broken {share:.0%} of the fight ({how or 'no Armour Break source in the build'}"
+                           "; MECH-A's Armour Broken cycle, build.full_break_up); the bolt doesn't consume it")
         if skill == "Furious Slam":
             gain = 0.0
             for t in texts:

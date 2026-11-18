@@ -1318,3 +1318,14 @@ def test_a_set_models_note_shows_pobs_set_dps_without_its_own_last_line():
     unscaled = models.detonated_set_model(lance, "Projectile", sets, 0.84, 0.0, "none", previous=previous)
     assert plain[0][0]["value"] == pytest.approx(unscaled[0][0]["value"]) and unscaled[0][0]["tag"] == entry
     assert "Lodged Spear 34" in unscaled[1][0]["basis"] and "Lodged Spear 39" in plain[1][0]["basis"]
+
+
+def test_high_velocity_rounds_vs_armour_broken_only_on_a_fully_broken_boss():
+    # (GEM21) its "Vs Armour Broken" part only while the boss's Armour is Fully Broken (MECH87's share): not on every bolt
+    hvr = Skill("High Velocity Rounds", 1, attack=True)
+    sets = [{"label": "Projectile", "TotalDPS": 69.1}, {"label": "Vs Armour Broken", "TotalDPS": 99.4}]
+    mods, notes = models.gated_set_model(hvr, "Vs Armour Broken", sets, 0.25, "Armour Break I")
+    assert mods[0]["value"] == pytest.approx(100 * ((69.1 * 0.75 + 99.4 * 0.25) / 99.4 - 1), abs=0.01)
+    assert notes[0]["entry"] == "model-gem21-high-velocity-rounds-armour-broken" and "Fully Broken Armour" in notes[0]["label"]
+    mods, _ = models.gated_set_model(hvr, "Vs Armour Broken", sets, 0.0, "none")
+    assert mods[0]["value"] == pytest.approx(100 * (69.1 * 0.9 / 99.4 - 1), abs=0.01)  # (steered to the Projectile)

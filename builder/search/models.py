@@ -6530,7 +6530,18 @@ def icestorm_model(main: Skill | None, scored: str | None, sets: list[dict], cas
 #   (GATED_ADDS: Spear + Explosion x share). The share of lances with a charge = min(1, Frenzy Charges gained a second
 #   (conditions._charge_rate over the build's lines) / lances a second); the stock held at the fight's start and other
 #   Frenzy spenders beside it not counted (a short undercount / an overcount where a build has them, labelled). MEDIUM.
+# - (GEM21) High Velocity Rounds' "Vs Armour Broken" (its second stat set, with the Riven Armour stats
+#   exploit_debuff_attack_damage_to_convert_to_magnitude_% 5 and base_skill_effect_duration 5000): the bolt "applies Riven
+#   Armour to enemies with Fully Broken Armour" (ActiveSkills high_velocity_rounds, 26650308; patch 0.3.0, its newest
+#   entry: "No longer consumes Fully Broken Armour"); its own sets have cannot_break_armour, so another source must Fully
+#   Break the Armour. Probe POE2T2184 (GEM17): Vs Armour Broken 99.4 vs Projectile 69.1 (x1.44), kept with no Armour
+#   Break in the build (an OVERCOUNT). The share of bolts hitting a Fully Broken boss = the share of the fight its Armour
+#   is Fully Broken (MECH87's build.full_break_up, train 80: conditions' Armour Broken cycle, as the Armour Broken box
+#   weighs it; 0 with no Armour Break source); not consumed, so the share isn't cut by the bolts. Riven Armour's added
+#   damage on later hits stays riven_armour_model's. MEDIUM-LOW (the share is MECH-A's).
 GATED_SETS = {"Furious Slam": ("Base", "Enraged", "Rage", "model-gem17-furious-slam-rage"),
+              "High Velocity Rounds": ("Projectile", "Vs Armour Broken", "Fully Broken Armour",
+                                       "model-gem21-high-velocity-rounds-armour-broken"),
               "Oil Barrage": ("Base", "Empowered", "Power Charges", "model-gem17-oil-barrage-power-charges"),
               "Glacial Lance": ("Spear", "Explosion", "Frenzy Charges", "model-gem19-glacial-lance-frenzy-charge")}
 GATED_ADDS = {"Glacial Lance"}  # (the gated part comes on top of the base set, not instead of it)

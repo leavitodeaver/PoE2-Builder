@@ -20,3 +20,25 @@
   sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua (ShockwaveTotem)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_str.lua (Jagged Ground I / II)",
             "builder/search/conditions.py (jagged_ground)", "data/game-26650308/tables/Stats.json"]
   status: proposed
+
+- id: model-gem21-high-velocity-rounds-armour-broken
+  title: "High Velocity Rounds: its 'Vs Armour Broken' part only while the boss's Armour is Fully Broken (PoB scored it on every bolt)"
+  kind: model
+  model: gated_set
+  stats: []
+  skill: [High Velocity Rounds]
+  confidence: MEDIUM-LOW
+  notes: >-
+    models.gated_set_model (GATED_SETS) + Assumptions.gated_set_share (GEM21). Game (26650308): ActiveSkills
+    high_velocity_rounds "Fire a powerful Piercing bolt that applies Riven Armour to enemies with Fully Broken Armour";
+    its stat sets carry cannot_break_armour (another source must Fully Break it); patch 0.3.0 (newest entry): "No longer
+    consumes Fully Broken Armour". PoB scores "Vs Armour Broken" alone with no check: GEM17's probe POE2T2184 kept it at
+    99.4 vs Projectile 69.1 (x1.44) with no Armour Break in the build (an OVERCOUNT). DPS = Projectile x (1 - s) + Vs
+    Armour Broken x s, s the share of the fight the boss's Armour is Fully Broken (MECH87's build.full_break_up, train
+    80); with none, the Vs Armour Broken set is kept 10% under the Projectile so the search keeps it. Riven Armour's
+    added damage on later hits stays riven_armour_model's.
+  sources: ["builder/search/models.py (GATED_SETS, gated_set_model)", "builder/search/conditions.py (full_break_up, MECH87)",
+            "data/game-26650308/tables/ActiveSkills.json (high_velocity_rounds)", "scratch/manager/research/patchnotes (0.3.0)",
+            "scratch/gem21/probe_hvr.json"]
+  test_in_game: "Optional: High Velocity Rounds on a boss with and without Fully Broken Armour."
+  status: proposed
