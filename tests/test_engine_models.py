@@ -3872,3 +3872,32 @@ def test_divinity_takes_the_costs_off_mana_and_pob_never_misreads_the_amulet(eng
     assert not div.get("EnergyShield") and div.get("MaximumEnergyShield", 0) == pytest.approx(plain["EnergyShield"], rel=0.01)
     assert div.get("Mana") == pytest.approx(plain.get("Mana"))
     assert not div.get("ManaPerSecondCost") and "all paid" in row["value"]
+
+
+def test_a_cry_bypassing_its_cooldown_with_charges_reaches_pobs_cooldown(engine):
+    """MECHC40 (K2-9): Infernal Cry's "cooldown can be bypassed by expending an Endurance Charge" is found from its gem
+    description with its base cooldown; the extra uses go in as a CooldownRecovery INC on that skill, which PoB's own
+    cooldown follows (a probe, LANE_RULES: 1 / cooldown rises by the uses added); the cap is read without that INC."""
+    from builder.search import conditions
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.call("addSkillGroup", text="Infernal Cry 20/0 1")
+    gem_types = {"Infernal Cry": set(), "Boneshatter": set()}
+    found = search.conditions._bypass_skills(gem_types)
+    name, cap, how, base = found["Endurance"][0]
+    assert name == "Infernal Cry" and base > 0 and cap > 0, found
+    index = next(g["index"] for g in build.call("groups")["groups"]
+                 if any(n["name"] == "Infernal Cry" for n in g.get("gems") or []))
+    before = number_of(build.call("useRates", indices=[index])["rates"][0].get("cooldown"))
+    mods, rows, inc = conditions.bypass_mods({"Infernal Cry": (0.1, "x", 0.5, base)})
+    build.call("setAssumptions", mods=mods, fields=[])
+    after = number_of(build.call("useRates", indices=[index])["rates"][0].get("cooldown"))
+    print(before, after, inc)
+    assert 1 / after == pytest.approx(1 / before + 0.1, rel=0.05)  # (PoB rounds cooldowns to server ticks)
+    build.bypass_inc = inc
+    again = search.conditions._bypass_skills(gem_types)["Endurance"][0]
+    assert again[1] == pytest.approx(cap, rel=0.02)  # (not shrunk by its own INC)

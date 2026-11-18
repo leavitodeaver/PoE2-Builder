@@ -2222,3 +2222,31 @@ def divinity(texts: list[str], max_es: float, corrupted: int, mana_cost: float, 
                        f"The other reading (Divinity spent counts): {cost:,.1f} spent a second, as without the amulet's cost line"),
              "confidence": "MEDIUM (not Mana spent); UNVERIFIED (the Mana-cost lines)", "play": ""}]
     return mods, rows, pool
+
+
+
+# "... per Rune Socketed in Equipped Items" and the other weapon set (MECHC40; COV42 / RESEARCH R31-14, UNVERIFIED whether
+# the inactive set's Runes count; "Equipped" in KeywordPopups doesn't address weapon sets). The HEADLINE counts the active
+# set only (PoB's item list, bridge setAugmentCounts' RunesInEquipment: the lower count); this row gives the count with
+# the other set's Runes too. A Rune is a socketed augment whose name holds the word "Rune" (PoB writes each socket as
+# "Rune: <name>" in an item's text; Soul Cores, Idols, Abyssal Eyes and the Raven-Touched Shard don't: MEDIUM).
+PER_RUNE_LINE = re.compile(r"\bRune Socketed in Equipped Items$", re.I)  # (also the game's wrapped second line)
+SOCKET_LINE = re.compile(r"^Rune: (.+)$", re.M)
+SWAP_SLOTS = ("Weapon 1 Swap", "Weapon 2 Swap")
+
+
+def swap_runes_row(texts: list[str], slots: dict) -> dict | None:
+    """The play-guide row for "per Rune Socketed in Equipped Items" lines with the other weapon set's Runes (the comment
+    above), None without such a line. `slots`: bridge.equipped's {slot: raw}."""
+    lines = [t.strip() for t in texts if PER_RUNE_LINE.search(t.strip())]
+    if not lines:
+        return None
+    runes = [m.group(1).strip() for slot in SWAP_SLOTS for m in SOCKET_LINE.finditer(slots.get(slot) or "")
+             if re.search(r"\bRune\b", m.group(1)) and m.group(1).strip() != "None"]
+    return {"label": "With the other weapon set's Runes*",
+            "value": (f"+{len(runes)} Rune{'s' if len(runes) != 1 else ''} for: " + "; ".join(sorted(set(lines)))
+                      if runes else "+0: no Rune in the other weapon set"),
+            "basis": ("counted: the active weapon set's Runes only (the lower count); whether the inactive set's Runes "
+                      "count is UNVERIFIED (RESEARCH R31-14)" + (f"; the other set holds {', '.join(runes)}" if runes
+                                                                   else "")),
+            "confidence": "UNVERIFIED", "play": ""}

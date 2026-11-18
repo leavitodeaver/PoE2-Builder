@@ -1186,6 +1186,87 @@ STEAL_NOTE = ("the boss holds no Charges to steal (research boss-charges-steal.m
               "pinnacle boss any; MEDIUM-HIGH)")
 
 
+# Skills whose cooldown can be bypassed by expending a charge (MECHC40, PATCH_CHECK K2-9; before: nothing read it, PoB
+# included: an UNDERCOUNT of their uses). Sources by game stat (MECHC39's scan, scratch/mechc39/bypass_scan.py, every
+# table with a stat column in game build 26650308, for the Stats ids holding "bypass" with "cooldown" or "charge"; second
+# source PoB's gem descriptions and the patch notes): "This Skill's cooldown can be bypassed by expending an Endurance
+# Charge" (Infernal Cry, Seismic Cry, Fortifying Cry, Arctic Howl, Ferocious Roar) and "... a Frenzy Charge"
+# (Ice-Tipped Arrows), read from the gem's description (BYPASS_LINE); the Power Charge override stat
+# (active_skill_cooldown_bypass_type_override_to_power_charge) sits on Cold Snap / Vigilant Strike rows, which are no gem
+# in 26650308 (no BaseItemTypes row), and on Flicker Strike, which has no cooldown in PoB (nothing to bypass): BYPASS_POWER
+# keeps them so a later game build that gives them a cooldown is read. Enraged Warcry I / II's "spend 20 / 15 Rage
+# instead" (warcry_bypass_cooldown_spending_X_rage_instead_of_endurance_charge): NOT counted (an UNDERCOUNT kept, said in
+# the row). Warbringer's "Ignore Warcry Cooldowns" (PoB: CooldownRecovery OVERRIDE 0) leaves no cooldown to bypass.
+# HEADLINE (MEDIUM): the skill bypasses with the charges that would otherwise be wasted at the maximum (a gain while at
+# the maximum only refreshes the duration), so the charges held don't fall: with a consumer of the kind (_charges_held's
+# flow form), net gains above maximum / duration; without one, the gains that arrive while at the maximum (the Poisson
+# refresh model's share at the maximum, s ^ maximum), less the charge-time each spend costs until the next gain
+# (e / gains charges, taken off the count). Each bypass skill takes at most its use rate (PoB's Speed, one use's time)
+# above its cooldown rate. The extra uses reach every reader through PoB's cooldown (a CooldownRecovery INC on that
+# skill: Assumptions' bypass hook). Spending a charge on the bypass isn't counted as "consuming" it (UNVERIFIED: the
+# game says "expending"; the lower reading for "on consuming a charge" effects). ROW: spending every charge on it
+# (uses up to its use rate, charges held 0).
+BYPASS_LINE = re.compile(r"cooldown can be bypassed by expending an? (Endurance|Frenzy|Power) Charge", re.I)
+BYPASS_POWER = {"Cold Snap": "Power", "Vigilant Strike": "Power", "Flicker Strike": "Power"}
+BYPASS_RAGE_SUPPORTS = ("Enraged Warcry I", "Enraged Warcry II")  # (spend 20 / 15 Rage instead: not counted)
+BYPASS_TAG = "CooldownBypass"
+
+
+def bypass_kind(name: str, description: str) -> str | None:
+    """The charge kind a skill's cooldown can be bypassed with, else None (BYPASS_LINE, BYPASS_POWER)."""
+    if m := BYPASS_LINE.search(description or ""):
+        return m.group(1).capitalize()
+    return BYPASS_POWER.get(name)
+
+
+def bypass_share(stats: dict, kind: str, rate: float, gains: float, count: float, spare: float,
+                 refresh: bool) -> float:
+    """(MECHC40, K2-9) Share the charges `spare` a second (wasted at the maximum) among the build's bypass skills of
+    `kind` (stats["_bypass"][kind]: [(name, cap uses/s, how)]), each up to its cap; puts {name: (uses/s, how)} on
+    stats["_bypass_uses"] ({name: (uses/s, how, uses/s spending every charge, base cooldown)}) and returns the charge
+    count after the spends (refresh form: e / gains charges off)."""
+    skills = (stats.get("_bypass") or {}).get(kind) or []
+    if not skills:
+        return count
+    left = max(spare, 0.0)
+    out = stats.setdefault("_bypass_uses", {})
+    used = 0.0
+    for name, cap, how, base in skills:
+        e = min(left, max(cap, 0.0))
+        left -= e
+        used += e
+        all_in = min(max(cap, 0.0), rate)
+        out[name] = (e, f"{e:.3f} more uses/s from {kind} Charges that would be wasted at the maximum "
+                        f"({spare:.3f}/s spare of {rate:.2f}/s made; up to {cap:.3f}/s above its cooldown, {how})"
+                        + (f"; spending every {kind} Charge on it instead: {all_in:.3f}/s, none held" if all_in > e
+                           else ""), all_in, base)
+    if refresh and gains > 0:
+        count = max(count - used / gains, 0.0)
+    return count
+
+
+def bypass_mods(uses: dict, rage_support: bool = False) -> tuple[list[dict], list[dict], dict[str, float]]:
+    """(MECHC40, K2-9) (mods, rows, {skill: Cooldown Recovery INC}) from build.bypass_uses: e more uses a second on a
+    base cooldown b is +100 x e x b% Cooldown Recovery Rate (PoB's cooldown is b / (1 + increases); tick rounding not
+    followed), so every reader of the skill's rate (PoB's warcry, useRates, the press models) sees them."""
+    mods, rows, inc_by = [], [], {}
+    for name, (e, how, all_in, base) in sorted(uses.items()):
+        inc = 100 * e * base
+        if inc > 0:
+            mods.append(models.raw_mod("CooldownRecovery", "INC", inc, skill=name, tag=BYPASS_TAG))
+            inc_by[name] = inc
+        rows.append({"label": f"{name}: its cooldown bypassed with charges*",
+                     "value": (f"+{e:.3f} uses/s (+{inc:.0f}% Cooldown Recovery Rate)" if inc > 0 else
+                               "0: no charge to spare (each one is kept for its own benefits)")
+                              + (f"; spending every charge on it: +{all_in:.3f} uses/s" if all_in > e else ""),
+                     "basis": how + ("; Enraged Warcry's 'spend Rage instead': NOT counted (an UNDERCOUNT kept)"
+                                     if rage_support else ""),
+                     "confidence": "MEDIUM (the spare charges; 'expending' not read as consuming: UNVERIFIED)",
+                     "play": (f"Use {name} again before its cooldown ends whenever your charges are at their maximum"
+                              if inc > 0 else "")})
+    return mods, rows, inc_by
+
+
 def _charges_held(kind: str):
     def held(lines: list[str], stats: dict) -> tuple[float, str]:
         kinds, redirected = _charge_sources(lines, kind)
@@ -1225,6 +1306,7 @@ def _charges_held(kind: str):
             extra_how.append(f"Charge Profusion {bonus / gains:.0%} of gains")
         extra = min(1.0, extra + (bonus / gains if gains else 0.0))
         rate = gains * (1 + extra)
+        stats.setdefault("_charge_gains", {})[kind] = (gains, extra, fill)  # (MECHC40: shared to allies, minion_shared)
         most = number(stats.get(f"{kind}ChargesMax"))
         duration = number(stats.get(f"{kind}ChargesDuration")) or 15.0
         # Skills that consume this charge per use (PoB skill types SkillConsumes<Kind>ChargesOnUse; one per use assumed):
@@ -1253,10 +1335,20 @@ def _charges_held(kind: str):
                 count = 0.1  # (held for an instant before it's spent: enough for PoB to count the charged use)
             if fill:
                 basis += f"; {fill:.0%} chance a gain fills to the maximum: not counted beside a consumer of the charge"
+            if (stats.get("_bypass") or {}).get(kind):  # (MECHC40, K2-9: what's left above the maximum's upkeep)
+                count = bypass_share(stats, kind, rate, gains, count,
+                                     net - (most / duration if duration > 0 else net), False)
         else:
             count = charges_with_refresh(gains, duration, most, extra, fill)
             basis = (f"{gains:.2f} gains/s{extra_text}, all dropping after {duration:g} s without a gain (gains taken as "
                      f"random arrivals)" + (f"; {fill:.0%} chance a gain fills to the maximum" if fill else ""))
+            if (stats.get("_bypass") or {}).get(kind) and most > 0 and duration > 0:
+                # (MECHC40, K2-9: the gains arriving at the maximum, s ^ maximum of them, only refresh)
+                at_max = (1 - math.exp(-gains * duration)) ** int(round(most))
+                before = count
+                count = bypass_share(stats, kind, rate, gains, count, rate * at_max, True)
+                if count < before:
+                    basis += f"; {before - count:.2f} fewer held while each bypass spend waits for the next gain"
         reset = next((t for t in lines if (m := CHARGE_RESET_AT_MAX.search(t)) and m.group(1).capitalize() == kind), None)
         if reset is not None:
             # (MECHC14: climbs to the maximum and drops to 0; beside a consumer, at the gains left after its spends)
@@ -1272,6 +1364,44 @@ def _charges_held(kind: str):
 
 
 CHARGE_OVERRIDES = {f"override{kind}Charges": kind for kind in ("Power", "Frenzy", "Endurance")}
+
+
+# Lochtonial Caress's "Share Charges with Allies in your Presence" (MECHC40; COV43's routed item, 19.5; PoB parses it
+# only in part, ModCache 9349 with leftover text, so it adds nothing): your charges unchanged; each charge you gain, the
+# allies in your Presence gain too (Mark_GGG's ruling on the PoE1 wording of "share charges": "when A gains a charge, B
+# will also gain a charge", as CHARGE_SHARE_BACK reads it: MEDIUM). Minions are Allies (KeywordPopups Allies: "Your allies
+# include other players, Minions, and any other entity that fights alongside you", HIGH), so a build with a minion skill
+# gives its minions the charges: PoB's "Do your Minions use <kind> Charges?" boxes and their counts (ConfigOptions
+# minionsUse<kind>Charges / minionsOverride<kind>Charges). The minions' count: the same gains, each minion's own maximum 3
+# (Monster.ot, MECHC31's note) and 15 s duration (KeywordPopups Charges), the refresh model (charges_with_refresh); they
+# spend none (MEDIUM); the minions taken as inside your Presence (MEDIUM; a minion fighting beyond it gets none). No
+# minion skill: 0, said (against a lone boss nothing else is an ally of yours).
+SHARE_TO_ALLIES = re.compile(r"^Share Charges with Allies in your Presence$", re.I)
+MINION_CHARGES_MAX, MINION_CHARGES_SECONDS = 3, 15.0
+
+
+def minion_shared(kind: str):
+    """value_fn for minionsOverride<kind>Charges / minionsUse<kind>Charges: the charges the build's minions hold from
+    your gains shared with them (the comment above), with its basis; 0 and "" without the line."""
+    def fn(lines: list[str], stats: dict) -> tuple[float, str]:
+        line = next((t for t in lines if SHARE_TO_ALLIES.match(t.strip())), None)
+        if line is None:
+            return 0.0, ""
+        if not stats.get("_has_ally"):
+            return 0.0, (f"'{line}': no ally in your Presence (the build has no minion skill; against a lone boss "
+                         "nothing else is your ally): 0")
+        if kind not in (stats.get("_charge_gains") or {}):  # (the player's own model hasn't run on this dict yet)
+            scratch = {k: v for k, v in stats.items() if k not in ("_charge_flow", "_bypass", "_bypass_uses", "_charge_gains")}
+            _charges_held(kind)(lines, scratch)
+            stats.setdefault("_charge_gains", {})[kind] = (scratch.get("_charge_gains") or {}).get(kind) or (0.0, 0.0, 0.0)
+        gains, extra, fill = (stats.get("_charge_gains") or {}).get(kind) or (0.0, 0.0, 0.0)
+        if gains <= 0:
+            return 0.0, f"'{line}': you gain no {kind} Charges to share: 0"
+        count = charges_with_refresh(gains, MINION_CHARGES_SECONDS, MINION_CHARGES_MAX, extra, fill)
+        return round(count, 1), (f"'{line}': each {kind} Charge you gain ({gains:.2f}/s) your minions gain too (Minions "
+                                 f"are Allies; taken as inside your Presence, MEDIUM): {count:.1f} held of their "
+                                 f"{MINION_CHARGES_MAX} on average, none spent; without it: 0")
+    return fn
 
 
 # Rage held (MECH27, 9 Nov 2026; before, any Rage source set the maximum, on-kill ones too). The game files' KeywordPopups
@@ -6660,6 +6790,11 @@ CONDITIONS: list[Condition] = [
               fields=("Speed", "CritChance", "FrenzyChargesMax", "FrenzyChargesDuration", *CHARGE_EVENT_FIELDS, *models.IMMOBILISE_FIELDS)),
     Condition("overrideEnduranceCharges", "Endurance Charges held", value_fn=_charges_held("Endurance"),
               fields=("Speed", "EffectiveBlockChance", "EnduranceChargesMax", "EnduranceChargesDuration", *CHARGE_EVENT_FIELDS, *models.IMMOBILISE_FIELDS)),
+    # (MECHC40, COV43: Lochtonial Caress's charges shared to your minions, minion_shared)
+    *(Condition(f"minions{use}{kind}Charges", f"Minions hold {kind} Charges you share", value_fn=minion_shared(kind),
+                fields=("Speed", "CritChance", "EffectiveBlockChance", f"{kind}ChargesMax", f"{kind}ChargesDuration",
+                        *CHARGE_EVENT_FIELDS, *models.IMMOBILISE_FIELDS))
+      for kind in ("Power", "Frenzy", "Endurance") for use in ("Use", "Override")),
     Condition("multiplierWitheredStackCount", "Withered stacks on the boss", value_fn=_withered_stacks,
               fields=WITHER_FIELDS),
     # (MECH83, R28-11 CD-12 / CD-13: Strike Twice, Heavy Snows; PoB's count boxes otherwise sit at their placeholder 1)
@@ -6818,6 +6953,41 @@ class Conditions:
             rows.update({r.get("index"): r for r in raw})
         by_index = {r.get("index"): skill_use_rate(r, choices)[0] for r in raw}
         return {n: by_index[i] for n, i in where.items() if i in by_index}
+
+    def _bypass_skills(self, gem_types: dict) -> dict[str, list]:
+        """(MECHC40, K2-9) {kind: [(name, the most uses/s it can add above its cooldown, how)]} for the build's skills
+        whose cooldown a charge bypasses (bypass_kind). The cooldown rate is read without this model's own Cooldown
+        Recovery (build.bypass_inc, Assumptions' bypass hook), so the cap doesn't shrink as the bypass adds uses; the
+        most uses a second is one per use (PoB's one-use time, else its Speed)."""
+        gems = getattr(self.build.ctx, "all_gems", None) or self.build.ctx.gems
+        found = {n: k for n in gem_types if (k := bypass_kind(n, (gems.get(n) or {}).get("description") or ""))}
+        if not found:
+            return {}
+        skills = {s["name"]: s for s in self.build.call("activeSkills")["skills"] if not s.get("disabled")}
+        groups = self.build.call("groups")["groups"]
+        rows: dict = {}
+        self._group_uses(groups, set(found), rows)
+        where = {n["name"]: g["index"] for g in groups if g.get("enabled") is not False
+                 for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in found}
+        own = getattr(self.build, "bypass_inc", None) or {}
+        out: dict[str, list] = {}
+        for name, kind in sorted(found.items()):
+            skill = skills.get(name) or {}
+            base = number(skill.get("cooldown"))
+            row = rows.get(where.get(name)) or {}
+            # (one use's time: PoB's, unless the cooldown caps it (then its time is the cooldown); else the skill's own
+            # cast time, with no warcry / skill speed counted: the lower reading)
+            time, now = number(row.get("time")), number(row.get("cooldown"))
+            one = time if time > 0 and not (now > 0 and time >= 0.99 * now) else number(row.get("castTime"))
+            most = 1 / one if one > 0 else 0.0
+            if base <= 0 or most <= 0:
+                continue
+            recovery = number(skill.get("cooldownRecovery")) or 1.0
+            plain = max(recovery - number(own.get(name)) / 100, 0.01) / base
+            out.setdefault(kind, []).append((name, max(most - plain, 0.0),
+                                             f"{plain:.3f}/s on its {1 / plain:.2f} s cooldown, at most {most:.2f}/s",
+                                             base))
+        return out
 
     def battershout_uses(self, gems: dict) -> float:
         """Uses per second of the Warcries Battershout supports (MECH72): the main skill's Speed if it is one, else each
@@ -7708,6 +7878,8 @@ class Conditions:
             stats["_infusion_consumed"] = self._infusion_consumed(lines, stats)
         if ARC in gem_types:  # (MECH77, MA-1: the share of Arc's casts the build's Lightning Infusions cover)
             stats["_arc_infused"] = self._arc_infused(lines, stats)
+        if bypass := self._bypass_skills(gem_types):  # (MECHC40, K2-9: cooldowns a charge bypasses, _charges_held)
+            stats["_bypass"] = bypass
         events =event_rates(groups_now, self.build.ctx.gems, self.main_skill, main_types, number(stats.get("Speed")),
                              lambda idx: self.build.call("useRates", indices=idx)["rates"], texts,
                              models.press_choices(self.build)) if groups_now else {}
@@ -8124,6 +8296,8 @@ class Conditions:
         self.found_uptimes = uptimes
         # (MECHC13) charges consumed a second by kind ({kind: (rate, how)}; _charges_held), for recovery.spent_income
         self.build.charge_flow = dict(stats.get("_charge_flow") or {})
+        # (MECHC40, K2-9) {skill: (more uses/s, how, uses/s spending every charge)} from charges bypassing its cooldown
+        self.build.bypass_uses = dict(stats.get("_bypass_uses") or {})
         # (MECH69, for GEM3's models.riven_armour_model: the share of the fight Riven Armour is up, and its basis)
         self.build.riven_up = (self.riven_share, self.riven_how)
         # (MECH87, for GEM17's High Velocity Rounds "Vs Armour Broken": the share of the fight the boss's Armour is Fully

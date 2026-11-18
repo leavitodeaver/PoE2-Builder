@@ -2389,3 +2389,84 @@ def test_rage_on_kill_is_the_word_kill_not_kill_inside_skill():
     assert conditions._rage_gain("Gain 5 Rage on kill", stats, True)[1] == pytest.approx(5.0)
     rage, events, how = conditions._rage_gain("Gain 5 Rage when you use a Skill", stats, True)
     assert "on kill" not in how and events != pytest.approx(5.0)
+
+
+def test_a_charge_bypasses_a_cooldown_only_with_the_charges_wasted_at_the_maximum():
+    """MECHC40 (PATCH_CHECK K2-9): "This Skill's cooldown can be bypassed by expending an Endurance Charge". The headline
+    spends only the charges that arrive at the maximum (they'd only refresh), each skill up to its use rate above its
+    cooldown; the count drops by the charge-time each spend waits for the next gain. Spending every charge is a row."""
+    from builder.search import conditions
+    from builder.search.conditions import _charges_held
+
+    assert conditions.bypass_kind("Infernal Cry", "... This Skill's cooldown can be bypassed by expending an Endurance "
+                                  "Charge.") == "Endurance"
+    assert conditions.bypass_kind("Ice-Tipped Arrows", "cooldown can be bypassed by expending a Frenzy Charge") == "Frenzy"
+    assert conditions.bypass_kind("Fireball", "Launch a fiery ball") is None
+    line = ["Gain an Endurance Charge on Critical Hit"]
+    base = {"Speed": 2.0, "HitChance": 100, "CritChance": 50, "EnduranceChargesMax": 3, "EnduranceChargesDuration": 15}
+    plain = _charges_held("Endurance")(line, dict(base))[0]  # 1 gain/s: at the maximum nearly all fight
+    cry = dict(base, _bypass={"Endurance": [("Infernal Cry", 0.75, "0.125/s on its 8.00 s cooldown, at most 0.87/s", 8.0)]})
+    held = _charges_held("Endurance")(line, cry)[0]
+    e, how, all_in, cooldown = cry["_bypass_uses"]["Infernal Cry"]
+    assert 0.7 < e <= 0.75 and all_in == pytest.approx(0.75) and cooldown == 8.0
+    assert held == pytest.approx(plain - e, abs=0.06)  # (each spend costs a charge until the next gain, 1 s away)
+    slow = dict(cry, CritChance=2.5)  # 0.05 gains/s: rarely at the maximum, so little to spare
+    _charges_held("Endurance")(line, slow)
+    assert slow["_bypass_uses"]["Infernal Cry"][0] < 0.01
+    # beside a consumer: only the net gains above the maximum's upkeep (3 / 15 s = 0.2/s)
+    eaten = dict(cry, _consumers={"Endurance": {"Boneshatter": 0.5}})
+    _charges_held("Endurance")(line, eaten)
+    assert eaten["_bypass_uses"]["Infernal Cry"][0] == pytest.approx(1.0 - 0.5 - 0.2)
+    mods, rows, inc = conditions.bypass_mods(eaten["_bypass_uses"], rage_support=True)
+    assert inc["Infernal Cry"] == pytest.approx(100 * 0.3 * 8.0) and mods[0]["skill"] == "Infernal Cry"
+    assert mods[0]["name"] == "CooldownRecovery" and "NOT counted" in rows[0]["basis"]
+    none = conditions.bypass_mods({"Infernal Cry": (0.0, "x", 0.0, 8.0)})
+    assert none[0] == [] and rows and none[1][0]["value"].startswith("0:")
+
+
+def test_shackles_immunity_after_an_ignite_or_shock_shortens_each():
+    """MECHC40 (COV43's routed undercount): Shackles of the Wretched's "You cannot be Ignited / Shocked / Frozen for 6
+    seconds after being ..." in the Chill line's form: D / (max(N, D) + 1 / c) for Ignite and Shock (the Freeze's with
+    the boss's Freeze on you, held back). Each row says the share without it."""
+    from builder.search import boss_hits
+
+    base = {"enemySkillTime": 1.0, "Life": 4000.0, "AilmentThreshold": 2000.0, "FireTakenHit": 2000.0,
+            "LightningTakenHit": 2000.0}
+    lines = [f"You cannot be {a} for 6 seconds after being {a}" for a in ("Ignited", "Shocked", "Frozen")]
+    assert boss_hits.immune_after(lines, "Shocked") == 6.0 and boss_hits.immune_after(lines[:1], "Shocked") == 0.0
+    for boss, key in (("Arbiter of Ash", "ignited"), ("Arbiter of Divinity", "shocked")):
+        free = boss_hits.boss_ailments_on_you({**base, "_boss": boss})
+        held = boss_hits.boss_ailments_on_you({**base, "_boss": boss}, texts=lines)
+        assert 0 < held[key] < free[key] and "after each" in held["notes"][0]["basis"]
+
+
+def test_shared_charges_reach_your_minions_and_nothing_without_one():
+    """MECHC40 (COV43's routed item): Lochtonial Caress's "Share Charges with Allies in your Presence": each charge you
+    gain your minions gain too (Minions are Allies, KeywordPopups), up to their own 3, refreshing over 15 s; no minion
+    skill, no ally against a lone boss: 0, said. Your own charges are unchanged."""
+    from builder.search import conditions
+
+    lines = ["Gain a Power Charge on Critical Hit", "Share Charges with Allies in your Presence"]
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 50, "PowerChargesMax": 3, "PowerChargesDuration": 15,
+             "_has_ally": True}
+    own = conditions._charges_held("Power")(lines, dict(stats))[0]
+    count, how = conditions.minion_shared("Power")(lines, dict(stats))
+    assert 0 < count <= 3 and "Minions are Allies" in how
+    assert conditions._charges_held("Power")(lines, dict(stats))[0] == own
+    alone = conditions.minion_shared("Power")(lines, {**stats, "_has_ally": False})
+    assert alone[0] == 0.0 and "no ally" in alone[1]
+    assert conditions.minion_shared("Power")(lines[:1], dict(stats)) == (0.0, "")
+    assert conditions.minion_shared("Frenzy")(lines, dict(stats))[0] == 0.0  # (no Frenzy gains to share)
+
+
+def test_the_other_weapon_sets_runes_are_a_row_only():
+    """MECHC40 (R31-14, UNVERIFIED): "per Rune Socketed in Equipped Items" counts the active weapon set's Runes (the
+    headline); a row gives the other set's Runes (Soul Cores and Idols aren't Runes)."""
+    line = ["Gain 1% of Damage as Extra Damage of a random Element per Rune Socketed in Equipped Items"]
+    slots = {"Weapon 1 Swap": "Rarity: Rare\nX\nSpear\nRune: Desert Rune\nRune: Soul Core of Tacati\nRune: None",
+             "Weapon 2 Swap": "Rarity: Rare\nY\nBuckler\nRune: Thane Myrk's Rune of Summer",
+             "Weapon 1": "Rune: Iron Rune"}
+    row = recovery.swap_runes_row(line, slots)
+    assert row["value"].startswith("+2 Runes") and "Soul Core" not in row["basis"] and row["confidence"] == "UNVERIFIED"
+    assert recovery.swap_runes_row(line, {})["value"].startswith("+0")
+    assert recovery.swap_runes_row(["Gain 1% of Damage as Extra Damage"], slots) is None

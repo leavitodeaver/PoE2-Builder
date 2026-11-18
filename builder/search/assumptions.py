@@ -2079,7 +2079,7 @@ class Assumptions:
             hand_notes = hand_notes + reflect_notes
         config_in = build.call("getConfig")["input"]  # (PoB's Shocked box ticked: its Shock already counts all fight)
         on_you = boss_hits.boss_ailments_on_you(seen, bool(config_in.get("conditionShocked")
-                                                           or config_in.get("conditionOnShockedGround")))
+                                                           or config_in.get("conditionOnShockedGround")), texts)
         build.boss_ignite += on_you["ignite"]
         # (MECHC38, the manager's ruling (i), 18 Nov 02:30) the floors read the boss's Shock IN FULL from 7% of the fight
         # (boss_hits.BOSS_SHOCK_FLOOR_KEY: one more part-time effect, switched to "in full" by the floors' recalculation)
@@ -2120,6 +2120,17 @@ class Assumptions:
                 if vigour > 0:
                     hand_mods = hand_mods + [models.raw_mod("EnergyShield", "BASE", vigour, tag="EmergentVigour")]
                 hand_notes = hand_notes + [vigour_row]
+        if any(recovery_mod.PER_RUNE_LINE.search(t.strip()) for t in texts):  # (MECHC40, R31-14: a row only)
+            swap_row = recovery_mod.swap_runes_row(texts, build.call("equipped").get("slots") or {})
+            hand_notes = hand_notes + ([swap_row] if swap_row else [])
+        bypass_uses = getattr(build, "bypass_uses", None) or {}
+        if bypass_uses:  # (MECHC40, K2-9: cooldowns bypassed with spare charges, conditions.bypass_share)
+            rage = any(g["name"] in conditions_mod.BYPASS_RAGE_SUPPORTS for grp in build.groups()
+                       for g in grp.get("gems") or [])
+            by_mods, by_rows, build.bypass_inc = conditions_mod.bypass_mods(bypass_uses, rage)
+            hand_mods, hand_notes = hand_mods + by_mods, hand_notes + by_rows
+        else:
+            build.bypass_inc = {}
         jade, jade_row = recovery_mod.jade_heritage(texts, number(seen.get("Life")), expiry=stats.get("_buff_expiry"))
         if jade_row:  # (MECHC37, PATCH_CHECK L1-3: Jade Heritage's 10 Jade; Encase in Jade's Guard a row only)
             hand_mods = hand_mods + [models.raw_mod("PhysicalDamageReduction", "BASE", jade, tag="JadeHeritage")]

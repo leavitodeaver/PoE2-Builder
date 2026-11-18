@@ -1078,7 +1078,7 @@ def own_shock_chance(stats: dict, name: str | None = None) -> float:
                * afflicted_scale(stats))
 
 
-def boss_ailments_on_you(stats: dict, shocked_box: bool = False) -> dict:
+def boss_ailments_on_you(stats: dict, shocked_box: bool = False, texts: list[str] | None = None) -> dict:
     """The boss's own Ignite and Shock on you (the comment above): {"ignite": Fire damage a second before your damage-over-
     time modifiers, "ignited": its share of the fight, "shock": increased damage taken % on average, "shocked": its share,
     "shock_full": % while Shocked, "notes": play-guide rows}. `shocked_box`: PoB's Shocked box already ticked."""
@@ -1088,7 +1088,9 @@ def boss_ailments_on_you(stats: dict, shocked_box: bool = False) -> dict:
     kinds = type_shares(name)
     out = {"ignite": 0.0, "ignited": 0.0, "shock": 0.0, "shocked": 0.0, "shock_full": 0.0, "notes": []}
 
-    def up(rate: float, length: float) -> float:
+    def up(rate: float, length: float, immune: float = 0.0) -> float:
+        if rate > 0 and immune > 0:  # (MECHC40: Shackles' "cannot be ... for N seconds after", the Chill's form)
+            return min(1.0, length / (max(immune, length) + 1 / rate))
         return 1 - math.exp(-rate * length) if rate > 0 else 0.0
 
     fire = kinds.get("Fire", 0.0)
@@ -1097,7 +1099,8 @@ def boss_ailments_on_you(stats: dict, shocked_box: bool = False) -> dict:
         kept = _avoid_share(stats, "Ignite")
         length = _self_seconds(stats, "Ignite", IGNITE_SECONDS)
         rate = land * fire * chance * kept
-        ignited = up(rate, length)
+        ignite_immune = immune_after(texts, "Ignited")
+        ignited = up(rate, length, ignite_immune)
         hit = mean_hits(name).get("Fire", 0.0)
         out["ignite"], out["ignited"] = ignited * IGNITE_SHARE_PER_SECOND * hit, ignited
         if kept <= 0:
@@ -1110,7 +1113,9 @@ def boss_ailments_on_you(stats: dict, shocked_box: bool = False) -> dict:
         out["notes"].append({
             "label": "The boss Ignites you*", "value": value,
             "basis": (f"{name}'s {land:.2f} landed hits/s (the defence cadence) x {fire:.0%} Fire x {chance:.0%} to "
-                      f"Ignite ({how}) x {kept:.0%} not avoided = {rate * 60:.1f} Ignites a minute, {length:g} s each: "
+                      f"Ignite ({how}) x {kept:.0%} not avoided = {rate * 60:.1f} Ignites a minute, {length:g} s each"
+                      + (f", then no Ignite for {ignite_immune:g} s after each (without that: Ignited "
+                         f"{up(rate, length):.0%})" if ignite_immune else "") + ": "
                       f"Ignited {ignited:.0%} of the fight; an Ignite burns {IGNITE_SHARE_PER_SECOND:.0%} of the Igniting "
                       f"hit's Fire damage a second (KeywordPopups Ignite), the boss's average Fire hit {hit:,.0f} before "
                       f"your mitigation (the lower reading: bigger hits Ignite more and only the strongest burns) = "
@@ -1126,7 +1131,8 @@ def boss_ailments_on_you(stats: dict, shocked_box: bool = False) -> dict:
         length = _self_seconds(stats, "Shock", SHOCK_ON_PLAYER_SECONDS)
         effect = max(number(stats.get("SelfShockEffect")), 0.0) / 100 if "SelfShockEffect" in stats else 1.0
         rate = land * lightning * chance * kept
-        shocked = up(rate, length)
+        shock_immune = immune_after(texts, "Shocked")
+        shocked = up(rate, length, shock_immune)
         full = SHOCK_ON_PLAYER_INC * effect
         out["shocked"], out["shock_full"] = shocked, full
         out["shock"] = 0.0 if shocked_box else full * shocked
@@ -1148,7 +1154,9 @@ def boss_ailments_on_you(stats: dict, shocked_box: bool = False) -> dict:
             "label": "The boss Shocks you*", "value": value,
             "basis": (f"{name}'s {land:.2f} landed hits/s (the defence cadence) x {lightning:.0%} Lightning x "
                       f"{chance:.0%} to Shock (1% per 4% of your Ailment Threshold dealt, x the boss's Shock-chance "
-                      f"stats) x {kept:.0%} not avoided = {rate * 60:.1f} Shocks a minute, {length:g} s each: Shocked "
+                      f"stats) x {kept:.0%} not avoided = {rate * 60:.1f} Shocks a minute, {length:g} s each"
+                      + (f", then no Shock for {shock_immune:g} s after each (without that: Shocked "
+                         f"{up(rate, length):.0%})" if shock_immune else "") + ": Shocked "
                       f"{shocked:.0%} of the fight; {SHOCK_ON_PLAYER_INC:g}% increased damage taken (KeywordPopups "
                       f"Shock) x {effect:.0%} (your effect of Shock on you) = {full:g}% while Shocked, "
                       f"{full * shocked:.1f}% on average, "
@@ -1220,6 +1228,16 @@ def boss_shock_for_floors(on_you: dict, average: bool = True) -> tuple[float, fl
 #   defence floor, so no floor reading. With PoB's Chilled box on (nothing ticks it today) nothing is added.
 CHILL_MAX_ON_PLAYER = 50.0  # KeywordPopups Chill: "a default maximum of 50%" (HIGH)
 CHILL_IMMUNE_AFTER = re.compile(r"^You cannot be Chilled for (\d+(?:\.\d+)?) seconds after being Chilled$", re.I)
+# (MECHC40, COV43: Shackles of the Wretched's other three, UniqueChillImmunityWhenChilled1's siblings; PoB parses none,
+# ModCache {nil, ...}) "You cannot be Ignited / Shocked / Frozen for N seconds after being ...": the same form as the
+# Chill's, D / (max(N, D) + 1 / c) for Ignite and Shock (the Frozen one comes with the boss's Freeze on you, held back).
+IMMUNE_AFTER = re.compile(r"^You cannot be (Ignited|Shocked|Frozen) for (\d+(?:\.\d+)?) seconds after being \1$", re.I)
+
+
+def immune_after(texts: list[str] | None, ailment: str) -> float:
+    """Seconds you can't get `ailment` ("Ignited" / "Shocked" / "Frozen") again after it, from the build's lines."""
+    return max((float(m.group(2)) for t in texts or [] if (m := IMMUNE_AFTER.match(t.strip()))
+                and m.group(1).capitalize() == ailment), default=0.0)
 ALL_DAMAGE_CHILLS = re.compile(r"^All Damage taken from Hits Contributes to Magnitude of Chill inflicted on you$", re.I)
 CHILL_REVERSED = re.compile(r"^The Effect of Chill on you is reversed$", re.I)
 CHILL_FIELDS = ("ChillAvoidChance", "SelfChillDuration", "SelfChillEffect", "AilmentThreshold", "Life", "enemySkillTime",
