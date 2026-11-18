@@ -12237,16 +12237,42 @@ def press_choice(rate: dict, choices: dict[str, float] | None) -> float | None:
     return None
 
 
+# A duration skill pressed more often than once per its duration (MECHB39; SEARCH28 item 4a, the manager 14:25): a skill
+# that can hold several instances at once (the bridge's useRates instanceLimit: its own "number_of_X_allowed" stat plus
+# "+N to Limit" lines; Lightning Rod's 10 rods of 20 s) can be pressed up to limit / duration times a second and each
+# press adds one; the search's chosen rate (press_choice: a play strategy under the button cap, its time charged by
+# press_model) counts up to that. One instance (no limit stat): pressing again only replaces it, so once per its
+# duration, as before. Pressing it less often than once per its duration isn't offered here (the old rate is the floor).
+def duration_press_rate(rate: dict, chosen: float | None) -> tuple[float, str]:
+    """(presses per second, how) of a duration skill with no cooldown: once per its duration, or the chosen rate up to
+    its instance limit / duration (see above)."""
+    duration = number(rate.get("duration"))
+    once = 1.0 / duration
+    limit = number(rate.get("instanceLimit"))
+    if chosen is None or chosen <= once:
+        return once, f"once per its {duration:.2f} s duration, to keep it up"
+    if limit <= 1:
+        return once, (f"once per its {duration:.2f} s duration (the search chose {chosen:.3g} presses a second, but it "
+                      "holds one instance: pressing again only replaces it)")
+    most = limit / duration
+    presses = min(chosen, most)
+    return presses, (f"{presses:.3g} presses a second*, the rate the search chose (a way to play the build: up to "
+                     f"{limit:g} at once, each lasting {duration:.2f} s, so at most {most:.3g} a second"
+                     + (f"; it chose {chosen:.3g}" if chosen > most else "")
+                     + f"; without it, once per its duration: {once:.3g} a second)")
+
+
 def press_use_rate(rate: dict, chosen: float | None = None) -> tuple[float, str, str]:
-    """A pressed skill's uses per second from one bridge `useRates` row: on its cooldown, else once per its duration,
-    else the rate the search chose (`chosen`, press_choice), else 0 (labelled); never faster than PoB's speed.
-    (uses/s, how, confidence)."""
+    """A pressed skill's uses per second from one bridge `useRates` row: on its cooldown, else once per its duration
+    (or the chosen rate up to its instance limit, duration_press_rate), else the rate the search chose (`chosen`,
+    press_choice), else 0 (labelled); never faster than PoB's speed. (uses/s, how, confidence)."""
     speed, repeats = number(rate.get("speed")), number(rate.get("repeats")) or 1.0
     cooldown, duration = number(rate.get("cooldown")), number(rate.get("duration"))
     if cooldown > 0:
         real, how, confidence = repeats / cooldown, f"on its {cooldown:.2f} s cooldown", "MEDIUM"
     elif duration > 0:
-        real, how, confidence = repeats / duration, f"once per its {duration:.2f} s duration, to keep it up", "MEDIUM"
+        presses, how = duration_press_rate(rate, chosen)
+        real, confidence = repeats * presses, "MEDIUM"
     elif chosen is not None and chosen > 0:
         real, how, confidence = repeats * chosen, (f"{chosen:.3g} times a second*, the rate the search chose (a way to "
                                                    "play the build; without it, it adds nothing)"), "MEDIUM"

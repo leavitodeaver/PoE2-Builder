@@ -3945,6 +3945,23 @@ function bridge.useRates(args)
 				if base and base > 0 then
 					entry.pustuleLimit = jsonNumber(base + skill.skillModList:Sum("BASE", skill.skillCfg, "AdditionalCooldownUses"))
 				end
+				-- (MECHB39, SEARCH28 item 4a: a chosen press rate for a duration skill, models.press_use_rate) how many of
+				-- its instances can be up at once: its own "number_of_X_allowed" / "base_number_of_X_allowed" stat
+				-- (Lightning Rod's number_of_lightning_rods_allowed 10), plus "+N to Limit" lines (AdditionalCooldownUses, as
+				-- the Pustules above). Totems and minions have their own limits (totemLimit, summon.limit): left out here.
+				local most
+				for id, value in pairs(okStats and stats or {}) do
+					if type(value) == "number" and value > 0 and (id:match("^number_of_.+_allowed$")
+						or id:match("^base_number_of_.+_allowed$")) then
+						if not id:match("totem") and not id:match("minion") and not id:match("skeleton")
+							and not id:match("zombie") and not id:match("spectre") and not id:match("golem") then
+							most = math.max(most or 0, value)
+						end
+					end
+				end
+				if most then
+					entry.instanceLimit = jsonNumber(most + skill.skillModList:Sum("BASE", skill.skillCfg, "AdditionalCooldownUses"))
+				end
 				-- (MECHB15, AUDIT25 A25-8: the Pustules' stored Poison, models.pustule_stored) the set's own 1% more per X
 				-- stored Poison damage (by gem level) and its maximum (300); PoB reads neither
 				local per = okStats and stats and stats["toxic_pustule_burst_1%_more_damage_per_x_stored_poison"]

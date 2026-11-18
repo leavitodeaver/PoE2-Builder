@@ -6258,3 +6258,20 @@ def test_minion_damage_per_different_command_counts_the_builds_own_commands():
     assert mods == [models.line("Minions deal 1% increased Damage", 10 * (15 / 16 + 15 / 24))]
     mods, notes = models.different_commands_model([models.Skill("Raise Zombie", summon={"limit": 3})], text)
     assert mods == [] and notes[0]["value"] == "+0%"
+
+
+def test_a_duration_skill_takes_a_chosen_press_rate_up_to_its_instance_limit():
+    """MECHB39 (SEARCH28 item 4a): a duration skill was pressed once per its duration whatever the search chose. With an
+    instance limit (the bridge's instanceLimit) the chosen rate counts up to limit / duration; with one instance,
+    pressing again only replaces it (once per duration, as before); no choice: once per duration."""
+    from builder.search import conditions
+
+    rod = {"name": "Lightning Rod", "duration": 20.0, "speed": 2.0, "instanceLimit": 10}
+    assert models.press_use_rate(rod)[0] == pytest.approx(1 / 20)
+    uses, how, _ = models.press_use_rate(rod, 0.25)
+    assert uses == pytest.approx(0.25) and "up to 10 at once" in how and "without it" in how
+    assert models.press_use_rate(rod, 2.0)[0] == pytest.approx(0.5)  # (10 / 20 s at most)
+    assert models.press_use_rate({**rod, "instanceLimit": None}, 0.25)[0] == pytest.approx(1 / 20)
+    assert conditions.skill_use_rate(rod, {"Lightning Rod": 0.25})[0] == pytest.approx(0.25)
+    assert conditions.skill_use_rate(rod, {})[0] == pytest.approx(1 / 20)
+    assert models.press_use_rate({**rod, "speed": 0.1}, 0.25)[0] == pytest.approx(0.1)  # (never faster than its speed)

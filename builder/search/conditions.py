@@ -446,8 +446,9 @@ def skill_use_rate(rate: dict, choices: dict[str, float] | None = None) -> tuple
     low = False
     if cooldown > 0:
         each, why = repeats / cooldown, f"its {cooldown:.2f} s cooldown"
-    elif duration > 0:
-        each, why = repeats / duration, f"once per its {duration:.2f} s duration"
+    elif duration > 0:  # (MECHB39, SEARCH28 4a: a chosen rate up to its instance limit, models.duration_press_rate)
+        presses, why = models.duration_press_rate(rate, models.press_choice(rate, choices))
+        each = repeats * presses
     elif (chosen := models.press_choice(rate, choices)) is not None and chosen > 0:
         each, why = repeats * chosen, (f"{chosen:.3g} presses a second*, the rate the search chose (a way to play the "
                                        "build; without it, it adds nothing)")
