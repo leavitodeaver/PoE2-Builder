@@ -1,0 +1,112 @@
+# Item lines PoB doesn't parse whole (COV42, 18 Nov 2026).
+
+# Emergent Possibility in gloves (MECHB37 item 1; COV41 report section 5): "Gain 1% of Damage as Extra Damage of a
+# random Element per" / "Rune Socketed in Equipped Items". The game's stat
+# non_skill_base_all_damage_%_to_gain_as_random_element_per_socketed_rune (game 26650308 Stats 25365) is on
+# SoulCoreStats 362 alone, Emergent Possibility in gloves (checked: every game table with a stat column for 25365;
+# Stats ids holding "rune" with "socket" / "equip" / "per_"; PoB's ModRunes, ModItemExclusive, Uniques and tree text for
+# "per Rune" / "Rune Socketed"; the one other per-socketed-rune stat, resist_all_elements_%_per_socketed_rune 22987,
+# has no carrier in any of those tables; poe2db not checked, UNVERIFIED there). PoB builds a rune's lines one by one
+# (Item.lua UpdateRunes 2148-2177, no joining) and parses neither half, so the line counted 0: an UNDERCOUNT.
+
+- id: items-gain-random-element-per-rune-first-line
+  title: 'Emergent Possibility (gloves), "Gain N% of Damage as Extra Damage of a random Element per" + "Rune Socketed in Equipped Items", counted per socketed Rune'
+  kind: pob_gap
+  match: '^Gain (\d+(?:\.\d+)?)% of Damage as Extra Damage of a random Element per$'
+  replace: ['Gain {1}% of Damage as Extra Damage of a random Element per Rune Socketed in Equipped Items']
+  confidence: datamined
+  notes: >-
+    The replacement is the joined sentence, which the bridge parses (engine/bridge.lua, COV42's parseMod hook) as PoB's
+    own "Gain N% of Damage as Extra Damage of a random Element" (DamageGainAsRandom BASE N, CalcOffence 1337-1352)
+    with the tag Multiplier RunesInEquipment, which the bridge's setAugmentCounts sets for each calculation to the
+    number of socketed augments in the equipped items whose ModRunes type is "Rune" (the game's SoulCores.Type 0,
+    whose count stat is num_socketed_runes, SoulCoreTypes Rune). Soul Cores, Idols, Abyssal Eyes and Congealed Mist
+    don't count: PoB's nearest tag, NonIdolAugmentsInEquipment ("per non-Idol Augment in your Equipment", CalcSetup /
+    bridge.lua), counts them too and would OVERCOUNT a build with Soul Cores. The rune carrying the line is itself a
+    Rune and counts. Only the active weapon set's items are counted (PoB's item list; UNVERIFIED whether the game
+    counts a swap set's runes, as for the Idol counts). The random element: PoB splits DamageGainAsRandom a third to
+    each element (CalcOffence 1340-1352), the average over many hits (MEDIUM, as items-chaos-taken-as-random-element).
+  sources: ["data/game-26650308/tables/Stats.json (25365, 22983)", "data/game-26650308/tables/SoulCoreStats.json (362)",
+            "data/game-26650308/tables/SoulCoreTypes.json (Rune)", "vendor/PathOfBuilding-PoE2/src/Data/ModRunes.lua (Emergent Possibility, gloves)",
+            "vendor/PathOfBuilding-PoE2/src/Classes/Item.lua:2148-2177", "engine/bridge.lua (setAugmentCounts, COV42's parseMod hook)"]
+  test_in_game: "Socket Emergent Possibility in gloves and N other Runes (no Soul Cores): the skill's damage gains (N+1)% as a random element; adding a Soul Core changes nothing."
+  status: proposed
+
+- id: items-gain-random-element-per-rune-second-line
+  title: 'Emergent Possibility (gloves), "Rune Socketed in Equipped Items" (second half; counted by the first)'
+  kind: pob_gap
+  match: '^Rune Socketed in Equipped Items$'
+  replace: []
+  confidence: datamined
+  notes: Carried by items-gain-random-element-per-rune-first-line (the first half holds the number; its replacement is the joined sentence).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModRunes.lua (Emergent Possibility, gloves)"]
+  status: proposed
+
+# Lines the audit's misparse check flagged (parse_audit.lost), read by hand: what PoB does with them is right, or moves
+# no number the search scores. Nothing is applied (kind parse_checked, as parse-checked.yaml).
+
+- id: parse-minions-withered-on-hit
+  title: '"Minions have N% chance to inflict Withered on Hit" (Right Hand of Darkness): the player flag is how the minions'' Withered reaches the boss; stacks and magnitude are MECH-A''s'
+  kind: parse_checked
+  match: '^Minions have (\(\d+-\d+\)|\d+)% chance to inflict Withered on Hit$'
+  confidence: datamined
+  notes: >-
+    PoB parses it to the player's Condition:CanWither (ModParser 4468, ModCache 8707), which only opens the "# of Withered
+    Stacks" box (ConfigOptions 1740, ifFlag) and sizes a stack (CalcPerform 2588-2590: 5 for a minion skill, 5 x your
+    WitherEffect for one of yours) (checked: grep CanWither over PoB src/Modules: CalcPerform 715 (the box), 2588,
+    ConfigOptions 1740; nothing else). The count is the condition resolver's: conditions._withered_stacks reads this line
+    (WITHER_MINIONS, MECH67) at one minion's hit rate x 2 s (LOW, its own label), and 0 with no minion main skill; the
+    minions' stack size is fixed by conditions.minion_wither_magnitude (MECH82: your Withered Magnitude lines cancelled
+    when only your minions Wither). So the lost minion restriction counts nothing extra on its own.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua:2588-2590", "vendor/PathOfBuilding-PoE2/src/Modules/ConfigOptions.lua:1740",
+            "builder/search/conditions.py (WITHER_MINIONS, _withered_stacks, minion_wither_magnitude)"]
+  test_in_game: "n/a (read by hand)."
+  status: proposed
+
+- id: parse-erians-cobble-legacy-regen
+  title: 'Erian''s Cobble "(0-0.05) Life Regeneration per second": the Pre 0.1.1 variant''s line, which the search never equips'
+  kind: parse_checked
+  match: '^\(0-0\.05\) Life Regeneration per second$'
+  only_sources: ["Erian's Cobble"]
+  confidence: datamined
+  notes: >-
+    PoB's Erian's Cobble (Data/Uniques/helmet.lua 314-346) has "{variant:1}(0-0.05) Life Regeneration per second"
+    (variant 1 = "Pre 0.1.1") and "{variant:2}(0-6) Life Regeneration per second" (Current). The audit flags the old
+    line's number; the current line parses right (not flagged). The search equips a unique's current variant
+    (builder/data unique_variant_lines leaves "Pre" variants out; the audit's legacy-variant rule, COV40), but that rule
+    goes by template and the two lines share one, so the old line is closed here by its text, on this unique only.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Uniques/helmet.lua:314-346"]
+  test_in_game: "n/a (an old variant)."
+  status: proposed
+
+- id: parse-empowered-kill-explosion
+  title: '"Enemies you kill with Empowered Attacks have N% chance to Explode ..." (Explosive Empowerment): the Empowered restriction is lost, but no number the search scores reads the explosion'
+  kind: parse_checked
+  match: '^Enemies you kill with Empowered Attacks have a (\(\d+-\d+\)|\d+)% chance to Explode, dealing a tenth of their maximum Life as Fire Damage$'
+  confidence: datamined
+  notes: >-
+    PoB parses it to ExplodeMod (Fire, 10% chance, a tenth of Life) + CanExplode with no Empowered or Attack tag
+    (ModCache 7369, ModParser 2269), which only PoB's own "On Kill Monster Explosion" skill reads (Data/Skills/other.lua
+    21150-21167, EnemyExplode, added through CalcSetup's explodeSources) (checked: grep ExplodeMod over PoB src outside
+    ModParser / ModCache: other.lua alone). Our search never scores that skill: the main
+    skill is the request's (checked: grep of EnemyExplode, explodeSources, "On Kill Monster Explosion" and ExplodeMod in
+    builder/ and engine/, none). So the lost restriction moves nothing today; an on-kill explosion model (adds killed
+    near the boss) would have to count only kills by Empowered Attacks.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:7369", "vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua:21150-21167"]
+  test_in_game: "n/a (read by hand)."
+  status: proposed
+
+- id: model-read-full-mana-threshold
+  title: '"You count as on Full Mana while at N% of maximum Mana or above" (Idle Hands; conditions.full_mana_at, MECHC37)'
+  kind: pob_gap
+  model: full_mana
+  match: '^You count as on Full Mana while at (\(\d+-\d+\)|\d+(?:\.\d+)?)% of maximum Mana or above$'
+  replace: []
+  confidence: theory
+  notes: >-
+    PoB parses it to FullManaPercentage, which no calculation reads (the audit's noop row). Since train 76 (MECHC37,
+    a4e713f7) conditions.FULL_MANA_AT / full_mana_at read it: the "on Full Mana" box (conditionFullMana) is on at the
+    share of the fight the build's Mana sits at or above N% (mana_above_share: each main-skill cast drops it by its cost,
+    refilled at its regeneration), when the build has an "on Full Mana" line. Mods UniqueFullManaThreshold1 (Idle Hands).
+  sources: ["builder/search/conditions.py (FULL_MANA_AT, full_mana_at, _full_mana, mana_above_share)"]
+  status: proposed

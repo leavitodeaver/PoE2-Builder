@@ -190,6 +190,29 @@ do
 	end
 end
 
+-- "<a line PoB parses> per Rune Socketed in Equipped Items" (COV42; Emergent Possibility in gloves, MECHB37 item 1): the
+-- game wraps it over two lines, which PoB parses apart ("... random Element per" and "Rune Socketed in Equipped
+-- Items", each to nothing). The ledger hands the item the joined sentence (items-cov42.yaml); here its first part is
+-- parsed as PoB would and counted per Rune, Multiplier RunesInEquipment (setAugmentCounts: Runes only).
+do
+	local parseBefore = modLib.parseMod
+	modLib.parseMod = function(line, ...)
+		if type(line) == "string" then
+			local head = line:match("^(.-)%s+per Rune Socketed in Equipped Items$")
+			if head then
+				local list, extra = parseBefore(head, ...)
+				if list and not extra and #list > 0 then
+					for _, mod in ipairs(list) do
+						mod[#mod + 1] = { type = "Multiplier", var = "RunesInEquipment", actor = "player" }
+					end
+					return list, nil
+				end
+			end
+		end
+		return parseBefore(line, ...)
+	end
+end
+
 -- Untether, the skill The Master's Reach grants (COV34; H5-3 part 1): PoB has no skill for it (only the trade site's
 -- "Grants Skill: Level # Untether"), so the line parsed to nothing and the gloves granted no skill. It is added here as
 -- AbyssalLivingBomb, from the game's own rows (build 26476662): ActiveSkills 826 abyssal_living_bomb ("Untether"; types
@@ -897,23 +920,34 @@ end
 -- Abyssal Eyes and Idols as augments. The shard is ASSUMED to count (it goes in an augment socket; no game text
 -- says either way). Only the active weapon set's items are in PoB's item list: a swap set's augments aren't
 -- counted (UNVERIFIED whether the game counts them).
+-- (COV42) Runes alone, for Emergent Possibility's "Gain 1% of Damage as Extra Damage of a random Element per Rune
+-- Socketed in Equipped Items" (game stat non_skill_base_all_damage_%_to_gain_as_random_element_per_socketed_rune,
+-- SoulCoreStats 362; the game's own count is num_socketed_runes, SoulCoreTypes Rune's SocketedStat): Multiplier
+-- RunesInEquipment counts the socketed augments whose ModRunes entry is of type "Rune" (SoulCores.Type 0, 221 rows in
+-- game 26650308, the 213 live ones all in PoB's data), not Soul Cores, Idols, Abyssal Eyes or Congealed Mist, which
+-- NonIdolAugmentsInEquipment also counts (an OVERCOUNT for this line). The rune carrying the line counts itself.
 local function setAugmentCounts(env)
 	local modDB = env and env.modDB
 	if not modDB or not env.player then
 		return
 	end
-	local idols, others = 0, 0
+	local idols, others, runeCount = 0, 0, 0
 	local runes = data.itemMods and data.itemMods.Runes or { }
 	for _, item in pairs(env.player.itemList or { }) do
 		if type(item) == "table" and item.runes then
 			for i = 1, item.itemSocketCount or 0 do
 				local name = item.runes[i]
 				if name and name ~= "None" then
-					local isIdol = false
+					local isIdol, isRune = false, false
 					for _, entry in pairs(runes[name] or { }) do
 						if type(entry) == "table" and entry.type == "Idol" then
 							isIdol = true
+						elseif type(entry) == "table" and entry.type == "Rune" then
+							isRune = true
 						end
+					end
+					if isRune then
+						runeCount = runeCount + 1
 					end
 					if isIdol then
 						idols = idols + 1
@@ -926,6 +960,7 @@ local function setAugmentCounts(env)
 	end
 	modDB.multipliers["IdolsInEquipment"] = idols
 	modDB.multipliers["NonIdolAugmentsInEquipment"] = others
+	modDB.multipliers["RunesInEquipment"] = runeCount
 end
 
 -- "Your Critical Hit Chance cannot be Rerolled" (Maligaro's Virtuosity; MECH53, an OVERCOUNT). KeywordPopups RerollCrit
@@ -5307,6 +5342,11 @@ function bridge.sourceLines()
 		if item and not slot.inactive and not flaskOff then
 			for _, kind in ipairs({ "enchantModLines", "runeModLines", "implicitModLines", "explicitModLines" }) do
 				for _, modLine in ipairs(item[kind] or { }) do
+				-- (COV42; MECHB37 item 2) only the equipped variant's lines: a unique's text holds every variant's lines
+				-- ("{variant:1}Repeat +1 time", "{variant:2}... +2 times": Lioneye's Glare) and PoB applies a line only
+				-- when Item:CheckModLineVariant passes (Item.lua 1336: the selected variant, alt variants, variant groups
+				-- and versions); before, an old variant's line reached the models (probe POE2T3867: both Lioneye lines)
+				if not item.CheckModLineVariant or item:CheckModLineVariant(modLine) then
 					-- A unique's line can hold its range, "(10-16)% increased ...": the models' and conditions' regexes
 					-- read numbers, so give them the rolled line, as PoB's own getRangedModList does (Item.lua 2726-2735;
 					-- COVD1: nearly every custom model missed ranged unique lines)
@@ -5334,6 +5374,7 @@ function bridge.sourceLines()
 							modLine.valueScalar, modLine.corruptedRange)
 					end
 					add("item:" .. slotName, text)
+				end
 				end
 			end
 		end

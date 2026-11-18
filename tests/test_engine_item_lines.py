@@ -336,3 +336,66 @@ def test_a_share_stand_in_on_an_item_counts_its_value_times_the_share(engine):
     assert not any("LedgerShare" in t or t == "+100 to maximum Life" for t in texts)
     ranged, _ = life(100, "{custom}LedgerShare:TestShare +(100-100) to maximum Life")
     assert ranged - plain == pytest.approx(2 * (half - plain), rel=0.02)
+
+
+def test_the_per_rune_random_element_line_counts_socketed_runes_only(engine):
+    """COV42 (MECHB37 item 1): Emergent Possibility in gloves, "Gain 1% of Damage as Extra Damage of a random Element
+    per" / "Rune Socketed in Equipped Items" (items-cov42.yaml + the bridge's RunesInEquipment count). PoB alone parses
+    neither half (0); with the ledger the line counts. The count (read exactly through a Life line the same hook reads;
+    a low-level Spark's DPS moves in rounded steps, probes POE2T3869-3872) is each socketed Rune in the equipment, the
+    carrier included, and no Soul Core or Idol (PoB's NonIdolAugmentsInEquipment would count Soul Cores too)."""
+    from builder.ledger.items import _bases, corrected_item
+
+    payload = make_payload(BuildRequest(main_skill="Spark"))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    bases = _bases()
+    glove = next(n for n, b in bases.items() if b["type"] == "Gloves" and not b.get("hidden"))
+    coat = next(n for n, b in bases.items() if b["type"] == "Body Armour" and not b.get("hidden"))
+
+    def item(name, base, runes, *lines):
+        sockets = ["Sockets: " + " ".join("S" for _ in runes), *("Rune: " + r for r in runes)] if runes else []
+        return "\n".join(["Rarity: Rare", name, base, *sockets, "Implicits: 0", "+10 to Strength", *lines])
+
+    def stats(gloves, coat_runes, *lines, correct=True):
+        g, c = item("Test Gloves", glove, gloves, *lines), item("Test Coat", coat, coat_runes)
+        if correct:
+            g, c = corrected_item(g), corrected_item(c)
+        build.call("equip", slot="Gloves", raw=g, fields=[])
+        build.call("equip", slot="Body Armour", raw=c, fields=[])
+        return build.call("stats", fields=["TotalDPS", "Life"])
+
+    ep, rune = ["Emergent Possibility"], "Desert Rune"
+    plain = stats([], [])["TotalDPS"]
+    assert stats(ep, [], correct=False)["TotalDPS"] == pytest.approx(plain, rel=1e-9)  # PoB alone: nothing
+    assert stats(ep, [])["TotalDPS"] > plain
+    per_rune = "+10 to maximum Life per Rune Socketed in Equipped Items"
+    life = {n: stats(ep, [rune] * n, per_rune)["Life"] for n in (0, 2)}
+    none = stats([], [], per_rune)["Life"]
+    assert life[0] > none and life[2] - life[0] == pytest.approx(2 * (life[0] - none), abs=1)  # 1 Rune, then 3
+    cores = ["Hayoxi's Soul Core of Heatproofing", "Idol of Eramir"]
+    assert stats(ep, cores, per_rune)["Life"] == life[0]  # a Soul Core and an Idol don't count
+
+
+def test_source_lines_give_only_the_equipped_variants_lines(engine):
+    """COV42 (MECHB37 item 2): a unique's text holds every variant's lines; bridge.sourceLines gives the models only the
+    lines PoB applies (Item:CheckModLineVariant). Probe POE2T3867: before, Lioneye's Glare on its current variant gave
+    both its old "Repeat +1 time" and its current "Repeat +2 times"."""
+    payload = make_payload(BuildRequest(main_skill="Lightning Arrow"))
+    skeleton = enumerate_skeletons(Context(payload), ["Lightning Arrow"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    repeat = "Repeatable Attacks with this Bow Repeat +{} if no enemies are in your Presence"
+
+    def repeats(variant):
+        raw = "\n".join(["Rarity: UNIQUE", "Lioneye's Glare", "Heavy Bow", "Variant: Pre 0.4.0", "Variant: Current",
+                         f"Selected Variant: {variant}", "Implicits: 0", "(150-240)% increased Physical Damage",
+                         "{variant:1}" + repeat.format("1 time"), "{variant:2}" + repeat.format("2 times")])
+        build.call("equip", slot="Weapon 1", raw=raw, fields=[])
+        return [e["text"] for e in build.call("sourceLines")["lines"] if "Repeat" in e["text"]]
+
+    assert repeats(2) == [repeat.format("2 times")]
+    assert repeats(1) == [repeat.format("1 time")]
