@@ -5664,7 +5664,7 @@ class Assumptions:
         build = self.build
         granted = next((s for s in found if s.name == models.EMBER_SKILL and s.group is not None
                         and (main is None or s.group != main.group)), None)
-        hit = wait = 0.0
+        hit, wait, per = 0.0, None, 1.0
         spot = self.skill_spot(granted.group, models.EMBER_SKILL) if granted is not None else None
         if spot is not None:
             answer = build.call("setRates", index=spot[0], active=spot[1])
@@ -5672,15 +5672,16 @@ class Assumptions:
             row = next((s for s in sets if s.get("label") == (granted.stat_set or answer.get("chosen"))),
                        sets[0] if sets else {})
             hit = number(row.get("AverageDamage"))
-            wait = number(next(iter(build.call("useRates", indices=[spot[0]], actives=[spot[1]])["rates"]), {})
-                          .get("duration"))
+            per = max(number(row.get("ProjectileCount")), 1.0)  # (MECHB38: extra projectiles add Embers, 0.1.1f)
+            duration = next(iter(build.call("useRates", indices=[spot[0]], actives=[spot[1]])["rates"]), {}).get("duration")
+            wait = number(duration) if duration is not None else None  # (MECHB38: 0 when fully reduced, not the base)
         # the main skill's damage a second without this model's own "less" (installed from the last pass)
         before = 1.0
         for mod in self.mods or []:
             if mod.get("tag") == models.DUSK_TAG:
                 before *= 1 + number(mod.get("value")) / 100
         dps = per_second({**stats, **build.call("stats", fields=list(LIVING_BOMB_FIELDS))}) / (before or 1.0)
-        mods, notes, groups, _ = models.dusk_vigil_model(texts, stats, found, main, dps, hit, wait)
+        mods, notes, groups, _ = models.dusk_vigil_model(texts, stats, found, main, dps, hit, wait, per)
         return mods, notes, groups
 
     def tempest_caller(self, texts: list[str], stats: dict, found: list[models.Skill], main: models.Skill | None

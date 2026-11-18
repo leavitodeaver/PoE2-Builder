@@ -14,6 +14,8 @@
     casting Spells. models.dusk_vigil_model takes the pause (k casts, then the Ember duration) only if it beats casting
     nonstop, with the main skill's DPS x its casting share. Probe POE2T3317 (Spark Stormweaver): the pause loses (237.7
     against 272.6), so 0 and the play row "keep casting".
+    MECHB38 (RESEARCH31 R31-5): the triggered Ember's reset is MEDIUM-HIGH; the pause is PoB's Ember duration with the
+    build's modifiers (0 when fully reduced); each trigger adds PoB's ProjectileCount Embers (patch 0.1.1f).
   sources: [builder/search/models.py (DUSK_VIGIL, dusk_vigil_model), scratch/mechb37/p3315.log, scratch/mechb37/p3317.log]
   status: proposed
 

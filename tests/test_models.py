@@ -6005,6 +6005,15 @@ def test_dusk_vigils_embers_fire_only_in_a_pause_that_pays():
     attack = Skill("Bow Shot", group=1, attack=True)
     assert models.dusk_vigil_model([line], stats, [attack, ember], attack, 100.0, 200.0, 1.32)[2] == set()
     assert models.dusk_vigil_model(["+10 to Strength"], stats, [main, ember], main, 100.0, 200.0, 1.32) == ([], [], set(), 1.0)
+    # (MECHB38, R31-5) a fully reduced Ember duration is a 0 s pause, not the 1.3 s base: the Embers fire every cast,
+    # so even the probe's weak Ember pays (one Ember a cast, the main skill kept whole)
+    mods, notes, groups, keep = models.dusk_vigil_model([line], stats, [main, ember], main, 272.3, 24.7, 0.0)
+    assert groups == {3} and keep == pytest.approx(1.0) and notes[0]["confidence"] == "MEDIUM-HIGH"
+    # extra projectiles add Embers a cast (0.1.1f), the cap kept: 3 a cast reaches 6 in 2 casts
+    mods, notes, groups, keep = models.dusk_vigil_model([line], stats, [main, ember], main, 100.0, 200.0, 1.32, 3.0)
+    cycle = 2 / 1.4286 + 1.32
+    assert keep == pytest.approx((2 / 1.4286) / cycle) and "6 Embers (3 a cast" in notes[0]["basis"]
+    assert next(m for m in mods if m.get("key") == "triggerRate")["value"] == pytest.approx(6 * 1.125 / cycle, rel=1e-3)
 
 
 def test_tempest_callers_storms_come_from_the_main_spells_crits():

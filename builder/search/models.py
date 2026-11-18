@@ -12455,7 +12455,8 @@ def spell_cascade_model(main: Skill | None, stats: dict, boss_radius: float, bos
 # stats plus triggered_on_spell_cast_% 100, no Cooldown (GrantedEffectsPerLevel: none), and the gem's text: "Recasting
 # this spell resets the duration for all active Embers" (ActiveSkills unique_dusk_vigil_triggered_blazing_cluster). So
 # each spell cast adds an Ember and resets the wait; the Embers fire only once the player stops casting Spells for the
-# Ember duration (1.3 s base). That a triggered Ember resets the wait like a cast: from the same description (MEDIUM).
+# Ember duration (1.3 s base). That a triggered Ember resets the wait like a cast: MEDIUM-HIGH (MECHB38: RESEARCH31
+# R31-5, research/dusk-vigil-ember-reset.md: the triggered skill's own description plus forum 3896894).
 # The play: k casts of the main spell (k / Speed s, one Ember each, up to the cap), then a pause of the Embers' duration D
 # with no spell cast, when n = min(cap, k) Embers fire, the i-th at (1 + 5% x (i - 1)) (ember_fusillade_model's maths):
 #   with the pause: (main DPS x k / Speed + Ember hit x n (1 + m (n - 1) / 2)) / (k / Speed + D)
@@ -12463,9 +12464,12 @@ def spell_cascade_model(main: Skill | None, stats: dict, boss_radius: float, bos
 # The model takes the best k, and the pause only if it beats casting nonstop; then the main skill's DPS is x (k / Speed)
 # / (k / Speed + D) (it isn't cast during the pause) and Ember Fusillade's group gets that many Embers' worth a second
 # (models.trigger_rate) in Full DPS. Inputs from the build: the main spell's Speed and damage a second, the Ember's hit
-# (PoB's setRates AverageDamage for its group) and duration (PoB's, with the build's modifiers; else 1.3 s), its level's
-# cap and more per Ember. Labelled: one Ember a trigger (extra projectiles on the granted skill not read: an
-# undercount); side spells' casts not counted (an undercount); the Embers' 100 ms launch spacing not counted as time and
+# (PoB's setRates AverageDamage for its group) and duration (PoB's, with the build's skill-duration modifiers, 0 when
+# fully reduced; 1.3 s only when PoB gives none), its level's cap (6 / 7 / 8 / 9 / 10 at levels 1-4 / 5-10 / 11-15 /
+# 16-19 / 20: the staff's level roll sets it) and more per Ember. MECHB38: each trigger adds PoB's ProjectileCount Embers
+# for the group (patch 0.1.1f: "additional projectiles affect the number of Embers accumulated"); whether they raise the
+# cap is UNVERIFIED (not counted); casting the Ember Fusillade gem taken not to reset the staff's Embers (separate
+# skills, UNVERIFIED). Labelled: side spells' casts not counted (an undercount); the Embers' 100 ms launch spacing not counted as time and
 # the pause filled by nothing else (dodging fits in it); a main skill that is Ember Fusillade itself, or not a Spell: no
 # Embers counted (PoB's 0 kept, said).
 DUSK_VIGIL = re.compile(r"^Trigger Ember Fusillade Skill on casting a Spell$", re.I)
@@ -12473,7 +12477,8 @@ DUSK_TAG = "dusk_vigil"  # the main skill's "less" carries it, so the next pass 
 
 
 def dusk_vigil_model(texts: list[str], stats: dict, skills: list[Skill], main: Skill | None, main_dps: float,
-                     ember_hit: float, ember_wait: float) -> tuple[list[dict], list[dict], set[int], float]:
+                     ember_hit: float, ember_wait: float | None, per_cast: float = 1.0
+                     ) -> tuple[list[dict], list[dict], set[int], float]:
     """Dusk Vigil's triggered Embers (comment above): (lines, notes, groups for Full DPS, the main skill's DPS scale)."""
     if not any(DUSK_VIGIL.search(t.strip()) for t in texts):
         return [], [], set(), 1.0
@@ -12486,38 +12491,42 @@ def dusk_vigil_model(texts: list[str], stats: dict, skills: list[Skill], main: S
     if main is None or not main.spell or main.triggered or main.name == EMBER_SKILL or speed <= 0:
         why = ("the main skill is Ember Fusillade itself (how the two sets of Embers share a Fusillade isn't modelled)"
                if main is not None and main.name == EMBER_SKILL else "the main skill isn't a Spell you cast")
-        return (trigger_rate(EMBER_SKILL, 0), [{"label": label, "value": "0", "confidence": "MEDIUM",
+        return (trigger_rate(EMBER_SKILL, 0), [{"label": label, "value": "0", "confidence": "MEDIUM-HIGH",
                                                 "basis": f"{why}: no Embers counted (PoB's 0 kept; side spells not read)",
                                                 "play": "Nothing in the build casts the Spells that trigger the Embers"}],
                 set(), 1.0)
     cap = int(number(granted.level_stats.get(EMBER_CAP_STAT)) or EMBER_CAP)
     more = number(granted.level_stats.get(EMBER_MORE_STAT)) or EMBER_MORE
-    wait = ember_wait if ember_wait > 0 else EMBER_DURATION
+    wait = max(ember_wait, 0.0) if ember_wait is not None else EMBER_DURATION
+    per = max(per_cast, 1.0)
     best = None
-    for casts in range(1, cap + 1):
-        worth = casts * (1 + more / 100 * (casts - 1) / 2)
+    for casts in range(1, math.ceil(cap / per) + 1):
+        embers = min(cap, casts * per)
+        worth = embers * (1 + more / 100 * (embers - 1) / 2)
         cycle = casts / speed + wait
         total = (main_dps * casts / speed + ember_hit * worth) / cycle
         if best is None or total > best[0]:
-            best = (total, casts, worth, cycle)
-    total, casts, worth, cycle = best
+            best = (total, casts, worth, cycle, embers)
+    total, casts, worth, cycle, embers = best
     keep = casts / speed / cycle
     rows = (f"casting nonstop: {main_dps:,.1f} DPS, no Ember fires; {casts} casts then a {wait:.2f} s pause: "
             f"{total:,.1f} DPS ({main_dps * keep:,.1f} from the main skill, {ember_hit * worth / cycle:,.1f} from "
             f"{worth / cycle:.2f} Embers' worth a second)")
     if ember_hit <= 0 or total <= main_dps:
         return (trigger_rate(EMBER_SKILL, 0),
-                [{"label": label, "value": "0", "confidence": "MEDIUM",
-                  "basis": (f"each spell cast adds an Ember and resets their {wait:.2f} s wait, so they fire only in a "
-                            f"pause from casting; no pause pays here ({rows})"),
+                [{"label": label, "value": "0", "confidence": "MEDIUM-HIGH",
+                  "basis": (f"each spell cast adds {per:g} Ember(s) and resets their {wait:.2f} s wait (a triggered Ember "
+                            f"too: MEDIUM-HIGH, RESEARCH31 R31-5), so they fire only in a pause from casting; no pause pays here ({rows})"),
                   "play": f"Keep casting {main.name}: pausing for the Embers loses more than they deal ({rows})"}],
                 set(), 1.0)
-    note = {"label": label, "value": f"{worth / cycle:.2f} Embers' worth a second", "confidence": "MEDIUM",
-            "basis": (f"each cast of {main.name} ({speed:.2f} a second) adds an Ember and resets their {wait:.2f} s wait "
-                      f"(the game's text, MEDIUM for a triggered one); {casts} casts then a pause: {casts} Embers, each "
-                      f"{more:g}% more than the one before, cap {cap}: {rows}. The main skill x{keep:.3f} (not cast in "
-                      "the pause). One Ember a cast (extra projectiles not read), side spells not counted, the launch "
-                      "spacing not counted as time (LOW parts)"),
+    note = {"label": label, "value": f"{worth / cycle:.2f} Embers' worth a second", "confidence": "MEDIUM-HIGH",
+            "basis": (f"each cast of {main.name} ({speed:.2f} a second) adds {per:g} Ember(s) and resets their {wait:.2f} s wait "
+                      f"(the triggered skill's own text, MEDIUM-HIGH: RESEARCH31 R31-5, forum 3896894; the wait is PoB's Ember "
+                      f"duration with the build's modifiers); {casts} casts then a pause: {embers:g} Embers ({per:g} a "
+                      f"cast: extra projectiles add Embers, 0.1.1f), each {more:g}% more than the one before, cap {cap} "
+                      f"(extra projectiles raising it: UNVERIFIED, not counted): {rows}. The main skill x{keep:.3f} (not "
+                      "cast in the pause). Side spells not counted, the launch spacing not counted as time, casting the "
+                      "Ember Fusillade gem taken not to reset the staff's Embers (UNVERIFIED) (LOW parts)"),
             "play": (f"Cast {main.name} {casts} times, then stop casting Spells for {wait:.1f} s so Dusk Vigil's "
                      f"Embers fire (dodge then). Without it (casting nonstop) {main_dps:,.1f} DPS; with it {total:,.1f}")}
     return (trigger_rate(EMBER_SKILL, worth / cycle) + [raw_mod("DPS", "MORE", 100 * (keep - 1), main.name, tag=DUSK_TAG)], [note],
