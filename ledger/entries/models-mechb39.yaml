@@ -1,0 +1,18 @@
+# MECH-B's model entries (MECHB39).
+
+- id: model-read-umbilicus-minions-cannot-die
+  title: '"Minions cannot Die while affected by a Life Flask" (Umbilicus Immortalis; models.minion_deathless / minion_deaths)'
+  kind: pob_gap
+  model: minion_deathless
+  match: '^Minions cannot Die while affected by a Life Flask$'
+  replace: []
+  confidence: theory
+  notes: >-
+    With "Your Life Flask also applies to your Minions" on the same belt, the build's minions can't be Killed while its
+    Life flask is up (KeywordPopups MinionDeath: "Minions are only Killed if they reach 0 life"). PoB doesn't read it, and
+    minion_deaths counted Minion Pact's Kills all fight (an OVERCOUNT of every death-fed effect). Now Minion Pact's Kills
+    x (1 - the Life flask's uptime, flasks.uptime) (MEDIUM: the minions' copy taken to last as long as yours). Sacrifice's
+    consumption, Explosive Demise and Offerings stay counted (UNVERIFIED whether "cannot Die" stops them; the cut reading
+    in the note).
+  sources: [builder/search/models.py (MINION_DEATHLESS, minion_deathless, minion_deaths), builder/search/assumptions.py (minion_deathless)]
+  status: proposed

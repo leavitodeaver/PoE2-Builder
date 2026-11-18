@@ -876,6 +876,22 @@ def minion_lives(build: Build, found: list[models.Skill]) -> dict[str, float]:
     return {name: life for name, life in lives.items() if life > 0}
 
 
+def minion_deathless(build: Build) -> tuple[float, str]:
+    """(share of the fight your minions cannot die, how): Umbilicus Immortalis' "Minions cannot Die while affected by a
+    Life Flask" while the equipped Life flask is up (models.minion_deathless; MECHB39). (0, "") without the line."""
+    from builder.search import flasks
+    equipped = getattr(build, "equipped", None) or {}
+    raws = [o.raw or "" for o in equipped.values() if o is not None]
+    if not any(models.MINION_DEATHLESS.search(r) for r in raws):
+        return 0.0, ""
+    life = next((equipped.get(slot) for slot, pool in flasks.FLASK_SLOTS.items() if pool == "Life"), None)
+    up = None
+    if life is not None:
+        info = build.call("flaskData", raws=[life.raw])["results"][0] or {}
+        up = flasks.uptime(info, flasks.Charges.of(build), "Life")
+    return models.minion_deathless(raws, up)
+
+
 
 HUNT_FIELDS = ["CombinedDPS", "ShowAverage", "CullMultiplier", "ReservationDpsMultiplier", "TotalDPS", "AverageDamage",
                "TotalDotDPS"]
@@ -1656,8 +1672,9 @@ class Assumptions:
         build.curse_durations = {s["name"]: s["curseDuration"] for s in skills if s.get("curseDuration")}
         # (MECH86: each curse's activation delay, PoB's with the build's modifiers, for curse_uses / hexblast_model)
         build.curse_delays = {s["name"]: s["curseDelay"] for s in skills if s.get("curseDelay") is not None}
+        build.minion_deathless = minion_deathless(build)  # (MECHB39: Umbilicus Immortalis, for models.minion_deaths)
         stats = {**stats, "_minion_lives": build.minion_lives, "_curse_durations": build.curse_durations,
-                 "_curse_delays": build.curse_delays}
+                 "_curse_delays": build.curse_delays, models.MINION_DEATHLESS_STAT: build.minion_deathless}
         if any(s.name == models.SACRIFICE for s in found):  # (MECH-B, MECHB19, A27-4: Sacrifice's corpses, the build's own
             # undead Reviving minion deaths, for models.corpse_supply's readers)
             stats = {**stats, models.SACRIFICE_CORPSES_STAT: models.sacrifice_corpses(found, main, stats)}
@@ -3263,8 +3280,10 @@ class Assumptions:
                 group = self.build.main_group()
                 main = next((s for s in found if group and s.group == group["index"] and s.name == self.main_skill()),
                             None)
-                rate, condition = models.minion_deaths(found, main, {**self.build.call("stats", fields=models.MODEL_FIELDS),
-                                                                     "_minion_lives": getattr(self.build, "minion_lives", {})})
+                rate, condition = models.minion_deaths(found, main, {
+                    **self.build.call("stats", fields=models.MODEL_FIELDS),
+                    "_minion_lives": getattr(self.build, "minion_lives", {}),
+                    models.MINION_DEATHLESS_STAT: getattr(self.build, "minion_deathless", None)})
                 if rate <= 0:
                     used.append(f"{name} 0/s ({condition})")
                     continue
@@ -4530,7 +4549,8 @@ class Assumptions:
                 main_skill = next((s for s in found if group and s.group == group["index"] and s.name == main), None)
                 corpses = models.sacrifice_corpses(found, main_skill, {
                     **build.call("stats", fields=models.MODEL_FIELDS), **stats,
-                    "_minion_lives": getattr(build, "minion_lives", {})})
+                    "_minion_lives": getattr(build, "minion_lives", {}),
+                    models.MINION_DEATHLESS_STAT: getattr(build, "minion_deathless", None)})
                 stats = {**stats, models.SACRIFICE_CORPSES_STAT: corpses}
             if models.SACRIFICE in present:
                 value = stats.get(models.SACRIFICE_CORPSES_STAT)
@@ -4544,8 +4564,9 @@ class Assumptions:
             found = [models.Skill.of(s) for s in present.values()]
             group = build.main_group()
             revive_main = next((s for s in found if group and s.group == group["index"] and s.name == main), None)
-            rate, how = models.minion_deaths(found, revive_main, {**build.call("stats", fields=models.MODEL_FIELDS),
-                                                                 "_minion_lives": getattr(build, "minion_lives", {})})
+            rate, how = models.minion_deaths(found, revive_main, {
+                **build.call("stats", fields=models.MODEL_FIELDS), "_minion_lives": getattr(build, "minion_lives", {}),
+                models.MINION_DEATHLESS_STAT: getattr(build, "minion_deathless", None)})
             out["revived"] = (rate, f"each of your Reviving minions Killed is Revived once its revival ends: {how}"
                               if rate > 0 else how)
         if has(recovery.RAGE_SHIFT):  # (MECHC21: Rage consumed on each shift back to Human form, conditions.rage_held)

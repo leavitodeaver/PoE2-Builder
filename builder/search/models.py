@@ -766,6 +766,39 @@ SACRIFICE = "Sacrifice"
 ARSONIST = "Skeletal Arsonist Minion"
 MINION_PACT_STAT = "support_minion_pact_user_life_%_removed_from_nearby_minion"
 
+# Umbilicus Immortalis (MECHB39; an OVERCOUNT before: the build's own minion Kills counted while its minions couldn't
+# die). The belt's lines: "Your Life Flask also applies to your Minions" (your_life_flasks_also_apply_to_your_minions,
+# UniqueLifeFlasksApplyToMinions1) and "Minions cannot Die while affected by a Life Flask"
+# (minions_cannot_die_while_affected_by_life_flask, MinionsCannotDieWhileAffectedByYourLifeFlasks1). (checked: game files
+# 26650308, Stats ids with cannot_die / immortal / flask+minion, every Mods row, PassiveSkills and GrantedEffectStatSets(
+# PerLevel) stat columns: the cannot-die line is on that one item mod and no passive or skill; PoB's uniques list: only
+# Umbilicus Immortalis carries either line; patch-notes archive --history "Umbilicus": no hit, which is not evidence of
+# absence.) KeywordPopups MinionDeath: "Minions are only Killed if they reach 0 life"; Sacrifice: Sacrificing a
+# minion's Life "can lead to their death". So Minion Pact (Life removed from a minion) Kills none while the flask is up:
+# its Kills x (1 - the Life flask's uptime, flasks.uptime with the belt's reduced Flask Effect Duration and the
+# Life-full cap) (MEDIUM: the minions' copy taken to last as long as yours; whether it ends at the minion's own full
+# Life is UNVERIFIED). Sacrifice's consumption (a living minion used as a corpse, R26-68), Explosive Demise's detonation
+# and Offerings' skewering don't go through 0 Life in their texts: whether "cannot Die" stops them is UNVERIFIED, so
+# they stay counted (CLAUDE.md: never cut on an unverified reading), with the cut reading in the note. Assumptions.models
+# sets the stats key from the equipped items (build.minion_deathless); 0 without the line or a Life flask.
+MINION_DEATHLESS = re.compile(r"(?i)minions cannot die while affected by a life flask")
+MINION_DEATHLESS_STAT = "_minion_deathless"  # stats key: (share of the fight your minions can't die, how)
+
+
+def minion_deathless(raws: list[str], life_flask_up: float | None) -> tuple[float, str]:
+    """(share of the fight your minions cannot die, how): Umbilicus Immortalis' line while your Life flask is up.
+    `raws`: the equipped items' texts; `life_flask_up`: the Life flask's uptime (flasks.uptime), None without one."""
+    if not any(MINION_DEATHLESS.search(r or "") for r in raws):
+        return 0.0, ""
+    if not life_flask_up or life_flask_up <= 0:
+        return 0.0, ("\"Minions cannot Die while affected by a Life Flask\": no Life flask up in this build, so it "
+                     "stops no death (0)")
+    share = min(1.0, life_flask_up)
+    return share, (f"\"Minions cannot Die while affected by a Life Flask\" (Umbilicus Immortalis, with \"Your Life Flask "
+                   f"also applies to your Minions\"): your Life flask is up {share:.0%} of the fight (its charges, "
+                   "duration and the Life-full end), and your minions can't be Killed then (MEDIUM: their copy taken "
+                   "to last as long as yours; whether it ends at the minion's own full Life is UNVERIFIED)")
+
 
 # How many uses of Minion Pact Kill one minion (AUDIT25 A25-2, MECHB12; an OVERCOUNT before: one per use whatever the
 # minion's Life). Each use removes p% of YOUR maximum Life (stats "Life") from a nearby minion; it dies when the removals
@@ -825,11 +858,18 @@ def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict,
         uses = number(stats.get("Speed"))
         without = kills
         per_kill, how = pact_uses_per_kill(reviving, pact, stats)
+        guarded = ""
         if per_kill > 0:
-            kills += uses / per_kill
+            pact_kills = uses / per_kill
+            guard, guard_how = stats.get(MINION_DEATHLESS_STAT) or (0.0, "")
+            if guard > 0:  # (MECHB39: Umbilicus Immortalis, no Kill through 0 Life while the Life flask is up)
+                guarded = (f"; {guard_how}: {pact_kills:.3f} -> {pact_kills * (1 - guard):.3f} Kills/s from it "
+                           f"(without the line: {pact_kills:.3f})")
+                pact_kills *= 1 - guard
+            kills += pact_kills
         parts.append(f"Minion Pact: each use of {main.name} removes {pact:g}% of your maximum Life from a nearby minion "
                      f"({uses:.2f} uses/s; KeywordPopups Sacrifice / MinionDeath: a minion its summoner brings to 0 Life is "
-                     f"Killed): {how}. Without it: {without:.2f} deaths/s from the other sources before revival")
+                     f"Killed): {how}{guarded}. Without it: {without:.2f} deaths/s from the other sources before revival")
     arsonist = next((s for s in skills if s.name == ARSONIST), None)
     if arsonist is not None and count > number(arsonist.summon.get("limit")):
         every = EXPLOSIVE_DEMISE_COOLDOWN / (arsonist.cooldown_recovery or 1.0)
@@ -840,6 +880,14 @@ def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict,
     not_counted = ("not counted yet: the boss killing your minions, minions taking damage for you, Offerings (an "
                    "undercount); Dark Pact / Abyssal Pact (13% / 20% of a minion's Life a use) have no skill in PoB, so no "
                    "use rate here")
+    guard, guard_how = stats.get(MINION_DEATHLESS_STAT) or (0.0, "")
+    others = [n for n, p in ((SACRIFICE, "Sacrifice"), ("Explosive Demise", "Explosive Demise"))
+              if any(x.startswith(p) for x in parts)]
+    if guard > 0 and others:  # (MECHB39: their deaths don't go through 0 Life in the texts: UNVERIFIED, kept)
+        not_counted += (f"; Umbilicus Immortalis' \"Minions cannot Die while affected by a Life Flask\" (your Life flask up "
+                        f"{guard:.0%} of the fight) is taken not to stop {' / '.join(others)} (a consumption or "
+                        "detonation, not 0 Life: UNVERIFIED); if it does, their deaths x"
+                        f"{1 - guard:.2f}")
     if kills <= 0:
         return 0.0, f"nothing in this build kills its minions ({'; '.join(parts + [not_counted])})"
     revive, how = revive_seconds(reviving)

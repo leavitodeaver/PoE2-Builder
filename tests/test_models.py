@@ -6178,3 +6178,38 @@ def test_dark_defiler_gains_chaos_per_undead_minion_alive():
     mods, notes = models.dark_defiler_model(line, [spark, wolf], spark, {})
     assert mods == [] and notes[0]["value"] == "+0.0%"
     assert models.dark_defiler_model(["+10 to Strength"], [spark, warriors], spark, {}) == ([], [])
+
+
+def test_umbilicus_immortalis_stops_minion_pact_kills_while_the_life_flask_is_up():
+    """MECHB39 (an OVERCOUNT before): Umbilicus Immortalis' "Minions cannot Die while affected by a Life Flask" (with "Your
+    Life Flask also applies to your Minions"): Minion Pact's Kills (through 0 Life, KeywordPopups MinionDeath) x (1 - the
+    Life flask's uptime); Sacrifice's consumption and Explosive Demise stay counted (UNVERIFIED), the cut reading in the
+    note. No line or no Life flask: nothing changes."""
+    from builder.search import models
+
+    belt = ("Umbilicus Immortalis\nLinen Belt\nYour Life Flask also applies to your Minions\n"
+            "Minions cannot Die while affected by a Life Flask\n")
+    assert models.minion_deathless(["Leather Belt\n+20 to Strength"], 0.5) == (0.0, "")
+    share, how = models.minion_deathless([belt], None)
+    assert share == 0.0 and "no Life flask" in how
+    share, how = models.minion_deathless([belt], 0.4)
+    assert share == pytest.approx(0.4) and "MEDIUM" in how and "UNVERIFIED" in how
+
+    zombies = models.Skill("Raise Zombie", summon={"limit": 6, "duration": 0, "persistent": True, "undead": True})
+    main = models.Skill("Spark", group=1, spell=True,
+                        support_stats={models.MINION_PACT_STAT: 100})
+    stats = {"Speed": 2.0, "Life": 2000, "_minion_lives": {"Raise Zombie": 1500}}
+    free, _ = models.minion_deaths([zombies, main], main, stats)
+    assert free == pytest.approx(6 * 2 / (6 + 7.5 * 2))
+    rate, how = models.minion_deaths([zombies, main], main, {**stats, models.MINION_DEATHLESS_STAT: (share, how)})
+    kills = 2 * 0.6  # (Minion Pact's 2 Kills/s while the flask is down, 60% of the fight)
+    assert rate == pytest.approx(6 * kills / (6 + 7.5 * kills)) and "(without the line: 2.000)" in how
+    assert models.minion_deaths([zombies, main], main, {**stats, models.MINION_DEATHLESS_STAT: None})[0] == free
+
+    # Sacrifice's own uses (a consumption, not 0 Life): kept, with the cut reading in the note
+    detonate = models.Skill("Detonate Dead", group=1, spell=True, corpses=True, cast_time=0.8)
+    sacrifice = models.Skill(models.SACRIFICE)
+    base, _ = models.minion_deaths([zombies, sacrifice, detonate], detonate, {"Speed": 2.0})
+    rate, how = models.minion_deaths([zombies, sacrifice, detonate], detonate,
+                                     {"Speed": 2.0, models.MINION_DEATHLESS_STAT: (0.4, "the line")})
+    assert rate == pytest.approx(base) and "taken not to stop Sacrifice" in how and "x0.60" in how

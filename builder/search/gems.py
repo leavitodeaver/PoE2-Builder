@@ -1066,7 +1066,8 @@ class Gems:
             return False
         # (MECHB12, A25-2: Minion Pact's Kills read the minions' Life, Assumptions.models' build.minion_lives; without
         # it minion_deaths took none, an UNDERCOUNT in this round; SEARCH9)
-        stats = {**build.call("stats", fields=models.MODEL_FIELDS), "_minion_lives": getattr(build, "minion_lives", {})}
+        stats = {**build.call("stats", fields=models.MODEL_FIELDS), "_minion_lives": getattr(build, "minion_lives", {}),
+                 models.MINION_DEATHLESS_STAT: getattr(build, "minion_deathless", None)}
         stats["_minion_deaths"] = models.minion_deaths(skills, main, stats)  # (Cast on Minion Death)
         # (SEARCH18; MECH67's note: this ranking read a flat 20 Power, an UNDERCOUNT for a build with Power lines) the
         # boss's Power and the roll distance from the build's own lines, as Assumptions.models gives the Energy models

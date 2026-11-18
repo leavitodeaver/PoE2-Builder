@@ -6860,7 +6860,8 @@ class Conditions:
         group = self.build.main_group()
         main = next((s for s in found if group and s.group == group["index"] and s.name == self.main_skill), None)
         return found, main, {**self.build.call("stats", fields=models.MODEL_FIELDS),  # (MECHB12: A25-2)
-                             "_minion_lives": getattr(self.build, "minion_lives", {})}
+                             "_minion_lives": getattr(self.build, "minion_lives", {}),
+                             models.MINION_DEATHLESS_STAT: getattr(self.build, "minion_deathless", None)}
 
     def _minion_deaths(self) -> tuple[float, str]:
         """Your minions Killed per second against a boss and how (models.minion_deaths, from the build's skills; MECHC7)."""
