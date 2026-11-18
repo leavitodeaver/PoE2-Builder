@@ -1,0 +1,34 @@
+# MECH86 (MECH-A lane, 17 Nov 2026): the mechanics catalog's MECH-A lines (MECH84's ranked tranche, after MECH85).
+# Entries saying a MECH-A model reads the line (empty replace: nothing is added to PoB, so nothing counts twice; PoB
+# applies none of these lines itself).
+
+- id: model-read-mech86-empowered-buildup
+  title: '"Empowered Attacks have N% increased Stun Buildup" / "N% increased Freeze Buildup with Empowered Attacks" (Assumptions: conditions.empowered_buildup)'
+  kind: pob_gap
+  model: empowered_buildup
+  match: '^(?:Empowered Attacks have (\(\d+-\d+\)|\d+)% increased (?:Stun|Freeze) Buildup|(\(\d+-\d+\)|\d+)% increased (?:Stun|Freeze) Buildup with Empowered Attacks)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Bravado (warcries16) and the passives cold49 / cold50 (MECH86, UNDERCOUNTS of the boss's Heavy Stuns and Freezes).
+    PoB leaves the first unparsed and the second with " with Empowered Attacks " over, so it applies neither. The models
+    hand PoB the same INC on the main skill at the share of its uses that are Empowered (Assumptions.empowered_uses),
+    for an Attack main skill. This entry only says a model reads the line.
+  sources: ["builder/search/conditions.py (EMPOWERED_BUILDUP, empowered_buildup)",
+            "builder/search/assumptions.py (the Empowered buildup hook after Self Immolation's)"]
+  status: proposed
+
+- id: model-read-mech86-nocturne-parried-spell
+  title: '"Parried enemies take more Spell Damage instead of more Attack Damage" (models.parry_plan)'
+  kind: pob_gap
+  model: parry
+  match: '^Parried enemies take more Spell Damage instead of more Attack Damage$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Nocturne (MECH86, an OVERCOUNT for an Attack main skill). PoB ignores the line, and its Parry box gives 50% more
+    Attack damage taken. models.parry_plan doesn't parry when the line is there: an Attack main skill gains nothing. A
+    Spell main skill's gain isn't modelled (an UNDERCOUNT, named in the plan's text). This entry only says a model reads
+    the line.
+  sources: ["builder/search/models.py (PARRIED_SPELL_INSTEAD, parry_plan)"]
+  status: proposed

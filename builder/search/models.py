@@ -2256,6 +2256,18 @@ def mark_activations(mark: Skill, skills: list[Skill], stats: dict, disabled: li
 # - "Curse ... with X on Hit" item lines: up while the main skill hits.
 CURSE_DURATION = 7.4
 CURSE_DELAY = 1.5
+# (MECH86; the catalog's exposure-withered-curses entry, an UNDERCOUNT / OVERCOUNT of Hexblast's detonations) Each curse's
+# own delay: PoB builds it (CalcOffence 1576-1580, output.CurseDelay) from curse_delay_duration_ms (1.5 s on the 9 player
+# curse gems' stat sets, Repulsion's too, GrantedEffectStatSets 26650308) / CurseActivation x CurseDelay, and nothing
+# here read it: every curse landed after the flat 1.5 s. The build's lines that change it (checked: every Stats.json id
+# holding curse_delay / no_curse_delay and every table row using one, scratch/mech86/stat_users.py): "N% faster Curse
+# Activation" (curse_delay_+%: passives curses1 / 2 / 4 / 5, the jewel JewelCurseDelay, Amanamu's Passage and focus,
+# the Decay influence, a rune / Soul Core row, curse gems' quality; base_curse_delay_+% on a Soul Core row; "per 20
+# Tribute"), "Curses have no Activation Delay" (unique_no_curse_delay, UniqueCurseNoActivationDelay1), Focused Curse
+# (support_focus_curse_curse_delay_+%_final -50) and Ritualistic Curse (+30), all of which PoB parses (ModCache,
+# sup_int.lua). The bridge's activeSkills curseDelay hands PoB's figure on (CurseUse.delay); CURSE_DELAY stays the
+# fallback when PoB gives none. It moves Hexblast's cycle (hexblast_cycle, hexblast_model) and the hand-cast note;
+# the fight's first landing isn't counted (as before).
 # Letting a hand-cast curse run out on purpose (MECH75; AUDIT36 A36-2): Withering Hex ("Non-Cursed enemies you Curse have
 # 5 Withered stacks inflicted on them") fires only when a curse lands on a boss carrying none of your curses, so a player
 # who takes it can let the curse run out and recast it to land just after. The search picks it per curse (the build's
@@ -2325,7 +2337,7 @@ HEXBLAST_CURSE_NOTE = ("; Hexblast is the main skill: it detonates the curse onc
 def hexblast_cycle(use, cast_time: float) -> float:
     """Seconds between one detonation of a hand-cast curse and the next (its cast + CURSE_DELAY + half its duration),
     GEM10's cycle; 0 when Hexblast doesn't detonate it."""
-    return (cast_time or 0.7) + CURSE_DELAY + use.duration / 2 if use.hexblast else 0.0
+    return (cast_time or 0.7) + use.delay + use.duration / 2 if use.hexblast else 0.0
 
 
 def hexblast_main(groups: list[dict]) -> bool:
@@ -2350,6 +2362,7 @@ class CurseUse:
     # boss carries it for half the duration of each cycle; `share` stays the main skill's view (its explosions land while
     # the curse is on)
     hexblast: bool = False
+    delay: float = CURSE_DELAY  # (MECH86) its activation delay: PoB's with the build's modifiers, else 1.5 s
 
 
 def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
@@ -2374,6 +2387,8 @@ def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
                 continue
             read = number((stats.get("_curse_durations") or {}).get(name))
             duration = read or CURSE_DURATION
+            delays = stats.get("_curse_delays") or {}
+            delay = max(number(delays[name]), 0.0) if delays.get(name) is not None else CURSE_DELAY  # (MECH86)
             lasts = f"{duration:.3g} s" + (" (PoB's, with the build's duration modifiers)" if read else
                                            " (the level-20 base; PoB gave none)")
             if "Blasphemy" in types:
@@ -2403,7 +2418,8 @@ def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
                                      True, duration, hexblast=True))
             else:
                 uses.append(CurseUse(name, 1.0, f"cast by hand every {lasts} (its duration; recast "
-                                                f"{CURSE_DELAY:g} s before it runs out, the curse delay)", True, duration))
+                                                f"{delay:g} s before it runs out, the curse delay)", True, duration))
+            uses[-1] = replace(uses[-1], delay=delay)  # (MECH86: its own activation delay)
         if zone:  # (every curse this group applies is laid as the support's area, the Blasphemy aura excepted)
             uses[before:] = [replace(u, how=u.how + CURSE_ZONE_NOTE.format(zone), zone=zone)
                              if "Blasphemy" not in u.how else u for u in uses[before:]]
@@ -2440,7 +2456,7 @@ def curse_model(uses: list[CurseUse], skills: list[Skill], main: Skill | None,
             took = cast.cast_time or 0.7
             every = hexblast_cycle(use, took) or use.duration  # (MECHB31: once a cycle when Hexblast detonates it)
             if use.hexblast:
-                basis += HEXBLAST_CURSE_NOTE.format(every, took, CURSE_DELAY, use.duration, 1 - use.duration / 2 / every)
+                basis += HEXBLAST_CURSE_NOTE.format(every, took, use.delay, use.duration, 1 - use.duration / 2 / every)
             lost = min(1.0, took / every)
             mods.append(line("1% more Attack and Cast Speed", -100 * lost, skill=main.name))
             basis += f"; casting it ({took:.2f} s every {every:.3g} s) takes {lost:.0%} of {main.name}'s time"
@@ -4642,10 +4658,10 @@ def hexblast_model(skills: list[Skill], uses: list, stats: dict, main: Skill | N
             parts.append(f"{use.name}: infinite duration, so never detonated (0.2.0)")
             continue
         cast = (by_name[use.name].cast_time or 0.7) if use.by_hand and use.name in by_name else 0.0
-        cycle = cast + CURSE_DELAY + use.duration / 2
+        cycle = cast + use.delay + use.duration / 2  # (MECH86: the curse's own delay, PoB's)
         rate += use.share / cycle
         parts.append(f"{use.name}: one detonation per {cycle:.3g} s (" + (f"{cast:.2g} s cast + " if cast else "")
-                     + f"{CURSE_DELAY:g} s delay + half of {use.duration:.3g} s)")
+                     + f"{use.delay:.3g} s delay + half of {use.duration:.3g} s)")
     if not uses:
         parts.append("no curse in the build")
     ratio = min(1.0, rate / speed)
@@ -10141,6 +10157,16 @@ class ParryPlan:
     how: str
 
 
+# "Parried enemies take more Spell Damage instead of more Attack Damage" (MECH86; the catalog's parry-blind entry, an
+# OVERCOUNT): the unique buckler Nocturne (PoB Data/Uniques/shield.lua; poe2db Nocturne). PoB ignores the line (ModCache:
+# unparsed), and its Parry box (ConfigOptions parryActive -> base_parry_buff_damage_taken_+%_final_to_apply, SkillStatMap
+# 2868-2871: DamageTaken MORE with ModFlag.Attack) still gives the boss 50% more Attack damage taken. With the line the
+# boss takes more Spell damage instead, so an Attack main skill gains nothing from parrying: the plan doesn't parry (the
+# box stays off, no time lost). A Spell main skill would gain; PoB has no Spell form of the box, so that gain isn't
+# modelled (an UNDERCOUNT, named in the plan's text). Read from stats["_texts"] (conditions' stats; assumptions passes it).
+PARRIED_SPELL_INSTEAD = re.compile(r"^Parried enemies take more Spell Damage instead of more Attack Damage$", re.I)
+
+
 def parry_plan(skills: list[Skill], stats: dict, attack: bool, consumes: bool = False,
                stun: tuple[float, str] = (0.0, ""), refute: tuple[float, str] = (0.0, "")) -> ParryPlan:
     """How a reasonable player uses the build's Parry / Refutation against the boss, if it pays (only Attack damage gains):
@@ -10155,6 +10181,10 @@ def parry_plan(skills: list[Skill], stats: dict, attack: bool, consumes: bool = 
     names = {s.name: s for s in skills if s.name in PARRY_SKILLS}
     if not names:
         return ParryPlan(0.0, 0.0, "")
+    if any(PARRIED_SPELL_INSTEAD.match(str(t).strip()) for t in stats.get("_texts") or ()):  # (MECH86: Nocturne)
+        return ParryPlan(0.0, 0.0, f"{', '.join(names)}: Parried enemies take more Spell Damage instead of more Attack "
+                                   "Damage (Nocturne), so " + ("an Attack main skill gains nothing from it: not used" if attack
+                                   else "a Spell main skill would gain, but that isn't modelled (an UNDERCOUNT): not used"))
     if not attack:
         return ParryPlan(0.0, 0.0, f"{', '.join(names)}: Parried raises only Attack damage taken, and the main skill isn't an "
                                    "Attack: not used")

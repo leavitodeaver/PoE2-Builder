@@ -800,16 +800,48 @@ def distance_candidates(lines: list[str], main_types: set[str], presence_radius:
     Presence answer of 11 Nov, the player moves so the boss is in or out of the Presence as needed)."""
     natural = natural_distance(main_types, skill)
     found = [natural]
+    reach = projectile_reach(lines, main_types)[0]
     for text in lines:
         if m := DISTANCE_LINE.search(text):
             found.append(MELEE_DISTANCE)
-            if m.group(1):
+            if m.group(1) and (reach is None or float(m.group(1)) + 0.5 <= reach):  # (MECH86: within the arrows' reach)
                 found.append(float(m.group(1)) + 0.5)
             edge = math.floor(presence_radius * 10) / 10
             if PRESENCE_LINE.search(text) and MELEE_DISTANCE < edge < natural:
                 found.append(edge)
     found = list(dict.fromkeys(found))
     return found if len(found) > 1 else []
+
+
+# A shortened Projectile Range (MECH86; the manager's routed item, 17 Nov 03:27; RESEARCH29 R29-2,
+# research/bow-projectile-range.md). "50% reduced Projectile Range" (projectile_attack_range_+% -50) is the implicit of the
+# Artillery Bow and the Obliterator Bow (Fairgraves' Curse is an Artillery Bow) (checked by RESEARCH29: every exported
+# table with a stat column, scratch/research29/rng2.py, finds no other Mods, PassiveSkills or stat-set user; poe2db's Bows
+# page lists only these two bases with it). PoB reads no Projectile Range. The default arrow range is in no game file:
+# R29-2 puts it at about 12-15 m (MEDIUM-LOW: PoE1's 120-150 units, and Fireball's / Firebolt's overrides of 12 / 10 m
+# shortening it), so half is 6-7.5 m. The lower end, 12 m, is taken (the cautious reading: at the upper one, 15 m, a
+# half-range arrow reaches 7.5 m). The search's distance trial "just beyond a 'further than N m' line" (N + 0.5 m, so
+# 6.5 m for the "further than 6m" lines) is tried only within that reach for a Projectile main skill; out of reach its
+# hits would score 0 there, so the trial isn't offered (the natural 5 m and close range stay within reach). Whether the
+# line scales a skill's own range override (Tornado Shot's nova, Escape Shot) and whether it reaches ground-targeted
+# arrows (Rain of Arrows) are UNVERIFIED (R29-2): the same reach is used for every Projectile main skill.
+PROJECTILE_BASE_RANGE = 12.0  # m (RESEARCH29 R29-2: about 12-15 m, MEDIUM-LOW; the lower end)
+PROJECTILE_RANGE_LINE = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) Projectile Range$", re.I)
+
+
+def projectile_reach(lines: list[str], main_types: set[str]) -> tuple[float | None, str]:
+    """(metres the main skill's projectiles reach, how), or (None, "") when no Projectile Range line changes it or the main
+    skill isn't a Projectile skill (the note above)."""
+    if "Projectile" not in (main_types or set()):
+        return None, ""
+    inc = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+              for t in lines if (m := PROJECTILE_RANGE_LINE.match(str(t).strip())))
+    if inc == 0:
+        return None, ""
+    reach = PROJECTILE_BASE_RANGE * max(1 + inc / 100, 0.0)
+    return reach, (f"your projectiles reach about {reach:g} m ({inc:+g}% Projectile Range on a base of "
+                   f"{PROJECTILE_BASE_RANGE:g} m, RESEARCH29 R29-2, MEDIUM-LOW: the base is about 12-15 m, so "
+                   f"{PROJECTILE_BASE_RANGE * 1.25 * max(1 + inc / 100, 0.0):g} m at its upper end)")
 
 
 # Lines that depend on standing still (PoB's conditionStationary). A build with one has standing still chosen by score
@@ -2063,6 +2095,7 @@ def curse_uses(build: Build, stats: dict, texts: list[str], metres: float | None
     if metres is None:
         metres = number(build.call("getConfig")["input"].get("enemyDistance")) / 10 or natural_distance(set())
     stats = {"_curse_durations": getattr(build, "curse_durations", {}), **stats}  # (MECHB12, A25-41: Assumptions.models')
+    stats = {"_curse_delays": getattr(build, "curse_delays", {}), **stats}  # (MECH86: each curse's own delay)
     # (MECH75) the hand-cast curses the search chose to let run out before each recast (models.CURSE_LAPSE)
     stats["_curse_lapse"] = set(getattr(getattr(build, "objective", None), models.CURSE_LAPSE, None) or ())
     return models.curse_uses(build.groups(), build.ctx.gems, stats, metres, texts, getattr(build, "trigger_rates", None))
@@ -2340,6 +2373,27 @@ def _self_ignited(lines: list[str], stats: dict) -> tuple[object, str, float] | 
 # Elemental Ailments other than Freeze) sit on Mutated Vaal / Exclusive mods the coverage audit finds no current carrier
 # for (its reason text, UNVERIFIED): not modelled here.
 SELF_IMMOLATION_LINE = re.compile(r"^ignites you cause are reflected back to you$", re.I)
+# Buildup on Empowered Attacks (MECH86; the catalog's kw-stun / kw-freeze entries, UNDERCOUNTS of the boss's Heavy Stuns
+# and Freezes): "Empowered Attacks have 50% increased Stun Buildup" (Bravado, warcries16:
+# empowered_attack_hit_damage_stun_multiplier_+%) and "N% increased Freeze Buildup with Empowered Attacks" (cold49 /
+# cold50: hit_damage_freeze_multiplier_+%_with_empowered_attacks) (checked: every Stats.json id holding empower with
+# buildup / stun / freeze, and every table row using them, scratch/mech86/stat_users.py: these three passives alone).
+# PoB never applies either (ModCache: the first unparsed, the second parsed with " with Empowered Attacks " left over).
+# Counted as the same INC on the main skill at the share of its uses that are Empowered (Assumptions.empowered_uses,
+# every Empowering skill of the build at its own use rate): a buildup INC scales each hit's buildup linearly, so the
+# average hit's is exact for the bar's fill. Only for an Attack main skill (the lines name Empowered Attacks).
+EMPOWERED_BUILDUP = re.compile(r"^(?:Empowered Attacks have (\d+(?:\.\d+)?)% increased (Stun|Freeze) Buildup|"
+                               r"(\d+(?:\.\d+)?)% increased (Stun|Freeze) Buildup with Empowered Attacks)$", re.I)
+
+
+def empowered_buildup(texts: list[str]) -> dict[str, float]:
+    """{"Stun" / "Freeze": the summed INC % on Empowered Attacks} from the build's lines (EMPOWERED_BUILDUP)."""
+    out: dict[str, float] = {}
+    for t in texts:
+        if m := EMPOWERED_BUILDUP.match(t.strip()):
+            kind = (m.group(2) or m.group(4)).title()
+            out[kind] = out.get(kind, 0.0) + float(m.group(1) or m.group(3))
+    return out
 REFLECTED_IGNITE_FIELDS = ("IgniteChancePerHit", "Speed", "HitChance", "IgniteDuration", "IgniteAvoidChance",
                            "SelfIgniteDuration", "IgniteDPS", "IgniteEffMult", "SelfIgniteEffect")
 
@@ -5793,6 +5847,32 @@ def _parried_recently(lines: list[str], stats: dict) -> tuple[object, str]:
                     f"parrying: off)")
 
 
+# "if you have Stunned an Enemy Recently" (MECH86; the catalog's kw-stun entry, an UNDERCOUNT: Breaking Blows' "12%
+# increased Area of Effect if you have Stunned an Enemy Recently" and Shockwaves' "25% increased Area of Effect if you've
+# Stunned an Enemy with a Two Handed Melee Weapon Recently" (tree.json) parse to PoB's Condition:StunnedEnemyRecently
+# (ModCache 1948, 3228; the second also needs a Two Handed Melee weapon, which PoB checks), whose box nothing set). A Stun
+# is a Light or a Heavy one (KeywordPopups Stun: "There are two types of Stun"), and Recently is the last 4 s
+# (KeywordPopups Recently). The build's own Stuns of the boss from the main skill's hits (models.stun_rate: Heavy Stuns
+# from heavy_stun_rate, one every so many seconds, so on min(1, 4 x rate) of the fight; Light Stuns from light_stun_rate,
+# taken as random in time, 1 - e^(-4 x rate)); the two combined as independent. Other skills' Stuns aren't read (an
+# undercount, LOW). No Stuns (the 15% Light Stun floor, a bar that never fills, "Your Hits cannot Stun"): off.
+STUNNED_ENEMY_RECENTLY = re.compile(r"\bstunned an enemy\b[^.]*\brecently\b", re.I)
+STUN_FIELDS = (*models.IMMOBILISE_FIELDS, "Flag:CannotStun")  # (light_stun_rate reads the hit / crit averages too)
+
+
+def _stunned_enemy_recently(lines: list[str], stats: dict) -> tuple[object, str]:
+    if not any(STUNNED_ENEMY_RECENTLY.search(t) for t in lines):
+        return 0.0, ""
+    heavy, heavy_how = models.heavy_stun_rate(stats)
+    light, light_how = models.light_stun_rate(stats, "Melee" in (stats.get("_main_types") or set()))
+    up = 1.0 - (1.0 - min(1.0, RECENTLY * max(heavy, 0.0))) * math.exp(-RECENTLY * max(light, 0.0))
+    if up < MIN_UPTIME:
+        return 0.0, (f"the main skill doesn't Stun the boss (Heavy: {heavy_how}; Light: {light_how}): off")
+    return _box(up, f"the main skill Stuns the boss: Heavy {heavy:.3f}/s ({heavy_how}), Light {light:.3f}/s "
+                    f"({light_how}); Stunned in the last {RECENTLY:g} s {up:.0%} of the fight ({shared(up)}; Light "
+                    f"Stuns taken as random in time; without Stuns: off)")
+
+
 def _parried(lines: list[str], stats: dict) -> tuple[object, str]:
     """PoB's "Enemy has Parry Debuff" box (50% more Attack damage taken) at the share of the main skill's hits that land on
     a Parried boss (models.parry_plan; MECH39: before, nothing set it, so Parry and Refutation counted 0)."""
@@ -5898,6 +5978,8 @@ CONDITIONS: list[Condition] = [
     Condition("parryActive", "Parried", value_fn=_parried, fields=("enemySkillTime", "Ward")),
     Condition("conditionParriedRecently", "Parried recently (MECH85: the build's Parry plan)",
               value_fn=_parried_recently, fields=("enemySkillTime", "Ward")),
+    Condition("conditionStunnedEnemyRecently", "Stunned the boss recently (MECH86: the main skill's Heavy and Light Stuns)",
+              value_fn=_stunned_enemy_recently, fields=STUN_FIELDS),
     Condition("clashCondition", "The boss's Life % above yours (Clash)", value_fn=_clash,
               fields=("Life", "LifeUnreserved")),  # (MECH76)
     Condition("arcLightningInfused", "Arc Lightning-Infused", value_fn=_arc_infused),  # (MECH77, MA-1)

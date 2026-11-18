@@ -1648,7 +1648,10 @@ class Assumptions:
         build.minion_lives = minion_lives(build, found)  # (MECHB12, A25-2: Minion Pact's Kills read the minions' Life)
         # (MECHB12, A25-41: each curse's own duration, PoB's with the build's modifiers, for curse_uses)
         build.curse_durations = {s["name"]: s["curseDuration"] for s in skills if s.get("curseDuration")}
-        stats = {**stats, "_minion_lives": build.minion_lives, "_curse_durations": build.curse_durations}
+        # (MECH86: each curse's activation delay, PoB's with the build's modifiers, for curse_uses / hexblast_model)
+        build.curse_delays = {s["name"]: s["curseDelay"] for s in skills if s.get("curseDelay") is not None}
+        stats = {**stats, "_minion_lives": build.minion_lives, "_curse_durations": build.curse_durations,
+                 "_curse_delays": build.curse_delays}
         if any(s.name == models.SACRIFICE for s in found):  # (MECH-B, MECHB19, A27-4: Sacrifice's corpses, the build's own
             # undead Reviving minion deaths, for models.corpse_supply's readers)
             stats = {**stats, models.SACRIFICE_CORPSES_STAT: models.sacrifice_corpses(found, main, stats)}
@@ -1824,6 +1827,19 @@ class Assumptions:
                                "value": f"{burn:,.0f} Fire a second", "basis": burn_how,
                                "confidence": "MEDIUM (avoidance applied; the reflected Ignite's duration yours, "
                                              "UNVERIFIED; the main skill's Ignite only)"})
+        if (emp_buildup := conditions_mod.empowered_buildup(texts)) and main is not None:
+            # (MECH86: Bravado / cold49 / cold50: buildup on Empowered Attacks at the main skill's Empowered share)
+            emp_uses, emp_how = self.empowered_uses(stats, None) if main.attack else (0.0, "the main skill isn't an Attack")
+            emp_speed = models.number(stats.get("Speed"))
+            emp_share = min(1.0, emp_uses / emp_speed) if emp_speed > 0 else 0.0
+            for kind, inc in emp_buildup.items():
+                if emp_share > 0:
+                    hand_mods = hand_mods + [models.line(f"1% increased {kind} Buildup", inc * emp_share, skill=main.name)]
+                hand_notes.append({"label": f"{kind} Buildup on Empowered Attacks*",
+                                   "value": f"+{inc * emp_share:.3g}% on {main.name} ({inc:g}% x {emp_share:.0%})",
+                                   "basis": f"{emp_share:.0%} of {main.name}'s uses are Empowered: {emp_how} (without "
+                                            "Empowering skills: 0)",
+                                   "confidence": "MEDIUM (the Empowered share, Assumptions.empowered_uses)"})
         exposure_flags += redflare
         if redflare_how:
             hand_notes.append({"label": "Shocked by your own item on reaching maximum Charges*", "value": "damage taken",
@@ -1978,7 +1994,7 @@ class Assumptions:
                       else (0.0, ""))  # (MECH-C: Heavy Stun from parrying, MECHC30)
         refute_stun = (recovery_mod.refutation_stun_of(build) if any(s.name == "Refutation" for s in found)
                        else (0.0, ""))  # (MECH-C: Heavy Stun from Refutation's blocks, MECHC30)
-        parry_mods, parry_notes = models.parry_model(found, stats, main, bool(({name} | main_gems) & models.PARRY_CONSUMERS),
+        parry_mods, parry_notes = models.parry_model(found, {**stats, "_texts": texts}, main, bool(({name} | main_gems) & models.PARRY_CONSUMERS),
                                                      parry_stun, refute_stun)
         hand_mods, hand_notes = hand_mods + parry_mods, hand_notes + parry_notes
         presses: dict[str, tuple[float, str]] = {}  # (item-granted skills the build presses: models.ITEM_PRESSES)

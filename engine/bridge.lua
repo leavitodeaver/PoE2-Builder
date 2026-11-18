@@ -4255,6 +4255,15 @@ function bridge.activeSkills(args)
 			curseDuration = types[SkillType.AppliesCurse] and activeSkill.skillData.duration and jsonNumber(
 				((activeSkill.skillData.duration or 0) + activeSkill.skillModList:Sum("BASE", activeSkill.skillCfg, "Duration", "PrimaryDuration"))
 				* calcLib.mod(activeSkill.skillModList, activeSkill.skillCfg, "Duration", "PrimaryDuration")) or nil,
+			-- (MECH86) a curse's activation delay with the build's modifiers, as CalcOffence 1576-1580 builds
+			-- output.CurseDelay: (curse_delay_duration_ms + CurseDelayBase) / CurseActivation ("N% faster Curse
+			-- Activation": passives, jewels, runes, uniques) x CurseDelay (Focused / Ritualistic Curse, "no Activation
+			-- Delay", "Double Activation Delay"), rounded up to a server tick; models.curse_uses
+			curseDelay = types[SkillType.AppliesCurse] and jsonNumber(math.ceil(
+				((activeSkill.skillData.curseDelay or 0) + activeSkill.skillModList:Sum("BASE", activeSkill.skillCfg, "CurseDelayBase"))
+				/ calcLib.mod(activeSkill.skillModList, activeSkill.skillCfg, "CurseActivation")
+				* calcLib.mod(activeSkill.skillModList, activeSkill.skillCfg, "CurseDelay") * data.misc.ServerTickRate)
+				/ data.misc.ServerTickRate) or nil,
 			-- (MECH62, AUDIT27 A27-2) a Mark's own duration with the build's modifiers ("Mark Skills have N% increased
 			-- Skill Effect Duration": Duration on SkillType Mark, ModCache; mark_skill_duration_+% on jewels, passives and
 			-- Marksman influence), built as curseDuration; models.mark_duration
