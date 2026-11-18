@@ -706,6 +706,17 @@ def gem_stat_pattern_entry(stat: str, skill: str | None = None):
 
 
 
+# Item-pool mods (PoB "Item": the essence-style mods) that no league character can get, each settled by research with
+# its evidence (COV40; memory poe1-leftovers.md: check that a PoE2 source carries a line before counting it as work).
+# Not a rule for every "...Essence1" mod: a mod id is listed only after research (Way of the Stonefist's HandWraps twins
+# of Essence mods, e.g., have no EssenceMods row of their own yet are obtainable, RESEARCH30 R30-3).
+NOT_OBTAINABLE = {
+    "CrushOnHitChanceEssence1": (
+        "\"(15-25)% chance to Crush on Hit\" has no PoE2 Essence behind it (RESEARCH30 R30-1, MEDIUM-HIGH; checked "
+        "there: no EssenceMods row (Mod, DisplayMod or OutcomeMods) points at it, spawn weight 0 in game Mods and PoB "
+        "ModItem, it sits among PoE1-style Essence leftovers; poe2db Crush / Crushed list no Essence; game 26650308)"),
+}
+
 def legacy_variant_templates(data_dir: Path) -> dict[tuple[str, str], list[str]]:
     """(unique, line template) -> the old variants it is on, for lines every copy of which (on that unique) is tagged
     only with "Pre 0.x" variants in PoB's raw text (uniques.json); COV40, see audit's "Legacy unique variants"."""
@@ -937,6 +948,12 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
             record["reason"] = (f"a legacy variant's line ({', '.join(legacy[record['source'], record['template']])} "
                                 "only): no new item carries it (league-obtainable only; PoB equips the current "
                                 "variant); was: " + record["reason"])
+    # Item mods no league character can get (COV40), each settled by research, by mod id (NOT_OBTAINABLE)
+    for record in records:
+        if (record["status"] == "none" and record["source"].startswith("Item ")
+                and (why := NOT_OBTAINABLE.get(record["source"].split()[1]))):
+            record["status"] = "unreachable"
+            record["reason"] = f"not league-obtainable: {why}; was: " + record["reason"]
     # Recovery lines no rate reads yet (recovery.EVENT_UNREAD, MECH-C's list; AUDIT27 A27-32, COV20): named as routed
     # undercounts, so no recovery line is dropped silently (the user's every-recovery-source rule)
     for record in records:

@@ -749,3 +749,15 @@ def test_legacy_variant_lines_are_unreachable(tmp_path):
     reduced = ("Bones of Ullr", template("20% reduced Reservation Efficiency of Skills which create Undead Minions"))
     assert legacy == {reduced: ["Pre 0.1.1", "Pre 0.3.0"]}
     assert legacy_variant_templates(tmp_path / "missing") == {}
+
+
+def test_researched_unobtainable_item_mods_are_unreachable():
+    """COV40 (RESEARCH30 R30-1): the Essence-style "chance to Crush on Hit" mod has no PoE2 Essence, so its row is
+    unreachable, with the evidence in its reason; Way of the Stonefist's HandWraps twins (R30-3) aren't listed."""
+    from builder.ledger import coverage
+
+    assert "CrushOnHitChanceEssence1" in coverage.NOT_OBTAINABLE
+    assert not any(k.startswith("HandWraps") or k.startswith("Alloy") for k in coverage.NOT_OBTAINABLE)
+    report = coverage.audit()
+    crush = [r for r in report["records"] if r["source"] == "Item CrushOnHitChanceEssence1"]
+    assert crush and all(r["status"] == "unreachable" and "RESEARCH30" in r["reason"] for r in crush)
