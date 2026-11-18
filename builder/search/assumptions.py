@@ -2217,6 +2217,9 @@ class Assumptions:
             det_mods, det_notes = models.detonated_set_model(main, main.stat_set, sets, number(stats.get("Speed")),
                                                              det_rate, det_how, forbidden)
             hand_mods, hand_notes = hand_mods + det_mods, hand_notes + det_notes
+        if main is not None and main.name == models.BONESTORM:  # (GEM19: a full channel of spikes, not PoB's one)
+            bs_mods, bs_notes = models.bonestorm_model(main, forbidden)
+            hand_mods, hand_notes = hand_mods + bs_mods, hand_notes + bs_notes
         if main is not None and main.name == models.FLAMEBLAST:  # (GEM18: its stages and its channel + cooldown cycle)
             fb_mods, fb_notes = models.flameblast_model(main, stats, forbidden)
             hand_mods, hand_notes = hand_mods + fb_mods, hand_notes + fb_notes

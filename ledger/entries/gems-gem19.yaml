@@ -200,3 +200,24 @@
             "vendor/PathOfBuilding-PoE2/src/Data/Skills (DetonatingArrowPlayer)", "scratch/manager/research/patchnotes (0.3.0)"]
   test_in_game: "Optional: Detonating Arrow released short of 4 stages: no explosion."
   status: proposed
+
+- id: model-gem19-bonestorm-spikes
+  title: "Bonestorm: channelled to its full spikes (PoB scored 1 spike a release at the 0.3 s minimum channel)"
+  kind: model
+  model: bonestorm
+  stats: []
+  skill: [Bonestorm]
+  confidence: MEDIUM
+  notes: >-
+    models.bonestorm_model (GEM19). Game (26650308): ActiveSkills bonestorm "Channel to conjure a swarm of bone spikes
+    in the air, then release to fire them at enemies and explode"; BonestormPlayer CastTime 125 ms, up to 20 spikes
+    (base_number_of_allowed_bone_storm_projectiles, "Can fire up to {0} Projectiles"), 0.3 s minimum channel. PoB: the
+    stage from its stage box (1; nothing sets it), DpsMultiplier = stages, hit time = ceil(stages / projectiles) x cast
+    time, at least 0.3 s: one spike per 0.3 s (an UNDERCOUNT of about x2.4 against one per 0.125 s). Here:
+    Multiplier:BonestormStage BASE (20 - 1); PoB caps it at its own maximum and computes the hit time and spike count.
+    A release animation (skill_animation_duration_multiplier_override 6, if it is one) not counted (UNVERIFIED).
+  sources: ["builder/search/models.py (bonestorm_model)", "data/game-26650308/tables/GrantedEffectStatSets.json (BonestormPlayer)",
+            "data/game-26650308/tables/GrantedEffects.json (BonestormPlayer CastTime)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills (BonestormPlayer preDamageFunc)"]
+  test_in_game: "Optional: Bonestorm channelled to 20 spikes vs released at once: spikes a second."
+  status: proposed

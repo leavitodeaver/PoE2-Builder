@@ -1062,3 +1062,13 @@ def test_detonating_arrow_at_one_stage_steers_off_the_explosion():
     assert [m["name"] for m in mods] == ["Damage"] and mods[0]["value"] == pytest.approx(100 * (factor - 1), abs=0.05)
     mods, _ = models.detonating_arrow_model(da, "Arrow", sets, {"Time": 1.852}, 1)
     assert mods[0]["name"] == "DPS" and mods[0]["value"] == pytest.approx(100 * (1 / 1.2344 - 1), abs=0.01)
+
+
+def test_bonestorm_channels_its_full_spikes():
+    # (GEM19) PoB: 1 spike a release at the 0.3 s minimum channel; a full channel is 20 spikes at 0.125 s each
+    bs = Skill("Bonestorm", 1)
+    mods, notes = models.bonestorm_model(bs)
+    assert mods == [models.raw_mod("Multiplier:BonestormStage", "BASE", 19, "Bonestorm")]
+    assert notes[0]["entry"] == "model-gem19-bonestorm-spikes"
+    assert models.bonestorm_model(bs, {"model-gem19-bonestorm-spikes"}) == ([], [])
+    assert models.bonestorm_model(Skill("Bonestorm", 1, triggered=True)) == ([], [])

@@ -6970,6 +6970,37 @@ def detonating_arrow_model(main: Skill | None, scored: str | None, sets: list[di
                  "of this.")}]
 
 
+# Bonestorm's spikes (GEM19; an UNDERCOUNT of about x2.4 at base). The game (26650308): ActiveSkills bonestorm "Channel
+# to conjure a swarm of bone spikes in the air, then release to fire them at enemies and explode"; BonestormPlayer
+# CastTime 125 ms (a spike a cast), base_number_of_allowed_bone_storm_projectiles 20 ("Can fire up to {0} Projectiles"),
+# base_minimum_channel_time_ms 300. PoB (BonestormPlayer): the stage (spikes) from its stage box (1; nothing sets it),
+# DpsMultiplier = stages, hit time = ceil(stages / projectiles) x the cast time, at least the 0.3 s minimum: so 1 spike
+# per 0.3 s where a full channel fires one per 0.125 s. Here: Multiplier:BonestormStage BASE (top - 1), top the most
+# spikes allowed (PoB caps the stage at its own MaxStages); past 0.3 s of channel every spike costs the same time, so
+# the full channel deals the most a second (a release animation, if skill_animation_duration_multiplier_override 6 is
+# one, would favour it more; not counted: UNVERIFIED, an OVERCOUNT of the rate if it's real). MEDIUM.
+BONESTORM, BONESTORM_ENTRY = "Bonestorm", "model-gem19-bonestorm-spikes"
+BONESTORM_MAX = 20  # base_number_of_allowed_bone_storm_projectiles
+
+
+def bonestorm_model(main: Skill | None, forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Bonestorm channelled to its most spikes before each release (comment above)."""
+    if main is None or main.name != BONESTORM or BONESTORM_ENTRY in forbidden or main.triggered:
+        return [], []
+    top = max(1, int(number((main.level_stats or {}).get("base_number_of_allowed_bone_storm_projectiles"))
+                     or BONESTORM_MAX))
+    if top <= 1:
+        return [], []
+    return [raw_mod(f"Multiplier:{BONESTORM}Stage", "BASE", top - 1, main.name)], [{
+        "label": f"{main.name}: {top} spikes a channel*", "value": f"{top} spikes", "confidence": "MEDIUM",
+        "entry": BONESTORM_ENTRY,
+        "basis": (f"PoB scored 1 spike a release (its stage box) at the 0.3 s minimum channel. The game: a spike a cast "
+                  f"time, up to {top}; past the minimum every spike costs the same time, so a full channel ({top}) deals "
+                  "the most a second (PoB's own hit time and spike count follow the stage; a release animation not "
+                  "counted, UNVERIFIED)"),
+        "play": f"Channel {main.name} to its {top} spikes before releasing; short channels lose time to the 0.3 s minimum."}]
+
+
 # Shockwaves only on a Heavy Stun (GEM18; OVERCOUNTS: PoB scores the Shockwave set as if every use made one, and the
 # search kept it: probe POE2T3411, level-90 searches, Boneshatter "Shockwave" 382.1 vs "Initial Strike" 53.8 (x7.1),
 # Wing Blast "Shockwave" 330.5 vs "Wing Blast" 58.3 (x5.7)). The game (ActiveSkills, 26650308): Boneshatter "The Strike
