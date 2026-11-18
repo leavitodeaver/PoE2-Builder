@@ -5352,8 +5352,8 @@ class Assumptions:
         after the main skill's consume) joined with the build's other groups' Shocks, which that share doesn't hold (only
         Ignite has _ailment_others). Each other group: its uses a second (conditions.skill_use_rate with the search's
         press choices, as conditions.overcharge_sources; a triggered group at its own rate) x HitChance x its Shock
-        chance per hit (PoB's ShockChance; the bridge's rows don't carry it yet, so 0 until they do: an UNDERCOUNT,
-        labelled). A consumer (Siphoning Strike, Shockchain Arrow): conditions.consumed_share with those
+        chance per hit (the bridge's ShockChancePerHit, MECH86's fix in train 76: probe POE2T3457 read it, Orb of Storms
+        0.053% a hit at level 90 with no chance-to-Shock line). A consumer (Siphoning Strike, Shockchain Arrow): conditions.consumed_share with those
         applications as `extra` (the Shock ends on the next hit, then 1 s immune); else each Shock lasts the main skill's
         ShockDuration (the global duration modifiers; a group's own not read), applications random in time:
         1 - e^(-applications x duration), joined with the resolver's share as independent."""
@@ -5371,7 +5371,7 @@ class Assumptions:
         for row in (build.call("useRates", indices=indices)["rates"] if indices else []):
             # (PoB writes Shock's chance per hit as ShockChance (CalcOffence 5117, calcAilmentDamage); "<Ailment>ChancePerHit"
             # only for the damaging ailments (calcDamagingAilmentOutputs, 5196-5226): probe POE2T3426 found no
-            # ShockChancePerHit even at 100%. The bridge's rows carry neither yet (its useRates field list): read either)
+            # ShockChancePerHit even at 100%. MECH86 (train 76) makes the bridge write ShockChancePerHit: read either)
             chance = min(number(row.get("ShockChance")) or number(row.get("ShockChancePerHit")), 100.0) / 100.0
             if chance <= 0:
                 continue
@@ -5379,11 +5379,10 @@ class Assumptions:
             rate = uses * min(number(row.get("HitChance")) or 100.0, 100.0) / 100.0 * chance
             if rate > 0:
                 applied += rate
-                parts.append(f"{row.get('name')} {rate:.2f} Shocks/s")
+                parts.append(f"{row.get('name')} {rate:.3g} Shocks/s ({chance:.3%} a hit)")
             else:
                 parts.append(f"{row.get('name')} not counted (no uses: no cooldown, duration or press chosen)")
-        others = "; ".join(parts) or ("no other skill's Shock chance read (the bridge's rows don't carry PoB's "
-                                      "ShockChance yet: an UNDERCOUNT where other skills Shock)")
+        others = "; ".join(parts) or "no other skill Shocks the boss (no Shock chance on the other groups' rows)"
         share, how = self._shocked_hits(base, up_how, hits, applied, others, consumes, stats)
         if main_skill == "Siphoning Strike":  # (it reads Shock alone; the other two any Lightning Ailment)
             return share, how

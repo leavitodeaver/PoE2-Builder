@@ -12,8 +12,8 @@
     Dash's 69.7 (an OVERCOUNT, x5.5). The Strike never Shocks (SiphoningStrikePlayer never_shock; no stat removes it:
     checked every table's stat columns for never_shock / virtual_never_shock, 18 skill and support stat sets carry it,
     no Mods row), so the Shock comes from the build's other skills (each group's uses a second at the search's press
-    choices x HitChance x its Shock chance per hit, PoB's ShockChance, which the bridge's useRates rows don't carry
-    yet: 0 until they do, an UNDERCOUNT where other skills Shock, labelled; probe POE2T3426) and Shocked Ground: Assumptions.shock_set_share, the share of Strikes that
+    choices x HitChance x its Shock chance per hit, PoB's ShockChance, which the bridge's useRates rows didn't
+    carry (probe POE2T3426) until MECH86's ShockChancePerHit (train 76; GEM20's probe POE2T3457 reads it)) and Shocked Ground: Assumptions.shock_set_share, the share of Strikes that
     find the boss Shocked, consumed on the next Strike then 1 s immune (conditions.consumed_share). DPS = Dash +
     Shockwave x that share. None: 0 shockwaves; a Shockwave set scored with none gets the Dash x 0.9 (a Damage line) so
     the search keeps the Dash. The Power Charge on a consume is not counted here (MECH-C's charges).
