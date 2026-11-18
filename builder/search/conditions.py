@@ -6693,9 +6693,12 @@ class Conditions:
         models.infernal_legion_ignited(skills, main, stats) -> (share, how) (MECHB30's H1-7: the boss Ignited while a
         supported melee minion stands at it and lives); it joins Radiant Grief's aura as a ground-like source of the
         Ignited share (ailment_uptime's _ailment_ground: every Ignited reader). (0.0, "") until that model is on the
-        branch or without an Infernal Legion gem."""
+        branch or without an Infernal Legion / Catha's Brilliance gem."""
         model = getattr(models, "infernal_legion_ignited", None)
-        if model is None or not any(n.startswith("Infernal Legion") for n in names):
+        # (MECH87, PATCH_CHECK H1-7: Catha's Brilliance too, MECHB37's models.INFERNAL_LEGION; was the "Infernal Legion"
+        # names only, so its minions' Ignite never reached the Ignited share: an UNDERCOUNT)
+        if model is None or not any(n in getattr(models, "INFERNAL_LEGION", ()) or n.startswith("Infernal Legion")
+                                    for n in names):
             return 0.0, ""
         found, main, stats = self._minion_inputs()
         share, how = model(found, main, stats)

@@ -144,3 +144,18 @@ def test_a_reflected_ignite_keeps_the_inflicted_duration():
     # 1 Ignite a second, half avoided: over the inflicted 8 s, 1 - 0.5^8; over your own on-you 2 s (the row), 1 - 0.5^2
     assert up == pytest.approx(1 - 0.5 ** 8) and "over 8.0 s" in how
     assert "if your own on-you duration applied (2.0 s): 75%" in how
+
+
+def test_cathas_brilliance_reaches_the_minion_ignite(monkeypatch):
+    """PATCH_CHECK H1-7: Catha's Brilliance's minions Ignite the boss (MECHB37's models.INFERNAL_LEGION); MECH-A's
+    gate read the "Infernal Legion" names only."""
+    from builder.search import models
+
+    seen = []
+    monkeypatch.setattr(models, "infernal_legion_ignited", lambda found, main, stats: (seen.append(1) or (0.4, "test")),
+                        raising=False)
+    cond = conditions.Conditions.__new__(conditions.Conditions)
+    cond._minion_inputs = lambda: ([], None, {})
+    assert cond.minion_ignite({"Catha's Brilliance", "Summon Skeletal Warriors"})[0] == pytest.approx(0.4)
+    assert cond.minion_ignite({"Infernal Legion II"})[0] == pytest.approx(0.4)
+    assert cond.minion_ignite({"Summon Skeletal Warriors"}) == (0.0, "") and len(seen) == 2
