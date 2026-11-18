@@ -399,3 +399,32 @@ def test_source_lines_give_only_the_equipped_variants_lines(engine):
 
     assert repeats(2) == [repeat.format("2 times")]
     assert repeats(1) == [repeat.format("1 time")]
+
+
+def test_the_pharisee_idols_physical_gain_counts_per_ten_percent_missing_mana(engine):
+    """COV42: Idol of the Pharisee's "Gain 2% of Damage as Extra Physical Damage per ten percent missing Mana" (PoB: 0)
+    becomes PoB's own "Gain 2% ..." at the share PhariseeManaTens sets (the average tens of Mana missing, Force of Will's
+    count): 0 tens nothing, 5 tens (500) the same as a plain "Gain 10% of Damage as Extra Physical Damage"."""
+    from builder.ledger.items import _bases, corrected_item
+    from builder.search import models
+
+    payload = make_payload(BuildRequest(main_skill="Spark"))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    staff = next(n for n, b in _bases().items() if b["type"] == "Staff" and not b.get("hidden"))
+    head = ["Rarity: Rare", "Test Staff", staff]
+
+    def dps(lines, tens):
+        build.call("setAssumptions", mods=[models.raw_mod("Multiplier:LedgerSharePhariseeManaTens", "BASE", tens)])
+        build.call("equip", slot="Weapon 1", raw="\n".join(head + lines), fields=[])
+        return build.call("stats", fields=["TotalDPS"])["TotalDPS"]
+
+    idol = corrected_item("\n".join(head + ["Sockets: S", "Rune: Idol of the Pharisee", "Implicits: 0"])).split("\n")[3:]
+    plain = dps(["Sockets: S", "Rune: Idol of the Pharisee", "Implicits: 0"], 500)  # PoB alone: no gain
+    assert dps(idol, 0) == pytest.approx(plain, rel=1e-9)
+    five = dps(idol, 500)
+    flat = dps(["Sockets: S", "Rune: Idol of the Pharisee", "Implicits: 1",
+                "Gain 10% of Damage as Extra Physical Damage"], 0)
+    assert five > plain and five == pytest.approx(flat, rel=1e-6)

@@ -110,3 +110,54 @@
     refilled at its regeneration), when the build has an "on Full Mana" line. Mods UniqueFullManaThreshold1 (Idle Hands).
   sources: ["builder/search/conditions.py (FULL_MANA_AT, full_mana_at, _full_mana, mana_above_share)"]
   status: proposed
+
+- id: model-read-pin-duration
+  title: '"N% increased / reduced Pin duration" (models.pin_duration_scale, MECH66)'
+  kind: pob_gap
+  model: ailment_thresholds
+  match: '^(\(\d+-\d+\)|\d+(?:\.\d+)?)% (increased|reduced) Pin duration$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Stat pin_duration_+% (passives pin3 / 5 / 6 / 8; Soul Core of Opiloti in a helmet). PoB has no Pin duration and parses
+    the line into nothing it reads (models.py's MECH66 note; COV-E's check of ModParser / Calc*.lua, 12 Nov). Since MECH66
+    models.pin_duration_scale reads it (duration_scale(texts, "Pin"): increased lines add, reduced subtract) and
+    immobilised_share lengthens the Pin's 3 s (KeywordPopups Pinned) by it, so the share of the fight the boss is Pinned,
+    and every "against Pinned / Immobilised" line counted at that share, move with it. The texts are bridge.sourceLines
+    (passives and items alike).
+  sources: ["builder/search/models.py (DURATION_LINE, duration_scale, pin_duration_scale, immobilised_share)"]
+  status: proposed
+
+# Idol of the Pharisee (martial weapon, wand or staff): "Gain 2% of Damage as Extra Physical Damage per ten percent
+# missing Mana" (with "30% reduced maximum Mana", which PoB applies). PoB parses the line into nothing (the audit: PoB
+# ignores it), so it counted 0: an UNDERCOUNT. The tens of Mana missing are Force of Will's count (COV31,
+# Assumptions.mana_missing_tens: the main skill's Mana drain and the boss's hits taken from Mana against Mana
+# regeneration, the average tens missing; nothing drains Mana: 0), the rate the build itself sets, not a flat one.
+
+- id: PhariseeManaTens
+  title: Tens of Mana missing on average (Idol of the Pharisee)
+  kind: condition
+  # A count (as ForceOfWillTens): the average tens of Mana missing, in whole percent of a ten
+  missing_mana_tens: true
+  shown_for: 'of Damage as Extra Physical Damage per ten percent missing Mana'
+  confidence: theory
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModRunes.lua (Idol of the Pharisee)",
+            "builder/search/assumptions.py (mana_missing_tens, missing_mana_tens)"]
+  status: proposed
+
+- id: items-gain-physical-per-ten-missing-mana
+  title: 'Idol of the Pharisee, "Gain N% of Damage as Extra Physical Damage per ten percent missing Mana" at PhariseeManaTens'
+  kind: pob_gap
+  match: '^Gain (\d+(?:\.\d+)?)% of Damage as Extra Physical Damage per ten percent missing Mana$'
+  replace: ['share:PhariseeManaTens Gain {1}% of Damage as Extra Physical Damage']
+  confidence: theory
+  notes: >-
+    PoB's own "Gain N% of Damage as Extra Physical Damage" (DamageGainAsPhysical BASE N, ModCache 7536) counted x the
+    average tens of Mana missing (a `share:` line on an item: LedgerShare's stand-in, counted at
+    Multiplier:LedgerSharePhariseeManaTens / 100, the count in whole percent of a ten). The count is the average over the
+    fight (MEDIUM-LOW, as Force of Will's: Mana flasks, leech and recoup not counted, an overcount of the missing Mana;
+    other skills' costs not counted, an undercount). The play guide shows it as the condition's row.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModRunes.lua (Idol of the Pharisee)", "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:7536",
+            "ledger/entries/coverage-batch1.yaml (ForceOfWillTens, force-of-will)"]
+  test_in_game: "With the Idol, spend Mana down to half: the tooltip's damage gains about 10% as extra Physical (5 tens x 2%)."
+  status: proposed

@@ -289,7 +289,9 @@ def test_jiquanis_thesis_boots_line_reaches_pob_whole_and_movement_speed_alone_i
     assert translate("apply to Energy Shield Recharge Rate")[0].id == "uniques-waveshaper-second-line"
     assert translate("5% reduced Movement Speed Penalty from using Fire Skills while moving")[0].id == "no-effect-movement-speed"
     assert translate("(10-15)% increased Attack and Movement Speed while you have a Bestial Minion") is None
-    assert translate("5% increased Pin duration") is None  # retired: the Pinned uptime is modelled (A12-1)
+    # retired as "no effect": the Pinned uptime is modelled (A12-1); since COV42 the model-read entry says so, adding nothing
+    assert [translate("5% increased Pin duration")[0].id, translate("5% increased Pin duration")[1]] == [
+        "model-read-pin-duration", []]
     if not unparsed_templates():
         pytest.skip("no coverage.json in the data dump")
     boots = next(n for n, b in _bases().items() if b["type"] == "Boots" and not b.get("hidden"))
