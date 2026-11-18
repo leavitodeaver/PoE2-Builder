@@ -1120,7 +1120,7 @@ def test_gas_arrow_explodes_only_on_ignite_or_detonation():
     # the Poison Cloud set's fake hit is replaced by the hits; its Poison stays (a DPS line)
     mods, notes = models.gas_arrow_model(ga, "Poison Cloud", sets, 0.5, "")
     assert mods[0]["value"] == pytest.approx(100 * ((38.0 + 81.2) / 88.6 - 1), abs=0.01)
-    assert "Poison stays" in notes[0]["basis"]
+    assert "applications a cloud" in notes[0]["basis"]
     assert models.gas_arrow_model(ga, "Explosion", sets, 0.5, "", {"model-gem20-gas-arrow-ignite-explosion"}) == ([], [])
     assert models.gas_arrow_model(Skill("Lightning Rod", 1), "Explosion", sets, 0.5, "") == ([], [])
 
@@ -1136,15 +1136,17 @@ def test_frozen_locus_explodes_when_its_crystal_breaks():
     # (GEM20) probe POE2T3441: Crystal 0, Explosion 254.3 at 0.98 casts a second
     sets = [{"label": "Crystal", "TotalDPS": 0.0}, {"label": "Explosion", "TotalDPS": 254.3}]
     fl = Skill("Frozen Locus", 1)
-    mods, notes = models.frozen_locus_model(fl, "Explosion", sets, 0.98, 0.0, 0.5, "the boss")
     import math
+    # the build's own breakers at 0.5 a second: the headline (RESEARCH30 R30-5: the boss's hits only a LOW row)
+    mods, notes = models.frozen_locus_model(fl, "Explosion", sets, 0.98, 0.5, 0.5, "breakers")
     q = 1 - math.exp(-5.0)
     rate = q / (1 / 0.98 + q / 0.5)
     assert mods[0]["name"] == "DPS" and mods[0]["value"] == pytest.approx(100 * (rate / 0.98 - 1), abs=0.01)
-    assert notes[0]["entry"] == "model-gem20-frozen-locus-crystal-breaks"
-    # nothing breaks it: no explosions (floored), expiry not counted
+    assert notes[0]["entry"] == "model-gem20-frozen-locus-crystal-breaks" and "LOW row" in notes[0]["basis"]
+    # only the boss's hits: not counted, held at 1%
+    mods, _ = models.frozen_locus_model(fl, "Explosion", sets, 0.98, 0.0, 0.5, "the boss")
+    assert mods[0]["value"] == pytest.approx(-99.0)
     assert models.locus_explosions(1.0, 0.0) == 0.0
-    # breakers at once: one explosion a cast
     assert models.locus_explosions(1.0, 1e6) == pytest.approx(1.0, rel=1e-3)
     assert models.frozen_locus_model(fl, "Crystal", sets, 0.98, 1.0, 0.5, "") == ([], [])
 
@@ -1185,7 +1187,33 @@ def test_shield_wall_explodes_when_shattered_more_by_slams():
     mods, notes = models.shield_wall_model(sw, "Shield Wall", sets, 1.0, 1e6, 0.0, 140.0, "slams")
     assert mods[0]["name"] == "DPS" and mods[0]["value"] == pytest.approx(140.0, abs=0.1)
     assert notes[0]["entry"] == "model-gem20-shield-wall-shatter"
-    # the boss's hits alone: fewer explosions, no more
-    mods, _ = models.shield_wall_model(sw, "Shield Wall", sets, 1.0, 0.0, 0.5, 140.0, "boss")
-    assert mods[0]["value"] == pytest.approx(100 * (models.locus_explosions(1.0, 0.5, 6.0) - 1), abs=0.01)
+    # the boss's hits alone: a LOW row, not the headline (R30-5): held at 1%
+    mods, notes = models.shield_wall_model(sw, "Shield Wall", sets, 1.0, 0.0, 0.5, 140.0, "boss")
+    assert mods[0]["value"] == pytest.approx(-99.0) and "LOW row" in notes[0]["basis"]
     assert models.shield_wall_model(sw, "Shield Wall", sets, 1.0, 0.0, 0.5, 140.0, "", {"model-gem20-shield-wall-shatter"}) == ([], [])
+
+
+def test_earthshatter_more_damage_for_each_spike_standing():
+    # (GEM20, RESEARCH30 R30-5 (2)) 6% a spike at quality 20; spikes standing min(6, uses x their life)
+    assert models.spike_standing("Earthshatter", 0.5, 0.0) == pytest.approx(3.0)
+    assert models.spike_standing("Earthshatter", 2.0, 0.0) == 6.0
+    import math
+    assert models.spike_standing("Earthshatter", 0.5, 0.5) == pytest.approx(0.5 * (1 - math.exp(-3.0)) / 0.5)
+    sets = [{"label": "Slam", "TotalDPS": 25.8}, {"label": "Explosion", "TotalDPS": 129.5}]
+    es = Skill("Earthshatter", 1, attack=True)
+    mods, notes = models.detonated_set_model(es, "Slam", sets, 0.5, 0.0, "none", frozenset(), 6.0)
+    assert mods[0]["value"] == pytest.approx(100 * (1 + 0.06 * 3.0 - 1), abs=0.01)
+    assert "for each Spike" in notes[0]["basis"]
+
+
+def test_gas_arrow_cloud_poisons_every_two_seconds():
+    # (GEM20, RESEARCH30 R30-5 (3)) a full 4 s cloud: 2.5 applications (2-3); one that explodes on landing: 0.5
+    assert models.gas_cloud_poisons(4.0) == pytest.approx(2.5)
+    assert models.gas_cloud_poisons(0.0) == pytest.approx(0.5)
+    sets = [{"label": "Arrow", "TotalDPS": 38.0}, {"label": "Poison Cloud", "TotalDPS": 88.6},
+            {"label": "Explosion", "TotalDPS": 162.4}]
+    ga = Skill("Gas Arrow", 1, attack=True)
+    mods, notes = models.gas_arrow_model(ga, "Poison Cloud", sets, 0.0, "", frozenset(), 2.5)
+    assert [m["name"] for m in mods] == ["DPS", "AilmentMagnitude"] and mods[1]["value"] == pytest.approx(150.0)
+    mods, notes = models.gas_arrow_model(ga, "Arrow", sets, 0.0, "", frozenset(), 2.5)
+    assert all(m["name"] != "AilmentMagnitude" for m in mods) and "UNDERCOUNT" in notes[0]["basis"]

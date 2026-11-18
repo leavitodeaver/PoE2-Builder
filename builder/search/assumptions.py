@@ -2395,8 +2395,13 @@ class Assumptions:
                     f"unsettled; with {event}s only, the description's reading: {cries_only:.0%} of spikes)")
             else:
                 det_rate, det_how = self.detonator_rate(group["index"])
+            per_spike = 0.0
+            if main.name == "Earthshatter":  # (GEM20, R30-5 (2): its quality's more Damage for each Spike standing)
+                got = next((x.get("levelStats") or {} for x in build.call(
+                    "activeSkills", levelStats=[main.name])["skills"] if x["name"] == main.name), {})
+                per_spike = number(got.get(models.EARTHSHATTER_SPIKE_STAT))
             det_mods, det_notes = models.detonated_set_model(main, main.stat_set, sets, number(stats.get("Speed")),
-                                                             det_rate, det_how, forbidden)
+                                                             det_rate, det_how, forbidden, per_spike)
             hand_mods, hand_notes = hand_mods + det_mods, hand_notes + det_notes
         if main is not None and main.name == models.EYE:  # (GEM19: its first hit a use, 900% more, never read by PoB)
             eye_stats = build.call("stats", fields=["AverageDamage", "Speed", "TotalDPS"])
@@ -2439,8 +2444,8 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + pa_mods, hand_notes + pa_notes
         if main is not None and group and main.name == models.GAS_ARROW:  # (GEM20: clouds explode on Ignite / Detonation)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
-            gas, gas_how = self.gas_arrow_share(group["index"], main.stat_set)
-            gas_mods, gas_notes = models.gas_arrow_model(main, main.stat_set, sets, gas, gas_how, forbidden)
+            gas, gas_how, gas_poisons = self.gas_arrow_share(group["index"], main.stat_set)
+            gas_mods, gas_notes = models.gas_arrow_model(main, main.stat_set, sets, gas, gas_how, forbidden, gas_poisons)
             hand_mods, hand_notes = hand_mods + gas_mods, hand_notes + gas_notes
         if main is not None and group and main.name == models.FROZEN_LOCUS:  # (GEM20: an explosion when it breaks)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
@@ -5392,7 +5397,7 @@ class Assumptions:
         return share, (f"{others}: Shocked {by_others:.0%} of the fight ({duration:.2f} s each, random in time); "
                        f"the resolver's share {base:.0%} ({up_how})")
 
-    def gas_arrow_share(self, main_index: int, scored: str | None) -> tuple[float, str]:
+    def gas_arrow_share(self, main_index: int, scored: str | None) -> tuple[float, str, float]:
         """(share of Gas Arrow's clouds that explode, how) for models.gas_arrow_model (GEM20): a Detonator use sets off
         every cloud lying there (detonator_rate, as detonated_share); the boss Ignited at some moment of a cloud's life
         (models.gas_ignite_within) with Ignites as the resolver counts them (conditions.ailment_uptime over the other
@@ -5403,7 +5408,7 @@ class Assumptions:
         stats = dict(build.call("stats", fields=["Speed", "HitChance", "IgniteChancePerHit", "IgniteDuration"]))
         uses = number(stats.get("Speed"))
         if uses <= 0:
-            return 0.0, "Gas Arrow isn't used"
+            return 0.0, "Gas Arrow isn't used", 1.0
         life = models.gas_cloud_life(uses)
         lying = min(float(models.GAS_CLOUD_LIMIT), uses * life)
         det_rate, det_how = self.detonator_rate(main_index)
@@ -5425,12 +5430,19 @@ class Assumptions:
                 share = new
                 break
             share = new
+        # (GEM20, R30-5 (3)) a cloud's average life on the boss: 0 if the boss is Ignited when it lands, else until the
+        # first new Ignite (applications at -ln(1 - up) / d a second, gas_ignite_within's) or Detonator use, at most its
+        # life: its Poisons come one every 2 s while it lives (models.gas_cloud_poisons)
+        ignites = -math.log(1.0 - up) / duration if 0 < up < 1 else 0.0
+        ends = ignites + det_rate
+        alive = 0.0 if up >= 1 else (1.0 - up) * ((1.0 - math.exp(-ends * life)) / ends if ends > 0 else life)
+        poisons = models.gas_cloud_poisons(alive)
         others_n = len([o for o in others.get("Ignite") or () if o])
         source = ("the explosions' own Ignites" if own and scored == "Explosion" else
                   "the arrow's own Ignites" if own else "no own Ignite read")
         return share, (f"the boss Ignited {up:.1%} of the fight ({others_n} other Ignite source(s); {source}; "
                        f"{duration:.1f} s each), so at some moment of a cloud's {life:.1f} s {within:.1%}; "
-                       f"Detonators set off {detonated:.0%} ({det_how})")
+                       f"Detonators set off {detonated:.0%} ({det_how}); a cloud lives {alive:.1f} s on average"), poisons
 
     def _side_rows(self, main_index: int, pick) -> list[tuple[dict, float, str]]:
         """[(useRates row, uses a second, how)] for the build's enabled groups outside the main one that `pick(group)`

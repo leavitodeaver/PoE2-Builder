@@ -18,7 +18,11 @@
     own (the explosions' at uses x share: a fixed point from 0). Hits = Arrow + Explosion x share (a DPS line, the
     scored set's ailments stay); with no Ignite and no Detonator the Explosion set gets the Arrow x 0.9 (a Damage line).
     The Explosion's own Ignite stays whole where it is scored (a small OVERCOUNT where clouds don't all explode); an
-    exploded cloud's Poison ending early not taken off (UNVERIFIED).
+    exploded cloud's Poison: RESEARCH30 R30-5 (3): the cloud Poisons the boss once every 2 s while it lives (LOW-MEDIUM;
+    attack speed doesn't change it), 2-3 a full cloud (taken as life / 2 s + 0.5), and the explosion destroys it
+    (MEDIUM); a cloud's average life from the Ignite / Detonator rate above; PoB's one Poison a use scaled by that
+    (AilmentMagnitude MORE) where the Poison Cloud set is scored; elsewhere the cloud's Poison isn't in the scored set
+    (an UNDERCOUNT, named).
   sources: ["builder/search/models.py (gas_arrow_model)", "builder/search/assumptions.py (gas_arrow_share)",
             "data/game-26650308/tables/ActiveSkills.json (gas_arrow)",
             "data/game-26650308/tables/GrantedEffectStatSets.json (GasArrowPlayer, GasArrowGasDegenPlayer, GasArrowGasExplosionPlayer)",
@@ -42,8 +46,9 @@
     R30-2 (b); checked every GrantedEffectStatSets row for destroy_frost_wall_segment_on_hit and
     support_warcries_explode_ice_crystals): Freeze consumers (conditions.side_consumes), Fragmentation Rounds, Glacial
     Cascade, Gelid Palm, Embrace The Fall, Warcries supported by Vruun's Aftermath, each at its triggered rate or the
-    search's press choice; and the boss's damaging uses (bosses.benefit_skill_time, every one taken to land on the crystal
-    at its feet: LOW; the manager's brief counts them, R30-2 calls them a row; the build-only figure is in the note).
+    search's press choice. The boss's damaging uses are a LOW row, not the headline (RESEARCH30 R30-5 (1), the manager
+    01:50: enemies can damage it, HIGH, but nothing aims at it: no collision since 0.4.0, not a MonsterVarieties row, no
+    stat or report; a boss area hit covering it may break it, MEDIUM-LOW). Nothing in the build breaks it: held at 1%.
     Explosions a second = q / (cast + q / R), q = 1 - e^(-10 R). Expiry and recast not counted (UNVERIFIED); the
     player's ordinary hits on the crystal's Life not counted (an UNDERCOUNT, named). Frozen Locus as the main skill only.
   sources: ["builder/search/models.py (frozen_locus_model)", "builder/search/assumptions.py (locus_breaks)",
@@ -112,12 +117,32 @@
     shield_wall_damage_+%_final_when_slammed 100 (+2 a quality), stat text "{0}% more Damage if destroyed by your
     Skills". PoB scores one explosion a cast and never reads the stat (the coverage audit's open row). Explosions a
     second as Frozen Locus's (a cast, then the first shatter within 6 s): the build's Slam / Warcry groups and Shield
-    Charge at their triggered rate or the search's press choice, and the boss's damaging uses (LOW, the headline; the
-    'without' row is your shatters only). Your shatters deal the more; the boss's don't (MECH-B's hazard_early_model
-    keeps its first-0.5 s penalty where the build has no breaker). One explosion a shatter (UNVERIFIED: both walls and
+    Charge at their triggered rate or the search's press choice; the boss's damaging uses a LOW row, as Frozen Locus's
+    (RESEARCH30 R30-5 (1); Shield Wall's "Enemies can attack your wall segments" may say more: UNVERIFIED, a research
+    question). Your shatters deal the more. Nothing in the build shatters it: held at 1%. One explosion a shatter (UNVERIFIED: both walls and
     every segment).
   sources: ["builder/search/models.py (shield_wall_model)", "builder/search/assumptions.py (wall_shatters, boss_hit_rate)",
             "data/game-26650308/tables/ActiveSkills.json (shield_wall)",
             "data/game-26650308/tables/GrantedEffectStatSets.json (ShieldWallPlayer)", "scratch/gem20/probe_herald.json"]
   test_in_game: "Optional: Shield Wall shattered by a Slam vs broken by the boss: the explosion's damage."
+  status: proposed
+
+- id: model-gem20-earthshatter-per-spike
+  title: "Earthshatter: its quality's 'N% more Damage with Hits for each Spike' at the spikes standing (PoB never reads it)"
+  kind: model
+  model: detonated_set
+  stats: [earthshatter_damage_+%_final_per_spike]
+  skill: [Earthshatter]
+  confidence: MEDIUM-LOW
+  notes: >-
+    models.detonated_set_model's per_spike / spike_standing (GEM20). earthshatter_damage_+%_final_per_spike, "{0}% more
+    Damage with Hits for each Spike", 0.3% a quality (GrantedEffectQualityStats 90; 0.3.0 replaced "+0-3 to maximum
+    Spikes" with it); PoB has it in qualityStats with no SkillStatMap entry (an UNDERCOUNT). RESEARCH30 R30-5 (2),
+    UNVERIFIED, best reading MEDIUM-LOW: the skill's own spikes standing when the hit lands (0 to the Limit 6), on every
+    hit (slam and shatters). Standing = min(6, uses x a spike's life), its life 6 s or until the next shatter (the
+    Warcry / Detonator rate: (1 - e^(-6 d)) / d). Read from the gem's levelStats (6 at quality 20). The row: 0 spikes.
+  sources: ["builder/search/models.py (spike_standing, detonated_set_model)", "builder/search/assumptions.py (the detonation hook)",
+            "data/game-26650308/tables/GrantedEffectQualityStats.json (row 90)",
+            "scratch/manager/research/gem20-locus-earthshatter-gas.md (R30-5 2)", "scratch/gem20/probe_r305.json"]
+  test_in_game: "Optional: Earthshatter's slam with 0 vs 6 spikes standing."
   status: proposed

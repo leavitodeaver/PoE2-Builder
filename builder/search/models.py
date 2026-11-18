@@ -6694,7 +6694,24 @@ DETONATED_SETS = {
     # 0.4.0 made it a modifiable Limit, Overabundance: a raised limit not read, an UNDERCOUNT there, UNVERIFIED).
     "Earthshatter": (("Slam",), "Explosion", 6, 6.0, "model-gem19-earthshatter-warcry-shatter"),
 }
-DETONATED_WORD = {"Stormblast Bolts": "bolts", "Earthshatter": "spikes"}  # (what lies there to detonate; spears otherwise)
+DETONATED_WORD = {"Stormblast Bolts": "bolts", "Earthshatter": "spikes"}
+# (GEM20) Earthshatter's quality stat earthshatter_damage_+%_final_per_spike, "{0}% more Damage with [Hit|Hits] for each
+# Spike" (0.3% a quality, GrantedEffectQualityStats 90; came in 0.3.0 in place of "+0-3 to maximum Spikes"; PoB doesn't
+# read it: act_str.lua's qualityStats, no SkillStatMap entry). RESEARCH30 R30-5 (2), UNVERIFIED, best reading
+# MEDIUM-LOW: the skill's own spikes standing when the hit lands (0 to the Limit, 6), on every hit of the skill (the slam
+# and the shatters). Spikes standing: a slam's spike lives until it expires (6 s) or the next shatter (Warcries /
+# Detonators at `detonations` a second, each taken to clear every spike: as detonated_share), so on average
+# (1 - e^(-6 d)) / d, and min(the Limit, uses x that) stand (spike_standing). The row: 0 spikes (no more).
+EARTHSHATTER_SPIKE_STAT = "earthshatter_damage_+%_final_per_spike"
+
+
+def spike_standing(skill: str, uses: float, detonations: float) -> float:
+    """The DETONATED_SETS skill's spikes standing on average (see above)."""
+    _, _, limit, seconds, _ = DETONATED_SETS[skill]
+    if uses <= 0:
+        return 0.0
+    life = (1.0 - math.exp(-detonations * seconds)) / detonations if detonations > 0 else seconds
+    return min(float(limit), uses * life)  # (what lies there to detonate; spears otherwise)
 # What sets the parts off when it isn't a Detonator skill (GEM19): (the event conditions.event_rates counts, how the note
 # names it, the play guide's examples)
 DETONATED_BY = {"Earthshatter": ("Warcry", "a Warcry is used near them or a Detonator skill hits them",
@@ -6711,9 +6728,11 @@ def detonated_share(skill: str, uses: float, detonations: float) -> float:
 
 
 def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict], uses: float, detonations: float,
-                        how: str, forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+                        how: str, forbidden: set[str] = frozenset(),
+                        per_spike: float = 0.0) -> tuple[list[dict], list[dict]]:
     """Storm Lance's / Rapid Assault's use with the detonations the build's Detonators give (see above): `sets` the
-    bridge's setRates, `uses` the main skill's uses a second, `detonations` the build's Detonator uses a second."""
+    bridge's setRates, `uses` the main skill's uses a second, `detonations` the build's Detonator uses a second,
+    `per_spike` Earthshatter's "% more Damage with Hits for each Spike" (GEM20, spike_standing)."""
     if main is None or main.name not in DETONATED_SETS:
         return [], []
     plain_labels, det_label, _, _, entry = DETONATED_SETS[main.name]
@@ -6728,7 +6747,9 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
         return [], []
     s = detonated_share(main.name, number(uses), number(detonations))
     word = DETONATED_WORD.get(main.name, "spears")
-    total = plain + det * s
+    standing = spike_standing(main.name, number(uses), number(detonations)) if per_spike > 0 else 0.0
+    spikes_more = 1.0 + per_spike / 100.0 * standing
+    total = (plain + det * s) * spikes_more
     factor = total / dps[scored]
     steer = scored == det_label and s <= 0
     if steer:
@@ -6747,9 +6768,14 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
                   f"{det:,.0f}). The game sets the {det_label} off only when {by_note}: {s:.0%} of "
                   f"them ({how}), so {plain_label} + {det_label} x {s:.0%} = {total:,.0f} DPS"
                   + (f"; with none, the {det_label} set is kept 10% under the {plain_label} so the search keeps it"
-                     if steer else "")),
-        "play": (f"Set off {main.name}'s {word} with {by_play} to get the {det_label}. Without one: {plain:,.0f}; with "
-                 f"this build's: {total:,.0f}; every {word[:-1]}: {plain + det:,.0f}.")}]
+                     if steer else "")
+                  + (f"; its quality's {per_spike:g}% more Damage with Hits for each Spike, {standing:.1f} spikes standing "
+                     f"on average (RESEARCH30 R30-5 (2), UNVERIFIED, MEDIUM-LOW: the spikes standing when the hit lands, "
+                     f"every hit of the skill): x{spikes_more:.3f} (the row: 0 spikes, x1, "
+                     f"{(plain + det * s):,.0f})" if per_spike > 0 else "")),
+        "play": (f"Set off {main.name}'s {word} with {by_play} to get the {det_label}. Without one: "
+                 f"{plain * (1.0 + per_spike / 100.0 * spike_standing(main.name, number(uses), 0.0) if per_spike > 0 else plain):,.0f}; with "
+                 f"this build's: {total:,.0f}; every {word[:-1]}: {(plain + det) * spikes_more:,.0f}.")}]
 
 
 # Flameblast's stages and release rate (GEM18; an UNDERCOUNT of about x5 at base, an OVERCOUNT of the releases where the
@@ -7337,6 +7363,19 @@ GAS_ARROW_ENTRY = "model-gem20-gas-arrow-ignite-explosion"
 GAS_ARROW_SETS = ("Arrow", "Poison Cloud", "Explosion")
 GAS_CLOUD_SECONDS = 4.0  # (GasArrowGasDegenPlayer base_skill_effect_duration 4000)
 GAS_CLOUD_LIMIT = 6  # (number_of_poison_cloud_allowed)
+# (GEM20, RESEARCH30 R30-5 (3)) The cloud Poisons the boss standing in it once every 2 s (LOW-MEDIUM: Mobalytics' Poison
+# Cloud guide "Poisoned every 2 seconds as though being Hit"; attack speed doesn't change it, forum thread 3632515; no
+# interval stat in the game files), so 2-3 a full 4 s cloud depending on whether the first comes on landing: taken as
+# the midpoint, its life / 2 s + 0.5. The explosion destroys the cloud (MEDIUM), so an exploded cloud stops Poisoning;
+# Poisons already applied run on. PoB scores one Poison a use (its fake hit): its Poison is scaled by applications / 1
+# (AilmentMagnitude MORE on the skill, where the Poison Cloud set is scored; the only ailment that set's fake Physical
+# hit makes). The row: PoB's one a cloud.
+GAS_POISON_EVERY = 2.0
+
+
+def gas_cloud_poisons(alive: float) -> float:
+    """Poison applications a Gas Arrow cloud makes on the boss in `alive` seconds (see above)."""
+    return max(alive, 0.0) / GAS_POISON_EVERY + 0.5
 
 
 def gas_cloud_life(uses: float) -> float:
@@ -7368,9 +7407,10 @@ def set_dps_unscaled(sets: list[dict]) -> dict[str, float]:
 
 
 def gas_arrow_model(main: Skill | None, scored: str | None, sets: list[dict], share: float, how: str,
-                    forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+                    forbidden: set[str] = frozenset(), poisons: float = 1.0) -> tuple[list[dict], list[dict]]:
     """Gas Arrow's use as the game makes it (see above): `sets` the bridge's setRates for its group, `share` the share of
-    its clouds that explode (Assumptions.gas_arrow_share), `how` its basis."""
+    its clouds that explode (Assumptions.gas_arrow_share), `how` its basis, `poisons` a cloud's Poison applications on
+    the boss (gas_cloud_poisons over its average life)."""
     if main is None or main.name != GAS_ARROW or GAS_ARROW_ENTRY in forbidden or scored not in GAS_ARROW_SETS:
         return [], []
     dps = set_dps_unscaled(sets)
@@ -7386,6 +7426,8 @@ def gas_arrow_model(main: Skill | None, scored: str | None, sets: list[dict], sh
     factor = max(factor, AILMENT_FLOOR)  # (PoB rounds a MORE to 2 decimals: see ailment_set_model)
     mods = ([raw_mod("Damage" if steer else "DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9
             else [])
+    if scored == "Poison Cloud" and abs(poisons - 1.0) > 1e-9:  # (its Poisons: one every 2 s while it lives)
+        mods.append(raw_mod("AilmentMagnitude", "MORE", 100 * (max(poisons, 0.0) - 1), main.name))
     return mods, [{
         "label": f"{main.name}: its clouds explode only on an Ignited boss or a Detonation*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM", "entry": GAS_ARROW_ENTRY,
@@ -7396,7 +7438,11 @@ def gas_arrow_model(main: Skill | None, scored: str | None, sets: list[dict], sh
                   f"{total:,.0f} hit DPS"
                   + ("; the Explosion set's own Ignite stays whole (an OVERCOUNT of it where clouds don't explode)"
                      if scored == "Explosion" and not steer else "")
-                  + ("; the Poison Cloud set's Poison stays (the cloud's real damage)" if scored == "Poison Cloud" else "")
+                  + (f"; the Poison Cloud set's Poison (the cloud's real damage) at {poisons:.2f} applications a cloud "
+                     f"(one every 2 s while it lives, LOW-MEDIUM, RESEARCH30 R30-5; the row: PoB's one), x{poisons:.2f}"
+                     if scored == "Poison Cloud" else
+                     f"; the cloud's Poison isn't in the {scored} set PoB scores ({poisons:.2f} applications a cloud: an "
+                     "UNDERCOUNT here; the Poison Cloud set carries it)")
                   + ("; with none, the Explosion set is kept 10% under the Arrow so the search keeps a fed set"
                      if steer else "")),
         "play": ("Gas Arrow's clouds explode only when the boss is Ignited while it stands in them, or a Detonator skill "
@@ -7421,10 +7467,14 @@ def gas_arrow_model(main: Skill | None, scored: str | None, sets: list[dict], sh
 # PoB's ModCache (no line destroys a crystal; its two Ice Crystal lines change their Life: a bigger crystal may outlast a
 # boss hit, not read)); not the boss walking into it (0.4.0 "Ice Crystal no longer has collision"); expiry at 10 s or a recast
 # replacing it not counted as destroyed (UNVERIFIED: R30-2 left it open). Breaks taken as random in time at R a second
-# (the build's breaker uses, Assumptions.locus_breaks, + the boss's damaging uses, bosses.benefit_skill_time, every one
-# taken to land on the crystal placed at the boss: LOW, the manager's brief counts them, R30-2 calls them a row): a cast
-# (PoB's cast time) then a wait for the first break, at most the crystal's 10 s; explosions a second = q / (cast + q / R),
-# q = 1 - e^(-10 R) the share of crystals broken before they expire. The player's ordinary hits on the crystal's Life
+# (the build's breaker uses, Assumptions.locus_breaks): a cast (PoB's cast time) then a wait for the first break, at most
+# the crystal's 10 s; explosions a second = q / (cast + q / R), q = 1 - e^(-10 R) the share of crystals broken before
+# they expire. The boss's hits are a LOW row, not the headline (RESEARCH30 R30-5 (1), the manager 01:50, reversing the
+# 01:32 ruling: enemies CAN damage it (HIGH: "can be damaged by you and enemies"; ~1,023 from a monster breaks it at gem
+# 20), but no collision since 0.4.0, it isn't a monster (MonsterVarieties: no such row), so no AI targets it, no stat or
+# source says enemies aim at it, no player reports a boss breaking it, and guides break it with their own skills; a boss
+# area hit that happens to cover it may break it, MEDIUM-LOW: the row reads every boss damaging use landing on it,
+# bosses.benefit_skill_time, an upper bound). The player's ordinary hits on the crystal's Life
 # (9,536 at gem 20, the damage they'd take off the boss) are not counted (an UNDERCOUNT where the build breaks it that
 # way, named). MEDIUM-LOW.
 FROZEN_LOCUS = "Frozen Locus"
@@ -7452,25 +7502,28 @@ def frozen_locus_model(main: Skill | None, scored: str | None, sets: list[dict],
     if dps.get(scored, 0.0) <= 0 or speed <= 0:
         return [], []
     cast = 1.0 / speed
-    rate = locus_explosions(cast, breaks + boss_breaks)
-    own = locus_explosions(cast, breaks)
+    rate = locus_explosions(cast, breaks)  # (the headline: the build's own breakers, R30-5 (1))
+    with_boss = locus_explosions(cast, breaks + boss_breaks)  # (the LOW row)
     factor = max(rate / speed, AILMENT_FLOOR)
     mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9 else []
     blast = dps[scored] / speed  # (one explosion's damage)
     return mods, [{
-        "label": f"{main.name}: an explosion only when its crystal is destroyed*", "value": f"x{factor:.3f}",
-        "confidence": "MEDIUM-LOW (the boss's hits LOW)", "entry": FROZEN_LOCUS_ENTRY,
+        "label": f"{main.name}: an explosion only when your skills destroy its crystal*", "value": f"x{factor:.3f}",
+        "confidence": "MEDIUM-LOW", "entry": FROZEN_LOCUS_ENTRY,
         "basis": (f"PoB scored an Explosion at every cast ({speed:.2f} a second, {dps[scored]:,.0f} DPS). The game "
                   f"explodes the Ice Crystal only when it's destroyed: {how}; a cast then the wait for the first break "
-                  f"(at most its 10 s; expiry and recasts not counted): {rate:.2f} explosions a second, {rate * blast:,.0f}"
-                  f" DPS (the build's own breakers only: {own:.2f} a second, {own * blast:,.0f}). The player's ordinary "
-                  "hits on the crystal's Life are not counted (an UNDERCOUNT where the build breaks it that way)"),
+                  f"by the build's own breakers (at most its 10 s; expiry and recasts not counted): {rate:.2f} explosions "
+                  f"a second, {rate * blast:,.0f} DPS"
+                  + ("; nothing in the build breaks it: held at 1%" if rate <= 0 else "")
+                  + f". The boss's hits a LOW row, not counted (RESEARCH30 R30-5: enemies can damage it, but nothing "
+                  f"aims at it; with every boss damaging use landing on it: {with_boss:.2f} a second, "
+                  f"{with_boss * blast:,.0f}). The player's ordinary hits on the crystal's Life are not counted (an "
+                  "UNDERCOUNT where the build breaks it that way)"),
         "play": (f"Place Frozen Locus at the boss and break it: hit it with a Freeze-consuming skill, Fragmentation Rounds, "
                  f"Glacial Cascade's last spike, Gelid Palm or Embrace The Fall, or a Warcry with Vruun's Aftermath; the "
-                 f"boss's own hits break it too (LOW: taken to land on it). Recast as soon as it breaks. Without the boss's "
-                 f"hits (the build's own breakers only): {own * blast:,.0f}; with them (the headline): "
-                 f"{rate * blast:,.0f}; the boss's hits alone: {locus_explosions(cast, boss_breaks) * blast:,.0f}; one "
-                 f"a cast: {dps[scored]:,.0f}.")}]
+                 f"boss's area hits may break it if they cover it (LOW). Recast as soon as it breaks. With this build's "
+                 f"breakers (the headline): {rate * blast:,.0f}; with the boss's hits landing on it too (LOW): "
+                 f"{with_boss * blast:,.0f}; one a cast: {dps[scored]:,.0f}.")}]
 
 
 # Magnetic Salvo's explosion only near a lingering Lightning arrow or bolt (GEM20; an OVERCOUNT: PoB scores each set alone
@@ -7571,9 +7624,11 @@ def magnetic_salvo_model(main: Skill | None, scored: str | None, sets: list[dict
 # shield_wall_damage_+%_final_when_slammed 100 (+2 a quality in PoB's gem data; its stat text "{0}% more Damage if
 # destroyed by your Skills"), shield_wall_maximum_life 12,714 at gem 20. Breaks as Frozen Locus's (locus_explosions, its
 # 6 s): the build's Slam / Warcry skills and Shield Charge (each group's triggered rate or the search's press choice,
-# Assumptions._side_rows), and the boss's damaging uses (Assumptions.boss_hit_rate, each taken to land on the wall: LOW).
-# A shatter by the build's skills deals the "more"; the boss's doesn't (and takes MECH-B's hazard_early_model first-0.5 s
-# penalty when the build has no breaker). One explosion a break, as PoB scores (both walls and every segment a Slam
+# Assumptions._side_rows) in the headline; the boss's damaging uses (Assumptions.boss_hit_rate, each landing on the wall)
+# a LOW row, as Frozen Locus's (RESEARCH30 R30-5 (1), the manager 01:50; Shield Wall's own text "Enemies can attack your
+# wall segments" may say more than the crystal's: UNVERIFIED whether a boss aims at them, a research question). A shatter
+# by the build's skills deals the "more"; the boss's wouldn't (and would take MECH-B's hazard_early_model first-0.5 s
+# penalty). One explosion a break, as PoB scores (both walls and every segment a Slam
 # shatters, and how many reach the boss, not read: UNVERIFIED). MEDIUM-LOW.
 SHIELD_WALL = "Shield Wall"
 SHIELD_WALL_ENTRY = "model-gem20-shield-wall-shatter"
@@ -7595,24 +7650,28 @@ def shield_wall_model(main: Skill | None, scored: str | None, sets: list[dict], 
         return [], []
     cast = 1.0 / speed
     own_breaks, boss_breaks = max(own_breaks, 0.0), max(boss_breaks, 0.0)
-    rate = locus_explosions(cast, own_breaks + boss_breaks, SHIELD_WALL_SECONDS)
-    mine = own_breaks / (own_breaks + boss_breaks) if own_breaks + boss_breaks > 0 else 0.0
-    per = 1.0 + more / 100.0 * mine
+    rate = locus_explosions(cast, own_breaks, SHIELD_WALL_SECONDS)  # (the headline: your shatters, R30-5 (1))
+    per = 1.0 + more / 100.0
     factor = max(rate * per / speed, AILMENT_FLOOR)
+    row = locus_explosions(cast, own_breaks + boss_breaks, SHIELD_WALL_SECONDS)  # (the LOW row: the boss's hits too)
+    mine = own_breaks / (own_breaks + boss_breaks) if own_breaks + boss_breaks > 0 else 0.0
+    row_dps = row * (1.0 + more / 100.0 * mine) * dps[scored] / speed
     mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9 else []
     blast = dps[scored] / speed
-    own_only = locus_explosions(cast, own_breaks, SHIELD_WALL_SECONDS) * (1.0 + more / 100.0) * blast
     return mods, [{
-        "label": f"{main.name}: an explosion only when it's shattered, {more:g}% more by your Slams*",
-        "value": f"x{factor:.3f}", "confidence": "MEDIUM-LOW (the boss's hits LOW)", "entry": SHIELD_WALL_ENTRY,
+        "label": f"{main.name}: an explosion only when your skills shatter it, {more:g}% more*",
+        "value": f"x{factor:.3f}", "confidence": "MEDIUM-LOW", "entry": SHIELD_WALL_ENTRY,
         "basis": (f"PoB scored one explosion a cast ({speed:.2f} a second, {dps[scored]:,.0f} DPS) without the gem's "
                   f"'{more:g}% more Damage if destroyed by your Skills'. The game explodes the segments when shattered: "
-                  f"{how}; a cast then the wait for the first shatter (at most its 6 s): {rate:.2f} explosions a second, "
-                  f"{mine:.0%} of them by your skills (x{1 + more / 100:.2f}): {rate * per * blast:,.0f} DPS; one "
-                  "explosion a shatter (both walls and the segments a Slam shatters not read)"),
+                  f"{how}; a cast then the wait for your first shatter (at most its 6 s): {rate:.2f} explosions a "
+                  f"second, x{per:.2f} each: {rate * per * blast:,.0f} DPS"
+                  + ("; nothing in the build shatters it: held at 1%" if rate <= 0 else "")
+                  + f"; one explosion a shatter (both walls and the segments a Slam shatters not read). The boss's hits "
+                  f"a LOW row, not counted (as Frozen Locus's, RESEARCH30 R30-5): with every boss damaging use landing "
+                  f"on it too, {row:.2f} a second, {row_dps:,.0f} DPS"),
         "play": (f"Raise Shield Wall at the boss and shatter it with a Slam, a Warcry or Shield Charge for {more:g}% more "
-                 f"damage; the boss's hits break it too (LOW: taken to land on it). Without the boss's hits (your "
-                 f"shatters only): {own_only:,.0f}; with them (the headline): {rate * per * blast:,.0f}; one a cast: "
+                 f"damage; the boss may break it too if it attacks the wall (LOW). With your shatters (the headline): "
+                 f"{rate * per * blast:,.0f}; with the boss's hits landing on it too: {row_dps:,.0f}; one a cast: "
                  f"{dps[scored]:,.0f}.")}]
 
 # Herald of Blood's explosion only on a kill (GEM20; an OVERCOUNT: PoB scores the Explosion set at its 1 a second as a
