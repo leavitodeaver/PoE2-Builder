@@ -705,6 +705,30 @@ def gem_stat_pattern_entry(stat: str, skill: str | None = None):
     return None
 
 
+
+def legacy_variant_templates(data_dir: Path) -> dict[tuple[str, str], list[str]]:
+    """(unique, line template) -> the old variants it is on, for lines every copy of which (on that unique) is tagged
+    only with "Pre 0.x" variants in PoB's raw text (uniques.json); COV40, see audit's "Legacy unique variants"."""
+    path = data_dir / "uniques.json"
+    if not path.exists():
+        return {}
+    tagged: dict[tuple[str, str], list[list[str] | None]] = {}
+    for item in json.loads(path.read_text(encoding="utf-8"))["uniques"]:
+        lines = item["raw"].splitlines()
+        variants = [line[9:] for line in lines if line.startswith("Variant: ")]
+        for raw_line in lines:
+            m = re.match(r"^((?:\{[^}]*\})*)(.*)$", raw_line)
+            text = m.group(2).strip()
+            if not text:
+                continue
+            tag = re.search(r"\{variant:([\d,]+)\}", m.group(1))
+            names = ([variants[int(v) - 1] if 0 < int(v) <= len(variants) else "?" for v in tag.group(1).split(",")]
+                     if tag else None)
+            tagged.setdefault((item["name"], template(text)), []).append(names)
+    return {key: sorted({n for names in seen for n in names}) for key, seen in tagged.items()
+            if all(names and all(n.startswith("Pre ") for n in names) for names in seen)}
+
+
 def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
     from builder.data import data_dir as default_dir
 
@@ -898,6 +922,21 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                 elif group == "":
                     record["reason"] += ("; no PoB-PoE2 unique carries this mod: a PoE1 leftover or PoE2 content PoB "
                                          "lacks (UNVERIFIED)")
+    # Legacy unique variants (COV40): PoB's item parse and gap audit load every variant's lines, so a line only an old
+    # "Pre 0.x" variant carries (Bones of Ullr's pre-0.3.0 "20% reduced Reservation Efficiency of Skills which create
+    # Undead Minions"; patch 0.3.0: "Existing items will have reduced Reservation Efficiency but can be updated with a
+    # Divine Orb") ranked as open work, though no new item rolls it: the search offers only what a new league character
+    # can get (the user, 13 Nov 2026) and PoB equips a unique's current variant. builder/data's unique_variant_lines
+    # already leaves these variants out. Such a line is "unreachable" when every line of that unique with its template
+    # is tagged only with "Pre " variants (uniques.json raw; a template any current or untagged line also holds stays).
+    legacy = legacy_variant_templates(data_dir)
+    for record in records:
+        if (record["status"] == "none" and record["source_kind"] == "unique"
+                and (record["source"], record["template"]) in legacy):
+            record["status"] = "unreachable"
+            record["reason"] = (f"a legacy variant's line ({', '.join(legacy[record['source'], record['template']])} "
+                                "only): no new item carries it (league-obtainable only; PoB equips the current "
+                                "variant); was: " + record["reason"])
     # Recovery lines no rate reads yet (recovery.EVENT_UNREAD, MECH-C's list; AUDIT27 A27-32, COV20): named as routed
     # undercounts, so no recovery line is dropped silently (the user's every-recovery-source rule)
     for record in records:
