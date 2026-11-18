@@ -549,6 +549,12 @@ ITEM_TEXT_READS = [
      "PoB's Item.lua reads it from the item text (socketedAugmentTypeOverride, Item.lua 1279; probe POE2T2594)"),
     (re.compile(r"^This item gains bonuses from Socketed Soul Cores as though it was also a? ?.+$", re.I),
      "PoB's Item.lua reads it from the item text (socketedSoulCoreType, Item.lua 1280 / 1527; probe POE2T2599)"),
+    # (COV41) Kalandra's Touch's "Reflects opposite Ring": ModParser leaves it unparsed (display only, 3467), but
+    # CalcSetup 1637-1650 copies the other ring's mods onto it by the item's name (and CalcPerform 1493 / ModStore 810
+    # swap ring-slot lookups). Probe POE2T3865 (scratch/cov41/probe_kalandra.py): a +100 Life / Mana rare in Ring 1, a
+    # blank rare in Ring 2: Life 1355; Kalandra's Touch in Ring 2: Life 1460 (the ring counted twice).
+    (re.compile(r"^Reflects opposite Ring$", re.I),
+     "PoB copies the opposite ring onto Kalandra's Touch by the item's name (CalcSetup 1637; probe POE2T3865)"),
 ]
 
 

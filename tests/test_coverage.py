@@ -800,3 +800,13 @@ def test_harbinger_summon_mods_are_poe1_leftovers():
     found = poe1_leftover_mods(affixes, carried=frozenset())
     assert found == {"HarbingerSkillOnEquipUnique__1": "Harbinger summons",
                      "HarbingerSkillOnEquipUnique2_6": "Harbinger summons", "Madness": ""}
+
+
+def test_kalandras_touch_line_counts_as_read_by_pob():
+    """COV41 (probe POE2T3865): PoB copies the opposite ring onto Kalandra's Touch by the item's name (CalcSetup 1637),
+    though ModParser leaves "Reflects opposite Ring" unparsed: Life 1355 with a blank rare beside a +100 Life ring,
+    1460 with Kalandra's Touch instead. The audit counts the line as PoB's on items, not on passives."""
+    from builder.ledger.coverage import ignored_line_status
+
+    assert ignored_line_status("Reflects opposite Ring", False)[0] == "pob"
+    assert ignored_line_status("Reflects opposite Ring", True)[0] == "none"
