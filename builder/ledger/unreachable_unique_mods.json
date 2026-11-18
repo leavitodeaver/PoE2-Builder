@@ -1,0 +1,1036 @@
+{
+ "_about": "RESEARCH30 R30-6 / R30-7 (18 Nov 2026; research/unique-only-mods-by-id.md, method in research/unique-only-leftovers.md): unique-only (and Harvest) Mods ids no league character can get. Each id names its evidence family; 'N live PoE2 use(s)' is the id's own count where its stat has live uses elsewhere (this row still unreached). Second sources there: RePoE PoE1 mods (same id and stats), PoB-PoE2 and poe2db's unique pages (COV41's check), the patch-notes archive. The 38 UNVERIFIED ids (PoE2-only, no carrier found) are left open; the OBTAINABLE ones aren't listed.",
+ "families": {
+  "R30-7-1": {
+   "confidence": "MEDIUM-HIGH",
+   "evidence": "same id and stats in PoE1 (RePoE); on no PoB-PoE2 / poe2db unique (COV41); stats used nowhere live in PoE2"
+  },
+  "R30-7-2": {
+   "confidence": "MEDIUM",
+   "evidence": "PoE1 id with an older PoE1 stat name (PoE1 renamed it later); on no PoB-PoE2 / poe2db unique; stat used nowhere live in PoE2"
+  },
+  "R30-7-3": {
+   "confidence": "MEDIUM",
+   "evidence": "same id and stats in PoE1 (RePoE); on no PoB-PoE2 / poe2db unique (COV41); its stat also has N live PoE2 use(s) elsewhere (this row still unreached)"
+  },
+  "R30-6": {
+   "confidence": "MEDIUM-HIGH",
+   "evidence": "PoE1 Harvest Lifeforce weapon enchant (R30-6); PoE1 id (PoE1 stat local_quality_does_not_increase_physical_damage)"
+  },
+  "R30-7-5": {
+   "confidence": "HIGH",
+   "evidence": "id marked UNUSED by GGG; not in PoE1"
+  }
+ },
+ "mods": {
+  "ActorSizeUniqueBeltDemigods1": [
+   "R30-7-1"
+  ],
+  "ActorSizeUniqueRingDemigods1": [
+   "R30-7-1"
+  ],
+  "ActorSizeUnique__3": [
+   "R30-7-1"
+  ],
+  "AddedLightningDamagePerShockedEnemyKilledUnique__1": [
+   "R30-7-1"
+  ],
+  "AdditionalCurseOnSelfUniqueCorruptedJewel13": [
+   "R30-7-1"
+  ],
+  "AdditionalProjectilesAfterAmmoConsumedUniqueBelt__1": [
+   "R30-7-2"
+  ],
+  "AdditionalZombiesPerXStrengthUnique__1": [
+   "R30-7-1"
+  ],
+  "AllAttributesPerAssignedKeystoneUniqueJewel32": [
+   "R30-7-1"
+  ],
+  "AllDamageTakenCanIgniteUnique__1": [
+   "R30-7-1"
+  ],
+  "AlwaysCritShockedEnemiesUnique__1": [
+   "R30-7-1"
+  ],
+  "AoEKnockBackOnFlaskUseUniqueFlask9_": [
+   "R30-7-1"
+  ],
+  "ArcaneVisionUniqueBodyStrInt5": [
+   "R30-7-1"
+  ],
+  "ArrowsAlwaysCritAfterPiercingUnique___1": [
+   "R30-7-1"
+  ],
+  "ArrowsThatPierceCauseBleedingUnique__1": [
+   "R30-7-1"
+  ],
+  "AttackCastMoveOnWarcryRecentlyUnique____1": [
+   "R30-7-1"
+  ],
+  "AttackerTakesChaosDamageUniqueBodyStrInt4": [
+   "R30-7-1"
+  ],
+  "AttackerTakesColdDamageGlovesDex1": [
+   "R30-7-1"
+  ],
+  "AttackerTakesDamageUniqueHelmetDex3": [
+   "R30-7-2"
+  ],
+  "AttackerTakesDamageUniqueHelmetDexInt6": [
+   "R30-7-1"
+  ],
+  "AttackerTakesDamageUniqueIntHelmet1": [
+   "R30-7-2"
+  ],
+  "AttackerTakesFireDamageUniqueBodyInt2": [
+   "R30-7-2"
+  ],
+  "AttackerTakesLightningDamageUniqueBodyInt1": [
+   "R30-7-1"
+  ],
+  "AttackerTakesLightningDamageUnique___1": [
+   "R30-7-1"
+  ],
+  "AttacksCostNoManaUniqueTwoHandAxe9": [
+   "R30-7-1"
+  ],
+  "AttacksDealNoPhysicalDamage": [
+   "R30-7-1"
+  ],
+  "AttacksExtraProjectileInOffHandUnique__1": [
+   "R30-7-1"
+  ],
+  "AttacksThatStunCauseBleedingUnique__1": [
+   "R30-7-2"
+  ],
+  "AuraEffectUniqueShieldInt2": [
+   "R30-7-1"
+  ],
+  "AuraEffectUnique__1": [
+   "R30-7-1"
+  ],
+  "AuraEffectUnique__2____": [
+   "R30-7-1"
+  ],
+  "BeltSoulsRemovedOnFlaskUse__1": [
+   "R30-7-1"
+  ],
+  "BlightSecondarySkillEffectDurationUnique__1": [
+   "R30-7-1"
+  ],
+  "BlightSkillUnique__1": [
+   "R30-7-1"
+  ],
+  "CanOnlyDealDamageWithThisWeapon": [
+   "R30-7-1"
+  ],
+  "CanOnlyKillFrozenEnemiesUniqueGlovesStrInt3": [
+   "R30-7-1"
+  ],
+  "CannotBeShockedWhileFrozenUniqueStaff14": [
+   "R30-7-1"
+  ],
+  "CannotCastSpellsUnique__1": [
+   "R30-7-1"
+  ],
+  "CannotCritNonShockedEnemiesUnique___1": [
+   "R30-7-1"
+  ],
+  "CannotDealSpellDamageUnique__1": [
+   "R30-7-1"
+  ],
+  "CannotDieToElementalReflect": [
+   "R30-7-1"
+  ],
+  "CannotGainFlaskChargesDuringFlaskEffectUnique_1": [
+   "R30-7-1"
+  ],
+  "CannotLeech": [
+   "R30-7-1"
+  ],
+  "CausesPoisonOnCritUnique__1": [
+   "R30-7-1"
+  ],
+  "ChanceToBePiercedUniqueBodyStr6": [
+   "R30-7-1"
+  ],
+  "ChanceToChillAttackersOnBlockUnique__1": [
+   "R30-7-1"
+  ],
+  "ChanceToChillAttackersOnBlockUnique__2__": [
+   "R30-7-1"
+  ],
+  "ChanceToReflectChaosDamageToSelfUniqueTwoHandSword7_": [
+   "R30-7-1"
+  ],
+  "ChanceToShockAttackersOnBlockUnique__1_": [
+   "R30-7-1"
+  ],
+  "ChanceToShockAttackersOnBlockUnique__2": [
+   "R30-7-1"
+  ],
+  "ChaosDamageDoesNotBypassESNotLowLifeOrManaUnique__1": [
+   "R30-7-2"
+  ],
+  "ChaosDamageDoesNotBypassEnergyShieldPercentUnique__1": [
+   "R30-7-2"
+  ],
+  "ChaosDegenAuraUnique__1": [
+   "R30-7-1"
+  ],
+  "ChaosDegenerationOnKillUniqueBodyStr3": [
+   "R30-7-1"
+  ],
+  "ChaosTakenOnES": [
+   "R30-7-2"
+  ],
+  "ChillAndFreezeBasedOffEnergyShieldBelt5Unique": [
+   "R30-7-1"
+  ],
+  "ChillEnemiesWhenHitUnique__1": [
+   "R30-7-1"
+  ],
+  "ChillOnAttackStunUniqueOneHandMace5": [
+   "R30-7-1"
+  ],
+  "ClawPhysDamageAndEvasionPerDexUniqueJewel47": [
+   "R30-7-3",
+   2
+  ],
+  "ColdDamageCanPoisonUnique__1_": [
+   "R30-7-1"
+  ],
+  "ColdResistAlsoGrantsFrenzyChargeOnKillJewelUnique__1": [
+   "R30-7-3",
+   2
+  ],
+  "ConsecrateOnCritChanceToCreateUniqueRing11": [
+   "R30-7-1"
+  ],
+  "ConsecratedGroundOnBlockUniqueBodyInt8": [
+   "R30-7-1"
+  ],
+  "CorruptThresholdSoulEaterOnVaalSkillUseUniqueCorruptedJewel11": [
+   "R30-7-1"
+  ],
+  "CounterAttacksAddedColdDamageUnique__1": [
+   "R30-7-1"
+  ],
+  "CreateSmokeCloudWhenTrapTriggeredUnique__1": [
+   "R30-7-1"
+  ],
+  "CritChanceWithMaceJewel": [
+   "R30-7-1"
+  ],
+  "CritMultiIfDealtNonCritRecentlyUnique__1": [
+   "R30-7-3",
+   1
+  ],
+  "CritMultiIfDealtNonCritRecentlyUnique__2": [
+   "R30-7-3",
+   1
+  ],
+  "CritMultiplierWithMaceJewel": [
+   "R30-7-1"
+  ],
+  "CullingCriticalStrikes": [
+   "R30-7-1"
+  ],
+  "CurseSelfDurationPerDevotion": [
+   "R30-7-1"
+  ],
+  "DamageTakenFromGhostsUniqueOneHandSword12": [
+   "R30-7-1"
+  ],
+  "DamageTakenFromSkeletonsUniqueOneHandSword12_": [
+   "R30-7-1"
+  ],
+  "DeathWalk": [
+   "R30-7-1"
+  ],
+  "DefencesPer100StrengthAuraUnique__1": [
+   "R30-7-2"
+  ],
+  "DegradingMovementSpeedDuringFlaskEffectUnique__1": [
+   "R30-7-1"
+  ],
+  "DesecratedGroundOnBlockUniqueBodyStrInt4": [
+   "R30-7-1"
+  ],
+  "DexterityAndIntelligenceGiveStrengthMeleeBonusInRadiusUniqueJewel55": [
+   "R30-7-3",
+   2
+  ],
+  "DisplayChaosDegenerationAuraUniqueBodyStr3": [
+   "R30-7-1"
+  ],
+  "DisplayChaosDegenerationAuraUnique__1": [
+   "R30-7-1"
+  ],
+  "DisplayGrantsBloodOfferingUnique__1_": [
+   "R30-7-1"
+  ],
+  "DisplayNearbyAlliesHaveIncreasedItemRarityUniqueTwoHandAxe9": [
+   "R30-7-1"
+  ],
+  "ElementalDamageCanShockUnique__1__": [
+   "R30-7-1"
+  ],
+  "EnemiesDestroyedOnKillUnique__1": [
+   "R30-7-1"
+  ],
+  "EnemiesExplodeOnDeathUniqueTwoHandMace7": [
+   "R30-7-1"
+  ],
+  "EnemyExtraDamageRollsOnFullLifeUnique__1": [
+   "R30-7-1"
+  ],
+  "EnemyExtraDamageRollsOnFullLifeUnique__2": [
+   "R30-7-1"
+  ],
+  "EnemyExtraDamageRollsWithLightningDamageUnique__1": [
+   "R30-7-1"
+  ],
+  "EnemyHitsRollLowDamageUniqueRing9": [
+   "R30-7-1"
+  ],
+  "EnergyShieldGainedOnEnemyDeathPerLevelUniqueSceptre8": [
+   "R30-7-1"
+  ],
+  "EnergyShieldLostOnKillPercentageUniqueCorruptedJewel14": [
+   "R30-7-1"
+  ],
+  "EnergyShieldRechargeOnBlockUnique__1": [
+   "R30-7-1"
+  ],
+  "EnergyShieldRechargeStartsWhenStunnedUnique__1": [
+   "R30-7-1"
+  ],
+  "EnergyShieldStartsAtZero": [
+   "R30-7-1"
+  ],
+  "FireBeamLengthUnique__1": [
+   "R30-7-1"
+  ],
+  "FireDamageCanPoisonUnique__1": [
+   "R30-7-1"
+  ],
+  "FireDamageToNearbyEnemiesOnKillUnique": [
+   "R30-7-1"
+  ],
+  "FireResistAlsoGrantsEnduranceChargeOnKillJewelUnique__1": [
+   "R30-7-3",
+   2
+  ],
+  "FlammabilityOnHitUniqueOneHandAxe7": [
+   "R30-7-1"
+  ],
+  "FlammabilityOnHitUnique__1": [
+   "R30-7-1"
+  ],
+  "FlaskConsecratedGroundAreaOfEffectUnique__1_": [
+   "R30-7-1"
+  ],
+  "FlaskConsumesFrenzyChargesUnique__1": [
+   "R30-7-1"
+  ],
+  "FlaskCurseImmunityUnique___1": [
+   "R30-7-1"
+  ],
+  "FlaskDurationConsumedPerUse": [
+   "R30-7-1"
+  ],
+  "FlaskImmuneToDamage__1": [
+   "R30-7-1"
+  ],
+  "FlaskLifeGainOnSkillUseUnique__1": [
+   "R30-7-1"
+  ],
+  "FlaskRemovePercentageOfEnergyShieldUniqueFlask2": [
+   "R30-7-1"
+  ],
+  "FlaskTakeChaosDamagePercentageOfLifeUniqueFlask2": [
+   "R30-7-1"
+  ],
+  "FortifyOnMeleeHitUniqueJewel22": [
+   "R30-7-1"
+  ],
+  "FortifyOnMeleeStunUnique__1": [
+   "R30-7-1"
+  ],
+  "GainDebilitatingPresenceUnique__1": [
+   "R30-7-1"
+  ],
+  "GainDivinityOnMaxDivineChargeUnique__1": [
+   "R30-7-1"
+  ],
+  "GainEnergyShieldOnTrapTriggeredUnique__1_": [
+   "R30-7-1"
+  ],
+  "GainLifeOnTrapTriggeredUnique__1": [
+   "R30-7-1"
+  ],
+  "GainLifeOnTrapTriggeredUnique__2__": [
+   "R30-7-1"
+  ],
+  "GainPhasingIfKilledRecentlyUnique__1": [
+   "R30-7-1"
+  ],
+  "GainThaumaturgyBuffRotationUnique__1_": [
+   "R30-7-1"
+  ],
+  "GlimpseOfEternityWhenHitUnique__1": [
+   "R30-7-1"
+  ],
+  "GluttonyOfElementsUniqueAmulet23": [
+   "R30-7-1"
+  ],
+  "GrantEnemiesOnslaughtOnKillUnique__1": [
+   "R30-7-1"
+  ],
+  "GrantsBearTrapUniqueShieldDexInt1": [
+   "R30-7-1"
+  ],
+  "GrantsDarktongueKissUnique__1": [
+   "R30-7-1"
+  ],
+  "GrantsEnvyUnique__1": [
+   "R30-7-1"
+  ],
+  "GrantsEnvyUnique__2": [
+   "R30-7-1"
+  ],
+  "GrantsIntimidatingCry1": [
+   "R30-7-1"
+  ],
+  "GrantsLevel20BoneNovaTriggerUnique__1": [
+   "R30-7-1"
+  ],
+  "GrantsLevel20IcicleNovaTriggerUnique__1": [
+   "R30-7-1"
+  ],
+  "GrantsLevel30ReckoningUnique__1": [
+   "R30-7-1"
+  ],
+  "GrantsPurityOfFireUnique__1": [
+   "R30-7-1"
+  ],
+  "GrantsPurityOfIceUnique__1": [
+   "R30-7-1"
+  ],
+  "GrantsPurityOfLightningUnique__1": [
+   "R30-7-1"
+  ],
+  "GrantsTouchOfGodUnique__1": [
+   "R30-7-1"
+  ],
+  "GrantsVaalPurityOfFireUnique__1": [
+   "R30-7-1"
+  ],
+  "GrantsVaalPurityOfIceUnique__1": [
+   "R30-7-1"
+  ],
+  "GrantsVaalPurityOfLightningUnique__1": [
+   "R30-7-1"
+  ],
+  "GrantsVoidGazeUnique__1": [
+   "R30-7-1"
+  ],
+  "GroundTarOnCritTakenUniqueShieldInt2": [
+   "R30-7-1"
+  ],
+  "GroundTarOnHitTakenUnique__1": [
+   "R30-7-1"
+  ],
+  "HarbingerSkillOnEquipUnique2_1": [
+   "R30-7-1"
+  ],
+  "HarbingerSkillOnEquipUnique2_2": [
+   "R30-7-1"
+  ],
+  "HarbingerSkillOnEquipUnique2_4": [
+   "R30-7-1"
+  ],
+  "HarbingerSkillOnEquipUnique2_5": [
+   "R30-7-1"
+  ],
+  "HarbingerSkillOnEquipUnique2_6": [
+   "R30-7-1"
+  ],
+  "HarbingerSkillOnEquipUnique2__3": [
+   "R30-7-1"
+  ],
+  "HarbingerSkillOnEquipUnique__1": [
+   "R30-7-1"
+  ],
+  "HarbingerSkillOnEquipUnique__2": [
+   "R30-7-1"
+  ],
+  "HarbingerSkillOnEquipUnique__3": [
+   "R30-7-1"
+  ],
+  "HarbingerSkillOnEquipUnique__4_": [
+   "R30-7-1"
+  ],
+  "HarbingerSkillOnEquipUnique__5": [
+   "R30-7-1"
+  ],
+  "HarbingerSkillOnEquipUnique__6": [
+   "R30-7-1"
+  ],
+  "HarvestAlternateWeaponQualityAccuracyRatingIncrease_": [
+   "R30-6"
+  ],
+  "HarvestAlternateWeaponQualityAreaOfEffect_": [
+   "R30-6"
+  ],
+  "HarvestAlternateWeaponQualityElementalDamagePercent": [
+   "R30-6"
+  ],
+  "HarvestAlternateWeaponQualityLocalCriticalStrikeChance__": [
+   "R30-6"
+  ],
+  "HarvestAlternateWeaponQualityLocalIncreasedAttackSpeed": [
+   "R30-6"
+  ],
+  "HarvestAlternateWeaponQualityLocalMeleeWeaponRange_": [
+   "R30-6"
+  ],
+  "IIQFromMaimedEnemiesUnique_1": [
+   "R30-7-1"
+  ],
+  "IIRFromMaimedEnemiesUnique_1": [
+   "R30-7-1"
+  ],
+  "IcestormUniqueStaff12": [
+   "R30-7-1"
+  ],
+  "IgnitedEnemiesTurnToAshUniqueRing15": [
+   "R30-7-1"
+  ],
+  "ImmuneToBurningShockedChilledGroundUnique__1": [
+   "R30-7-1"
+  ],
+  "ImmuneToElementalAilmentsWhileLifeAndManaCloseUnique__1": [
+   "R30-7-1"
+  ],
+  "IncreasedArmourAndEvasionIfKilledTauntedEnemyRecentlyUnique__1": [
+   "R30-7-1"
+  ],
+  "IncreasedArmourWhileBleedingUnique__1": [
+   "R30-7-3",
+   5
+  ],
+  "IncreasedArmourWhileChilledOrFrozenUnique__1": [
+   "R30-7-1"
+  ],
+  "IncreasedAuraEffectUniqueBodyDexInt4": [
+   "R30-7-1"
+  ],
+  "IncreasedAuraEffectUniqueJewel45": [
+   "R30-7-1"
+  ],
+  "IncreasedChanceForMonstersToDropWisdomScrollsUniqueRing14": [
+   "R30-7-1"
+  ],
+  "IncreasedColdDamageIfUsedFireSkillRecentlyUnique__1": [
+   "R30-7-1"
+  ],
+  "IncreasedColdDamageWhileOffhandIsEmpty_": [
+   "R30-7-1"
+  ],
+  "IncreasedCorruptedGemExperienceUniqueCorruptedJewel9": [
+   "R30-7-1"
+  ],
+  "IncreasedCostOfMovementSkillsUnique_1": [
+   "R30-7-1"
+  ],
+  "IncreasedDamagePerLevelDifferenceAgainstHigherLevelEnemiesUnique___1": [
+   "R30-7-1"
+  ],
+  "IncreasedDamagePerMagicItemJewel25": [
+   "R30-7-1"
+  ],
+  "IncreasedElementalDamageIfKilledCursedEnemyRecentlyUnique__1": [
+   "R30-7-1"
+  ],
+  "IncreasedFireDamageIfUsedColdSkillRecentlyUnique__1": [
+   "R30-7-1"
+  ],
+  "IncreasedFlaskChargesForOtherFlasksDuringEffectUnique_1": [
+   "R30-7-1"
+  ],
+  "IncreasedIntelligencePerUniqueUniqueRing14": [
+   "R30-7-1"
+  ],
+  "IncreasedLifeLeechRateUniqueAmulet20": [
+   "R30-7-2"
+  ],
+  "IncreasedPhysicalDamageTakenWhileMovingUnique__1": [
+   "R30-7-1"
+  ],
+  "IncreasedSelfCurseDurationUniqueShieldStrDex2": [
+   "R30-7-1"
+  ],
+  "ItemDropsOnDeathUniqueAmulet12": [
+   "R30-7-1"
+  ],
+  "ItemGrantsIllusoryWarpUnique__1": [
+   "R30-7-1"
+  ],
+  "ItemLimitUniqueJewel10": [
+   "R30-7-1"
+  ],
+  "ItemLimitUniqueJewel8": [
+   "R30-7-1"
+  ],
+  "ItemLimitUniqueJewel9": [
+   "R30-7-1"
+  ],
+  "ItemQuantityPerChestOpenedRecentlyUnique__1": [
+   "R30-7-1"
+  ],
+  "ItemStatsDoubledInBreachImplicit": [
+   "R30-7-1"
+  ],
+  "KnockbackOnCounterattackChanceUnique__1": [
+   "R30-7-1"
+  ],
+  "LeftRingSlotElementalReflectDamageTakenUniqueRing10": [
+   "R30-7-2"
+  ],
+  "LifeAndManaOnHitImplicitMarakethClaw1": [
+   "R30-7-1"
+  ],
+  "LifeAndManaOnHitImplicitMarakethClaw2": [
+   "R30-7-1"
+  ],
+  "LifeAndManaOnHitImplicitMarakethClaw3": [
+   "R30-7-1"
+  ],
+  "LifeGainOnEndurangeChargeConsumptionUniqueBodyStrInt6": [
+   "R30-7-1"
+  ],
+  "LifeGainVsBleedingEnemiesUnique__1": [
+   "R30-7-1"
+  ],
+  "LifeGainedOnEnemyDeathPerFrenzyChargeUniqueOneHandSword6": [
+   "R30-7-1"
+  ],
+  "LifeGainedOnEnemyDeathPerLevelUniqueTwoHandSword7": [
+   "R30-7-1"
+  ],
+  "LifeOnHitPerStatusAilmentOnEnemyUniqueJewel33": [
+   "R30-7-1"
+  ],
+  "LifeOnSpellHitPerStatusAilmentOnEnemyUniqueJewel33": [
+   "R30-7-1"
+  ],
+  "LifeRegeneratedAfterSavageHitUnique_1": [
+   "R30-7-1"
+  ],
+  "LifeRegenerationRatePercentUniqueShieldStr5": [
+   "R30-7-1"
+  ],
+  "LifeRegenerationWhileMovingUnique__1": [
+   "R30-7-1"
+  ],
+  "LightningDamageCanPoisonUnique__1": [
+   "R30-7-1"
+  ],
+  "LightningDamageOnChargeExpiryUniqueAmulet12": [
+   "R30-7-1"
+  ],
+  "LightningResistAlsoGrantsPowerChargeOnKillJewelUnique__1": [
+   "R30-7-3",
+   2
+  ],
+  "LightningWarpSkillUniqueOneHandAxe8": [
+   "R30-7-1"
+  ],
+  "LocalDisplayGrantLevelXShadeFormUnique__1": [
+   "R30-7-1"
+  ],
+  "LocalDoubleImplicitMods": [
+   "R30-7-2"
+  ],
+  "LocalFlaskInstantRecoverPercentOfLifeUniqueFlask6": [
+   "R30-7-1"
+  ],
+  "LocalFlaskPetrifiedUnique__1": [
+   "R30-7-1"
+  ],
+  "LocalGrantsStormCascadeOnAttackUnique__1": [
+   "R30-7-1"
+  ],
+  "LocalTripleImplicitModsUnique__1__": [
+   "R30-7-2"
+  ],
+  "LoseAllChargesOnMoveUnique__1": [
+   "R30-7-2"
+  ],
+  "LoseEnergyShieldOnBlockUniqueShieldStrInt6": [
+   "R30-7-1"
+  ],
+  "MaceAttackSpeedJewel": [
+   "R30-7-3",
+   1
+  ],
+  "MagicItemsDropIdentifiedUnique__1": [
+   "R30-7-1"
+  ],
+  "ManaGainedOnEnemyDeathPerLevelUniqueSceptre8": [
+   "R30-7-1"
+  ],
+  "MaximumEnergyShieldOnKillPercentUnique__1": [
+   "R30-7-1"
+  ],
+  "MaximumEnergyShieldOnKillPercentUnique__2": [
+   "R30-7-1"
+  ],
+  "MaximumLifePerItemRarityUnique__1": [
+   "R30-7-1"
+  ],
+  "MaximumMinionCountUniqueBodyInt9": [
+   "R30-7-3",
+   1
+  ],
+  "MaximumMinionCountUniqueBootsInt4": [
+   "R30-7-1"
+  ],
+  "MaximumMinionCountUniqueBootsStrInt2": [
+   "R30-7-3",
+   1
+  ],
+  "MaximumMinionCountUniqueBootsStrInt2Updated": [
+   "R30-7-3",
+   1
+  ],
+  "MaximumMinionCountUniqueSceptre5": [
+   "R30-7-3",
+   1
+  ],
+  "MaximumMinionCountUniqueTwoHandSword4": [
+   "R30-7-3",
+   1
+  ],
+  "MaximumMinionCountUniqueTwoHandSword4Updated": [
+   "R30-7-3",
+   1
+  ],
+  "MaximumMinionCountUniqueWand2": [
+   "R30-7-3",
+   1
+  ],
+  "MaximumMinionCountUniqueWand2Updated": [
+   "R30-7-3",
+   1
+  ],
+  "MaximumVoidArrowsUnique__1": [
+   "R30-7-1"
+  ],
+  "MeleeAttackerTakesColdDamageUniqueShieldDex1": [
+   "R30-7-1"
+  ],
+  "MeleeAttacksUsableWithoutManaUniqueOneHandAxe1": [
+   "R30-7-1"
+  ],
+  "MeleeAttacksUsableWithoutManaUnique__1": [
+   "R30-7-1"
+  ],
+  "MeleeDamageTakenUniqueAmulet12": [
+   "R30-7-1"
+  ],
+  "MinesMultipleDetonationUniqueStaff11": [
+   "R30-7-1"
+  ],
+  "MinionHitsOnlyKillIgnitedEnemiesUnique__1": [
+   "R30-7-1"
+  ],
+  "MinionLargerAggroRadiusUnique__1": [
+   "R30-7-1"
+  ],
+  "MinionLifeRecoveryOnBlockUniqueJewel18": [
+   "R30-7-1"
+  ],
+  "MinionLifeRecoveryOnBlockUnique__1": [
+   "R30-7-1"
+  ],
+  "MinionsRecoverLifeOnKillingPoisonedEnemyUnique__1_": [
+   "R30-7-1"
+  ],
+  "MoltenBurstOnMeleeHitUnique__1": [
+   "R30-7-1"
+  ],
+  "MoreDamagePerWarcryExertingUnique__1": [
+   "R30-7-1"
+  ],
+  "MovementSkillsDealNoPhysicalDamageUnique__1": [
+   "R30-7-1"
+  ],
+  "MovementSpeedIfKilledRecentlyUnique___1": [
+   "R30-7-3",
+   3
+  ],
+  "MovementSpeedIfKilledRecentlyUnique___2": [
+   "R30-7-3",
+   3
+  ],
+  "MovementSpeedIfUsedWarcryRecentlyUnique_1": [
+   "R30-7-1"
+  ],
+  "MovementSpeedIfUsedWarcryRecentlyUnique__2": [
+   "R30-7-1"
+  ],
+  "MovementSpeedOnTrapThrowUniqueBootsDex6": [
+   "R30-7-1"
+  ],
+  "MovementSpeedOnTrapThrowUnique__1": [
+   "R30-7-1"
+  ],
+  "MovementVelocityWhileBleedingUnique__1": [
+   "R30-7-1"
+  ],
+  "NoItemQuantity": [
+   "R30-7-1"
+  ],
+  "NoItemRarity": [
+   "R30-7-1"
+  ],
+  "NonInstantManaRecoveryAlsoAffectsLifeUnique__1": [
+   "R30-7-1"
+  ],
+  "NumberOfZombiesSummonedPercentageUniqueSceptre3": [
+   "R30-7-1"
+  ],
+  "OnlySocketCorruptedGemsUnique__1": [
+   "R30-7-1"
+  ],
+  "OnslaughtOnVaalSkillUseUniqueGlovesStrDex4": [
+   "R30-7-1"
+  ],
+  "PassivesApplyToMinionsUniqueJewel7": [
+   "R30-7-3",
+   2
+  ],
+  "PercentDamagePerItemQuantityUnique__1": [
+   "R30-7-1"
+  ],
+  "PetrificationStatueUnique__1": [
+   "R30-7-1"
+  ],
+  "PhasingOnBeginESRechargeUnique___1": [
+   "R30-7-1"
+  ],
+  "PhysicalDamageCanChillUniqueDescentOneHandAxe1": [
+   "R30-7-1"
+  ],
+  "PhysicalDamageCanChillUniqueOneHandAxe1": [
+   "R30-7-1"
+  ],
+  "PhysicalDamageCanShockUnique__1": [
+   "R30-7-1"
+  ],
+  "PhysicalDamageFromBeastsUniqueBodyDex6": [
+   "R30-7-1"
+  ],
+  "PhysicalDamageToSelfOnMinionDeathESPercentUniqueRing33_": [
+   "R30-7-1"
+  ],
+  "PhysicalDamageWhileFrozenUnique___1": [
+   "R30-7-1"
+  ],
+  "PunishmentSelfCurseOnKillUniqueCorruptedJewel13": [
+   "R30-7-1"
+  ],
+  "RagingSpiritDurationResetOnIgnitedEnemyUnique__1": [
+   "R30-7-1"
+  ],
+  "RaiseSpectreManaCostUnique__1_": [
+   "R30-7-1"
+  ],
+  "RangedAttacksConsumeAmmoUniqueBelt__1": [
+   "R30-7-1"
+  ],
+  "ReducedDamageIfTakenASavageHitRecentlyUnique_1": [
+   "R30-7-1"
+  ],
+  "ReflectBleedingToSelfUnique__1": [
+   "R30-7-1"
+  ],
+  "ReflectCurses": [
+   "R30-7-1"
+  ],
+  "ReflectDamageToAttackersOnBlockUniqueAmulet16": [
+   "R30-7-1"
+  ],
+  "ReflectDamageToAttackersOnBlockUniqueDescentShield1": [
+   "R30-7-1"
+  ],
+  "ReflectDamageToAttackersOnBlockUniqueDescentStaff1": [
+   "R30-7-1"
+  ],
+  "ReflectDamageToAttackersOnBlockUniqueShieldDex5": [
+   "R30-7-1"
+  ],
+  "ReflectDamageToAttackersOnBlockUniqueStaff9": [
+   "R30-7-1"
+  ],
+  "ReflectPhysicalDamageToSelfOnHitUnique__1": [
+   "R30-7-1"
+  ],
+  "ReflectPoisonsToSelfUnique__1": [
+   "R30-7-1"
+  ],
+  "ReflectsShocksUnique__1": [
+   "R30-7-1"
+  ],
+  "RemoteMineArmingSpeedUnique__1": [
+   "R30-7-1"
+  ],
+  "RepeatingShockwave": [
+   "R30-7-1"
+  ],
+  "RightRingSlotPhysicalReflectDamageTakenUniqueRing10": [
+   "R30-7-2"
+  ],
+  "ScorchingRaySkillUnique__1": [
+   "R30-7-1"
+  ],
+  "ShockOnKillUnique__1": [
+   "R30-7-1"
+  ],
+  "ShockedEnemyCastSpeedUnique__1": [
+   "R30-7-1"
+  ],
+  "ShockedEnemyMovementSpeedUnique__1": [
+   "R30-7-1"
+  ],
+  "SmokeCloudWhenHitUniqueQuiver9": [
+   "R30-7-1"
+  ],
+  "SpellChanceToShockFrozenEnemiesUniqueRing34": [
+   "R30-7-1"
+  ],
+  "SpreadChilledGroundWhenHitByAttackUnique__1": [
+   "R30-7-1"
+  ],
+  "SpreadConsecratedGroundOnShatterUnique__1": [
+   "R30-7-1"
+  ],
+  "StealRareModUniqueJewel3": [
+   "R30-7-3",
+   2
+  ],
+  "SummonRagingSpiritOnKillUnique__1": [
+   "R30-7-1"
+  ],
+  "SummonSkeletonsCooldownTimeUnique__1": [
+   "R30-7-1"
+  ],
+  "SummonSkeletonsNumberOfSkeletonsToSummonUnique__1": [
+   "R30-7-1"
+  ],
+  "SummonSpidersOnKillUnique__1": [
+   "R30-7-1"
+  ],
+  "SummonVoidSphereOnKillUnique__1_": [
+   "R30-7-1"
+  ],
+  "SummonWolfOnKillUnique__1": [
+   "R30-7-1"
+  ],
+  "SummonWolfOnKillUnique__1New": [
+   "R30-7-1"
+  ],
+  "SummonWolfOnKillUnique__2_": [
+   "R30-7-1"
+  ],
+  "SummonsWormsOnUse": [
+   "R30-7-1"
+  ],
+  "TakePhysicalDamagePerWarcryExertingUnique__1": [
+   "R30-7-1"
+  ],
+  "TentacleSmashOnKillUnique__1_": [
+   "R30-7-1"
+  ],
+  "TotemElementalResistPerActiveTotemUnique_1": [
+   "R30-7-1"
+  ],
+  "TotemsCannotBeStunnedUniqueJewel15": [
+   "R30-7-1"
+  ],
+  "TrapDurationUniqueBelt6": [
+   "R30-7-1"
+  ],
+  "TrapDurationUnique__1": [
+   "R30-7-1"
+  ],
+  "TrapTriggerTwiceChanceUnique__1": [
+   "R30-7-1"
+  ],
+  "TravelSkillsReflectPoisonUnique__1": [
+   "R30-7-1"
+  ],
+  "TriggerShadeFormWhenHitUnique__1": [
+   "R30-7-1"
+  ],
+  "TriggeredAbyssalCryUnique__1": [
+   "R30-7-1"
+  ],
+  "TriggeredColdAegisSkillUnique__1": [
+   "R30-7-1"
+  ],
+  "TriggeredElementalAegisSkillUnique__1_": [
+   "R30-7-1"
+  ],
+  "TriggeredFireAegisSkillUnique__1_": [
+   "R30-7-1"
+  ],
+  "TriggeredLightningAegisSkillUnique__1": [
+   "R30-7-1"
+  ],
+  "TriggeredPhysicalAegisSkillUnique__1": [
+   "R30-7-1"
+  ],
+  "TriggeredSummonLesserShrineUnique__1": [
+   "R30-7-1"
+  ],
+  "UnarmedAttackSpeedJewel": [
+   "R30-7-1"
+  ],
+  "UniqueAttacksDealPercentIncreasedDamagePerTargetPower1UNUSED": [
+   "R30-7-5"
+  ],
+  "UniqueIncreasedEnergyGenPerCritRecently1UNUSED": [
+   "R30-7-5"
+  ],
+  "UsingFlasksDispelsBurningUniqueHelmetInt5": [
+   "R30-7-1"
+  ],
+  "UtilityFlaskChilledGround": [
+   "R30-7-1"
+  ],
+  "UtilityFlaskSmokeCloud": [
+   "R30-7-1"
+  ],
+  "UtilityFlaskTaunt_": [
+   "R30-7-1"
+  ],
+  "VoidShotOnSkillUseUnique__1_": [
+   "R30-7-1"
+  ],
+  "WarcryKnockbackUnique__1": [
+   "R30-7-3",
+   1
+  ],
+  "ZombieSizeUniqueSceptre3_": [
+   "R30-7-1"
+  ],
+  "ZombiesExplodeEnemiesOnHitUniqueSceptre3": [
+   "R30-7-1"
+  ]
+ }
+}

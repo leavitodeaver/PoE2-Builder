@@ -321,7 +321,9 @@ def test_poe1_leftover_unique_mods_are_unreachable_and_uncarried_ones_stay_open_
     unreachable = [r for r in exclusive if r["status"] == "unreachable"]
     marked = [r for r in unreachable if r["reason"].startswith("a PoE1 leftover (")]
     # (the rest are GGG-marked unused, COV20: test_ggg_marked_dnt_unique_mods_are_unreachable_and_named_so)
-    assert len(marked) >= 150 and all(r in marked or r["reason"].startswith("GGG-marked unused (DNT)")
+    # (COV41) and RESEARCH30's by-id verdicts (R30-6 / R30-7: coverage.NOT_OBTAINABLE, "not league-obtainable: ...")
+    assert len(marked) >= 150 and all(r in marked or r["reason"].startswith(("GGG-marked unused (DNT)",
+                                                                              "not league-obtainable: "))
                                       for r in unreachable)
     carried = coverage.pob_unique_templates()
     by_mod: dict[str, list[str]] = {}
@@ -810,3 +812,30 @@ def test_kalandras_touch_line_counts_as_read_by_pob():
 
     assert ignored_line_status("Reflects opposite Ring", False)[0] == "pob"
     assert ignored_line_status("Reflects opposite Ring", True)[0] == "none"
+
+
+def test_researched_unique_leftovers_are_unreachable_and_obtainable_ones_are_not():
+    """COV41 (RESEARCH30 R30-6 / R30-7, the manager 01:50 18 Nov): the 329 unique-only and Harvest Mods ids research
+    found unreachable are in NOT_OBTAINABLE with their family's evidence; the OBTAINABLE ids (Fists of Stone twins,
+    Loreweave, The Master's Reach, the Grasping Mail / Breach Ring / Cleansing Charm implicits) and the 38 UNVERIFIED
+    ones aren't, and the Exclusive pool's records are marked."""
+    import json
+    from pathlib import Path
+
+    from builder.ledger import coverage
+
+    data = json.loads((Path(coverage.__file__).with_name("unreachable_unique_mods.json")).read_text(encoding="utf-8"))
+    assert len(data["mods"]) == 329
+    why = coverage.NOT_OBTAINABLE
+    assert "R30-6" in why["HarvestAlternateWeaponQualityAreaOfEffect_"]
+    assert "RePoE" in why["ActorSizeUniqueBeltDemigods1"] and "MEDIUM-HIGH" in why["ActorSizeUniqueBeltDemigods1"]
+    for live in ("UniqueRecoupLifeOpenWeakness1", "HandWrapsUniqueRecoupLifeEnergyShieldOpenWeakness1",
+                 "UniqueLoreweaveSekhemasResolveRuby1", "ItemCanAlsoRollRingMods", "RingImplicitMaximumQualityAdditional1",
+                 "CharmImplicitUseOnCurse1", "GenerateEnduranceChargesForAlliesInPresence", "EssenceBreach"):
+        assert live not in why, live
+    assert not any(k.startswith("HandWraps") or k.startswith("Alloy") for k in why)
+    report = coverage.audit()
+    harvest = [r for r in report["records"] if r["source"] == "Exclusive HarvestAlternateWeaponQualityAreaOfEffect_"]
+    # the unparsed line (PoB parses the other, "per 4% Quality", which the open counts never held)
+    harvest = [r for r in harvest if r["line"] == "Quality does not increase Damage"]
+    assert harvest and all(r["status"] == "unreachable" and "R30-6" in r["reason"] for r in harvest)

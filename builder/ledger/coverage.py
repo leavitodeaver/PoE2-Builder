@@ -757,6 +757,25 @@ NOT_OBTAINABLE = {
             "; no Spectral Spirits skill in ActiveSkills / GrantedEffects"))},
 }
 
+
+def _researched_unique_leftovers() -> dict[str, str]:
+    """(COV41, RESEARCH30 R30-6 / R30-7, the manager 01:50 18 Nov) unique-only and Harvest Mods ids no league character
+    can get, by evidence family (builder/ledger/unreachable_unique_mods.json, built from research/unique-only-mods-by-id.md:
+    329 ids; 284 MEDIUM-HIGH "same id and stats in PoE1 (RePoE); on no PoB-PoE2 / poe2db unique; stats used nowhere live
+    in PoE2", 15 MEDIUM older-PoE1-stat ids, 22 MEDIUM whose stat has live PoE2 uses elsewhere, 6 Harvest weapon enchants,
+    2 GGG-marked UNUSED). The 38 UNVERIFIED ids stay open."""
+    data = json.loads(Path(__file__).with_name("unreachable_unique_mods.json").read_text(encoding="utf-8"))
+    out = {}
+    for mod, (family, *uses) in data["mods"].items():
+        f = data["families"][family]
+        evidence = f["evidence"].replace("N live", f"{uses[0]} live") if uses else f["evidence"]
+        out[mod] = f"RESEARCH30 {family.rsplit('-', 1)[0] if family.count('-') > 1 else family}, {f['confidence']}: {evidence}"
+    return out
+
+
+for _mod, _why in _researched_unique_leftovers().items():
+    NOT_OBTAINABLE.setdefault(_mod, _why)
+
 def legacy_variant_templates(data_dir: Path) -> dict[tuple[str, str], list[str]]:
     """(unique, line template) -> the old variants it is on, for lines every copy of which (on that unique) is tagged
     only with "Pre 0.x" variants in PoB's raw text (uniques.json); COV40, see audit's "Legacy unique variants"."""
@@ -990,7 +1009,7 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                                 "variant); was: " + record["reason"])
     # Item mods no league character can get (COV40), each settled by research, by mod id (NOT_OBTAINABLE)
     for record in records:
-        if (record["status"] == "none" and record["source"].startswith("Item ")
+        if (record["status"] == "none" and record["source"].startswith(("Item ", "Exclusive "))
                 and (why := NOT_OBTAINABLE.get(record["source"].split()[1]))):
             record["status"] = "unreachable"
             record["reason"] = f"not league-obtainable: {why}; was: " + record["reason"]
