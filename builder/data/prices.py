@@ -28,6 +28,21 @@ UNIQUE_TYPES = ["UniqueWeapons", "UniqueArmours", "UniqueAccessories", "UniqueFl
 MAX_AGE_SECONDS = 3600
 LEAGUES_MAX_AGE_SECONDS = 24 * 3600
 REQUEST_SPACING_SECONDS = 0.5
+# The league the search prices on when a request names none (the manager, 18 Nov 14:50): an explicit setting, not
+# poe.ninja's first listed league. default_league() took the first non-hardcore, non-Standard league poe.ninja listed,
+# and poe.ninja lists the event league "Forbidden Rites" before the challenge league "Runes of Aldur", so builds were
+# priced on that economy without anyone choosing it. The manager's ruling (18 Nov 17:50): the default stays "Forbidden
+# Rites" (the 0.5.5 event league; today's behaviour: the only local price cache, and the rare price model was fitted on
+# it, 24 Oct), now as an explicit setting said in every result; "Runes of Aldur" (the 0.5.0 challenge league) has no
+# local prices or fitted model yet. The user decides which to use. POE2_LEAGUE overrides it (the page and a request's
+# `league` field choose per run).
+DEFAULT_LEAGUE = "Forbidden Rites"
+RARE_MODEL_FILE = "rare_model.json"  # (builder/data/rare_prices.MODEL_FILE: the rare price model fitted on a league)
+
+
+def configured_league() -> str:
+    """The league a request without one is priced on: POE2_LEAGUE, else DEFAULT_LEAGUE."""
+    return os.environ.get("POE2_LEAGUE", "").strip() or DEFAULT_LEAGUE
 
 
 def confidence(listings: int | None) -> str:
@@ -53,8 +68,9 @@ class Price:
 
 class PriceTable:
     def __init__(self, league: str, exchange: dict[str, Price], uniques: dict[str, list[Price]], fetched_at: float,
-                 currency: dict[str, float] | None = None) -> None:
+                 currency: dict[str, float] | None = None, warnings: list[str] | None = None) -> None:
         self.league = league
+        self.warnings = list(warnings or [])  # what the result says about these prices (PriceFeed.league_warnings)
         self.exchange = exchange
         self.uniques = uniques
         self.fetched_at = fetched_at
@@ -106,12 +122,29 @@ class PriceFeed:
         return payload
 
     def default_league(self) -> str:
-        """poe.ninja lists the current challenge league first; skip hardcore and standard."""
-        for league in self.leagues():
-            name = league["id"]
-            if not name.startswith("HC ") and name not in ("Standard", "Hardcore"):
-                return name
-        return self.leagues()[0]["id"]
+        """The configured league (configured_league): never poe.ninja's first listed one, which was an event league."""
+        return configured_league()
+
+    def league_warnings(self, league: str, priced: bool) -> list[str]:
+        """What a result priced on `league` must say: the league missing from poe.ninja's list, no local prices for it
+        (`priced` False: nothing cached), or no rare price model fitted on it (the default parameters price rares)."""
+        out = []
+        try:  # (the cached list only: pricing a run makes no request of its own)
+            cached = json.loads((self.cache_dir / "leagues.json").read_text(encoding="utf-8"))
+            listed = [entry["id"] for entry in cached["payload"]]
+        except (OSError, ValueError, KeyError, TypeError):
+            listed = None
+        if listed is None:
+            out.append(f"poe.ninja's league list isn't cached: '{league}' not checked")
+        elif league not in listed:
+            out.append(f"'{league}' isn't in poe.ninja's league list ({', '.join(listed)}): its prices may be missing "
+                       "or stale")
+        if not priced:
+            out.append(f"no local poe.ninja prices for '{league}': uniques, gems and currency are unpriced (fetch them: "
+                       f"python -m builder.data prices \"{league}\")")
+        if not (self.cache_dir / league / RARE_MODEL_FILE).exists():
+            out.append(f"the rare price model isn't fitted on '{league}': rares are priced with its default parameters")
+        return out
 
     def refresh(self, league: str, force: bool = False) -> dict[str, str]:
         statuses = {}
@@ -165,4 +198,5 @@ class PriceFeed:
                 price = Price(line["name"], line["primaryValue"], line.get("listingCount"), type_name,
                               line.get("baseType"), line.get("variant"), bool(line.get("corrupted")))
                 uniques.setdefault(price.name, []).append(price)
-        return PriceTable(league, exchange, uniques, oldest, currency)
+        warnings = self.league_warnings(league, bool(exchange or uniques))
+        return PriceTable(league, exchange, uniques, oldest, currency, warnings)

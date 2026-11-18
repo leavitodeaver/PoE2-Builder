@@ -162,6 +162,11 @@ class Run:
         self.should_cancel = should_cancel or (lambda: False)
         self.started = clock.now()
         self.notes: list[str] = []
+        # (the manager, 18 Nov 14:50) which league's prices the result rests on, and what's wrong with them, said in it
+        league = getattr(prices, "league", None)
+        self.notes.append(f"Priced on: {league} (poe.ninja)" if league else "Priced on: no price data (uniques, gems and "
+                          "currency unpriced)")
+        self.notes += [f"Prices: {warning}." for warning in getattr(prices, "warnings", None) or []]
         self.probes: dict[str, dict] = {}  # skeleton label -> latest result
         self.live: dict[int, dict] = {}  # task index -> latest progress
         self.evals_done = 0
@@ -555,6 +560,8 @@ class Run:
         elapsed = self.elapsed()
         return {
             "status": status, "request": self.request.model_dump(mode="json"), "notes": self.notes,
+            "priced_on": getattr(self.price_table, "league", None),
+            "price_warnings": list(getattr(self.price_table, "warnings", None) or []),
             "seconds": round(elapsed, 1), "evaluations": self.evals_done,
             "wall_seconds": round(clock.now() - self.started, 1), "cpu_clock": getattr(self, "cpu_clock", False),
             "evals_per_second": round(self.evals_done / elapsed) if elapsed > 0 else 0,

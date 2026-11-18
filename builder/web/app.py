@@ -132,11 +132,12 @@ def mechanics_catalog() -> dict:
 def options() -> dict:
     passives = passive_names(data)
     mechanics = sorted({t for g in data.gems for t in g["tags"]} | {t for g in data.gems for t in g["skillTypes"]}, key=str.lower)
+    default_league = prices.default_league()  # (the configured league, the manager 18 Nov 14:50: not poe.ninja's first)
     try:
         leagues = [league["id"] for league in prices.leagues()]
-        default_league = prices.default_league()
     except OSError:
-        leagues, default_league = [], None
+        leagues = []
+    league_warnings = prices.league_warnings(default_league, (prices.cache_dir / default_league / "exchange").exists())
     return {
         "data": data.manifest,
         "classes": data.classes,
@@ -154,6 +155,7 @@ def options() -> dict:
         "defaults": BuildRequest().model_dump(),
         "leagues": leagues,
         "default_league": default_league,
+        "default_league_warnings": league_warnings,
     }
 
 

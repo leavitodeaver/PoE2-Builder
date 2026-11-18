@@ -191,6 +191,9 @@ def main() -> None:
                              "config (the gate's verdict before 15 Nov), not against the fair reference (fair_reference: "
                              "scored as the search scores its own builds); both ratios are printed and saved either way")
     parser.add_argument("--fair", action="store_true", help="(the default since 15 Nov: accepted, does nothing)")
+    parser.add_argument("--league", default=None,
+                        help="price on this league (default: the configured one, builder.data.prices.configured_league; "
+                             "before 18 Nov the default was poe.ninja's first listed league and the only price cache 'Forbidden Rites')")
     args = parser.parse_args()
     if args.seed_base is not None and os.environ.get("PYTHONHASHSEED") != str(args.seed_base):
         # (Python fixes its string hashing at start-up: run again with the hash seed set; the workers inherit it)
@@ -199,7 +202,8 @@ def main() -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-    prices = PriceFeed().table(refresh=False)
+    prices = PriceFeed().table(args.league, refresh=False)
+    print(f"priced on: {prices.league}" + "".join(f"; {w}" for w in prices.warnings))
     files = sorted(p for p in REFERENCE_DIR.glob("*.txt") if not args.names or any(f in p.stem for f in args.names))
     references = []
     engine = PobEngine()
@@ -278,7 +282,8 @@ def main() -> None:
     RESULT_DIR.mkdir(parents=True, exist_ok=True)
     out = RESULT_DIR / f"gate4-{datetime.now():%Y%m%d-%H%M%S}.json"
     out.write_text(json.dumps({"seconds": args.seconds, "cpu_clock": args.cpu, "seed_base": args.seed_base,
-                               "hash_seed": os.environ.get("PYTHONHASHSEED"), "commit": commit(), "boss": BOSS, "verdict": "toggled" if args.author_toggles else "fair", "rows": rows}, indent=1), encoding="utf-8")
+                               "hash_seed": os.environ.get("PYTHONHASHSEED"), "commit": commit(), "boss": BOSS, "verdict": "toggled" if args.author_toggles else "fair",
+                               "priced_on": prices.league, "price_warnings": prices.warnings, "rows": rows}, indent=1), encoding="utf-8")
     print(f"gate 4: {sum(r['passed'] for r in rows)}/{len(rows)} pass; wrote {out.relative_to(ROOT)}")
 
 
