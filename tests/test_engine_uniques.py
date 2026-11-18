@@ -51,6 +51,10 @@ def test_hrimnors_hymn_aftershock_doubles_slam_hits_not_ignite(engine):
                           "+100% chance to Ignite", "25% chance to cause Bleeding on Hit", "100% chance to Poison on Hit",
                           *extra])
 
+    # (MECHC38: without the boss's Chill on you, an ActionSpeed assumption since MECHC38: a slower build's single Poison
+    # is up less of the time, so a second equal hit raises its uptime past the x1.5 bound below; not Hymn's doing)
+    build.call("setAssumptions", mods=[m for m in search.assumptions.mods or [] if m.get("tag") != "BossChill"],
+               fields=[])
     build.call("equip", slot="Amulet", raw=amulet([]), fields=[])
     before = build.call("stats", fields=FIELDS)
     build.call("equip", slot="Amulet", raw=amulet([stand_in]), fields=[])

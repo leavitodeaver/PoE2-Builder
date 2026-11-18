@@ -600,18 +600,41 @@ def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
     return (got[0], got[1]) if got[0] <= most else (most, f"{got[1]}; at most once every {1 / most:g} s (the line's cap)")
 
 
+# (MECHC38) Not a gain: "granted by" (Abyssal Apparition's "Spells granted by items, or Spells which already consume a
+# Power Charge" matched CHARGE_SOURCE's "grant\w*"); and the events named before a skill's own gain that _charge_rate has
+# no rate for outside Build.consume_gains (GEM19's consumes on the main skill): a consume, a Heavy Stun of a Primed enemy
+NOT_A_GAIN = re.compile(r"(?:\d+(?:\.\d+)?% chance \w+ )?granted by\b", re.I)
+EVENT_GAIN = re.compile(r"\bconsumes?\b|primed for heavy stun", re.I)
+
+
+def consume_gain(build, skill: str, share: float, what: str) -> dict[str, tuple[float, str]]:
+    """{the skill's description (its sourceLines text): (consumes a second, how)} for a main skill that grants a charge
+    on each consume (Siphoning Strike: "Consume their Shock ... and grant you a Power Charge"; Disengage: "Consumes the
+    Parried Debuff on Hitting enemies to release a shockwave and grant you a Frenzy Charge"; game 26650308 / PoB's gem
+    text): its hits a second (PoB's Speed x HitChance) x `share` of them that find what they consume (GEM19's
+    shock_set_share / parry_plan box). One charge a consume, as the text says. {} without a description."""
+    text = ((getattr(build, "ctx", None) and build.ctx.all_gems.get(skill)) or {}).get("description") or ""
+    if not text or share <= 0:
+        return {}
+    got = build.call("stats", fields=["Speed", "HitChance"])
+    hits = number(got.get("Speed")) * (number(got.get("HitChance")) or 100) / 100
+    return {text: (hits * share, f"{hits:.2f} hits/s x {share:.0%} {what} (GEM19's share, the last resolve's)")}
+
+
 def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
     """_charge_rate before the line's own "no more than once every N seconds" cap."""
     m = re.search(CHARGE_SOURCE.format(kind=kind), text, re.I)
     if not m or re.search(r"\bcannot gain\b|instead|allies|when you gain|if you would gain|per \w+ charge|lose|at maximum \w+ charges", text, re.I):
         return None
+    if NOT_A_GAIN.match(text[m.start():]) or re.search(r"\bcannot generate\b", m.group(0), re.I):
+        return None  # (MECHC38: "Spells granted by items ... consume a Power Charge", Ferocity's "cannot generate")
     chance = float(m.group(1)) / 100 if m.group(1) else 1.0
     chance *= float(m.group("count") or 1)  # ("Gain 3 Power Charges on use": three per event; MECH48, was one)
     when = m.group(3).lower()
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
     crits = hits * number(stats.get("CritChance")) / 100
     boss = 1 / bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHC11)
-    if "kill" in when:
+    if re.search(r"\bkill", when):  # (MECHC38: "kill" inside "This skill ..." read as on-kill before)
         rate, how = kill_events(when, stats)
         return chance * rate, f"{chance:.0%} x {how}"
     if kind == "Frenzy" and stats.get("_main_no_frenzy") and re.search(r"\bhit|critical|freeze|electrocute|\bpin|stun|immobilise",
@@ -666,6 +689,17 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
     # lava's charge-up)
     before = text[:m.start()].lower()
     full = text.lower()
+    if (gain := (stats.get("_consume_gains") or {}).get(text)) is not None:
+        # (MECHC38, GEM19's routed UNDERCOUNT) a skill's gain on a consume (Siphoning Strike's Power Charge when it
+        # Consumes a Shock, Disengage's Frenzy Charge when it Consumes the Parried Debuff): its consumes a second, from the
+        # assumptions' consumed share (Build.consume_gains: the last resolve's, a round behind, MEDIUM)
+        return chance * gain[0], f"{chance:.0%} x {gain[1]}"
+    if EVENT_GAIN.search(before):
+        # (MECHC38) a gain after an event the line names that this reader has no rate for here (a consume by a skill that
+        # isn't the main one, Frenzied Riposte's Parried consume, Wing Blast's Heavy Stun of a Primed enemy): 0, said
+        # (before, "skill" in the description's last sentence read as an on-kill gain, or the one-per-4-s guess)
+        return 0.0, (f"'{text[:70]}': a gain on an event not modelled for this skill here (a consume / a Heavy Stun "
+                     "outside the main skill's own parts): 0, an UNDERCOUNT where it's used")
     if re.search(r"\bkill|\bcull", before):
         rate, how = kill_events(before, stats)
         return chance * rate, f"{chance:.0%} x {how}"
@@ -1258,6 +1292,7 @@ RAGE_NO_LOSS = re.compile(r"^No Inherent loss of Rage(?: during effect)?$", re.I
 #   counted (an undercount).
 RAGE_LOST_ON_CRIT_STAT = "lose_%_of_maximum_rage_on_dealing_critical_strike"
 RAGE_RESET_AT_MAX = re.compile(r"\blose all rage on reaching maximum rage\b", re.I)
+RAGE_FILL_ON_USE = re.compile(r"^Grants up to your maximum Rage on use$", re.I)  # (MECHC38: Ngamahu's Chosen)
 RAGE_SOURCE = re.compile(r"(?:(\d+(?:\.\d+)?)% chance to )?\bgain (\d+|an?)? ?Rage\b(.*)$", re.I)
 RAGE_REGEN = re.compile(r"\bregenerate (\d+(?:\.\d+)?)(%)?(?: of your maximum)? Rage per second(.*)$|"
                         r"\b1 Rage Regenerated for every", re.I)
@@ -1295,6 +1330,17 @@ def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, st
             return 1.0, 1.0, "regenerated at a rate set by Life or Mana regeneration: 1/s assumed (LOW)"
         r = float(m.group(1)) * (number(stats.get("MaximumRage")) / 100 if m.group(2) else 1.0)
         return r, 1.0, f"{r:g}/s regenerated"
+    if RAGE_FILL_ON_USE.match(text.strip()):
+        # (MECHC38; COV40's routed UNDERCOUNT) Ngamahu's Chosen, "Grants up to your maximum Rage on use" (PoB parses it to
+        # nothing; RAGE_SOURCE needs "gain"): the charm's uses a second (the "on use" item uses), each filling Rage to its
+        # maximum, counted as the maximum a use (the upper reading of the gain: a use with Rage left fills less; the
+        # held count can't pass the maximum, MEDIUM)
+        used = (stats.get("_item_uses") or {}).get(text)
+        if used is None:
+            return 0.0, 0.0, "fills Rage on use, but the item's uses weren't read: 0"
+        most = number(stats.get("MaximumRage"))
+        return used[0] * most, used[0], (f"fills Rage to its maximum ({most:g}) on each use: {used[0]:.3f} uses/s "
+                                         f"({used[1]}), {most:g} Rage a use (the upper reading, MEDIUM)")
     m = RAGE_SOURCE.search(text)
     if not m or RAGE_NOT_SOURCE.search(text):
         return None
@@ -7262,7 +7308,7 @@ class Conditions:
             FLASK_EVENT.search(t) for t in texts) else {}
         boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         stats = {**stats, "_has_ally": any(t & {"Minion", "CreatesMinion"} for t in gem_types.values()),  # (MECHC31, Conduit)
-                 "_gem_names": set(gem_types), "_boss": boss, "_events": events, "_item_uses": item_uses, "_texts": texts, "_weapon": getattr(self.build.equipped.get("Weapon 1"), "type", ""), "_consumers": consumers, "_rage_spend": rage_spend,
+                 "_gem_names": set(gem_types), "_boss": boss, "_events": events, "_item_uses": item_uses, "_texts": texts, "_weapon": getattr(self.build.equipped.get("Weapon 1"), "type", ""), "_consumers": consumers, "_rage_spend": rage_spend, "_consume_gains": dict(getattr(self.build, "consume_gains", None) or {}),
                  "_main_channel_rage": self.main_skill in RAGE_PER_SECOND, "_main_types": main_types, "_main_skill": self.main_skill, "_distance_choice": self.distance,
                  "_weapon_types": [o.type for slot in ("Weapon 1", "Weapon 2")
                                    if (o := (getattr(self.build, "equipped", None) or {}).get(slot)) is not None],

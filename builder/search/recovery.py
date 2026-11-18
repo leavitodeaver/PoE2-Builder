@@ -66,7 +66,8 @@ FIELDS = {
              "LifeFlaskDrain",  # (MECHC26: Uhtred's Chalice's Life loss, NEGATIVE: flasks.flask_life_drain)
              "LifeRiftRecovery"),  # (MECHC29: Temporal Rift's reset to 4 s ago, rift_income)
     "Mana": ("ManaOnKillRecovery", "ManaRemnantRecovery", "CharmManaRecoveryRate", "ManaOnEventRecovery",
-             "ManaOnConsumeRecovery", "ManaFlameLeechRecovery", "ManaRiftRecovery"),
+             "ManaOnConsumeRecovery", "ManaFlameLeechRecovery", "ManaRiftRecovery",
+             "ManaFlaskDrain"),  # (MECHC38: a Life flask's "Removes N% of Life Recovered from Mana", NEGATIVE)
     # (MECHC17) Energy Shield on events: "Regenerate N% of maximum Energy Shield over 1 second when Stunned" (hit_income).
     # For SEARCH: objective.RECOVERY_POOLS["EnergyShield"] doesn't read it yet
     "EnergyShield": ("EnergyShieldOnEventRecovery", "EnergyShieldPreventedRecoup",  # (MECHC21: Scarred Faith's)
@@ -81,7 +82,7 @@ FIELDS = {
 # NEGATIVE field per pool: what PoB's {pool}LeechRate holds that the boss resists (leech_resisted). In FIELDS, so the
 # sustain and recovery floors (objective's ADDED_RECOVERY) take it off once; Income.pool leaves it out (its sums are the
 # event sources, and PoB's leech isn't one of them).
-NEGATIVE_FIELDS = {"LifeFlaskDrain", "EnergyShieldSacrificed"}  # (losses, not event income: Income.pool leaves them out)
+NEGATIVE_FIELDS = {"LifeFlaskDrain", "ManaFlaskDrain", "EnergyShieldSacrificed"}  # (losses, not event income: Income.pool leaves them out)
 LEECH_RESISTED = {"Life": "LifeLeechResisted", "Mana": "ManaLeechResisted", "EnergyShield": "EnergyShieldLeechResisted"}
 for _pool, _field in LEECH_RESISTED.items():
     FIELDS[_pool] = (*FIELDS[_pool], _field)
@@ -1719,8 +1720,8 @@ def reprieve_stun_of(build, paid: float) -> tuple[float, str]:
 # as a row"). KeywordPopups Guard: "a buffer against damage from Hits ... until the buff expires or is depleted. You can
 # only have a single Guard buff at a time ... Your maximum amount of Guard is equal to 200% of your maximum Life" (HIGH).
 # PoB counts no PoE2 Guard (PLANS1's kw-guard plan: nothing sets GuardAbsorbLimit / Rate in PoB-PoE2), and the tool feeds
-# none to PoB, so a Guard row moves no defence number; even at full uptime it stays a row: any hit spends it and it
-# comes back only on the next grant (named for the manager: a floor term at full uptime would need a per-hit model).
+# none to PoB, so a part-time Guard row moves no defence number (Guard up all fight counts since MECHC38: the ruling (ii)
+# note at full_guard_mods).
 # Guard is in the game's Buff category (RESEARCH29): "Buffs on you expire N% slower" lengthens it (MECHC36's sprint row).
 # - Glowswarm (PATCH_CHECK H2-4; patch 0.5.0 gave it the line, 0.5.3 fixed values other than 100% (Loreweave can roll
 #   it): "Using a Mana Flask grants Guard equal to 100% of Flask's recovery amount for 4 seconds"; PoB parses it to
@@ -1742,8 +1743,8 @@ def reprieve_stun_of(build, paid: float) -> tuple[float, str]:
 #   You cannot gain Jade stacks while you have Guard" (PoB's gem text; the 0.2.0 rework): Guard (6 + 0.05 x quality)% of
 #   maximum Life a Jade (maximum_life_%_damage_absorbed_per_jade_consumed), for its duration D (4 s at level 1 to 4.95 s
 #   at 20; PoB grants it at level 1: ModCache 5714), then 10 s to refill: Guard up D / (10 + D), Jade averaging
-#   45 / (10 + D) stacks (the ramp 0..10 over 10 s, none while the Guard lasts). Whether another source's Guard also stops
-#   Jade (the text says "while you have Guard") is UNVERIFIED: not followed (no other Guard is counted anyway).
+#   45 / (10 + D) stacks (the ramp 0..10 over 10 s, none while the Guard lasts). Any Guard stops Jade (RESEARCH31 R31-4,
+#   MEDIUM): a Guard up all fight zeroes Jade Heritage (Assumptions.wanted); a part-time one leaves gaps it refills in.
 MANA_FLASK_GUARD = re.compile(r"^Using a Mana Flask grants Guard equal to (\d+(?:\.\d+)?)% of (?:the )?Flask's recovery "
                               r"amount for (\d+(?:\.\d+)?) seconds$", re.I)
 JADE_LINE = re.compile(r"^Gain a stack of Jade every second$", re.I)
@@ -1756,6 +1757,41 @@ GUARD_CAP = 2.0  # x maximum Life (KeywordPopups Guard)
 def _guard_inc(lines: list[str]) -> float:
     return sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
                for t in lines if (m := GUARD_GAINED.match(t.strip())))
+
+
+# Guard up ALL fight (MECHC38; the manager's ruling (ii), 18 Nov 02:30, on MECHC37's question): "Guard at FULL uptime
+# (never down in the model) counts in the floors, by rule (b). Part-time Guard stays a row." Counted in PoB's own Guard
+# pool (CalcDefence 3040-3070: GuardAbsorbRate BASE, GuardAbsorbLimit BASE; its hit pools take Guard first, 516-582 and
+# 2076-2082), at 100% of each hit (KeywordPopups Guard: "taking the damage before your Life or Energy Shield") up to the
+# Guard amount: each hit the floors check meets a full Guard (the model's "never down"; a hit spends Guard until the
+# next grant, so two hits within one refill meet less: the ruling's reading, named in the row). From
+# conditions.FULL_UPTIME (99.5%) of the fight; under it the row alone. One Guard buff at a time (KeywordPopups): only one
+# source counts (Glowswarm's is the one that can be up all fight today; Encase in Jade's cycle never is). Any Guard stops
+# Jade Heritage's stacks (RESEARCH31 R31-4, MEDIUM): with Guard up all fight Jade isn't counted (Assumptions.wanted).
+GUARD_FULL_UPTIME = 0.995  # conditions.FULL_UPTIME
+
+
+def full_guard_mods(guard: float, up: float) -> list[dict]:
+    """PoB's Guard pool for Guard up all fight (the note above): [] under GUARD_FULL_UPTIME or with no Guard."""
+    if guard <= 0 or up < GUARD_FULL_UPTIME:
+        return []
+    from builder.search import models
+
+    return [models.raw_mod("GuardAbsorbRate", "BASE", 100, tag="FullGuard"),
+            models.raw_mod("GuardAbsorbLimit", "BASE", round(guard), tag="FullGuard")]
+
+
+def mana_flask_guard(texts: list[str], amount: float, uses: float, life: float,
+                     expiry: tuple[float, str] | None = None) -> tuple[float, float]:
+    """(Guard a use, its share of the fight) for "Using a Mana Flask grants Guard equal to N% of Flask's recovery amount
+    for N seconds" (mana_flask_guard_row's numbers); (0, 0) without the line."""
+    found = [m for t in texts if (m := MANA_FLASK_GUARD.match(t.strip()))]
+    if not found:
+        return 0.0, 0.0
+    pct = sum(float(m.group(1)) for m in found)
+    seconds = max(float(m.group(2)) for m in found) * (expiry or (1.0, ""))[0]
+    raw = pct / 100 * max(amount, 0.0) * (1 + _guard_inc(texts) / 100)
+    return min(raw, GUARD_CAP * max(life, 0.0)), min(1.0, max(uses, 0.0) * seconds)
 
 
 def mana_flask_guard_row(texts: list[str], amount: float, uses: float, uses_how: str, life: float,
@@ -1771,13 +1807,28 @@ def mana_flask_guard_row(texts: list[str], amount: float, uses: float, uses_how:
     seconds *= factor
     inc = _guard_inc(texts)
     raw = pct / 100 * max(amount, 0.0) * (1 + inc / 100)
-    guard = min(raw, GUARD_CAP * max(life, 0.0))
-    up = min(1.0, max(uses, 0.0) * seconds)
+    guard, up = mana_flask_guard(texts, amount, uses, life, expiry)
+    whole = bool(full_guard_mods(guard, up))
     capped = f" (capped at 200% of maximum Life from {raw:,.0f})" if raw > guard + 0.5 else ""
     if guard <= 0 or up <= 0:
         value = "0: " + ("no Mana flask use against the boss" if up <= 0 else "the Mana flask recovers nothing")
+    elif whole:
+        value = (f"{guard:,.0f} Guard for {seconds:.3g} s a use, up all fight: in the defences (PoB's Guard pool takes "
+                 "each hit first)")
     else:
         value = f"{guard:,.0f} Guard for {seconds:.3g} s a use, up {up:.0%} of the fight ({guard * up:,.0f} on average)"
+    if whole:
+        return {"label": "Guard from Mana Flask use (up all fight: in the defences)*", "value": value,
+                "basis": (f"{pct:g}% of the Mana flask's {amount:,.0f} recovery a use"
+                          + (f" x {1 + inc / 100:.2f} (increased Guard gained)" if inc else "") + f" = {guard:,.0f} Guard"
+                          + capped + f", for {seconds:.3g} s" + (f" ({factor_how})" if factor != 1.0 else "")
+                          + f" after each use; {uses:.3f} uses/s ({uses_how}): up all fight, so counted in the defence "
+                          "floors (the manager's 18 Nov ruling (ii)) as PoB's Guard pool: 100% of a hit taken from "
+                          f"{guard:,.0f} Guard first. Each hit the floors check meets a full Guard; a hit spends it until "
+                          "the next use, so two big hits within one use meet less. Without it: no Guard"),
+                "confidence": "MEDIUM (the line's words; the use rate from the flask's charges; full Guard at each hit)",
+                "play": (f"use the Mana flask whenever it has charges: {guard:,.0f} Guard after each use, up all fight "
+                         "(without it: no Guard)")}
     return {"label": "Guard from Mana Flask use (a row, not in the defences)*", "value": value,
             "basis": (f"{pct:g}% of the Mana flask's {amount:,.0f} recovery a use"
                       + (f" x {1 + inc / 100:.2f} (increased Guard gained)" if inc else "") + f" = {guard:,.0f} Guard"
@@ -1877,3 +1928,181 @@ def jade_heritage(texts: list[str], life: float, quality: float = 0.0, seconds: 
         "play": (f"without Encase in Jade (counted): {counted:g}% Physical Damage Reduction all fight; with it pressed "
                  f"every {cycle:.3g} s: {guard:,.0f} Guard up {up:.0%} of the fight, but only {stacks * JADE_DR:.1f}% "
                  "reduction on average")}
+
+
+# Bulwark (MECHC38; COV40's routed UNDERCOUNT, 18.0): "Take N% less Damage from Hits while Dodge Rolling" (PoB: MORE
+# DamageTakenWhenHit under Condition InDodgeRoll, ModCache 9581, which nothing sets). Dodge rolling is part of the fight
+# (Search.rolling_share's "Time spent dodge rolling" row), so by the user's 9 Nov rule (floors count only what is up all
+# fight) it stays out of the floors and PoB's numbers: a row with the time-weighted figure, rolling share x N% (the hits
+# that land while rolling taken as spread evenly over the fight: MEDIUM-LOW). Not rolling: 0.
+ROLLING_LESS = re.compile(r"^Take (\d+(?:\.\d+)?)% less Damage from Hits while Dodge Rolling$", re.I)
+
+
+def rolling_less_row(less: float, rolling: float) -> dict:
+    """The play row for ROLLING_LESS at the build's rolling share (0..1)."""
+    rolling = min(max(rolling, 0.0), 1.0)
+    return {"label": "Less damage from hits while Dodge Rolling (a row, not in the defences)*",
+            "value": (f"{less:g}% less while rolling, {rolling:.0%} of the fight: {less * rolling:.1f}% less on average"
+                      if rolling > 0 else f"0: the build doesn't dodge roll ({less:g}% less while rolling)"),
+            "basis": (f"{less:g}% less damage from hits while Dodge Rolling x the {rolling:.0%} of the fight spent rolling "
+                      "(the hits that land while rolling taken as spread evenly); part-time, so in no defence floor and "
+                      "not in PoB's numbers (the floors count only what is up all fight); without it: 0"),
+            "confidence": "MEDIUM-LOW (the rolling share; the hits' timing)",
+            "play": (f"dodge roll through the boss's hits: {less:g}% less damage from those that land while rolling"
+                     if rolling > 0 else "")}
+
+
+# Charms' "Also grants N Guard" (MECHC38; COV41's routed UNDERCOUNT: CharmGuardWhileActive1-6, a charm prefix; PoB parses it
+# to nothing, ModCache 6552-6557): N Guard x (1 + increased Guard gained) while the charm's effect is up (the charm's
+# own uptime, flasks.uptime: its uses at its charges and its trigger, x its duration), capped at 200% of maximum Life
+# (KeywordPopups Guard). Part-time: a row (the manager's 17 Nov ruling (b)); up all fight (99.5%+): in the floors through
+# PoB's Guard pool (full_guard_mods, ruling (ii)); with two Guard sources up all fight the larger counts (one Guard buff at
+# a time). The Guard lasting exactly the charm's effect is MEDIUM (the line reads as part of the charm's effect).
+CHARM_GUARD = re.compile(r"^Also grants (\d+) Guard\s*$", re.I | re.M)
+
+
+def charm_guard_row(name: str, amount: float, texts: list[str], up: float, life: float) -> tuple[float, dict]:
+    """(the Guard while the charm is up, its play row) for CHARM_GUARD (the note above)."""
+    inc = _guard_inc(texts)
+    raw = amount * (1 + inc / 100)
+    guard = min(raw, GUARD_CAP * max(life, 0.0))
+    whole = bool(full_guard_mods(guard, up))
+    label = ("Guard from a charm (up all fight: in the defences)*" if whole
+             else "Guard from a charm (a row, not in the defences)*")
+    value = (f"{guard:,.0f} Guard, up all fight: in the defences (PoB's Guard pool takes each hit first)" if whole
+             else f"{guard:,.0f} Guard while {name} is up, {up:.0%} of the fight ({guard * up:,.0f} on average)")
+    return guard, {"label": label, "value": value,
+                   "basis": (f"{name}: Also grants {amount:g} Guard" + (f" x {1 + inc / 100:.2f} (increased Guard gained)"
+                                                                         if inc else "")
+                             + (f", capped at 200% of maximum Life from {raw:,.0f}" if raw > guard + 0.5 else "")
+                             + f", while the charm's effect is up ({up:.0%} of the fight, its uses and duration); "
+                             + ("up all fight, so counted in the defence floors (the manager's 18 Nov ruling (ii))"
+                                if whole else "part-time, so in no defence floor (the manager's 17 Nov ruling (b))")
+                             + "; PoB counts none; without it: no Guard"),
+                   "confidence": "MEDIUM (the Guard lasting the charm's effect; the charm's uptime)",
+                   "play": (f"keep {name} up: {guard:,.0f} Guard while it lasts (without it: no Guard)" if up > 0 else "")}
+
+
+# Emergent Vigour (MECHC38; COV41's routed UNDERCOUNT, 6.0): the rune's "Gain Maximum Energy Shield equal to 50% of total
+# Strength Requirements of Equipped Armour Items" (PoB ModRunes.lua 8697-8724: one trade line, two text lines, neither
+# parsed, so it never counts). PoB's own form for Armour ("Gain Armour equal to 150% of total Strength Requirements of
+# Equipped Boots, Gloves and Helmet", ModCache 7739) is Armour BASE x its StrRequirementsOn<slot> outputs (CalcPerform
+# 1940: each equipped item's Strength requirement after its requirement modifiers); this mirrors it: EnergyShield BASE =
+# N% x the sum over the armour slots. Which slots are "Armour Items": Helmet, Body Armour, Gloves, Boots counted; a
+# Shield / Buckler / Focus in the off hand not counted (UNVERIFIED whether the game counts them: the lower reading).
+VIGOUR_FIRST = re.compile(r"^Gain Maximum Energy Shield equal to (\d+(?:\.\d+)?)% of total(?: Strength Requirements of "
+                          r"Equipped Armour Items)?$", re.I)
+VIGOUR_SECOND = re.compile(r"^Strength Requirements of Equipped Armour Items$", re.I)
+VIGOUR_SLOTS = ("Helmet", "Body Armour", "Gloves", "Boots")
+VIGOUR_FIELDS = tuple(f"StrRequirementsOn{slot}" for slot in VIGOUR_SLOTS)
+
+
+def emergent_vigour(texts: list[str], stats: dict) -> tuple[float, dict | None]:
+    """(maximum Energy Shield to add as PoB's EnergyShield BASE, its row) for Emergent Vigour (the note above); (0, None)
+    without the line. `stats`: PoB's VIGOUR_FIELDS."""
+    lines = [t.strip() for t in texts]
+    found = [m for t in lines if (m := VIGOUR_FIRST.match(t))]
+    if not found or not (any("Strength Requirements" in m.group(0) for m in found)
+                         or any(VIGOUR_SECOND.match(t) for t in lines)):
+        return 0.0, None
+    pct = sum(float(m.group(1)) for m in found)
+    reqs = {slot: max(_num(stats.get(field)), 0.0) for slot, field in zip(VIGOUR_SLOTS, VIGOUR_FIELDS)}
+    total = sum(reqs.values())
+    es = pct / 100 * total
+    return es, {"label": "Emergent Vigour: Energy Shield from Strength requirements*",
+                "value": f"+{es:,.0f} maximum Energy Shield (base, before your increases)",
+                "basis": (f"{pct:g}% of the {total:,.0f} total Strength requirement of your equipped armour ("
+                          + ", ".join(f"{slot} {v:,.0f}" for slot, v in reqs.items() if v) + ") = "
+                          f"{es:,.0f}, as PoB's own Armour form of the line (EnergyShield BASE, scaled by your increased "
+                          "Energy Shield); an off-hand Shield / Focus not counted (UNVERIFIED); PoB parses none of it; "
+                          "without it: 0"),
+                "confidence": "MEDIUM (the slots; base vs final Energy Shield read as PoB reads the Armour form)",
+                "play": ""}
+
+
+# Soul Mantle (MECHC38; COV40's routed OVERCOUNT, a drawback no model read; RESEARCH31 R31-2,
+# research/soul-mantle-totem-curses.md; the manager 02:47 18 Nov): "Inflicts a random Curse on you when your Totems die,
+# ignoring Curse limit" (game 26650308 UniqueRandomlyCursedWhenTotemsDie1, randomly_cursed_when_totems_die_curse_level 1;
+# PoB parses nothing). Curse LEVEL 1 (HIGH): Enfeeble 20% less damage dealt, Temporal Chains 40% less action speed,
+# Elemental Weakness -40% to all Elemental Resistances, Vulnerability -16 Armour, Despair -35% Chaos Resistance, 6 s each
+# (GrantedEffectStatSetsPerLevel level 1); the pool isn't in the data: the five, equally likely (MEDIUM-LOW); they stack.
+# A totem expiring or being replaced counts as dying (MEDIUM): deaths a second = the main skill's totems up / PoB's
+# TotemDuration (re-placed as they expire, totem_count_model's play); other groups' totems and Splinter Totem's dying
+# splinters not counted (an undercount of the drawback, named); boss kills of totems not counted (LOW, no source). Each
+# curse up 1 - e^(-deaths x D / 5), D = 6 s x your "Duration of Curses on you", x your "effect of Curses on you"; immune
+# to Curses: none. Counted (the manager's ruling: "curses land" is the HEADLINE): the average in the headline (Damage /
+# ActionSpeed MORE, the resistances and Armour BASE), each curse up 7%+ IN FULL in the defence floors (ruling (i)'s
+# reading for a harm, the same floor-only switch as the boss's Shock: Assumptions.ledger_part_time under
+# SOUL_MANTLE_FLOOR_KEY); "N% increased (Totem) Damage per Curse on you" at the expected count (PoB's
+# Multiplier:CurseOnSelf). Row: since 0.3.0 a level-1 curse "does not apply to enemies above level 20"; if that gate also
+# holds for curses on a player above level 20, the drawback is 0 (UNVERIFIED either way).
+SOUL_MANTLE = re.compile(r"^Inflicts a random Curse on you when your Totems die(?:, ignoring Curse limit)?$", re.I)
+SOUL_MANTLE_FLOOR_KEY = "SoulMantleCursesInFullForTheFloors"
+SOUL_CURSES = (  # (name, PoB mod name, kind, value at level 1, what)
+    ("Enfeeble", "Damage", "MORE", -20.0, "20% less damage dealt"),
+    ("Temporal Chains", "ActionSpeed", "MORE", -40.0, "40% less action speed"),
+    ("Elemental Weakness", "ElementalResist", "BASE", -40.0, "-40% to all Elemental Resistances"),
+    ("Vulnerability", "Armour", "BASE", -16.0, "-16 Armour"),
+    ("Despair", "ChaosResist", "BASE", -35.0, "-35% Chaos Resistance"),
+)
+SOUL_CURSE_SECONDS = 6.0
+CURSE_EFFECT_ON_YOU = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) effect of Curses on you$", re.I)
+CURSE_DURATION_ON_YOU = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) Duration of Curses on you$", re.I)
+CURSE_IMMUNE = re.compile(r"^(?:You are )?(?:Immune to Curses|Unaffected by Curses)$", re.I)
+PER_CURSE_ON_YOU = re.compile(r"per Curse on you$", re.I)
+
+
+def soul_mantle(texts: list[str], deaths: float, deaths_how: str, full: bool = False) -> tuple[list[dict], float, list[dict]]:
+    """(PoB mods, the share of the fight the most-up curse is on you (for the floors' switch; 0 under 7%), rows) for Soul
+    Mantle (the note above). `full`: the floors' recalculation (each curse up 7%+ in full)."""
+    from builder.search import models
+
+    lines = [t.strip() for t in texts]
+    if not any(SOUL_MANTLE.match(t) for t in lines):
+        return [], 0.0, []
+
+    def signed(pattern) -> float:
+        return sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+                   for t in lines if (m := pattern.match(t)))
+
+    effect = max(1 + signed(CURSE_EFFECT_ON_YOU) / 100, 0.0)
+    seconds = SOUL_CURSE_SECONDS * max(1 + signed(CURSE_DURATION_ON_YOU) / 100, 0.0)
+    immune = any(CURSE_IMMUNE.match(t) for t in lines)
+    k = len(SOUL_CURSES)
+    up = 0.0 if immune or deaths <= 0 else 1 - math.exp(-deaths * seconds / k)
+    whole = 0.07 <= up < 0.995
+    scale = 1.0 if (full and whole) else up
+    mods = [models.raw_mod(name, kind, value * effect * scale, tag="SoulMantle")
+            for _, name, kind, value, _ in SOUL_CURSES if up > 0]
+    count = k * up
+    if count > 0 and any(PER_CURSE_ON_YOU.search(t) for t in lines):
+        mods.append(models.raw_mod("Multiplier:CurseOnSelf", "BASE", count, tag="SoulMantle"))
+    each = "; ".join(f"{c} {what}" for c, _, _, _, what in SOUL_CURSES)
+    if immune:
+        value = "none: you're immune to Curses"
+    elif up <= 0:
+        value = f"none: no totem dies ({deaths_how})"
+    else:
+        value = (f"each of 5 curses on you {up:.0%} of the fight ({count:.2f} on average): {20 * effect * up:.1f}% less "
+                 f"damage, {40 * effect * up:.1f}% less action speed, {40 * effect * up:.0f}% lower elemental and "
+                 f"{35 * effect * up:.0f}% lower Chaos resistance on average"
+                 + ("; the defence floors read each in full" if whole else ""))
+    rows = [{"label": "Soul Mantle: random Curses on you when your totems die*", "value": value,
+             "basis": (f"{deaths:.3f} totem deaths a second ({deaths_how}; expiry and replacement count as dying, MEDIUM, "
+                       f"R31-2), each a random level-1 curse of five, equally likely (MEDIUM-LOW: {each}), "
+                       f"{seconds:g} s each, x{effect:.2f} effect on you; they stack (ignoring the Curse limit): each up "
+                       f"1 - e^(-{deaths:.3f} x {seconds:g} / 5) = {up:.0%}; counted at the average in the headline"
+                       + (", in full in the defence floors (a harm at its worst, ruling (i)'s reading)" if whole else "")
+                       + "; other totem skills' and Splinter Totem's deaths not counted; without it: none"),
+             "confidence": "MEDIUM-LOW (the pool; expiry as death MEDIUM)",
+             "play": (f"each totem that expires or is replaced curses you ({deaths:.2f} a second): a curse-immunity source "
+                      "or reduced Curse effect / duration on you cuts it; without Soul Mantle: no curses"
+                      if up > 0 else "")},
+            {"label": "Soul Mantle: if the level gate blocks the curses*",
+             "value": "0 curses on you (a reading, not counted)",
+             "basis": ("since 0.3.0 a level-1 curse 'does not apply to enemies above level 20' "
+                       "(skill_curses_cannot_apply_to_targets_above_level 20); whether that holds for a curse on a "
+                       "player above level 20 is UNVERIFIED (0.5 guides imply the curses land: R31-2); the headline counts "
+                       "them landing (the manager's ruling)"),
+             "confidence": "UNVERIFIED", "play": ""}]
+    return mods, (up if whole else 0.0), rows

@@ -76,6 +76,8 @@ class Charges:
     life_flask_unusable: bool = False
     life_flask_constant: bool = False
     life_flask_less: float = 0.0
+    life_flask_instant: bool = False  # (MECHC38) "Life Recovery from Flasks is instant" (Belly of the Beast): instant_share
+    life_flask_never_instant: bool = False  # (MECHC38) Reverie's "Recovery from Life Flasks cannot be Instant"
     # What fills Life and Mana in the fight (MECHC4, full_pool_cap): a Life (Mana) flask's effect ends when Life (Mana) is
     # full. PoB's damage taken per hit after mitigation (totalTakenHit), Mind over Matter's share, Energy Shield and its
     # regeneration, Life and Mana regeneration, the build's Life and Mana costs per second; Enduring Elixirs' "Life Flask
@@ -192,6 +194,11 @@ class Charges:
                 infos = build.call("flaskData", raws=raws)["results"]
                 gain = replace(gain, charm_another=another,
                                charm_extra=charm_free_uses(list(zip(infos, raws)), replace(gain, charm_another=another)))
+        if drunk and any(LIFE_FLASK_INSTANT.match(t.strip()) or LIFE_NEVER_INSTANT.search(t) for t in texts_now):
+            from dataclasses import replace  # (MECHC38: instant_share)
+
+            gain = replace(gain, life_flask_instant=any(LIFE_FLASK_INSTANT.match(t.strip()) for t in texts_now),
+                           life_flask_never_instant=any(LIFE_NEVER_INSTANT.search(t) for t in texts_now))
         if drunk and texts_now:  # (MECHC36, H2-3: Zerphi's Genesis; both transfers need the Life Flask and a charm)
             to_life = sum(float(m.group(1)) for t in texts_now for m in ZERPHI_TO_LIFE.finditer(t))
             to_charm = sum(float(m.group(1)) for t in texts_now for m in ZERPHI_TO_CHARM.finditer(t))
@@ -846,9 +853,35 @@ def recovery_per_second(info: dict, gain: Charges, pool: str, raw: str = "", own
         return 0.0
     uses = drink_charges(info, gain, pool) / used
     length = info.get("duration") or 0
-    if length > 0:
-        uses = min(uses, 1 / length)
-    return total * (1 + inc / 100) * less * uses
+    instant = instant_share(gain, pool, raw)
+    capped = min(uses, 1 / length) if length > 0 else uses
+    # (MECHC38) the instant part comes all at once, so only the gradual part waits out the duration (one use at a time)
+    return total * (1 + inc / 100) * less * (instant * uses + (1 - instant) * capped)
+
+
+# Instant recovery (MECHC38; COV40's routed UNDERCOUNT): recovery_per_second let one use count per flask duration ("one
+# use at a time"), right for recovery over time, wrong for the part a flask applies at once. Which part: 100% with "Life
+# Recovery from Flasks is instant" (Belly of the Beast, current in PoB's body.lua 465-472; PoB parses it to nothing,
+# ModCache 8491) for a Life flask, or the flask's own "Instant Recovery" (PoB FlaskInstantRecovery BASE 100, ModCache
+# 8369) / "N% of Recovery applied Instantly" (ModCache 3116 ...: PoB's instantPerc, Item.lua 2613, which bridge.flaskData
+# doesn't send: read from the flask's text here). That part counts at every use its charges allow; the rest keeps the
+# cap. Reverie's "Recovery from Life Flasks cannot be Instant" wins over all of them for Life flasks (the bridge's
+# lifeFlaskConstant reading isn't it: its own text is checked). "used while on Low Life / Low Mana apply Recovery
+# Instantly" (conditional) is not counted (named: the Low Life share isn't read here).
+LIFE_FLASK_INSTANT = re.compile(r"^Life Recovery from Flasks is instant$", re.I)
+FLASK_INSTANT = re.compile(r"^(?:Instant Recovery|(\d+(?:\.\d+)?)% of (?:Flask )?Recovery applied Instantly)$", re.I)
+LIFE_NEVER_INSTANT = re.compile(r"Recovery from Life Flasks cannot be Instant", re.I)
+
+
+def instant_share(gain: Charges, pool: str, raw: str = "") -> float:
+    """The share of a flask's recovery applied at once (the note above), 0..1."""
+    lines = [t.strip() for t in (raw or "").splitlines()]
+    if pool == "Life" and getattr(gain, "life_flask_never_instant", False):
+        return 0.0
+    if pool == "Life" and gain.life_flask_instant:
+        return 1.0
+    total = sum(100.0 if m.group(1) is None else float(m.group(1)) for t in lines if (m := FLASK_INSTANT.match(t)))
+    return min(max(total, 0.0), 100.0) / 100
 
 
 def use_amount(info: dict, gain: Charges, pool: str, raw: str = "") -> float:
@@ -1162,3 +1195,42 @@ def flask_life_drain(build, gain: Charges, life: float, ward: float) -> tuple[fl
         parts.append(f"{option.name}: {sum(found):g}% of {life:,.0f} Life a second while its effect is up ({up:.0%} of "
                      f"the fight, no Runic Ward): {lost:,.1f}/s")
     return total, "; ".join(parts)
+
+
+# A magic flask's cross-pool cost (MECHC38; COV41's routed OVERCOUNT): the prefixes FlaskExtraManaCostsLife1-5 "(N)%
+# increased Mana Recovered" + "Removes 15% of Mana Recovered from Life when used" (Mana flasks) and FlaskExtraLifeCostsMana1-5
+# "(N)% increased Life Recovered" + "Removes 15% of Life Recovered from Mana when used" (Life flasks) (game 26650308 Mods,
+# stats local_flask_removes_%_of_mana_recovery_from_life_on_use / local_flask_removes_%_of_life_recovery_from_mana_on_use;
+# the search rolls them: gear.py's magic_text). PoB parses the "Removes" line only in part (ModCache 9303-9304: FlaskRecovery
+# BASE -15 with leftover text), so it never applies it (LANE_RULES: "PoB never applies a line it parses only in part"),
+# while the increased recovery counts: the recovery was counted and its cost dropped. Counted: N% of the flask's recovery
+# (recovery_per_second's own figure: its amount a use x its uses a second at the rate its charges allow) a second, taken
+# from the other pool, a NEGATIVE recovery field (LifeFlaskDrain / ManaFlaskDrain, as Uhtred's Chalice's drain): the
+# sustain and recovery floors take it off. "Removes" is a loss, not damage (no mitigation, no Recharge stop). The flask's
+# whole listed recovery is taken as "Recovered" (a use at full pool recovers less, and removes less: the cautious side,
+# MEDIUM).
+CROSS_COST = re.compile(r"^Removes (\d+(?:\.\d+)?)% of (Life|Mana) Recovered from (Life|Mana) when used$", re.I)
+
+
+def flask_cross_cost(build, gain: Charges) -> tuple[dict[str, float], str]:
+    """({pool: its loss a second}, how) from equipped flasks' "Removes N% of <pool> Recovered from <other> when used"
+    (the note above); ({}, "") with none."""
+    out: dict[str, float] = {}
+    parts = []
+    for slot, pool in FLASK_SLOTS.items():
+        option = (getattr(build, "equipped", None) or {}).get(slot)
+        if option is None:
+            continue
+        found = [(float(m.group(1)), m.group(2).title(), m.group(3).title())
+                 for line in (option.raw or "").splitlines() if (m := CROSS_COST.match(line.strip()))]
+        found = [(pct, other) for pct, own, other in found if own == pool and other != pool]
+        if not found:
+            continue
+        info = build.call("flaskData", raws=[option.raw])["results"][0] or {}
+        recovered = recovery_per_second(info, gain, pool, option.raw, own=True)
+        for pct, other in found:
+            lost = pct / 100 * recovered
+            out[other] = out.get(other, 0.0) + lost
+            parts.append(f"{option.name}: {pct:g}% of its {recovered:,.1f} {pool} recovered a second removed from "
+                         f"{other}: {lost:,.1f}/s")
+    return out, "; ".join(parts)

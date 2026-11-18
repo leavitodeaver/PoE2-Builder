@@ -379,6 +379,9 @@ def test_a_snipers_marks_extra_crit_damage_is_scaled_to_the_crits_it_lands_on(en
     build = search.build
     parsed = build.call("parseLines", lines=["1% more Effect of your Curses"])["results"][0]
     assert parsed["supported"]
+    # (MECHC38: read with no assumptions, as the -100% check below sets only its own line: the boss's Chill on you,
+    # an ActionSpeed assumption since MECHC38, moves FullDPS)
+    build.call("setAssumptions", mods=[], fields=build.objective.fields)
     without = build.call("stats", fields=["FullDPS", "CritChance"])
     assert without["CritChance"] > 0
     build.set_group(gems=[{"name": "Sniper's Mark", "level": 20, "quality": 0}], label="mark")
@@ -1240,6 +1243,9 @@ def test_a_curse_is_scaled_to_its_share_and_cast_by_hand_costs_time(engine):
     search = Search(engine, None, payload, skeleton.as_dict(), 0)
     search.setup(quests=False)
     build = search.build
+    # (MECHC38: read with no assumptions, as the -100% check below sets only its own line: the boss's Chill on you, an
+    # ActionSpeed assumption since MECHC38, moves FullDPS)
+    build.call("setAssumptions", mods=[], fields=build.objective.fields)
     without = build.call("stats", fields=["FullDPS"])["FullDPS"]
     build.set_group(gems=[{"name": "Elemental Weakness", "level": 20, "quality": 0}], label="curse")
     build.call("setAssumptions", mods=[], fields=build.objective.fields)
@@ -2972,7 +2978,8 @@ def test_impale_counts_the_main_skills_own_extractions(engine):
     phys = (number_of(row.get("PhysicalHitAverage") or row.get("MainHand.PhysicalHitAverage")) * (1 - crit)
             + number_of(row.get("PhysicalCritAverage") or row.get("MainHand.PhysicalCritAverage")) * crit)
     assert part["magnitude"] == pytest.approx(0.3 * phys)
-    build.call("setAssumptions", mods=mods, fields=["CombinedDPS"])
+    # (MECHC38: the build's other assumptions kept, the BossChill ActionSpeed among them, which `own` was read with)
+    build.call("setAssumptions", mods=[*(search.assumptions.mods or []), *mods], fields=["CombinedDPS"])
     stats = build.call("nodeDeltas", cases=[{}], fields=["LedgerAddedDPS", "CombinedDPS"])["results"][0]  # (a what-if)
     print("PROBE impale bridge", stats)
     assert number_of(stats.get("LedgerAddedDPS")) == pytest.approx(own, rel=0.01)
@@ -3561,6 +3568,123 @@ def test_the_bosss_own_ignite_and_shock_reach_a_real_builds_damage_taken(engine)
     without = build.call("stats", fields=["LightningTakenHit"])["LightningTakenHit"]
     print("PROBE boss Shock", note["value"], with_it, without)
     assert "increased damage taken on average" in note["value"] and with_it > without > 0
+
+
+def test_the_floors_read_the_bosss_shock_in_full_and_the_headline_its_average(engine):
+    """MECHC38 (the manager's ruling (i), 18 Nov 02:30): against the Arbiter of Divinity the boss Shocks the bare Spark
+    build 7%+ (and under 99.5%) of the fight, so the Shock is one more part-time effect: the headline's LightningTakenHit
+    holds the average, and the floors' all-off recalculation (floor_deltas) holds the Shock in full, a larger hit."""
+    from builder.request.schema import Choices
+    from builder.search import boss_hits
+    from builder.search.inner import LEDGER_VAR
+
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"], boss="Arbiter of Divinity",
+                                        require=Choices(skills=["Mana Tempest"])))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    share = search.assumptions.ledger_part_time.get(boss_hits.BOSS_SHOCK_FLOOR_KEY, 0.0)
+    assert 0.07 <= share < 0.995
+    assert LEDGER_VAR + boss_hits.BOSS_SHOCK_FLOOR_KEY in search.part_time()
+    on = search.build.call("stats", fields=["LightningTakenHit"])["LightningTakenHit"]
+    search.weigh_uptimes()
+    deltas = search.build.objective.floor_deltas
+    print("PROBE boss Shock in the floors", share, on, deltas)
+    assert deltas and deltas[0].get("LightningTakenHit", 0.0) > 0
+    note = next(n for n in search.assumptions.active if n["label"] == "The boss Shocks you*")
+    assert "the defence floors read it in full" in note["value"]
+    # back on the average after the recalculation
+    assert search.build.call("stats", fields=["LightningTakenHit"])["LightningTakenHit"] == pytest.approx(on)
+
+
+def test_guard_up_all_fight_goes_into_pobs_guard_pool_and_raises_the_maximum_hit(engine):
+    """MECHC38 (the manager's ruling (ii), 18 Nov): Guard up all fight counts in the floors through PoB's own Guard pool
+    (recovery.full_guard_mods: GuardAbsorbRate 100, GuardAbsorbLimit the Guard): every type's maximum hit rises."""
+    from builder.search import recovery
+
+    search = spark_with(engine, [])
+    build = search.build
+    fields = ["PhysicalMaximumHitTaken", "LightningMaximumHitTaken"]
+    before = build.call("stats", fields=fields)
+    build.call("setAssumptions", mods=search.assumptions.mods + recovery.full_guard_mods(1000.0, 1.0), fields=[])
+    after = build.call("stats", fields=fields)
+    print("PROBE full Guard", before, after)
+    for field in fields:
+        assert after[field] > before[field] + 500
+
+
+def test_the_bosss_chill_slows_a_real_build_and_sierran_inheritance_speeds_it(engine):
+    """MECHC38: against the default boss (15% of its hits Cold) the bare Spark build is Chilled part of the fight, so its
+    cast rate (PoB's Speed) drops by the average Chill (ActionSpeed INC, tag BossChill); with Sierran Inheritance's
+    reversed Chill on a body armour it rises instead (the manager's ruling (iii), R31-1)."""
+    search = spark_with(engine, [])
+    build = search.build
+    note = next(n for n in search.assumptions.active if n["label"] == "The boss Chills you*")
+    with_it = build.call("stats", fields=["Speed"])["Speed"]
+    build.call("setAssumptions", mods=[m for m in search.assumptions.mods if m.get("tag") != "BossChill"], fields=[])
+    without = build.call("stats", fields=["Speed"])["Speed"]
+    print("PROBE boss Chill", note["value"], with_it, without)
+    assert without > with_it > 0
+    body = chr(10).join(["Rarity: Unique", "Sierran Inheritance", "Marabout Garb", "Item Level: 82", "Implicits: 0",
+                         "All Damage taken from Hits Contributes to Magnitude of Chill inflicted on you",
+                         "The Effect of Chill on you is reversed"])
+    build.call("equip", slot="Body Armour", raw=body, fields=[])
+    search.settle()
+    note = next(n for n in search.assumptions.active if n["label"] == "Reversed Chill on you (speed)*")
+    reversed_speed = build.call("stats", fields=["Speed"])["Speed"]
+    print("PROBE reversed Chill", note["value"], reversed_speed)
+    assert reversed_speed > without
+
+
+def test_a_magic_flasks_removes_line_takes_its_cost_from_the_other_pool(engine):
+    """MECHC38 (COV41's routed OVERCOUNT): a magic Mana flask's "Removes 15% of Mana Recovered from Life when used" (PoB
+    parses it only in part and never applies it) takes 15% of the flask's Mana recovery a second from Life (the negative
+    LifeFlaskDrain field); a Life flask's twin takes 15% of its Life recovery from Mana (ManaFlaskDrain)."""
+    from builder.search import flasks
+    from builder.search.context import ItemOption
+
+    search = spark_with(engine, [])
+    build = search.build
+    belt = chr(10).join(["Rarity: Rare", "Test Belt", "Heavy Belt", "Item Level: 82", "Implicits: 0",
+                         "Flasks gain 1 charges per Second"])
+    build.call("equip", slot="Belt", raw=belt, fields=[])
+    mana = chr(10).join(["Rarity: Magic", "Ultimate Mana Flask", "Item Level: 82", "Implicits: 0",
+                         "50% increased Mana Recovered", "Removes 15% of Mana Recovered from Life when used"])
+    life = chr(10).join(["Rarity: Magic", "Ultimate Life Flask", "Item Level: 82", "Implicits: 0",
+                         "50% increased Life Recovered", "Removes 15% of Life Recovered from Mana when used"])
+    for slot, raw, name in (("Flask 2", mana, "Ultimate Mana Flask"), ("Flask 1", life, "Ultimate Life Flask")):
+        build.call("equip", slot=slot, raw=raw, active=True, fields=[])
+        build.equipped[slot] = ItemOption(name, name, "Flask", None, raw, True, None, "found", 82)
+    search.settle()
+    gain = flasks.Charges.of(build)
+    mana_info = build.call("flaskData", raws=[mana])["results"][0]
+    life_info = build.call("flaskData", raws=[life])["results"][0]
+    mana_rate = flasks.recovery_per_second(mana_info, gain, "Mana", mana, own=True)
+    life_rate = flasks.recovery_per_second(life_info, gain, "Life", life, own=True)
+    print("PROBE flask cross cost", mana_rate, life_rate, build.recovery_sources.get("LifeFlaskDrain"),
+          build.recovery_sources.get("ManaFlaskDrain"))
+    assert mana_rate > 0 and life_rate > 0
+    assert build.recovery_sources["LifeFlaskDrain"] == pytest.approx(-0.15 * mana_rate, rel=1e-6)
+    assert build.recovery_sources["ManaFlaskDrain"] == pytest.approx(-0.15 * life_rate, rel=1e-6)
+
+
+def test_emergent_vigour_reads_pobs_strength_requirements_into_energy_shield(engine):
+    """MECHC38 (COV41's routed UNDERCOUNT): Emergent Vigour's two lines on a Strength body armour put 50% of its Strength
+    requirement (PoB's StrRequirementsOnBody Armour) into PoB's EnergyShield BASE."""
+    search = spark_with(engine, [])
+    build = search.build
+    body = chr(10).join(["Rarity: Rare", "Test Body", "Abyssal Cuirass", "Item Level: 82", "Implicits: 0",
+                         "Gain Maximum Energy Shield equal to 50% of total",
+                         "Strength Requirements of Equipped Armour Items"])
+    build.call("equip", slot="Body Armour", raw=body, fields=[])
+    search.settle()
+    need = build.call("stats", fields=["StrRequirementsOnBody Armour", "EnergyShield"])
+    note = next(n for n in search.assumptions.active if n["label"].startswith("Emergent Vigour"))
+    with_it = need.get("EnergyShield", 0)
+    build.call("setAssumptions", mods=[m for m in search.assumptions.mods if m.get("tag") != "EmergentVigour"], fields=[])
+    without = build.call("stats", fields=["EnergyShield"]).get("EnergyShield", 0)
+    print("PROBE Emergent Vigour", need, note["value"], with_it, without)
+    assert need.get("StrRequirementsOnBody Armour", 0) > 0 and with_it > without
 
 
 def test_jade_heritage_counts_ten_percent_and_glowswarms_guard_is_only_a_row(engine):

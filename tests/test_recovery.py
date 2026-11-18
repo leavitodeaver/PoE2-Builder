@@ -1969,6 +1969,98 @@ def test_the_bosss_own_ignite_and_shock_on_you_count_as_damage_taken():
     assert objective.own_loss(stats) == {"EnergyShield": 0.0, "Life": 0.0}
 
 
+def test_the_bosss_shock_counts_in_full_in_the_floors_from_seven_percent():
+    """MECHC38 (the manager's ruling (i), 18 Nov 02:30): Shocked 7%+ (and under 99.5%) of the fight, the boss's Shock is
+    registered for the floors (in full in their recalculation, the average elsewhere); under 7%, at 99.5%+, with none, or
+    with PoB's Shocked box on, it is the average alone and nothing is registered."""
+    from builder.search import boss_hits
+
+    def on_you(shocked: float, full: float = 20.0) -> dict:
+        return {"shocked": shocked, "shock_full": full, "shock": full * shocked}
+
+    assert boss_hits.boss_shock_for_floors(on_you(0.4)) == (pytest.approx(8.0), 0.4)
+    assert boss_hits.boss_shock_for_floors(on_you(0.4), average=False) == (pytest.approx(20.0), 0.4)
+    assert boss_hits.boss_shock_for_floors(on_you(0.07), average=False) == (pytest.approx(20.0), 0.07)
+    assert boss_hits.boss_shock_for_floors(on_you(0.05), average=False) == (pytest.approx(1.0), 0.0)
+    assert boss_hits.boss_shock_for_floors(on_you(0.996), average=False) == (pytest.approx(19.92), 0.0)
+    assert boss_hits.boss_shock_for_floors({"shocked": 0.5, "shock_full": 20.0, "shock": 0.0}) == (0.0, 0.0)
+    base = {"enemySkillTime": 1.0, "Life": 4000.0, "AilmentThreshold": 2000.0, "LightningTakenHit": 2000.0,
+            "_boss": "Arbiter of Divinity"}
+    out = boss_hits.boss_ailments_on_you(base)
+    row = out["notes"][0]
+    if 0.07 <= out["shocked"] < 0.995:
+        assert "the defence floors read it in full" in row["value"] and "ruling" in row["basis"]
+
+
+def test_the_bosss_chill_slows_you_and_sierran_inheritance_reverses_it():
+    """MECHC38: the boss's Chills on you as action speed (an OVERCOUNT before: none counted), at the share Chilled x the
+    mean magnitude (100% x hit / Ailment Threshold, 30% floor, 50% cap); Sierran Inheritance's reversed Chill (the
+    manager's ruling (iii), R31-1) turns it positive, and its all-damage line lets every type's hit Chill; Scold's
+    Bridle's self-hits Chill too with that line; unaffected by Slows, avoidance and the 6 s immunity lower it."""
+    import math
+
+    from builder.search import boss_hits
+
+    reverse = "The Effect of Chill on you is reversed"
+    every = "All Damage taken from Hits Contributes to Magnitude of Chill inflicted on you"
+    base = {"enemySkillTime": 1.0, "Life": 5000.0, "AilmentThreshold": 2500.0, "ColdTakenHit": 1900.0,
+            "PhysicalTakenHit": 1500.0, "FireTakenHit": 2000.0, "LightningTakenHit": 1800.0, "ChaosTakenHit": 1000.0,
+            "_boss": "Pinnacle (worst case)"}
+    slow, rows = boss_hits.boss_chill_on_you(base, [])
+    cold = boss_hits.land_share(base) * boss_hits.type_shares("Pinnacle (worst case)")["Cold"]
+    assert slow == pytest.approx(-(1 - math.exp(-2 * cold)) * 50.0)
+    assert rows[0]["label"] == "The boss Chills you*" and "without it" in rows[0]["play"]
+    fast, rows = boss_hits.boss_chill_on_you(base, [reverse])
+    assert fast == pytest.approx(-slow) and rows[0]["label"].startswith("Reversed Chill")
+    wide, _ = boss_hits.boss_chill_on_you(base, [reverse, every])
+    assert wide > fast
+    small = {**base, "ColdTakenHit": 500.0}  # 20% of the threshold: under the 30% floor
+    assert boss_hits.boss_chill_on_you(small, [])[0] == 0.0
+    assert boss_hits.boss_chill_on_you({**base, "ChillAvoidChance": 100}, [])[0] == 0.0
+    assert boss_hits.boss_chill_on_you(base, ["Your speed is unaffected by Slows"])[0] == 0.0
+    immune, _ = boss_hits.boss_chill_on_you(base, ["You cannot be Chilled for 6 seconds after being Chilled"])
+    assert immune == pytest.approx(-2.0 / (6 + 1 / cold) * 50.0)
+    assert boss_hits.boss_chill_on_you(base, [], chilled_box=True) == (0.0, [])
+    assert boss_hits.boss_chill_on_you({**base, "_boss": "Arbiter of Ash"}, []) == (0.0, [])
+    scold = {**small, "_boss": "Arbiter of Ash", "ManaPerSecondCost": 2000.0, "Speed": 2.0}  # 1,000 Physical a cast
+    lines = [reverse, every, "Take 100% of Mana Costs you pay for Skills as Physical Damage"]
+    with_scold, rows = boss_hits.boss_chill_on_you(scold, lines)
+    assert with_scold > 0 and "Scold" in rows[0]["basis"]
+
+
+def test_charges_on_a_consume_count_at_the_consume_rate_and_skill_is_not_kill():
+    """MECHC38 (GEM19's routed UNDERCOUNT): Siphoning Strike's Power Charge on a consumed Shock counts at its consumes a
+    second (Build.consume_gains, conditions' "_consume_gains"); without that rate, a gain after a consume or a Primed
+    Heavy Stun is 0, said; "skill" in a description's last sentence is no kill (before: Siphoning Strike, Disengage,
+    Wing Blast, Frenzied Riposte read as on-kill gains); "granted by" (Abyssal Apparition) and Ferocity's "cannot
+    generate" are no gains."""
+    from builder.search import conditions
+
+    siphon = ("Dash to a target and Strike them with your Quarterstaff. If the target is Shocked, Consume their Shock to "
+              "release a Lightning shockwave around the target and grant you a Power Charge. This skill cannot be "
+              "Ancestrally Boosted.")
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 10, "_boss": "Arbiter of Ash",
+             "_kills": (5.0, 5.0, "five a second")}
+    rate, how = conditions._charge_rate(siphon, "Power", stats)
+    assert rate == 0.0 and "not modelled" in how
+    rate, how = conditions._charge_rate(siphon, "Power", {**stats, "_consume_gains": {siphon: (0.7, "consumes")}})
+    assert rate == pytest.approx(0.7)
+    wing = ("Shapeshift into a Wyvern and launch yourself backwards with a powerful wingbeat that Knocks Back enemies. "
+            "Enemies Primed for Heavy Stun will be stunned, release a shockwave, and have a chance to grant you a Power "
+            "Charge. This skill can be used while using other skills to interrupt them.")
+    assert conditions._charge_rate(wing, "Power", stats)[0] == 0.0
+    apparition = ("Consume a Power Charge when you cast a damaging Spell to trigger an Abyssal Apparition who will also "
+                  "cast that same Spell for you. Does not work with Channelling Spells, Spells with a Cooldown, Triggered "
+                  "Spells, Spells granted by items, or Spells which already consume a Power Charge. This Skill is not "
+                  "directly Supportable.")
+    assert conditions._charge_rate(apparition, "Power", stats) is None
+    ferocity = ("Supports Skills that you use yourself. Supported Skills will consume a Frenzy Charge on use if possible, "
+                "and will gain significant Skill Speed if they do, but cannot generate Frenzy Charges. Cannot Support "
+                "Skills which consume Frenzy Charges.")
+    assert conditions._charge_rate(ferocity, "Frenzy", stats) is None
+    assert conditions._charge_rate("Gain a Power Charge on kill", "Power", stats)[0] == pytest.approx(5.0)
+
+
 def test_glowswarm_and_encase_in_jade_guard_are_rows_and_jade_heritage_counts_ten_stacks():
     """MECHC37 (the manager's 17 Nov ruling (b): part-time Guard is a row, never in the floors): Glowswarm's Guard is 100%
     of the Mana flask's recovery a use, up uses x 4 s of the fight, capped at 200% of maximum Life; Jade Heritage counts
@@ -1980,7 +2072,13 @@ def test_glowswarm_and_encase_in_jade_guard_are_rows_and_jade_heritage_counts_te
     row = recovery.mana_flask_guard_row(line, 500.0, 0.1, "test", 3000.0)
     assert row["value"].startswith("500 Guard for 4 s") and "up 40%" in row["value"] and "without it" in row["play"]
     capped = recovery.mana_flask_guard_row(line + ["50% increased Guard gained"], 5000.0, 1.0, "", 1000.0)
-    assert capped["value"].startswith("2,000 Guard") and "up 100%" in capped["value"]
+    assert capped["value"].startswith("2,000 Guard") and "up all fight" in capped["value"]  # (MECHC38: ruling (ii))
+    assert "in the defences" in capped["label"]
+    guard, up = recovery.mana_flask_guard(line + ["50% increased Guard gained"], 5000.0, 1.0, 1000.0)
+    assert (guard, up) == (2000.0, 1.0)
+    assert [(m["name"], m["value"]) for m in recovery.full_guard_mods(guard, up)] == [
+        ("GuardAbsorbRate", 100), ("GuardAbsorbLimit", 2000)]
+    assert recovery.full_guard_mods(500.0, 0.4) == [] and recovery.full_guard_mods(0.0, 1.0) == []
     slower = recovery.mana_flask_guard_row(line, 500.0, 0.1, "", 3000.0, (1.25, "Buffs on you expire slower"))
     assert "for 5 s" in slower["value"] and "up 50%" in slower["value"]
     assert recovery.mana_flask_guard_row(line, 500.0, 0.0, "", 3000.0)["value"].startswith("0:")
@@ -2137,3 +2235,114 @@ def test_everlasting_sacrifice_cycles_from_the_builds_energy_shield_refill():
     assert full_es_share({**stats, "EverlastingSacrifice": 1}) == (0.0, full_es_share({**stats, "EverlastingSacrifice": 1})[1])
     assert "Everlasting Sacrifice" in full_es_share({**stats, "EverlastingSacrifice": 1})[1]
     assert "EverlastingSacrifice" in objective.RECOVERY_INPUTS
+
+
+def test_consume_gain_reads_the_main_skills_hits_and_the_consumed_share():
+    """MECHC38: conditions.consume_gain keys the main skill's description to its hits a second x the consumed share."""
+    from types import SimpleNamespace
+
+    from builder.search import conditions
+
+    text = "Strike. Consume their Shock and grant you a Power Charge."
+    build = SimpleNamespace(ctx=SimpleNamespace(all_gems={"Siphoning Strike": {"description": text}}),
+                            call=lambda name, fields=None: {"Speed": 2.0, "HitChance": 90.0})
+    got = conditions.consume_gain(build, "Siphoning Strike", 0.5, "of its hits Consume a Shock")
+    assert got[text][0] == pytest.approx(0.9)
+    assert conditions.consume_gain(build, "Siphoning Strike", 0.0, "") == {}
+    assert conditions.consume_gain(build, "Unknown", 0.5, "") == {}
+
+
+def test_instant_flask_recovery_counts_at_every_use_its_charges_allow():
+    """MECHC38 (COV40's routed UNDERCOUNT): the instant part of a flask's recovery isn't held to one use per duration:
+    "Life Recovery from Flasks is instant" (all of a Life flask's), "Instant Recovery" / "N% of Recovery applied
+    Instantly" (the flask's own), not with Reverie's "Recovery from Life Flasks cannot be Instant"."""
+    from dataclasses import replace
+
+    from builder.search import flasks
+
+    info = {"lifeTotal": 1000.0, "duration": 4.0, "chargesUsed": 10.0, "chargesMax": 60.0}
+    gain = flasks.Charges(flask=10.0)  # 10 charges a second: one use a second, the duration allows one per 4 s
+    uses = flasks.drink_charges(info, gain, "Life") / flasks.charges_per_use(info, gain)
+    plain = flasks.recovery_per_second(info, gain, "Life")
+    assert plain == pytest.approx(1000.0 * min(uses, 0.25))
+    instant = flasks.recovery_per_second(info, replace(gain, life_flask_instant=True), "Life")
+    assert instant == pytest.approx(1000.0 * uses) and instant > plain
+    never = replace(gain, life_flask_instant=True, life_flask_never_instant=True)
+    assert flasks.recovery_per_second(info, never, "Life") == pytest.approx(plain)
+    part = flasks.recovery_per_second(info, gain, "Life", "Ultimate Life Flask\n25% of Recovery applied Instantly")
+    assert part == pytest.approx(1000.0 * (0.25 * uses + 0.75 * min(uses, 0.25)))
+    assert flasks.instant_share(gain, "Mana", "Instant Recovery") == 1.0
+
+
+def test_ngamahus_chosen_fills_rage_on_each_charm_use():
+    """MECHC38 (COV40's routed UNDERCOUNT): "Grants up to your maximum Rage on use" gains the maximum Rage at each of the
+    charm's uses (conditions' "_item_uses"), and nothing when its uses weren't read."""
+    from builder.search import conditions
+
+    line = "Grants up to your maximum Rage on use"
+    rate, events, how = conditions._rage_gain(line, {"MaximumRage": 30.0, "_item_uses": {line: (0.1, "Ruby Charm")}},
+                                              True)
+    assert (rate, events) == (pytest.approx(3.0), pytest.approx(0.1)) and "maximum" in how
+    assert conditions._rage_gain(line, {"MaximumRage": 30.0}, True)[0] == 0.0
+
+
+def test_bulwarks_less_damage_while_rolling_is_a_row_at_the_rolling_share():
+    """MECHC38 (COV40's routed UNDERCOUNT): "Take 30% less Damage from Hits while Dodge Rolling" is a row: 30% x the
+    rolling share on average, 0 when the build doesn't roll."""
+    from builder.search import recovery
+
+    assert recovery.ROLLING_LESS.match("Take 30% less Damage from Hits while Dodge Rolling")
+    row = recovery.rolling_less_row(30.0, 0.2)
+    assert "6.0% less on average" in row["value"] and "without it" in row["basis"]
+    assert recovery.rolling_less_row(30.0, 0.0)["value"].startswith("0:")
+
+
+def test_a_charms_guard_is_a_row_part_time_and_in_the_floors_all_fight():
+    """MECHC38 (COV41's routed UNDERCOUNT): "Also grants N Guard" on a charm: a row at the charm's uptime, in the floors
+    (PoB's Guard pool) only up all fight; capped at 200% of maximum Life."""
+    from builder.search import recovery
+
+    assert recovery.CHARM_GUARD.search("Rarity: Magic\nRuby Charm\nAlso grants 308 Guard\nUsed when you take Fire damage")
+    guard, row = recovery.charm_guard_row("Ruby Charm", 308.0, [], 0.4, 3000.0)
+    assert guard == 308.0 and "40% of the fight" in row["value"] and "a row" in row["label"]
+    assert recovery.full_guard_mods(guard, 0.4) == []
+    guard, row = recovery.charm_guard_row("Ruby Charm", 308.0, ["50% increased Guard gained"], 1.0, 200.0)
+    assert guard == 400.0 and "in the defences" in row["label"]
+
+
+def test_emergent_vigour_adds_energy_shield_from_armour_strength_requirements():
+    """MECHC38 (COV41's routed UNDERCOUNT): the rune's two text lines give 50% of the four armour slots' Strength
+    requirements as base Energy Shield; one line alone (no "Strength Requirements") is no match."""
+    from builder.search import recovery
+
+    lines = ["Gain Maximum Energy Shield equal to 50% of total", "Strength Requirements of Equipped Armour Items"]
+    stats = {"StrRequirementsOnHelmet": 100.0, "StrRequirementsOnBody Armour": 150.0, "StrRequirementsOnBoots": 50.0}
+    es, row = recovery.emergent_vigour(lines, stats)
+    assert es == pytest.approx(150.0) and "+150 maximum Energy Shield" in row["value"]
+    assert recovery.emergent_vigour([" ".join(lines)], stats)[0] == pytest.approx(150.0)
+    assert recovery.emergent_vigour(lines[:1], stats) == (0.0, None)
+
+
+def test_soul_mantle_curses_you_at_the_totem_death_rate():
+    """MECHC38 (R31-2): Soul Mantle's level-1 curses, five equally likely, 6 s each, at the totem deaths a second: the
+    average in the headline, each in full in the floors' recalculation from 7%; immunity, no deaths: none; the
+    per-Curse-on-you line at the expected count; the level-gate reading as a row."""
+    import math
+
+    from builder.search import recovery
+
+    line = "Inflicts a random Curse on you when your Totems die, ignoring Curse limit"
+    assert recovery.soul_mantle(["+10 to Strength"], 1.0, "") == ([], 0.0, [])
+    mods, share, rows = recovery.soul_mantle([line], 0.25, "two totems, 8 s")
+    up = 1 - math.exp(-0.25 * 6 / 5)
+    assert share == pytest.approx(up) and len(rows) == 2 and "level gate" in rows[1]["label"]
+    got = {m["name"]: m["value"] for m in mods}
+    assert got["Damage"] == pytest.approx(-20 * up, abs=0.01) and got["ElementalResist"] == pytest.approx(-40 * up, abs=0.01)
+    full = {m["name"]: m["value"] for m in recovery.soul_mantle([line], 0.25, "", full=True)[0]}
+    assert full["ElementalResist"] == pytest.approx(-40) and full["ActionSpeed"] == pytest.approx(-40)
+    halved = {m["name"]: m["value"] for m in recovery.soul_mantle([line, "50% reduced effect of Curses on you"], 0.25, "")[0]}
+    assert halved["Damage"] == pytest.approx(-10 * up, abs=0.01)
+    assert recovery.soul_mantle([line, "You are Immune to Curses"], 0.25, "")[0] == []
+    assert recovery.soul_mantle([line], 0.0, "no totem")[0] == []
+    per = recovery.soul_mantle([line, "15% increased Damage per Curse on you"], 0.25, "")[0]
+    assert any(m["name"] == "Multiplier:CurseOnSelf" and m["value"] == pytest.approx(5 * up, abs=0.01) for m in per)

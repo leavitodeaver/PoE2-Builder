@@ -1139,7 +1139,8 @@ def boss_ailments_on_you(stats: dict, shocked_box: bool = False) -> dict:
                     "so the defences already count you Shocked")
         else:
             value = (f"+{out['shock']:.1f}% increased damage taken on average (Shocked {shocked:.0%} of the fight; "
-                     f"+{full:g}% while Shocked)")
+                     f"+{full:g}% while Shocked)" + ("; the defence floors read it in full"
+                                                     if SHOCK_FLOOR_FROM <= shocked < SHOCK_FLOOR_WHOLE else ""))
             play = (f"the boss's Lightning hits Shock you {shocked:.0%} of the fight: +{full:g}% damage taken while "
                     f"Shocked, +{out['shock']:.1f}% on average (counted); Shock avoidance or a larger Ailment Threshold "
                     "lowers it; without it: +0%")
@@ -1152,11 +1153,177 @@ def boss_ailments_on_you(stats: dict, shocked_box: bool = False) -> dict:
                       f"Shock) x {effect:.0%} (your effect of Shock on you) = {full:g}% while Shocked, "
                       f"{full * shocked:.1f}% on average, "
                       + ("not added: PoB's Shocked box is already on for your own Shock source, so the defences count "
-                         "you Shocked all fight" if shocked_box else "added to every hit as increased damage taken")
+                         "you Shocked all fight" if shocked_box else "added to every hit as increased damage taken"
+                         + (f"; the defence floors read it in full, +{full:g}% (Shocked {SHOCK_FLOOR_FROM:.0%}+ of the "
+                            "fight: a harm counts at its worst, as a help counts only at full uptime; the manager's 18 "
+                            "Nov ruling)" if SHOCK_FLOOR_FROM <= shocked < SHOCK_FLOOR_WHOLE
+                            else f"; the floors read the average too (Shocked under {SHOCK_FLOOR_FROM:.0%} of the fight)"
+                            if shocked < SHOCK_FLOOR_FROM else ""))
                       + ". PoB counts none; without it: +0%"),
             "confidence": "MEDIUM (the game's Shock rule; the average over the fight, not hit-by-hit timing)",
             "play": play})
     return out
+
+
+# The boss's Shock in the defence floors (MECHC38; the manager's ruling (i), 18 Nov 02:30, on MECHC37's question): "count
+# it IN FULL whenever its modelled uptime is at least 7% (the user's 'under 7% is basically worthless' threshold,
+# mirrored), and show the average as a row. Floors count a helpful effect only at full uptime (the user's 9 Nov rule), so a
+# harmful one counts at its worst. Below 7%, use the average." Everything else (the recovery share's damage over the
+# fight, rates read off PoB's {Type}TakenHit: stuns, ailments on you) keeps the average, so the full Shock reaches only the
+# floors' own recalculation: Assumptions registers it as one more part-time effect (ledger_part_time under
+# BOSS_SHOCK_FLOOR_KEY, in_stats, so no DPS weighing), whose "off" state (Search.floor_without's all-off recalculation,
+# _switch -> Assumptions.ledger_switch False) puts the Shock in full; the floors read the worse of the two (objective.
+# deficits; run.floors_at_full_uptime). Up 99.5%+ of the fight the average is already the full Shock. With PoB's Shocked
+# box on (Overcharge / Redflare) nothing is added (as before): that box already holds you Shocked in full.
+SHOCK_FLOOR_FROM = 0.07  # conditions.SWITCH_ON (the user, 9 Nov 2026: "if something isn't active at least 7% of the time, it's basically worthless")
+SHOCK_FLOOR_WHOLE = 0.995  # conditions.FULL_UPTIME
+BOSS_SHOCK_FLOOR_KEY = "BossShockInFullForTheFloors"
+
+
+def boss_shock_for_floors(on_you: dict, average: bool = True) -> tuple[float, float]:
+    """(increased damage taken % to add, the share of the fight to register as the floors' part-time effect, or 0) for the
+    boss's Shock on you (boss_ailments_on_you's answer; the comment above). `average`: False in the floors' recalculation
+    (Assumptions.ledger_switch[BOSS_SHOCK_FLOOR_KEY]), which then gets the Shock in full."""
+    shocked, average_inc = on_you.get("shocked", 0.0), on_you.get("shock", 0.0)
+    if average_inc <= 0 or not SHOCK_FLOOR_FROM <= shocked < SHOCK_FLOOR_WHOLE:
+        return max(average_inc, 0.0), 0.0
+    return (average_inc if average else on_you.get("shock_full", 0.0)), shocked
+
+
+# The boss's Chill on you as action speed (MECHC38): before, the boss's Chills on you counted only as Slow events for
+# charms (slow_rate), never as speed: every build fighting a Cold-hitting boss (the default "Pinnacle (worst case)"
+# among them: 15% of its hits Cold) kept its full action speed, an OVERCOUNT of DPS; and Sierran Inheritance's "The Effect
+# of Chill on you is reversed" (the manager's ruling (iii), 18 Nov 02:30: a BENEFIT, modelled "once RESEARCH31 says what
+# 'reversed' gives": research/sierran-inheritance-reversed-chill.md, R31-1) turned the same Chills into speed, uncounted
+# (an UNDERCOUNT). PoB applies a Chill on you only under its "Are you Chilled?" box (CalcPerform 756-765: ActionSpeed INC
+# -effect, +effect with SelfChillEffectIsReversed), which the tool never ticks (checked: grep conditionChilled over
+# builder/ and engine/: only conditionChilledEnemyRecently / conditionEnemyChilled, enemy-side).
+# - Which hits Chill you: the boss's landed Cold hits (KeywordPopups Chill: "Cold damage from Hits can Chill by
+#   default"); with "All Damage taken from Hits Contributes to Magnitude of Chill inflicted on you" (Sierran Inheritance
+#   since 0.4.0, AllDamageTakenCanChillUnique__1/__2; PoB leaves it unparsed, ModCache 5598) every type's hit, and Scold's
+#   Bridle's self-hits ("Upfront Costs will result in taking the damage all at once as a Hit", KeywordPopups
+#   TakeManaCostAsDamage; R31-1 4(b): one hit per use of the main skill, recovery.cost_damage's). Your own Chilled Ground
+#   under you is not counted (named; no model puts you on it).
+# - Magnitude of one hit: 100% x the hit's damage after your mitigation / your Ailment Threshold (PoB's linear reading,
+#   MEDIUM: research chill-floor-in-pob.md), x PoB's SelfChillEffect (your "Effect of Chill on you"), x the build's
+#   Slowing Potency of Debuffs on you (recovery.SLOW_POTENCY; MEDIUM for the reversed Chill, R31-1 3), floored at 30% (a
+#   smaller Chill is ignored) and capped at 50% (KeywordPopups Chill: "Minimum of 30% and a default maximum of 50%",
+#   HIGH). The Chill on you: the rate-weighted mean of the Chilling sources' magnitudes (the strongest Chill applies while
+#   two overlap: MEDIUM, the lower reading for both signs).
+# - Share of the fight Chilled: Chilling hits c a second (the boss's at the defence cadence, as boss_ailments_on_you, x
+#   each type's share x (1 - PoB's ChillAvoidChance); Scold's at the main skill's uses), each 2 s on players
+#   (KeywordPopups Chill: "lasts 2 seconds on players", HIGH) x PoB's SelfChillDuration: 1 - e^(-c x D) (Poisson hits).
+#   "You cannot be Chilled for 6 seconds after being Chilled" (UniqueChillImmunityWhenChilled1, 6000 ms): D / (6 + 1 / c).
+# - Counted as the time-weighted average, ActionSpeed INC: -(share x magnitude) for the Slow, +(share x magnitude)
+#   reversed (PoB's own path is INC; the game may apply "more" action speed: R31-1 2, UNVERIFIED, small). "Your speed is
+#   unaffected by Slows" cancels the Slow, and the reversed Chill too (the lower reading; UNVERIFIED). Action speed is no
+#   defence floor, so no floor reading. With PoB's Chilled box on (nothing ticks it today) nothing is added.
+CHILL_MAX_ON_PLAYER = 50.0  # KeywordPopups Chill: "a default maximum of 50%" (HIGH)
+CHILL_IMMUNE_AFTER = re.compile(r"^You cannot be Chilled for (\d+(?:\.\d+)?) seconds after being Chilled$", re.I)
+ALL_DAMAGE_CHILLS = re.compile(r"^All Damage taken from Hits Contributes to Magnitude of Chill inflicted on you$", re.I)
+CHILL_REVERSED = re.compile(r"^The Effect of Chill on you is reversed$", re.I)
+CHILL_FIELDS = ("ChillAvoidChance", "SelfChillDuration", "SelfChillEffect", "AilmentThreshold", "Life", "enemySkillTime",
+                "EvadeChance", "EffectiveBlockChance", "ManaPerSecondCost", "Speed",
+                *(f"{t}TakenHit" for t in ("Physical", "Fire", "Cold", "Lightning", "Chaos")))
+
+
+def boss_chill_on_you(stats: dict, texts: list[str], chilled_box: bool = False) -> tuple[float, list[dict]]:
+    """(ActionSpeed INC % to add: negative for the Slow, positive reversed; play rows) for the Chills on you (the comment
+    above). `stats`: PoB's CHILL_FIELDS and "_boss"; `texts`: the build's lines."""
+    from builder.search import recovery
+
+    lines = [t.strip() for t in texts]
+    reversed_ = any(CHILL_REVERSED.match(t) for t in lines)
+    all_types = any(ALL_DAMAGE_CHILLS.match(t) for t in lines)
+    if chilled_box:
+        return 0.0, []
+    name = boss_name(stats)
+    every = number(stats.get("enemySkillTime")) or 0.7
+    land = land_share(stats) / every
+    threshold = number(stats.get("AilmentThreshold")) or 0.5 * number(stats.get("Life"))
+    avoid = min(max(number(stats.get("ChillAvoidChance")), 0.0), 100.0) / 100
+    effect = max(number(stats.get("SelfChillEffect")), 0.0) / 100 if "SelfChillEffect" in stats else 1.0
+    potency = 1 + sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+                      for t in lines if (m := recovery.SLOW_POTENCY.match(t))) / 100
+    unaffected = any(recovery.NO_SLOW_POTENCY.match(t) for t in lines)
+    scale = effect * max(potency, 0.0)
+
+    def magnitude(hit: float) -> float:
+        if threshold <= 0 or hit <= 0:
+            return 0.0
+        m = 100 * hit / threshold * scale
+        return min(m, CHILL_MAX_ON_PLAYER) if m >= 100 * CHILL_FLOOR else 0.0
+
+    sources = []  # (rate a second, magnitude, what)
+    for kind, share in type_shares(name).items():
+        if share <= 0 or (kind != "Cold" and not all_types):
+            continue
+        key = f"{kind}TakenHit"
+        hit = max(number(stats.get(key)) if key in stats else hit_sizes(name).get(kind, 0.0), 0.0)
+        m = magnitude(hit)
+        rate = land * share * (1 - avoid)
+        if m > 0 and rate > 0:
+            sources.append((rate, m, f"the boss's {kind} hits ({hit:,.0f} after your mitigation, {rate * 60:.1f} a minute)"))
+    if all_types:
+        taken, uses, _ = recovery.cost_damage(lines, stats)
+        if taken > 0 and uses > 0:
+            hit = taken / uses
+            m = magnitude(hit)
+            if m > 0:
+                sources.append((uses * (1 - avoid), m, f"Scold's Bridle's self-hit on each use ({hit:,.0f} a use, "
+                                                         f"{uses:.2f} uses a second)"))
+    rate = sum(r for r, _, _ in sources)
+    if rate <= 0:
+        if reversed_:
+            return 0.0, [{"label": "Reversed Chill on you (speed)*", "value": "0: nothing Chills you",
+                          "basis": (f"no hit reaches the 30% of your {threshold:,.0f} Ailment Threshold a Chill needs"
+                                    + ("" if all_types else " (without the all-damage line only Cold hits Chill)")
+                                    + "; without it: 0"),
+                          "confidence": "MEDIUM (PoB's magnitude formula)", "play": ""}]
+        return 0.0, []
+    mean = sum(r * m for r, m, _ in sources) / rate
+    seconds = CHILL_SECONDS_PLAYER * (number(stats.get("SelfChillDuration")) / 100 if "SelfChillDuration" in stats
+                                      else 1.0)
+    immune = max((float(m.group(1)) for t in lines if (m := CHILL_IMMUNE_AFTER.match(t))), default=0.0)
+    if immune > 0:
+        share = min(1.0, seconds / (max(immune, seconds) + 1 / rate))
+        share_how = f"{seconds:.3g} s each, then no Chill for {immune:g} s after each: {share:.0%} of the fight"
+    else:
+        share = 1 - math.exp(-rate * seconds)
+        share_how = f"{seconds:.3g} s each (2 s on players x your Chill duration on you): Chilled {share:.0%} of the fight"
+    if unaffected:
+        return 0.0, [{"label": "The boss Chills you*", "value": "none: your speed is unaffected by Slows",
+                      "basis": f"Chilled {share:.0%} of the fight, no speed change (reversed: the lower reading, "
+                               "UNVERIFIED); without it: 0", "confidence": "MEDIUM", "play": ""}]
+    average = share * mean
+    sign = 1.0 if reversed_ else -1.0
+    basis = ("; ".join(f"{what}: a {m:.0f}% Chill" for _, m, what in sources) + f"; {rate * 60:.1f} Chills a minute x "
+             f"{1 - avoid:.0%} not avoided, {share_how}; magnitude 100% x hit / your {threshold:,.0f} Ailment Threshold x "
+             f"{effect:.0%} (your effect of Chill on you)" + (f" x {potency:.0%} (Slowing Potency on you)" if potency != 1
+                                                               else "")
+             + f", at least 30% and at most 50% (KeywordPopups Chill), {mean:.1f}% on average: "
+             + f"{sign * average:+.1f}% action speed on average, counted (PoB counts none: its Chilled box is off)")
+    if reversed_:
+        return average, [{
+            "label": "Reversed Chill on you (speed)*", "value": f"+{average:.1f}% action speed on average (Chilled "
+                                                                 f"{share:.0%} of the fight, +{mean:.0f}% while Chilled)",
+            "basis": basis + ("; every type's hit counts (All Damage taken from Hits Contributes to Magnitude of Chill)"
+                              if all_types else "; only Cold hits Chill (no all-damage line)")
+                     + ". R31-1: the effect of Chill on you is reversed, so a Chill raises your action speed by its "
+                       "magnitude; without it: +0%",
+            "confidence": "MEDIUM (the magnitude formula; PoB's INC reading, the game's may be 'more': UNVERIFIED)",
+            "play": (f"Chills on you speed you up: +{mean:.0f}% action speed while Chilled, {share:.0%} of the fight "
+                     f"(+{average:.1f}% on average); without it: +0%"
+                     + (" (Scold's Bridle's self-hits Chill you on every cast)" if any("Scold" in w for _, _, w in sources)
+                        else ""))}]
+    return -average, [{
+        "label": "The boss Chills you*", "value": f"-{average:.1f}% action speed on average (Chilled {share:.0%} of the "
+                                                  f"fight, -{mean:.0f}% while Chilled)",
+        "basis": basis + "; without it: -0%",
+        "confidence": "MEDIUM (the magnitude formula: PoB's linear reading; the boss's hit rate)",
+        "play": (f"the boss's Cold hits Chill you {share:.0%} of the fight: -{mean:.0f}% action speed while Chilled "
+                 f"(-{average:.1f}% on average); Chill avoidance, a larger Ailment Threshold or reduced Effect of Chill "
+                 "on you lowers it; without it: -0%")}]
 
 
 def ailment_rate(stats: dict, ailment: str, land: float) -> tuple[float, str]:

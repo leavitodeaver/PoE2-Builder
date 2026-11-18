@@ -1980,6 +1980,13 @@ class Assumptions:
             # Physical degen, which Energy Shield would take)
             build.self_bleed = bleed
             hand_notes = hand_notes + bleed_notes
+        if bulwark := next((m for e in source_lines if (m := recovery_mod.ROLLING_LESS.match(e["text"].strip()))), None):
+            # (MECHC38; COV40's routed UNDERCOUNT: Bulwark) part-time, so a row only (the floors count only what is up all
+            # fight: the user's 9 Nov rule; PoB's InDodgeRoll stays off)
+            rolling = sum(float(m.group(1)) / 100 for n in hand_notes
+                          if str(n.get("label", "")).startswith("Time spent dodge rolling")
+                          and (m := re.match(r"([\d.]+)%", str(n.get("value")))))
+            hand_notes = hand_notes + [recovery_mod.rolling_less_row(float(bulwark.group(1)), rolling)]
         # (MECHC35, COV38's sweep, an UNDERCOUNT: Decree of Loyalty) your own Bleed / Poison / damage over time on Energy
         # Shield, not Life (objective.own_loss), and the boss's Bleeds holding Energy Shield Recharge off (boss_hits.es_dot)
         build.dot_hits_es = any(DOT_HITS_ES_LINE.match(e["text"].strip()) for e in source_lines)
@@ -2042,9 +2049,28 @@ class Assumptions:
         on_you = boss_hits.boss_ailments_on_you(seen, bool(config_in.get("conditionShocked")
                                                            or config_in.get("conditionOnShockedGround")))
         build.boss_ignite += on_you["ignite"]
-        if on_you["shock"] > 0:
-            hand_mods = hand_mods + [models.raw_mod("DamageTaken", "INC", on_you["shock"], tag="BossShock")]
+        # (MECHC38, the manager's ruling (i), 18 Nov 02:30) the floors read the boss's Shock IN FULL from 7% of the fight
+        # (boss_hits.BOSS_SHOCK_FLOOR_KEY: one more part-time effect, switched to "in full" by the floors' recalculation)
+        shock_taken, self.boss_shock_part_time = boss_hits.boss_shock_for_floors(
+            on_you, getattr(self, "ledger_switch", {}).get(boss_hits.BOSS_SHOCK_FLOOR_KEY, True))
+        if shock_taken > 0:
+            hand_mods = hand_mods + [models.raw_mod("DamageTaken", "INC", shock_taken, tag="BossShock")]
         hand_notes = hand_notes + on_you["notes"]
+        # (MECHC38) the Chills on you as action speed: the boss's Slow (an OVERCOUNT before), Sierran Inheritance's reversed
+        # Chill (the manager's ruling (iii), R31-1)
+        chill_seen = {**build.call("stats", fields=list(boss_hits.CHILL_FIELDS)), **seen}
+        speed, chill_notes = boss_hits.boss_chill_on_you(chill_seen, texts, bool(
+            config_in.get("conditionChilled") or config_in.get("conditionOnChilledGround")))
+        if speed:
+            hand_mods = hand_mods + [models.raw_mod("ActionSpeed", "INC", speed, tag="BossChill")]
+        hand_notes = hand_notes + chill_notes
+        if any(recovery_mod.VIGOUR_FIRST.match(t.strip()) for t in texts):  # (MECHC38, COV41: Emergent Vigour)
+            vigour, vigour_row = recovery_mod.emergent_vigour(
+                texts, build.call("stats", fields=list(recovery_mod.VIGOUR_FIELDS)))
+            if vigour_row:
+                if vigour > 0:
+                    hand_mods = hand_mods + [models.raw_mod("EnergyShield", "BASE", vigour, tag="EmergentVigour")]
+                hand_notes = hand_notes + [vigour_row]
         jade, jade_row = recovery_mod.jade_heritage(texts, number(seen.get("Life")), expiry=stats.get("_buff_expiry"))
         if jade_row:  # (MECHC37, PATCH_CHECK L1-3: Jade Heritage's 10 Jade; Encase in Jade's Guard a row only)
             hand_mods = hand_mods + [models.raw_mod("PhysicalDamageReduction", "BASE", jade, tag="JadeHeritage")]
@@ -2381,16 +2407,19 @@ class Assumptions:
             primed, primed_how = self.stun_primers(group["index"])
             stun_mods, stun_notes = models.stun_set_model(main, main.stat_set, sets, stats, primed, primed_how, forbidden)
             hand_mods, hand_notes = hand_mods + stun_mods, hand_notes + stun_notes
+        consume_gains: dict[str, tuple[float, str]] = {}  # (MECHC38: charges granted on a consume, conditions' reader)
         if main is not None and group and main.name in models.SHOCK_SETS:  # (GEM19: a part only on a Shocked boss)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             shock, shock_how = self.shock_set_share(group["index"], main.name, models.SHOCK_SETS[main.name][2])
             sh_mods, sh_notes = models.shock_set_model(main, main.stat_set, sets, shock, shock_how, forbidden)
+            consume_gains.update(conditions_mod.consume_gain(build, main.name, shock, "of its hits Consume a Shock"))
             hand_mods, hand_notes = hand_mods + sh_mods, hand_notes + sh_notes
         if main is not None and group and main.name in models.PARRIED_SETS:  # (GEM19: a part only on a Parried boss)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             plan = models.parry_plan(found, stats, main.attack, True, parry_stun, refute_stun)  # (as parry_model's)
             pa_mods, pa_notes = models.shock_set_model(main, main.stat_set, sets, plan.box,
                                                        plan.how or "no Parry or Refutation in the build", forbidden)
+            consume_gains.update(conditions_mod.consume_gain(build, main.name, plan.box, "of its hits Consume the Parried Debuff"))
             hand_mods, hand_notes = hand_mods + pa_mods, hand_notes + pa_notes
         if main is not None and group and main.name == models.GAS_ARROW:  # (GEM20: clouds explode on Ignite / Detonation)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
@@ -2421,6 +2450,24 @@ class Assumptions:
                                                             missiles, arrows, row_arrows, arrows_how, feeder,
                                                             forbidden)
             hand_mods, hand_notes = hand_mods + ms_mods, hand_notes + ms_notes
+        build.consume_gains = consume_gains
+        self.soul_mantle_part_time = 0.0
+        if any(recovery_mod.SOUL_MANTLE.match(t.strip()) for t in texts):
+            # (MECHC38, R31-2: Soul Mantle's curses at the main skill's totem deaths; the floors read them in full)
+            summoner = next((s for s in found if main is not None and s.group == main.group and s.totem_limit > 0), None)
+            if summoner is not None:
+                others = {s.name for s in found if s.totem_limit > 0 and s.group != main.group}
+                totems = max(1.0, summoner.totem_limit - len(others))
+                lasts = number(stats.get("TotemDuration"))
+                deaths = totems / lasts if lasts > 0 else 0.0
+                deaths_how = (f"{totems:g} {summoner.name} totems up, each lasting PoB's {lasts:.2f} s, re-placed as it "
+                              "expires" if lasts > 0 else f"{summoner.name}: PoB gives no totem duration (0)")
+            else:
+                deaths, deaths_how = 0.0, "the main skill isn't a totem's (other totem skills not counted)"
+            soul_mods, self.soul_mantle_part_time, soul_rows = recovery_mod.soul_mantle(
+                texts, deaths, deaths_how,
+                full=getattr(self, "ledger_switch", {}).get(recovery_mod.SOUL_MANTLE_FLOOR_KEY, True) is False)
+            hand_mods, hand_notes = hand_mods + soul_mods, hand_notes + soul_rows
         side_mods, side_notes = self.multi_set_side(main)  # (MECH-B, MECHB16: Rolling Slam in a Full DPS group)
         hand_mods, hand_notes = hand_mods + side_mods, hand_notes + side_notes
         cap_mods, cap_notes = self.main_cap(group, name)  # (MECH-B: the press hook on the main skill, MECHB5)
@@ -3420,6 +3467,12 @@ class Assumptions:
             if getattr(self, "ledger_switch", {}).get(name, True) and share > 0:
                 found.append(name)
                 self.ledger_shares[name] = round(100 * share)
+        if getattr(self, "soul_mantle_part_time", 0.0) > 0:  # (MECHC38: Soul Mantle's curses, as the Shock below)
+            self.ledger_part_time[recovery_mod.SOUL_MANTLE_FLOOR_KEY] = self.soul_mantle_part_time
+        if getattr(self, "boss_shock_part_time", 0.0) > 0:  # (MECHC38: after the loop above, which isn't for it)
+            from builder.search import boss_hits
+
+            self.ledger_part_time[boss_hits.BOSS_SHOCK_FLOOR_KEY] = self.boss_shock_part_time
         mods += [{"kind": "Condition", "name": name} for name in found]
         mods += [models.raw_mod(f"Multiplier:LedgerShare{name}", "BASE", percent)
                  for name, percent in sorted(self.ledger_shares.items())]
@@ -3431,7 +3484,19 @@ class Assumptions:
             low, _, how = ward_shares(self.build)
             guard_mods, guard_notes = models.bodyguards_model(texts, low, how)
             mods, notes = mods + guard_mods, notes + guard_notes
+        self.full_guard_mods = []  # (MECHC38: Guard up all fight, set by life_mana_income: the manager's ruling (ii))
         notes += self.life_mana_income(skills, main)  # (MECH-C: Life / Mana from kills, Remnants, charms, events; MECHC12)
+        mods += self.full_guard_mods
+        if self.full_guard_mods and any(m.get("tag") == "JadeHeritage" for m in mods):
+            # (MECHC38; RESEARCH31 R31-4, research/jade-guard-glowswarm-amount.md: ANY Guard stops Jade building, MEDIUM)
+            # Guard up all fight: Jade Heritage's stacks never build, so its 10% isn't counted (an OVERCOUNT otherwise)
+            mods = [m for m in mods if m.get("tag") != "JadeHeritage"]
+            notes = notes + [{"label": "Jade Heritage: no Jade under Guard up all fight*", "value": "0 Jade",
+                              "basis": ("your Guard is up all fight, and any Guard stops Jade stacks building (Encase in "
+                                        "Jade: 'You cannot gain Jade stacks while you have Guard'; RESEARCH31 R31-4, "
+                                        "MEDIUM): Jade Heritage's 10% additional Physical Damage Reduction not counted; "
+                                        "without the Guard: 10%"),
+                              "confidence": "MEDIUM (R31-4)", "play": ""}]
         zenith_mods, zenith_notes = self.zenith(skills, main)  # (MECH-C: Zenith's "above 90% of maximum Mana", MECHC26)
         mods += zenith_mods
         notes += zenith_notes
@@ -3741,6 +3806,26 @@ class Assumptions:
                       else None)
             if row := recovery.mana_flask_guard_row(texts, amount, uses, uses_how, number(stats.get("Life")), expiry):
                 guard_rows.append(row)
+                # (MECHC38, the manager's ruling (ii), 18 Nov: Guard up all fight counts in the floors, in PoB's Guard pool)
+                self.full_guard_mods = recovery.full_guard_mods(
+                    *recovery.mana_flask_guard(texts, amount, uses, number(stats.get("Life")), expiry))
+        equipped = getattr(build, "equipped", {}) or {}
+        charm_guards = [(o, m) for slot in flasks.CHARM_SLOTS if (o := equipped.get(slot)) is not None
+                        and (m := recovery.CHARM_GUARD.search(o.raw or ""))]
+        if charm_guards:  # (MECHC38, COV41: charms' "Also grants N Guard", CharmGuardWhileActive1-6)
+            gain = flasks.Charges.of(build)
+            usable = {id(o) for slot in flasks.CHARM_SLOTS[:max(gain.charm_limit, 0)] if (o := equipped.get(slot))}
+            charm_guards = [(o, m) for o, m in charm_guards if id(o) in usable]
+            infos = build.call("flaskData", raws=[o.raw for o, _ in charm_guards])["results"] if charm_guards else []
+            for (option, m), info in zip(charm_guards, infos):
+                up = flasks.uptime(info or {}, gain, None, option.raw)
+                guard, row = recovery.charm_guard_row(option.name, float(m.group(1)), texts, up,
+                                                      number(stats.get("Life")))
+                guard_rows.append(row)
+                whole = recovery.full_guard_mods(guard, up)
+                held = sum(number(x.get("value")) for x in self.full_guard_mods if x.get("name") == "GuardAbsorbLimit")
+                if whole and guard > held:  # (one Guard buff at a time: the largest up all fight counts)
+                    self.full_guard_mods = whole
         warcries, warcry_how = 0.0, ""
         if has(recovery.WARCRY_BOTH) or has(recovery.WARCRY_LIFE):
             main_types = set((build.ctx.gems.get(main) or {}).get("skillTypes") or []) if main else set()
@@ -3785,9 +3870,19 @@ class Assumptions:
                for o in ((getattr(build, "equipped", None) or {}).get(slot) for slot in flasks.FLASK_SLOTS)):
             drain, drain_how = flasks.flask_life_drain(build, flasks.Charges.of(build), number(stats.get("Life")),
                                                        number(build.call("stats", fields=["Ward"]).get("Ward")))
+        # (MECHC38, COV41's OVERCOUNT: a magic flask's "Removes N% of Mana Recovered from Life when used" and its Life twin)
+        cross, cross_how = flasks.flask_cross_cost(build, flasks.Charges.of(build)) if any(
+            o is not None and any(flasks.CROSS_COST.match(t.strip()) for t in (o.raw or "").splitlines())
+            for o in ((getattr(build, "equipped", None) or {}).get(slot) for slot in flasks.FLASK_SLOTS)) else ({}, "")
+        drain += cross.get("Life", 0.0)
+        drain_how = "; ".join(h for h in (drain_how, cross_how) if h)
         if drain > 0:  # (MECHC26: Uhtred's Chalice's "Lose 5% Life per second while you have no Runic Ward")
             income.rates["LifeFlaskDrain"] = -drain
             income.parts.append(f"lost to flasks: {drain_how}")
+        if cross.get("Mana", 0.0) > 0:
+            income.rates["ManaFlaskDrain"] = -cross["Mana"]
+            if not drain:
+                income.parts.append(f"lost to flasks: {drain_how}")
         leech_stats = build.call("stats", fields=list(recovery.LEECH_FIELDS))
         leech = recovery.leech_income(income, leech_stats, enemy_level(build))
         breach = present.get(BREACH)
