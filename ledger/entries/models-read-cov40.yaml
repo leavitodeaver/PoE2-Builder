@@ -58,3 +58,57 @@
     the bridge's Flag:CannotStun by models.light_stun_rate. The hand-wraps line (HandWrapsUniqueCannotImmobilise1).
   sources: [builder/search/conditions.py (CANNOT_STUN, cannot_stun_mods), builder/search/models.py (light_stun_rate, Flag:CannotStun)]
   status: proposed
+
+# (COV40, the manager 21:50: work down the open item rows) two more readers, each re-read by hand on d4920ab8:
+
+- id: model-read-fragile-regrowth
+  title: 'Dustbloom''s Fragile Regrowth gain / maximum / loss lines (conditions.fragile_regrowth, MECHC34)'
+  kind: pob_gap
+  model: fragile_regrowth
+  match: '^(Gain (\d+) Fragile Regrowth each second|Maximum (\d+) Fragile Regrowth|Lose all Fragile Regrowth when Hit)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    conditions.FRAGILE_GAIN / FRAGILE_MAX / FRAGILE_LOSE and fragile_regrowth (MECHC34, PATCH_CHECK MB-13; an UNDERCOUNT
+    before: PoB parses the two per-stack lines on its "# of Fragile Regrowth Stacks" box, which nothing set), the
+    resolver's Condition multiplierFragileRegrowth (conditions.py's condition list): the stacks climb at the gain line's
+    rate to the maximum line's cap and are all lost on each landed boss hit (boss_hits.landing_hits), the Poisson mean
+    g (1 - e^(-h M / g)) / h (MEDIUM, the model's label). All three lines feed that number. Dustbloom and its
+    unique-only mod UniqueFragileRegrowth1. The per-stack lines are PoB's own (parsed).
+  sources: [builder/search/conditions.py (FRAGILE_GAIN, FRAGILE_MAX, FRAGILE_LOSE, fragile_regrowth, multiplierFragileRegrowth)]
+  status: proposed
+
+- id: model-read-anaemia
+  title: '"Inflict Anaemia on Hit" / "Anaemia allows +N Corrupted Blood debuffs to be inflicted on enemies" (models.anaemia_cap, MECH83)'
+  kind: pob_gap
+  model: anaemia
+  match: '^(Inflict Anaemia on Hit|Anaemia allows \+(\d+|\(\d+-\d+\)) Corrupted Blood debuffs to be inflicted on enemies)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.ANAEMIA / anaemia_cap (MECH83; RESEARCH26 R26-16; an UNDERCOUNT before: PoB parses neither line), called from
+    the gem-stat model's corrupting_cry_model (models.py, "MECH83: Anaemia's cap"): the Corrupted Blood cap is 10 + N x
+    the share of the fight Anaemia is up, min(1, the main skill's hits a second x 4 s) (the 4 s ASSUMED, LOW: the
+    model's label). The two lines are one stat, apply_anaemia_magnitude_on_hit, on the two amulet mods
+    GenesisTreeAmuletAnaemiaOnHit / ...Crafted (checked: every Stats id holding "anaemia" in game build 26650308 and its
+    rows in Mods, PassiveSkills and GrantedEffectStatSets: these two mods; the third id is a Brequel tree reward's
+    craft chance), so the "on Hit" line is the model's uptime source, not a separate effect.
+  sources: [builder/search/models.py (ANAEMIA, anaemia_cap, corrupting_cry_model)]
+  status: proposed
+
+- id: model-read-widows-reign-window
+  title: 'Widow''s Reign''s "until you take no Damage to Life for N seconds" (the split half; objective.life_reserved_open, MECHC32)'
+  kind: pob_gap
+  model: life_reserved
+  match: '^until you take no Damage to Life for (\d+|\(\d+-\d+\)) seconds$'
+  replace: []
+  confidence: theory
+  notes: >-
+    The item shows "Life that would be lost by taking Damage is instead Reserved / until you take no Damage to Life for
+    3 seconds" over two lines; PoB parses the first (its DamageInsteadReservesLife flag, which only resizes its EHP pool)
+    and ignores this half. assumptions.LIFE_RESERVED (MECHC32) reads the joined text of the build's source lines, so this
+    line's window (build.life_reserved_seconds, Build.added_stats) sets objective.life_reserved_open: Life recovery
+    counts only in the share of the fight past a window with no Life damage, e^(-landed hits x window) (LOW-MEDIUM, the
+    model's label; an OVERCOUNT of Life recovery before). Widow's Reign and its unique-only mod UniqueLifeLossReservesLife1.
+  sources: [builder/search/assumptions.py (LIFE_RESERVED), builder/search/objective.py (life_reserved_open)]
+  status: proposed

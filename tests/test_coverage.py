@@ -622,8 +622,14 @@ def test_item_lines_a_model_reads_count_as_the_models():
         "Grants Skill: Navira's Fracturing": "model-read-djinn-command-grants",
         "Curses you inflict are reflected back to you": "model-read-curses-reflected",
         "Your Hits cannot Stun enemies": "model-read-hits-cannot-stun",
+        "Gain 1 Fragile Regrowth each second": "model-read-fragile-regrowth",
+        "Maximum 10 Fragile Regrowth": "model-read-fragile-regrowth",
+        "Lose all Fragile Regrowth when Hit": "model-read-fragile-regrowth",
+        "Inflict Anaemia on Hit": "model-read-anaemia",
+        "Anaemia allows +3 Corrupted Blood debuffs to be inflicted on enemies": "model-read-anaemia",
+        "until you take no Damage to Life for 3 seconds": "model-read-widows-reign-window",
     }
-    from builder.search import boss_hits, conditions, models, recovery
+    from builder.search import assumptions, boss_hits, conditions, models, recovery
     for line in ("+25% chance to be Poisoned", "+20% chance to be Shocked"):
         assert boss_hits.SELF_AILMENT_CHANCE.match(line), line
     assert recovery.RAISED_BLOCK_TAKEN.match("You take 15% of damage from Blocked Hits with a raised Shield")
@@ -638,6 +644,10 @@ def test_item_lines_a_model_reads_count_as_the_models():
         assert (found := model_entry(f"Grants Skill: {name}")) is None or found.id != "model-read-djinn-command-grants"
     assert conditions.CURSE_REFLECT.match("Curses you inflict are reflected back to you")
     assert conditions.CANNOT_STUN.match("Your Hits cannot Stun enemies")
+    assert conditions.fragile_regrowth(["Gain 1 Fragile Regrowth each second", "Maximum 10 Fragile Regrowth"], {})[0] == 10
+    assert models.ANAEMIA.search("Anaemia allows +3 Corrupted Blood debuffs to be inflicted on enemies")
+    assert assumptions.LIFE_RESERVED.search("Life that would be lost by taking Damage is instead Reserved\n"
+                                            "until you take no Damage to Life for 3 seconds")
     for line in ("20% increased Attack Damage if you have been Heavy Stunned Recently",
                  "40% faster start of Energy Shield Recharge if you've been Stunned Recently",
                  "100% increased Stun Threshold for each time you've been Stunned Recently"):
@@ -715,3 +725,24 @@ def test_a_plain_fork_chance_has_no_effect_on_the_lone_boss():
 
     found = translate("Projectiles have (25-44)% chance to Fork")
     assert found is not None and found[0].id == "no-effect-projectile-fork-chance" and not found[1]
+
+
+def test_legacy_variant_lines_are_unreachable(tmp_path):
+    """COV40: a unique line every copy of which sits on "Pre 0.x" variants only is a legacy line no new item rolls
+    (Bones of Ullr's pre-0.3.0 reduced Reservation Efficiency; patch 0.3.0); a template a current line also holds stays."""
+    import json
+
+    from builder.ledger.coverage import legacy_variant_templates, template
+
+    raw = "\n".join(["Bones of Ullr", "Lattice Sandals", "Variant: Pre 0.1.1", "Variant: Pre 0.3.0", "Variant: Current",
+                     "Implicits: 0",
+                     "{variant:1,2}20% reduced Reservation Efficiency of Skills which create Undead Minions",
+                     "{variant:3}(20-30)% increased Reservation Efficiency of Skills which create Undead Minions",
+                     "{variant:1}+25 to maximum Life", "{variant:2,3}+(20-40) to maximum Life",
+                     "(40-60)% increased Energy Shield"])
+    (tmp_path / "uniques.json").write_text(json.dumps({"uniques": [{"name": "Bones of Ullr", "raw": raw}]}),
+                                           encoding="utf-8")
+    legacy = legacy_variant_templates(tmp_path)
+    reduced = ("Bones of Ullr", template("20% reduced Reservation Efficiency of Skills which create Undead Minions"))
+    assert legacy == {reduced: ["Pre 0.1.1", "Pre 0.3.0"]}
+    assert legacy_variant_templates(tmp_path / "missing") == {}
