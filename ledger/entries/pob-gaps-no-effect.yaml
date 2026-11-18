@@ -272,7 +272,7 @@
 - id: no-effect-fishing
   title: Fishing lines (line strength, pool consumption, range, quantity / rarity of fish, glowing near a Unique Fish)
   kind: pob_gap
-  match: '^[+(\d.-]+\)?% (increased|reduced) (Fishing (Line Strength|Pool Consumption|Range)|(Quantity|Rarity) of Fish Caught)$|^Glows while in an Area containing a Unique Fish$'
+  match: '^[+(\d.-]+\)?% (increased|reduced) (Fishing (Line Strength|Pool Consumption|Range)|(Quantity|Rarity) of Fish Caught)$|^Glows while in an Area containing a Unique Fish$|^(Rhoa Feather|Totemic Wood|Thaumaturgical) Lure$|^Siren Worm Bait$|^(Karui Stone|Ezomyte Shell|Vaal Soul|Eternal Iron) Hook$'
   replace: []
   confidence: datamined
   notes: >-
@@ -287,7 +287,11 @@
     id holding "fish" (40, all fishing, map or cosmetic); PoB-PoE2's ModParser and Modules/Calc*.lua hold no "fish";
     builder/ and engine/ read none of these stats (only the Fishing Rod item type name in rares.py / shopping.py); the
     audit's every line holding "fish" is one of the 15 lines this matches (5 affix, 10 unique-only); second source:
-    poe2db's Fishing_Rod page lists the base (10-18 Physical, 1.2 attacks a second) and no combat affix.) The rod's own
+    poe2db's Fishing_Rod page lists the base (10-18 Physical, 1.2 attacks a second) and no combat affix.) (COV40, 17 Nov:
+    the hook and lure names, game stats fishing_hook_type / fishing_lure_type (stat_descriptions: values 1-4 name the
+    four hooks and four lures), on Mods FishingHookType / FishingLureType (PoB ModItem weightKey fishing_rod, default 0)
+    and the unique-only FishingLureTypeUniqueFishingRod1 / ...Unique__1__; they name fishing tackle only, read by
+    nothing in PoB or builder/.) The rod's own
     base damage is PoB's to count, not these lines'.
   sources: ["data/game-26476662/tables/Mods.json (Fishing* rows)", "data/game-26476662/tables/BaseItemTypes.json FishingRod1", "https://poe2db.tw/us/Fishing_Rod"]
   test_in_game: "Not needed for the calculated numbers."

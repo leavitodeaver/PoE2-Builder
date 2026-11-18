@@ -380,7 +380,8 @@ def test_fishing_lines_have_no_combat_effect_and_leave_the_open_list():
     takes them out of the open list. A line naming fishing and something else stays open."""
     for line in ("(20-40)% increased Fishing Line Strength", "(15-30)% reduced Fishing Pool Consumption",
                  "20% increased Fishing Range", "(40-50)% reduced Quantity of Fish Caught",
-                 "(50-60)% increased Rarity of Fish Caught", "Glows while in an Area containing a Unique Fish"):
+                 "(50-60)% increased Rarity of Fish Caught", "Glows while in an Area containing a Unique Fish",
+                 "Karui Stone Hook", "Rhoa Feather Lure", "Siren Worm Bait"):  # (COV40: the hooks and lures)
         assert coverage.ignored_line_status(line, False) == ("ledger", "no-effect-fishing",
                                                              "no effect on what's calculated"), line
     assert coverage.ignored_line_status("20% increased Fishing Range and Damage", False)[1] != "no-effect-fishing"
@@ -628,6 +629,8 @@ def test_item_lines_a_model_reads_count_as_the_models():
         "Inflict Anaemia on Hit": "model-read-anaemia",
         "Anaemia allows +3 Corrupted Blood debuffs to be inflicted on enemies": "model-read-anaemia",
         "until you take no Damage to Life for 3 seconds": "model-read-widows-reign-window",
+        "Has 4 Augment Sockets": "model-read-fixed-rune-sockets",
+        "Has 3 Sockets": "model-read-fixed-rune-sockets",
     }
     from builder.search import assumptions, boss_hits, conditions, models, recovery
     for line in ("+25% chance to be Poisoned", "+20% chance to be Shocked"):

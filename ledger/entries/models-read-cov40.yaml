@@ -112,3 +112,26 @@
     model's label; an OVERCOUNT of Life recovery before). Widow's Reign and its unique-only mod UniqueLifeLossReservesLife1.
   sources: [builder/search/assumptions.py (LIFE_RESERVED), builder/search/objective.py (life_reserved_open)]
   status: proposed
+
+- id: model-read-fixed-rune-sockets
+  title: '"Has N Augment Sockets" / "Has N Sockets" (the search''s socket filler: rares.socket_count, COV28 / COV40)'
+  kind: pob_gap
+  model: rune_sockets
+  match: '^Has (\d+) (Augment )?Sockets$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    PoB ignores "Has 4 Augment Sockets" and parses "Has 3 Sockets" into nothing a calculation reads; the sockets matter
+    only through what the search puts in them. rares.socket_count gives each carrier its fixed count. "Has N Sockets" is
+    the game stat local_has_X_sockets (stat_descriptions), on two Mods, MaceImplicitHasXSockets and
+    KeeperOfTheArcVerisiumImplicit3Sockets1, which BaseItemTypes.Implicit_Mods puts on Kalguuran Forgehammer, the four
+    Runeforged Kalguuran Forgehammer rows and Runemastered Spiritbone Crown's row FourHelmetStrInt6VerisiumUnique1
+    (checked by stat in game 26650308, the manager 23:00: Stats ids holding "socket" with "has" / "number"; the other
+    socket stats are no-socket, abyss-socket or socketed-gem stats): the bases by their implicit (BASE_SOCKETS) and the
+    crown's row as Runemastered Keeper of the Arc's own copy (base_variants.ROWS; PoB keeps another row of that base
+    name). "Has N Augment Sockets" is PoB's text for a unique's socket property (no stat description prints it; poe2db
+    "Has N Augment Sockets (Hidden)"): Greymake 4 and The Bringer of Rain 4 on their current variants, by name
+    (AUGMENT_SOCKETS, COV28, poe2db-checked), as Serle's Grit's 3. An UNDERCOUNT before for the Forgehammer bases and
+    the crown row (1 rune socket). "Sockets: J" lines are jewel sockets, not filled.
+  sources: [builder/search/rares.py (socket_count, own_sockets, AUGMENT_SOCKETS, BASE_SOCKETS), builder/search/base_variants.py (ROWS), "https://poe2db.tw/us/Kalguuran_Forgehammer", "https://poe2db.tw/us/Keeper_of_the_Arc"]
+  status: proposed
