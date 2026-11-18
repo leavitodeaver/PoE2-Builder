@@ -365,3 +365,25 @@ def test_the_adorneds_cultivated_rare_jewel_outcome_is_offered_as_pob_joins_it()
     assert len(offered) == 1
     assert cultivated.outcome_lines(offered[0]) == ["(0-75)% increased Effect of Jewel Socket Passive Skills",
                                                     "containing Corrupted Rare Jewels"]
+
+
+def test_cov41_item_lines_translate_to_lines_pob_parses():
+    """COV41: lines PoB drops though it calculates their modifier, each replacement parsed whole by PoB's own
+    modLib.parseMod (probes POE2T3854 / POE2T3855): the Hand Wraps' mana leech rate drawback (INC ManaLeechRate, the Life
+    twin's reading), Emergent Possibility's Chaos taken as a random element (a third to each, PoB's reading of the
+    Physical twin) and Idol of the Sycophant's Companion lines (PoB's "Companions ..." form)."""
+    cases = {
+        "Leech Mana (20-25)% slower": ["(20-25)% reduced Mana leeched per second"],
+        "Leech Mana 22% slower": ["22% reduced Mana leeched per second"],
+        "Leech Mana 10% faster": ["10% increased Mana leeched per second"],
+        "15% of Chaos Damage from Hits taken as Damage of a random Element":
+            ["5% of Chaos Damage from Hits taken as Fire Damage", "5% of Chaos Damage from Hits taken as Cold Damage",
+             "5% of Chaos Damage from Hits taken as Lightning Damage"],
+        "Companions in your Presence Gain 20% of Damage as Extra Damage of a random Element":
+            ["Companions Gain 20% of Damage as Extra Damage of a random Element"],
+        "Companions in your Presence have -20% to all Elemental Resistances":
+            ["Companions have -20% to all Elemental Resistances"],
+        "Companions in your Presence have -20% to Chaos Resistance": ["Companions have -20% to Chaos Resistance"],
+    }
+    for line, want in cases.items():
+        assert translate(line)[1] == want, line

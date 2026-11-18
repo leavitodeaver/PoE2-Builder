@@ -1,0 +1,121 @@
+# COV41 (COV-A), 18 Nov 2026: item lines PoB drops although it calculates the modifier they stand for. Each replacement
+# was parsed by PoB's own modLib.parseMod (queue probes POE2T3854 / POE2T3855, scratch/cov41/probe_parse.py): whole
+# modifiers, no leftover text.
+
+- id: items-mana-leech-slower
+  title: 'Hand Wraps "Leech Mana N% slower" as PoB''s INC ManaLeechRate (a drawback PoB dropped: an OVERCOUNT of mana leech)'
+  kind: pob_gap
+  match: '^Leech Mana (\(\d+-\d+\)|\d+)% slower$'
+  replace: ['{1}% reduced Mana leeched per second']
+  confidence: datamined
+  notes: >-
+    The game's stat base_mana_leech_rate_+% (game 26650308 Stats; on HandWrapsManaLeech1-5 with the mana leech itself,
+    "Leech (6-13)% of Physical Attack Damage as Mana" + "Leech Mana (20-25)% slower", and the unique
+    IncreasedManaLeechRateUnique__1, "faster"). PoB parses the leech but drops the rate line (ModParser has only "leech
+    life N% slower / faster" -> INC LifeLeechRate, 2417-2418, the Life twin of this stat), so mana leech recovered at full
+    speed: an OVERCOUNT of mana sustain for a Way of the Stonefist build (its glove transform puts the HandWraps twins on
+    the gloves). The replacement is the Life line's reading for Mana: "N% reduced / increased Mana leeched per second" ->
+    INC ManaLeechRate -N (probe POE2T3854), which CalcOffence 4914 multiplies into each leech instance's rate; the unique's
+    "faster" wording has its own entry below.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua 2417-2418 (leech life slower / faster), 571 (mana leeched per second)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua 4914 (ManaLeechInstanceRate)",
+            "game files 26650308 Mods HandWrapsManaLeech1-5 / IncreasedManaLeechRateUnique__1 (stat base_mana_leech_rate_+%)"]
+  test_in_game: "With the Hand Wraps suffix, the mana leech per second on the character sheet is (20-25)% lower than without the rate line."
+  status: proposed
+
+- id: items-mana-leech-faster
+  title: '"Leech Mana N% faster" as PoB''s INC ManaLeechRate (the unique twin of items-mana-leech-slower)'
+  kind: pob_gap
+  match: '^Leech Mana (\(\d+-\d+\)|\d+)% faster$'
+  replace: ['{1}% increased Mana leeched per second']
+  confidence: datamined
+  notes: >-
+    As items-mana-leech-slower, for the unique mod IncreasedManaLeechRateUnique__1 (game 26650308 Mods, the same stat
+    base_mana_leech_rate_+%, positive): INC ManaLeechRate +N. No PoB-PoE2 unique carries it today (the audit's
+    "Exclusive" row), so it moves nothing until one does.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua 2418 (leech life faster)",
+            "game files 26650308 Mods IncreasedManaLeechRateUnique__1"]
+  status: proposed
+
+- id: items-chaos-taken-as-random-element
+  title: 'Emergent Possibility (body armour): "N% of Chaos Damage from Hits taken as Damage of a random Element" at N/3 to each element'
+  kind: pob_gap
+  match: '^(\d+)% of Chaos Damage from Hits taken as Damage of a random Element$'
+  replace: ['{g1/3}% of Chaos Damage from Hits taken as Fire Damage', '{g1/3}% of Chaos Damage from Hits taken as Cold Damage',
+            '{g1/3}% of Chaos Damage from Hits taken as Lightning Damage']
+  confidence: datamined
+  notes: >-
+    The game's stat chaos_damage_from_hits_%_taken_as_random_element (game 26650308 SoulCoreStats, Emergent Possibility in
+    body armour: 15%). PoB parses the line into ChaosDamageFromHitsTaken BASE 15 with "as Damage of a random Element" left
+    over, and never applies a line with leftover text (probe POE2T3854). The replacement is PoB's own reading of the
+    Physical twin, "N% of Physical Damage from Hits taken as Damage of a random Element" (ModParser 5753: N/3 to each of
+    Fire, Cold and Lightning), for Chaos: ChaosDamageFromHitsTakenAsFire / Cold / Lightning BASE 5 each, which CalcDefence
+    2402 reads. The element is random per hit: a third each is the average over many hits (MEDIUM). Rounded to whole
+    numbers (15 gives 5 each, exact).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua 5753 (the Physical twin)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcDefence.lua 2402 (DamageFromHitsTakenAs shift)",
+            "game files 26650308 SoulCoreStats (Emergent Possibility)"]
+  test_in_game: "Take a Chaos hit with the rune: about a third of the 15% shows as each of Fire, Cold and Lightning over many hits."
+  status: proposed
+
+- id: items-companions-in-presence-gain-random-element
+  title: 'Idol of the Sycophant (sceptre): "Companions in your Presence Gain N% of Damage as Extra Damage of a random Element"'
+  kind: pob_gap
+  match: '^Companions in your Presence Gain (\d+)% of Damage as Extra Damage of a random Element$'
+  replace: ['Companions Gain {1}% of Damage as Extra Damage of a random Element']
+  confidence: datamined
+  notes: >-
+    The game's stat companions_in_presence_non_skill_base_all_damage_%_to_gain_as_random_element (game 26650308
+    SoulCoreStats, Idol of the Sycophant in a sceptre, 20%). PoB doesn't parse "in your Presence" here (leftover text,
+    probe POE2T3855), so the Companion's gain counted 0: an UNDERCOUNT for a Companion build. The replacement is PoB's
+    "Companions ..." reading: MinionModifier DamageGainAsRandom BASE 20 for minions of skills that create Companions
+    (SkillType CreatesCompanion). Your Companion is taken to stay in your Presence the whole fight (MEDIUM, as
+    models.companion_per_type_model; PoB's own "Allies in your Presence" lines apply with no presence check either). The
+    Idol's drawback below is entered with it, so the pair counts together.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua 1278-1279 (^companions -> CreatesCompanion minions)",
+            "vendor/PathOfBuilding-PoE2/src/Data/ModRunes.lua (Idol of the Sycophant, sceptre)",
+            "game files 26650308 SoulCoreStats (Idol of the Sycophant)"]
+  status: proposed
+
+- id: items-companions-in-presence-resistances
+  title: 'Idol of the Sycophant (sceptre): "Companions in your Presence have -N% to all Elemental Resistances" (a drawback PoB dropped)'
+  kind: pob_gap
+  match: '^Companions in your Presence have (-\d+)% to all Elemental Resistances$'
+  replace: ['Companions have -{g1*-1}% to all Elemental Resistances']
+  confidence: datamined
+  notes: >-
+    The game's stat companions_in_presence_base_resist_all_elements_% (the Idol's line; its bonded Chaos twin has the next entry) (game
+    26650308 SoulCoreStats, Idol of the Sycophant in a sceptre, -20). PoB doesn't parse "in your Presence" (leftover
+    text); the replacement is PoB's "Companions have ..." reading, MinionModifier ElementalResist BASE -20 on
+    CreatesCompanion minions (probe POE2T3855). It moves the Companion's own defences, which the boss's hits on it read;
+    presence taken as the whole fight (MEDIUM), as the gain above.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua 1278-1279",
+            "game files 26650308 SoulCoreStats (Idol of the Sycophant)"]
+  status: proposed
+
+- id: items-companions-in-presence-chaos-resistance
+  title: 'Idol of the Sycophant (sceptre, bonded): "Companions in your Presence have -N% to Chaos Resistance"'
+  kind: pob_gap
+  match: '^Companions in your Presence have (-\d+)% to Chaos Resistance$'
+  replace: ['Companions have -{g1*-1}% to Chaos Resistance']
+  confidence: datamined
+  notes: >-
+    As items-companions-in-presence-resistances, for the Idol's bonded Chaos line (MinionModifier ChaosResist BASE -20 on
+    CreatesCompanion minions, probe POE2T3855).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua 1278-1279", "game files 26650308 SoulCoreStats (Idol of the Sycophant)"]
+  status: proposed
+
+- id: model-read-low-mana-flask-recovery
+  title: '"N% more Recovery if used while on Low Mana" (flasks.low_mana_more)'
+  kind: pob_gap
+  model: flask_recovery
+  match: '^(\(\d+-\d+\)|\d+(?:\.\d+)?)% more Recovery if used while on Low Mana$'
+  replace: []
+  confidence: theory
+  notes: >-
+    flasks.LOW_MANA_MORE / low_mana_more (MECHC34, PATCH_CHECK K5-3), read in recovery_per_second (flasks.py 787) and
+    the Mana flask's ES / Ward readers (638), and the play guide's flask row (play_guide.py 391): the Mana flask is drunk
+    at Low Mana on purpose, so its recovery is multiplied by 1 + N%. PoB parses the line only in part (leftover "if used",
+    a Life-flask stat), so it never applies it. Mods FlaskIncreasedRecoveryOnLowMana1-5.
+  sources: [builder/search/flasks.py (LOW_MANA_MORE, low_mana_more, recovery_per_second), builder/search/play_guide.py 391]
+  status: proposed
