@@ -368,6 +368,31 @@ local function jsonNumber(value)
 	return value
 end
 
+-- (MECH86; the manager 22:55 from GEM19, an UNDERCOUNT of Shock in every build with chance to Shock) PoB never writes
+-- ShockChancePerHit: it writes <ailment>ChancePerHit only in calcDamagingAilmentOutputs, for Bleed, Poison and Ignite
+-- (CalcOffence 5226), and output.ShockChance only in calcAilmentDamage, which Shock never runs (5111-5118); Shock's
+-- chances are ShockChanceOnHit / ShockChanceOnCrit (5613-5633, per hand for an attack). So every reader got 0. Built
+-- here as PoB builds the others' per-hit chance (5226): OnHit x (1 - crit) + OnCrit x crit, a dual-wield attack's two
+-- hands averaged (PoB's combineStat "AVERAGE" for ShockChance, 5956).
+local function shockChancePerHit(output)
+	local function of(out)
+		if type(out) ~= "table" or type(out.ShockChanceOnHit) ~= "number" then
+			return nil
+		end
+		local crit = (out.CritChance or 0) / 100
+		return out.ShockChanceOnHit * (1 - crit) + (out.ShockChanceOnCrit or 0) * crit
+	end
+	local own = of(output)
+	if own then
+		return own
+	end
+	local main, off = of(type(output) == "table" and output.MainHand), of(type(output) == "table" and output.OffHand)
+	if main and off then
+		return (main + off) / 2
+	end
+	return main or off
+end
+
 local function pickStats(output, fields)
 	-- An object even when empty (dkjson would otherwise encode {} as an array)
 	local picked = setmetatable({ }, { __jsontype = "object" })
@@ -385,6 +410,9 @@ local function pickStats(output, fields)
 			if parent and type(output[parent]) == "table" then
 				value = output[parent][child]
 			end
+		end
+		if value == nil and field == "ShockChancePerHit" then
+			value = shockChancePerHit(output)  -- (MECH86: PoB never writes it; shockChancePerHit)
 		end
 		if value == nil and field:match("^Flag:") then
 			-- (MECH84) "Flag:<Name>": whether the main skill's mod list holds that PoB flag (models.light_stun_rate reads
@@ -3827,6 +3855,10 @@ function bridge.useRates(args)
 				if type(output[field]) == "number" then
 					entry[field] = jsonNumber(output[field])
 				end
+			end
+			local shock = shockChancePerHit(output)  -- (MECH86: PoB never writes ShockChancePerHit; shockChancePerHit)
+			if shock then
+				entry.ShockChancePerHit = jsonNumber(shock)
 			end
 			for _, kind in ipairs({ "Physical", "Fire", "Cold", "Lightning", "Chaos" }) do
 				for _, part in ipairs({ "Hit", "Crit" }) do

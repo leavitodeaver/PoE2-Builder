@@ -1791,7 +1791,10 @@ def test_unbound_buff_lines_parse_and_count_only_while_unbound(engine):
     on = build.call("stats", fields=fields)
     assert on["CombinedDPS"] > off["CombinedDPS"] * 1.3
     if 0 < off.get("ShockChancePerHit", 0) < 50:
-        assert on["ShockChancePerHit"] == pytest.approx(off["ShockChancePerHit"] * 1.8, rel=0.02)
+        # (MECH86: this branch first ran once the bridge built ShockChancePerHit, which PoB never writes. Spark's Shock
+        # chance is damage-based (CalcOffence 5613-5633: hit damage / threshold), so Unbound's 40% more Elemental Damage
+        # raises it too: x 1.8 x 1.4; probe POE2T4080: 0.0434 -> 0.1090, x2.51)
+        assert on["ShockChancePerHit"] == pytest.approx(off["ShockChancePerHit"] * 1.8 * 1.4, rel=0.02)
     build.set_config({"Unbound": False})
     build.call("setAssumptions", mods=search.assumptions.mods, fields=[])
 

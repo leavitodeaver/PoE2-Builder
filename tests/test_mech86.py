@@ -193,3 +193,34 @@ def test_moving_switches_pobs_while_moving_lines_on_a_real_build(engine):
     print("PROBE moving", standing, walking, back)
     assert not standing[0] and walking[0] and not back
     assert walking[1]["MainHand.Accuracy"] < standing[1]["MainHand.Accuracy"]
+
+
+# ShockChancePerHit: PoB never writes it; the bridge builds it from ShockChanceOnHit / OnCrit -------------------------
+
+def test_the_bridge_reports_a_shock_chance_per_hit(engine):
+    """Probe (before / after; the manager 22:55 from GEM19): PoB writes <ailment>ChancePerHit only for Bleed, Poison and
+    Ignite, so ShockChancePerHit was missing (0 to every reader: the Shocked uptime from hits, Overcharge, useRates). The
+    bridge now builds it as PoB builds the others: OnHit x (1 - crit) + OnCrit x crit."""
+    from builder.request.schema import BuildRequest
+    from builder.search import models
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    fields = ["ShockChancePerHit", "ShockChanceOnHit", "ShockChanceOnCrit", "CritChance"]
+    assert engine.call("parseLines", lines=["20% chance to Shock"])["results"][0]["supported"]
+    build.call("setAssumptions", mods=[models.line("1% chance to Shock", 20)], fields=[])
+    got = build.call("stats", fields=fields)
+    crit = got["CritChance"] / 100
+    rate = build.call("useRates", indices=[build.main_group()["index"]])["rates"][0]
+    search.settle()
+    shocked = search.conditions.active.get("conditionEnemyShocked")
+    print("PROBE shock", got, rate.get("ShockChancePerHit"), shocked)
+    assert got["ShockChancePerHit"] == pytest.approx(got["ShockChanceOnHit"] * (1 - crit) + got["ShockChanceOnCrit"] * crit)
+    assert got["ShockChancePerHit"] >= 20 - 1e-6
+    assert rate.get("ShockChancePerHit") == pytest.approx(got["ShockChancePerHit"], rel=1e-3)
