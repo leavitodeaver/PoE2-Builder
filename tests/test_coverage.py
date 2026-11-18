@@ -976,3 +976,19 @@ def test_cov43_model_read_passive_lines_are_the_models_own():
                  "Allies in your Presence Regenerate 5 Rage per second if you have gained Rage Recently",
                  "-0.2 seconds to current Energy Shield Recharge delay per Combo expended when using Skills"):
         assert (found := model_entry(line)) is None or not found.id.startswith("model-read-"), line
+
+
+def test_loreweave_jewel_socket_limits_are_handled_by_the_search():
+    """COV43 (the manager 14:25, SEARCH28): Loreweave's "You can only Socket 1 <colour> Jewel in this item" lines are
+    no-effect: the search offers only the plain Loreweave (its ring-effect variant lines dropped) and socket jewels only
+    in the tree. The rings' own "You can only Socket <colour> Jewels in this item" is another line, untouched."""
+    from builder.ledger import translate
+    from builder.search import jewels, loreweave
+
+    for colour in ("Emerald", "Ruby", "Sapphire"):
+        found = translate(f"You can only Socket 1 {colour} Jewel in this item")
+        assert found is not None and found[0].id == "no-effect-loreweave-jewel-socket-limits" and found[1] == []
+        assert translate(f"You can only Socket {colour} Jewels in this item") is None
+    raw = "Loreweave\nOrnate Ringmail\n{variant:3}You can only Socket 1 Ruby Jewel in this item\nVariant: Ruby"
+    assert "Socket" not in loreweave.plain(raw)
+    assert jewels.Jewels.slot(26725) == "Jewel 26725"

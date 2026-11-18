@@ -228,3 +228,20 @@
     condition; LOW). PoB ignores the conditional line, so it counted 0.
   sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModRunes.lua (Kurgal's Gaze, boots)"]
   status: proposed
+
+# The manager 14:25, from SEARCH28: Loreweave's jewel-limit lines are handled by the search (no number to move).
+- id: no-effect-loreweave-jewel-socket-limits
+  title: 'Loreweave, "You can only Socket N Emerald / Ruby / Sapphire Jewel in this item": handled by the search'
+  kind: pob_gap
+  match: '^You can only Socket \d+ (Emerald|Ruby|Sapphire) Jewels? in this item$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Ring effects Loreweave copies (PoB's Generated.lua; the rings' own "You can only Socket <colour> Jewels in this item"
+    is another line, Uniques/ring.lua 170 / 302 / 425). The search offers only the plain Loreweave
+    (builder/search/loreweave.py plain(): every {variant:} ring-effect line left out) and puts jewels only in the passive
+    tree's sockets (jewels.py slot(): "Jewel <node id>"), never in a socket an item grants (SEARCH28, the manager 14:25).
+    So a socket limit never applies to anything the search builds. An imported build's own Loreweave keeps its lines,
+    and PoB ignores them there as before.
+  sources: ["builder/search/loreweave.py (plain, offered)", "builder/search/jewels.py (slot)"]
+  status: proposed
