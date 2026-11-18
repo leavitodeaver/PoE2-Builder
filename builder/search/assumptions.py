@@ -2064,6 +2064,22 @@ class Assumptions:
         if speed:
             hand_mods = hand_mods + [models.raw_mod("ActionSpeed", "INC", speed, tag="BossChill")]
         hand_notes = hand_notes + chill_notes
+        if recovery_mod.has_divinity(texts):
+            # (MECHC39, R31-3: Immaculate Adherence's Divinity pays every Mana / Life cost; the main skill held to what it
+            # regenerates). The costs it pays are read without its own mods (they zero PoB's costs): one recalculation
+            # without them and one back, only for a build with the line.
+            cost_fields = list(recovery_mod.DIVINITY_COST_FIELDS)
+            if any(m.get("tag") == recovery_mod.DIVINITY_TAG for m in self.mods or []):
+                costs = build.call("setAssumptions", mods=[m for m in self.mods if m.get("tag") != recovery_mod.DIVINITY_TAG],
+                                   fields=cost_fields)["stats"]
+                build.call("setAssumptions", mods=self.mods, fields=[])
+            else:
+                costs = build.call("stats", fields=cost_fields)
+            pool_es = number(build.call("stats", fields=list(recovery_mod.DIVINITY_FIELDS)).get("MaximumEnergyShield"))
+            div_mods, div_rows, _ = recovery_mod.divinity(
+                texts, pool_es, recovery_mod.corrupted_items(build.call("equipped").get("slots") or {}),
+                number(costs.get("ManaPerSecondCost")), number(costs.get("LifePerSecondCost")), name)
+            hand_mods, hand_notes = hand_mods + div_mods, hand_notes + div_rows
         if any(recovery_mod.VIGOUR_FIRST.match(t.strip()) for t in texts):  # (MECHC38, COV41: Emergent Vigour)
             vigour, vigour_row = recovery_mod.emergent_vigour(
                 texts, build.call("stats", fields=list(recovery_mod.VIGOUR_FIELDS)))

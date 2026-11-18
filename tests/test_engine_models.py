@@ -3820,3 +3820,33 @@ def test_spell_echo_is_never_offered_for_a_spell_a_meta_gem_casts(engine):
     print("PROBE echo supports by hand", sorted(by_hand & echoes), "in Cast on Critical", sorted(in_meta & echoes))
     assert "Spell Echo" in by_hand
     assert not in_meta & echoes and in_meta  # (other supports still go on the triggered spell)
+
+
+def test_divinity_takes_the_costs_off_mana_and_pob_never_misreads_the_amulet(engine):
+    """MECHC39 (R31-3): Immaculate Adherence's lines: PoB applies "Cannot have Energy Shield" (EnergyShield 0, its
+    MaximumEnergyShield kept) and reads no Mana change from the Divinity lines (the joined ModCache 3081 key would be
+    Mana INC -20: the bridge never sends it joined); the model zeroes the main skill's Mana cost a second and shows the
+    Divinity row."""
+    search = spark_with(engine, [])
+    build = search.build
+    fields = ["Mana", "EnergyShield", "MaximumEnergyShield", "ManaPerSecondCost", "LifePerSecondCost"]
+
+    def amulet(extra: list[str]) -> str:
+        return chr(10).join(["Rarity: Rare", "Test Amulet", "Solar Amulet", "Item Level: 82", "Implicits: 0",
+                             "+300 to maximum Energy Shield", *extra])
+
+    build.call("equip", slot="Amulet", raw=amulet([]), fields=[])
+    search.settle()
+    plain = build.call("stats", fields=fields)
+    lines = ["100% of Damage is taken from Mana before Life", "Cannot have Energy Shield",
+             "Convert 100% of maximum Energy Shield to maximum Divinity", "50% increased maximum Divinity",
+             "20% reduced maximum Divinity per Corrupted Item Equipped", "Skills Cost Divinity instead of Mana or Life"]
+    build.call("equip", slot="Amulet", raw=amulet(lines), fields=[])
+    search.settle()
+    div = build.call("stats", fields=fields)
+    row = next(n for n in search.assumptions.active if n["label"] == "Divinity pays your skill costs*")
+    print("PROBE Divinity", plain, div, row["value"])
+    assert plain.get("ManaPerSecondCost", 0) > 0 and plain.get("EnergyShield", 0) > 0
+    assert not div.get("EnergyShield") and div.get("MaximumEnergyShield", 0) == pytest.approx(plain["EnergyShield"], rel=0.01)
+    assert div.get("Mana") == pytest.approx(plain.get("Mana"))
+    assert not div.get("ManaPerSecondCost") and "all paid" in row["value"]

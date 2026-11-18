@@ -2346,3 +2346,29 @@ def test_soul_mantle_curses_you_at_the_totem_death_rate():
     assert recovery.soul_mantle([line], 0.0, "no totem")[0] == []
     per = recovery.soul_mantle([line, "15% increased Damage per Curse on you"], 0.25, "")[0]
     assert any(m["name"] == "Multiplier:CurseOnSelf" and m["value"] == pytest.approx(5 * up, abs=0.01) for m in per)
+
+
+def test_divinity_pays_the_costs_from_converted_energy_shield_and_holds_the_main_skill():
+    """MECHC39 (R31-3, the manager's ruling): Immaculate Adherence's maximum Divinity = PoB's MaximumEnergyShield x 100%
+    x (1 + (increased - 20 x Corrupted items) / 100), 25% of it a second paying the main skill's Mana + Life costs 1:1;
+    PoB's costs zeroed (tagged), the main skill held to the share paid; no line, nothing."""
+    from builder.search import recovery
+
+    lines = ["Cannot have Energy Shield", "Convert 100% of maximum Energy Shield to maximum Divinity",
+             "50% increased maximum Divinity", "20% reduced maximum Divinity per Corrupted Item Equipped",
+             "Skills Cost Divinity instead of Mana or Life"]
+    mods, rows, pool = recovery.divinity(lines, 2000.0, 1, 100.0, 20.0, "Spark")
+    assert pool == pytest.approx(2000 * 1.3)  # (+50% - 20% x 1)
+    names = {(m["name"], m["type"]): m["value"] for m in mods}
+    assert names[("ManaCost", "MORE")] == -100 and names[("LifeCost", "MORE")] == -100
+    assert ("DPS", "MORE") not in names  # (650 a second pays 120)
+    assert all(m.get("tag") == recovery.DIVINITY_TAG for m in mods)
+    assert "all paid" in rows[0]["value"] and rows[1]["value"].startswith("0")
+    held, rows, pool = recovery.divinity(lines, 400.0, 0, 200.0, 0.0, "Spark")  # (600 x 25% = 150 of 200 a second)
+    dps = next(m for m in held if m["name"] == "DPS")
+    assert dps["value"] == pytest.approx(-25.0) and dps["skill"] == "Spark" and "75% paid" in rows[0]["value"]
+    nothing, _, _ = recovery.divinity(lines, 0.0, 0, 50.0, 0.0, "Spark")  # (no Energy Shield: no Divinity, no use)
+    assert next(m for m in nothing if m["name"] == "DPS")["value"] == pytest.approx(-100.0)
+    assert recovery.divinity(lines[:4], 2000.0, 0, 100.0, 0.0, "Spark") == ([], [], 0.0)
+    assert recovery.corrupted_items({"Amulet": "Rarity: UNIQUE\nX\nCorrupted", "Ring 1": "Rarity: RARE\nY",
+                                     "Flask 1": "Corrupted", "Jewel 1": "Corrupted", "Weapon 1 Swap": "a\nCorrupted"}) == 1

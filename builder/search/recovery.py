@@ -2106,3 +2106,112 @@ def soul_mantle(texts: list[str], deaths: float, deaths_how: str, full: bool = F
                        "them landing (the manager's ruling)"),
              "confidence": "UNVERIFIED", "play": ""}]
     return mods, (up if whole else 0.0), rows
+
+
+
+# Divinity (MECHC39; Immaculate Adherence, the manager's ruling 18 Nov 02:47 "MODEL IT DIRECTLY, no plan needed";
+# RESEARCH31 R31-3, research/divinity-immaculate-adherence.md). KeywordPopups Divinity (game 26650308): "Divinity can be
+# spent for skills, similar to Mana. Divinity inherently Regenerates at a rate of 25% per second." The amulet (current,
+# poe2db = PoB Uniques/amulet.lua): "Cannot have Energy Shield", "Convert 100% of maximum Energy Shield to maximum
+# Divinity", "(0-100)% increased maximum Divinity", "20% reduced maximum Divinity per Corrupted Item Equipped", "Skills
+# Cost Divinity instead of Mana or Life", "100% of Damage is taken from Mana before Life". Its only player source
+# (checked by RESEARCH31: every Stats id holding "divinity" (25) and their users in Mods, PassiveSkills, ActiveSkills;
+# poe2db's current page; "You gain Divinity ... Divine Charges" is PoE1's buff, a separate thing in conditions.py).
+# What PoB does: "Cannot have Energy Shield" (EnergyShield 0; MaximumEnergyShield keeps the pre-cap value, CalcDefence
+# 1460-1464) and the Mana-before-Life buffer; the conversion, the increase and the cost line are unparsed (nil, or {}
+# with leftover text, so never applied: ModCache 1866, 3080, 7000, 9365; the joined "... per Corrupted Item Equipped
+# Skills Cost Divinity ..." key, ModCache 3081, reads Mana INC -20 but with leftover text, so PoB never applies it either,
+# and the bridge's sourceLines sends every item line on its own). So in PoB the skills still cost Mana or Life.
+# Modelled: maximum Divinity = PoB's MaximumEnergyShield x N% converted x (1 + (increased - 20 x Corrupted items
+# equipped) / 100) (the two read as adding, MEDIUM; Corrupted: PoB's CorruptedItem count, items other than jewels,
+# flasks and charms); regeneration 25% of it a second (HIGH; no player modifier exists, checked by RESEARCH31; Mana /
+# Energy Shield recovery read as not refilling it, MEDIUM-LOW). Every Mana and Life cost goes to Divinity 1:1 (MEDIUM):
+# PoB's ManaCost and LifeCost MORE -100 (tag Divinity), so the Mana pool stays full (Archmage, "while on Full Mana"),
+# the sustain floor sees no cost, a Life cost resets no recharge, and the Mana-spent feeds (Arcane Surge, Mana Tempest,
+# Archon of the Storm, "per N Mana spent") read 0: the manager's headline ("Mana-spent feeds 0 as the HEADLINE and the
+# old feed as a row"; UNVERIFIED whether the game counts Divinity spent as Mana spent; its own divinity_spent_per_minute
+# stat suggests not). The cost the main skill would pay a second (PoB's ManaPerSecondCost + LifePerSecondCost without
+# the tag) against the regeneration: above it, the main skill is held to the share Divinity pays (DPS MORE, the Runic
+# Ward hold's form; the starting pool's burst not counted, a fight-long average). Other skills' costs not counted (as
+# every Mana-spent reader here: an undercount of the spend, named).
+DIVINITY_COST = re.compile(r"^Skills Cost Divinity instead of Mana or Life$", re.I)
+DIVINITY_CONVERT = re.compile(r"^Convert (\d+(?:\.\d+)?)% of maximum Energy Shield to maximum Divinity$", re.I)
+DIVINITY_INC = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) maximum Divinity$", re.I)
+DIVINITY_PER_CORRUPTED = re.compile(
+    r"^(\d+(?:\.\d+)?)% (increased|reduced) maximum Divinity per Corrupted Item Equipped$", re.I)
+DIVINITY_REGEN = 0.25  # of maximum Divinity a second (KeywordPopups Divinity; HIGH)
+DIVINITY_TAG = "Divinity"
+DIVINITY_COST_FIELDS = ("ManaPerSecondCost", "LifePerSecondCost")
+DIVINITY_FIELDS = ("MaximumEnergyShield",)
+
+
+def has_divinity(texts: list[str]) -> bool:
+    return any(DIVINITY_COST.match(t.strip()) for t in texts)
+
+
+def corrupted_items(slots: dict) -> int:
+    """PoB's CorruptedItem count (CalcSetup 1694-1712: items other than jewels, flasks and charms) from bridge.equipped's
+    raw texts: a slot whose item has a line "Corrupted". Weapon-swap slots left out (not in hand in the fight)."""
+    count = 0
+    for slot, raw in (slots or {}).items():
+        if slot.startswith(("Flask", "Charm", "Jewel")) or "Swap" in slot or not isinstance(raw, str):
+            continue
+        if any(line.strip() == "Corrupted" for line in raw.splitlines()):
+            count += 1
+    return count
+
+
+def _signed(m: re.Match) -> float:
+    return float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+
+
+def divinity(texts: list[str], max_es: float, corrupted: int, mana_cost: float, life_cost: float,
+             main: str | None) -> tuple[list[dict], list[dict], float]:
+    """(PoB mods, rows, maximum Divinity) for "Skills Cost Divinity instead of Mana or Life" (the note above); ([], [], 0)
+    without it. `max_es`: PoB's MaximumEnergyShield; `mana_cost` / `life_cost`: the main skill's costs a second without
+    this model's own mods; `main`: the main skill, held to the share Divinity pays."""
+    from builder.search import models
+
+    lines = [t.strip() for t in texts]
+    if not any(DIVINITY_COST.match(t) for t in lines):
+        return [], [], 0.0
+    convert = sum(float(m.group(1)) for t in lines if (m := DIVINITY_CONVERT.match(t)))
+    inc = sum(_signed(m) for t in lines if (m := DIVINITY_INC.match(t)))
+    per = sum(_signed(m) for t in lines if (m := DIVINITY_PER_CORRUPTED.match(t)))
+    total_inc = inc + per * corrupted
+    pool = max(max(max_es, 0.0) * convert / 100 * (1 + total_inc / 100), 0.0)
+    regen = DIVINITY_REGEN * pool
+    mana_cost, life_cost = max(mana_cost, 0.0), max(life_cost, 0.0)
+    cost = mana_cost + life_cost
+    mods = [models.raw_mod("ManaCost", "MORE", -100.0, tag=DIVINITY_TAG),
+            models.raw_mod("LifeCost", "MORE", -100.0, tag=DIVINITY_TAG)]
+    paid = 1.0 if cost <= 0 or regen >= cost else regen / cost
+    if paid < 1.0 and main:
+        mods.append(models.raw_mod("DPS", "MORE", 100 * (paid - 1), main, tag=DIVINITY_TAG))
+    scale = ""
+    if total_inc:
+        scale = (f" x (1 {'+' if total_inc >= 0 else '-'} {abs(total_inc):g}%: {inc:+g}% increased"
+                 + (f", {per:+g}% x {corrupted} Corrupted item(s)" if per and corrupted else "") + ")")
+    pool_how = (f"PoB's {max_es:,.0f} maximum Energy Shield x {convert:g}% converted{scale} = {pool:,.0f} maximum "
+                f"Divinity, regenerating 25% a second = {regen:,.0f}/s")
+    if cost <= 0:
+        value = f"{pool:,.0f} maximum Divinity; the main skill costs nothing"
+    elif paid >= 1.0:
+        value = f"{cost:,.1f} cost a second from {regen:,.0f} Divinity a second: all paid"
+    else:
+        value = (f"{cost:,.1f} cost a second from {regen:,.0f} Divinity a second: {paid:.0%} paid, "
+                 f"{main or 'the main skill'} held to that share")
+    rows = [{"label": "Divinity pays your skill costs*", "value": value,
+             "basis": (pool_how + f"; the main skill's Mana + Life costs ({mana_cost:,.1f} + {life_cost:,.1f} a second, "
+                       "PoB) paid 1:1 in Divinity (MEDIUM), so Mana and Life pay nothing (PoB: ManaCost / LifeCost 100% "
+                       "less) and the Mana pool stays full; Mana / Energy Shield recovery read as not refilling Divinity "
+                       "(MEDIUM-LOW); other skills' costs not counted; you have no Energy Shield (PoB applies it). "
+                       "Without the model: PoB charges the costs to Mana / Life as if the amulet had no cost line"),
+             "confidence": "MEDIUM (costs 1:1; the increases adding)", "play": ""},
+            {"label": "Mana-spent effects under Divinity*", "value": "0: no Mana is spent on skills",
+             "basis": ("the manager's headline (R31-3): Arcane Surge, Mana Tempest, Archon of the Storm and \"per N Mana "
+                       "spent\" lines get no Mana spent. If the game counts Divinity spent as Mana spent (UNVERIFIED; its "
+                       f"own divinity_spent_per_minute stat suggests not), they would read {cost:,.1f} spent a second, as "
+                       "without the amulet's cost line"),
+             "confidence": "UNVERIFIED", "play": ""}]
+    return mods, rows, pool
