@@ -10917,6 +10917,56 @@ def queens_procession_model(character_level: int, stats: dict, main_dps: float) 
     return rows
 
 
+# Dark Pact and Abyssal Pact (MECH88; LANE_RULES' 0-count skills, MECH49's unbuilt_grants note): granted by the Dark
+# Staff / its sister base ("Grants Skill: Level (1-20) Dark Pact"), with no skill in PoB (checked: no DarkPact /
+# AbyssalPact in vendor PoB src/Data/Skills/*.lua or Gems.lua; no ModCache entry names them). Game 26650308: DarkPactPlayer
+# (cast 0.7 s, spell crit 7%): its level's base Chaos (level 20 52-97) plus 13% of the sacrificed minion's Life as Chaos
+# (skeletal_chains_aoe_%_health_dealt_as_chaos_damage 13, every level), in an area around the minion; with no minion, your
+# own Life, 100% more (skeletal_chains_no_minions_damage_+%_final 100). AbyssalPactPlayer: base Physical (level 20 42-77)
+# plus N% of the minion's Life as Physical (skeletal_chains_aoe_%_health_dealt_as_physical_damage, N = its level). "Life"
+# read as maximum Life (RESEARCH26 R26-77, MEDIUM, as the minion-death note above). PoB can't scale them by the build's
+# Spell / Chaos / Physical modifiers (no skill): unscaled, an undercount. Each cast takes 0.7 s of the main skill's time,
+# so the play casts it only when one cast deals more than the main skill does in 0.7 s: counted 0 otherwise, with the
+# rows (and named an UNDERCOUNT if it would pay even unscaled, its press not modelled).
+PACTS = {"Dark Pact": "Chaos", "Abyssal Pact": "Physical"}
+PACT_CAST, PACT_CRIT, PACT_DARK_SHARE, PACT_SELF_MORE = 0.7, 0.07, 0.13, 1.0
+PACT_DAMAGE = {  # level: (min, max) base damage (GrantedEffectStatSetsPerLevel, stat sets 101 / 102)
+    "Dark Pact": {1: (1, 3), 2: (2, 4), 3: (3, 5), 4: (4, 7), 5: (5, 8), 6: (6, 11), 7: (7, 13), 8: (9, 16), 9: (11, 20),
+                  10: (13, 24), 11: (15, 28), 12: (18, 33), 13: (20, 38), 14: (23, 43), 15: (27, 50), 16: (31, 57),
+                  17: (35, 65), 18: (40, 75), 19: (46, 85), 20: (52, 97)},
+    "Abyssal Pact": {1: (1, 3), 2: (2, 3), 3: (3, 5), 4: (3, 6), 5: (4, 8), 6: (5, 10), 7: (6, 12), 8: (7, 14),
+                     9: (9, 16), 10: (10, 19), 11: (12, 23), 12: (14, 26), 13: (16, 30), 14: (19, 35), 15: (21, 40),
+                     16: (25, 46), 17: (28, 52), 18: (32, 60), 19: (37, 68), 20: (42, 77)}}
+PACT_LEVEL = re.compile(r"Grants Skill: Level (\d+) ")
+
+
+def pact_model(name: str, level: int, minion_lives: dict, own_life: float, main_dps: float) -> list[dict]:
+    """The rows for a granted Dark Pact / Abyssal Pact (see above): one cast's unscaled damage on the boss against the
+    main skill's damage in the cast's 0.7 s; 0 unless it beats it."""
+    level = max(1, min(20, int(level or 20)))
+    lo, hi = PACT_DAMAGE[name][level]
+    lives = {k: number(v) for k, v in (minion_lives or {}).items() if number(v) > 0}
+    share = PACT_DARK_SHARE if name == "Dark Pact" else level / 100
+    if lives:
+        who, life = max(lives.items(), key=lambda kv: kv[1])
+        part, whose = share * life, f"{share:.0%} of {who}'s {life:,.0f} Life (your largest minion's)"
+    elif name == "Dark Pact" and own_life > 0:
+        part, whose = share * own_life * (1 + PACT_SELF_MORE), f"no minion: {share:.0%} of your {own_life:,.0f} Life, 100% more"
+    else:
+        part, whose = 0.0, "no minion to sacrifice: only its base damage"
+    hit = ((lo + hi) / 2 + part) * (1 + PACT_CRIT)
+    main_share = main_dps * PACT_CAST
+    used = hit > main_share > 0
+    return [{"label": f"{name}: a cast on the boss*", "value": 0,
+             "basis": (f"level {level}: {lo}-{hi} {PACTS[name]} + {whose}, {hit:,.0f} a cast UNSCALED (PoB has no skill for "
+                       f"it, so the build's modifiers aren't applied: an undercount) against the {main_share:,.0f} the main "
+                       f"skill deals in its {PACT_CAST:g} s cast; "
+                       + ("it doesn't beat it, so the play doesn't cast it: 0" if not used else
+                          "it beats it even unscaled, but its presses aren't modelled: 0 (an UNDERCOUNT, named)")),
+             "confidence": "MEDIUM (game data) / LOW (unscaled damage)",
+             "play": f"Without it: the main skill. With it: {hit:,.0f} unscaled a {PACT_CAST:g} s cast, sacrificing the minion's Life"}]
+
+
 def immobilise_rate(stats: dict, events: set[str]) -> tuple[float, str]:
     """Times per second the main skill freezes, electrocutes, pins or heavy-stuns the boss, summed over `events` (a
     subset of freeze, electrocute, pin, stun), and how. Freeze and Electrocute from buildup_rate, stuns from

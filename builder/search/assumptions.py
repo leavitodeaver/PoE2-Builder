@@ -4594,6 +4594,15 @@ class Assumptions:
                 notes += models.queens_procession_model(getattr(getattr(self.build, "ctx", None), "level", 1) or 1, stats,
                                                         main_dps(getattr(self.build, "stats", None) or {}))
                 continue
+            if m.group(1) in models.PACTS:  # (MECH88: a cast's unscaled damage against the main skill's)
+                from builder.search.objective import main_dps
+
+                level = models.PACT_LEVEL.search(line["text"])
+                own = models.number(self.build.call("stats", fields=["Life"]).get("Life"))
+                notes += models.pact_model(m.group(1), int(level.group(1)) if level else 20,
+                                           getattr(self.build, "minion_lives", None) or {}, own,
+                                           main_dps(getattr(self.build, "stats", None) or {}))
+                continue
             notes.append({"label": f"{m.group(1)}: not counted", "value": 0,
                           "basis": f"granted by {line['source']}, but PoB built no skill of that name (it has no data for "
                                    "some granted skills), so its damage and effects count 0 here: an undercount, not "

@@ -90,3 +90,16 @@ def test_a_line_wanting_the_boss_out_of_the_presence_tries_just_beyond_its_edge(
     got = conditions.distance_candidates([lion], types, presence_radius=6.04)
     assert got[0] == 5.0 and 6.6 in got  # (ceil to 6.1, +0.5: beyond the widened Presence)
     assert 6.6 not in conditions.distance_candidates([lion], types)  # (no radius known: no such trial)
+
+
+def test_dark_and_abyssal_pact_rows_read_the_minions_life_and_count_only_if_a_cast_beats_the_main_skill():
+    row = models.pact_model("Dark Pact", 20, {"Skeletal Brute": 4000.0, "Skeletal Archer": 1000.0}, 3000.0, 20_000.0)[0]
+    hit = ((52 + 97) / 2 + 0.13 * 4000) * 1.07
+    assert row["value"] == 0 and f"{hit:,.0f} a cast UNSCALED" in row["basis"] and "Skeletal Brute" in row["basis"]
+    assert "doesn't beat it" in row["basis"]  # (14,000 in the main skill's 0.7 s)
+    alone = models.pact_model("Dark Pact", 20, {}, 3000.0, 20_000.0)[0]
+    assert f"{((52 + 97) / 2 + 0.13 * 3000 * 2) * 1.07:,.0f} a cast" in alone["basis"]  # (your own Life, 100% more)
+    abyss = models.pact_model("Abyssal Pact", 15, {"Zombie": 2000.0}, 3000.0, 20_000.0)[0]
+    assert f"{((21 + 40) / 2 + 0.15 * 2000) * 1.07:,.0f} a cast" in abyss["basis"]
+    assert "UNDERCOUNT" in models.pact_model("Dark Pact", 20, {"Brute": 4000.0}, 0.0, 100.0)[0]["basis"]
+    assert models.PACT_LEVEL.search("Grants Skill: Level 17 Dark Pact").group(1) == "17"
