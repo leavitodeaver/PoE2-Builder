@@ -107,3 +107,40 @@ def test_styrns_crush_is_scaled_to_the_supported_groups_hits():
     assert conditions.styrn_crush(side, {}, 1, None, ["Crushes Enemies on Hit"])[:2] == (1.0, 0.0)  # (a Forge Maul)
     assert conditions.styrn_crush(groups[1:], {}, 1, None, []) == (1.0, 0.0, "")
     assert "crushed_target_%_physical_damage_taken_as_armour_break" in conditions.BREAK_STATS
+
+
+# RESEARCH30 R30-8's answers (the manager, 02:15) ---------------------------------------------------------------------
+
+def test_dark_entropy_is_per_withered_stack():
+    line = "Withered also causes enemies to deal 1% reduced Damage"
+    mods, notes = conditions.dark_entropy_mods([line], 7)
+    assert mods == [{"kind": "Line", "line": "Nearby Enemies deal 1% reduced Damage", "scale": 7.0}]
+    assert "if it applies once: 1%" in notes[0]["basis"]
+    assert conditions.dark_entropy_mods([line], 0)[0] == []
+    assert conditions.dark_entropy_mods([line], 25)[0][0]["scale"] == 10.0  # (Withered stacks to 10)
+    assert conditions.dark_entropy_mods([], 7) == ([], [])
+
+
+def test_the_mark_blind_blinds_the_marked_boss_at_its_marked_share():
+    line = "Enemies near Enemies you Mark are Blinded"
+    stats = {"Speed": 2.0, "HitChance": 100, "enemySkillTime": 1.0, "_main_types": {"Attack"}, "_marked": (0.6, "t")}
+    assert conditions.debuff_uptime("conditionEnemyBlinded")([line], stats)[2] == pytest.approx(0.6)
+    assert conditions.debuff_uptime("conditionEnemyBlinded")([line], {**stats, "_marked": None})[2] == 0.0
+    assert conditions.MARK_BLIND.match(line)
+
+
+def test_crushing_blows_land_on_the_priming_hit():
+    from builder.search import models
+
+    assert models.primed_hit_refill(10.0, 2.0, same_hit=True) == pytest.approx(7.0)
+    assert models.primed_hit_refill(10.0, 2.0) == pytest.approx(7.5)  # (the row: the next hit)
+
+
+def test_a_reflected_ignite_keeps_the_inflicted_duration():
+    line = ["Ignites you cause are reflected back to you"]
+    stats = {"IgniteChancePerHit": 50.0, "Speed": 2.0, "HitChance": 100, "IgniteDuration": 8.0, "IgniteAvoidChance": 50,
+             "SelfIgniteDuration": 50, "IgniteDPS": 100.0}
+    up, how = conditions.reflected_ignite_share(line, stats)
+    # 1 Ignite a second, half avoided: over the inflicted 8 s, 1 - 0.5^8; over your own on-you 2 s (the row), 1 - 0.5^2
+    assert up == pytest.approx(1 - 0.5 ** 8) and "over 8.0 s" in how
+    assert "if your own on-you duration applied (2.0 s): 75%" in how

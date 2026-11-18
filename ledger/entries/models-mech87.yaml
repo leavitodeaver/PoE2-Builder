@@ -67,3 +67,32 @@
     the lines.
   sources: ["builder/search/conditions.py (styrn_crush, BREAK_STATS)", "builder/search/assumptions.py (the Styrn's Ferocity hook after parry_model)"]
   status: proposed
+
+- id: model-read-mech87-dark-entropy
+  title: '"Withered also causes enemies to deal N% reduced Damage" (conditions.dark_entropy_mods)'
+  kind: pob_gap
+  model: withered
+  match: '^Withered also causes enemies to deal (\(\d+-\d+\)|\d+)% reduced Damage$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Dark Entropy, an anoint (MECH87, an UNDERCOUNT of defences: PoB leaves it unparsed). Per Withered stack (RESEARCH30
+    R30-8, MEDIUM): the model hands PoB "Nearby Enemies deal 1% reduced Damage" x N x the Withered stacks the resolver
+    keeps on the boss (at most 10); "once" is the row. This entry only says a model reads the line.
+  sources: ["builder/search/conditions.py (DARK_ENTROPY, dark_entropy_mods)", "builder/search/assumptions.py (its hook)"]
+  status: proposed
+
+- id: model-read-mech87-mark-blind
+  title: '"Enemies near Enemies you Mark are Blinded" (conditions: the Blinded box at the Marked share)'
+  kind: pob_gap
+  model: blind
+  match: '^Enemies near Enemies you Mark are Blinded$'
+  replace: []
+  confidence: theory
+  notes: >-
+    marks27 (MECH87, an UNDERCOUNT: the Blinded box rated it 0). The Marked boss counts as near itself (RESEARCH30
+    R30-8, MEDIUM-LOW: the sibling stat says "other enemies" where it means to leave the Marked one out), so the boss is
+    Blinded while Marked (Conditions._marked_share: mark_model's share); "not Blinded" is the row. This entry only says
+    a model reads the line.
+  sources: ["builder/search/conditions.py (MARK_BLIND, _debuff_source, Conditions._marked_share)"]
+  status: proposed

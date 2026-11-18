@@ -2149,6 +2149,10 @@ class Assumptions:
             bow = "Bow" in set((build.ctx.gems.get(name) or {}).get("weaponTypes") or []) if name else False
             lion_mods, lion_notes = models.lioneye_model(texts, stats, main, metres, bow)
             hand_mods, hand_notes = hand_mods + lion_mods, hand_notes + lion_notes
+        if any(conditions_mod.DARK_ENTROPY.match(t.strip()) for t in texts):  # (MECH87: per Withered stack, R30-8)
+            de_mods, de_notes = conditions_mod.dark_entropy_mods(
+                texts, models.number(build.call("getConfig")["input"].get("multiplierWitheredStackCount")))
+            hand_mods, hand_notes = hand_mods + de_mods, hand_notes + de_notes
         all_groups = build.groups()  # (MECH87: Styrn's Ferocity's Crush at its uptime, conditions_mod.styrn_crush)
         styrn = [g["index"] for g in all_groups if any(n.get("name") == conditions_mod.STYRNS_FEROCITY
                                                        for n in g.get("gems") or [])]

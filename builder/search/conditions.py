@@ -889,7 +889,10 @@ def distance_candidates(lines: list[str], main_types: set[str], presence_radius:
 # 6.5 m for the "further than 6m" lines) is tried only within that reach for a Projectile main skill; out of reach its
 # hits would score 0 there, so the trial isn't offered (the natural 5 m and close range stay within reach). Whether the
 # line scales a skill's own range override (Tornado Shot's nova, Escape Shot) and whether it reaches ground-targeted
-# arrows (Rain of Arrows) are UNVERIFIED (R29-2): the same reach is used for every Projectile main skill.
+# arrows (Rain of Arrows) are UNVERIFIED (R29-2): the same reach is used for every Projectile main skill. RESEARCH30
+# R30-8 (3) (mech86-open-questions.md) found no source either way (the overrides are separate stats: Tornado Shot's
+# tornado_shot_projectile_range 6 m, Escape Shot's projectile_distance_override 2 m) and no number moves for a boss at
+# the tornado or within 5 m: still UNVERIFIED, not modelled.
 PROJECTILE_BASE_RANGE = 12.0  # m (RESEARCH29 R29-2: about 12-15 m, MEDIUM-LOW; the lower end)
 PROJECTILE_RANGE_LINE = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) Projectile Range$", re.I)
 
@@ -2272,6 +2275,8 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
         return up, f"the boss {metres:g} m away, your Presence {radius:.1f} m"
     if "you curse" in when:
         return models.curse_share(stats.get("_curse_uses") or [])
+    if "near enemies you mark" in when:  # (MECH87: MARK_BLIND, the boss's Marked share)
+        return stats.get("_marked") or (0.0, "the boss's Marked share wasn't read (0, labelled)")
     if "shield is raised" in when and var == "conditionEnemyBlinded":  # (Bastion of Light: models.raised_plan, MECHC21)
         plan = stats.get("_raised_plan")
         if plan is None:
@@ -2500,10 +2505,16 @@ def _self_ignited(lines: list[str], stats: dict) -> tuple[object, str, float] | 
 # damage-taken modifiers divided back out) x your "Magnitude of Ignite on you" (PoB's SelfIgniteEffect, the notable's 40%
 # reduced in it), handed to PoB as "N Fire Damage taken per second" (FireDegen: your Fire resistance and damage-over-time
 # taken modifiers apply there, CalcDefence 3874-3884), at that share. Only the main skill's Ignite is read (another
-# group's Ignites reflect too: not counted, LOW). Whether a reflected Ignite keeps the inflicted one's duration or yours:
-# yours taken (PoB's SelfIgniteDuration, UNVERIFIED). The other "reflected to you" ailment lines (Poison, Bleeding,
+# group's Ignites reflect too: not counted, LOW). A reflected Ignite keeps the inflicted one's duration (the main skill's
+# IgniteDuration: 4 s x your Ignite / ailment duration modifiers); "duration of Ignite on you" lines don't change it
+# (MECH87, RESEARCH30 R30-8 4a, MEDIUM-LOW: poewiki's PoE1 copying rule and a PoE2 forum report; before, yours was taken,
+# PoB's SelfIgniteDuration, which stays as a row). The other "reflected to you" ailment lines (Poison, Bleeding,
 # Elemental Ailments other than Freeze) sit on Mutated Vaal / Exclusive mods the coverage audit finds no current carrier
 # for (its reason text, UNVERIFIED): not modelled here.
+# "Enemies near Enemies you Mark are Blinded" (marks27: enemies_near_marked_enemy_are_blinded; MECH87, an UNDERCOUNT:
+# the Blinded box counted it 0): the Marked boss counts as near itself (RESEARCH30 R30-8 (2), MEDIUM-LOW), so it is
+# Blinded while Marked (Conditions._marked_share, mark_model's share); "not Blinded" is the row in the basis.
+MARK_BLIND = re.compile(r"^enemies near enemies you mark are blinded$", re.I)
 SELF_IMMOLATION_LINE = re.compile(r"^ignites you cause are reflected back to you$", re.I)
 # Buildup on Empowered Attacks (MECH86; the catalog's kw-stun / kw-freeze entries, UNDERCOUNTS of the boss's Heavy Stuns
 # and Freezes): "Empowered Attacks have 50% increased Stun Buildup" (Bravado, warcries16:
@@ -2542,13 +2553,20 @@ def reflected_ignite_share(lines: list[str], stats: dict) -> tuple[float, str]:
         return 0.0, "Self Immolation: your Ignites reflected back to you: you can't be Ignited (PoB's avoidance 100%)"
     chance = min(number(stats.get("IgniteChancePerHit")) / 100.0, 1.0)
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
+    seconds = number(stats.get("IgniteDuration")) or AILMENT_DURATION["Ignite"]  # (R30-8 4a: the inflicted duration)
     scale = number(stats.get("SelfIgniteDuration")) / 100 if "SelfIgniteDuration" in stats else 1.0
-    seconds = AILMENT_DURATION["Ignite"] * scale
-    landed = 1.0 - avoid ** (hits * chance * seconds) if avoid > 0 and hits * chance > 0 else 1.0
-    up = boss * landed
+    yours = AILMENT_DURATION["Ignite"] * scale  # (the row: your "Ignite on you" duration instead)
+
+    def landed(window: float) -> float:
+        return 1.0 - avoid ** (hits * chance * window) if avoid > 0 and hits * chance > 0 else 1.0
+
+    up = boss * landed(seconds)
+    row = (f"; if your own on-you duration applied ({yours:.1f} s): {boss * landed(yours):.0%}"
+           if avoid > 0 and abs(yours - seconds) > 1e-6 else "")
     return up, (f"Self Immolation: your Ignites reflected back to you: the boss Ignited {boss:.0%} of the fight, "
-                f"{1 - avoid:.0%} of the reflected ones not avoided over {seconds:.1f} s: Ignited yourself {up:.0%} "
-                f"({shared(up)}; avoidance taken to apply, MEDIUM)")
+                f"{1 - avoid:.0%} of the reflected ones not avoided over {seconds:.1f} s (the inflicted Ignite's "
+                f"duration, copied: R30-8, MEDIUM-LOW): Ignited yourself {up:.0%} ({shared(up)}; avoidance taken to "
+                f"apply, MEDIUM){row}")
 
 
 def reflected_ignite_burn(lines: list[str], stats: dict) -> tuple[float, str]:
@@ -4080,6 +4098,29 @@ STYRNS_FEROCITY = "Styrn's Ferocity"
 STYRN_CRUSH_SECONDS = 8.0  # support_knights_ferocity_crush_on_hit_ms 8000 (GrantedEffectStatSets, 26650308)
 CRUSH_PDR = 15.0  # KeywordPopups Crushed: "lowers Physical Damage Reduction by 15%"; PoB CalcSetup 106
 OTHER_CRUSH = re.compile(r"\bcrush(?:es)? enemies on hit\b|\benemies are crushed\b", re.I)
+
+
+# Dark Entropy (an anoint, DeliriumAnoint_DarkEntropy: withered_enemies_deal_+%_damage -1, "Withered also causes enemies to
+# deal 1% reduced Damage"; MECH87, an UNDERCOUNT of defences: PoB leaves it unparsed, ModCache). Per Withered stack
+# (RESEARCH30 R30-8 (1), MEDIUM: the line adds to the Withered debuff's own effect, which each of the up to 10 stacks
+# applies), so the boss deals N x 1% reduced Damage with N the Withered stacks the resolver keeps on it (PoB's
+# multiplierWitheredStackCount, _withered_stacks): handed to PoB as "Nearby Enemies deal 1% reduced Damage" x N (parses
+# whole to the enemy's Damage INC: probe POE2T4088). The row: 1% once while Withered (the lower reading).
+DARK_ENTROPY = re.compile(r"^Withered also causes enemies to deal (\d+(?:\.\d+)?)% reduced Damage$", re.I)
+
+
+def dark_entropy_mods(texts: list[str], stacks: float) -> tuple[list[dict], list[dict]]:
+    """Dark Entropy's reduced boss damage at the Withered stacks on the boss (see the note above)."""
+    per = sum(float(m.group(1)) for t in texts if (m := DARK_ENTROPY.match(t.strip())))
+    if per <= 0:
+        return [], []
+    n = max(0.0, min(number(stacks), 10.0))
+    note = {"label": "Dark Entropy: the Withered boss deals less Damage*", "value": f"{per * n:g}% reduced",
+            "confidence": "MEDIUM",
+            "basis": (f"{per:g}% per Withered stack (RESEARCH30 R30-8, MEDIUM) x {n:g} stacks the build keeps on the boss"
+                      + (f"; if it applies once: {per:g}%" if n > 1 else "") if n > 0
+                      else "the build keeps no Withered on the boss: none")}
+    return ([models.line("Nearby Enemies deal 1% reduced Damage", per * n)] if n > 0 else []), [note]
 
 
 def styrn_crush(groups: list[dict], rows: dict, main_index, choices: dict[str, float] | None,
@@ -6135,7 +6176,8 @@ def _parried_recently(lines: list[str], stats: dict) -> tuple[object, str]:
     if plan is None or not plan.how:
         return 0.0, ""
     if plan.lost <= 0 or not plan.how.startswith("Parry the boss"):
-        return 0.0, "the build doesn't parry with Parry (Refutation's blocks not counted as parrying: UNVERIFIED)"
+        return 0.0, ("the build doesn't parry with Parry (Refutation's blocks inflict Parried but aren't a Parry, so they don't meet "
+                     "'successfully Parried Recently': RESEARCH30 R30-8 4c, MEDIUM; if they did: on)")
     up = min(1.0, RECENTLY / models.PARRY_EVERY)
     return _box(up, f"a parry every {models.PARRY_EVERY:g} s (each telegraphed boss hit, the user's fair 5 s, MEDIUM): "
                     f"Parried in the last {RECENTLY:g} s {up:.0%} of the fight ({shared(up)}; without "
@@ -6933,6 +6975,30 @@ class Conditions:
                                + (f", shared with {', '.join(sorted(fire - {name}))}" if fire - {name} else ""))
         return out
 
+    def _marked_share(self) -> tuple[float, str]:
+        """(share of the fight the boss carries your Mark, how) for MARK_BLIND: mark_model's Marked share, read with a
+        MARKED_LINES probe line as assumptions.siphoning_model reads it (0 with no Mark)."""
+        raw = self.build.call("activeSkills")["skills"]
+        found = [models.Skill.of(s) for s in raw if not s.get("disabled")]
+        group = self.build.main_group()
+        main = next((s for s in found if group and s.group == group["index"] and s.name == self.main_skill), None)
+        marks = [s for s in found if s.name in (*models.MARKS, models.PREDATORS_MARK) and s is not main]
+        if not marks:
+            return 0.0, "no Mark in the build: never Blinded by it"
+        metres = None
+        if any(s.name == models.PREDATORS_MARK for s in found):
+            metres = number(self.build.call("getConfig")["input"].get("enemyDistance")) / 10 or natural_distance(set())
+        _, notes = models.mark_model(found, self.build.call("stats", fields=models.MODEL_FIELDS), main,
+                                     [{"text": "Enemies you Mark take 1% increased Damage"}], metres,
+                                     [models.Skill.of(s) for s in raw if s.get("disabled")],
+                                     rates=getattr(self.build, "trigger_rates", None))
+        note = next((n for n in notes if str(n.get("label", "")).startswith("Lines while the boss is Marked")), None)
+        share = float(note["value"]) if note else 1.0
+        how = note["basis"].split(": marked")[0] if note else f"{marks[0].name} kept on the boss"
+        return share, (f"the boss Marked {share:.0%} of the fight ({how}) and taken to be near itself (RESEARCH30 R30-8 "
+                       "(2), MEDIUM-LOW: the sibling stat says 'other enemies' where it means to leave the Marked one out; "
+                       "if it isn't: not Blinded)")
+
     def _thorns_fill(self, texts: list[str], stats: dict) -> dict:
         """models.thorns_fills for the build's Thorns hits (MECH84, PATCH_CHECK L4-2): PoB's Thorns group's useRates row
         and MECH-B's models.thorns_procs (its hits a second); {} without Thorns damage or until thorns_procs is on main."""
@@ -7585,6 +7651,8 @@ class Conditions:
                                        _boss_distance(texts, stats)[0] / 10)
             if declared and declared[0] > 0:
                 intimidated.append(declared)
+        if any(MARK_BLIND.search(t) for t in texts):  # (MECH87, R30-8 (2): the Marked boss is "near" itself)
+            stats["_marked"] = self._marked_share()
         stats["_debuff_extra"] = ({"conditionEnemyIntimidated": (
             1 - math.prod(1 - min(max(u, 0.0), 1.0) for u, _ in intimidated), "; ".join(h for _, h in intimidated))}
             if intimidated else {})

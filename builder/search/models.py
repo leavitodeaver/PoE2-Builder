@@ -9948,8 +9948,12 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
     times, window = HEAVY_STUN_REPEAT
     refill = repeat_every(t, times, max(window - d, 0.0))
     crushing, crush_how = crushing_blows(stats)  # (MECH85: a Crushing Blow Heavy Stuns the boss once Primed)
+    next_every = 0.0
     if crushing:
-        refill = primed_hit_refill(refill, hits)
+        # (MECH87, RESEARCH30 R30-8 4b, MEDIUM: the hit that Primes the boss lands the Crushing Blow itself, so the stun
+        # comes when the bar reaches 70%; MECH85's "on the next hit" stays as a row)
+        next_every = d + primed_hit_refill(refill, hits)
+        refill = primed_hit_refill(refill, hits, same_hit=True)
     every = d + refill
     basis = (f"{per_hit:.2%} of the boss's Stun bar per hit (PoB){f', {1 - uncold:.0%} of it Cold, which builds none' if uncold < 1 else ''}, "
              f"x{scale:.2f} for {bosses.of(stats).name}'s threshold ({bosses.of(stats).poise}%, the game files; PoB's is 938%), "
@@ -9961,7 +9965,8 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
                 if thorns > 0 else "") + ": "
              f"full in {t:.1f} s; the bar doesn't fill during the {d:g} s stun (RESEARCH26, MEDIUM), then +500% threshold "
              f"for the rest of the 16.5 s after it"
-             + (f"; {crush_how}: Heavy Stunned once Primed at {PRIMED_UNIQUE:.0%} of the bar, on the next hit"
+             + (f"; {crush_how}: Heavy Stunned once Primed at {PRIMED_UNIQUE:.0%} of the bar, by the hit that Primes it "
+                f"(R30-8, MEDIUM; on the next hit instead: one every {next_every:.1f} s)"
                 if crushing else "") + f": one every {every:.1f} s")
     return 1 / every, basis
 
@@ -9978,8 +9983,10 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
 # not counted here, an UNDERCOUNT, named); pin_almost_pinned_enemies on Mods UniquePinAlmostPinnedEnemies1 ("Pin Enemies
 # which are Primed for Pinning", Constricting Command). PoB maps none of them (checked: SkillStatMap.lua and Modules/*.lua
 # hold no crushing_blow, and ModCache leaves both lines unparsed). So the bar need only reach 70%: the refill to the next
-# Heavy Stun / Pin becomes 70% of it plus the wait for the next hit (the first hit after Primed taken to land it, MEDIUM:
-# whether the hit that primes the boss itself stuns is UNVERIFIED; that reading would drop the wait), never longer than
+# Heavy Stun / Pin becomes 70% of it plus the wait for the next hit (the first hit after Primed taken to land it, MEDIUM),
+# never longer than the full refill. MECH87: for a Crushing Blow the hit that Primes the boss lands it itself (RESEARCH30
+# R30-8 4b, MEDIUM: player reports of the Primed state being skipped with Crushing Impacts), so the wait is dropped there
+# and the next-hit reading is a row; Pins keep the next hit (R30-8 asked about Crushing Blows only). Never longer than
 # the full refill. The Heavy Stun's own +500% threshold for 16.5 s after each one stays in the refill (Primed is a share
 # of the bar, so it scales with it). Thorns hits counted as hits for the wait (their buildup already adds to the fill).
 PRIMED_UNIQUE = 0.70  # KeywordPopups PrimedStun / PrimedPin, Unique enemies
@@ -10012,11 +10019,12 @@ def pins_primed(stats: dict) -> bool:
     return any(PIN_PRIMED_LINE.match(str(t).strip()) for t in stats.get("_texts") or ())
 
 
-def primed_hit_refill(refill: float, hits: float, primed: float = PRIMED_UNIQUE) -> float:
-    """Seconds to the next Heavy Stun / Pin when it lands on the first hit after the bar reaches `primed` of it."""
+def primed_hit_refill(refill: float, hits: float, primed: float = PRIMED_UNIQUE, same_hit: bool = False) -> float:
+    """Seconds to the next Heavy Stun / Pin when it lands on the first hit after the bar reaches `primed` of it, or
+    (`same_hit`, MECH87: a Crushing Blow, R30-8 4b) on the hit that takes the bar there."""
     if refill <= 0:
         return refill
-    wait = 1.0 / hits if hits > 0 else 0.0
+    wait = 0.0 if same_hit else (1.0 / hits if hits > 0 else 0.0)
     return min(refill, primed * refill + wait)
 
 
