@@ -13,7 +13,7 @@ read. This audit doesn't take its word for it. It covers:
      calculation side is read from PoB's Lua source (Modules/Calc*.lua and the rest of Modules/,
      Classes/Mod*.lua, the skill data's functions): every name a modifier query (Sum, More, Flag,
      Override, List, Max, Tabulate, HasMod, calcLib.mod/val, ...) is called with, names built by
-     concatenation counted as wildcards. This reads PoB's code as text for an audit only; no game
+     concatenation counted as wildcards (word characters and spaces: slot names). This reads PoB's code as text for an audit only; no game
      data comes from it.
 
 Every line gets one status: `pob` (counted by PoB), `ledger` (translated by a ledger entry,
@@ -113,6 +113,14 @@ POE1_ONLY_GROUPS = {
     # carries none of these mods. Second source: poe2db's Unique_item page (both halves, 13 Nov) holds no "Golem" or
     # "Primordial"; poe2db's search for "golem" returns only that DNT quest item and Skitter Golem.
     "golems": r"\bGolems?\b",
+    # (COV41) PoE1's Harbinger uniques' "Grants Summon [Greater] Harbinger of X Skill": their stat
+    # local_display_summon_harbinger_x_on_equip is on the 12 HarbingerSkillOnEquipUnique* Mods only (GenerationType 3, no
+    # spawn weight), ModGrantedSkills grants no skill from them, GrantedEffects holds no Summon Harbinger effect (its one
+    # Harbinger is HarbingerOfMadnessPlayer, a different skill, which these lines don't name), PoB-PoE2 has no unique or
+    # skill for them (checked: game 26650308 Stats / Mods / ModGrantedSkills / GrantedEffects; PoB Data/Uniques and
+    # Data/Skills). Second source: poe2db's Unique_item page (434 uniques, 18 Nov) has no "Harbinger of" line; the
+    # patch-notes archive has no "Harbinger" entry (no hit is not proof alone).
+    "Harbinger summons": r"\bSummon (?:Greater )?Harbinger of\b",
 }
 _POE1_ONLY = [(name, re.compile(rx)) for name, rx in POE1_ONLY_GROUPS.items()]
 # Unique-only mods GGG marks unused (COV20): their own game text starts "DNT-UNUSED" (or, for Obliterated, "DNT" and a
@@ -286,8 +294,11 @@ def calc_reads(src: Path = POB_SRC) -> dict:
             args = _call_args(text, m.end())
             for chain in CHAIN.findall(args):
                 parts = re.split(r"\s*\.\.\s*", chain)
-                glob = "".join(re.escape(p[1:-1]) if p.startswith('"') else r"\w*" for p in parts)
-                if re.sub(r"\\w\*", "", glob):
+                # a concatenated part may be a slot name with a space ("EffectOfBonusesFrom" .. slot reads
+                # "EffectOfBonusesFromRing 1", CalcPerform 1491; COV41, probe POE2T3858: Ingenuity's left / right ring
+                # line moves Life), so a wildcard takes spaces too
+                glob = "".join(re.escape(p[1:-1]) if p.startswith('"') else r"[\w ]*" for p in parts)
+                if glob.replace(r"[\w ]*", ""):  # not a bare wildcard
                     patterns.add(glob)
             exact.update(STRING.findall(args))
         exact.update(_param_built_names(text))

@@ -761,3 +761,29 @@ def test_researched_unobtainable_item_mods_are_unreachable():
     report = coverage.audit()
     crush = [r for r in report["records"] if r["source"] == "Item CrushOnHitChanceEssence1"]
     assert crush and all(r["status"] == "unreachable" and "RESEARCH30" in r["reason"] for r in crush)
+
+
+def test_slot_names_built_by_concatenation_count_as_read():
+    """COV41 (probe POE2T3858): PoB reads "EffectOfBonusesFrom" .. slot (CalcPerform 1491), and slot names have a
+    space ("Ring 1"), so Ingenuity's "N% increased bonuses gained from left / right Equipped Ring" (EffectOfBonusesFromRing
+    1 / 2) moves Life: 1460 -> 1491 with a +100 Life ring and 30%. The wildcard takes spaces, but a bare wildcard part
+    alone still reads nothing (ActiveSkeletonLimit stays unread)."""
+    from builder.ledger.coverage import calc_reads, name_read
+
+    reads = calc_reads()
+    assert name_read("EffectOfBonusesFromRing 1", reads) and name_read("EffectOfBonusesFromRing 2", reads)
+    assert not name_read("ActiveSkeletonLimit", reads)
+
+
+def test_harbinger_summon_mods_are_poe1_leftovers():
+    """COV41: PoE1's Harbinger uniques' "Grants Summon [Greater] Harbinger of X Skill" (stat
+    local_display_summon_harbinger_x_on_equip, on the 12 HarbingerSkillOnEquipUnique* Mods only) are PoE1 leftovers;
+    PoE2's own Harbinger of Madness lines aren't."""
+    from builder.ledger.coverage import poe1_leftover_mods
+
+    affixes = [{"pool": "Exclusive", "id": "HarbingerSkillOnEquipUnique__1", "line": "Grants Summon Harbinger of the Arcane Skill"},
+               {"pool": "Exclusive", "id": "HarbingerSkillOnEquipUnique2_6", "line": "Grants Summon Greater Harbinger of Brutality Skill"},
+               {"pool": "Exclusive", "id": "Madness", "line": "Hits have 10% chance to spawn a Harbinger of Madness Orb"}]
+    found = poe1_leftover_mods(affixes, carried=frozenset())
+    assert found == {"HarbingerSkillOnEquipUnique__1": "Harbinger summons",
+                     "HarbingerSkillOnEquipUnique2_6": "Harbinger summons", "Madness": ""}
