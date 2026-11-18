@@ -68,12 +68,25 @@ def load(paths: list[str]) -> dict[str, list[dict]]:
     for path in paths:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         for row in data["rows"]:
+            floors = floors_kind(row)
+            feasible = bool(row["feasible_fair_floors"] if floors == "refloored" else row["feasible"])
             runs.setdefault(row["name"], []).append({
-                "dps": row["dps"], "ratio": row["ratio"], "feasible": bool(row["feasible"]), "passed": row["passed"],
+                "dps": row["dps"], "ratio": row["ratio"], "feasible": feasible, "passed": row["passed"],
+                "floors": floors, "feasible_as_run": bool(row["feasible"]),
                 "reference": row["reference_dps"], "seed_base": data.get("seed_base"),
                 "evaluations": row.get("evaluations"), "commit": data.get("commit"), "file": Path(path).name,
                 "free_base": [b for b in worn_crafted_bases(row.get("code")) if not has_crafted_rule(data.get("commit"))]})
     return runs
+
+
+def floors_kind(row: dict) -> str:
+    """Where a run's 'floors met' comes from (the manager's ruling, 18 Nov 06:25: a reference's floors come from the
+    same fair scoring the search uses; gate4 does so since SEARCH27): "fair" (gate4 took them so), "refloored" (an
+    older run whose delivered build benchmarks/refloor.py scored again under the fair floors: feasible_fair_floors),
+    "pob" (an older run judged against floors read from PoB before our models: its 'floors met' isn't comparable)."""
+    if row.get("floors_from") == "fair":
+        return "fair"
+    return "refloored" if "feasible_fair_floors" in row else "pob"
 
 
 def rank(run: dict) -> tuple[bool, float]:
@@ -119,7 +132,11 @@ def main(argv: list[str] | None = None) -> int:
                   f"{'feasible' if r['feasible'] else 'not feasible'}; {r['evaluations'] or 0:,} evaluations; "
                   f"{r['commit']}; {r['file']})"
                   + (f" [FREE BASE: wears {', '.join(r['free_base'])} at no cost (before train 63): an OVERCOUNT]"
-                     if r.get("free_base") else ""))
+                     if r.get("free_base") else "")
+                  + (" [floors from PoB before our models (before the 18 Nov ruling): 'feasible' not comparable]"
+                     if r.get("floors") == "pob" else "")
+                  + (f" [floors met re-scored under the fair floors (refloor.py); as run: "
+                     f"{'feasible' if r['feasible_as_run'] else 'not feasible'}]" if r.get("floors") == "refloored" else ""))
         s = summary(rows)
         line = describe(name, s)
         if name in base:

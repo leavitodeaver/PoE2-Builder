@@ -125,7 +125,9 @@ def test_gate4_fair_scores_the_reference_with_the_searchs_own_steps_and_a_reset_
     monkeypatch.setattr(gate4, "Context", lambda payload: None)
     request = types.SimpleNamespace(main_skill="Explosive Spear", boss=None)
     fair = gate4.fair_reference(None, "<xml/>", request)
+    floor_stats = fair.pop("floor_stats")  # (SEARCH27: the floors' stats, read as the deficits read them)
     assert fair == {"dps": 621.0, "short": ["Spirit"], "conditions": ["EnemyFrozen"]}
+    assert set(floor_stats) == set(gate4.FLOOR_STATS)
     assert calls == ["loadXml", "resetConfig", "refresh", "settle", "settle", "settle", "conditions", "play", "resolve",
                      "press", "uptimes"]
 
@@ -172,3 +174,43 @@ def test_a_run_wearing_a_free_recipe_made_base_is_marked_and_so_is_a_baseline_ho
     assert "not a fair baseline" in out and "old-0.json" in out
     gate_median.main([old])
     assert "FREE BASE: wears Grasping Mail" in capsys.readouterr().out
+
+
+def test_gate4_takes_a_references_floors_from_the_fair_scoring_at_the_worse_of_its_part_time_states():
+    """The manager's ruling (18 Nov 06:25, from MECH87): gate4 read a reference's floors from PoB before our models, so
+    after train 76 8 of 9 references fell short of their own Physical max hit in the fair scoring. Floors now come from
+    the fair scoring, as objective.deficits reads them (the worse of the build and the build with its part-time effects
+    off, floor_deltas), so the reference meets its own floors."""
+    import types
+
+    spec = importlib.util.spec_from_file_location("gate4", ROOT / "benchmarks" / "gate4.py")
+    gate4 = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate4)
+    stats = {"Life": 3000.4, "EnergyShield": 0, "FireResist": 80, "ColdResist": 75, "LightningResist": 60,
+             "ChaosResist": -10, "PhysicalMaximumHitTaken": 9000.9}
+    build = types.SimpleNamespace(stats=stats, objective=types.SimpleNamespace(
+        floor_deltas=[{"PhysicalMaximumHitTaken": -900.0, "Life": 0.0}, {"FireResist": -30}]))
+    got = gate4.fair_floor_stats(build)
+    assert got["PhysicalMaximumHitTaken"] == 8100.9 and got["FireResist"] == 50 and got["Life"] == 3000.4
+    floors = gate4.floors_from(got)
+    assert floors == {"resists": {"fire": 50, "cold": 75, "lightning": 60}, "max_hit": {"physical": 8100},
+                      "life": 3000}  # (no Energy Shield floor at 0, no chaos floor below 0, floors rounded down)
+
+
+
+def test_a_run_judged_on_pob_floors_is_marked_and_a_refloored_one_ranks_by_the_fair_floors(tmp_path, capsys):
+    """SEARCH27 (the manager's 06:25 ruling): a run whose floors came from PoB before our models is marked; one that
+    benchmarks/refloor.py scored again under the fair floors ranks by feasible_fair_floors; gate4's new runs are "fair"."""
+    def run(name, **extra):
+        path = tmp_path / f"{name}.json"
+        path.write_text(json.dumps({"seed_base": 0, "commit": "HEAD", "rows": [{
+            "name": "2b75c", "dps": 100.0, "ratio": 1.0, "feasible": False, "passed": False, "reference_dps": 100.0,
+            "evaluations": 1, **extra}]}), encoding="utf-8")
+        return str(path)
+
+    old, refloored, fair = run("old"), run("re", feasible_fair_floors=True), run("new", floors_from="fair")
+    loaded = gate_median.load([old, refloored, fair])["2b75c"]
+    assert [(r["floors"], r["feasible"]) for r in loaded] == [("pob", False), ("refloored", True), ("fair", False)]
+    gate_median.main([old, refloored])
+    out = capsys.readouterr().out
+    assert "floors from PoB before our models" in out and "re-scored under the fair floors" in out

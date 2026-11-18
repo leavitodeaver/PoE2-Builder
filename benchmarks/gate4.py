@@ -63,11 +63,12 @@ BOSS = (f"{bosses.DEFAULT}: {boss_vars()}" if bosses is not None
         else "none: no builder/search/bosses.py, the reference keeps its code's boss configuration")
 
 
-def reference_request(name: str, facts: dict, keystones: list[str]) -> BuildRequest:
-    stats = facts["stats"]
-    items = {i["slot"]: i for i in facts["items"]}
-    weapon = items.get("Weapon 1")
-    offhand = items.get("Weapon 2")
+FLOOR_STATS = ("Life", "EnergyShield", *RESISTS.values(), "PhysicalMaximumHitTaken")
+
+
+def floors_from(stats: dict) -> dict:
+    """The request's floors from a reference's stats: its Life, Energy Shield, positive resistances (at most 75) and
+    Physical maximum hit taken."""
     floors: dict = {"resists": {}, "max_hit": {}}
     if (stats.get("Life") or 0) > 1:
         floors["life"] = int(stats["Life"])
@@ -79,6 +80,16 @@ def reference_request(name: str, facts: dict, keystones: list[str]) -> BuildRequ
             floors["resists"][damage] = int(min(value, 75))
     if (stats.get("PhysicalMaximumHitTaken") or 0) > 0:
         floors["max_hit"]["physical"] = int(stats["PhysicalMaximumHitTaken"])
+    return floors
+
+
+def reference_request(name: str, facts: dict, keystones: list[str], stats: dict | None = None) -> BuildRequest:
+    """The gate's request for a reference: its class, skill, weapon and keystones, its floors from `stats` (the fair
+    scoring's, fair_floor_stats) or else PoB's own facts (the first pass, before our models)."""
+    floors = floors_from(stats if stats is not None else facts["stats"])
+    items = {i["slot"]: i for i in facts["items"]}
+    weapon = items.get("Weapon 1")
+    offhand = items.get("Weapon 2")
     offhand_choice = "any"
     if offhand is None:
         offhand_choice = "none"
@@ -121,7 +132,25 @@ def fair_reference(engine: PobEngine, xml: str, request: BuildRequest) -> dict:
     search.press_round(float("inf"))
     search.weigh_uptimes()
     return {"dps": build.objective.dps(build.stats), "short": [d[0] for d in build.objective.deficits(build.stats)],
-            "conditions": sorted(search.conditions.active)}
+            "conditions": sorted(search.conditions.active), "floor_stats": fair_floor_stats(build)}
+
+
+def fair_floor_stats(build) -> dict:
+    """FLOOR_STATS as the search's floors read them (objective.deficits): the worse of the build as scored and the build
+    with its part-time effects off (objective.floor_deltas), so a reference meets floors taken from them (the manager's
+    ruling, 18 Nov 06:25, from MECH87: floors read from PoB before our models left 8 of 9 references short of their own
+    Physical max hit after train 76)."""
+    from builder.search.objective import number
+
+    stats = build.stats
+    out = {}
+    for stat in FLOOR_STATS:
+        value = number(stats.get(stat))
+        for deltas in getattr(build.objective, "floor_deltas", None) or []:
+            if stat in deltas:
+                value = min(value, value + number(deltas[stat]))
+        out[stat] = value
+    return out
 
 
 def verdict(dps: float, feasible: bool, toggled: float, fair: float, author_toggles: bool = False) -> dict:
@@ -198,12 +227,20 @@ def main() -> None:
         # must not reach the next reference's own-config score)
         fair_engine = fair_engine or PobEngine()
         fair = fair_reference(fair_engine, xml, request)
+        # (the manager's 06:25 ruling, 18 Nov: the floors from the same scoring the search uses; scored again under them,
+        # so the reference meets its own floors and its DPS is read with those floors' weights)
+        pob_floors = request.floors.model_dump(mode="json", exclude_none=True)
+        request = reference_request(path.stem, facts, keystones, fair["floor_stats"])
+        fair = fair_reference(fair_engine, xml, request)
+        fair["pob_floors"] = pob_floors
         if fair["dps"] <= 0 and not args.author_toggles:
             print(f"{path.stem}: skipped, its main skill scores no damage the search's way")
             continue
         print(f"{path.stem}: reference {reference_dps:,.0f} with its own PoB config, {fair['dps']:,.0f} scored as the "
               f"search scores its builds (x{fair['dps'] / reference_dps:.2f}); "
               + ("all floors met" if not fair["short"] else "reads short: " + ", ".join(fair["short"])), flush=True)
+        print(f"{path.stem}: floors from the fair scoring {request.floors.model_dump(mode='json', exclude_none=True)}; "
+              f"PoB's own (before our models) were {fair['pob_floors']}", flush=True)
         references.append((path.stem, request, reference_dps, fair))
     del engine, fair_engine
 
@@ -227,7 +264,8 @@ def main() -> None:
                      "wall_seconds": result.get("wall_seconds"), "workers": result.get("workers"),
                      "checks": result.get("checks")})  # (each floor's row: the sustain and recovery rows' delivered values)
         rows[-1].update({"reference_dps_fair": fair["dps"], "ratio_fair": dps / fair["dps"] if fair["dps"] else None,
-                         "reference_fair_short": fair["short"], "reference_fair_conditions": fair["conditions"]})
+                         "reference_fair_short": fair["short"], "reference_fair_conditions": fair["conditions"],
+                         "floors_from": "fair", "reference_pob_floors": fair["pob_floors"]})
         print(f"[{'PASS' if passed else 'FAIL'}] {name} {result.get('label')}: {dps:,.0f} vs the reference scored the "
               f"search's way {fair['dps']:,.0f} (x{dps / fair['dps'] if fair['dps'] else 0:.2f}) and with its author's "
               f"toggles {reference_dps:,.0f} (x{dps / reference_dps:.2f}); verdict on the "
