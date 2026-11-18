@@ -935,3 +935,44 @@ def test_cov43_not_dodge_rolled_lines_share_the_mech88_condition():
     assert condition.get("not_dodge_rolled_recently")
     assert re.search(condition["shown_for"], "LedgerShare:NotDodgeRolledRecently")
     assert re.search(condition["shown_for"], "30% increased Armour if you haven't Dodge Rolled Recently")
+
+
+def test_cov43_model_read_passive_lines_are_the_models_own():
+    """COV43: passive-tree lines a model already reads are model-read (passives-cov43.yaml), each checked against the
+    model's own pattern; the lines a model reads without moving a number, or whose cost no model counts (Grinning
+    Immolation's burn), stay open."""
+    from builder.ledger import model_entry
+    from builder.search import conditions, models, recovery
+
+    cases = {
+        "Gain Power Charges instead of Frenzy Charges": ("model-read-charges-instead", conditions.CHARGE_INSTEAD),
+        "There is no Limit on the number of Banners you can place": ("model-read-banner-limit", conditions.BANNER_UNLIMITED),
+        "+1 to maximum number of placed Banners": ("model-read-banner-limit", conditions.BANNER_MORE),
+        "40% increased Jagged Ground Duration": ("model-read-jagged-ground-duration", conditions.JAGGED_DURATION_LINE),
+        "Overgrown Plant Skills Break 50% increased Armour": ("model-read-overgrown-break", conditions.BREAK_OVERGROWN),
+        "Consume all Rage when Shapeshifting to Human form to recover 1% of maximum life per Rage Consumed":
+            ("model-read-invigorating-hate", conditions.INVIGORATING_HATE),
+        "The next Fire Spell you cast yourself after using a Warcry is Ancestrally Boosted":
+            ("model-read-kaoms-blessing", models.KAOMS_BLESSING),
+        "Skills gain 1 Glory every 2 seconds for each Rare or Unique monster in your Presence":
+            ("model-read-glory-presence-banner-refund", models.GLORY_PRESENCE),
+        "When a Banner expires, recover 15% of the Glory required for that Banner":
+            ("model-read-glory-presence-banner-refund", models.GLORY_BANNER_REFUND),
+        "200% faster start of inherent Rage loss": ("model-read-rage-loss", models.RAGE_START_RATE),
+        "Inherent loss of Rage is 2% slower per 10 Tribute": ("model-read-rage-loss", models.RAGE_TRIBUTE),
+        "15% increased Effect of Puppet Master": ("model-read-puppet-master-effect-duration", models.PUPPET_EFFECT),
+        "25% increased Duration of each Puppet Master stack": ("model-read-puppet-master-effect-duration", models.PUPPET_DURATION),
+        "Gain a stack of Jade every second": ("model-read-jade-heritage", recovery.JADE_LINE),
+        "Sacrifice 5% of maximum Energy Shield when you Cast a Spell": ("model-read-sacrifice-es-on-cast", recovery.SACRIFICE_ES),
+        "All Flames of Chayula that you manifest are Purple": ("model-read-chayula-flame-colour", recovery.FLAME_COLOUR),
+        "Recover 3% of maximum Life when you create an Offering": ("model-read-recover-per-event", recovery.OFFERING_LIFE),
+        "Recover 1% of maximum Life per Glory consumed": ("model-read-recover-per-event", recovery.GLORY_SPENT),
+    }
+    for line, (entry, pattern) in cases.items():
+        assert (found := model_entry(line)) is not None and found.id == entry, line
+        assert pattern.search(line), line
+    for line in ("Become Ignited when you deal a Critical Hit, taking 15% of your maximum Life and Energy Shield as Fire "
+                 "Damage per second", "Take 20% less Damage from Hits while Dodge Rolling",
+                 "Allies in your Presence Regenerate 5 Rage per second if you have gained Rage Recently",
+                 "-0.2 seconds to current Energy Shield Recharge delay per Combo expended when using Skills"):
+        assert (found := model_entry(line)) is None or not found.id.startswith("model-read-"), line

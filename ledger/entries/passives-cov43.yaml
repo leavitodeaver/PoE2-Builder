@@ -1,0 +1,176 @@
+# COV43 (COV-A, the audit's owner; COV-B, whose category this is, has been paused since 12 Nov): passive-tree lines a custom
+# model already reads (model-read entries, `replace: []`). Each was checked to feed a number (charges, Rage, Glory,
+# banners, ailments and grounds on the boss, recovery, a defence), not a play row alone: the function in `sources` reads
+# the line and its result reaches the score. Left open on purpose (read, but no number moves): Bulwark's "Take N% less
+# Damage from Hits while Dodge Rolling" (recovery.rolling_less_row: a row), sprint lines (recovery.sprint_row: a row),
+# "Apply Debilitate to Enemies N Metres in front of you while your Shield is raised" (models.raised_plan rates Blind
+# only), "-N seconds to current Energy Shield Recharge delay per Combo expended" (conditions.CURRENT_ES_LINE only
+# flags a current-Energy-Shield line), "Allies in your Presence Regenerate N Rage per second ..." (conditions._rage_gain
+# leaves allies' Rage out), Grinning Immolation's "Become Ignited when you deal a Critical Hit, taking 15% ... per second"
+# (conditions._self_ignited sets the Ignited box from it, but no model found counting the burn: routed as an OVERCOUNT
+# candidate, so not marked read).
+
+- id: model-read-charges-instead
+  title: '"Gain <kind> Charges instead of <kind> Charges" (conditions._charge_sources)'
+  kind: pob_gap
+  model: charges
+  match: '^Gain (Power|Frenzy|Endurance) Charges instead of (Power|Frenzy|Endurance) Charges$'
+  replace: []
+  confidence: theory
+  notes: >-
+    conditions.CHARGE_INSTEAD redirects the build's gains of one kind to the other (_charge_sources), so the charges
+    held of both kinds.
+  sources: ["builder/search/conditions.py (CHARGE_INSTEAD, _charge_sources)"]
+  status: proposed
+
+- id: model-read-banner-limit
+  title: '"There is no Limit on the number of Banners you can place" / "+N to maximum number of placed Banners" (conditions.banner_limit)'
+  kind: pob_gap
+  model: glory
+  match: '^(There is no Limit on the number of Banners you can place|\+\d+ to maximum number of placed Banners)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    conditions.BANNER_UNLIMITED / BANNER_MORE set how many banners stand at once (banner_limit), which scales PoB's one
+    BannerPlanted box when the build has more banners than the limit (MECHC27).
+  sources: ["builder/search/conditions.py (BANNER_UNLIMITED, BANNER_MORE, banner_limit)"]
+  status: proposed
+
+- id: model-read-jagged-ground-duration
+  title: '"N% increased / reduced Jagged Ground Duration" (conditions.jagged_ground)'
+  kind: pob_gap
+  model: grounds
+  match: '^\d+(?:\.\d+)?% (increased|reduced) Jagged Ground Duration$'
+  replace: []
+  confidence: theory
+  notes: >-
+    conditions.JAGGED_DURATION_LINE lengthens the Jagged Ground under the boss (jagged_ground), so its share of the fight.
+  sources: ["builder/search/conditions.py (JAGGED_DURATION_LINE, jagged_ground)"]
+  status: proposed
+
+- id: model-read-overgrown-break
+  title: '"Overgrown Plant Skills Break N% increased Armour" (conditions.break_amount_scale)'
+  kind: pob_gap
+  model: debuff_uptimes
+  match: '^Overgrown Plant Skills Break \d+(?:\.\d+)?% (increased|reduced) Armour$'
+  replace: []
+  confidence: theory
+  notes: >-
+    conditions.BREAK_OVERGROWN scales the Armour each Break takes for an Overgrown Plant main skill (break_amount_scale),
+    so the boss's Armour Broken cycle.
+  sources: ["builder/search/conditions.py (BREAK_OVERGROWN, break_amount_scale)"]
+  status: proposed
+
+- id: model-read-invigorating-hate
+  title: '"Consume all Rage when Shapeshifting to Human form to recover N% of maximum life per Rage Consumed" (conditions.rage_held, recovery.spent_income)'
+  kind: pob_gap
+  model: rage
+  match: '^Consume all Rage when Shapeshifting to Human form to recover \d+(?:\.\d+)?% of maximum life per Rage Consumed$'
+  replace: []
+  confidence: theory
+  notes: >-
+    conditions.INVIGORATING_HATE empties the Rage held at each shift back (rage_held); recovery.RAGE_SHIFT counts the
+    Life recovered per Rage consumed in the sustain (spent_income).
+  sources: ["builder/search/conditions.py (INVIGORATING_HATE, rage_held)", "builder/search/recovery.py (RAGE_SHIFT, spent_income)"]
+  status: proposed
+
+- id: model-read-kaoms-blessing
+  title: '"The next Fire Spell you cast yourself after using a Warcry is Ancestrally Boosted" (models.ancestral_boost_model)'
+  kind: pob_gap
+  model: ancestral_boost
+  match: '^The next Fire Spell you cast yourself after using a Warcry is Ancestrally Boosted$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.KAOMS_BLESSING: the share of the main Fire Spell's casts Boosted at the build's Warcry rate
+    (ancestral_boost_model).
+  sources: ["builder/search/models.py (KAOMS_BLESSING, ancestral_boost_model)", "builder/search/assumptions.py (models)"]
+  status: proposed
+
+- id: model-read-glory-presence-banner-refund
+  title: 'Glory lines: per Rare or Unique monster in your Presence, a banner''s refund (models.glory_lines)'
+  kind: pob_gap
+  model: glory
+  match: '^(Skills gain 1 Glory every \d+(?:\.\d+)? seconds? for each Rare or Unique monster in your Presence|When a Banner expires, recover \d+(?:\.\d+)?% of the Glory required for that Banner)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.GLORY_PRESENCE (the boss counts once) and GLORY_BANNER_REFUND feed glory_lines, so the Glory a second and
+    the uses of Glory skills.
+  sources: ["builder/search/models.py (GLORY_PRESENCE, GLORY_BANNER_REFUND, glory_lines)"]
+  status: proposed
+
+- id: model-read-rage-loss
+  title: 'Inherent Rage loss lines: "N% faster / slower start of inherent Rage loss", "Inherent loss of Rage is N% slower per N Tribute" (models.rage_loss)'
+  kind: pob_gap
+  model: rage
+  match: '^(\d+(?:\.\d+)?% (faster|slower) start of inherent Rage loss|Inherent loss of Rage is \d+% slower per \d+ Tribute)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.RAGE_START_RATE / RAGE_TRIBUTE set the pause before Rage decays and its rate (rage_loss), so the Rage held.
+  sources: ["builder/search/models.py (RAGE_START_RATE, RAGE_TRIBUTE, rage_loss)"]
+  status: proposed
+
+- id: model-read-puppet-master-effect-duration
+  title: 'Puppet Master''s effect and stack duration (models.puppet_master_model)'
+  kind: pob_gap
+  model: minions
+  match: '^\d+(?:\.\d+)?% (increased|reduced) (Effect of Puppet Master|Duration of each Puppet Master stack)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.PUPPET_EFFECT / PUPPET_DURATION: the minions' Skill Speed at the stacks the build's Commands keep up.
+  sources: ["builder/search/models.py (PUPPET_EFFECT, PUPPET_DURATION, puppet_master_model)"]
+  status: proposed
+
+- id: model-read-jade-heritage
+  title: '"Gain a stack of Jade every second" (recovery.jade_heritage)'
+  kind: pob_gap
+  model: recovery
+  match: '^Gain a stack of Jade every second$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.JADE_LINE: the Jade stacks' Physical Damage Reduction, handed to PoB as PhysicalDamageReduction BASE
+    (MECHC37; Encase in Jade's Guard a row).
+  sources: ["builder/search/recovery.py (JADE_LINE, jade_heritage)", "builder/search/assumptions.py (models)"]
+  status: proposed
+
+- id: model-read-sacrifice-es-on-cast
+  title: '"Sacrifice N% of maximum Energy Shield when you Cast a Spell" (recovery.sacrifice_income)'
+  kind: pob_gap
+  model: recovery
+  match: '^Sacrifice \d+(?:\.\d+)?% of maximum Energy Shield when you Cast a Spell$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.SACRIFICE_ES: the Energy Shield sacrificed a second at the build's casts (sacrifice_income), in the
+    sustain; models.EMPOWERMENT_LINE reads the same line for Eldritch Empowerment.
+  sources: ["builder/search/recovery.py (SACRIFICE_ES, sacrifice_income)", "builder/search/assumptions.py (life_mana_income)"]
+  status: proposed
+
+- id: model-read-chayula-flame-colour
+  title: '"All Flames of Chayula that you manifest are Red / Blue / Purple" (recovery.flame_shares)'
+  kind: pob_gap
+  model: recovery
+  match: '^All Flames of Chayula that you manifest are (Red|Blue|Purple)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.FLAME_COLOUR sets the flames' colour shares (flame_shares), so what each collected flame recovers.
+  sources: ["builder/search/recovery.py (FLAME_COLOUR, flame_shares)", "builder/search/assumptions.py (flame_shares)"]
+  status: proposed
+
+- id: model-read-recover-per-event
+  title: '"Recover N% of maximum Life when you create an Offering" / "per Glory consumed" (recovery.spent_income)'
+  kind: pob_gap
+  model: recovery
+  match: '^Recover \d+(?:\.\d+)?% of maximum Life (when you create an Offering|per Glory consumed)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.OFFERING_LIFE / GLORY_SPENT: Life a second at the build's own Offering and Glory-spend rates
+    (assumptions.spent_rates, spent_income; MECHC13).
+  sources: ["builder/search/recovery.py (OFFERING_LIFE, GLORY_SPENT, spent_income)", "builder/search/assumptions.py (spent_rates)"]
+  status: proposed
