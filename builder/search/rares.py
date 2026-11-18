@@ -330,11 +330,27 @@ def rare_price(slot: str, affixes: list[Affix]) -> float:
 
 # Sockets ------------------------------------------------------------------------------------
 
+# A base whose implicit fixes its sockets (COV40; an UNDERCOUNT before: the socketLimit - 2 rule gave Kalguuran Forgehammer
+# and Runeforged Kalguuran Forgehammer 1 rune socket, though the base "Has 3 Sockets"; PoB parses the implicit but no
+# calculation reads it). The carriers (checked by stat, the manager 23:00: game 26650308 Stats local_has_X_sockets is on
+# two Mods, MaceImplicitHasXSockets and KeeperOfTheArcVerisiumImplicit3Sockets1; BaseItemTypes.Implicit_Mods puts them
+# on Kalguuran Forgehammer, the four Runeforged Kalguuran Forgehammer rows FourOneHandMace14Verisium1-4 and Runemastered
+# Spiritbone Crown FourHelmetStrInt6VerisiumUnique1; second source: poe2db Kalguuran_Forgehammer "Has 3 Sockets", drop
+# level 47, and Keeper_of_the_Arc's Runeforging "/3" rows). The crown's row is no row of PoB's (it keeps another of the
+# three under one key), so it reaches socket_count as a copy's implicit line (base_variants.ROWS "Keeper of the Arc").
+BASE_SOCKETS = re.compile(r"^Has (\d+) Sockets?$", re.M)
+
+
 def socket_count(base: dict, unique: bool, raw: str | None = None) -> int:
     """Rune sockets an item gets without corruption: two on body armours and two-handers, one
     elsewhere on items that take sockets at all. A unique's own fixed sockets (`raw`, below) win."""
     if raw is not None and (own := own_sockets(base, raw)) is not None:
         return own
+    if raw is not None and (m := next((m for line in active_lines(raw) if (m := BASE_SOCKETS.match(line.strip()))),
+                                      None)):
+        return int(m.group(1))  # (a copy's row implicit: Runemastered Keeper of the Arc's "Has 3 Sockets" row)
+    if m := BASE_SOCKETS.search(base.get("implicit") or ""):
+        return int(m.group(1))
     limit = base.get("socketLimit")
     if not limit:
         return 0

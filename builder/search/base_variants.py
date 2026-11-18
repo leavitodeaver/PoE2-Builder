@@ -70,7 +70,7 @@ def base_variant_copies(unique: dict, base_names: set[str]) -> list[dict]:
 
 # --- H4-4 (COV33): one copy per base row where a Runemastered base has rows that differ -------------------------------
 # PoB keeps one row per base name (Data/Bases: one key per name, the last row wins), and the game has more than one for
-# 3 names a unique sits on. Game files (BaseItemTypes + ArmourTypes + Implicit_Mods, build 26476662) give each row; poe2db's
+# 3 names a unique sits on (4 in build 26650308: Keeper of the Arc's Spiritbone Crown, COV40). Game files (BaseItemTypes + ArmourTypes + Implicit_Mods, build 26476662) give each row; poe2db's
 # "Unique Runeforging" recipes (15 Nov; each recipe's result names its row) give which rows the anvil makes for which
 # unique: the player picks the row (one recipe per row, same cost). Grasping Mail's 4 rows are rare-able bases, no
 # unique's (COV32 section 7). A row is scored as PoB's kept row plus "LedgerMod:<Defence> BASE <row - kept>" lines (PoB's
@@ -121,6 +121,26 @@ ROWS = {
              # Recharge Rate")
              "implicits": ["{range:0.5}(10-15)% increased Energy Shield Recharge Rate"]},
             {"row": "Runic Ward 301", "id": "FourBodyStrInt11VerisiumUnique3", "kept": True},
+        ],
+    },
+    # Keeper of the Arc (COV40, the manager 23:00): game build 26650308 has three Runemastered Spiritbone Crown rows
+    # (BaseItemTypes FourHelmetStrInt6VerisiumUnique1-3, ArmourTypes all Ar 116 / ES 32 / Ward 113), each with its own
+    # implicits (KeeperOfTheArcVerisiumImplicit3Sockets1; ...WardRegen1 + ...IntelligenceRequirement1 +
+    # ...UnaffectedbyCurses1; ...VerisiumCharges1); poe2db "Unique Runeforging /3": the three, one cost (25 Exceptional
+    # Verisium + Olroth's Crest of the Sun). PoB keeps row 3 (Data/Bases helmet.lua: three keys of one name, the last wins).
+    "Keeper of the Arc": {
+        "base": "Runemastered Spiritbone Crown",
+        "kept": {"Armour": 116, "EnergyShield": 32, "Ward": 113},
+        "kept_implicit": "Every 5 seconds, gain a Verisium Infusion",
+        "rows": [
+            {"row": "Has 3 Sockets", "id": "FourHelmetStrInt6VerisiumUnique1",
+             "defences": {"Armour": 116, "EnergyShield": 32, "Ward": 113},
+             "implicits": ["Has 3 Sockets"]},  # KeeperOfTheArcVerisiumImplicit3Sockets1 (local_has_X_sockets 3)
+            {"row": "Curses and Runic Ward", "id": "FourHelmetStrInt6VerisiumUnique2",
+             "defences": {"Armour": 116, "EnergyShield": 32, "Ward": 113},
+             "implicits": ["+250 Intelligence Requirement", "100% reduced Duration of Curses on you",
+                           "{range:0.5}(25-50)% increased Runic Ward Regeneration Rate"]},
+            {"row": "Verisium Infusion", "id": "FourHelmetStrInt6VerisiumUnique3", "kept": True},
         ],
     },
 }

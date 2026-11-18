@@ -90,3 +90,13 @@ def test_as_though_lines_widen_what_the_filler_offers_for_the_selected_variant()
     for name, count in (("Serle's Grit", 3), ("Greymake", 4), ("The Bringer of Rain", 4)):
         unique = _unique(data, name)
         assert socket_count(bases[unique["base"]], True, unique["raw"]) == count
+
+
+def test_a_base_whose_implicit_fixes_its_sockets_gets_them():
+    """COV40: Kalguuran Forgehammer's implicit "Has 3 Sockets" (game stat local_has_X_sockets; poe2db): a rare one gets
+    3 rune sockets, not the socketLimit - 2 rule's 1 (an UNDERCOUNT before); other bases keep the rule."""
+    bases = {b["name"]: b for b in GameData().bases if b["name"] in (
+        "Kalguuran Forgehammer", "Runeforged Kalguuran Forgehammer", "Ornate Plate")}
+    assert socket_count(bases["Kalguuran Forgehammer"], False) == 3
+    assert socket_count(bases["Runeforged Kalguuran Forgehammer"], False) == 3
+    assert socket_count(bases["Ornate Plate"], False) == 2

@@ -185,3 +185,23 @@ def test_a_row_without_a_recipe_is_priced_from_its_listing_only():
     t = _table({"Eyes of the Runefather": [("Venerable Defender", 0.001, 100, False), (base, 0.004, 300, False)]}, MATS)
     p = copy_price(t, "Eyes of the Runefather", base, anvil=False, row="Armour 112, Evasion 102")
     assert p["divine"] == 0.004 and p["craft"] is None and "check it's the Armour 112, Evasion 102 one" in p["how"]
+
+
+def test_keeper_of_the_arc_gets_its_three_rows_and_the_socket_row_its_sockets():
+    """COV40 (the manager 23:00): Runemastered Spiritbone Crown has three game rows (FourHelmetStrInt6VerisiumUnique1-3),
+    one "Has 3 Sockets" (KeeperOfTheArcVerisiumImplicit3Sockets1); PoB keeps the Verisium Infusion row. The socket row
+    is offered on its own and the filler gives it 3 rune sockets (rares.socket_count reads the copy's implicit)."""
+    from builder.search.base_variants import offered_copies
+    from builder.search.rares import socket_count
+
+    uniques, bases = _data()
+    keeper = next(u for u in uniques if u["name"] == "Keeper of the Arc")
+    copies = {c.get("row"): c for c in offered_copies(keeper, bases) if c["base"] == "Runemastered Spiritbone Crown"}
+    assert set(copies) == {"Has 3 Sockets", "Curses and Runic Ward", "Verisium Infusion"}
+    sockets = copies["Has 3 Sockets"]["raw"]
+    assert "Has 3 Sockets" in sockets and "Verisium Infusion" not in sockets and "Implicits: 1" in sockets
+    assert "LedgerMod:" not in sockets  # (the three rows' defences are equal)
+    assert "100% reduced Duration of Curses on you" in copies["Curses and Runic Ward"]["raw"]
+    base = {"socketLimit": 3, "implicit": "Every 5 seconds, gain a Verisium Infusion"}  # (PoB's kept row)
+    assert socket_count(base, True, sockets) == 3
+    assert socket_count(base, True, copies["Verisium Infusion"]["raw"]) == 1
