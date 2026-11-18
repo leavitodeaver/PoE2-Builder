@@ -2479,7 +2479,14 @@ class Assumptions:
         if main is not None and group and main.name == models.GAS_ARROW:  # (GEM20: clouds explode on Ignite / Detonation)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             gas, gas_how, gas_poisons = self.gas_arrow_share(group["index"], main.stat_set)
-            gas_mods, gas_notes = models.gas_arrow_model(main, main.stat_set, sets, gas, gas_how, forbidden, gas_poisons)
+            # (GEM21) the cloud's Poison is an added source, which objective.dps adds whole: scale it by Gas Arrow's own
+            # share of the fight (its press-model scale in Full DPS and the time other presses take, objective.busy)
+            press = getattr(build.objective, "press_scales", None) or {}
+            own = next((number(v) for k, v in press.items() if k == main.name or str(k).startswith(f"{main.name} ")
+                        or str(k).startswith(f"{main.name}:")), 1.0)
+            time_share = max(0.0, min(1.0, own * (1.0 - build.objective.busy())))
+            gas_mods, gas_notes = models.gas_arrow_model(main, main.stat_set, sets, gas, gas_how, forbidden, gas_poisons,
+                                                         time_share)
             hand_mods, hand_notes = hand_mods + gas_mods, hand_notes + gas_notes
         if main is not None and group and main.name == models.FROZEN_LOCUS:  # (GEM20: an explosion when it breaks)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
@@ -2663,7 +2670,10 @@ class Assumptions:
                                    "Battershout": shout, "Crackling Palm": palm, "Blood Hunt": blood, "Ancestral Spirits": spirits,
                                    "Inevitable Agony": agony, "Impale": impaled + impaled_others, "Infernal Legion": legion,
                                    "Briarpatch": briar, "Ice-Tipped Fragments": frost, "Oil Ground": oil,
-                                   "Ignited Ground's Ignite": burn, "Djinn Commands": djinn})
+                                   "Ignited Ground's Ignite": burn, "Djinn Commands": djinn,
+                                   # (GEM21: Gas Arrow's cloud Poison beside its Arrow / Explosion set, gas_arrow_model)
+                                   "Gas Arrow's cloud Poison": sum(number(m.get("value")) / 100 for m in hand_mods
+                                                                   if m.get("name") == "AddedGasArrowCloud")})
         # A model whose effect follows the build's own numbers and that the bridge can't work out again per calculation
         # would make every item what-if a real trial (Build.item_deltas). All of today's are worked out in the bridge
         # (models.derived): uptimes from Mana and regeneration, Life spent, attack speed, Mana > Life, Maelstrom's pulses.

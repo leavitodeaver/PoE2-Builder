@@ -21,8 +21,10 @@
     exploded cloud's Poison: RESEARCH30 R30-5 (3): the cloud Poisons the boss once every 2 s while it lives (LOW-MEDIUM;
     attack speed doesn't change it), 2-3 a full cloud (taken as life / 2 s + 0.5), and the explosion destroys it
     (MEDIUM); a cloud's average life from the Ignite / Detonator rate above; PoB's one Poison a use scaled by that
-    (AilmentMagnitude MORE) where the Poison Cloud set is scored; elsewhere the cloud's Poison isn't in the scored set
-    (an UNDERCOUNT, named).
+    (AilmentMagnitude MORE) where the Poison Cloud set is scored; elsewhere (GEM21, SEARCH28's item 5) the Poison
+    Cloud set's PoisonDPS (bridge setRates) x those applications x Gas Arrow's share of the fight, as an added source
+    ("Gas Arrow's cloud Poison"), outside the skill's DPS line (PoB multiplies ailment stacks by the DPS multiplier:
+    probe POE2T3479).
   sources: ["builder/search/models.py (gas_arrow_model)", "builder/search/assumptions.py (gas_arrow_share)",
             "data/game-26650308/tables/ActiveSkills.json (gas_arrow)",
             "data/game-26650308/tables/GrantedEffectStatSets.json (GasArrowPlayer, GasArrowGasDegenPlayer, GasArrowGasExplosionPlayer)",

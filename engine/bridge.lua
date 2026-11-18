@@ -4229,8 +4229,9 @@ function bridge.setRates(args)
 		local entry = { index = k, label = statSet.label or "" }
 		if ok and env and env.player.mainSkill and pcall(calcs.perform, env, true) then
 			local output = env.player.output
-			-- (MECHB38: ProjectileCount, Dusk Vigil's Embers a trigger, models.dusk_vigil_model)
-			for _, field in ipairs({ "TotalDPS", "AverageDamage", "Speed", "ProjectileCount" }) do
+			-- (MECHB38: ProjectileCount, Dusk Vigil's Embers a trigger, models.dusk_vigil_model; GEM21: PoisonDPS, Gas
+			-- Arrow's cloud Poison beside the Arrow set it scores, models.gas_arrow_model, SEARCH28's item 5)
+			for _, field in ipairs({ "TotalDPS", "AverageDamage", "Speed", "ProjectileCount", "PoisonDPS" }) do
 				if type(output[field]) == "number" then
 					entry[field] = jsonNumber(output[field])
 				end

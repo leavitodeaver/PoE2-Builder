@@ -1221,7 +1221,15 @@ def test_gas_arrow_cloud_poisons_every_two_seconds():
     mods, notes = models.gas_arrow_model(ga, "Poison Cloud", sets, 0.0, "", frozenset(), 2.5)
     assert [m["name"] for m in mods] == ["DPS", "AilmentMagnitude"] and mods[1]["value"] == pytest.approx(150.0)
     mods, notes = models.gas_arrow_model(ga, "Arrow", sets, 0.0, "", frozenset(), 2.5)
-    assert all(m["name"] != "AilmentMagnitude" for m in mods) and "UNDERCOUNT" in notes[0]["basis"]
+    assert all(m["name"] != "AilmentMagnitude" for m in mods) and "shows no Poison DPS" in notes[0]["basis"]
+    # (GEM21, SEARCH28's item 5) with the bridge's per-set PoisonDPS the cloud's Poison joins the Arrow set: 44.9 x 2.5
+    sets[1]["PoisonDPS"] = 44.9
+    mods, notes = models.gas_arrow_model(ga, "Arrow", sets, 0.0, "", frozenset(), 2.5)
+    added = [m for m in mods if m.get("name") != "DPS"]
+    assert len(added) == 1 and models.added_input("GasArrowCloud", 44.9 * 2.5) == added[0]
+    assert "added beside it" in notes[0]["basis"]
+    mods, notes = models.gas_arrow_model(ga, "Arrow", sets, 0.0, "", frozenset(), 2.5, 0.6)  # (60% of the fight on it)
+    assert models.added_input("GasArrowCloud", 44.9 * 2.5 * 0.6) in mods and "60% of the fight" in notes[0]["basis"]
 
 
 def test_enervating_nova_more_at_the_far_edge():

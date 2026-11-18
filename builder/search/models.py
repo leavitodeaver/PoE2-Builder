@@ -7446,10 +7446,12 @@ def set_dps_unscaled(sets: list[dict]) -> dict[str, float]:
 
 
 def gas_arrow_model(main: Skill | None, scored: str | None, sets: list[dict], share: float, how: str,
-                    forbidden: set[str] = frozenset(), poisons: float = 1.0) -> tuple[list[dict], list[dict]]:
+                    forbidden: set[str] = frozenset(), poisons: float = 1.0,
+                    time_share: float = 1.0) -> tuple[list[dict], list[dict]]:
     """Gas Arrow's use as the game makes it (see above): `sets` the bridge's setRates for its group, `share` the share of
     its clouds that explode (Assumptions.gas_arrow_share), `how` its basis, `poisons` a cloud's Poison applications on
-    the boss (gas_cloud_poisons over its average life)."""
+    the boss (gas_cloud_poisons over its average life), `time_share` Gas Arrow's share of the fight (its press scale x
+    the time other presses leave it: the cloud's added Poison follows its uses)."""
     if main is None or main.name != GAS_ARROW or GAS_ARROW_ENTRY in forbidden or scored not in GAS_ARROW_SETS:
         return [], []
     dps = set_dps_unscaled(sets)
@@ -7458,6 +7460,14 @@ def gas_arrow_model(main: Skill | None, scored: str | None, sets: list[dict], sh
         return [], []
     share = min(1.0, max(0.0, share))
     total = arrow + blast * share
+    # (GEM21, SEARCH28's item 5) the cloud's own Poison, which the Arrow / Explosion set PoB scores doesn't hold: the Poison
+    # Cloud set's PoisonDPS (bridge setRates, PoB's one Poison a use) x the cloud's applications, added outside PoB
+    # (added_input), not through the skill's DPS line: PoB multiplies an ailment's stacks by the skill's DPS multiplier
+    # (CalcOffence 4065 / 5254), so a DPS line carrying it would raise the very PoisonDPS it reads (probe POE2T3479: 42.3
+    # -> 60.5 under a x6.08 line)
+    cloud_set = next((x for x in sets if x.get("label") == "Poison Cloud"), {})
+    cloud_poison = (number(cloud_set.get("PoisonDPS")) * max(poisons, 0.0) * min(max(time_share, 0.0), 1.0)
+                    if scored != "Poison Cloud" else 0.0)
     factor = total / dps[scored]
     steer = scored == "Explosion" and share <= 0
     if steer:
@@ -7465,6 +7475,8 @@ def gas_arrow_model(main: Skill | None, scored: str | None, sets: list[dict], sh
     factor = max(factor, AILMENT_FLOOR)  # (PoB rounds a MORE to 2 decimals: see ailment_set_model)
     mods = ([raw_mod("Damage" if steer else "DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9
             else [])
+    if cloud_poison > 0:
+        mods.append(added_input("GasArrowCloud", cloud_poison))
     if scored == "Poison Cloud" and abs(poisons - 1.0) > 1e-9:  # (its Poisons: one every 2 s while it lives)
         mods.append(raw_mod("AilmentMagnitude", "MORE", 100 * (max(poisons, 0.0) - 1), main.name))
     return mods, [{
@@ -7480,14 +7492,23 @@ def gas_arrow_model(main: Skill | None, scored: str | None, sets: list[dict], sh
                   + (f"; the Poison Cloud set's Poison (the cloud's real damage) at {poisons:.2f} applications a cloud "
                      f"(one every 2 s while it lives, LOW-MEDIUM, RESEARCH30 R30-5; the row: PoB's one), x{poisons:.2f}"
                      if scored == "Poison Cloud" else
-                     f"; the cloud's Poison isn't in the {scored} set PoB scores ({poisons:.2f} applications a cloud: an "
-                     "UNDERCOUNT here; the Poison Cloud set carries it)")
+                     f"; plus the cloud's Poison, which the {scored} set PoB scores doesn't hold: the Poison Cloud set's "
+                     f"{number(cloud_set.get('PoisonDPS')):,.1f} Poison DPS (PoB's one a use) x {poisons:.2f} applications a "
+                     f"cloud (one every 2 s while it lives, LOW-MEDIUM, RESEARCH30 R30-5)"
+                     + (f" x {time_share:.0%} of the fight it's used (the presses' share)" if time_share < 1 else "")
+                     + f" = {cloud_poison:,.1f}, added "
+                     f"beside it (GEM21): {total + cloud_poison:,.0f}; the cloud's PoisonDPS carries this skill's DPS line "
+                     f"(x{factor:.2f}) in its stack count (PoB's DpsMultiplier), labelled" if cloud_poison > 0 else
+                     (f"; the cloud's Poison: Gas Arrow gets none of the fight (the presses take it all): none added"
+                      if number(cloud_set.get("PoisonDPS")) > 0 and time_share <= 0 else
+                      f"; the cloud's Poison: the Poison Cloud set shows no Poison DPS here (none added)"))
                   + ("; with none, the Explosion set is kept 10% under the Arrow so the search keeps a fed set"
                      if steer else "")),
         "play": ("Gas Arrow's clouds explode only when the boss is Ignited while it stands in them, or a Detonator skill "
                  "hits them: Ignite the boss with another skill (Flame Wall, a Fire attack), then keep firing; each "
-                 f"explosion can Ignite it again. Without it: {arrow:,.0f}; with this build's: {total:,.0f}; every cloud: "
-                 f"{arrow + blast:,.0f} (hits; the cloud's Poison on top).")}]
+                 f"explosion can Ignite it again. Without it: {arrow + cloud_poison:,.0f}; with this build's: "
+                 f"{total + cloud_poison:,.0f}; every cloud: "
+                 f"{arrow + blast + cloud_poison:,.0f} (the cloud's Poison {cloud_poison:,.0f} in each).")}]
 
 
 # Frozen Locus's explosion only when its Ice Crystal is destroyed (GEM20; an OVERCOUNT: PoB scores the Explosion set at
