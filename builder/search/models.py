@@ -7982,9 +7982,16 @@ def inevitable_agony_model(hit_dps: float, player_dps: float, duration: float = 
 # m: melee minions stand at the boss (MEDIUM); ranged ones (by name: mages, snipers, arsonists, clerics) are taken to
 # keep away. Only the strongest Ignite counts on one target, so this adds only what it beats the build's own Ignite by
 # (PoB's IgniteDPS). Not counted (labelled): the minion's own damage and Ignite modifiers on that base (an
-# undercount), Catha's Brilliance's same effect (not mapped), the boss Ignited for MECH-A's "Ignited" lines (routed),
-# the minions' deaths from the burn feeding minion_deaths.
-INFERNAL_LEGION = ("Infernal Legion I", "Infernal Legion II")
+# undercount), the boss Ignited for MECH-A's "Ignited" lines (routed), the minions' deaths from the burn feeding
+# minion_deaths.
+# (MECHB36, MECH84's PATCH_CHECK H1-7 find, an UNDERCOUNT: 0 before) Catha's Brilliance, the 0.5.0 Lineage support for
+# Companions, carries the same support_minions_ignite_for_%_max_life 10 (game files 26650308 GrantedEffectStatSets
+# SupportCathasBrilliance, radius 20, and
+# minion_cathas_brilliance_blind_aura_radius 20: "causing enemies near them to be Blinded and Ignited", PoB's
+# other.lua; Catha's has no self-burn). Counted the same way (the 1.5 m reach above is the smaller radius, kept: a melee
+# minion at the boss is inside both). The Blind on the boss is MECH-A's (routed). Infernal Legion III carries it too
+# (SupportInfernalLegionPlayerThree) but the game removed the gem in 0.5.0 (context.py's gone list), so it isn't listed.
+INFERNAL_LEGION = ("Infernal Legion I", "Infernal Legion II", "Catha's Brilliance")
 LEGION_LIFE_SHARE = 0.10  # support_minions_ignite_for_%_max_life 10
 IGNITE_BASE = 0.20  # KeywordPopups Ignite: 20% of the hit's Fire damage per second
 RANGED_MINIONS = ("Mage", "Sniper", "Arsonist", "Cleric", "Archer")
@@ -12354,6 +12361,49 @@ def item_trigger_model(texts: list[str], stats: dict, skills: list[Skill], main:
                                if capped > 0 else f"Nothing in the build sets off {name}"),
                       "confidence": "MEDIUM" if capped > 0 else "HIGH"})
     return mods, notes, groups
+
+
+# Spell Cascade's side areas on a boss (MECHB36; the manager 01:43 / 02:08, RESEARCH29 turns 4-5, an UNDERCOUNT). The
+# support (SupportSpellCascadePlayer, game files 26650308): support_spell_cascade_number_of_cascades_per_side 1, 20% less
+# Area and 30% less Damage on every area (PoB applies both, sup_int.lua), the Cascades 20% less Area again
+# (support_spell_cascade_area_of_effect_+%_for_cascade -20: COV-E's part:cascade entry). PoB counts the centre area only
+# (checked: no cascade spacing or extra hit in PoB's Modules or SkillStatMap, PoE2 or PoE1). Placement: the side areas sit
+# on either side of the target along an axis, each centre one main-area radius from the target ("the center of one spell
+# touches the outside perimeter of another", the user's play observation, 17 Nov ~01:50; Kieren_GGG, PoE1 patch thread, 22
+# Aug 2023: Spell Cascade "calculates the spacing of the areas based on how big they actually are" to "prevent areas from
+# overlapping too much", since 3.1.0; PoE2 using the same code UNVERIFIED): MEDIUM. With PoB's radius R (already the
+# 20%-less main area: 0.894 x R0), a side area of radius R x sqrt(0.8) (0.8 x R0) centred R away covers a boss of radius
+# r on the target when R - R x sqrt(0.8) <= r, i.e. 0.106 R <= r: then each Cascade is one more hit of the same damage
+# (1 + 2 x per side hits a cast), else only the centre. The lower row: areas edge to edge (centres R + R x sqrt(0.8) apart):
+# no side area reaches a boss smaller than that, 1 hit. Main skill only (its PoB radius is the one read).
+CASCADE_PLAY = "Target the boss's centre with the Spell Cascade spell so its side areas overlap it too"
+
+
+def spell_cascade_model(main: Skill | None, stats: dict, boss_radius: float, boss_how: str
+                        ) -> tuple[list[dict], list[dict]]:
+    """Spell Cascade's side areas as extra hits on a boss at the target (see above)."""
+    if main is None:
+        return [], []
+    per_side = number(main.support_stats.get(CASCADES_PER_SIDE))
+    radius = number(stats.get("AreaOfEffectRadius")) / 10
+    if per_side <= 0 or radius <= 0:
+        return [], []
+    scale, part_notes = support_part_scale(main, "cascade")
+    side = radius * math.sqrt(number(scale.get("Area of Effect")) or 0.8)
+    reach = radius - side
+    hits = 1 + 2 * per_side if reach <= boss_radius else 1.0
+    note = {"label": f"{main.name}: Spell Cascade's side areas on the boss*", "value": f"x{hits:g}",
+            "basis": (f"main area {radius:.2f} m (PoB's, with the support's 20% less Area), side areas {side:.2f} m centred "
+                      f"{radius:.2f} m from the target: they cover the boss's centre to within {reach:.2f} m, against "
+                      f"{boss_how}: {'all ' + format(1 + 2 * per_side, 'g') + ' areas hit' if hits > 1 else 'only the centre area hits'}"
+                      " (MEDIUM: spacing from the user's play observation and Kieren_GGG's PoE1 post; PoB counts the "
+                      "centre only). Row: areas edge to edge, x1"),
+            "play": (f"{CASCADE_PLAY}: with it x{hits:g}; areas edge to edge (the lower reading) x1" if hits > 1 else
+                     f"The side areas land too far out for this boss (spell area {radius:.1f} m): x1"),
+            "confidence": "MEDIUM"}
+    if hits <= 1:
+        return [], [note]
+    return [raw_mod("DPS", "MORE", 100 * (hits - 1), main.name)], [note] + part_notes
 
 
 # Different Non-Instant skills used per 8 s (MECHB4; AUDIT7 A7-2, research/cast-speed-per-different-spell.md) -------------

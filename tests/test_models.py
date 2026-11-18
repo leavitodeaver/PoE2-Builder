@@ -5959,3 +5959,16 @@ def test_an_items_triggered_skill_gets_its_rate_from_the_build():
     mods, notes, groups = models.item_trigger_model([line], stats, [spell_main, shower], spell_main)
     assert next(m for m in mods if m["key"] == "triggerRate")["value"] == 0 and groups == set()
     assert models.item_trigger_model(["+10 to Strength"], stats, [main, bolt], main) == ([], [], set())
+
+
+def test_spell_cascades_side_areas_hit_a_boss_inside_their_reach():
+    """MECHB36 (RESEARCH29; the user, 17 Nov): side areas of radius R x sqrt(0.8) centred one main radius R away cover a
+    boss of radius r on the target while 0.106 R <= r: 3 hits a cast; otherwise the centre only."""
+    main = Skill("Comet", group=1, spell=True, support_stats={models.CASCADES_PER_SIDE: 1})
+    mods, notes = models.spell_cascade_model(main, {"AreaOfEffectRadius": 25}, 0.3, "a 0.3 m boss")  # 2.5 m: reach 0.26
+    assert mods[0]["value"] == pytest.approx(200) and notes[0]["value"] == "x3" and "edge to edge" in notes[0]["basis"]
+    mods, notes = models.spell_cascade_model(main, {"AreaOfEffectRadius": 40}, 0.3, "a 0.3 m boss")  # 4 m: reach 0.42
+    assert mods == [] and notes[0]["value"] == "x1"
+    assert models.spell_cascade_model(main, {"AreaOfEffectRadius": 40}, 1.0, "a 1 m boss")[1][0]["value"] == "x3"
+    assert models.spell_cascade_model(Skill("Comet", group=1, spell=True), {"AreaOfEffectRadius": 25}, 0.3, "") == ([], [])
+    assert "Catha's Brilliance" in models.INFERNAL_LEGION

@@ -2183,6 +2183,8 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + gun_mods, hand_notes + gun_notes
         early_mods, early_notes = models.hazard_early_model(found, stats, forbidden, self.hitters(found))  # (MECH-B)
         hand_mods, hand_notes = hand_mods + early_mods, hand_notes + early_notes
+        cascade_mods, cascade_notes = models.spell_cascade_model(main, stats, *bosses.hit_radius(stats))  # (MECHB36)
+        hand_mods, hand_notes = hand_mods + cascade_mods, hand_notes + cascade_notes
         count_mods, count_notes = models.hazard_count_model(main, stats)  # (MECHB33: a use's hazards on the boss)
         hand_mods, hand_notes = hand_mods + count_mods, hand_notes + count_notes
         comp_mods, comp_notes = self.companions(skills, [e["text"] for e in source_lines], main)  # (MECHB33: the limit)
