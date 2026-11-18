@@ -1348,6 +1348,7 @@ class Search:
             # findings and the raised-shield taps go back as they were)
             flags = {g["index"]: (g["enabled"], g["fullDPS"]) for g in build.groups()}
             saved, score, short = self._scoring_state(), build.score, self.shortfall(build.stats)
+            own = own_damage(build.call("stats", fields=["SkillDPS"]).get("SkillDPS"))
             used = set(getattr(build, gems_module.USED_ITEM_SKILLS, None) or ())
             taps = getattr(build.objective, "raised_taps", None)
             build.set_group(index=group["index"], fullDPS=True)
@@ -1356,7 +1357,11 @@ class Search:
             self.press_round(float("inf"))
             self._rescore()
             joined = next((g["fullDPS"] for g in build.groups() if g["index"] == group["index"]), False)
-            if joined and build.score > score + EPSILON and self.shortfall(build.stats) <= short + 1e-9:
+            # (SEARCH27, POE2T4260: its own damage must rise, not only PoB's "Best Poison / Ignite DPS" pick. The Acrid
+            # Wand's Decompose joined 2b75b's build for +8.7% (Best Poison DPS 2,144) while models' corpse note counted it
+            # 0 uses a second on a lone boss: an OVERCOUNT)
+            adds_own = rises(own, own_damage(build.call("stats", fields=["SkillDPS"]).get("SkillDPS")))
+            if joined and adds_own and build.score > score + EPSILON and self.shortfall(build.stats) <= short + 1e-9:
                 kept = True
                 continue
             for g in build.groups():
@@ -1449,6 +1454,21 @@ SUPPORT_DISTANCE_TEXT = {
 }
 SUPPORT_DISTANCE_TEXT["Close Combat II"] = SUPPORT_DISTANCE_TEXT["Close Combat I"]
 SUPPORT_DISTANCE_TEXT["Longshot II"] = SUPPORT_DISTANCE_TEXT["Longshot I"]
+
+
+BEST_AILMENT = re.compile(r"^Best \w+ DPS$")  # (PoB's Full DPS ailment rows: the best skill's Ignite / Poison / Bleed)
+
+
+def own_damage(entries: list[dict] | None) -> dict[str, float]:
+    """PoB's SkillDPS rows a skill deals itself (name -> DPS above 0): not the "Best Ignite / Poison / Bleed DPS" rows,
+    which take the best ailment of any Full DPS skill whatever that skill's own uses (SEARCH27)."""
+    return {e.get("name") or "": float(e.get("dps") or 0.0) for e in entries or []
+            if not BEST_AILMENT.match(e.get("name") or "") and float(e.get("dps") or 0.0) > 0}
+
+
+def rises(before: dict[str, float], after: dict[str, float]) -> bool:
+    """Whether some own-damage row is above its value before (a new row counts from 0)."""
+    return any(dps > before.get(name, 0.0) * (1 + 1e-9) + 1e-9 for name, dps in after.items())
 
 
 def support_distance_lines(groups: list[dict]) -> list[str]:

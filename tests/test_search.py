@@ -3761,3 +3761,19 @@ def test_the_flask_report_reads_each_flasks_own_text_for_its_recovery(monkeypatc
     g.full_pool_reason = lambda info, pool, raw, share: None
     rows = g.flask_report()
     assert rows and rows[0]["recovery"] == 1.0 and seen == [flask.raw]
+
+
+def test_a_granted_skill_joins_full_dps_only_for_damage_of_its_own_not_a_best_ailment_pick():
+    """SEARCH27 (POE2T4260): include_granted kept the Acrid Wand's Decompose in 2b75b's Full DPS for PoB's "Best Poison
+    DPS" (+2,144 of 26,653) while the corpse model counted it 0 uses a second on a lone boss: an OVERCOUNT. Now a granted
+    group stays only if a row of damage a skill deals itself rises."""
+    from builder.search.inner import own_damage, rises
+
+    before = own_damage([{"name": "Best Ignite DPS", "dps": 16266.3}, {"name": "Transmutation Explosion", "dps": 8242.4}])
+    decompose = own_damage([{"name": "Best Ignite DPS", "dps": 16266.3}, {"name": "Transmutation Explosion", "dps": 8242.4},
+                            {"name": "Best Poison DPS", "dps": 2143.8}])
+    assert before == decompose == {"Transmutation Explosion": 8242.4} and not rises(before, decompose)
+    bolt = own_damage([{"name": "Transmutation Explosion", "dps": 8000.0}, {"name": "Lightning Bolt", "dps": 900.0}])
+    assert rises(before, bolt)  # (a pressed skill's own hits: a new row, even with the main skill's share down)
+    assert rises(before, {"Transmutation Explosion": 9000.0})  # (a skill that raises the main skill's own damage)
+    assert not rises(before, {"Transmutation Explosion": 8000.0})
