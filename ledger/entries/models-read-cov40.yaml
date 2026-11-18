@@ -1,0 +1,60 @@
+# COV40 (COV-A), 17 Nov 2026: COV39's drafts for train 73's readers (MECH83 / MECH84, on main d4920ab8), each model's
+# code and live caller re-read by hand on the rebased tree: models.DJINN_COMMANDS 8332 / djinn_commands_available 8354
+# (assumptions.djinn_commands 920, called at 2299); conditions.CURSE_REFLECT 2498 / reflected_curse_mods 2502 and
+# CANNOT_STUN 2541 / cannot_stun_mods 2544 (called from assumptions.py 1806 / 1812). These entries only say a model reads
+# the line: an empty replace adds nothing to PoB. The models' own labels and confidence stay as their lanes wrote them.
+
+- id: model-read-djinn-command-grants
+  title: 'The Disciple of Varashta''s "Grants Skill: <Command>" notables (models.djinn_commands_model, MECH83 / MECH84)'
+  kind: pob_gap
+  model: djinn_commands
+  match: '^Grants Skill: (Kelari''s (Deception|Judgment)|Ruzhan''s (Trap|Reckoning|Fury)|Navira''s Fracturing)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    The manager's ruling (COV39 brief, 16 Nov ~00:30: "enter the djinn Command passive rows MECH83 / MECH84 now score ...
+    as model-read entries, once train 73 lands"). PoB parses these ascendancy lines as nothing (ModCache, {nil, nil}) and
+    scores only each djinn minion's first skill. models.DJINN_COMMANDS lists each of these six as granted=True, and
+    models.djinn_commands_available picks one up when the build holds its djinn and a "Grants Skill: <name>" line
+    (GRANTS_SKILL); assumptions.djinn_commands (called from the hand-skills block, "Djinn Commands") scores it with the
+    bridge's minionSkillHit at one use per cooldown under the button cap, less the Command's 0.4 s cast, and adds it to
+    the boss DPS. Per Command (the model's own labels): Deception blast + clone explosion x its sequence bonus (capped
+    x4); Judgment one full-channel shockwave (x4.75, its 2 s channel costs the main skill); Reckoning two hits; Fury two
+    embers a use (all 40 a row); Fracturing only at the share the boss stands on your Chilled Ground; Trap 0, labelled
+    LOW by MECH83 ("a moving boss would trigger them"), a modelled zero, not a dropped line. Not in this entry (left
+    open): "Grants Skill: Navira's Oasis" and "Navira's Well", which the model's Command list doesn't hold (checked:
+    models.DJINN_COMMANDS on d4920ab8; Navira's Oasis named "not counted" in the Overgrown note).
+  sources: [builder/search/models.py (DJINN_COMMANDS, djinn_commands_available, djinn_commands_model), builder/search/assumptions.py (djinn_commands)]
+  status: proposed
+
+- id: model-read-curses-reflected
+  title: '"Curses you inflict are reflected back to you" (conditions.reflected_curse_mods, MECH84)'
+  kind: pob_gap
+  model: reflected_curses
+  match: '^Curses you inflict are reflected back to you$'
+  replace: []
+  confidence: theory
+  notes: >-
+    conditions.CURSE_REFLECT / reflected_curse_mods (MECH84, train 73; COV38's downside sweep, an OVERCOUNT before: PoB
+    holds the line as leftover text only), called from assumptions.py (the reflecting block beside cannot_stun_mods): each
+    player curse PoB puts on the boss (bridge.cursesInflicted) goes on you through PoB's own "You are Cursed with" path
+    (ExtraCurse with applyToPlayer), with your curse-effect modifiers carried as CurseEffectOnSelf (MEDIUM; the lower row
+    without them, UNVERIFIED which). Shackles of the Wretched and the hand-wraps line. Atziri's Allure's reflection, which
+    the same model reads, is a support-gem stat (GEM's rows), not in this entry.
+  sources: [builder/search/conditions.py (CURSE_REFLECT, reflected_curse_mods), builder/search/assumptions.py (reflected / cursesInflicted)]
+  status: proposed
+
+- id: model-read-hits-cannot-stun
+  title: '"Your Hits cannot Stun enemies" (conditions.cannot_stun_mods, MECH84)'
+  kind: pob_gap
+  model: cannot_stun
+  match: '^Your Hits cannot Stun enemies$'
+  replace: []
+  confidence: theory
+  notes: >-
+    conditions.CANNOT_STUN / cannot_stun_mods (MECH84, train 73; an OVERCOUNT before: PoB holds the line as leftover text
+    only, so the build's Heavy and Light Stuns of the boss still counted), called from assumptions.py: PoB's
+    CannotHeavyStun flag (zeroes HeavyStunBuildupAvg, which models.heavy_stun_rate reads) and CannotStun, read through
+    the bridge's Flag:CannotStun by models.light_stun_rate. The hand-wraps line (HandWrapsUniqueCannotImmobilise1).
+  sources: [builder/search/conditions.py (CANNOT_STUN, cannot_stun_mods), builder/search/models.py (light_stun_rate, Flag:CannotStun)]
+  status: proposed

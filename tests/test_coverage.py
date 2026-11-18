@@ -613,12 +613,31 @@ def test_item_lines_a_model_reads_count_as_the_models():
         "100% increased Stun Threshold for each time you've been Stunned Recently": "model-read-stunned-recently-lines",
         "Gain Overencumbrance for 4 seconds when you Dodge Roll": "model-read-overencumbrance-on-dodge",
         "Damage over Time cannot bypass your Energy Shield": "model-read-dot-cannot-bypass-es",
+        # (COV40: COV39's drafts for MECH83 / MECH84's readers, train 73)
+        "Grants Skill: Kelari's Deception": "model-read-djinn-command-grants",
+        "Grants Skill: Kelari's Judgment": "model-read-djinn-command-grants",
+        "Grants Skill: Ruzhan's Trap": "model-read-djinn-command-grants",
+        "Grants Skill: Ruzhan's Reckoning": "model-read-djinn-command-grants",
+        "Grants Skill: Ruzhan's Fury": "model-read-djinn-command-grants",
+        "Grants Skill: Navira's Fracturing": "model-read-djinn-command-grants",
+        "Curses you inflict are reflected back to you": "model-read-curses-reflected",
+        "Your Hits cannot Stun enemies": "model-read-hits-cannot-stun",
     }
-    from builder.search import boss_hits, recovery
+    from builder.search import boss_hits, conditions, models, recovery
     for line in ("+25% chance to be Poisoned", "+20% chance to be Shocked"):
         assert boss_hits.SELF_AILMENT_CHANCE.match(line), line
     assert recovery.RAISED_BLOCK_TAKEN.match("You take 15% of damage from Blocked Hits with a raised Shield")
     assert recovery.OVERENCUMBRANCE.match("Gain Overencumbrance for 4 seconds when you Dodge Roll")
+    # (COV40) each Command the entry names is one the model lists as granted; Navira's Oasis / Well aren't (they stay open)
+    granted = {c.name for c in models.DJINN_COMMANDS if c.granted}
+    for name in ("Kelari's Deception", "Kelari's Judgment", "Ruzhan's Trap", "Ruzhan's Reckoning", "Ruzhan's Fury",
+                 "Navira's Fracturing"):
+        assert name in granted, name
+    for name in ("Navira's Oasis", "Navira's Well", "Queen's Procession"):
+        assert name not in granted
+        assert (found := model_entry(f"Grants Skill: {name}")) is None or found.id != "model-read-djinn-command-grants"
+    assert conditions.CURSE_REFLECT.match("Curses you inflict are reflected back to you")
+    assert conditions.CANNOT_STUN.match("Your Hits cannot Stun enemies")
     for line in ("20% increased Attack Damage if you have been Heavy Stunned Recently",
                  "40% faster start of Energy Shield Recharge if you've been Stunned Recently",
                  "100% increased Stun Threshold for each time you've been Stunned Recently"):
