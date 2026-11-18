@@ -1247,3 +1247,16 @@ def test_shattering_spite_explodes_with_bloodstone_lances():
     assert notes[0]["entry"] == "model-gem20-shattering-spite-lances"
     mods, notes = models.shattering_spite_model(spite, 0.5, 0.0, 30, 20, "none")
     assert mods[0]["value"] == pytest.approx(-99.0) and "no explosion" in notes[0]["basis"]
+
+
+def test_galvanic_field_orb_only_after_a_shock():
+    # (GEM20) the Orb attaches on your Shock, 6 s, one at a time; PoB scored it always there
+    assert models.galvanic_orb_uptime(0.65, 0.0) == 0.0
+    assert models.galvanic_orb_uptime(0.65, 1.0) == pytest.approx(6.0 / (0.65 + 1.0 + 6.0))
+    gf = Skill("Galvanic Field", 1, spell=True)
+    mods, notes = models.galvanic_field_model(gf, "Orb", 1.54, 0.0, "none")
+    assert mods[0]["value"] == pytest.approx(-99.0) and "no Shock" in notes[0]["basis"]
+    mods, notes = models.galvanic_field_model(gf, "Orb", 1.54, 1.0, "Spark 1 Shock/s")
+    assert mods[0]["value"] == pytest.approx(100 * (6.0 / (1 / 1.54 + 1.0 + 6.0) - 1), abs=0.01)
+    assert notes[0]["entry"] == "model-gem20-galvanic-field-orb"
+    assert models.galvanic_field_model(gf, "Buff", 1.54, 1.0, "") == ([], [])

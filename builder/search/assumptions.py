@@ -2510,6 +2510,11 @@ class Assumptions:
                 main, number(stats.get("Speed")), hits, cap, number(got.get(models.SPITE_STAT)) or 20.0, hits_how,
                 forbidden)
             hand_mods, hand_notes = hand_mods + sp_mods, hand_notes + sp_notes
+        if main is not None and group and main.name == models.GALVANIC_FIELD:  # (GEM20: its Orb after your Shock)
+            shocks, shocks_how = self.other_shocks(group["index"])
+            gf_mods, gf_notes = models.galvanic_field_model(main, main.stat_set, number(stats.get("Speed")), shocks,
+                                                            shocks_how, forbidden)
+            hand_mods, hand_notes = hand_mods + gf_mods, hand_notes + gf_notes
         if main is not None and group and main.name == models.HERALD_OF_BLOOD:  # (GEM20: an explosion only on a kill)
             from builder.search import bosses
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
@@ -5365,6 +5370,23 @@ class Assumptions:
         up, up_how = models.ailment_up_of(build)
         base = up.get("Shock", 0.0)
         hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
+        applied, others = self.other_shocks(main_index)
+        share, how = self._shocked_hits(base, up_how, hits, applied, others, consumes, stats)
+        if main_skill == "Siphoning Strike":  # (it reads Shock alone; the other two any Lightning Ailment)
+            return share, how
+        # (Electrocute is a Lightning Ailment too, KeywordPopups LightningAilment, and isn't consumed by them: the main
+        # skill's own Electrocute share joins as independent (Shockburst Rounds' is 0: its -100% Electrocute
+        # buildup); other skills' Electrocutes aren't published yet: not counted, an UNDERCOUNT, labelled)
+        electro, electro_how = models.immobilised_share(stats, "Electrocute")
+        if electro <= 0:
+            return share, how
+        return 1.0 - (1.0 - share) * (1.0 - electro), f"{how}; its own Electrocute {electro:.0%} ({electro_how})"
+
+    def other_shocks(self, main_index: int) -> tuple[float, str]:
+        """(the build's other groups' Shocks a second on the boss, how) (GEM19's shock_set_share loop; GEM20 shares it with
+        the Galvanic Field model): each group's uses a second (conditions.skill_use_rate with the search's press
+        choices; a triggered group at its own rate) x HitChance x its Shock chance per hit."""
+        build = self.build
         indices = [g["index"] for g in build.groups() if g.get("enabled", True) and g["index"] != main_index]
         choices = models.press_choices(build)
         applied, parts = 0.0, []
@@ -5382,17 +5404,7 @@ class Assumptions:
                 parts.append(f"{row.get('name')} {rate:.3g} Shocks/s ({chance:.3%} a hit)")
             else:
                 parts.append(f"{row.get('name')} not counted (no uses: no cooldown, duration or press chosen)")
-        others = "; ".join(parts) or "no other skill Shocks the boss (no Shock chance on the other groups' rows)"
-        share, how = self._shocked_hits(base, up_how, hits, applied, others, consumes, stats)
-        if main_skill == "Siphoning Strike":  # (it reads Shock alone; the other two any Lightning Ailment)
-            return share, how
-        # (Electrocute is a Lightning Ailment too, KeywordPopups LightningAilment, and isn't consumed by them: the main
-        # skill's own Electrocute share joins as independent (Shockburst Rounds' is 0: its -100% Electrocute
-        # buildup); other skills' Electrocutes aren't published yet: not counted, an UNDERCOUNT, labelled)
-        electro, electro_how = models.immobilised_share(stats, "Electrocute")
-        if electro <= 0:
-            return share, how
-        return 1.0 - (1.0 - share) * (1.0 - electro), f"{how}; its own Electrocute {electro:.0%} ({electro_how})"
+        return applied, ("; ".join(parts) or "no other skill Shocks the boss (no Shock chance on the other groups' rows)")
 
     @staticmethod
     def _shocked_hits(base: float, up_how: str, hits: float, applied: float, others: str, consumes: bool,

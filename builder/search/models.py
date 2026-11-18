@@ -7797,6 +7797,49 @@ def shattering_spite_model(main: Skill | None, uses: float, hits: float, cap: fl
                  f"Spite: {per_lance:g}% more per lance. With this build's hits: x{factor:.2f}; without other Spear hits: "
                  f"nothing; at {cap:g} lances: x{full:.1f}.")}]
 
+
+# Galvanic Field's Orb only while one is attached (GEM20; an OVERCOUNT: PoB scores the "Orb" set as an orb always
+# there, a bolt every 0.6 s (its statMap: base_galvanic_field_beam_delay_ms -> hitTimeOverride): 4.5 DPS at level 90 in
+# GEM18's table, Buff 0). The game (26650308): ActiveSkills galvanic_field "Gain a [Buff] that boosts your [Shock]
+# chance. [Shock|Shocking] an enemy consumes the [Buff] to attach an [Orb] of electricity to that enemy. The [Orb] fires
+# bolts of electricity at nearby enemies until it expires"; GalvanicFieldOrbPlayer base_skill_effect_duration 6000,
+# galvanic_field_maximum_number_of_spheres 1, never_shock (the bolts don't Shock: the Shock comes from the build's
+# other skills, its own Buff's 30% more Shock chance applied by PoB to them, an aura). A cycle: cast the Buff (PoB's
+# cast time), wait for the build's first Shock on the boss (applications random in time: 1 / rate), the Orb's 6 s (one
+# at a time; recast after it: MEDIUM); the Orb's uptime 6 / that, PoB's Orb DPS x it. No Shock in the build: no Orb,
+# held at 1%. The Shocks: the other groups' useRates ShockChancePerHit (MECH86) at their triggered rate or the search's
+# press choice x HitChance (Assumptions.other_shocks, shared with shock_set_share). MEDIUM.
+GALVANIC_FIELD = "Galvanic Field"
+GALVANIC_FIELD_ENTRY = "model-gem20-galvanic-field-orb"
+GALVANIC_ORB_SECONDS = 6.0
+
+
+def galvanic_orb_uptime(cast: float, shocks: float, seconds: float = GALVANIC_ORB_SECONDS) -> float:
+    """The share of the fight a Galvanic Field Orb is attached (see above)."""
+    if shocks <= 0:
+        return 0.0
+    return seconds / (max(cast, 0.0) + 1.0 / shocks + seconds)
+
+
+def galvanic_field_model(main: Skill | None, scored: str | None, speed: float, shocks: float, how: str,
+                         forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Galvanic Field's Orb at its uptime (see above): `speed` PoB's casts a second, `shocks` the build's Shocks a second
+    on the boss."""
+    if main is None or main.name != GALVANIC_FIELD or GALVANIC_FIELD_ENTRY in forbidden or scored != "Orb" or speed <= 0:
+        return [], []
+    up = galvanic_orb_uptime(1.0 / speed, shocks)
+    factor = max(up, AILMENT_FLOOR)
+    mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)]
+    return mods, [{
+        "label": f"{main.name}: its Orb only after your Shock attaches one*", "value": f"x{factor:.3f}",
+        "confidence": "MEDIUM", "entry": GALVANIC_FIELD_ENTRY,
+        "basis": (f"PoB scored the Orb as always attached (a bolt every 0.6 s). The game attaches one when the build "
+                  f"Shocks the boss with the Buff up, for 6 s, one at a time: {how}; a {1 / speed:.2f} s cast, then "
+                  + (f"{1 / shocks:.1f} s to the first Shock, then 6 s: the Orb up {up:.1%} of the fight"
+                     if shocks > 0 else "no Shock in the build: no Orb, held at 1%")),
+        "play": ("Cast Galvanic Field, then Shock the boss with another skill to attach its Orb (6 s); recast when it "
+                 f"expires. With this build's Shocks: the Orb up {up:.0%} of the fight; without a Shock: never.")}]
+
 # Herald of Blood's explosion only on a kill (GEM20; an OVERCOUNT: PoB scores the Explosion set at its 1 a second as a
 # main skill: GEM18's probe POE2T3411, Explosion 35.0 with the Buff 0). The game (26650308): ActiveSkills herald_of_blood
 # "While active, killing an enemy with [BloodLoss|Blood Loss] will cause a bloody explosion that deals [Physical]

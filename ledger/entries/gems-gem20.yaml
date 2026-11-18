@@ -197,3 +197,24 @@
             "vendor/PathOfBuilding-PoE2/src/Data/Uniques/spear.lua (Atziri's Contempt)", "scratch/gem20/probe_nova.json"]
   test_in_game: "Optional: Shattering Spite with 0 vs 10 lances on a dummy."
   status: proposed
+
+- id: model-gem20-galvanic-field-orb
+  title: "Galvanic Field: its Orb only after your Shock attaches one, 6 s at a time (PoB scored it always there)"
+  kind: model
+  model: galvanic_field
+  stats: []
+  skill: [Galvanic Field]
+  confidence: MEDIUM
+  notes: >-
+    models.galvanic_field_model + Assumptions.other_shocks (GEM20). Game (26650308): ActiveSkills galvanic_field
+    "Shocking an enemy consumes the Buff to attach an Orb of electricity to that enemy. The Orb fires bolts of
+    electricity at nearby enemies until it expires"; GalvanicFieldOrbPlayer 6 s, galvanic_field_maximum_number_of_spheres
+    1, never_shock. PoB scores the Orb set as always attached, a bolt every 0.6 s (4.5 DPS at level 90 in GEM18's table;
+    an OVERCOUNT). Uptime = 6 / (cast + 1 / the build's Shocks a second on the boss + 6), the Shocks from the other
+    groups' ShockChancePerHit (MECH86) at their triggered rate or press choice x HitChance; one Orb at a time, recast
+    after it (MEDIUM). No Shock: no Orb, held at 1%.
+  sources: ["builder/search/models.py (galvanic_field_model)", "builder/search/assumptions.py (other_shocks)",
+            "data/game-26650308/tables/ActiveSkills.json (galvanic_field)",
+            "data/game-26650308/tables/GrantedEffectStatSets.json (GalvanicFieldOrbPlayer)", "scratch/gem20/probe_galvanic.json"]
+  test_in_game: "Optional: Galvanic Field with and without a Shocking skill: when the Orb appears."
+  status: proposed
