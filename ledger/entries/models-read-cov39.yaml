@@ -1,0 +1,86 @@
+# COV39 (COV-A), 17 Nov 2026: passive and item lines a model already reads, so the audit counts them (each model's code
+# and its live caller checked by hand on the train that brought it). These entries only say a model reads the line: an
+# empty replace adds nothing to PoB. The model's own labels and confidence stay as its lane wrote them.
+
+- id: model-read-chance-to-be-ailed
+  title: '"+N% chance to be Poisoned / Ignited / Shocked" (boss_hits.self_ailments, MECHC35)'
+  kind: pob_gap
+  model: self_ailments
+  match: '^\+(\(\d+-\d+\)|\d+(?:\.\d+)?)% chance to be (Poisoned|Ignited|Shocked)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    boss_hits.SELF_AILMENT_CHANCE / self_ailments (MECHC35, train 72; COV38's downside sweep, OVERCOUNTS before: PoB
+    parses none of these), called from assumptions.py 1934: Poison as Life-only Chaos damage a second at the boss's landed
+    hits carrying Physical or Chaos (objective.self_bleed_taken), Ignite as the Ignited share with the line less the share
+    without it x 20% of the boss's Fire hit, Shock as the Shocked share x 20% x your effect of Shock on you as damage
+    taken. The model's own labels stand (MEDIUM-LOW: the chance read as flat; Poison stacking and every-hit Shock
+    UNVERIFIED with rows). Apep's Supremacy and the unique ring / Exclusive lines.
+  sources: [builder/search/boss_hits.py (SELF_AILMENT_CHANCE, self_ailment_chances, self_ailments), builder/search/assumptions.py 1934]
+  status: proposed
+
+- id: model-read-raised-shield-block-taken
+  title: '"You take N% of damage from Blocked Hits with a raised Shield" (recovery.raised_block_taken, MECHC35)'
+  kind: pob_gap
+  model: raised_block_taken
+  match: '^You take (\(\d+-\d+\)|\d+(?:\.\d+)?)% of damage from Blocked Hits with a raised Shield$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.RAISED_BLOCK_TAKEN / raised_block_taken (MECHC35, train 72; the Ulaman shield suffix, PoB parses it to
+    nothing), called from assumptions.py 2005-2011: PoB's BlockEffect BASE at the line x the share of your Blocks made
+    with the shield raised, t / (t + (1 - t) b) from the build's own raised time (a channelled shield skill, Raise Shield
+    taps) and Block chance; 0 with a note when the build never raises its shield.
+  sources: [builder/search/recovery.py (RAISED_BLOCK_TAKEN, raised_block_taken), builder/search/assumptions.py 2005]
+  status: proposed
+
+- id: model-read-stunned-recently-lines
+  title: '"... if you''ve been (Heavy) Stunned Recently" / "for each time you''ve been Stunned Recently" (recovery.stunned_recently_mods, MECHC35)'
+  kind: pob_gap
+  model: stunned_recently
+  match: '^(\(\d+-\d+\)|\d+(?:\.\d+)?)% .+? (if you(''ve| have) been (Heavy )?Stunned Recently|for each time you(''ve| have) been Stunned Recently)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.STUNNED_RECENTLY / stunned_recently_mods (MECHC35, train 72; PoB's StunnedRecently condition and multiplier
+    were never set, so these were never on), called from assumptions.py 1993-2000: each line goes on PoB as its own stat
+    with the condition stripped, at its time-average (x u, u = 1 - e^(-4 s x r) from the Light Stuns the boss's hits put
+    on you at the defence cadence plus the build's raised-shield Heavy Stuns; x u_heavy for the Heavy-only line; x the
+    expected count 4 s x r for "for each time"). Last Stand's Attack Damage, Shadow Dancing's faster start of Energy Shield
+    Recharge, Briny Carapace's per-Stun Stun Threshold, the Soul Core's Stun Threshold. Not matched here: the "if you
+    haven't been Stunned Recently" lines, which PoB applies itself (the model takes the stunned share back off them).
+  sources: [builder/search/recovery.py (STUNNED_RECENTLY, stunned_recently_lines, stunned_recently_mods), builder/search/assumptions.py 1993]
+  status: proposed
+
+- id: model-read-overencumbrance-on-dodge
+  title: '"Gain Overencumbrance for N seconds when you Dodge Roll" (recovery.overencumbrance_slow, MECHC35)'
+  kind: pob_gap
+  model: overencumbrance
+  match: '^Gain Overencumbrance for (\(\d+-\d+\)|\d+(?:\.\d+)?) seconds? when you Dodge Roll$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.OVERENCUMBRANCE / overencumbrance_slow (MECHC35, train 72; Ab Aeterno, PoB parses it to nothing: an
+    OVERCOUNT before), called from assumptions.py 1770-1773: 10% Slow a stack (KeywordPopups Overencumbered) at the
+    build's own roll pace (models.DODGE_EVERY for a build relying on rolling, else one per telegraphed boss hit), one stack
+    held at most (the wearer rolls at most every N s: the play strategy), x the build's Slowing Potency lines, cancelled by
+    "Your speed is unaffected by Slows", as ActionSpeed INC on PoB.
+  sources: [builder/search/recovery.py (OVERENCUMBRANCE, overencumbrance_slow), builder/search/assumptions.py 1770]
+  status: proposed
+
+- id: model-read-dot-cannot-bypass-es
+  title: '"Damage over Time cannot bypass your Energy Shield" (objective.own_loss / boss_hits es_dot, MECHC35)'
+  kind: pob_gap
+  model: dot_hits_es
+  match: '^Damage over Time cannot bypass your Energy Shield$'
+  replace: []
+  confidence: theory
+  notes: >-
+    assumptions.DOT_HITS_ES_LINE (MECHC35, train 72; Decree of Loyalty, PoB parses it to nothing: an UNDERCOUNT before)
+    sets Build.dot_hits_es (assumptions.py 1913), handed on as Build.added_stats' DotCannotBypassEnergyShield
+    (state.py 328): with Energy Shield, objective.own_loss puts your own Bleed / Poison and your own damage over time on
+    Energy Shield instead of Life (no bypass), boss_hits adds the boss's Bleeds as holding Energy Shield Recharge off,
+    and the Life refill (Assumptions.hit_rates) drops them. Test test_decree_of_loyalty_puts_your_own_bleed_and_poison_on_
+    energy_shield (MECHC35).
+  sources: [builder/search/assumptions.py (DOT_HITS_ES_LINE), builder/search/state.py (DotCannotBypassEnergyShield), builder/search/objective.py (DOT_HITS_ES, own_loss), builder/search/boss_hits.py]
+  status: proposed

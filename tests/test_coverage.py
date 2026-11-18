@@ -603,7 +603,29 @@ def test_item_lines_a_model_reads_count_as_the_models():
         # (COV38: MECHC34's bridge fix reads The Unleashed's ranged line, train 71)
         "(15-25)% of Damage taken from Hits bypasses Energy Shield if Energy Shield is below half": "model-read-es-bypass-below-half",
         "25% of Damage taken from Hits bypasses Energy Shield if Energy Shield is below half": "model-read-es-bypass-below-half",
+        # (COV39: MECHC35's downside readers, train 72)
+        "+25% chance to be Poisoned": "model-read-chance-to-be-ailed",
+        "+(20-30)% chance to be Ignited": "model-read-chance-to-be-ailed",
+        "+20% chance to be Shocked": "model-read-chance-to-be-ailed",
+        "You take (8-15)% of damage from Blocked Hits with a raised Shield": "model-read-raised-shield-block-taken",
+        "20% increased Attack Damage if you have been Heavy Stunned Recently": "model-read-stunned-recently-lines",
+        "40% faster start of Energy Shield Recharge if you've been Stunned Recently": "model-read-stunned-recently-lines",
+        "100% increased Stun Threshold for each time you've been Stunned Recently": "model-read-stunned-recently-lines",
+        "Gain Overencumbrance for 4 seconds when you Dodge Roll": "model-read-overencumbrance-on-dodge",
+        "Damage over Time cannot bypass your Energy Shield": "model-read-dot-cannot-bypass-es",
     }
+    from builder.search import boss_hits, recovery
+    for line in ("+25% chance to be Poisoned", "+20% chance to be Shocked"):
+        assert boss_hits.SELF_AILMENT_CHANCE.match(line), line
+    assert recovery.RAISED_BLOCK_TAKEN.match("You take 15% of damage from Blocked Hits with a raised Shield")
+    assert recovery.OVERENCUMBRANCE.match("Gain Overencumbrance for 4 seconds when you Dodge Roll")
+    for line in ("20% increased Attack Damage if you have been Heavy Stunned Recently",
+                 "40% faster start of Energy Shield Recharge if you've been Stunned Recently",
+                 "100% increased Stun Threshold for each time you've been Stunned Recently"):
+        assert recovery.STUNNED_RECENTLY.match(line), line
+    # (PoB applies the "haven't been Stunned Recently" lines itself; the model only takes the stunned share back off them)
+    found = model_entry("30% increased Stun Threshold if you haven't been Stunned Recently")
+    assert found is None or found.id != "model-read-stunned-recently-lines"
     from builder.search import boss_hits, conditions, models
     assert models.CW_SPELL_CRIT.match("Critical Hits with Spells apply 2 Stack of Critical Weakness")
     assert conditions.SELF_SHOCK_ON_MAX.match("Shocks you when you reach maximum Power Charges")
