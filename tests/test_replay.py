@@ -384,3 +384,58 @@ def test_a_reordered_unsupported_in_build_answer_is_the_same_answer():
     assert not same_answer("call:unsupportedInBuild", one, {"ok": {"lines": one["ok"]["lines"][:1]}})
     changed = {"ok": {"lines": [{"source": "item:Helmet", "text": "a"}, {"source": "node:5", "text": "c"}]}}
     assert not same_answer("call:unsupportedInBuild", one, changed)
+
+
+def test_a_real_pob_store_never_opens_its_recording_and_writes_only_a_whole_runs_answers(pob, monkeypatch):
+    """PERF25: a POE2_REAL_POB=1 run read the whole recording though it replays nothing (a 21 MB file held 0.99 GB
+    and peaked at 2.94 GB, and Lua ran out of memory in a 4 GB place: POE2T3697, POE2T4283); and it re-recorded
+    on top of the old answers. Now it opens nothing, and writes a fresh file of the calls it made."""
+    first, store = engine(pob)
+    first.call("loadXml", xml="<a/>")
+    first.call("stats", fields=["Life"])
+    store.save()
+    opened = []
+    real_open = open
+    monkeypatch.setattr("builtins.open", lambda path, *a, **k: (opened.append(str(path)), real_open(path, *a, **k))[1])
+    real = replay.Store("unit", pob, load=False)
+    assert real.entries == {} and not any(path.endswith(".answers.zst") for path in opened)
+    monkeypatch.setattr("builtins.open", real_open)
+    again = replay.ReplayEngine(real, boot=FakePob, live_only=True)
+    again.call("loadXml", xml="<b/>")
+    real.save()  # a part run: it read nothing to add to, so the file stays as it was
+    assert sorted(replay.Store("unit", pob).entries) == sorted(store.entries)
+    real.save(only_used=True)  # every test of the module ran: the file is this run's answers alone
+    assert list(replay.Store("unit", pob).entries.values()) == list(real.entries.values()) and len(real.entries) == 1
+    fresh = replay.Store("other", pob, load=False)  # no file yet: even a part run's answers are worth writing
+    replay.ReplayEngine(fresh, boot=FakePob, live_only=True).call("loadXml", xml="<a/>")
+    fresh.save()
+    assert len(replay.Store("other", pob).entries) == 1
+
+
+def test_each_distinct_answer_is_kept_and_written_once(pob):
+    """test_engine_models' recording: 476,282 histories, 10,029 distinct answers (963 MB of text, 51 MB distinct)."""
+    store = replay.Store("unit", pob)
+    for index in range(50):
+        store.put(f"chain{index}", json.dumps({"ok": {"results": [{"Life": index % 3}] * 200}}))
+    assert len({id(answer) for answer in store.entries.values()}) == 3
+    store.save()
+    with open(store.path, "rb") as raw:
+        import zstandard
+        lines = zstandard.ZstdDecompressor().stream_reader(raw).read().decode("ascii").split("\n")
+    assert lines[-1] == "" and len(lines) == 51 and sum(line.split("\t")[1].startswith('"') for line in lines[:-1]) == 3
+    loaded = replay.Store("unit", pob)
+    assert loaded.entries == store.entries and len({id(answer) for answer in loaded.entries.values()}) == 3
+    loaded.put("chain0", store.entries["chain1"])  # a changed answer is written as itself
+    loaded.save()
+    assert replay.Store("unit", pob).entries["chain0"] == store.entries["chain1"]
+
+
+def test_a_cut_off_recording_reads_as_none(pob):
+    store = replay.Store("unit", pob)
+    store.put("a", json.dumps({"ok": 1}))
+    store.save()
+    import zstandard
+    store.path.write_bytes(zstandard.ZstdCompressor().compress(b'a\t"{\\"ok\\": 1}"\nb\t'))
+    assert replay.Store("unit", pob).entries == {}
+    store.path.write_bytes(store.path.read_bytes()[:-3])
+    assert replay.Store("unit", pob).entries == {}

@@ -40,6 +40,7 @@ from builder.pob.engine import PobEngine, PobError, gc_pause
 from builder.pob.lua import LuaError
 
 RECORDINGS = ROOT / "data" / "pob-recordings"
+FORMAT = 2  # the recording files' layout (Store); part of the fingerprint
 TIMING_KEYS = frozenset({"seconds"})  # the bridge's own stopwatch readings: never equal twice, never a build's number
 
 
@@ -89,6 +90,9 @@ def fingerprint(pob_dir: Path = POB_DIR) -> str:
     # answers recorded under one collector pause are never replayed under another; the pause in force is part of the
     # fingerprint (unset = the default, so unset and POE2_LUA_GC_PAUSE=200 share their recordings)
     digest.update(b"GC_PAUSE=" + str(gc_pause()).encode() + b"\0")
+    # the recording file's own layout (PERF25: format 2, each answer once, read line by line): a file of another format
+    # sits under another fingerprint, so it is never read, and the first save deletes it
+    digest.update(b"FORMAT=" + str(FORMAT).encode() + b"\0")
     value = digest.hexdigest()[:20]
     if pob_dir == POB_DIR:
         _fingerprint = value
@@ -267,29 +271,58 @@ def _strip_timings(value: Any) -> Any:
 
 
 class Store:
-    """One file of recorded answers (chain hash -> answer), for one test module, under one fingerprint."""
+    """One file of recorded answers (chain hash -> answer), for one test module, under one fingerprint.
 
-    def __init__(self, name: str, folder: Path | None = None) -> None:
+    Each distinct answer is held and written once (PERF25, 18 Nov 2026). test_engine_models' recording held 476,282
+    histories but only 10,029 distinct answers: 963 MB of JSON text for 51 MB of answers (the 21.4 MB file in
+    C:/PROJECTS/PoE2 Builder's ad928e5e folder). Read as one JSON object it took 2.94 GB at its peak and kept 0.99 GB,
+    which left Lua too little in a 4 GB test place (MECHC38's POE2T3697 MemoryError, SEARCH28's POE2T4283 "not enough
+    memory"). The file (format 2, zstd) is one line per history, read in pieces, never whole:
+        <chain hash> TAB <the answer as a JSON string>   an answer not seen before in the file (it gets the next number)
+        <chain hash> TAB <number>                        the same answer as that numbered line
+    `load=False` (a real-PoB run, POE2_REAL_POB=1): no stored answer is read, so the file isn't opened; such a run
+    writes a fresh file of exactly the answers it got, and only when every test of the module ran (save(only_used)):
+    a part run can't add to a file it never read, so it leaves the file as it was."""
+
+    def __init__(self, name: str, folder: Path | None = None, load: bool = True) -> None:
         self.root = folder or RECORDINGS
         self.folder = self.root / fingerprint()
-        self.path = self.folder / f"{name}.json.zst"
+        self.path = self.folder / f"{name}.answers.zst"
         self.entries: dict[str, str] = {}
+        self._shared: dict[str, str] = {}  # answer text -> the one copy every history with that answer points to
         self.used: set[str] = set()
         self.dirty = False
+        self.loaded = load
         self.hits = self.recorded = self.boots = 0
-        if self.path.exists():
+        if load and self.path.exists():
             try:
-                # (a stream: save() writes one, whose frame carries no size for decompress() to go by. Read in pieces
-                # (PERF9): decompressobj().decompress() of the whole file took 108 s for test_engine_models' 6.6 MB
-                # -> 284 MB of answers, in real runs and replayed ones alike (POE2T2656's profile); in pieces, 0.2 s)
-                pieces = []
-                with open(self.path, "rb") as raw, zstandard.ZstdDecompressor().stream_reader(raw) as reader:
-                    while piece := reader.read(1 << 24):
-                        pieces.append(piece)
-                self.entries = json.loads(b"".join(pieces))
-                del pieces
-            except (OSError, ValueError, zstandard.ZstdError):
-                self.entries = {}  # unreadable: as good as absent, the real PoB answers and it's written again
+                self._read()
+            except (OSError, ValueError, IndexError, UnicodeDecodeError, zstandard.ZstdError):
+                self.entries, self._shared = {}, {}  # unreadable: as good as absent, the real PoB answers and it's written again
+
+    def _read(self) -> None:
+        answers: list[str] = []
+        rest = b""
+        with open(self.path, "rb") as raw, zstandard.ZstdDecompressor().stream_reader(raw) as reader:
+            while True:
+                piece = reader.read(1 << 22)
+                lines = (rest + piece).split(b"\n")
+                rest = lines.pop()
+                for line in lines:
+                    chain, tab, value = line.decode("ascii").partition("\t")
+                    if not tab:
+                        raise ValueError(f"{self.path}: a line without a tab")
+                    if value.startswith('"'):
+                        answer = json.loads(value)
+                        answer = self._shared.setdefault(answer, answer)
+                        answers.append(answer)
+                    else:
+                        answer = answers[int(value)]
+                    self.entries[chain] = answer
+                if not piece:
+                    break
+        if rest:
+            raise ValueError(f"{self.path}: cut off in a line")
 
     def get(self, chain: str) -> str | None:
         answer = self.entries.get(chain)
@@ -300,12 +333,19 @@ class Store:
     def put(self, chain: str, answer: str) -> None:
         self.used.add(chain)
         if self.entries.get(chain) != answer:
-            self.entries[chain] = answer
+            self.entries[chain] = self._shared.setdefault(answer, answer)
             self.dirty = True
+
+    def drop(self) -> None:
+        """Let every answer go (the module is over); a later engine under the same name reads the file again."""
+        self.entries, self._shared, self.used = {}, {}, set()
 
     def save(self, only_used: bool = False) -> None:
         """Write the file if anything changed. only_used (every test of the module ran): drop answers no call asked
-        for, so histories that can't recur (a timed search's) don't pile up."""
+        for, so histories that can't recur (a timed search's) don't pile up. A store that never read its file
+        (load=False) writes only a whole run's answers, or a file where there was none."""
+        if not self.loaded and not only_used and self.path.exists():
+            return
         if only_used and len(self.used) != len(self.entries):
             self.entries = {chain: answer for chain, answer in self.entries.items() if chain in self.used}
             self.dirty = True
@@ -314,21 +354,24 @@ class Store:
         self.folder.mkdir(parents=True, exist_ok=True)
         for other in self.root.iterdir():
             if other.is_dir() and other != self.folder:  # another fingerprint's answers: stale for good
-                for file in other.glob("*.json.zst*"):
+                for file in other.glob("*.zst*"):
                     file.unlink(missing_ok=True)
                 try:
                     other.rmdir()
                 except OSError:
                     pass
         temporary = self.path.with_suffix(f".zst.{os.getpid()}.tmp")
-        # Written answer by answer (PERF6): one json.dumps of everything held a second and third copy of a module's
-        # answers in memory while it was compressed (test_engine_items: +450 MB at its end, POE2T2615). Same JSON.
+        # Written line by line (PERF6: one json.dumps of everything held more copies of the answers while compressing)
+        number: dict[str, int] = {}
         with open(temporary, "wb") as raw, zstandard.ZstdCompressor(level=6).stream_writer(raw) as out:
-            separator = b"{"
             for chain, answer in self.entries.items():
-                out.write(separator + json.dumps(chain).encode("ascii") + b": " + json.dumps(answer).encode("utf-8"))
-                separator = b", "
-            out.write(b"}" if self.entries else b"{}")
+                seen = number.get(answer)
+                if seen is None:
+                    number[answer] = len(number)
+                    value = json.dumps(answer)  # ASCII, its newlines escaped: one line
+                else:
+                    value = str(seen)
+                out.write(chain.encode("ascii") + b"\t" + value.encode("ascii") + b"\n")
         os.replace(temporary, self.path)
         self.dirty = False
 

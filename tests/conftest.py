@@ -55,7 +55,8 @@ def _engine(*args, **kwargs):
         item = _current["item"]
         name = item.path.stem if item is not None else "outside-tests"
         if name not in _stores:
-            _stores[name] = replay.Store(name)
+            # a real-PoB run reads no stored answer, so it doesn't open the recording (PERF25: a big one ran Lua out of memory)
+            _stores[name] = replay.Store(name, load=not replay.real_pob())
         # an own_pob_engine test's own engine is the real PoB from the start (its calls can't replay; PERF8)
         own = _current["forked"] is not None and not _fixtures_in_setup
         made = replay.ReplayEngine(_stores[name], boot=_boot, live_only=replay.real_pob() or own)
@@ -198,7 +199,7 @@ def _save(session, name: str) -> None:
     # answers, ~300 MB of text in all, stayed in the pytest process to the end of a whole-suite run). A later
     # engine under the same name reads the file again.
     if not any(shared._store is store for shared in _shared_engines):
-        store.entries, store.used = {}, set()
+        store.drop()
         _finished.append(_stores.pop(name))
 
 
