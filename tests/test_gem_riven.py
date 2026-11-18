@@ -36,3 +36,22 @@ def test_riven_uptime_is_at_most_the_whole_fight():
     full, _ = models.riven_armour_model(10_000, 1.0, skill("Crossbow Shot", True), STATS, 1.0)
     over, _ = models.riven_armour_model(10_000, 3.0, skill("Crossbow Shot", True), STATS, 1.0)
     assert over == full == pytest.approx(500 * 1.8)
+
+
+def test_main_time_share_takes_the_press_scale_and_the_busy_share():
+    """GEM22: objective.dps adds the added sources whole, so a source tied to the main skill's hits (Riven Armour,
+    Broken Stance, Gas Arrow's cloud) follows the main skill's share of the fight: press scale x (1 - busy)."""
+    from types import SimpleNamespace
+
+    from builder.search.assumptions import main_time_share
+    from builder.search.objective import Objective
+
+    objective = SimpleNamespace(press_scales={"Rapid Shot": 0.8, "Other": 0.1}, press_busy=0.25, glory_busy=0.0)
+    objective.busy = lambda: Objective.busy(objective)
+    build = SimpleNamespace(objective=objective)
+    main = SimpleNamespace(name="Rapid Shot")
+    assert abs(main_time_share(build, main) - 0.8 * 0.75) < 1e-9
+    assert abs(main_time_share(build, SimpleNamespace(name="Spark")) - 0.75) < 1e-9
+    assert abs(main_time_share(build, None) - 0.75) < 1e-9
+    objective.press_busy = 0.0
+    assert main_time_share(build, SimpleNamespace(name="Spark")) == 1.0

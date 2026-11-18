@@ -54,6 +54,12 @@ def test_elemental_discharge_adds_damage_only_with_the_support_and_an_ailment_on
     print("PROBE", dps, notes)
     assert dps > 0 and notes[0]["label"] == "Elemental Discharge*" and "on Spark" in notes[0]["basis"]
     assert "Shock 50%" in notes[0]["basis"]
+    # (GEM22: the main skill's time the search's presses take, objective.busy(), takes Spark's hits with it)
+    build.objective.press_busy = 0.5
+    try:
+        assert 0 < elemental_discharge(build, None)[0] < dps
+    finally:
+        build.objective.press_busy = 0.0
     # (the Consumed boxes are only ticked for the call: PoB's own Full DPS still has no discharge in it)
     config = build.call("getConfig")["input"]
     assert not any(config.get(box) for box, _ in models.DISCHARGE_BOXES.values())
@@ -80,3 +86,9 @@ def test_broken_stance_adds_damage_only_with_vaulting_impact_and_a_dazed_boss(en
     print("PROBE", dps, notes)
     assert dps > 0 and notes[0]["confidence"] == "LOW" and "Dazed 40% of the fight" in notes[0]["basis"]
     assert "next 10 hits" in notes[0]["basis"]  # (its hit limit read from the gem: 10 at quality 0)
+    # (GEM22: the main skill's hits at its share of the fight, assumptions.main_time_share)
+    build.objective.press_busy = 0.5
+    try:
+        assert 0 < broken_stance(build, skill)[0] < dps
+    finally:
+        build.objective.press_busy = 0.0

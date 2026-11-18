@@ -1251,6 +1251,11 @@ def riven_armour(build: Build, main: models.Skill | None) -> tuple[float, list[d
         phys_taken, taken_how = after / before, f"the boss takes x{after / before:.2f} of the main skill's Physical hit"
     else:
         phys_taken, taken_how = 1.0, "the main skill has no Physical hit to read the boss's mitigation from: x1.00 (labelled)"
+    # (GEM22: its hits at the main skill's share of the fight, main_time_share: objective.dps adds this source whole)
+    share = main_time_share(build, main)
+    if share < 1.0:
+        main_stats = {**main_stats, "Speed": models.number(main_stats.get("Speed")) * share}
+        taken_how += f"; the main skill's hits at its {share:.0%} share of the fight (presses take the rest)"
     return models.riven_armour_model(hvr_hit, riven_up, main, main_stats, phys_taken,
                                      how="; ".join(part for part in (how, taken_how) if part))
 
@@ -1262,7 +1267,24 @@ def _skill_hits(build: Build, group: dict, position: int, press: dict) -> tuple[
     thorns' side skills: Full DPS counts it at PoB's own rate then)."""
     row = next(iter(build.call("useRates", indices=[group["index"]], actives=[position])["rates"]), None) or {}
     chance = min(models.number(row.get("HitChance", 100) or 100), 100.0) / 100
-    return models.number(row.get("speed")) * chance * models.number(press.get(row.get("name"), 1.0)), row
+    # (GEM22: the main group's skill also loses the time objective.busy() takes, as objective.dps scores it)
+    busy = build.objective.busy() if group["index"] == build.call("groups")["mainSocketGroup"] else 0.0
+    return models.number(row.get("speed")) * chance * models.number(press.get(row.get("name"), 1.0)) * (1.0 - busy), row
+
+
+def main_time_share(build: Build, main: models.Skill | None) -> float:
+    """The main skill's share of the fight as objective.dps scores it (GEM22): its press-model scale (objective.
+    press_scales: the time the pressed side skills leave it in Full DPS) x (1 - objective.busy()) (the search's chosen
+    presses outside Full DPS, Glory presses). objective.dps adds the added sources whole (added_dps), so a source tied
+    to the main skill's own hits or uses (Riven Armour on its hits, Broken Stance's magnitude on its hits, Gas Arrow's
+    cloud) scales by this; one PoB reads off the main skill's Speed doesn't see either cut."""
+    objective = build.objective
+    press = getattr(objective, "press_scales", None) or {}
+    own = 1.0
+    if main is not None:
+        own = next((models.number(v) for k, v in press.items() if k == main.name or str(k).startswith(f"{main.name} ")
+                    or str(k).startswith(f"{main.name}:")), 1.0)
+    return max(0.0, min(1.0, own * (1.0 - objective.busy())))
 
 
 def elemental_discharge(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
@@ -1329,7 +1351,7 @@ def broken_stance(build: Build, main: models.Skill | None) -> tuple[float, list[
     else:
         phys_taken, taken = 1.0, "the main skill has no Physical hit to read the boss's mitigation from: x1.00 (labelled)"
     hits = (models.number(main_stats.get("Speed")) * min(models.number(main_stats.get("HitChance", 100) or 100), 100) / 100
-            * models.number(press.get(main.name, 1.0) if main is not None else 1.0))
+            * main_time_share(build, main))  # (GEM22: its press scale x the time objective.busy() takes)
     # (its hit limit at the gem's level and quality: GrantedEffectQualityStats gives +1 hit per 10% quality)
     raw_skills = build.call("activeSkills", levelStats=[models.STANCE_SKILL])["skills"]
     limit = max((models.number((s.get("levelStats") or {}).get("broken_stance_hit_limit")) for s in raw_skills
@@ -2527,10 +2549,7 @@ class Assumptions:
             gas, gas_how, gas_poisons = self.gas_arrow_share(group["index"], main.stat_set)
             # (GEM21) the cloud's Poison is an added source, which objective.dps adds whole: scale it by Gas Arrow's own
             # share of the fight (its press-model scale in Full DPS and the time other presses take, objective.busy)
-            press = getattr(build.objective, "press_scales", None) or {}
-            own = next((number(v) for k, v in press.items() if k == main.name or str(k).startswith(f"{main.name} ")
-                        or str(k).startswith(f"{main.name}:")), 1.0)
-            time_share = max(0.0, min(1.0, own * (1.0 - build.objective.busy())))
+            time_share = main_time_share(build, main)
             gas_mods, gas_notes = models.gas_arrow_model(main, main.stat_set, sets, gas, gas_how, forbidden, gas_poisons,
                                                          time_share)
             hand_mods, hand_notes = hand_mods + gas_mods, hand_notes + gas_notes
