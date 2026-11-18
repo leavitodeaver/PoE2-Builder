@@ -992,3 +992,36 @@ def test_loreweave_jewel_socket_limits_are_handled_by_the_search():
     raw = "Loreweave\nOrnate Ringmail\n{variant:3}You can only Socket 1 Ruby Jewel in this item\nVariant: Ruby"
     assert "Socket" not in loreweave.plain(raw)
     assert jewels.Jewels.slot(26725) == "Jewel 26725"
+
+
+def test_passive_lines_handled_elsewhere_are_no_effect():
+    """COV43: Runic Meridians' socket list (PoB builds the five rune slots from the first line's flag) and Smith's
+    Masterwork's "Can only use a Normal Body Armour" (the search's SLOT_RESTRICTIONS) are no-effect entries; the
+    restriction's own text is kept for the search (a passive translation adds lines, it never removes the original)."""
+    from builder.ledger import translate
+    from builder.search import gear
+
+    for line in ("additional Rune-only sockets:", "1 Helmet socket", "2 Body Armour sockets", "1 Gloves socket",
+                 "1 Boots socket"):
+        found = translate(line)
+        assert found is not None and found[0].id == "no-effect-runic-meridians-socket-list" and found[1] == [], line
+    assert translate("Can tattoo Runes onto your body, gaining") is None  # (PoB's own flag line)
+    found = translate("Can only use a Normal Body Armour")
+    assert found is not None and found[0].id == "no-effect-smiths-masterwork-normal-body-armour" and found[1] == []
+    assert gear.SLOT_RESTRICTIONS["Can only use a Normal Body Armour"] == ("Body Armour", "normal")
+
+
+def test_way_of_the_stonefist_lines_are_the_transforms_own():
+    """COV43: Way of the Stonefist's three lines are no-effect: the search's glove transform (stonefist.py) does them, and
+    Fists of Stone has no attribute requirement (so "Ignore Attribute Requirements to equip Gloves" holds)."""
+    from builder.ledger import translate
+    from builder.search import stonefist
+
+    for line in ("Gloves you equip have their Base Type transformed to Fists of Stone while equipped, and",
+                 "their Explicit Modifiers are transformed into more powerful related Modifiers",
+                 "Ignore Attribute Requirements to equip Gloves"):
+        found = translate(line)
+        assert found is not None and found[0].id == "no-effect-way-of-the-stonefist-lines" and found[1] == [], line
+    assert stonefist.NOTABLE == "Way of the Stonefist" and stonefist.BASE == "Fists of Stone"
+    found = translate("+5 to any Attribute")  # (the attribute node's placeholder: the bridge picks the attribute)
+    assert found is not None and found[0].id == "no-effect-any-attribute-placeholder" and found[1] == []

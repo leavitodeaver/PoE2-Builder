@@ -174,3 +174,64 @@
     (assumptions.spent_rates, spent_income; MECHC13).
   sources: ["builder/search/recovery.py (OFFERING_LIFE, GLORY_SPENT, spent_income)", "builder/search/assumptions.py (spent_rates)"]
   status: proposed
+
+# Lines another part of the code already handles (no number to move here).
+- id: no-effect-runic-meridians-socket-list
+  title: 'Runic Meridians'' socket list after "Can tattoo Runes onto your body, gaining": PoB''s five character rune slots'
+  kind: pob_gap
+  match: '^(additional Rune-only sockets:|\d+ Helmet sockets?|\d+ Body Armour sockets?|\d+ Gloves sockets?|\d+ Boots sockets?)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    The node's text is one sentence over several lines ("Can tattoo Runes onto your body, gaining additional Rune-only
+    sockets: 1 Helmet socket, 2 Body Armour sockets, 1 Gloves socket, 1 Boots socket"). PoB parses the first line to
+    its SocketRunesOnCharacter flag (ModParser 6353) and builds the five slots the rest lists itself (ItemsTab
+    runeSlots: Helmet Rune #1, Body Armour Rune #1 / #2, Gloves Rune #1, Boots Rune #1; tests/test_engine_items.py's
+    Runic Meridians test asserts exactly these five). The search fills them (bridge characterRunes /
+    characterRuneDeltas / setCharacterRune, SEARCH22), and they count as socketed Runes (COV43, ca4d9cad). The rest of
+    the sentence adds nothing.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (6353)", "vendor/PathOfBuilding-PoE2/src/Modules/CalcSetup.lua (1195-1207)", "engine/bridge.lua (characterRunes)"]
+  status: proposed
+
+- id: no-effect-smiths-masterwork-normal-body-armour
+  title: 'Smith''s Masterwork, "Can only use a Normal Body Armour": enforced by the search'
+  kind: pob_gap
+  match: '^Can only use a Normal Body Armour$'
+  replace: []
+  confidence: theory
+  notes: >-
+    PoB ignores the line, but the search enforces it: builder/search/gear.py SLOT_RESTRICTIONS ("Body Armour",
+    "normal"), matched on every allocated passive's and equipped item's line (COVB3), and tree.py scores the notable with
+    its slot made legal. So no build the search returns wears a magic, rare or unique Body Armour with it.
+  sources: ["builder/search/gear.py (SLOT_RESTRICTIONS)", "builder/search/tree.py (slot restrictions)"]
+  status: proposed
+
+- id: no-effect-way-of-the-stonefist-lines
+  title: 'Way of the Stonefist''s three lines: the glove transform the search applies (COV34)'
+  kind: pob_gap
+  match: '^(Gloves you equip have their Base Type transformed to Fists of Stone while equipped, and|their Explicit Modifiers are transformed into more powerful related Modifiers|Ignore Attribute Requirements to equip Gloves)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    PoB ignores all three, but the search does what they say. With the notable allocated, Build.call's hook
+    (builder/search/state.py, COV34) hands PoB the equipped gloves as Fists of Stone with each explicit mod turned into
+    its HandWraps twin (builder/search/stonefist.py; uniques from poe2db's transformed texts). Fists of Stone has no
+    attribute requirement (PoB Data/Bases/gloves.lua 2039: req = { }), so the transformed gloves ask none, which is
+    what "Ignore Attribute Requirements to equip Gloves" does. (The bought item stays the plain one; its own
+    requirements aren't read while the notable is held.)
+  sources: ["builder/search/stonefist.py", "builder/search/state.py (call: the Stonefist hook)", "vendor/PathOfBuilding-PoE2/src/Data/Bases/gloves.lua (2039)"]
+  status: proposed
+
+- id: no-effect-any-attribute-placeholder
+  title: 'Attribute nodes'' "+N to any Attribute": the placeholder PoB replaces with the chosen attribute'
+  kind: pob_gap
+  match: '^\+\d+ to any Attribute$'
+  replace: []
+  confidence: theory
+  notes: >-
+    An attribute node's text before a choice. PoB replaces an allocated attribute node with the chosen option's node
+    (PassiveTree.lua 592-595 node.options, PassiveSpec ReplaceNode), and the bridge makes that choice on every
+    allocation and what-if (engine/bridge.lua attributeNode, 489-517: Strength / Dexterity / Intelligence, or Traveller's
+    Wisdom's options). So the "+5 to Strength" (or the other choice) is what PoB counts, and the placeholder adds nothing.
+  sources: ["engine/bridge.lua (attributeNode)", "vendor/PathOfBuilding-PoE2/src/Classes/PassiveTree.lua (592-595)"]
+  status: proposed
