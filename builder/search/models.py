@@ -7674,6 +7674,115 @@ def shield_wall_model(main: Skill | None, scored: str | None, sets: list[dict], 
                  f"{rate * per * blast:,.0f}; with the boss's hits landing on it too: {row_dps:,.0f}; one a cast: "
                  f"{dps[scored]:,.0f}.")}]
 
+
+# Enervating Nova's damage by distance (GEM20; an open gem-stat row: PoB never reads new_shock_nova_distance_based_damage_
+# +%_final, so it scores the ring at x1 wherever the boss stands). The game (26650308): ActiveSkills enervating_nova
+# "Enemies close to you take no damage while enemies at the edge of the ring take significantly more damage";
+# EnervatingNovaPlayer active_skill_base_area_of_effect_radius 26 (2.6 m, the ring's outer edge),
+# active_skill_base_secondary_area_of_effect_radius 10 (1.0 m: taken as the no-damage centre, UNVERIFIED),
+# new_shock_nova_distance_based_damage_+%_final 100, its text (specific_skill_stat_descriptions/enervating_nova.csd)
+# "Deals more damage to enemies based on distance from you, up to {0}% to enemies on the far edge of the ring". The
+# shape between the centre and the edge isn't in the files: taken as linear from 0 at the inner radius to the full more
+# at the outer (UNVERIFIED, MEDIUM-LOW); a boss inside the inner radius takes none (the description). The boss's
+# distance: the player keeps the boss at the far edge (a play strategy: the skill is built for it, CLAUDE.md's rule that
+# a player who takes a mechanic plays to feed it); the row: the distance the build is configured at (PoB's
+# enemyDistance: the search's chosen one, else conditions.natural_distance, 5 m for a spell, which lies outside this
+# ring: the distance model doesn't know a nova's reach, named for its owner). The radii from PoB's AreaOfEffectRadius /
+# ...Secondary (the build's area modifiers in).
+ENERVATING_NOVA = "Enervating Nova"
+ENERVATING_NOVA_ENTRY = "model-gem20-enervating-nova-distance"
+ENERVATING_NOVA_STAT = "new_shock_nova_distance_based_damage_+%_final"
+
+
+def nova_distance_more(metres: float, inner: float, outer: float, more: float) -> float:
+    """Enervating Nova's damage multiplier for a boss `metres` away (see above): 0 inside `inner`, then linear to
+    1 + more / 100 at `outer` (and beyond it, where its body still meets the ring)."""
+    if metres < inner:
+        return 0.0
+    if outer <= inner:
+        return 1.0 + more / 100.0
+    return 1.0 + more / 100.0 * min(1.0, (metres - inner) / (outer - inner))
+
+
+def enervating_nova_model(main: Skill | None, inner: float, outer: float, more: float, configured: float | None,
+                          forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Enervating Nova with the boss at its ring's far edge (see above): `inner` / `outer` the ring's radii in metres,
+    `more` the stat's %, `configured` the build's configured boss distance in metres (the row; None: not set)."""
+    if main is None or main.name != ENERVATING_NOVA or ENERVATING_NOVA_ENTRY in forbidden or outer <= 0 or more <= 0:
+        return [], []
+    factor = nova_distance_more(outer, inner, outer, more)
+    mods = [raw_mod("Damage", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9 else []
+    if configured is None:
+        row_text = "the build's configured distance not set"
+    elif configured - 0.0 > outer:
+        row_text = (f"at the build's configured {configured:g} m the boss is outside the ring (the distance model's "
+                    "default for a spell; the nova's reach isn't in it: named for its owner)")
+    else:
+        row_text = f"at the build's configured {configured:g} m: x{nova_distance_more(configured, inner, outer, more):.2f}"
+    return mods, [{
+        "label": f"{main.name}: more damage by the boss's distance, none up close*", "value": f"x{factor:.2f}",
+        "confidence": "MEDIUM-LOW", "entry": ENERVATING_NOVA_ENTRY,
+        "basis": (f"PoB never reads '{more:g}% more damage to enemies on the far edge of the ring'. The ring runs from "
+                  f"{inner:.1f} m (no damage inside, the description; the secondary radius taken as that edge, "
+                  f"UNVERIFIED) to {outer:.1f} m; linear between (UNVERIFIED). The boss kept at the far edge (a play "
+                  f"strategy): x{factor:.2f} (a Damage line: its Electrocute buildup follows the hit); {row_text}"),
+        "play": (f"Cast Enervating Nova with the boss at the far edge of its {outer:.1f} m ring: x{factor:.2f} there, "
+                 f"less closer in, nothing inside {inner:.1f} m.")}]
+
+
+# Shattering Spite's explosions need Bloodstone Lances and grow with them (GEM20; open gem-stat rows: PoB never reads
+# damage_per_bloodstone_lance_+%_final, nor any lance count, so it scores an explosion a use at x1). The game
+# (26650308): ActiveSkills shattering_spite "Stamp your spear, destroying all Bloodstone Lances on each enemy in your
+# [Presence] to cause a damaging explosion around that enemy ... more damage ... when reaching higher thresholds of
+# Bloodstone Lances removed"; ShatteringSpitePlayer cannot_inflict_bloodstone_lance, damage_per_bloodstone_lance_+%_final
+# 20 ("Explosions deal {0}% more Damage per Bloodstone Lance", specific_skill_stat_descriptions/shattering_spite.csd).
+# The lances come from Atziri's Contempt, the unique spear that grants the skill: "Spear Skills inflict a Bloodstone
+# Lance on Hit, up to a maximum of 30 on each target" (checked: every stat id holding "bloodstone" in the stat sets,
+# Mods and passives: UniqueSpearsInflictBloodstoneLanceOnHit1 is the only carrier; inflict_bloodstone_lance_on_hit is in
+# no table; PoB's Uniques/spear.lua and ModCache the same; patch notes: only 0.5.0's Spite ailment / leech change). No
+# duration stat for a lance (UNVERIFIED: taken to stay until shattered). So with Spite as the main skill the lances a
+# use = min(30, the build's other Spear-skill hits a second / Spite's uses a second), each group's uses at its
+# triggered rate or the search's press choice (Assumptions._side_rows) x HitChance, one lance a hit (a use's extra
+# projectiles / strikes not read: an UNDERCOUNT there); DPS x (1 + 20% x lances); no lances: no explosion (the
+# description: lances on each enemy), held at 1%. Its area / leech thresholds aren't damage on a lone boss. MEDIUM-LOW.
+SHATTERING_SPITE = "Shattering Spite"
+SHATTERING_SPITE_ENTRY = "model-gem20-shattering-spite-lances"
+SPITE_STAT = "damage_per_bloodstone_lance_+%_final"
+SPITE_LANCE_LINE = re.compile(r"^Spear Skills inflict a Bloodstone Lance on Hit, up to a maximum of (\d+) on each target$",
+                              re.I)
+SPITE_LANCE_TYPE = "Spear"  # (PoB's SkillType.Spear: the "Spear Skills" the line names)
+
+
+def spite_lances(hits: float, uses: float, cap: float) -> float:
+    """Bloodstone Lances a Shattering Spite use shatters (see above)."""
+    if uses <= 0 or hits <= 0:
+        return 0.0
+    return min(cap, hits / uses)
+
+
+def shattering_spite_model(main: Skill | None, uses: float, hits: float, cap: float, per_lance: float, how: str,
+                           forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Shattering Spite at the lances the build's Spear skills leave (see above): `hits` their hits a second, `cap` the
+    line's maximum (0: no lance line), `per_lance` the stat's %."""
+    if main is None or main.name != SHATTERING_SPITE or SHATTERING_SPITE_ENTRY in forbidden or uses <= 0:
+        return [], []
+    lances = spite_lances(hits, uses, cap)
+    factor = max((1.0 + per_lance / 100.0 * lances) if lances > 0 else 0.0, AILMENT_FLOOR)
+    mods = [raw_mod("Damage", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9 else []
+    full = 1.0 + per_lance / 100.0 * cap if cap > 0 else 0.0
+    return mods, [{
+        "label": f"{main.name}: explodes only with Bloodstone Lances, {per_lance:g}% more each*", "value": f"x{factor:.2f}",
+        "confidence": "MEDIUM-LOW", "entry": SHATTERING_SPITE_ENTRY,
+        "basis": (f"PoB scores an explosion a use at x1 and never reads '{per_lance:g}% more Damage per Bloodstone Lance'. "
+                  f"The lances come from the build's other Spear skills' hits (Atziri's Contempt's line, at most "
+                  f"{cap:g} a target): {how}; {lances:.1f} lances a use at {uses:.2f} uses a second: x{factor:.2f}"
+                  + (" (no lances: no explosion, held at 1%)" if lances <= 0 else "")
+                  + (f"; at the cap of {cap:g}: x{full:.1f}" if cap > 0 else "; no lance line in the build")
+                  + ". A lance's lifetime taken as until shattered (UNVERIFIED); one lance a hit"),
+        "play": (f"Hit the boss with your Spear skills to stack Bloodstone Lances (up to {cap:g}), then stamp Shattering "
+                 f"Spite: {per_lance:g}% more per lance. With this build's hits: x{factor:.2f}; without other Spear hits: "
+                 f"nothing; at {cap:g} lances: x{full:.1f}.")}]
+
 # Herald of Blood's explosion only on a kill (GEM20; an OVERCOUNT: PoB scores the Explosion set at its 1 a second as a
 # main skill: GEM18's probe POE2T3411, Explosion 35.0 with the Buff 0). The game (26650308): ActiveSkills herald_of_blood
 # "While active, killing an enemy with [BloodLoss|Blood Loss] will cause a bloody explosion that deals [Physical]

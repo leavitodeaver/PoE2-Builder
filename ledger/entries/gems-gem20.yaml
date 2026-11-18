@@ -146,3 +146,49 @@
             "scratch/manager/research/gem20-locus-earthshatter-gas.md (R30-5 2)", "scratch/gem20/probe_r305.json"]
   test_in_game: "Optional: Earthshatter's slam with 0 vs 6 spikes standing."
   status: proposed
+
+- id: model-gem20-enervating-nova-distance
+  title: "Enervating Nova: up to 100% more damage at the ring's far edge, none up close (PoB never reads it)"
+  kind: model
+  model: enervating_nova
+  stats: [new_shock_nova_distance_based_damage_+%_final]
+  skill: [Enervating Nova]
+  confidence: MEDIUM-LOW
+  notes: >-
+    models.enervating_nova_model (GEM20). Game (26650308): ActiveSkills enervating_nova "Enemies close to you take no
+    damage while enemies at the edge of the ring take significantly more damage"; EnervatingNovaPlayer radius 2.6 m,
+    secondary radius 1.0 m (taken as the no-damage centre, UNVERIFIED), new_shock_nova_distance_based_damage_+%_final 100,
+    "Deals more damage to enemies based on distance from you, up to {0}% to enemies on the far edge of the ring"
+    (specific_skill_stat_descriptions/enervating_nova.csd). PoB never reads the stat (x1 everywhere). Linear from 0 at
+    the inner radius to the full more at the outer (UNVERIFIED). Headline: the player keeps the boss at the far edge (a
+    play strategy), a Damage line (its Electrocute buildup follows); the row: the build's configured distance (PoB's
+    enemyDistance; a spell's 5 m default lies outside the 2.6 m ring: the distance model doesn't know a nova's reach,
+    named).
+  sources: ["builder/search/models.py (enervating_nova_model)",
+            "data/game-26650308/files/data/statdescriptions/specific_skill_stat_descriptions/enervating_nova.csd",
+            "data/game-26650308/tables/GrantedEffectStatSets.json (EnervatingNovaPlayer)", "scratch/gem20/probe_nova.json"]
+  test_in_game: "Optional: Enervating Nova on a dummy at 1.5 m vs 2.5 m."
+  status: proposed
+
+- id: model-gem20-shattering-spite-lances
+  title: "Shattering Spite: explodes only with Bloodstone Lances from other Spear skills, 20% more each (PoB reads neither)"
+  kind: model
+  model: shattering_spite
+  stats: [damage_per_bloodstone_lance_+%_final]
+  skill: [Shattering Spite]
+  confidence: MEDIUM-LOW
+  notes: >-
+    models.shattering_spite_model + Assumptions.spear_hits (GEM20). Game (26650308): ActiveSkills shattering_spite
+    "destroying all Bloodstone Lances on each enemy in your Presence to cause a damaging explosion around that enemy";
+    ShatteringSpitePlayer cannot_inflict_bloodstone_lance, damage_per_bloodstone_lance_+%_final 20 ("Explosions deal
+    {0}% more Damage per Bloodstone Lance"). Lances: Atziri's Contempt (which grants the skill), "Spear Skills inflict
+    a Bloodstone Lance on Hit, up to a maximum of 30 on each target" (checked: every stat id holding "bloodstone" in the
+    stat sets, Mods and passives: UniqueSpearsInflictBloodstoneLanceOnHit1 the only carrier; PoB's uniques and ModCache
+    the same). Lances a use = min(30, other Spear-skill hits a second / Spite's uses a second), each group at its
+    triggered rate or the search's press choice x HitChance, one lance a hit; a lance taken to last until shattered
+    (UNVERIFIED). Damage x (1 + 20% x lances) (a Damage line); no lances: no explosion, held at 1%.
+  sources: ["builder/search/models.py (shattering_spite_model)", "builder/search/assumptions.py (spear_hits)",
+            "data/game-26650308/files/data/statdescriptions/specific_skill_stat_descriptions/shattering_spite.csd",
+            "vendor/PathOfBuilding-PoE2/src/Data/Uniques/spear.lua (Atziri's Contempt)", "scratch/gem20/probe_nova.json"]
+  test_in_game: "Optional: Shattering Spite with 0 vs 10 lances on a dummy."
+  status: proposed

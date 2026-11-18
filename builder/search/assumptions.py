@@ -2492,6 +2492,24 @@ class Assumptions:
             sw_mods, sw_notes = models.shield_wall_model(main, main.stat_set, sets, number(stats.get("Speed")), own,
                                                          boss, more, f"{own_how}; {boss_how}", forbidden)
             hand_mods, hand_notes = hand_mods + sw_mods, hand_notes + sw_notes
+        if main is not None and main.name == models.ENERVATING_NOVA:  # (GEM20: its damage by the boss's distance)
+            radii = build.call("stats", fields=["AreaOfEffectRadius", "AreaOfEffectRadiusSecondary"])
+            got = next((x.get("levelStats") or {} for x in build.call(
+                "activeSkills", levelStats=[main.name])["skills"] if x["name"] == main.name), {})
+            configured = number(build.call("getConfig")["input"].get("enemyDistance")) / 10 or None
+            nova_mods, nova_notes = models.enervating_nova_model(
+                main, number(radii.get("AreaOfEffectRadiusSecondary")) / 10, number(radii.get("AreaOfEffectRadius")) / 10,
+                number(got.get(models.ENERVATING_NOVA_STAT)), configured, forbidden)
+            hand_mods, hand_notes = hand_mods + nova_mods, hand_notes + nova_notes
+        if main is not None and group and main.name == models.SHATTERING_SPITE:  # (GEM20: its lances, 20% more each)
+            cap = max((float(m.group(1)) for t in texts if (m := models.SPITE_LANCE_LINE.match(t.strip()))), default=0.0)
+            hits, hits_how = self.spear_hits(group["index"]) if cap > 0 else (0.0, "no Bloodstone Lance line")
+            got = next((x.get("levelStats") or {} for x in build.call(
+                "activeSkills", levelStats=[main.name])["skills"] if x["name"] == main.name), {})
+            sp_mods, sp_notes = models.shattering_spite_model(
+                main, number(stats.get("Speed")), hits, cap, number(got.get(models.SPITE_STAT)) or 20.0, hits_how,
+                forbidden)
+            hand_mods, hand_notes = hand_mods + sp_mods, hand_notes + sp_notes
         if main is not None and group and main.name == models.HERALD_OF_BLOOD:  # (GEM20: an explosion only on a kill)
             from builder.search import bosses
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
@@ -5497,8 +5515,9 @@ class Assumptions:
 
     def wall_shatters(self, main_index: int) -> tuple[float, str]:
         """(the build's Slam / Warcry / Shield Charge uses a second, how) for models.shield_wall_model (GEM20): groups
-        whose enabled active gems carry PoB's Slam or Warcry skill type, or Shield Charge (_side_rows)."""
-        gems = self.build.ctx.gems
+        whose enabled active gems carry PoB's Slam or Warcry skill type, or Shield Charge (_side_rows); looked up in every
+        gem (ctx.all_gems), so an item-granted Slam counts."""
+        gems = getattr(self.build.ctx, "all_gems", None) or self.build.ctx.gems
 
         def breaks(g):
             for x in g.get("gems") or []:
@@ -5516,6 +5535,26 @@ class Assumptions:
             total += uses
             parts.append(f"{row.get('name')} {uses:.2f} uses/s ({why})")
         return total, ("your shatters: " + "; ".join(parts)) if parts else "no Slam, Warcry or Shield Charge in the build"
+
+    def spear_hits(self, main_index: int) -> tuple[float, str]:
+        """(the build's other Spear-skill hits a second, how) for models.shattering_spite_model (GEM20): groups whose
+        enabled active gems carry PoB's Spear skill type (_side_rows) x HitChance, one hit a use. Skills are looked up
+        in every gem (ctx.all_gems, as MECH75's hitters), so the spear's own granted skills (Spear Stab, Spear Throw)
+        count."""
+        gems = getattr(self.build.ctx, "all_gems", None) or self.build.ctx.gems
+
+        def spear(g):
+            return any(x.get("enabled", True) and not x.get("support") and models.SPITE_LANCE_TYPE in
+                       ((gems.get(x["name"]) or {}).get("skillTypes") or ()) for x in g.get("gems") or [])
+        total, parts = 0.0, []
+        for row, uses, why in self._side_rows(main_index, spear):
+            hits = uses * min(number(row.get("HitChance")) or 100.0, 100.0) / 100.0
+            if hits <= 0:
+                parts.append(f"{row.get('name')} not counted (no uses: {why})")
+                continue
+            total += hits
+            parts.append(f"{row.get('name')} {hits:.2f} hits/s ({why})")
+        return total, ("; ".join(parts) if parts else "no other Spear skill in the build")
 
     def lingering_arrows(self, main_index: int) -> tuple[float, float, str, float]:
         """(headline arrows a second, the MEDIUM-LOW row's arrows a second, how, the fastest headline maker's PoB speed)

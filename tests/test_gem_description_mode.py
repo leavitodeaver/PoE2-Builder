@@ -1217,3 +1217,28 @@ def test_gas_arrow_cloud_poisons_every_two_seconds():
     assert [m["name"] for m in mods] == ["DPS", "AilmentMagnitude"] and mods[1]["value"] == pytest.approx(150.0)
     mods, notes = models.gas_arrow_model(ga, "Arrow", sets, 0.0, "", frozenset(), 2.5)
     assert all(m["name"] != "AilmentMagnitude" for m in mods) and "UNDERCOUNT" in notes[0]["basis"]
+
+
+def test_enervating_nova_more_at_the_far_edge():
+    # (GEM20) "up to 100% more to enemies on the far edge of the ring"; none inside the inner 1.0 m
+    assert models.nova_distance_more(0.5, 1.0, 2.6, 100) == 0.0
+    assert models.nova_distance_more(1.8, 1.0, 2.6, 100) == pytest.approx(1.5)
+    assert models.nova_distance_more(2.6, 1.0, 2.6, 100) == pytest.approx(2.0)
+    nova = Skill("Enervating Nova", 1, spell=True)
+    mods, notes = models.enervating_nova_model(nova, 1.0, 2.6, 100, 5.0)
+    assert mods[0]["name"] == "Damage" and mods[0]["value"] == pytest.approx(100.0)
+    assert "outside the ring" in notes[0]["basis"] and notes[0]["entry"] == "model-gem20-enervating-nova-distance"
+    assert models.enervating_nova_model(nova, 1.0, 2.6, 100, 2.0)[1][0]["basis"].endswith("x1.62")
+    assert models.enervating_nova_model(Skill("Spark", 1), 1.0, 2.6, 100, 2.0) == ([], [])
+
+
+def test_shattering_spite_explodes_with_bloodstone_lances():
+    # (GEM20) "Explosions deal 20% more Damage per Bloodstone Lance"; lances from other Spear skills' hits, max 30
+    assert models.spite_lances(3.0, 0.5, 30) == pytest.approx(6.0)
+    assert models.spite_lances(30.0, 0.5, 30) == 30
+    spite = Skill("Shattering Spite", 1, attack=True)
+    mods, notes = models.shattering_spite_model(spite, 0.5, 3.0, 30, 20, "Spear Throw 3 hits/s")
+    assert mods[0]["name"] == "Damage" and mods[0]["value"] == pytest.approx(120.0)
+    assert notes[0]["entry"] == "model-gem20-shattering-spite-lances"
+    mods, notes = models.shattering_spite_model(spite, 0.5, 0.0, 30, 20, "none")
+    assert mods[0]["value"] == pytest.approx(-99.0) and "no explosion" in notes[0]["basis"]
