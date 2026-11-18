@@ -831,7 +831,7 @@ def test_researched_unique_leftovers_are_unreachable_and_obtainable_ones_are_not
     from builder.ledger import coverage
 
     data = json.loads((Path(coverage.__file__).with_name("unreachable_unique_mods.json")).read_text(encoding="utf-8"))
-    assert len(data["mods"]) == 329
+    assert len(data["mods"]) == 331  # (COV42: + R32-3's two DNT-UNUSED triggers, family R32-3-2)
     why = coverage.NOT_OBTAINABLE
     assert "R30-6" in why["HarvestAlternateWeaponQualityAreaOfEffect_"]
     assert "RePoE" in why["ActorSizeUniqueBeltDemigods1"] and "MEDIUM-HIGH" in why["ActorSizeUniqueBeltDemigods1"]
@@ -845,3 +845,21 @@ def test_researched_unique_leftovers_are_unreachable_and_obtainable_ones_are_not
     # the unparsed line (PoB parses the other, "per 4% Quality", which the open counts never held)
     harvest = [r for r in harvest if r["line"] == "Quality does not increase Damage"]
     assert harvest and all(r["status"] == "unreachable" and "R30-6" in r["reason"] for r in harvest)
+
+
+def test_r32_3_settled_unique_only_rows():
+    """COV42 (RESEARCH32 R32-3): Prism of Belief's "+(1-3) to Level of all 0 Skills" (the game's placeholder for the
+    skill name) is carried by the unique PoB builds per gem (Generated.lua, expanded in uniques.json), so it is PoB's;
+    the two triggers granting "[DNT-UNUSED]" skills are unreachable; Rite of Passage's random Spirit is labelled
+    obtainable (still open: PoB lacks it); Demigod's Virtue's "Virtuous" is no effect."""
+    assert coverage.placeholder_carried("+(1-3) to Level of all 0 Skills", frozenset({"# to Level of all Arc Skills"}))
+    assert not coverage.placeholder_carried("+(1-3) to Level of all 0 Skills", frozenset({"# to Level of all Skills"}))
+    assert not coverage.placeholder_carried("+1 to Level of all Spell Skills", frozenset({"# to Level of all Arc Skills"}))
+    rows = {r["source"].split()[1]: r for r in coverage.audit()["records"]
+            if r["category"] == "affix" and r["source"].startswith("Exclusive ")}
+    assert rows["UniqueJewelSpecificSkillLevelBonus1"]["status"] == "pob"
+    assert rows["UniqueJewelSpecificSkillLevelBonus2"]["status"] == "pob"
+    for mod in ("UniqueTriggerGasCloudOnMainHandHit1", "UniqueTriggerDetonationOnOffHandHit1"):
+        assert rows[mod]["status"] == "unreachable" and "DNT-UNUSED" in rows[mod]["reason"]
+    assert rows["UniqueCharmRandomPossess1"]["status"] == "none" and "UNVERIFIED" not in rows["UniqueCharmRandomPossess1"]["reason"]
+    assert rows["DemigodsVirtue1"]["status"] == "ledger"

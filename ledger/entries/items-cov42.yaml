@@ -161,3 +161,16 @@
             "ledger/entries/coverage-batch1.yaml (ForceOfWillTens, force-of-will)"]
   test_in_game: "With the Idol, spend Mana down to half: the tooltip's damage gains about 10% as extra Physical (5 tens x 2%)."
   status: proposed
+
+- id: no-effect-demigods-virtuous
+  title: Demigod's Virtue's "Virtuous" (no gameplay effect)
+  kind: pob_gap
+  match: '^Virtuous$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    DemigodsVirtue1, the race-reward unique Demigod's Virtue (drop disabled): RESEARCH32 R32-3 (HIGH) found the line has
+    no gameplay effect (research/unique-only-open38.md: poe2db's Demigod's Virtue page; patch notes --history "Demigod").
+    Nothing to count. PoB-PoE2 has no Demigod's Virtue.
+  sources: ["C:/PROJECTS/PoE2 Builder/scratch/manager/research/unique-only-open38.md", "https://poe2db.tw/us/Demigods_Virtue"]
+  status: proposed

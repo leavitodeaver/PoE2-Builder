@@ -20,6 +20,10 @@
   "R30-7-5": {
    "confidence": "HIGH",
    "evidence": "id marked UNUSED by GGG; not in PoE1"
+  },
+  "R32-3-2": {
+   "confidence": "HIGH",
+   "evidence": "RESEARCH32 R32-3: the skill it grants is GGG-marked unused (game 26650308 ActiveSkills triggered_gas_cloud / triggered_detonation are named \"[DNT-UNUSED] Gas Cloud\" / \"[DNT-UNUSED] Detonation\")"
   }
  },
  "mods": {
@@ -1031,6 +1035,12 @@
   ],
   "ZombiesExplodeEnemiesOnHitUniqueSceptre3": [
    "R30-7-1"
+  ],
+  "UniqueTriggerGasCloudOnMainHandHit1": [
+   "R32-3-2"
+  ],
+  "UniqueTriggerDetonationOnOffHandHit1": [
+   "R32-3-2"
   ]
  }
 }

@@ -188,6 +188,40 @@ def pob_unique_templates(src: Path = POB_SRC) -> frozenset[str]:
     return frozenset(found)
 
 
+# (COV42, RESEARCH32 R32-3) The game's text for a unique-only mod can hold a placeholder where the item names a skill:
+# Prism of Belief's UniqueJewelSpecificSkillLevelBonus1 / 2 read "+(1-3) to Level of all 0 Skills", while PoB builds the
+# unique with one variant per skill gem (Data/Uniques/Special/Generated.lua 91-104: "+(1-3) to Level of all <gem>
+# Skills"), so its template never matched. The placeholder "all # Skills" matches any capitalised skill name there.
+# (COV42, RESEARCH32 R32-3, research/unique-only-open38.md) unique-only mods on no PoB-PoE2 unique that ARE live: open
+# rows (PoB lacks them), no longer labelled "a PoE1 leftover or PoE2 content PoB lacks (UNVERIFIED)"
+R32_3_OBTAINABLE = {
+    "UniqueCharmRandomPossess1": ("obtainable (RESEARCH32 R32-3, HIGH): Rite of Passage's variant \"Possessed by a random "
+                                  "Spirit for 20 seconds on use\" (poe2db lists 10 variants); PoB's Rite of Passage has "
+                                  "the nine named Spirits only, so the search can't offer this one"),
+    "DemigodsVirtue1": ("Demigod's Virtue's \"Virtuous\" (RESEARCH32 R32-3, HIGH: no gameplay effect; a race reward, "
+                        "drop disabled); not in PoB-PoE2's uniques"),
+}
+
+
+def dumped_unique_templates(data_dir: Path) -> frozenset[str]:
+    """The template of every line of every unique in the dumped uniques.json (generated uniques expanded)."""
+    path = data_dir / "uniques.json"
+    if not path.exists():
+        return frozenset()
+    tag = re.compile(r"\{[^}]*\}")
+    return frozenset(template(tag.sub("", line).strip()) for item in json.loads(path.read_text(encoding="utf-8"))["uniques"]
+                     for line in item["raw"].splitlines() if tag.sub("", line).strip())
+
+
+def placeholder_carried(text: str, carried: frozenset[str]) -> bool:
+    """Whether a line whose skill name is the game's placeholder ("all 0 Skills") is carried with a real skill name."""
+    t = template(text)
+    if "all # Skills" not in t:
+        return False
+    rx = re.compile("^" + re.escape(t).replace(re.escape("all # Skills"), r"all [A-Z][\w' -]* Skills") + "$")
+    return any(rx.match(c) for c in carried)
+
+
 def poe1_leftover_mods(affixes: list[dict], carried: frozenset[str] | None = None) -> dict[str, str]:
     """Unique-only mods (pool "Exclusive") no PoB-PoE2 unique carries, by mod id -> the POE1_ONLY_GROUPS name that
     marks it a PoE1 leftover, or "" when none does (then whether a PoE2 source carries it is UNVERIFIED)."""
@@ -198,7 +232,7 @@ def poe1_leftover_mods(affixes: list[dict], carried: frozenset[str] | None = Non
             lines[affix["id"]].append(affix["line"])
     out = {}
     for mod, texts in lines.items():
-        if any(template(t) in carried for t in texts):
+        if any(template(t) in carried or placeholder_carried(t, carried) for t in texts):
             continue
         out[mod] = ""  # carried by no PoB-PoE2 unique, no PoE1-only group: stays open, labelled UNVERIFIED
         for name, rx in _POE1_ONLY:
@@ -769,7 +803,8 @@ def _researched_unique_leftovers() -> dict[str, str]:
     for mod, (family, *uses) in data["mods"].items():
         f = data["families"][family]
         evidence = f["evidence"].replace("N live", f"{uses[0]} live") if uses else f["evidence"]
-        out[mod] = f"RESEARCH30 {family.rsplit('-', 1)[0] if family.count('-') > 1 else family}, {f['confidence']}: {evidence}"
+        who = "RESEARCH32" if family.startswith("R32") else "RESEARCH30"  # (COV42: R32-3's DNT-UNUSED triggers)
+        out[mod] = f"{who} {family.rsplit('-', 1)[0] if family.count('-') > 1 else family}, {f['confidence']}: {evidence}"
     return out
 
 
@@ -967,8 +1002,19 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                     inflates=finding["inflates"])
         # PoE1 leftovers among the unique-only mods: out of the open work (POE1_ONLY_GROUPS); GGG-marked unused ones
         # (DNT_UNUSED) first
-        leftovers = poe1_leftover_mods(raw["affixes"])
+        # (COV42, R32-3) with the uniques PoB builds in code (Data/Uniques/Special/Generated.lua: Prism of Belief,
+        # Megalomaniac, ...) as uniques.json holds them expanded: the source file has them only as Lua strings
+        carried = pob_unique_templates() | dumped_unique_templates(data_dir)
+        leftovers = poe1_leftover_mods(raw["affixes"], carried)
         for record in records:
+            if (record["status"] == "none" and record["source"].startswith("Exclusive ")
+                    and placeholder_carried(record["line"], carried)):
+                record["status"] = "pob"
+                record["reason"] = ("carried by a unique PoB builds with one variant per skill (Prism of Belief, "
+                                    "Generated.lua 91-104: \"+(1-3) to Level of all <gem> Skills\", parsed as GemProperty "
+                                    "level, ModCache 629); the game's text holds a placeholder for the skill name "
+                                    "(RESEARCH32 R32-3, HIGH; was: " + record["reason"] + ")")
+                continue
             if record["source"].startswith(("Exclusive ", "Item ")) and (
                     label := cultivated_label(record["source"].split()[1])):
                 # (A32-10, COV27: Cultivated outcomes are live, never a "PoE1 leftover"; the no-carrier ones are labelled)
@@ -989,6 +1035,8 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                     record["status"] = "unreachable"
                     record["reason"] = (f"a PoE1 leftover ({group}): no PoE2 unique carries this mod "
                                         "(POE1_ONLY_GROUPS' evidence, COV19); was: " + record["reason"])
+                elif group == "" and (settled := R32_3_OBTAINABLE.get(record["source"].split()[1])):
+                    record["reason"] += "; " + settled
                 elif group == "":
                     record["reason"] += ("; no PoB-PoE2 unique carries this mod: a PoE1 leftover or PoE2 content PoB "
                                          "lacks (UNVERIFIED)")
