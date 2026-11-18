@@ -6015,6 +6015,10 @@ def test_dusk_vigils_embers_fire_only_in_a_pause_that_pays():
     cycle = 2 / 1.4286 + 1.32
     assert keep == pytest.approx((2 / 1.4286) / cycle) and "6 Embers (3 a cast" in notes[0]["basis"]
     assert next(m for m in mods if m.get("key") == "triggerRate")["value"] == pytest.approx(6 * 1.125 / cycle, rel=1e-3)
+    # (R32-2 (3)) Projectiles in a circle: the extra Embers miss the boss, one a cast again (6 casts)
+    mods, notes, groups, keep = models.dusk_vigil_model([line, "Spells fire Projectiles in a circle"], stats,
+                                                        [main, ember], main, 100.0, 200.0, 1.32, 3.0)
+    assert keep == pytest.approx((6 / 1.4286) / (6 / 1.4286 + 1.32)) and "fire radially" in notes[0]["basis"]
 
 
 def test_tempest_callers_storms_come_from_the_main_spells_crits():

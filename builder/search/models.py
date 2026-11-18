@@ -13054,11 +13054,15 @@ def spell_cascade_model(main: Skill | None, stats: dict, boss_radius: float, bos
 # fully reduced; 1.3 s only when PoB gives none), its level's cap (6 / 7 / 8 / 9 / 10 at levels 1-4 / 5-10 / 11-15 /
 # 16-19 / 20: the staff's level roll sets it) and more per Ember. MECHB38: each trigger adds PoB's ProjectileCount Embers
 # for the group (patch 0.1.1f: "additional projectiles affect the number of Embers accumulated"); whether they raise the
-# cap is UNVERIFIED (not counted); casting the Ember Fusillade gem taken not to reset the staff's Embers (separate
-# skills, UNVERIFIED). Labelled: side spells' casts not counted (an undercount); the Embers' 100 ms launch spacing not counted as time and
+# cap is UNVERIFIED (not counted; RESEARCH32 R32-2: MEDIUM-LOW that it stays). Casting the Ember Fusillade gem DOES
+# reset the staff's Embers (R32-2, MEDIUM-HIGH: every Spell cast triggers the staff's skill, whose recast resets them), as
+# any spell cast here does. With a "Projectiles in a circle" source for Spells (Sire of Shards; the cultivated "fire 8
+# additional Projectiles in a circle"), the extra Embers fire radially and miss a lone boss (R32-2 (3), forum 3841032
+# since 0.3.0b, MEDIUM-LOW): headline the base Ember a trigger only, "all hit" a row. Labelled: side spells' casts not counted (an undercount); the Embers' 100 ms launch spacing not counted as time and
 # the pause filled by nothing else (dodging fits in it); a main skill that is Ember Fusillade itself, or not a Spell: no
 # Embers counted (PoB's 0 kept, said).
 DUSK_VIGIL = re.compile(r"^Trigger Ember Fusillade Skill on casting a Spell$", re.I)
+SPELL_CIRCLE = re.compile(r"\bSpell(?:s| Skills)\b.*\bProjectiles in a circle\b", re.I)  # (R32-2 (3))
 DUSK_TAG = "dusk_vigil"  # the main skill's "less" carries it, so the next pass reads the main skill's damage without it
 
 
@@ -13084,7 +13088,8 @@ def dusk_vigil_model(texts: list[str], stats: dict, skills: list[Skill], main: S
     cap = int(number(granted.level_stats.get(EMBER_CAP_STAT)) or EMBER_CAP)
     more = number(granted.level_stats.get(EMBER_MORE_STAT)) or EMBER_MORE
     wait = max(ember_wait, 0.0) if ember_wait is not None else EMBER_DURATION
-    per = max(per_cast, 1.0)
+    circle = any(SPELL_CIRCLE.search(t) for t in texts) and per_cast > 1  # (R32-2 (3): extras fire radially)
+    per = 1.0 if circle else max(per_cast, 1.0)
     best = None
     for casts in range(1, math.ceil(cap / per) + 1):
         embers = min(cap, casts * per)
@@ -13111,8 +13116,11 @@ def dusk_vigil_model(texts: list[str], stats: dict, skills: list[Skill], main: S
                       f"duration with the build's modifiers); {casts} casts then a pause: {embers:g} Embers ({per:g} a "
                       f"cast: extra projectiles add Embers, 0.1.1f), each {more:g}% more than the one before, cap {cap} "
                       f"(extra projectiles raising it: UNVERIFIED, not counted): {rows}. The main skill x{keep:.3f} (not "
-                      "cast in the pause). Side spells not counted, the launch spacing not counted as time, casting the "
-                      "Ember Fusillade gem taken not to reset the staff's Embers (UNVERIFIED) (LOW parts)"),
+                      "cast in the pause)"
+                      + (f". Projectiles in a circle: the {per_cast - 1:g} extra Embers a cast fire radially and miss the "
+                         "boss (RESEARCH32 R32-2, MEDIUM-LOW; all hitting: a row only)" if circle else "")
+                      + ". Side spells not counted, the launch spacing not counted as time (LOW parts); casting the "
+                      "Ember Fusillade gem resets the staff's Embers too (R32-2, MEDIUM-HIGH)"),
             "play": (f"Cast {main.name} {casts} times, then stop casting Spells for {wait:.1f} s so Dusk Vigil's "
                      f"Embers fire (dodge then). Without it (casting nonstop) {main_dps:,.1f} DPS; with it {total:,.1f}")}
     return (trigger_rate(EMBER_SKILL, worth / cycle) + [raw_mod("DPS", "MORE", 100 * (keep - 1), main.name, tag=DUSK_TAG)], [note],
