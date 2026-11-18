@@ -7272,12 +7272,26 @@ SHOCK_SETS = {
 # The share of the main skill's hits that find the boss Parried is MECH-A's parry plan's (models.parry_plan with
 # consumes: one hit per Parried; 0 when the build has no Parry / Refutation or the plan finds parrying not worth its
 # time). The plan weighs only Parried's 50% more Attack damage taken, not the consumer's own payoff (the explosion /
-# shockwave): where that payoff would make parrying worth it, an UNDERCOUNT, labelled (MECH-A's item). Disengage's Frenzy
+# shockwave): where that payoff would make parrying worth it, an UNDERCOUNT, labelled (MECH-A's item; MECH87: the plan
+# now weighs it, parried_payoff, so parrying is used when the payoff pays for its time). Disengage's Frenzy
 # Charge on a consume not counted here (MECH-C's charges). MEDIUM.
 PARRIED_SETS = {
     "Fangs of Frost": ("Stab", "Explosion", True, "model-gem19-fangs-of-frost-parried"),
     "Disengage": ("Initial Strike", "Shockwave", True, "model-gem19-disengage-parried"),
 }
+
+
+def parried_payoff(main_name: str | None, sets: list[dict]) -> float:
+    """(MECH87) A PARRIED_SETS main skill's own payoff for each hit that Consumes Parried, as a share of its plain hit:
+    the extra part's DPS over the plain part's (the bridge's setRates for its group, each set scored as if every hit made
+    it), so the parry plan weighs it beside Parried's 50% more Attack damage taken. 0.0 for any other skill or when PoB
+    scored no plain set."""
+    if main_name not in PARRIED_SETS:
+        return 0.0
+    plain_label, extra_label = PARRIED_SETS[main_name][:2]
+    dps = {s.get("label"): number(s.get("TotalDPS")) for s in sets or ()}
+    plain = dps.get(plain_label, 0.0)
+    return max(dps.get(extra_label, 0.0), 0.0) / plain if plain > 0 else 0.0
 
 
 def shock_set_model(main: Skill | None, scored: str | None, sets: list[dict], share: float, how: str,
@@ -9240,6 +9254,7 @@ def dazed_stats(build) -> dict:
     return {"_dazed_share": dazed_share(build),
             "_dazed_box": bool((build.call("getConfig").get("input") or {}).get("conditionEnemyDazed")),
             "_thorns_fill": dict(getattr(build, "thorns_fill", None) or {}),  # (MECH84: thorns_fill)
+            "_buildup_others": dict(getattr(build, "buildup_others", None) or {}),  # (MECH87: others_fill)
             # (MECH85: Crushing Blows and Primed-for-Pin Pins, published by Conditions.evidence)
             "_crushing": tuple(getattr(build, "crushing", None) or (False, "")),
             "_pin_primed": bool(getattr(build, "pin_primed", False))}
@@ -10098,6 +10113,20 @@ def thorns_fill(stats: dict, ailment: str) -> float:
     return max(0.0, number((stats.get("_thorns_fill") or {}).get(ailment)))
 
 
+# (MECH87; GEM18 / GEM19's routing, an UNDERCOUNT) The boss has one Freeze / Electrocute / Pin bar, which every hit
+# fills (KeywordPopups Freeze / Electrocute / Pin: buildup from Hits), but only the main skill's hits (and Thorns') were
+# read: another group's buildup never reached it, so its Electrocutes, Freezes and Pins were 0 (Shockburst Rounds' and
+# Shockchain Arrow's "a Lightning Ailment" read none from other skills). conditions.buildup_others gives each other
+# hitting group's buildup a second at PoB's threshold (its useRates row's <Ailment>BuildupAvg x its hits a second, as
+# ignite_others rates the groups: PoB's trigger rate, else skill_use_rate at the press choices; one hit per use);
+# stats["_buildup_others"] = {ailment: bars a second, "how": text} (Conditions.evidence; dazed_stats hands on the
+# published build.buildup_others). It adds to the main skill's fill in immobilise_period and immobilised_share (the same
+# threshold scale, the same repeat window). Heavy Stun from other groups is GEM18's stun_primers' (not added here).
+def others_fill(stats: dict, ailment: str) -> float:
+    """Bars a second the build's other hitting groups add to `ailment` at PoB's threshold (stats["_buildup_others"])."""
+    return max(0.0, number((stats.get("_buildup_others") or {}).get(ailment)))
+
+
 def thorns_fills(row: dict | None, procs: float, how: str) -> dict:
     """{kind: bars a second, "how"} from the Thorns group's useRates row and its hits a second (see the note above)."""
     row = row or {}
@@ -10124,7 +10153,8 @@ def immobilise_period(stats: dict, ailment: str) -> float:
     """Seconds from one Freeze / Electrocute to the next (0 with no buildup): its duration, then the time to fill the bar
     again at x6 for the rest of the 14 / 15 s after it (a Freeze sooner with Arctic Howl: primed_refill)."""
     fill = (hits_per_second(stats) * number(stats.get(f"{ailment}BuildupAvg")) / 100
-            + thorns_fill(stats, ailment)) * ailment_scale(stats, ailment)  # (MECH84: Thorns hits' buildup, L4-2)
+            + thorns_fill(stats, ailment)  # (MECH84: Thorns hits' buildup, L4-2)
+            + others_fill(stats, ailment)) * ailment_scale(stats, ailment)  # (MECH87: other groups' buildup)
     if fill <= 0:
         return 0.0
     d = immobilise_duration(stats, ailment)
@@ -10178,7 +10208,8 @@ def immobilised_share(stats: dict, ailment: str) -> tuple[float, str]:
     files don't say, MEDIUM), the threshold x6 for the rest of the
     14 / 15 s after each one (AILMENT_REPEAT)."""
     fill = (hits_per_second(stats) * number(stats.get(f"{ailment}BuildupAvg")) / 100
-            + thorns_fill(stats, ailment)) * ailment_scale(stats, ailment)  # (MECH84: Thorns hits' buildup, L4-2)
+            + thorns_fill(stats, ailment)  # (MECH84: Thorns hits' buildup, L4-2)
+            + others_fill(stats, ailment)) * ailment_scale(stats, ailment)  # (MECH87: other groups' buildup)
     if fill <= 0:
         return 0.0, ""
     d, period = immobilise_duration(stats, ailment), immobilise_period(stats, ailment)
@@ -10221,6 +10252,9 @@ def immobilised_share(stats: dict, ailment: str) -> tuple[float, str]:
     if ailment == "Freeze" and (primed := stats.get("_primed_freeze")):
         longer += (f" (Arctic Howl Freezes the boss once Primed at {PRIMED_FREEZE_UNIQUE:.0%} buildup: {primed[1]}; "
                    "without it, one Freeze every full bar)")
+    if (others := others_fill(stats, ailment)) > 0:
+        longer += (f" (with other skills' hits {others:.2%} of the bar a second at PoB's threshold: "
+                   f"{(stats.get('_buildup_others') or {}).get('how', '')})")
     return share, (f"{fill * 100:.1f}% of the bar per s (PoB's buildup per hit x {hits_per_second(stats):.2f} hits/s, "
                    f"{bosses.of(stats).name}'s threshold); {d:g} s each{longer}, one every {period:.1f} s (x6 threshold for "
                    f"{window:g} s after each, buildup paused while it lasts, the user's word, MEDIUM): {share:.0%}")
@@ -10517,6 +10551,7 @@ class ParryPlan:
     box: float  # share of the main skill's hits that land on a Parried boss (the box's weight)
     lost: float  # share of the main skill's time spent parrying
     how: str
+    parries: float = 0.0  # (MECH87) successful Parries a second (Parry only: Refutation isn't a Parry, R30-8)
 
 
 # "Parried enemies take more Spell Damage instead of more Attack Damage" (MECH86; the catalog's parry-blind entry, an
@@ -10530,7 +10565,8 @@ PARRIED_SPELL_INSTEAD = re.compile(r"^Parried enemies take more Spell Damage ins
 
 
 def parry_plan(skills: list[Skill], stats: dict, attack: bool, consumes: bool = False,
-               stun: tuple[float, str] = (0.0, ""), refute: tuple[float, str] = (0.0, "")) -> ParryPlan:
+               stun: tuple[float, str] = (0.0, ""), refute: tuple[float, str] = (0.0, ""),
+               payoff: float = 0.0) -> ParryPlan:
     """How a reasonable player uses the build's Parry / Refutation against the boss, if it pays (only Attack damage gains):
     Parry: the player attacks all the time and parries the boss's telegraphed hits (PARRY_EVERY), each parry losing its
     retaliation and leaving the boss Parried for part of the attacking time; Refutation: cast on its cooldown, the boss
@@ -10539,7 +10575,11 @@ def parry_plan(skills: list[Skill], stats: dict, attack: bool, consumes: bool = 
     hit per Parried (chance not to consume isn't read: an undercount). `stun`: (the chance a parry Heavy Stuns you, how;
     MECHC30's recovery.parry_stun_of): a stunned parry costs 3 s more of attacking and its Parried window passes unused.
     `refute`: (seconds into Refutation's buff its blocks Heavy Stun you, 0.0 for none; how; recovery.refutation_stun_of):
-    the buff ends there, the 3 s stun is lost time, and the Parried it left runs out during the stun."""
+    the buff ends there, the 3 s stun is lost time, and the Parried it left runs out during the stun.
+    `payoff` (MECH87, parried_payoff): a consuming main skill's own extra part on each hit that finds the boss Parried,
+    as a share of its plain hit (Fangs of Frost's Explosion, Disengage's Shockwave): weighed with the 50% more, so the
+    plan parries when that pays for its time. Whether the consuming hit's extra part also takes the 50% more isn't
+    known: not counted (the lower reading, LOW)."""
     names = {s.name: s for s in skills if s.name in PARRY_SKILLS}
     if not names:
         return ParryPlan(0.0, 0.0, "")
@@ -10554,6 +10594,11 @@ def parry_plan(skills: list[Skill], stats: dict, attack: bool, consumes: bool = 
     wait = every / 2
     hps = hits_per_second(stats)
     eaten = " (the main skill consumes Parried: one hit per Parried gains)" if consumes else ""
+    payoff = max(number(payoff), 0.0) if consumes else 0.0
+    more = PARRIED_MORE + payoff  # (MECH87: a consumer's own payoff per Parried hit, beside the 50% more)
+    if payoff > 0:
+        eaten += (f"; each consuming hit also makes the main skill's own extra part, x{payoff:.2f} of its plain hit "
+                  "(MECH87; weighed in whether parrying pays)")
     options = []
     if "Parry" in names:  # the user (11 Nov): attack as often as possible, parry only the boss's telegraphed hits
         stunned = min(max(stun[0], 0.0), 1.0)  # (MECHC30: Heavy Stun from parrying, recovery.parry_heavy_stun)
@@ -10562,8 +10607,8 @@ def parry_plan(skills: list[Skill], stats: dict, attack: bool, consumes: bool = 
         attacking = max(PARRY_EVERY - PARRY_ACTION - stun_lost, 1e-9)
         share = min(1.0, (1 - stunned) * (PARRIED_SECONDS - PARRY_ACTION / 2) / attacking)
         box = min(share, (1 - stunned) / (hps * attacking)) if consumes and hps > 0 else share
-        options.append(((1 + PARRIED_MORE * box) * (1 - lost), ParryPlan(
-            box, lost, f"Parry the boss's telegraphed hits (one every {PARRY_EVERY:g} s, assumed; the user called it fair, MEDIUM) and attack the rest "
+        options.append(((1 + more * box) * (1 - lost), ParryPlan(
+            box, lost, parries=(1 - stunned) / PARRY_EVERY, how=f"Parry the boss's telegraphed hits (one every {PARRY_EVERY:g} s, assumed; the user called it fair, MEDIUM) and attack the rest "
                        f"of the time: each parry costs its {PARRY_ACTION:g} s retaliation ({lost:.0%} of the main skill's "
                        f"time) and leaves the boss Parried {PARRIED_SECONDS:g} s from the parry, taken as half-way through "
                        f"the retaliation (LOW), so {share:.0%} of the main skill's hits land on a Parried boss (the play "
@@ -10591,7 +10636,7 @@ def parry_plan(skills: list[Skill], stats: dict, attack: bool, consumes: bool = 
                 up = min(up, (min(hps, 1 / every) * max(buff_up - wait, 0.0) + (0 if stun_at else 1)) / (hps * period))
             cast = ref.cast_time or 0.65
             lost = min((cast + (PLAYER_HEAVY_STUN_SECONDS if stun_at else 0.0)) / period, 1.0)
-            options.append(((1 + PARRIED_MORE * up) * (1 - lost), ParryPlan(
+            options.append(((1 + more * up) * (1 - lost), ParryPlan(
                 up, lost, f"Refutation cast on its cooldown ({cooldown:.2f} s, not recovering during its {REFUTATION_BUFF:g} s "
                           f"buff): the boss Parried from its first blocked hit ({wait:.2f} s in, one every {every:g} s) until "
                           f"{PARRIED_SECONDS:g} s after the buff, {up:.0%} of the fight; the {cast:.2f} s cast takes {lost:.0%} of "
@@ -10602,20 +10647,82 @@ def parry_plan(skills: list[Skill], stats: dict, attack: bool, consumes: bool = 
     gain, best = max(options, key=lambda o: o[0])
     if gain <= 1.0:
         return ParryPlan(0.0, 0.0, "; ".join(p.how for _, p in options) + f": x{gain:.2f} at best, not worth the time: not used")
-    return ParryPlan(best.box, best.lost, best.how + eaten + f" (x{gain:.2f} the main skill's Attack damage, 50% more taken)")
+    return ParryPlan(best.box, best.lost, best.how + eaten + f" (x{gain:.2f} the main skill's Attack damage, 50% more taken"
+                     + (" and its own extra part" if payoff > 0 else "") + ")", best.parries)
 
 
 def parry_model(skills: list[Skill], stats: dict, main: Skill | None, consumes: bool = False,
-                stun: tuple[float, str] = (0.0, ""), refute: tuple[float, str] = (0.0, "")) -> tuple[list[dict], list[dict]]:
+                stun: tuple[float, str] = (0.0, ""), refute: tuple[float, str] = (0.0, ""),
+                payoff: float = 0.0) -> tuple[list[dict], list[dict]]:
     """The main skill's time spent parrying (parry_plan; the box itself is conditions' parryActive)."""
     if main is None or not any(s.name in PARRY_SKILLS for s in skills):
         return [], []
-    plan = parry_plan(skills, stats, main.attack, consumes, stun, refute)
+    plan = parry_plan(skills, stats, main.attack, consumes, stun, refute, payoff)
     notes = [{"label": "Parried (how the build parries the boss)", "value": f"{plan.box:.0%} of the main skill's hits",
               "basis": plan.how, "confidence": "theory"}] if plan.how else []
+    line_mods, line_notes = parry_line_mods(plan, stats, main)
+    notes += line_notes
     if plan.lost <= 0:
-        return [], notes
-    return [line("1% more Attack and Cast Speed", -100 * plan.lost, skill=main.name)], notes
+        return line_mods, notes
+    return [line("1% more Attack and Cast Speed", -100 * plan.lost, skill=main.name)] + line_mods, notes
+
+
+# Lines that read the parry plan (MECH87; MECH85's tranche, the catalog's parry-blind entry; PoB ignores both, ModCache
+# unparsed):
+# - Ulaman's Gaze (a glove rune): "Critical Hit chance is Lucky against Parried enemies". Handed to PoB as its
+#   CritChanceLucky flag under Condition:ParryActive (ConfigOptions parryActive), so it counts at the plan's box share
+#   (the share of the main skill's hits on a Parried boss), Parry or Refutation (Refutation inflicts Parried: R30-8,
+#   HIGH). It isn't weighed in whether parrying pays (an UNDERCOUNT where it would tip it, named).
+# - Counterstancing (a notable): "Successfully Parrying a Melee Hit grants 40% increased Damage to your next Ranged
+#   Attack" / "Successfully Parrying a Projectile Hit grants 40% increased Damage to your next Melee Attack". Parry only
+#   (Refutation isn't a Parry: R30-8, MEDIUM). The parried hits are the plan's telegraphed ones (one every PARRY_EVERY
+#   s, those not ending in a Heavy Stun), a Melee share of them from bosses.melee_share (LOW: a share of skills): a
+#   Ranged Attack main skill boosts min(1, melee parries / its attacks) of its attacks, counted as that share of the
+#   40% increased Damage on it. The Projectile share of the boss's hits isn't in the boss data: the Melee half is 0
+#   (UNVERIFIED, a RESEARCH question), named.
+ULAMANS_GAZE = re.compile(r"^Critical Hit chance is Lucky against Parried enemies$", re.I)
+COUNTERSTANCING = re.compile(r"^Successfully Parrying a (Melee|Projectile) Hit grants (\d+)% increased Damage to your next "
+                             r"(Ranged|Melee) Attack$", re.I)
+
+
+def parry_line_mods(plan: ParryPlan, stats: dict, main: Skill | None) -> tuple[list[dict], list[dict]]:
+    """Ulaman's Gaze's and Counterstancing's mods from the parry plan (see above); stats["_texts"] the build's lines,
+    stats["_main_types"] the main skill's types."""
+    texts = [str(t).strip() for t in stats.get("_texts") or ()]
+    mods, notes = [], []
+    if any(ULAMANS_GAZE.match(t) for t in texts):
+        if plan.box > 0:
+            mods.append(raw_mod("CritChanceLucky", "FLAG", 1, condition="ParryActive"))
+        notes.append({"label": "Ulaman's Gaze: Lucky crits against a Parried boss*", "confidence": "MEDIUM",
+                      "value": f"{plan.box:.0%} of the main skill's hits",
+                      "basis": ("PoB's Lucky crit under its Parried box, at the parry plan's share" if plan.box > 0 else
+                                "the build doesn't parry the boss (the parry plan), so none; whether the Lucky crits "
+                                "would make parrying pay isn't weighed (an UNDERCOUNT where it would)")})
+    found = [(m.group(1).title(), float(m.group(2)), m.group(3).title()) for t in texts if (m := COUNTERSTANCING.match(t))]
+    if found and main is not None:
+        types = set(stats.get("_main_types") or ())
+        speed = number(stats.get("Speed"))
+        melee, melee_how = bosses.melee_share(stats)
+        for parried, inc, boosted in found:
+            fits = main.attack and ("RangedAttack" in types if boosted == "Ranged" else main.melee)
+            if not fits:
+                continue
+            if parried == "Projectile":
+                notes.append({"label": f"Counterstancing: {inc:g}% increased Damage to the next {boosted} Attack*",
+                              "value": "0", "confidence": "LOW",
+                              "basis": "after Parrying a Projectile Hit: the share of the boss's hits that are "
+                                       "Projectiles isn't in the boss data (UNVERIFIED): not counted"})
+                continue
+            rate = plan.parries * melee
+            share = min(1.0, rate / speed) if speed > 0 else 0.0
+            if share > 0:
+                mods.append(line("1% increased Damage", inc * share, skill=main.name))
+            notes.append({"label": f"Counterstancing: {inc:g}% increased Damage to the next {boosted} Attack*",
+                          "value": f"{share:.1%} of its attacks", "confidence": "LOW",
+                          "basis": (f"{plan.parries:.2f} Parries/s (the parry plan) x {melee_how}: {rate:.3f} parried "
+                                    f"Melee Hits/s over {speed:.2f} attacks/s, as {inc * share:.2f}% increased Damage"
+                                    if plan.parries > 0 else "the build doesn't Parry the boss (the parry plan): none")})
+    return mods, notes
 
 
 def immobilise_rate(stats: dict, events: set[str]) -> tuple[float, str]:

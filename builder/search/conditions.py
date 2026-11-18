@@ -3137,6 +3137,11 @@ BREAK_STATS = {
     "armour_break_fire_damage_%_dealt_as_armour_break": "Break Armour equal to {}% of Fire Damage dealt",
     "chaos_damage_%_dealt_as_armour_break": "Break Armour equal to {}% of Chaos Damage dealt",
     "apply_X_armour_break_on_hit": "Hits Break {} Armour",
+    # (MECH87: Styrn's Ferocity, "Hits against targets Crushed by Supported Skills Break Armour equal to 10% of Physical
+    # damage dealt": the supported main skill keeps its target Crushed (8 s a hit), so its hits count it. PoB's own
+    # reading, SkillStatMap 2980's CanArmourBreak under the enemy's Crushed, moves no DPS: probe POE2T4088, Shield Charge
+    # 137.99 with and without the box, so this counts it once)
+    "crushed_target_%_physical_damage_taken_as_armour_break": "Break Armour equal to {}% of Physical Damage dealt",
 }
 BREAK_DAMAGE = {"physical": ("Physical",), "fire": ("Fire",), "chaos": ("Chaos",), "hit": models.DAMAGE_TYPES,
                 "damage from hits": models.DAMAGE_TYPES}
@@ -4018,6 +4023,97 @@ def ignite_others(rows: dict, groups: list[dict], hitters: set[str], main_index,
     how = ("; ".join(parts) + " (MECH75: each as PoB scores it as the main skill, the sources taken as independent; "
            "one hit per use)") if parts else ""
     return out, how
+
+
+BUILDUP_SHARED = ("Freeze", "Electrocute", "Pin")  # (MECH87: the bars every hit fills; models.others_fill)
+
+
+def buildup_others(rows: dict, groups: list[dict], hitters: set[str], main_index,
+                   choices: dict[str, float] | None = None) -> dict:
+    """{ailment: bars a second at PoB's threshold, "how": text} from the build's other hitting groups' Freeze /
+    Electrocute / Pin buildup (MECH87; models.others_fill's note): each group's useRates row's <Ailment>BuildupAvg (% of
+    PoB's threshold a hit, as PoB scores it as the main skill) x its hits a second (PoB's trigger rate, else
+    skill_use_rate at the press choices, as ignite_others; one hit per use). {} when none builds any."""
+    names = {g["index"]: [n["name"] for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in hitters]
+             for g in groups if g.get("enabled") is not False}
+    out: dict = {}
+    parts = []
+    for index, row in sorted(rows.items(), key=lambda kv: str(kv[0])):
+        if index == main_index or not names.get(index):
+            continue
+        each = {a: number(row.get(f"{a}BuildupAvg")) / 100 for a in BUILDUP_SHARED}
+        if not any(v > 0 for v in each.values()):
+            continue
+        if row.get("triggered"):
+            uses, why = number(row.get("speed")), "PoB's trigger rate"
+        else:
+            uses, why, _ = skill_use_rate(row, choices)
+        hits = uses * min(number(row.get("HitChance")) or 100.0, 100.0) / 100.0
+        name = row.get("name") or names[index][0]
+        if hits <= 0:
+            parts.append(f"{name} not counted (no uses: no cooldown, duration or press chosen)")
+            continue
+        for ailment, v in each.items():
+            if v > 0:
+                out[ailment] = out.get(ailment, 0.0) + hits * v
+        parts.append(f"{name} {hits:.2f} hits/s at {why} x " + ", ".join(
+            f"{a} {v:.2%}" for a, v in each.items() if v > 0) + " of the bar a hit")
+    if not any(a in out for a in BUILDUP_SHARED):
+        return {}
+    out["how"] = "; ".join(parts) + " (MECH87: each group's buildup as PoB scores it as the main skill; one hit per use)"
+    return out
+
+
+# Styrn's Ferocity's Crush (MECH87; RESEARCH30 R30-1: "Supported Skills Crush targets they Hit for 8 seconds",
+# support_knights_ferocity_crush_on_hit_ms 8000; Crushed = -15 points of Physical Damage Reduction, KeywordPopups
+# Crushed, PoB CalcSetup 106; one Crush, no stacking). PoB maps the stat in the gem's own statMap (Data/Skills/other.lua:
+# Condition:Crushed as a GlobalEffect Debuff), and CalcPerform merges any enabled skill's Debuff onto the enemy, so the
+# boss is Crushed all fight whichever group Styrn's supports (probe POE2T4088: Shield Charge 95.5 -> 138.0 DPS with
+# Styrn's on the main group, and the same 138.0 with it only on a second Shield Charge group the build never uses: an
+# OVERCOUNT there). The game Crushes for 8 s after each supported hit, so with the supported groups' hits random in
+# time the boss is Crushed 1 - e^(-8 x hits a second) of the fight (R30-1). On the main group that is the whole fight
+# (left to PoB). Otherwise the build hands PoB +15 x (1 - uptime) of EnemyPhysicalDamageReduction, which PoB adds to the
+# boss's own (CalcOffence 4315), so the -15 averages over the fight (exact while the reduction stays inside PoB's caps).
+# Another Crush source (a Forge Maul's "Crushes Enemies on Hit", "Nearby Enemies are Crushed") keeps it on: not scaled.
+# Lines "against Crushed enemies" from other sources still read PoB's always-on Crushed (none found in the tranche; LOW).
+STYRNS_FEROCITY = "Styrn's Ferocity"
+STYRN_CRUSH_SECONDS = 8.0  # support_knights_ferocity_crush_on_hit_ms 8000 (GrantedEffectStatSets, 26650308)
+CRUSH_PDR = 15.0  # KeywordPopups Crushed: "lowers Physical Damage Reduction by 15%"; PoB CalcSetup 106
+OTHER_CRUSH = re.compile(r"\bcrush(?:es)? enemies on hit\b|\benemies are crushed\b", re.I)
+
+
+def styrn_crush(groups: list[dict], rows: dict, main_index, choices: dict[str, float] | None,
+                texts: list[str]) -> tuple[float, float, str]:
+    """(the share of the fight the boss is Crushed by Styrn's Ferocity, the EnemyPhysicalDamageReduction to hand PoB,
+    how) (see the note above); (1.0, 0.0, "") without Styrn's Ferocity. `rows`: {group index: useRates row}."""
+    supported = [g for g in groups if g.get("enabled") is not False and any(
+        n.get("name") == STYRNS_FEROCITY and n.get("enabled", True) for n in g.get("gems") or [])]
+    if not supported:
+        return 1.0, 0.0, ""
+    if any(g["index"] == main_index for g in supported):
+        return 1.0, 0.0, (f"{STYRNS_FEROCITY} supports the main skill: each hit Crushes the boss for "
+                          f"{STYRN_CRUSH_SECONDS:g} s, so it stays Crushed (-{CRUSH_PDR:g}% Physical Damage Reduction)")
+    if other := next((t for t in texts if OTHER_CRUSH.search(t)), None):
+        return 1.0, 0.0, f"the boss is Crushed all fight by \"{other}\" (PoB), so {STYRNS_FEROCITY}'s uptime adds nothing"
+    hits, parts = 0.0, []
+    for g in supported:
+        row = rows.get(g["index"]) or {}
+        name = row.get("name") or next((n["name"] for n in g.get("gems") or [] if n.get("name") != STYRNS_FEROCITY), "?")
+        if row.get("triggered"):
+            uses, why = number(row.get("speed")), "PoB's trigger rate"
+        elif row:
+            uses, why, _ = skill_use_rate(row, choices)
+        else:
+            uses, why = 0.0, "no use rate"
+        h = uses * min(number(row.get("HitChance")) or 100.0, 100.0) / 100.0
+        hits += h
+        parts.append(f"{name} {h:.2f} hits/s ({why})")
+    up = 1.0 - math.exp(-STYRN_CRUSH_SECONDS * hits) if hits > 0 else 0.0
+    return up, CRUSH_PDR * (1.0 - up), (
+        f"{STYRNS_FEROCITY} on {', '.join(parts)}: each hit Crushes the boss for {STYRN_CRUSH_SECONDS:g} s, so it is Crushed "
+        f"{up:.0%} of the fight (hits random in time, R30-1, MEDIUM); PoB Crushes it all fight, so "
+        f"+{CRUSH_PDR * (1.0 - up):.1f}% Physical Damage Reduction is handed back (without the side skill's hits: none "
+        f"Crushed; with Styrn's on the main skill: always)")
 
 
 def side_consumed_ignite_scale(potential: float, hits: float, chance: float, own: bool, rate: float) -> tuple[float, str]:
@@ -7523,9 +7619,13 @@ class Conditions:
 
             stun = recovery.parry_stun_of(self.build) if any(s.name == "Parry" for s in found) else (0.0, "")
             refute = recovery.refutation_stun_of(self.build) if any(s.name == "Refutation" for s in found) else (0.0, "")
+            payoff = 0.0  # (MECH87: a PARRIED_SETS main skill's own extra part, weighed by the plan as assumptions do)
+            if self.main_skill in models.PARRIED_SETS and (group := self.build.main_group()):
+                payoff = models.parried_payoff(self.main_skill, self.build.call(
+                    "setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"])
             stats["_parry_plan"] = self.parry_plan = models.parry_plan(
                 found, stats, "Attack" in main_types, bool(({self.main_skill} | main_gems) & models.PARRY_CONSUMERS), stun,
-                refute)
+                refute, payoff)
         if any(STUNS_YOU.search(t) for t in texts):  # (Blinding Flash, MECHC25: the boss's Light Stuns on you)
             from builder.search import flasks
 
@@ -7579,6 +7679,11 @@ class Conditions:
         # (MECH75) the other groups' Ignites on the boss, from the same rows: ailment_uptime adds them to the main skill's
         others, others_how = ignite_others(group_rows, groups_now, hitters, groups_all.get("mainSocketGroup"),
                                            models.press_choices(self.build))
+        # (MECH87) the other groups' Freeze / Electrocute / Pin buildup on the boss's one bar (models.others_fill); also
+        # published for readers that fetch the main skill's stats afresh (models.dazed_stats)
+        stats["_buildup_others"] = buildup_others(group_rows, groups_now, hitters, groups_all.get("mainSocketGroup"),
+                                                  models.press_choices(self.build))
+        self.build.buildup_others = dict(stats["_buildup_others"])
         if others:
             stats["_ailment_others"] = {"Ignite": others}
             said = stats.setdefault("_ailment_others_how", {})  # (Radiant Grief's aura may be said already)
@@ -7742,6 +7847,10 @@ class Conditions:
         self.build.charge_flow = dict(stats.get("_charge_flow") or {})
         # (MECH69, for GEM3's models.riven_armour_model: the share of the fight Riven Armour is up, and its basis)
         self.build.riven_up = (self.riven_share, self.riven_how)
+        # (MECH87, for GEM17's High Velocity Rounds "Vs Armour Broken": the share of the fight the boss's Armour is Fully
+        # Broken and its basis, as the Armour Broken box weighs it; (0.0, "") with no Armour Break source)
+        self.build.full_break_up = ((number(broken[2]) if len(broken) > 2 else float(bool(broken[0])), broken[1])
+                                    if broken is not None else (0.0, ""))
         self.build.battershout = getattr(self, "battershout", (0.0, 0.0, ""))  # (MECH72, models.battershout_model)
         # (MECH69, for GEM5's Elemental Discharge model: the share of the fight the boss is Ignited / Shocked / Frozen,
         # with the main skill's own and other skills' consumes taken off: the same functions the boxes use, read whether

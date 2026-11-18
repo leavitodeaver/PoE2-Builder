@@ -1,0 +1,69 @@
+# MECH87 (MECH-A lane, 18 Nov 2026): lines a MECH-A model reads (empty replace: nothing is added to PoB, so nothing
+# counts twice; PoB applies none of these lines itself).
+
+- id: model-read-mech87-ulamans-gaze-lucky-parried
+  title: '"Critical Hit chance is Lucky against Parried enemies" (models.parry_line_mods)'
+  kind: pob_gap
+  model: parry
+  match: '^Critical Hit chance is Lucky against Parried enemies$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Ulaman's Gaze, a glove rune (MECH87, an UNDERCOUNT before: PoB leaves the line unparsed). models.parry_line_mods
+    hands PoB its CritChanceLucky flag under Condition:ParryActive (PoB's parryActive box), so it counts at the parry
+    plan's share of the main skill's hits on a Parried boss (Parry or Refutation, which inflicts Parried: RESEARCH30
+    R30-8). Not weighed in whether parrying pays (named). This entry only says a model reads the line.
+  sources: ["builder/search/models.py (ULAMANS_GAZE, parry_line_mods)"]
+  status: proposed
+
+- id: model-read-mech87-counterstancing
+  title: '"Successfully Parrying a Melee / Projectile Hit grants N% increased Damage to your next Ranged / Melee Attack" (models.parry_line_mods)'
+  kind: pob_gap
+  model: parry
+  match: '^Successfully Parrying a (?:Melee|Projectile) Hit grants (\(\d+-\d+\)|\d+)% increased Damage to your next (?:Ranged|Melee) Attack$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Counterstancing (MECH87, an UNDERCOUNT before: PoB leaves both lines unparsed). Parry only (Refutation isn't a
+    Parry: R30-8, MEDIUM). A Ranged Attack main skill gets the 40% increased Damage on min(1, parried Melee Hits / its
+    attacks) of its attacks: the parry plan's successful Parries a second x bosses.melee_share (LOW). The Melee half
+    needs the Projectile share of the boss's hits, which the boss data lacks: 0 (UNVERIFIED, a RESEARCH question).
+    This entry only says a model reads the lines.
+  sources: ["builder/search/models.py (COUNTERSTANCING, parry_line_mods)"]
+  status: proposed
+
+- id: model-read-mech87-fated-end-boss-es-recharge
+  title: '"Enemies you Curse cannot Recharge Energy Shield" (Fated End: 0 against a boss under steady damage)'
+  kind: pob_gap
+  model: none
+  match: '^Enemies you Curse cannot Recharge Energy Shield$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Fated End (PassiveSkills curses14). Counted as 0, labelled (RESEARCH20, block-plan-cull-flee-fated-end.md: HIGH for
+    the rule, MEDIUM for the boss's delay): some bosses have Energy Shield (King in the Mists, Zarokh, the Vessel of
+    Kulemak, Atziri phase 1), but it recharges only after 4 s without losing any (KeywordPopups ESRecharge; monsters
+    taken to share the 4 s delay, UNVERIFIED), and the model's player hits the boss throughout, so nothing recharges for
+    the line to stop. It would gain across invulnerable phases or player downtime over 4 s, a rate the fight decides and
+    no data gives: not counted. The boss's ES recharge isn't modelled anywhere, so the line moves no number now (checked:
+    grep "recharge" in builder/search/bosses.py and conditions.py; RESEARCH20). This entry only records the reading.
+  sources: ["scratch/manager/research/block-plan-cull-flee-fated-end.md"]
+  status: proposed
+
+- id: model-read-mech87-styrns-ferocity-crush
+  title: '"Supported Skills Crush targets they Hit for 8 seconds" / "Hits against targets Crushed by Supported Skills Break Armour equal to 10% of Physical damage dealt" (conditions.styrn_crush, BREAK_STATS)'
+  kind: pob_gap
+  model: crush
+  match: '^(?:Supported Skills Crush targets they Hit for \d+ seconds|Hits against targets Crushed by Supported Skills Break Armour equal to \d+% of Physical damage dealt)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Styrn's Ferocity (MECH87; RESEARCH30 R30-1). PoB applies the Crush itself (the gem's statMap: Condition:Crushed as a
+    GlobalEffect Debuff), all fight, from any group the support is in: probe POE2T4088, Shield Charge 95.5 -> 138.0 DPS
+    with it on the main group and the same with it only on an unused side group (an OVERCOUNT there). For a side group
+    conditions.styrn_crush hands PoB +15 x (1 - uptime) EnemyPhysicalDamageReduction, uptime 1 - e^(-8 x the supported
+    hits a second) (MEDIUM). The armour-break line moves no DPS in PoB (POE2T4088: the same with and without the Crushed
+    box); the Armour Break model counts it for a supported main skill (BREAK_STATS). This entry only says a model reads
+    the lines.
+  sources: ["builder/search/conditions.py (styrn_crush, BREAK_STATS)", "builder/search/assumptions.py (the Styrn's Ferocity hook after parry_model)"]
+  status: proposed

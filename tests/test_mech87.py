@@ -32,3 +32,78 @@ def test_gained_a_power_charge_recently_comes_from_the_builds_gains_only():
     assert conditions._gained_power_recently(
         [cond, "+10% to Critical Hit Chance if you haven't gained a Power Charge Recently"], STATS)[0] == 0.0
     assert conditions._gained_power_recently([source], STATS) == (0.0, "")
+
+
+# The parry plan weighs a consuming main skill's own payoff (GEM19's routing) ------------------------------------------
+
+def test_the_parry_plan_weighs_a_consumers_own_payoff():
+    from builder.search import models
+
+    parry = models.Skill("Parry", attack=True, cast_time=1.0)
+    stats = {"enemySkillTime": 0.7, "Speed": 2.0, "HitChance": 100}
+    assert models.parry_plan([parry], stats, True, True).box == 0  # (the 50% more alone doesn't pay for the time)
+    plan = models.parry_plan([parry], stats, True, True, payoff=2.0)
+    assert plan.box > 0 and plan.lost > 0 and "own extra part" in plan.how
+    assert models.parry_plan([parry], stats, True, False, payoff=2.0).how == models.parry_plan([parry], stats, True).how
+    sets = [{"label": "Stab", "TotalDPS": 100.0}, {"label": "Explosion", "TotalDPS": 180.0}]
+    assert models.parried_payoff("Fangs of Frost", sets) == pytest.approx(1.8)
+    assert models.parried_payoff("Ice Strike", sets) == 0.0
+    assert models.parried_payoff("Fangs of Frost", sets[1:]) == 0.0  # (no plain set scored)
+
+
+# Other groups' buildup joins the main skill's on the one bar (GEM18 / GEM19's routing) ---------------------------------
+
+def test_other_groups_buildup_fills_the_bosss_one_bar():
+    from builder.search import models
+
+    rows = {2: {"index": 2, "name": "Spark", "speed": 1.5, "triggered": True, "HitChance": 100,
+                "ElectrocuteBuildupAvg": 4.0, "FreezeBuildupAvg": 0.0},
+            1: {"index": 1, "name": "Ice Strike", "speed": 2.0, "triggered": True, "FreezeBuildupAvg": 9.0}}
+    groups = [{"index": 1, "gems": [{"name": "Ice Strike"}]}, {"index": 2, "gems": [{"name": "Spark"}]}]
+    others = conditions.buildup_others(rows, groups, {"Spark", "Ice Strike"}, 1)
+    assert others["Electrocute"] == pytest.approx(0.06) and "Freeze" not in others and "Spark" in others["how"]
+    assert conditions.buildup_others(rows, groups, {"Ice Strike"}, 1) == {}  # (the main group's own isn't added)
+    stats = {"Speed": 2.0, "HitChance": 100, "ElectrocuteBuildupAvg": 0.0}
+    assert models.immobilised_share(stats, "Electrocute")[0] == 0.0
+    share, how = models.immobilised_share({**stats, "_buildup_others": others}, "Electrocute")
+    assert share > 0 and "other skills' hits" in how
+    assert models.others_fill({"_buildup_others": others}, "Electrocute") == pytest.approx(0.06)
+
+
+# Ulaman's Gaze and Counterstancing from the parry plan ------------------------------------------------------------------
+
+def test_ulamans_gaze_and_counterstancing_read_the_parry_plan():
+    from builder.search import models
+
+    parry = models.Skill("Parry", attack=True, cast_time=1.0)
+    bow = models.Skill("Lightning Arrow", attack=True)
+    gaze = "Critical Hit chance is Lucky against Parried enemies"
+    ranged = "Successfully Parrying a Melee Hit grants 40% increased Damage to your next Ranged Attack"
+    melee = "Successfully Parrying a Projectile Hit grants 40% increased Damage to your next Melee Attack"
+    stats = {"enemySkillTime": 0.7, "Speed": 2.0, "HitChance": 100, "_main_types": {"Attack", "RangedAttack"},
+             "_texts": [gaze, ranged, melee]}
+    mods, notes = models.parry_model([parry, bow], stats, bow)
+    assert {"kind": "Raw", "name": "CritChanceLucky", "type": "FLAG", "value": 1.0, "condition": "ParryActive"} in mods
+    inc = next(m for m in mods if m.get("line") == "1% increased Damage")
+    assert 0 < inc["scale"] < 40 and inc["skill"] == "Lightning Arrow"
+    assert not any("Projectile" in n["basis"] for n in notes)  # (the Melee half fits no Ranged main skill)
+    plan = models.parry_plan([parry, bow], stats, True)
+    assert plan.parries == pytest.approx(1 / models.PARRY_EVERY)
+    spell = models.parry_model([parry], {**stats, "_main_types": {"Spell"}}, models.Skill("Spark", spell=True))
+    assert not any(m.get("name") == "CritChanceLucky" for m in spell[0])  # (no Parry plan for a Spell: no Lucky)
+
+
+# Styrn's Ferocity's Crush at its uptime (PoB Crushes the boss all fight from any group: probe POE2T4088) ---------------
+
+def test_styrns_crush_is_scaled_to_the_supported_groups_hits():
+    styrn = {"name": "Styrn's Ferocity"}
+    groups = [{"index": 1, "gems": [{"name": "Shield Charge"}, styrn]}, {"index": 2, "gems": [{"name": "Mace Strike"}]}]
+    assert conditions.styrn_crush(groups, {}, 1, None, [])[:2] == (1.0, 0.0)  # (on the main skill: always Crushed)
+    side = [{"index": 1, "gems": [{"name": "Mace Strike"}]}, {"index": 2, "gems": [{"name": "Shield Charge"}, styrn]}]
+    rows = {2: {"index": 2, "name": "Shield Charge", "speed": 0.05, "triggered": True, "HitChance": 100}}
+    up, pdr, how = conditions.styrn_crush(side, rows, 1, None, [])
+    assert up == pytest.approx(1 - math.exp(-8 * 0.05)) and pdr == pytest.approx(15 * (1 - up)) and "Shield Charge" in how
+    assert conditions.styrn_crush(side, {}, 1, None, [])[:2] == (0.0, 15.0)  # (no hits: never Crushed)
+    assert conditions.styrn_crush(side, {}, 1, None, ["Crushes Enemies on Hit"])[:2] == (1.0, 0.0)  # (a Forge Maul)
+    assert conditions.styrn_crush(groups[1:], {}, 1, None, []) == (1.0, 0.0, "")
+    assert "crushed_target_%_physical_damage_taken_as_armour_break" in conditions.BREAK_STATS

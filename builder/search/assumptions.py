@@ -2137,14 +2137,30 @@ class Assumptions:
                       else (0.0, ""))  # (MECH-C: Heavy Stun from parrying, MECHC30)
         refute_stun = (recovery_mod.refutation_stun_of(build) if any(s.name == "Refutation" for s in found)
                        else (0.0, ""))  # (MECH-C: Heavy Stun from Refutation's blocks, MECHC30)
-        parry_mods, parry_notes = models.parry_model(found, {**stats, "_texts": texts}, main, bool(({name} | main_gems) & models.PARRY_CONSUMERS),
-                                                     parry_stun, refute_stun)
+        parried_payoff = 0.0  # (MECH87: a PARRIED_SETS main skill's own extra part, weighed by the plan)
+        if main is not None and group and main.name in models.PARRIED_SETS and any(s.name in models.PARRY_SKILLS for s in found):
+            parried_payoff = models.parried_payoff(main.name, build.call(
+                "setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"])
+        parry_mods, parry_notes = models.parry_model(found, {**stats, "_texts": texts, "_main_types": main_types}, main, bool(({name} | main_gems) & models.PARRY_CONSUMERS),
+                                                     parry_stun, refute_stun, parried_payoff)
         hand_mods, hand_notes = hand_mods + parry_mods, hand_notes + parry_notes
         if any(models.LIONEYE.search(t.strip()) for t in texts):  # (MECHB37: Lioneye's Glare's Repeats out of Presence)
             metres = models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10 or natural_distance(main_types, name or "")
             bow = "Bow" in set((build.ctx.gems.get(name) or {}).get("weaponTypes") or []) if name else False
             lion_mods, lion_notes = models.lioneye_model(texts, stats, main, metres, bow)
             hand_mods, hand_notes = hand_mods + lion_mods, hand_notes + lion_notes
+        all_groups = build.groups()  # (MECH87: Styrn's Ferocity's Crush at its uptime, conditions_mod.styrn_crush)
+        styrn = [g["index"] for g in all_groups if any(n.get("name") == conditions_mod.STYRNS_FEROCITY
+                                                       for n in g.get("gems") or [])]
+        if styrn:
+            styrn_rows = {r.get("index"): r for r in build.call("useRates", indices=sorted(styrn))["rates"]}
+            crushed, pdr, crush_how = conditions_mod.styrn_crush(all_groups, styrn_rows, group["index"] if group else None,
+                                                                 models.press_choices(build), texts)
+            if pdr > 0:
+                hand_mods = hand_mods + [models.raw_mod("EnemyPhysicalDamageReduction", "BASE", pdr)]
+            if crush_how:
+                hand_notes = hand_notes + [{"label": "Styrn's Ferocity: the boss Crushed*", "value": f"{crushed:.0%}",
+                                            "basis": crush_how, "confidence": "MEDIUM"}]
         presses: dict[str, tuple[float, str]] = {}  # (item-granted skills the build presses: models.ITEM_PRESSES)
         if any(models.RAISED_BLIND.search(e["text"]) for e in source_lines):  # (Bastion of Light's shield taps, MECHC21)
             metres = models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10 or natural_distance(main_types, name or "")
@@ -2437,7 +2453,8 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + sh_mods, hand_notes + sh_notes
         if main is not None and group and main.name in models.PARRIED_SETS:  # (GEM19: a part only on a Parried boss)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
-            plan = models.parry_plan(found, stats, main.attack, True, parry_stun, refute_stun)  # (as parry_model's)
+            plan = models.parry_plan(found, {**stats, "_texts": texts}, main.attack, True,
+                                     parry_stun, refute_stun, models.parried_payoff(main.name, sets))  # (as parry_model's)
             pa_mods, pa_notes = models.shock_set_model(main, main.stat_set, sets, plan.box,
                                                        plan.how or "no Parry or Refutation in the build", forbidden)
             consume_gains.update(conditions_mod.consume_gain(build, main.name, plan.box, "of its hits Consume the Parried Debuff"))
