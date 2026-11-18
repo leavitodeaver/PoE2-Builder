@@ -1163,3 +1163,29 @@ def test_magnetic_salvo_explodes_only_by_lingering_arrows():
     assert mods[0]["value"] == pytest.approx(100 * ((42.5 * (1 - e) + 82.6 * e * 8) / 82.6 - 1), abs=0.01)
     assert notes[0]["entry"] == "model-gem20-magnetic-salvo-lingering-arrows"
     assert models.salvo_share(0.6, 8, 100.0) == 1.0
+
+
+def test_herald_of_blood_explodes_only_on_kills():
+    # (GEM20) GEM18's probe POE2T3411: Explosion 35.0 at 1 a second as a main skill, Buff 0
+    sets = [{"label": "Buff", "TotalDPS": 0.0, "AverageDamage": 0.0, "Speed": 1.0},
+            {"label": "Explosion", "TotalDPS": 35.0, "AverageDamage": 35.0, "Speed": 1.0}]
+    hb = Skill("Herald of Blood", 1, attack=True)
+    mods, notes = models.herald_of_blood_model(hb, "Explosion", sets, 0.0, "a lone boss")
+    assert mods[0]["name"] == "DPS" and mods[0]["value"] == pytest.approx(-99.0)
+    assert notes[0]["entry"] == "model-gem20-herald-of-blood-kills" and notes[0]["confidence"] == "LOW"
+    mods, _ = models.herald_of_blood_model(hb, "Explosion", sets, 0.043, "the King's totems")
+    assert mods[0]["name"] == "DPS" and mods[0]["value"] == pytest.approx(100 * (0.043 - 1))
+    assert models.herald_of_blood_model(hb, "Buff", sets, 0.0, "") == ([], [])
+
+
+def test_shield_wall_explodes_when_shattered_more_by_slams():
+    sets = [{"label": "Shield Wall", "TotalDPS": 100.0, "AverageDamage": 100.0, "Speed": 1.0}]
+    sw = Skill("Shield Wall", 1, attack=True)
+    # shattered at once by your Slams: one explosion a cast, with the gem's 140% more
+    mods, notes = models.shield_wall_model(sw, "Shield Wall", sets, 1.0, 1e6, 0.0, 140.0, "slams")
+    assert mods[0]["name"] == "DPS" and mods[0]["value"] == pytest.approx(140.0, abs=0.1)
+    assert notes[0]["entry"] == "model-gem20-shield-wall-shatter"
+    # the boss's hits alone: fewer explosions, no more
+    mods, _ = models.shield_wall_model(sw, "Shield Wall", sets, 1.0, 0.0, 0.5, 140.0, "boss")
+    assert mods[0]["value"] == pytest.approx(100 * (models.locus_explosions(1.0, 0.5, 6.0) - 1), abs=0.01)
+    assert models.shield_wall_model(sw, "Shield Wall", sets, 1.0, 0.0, 0.5, 140.0, "", {"model-gem20-shield-wall-shatter"}) == ([], [])

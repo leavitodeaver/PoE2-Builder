@@ -7467,9 +7467,10 @@ def frozen_locus_model(main: Skill | None, scored: str | None, sets: list[dict],
                   "hits on the crystal's Life are not counted (an UNDERCOUNT where the build breaks it that way)"),
         "play": (f"Place Frozen Locus at the boss and break it: hit it with a Freeze-consuming skill, Fragmentation Rounds, "
                  f"Glacial Cascade's last spike, Gelid Palm or Embrace The Fall, or a Warcry with Vruun's Aftermath; the "
-                 f"boss's own hits break it too. Recast as soon as it breaks. Without breakers (the boss's hits alone): "
-                 f"{locus_explosions(cast, boss_breaks) * blast:,.0f}; with this build's: {rate * blast:,.0f}; one a "
-                 f"cast: {dps[scored]:,.0f}.")}]
+                 f"boss's own hits break it too (LOW: taken to land on it). Recast as soon as it breaks. Without the boss's "
+                 f"hits (the build's own breakers only): {own * blast:,.0f}; with them (the headline): "
+                 f"{rate * blast:,.0f}; the boss's hits alone: {locus_explosions(cast, boss_breaks) * blast:,.0f}; one "
+                 f"a cast: {dps[scored]:,.0f}.")}]
 
 
 # Magnetic Salvo's explosion only near a lingering Lightning arrow or bolt (GEM20; an OVERCOUNT: PoB scores each set alone
@@ -7558,6 +7559,103 @@ def magnetic_salvo_model(main: Skill | None, scored: str | None, sets: list[dict
                  f"fire Lightning Rod (or Shockchain Arrow) at the boss first, then Salvo. Without them: {impact:,.0f}; "
                  f"with this build's: {total:,.0f}; every missile: {blast * count:,.0f}.")}]
 
+
+
+
+# Shield Wall's explosion only when its segments are shattered, and its "more Damage if destroyed by your Skills" (GEM20;
+# PoB scores the "Shield Wall" set as one explosion a cast and maps shield_wall_damage_+%_final_when_slammed to nothing:
+# the coverage audit's "PoB never reads this stat"; an OVERCOUNT of the rate where nothing shatters it, an UNDERCOUNT of
+# the hit where the build's Slams do). The game (26650308): ActiveSkills shield_wall "Enemies can attack your wall
+# segments, and your [Slam|Slams], [Warcry|Warcries], and Shield Charge will instantly shatter them all. The segments
+# explode when shattered"; ShieldWallPlayer base_skill_effect_duration 6000, base_number_of_shield_walls_allowed 2,
+# shield_wall_damage_+%_final_when_slammed 100 (+2 a quality in PoB's gem data; its stat text "{0}% more Damage if
+# destroyed by your Skills"), shield_wall_maximum_life 12,714 at gem 20. Breaks as Frozen Locus's (locus_explosions, its
+# 6 s): the build's Slam / Warcry skills and Shield Charge (each group's triggered rate or the search's press choice,
+# Assumptions._side_rows), and the boss's damaging uses (Assumptions.boss_hit_rate, each taken to land on the wall: LOW).
+# A shatter by the build's skills deals the "more"; the boss's doesn't (and takes MECH-B's hazard_early_model first-0.5 s
+# penalty when the build has no breaker). One explosion a break, as PoB scores (both walls and every segment a Slam
+# shatters, and how many reach the boss, not read: UNVERIFIED). MEDIUM-LOW.
+SHIELD_WALL = "Shield Wall"
+SHIELD_WALL_ENTRY = "model-gem20-shield-wall-shatter"
+SHIELD_WALL_SECONDS = 6.0
+SHIELD_WALL_STAT = "shield_wall_damage_+%_final_when_slammed"
+SHIELD_WALL_BREAK_TYPES = ("Slam", "Warcry")
+SHIELD_WALL_CHARGE = "Shield Charge"
+
+
+def shield_wall_model(main: Skill | None, scored: str | None, sets: list[dict], speed: float, own_breaks: float,
+                      boss_breaks: float, more: float, how: str,
+                      forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Shield Wall's explosions at the rate it's shattered (see above): `own_breaks` the build's Slam / Warcry / Shield
+    Charge uses a second, `boss_breaks` the boss's damaging uses a second, `more` the gem's "when slammed" %."""
+    if main is None or main.name != SHIELD_WALL or SHIELD_WALL_ENTRY in forbidden or scored != SHIELD_WALL:
+        return [], []
+    dps = set_dps_unscaled(sets)
+    if dps.get(scored, 0.0) <= 0 or speed <= 0:
+        return [], []
+    cast = 1.0 / speed
+    own_breaks, boss_breaks = max(own_breaks, 0.0), max(boss_breaks, 0.0)
+    rate = locus_explosions(cast, own_breaks + boss_breaks, SHIELD_WALL_SECONDS)
+    mine = own_breaks / (own_breaks + boss_breaks) if own_breaks + boss_breaks > 0 else 0.0
+    per = 1.0 + more / 100.0 * mine
+    factor = max(rate * per / speed, AILMENT_FLOOR)
+    mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9 else []
+    blast = dps[scored] / speed
+    own_only = locus_explosions(cast, own_breaks, SHIELD_WALL_SECONDS) * (1.0 + more / 100.0) * blast
+    return mods, [{
+        "label": f"{main.name}: an explosion only when it's shattered, {more:g}% more by your Slams*",
+        "value": f"x{factor:.3f}", "confidence": "MEDIUM-LOW (the boss's hits LOW)", "entry": SHIELD_WALL_ENTRY,
+        "basis": (f"PoB scored one explosion a cast ({speed:.2f} a second, {dps[scored]:,.0f} DPS) without the gem's "
+                  f"'{more:g}% more Damage if destroyed by your Skills'. The game explodes the segments when shattered: "
+                  f"{how}; a cast then the wait for the first shatter (at most its 6 s): {rate:.2f} explosions a second, "
+                  f"{mine:.0%} of them by your skills (x{1 + more / 100:.2f}): {rate * per * blast:,.0f} DPS; one "
+                  "explosion a shatter (both walls and the segments a Slam shatters not read)"),
+        "play": (f"Raise Shield Wall at the boss and shatter it with a Slam, a Warcry or Shield Charge for {more:g}% more "
+                 f"damage; the boss's hits break it too (LOW: taken to land on it). Without the boss's hits (your "
+                 f"shatters only): {own_only:,.0f}; with them (the headline): {rate * per * blast:,.0f}; one a cast: "
+                 f"{dps[scored]:,.0f}.")}]
+
+# Herald of Blood's explosion only on a kill (GEM20; an OVERCOUNT: PoB scores the Explosion set at its 1 a second as a
+# main skill: GEM18's probe POE2T3411, Explosion 35.0 with the Buff 0). The game (26650308): ActiveSkills herald_of_blood
+# "While active, killing an enemy with [BloodLoss|Blood Loss] will cause a bloody explosion that deals [Physical]
+# [Attack] damage to surrounding enemies ... partially based on their accumulated Blood Loss"; KeywordPopups BloodLoss
+# "All [Physical] damage over time taken by a target (including [Bleeding]) is accumulated as Blood Loss";
+# HeraldOfBloodExplosionPlayer radius 15 (1.5 m). The boss's own death ends the fight, so only the boss preset's
+# killable adds feed it (bosses.kills_per_second: every add killed, as the on-kill lines read them; 0 against a lone
+# boss: no source, 0, CLAUDE.md). Each slain add taken to carry Blood Loss (a player who takes Herald of Blood deals
+# Physical damage over time: LOW, the "without it" row is 0) and to die within the explosion's 1.5 m of the boss (LOW,
+# fight-decided, as Bone Shrapnel's `near`: the manager's to ask). The Blood Loss part of the explosion's damage is
+# PoB's (not read here). With no explosions the set is held at AILMENT_FLOOR (a DPS line). LOW.
+HERALD_OF_BLOOD = "Herald of Blood"
+HERALD_OF_BLOOD_ENTRY = "model-gem20-herald-of-blood-kills"
+
+
+def herald_of_blood_model(main: Skill | None, scored: str | None, sets: list[dict], kills: float, how: str,
+                          forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Herald of Blood's explosions at the boss preset's add kills a second (see above): `kills` adds killed a second."""
+    if main is None or main.name != HERALD_OF_BLOOD or HERALD_OF_BLOOD_ENTRY in forbidden or scored != "Explosion":
+        return [], []
+    dps = set_dps_unscaled(sets)
+    speed = next((number(x.get("Speed")) for x in sets if x.get("label") == scored), 0.0)
+    if dps.get(scored, 0.0) <= 0 or speed <= 0:
+        return [], []
+    kills = max(kills, 0.0)
+    factor = max(kills / speed, AILMENT_FLOOR)
+    floor = kills <= 0
+    # (a DPS line even at the floor: there is no other set to steer the search to (the Buff deals nothing), and a Damage
+    # line would shrink the AverageDamage the next pass reads; the explosion can't Bleed: cannot_cause_bleeding)
+    mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9 else []
+    blast = dps[scored] / speed
+    return mods, [{
+        "label": f"{main.name}: an explosion only when an enemy with Blood Loss dies*", "value": f"x{factor:.3f}",
+        "confidence": "LOW", "entry": HERALD_OF_BLOOD_ENTRY,
+        "basis": (f"PoB scored the Explosion at {speed:.2f} a second ({dps[scored]:,.0f} DPS). The game explodes an "
+                  f"enemy with Blood Loss when you kill it; the boss's own death ends the fight: {how}; each slain add "
+                  f"taken to carry Blood Loss and to die within 1.5 m of the boss (LOW): {kills:.3f} explosions a "
+                  f"second, {kills * blast:,.0f} DPS" + ("; none: held at 1%" if floor else "")),
+        "play": (f"Herald of Blood explodes only when you kill an enemy with Blood Loss (Physical damage over time on "
+                 f"it): against a lone boss it deals nothing. Kill the boss's adds beside it with Bleeding on them: "
+                 f"with this fight's adds {kills * blast:,.0f}; without Blood Loss on them: 0.")}]
 
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
 # "Hit damage is taken from Mana before Life if your current Mana is higher than your current Life" (poe2db): counted as

@@ -2445,17 +2445,10 @@ class Assumptions:
         if main is not None and group and main.name == models.FROZEN_LOCUS:  # (GEM20: an explosion when it breaks)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             breaks, breaks_how = self.locus_breaks(group["index"], main.name)
-            from builder.search import bosses
-            read = dict(build.call("stats", fields=["enemySkillTime"]))
-            request = getattr(getattr(build, "ctx", None), "request", None)
-            if getattr(request, "boss", None):
-                read["_boss"] = request.boss
-            every = bosses.benefit_skill_time(read)
-            boss = 1.0 / every if every > 0 else 0.0
+            boss, boss_how = self.boss_hit_rate()
             fl_mods, fl_notes = models.frozen_locus_model(
                 main, main.stat_set, sets, number(stats.get("Speed")), breaks, boss,
-                f"{breaks_how}; the boss's damaging uses, one every {every:.2f} s (bosses.benefit_skill_time, LOW), "
-                "each taken to land on the crystal at its feet (LOW)", forbidden)
+                f"{breaks_how}; {boss_how}", forbidden)
             hand_mods, hand_notes = hand_mods + fl_mods, hand_notes + fl_notes
         if main is not None and group and main.name == models.MAGNETIC_SALVO:  # (GEM20: explosions need lingering arrows)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
@@ -2484,6 +2477,23 @@ class Assumptions:
                 texts, deaths, deaths_how,
                 full=getattr(self, "ledger_switch", {}).get(recovery_mod.SOUL_MANTLE_FLOOR_KEY, True) is False)
             hand_mods, hand_notes = hand_mods + soul_mods, hand_notes + soul_rows
+        if main is not None and group and main.name == models.SHIELD_WALL:  # (GEM20: shattered by Slams, more damage)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            own, own_how = self.wall_shatters(group["index"])
+            boss, boss_how = self.boss_hit_rate()
+            got = next((x.get("levelStats") or {} for x in build.call(
+                "activeSkills", levelStats=[models.SHIELD_WALL])["skills"] if x["name"] == models.SHIELD_WALL), {})
+            more = number(got.get(models.SHIELD_WALL_STAT)) or 100.0
+            sw_mods, sw_notes = models.shield_wall_model(main, main.stat_set, sets, number(stats.get("Speed")), own,
+                                                         boss, more, f"{own_how}; {boss_how}", forbidden)
+            hand_mods, hand_notes = hand_mods + sw_mods, hand_notes + sw_notes
+        if main is not None and group and main.name == models.HERALD_OF_BLOOD:  # (GEM20: an explosion only on a kill)
+            from builder.search import bosses
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            request = getattr(getattr(build, "ctx", None), "request", None)
+            kills, kills_how = bosses.kills_per_second(bosses.of({"_boss": getattr(request, "boss", None)}).name)
+            hb_mods, hb_notes = models.herald_of_blood_model(main, main.stat_set, sets, kills, kills_how, forbidden)
+            hand_mods, hand_notes = hand_mods + hb_mods, hand_notes + hb_notes
         side_mods, side_notes = self.multi_set_side(main)  # (MECH-B, MECHB16: Rolling Slam in a Full DPS group)
         hand_mods, hand_notes = hand_mods + side_mods, hand_notes + side_notes
         cap_mods, cap_notes = self.main_cap(group, name)  # (MECH-B: the press hook on the main skill, MECHB5)
@@ -5458,6 +5468,42 @@ class Assumptions:
             parts.append(f"{row.get('name')} {uses:.2f} uses/s ({why})")
         return total, ("; ".join(parts) if parts else "no Freeze consumer, crystal-destroying skill or Vruun's "
                        "Aftermath Warcry in the build")
+
+    def boss_hit_rate(self) -> tuple[float, str]:
+        """(the boss's damaging uses a second, how) for a skill the boss's hits break (GEM20: Frozen Locus, Shield Wall):
+        one every bosses.benefit_skill_time (LOW), each taken to land on the crystal or wall at its feet (LOW)."""
+        from builder.search import bosses
+        build = self.build
+        read = dict(build.call("stats", fields=["enemySkillTime"]))
+        request = getattr(getattr(build, "ctx", None), "request", None)
+        if getattr(request, "boss", None):
+            read["_boss"] = request.boss
+        every = bosses.benefit_skill_time(read)
+        return (1.0 / every if every > 0 else 0.0), (
+            f"the boss's damaging uses, one every {every:.2f} s (bosses.benefit_skill_time, LOW), each taken to land on "
+            "it at the boss's feet (LOW)")
+
+    def wall_shatters(self, main_index: int) -> tuple[float, str]:
+        """(the build's Slam / Warcry / Shield Charge uses a second, how) for models.shield_wall_model (GEM20): groups
+        whose enabled active gems carry PoB's Slam or Warcry skill type, or Shield Charge (_side_rows)."""
+        gems = self.build.ctx.gems
+
+        def breaks(g):
+            for x in g.get("gems") or []:
+                if not x.get("enabled", True) or x.get("support"):
+                    continue
+                types = set((gems.get(x["name"]) or {}).get("skillTypes") or ())
+                if x["name"] == models.SHIELD_WALL_CHARGE or types & set(models.SHIELD_WALL_BREAK_TYPES):
+                    return True
+            return False
+        total, parts = 0.0, []
+        for row, uses, why in self._side_rows(main_index, breaks):
+            if uses <= 0:
+                parts.append(f"{row.get('name')} not counted (no uses: {why})")
+                continue
+            total += uses
+            parts.append(f"{row.get('name')} {uses:.2f} uses/s ({why})")
+        return total, ("your shatters: " + "; ".join(parts)) if parts else "no Slam, Warcry or Shield Charge in the build"
 
     def lingering_arrows(self, main_index: int) -> tuple[float, float, str, float]:
         """(headline arrows a second, the MEDIUM-LOW row's arrows a second, how, the fastest headline maker's PoB speed)

@@ -74,3 +74,50 @@
             "scratch/manager/research/gem19-skill-questions.md (R30-2 c)", "scratch/gem20/probe_gas.json", "scratch/gem20/probe_gas2.json"]
   test_in_game: "Optional: Magnetic Salvo with no Lightning Rod out: no explosions."
   status: proposed
+
+- id: model-gem20-herald-of-blood-kills
+  title: "Herald of Blood: an explosion only when an enemy with Blood Loss dies (PoB scored one a second as a main skill)"
+  kind: model
+  model: herald_of_blood
+  stats: []
+  skill: [Herald of Blood]
+  confidence: LOW
+  notes: >-
+    models.herald_of_blood_model (GEM20). Game (26650308): ActiveSkills herald_of_blood "While active, killing an enemy
+    with Blood Loss will cause a bloody explosion that deals Physical Attack damage to surrounding enemies";
+    KeywordPopups BloodLoss "All Physical damage over time taken by a target (including Bleeding) is accumulated as Blood
+    Loss"; HeraldOfBloodExplosionPlayer radius 1.5 m. PoB scores the Explosion at 1 a second as a main skill (GEM18's
+    probe POE2T3411: 35.0, Buff 0; an OVERCOUNT). The boss's death ends the fight, so only the preset's killable adds
+    feed it (bosses.kills_per_second: the King in the Mists 0.017/s, Atziri the Red Queen 0.022/s, 0 for the rest), each
+    taken to carry Blood Loss and die within 1.5 m of the boss (LOW, fight-decided; without Blood Loss: 0). None: the set
+    held at 1% (a DPS line). As a persistent side group it isn't in Full DPS (gems.persistent_round adds no fullDPS),
+    so only a Herald of Blood main skill moves.
+  sources: ["builder/search/models.py (herald_of_blood_model)", "builder/search/bosses.py (kills_per_second)",
+            "data/game-26650308/tables/ActiveSkills.json (herald_of_blood)", "data/game-26650308/tables/KeywordPopups.json (BloodLoss)",
+            "scratch/gem18/probe_sets6.json (POE2T3411)", "scratch/gem20/probe_herald.json"]
+  test_in_game: "None needed: a lone boss can't feed an on-kill explosion."
+  status: proposed
+
+- id: model-gem20-shield-wall-shatter
+  title: "Shield Wall: an explosion only when shattered, with its 'more Damage if destroyed by your Skills' (PoB scored one a cast without it)"
+  kind: model
+  model: shield_wall
+  stats: [shield_wall_damage_+%_final_when_slammed]
+  skill: [Shield Wall]
+  confidence: MEDIUM-LOW
+  notes: >-
+    models.shield_wall_model + Assumptions.wall_shatters / boss_hit_rate (GEM20). Game (26650308): ActiveSkills
+    shield_wall "Enemies can attack your wall segments, and your Slams, Warcries, and Shield Charge will instantly
+    shatter them all. The segments explode when shattered"; ShieldWallPlayer 6 s, 2 walls,
+    shield_wall_damage_+%_final_when_slammed 100 (+2 a quality), stat text "{0}% more Damage if destroyed by your
+    Skills". PoB scores one explosion a cast and never reads the stat (the coverage audit's open row). Explosions a
+    second as Frozen Locus's (a cast, then the first shatter within 6 s): the build's Slam / Warcry groups and Shield
+    Charge at their triggered rate or the search's press choice, and the boss's damaging uses (LOW, the headline; the
+    'without' row is your shatters only). Your shatters deal the more; the boss's don't (MECH-B's hazard_early_model
+    keeps its first-0.5 s penalty where the build has no breaker). One explosion a shatter (UNVERIFIED: both walls and
+    every segment).
+  sources: ["builder/search/models.py (shield_wall_model)", "builder/search/assumptions.py (wall_shatters, boss_hit_rate)",
+            "data/game-26650308/tables/ActiveSkills.json (shield_wall)",
+            "data/game-26650308/tables/GrantedEffectStatSets.json (ShieldWallPlayer)", "scratch/gem20/probe_herald.json"]
+  test_in_game: "Optional: Shield Wall shattered by a Slam vs broken by the boss: the explosion's damage."
+  status: proposed
