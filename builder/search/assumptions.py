@@ -1939,6 +1939,8 @@ class Assumptions:
         # (MECHB38: Valako's Charge at the rate the boss's Lightning hits fill it; its side group in Full DPS)
         valako_mods, valako_notes, valako_groups = self.valakos_charge(stats, found, main)
         defiler_mods, defiler_notes = models.dark_defiler_model(texts, found, main, stats)  # (MECHB38)
+        giant_mods, giant_notes = models.gigantic_revived_model(texts, found, main, stats)  # (MECHB39)
+        defiler_mods, defiler_notes = defiler_mods + giant_mods, defiler_notes + giant_notes
         storm_groups = {**storm_groups, **valako_groups}
         doom_mods = doom_mods + dusk_mods + storm_mods + cannon_mods + valako_mods + defiler_mods
         doom_notes = doom_notes + dusk_notes + storm_notes + cannon_notes + valako_notes + defiler_notes

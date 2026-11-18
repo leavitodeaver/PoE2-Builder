@@ -1152,6 +1152,42 @@ DIFFERENT_COMMANDS = re.compile(r"^(\d+(?:\.\d+)?)% increased Minion Damage per 
                                 r"15 seconds$", re.I)
 
 
+# "Your Minions are Gigantic if they have Revived Recently" (MECHB39; the coverage ranking's section C, an UNDERCOUNT: 0
+# before): the Genesis Tree belt mod GenesisTreeBeltMinionsGiganticRevivedRecently and its Crafted copy (stat
+# minions_are_gigantic_if_have_revived_recently). (checked: game files 26650308, every Stats id holding "gigantic" or
+# "revived", their Mods / PassiveSkills / GrantedEffectStatSets rows: those two belt mods are its only sources; the
+# always-on "minions_are_gigantic" (Gigantic Following, Hulking Minions, an Essence) is a different stat PoB parses.)
+# PoB's ModCache 9986 holds it with no mod at all. KeywordPopups Gigantic: "20% more Maximum Life, 20% more Damage and
+# 20% increased size". The share of the minions' time alive that they've Revived Recently is revived_recently_share's
+# (Crazed Minions' share: from the build's own minion Kills, minion_deaths; none: 0 with its note); 20% more Damage at
+# that share ("Minions deal N% more Damage" on the whole minion pool: MEDIUM-LOW, the deaths taken as spread evenly).
+# Not counted: the 20% more Life (a defence; no damage) and the size.
+GIGANTIC_REVIVED = re.compile(r"^Your Minions are Gigantic if they have Revived Recently$", re.I)
+GIGANTIC_MORE = 20.0  # KeywordPopups Gigantic: 20% more Damage
+
+
+def gigantic_revived_model(texts: list[str], skills: list[Skill], main: Skill | None, stats: dict
+                           ) -> tuple[list[dict], list[dict]]:
+    """The belt's Gigantic minions at the share of their time they've Revived Recently (see above)."""
+    if not any(GIGANTIC_REVIVED.match(t.strip()) for t in texts):
+        return [], []
+    reviving = [s for s in skills if s.summon and s.summon.get("persistent") and not number(s.summon.get("duration"))]
+    if not reviving:
+        share, how = 0.0, "the build has no Reviving minions"
+    else:
+        share, how, _ = revived_recently_share(reviving[0], {**stats, "_skills": skills}, main)
+    more = GIGANTIC_MORE * share
+    note = {"label": "Gigantic minions after Reviving (20% more Damage)*", "value": f"+{more:.1f}% more",
+            "confidence": "MEDIUM-LOW",
+            "basis": (f"\"Your Minions are Gigantic if they have Revived Recently\": Gigantic is 20% more Damage and Life "
+                      f"(KeywordPopups); {how}. PoB holds the line with no mod (0 before). The 20% more Life isn't counted "
+                      "(a defence)"),
+            "play": (f"Keep your Reviving minions dying and reviving (Sacrifice, Minion Pact, Explosive Demise): without "
+                     f"it +0%; with it +{more:.1f}% more Minion Damage" if more > 0 else
+                     "Nothing in the build kills its own Reviving minions, so they never Revive: +0%")}
+    return ([line("Minions deal 1% more Damage", more)] if more > 0 else []), [note]
+
+
 def different_commands_model(skills: list[Skill], texts: list[str]) -> tuple[list[dict], list[dict]]:
     """The minions' damage per different Command used in the past 15 s, at the build's own Commands (see above)."""
     pct = sum(float(m.group(1)) for t in texts if (m := DIFFERENT_COMMANDS.search(t.strip())))

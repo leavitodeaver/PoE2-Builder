@@ -44,3 +44,17 @@
     least every 15 s, else 15 / its period. Djinn Commands and unmapped Commands not counted (an undercount, said).
   sources: [builder/search/models.py (DIFFERENT_COMMANDS, different_commands_model)]
   status: proposed
+
+- id: model-read-gigantic-if-revived-recently
+  title: '"Your Minions are Gigantic if they have Revived Recently" (Genesis Tree belt; models.gigantic_revived_model)'
+  kind: pob_gap
+  model: gigantic_revived
+  match: '^Your Minions are Gigantic if they have Revived Recently$'
+  replace: []
+  confidence: theory
+  notes: >-
+    PoB holds the line with no mod (0, an UNDERCOUNT). Gigantic is 20% more Damage and Life (KeywordPopups); counted as
+    "Minions deal N% more Damage" at revived_recently_share's share (Crazed Minions' share, from the build's own minion
+    Kills; none: 0 with a note). The 20% more Life isn't counted.
+  sources: [builder/search/models.py (GIGANTIC_REVIVED, gigantic_revived_model)]
+  status: proposed

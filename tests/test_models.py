@@ -6275,3 +6275,19 @@ def test_a_duration_skill_takes_a_chosen_press_rate_up_to_its_instance_limit():
     assert conditions.skill_use_rate(rod, {"Lightning Rod": 0.25})[0] == pytest.approx(0.25)
     assert conditions.skill_use_rate(rod, {})[0] == pytest.approx(1 / 20)
     assert models.press_use_rate({**rod, "speed": 0.1}, 0.25)[0] == pytest.approx(0.1)  # (never faster than its speed)
+
+
+def test_gigantic_after_reviving_counts_at_the_revived_recently_share():
+    """MECHB39 (an UNDERCOUNT before: PoB holds the Genesis belt line with no mod): "Your Minions are Gigantic if they have
+    Revived Recently" gives 20% more Minion Damage at revived_recently_share's share; nothing kills them: 0 with a note."""
+    text = ["Your Minions are Gigantic if they have Revived Recently"]
+    zombies = models.Skill("Raise Zombie", summon={"limit": 6, "duration": 0, "persistent": True, "undead": True})
+    main = models.Skill("Spark", group=1, spell=True)
+    stats = {"Speed": 2.0, "Life": 2000, "_minion_lives": {"Raise Zombie": 1500}}
+    assert models.gigantic_revived_model(["+10 to Strength"], [zombies, main], main, stats) == ([], [])
+    mods, notes = models.gigantic_revived_model(text, [zombies, main], main, stats)
+    assert mods == [] and notes[0]["value"] == "+0.0% more"
+    pact = replace(main, support_stats={models.MINION_PACT_STAT: 100})
+    share = models.revived_recently_share(zombies, {**stats, "_skills": [zombies, pact]}, pact)[0]
+    mods, notes = models.gigantic_revived_model(text, [zombies, pact], pact, stats)
+    assert share > 0 and mods == [models.line("Minions deal 1% more Damage", 20 * share)]
