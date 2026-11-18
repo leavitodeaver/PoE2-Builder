@@ -142,3 +142,33 @@ def test_gate4_judges_against_the_fair_reference_unless_asked_for_the_authors_to
     assert not gate4.verdict(400.0, False, 1400.0, 300.0)["passed"]  # (a floor short never passes)
     old = gate4.verdict(400.0, True, 1400.0, 300.0, author_toggles=True)
     assert not old["passed"] and old["verdict"] == "toggled" and old["reference_dps"] == 1400.0
+
+
+def test_a_run_wearing_a_free_recipe_made_base_is_marked_and_so_is_a_baseline_holding_one(tmp_path, capsys):
+    """Before train 63 (2c58be9d) the search offered Grasping Mail (60 Breach Rings) as a free plain base; all three of
+    main c4202146's 2b75c runs wore it (SEARCH25). Such a run is marked, and a baseline set holding one is named as not
+    fair (the manager, 16-17 Nov: use post-train-63 baselines). A commit that keeps the base out isn't marked."""
+    import base64
+    import zlib
+
+    def coded(text):
+        return base64.urlsafe_b64encode(zlib.compress(text.encode())).decode().rstrip("=")
+
+    def run(name, seed_base, commit, body):
+        path = tmp_path / f"{name}-{seed_base}.json"
+        path.write_text(json.dumps({"seed_base": seed_base, "commit": commit, "rows": [{
+            "name": "2b75c", "dps": 100.0, "ratio": 1.0, "feasible": True, "passed": True, "reference_dps": 100.0,
+            "evaluations": 1, "code": coded(f"<PathOfBuilding2><Item>Rarity: RARE\nGlyph Shell\n{body}</Item>")}]}),
+            encoding="utf-8")
+        return str(path)
+
+    old = run("old", 0, "0000000", "Grasping Mail")  # (an unknown commit counts as without the rule)
+    new = run("new", 0, "HEAD", "Grasping Mail")  # (this checkout keeps it out: crafted_base_unpriced)
+    plain = run("plain", 0, "0000000", "Sacrificial Mantle")
+    loaded = gate_median.load([old, new, plain])["2b75c"]
+    assert [r["free_base"] for r in loaded] == [["Grasping Mail"], [], []]
+    gate_median.main([plain, "--against", old])
+    out = capsys.readouterr().out
+    assert "not a fair baseline" in out and "old-0.json" in out
+    gate_median.main([old])
+    assert "FREE BASE: wears Grasping Mail" in capsys.readouterr().out

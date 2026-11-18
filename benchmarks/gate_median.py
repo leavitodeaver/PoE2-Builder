@@ -17,9 +17,49 @@ A run's rank: a feasible run above an infeasible one, then by DPS (as the search
 from __future__ import annotations
 
 import argparse
+import base64
 import json
+import subprocess
 import sys
+import zlib
+from functools import cache
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+# Recipe-made bases the search offered as FREE plain bases until train 63 (SEARCH24's 2c58be9d, on main 16 Nov 03:01:
+# builder/search/context.py's CRAFTED_BASES / crafted_base_unpriced: no price, no offer outside SSF). A gate run on an
+# older commit could wear one at no cost (SEARCH25, 16 Nov: all three of main c4202146's 2b75c runs wore Grasping Mail):
+# an OVERCOUNT of that run, so it is marked, and a baseline set holding one is named as such (the manager, 16-17 Nov:
+# use post-train-63 baselines, e.g. main c712c8be's 2b75c set).
+try:
+    sys.path.insert(0, str(ROOT))
+    from builder.search.context import CRAFTED_BASES as _CRAFTED
+    CRAFTED_BASES = tuple(_CRAFTED)
+except Exception:  # (a gate file read where the builder can't import: the names as of train 63)
+    CRAFTED_BASES = ("Grasping Mail",)
+
+
+def worn_crafted_bases(code: str | None) -> list[str]:
+    """The CRAFTED_BASES the run's build code wears (a PoB code: url-safe base64 of zlib-deflated XML)."""
+    if not code:
+        return []
+    try:
+        xml = zlib.decompress(base64.urlsafe_b64decode(code + "=" * (-len(code) % 4))).decode("utf-8", "replace")
+    except Exception:
+        return []
+    return [b for b in CRAFTED_BASES if b in xml]
+
+
+@cache
+def has_crafted_rule(commit: str | None) -> bool:
+    """Whether `commit`'s search keeps an unpriced recipe-made base out (crafted_base_unpriced in its context.py).
+    An unknown commit counts as without it."""
+    if not commit:
+        return False
+    found = subprocess.run(["git", "grep", "-q", "crafted_base_unpriced", commit, "--", "builder/search/context.py"],
+                           cwd=ROOT, capture_output=True)
+    return found.returncode == 0
 
 
 def load(paths: list[str]) -> dict[str, list[dict]]:
@@ -31,7 +71,8 @@ def load(paths: list[str]) -> dict[str, list[dict]]:
             runs.setdefault(row["name"], []).append({
                 "dps": row["dps"], "ratio": row["ratio"], "feasible": bool(row["feasible"]), "passed": row["passed"],
                 "reference": row["reference_dps"], "seed_base": data.get("seed_base"),
-                "evaluations": row.get("evaluations"), "commit": data.get("commit"), "file": Path(path).name})
+                "evaluations": row.get("evaluations"), "commit": data.get("commit"), "file": Path(path).name,
+                "free_base": [b for b in worn_crafted_bases(row.get("code")) if not has_crafted_rule(data.get("commit"))]})
     return runs
 
 
@@ -76,13 +117,19 @@ def main(argv: list[str] | None = None) -> int:
         for r in sorted(rows, key=lambda r: (r["seed_base"] is None, r["seed_base"] or 0)):
             print(f"  {name} seed base {r['seed_base']}: {r['dps']:,.0f} (x{r['ratio']:.2f}, "
                   f"{'feasible' if r['feasible'] else 'not feasible'}; {r['evaluations'] or 0:,} evaluations; "
-                  f"{r['commit']}; {r['file']})")
+                  f"{r['commit']}; {r['file']})"
+                  + (f" [FREE BASE: wears {', '.join(r['free_base'])} at no cost (before train 63): an OVERCOUNT]"
+                     if r.get("free_base") else ""))
         s = summary(rows)
         line = describe(name, s)
         if name in base:
             b = summary(base[name])
             line += f"; vs the baseline's median {b['median']['dps']:,.0f} (worst {b['low']['dps']:,.0f}, best " \
                     f"{b['high']['dps']:,.0f}): {compare(s, b)}"
+            free = [r["file"] for r in base[name] if r.get("free_base")]
+            if free:
+                line += (f" [the baseline holds {len(free)} run(s) wearing a free recipe-made base (before train 63: "
+                         f"{', '.join(free)}): not a fair baseline; use a post-train-63 set]")
         print(line)
     return 0
 
