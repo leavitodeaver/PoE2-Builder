@@ -4632,6 +4632,20 @@ class Assumptions:
                               "play": "Keep the boss on your Chilled Ground: off it, these lines add nothing",
                               "confidence": "MEDIUM-LOW (MECH-A's Chilled Ground share)"})
                 continue
+            if condition.get("ignited_ground"):
+                # (COV39) the share of the fight the boss stands in the build's Ignited Ground: MECH-A's
+                # build.ignited_ground_up (MECH79, "for COV-A"; (0.0, "") without a source); Desert's Scorn's Cold line
+                if not self.has_line(condition.get("shown_for") or "$^"):
+                    continue
+                share, how = self.ignited_ground_share()
+                percent = round(100 * share)
+                if percent > 0:
+                    self.ledger_shares[condition["id"]] = percent
+                    found.append(condition["id"])
+                notes.append({"label": condition["title"], "value": f"{share:.0%}", "basis": how,
+                              "play": "Keep the boss in your Ignited Ground: off it, these lines add nothing",
+                              "confidence": "MEDIUM-LOW (MECH-A's Ignited Ground share)"})
+                continue
             if condition.get("open_weakness"):
                 # (COV33, H5-3; COV34) the share of the fight's time the boss has an Open Weakness: MECH-A's
                 # conditions.open_weakness_up (MECH78), 0 without a source; these lines are `share:` lines
@@ -4921,6 +4935,13 @@ class Assumptions:
         share, how = getattr(self.build, "chilled_ground_up", None) or (0.0, "")
         share = min(max(number(share), 0.0), 1.0)
         return share, how or "no Chilled Ground source under the boss: 0"
+
+    def ignited_ground_share(self) -> tuple[float, str]:
+        """(share of the fight the boss stands in the build's Ignited Ground, how) for BossOnIgnitedGround (COV39):
+        MECH-A's build.ignited_ground_up (MECH79, conditions.ignited_ground), (0, ...) without a source or before it."""
+        share, how = getattr(self.build, "ignited_ground_up", None) or (0.0, "")
+        share = min(max(number(share), 0.0), 1.0)
+        return share, how or "no Ignited Ground source under the boss: 0"
 
     # Sources that reveal weaknesses on a boss (COV33): the Mods / passive stats that do (checked: every Stats id holding
     # "weakness" with "open" or "reveal" and its carriers in Mods, PassiveSkills and the skill stat sets: Mods

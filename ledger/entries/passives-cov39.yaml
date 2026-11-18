@@ -1,0 +1,33 @@
+# Desert's Scorn (the Delirium anoint, PoB tree.lua; COV39, 17 Nov 2026; MECH85's note: modelled with no ledger entry):
+# "Enemies standing on Ignited Ground take 25% increased Cold Damage" (game stat enemies_in_ignited_ground_take_+%_cold_damage),
+# the notable's second line beside COV32's Chilled Ground / Fire one (passives-cov32.yaml). PoB leaves it unparsed
+# (ModCache 7333: nil + the whole text), so it counted 0 (an UNDERCOUNT for a build that makes Ignited Ground under the
+# boss). It now counts at the share of the fight the boss stands in the build's own Ignited Ground: MECH-A's
+# build.ignited_ground_up (MECH79, conditions.ignited_ground, set "for COV-A": (share, how), 0 without a source).
+
+- id: BossOnIgnitedGround
+  title: The share of the fight the boss stands in your Ignited Ground (MECH-A's, from the build's own Ignited Ground)
+  kind: condition
+  # Assumptions.ledger_conditions reads build.ignited_ground_up (MECH79); 0 without an Ignited Ground source
+  ignited_ground: true
+  shown_for: "(?:Enemies standing on Ignited Ground take|^Allocates Desert's Scorn$)"
+  confidence: theory
+  sources: ["builder/search/conditions.py ignited_ground (MECH79)"]
+  status: proposed
+
+- id: passives-desert-scorn-ignited-ground-cold-taken
+  title: Desert's Scorn, Enemies standing on Ignited Ground take 25% increased Cold Damage, at the boss's share of the fight in your Ignited Ground
+  kind: pob_gap
+  match: '^Enemies standing on Ignited Ground take (\d+)% increased Cold Damage$'
+  replace: ['share:BossOnIgnitedGround Nearby Enemies take {1}% increased Cold Damage']
+  confidence: theory
+  notes: >-
+    PoB leaves the line unparsed (ModCache 7333). The stand-in "Nearby Enemies take N% increased Cold Damage" is PoB's
+    own enemy modifier (ModParser 1399: modSuffix Taken, applyToEnemy: ColdDamageTaken INC on the enemy), as COV32's Fire
+    half, counted at BossOnIgnitedGround's share, the time average of the boss standing in the build's Ignited Ground
+    (MECH-A's model, its sources and labels: the makers' grounds at the boss, LOW-MEDIUM; no source: 0, never a flat
+    rate). A build that wants both halves needs both grounds under the boss; each half reads its own share.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua:1399", "builder/search/conditions.py (ignited_ground, MECH79)",
+            "https://poe2db.tw/us/Desert%27s_Scorn"]
+  test_in_game: "Ignite the ground under a boss with Desert's Scorn anointed and compare a Cold hit's damage in and out of the Ignited Ground."
+  status: proposed
