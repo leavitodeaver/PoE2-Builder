@@ -1897,7 +1897,9 @@ class Assumptions:
         # (MECHB37: Dusk Vigil's Embers in a pause from casting; Tempest Caller's storms at the main spell's crits)
         dusk_mods, dusk_notes, dusk_groups = self.dusk_vigil(texts, stats, found, main)
         storm_mods, storm_notes, storm_groups = self.tempest_caller(texts, stats, found, main)
-        doom_mods, doom_notes = doom_mods + dusk_mods + storm_mods, doom_notes + dusk_notes + storm_notes
+        cannon_mods, cannon_notes = self.cannons_ready(texts, found)  # (MECHB37: Cannons, Ready!'s totems act on your shots)
+        doom_mods = doom_mods + dusk_mods + storm_mods + cannon_mods
+        doom_notes = doom_notes + dusk_notes + storm_notes + cannon_notes
         doom_groups = doom_groups | dusk_groups
         hand_mods, hand_notes = hand_mods + doom_mods, hand_notes + doom_notes
         # (MECHB29: Hayoxi's Fulmination's Annihilation, one per Cursed Ground area that persists 7 s)
@@ -5685,6 +5687,32 @@ class Assumptions:
                      "set": (row or {}).get("index")}
         mods, notes, groups = models.tempest_caller_model(texts, stats, found, main, storm)
         return mods, notes, {g: storm.get("set") for g in groups}
+
+    def cannons_ready(self, texts: list[str], found: list[models.Skill]) -> tuple[list[dict], list[dict]]:
+        """Cannons, Ready!'s totems at the player's projectile attacks (models.cannons_ready_model): each totem skill's
+        own uses a second and the player's fastest projectile Attack, from PoB's useRates."""
+        if not any(models.CANNONS_READY.search(t.strip()) for t in texts):
+            return [], []
+        build = self.build
+        before: dict[str, float] = {}  # this model's own Speed "less" from the last pass, divided back out
+        for mod in self.mods or []:
+            if mod.get("tag") == models.CANNONS_TAG and mod.get("name") == "Speed":
+                before[mod.get("skill")] = before.get(mod.get("skill"), 1.0) * (1 + number(mod.get("value")) / 100)
+        totems: list[tuple[str, float]] = []
+        player: tuple[str, float] | None = None
+        for skill in found:
+            if skill.group is None or not (skill.by_totem or (skill.projectile_attack and not skill.triggered)):
+                continue
+            spot = self.skill_spot(skill.group, skill.name)
+            if spot is None:
+                continue
+            rate = next(iter(build.call("useRates", indices=[spot[0]], actives=[spot[1]])["rates"]), {})
+            speed = number(rate.get("speed"))
+            if skill.by_totem:
+                totems.append((skill.name, speed / (before.get(skill.name) or 1.0)))
+            elif player is None or speed > player[1]:
+                player = (skill.name, speed)
+        return models.cannons_ready_model(texts, totems, player)
 
     def apply(self) -> bool:
         """Match PoB's assumed modifiers to the build. True if they changed."""

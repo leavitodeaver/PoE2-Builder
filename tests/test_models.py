@@ -6038,3 +6038,37 @@ def test_lioneyes_glare_repeats_only_with_the_boss_outside_the_presence():
     assert models.lioneye_model(["+10 to Dexterity"], {"PresenceRadius": 40}, main, 5.0, True) == ([], [])
     both = [line.replace("+2 times", "+1 time"), line]  # (both variants' lines reach the models: the current, +2, counts)
     assert models.lioneye_model(both, {"PresenceRadius": 40}, main, 5.0, True)[0][0]["value"] == 2
+
+
+def test_passthrough_rounds_pierce_a_fully_broken_boss_for_returning_projectiles():
+    """MECHB37 (COV40's route): "Projectiles Pierce enemies with Fully Broken Armour" (PoB: a player condition nothing
+    sets). Ironbound's return row pierces at 100%; another return source gets its missing pierce share against Fully
+    Broken Armour; without a return source the line adds nothing on a lone boss."""
+    arrow = models.Skill("Lightning Arrow", group=1, attack=True)
+    bow = {"Attack", "Projectile", "Lightning"}
+    iron = ["Arrows Return if they have Pierced a target which had Fully Broken Armour"]
+    passthrough = ["Projectiles Pierce enemies with Fully Broken Armour"]
+    assert models.return_model(iron, {"PierceCount": 0}, arrow, bow, [], {"Bow"})[0] == []
+    mods, _ = models.return_model(iron + passthrough, {"PierceCount": 0}, arrow, bow, [], {"Bow"})
+    assert mods == [models.line("1% more Damage against Enemies with Fully Broken Armour", 100.0, skill="Lightning Arrow")]
+    frost = models.Skill("Frostbolt", group=1, spell=True)
+    gems = [{"name": "Frostbolt", "quality": 0}, {"name": "Breachlord's Amalgam"}]
+    mods, _ = models.return_model(passthrough, {"PierceCount": 0.25}, frost, {"Spell", "Projectile", "Cold"}, gems, set())
+    assert mods[0]["scale"] == pytest.approx(25.0) and mods[1]["scale"] == pytest.approx(75.0)
+    assert mods[0]["line"] == "1% more Damage" and "Fully Broken" in mods[1]["line"]
+    assert models.return_model(passthrough, {"PierceCount": 0}, arrow, bow, [], {"Bow"}) == ([], [])
+
+
+def test_cannons_ready_totems_act_only_as_often_as_you_fire_projectile_attacks():
+    """MECHB37: Tactician's "Totems only use Skills when you fire an Attack Projectile" (PoB ignores it): each totem
+    skill's uses a second = min(its own, the player's projectile Attacks a second); none: x0."""
+    line = ["Totems only use Skills when you fire an Attack Projectile"]
+    mods, notes = models.cannons_ready_model(line, [("Artillery Ballista", 2.0)], ("Crossbow Shot", 1.5))
+    assert mods == [models.raw_mod("Speed", "MORE", -25.0, "Artillery Ballista", tag=models.CANNONS_TAG)]
+    assert notes[0]["value"] == "x0.750"
+    assert models.cannons_ready_model(line, [("Artillery Ballista", 1.0)], ("Crossbow Shot", 1.5))[0] == []
+    mods, notes = models.cannons_ready_model(line, [("Artillery Ballista", 1.0)], None)
+    assert mods[0]["name"] == "DPS" and mods[0]["value"] == -100 and notes[0]["value"] == "x0.000"
+    assert models.cannons_ready_model([], [("Artillery Ballista", 1.0)], None) == ([], [])
+    raw = {"name": "Ballista Bolt", "group": 1, "byTotem": True, "projectileAttack": False}
+    assert models.Skill.of(raw).by_totem and not models.Skill.of(raw).projectile_attack

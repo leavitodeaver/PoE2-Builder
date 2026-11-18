@@ -4330,6 +4330,12 @@ function bridge.activeSkills(args)
 			corpses = (types[SkillType.TargetsDestructibleCorpses] or types[SkillType.TargetsDestructibleRareCorpses]
 				or types[SkillType.CanTargetUnusableCorpse]) and true or nil,
 			triggered = types[SkillType.Triggered] and true or false,
+			-- (MECHB37, models.cannons_ready_model) used by a totem (PoB's totem flag or UsedByTotem), and an Attack the
+			-- player fires projectiles with (Projectile, CrossbowAmmoSkill or GroundTargetedProjectile: "Totems only use
+			-- Skills when you fire an Attack Projectile"; patch 0.2.1 / 0.5.0: skills firing upwards count)
+			byTotem = ((activeSkill.skillFlags and activeSkill.skillFlags.totem) or types[SkillType.UsedByTotem]) and true or false,
+			projectileAttack = (types[SkillType.Attack] and (types[SkillType.Projectile] or types[SkillType.CrossbowAmmoSkill]
+				or types[SkillType.GroundTargetedProjectile])) and true or false,
 			hitsOnUse = hitsOnUse(effect, types),
 			-- (MECHB12, AUDIT25 A25-41) a curse's own duration with the build's modifiers ("curse duration" is Duration
 			-- with the Curse keyword, ModParser 483): base x Duration / PrimaryDuration, as PoB builds a skill's duration

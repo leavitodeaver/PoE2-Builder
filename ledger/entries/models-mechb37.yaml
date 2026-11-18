@@ -48,3 +48,34 @@
     295.5 -> 561.5.
   sources: [builder/search/models.py (LIONEYE, lioneye_model), scratch/mechb37/p3317.log]
   status: proposed
+
+- id: model-read-cannons-ready-totems
+  title: '"Totems only use Skills when you fire an Attack Projectile" (models.cannons_ready_model)'
+  kind: pob_gap
+  model: cannons_ready
+  match: '^Totems only use Skills when you fire an Attack Projectile$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Tactician's Cannons, Ready! PoB applies its +1 Totem and 30% more Skill Speed but ignores this line, so it has every
+    totem act nonstop: an OVERCOUNT. models.cannons_ready_model: each totem skill's uses a second = min(its own, the
+    player's projectile Attacks a second: the main skill's, else the build's fastest Attack with Projectile /
+    CrossbowAmmoSkill, item-granted included); none: x0. Patch notes 0.2.1 / 0.5.0: skills firing upwards count.
+  sources: [builder/search/models.py (CANNONS_READY, cannons_ready_model), builder/search/assumptions.py (cannons_ready)]
+  status: proposed
+
+- id: model-read-passthrough-rounds-pierce
+  title: '"Projectiles Pierce enemies with Fully Broken Armour" (models.return_model)'
+  kind: pob_gap
+  model: return
+  match: '^Projectiles Pierce enemies with Fully Broken Armour$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Passthrough Rounds (COV40's route). PoB parses PierceCount +1 under the player's Condition ArmourFullyBroken, which
+    nothing sets (PoB sets only the enemy's): it never applies. On a lone boss a pierce adds a hit only through a return:
+    models.return_model pierces at 100% on Ironbound's Fully Broken row and adds the other return sources' missing pierce
+    share against Fully Broken Armour (weighed by its uptime). No return source: nothing (a lone boss can't be pierced
+    into a second target).
+  sources: [builder/search/models.py (PIERCE_BROKEN, return_model)]
+  status: proposed

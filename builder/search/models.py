@@ -254,6 +254,8 @@ class Skill:
     over_time_cost: dict | None = None
     # a totem-summoning skill's own base Totem Limit, without the build's "+N" lines (bridge totemLimitOwn; MECHB34)
     totem_limit_own: float = 0.0
+    by_totem: bool = False  # used by a totem (bridge activeSkills byTotem; MECHB37 cannons_ready_model)
+    projectile_attack: bool = False  # an Attack that fires projectiles (bridge projectileAttack; cannons_ready_model)
 
     @classmethod
     def of(cls, raw: dict) -> Skill:
@@ -265,7 +267,7 @@ class Skill:
                    dict(raw.get("supportStats") or {}), raw.get("earlyHazard"), number(raw.get("energyFinal")),
                    number(raw.get("totalTimeAdded")), raw.get("statSet"), number(raw.get("totemLimit")),
                    raw.get("ailmentTotems"), number(raw.get("markDuration")), raw.get("overTimeCost"),
-                   number(raw.get("totemLimitOwn")))
+                   number(raw.get("totemLimitOwn")), bool(raw.get("byTotem")), bool(raw.get("projectileAttack")))
 
 
 def hits_per_second(stats: dict) -> float:
@@ -11854,6 +11856,14 @@ CADIRO_ARROWS = re.compile(r"^Each Arrow fired is a Crescendo, Splinter, Reversi
 CADIRO_REVERSING_SHARE = 1 / 6
 IRONBOUND_RETURN = re.compile(r"^Arrows Return if they have Pierced a target which had Fully Broken Armour$", re.I)
 PIERCE_TIMES_RETURN = re.compile(r"^Attack Projectiles Return if they Pierced at least (\d+) times", re.I)
+# (MECHB37; COV40's route) Passthrough Rounds' "Projectiles Pierce enemies with Fully Broken Armour": PoB reads it as
+# PierceCount +1 under the PLAYER's Condition ArmourFullyBroken (ModCache 8987), which nothing sets (checked: PoB sets only
+# the enemy's, ConfigOptions 1688-1694; builder/ and bridge.lua: no "ArmourFullyBroken"), so it never applies. On a lone
+# boss a pierce adds a hit only through a return (above), so it is read here: while the boss's Armour is Fully Broken
+# every projectile pierces it, so Ironbound's row (already only against Fully Broken Armour) pierces at 100%, and the other
+# return sources get the missing pierce share as "1% more Damage against Enemies with Fully Broken Armour" (the search
+# weighs it by the boss's Fully Broken uptime, as Ironbound's).
+PIERCE_BROKEN = re.compile(r"^Projectiles Pierce enemies with Fully Broken Armour$", re.I)
 AFTER_PIERCE_MORE = {"Pierce I": -20.0, "Pierce III": -20.0}  # the gems' game-file values, at one pierced target
 AFTER_PIERCE_QUALITY = frozenset({"Frostbolt", "High Velocity Rounds"})  # +1% more per quality after piercing
 RETURN_RULE = ("a returned projectile hits the boss again only if it pierced it on the way out (LOW, UNVERIFIED: a "
@@ -11908,11 +11918,19 @@ def return_model(texts: list[str], stats: dict, main: Skill | None, main_types: 
     factor, parts = returned_hit_factor(main, group_gems)
     returned = f"; the returned hit x{factor:.2f} ({', '.join(parts)})" if parts else ""
     mods: list[dict] = []
-    for share, label, text, how in (
-            (always, f"Returning projectiles ({main.name})", "1% more Damage", why),
+    broken = any(PIERCE_BROKEN.search(t.strip()) for t in texts)  # (Passthrough Rounds: see PIERCE_BROKEN)
+    rows = [(always, f"Returning projectiles ({main.name})", "1% more Damage", why, pierce),
             ((1 - always) if ironbound else 0.0, "Ironbound: arrows return after piercing a Fully Broken target",
              "1% more Damage against Enemies with Fully Broken Armour",
-             "counted while the boss's Armour is Fully Broken (the search weighs its uptime)")):
+             "counted while the boss's Armour is Fully Broken (the search weighs its uptime)"
+             + ("; Passthrough Rounds makes every projectile pierce it then" if broken else ""),
+             1.0 if broken else pierce)]
+    if broken and always and pierce < 1.0:
+        rows.append((always, f"Returning projectiles ({main.name}): Passthrough Rounds' pierce",
+                     "1% more Damage against Enemies with Fully Broken Armour",
+                     f"{why}; while the boss's Armour is Fully Broken, Passthrough Rounds makes every projectile pierce it "
+                     "(the search weighs that uptime)", 1.0 - pierce))
+    for share, label, text, how, pierce in rows:
         if not share:
             continue
         more = 100.0 * share * pierce * factor
@@ -12615,6 +12633,54 @@ def lioneye_model(texts: list[str], stats: dict, main: Skill | None, metres: flo
                      f"x{factor:.3f}")}
     return [raw_mod("RepeatCount", "BASE", repeats, main.name), raw_mod("DPS", "MORE", 100 * repeats, main.name),
             raw_mod("Speed", "MORE", 100 * (1 / (1 + REPEAT_TIME * repeats) - 1), main.name)], [note]
+
+
+# Cannons, Ready! (MECHB37; the coverage ranking's #85, an OVERCOUNT). Tactician's notable (PoB's tree: "+1 to maximum
+# number of Summoned Totems", "Skills used by Totems have 30% more Skill Speed", "Totems only use Skills when you fire an
+# Attack Projectile"): PoB applies the first two and ignores the third (coverage: "PoB ignores the line"), so it scores
+# every totem using its skill at its own speed whatever the player does. Patch notes: 0.2.1 and 0.5.0 fixed skills that
+# fire projectiles upwards (Hailstorm Rounds, Siege Cascade; Molten Blast, Rolling Magma, Oil Barrage, Power Charged
+# Falling Thunder) not setting them off: so any Attack the player fires a projectile with counts. Model: each totem uses
+# its skill at most once per player projectile attack, so a totem skill's uses a second = min(its own, P), P = the
+# player's projectile attacks a second: the fastest such skill the build has (useRates; item-granted ones included: a
+# crossbow's Basic Bolt, a bow's Bow Shot), which the player is taken to use between placements (a play strategy; its own
+# damage counted only if it's in Full DPS). A totem skill: PoB's totem flag or UsedByTotem (Artillery Ballista's damage is
+# its "Ballista Bolt"); an "attack projectile" skill: PoB's types Attack and Projectile, CrossbowAmmoSkill or
+# GroundTargetedProjectile, not used by a totem, not triggered (bridge activeSkills byTotem / projectileAttack). Probe
+# POE2T3329 (Artillery Ballista, a crossbow): Ballista Bolt 1.07 a second, Basic Bolt 2 a second. None: the totems never
+# act (0, said). As a Speed
+# "less" on each totem skill (its rate, ailments and all), divided back out on the next pass (tag cannons_ready).
+# Labelled: a totem busy mid-use when the player fires is taken to catch the next one (the lower of the two rates);
+# the player's attacks are taken as nonstop.
+CANNONS_READY = re.compile(r"^Totems only use Skills when you fire an Attack Projectile$", re.I)
+CANNONS_TAG = "cannons_ready"
+def cannons_ready_model(texts: list[str], totems: list[tuple[str, float]], player: tuple[str, float] | None
+                        ) -> tuple[list[dict], list[dict]]:
+    """Totems acting only on the player's projectile attacks. `totems`: (skill, its own uses a second without this
+    model's line); `player`: (skill, its uses a second) of the player's projectile attack, or None."""
+    if not any(CANNONS_READY.search(t.strip()) for t in texts) or not totems:
+        return [], []
+    rate = player[1] if player else 0.0
+    mods: list[dict] = []
+    notes: list[dict] = []
+    for skill, own in totems:
+        if own <= 0:
+            continue
+        keep = min(1.0, rate / own)
+        if keep <= 0:  # (no Speed of 0 for PoB to divide by: the damage instead)
+            mods.append(raw_mod("DPS", "MORE", -100, skill, tag=CANNONS_TAG))
+        elif keep < 1.0:
+            mods.append(raw_mod("Speed", "MORE", 100 * (keep - 1), skill, tag=CANNONS_TAG))
+        how = (f"you fire {player[0]} {rate:.2f} times a second" if player else
+               "the build has no Attack you fire projectiles with")
+        notes.append({"label": f"{skill}: Cannons, Ready! (totems act only when you fire)*", "value": f"x{keep:.3f}",
+                      "confidence": "MEDIUM",
+                      "basis": (f"each totem uses {skill} at most once per projectile Attack you fire: {how}, against its "
+                                f"own {own:.2f} a second (PoB ignores the line and has it act nonstop); a totem busy when "
+                                "you fire taken to catch the next one; your attacks taken as nonstop"),
+                      "play": (f"Keep firing {player[0]} so the totems act: without it {skill} x0; with it x{keep:.3f}"
+                               if player else f"Nothing in the build sets off the totems: {skill} x0")})
+    return mods, notes
 
 
 # Different Non-Instant skills used per 8 s (MECHB4; AUDIT7 A7-2, research/cast-speed-per-different-spell.md) -------------
