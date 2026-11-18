@@ -490,7 +490,10 @@ def test_a_never_on_line_a_model_reads_is_counted_and_one_nothing_reads_stays_op
     # left it too once MECHC37's conditionFullMana set its box, so "Armour while Bleeding" (bleeding yourself: nothing
     # sets PoB's box; checked with coverage.audit() on train 76's tree, 5 such rows, all status none) stands in)
     open_ = [r for line, r in never.items() if line.endswith("increased Armour while Bleeding")]
-    assert open_ and all(r["status"] == "none" for r in open_)
+    # (the manager, train 77: R30-7 marks one PoE1 unique's copy of the line unreachable, which isn't a model reading
+    # it: nothing READS the line if no row is "model" and at least one stays open)
+    assert open_ and all(r["status"] in ("none", "unreachable") for r in open_)
+    assert any(r["status"] == "none" for r in open_)
     assert not [line for line in never if line.endswith("increased Mana Regeneration Rate while moving")]
 
 
