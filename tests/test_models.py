@@ -1131,6 +1131,11 @@ def test_spell_totems_up_follow_the_charges_the_build_makes():
     assert models.totems_allowed(13) == 1 and models.totems_allowed(14) == 2 and models.totems_allowed(22) == 2
     # a spell outside a totem: nothing
     assert models.totem_model([fireball], stats, [], {}, fireball) == ([], [])
+    # (MECHB39, MECHC39's find) the totem's own active as the main skill: the socketed spell is read all the same
+    texts = ["Gain a Power Charge on Critical Hit"]
+    assert models.totem_model(skills, stats, texts, {"Spell Totem": 20}, totem) == \
+        models.totem_model(skills, stats, texts, {"Spell Totem": 20}, fireball)
+    assert models.totem_model([totem], stats, texts, {"Spell Totem": 20}, totem) == ([], [])  # (no spell socketed)
 
 
 def test_a_totems_crits_feed_no_meta_energy():

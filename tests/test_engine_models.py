@@ -347,6 +347,25 @@ def test_a_spell_totem_without_charges_deals_nothing(engine):
     assert search.gems.buttons() == ["Spell Totem"]  # you press the totem, not the spell it casts
 
 
+def test_a_spell_totem_as_the_main_active_still_needs_charges(engine):
+    """MECHB39 (an OVERCOUNT MECHC39 found, REAL POE2T3715): with Spell Totem's own active as the group's main skill,
+    Full DPS counted the totem's Fireball (103) with no charge check; totem_model now reads the socketed spell."""
+    payload = make_payload(BuildRequest(main_skill="Fireball", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Fireball"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    main = build.main_group()
+    old = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} for g in main["gems"]]
+    build.set_group(index=main["index"], gems=[{"name": "Spell Totem", "level": 20, "quality": 0}, *old],
+                    mainActiveSkill=1)
+    search.settle()  # (not resolve(): it would choose the main active again, and Fireball outscores the totem here)
+    group = build.main_group()
+    assert group["skills"][group["mainActiveSkill"] - 1]["name"] == "Spell Totem"
+    assert build.call("stats", fields=["FullDPS"])["FullDPS"] == pytest.approx(0, abs=1e-6)
+    assert any(n["label"] == "Spell Totems up on average (Fireball)" and n["value"] == 0 for n in search.assumptions.active)
+
+
 def test_electrocuting_arrows_rod_stats_scale_with_a_raw_effect_mod(engine):
     """MECH40: PoB counts Electrocuting Arrow's Rod quality stats always on (a Buff: extra Lightning on debuffed targets);
     models.rod_model scales them with a Raw BuffEffect / DebuffEffect MORE on the skill, which must reach PoB."""

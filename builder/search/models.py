@@ -1278,6 +1278,10 @@ def totem_model(skills: list[Skill], stats: dict, texts: list[str], levels: dict
     makes (3 per totem), and the damage its Power Charges add. PoB's DPS is one totem's."""
     from builder.search.conditions import _charge_rate, _extra_charges
 
+    if main is not None and main.name in TOTEM_METAS:
+        # (MECHB39; an OVERCOUNT MECHC39 found, REAL POE2T3715: with the totem's own active as the group's main skill,
+        # Full DPS still counted the socketed spell's damage with no charge check: the model reads that spell)
+        main = next((s for s in skills if s.group == main.group and s.spell and s.name not in TOTEM_METAS), None)
     if not cast_by_totem(skills, main) or not main.spell:
         return [], []
     # The totem's hits aren't yours (assumed, the cautious reading): charges made on your hits, crits or kills don't
