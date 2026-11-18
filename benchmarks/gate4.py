@@ -110,7 +110,7 @@ def fair_reference(engine: PobEngine, xml: str, request: BuildRequest) -> dict:
     their Full DPS flags kept), its PoB config reset as for every build the search makes (bridge resetConfig: the
     boss's preset; the author's quest choices are kept, resetConfig keeps every quest input), then the search's own
     scoring steps, as finalize_task runs them on a finished build: conditions and assumptions settled (Search.settle),
-    the conditions round, the play choices, press rates and exact uptimes. Returns its DPS, the floors it reads short
+    the conditions round, the play choices, press rates, exact uptimes and the Infused factor read again. Returns its DPS, the floors it reads short
     and the conditions it was granted."""
     from builder.search.inner import Search, boss_config, boss_stats
     from builder.search.skeletons import enumerate_skeletons
@@ -131,6 +131,8 @@ def fair_reference(engine: PobEngine, xml: str, request: BuildRequest) -> dict:
     search.resolve()
     search.press_round(float("inf"))
     search.weigh_uptimes()
+    if search.gems.refresh_infused():  # (the Infused factor in the finished state, as finalize_task: SEARCH28)
+        search.weigh_uptimes()
     return {"dps": build.objective.dps(build.stats), "short": [d[0] for d in build.objective.deficits(build.stats)],
             "conditions": sorted(search.conditions.active), "floor_stats": fair_floor_stats(build)}
 

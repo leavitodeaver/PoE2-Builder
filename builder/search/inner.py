@@ -11,6 +11,7 @@ Worker tasks (called through EnginePool.run_tasks):
 from __future__ import annotations
 
 import copy
+import math
 import os
 import random
 import re
@@ -26,6 +27,7 @@ from builder.request.schema import WeaponSwap
 from builder.search.assumptions import Assumptions, pressed_group
 from builder.search.conditions import (
     LOW_LIFE_LINE, LOW_LIFE_SHARE, MELEE_DISTANCE, STATIONARY_LINE, UPTIME, Conditions, distance_candidates,
+    moving_candidates,
 )
 from builder.search.context import GEM_LEVEL, GEM_QUALITY, Context, ItemOption, context_for
 from builder.search.gear import CHARM_SLOTS, Gear, SlotSpec, extra_ring_passive, is_flask_slot
@@ -752,7 +754,12 @@ class Search:
                if grp.get("enabled", True) for g in grp["gems"]):
             lines.append("Blasphemy: Curse Auras on enemies in your Presence (models.curse_uses)")
         lines += support_distance_lines(self.build.groups())
-        candidates = distance_candidates(lines, conditions.main_types, skill=getattr(conditions, "main_skill", ""))
+        # (the Presence radius in metres: the Presence-edge trial for "in your Presence" lines and the just-beyond one for
+        # "no enemies are in your Presence" lines, Lioneye's Glare; distance_candidates took 0 m before, so neither was
+        # tried: the manager's routing of MECH88's leftover, SEARCH28)
+        radius = number((self.build.call("stats", fields=["PresenceRadius"]) or {}).get("PresenceRadius")) / 10
+        candidates = distance_candidates(lines, conditions.main_types, presence_radius=radius,
+                                         skill=getattr(conditions, "main_skill", ""))
         before = conditions.distance
         if not candidates:
             conditions.distance = None
@@ -770,8 +777,15 @@ class Search:
             scores[metres] = self.build.score
         best = max(candidates, key=lambda m: (scores[m], m == natural))
         tried = ", ".join(f"{m:g} m {scores[m]:,.0f}" for m in candidates)
-        why = ("close range: the build leans into Presence, close-range or support lines" if best <= MELEE_DISTANCE
-               else "beyond its \"further than\" lines") + f" (score at {tried}, defence floors included)"
+        if best <= MELEE_DISTANCE:
+            why = "close range: the build leans into Presence, close-range or support lines"
+        elif radius > 0 and best == math.floor(radius * 10) / 10:
+            why = f"at the edge of its {radius:.1f} m Presence: \"in your Presence\" lines, the boss as far as it reaches"
+        elif radius > 0 and best == math.ceil(radius * 10) / 10 + 0.5:
+            why = f"just beyond its {radius:.1f} m Presence: \"no enemies in your Presence\" lines"
+        else:
+            why = "beyond its \"further than\" lines"
+        why += f" (score at {tried}, defence floors included)"
         conditions.distance = None if best == natural else (best, why)
         self.settle()
         return conditions.distance != before
@@ -804,6 +818,9 @@ class Search:
                 "basis": f"the build dodge rolls {conditions.rolling:.0%} of the time (the models' dodge-roll time), so its "
                          f"stationary lines would hold under {UPTIME:.0%} of the fight", "confidence": "theory"}
         else:
+            # (walking from the last round's choose_moving would switch standing still off in both arms of the trial;
+            # choose_moving, right after, chooses again)
+            conditions.moving = False
             conditions.stationary_off = None
             self.settle()
             still = self.build.score
@@ -816,6 +833,40 @@ class Search:
         if conditions.stationary_off != before:
             self.settle()
         return conditions.stationary_off != before
+
+    def choose_moving(self) -> bool:
+        """Walking while using skills is the player's choice (MECH86's conditionMoving; the manager's routing, SEARCH28): a
+        build with a "while moving" line PoB reads under Condition:Moving (conditions.moving_candidates: Spray and Pray's
+        damage against its Accuracy, Evasion or regeneration while moving) is scored standing and walking, all fight, and
+        the higher full score kept (defence floors and sustain included); the play note gives both DPS. A build that
+        choose_stationary already moves ("moving scored better") walks already: nothing to choose. Returns True if the
+        choice changed."""
+        conditions = self.conditions
+        before = bool(getattr(conditions, "moving", False))
+        self.play_notes.pop("moving", None)
+        lines = [line["text"] for line in self.build.call("sourceLines")["lines"]]
+        if not moving_candidates(lines) or conditions.stationary_off == "moving scored better":
+            if before:
+                conditions.moving = False
+                self.settle()
+            return before
+        conditions.moving = False
+        self.settle()
+        standing, standing_dps = self.build.score, self.build.objective.dps(self.build.stats)
+        conditions.moving = True
+        self.settle()
+        walking, walking_dps = self.build.score, self.build.objective.dps(self.build.stats)
+        if walking <= standing + EPSILON:
+            conditions.moving = False
+            self.settle()
+        chosen = "walking" if conditions.moving else "standing"
+        self.play_notes["moving"] = {
+            "label": f"Walk while attacking or casting: {'yes' if conditions.moving else 'no'}",
+            "value": f"{walking_dps if conditions.moving else standing_dps:,.0f} DPS",
+            "basis": f"the build's \"while moving\" lines: {walking_dps:,.0f} DPS walking all fight, {standing_dps:,.0f} "
+                     f"standing while using skills; {chosen} scores higher (full score, defence floors and sustain "
+                     f"included); the movement-speed penalty while using skills isn't scored", "confidence": "theory"}
+        return conditions.moving != before
 
     def weigh_life(self) -> None:
         """The boss's Low Life is fight-decided (the spec, item 1c): its last 35% of life ("Low Life if it has 35% of its
@@ -909,8 +960,10 @@ class Search:
 
     def choose_play(self) -> bool:
         """The play-style choices and fight weights (play_guide's spec): distance, standing still, Low Life."""
+        moving = getattr(self.conditions, "moving", False)  # (choose_stationary's trial sets it off; choose_moving chooses)
         changed = self.choose_distance()
         changed = self.choose_stationary() or changed
+        changed = self.choose_moving() or changed or self.conditions.moving != moving
         changed = self.choose_curse_lapse() or changed
         self.weigh_life()
         return changed
@@ -1815,6 +1868,12 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     # budget no worse: Gear.fill_empty)
     if search.gear.fill_empty(search.weigh_uptimes):
         trace.append(["fillers", round(build.score, 4)])
+    # The Infused factor read again in the finished build's state, after the last step that moves the conditions (the
+    # manager's routing of MECH88's leftover, SEARCH28: measured where the skill was chosen, it went stale through the
+    # play choices, presses and uptime weighing; 2b75e 0.273 -> 0.314), then the uptimes weighed on it
+    if search.gems.refresh_infused():
+        search.weigh_uptimes()
+        trace.append(["infused", round(build.score, 4)])
 
     search.gear.sync_flasks()
     search.gems.meta_candidates()  # the Meta gems the search can't propose yet, with why, for the result

@@ -1597,12 +1597,15 @@ def test_the_bridge_rates_each_ancestral_spirit_type_and_puts_pobs_choice_back(e
     build = search.build
     build.call("allocate", add=[39411], fields=[])  # Answered Call
     group = next(s["group"] for s in build.call("activeSkills")["skills"] if s["name"] == models.ANCESTRAL_SPIRITS)
+    # (SEARCH28: the totem's skeleton now holds a weapon it can use, so Shockwave Totem itself deals damage in Full DPS;
+    # before, on a Wand + Shield, it dealt 0 and the whole Full DPS was the spirit's. The spirit's part is the rise)
+    totem = build.call("stats", fields=["FullDPS"])["FullDPS"]
     build.call("setGroup", index=group, fullDPS=True, fields=[])
     before = build.call("stats", fields=["FullDPS"])["FullDPS"]
     types = build.call("minionTypes", index=group)["types"]
     assert len(types) == 4 and all(t["CombinedDPS"] > 0 for t in types)
     assert {t["id"] for t in types} >= {"AncestralSpiritTurtle", "AncestralSpiritHulk"}
-    assert before == pytest.approx(types[0]["CombinedDPS"])  # (PoB's Full DPS: one spirit of its first type)
+    assert before - totem == pytest.approx(types[0]["CombinedDPS"])  # (PoB's Full DPS: one spirit of its first type)
     assert build.call("stats", fields=["FullDPS"])["FullDPS"] == pytest.approx(before)  # (its choice put back)
 
 

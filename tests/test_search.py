@@ -3164,8 +3164,8 @@ def test_equal_scoring_distances_keep_the_nearer_one_whatever_order_pob_lists_th
 
     def chosen(lines):
         conditions = SimpleNamespace(distance=None, main_types={"Spell"})
-        build = SimpleNamespace(score=0.0, call=lambda name: {"lines": [{"text": t} for t in lines]},
-                                groups=lambda: [])
+        build = SimpleNamespace(score=0.0, call=lambda name, **kw: {"lines": [{"text": t} for t in lines]},
+                                groups=lambda: [])  # (the stats call, SEARCH28's Presence radius: none, 0 m)
         search = SimpleNamespace(conditions=conditions, build=build)
 
         def settle():  # the natural 5 m and close range score low; 8.5 m and 12.5 m score the same

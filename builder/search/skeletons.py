@@ -99,7 +99,12 @@ def main_hands(ctx: Context, skill: str, weapon_unique: str | None = None, swap:
     problems: list[str] = []
     types = gem.get("weaponTypes") or []
     attack = "Attack" in gem["skillTypes"]
-    if attack and types:
+    # (SEARCH28; MECHB37's finding) a skill that lists weapon types needs one of them whether or not it is an Attack:
+    # PoB disables a skill whose main hand isn't among them (CalcActiveSkill, "Skill requires a compatible main hand
+    # weapon"), and the totems are no Attacks themselves (Artillery Ballista, Siege Ballista, Mortar Cannon: Crossbow;
+    # Shockwave Totem, Ancestral Warrior Totem: their weapons), so they got caster skeletons and scored 0 until a
+    # crossbow was put on by hand (MECHB37's probes POE2T3325-3328)
+    if types:
         mains = [(t, "Warstaff" if t == "Staff" else None) for t in types if t != "None"]
         if "None" in types:
             mains.append((None, None))
@@ -114,7 +119,7 @@ def main_hands(ctx: Context, skill: str, weapon_unique: str | None = None, swap:
             return [], [f"weapon {weapon_unique} isn't a known unique"]
         fixed = (option.type, option.sub_type or "") if option.type == "Staff" else (option.type, None)
         mains = [m for m in mains if m[0] == fixed[0] and (m[1] is None or m[1] == fixed[1])] or \
-            ([(fixed[0], fixed[1] or None)] if not attack else [])
+            ([(fixed[0], fixed[1] or None)] if not (attack or types) else [])
         if not mains:
             problems.append(f"{skill} can't be used with {weapon_unique} ({option.type})")
     rules = game_rules()

@@ -764,7 +764,10 @@ class Gems:
                 base = main_dps(build.stats)
                 build.set_group(index=group["index"], mainActiveSkill=active, skillPart=part, statSet=stat_set)
                 factor = (base + share * (raw - base)) / raw if raw > 0 else 1.0
-                infused = {"label": label, "factor": factor, "share": share, "basis": basis + INFUSED_SCALED_NOTE}
+                infused = {"label": label, "factor": factor, "share": share, "basis": basis + INFUSED_SCALED_NOTE,
+                           # (the two casts' (skill part, stat set), for the factor measured again after the flow's last
+                           # state change: refresh_infused, SEARCH28)
+                           "skill": active, "plain": [before_part, before_set], "set": [part, stat_set]}
                 assumptions.infused = infused
             elif self.conditions is not None and not self.conditions.allows(label, assume):
                 continue
@@ -827,6 +830,26 @@ class Gems:
         assumptions.infused = infused
         assumptions.apply()
         settle_fn()
+
+    def refresh_infused(self) -> bool:
+        """The Infused factor measured again in the finished build's state (SEARCH28; the manager's routing of MECH88's
+        leftover): choose_active_skill measures it where the skill is chosen, but finalize's later steps (play choices,
+        press rates, granted presses, uptime weighing, fillers) move the conditions again, and a factor read in an
+        earlier state pins the skill to that state's damage (2b75e: 0.273 measured, 0.314 at the flow's end, MECH88).
+        Runs _infused_in_scored_state on the calculated skill if it is still the Infused set chosen. Returns True if the
+        factor moved."""
+        build, assumptions = self.build, self.assumptions
+        infused = getattr(assumptions, "infused", None) if assumptions is not None else None
+        group = build.main_group()
+        if not infused or self.settle is None or group is None or "plain" not in infused or "set" not in infused:
+            return False
+        active = group.get("mainActiveSkill") or 1
+        if active != infused.get("skill"):
+            return False
+        old = infused["factor"]
+        best = (None, active, infused["set"][0], infused["set"][1], infused)
+        self._infused_in_scored_state(group, best, tuple(infused["plain"]), self.settle)
+        return abs(infused["factor"] - old) > 1e-9
 
     # Persistent skills -------------------------------------------------------------------------
 

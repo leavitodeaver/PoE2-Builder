@@ -97,6 +97,8 @@ def test_gate4_fair_scores_the_reference_with_the_searchs_own_steps_and_a_reset_
                                                call=lambda name, **kw: calls.append(name),
                                                refresh=lambda: calls.append("refresh"))
             self.conditions = types.SimpleNamespace(active={"EnemyFrozen"})
+            # (SEARCH28: the Infused factor read again in the finished state, as finalize_task does)
+            self.gems = types.SimpleNamespace(refresh_infused=lambda: calls.append("infused") and False)
 
         def settle(self):
             calls.append("settle")
@@ -129,7 +131,7 @@ def test_gate4_fair_scores_the_reference_with_the_searchs_own_steps_and_a_reset_
     assert fair == {"dps": 621.0, "short": ["Spirit"], "conditions": ["EnemyFrozen"]}
     assert set(floor_stats) == set(gate4.FLOOR_STATS)
     assert calls == ["loadXml", "resetConfig", "refresh", "settle", "settle", "settle", "conditions", "play", "resolve",
-                     "press", "uptimes"]
+                     "press", "uptimes", "infused"]
 
 
 def test_gate4_judges_against_the_fair_reference_unless_asked_for_the_authors_toggles():
