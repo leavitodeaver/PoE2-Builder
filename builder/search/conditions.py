@@ -2538,8 +2538,8 @@ def reflected_ignite_burn(lines: list[str], stats: dict) -> tuple[float, str]:
 # mod is negative and takes PoB's 15 down; SelfShockEffect also carries the enemy's own EnemyShockMagnitude /
 # AilmentMagnitude (CalcDefence 2026), which the tool sets nowhere (checked: bosses.py, bridge.lua): LOW-MEDIUM); the box is on at the share of the fight
 # (MIN_UPTIME), so the defence floors (the worse of on / off) see you Shocked. The boss's own Shocks on you aren't set here
-# (boss_hits.ailment_rate gives their rate; not wired into the box: a separate OVERCOUNT of survival for every build,
-# left for the boss-side lane).
+# (not wired into the box); since MECHC37 they count as damage taken for every build at their average share
+# (boss_hits.boss_ailments_on_you, DamageTaken INC), skipped while this box is on (it already counts you Shocked).
 # PoB bug (MECH75; PATCH_CHECK's Mirror sweep, MD-9): its "Enemy entered Presence Recently?" box (ConfigOptions.lua 1672)
 # uses the same var as "Enemy exited Presence Recently?" (1669), conditionEnemyExitedPresenceRecently, so setting it turns
 # on BOTH Condition:ExitedPresenceRecently and Condition:EnteredPresenceRecently (an OVERCOUNT: the lines reading the other

@@ -1,0 +1,313 @@
+{
+ "seconds": 600,
+ "cpu_clock": true,
+ "seed_base": 2,
+ "hash_seed": "2",
+ "commit": "3e629970",
+ "boss": "Pinnacle (worst case): {'enemyFireResist': 45, 'enemyColdResist': 45, 'enemyLightningResist': 45, 'enemyChaosResist': 25, 'enemySpeed': 510, 'cullingStrikeUniqueThreshold': 4.6086, 'enemyPhysicalDamage': 1074, 'enemyFireDamage': 1282, 'enemyColdDamage': 0, 'enemyLightningDamage': 0, 'enemyChaosDamage': 0, 'enemyArmour': 9675, 'enemyEvasion': 1317, 'enemyLightningPen': 0, 'enemyColdPen': 0, 'enemyFirePen': 0}",
+ "verdict": "fair",
+ "rows": [
+  {
+   "name": "2b75d",
+   "skeleton": "Oracle \u00b7 Resonating Shield \u00b7 One Hand Mace + Shield",
+   "dps": 87920.08993512933,
+   "reference_dps": 215339.59859913174,
+   "ratio": 0.408285751933615,
+   "verdict": "fair",
+   "passed": false,
+   "reference_dps_toggled": 220275.14184511,
+   "ratio_toggled": 0.3991375930968723,
+   "feasible": true,
+   "failing": [],
+   "request": {
+    "schema_version": 1,
+    "name": "gate 4: 2b75d",
+    "notes": "",
+    "league": null,
+    "hardcore": false,
+    "level": 94,
+    "class_name": "Druid",
+    "ascendancies": [
+     "Oracle"
+    ],
+    "main_skill": "Resonating Shield",
+    "max_buttons": null,
+    "require": {
+     "skills": [],
+     "supports": [],
+     "passives": [
+      "Chaos Inoculation"
+     ],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "forbid": {
+     "skills": [],
+     "supports": [],
+     "passives": [],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "weapon_type": "One Hand Mace",
+    "weapon_unique": null,
+    "offhand": "shield",
+    "weapon_swap": "may",
+    "defence": "any",
+    "floors": {
+     "life": null,
+     "energy_shield": 3154,
+     "life_es": null,
+     "mana": null,
+     "ward": null,
+     "max_hit": {
+      "physical": 3945
+     },
+     "resists": {
+      "fire": 75,
+      "cold": 75,
+      "lightning": 75,
+      "chaos": 16
+     },
+     "block": null,
+     "evade": null,
+     "spare_spirit": null,
+     "recovery": null
+    },
+    "budget": {
+     "divines": null,
+     "gear_tier": "endgame",
+     "ssf": false
+    },
+    "objective": "boss",
+    "boss": null,
+    "dps_gate": null,
+    "allow_exploits": true,
+    "forbid_ledger_entries": [],
+    "seed_code": null,
+    "effort_minutes": 10
+   },
+   "code": "eNrlXW1X20iy_rz-FTrcM_fsnBjQ-wuX7B7zFshAIEDCJF_mCLuNlciWR5IBz5z89_tUtyRLsiTLwL3LzuaDgltV1dXV3dVV1dWt3X8-jn3pnoWRF0zebihb8obEJv1g4E3u3m58uj7atDf--Y_O7oUbj86HezPPpzfqPzp_2-U_JDfqs8lg33ej6IM7Zm83zkO377MNqT9y8VfMwlN2z_zeLA7OggHeD10_otcLjINw5g02JJ_g3m44-oY0dr3JVdD_zuJ3YTCbgq8NKXbDOxZ_TjmVf0PZvcceBNXry8PDDXD1t90L352z8Cp2YynC4-1GD61z79iBO8YTOK4_A4JiKbq1pWxsNyLtzcIoXg_zasrYIAOWt2yjDvIiZIfDIevH3j3bD714f-RO-ot6rC29FrUCXJHlJuizmR97U99j4QJjS1XrUI7XoX8dxK5_cHG1gNUNy9iSNaMZI4gXcqqD3PMhzjxtXbWVLcd0DFOXddWpw7vx4tESrmLbhrUlyzpH1ppwT-4mXszWahShXQReFEyeJIsnNHJ_5vuYjnnMWkFesoiF927sFdmrHzTB-NabPEl-vZC550Mxti_dgTeLzlgcsiijo27V4p65E3c_iFqMDIK8YCHUT7wWwhXrB9BYeRRFtVrUUo1bW92pN2TtIddqSYKwLjdPa8fhVVu4tQk_jaEbN1wDci3BJgjrcHOJtaEd5FUw81tCxgstrWp6_ZT-vQCp1EIesMcFmNFArwBYS-5ksmiEKpsN9IqQcj1_9wFpptWiuQ6921nMWgCSWj08vsggNUWRnS1LtixbdWoXvovRPPL6rn_mPnrj2Rjr4LX7nS0YM1RTq59jd6N4AoVch6w4tl7L8JEXsich7gf-4GmIIzeI6jC9ybAO73w4PHYng16_P4OJN88tD3qtXA_c8PuERVHbhQoLT2uMq6kHC6eNpSIgP03CpI4c621REn3SApNU7gKswV7s7xDoyaS_GGVNNKvYb4K_hDYjc_bWZ-0QGhory8013bFJUt283Zp0ylh_9A72_qXbZlbTcpzjpn7d5mIl6LxYG8lWiVVuNgyeJChCrBaUamwZTVhryupwwsK7-dXIY_6iSZphKm0QUub23WkrXC7vPIG83HVLb1fnWsMnj7qmaGidXzRLNprgqrlSjHoblkyCddty70b59U-TV0hawBeErDcQH7CSO1c_PBm8prUwLsLgG3mx_npoaIfvr4_xxNoO2NAntIBGCJbo1hhtK-iF42C2MMY0zTAae1DA5ztQc1YZJSIScckGs37BWlJqMbMAw56PeEqpLYaxpdjmSlQu9ir8elnEsdv_fhAM7tbr27UwivxdzaZTKGOaFG0JkMEFY8PLWeSWsRr4HDM6rxVVpckwa13BArhcgaasNDhb11LCWGpLo6lYqkU3W0CXa1jdnWdQmWOspTyQhuheLl6lqLXGVgHrZgT18ClCM6--e76fi8YhcNEQjosQ-mSVEYtarCOEYPIhEsdxdGXL0k3HslTHaUQrxnxgMlgI-sBJMWxNTjET-rwdUkTPCzcEgQ0pgvroM_5XsWslrFq5LnUsE5E-BbEbMxsX7al-DvzY9foSMMbexC2oHVU3dX1Lh9-5Pt0D5g78uYRBEvj3LOcj2razpZiWaauZ_9meKpGbcP0uleyechhuNc0yh0k8kkWxxAOL0nLn6Zpiyrptqq0rqRRvriYRhixUJW_plqMZmg7pm059cPAieMDUG1HYvIUPlYeGS7hQPrUjOGSTP-at6RfAW1VwOBnAvcSEbF1HGaOqmr3ZcBhJt3ieQjuly_YeIpbfuzRxpD13MqEgeR_xTzcWQPiFjQAmfnye-RPypjzfi-cJ1WtvDLMpig7c2JUGSTDjsxt67iRW-PZFqVDlhRFzw_4orWPx68j1_VusoGKk0D7IkedjK-UA76h9qQx2t_kmDP217_r9iPNyMpnOYmnCt1bGXtT_jRpLuyQ0sEK-r3N4dHS4f33y-TBhP4_Ch-lvk9n4lqQg_l_4i1fChoJ0fN-dRmyQbeh4-JMP9CtGZhMqm91GAhoyw0YNf3nAMNz9qBU1hCTSrZc8LU5n8a4NJfRrP_RoCOUJHY6nNOjZgIZQO5b4lsUSM4ITsvRpHLSTlNglypMSRtO-G8Xch2lDZZ-HPfJEqKRdU07GU9cviTYpa93V1_MpE8JbFkqMdxEMXW_o9dsLOLfvVJBNGmpqQ4Nr5yK-KGqDLDZwithJWSupcn1dkqooazW-WN-dF7FFURvkzAcuEsiKgwmk24rSoc96nk_mVKlnP2DziAY7tEgG0IbgGfSQMPBKBM_jEQvTN20oYZaICHC0NHvS8lay4rG5gpiopFVbeAgqj8pL2s16b2nGJmWtuqUQ0CmosvyblhqxROJyNvH6vLgNfuoKFCjwspbdmHjLhS4UZa0kkYZLCkJICltNNK6ye_eBN1jWNuWXzybInecX4Ivc4xcgk4VCWtE6QqbG99JsS8pq0eNw1oD9Kea20_OI0Hx9HgWats-jQHbmuBX25ZIZc9lovCwwM-u3XPEdi56Mn1nKT6Yg7Pkno3N3o_XSgRFLnnnV2pG9eh6tq3g2OYBImmfFolEruGqhO9rTEgvtWg0V8z_Z0FtWbeLF8wnBDDhua2_WUsoCP8fM9SmDJvCfR7C8o9miC2ppUQR_NsVmZ0rtfB0rv156QRyBKPfeDminIHoWl1j-x_Mcnd3t1B3c3Q8mQ-9OckWWGf9xxWJy6Hh9WQmvgNLsvNjnwY-hi4wxDpT6h7foGeZOUo6Eu3jL3WW44pM4tbAb4SmxwiOue_G-H0SItk1SPdgOb48xsmPRMZgU_nwdVHKOnoLHxZsGCoJsSK2BzP0P2nVYF3Gf4g5ryfXYvWfL5mBLXOQJ0vbPU4TEnb6nSvgTGskJVCNn0Bire0EUHbl9lvREFqEwzEockSGHNBnvO_a1vd9n7HqEwO4oIBM6xdW3TNmuxGeLrl-AO1kgtQKYx77TuEUWPtEtpRkjNahTDLWhBvBerkCXDacR4SIvK7kRtMyKXs9KZodnDdUUqxaa9lDKjNuOozUitGQ8v5nTgvEsWF7mR9MdeTVWS6aW9mdacFbc68sPIbNeskk4KZsLSiVPGPxR3OvHkn44Z1IwlI6R4Pk9CF1KqnJ96Qw6qo-iRaBQk3-SvEkf0VFMUOmdHxCYmA5dKel8CQuZJDSOVKVyynUfI7gZSedD6XqEwDaC7B_u0NTR7L_daRD9TyRdM-5YJhy8MaQ4kDB_2eQuHq1J-dqNXN8LmigjQQ27h94dy4y1Nag_jAK3jvhPRH2xJyNGgNtUC7ES-rMBk9SPHiRyhYT4iXQBreiGUZlvMCOVYx48JN5npNtYmFDeH1FIliKL0VI0twr-qh8gCL0Owgi-7Rrwi9U4CMPZlPZq9sM5CHAfISMg11MYsHEwOQrC8VKtDUiVityWTW0FSqU61xaLRRNaedavYq9KsTum0QKroI-0Fghl1oyVvOVOHGRILXCWRNemItJ_N9iRofS_cierqwgkSRIwoIVtmWFaKzHTGdq-suUFULFWiaVqGVzdzUtrodYCYe1u5od1chNEXQVft46ublD1Yqq1xVq7aXUL62pOS6urJTdUNc7O2cB0x6IVF4O2C1XVisaBB-eYqPTG44A6dNBKx1YQeIcH0qWeQoNiIzgIkpnm62Hzvbc5GfhPJeBRFITv0mF7LJghx4P5wxyRhu6LvDvPPx_yaNPSEpOi7c-iOBhjhxRbVSzksVqcgaN02cz7rvKK_8aRtyuwuWe9nbnWwiHnv-hPbLIFYSyxR_qP8gHmWcxgFrF3jDaX4UufxGx8zR7jhAXu1lNZlPjy9HfiyUtwZx5ojy3tbYSJUs5BUpxmgD6dwksjDFGb2PkFFe76m7RTzremKQuIN_ASv-P5jvTpw8nHT4eddyEZepS7BsrjzpU7nY4wmjrJjvaOhAQaCckJW_KiKJkDHbEnDBMye6N2uKrBEYEdSe6cemOPXsfBjqR1ICEfhmgc0as_E7Z2lB9v9J9S0wc7VBQUgzW6MKwiaYqOF_vlZK0W-c3oqD_emM-gQ52O3uZrSxo0CekHTy9Kx1QBQl2G2N0myRe7QCuK_bJ3edg5h4E09v4AP3vBYJ6Y3p0j5oo5IV26HvHfKdjfkK5jdjhdLuQdyVY7H2euz-mqck70tpyXttKxfyK_QKhIyYtw6hJOtjQMg7FE4XLplg0DdDMF3ztvdNEfZE_kxNd54-hUPBZhuKJrkCGRIsojvYxYSxDaSgi9XdfYjV0Dv-ieRZ3eYMRVLUY9ckw6oq8gVMUud4-mNvWOOPmK7rjqYFOO7Ugng8CnbrnywhCpabXdp3b-xNyHkRb_-DME5g87772J_AKJL2ZlwD0oCEbjBv5eSOmlgL_ygwfyXC6CGMBzPi7YLU-fgdP3JZhlfVnl5XTeqPwVsUqoNNl4bEnicZ6ooxi1zPUGg0hSLMJXHSldt9NRiVIBHb1Qh5cgjJUQZrtB46xWqe4Yq0w0hWOHKTy-RWgLstgLEB3uJJYlxo9pdvYgpIXuRG75zOepShErv0JvYobeQYrLL8bILSGtsVDHRRilrMuRcdlOl_95C0LQrIvqpVJzBITyo7JY-5Fnr4xarbkUs6i5_sTyHu1ENIB-pFQLQyzNEE1nAO_CHfTgj7_DGttUdPnnPHga3RDp4vnlo4i5qRgFPNHFNOTFaj2ExVKo7U2CRAMZx-3QZMDnl7kCrCHo182yarZQhbGpNuFRPogk8_e6XC8lCbl1tPxB_T-MsBAgQNyVYIF5Pv0puXcg84pU90vM5BKE1W6u640LRA_WLIs7p7OJm_0oLQC5ga3X6PSeD-MSpmEEk4TR_7GUbApC2RoNS65tNrzUmtW0VlhDUuc81cVYN7AeaVYlDI0QETL4iw2RqgGgKJUa_jPz_KlHh8PCTm_MYqxlsXRJCuWUuXczJhRzRKLv-diTz40DVa5ScH0KLBXnurWpaGKq86hTQT1wnDEstyKKCQ0kyz_nhwWZdwm8m8YVq3RKOWjaKeoPvmEFYpTzhlBm1OEFkTQPZoAaojmx1HcRNOa7vtIx3KAwQOtptwsZmmkr-VLwowIXiyVCr8QEExjSA_xDKDNNGvOUfaGoxL4Zh5lLAyLMNZ4i0alSCecDIrLxGR3OQt4t-UcSt6jJ5nVTbL4Dh5qJgVBKzwcUVg5V3iytG8nMIK5oBkRCSaLXxQUm0bPpPdDhBjCJkYYgfiiJXa2U2Qr6_8aTz1oJYa-EcFpO4GoT7RcXW9uDcBHmD2b9USeZwQsHtuCyXooEK8zqKZAof5_Dn8F8D8j8atMhlSxqlSxeziMf_mDG4n7g-Z3zEKcJoKCZH3d4mhLZ82JBWfCtKaWlZjESj91I-ruyqf0sLbA7VZZP6i4IsCTZh8IOJaPHXlY53IvM09TkTaM4-nnWFQeU0sOUEoVHymh80ozJNU2JZ25D4lqIeVSJR5n7Eo5fNOH9B6xgjSaMCB9hjIhdrwkmAmJqqRWR-bq6Ja_l2uLcNF8HklM2fDWs9W_1Orf1jSovj6tWoGLVK4K-UZZ2BnnwCxOaG0U7FHXBIleKaCyFQWoiHY1esyIXbKkk3vNG1TnXyU_NrIKxk53SGfomTXF4RVbzS-jt8hSUV4O0VK1q4-A_ZkjBizs57xZblnjbx__BwyQb_ppllUM9imx3eGo1HS6i0I9s_N9NEO1fN0HeqGa1Cbr29DAEA-mRj9QBf2MruSmAGVHv09j28vxYzlL4z5sblVpfXhmlOvsW0Im3zjW23Hl405_dZu7LgfswIe8F1rN0jMjAeqGqtSNS6lMiUllgqdCCNCJVKKyONZlGyRVLjQjb0a0fxbVBuNIwnVQYO9cjBH8w5oJBapzdwHoZYfjKcmH-QFC_zzATeDD_DQylLOWl8KY6SgTPTEZ1RcupFDatC2CpQNWMFahFs08tQhfjyrndGmUpsrBY8pLoQl34St3Uf16N3WiTUdf89WJPqzVF1SQ3Gle39-yB-Vhubuf1QamSh2PohVCp8OXRTZikQ-8R3ramVfiwqSd8mPPc6eQzTlmLbM5UuysFBb7Yo0vGo1K1r5G8K7xK026lNLX_38qML_VkfZL2ik1eZJXDeZPgh45PEo1Pf1_cfro8pRPGYqs8MfCzXfECTjOKdPWAGx6q8JQmPHX9qtT6qtRKPGG5VSJolQi5bdZKLLsSS-wAViI4NdUEcTW8XgkvgsbVMq4WMoUcanpTUesx1ukUjqBVV1EjXYQj1qhAxBSUtTHUtTG0NTBETEJZG2Mdrnprtru3ZqtP2d1a9Al-QZ87KScDQFTB8vVEshwTpCa4d4Co8l_roKt0c-ECX_xMCJBNx3kmb0TcIY2DyZS2jMIPuXnPbUzpv5Q1EHPz_0Ww1TWwhRZ5UrXQJkU8sXiI7CPcTxEi9-uK3y9xw8iMisQxIb5FSX99wCY_vz6CStMfuzw7Ce5S8NAb3JN3do1THFGWroQMINz9nf1EtD9O7jDBgPTFKa5dYaslSUvJBRFxciUGX77esfGpuPp7Aks8u3kz_z6xyvngpFwnjEZ4hnix4IWnQOEOKORUoZwuJsC73ukpXaDBi6K9OW5RSdOiCoVH5A4WbzwWh7ESbvPhMVFYzg-DyUGJ2yeT5MaXtNx3b6lh4kbz3kIEvP2lMn5kK7kWhC4NSRhldFcI_1tkne2CbRwP47nTidzkjbQgd_6sT5lynJzgVSTvZ3TzhWqxMGvVndAIuArJHeBiEzFatlH_NmcYfyzu20kTHJNb3FVZTGdKm6q8luf3tEsJkt85cjLIAwo4ccWLuBEHHXECZ-oR48Tzi0WJ6Hh54lFUUUtm1KsQYbS9GK2nSFukoDaF7VgmQiUvQXHj0MnJSU5yecElxDiYEFpC7GmS43QSmoLQKxXdXjiLuTiaZJfCtJBfCvoSMkxpvVY55sR4zIZxtfDEmyaZEcTz5ilRSIi9UvmIu8Cyq8CqBFW-LqxJZAVyz5PdATmN-EhGlFB7hXLMz9fDx6kfeHF6uKNalAmQtIBqEmaJ5PPEWSJWlOauWPfWsgMS-SaGgDujDOcpfcQEIUm6L_gvahhgsyO9SC3pYSvfw_mL1qotgYxA7rsVz-vaBUsv25u3cO6mIyRf_NU6M8p6c2_RxEr7Lve-ujczgOd14aKe7dcopuLNgNWiKsFUi6sA9DyRVdxW-GIjPwzc8K876I-wrPY9Wll5Myt7M4ORBFB1dxYoUZXP69IiYy_Vpc_uyNQRR1QiF-LNbjolCe8oO8sZJV2pKqXkNS5qgjNxmVel4ZLPC6kzWhY0njcK8sy86jGg5K_U5RGdZMvmNXax6JOET-X4zO2zmqlPryRxr0hNV_M8akHjeV1dxdTTu_xlI1MrelzMenknySHoFrbgX6Xaz3aZ-bXy5_zOzGyy2_kRULO5XzsaYpcud62g_7zRUUO0wUTiFHLyTX7_v0pX3FFeObPKF5lXL6oFSs-TYJGpVyS3nON86X738C46wqm8usWHQ6RjUQA2Oc55ks8MtOYorQ5A_CvFiCwGFs-i64egJlZIp7V4PnCSK7YyYpgiCPgkbkjk835LESgNCALqdU3STEw4rU5n9flBdJHdUS2uPJxEn31sFlYenKCfqfhK1F7hyCuEvoLJPIySRaMm8EUg2UmDFLIx-JUn-szQV57USwe-XsZNzMyKa4TSdzT6kt9rNCJ7_JvI2C-d95DeNznin6SqXOr4e0kAVHZzRuB5fVvF0WvuWl1xrNfds2cBmbHnwzYxHwFL-XF10Z-CoVhF-aW6v5rtpaGQ_JleXiL28OlP6p10L5-3LblHlH7kvwWeJH-5WcX8crOJy1vIP_itJN8AT1OYxI8clMJHEWXuzpML4nmOCBJCaCApZlez7K6hWF1F17SuYqtaV1UNvavJutLVVAMPKqObEfEwlS4Nqi4-A-N0DXxlpmuott41LEXumrJidE2LHrZjdy1d1bsW0ke7lLXSxQc0za5tmE7XdmS765i62lVkXHRIT8Okp0MlqK0Ltiw8VcsCW_hGCz0tBZCabRhg1DQBb-ggg6cOrg3bQgmQ8NbijbFMgsQHXuipq3jr2BaaRgkwaKCj2l0VnwdS8KQa8XlYQ-6qumIaXeTyghPIgMoNw7C6qkkNVy2NKFg6YdkOwTuy7OCpayrkpekQpmyY-FtRNZuEB0lpQDC6mi6j-Rq-bKN1NYP40Ux84qjLlS-ejoW_bUUGpK1B3Jojo9WaY0CaGq5WcvDEl4fQAypaquOLiugNCEXt6ihAp-Dz1ijRLfShrtsWSgx8ZRpPR7G7ugnm8DTQr7hC07TpCdnqFprX1W1Zk_EE73gaBmg6OpU7JHlDlqmDZUWmp2HR0wT_hgzkrqGBOzzxnaYuugI1GrqhKnja6C_DQO91DRO3QeIJbDwdKkHtGDmWJWv0xNgxbBlD0bAVGyWO7NBTgyQhQQfjSUZf0RND0sQNAxqeBvraVHm5qmsmniZaZHI5mLpmkS7gyZxuOO8VZxSf18gLZ59pB4nSbOTfktzeXeRQCYU5iuNptLO9_fDwsDWFPxoM2SNOjG7hgzbbUxDC1N3kymaTKG338G_vLtobftyTe78G-3sfb77uPdonf9zdjw5Oz86th99uDxz549fL42-Hm71P072v50ea7Z4_hvPjj73h_qP95eTDlxG7Oj177waT73MWvXd6wTdP_XLGvsv69c3Fh5FtXH17eLg4OtvcOzz6fPlOOXTk2e3V5vsPwedf71Cje6bENzfGlH29OTn8ok-_KTe_fnBnSvhFO7zpfz6abx67vwzU9-bexPk83BwfKsGX9974l4930_Mb_8j9pH69-WN8rLo3RhiObXPw-Ze9o-DrPN43TSeU2R8Xtx9Y5PyiqOGoNzscGw_WjN2fvnN-Pzu8f_hyfDA9O9cfv1hHD9HXA_n99eXD4PqzcjG5eecMhtqe1p8NjImmhKOvm0cz_feDb5ebt5-NzdPp9834nakc36u_nd3Ym9eyMozCTe0EUn37VmjVtGeSxLcoWdfEryzvzqhMllsCM2ty4rbzxHfplurQG7C0ruymyPQFkqsePwhVSit8nPzNVelCgXLdyVVfUeEtVF2ihBL1w1UOVy2JIiFlwG-uTOhzTcsVqtB5iT7j-inRLokW4TpDaAuhG4RWWKEPFpogmfeFWZ6b38lszs3j5bkr5msyO7XF7YHbBelC8lj7-DJJi2O6SNIXj5IvOiFIyD_kVH9J1x9BkObAaeLXr9wmoL--JPdG7m5fYDKfD_md4YhVqP_o_C-U1jqN",
+   "play_guide": [
+    {
+     "var": "boss:moving",
+     "label": "Boss moving: Pinnacle (worst case)'s dashes, leaps and charges",
+     "kind": "fight",
+     "counted": false,
+     "play": "at most 55% of the fight moving in its own dashes / leaps / charges against Pinnacle (worst case) (an upper bound: each used off cooldown, 0.5 s of travel each, UNVERIFIED; walking is the player's choice and teleports don't count; MECHD3, RESEARCH22 #122); a melee skill can't reach it while it travels: 39,564 DPS at that ceiling, 87,920 with the boss in reach (the headline). Close the gap at once after each dash",
+     "dps_with": 87920.08993512933,
+     "dps_without": 39564.0404708082,
+     "change": 1.2222222222222223,
+     "confidence": "theory (an upper bound on the loss; the travel time UNVERIFIED, MECH-D's LOW)"
+    },
+    {
+     "var": "heavyStunnedSelf",
+     "label": "Heavily Stunned 45% of the fight while channelling with your shield raised*",
+     "kind": "player",
+     "counted": true,
+     "play": "channelling holds the shield raised and the bar never decays: 0.81 blocked boss hits a second (the 41% that are Blockable, one every 0.51 s; no Evasion while raised, so each builds stun: the manager's ruling), 46% of the bar each on average (Physical 40% of hits, 55% of the bar (72% if Melee); Fire 21% of hits, 51% of the bar (68% if Melee); Cold 15% of hits, 23% of the bar (31% if Melee); Lightning 21% of hits, 20% of the bar (26% if Melee): 0.65 (the game's HeavyStunDamageScalePlayer) x the hit after mitigation / Stun Threshold 2,805, a monster's Physical x2, its Melee x1.33 on 38% of hits), so a Heavy Stun every 3 blocked hits (3.7 s), 3 s each with no attacking, Block or Evasion: 45% of the fight. Releasing early to let it decay costs more time (2 s delay + up to 2 s of decay per bar), so not chosen (MEDIUM); every hit at its type's biggest ordinary hit (a harsh bound; the headline uses the average hit): 55% of the fight. 87,920 DPS with the Heavy Stuns (the headline), 159,315 if none landed. A higher Stun Threshold (Life; Unbreakable, Steadfast; Dionadair's double while raised) or more Evasion (an equal chance to avoid the buildup) cuts them",
+     "dps_with": 87920.08993512933,
+     "dps_without": 159314.89459625634,
+     "change": -0.44813640835063945,
+     "confidence": "MEDIUM (the buildup factor is the game's constant; its formula PoB's for monsters)"
+    },
+    {
+     "var": "conditionEnemyArmourBroken",
+     "label": "Armour Broken (up 68% of the fight)",
+     "kind": "build",
+     "counted": true,
+     "uptime": 0.6815443862940653,
+     "dps_share": 0.17609847093444173,
+     "play": "kept up by the build's own rates 68% of the fight, counted at that share (95,154 DPS were it always up)",
+     "dps_with": 87920.08993512933,
+     "dps_without": 72437.49653313446,
+     "change": 0.21373727893692196,
+     "confidence": "theory"
+    },
+    {
+     "var": "enemyDistance",
+     "label": "Boss at 2 m (at 5 m instead)",
+     "kind": "player",
+     "counted": true,
+     "play": "stay within 2 m of the boss",
+     "dps_with": 87920.08993512933,
+     "dps_without": 71285.3668961859,
+     "change": -0.18920275276352821,
+     "confidence": "modelled"
+    },
+    {
+     "var": "bannerPlanted",
+     "label": "Banner placed (its share of the fight from Glory) (up 61% of the fight)",
+     "kind": "build",
+     "counted": true,
+     "uptime": 0.6142949999999999,
+     "dps_share": 0.08012823805941999,
+     "play": "kept up by the build's own rates 61% of the fight, counted at that share (92,343 DPS were it always up)",
+     "dps_with": 87920.08993512933,
+     "dps_without": 80875.20803860168,
+     "change": 0.0871080528555196,
+     "confidence": "theory"
+    }
+   ],
+   "evaluations": 159297,
+   "wall_seconds": 712.7,
+   "workers": 5,
+   "checks": [
+    {
+     "label": "Class",
+     "requested": "Druid",
+     "delivered": "Druid",
+     "ok": true,
+     "note": ""
+    },
+    {
+     "label": "Ascendancy",
+     "requested": "Oracle",
+     "delivered": "Oracle",
+     "ok": true,
+     "note": ""
+    },
+    {
+     "label": "Main skill",
+     "requested": "Resonating Shield",
+     "delivered": "Resonating Shield",
+     "ok": true,
+     "note": ""
+    },
+    {
+     "label": "Required passives",
+     "requested": "all of: Chaos Inoculation",
+     "delivered": "Chaos Inoculation",
+     "ok": true,
+     "note": ""
+    },
+    {
+     "label": "Weapon type",
+     "requested": "One Hand Mace",
+     "delivered": "One Hand Mace",
+     "ok": true,
+     "note": ""
+    },
+    {
+     "label": "Offhand",
+     "requested": "shield",
+     "delivered": "Shield",
+     "ok": true,
+     "note": ""
+    },
+    {
+     "label": "Energy shield",
+     "requested": "\u2265 3,154",
+     "delivered": "3,561",
+     "ok": true,
+     "note": ""
+    },
+    {
+     "label": "Fire resistance",
+     "requested": "\u2265 75",
+     "delivered": "75",
+     "ok": true,
+     "note": ""
+    },
+    {
+     "label": "Cold resistance",
+     "requested": "\u2265 75",
+     "delivered": "75",
+     "ok": true,
+     "note": ""
+    },
+    {
+     "label": "Lightning resistance",
+     "requested": "\u2265 75",
+     "delivered": "75",
+     "ok": true,
+     "note": ""
+    },
+    {
+     "label": "Chaos resistance",
+     "requested": "\u2265 16",
+     "delivered": "46",
+     "ok": true,
+     "note": ""
+    },
+    {
+     "label": "Physical max hit",
+     "requested": "\u2265 3,945",
+     "delivered": "5,263",
+     "ok": true,
+     "note": ""
+    },
+    {
+     "label": "Attribute requirements",
+     "requested": "met",
+     "delivered": "met",
+     "ok": true,
+     "note": ""
+    },
+    {
+     "label": "Spirit",
+     "requested": "not over-reserved",
+     "delivered": "18 spare",
+     "ok": true,
+     "note": ""
+    },
+    {
+     "label": "PoB warnings",
+     "requested": "none",
+     "delivered": "none",
+     "ok": true,
+     "note": "PoB flags things the game wouldn't allow, e.g. too many gem groups"
+    },
+    {
+     "label": "Survives the boss's hits",
+     "requested": "one hit of each type: Physical 2,248, Fire 8,993, Cold 7,494, Lightning 7,494, Chaos 2,511",
+     "delivered": "max hit Physical 5,263, Fire 19,840, Cold 19,840, Lightning 19,840, Chaos inf: survives every reading",
+     "ok": null,
+     "note": "Pinnacle (worst case): each type's biggest ordinary hit, from the real preset that hits hardest with it: Physical Xesht, We That Are One's GSBreachBossHandClapBlast, Fire Xesht, We That Are One's GSBreachBossHeadFireballImpact, Cold The Raven Trickster's GSTangmazuFrostComet, Lightning Arbiter of Divinity's GSAoDP1_ExtendoSpearComboVolatileExplode, Chaos The Raven Trickster's TBTangmazuRefractionBeamBounceChaos; level 82; spells by their own effectiveness, attacks 353.67 x the boss's multiplier x the skill's own; x unique 0.65 x the level's more (Elemental x4, Chaos x2); red-flash nukes, made to be walked out of, not in the row above: Fire 74,946 (Arbiter of Ash's GSDemonClawBossBulletHellDamageHigh; 18,736 at the low bound): survived only at the low bound; Physical 18,736 (Atziri, the Fell Serpent's GSAtziriFleshBubbleExplosion; 18,736 at the low bound): kills; raw HIGH (each skill's own size from the game files: spells by their own effectiveness, which reproduces poe2db's printed damage; attacks by the level's damage x the boss's multiplier x the skill's own BaseMultiplier; RESEARCH26 boss-damage-scale-r26.md); variety MEDIUM (the boss's damage multiplier on attacks only, not spells: PoB's boss exporter and poe2db); unique MEDIUM-HIGH (MonsterUnique5; no second source that pinnacles get it); level MEDIUM (hidden *_from_monster_level stats with no wording; all elemental vs converted-only unsettled: the low bound gives base elemental spells none); biggest LOW-MEDIUM (the biggest ordinary hit of each type the boss deals; red-flash nukes made to be walked out of have their own row; a hit of two types counts each part as its type's hit); mix LOW (each type's share of hits = its share of the boss's damaging skills; no use rates)"
+    },
+    {
+     "label": "Skill costs sustained",
+     "requested": "\u2265 10% by recovery",
+     "delivered": "20% of Mana",
+     "ok": true,
+     "note": "regeneration, leech, on-hit recovery, flasks (at the rate charge generation refills them in a boss fight), Recoup of the boss's hits and gains on Block, Life / Mana from kills, Remnants, charms and events at the build's own rates, against the per-second cost. Not counted yet (so the share may be low): recovery on Life when you lose a Spirit Charge, Life when your Trap is triggered, Life / Mana per Remnant's Rage (Sanguine Revelry), all Mana when a flask is Used; Life Recharge (Eternal Youth, Tetzlapokal's Desire: counted in the recovery floor, objective.life_recharge, not here: paying a Life cost likely resets its delay, \"Further loss of Life resets this delay\", so a Life cost paid more often than about every 4 s leaves it little to pay with; MEDIUM-LOW); recovery-rate modifiers on those per-event amounts; and Energy Shield paying a cost (Runic Ward: Assumptions.ward_paid holds Ward-cost skills to what Ward recovery, Remnants of Kalguur's included, pays for)"
+    },
+    {
+     "label": "Recovery vs boss damage %",
+     "requested": "not required",
+     "delivered": "4% (94/s of 2,280/s; Life 93/s, Energy Shield recharge 0/s); Energy Shield recharge runs 0% of the fight; every hit at its type's biggest ordinary hit (a harsh bound; the headline uses the average hit):5%",
+     "ok": null,
+     "note": "Life, Energy Shield and Mana regeneration, leech, on-hit recovery, flasks (at the rate a boss fight refills them), recoup and gains on Block, Life / Mana from kills, Remnants, charms and events (at the build's own rates), less skill costs, against the boss's damage per second after mitigation (PoB's boss preset: its hits that land, after evade and block, which red-flash hits ignore; less Deflection, LOW against red-flash hits). Mana counts only for damage Mind over Matter sends to it; Energy Shield recharge at the share of the fight it runs between the boss's landed hits (each restarts its delay, as does the damage over time a hit leaves and the build's own damage: its steady damage over time stops it, Heartbound Loop's damage on each minion death restarts it; MEDIUM); Life recharge (Eternal Youth, Tetzlapokal's Desire) at the same share"
+    }
+   ],
+   "reference_dps_fair": 215339.59859913174,
+   "ratio_fair": 0.408285751933615,
+   "reference_fair_short": [
+    "Physical max hit",
+    "Passive points over the level's budget",
+    "Spirit"
+   ],
+   "reference_fair_conditions": [
+    "conditionAtCloseRange",
+    "conditionBeenHitRecently",
+    "conditionCritRecently",
+    "conditionEnemyArmourBroken",
+    "conditionEnemyCursed",
+    "conditionEnemyIgnited",
+    "conditionHaveEnergyShield",
+    "conditionHitMeleeRecently",
+    "conditionIgnitedEnemyRecently",
+    "conditionSkillCritRecently",
+    "conditionUsedSkillRecently",
+    "enemyDistance",
+    "multiplierRage",
+    "overrideEnduranceCharges",
+    "scavengedPlatingStacks",
+    "useEnduranceCharges"
+   ]
+  }
+ ]
+}

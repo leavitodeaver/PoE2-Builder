@@ -1973,24 +1973,39 @@ class Assumptions:
                 "confidence": "MEDIUM (the line's own words; whether a DoT that can't bypass removes double Energy "
                               "Shield as Chaos does is UNVERIFIED: not counted)"}]
         build.self_poison = 0.0
+        build.boss_ignite = 0.0  # (MECHC37: the boss's Ignites on you, Build.added_stats' BossIgnitePerSecond)
+        # (MECHC37) one read for the boss's ailments on you: its own, for every build (boss_hits.boss_ailments_on_you, the
+        # manager's 17 Nov ruling), and the extra your items' "+N% chance to be ..." lines bring (self_ailments)
+        from builder.search import objective
+
+        added = getattr(build, "added_stats", None)
+        seen = {**build.call("stats", fields=sorted(set(boss_hits.SELF_BLEED_FIELDS) | set(objective.RECOVERY_INPUTS)
+                                                    | set(boss_hits.SELF_AILMENT_FIELDS))),
+                **(added() if callable(added) else {})}
+        request = getattr(getattr(build, "ctx", None), "request", None)
+        if getattr(request, "boss", None):
+            seen["_boss"] = request.boss
         if boss_hits.self_ailment_chances([e["text"] for e in source_lines]):
             # (MECHC35, COV38's sweep: "+N% chance to be Poisoned / Ignited / Shocked", Coat of Red's pattern above)
-            from builder.search import objective
-
-            added = getattr(build, "added_stats", None)
-            seen = {**build.call("stats", fields=sorted(set(boss_hits.SELF_BLEED_FIELDS) | set(objective.RECOVERY_INPUTS)
-                                                        | set(boss_hits.SELF_AILMENT_FIELDS))),
-                    **(added() if callable(added) else {})}
-            request = getattr(getattr(build, "ctx", None), "request", None)
-            if getattr(request, "boss", None):
-                seen["_boss"] = request.boss
             poison, burn, shocked, ail_notes = boss_hits.self_ailments([e["text"] for e in source_lines], seen)
             build.self_poison = poison  # (Life only, through Build.added_stats: objective.self_bleed_taken)
-            if burn > 0:
-                hand_mods = hand_mods + [models.line("1 Fire Damage taken per second", burn)]
+            # (MECHC37: the extra Ignite through Build.added_stats too: as PoB's Fire degen, objective.own_loss read it as
+            # a steady loss and held Energy Shield / Life Recharge at 0 all fight, an OVERCOUNT of damage taken)
+            build.boss_ignite += burn
             if shocked > 0:
                 hand_mods = hand_mods + [models.raw_mod("DamageTaken", "INC", shocked, tag="SelfShockChance")]
             hand_notes = hand_notes + ail_notes
+        config_in = build.call("getConfig")["input"]  # (PoB's Shocked box ticked: its Shock already counts all fight)
+        on_you = boss_hits.boss_ailments_on_you(seen, bool(config_in.get("conditionShocked")
+                                                           or config_in.get("conditionOnShockedGround")))
+        build.boss_ignite += on_you["ignite"]
+        if on_you["shock"] > 0:
+            hand_mods = hand_mods + [models.raw_mod("DamageTaken", "INC", on_you["shock"], tag="BossShock")]
+        hand_notes = hand_notes + on_you["notes"]
+        jade, jade_row = recovery_mod.jade_heritage(texts, number(seen.get("Life")), expiry=stats.get("_buff_expiry"))
+        if jade_row:  # (MECHC37, PATCH_CHECK L1-3: Jade Heritage's 10 Jade; Encase in Jade's Guard a row only)
+            hand_mods = hand_mods + [models.raw_mod("PhysicalDamageReduction", "BASE", jade, tag="JadeHeritage")]
+            hand_notes = hand_notes + [jade_row]
         if any(recovery_mod.EVERLASTING.match(t.strip()) for t in texts):
             # (MECHC36, PATCH_CHECK MB-14: Everlasting Sacrifice from the build's Energy Shield flows; the bridge's
             # setEverlastingSacrifice cuts the hit pools, both under PoB's Condition:EverlastingSacrifice)
@@ -3660,6 +3675,21 @@ class Assumptions:
                 info = build.call("flaskData", raws=[option.raw])["results"][0]
                 uses, uses_how = flasks.uses_per_second(info or {}, flasks.Charges.of(build), option.raw, "Mana")
                 recovery.mana_flask_income(income, stats, texts, uses, f"{option.name}: {uses_how}")
+        guard_rows: list[dict] = []
+        if any(recovery.MANA_FLASK_GUARD.match(t.strip()) for t in texts):
+            # (MECHC37, PATCH_CHECK H2-4: Glowswarm's Guard on Mana flask use, a row only: the manager's 17 Nov ruling (b))
+            option = (getattr(build, "equipped", {}) or {}).get("Flask 2")
+            amount, uses, uses_how = 0.0, 0.0, "no Mana flask equipped"
+            if option is not None:
+                info = build.call("flaskData", raws=[option.raw])["results"][0] or {}
+                gain = flasks.Charges.of(build)
+                uses, uses_how = flasks.uses_per_second(info, gain, option.raw, "Mana")
+                uses_how = f"{option.name}: {uses_how}"
+                amount = flasks.use_amount(info, gain, "Mana", option.raw)
+            expiry = (conditions_mod.buff_expiry(texts) if any(conditions_mod.BUFF_EXPIRY.search(t) for t in texts)
+                      else None)
+            if row := recovery.mana_flask_guard_row(texts, amount, uses, uses_how, number(stats.get("Life")), expiry):
+                guard_rows.append(row)
         warcries, warcry_how = 0.0, ""
         if has(recovery.WARCRY_BOTH) or has(recovery.WARCRY_LIFE):
             main_types = set((build.ctx.gems.get(main) or {}).get("skillTypes") or []) if main else set()
@@ -3728,7 +3758,7 @@ class Assumptions:
                     **(added() if callable(added) else {}), **income.rates}
             recovery.rift_income(income, seen, rift[0], rift[1])
         build.recovery_sources = {**income.rates, flasks.ES_STARTS_FIELD: starts}
-        return recovery.note(income) + leech
+        return recovery.note(income) + leech + guard_rows
 
     def soul_eater(self) -> tuple[list[dict], list[dict]]:
         """Soul Eater's average souls as "1% increased Skill Speed" x souls (the comment at SOUL_MAX)."""
@@ -4119,7 +4149,9 @@ class Assumptions:
         costs = (number(hit.get("LifePerSecondCost")) + max(number(hit.get(objective.BUILD_DEGEN)), 0.0) * share
                  + (0.0 if getattr(build, "dot_hits_es", False) and es > 0 else objective.self_bleed_taken(
                      {**hit, objective.SELF_BLEED_PER_SECOND: getattr(build, "self_bleed", 0.0),
-                      objective.SELF_POISON_PER_SECOND: getattr(build, "self_poison", 0.0)})))
+                      objective.SELF_POISON_PER_SECOND: getattr(build, "self_poison", 0.0)}))
+                 + objective.boss_ignite_taken({**hit, objective.BOSS_IGNITE_PER_SECOND: getattr(build, "boss_ignite", 0.0)})
+                 * share)  # (MECHC37: the boss's Ignites, at the Life share like the degen)
         # (MECHC32: your own item's Bleed, Life only)
         refill = max(sum(gains.values()) - costs, 0.0)
         refill_how = (", ".join(f"{k} {v:,.1f}" for k, v in gains.items() if v > 0) or "no other Life recovery") + (

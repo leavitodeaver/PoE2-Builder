@@ -895,7 +895,8 @@ def self_ailment_chances(texts: list[str]) -> dict[str, float]:
 
 
 def self_ailments(texts: list[str], stats: dict) -> tuple[float, float, float, list[dict]]:
-    """(Poison Chaos damage a second on Life before your damage-over-time modifiers, Ignite Fire damage a second for PoB,
+    """(Poison Chaos damage a second on Life before your damage-over-time modifiers, Ignite Fire damage a second (before
+    those modifiers; Build.added_stats' BossIgnitePerSecond, beside the boss's own),
     increased damage taken % from Shock, notes) from the build's "+N% chance to be Poisoned / Ignited / Shocked" lines
     (the comment above); zeros and no notes without one."""
     chances = self_ailment_chances(texts)
@@ -962,8 +963,8 @@ def self_ailments(texts: list[str], stats: dict) -> tuple[float, float, float, l
                                 f"Ignited {with_line:.0%} of the fight instead of {without:.0%}; only the strongest Ignite "
                                 f"burns: {IGNITE_SHARE_PER_SECOND:.0%} of the boss's average Fire hit ({hit:,.0f}) a second "
                                 f"for the extra share = {ignite:,.0f} a second, as Fire damage taken (your resistance and "
-                                "Energy Shield apply). The boss's own Ignites on you aren't scored for any build yet (an "
-                                "UNDERCOUNT); without the line: 0"),
+                                "Energy Shield apply), counted in the boss's damage per second beside the boss's own Ignites "
+                                "(boss_ailments_on_you, every build); without the line: 0"),
                       "confidence": "MEDIUM-LOW (the chance read as flat)"})
     if (x := chances.get("Shock", 0.0)) > 0:
         lightning = shares.get("Lightning", 0.0)
@@ -988,10 +989,143 @@ def self_ailments(texts: list[str], stats: dict) -> tuple[float, float, float, l
                                 f"{every_hit:.0%} of the fight instead of {without:.0%}; 20% increased damage taken x "
                                 f"{effect:.0%} (your effect of Shock on you) for the extra share = {shock:.1f}%. Lightning "
                                 f"hits only: Shocked {lightning_only:.0%}, "
-                                f"{20.0 * effect * (lightning_only - without):.1f}%. The boss's own Shocks on you aren't "
-                                "scored for any build yet (an UNDERCOUNT); without the line: 0"),
+                                f"{20.0 * effect * (lightning_only - without):.1f}%. The boss's own Shocks on you are "
+                                "counted for every build beside it (boss_ailments_on_you); without the line: 0"),
                       "confidence": "MEDIUM-LOW (the chance read as flat; every hit UNVERIFIED)"})
     return poison, ignite, shock, notes
+
+
+# The boss's OWN Ignite and Shock on you, as damage taken, for every build (MECHC37; the manager 17 Nov ~20:50, ruling (a)
+# on MECHC36's question: "YES, an accuracy fix"). Before, they were read only as rates (charms "Used when you become
+# Ignited / Shocked", the Ignited box, Energy Shield Recharge's wait in es_dot), never as damage: an UNDERCOUNT of damage
+# taken against Fire / Lightning bosses, the default Arbiter of Ash among them. PoB counts neither (checked: CalcDefence.lua
+# holds no Shock or Ignite damage on the player; its "Are you Shocked?" box adds 15% increased damage taken only while
+# ticked, ConfigOptions.lua 1082-1085, and "Are you Ignited?" is a Condition flag only, 1061-1063; the tool ticks the
+# Shocked box only for Overcharge / Redflare, conditions._self_shocked, and the Ignited box only for lines that read it).
+# - Ignite: KeywordPopups Ignite: "Fire damage per second equal to 20% of the Fire damage dealt by the Hit that inflicted
+#   it ... using the final damage dealt by the Hit, but not any modifiers on the target" (HIGH). So 20% of the boss's
+#   average Fire hit before your mitigation (mean_hits; the average is the lower reading: bigger hits Ignite more often
+#   and only the strongest Ignite burns: MEDIUM) a second, while Ignited: its landed Fire hits x ignite_chance x (1 -
+#   avoidance), 4 s x SelfIgniteDuration each, Ignited 1 - e^(-rate x length) of the fight (Poisson hits), at the defence
+#   cadence (enemySkillTime: the cautious side for damage taken, as self_ailments). It reaches the recovery share as
+#   incoming damage at PoB's FireTakenDotMult (objective.boss_ignite_taken) through Build.added_stats, NOT as PoB's Fire
+#   degen: PoB's degen is read as the build's own steady loss (objective.own_loss), which would hold Energy Shield and
+#   Life Recharge at 0 all fight; an Ignite's hold on Recharge is es_dot's (a share of the hits).
+# - Shock: KeywordPopups Shock: "causes targets to take 20% increased damage, and lasts 4 seconds on players" (HIGH), x
+#   PoB's SelfShockEffect (your "effect of Shock on you"), while Shocked: its landed Lightning hits x 1% per 4% of your
+#   Ailment Threshold dealt (KeywordPopups Shock) x the boss's Shock-chance stats (SHOCK_FACTORS) x (1 - avoidance), 4 s x
+#   SelfShockDuration each. Counted as the time-weighted average, DamageTaken INC on every hit (MEDIUM: the average over
+#   the fight; "while Shocked" is a row). PoB's {Type}TakenHit already holds the last pass's Shock, so the chance read
+#   from it includes being Shocked (a hit while Shocked is bigger and Shocks more often: real, a small fixed point).
+#   With PoB's Shocked box already ticked (Overcharge's reflected Shocks, Redflare Conduit), the defence reading counts
+#   you Shocked all fight, so none is added (no double count); the box's share doesn't take the boss's Shocks in (named).
+SHOCK_ON_PLAYER_INC = 20.0  # KeywordPopups Shock: "take 20% increased damage" (HIGH)
+
+
+def _avoid_share(stats: dict, kind: str) -> float:
+    """The share of `kind` (Ignite / Shock / Poison) not avoided: 1 - PoB's {kind}AvoidChance."""
+    return 1 - min(max(number(stats.get(f"{kind}AvoidChance")), 0.0), 100.0) / 100.0
+
+
+def _self_seconds(stats: dict, kind: str, base: float) -> float:
+    """An ailment's length on you: `base` x PoB's Self{kind}Duration (100 = unmodified)."""
+    key = f"Self{kind}Duration"
+    return base * (number(stats.get(key)) / 100 if key in stats else 1.0)
+
+
+def own_shock_chance(stats: dict, name: str | None = None) -> float:
+    """The chance one of the boss's landed Lightning hits Shocks you, before avoidance: 1% per 4% of your Ailment
+    Threshold dealt (KeywordPopups Shock) x the boss's Shock-chance stats (SHOCK_FACTORS)."""
+    name = name or boss_name(stats)
+    if type_shares(name).get("Lightning", 0.0) <= 0:
+        return 0.0
+    key = "LightningTakenHit"
+    taken = max(number(stats.get(key)) if key in stats else hit_sizes(name).get("Lightning", 0.0), 0.0)
+    threshold = number(stats.get("AilmentThreshold")) or 0.5 * number(stats.get("Life"))
+    if threshold <= 0:
+        return 1.0
+    return min(1.0, taken / threshold * SHOCK_PER_THRESHOLD * _factor(name, SHOCK_FACTORS, "Lightning"))
+
+
+def boss_ailments_on_you(stats: dict, shocked_box: bool = False) -> dict:
+    """The boss's own Ignite and Shock on you (the comment above): {"ignite": Fire damage a second before your damage-over-
+    time modifiers, "ignited": its share of the fight, "shock": increased damage taken % on average, "shocked": its share,
+    "shock_full": % while Shocked, "notes": play-guide rows}. `shocked_box`: PoB's Shocked box already ticked."""
+    name = boss_name(stats)
+    every = number(stats.get("enemySkillTime")) or 0.7
+    land = land_share(stats) / every
+    kinds = type_shares(name)
+    out = {"ignite": 0.0, "ignited": 0.0, "shock": 0.0, "shocked": 0.0, "shock_full": 0.0, "notes": []}
+
+    def up(rate: float, length: float) -> float:
+        return 1 - math.exp(-rate * length) if rate > 0 else 0.0
+
+    fire = kinds.get("Fire", 0.0)
+    if fire > 0 and land > 0:
+        chance, how = ignite_chance(stats, land)
+        kept = _avoid_share(stats, "Ignite")
+        length = _self_seconds(stats, "Ignite", IGNITE_SECONDS)
+        rate = land * fire * chance * kept
+        ignited = up(rate, length)
+        hit = mean_hits(name).get("Fire", 0.0)
+        out["ignite"], out["ignited"] = ignited * IGNITE_SHARE_PER_SECOND * hit, ignited
+        if kept <= 0:
+            value, play = "none: you can't be Ignited", "you can't be Ignited: the boss's Fire hits never burn you"
+        else:
+            value = f"{out['ignite']:,.0f} Fire damage a second on average (Ignited {ignited:.0%} of the fight)"
+            play = (f"the boss's Fire hits Ignite you {ignited:.0%} of the fight: {out['ignite']:,.0f} Fire damage a "
+                    "second before your resistance (Ignite avoidance, a larger Ailment Threshold or a shorter Ignite on "
+                    "you lowers it); without it: none")
+        out["notes"].append({
+            "label": "The boss Ignites you*", "value": value,
+            "basis": (f"{name}'s {land:.2f} landed hits/s (the defence cadence) x {fire:.0%} Fire x {chance:.0%} to "
+                      f"Ignite ({how}) x {kept:.0%} not avoided = {rate * 60:.1f} Ignites a minute, {length:g} s each: "
+                      f"Ignited {ignited:.0%} of the fight; an Ignite burns {IGNITE_SHARE_PER_SECOND:.0%} of the Igniting "
+                      f"hit's Fire damage a second (KeywordPopups Ignite), the boss's average Fire hit {hit:,.0f} before "
+                      f"your mitigation (the lower reading: bigger hits Ignite more and only the strongest burns) = "
+                      f"{out['ignite']:,.0f} a second on average, then your Fire resistance and damage-over-time "
+                      "modifiers; counted in the boss's damage per second for the recovery share. Energy Shield "
+                      "Recharge's wait already counted its burn. PoB counts none; without it: 0"),
+            "confidence": "MEDIUM (the game's Ignite rule; the Flammability chance MEDIUM-LOW; the average hit)",
+            "play": play})
+    lightning = kinds.get("Lightning", 0.0)
+    if lightning > 0 and land > 0:
+        chance = own_shock_chance(stats, name)
+        kept = _avoid_share(stats, "Shock")
+        length = _self_seconds(stats, "Shock", SHOCK_ON_PLAYER_SECONDS)
+        effect = max(number(stats.get("SelfShockEffect")), 0.0) / 100 if "SelfShockEffect" in stats else 1.0
+        rate = land * lightning * chance * kept
+        shocked = up(rate, length)
+        full = SHOCK_ON_PLAYER_INC * effect
+        out["shocked"], out["shock_full"] = shocked, full
+        out["shock"] = 0.0 if shocked_box else full * shocked
+        if kept <= 0 or effect <= 0:
+            value = "none: you can't be Shocked" if kept <= 0 else "none: you're unaffected by Shock"
+            play = "the boss's Shocks don't affect you"
+        elif shocked_box:
+            value = f"in PoB's Shocked box (Shocked {shocked:.0%} of the fight by the boss)"
+            play = (f"the boss Shocks you {shocked:.0%} of the fight; your own Shock source keeps PoB's Shocked box on, "
+                    "so the defences already count you Shocked")
+        else:
+            value = (f"+{out['shock']:.1f}% increased damage taken on average (Shocked {shocked:.0%} of the fight; "
+                     f"+{full:g}% while Shocked)")
+            play = (f"the boss's Lightning hits Shock you {shocked:.0%} of the fight: +{full:g}% damage taken while "
+                    f"Shocked, +{out['shock']:.1f}% on average (counted); Shock avoidance or a larger Ailment Threshold "
+                    "lowers it; without it: +0%")
+        out["notes"].append({
+            "label": "The boss Shocks you*", "value": value,
+            "basis": (f"{name}'s {land:.2f} landed hits/s (the defence cadence) x {lightning:.0%} Lightning x "
+                      f"{chance:.0%} to Shock (1% per 4% of your Ailment Threshold dealt, x the boss's Shock-chance "
+                      f"stats) x {kept:.0%} not avoided = {rate * 60:.1f} Shocks a minute, {length:g} s each: Shocked "
+                      f"{shocked:.0%} of the fight; {SHOCK_ON_PLAYER_INC:g}% increased damage taken (KeywordPopups "
+                      f"Shock) x {effect:.0%} (your effect of Shock on you) = {full:g}% while Shocked, "
+                      f"{full * shocked:.1f}% on average, "
+                      + ("not added: PoB's Shocked box is already on for your own Shock source, so the defences count "
+                         "you Shocked all fight" if shocked_box else "added to every hit as increased damage taken")
+                      + ". PoB counts none; without it: +0%"),
+            "confidence": "MEDIUM (the game's Shock rule; the average over the fight, not hit-by-hit timing)",
+            "play": play})
+    return out
 
 
 def ailment_rate(stats: dict, ailment: str, land: float) -> tuple[float, str]:

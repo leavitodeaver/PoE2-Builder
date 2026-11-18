@@ -1711,3 +1711,113 @@ def reprieve_stun_of(build, paid: float) -> tuple[float, str]:
     share, how = reprieve_heavy_stun(stats, scale, paid)
     how += _biggest_row(stats, lambda s: reprieve_heavy_stun(s, scale, paid)[0], lambda v: f"{v:.1%} of the fight")
     return share, how + (f" (threshold: {', '.join(what)})" if what else "")
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Part-time Guard as a play-guide row (MECHC37; the manager's 17 Nov ruling (b) on MECHC36's question: "the floors count
+# only what is up all the time, like every other part-time effect (the user's 9 Nov rule). Show the average-uptime Guard
+# as a row"). KeywordPopups Guard: "a buffer against damage from Hits ... until the buff expires or is depleted. You can
+# only have a single Guard buff at a time ... Your maximum amount of Guard is equal to 200% of your maximum Life" (HIGH).
+# PoB counts no PoE2 Guard (PLANS1's kw-guard plan: nothing sets GuardAbsorbLimit / Rate in PoB-PoE2), and the tool feeds
+# none to PoB, so a Guard row moves no defence number; even at full uptime it stays a row: any hit spends it and it
+# comes back only on the next grant (named for the manager: a floor term at full uptime would need a per-hit model).
+# Guard is in the game's Buff category (RESEARCH29): "Buffs on you expire N% slower" lengthens it (MECHC36's sprint row).
+# - Glowswarm (PATCH_CHECK H2-4; patch 0.5.0 gave it the line, 0.5.3 fixed values other than 100% (Loreweave can roll
+#   it): "Using a Mana Flask grants Guard equal to 100% of Flask's recovery amount for 4 seconds"; PoB parses it to
+#   nothing). Guard per use = N% x the Mana flask's recovery amount (PoB's manaTotal x the build's increased flask Mana
+#   recovery: "recovery amount" read as the amount it recovers, MEDIUM) x (1 + increased Guard gained), capped at 200% of
+#   maximum Life; up min(1, uses/s x its seconds) of the fight (uses paced by its charges: flasks.uses_per_second). Two
+#   such lines sum as one stat (MEDIUM).
+# - Jade Heritage + Encase in Jade (PATCH_CHECK L1-3; PLANS4's kw-jade plan; game 26650308 PassiveSkills
+#   AscendancyWarrior2Notable3: max_jade_stacks 10, buildup_jade_every_x_ms 1000, additional_physical_damage_reduction_%
+#   _per_jade 1; KeywordPopups Jade: "1% additional Physical Damage Reduction per stack. Maximum of 10"; patch 0.3.0:
+#   stacks "no longer lost when taking Physical Damage from a Hit"). PoB parses "Gain a stack of Jade every second" to
+#   nothing (ModCache 5656, leftover text), so the 10% has counted nowhere: an UNDERCOUNT. Counted: 10 stacks all fight
+#   after the first 10 s (Jade is lost only to Encase in Jade, which the headline doesn't press: its Guard is a row,
+#   so pressing it only lowers the counted defence), as PhysicalDamageReduction BASE 10 in PoB. (checked: Stats ids with
+#   "jade" in game 26650308: max_jade_stacks / buildup_jade_every_x_ms / additional_physical_damage_reduction_%_per_jade
+#   only on Jade Heritage, no Mods row; jade_count / virtual_damage_absorbed_per_jade_consumed / mtx_apply_jade_hit_effect
+#   on nothing; maximum_life_%_damage_absorbed_per_jade_consumed only on Encase in Jade; patch notes --history "Jade".)
+#   Row, with Encase in Jade pressed at 10 Jade: "Consume all stacks of Jade to grant Guard ... for each Jade consumed.
+#   You cannot gain Jade stacks while you have Guard" (PoB's gem text; the 0.2.0 rework): Guard (6 + 0.05 x quality)% of
+#   maximum Life a Jade (maximum_life_%_damage_absorbed_per_jade_consumed), for its duration D (4 s at level 1 to 4.95 s
+#   at 20; PoB grants it at level 1: ModCache 5714), then 10 s to refill: Guard up D / (10 + D), Jade averaging
+#   45 / (10 + D) stacks (the ramp 0..10 over 10 s, none while the Guard lasts). Whether another source's Guard also stops
+#   Jade (the text says "while you have Guard") is UNVERIFIED: not followed (no other Guard is counted anyway).
+MANA_FLASK_GUARD = re.compile(r"^Using a Mana Flask grants Guard equal to (\d+(?:\.\d+)?)% of (?:the )?Flask's recovery "
+                              r"amount for (\d+(?:\.\d+)?) seconds$", re.I)
+JADE_LINE = re.compile(r"^Gain a stack of Jade every second$", re.I)
+JADE_STACKS, JADE_PER_SECOND, JADE_DR = 10, 1.0, 1.0  # Jade Heritage's stats and KeywordPopups Jade (HIGH)
+ENCASE_PER_JADE, ENCASE_PER_QUALITY = 6.0, 0.05  # % of maximum Life a Jade; + per quality (PoB other.lua 5667-5669)
+ENCASE_SECONDS = 4.0  # level 1 (PoB grants it at level 1); 4.95 s at level 20
+GUARD_CAP = 2.0  # x maximum Life (KeywordPopups Guard)
+
+
+def _guard_inc(lines: list[str]) -> float:
+    return sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+               for t in lines if (m := GUARD_GAINED.match(t.strip())))
+
+
+def mana_flask_guard_row(texts: list[str], amount: float, uses: float, uses_how: str, life: float,
+                         expiry: tuple[float, str] | None = None) -> dict | None:
+    """The play row for "Using a Mana Flask grants Guard equal to N% of Flask's recovery amount for N seconds" (see the
+    note above), or None without the line. `amount`: the Mana flask's recovery a use; `uses`: its uses a second."""
+    found = [m for t in texts if (m := MANA_FLASK_GUARD.match(t.strip()))]
+    if not found:
+        return None
+    pct = sum(float(m.group(1)) for m in found)
+    seconds = max(float(m.group(2)) for m in found)
+    factor, factor_how = expiry or (1.0, "")
+    seconds *= factor
+    inc = _guard_inc(texts)
+    raw = pct / 100 * max(amount, 0.0) * (1 + inc / 100)
+    guard = min(raw, GUARD_CAP * max(life, 0.0))
+    up = min(1.0, max(uses, 0.0) * seconds)
+    capped = f" (capped at 200% of maximum Life from {raw:,.0f})" if raw > guard + 0.5 else ""
+    if guard <= 0 or up <= 0:
+        value = "0: " + ("no Mana flask use against the boss" if up <= 0 else "the Mana flask recovers nothing")
+    else:
+        value = f"{guard:,.0f} Guard for {seconds:.3g} s a use, up {up:.0%} of the fight ({guard * up:,.0f} on average)"
+    return {"label": "Guard from Mana Flask use (a row, not in the defences)*", "value": value,
+            "basis": (f"{pct:g}% of the Mana flask's {amount:,.0f} recovery a use"
+                      + (f" x {1 + inc / 100:.2f} (increased Guard gained)" if inc else "") + f" = {guard:,.0f} Guard"
+                      + capped + f", for {seconds:.3g} s" + (f" ({factor_how})" if factor != 1.0 else "")
+                      + f" after each use; {uses:.3f} uses/s ({uses_how}): up {up:.0%} of the fight. Guard absorbs hits "
+                      "until spent; part-time, so it's in no defence floor and not in PoB's numbers (the manager's 17 Nov "
+                      "ruling: floors count only what is up all the time); PoB counts no Guard; without it: none"),
+            "confidence": "MEDIUM (the line's words; the use rate from the flask's charges)",
+            "play": (f"use the Mana flask whenever it has charges: {guard:,.0f} Guard after each use, up {up:.0%} of "
+                     "the fight (without it: no Guard)" if guard > 0 and up > 0 else "")}
+
+
+def jade_heritage(texts: list[str], life: float, quality: float = 0.0, seconds: float = ENCASE_SECONDS,
+                  expiry: tuple[float, str] | None = None) -> tuple[float, dict | None]:
+    """(Physical Damage Reduction % counted, the row) for Jade Heritage (see the note above): (0, None) without it."""
+    if not any(JADE_LINE.match(t.strip()) for t in texts):
+        return 0.0, None
+    counted = JADE_STACKS * JADE_DR
+    factor, factor_how = expiry or (1.0, "")
+    length = seconds * factor
+    refill = JADE_STACKS / JADE_PER_SECOND
+    cycle = refill + length
+    per = ENCASE_PER_JADE + ENCASE_PER_QUALITY * quality
+    inc = _guard_inc(texts)
+    guard = min(JADE_STACKS * per / 100 * max(life, 0.0) * (1 + inc / 100), GUARD_CAP * max(life, 0.0))
+    up = length / cycle
+    stacks = (refill * (JADE_STACKS - 1) / 2) / cycle  # (0, 1, ..., 9 stacks a second each while refilling: 45)
+    return counted, {
+        "label": "Jade Heritage: Jade stacks*", "value": f"{counted:g}% additional Physical Damage Reduction (10 Jade)",
+        "basis": (f"a Jade a second up to {JADE_STACKS} (Jade Heritage), {JADE_DR:g}% additional Physical Damage "
+                  f"Reduction each (KeywordPopups Jade), kept when hit (patch 0.3.0): {counted:g}% all fight after the "
+                  "first 10 s, counted in PoB (it parses the line to nothing). Encase in Jade isn't pressed in the "
+                  "headline: its Guard is part-time, so a row only (the manager's 17 Nov ruling), and pressing it spends "
+                  f"the Jade. Row, pressing Encase in Jade at {JADE_STACKS} Jade: {guard:,.0f} Guard "
+                  f"({per:g}% of maximum Life a Jade" + (f", x {1 + inc / 100:.2f} increased Guard gained" if inc else "")
+                  + f") for {length:.3g} s" + (f" ({factor_how})" if factor != 1.0 else "")
+                  + f" (level 1, as PoB grants it; 4.95 s at level 20), then {refill:g} s to refill (no Jade while "
+                  f"Guarded): Guard up {up:.0%} of the fight, Jade averaging {stacks:.1f} stacks ({stacks * JADE_DR:.1f}% "
+                  "reduction)"),
+        "confidence": "HIGH (Jade's stats) / MEDIUM (the cycle row)",
+        "play": (f"without Encase in Jade (counted): {counted:g}% Physical Damage Reduction all fight; with it pressed "
+                 f"every {cycle:.3g} s: {guard:,.0f} Guard up {up:.0%} of the fight, but only {stacks * JADE_DR:.1f}% "
+                 "reduction on average")}

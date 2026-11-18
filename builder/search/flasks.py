@@ -851,6 +851,15 @@ def recovery_per_second(info: dict, gain: Charges, pool: str, raw: str = "", own
     return total * (1 + inc / 100) * less * uses
 
 
+def use_amount(info: dict, gain: Charges, pool: str, raw: str = "") -> float:
+    """A Life or Mana flask's recovery a use: PoB's lifeTotal / manaTotal x the build's increased flask recovery and its
+    "less" lines, as recovery_per_second's (MECHC37: Glowswarm's Guard, "N% of Flask's recovery amount")."""
+    total = info.get("lifeTotal" if pool == "Life" else "manaTotal") or 0
+    inc = gain.life_recovery_inc if pool == "Life" else gain.mana_recovery_inc
+    less = (1 - min(gain.life_flask_less, 100) / 100) if pool == "Life" else low_mana_more(raw, pool)
+    return max(total * (1 + inc / 100) * less, 0.0)
+
+
 # Life flask recovery on Energy Shield (MECHC23; AUDIT33 A33-1, an UNDERCOUNT for Energy Shield builds): "Life Recovery
 # from Flasks also applies to Energy Shield" (Shavronne's Satchel, Mods UniqueFlaskLifeRecoveryEnergyShield1, stat
 # life_recovery_from_flasks_also_recovers_energy_shield; poe2db: current), its "during Effect" form (PoB's ModCache 8489,

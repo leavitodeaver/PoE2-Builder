@@ -1938,6 +1938,58 @@ def test_chance_to_be_poisoned_ignited_shocked_lines_cost_you_at_the_bosss_hits(
     assert boss_hits.self_ailments(["+100% chance to be Shocked"], base)[2] <= 20.0
 
 
+def test_the_bosss_own_ignite_and_shock_on_you_count_as_damage_taken():
+    """MECHC37 (the manager's 17 Nov ruling (a)): the boss's own Ignites (20% of its average Fire hit a second while
+    Ignited) and Shocks (+20% damage taken x your effect of Shock on you, at the share Shocked) count for every build; a
+    boss without the type, your avoidance or unaffected-by-Shock cancels each; PoB's Shocked box already on adds none.
+    The Ignite reaches the recovery share through Build.added_stats at FireTakenDotMult, never as a steady own loss."""
+    from builder.search import boss_hits, objective
+
+    base = {"enemySkillTime": 1.0, "Life": 4000.0, "AilmentThreshold": 2000.0, "FireTakenHit": 2000.0,
+            "LightningTakenHit": 2000.0}
+    ash = boss_hits.boss_ailments_on_you({**base, "_boss": "Arbiter of Ash"})
+    assert ash["ignite"] > 0 and 0 < ash["ignited"] < 1 and ash["shock"] == 0.0 and len(ash["notes"]) == 1
+    hit = boss_hits.mean_hits("Arbiter of Ash")["Fire"]
+    assert ash["ignite"] == pytest.approx(ash["ignited"] * 0.20 * hit)
+    divinity = boss_hits.boss_ailments_on_you({**base, "_boss": "Arbiter of Divinity"})
+    assert divinity["ignite"] == 0.0 and divinity["shock"] > 0
+    assert divinity["shock"] == pytest.approx(20.0 * divinity["shocked"])
+    assert "without it" in divinity["notes"][0]["play"]
+    halved = boss_hits.boss_ailments_on_you({**base, "_boss": "Arbiter of Divinity", "SelfShockEffect": 50.0})
+    assert halved["shock"] == pytest.approx(divinity["shock"] / 2)
+    assert boss_hits.boss_ailments_on_you({**base, "_boss": "Arbiter of Divinity"}, shocked_box=True)["shock"] == 0.0
+    immune = boss_hits.boss_ailments_on_you({**base, "_boss": "Atziri, the Red Queen", "IgniteAvoidChance": 100,
+                                             "ShockAvoidChance": 100})
+    assert immune["ignite"] == 0.0 and immune["shock"] == 0.0
+    assert boss_hits.boss_ailments_on_you({**base, "_boss": "Zarokh, the Temporal"})["notes"] == []
+    # the recovery share: incoming damage at the Fire DoT multiplier, not a steady loss that stops Recharge
+    stats = {"EnergyShield": 3000.0, "EnergyShieldRecharge": 600.0, objective.BOSS_IGNITE_PER_SECOND: 400.0,
+             "FireTakenDotMult": 0.25}
+    assert objective.boss_ignite_taken(stats) == pytest.approx(100.0)
+    assert objective.own_loss(stats) == {"EnergyShield": 0.0, "Life": 0.0}
+
+
+def test_glowswarm_and_encase_in_jade_guard_are_rows_and_jade_heritage_counts_ten_stacks():
+    """MECHC37 (the manager's 17 Nov ruling (b): part-time Guard is a row, never in the floors): Glowswarm's Guard is 100%
+    of the Mana flask's recovery a use, up uses x 4 s of the fight, capped at 200% of maximum Life; Jade Heritage counts
+    its 10 Jade (10% additional Physical Damage Reduction) and shows Encase in Jade's Guard cycle as a row."""
+    from builder.search import recovery
+
+    line = ["Using a Mana Flask grants Guard equal to 100% of Flask's recovery amount for 4 seconds"]
+    assert recovery.mana_flask_guard_row(["+10 to maximum Life"], 500.0, 0.1, "", 3000.0) is None
+    row = recovery.mana_flask_guard_row(line, 500.0, 0.1, "test", 3000.0)
+    assert row["value"].startswith("500 Guard for 4 s") and "up 40%" in row["value"] and "without it" in row["play"]
+    capped = recovery.mana_flask_guard_row(line + ["50% increased Guard gained"], 5000.0, 1.0, "", 1000.0)
+    assert capped["value"].startswith("2,000 Guard") and "up 100%" in capped["value"]
+    slower = recovery.mana_flask_guard_row(line, 500.0, 0.1, "", 3000.0, (1.25, "Buffs on you expire slower"))
+    assert "for 5 s" in slower["value"] and "up 50%" in slower["value"]
+    assert recovery.mana_flask_guard_row(line, 500.0, 0.0, "", 3000.0)["value"].startswith("0:")
+    assert recovery.jade_heritage(["+10 to maximum Life"], 3000.0) == (0.0, None)
+    counted, jade = recovery.jade_heritage(["Gain a stack of Jade every second"], 3000.0)
+    assert counted == 10.0 and "1,800 Guard" in jade["play"] and "29% of the fight" in jade["play"]
+    assert "3.2% reduction" in jade["play"]
+
+
 def test_damage_from_blocks_with_a_raised_shield_counts_only_the_raised_blocks():
     """MECHC35 (COV38's sweep): the Ulaman suffix "You take 12% of damage from Blocked Hits with a raised Shield": a
     channelled shield all fight, every Block raised (12%); taps up 10% of the fight against a 50% Block chance, 10 / 55

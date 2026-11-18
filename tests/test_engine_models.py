@@ -1680,8 +1680,11 @@ def test_heartbound_damage_reaches_pobs_degen_recovery_and_the_life_flask(engine
     before = build.call("stats", fields=["TotalBuildDegen"]).get("TotalBuildDegen") or 0
     build.call("setAssumptions", mods=search.assumptions.mods + [models.line("1 Physical Damage taken per second", 300.0)],
                fields=[])
-    after = build.call("stats", fields=["TotalBuildDegen"])["TotalBuildDegen"]
-    assert after - before == pytest.approx(300.0, rel=0.05)
+    after = build.call("stats", fields=["TotalBuildDegen", "PhysicalTakenDotMult"])
+    # (MECHC37: x PoB's Physical damage-over-time multiplier: the boss's average Shock on you, DamageTaken INC, raises
+    # damage over time too; KeywordPopups Shock: "take 20% increased damage")
+    assert after["TotalBuildDegen"] - before == pytest.approx(300.0 * after["PhysicalTakenDotMult"], rel=0.05)
+    assert after["PhysicalTakenDotMult"] > 1.0  # (the default boss Shocks this bare build: more than 1)
     assert build.call("chargeGain")["lifeDegen"] > 0
     build.call("setAssumptions", mods=search.assumptions.mods, fields=[])
 
@@ -3527,3 +3530,67 @@ def test_the_armour_break_readers_take_the_bosses_own_armour(engine):
         print("PROBE boss armour", name, want, got)
         assert got == pytest.approx(want)
     build.call("setConfig", vars=bosses.defence_vars(), fields=[])
+
+
+def test_the_bosss_own_ignite_and_shock_reach_a_real_builds_damage_taken(engine):
+    """MECHC37 (the manager's 17 Nov ruling (a)): against the Arbiter of Ash (Fire) the build carries the boss's Ignite as
+    BossIgnitePerSecond in Build.added_stats (not PoB's Fire degen: TotalBuildDegen unmoved, so Recharge isn't held at 0)
+    and a "The boss Ignites you" row; against the Arbiter of Divinity (Lightning) its Shock raises PoB's damage taken on
+    hits (LightningTakenHit) by the average share, with a "The boss Shocks you" row."""
+    from builder.request.schema import Choices
+
+    def run(boss: str) -> Search:
+        payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"], boss=boss,
+                                            require=Choices(skills=["Mana Tempest"])))
+        skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+        search = Search(engine, None, payload, skeleton.as_dict(), 0)
+        search.setup(quests=False)
+        return search
+
+    ash = run("Arbiter of Ash")
+    note = next(n for n in ash.assumptions.active if n["label"] == "The boss Ignites you*")
+    added = ash.build.added_stats()
+    print("PROBE boss Ignite", note["value"], added.get("BossIgnitePerSecond"))
+    assert added.get("BossIgnitePerSecond", 0) > 0 and "Fire damage a second" in note["value"]
+    assert ash.build.call("stats", fields=["TotalBuildDegen"]).get("TotalBuildDegen", 0) == 0
+    divinity = run("Arbiter of Divinity")
+    build = divinity.build
+    note = next(n for n in divinity.assumptions.active if n["label"] == "The boss Shocks you*")
+    with_it = build.call("stats", fields=["LightningTakenHit"])["LightningTakenHit"]
+    build.call("setAssumptions", mods=[m for m in divinity.assumptions.mods if m.get("tag") != "BossShock"], fields=[])
+    without = build.call("stats", fields=["LightningTakenHit"])["LightningTakenHit"]
+    print("PROBE boss Shock", note["value"], with_it, without)
+    assert "increased damage taken on average" in note["value"] and with_it > without > 0
+
+
+def test_jade_heritage_counts_ten_percent_and_glowswarms_guard_is_only_a_row(engine):
+    """MECHC37 (PATCH_CHECK L1-3, H2-4; the manager's 17 Nov ruling (b)): "Gain a stack of Jade every second" (PoB: no
+    mod) puts 10% additional Physical Damage Reduction into PoB; Glowswarm's Guard on Mana flask use shows as a row and
+    moves no PoB number."""
+    from builder.search.context import ItemOption
+
+    search = spark_with(engine, [])
+    build = search.build
+    fields = ["PhysicalDamageReduction", "Life", "TotalEHP"]
+    before = build.call("stats", fields=fields)
+    amulet = chr(10).join(["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82", "Implicits: 0",
+                           "Gain a stack of Jade every second"])
+    build.call("equip", slot="Amulet", raw=amulet, fields=[])
+    search.settle()
+    jade = build.call("stats", fields=fields)
+    assert any(n["label"] == "Jade Heritage: Jade stacks*" for n in search.assumptions.active)
+    mana = chr(10).join(["Rarity: Normal", "Ultimate Mana Flask", "Item Level: 82", "Implicits: 0"])
+    ring = chr(10).join(["Rarity: Rare", "Test Ring", "Lazuli Ring", "Item Level: 82", "Implicits: 0",
+                         "Using a Mana Flask grants Guard equal to 100% of Flask's recovery amount for 4 seconds"])
+    belt = chr(10).join(["Rarity: Rare", "Test Belt", "Heavy Belt", "Item Level: 82", "Implicits: 0",
+                         "Flasks gain 1 charges per Second"])
+    build.call("equip", slot="Belt", raw=belt, fields=[])
+    build.call("equip", slot="Ring 1", raw=ring, fields=[])
+    build.call("equip", slot="Flask 2", raw=mana, active=True, fields=[])
+    build.equipped["Flask 2"] = ItemOption("Ultimate Mana Flask", "Ultimate Mana Flask", "Flask", None, mana, True, None,
+                                           "found", 82)
+    search.settle()
+    row = next(n for n in search.assumptions.active if n["label"].startswith("Guard from Mana Flask use"))
+    print("PROBE jade / guard", before, jade, row["value"])
+    assert jade["PhysicalDamageReduction"] == pytest.approx(before["PhysicalDamageReduction"] + 10)
+    assert "Guard for 4 s a use" in row["value"]

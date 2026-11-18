@@ -324,6 +324,9 @@ class Build:
         # (MECHC35, the same hook: the Poison your own item's "+N% chance to be Poisoned" brings, Life only)
         if (poison := getattr(self, "self_poison", 0.0) or 0.0) > 0:
             own["SelfPoisonPerSecond"] = poison
+        # (MECHC37, the same hook: the boss's Ignites on you, objective.boss_ignite_taken; not PoB's degen)
+        if (ignite := getattr(self, "boss_ignite", 0.0) or 0.0) > 0:
+            own["BossIgnitePerSecond"] = ignite
         # (MECHC35: Decree of Loyalty's "Damage over Time cannot bypass your Energy Shield", objective.DOT_HITS_ES)
         if getattr(self, "dot_hits_es", False):
             own["DotCannotBypassEnergyShield"] = 1

@@ -272,6 +272,22 @@ def self_bleed_taken(stats: dict) -> float:
             + poison * (number(stats.get("ChaosTakenDotMult")) if "ChaosTakenDotMult" in stats else 1.0))
 
 
+# (MECHC37) The boss's Ignites on you (boss_hits.boss_ailments_on_you, every build; plus the extra a "+N% chance to be
+# Ignited" line brings, boss_hits.self_ailments): Fire damage a second at the share of the fight you're Ignited, before
+# your damage-over-time modifiers, through Build.added_stats. Incoming damage for the recovery share at PoB's
+# FireTakenDotMult; NOT PoB's Fire degen, which own_loss reads as a steady loss holding Recharge at 0 all fight (the
+# Ignite's hold on Recharge is boss_hits.es_dot's, per Igniting hit).
+BOSS_IGNITE_PER_SECOND = "BossIgnitePerSecond"
+
+
+def boss_ignite_taken(stats: dict) -> float:
+    """Fire damage a second the boss's Ignites deal you on average, after your damage-over-time modifiers."""
+    burn = max(number(stats.get(BOSS_IGNITE_PER_SECOND)), 0.0)
+    if burn <= 0:
+        return 0.0
+    return burn * (number(stats.get("FireTakenDotMult")) if "FireTakenDotMult" in stats else 1.0)
+
+
 # (MECHC35; COV38's sweep, an UNDERCOUNT) Decree of Loyalty's "Damage over Time cannot bypass your Energy Shield" (PoB
 # parses it to nothing): with Energy Shield, your own Bleed and Poison (which "bypass Energy Shield", KeywordPopups) and
 # your own damage over time land on Energy Shield instead of Life (no bypass for them), Build.added_stats' flag.
@@ -403,7 +419,7 @@ def boss_recovery(stats: dict) -> dict:
     """Recovery per second against a boss, the boss's damage per second after mitigation, and the share recovered."""
     taken, hits, deflect = boss_taken(stats)
     own = max(number(stats.get(BUILD_DEGEN)), 0.0) + self_bleed_taken(stats)  # (MECHC32: your own item's Bleed)
-    incoming = sum(taken.values()) + own
+    incoming = sum(taken.values()) + own + boss_ignite_taken(stats)  # (MECHC37: the boss's Ignites on you)
     parts = {}
     for pool, (fields, cost) in RECOVERY_POOLS.items():
         back = recoup(stats, taken, pool) + on_block(stats, pool)
