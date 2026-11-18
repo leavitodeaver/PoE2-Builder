@@ -485,15 +485,16 @@ def test_a_never_on_line_a_model_reads_is_counted_and_one_nothing_reads_stays_op
     assert onslaught and all(r["status"] == "model" for r in onslaught)
     melee = [r for line, r in never.items() if "increased Melee Damage if you've dealt a Projectile Attack Hit" in line]
     assert melee and all(r["status"] == "model" for r in melee)
-    # (MECH86: the "while moving" lines this case used left the never-on list once conditions.conditionMoving set
-    # PoB's box; another never-on line nothing reads stands in. The manager, train 76: "Cast Speed while on Full Mana"
-    # left it too once MECHC37's conditionFullMana set its box, so "Armour while Bleeding" (bleeding yourself: nothing
-    # sets PoB's box; checked with coverage.audit() on train 76's tree, 5 such rows, all status none) stands in)
-    open_ = [r for line, r in never.items() if line.endswith("increased Armour while Bleeding")]
-    # (the manager, train 77: R30-7 marks one PoE1 unique's copy of the line unreachable, which isn't a model reading
-    # it: nothing READS the line if no row is "model" and at least one stays open)
-    assert open_ and all(r["status"] in ("none", "unreachable") for r in open_)
-    assert any(r["status"] == "none" for r in open_)
+    # The open half, independent of any one line (COV42, the manager 06:15: a fixed example broke twice, in trains 76
+    # and 77, each time a lane modelled it or R30-7 marked a copy unreachable): every never-on row still open is one no
+    # model and no condition the resolver sets reads, and some are open (a line PoB parses under a condition nothing
+    # sets always exists while PoB has Configuration-only conditions).
+    from builder.ledger import model_entry
+
+    open_ = [r for r in records if r["category"] == "never-on" and r["status"] == "none"]
+    assert open_ and not [r["line"] for r in open_ if model_entry(r["line"]) or coverage.resolver_condition(r["line"])]
+    assert all(r["status"] in ("model", "none", "ledger", "unreachable") for r in never.values())
+    # (MECH86: conditions.conditionMoving sets PoB's box, so the "while moving" lines are no longer never-on)
     assert not [line for line in never if line.endswith("increased Mana Regeneration Rate while moving")]
 
 

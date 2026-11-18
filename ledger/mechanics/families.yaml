@@ -19,7 +19,7 @@ moving-stationary: 'moving|stationary|sprinting|travel skills|tailwind|phasing|f
 life-mana-thresholds: 'low (life|mana|energy shield|runic ward)|full (life|mana|energy shield)|life loss|reserve life|blood magic'
 shapeshift: 'shapeshift\w*|animal|werewolf|wyvern|bear|spirit of the \w+|azmeri spirit|embrace of the wild|druidic prowess|bite'
 presence: 'presence( \w+)*|aura|auras|embankment auras|purity'
-thorns: 'thorns( damage to enemies)?|physical thorns|retaliat\w*( \w+)*|damage to (melee )?attackers|reflect(ed|ion)?'
+thorns: 'thorns( damage to enemies)?|physical thorns|retaliat\w*( \w+)*|damage to (melee )?attackers|attackers?|reflect(ed|ion)?'
 ancestral-boost: 'ancestral\w*( boost\w*)?|empower\w*( attacks| skills)?|empowerment'
 aftershock: 'aftershocks?|echo|repeat|bow repeat|slams|slam skills?'
 triggered-skills: 'triggers?|cast on \w+|herald skills?|herald modifier|effigy'
