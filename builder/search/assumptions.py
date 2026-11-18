@@ -1907,8 +1907,11 @@ class Assumptions:
         dusk_mods, dusk_notes, dusk_groups = self.dusk_vigil(texts, stats, found, main)
         storm_mods, storm_notes, storm_groups = self.tempest_caller(texts, stats, found, main)
         cannon_mods, cannon_notes = self.cannons_ready(texts, found)  # (MECHB37: Cannons, Ready!'s totems act on your shots)
-        doom_mods = doom_mods + dusk_mods + storm_mods + cannon_mods
-        doom_notes = doom_notes + dusk_notes + storm_notes + cannon_notes
+        # (MECHB38: Valako's Charge at the rate the boss's Lightning hits fill it; its side group in Full DPS)
+        valako_mods, valako_notes, valako_groups = self.valakos_charge(stats, found, main)
+        storm_groups = {**storm_groups, **valako_groups}
+        doom_mods = doom_mods + dusk_mods + storm_mods + cannon_mods + valako_mods
+        doom_notes = doom_notes + dusk_notes + storm_notes + cannon_notes + valako_notes
         doom_groups = doom_groups | dusk_groups
         hand_mods, hand_notes = hand_mods + doom_mods, hand_notes + doom_notes
         # (MECHB29: Hayoxi's Fulmination's Annihilation, one per Cursed Ground area that persists 7 s)
@@ -1918,6 +1921,8 @@ class Assumptions:
         # (MECHB9: the build's kills, enemies and own minions Killed (the ruling on A17-4), for on-Kill readers:
         # build.kills = (enemies/s, all/s, how); Heartbound Loop's damage taken at the minion-death rate: build.self_damage)
         build.kills = models.kill_rate(stats, *models.minion_deaths(found, main, stats))
+        if any(models.CONSUMED_CORPSE.search(t) for t in texts):  # (MECHB38: COV40's ConsumedCorpseRecently route)
+            build.corpses_consumed = self.corpses_consumed(found, main, stats)
         build.self_damage, heart_notes = models.heartbound_damage([e["text"] for e in source_lines], build.minion_died)
         if build.self_damage > 0:  # (MECHC9: in PoB as Physical damage over time, so recovery and the Life flask see it)
             hand_mods = hand_mods + [models.line("1 Physical Damage taken per second", build.self_damage)]
@@ -5698,6 +5703,55 @@ class Assumptions:
                      "set": (row or {}).get("index")}
         mods, notes, groups = models.tempest_caller_model(texts, stats, found, main, storm)
         return mods, notes, {g: storm.get("set") for g in groups}
+
+    def corpses_consumed(self, found: list[models.Skill], main: models.Skill | None, stats: dict) -> tuple[float, str]:
+        """models.corpses_consumed with each corpse skill's uses a second (the main skill's Speed, else PoB's useRates)."""
+        consumers: list[tuple[str, float]] = []
+        for skill in found:
+            if not skill.corpses or skill.group is None:
+                continue
+            if main is not None and skill.name == main.name and skill.group == main.group:
+                consumers.append((skill.name, number(stats.get("Speed"))))
+                continue
+            spot = self.skill_spot(skill.group, skill.name)
+            rate = next(iter(self.build.call("useRates", indices=[spot[0]], actives=[spot[1]])["rates"]), {}) if spot else {}
+            consumers.append((skill.name, number(rate.get("speed"))))
+        present = {s.name for s in found}
+        how = models.add_corpses_note(stats) + (f"; {models.sacrifice_note(stats)}" if models.SACRIFICE in present else "")
+        return models.corpses_consumed(consumers, models.corpse_supply(present, stats), how)
+
+    def valakos_charge(self, stats: dict, found: list[models.Skill], main: models.Skill | None
+                       ) -> tuple[list[dict], list[dict], dict[int, int | None]]:
+        """Valako's Charge from the Lightning damage the build takes (models.valako_model), with PoB's threshold, rate
+        and the boss's hits; as a side skill its group goes into Full DPS with its Bolt set."""
+        skill = next((s for s in found if s.name == models.VALAKO_SKILL and s.group is not None), None)
+        if skill is None:
+            return [], [], {}
+        build = self.build
+        is_main = main is not None and main.name == models.VALAKO_SKILL and main.group == skill.group
+        read = {**stats, **build.call("stats", fields=list(models.VALAKO_FIELDS))}
+        bolt = None
+        if is_main:
+            pob_rate = number(stats.get("Speed"))
+            threshold = number(read.get("CWDTThreshold"))
+        else:
+            spot = self.skill_spot(skill.group, models.VALAKO_SKILL)
+            if spot is None:
+                return [], [], {}
+            rate = next(iter(build.call("useRates", indices=[spot[0]], actives=[spot[1]])["rates"]), {})
+            pob_rate = number(rate.get("speed"))
+            if pob_rate <= 0 and number(rate.get("cooldown")) > 0:  # (PoB's side calculation gives it no speed)
+                pob_rate = 1 / number(rate.get("cooldown"))
+            sets = build.call("setRates", index=spot[0], active=spot[1]).get("sets") or []
+            bolt = next((s.get("index") for s in sets if "bolt" in (s.get("label") or "").lower()), None)
+            threshold = 0.0
+        if threshold <= 0:  # (the level's own stat: PoB's CWDTThreshold is only made for the main skill)
+            raw = build.call("activeSkills", levelStats=[models.VALAKO_SKILL])["skills"]
+            threshold = max((number((s.get("levelStats") or {}).get(models.VALAKO_THRESHOLD)) for s in raw
+                             if s["name"] == models.VALAKO_SKILL), default=0.0)
+        cooldown = 1 / pob_rate if pob_rate > 0 else 0.0
+        mods, notes, rate = models.valako_model(skill, is_main, read, threshold, pob_rate, cooldown)
+        return mods, notes, ({skill.group: bolt} if not is_main and rate > 0 else {})
 
     def cannons_ready(self, texts: list[str], found: list[models.Skill]) -> tuple[list[dict], list[dict]]:
         """Cannons, Ready!'s totems at the player's projectile attacks (models.cannons_ready_model): each totem skill's

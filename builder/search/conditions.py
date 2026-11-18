@@ -6037,6 +6037,21 @@ def _parried(lines: list[str], stats: dict) -> tuple[object, str]:
     return _box(plan.box, f"Parried for {plan.box:.0%} of the main skill's hits ({shared(plan.box)}): {plan.how}")
 
 
+def _corpse_consumed_recently(lines: list[str], stats: dict) -> tuple[object, str]:
+    """(MECHB38, MECHB37's draft) PoB's "Consumed a corpse Recently?" box at the share of the fight a corpse was consumed
+    in the past 4 s (models.corpses_consumed, published by the assumptions as build.corpses_consumed; consumptions taken
+    as evenly random, LOW-MEDIUM). None: 0, said."""
+    if "_corpses_consumed" not in stats:
+        return 0.0, ""
+    rate, how = stats["_corpses_consumed"]
+    if rate <= 0:
+        return 0.0, f"no corpse consumed against the boss: {how}. Without a corpse source: 0"
+    up = 1.0 - math.exp(-rate * RECENTLY)
+    return _box(up, f"a corpse consumed in the past {RECENTLY:g} s {up:.0%} of the fight: {how} (consumptions taken as "
+                    f"evenly random; evenly spaced they'd give {min(1.0, rate * RECENTLY):.0%}). Without a corpse "
+                    "source: 0")
+
+
 @dataclass(frozen=True)
 class Condition:
     var: str
@@ -6188,6 +6203,8 @@ CONDITIONS: list[Condition] = [
     Condition("conditionEnemyLightningExposure", "Lightning Exposure", value_fn=_exposure_uptime("Lightning"),
               fields=("Speed", "HitChance", "CritChance", "ShockChancePerHit", "IgniteChancePerHit")),
     Condition("conditionMinionsDiedRecently", "A minion of yours died recently", value_fn=_minion_died_recently, fields=()),
+    Condition("conditionConsumedCorpseRecently", "Consumed a corpse recently (MECHB38)",
+              value_fn=_corpse_consumed_recently, fields=()),
     Condition("bannerPlanted", "Banner placed (its share of the fight from Glory)", value_fn=_banner_planted, fields=()),
     Condition("conditionInfusionConsumedRecently", "Infusion consumed recently", value_fn=_infusion_recently, fields=("Speed",)),
     Condition("buffDivinity", "Divinity (on reaching maximum Divine Charges)", value_fn=_divinity, fields=("Speed", "HitChance")),
@@ -7186,6 +7203,8 @@ class Conditions:
                 1.0 if self.main_skill in recovery.ACTIVE_BLOCK_CHANNELS else
                 min(1.0, presses[models.RAISE_SHIELD][0] * recovery.RAISED_TAP_SECONDS)
                 if models.RAISE_SHIELD in presses else 0.0)
+        if any(models.CONSUMED_CORPSE.search(t) for t in texts):  # (MECHB38: from the assumptions' corpse model)
+            stats["_corpses_consumed"] = getattr(self.build, "corpses_consumed", None) or (0.0, "not read yet")
         if any(MINION_DIES.search(t) for t in texts):  # (MECHC7: "when a Minion Dies" lines, from the build's own sources)
             inputs = self._minion_inputs()
             stats["_minion_deaths"] = models.minion_deaths(*inputs)

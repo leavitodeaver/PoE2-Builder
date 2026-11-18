@@ -6091,3 +6091,59 @@ def test_pressed_group_judges_a_granted_group_only_with_the_granted_lookup():
     assert not pressed_group(group("Frost Bomb", full=False), {}, gems)
     assert not pressed_group(group("Frost Bomb", label="Thorns"), {}, gems)
     assert not pressed_group(group("Herald of Ice"), {}, gems)
+
+
+def test_valakos_charge_fires_as_often_as_lightning_taken_fills_it():
+    """MECHB38: Valako's Charge (Lightning Coil) triggers each time the Lightning damage taken from hits reaches its
+    threshold, at most once per Cooldown; PoB fires it every Cooldown whatever you take (an OVERCOUNT as the main skill)
+    and never counted it beside one. Lightning Coil's Physical taken as Lightning feeds it from Physical hits too."""
+    from builder.search import boss_hits, bosses
+
+    boss = "Zarokh, the Temporal"  # (Physical hits only: only the "taken as" share charges it)
+    stats = {"_boss": boss, "enemySkillTime": bosses.defence_hit_every(boss), "EvadeChance": 0, "EffectiveBlockChance": 0,
+             "PhysicalEnemyDamage": 1000, "PhysicalTakenDamage": 600, "LightningEnemyDamage": 1000,
+             "LightningTakenDamage": 1400, "LightningTakenHit": 700}  # (40% Physical as Lightning; half of it taken)
+    parts, mult = models.lightning_taken_parts(stats)
+    assert abs(parts["Physical"] - 0.4) < 1e-9 and parts["Lightning"] == 1.0 and abs(mult - 0.5) < 1e-9
+    land = boss_hits.landing_hits({**stats, "enemySkillTime": bosses.benefit_skill_time(stats)})
+    hit = boss_hits.mean_hits(boss)["Physical"] * 0.4 * 0.5
+    k = math.ceil(628 / hit)
+    rate, how = models.valako_rate(stats, 628, 1.0, 1.0)
+    assert k > 1 and abs(rate - land / max(k, math.ceil(land))) < 1e-9 and f"{k} a charge" in how
+    skill = models.Skill("Valako's Charge", 3)
+    mods, notes, used = models.valako_model(skill, True, stats, 628, 1.0, 1.0)
+    assert used == rate and mods == [models.raw_mod("DPS", "MORE", 100 * (rate - 1), "Valako's Charge",
+                                                    tag=models.VALAKO_TAG)]
+    assert "OVERCOUNT" in notes[0]["basis"]
+    # no Physical taken as Lightning: nothing charges it against an all-Physical boss
+    plain = {**stats, "PhysicalTakenDamage": 1000, "LightningTakenDamage": 1000, "LightningTakenHit": 500}
+    mods, notes, used = models.valako_model(skill, False, plain, 628, 1.0, 1.0)
+    assert used == 0 and mods == [] and notes[0]["play"].startswith("Nothing")
+    # beside the main skill, Lightning hits from the Arbiter: its rate goes to PoB as a trigger rate
+    mods, notes, used = models.valako_model(skill, False, {**stats, "_boss": "Arbiter of Divinity"}, 628, 1.0, 1.0)
+    assert used > 0 and mods == models.trigger_rate("Valako's Charge", used) and "0 before" in notes[0]["basis"]
+    # big Lightning hits: one hit a charge, capped by the Cooldown
+    lightning = {**plain, "_boss": "Arbiter of Divinity", "enemySkillTime": 0.2}
+    rate, _ = models.valako_rate(lightning, 628, 1.0, 1.0)
+    assert 0 < rate <= 1.0
+
+
+def test_consumed_a_corpse_recently_follows_the_builds_corpse_rate():
+    """MECHB38 (MECHB37's draft): "if you have Consumed a Corpse Recently" lines were never on (only PoB's config box sets
+    the condition). Corpses consumed a second = min(the supply, the corpse skills' uses); the box at 1 - e^(-4 rate);
+    no corpse skill or no supply: 0, said."""
+    from builder.search import conditions
+
+    assert models.CONSUMED_CORPSE.search("15% increased Damage if you have Consumed a Corpse Recently")
+    rate, how = models.corpses_consumed([("Bone Offering", 0.5), ("Detonate Dead", 1.0)], 0.4, "Sacrifice")
+    assert rate == 0.4 and "1.50 a second" in how
+    assert models.corpses_consumed([("Detonate Dead", 0.25)], 2.0, "adds")[0] == 0.25
+    assert models.corpses_consumed([], 2.0, "adds") == (0.0, "the build has no skill that consumes corpses")
+    rate, how = models.corpses_consumed([("Detonate Dead", 1.0)], 0.0, "nothing dies on a single boss")
+    assert rate == 0.0 and how.startswith("no corpse")
+    on, basis, up = conditions._corpse_consumed_recently([], {"_corpses_consumed": (0.25, "x")})
+    assert abs(up - (1 - math.exp(-1.0))) < 1e-9 and on and "Without a corpse source: 0" in basis
+    value, basis = conditions._corpse_consumed_recently([], {"_corpses_consumed": (0.0, "none")})
+    assert value == 0.0 and "Without a corpse source: 0" in basis
+    assert conditions._corpse_consumed_recently([], {}) == (0.0, "")
+    assert any(c.var == "conditionConsumedCorpseRecently" for c in conditions.CONDITIONS)

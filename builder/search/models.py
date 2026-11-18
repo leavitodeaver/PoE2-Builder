@@ -7485,7 +7485,13 @@ def frozen_locus_model(main: Skill | None, scored: str | None, sets: list[dict],
 # swap) MEDIUM-LOW: a row, not counted in the headline; Storm Lance (a spear, LOW that it counts) and Lightning Arrow (leaves nothing) not counted (R30-2 (c), by ActiveSkills descriptions; UNVERIFIED beyond them). Each explosion destroys one
 # arrow, so explosions a second = min(Salvo's missiles a second, the arrows made a second); the share of missiles that
 # explode e = min(1, arrows / (uses x missiles)), missiles PoB's ProjectileCount (8 when absent). DPS = Impact x (1 - e) +
-# Explosion x e (the missile explodes instead of its plain impact). The arrows' makers are counted at their triggered
+# Explosion x e (the missile explodes instead of its plain impact). MECHB38 (the manager's brief, from GEM20's own
+# report: "Magnetic Salvo scores one missile of 12 (ProjectileCount) a use"): PoB's set DPS is ONE missile a use, so
+# "Explosion x e" counted uses x e = arrows / missiles explosions a second, while each arrow draws a missile of its own:
+# arrows a second explosions (up to uses x missiles), each on the boss where the arrows were shot at it (a play strategy,
+# MEDIUM). Now DPS = Explosion x e x missiles + Impact x (1 - e): the missiles with no arrow keep PoB's one impact a use
+# at their share (how many of them reach the boss "in front of you" is UNVERIFIED, a RESEARCH question; one is the
+# cautious reading). Before, an UNDERCOUNT of the explosions by x missiles. The arrows' makers are counted at their triggered
 # rate or the search's press share (Assumptions.lingering_arrows; a group the press model gives no uses isn't counted,
 # as stun_primers). More arrows a use from extra projectiles not read (an UNDERCOUNT there). MEDIUM.
 MAGNETIC_SALVO = "Magnetic Salvo"
@@ -7518,7 +7524,8 @@ def magnetic_salvo_model(main: Skill | None, scored: str | None, sets: list[dict
         return [], []
     e = salvo_share(uses, missiles, arrows)
     e_row = salvo_share(uses, missiles, arrows + row_arrows)
-    total = impact * (1 - e) + blast * e
+    count = max(missiles, 1.0)  # (MECHB38: each exploding missile is its own hit; PoB's set is one missile)
+    total = impact * (1 - e) + blast * e * count
     factor = total / dps[scored]
     steer = scored == "Explosion" and e <= 0
     if steer:
@@ -7526,11 +7533,11 @@ def magnetic_salvo_model(main: Skill | None, scored: str | None, sets: list[dict
     factor = max(factor, AILMENT_FLOOR)
     mods = ([raw_mod("Damage" if steer else "DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9
             else [])
-    with_row = impact * (1 - e_row) + blast * e_row
+    with_row = impact * (1 - e_row) + blast * e_row * count
     # (feeding on purpose, CLAUDE.md: a second spent on the arrow maker instead of Salvo gives feeder_speed arrows, each
-    # worth one missile's Explosion over its Impact, (blast - impact) / (uses x missiles) a second each, against the
-    # Salvo's impact DPS that second loses; the maker's own hit not added)
-    feed_gain = feeder_speed * (blast - impact) / (uses * max(missiles, 1.0)) if uses > 0 else 0.0
+    # worth one missile's Explosion, blast / uses, less its share of the one counted impact, impact / (uses x missiles),
+    # against the Salvo's impact DPS that second loses; the maker's own hit not added; while e < 1)
+    feed_gain = (feeder_speed * (blast - impact / count) / uses if uses > 0 and e < 1 else 0.0)
     feed = ("" if feeder_speed <= 0 else
             f"; firing the arrow maker more to feed it: each second on it gains {feed_gain:,.0f} of Salvo damage and "
             f"costs {impact:,.0f}, so " + ("worth it, but the press model sets the maker's rate (not chosen here: an "
@@ -7541,14 +7548,15 @@ def magnetic_salvo_model(main: Skill | None, scored: str | None, sets: list[dict
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; Impact {impact:,.0f}, Explosion "
                   f"{blast:,.0f}) as if every missile exploded. The game explodes a missile only by a lingering bolt or "
                   f"arrow another Lightning Attack left, and destroys it: {arrows:.2f} arrows a second for {uses:.2f} "
-                  f"uses x {missiles:g} missiles ({how}): {e:.1%} explode, so Impact x {1 - e:.1%} + Explosion x "
-                  f"{e:.1%} = {total:,.0f} DPS; with Stormcaller Arrow / Stormblast Bolts counted too (MEDIUM-LOW): "
+                  f"uses x {missiles:g} missiles ({how}): {e:.1%} explode, each its own hit on the boss (PoB's set is one "
+                  f"missile), so Impact x {1 - e:.1%} + Explosion x {e * count:.2f} = {total:,.0f} DPS (the missiles "
+                  f"with no arrow keep PoB's one impact at their share: UNVERIFIED how many reach the boss); with Stormcaller Arrow / Stormblast Bolts counted too (MEDIUM-LOW): "
                   f"{e_row:.1%}, {with_row:,.0f}" + feed
                   + ("; with none, the Explosion set is kept 10% under the Impact so the search keeps it" if steer
                      else "")),
         "play": (f"Magnetic Salvo's missiles explode only at arrows your other Lightning Attacks leave in the ground: "
                  f"fire Lightning Rod (or Shockchain Arrow) at the boss first, then Salvo. Without them: {impact:,.0f}; "
-                 f"with this build's: {total:,.0f}; every missile: {blast:,.0f}.")}]
+                 f"with this build's: {total:,.0f}; every missile: {blast * count:,.0f}.")}]
 
 
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
@@ -12682,6 +12690,131 @@ def cannons_ready_model(texts: list[str], totems: list[tuple[str, float]], playe
                                if player else f"Nothing in the build sets off the totems: {skill} x0")})
     return mods, notes
 
+
+# Valako's Charge (MECHB38; GEM20's item (2), an OVERCOUNT as a main skill, an UNDERCOUNT beside one). Lightning Coil
+# "Grants Skill: Level (1-20) Valako's Charge" (PoB Uniques/body.lua; skill ValakosChargePlayer, fromItem). The skill's
+# text (PoB act_str.lua, the game's ActiveSkills): "While active, taking Lightning damage builds up charge on you.
+# Reaching full charge expends all charge to Trigger this skill, creating a Chaining lightning bolt". Its Buff set's stats:
+# cast_on_damage_taken_threshold (17 at level 1 .. 628 at 20 .. 2763 at 40, game files 26650308
+# GrantedEffectStatSetsPerLevel), cast_on_damage_taken_only_tracks_lightning; Cooldown 1 s. PoB maps the threshold to
+# skillData.triggeredByDamageTaken and its "cast when damage taken" trigger (CalcTriggers 1119-1133) returns the skill
+# itself as the source: it fires once per Cooldown whatever the build takes (GEM18's 462 DPS: an OVERCOUNT unless the
+# build takes threshold Lightning damage every second). Beside a main skill its group is fromItem, so the search never
+# counted it (0, an UNDERCOUNT). Nothing changes the threshold (checked: game files 26650308 Mods Stat1-8,
+# PassiveSkills, SoulCoreStats for cast_when_damage_taken_trigger_threshold_+% and every cast_on_damage_taken_* stat:
+# only skill stat sets use them; PoB's own threshold modifier CWDTThreshold is read where it is the main skill).
+# The rate: the boss's landed hits a second at the "when hit" pace (bosses.benefit_skill_time; the worst case's lowest
+# real boss, boss_hits.gain_floor) that deal Lightning after the build's "taken as" lines, each a Lightning hit of the
+# average size x after your mitigation. Per boss hit of type t (its share w_t, its average hit h_t, boss_hits): the part
+# taken as Lightning f_t from PoB's own shift (its {Type}EnemyDamage -> {Type}TakenDamage: what each type loses, and what
+# Lightning gains, split over the losing types by what they lose: exact when one type, e.g. Lightning Coil's Physical,
+# feeds it), x PoB's LightningTakenHit / LightningTakenDamage (resistance, reduction, taken multipliers). A trigger needs
+# k = ceil(threshold / that hit) Lightning hits ("expends all charge": a hit's excess taken as lost, MEDIUM; the smooth
+# reading, damage a second / threshold, is in the note), and the next one past the Cooldown: uses = u / max(k, ceil(
+# Cooldown x u)), u = those hits a second, at most PoB's own rate. Hits only (the skill has no
+# cast_on_damage_taken_also_tracks_dot). As the main skill: a DPS "more" of rate / PoB's rate; beside it: the same on
+# its group, counted in Full DPS with its Bolt set at that rate (PoB's own side calculation gives it speed 0, probe
+# POE2T3338, so the rate goes in as its trigger rate, models.trigger_rate; capped at 1 / its Cooldown). No Lightning
+# taken: 0, said.
+VALAKO_SKILL = "Valako's Charge"
+VALAKO_THRESHOLD = "cast_on_damage_taken_threshold"
+VALAKO_TAG = "valakos_charge"
+VALAKO_FIELDS = tuple(f"{t}{k}" for t in boss_hits.TYPES for k in ("EnemyDamage", "TakenDamage")) + (
+    "LightningTakenHit", "EvadeChance", "EffectiveBlockChance", "enemySkillTime", "CWDTThreshold")
+
+
+def lightning_taken_parts(stats: dict) -> tuple[dict[str, float], float]:
+    """({type: the share of a boss hit of that type you take as Lightning}, Lightning's after-mitigation multiplier),
+    from PoB's {Type}EnemyDamage / {Type}TakenDamage and LightningTakenHit (see above)."""
+    enemy = {t: max(number(stats.get(f"{t}EnemyDamage")), 0.0) for t in boss_hits.TYPES}
+    taken = {t: max(number(stats.get(f"{t}TakenDamage")), 0.0) for t in boss_hits.TYPES}
+    lost = {t: max(enemy[t] - taken[t], 0.0) for t in boss_hits.TYPES}
+    kept = enemy["Lightning"] - lost["Lightning"]
+    gained = max(taken["Lightning"] - kept, 0.0)
+    others = sum(v for t, v in lost.items() if t != "Lightning")
+    parts = {"Lightning": kept / enemy["Lightning"] if enemy["Lightning"] > 0 else 1.0}
+    for t in boss_hits.TYPES:
+        if t != "Lightning":
+            parts[t] = gained * lost[t] / others / enemy[t] if others > 0 and enemy[t] > 0 else 0.0
+    mult = number(stats.get("LightningTakenHit")) / taken["Lightning"] if taken["Lightning"] > 0 else 0.0
+    return parts, max(mult, 0.0)
+
+
+def valako_rate(stats: dict, threshold: float, pob_rate: float, cooldown: float) -> tuple[float, str]:
+    """(triggers a second, how) of Valako's Charge from the boss's Lightning hits (see above)."""
+    parts, mult = lightning_taken_parts(stats)
+
+    def one(read: dict) -> tuple[float, str]:
+        name = boss_hits.boss_name(read)
+        weights, sizes = boss_hits.type_shares(name), boss_hits.mean_hits(name)
+        land = boss_hits.landing_hits({**read, "enemySkillTime": bosses.benefit_skill_time(read)})
+        share = sum(w for t, w in weights.items() if parts.get(t, 0.0) > 0 and sizes.get(t, 0.0) > 0)
+        if share <= 0 or mult <= 0 or land <= 0:
+            return 0.0, f"{name}: no Lightning damage reaches you from its hits"
+        hit = sum(weights[t] * sizes.get(t, 0.0) * parts.get(t, 0.0) for t in weights) * mult / share
+        u = land * share
+        k = max(1, math.ceil(threshold / hit - 1e-9)) if hit > 0 else 0
+        rate = u / max(k, math.ceil(cooldown * u - 1e-9)) if k and cooldown > 0 else (u / k if k else 0.0)
+        smooth = min(u * hit / threshold, 1 / cooldown if cooldown > 0 else math.inf)
+        return rate, (f"{name}: {u:.2f} landed hits a second carry Lightning ({share:.0%} of its hits, at the \"when "
+                      f"hit\" pace), each {hit:,.0f} Lightning taken: {k} a charge (the smooth reading, damage a "
+                      f"second / threshold: {smooth:.3f} a second)")
+
+    rate, how = boss_hits.gain_floor(stats, one)
+    return (min(rate, pob_rate) if pob_rate > 0 else rate), how
+
+
+def valako_model(skill: Skill | None, main: bool, stats: dict, threshold: float, pob_rate: float, cooldown: float
+                 ) -> tuple[list[dict], list[dict], float]:
+    """Valako's Charge at the rate the build's Lightning damage taken fills it (see above): (lines, notes, its uses a
+    second); `main`: it is the main skill (PoB's DPS at its own rate), else a side group to count in Full DPS."""
+    if skill is None or threshold <= 0 or pob_rate <= 0:
+        return [], [], 0.0
+    rate, how = valako_rate(stats, threshold, pob_rate, cooldown)
+    keep = min(1.0, rate / pob_rate)
+    where = "as the main skill" if main else "beside the main skill"
+    before = ("PoB fires it once per Cooldown whatever you take (an OVERCOUNT)" if main else
+              "PoB never counted its group beside the main skill (0 before)")
+    note = {"label": f"{VALAKO_SKILL}: triggers from Lightning damage taken*", "value": f"{rate:.3f} a second",
+            "confidence": "MEDIUM",
+            "basis": (f"{how}; full charge at {threshold:,.0f} Lightning damage taken (its level's threshold), at most "
+                      f"one per its {cooldown:g} s Cooldown ({pob_rate:.2f} a second, PoB's rate): {rate:.3f} a second "
+                      f"{where} (x{keep:.3f} of PoB's); {before}. A hit's charge past full taken as lost (MEDIUM); "
+                      "the boss's hits evenly spaced; damage over time doesn't charge it"),
+            "play": (f"{VALAKO_SKILL} fires as you take Lightning hits: {rate:.2f} a second against this boss"
+                     if rate > 0 else f"Nothing in the fight charges {VALAKO_SKILL}: 0")}
+    if not main:  # (beside the main skill PoB gives it no speed at all (probe POE2T3338): its rate as a trigger rate)
+        return (trigger_rate(VALAKO_SKILL, rate) if rate > 0 else []), [note], rate
+    if keep >= 1.0:
+        return [], [note], rate
+    return [raw_mod("DPS", "MORE", 100 * (keep - 1), VALAKO_SKILL, tag=VALAKO_TAG)], [note], rate
+
+
+
+# Corpses consumed a second (MECHB37's draft, applied by MECHB38; COV40's route, the manager 00:08 18 Nov): "N% increased
+# Damage if you have Consumed a Corpse Recently" (the Corpses jewel line, PoB ModCache) and PoB's other
+# ConsumedCorpseRecently lines (ModParser 1999 / 2003 / 3214 / 4405) sit behind Condition:ConsumedCorpseRecently, which only
+# PoB's config box sets (ConfigOptions 1545-1546) and the tool never did (checked: grep of builder/ and engine/bridge.lua
+# for ConsumedCorpseRecently before this change, no hit): never on, an UNDERCOUNT. The rate from the build (CLAUDE.md's
+# no-flat-rates rule): the build's corpse-consuming skills (the game's corpse skill types, Skill.corpses) take what the
+# supply gives (models.corpse_supply: Sacrifice's undead Reviving minions, the boss preset's killed adds), at most their own
+# uses a second (the main skill's Speed; another skill's PoB use rate, taken as used as often as it can: an upper bound that
+# binds only below the supply). No corpse skill or no supply: 0, said. Published as build.corpses_consumed for the
+# condition resolver (conditions._corpse_consumed_recently: the share of the fight with one consumed in the past 4 s).
+CONSUMED_CORPSE = re.compile(r"consumed a corpse recently", re.I)
+
+
+def corpses_consumed(consumers: list[tuple[str, float]], supply: float, supply_how: str) -> tuple[float, str]:
+    """Corpses consumed a second and how (see above). `consumers`: (skill, its uses a second)."""
+    if not consumers:
+        return 0.0, "the build has no skill that consumes corpses"
+    demand = sum(max(rate, 0.0) for _, rate in consumers)
+    names = ", ".join(f"{name} {rate:.2f}/s" for name, rate in consumers)
+    if supply <= 0:
+        return 0.0, f"no corpse to consume on the boss ({supply_how}); corpse skills: {names}"
+    rate = min(supply, demand)
+    return rate, (f"{rate:.3f} corpses consumed a second: {supply:.3f} a second to take ({supply_how}), the corpse skills "
+                  f"using up to {demand:.2f} a second ({names})")
 
 # Different Non-Instant skills used per 8 s (MECHB4; AUDIT7 A7-2, research/cast-speed-per-different-spell.md) -------------
 # Counts COV-B's Emboldening Casts / Enhancing Attacks read (PoB multipliers LedgerDifferentNonInstantSpells8s /

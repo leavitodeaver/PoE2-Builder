@@ -1159,6 +1159,7 @@ def test_magnetic_salvo_explodes_only_by_lingering_arrows():
     e = 1.44 / 4.8
     mods, notes = models.magnetic_salvo_model(ms, "Explosion", sets, 0.6, 8, 1.44, 0.0, "Lightning Rod")
     assert mods[0]["name"] == "DPS"
-    assert mods[0]["value"] == pytest.approx(100 * ((42.5 * (1 - e) + 82.6 * e) / 82.6 - 1), abs=0.01)
+    # (MECHB38: each of the 1.44 exploding missiles a second is its own hit; PoB's set is one missile a use)
+    assert mods[0]["value"] == pytest.approx(100 * ((42.5 * (1 - e) + 82.6 * e * 8) / 82.6 - 1), abs=0.01)
     assert notes[0]["entry"] == "model-gem20-magnetic-salvo-lingering-arrows"
     assert models.salvo_share(0.6, 8, 100.0) == 1.0
