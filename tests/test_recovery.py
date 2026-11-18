@@ -2372,3 +2372,15 @@ def test_divinity_pays_the_costs_from_converted_energy_shield_and_holds_the_main
     assert recovery.divinity(lines[:4], 2000.0, 0, 100.0, 0.0, "Spark") == ([], [], 0.0)
     assert recovery.corrupted_items({"Amulet": "Rarity: UNIQUE\nX\nCorrupted", "Ring 1": "Rarity: RARE\nY",
                                      "Flask 1": "Corrupted", "Jewel 1": "Corrupted", "Weapon 1 Swap": "a\nCorrupted"}) == 1
+
+
+def test_rage_on_kill_is_the_word_kill_not_kill_inside_skill():
+    """MECHC39 (the manager 05:20, SEARCH27's item 4): the Rage resolver tested `"kill" in when`, so a gain whose wording
+    holds "skill" read as an on-kill gain (Siphoning Strike's charge had the same bug, fixed by MECHC38 in
+    conditions._charge_rate). Now the word: "on kill" counts the build's kills, "use a Skill" doesn't."""
+    from builder.search import conditions
+
+    stats = {"Speed": 2.0, "HitChance": 100, "_boss": "Arbiter of Ash", "_kills": (5.0, 5.0, "five a second")}
+    assert conditions._rage_gain("Gain 5 Rage on kill", stats, True)[1] == pytest.approx(5.0)
+    rage, events, how = conditions._rage_gain("Gain 5 Rage when you use a Skill", stats, True)
+    assert "on kill" not in how and events != pytest.approx(5.0)

@@ -1356,7 +1356,7 @@ def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, st
     every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
     # (red-flash hits always land, MECHC5; MECHC20: a gain, so the worst case reads the lowest real boss's landed hits)
     land = boss_hits.gain_hits(stats)[0]
-    if "kill" in when:
+    if re.search(r"\bkill", when):  # (MECHC39, the manager 05:20: the word, not "kill" inside "skill")
         rate, how = kill_events(when, stats)
         events = chance * rate
         return events * amount, events, f"{chance:.0%} x {amount:g} Rage on kill, {how}"
