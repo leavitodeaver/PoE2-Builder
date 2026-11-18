@@ -26,8 +26,10 @@
   notes: >-
     Counterstancing (MECH87, an UNDERCOUNT before: PoB leaves both lines unparsed). Parry only (Refutation isn't a
     Parry: R30-8, MEDIUM). A Ranged Attack main skill gets the 40% increased Damage on min(1, parried Melee Hits / its
-    attacks) of its attacks: the parry plan's successful Parries a second x bosses.melee_share (LOW). The Melee half
-    needs the Projectile share of the boss's hits, which the boss data lacks: 0 (UNVERIFIED, a RESEARCH question).
+    attacks) of its attacks: the parry plan's successful Parries a second x bosses.melee_share (LOW; on the worst-case
+    preset the lowest share, as it's a bonus: MECH88). The Melee half (MECH88, RESEARCH31 R31-12): a Projectile is
+    parried only from within 1.5 m, so a Melee Attack main skill gets it only at close range (the build's distance at
+    most 2 m), at the plan's Parries x the boss's Projectile share (models.PROJECTILE_SHARE, RESEARCH9: LOW as a rate).
     This entry only says a model reads the lines.
   sources: ["builder/search/models.py (COUNTERSTANCING, parry_line_mods)"]
   status: proposed

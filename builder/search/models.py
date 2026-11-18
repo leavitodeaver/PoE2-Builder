@@ -10686,8 +10686,40 @@ def parry_model(skills: list[Skill], stats: dict, main: Skill | None, consumes: 
 #   (Refutation isn't a Parry: R30-8, MEDIUM). The parried hits are the plan's telegraphed ones (one every PARRY_EVERY
 #   s, those not ending in a Heavy Stun), a Melee share of them from bosses.melee_share (LOW: a share of skills): a
 #   Ranged Attack main skill boosts min(1, melee parries / its attacks) of its attacks, counted as that share of the
-#   40% increased Damage on it. The Projectile share of the boss's hits isn't in the boss data: the Melee half is 0
-#   (UNVERIFIED, a RESEARCH question), named.
+#   40% increased Damage on it. Its Melee half (MECH88; RESEARCH31 R31-12, counterstancing-projectile-parry.md): a player
+#   Parries a Projectile only from an enemy within 1.5 m (Parry's base_maximum_active_block_distance_for_projectiles 15,
+#   HIGH; its non-projectile limit is 1 m, ..._for_non_projectiles 10). So the parried Projectiles are the plan's parries x
+#   the boss's Projectile share (PROJECTILE_SHARE, RESEARCH9's proj_attack_pct + proj_spell_pct: MEDIUM as a share of
+#   skills, LOW as a share of hits), counted only when the build fights at close range (its distance at most
+#   conditions.MELEE_DISTANCE): the plan already parries Melee Hits (a 1 m limit) at that distance, so the tool's 2 m reads
+#   as within reach of both limits (how "within" is measured is UNVERIFIED, R31-12: MEDIUM-LOW); at a ranged distance the
+#   boss fires from where it stands, none. A Melee Attack main skill boosts min(1, projectile parries / its attacks) of
+#   its attacks, as that share of the 40%.
+# The share of each preset boss's damaging skills that are Projectiles (MECH88; RESEARCH9's boss-presets-0-5.md
+# proj_attack_pct + proj_spell_pct, from poe2db's monster rows; R31-12): MEDIUM as a share of skills, LOW as a share of
+# hits (no AI weights). The King in the Mists: its two forms' 17% / 62% weighted 43 / 57 by time, as bosses.MELEE_SHARE.
+# A preset without a row (WORST) takes the lowest real share: the bonus helps the player, so the cautious side is low.
+PROJECTILE_SHARE: dict[str, float] = {
+    "Arbiter of Ash": 0.21, "Arbiter of Divinity": 0.23, "Xesht, We That Are One": 0.50,
+    "The King in the Mists": 0.43 * 0.17 + 0.57 * 0.62, "Zarokh, the Temporal": 0.57, "The Raven Trickster": 0.12,
+    "The Bodach": 0.20, "Olroth, Origin of the Fall": 0.19, "The Aberration": 0.15, "Vessel of Kulemak": 0.0,
+    "Atziri, the Red Queen": 0.23, "Atziri, the Fell Serpent": 0.12,
+}
+PARRY_PROJECTILE_METRES = 1.5  # Parry's base_maximum_active_block_distance_for_projectiles 15 (R31-12, HIGH)
+
+
+def projectile_share(stats: dict | None = None) -> tuple[float, str]:
+    """(the share of the boss's damaging skills that are Projectiles, how) for the boss `stats` names (PROJECTILE_SHARE)."""
+    name = bosses.of(stats).name
+    if name in PROJECTILE_SHARE:
+        share, where = PROJECTILE_SHARE[name], name
+    else:
+        where, share = min(PROJECTILE_SHARE.items(), key=lambda kv: kv[1])
+        where = f"the cautious case: {where}'s"
+    return share, (f"{share:.0%} of the boss's damaging skills are Projectiles ({where}; RESEARCH9): a share of skills, "
+                   "not weighted by use (LOW)")
+
+
 ULAMANS_GAZE = re.compile(r"^Critical Hit chance is Lucky against Parried enemies$", re.I)
 COUNTERSTANCING = re.compile(r"^Successfully Parrying a (Melee|Projectile) Hit grants (\d+)% increased Damage to your next "
                              r"(Ranged|Melee) Attack$", re.I)
@@ -10711,15 +10743,41 @@ def parry_line_mods(plan: ParryPlan, stats: dict, main: Skill | None) -> tuple[l
         types = set(stats.get("_main_types") or ())
         speed = number(stats.get("Speed"))
         melee, melee_how = bosses.melee_share(stats)
+        if bosses.of(stats).name not in bosses.MELEE_SHARE:  # (MECH88: WORST takes each stat at its worst for the
+            # player; melee_share gives the highest share, the worst for Stuns on you, but here it's a bonus: the lowest)
+            where, melee = min(bosses.MELEE_SHARE.items(), key=lambda kv: kv[1][0])
+            melee = melee[0]
+            melee_how = (f"{melee:.0%} of the boss's damaging skills are Melee (the cautious case for a bonus: {where}'s): "
+                         "a share of skills, not weighted by use (LOW)")
         for parried, inc, boosted in found:
             fits = main.attack and ("RangedAttack" in types if boosted == "Ranged" else main.melee)
             if not fits:
                 continue
             if parried == "Projectile":
-                notes.append({"label": f"Counterstancing: {inc:g}% increased Damage to the next {boosted} Attack*",
-                              "value": "0", "confidence": "LOW",
-                              "basis": "after Parrying a Projectile Hit: the share of the boss's hits that are "
-                                       "Projectiles isn't in the boss data (UNVERIFIED): not counted"})
+                from builder.search.conditions import MELEE_DISTANCE  # (conditions imports models)
+                metres = stats.get("_distance")
+                metres = number(metres) if metres is not None else (MELEE_DISTANCE if main.melee else 5.0)
+                proj, proj_how = projectile_share(stats)
+                close = metres <= MELEE_DISTANCE
+                rate = plan.parries * proj if close else 0.0
+                share = min(1.0, rate / speed) if speed > 0 else 0.0
+                if share > 0:
+                    mods.append(line("1% increased Damage", inc * share, skill=main.name))
+                note = {"label": f"Counterstancing: {inc:g}% increased Damage to the next {boosted} Attack*",
+                        "value": f"{share:.1%} of its attacks", "confidence": "LOW",
+                        "basis": ("the build doesn't Parry the boss (the parry plan): none" if plan.parries <= 0 else
+                                  f"{plan.parries:.2f} Parries/s (the parry plan) x {proj_how}: {rate:.3f} parried "
+                                  f"Projectile Hits/s over {speed:.2f} attacks/s, as {inc * share:.2f}% increased "
+                                  f"Damage; a Projectile is parried only from within {PARRY_PROJECTILE_METRES:g} m "
+                                  f"(R31-12), and the build fights at {metres:g} m, close range, where the plan "
+                                  "already parries Melee Hits (how 'within' is measured: UNVERIFIED, MEDIUM-LOW)"
+                                  if close else
+                                  f"a Projectile is parried only from within {PARRY_PROJECTILE_METRES:g} m (R31-12) "
+                                  f"and the build fights at {metres:g} m: none")}
+                if share > 0:
+                    note["play"] = (f"Parry the boss's projectiles from close range (within {PARRY_PROJECTILE_METRES:g} m): "
+                                    f"without it 0, with it {inc * share:.2f}% increased Damage on average")
+                notes.append(note)
                 continue
             rate = plan.parries * melee
             share = min(1.0, rate / speed) if speed > 0 else 0.0
@@ -10731,6 +10789,93 @@ def parry_line_mods(plan: ParryPlan, stats: dict, main: Skill | None) -> tuple[l
                                     f"Melee Hits/s over {speed:.2f} attacks/s, as {inc * share:.2f}% increased Damage"
                                     if plan.parries > 0 else "the build doesn't Parry the boss (the parry plan): none")})
     return mods, notes
+
+
+# Queen's Procession (MECH88; RESEARCH31 R31-9, queens-procession-locust-stacks.md; the Ritualist's "Devotion to the King":
+# "Grants Skill: Queen's Procession", which PoB has no skill for, ModCache {nil}). Game 26650308, GrantedEffect
+# QueensProcessionReservationPlayer, stat set 8281: while Sprinting you are a locust swarm that Hits everything within
+# 3 m every 0.5 s (base_cooldown_modifiable_repeat_interval_ms 500; cooldown recovery speeds it: not read, LOW) for its own
+# Physical Attack damage (BaseResolvedValues: level 20 171-256, base crit 6%), +2% more per Swarm's Advance
+# (locust_dash_damage_+%_final_per_stack 2, maximum_locust_stacks 50). Each tick that Hits gains a stack and Hits YOU for
+# its self damage (level 20 34-51 Physical) with 100% more Stun buildup (locust_dash_self_hit_stun_multiplier_+%_final);
+# the bar can't empty while you have stacks, and all are lost 4 s after you stop sprinting (HIGH: the skill's text). So
+# a sprint bout lasts until the self-hits would Heavy Stun you: the player stops one tick short (a stun costs 3 s), and
+# starts over once the stacks are gone and the bar has emptied (4 s, then up to 2 s of decay). Stacks reached =
+# min(50, ticks in a bout) (MEDIUM: R31-9's reading). Your Heavy Stun buildup per self-hit: 0.65 (HeavyStunDamageScalePlayer,
+# recovery's) x the self-hit after Armour (A / (A + 10 x hit), PoB's Armour; other Physical reduction not read) x 1.5 x 2
+# / PoB's StunThreshold: x1.5 as Player Physical damage (KeywordPopups Stun, game 26650308: "Player Physical damage and
+# Melee Damage each have 50% more Light Stun chance and Heavy Stun buildup"; the self-hit read as your own skill's
+# damage, MEDIUM; the skill has no Melee type: ActiveSkills queens_procession_reservation's types), x2 the skill's own
+# 100% more; a monster's x2 Physical is for monster damage. The skill's level: a tree
+# grant takes the highest level whose requirement your character level meets (PoB's getGrantedSkillLevel for tree skills,
+# the gem requirement table, natural maximum 20). PoB can't scale its damage by the build's modifiers (no skill): the
+# swarm's DPS is the UNSCALED base, an undercount. Sprinting stops the main skill, so the play uses it only when its DPS
+# while sprinting beats the main skill's: on the unscaled base it doesn't for a real build, so it counts 0, with the
+# with / without rows and the factor the build's modifiers would need (UNVERIFIED whether they reach it).
+QUEENS_PROCESSION = "Queen's Procession"
+QP_DAMAGE = {  # level: (min, max) swarm Physical, (min, max) self damage (GrantedEffectStatSetsPerLevel, stat set 8281)
+    1: (6, 9, 1, 2), 2: (10, 16, 2, 3), 3: (16, 24, 3, 5), 4: (22, 33, 4, 7), 5: (28, 43, 6, 9), 6: (35, 53, 7, 11),
+    7: (42, 64, 8, 13), 8: (50, 75, 10, 15), 9: (58, 87, 12, 17), 10: (66, 99, 13, 20), 11: (75, 112, 15, 22),
+    12: (84, 126, 17, 25), 13: (94, 140, 19, 28), 14: (103, 155, 21, 31), 15: (114, 170, 23, 34), 16: (124, 186, 25, 37),
+    17: (135, 203, 27, 41), 18: (147, 220, 29, 44), 19: (158, 238, 32, 48), 20: (171, 256, 34, 51)}
+QP_LEVEL_REQUIREMENT = (0, 3, 6, 10, 14, 18, 22, 26, 31, 36, 41, 46, 52, 58, 64, 66, 72, 78, 84, 90)  # PoB's gem table
+QP_TICK, QP_PER_STACK, QP_MAX_STACKS, QP_SELF_STUN_MORE, QP_CRIT = 0.5, 0.02, 50, 2.0, 0.06
+QP_PLAYER_PHYSICAL_STUN = 1.5  # (KeywordPopups Stun: Player Physical damage, 50% more Heavy Stun buildup)
+QP_LOSS_DELAY, QP_BAR_EMPTY = 4.0, 2.0
+
+
+def queens_procession_level(character_level: int) -> int:
+    return max((i + 1 for i, req in enumerate(QP_LEVEL_REQUIREMENT) if req <= character_level), default=1)
+
+
+def queens_procession_model(character_level: int, stats: dict, main_dps: float) -> list[dict]:
+    """The rows for a build granted Queen's Procession (see above): its swarm's unscaled DPS while sprinting at the build's
+    own stack reach, against the main skill's DPS; it counts 0 unless sprinting beats the main skill."""
+    from builder.search import recovery  # (recovery imports nothing of models at load)
+
+    level = queens_procession_level(int(character_level or 1))
+    lo, hi, self_lo, self_hi = QP_DAMAGE[level]
+    hit = (lo + hi) / 2 * (1 + QP_CRIT)  # (base crit 6% at the base +100% bonus)
+    self_hit = (self_lo + self_hi) / 2
+    armour = max(number(stats.get("Armour")), 0.0)
+    cap = (number(stats.get("PhysicalDamageReductionMax")) or 90.0) / 100
+    reduced = min(armour / (armour + 10 * self_hit), cap) if armour > 0 else 0.0
+    threshold = number(stats.get("StunThreshold"))
+    per = (recovery.HEAVY_STUN_SCALE_PLAYER * self_hit * (1 - reduced) * QP_PLAYER_PHYSICAL_STUN * QP_SELF_STUN_MORE
+           / threshold) if threshold > 0 else 1.0
+    stun_at = max(1, math.ceil(1 / per - 1e-9)) if per > 0 else None  # the tick that Heavy Stuns you
+    if stun_at is not None and stun_at <= 1:
+        ticks, how = 0, "its first self-hit alone fills your Heavy Stun bar: no sprint bout without a stun"
+    elif stun_at is None:
+        ticks, how = QP_MAX_STACKS, "its self-hits build no Heavy Stun: the stacks reach the cap and stay"
+    else:
+        ticks = stun_at - 1
+        how = (f"each self-hit fills {per:.1%} of your Heavy Stun bar (0.65 x {self_hit:.0f} x {1 - reduced:.0%} after "
+               f"{armour:,.0f} Armour x1.5 Physical x2 / Stun Threshold {threshold:,.0f}), so a bout stops after {ticks} ticks, "
+               "one short of the stun")
+    if ticks <= 0:
+        mult, stacks = 1.0, 0
+    else:
+        mult = sum(1 + QP_PER_STACK * min(k, QP_MAX_STACKS) for k in range(ticks)) / ticks
+        stacks = min(QP_MAX_STACKS, ticks)
+    sprint_dps = hit * mult / QP_TICK if ticks > 0 else 0.0
+    need = main_dps / sprint_dps if sprint_dps > 0 else float("inf")
+    used = sprint_dps > main_dps > 0
+    rows = [{"label": f"{QUEENS_PROCESSION}: the locust swarm while sprinting*", "value": 0,
+             "basis": (f"level {level} (character level {character_level}): {lo}-{hi} Physical a Hit every {QP_TICK:g} s, "
+                       f"+{QP_PER_STACK:.0%} more a Swarm's Advance; {how}: up to {stacks} stacks, x{mult:.2f} on average, "
+                       f"{sprint_dps:,.0f} DPS while sprinting UNSCALED (PoB has no skill for it, so the build's Attack and "
+                       f"Physical modifiers aren't applied: an undercount) against the main skill's {main_dps:,.0f}; "
+                       "sprinting stops the main skill, so it pays only when it beats it"
+                       + (f": the build's modifiers would have to multiply it x{need:,.1f} (UNVERIFIED whether they do), so "
+                          "it counts 0" if not used else ": it beats the main skill even unscaled, but its time isn't "
+                          "modelled: counted 0 (an UNDERCOUNT, named)")),
+             "confidence": "MEDIUM (stacks, R31-9) / LOW (unscaled damage)",
+             "play": (f"Without it: the main skill all fight. With it: sprint through the boss in bouts of {ticks} ticks "
+                      f"({ticks * QP_TICK:g} s), stop before the stun, and wait {QP_LOSS_DELAY + QP_BAR_EMPTY:g} s for the stacks "
+                      f"and the bar to clear; {sprint_dps:,.0f} DPS unscaled while sprinting") if ticks > 0 else
+                     "Sprinting would Heavy Stun you at the first swarm hit: don't sprint into the boss"}]
+    return rows
 
 
 def immobilise_rate(stats: dict, events: set[str]) -> tuple[float, str]:

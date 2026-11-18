@@ -1338,7 +1338,9 @@ def broken_stance(build: Build, main: models.Skill | None) -> tuple[float, list[
 STOICISM = ("Stoicism I", "Stoicism II")
 STOICISM_STAT = "support_no_fear_damage_+%_final_per_second_up_to_30%"
 STOICISM_CAP = 20.0
-ROLL_RELIANT = re.compile(r"\b(?:when|on|after) you dodge roll|\bdodge rolled recently\b|\bon dodge roll\b", re.I)
+# (MECH88: "if you haven't Dodge Rolled Recently" is no reason to roll: the lookbehinds keep it out)
+ROLL_RELIANT = re.compile(r"\b(?:when|on|after) you dodge roll|(?<!haven't )(?<!have not )\bdodge rolled recently\b|"
+                          r"\bon dodge roll\b", re.I)
 
 
 def stoicism_average(per_second: float, every: float) -> float:
@@ -2141,7 +2143,10 @@ class Assumptions:
         if main is not None and group and main.name in models.PARRIED_SETS and any(s.name in models.PARRY_SKILLS for s in found):
             parried_payoff = models.parried_payoff(main.name, build.call(
                 "setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"])
-        parry_mods, parry_notes = models.parry_model(found, {**stats, "_texts": texts, "_main_types": main_types}, main, bool(({name} | main_gems) & models.PARRY_CONSUMERS),
+        parry_metres = (models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10
+                        or natural_distance(main_types, name or ""))  # (MECH88: Counterstancing's projectile parries)
+        parry_mods, parry_notes = models.parry_model(found, {**stats, "_texts": texts, "_main_types": main_types,
+                                                             "_distance": parry_metres}, main, bool(({name} | main_gems) & models.PARRY_CONSUMERS),
                                                      parry_stun, refute_stun, parried_payoff)
         hand_mods, hand_notes = hand_mods + parry_mods, hand_notes + parry_notes
         if any(models.LIONEYE.search(t.strip()) for t in texts):  # (MECHB37: Lioneye's Glare's Repeats out of Presence)
@@ -4575,6 +4580,13 @@ class Assumptions:
             if not m or m.group(1) in built or m.group(1) in seen:
                 continue
             seen.add(m.group(1))
+            if m.group(1) == models.QUEENS_PROCESSION:  # (MECH88: its stacks and unscaled swarm against the main skill)
+                from builder.search.objective import main_dps
+
+                stats = self.build.call("stats", fields=["Armour", "StunThreshold", "PhysicalDamageReductionMax"])
+                notes += models.queens_procession_model(getattr(getattr(self.build, "ctx", None), "level", 1) or 1, stats,
+                                                        main_dps(getattr(self.build, "stats", None) or {}))
+                continue
             notes.append({"label": f"{m.group(1)}: not counted", "value": 0,
                           "basis": f"granted by {line['source']}, but PoB built no skill of that name (it has no data for "
                                    "some granted skills), so its damage and effects count 0 here: an undercount, not "
@@ -5062,6 +5074,25 @@ class Assumptions:
                               "play": "Keep casting the main skill: the stacks are the Mana it spent in the past 4 s",
                               "confidence": "MEDIUM-LOW (the main skill's own spending only: other skills' costs not "
                                             "counted, an undercount; steady casting from the fight's start)"})
+                continue
+            if condition.get("not_dodge_rolled_recently"):
+                # (MECH88, COV42's routed item) the share of the fight with no Dodge Roll in the past 4 s:
+                # conditions.not_dodge_rolled_recently at the build's roll cadence; its lines are `share:` lines
+                if not self.has_line(condition.get("shown_for") or "$^"):
+                    continue
+                from builder.search.conditions import not_dodge_rolled_recently
+
+                texts = [e["text"] for e in self.build.call("sourceLines")["lines"]]
+                names = {g.get("name") for group in self.build.groups() for g in group.get("gems") or []}
+                share, how = not_dodge_rolled_recently(texts, names)
+                percent = round(100 * share)
+                if percent > 0:
+                    self.ledger_shares[condition["id"]] = percent
+                    found.append(condition["id"])
+                notes.append({"label": condition["title"], "value": f"{share:.0%}", "basis": how,
+                              "play": "Without it: none of these lines. With it: go 4 s without a Dodge Roll; rolling "
+                                      "only for the boss's telegraphed hits keeps it up between them",
+                              "confidence": "LOW (the roll cadence)"})
                 continue
             if condition.get("chilled_ground"):
                 # (COV32) the share of the fight the boss stands on the build's Chilled Ground: MECH-A's

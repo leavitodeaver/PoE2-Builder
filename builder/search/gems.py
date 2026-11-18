@@ -35,6 +35,13 @@ ADDED_LABELS = (PERSISTENT_LABEL, BLASPHEMY_LABEL, META_LABEL, MARK_LABEL, MIRAG
 GRANTED_SUPPORT_ROUNDS = 6  # support changes a granted meta group gets right after its spell (fill_granted_supports)
 GRANTED_FILL_SECONDS = 60.0  # time a granted meta's fill (fill_granted) may take within one ascendancy trial
 MIRAGE_TRIALS = 3  # ranged Attacks per Mirage tried for real (ranked by what PoB says each adds to Full DPS)
+INFUSED_ROUNDS = 2  # times the Infused factor is measured again in its scored state (Gems._infused_in_scored_state, MECH88)
+# (MECH88, MECH87's "upper estimate") The Infused cast is calculated and scaled down as "more Damage", so what reads its
+# hit's size or chances (crit sizes for a meta skill's Energy, ailment chances) reads the Infused cast's, not a mix:
+INFUSED_SCALED_NOTE = ("; the Infused cast is calculated and its damage scaled to that mix, so readers of its hit size and "
+                       "chances (a meta skill's Energy per crit, ailment chances) read the Infused cast's: an upper "
+                       "estimate, small at a small share (2b75e: x1.006 over the two casts' own worlds blended, MECH88's "
+                       "POE2T4112; LOW)")
 # How many skills may hold a copy of the same support (game files, KeywordPopups, 0.5): "Support Gems from the same
 # Category cannot be socketed into the same skill simultaneously, but can be used across multiple skills"
 # (SupportGemCategory; Gems.families keeps one per category in a group), and "You cannot use multiple copies of the exact
@@ -747,8 +754,17 @@ class Gems:
                 settle_fn()
                 share, basis = assumptions.infusion_share(element, ailments)
                 raw = main_dps(build.stats)
-                factor = (plain[active] + share * (raw - plain[active])) / raw if raw > 0 else 1.0
-                infused = {"label": label, "factor": factor, "share": share, "basis": basis}
+                # The plain cast's DPS read again in THIS settled state, the stat set switched with nothing re-settled:
+                # the Infused trial's settle can turn a box on that the plain cast's own settle left off, and a factor
+                # of two states pins the skill to the other state's damage (2b75e, MECH87's POE2T4106: the plain cast
+                # read with Shocked off, the Infused one with it on, factor 0.201 instead of 0.367 and Shock counted
+                # below zero, fair 116,065 instead of 176,021; MECH88)
+                before_part, before_set = plain_set[active]
+                build.set_group(index=group["index"], mainActiveSkill=active, skillPart=before_part, statSet=before_set)
+                base = main_dps(build.stats)
+                build.set_group(index=group["index"], mainActiveSkill=active, skillPart=part, statSet=stat_set)
+                factor = (base + share * (raw - base)) / raw if raw > 0 else 1.0
+                infused = {"label": label, "factor": factor, "share": share, "basis": basis + INFUSED_SCALED_NOTE}
                 assumptions.infused = infused
             elif self.conditions is not None and not self.conditions.allows(label, assume):
                 continue
@@ -782,6 +798,35 @@ class Gems:
         build.set_group(index=group["index"], mainActiveSkill=best[1], skillPart=best[2], statSet=best[3])
         if settle_fn is not None:
             settle_fn()
+            if best[4] is not None and best[1] in plain_set:
+                self._infused_in_scored_state(group, best, plain_set[best[1]], settle_fn)
+
+    def _infused_in_scored_state(self, group: dict, best: tuple, plain: tuple, settle_fn) -> None:
+        """The Infused factor measured again in the state it's scored in (MECH88): the trial's settle resolved the
+        conditions for a cast Infused EVERY time (bigger hits: more Freeze / Shock, Comet's triggers), but the factor is
+        applied where only `share` of casts are, and there the conditions settle lower, which moves the two sets' ratio
+        (2b75e, POE2T4113 / 4114: plain / Infused 0.257 in the trial, 0.296 in the scored state). So: the factor taken
+        off (assumptions re-applied, nothing re-settled), both sets read in that state, and the new factor installed,
+        until it moves under 1% (at most INFUSED_ROUNDS). The factor is applied BEFORE each settle: a settle resolves the
+        conditions from the stats it finds, so one right after the unscaled reads would settle the all-Infused world."""
+        build, assumptions, infused = self.build, self.assumptions, best[4]
+        for _ in range(INFUSED_ROUNDS):
+            assumptions.infused = infused
+            assumptions.apply()
+            settle_fn()  # (the scaled world's conditions)
+            assumptions.infused = None
+            assumptions.apply()
+            raw = main_dps(build.stats)  # (the Infused set is the calculated one)
+            build.set_group(index=group["index"], mainActiveSkill=best[1], skillPart=plain[0], statSet=plain[1])
+            base = main_dps(build.stats)
+            build.set_group(index=group["index"], mainActiveSkill=best[1], skillPart=best[2], statSet=best[3])
+            old, share = infused["factor"], infused["share"]
+            infused["factor"] = (base + share * (raw - base)) / raw if raw > 0 else 1.0
+            if abs(infused["factor"] - old) <= 0.01 * max(old, 1e-9):
+                break
+        assumptions.infused = infused
+        assumptions.apply()
+        settle_fn()
 
     # Persistent skills -------------------------------------------------------------------------
 

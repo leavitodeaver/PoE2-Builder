@@ -844,6 +844,7 @@ DISTANCE_LINE = re.compile(r"\bin your presence\b|\bclose range\b|\bwithin \d+(?
                            r"\bsurrounded\b", re.I)
 
 PRESENCE_LINE = re.compile(r"\bin your presence\b", re.I)
+OUTSIDE_PRESENCE_LINE = re.compile(r"\bno enemies are in your presence\b|\boutside (?:of )?your presence\b", re.I)  # (MECH88)
 
 
 def natural_distance(main_types: set[str], skill: str = "") -> float:
@@ -874,6 +875,14 @@ def distance_candidates(lines: list[str], main_types: set[str], presence_radius:
             edge = math.floor(presence_radius * 10) / 10
             if PRESENCE_LINE.search(text) and MELEE_DISTANCE < edge < natural:
                 found.append(edge)
+        # (MECH88, MECHC39's routed item: Lioneye's Glare's "if no enemies are in your Presence") a line that wants the
+        # boss OUT of the Presence also tries just beyond its edge (0.5 m past it, as "further than N m"), within the
+        # projectiles' reach, whether or not that's nearer than the natural distance (a wider Presence pushes it out)
+        beyond = math.ceil(presence_radius * 10) / 10 + 0.5
+        if (presence_radius > 0 and OUTSIDE_PRESENCE_LINE.search(text) and beyond > MELEE_DISTANCE
+                and (reach is None or beyond <= reach)):
+            found.append(MELEE_DISTANCE)  # (close range stays a candidate, as for any distance line)
+            found.append(beyond)
     found = list(dict.fromkeys(found))
     return found if len(found) > 1 else []
 
@@ -2035,6 +2044,28 @@ def dodge_rolled_recently(lines: list[str], stats: dict) -> tuple[object, str, f
            f"a roll every {every:g} s, one per telegraphed boss hit (the manager's ruling on PLANS2; how often you "
            f"roll is up to you: roll at least every 4 s for all of it)")
     return True, f"Dodge Rolled in the past 4 s {share:.0%} of the fight: {why} (LOW)", share
+
+
+# Not Dodge Rolled Recently (MECH88; COV42's routed item, the manager's 08:25 ruling): Rune of Acrobatics' "N% increased
+# Armour if you haven't Dodge Rolled Recently" and Kurgal's Gaze's "N% increased Mana Cost Efficiency if you haven't Dodge
+# Rolled Recently" (boots; PoB ignores both lines). The share of the fight with no roll in the past 4 s, from the same
+# roll cadence as dodge_rolled_recently (a roll every models.PARRY_EVERY s, one per telegraphed boss hit; every
+# models.DODGE_EVERY s for a build that relies on rolling): max(0, 1 - 4 / T), 20% at 5 s, none at 2 s (LOW). A player
+# who takes the lines might roll less and take the telegraphed hits instead (the defences don't weigh that): a row.
+NOT_DODGE_RECENTLY_LINE = re.compile(r"\bif you(?: haven't| have not) dodge rolled recently\b", re.I)
+
+
+def not_dodge_rolled_recently(lines: list[str], gem_names: set[str] | frozenset[str] = frozenset()) -> tuple[float, str]:
+    """(share of the fight with no Dodge Roll in the past 4 s, how) at the build's roll cadence (see above)."""
+    from builder.search.assumptions import ROLL_RELIANT  # (one cadence a build, as dodge_rolled_recently)
+
+    reliant = "Cast on Dodge" in set(gem_names) or any(ROLL_RELIANT.search(t) for t in lines)
+    every = models.DODGE_EVERY if reliant else models.PARRY_EVERY
+    share = max(0.0, 1.0 - RECENTLY / every)
+    why = (f"a roll every {every:g} s (the build relies on rolling: the user's Cast on Dodge default)" if reliant else
+           f"a roll every {every:g} s, one per telegraphed boss hit (the manager's ruling on PLANS2)")
+    return share, (f"no Dodge Roll in the past 4 s for {share:.0%} of the fight: {why} (LOW); if you never roll (taking "
+                   "the telegraphed hits instead, which the defences don't weigh): all of it")
 
 
 # Unholy Might from Kurgal's Leash (MECHC27; PATCH_CHECK MD-1): "Supports Commandable Minions causing you and the

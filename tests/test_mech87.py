@@ -81,7 +81,7 @@ def test_ulamans_gaze_and_counterstancing_read_the_parry_plan():
     ranged = "Successfully Parrying a Melee Hit grants 40% increased Damage to your next Ranged Attack"
     melee = "Successfully Parrying a Projectile Hit grants 40% increased Damage to your next Melee Attack"
     stats = {"enemySkillTime": 0.7, "Speed": 2.0, "HitChance": 100, "_main_types": {"Attack", "RangedAttack"},
-             "_texts": [gaze, ranged, melee]}
+             "_texts": [gaze, ranged, melee], "_boss": "Arbiter of Ash"}  # (MECH88: the worst-case preset's share is 0)
     mods, notes = models.parry_model([parry, bow], stats, bow)
     assert {"kind": "Raw", "name": "CritChanceLucky", "type": "FLAG", "value": 1.0, "condition": "ParryActive"} in mods
     inc = next(m for m in mods if m.get("line") == "1% increased Damage")

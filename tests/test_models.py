@@ -2289,7 +2289,8 @@ def test_a_granted_skill_pob_builds_nothing_for_is_noted_not_dropped():
              {"source": "item:Weapon 2", "text": "Grants Skill: Level 20 Parry"}]
     fake = SimpleNamespace(build=SimpleNamespace(call=lambda name, **_: {"lines": lines}))
     notes = Assumptions.unbuilt_grants(fake, [{"name": "Parry"}])
-    assert [n["label"] for n in notes] == ["Dark Pact: not counted", "Queen's Procession: not counted"]
+    # (MECH88: Queen's Procession gets its own rows, models.queens_procession_model, still 0 and labelled an undercount)
+    assert [n["label"] for n in notes] == ["Dark Pact: not counted", "Queen's Procession: the locust swarm while sprinting*"]
     assert all(n["value"] == 0 and "undercount" in n["basis"] for n in notes)
 
 
