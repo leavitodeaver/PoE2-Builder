@@ -7001,6 +7001,117 @@ def bonestorm_model(main: Skill | None, forbidden: set[str] = frozenset()) -> tu
         "play": f"Channel {main.name} to its {top} spikes before releasing; short channels lose time to the 0.3 s minimum."}]
 
 
+# Temper Weapon's Combust (GEM19; an UNDERCOUNT: PoB lists the Combust in Temper Weapon's group with its hit, 200.7 in
+# probe POE2T3436, but no rate, so it counts 0, and the search never values Smith of Kitava's Against the Anvil for it).
+# The game (26650308): ActiveSkills temper_weapon "Channel to temper your main hand Melee Martial Weapon. Each hit of the
+# hammer against the anvil Empowers subsequent Attacks to Combust when Hitting enemies"; its stat text "While Channelling
+# each strike of the anvil Empowers your next {0} Melee Attacks / Empowered Attacks Trigger Combust on Hit", "Maximum of
+# {0} Empowered Attacks"; TemperWeaponPlayer temper_weapon_empowers_per_strike 3, imbue_weapon_max_exerts 12,
+# channel_skill_end_animation_duration_override_ms 83, CastTime 1125 ms (a strike), Cooldown 5000 ms;
+# TemperWeaponCombustionPlayer imbue_weapon_combust_trigger_chance_% 100, 100% Physical to Fire, global_always_hit.
+# A channelled skill's cooldown starts at release (RESEARCH28 R28-14; recovery.py's note lists Temper Weapon). The play:
+# channel n strikes (n x 1.125 s + 0.083 s), then attack with the main skill: the 3n Empowered attacks each Combust on
+# a hit, and the next channel waits for the cooldown: a cycle = the channel + max(3n / the main skill's uses a second,
+# the cooldown). n of 0..4 (12 / 3) giving the most damage a second: the main skill's DPS x its share of the cycle +
+# Combust's hit x 3n x the main skill's hit chance / the cycle (one Combust per Empowered use: MEDIUM; an Empowered
+# attack that misses taken as spent, LOW; skill speed on the strikes not read, UNVERIFIED). Only a Melee Attack main skill
+# (the text's "Melee Attacks"); other groups' melee attacks not counted. Applied as Combust's trigger rate (its group
+# counted in Full DPS) and a DPS line on the main skill for the channel time. MEDIUM.
+TEMPER, TEMPER_COMBUST, TEMPER_ENTRY = "Temper Weapon", "Combust", "model-gem19-temper-weapon-combust"
+TEMPER_PER_STRIKE, TEMPER_MAX, TEMPER_STRIKE, TEMPER_END, TEMPER_COOLDOWN = 3, 12, 1.125, 0.083, 5.0
+
+
+def temper_plan(main_dps: float, uses: float, hit_chance: float, combust_hit: float, strike: float = TEMPER_STRIKE,
+                cooldown: float = TEMPER_COOLDOWN, per_strike: int = TEMPER_PER_STRIKE, most: int = TEMPER_MAX,
+                end: float = TEMPER_END) -> tuple[int, float, float, float]:
+    """(strikes a channel, Combusts a second, the main skill's share of the time, damage a second) for the play above;
+    strikes 0 = Temper Weapon not worth channelling."""
+    best = (0, 0.0, 1.0, main_dps)
+    if uses <= 0 or combust_hit <= 0:
+        return best
+    for n in range(1, most // per_strike + 1):
+        channel = n * strike + end
+        cycle = channel + max(per_strike * n / uses, cooldown)
+        combusts = per_strike * n * min(max(hit_chance, 0.0), 1.0) / cycle
+        share = 1 - channel / cycle
+        value = main_dps * share + combust_hit * combusts
+        if value > best[3] + 1e-9:
+            best = (n, combusts, share, value)
+    return best
+
+
+def temper_weapon_model(main: Skill | None, main_dps: float, uses: float, hit_chance: float, combust_hit: float,
+                        strike: float, cooldown: float, forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Temper Weapon's Combust at the rate the build's play gives it, and the channel time off the main skill (comment
+    above). `main_dps`: the main skill's DPS before this model's own line; `uses`: its uses a second; `combust_hit`:
+    Combust's average hit (PoB's, its group's Combust set)."""
+    if main is None or TEMPER_ENTRY in forbidden:
+        return [], []
+    label = f"{TEMPER}: Combust on Empowered attacks*"
+    if not (main.attack and main.melee):
+        return [], [{"label": label, "value": "0", "confidence": "MEDIUM", "entry": TEMPER_ENTRY,
+                     "basis": f"Temper Weapon Empowers Melee Attacks; the main skill {main.name} isn't one: not counted"}]
+    n, combusts, share, value = temper_plan(main_dps, uses, hit_chance, combust_hit, strike, cooldown)
+    if n == 0:
+        return [], [{"label": label, "value": "0", "confidence": "MEDIUM", "entry": TEMPER_ENTRY,
+                     "basis": (f"Combust {combust_hit:,.0f} a hit; channelling Temper Weapon costs more of {main.name}'s "
+                               f"time ({main_dps:,.0f} DPS) than its Combusts pay: not used"),
+                     "play": f"Don't channel Temper Weapon: {main.name} alone deals more."}]
+    mods = trigger_rate(TEMPER_COMBUST, combusts)
+    if share < 1.0:
+        mods.append(raw_mod("DPS", "MORE", 100 * (share - 1), main.name, tag="TemperWeapon"))
+    channel = n * strike + TEMPER_END
+    return mods, [{
+        "label": label, "value": f"{combusts:.3f} Combusts a second", "confidence": "MEDIUM", "entry": TEMPER_ENTRY,
+        "basis": (f"PoB gave Combust ({combust_hit:,.0f} a hit) no rate. The game: each anvil strike Empowers the next "
+                  f"{TEMPER_PER_STRIKE} Melee Attacks (at most {TEMPER_MAX}), each Combusting on a hit. {n} strike"
+                  f"{'s' if n != 1 else ''} a channel ({channel:.2f} s), then {TEMPER_PER_STRIKE * n} Empowered "
+                  f"{main.name} uses at {uses:.2f} a second, the next channel after the {cooldown:.2f} s cooldown from "
+                  f"the release: {combusts:.3f} Combusts a second, {main.name} {share:.1%} of the time "
+                  f"({main_dps * share + combust_hit * combusts:,.0f} DPS against {main_dps:,.0f} without it)"),
+        "play": (f"Channel Temper Weapon for {n} anvil strike{'s' if n != 1 else ''}, then use {main.name}: its next "
+                 f"{TEMPER_PER_STRIKE * n} uses Combust. Recast when the cooldown ends. Without it: {main_dps:,.0f}; "
+                 f"with it: {value:,.0f}.")}]
+
+
+# Eye of Winter's first hit (GEM19; an UNDERCOUNT: the open gem-stat row eye_of_winter_first_hit_damage_+%_final, PoB
+# never reads it). The game (26650308): EyeOfWinterPlayer eye_of_winter_first_hit_damage_+%_final 900, its stat text
+# "Each use of this Skill deals {0}% more damage with its first Hit against each enemy" (statdescriptions); 30 shard
+# projectiles a use, a 10 s cooldown (patch 0.4.0). PoB scores the shards' hits with none of it, so the first shard to
+# hit the boss in each use deals 9 more of its hits: + 9 x PoB's average shard hit (AverageDamage, hit chance in it) x
+# uses a second, as a DPS line on the main skill (the first hit's ailments not raised: an undercount, labelled), at
+# least one shard taken to hit the boss each use (MEDIUM). This model's own previous line is taken back out of PoB's
+# TotalDPS before the ratio (a fixed point, as Temper Weapon's). Probe POE2T3438: PoB scores ONE shard a use
+# (DpsMultiplier 1 of ProjectileCount 30), so Full DPS 3.04 -> 30.39 (x10); the other shards that hit the boss stay
+# uncounted (an UNDERCOUNT of PoB's projectile count: MECH-B's projectile topic, named in the note).
+EYE, EYE_ENTRY, EYE_FIRST_STAT, EYE_FIRST = "Eye of Winter", "model-gem19-eye-of-winter-first-hit", \
+    "eye_of_winter_first_hit_damage_+%_final", 900.0
+
+
+def eye_of_winter_model(main: Skill | None, stats: dict, own: float = 0.0,
+                        forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Eye of Winter's 900% more first hit a use (comment above). `stats`: the main skill's PoB output (AverageDamage,
+    Speed, TotalDPS); `own`: this model's DPS MORE value now applied (0 for none)."""
+    if main is None or main.name != EYE or EYE_ENTRY in forbidden or main.triggered:
+        return [], []
+    more = (number((main.level_stats or {}).get(EYE_FIRST_STAT)) or EYE_FIRST) / 100
+    hit, uses = number(stats.get("AverageDamage")), number(stats.get("Speed"))
+    total = number(stats.get("TotalDPS")) / (1 + own / 100) if own > -100 else number(stats.get("TotalDPS"))
+    if hit <= 0 or uses <= 0 or total <= 0:
+        return [], []
+    extra = more * hit * uses
+    factor = 1 + extra / total
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag="EyeOfWinter")], [{
+        "label": f"{main.name}: its first hit a use deals {more * 100:g}% more*", "value": f"x{factor:.3f}",
+        "confidence": "MEDIUM", "entry": EYE_ENTRY,
+        "basis": (f"PoB never reads {EYE_FIRST_STAT} ({more * 100:g}): \"Each use of this Skill deals {more * 100:g}% more "
+                  f"damage with its first Hit against each enemy\". + {more:g} x the shard's {hit:,.0f} x {uses:.3f} uses "
+                  f"a second = {extra:,.0f} on PoB's {total:,.0f} DPS (one shard taken to hit the boss each use; the first "
+                  "hit's ailments not raised; PoB counts one shard a use, the others that hit the boss uncounted: an "
+                  "UNDERCOUNT, MECH-B's projectile count)"),
+        "play": f"Each {main.name} cast's first shard on the boss hits {1 + more:g}x as hard: cast it on cooldown."}]
+
+
 # Shockwaves only on a Heavy Stun (GEM18; OVERCOUNTS: PoB scores the Shockwave set as if every use made one, and the
 # search kept it: probe POE2T3411, level-90 searches, Boneshatter "Shockwave" 382.1 vs "Initial Strike" 53.8 (x7.1),
 # Wing Blast "Shockwave" 330.5 vs "Wing Blast" 58.3 (x5.7)). The game (ActiveSkills, 26650308): Boneshatter "The Strike

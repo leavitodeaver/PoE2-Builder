@@ -2217,6 +2217,12 @@ class Assumptions:
             det_mods, det_notes = models.detonated_set_model(main, main.stat_set, sets, number(stats.get("Speed")),
                                                              det_rate, det_how, forbidden)
             hand_mods, hand_notes = hand_mods + det_mods, hand_notes + det_notes
+        if main is not None and main.name == models.EYE:  # (GEM19: its first hit a use, 900% more, never read by PoB)
+            eye_stats = build.call("stats", fields=["AverageDamage", "Speed", "TotalDPS"])
+            eye_own = sum(number(m.get("value")) for m in self.mods or []
+                          if m.get("tag") == "EyeOfWinter" and m.get("name") == "DPS")
+            eye_mods, eye_notes = models.eye_of_winter_model(main, eye_stats, eye_own, forbidden)
+            hand_mods, hand_notes = hand_mods + eye_mods, hand_notes + eye_notes
         if main is not None and main.name == models.BONESTORM:  # (GEM19: a full channel of spikes, not PoB's one)
             bs_mods, bs_notes = models.bonestorm_model(main, forbidden)
             hand_mods, hand_notes = hand_mods + bs_mods, hand_notes + bs_notes
@@ -3189,6 +3195,8 @@ class Assumptions:
             notes.append(glory[1])
         apocalypse_mods, apocalypse_notes = self.apocalypse(skills)  # (MECH-B: Apocalypse's disasters, MECHB7)
         mods, notes = mods + apocalypse_mods, notes + apocalypse_notes
+        temper_mods, temper_notes = self.temper_weapon(skills)  # (GEM19: Temper Weapon's Combust, Smith of Kitava)
+        mods, notes = mods + temper_mods, notes + temper_notes
         if glory is None:
             glory = self.flask_main(skills, main)  # (also a use rate set from a resource; it rules out the fallback)
             if glory is not None:
@@ -4320,6 +4328,39 @@ class Assumptions:
             basis = (f"no other skill builds its Glory; its own hits (assumed to count for it), per use at one use/s: "
                      f"{how}: " + ("a use builds its own cost: at will" if rate else "less than a use's cost: never"))
         return rate, basis
+
+    def temper_weapon(self, skills: list[dict]) -> tuple[list[dict], list[dict]]:
+        """Temper Weapon's Combust (models.temper_weapon_model, GEM19): Combust's hit from its own set in Temper Weapon's
+        group (bridge setRates on that skill), the main skill's DPS before this model's own line (its tagged DPS line in
+        the last applied mods taken back out), uses a second and hit chance; Combust's group counted in Full DPS when it
+        gets a rate. ([], []) without an enabled Temper Weapon and its Combust."""
+        temper = next((s for s in skills if s["name"] == models.TEMPER and not s["disabled"]), None)
+        combust = next((s for s in skills if s.get("skillId") == "TemperWeaponCombustionPlayer" and not s["disabled"]),
+                       None)
+        if temper is None or combust is None or not combust.get("group"):
+            return [], []
+        build = self.build
+        group, name = build.main_group(), self.main_skill()
+        main = next((models.Skill.of(s) for s in skills if not s["disabled"] and group and s.get("group") == group["index"]
+                     and s["name"] == name), None)
+        forbidden = set(build.ctx.request.forbid_ledger_entries)
+        place = next((g for g in build.groups() if g["index"] == combust["group"]), None)
+        names = [x.get("name") for x in (place or {}).get("skills") or []]
+        if main is None or models.TEMPER_COMBUST not in names:
+            return [], []
+        sets = build.call("setRates", index=place["index"], active=names.index(models.TEMPER_COMBUST) + 1)["sets"]
+        hit = number(sets[0].get("AverageDamage")) if sets else 0.0
+        stats = build.call("stats", fields=["TotalDPS", "Speed", "HitChance"])
+        own = sum(number(m.get("value")) for m in self.mods or []
+                  if m.get("tag") == "TemperWeapon" and m.get("name") == "DPS")
+        main_dps = number(stats.get("TotalDPS")) / (1 + own / 100) if own > -100 else number(stats.get("TotalDPS"))
+        mods, notes = models.temper_weapon_model(
+            main, main_dps, number(stats.get("Speed")), (number(stats.get("HitChance")) or 100.0) / 100, hit,
+            number(temper.get("castTime")) or models.TEMPER_STRIKE,
+            number(temper.get("computedCooldown")) or number(temper.get("cooldown")) or models.TEMPER_COOLDOWN, forbidden)
+        if any(m.get("key") == "triggerRate" and number(m.get("value")) > 0 for m in mods):
+            self.extra_groups.setdefault(place["index"], None)
+        return mods, notes
 
     def apocalypse(self, skills: list[dict]) -> tuple[list[dict], list[dict]]:
         """Apocalypse's disasters (models.apocalypse_model) at the rate the build's Glory gives Apocalypse, wherever it

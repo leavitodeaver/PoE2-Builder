@@ -1072,3 +1072,36 @@ def test_bonestorm_channels_its_full_spikes():
     assert notes[0]["entry"] == "model-gem19-bonestorm-spikes"
     assert models.bonestorm_model(bs, {"model-gem19-bonestorm-spikes"}) == ([], [])
     assert models.bonestorm_model(Skill("Bonestorm", 1, triggered=True)) == ([], [])
+
+
+def test_temper_weapon_combust_pays_for_its_channel():
+    # (GEM19) probe POE2T3436: Combust 200.7 a hit with no rate in PoB; Boneshatter 51 DPS at ~1 use a second
+    n, combusts, share, value = models.temper_plan(51.0, 1.0, 0.9, 200.7)
+    # n = 4: channel 4.583 s + max(12 s of attacks, 5 s) = 16.583 s; 12 x 0.9 Combusts
+    assert n == 4 and combusts == pytest.approx(10.8 / 16.583, rel=1e-3)
+    assert share == pytest.approx(12 / 16.583, rel=1e-3) and value > 51.0
+    bone = Skill("Boneshatter", 1, attack=True, melee=True)
+    mods, notes = models.temper_weapon_model(bone, 51.0, 1.0, 0.9, 200.7, 1.125, 5.0)
+    assert models.trigger_rate("Combust", combusts) == mods[:2]
+    assert mods[2]["name"] == "DPS" and mods[2]["value"] == pytest.approx(100 * (share - 1), abs=0.01)
+    assert notes[0]["entry"] == "model-gem19-temper-weapon-combust"
+
+
+def test_temper_weapon_not_worth_it_or_not_melee():
+    assert models.temper_plan(10_000.0, 2.0, 1.0, 50.0)[0] == 0  # (Combust far under the main skill: not channelled)
+    mods, notes = models.temper_weapon_model(Skill("Spark", 1, spell=True), 51.0, 1.0, 1.0, 200.7, 1.125, 5.0)
+    assert mods == [] and notes[0]["value"] == "0"
+    assert models.temper_weapon_model(Skill("Boneshatter", 1, attack=True, melee=True), 51.0, 1.0, 1.0, 200.7, 1.125,
+                                      5.0, {"model-gem19-temper-weapon-combust"}) == ([], [])
+
+
+def test_eye_of_winter_first_hit_adds_nine_hits_a_use():
+    # (GEM19) eye_of_winter_first_hit_damage_+%_final 900, never read by PoB
+    eye = Skill("Eye of Winter", 1, spell=True)
+    stats = {"AverageDamage": 100.0, "Speed": 0.1, "TotalDPS": 300.0}
+    mods, notes = models.eye_of_winter_model(eye, stats)
+    assert mods[0]["value"] == pytest.approx(100 * (9 * 100 * 0.1 / 300), abs=0.01)  # +90 on 300: +30%
+    assert notes[0]["entry"] == "model-gem19-eye-of-winter-first-hit"
+    # the next pass reads PoB's TotalDPS with that line in: the same line (a fixed point)
+    again, _ = models.eye_of_winter_model(eye, {**stats, "TotalDPS": 390.0}, mods[0]["value"])
+    assert again[0]["value"] == pytest.approx(mods[0]["value"], abs=0.01)
