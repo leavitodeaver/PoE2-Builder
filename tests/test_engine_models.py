@@ -342,6 +342,11 @@ def test_a_spell_totem_without_charges_deals_nothing(engine):
     old = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} for g in main["gems"]]
     build.set_group(index=main["index"], gems=[{"name": "Spell Totem", "level": 20, "quality": 0}, *old])
     search.resolve()
+    # (MECHC39) the spell the totem casts as the main skill: with the boss's Freeze, Spell Totem's own active no longer
+    # fails the Mana sustain floor and ties at 0 DPS, and the tie-break may pick it (POE2T3723); from there Full DPS
+    # counts the totem's Fireball with no charge check (routed to MECH-B)
+    build.set_group(index=main["index"], mainActiveSkill=2)
+    search.settle()
     assert build.call("stats", fields=["FullDPS"])["FullDPS"] == pytest.approx(0, abs=1e-6)
     assert any(n["label"].startswith("Spell Totems up") and n["value"] == 0 for n in search.assumptions.active)
     assert search.gems.buttons() == ["Spell Totem"]  # you press the totem, not the spell it casts
@@ -3171,7 +3176,11 @@ def test_sigil_of_power_stages_from_mana_spent_with_inside_and_outside_rows(engi
         headline = build.objective.dps(build.stats)
         row = next((r for r in play_guide.guide(search) if r["var"] == "sigilOfPowerStages"), None)
         print("PROBE sigil row", row)
-        assert row is not None and row["dps_without"] <= headline <= row["dps_with"] and "inside" in row["play"]
+        if row is None:  # (MECHC39: the guide skips a condition moving DPS under play_guide.MIN_CHANGE; with the boss's
+            # Freeze, Spark spends less Mana, under one stage on average: POE2T3718 read 0.45)
+            assert got["value"] < 1
+        else:
+            assert row["dps_without"] <= headline <= row["dps_with"] and "inside" in row["play"]
 
 
 def _skeleton_search(engine, main: str, ascendancy: str):
@@ -3645,7 +3654,8 @@ def test_the_bosss_chill_slows_a_real_build_and_sierran_inheritance_speeds_it(en
     with_it = build.call("stats", fields=["Speed"])["Speed"]
     build.call("setAssumptions", mods=[m for m in search.assumptions.mods if m.get("tag") != "BossChill"], fields=[])
     without = build.call("stats", fields=["Speed"])["Speed"]
-    print("PROBE boss Chill", note["value"], with_it, without)
+    freeze = next(n for n in search.assumptions.active if n["label"] == "The boss Freezes you*")  # (MECHC39, R31-8)
+    print("PROBE boss Chill", note["value"], freeze["value"], with_it, without)
     assert without > with_it > 0
     body = chr(10).join(["Rarity: Unique", "Sierran Inheritance", "Marabout Garb", "Item Level: 82", "Implicits: 0",
                          "All Damage taken from Hits Contributes to Magnitude of Chill inflicted on you",
@@ -3655,7 +3665,7 @@ def test_the_bosss_chill_slows_a_real_build_and_sierran_inheritance_speeds_it(en
     note = next(n for n in search.assumptions.active if n["label"] == "Reversed Chill on you (speed)*")
     reversed_speed = build.call("stats", fields=["Speed"])["Speed"]
     print("PROBE reversed Chill", note["value"], reversed_speed)
-    assert reversed_speed > without
+    assert reversed_speed > with_it  # (MECHC39: the Freeze still slows it, so not against "without")
 
 
 def test_a_magic_flasks_removes_line_takes_its_cost_from_the_other_pool(engine):

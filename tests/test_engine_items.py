@@ -998,6 +998,9 @@ def test_tornado_copies_read_tornado_shots_level_and_use_rate(engine):
     build.call("setGroup", index=group["index"], gems=gems)
     found = [models.Skill.of(s) for s in build.call("activeSkills")["skills"] if not s["disabled"]]
     main = next(s for s in found if s.name == "Lightning Arrow")
+    # (MECHC39) the boss's Chill and Freeze slow Tornado Shot's use rate (useRates) but not the fixed Speed 2.0 fed
+    # below: read both unslowed
+    build.call("setAssumptions", mods=[m for m in search.assumptions.mods if m.get("tag") != "BossChill"], fields=[])
     mods, notes = search.assumptions.tornado_copies(found, main, {"ProjectileCount": 4, "Speed": 2.0})
     print(notes)
     assert "8 arrows" in notes[0]["basis"] and "-41% more" in notes[0]["basis"], notes

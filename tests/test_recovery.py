@@ -2391,6 +2391,38 @@ def test_rage_on_kill_is_the_word_kill_not_kill_inside_skill():
     assert "on kill" not in how and events != pytest.approx(5.0)
 
 
+def test_the_bosss_freeze_counts_its_buildup_and_the_protection_after_it():
+    """MECHC39 (R31-8 / R31-8b): a Freeze lasts 2 s on players; each Cold hit adds hit / Freeze Threshold x 2 of buildup,
+    kept between hits; after a Freeze the threshold is x6 for 14 s (the headline), "no protection" a row. RESEARCH31's
+    worked case: 150% buildup a hit, ~19 Cold hits a minute: a Freeze every ~17 s (about 3.5 a minute) with the
+    protection, every ~5 s without. The share Frozen and the Chill multiply into one action-speed INC."""
+    from builder.search import boss_hits
+
+    # (MECHC40: equal hits need exactly ceil(n); the count is averaged over a +-25% hit size, so it's smooth)
+    assert boss_hits._hits_needed(2.0, 0.0) == 2 and boss_hits._hits_needed(0.2) == 1.0
+    assert 1.9 < boss_hits._hits_needed(1.32) <= 2.0  # (2b75a under the protection: 76% a hit, two hits)
+    assert boss_hits._hits_needed(3.8667) == pytest.approx(1 + 1 + 1 + (1.25 - 3 / 3.8667) / 0.5 + (1.25 - 4 / 3.8667) / 0.5)
+    assert boss_hits._freeze_cycle(0.32, 1.5, 2.0, 1.0, 0.0) == pytest.approx(1 / 0.32)  # (one hit is enough)
+    # the manager's 17:55 check, 2b75a: 17.9 Cold hits a minute at 454% a hit, 2 s Freezes, x6 for 14 s: two hits
+    # after each Freeze, so a Freeze every 2 + 2 / 0.298 s: Frozen about 23% (the n + half-hit form read 28.7%)
+    gap = boss_hits._freeze_cycle(17.9 / 60, 4.54, 2.0, 6.0, 14.0)
+    assert 2 / (2 + gap) == pytest.approx(0.230, abs=0.005)
+    steps = [boss_hits._freeze_cycle(0.32, b / 1000, 2.0, 6.0, 14.0) for b in range(200, 2000)]
+    assert all(a >= b for a, b in zip(steps, steps[1:]))  # (smooth and falling: no jumps as buildup grows)
+    assert max((a - b) / a for a, b in zip(steps, steps[1:])) < 0.01  # (no step: ceil jumped by a whole hit)
+    stats = {"_boss": "Pinnacle (worst case)", "enemySkillTime": 0.7, "AilmentThreshold": 2500.0, "Life": 5000.0,
+             "ColdTakenHit": 1900.0, "FreezeAvoidChance": 0, "SelfFreezeDuration": 100}
+    up, bare, row = boss_hits.boss_freeze_on_you(stats, [])
+    assert 0 < up < bare < 1 and row["label"] == "The boss Freezes you*"
+    assert boss_hits.boss_freeze_on_you({**stats, "FreezeAvoidChance": 100}, [])[0] == 0.0
+    sturdy = boss_hits.boss_freeze_on_you(stats, ["100% increased Freeze Threshold"])
+    assert sturdy[0] <= up and sturdy[1] < bare  # (with the protection both need one hit after its 14 s)
+    assert boss_hits.boss_freeze_on_you(stats, [], frozen_box=True) == (0.0, 0.0, None)
+    # PoB's additive form (the headline): -20% and Frozen 10% add -30%; the multiplier is the row's
+    inc, rows = boss_hits.speed_from_chill_and_freeze(-20.0, 0.10, 1.2, 0.0)
+    assert inc == pytest.approx(-28.0) and "x0.864" in rows[0]["basis"]  # (the Chill only while not Frozen: -18 - 10)
+
+
 def test_a_charge_bypasses_a_cooldown_only_with_the_charges_wasted_at_the_maximum():
     """MECHC40 (PATCH_CHECK K2-9): "This Skill's cooldown can be bypassed by expending an Endurance Charge". The headline
     spends only the charges that arrive at the maximum (they'd only refresh), each skill up to its use rate above its
@@ -2426,10 +2458,10 @@ def test_a_charge_bypasses_a_cooldown_only_with_the_charges_wasted_at_the_maximu
     assert none[0] == [] and rows and none[1][0]["value"].startswith("0:")
 
 
-def test_shackles_immunity_after_an_ignite_or_shock_shortens_each():
+def test_shackles_immunity_after_an_ignite_shock_or_freeze_shortens_each():
     """MECHC40 (COV43's routed undercount): Shackles of the Wretched's "You cannot be Ignited / Shocked / Frozen for 6
-    seconds after being ..." in the Chill line's form: D / (max(N, D) + 1 / c) for Ignite and Shock (the Freeze's with
-    the boss's Freeze on you, held back). Each row says the share without it."""
+    seconds after being ..." in the Chill line's form: D / (max(N, D) + 1 / c) for Ignite and Shock; a Freeze no sooner
+    than N s after the last one's start. Each row says the share without it."""
     from builder.search import boss_hits
 
     base = {"enemySkillTime": 1.0, "Life": 4000.0, "AilmentThreshold": 2000.0, "FireTakenHit": 2000.0,
@@ -2440,6 +2472,11 @@ def test_shackles_immunity_after_an_ignite_or_shock_shortens_each():
         free = boss_hits.boss_ailments_on_you({**base, "_boss": boss})
         held = boss_hits.boss_ailments_on_you({**base, "_boss": boss}, texts=lines)
         assert 0 < held[key] < free[key] and "after each" in held["notes"][0]["basis"]
+    stats = {"_boss": "Pinnacle (worst case)", "enemySkillTime": 0.7, "AilmentThreshold": 2500.0, "Life": 5000.0,
+             "ColdTakenHit": 4000.0, "FreezeAvoidChance": 0, "SelfFreezeDuration": 100}
+    up, bare, _ = boss_hits.boss_freeze_on_you(stats, [])
+    held_up, held_bare, row = boss_hits.boss_freeze_on_you(stats, lines)
+    assert held_up <= up and held_bare < bare and "no Freeze for 6 s" in row["basis"]
 
 
 def test_shared_charges_reach_your_minions_and_nothing_without_one():

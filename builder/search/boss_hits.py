@@ -1230,7 +1230,7 @@ CHILL_MAX_ON_PLAYER = 50.0  # KeywordPopups Chill: "a default maximum of 50%" (H
 CHILL_IMMUNE_AFTER = re.compile(r"^You cannot be Chilled for (\d+(?:\.\d+)?) seconds after being Chilled$", re.I)
 # (MECHC40, COV43: Shackles of the Wretched's other three, UniqueChillImmunityWhenChilled1's siblings; PoB parses none,
 # ModCache {nil, ...}) "You cannot be Ignited / Shocked / Frozen for N seconds after being ...": the same form as the
-# Chill's, D / (max(N, D) + 1 / c) for Ignite and Shock (the Frozen one comes with the boss's Freeze on you, held back).
+# Chill's, D / (max(N, D) + 1 / c) for Ignite and Shock; the Freeze's next one no sooner than N s after its start.
 IMMUNE_AFTER = re.compile(r"^You cannot be (Ignited|Shocked|Frozen) for (\d+(?:\.\d+)?) seconds after being \1$", re.I)
 
 
@@ -1590,3 +1590,154 @@ def ci_ailment_threshold(life_without_ci: float) -> tuple[list[dict], dict]:
                             "keystone (PoB's own calculation without it), then your increases; the Stun Threshold's "
                             "matching fix is PoB's partial one (base Life only); without it: PoB's threshold"),
                   "confidence": "MEDIUM-HIGH (the patch note)", "play": ""}
+
+
+# The boss's Freeze on you (MECHC39; found by MECHC38, an OVERCOUNT of DPS like the Chill: nothing counted your time
+# Frozen; RESEARCH31 R31-8 / R31-8b, research/freeze-on-players.md). A Freeze lasts 2 s on players (GameConstants
+# FreezeDurationPlayer 2000: HIGH), x PoB's SelfFreezeDuration. Buildup: each landed Cold hit adds hit after your
+# mitigation / your Freeze Threshold x FreezeDamageScalePlayer 2.0 (x the boss's own Freeze buildup stats,
+# FREEZE_FACTORS); the Freeze Threshold is your Ailment Threshold (PoB's AilmentThreshold, else half your Life) x your
+# "N% increased / reduced Freeze Threshold" lines (PoB parses them, FreezeThreshold INC, but outputs no threshold);
+# buildup carries over between hits (MEDIUM), with no decay (UNVERIFIED: no constant; a decay would mean fewer
+# Freezes). After a Freeze your Freeze Threshold is +500% for 14 s (GameConstants FreezeThresholdModifier 500,
+# FreezeModifierDuration 14, no Player twin: MEDIUM-LOW that it applies to players): the HEADLINE, with a "no
+# protection" row. Hits taken while Frozen add nothing (the lower reading). Hits arrive at the boss's landed rate x
+# its Cold share x (1 - Freeze avoidance), evenly (MEDIUM). Frozen = no action: the share of the fight Frozen cuts your
+# action speed (added with the Chill's, PoB's form; minions and totems act on). PoB's "Are you Frozen?" box
+# ticked: nothing added. "Your speed is unaffected by Slows" doesn't stop a Freeze, but PoB drops every negative
+# action speed under it, so the Freeze isn't counted there (an OVERCOUNT kept, named in the row).
+FREEZE_SECONDS_PLAYER = 2.0  # GameConstants FreezeDurationPlayer 2000 ms (HIGH)
+FREEZE_PROTECTION = 6.0  # x the threshold after a Freeze: FreezeThresholdModifier 500 read as +500% (MEDIUM-LOW)
+FREEZE_PROTECTION_SECONDS = 14.0  # FreezeModifierDuration (MEDIUM-LOW that it applies to players)
+FREEZE_THRESHOLD_LINE = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) Freeze Threshold$", re.I)
+FREEZE_FIELDS = ("FreezeAvoidChance", "SelfFreezeDuration", "AilmentThreshold", "Life", "enemySkillTime",
+                 "EvadeChance", "EffectiveBlockChance", "ColdTakenHit")
+
+
+FREEZE_HIT_SPREAD = 0.25  # (MECHC40) the Cold hits' size spread, +-25%: MEDIUM-LOW (the presets' Cold skills differ far
+# more, 414-2,998 on Olroth, but carry no use rates; a damage roll alone is narrower)
+
+
+def _hits_needed(n: float, spread: float = FREEZE_HIT_SPREAD) -> float:
+    """The Cold hits a Freeze needs on average when `n` hits of the average size would just fill the bar: the stepped
+    count ceil(n x u) (the bar empties when you're Frozen, so nothing carries past a Freeze and equal hits need exactly
+    ceil(n)), averaged over the hit size u, uniform on 1 +- spread (MEDIUM-LOW). At least one hit. Smooth in n, and
+    ceil(n) as the spread goes to 0."""
+    if spread <= 0:
+        return max(math.ceil(n - 1e-9), 1)
+    low, high = 1 - spread, 1 + spread
+    total, k = 1.0, 1  # (k = 0: the first hit always counts)
+    while k / max(n, 1e-12) < high:  # P(n x u > k) adds one more hit
+        total += min(max((high - k / n) / (high - low), 0.0), 1.0)
+        k += 1
+    return total
+
+
+def _freeze_cycle(rate: float, build: float, length: float, protection: float, window: float) -> float:
+    """Seconds from the end of one Freeze to the next: `rate` Cold hits a second, each adding `build` (a share of the
+    threshold) while unprotected; `protection` x the threshold for `window` s from the Freeze's start.
+    SMOOTH (MECHC40): the buildup read as a flow (rate x build a second, rate x build / protection while protected)
+    reaches the threshold after n hits' worth; the hits it takes are _hits_needed(n) (the stepped count averaged over
+    the hits' size spread). (MECHC39's plain ceil jumped with each small change in Life, threshold or hit size; a first
+    smoothing, n + a phased-in half hit, counted 1.48 hits where two equal hits are needed: 2b75a read Frozen 28.7%
+    where its equal hits give 23%, the manager's 17:55 check.)"""
+    if rate <= 0 or build <= 0:
+        return math.inf
+    guarded = max(window - length, 0.0) if protection > 1 else 0.0
+    slow = build / protection
+    if rate * slow * guarded >= 1:
+        flow = 1 / (rate * slow)
+    else:
+        flow = guarded + (1 - rate * slow * guarded) / (rate * build)
+    return _hits_needed(flow * rate) / rate
+
+
+def boss_freeze_on_you(stats: dict, texts: list[str], frozen_box: bool = False,
+                       hit_scale: float = 1.0) -> tuple[float, float, dict | None]:
+    """(share of the fight Frozen, the headline with the protection; the same without it; the row) (the comment above).
+    `stats`: PoB's FREEZE_FIELDS and "_boss"."""
+    from builder.search import recovery
+
+    if frozen_box:
+        return 0.0, 0.0, None
+    name = boss_name(stats)
+    every = number(stats.get("enemySkillTime")) or 0.7
+    land = land_share(stats) / every
+    share = type_shares(name).get("Cold", 0.0)
+    avoid = min(max(number(stats.get("FreezeAvoidChance")), 0.0), 100.0) / 100
+    lines = [t.strip() for t in texts]
+    inc = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+              for t in lines if (m := FREEZE_THRESHOLD_LINE.match(t)))
+    threshold = (number(stats.get("AilmentThreshold")) or 0.5 * number(stats.get("Life"))) * max(1 + inc / 100, 0.0)
+    hit = max(number(stats.get("ColdTakenHit")) if "ColdTakenHit" in stats else hit_sizes(name).get("Cold", 0.0), 0.0)
+    # (MECHC40) `hit_scale`: the Cold hit as the round's new boss's-Shock-on-you increase will make it (PoB's ColdTakenHit
+    # was read under the last one: (1 + new / 100) / (1 + last / 100)); 1 once the Shock has settled, so the settled
+    # Freeze is unchanged, but it settles in one round instead of three or four (POE2T3740's probe: the search
+    # snapshotted a seed mid-settle and ended "below its start")
+    hit *= max(hit_scale, 0.0)
+    factor = _factor(name, FREEZE_FACTORS, "Cold")
+    build = hit / threshold * FREEZE_SCALE_PLAYER * factor if threshold > 0 else 0.0
+    rate = land * share * (1 - avoid)
+    length = FREEZE_SECONDS_PLAYER * (number(stats.get("SelfFreezeDuration")) / 100 if "SelfFreezeDuration" in stats
+                                      else 1.0)
+    label = "The boss Freezes you*"
+    if share <= 0 or rate <= 0 or build <= 0 or length <= 0:
+        why = (f"{name} deals no Cold hits" if share <= 0 else "you avoid every Freeze" if avoid >= 1
+               else "no boss hit lands" if land <= 0 else "no Cold hit builds Freeze")
+        return 0.0, 0.0, {"label": label, "value": "0: never Frozen", "basis": why + "; without the model: 0 as well",
+                          "confidence": "MEDIUM", "play": ""}
+    gap = _freeze_cycle(rate, build, length, FREEZE_PROTECTION, FREEZE_PROTECTION_SECONDS)
+    bare = _freeze_cycle(rate, build, length, 1.0, 0.0)
+    immune = immune_after(lines, "Frozen")
+    if immune > 0:
+        # (MECHC40, COV43: Shackles' "You cannot be Frozen for N seconds after being Frozen": the next Freeze no sooner
+        # than N s after this one's start, on the next hit after it (half a hit-interval on average); buildup kept
+        # through it, the lower reading)
+        floor = max(immune - length, 0.0) + 0.5 / rate
+        gap, bare = max(gap, floor), max(bare, floor)
+    up = length / (length + gap)
+    up_bare = length / (length + bare)
+    unaffected = any(recovery.NO_SLOW_POTENCY.match(t) for t in lines)
+    basis = (f"{rate * 60:.1f} landed Cold hits a minute ({share:.0%} of the boss's hits, {1 - avoid:.0%} not avoided), "
+             f"each {hit:,.0f} after your mitigation x {FREEZE_SCALE_PLAYER:g}"
+             + (f" x {factor:.2f} (the boss's buildup stats)" if factor != 1 else "")
+             + f" against your {threshold:,.0f} Freeze Threshold = {build:.0%} buildup a hit, kept between hits "
+             f"(MEDIUM; decay UNVERIFIED); Frozen {length:g} s each; then +500% Freeze Threshold for 14 s (MEDIUM-LOW): "
+             f"a Freeze every {length + gap:.1f} s = Frozen {up:.0%} of the fight; without that protection: every "
+             f"{length + bare:.1f} s = {up_bare:.0%}"
+             + (f" (no Freeze for {immune:g} s after each: 'You cannot be Frozen for {immune:g} seconds after being "
+                "Frozen')" if immune > 0 else "") + f". Frozen, you don't act: your skills' use rate x{1 - up:.3f} (minions "
+             "and totems act on)")
+    if unaffected:
+        basis += ("; NOT counted here: \"your speed is unaffected by Slows\" makes PoB drop every negative action speed, "
+                  "though a Freeze isn't a Slow (an OVERCOUNT kept)")
+    row = {"label": label, "value": (f"Frozen {up:.1%} of the fight ({60 * up / length:.1f} Freezes a minute); "
+                                     f"without the Freeze protection: {up_bare:.1%}"),
+           "basis": basis, "confidence": "MEDIUM-LOW (the protection, the buildup carrying over)", "play": ""}
+    return (0.0 if unaffected else up), (0.0 if unaffected else up_bare), row
+
+
+def speed_from_chill_and_freeze(chill: float, frozen: float, action_mod: float, own: float) -> tuple[float, list[dict]]:
+    """(ActionSpeed INC to add, rows): the Chill's average (`chill`, % action speed) and the share of the fight Frozen
+    (`frozen`) as action speed. HEADLINE: PoB's additive reading, chill - 100 x frozen, added to your increased action
+    speed, the Chill counted only while not Frozen. R31-13 (c) reads Slows as a separate multiplier (MEDIUM-LOW): that
+    form is the row. (MECHC39: the
+    multiplier, made as an INC sized from your other action speed, broke the search's what-if / commit agreement: a
+    what-if changing your action speed kept the old INC; POE2T3725's Leylines and seed tests.) `action_mod`: PoB's
+    ActionSpeedMod now, holding this tag's last value (`own`, %), for the row's numbers."""
+    # (MECHC40: the Chill only over the time you aren't Frozen: Frozen, you don't act, so a Chill then slows nothing;
+    # the Chill's average counted every second Chilled, Frozen ones too, an OVERCOUNT of the slow where both land; the
+    # two taken as independent, MEDIUM. With no other action speed this equals the separate multiplier's figure)
+    inc = chill * (1 - frozen) - 100 * frozen
+    if abs(inc) < 1e-9:
+        return 0.0, []
+    base = 1 + ((action_mod - 1) * 100 - own) / 100
+    more = base * (1 + chill / 100) * (1 - frozen)
+    rows = [{"label": "The boss's Chill and Freeze on your action speed*",
+             "value": f"{inc:+.1f}% action speed (added to your other action speed, PoB's form)",
+             "basis": (f"the Chill's average {chill:+.1f}% over the {1 - frozen:.1%} of the fight you aren't Frozen "
+                       f"({chill * (1 - frozen):+.1f}%) and Frozen {frozen:.1%} of the fight, added to your increased "
+                       f"action speed: x{base + inc / 100:.3f} with your own x{base:.3f}. As a separate multiplier "
+                       f"(\"Slows multiply\", R31-13: MEDIUM-LOW): x{more:.3f}"),
+             "confidence": "MEDIUM-LOW (more vs increased)", "play": ""}]
+    return inc, rows
