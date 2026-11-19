@@ -1251,3 +1251,58 @@ def flask_cross_cost(build, gain: Charges) -> tuple[dict[str, float], str]:
             parts.append(f"{option.name}: {pct:g}% of its {recovered:,.1f} {pool} recovered a second removed from "
                          f"{other}: {lost:,.1f}/s")
     return out, "; ".join(parts)
+
+
+# Last Stand and its small (MECHC42; MECH89's never-on rows, 3.0 + 0.5, an UNDERCOUNT): "N% increased Attack Damage while
+# you have no Life Flask uses left" (PoB: Damage INC under Condition NoLifeFlaskUsesLeft, ModParser 1887, set only by its
+# configuration box, which nothing set: 0 before). The stat attack_damage_+%_when_no_remaining_life_flask_uses has two
+# carriers, Last Stand and "Attack Damage while no remaining Life Flasks" (checked: every Stats id holding flask_uses /
+# no_ ... flask / remaining ... flask and their Mods, PassiveSkills, skill stat sets and Soul Core users, game 26650308;
+# PoB's ModCache holds the condition on these two lines only, and no Calc module sets it). The share of the fight the Life
+# Flask has no use left, from the build's own flask model (uses_per_second):
+# - a Life Flask whose uses are paid for by its generated charges (drunk the moment a use fills, as uses_per_second has
+#   it): no use left all fight, 1 (MEDIUM; the starting charges, drunk at the fight's start, aren't weighed);
+# - one held back by the pool's dips below full (it can't be drunk at full Life, so its charges fill up): uses left all
+#   fight, 0 (the lower reading);
+# - Life Flasks that can't be used (Reverie) or one waiting for a kill: its charges stay, 0;
+# - no Life Flask equipped: 1, the literal reading (no Life Flask, so no use left; UNVERIFIED in game: if the line needs an
+#   equipped flask, 0; both in the row).
+NO_LIFE_USES = re.compile(r"^(\d+(?:\.\d+)?)% increased Attack Damage while you have no Life Flask uses left$", re.I)
+
+
+def no_life_uses_share(build, gain: Charges | None = None) -> tuple[float, str]:
+    """(share of the fight with no Life Flask use left, how) (the note above)."""
+    option = (getattr(build, "equipped", None) or {}).get(next(s for s, p in FLASK_SLOTS.items() if p == "Life"))
+    if option is None:
+        return 1.0, ("no Life Flask equipped, so no use left (the literal reading, UNVERIFIED: if the line needs an "
+                     "equipped Life Flask, 0)")
+    gain = gain if gain is not None else Charges.of(build)
+    info = build.call("flaskData", raws=[option.raw])["results"][0] or {}
+    if gain.life_flask_unusable or not info.get("kind") or info.get("constant") or KILL_TRIGGER in (option.raw or "").lower():
+        return 0.0, f"{option.name} can't be drunk against a lone boss, so its charges stay: uses left all fight"
+    used = charges_per_use(info, gain)
+    paid = drink_charges(info, gain, "Life") / used if used > 0 else 0.0
+    dips = pool_dips(gain, "Life")
+    if dips is not None and dips[0] < paid:
+        return 0.0, (f"{option.name} fills {paid:.3f} uses/s but is drunk only at {dips[0]:.3f} dips/s below full Life "
+                     f"({dips[1]}): it can't be drunk at full Life, so it holds uses (the lower reading)")
+    return 1.0, (f"{option.name} drunk the moment a use fills ({paid:.3f} uses/s, {used:g} charges each): no use left "
+                 "all fight (MEDIUM; the starting charges, drunk at the start, not weighed)")
+
+
+def no_life_uses_model(build, texts: list[str], gain: Charges | None = None) -> tuple[list[dict], list[dict]]:
+    """Last Stand's lines as plain "N% increased Attack Damage" at the share no_life_uses_share gives, and its row."""
+    from builder.search import models
+
+    value = sum(float(m.group(1)) for t in texts if (m := NO_LIFE_USES.match(t.strip())))
+    if value <= 0:
+        return [], []
+    share, how = no_life_uses_share(build, gain)
+    mods = [models.line("1% increased Attack Damage", value * share)] if share > 0 else []
+    return mods, [{
+        "label": f"{value:g}% increased Attack Damage while you have no Life Flask uses left*",
+        "value": f"{value * share:g}% ({share:.0%} of the fight)",
+        "basis": f"{how}; PoB counts none (its box is never set)",
+        "play": (f"Drink your Life Flask the moment a use fills: with it {value:g}% increased Attack Damage, holding a "
+                 "use back 0%."),
+        "confidence": "MEDIUM (UNVERIFIED with no Life Flask equipped)"}]

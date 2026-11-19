@@ -2708,3 +2708,55 @@ def test_citaqualotls_thesis_sacrifices_life_for_guard_on_every_roll():
     guard, up, row = found[0]
     assert guard == pytest.approx(300.0) and up == pytest.approx(1.0) and "10 s: up 100%" in row["basis"]
 
+
+def test_last_stand_counts_while_the_life_flask_is_drunk_the_moment_a_use_fills():
+    """MECHC42 (MECH89's never-on rows): "N% increased Attack Damage while you have no Life Flask uses left" (PoB's box
+    never set): all fight for a Life Flask whose uses its charges pay for (drunk the moment a use fills), none for one held
+    back by the dips below full Life or one that can't be used (Reverie), all fight with no Life Flask (the literal
+    reading, UNVERIFIED)."""
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    from builder.search import flasks
+
+    line = "25% increased Attack Damage while you have no Life Flask uses left"
+    life = {"kind": "Flask", "chargesMax": 60, "chargesUsed": 10, "duration": 4, "lifeTotal": 400}
+    flask = SimpleNamespace(name="Ultimate Life Flask", raw="Ultimate Life Flask")
+    build = SimpleNamespace(equipped={"Flask 1": flask}, call=lambda name, **kw: {"results": [life]})
+    hit = flasks.Charges(flask=1.0, boss_hits=1.0, taken_hit=500.0)  # 0.1 uses/s paid, 1 dip/s
+    assert flasks.no_life_uses_share(build, hit)[0] == 1.0
+    mods, rows = flasks.no_life_uses_model(build, [line], hit)
+    assert mods[0]["line"] == "1% increased Attack Damage" and mods[0]["scale"] == pytest.approx(25.0)
+    assert "with it 25%" in rows[0]["play"]
+    rare = replace(hit, boss_hits=0.05)  # (dips at 0.05/s under the 0.1 uses/s the charges pay: uses held)
+    assert flasks.no_life_uses_share(build, rare)[0] == 0.0
+    assert flasks.no_life_uses_model(build, [line], rare)[0] == []
+    assert flasks.no_life_uses_share(build, replace(hit, life_flask_unusable=True))[0] == 0.0
+    bare = SimpleNamespace(equipped={}, call=lambda name, **kw: {})
+    share, how = flasks.no_life_uses_share(bare, hit)
+    assert share == 1.0 and "UNVERIFIED" in how
+    assert flasks.no_life_uses_model(build, ["25% increased Attack Damage"], hit) == ([], [])
+
+
+def test_deafening_cries_counts_each_warcry_used_recently_at_the_builds_own_rates():
+    """MECHC42 (MECH89's never-on rows): "8% increased Damage for each time you've Warcried Recently" (PoB's count box
+    never set): 4 s x the uses a second summed over the build's Warcries, each on its cooldown; none: 0."""
+    from types import SimpleNamespace
+
+    from builder.search import assumptions
+
+    line = "8% increased Damage for each time you've Warcried Recently"
+    groups = [{"index": 1, "gems": [{"name": "Infernal Cry"}]}, {"index": 2, "gems": [{"name": "Seismic Cry"}]},
+              {"index": 3, "gems": [{"name": "Infernal Cry"}]}, {"index": 4, "gems": [{"name": "Fireball"}]}]
+    rates = {1: {"index": 1, "cooldown": 8.0}, 2: {"index": 2, "cooldown": 4.0}, 3: {"index": 3, "cooldown": 8.0}}
+    gems = {"Infernal Cry": {"skillTypes": ["Warcry"]}, "Seismic Cry": {"skillTypes": ["Warcry"]},
+            "Fireball": {"skillTypes": ["Spell"]}}
+    build = SimpleNamespace(ctx=SimpleNamespace(all_gems=gems), groups=lambda: groups,
+                            call=lambda name, indices=(), **kw: {"rates": [rates[i] for i in indices]})
+    count, how = assumptions.warcries_used_recently(build)
+    assert count == pytest.approx(4 * (1 / 8 + 1 / 4)) and "Infernal Cry" in how  # (the same Warcry twice: once)
+    mods, rows = assumptions.warcried_model(build, [line])
+    assert mods[0]["line"] == "1% increased Damage" and mods[0]["scale"] == pytest.approx(8 * 1.5)
+    none = SimpleNamespace(ctx=SimpleNamespace(all_gems=gems), groups=lambda: groups[3:], call=lambda name, **kw: {})
+    assert assumptions.warcries_used_recently(none)[0] == 0.0
+    assert assumptions.warcried_model(none, [line])[0] == []

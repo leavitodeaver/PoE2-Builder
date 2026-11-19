@@ -25,7 +25,7 @@ import re
 
 from builder.ledger import conditions
 from builder.request.constraints import PRESSED_META, PRESSED_TOTEM, presses
-from builder.search import conditions as conditions_mod, models, passive_models, recovery as recovery_mod
+from builder.search import conditions as conditions_mod, flasks as flasks_mod, models, passive_models, recovery as recovery_mod
 from builder.search.context import gem_of
 from builder.search.conditions import (CHILL_FIELDS, INFUSED_SET, ailment_uptime, chill_share, curse_uses, natural_distance,
                                        shock_share)
@@ -915,6 +915,55 @@ def mana_flask_uses(build: Build) -> float:
         return 0.0
     info = build.call("flaskData", raws=[flask.raw])["results"][0] or {}
     return models.number(flasks.uses_per_second(info, flasks.Charges.of(build), flask.raw, "Mana")[0])
+
+
+# Deafening Cries (MECHC42; MECH89's never-on rows, 3.0, an UNDERCOUNT): "8% increased Damage for each time you've Warcried
+# Recently" (PoB: Damage INC per Multiplier WarcryUsedRecently, ModParser 2015; its count box, multiplierWarcryUsedRecently,
+# applies only under conditionUsedWarcryRecently, and nothing set either: 0 before). The stat damage_+%_per_warcry_used_
+# recently has one carrier, Deafening Cries (checked: every Stats id holding warcried_recently / warcry_used_recently /
+# per_warcry and their Mods, PassiveSkills, skill stat sets and Soul Core users, game 26650308; Escalation's "per different
+# Warcry" is its own stat, read by Assumptions.warcries_recently; PoB's ModCache: this line only). The count of Warcries in
+# the past 4 s (KeywordPopups Recently), time-averaged, is 4 s x the uses a second summed over the build's Warcries (each on
+# conditions.skill_use_rate: its cooldown, else its duration, else the search's chosen rate, else 0), the same Warcry in
+# two groups once; no Warcry: 0. Handed to PoB as plain "N% increased Damage" x that count (averaged over the fight, MEDIUM).
+WARCRIED_EACH = re.compile(r"^(\d+(?:\.\d+)?)% increased Damage for each time you've Warcried Recently$", re.I)
+
+
+def warcries_used_recently(build: Build) -> tuple[float, str]:
+    """(Warcries used in the past 4 s on average, how) (the note above)."""
+    ctx = build.ctx
+    found = {g["index"]: n["name"] for g in build.groups() if g.get("enabled") is not False
+             for n in g.get("gems") or [] if n.get("enabled", True) and not n.get("support")
+             and "Warcry" in (gem_of(ctx, n["name"], n.get("skillId")).get("skillTypes") or [])}
+    if not found:
+        return 0.0, "no Warcry in the build's enabled groups: 0"
+    each: dict[str, tuple[float, str]] = {}
+    for rate in build.call("useRates", indices=sorted(found))["rates"]:
+        name = found.get(rate.get("index"))
+        if name is None:
+            continue
+        uses, why, low = conditions_mod.skill_use_rate(rate, models.press_choices(build))
+        if uses >= each.get(name, (-1.0, ""))[0]:
+            each[name] = (uses, f"{name} {uses:.3f}/s on {why}" + (" (LOW)" if low else ""))
+    count = conditions_mod.RECENTLY * sum(u for u, _ in each.values())
+    return count, (f"{conditions_mod.RECENTLY:g} s x ({'; '.join(h for _, h in each.values()) or 'no use rate'}) = "
+                   f"{count:.2f} Warcries Recently on average")
+
+
+def warcried_model(build: Build, texts: list[str]) -> tuple[list[dict], list[dict]]:
+    """Deafening Cries at the build's own Warcries (the note above): (mods, rows)."""
+    value = sum(float(m.group(1)) for t in texts if (m := WARCRIED_EACH.match(t.strip())))
+    if value <= 0:
+        return [], []
+    count, how = warcries_used_recently(build)
+    mods = [models.line("1% increased Damage", value * count)] if count > 0 else []
+    return mods, [{
+        "label": f"{value:g}% increased Damage for each time you've Warcried Recently*",
+        "value": f"{value * count:.1f}% on average ({count:.2f} Warcries Recently)",
+        "basis": f"{how}; PoB counts none (its count box is never set)",
+        "play": (f"Use your Warcries on cooldown: with them {value * count:.1f}% increased Damage on average, "
+                 "without them 0."),
+        "confidence": "MEDIUM (uses on cooldown; LOW where marked)"}]
 
 
 def minion_deathless(build: Build) -> tuple[float, str]:
@@ -2238,6 +2287,12 @@ class Assumptions:
         if any(recovery_mod.PER_RUNE_LINE.search(t.strip()) for t in texts):  # (MECHC40, R31-14: a row only)
             swap_row = recovery_mod.swap_runes_row(texts, build.call("equipped").get("slots") or {})
             hand_notes = hand_notes + ([swap_row] if swap_row else [])
+        if any(flasks_mod.NO_LIFE_USES.match(t.strip()) for t in texts):  # (MECHC42: Last Stand, MECH89's never-on)
+            stand_mods, stand_rows = flasks_mod.no_life_uses_model(build, texts)
+            hand_mods, hand_notes = hand_mods + stand_mods, hand_notes + stand_rows
+        if any(WARCRIED_EACH.match(t.strip()) for t in texts):  # (MECHC42: Deafening Cries, MECH89's never-on)
+            cry_mods, cry_rows = warcried_model(build, texts)
+            hand_mods, hand_notes = hand_mods + cry_mods, hand_notes + cry_rows
         bypass_uses = getattr(build, "bypass_uses", None) or {}
         if bypass_uses:  # (MECHC40, K2-9: cooldowns bypassed with spare charges, conditions.bypass_share)
             rage = any(g["name"] in conditions_mod.BYPASS_RAGE_SUPPORTS for grp in build.groups()
