@@ -467,6 +467,19 @@ class Search:
             self.tree_rebuilt = bool(line.get("tree_rebuilt"))
         self.gear.sync_flasks()
 
+    SETTLE_ROUNDS = 10  # (settle_still: the boss's Freeze on you settles in 3-4, MECHC40's probe POE2T3739)
+
+    def settle_still(self) -> int:
+        """Resolve until the conditions and assumptions stop moving (at most SETTLE_ROUNDS), as the search's own end
+        (run's last resolve) would: a seed's start snapshot is taken here, not mid-settle. Before SEARCH29 setup_seed's
+        last steps (the active skill, quests, flasks) moved the build after its last resolve, so the start's score was read
+        with the assumptions still moving (MECHC40: 2b75c's start -9.3493 against -9.3557 for the same build settled, the
+        boss's Freeze INC taking 3-4 rounds). Returns the rounds that changed something."""
+        rounds = 0
+        while rounds < self.SETTLE_ROUNDS and self.resolve():
+            rounds += 1
+        return rounds
+
     def settle(self) -> bool:
         """Conditions and assumptions follow the build, and the part-time effects' weights follow them (follow_uptimes)."""
         pressed = self.press_sync()  # (before the models read the choices: a skill that left the build loses its own)
@@ -1706,6 +1719,7 @@ def optimize_task(engine: Any, report: Any, payload: dict, skeleton: dict, secon
     elif search.skeleton.seeded:
         # The search never ends below the PoB code it started from (PLAN.md §8, gate 4)
         search.setup_seed()
+        search.settle_still()  # (SEARCH29: the start is the settled build, MECHC40's item (b))
         start = search.build.snapshot()
     else:
         search.setup()

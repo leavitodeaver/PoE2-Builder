@@ -580,6 +580,11 @@ def goal_value(goal: str, dps: float, clear: float) -> float:
     return math.sqrt(max(dps, 0.0) * max(clear, 0.0))
 
 
+# (SEARCH29) The bridge's sum of the separately computed damage sources from the stats' own output (engine/bridge.lua
+# committedAddedDPS / derivedCalc): every scoring read asks for it, so a commit and a what-if of the same build agree
+ADDED_FIELD = "LedgerAddedDPS"
+
+
 class Objective:
     def __init__(self, ctx: Context, full: bool = False, multipliers: dict[str, float] | None = None,
                  goal: str | None = None) -> None:
@@ -633,7 +638,7 @@ class Objective:
         # The request's goal unless overridden: balanced runs some searches on boss DPS (run.py)
         self.goal = Goal(goal or ctx.request.objective)
         # Clear fields in every mode, so a boss result can still show its clear estimate
-        fields = set(BASE_FIELDS) | set(DARKNESS_FIELDS) | set(COST_WARNINGS) | set(MAIN_COST_FIELDS) | set(SUSTAIN_FIELDS) | set(CLEAR_FIELDS) | {POINTS_OVER}
+        fields = set(BASE_FIELDS) | set(DARKNESS_FIELDS) | set(COST_WARNINGS) | set(MAIN_COST_FIELDS) | set(SUSTAIN_FIELDS) | set(CLEAR_FIELDS) | {POINTS_OVER, ADDED_FIELD}
         if any(p.stat == "BossRecoveryPercent" for p in self.penalties):
             fields |= set(RECOVERY_INPUTS)
         fields |= {"Missing" + p.stat for p in self.penalties if p.stat in RESIST_FIELDS}  # (maximum_resist)
@@ -670,8 +675,10 @@ class Objective:
 
     def dps(self, stats: dict) -> float:
         """Single-target boss DPS."""
-        # (a what-if's own Melting Maelstrom pulses, worked out by the bridge; the build's, from the last resolve)
-        added = number(stats["LedgerAddedDPS"]) if "LedgerAddedDPS" in stats else self.added_dps
+        # (the added sources from the stats' own output, the bridge's LedgerAddedDPS, for a what-if and, since SEARCH29, for
+        # the committed build too (MECHC40's item (a): both computed the same way); added_dps, the last resolve's sum, only
+        # for stats read without the field)
+        added = number(stats[ADDED_FIELD]) if ADDED_FIELD in stats else self.added_dps
         if self.full:
             full = number(stats.get("FullDPS"))
             if full > 0:

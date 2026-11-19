@@ -416,6 +416,9 @@ local function shockChancePerHit(output)
 	return main or off
 end
 
+-- (SEARCH29, MECHC40's item (a)) A build's own LedgerAddedDPS, summed from its output as derivedCalc sums a what-if's
+-- (assigned below DERIVED; nil when no added source is set)
+local committedAddedDPS
 local function pickStats(output, fields)
 	-- An object even when empty (dkjson would otherwise encode {} as an array)
 	local picked = setmetatable({ }, { __jsontype = "object" })
@@ -433,6 +436,9 @@ local function pickStats(output, fields)
 			if parent and type(output[parent]) == "table" then
 				value = output[parent][child]
 			end
+		end
+		if value == nil and field == "LedgerAddedDPS" and committedAddedDPS then
+			value = committedAddedDPS(output)  -- (SEARCH29: a committed build's added sources from its own output, as a what-if's)
 		end
 		if value == nil and field == "ShockChancePerHit" then
 			value = shockChancePerHit(output)  -- (MECH86: PoB never writes it; shockChancePerHit)
@@ -743,6 +749,21 @@ end
 -- summed into LedgerAddedDPS, which the objective adds to the boss DPS. No modifier reads them (their Ledger<name>
 -- multipliers are set but unused), so a moved value never calculates the what-if a second time.
 local ADDED_DPS = { maelstrom = true, added = true, impale = true }  -- (MECH76: impale)
+
+-- (SEARCH29, MECHC40's item (a): the manager's 18 Nov 17:55 ruling, "commits and what-ifs must compute the same way")
+-- The sum derivedCalc gives a what-if, from a committed build's own output (pickStats' LedgerAddedDPS): before it, a
+-- committed score kept its added sources from the last resolve (Objective.added_dps) while a what-if of the same build
+-- worked them out from its output, so a field-following source that moved after the resolve split the two.
+committedAddedDPS = function(output)
+	local total
+	for _, input in ipairs(derivedInputs) do
+		if ADDED_DPS[input.fn] then
+			local fn = DERIVED[input.fn]
+			total = (total or 0) + (fn and fn(output, input.args or { }) or derivedValues[input.name] or 0) / 100
+		end
+	end
+	return total
+end
 function DERIVED.added(out, a)
 	local base = a.field and num(out[a.field]) * (a.factor or 1) or (a.fixed or 0)
 	return math.floor(base * 100 + 0.5)
@@ -2161,6 +2182,7 @@ local function derivedCalc(run, fields)
 		end
 	end
 	local picked = pickStats(output, fields)
+	picked.LedgerAddedDPS = nil  -- (SEARCH29: pickStats' own sum is the first output's; the what-if's is summed here, as before)
 	for _, input in ipairs(derivedInputs) do
 		if ADDED_DPS[input.fn] then  -- (MECHB20: every added source summed, not only Melting Maelstrom's pulses)
 			picked.LedgerAddedDPS = (picked.LedgerAddedDPS or 0)
