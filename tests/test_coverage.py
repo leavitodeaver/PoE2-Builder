@@ -941,8 +941,8 @@ def test_cov43_not_dodge_rolled_lines_share_the_mech88_condition():
 
 def test_cov43_model_read_passive_lines_are_the_models_own():
     """COV43: passive-tree lines a model already reads are model-read (passives-cov43.yaml), each checked against the
-    model's own pattern; the lines a model reads without moving a number, or whose cost no model counts (Grinning
-    Immolation's burn), stay open."""
+    model's own pattern; the lines a model reads without moving a number stay open. (Grinning Immolation's line was
+    open until MECH89 counted its burn: model-read since, test_mech89_reads_are_model_read.)"""
     from builder.ledger import model_entry
     from builder.search import conditions, models, recovery
 
@@ -973,8 +973,7 @@ def test_cov43_model_read_passive_lines_are_the_models_own():
     for line, (entry, pattern) in cases.items():
         assert (found := model_entry(line)) is not None and found.id == entry, line
         assert pattern.search(line), line
-    for line in ("Become Ignited when you deal a Critical Hit, taking 15% of your maximum Life and Energy Shield as Fire "
-                 "Damage per second", "Take 20% less Damage from Hits while Dodge Rolling",
+    for line in ("Take 20% less Damage from Hits while Dodge Rolling",
                  "Allies in your Presence Regenerate 5 Rage per second if you have gained Rage Recently",
                  "-0.2 seconds to current Energy Shield Recharge delay per Combo expended when using Skills"):
         assert (found := model_entry(line)) is None or not found.id.startswith("model-read-"), line
@@ -1027,3 +1026,20 @@ def test_way_of_the_stonefist_lines_are_the_transforms_own():
     assert stonefist.NOTABLE == "Way of the Stonefist" and stonefist.BASE == "Fists of Stone"
     found = translate("+5 to any Attribute")  # (the attribute node's placeholder: the bridge picks the attribute)
     assert found is not None and found[0].id == "no-effect-any-attribute-placeholder" and found[1] == []
+
+
+def test_mech89_reads_are_model_read():
+    """COV43 (MECH89, train 85): Corrosion's, Mark for Death's and Brittle Armour's Armour Break stats and Grinning
+    Immolation's line (its burn now counted) are model-read; each stat is one the readers know."""
+    from builder.ledger import coverage, model_entry
+    from builder.search import conditions
+
+    covered = coverage.stat_entries()
+    for stat in ("armour_break_for_%_of_poison_damage_over_poison_duration", conditions.MARK_BREAK_STAT,
+                 conditions.BRITTLE_BREAK_STAT):
+        assert coverage.stat_covered(covered, stat, "Mark for Death II") == ("model", "model-mech89-conditional-and-poison-armour-break")
+    assert "armour_break_for_%_of_poison_damage_over_poison_duration" in conditions.BREAK_STATS
+    line = ("Become Ignited when you deal a Critical Hit, taking 15% of your maximum Life and Energy Shield as Fire Damage "
+            "per second")
+    assert (found := model_entry(line)) is not None and found.id == "model-read-grinning-immolation"
+    assert conditions.GRINNING_BURN.search(line) and conditions.SELF_IGNITE_LINE.search(line)

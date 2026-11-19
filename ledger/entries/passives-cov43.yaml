@@ -235,3 +235,18 @@
     Wisdom's options). So the "+5 to Strength" (or the other choice) is what PoB counts, and the placeholder adds nothing.
   sources: ["engine/bridge.lua (attributeNode)", "vendor/PathOfBuilding-PoE2/src/Classes/PassiveTree.lua (592-595)"]
   status: proposed
+
+# (the manager 17:55 / 18:35, from MECH89 c9c84000 in train 85: the burn is counted now)
+- id: model-read-grinning-immolation
+  title: 'Grinning Immolation, "Become Ignited when you deal a Critical Hit, taking N% of your maximum Life and Energy Shield as Fire Damage per second" (conditions._self_ignited, grinning_burn)'
+  kind: pob_gap
+  model: conditions
+  match: '^Become Ignited when you deal a Critical Hit, taking \d+(?:\.\d+)?% of your maximum Life and Energy Shield as Fire Damage per second$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Both halves are read. conditions._self_ignited turns the Ignited box on from your crits (MECH53), and since MECH89
+    conditions.grinning_burn charges N% of Life + Energy Shield a second at that Ignited share, handed to PoB as a
+    Fire degen (assumptions.models). Before MECH89 only the benefit counted (COV43's routed OVERCOUNT).
+  sources: ["builder/search/conditions.py (SELF_IGNITE_LINE, _self_ignited, GRINNING_BURN, grinning_burn)", "builder/search/assumptions.py (models)"]
+  status: proposed

@@ -1,0 +1,22 @@
+# COV43 (COV-A; the manager 17:55 / 18:35, from MECH89 in train 85): gem stats a custom model now reads (kind: model with
+# `stats`: the audit's gem-stat rows say "model"; GEM's own kind gem_stat translates a stat into lines instead, not used here).
+
+- id: model-mech89-conditional-and-poison-armour-break
+  title: 'Corrosion, Mark for Death and Brittle Armour''s Armour Break stats (conditions._armour_break_source, break_others, MECH89)'
+  kind: model
+  model: armour_break
+  stats: ['armour_break_for_%_of_poison_damage_over_poison_duration', 'marked_target_%_physical_damage_taken_as_armour_break',
+          'freeze_applies_%_physical_damage_taken_as_armour_break']
+  confidence: MEDIUM
+  notes: >-
+    MECH89 (c9c84000, 5a3c889b, train 85). Corrosion's "Poison applied by supported Skills also Breaks Armour equal to
+    N% of Poison damage": that share of PoB's PoisonDPS a second (conditions BREAK_STATS / _armour_break_source).
+    Mark for Death's and Brittle Armour's "Hits against targets Marked / Frozen by Supported Skills Break Armour equal
+    to N% of Physical damage dealt": every hit of yours (the main skill's and each other hitting group's) x N% of its
+    Physical hit, at the boss's Marked share (Conditions._marked_share) or Frozen share (models.immobilised_share)
+    (CONDITIONAL_BREAKS). All feed the boss's Armour Broken cycle. PoB maps Mark for Death's stat only to its own
+    Condition:CanArmourBreak, which no box reads (MECH89's note), so the "pob" row was no count. No `skill` limit:
+    the readers take the stat from any group's skill or support stats (Poisonburst Arrow's alternate quality carries
+    Corrosion's stat too).
+  sources: ["builder/search/conditions.py (BREAK_STATS, _armour_break_source, MARK_BREAK_STAT, BRITTLE_BREAK_STAT, CONDITIONAL_BREAKS, break_others)"]
+  status: proposed
