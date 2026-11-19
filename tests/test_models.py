@@ -6404,6 +6404,24 @@ def test_echoing_cry_halves_the_power_its_warcry_empowers_with():
     assert models.echoing_power_model([plain], rows) == ([], [])
 
 
+def test_the_infernal_hound_ignites_the_boss_for_20_percent_of_its_life():
+    """MECHB40 (an UNDERCOUNT: PoB reads neither of its stats): the Infernal Hound Ignites enemies within 2.5 m as though
+    dealt Base Fire equal to 20% of its Life: 20% x 20% x Life through the boss's Fire resistance; only the strongest
+    Ignite counts (beside an Infernal Legion minion's 10% and over the build's own); and it Ignites the boss all fight
+    (a Reviving melee minion) for MECH-A's Ignited box."""
+    hound = (models.INFERNAL_HOUND, 2000.0, models.HOUND_LIFE_SHARE)
+    added, note = models.infernal_legion_model([hound], 25.0, 0.0)
+    assert added == pytest.approx(0.2 * 0.2 * 2000 * 0.75) and note["label"].startswith("Infernal Hound")
+    assert "2.5 m" in note["basis"] and "0 before" in note["basis"]
+    brute = ("Skeletal Brute Minion", 5000.0)  # (10% of 5000 = 500 beats 20% of 2000 = 400)
+    added, note = models.infernal_legion_model([hound, brute], 25.0, 0.0)
+    assert added == pytest.approx(0.2 * 0.1 * 5000 * 0.75) and "Skeletal Brute" in note["basis"]
+    assert models.infernal_legion_model([hound], 25.0, 100.0)[0] == 0.0  # (the build's own Ignite is stronger)
+    skill = models.Skill(models.INFERNAL_HOUND, group=3, summon={"limit": 1, "persistent": True})
+    share, how = models.infernal_legion_ignited([skill], None, {})
+    assert share == 1.0
+
+
 def test_unnamed_heartwood_is_a_labelled_no_change():
     """MECHB39: "Totems die 6 seconds after their Life is reduced to 0" acts only on totems the boss kills (not counted):
     a LOW note, no mod."""

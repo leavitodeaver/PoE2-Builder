@@ -1214,16 +1214,18 @@ def infernal_legion(build: Build, stats: dict) -> tuple[float, list[dict]]:
     enemyFireResist) and the build's own Ignite (PoB's IgniteDPS)."""
     indices, actives, names = [], [], []
     for group in build.groups():
-        if not group["enabled"] or not any(g["name"] in models.INFERNAL_LEGION and g.get("enabled", True)
-                                           for g in group["gems"]):
+        if not group["enabled"]:
             continue
-        for n, skill in enumerate(group["skills"], 1):
-            if not skill.get("disabled"):
+        legion = any(g["name"] in models.INFERNAL_LEGION and g.get("enabled", True) for g in group["gems"])
+        for n, skill in enumerate(group["skills"], 1):  # (MECHB40: and the Infernal Hound, wherever it is)
+            if not skill.get("disabled") and (legion or skill["name"] == models.INFERNAL_HOUND):
                 indices.append(group["index"]); actives.append(n); names.append(skill["name"])
     if not indices:
         return 0.0, []
     rates = {(r["index"], r.get("active")): r for r in build.call("useRates", indices=indices, actives=actives)["rates"]}
-    minions = [(name, number((rates.get((i, a)) or {}).get("minionLife"))) for i, a, name in zip(indices, actives, names)]
+    minions = [(name, number((rates.get((i, a)) or {}).get("minionLife")),
+                models.HOUND_LIFE_SHARE if name == models.INFERNAL_HOUND else models.LEGION_LIFE_SHARE)
+               for i, a, name in zip(indices, actives, names)]
     resist = number(build.call("getConfig")["input"].get("enemyFireResist"))
     added, note = models.infernal_legion_model(minions, resist, number(stats.get("IgniteDPS")))
     return added, [note]

@@ -8655,23 +8655,40 @@ INFERNAL_LEGION = ("Infernal Legion I", "Infernal Legion II", "Catha's Brillianc
 LEGION_LIFE_SHARE = 0.10  # support_minions_ignite_for_%_max_life 10
 IGNITE_BASE = 0.20  # KeywordPopups Ignite: 20% of the hit's Fire damage per second
 RANGED_MINIONS = ("Mage", "Sniper", "Arsonist", "Cleric", "Archer")
+# Summon Infernal Hound (MECHB40; an UNDERCOUNT: PoB scored its Ignite 0). The Infernalist's Reviving hound
+# (SummonInfernalHoundPlayer, fromTree): "Minions Ignite Enemies within a radius of 2.5 metres as though dealt Base Fire
+# Damage equal to 20% of Minion's Maximum Life" (infernal_familiar_minion_burns_for_%_max_life 20,
+# infernal_familiar_minion_burn_radius 25; PoB's other.lua and its stat description). PoB reads neither stat (checked: the
+# id appears in vendor PoB src only in Data/Skills/other.lua and two stat-description files). The same reading as
+# Infernal Legion's (above): 20% x 20% x the hound's Life a second through the boss's Fire resistance, the hound a melee
+# minion at the boss (MEDIUM), and only the strongest Ignite counts (one entry, the strongest of the hound's and every
+# Infernal Legion minion's, over the build's own). Its Life: PoB's useRates minionLife for its group.
+INFERNAL_HOUND = "Summon Infernal Hound"
+HOUND_LIFE_SHARE = 0.20  # infernal_familiar_minion_burns_for_%_max_life 20
 
 
-def infernal_legion_model(minions: list[tuple[str, float]], fire_resist: float, own_ignite: float) -> tuple[float, dict]:
-    """(added DPS, note). `minions`: (minion skill, its minion's Life) for each Infernal Legion-supported skill;
-    `fire_resist`: the boss's Fire resistance %; `own_ignite`: the build's own Ignite DPS on the boss (PoB's IgniteDPS)."""
-    near = [(name, life) for name, life in minions if life > 0 and not any(r in name for r in RANGED_MINIONS)]
-    label = "Infernal Legion (supported minions Ignite the boss near them)"
+def infernal_legion_model(minions: list[tuple], fire_resist: float, own_ignite: float) -> tuple[float, dict]:
+    """(added DPS, note). `minions`: (minion skill, its minion's Life[, its share of Life as base Fire]) for each Infernal
+    Legion-supported skill (10%) and Summon Infernal Hound (20%, MECHB40); `fire_resist`: the boss's Fire resistance %;
+    `own_ignite`: the build's own Ignite DPS on the boss (PoB's IgniteDPS)."""
+    rows = [(m[0], m[1], m[2] if len(m) > 2 else LEGION_LIFE_SHARE) for m in minions]
+    near = [r for r in rows if r[1] > 0 and not any(x in r[0] for x in RANGED_MINIONS)]
+    hound = any(r[0] == INFERNAL_HOUND for r in rows)
+    label = ("Infernal Legion / Infernal Hound (minions Ignite the boss near them)" if hound and len(rows) > 1 else
+             "Infernal Hound (Ignites the boss near it)" if hound else
+             "Infernal Legion (supported minions Ignite the boss near them)")
     if not near:
         return 0.0, {"label": label, "value": 0, "confidence": "MEDIUM",
                      "basis": "no supported melee minion with a Life PoB reports is near the boss: 0"}
-    name, life = max(near, key=lambda m: m[1])
-    ignite = IGNITE_BASE * LEGION_LIFE_SHARE * life * (1 - fire_resist / 100)
+    name, life, share = max(near, key=lambda m: m[1] * m[2])
+    ignite = IGNITE_BASE * share * life * (1 - fire_resist / 100)
     added = max(0.0, ignite - own_ignite)
-    basis = (f"{name}'s minions ({life:,.0f} Life) Ignite the boss for 20% x 10% of their Life a second through its "
-             f"{fire_resist:g}% Fire resistance = {ignite:,.1f} DPS; only the strongest Ignite counts, so "
-             f"+{added:,.1f} over the build's own {own_ignite:,.1f}. Melee minions taken to stand within the 1.5 m "
-             "(MEDIUM); the minion's own damage and Ignite modifiers not counted (an undercount)")
+    reach = "2.5 m" if name == INFERNAL_HOUND else "1.5 m"
+    basis = (f"{name}'s minions ({life:,.0f} Life) Ignite the boss for 20% x {share:.0%} of their Life a second through "
+             f"its {fire_resist:g}% Fire resistance = {ignite:,.1f} DPS; only the strongest Ignite counts, so "
+             f"+{added:,.1f} over the build's own {own_ignite:,.1f}. Melee minions taken to stand within the {reach} "
+             "(MEDIUM); the minion's own damage and Ignite modifiers not counted (an undercount)"
+             + (f"; PoB reads none of it (0 before)" if hound else ""))
     return added, {"label": label, "value": round(added, 1), "basis": basis, "confidence": "MEDIUM"}
 
 
@@ -8690,7 +8707,8 @@ def infernal_legion_ignited(skills: list[Skill], main: Skill | None, stats: dict
                             rates: dict[str, float] | None = None) -> tuple[float, str]:
     """(share of the fight the boss is Ignited by Infernal Legion's minions, how). `skills` carry LEGION_STAT in their
     support_stats (see above); `rates`: a temporary minion skill's summons a second, by name, when a model gives it."""
-    supported = [s for s in skills if number(s.support_stats.get(LEGION_STAT)) > 0 and s.summon]
+    supported = [s for s in skills if (number(s.support_stats.get(LEGION_STAT)) > 0 or s.name == INFERNAL_HOUND)
+                 and s.summon]  # (MECHB40: the Infernal Hound Ignites near it the same way)
     if not supported:
         return 0.0, "no minion skill supported by Infernal Legion"
     melee = [s for s in supported if not any(r in s.name for r in RANGED_MINIONS)]
@@ -8699,7 +8717,8 @@ def infernal_legion_ignited(skills: list[Skill], main: Skill | None, stats: dict
                      "(MEDIUM): 0")
     persistent = [s for s in melee if s.summon.get("persistent")]
     if persistent:
-        return 1.0, (f"{persistent[0].name}'s minions (Infernal Legion) stand at the boss and Ignite it within 1.5 m all "
+        return 1.0, (f"{persistent[0].name}'s minions (Infernal Legion, or the Infernal Hound's own burn) stand at "
+                     "the boss and Ignite it near them all "
                      "fight (MEDIUM: melee minions; the time every one lies dead not taken off)")
     best, why = 0.0, []
     for s in melee:

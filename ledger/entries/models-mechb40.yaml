@@ -59,3 +59,22 @@
     find a fallen minion. Not yet fed into minion_deaths' cap (the deaths-fed Energy / buffs: an undercount, said).
   sources: [builder/search/models.py (forced_revives, minion_alive_model), builder/search/assumptions.py (mana_flask_uses)]
   status: proposed
+
+- id: model-mechb40-infernal-hound-ignite
+  title: "Summon Infernal Hound: Ignites enemies within 2.5 m as though dealt Base Fire equal to 20% of its Life (models.infernal_legion_model)"
+  kind: model
+  model: infernal_legion
+  stats: ["infernal_familiar_minion_burns_for_%_max_life", "infernal_familiar_minion_burn_radius"]
+  skill: ["Summon Infernal Hound"]
+  confidence: theory
+  notes: >-
+    PoB reads neither stat (checked: the ids appear in vendor PoB src only in Data/Skills/other.lua and two
+    stat-description files), so the hound's Ignite scored 0 (an UNDERCOUNT for Infernalists with Loyal Hellhound). Now
+    the same reading as Infernal Legion's: 20% (KeywordPopups Ignite) x 20% x the hound's Life (PoB's useRates
+    minionLife) a second through the boss's Fire resistance, the hound a melee minion at the boss (MEDIUM); only the
+    strongest Ignite counts (the strongest of the hound's and any Infernal Legion minion's, over the build's own); the
+    boss Ignited all fight for MECH-A's Ignited box (infernal_legion_ignited). Not counted: the hound's own Ignite
+    modifiers on that base (an undercount).
+  sources: [builder/search/models.py (INFERNAL_HOUND, HOUND_LIFE_SHARE, infernal_legion_model, infernal_legion_ignited),
+            builder/search/assumptions.py (infernal_legion), vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua 17865-17945]
+  status: proposed
