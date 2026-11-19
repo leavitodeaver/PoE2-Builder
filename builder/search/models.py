@@ -12300,6 +12300,12 @@ def press_choice(rate: dict, choices: dict[str, float] | None) -> float | None:
 # press adds one; the search's chosen rate (press_choice: a play strategy under the button cap, its time charged by
 # press_model) counts up to that. One instance (no limit stat): pressing again only replaces it, so once per its
 # duration, as before. Pressing it less often than once per its duration isn't offered here (the old rate is the floor).
+# A Projectile skill with no instance limit (the bridge's useRates projectile: PoB's SkillType.Projectile; Spark's 2 s,
+# Ball Lightning's) carries its projectiles' life as Duration: pressing again adds projectiles, so the chosen rate counts
+# (only its own speed caps it; MECHB39, the manager 17:55: an UNDERCOUNT before, held to once per that life). Which
+# duration skills hold one instance only (buffs, Marks, a placed wall) vs add one a press without a limit stat is read
+# from these two fields alone: a non-Projectile skill with no limit stat stays at once per its duration (the cautious
+# side, said).
 def duration_press_rate(rate: dict, chosen: float | None) -> tuple[float, str]:
     """(presses per second, how) of a duration skill with no cooldown: once per its duration, or the chosen rate up to
     its instance limit / duration (see above)."""
@@ -12308,6 +12314,10 @@ def duration_press_rate(rate: dict, chosen: float | None) -> tuple[float, str]:
     limit = number(rate.get("instanceLimit"))
     if chosen is None or chosen <= once:
         return once, f"once per its {duration:.2f} s duration, to keep it up"
+    if limit <= 1 and rate.get("projectile"):  # (MECHB39: its Duration is its projectiles' life; each press adds more)
+        return chosen, (f"{chosen:.3g} presses a second*, the rate the search chose (a way to play the build; its "
+                        f"{duration:.2f} s duration is its projectiles' life, not a thing kept up, so pressing again adds "
+                        f"projectiles; without it, once per that duration: {once:.3g} a second)")
     if limit <= 1:
         return once, (f"once per its {duration:.2f} s duration (the search chose {chosen:.3g} presses a second, but it "
                       "holds one instance: pressing again only replaces it)")

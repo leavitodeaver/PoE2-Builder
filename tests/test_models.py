@@ -6291,3 +6291,15 @@ def test_gigantic_after_reviving_counts_at_the_revived_recently_share():
     share = models.revived_recently_share(zombies, {**stats, "_skills": [zombies, pact]}, pact)[0]
     mods, notes = models.gigantic_revived_model(text, [zombies, pact], pact, stats)
     assert share > 0 and mods == [models.line("Minions deal 1% more Damage", 20 * share)]
+
+
+def test_a_side_projectile_spell_takes_its_chosen_press_rate_past_its_projectile_life():
+    """MECHB39 (the manager 17:55, an UNDERCOUNT): Spark's useRates Duration (2.01 s) is its projectiles' life, so a
+    chosen press rate counts (its speed the cap); no choice: once per that duration, as before; a non-Projectile skill
+    with no limit stays at once per its duration."""
+    spark = {"name": "Spark", "duration": 2.0, "speed": 1.2, "projectile": True}
+    assert models.press_use_rate(spark)[0] == pytest.approx(0.5)
+    uses, how, _ = models.press_use_rate(spark, 1.0)
+    assert uses == pytest.approx(1.0) and "projectiles' life" in how
+    assert models.press_use_rate(spark, 3.0)[0] == pytest.approx(1.2)  # (its own speed)
+    assert models.press_use_rate({**spark, "projectile": None}, 1.0)[0] == pytest.approx(0.5)

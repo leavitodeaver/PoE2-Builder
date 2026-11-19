@@ -3925,6 +3925,11 @@ function bridge.useRates(args)
 				minionSpeed = env.minion and env.minion.output and type(env.minion.output.Speed) == "number"
 					and jsonNumber(env.minion.output.Speed) or nil,
 				duration = output.Duration and jsonNumber(output.Duration) or nil,
+				-- (MECHB39: models.totem_deaths) a totem skill's own totem duration with the build's modifiers
+				totemDuration = type(output.TotemDuration) == "number" and jsonNumber(output.TotemDuration) or nil,
+				-- (MECHB39: models.duration_press_rate) a Projectile skill's Duration is its projectiles' life, not a
+				-- thing kept up: pressing again adds projectiles
+				projectile = (skill.skillTypes and skill.skillTypes[SkillType.Projectile]) and true or nil,
 				castTime = jsonNumber(skill.activeEffect.grantedEffect.castTime or 0),
 				-- one use's time before the cooldown caps Speed (PoB's own ailment stacks read it the same way)
 				time = (output.HitTime or output.Time) and jsonNumber(output.HitTime or output.Time) or nil,
