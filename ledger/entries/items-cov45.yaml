@@ -1,0 +1,52 @@
+# COV45 (19 Nov 2026): item lines train 92's models read, each checked to feed the headline, and the "while Sprinting"
+# lines recovery.sprint_row reads (MECHC34; a play row only, `play_row: true`: the audit closes them, the search doesn't
+# re-score items for them).
+
+- id: model-read-mech90-lycosidae-block-poison
+  title: 'Lycosidae, "Blocking Damage Poisons the Enemy as though dealing N Base Chaos Damage" (models.block_poison_model, MECH90)'
+  kind: pob_gap
+  model: block_poison
+  match: '^Blocking Damage Poisons the Enemy as though dealing \d+(?:\.\d+)? Base Chaos Damage$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.BLOCK_POISON / block_poison_model (train 92): 20% of N Chaos a second through the boss's Chaos resistance, 2 s,
+    at the build's Blocks a second (boss_hits.block_share at the benefit cadence), only by what it beats the build's own
+    Poison by (MEDIUM-LOW); added as the BlockPoison input in hand_mods. No Block: 0. PoB leaves the line unparsed.
+  sources: ["builder/search/models.py (BLOCK_POISON, block_poison_model)", "builder/search/assumptions.py (BlockPoison)"]
+  status: proposed
+
+- id: play-row-sprint-lines
+  title: '"N% increased Movement Speed / Evasion Rating while Sprinting", the sprint Life loss and Emergent Protection''s sprint Guard (recovery.sprint_row, MECHC34: a play row)'
+  kind: pob_gap
+  model: sprint
+  play_row: true
+  match: '^(\d+(?:\.\d+)?% increased (Movement Speed|Evasion Rating) while Sprinting|Lose \d+(?:\.\d+)?% of maximum Life per second while Sprinting|When you stop Sprinting, gain Guard equal to \d+(?:\.\d+)?% of maximum Life per second spent Sprinting, up to a maximum of \d+(?:\.\d+)?%, for \d+(?:\.\d+)? seconds)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.sprint_row (MECHC34; RESEARCH26 R26-22, MEDIUM): sprinting between boss repositions, a row only (a sprint
+    ends on any skill use and a hit knocks you down), so every "while Sprinting" line is 0 in the headline (PoB's
+    Condition:Sprinting is never set). The row reads SPRINT_SPEED and SPRINT_EVASION (numbers), SPRINT_GUARD (Emergent
+    Protection), SPRINT_LIFE_LOSS (a cost). Left open: the three lines the row only names, with no value
+    (SPRINT_NAMED: "Cannot be Heavy Stunned while Sprinting", "Your speed is Unaffected by Slows while Sprinting",
+    "N% increased Runic Ward Regeneration Rate while Sprinting").
+  sources: ["builder/search/recovery.py (SPRINT_SPEED, SPRINT_EVASION, SPRINT_GUARD, SPRINT_LIFE_LOSS, sprint_row)"]
+  status: proposed
+
+- id: no-effect-mark-of-the-abyssal-lord
+  title: 'Essence of the Abyss, "Bears the Mark of the Abyssal Lord": a crafting mark, no effect on what''s calculated'
+  kind: pob_gap
+  match: '^Bears the Mark of the Abyssal Lord$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    Mods EssenceAbyssPrefix / EssenceAbyssSuffix, one stat each: essence_abyss_guaranteed_pick (value 1). poe2db's Essence
+    of the Abyss: "Removes a random modifier and augments a Rare item with a new guaranteed modifier", Mark of the Abyssal
+    Lord, with no stat of its own described. No skill, passive or other table uses the stat (checked: every row of every
+    table in game 26650308 whose stat fields hold its index: only those two Mods and ModType; PoB: its stat description
+    only). It marks the item for a later Abyssal craft; the character's numbers don't move. The patch-notes archive has
+    no hit for it (no hit is not evidence of absence).
+  sources: ["game 26650308 Mods.json EssenceAbyssPrefix / EssenceAbyssSuffix; Stats.json essence_abyss_guaranteed_pick",
+            "https://poe2db.tw/us/Essence_of_the_Abyss"]
+  status: proposed

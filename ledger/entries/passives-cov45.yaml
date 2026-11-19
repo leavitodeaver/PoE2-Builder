@@ -1,0 +1,46 @@
+# COV45 (19 Nov 2026): passive lines train 92's models read (MECHC42, bb4fc20e / 5a9542dc), each checked to feed the
+# headline (assumptions.py adds their mods to hand_mods), and Bulwark's part-time line, read by a play row only
+# (`play_row: true`: the audit closes it; the search doesn't re-score items for it).
+
+- id: model-read-mechc42-last-stand
+  title: 'Last Stand and its small, "N% increased Attack Damage while you have no Life Flask uses left" (flasks.no_life_uses_model, MECHC42)'
+  kind: pob_gap
+  model: flasks
+  match: '^\d+(?:\.\d+)?% increased Attack Damage while you have no Life Flask uses left$'
+  replace: []
+  confidence: theory
+  notes: >-
+    flasks.NO_LIFE_USES / no_life_uses_model (train 92): "N% increased Attack Damage" x the share of the fight the Life
+    Flask has no use left (1 when drunk the moment a use fills or with no Life Flask, 0 when held back; MEDIUM), added to
+    the build through assumptions' hand_mods. PoB's Condition:NoLifeFlaskUsesLeft is set only by its configuration box.
+  sources: ["builder/search/flasks.py (NO_LIFE_USES, no_life_uses_model)", "builder/search/assumptions.py (hand_mods)"]
+  status: proposed
+
+- id: model-read-mechc42-deafening-cries
+  title: 'Deafening Cries, "N% increased Damage for each time you''ve Warcried Recently" (assumptions.warcried_model, MECHC42)'
+  kind: pob_gap
+  model: warcries
+  match: '^\d+(?:\.\d+)?% increased Damage for each time you''ve Warcried Recently$'
+  replace: []
+  confidence: theory
+  notes: >-
+    assumptions.WARCRIED_EACH / warcried_model (train 92): "N% increased Damage" x the Warcries used in the past 4 s on
+    average (4 s x the build's Warcries' use rates, conditions.skill_use_rate; no Warcry: 0), into hand_mods. PoB's
+    Multiplier:WarcryUsedRecently is set only by its configuration box.
+  sources: ["builder/search/assumptions.py (WARCRIED_EACH, warcries_used_recently, warcried_model)"]
+  status: proposed
+
+- id: play-row-bulwark-rolling-less
+  title: 'Bulwark, "Take N% less Damage from Hits while Dodge Rolling" (recovery.rolling_less_row, MECHC38: a play row)'
+  kind: pob_gap
+  model: rolling
+  play_row: true
+  match: '^Take \d+(?:\.\d+)?% less Damage from Hits while Dodge Rolling$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.ROLLING_LESS (MECHC38): a row at the build's share of the fight spent dodge rolling, not in the defences
+    (part-time: the floors count only what is up all fight, the user's 9 Nov rule); PoB's Condition:InDodgeRoll stays
+    off. A play row only, so 0 in the headline (an UNDERCOUNT of average damage taken, by the rule).
+  sources: ["builder/search/recovery.py (ROLLING_LESS, rolling_less_row)", "builder/search/assumptions.py (Bulwark row)"]
+  status: proposed

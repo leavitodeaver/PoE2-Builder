@@ -40,7 +40,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from builder import ROOT
-from builder.ledger import checked_parse, entries, model_entry, parse_audit, parsed_unused, translate, wrong
+from builder.ledger import checked_parse, entries, model_entry, parse_audit, parsed_unused, play_row_entry, translate, wrong
 from builder.search.recovery import EVENT_UNREAD
 
 POB_SRC = ROOT / "vendor" / "PathOfBuilding-PoE2" / "src"
@@ -294,6 +294,21 @@ def _param_built_names(text: str) -> set[str]:
                 if suffixes.get(param) and (lit := re.fullmatch(r'"(\w+)"', arg)):
                     names.update(lit.group(1) + suffix for suffix in suffixes[param])
     return names
+
+
+# Stats PoB reads by their modifier's tag, not its name (COV45, MECHB41's warcry stats): SkillStatMap 2958-2960 maps
+# warcry_count_power_from_enemies to flag UsesWarcryPower under { type = "GlobalEffect", effectType = "Warcry" }. Only the
+# Configuration page reads the name (ConfigOptions 726-727, ifFlag), but CalcActiveSkill 1053-1080 makes the skill's
+# Warcry buff from any GlobalEffect-tagged modifier, and CalcPerform 2197-2284 gives that buff its Power from the enemies
+# (WarcryPower, the boss's 20), its Empowered attacks (Num<Name>Empowers) and its uptime. Arctic Howl, whose stat sets lack
+# the stat, gets no Warcry buff and 0 Empowers in PoB (GEM14 / MECHB33's find, models.py's Arctic Howl note): the stat is
+# what PoB counts it by. (checked: every SkillStatMap entry holding a GlobalEffect-tagged flag: this one.)
+BUFF_MAKING_STATS = {
+    "warcry_count_power_from_enemies": (
+        "PoB makes the skill's Warcry buff from it (its GlobalEffect Warcry tag, CalcActiveSkill 1053-1080) and gives that "
+        "buff Power from the enemies, Empowers and uptime (CalcPerform 2197-2284); without it no buff (Arctic Howl: GEM14 / "
+        "MECHB33)"),
+}
 
 
 @lru_cache(maxsize=1)
@@ -615,6 +630,8 @@ def ignored_line_status(line: str, on_passive: bool) -> tuple[str, str | None, s
         return "ledger", entry.id, "no effect on what's calculated" if not lines else "translated"
     if condition := resolver_condition(line):
         return "model", f"condition:{condition.var}", f"a source of {condition.label} for the condition resolver"
+    if entry := play_row_entry(line):
+        return "model", entry.id, f"read by the {entry.raw['model']} play row (0 in the headline: part-time)"
     return "none", None, "PoB ignores the line"
 
 
@@ -644,6 +661,8 @@ def noop_status(line: str, missing: list[str], on_item: bool) -> tuple[str, str 
         return "none", entry.id, f"{unread_why}; a ledger entry translates it, but translations apply only to lines PoB ignores"
     if unused := parsed_unused(line):
         return "none", unused.id, f"{unread_why}; {unused.title} (routed to {unused.raw.get('owner', '?')})"
+    if entry := play_row_entry(line):
+        return "model", entry.id, f"{unread_why}; read by the {entry.raw['model']} play row (0 in the headline: part-time)"
     return "none", None, unread_why
 
 
@@ -678,7 +697,19 @@ def not_applied(status: str, entry: str | None, reason: str, pool: str = "Item",
         return status, entry, "translated in the unique's own text (its unique record)"
     why = {"Exclusive": "a unique's mod PoB doesn't list among the unique's ignored lines",
            "legion": "a Timeless jewel's passive (the tree side)"}.get(pool, f"the search never rolls {pool} mods")
-    return "none", entry, f"a ledger entry translates it, but the search doesn't apply it: {why}"
+    return "none", entry, f"{NOT_APPLIED_WHY}{why}"
+
+
+NOT_APPLIED_WHY = "a ledger entry translates it, but the search doesn't apply it: "
+
+
+@lru_cache(maxsize=1)
+def cultivated_scored_mods() -> frozenset[str]:
+    """Mod ids of the Cultivated outcomes the search offers on some cultivatable unique (cultivated.outcomes: not
+    marked not_offered, and every line PoB doesn't read has an item stand-in, cultivated.outcome_lines)."""
+    from builder.search import cultivated
+
+    return frozenset(o["mod"] for name in cultivated.uniques() for o in cultivated.outcomes(name))
 
 
 def resolver_condition(line: str):
@@ -922,6 +953,8 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                         status, entry, reason = "pob", None, f"PoB sets the skill flag {flag!r} from it"
                     elif not names:
                         status, entry, reason = "none", None, "PoB maps the stat to nothing"
+                    elif name in BUFF_MAKING_STATS:
+                        status, entry, reason = "pob", None, BUFF_MAKING_STATS[name]
                     elif missing := unread(names, reads):
                         status, entry, reason = "none", None, "mapped, but no calculation reads " + ", ".join(missing)
                     else:
@@ -982,6 +1015,9 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                 # onslaught_uptime rates it at the build's kills and sets PoB's Onslaught box itself
                 if model := model_entry(line["line"]):
                     status, entry, why = "model", model.id, f"{why}; fed to the {model.raw['model']} model"
+                elif model := play_row_entry(line["line"]):
+                    status, entry, why = ("model", model.id, f"{why}; read by the {model.raw['model']} play row "
+                                          "(0 in the headline: part-time)")
                 elif condition := resolver_condition(line["line"]):
                     status, entry, why = ("model", f"condition:{condition.var}",
                                           f"{why}; a source of {condition.label} for the condition resolver")
@@ -1023,6 +1059,15 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                     label := cultivated_label(record["source"].split()[1])):
                 # (A32-10, COV27: Cultivated outcomes are live, never a "PoE1 leftover"; the no-carrier ones are labelled)
                 record["cultivated"] = "no carrier" if label.startswith("no current") else "live"
+                mod_id = record["source"].split()[1]
+                if (record["status"] == "none" and record["reason"].startswith(NOT_APPLIED_WHY)
+                        and mod_id in cultivated_scored_mods()):
+                    # (COV45, from MECH90's catalog note) the search's Cultivation trial gives an outcome's lines the
+                    # same ledger stand-ins (cultivated.outcome_lines), so a translated outcome line is applied there
+                    record["status"] = "ledger"
+                    record["reason"] = ("translated in the Cultivated outcome (cultivated.outcome_lines, the gear "
+                                        "round's Cultivation trial); " + label)
+                    continue
                 if record["status"] != "pob":
                     record["reason"] += "; " + label
                 continue

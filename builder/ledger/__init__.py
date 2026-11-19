@@ -273,7 +273,19 @@ def model_entry(line: str) -> Entry | None:
     cleared (no cache_clear and no patching of entries / ENTRY_DIR anywhere in builder, tools or tests; COV26), so a
     cached answer can't go stale. Must stay on the function itself: models.py imports it by name."""
     for entry in entries():
-        if entry.raw.get("model") and entry.matches(line):
+        if entry.raw.get("model") and not entry.raw.get("play_row") and entry.matches(line):
+            return entry
+    return None
+
+
+@lru_cache(maxsize=None)
+def play_row_entry(line: str) -> Entry | None:
+    """The entry naming the play row that reads this line (`play_row: true`; COV45, the manager's 19 Nov ask from
+    MECHC42): a model reads it for the play guide only, 0 in the headline by the user's 9 Nov rule (the floors and the
+    score count only what is up all fight). The audit closes its row as modelled; model_entry leaves it out, so the
+    search doesn't re-score items for a line that can't move their score (models.item_read_by_models)."""
+    for entry in entries():
+        if entry.raw.get("model") and entry.raw.get("play_row") and entry.matches(line):
             return entry
     return None
 

@@ -1190,3 +1190,77 @@ def test_train91_reads_are_model_read():
         assert coverage.stat_covered(covered, stat, "Helbrym's Hide") == ("model", "model-mechc41-helbryms-hide-guard")
     assert coverage.stat_covered(covered, "support_hide_of_helbrym_gain_rage_from_%_of_damage_taken", "Helbrym's Hide") is None
     assert (recovery.HELBRYM_SHARE, recovery.HELBRYM_SOAK, recovery.HELBRYM_SECONDS) == (0.5, 2.0, 4.0)
+
+
+def test_damage_type_conditions_count_as_set():
+    """COV45 (from MECH90): CalcOffence sets Condition:<Type>HasDamage for every type a hit deals (4491) and
+    <Type>IsHighestDamageType (4501), both over its dmgTypeList: "with Lightning Damage" lines are not never-on."""
+    from builder.ledger import parse_audit
+
+    exact = parse_audit.calc_setters()["exact"]
+    for kind in ("Physical", "Lightning", "Cold", "Fire", "Chaos"):
+        assert f"Condition:{kind}HasDamage" in exact and f"Condition:{kind}IsHighestDamageType" in exact
+    assert "Condition:HasDamage" not in exact
+
+
+def test_cultivated_outcome_translations_count_where_the_trial_applies_them():
+    """COV45 (from MECH90's catalog note): a live Cultivated outcome whose unread line has an item stand-in is offered by
+    the search's Cultivation trial with that stand-in (cultivated.outcome_lines), so the audit counts it; a Desecrated
+    copy of the same line (never rolled by the search) stays open."""
+    from builder.ledger import coverage
+    from builder.search import cultivated
+
+    offered = coverage.cultivated_scored_mods()
+    assert {"UniqueMutatedVaalChanceToBleed", "UniqueMutatedVaalAftershockChance",
+            "UniqueMutatedVaalMaximumRagePerGlorySkillUsed"} <= offered
+    bleed = next(o for o in cultivated.outcomes("Atziri's Acuity") if o["mod"] == "UniqueMutatedVaalChanceToBleed")
+    assert "(30-50)% increased to inflict Bleeding" in cultivated.outcome_lines(bleed)
+    records = {r["source"]: r for r in coverage.audit()["records"]
+               if r["source"] in ("Exclusive UniqueMutatedVaalChanceToBleed", "Desecrated AbyssModGlovesUlamanSuffixBleedChance")}
+    assert records["Exclusive UniqueMutatedVaalChanceToBleed"]["status"] == "ledger"
+    assert records["Desecrated AbyssModGlovesUlamanSuffixBleedChance"]["status"] == "none"
+
+
+def test_train92_reads_and_play_rows():
+    """COV45 (train 92; the manager's 19 Nov ask from MECHC42): Last Stand, Deafening Cries and Lycosidae are model-read
+    by the models that feed the headline; Bulwark and the sprint lines are read by play rows only: the audit closes them
+    (play_row_entry) but model_entry leaves them out, so the search doesn't re-score items for them. The sprint row's
+    named-only lines stay open."""
+    from builder.ledger import model_entry, play_row_entry
+    from builder.search import assumptions, flasks, models, recovery
+
+    read = {
+        "25% increased Attack Damage while you have no Life Flask uses left": ("model-read-mechc42-last-stand", flasks.NO_LIFE_USES),
+        "8% increased Damage for each time you've Warcried Recently": ("model-read-mechc42-deafening-cries", assumptions.WARCRIED_EACH),
+        "Blocking Damage Poisons the Enemy as though dealing 200 Base Chaos Damage":
+            ("model-read-mech90-lycosidae-block-poison", models.BLOCK_POISON),
+    }
+    for line, (entry, pattern) in read.items():
+        assert (found := model_entry(line)) is not None and found.id == entry, line
+        assert pattern.match(line), line
+    rows = {
+        "Take 30% less Damage from Hits while Dodge Rolling": ("play-row-bulwark-rolling-less", recovery.ROLLING_LESS),
+        "25% increased Movement Speed while Sprinting": ("play-row-sprint-lines", recovery.SPRINT_SPEED),
+        "100% increased Evasion Rating while Sprinting": ("play-row-sprint-lines", recovery.SPRINT_EVASION),
+        "Lose 5% of maximum Life per second while Sprinting": ("play-row-sprint-lines", recovery.SPRINT_LIFE_LOSS),
+        "When you stop Sprinting, gain Guard equal to 4% of maximum Life per second spent Sprinting, up to a maximum of "
+        "40%, for 4 seconds": ("play-row-sprint-lines", recovery.SPRINT_GUARD),
+    }
+    for line, (entry, pattern) in rows.items():
+        assert model_entry(line) is None, line
+        assert (found := play_row_entry(line)) is not None and found.id == entry, line
+        assert pattern.match(line), line
+    assert not models.item_read_by_models("Take 30% less Damage from Hits while Dodge Rolling", [])
+    for line in ("Cannot be Heavy Stunned while Sprinting", "Your speed is Unaffected by Slows while Sprinting",
+                 "50% increased Runic Ward Regeneration Rate while Sprinting"):
+        assert model_entry(line) is None and play_row_entry(line) is None, line
+
+
+def test_warcry_power_stat_is_read_by_its_buff_tag():
+    """COV45 (MECHB41's warcry stats): warcry_count_power_from_enemies maps to a flag only the Configuration page names,
+    but its GlobalEffect Warcry tag makes PoB's Warcry buff (Power, Empowers, uptime): counted as PoB's."""
+    from builder.ledger import coverage
+
+    assert "warcry_count_power_from_enemies" in coverage.BUFF_MAKING_STATS
+    stat_map = (coverage.POB_SRC / "Data" / "SkillStatMap.lua").read_text(encoding="utf-8", errors="replace")
+    assert 'flag("UsesWarcryPower", { type = "GlobalEffect", effectType = "Warcry" })' in stat_map

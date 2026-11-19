@@ -73,6 +73,13 @@ def calc_setters(src: Path = POB_SRC) -> dict[str, set[str]]:
         # sets it; COV21: missed before, so PoE2's Grand Spectrum lines read "never-on", wrongly)
         exact.update(re.findall(r'createMod\("((?:Condition|Multiplier):[\w\']+)"', text))
         prefixes.update(re.findall(r'NewMod\("((?:Condition|Multiplier):\w*)"\s*\.\.', text))
+        # (COV45, from MECH90) a damage type in the middle: CalcOffence 4491 NewMod("Condition:"..damageType.."HasDamage")
+        # for every type a hit deals, 4501 "Condition:"..highestType.."IsHighestDamageType"; both variables run over the
+        # file's own dmgTypeList (CalcOffence 35), so each name is set ("with Lightning Damage" lines read "never-on" before)
+        types = re.search(r'local dmgTypeList = \{([^}]*)\}', text)
+        for kind, var, suffix in re.findall(
+                r'NewMod\("(Condition|Multiplier):"\s*\.\.\s*(damageType|highestType)\s*\.\.\s*"(\w+)"', text):
+            exact.update(f"{kind}:{t}{suffix}" for t in re.findall(r'"(\w+)"', types.group(1) if types else ""))
     # (COV44) conditions the tool's own engine sets by name (bridge.lua: MECH90's helmetConditions, Tolerant Equipment's
     # HelmetArmourHigherThanEvasion / HelmetEvasionHigherThanArmour, from the equipped Helmet): only the literal
     # `conditions["X"] =` and `NewMod("Condition:X", ...` forms (a name followed by `..`, a prefix such as the ledger's
