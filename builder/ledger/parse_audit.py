@@ -73,6 +73,12 @@ def calc_setters(src: Path = POB_SRC) -> dict[str, set[str]]:
         # sets it; COV21: missed before, so PoE2's Grand Spectrum lines read "never-on", wrongly)
         exact.update(re.findall(r'createMod\("((?:Condition|Multiplier):[\w\']+)"', text))
         prefixes.update(re.findall(r'NewMod\("((?:Condition|Multiplier):\w*)"\s*\.\.', text))
+    # (COV44) conditions the tool's own engine sets on the player's modDB by name (bridge.lua's initEnv wrapper:
+    # Tolerant Equipment's HelmetArmourHigherThanEvasion / HelmetEvasionHigherThanArmour, from the equipped Helmet): only
+    # the literal `conditions["X"] =` form, so nothing the bridge merely reads or names counts
+    bridge = ROOT / "engine" / "bridge.lua"
+    if src == POB_SRC and bridge.exists():
+        exact.update(f"Condition:{n}" for n in re.findall(r'conditions\["(\w+)"\]\s*=', _text(bridge)))
     # ("Condition:" .. anything says nothing about which: only prefixes with a word of their own count)
     return {"exact": exact, "prefixes": {p for p in prefixes if len(p.split(":", 1)[1]) >= 3}}
 

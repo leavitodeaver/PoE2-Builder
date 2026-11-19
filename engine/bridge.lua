@@ -2824,6 +2824,20 @@ installRadiusModel = function()
 		local function tagRunes(env, ...)
 			if type(env) == "table" and build and buildArg == build then
 				env.bridgeCharacterRunes = characterRuneCount(override)
+				-- (COV44) Tolerant Equipment's "Immune to Bleeding / Poison if Equipped Helmet has higher Armour than
+				-- Evasion Rating" (and the reverse): PoB parses both to flags behind Condition:HelmetArmourHigherThanEvasion /
+				-- HelmetEvasionHigherThanArmour (ModParser 5293-5294) and nothing sets either. Set from the equipped Helmet's
+				-- own Armour and Evasion (its local values, Item:GetArmourDataValue; a what-if's Helmet included, as initEnv
+				-- put it in itemList); "higher" is strict, so a tie (an Energy Shield Helmet's 0 and 0) sets neither
+				local helmet = env.player and env.player.itemList and env.player.itemList["Helmet"]
+				local modDB = env.player and env.player.modDB
+				if helmet and helmet.GetArmourDataValue and modDB and modDB.conditions then
+					local level = buildArg.characterLevel or 1
+					local armour = helmet:GetArmourDataValue("Armour", level)
+					local evasion = helmet:GetArmourDataValue("Evasion", level)
+					modDB.conditions["HelmetArmourHigherThanEvasion"] = armour > evasion or nil
+					modDB.conditions["HelmetEvasionHigherThanArmour"] = evasion > armour or nil
+				end
 			end
 			return env, ...
 		end
@@ -5457,13 +5471,22 @@ function bridge.sourceLines()
 			end
 		end
 	end
+	-- (COV44) Necromantic Talisman, "All bonuses from Equipped Amulet apply to your Minions instead of you": PoB moves the
+	-- Amulet's mods to the minions when node 39935 is allocated (CalcSetup 1549: env.talismanModList, not the player's
+	-- itemModDB; CalcPerform 1101 / 1233), so the Amulet's lines aren't the player's either: before, the models read them
+	-- as the player's (probe POE2T3907: Life 1323 with or without a "+50 to maximum Life" Amulet under the Talisman, and
+	-- both its lines still listed here). PoB's own test, so the two can't disagree; the minions' side of a line only a
+	-- model reads isn't counted (an undercount, said in COV44's report).
+	local talismanNode = build.spec.allocNodes[39935]
+	local talisman = talismanNode and talismanNode.dn == "Necromantic Talisman"
 	for slotName, slot in pairs(build.itemsTab.slots) do
 		local item = slot.selItemId and build.itemsTab.items[slot.selItemId]
 		-- a flask or charm slot the search switched off (flasks.ACTIVE_UPTIME) gives no lines either (MECHC4; COVD5: before,
 		-- The Fall of the Axe's "Grants Onslaught during effect" reached the Onslaught model from a switched-off charm and
 		-- counted full-time): PoB applies such an item's mods only while its slot is active
 		local flaskOff = (slotName:match("^Flask") or slotName:match("^Charm")) and not slot.active
-		if item and not slot.inactive and not flaskOff then
+		local toMinions = talisman and slotName == "Amulet" and item and item.type == "Amulet"
+		if item and not slot.inactive and not flaskOff and not toMinions then
 			for _, kind in ipairs({ "enchantModLines", "runeModLines", "implicitModLines", "explicitModLines" }) do
 				for _, modLine in ipairs(item[kind] or { }) do
 				-- (COV42; MECHB37 item 2) only the equipped variant's lines: a unique's text holds every variant's lines

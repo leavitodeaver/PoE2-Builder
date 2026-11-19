@@ -1,0 +1,18 @@
+# COV44 (18 Nov 2026): passive lines another part of the code already does (the passives-cov43.yaml precedent).
+
+- id: no-effect-necromantic-talisman-amulet-to-minions
+  title: 'Necromantic Talisman, "All bonuses from Equipped Amulet apply to your Minions instead of you": PoB does it by the node'
+  kind: pob_gap
+  match: '^All bonuses from Equipped Amulet apply to your Minions instead of you$'
+  replace: []
+  confidence: theory
+  notes: >-
+    PoB parses the line to nothing (ModCache 5611) but does the keystone by its node: with node 39935 allocated the
+    Amulet's mods go to env.talismanModList, not the player (CalcSetup 1549), the minions get them (CalcPerform 1101) and
+    the Amulet leaves the player's item list (CalcPerform 1233). Probe POE2T3907: Life 1323 under the Talisman with or
+    without a "+50 to maximum Life" Amulet (1239 vs 1187 without it). COV44 made bridge.sourceLines follow the same test,
+    so our models don't read the Amulet's lines as the player's either. Not covered: a Talisman granted by an item
+    (Flesh Crucible's keystone outcome) isn't node 39935, so PoB keeps the Amulet on the player there (open, COV44's
+    report).
+  sources: ["vendor PoB Modules/CalcSetup.lua 1549-1555, CalcPerform.lua 1100-1103 / 1230-1233", "engine/bridge.lua (sourceLines' toMinions)"]
+  status: proposed

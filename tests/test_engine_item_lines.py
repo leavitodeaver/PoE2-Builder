@@ -489,3 +489,46 @@ def test_runes_tattooed_with_runic_meridians_count_as_socketed_runes(engine):
     engine.call("setCharacterRune", slot="Gloves Rune #1", rune=rune, fields=[])
     two = engine.call("stats", fields=["Life"])["Life"]
     assert two - base == pytest.approx(2 * (one - base), abs=1)  # (both committed slots count)
+
+
+def test_necromantic_talisman_keeps_the_amulets_lines_off_the_player(engine):
+    """COV44: under Necromantic Talisman (node 39935) PoB gives the Amulet's mods to the minions, not the player (CalcSetup
+    1549), and bridge.sourceLines no longer lists the Amulet's lines as the player's (before, the models read them: probe
+    POE2T3907)."""
+    amulet = "\n".join(["Rarity: Rare", "Test Amulet", "Jade Amulet", "Implicits: 0", "+50 to maximum Life",
+                        "Share Charges with Allies in your Presence"])
+
+    def read(talisman: bool):
+        engine.call("newBuild")
+        engine.call("setClass", className="Witch", ascendancy="Infernalist")
+        engine.call("setLevel", level=90)
+        if talisman:
+            engine.call("allocate", add=[39935])
+        bare = engine.call("stats", fields=["Life"])["Life"]
+        engine.call("equip", slot="Amulet", raw=amulet, fields=[])
+        life = engine.call("stats", fields=["Life"])["Life"]
+        texts = [x["text"] for x in engine.call("sourceLines")["lines"]]
+        return life - bare, "Share Charges with Allies in your Presence" in texts
+
+    gained, listed = read(False)
+    assert gained > 0 and listed  # (+50, scaled by the build's increased Life)
+    assert read(True) == (0, False)
+
+
+def test_tolerant_equipment_reads_the_equipped_helmets_armour_and_evasion(engine):
+    """COV44: Tolerant Equipment (node 2843): "Immune to Bleeding if Equipped Helmet has higher Armour than Evasion Rating"
+    and "Immune to Poison if ... higher Evasion Rating than Armour". PoB parses both behind conditions nothing set; the
+    bridge's initEnv wrapper sets them from the equipped Helmet's own Armour and Evasion (a tie sets neither)."""
+    engine.call("newBuild")
+    engine.call("setClass", className="Warrior", ascendancy="Titan")
+    engine.call("setLevel", level=90)
+    engine.call("allocate", add=[2843])
+
+    def avoid(base):
+        engine.call("equip", slot="Helmet", raw="\n".join(["Rarity: Normal", base, "Implicits: 0"]), fields=[])
+        s = engine.call("stats", fields=["BleedAvoidChance", "PoisonAvoidChance"])
+        return s["BleedAvoidChance"], s["PoisonAvoidChance"]
+
+    assert avoid("Rusted Greathelm") == (100, 0)  # (Armour only)
+    assert avoid("Shabby Hood") == (0, 100)  # (Evasion only)
+    assert avoid("Twig Circlet") == (0, 0)  # (Energy Shield only: 0 and 0, a tie)

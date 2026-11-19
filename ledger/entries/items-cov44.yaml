@@ -1,0 +1,36 @@
+# COV44 (18 Nov 2026): item lines a model already reads, from the model scan on train 86 (MECHC40's readers, f43a1167).
+# `replace: []`: PoB parses none of them (ModCache {nil, ...}), so nothing to take off; the audit says "model" and
+# models.item_read_by_models re-scores an item carrying one with a real trial. Each is tied to the model's own pattern by
+# tests/test_coverage.py::test_cov44_model_read_item_lines_are_the_models_own.
+# Left open on purpose: "You cannot be Frozen for N seconds after being Frozen" (boss_hits.IMMUNE_AFTER matches it, but
+# nothing calls immune_after(..., "Frozen"): the boss's Freeze on you is held back (MECHC40), so the line moves no number).
+
+- id: model-read-ignite-shock-immune-after
+  title: 'Shackles of the Wretched, "You cannot be Ignited / Shocked for N seconds after being Ignited / Shocked" (boss_hits.immune_after, MECHC40)'
+  kind: pob_gap
+  model: boss_hits
+  match: '^You cannot be (Ignited for \d+(?:\.\d+)? seconds after being Ignited|Shocked for \d+(?:\.\d+)? seconds after being Shocked)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    boss_hits.IMMUNE_AFTER / immune_after: the boss's Ignite and Shock on you are up D / (max(N, D) + 1 / c) of the fight
+    (the Chill line's form, CHILL_IMMUNE_AFTER), lowering the Ignite burn counted in the boss's damage per second and the
+    Shock's damage taken (MECHC40, f43a1167; its test test_shackles_immunity_after_an_ignite_or_shock_shortens_each).
+    The Frozen sibling stays open (the boss's Freeze on you is held back, so no number reads it).
+  sources: ["builder/search/boss_hits.py (IMMUNE_AFTER, immune_after, boss_ailments_on_you's Ignite and Shock)"]
+  status: proposed
+
+- id: model-read-share-charges-with-allies
+  title: 'Lochtonial Caress, "Share Charges with Allies in your Presence" (conditions.minion_shared, MECHC40)'
+  kind: pob_gap
+  model: charges
+  match: '^Share Charges with Allies in your Presence$'
+  replace: []
+  confidence: theory
+  notes: >-
+    conditions.SHARE_TO_ALLIES / minion_shared: each charge you gain, your minions gain too (Minions are Allies,
+    KeywordPopups), set in PoB's minionsUse<kind>Charges / minionsOverride<kind>Charges (each minion's maximum 3, 15 s,
+    none spent, MEDIUM); with no minion skill 0, said (MECHC40, f43a1167; its test
+    test_shared_charges_reach_your_minions_and_nothing_without_one). Your own charges are unchanged.
+  sources: ["builder/search/conditions.py (SHARE_TO_ALLIES, minion_shared, the minionsUse<kind>Charges conditions)"]
+  status: proposed

@@ -1043,3 +1043,44 @@ def test_mech89_reads_are_model_read():
             "per second")
     assert (found := model_entry(line)) is not None and found.id == "model-read-grinning-immolation"
     assert conditions.GRINNING_BURN.search(line) and conditions.SELF_IGNITE_LINE.search(line)
+
+
+def test_cov44_model_read_item_lines_are_the_models_own():
+    """COV44: MECHC40's readers (f43a1167) make Shackles of the Wretched's Ignite / Shock windows and Lochtonial Caress's
+    "Share Charges with Allies in your Presence" model-read, each tied to the model's own pattern. The Frozen window
+    stays open: IMMUNE_AFTER matches it, but nothing reads it (the boss's Freeze on you is held back)."""
+    from builder.ledger import model_entry
+    from builder.search import boss_hits, conditions
+
+    cases = {
+        "You cannot be Ignited for 6 seconds after being Ignited": ("model-read-ignite-shock-immune-after", "Ignited"),
+        "You cannot be Shocked for 6 seconds after being Shocked": ("model-read-ignite-shock-immune-after", "Shocked"),
+    }
+    for line, (entry, ailment) in cases.items():
+        assert (found := model_entry(line)) is not None and found.id == entry, line
+        assert boss_hits.immune_after([line], ailment) == 6.0, line
+    line = "Share Charges with Allies in your Presence"
+    assert (found := model_entry(line)) is not None and found.id == "model-read-share-charges-with-allies"
+    assert conditions.SHARE_TO_ALLIES.match(line)
+    frozen = "You cannot be Frozen for 6 seconds after being Frozen"
+    assert (found := model_entry(frozen)) is None or not found.id.startswith("model-read-"), frozen
+
+
+def test_necromantic_talisman_line_is_the_nodes_own():
+    """COV44: Necromantic Talisman's line is a no-effect entry: PoB does the keystone by its node (39935) and
+    bridge.sourceLines follows it (tests/test_engine_item_lines.py's Talisman case)."""
+    from builder.ledger import translate
+
+    found = translate("All bonuses from Equipped Amulet apply to your Minions instead of you")
+    assert found is not None and found[0].id == "no-effect-necromantic-talisman-amulet-to-minions" and found[1] == []
+
+
+def test_bridge_set_conditions_count_as_set():
+    """COV44: a condition the bridge sets by name (`conditions["X"] =`, Tolerant Equipment's two Helmet conditions in the
+    initEnv wrapper) counts as set by the calculations, so its lines leave the never-on list; a name the bridge only
+    reads doesn't."""
+    from builder.ledger import parse_audit
+
+    exact = parse_audit.calc_setters()["exact"]
+    assert {"Condition:HelmetArmourHigherThanEvasion", "Condition:HelmetEvasionHigherThanArmour"} <= exact
+    assert "Condition:Frozen" not in exact  # (a Configuration option's, which the optimizer leaves off)
