@@ -712,7 +712,10 @@ def dodge_roll(texts: list[str], stats: dict) -> dict:
                                                     "within 3 m of the boss, a play condition)")
         else:
             skipped.append(text + (" (a lone boss doesn't Surround you: 5 enemies within 3 m)" if "surrounded" in when
-                                   else " (you roll every %g s, so you have always rolled recently)" % DODGE_EVERY
+                                   else (" (you roll every %g s, so you have always rolled recently: each roll has another in "
+                                         "the 4 s before it, so it never holds when you roll; it would on rolls 4 s or "
+                                         "more apart, which no "
+                                         "reader of the roll models: MECH89)") % DODGE_EVERY
                                    if "haven't" in when else " (condition not read)"))
     base = max(DODGE_ROLL_METRES + flat, 0.0)
     speed = number(stats.get("MovementSpeedMod")) or 1.0

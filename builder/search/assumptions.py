@@ -1921,6 +1921,12 @@ class Assumptions:
                                "value": f"{burn:,.0f} Fire a second", "basis": burn_how,
                                "confidence": "MEDIUM (avoidance applied; the reflected Ignite's duration yours, "
                                              "UNVERIFIED; the main skill's Ignite only)"})
+        if any(conditions_mod.PRESENCE_RECENTLY.match(t.strip()) for t in texts):
+            # (MECH89: Decisive Retreat and the entered-Presence crit line, at the boss's re-entry rate)
+            pr_metres = (models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10
+                         or natural_distance(main_types, name or ""))
+            pr_mods, pr_notes = conditions_mod.presence_recently_mods(texts, stats, pr_metres)
+            hand_mods, hand_notes = hand_mods + pr_mods, hand_notes + pr_notes
         if any(conditions_mod.GRINNING_BURN.search(t) for t in texts):
             # (MECH89: Grinning Immolation's 15% of Life + ES a second while you are Ignited by your crits, COV43)
             burn, burn_how, burn_plain = conditions_mod.grinning_burn(

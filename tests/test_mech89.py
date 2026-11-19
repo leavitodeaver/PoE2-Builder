@@ -217,3 +217,60 @@ def test_rending_apex_on_ice_strike_fully_breaks_the_boss(engine):
     after = build.full_break_up
     print("PROBE rending apex", before, after)
     assert after[0] > before[0] and "Rending Apex" in after[1]
+
+
+
+def test_rare_in_presence_probe(engine):
+    """MECH89's probe (LANE_RULES "PoB already does X"; the coverage audit marks the line never-on, "nothing sets it"):
+    PoB counts "N% increased Attack Speed while a Rare or Unique Enemy is in your Presence" with the boss inside your
+    Presence and not outside it (POE2T4166: 1.008 plain, 1.0752 at 1 m, 1.008 at 10 m, Presence 4 m), as the plain
+    Attack Speed control: no model needed, the audit row is a misclassification."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.call("setAssumptions", mods=[], fields=[])
+
+    def speed(distance: int, line: str | None) -> float:
+        build.set_config({"enemyDistance": distance})
+        if line:
+            ring = chr(10).join(["Rarity: Rare", "Test Ring", "Ruby Ring", "Item Level: 82", "Implicits: 0", line])
+            build.call("equip", slot="Ring 1", raw=ring, fields=[])
+        out = build.call("stats", fields=["Speed", "PresenceRadius"])
+        return out["Speed"], out.get("PresenceRadius")
+
+    near_plain = speed(10, "+10 to Strength")
+    control = speed(10, "8% increased Attack Speed")
+    near = speed(10, "8% increased Attack Speed while a Rare or Unique Enemy is in your Presence")
+    far = speed(100, "8% increased Attack Speed while a Rare or Unique Enemy is in your Presence")
+    far_plain = speed(100, "+10 to Strength")
+    print("PROBE rare-in-presence speeds: plain", near_plain, "control", control, "near", near, "far", far,
+          "far plain", far_plain, "config", build.call("getConfig")["input"].get("enemyIsBoss"))
+    assert control[0] > near_plain[0]
+    assert near[0] == pytest.approx(control[0]) and far[0] == pytest.approx(far_plain[0])
+
+
+
+def test_exited_and_entered_presence_recently_lines_count_at_the_reentry_share():
+    """MECH89 (never-on rows, UNDERCOUNTS): Decisive Retreat's crit damage vs an enemy that left your Presence Recently
+    counts at 1 - e^(-4 r), r the boss's re-entries from your rolls; 0 when the boss stays outside your Presence."""
+    import math
+
+    from builder.search import models
+
+    lines = ["50% increased Critical Damage Bonus against Enemies that have exited your Presence Recently",
+             "12% increased Critical Hit Chance against Enemies that have entered your Presence Recently"]
+    stats = {"PresenceRadius": 40, "MovementSpeedMod": 1.0}  # 4 m Presence; a 4.6 m roll from 1 m leaves it
+    mods, notes = conditions.presence_recently_mods(lines, stats, 1.0)
+    share = 1 - math.exp(-4 / (2 * models.DODGE_EVERY))
+    assert [m["line"] for m in mods] == ["1% increased Critical Damage Bonus", "1% increased Critical Hit Chance"]
+    assert [m["scale"] for m in mods] == [pytest.approx(50 * share, abs=1e-2), pytest.approx(12 * share, abs=1e-2)]
+    assert "staying put: none" in notes[0]["play"]
+    far, far_notes = conditions.presence_recently_mods(lines, stats, 10.0)
+    assert far == [] and far_notes[0]["value"] == "0%"

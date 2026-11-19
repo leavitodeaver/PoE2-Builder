@@ -2767,6 +2767,41 @@ GRINNING_FIELDS = ("Life", "EnergyShield", "CritChance", "Speed", "HitChance", "
                    "SelfIgniteEffect")
 
 
+# "against Enemies that have exited / entered your Presence Recently" (MECH89; the coverage audit's never-on rows, the
+# manager's 20:50 item (2), UNDERCOUNTS: Decisive Retreat's "50% increased Critical Damage Bonus against Enemies that
+# have exited your Presence Recently", the small "12% increased Critical Hit Chance against Enemies that have entered
+# your Presence Recently"). PoB tags them ActorCondition enemy ExitedPresenceRecently / EnteredPresenceRecently
+# (ModParser 1921-1922), which nothing of ours sets; its two config boxes share one var (PRESENCE_RECENTLY_SHARED_VAR's
+# note: ticking it turns on both), so it isn't used. The boss leaves and enters your Presence at the rate the build's
+# rolls carry it out and back (models.presence_reentries: once every 2 x DODGE_EVERY s each way, when the boss stands in
+# your Presence and a roll reaches past its edge; else never). Recently = 4 s (RECENTLY); the events taken as random in
+# time (as her_declaration: the lower reading), the share 1 - e^(-4 r). The line goes to PoB without its condition, x
+# that share (a single boss: every hit is against it). Row: without rolling out of the Presence, none.
+PRESENCE_RECENTLY = re.compile(r"^(.+?) against Enemies that have (exited|entered) your Presence Recently$", re.I)
+
+
+def presence_recently_mods(texts: list[str], stats: dict, metres: float) -> tuple[list[dict], list[dict]]:
+    """The "against Enemies that have exited / entered your Presence Recently" lines at the share of the fight the boss
+    did so in the past 4 s (see the note above)."""
+    found = [(m.group(1).strip(), t.strip()) for t in texts if (m := PRESENCE_RECENTLY.match(t.strip()))]
+    if not found:
+        return [], []
+    rate, how = models.presence_reentries(texts, stats, metres)
+    share = 1 - math.exp(-RECENTLY * rate) if rate > 0 else 0.0
+    mods = []
+    for what, _ in found:  # (models.line takes the line at a magnitude of 1, scaled: "50% increased X" -> "1% ..." x 50)
+        if share > 0 and (n := re.match(r"^([+-]?\d+(?:\.\d+)?)(%?) (.+)$", what)):
+            mods.append(models.line(f"1{n.group(2)} {n.group(3)}", float(n.group(1)) * share))
+    said = "; ".join(t for _, t in found)
+    return mods, [{"label": "Against an enemy that left or entered your Presence Recently*", "value": f"{share:.0%}",
+                   "confidence": "MEDIUM" if share > 0 else "theory",
+                   "basis": (f"{said}: the boss leaves and enters your Presence {rate:.2f} times a second each ({how}), "
+                             f"so it did in the past {RECENTLY:g} s {share:.0%} of the fight (random in time, the lower "
+                             "reading); the line counted at that share"),
+                   "play": ("Roll out of your Presence and back in so the boss keeps leaving and entering it: "
+                            f"{share:.0%} of the fight; staying put: none")}]
+
+
 def grinning_burn(lines: list[str], stats: dict) -> tuple[float, str, float]:
     """(Fire damage a second you take on average from Grinning Immolation's self-Ignite, before your Fire resistance,
     how, the same without your Ignite magnitude on you (R32-7's row)); (0.0, "", 0.0) without the line."""
