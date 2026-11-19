@@ -3002,6 +3002,47 @@ def test_empowered_uses_come_from_the_skills_murderous_intent_supports():
     assert run2("Temper Weapon", spear, {"speed": 0.25}, {})[0] == pytest.approx(0.25)
 
 
+def test_arctic_howls_empowers_and_a_chance_not_to_count_in_empowered_uses(monkeypatch):
+    """MECHB41: Arctic Howl (no Warcry buff in PoB: no warcryEmpowers) Empowers floor(min(Power, cap) / per) a use from
+    its row, Echoing Cry's less Power first; "N% chance to not count that Attack" (the items' share, build.empower_keep,
+    which PoB's Warcry counts already have; Tireless' on the skill, which they don't) multiplies the counted uses."""
+    from builder.search.assumptions import Assumptions
+    from builder.search import models
+    monkeypatch.setattr(models, "immobilised_share", lambda stats, ailment: (0.25, "Frozen 25%"))
+
+    def run(empowerer, rate, support=None, keep=0.0, only=None):
+        class FakeBuild:
+            empower_keep = keep
+
+            def groups(self):
+                return [{"index": 1, "gems": [{"name": "Spear Stab"}]}, {"index": 2, "gems": [{"name": empowerer}]}]
+
+            def main_group(self):
+                return {"index": 1}
+
+            def call(self, what, **_):
+                if what == "activeSkills":
+                    return {"skills": [{"name": "Spear Stab", "attack": True, "melee": True, "group": 1},
+                                       {"name": empowerer, "group": 2, "empowers": True, "supportStats": support or {}}]}
+                return {"rates": [{"index": 2, **rate}]}
+
+        a = Assumptions.__new__(Assumptions)
+        a.build = FakeBuild()
+        return a.empowered_uses({"Speed": 2.0}, None, only=only)
+
+    howl = {"speed": 0.125, "warcryPower": 20, "warcryPowerPer": 5, "warcryPowerCap": 50}
+    rate, how = run("Arctic Howl", howl)
+    assert rate == pytest.approx(0.125 * 4 * 0.25) and "PoB makes no Warcry buff" in how
+    assert run("Arctic Howl", howl, {models.ECHO_POWER_STAT: -50})[0] == pytest.approx(0.125 * 2 * 0.25)
+    assert run("Arctic Howl", howl, keep=20.0)[0] == pytest.approx(0.125 * 4 * 0.25 / 0.8)
+    assert run("Arctic Howl", howl, only="Infernal Cry")[0] == 0.0
+    cry = {"speed": 0.125, "warcryEmpowers": 2.5, "warcryPower": 20, "warcryPowerPer": 10, "warcryPowerCap": 50}
+    assert run("Infernal Cry", cry, keep=20.0)[0] == pytest.approx(0.125 * 2.5)  # (the items' share is in PoB's 2.5)
+    rate, how = run("Infernal Cry", cry, {models.EMPOWER_KEEP_STAT: 25}, keep=20.0)
+    assert rate == pytest.approx(0.125 * 2.5 * 0.8 / 0.55) and "Tireless" in how
+    assert run("Temper Weapon", {"speed": 0.25}, keep=50.0)[0] == pytest.approx(0.5)
+
+
 def test_death_storms_ground_counts_only_skeletons_fallen_at_the_boss(monkeypatch):
     """MECH65: Conditions.death_storm takes models.death_storm's Commands and mean fallen Skeletons (MECHB20) and keeps
     the melee Skeletons' share (Warriors, Reavers, Brutes fall at the boss; Snipers and Mages away from it): the chance a

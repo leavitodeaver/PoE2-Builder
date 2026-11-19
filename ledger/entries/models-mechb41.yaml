@@ -1,0 +1,93 @@
+# MECH-B's model entries (MECHB41).
+
+- id: model-mechb41-arctic-howl-empowered-cold
+  title: "Arctic Howl's Empowered attacks: one per 5 Power, each adding the Howl's Cold (models.unbuffed_warcry_empowers, arctic_howl_cold)"
+  kind: model
+  model: arctic_howl_cold
+  stats: ["wolf_warcry_empowered_attack_cold_damage_min_per_5_power_up_to_cap",
+          "wolf_warcry_empowered_attack_cold_damage_max_per_5_power_up_to_cap"]
+  skill: ["Arctic Howl"]
+  confidence: theory
+  notes: >-
+    PoB makes no Warcry buff for Arctic Howl (its stat sets lack warcry_count_power_from_enemies, the one stat SkillStatMap
+    maps to a Warcry GlobalEffect; GEM14 / MECHB33), so its Num ArcticHowlEmpowers is 0, and it maps neither Cold stat
+    (checked: both ids appear in vendor PoB src only in Data/Skills/act_str.lua): its Empowered attacks' Cold scored 0 (an
+    UNDERCOUNT). Now: floor(min(Power, 50) / 5) Empowered attacks a use (warcry_empowers_per_X_monster_power 5, its cap 50;
+    Echoing Cry's less Power first), at the share of the fight the boss is Frozen ("If an enemy is Frozen or a Frozen enemy
+    is Hit"; warcry_empowers, LOW lower reading), and the main Attack's Empowered share adds the level's flat range (121-186
+    at level 20) as "Adds X to Y Cold Damage to Attacks". The stat id says "per 5 Power up to cap" but the text
+    (arctic_howl.csd) gives a flat range: the text is taken (the lower reading; Vruun's Aftermath's precedent), the id's
+    reading (x Power / 5) in the note: UNVERIFIED which holds (RESEARCH). Not counted: the buff's added Cold for Allies'
+    Attacks (wolf_warcry_buff_cold_damage_*: minions), Empowered Slams' Chilled Ground.
+  sources: [builder/search/models.py (ARCTIC_HOWL, UNBUFFED_WARCRIES, unbuffed_warcry_empowers, arctic_howl_cold),
+            builder/search/assumptions.py (empowered_uses' unbuffed-Warcry branch and `only`; the Howl call beside Echoing Cry's)]
+  test_in_game: "RESEARCH: is the Empowered attacks' added Cold per 5 Power (x4 at 20 Power) or the flat range shown?"
+  status: proposed
+
+- id: model-read-mechb41-empowered-gain
+  title: '"Empowered Attacks Gain N% of [Physical] Damage as Extra <Type> Damage" (models.empowered_gain / empowered_gain_model)'
+  kind: pob_gap
+  model: empowered_gain
+  match: '^Empowered Attacks Gain (\(\d+-\d+\)|\d+)% of (?:Physical )?Damage as Extra (?:Cold|Fire|Lightning|Chaos|Physical) [Dd]amage$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Hail ("16% of Damage as Extra Cold") and Cremating Cries ("15% of Physical Damage as Extra Fire"), MECHB41, an
+    UNDERCOUNT: PoB leaves both unparsed (ModCache 7252-7253: nil). The model hands PoB the same gain on the main skill at
+    the share of its uses that are Empowered (Assumptions.empowered_uses: every Empowering skill of the build), for an
+    Attack main skill; 0 without Empowering skills. This entry only says a model reads the line.
+  sources: ["builder/search/models.py (EMPOWERED_GAIN, empowered_gain, empowered_gain_model)",
+            "builder/search/assumptions.py (the Empowered gain hook after the Empowered buildup one)"]
+  status: proposed
+
+- id: model-read-mechb41-empower-keep
+  title: '"Skills which Empower an Attack have N% chance to not count that Attack" (models.empower_keep_model, Assumptions.empowered_uses)'
+  kind: pob_gap
+  model: empower_keep
+  match: '^Skills which Empower an Attack have (\(\d+-\d+\)|\d+)% chance to not count that Attack$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Serle's Grit (unique one-hand mace, (10-20)%) and the rune Legacy of Serle's Grit (bonded, 20%), MECHB41, an
+    UNDERCOUNT: PoB leaves the line unparsed (ModCache 9407-9409: nil). Each Empowered Attack that doesn't count leaves the
+    count for another, so n counted become n / (1 - p) (chances added; held below 100%). Handed to PoB as
+    ExtraEmpoweredAttacks MORE, which multiplies every Warcry's Empower count (CalcPerform 2209-2210); the Empowering skills
+    PoB doesn't count (Arctic Howl, the one-per-use ones) take it in Assumptions.empowered_uses for an Attack main skill.
+    This entry only says a model reads the line.
+  sources: ["builder/search/models.py (EMPOWER_KEEP, empower_keep, keep_factor, empower_keep_model)",
+            "builder/search/assumptions.py (empowered_uses' keep factors; the empower_keep_model call before the Empowered gain hook)"]
+  status: proposed
+
+- id: model-mechb41-tireless
+  title: "Tireless: a chance for each Empowered Attack of the supported Warcry not to count (Assumptions.empowered_uses)"
+  kind: model
+  model: empower_keep
+  stats: ["chance_for_exerted_attacks_to_not_reduce_count_%"]
+  skill: ["Tireless"]
+  confidence: theory
+  notes: >-
+    Tireless (SupportTirelessPlayer, 25%; Warcries only: "Attacks Empowered by Supported Skills have a chance not to lower
+    the Empowerment count of Supported Skills"): PoB reads the stat nowhere (checked: the id appears in vendor PoB src only
+    in Data/Skills sup_str.lua's Tireless and act_str.lua's Arctic Howl altQualityStats). The supported Warcry's Empowered
+    uses of the main Attack are x (1 - p_items) / (1 - p_items - p_Tireless) on top of PoB's count (which has the items'
+    share) in Assumptions.empowered_uses; PoB's own readers of the count (Infernal Cry's Exerted uptime) miss Tireless'
+    share (a skill-scoped MORE can't reach CalcPerform's count: it asks with no skill cfg): an undercount left, labelled.
+  sources: ["builder/search/assumptions.py (empowered_uses: own_keep, keep_pob, keep)", "builder/search/models.py (EMPOWER_KEEP_STAT)"]
+  test_in_game: "Not needed for the shape."
+  status: proposed
+
+- id: model-read-mechb41-commanding-rage
+  title: '"Every [five] Rage also grants you N% increased Minion Attack Speed / Damage" (models.commanding_rage)'
+  kind: pob_gap
+  model: commanding_rage
+  match: '^Every (?:five )?Rage also grants you (\(\d+-\d+\)|\d+)% increased Minion (?:Attack Speed|Damage)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Commanding Rage (minion_attack5; MECHB41, an UNDERCOUNT): PoB leaves both lines unparsed (ModCache 7427-7428: nil).
+    Handed to PoB as "Minions have 1% increased Attack Speed" / "Minions deal 1% increased Damage" x the build's RageEffect
+    (PoB's Rage x Rage effect, as its own "Every N Rage also grants" lines read; 0 without a Rage source), a fixed number
+    each model round (PoB adds minion modifiers before it sets RageEffect, so a PerStat tag would read 0). "Every five"
+    per Rage / 5, not whole fives (LOW). This entry only says a model reads the line.
+  sources: ["builder/search/models.py (COMMANDING_RAGE, commanding_rage)", "builder/search/assumptions.py (the commanding_rage call)"]
+  status: proposed

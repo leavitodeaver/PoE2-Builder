@@ -415,6 +415,25 @@ def test_echoing_cry_empowers_at_its_warcrys_halved_power(engine):
     assert any(n["label"] == "Infernal Cry: Echoing Cry's 50% less Power" for n in search.assumptions.active)
 
 
+def test_a_chance_not_to_count_an_empowered_attack_raises_pobs_warcry_count(engine):
+    """MECHB41 (an UNDERCOUNT): Serle's Grit's "Skills which Empower an Attack have 20% chance to not count that Attack"
+    (PoB: unparsed) goes to PoB as ExtraEmpoweredAttacks MORE 25%: Infernal Cry's 2 Empowered attacks become 2.5."""
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", level=90))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    group = build.set_group(gems=[{"name": "Infernal Cry", "level": 20, "quality": 0}])
+    search.settle()
+    assert build.call("useRates", indices=[group["index"]])["rates"][0]["warcryEmpowers"] == 2
+    raw = chr(10).join(["Rarity: RARE", "Probe Charm", "Gold Amulet", "Item Level: 80", "Implicits: 0",
+                     "Skills which Empower an Attack have 20% chance to not count that Attack"])
+    build.call("equip", slot="Amulet", raw=raw, fields=["FullDPS"])
+    search.settle()
+    assert build.call("useRates", indices=[group["index"]])["rates"][0]["warcryEmpowers"] == pytest.approx(2.5)
+    assert any(n["label"].startswith("Empowering skills: chance not to count") for n in search.assumptions.active)
+
+
 def test_electrocuting_arrows_rod_stats_scale_with_a_raw_effect_mod(engine):
     """MECH40: PoB counts Electrocuting Arrow's Rod quality stats always on (a Buff: extra Lightning on debuffed targets);
     models.rod_model scales them with a Raw BuffEffect / DebuffEffect MORE on the skill, which must reach PoB."""
@@ -3955,3 +3974,15 @@ def test_a_cry_bypassing_its_cooldown_with_charges_reaches_pobs_cooldown(engine)
     build.bypass_inc = inc
     again = search.conditions._bypass_skills(gem_types)["Endurance"][0]
     assert again[1] == pytest.approx(cap, rel=0.02)  # (not shrunk by its own INC)
+
+
+def test_the_empowered_gain_and_howl_hand_lines_parse_whole(engine):
+    """MECHB41: PoB leaves Hail's / Cremating Cries' lines unparsed; the hand lines models.empowered_gain_model and
+    models.arctic_howl_cold give it parse whole."""
+    results = engine.call("parseLines", lines=["Gain 1% of Damage as Extra Cold Damage",
+                                               "Gain 1% of Physical Damage as Extra Fire Damage",
+                                               "Adds 121 to 186 Cold Damage to Attacks",
+                                               "Empowered Attacks Gain 16% of Damage as Extra Cold Damage",
+                                               "Empowered Attacks Gain 15% of Physical Damage as Extra Fire damage"])["results"]
+    print("PROBE empowered gain", results)
+    assert [r["supported"] for r in results] == [True, True, True, False, False]

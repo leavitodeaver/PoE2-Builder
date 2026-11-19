@@ -1673,6 +1673,16 @@ def roar_period(skill: Skill) -> float:
     return max((skill.cooldown or ROAR_COOLDOWN) / (skill.cooldown_recovery or 1.0), skill.cast_time)
 
 
+def echo_power(skill: Skill, power: float) -> tuple[float, str]:
+    """(the Power a Warcry counts, a note): Echoing Cry's "50% less Power" (ECHO_POWER_STAT) for the Warcry it supports
+    (MECHB41: Ferocious Roar's Rage and Armour Break read the full Power before, an OVERCOUNT; echoing_power_model)."""
+    less = number(skill.support_stats.get(ECHO_POWER_STAT))
+    if less >= 0:
+        return power, ""
+    mine = power * max(0.0, 1 + less / 100)
+    return mine, f" (Echoing Cry's {-less:g}% less Power: {power:g} -> {mine:g})"
+
+
 def roar_rage(skill: Skill, power: float = BOSS_POWER) -> float:
     per_power = number(skill.level_stats.get("bear_warcry_gain_X_centirage_per_enemy_power")) / 100 or 2.0
     return per_power * power
@@ -1735,10 +1745,11 @@ def roar_break(skill: Skill, enemy_armour: float, duration: float = FULL_BREAK_D
     """Share of the fight the boss's Armour is Fully Broken by the roar's Empowered hits, and its basis. `power`: the
     boss's Power (boss_power: 20, or more with the build's Power lines)."""
     per_hit = number(skill.level_stats.get("warcry_grant_break_X_armour_on_hit"))
+    power, echo = echo_power(skill, power)
     hits, period = roar_empowered(power), roar_period(skill)
     broken = per_hit * hits
     basis = (f"{FEROCIOUS_ROAR} Empowers {hits} Attacks per use (one per {ROAR_EMPOWER_PER_POWER} of the boss's "
-             f"{power:g} Power), each Breaking {per_hit:,.0f} Armour: {broken:,.0f} against the boss's {enemy_armour:,.0f}")
+             f"{power:g} Power{echo}), each Breaking {per_hit:,.0f} Armour: {broken:,.0f} against the boss's {enemy_armour:,.0f}")
     if per_hit <= 0 or broken < enemy_armour:
         return 0.0, basis + ": not Fully Broken"
     return min(1.0, duration / period), (
@@ -2053,13 +2064,13 @@ def roar_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[li
     mods: list[dict] = []
     notes: list[dict] = []
     if main.attack and number(stats.get("Rage")) <= 0:
-        power = power_of(stats)
+        power, echo = echo_power(skill, power_of(stats))
         gain = roar_rage(skill, power)
         hold, loss, how = rage_loss(stats.get("_texts") or [])
         rage = rage_average(gain, number(stats.get("MaximumRage")) or RAGE_MAXIMUM, period, hold, loss)
         mods.append(line("1% more Attack Damage", rage))
         notes.append({"label": f"{FEROCIOUS_ROAR}: average Rage", "value": round(rage, 1), "confidence": "theory",
-                      "basis": f"{gain:g} Rage per roar ({power:g} Power x {gain / power:g}), capped at "
+                      "basis": f"{gain:g} Rage per roar ({power:g} Power{echo} x {gain / power if power else 0:g}), capped at "
                                f"{number(stats.get('MaximumRage')) or RAGE_MAXIMUM:g}, used every {period:.1f} s; held "
                                f"{hold:.2g} s, then {loss:.2g} lost per second (game files: 4 s and 5/s"
                                + (f"; the build's {how}" if how else "") + "); 1% more Attack damage each. "
@@ -13289,9 +13300,17 @@ def warcry_echo_model(skills: list[Skill], supports: dict[int, list[str]], warcr
 # floor(min(Power, cap) / per) (Infernal Cry 1 per 10 up to 50, Seismic Cry 1 per 10 up to 50, Arctic Howl 1 per 5 up to
 # 50, Ferocious Roar 1 per 8 up to 64). Now: Power x (1 + stat / 100) for that Warcry, the difference taken off PoB's
 # Num<Warcry>Empowers as "<Warcry>EmpoweredAttacks" BASE (CalcPerform 2205 adds it), which Infernal Cry's uptime and
-# Assumptions.empowered_uses both read. Not changed (labelled): Warcry buffs scaled per N Power (warcryPowerBonus) keep
-# the full Power (an OVERCOUNT left where a Warcry with Echoing Cry has one); the Echoes' own Empowers (whether an Echo
-# Empowers again is UNVERIFIED: not counted).
+# Assumptions.empowered_uses both read. Not counted: the Echoes' own Empowers (whether an Echo Empowers again is
+# UNVERIFIED). MECHB41, the other readers of a Warcry's Power: PoB's per-N-Power Warcry buffs (warcryPowerBonus,
+# CalcPerform 2224-2229) and Rallying Cry's ally bonus (2259-2261) are reached by no PoE2 skill (checked: no mod in vendor
+# PoB Data/Skills/*.lua or SkillStatMap.lua carries effectType "Warcry" with a div; RallyingCryAllyDamageBonusPer5Power is
+# set by nothing; rallying_cry_weapon_damage_%_for_allies_per_5_monster_power has no carrier in game 26650308's
+# GrantedEffectStatSets / PerLevel, Mods, PassiveSkills or SoulCoreStats), so nothing to halve there. Ferocious Roar's Rage
+# per Power and Armour-Breaking Empowered hits now take the halved Power (echo_power: roar_model, roar_break). Still
+# unscored at any Power (PoB maps none of them; checked: their ids appear in vendor PoB src only in Data/Skills and stat
+# descriptions, except warcry_grant_X_rage_per_5_power, mapped to a CanGainRage flag only): Arctic Howl's added Cold per 5
+# Power (wolf_warcry_*_cold_damage_*_per_5_power_up_to_cap), Raging Cry's Rage per 5 Power, Fortifying Cry's Shield Waves
+# per Power and Guard per 5 Power: undercounts, open.
 ECHO_POWER_STAT = "support_echoing_cry_warcry_monster_power_+%_final"
 
 
@@ -13303,7 +13322,8 @@ def echoing_power_model(skills: list[Skill], rows: dict[str, dict]) -> tuple[lis
         less = number(skill.support_stats.get(ECHO_POWER_STAT))
         row = rows.get(skill.name) or {}
         per, cap, power = (number(row.get(k)) for k in ("warcryPowerPer", "warcryPowerCap", "warcryPower"))
-        if less >= 0 or per <= 0 or power <= 0:
+        if less >= 0 or per <= 0 or power <= 0 or skill.name in UNBUFFED_WARCRIES:  # (MECHB41: the Howl's own count
+            # is unbuffed_warcry_empowers'; an ArcticHowlEmpoweredAttacks mod reads nothing in PoB)
             continue
         mine = power * max(0.0, 1 + less / 100)
         pob = math.floor(min(power, cap) / per)
@@ -13321,6 +13341,169 @@ def echoing_power_model(skills: list[Skill], rows: dict[str, dict]) -> tuple[lis
                       "confidence": "MEDIUM"})
     return mods, notes
 
+
+
+# Arctic Howl's Empowered attacks (MECHB41, an UNDERCOUNT). Arctic Howl (act_str.lua WolfArcticHowlPlayer; game 26650308
+# GrantedEffectStatSets WolfArcticHowlPlayer) is a Warcry that "Empowers your attacks with added Cold damage" "If an enemy
+# is Frozen or a Frozen enemy is Hit": warcry_empowers_per_X_monster_power 5 up to warcry_empowers_per_X_monster_power_mp_cap
+# 50 (PoB maps both, SkillStatMap 611 / 614), and wolf_warcry_empowered_attack_cold_damage_min / max_per_5_power_up_to_cap
+# (level 20: 121-186; arctic_howl.csd: "Empowered Attacks deal {0} to {1} additional Cold damage"). PoB makes no Warcry buff
+# for it (its stat sets lack warcry_count_power_from_enemies; GEM14 / MECHB33), so its Num ArcticHowlEmpowers is 0 and
+# none of its Empowered attacks' Cold is scored; PoB maps neither Cold stat (checked: the ids appear in vendor PoB src only
+# in Data/Skills/act_str.lua). Assumptions.empowered_uses counted it one Empowered use per use (LOW). Now: floor(min(Power,
+# 50) / 5) a use (4 at the boss's 20 Power; Echoing Cry's less Power first), at the share the boss is Frozen
+# (warcry_empowers), and each Empowered attack of the main skill adds the Cold. The id says "per 5 Power up to cap", the
+# text gives a flat range: the text is taken (the lower reading, as Vruun's Aftermath's), the id's reading (x Power / 5) in
+# the note (UNVERIFIED which holds). Not counted (open): its buff's added Cold to Allies' Attacks (minions), Empowered
+# Slams' Chilled Ground (MECH-A's grounds); warcry_minimum_benefit_if_monster_power_present (no description) is read as
+# nothing.
+ARCTIC_HOWL = "Arctic Howl"
+UNBUFFED_WARCRIES = {ARCTIC_HOWL}  # (Warcries PoB makes no buff for, so no Num<Name>Empowers: GEM14's find, by name)
+ARCTIC_HOWL_COLD = ("wolf_warcry_empowered_attack_cold_damage_min_per_5_power_up_to_cap",
+                    "wolf_warcry_empowered_attack_cold_damage_max_per_5_power_up_to_cap")
+
+
+def unbuffed_warcry_empowers(row: dict, less: float = 0.0) -> tuple[int, str]:
+    """(Empowered attacks a use, how) for a Warcry PoB makes no buff for (Arctic Howl): floor(min(Power', cap) / per) from
+    its useRates row (warcryPower / warcryPowerPer / warcryPowerCap), Power' with Echoing Cry's less Power (`less`, the
+    support stat, negative)."""
+    per, cap, power = (number(row.get(k)) for k in ("warcryPowerPer", "warcryPowerCap", "warcryPower"))
+    if per <= 0:
+        return 0, "no Empowers per Power"
+    mine = power * max(0.0, 1 + less / 100) if less < 0 else power
+    n = int(min(mine, cap if cap > 0 else mine) // per)
+    echo = f" (Echoing Cry's {-less:g}% less Power: {power:g} -> {mine:g})" if less < 0 else ""
+    return n, f"one per {per:g} of {mine:g} Power{echo}, up to {cap:g}: {n}"
+
+
+def arctic_howl_cold(howl: Skill, main: Skill, uses: float, empowered: float, how: str) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): the main Attack's share of uses Empowered by Arctic Howl (`empowered` a second of its `uses`) adds
+    the Howl's Empowered-attack Cold (its level's range) as a scaled "Adds" line on the main skill."""
+    lo, hi = (number(howl.level_stats.get(k)) for k in ARCTIC_HOWL_COLD)
+    if main is None or not main.attack or hi <= 0 or uses <= 0:
+        return [], []
+    share = min(1.0, max(0.0, empowered / uses))
+    note = {"label": "Arctic Howl: Empowered attacks' added Cold*", "value": f"{share:.0%} of {main.name}'s uses",
+            "confidence": "LOW",
+            "basis": (f"Arctic Howl's Empowered Attacks deal {lo:g} to {hi:g} additional Cold (the text's flat range; the "
+                      "stat id says per 5 Power up to its cap, which would multiply it by the Power / 5: UNVERIFIED which "
+                      f"holds, the lower taken); PoB scores none of it (no Warcry buff for the Howl). {how}"),
+            "play": "Howl when the boss is Frozen (or Freeze it with the Howl), then attack: its Empowered attacks add Cold."}
+    if share <= 0:
+        return [], [note]
+    return [line(f"Adds {lo:g} to {hi:g} Cold Damage to Attacks", share, skill=main.name)], [note]
+
+
+# "Empowered Attacks Gain N% of [Physical] Damage as Extra <Type> Damage" (MECHB41, an UNDERCOUNT; the coverage audit's
+# notables Hail "16% of Damage as Extra Cold" and Cremating Cries "15% of Physical Damage as Extra Fire"). PoB leaves both
+# unparsed (ModCache 7252-7253: nil), so they counted nothing. Now the same gain on the main skill at the share of its
+# uses that are Empowered (Assumptions.empowered_uses, every Empowering skill of the build; MECH86's empowered_buildup
+# form), for an Attack main skill: "Gain N% of [Physical] Damage as Extra <Type> Damage" scaled by that share (gain-as is
+# linear in its %, so the average over uses is right).
+EMPOWERED_GAIN = re.compile(r"^empowered attacks gain (\d+(?:\.\d+)?)% of (physical )?damage as extra "
+                            r"(cold|fire|lightning|chaos|physical) damage$", re.I)
+
+
+def empowered_gain(texts: list[str]) -> dict[tuple[str, str], float]:
+    """{("Physical " or "", "Cold"): summed %} from the build's "Empowered Attacks Gain ..." lines."""
+    out: dict[tuple[str, str], float] = {}
+    for t in texts:
+        if m := EMPOWERED_GAIN.match(t.strip()):
+            key = ("Physical " if m.group(2) else "", m.group(3).title())
+            out[key] = out.get(key, 0.0) + float(m.group(1))
+    return out
+
+
+def empowered_gain_model(gains: dict[tuple[str, str], float], main: str, share: float,
+                         how: str) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): each gain on `main` at the Empowered `share` of its uses."""
+    mods, notes = [], []
+    for (of, kind), pct in gains.items():
+        text = f"Gain 1% of {of}Damage as Extra {kind} Damage"
+        if share > 0:
+            mods.append(line(text, pct * share, skill=main))
+        notes.append({"label": f"Empowered Attacks gain {of.lower()}damage as {kind}*",
+                      "value": f"+{pct * share:.3g}% on {main} ({pct:g}% x {share:.0%})",
+                      "basis": f"{share:.0%} of {main}'s uses are Empowered: {how} (without Empowering skills: 0; PoB "
+                               "leaves the line unparsed)",
+                      "confidence": "MEDIUM (the Empowered share, Assumptions.empowered_uses)"})
+    return mods, notes
+
+
+# "Skills which Empower an Attack have N% chance to not count that Attack" (MECHB41, an UNDERCOUNT; the coverage audit's
+# Serle's Grit, unique one-hand mace (10-20)%, and its rune Legacy of Serle's Grit's bonded 20%: game 26650308 Mods
+# UniqueChanceForExertedAttackToNoteReduceCount1, stat chance_for_exerted_attacks_to_not_reduce_count_%), and the Tireless
+# support's same stat (25%, Warcries only: "Attacks Empowered by Supported Skills have a chance not to lower the
+# Empowerment count of Supported Skills"). PoB reads none of it (checked: ModCache 9407-9409 nil; the stat id appears in
+# vendor PoB src only in Data/Skills act_str.lua's altQualityStats and sup_str.lua's Tireless). Each Empowered Attack that
+# doesn't count leaves the count for another: n counted become n / (1 - p) Empowered Attacks (a geometric count; chances
+# from the sources added). The items' lines go to PoB as ExtraEmpoweredAttacks MORE (CalcPerform 2209-2210 multiplies
+# every Warcry's Empower count by it: Infernal Cry's Exerted uptime and empowered_uses read it); Tireless' is one Warcry's
+# only, which a skill-scoped MORE can't reach there (CalcPerform asks with no skill cfg), so empowered_uses counts it in
+# Python, and the non-Warcry Empowering skills of an Attack too (PoB's own Exerted uptime misses Tireless': labelled).
+EMPOWER_KEEP_STAT = "chance_for_exerted_attacks_to_not_reduce_count_%"
+EMPOWER_KEEP = re.compile(r"^skills which empower an attack have (\d+(?:\.\d+)?)% chance to not count that attack$", re.I)
+EMPOWER_KEEP_MAX = 0.99  # (a chance of 100% or more would never end an Empowerment: held below it, the count capped at
+#                           the main skill's uses anyway)
+
+
+def empower_keep(texts: list[str]) -> float:
+    """The summed % of the build's "Skills which Empower an Attack have N% chance to not count that Attack" lines."""
+    return sum(float(m.group(1)) for t in texts if (m := EMPOWER_KEEP.match(t.strip())))
+
+
+def keep_factor(pct: float) -> float:
+    """Empowered Attacks per counted one at a `pct` % chance not to count: 1 / (1 - p)."""
+    return 1.0 / (1.0 - min(max(pct, 0.0) / 100.0, EMPOWER_KEEP_MAX))
+
+
+def empower_keep_model(texts: list[str]) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): the items' chance as ExtraEmpoweredAttacks MORE on every Warcry's Empower count."""
+    pct = empower_keep(texts)
+    if pct <= 0:
+        return [], []
+    factor = keep_factor(pct)
+    return [raw_mod("ExtraEmpoweredAttacks", "MORE", (factor - 1) * 100)], [{
+        "label": "Empowering skills: chance not to count an Attack*", "value": f"x{factor:.3g} Empowered Attacks a use",
+        "basis": (f"a {pct:g}% chance each Empowered Attack doesn't count: n counted become n / (1 - {pct / 100:g}) "
+                  "(PoB reads none of the line; on Warcries through PoB's own count, on other Empowering skills of an "
+                  "Attack in the tool's Empowered-use count)"),
+        "confidence": "MEDIUM"}]
+
+
+# Commanding Rage (MECHB41, an UNDERCOUNT; the coverage audit's notable minion_attack5): "Every five Rage also grants you 2%
+# increased Minion Attack Speed" (minion_attack_speed_+%_per_five_rage) and "Every Rage also grants you 1% increased Minion
+# Damage" (minion_damage_+%_per_rage); PoB leaves both unparsed (ModCache 7427-7428: nil). The only carrier of either stat
+# (checked: Stats ids holding minion and rage, their carriers in game 26650308 GrantedEffectStatSets / PerLevel, Mods,
+# PassiveSkills, SoulCoreStats: minion_attack5 alone; minion_attack_speed_+%_per_rage, _from_rage and
+# minion_damage_+%_from_rage have none). PoB's own "Every N Rage also grants" lines read its RageEffect (ModCache 7415:
+# Multiplier RageEffect, div 5), the build's Rage x Rage effect, set only when the build can gain Rage (CalcPerform
+# 784-791): so the lines go to PoB as "Minions have 1% increased Attack Speed" / "Minions deal 1% increased Damage" x the
+# build's RageEffect, 0 without a Rage source. A fixed number from the build's stats, not a PerStat tag: PoB adds minion
+# modifiers (CalcPerform 1880 / 3149) before it sets RageEffect (doActorMisc, 3267), so a tag would read 0. "Every
+# five": counted per Rage / 5, not floored to whole fives (at most 1.6% Attack Speed high between multiples of 5; LOW).
+COMMANDING_RAGE = re.compile(r"^every (five |\d+ )?rage also grants you (\d+(?:\.\d+)?)% (increased|reduced) minion "
+                             r"(attack speed|damage)$", re.I)
+
+
+def commanding_rage(texts: list[str], rage: float) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): the build's "Every [five] Rage also grants you N% increased Minion Attack Speed / Damage" lines as
+    minion modifiers at `rage`, PoB's RageEffect."""
+    mods, notes = [], []
+    for t in texts:
+        if not (m := COMMANDING_RAGE.match(t.strip())):
+            continue
+        every = 1.0 if not m.group(1) else (5.0 if m.group(1).strip().lower() == "five" else float(m.group(1)))
+        pct = float(m.group(2)) * (1 if m.group(3).lower() == "increased" else -1)
+        text = "Minions have 1% increased Attack Speed" if m.group(4).lower() == "attack speed" else "Minions deal 1% increased Damage"
+        if rage > 0:
+            mods.append(line(text, pct / every * rage))
+        notes.append({"label": f"Rage grants Minion {m.group(4).title()}*", "value": f"{pct / every * rage:+.3g}%",
+                      "basis": (f"\"{t.strip()}\" at the build's {rage:g} Rage (PoB's RageEffect: Rage x Rage effect, 0 "
+                                "without a Rage source); PoB leaves the line unparsed"
+                                + ("; counted per Rage / 5, not whole fives (LOW)" if every > 1 else "")),
+                      "confidence": "MEDIUM"})
+    return mods, notes
 
 # Cadence on a pressed skill (MECHB4; COVE6's open item) ------------------------------------------------------------------
 # A pressed (non-main) skill with Cadence: COV-E's cadence_share counts its stacks only on the main skill; the press model

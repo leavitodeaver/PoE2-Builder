@@ -1259,6 +1259,7 @@ def warcry_empowers(name: str, mains: list[dict], stats: dict) -> tuple[str, boo
         share, how = models.heavy_stunned_share(stats)
     else:
         share, how = models.immobilised_share(stats, "Freeze")[:2]
+    how = how or f"nothing in the build makes the boss {cond}"  # (MECHB41: immobilised_share's 0 has no words)
     return what, fits, share, (f"it Empowers only while the boss is {cond}: {how}; LOW, a lower reading (a use can "
                                "Empower when the boss gets there later)")
 
@@ -1740,6 +1741,7 @@ class Assumptions:
         source_lines = build.call("sourceLines")["lines"]  # (one call: the models below all read the build's lines)
         build.minion_deathless = minion_deathless(build)  # (MECHB39: Umbilicus Immortalis, for models.minion_deaths)
         line_texts = [e["text"] for e in source_lines]
+        build.empower_keep = models.empower_keep(line_texts)  # (MECHB41: Serle's Grit's line, for empowered_uses)
         # (MECHB40: the build's forced revives, for minion_deaths' revival cap and minion_alive_model)
         forced = models.forced_revives(found, line_texts, mana_flask_uses(build) if any(
             models.MANA_FLASK_REVIVE.match(t.strip()) for t in line_texts) else 0.0)
@@ -1952,6 +1954,18 @@ class Assumptions:
                                    "basis": f"{emp_share:.0%} of {main.name}'s uses are Empowered: {emp_how} (without "
                                             "Empowering skills: 0)",
                                    "confidence": "MEDIUM (the Empowered share, Assumptions.empowered_uses)"})
+        rage_mods, rage_notes = models.commanding_rage(texts, models.number(build.call("stats", fields=["RageEffect"]).get(
+            "RageEffect")) if any(models.COMMANDING_RAGE.match(t.strip()) for t in texts) else 0.0)  # (MECHB41; PoB 0)
+        hand_mods, hand_notes = hand_mods + rage_mods, hand_notes + rage_notes
+        keep_mods, keep_notes = models.empower_keep_model(texts)  # (MECHB41: Serle's Grit / its rune; PoB 0)
+        hand_mods, hand_notes = hand_mods + keep_mods, hand_notes + keep_notes
+        if (emp_gain := models.empowered_gain(texts)) and main is not None:
+            # (MECHB41: Hail / Cremating Cries' "Empowered Attacks Gain N% of ... as Extra ..." at the Empowered share; PoB 0)
+            gain_uses, gain_how = self.empowered_uses(stats, None) if main.attack else (0.0, "the main skill isn't an Attack")
+            gain_speed = models.number(stats.get("Speed"))
+            gain_share = min(1.0, gain_uses / gain_speed) if gain_speed > 0 else 0.0
+            gain_mods, gain_notes = models.empowered_gain_model(emp_gain, main.name, gain_share, gain_how)
+            hand_mods, hand_notes = hand_mods + gain_mods, hand_notes + gain_notes
         exposure_flags += redflare
         if redflare_how:
             hand_notes.append({"label": "Shocked by your own item on reaching maximum Charges*", "value": "damage taken",
@@ -2463,6 +2477,13 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + echo_mods, hand_notes + echo_notes
             echoed = [s for s in found if s.name in warcries and models.number(s.support_stats.get(models.ECHO_POWER_STAT)) < 0
                       and s.group is not None]
+            howl = next((s for s in found if s.name == models.ARCTIC_HOWL and s.group is not None), None)
+            if howl is not None and main is not None and main.attack and main is not howl:
+                # (MECHB41: Arctic Howl's Empowered attacks' added Cold, PoB 0: no Warcry buff for the Howl)
+                howl_uses, howl_how = self.empowered_uses(stats, None, only=models.ARCTIC_HOWL)
+                howl_mods, howl_notes = models.arctic_howl_cold(howl, main, models.number(stats.get("Speed")),
+                                                                howl_uses, howl_how)
+                hand_mods, hand_notes = hand_mods + howl_mods, hand_notes + howl_notes
             if echoed:  # (MECHB40: Echoing Cry's less Power for the Warcry it supports; PoB counts the boss's full Power)
                 rows = build.call("useRates", indices=[s.group for s in echoed])["rates"]
                 power_mods, power_notes = models.echoing_power_model(echoed, {r["name"]: r for r in rows})
@@ -3053,7 +3074,8 @@ class Assumptions:
                 "hits": number(best.get("speed")) * (number(best.get("hitChance")) or 100.0) / 100.0,
                 "hitDps": number(best.get("hitDPS")) * count, "split": best.get("cullSplit") or {}}
 
-    def empowered_uses(self, stats: dict, support: str | None = "Murderous Intent") -> tuple[float, str]:
+    def empowered_uses(self, stats: dict, support: str | None = "Murderous Intent",
+                       only: str | None = None) -> tuple[float, str]:
         # (support: models.MURDEROUS_INTENT by default; spelled out: in this class body `models` is the method)
         """MECH63: (the main skill's Empowered uses per second, how) from the skills Murderous Intent supports ("Skills
         Empowered by Supported Skills have Culling Strike"), each at the build's own use of it (rule 2: no flat rate):
@@ -3065,17 +3087,25 @@ class Assumptions:
         Empowering skill one use per use of it (LOW, UNVERIFIED: its own count isn't read). Capped at the main skill's
         uses. Mana Tempest's storm comes in long blocks, not evenly spaced uses (MEDIUM).
         `support` None (MECH66): every group but the main one, for lines on any Empowered use ("... with Empowered
-        Attacks"); a group with no skill that can Empower others is then passed over."""
+        Attacks"); a group with no skill that can Empower others is then passed over. `only` (MECHB41): only groups
+        holding that skill (Arctic Howl's own Empowered uses, models.arctic_howl_cold)."""
         build = self.build
         uses = number(stats.get("Speed"))
         main = build.main_group() or {}
         groups = [g for g in build.groups() if g.get("enabled") is not False and (
             any(x["name"] == support and x.get("enabled", True) for x in g["gems"]) if support
-            else g.get("index") != main.get("index"))]
+            else g.get("index") != main.get("index"))
+            and (only is None or any(x["name"] == only for x in g["gems"]))]
         if not groups or uses <= 0:
             return 0.0, f"no skill {support or 'of the build'} supports Empowers the main skill"
-        raw = build.call("activeSkills", supportStats=[models.OLROTH_EMPOWERS])["skills"]
+        raw = build.call("activeSkills", supportStats=[models.OLROTH_EMPOWERS, models.ECHO_POWER_STAT,
+                                                       models.EMPOWER_KEEP_STAT])["skills"]
         mains = [s for s in raw if s.get("group") == main.get("index") and not s.get("disabled")]
+        # (MECHB41: "Skills which Empower an Attack have N% chance to not count that Attack", items / runes, and Tireless'
+        # stat on a Warcry: each counted Empowered Attack becomes 1 / (1 - p) of them. The items' share is in PoB's
+        # Warcry counts already, models.empower_keep_model's ExtraEmpoweredAttacks MORE; the rest is counted here)
+        keep_all = number(getattr(build, "empower_keep", 0.0))
+        keep_main = any(s.get("attack") for s in mains)
         spell, cooled = any(s.get("spell") for s in mains), any(s.get("cooldown") for s in mains)
         repeatable = spell and any(s.get("repeatable") for s in mains)
         rates = {r["index"]: r for r in build.call("useRates", indices=[g["index"] for g in groups])["rates"]}
@@ -3101,6 +3131,11 @@ class Assumptions:
             # Warcry's are in PoB's count already, GEM11's olroth_model; Mana Tempest is Indeterminate, so it can't)
             more = 1 + max(0.0, number((skill.get("supportStats") or {}).get(models.OLROTH_EMPOWERS)))
             olroth = f" x {more:g} (Olroth's Conviction)" if more > 1 else ""
+            own_keep = number((skill.get("supportStats") or {}).get(models.EMPOWER_KEEP_STAT))
+            keep = (models.keep_factor(keep_all + own_keep) if keep_main else 1.0)  # (not in PoB's count)
+            keep_pob = models.keep_factor(keep_all + own_keep) / models.keep_factor(keep_all) if keep_main else 1.0
+            if keep > 1.0:
+                olroth += f" x {keep:.3g} (a {keep_all + own_keep:g}% chance not to count each Empowered Attack)"
             if name == "Mana Tempest":
                 if not spell:
                     parts.append("Mana Tempest Empowers Spells only, and the main skill isn't one")
@@ -3137,11 +3172,26 @@ class Assumptions:
                 if not fits:
                     parts.append(f"{name} Empowers {what}, and the main skill isn't one")
                     continue
-                total += per * n * share
-                parts.append(f"{name}: {n:g} Empowered {what} per use (PoB's count from its Power) x {per:.3f} uses/s"
+                total += per * n * share * keep_pob  # (MECHB41: the items' chance is in PoB's n; Tireless' isn't)
+                parts.append(f"{name}: {n:g} Empowered {what} per use (PoB's count from its Power"
+                             + (f"; x {keep_pob:.3g} for Tireless' chance not to count one" if keep_pob > 1 else "")
+                             + f") x {per:.3f} uses/s"
                              + (f" x {share:.0%} ({why})" if share < 1.0 else ""))
+            elif name in models.UNBUFFED_WARCRIES and number(rate.get("warcryPowerPer")) > 0:
+                # (MECHB41: a Warcry PoB makes no buff for, Arctic Howl: its Empowers per Power, read off its row, with
+                # Echoing Cry's less Power; before, one a use, LOW)
+                n, n_how = models.unbuffed_warcry_empowers(rate, number(
+                    (skill.get("supportStats") or {}).get(models.ECHO_POWER_STAT)))
+                what, fits, share, why = warcry_empowers(name, mains, {**stats, **models.dazed_stats(build), **(
+                    {"_primed_freeze": build.primed_freeze} if getattr(build, "primed_freeze", None) else {})})
+                if not fits:
+                    parts.append(f"{name} Empowers {what}, and the main skill isn't one")
+                    continue
+                total += per * n * more * share * keep
+                parts.append(f"{name}: {n * more:g} Empowered {what} per use ({n_how}{olroth}; PoB makes no Warcry buff "
+                             f"for it) x {per:.3f} uses/s" + (f" x {share:.0%} ({why})" if share < 1.0 else ""))
             else:
-                total += per * more
+                total += per * more * keep
                 parts.append(f"{name}: one Empowered use per use of it{olroth}, {per * more:.3f}/s (LOW, UNVERIFIED: its "
                              "own count isn't read)")
         total = min(max(total, 0.0), uses)
@@ -3632,7 +3682,7 @@ class Assumptions:
     def wanted(self) -> tuple[list[dict], list[dict]]:
         skills = self.build.call("activeSkills", levelStats=[
             models.IRON_WARD, models.FEROCIOUS_ROAR, models.SUMMON_WOLF, models.RAPID_SHOT, models.APOCALYPSE,
-            KALGUUR, models.TAWHOA, *models.gem_stat_skills()],
+            KALGUUR, models.TAWHOA, models.ARCTIC_HOWL, *models.gem_stat_skills()],
             supportStats=[*models.gem_stat_support_stats(), models.TOTEM_ONE_STAT,
                           models.CASCADES_PER_SIDE, models.ECHO_POWER_STAT])["skills"]  # (MECH-B: A23-3; MECHB36 Spell Cascade)
         mods, notes, self.extra_groups = self.models(skills)

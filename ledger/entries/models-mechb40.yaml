@@ -37,7 +37,10 @@
     Empowered floor(min(20, cap) / per) attacks a use (Infernal Cry 2, Arctic Howl 4): an OVERCOUNT of Infernal Cry's
     Exerted uptime and of Assumptions.empowered_uses. Now Power x (1 + stat / 100) for that Warcry (the bridge's useRates
     warcryPower / warcryPowerPer / warcryPowerCap), the difference as <Warcry>EmpoweredAttacks BASE (CalcPerform 2205).
-    Left (labelled): buffs scaled per N Power keep the full Power; whether each Echo Empowers again is UNVERIFIED.
+    MECHB41: Ferocious Roar's Rage per Power and its Armour-Breaking Empowered hits take the halved Power too (models.echo_power
+    in roar_model / roar_break). PoB's per-N-Power Warcry buffs and Rallying Cry's ally bonus are reached by no PoE2 skill
+    (checked: no Data/Skills mod with effectType Warcry and a div; the Rallying Cry stat has no carrier in game 26650308), so
+    nothing is left there. Whether each Echo Empowers again is UNVERIFIED (not counted).
   sources: [builder/search/models.py (ECHO_POWER_STAT, echoing_power_model), builder/search/assumptions.py (the echoed Warcries),
             engine/bridge.lua (useRates warcryPower / warcryPowerPer / warcryPowerCap), vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua 2196-2215]
   test_in_game: "Not needed for the shape (game data)."

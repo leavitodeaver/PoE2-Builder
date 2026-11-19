@@ -6393,7 +6393,7 @@ def test_echoing_cry_halves_the_power_its_warcry_empowers_with():
             "Arctic Howl": {"warcryPower": 20, "warcryPowerPer": 5, "warcryPowerCap": 50},
             "Seismic Cry": {"warcryPower": 20, "warcryPowerPer": 10, "warcryPowerCap": 50}}
     mods, notes = models.echoing_power_model([infernal, howl, plain], rows)
-    assert {m["name"]: m["value"] for m in mods} == {"InfernalEmpoweredAttacks": -1, "ArcticHowlEmpoweredAttacks": -2}
+    assert {m["name"]: m["value"] for m in mods} == {"InfernalEmpoweredAttacks": -1}  # (MECHB41: the Howl's is its own)
     assert all(m["type"] == "BASE" for m in mods) and notes[0]["value"] == "1 Empowered, not 2"
     odd = {"Infernal Cry": {"warcryPower": 25, "warcryPowerPer": 10, "warcryPowerCap": 50}}  # (12.5 and 25: 1 vs 2)
     assert models.echoing_power_model([infernal], odd)[0][0]["value"] == -1
@@ -6402,6 +6402,76 @@ def test_echoing_cry_halves_the_power_its_warcry_empowers_with():
     assert models.echoing_power_model([infernal], {"Infernal Cry": {"warcryPower": 5, "warcryPowerPer": 10,
                                                                    "warcryPowerCap": 50}}) == ([], [])
     assert models.echoing_power_model([plain], rows) == ([], [])
+
+
+def test_echoing_cry_halves_ferocious_roars_power_for_its_rage_and_armour_break():
+    """MECHB41 (an OVERCOUNT): Echoing Cry's 50% less Power also reaches Ferocious Roar's Rage per Power and its
+    Empowered hits (one per 8 Power), which roar_model / roar_break read at the boss's full Power before."""
+    slam = models.Skill("Furious Slam", group=1, attack=True)
+    stats = {"bear_warcry_gain_X_centirage_per_enemy_power": 200, "warcry_grant_break_X_armour_on_hit": 6147}
+    roar = models.Skill("Ferocious Roar", group=2, cast_time=1.1, cooldown=8.0, level_stats=stats,
+                        support_stats={models.ECHO_POWER_STAT: -50})
+    mods, notes = models.roar_model([slam, roar], {"MaximumRage": 30}, slam)
+    assert notes[0]["value"] == 15.0 and "Echoing Cry's 50% less Power: 20 -> 10" in notes[0]["basis"]
+    share, basis = models.roar_break(roar, 8063)
+    assert share == 0.0 and "Empowers 1 Attacks" in basis  # (2 x 6147 Broke 8063 at the full Power)
+    assert models.echo_power(models.Skill("Ferocious Roar", level_stats=stats), 20.0) == (20.0, "")
+
+
+def test_arctic_howl_empowers_one_attack_per_5_power_with_its_added_cold():
+    """MECHB41 (an UNDERCOUNT): PoB makes no Warcry buff for Arctic Howl, so none of its Empowered attacks' Cold counted:
+    floor(min(Power, 50) / 5) a use (Echoing Cry's less Power first), and the main Attack's Empowered share adds the
+    Howl's flat range (the text's reading)."""
+    row = {"warcryPower": 20, "warcryPowerPer": 5, "warcryPowerCap": 50}
+    assert models.unbuffed_warcry_empowers(row)[0] == 4
+    n, how = models.unbuffed_warcry_empowers(row, -50)
+    assert n == 2 and "20 -> 10" in how
+    assert models.unbuffed_warcry_empowers({**row, "warcryPower": 80})[0] == 10
+    howl = models.Skill("Arctic Howl", group=3, level_stats={models.ARCTIC_HOWL_COLD[0]: 121, models.ARCTIC_HOWL_COLD[1]: 186})
+    bite = models.Skill("Rampage", group=1, attack=True)
+    mods, notes = models.arctic_howl_cold(howl, bite, 2.0, 0.5, "4 a use x 0.125/s")
+    assert mods[0]["line"] == "Adds 121 to 186 Cold Damage to Attacks" and mods[0]["scale"] == 0.25
+    assert mods[0]["skill"] == "Rampage" and "UNVERIFIED" in notes[0]["basis"]
+    assert models.arctic_howl_cold(howl, bite, 2.0, 0.0, "")[0] == []
+    assert models.arctic_howl_cold(howl, models.Skill("Spark", group=1), 2.0, 0.5, "") == ([], [])
+
+
+def test_empowered_attacks_gain_lines_count_at_the_empowered_share():
+    """MECHB41 (an UNDERCOUNT: PoB leaves Hail's and Cremating Cries' lines unparsed): the gain on the main skill at the
+    share of its uses that are Empowered; 0 share: a note, no line."""
+    gains = models.empowered_gain(["Empowered Attacks Gain 16% of Damage as Extra Cold Damage",
+                                   "Empowered Attacks Gain 15% of Physical Damage as Extra Fire damage",
+                                   "Empowered Attacks Gain 4% of Damage as Extra Cold Damage", "Gain 10% of Damage as Extra Cold Damage"])
+    assert gains == {("", "Cold"): 20.0, ("Physical ", "Fire"): 15.0}
+    mods, notes = models.empowered_gain_model(gains, "Boneshatter", 0.25, "Infernal Cry: 2 a use")
+    assert {m["line"]: m["scale"] for m in mods} == {"Gain 1% of Damage as Extra Cold Damage": 5.0,
+                                                     "Gain 1% of Physical Damage as Extra Fire Damage": 3.75}
+    assert all(m["skill"] == "Boneshatter" for m in mods) and len(notes) == 2
+    assert models.empowered_gain_model(gains, "Boneshatter", 0.0, "none")[0] == []
+
+
+def test_a_chance_not_to_count_an_empowered_attack_multiplies_the_empowered_count():
+    """MECHB41 (an UNDERCOUNT: PoB reads neither Serle's Grit's line nor Tireless' stat): n counted Empowered Attacks
+    become n / (1 - p); the items' share goes to PoB as ExtraEmpoweredAttacks MORE."""
+    texts = ["Skills which Empower an Attack have 20% chance to not count that Attack",
+             "Skills which Empower an Attack have 15% chance to not count that Attack", "Empowered Attacks deal 10% increased Damage"]
+    assert models.empower_keep(texts) == 35.0
+    assert models.keep_factor(35) == pytest.approx(1 / 0.65) and models.keep_factor(0) == 1.0
+    assert models.keep_factor(150) == pytest.approx(100.0)  # (held below 100%)
+    mods, notes = models.empower_keep_model(texts)
+    assert mods == [models.raw_mod("ExtraEmpoweredAttacks", "MORE", (1 / 0.65 - 1) * 100)] and "n / (1 - 0.35)" in notes[0]["basis"]
+    assert models.empower_keep_model(texts[2:]) == ([], [])
+
+
+def test_commanding_rage_gives_minions_speed_and_damage_at_the_builds_rage():
+    """MECHB41 (an UNDERCOUNT: PoB leaves both lines unparsed): per the build's RageEffect; 0 Rage: notes, no lines."""
+    texts = ["Every five Rage also grants you 2% increased Minion Attack Speed", "Every Rage also grants you 1% increased Minion Damage"]
+    mods, notes = models.commanding_rage(texts, 30.0)
+    assert {m["line"]: m["scale"] for m in mods} == {"Minions have 1% increased Attack Speed": 12.0,
+                                                     "Minions deal 1% increased Damage": 30.0}
+    assert "LOW" in notes[0]["basis"] and "LOW" not in notes[1]["basis"]
+    mods, notes = models.commanding_rage(texts, 0.0)
+    assert mods == [] and len(notes) == 2
 
 
 def test_the_infernal_hound_ignites_the_boss_for_20_percent_of_its_life():
