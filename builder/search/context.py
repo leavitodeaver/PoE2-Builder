@@ -23,7 +23,7 @@ from builder.data.rules import rules as game_rules
 from builder.ledger import gap_list, item_lines, translate, wrong
 from builder.request.constraints import PRESSED_PERSISTENT, CompiledRequest, compile_request
 from builder.request.schema import BuildRequest, DefenceStyle, GearTier
-from builder.search import anoints, base_variants, cultivated, granted_rolls
+from builder.search import alloys, anoints, base_variants, cultivated, granted_rolls
 
 # Most a single unique may cost at each gear tier (divine), on top of the request's divine cap
 TIER_UNIQUE_CAP = {GearTier.LEAGUE_START: 1.0, GearTier.MID: 20.0, GearTier.ENDGAME: 300.0, GearTier.MIRROR: math.inf}
@@ -217,6 +217,11 @@ class ItemOption:
     # unique's plain name, so everything keyed by it (bans, required uniques, rules) treats the copy as that unique
     version: str = ""
     price_note: str = ""
+    # (SEARCH29) an Alloy on a rare (builder/search/alloys.py): its name, the mean outcome's DPS over the equipped (worst)
+    # outcome's (Objective.dps reads it through alloys.ALLOY_FIELD) and what the result shows (typical outcome, worst case)
+    alloy: str = ""
+    alloy_scale: float = 1.0
+    alloy_report: tuple[str, ...] = ()
 
     @property
     def granted_basis(self) -> str:
@@ -236,6 +241,8 @@ class ItemOption:
         if self.version:
             described["version"] = self.version
             described["price_note"] = self.price_note
+        if self.alloy:
+            described["alloy"] = {"name": self.alloy, "dps_scale": round(self.alloy_scale, 4), "rows": list(self.alloy_report)}
         return described
 
 
@@ -297,6 +304,7 @@ class Context:
         self.gem_prices: dict[str, float] = payload.get("gem_prices") or {}
         self.augment_prices: dict[str, float] = payload.get("augment_prices") or {}
         self.emotion_prices: dict[str, float] = payload.get("emotion_prices") or {}  # Liquid Emotions, for anoints
+        self.alloy_prices: dict[str, float] = payload.get("alloy_prices") or {}  # (SEARCH29) Alloys, builder/search/alloys.py
         # Trade prices of specific versions of a unique (builder/data/unique_versions.py)
         self.unique_versions: dict[str, dict] = payload.get("unique_versions") or {}
         self.rare_model = rare_prices.RarePriceModel.from_payload(payload.get("rare_model"))
@@ -781,6 +789,7 @@ def make_payload(request: BuildRequest, prices=None) -> dict:
         "gem_prices": gem_prices,
         "augment_prices": augment_prices,
         "emotion_prices": anoints.emotion_prices(prices),
+        "alloy_prices": alloys.payload_prices(prices),  # (SEARCH29)
         "league": league,
         "rare_model": rare_prices.RarePriceModel.load(league).payload(),
         "craft_prices": craft_prices(prices),

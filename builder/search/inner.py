@@ -392,7 +392,7 @@ class Search:
             "press_choices": press_choices(self.build), "press_rows": copy.deepcopy(self.press_rows),
             "line": {"passes": self.line_passes, "step": self.resume_step, "sweep": self.resume_sweep,
                      "short": self.line_short,
-                     "kicked": sorted(self.kicked), "rebuilt": self.gems.rebuilt,
+                     "kicked": sorted(self.kicked), "rebuilt": self.gems.rebuilt, "curses_tried": self.gems.curses_tried,
                      "tree_rebuilt": self.tree_rebuilt} if PERSIST_LINES else None,
         }
 
@@ -464,6 +464,7 @@ class Search:
             self.line_short = line.get("short")
             self.kicked.update(line.get("kicked") or [])
             self.gems.rebuilt = bool(line.get("rebuilt"))  # (the support rebuild: once per line, SEARCH_PLAN.md §6)
+            self.gems.curses_tried = bool(line.get("curses_tried"))  # (the seeded curse trial: once per line, SEARCH29)
             self.tree_rebuilt = bool(line.get("tree_rebuilt"))
         self.gear.sync_flasks()
 
@@ -1120,6 +1121,7 @@ class Search:
             ("meta spells", self.gems.meta_spell_round, (deadline,)),
             ("totems", self.gems.totem_round, (deadline,)),
             ("marks", self.gems.mark_round, (deadline,)),
+            ("curses", self.gems.curse_round, (deadline,)),
             ("mirages", self.gems.mirage_round, (deadline,)),
             ("roar", self.gems.roar_round, (deadline,)),
             ("prune and regrow", self.tree.swap_round, (deadline,)),
@@ -1138,7 +1140,8 @@ class Search:
             self.current_step = phase
             if phase in ("meta gems", "meta spells") and "meta" in self.kicked:
                 pass  # a meta kick took the group out: the meta round re-chooses it now, not at the next sweep
-            elif phase in ("ascendancy", "condition sources", "meta gems", "meta spells", "totems", "marks", "mirages", "roar") and not sweep:
+            elif phase in ("ascendancy", "condition sources", "meta gems", "meta spells", "totems", "marks", "curses", "mirages",
+                           "roar") and not sweep:
                 continue
             improved = self.step(phase, fn, *args) or improved
         self.current_step = None

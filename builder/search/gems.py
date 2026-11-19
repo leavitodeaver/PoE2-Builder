@@ -30,8 +30,25 @@ META_LABEL = "auto: meta"
 MARK_LABEL = "auto: mark"
 MIRAGE_LABEL = "auto: mirage"
 ROAR_LABEL = "auto: roar"
+CURSE_LABEL = "auto: curse"
+# (SEARCH29; the manager's 18 Nov 20:25 YES to SEARCH28's design) A hand-cast curse whose damage comes from its supports:
+# 2b75b's reference casts Despair with Impending Doom (Doom Blast), Doedre's Undoing (Witchtoads), Spell Echo, Burning
+# Inscription and Abiding Hex: 70.6% of its fair 162,355 (probe POE2T4293), the supports 57% of it; a bare Despair
+# adds 21,075. SEARCH23's trial filled supports one at a time by what-if and never found Impending Doom (a curse-effect
+# support raises the bare curse at once; Doom Blast pays only once it is in), and took ~250 processor s a run (SEARCH28's
+# set: lower). This trial seeds each curse with the CURSE-DAMAGE supports as one move (CURSE_DAMAGE: a support whose
+# own description says it supports Curse skills and triggers, spawns, damages or erupts: the game's text, not a name
+# list; today Decaying Hex, Doedre's Undoing, Hayoxi's Fulmination and Impending Doom, checked over every "Supports
+# Curse" gem description in this game data),
+# then fills the rest by what-if WITH the seed in (so a support feeding Doom Blast shows its worth), and keeps the
+# group only if the build scores higher. Once per line, inside CURSE_SECONDS of the task's clock (my number: a search
+# budget, not a game number). POE2_SEARCH_CURSE_SEEDS=1 turns it on (off until a 3-run set says higher).
+CURSE_SEEDS = os.environ.get("POE2_SEARCH_CURSE_SEEDS", "0") != "0"
+CURSE_SECONDS = 45.0
+CURSE_SCREEN_KEEP = 2  # curses (screened with every seed in) whose seed variants and fills are tried
+CURSE_DAMAGE = re.compile(r"^Supports Curse.*\b(trigger|spawns?|damag\w*|erupt\w*)\b", re.S | re.I)
 # Groups the search adds whole: their skill and meta gems are raised as the attributes grow (relevel_added)
-ADDED_LABELS = (PERSISTENT_LABEL, BLASPHEMY_LABEL, META_LABEL, MARK_LABEL, MIRAGE_LABEL, ROAR_LABEL)
+ADDED_LABELS = (PERSISTENT_LABEL, BLASPHEMY_LABEL, META_LABEL, MARK_LABEL, MIRAGE_LABEL, ROAR_LABEL, CURSE_LABEL)
 GRANTED_SUPPORT_ROUNDS = 6  # support changes a granted meta group gets right after its spell (fill_granted_supports)
 GRANTED_FILL_SECONDS = 60.0  # time a granted meta's fill (fill_granted) may take within one ascendancy trial
 MIRAGE_TRIALS = 3  # ranged Attacks per Mirage tried for real (ranked by what PoB says each adds to Full DPS)
@@ -154,6 +171,7 @@ class Gems:
         self.swept_cases = 0
         self.swept_ranking: list[str] = []  # the main group's last full sweep: names best first (rebuild_main's pool)
         self.rebuilt = False  # rebuild_main ran this task
+        self.curses_tried = False  # (SEARCH29) curse_round's trial ran on this line (once per line, the line's state)
         self.rng = None  # the task's random.Random (set by the search): which seeds rebuild_main tries; None: the top ones
         self.meta_shortlist: list[str] | None = None  # the same for the meta group's
         self.granted_shortlists: dict[int, list[str]] = {}  # and for each item- or notable-granted meta group's
@@ -939,6 +957,90 @@ class Gems:
                 and "Meta" not in gem["skillTypes"] and n not in present and self.ctx.allowed_gem(n)
                 and self.ctx.gem_price(n) is not None and self.affordable(n, 0.0, left) and self.usable(n)
                 and self.usable_level(n)]
+
+    def curse_damage_supports(self) -> list[str]:
+        """Supports whose own text says they support Curse skills and trigger or spawn something (CURSE_DAMAGE)."""
+        return sorted(n for n, gem in self.ctx.gems.items() if gem.get("support")
+                      and CURSE_DAMAGE.search(gem.get("description") or "") and self.ctx.allowed_gem(n)
+                      and self.ctx.gem_price(n) is not None and self.usable(n))
+
+    def curse_round(self, deadline: float) -> bool:
+        """(SEARCH29) A hand-cast curse seeded with its curse-damage supports (CURSE_SEEDS' note), kept only if higher."""
+        build = self.build
+        if not CURSE_SEEDS or self.curses_tried or clock.now() > deadline or build.main_group() is None:
+            return False
+        groups = build.groups()
+        if (any(g["label"] == CURSE_LABEL for g in groups)
+                or len([g for g in groups if not g["fromItem"]]) >= MAX_GEM_GROUPS):
+            return False
+        seeds = self.curse_damage_supports()
+        if not seeds:
+            self.curses_tried = True
+            return False
+        stop = min(deadline, clock.now() + CURSE_SECONDS)
+        present = {g["name"] for group in groups for g in group["gems"]}
+        cap = self.ctx.request.max_buttons
+        before = build.score
+
+        def trial(gems: list[dict], fill: bool) -> tuple[float | None, list[dict]]:
+            """Commit the group, fill its supports by what-if with fullDPS on (PoB counts a support's damage only
+            then), read the settled score with the curse models' own flag, undo. (score or None over the cap, gems)."""
+            index = build.set_group(gems=gems, label=CURSE_LABEL)["index"]
+            build.set_group(index=index, fullDPS=True)
+            while fill and clock.now() < stop and len(gems) - 1 < SUPPORT_SLOTS:
+                names = [g["name"] for g in gems]
+                taken = set().union(*(self.families(n) for n in names[1:])) if len(names) > 1 else set()
+                options = [n for n in self.candidates(index, build.groups()) if self.usable(n)
+                           and not (self.families(n) & taken) and self.affordable(n, 0.0, self.budget_left())]
+                if not options:
+                    break
+                scored = build.gem_deltas([{"group": index, "slot": len(names) + 1, "gem": n} for n in options])
+                top, name = max(zip((sc for sc, _ in scored), options))
+                if top <= build.score + EPSILON:
+                    break
+                gems = gems + [{"name": name}]
+                build.set_group(index=index, gems=gems)
+            build.set_group(index=index, fullDPS=False)
+            if self.resolve is not None:
+                self.resolve()
+            score = build.score if cap is None or len(self.buttons()) <= cap else None
+            build.remove_group(index)
+            if self.resolve is not None:
+                self.resolve()
+            return score, gems
+
+        cut = False
+        screened = []
+        for curse in self.curse_candidates(present, self.budget_left()):
+            if clock.now() > stop:
+                cut = True
+                break
+            head = {"name": curse, "level": self.usable_level(curse) or GEM_LEVEL, "quality": GEM_QUALITY}
+            score, _ = trial([head] + [{"name": n} for n in seeds[:SUPPORT_SLOTS]], False)
+            if score is not None:
+                screened.append((score, curse, head))
+        best: tuple[float, list[dict]] | None = None
+        for _, curse, head in sorted(screened, key=lambda x: -x[0])[:CURSE_SCREEN_KEEP]:
+            variants = [seeds[:SUPPORT_SLOTS]] + ([[n] for n in seeds] if len(seeds) > 1 else [])
+            for variant in variants:
+                if clock.now() > stop:
+                    cut = True
+                    break
+                score, gems = trial([head] + [{"name": n} for n in variant], True)
+                if score is not None and score > before + EPSILON and (best is None or score > best[0]):
+                    best = (score, gems)
+        self.curses_tried = not cut  # (a trial the time box cut runs again on the line's next task)
+        if best is None:
+            return False
+        build.set_group(gems=best[1], label=CURSE_LABEL)
+        if self.resolve is not None:
+            self.resolve()
+        if build.score <= before + EPSILON:  # (a resolve can move the score: keep it only if still better)
+            build.remove_group(next(g for g in build.groups() if g["label"] == CURSE_LABEL)["index"])
+            if self.resolve is not None:
+                self.resolve()
+            return False
+        return True
 
     def blasphemy_gems(self, curse: str) -> list[dict]:
         return [{"name": BLASPHEMY, "level": self.usable_level(BLASPHEMY) or GEM_LEVEL, "quality": GEM_QUALITY},

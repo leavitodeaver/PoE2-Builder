@@ -23,7 +23,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from builder import clock
-from builder.search import anoints, cultivated
+from builder.search import alloys, anoints, cultivated
 from builder.search.context import ARMOUR_SLOTS, JEWELLERY_SLOTS, SLOT_TYPE, ItemOption, implicit_variant, implicit_variants
 from builder.search.flasks import (
     CHARM_SLOTS, FLASK_SLOTS, RECOVERY_FIELDS, Charges, charges_per_second, is_flask_slot,
@@ -527,11 +527,93 @@ class Gear:
             current = best_value + self.lam * price_of(slot, chosen)
         if not chosen:
             return None
+        if not magic and alloys.enabled():  # (SEARCH29: an Alloy in place of a random modifier, builder/search/alloys.py)
+            alloyed = self.alloy_trial(slot, base, base_option, level, pools, limits, chosen, current, left, deadline)
+            if alloyed is not None:
+                return alloyed
         price = None if self.ctx.ssf else price_of(slot, chosen)
         confidence = "ssf" if self.ctx.ssf else "estimate (magic)" if magic else "estimate (uncalibrated)"
         return ItemOption(f"{'Magic' if magic else 'Rare'} {base['type']}", base["name"], base["type"],
                           base.get("subType"), text(slot, base, level, chosen), False, price, confidence,
                           base_option.level, rare=True, affixes=tuple(line for a in chosen for line in a.lines))
+
+    ALLOY_KEEP = 2  # Alloy candidates (by a what-if with no modifier lost) whose outcomes are all scored
+
+    @property
+    def alloy_mods(self) -> dict[str, dict]:
+        if getattr(self, "_alloy_mods", None) is None:
+            self._alloy_mods = {m["id"]: m for m in self.ctx.data.mods.get("Item", []) if m["id"] in alloys.ALLOYS}
+        return self._alloy_mods
+
+    def alloy_trial(self, slot: str, base: dict, base_option: ItemOption, level: int, pools, limits: dict,
+                    chosen: list, current: float, left: float, deadline: float) -> ItemOption | None:
+        """(SEARCH29) The rare with an Alloy, if it beats the plain rare `chosen` (score `current`) after prices. An Alloy
+        removes a random modifier, so the rare it goes on (`kept`: `chosen`, or `chosen` less one modifier of the Alloy
+        mod's own type when that type is full, so whichever is lost it fits) has len(kept) outcomes: kept - one + the
+        Alloy mod. THE MANAGER'S RULING (18 Nov 20:25): DPS at the mean over the outcomes, the floors at the worst. So the
+        item equipped is the worst outcome (the lowest full score) and its alloy_scale is the mean DPS / its DPS
+        (alloys.ALLOY_FIELD). Price: the plain rare's (kept) + the Alloy's (no price: no offer; self-found: no price)."""
+        rows = alloys.rows_for(base, level, self.alloy_mods)
+        if not rows or clock.now() > deadline:
+            return None
+        build, ssf = self.build, self.ctx.ssf
+        objective = build.objective
+        plain = current - self.lam * rare_price(slot, chosen)
+        groups = {a.group for a in chosen}
+        trials = []  # (alloy, its Affix, kept, price)
+        for alloy, mod in rows:
+            cost = None if ssf else self.ctx.alloy_prices.get(alloy)
+            if (cost is None and not ssf) or mod["group"] in groups or mod["type"] not in limits:
+                continue
+            affix = pools.affix(mod, mod["group"], mod["type"], 1, 1, (0.0, 0.0))
+            if sum(1 for a in chosen if a.type == mod["type"]) < limits[mod["type"]]:
+                kepts = [list(chosen)]
+            else:  # (a full side: a rare made with that slot open, one of its modifiers left out)
+                kepts = [[a for a in chosen if a is not out] for out in chosen if out.type == mod["type"]]
+            for kept in kepts:
+                if not kept:
+                    continue
+                price = rare_price(slot, kept) + (cost or 0.0)
+                if price <= left + 1e-9:
+                    trials.append((alloy, affix, kept, price))
+        if not trials:
+            return None
+        screened = self.deltas(slot, [rare_text(slot, base, level, kept + [affix]) for _, affix, kept, _ in trials])
+        ranked = sorted(((s - self.lam * t[3], i) for i, ((s, _), t) in enumerate(zip(screened, trials))), reverse=True)
+        best = None  # (value, option)
+        for upper, i in ranked[:self.ALLOY_KEEP]:
+            if upper <= plain + EPSILON or clock.now() > deadline:
+                break  # (losing a modifier never scores above keeping it: the screen is an upper bound, MEDIUM)
+            alloy, affix, kept, price = trials[i]
+            outcomes = [[a for a in kept if a is not lost] + [affix] for lost in kept]
+            scored = self.deltas(slot, [rare_text(slot, base, level, o) for o in outcomes])
+            dps = [objective.dps(stats) for _, stats in scored]
+            worst = min(range(len(scored)), key=lambda n: (scored[n][0], n))
+            scale = alloys.mean_scale(dps, worst)
+            stats = dict(scored[worst][1])
+            stats[alloys.ALLOY_FIELD] = build.alloy_product(slot) * scale
+            value = objective.score(stats) - self.lam * price
+            if value > plain + EPSILON and (best is None or value > best[0]):
+                typical = alloys.typical(dps)
+                lost = lambda n: "; ".join(kept[n].lines)
+                report = (f"{alloy}: removes a random modifier ({len(kept)} outcomes) and adds "
+                          f"\"{'; '.join(affix.lines)}\"; the floors read the worst outcome (shown in the build), DPS the "
+                          f"mean over all {len(kept)} (x{scale:.3f} of the worst's) (the manager's ruling, 18 Nov)",
+                          f"Typical outcome: loses \"{lost(typical)}\" (DPS {dps[typical]:,.0f})",
+                          f"Worst case: loses \"{lost(worst)}\" (DPS {dps[worst]:,.0f}; mean {sum(dps) / len(dps):,.0f})")
+                text = rare_text(slot, base, level, outcomes[worst])
+                option = ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"), text, False,
+                                    None if ssf else price, "ssf" if ssf else "estimate (uncalibrated) + Alloy",
+                                    base_option.level, rare=True, affixes=tuple(l for a in outcomes[worst] for l in a.lines),
+                                    alloy=alloy, alloy_scale=scale, alloy_report=report)
+                best = (value, option)
+        if best is None:
+            return None
+        option = best[1]
+        if not hasattr(build, "alloy_raws") or build.alloy_raws is None:
+            build.alloy_raws = {}
+        build.alloy_raws[alloys.alloy_key(option.raw)] = option.alloy_scale
+        return option
 
     def socketed(self, slot: str, option: ItemOption, deadline: float) -> ItemOption:
         """The option with its sockets filled by the runes that score best."""

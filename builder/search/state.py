@@ -10,6 +10,7 @@ from collections.abc import Callable
 from typing import Any
 
 from builder import clock
+from builder.search.alloys import ALLOY_FIELD, alloy_key
 from builder.search.context import Context, ItemOption
 from builder.search.objective import CLEAR_FIELDS, COST_WARNINGS, EHP_FIELDS_PREFIXES, POINTS_OVER, Objective
 
@@ -46,6 +47,7 @@ class Build:
         self._last_report = 0.0
         # What the search put in each item slot, for prices and the result
         self.equipped: dict[str, ItemOption] = {}
+        self.alloy_raws: dict[str, float] = {}  # (SEARCH29) the Alloy rares Gear made: alloys.alloy_key(raw) -> alloy_scale
         self.locked_slots: set[str] = set()
         self.reverts: dict[str, int] = {}  # phase -> commits undone because the score fell
         self.after_load: list = []  # called after every reload, before the score is refreshed
@@ -214,6 +216,14 @@ class Build:
         return self._deltas("gemDeltas", cases, fill_from_base=skip_ehp, skipEHP=skip_ehp)
 
     def item_deltas(self, cases: list[dict]) -> list[tuple[float, dict]]:
+        # (SEARCH29) an item what-if replaces its slot's Alloy factor: the others' product x the candidate's own
+        # (alloy_raws: the Alloy rares Gear made, by text; any other item 1.0). Nothing without an Alloy anywhere
+        raws = {**(getattr(self, "alloy_raws", None) or {}),
+                **{alloy_key(o.raw): o.alloy_scale for o in (getattr(self, "equipped", None) or {}).values()
+                   if getattr(o, "alloy", "")}}
+        if raws or self.alloy_product() != 1.0:
+            cases = [{**case, "extra": {**(case.get("extra") or {}), ALLOY_FIELD: self.alloy_product(case.get("slot"))
+                                        * raws.get(alloy_key(case.get("raw") or ""), 1.0)}} for case in cases]
         scored = self._deltas("itemDeltas", cases)
         if self.reassume is not None and cases:
             scored = self._rescore_model_items(cases, scored)
@@ -339,7 +349,14 @@ class Build:
         # (MECHC35: Decree of Loyalty's "Damage over Time cannot bypass your Energy Shield", objective.DOT_HITS_ES)
         if getattr(self, "dot_hits_es", False):
             own["DotCannotBypassEnergyShield"] = 1
+        # (SEARCH29: the equipped Alloy rares' mean-outcome DPS factor, alloys.py; none: no field)
+        if (scale := alloy_product(getattr(self, "equipped", None))) != 1.0:
+            own[ALLOY_FIELD] = scale
         return {**self.recovery_sources, **self.extra_stats, **self.boss_stats, **own}
+
+    def alloy_product(self, skip: str | None = None) -> float:
+        """The product of the equipped items' alloy_scale (every slot but `skip`)."""
+        return alloy_product(getattr(self, "equipped", None), skip)
 
     # Snapshots ---------------------------------------------------------------------------------
 
@@ -387,3 +404,12 @@ class Build:
                 if priced:
                     total += priced[0] or 0.0
         return total
+
+
+def alloy_product(equipped: dict | None, skip: str | None = None) -> float:
+    """(SEARCH29) The product of the equipped items' alloy_scale (alloys.py), every slot but `skip`."""
+    scale = 1.0
+    for slot, option in (equipped or {}).items():
+        if slot != skip:
+            scale *= getattr(option, "alloy_scale", 1.0) or 1.0
+    return scale

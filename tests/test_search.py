@@ -1776,7 +1776,7 @@ def test_a_line_goes_on_with_its_pass_in_its_next_task(monkeypatch):
     fake = lambda *a, **k: None
     blocks = SimpleNamespace(**{n: fake for n in (
         "gear_round", "ascendancy_round", "optimize_supports", "grow", "attributes_round", "jewel_round", "round",
-        "optimize_persistent", "granted_meta_round", "meta_round", "meta_spell_round", "totem_round", "mark_round",
+        "optimize_persistent", "granted_meta_round", "meta_round", "meta_spell_round", "totem_round", "mark_round", "curse_round",
         "mirage_round", "roar_round", "swap_round")})
     search = SimpleNamespace(passes=0, passes_done=0, line_passes=0, resume_step=None, resume_sweep=False,
                              current_step=None, kicked=set(), build=SimpleNamespace(equipped={}),

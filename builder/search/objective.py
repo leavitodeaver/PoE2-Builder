@@ -585,6 +585,14 @@ def goal_value(goal: str, dps: float, clear: float) -> float:
 ADDED_FIELD = "LedgerAddedDPS"
 
 
+def alloy_scale(stats: dict) -> float:
+    """(SEARCH29) The equipped Alloy items' mean-outcome DPS factor (builder/search/alloys.py; 1.0 without one)."""
+    from builder.search.alloys import ALLOY_FIELD
+
+    value = stats.get(ALLOY_FIELD)
+    return number(value) if value is not None and number(value) > 0 else 1.0
+
+
 class Objective:
     def __init__(self, ctx: Context, full: bool = False, multipliers: dict[str, float] | None = None,
                  goal: str | None = None) -> None:
@@ -683,9 +691,9 @@ class Objective:
             full = number(stats.get("FullDPS"))
             if full > 0:
                 full = max(full + self.rescaled(stats) - self.excluded(stats)[0] - main_dps(stats) * self.busy(), 0.0)
-                return (full + added) * self.life_factor * self.uptime_factor * self.whole()
+                return (full + added) * self.life_factor * self.uptime_factor * self.whole() * alloy_scale(stats)
         main = main_dps(stats) * self.main_cull(stats)
-        return (main * (1.0 - self.busy()) + added) * self.life_factor * self.uptime_factor * self.whole()
+        return (main * (1.0 - self.busy()) + added) * self.life_factor * self.uptime_factor * self.whole() * alloy_scale(stats)
 
     def main_cull(self, stats: dict) -> float:
         """The main skill's DPS x this counts its Culling gain at cull_scale: (1 + (m - 1) x scale) / m, m its own
