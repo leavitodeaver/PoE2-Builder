@@ -513,7 +513,9 @@ class Run:
                         "payload": self.payload, "skeleton": s.as_dict(), "seconds": seconds,
                         "seed": self.task_seed(7919 * (r + 1) + i + 104729 * focus_round),
                         "state": self.line_state(lines, states, s.label, r, goals[r]), "goal": goals[r],
-                        "full": FOCUS_FULL_DPS})
+                        "full": FOCUS_FULL_DPS,
+                        # (SEARCH29: the seeded curse trial, gems.CURSE_SEEDS, once per run: the first focus task only)
+                        "curses": focus_round == 0 and i == 0 and r == 0})
                         for i, s in enumerate(alive) for r in range(replicas)]
                     self.diverge(tasks)
                     raw = self._tasks(pool, tasks)

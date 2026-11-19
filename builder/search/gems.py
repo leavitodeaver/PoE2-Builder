@@ -41,7 +41,8 @@ CURSE_LABEL = "auto: curse"
 # list; today Decaying Hex, Doedre's Undoing, Hayoxi's Fulmination and Impending Doom, checked over every "Supports
 # Curse" gem description in this game data),
 # then fills the rest by what-if WITH the seed in (so a support feeding Doom Blast shows its worth), and keeps the
-# group only if the build scores higher. Once per line, inside CURSE_SECONDS of the task's clock (my number: a search
+# group only if the build scores higher. Once per RUN (the manager 19 Nov 06:50: run.py flags the first focus task;
+# per line measured lower), inside CURSE_SECONDS of the task's clock (my number: a search
 # budget, not a game number). POE2_SEARCH_CURSE_SEEDS=1 turns it on (off until a 3-run set says higher).
 CURSE_SEEDS = os.environ.get("POE2_SEARCH_CURSE_SEEDS", "0") != "0"
 CURSE_SECONDS = 45.0
@@ -171,7 +172,10 @@ class Gems:
         self.swept_cases = 0
         self.swept_ranking: list[str] = []  # the main group's last full sweep: names best first (rebuild_main's pool)
         self.rebuilt = False  # rebuild_main ran this task
-        self.curses_tried = False  # (SEARCH29) curse_round's trial ran on this line (once per line, the line's state)
+        self.curses_tried = False  # (SEARCH29) curse_round's trial ran on this line (the line's state)
+        # (SEARCH29, the manager 19 Nov 06:50) only the one task a run flags runs the trial (optimize_task's `curses`):
+        # once per line (2b75b's set: lower, C 14,762 / 16,172 short) took every line's gear time
+        self.curse_task = False
         self.rng = None  # the task's random.Random (set by the search): which seeds rebuild_main tries; None: the top ones
         self.meta_shortlist: list[str] | None = None  # the same for the meta group's
         self.granted_shortlists: dict[int, list[str]] = {}  # and for each item- or notable-granted meta group's
@@ -967,7 +971,8 @@ class Gems:
     def curse_round(self, deadline: float) -> bool:
         """(SEARCH29) A hand-cast curse seeded with its curse-damage supports (CURSE_SEEDS' note), kept only if higher."""
         build = self.build
-        if not CURSE_SEEDS or self.curses_tried or clock.now() > deadline or build.main_group() is None:
+        if (not CURSE_SEEDS or not self.curse_task or self.curses_tried or clock.now() > deadline
+                or build.main_group() is None):
             return False
         groups = build.groups()
         if (any(g["label"] == CURSE_LABEL for g in groups)

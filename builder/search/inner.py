@@ -1121,7 +1121,6 @@ class Search:
             ("meta spells", self.gems.meta_spell_round, (deadline,)),
             ("totems", self.gems.totem_round, (deadline,)),
             ("marks", self.gems.mark_round, (deadline,)),
-            ("curses", self.gems.curse_round, (deadline,)),
             ("mirages", self.gems.mirage_round, (deadline,)),
             ("roar", self.gems.roar_round, (deadline,)),
             ("prune and regrow", self.tree.swap_round, (deadline,)),
@@ -1140,8 +1139,7 @@ class Search:
             self.current_step = phase
             if phase in ("meta gems", "meta spells") and "meta" in self.kicked:
                 pass  # a meta kick took the group out: the meta round re-chooses it now, not at the next sweep
-            elif phase in ("ascendancy", "condition sources", "meta gems", "meta spells", "totems", "marks", "curses", "mirages",
-                           "roar") and not sweep:
+            elif phase in ("ascendancy", "condition sources", "meta gems", "meta spells", "totems", "marks", "mirages", "roar") and not sweep:
                 continue
             improved = self.step(phase, fn, *args) or improved
         self.current_step = None
@@ -1699,7 +1697,7 @@ def use_cpu_clock(payload: dict) -> None:
 
 
 def optimize_task(engine: Any, report: Any, payload: dict, skeleton: dict, seconds: float, seed: int = 0,
-                  state: dict | None = None, goal: str | None = None, full: bool = False) -> dict:
+                  state: dict | None = None, goal: str | None = None, full: bool = False, curses: bool = False) -> dict:
     """`goal` overrides the request's (a balanced run's boss-DPS searches); the result's `value` is
     on that goal, so the run ranks results on its own goal from `dps` and `clear`. `full`: scored on PoB's Full
     DPS, as the delivered build is, the damaging non-main groups included (the run's focus stage)."""
@@ -1731,6 +1729,9 @@ def optimize_task(engine: Any, report: Any, payload: dict, skeleton: dict, secon
     from builder.pob.pool import Cancelled
 
     try:
+        if curses:  # (SEARCH29, the manager 19 Nov 06:50: the seeded curse trial once per RUN: run.py flags one task)
+            search.gems.curse_task = True
+            search.step("curses", search.gems.curse_round, deadline)
         search.run(deadline, best=start or floor)
     except Cancelled:
         kept = start or floor

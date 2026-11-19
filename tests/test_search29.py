@@ -216,6 +216,8 @@ def test_the_seeded_curse_trial_adds_a_curse_with_a_damage_support_only_if_highe
     assert search.gems.curse_round(clock.now() + 120) is False  # (off by default: POE2_SEARCH_CURSE_SEEDS)
     monkeypatch.setattr(gems_module, "CURSE_SEEDS", True)
     monkeypatch.setattr(gems_module, "CURSE_SECONDS", 60.0)
+    assert search.gems.curse_round(clock.now() + 120) is False  # (only the task the run flags: optimize_task's curses)
+    search.gems.curse_task = True
     before = build.score
     kept = search.gems.curse_round(clock.now() + 120)
     groups = [g for g in build.groups() if g["label"] == CURSE_LABEL]
