@@ -1,0 +1,61 @@
+# MECH-B's model entries (MECHB40).
+
+- id: model-mechb40-tawhoa-vengeance
+  title: "Tawhoa's Vengeance: a blast of 20% of the totem's Life as Physical each time a supported totem dies (models.tawhoa_model)"
+  kind: model
+  model: tawhoa
+  stats: ["base_physical_damage_equal_to_%_of_totem_life", "triggered_on_death_%",
+          "support_hardy_totems_trigger_splinter_explosion_on_death_chance_%"]
+  skill: ["Tawhoa's Vengeance", "Tawhoa's Tending"]
+  confidence: theory
+  notes: >-
+    PoB has the skill (TriggeredSplinterExplosionHardyTotems) but no code reads its damage stat (checked: the stat id
+    appears in vendor PoB src only in sup_str.lua and its stat description file) and nothing gives it a trigger rate:
+    it scored 0 (probe POE2T3395, an UNDERCOUNT for totem builds with the support). Now each death of a totem from the
+    supported group's skill (models.totem_deaths' own count for that skill: expiring or replaced counts as dying,
+    RESEARCH31 R31-2, MEDIUM) sets off one blast of 20% (the skill's own stat) of that totem's Life (the bridge's useRates
+    totemLife: PoB's TotemLife on the totem-summoning skill, with the support's 25% more) as base Physical, scored by PoB
+    as the group's triggered hit (SkillData Physical Min / Max, triggerRate; its group in Full DPS). Probe POE2T4602:
+    Shockwave Totem 3,113 Life, 0.0625 deaths a second: +16.7 DPS. "Totem Life" read as maximum Life (MEDIUM); the boss
+    inside the 3 m blast (MEDIUM). The flags base_skill_is_totemified and skill_disabled_unless_cloned are left as they
+    are (PoB scores the hit once given a base: probe POE2T4602).
+  sources: [builder/search/models.py (TAWHOA, tawhoa_model, totem_deaths each), builder/search/assumptions.py (totem_deaths out, the tawhoa call),
+            engine/bridge.lua (useRates totemLife), vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_str.lua 7299-7374]
+  test_in_game: "Not needed for the shape; RESEARCH: does an expiring / replaced totem set it off, and is 'Totem Life' the maximum?"
+  status: proposed
+
+- id: model-mechb40-echoing-cry-power
+  title: "Echoing Cry's 50% less Power for its Warcry: fewer Empowered attacks (models.echoing_power_model)"
+  kind: model
+  model: echoing_power
+  stats: ["support_echoing_cry_warcry_monster_power_+%_final"]
+  skill: ["Echoing Cry"]
+  confidence: theory
+  notes: >-
+    PoB reads no such stat (checked: the stat id appears in vendor PoB src only in Data/Skills/sup_str.lua; MECHB2 checked
+    SkillStatMap and Modules) and its Warcry Power is one global number (CalcPerform 2201), so a Warcry with Echoing Cry
+    Empowered floor(min(20, cap) / per) attacks a use (Infernal Cry 2, Arctic Howl 4): an OVERCOUNT of Infernal Cry's
+    Exerted uptime and of Assumptions.empowered_uses. Now Power x (1 + stat / 100) for that Warcry (the bridge's useRates
+    warcryPower / warcryPowerPer / warcryPowerCap), the difference as <Warcry>EmpoweredAttacks BASE (CalcPerform 2205).
+    Left (labelled): buffs scaled per N Power keep the full Power; whether each Echo Empowers again is UNVERIFIED.
+  sources: [builder/search/models.py (ECHO_POWER_STAT, echoing_power_model), builder/search/assumptions.py (the echoed Warcries),
+            engine/bridge.lua (useRates warcryPower / warcryPowerPer / warcryPowerCap), vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua 2196-2215]
+  test_in_game: "Not needed for the shape (game data)."
+  status: proposed
+
+- id: model-mechb40-forced-revives
+  title: "Forced revives (Replenishing Horde, Citaqualotl's Thesis' Offering line, the Mana Flask line): fallen minions back at once (models.forced_revives)"
+  kind: pob_gap
+  model: forced_revives
+  match: '^(\d+(?:\.\d+)?% Chance to revive a random Permanent Minion whenever you use a Command Skill|One of your Persistent Minions revives when an Offering expires|Using a Mana Flask revives one of your Persistent Minions)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    PoB has no mod for these lines. They matter where the build kills its own Reviving minions (Sacrifice, Minion Pact,
+    Explosive Demise), whose damage now counts only while alive (models.minion_alive_model, an OVERCOUNT before): each
+    forced revive takes one fallen minion off the floor at the build's own rate, Replenishing Horde's chance x the
+    Command uses (command_uses, each on its cooldown), an Offering's base duration (OFFERING_SECONDS), the Mana flask's
+    uses a second (flasks.uses_per_second); Skeletal Clerics' Revive (every 5 s, game files) too. MEDIUM: each taken to
+    find a fallen minion. Not yet fed into minion_deaths' cap (the deaths-fed Energy / buffs: an undercount, said).
+  sources: [builder/search/models.py (forced_revives, minion_alive_model), builder/search/assumptions.py (mana_flask_uses)]
+  status: proposed

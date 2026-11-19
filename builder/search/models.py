@@ -786,6 +786,7 @@ MINION_PACT_STAT = "support_minion_pact_user_life_%_removed_from_nearby_minion"
 # sets the stats key from the equipped items (build.minion_deathless); 0 without the line or a Life flask.
 MINION_DEATHLESS = re.compile(r"(?i)minions cannot die while affected by a life flask")
 MINION_DEATHLESS_STAT = "_minion_deathless"  # stats key: (share of the fight your minions can't die, how)
+FORCED_REVIVES_STAT = "_forced_revives"  # stats key: (fallen minions brought back a second, parts): forced_revives (MECHB40)
 
 
 def minion_deathless(raws: list[str], life_flask_up: float | None) -> tuple[float, str]:
@@ -894,7 +895,13 @@ def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict,
     if kills <= 0:
         return 0.0, f"nothing in this build kills its minions ({'; '.join(parts + [not_counted])})"
     revive, how = revive_seconds(reviving)
-    rate = count * kills / (count + revive * kills)
+    # (MECHB40: forced revives bring fallen minions back at once, so more are alive to be killed: the alive share
+    # 1 - (deaths - forced) T / N, deaths = kills x that share, at most kills)
+    forced, forced_parts = stats.get(FORCED_REVIVES_STAT) or (0.0, [])
+    forced = max(0.0, number(forced))
+    rate = min(kills, kills * (count + forced * revive) / (count + revive * kills))
+    if forced > 0:
+        how += f"; forced revives {forced:.2f}/s ({'; '.join(forced_parts)}) bring fallen ones back sooner"
     defaults = [s.name for s in reviving if s.summon.get("limitFrom") == "default"]
     if defaults:  # (AUDIT29 A29-2: no count stat in the game files or PoB)
         how += (f"; {', '.join(defaults)}: one minion each (no count stat in the game files or PoB; UNVERIFIED, an "
@@ -1816,7 +1823,7 @@ def sacrifice_corpses(skills: list[Skill], main: Skill | None, stats: dict) -> t
                      f"no flat rate; minions killed another way leave none, RESEARCH26 R26-68: {how})")
     return rate, (f"Sacrifice: {rate:.3f} corpses/s, one per use of the corpse skill on a living undead Reviving minion "
                   f"(MEDIUM-HIGH, RESEARCH26 R26-68): {how}. Minion Pact / Explosive Demise deaths give none (was counted "
-                  "before: an OVERCOUNT); their damage while dead isn't taken off. Without Sacrifice: 0")
+                  "before: an OVERCOUNT); their damage while dead is taken off (minion_alive_model). Without Sacrifice: 0")
 
 
 def add_corpses_note(stats: dict | None) -> str:
@@ -12593,7 +12600,8 @@ def press_model(rates: list[dict], main_index: int | None, pressed: set[int],
 #   on a target, "lose 1 Gruelling Madness every 2 seconds that passes without more being inflicted". Fed by "Hits with
 #   this Weapon inflict N Gruelling Madness" (the main skill an Attack hitting at least once per 2 s: 10; slower: N, LOW)
 #   or "Enemies in your Presence gain 1 Gruelling Madness each second" (Sculpted Suffering: 10). The ramp isn't counted.
-# - Not read here: warcry_monster_power_+% / Echoing Cry's (a warcry's own Power: PoB reads them); monster-side stats
+# - Not read here: Echoing Cry's less Power for its Warcry (echoing_power_model; PoB reads no such stat: MECHB40 checked
+#   vendor PoB src, the id only in Data/Skills/sup_str.lua); monster-side stats
 #   (monster_power_doubled_if_afflicted_by_abyssal_wasting: no Mods row uses it); adds' Power (ADD_POWER) isn't doubled.
 # Both doublings together: counted once (x2), the lower reading (UNVERIFIED whether "double" twice is x4); the Madness
 # Power added after the doubling (UNVERIFIED order; the lower reading). All need the boss in your Presence (the boss's
@@ -13247,6 +13255,47 @@ def warcry_echo_model(skills: list[Skill], supports: dict[int, list[str]], warcr
                                "location again (KeywordPopups Cascadable, MEDIUM-HIGH) and is counted as hitting a boss that "
                                f"stays near it (MEDIUM, RESEARCH26 R26-42 / -44). Without the Echoes: x1, "
                                f"x{1 / (1 + echoes):.2f} on this number",
+                      "confidence": "MEDIUM"})
+    return mods, notes
+
+
+# Echoing Cry's "50% less Power" for the Warcry it supports (MECHB40; plans/kw-monster-power.md, an OVERCOUNT). The
+# support's support_echoing_cry_warcry_monster_power_+%_final -50 (game files SupportEchoingCryPlayer; PoB sup_str.lua
+# 2704) is read by no PoB code (checked: the stat id appears in vendor PoB src only in Data/Skills/sup_str.lua and its
+# stat descriptions; MECHB2's check of SkillStatMap / Modules the same), and PoB's Warcry Power is one global number
+# (CalcPerform 2201), so a Warcry with Echoing Cry Empowered as many attacks as at the boss's full Power:
+# floor(min(Power, cap) / per) (Infernal Cry 1 per 10 up to 50, Seismic Cry 1 per 10 up to 50, Arctic Howl 1 per 5 up to
+# 50, Ferocious Roar 1 per 8 up to 64). Now: Power x (1 + stat / 100) for that Warcry, the difference taken off PoB's
+# Num<Warcry>Empowers as "<Warcry>EmpoweredAttacks" BASE (CalcPerform 2205 adds it), which Infernal Cry's uptime and
+# Assumptions.empowered_uses both read. Not changed (labelled): Warcry buffs scaled per N Power (warcryPowerBonus) keep
+# the full Power (an OVERCOUNT left where a Warcry with Echoing Cry has one); the Echoes' own Empowers (whether an Echo
+# Empowers again is UNVERIFIED: not counted).
+ECHO_POWER_STAT = "support_echoing_cry_warcry_monster_power_+%_final"
+
+
+def echoing_power_model(skills: list[Skill], rows: dict[str, dict]) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): each Warcry with Echoing Cry's less Power Empowers floor(min(Power', cap) / per) attacks, not PoB's
+    floor(min(Power, cap) / per). `rows`: {warcry name: its useRates row (warcryPower, warcryPowerPer, warcryPowerCap)}."""
+    mods, notes = [], []
+    for skill in skills:
+        less = number(skill.support_stats.get(ECHO_POWER_STAT))
+        row = rows.get(skill.name) or {}
+        per, cap, power = (number(row.get(k)) for k in ("warcryPowerPer", "warcryPowerCap", "warcryPower"))
+        if less >= 0 or per <= 0 or power <= 0:
+            continue
+        mine = power * max(0.0, 1 + less / 100)
+        pob = math.floor(min(power, cap) / per)
+        own = math.floor(min(mine, cap) / per)
+        if own == pob:
+            continue
+        name = skill.name.replace(" Cry", "").replace("'s", "").replace(" ", "")
+        mods.append(raw_mod(f"{name}EmpoweredAttacks", "BASE", own - pob))
+        notes.append({"label": f"{skill.name}: Echoing Cry's {-less:g}% less Power", "value": f"{own} Empowered, not {pob}",
+                      "basis": (f"Echoing Cry: \"{-less:g}% less Power\" for the supported Warcry, which PoB never applies "
+                                f"(its Power is one global number): {power:g} Power -> {mine:g}, one Empowered attack per "
+                                f"{per:g} up to {cap:g}: {own} a use, not PoB's {pob} (an OVERCOUNT before). Its buffs "
+                                "scaled per N Power keep the full Power (an overcount left); whether each Echo Empowers "
+                                "again is UNVERIFIED (not counted)"),
                       "confidence": "MEDIUM"})
     return mods, notes
 
@@ -15183,9 +15232,10 @@ def totem_count_model(skills: list[Skill], main: Skill | None, texts: Iterable[s
 # duration read: 0 with the reason.
 def totem_deaths(skills: list[Skill], main: Skill | None, rates: dict[str, dict],
                  up: dict[str, float] | None = None, choices: dict[str, float] | None = None,
-                 texts: Iterable[str] = ()) -> tuple[float, str]:
+                 texts: Iterable[str] = (), each: dict[str, float] | None = None) -> tuple[float, str]:
     """(your totems dying a second, how) from each totem skill's totems kept up over its own duration (see above).
-    `rates`: {skill name: its bridge useRates row}; `up`: {skill name: totems up} where a model knows better."""
+    `rates`: {skill name: its bridge useRates row}; `up`: {skill name: totems up} where a model knows better; `each`,
+    if given, is filled with {skill name: its own totems' deaths a second} (MECHB40: Tawhoa's Vengeance reads one skill's)."""
     summoners = [s for s in skills if s.totem_limit > 0]
     if not summoners:
         return 0.0, "the build has no totem skill: no totem dies (0)"
@@ -15204,6 +15254,8 @@ def totem_deaths(skills: list[Skill], main: Skill | None, rates: dict[str, dict]
         lasts = number(row.get("totemDuration"))
         if lasts <= 0:
             parts.append(f"{name}: no totem duration read (0)")
+            if each is not None:
+                each[name] = 0.0
             continue
         expiry = kept / lasts
         deaths, how = expiry, f"{kept:g} up, each lasting {lasts:.2f} s, re-placed as it expires: {expiry:.3f}/s"
@@ -15214,6 +15266,8 @@ def totem_deaths(skills: list[Skill], main: Skill | None, rates: dict[str, dict]
                                     f"rate), each replacing one: {presses:.3f}/s (without it, expiry alone: "
                                     f"{expiry:.3f}/s)")
         total += deaths
+        if each is not None:
+            each[name] = deaths
         parts.append(f"{name}: {how}")
     return total, (f"{total:.3f} totems die a second: " + "; ".join(parts)
                    + " (RESEARCH31 R31-2: expiring or being replaced counts as dying, MEDIUM; the boss killing totems "
@@ -15242,6 +15296,155 @@ def last_tremor_notes(texts: list[str]) -> list[dict]:
              "play": "Unnamed Heartwood's second line matters only when the boss kills your totems; place them out of its "
                      "attacks either way.",
              "confidence": "LOW"}]
+
+
+# Tawhoa's Vengeance (MECHB40; MECHB39's probe POE2T3395: PoB scores it 0). The lineage support Tawhoa's Tending
+# (SupportHardyTotemsPlayerThree: support_totem_life_+%_final 25, support_hardy_totems_trigger_splinter_explosion_on_death_
+# chance_% 100) grants it: "Deals Physical Damage in an area, based on Totem Life" (TriggeredSplinterExplosionHardyTotems:
+# base_physical_damage_equal_to_%_of_totem_life 20, triggered_on_death_% 100, radius 3 m). PoB has the skill but gives
+# it no base damage and no trigger rate (checked: the stat id appears in vendor PoB src only in sup_str.lua and its stat
+# description file, so no code reads it; probes POE2T3395 / POE2T4602 score it 0 without a base). So each
+# death of a totem from the supported skill's group (models.totem_deaths' own count for that skill, `each`) sets off one
+# explosion of 20% of that totem's Life (the bridge's useRates totemLife on the totem-summoning skill: PoB's TotemLife,
+# with Tawhoa's Tending's 25% more; the totem's own skill's row lacks the support) as base Physical, scored by PoB as the
+# group's own triggered hit (so the build's modifiers, crit and the boss's armour apply): SkillData PhysicalMin / Max and
+# triggerRate, its group counted in Full DPS. Probe POE2T4602: Shockwave Totem, 3,113 Life, 0.0625/s: +16.7 DPS.
+# Labelled: "Totem Life" read as the totem's maximum Life (MEDIUM; RESEARCH asked); a totem expiring or replaced counts
+# as dying (RESEARCH31 R31-2, MEDIUM; without it, only totems the boss kills, not counted: 0, the "without it" row); the
+# boss inside the 3 m blast (MEDIUM: totems placed at the boss, as totem_count_model).
+TAWHOA = "Tawhoa's Vengeance"
+TAWHOA_SHARE_STAT = "base_physical_damage_equal_to_%_of_totem_life"
+TAWHOA_SHARE = 20.0  # (the game files' and PoB's value, every level; read from the skill's stats when given)
+
+
+def tawhoa_model(skills: list[Skill], rows: dict[str, dict], deaths: dict[str, float],
+                 deaths_how: str = "") -> tuple[list[dict], list[dict], set[int]]:
+    """Tawhoa's Vengeance's explosions (see above): (mods, notes, groups to count in Full DPS). `rows`: {totem skill
+    name: its useRates row (totemLife)}; `deaths`: {totem skill name: its totems' deaths a second} (totem_deaths' each)."""
+    best = None
+    for vengeance in (s for s in skills if s.name == TAWHOA and s.group is not None):
+        summoner = next((s for s in skills if s.group == vengeance.group and s.totem_limit > 0), None)
+        if summoner is None:
+            continue
+        life = number((rows.get(summoner.name) or {}).get("totemLife"))
+        rate = number(deaths.get(summoner.name))
+        share = number(vengeance.level_stats.get(TAWHOA_SHARE_STAT)) or TAWHOA_SHARE
+        if best is None or rate * life * share > best[1] * best[2] * best[3]:
+            best = (vengeance, rate, life, share, summoner)
+    if best is None:
+        return [], [], set()
+    vengeance, rate, life, share, summoner = best
+    base = share / 100 * life
+    label = f"{TAWHOA}: a blast each time a {summoner.name} totem dies*"
+    if rate <= 0 or base <= 0:
+        why = ("no totem Life read" if base <= 0 else "none of its totems die (no duration read)")
+        return [], [{"label": label, "value": 0, "basis": f"{why}: 0 (as PoB scores it)" + (f"; {deaths_how}" if deaths_how else ""),
+                     "confidence": "MEDIUM"}], set()
+    mods = [{"kind": "SkillData", "skill": TAWHOA, "key": "PhysicalMin", "value": _round(base)},
+            {"kind": "SkillData", "skill": TAWHOA, "key": "PhysicalMax", "value": _round(base)},
+            *trigger_rate(TAWHOA, rate)]
+    note = {"label": label, "value": f"{rate:.3f} a second, {base:,.0f} base Physical each",
+            "basis": (f"{share:g}% of the {summoner.name} totem's {life:,.0f} Life (PoB's totem Life with the build's "
+                      f"modifiers and Tawhoa's Tending's 25% more; read as its maximum Life, MEDIUM) as base Physical, "
+                      f"scored by PoB as the group's own hit with the build's modifiers; {rate:.3f} of its totems die a "
+                      "second (models.totem_deaths: expiring or replaced counts as dying, RESEARCH31 R31-2, MEDIUM)"
+                      + (f"; {deaths_how}" if deaths_how else "") + "; the boss inside its 3 m blast (totems placed at "
+                      "the boss, MEDIUM). PoB alone gives it no damage (0)"),
+            "play": (f"Place {summoner.name} totems at the boss and re-place them as they expire: each one that dies "
+                     f"explodes. Without it (if only totems the boss kills explode): 0 from {TAWHOA}"),
+            "confidence": "MEDIUM"}
+    return mods, [note], {vengeance.group}
+
+
+# Minions the build kills itself are dead part of the fight (MECHB40; PLANS term-persistent-minions item 4, an OVERCOUNT:
+# minion_deaths counted their deaths for Energy / buffs / corpses, but every Reviving minion's damage stayed counted as
+# always alive). A Reviving minion Killed lies dead until it revives (KeywordPopups Reviving; revive_seconds: the game's
+# 7.5 s constant with PoB's MinionRevivalSpeed, MEDIUM; the skills' own 12 s base the other row). With N Reviving minions
+# Killed k times a second by the build's own sources (minion_deaths: Sacrifice's corpse uses, Minion Pact, Explosive
+# Demise; capped by revival), each death costs T s of one minion, so the share alive = 1 - deaths x T / N = N / (N + T k).
+# Counted as "Minions deal X% more Damage" (negative) on each Reviving minion skill (the Unearth count's form): their hits
+# and ailments alike (MEDIUM: deaths spread evenly over all Reviving minions, though Sacrifice takes only undead ones and
+# Explosive Demise only non-Arsonists). Not counted (labelled): forced revives (Skeletal Cleric, Offerings, Mana Flask:
+# an undercount of the share alive), the boss killing minions (no rate). No death source: no line.
+# Forced revives (forced_revives; plans/term-persistent-minions.md item 1) bring a fallen minion back at once, each at the
+# build's own rate (CLAUDE.md: no flat rate): Skeletal Clerics' Revive (ResurrectSkeletonClericMinion: "Revive a fallen
+# Skeleton", cooldown 5 s, cast 1.2 s; game files 26650308) one per Cleric per 5 s while a Skeleton is fallen (the
+# minions' own Cooldown Recovery not read, MEDIUM); Replenishing Horde's "N% Chance to revive a random Permanent Minion
+# whenever you use a Command Skill" x the build's Command uses (command_uses, each on its cooldown: a play strategy);
+# "One of your Persistent Minions revives when an Offering expires" (Citaqualotl's Thesis) at each Offering's base
+# duration (OFFERING_SECONDS, recast as it ends, as PoB keeps it up); "Using a Mana Flask revives one of your Persistent
+# Minions" at the Mana flask's uses a second (flasks.uses_per_second; Assumptions passes it). The dead count is then
+# max(0, deaths - forced) x T: each forced revive takes one dead minion off the floor (MEDIUM: taken to find one).
+CLERIC_REVIVE = (5.0, 1.2)  # (cooldown s, cast s): ResurrectSkeletonClericMinion
+REPLENISHING = re.compile(r"^(\d+(?:\.\d+)?)% Chance to revive a random Permanent Minion whenever you use a Command Skill$",
+                          re.I)
+OFFERING_REVIVE = re.compile(r"^One of your Persistent Minions revives when an Offering expires$", re.I)
+MANA_FLASK_REVIVE = re.compile(r"^Using a Mana Flask revives one of your Persistent Minions$", re.I)
+
+
+def forced_revives(skills: list[Skill], texts: Iterable[str] = (), mana_uses: float = 0.0) -> tuple[float, list[str]]:
+    """(fallen minions brought back a second by the build's own forced revives, the parts) (see above)."""
+    texts = [t.strip() for t in texts]
+    total, parts = 0.0, []
+    clerics = sum(number(s.summon.get("limit")) for s in skills if s.summon and "Skeletal Cleric" in s.name)
+    if clerics > 0 and any(is_skeleton(s) and s.summon.get("persistent") and "Skeletal Cleric" not in s.name
+                           for s in skills if s.summon):
+        rate = clerics / max(CLERIC_REVIVE)
+        total += rate
+        parts.append(f"{clerics:g} Skeletal Clerics revive a fallen Skeleton each every {max(CLERIC_REVIVE):g} s "
+                     f"({rate:.2f}/s)")
+    chance = sum(float(m.group(1)) for t in texts if (m := REPLENISHING.match(t))) / 100
+    if chance > 0:
+        uses, _ = command_uses(skills)
+        total += chance * uses
+        parts.append(f"Replenishing Horde: {chance:.0%} of {uses:.2f} Command uses a second ({chance * uses:.2f}/s)")
+    if any(OFFERING_REVIVE.match(t) for t in texts):
+        offered = [n for n in dict.fromkeys(s.name for s in skills if s.name in OFFERING_SECONDS and s.group is not None)]
+        rate = sum(1 / OFFERING_SECONDS[n] for n in offered)
+        total += rate
+        parts.append(f"an Offering expiring ({', '.join(offered) or 'none in the build'}: {rate:.2f}/s)")
+    if mana_uses > 0 and any(MANA_FLASK_REVIVE.match(t) for t in texts):
+        total += mana_uses
+        parts.append(f"a Mana Flask use ({mana_uses:.2f}/s)")
+    return total, parts
+
+
+def minion_alive_model(skills: list[Skill], main: Skill | None, stats: dict, texts: Iterable[str] = (),
+                       mana_uses: float = 0.0) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): the build's Reviving minions' damage x the share of the fight they're alive (see above)."""
+    reviving = [s for s in skills if s.summon and s.summon.get("persistent") and not number(s.summon.get("duration"))]
+    count = sum(number(s.summon.get("limit")) for s in reviving)
+    if count <= 0:
+        return [], []
+    rate, how = minion_deaths(skills, main, stats)
+    if rate <= 0:
+        return [], []
+    revive, revive_how = revive_seconds(reviving)
+    forced, forced_parts = stats.get(FORCED_REVIVES_STAT) or forced_revives(skills, texts, mana_uses)
+    dead = min(max(0.0, rate - forced) * revive / count, 1.0)
+    alive = 1.0 - dead
+    names = list(dict.fromkeys(s.name for s in reviving))
+    mods = [line("Minions deal 1% more Damage", -100.0 * dead, skill=name) for name in names] if dead > 1e-4 else []
+    own = sum(number(s.summon.get("limit")) * (number(s.summon.get("reviveBase")) or RESUMMON_SECONDS)
+              for s in reviving) / count
+    slow = ""
+    if own > RESUMMON_SECONDS + 1e-6:
+        t12 = revive * own / RESUMMON_SECONDS
+        k = count * rate / (count - revive * rate) if count > revive * rate else rate  # (the kills before the cap)
+        alive12 = 1 - min(max(0.0, count * k / (count + t12 * k) - forced) * t12 / count, 1.0) if k > 0 else 1.0
+        slow = f"; with the skills' own {own:.3g} s base: {alive12:.0%} alive"
+    note = {"label": "Your Reviving minions alive (the build kills its own)*", "value": f"{alive:.0%} of the fight",
+            "basis": (f"{rate:.3f} of your {count:g} Reviving minions die a second ({how}); each lies dead {revive:.3g} s "
+                      f"({revive_how}), so {rate:.3f} x {revive:.3g} / {count:g} = {dead:.0%} of them are dead on "
+                      f"average: their damage x{alive:.2f} ({', '.join(names)}){slow}"
+                      + (f"; forced revives {forced:.2f}/s bring fallen ones back at once ({'; '.join(forced_parts)}), "
+                         f"so {max(0.0, rate - forced):.3f} x {revive:.3g} / {count:g} dead" if forced > 0 else "")
+                      + ". MEDIUM: deaths spread evenly over them; each forced revive taken to find a fallen minion. "
+                      "PoB counts them alive all fight (an OVERCOUNT before)"),
+            "play": (f"Without sacrificing your minions they'd all be alive; with it {alive:.0%} are on average. Keep "
+                     "more minions than the build kills, or a revive source, to keep their damage up"),
+            "confidence": "MEDIUM"}
+    return mods, [note]
 
 
 # "Minions have N% Surpassing chance to fire an additional Projectile" (MECHB39; the Genesis Tree belt mods

@@ -877,10 +877,11 @@ def minion_lives(build: Build, found: list[models.Skill]) -> dict[str, float]:
 
 
 def totem_deaths(build: Build, found: list[models.Skill], main: models.Skill | None, stats: dict,
-                 texts: list[str]) -> tuple[float, str]:
+                 texts: list[str], out: dict | None = None) -> tuple[float, str]:
     """(your totems dying a second, how): models.totem_deaths (MECHB39; the shared rate for Soul Mantle and the other
     totem-death readers) with each totem skill's own useRates row (its totemDuration, speed, the search's press choice)
-    and Spell Totem's charge-limited count (models.totem_model's "Spell Totems up" note) when it holds the main skill."""
+    and Spell Totem's charge-limited count (models.totem_model's "Spell Totems up" note) when it holds the main skill.
+    `out`, if given, gets "rows" ({totem skill: its useRates row}) and "each" ({totem skill: its deaths a second})."""
     wanted = {s.name for s in found if s.totem_limit > 0}
     if not wanted:
         return models.totem_deaths(found, main, {})
@@ -898,7 +899,22 @@ def totem_deaths(build: Build, found: list[models.Skill], main: models.Skill | N
         notes = models.totem_model(found, stats, texts, levels, main)[1]
         if notes:
             up["Spell Totem"] = models.number(notes[0]["value"])
-    return models.totem_deaths(found, main, rates, up, models.press_choices(build), texts)
+    each: dict[str, float] = {}
+    result = models.totem_deaths(found, main, rates, up, models.press_choices(build), texts, each)
+    if out is not None:
+        out.update(rows=rates, each=each)
+    return result
+
+
+def mana_flask_uses(build: Build) -> float:
+    """The equipped Mana flask's uses a second (flasks.uses_per_second), 0 with none (MECHB40: models.forced_revives)."""
+    from builder.search import flasks
+    equipped = getattr(build, "equipped", None) or {}
+    flask = next((equipped.get(slot) for slot, pool in flasks.FLASK_SLOTS.items() if pool == "Mana"), None)
+    if flask is None:
+        return 0.0
+    info = build.call("flaskData", raws=[flask.raw])["results"][0] or {}
+    return models.number(flasks.uses_per_second(info, flasks.Charges.of(build), flask.raw, "Mana")[0])
 
 
 def minion_deathless(build: Build) -> tuple[float, str]:
@@ -1719,9 +1735,15 @@ class Assumptions:
         build.curse_durations = {s["name"]: s["curseDuration"] for s in skills if s.get("curseDuration")}
         # (MECH86: each curse's activation delay, PoB's with the build's modifiers, for curse_uses / hexblast_model)
         build.curse_delays = {s["name"]: s["curseDelay"] for s in skills if s.get("curseDelay") is not None}
+        source_lines = build.call("sourceLines")["lines"]  # (one call: the models below all read the build's lines)
         build.minion_deathless = minion_deathless(build)  # (MECHB39: Umbilicus Immortalis, for models.minion_deaths)
+        line_texts = [e["text"] for e in source_lines]
+        # (MECHB40: the build's forced revives, for minion_deaths' revival cap and minion_alive_model)
+        forced = models.forced_revives(found, line_texts, mana_flask_uses(build) if any(
+            models.MANA_FLASK_REVIVE.match(t.strip()) for t in line_texts) else 0.0)
         stats = {**stats, "_minion_lives": build.minion_lives, "_curse_durations": build.curse_durations,
-                 "_curse_delays": build.curse_delays, models.MINION_DEATHLESS_STAT: build.minion_deathless}
+                 "_curse_delays": build.curse_delays, models.MINION_DEATHLESS_STAT: build.minion_deathless,
+                 models.FORCED_REVIVES_STAT: forced}
         if any(s.name == models.SACRIFICE for s in found):  # (MECH-B, MECHB19, A27-4: Sacrifice's corpses, the build's own
             # undead Reviving minion deaths, for models.corpse_supply's readers)
             stats = {**stats, models.SACRIFICE_CORPSES_STAT: models.sacrifice_corpses(found, main, stats)}
@@ -1732,7 +1754,6 @@ class Assumptions:
             stats = {**stats, **charm_stats(build)}
         if any(s.name == "Cast on Minion Death" for s in found):  # (its Energy: the build's minions dying)
             stats = {**stats, "_minion_deaths": models.minion_deaths(found, main, stats)}
-        source_lines = build.call("sourceLines")["lines"]  # (one call: the models below all read the build's lines)
         if any(s.name == "Cast on Dodge" for s in found):  # (its Energy: the build's own roll distance; MECH-B, MECHB3)
             stats = {**stats, "_dodge_roll": models.dodge_roll([e["text"] for e in source_lines], stats)}
         forbidden = set(build.ctx.request.forbid_ledger_entries)
@@ -2412,10 +2433,26 @@ class Assumptions:
         hand_notes = hand_notes + models.offering_placement_notes(found)  # (MECHB35: R26-38, labelled by placement)
         hand_notes = hand_notes + models.last_tremor_notes(texts)  # (MECHB39: Unnamed Heartwood, a labelled no-change)
         hand_notes = hand_notes + models.minion_projectile_notes(texts)  # (MECHB39: no extra hit on a lone boss)
+        alive_mods, alive_notes = models.minion_alive_model(found, main, stats)  # (MECHB40: minions the build kills
+        # itself are dead part of the fight; PoB counted them alive: an OVERCOUNT)
+        hand_mods, hand_notes = hand_mods + alive_mods, hand_notes + alive_notes
+        tawhoa_groups: set[int] = set()
+        if any(s.name == models.TAWHOA for s in found):  # (MECHB40: Tawhoa's Vengeance at its totems' deaths; PoB: 0)
+            totem_out: dict = {}
+            _, deaths_how = totem_deaths(build, found, main, stats, texts, totem_out)
+            tawhoa_mods, tawhoa_notes, tawhoa_groups = models.tawhoa_model(
+                found, totem_out.get("rows", {}), totem_out.get("each", {}), deaths_how)
+            hand_mods, hand_notes = hand_mods + tawhoa_mods, hand_notes + tawhoa_notes
         warcries = {s.name for s in found if "Warcry" in ((build.ctx.gems.get(s.name) or {}).get("skillTypes") or [])}
         if warcries:  # (MECH-B: Echoing Cry's Echoes; COV-E's support_part_scale "warcry_echo")
             echo_mods, echo_notes = models.warcry_echo_model(found, supports, warcries, models.support_part_scale)
             hand_mods, hand_notes = hand_mods + echo_mods, hand_notes + echo_notes
+            echoed = [s for s in found if s.name in warcries and models.number(s.support_stats.get(models.ECHO_POWER_STAT)) < 0
+                      and s.group is not None]
+            if echoed:  # (MECHB40: Echoing Cry's less Power for the Warcry it supports; PoB counts the boss's full Power)
+                rows = build.call("useRates", indices=[s.group for s in echoed])["rates"]
+                power_mods, power_notes = models.echoing_power_model(echoed, {r["name"]: r for r in rows})
+                hand_mods, hand_notes = hand_mods + power_mods, hand_notes + power_notes
         persistent = {s.name for s in found if "Persistent" in ((build.ctx.gems.get(s.name) or {}).get("skillTypes") or [])}
         diff_mods, diff_notes = models.different_skills_counts(found, main, persistent)  # (MECH-B: different skills per 8 s)
         hand_mods, hand_notes = hand_mods + diff_mods, hand_notes + diff_notes
@@ -2852,7 +2889,7 @@ class Assumptions:
         notes += self.rate_presses()
         vessel_groups = models.spirit_vessel_groups(skills)  # (its companion's damage is in Full DPS only)
         return mods, notes, {**{g: None for g in energy_groups | mirage_groups | vessel_groups | toad_groups | doom_groups
-                                                    | annihilation_groups},
+                                                    | annihilation_groups | tawhoa_groups},
                              **expression_groups, **storm_groups}
 
     def rate_presses(self) -> list[dict]:
@@ -3587,9 +3624,9 @@ class Assumptions:
     def wanted(self) -> tuple[list[dict], list[dict]]:
         skills = self.build.call("activeSkills", levelStats=[
             models.IRON_WARD, models.FEROCIOUS_ROAR, models.SUMMON_WOLF, models.RAPID_SHOT, models.APOCALYPSE,
-            KALGUUR, *models.gem_stat_skills()],
+            KALGUUR, models.TAWHOA, *models.gem_stat_skills()],
             supportStats=[*models.gem_stat_support_stats(), models.TOTEM_ONE_STAT,
-                          models.CASCADES_PER_SIDE])["skills"]  # (MECH-B: A23-3; MECHB36 Spell Cascade)
+                          models.CASCADES_PER_SIDE, models.ECHO_POWER_STAT])["skills"]  # (MECH-B: A23-3; MECHB36 Spell Cascade)
         mods, notes, self.extra_groups = self.models(skills)
         explosion = next((s for s in skills if s["name"] == "Transmutation Explosion"), None)
         if explosion is not None:

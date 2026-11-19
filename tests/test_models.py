@@ -6313,6 +6313,97 @@ def test_totem_deaths_counts_expiry_and_replacement_from_the_builds_totems():
     assert rate == 0.0 and "no totem duration" in how
 
 
+def test_tawhoa_vengeance_explodes_at_its_own_totems_deaths_for_a_share_of_their_life():
+    """MECHB40 (an UNDERCOUNT: PoB scores it 0, probe POE2T3395): each death of a totem from the supported group's skill
+    (totem_deaths' `each`) sets off one blast of 20% of that totem's Life (useRates totemLife on the summoning skill) as
+    base Physical: SkillData Physical Min / Max and its trigger rate, its group counted in Full DPS; other groups'
+    totems don't set it off; no deaths or no Life: 0 with a note; no Tawhoa's Vengeance: nothing."""
+    shock = models.Skill("Shockwave Totem", group=1, totem_limit=2, totem_limit_own=2)
+    slam = models.Skill("Shockwave Slam", group=1)
+    vengeance = models.Skill(models.TAWHOA, group=1, triggered=True,
+                             level_stats={models.TAWHOA_SHARE_STAT: 20})
+    ward = models.Skill("Ancestral Warrior Totem", group=2, totem_limit=2, totem_limit_own=2)
+    rates = {"Shockwave Totem": {"name": "Shockwave Totem", "totemDuration": 16.0, "speed": 1.6},
+             "Ancestral Warrior Totem": {"name": "Ancestral Warrior Totem", "totemDuration": 8.0, "speed": 1.0}}
+    each = {}
+    models.totem_deaths([shock, slam, ward, vengeance], slam, rates, each=each)
+    assert each == pytest.approx({"Shockwave Totem": 1 / 16, "Ancestral Warrior Totem": 1 / 8})
+    rows = {"Shockwave Totem": {"totemLife": 3113}, "Ancestral Warrior Totem": {"totemLife": 9000}}
+    mods, notes, groups = models.tawhoa_model([shock, slam, ward, vengeance], rows, each)
+    by_key = {m["key"]: m["value"] for m in mods}
+    assert by_key["PhysicalMin"] == by_key["PhysicalMax"] == pytest.approx(622.6, abs=0.1)
+    assert by_key["triggerRate"] == pytest.approx(1 / 16, abs=1e-3) and by_key["triggered"] is True
+    assert groups == {1} and notes[0]["confidence"] == "MEDIUM" and "R31-2" in notes[0]["basis"]
+    assert "Without it" in notes[0]["play"]
+    mods, notes, groups = models.tawhoa_model([shock, slam, vengeance], rows, {"Shockwave Totem": 0.0})
+    assert mods == [] and groups == set() and notes[0]["value"] == 0
+    assert models.tawhoa_model([shock, slam], rows, each) == ([], [], set())
+
+
+def test_minions_the_build_kills_itself_deal_damage_only_while_alive():
+    """MECHB40 (PLANS term-persistent-minions item 4, an OVERCOUNT): with Sacrifice's corpse uses killing k of N Reviving
+    minions a second and each dead T s, their damage x N / (N + T k), as a negative more-Damage line per Reviving minion
+    skill; the 12 s base row in the note; nothing kills them, or no Reviving minions: no line."""
+    skeletons = models.Skill("Summon Skeletal Warriors", group=3,
+                             summon={"limit": 6, "persistent": True, "undead": True, "reviveBase": 12, "reviveSpeed": 0.6})
+    sacrifice = models.Skill("Sacrifice", group=4)
+    detonate = models.Skill("Detonate Dead", group=1, spell=True, corpses=True)
+    stats = {"Speed": 1.0}
+    mods, notes = models.minion_alive_model([skeletons, sacrifice, detonate], detonate, stats)
+    revive = 7.5 / 0.6
+    alive = 6 / (6 + revive * 1.0)
+    assert len(mods) == 1 and mods[0]["line"] == "Minions deal 1% more Damage"
+    assert mods[0]["scale"] == pytest.approx(-100 * (1 - alive), abs=0.01) and mods[0]["skill"] == skeletons.name
+    assert notes[0]["value"] == f"{alive:.0%} of the fight" and "OVERCOUNT" in notes[0]["basis"]
+    assert f"{6 / (6 + 12 / 0.6):.0%} alive" in notes[0]["basis"]  # (the skills' own 12 s base row)
+    assert models.minion_alive_model([skeletons, detonate], detonate, stats) == ([], [])  # (no Sacrifice: none die)
+    assert models.minion_alive_model([sacrifice, detonate], detonate, stats) == ([], [])  # (no Reviving minions)
+    # (forced revives: 2 Skeletal Clerics bring back 0.4 fallen Skeletons a second; Replenishing Horde's 25% of the
+    # Command uses; a Mana Flask line at the flask's uses; each takes one dead minion off the floor)
+    clerics = models.Skill("Summon Skeletal Clerics", group=5, summon={"limit": 2, "persistent": True, "undead": True})
+    rate = models.minion_deaths([skeletons, clerics, sacrifice, detonate], detonate, stats)[0]
+    forced, parts = models.forced_revives([skeletons, clerics])
+    assert forced == pytest.approx(2 / 5) and "Skeletal Clerics" in parts[0]
+    mods, notes = models.minion_alive_model([skeletons, clerics, sacrifice, detonate], detonate, stats)
+    t = models.revive_seconds([skeletons, clerics])[0]
+    assert mods[0]["scale"] == pytest.approx(-100 * (rate - 0.4) * t / 8, abs=0.01) and "forced revives" in notes[0]["basis"]
+    horde = ["25% Chance to revive a random Permanent Minion whenever you use a Command Skill"]
+    reavers = models.Skill("Summon Skeletal Reavers", group=6, summon={"limit": 3, "persistent": True})
+    assert models.forced_revives([reavers], horde)[0] == pytest.approx(0.25 / 4.0)  # (Enrage every 4 s)
+    flask = ["Using a Mana Flask revives one of your Persistent Minions"]
+    assert models.forced_revives([reavers], flask, 0.2)[0] == pytest.approx(0.2)
+    assert models.forced_revives([reavers], [], 0.2)[0] == 0.0  # (no line: the flask revives nothing)
+    # (Assumptions passes them in the stats: minion_deaths' revival cap lets more be killed, at most the kills)
+    keyed = {**stats, models.FORCED_REVIVES_STAT: (0.4, ["two Clerics"])}
+    built = [skeletons, clerics, sacrifice, detonate]
+    deaths = models.minion_deaths(built, detonate, keyed)[0]
+    assert deaths == pytest.approx(min(1.0, 1.0 * (8 + 0.4 * t) / (8 + t * 1.0))) and deaths > rate
+    mods = models.minion_alive_model(built, detonate, keyed)[0]
+    assert mods[0]["scale"] == pytest.approx(-100 * (deaths - 0.4) * t / 8, abs=0.01)
+
+
+def test_echoing_cry_halves_the_power_its_warcry_empowers_with():
+    """MECHB40 (plans/kw-monster-power.md, an OVERCOUNT): PoB never applies Echoing Cry's 50% less Power, so its Warcry
+    Empowered floor(min(20, cap) / per) attacks; now floor(min(10, cap) / per), the difference as <Warcry>EmpoweredAttacks
+    BASE; no change where the floors match; no Echoing Cry: nothing."""
+    infernal = models.Skill("Infernal Cry", group=2, support_stats={models.ECHO_POWER_STAT: -50})
+    howl = models.Skill("Arctic Howl", group=3, support_stats={models.ECHO_POWER_STAT: -50})
+    plain = models.Skill("Seismic Cry", group=4)
+    rows = {"Infernal Cry": {"warcryPower": 20, "warcryPowerPer": 10, "warcryPowerCap": 50},
+            "Arctic Howl": {"warcryPower": 20, "warcryPowerPer": 5, "warcryPowerCap": 50},
+            "Seismic Cry": {"warcryPower": 20, "warcryPowerPer": 10, "warcryPowerCap": 50}}
+    mods, notes = models.echoing_power_model([infernal, howl, plain], rows)
+    assert {m["name"]: m["value"] for m in mods} == {"InfernalEmpoweredAttacks": -1, "ArcticHowlEmpoweredAttacks": -2}
+    assert all(m["type"] == "BASE" for m in mods) and notes[0]["value"] == "1 Empowered, not 2"
+    odd = {"Infernal Cry": {"warcryPower": 25, "warcryPowerPer": 10, "warcryPowerCap": 50}}  # (12.5 and 25: 1 vs 2)
+    assert models.echoing_power_model([infernal], odd)[0][0]["value"] == -1
+    same = {"Infernal Cry": {"warcryPower": 15, "warcryPowerPer": 10, "warcryPowerCap": 50}}  # (7.5 and 15: 0 vs 1)
+    assert models.echoing_power_model([infernal], same)[0][0]["value"] == -1
+    assert models.echoing_power_model([infernal], {"Infernal Cry": {"warcryPower": 5, "warcryPowerPer": 10,
+                                                                   "warcryPowerCap": 50}}) == ([], [])
+    assert models.echoing_power_model([plain], rows) == ([], [])
+
+
 def test_unnamed_heartwood_is_a_labelled_no_change():
     """MECHB39: "Totems die 6 seconds after their Life is reduced to 0" acts only on totems the boss kills (not counted):
     a LOW note, no mod."""

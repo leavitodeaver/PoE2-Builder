@@ -371,6 +371,50 @@ def test_a_spell_totem_as_the_main_active_still_needs_charges(engine):
     assert any(n["label"] == "Spell Totems up on average (Fireball)" and n["value"] == 0 for n in search.assumptions.active)
 
 
+def test_tawhoa_vengeance_deals_its_share_of_totem_life_at_the_totems_deaths(engine):
+    """MECHB40 (an UNDERCOUNT: PoB scored it 0, probe POE2T3395): Shockwave Totem with Tawhoa's Tending: each totem death
+    (totem_deaths, its own duration) sets off a blast of 20% of the totem's Life (useRates totemLife on the summoning
+    skill, with the support's 25% more) as base Physical, which PoB scores in Full DPS."""
+    payload = make_payload(BuildRequest(main_skill="Shockwave Totem", level=90))
+    skeleton = enumerate_skeletons(Context(payload), ["Shockwave Totem"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    group = build.main_group()
+    gems = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} for g in group["gems"]]
+    before = build.call("stats", fields=["FullDPS"])["FullDPS"]
+    build.set_group(index=group["index"], gems=gems + [{"name": "Tawhoa's Tending", "level": 1, "quality": 0}])
+    search.settle()
+    group = build.main_group()
+    rows = build.call("useRates", indices=[group["index"]], actives=[1])["rates"]
+    assert rows[0]["name"] == "Shockwave Totem" and rows[0]["totemLife"] > 0
+    note = next(n for n in search.assumptions.active if n["label"].startswith(models.TAWHOA))
+    assert f"{0.2 * rows[0]['totemLife']:,.0f} base Physical" in note["value"]
+    full = build.call("stats", fields=["FullDPS", "SkillDPS"])
+    assert any(d["name"] == models.TAWHOA and d["dps"] > 0 for d in full["SkillDPS"])
+    assert full["FullDPS"] > before
+
+
+def test_echoing_cry_empowers_at_its_warcrys_halved_power(engine):
+    """MECHB40 (an OVERCOUNT): PoB gives Infernal Cry floor(20 / 10) = 2 Empowered attacks with or without Echoing Cry's
+    50% less Power; the model takes it to floor(10 / 10) = 1 (InfernalEmpoweredAttacks BASE -1)."""
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", level=90))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    group = build.set_group(gems=[{"name": "Infernal Cry", "level": 20, "quality": 0}])
+    search.settle()
+    row = build.call("useRates", indices=[group["index"]])["rates"][0]
+    assert row["name"] == "Infernal Cry" and row["warcryEmpowers"] == 2 and row["warcryPowerPer"] == 10
+    build.set_group(index=group["index"], gems=[{"name": "Infernal Cry", "level": 20, "quality": 0},
+                                                {"name": "Echoing Cry", "level": 1, "quality": 0}])
+    search.settle()
+    row = build.call("useRates", indices=[group["index"]])["rates"][0]
+    assert row["warcryEmpowers"] == 1
+    assert any(n["label"] == "Infernal Cry: Echoing Cry's 50% less Power" for n in search.assumptions.active)
+
+
 def test_electrocuting_arrows_rod_stats_scale_with_a_raw_effect_mod(engine):
     """MECH40: PoB counts Electrocuting Arrow's Rod quality stats always on (a Buff: extra Lightning on debuffed targets);
     models.rod_model scales them with a Raw BuffEffect / DebuffEffect MORE on the skill, which must reach PoB."""

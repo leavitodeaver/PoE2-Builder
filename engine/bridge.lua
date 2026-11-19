@@ -3936,6 +3936,9 @@ function bridge.useRates(args)
 				duration = output.Duration and jsonNumber(output.Duration) or nil,
 				-- (MECHB39: models.totem_deaths) a totem skill's own totem duration with the build's modifiers
 				totemDuration = type(output.TotemDuration) == "number" and jsonNumber(output.TotemDuration) or nil,
+				-- (MECHB40: models.tawhoa_model) a totem skill's totem's Life with the build's modifiers (PoB's TotemLife,
+				-- CalcOffence 1944-1945: the ally life table x the totem's multiplier x TotemLife inc / more)
+				totemLife = type(output.TotemLife) == "number" and jsonNumber(output.TotemLife) or nil,
 				-- (MECHB39: models.duration_press_rate) a Projectile skill's Duration is its projectiles' life, not a
 				-- thing kept up: pressing again adds projectiles
 				projectile = (skill.skillTypes and skill.skillTypes[SkillType.Projectile]) and true or nil,
@@ -3964,6 +3967,13 @@ function bridge.useRates(args)
 				local warcryName = entry.name:gsub(" Cry", ""):gsub("'s", ""):gsub(" ", "")
 				local count = env.player.modDB:Sum("BASE", nil, "Num" .. warcryName .. "Empowers")
 				entry.warcryEmpowers = count > 0 and jsonNumber(count) or nil
+				-- (MECHB40: models.echoing_power_model) the Power PoB counts (CalcPerform 2201's formula, global) and this
+				-- Warcry's Empowers per Power and cap (its WarcryPowerPer / WarcryPowerCap stats)
+				local modDB = env.player.modDB
+				entry.warcryPower = jsonNumber(modDB:Override(nil, "WarcryPower") or math.max((modDB:Sum("BASE", nil, "WarcryPower") or 0)
+					* (1 + (modDB:Sum("INC", nil, "WarcryPower") or 0) / 100), (modDB:Sum("BASE", nil, "MinimumWarcryPower") or 0)))
+				entry.warcryPowerPer = jsonNumber(skill.skillModList:Sum("BASE", nil, "WarcryPowerPer") or 0)
+				entry.warcryPowerCap = jsonNumber(skill.skillModList:Sum("BASE", nil, "WarcryPowerCap") or 0)
 			end
 			-- (MECHB12, AUDIT25 A25-2: Minion Pact) the group's minion's maximum Life, which PoB calculates only for the
 			-- main skill's minion (env.minion)
