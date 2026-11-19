@@ -1888,7 +1888,7 @@ class Assumptions:
         # (MECHB40: the build's forced revives, for minion_deaths' revival cap and minion_alive_model)
         forced = models.forced_revives(found, line_texts, mana_flask_uses(build) if any(
             models.MANA_FLASK_REVIVE.match(t.strip()) for t in line_texts) else 0.0,
-            self.eternal_march(found, stats))  # (MECHB41: Eternal March's Runic Ward revives)
+            self.eternal_march(found, stats, main))  # (MECHB41: Eternal March's Runic Ward revives)
         stats = {**stats, "_minion_lives": build.minion_lives, "_curse_durations": build.curse_durations,
                  "_curse_delays": build.curse_delays, models.MINION_DEATHLESS_STAT: build.minion_deathless,
                  models.FORCED_REVIVES_STAT: forced}
@@ -2122,8 +2122,10 @@ class Assumptions:
             # (MECHB29: Ancestral Cry's Kaom embodiment, at the uses its Glory pays for x its duration)
             uses, how = self.glory_caps().get(models.ANCESTRAL_CRY, (0.0, "its Glory wasn't read"))
             row = (build.call("useRates", indices=[cry.group])["rates"] or [{}])[0]
+            charges = models.number(build.call("stats", fields=["RemovableEnduranceCharges"]).get(
+                "RemovableEnduranceCharges"))  # (MECHB42, GEM23: +50% duration per Endurance Charge consumed)
             up, kaom_busy, kaom_how = models.kaom_uptime(uses, models.number(row.get("duration")),
-                                                         models.number(row.get("castTime")) or cry.cast_time, how)
+                                                         models.number(row.get("castTime")) or cry.cast_time, how, charges)
             embodiment = (up, kaom_how)
             if kaom_busy > 0:  # (its casts take the main skill's time: nothing else charges a Warcry's)
                 hand_mods = hand_mods + [models.line("1% more Attack and Cast Speed", -100 * kaom_busy, skill=main.name)]
@@ -2652,6 +2654,26 @@ class Assumptions:
             tawhoa_mods, tawhoa_notes, tawhoa_groups = models.tawhoa_model(
                 found, totem_out.get("rows", {}), totem_out.get("each", {}), deaths_how)
             hand_mods, hand_notes = hand_mods + tawhoa_mods, hand_notes + tawhoa_notes
+        verisium_groups: set[int] = set()
+        rune = next((s for s in found if s.name == models.MANIFEST_RUNE and s.group is not None), None)
+        if rune is not None:  # (MECHB42, R33-10: Verisium Manifestations' minions, alive by the Ward-paid summon rate)
+            index = next((i for g in build.groups() if g["index"] == rune.group
+                          for i, x in enumerate(g.get("skills") or [], 1) if x["name"] == models.MANIFEST_RUNE), 0)
+            row = (build.call("useRates", indices=[rune.group], actives=[index])["rates"] or [{}])[0] if index else {}
+            hits = models.hits_per_second(stats) if main is not None and main.attack else 0.0
+            planned, paid_rate, _ = (getattr(build, "ward_sustain", None) or {}).get(models.MANIFEST_RUNE, (0.0, 0.0, 0.0))
+            paid, paid_how = (paid_rate, "the last round's Ward share") if planned > 0 else (None, "")
+            if paid is None:  # (the first round: PoB's Runic Ward regeneration over the planned spend)
+                cost = models.number(row.get("wardCost"))
+                plan = min(hits, 1 / (models.number(row.get("cooldown")) or models.VERISIUM_COOLDOWN))
+                regen = models.number(build.call("stats", fields=["WardRegenRecovery"]).get("WardRegenRecovery"))
+                if cost > 0 and plan > 0:
+                    paid, paid_how = min(plan, regen / cost), f"Runic Ward regeneration {regen:.1f}/s over {cost:g} a summon"
+            rune_mods, rune_notes, verisium_groups = models.verisium_model(
+                rune, hits, models.number(row.get("cooldown")), models.number(row.get("duration")), paid, paid_how)
+            hand_mods, hand_notes = hand_mods + rune_mods, hand_notes + rune_notes
+            for note in rune_notes:
+                build.objective.entry_scales.update(note.get("full_dps") or {})
         chayula_groups: set[int] = set()
         tornado = next((s for s in found if s.name == models.CHAYULAS_WILL and s.group is not None), None)
         if tornado is not None:  # (MECHB42: Archon of Chayula's tornadoes; PoB gives the triggered attack no rate: 0)
@@ -2669,26 +2691,29 @@ class Assumptions:
             echoed = [s for s in found if s.name in warcries and models.number(s.support_stats.get(models.ECHO_POWER_STAT)) < 0
                       and s.group is not None]
             howl = next((s for s in found if s.name == models.ARCTIC_HOWL and s.group is not None), None)
+            howl_row = (build.call("useRates", indices=[howl.group])["rates"] or [{}])[0] if howl is not None else {}
             if howl is not None and main is not None and main.attack and main is not howl:
                 # (MECHB41: Arctic Howl's Empowered attacks' added Cold, PoB 0: no Warcry buff for the Howl)
                 howl_uses, howl_how = self.empowered_uses(stats, None, only=models.ARCTIC_HOWL)
                 howl_mods, howl_notes = models.arctic_howl_cold(howl, main, models.number(stats.get("Speed")),
-                                                                howl_uses, howl_how)
+                                                                howl_uses, howl_how,
+                                                                models.number(howl_row.get("warcryPower")))
                 hand_mods, hand_notes = hand_mods + howl_mods, hand_notes + howl_notes
             howl_minions = sorted({s.name for s in found if s.summon})
             if howl is not None and howl_minions:
                 # (MECHB42: Arctic Howl's buff of added Cold to Allies' Attacks, the build's minions; PoB 0)
-                howl_row = (build.call("useRates", indices=[howl.group])["rates"] or [{}])[0]
                 frozen, frozen_how = models.immobilised_share({**stats, **models.dazed_stats(build), **(
                     {"_primed_freeze": build.primed_freeze} if getattr(build, "primed_freeze", None) else {})},
                     "Freeze")[:2]
                 buff_mods, buff_notes = models.arctic_howl_buff(
                     howl, models.number(howl_row.get("speed")), models.number(howl_row.get("duration")), frozen,
-                    frozen_how or "nothing in the build makes the boss Frozen", howl_minions)
+                    frozen_how or "nothing in the build makes the boss Frozen", howl_minions,
+                    models.number(howl_row.get("warcryPower")))
                 hand_mods, hand_notes = hand_mods + buff_mods, hand_notes + buff_notes
             if echoed:  # (MECHB40: Echoing Cry's less Power for the Warcry it supports; PoB counts the boss's full Power)
                 rows = build.call("useRates", indices=[s.group for s in echoed])["rates"]
-                power_mods, power_notes = models.echoing_power_model(echoed, {r["name"]: r for r in rows})
+                power_mods, power_notes = models.echoing_power_model(echoed, {r["name"]: r for r in rows},
+                                                                     models.number(stats.get("Speed")))  # (R33-13)
                 hand_mods, hand_notes = hand_mods + power_mods, hand_notes + power_notes
         persistent = {s.name for s in found if "Persistent" in ((build.ctx.gems.get(s.name) or {}).get("skillTypes") or [])}
         diff_mods, diff_notes = models.different_skills_counts(found, main, persistent)  # (MECH-B: different skills per 8 s)
@@ -3154,7 +3179,8 @@ class Assumptions:
         notes += self.rate_presses()
         vessel_groups = models.spirit_vessel_groups(skills)  # (its companion's damage is in Full DPS only)
         return mods, notes, {**{g: None for g in energy_groups | mirage_groups | vessel_groups | toad_groups | doom_groups
-                                                    | annihilation_groups | tawhoa_groups | chayula_groups},
+                                                    | annihilation_groups | tawhoa_groups | chayula_groups
+                                                    | verisium_groups},
                              **expression_groups, **storm_groups}
 
     def rate_presses(self) -> list[dict]:
@@ -3416,8 +3442,11 @@ class Assumptions:
             elif name in models.UNBUFFED_WARCRIES and number(rate.get("warcryPowerPer")) > 0:
                 # (MECHB41: a Warcry PoB makes no buff for, Arctic Howl: its Empowers per Power, read off its row, with
                 # Echoing Cry's less Power; before, one a use, LOW)
-                n, n_how = models.unbuffed_warcry_empowers(rate, number(
-                    (skill.get("supportStats") or {}).get(models.ECHO_POWER_STAT)))
+                echo_less = number((skill.get("supportStats") or {}).get(models.ECHO_POWER_STAT))
+                n, n_how = models.unbuffed_warcry_empowers(rate, echo_less)
+                if echo_less < 0:  # (MECHB42, R33-13: Echoing Cry's Echoes Empower too, the reset reading)
+                    n, echo_how = models.echo_empowers(n, uses)
+                    n_how += f"; {echo_how}"
                 what, fits, share, why = warcry_empowers(name, mains, {**stats, **models.dazed_stats(build), **(
                     {"_primed_freeze": build.primed_freeze} if getattr(build, "primed_freeze", None) else {})})
                 if not fits:
@@ -4104,7 +4133,8 @@ class Assumptions:
         objective.press_scales.update(scales)
         return notes
 
-    def eternal_march(self, found: list[models.Skill], stats: dict) -> tuple[float, str] | None:
+    def eternal_march(self, found: list[models.Skill], stats: dict,
+                      main: models.Skill | None = None) -> tuple[float, str] | None:
         """(MECHB41) Eternal March's (minions revived a second, how) for forced_revives, or None without it: its use rate
         (press_use_rate: on its cooldown), the share of its Ward the build's Runic Ward pays for (the last round's
         ward_paid share; the first round, PoB's WardRegenRecovery over its planned spend), the Reviving minions' average
@@ -4138,7 +4168,12 @@ class Assumptions:
         counts = [models.number(s.summon.get("limit")) or 1.0 for s in reviving]
         known = [(life, n) for life, n in zip(lives, counts) if life > 0]
         life = sum(l * n for l, n in known) / sum(n for _, n in known) if known else 0.0
-        rate, how = models.eternal_march_revives(skill, uses, share, life)
+        # (MECHB42, R33-15: the highest-Life fallen first, at most the dead waiting a use: the deaths a second before any
+        # forced revive, minion_deaths without the forced-revive stat, spread over the kinds by count, MEDIUM)
+        deaths = models.minion_deaths(found, main, {k: v for k, v in stats.items() if k != models.FORCED_REVIVES_STAT})[0]
+        total = sum(counts)
+        pool = [(s.name, l, deaths * n / total / uses) for s, l, n in zip(reviving, lives, counts)] if uses > 0 and total else []
+        rate, how = models.eternal_march_revives(skill, uses, share, life, pool)
         return rate, f"{how} ({uses_how})"
 
     def ward_paid(self, skills: list[dict], mods: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:

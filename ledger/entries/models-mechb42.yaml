@@ -63,3 +63,37 @@
             after Tawhoa's; chayula_groups into Full DPS)]
   test_in_game: "RESEARCH: does a tornado spawn as the Archon starts (4 an Archon, not 3)? does it stay on the boss its whole 8 s?"
   status: proposed
+
+- id: model-mechb42-verisium-manifestations
+  title: "Verisium Manifestations: the minion added to PoB, alive by the Ward-paid summon rate (models.verisium_model)"
+  kind: model
+  model: verisium_model
+  stats: ["base_number_of_verisium_runes_allowed", "triggered_by_primary_skill"]
+  skill: ["Verisium Manifestations", "Manifest Rune"]
+  confidence: theory
+  notes: >-
+    An UNDERCOUNT: PoB has no minion for Manifest Rune's Verisium Manifestation, so 0. RESEARCH33 R33-10: MonsterVarieties
+    2792 (DamageMultiplier 70, AttackSpeed 1000 ms), MonsterTypes 457 (DamageSpread 20), its attack MPAKalguuranManifestation
+    (BaseMultiplier 5000: x1.5, Physical); limit 10, 8 s each, a 0.5 s cooldown, 30 Ward a summon at level 20. engine/
+    bridge.lua adds the minion and its attack, so PoB scores one with the build's minion modifiers; the model plans
+    min(the main Attack's hits a second, 1 / cooldown) summons a second as Manifest Rune's trigger rate (ward_paid holds
+    it to the Runic Ward recovery) and scales PoB's one-minion entry by min(10, paid rate x Duration). Minion level by
+    PoB's table (MEDIUM); attack time 1.0 s (MEDIUM-LOW, animation-driven; 0.5 s possible).
+  sources: [engine/bridge.lua (the Verisium Manifestation block), builder/search/models.py (VERISIUM_*, verisium_model),
+            builder/search/assumptions.py (the Manifest Rune hook; verisium_groups into Full DPS)]
+  test_in_game: "RESEARCH (open part of R33-10): the Manifestation's real attack time (its animation)"
+  status: proposed
+
+- id: model-mechb42-ancestral-cry-charges
+  title: "Ancestral Cry: +50% duration per Endurance Charge consumed (models.kaom_uptime)"
+  kind: model
+  model: kaom_uptime
+  stats: ["ancestral_cry_duration_+%_final_per_removable_endurance_charge"]
+  skill: ["Ancestral Cry"]
+  confidence: theory
+  notes: >-
+    An UNDERCOUNT (GEM23's routed item): "Consumes all Endurance Charges to increase Warcry duration by 50% per charge".
+    The Kaom embodiment's uptime now x (1 + 0.5 x PoB's RemovableEnduranceCharges), the charges the build holds by
+    MECH-C's charge model (MEDIUM; consuming them each use isn't fed back into what the build holds).
+  sources: [builder/search/models.py (ANCESTRAL_CRY_PER_CHARGE, kaom_uptime), builder/search/assumptions.py (the Kaom hook)]
+  status: proposed

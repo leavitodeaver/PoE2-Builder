@@ -4597,6 +4597,9 @@ def test_ancestral_cry_boosts_every_slam_while_embodying_kaom_at_its_glory_uptim
     up, busy, how = models.kaom_uptime(0.05, 8.0, 0.8, "glory")
     assert up == pytest.approx(0.4) and busy == pytest.approx(0.04) and "40%" in how
     assert models.kaom_uptime(0.5, 8.0, 0.8, "glory")[0] == 1.0
+    # (MECHB42, GEM23: "Consumes all Endurance Charges to increase Warcry duration by 50% per charge": 3 charges, x2.5)
+    up3, _, how3 = models.kaom_uptime(0.02, 8.0, 0.8, "glory", charges=3)
+    assert up3 == pytest.approx(0.02 * 8.0 * 2.5) and "3 Endurance Charges" in how3
     slam = Skill("Volcanic Fissure", group=1, attack=True, melee=True)
     stats = {"Speed": 1.12}
     mods, notes = models.ancestral_boost_model([], stats, [slam], slam, {"Slam", "Attack", "Melee"}, (0.0, ""),
@@ -6394,7 +6397,11 @@ def test_echoing_cry_halves_the_power_its_warcry_empowers_with():
             "Seismic Cry": {"warcryPower": 20, "warcryPowerPer": 10, "warcryPowerCap": 50}}
     mods, notes = models.echoing_power_model([infernal, howl, plain], rows)
     assert {m["name"]: m["value"] for m in mods} == {"InfernalEmpoweredAttacks": -1}  # (MECHB41: the Howl's is its own)
-    assert all(m["type"] == "BASE" for m in mods) and notes[0]["value"] == "1 Empowered, not 2"
+    assert all(m["type"] == "BASE" for m in mods) and notes[0]["value"] == "1 Empowered a use, not 2"
+    # (MECHB42, R33-13: the Echoes Empower too, each resetting to its own 1: 1 + 2 x min(1, 2 attacks/s x 1.3 s) = 3)
+    echoed, echo_notes = models.echoing_power_model([infernal], rows, attacks=2.0)
+    assert echoed[0]["value"] == pytest.approx(3 - 2) and "R33-13" in echo_notes[0]["basis"]
+    assert models.echo_empowers(4, 0.5)[0] == pytest.approx(4 + 2 * 0.65)  # (fewer attacks in a gap than the count)
     odd = {"Infernal Cry": {"warcryPower": 25, "warcryPowerPer": 10, "warcryPowerCap": 50}}  # (12.5 and 25: 1 vs 2)
     assert models.echoing_power_model([infernal], odd)[0][0]["value"] == -1
     same = {"Infernal Cry": {"warcryPower": 15, "warcryPowerPer": 10, "warcryPowerCap": 50}}  # (7.5 and 15: 0 vs 1)
@@ -6446,6 +6453,8 @@ def test_arctic_howls_buff_adds_cold_to_minions_attacks_at_its_uptime_while_the_
     assert models.arctic_howl_buff(howl, 0.05, 8.0, 1.0, "", ["Summon Wolf"])[0][0]["scale"] == 0.4  # (40% covered)
     assert models.arctic_howl_buff(howl, 0.125, 8.0, 0.0, "nothing Freezes", ["Summon Wolf"])[0] == []  # (a note only)
     assert models.arctic_howl_buff(howl, 0.125, 8.0, 1.0, "", []) == ([], [])  # (no minions: no Allies to buff)
+    row = models.arctic_howl_buff(howl, 0.125, 8.0, 0.5, "", ["Summon Wolf"], power=20)[1][0]["basis"]
+    assert "R33-11" in row and "x4 at 20 Power = 148 to 224" in row  # (the per-5-Power row beside the flat headline)
 
 
 def test_living_lightning_counts_three_zaps_per_minion_made_per_lightning_hit_and_drops_pobs_entry():
@@ -6462,6 +6471,18 @@ def test_living_lightning_counts_three_zaps_per_minion_made_per_lightning_hit_an
     assert four == pytest.approx(2.0 * 4 * 10.0)  # (the attacks read off its level stats)
     assert models.living_lightning_model([{**part, "hits": 9.0, "cooldown": 0.0}])[0] == pytest.approx(5.0 * 3 * 10.0)
     assert models.living_lightning_model([]) == (0.0, [])
+
+
+def test_verisium_manifestations_alive_by_the_ward_paid_summon_rate():
+    """MECHB42 (R33-10, an UNDERCOUNT: PoB had no minion): one summon a 0.5 s cooldown on an Attack hit, held to what
+    Runic Ward pays for (ward_paid's paid rate), 8 s each, up to 10 alive; PoB's one-Manifestation entry x alive."""
+    rune = models.Skill("Manifest Rune", group=5)
+    mods, notes, groups = models.verisium_model(rune, 3.0, 0.5, 8.0, None)
+    assert mods == models.trigger_rate("Manifest Rune", 2.0) and groups == {5}
+    assert notes[0]["full_dps"] == {"Manifest Rune": 10.0}  # (2 a second x 8 s = 16, the limit 10)
+    assert models.verisium_model(rune, 3.0, 0.5, 8.0, 0.5)[1][0]["full_dps"] == {"Manifest Rune": 4.0}  # (Ward-bound)
+    assert models.verisium_model(rune, 0.0, 0.5, 8.0, None)[0::2] == ([], set())  # (no Attack hits: none)
+    assert models.verisium_model(rune, 1.0, 0.5, 8.0, 0.0)[1][0]["full_dps"] == {"Manifest Rune": 0.0}  # (no Ward)
 
 
 def test_chayulas_will_counts_three_tornadoes_an_archon_attacking_every_fifth_of_a_second():
@@ -6525,6 +6546,27 @@ def test_eternal_march_revives_minion_life_worth_twenty_times_its_runic_ward():
     total, parts = models.forced_revives([], [], 0.0, (2.5, "Eternal March 2.5/s"))
     assert total == 2.5 and parts == ["Eternal March 2.5/s"]
     assert models.forced_revives([], [], 0.0, None) == (0.0, [])
+
+
+def test_eternal_march_revives_the_highest_life_fallen_first_and_clerics_only_skeletons():
+    """MECHB42 (R33-15): Eternal March "Prioritises the most powerful minions first": its Life budget goes to the
+    highest-Life fallen first, at most the dead waiting (the average-Life count is the upper row); a Skeletal Cleric
+    revives only fallen Skeletons, so its rate above the Skeletons' share of deaths is lost (an OVERCOUNT before)."""
+    march = models.Skill(models.ETERNAL_MARCH, group=3, level_stats={models.EM_WARD: 1000, models.EM_LIFE: 2000})
+    pool = [("Zombie", 1000.0, 5.0), ("Brute", 6000.0, 2.0)]  # (budget 20,000 Life a use)
+    rate, how = models.eternal_march_revives(march, 0.25, 1.0, 2000.0, pool)
+    assert rate == pytest.approx(0.25 * (2 + 5)) and "Brute" in how  # (2 Brutes = 12,000, then 5 Zombies = 5,000 of 8,000)
+    small = [("Zombie", 1000.0, 50.0), ("Brute", 6000.0, 3.0)]
+    assert models.eternal_march_revives(march, 0.25, 1.0, 2000.0, small)[0] == pytest.approx(0.25 * (3 + 2))
+    assert models.eternal_march_revives(march, 0.25, 1.0, 2000.0, [("Zombie", 1000.0, 0.0)])[0] == 0.0  # (none fallen)
+    skeletons = models.Skill("Skeletal Warrior", summon={"limit": 2, "duration": 0, "persistent": True, "skeleton": True})
+    clerics = models.Skill("Skeletal Cleric", summon={"limit": 2, "duration": 0, "persistent": True, "skeleton": True})
+    zombies = models.Skill("Raise Zombie", summon={"limit": 6, "duration": 0, "persistent": True, "skeleton": False})
+    army = [skeletons, clerics, zombies]
+    assert models.cleric_revives(army) == pytest.approx(2 / 5.0)
+    excess, how = models.cleric_excess(army, army, 0.5)  # (Skeletons are 4 of 10: at most 0.2 of 0.5 deaths a second)
+    assert excess == pytest.approx(0.4 - 0.2) and "Skeletons" in how
+    assert models.cleric_excess(army, army, 5.0)[0] == 0.0
 
 
 def test_the_infernal_hound_ignites_the_boss_for_20_percent_of_its_life():

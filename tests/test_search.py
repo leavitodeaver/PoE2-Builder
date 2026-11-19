@@ -3033,7 +3033,8 @@ def test_arctic_howls_empowers_and_a_chance_not_to_count_in_empowered_uses(monke
     howl = {"speed": 0.125, "warcryPower": 20, "warcryPowerPer": 5, "warcryPowerCap": 50}
     rate, how = run("Arctic Howl", howl)
     assert rate == pytest.approx(0.125 * 4 * 0.25) and "PoB makes no Warcry buff" in how
-    assert run("Arctic Howl", howl, {models.ECHO_POWER_STAT: -50})[0] == pytest.approx(0.125 * 2 * 0.25)
+    # (Echoing Cry: 2 a use at half Power, plus its 2 Echoes each resetting to 2 (R33-13, MECHB42): 2 + 2 x min(2, 2.6))
+    assert run("Arctic Howl", howl, {models.ECHO_POWER_STAT: -50})[0] == pytest.approx(0.125 * 6 * 0.25)
     assert run("Arctic Howl", howl, keep=20.0)[0] == pytest.approx(0.125 * 4 * 0.25 / 0.8)
     assert run("Arctic Howl", howl, only="Infernal Cry")[0] == 0.0
     cry = {"speed": 0.125, "warcryEmpowers": 2.5, "warcryPower": 20, "warcryPowerPer": 10, "warcryPowerCap": 50}

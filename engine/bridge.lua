@@ -440,6 +440,72 @@ do
 	end
 end
 
+-- Verisium Manifestations' minion (MECHB42; RESEARCH33 R33-10, research/verisium-manifestation-numbers.md): the gem's
+-- Manifest Rune (TriggeredManifestRunePlayer) summons a "Verisium Manifestation", but PoB has no minion for it, so it
+-- scored 0. Added here from the game's rows (build 26650308): MonsterVarieties 2792 (DamageMultiplier 70, AttackSpeed
+-- 1000 ms, LifeMultiplier 25), MonsterTypes 457 (DamageSpread 20, resistances 0), its one granted skill
+-- MPAKalguuranManifestation (a projectile attack, BaseMultiplier 5000: x1.5 by PoB's own conversion of monster skills;
+-- no conversion or added damage, so Physical). PoB's minion path then gives the hit with the build's minion modifiers
+-- (minion level = minionLevelTable[the skill's level], PoB's convention: MEDIUM). Its attack time is the monster's 1.0 s
+-- (MEDIUM-LOW: the attack uses its animation length). How many are alive (up to 10, 8 s each, one a 0.5 s cooldown on an
+-- attack hit while Runic Ward pays 30 at level 20) is MECH-B's model (models.verisium_model), not PoB's.
+do
+	if data.skills.TriggeredManifestRunePlayer and not data.skills.MPAKalguuranManifestation then
+		local skill = {
+			name = "Manifestation Attack",
+			hidden = true,
+			description = "A Verisium Manifestation's projectile attack.",
+			skillTypes = { [SkillType.Attack] = true, [SkillType.RangedAttack] = true, [SkillType.Projectile] = true,
+				[SkillType.ProjectilesFromUser] = true, [SkillType.AttackInPlace] = true, },
+			castTime = 1,
+			qualityStats = { },
+			altQualityStats = { },
+			levels = { [1] = { baseMultiplier = 1.5, levelRequirement = 0, }, },
+			statSets = {
+				[1] = {
+					label = "Manifestation Attack",
+					incrementalEffectiveness = 0.054999999701977,
+					statDescriptionScope = "skill_stat_descriptions",
+					baseFlags = { attack = true, projectile = true, },
+					constantStats = { },
+					stats = { "base_is_projectile", },
+					levels = { [1] = { actorLevel = 1, }, },
+				},
+			},
+		}
+		-- as Data.lua 916-955 sets up every skill it loads (no mods to source)
+		skill.id = "MPAKalguuranManifestation"
+		skill.modSource = "Skill:MPAKalguuranManifestation"
+		for _, statSet in pairs(tableConcat({ skill }, skill.statSets)) do
+			statSet.statMap = statSet.statMap or { }
+			setmetatable(statSet.statMap, data.skillStatMapMeta)
+			statSet.statMap._grantedEffect = skill
+		end
+		data.skills.MPAKalguuranManifestation = skill
+		data.minions.VerisiumManifestation = {
+			name = "Verisium Manifestation",
+			monsterTags = { "construct", "is_unarmed", "ranged", "physical_affinity", },
+			life = 0.25,
+			fireResist = 0, coldResist = 0, lightningResist = 0, chaosResist = 0,
+			companionFireResist = 0, companionColdResist = 0, companionLightningResist = 0, companionChaosResist = 0,
+			damage = 0.7,
+			damageSpread = 0.2,
+			attackTime = 1,
+			attackRange = 50,
+			accuracy = 1,
+			critChance = 5,
+			baseMovementSpeed = 37,
+			spectreReservation = 50,
+			companionReservation = 30,
+			monsterCategory = "Construct",
+			spawnLocation = { },
+			skillList = { "MPAKalguuranManifestation", },
+			modList = { },
+		}
+		data.skills.TriggeredManifestRunePlayer.minionList = { "VerisiumManifestation", }
+	end
+end
+
 local DEFAULT_FIELDS = {
 	"FullDPS", "CombinedDPS", "TotalDPS", "TotalDotDPS", "Life", "EnergyShield", "Mana",
 	"TotalEHP", "Armour", "Evasion", "FireResist", "ColdResist", "LightningResist", "ChaosResist",
@@ -4280,11 +4346,12 @@ function bridge.minionSkillHit(args)
 	if ok and env and pcall(calcs.perform, env, true) and env.minion then
 		result.reason = nil
 		local output = env.minion.output or { }
-		for _, field in ipairs({ "AverageHit", "AverageDamage", "Speed", "Cooldown", "TotalDPS" }) do
+		for _, field in ipairs({ "AverageHit", "AverageDamage", "Speed", "Cooldown", "TotalDPS", "HitChance" }) do
 			if type(output[field]) == "number" then
 				result[field] = jsonNumber(output[field])
 			end
 		end
+		result.level = type(env.minion.level) == "number" and env.minion.level or nil  -- (MECHB42: the minion's level)
 		-- (an attack's AverageHit is per hand: CalcOffence 4721-4728 combines only AverageDamage into the output)
 		local hand = output.MainHand or output.OffHand
 		if result.AverageHit == nil and hand and type(hand.AverageHit) == "number" then

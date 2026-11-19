@@ -901,7 +901,9 @@ def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict,
     # (MECHB40: forced revives bring fallen minions back at once, so more are alive to be killed: the alive share
     # 1 - (deaths - forced) T / N, deaths = kills x that share, at most kills)
     forced, forced_parts = stats.get(FORCED_REVIVES_STAT) or (0.0, [])
-    forced = max(0.0, number(forced))
+    excess, excess_how = cleric_excess(skills, reviving, kills)  # (MECHB42, R33-15: Clerics revive Skeletons only)
+    forced = max(0.0, number(forced) - excess)
+    forced_parts = list(forced_parts) + ([excess_how] if excess_how else [])
     rate = min(kills, kills * (count + forced * revive) / (count + revive * kills))
     if forced > 0:
         how += f"; forced revives {forced:.2f}/s ({'; '.join(forced_parts)}) bring fallen ones back sooner"
@@ -1680,7 +1682,9 @@ def echo_power(skill: Skill, power: float) -> tuple[float, str]:
     if less >= 0:
         return power, ""
     mine = power * max(0.0, 1 + less / 100)
-    return mine, f" (Echoing Cry's {-less:g}% less Power: {power:g} -> {mine:g})"
+    # (MECHB42: RESEARCH33 R33-12, MEDIUM-HIGH: "count enemies as having 50% less Power" changes the Power that "Gain N
+    # Rage per enemy Power in range" reads)
+    return mine, f" (Echoing Cry's {-less:g}% less Power: {power:g} -> {mine:g}; R33-12, MEDIUM-HIGH)"
 
 
 def roar_rage(skill: Skill, power: float = BOSS_POWER) -> float:
@@ -11712,19 +11716,28 @@ def guided_hand_model(inputs: Inputs, lines: list[dict], stats: dict, main: Skil
 # Warbringer with Ancestral Cry: no boost ratio, no damage change; its config has no Kaom option). The uptime: its uses
 # the build's Glory pays for (glory_plan through Assumptions.glory_caps: 20 Glory an Ignite on a boss, once per 0.5 s,
 # none while it's up) x its duration (PoB's, with the build's duration modifiers), at most 1; no Glory, 0 (no flat
-# rate). Each use takes its cast time from the main skill. Not counted (labelled): the Endurance Charges' longer duration
-# (an undercount), Volcanic Steps and Volcanic Eruption's damage (an undercount), the boosted Slam's 25% area.
+# rate). Each use takes its cast time from the main skill. The Endurance Charges' longer duration (MECHB42, GEM23's
+# routed item, an UNDERCOUNT before): x (1 + 50% x the Endurance Charges it consumes), those being PoB's
+# RemovableEnduranceCharges (the charges the build holds by MECH-C's charge model, as Falling Thunder reads its Power
+# Charges; MEDIUM: consuming them all each use lowers what the build holds, not modelled). Not counted (labelled):
+# Volcanic Steps and Volcanic Eruption's damage (an undercount), the boosted Slam's 25% area.
 ANCESTRAL_CRY = "Ancestral Cry"
+ANCESTRAL_CRY_PER_CHARGE = 50.0  # ancestral_cry_duration_+%_final_per_removable_endurance_charge
 
 
-def kaom_uptime(uses: float, duration: float, cast_time: float, how: str) -> tuple[float, float, str]:
+def kaom_uptime(uses: float, duration: float, cast_time: float, how: str,
+                charges: float = 0.0) -> tuple[float, float, str]:
     """(share of the fight embodying Kaom, share of the main skill's time its casts take, how) from Ancestral Cry's
-    uses per second (its Glory's) and its duration."""
+    uses per second (its Glory's), its duration and the Endurance `charges` each use consumes (+50% duration each)."""
     if uses <= 0 or duration <= 0:
         return 0.0, 0.0, f"Ancestral Cry: {how or 'no Glory'} (0: no Glory to use it with)"
-    up = min(1.0, uses * duration)
-    return up, min(1.0, uses * cast_time), (f"Ancestral Cry {uses:.3f} uses/s ({how}) x its {duration:.2f} s = {up:.0%} "
-                                           "(the Endurance Charges' longer duration not counted)")
+    longer = 1 + ANCESTRAL_CRY_PER_CHARGE / 100 * max(charges, 0.0)
+    up = min(1.0, uses * duration * longer)
+    charged = (f" x {longer:g} for the {charges:g} Endurance Charges it consumes (+50% each; PoB's removable "
+               "Endurance Charges, MEDIUM)" if charges > 0 else " (no Endurance Charges to consume: without them x1, "
+               "with N x(1 + 0.5 N))")
+    return up, min(1.0, uses * cast_time), (f"Ancestral Cry {uses:.3f} uses/s ({how}) x its {duration:.2f} s{charged} "
+                                           f"= {up:.0%}")
 
 
 ANCESTRAL_FIELDS = ["Speed", "FistOfWarCooldown", "FistOfWarDamageMultiplier", "AncestralEmpowermentDamageMultiplier",
@@ -13586,9 +13599,24 @@ def warcry_echo_model(skills: list[Skill], supports: dict[int, list[str]], warcr
 ECHO_POWER_STAT = "support_echoing_cry_warcry_monster_power_+%_final"
 
 
-def echoing_power_model(skills: list[Skill], rows: dict[str, dict]) -> tuple[list[dict], list[dict]]:
-    """(mods, notes): each Warcry with Echoing Cry's less Power Empowers floor(min(Power', cap) / per) attacks, not PoB's
-    floor(min(Power, cap) / per). `rows`: {warcry name: its useRates row (warcryPower, warcryPowerPer, warcryPowerCap)}."""
+def echo_empowers(n: float, attacks: float) -> tuple[float, str]:
+    """(Empowered attacks a use, how) for a Warcry with Echoing Cry Empowering `n` a use (its halved Power's count), the
+    main skill attacking `attacks` times a second. RESEARCH33 R33-13 (echoing-cry-power-rage-and-echo-empower.md): the
+    Echoes Empower too (MEDIUM: 0.5.0's fix "Arctic Howl could empower you in human form while using Echoing Cry"); how
+    the counts combine is UNVERIFIED, the headline (MEDIUM-LOW) each Echo resetting the count to its own n: n + min(n,
+    attacks in each 1.3 s gap) x 2 Echoes; rows 3n (adding) and n (Echoes don't Empower)."""
+    echoes, gap = WARCRY_ECHO["WarcryEchoes"], WARCRY_ECHO["WarcryEchoDelayMs"] / 1000
+    used = min(n, max(attacks, 0.0) * gap)
+    total = n + echoes * used
+    return total, (f"its {echoes:g} Echoes Empower too (R33-13, MEDIUM; each resets the count to its own {n:g}, "
+                   f"MEDIUM-LOW, UNVERIFIED): {n:g} + {echoes:g} x min({n:g}, {attacks:.2f} attacks/s x {gap:g} s) = "
+                   f"{total:.3g} a use (rows: adding, {n * (1 + echoes):g}; Echoes not Empowering, {n:g})")
+
+
+def echoing_power_model(skills: list[Skill], rows: dict[str, dict], attacks: float = 0.0) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): each Warcry with Echoing Cry Empowers floor(min(Power', cap) / per) attacks a use with its less Power
+    (not PoB's floor(min(Power, cap) / per)), plus its Echoes' Empowers (echo_empowers: the main skill's `attacks` a
+    second). `rows`: {warcry name: its useRates row (warcryPower, warcryPowerPer, warcryPowerCap)}."""
     mods, notes = [], []
     for skill in skills:
         less = number(skill.support_stats.get(ECHO_POWER_STAT))
@@ -13600,16 +13628,17 @@ def echoing_power_model(skills: list[Skill], rows: dict[str, dict]) -> tuple[lis
         mine = power * max(0.0, 1 + less / 100)
         pob = math.floor(min(power, cap) / per)
         own = math.floor(min(mine, cap) / per)
-        if own == pob:
+        target, echo_how = echo_empowers(own, attacks)  # (MECHB42, R33-13)
+        if abs(target - pob) < 1e-9:
             continue
         name = skill.name.replace(" Cry", "").replace("'s", "").replace(" ", "")
-        mods.append(raw_mod(f"{name}EmpoweredAttacks", "BASE", own - pob))
-        notes.append({"label": f"{skill.name}: Echoing Cry's {-less:g}% less Power", "value": f"{own} Empowered, not {pob}",
+        mods.append(raw_mod(f"{name}EmpoweredAttacks", "BASE", _round(target - pob)))
+        notes.append({"label": f"{skill.name}: Echoing Cry's {-less:g}% less Power and its Echoes",
+                      "value": f"{target:.3g} Empowered a use, not {pob}",
                       "basis": (f"Echoing Cry: \"{-less:g}% less Power\" for the supported Warcry, which PoB never applies "
                                 f"(its Power is one global number): {power:g} Power -> {mine:g}, one Empowered attack per "
-                                f"{per:g} up to {cap:g}: {own} a use, not PoB's {pob} (an OVERCOUNT before). Its buffs "
-                                "scaled per N Power keep the full Power (an overcount left); whether each Echo Empowers "
-                                "again is UNVERIFIED (not counted)"),
+                                f"{per:g} up to {cap:g}: {own} a use, not PoB's {pob} (an OVERCOUNT before); {echo_how}. "
+                                "Its buffs scaled per N Power keep the full Power (an overcount left)"),
                       "confidence": "MEDIUM"})
     return mods, notes
 
@@ -13648,7 +13677,18 @@ def unbuffed_warcry_empowers(row: dict, less: float = 0.0) -> tuple[int, str]:
     return n, f"one per {per:g} of {mine:g} Power{echo}, up to {cap:g}: {n}"
 
 
-def arctic_howl_cold(howl: Skill, main: Skill, uses: float, empowered: float, how: str) -> tuple[list[dict], list[dict]]:
+def howl_power_row(lo: float, hi: float, power: float) -> str:
+    """R33-11's row (RESEARCH33, arctic-howl-cold-per-power.md): the stat ids' "per 5 Power up to cap" reading, x min(Power,
+    50) / 5, beside the flat headline (MEDIUM-LOW: the game text, poe2db and the wikis show a flat range)."""
+    if power <= 0:
+        return ""
+    k = min(power, 50.0) / 5
+    return (f"; R33-11's row, the stat id's per-5-Power reading: x{k:g} at {power:g} Power = {lo * k:g} to {hi * k:g} "
+            "(the flat range stays the headline, MEDIUM-LOW)")
+
+
+def arctic_howl_cold(howl: Skill, main: Skill, uses: float, empowered: float, how: str,
+                     power: float = 0.0) -> tuple[list[dict], list[dict]]:
     """(mods, notes): the main Attack's share of uses Empowered by Arctic Howl (`empowered` a second of its `uses`) adds
     the Howl's Empowered-attack Cold (its level's range) as a scaled "Adds" line on the main skill."""
     lo, hi = (number(howl.level_stats.get(k)) for k in ARCTIC_HOWL_COLD)
@@ -13658,8 +13698,9 @@ def arctic_howl_cold(howl: Skill, main: Skill, uses: float, empowered: float, ho
     note = {"label": "Arctic Howl: Empowered attacks' added Cold*", "value": f"{share:.0%} of {main.name}'s uses",
             "confidence": "LOW",
             "basis": (f"Arctic Howl's Empowered Attacks deal {lo:g} to {hi:g} additional Cold (the text's flat range; the "
-                      "stat id says per 5 Power up to its cap, which would multiply it by the Power / 5: UNVERIFIED which "
-                      f"holds, the lower taken); PoB scores none of it (no Warcry buff for the Howl). {how}"),
+                      "stat id says per 5 Power up to its cap: RESEARCH33 R33-11 keeps the flat range, MEDIUM-LOW, "
+                      f"UNVERIFIED){howl_power_row(lo, hi, power)}; PoB scores none of it (no Warcry buff for the Howl). "
+                      f"{how}"),
             "play": "Howl when the boss is Frozen (or Freeze it with the Howl), then attack: its Empowered attacks add Cold."}
     if share <= 0:
         return [], [note]
@@ -13685,7 +13726,7 @@ ARCTIC_HOWL_BUFF = ("wolf_warcry_buff_cold_damage_min_per_5_power_up_to_cap",
 
 
 def arctic_howl_buff(howl: Skill, uses: float, duration: float, frozen: float, frozen_how: str,
-                     minions: list[str]) -> tuple[list[dict], list[dict]]:
+                     minions: list[str], power: float = 0.0) -> tuple[list[dict], list[dict]]:
     """(mods, notes): Arctic Howl's buff of added Cold to Allies' Attacks for the build's `minions` (their skills' names),
     at its uptime (`uses` a second x its buff `duration` s, at most 1) x the boss's Frozen share (`frozen`, why
     `frozen_how`)."""
@@ -13700,8 +13741,8 @@ def arctic_howl_buff(howl: Skill, uses: float, duration: float, frozen: float, f
                       f"to Attacks for {duration:g} s, if the boss is Frozen (or a Frozen boss is Hit): {uses:.3f} uses/s "
                       f"x {duration:g} s covers {cover:.0%} of the fight, x the boss Frozen {frozen:.0%} ({frozen_how}; a "
                       "lower reading: a use also counts when the boss is Frozen later in its window). The text's flat "
-                      "range taken; the stat id says per 5 Power up to its cap, which would multiply it by Power / 5 "
-                      "(UNVERIFIED which holds, the lower taken). PoB scores none of it."),
+                      "range taken (RESEARCH33 R33-11: the headline, MEDIUM-LOW, UNVERIFIED; the stat id says per 5 Power "
+                      f"up to its cap){howl_power_row(lo, hi, power)}. PoB scores none of it."),
             "play": ("Howl when the boss is Frozen (or Freeze it) so your minions' Attacks get its added Cold: "
                      f"without it 0, with it {lo:g} to {hi:g} added Cold for {duration:g} s a use.")}
     if up <= 0:
@@ -13772,6 +13813,50 @@ def living_lightning_model(parts: list[dict]) -> tuple[float, list[dict]]:
             "play": "Living Lightning needs the supported skill to deal Lightning damage; its minions fire 3 Zaps each",
             "confidence": "MEDIUM", "full_dps": {LIVING_LIGHTNING: 0.0}}
     return total, [note]
+
+
+# Verisium Manifestations (MECHB42; RESEARCH33 R33-10, research/verisium-manifestation-numbers.md; an UNDERCOUNT: PoB had
+# no minion for it, 0). ActiveSkills 1129: "While active, Hitting with an Attack will spend Runic Ward to summon a
+# Verisium Manifestation, a short-lived Temporary Minion that rapidly Attacks nearby enemies". Manifest Rune
+# (TriggeredManifestRunePlayer): limit 10 (base_number_of_verisium_runes_allowed), 8 s each (base_skill_effect_duration),
+# a 0.5 s cooldown with 5 stored uses, Ward 30 a summon at level 20 (HIGH, game tables and PoB). The minion and its
+# attack are added to PoB by engine/bridge.lua (Physical x0.70 x1.5, 1.0 s attack: MEDIUM / MEDIUM-LOW), so PoB scores
+# ONE Manifestation with the build's minion modifiers. Here: summons a second planned = min(the main Attack's hits a
+# second (PoB's speed x hit chance; other attack skills' hits not counted, an undercount), 1 / its cooldown (PoB's, with
+# recovery)), handed to PoB as Manifest Rune's trigger rate, which ward_paid holds to what the build's Runic Ward
+# recovery pays for (30 a summon); alive = min(the limit, the paid summons a second x its Duration, PoB's with the
+# build's modifiers); PoB's one-minion Full DPS entry x alive (Objective.entry_scales), its group into Full DPS. 0 with
+# no Attack main skill or no Runic Ward recovery.
+VERISIUM = "Verisium Manifestations"
+MANIFEST_RUNE = "Manifest Rune"
+VERISIUM_LIMIT = 10.0  # base_number_of_verisium_runes_allowed
+VERISIUM_SECONDS = 8.0  # its base_skill_effect_duration
+VERISIUM_COOLDOWN = 0.5
+
+
+def verisium_model(rune: Skill, hits: float, cooldown: float, duration: float, paid: float | None,
+                   paid_how: str = "") -> tuple[list[dict], list[dict], set[int]]:
+    """(mods, notes, Full DPS groups) for Manifest Rune: `hits` the main Attack's hits a second, `cooldown` its (s, PoB's),
+    `duration` each Manifestation's (s, PoB's), `paid` the summons a second the build's Runic Ward paid for last round
+    (ward_paid; None: the planned rate), why `paid_how`."""
+    cooldown = cooldown if cooldown > 0 else VERISIUM_COOLDOWN
+    seconds = duration if duration > 0 else VERISIUM_SECONDS
+    limit = number(rune.level_stats.get("base_number_of_verisium_runes_allowed")) or VERISIUM_LIMIT
+    planned = min(max(hits, 0.0), 1 / cooldown)
+    made = planned if paid is None else min(planned, max(paid, 0.0))
+    alive = min(limit, made * seconds)
+    note = {"label": "Verisium Manifestations: Manifestations alive*", "value": f"{alive:.2f} of {limit:g}",
+            "basis": (f"one a {cooldown:.3g} s cooldown on an Attack hit ({hits:.2f} hits/s of the main skill): {planned:.2f} "
+                      f"a second planned, {made:.2f} paid for by Runic Ward (30 a summon at level 20{'; ' + paid_how if paid_how else ''}), "
+                      f"x {seconds:g} s each = {alive:.2f} alive (limit {limit:g}); PoB scores one Manifestation (the minion "
+                      "added from the game's rows: Physical x0.70 x1.5, a 1.0 s attack, MEDIUM-LOW; R33-10), its entry x "
+                      "that. 0 before (PoB had no minion for it: an UNDERCOUNT)"),
+            "play": ("Keep Runic Ward recovering and attack: each Attack hit summons a Manifestation while Ward pays for it "
+                     f"(without Ward: 0; with it: {alive:.1f} of {limit:g} up)"),
+            "confidence": "MEDIUM-LOW", "full_dps": {MANIFEST_RUNE: alive}}
+    if planned <= 0 or rune.group is None:
+        return [], [note], set()
+    return trigger_rate(MANIFEST_RUNE, planned), [note], {rune.group}
 
 
 # Chayula's Will, Archon of Chayula's tornado (MECHB42, an UNDERCOUNT: probe POE2T4627, PoB gives the triggered attack
@@ -15974,7 +16059,7 @@ def tawhoa_model(skills: list[Skill], rows: dict[str, dict], deaths: dict[str, f
             *trigger_rate(TAWHOA, rate)]
     note = {"label": label, "value": f"{rate:.3f} a second, {base:,.0f} base Physical each",
             "basis": (f"{share:g}% of the {summoner.name} totem's {life:,.0f} Life (PoB's totem Life with the build's "
-                      f"modifiers and Tawhoa's Tending's 25% more; read as its maximum Life, MEDIUM) as base Physical, "
+                      f"modifiers and Tawhoa's Tending's 25% more: its maximum Life, HIGH, R33-14's game text \"20% of Totem's maximum Life\") as base Physical, "
                       f"scored by PoB as the group's own hit with the build's modifiers; {rate:.3f} of its totems die a "
                       "second (models.totem_deaths: expiring or replaced counts as dying, RESEARCH31 R31-2, MEDIUM)"
                       + (f"; {deaths_how}" if deaths_how else "") + "; the boss inside its 3 m blast (totems placed at "
@@ -16025,9 +16110,13 @@ ETERNAL_MARCH = "Eternal March"
 EM_WARD, EM_LIFE = "skill_eternal_march_maximum_ward_cost", "skill_eternal_march_life_per_ward_spent_%"
 
 
-def eternal_march_revives(skill: Skill, uses: float, ward_share: float, life: float) -> tuple[float, str]:
+def eternal_march_revives(skill: Skill, uses: float, ward_share: float, life: float,
+                          pool: list[tuple[str, float, float]] | None = None) -> tuple[float, str]:
     """(minions revived a second, how) by Eternal March used `uses` times a second, paying `ward_share` of its full Ward
-    a use, for Reviving minions of `life` maximum Life (their average)."""
+    a use, for Reviving minions of `life` maximum Life (their average). `pool` (MECHB42, R33-15): (name, maximum Life,
+    dead ones waiting a use) for each Reviving minion kind; then the Life budget goes to the highest-Life dead first
+    ("Prioritises the most powerful minions first", Life as the proxy for power: MEDIUM, "powerful" undefined), at most
+    the dead waiting (a revive needs a fallen minion, MEDIUM-HIGH); the average-Life count is the note's row."""
     ward = number(skill.level_stats.get(EM_WARD))
     multiple = number(skill.level_stats.get(EM_LIFE)) / 100
     if ward <= 0 or multiple <= 0 or uses <= 0:
@@ -16035,10 +16124,49 @@ def eternal_march_revives(skill: Skill, uses: float, ward_share: float, life: fl
     if life <= 0:
         return 0.0, f"{ETERNAL_MARCH}: its minions' Life wasn't read (0, labelled)"
     spent = ward * min(max(ward_share, 0.0), 1.0)
-    each = spent * multiple / life
-    return uses * each, (f"{ETERNAL_MARCH} {uses:.3f} uses/s, each spending {spent:,.0f} of up to {ward:,.0f} Runic Ward "
-                         f"(what the build's Ward pays for) to revive {multiple:g} x that in minion Life: {each:.2f} minions "
-                         f"of {life:,.0f} Life a use ({uses * each:.2f}/s; the most powerful first not modelled, MEDIUM)")
+    average = spent * multiple / life
+    head = (f"{ETERNAL_MARCH} {uses:.3f} uses/s, each spending {spent:,.0f} of up to {ward:,.0f} Runic Ward (what the "
+            f"build's Ward pays for) to revive {multiple:g} x that in minion Life")
+    if pool is None:
+        return uses * average, (f"{head}: {average:.2f} minions of {life:,.0f} Life a use ({uses * average:.2f}/s; the "
+                                "most powerful first not modelled, MEDIUM)")
+    budget, each, taken = spent * multiple, 0.0, []
+    for name, own, dead in sorted(pool, key=lambda p: -p[1]):
+        if own <= 0 or dead <= 0 or budget <= 0:
+            continue
+        n = min(dead, budget / own)
+        budget -= n * own
+        each += n
+        taken.append(f"{n:.2f} {name} ({own:,.0f} Life)")
+    return uses * each, (f"{head}, the highest-Life fallen first (R33-15; Life as the measure of power, MEDIUM): "
+                         f"{' + '.join(taken) or 'none fallen'} = {each:.2f} a use ({uses * each:.2f}/s; at the average "
+                         f"{life:,.0f} Life with no cap by the fallen: {average:.2f} a use, the upper row)")
+
+
+def cleric_revives(skills: list[Skill]) -> float:
+    """Skeletal Clerics' revives a second (one each per CLERIC_REVIVE cooldown) where the build has another Persistent
+    Skeleton for them, else 0."""
+    clerics = sum(number(s.summon.get("limit")) for s in skills if s.summon and "Skeletal Cleric" in s.name)
+    if clerics > 0 and any(is_skeleton(s) and s.summon.get("persistent") and "Skeletal Cleric" not in s.name
+                           for s in skills if s.summon):
+        return clerics / max(CLERIC_REVIVE)
+    return 0.0
+
+
+def cleric_excess(skills: list[Skill], reviving: list[Skill], deaths: float) -> tuple[float, str]:
+    """(the Clerics' revives a second that find no fallen Skeleton, how): R33-15 (RESEARCH33, revive-targets-eternal-
+    march.md, HIGH as text): a Skeletal Cleric "revive[s] fallen Skeletons" only, and a revive needs a dead minion
+    (MEDIUM-HIGH). With deaths spread over the Reviving minions by their count (minion_deaths' MEDIUM reading), the
+    Skeletons' deaths are `deaths` x their share; the Clerics' rate above that is lost. MECHB42: before, their revives
+    counted against every minion's deaths (Zombies, Spectres too): an OVERCOUNT in a mixed army."""
+    clerics = cleric_revives(skills)
+    count = sum(number(s.summon.get("limit")) for s in reviving)
+    if clerics <= 0 or count <= 0:
+        return 0.0, ""
+    share = sum(number(s.summon.get("limit")) for s in reviving if is_skeleton(s)) / count
+    excess = max(0.0, clerics - max(deaths, 0.0) * share)
+    return excess, (f"the Clerics revive only fallen Skeletons ({share:.0%} of your Reviving minions, so at most "
+                    f"{deaths * share:.2f} of their deaths a second; R33-15)" if excess > 0 else "")
 
 
 def forced_revives(skills: list[Skill], texts: Iterable[str] = (), mana_uses: float = 0.0,
@@ -16050,10 +16178,9 @@ def forced_revives(skills: list[Skill], texts: Iterable[str] = (), mana_uses: fl
     if eternal is not None and eternal[1]:
         total += max(eternal[0], 0.0)
         parts.append(eternal[1])
-    clerics = sum(number(s.summon.get("limit")) for s in skills if s.summon and "Skeletal Cleric" in s.name)
-    if clerics > 0 and any(is_skeleton(s) and s.summon.get("persistent") and "Skeletal Cleric" not in s.name
-                           for s in skills if s.summon):
-        rate = clerics / max(CLERIC_REVIVE)
+    rate = cleric_revives(skills)
+    if rate > 0:
+        clerics = sum(number(s.summon.get("limit")) for s in skills if s.summon and "Skeletal Cleric" in s.name)
         total += rate
         parts.append(f"{clerics:g} Skeletal Clerics revive a fallen Skeleton each every {max(CLERIC_REVIVE):g} s "
                      f"({rate:.2f}/s)")
@@ -16085,6 +16212,9 @@ def minion_alive_model(skills: list[Skill], main: Skill | None, stats: dict, tex
         return [], []
     revive, revive_how = revive_seconds(reviving)
     forced, forced_parts = stats.get(FORCED_REVIVES_STAT) or forced_revives(skills, texts, mana_uses)
+    excess, excess_how = cleric_excess(skills, reviving, rate)  # (MECHB42, R33-15: Clerics revive Skeletons only)
+    forced = max(0.0, number(forced) - excess)
+    forced_parts = list(forced_parts) + ([excess_how] if excess_how else [])
     dead = min(max(0.0, rate - forced) * revive / count, 1.0)
     alive = 1.0 - dead
     names = list(dict.fromkeys(s.name for s in reviving))

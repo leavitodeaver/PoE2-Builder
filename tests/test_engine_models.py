@@ -411,8 +411,10 @@ def test_echoing_cry_empowers_at_its_warcrys_halved_power(engine):
                                                 {"name": "Echoing Cry", "level": 1, "quality": 0}])
     search.settle()
     row = build.call("useRates", indices=[group["index"]])["rates"][0]
-    assert row["warcryEmpowers"] == 1
-    assert any(n["label"] == "Infernal Cry: Echoing Cry's 50% less Power" for n in search.assumptions.active)
+    # (MECHB42, R33-13: its 2 Echoes Empower too, each resetting to its own 1: 1 + 2 x min(1, attacks/s x 1.3 s))
+    speed = build.call("stats", fields=["Speed"])["Speed"]
+    assert row["warcryEmpowers"] == pytest.approx(1 + 2 * min(1.0, speed * 1.3), rel=1e-3)
+    assert any(n["label"] == "Infernal Cry: Echoing Cry's 50% less Power and its Echoes" for n in search.assumptions.active)
 
 
 def test_a_chance_not_to_count_an_empowered_attack_raises_pobs_warcry_count(engine):
@@ -451,6 +453,21 @@ def test_living_lightning_counts_three_zaps_a_minion_not_pobs_minion_attacking_a
     note = next(n for n in search.assumptions.active if n["label"].startswith("Living Lightning: 3 Zaps"))
     modelled = float(note["value"].split()[0].replace(",", ""))
     assert 0 < modelled < entry / 3 and build.objective.entry_scales.get("Living Lightning") == 0.0
+
+
+def test_verisium_manifestations_minion_is_scored_by_pob(engine):
+    """MECHB42 (R33-10, an UNDERCOUNT: PoB had no minion for Manifest Rune): the bridge adds the Verisium Manifestation
+    and its projectile attack, so PoB scores one, at minion level 2 x the gem's (probe POE2T4636)."""
+    payload = make_payload(BuildRequest(main_skill="Lightning Arrow", level=90))
+    skeleton = enumerate_skeletons(Context(payload), ["Lightning Arrow"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    group = build.set_group(gems=[{"name": "Verisium Manifestations", "level": 20, "quality": 0}], fullDPS=True)
+    skills = next(g for g in build.groups() if g["index"] == group["index"])["skills"]
+    n = next(i for i, x in enumerate(skills, 1) if x["name"] == "Manifest Rune")
+    hit = build.call("minionSkillHit", index=group["index"], active=n, skill="MPAKalguuranManifestation")
+    assert hit["level"] == 40 and hit["AverageDamage"] > 0 and hit["name"] == "Manifestation Attack"
 
 
 def test_electrocuting_arrows_rod_stats_scale_with_a_raw_effect_mod(engine):
