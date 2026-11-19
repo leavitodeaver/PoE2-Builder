@@ -10768,7 +10768,7 @@ PARRY_CONSUMERS = frozenset({"Fangs of Frost", "Disengage", "Frenzied Riposte"})
 # so the share of hits on a Parried boss is capped by that many hits per Parried instead of one. Capped at 99%.
 # A hit that leaves Parried on is read as still making Fangs of Frost's Explosion (its text: "Hitting a Parried target
 # Consumes the Debuff to cause an explosion"; the stat's own words "{0}% chance to not consume Parried Debuff"): MEDIUM,
-# UNVERIFIED (the other reading: each Parried makes one Explosion, the extra hits only take the 50% more).
+# RESEARCH32 R32-7 (5): "chance to not consume" keeps the effect and saves the resource, as for flasks.
 PARRIED_KEEP_STAT = "chance_to_not_consume_parried_%"
 
 

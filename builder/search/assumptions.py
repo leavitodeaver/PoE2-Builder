@@ -1875,14 +1875,16 @@ class Assumptions:
                                              "UNVERIFIED; the main skill's Ignite only)"})
         if any(conditions_mod.GRINNING_BURN.search(t) for t in texts):
             # (MECH89: Grinning Immolation's 15% of Life + ES a second while you are Ignited by your crits, COV43)
-            burn, burn_how = conditions_mod.grinning_burn(
+            burn, burn_how, burn_plain = conditions_mod.grinning_burn(
                 texts, build.call("stats", fields=list(conditions_mod.GRINNING_FIELDS)))
             if burn > 0:
                 hand_mods = hand_mods + [models.line("1 Fire Damage taken per second", burn)]
             hand_notes.append({"label": "Ignited by your own crits (Grinning Immolation)*",
                                "value": f"{burn:,.0f} Fire a second", "basis": burn_how,
-                               "confidence": "MEDIUM (avoidance applied; Fire resistance and Ignite magnitude on you "
-                                             "applied, UNVERIFIED)"})
+                               "play": (f"Without your Ignite magnitude on you scaling it (the other reading): "
+                                        f"{burn_plain:,.0f} Fire a second; with it: {burn:,.0f}"),
+                               "confidence": "MEDIUM (avoidance applied; Fire resistance applied, RESEARCH32 R32-7 "
+                                             "MEDIUM; Ignite magnitude on you applied, R32-7 MEDIUM-LOW)"})
         if (emp_buildup := conditions_mod.empowered_buildup(texts)) and main is not None:
             # (MECH86: Bravado / cold49 / cold50: buildup on Empowered Attacks at the main skill's Empowered share)
             emp_uses, emp_how = self.empowered_uses(stats, None) if main.attack else (0.0, "the main skill isn't an Attack")

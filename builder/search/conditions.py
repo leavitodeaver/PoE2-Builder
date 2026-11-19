@@ -2711,9 +2711,9 @@ REFLECTED_IGNITE_FIELDS = ("IgniteChancePerHit", "Speed", "HitChance", "IgniteDu
 # (ModCache 6720: nil); _self_ignited (MECH53) turns the Ignited box on from it, so the "while Ignited" benefits counted
 # and the burn didn't. Now: N% x (PoB's Life + Energy Shield) a second x the share of the fight you are Ignited by it
 # (grinning_ignited: your crits, your Ignite avoidance and self-Ignite duration), handed to PoB as "1 Fire Damage taken
-# per second" (PoB's degen, through your Fire resistance, as Self Immolation's reflected burn: whether resistance
-# applies is UNVERIFIED, the usual rule for a Fire damage over time on you). Your "Magnitude of Ignite on you" modifiers
-# (PoB's SelfIgniteEffect) are taken to scale it (an Ignite's damage; UNVERIFIED: the unscaled reading is in the note).
+# per second" (PoB's degen, through your Fire resistance, as Self Immolation's reflected burn: RESEARCH32 R32-7 (6a),
+# Fire damage over time, MEDIUM). Your "Magnitude of Ignite on you" modifiers (PoB's SelfIgniteEffect) scale it (R32-7
+# (6b), MEDIUM-LOW: the headline; the unscaled reading is the note's row).
 # With another Ignite on you as well (the boss's, Self Immolation's) the two burns are added (only the strongest Ignite
 # may deal damage: then this is high, the cost side, LOW).
 GRINNING_BURN = re.compile(r"become ignited when you deal a critical hit, taking (\d+(?:\.\d+)?)% of your maximum life "
@@ -2722,21 +2722,21 @@ GRINNING_FIELDS = ("Life", "EnergyShield", "CritChance", "Speed", "HitChance", "
                    "SelfIgniteEffect")
 
 
-def grinning_burn(lines: list[str], stats: dict) -> tuple[float, str]:
+def grinning_burn(lines: list[str], stats: dict) -> tuple[float, str, float]:
     """(Fire damage a second you take on average from Grinning Immolation's self-Ignite, before your Fire resistance,
-    how); (0.0, "") without the line."""
+    how, the same without your Ignite magnitude on you (R32-7's row)); (0.0, "", 0.0) without the line."""
     pct = max((float(m.group(1)) for t in lines if (m := GRINNING_BURN.search(t))), default=0.0)
     if pct <= 0:
-        return 0.0, ""
+        return 0.0, "", 0.0
     up, how = grinning_ignited(stats)
     pool = number(stats.get("Life")) + number(stats.get("EnergyShield"))
     effect = number(stats.get("SelfIgniteEffect")) / 100 if "SelfIgniteEffect" in stats else 1.0
     per = pct / 100 * pool
     burn = per * max(effect, 0.0) * up
     return burn, (f"{how}; burning {pct:g}% of your {pool:,.0f} Life + Energy Shield = {per:,.0f} Fire a second while "
-                  f"Ignited, x your Magnitude of Ignite on you {effect:.0%} (UNVERIFIED; unscaled: {per * up:,.0f}) = "
-                  f"{burn:,.0f} a second on average, then your Fire resistance (PoB's degen, UNVERIFIED); without the "
-                  "line: none")
+                  f"Ignited, x your Magnitude of Ignite on you {effect:.0%} (RESEARCH32 R32-7, MEDIUM-LOW; unscaled: "
+                  f"{per * up:,.0f}) = {burn:,.0f} a second on average, then your Fire resistance (PoB's degen; R32-7, "
+                  "MEDIUM); without the line: none"), per * up
 
 
 def reflected_ignite_share(lines: list[str], stats: dict) -> tuple[float, str]:
