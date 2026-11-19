@@ -48,8 +48,8 @@
     Rune sources; up all fight, the Guard goes in PoB's Guard pool (full_guard_mods), else a row. COV43 left the line open
     because PoB's own Guard skills weren't scaled: PoB sets no Guard at all (checked: GuardAbsorbLimit, the pool PoB's
     CalcDefence 3045 / 3063 reads, has no setter in PoB's Data/ or ModParser; the two Guard-type skills, Encase in Jade
-    and Nature's Exchange, map none). Not scaled: Encase in Jade's Guard (a play row only, MECHC37) and the item Guard
-    lines no model reads yet (Duality's per Combo, Olroth's Resolve's, Decree of Flight's).
+    and Nature's Exchange, map none). Since train 90 also Duality's, Olroth's Resolve's and Decree of Flight's (MECHC41,
+    event_guard). Not scaled: Encase in Jade's Guard (a play row only, MECHC37).
   sources: ["builder/search/recovery.py (GUARD_GAINED, _guard_inc, event_guard, mana_flask_guard)"]
   status: proposed
 
@@ -66,4 +66,21 @@
     up all fight goes in PoB's Guard pool (full_guard_mods, the manager's 18 Nov ruling (ii)), part-time Guard is a row
     (ruling (b)), as COV43's model-read-guard-sources (Mana Flask, charms).
   sources: ["builder/search/recovery.py (SAVAGE_GUARD, WARD_TIMER_GUARD, event_guard)"]
+  status: proposed
+
+- id: model-read-mechc41-item-guard
+  title: 'Duality''s Guard per Combo expended, Olroth''s Resolve''s Guard when its Effect ends, Decree of Flight''s Dodge Roll Guard and its Energy Shield cap (recovery.event_guard via assumptions, MECHC41)'
+  kind: pob_gap
+  model: guard
+  match: '^(Gain \d+(?:\.\d+)? Guard for \d+(?:\.\d+)? seconds per Combo expended when using Skills|Gain Guard equal to Current Runic Ward for \d+(?:\.\d+)? seconds when Effect ends|Gain Guard equal to \d+(?:\.\d+)?% of missing Energy Shield for \d+(?:\.\d+)? seconds when you Dodge Roll|Maximum amount of Guard is based on maximum Energy Shield instead)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    MECHC41's 233c4576 (train 90): recovery.COMBO_GUARD (at the build's Combo-expending skills' use rates, usage.combo_rate;
+    MEDIUM-LOW, the duration read as scaling with the Combo, the other reading named in the row), WARD_END_GUARD (at the
+    Life flask's uses, the current Runic Ward, ward_current), DECREE_GUARD (a roll every models.DODGE_EVERY s, below Full
+    Energy Shield only, half the ES missing on average) and DECREE_CAP (the 200% cap on maximum Energy Shield, for Decree's
+    own Guard only: other Guard sources keep the Life cap) all feed event_guard: up all fight in PoB's Guard pool
+    (full_guard_mods), else a row.
+  sources: ["builder/search/recovery.py (COMBO_GUARD, WARD_END_GUARD, DECREE_GUARD, DECREE_CAP, event_guard)", "builder/search/assumptions.py (MECHC41's Guard sources)"]
   status: proposed

@@ -1090,7 +1090,7 @@ def test_cov44_guard_lines_are_the_models_own():
         assert pattern.match(line), line
     assert recovery._guard_inc(["20% increased Guard gained", "8% increased Guard gained"]) == 28
     for line in ("When you stop Sprinting, gain Guard equal to 4% of maximum Life per second spent Sprinting, up to a "
-                 "maximum of 20%, for 4 seconds", "Gain 250 Guard for 0.5 seconds per Combo expended when using Skills"):
+                 "maximum of 20%, for 4 seconds",):  # (Duality's Combo Guard: model-read since train 90, MECHC41)
         assert (found := model_entry(line)) is None or not found.id.startswith("model-read-"), line
 
 
@@ -1140,3 +1140,21 @@ def test_mechc40_guard_stats_are_model_read():
             assert coverage.stat_covered(covered, stat, skill) == ("model", "model-mechc40-vanguard-heavy-stun-guard")
         assert coverage.stat_covered(covered, "gain_X_guard_on_stun_per_10_strength", skill) is None
     assert recovery.FORTIFY_POWER_CAP == 20 and recovery.VANGUARD == {"Vanguard I": (4.0, 2.0), "Vanguard II": (6.0, 2.0)}
+
+
+def test_mechc41_item_guard_lines_are_model_read():
+    """COV44 (MECHC41's 233c4576, train 90): Duality's, Olroth's Resolve's and Decree of Flight's Guard lines are
+    event_guard's (model-read), each tied to its pattern."""
+    from builder.ledger import model_entry
+    from builder.search import recovery
+
+    cases = {
+        "Gain 750 Guard for 0.5 seconds per Combo expended when using Skills": recovery.COMBO_GUARD,
+        "Gain 250 Guard for 0.5 seconds per Combo expended when using Skills": recovery.COMBO_GUARD,
+        "Gain Guard equal to Current Runic Ward for 10 seconds when Effect ends": recovery.WARD_END_GUARD,
+        "Gain Guard equal to 15% of missing Energy Shield for 4 seconds when you Dodge Roll": recovery.DECREE_GUARD,
+        "Maximum amount of Guard is based on maximum Energy Shield instead": recovery.DECREE_CAP,
+    }
+    for line, pattern in cases.items():
+        assert (found := model_entry(line)) is not None and found.id == "model-read-mechc41-item-guard", line
+        assert pattern.match(line), line
