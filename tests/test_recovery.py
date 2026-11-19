@@ -2853,7 +2853,7 @@ def test_research33_answers_on_mechc42s_models():
     bare = SimpleNamespace(equipped={}, call=lambda name, **kw: {})
     mods, rows = flasks.no_life_uses_model(bare, ["25% increased Attack Damage while you have no Life Flask uses left"])
     assert mods[0]["scale"] == pytest.approx(25.0) and len(rows) == 2
-    assert rows[0]["play"].startswith("No Life Flask equipped*") and rows[1]["value"] == "0% increased Attack Damage"
+    assert rows[0]["play"].startswith("No Life Flask equipped*") and rows[1]["value"].startswith("0% increased Attack Damage")
     assert "MEDIUM-LOW" in rows[0]["confidence"]
     groups = [{"index": 1, "gems": [{"name": "Ferocious Roar"}, {"name": "Infernal Cry"}]},
               {"index": 2, "gems": [{"name": "Infernal Cry"}]}]

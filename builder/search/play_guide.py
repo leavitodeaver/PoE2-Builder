@@ -198,6 +198,8 @@ def guide(search: Any) -> list[dict]:
         rows.append(row)
     if row := curse_lapse_row(search, headline):
         rows.append(row)
+    if row := last_stand_row(search, headline):
+        rows.append(row)
     rows += kept_flask_rows(search, headline)
     rows += curse_zone_rows(search, headline)
     after, base = build.objective.dps(build.stats), headline
@@ -560,3 +562,35 @@ def curse_lapse_row(search: Any, headline: float) -> dict | None:
 
 
 __all__ = ["guide", "kind", "KINDS", "OFF_OPTIONS", "PLAYER", "BUILD", "FIGHT"]
+
+
+def last_stand_row(search: Any, headline: float) -> dict | None:
+    """Last Stand with no Life Flask equipped (MECHC43; RESEARCH33 R33-3, the manager's 11:30 ruling: the headline keeps
+    the literal reading, "no Life Flask, so no use left", MEDIUM-LOW; the row gives "X DPS without it, Y with it"). One
+    trial with the reading off (flasks.FLASKLESS_READING False on build.objective: the line at 0), conditions and
+    assumptions re-read, then put back: the route raised_row takes. Only when the build has the line and no Life Flask
+    (flasks.no_life_uses_model's play line says so)."""
+    from builder.search import flasks
+
+    note = next((n for n in getattr(getattr(search, "assumptions", None), "active", None) or []
+                 if (n.get("play") or "").startswith(flasks.FLASKLESS_PLAY)), None)
+    if note is None:
+        return None
+    build = search.build
+    setattr(build.objective, flasks.FLASKLESS_READING, False)
+    try:
+        search.settle()
+        without = build.objective.dps(build.stats)
+    finally:
+        setattr(build.objective, flasks.FLASKLESS_READING, True)
+        search.settle()
+    return {"var": "flask:no-life-flask", "label": "Last Stand's Attack Damage with no Life Flask equipped*",
+            "kind": PLAYER, "counted": True,
+            "play": (f"No Life Flask equipped: {headline:,.0f} DPS with the line on (the headline: no Life Flask, so no "
+                     f"use left, the literal reading), {without:,.0f} without it (if the line needs an equipped Life "
+                     "Flask; RESEARCH33 R33-3: unsettled, a 2025 forum report says the node isn't working). With a Life "
+                     "Flask the line is on under either reading only while you drink each use as it fills, which needs "
+                     "you below full Life then"),
+            "dps_with": headline, "dps_without": without,
+            "change": (headline - without) / without if without > 0 else 0.0,
+            "confidence": "MEDIUM-LOW (R33-3: the no-flask reading UNSETTLED)"}

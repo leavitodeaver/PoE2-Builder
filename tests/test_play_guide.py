@@ -544,3 +544,33 @@ def test_the_curse_lapse_row_scores_letting_a_curse_run_out_for_withering_hex(mo
     assert getattr(build.objective, models.CURSE_LAPSE) == {"Despair"}
     monkeypatch.setattr(conditions, "curse_lapse_candidates", lambda build, texts: [])
     assert play_guide.curse_lapse_row(search, 1000.0) is None
+
+
+def test_the_last_stand_row_scores_the_build_without_the_no_flask_reading():
+    """MECHC43 (R33-3, the manager's 11:30 ruling): with Last Stand and no Life Flask equipped, the play guide gives the
+    DPS without the line (one trial with flasks.FLASKLESS_READING off, then put back), not "0% Attack Damage"."""
+    from builder.search import flasks
+
+    note = flasks.no_life_uses_model(SimpleNamespace(equipped={}, call=lambda name, **kw: {}),
+                                     ["25% increased Attack Damage while you have no Life Flask uses left"])[1][0]
+
+    class Build:
+        objective = SimpleNamespace(dps=lambda stats: stats["dps"])
+
+        @property
+        def stats(self):
+            return {"dps": 1000.0 if getattr(self.objective, flasks.FLASKLESS_READING, True) else 800.0}
+
+    build, settled = Build(), []
+    search = SimpleNamespace(build=build, assumptions=SimpleNamespace(active=[note]),
+                             settle=lambda: settled.append(getattr(build.objective, flasks.FLASKLESS_READING, True)))
+    row = play_guide.last_stand_row(search, 1000.0)
+    assert settled == [False, True] and getattr(build.objective, flasks.FLASKLESS_READING) is True
+    assert row["var"] == "flask:no-life-flask" and row["counted"] and row["dps_without"] == 800.0
+    assert row["change"] == approx(0.25) and "1,000 DPS with the line on" in row["play"] and "800 without it" in row["play"]
+    trial = SimpleNamespace(equipped={}, objective=SimpleNamespace(**{flasks.FLASKLESS_READING: False}))
+    assert flasks.no_life_uses_share(trial)[0] == 0.0 and flasks.no_life_uses_model(trial, [note["label"][:-1]])[0] == []
+    plain = SimpleNamespace(build=Build(), assumptions=SimpleNamespace(active=[{"play": "Drink your Life Flask"}]),
+                            settle=lambda: None)
+    assert play_guide.last_stand_row(plain, 1000.0) is None
+
