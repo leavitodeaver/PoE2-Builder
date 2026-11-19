@@ -19,3 +19,25 @@
   sources: ["builder/search/models.py (shield_charge_distance_model and the comment above it)",
             "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua (ShieldChargePlayer: shield_charge_extra_distance 80)"]
   status: proposed
+
+- id: model-gem23-herald-of-thunder-bolts
+  title: "Herald of Thunder: bolts on the next N attack hits after a Shocked kill (PoB gives the Bolt set no rate: 0 DPS)"
+  kind: model
+  model: herald_of_thunder
+  stats: ["herald_of_thunder_storm_max_hits"]
+  skill: [Herald of Thunder]
+  confidence: LOW
+  notes: >-
+    models.herald_of_thunder_model + assumptions.herald_of_thunder (GEM23; an UNDERCOUNT). Probe POE2T3534
+    (scratch/gem23/probe_hot.json): PoB's Bolt set Speed 0, TotalDPS 0; Lightning Arrow's FullDPS 63.24 with or without
+    the Herald. Game text (herald_of_thunder_statset_0): "Lightning Bolts strike the targets of your next {0} Attack
+    Hits after killing a Shocked enemy with Attack damage" (2 at gem level 1, 3 at 20, +0.1 a quality). Bolts a second =
+    min(the main attack's hits a second x its share of the fight, the boss preset's add kills a second x the boss's Shock
+    uptime x N), each at PoB's Bolt AverageDamage. 0 against a lone boss (no kills: no source, 0). LOW: adds Shocked as
+    often as the boss, killed by attacks, the next N hits on the boss; other attacks' hits not counted (an undercount).
+  sources: ["builder/search/models.py (herald_of_thunder_model)", "builder/search/assumptions.py (herald_of_thunder)",
+            "vendor/PathOfBuilding-PoE2/src/Data/StatDescriptions/Specific_Skill_Stat_Descriptions/herald_of_thunder_statset_0.lua",
+            "data/game-26650308/tables (ActiveSkills herald_of_thunder; GrantedEffectStatSets 84 / 85; GrantedEffectStatSetsPerLevel 3229 / 3248)",
+            "scratch/gem23/probe_hot.json"]
+  test_in_game: "Optional: a Shocking attack build with Herald of Thunder against a boss with adds: bolts should fall on the boss for a few hits after each Shocked add dies."
+  status: proposed

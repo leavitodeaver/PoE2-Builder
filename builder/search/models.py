@@ -8239,6 +8239,49 @@ def herald_of_blood_model(main: Skill | None, scored: str | None, sets: list[dic
                  f"(any Physical damage over time, Bleeding or not): "
                  f"with this fight's adds {kills * blast:,.0f}; without Blood Loss on them: 0.")}]
 
+
+# Herald of Thunder's bolts (GEM23; an UNDERCOUNT: probe POE2T3534, PoB scores its Bolt set Speed 0, TotalDPS 0, and a
+# Lightning Arrow build's FullDPS is 63.24 with or without it). The game (26650308): ActiveSkills herald_of_thunder
+# "While active, killing [Shock|Shocked] enemies with a non-[Herald] [Attack] [Hit] will cause subsequent [Attack]
+# [Hit|Hits] to release lightning bolts which deal [Attack] damage to all surrounding enemies"; its stat text
+# (herald_of_thunder_statset_0): "Lightning Bolts strike the targets of your next {0} Attack Hits after killing a Shocked
+# enemy with Attack damage", herald_of_thunder_storm_max_hits 2 at gem level 1, 3 at 20 (GrantedEffectStatSetsPerLevel
+# 3229 / 3248), +0.1 a quality (PoB's qualityStats); the Bolt set (HeraldOfThunderOnKillPlayer): 100% Physical converted
+# to Lightning, radius 1 m, always hits. So bolts a second = min(the attack hits a second on the boss, Shocked kills a
+# second x N). The boss's own death ends the fight, so only the boss preset's killable adds feed it
+# (bosses.kills_per_second; 0 against a lone boss: no source, 0, CLAUDE.md). Each slain add taken to be Shocked as often
+# as the boss is (the resolver's Shock uptime; LOW) and killed by an attack hit when the main skill is an attack (LOW);
+# the next N hits taken to land on the boss (LOW: fight-decided). The attack hits: the main skill's (PoB's Speed x hit
+# chance x its share of the fight, assumptions.main_time_share); other attacks' hits not counted (an UNDERCOUNT,
+# labelled), a hit taken as one per use (a multi-hit attack: an UNDERCOUNT). Each bolt: PoB's AverageDamage for the Bolt
+# set in the Herald's own group (its supports, after the boss's mitigation). LOW.
+HERALD_OF_THUNDER = "Herald of Thunder"
+HERALD_OF_THUNDER_ENTRY = "model-gem23-herald-of-thunder-bolts"
+HERALD_OF_THUNDER_STAT = "herald_of_thunder_storm_max_hits"
+
+
+def herald_of_thunder_model(bolt: float, attack_hits: float, kills: float, shocked: float, storm_hits: float,
+                            how: str = "") -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Herald of Thunder's bolts (see above): `bolt` the Bolt set's average hit on the boss,
+    `attack_hits` the main attack's hits a second on the boss, `kills` adds killed a second, `shocked` the share of them
+    Shocked, `storm_hits` the attack hits each such kill gives bolts to."""
+    if bolt <= 0:
+        return 0.0, []
+    supply = max(kills, 0.0) * min(max(shocked, 0.0), 1.0) * max(storm_hits, 0.0)
+    bolts = min(max(attack_hits, 0.0), supply)
+    dps = bolts * bolt
+    return dps, [{
+        "label": "Herald of Thunder: bolts on your next attack hits after a Shocked kill*", "value": f"{dps:,.1f} DPS",
+        "confidence": "LOW", "entry": HERALD_OF_THUNDER_ENTRY,
+        "basis": (f"PoB gives its Bolt set no rate (0 DPS). The game: bolts strike the targets of your next "
+                  f"{storm_hits:g} attack hits after you kill a Shocked enemy with an attack; {how}; Shocked when they "
+                  f"die {shocked:.0%} (the boss's Shock uptime, LOW): {supply:.4f} bolts a second on offer, your main "
+                  f"attack's hits {attack_hits:.2f} a second (other attacks not counted): {bolts:.4f} bolts a second at "
+                  f"{bolt:,.0f} each"),
+        "play": (f"Herald of Thunder fires only after you kill a Shocked enemy with an attack: against a lone boss it deals "
+                 f"nothing. Shock the boss's adds and kill them with attacks: with this fight's adds {dps:,.1f} DPS; "
+                 f"without Shocked kills: 0.")}]
+
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
 # "Hit damage is taken from Mana before Life if your current Mana is higher than your current Life" (poe2db): counted as
 # 100% Mind over Matter while the build's unreserved Mana is above its Life, both pools full (the manager's ruling,

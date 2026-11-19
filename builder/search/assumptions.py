@@ -1475,6 +1475,35 @@ def elemental_discharge(build: Build, main: models.Skill | None) -> tuple[float,
     return total, notes
 
 
+def herald_of_thunder(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Herald of Thunder's bolts (GEM23's models.herald_of_thunder_model): the Herald in an enabled
+    group (its Bolt set's AverageDamage from setRates, its storm hits from the gem's level stats), the main skill's
+    attack hits a second (main_time_share), the boss preset's add kills (bosses.kills_per_second) and the boss's Shock
+    uptime (models.ailment_up_of) as the share of them Shocked."""
+    group = next((g for g in build.groups() if g["enabled"]
+                  and any(s["name"] == models.HERALD_OF_THUNDER for s in g["skills"])), None)
+    if group is None or main is None or main.name == models.HERALD_OF_THUNDER:
+        return 0.0, []
+    position = next(i for i, s in enumerate(group["skills"], start=1) if s["name"] == models.HERALD_OF_THUNDER)
+    sets = build.call("setRates", index=group["index"], active=position)["sets"]
+    bolt = max((models.number(x.get("AverageDamage")) for x in sets if x.get("label") == "Bolt"), default=0.0)
+    raw = build.call("activeSkills", levelStats=[models.HERALD_OF_THUNDER])["skills"]
+    storm = max((models.number((s.get("levelStats") or {}).get(models.HERALD_OF_THUNDER_STAT)) for s in raw
+                 if s["name"] == models.HERALD_OF_THUNDER), default=0.0)
+    if not main.attack:
+        hits = 0.0
+    else:
+        got = build.call("stats", fields=["Speed", "HitChance"])
+        hits = (models.number(got.get("Speed")) * min(models.number(got.get("HitChance", 100) or 100), 100) / 100
+                * main_time_share(build, main))
+    from builder.search import bosses
+    request = getattr(getattr(build, "ctx", None), "request", None)
+    kills, kills_how = bosses.kills_per_second(bosses.of({"_boss": getattr(request, "boss", None)}).name)
+    up, _ = models.ailment_up_of(build)
+    how = kills_how if main.attack else f"{kills_how}; the main skill is no attack, so no attack hits release bolts"
+    return models.herald_of_thunder_model(bolt, hits, kills, up.get("Shock", 0.0), storm, how)
+
+
 def broken_stance(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Vaulting Impact's Broken Stance (GEM5's models.broken_stance_model; GEM6 wires it): the
     best Vaulting Impact in an enabled group (its pre-mitigation Physical hit, PoB's PhysicalStoredCombinedAvg, and its
@@ -2958,6 +2987,9 @@ class Assumptions:
         discharge, discharge_notes = elemental_discharge(build, main)  # (GEM5's model; MECH69's ailment uptimes)
         hand_mods += [models.added_input("ElementalDischarge", discharge)] if discharge > 0 else []
         hand_notes += discharge_notes
+        thunder, thunder_notes = herald_of_thunder(build, main)  # (GEM23: its bolts after Shocked kills)
+        hand_mods += [models.added_input("HeraldOfThunder", thunder)] if thunder > 0 else []
+        hand_notes += thunder_notes
         stance, stance_notes = broken_stance(build, main)  # (GEM5's model; MECH-A's build.dazed_up, 0 until published)
         hand_mods += [models.added_input("BrokenStance", stance)] if stance > 0 else []
         hand_notes += stance_notes

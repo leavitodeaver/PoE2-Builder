@@ -1391,3 +1391,13 @@ def test_one_ignite_counts_the_strongest_part_at_its_own_uptime():
     assert every[0]["value"] == pytest.approx(100 * (42 / 40 - 1), abs=0.01)
     stacking = [{**s, "IgniteStacksMax": 3} for s in sets]
     assert models.strongest_ailment_model(skill, stacking, {"Plain": 1.0, "Strong": 0.1}, 1.0) == ([], [])
+
+
+def test_herald_of_thunder_bolts_follow_shocked_kills_and_the_attacks_hits():
+    """GEM23: bolts a second = min(attack hits, kills x Shocked share x storm hits) x the bolt's hit; 0 with no kills."""
+    dps, notes = models.herald_of_thunder_model(100.0, 2.0, 0.2, 0.5, 3, "test")
+    assert dps == pytest.approx(0.2 * 0.5 * 3 * 100)
+    assert notes[0]["entry"] == models.HERALD_OF_THUNDER_ENTRY and "without Shocked kills: 0" in notes[0]["play"]
+    assert models.herald_of_thunder_model(100.0, 0.1, 1.0, 1.0, 3)[0] == pytest.approx(10.0)  # (capped by the hits)
+    assert models.herald_of_thunder_model(100.0, 2.0, 0.0, 1.0, 3)[0] == 0.0  # (a lone boss: no source, 0)
+    assert models.herald_of_thunder_model(0.0, 2.0, 1.0, 1.0, 3) == (0.0, [])
