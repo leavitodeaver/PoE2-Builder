@@ -43,8 +43,14 @@ CURSE_LABEL = "auto: curse"
 # then fills the rest by what-if WITH the seed in (so a support feeding Doom Blast shows its worth), and keeps the
 # group only if the build scores higher. Once per RUN (the manager 19 Nov 06:50: run.py flags the first focus task;
 # per line measured lower), inside CURSE_SECONDS of the task's clock (my number: a search
-# budget, not a game number). POE2_SEARCH_CURSE_SEEDS=1 turns it on (off until a 3-run set says higher).
-CURSE_SEEDS = os.environ.get("POE2_SEARCH_CURSE_SEEDS", "0") != "0"
+# budget, not a game number). ON by default since its 3-run 2b75b set measured higher (SEARCH30, 19 Nov: C 25,568 /
+# 31,478 / 22,959 against off 7,230 / 23,346 / 19,175, all floors met; gear 55b40650; the manager's 02:50 rule: on only
+# when its 3-run set measures higher); POE2_SEARCH_CURSE_SEEDS=0 turns it off.
+def curse_seeds_on(env=os.environ) -> bool:
+    return env.get("POE2_SEARCH_CURSE_SEEDS", "1") != "0"
+
+
+CURSE_SEEDS = curse_seeds_on()
 CURSE_SECONDS = 45.0
 CURSE_SCREEN_KEEP = 2  # curses (screened with every seed in) whose seed variants and fills are tried
 CURSE_DAMAGE = re.compile(r"^Supports Curse.*\b(trigger|spawns?|damag\w*|erupt\w*)\b", re.S | re.I)

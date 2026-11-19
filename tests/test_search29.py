@@ -213,7 +213,8 @@ def test_the_seeded_curse_trial_adds_a_curse_with_a_damage_support_only_if_highe
     seeds = search.gems.curse_damage_supports()
     print("PROBE seeds", seeds)
     assert "Impending Doom" in seeds
-    assert search.gems.curse_round(clock.now() + 120) is False  # (off by default: POE2_SEARCH_CURSE_SEEDS)
+    monkeypatch.setattr(gems_module, "CURSE_SEEDS", False)  # (POE2_SEARCH_CURSE_SEEDS=0: the switch turns it off)
+    assert search.gems.curse_round(clock.now() + 120) is False
     monkeypatch.setattr(gems_module, "CURSE_SEEDS", True)
     monkeypatch.setattr(gems_module, "CURSE_SECONDS", 60.0)
     assert search.gems.curse_round(clock.now() + 120) is False  # (only the task the run flags: optimize_task's curses)
@@ -237,3 +238,12 @@ def test_alloys_are_off_by_default_and_the_switch_turns_them_on(monkeypatch):
     assert not alloys.enabled()
     monkeypatch.setenv("POE2_SEARCH_ALLOYS", "1")
     assert alloys.enabled()
+
+
+
+def test_the_seeded_curse_trial_is_on_by_default_and_the_switch_turns_it_off():
+    """SEARCH30: its 3-run 2b75b set measured higher (gear 55b40650), so it is on unless POE2_SEARCH_CURSE_SEEDS=0."""
+    from builder.search import gems
+
+    assert gems.curse_seeds_on({}) and gems.curse_seeds_on({"POE2_SEARCH_CURSE_SEEDS": "1"})
+    assert not gems.curse_seeds_on({"POE2_SEARCH_CURSE_SEEDS": "0"})
