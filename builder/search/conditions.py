@@ -1203,9 +1203,11 @@ STEAL_NOTE = ("the boss holds no Charges to steal (research boss-charges-steal.m
 # refresh model's share at the maximum, s ^ maximum), less the charge-time each spend costs until the next gain
 # (e / gains charges, taken off the count). Each bypass skill takes at most its use rate (PoB's Speed, one use's time)
 # above its cooldown rate. The extra uses reach every reader through PoB's cooldown (a CooldownRecovery INC on that
-# skill: Assumptions' bypass hook). Spending a charge on the bypass isn't counted as "consuming" it (UNVERIFIED: the
-# game says "expending"; the lower reading for "on consuming a charge" effects). ROW: spending every charge on it
-# (uses up to its use rate, charges held 0).
+# skill: Assumptions' bypass hook). Spending a charge on the bypass counts as "consuming" it (was UNVERIFIED: the
+# game says "expending"; RESEARCH R32-7 (1), 18 Nov: it leans YES, MEDIUM-LOW, the Charges definition calls every
+# fuelling use "consumed" and there's no separate Expend keyword: so the bypass's spend joins build.charge_flow for
+# "on consuming a charge" effects, "doesn't count" being the row). ROW: spending every charge on it (uses up to its use
+# rate, charges held 0).
 BYPASS_LINE = re.compile(r"cooldown can be bypassed by expending an? (Endurance|Frenzy|Power) Charge", re.I)
 BYPASS_POWER = {"Cold Snap": "Power", "Vigilant Strike": "Power", "Flicker Strike": "Power"}
 BYPASS_RAGE_SUPPORTS = ("Enraged Warcry I", "Enraged Warcry II")  # (spend 20 / 15 Rage instead: not counted)
@@ -1240,6 +1242,10 @@ def bypass_share(stats: dict, kind: str, rate: float, gains: float, count: float
                         f"({spare:.3f}/s spare of {rate:.2f}/s made; up to {cap:.3f}/s above its cooldown, {how})"
                         + (f"; spending every {kind} Charge on it instead: {all_in:.3f}/s, none held" if all_in > e
                            else ""), all_in, base)
+    if used > 0:  # (R32-7 (1): a charge spent on the bypass counts as consumed, MEDIUM-LOW; "doesn't count" is the row)
+        flow = stats.setdefault("_charge_flow", {})
+        spent, how = flow.get(kind, (0.0, ""))
+        flow[kind] = (spent + used, (how + "; " if how else "") + f"{used:.2f}/s spent bypassing cooldowns")
     if refresh and gains > 0:
         count = max(count - used / gains, 0.0)
     return count
@@ -1261,7 +1267,8 @@ def bypass_mods(uses: dict, rage_support: bool = False) -> tuple[list[dict], lis
                               + (f"; spending every charge on it: +{all_in:.3f} uses/s" if all_in > e else ""),
                      "basis": how + ("; Enraged Warcry's 'spend Rage instead': NOT counted (an UNDERCOUNT kept)"
                                      if rage_support else ""),
-                     "confidence": "MEDIUM (the spare charges; 'expending' not read as consuming: UNVERIFIED)",
+                     "confidence": ("MEDIUM (the spare charges); MEDIUM-LOW that 'expending' is consuming (R32-7): "
+                                    "counted for 'on consuming a charge' effects; without that: not"),
                      "play": (f"Use {name} again before its cooldown ends whenever your charges are at their maximum"
                               if inc > 0 else "")})
     return mods, rows, inc_by
