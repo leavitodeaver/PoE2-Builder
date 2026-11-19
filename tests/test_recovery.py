@@ -2597,7 +2597,7 @@ def test_duality_olroths_resolve_and_decree_of_flight_grant_guard_at_the_builds_
     monkeypatch.setattr(recovery, "full_es_share", lambda stats: (0.4, "x"))
     hook = assumptions.Assumptions.__new__(assumptions.Assumptions)
     hook.build = build
-    stats = {"Life": 1000.0}
+    stats = {"Life": 1000.0, "EnergyShield": 4000.0}  # (MECHC42, R33-6: the Guard cap on ES with Decree's line)
     found = {row["label"].split(" (")[0]: (guard, up, row) for guard, up, row in
              hook.event_guards([duality, olroth, *decree], stats, None, {"Tempest Bell": {}}, None)}
     guard, up, row = found["Guard from Duality"]
@@ -2647,7 +2647,7 @@ def test_natures_exchange_and_helbryms_composure_grant_guard_at_the_builds_own_r
     build = SimpleNamespace(call=call, equipped={}, groups=lambda: groups)
     monkeypatch.setattr(models, "buildup_rate", lambda stats, ailment: 0.5)
     monkeypatch.setattr(conditions, "Conditions",
-                        lambda b, main: SimpleNamespace(_human_shifts=lambda speed: (0.25, "each Rampage")))
+                        lambda b, main: SimpleNamespace(_human_shifts=lambda speed, any_form=False: (0.25, "each Rampage")))
     monkeypatch.setattr(objective, "boss_taken", lambda stats: ({"Physical": 300.0, "Fire": 100.0}, 0.5, 1.0))
     hook = assumptions.Assumptions.__new__(assumptions.Assumptions)
     hook.build = build
@@ -2753,7 +2753,7 @@ def test_deafening_cries_counts_each_warcry_used_recently_at_the_builds_own_rate
             "Fireball": {"skillTypes": ["Spell"]}}
     build = SimpleNamespace(ctx=SimpleNamespace(all_gems=gems), groups=lambda: groups,
                             call=lambda name, indices=(), **kw: {"rates": [rates[i] for i in indices]})
-    count, how = assumptions.warcries_used_recently(build)
+    count, how, both = assumptions.warcries_used_recently(build)
     assert count == pytest.approx(4 * (1 / 8 + 1 / 4)) and "Infernal Cry" in how  # (the same Warcry twice: once)
     mods, rows = assumptions.warcried_model(build, [line])
     assert mods[0]["line"] == "1% increased Damage" and mods[0]["scale"] == pytest.approx(8 * 1.5)
@@ -2839,3 +2839,34 @@ def test_the_raised_block_rune_is_a_row_at_the_raised_blocks_recently():
     assert "adds nothing now" in low["basis"] and low["play"] == ""
     assert recovery.raised_max_block_row([line], 0.0, 1.0, 50.0, 50.0)["value"].endswith("0% of the fight")
     assert recovery.raised_max_block_row(["+5% to maximum Block chance"], 1.0, 1.0, 50.0, 50.0) is None
+
+
+def test_research33_answers_on_mechc42s_models():
+    """MECHC42 (RESEARCH33 R33-3..R33-7): Last Stand with no Life Flask keeps the literal reading with a "without it" row
+    (MEDIUM-LOW); a Warcry Ferocious Roar triggers adds no count of its own (one per press, the "2 per press" reading a
+    row); the Guard cap is on maximum Energy Shield with "Maximum amount of Guard is based on maximum Energy Shield
+    instead"; Helbrym's Composure counts every change out of the form, animal to animal too."""
+    from types import SimpleNamespace
+
+    from builder.search import assumptions, conditions, flasks
+
+    bare = SimpleNamespace(equipped={}, call=lambda name, **kw: {})
+    mods, rows = flasks.no_life_uses_model(bare, ["25% increased Attack Damage while you have no Life Flask uses left"])
+    assert mods[0]["scale"] == pytest.approx(25.0) and len(rows) == 2
+    assert rows[0]["play"].startswith("No Life Flask equipped*") and rows[1]["value"] == "0% increased Attack Damage"
+    assert "MEDIUM-LOW" in rows[0]["confidence"]
+    groups = [{"index": 1, "gems": [{"name": "Ferocious Roar"}, {"name": "Infernal Cry"}]},
+              {"index": 2, "gems": [{"name": "Infernal Cry"}]}]
+    gems = {"Ferocious Roar": {"skillTypes": ["Warcry"]}, "Infernal Cry": {"skillTypes": ["Warcry"]}}
+    rates = {1: {"index": 1, "cooldown": 8.0, "repeats": 3}, 2: {"index": 2, "cooldown": 8.0}}
+    build = SimpleNamespace(ctx=SimpleNamespace(all_gems=gems), groups=lambda: groups,
+                            call=lambda name, indices=(), **kw: {"rates": [rates[i] for i in indices]})
+    count, how, both = assumptions.warcries_used_recently(build)
+    assert count == pytest.approx(4 * 2 / 8) and both == pytest.approx(4 * 3 / 8)  # (repeats ignored; Roar once)
+    assert "Ferocious Roar triggering Infernal Cry" in how
+    texts = ["Maximum amount of Guard is based on maximum Energy Shield instead"]
+    assert recovery.guard_cap_base(texts, 3000.0, 5000.0) == 5000.0 and recovery.guard_cap_base([], 3000.0, 5000.0) == 3000.0
+    bear = {"Shapeshift", "Bear"}
+    others = {"Wolf skill": ({"Shapeshift", "Wolf"}, 0.25), "Human skill": (set(), 0.25)}
+    assert conditions.human_shifts(bear, others, 1.0)[0] == pytest.approx(0.25)
+    assert conditions.human_shifts(bear, others, 1.0, any_form=True)[0] == pytest.approx(0.5)

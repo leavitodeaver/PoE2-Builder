@@ -1382,7 +1382,8 @@ CHARGE_OVERRIDES = {f"override{kind}Charges": kind for kind in ("Power", "Frenzy
 # minionsUse<kind>Charges / minionsOverride<kind>Charges). The minions' count: the same gains, each minion's own maximum 3
 # (Monster.ot, MECHC31's note) and 15 s duration (KeywordPopups Charges), the refresh model (charges_with_refresh); they
 # spend none (MEDIUM). No minion skill: 0, said (against a lone boss nothing else is an ally of yours).
-# Which minions are in your Presence (MECHC41; RESEARCH32 R32-7 (3), MEDIUM-LOW, by geometry; no AI leash value is in the
+# Which minions are in your Presence (MECHC41; RESEARCH32 R32-7 (3), MEDIUM-LOW, by geometry, kept by RESEARCH33 R33-7
+# (no source on combat positioning); no AI leash value is in the
 # exported data and no player source measures it): ranged and caster minions stay near you, so inside; melee minions go
 # to the boss, so inside only while the boss is within your Presence (the boss's distance, _boss_distance, against PoB's
 # PresenceRadius; the Presence is 4 m by default, KeywordPopups Presence). Ranged / caster by their minions' skills in
@@ -1419,7 +1420,7 @@ def minions_in_presence(stats: dict, lines: list[str] | None = None) -> tuple[fl
         parts.append(f"{', '.join(ranged)}: ranged / caster minions stay near you, inside")
     if melee:
         parts.append(f"{', '.join(melee)}: melee minions at the boss, {'inside' if near else 'outside'} ({where})")
-    return inside / len(gems), "; ".join(parts) + " (MEDIUM-LOW, R32-7 (3))"
+    return inside / len(gems), "; ".join(parts) + " (MEDIUM-LOW, R32-7 (3); R33-7: no source on where the AI keeps them)"
 
 
 def minion_shared(kind: str):
@@ -1600,21 +1601,27 @@ ANIMAL_FORMS = ("Bear", "Wolf", "Wyvern")
 SHIFTED_RAGE = re.compile(r"\+(\d+) to maximum Rage while Shapeshifted\b", re.I)
 
 
-def human_shifts(main_types: set[str], others: dict[str, tuple[set[str], float]], speed: float) -> tuple[float, str]:
+def human_shifts(main_types: set[str], others: dict[str, tuple[set[str], float]], speed: float,
+                 any_form: bool = False) -> tuple[float, str]:
     """(shifts back to Human form a second, how) from the main skill's types and speed and the build's other pressed
-    skills ({name: (types, uses a second)})."""
+    skills ({name: (types, uses a second)}). `any_form` (MECHC42, RESEARCH33 R33-7: Helbrym's Composure is removed by
+    any change of form, animal to animal too, HIGH): with an animal-form main skill, a pressed skill of another animal
+    form also takes you out of the main skill's form (and its next use back into it)."""
     def form(types: set[str]) -> str | None:
         return next((f for f in ANIMAL_FORMS if f in types), None) if "Shapeshift" in types else None
 
     main_form = form(main_types)
     if main_form is not None:
-        back = {n: u for n, (t, u) in others.items() if u > 0 and "Shapeshift" not in t and "UsableWhileShapeshifted" not in t}
+        back = {n: u for n, (t, u) in others.items() if u > 0 and (
+            "Shapeshift" not in t and "UsableWhileShapeshifted" not in t
+            or any_form and form(t) not in (None, main_form))}
         rate = min(sum(back.values()), speed) if speed > 0 else 0.0
         if rate <= 0:
             return 0.0, (f"the main skill keeps you in {main_form} form and the build presses no skill that isn't "
                          "usable in it: no shift back to Human form, 0")
         return rate, (f"the main skill keeps you in {main_form} form; each use of " + ", ".join(
-            f"{n} ({u:.2f}/s)" for n, u in back.items()) + f" shifts you back to Human form: {rate:.2f}/s")
+            f"{n} ({u:.2f}/s)" for n, u in back.items()) + (" takes you out of it" if any_form else
+                                                              " shifts you back to Human form") + f": {rate:.2f}/s")
     if "Shapeshift" in main_types or "UsableWhileShapeshifted" in main_types:
         return 0.0, ("the main skill is usable while Shapeshifted (or isn't an animal form's): which presses shift you "
                      "back isn't read, 0 (UNVERIFIED)")
@@ -7168,7 +7175,7 @@ class Conditions:
         it (models.press_choices), else 0 (no source, 0; MECH56: before, one use every models.PRESS_EVERY s)."""
         return models.press_choice({"name": name}, models.press_choices(self.build)) or 0.0
 
-    def _human_shifts(self, speed: float) -> tuple[float, str]:
+    def _human_shifts(self, speed: float, any_form: bool = False) -> tuple[float, str]:
         """human_shifts for the build: its pressed active skills beside the main one (constraints.presses), each at its
         group's rate (_group_uses; else the search's chosen rate, else 0). Triggered and persistent skills aren't
         presses, so they aren't counted (UNVERIFIED whether a triggered skill shifts you back: a lower reading)."""
@@ -7181,7 +7188,7 @@ class Conditions:
                  and presses(gem)}
         uses = self._group_uses(groups, names)
         others = {n: (set(gems[n].get("skillTypes") or []), uses.get(n, self._chosen_use(n))) for n in names}
-        return human_shifts(self.main_types, others, speed)
+        return human_shifts(self.main_types, others, speed, any_form)
 
     def _minion_inputs(self) -> tuple[list, object, dict]:
         """(the build's enabled skills, the main one, the stats models.minion_deaths reads) for the minion models."""

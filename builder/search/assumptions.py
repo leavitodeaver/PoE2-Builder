@@ -926,28 +926,50 @@ def mana_flask_uses(build: Build) -> float:
 # the past 4 s (KeywordPopups Recently), time-averaged, is 4 s x the uses a second summed over the build's Warcries (each on
 # conditions.skill_use_rate: its cooldown, else its duration, else the search's chosen rate, else 0), the same Warcry in
 # two groups once; no Warcry: 0. Handed to PoB as plain "N% increased Damage" x that count (averaged over the fight, MEDIUM).
+# RESEARCH33 R33-4 (deafening-cries-warcry-counting.md): a Warcry socketed in Ferocious Roar (the meta gem,
+# SupportFerociousRoarPlayer: "Triggers Socketed Warcry instead of Ferocious Roar's effects") is Triggered, and
+# "Triggering a Skill does not count as using it" (KeywordPopups Trigger): one count per Roar press (MEDIUM), so a group
+# holding Ferocious Roar counts once, at the group's rate (PoB rates the group by its first active skill, the Roar: its
+# 8 s cooldown after Cooldown Recovery, which carries the Endurance Charge bypasses conditions.bypass_mods hands PoB);
+# the row "if the triggered Warcry counts too: 2 per press" (UNVERIFIED). Echoes (Echoing Cry) are the same use (MEDIUM):
+# not counted (PoB maps base_warcry_echo_X_times to nothing; useRates' repeats are set to 1 here all the same). Totems and
+# Autoexertion: none in 0.5.5 (HIGH, R33-4).
 WARCRIED_EACH = re.compile(r"^(\d+(?:\.\d+)?)% increased Damage for each time you've Warcried Recently$", re.I)
+FEROCIOUS_ROAR = "Ferocious Roar"
 
 
-def warcries_used_recently(build: Build) -> tuple[float, str]:
-    """(Warcries used in the past 4 s on average, how) (the note above)."""
+def warcries_used_recently(build: Build) -> tuple[float, str, float]:
+    """(Warcries used in the past 4 s on average, how, the count if a Warcry Ferocious Roar triggers counted too)."""
     ctx = build.ctx
-    found = {g["index"]: n["name"] for g in build.groups() if g.get("enabled") is not False
-             for n in g.get("gems") or [] if n.get("enabled", True) and not n.get("support")
-             and "Warcry" in (gem_of(ctx, n["name"], n.get("skillId")).get("skillTypes") or [])}
-    if not found:
-        return 0.0, "no Warcry in the build's enabled groups: 0"
-    each: dict[str, tuple[float, str]] = {}
-    for rate in build.call("useRates", indices=sorted(found))["rates"]:
-        name = found.get(rate.get("index"))
-        if name is None:
+    found: dict[int, list[str]] = {}
+    for g in build.groups():
+        if g.get("enabled") is False:
             continue
-        uses, why, low = conditions_mod.skill_use_rate(rate, models.press_choices(build))
-        if uses >= each.get(name, (-1.0, ""))[0]:
-            each[name] = (uses, f"{name} {uses:.3f}/s on {why}" + (" (LOW)" if low else ""))
+        for n in g.get("gems") or []:
+            if (n.get("enabled", True) and not n.get("support")
+                    and "Warcry" in (gem_of(ctx, n["name"], n.get("skillId")).get("skillTypes") or [])):
+                found.setdefault(g["index"], []).append(n["name"])
+    if not found:
+        return 0.0, "no Warcry in the build's enabled groups: 0", 0.0
+    each: dict[str, tuple[float, str]] = {}
+    roar = 0.0
+    for rate in build.call("useRates", indices=sorted(found))["rates"]:
+        names = found.get(rate.get("index"))
+        if not names:
+            continue
+        uses, why, low = conditions_mod.skill_use_rate({**rate, "repeats": 1}, models.press_choices(build))
+        if FEROCIOUS_ROAR in names:
+            others = [n for n in names if n != FEROCIOUS_ROAR]
+            key = f"{FEROCIOUS_ROAR} (group {rate.get('index')})"
+            label = FEROCIOUS_ROAR + (f" triggering {', '.join(others)} (one count a press, R33-4)" if others else "")
+            roar += uses if others else 0.0
+        else:
+            key = label = names[0]  # (the same Warcry in two groups: once)
+        if uses >= each.get(key, (-1.0, ""))[0]:
+            each[key] = (uses, f"{label} {uses:.3f}/s on {why}" + (" (LOW)" if low else ""))
     count = conditions_mod.RECENTLY * sum(u for u, _ in each.values())
     return count, (f"{conditions_mod.RECENTLY:g} s x ({'; '.join(h for _, h in each.values()) or 'no use rate'}) = "
-                   f"{count:.2f} Warcries Recently on average")
+                   f"{count:.2f} Warcries Recently on average"), count + conditions_mod.RECENTLY * roar
 
 
 def warcried_model(build: Build, texts: list[str]) -> tuple[list[dict], list[dict]]:
@@ -955,12 +977,14 @@ def warcried_model(build: Build, texts: list[str]) -> tuple[list[dict], list[dic
     value = sum(float(m.group(1)) for t in texts if (m := WARCRIED_EACH.match(t.strip())))
     if value <= 0:
         return [], []
-    count, how = warcries_used_recently(build)
+    count, how, both = warcries_used_recently(build)
     mods = [models.line("1% increased Damage", value * count)] if count > 0 else []
     return mods, [{
         "label": f"{value:g}% increased Damage for each time you've Warcried Recently*",
-        "value": f"{value * count:.1f}% on average ({count:.2f} Warcries Recently)",
-        "basis": f"{how}; PoB counts none (its count box is never set)",
+        "value": f"{value * count:.1f}% on average ({count:.2f} Warcries Recently)"
+                 + (f"; if the Warcry Ferocious Roar triggers counts too (2 per press, UNVERIFIED): {value * both:.1f}%"
+                    if both > count else ""),
+        "basis": f"{how}; Echoes not counted (the same use, R33-4); PoB counts none (its count box is never set)",
         "play": (f"Use your Warcries on cooldown: with them {value * count:.1f}% increased Damage on average, "
                  "without them 0."),
         "confidence": "MEDIUM (uses on cooldown; LOW where marked)"}]
@@ -4166,6 +4190,9 @@ class Assumptions:
         build, out = self.build, []
         stripped = [t.strip() for t in texts]
         life = number(stats.get("Life"))
+        # (MECHC42, RESEARCH33 R33-6: "Maximum amount of Guard is based on maximum Energy Shield instead" caps EVERY Guard
+        # source at 200% of maximum Energy Shield, not of Life: MEDIUM; before, only Decree of Flight's own Guard read it)
+        guard_pool = recovery.guard_cap_base(texts, life, number(stats.get("EnergyShield")))
         expiry = (conditions_mod.buff_expiry(texts)[0] if any(conditions_mod.BUFF_EXPIRY.search(t) for t in texts)
                   else 1.0)
         if recovery.FORTIFYING_CRY in present:
@@ -4176,7 +4203,7 @@ class Assumptions:
             uses = group_uses(build, recovery.FORTIFYING_CRY) or (0.0, "not in an enabled group")
             amount = per * power // recovery.FORTIFY_POWER_STEP
             out.append(recovery.event_guard(
-                recovery.FORTIFYING_CRY, amount, uses[0], recovery.FORTIFY_SECONDS, texts, life,
+                recovery.FORTIFYING_CRY, amount, uses[0], recovery.FORTIFY_SECONDS, texts, guard_pool,
                 f"{per:g} Guard for every 5 enemy Power (the gem's level), a lone Unique boss's {models.BOSS_POWER:g} "
                 f"Power counted up to {recovery.FORTIFY_POWER_CAP}: {amount:g}; used {uses[1]}", True, expiry))
         groups = build.groups() if hasattr(build, "groups") else []
@@ -4193,7 +4220,7 @@ class Assumptions:
             rate, how = models.heavy_stun_rate(stats) if vanguard else (
                 0.0, "the shield skill it supports isn't the main skill, so its stuns aren't rated: 0")
             out.append(recovery.event_guard(
-                name, amount, rate, recovery.VANGUARD_SECONDS, texts, life,
+                name, amount, rate, recovery.VANGUARD_SECONDS, texts, guard_pool,
                 f"{heavy:g} Guard per 10 Strength on Heavy Stun x your {strength:,.0f} Strength; Heavy Stuns: {how}; its "
                 f"{per_stun:g} per 10 Strength on any Stun NOT counted (no light-stun rate on a boss in the models: an "
                 "UNDERCOUNT kept)", False, expiry))
@@ -4207,7 +4234,7 @@ class Assumptions:
                       if share > 0 and number(stats.get(f"{t}TakenHit")) >= recovery.SAVAGE_SHARE * life}
             rate = land * sum(savage.values())
             out.append(recovery.event_guard(
-                "Savage Hits taken", float(m.group(1)) / 100 * life, rate, float(m.group(2)), texts, life,
+                "Savage Hits taken", float(m.group(1)) / 100 * life, rate, float(m.group(2)), texts, guard_pool,
                 f"{name}'s {land:.2f} landed hits/s, those of a type whose hit after your mitigation removes 15%+ of "
                 f"your {life:,.0f} maximum Life (KeywordPopups SavageHit): "
                 + (", ".join(f"{t} {v:.0%}" for t, v in savage.items()) or "none") + f"; {m.group(1)}% of maximum Life",
@@ -4223,14 +4250,14 @@ class Assumptions:
                 per_second = flasks.use_amount(info, gain, "Life", option.raw) / length if length > 0 else 0.0
                 amount = float(m.group(2)) / 100 * per_second
                 how = f"{option.name}: {per_second:,.0f} Life a second over {length:.2g} s, used {how}"
-            out.append(recovery.event_guard("Heavy Drinker (Life flasks)", amount, rate, float(m.group(1)), texts, life,
+            out.append(recovery.event_guard("Heavy Drinker (Life flasks)", amount, rate, float(m.group(1)), texts, guard_pool,
                                             f"{m.group(2)}% of the Life recovery a second; {how}", True, expiry))
         if m := next((m for t in stripped if (m := recovery.WARD_TIMER_GUARD.match(t))), None):
             ward = number(build.call("stats", fields=["Ward"]).get("Ward"))
             every = float(m.group(1))
             out.append(recovery.event_guard(
                 "Warding Rune of Protection", float(m.group(2)) / 100 * ward, 1 / every if every > 0 else 0.0,
-                float(m.group(3)), texts, life, f"{m.group(2)}% of your {ward:,.0f} maximum Runic Ward every {every:g} s",
+                float(m.group(3)), texts, guard_pool, f"{m.group(2)}% of your {ward:,.0f} maximum Runic Ward every {every:g} s",
                 True, expiry))
         insight = next((grp for grp in groups for g in grp.get("gems") or []
                         if g["name"] == recovery.MORRIGANS_INSIGHT and g.get("enabled", True)), None)
@@ -4253,29 +4280,31 @@ class Assumptions:
                 how += "; PoB lists no Nature's Exchange (no Guard read)"
             out.append(recovery.event_guard(
                 f"{recovery.NATURES_EXCHANGE} ({recovery.MORRIGANS_INSIGHT})", amount, rate, recovery.NATURES_SECONDS,
-                texts, life, f"{amount:g} Guard (its level) for {recovery.NATURES_SECONDS:g} s; {how}", True, expiry))
+                texts, guard_pool, f"{amount:g} Guard (its level) for {recovery.NATURES_SECONDS:g} s; {how}", True, expiry))
         hide = next((grp for grp in groups for g in grp.get("gems") or []
                      if g["name"] == recovery.HELBRYMS_HIDE and g.get("enabled", True)), None)
         if hide is not None and main:  # (MECHC41: Helbrym's Hide's Composure)
             fields = sorted(set(objective.RECOVERY_INPUTS) | {"Speed"})
             added = getattr(build, "added_stats", None)
             read = {**build.call("stats", fields=fields), **(added() if callable(added) else {}), "_boss": boss}
-            shifts, shifts_how = conditions_mod.Conditions(build, main)._human_shifts(number(read.get("Speed")))
+            shifts, shifts_how = conditions_mod.Conditions(build, main)._human_shifts(number(read.get("Speed")),
+                                                                                     any_form=True)
             kept = math.exp(-recovery.HELBRYM_SOAK * shifts)
             taken = sum(objective.boss_taken(read)[0].values())
             amount = recovery.HELBRYM_SHARE * taken * recovery.HELBRYM_SOAK
             out.append(recovery.event_guard(
                 f"Helbrym's Composure ({recovery.HELBRYMS_HIDE})", amount, shifts * kept, recovery.HELBRYM_SECONDS, texts,
-                life, f"50% of the {taken:,.0f} damage a second the boss lands after your mitigation, stored over "
+                guard_pool, f"50% of the {taken:,.0f} damage a second the boss lands after your mitigation, stored over "
                 f"{recovery.HELBRYM_SOAK:g} s; one per shift into the supported skill's form ({shifts_how}), kept if no "
-                f"other shift comes in its {recovery.HELBRYM_SOAK:g} s: {kept:.0%} (MEDIUM-LOW; without that loss: "
-                f"{shifts:.2f}/s); its Rage not counted", True, expiry))
+                f"other shift comes in its {recovery.HELBRYM_SOAK:g} s: {kept:.0%} (R33-7: any change of form removes it, "
+                f"back to Human form MEDIUM, animal to animal HIGH; without that loss: {shifts:.2f}/s); its Rage not "
+                "counted", True, expiry))
         if m := next((m for t in stripped if (m := recovery.CITAQUALOTL_GUARD.match(t))), None):  # (MECHC41, R33-1)
             rolls = 1 / models.DODGE_EVERY
             pct = sum(float(x.group(1)) for t in stripped if (x := recovery.CITAQUALOTL_GUARD.match(t)))
             rows = ", ".join(f"{s:g} s: up {min(1.0, rolls * s * expiry):.0%}" for s in recovery.CITAQUALOTL_ROWS)
             out.append(recovery.event_guard(
-                "Citaqualotl's Thesis (Dodge Roll)", pct / 100 * life, rolls, recovery.CITAQUALOTL_SECONDS, texts, life,
+                "Citaqualotl's Thesis (Dodge Roll)", pct / 100 * life, rolls, recovery.CITAQUALOTL_SECONDS, texts, guard_pool,
                 f"{pct:g}% of your {life:,.0f} maximum Life sacrificed on every roll (no cooldown; R33-1 HIGH), a roll "
                 f"every {models.DODGE_EVERY:g} s (the build relies on rolling; the user's default); its duration in no "
                 f"source: {recovery.CITAQUALOTL_SECONDS:g} s as every comparable line (MEDIUM-LOW; {rows}); the Life "
@@ -4297,11 +4326,21 @@ class Assumptions:
                     else:
                         parts.append(f"{name}: no skill of the build Strikes to build its Combo")
             seconds = weighted / total if total > 0 else 0.0
+            # (MECHC42, RESEARCH33 R33-5, duality-guard-per-combo.md: the headline kept, duration x Combo, MEDIUM-LOW: the
+            # ids are built alike, gain_x_guard_for_500_ms_per_combo_lost and the same staff's gain_finality_for_x_ms_per_
+            # combo_lost, where "per Combo" can only scale the duration (Finality is on / off); rows: amount x Combo for
+            # the base duration, and the base duration flat (the Guard refreshed, not stacked, if granted once per Combo))
+            amount, base = float(m.group(1)), float(m.group(2))
+            combo = seconds / base if base > 0 else 0.0
+            per_combo = min(amount * combo * (1 + recovery._guard_inc(texts) / 100), recovery.GUARD_CAP * max(guard_pool, 0.0))
+            short = min(1.0, total * base * expiry)
+            rows = (f"; rows (R33-5): {amount:g} x {combo:.1f} Combo = {per_combo:,.0f} Guard for {base:g} s, "
+                    f"up {short:.0%} of the fight; {amount:g} Guard for {base:g} s flat, up {short:.0%}") if total > 0 else ""
             out.append(recovery.event_guard(
-                "Duality (Combo expended)", float(m.group(1)), total, seconds, texts, life,
-                f"{m.group(1)} Guard for {m.group(2)} s per Combo a use expends (MEDIUM-LOW: the duration read as scaling "
-                f"with the Combo; the other reading, {m.group(1)} Guard per Combo for {m.group(2)} s, is larger); "
-                + ("; ".join(parts) or "no Combo skill in the build"), True, expiry))
+                "Duality (Combo expended)", amount, total, seconds, texts, guard_pool,
+                f"{m.group(1)} Guard for {m.group(2)} s per Combo a use expends (MEDIUM-LOW, R33-5: the duration read as "
+                "scaling with the Combo, as the stat id's twin gain_finality_for_x_ms_per_combo_lost can only); "
+                + ("; ".join(parts) or "no Combo skill in the build") + rows, True, expiry))
         if m := next((m for t in stripped if (m := recovery.WARD_END_GUARD.match(t))), None):  # (MECHC41: Olroth's)
             option = (getattr(build, "equipped", {}) or {}).get("Flask 1")
             rate, amount, how = 0.0, 0.0, "no Life flask equipped"
@@ -4315,7 +4354,7 @@ class Assumptions:
             elif option is not None:
                 how = f"the line isn't on the Life flask in use ({option.name})"
             out.append(recovery.event_guard("Olroth's Resolve (its Effect ending)", amount, rate, float(m.group(1)), texts,
-                                            life, how, True, expiry))
+                                            guard_pool, how, True, expiry))
         if m := next((m for t in stripped if (m := recovery.DECREE_GUARD.match(t))), None):  # (MECHC41: Decree of Flight)
             fields = sorted(set(objective.RECOVERY_INPUTS) | set(conditions_mod.FULL_LIFE_FIELDS))
             added = getattr(build, "added_stats", None)
@@ -4325,13 +4364,13 @@ class Assumptions:
             below = 1.0 - full
             pct = float(m.group(1))
             on_es = any(recovery.DECREE_CAP.match(t) for t in stripped)
-            cap = es if on_es else life
             amount = pct / 100 * es / 2
             out.append(recovery.event_guard(
-                "Decree of Flight (Dodge Roll)", amount, 1 / models.DODGE_EVERY, float(m.group(2)), texts, cap,
+                "Decree of Flight (Dodge Roll)", amount, 1 / models.DODGE_EVERY, float(m.group(2)), texts, guard_pool,
                 f"{pct:g}% of the Energy Shield missing at a roll, a roll every {models.DODGE_EVERY:g} s (the build relies "
                 f"on rolling; the user's default); below Full Energy Shield {below:.0%} of the fight ({full_how}), half "
-                f"your {es:,.0f} missing on average then (MEDIUM-LOW; all of it: {pct / 100 * es:,.0f} Guard; on full: "
+                f"your {es:,.0f} missing on average then (MEDIUM-LOW, R33-6: no source gives it; all of it: "
+                f"{pct / 100 * es:,.0f} Guard; on full: "
                 "none); the cap 200% of " + ("maximum Energy Shield (its own line)" if on_es else "maximum Life"),
                 True, expiry, share=below))
         return out
@@ -4416,6 +4455,8 @@ class Assumptions:
                 uses, uses_how = flasks.uses_per_second(info or {}, flasks.Charges.of(build), option.raw, "Mana")
                 recovery.mana_flask_income(income, stats, texts, uses, f"{option.name}: {uses_how}")
         guard_rows: list[dict] = []
+        # (MECHC42, R33-6: the Guard cap on maximum Energy Shield with "Maximum amount of Guard is based on ...")
+        guard_cap = recovery.guard_cap_base(texts, number(stats.get("Life")), number(stats.get("EnergyShield")))
         if any(recovery.MANA_FLASK_GUARD.match(t.strip()) for t in texts):
             # (MECHC37, PATCH_CHECK H2-4: Glowswarm's Guard on Mana flask use, a row only: the manager's 17 Nov ruling (b))
             option = (getattr(build, "equipped", {}) or {}).get("Flask 2")
@@ -4428,11 +4469,11 @@ class Assumptions:
                 amount = flasks.use_amount(info, gain, "Mana", option.raw)
             expiry = (conditions_mod.buff_expiry(texts) if any(conditions_mod.BUFF_EXPIRY.search(t) for t in texts)
                       else None)
-            if row := recovery.mana_flask_guard_row(texts, amount, uses, uses_how, number(stats.get("Life")), expiry):
+            if row := recovery.mana_flask_guard_row(texts, amount, uses, uses_how, guard_cap, expiry):
                 guard_rows.append(row)
                 # (MECHC38, the manager's ruling (ii), 18 Nov: Guard up all fight counts in the floors, in PoB's Guard pool)
                 self.full_guard_mods = recovery.full_guard_mods(
-                    *recovery.mana_flask_guard(texts, amount, uses, number(stats.get("Life")), expiry))
+                    *recovery.mana_flask_guard(texts, amount, uses, guard_cap, expiry))
         equipped = getattr(build, "equipped", {}) or {}
         charm_guards = [(o, m) for slot in flasks.CHARM_SLOTS if (o := equipped.get(slot)) is not None
                         and (m := recovery.CHARM_GUARD.search(o.raw or ""))]
@@ -4444,7 +4485,7 @@ class Assumptions:
             for (option, m), info in zip(charm_guards, infos):
                 up = flasks.uptime(info or {}, gain, None, option.raw)
                 guard, row = recovery.charm_guard_row(option.name, float(m.group(1)), texts, up,
-                                                      number(stats.get("Life")))
+                                                      guard_cap)  # (R33-6)
                 guard_rows.append(row)
                 whole = recovery.full_guard_mods(guard, up)
                 held = sum(number(x.get("value")) for x in self.full_guard_mods if x.get("name") == "GuardAbsorbLimit")

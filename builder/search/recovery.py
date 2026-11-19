@@ -1811,7 +1811,7 @@ def mana_flask_guard_row(texts: list[str], amount: float, uses: float, uses_how:
     raw = pct / 100 * max(amount, 0.0) * (1 + inc / 100)
     guard, up = mana_flask_guard(texts, amount, uses, life, expiry)
     whole = bool(full_guard_mods(guard, up))
-    capped = f" (capped at 200% of maximum Life from {raw:,.0f})" if raw > guard + 0.5 else ""
+    capped = f" (capped at 200% of maximum Life (or Energy Shield: R33-6) from {raw:,.0f})" if raw > guard + 0.5 else ""
     if guard <= 0 or up <= 0:
         value = "0: " + ("no Mana flask use against the boss" if up <= 0 else "the Mana flask recovers nothing")
     elif whole:
@@ -1976,7 +1976,8 @@ def charm_guard_row(name: str, amount: float, texts: list[str], up: float, life:
     return guard, {"label": label, "value": value,
                    "basis": (f"{name}: Also grants {amount:g} Guard" + (f" x {1 + inc / 100:.2f} (increased Guard gained)"
                                                                          if inc else "")
-                             + (f", capped at 200% of maximum Life from {raw:,.0f}" if raw > guard + 0.5 else "")
+                             + (f", capped at 200% of maximum Life (or Energy Shield: R33-6) from {raw:,.0f}"
+                                if raw > guard + 0.5 else "")
                              + f", while the charm's effect is up ({up:.0%} of the fight, its uses and duration); "
                              + ("up all fight, so counted in the defence floors (the manager's 18 Nov ruling (ii))"
                                 if whole else "part-time, so in no defence floor (the manager's 17 Nov ruling (b))")
@@ -2319,6 +2320,12 @@ WARD_TIMER_GUARD = re.compile(r"^Every (\d+(?:\.\d+)?) seconds, gain Guard equal
 DECREE_GUARD = re.compile(r"^Gain Guard equal to (\d+(?:\.\d+)?)% of missing Energy Shield for (\d+(?:\.\d+)?) seconds when "
                           r"you Dodge Roll$", re.I)
 DECREE_CAP = re.compile(r"^Maximum amount of Guard is based on maximum Energy Shield instead$", re.I)
+
+
+def guard_cap_base(texts: list[str], life: float, es: float) -> float:
+    """The pool GUARD_CAP multiplies: maximum Energy Shield with "Maximum amount of Guard is based on maximum Energy Shield
+    instead" (RESEARCH33 R33-6, every Guard source: MEDIUM), else maximum Life."""
+    return es if any(DECREE_CAP.match(t.strip()) for t in texts) else life
 # - Morrigan's Insight (MECHC41; a Lineage support, PoB SupportMorrigansInsight: "trigger Nature's Exchange when
 #   consuming Freeze on enemies"; consume_enemy_freeze_to_trigger_morrigan_ward; its supported skill never Freezes):
 #   Nature's Exchange (TriggeredMorrigansInsightPlayer: cooldown 8 s, one stored use; base_skill_effect_duration 8000,
@@ -2336,7 +2343,8 @@ NATURES_GUARD_STAT, NATURES_COOLDOWN, NATURES_SECONDS = "morrigan_ward_gain_X_gu
 #   different form before the Buff expires causes it to be removed without effect". So one per shift into the supported
 #   skill's form, at the build's form changes a second h (conditions.human_shifts: the shifts into and back out of a
 #   form come at the same rate), kept only if no other shift comes within the 2 s soak: shifts taken as random,
-#   e^(-2h) (MEDIUM-LOW; Human form read as "a different form", UNVERIFIED: the row without the loss gives h). Stored:
+#   e^(-2h) (RESEARCH33 R33-7: Human form is "a different form", MEDIUM; animal to animal too, HIGH, so h counts every
+#   change out of the form, conditions.human_shifts(any_form=True); the row without the loss gives h). Stored:
 #   the boss's damage a second after your mitigation (objective.boss_taken) x 2 s. Its Rage isn't counted here (an
 #   UNDERCOUNT of Rage, named). A build that never shifts (no other-form skill pressed): 0, said.
 HELBRYMS_HIDE = "Helbrym's Hide"
@@ -2435,7 +2443,7 @@ def event_guard(source: str, amount: float, rate: float, seconds: float, texts: 
     up *= min(1.0, max(share, 0.0))
     whole = bool(full_guard_mods(guard, up))
     basis = (f"{how}; {guard:,.0f} Guard" + (f" (x {1 + inc / 100:.2f}, increased Guard gained)" if inc else "")
-             + (f", capped at 200% of maximum Life from {raw:,.0f}" if raw > guard + 0.5 else "")
+             + (f", capped at 200% of maximum Life (or Energy Shield: R33-6) from {raw:,.0f}" if raw > guard + 0.5 else "")
              + f" for {length:.3g} s" + (f" (x {expiry:.2f}, Buffs expire slower)" if expiry != 1 else "")
              + f" at {r:.3g} a second: up {up:.0%} of the fight ("
              + ("paced: rate x duration" if paced else "random events: 1 - e^(-rate x duration)") + "); "

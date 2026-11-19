@@ -1267,6 +1267,10 @@ def flask_cross_cost(build, gain: Charges) -> tuple[dict[str, float], str]:
 # - Life Flasks that can't be used (Reverie) or one waiting for a kill: its charges stay, 0;
 # - no Life Flask equipped: 1, the literal reading (no Life Flask, so no use left; UNVERIFIED in game: if the line needs an
 #   equipped flask, 0; both in the row).
+# RESEARCH33 R33-3 (last-stand-no-life-flask-uses.md): a Life Flask holding fewer charges than one use is "no uses left":
+# ON, MEDIUM-HIGH. No Life Flask equipped: UNSETTLED, leaning ON (MEDIUM-LOW; a 2025 forum report says the node "isn't
+# working", no setup given). The manager's 11:30 ruling: keep the literal reading in the headline (CLAUDE.md: never zero
+# on an unverified reading), with the play line marked "no Life Flask equipped*" and a "without it" row, MEDIUM-LOW.
 NO_LIFE_USES = re.compile(r"^(\d+(?:\.\d+)?)% increased Attack Damage while you have no Life Flask uses left$", re.I)
 
 
@@ -1299,10 +1303,21 @@ def no_life_uses_model(build, texts: list[str], gain: Charges | None = None) -> 
         return [], []
     share, how = no_life_uses_share(build, gain)
     mods = [models.line("1% increased Attack Damage", value * share)] if share > 0 else []
-    return mods, [{
+    flaskless = (getattr(build, "equipped", None) or {}).get(next(s for s, p in FLASK_SLOTS.items() if p == "Life")) is None
+    rows = [{
         "label": f"{value:g}% increased Attack Damage while you have no Life Flask uses left*",
         "value": f"{value * share:g}% ({share:.0%} of the fight)",
         "basis": f"{how}; PoB counts none (its box is never set)",
-        "play": (f"Drink your Life Flask the moment a use fills: with it {value:g}% increased Attack Damage, holding a "
+        "play": (f"No Life Flask equipped*: {value:g}% increased Attack Damage on the literal reading (R33-3, MEDIUM-LOW)"
+                 if flaskless else
+                 f"Drink your Life Flask the moment a use fills: with it {value:g}% increased Attack Damage, holding a "
                  "use back 0%."),
-        "confidence": "MEDIUM (UNVERIFIED with no Life Flask equipped)"}]
+        "confidence": ("MEDIUM-LOW (R33-3: with no Life Flask equipped UNSETTLED, leaning on)" if flaskless else
+                       "MEDIUM-HIGH (R33-3: fewer charges than one use is no uses left)")}]
+    if flaskless:
+        rows.append({"label": "Without it (if the line needs an equipped Life Flask)*",
+                     "value": "0% increased Attack Damage",
+                     "basis": "R33-3: the no-flask case is unsettled (a 2025 forum report says the node isn't working); "
+                              "the headline keeps the literal reading (the manager's 11:30 ruling)",
+                     "confidence": "MEDIUM-LOW", "play": "Equip any Life Flask to be sure of it: 0% if not"})
+    return mods, rows
