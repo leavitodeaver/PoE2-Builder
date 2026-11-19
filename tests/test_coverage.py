@@ -1084,3 +1084,15 @@ def test_bridge_set_conditions_count_as_set():
     exact = parse_audit.calc_setters()["exact"]
     assert {"Condition:HelmetArmourHigherThanEvasion", "Condition:HelmetEvasionHigherThanArmour"} <= exact
     assert "Condition:Frozen" not in exact  # (a Configuration option's, which the optimizer leaves off)
+
+
+def test_rending_apex_final_strike_break_is_model_read():
+    """COV44 (MECH89's d502bdc4, train 88): Rending Apex's Final Strike Armour Break stat is model-read, and is the stat
+    the reader takes."""
+    from builder.ledger import coverage
+    from builder.search import conditions
+
+    stat = "final_strike_attack_damage_%_dealt_as_armour_break"
+    assert conditions.FINAL_BREAK_STAT == stat
+    assert coverage.stat_covered(coverage.stat_entries(), stat, "Rending Apex") == (
+        "model", "model-mech89-rending-apex-final-strike-break")

@@ -1,0 +1,19 @@
+# COV44 (COV-A; from MECH89's d502bdc4 in train 88): gem stats a custom model now reads (kind: model with `stats`, the
+# models-cov43.yaml form).
+
+- id: model-mech89-rending-apex-final-strike-break
+  title: 'Rending Apex, "Final Strikes of Supported Skills Break Armour equal to N% of Attack Damage dealt" (conditions.final_strike_break, MECH89)'
+  kind: model
+  model: armour_break
+  stats: ['final_strike_attack_damage_%_dealt_as_armour_break']
+  skill: ['Rending Apex']
+  confidence: LOW
+  notes: >-
+    MECH89 (d502bdc4, train 88; an UNDERCOUNT before, nothing read it; PoB maps the stat to nothing). On the main skill
+    (Ice Strike, Tempest Flurry, Shred, Primal Strikes: all in models.COMBO_SEQUENCES): one Final Strike a combo, its hit
+    = the last set's per-use damage, over the combo's time, feeding the boss's Armour Broken cycle (conditions
+    FINAL_BREAK_STAT, _final_break). On a side skill 0, labelled. LOW: the combo taken as never broken (MECH89's label).
+    Its tests: tests/test_mech89.py test_rending_apex_breaks_with_the_final_strike_once_a_combo,
+    test_rending_apex_on_ice_strike_fully_breaks_the_boss.
+  sources: ["builder/search/conditions.py (FINAL_BREAK_STAT, final_strike_break, _final_break)"]
+  status: proposed
