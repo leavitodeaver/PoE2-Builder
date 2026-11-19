@@ -4168,6 +4168,16 @@ class Assumptions:
                 f"{recovery.HELBRYM_SOAK:g} s; one per shift into the supported skill's form ({shifts_how}), kept if no "
                 f"other shift comes in its {recovery.HELBRYM_SOAK:g} s: {kept:.0%} (MEDIUM-LOW; without that loss: "
                 f"{shifts:.2f}/s); its Rage not counted", True, expiry))
+        if m := next((m for t in stripped if (m := recovery.CITAQUALOTL_GUARD.match(t))), None):  # (MECHC41, R33-1)
+            rolls = 1 / models.DODGE_EVERY
+            pct = sum(float(x.group(1)) for t in stripped if (x := recovery.CITAQUALOTL_GUARD.match(t)))
+            rows = ", ".join(f"{s:g} s: up {min(1.0, rolls * s * expiry):.0%}" for s in recovery.CITAQUALOTL_ROWS)
+            out.append(recovery.event_guard(
+                "Citaqualotl's Thesis (Dodge Roll)", pct / 100 * life, rolls, recovery.CITAQUALOTL_SECONDS, texts, life,
+                f"{pct:g}% of your {life:,.0f} maximum Life sacrificed on every roll (no cooldown; R33-1 HIGH), a roll "
+                f"every {models.DODGE_EVERY:g} s (the build relies on rolling; the user's default); its duration in no "
+                f"source: {recovery.CITAQUALOTL_SECONDS:g} s as every comparable line (MEDIUM-LOW; {rows}); the Life "
+                "sacrificed counts as a cost in the sustain floors (LifeSacrificed), not as damage taken", True, expiry))
         if m := next((m for t in stripped if (m := recovery.COMBO_GUARD.match(t))), None):  # (MECHC41: Duality)
             from builder.search.usage import Usage, requirements
 
@@ -4347,6 +4357,7 @@ class Assumptions:
             if row := recovery.deflect_rested_row(texts, landed, number(seen.get("DeflectChance")),
                                                   number(seen.get("DeflectEffect"))):
                 guard_rows.append(row)
+        recovery.life_sacrifice_income(income, texts, number(stats.get("Life")), 1 / models.DODGE_EVERY)  # (MECHC41)
         for guard, up, row in self.event_guards(texts, stats, main, present, boss):  # (MECHC40: Guard from events)
             guard_rows.append(row)
             whole = recovery.full_guard_mods(guard, up)

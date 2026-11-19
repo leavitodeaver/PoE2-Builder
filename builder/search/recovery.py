@@ -64,6 +64,7 @@ FIELDS = {
     "Life": ("LifeOnKillRecovery", "LifeRemnantRecovery", "CharmLifeRecoveryRate", "LifeOnEventRecovery",
              "LifeOnConsumeRecovery", "LifePreventedRecoup", "LifeFlameLeechRecovery",
              "LifeFlaskDrain",  # (MECHC26: Uhtred's Chalice's Life loss, NEGATIVE: flasks.flask_life_drain)
+             "LifeSacrificed",  # (MECHC41: Citaqualotl's Thesis' Life sacrificed per roll, NEGATIVE: life_sacrifice_income)
              "LifeRiftRecovery"),  # (MECHC29: Temporal Rift's reset to 4 s ago, rift_income)
     "Mana": ("ManaOnKillRecovery", "ManaRemnantRecovery", "CharmManaRecoveryRate", "ManaOnEventRecovery",
              "ManaOnConsumeRecovery", "ManaFlameLeechRecovery", "ManaRiftRecovery",
@@ -82,7 +83,7 @@ FIELDS = {
 # NEGATIVE field per pool: what PoB's {pool}LeechRate holds that the boss resists (leech_resisted). In FIELDS, so the
 # sustain and recovery floors (objective's ADDED_RECOVERY) take it off once; Income.pool leaves it out (its sums are the
 # event sources, and PoB's leech isn't one of them).
-NEGATIVE_FIELDS = {"LifeFlaskDrain", "ManaFlaskDrain", "EnergyShieldSacrificed"}  # (losses, not event income: Income.pool leaves them out)
+NEGATIVE_FIELDS = {"LifeFlaskDrain", "ManaFlaskDrain", "EnergyShieldSacrificed", "LifeSacrificed"}  # (losses, not event income: Income.pool leaves them out)
 LEECH_RESISTED = {"Life": "LifeLeechResisted", "Mana": "ManaLeechResisted", "EnergyShield": "EnergyShieldLeechResisted"}
 for _pool, _field in LEECH_RESISTED.items():
     FIELDS[_pool] = (*FIELDS[_pool], _field)
@@ -2370,6 +2371,29 @@ def deflect_rested_row(texts: list[str], landed: float, chance: float, effect: f
                       f"{share:.0%} (random hits, MEDIUM); part-time, so in no defence floor (the manager's 17 Nov ruling "
                       "(b)); PoB counts none; without it: none"),
             "confidence": "MEDIUM", "play": ""}
+
+
+# - Citaqualotl's Thesis (MECHC41; RESEARCH33 R33-1, the manager 01:05 19 Nov): a Soul Core whose Boots line is
+#   "Sacrifice 10% of maximum Life to gain that much Guard when you Dodge Roll" (HIGH): Guard = N% of maximum Life on
+#   every roll, no cooldown; PoB reads none of it. Its duration is in no source (UNVERIFIED): every comparable "gain
+#   Guard when ..." line says 4 s, Decree of Flight's roll line included, so 4 s is the headline (MEDIUM-LOW) with 2 s
+#   and 10 s as rows. The rolls: the build relies on rolling (assumptions.ROLL_RELIANT's "when you Dodge Roll"), one
+#   every models.DODGE_EVERY s. The Life sacrificed is a cost per roll, not damage taken (KeywordPopups Sacrifice: "does
+#   not count as taking damage", and it can't take you below 1 Life): N% x maximum Life x rolls a second, as the NEGATIVE
+#   recovery field LifeSacrificed (life_sacrifice_income), which the sustain and recovery floors net off.
+CITAQUALOTL_GUARD = re.compile(r"^Sacrifice (\d+(?:\.\d+)?)% of maximum Life to gain that much Guard when you Dodge Roll$",
+                               re.I)
+CITAQUALOTL_SECONDS, CITAQUALOTL_ROWS = 4.0, (2.0, 10.0)
+
+
+def life_sacrifice_income(income: "Income", texts: list[str], life: float, rolls: float) -> None:
+    """Citaqualotl's Thesis' Life sacrificed a second into LifeSacrificed (negative); nothing without the line."""
+    pct = sum(float(m.group(1)) for t in texts if (m := CITAQUALOTL_GUARD.match(t.strip())))
+    drain = pct / 100 * max(life, 0.0) * max(rolls, 0.0)
+    if drain > 0:
+        income.rates["LifeSacrificed"] = -drain
+        income.parts.append(f"Life sacrificed for Guard: {pct:g}% of {life:,.0f} a Dodge Roll x {rolls:.2f} rolls/s: "
+                            f"-{drain:,.1f}/s (Citaqualotl's Thesis)")
 
 
 COMBO_GUARD = re.compile(r"^Gain (\d+(?:\.\d+)?) Guard for (\d+(?:\.\d+)?) seconds per Combo expended when using Skills$",

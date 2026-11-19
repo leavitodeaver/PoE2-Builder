@@ -2685,3 +2685,26 @@ def test_deflection_after_none_recently_is_a_row_at_its_share():
     assert f"{math.exp(-1.0):.0%} of your Deflected Hits" in row["value"] and "40% -> 45%" in row["value"]
     assert recovery.deflect_rested_row(texts, 1.0, 0.0, 40.0)["value"].startswith("0:")
     assert recovery.deflect_rested_row(["Deflected no Hits Recently"], 1.0, 25.0, 40.0) is None
+
+
+def test_citaqualotls_thesis_sacrifices_life_for_guard_on_every_roll():
+    """MECHC41 (RESEARCH33 R33-1): "Sacrifice 10% of maximum Life to gain that much Guard when you Dodge Roll": 10% of
+    maximum Life as Guard on every roll (one every 2 s), 4 s the headline (2 s / 10 s rows); the Life sacrificed is a
+    NEGATIVE recovery field (LifeSacrificed) the sustain floors net off, not damage taken."""
+    from types import SimpleNamespace
+
+    from builder.search import assumptions
+
+    line = "Sacrifice 10% of maximum Life to gain that much Guard when you Dodge Roll"
+    income = recovery.Income()
+    recovery.life_sacrifice_income(income, [line], 3000.0, 0.5)
+    assert income.rates["LifeSacrificed"] == pytest.approx(-150.0) and income.pool("Life") == 0.0
+    recovery.life_sacrifice_income(blank := recovery.Income(), [], 3000.0, 0.5)
+    assert blank.rates["LifeSacrificed"] == 0.0
+    hook = assumptions.Assumptions.__new__(assumptions.Assumptions)
+    hook.build = SimpleNamespace(call=lambda name, **kw: {}, equipped={}, groups=lambda: [])
+    found = [(g, up, row) for g, up, row in hook.event_guards([line], {"Life": 3000.0}, None, {}, None)
+             if row["label"].startswith("Guard from Citaqualotl")]
+    guard, up, row = found[0]
+    assert guard == pytest.approx(300.0) and up == pytest.approx(1.0) and "10 s: up 100%" in row["basis"]
+
