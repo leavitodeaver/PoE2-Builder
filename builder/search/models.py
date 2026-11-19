@@ -15811,10 +15811,45 @@ OFFERING_REVIVE = re.compile(r"^One of your Persistent Minions revives when an O
 MANA_FLASK_REVIVE = re.compile(r"^Using a Mana Flask revives one of your Persistent Minions$", re.I)
 
 
-def forced_revives(skills: list[Skill], texts: Iterable[str] = (), mana_uses: float = 0.0) -> tuple[float, list[str]]:
-    """(fallen minions brought back a second by the build's own forced revives, the parts) (see above)."""
+# Eternal March (MECHB41; a runeforged gem the search offers, PoB 0: base_deal_no_damage, and no PoB code reads its two
+# stats, checked: skill_eternal_march_* appear in vendor PoB src only in Data/Skills/other.lua EternalMarchPlayer).
+# "Spend Runic Ward to instantly Revive your Minions. Prioritises the most powerful minions first"; skill_stat_descriptions:
+# "Spends up to {0} Runic Ward to Revive Minions with total maximum Life equal to {1} times the Runic Ward spent" (level
+# 20: 853 Ward, 20 x; quality "Spends up to {0} additional Runic Ward"); 4 s cooldown, Instant. A forced revive: each use
+# brings back (Ward spent x the multiple) / the Reviving minions' maximum Life of them (their average; the most powerful
+# first isn't modelled: MEDIUM), at its use rate (press_use_rate: on its cooldown), the Ward spent being what the build's
+# Runic Ward pays for (ward_paid counts it as a WardUse of its own "revive" kind beside the Ward-cost skills: one share for
+# all; the previous model round's share, the first round PoB's regeneration over its planned spend). No Reviving minion
+# Life read: 0, labelled. Fractions of a minion a use are kept (an average over uses).
+ETERNAL_MARCH = "Eternal March"
+EM_WARD, EM_LIFE = "skill_eternal_march_maximum_ward_cost", "skill_eternal_march_life_per_ward_spent_%"
+
+
+def eternal_march_revives(skill: Skill, uses: float, ward_share: float, life: float) -> tuple[float, str]:
+    """(minions revived a second, how) by Eternal March used `uses` times a second, paying `ward_share` of its full Ward
+    a use, for Reviving minions of `life` maximum Life (their average)."""
+    ward = number(skill.level_stats.get(EM_WARD))
+    multiple = number(skill.level_stats.get(EM_LIFE)) / 100
+    if ward <= 0 or multiple <= 0 or uses <= 0:
+        return 0.0, f"{ETERNAL_MARCH}: not used or its stats unread (0)"
+    if life <= 0:
+        return 0.0, f"{ETERNAL_MARCH}: its minions' Life wasn't read (0, labelled)"
+    spent = ward * min(max(ward_share, 0.0), 1.0)
+    each = spent * multiple / life
+    return uses * each, (f"{ETERNAL_MARCH} {uses:.3f} uses/s, each spending {spent:,.0f} of up to {ward:,.0f} Runic Ward "
+                         f"(what the build's Ward pays for) to revive {multiple:g} x that in minion Life: {each:.2f} minions "
+                         f"of {life:,.0f} Life a use ({uses * each:.2f}/s; the most powerful first not modelled, MEDIUM)")
+
+
+def forced_revives(skills: list[Skill], texts: Iterable[str] = (), mana_uses: float = 0.0,
+                   eternal: tuple[float, str] | None = None) -> tuple[float, list[str]]:
+    """(fallen minions brought back a second by the build's own forced revives, the parts) (see above). `eternal`:
+    Eternal March's (revives a second, how), eternal_march_revives."""
     texts = [t.strip() for t in texts]
     total, parts = 0.0, []
+    if eternal is not None and eternal[1]:
+        total += max(eternal[0], 0.0)
+        parts.append(eternal[1])
     clerics = sum(number(s.summon.get("limit")) for s in skills if s.summon and "Skeletal Cleric" in s.name)
     if clerics > 0 and any(is_skeleton(s) and s.summon.get("persistent") and "Skeletal Cleric" not in s.name
                            for s in skills if s.summon):

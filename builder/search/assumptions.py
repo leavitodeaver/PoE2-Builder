@@ -861,7 +861,8 @@ def pressed_group(group: dict, gems: dict[str, dict], granted: dict[str, dict] |
 def minion_lives(build: Build, found: list[models.Skill]) -> dict[str, float]:
     """{Reviving minion skill: its minion's maximum Life} when a skill in the build has Minion Pact (models.pact_uses_per_kill;
     PoB calculates a minion's Life only as the main skill, so the bridge's useRates sets each minion group as main)."""
-    if not any(models.number(s.support_stats.get(models.MINION_PACT_STAT)) > 0 for s in found):
+    if not any(models.number(s.support_stats.get(models.MINION_PACT_STAT)) > 0 for s in found) and not any(
+            s.name == models.ETERNAL_MARCH for s in found):  # (MECHB41: Eternal March's revives read the Life too)
         return {}
     wanted = {s.name for s in found if s.summon and s.summon.get("persistent") and not models.number(s.summon.get("duration"))}
     indices, actives, names = [], [], []
@@ -1817,7 +1818,8 @@ class Assumptions:
         build.empower_keep = models.empower_keep(line_texts)  # (MECHB41: Serle's Grit's line, for empowered_uses)
         # (MECHB40: the build's forced revives, for minion_deaths' revival cap and minion_alive_model)
         forced = models.forced_revives(found, line_texts, mana_flask_uses(build) if any(
-            models.MANA_FLASK_REVIVE.match(t.strip()) for t in line_texts) else 0.0)
+            models.MANA_FLASK_REVIVE.match(t.strip()) for t in line_texts) else 0.0,
+            self.eternal_march(found, stats))  # (MECHB41: Eternal March's Runic Ward revives)
         stats = {**stats, "_minion_lives": build.minion_lives, "_curse_durations": build.curse_durations,
                  "_curse_delays": build.curse_delays, models.MINION_DEATHLESS_STAT: build.minion_deathless,
                  models.FORCED_REVIVES_STAT: forced}
@@ -3808,7 +3810,7 @@ class Assumptions:
     def wanted(self) -> tuple[list[dict], list[dict]]:
         skills = self.build.call("activeSkills", levelStats=[
             models.IRON_WARD, models.FEROCIOUS_ROAR, models.SUMMON_WOLF, models.RAPID_SHOT, models.APOCALYPSE,
-            KALGUUR, models.TAWHOA, models.ARCTIC_HOWL, *models.gem_stat_skills()],
+            KALGUUR, models.TAWHOA, models.ARCTIC_HOWL, models.ETERNAL_MARCH, *models.gem_stat_skills()],
             supportStats=[*models.gem_stat_support_stats(), models.TOTEM_ONE_STAT,
                           models.CASCADES_PER_SIDE, models.ECHO_POWER_STAT])["skills"]  # (MECH-B: A23-3; MECHB36 Spell Cascade)
         mods, notes, self.extra_groups = self.models(skills)
@@ -3994,6 +3996,43 @@ class Assumptions:
         objective.press_scales.update(scales)
         return notes
 
+    def eternal_march(self, found: list[models.Skill], stats: dict) -> tuple[float, str] | None:
+        """(MECHB41) Eternal March's (minions revived a second, how) for forced_revives, or None without it: its use rate
+        (press_use_rate: on its cooldown), the share of its Ward the build's Runic Ward pays for (the last round's
+        ward_paid share; the first round, PoB's WardRegenRecovery over its planned spend), the Reviving minions' average
+        Life (minion_lives). Sets self.eternal_march_use = (uses a second, Ward a use) for ward_paid."""
+        self.eternal_march_use = None
+        build = self.build
+        skill = next((s for s in found if s.name == models.ETERNAL_MARCH and s.group is not None), None)
+        if skill is None:
+            return None
+        group = next((g for g in build.groups() if g["index"] == skill.group), None)
+        if group is None or not group.get("enabled", True):
+            return None
+        position = next((i for i, x in enumerate(group["skills"], start=1) if x["name"] == skill.name), 1)
+        row = next(iter(build.call("useRates", indices=[group["index"]], actives=[position])["rates"]), None) or {}
+        uses, uses_how, _ = models.press_use_rate(row, models.press_choice(row, models.press_choices(build)))
+        cooldown = models.number(row.get("cooldown"))
+        if uses <= 0 and models.number(row.get("speed")) <= 0 and cooldown > 0:
+            # (probe POE2T4622: PoB gives this Instant, no-damage skill speed 0, which press_use_rate's cap at PoB's speed
+            # turned into 0 uses: it's pressed on its cooldown, its use takes no time)
+            uses, uses_how = 1.0 / cooldown, f"on its {cooldown:.2f} s cooldown (an Instant skill: PoB gives it no speed)"
+        ward = models.number(skill.level_stats.get(models.EM_WARD))
+        self.eternal_march_use = (uses, ward)
+        planned, paid, _ = (getattr(build, "ward_sustain", None) or {}).get(models.ETERNAL_MARCH, (0.0, 0.0, 0.0))
+        if planned > 0:
+            share = paid / planned
+        else:
+            regen = models.number(build.call("stats", fields=["WardRegenRecovery"]).get("WardRegenRecovery"))
+            share = min(1.0, regen / (uses * ward)) if uses * ward > 0 else 1.0
+        reviving = [s for s in found if s.summon and s.summon.get("persistent") and not models.number(s.summon.get("duration"))]
+        lives = [(getattr(build, "minion_lives", None) or {}).get(s.name, 0.0) for s in reviving]
+        counts = [models.number(s.summon.get("limit")) or 1.0 for s in reviving]
+        known = [(life, n) for life, n in zip(lives, counts) if life > 0]
+        life = sum(l * n for l, n in known) / sum(n for _, n in known) if known else 0.0
+        rate, how = models.eternal_march_revives(skill, uses, share, life)
+        return rate, f"{how} ({uses_how})"
+
     def ward_paid(self, skills: list[dict], mods: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
         """Runic Ward pays for the Ward-cost skills (MECHB13, models.ward_plan): every Ward-cost skill the build uses
         (a model's triggerRate, the main skill, a pressed or other Full DPS group) shares the build's Runic Ward
@@ -4002,7 +4041,8 @@ class Assumptions:
         build = self.build
         build.ward_sustain = {}
         costly = [s for s in skills if s.get("wardCost") and not s["disabled"] and s.get("group")]
-        if not costly:
+        march = getattr(self, "eternal_march_use", None)  # (MECHB41: Eternal March spends the same Runic Ward)
+        if not costly and not (march and march[0] > 0 and march[1] > 0):
             return mods, []
         by_index = {g["index"]: g for g in build.groups()}
         main_group = build.main_group()
@@ -4014,10 +4054,10 @@ class Assumptions:
                 continue
             position = next((i for i, x in enumerate(group["skills"], start=1) if x["name"] == s["name"]), 0)
             pairs.append((s, group, position))
-        if not pairs:
+        if not pairs and not (march and march[0] > 0 and march[1] > 0):
             return mods, []
         rates = build.call("useRates", indices=[g["index"] for _, g, _ in pairs],
-                           actives=[p for _, _, p in pairs])["rates"]
+                           actives=[p for _, _, p in pairs])["rates"] if pairs else []
         by_pair = {(r["index"], r.get("active") or 0): r for r in rates}
         triggered = {}
         for mod in mods:
@@ -4046,6 +4086,8 @@ class Assumptions:
                 uses.append(models.WardUse(name, "full", speed, cost, group["index"]))
             else:
                 skipped.append(name)
+        if march and march[0] > 0 and march[1] > 0:  # (its own kind: no DPS to scale, its revives read the share)
+            uses.append(models.WardUse(models.ETERNAL_MARCH, "revive", march[0], march[1]))
         from builder.search import bosses
 
         boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT

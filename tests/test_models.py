@@ -6474,6 +6474,20 @@ def test_commanding_rage_gives_minions_speed_and_damage_at_the_builds_rage():
     assert mods == [] and len(notes) == 2
 
 
+def test_eternal_march_revives_minion_life_worth_twenty_times_its_runic_ward():
+    """MECHB41 (PoB 0): each use spends up to 853 Runic Ward (what the build's Ward pays for) to revive minions with 20 x
+    that in maximum Life; a forced revive for forced_revives. No Life read / no uses: 0 with words."""
+    march = models.Skill(models.ETERNAL_MARCH, group=3, level_stats={models.EM_WARD: 853, models.EM_LIFE: 2000})
+    rate, how = models.eternal_march_revives(march, 0.25, 1.0, 1706.0)
+    assert rate == pytest.approx(0.25 * 853 * 20 / 1706) and "853" in how
+    assert models.eternal_march_revives(march, 0.25, 0.5, 1706.0)[0] == pytest.approx(rate / 2)
+    assert models.eternal_march_revives(march, 0.25, 1.0, 0.0)[0] == 0.0
+    assert models.eternal_march_revives(march, 0.0, 1.0, 1706.0)[0] == 0.0
+    total, parts = models.forced_revives([], [], 0.0, (2.5, "Eternal March 2.5/s"))
+    assert total == 2.5 and parts == ["Eternal March 2.5/s"]
+    assert models.forced_revives([], [], 0.0, None) == (0.0, [])
+
+
 def test_the_infernal_hound_ignites_the_boss_for_20_percent_of_its_life():
     """MECHB40 (an UNDERCOUNT: PoB reads neither of its stats): the Infernal Hound Ignites enemies within 2.5 m as though
     dealt Base Fire equal to 20% of its Life: 20% x 20% x Life through the boss's Fire resistance; only the strongest

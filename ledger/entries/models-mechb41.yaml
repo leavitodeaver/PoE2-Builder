@@ -91,3 +91,23 @@
     per Rage / 5, not whole fives (LOW). This entry only says a model reads the line.
   sources: ["builder/search/models.py (COMMANDING_RAGE, commanding_rage)", "builder/search/assumptions.py (the commanding_rage call)"]
   status: proposed
+
+- id: model-mechb41-eternal-march
+  title: "Eternal March: Runic Ward revives the build's minions, a forced revive (models.eternal_march_revives, forced_revives)"
+  kind: model
+  model: eternal_march
+  stats: ["skill_eternal_march_maximum_ward_cost", "skill_eternal_march_life_per_ward_spent_%"]
+  skill: ["Eternal March"]
+  confidence: theory
+  notes: >-
+    Eternal March (runeforged, EternalMarchPlayer; base_deal_no_damage): "Spends up to {0} Runic Ward to Revive Minions with
+    total maximum Life equal to {1} times the Runic Ward spent" (level 20: 853, 20 x), 4 s cooldown. PoB reads neither stat
+    (checked: the ids appear in vendor PoB src only in Data/Skills/other.lua), so it did nothing for minions the build kills
+    itself (MECHB40's minion_alive_model, minion_deaths' revival cap). Now a forced revive: its use rate (press_use_rate, on
+    its cooldown) x (Ward spent x the multiple / the Reviving minions' average maximum Life), the Ward spent being the share
+    the build's Runic Ward pays for (ward_paid counts it as a WardUse beside the Ward-cost skills; the previous round's
+    share). "The most powerful minions first" isn't modelled (MEDIUM); no minion Life read: 0, labelled.
+  sources: [builder/search/models.py (ETERNAL_MARCH, EM_WARD, EM_LIFE, eternal_march_revives, forced_revives eternal),
+            builder/search/assumptions.py (Assumptions.eternal_march, ward_paid's "revive" WardUse, minion_lives)]
+  test_in_game: "Not needed for the shape."
+  status: proposed
