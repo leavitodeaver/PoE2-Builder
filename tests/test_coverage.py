@@ -1104,14 +1104,15 @@ def test_necromantic_talisman_line_is_the_nodes_own():
 
 
 def test_bridge_set_conditions_count_as_set():
-    """COV44: a condition the bridge sets by name (`conditions["X"] =`, Tolerant Equipment's two Helmet conditions in the
-    initEnv wrapper) counts as set by the calculations, so its lines leave the never-on list; a name the bridge only
-    reads doesn't."""
+    """COV44: a condition the bridge sets by name (`conditions["X"] =` or `NewMod("Condition:X", ...`: MECH90's
+    helmetConditions, Tolerant Equipment's two Helmet conditions) counts as set by the calculations, so its lines leave
+    the never-on list; a name the bridge only reads, or a prefix it concatenates, doesn't."""
     from builder.ledger import parse_audit
 
     exact = parse_audit.calc_setters()["exact"]
     assert {"Condition:HelmetArmourHigherThanEvasion", "Condition:HelmetEvasionHigherThanArmour"} <= exact
     assert "Condition:Frozen" not in exact  # (a Configuration option's, which the optimizer leaves off)
+    assert "Condition:Ledger" not in exact  # (the ledger's "Condition:Ledger" .. name: a prefix)
 
 
 def test_rending_apex_final_strike_break_is_model_read():
@@ -1158,3 +1159,34 @@ def test_mechc41_item_guard_lines_are_model_read():
     for line, pattern in cases.items():
         assert (found := model_entry(line)) is not None and found.id == "model-read-mechc41-item-guard", line
         assert pattern.match(line), line
+
+
+def test_train91_reads_are_model_read():
+    """COV44 (train 91): MECH90's Presence-Recently and Emergent Instinct readers, MECHC41's Intricate Sigils, Citaqualotl's
+    Thesis, Nature's Exchange and Helbrym's Hide readers are model-read; Helbrym's Rage stat (not counted) stays open."""
+    from builder.ledger import coverage, model_entry
+    from builder.search import conditions, flasks, recovery
+
+    lines = {
+        "50% increased Critical Damage Bonus against Enemies that have exited your Presence Recently":
+            ("model-read-train91-passive-lines", conditions.PRESENCE_RECENTLY),
+        "12% increased Critical Hit Chance against Enemies that have entered your Presence Recently":
+            ("model-read-train91-passive-lines", conditions.PRESENCE_RECENTLY),
+        "20% more Charm Charges gained": ("model-read-train91-passive-lines", flasks.CHARM_GAIN_MORE),
+        "Targets that are Blinded, Maimed, and Bleeding cannot Evade your Hits":
+            ("model-read-train91-item-lines", conditions.EMERGENT_LINE),
+        "Sacrifice 10% of maximum Life to gain that much Guard when you Dodge Roll":
+            ("model-read-train91-item-lines", recovery.CITAQUALOTL_GUARD),
+    }
+    for line, (entry, pattern) in lines.items():
+        assert (found := model_entry(line)) is not None and found.id == entry, line
+        assert pattern.match(line), line
+    covered = coverage.stat_entries()
+    assert coverage.stat_covered(covered, recovery.NATURES_GUARD_STAT, "Nature's Exchange") == (
+        "model", "model-mechc41-natures-exchange-guard")
+    assert "consume_enemy_freeze_to_trigger_morrigan_ward" in conditions.CONSUME_STATS["Freeze"]
+    for stat in ("support_hide_of_helbrym_gain_guard_from_%_of_damage_taken", "support_hide_of_helbrym_guard_duration_ms",
+                 "support_hide_of_helbrym_soak_duration_ms"):
+        assert coverage.stat_covered(covered, stat, "Helbrym's Hide") == ("model", "model-mechc41-helbryms-hide-guard")
+    assert coverage.stat_covered(covered, "support_hide_of_helbrym_gain_rage_from_%_of_damage_taken", "Helbrym's Hide") is None
+    assert (recovery.HELBRYM_SHARE, recovery.HELBRYM_SOAK, recovery.HELBRYM_SECONDS) == (0.5, 2.0, 4.0)

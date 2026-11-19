@@ -30,3 +30,19 @@
     (flasks.uses_per_second), into event_guard (up all fight: PoB's Guard pool; else a row).
   sources: ["builder/search/recovery.py (DRINKER_GUARD, event_guard)"]
   status: proposed
+
+- id: model-read-train91-passive-lines
+  title: '"... against Enemies that have exited / entered your Presence Recently" (conditions.PRESENCE_RECENTLY, MECH90) and Intricate Sigils'' "N% more Charm Charges gained" (flasks.CHARM_GAIN_MORE, MECHC41)'
+  kind: pob_gap
+  model: conditions
+  match: '^(.+ against Enemies that have (exited|entered) your Presence Recently|\d+(?:\.\d+)?% (more|less) Charm Charges gained)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Train 91. MECH90's dfce1d5d (conditions.presence_recently_mods): each line handed to PoB without its condition at
+    1 - e^(-4 r), r the boss's re-entries into your Presence a second (models.presence_reentries) (Decisive Retreat; the
+    entered-Presence crit line). MECHC41's 4a5e635b: "N% more Charm Charges gained" multiplies the charms' charge gain
+    (flasks.CHARM_GAIN_MORE, charm_gain_more; PoB parses it, CharmChargesGained MORE, and no calculation reads it): the
+    MECH-C item COV44 routed. A passive translation adds lines, it never removes PoB's own.
+  sources: ["builder/search/conditions.py (PRESENCE_RECENTLY, presence_recently_mods)", "builder/search/flasks.py (CHARM_GAIN_MORE)"]
+  status: proposed

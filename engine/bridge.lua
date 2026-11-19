@@ -2939,20 +2939,8 @@ installRadiusModel = function()
 			if type(env) == "table" and build and buildArg == build then
 				env.bridgeCharacterRunes = characterRuneCount(override)
 				helmetConditions(env)  -- (MECH90: Tolerant Equipment)
-				-- (COV44) Tolerant Equipment's "Immune to Bleeding / Poison if Equipped Helmet has higher Armour than
-				-- Evasion Rating" (and the reverse): PoB parses both to flags behind Condition:HelmetArmourHigherThanEvasion /
-				-- HelmetEvasionHigherThanArmour (ModParser 5293-5294) and nothing sets either. Set from the equipped Helmet's
-				-- own Armour and Evasion (its local values, Item:GetArmourDataValue; a what-if's Helmet included, as initEnv
-				-- put it in itemList); "higher" is strict, so a tie (an Energy Shield Helmet's 0 and 0) sets neither
-				local helmet = env.player and env.player.itemList and env.player.itemList["Helmet"]
-				local modDB = env.player and env.player.modDB
-				if helmet and helmet.GetArmourDataValue and modDB and modDB.conditions then
-					local level = buildArg.characterLevel or 1
-					local armour = helmet:GetArmourDataValue("Armour", level)
-					local evasion = helmet:GetArmourDataValue("Evasion", level)
-					modDB.conditions["HelmetArmourHigherThanEvasion"] = armour > evasion or nil
-					modDB.conditions["HelmetEvasionHigherThanArmour"] = evasion > armour or nil
-				end
+				-- (COV44's own setter of the same two Helmet conditions was here; removed when MECH90's helmetConditions
+				-- landed in train 91: one setter)
 			end
 			return env, ...
 		end

@@ -84,3 +84,18 @@
     (full_guard_mods), else a row.
   sources: ["builder/search/recovery.py (COMBO_GUARD, WARD_END_GUARD, DECREE_GUARD, DECREE_CAP, event_guard)", "builder/search/assumptions.py (MECHC41's Guard sources)"]
   status: proposed
+
+- id: model-read-train91-item-lines
+  title: 'Citaqualotl''s Thesis''s Dodge Roll Guard (recovery.CITAQUALOTL_GUARD) and Emergent Instinct''s "Targets that are Blinded, Maimed, and Bleeding cannot Evade your Hits" (conditions.EMERGENT_LINE)'
+  kind: pob_gap
+  model: guard
+  match: '^(Sacrifice \d+(?:\.\d+)?% of maximum Life to gain that much Guard when you Dodge Roll|Targets that are Blinded, Maimed,? and Bleeding cannot Evade your Hits)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Train 91. MECHC41's b2f8e217: Citaqualotl's Thesis, the Guard on every Dodge Roll (a roll every models.DODGE_EVERY s)
+    into event_guard, and the Life it sacrifices as a cost. MECH90's ecf954fb: Emergent Instinct counted at the share the
+    boss is Blinded, Maimed and Bleeding at once (conditions.EMERGENT_LINE; its probe: 87% -> 100% to hit at full share).
+    PoB parses the Emergent line behind conditions nothing sets (never-on), so `replace: []` takes nothing off.
+  sources: ["builder/search/recovery.py (CITAQUALOTL_GUARD)", "builder/search/assumptions.py (Citaqualotl's Guard)", "builder/search/conditions.py (EMERGENT_LINE)"]
+  status: proposed

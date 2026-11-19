@@ -47,3 +47,35 @@
     Guard, which the model leaves out (no light-stun rate on a boss; an UNDERCOUNT MECHC40 names): its row stays open.
   sources: ["builder/search/recovery.py (VANGUARD, VANGUARD_SECONDS, event_guard)", "builder/search/assumptions.py (Vanguard's Guard)"]
   status: proposed
+
+- id: model-mechc41-natures-exchange-guard
+  title: 'Morrigan''s Insight''s Nature''s Exchange: its Guard and the consumed Freeze that triggers it (recovery.event_guard via assumptions, MECHC41)'
+  kind: model
+  model: guard
+  stats: ['morrigan_ward_gain_X_guard', 'consume_enemy_freeze_to_trigger_morrigan_ward']
+  skill: ['Nature''s Exchange', 'Morrigan''s Insight']
+  confidence: MEDIUM
+  notes: >-
+    MECHC41 (train 91; an UNDERCOUNT before, PoB sets no Guard): Nature's Exchange's level stat X Guard (read from PoB's
+    levelStats) for 8 s, at the boss's Freezes a second (models.buildup_rate) consumed by the supported main skill's next
+    hit, held to its 8 s cooldown (/ cooldown recovery); on a side skill 0, said. Up all fight in PoB's Guard pool, else a
+    row. The consume stat is also in conditions.CONSUME_STATS (the boss's Freeze ends on the consuming hit).
+  sources: ["builder/search/recovery.py (MORRIGANS_INSIGHT, NATURES_GUARD_STAT, event_guard)", "builder/search/assumptions.py (Nature's Exchange's Guard)", "builder/search/conditions.py (CONSUME_STATS)"]
+  status: proposed
+
+- id: model-mechc41-helbryms-hide-guard
+  title: 'Helbrym''s Hide''s Composure: Guard from 50% of the damage stored over 2 s, for 4 s (recovery.event_guard via assumptions, MECHC41)'
+  kind: model
+  model: guard
+  stats: ['support_hide_of_helbrym_gain_guard_from_%_of_damage_taken', 'support_hide_of_helbrym_guard_duration_ms',
+          'support_hide_of_helbrym_soak_duration_ms']
+  skill: ['Helbrym''s Hide']
+  confidence: MEDIUM-LOW
+  notes: >-
+    MECHC41 (train 91): one Composure per shift into the supported skill's form (conditions._human_shifts), kept if no
+    other shift comes within the 2 s store (e^(-2h), MEDIUM-LOW); 50% of the boss's damage a second after your mitigation x
+    2 s as Guard for 4 s. The three constants (HELBRYM_SHARE 0.5, HELBRYM_SOAK 2, HELBRYM_SECONDS 4) are the gem's fixed
+    stats (PoB sup_str.lua 4285-4287). Not here: support_hide_of_helbrym_gain_rage_from_%_of_damage_taken (its Rage, which
+    the model leaves out: an UNDERCOUNT MECHC41 names), so that row stays open.
+  sources: ["builder/search/recovery.py (HELBRYMS_HIDE, HELBRYM_SOAK, HELBRYM_SECONDS, HELBRYM_SHARE)", "builder/search/assumptions.py (Helbrym's Composure)"]
+  status: proposed
