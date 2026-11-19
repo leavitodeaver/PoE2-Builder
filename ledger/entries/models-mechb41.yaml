@@ -17,8 +17,8 @@
     is Hit"; warcry_empowers, LOW lower reading), and the main Attack's Empowered share adds the level's flat range (121-186
     at level 20) as "Adds X to Y Cold Damage to Attacks". The stat id says "per 5 Power up to cap" but the text
     (arctic_howl.csd) gives a flat range: the text is taken (the lower reading; Vruun's Aftermath's precedent), the id's
-    reading (x Power / 5) in the note: UNVERIFIED which holds (RESEARCH). Not counted: the buff's added Cold for Allies'
-    Attacks (wolf_warcry_buff_cold_damage_*: minions), Empowered Slams' Chilled Ground.
+    reading (x Power / 5) in the note: UNVERIFIED which holds (RESEARCH). The buff's added Cold for Allies'
+    Attacks: model-mechb42-arctic-howl-ally-buff (MECHB42). Not counted: Empowered Slams' Chilled Ground.
   sources: [builder/search/models.py (ARCTIC_HOWL, UNBUFFED_WARCRIES, unbuffed_warcry_empowers, arctic_howl_cold),
             builder/search/assumptions.py (empowered_uses' unbuffed-Warcry branch and `only`; the Howl call beside Echoing Cry's)]
   test_in_game: "RESEARCH: is the Empowered attacks' added Cold per 5 Power (x4 at 20 Power) or the flat range shown?"

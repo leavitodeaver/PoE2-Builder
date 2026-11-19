@@ -434,6 +434,25 @@ def test_a_chance_not_to_count_an_empowered_attack_raises_pobs_warcry_count(engi
     assert any(n["label"].startswith("Empowering skills: chance not to count") for n in search.assumptions.active)
 
 
+def test_living_lightning_counts_three_zaps_a_minion_not_pobs_minion_attacking_all_fight(engine):
+    """MECHB42 (an OVERCOUNT in Full DPS): PoB scores Living Lightning as one minion Zapping every 0.14 s all fight (304
+    DPS on a 61-DPS Lightning Arrow, probe POE2T4627); the game's minions disperse after 3 Attacks, one per Lightning hit
+    of the supported skill. The model counts that and takes PoB's own entry out of Full DPS."""
+    payload = make_payload(BuildRequest(main_skill="Lightning Arrow", level=90))
+    skeleton = enumerate_skeletons(Context(payload), ["Lightning Arrow"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    main = build.main_group()
+    gems = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} for g in main["gems"]]
+    build.set_group(index=main["index"], gems=gems + [{"name": "Living Lightning", "level": 1, "quality": 0}], fullDPS=True)
+    search.settle()
+    entry = sum(e["dps"] for e in build.call("stats", fields=["SkillDPS"])["SkillDPS"] if e["name"] == "Living Lightning")
+    note = next(n for n in search.assumptions.active if n["label"].startswith("Living Lightning: 3 Zaps"))
+    modelled = float(note["value"].split()[0].replace(",", ""))
+    assert 0 < modelled < entry / 3 and build.objective.entry_scales.get("Living Lightning") == 0.0
+
+
 def test_electrocuting_arrows_rod_stats_scale_with_a_raw_effect_mod(engine):
     """MECH40: PoB counts Electrocuting Arrow's Rod quality stats always on (a Buff: extra Lightning on debuffed targets);
     models.rod_model scales them with a Raw BuffEffect / DebuffEffect MORE on the skill, which must reach PoB."""
@@ -3983,6 +4002,7 @@ def test_the_empowered_gain_and_howl_hand_lines_parse_whole(engine):
                                                "Gain 1% of Physical Damage as Extra Fire Damage",
                                                "Adds 121 to 186 Cold Damage to Attacks",
                                                "Empowered Attacks Gain 16% of Damage as Extra Cold Damage",
-                                               "Empowered Attacks Gain 15% of Physical Damage as Extra Fire damage"])["results"]
-    print("PROBE empowered gain", results)
-    assert [r["supported"] for r in results] == [True, True, True, False, False]
+                                               "Empowered Attacks Gain 15% of Physical Damage as Extra Fire damage",
+                                               "Minions' Attacks deal 37 to 56 additional Cold Damage"])["results"]
+    print("PROBE empowered gain", results)  # (MECHB42: the last, models.arctic_howl_buff's minion line)
+    assert [r["supported"] for r in results] == [True, True, True, False, False, True]

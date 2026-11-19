@@ -1045,6 +1045,46 @@ def eternal_hunt(build: Build, main: models.Skill | None) -> tuple[float, list[d
     return 0.0, [], []
 
 
+def living_lightning(build: Build) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Living Lightning (models.living_lightning_model, MECHB42): each enabled group holding the
+    triggered skill; its supported skill's row (speed, hit chance, Lightning hit), the trigger's row (cooldown), its level
+    stats, and the Zap's damage (bridge minionSkillHit)."""
+    parts = []
+    entries = None
+    for group in build.groups():
+        if group.get("enabled") is False:
+            continue
+        skills = group.get("skills") or []
+        n = next((i for i, x in enumerate(skills, 1) if x["name"] == models.LIVING_LIGHTNING), 0)
+        if not n:
+            continue
+        chosen = group.get("mainActiveSkill") or 1
+        src = chosen if chosen != n and 0 < chosen <= len(skills) else next(
+            (i for i, x in enumerate(skills, 1) if i != n), 0)
+        if not src:
+            continue
+        rows = build.call("useRates", indices=[group["index"], group["index"]], actives=[src, n])["rates"]
+        if len(rows) < 2:
+            continue
+        own, trigger = rows
+        level = next((x.get("levelStats") or {} for x in build.call("activeSkills", levelStats=[models.LIVING_LIGHTNING])[
+            "skills"] if x["name"] == models.LIVING_LIGHTNING and x.get("group") == group["index"]), {})
+        zap = build.call("minionSkillHit", index=group["index"], active=n, skill=models.LIVING_LIGHTNING_ZAP)
+        zap = zap if isinstance(zap, dict) else {}  # (an empty Lua table reaches Python as a list)
+        if entries is None:
+            entries = build.call("stats", fields=["SkillDPS"]).get("SkillDPS") or []
+        pob = sum(number(e.get("dps")) * (e.get("count") or 1) for e in entries if e.get("name") == models.LIVING_LIGHTNING)
+        parts.append({"source": own.get("name") or skills[src - 1]["name"],
+                      "hits": number(own.get("speed")) * min(number(own.get("HitChance")) or 100.0, 100.0) / 100,
+                      # (an attack's per-type hit is per hand: the row's MainHand.* fields, probe POE2T4628)
+                      "lightning": any(number(own.get(f"{hand}Lightning{part}Average")) > 0
+                                       for hand in ("", "MainHand.") for part in ("Hit", "Crit")),
+                      "cooldown": number(trigger.get("cooldown")),
+                      "level": level, "zap": number(zap.get("AverageDamage")) or number(zap.get("AverageHit")),
+                      "pob": pob or None})
+    return models.living_lightning_model(parts)
+
+
 def djinn_commands(build: Build, main: models.Skill | None) -> tuple[float, list[dict], list[dict]]:
     """(added DPS, mods, notes) for the Disciple of Varashta's djinn Commands (models.djinn_commands_model, MECH83): the
     djinns' groups (the Barya notables' granted summons), the Commands the tree grants, each scored by the bridge's
@@ -2573,7 +2613,17 @@ class Assumptions:
             tawhoa_mods, tawhoa_notes, tawhoa_groups = models.tawhoa_model(
                 found, totem_out.get("rows", {}), totem_out.get("each", {}), deaths_how)
             hand_mods, hand_notes = hand_mods + tawhoa_mods, hand_notes + tawhoa_notes
-        warcries = {s.name for s in found if "Warcry" in ((build.ctx.gems.get(s.name) or {}).get("skillTypes") or [])}
+        chayula_groups: set[int] = set()
+        tornado = next((s for s in found if s.name == models.CHAYULAS_WILL and s.group is not None), None)
+        if tornado is not None:  # (MECHB42: Archon of Chayula's tornadoes; PoB gives the triggered attack no rate: 0)
+            archons, archons_how = self.glory_caps().get(models.ARCHON_OF_CHAYULA, (0.0, "no Archon of Chayula"))
+            index = next((i for g in build.groups() if g["index"] == tornado.group
+                          for i, x in enumerate(g.get("skills") or [], 1) if x["name"] == models.CHAYULAS_WILL), 0)
+            rows = build.call("useRates", indices=[tornado.group], actives=[index])["rates"] if index else []
+            will_mods, will_notes, chayula_groups = models.chayulas_will_model(
+                tornado, archons, archons_how, models.number((rows or [{}])[0].get("duration")))
+            hand_mods, hand_notes = hand_mods + will_mods, hand_notes + will_notes
+        warcries ={s.name for s in found if "Warcry" in ((build.ctx.gems.get(s.name) or {}).get("skillTypes") or [])}
         if warcries:  # (MECH-B: Echoing Cry's Echoes; COV-E's support_part_scale "warcry_echo")
             echo_mods, echo_notes = models.warcry_echo_model(found, supports, warcries, models.support_part_scale)
             hand_mods, hand_notes = hand_mods + echo_mods, hand_notes + echo_notes
@@ -2586,6 +2636,17 @@ class Assumptions:
                 howl_mods, howl_notes = models.arctic_howl_cold(howl, main, models.number(stats.get("Speed")),
                                                                 howl_uses, howl_how)
                 hand_mods, hand_notes = hand_mods + howl_mods, hand_notes + howl_notes
+            howl_minions = sorted({s.name for s in found if s.summon})
+            if howl is not None and howl_minions:
+                # (MECHB42: Arctic Howl's buff of added Cold to Allies' Attacks, the build's minions; PoB 0)
+                howl_row = (build.call("useRates", indices=[howl.group])["rates"] or [{}])[0]
+                frozen, frozen_how = models.immobilised_share({**stats, **models.dazed_stats(build), **(
+                    {"_primed_freeze": build.primed_freeze} if getattr(build, "primed_freeze", None) else {})},
+                    "Freeze")[:2]
+                buff_mods, buff_notes = models.arctic_howl_buff(
+                    howl, models.number(howl_row.get("speed")), models.number(howl_row.get("duration")), frozen,
+                    frozen_how or "nothing in the build makes the boss Frozen", howl_minions)
+                hand_mods, hand_notes = hand_mods + buff_mods, hand_notes + buff_notes
             if echoed:  # (MECHB40: Echoing Cry's less Power for the Warcry it supports; PoB counts the boss's full Power)
                 rows = build.call("useRates", indices=[s.group for s in echoed])["rates"]
                 power_mods, power_notes = models.echoing_power_model(echoed, {r["name"]: r for r in rows})
@@ -2889,6 +2950,11 @@ class Assumptions:
         riven, riven_notes = riven_armour(build, main)  # (GEM3's model; MECH69's Armour Break cycle gives its uptime)
         hand_mods += [models.added_input("RivenArmour", riven)] if riven > 0 else []
         hand_notes += riven_notes
+        lightning, lightning_notes = living_lightning(build)  # (MECHB42: 3 Zaps a minion; PoB's own entry out of Full DPS)
+        hand_mods += [models.added_input("LivingLightning", lightning)] if lightning > 0 else []
+        hand_notes += lightning_notes
+        for note in lightning_notes:
+            build.objective.entry_scales.update(note.get("full_dps") or {})
         discharge, discharge_notes = elemental_discharge(build, main)  # (GEM5's model; MECH69's ailment uptimes)
         hand_mods += [models.added_input("ElementalDischarge", discharge)] if discharge > 0 else []
         hand_notes += discharge_notes
@@ -3046,7 +3112,7 @@ class Assumptions:
         notes += self.rate_presses()
         vessel_groups = models.spirit_vessel_groups(skills)  # (its companion's damage is in Full DPS only)
         return mods, notes, {**{g: None for g in energy_groups | mirage_groups | vessel_groups | toad_groups | doom_groups
-                                                    | annihilation_groups | tawhoa_groups},
+                                                    | annihilation_groups | tawhoa_groups | chayula_groups},
                              **expression_groups, **storm_groups}
 
     def rate_presses(self) -> list[dict]:

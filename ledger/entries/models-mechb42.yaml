@@ -1,0 +1,65 @@
+# MECH-B's model entries (MECHB42).
+
+- id: model-mechb42-arctic-howl-ally-buff
+  title: "Arctic Howl's buff: added Cold to Allies' (your minions') Attacks while the boss is Frozen (models.arctic_howl_buff)"
+  kind: model
+  model: arctic_howl_buff
+  stats: ["wolf_warcry_buff_cold_damage_min_per_5_power_up_to_cap",
+          "wolf_warcry_buff_cold_damage_max_per_5_power_up_to_cap"]
+  skill: ["Arctic Howl"]
+  confidence: theory
+  notes: >-
+    arctic_howl.csd: "[Buff] grants [Allies] {0} to {1} added [Cold] damage to [Attack|Attacks]" (37 to 56 at level 20),
+    "[Buff] duration is {0} seconds" (base_skill_effect_duration 8 s); the skill: "If an enemy is Frozen or a Frozen enemy
+    is Hit, this Skill ... grants your Allies added Cold damage". KeywordPopups Allies: minions and other players, "You do
+    not count as your own Ally". PoB maps neither stat (checked: both ids appear in vendor PoB src only in
+    Data/Skills/act_str.lua's stat list and the arctic_howl stat description file), so minion builds with the Howl scored
+    0 of it (an UNDERCOUNT). Now "Minions' Attacks deal 37 to 56 additional Cold Damage" x min(1, the Howl's uses/s x its
+    buff Duration, PoB's useRates) x the share of the fight the boss is Frozen (LOW lower reading, as its Empowers). The
+    stat id says "per 5 Power up to cap", the text a flat range: the text taken (lower), UNVERIFIED (RESEARCH, with
+    model-mechb41-arctic-howl-empowered-cold's question). Not counted: the quality's Allies' Freeze buildup; the
+    Endurance-Charge cooldown bypass.
+  sources: [builder/search/models.py (ARCTIC_HOWL_BUFF, arctic_howl_buff),
+            builder/search/assumptions.py (the Howl buff call beside arctic_howl_cold)]
+  test_in_game: "RESEARCH: is the buff's added Cold per 5 Power (x4 at 20 Power) or the flat range shown?"
+  status: proposed
+
+- id: model-mechb42-living-lightning-zaps
+  title: "Living Lightning: 3 Zaps a minion, one minion per Lightning hit of the supported skill (models.living_lightning_model)"
+  kind: model
+  model: living_lightning_model
+  stats: ["living_lightning_maximum_number_of_attacks", "living_lightning_beam_attack_time_ms",
+          "chance_to_trigger_living_lightning_on_lightning_damage_%", "base_number_of_living_lightning_allowed"]
+  skill: ["Living Lightning", "Living Lightning II"]
+  confidence: theory
+  notes: >-
+    An OVERCOUNT where its group is in Full DPS (probe POE2T4627: Lightning Arrow 61 DPS, PoB's Living Lightning entry
+    304). The game (triggered_living_lightning.csd): Triggered on dealing Lightning damage with the supported skill, a
+    0.2 s cooldown, "Limit 5 Minions" (II: 8), "Minions Attack every 0.14 seconds", "Minions disperse after 3 Attacks".
+    PoB scores a minion attacking all fight. Now: R = min(the supported skill's hits a second, 1 / the trigger's
+    cooldown, the limit / (3 x 0.14 s)), 0 without a Lightning hit; DPS = R x 3 x one Zap's damage (PoB's minion
+    AverageDamage, bridge minionSkillHit), an added damage source; PoB's own entry scaled to 0 (Objective.entry_scales).
+    MEDIUM: one hit on the boss a use of the supported skill (lower for a skill hitting it more often).
+  sources: [builder/search/models.py (LIVING_LIGHTNING, LL_*, living_lightning_model),
+            builder/search/assumptions.py (living_lightning; its hook after Riven Armour)]
+  status: proposed
+
+- id: model-mechb42-chayulas-will
+  title: "Chayula's Will: Archon of Chayula's tornadoes at the Archons the Glory pays for (models.chayulas_will_model)"
+  kind: model
+  model: chayulas_will_model
+  stats: ["archon_of_chayula_spawn_chaos_tornado_interval_ms", "archon_of_chayula_tornado_attack_interval_ms",
+          "secondary_skill_triggered_by_primary_skill_of_gem"]
+  skill: ["Archon of Chayula", "Chayula's Will"]
+  confidence: theory
+  notes: >-
+    An UNDERCOUNT: PoB gives the triggered tornado speed 0 (probe POE2T4627), so 0 DPS. "[Trigger] Chayula's Will every 3
+    seconds" while in the Archon; the tornado lasts 8 s and attacks every 0.2 s. floor(10 / 3) = 3 tornadoes an Archon
+    (KeywordPopups Archon: "By default, each Archon Buff lasts 10 seconds"; poe2db's Archon of Chayula buff block
+    "Duration: 10"; none at its start, UNVERIFIED),
+    each on the boss for its Duration (it chases: MEDIUM), at glory_caps' Archons a second; the rate goes to PoB as its
+    trigger rate, its group into Full DPS. Not counted: the Slow; the Archon's 20% more on hits made while it lasts.
+  sources: [builder/search/models.py (CHAYULAS_WILL, chayulas_will_model), builder/search/assumptions.py (the hook
+            after Tawhoa's; chayula_groups into Full DPS)]
+  test_in_game: "RESEARCH: does a tornado spawn as the Archon starts (4 an Archon, not 3)? does it stay on the boss its whole 8 s?"
+  status: proposed

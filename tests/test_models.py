@@ -6436,6 +6436,45 @@ def test_arctic_howl_empowers_one_attack_per_5_power_with_its_added_cold():
     assert models.arctic_howl_cold(howl, models.Skill("Spark", group=1), 2.0, 0.5, "") == ([], [])
 
 
+def test_arctic_howls_buff_adds_cold_to_minions_attacks_at_its_uptime_while_the_boss_is_frozen():
+    """MECHB42 (an UNDERCOUNT: PoB maps neither buff stat): "[Buff] grants [Allies] 37 to 56 added [Cold] damage to
+    [Attack|Attacks]" for 8 s, Allies being the minions (not you), at min(1, uses x duration) x the Frozen share."""
+    howl = models.Skill("Arctic Howl", group=3, level_stats={models.ARCTIC_HOWL_BUFF[0]: 37, models.ARCTIC_HOWL_BUFF[1]: 56})
+    mods, notes = models.arctic_howl_buff(howl, 0.125, 8.0, 0.5, "Freeze every 4 s", ["Summon Wolf"])
+    assert mods == [models.line("Minions' Attacks deal 37 to 56 additional Cold Damage", 0.5)]
+    assert notes[0]["confidence"] == "LOW" and "Summon Wolf" in notes[0]["basis"] and "UNVERIFIED" in notes[0]["basis"]
+    assert models.arctic_howl_buff(howl, 0.05, 8.0, 1.0, "", ["Summon Wolf"])[0][0]["scale"] == 0.4  # (40% covered)
+    assert models.arctic_howl_buff(howl, 0.125, 8.0, 0.0, "nothing Freezes", ["Summon Wolf"])[0] == []  # (a note only)
+    assert models.arctic_howl_buff(howl, 0.125, 8.0, 1.0, "", []) == ([], [])  # (no minions: no Allies to buff)
+
+
+def test_living_lightning_counts_three_zaps_per_minion_made_per_lightning_hit_and_drops_pobs_entry():
+    """MECHB42 (an OVERCOUNT in Full DPS: PoB's minion never disperses): "[Minion|Minions] disperse after 3 [Attack|
+    Attacks]"; one minion per Lightning hit of the supported skill, at most one per trigger cooldown."""
+    part = {"source": "Lightning Arrow", "hits": 2.0, "lightning": True, "cooldown": 0.2, "level": {}, "zap": 10.0,
+            "pob": 304.0}
+    dps, notes = models.living_lightning_model([part])
+    assert dps == pytest.approx(2.0 * 3 * 10.0) and notes[0]["full_dps"] == {"Living Lightning": 0.0}
+    assert "304.0" in notes[0]["basis"] and notes[0]["confidence"] == "MEDIUM"
+    assert models.living_lightning_model([{**part, "hits": 9.0}])[0] == pytest.approx(5.0 * 3 * 10.0)  # (the cooldown)
+    assert models.living_lightning_model([{**part, "lightning": False}])[0] == 0.0  # (no Lightning hit: no minions)
+    four = models.living_lightning_model([{**part, "level": {models.LL_ATTACKS[0]: 4}}])[0]
+    assert four == pytest.approx(2.0 * 4 * 10.0)  # (the attacks read off its level stats)
+    assert models.living_lightning_model([{**part, "hits": 9.0, "cooldown": 0.0}])[0] == pytest.approx(5.0 * 3 * 10.0)
+    assert models.living_lightning_model([]) == (0.0, [])
+
+
+def test_chayulas_will_counts_three_tornadoes_an_archon_attacking_every_fifth_of_a_second():
+    """MECHB42 (an UNDERCOUNT: PoB gives the triggered tornado no rate): floor(10 s / 3 s) tornadoes an Archon, each
+    attacking every 0.2 s for its Duration, at the Archons a second the Glory pays for; its group into Full DPS."""
+    tornado = models.Skill("Chayula's Will", group=4)
+    mods, notes, groups = models.chayulas_will_model(tornado, 0.05, "100 Glory at 5/s", 8.0)
+    assert mods == models.trigger_rate("Chayula's Will", 0.05 * 3 * 8.0 / 0.2) and groups == {4}
+    assert "UNVERIFIED" in notes[0]["basis"] and notes[0]["confidence"] == "MEDIUM"
+    assert models.chayulas_will_model(tornado, 0.05, "", 0.0)[0] == models.trigger_rate("Chayula's Will", 6.0)  # (base 8 s)
+    assert models.chayulas_will_model(tornado, 0.0, "no Chaos hits", 8.0)[0::2] == ([], set())
+
+
 def test_empowered_attacks_gain_lines_count_at_the_empowered_share():
     """MECHB41 (an UNDERCOUNT: PoB leaves Hail's and Cremating Cries' lines unparsed): the gain on the main skill at the
     share of its uses that are Empowered; 0 share: a note, no line."""

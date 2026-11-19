@@ -13578,8 +13578,8 @@ def echoing_power_model(skills: list[Skill], rows: dict[str, dict]) -> tuple[lis
 # 50) / 5) a use (4 at the boss's 20 Power; Echoing Cry's less Power first), at the share the boss is Frozen
 # (warcry_empowers), and each Empowered attack of the main skill adds the Cold. The id says "per 5 Power up to cap", the
 # text gives a flat range: the text is taken (the lower reading, as Vruun's Aftermath's), the id's reading (x Power / 5) in
-# the note (UNVERIFIED which holds). Not counted (open): its buff's added Cold to Allies' Attacks (minions), Empowered
-# Slams' Chilled Ground (MECH-A's grounds); warcry_minimum_benefit_if_monster_power_present (no description) is read as
+# the note (UNVERIFIED which holds). Its buff's added Cold to Allies' Attacks (minions): arctic_howl_buff below
+# (MECHB42). Not counted (open): Empowered Slams' Chilled Ground (MECH-A's grounds); warcry_minimum_benefit_if_monster_power_present (no description) is read as
 # nothing.
 ARCTIC_HOWL = "Arctic Howl"
 UNBUFFED_WARCRIES = {ARCTIC_HOWL}  # (Warcries PoB makes no buff for, so no Num<Name>Empowers: GEM14's find, by name)
@@ -13616,6 +13616,155 @@ def arctic_howl_cold(howl: Skill, main: Skill, uses: float, empowered: float, ho
     if share <= 0:
         return [], [note]
     return [line(f"Adds {lo:g} to {hi:g} Cold Damage to Attacks", share, skill=main.name)], [note]
+
+
+# Arctic Howl's buff to Allies (MECHB42, an UNDERCOUNT for minion builds; MECHB41's open item 4). arctic_howl.csd:
+# wolf_warcry_buff_cold_damage_min / max_per_5_power_up_to_cap "[Buff] grants [Allies] {0} to {1} added [Cold] damage to
+# [Attack|Attacks]" (level 20: 37 to 56, GrantedEffectStatSetsPerLevel 26650308 / act_str.lua), base_skill_effect_duration
+# "[Buff] duration is {0} seconds" (8 s), and the skill's description: "If an enemy is Frozen or a Frozen enemy is Hit,
+# this Skill ... grants your Allies added Cold damage". KeywordPopups Allies: "Your allies include other players,
+# Minions ... You do not count as your own Ally": so the build's minions, not you. PoB maps neither stat (checked: the ids
+# appear in vendor PoB src only in Data/Skills/act_str.lua's stat list and the arctic_howl stat description file), so
+# it counted 0. Now: "Minions' Attacks deal 37 to 56 additional Cold Damage" (ModParser's "^minions' attacks deal "
+# prefix, Attack flag) x the buff's uptime: min(1, the Howl's uses/s x its buff duration, PoB's useRates speed and
+# Duration with the build's modifiers) x the share of the fight the boss is Frozen (the same lower reading as its
+# Empowers, warcry_empowers: a use also buffs when the boss is Frozen later in its window; LOW). The id says "per 5 Power
+# up to cap", the text a flat range: the text taken (the lower reading, as its Empowered attacks'), UNVERIFIED (RESEARCH).
+# Not counted: the quality's increased Freeze buildup for Allies (wolf_warcry_buff_freeze_buildup_+%; MECH-A's buildup);
+# the Endurance-Charge cooldown bypass (more uses: an undercount where uptime is under 1).
+ARCTIC_HOWL_BUFF = ("wolf_warcry_buff_cold_damage_min_per_5_power_up_to_cap",
+                    "wolf_warcry_buff_cold_damage_max_per_5_power_up_to_cap")
+
+
+def arctic_howl_buff(howl: Skill, uses: float, duration: float, frozen: float, frozen_how: str,
+                     minions: list[str]) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): Arctic Howl's buff of added Cold to Allies' Attacks for the build's `minions` (their skills' names),
+    at its uptime (`uses` a second x its buff `duration` s, at most 1) x the boss's Frozen share (`frozen`, why
+    `frozen_how`)."""
+    lo, hi = (number(howl.level_stats.get(k)) for k in ARCTIC_HOWL_BUFF)
+    if not minions or hi <= 0:
+        return [], []
+    cover = min(1.0, max(0.0, uses) * max(0.0, duration))
+    up = cover * min(1.0, max(0.0, frozen))
+    note = {"label": "Arctic Howl: its buff's added Cold to your minions' Attacks*", "value": f"{up:.0%} of the fight",
+            "confidence": "LOW",
+            "basis": (f"Arctic Howl's buff grants Allies (your minions: {', '.join(minions)}) {lo:g} to {hi:g} added Cold "
+                      f"to Attacks for {duration:g} s, if the boss is Frozen (or a Frozen boss is Hit): {uses:.3f} uses/s "
+                      f"x {duration:g} s covers {cover:.0%} of the fight, x the boss Frozen {frozen:.0%} ({frozen_how}; a "
+                      "lower reading: a use also counts when the boss is Frozen later in its window). The text's flat "
+                      "range taken; the stat id says per 5 Power up to its cap, which would multiply it by Power / 5 "
+                      "(UNVERIFIED which holds, the lower taken). PoB scores none of it."),
+            "play": ("Howl when the boss is Frozen (or Freeze it) so your minions' Attacks get its added Cold: "
+                     f"without it 0, with it {lo:g} to {hi:g} added Cold for {duration:g} s a use.")}
+    if up <= 0:
+        return [], [note]
+    return [line(f"Minions' Attacks deal {lo:g} to {hi:g} additional Cold Damage", up)], [note]
+
+
+# Living Lightning (MECHB42, an OVERCOUNT where its group is in Full DPS; probe POE2T4627: Lightning Arrow 61 DPS, PoB's
+# "Living Lightning" entry 304). The game (triggered_living_lightning.csd, TriggeredLivingLightningPlayer /
+# ...PlayerTwo, GrantedEffectStatSets 26650308): "This Skill is [Trigger|Triggered] on dealing [Lightning] Damage with
+# Supported Skill" (chance_to_trigger_living_lightning_on_lightning_damage_% 100), a 0.2 s cooldown (5 stored uses; II:
+# 8), "[Limit] 5 [Minion|Minions]" (II: 8), "[Minion|Minions] [Attack] every 0.14 seconds"
+# (living_lightning_beam_attack_time_ms 140) and "[Minion|Minions] disperse after 3 [Attack|Attacks]"
+# (living_lightning_maximum_number_of_attacks 3). PoB scores the minion as one that never disperses: its Zap at PoB's own
+# minion speed all fight, with the 3 mapped to RepeatCount (sup_int.lua's statMap). So each minion is worth its 3
+# attacks: Zaps a second = 3 x the minions made a second, R = min(the supported skill's hits a second (PoB's speed x hit
+# chance, one hit on the boss a use: a lower reading for a skill that hits it more than once a use), 1 / its trigger's
+# cooldown (PoB's, with the build's cooldown recovery), the limit / (3 x 0.14 s) (never binding below ~12 a second)),
+# and 0 when the supported skill deals no Lightning hit damage. One Zap's damage: PoB's own minion AverageDamage for the
+# Zap (bridge minionSkillHit; the hit chance in). Counted as an added damage source; PoB's own entry goes to 0 in Full
+# DPS (Objective.entry_scales, as Ice Fragments'). MEDIUM: the 3 attacks and the trigger are the game's text; the Zap's
+# chains don't hit a lone boss again (KeywordPopups Chain: "Enemies cannot be targeted more than once in the same
+# Chain"), so one hit an attack. Probe POE2T4628: PoB's Zap AverageDamage 42.56 x its minion Speed 7.14/s = its 304 entry.
+LIVING_LIGHTNING = "Living Lightning"
+LIVING_LIGHTNING_ZAP = "LivingLightningZap"
+LL_ATTACKS = ("living_lightning_maximum_number_of_attacks", 3.0)
+LL_ATTACK_MS = ("living_lightning_beam_attack_time_ms", 140.0)
+LL_LIMIT = ("base_number_of_living_lightning_allowed", 5.0)
+# (Living Lightning II's trigger has its 0.2 s Cooldown and 8 stored uses on its level-1 row only, levels 2-40 0 / 0:
+# GrantedEffectsPerLevel 26650308 TriggeredLivingLightningPlayerTwo; it is a SingleLevelSkill, so the game uses level 1,
+# but the bridge's granted-level copy hands PoB its level-20 row: no cooldown, probe POE2T4628. So a missing cooldown
+# is the level-1 row's 0.2 s, MEDIUM)
+LL_COOLDOWN = 0.2
+
+
+def living_lightning_model(parts: list[dict]) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for the build's Living Lightning groups. Each part: source (the supported skill), hits (its
+    hits a second), lightning (whether it deals Lightning hit damage), cooldown (the trigger's, s), level (its level
+    stats), zap (PoB's AverageDamage of one Zap) and pob (PoB's own Full DPS entry, or None)."""
+    total, parts_how = 0.0, []
+    for p in parts:
+        level = p.get("level") or {}
+        attacks = number(level.get(LL_ATTACKS[0])) or LL_ATTACKS[1]
+        every = (number(level.get(LL_ATTACK_MS[0])) or LL_ATTACK_MS[1]) / 1000
+        limit = number(level.get(LL_LIMIT[0])) or LL_LIMIT[1]
+        hits, cooldown, zap = number(p.get("hits")), number(p.get("cooldown")), number(p.get("zap"))
+        caps = [(hits, f"{p.get('source')}'s {hits:.2f} hits/s")]
+        if cooldown <= 0:
+            cooldown, cd_how = LL_COOLDOWN, "its level-1 0.2 s cooldown (PoB reads none at this level)"
+        else:
+            cd_how = f"its {cooldown:.3g} s cooldown"
+        caps.append((1 / cooldown, cd_how))
+        caps.append((limit / (attacks * every), f"{limit:g} alive at {attacks:g} x {every:g} s each"))
+        made, why = min(caps, key=lambda c: c[0]) if p.get("lightning") else (0.0, f"{p.get('source')} deals no Lightning hit")
+        dps = made * attacks * zap
+        total += dps
+        pob = p.get("pob")
+        parts_how.append(f"{made:.2f} minions/s ({why}) x {attacks:g} Zaps x {zap:,.1f} a Zap = {dps:,.1f} DPS"
+                         + (f" (PoB's own entry: {number(pob):,.1f}, as one minion attacking all fight)" if pob else ""))
+    if not parts:
+        return 0.0, []
+    note = {"label": "Living Lightning: 3 Zaps a minion, one minion per Lightning hit*", "value": f"{total:,.1f} DPS",
+            "basis": ("Triggered on dealing Lightning damage with the supported skill, its minions Attack every 0.14 s "
+                      "and disperse after 3 Attacks (the game's text): " + "; ".join(parts_how) + ". PoB scores a minion "
+                      "that never disperses: its entry is replaced (an OVERCOUNT before, where it was in Full DPS). "
+                      "MEDIUM: one hit on the boss a use of the supported skill (a lower reading for a skill that hits "
+                      "it more often, up to the cooldown's cap)"),
+            "play": "Living Lightning needs the supported skill to deal Lightning damage; its minions fire 3 Zaps each",
+            "confidence": "MEDIUM", "full_dps": {LIVING_LIGHTNING: 0.0}}
+    return total, [note]
+
+
+# Chayula's Will, Archon of Chayula's tornado (MECHB42, an UNDERCOUNT: probe POE2T4627, PoB gives the triggered attack
+# speed 0, so 0 DPS, and its group isn't in Full DPS). PoB other.lua / game 26650308 ArchonOfChayulaPlayer:
+# archon_of_chayula_spawn_chaos_tornado_interval_ms 3000 (skill_stat_descriptions: "[Trigger] Chayula's Will every 3
+# seconds"); ArchonOfChayulaTornadoPlayer: "Conjure a Chaos tornado that chases down and Slows enemies",
+# base_skill_effect_duration 8000, archon_of_chayula_tornado_attack_interval_ms 200, 70% Physical to Chaos. So each Archon
+# makes floor(D / 3) tornadoes (none at the moment it starts: the lower reading), each attacking the boss every 0.2 s for
+# its Duration (PoB's, with the build's modifiers; it chases the boss, so taken to stay on it: MEDIUM). D: KeywordPopups
+# Archon, "By default, each Archon Buff lasts 10 seconds", and poe2db's Archon of Chayula page, its Archon buff block:
+# "Duration: 10" (fetched 19 Nov; the game's stats list have_archon_of_chayula beside have_archon_fire / _undeath).
+# When the first tornado spawns isn't stated anywhere (UNVERIFIED; none at the start taken, the lower reading). Archons a second: glory_caps (MECH-C's glory_plan on the build's Chaos hits). The rate
+# goes to PoB as the tornado's trigger rate (attacks a second), its group into Full DPS. Not counted: the tornadoes'
+# Slow; the Archon's 20% more Physical and Chaos on the tornado hits made while it lasts (MECH-C's Archon buff).
+CHAYULAS_WILL = "Chayula's Will"
+ARCHON_OF_CHAYULA = "Archon of Chayula"
+CHAYULA_TORNADO_EVERY = 3.0  # archon_of_chayula_spawn_chaos_tornado_interval_ms 3000
+CHAYULA_TORNADO_ATTACK = 0.2  # archon_of_chayula_tornado_attack_interval_ms 200
+CHAYULA_TORNADO_SECONDS = 8.0  # its base_skill_effect_duration (when PoB gives none)
+ARCHON_BUFF_SECONDS = 10.0  # KeywordPopups Archon: "By default, each Archon Buff lasts 10 seconds"
+
+
+def chayulas_will_model(tornado: Skill, archons: float, archons_how: str,
+                        duration: float = 0.0) -> tuple[list[dict], list[dict], set[int]]:
+    """(mods, notes, Full DPS groups): Chayula's Will's attacks a second as its trigger rate, from `archons` (Archon of
+    Chayula uses a second, how `archons_how`) and the tornado's `duration` (PoB's; 0: its base 8 s)."""
+    seconds = duration if duration > 0 else CHAYULA_TORNADO_SECONDS
+    per_archon = math.floor(ARCHON_BUFF_SECONDS / CHAYULA_TORNADO_EVERY + 1e-9)
+    hits = max(0.0, archons) * per_archon * seconds / CHAYULA_TORNADO_ATTACK
+    note = {"label": "Chayula's Will: Archon of Chayula's tornadoes*", "value": f"{hits:.2f} attacks/s",
+            "basis": (f"{archons:.4f} Archons a second ({archons_how}) x {per_archon} tornadoes an Archon (one every "
+                      f"{CHAYULA_TORNADO_EVERY:g} s of its {ARCHON_BUFF_SECONDS:g} s: the Archon keyword's default "
+                      "duration, poe2db's Archon buff 'Duration: 10'; none counted as it starts, UNVERIFIED) x one attack every "
+                      f"{CHAYULA_TORNADO_ATTACK:g} s for its {seconds:g} s (each tornado chases the boss: taken to stay "
+                      "on it, MEDIUM). PoB gives the triggered tornado no rate (0 before: an UNDERCOUNT)"),
+            "play": ("Become the Archon whenever your Glory is full: each one conjures Chaos tornadoes that chase the "
+                     f"boss (without it 0; with it {per_archon} tornadoes an Archon)"),
+            "confidence": "MEDIUM"}
+    if hits <= 0 or tornado.group is None:
+        return [], [note], set()
+    return trigger_rate(CHAYULAS_WILL, hits), [note], {tornado.group}
 
 
 # "Empowered Attacks Gain N% of [Physical] Damage as Extra <Type> Damage" (MECHB41, an UNDERCOUNT; the coverage audit's
