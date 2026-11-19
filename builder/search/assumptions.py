@@ -2102,6 +2102,12 @@ class Assumptions:
         # manager's 17 Nov ruling), and the extra your items' "+N% chance to be ..." lines bring (self_ailments)
         from builder.search import objective
 
+        ci = next((p for p in build.call("facts", fields=[]).get("passives") or []
+                   if p.get("name") == boss_hits.CI_KEYSTONE), None)
+        if ci is not None:  # (MECHC40: PoB's Ailment Threshold under CI reads 1 Life; patch 0.5.0 fixed it in game)
+            without = build.call("nodeDeltas", cases=[{"remove": [ci["id"]]}], fields=["Life"], fullDPS=False)
+            ci_mods, ci_row = boss_hits.ci_ailment_threshold(number(without["results"][0].get("Life")))
+            hand_mods, hand_notes = hand_mods + ci_mods, hand_notes + [ci_row]
         added = getattr(build, "added_stats", None)
         seen = {**build.call("stats", fields=sorted(set(boss_hits.SELF_BLEED_FIELDS) | set(objective.RECOVERY_INPUTS)
                                                     | set(boss_hits.SELF_AILMENT_FIELDS))),
@@ -3943,6 +3949,83 @@ class Assumptions:
                              f"{SECOND_WIND_PCT:g}% of {life:,.0f} Life = {each:.1f}/s")
         return total, "Second Wind III: " + ("; ".join(parts) or "no supported skill with a cooldown")
 
+    def event_guards(self, texts: list[str], stats: dict, main: str | None, present: dict,
+                     boss: str | None) -> list[tuple[float, float, dict]]:
+        """(MECHC40) [(Guard, share of the fight, row)] for the build's event-driven Guard sources
+        (recovery.event_guard's note: Fortifying Cry, Vanguard, Savage Hits, Heavy Drinker, Warding Rune of Protection)."""
+        from builder.search import boss_hits, flasks, recovery
+
+        build, out = self.build, []
+        stripped = [t.strip() for t in texts]
+        life = number(stats.get("Life"))
+        expiry = (conditions_mod.buff_expiry(texts)[0] if any(conditions_mod.BUFF_EXPIRY.search(t) for t in texts)
+                  else 1.0)
+        if recovery.FORTIFYING_CRY in present:
+            found = [s for s in build.call("activeSkills", levelStats=[recovery.FORTIFYING_CRY])["skills"]
+                     if s["name"] == recovery.FORTIFYING_CRY and not s.get("disabled")]
+            per = number(((found[0].get("levelStats") or {}) if found else {}).get(recovery.FORTIFY_GUARD_STAT))
+            power = min(models.BOSS_POWER, recovery.FORTIFY_POWER_CAP)
+            uses = group_uses(build, recovery.FORTIFYING_CRY) or (0.0, "not in an enabled group")
+            amount = per * power // recovery.FORTIFY_POWER_STEP
+            out.append(recovery.event_guard(
+                recovery.FORTIFYING_CRY, amount, uses[0], recovery.FORTIFY_SECONDS, texts, life,
+                f"{per:g} Guard for every 5 enemy Power (the gem's level), a lone Unique boss's {models.BOSS_POWER:g} "
+                f"Power counted up to {recovery.FORTIFY_POWER_CAP}: {amount:g}; used {uses[1]}", True, expiry))
+        groups = build.groups() if hasattr(build, "groups") else []
+        main_group = next((g for g in groups if g.get("main")), None)
+        vanguard = next((g["name"] for g in (main_group or {}).get("gems") or []
+                         if g["name"] in recovery.VANGUARD and g.get("enabled", True)), None)
+        side = next((g["name"] for grp in groups if grp is not main_group
+                     for g in grp.get("gems") or [] if g["name"] in recovery.VANGUARD and g.get("enabled", True)), None)
+        if vanguard or side:
+            name = vanguard or side
+            strength = number(build.call("stats", fields=["Str"]).get("Str"))
+            heavy, per_stun = recovery.VANGUARD[name]
+            amount = heavy * strength / 10
+            rate, how = models.heavy_stun_rate(stats) if vanguard else (
+                0.0, "the shield skill it supports isn't the main skill, so its stuns aren't rated: 0")
+            out.append(recovery.event_guard(
+                name, amount, rate, recovery.VANGUARD_SECONDS, texts, life,
+                f"{heavy:g} Guard per 10 Strength on Heavy Stun x your {strength:,.0f} Strength; Heavy Stuns: {how}; its "
+                f"{per_stun:g} per 10 Strength on any Stun NOT counted (no light-stun rate on a boss in the models: an "
+                "UNDERCOUNT kept)", False, expiry))
+        if m := next((m for t in stripped if (m := recovery.SAVAGE_GUARD.match(t))), None):
+            seen = {**stats, "_boss": boss}
+            name = boss_hits.boss_name(seen)
+            every = number(seen.get("enemySkillTime")) or 0.7
+            land = boss_hits.land_share(seen) / every
+            shares = boss_hits.type_shares(name)
+            savage = {t: share for t, share in shares.items()
+                      if share > 0 and number(stats.get(f"{t}TakenHit")) >= recovery.SAVAGE_SHARE * life}
+            rate = land * sum(savage.values())
+            out.append(recovery.event_guard(
+                "Savage Hits taken", float(m.group(1)) / 100 * life, rate, float(m.group(2)), texts, life,
+                f"{name}'s {land:.2f} landed hits/s, those of a type whose hit after your mitigation removes 15%+ of "
+                f"your {life:,.0f} maximum Life (KeywordPopups SavageHit): "
+                + (", ".join(f"{t} {v:.0%}" for t, v in savage.items()) or "none") + f"; {m.group(1)}% of maximum Life",
+                False, expiry))
+        if m := next((m for t in stripped if (m := recovery.DRINKER_GUARD.match(t))), None):
+            option = (getattr(build, "equipped", {}) or {}).get("Flask 1")
+            rate, amount, how = 0.0, 0.0, "no Life flask equipped"
+            if option is not None:
+                info = build.call("flaskData", raws=[option.raw])["results"][0] or {}
+                gain = flasks.Charges.of(build)
+                rate, how = flasks.uses_per_second(info, gain, option.raw, "Life")
+                length = flasks.duration(info, gain)
+                per_second = flasks.use_amount(info, gain, "Life", option.raw) / length if length > 0 else 0.0
+                amount = float(m.group(2)) / 100 * per_second
+                how = f"{option.name}: {per_second:,.0f} Life a second over {length:.2g} s, used {how}"
+            out.append(recovery.event_guard("Heavy Drinker (Life flasks)", amount, rate, float(m.group(1)), texts, life,
+                                            f"{m.group(2)}% of the Life recovery a second; {how}", True, expiry))
+        if m := next((m for t in stripped if (m := recovery.WARD_TIMER_GUARD.match(t))), None):
+            ward = number(build.call("stats", fields=["Ward"]).get("Ward"))
+            every = float(m.group(1))
+            out.append(recovery.event_guard(
+                "Warding Rune of Protection", float(m.group(2)) / 100 * ward, 1 / every if every > 0 else 0.0,
+                float(m.group(3)), texts, life, f"{m.group(2)}% of your {ward:,.0f} maximum Runic Ward every {every:g} s",
+                True, expiry))
+        return out
+
     def life_mana_income(self, skills: list[dict], main: str | None) -> list[dict]:
         """Life and Mana a second from the sources PoB gives per event or not at all (recovery.py; MECHC12, the user's rule
         of 12 Nov: every recovery source counts): kills, Remnants, charms, Warcries, Heavy Stuns, Ignites and Shocks, at
@@ -4057,6 +4140,12 @@ class Assumptions:
                 held = sum(number(x.get("value")) for x in self.full_guard_mods if x.get("name") == "GuardAbsorbLimit")
                 if whole and guard > held:  # (one Guard buff at a time: the largest up all fight counts)
                     self.full_guard_mods = whole
+        for guard, up, row in self.event_guards(texts, stats, main, present, boss):  # (MECHC40: Guard from events)
+            guard_rows.append(row)
+            whole = recovery.full_guard_mods(guard, up)
+            held = sum(number(x.get("value")) for x in self.full_guard_mods if x.get("name") == "GuardAbsorbLimit")
+            if whole and guard > held:  # (one Guard buff at a time: the largest up all fight counts)
+                self.full_guard_mods = whole
         warcries, warcry_how = 0.0, ""
         if has(recovery.WARCRY_BOTH) or has(recovery.WARCRY_LIFE):
             main_types = set((build.ctx.gems.get(main) or {}).get("skillTypes") or []) if main else set()

@@ -2250,3 +2250,69 @@ def swap_runes_row(texts: list[str], slots: dict) -> dict | None:
                       "count is UNVERIFIED (RESEARCH R31-14)" + (f"; the other set holds {', '.join(runes)}" if runes
                                                                    else "")),
             "confidence": "UNVERIFIED", "play": ""}
+
+
+
+# Guard from events (MECHC40; the manager 17:55: "the Guard skills PoB computes nothing for (an UNDERCOUNT of defences):
+# do them, by impact"; PoB sets no Guard pool from any skill: checked, grep GuardAbsorb over its src, only CalcDefence /
+# CalcSections read it). Each source gives a Guard per event G (x "increased Guard gained", capped at 200% of maximum
+# Life: KeywordPopups Guard), lasting D s (x "Buffs on you expire N% slower": Guard is a Buff), at the build's own event
+# rate r (CLAUDE.md: no flat rates; no source, 0). Its share of the fight: min(1, r x D) for paced events (a cooldown,
+# a timer, flask uses), 1 - e^(-r x D) for random ones (the boss's hits, stuns). Part-time Guard is a row (the manager's
+# 17 Nov ruling (b)); up all fight (99.5%+) it counts in the floors through PoB's Guard pool (ruling (ii)), the largest
+# such source only (one Guard buff at a time). A hit spends Guard until the next grant (named in the rows).
+# - Fortifying Cry (ActiveSkills FortifyingCryPlayer; PoB's stat text "Grants {0} Guard for every 5 enemy Power in range,
+#   counting up to {1} Power", shielding_cry_grant_X_guard_per_5_mp, cap 20; "Guard duration is {0} seconds",
+#   base_secondary_skill_effect_duration 4000): a lone Unique boss's 20 Power (models.boss_power) gives 4 x X, at the
+#   cry's own uses (its cooldown, or the search's press rate; with K2-9's bypass in PoB's cooldown).
+# - Vanguard I / II (SupportVanguardPlayer / Two: gain_X_guard_on_heavy_stun_per_10_strength 4 / 6,
+#   gain_X_guard_on_stun_per_10_strength 2, guard_on_stun_guard_duration_ms 4000): on the supported skill's Heavy Stuns
+#   of the boss (models.heavy_stun_rate, when Vanguard supports the main skill; a side skill isn't rated: 0, said).
+#   The plain-stun stat isn't counted: the models give no light-stun rate on a boss (an UNDERCOUNT kept, said).
+# - Carved Mischief's "Gain Guard equal to 10% of maximum Life for 4 seconds on taking Savage Hit" (KeywordPopups
+#   SavageHit: "a Hit that removes at least 15% of Maximum Life"): the boss's landed hits of each type whose size after
+#   your mitigation (PoB's <type>TakenHit) reaches 15% of maximum Life.
+# - Heavy Drinker's "Life Flasks applied to you grant Guard for 4 seconds equal to 8% of the Life Recovery per Second
+#   they apply": the Life flask's recovery over its duration, at its uses (flasks.uses_per_second).
+# - Warding Rune of Protection's "Every 4 seconds, gain Guard equal to 20% of maximum Runic Ward for 2 seconds": PoB's
+#   Ward, every N s for D s (a timer: D / N of the fight).
+FORTIFYING_CRY = "Fortifying Cry"
+FORTIFY_GUARD_STAT, FORTIFY_POWER_STEP, FORTIFY_POWER_CAP, FORTIFY_SECONDS = "shielding_cry_grant_X_guard_per_5_mp", 5, 20, 4.0
+VANGUARD = {"Vanguard I": (4.0, 2.0), "Vanguard II": (6.0, 2.0)}  # (Guard per 10 Strength on Heavy Stun, on Stun)
+VANGUARD_SECONDS = 4.0
+SAVAGE_GUARD = re.compile(r"^Gain Guard equal to (\d+(?:\.\d+)?)% of maximum Life for (\d+(?:\.\d+)?) seconds on taking "
+                          r"Savage Hit$", re.I)
+SAVAGE_SHARE = 0.15  # KeywordPopups SavageHit (HIGH)
+DRINKER_GUARD = re.compile(r"^Life Flasks applied to you grant Guard for (\d+(?:\.\d+)?) seconds equal to (\d+(?:\.\d+)?)% "
+                           r"of the Life Recovery per Second they apply$", re.I)
+WARD_TIMER_GUARD = re.compile(r"^Every (\d+(?:\.\d+)?) seconds, gain Guard equal to (\d+(?:\.\d+)?)% of maximum Runic Ward "
+                              r"for (\d+(?:\.\d+)?) seconds$", re.I)
+
+
+def event_guard(source: str, amount: float, rate: float, seconds: float, texts: list[str], life: float, how: str,
+                paced: bool = True, expiry: float = 1.0) -> tuple[float, float, dict]:
+    """(Guard, its share of the fight, its row) for one event-driven Guard source (the note above)."""
+    inc = _guard_inc(texts)
+    raw = max(amount, 0.0) * (1 + inc / 100)
+    guard = min(raw, GUARD_CAP * max(life, 0.0))
+    length = max(seconds, 0.0) * expiry
+    r = max(rate, 0.0)
+    up = (min(1.0, r * length) if paced else 1 - math.exp(-r * length)) if guard > 0 else 0.0
+    whole = bool(full_guard_mods(guard, up))
+    basis = (f"{how}; {guard:,.0f} Guard" + (f" (x {1 + inc / 100:.2f}, increased Guard gained)" if inc else "")
+             + (f", capped at 200% of maximum Life from {raw:,.0f}" if raw > guard + 0.5 else "")
+             + f" for {length:.3g} s" + (f" (x {expiry:.2f}, Buffs expire slower)" if expiry != 1 else "")
+             + f" at {r:.3g} a second: up {up:.0%} of the fight ("
+             + ("paced: rate x duration" if paced else "random events: 1 - e^(-rate x duration)") + "); "
+             + ("up all fight, so counted in the defence floors through PoB's Guard pool (the manager's 18 Nov ruling "
+                "(ii)); a hit spends Guard until the next grant" if whole
+                else "part-time, so in no defence floor (the manager's 17 Nov ruling (b))")
+             + "; PoB counts none; without it: no Guard")
+    row = {"label": f"Guard from {source}" + (" (up all fight: in the defences)*" if whole
+                                               else " (a row, not in the defences)*"),
+           "value": (f"{guard:,.0f} Guard, up all fight" if whole else
+                     f"{guard:,.0f} Guard, up {up:.0%} of the fight ({guard * up:,.0f} on average)" if up > 0
+                     else "0: no event grants it here"),
+           "basis": basis, "confidence": "MEDIUM (the event rate; the Guard's timing)",
+           "play": f"{source}: {guard:,.0f} Guard while it lasts" if up > 0 else ""}
+    return guard, up, row

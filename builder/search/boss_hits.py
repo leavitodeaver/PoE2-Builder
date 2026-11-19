@@ -1558,3 +1558,35 @@ def gain_hit_recently(stats: dict, seconds: float, uptime: float) -> bool:
         return 1 - (1 - land_share(read)) ** (seconds / every), ""
 
     return gain_floor(stats, one)[0] >= uptime
+
+
+
+# Chaos Inoculation and your Ailment Threshold (MECHC40; found re-checking the Freeze's x0.81 on 2b75d for the manager,
+# 18 Nov 17:55). Patch 0.5.0 (2026-05-29, Bug Fixes; the newest entry: grep_notes "Ailment Threshold"): "Fixed a bug
+# where Chaos Inoculation overriding maximum life to one incorrectly affected calculation of stun and ailment thresholds
+# for the player as well." PoB still has that bug for the Ailment Threshold: its base is 50% of output.Life
+# (CalcSetup 73, PercentStat), and CalcDefence 124 sets output.Life = 1 under CI first, so a CI build reads 0.5 plus
+# its other bases (measured: 2b75d, PoB AilmentThreshold 0.5, Frozen by every Cold hit; an OVERCOUNT of every ailment
+# and buildup on you: the boss's Chill, Shock, Ignite, Freeze). Fixed here: AilmentThreshold BASE + 50% x (the Life
+# you'd have without CI - 1), the Life from PoB's own what-if without the keystone (nodeDeltas: one more calculation per
+# re-apply, CI builds only); PoB's increases scale it as the rest of the base, as the game's would. (PoB's Stun
+# Threshold under CI already uses "Life before Chaos Inoculation", but only the BASE Life sum without its increases,
+# CalcDefence 2756: left to the stun model's owner, named in the row.) MEDIUM-HIGH (the patch note's wording; the
+# threshold's base share of Life unchanged by CI).
+CI_KEYSTONE = "Chaos Inoculation"
+CI_THRESHOLD_TAG = "CIAilmentThreshold"
+
+
+def ci_ailment_threshold(life_without_ci: float) -> tuple[list[dict], dict]:
+    """(mods, row) for a Chaos Inoculation build: the Ailment Threshold's Life part from the Life without CI."""
+    from builder.search import models
+
+    add = max(0.5 * (life_without_ci - 1), 0.0)
+    mods = [models.raw_mod("AilmentThreshold", "BASE", add, tag=CI_THRESHOLD_TAG)] if add > 0 else []
+    return mods, {"label": "Chaos Inoculation: your Ailment Threshold from your Life before it*",
+                  "value": f"+{add:,.0f} base Ailment Threshold (50% of {life_without_ci:,.0f} Life, not of 1)",
+                  "basis": ("patch 0.5.0 fixed Chaos Inoculation's Life of 1 lowering the player's stun and ailment "
+                            "thresholds; PoB still reads 50% of 1 Life: added 50% of the Life you'd have without the "
+                            "keystone (PoB's own calculation without it), then your increases; the Stun Threshold's "
+                            "matching fix is PoB's partial one (base Life only); without it: PoB's threshold"),
+                  "confidence": "MEDIUM-HIGH (the patch note)", "play": ""}

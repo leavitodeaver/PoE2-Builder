@@ -2470,3 +2470,35 @@ def test_the_other_weapon_sets_runes_are_a_row_only():
     assert row["value"].startswith("+2 Runes") and "Soul Core" not in row["basis"] and row["confidence"] == "UNVERIFIED"
     assert recovery.swap_runes_row(line, {})["value"].startswith("+0")
     assert recovery.swap_runes_row(["Gain 1% of Damage as Extra Damage"], slots) is None
+
+
+def test_event_guard_counts_size_duration_and_its_events_share():
+    """MECHC40 (the manager 17:55: the Guard sources PoB computes nothing for): Guard per event x increased Guard gained,
+    capped at 200% of Life, for its duration at the build's own event rate: paced min(1, r x D), random 1 - e^(-r x D);
+    part-time a row, up all fight PoB's Guard pool (full_guard_mods)."""
+    guard, up, row = recovery.event_guard("Fortifying Cry", 368, 1 / 8, 4.0, [], 3000.0, "on its 8 s cooldown")
+    assert guard == 368 and up == pytest.approx(0.5) and "a row" in row["label"] and "184 on average" in row["value"]
+    more = recovery.event_guard("Fortifying Cry", 368, 1 / 8, 4.0, ["50% increased Guard gained"], 3000.0, "x")
+    assert more[0] == pytest.approx(552)
+    capped = recovery.event_guard("x", 10000, 1.0, 4.0, [], 1000.0, "x")
+    assert capped[0] == 2000 and capped[1] == 1.0 and "in the defences" in capped[2]["label"]
+    assert recovery.full_guard_mods(capped[0], capped[1])
+    rand = recovery.event_guard("Savage Hits taken", 300, 0.5, 4.0, [], 3000.0, "x", paced=False)
+    assert rand[1] == pytest.approx(1 - math.exp(-2.0))
+    none = recovery.event_guard("Vanguard I", 400, 0.0, 4.0, [], 3000.0, "no stuns")
+    assert none[1] == 0.0 and none[2]["value"].startswith("0:")
+    assert recovery.SAVAGE_GUARD.match("Gain Guard equal to 10% of maximum Life for 4 seconds on taking Savage Hit")
+    assert recovery.DRINKER_GUARD.match("Life Flasks applied to you grant Guard for 4 seconds equal to 8% of the Life "
+                                        "Recovery per Second they apply")
+    assert recovery.WARD_TIMER_GUARD.match("Every 4 seconds, gain Guard equal to 20% of maximum Runic Ward for 2 seconds")
+
+
+def test_chaos_inoculation_keeps_the_ailment_threshold_of_your_life_before_it():
+    """MECHC40: patch 0.5.0 fixed Chaos Inoculation's 1 Life lowering the player's ailment threshold; PoB still reads
+    50% of 1: the fix adds 50% of the Life without the keystone, less the 1 PoB counted."""
+    from builder.search import boss_hits
+
+    mods, row = boss_hits.ci_ailment_threshold(3001.0)
+    assert mods[0]["name"] == "AilmentThreshold" and mods[0]["value"] == pytest.approx(1500.0)
+    assert mods[0]["tag"] == boss_hits.CI_THRESHOLD_TAG and "0.5.0" in row["basis"]
+    assert boss_hits.ci_ailment_threshold(1.0)[0] == []
