@@ -121,3 +121,24 @@ def test_crippling_toxins_maims_on_the_hits_against_a_poisoned_boss(monkeypatch)
     # an "increased" line against Poisoned enemies is still no source
     assert conditions._debuff_source("10% increased Maim Duration against Poisoned Enemies", "conditionEnemyMaimed",
                                      [], {}) is None
+
+
+def test_lycosidae_blocks_poison_the_boss():
+    """MECH90 (an UNDERCOUNT, the catalog's damaging-ailments unique row): Lycosidae's "Blocking Damage Poisons the Enemy
+    as though dealing 200 Base Chaos Damage" (PoB: unparsed, 0) is a 40 Chaos/s Poison per Block, 2 s, the strongest
+    Poison counting."""
+    import math
+
+    from builder.search import boss_hits, bosses, models
+
+    line = ["Blocking Damage Poisons the Enemy as though dealing 200 Base Chaos Damage"]
+    stats = {"EffectiveBlockChance": 50.0, "EvadeChance": 0.0, "enemySkillTime": 1.0}
+    blocks = boss_hits.block_share(stats) / bosses.benefit_skill_time(stats)
+    up = 1 - math.exp(-blocks * 2)
+    gain, notes = models.block_poison_model(line, stats, 0.0, 0.0)
+    assert blocks > 0 and gain == pytest.approx(up * 40.0) and "Lycosidae" in notes[0]["label"]
+    # the boss's 25% Chaos resistance, and a stronger Poison of the build's own: nothing over it
+    assert models.block_poison_model(line, stats, 25.0, 0.0)[0] == pytest.approx(up * 30.0)
+    assert models.block_poison_model(line, stats, 0.0, 100.0)[0] == 0.0
+    # no Block: 0
+    assert models.block_poison_model(line, {**stats, "EffectiveBlockChance": 0.0}, 0.0, 0.0)[0] == 0.0

@@ -2840,6 +2840,13 @@ class Assumptions:
             number(stats.get("IgniteDPS"))) if getattr(build, "ground_life_ignite", None) else (0.0, []))
         hand_mods += [models.added_input("IgnitedGroundIgnite", burn)] if burn > 0 else []
         hand_notes += burn_notes
+        block_texts = [e["text"] for e in source_lines if models.BLOCK_POISON.match(e["text"].strip())]
+        if block_texts:  # (MECH90: Lycosidae's Poison on Block; PoB leaves the line unparsed, 0)
+            block_poison, block_notes = models.block_poison_model(
+                block_texts, stats, number(build.call("getConfig")["input"].get("enemyChaosResist")),
+                number(build.call("stats", fields=["PoisonDPS"]).get("PoisonDPS")))
+            hand_mods += [models.added_input("BlockPoison", block_poison)] if block_poison > 0 else []
+            hand_notes += block_notes
         djinn, djinn_mods, djinn_notes = djinn_commands(build, main)  # (MECH83: the Disciple's djinn Commands; PoB 0)
         hand_mods, hand_notes = hand_mods + djinn_mods, hand_notes + djinn_notes
         briar, briar_notes = briarpatch(build, main, found)  # (MECHB31: Briarpatch's creation hit, PoB 0)

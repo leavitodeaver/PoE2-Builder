@@ -9779,6 +9779,47 @@ def ground_life_ignite_model(found: list | None, fire_resist: float, own_ignite:
     return added, notes
 
 
+# Lycosidae's Poison on Block (MECH90; the catalog's damaging-ailments unique row, an UNDERCOUNT: PoB leaves "Blocking
+# Damage Poisons the Enemy as though dealing N Base Chaos Damage" unparsed (ModCache: nil, never applied), so it scored
+# 0). KeywordPopups Poison (26650308): "lasts 2 seconds by default ... The base Magnitude of Poison is Chaos damage per
+# second equal to 20% of the Pre-mitigation Physical and Chaos damage of the Hit that inflicted it. This magnitude is not
+# further affected by any modifiers to the damage you deal." A target has one of your Poisons at a time unless a line
+# adds more (PoB: PoisonCanStack / PoisonStacks, "Targets can be affected by +N of your Poisons at the same time"). Counted:
+# each hit you Block (boss_hits.block_share of the boss's hits at the benefit cadence, as the debuffs' "on Block") Poisons
+# for 20% x N Chaos a second through the boss's Chaos resistance, 2 s (Poison Duration and Magnitude modifiers not
+# applied: the lower reading, UNVERIFIED whether they apply); up 1 - e^(-blocks/s x 2 s) of the fight (blocks taken as
+# random in time); only by what it beats the build's own Poison (PoB's PoisonDPS) by, the strongest one counting (the
+# lower reading for a build that stacks Poisons: the stacked reading is in the basis). No Block: 0.
+BLOCK_POISON = re.compile(r"^blocking damage poisons the enemy as though dealing (\d+(?:\.\d+)?) base chaos damage$", re.I)
+POISON_SHARE_PER_SECOND = 0.20  # KeywordPopups Poison: 20% of the hit's Physical and Chaos damage a second
+POISON_SECONDS = 2.0  # KeywordPopups Poison: 2 seconds by default
+
+
+def block_poison_model(texts: list[str], stats: dict, chaos_resist: float, own_poison: float) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for "Blocking Damage Poisons the Enemy as though dealing N Base Chaos Damage" (the note above)."""
+    base = sum(float(m.group(1)) for t in texts if (m := BLOCK_POISON.match(t.strip())))
+    if base <= 0:
+        return 0.0, []
+    every = bosses.benefit_skill_time(stats)
+    blocks = boss_hits.block_share(stats) / every if every > 0 else 0.0
+    poison = POISON_SHARE_PER_SECOND * base * (1 - chaos_resist / 100)
+    up = 1 - math.exp(-blocks * POISON_SECONDS) if blocks > 0 else 0.0
+    gain = up * max(0.0, poison - own_poison)
+    stacked = blocks * POISON_SECONDS * poison
+    return gain, [{
+        "label": "Lycosidae: your Blocks Poison the boss*", "value": f"+{gain:,.1f} DPS",
+        "confidence": "MEDIUM-LOW",
+        "basis": (f"{blocks:.3f} Blocks a second (the boss's blockable hits at its benefit cadence x your Block chance); "
+                  f"each Poisons as though dealing {base:g} Chaos: 20% of it a second (KeywordPopups Poison), through the "
+                  f"boss's {chaos_resist:g}% Chaos resistance = {poison:,.1f} DPS for 2 s (Poison Duration and Magnitude "
+                  f"modifiers not applied: UNVERIFIED, the lower reading); Poisoned by it {up:.0%} of the fight. Only "
+                  f"your strongest Poison counts unless lines let more stack: +{max(0.0, poison - own_poison):,.1f} over "
+                  f"the build's own {own_poison:,.1f} while up. Stacked with your others instead it would add "
+                  f"{stacked:,.1f} DPS. PoB leaves the line unparsed (0)"),
+        "play": (f"Block the boss's hits with Lycosidae (raise your shield into them): without blocks +0 DPS; at "
+                 f"{blocks:.2f} blocks a second +{gain:,.1f} DPS.")}]
+
+
 # The Disciple of Varashta's djinn Commands (MECH83; FIX_QUEUE 75 / COV3, PATCH_CHECK H4-2, MECH49's open item: an
 # UNDERCOUNT, they scored 0). The Barya notables grant the djinns (tree.lua: "Grants Skill: Kelari, the Tainted Sands" /
 # "Ruzhan, the Blazing Sword" / "Navira, the Last Mirage"), the other notables one Command each ("Grants Skill: Kelari's
