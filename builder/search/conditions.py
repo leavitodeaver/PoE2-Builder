@@ -2428,8 +2428,13 @@ DEBUFFS = {  # var: (the verb, the participle)
 DEBUFF_DURATIONS = {"conditionEnemyDebilitated": 1.0}  # (each debuff's own default where its definition gives one)
 # "Warcries Debilitate Enemies" (PoB: DebilitateChance 100): the trigger is the line's subject, before the verb
 WARCRIES_SUBJECT = re.compile(r"^\s*warcries\s+debilitate\b", re.I)
-DEBUFF_NOT_SOURCE = re.compile(r"\b(?:increased|reduced|more|less)\b|\bagainst\b|\bcannot\b|immun|\byou are (?!burning)|"
-                               r"\ballies\b|minions|companions|summoned|grants skill|\bif you'?ve\b", re.I)
+# (MECH90) "against <ailment> Enemies" names the hits that apply it (Crippling Toxins' "25% chance for Attacks to Maim on
+# Hit against Poisoned Enemies", the one such line in PoB's ModCache: checked, its keys with a debuff verb and "against"
+# and no increased / reduced / more / less): counted at the boss's share of that ailment (TARGET_AILMENT); any other
+# "against" stays no source.
+DEBUFF_NOT_SOURCE = re.compile(r"\b(?:increased|reduced|more|less)\b|\bagainst\b(?! (?:chilled|frozen|shocked|ignited|"
+                               r"poisoned|bleeding|electrocuted) (?:enemies|targets)\b)|\bcannot\b|immun|"
+                               r"\byou are (?!burning)|\ballies\b|minions|companions|summoned|grants skill|\bif you'?ve\b", re.I)
 
 
 def curse_uses(build: Build, stats: dict, texts: list[str], metres: float | None = None) -> list[models.CurseUse]:
@@ -2447,7 +2452,9 @@ def _debuff_pattern(var: str) -> re.Pattern:
     verb, participle = DEBUFFS[var]
     target = r"(?:rare or unique )?(?:enemies|targets|them)"
     where = f" {target} in {participle.split(' in ')[1]}" if " in " in participle else f"(?: {target})?"
-    return re.compile(rf"(?:(\d+(?:\.\d+)?)% (?:global )?chance to )?\b(?:permanently )?{verb}\b{where}(.*)$|"
+    # (MECH90: "N% chance for Attacks to <verb>" too; the line's "Attacks" asks for an Attack main skill, qualifies)
+    return re.compile(rf"(?:(\d+(?:\.\d+)?)% (?:global )?chance (?:for (?:attacks|spells|hits) )?to )?"
+                      rf"\b(?:permanently )?{verb}\b{where}(.*)$|"
                       rf"\benemies\b(.*?)\b(?:are|become) {participle}\b(.*)$", re.I)
 
 
@@ -5930,6 +5937,47 @@ def _unravelling(element: str) -> Callable[[list[str], dict], tuple[object, str]
     return value
 
 
+# Emergent Instinct (MECH90; the coverage audit's never-on row "Condition:Maimed (nothing sets it)", MECH89's Handover
+# step 3): the helmet rune's "Targets that are Blinded, Maimed, and Bleeding cannot Evade your Hits". PoB parses it
+# (ModParser 2884) to the enemy's CannotEvade under all three of its conditions, and its boxes (conditionEnemyBlinded /
+# Maimed / Bleeding) are this file's, ticked at their shares: so it counted, but Search.weigh_uptimes weighs each box
+# off alone (the effects taken as independent) and took the rune's whole gain off with each of the three: Blinded,
+# Maimed and Bleeding each 50% of the fight at 90% to hit counted 0.95^3 = 0.857 of the all-on DPS, against 0.9 + 0.1 x
+# 12.5% = 0.9125 for the real share with all three at once, and below the 0.9 without the rune (an UNDERCOUNT that made the
+# rune look harmful; at 90% each, 0.973 against 0.973: right only near full uptime). engine/bridge.lua now hands PoB the
+# line under one bridge condition (Condition:BlindedMaimedBleeding), weighed here at the share of the fight the boss is
+# all three at once: the product of the three boxes' shares (taken as independent, as weigh_uptimes does: MEDIUM-LOW, the
+# lower reading where one skill inflicts them together; the upper, the smallest share, in the basis). A box found with no
+# share is up all fight; one not found, 0. Only with the line in the build.
+EMERGENT_VAR = "bridgeConditionBlindedMaimedBleeding"
+EMERGENT_LINE = re.compile(r"^targets that are blinded, maimed,? and bleeding cannot evade your hits$", re.I)
+EMERGENT_BOXES = (("conditionEnemyBlinded", "Blinded"), ("conditionEnemyMaimed", "Maimed"),
+                  ("conditionEnemyBleeding", "Bleeding"))
+
+
+def _blinded_maimed_bleeding(lines: list[str], stats: dict) -> tuple[object, str]:
+    if not any(EMERGENT_LINE.match(t.strip()) for t in lines):
+        return 0.0, ""
+    found, uptimes = stats.get("_found_so_far") or ({}, {})
+    shares = []
+    for var, label in EMERGENT_BOXES:
+        if var in uptimes:
+            share = min(max(number(uptimes[var]), 0.0), 1.0)
+        else:
+            want = found.get(var)
+            share = 1.0 if want is not None and want[0] is not False and not (
+                isinstance(want[0], (int, float)) and not isinstance(want[0], bool) and want[0] <= 0) else 0.0
+        shares.append((label, share))
+    up = math.prod(share for _, share in shares)
+    parts = ", ".join(f"{label} {share:.0%}" for label, share in shares)
+    if up <= 0:
+        return False, (f"Emergent Instinct: the boss is never Blinded, Maimed and Bleeding at once ({parts}): its hits "
+                       "can be Evaded all fight")
+    return _box(up, f"Emergent Instinct: the boss is Blinded, Maimed and Bleeding at once {up:.0%} of the fight ({parts}, "
+                    f"taken as independent: MEDIUM-LOW, the lower reading; if one skill inflicts all three together, up "
+                    f"to {min(share for _, share in shares):.0%}); your hits can't be Evaded then")
+
+
 def _incinerate_channelling(lines: list[str], stats: dict) -> tuple[object, str]:
     """The Channelling Incinerate box at the share of the fight its fuel allows (MECH79; off, its damage 100% less:
     models.compound_ignite_mods)."""
@@ -6938,6 +6986,8 @@ CONDITIONS: list[Condition] = [
                          ("conditionEnemyUnnerved", "Unnerved"), ("conditionEnemyCoveredInAsh", "Covered in Ash"),
                          ("conditionEnemyCoveredInFrost", "Covered in Frost"),
                          ("conditionEnemyDebilitated", "Debilitated"))),  # (MECH78, MB-15)
+    Condition(EMERGENT_VAR, "Blinded, Maimed and Bleeding at once (Emergent Instinct: hits can't be Evaded)",
+              value_fn=_blinded_maimed_bleeding, fields=()),  # (MECH90; last: it reads the debuffs' shares)
 ]
 _PATTERNS = {c.var: c.patterns() for c in CONDITIONS}
 # Words that make a support worth a real trial for conditions decided by PoB's numbers
@@ -8364,6 +8414,7 @@ class Conditions:
                                            if stat in EXPOSURE_SUPPORT_STATS and value}
         found: dict[str, tuple[object, str]] = {}
         uptimes: dict[str, float] = {}  # var -> share of the fight, for the effects the build keeps up at a rate
+        stats["_found_so_far"] = (found, uptimes)  # (MECH90: _blinded_maimed_bleeding reads the boxes found before it)
         self.off_values: dict[str, object] = {}  # var -> its box with the effect off, if not False (Withered's base stacks)
         self.alt_uptimes: dict[str, tuple[float, str]] = {}  # var -> (uptime, when) under another reading of the rule
         for condition in CONDITIONS:

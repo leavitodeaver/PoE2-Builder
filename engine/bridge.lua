@@ -166,6 +166,54 @@ do
 	end
 end
 
+-- Emergent Instinct (MECH90; the coverage audit's never-on row, MECH89's Handover step 3): the helmet rune's "Targets
+-- that are Blinded, Maimed, and Bleeding cannot Evade your Hits" (game stat hits_cannot_be_evaded_vs_blinded_maimed_
+-- bleeding_enemies). PoB parses it (ModParser 2884) to the enemy's CannotEvade under all three of its conditions
+-- (ActorCondition Blinded, Maimed, Bleeding), so with the three boxes on at part shares the search's weighing (each box
+-- off alone, the effects taken as independent) took the whole gain off three times (builder/search/conditions.py
+-- EMERGENT_VAR's comment). Handed to PoB here under one condition instead: the player's Condition:BlindedMaimedBleeding,
+-- read from the enemy's side (actor "enemy" of the enemy's mods is the player), which conditions.py sets
+-- (bridgeConditionBlindedMaimedBleeding) at the share of the fight all three hold. Matched by the parsed mod (a
+-- CannotEvade enemy modifier whose tags are exactly those three conditions), on every parse from now on and on the passive
+-- trees parsed at startup, whatever the source.
+do
+	local EMERGENT = { Blinded = true, Maimed = true, Bleeding = true }
+	local function oneCondition(list)
+		for _, mod in ipairs(list or { }) do
+			local inner = mod.name == "EnemyModifier" and type(mod.value) == "table" and mod.value.mod
+			if type(inner) == "table" and inner.name == "CannotEvade" and #inner == 3 then
+				local seen = 0
+				for _, tag in ipairs(inner) do
+					if tag.type == "ActorCondition" and not tag.actor and EMERGENT[tag.var] then
+						seen = seen + 1
+					end
+				end
+				if seen == 3 then
+					mod.value = { mod = modLib.createMod("CannotEvade", "FLAG", true,
+						{ type = "ActorCondition", actor = "enemy", var = "BlindedMaimedBleeding" }) }
+				end
+			end
+		end
+	end
+	local parseBefore = modLib.parseMod
+	modLib.parseMod = function(line, ...)
+		local list, extra = parseBefore(line, ...)
+		if list then
+			oneCondition(list)
+		end
+		return list, extra
+	end
+	for _, tree in pairs(__mainObject__.main.tree or { }) do
+		for _, node in pairs(tree.nodes or { }) do
+			for _, entry in pairs(node.mods or { }) do
+				if type(entry) == "table" then
+					oneCondition(entry.list)
+				end
+			end
+		end
+	end
+end
+
 -- Raw ledger modifiers (COV25; builder/ledger RAW_MOD): a ledger line "mod:<Name> <TYPE> <value>" (a passive's, through
 -- applyLedger) or its item form "LedgerMod:<Name> <TYPE> <value>" (ledger.item_lines) is PoB's modifier <Name> of that
 -- type and value, for a line no PoB text can carry: Rune of Reach's "Remnants you create have 25% reduced effect" is
@@ -2785,6 +2833,31 @@ local function enlargedNodes(socket, index, percent)
 	return enlargedCache[spec][key]
 end
 
+-- Tolerant Equipment (MECH90; the coverage audit's never-on rows, MECH89's Handover step 2). PoB parses "Immune to
+-- Bleeding if Equipped Helmet has higher Armour than Evasion Rating" and "Immune to Poison if Equipped Helmet has higher
+-- Evasion Rating than Armour" (ModParser 5293-5294) to BleedImmune / PoisonImmune under Condition:
+-- HelmetArmourHigherThanEvasion / HelmetEvasionHigherThanArmour, which nothing in PoB sets (checked: grep of both names
+-- in vendor/PathOfBuilding-PoE2/src: ModParser's two lines and ModCache's parse only). Set here from the equipped helmet's
+-- own Armour and Evasion (item.armourData: its base, local modifiers and quality; a what-if's helmet is already in
+-- env.player.itemList), strictly higher, neither when equal or with no helmet. The immunity then reaches PoB's
+-- Bleed / PoisonAvoidChance (CalcDefence 2001: 100 when immune), which the boss's Bleeds on you read. The game's stats
+-- (26650308 Stats: immune_to_bleed_if_helmet_armour_higher_than_helmet_evasion, immune_to_bleeding_if_helmet_grants_
+-- higher_armour_than_evasion and the two Poison / Evasion ones) carry the same two wordings; any source of them counts.
+local function helmetConditions(env)
+	local helmet = env.player and env.player.itemList and env.player.itemList["Helmet"]
+	if not helmet or not helmet.armourData or not env.modDB then
+		return
+	end
+	-- (as PoB's own ArmourOnHelmet / EvasionOnHelmet, CalcDefence 803-853: the item's value at the character's level)
+	local armour = helmet:GetArmourDataValue("Armour", env.player.level)
+	local evasion = helmet:GetArmourDataValue("Evasion", env.player.level)
+	if armour > evasion then
+		env.modDB:NewMod("Condition:HelmetArmourHigherThanEvasion", "FLAG", true, "Helmet")
+	elseif evasion > armour then
+		env.modDB:NewMod("Condition:HelmetEvasionHigherThanArmour", "FLAG", true, "Helmet")
+	end
+end
+
 -- Installed before every bridge call: PoB defines calcs.initEnv again whenever it loads its
 -- calculation modules (a new build's CalcsTab)
 local wrappedInitEnv
@@ -2824,6 +2897,7 @@ installRadiusModel = function()
 		local function tagRunes(env, ...)
 			if type(env) == "table" and build and buildArg == build then
 				env.bridgeCharacterRunes = characterRuneCount(override)
+				helmetConditions(env)  -- (MECH90: Tolerant Equipment)
 				-- (COV44) Tolerant Equipment's "Immune to Bleeding / Poison if Equipped Helmet has higher Armour than
 				-- Evasion Rating" (and the reverse): PoB parses both to flags behind Condition:HelmetArmourHigherThanEvasion /
 				-- HelmetEvasionHigherThanArmour (ModParser 5293-5294) and nothing sets either. Set from the equipped Helmet's
