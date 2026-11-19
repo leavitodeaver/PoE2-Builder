@@ -876,6 +876,31 @@ def minion_lives(build: Build, found: list[models.Skill]) -> dict[str, float]:
     return {name: life for name, life in lives.items() if life > 0}
 
 
+def totem_deaths(build: Build, found: list[models.Skill], main: models.Skill | None, stats: dict,
+                 texts: list[str]) -> tuple[float, str]:
+    """(your totems dying a second, how): models.totem_deaths (MECHB39; the shared rate for Soul Mantle and the other
+    totem-death readers) with each totem skill's own useRates row (its totemDuration, speed, the search's press choice)
+    and Spell Totem's charge-limited count (models.totem_model's "Spell Totems up" note) when it holds the main skill."""
+    wanted = {s.name for s in found if s.totem_limit > 0}
+    if not wanted:
+        return models.totem_deaths(found, main, {})
+    indices, actives, names = [], [], []
+    for group in build.groups():
+        for n, skill in enumerate(group["skills"], 1):
+            if skill["name"] in wanted and skill["name"] not in names:
+                indices.append(group["index"]); actives.append(n); names.append(skill["name"])
+    rows = build.call("useRates", indices=indices, actives=actives)["rates"] if indices else []
+    rates = {name: next((r for r in rows if r["index"] == i and r.get("active") == a), {}) | {"name": name}
+             for i, a, name in zip(indices, actives, names)}
+    up = {}
+    if main is not None and any(s.name == "Spell Totem" and s.group == main.group for s in found):
+        levels = {g["name"]: g["level"] for grp in build.groups() for g in grp["gems"] if g.get("level")}
+        notes = models.totem_model(found, stats, texts, levels, main)[1]
+        if notes:
+            up["Spell Totem"] = models.number(notes[0]["value"])
+    return models.totem_deaths(found, main, rates, up, models.press_choices(build), texts)
+
+
 def minion_deathless(build: Build) -> tuple[float, str]:
     """(share of the fight your minions cannot die, how): Umbilicus Immortalis' "Minions cannot Die while affected by a
     Life Flask" while the equipped Life flask is up (models.minion_deathless; MECHB39). (0, "") without the line."""
@@ -2368,6 +2393,8 @@ class Assumptions:
         lust_mods, lust_notes = models.lust_for_sacrifice_model(texts, found, supports)  # (MECHB39: Lust for Sacrifice)
         hand_mods, hand_notes = hand_mods + lust_mods, hand_notes + lust_notes
         hand_notes = hand_notes + models.offering_placement_notes(found)  # (MECHB35: R26-38, labelled by placement)
+        hand_notes = hand_notes + models.last_tremor_notes(texts)  # (MECHB39: Unnamed Heartwood, a labelled no-change)
+        hand_notes = hand_notes + models.minion_projectile_notes(texts)  # (MECHB39: no extra hit on a lone boss)
         warcries = {s.name for s in found if "Warcry" in ((build.ctx.gems.get(s.name) or {}).get("skillTypes") or [])}
         if warcries:  # (MECH-B: Echoing Cry's Echoes; COV-E's support_part_scale "warcry_echo")
             echo_mods, echo_notes = models.warcry_echo_model(found, supports, warcries, models.support_part_scale)

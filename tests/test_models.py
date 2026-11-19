@@ -6293,6 +6293,34 @@ def test_gigantic_after_reviving_counts_at_the_revived_recently_share():
     assert share > 0 and mods == [models.line("Minions deal 1% more Damage", 20 * share)]
 
 
+def test_totem_deaths_counts_expiry_and_replacement_from_the_builds_totems():
+    """MECHB39 (the shared rate for Soul Mantle and the totem-death readers; RESEARCH31 R31-2: expiry and replacement
+    count as dying): each totem skill's totems up / its own totem duration; pressed faster at the limit, each placement
+    replaces one; Spell Totem's charge-limited count via `up`; Ancestral Bond doubles the limit; no totem skill: 0."""
+    shock = models.Skill("Shockwave Totem", group=1, totem_limit=3, totem_limit_own=2)
+    ward = models.Skill("Ancestral Warrior Totem", group=2, totem_limit=3, totem_limit_own=2)
+    rates = {"Shockwave Totem": {"name": "Shockwave Totem", "totemDuration": 12.0, "speed": 2.0},
+             "Ancestral Warrior Totem": {"name": "Ancestral Warrior Totem", "totemDuration": 8.0, "speed": 1.0}}
+    assert models.totem_deaths([], None, {})[0] == 0.0
+    rate, how = models.totem_deaths([shock, ward], shock, rates)  # (main: 3 - 1 = 2 up / 12 s; the other 1 / 8 s)
+    assert rate == pytest.approx(2 / 12 + 1 / 8) and "R31-2" in how
+    rate, how = models.totem_deaths([shock, ward], shock, rates, choices={"Shockwave Totem": 0.5})
+    assert rate == pytest.approx(0.5 + 1 / 8) and "each replacing one" in how
+    assert models.totem_deaths([shock], shock, rates, up={"Shockwave Totem": 0.0})[0] == 0.0  # (no totem up: none die)
+    doubled = models.totem_deaths([shock], shock, rates, texts=["Your Totem Limit is doubled"])[0]
+    assert doubled == pytest.approx(6 / 12)  # ((2 + 1) x 2 = 6 up)
+    rate, how = models.totem_deaths([shock], shock, {"Shockwave Totem": {"name": "Shockwave Totem"}})
+    assert rate == 0.0 and "no totem duration" in how
+
+
+def test_unnamed_heartwood_is_a_labelled_no_change():
+    """MECHB39: "Totems die 6 seconds after their Life is reduced to 0" acts only on totems the boss kills (not counted):
+    a LOW note, no mod."""
+    assert models.last_tremor_notes(["+1 to maximum number of Summoned Totems"]) == []
+    notes = models.last_tremor_notes(["Totems die 6 seconds after their Life is reduced to 0"])
+    assert notes[0]["value"] == "no change" and notes[0]["confidence"] == "LOW" and "R31-2" in notes[0]["basis"]
+
+
 def test_a_side_projectile_spell_takes_its_chosen_press_rate_past_its_projectile_life():
     """MECHB39 (the manager 17:55, an UNDERCOUNT): Spark's useRates Duration (2.01 s) is its projectiles' life, so a
     chosen press rate counts (its speed the cap); no choice: once per that duration, as before; a non-Projectile skill
@@ -6303,3 +6331,11 @@ def test_a_side_projectile_spell_takes_its_chosen_press_rate_past_its_projectile
     assert uses == pytest.approx(1.0) and "projectiles' life" in how
     assert models.press_use_rate(spark, 3.0)[0] == pytest.approx(1.2)  # (its own speed)
     assert models.press_use_rate({**spark, "projectile": None}, 1.0)[0] == pytest.approx(0.5)
+
+
+def test_the_minions_extra_projectile_chance_is_a_labelled_no_change_on_a_boss():
+    """MECHB39: one Projectile of a group hits a target unless the skill shotguns (R29-1), and no player minion skill
+    does: a note, no mod."""
+    assert models.minion_projectile_notes(["Minions deal 10% increased Damage"]) == []
+    notes = models.minion_projectile_notes(["Minions have +75% Surpassing chance to fire an additional Projectile"])
+    assert notes[0]["value"] == "no change" and "R29-1" in notes[0]["basis"] and "0.75" in notes[0]["basis"]

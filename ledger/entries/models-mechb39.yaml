@@ -58,3 +58,31 @@
     Kills; none: 0 with a note). The 20% more Life isn't counted.
   sources: [builder/search/models.py (GIGANTIC_REVIVED, gigantic_revived_model)]
   status: proposed
+
+- id: model-read-unnamed-heartwood-totems-die-later
+  title: '"Totems die N seconds after their Life is reduced to 0" (Unnamed Heartwood; models.last_tremor_notes)'
+  kind: pob_gap
+  model: last_tremor
+  match: '^Totems die (\d+(?:\.\d+)?) seconds after their Life is reduced to 0$'
+  replace: []
+  confidence: theory
+  notes: >-
+    PoB holds the line with no mod. It acts only when something brings a totem's Life to 0: the boss killing totems,
+    which models.totem_deaths doesn't count (no source gives a rate; RESEARCH31 R31-2: a LOW row at 0). So no number
+    moves: a labelled note with what a boss-kill rate would change.
+  sources: [builder/search/models.py (LAST_TREMOR, last_tremor_notes)]
+  status: proposed
+
+- id: model-read-minion-extra-projectile-chance
+  title: '"Minions have N% Surpassing chance to fire an additional Projectile" (Genesis Tree belt; models.minion_projectile_notes)'
+  kind: pob_gap
+  model: minion_projectile
+  match: '^Minions have \+?(\d+(?:\.\d+)?)% Surpassing chance to fire an additional Projectile$'
+  replace: []
+  confidence: theory
+  notes: >-
+    PoB leaves it part-parsed (never applied). On a lone boss an extra projectile adds no hit: one Projectile of a group
+    hits a target unless the skill can shotgun (RESEARCH29 R29-1), and no player minion skill carries
+    projectiles_can_shotgun (game files). A labelled no-change note.
+  sources: [builder/search/models.py (MINION_EXTRA_PROJECTILE, minion_projectile_notes), scratch/mechb39/p3394.log]
+  status: proposed

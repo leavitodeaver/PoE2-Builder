@@ -15084,6 +15084,106 @@ def totem_count_model(skills: list[Skill], main: Skill | None, texts: Iterable[s
                    "confidence": "MEDIUM"}]
 
 
+# Your totems dying a second (MECHB39; the shared rate the manager asked for, 05:40 / 17:55 18 Nov, for MECH-C's Soul
+# Mantle and MECH-B's totem-death readers: Unnamed Heartwood, Tawhoa's Vengeance). RESEARCH31 R31-2 (MEDIUM): a totem
+# expiring or being replaced counts as dying (PoE2 forum 3751378, a PoE1 GGG statement). From the build (CLAUDE.md, no
+# flat rate): each totem-summoning skill (Skill.totem_limit > 0) keeps its totems placed, re-placed as they expire: the
+# main skill's totem the Totem Limit less one for each other totem skill (KeywordPopups Totem: the limit is shared; each
+# other skill assumed to keep one placed, as totem_count_model), or `up` when a model knows fewer are up (Spell Totem's
+# charges, totem_model); each lasting its own totem duration (the bridge's useRates totemDuration: PoB's TotemDuration
+# with the build's modifiers; 8 / 12 s base). Deaths = up / duration; pressed faster than that at the limit (the search's
+# chosen press rate, press_choice), each placement replaces one: deaths = presses (capped by the skill's own speed). The
+# boss killing totems: not counted (no source gives a rate; R31-2: a LOW row, 0 in the headline). No totem skill, or no
+# duration read: 0 with the reason.
+def totem_deaths(skills: list[Skill], main: Skill | None, rates: dict[str, dict],
+                 up: dict[str, float] | None = None, choices: dict[str, float] | None = None,
+                 texts: Iterable[str] = ()) -> tuple[float, str]:
+    """(your totems dying a second, how) from each totem skill's totems kept up over its own duration (see above).
+    `rates`: {skill name: its bridge useRates row}; `up`: {skill name: totems up} where a model knows better."""
+    summoners = [s for s in skills if s.totem_limit > 0]
+    if not summoners:
+        return 0.0, "the build has no totem skill: no totem dies (0)"
+    names = list(dict.fromkeys(s.name for s in summoners))
+    doubled = any(ANCESTRAL_BOND_DOUBLE.match(t.strip()) for t in texts)
+    total, parts = 0.0, []
+    for name in names:
+        skill = next(s for s in summoners if s.name == name)
+        is_main = main is not None and skill.group == main.group
+        own = skill.totem_limit_own if 0 < skill.totem_limit_own <= skill.totem_limit else skill.totem_limit
+        limit = bond_totems(own, skill.totem_limit - own, doubled)[0]  # (Ancestral Bond's doubling, as totem_count_model)
+        kept = (max(1.0, limit - (len(names) - 1)) if is_main else 1.0)
+        if up and name in up:
+            kept = max(0.0, number(up[name]))
+        row = rates.get(name) or {}
+        lasts = number(row.get("totemDuration"))
+        if lasts <= 0:
+            parts.append(f"{name}: no totem duration read (0)")
+            continue
+        expiry = kept / lasts
+        deaths, how = expiry, f"{kept:g} up, each lasting {lasts:.2f} s, re-placed as it expires: {expiry:.3f}/s"
+        chosen = press_choice(row, choices)
+        if chosen is not None and chosen > expiry and kept > 0:
+            presses = min(chosen, number(row.get("speed")) or chosen)
+            deaths, how = presses, (f"placed {presses:.3g} times a second* at its limit of {kept:g} (the search's chosen "
+                                    f"rate), each replacing one: {presses:.3f}/s (without it, expiry alone: "
+                                    f"{expiry:.3f}/s)")
+        total += deaths
+        parts.append(f"{name}: {how}")
+    return total, (f"{total:.3f} totems die a second: " + "; ".join(parts)
+                   + " (RESEARCH31 R31-2: expiring or being replaced counts as dying, MEDIUM; the boss killing totems "
+                     "isn't counted: no source gives a rate, a LOW row at 0)")
+
+
+# Unnamed Heartwood (MECHB39; the Druid's ascendancy notable AscendancyDruid1Notable6: "+1 to maximum number of Summoned
+# Totems" (PoB parses it) and "Totems die 6 seconds after their Life is reduced to 0" (last_tremor_duration_ms 6000;
+# PoB ModCache 9641: no mod). The second line acts only when something brings a totem's Life to 0: the boss killing
+# totems, which totem_deaths doesn't count (no source gives a rate; R31-2 a LOW row). So no number moves: a labelled
+# note, with the row a boss-kill rate would give (each totem it kills keeps acting 6 s more, and dies 6 s later).
+LAST_TREMOR = re.compile(r"^Totems die (\d+(?:\.\d+)?) seconds after their Life is reduced to 0$", re.I)
+
+
+def last_tremor_notes(texts: list[str]) -> list[dict]:
+    """Unnamed Heartwood's "Totems die N seconds after their Life is reduced to 0": a labelled no-change note."""
+    seconds = max((float(m.group(1)) for t in texts if (m := LAST_TREMOR.match(t.strip()))), default=0.0)
+    if seconds <= 0:
+        return []
+    return [{"label": f"Totems die {seconds:g} s after their Life reaches 0 (Unnamed Heartwood)*", "value": "no change",
+             "basis": (f"it acts only when something brings a totem's Life to 0: the boss killing your totems, which isn't "
+                       "counted (no source gives a rate: RESEARCH31 R31-2, a LOW row at 0), so no number moves. If the "
+                       f"boss kills totems, each keeps acting {seconds:g} s more before it dies (its death, and Soul "
+                       f"Mantle's curse, {seconds:g} s later). Totems expiring or replaced (models.totem_deaths) aren't "
+                       "brought to 0 Life"),
+             "play": "Unnamed Heartwood's second line matters only when the boss kills your totems; place them out of its "
+                     "attacks either way.",
+             "confidence": "LOW"}]
+
+
+# "Minions have N% Surpassing chance to fire an additional Projectile" (MECHB39; the Genesis Tree belt mods
+# GenesisTreeBeltMinionAdditionalProjectileChance and its Crafted copy): PoB's ModCache 8704 reads it as a minion
+# ProjectileCount with leftover text, never applied (probe POE2T3394: no minion projectile wording parses whole either).
+# On a lone boss an extra projectile adds no hit: the game's Projectile group rule, "only one Projectile in the group can
+# hit each target unless otherwise specified" (RESEARCH29 R29-1), and the "otherwise" is projectiles_can_shotgun, which
+# no player minion skill carries (checked: game files 26650308, GrantedEffectStatSets Implicit / Constant / Static
+# stats: IncendiaryShot, FragmentationRounds, PermafrostBolts, GalvanicShards, ComboKnifeThrow, IceFragments and three
+# monster sets only; Mods and PassiveSkills: none; patch notes: no hit, not evidence of absence). So no number moves on a
+# boss: a labelled note (adds and chains / pierce off other targets aren't modelled).
+MINION_EXTRA_PROJECTILE = re.compile(r"^Minions have \+?(\d+(?:\.\d+)?)% Surpassing chance to fire an additional "
+                                     r"Projectile$", re.I)
+
+
+def minion_projectile_notes(texts: list[str]) -> list[dict]:
+    """The minions' extra-projectile chance: no hit added on a lone boss (see above), a labelled note."""
+    chance = sum(float(m.group(1)) for t in texts if (m := MINION_EXTRA_PROJECTILE.match(t.strip())))
+    if chance <= 0:
+        return []
+    return [{"label": "Minions' extra Projectile chance on the boss*", "value": "no change",
+             "basis": (f"+{chance:g}% Surpassing chance (about {chance / 100:.2f} extra Projectiles a use): against a lone "
+                       "boss only one Projectile of a group can hit it (RESEARCH29 R29-1's group rule) unless the skill "
+                       "can shotgun, and no player minion skill can (game files). PoB doesn't apply the line either. "
+                       "With adds (not modelled) the extra Projectiles would hit other targets"),
+             "play": "", "confidence": "MEDIUM"}]
+
+
 def splinter_model(main: Skill, group: list[Skill], stats: dict) -> tuple[list[dict], list[dict]]:
     """Splinter Totem's splinters as a DPS factor on the main skill (see above, R26-76)."""
     carrier = next((s for s in group if number(s.support_stats.get(TOTEM_SPLINTER_STAT)) > 0), None)
