@@ -17,3 +17,33 @@
     test_rending_apex_on_ice_strike_fully_breaks_the_boss.
   sources: ["builder/search/conditions.py (FINAL_BREAK_STAT, final_strike_break, _final_break)"]
   status: proposed
+
+- id: model-mechc40-fortifying-cry-guard
+  title: 'Fortifying Cry''s Guard per 5 enemy Power and its Power cap (recovery.event_guard via assumptions, MECHC40)'
+  kind: model
+  model: guard
+  stats: ['shielding_cry_grant_X_guard_per_5_mp', 'shielding_cry_grant_X_guard_per_5_mp_mp_cap']
+  skill: ['Fortifying Cry']
+  confidence: MEDIUM
+  notes: >-
+    MECHC40's a792074c (train 89; an UNDERCOUNT before, PoB sets no Guard): the cry's level stat X (read from PoB's
+    levelStats) x the boss's Power counted up to the cap in 5s (a lone Unique boss's 20 Power: 4 x X) for 4 s, at the
+    cry's own uses; up all fight in PoB's Guard pool (full_guard_mods), else a row. The cap is the constant
+    FORTIFY_POWER_CAP 20, the gem's fixed stat (PoB Data/Skills/act_str.lua 6121: 20, the same at every level).
+  sources: ["builder/search/recovery.py (FORTIFY_GUARD_STAT, FORTIFY_POWER_CAP, event_guard)", "builder/search/assumptions.py (Fortifying Cry's Guard)"]
+  status: proposed
+
+- id: model-mechc40-vanguard-heavy-stun-guard
+  title: 'Vanguard I / II''s Guard on Heavy Stun per 10 Strength and its duration (recovery.event_guard via assumptions, MECHC40)'
+  kind: model
+  model: guard
+  stats: ['gain_X_guard_on_heavy_stun_per_10_strength', 'guard_on_stun_guard_duration_ms']
+  skill: ['Vanguard I', 'Vanguard II']
+  confidence: MEDIUM
+  notes: >-
+    MECHC40's a792074c (train 89): on the supported main skill's Heavy Stuns of the boss (models.heavy_stun_rate), 4 / 6
+    Guard per 10 Strength for 4 s (recovery.VANGUARD / VANGUARD_SECONDS, the gems' fixed stats: PoB sup_str.lua 7942-7944
+    and 7974-7976). A side skill isn't rated (0, said). Not here: gain_X_guard_on_stun_per_10_strength, the plain-Stun
+    Guard, which the model leaves out (no light-stun rate on a boss; an UNDERCOUNT MECHC40 names): its row stays open.
+  sources: ["builder/search/recovery.py (VANGUARD, VANGUARD_SECONDS, event_guard)", "builder/search/assumptions.py (Vanguard's Guard)"]
+  status: proposed

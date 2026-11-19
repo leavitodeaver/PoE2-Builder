@@ -915,7 +915,8 @@ def test_cov43_model_read_item_lines_are_the_models_own():
     for line, (entry, pattern) in cases.items():
         assert (found := model_entry(line)) is not None and found.id == entry, line
         assert pattern.search(line), line
-    for line in ("Grants effect of Guided Meteoric Shrine", "20% increased Guard gained",
+    # ("20% increased Guard gained" left this list in COV44: train 89's event_guard scales every Guard source)
+    for line in ("Grants effect of Guided Meteoric Shrine",
                  "Create a Fragment of Divinity in your Presence every 4 seconds",
                  "+2 metres to Dodge Roll distance if you haven't Dodge Rolled Recently"):
         assert (found := model_entry(line)) is None or not found.id.startswith("model-read-"), line
@@ -1062,8 +1063,35 @@ def test_cov44_model_read_item_lines_are_the_models_own():
     line = "Share Charges with Allies in your Presence"
     assert (found := model_entry(line)) is not None and found.id == "model-read-share-charges-with-allies"
     assert conditions.SHARE_TO_ALLIES.match(line)
+    # (after train 89: MECHC40's boss Freeze on you reads the Frozen window too)
     frozen = "You cannot be Frozen for 6 seconds after being Frozen"
-    assert (found := model_entry(frozen)) is None or not found.id.startswith("model-read-"), frozen
+    assert (found := model_entry(frozen)) is not None and found.id == "model-read-ignite-shock-immune-after"
+    assert boss_hits.immune_after([frozen], "Frozen") == 6.0
+
+
+def test_cov44_guard_lines_are_the_models_own():
+    """COV44 (MECHC40's a792074c, train 89): "increased Guard gained" scales every modelled Guard source (PoB sets none),
+    and the Savage Hit, Warding Rune timer and Heavy Drinker Guard lines are event_guard's; each tied to its pattern."""
+    from builder.ledger import model_entry
+    from builder.search import recovery
+
+    cases = {
+        "20% increased Guard gained": ("model-read-guard-gained", recovery.GUARD_GAINED),
+        "8% increased Guard gained": ("model-read-guard-gained", recovery.GUARD_GAINED),
+        "Gain Guard equal to 10% of maximum Life for 4 seconds on taking Savage Hit":
+            ("model-read-event-guard", recovery.SAVAGE_GUARD),
+        "Every 4 seconds, gain Guard equal to 20% of maximum Runic Ward for 2 seconds":
+            ("model-read-event-guard", recovery.WARD_TIMER_GUARD),
+        "Life Flasks applied to you grant Guard for 4 seconds equal to 8% of the Life Recovery per Second they apply":
+            ("model-read-heavy-drinker-guard", recovery.DRINKER_GUARD),
+    }
+    for line, (entry, pattern) in cases.items():
+        assert (found := model_entry(line)) is not None and found.id == entry, line
+        assert pattern.match(line), line
+    assert recovery._guard_inc(["20% increased Guard gained", "8% increased Guard gained"]) == 28
+    for line in ("When you stop Sprinting, gain Guard equal to 4% of maximum Life per second spent Sprinting, up to a "
+                 "maximum of 20%, for 4 seconds", "Gain 250 Guard for 0.5 seconds per Combo expended when using Skills"):
+        assert (found := model_entry(line)) is None or not found.id.startswith("model-read-"), line
 
 
 def test_necromantic_talisman_line_is_the_nodes_own():
@@ -1096,3 +1124,19 @@ def test_rending_apex_final_strike_break_is_model_read():
     assert conditions.FINAL_BREAK_STAT == stat
     assert coverage.stat_covered(coverage.stat_entries(), stat, "Rending Apex") == (
         "model", "model-mech89-rending-apex-final-strike-break")
+
+
+def test_mechc40_guard_stats_are_model_read():
+    """COV44 (MECHC40's a792074c, train 89): Fortifying Cry's and Vanguard's Guard stats the event-Guard model reads are
+    model-read; Vanguard's plain-Stun stat, which it leaves out, stays open."""
+    from builder.ledger import coverage
+    from builder.search import recovery
+
+    covered = coverage.stat_entries()
+    for stat in (recovery.FORTIFY_GUARD_STAT, "shielding_cry_grant_X_guard_per_5_mp_mp_cap"):
+        assert coverage.stat_covered(covered, stat, "Fortifying Cry") == ("model", "model-mechc40-fortifying-cry-guard")
+    for skill in recovery.VANGUARD:
+        for stat in ("gain_X_guard_on_heavy_stun_per_10_strength", "guard_on_stun_guard_duration_ms"):
+            assert coverage.stat_covered(covered, stat, skill) == ("model", "model-mechc40-vanguard-heavy-stun-guard")
+        assert coverage.stat_covered(covered, "gain_X_guard_on_stun_per_10_strength", skill) is None
+    assert recovery.FORTIFY_POWER_CAP == 20 and recovery.VANGUARD == {"Vanguard I": (4.0, 2.0), "Vanguard II": (6.0, 2.0)}

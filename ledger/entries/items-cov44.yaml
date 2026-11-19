@@ -2,21 +2,21 @@
 # `replace: []`: PoB parses none of them (ModCache {nil, ...}), so nothing to take off; the audit says "model" and
 # models.item_read_by_models re-scores an item carrying one with a real trial. Each is tied to the model's own pattern by
 # tests/test_coverage.py::test_cov44_model_read_item_lines_are_the_models_own.
-# Left open on purpose: "You cannot be Frozen for N seconds after being Frozen" (boss_hits.IMMUNE_AFTER matches it, but
-# nothing calls immune_after(..., "Frozen"): the boss's Freeze on you is held back (MECHC40), so the line moves no number).
+# The Frozen window joined after train 89 (MECHC40's boss Freeze on you, c5fbb667, reads immune_after(..., "Frozen")).
 
 - id: model-read-ignite-shock-immune-after
-  title: 'Shackles of the Wretched, "You cannot be Ignited / Shocked for N seconds after being Ignited / Shocked" (boss_hits.immune_after, MECHC40)'
+  title: 'Shackles of the Wretched, "You cannot be Ignited / Shocked / Frozen for N seconds after being Ignited / Shocked / Frozen" (boss_hits.immune_after, MECHC40)'
   kind: pob_gap
   model: boss_hits
-  match: '^You cannot be (Ignited for \d+(?:\.\d+)? seconds after being Ignited|Shocked for \d+(?:\.\d+)? seconds after being Shocked)$'
+  match: '^You cannot be (Ignited for \d+(?:\.\d+)? seconds after being Ignited|Shocked for \d+(?:\.\d+)? seconds after being Shocked|Frozen for \d+(?:\.\d+)? seconds after being Frozen)$'
   replace: []
   confidence: theory
   notes: >-
     boss_hits.IMMUNE_AFTER / immune_after: the boss's Ignite and Shock on you are up D / (max(N, D) + 1 / c) of the fight
     (the Chill line's form, CHILL_IMMUNE_AFTER), lowering the Ignite burn counted in the boss's damage per second and the
     Shock's damage taken (MECHC40, f43a1167; its test test_shackles_immunity_after_an_ignite_or_shock_shortens_each).
-    The Frozen sibling stays open (the boss's Freeze on you is held back, so no number reads it).
+    The Frozen one (COV44, after train 89): the boss's Freeze on you (MECHC40, c5fbb667: your time Frozen costs DPS)
+    takes the next Freeze no sooner than N s after this one's start (boss_hits 1691, immune_after(lines, "Frozen")).
   sources: ["builder/search/boss_hits.py (IMMUNE_AFTER, immune_after, boss_ailments_on_you's Ignite and Shock)"]
   status: proposed
 
@@ -33,4 +33,37 @@
     none spent, MEDIUM); with no minion skill 0, said (MECHC40, f43a1167; its test
     test_shared_charges_reach_your_minions_and_nothing_without_one). Your own charges are unchanged.
   sources: ["builder/search/conditions.py (SHARE_TO_ALLIES, minion_shared, the minionsUse<kind>Charges conditions)"]
+  status: proposed
+
+- id: model-read-guard-gained
+  title: '"N% increased / reduced Guard gained" (recovery._guard_inc, every modelled Guard source)'
+  kind: pob_gap
+  model: guard
+  match: '^\d+(?:\.\d+)?% (increased|reduced) Guard gained$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.GUARD_GAINED / _guard_inc scale every Guard the models give: Mana Flask and charm Guard, sprint Guard, and
+    since MECHC40's a792074c (train 89) event_guard's Fortifying Cry, Vanguard, Savage Hit, Heavy Drinker and Warding
+    Rune sources; up all fight, the Guard goes in PoB's Guard pool (full_guard_mods), else a row. COV43 left the line open
+    because PoB's own Guard skills weren't scaled: PoB sets no Guard at all (checked: GuardAbsorbLimit, the pool PoB's
+    CalcDefence 3045 / 3063 reads, has no setter in PoB's Data/ or ModParser; the two Guard-type skills, Encase in Jade
+    and Nature's Exchange, map none). Not scaled: Encase in Jade's Guard (a play row only, MECHC37) and the item Guard
+    lines no model reads yet (Duality's per Combo, Olroth's Resolve's, Decree of Flight's).
+  sources: ["builder/search/recovery.py (GUARD_GAINED, _guard_inc, event_guard, mana_flask_guard)"]
+  status: proposed
+
+- id: model-read-event-guard
+  title: 'Carved Mischief''s Savage Hit Guard and Warding Rune of Protection''s timed Guard (recovery.event_guard, MECHC40)'
+  kind: pob_gap
+  model: guard
+  match: '^(Gain Guard equal to \d+(?:\.\d+)?% of maximum Life for \d+(?:\.\d+)? seconds on taking Savage Hit|Every \d+(?:\.\d+)? seconds, gain Guard equal to \d+(?:\.\d+)?% of maximum Runic Ward for \d+(?:\.\d+)? seconds)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    MECHC40's a792074c (train 89): recovery.SAVAGE_GUARD (the boss's landed hits whose type reaches 15% of Life after
+    mitigation, KeywordPopups SavageHit) and WARD_TIMER_GUARD (PoB's Runic Ward, every N s for D s) feed event_guard: Guard
+    up all fight goes in PoB's Guard pool (full_guard_mods, the manager's 18 Nov ruling (ii)), part-time Guard is a row
+    (ruling (b)), as COV43's model-read-guard-sources (Mana Flask, charms).
+  sources: ["builder/search/recovery.py (SAVAGE_GUARD, WARD_TIMER_GUARD, event_guard)"]
   status: proposed

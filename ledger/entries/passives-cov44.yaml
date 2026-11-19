@@ -11,8 +11,22 @@
     Amulet's mods go to env.talismanModList, not the player (CalcSetup 1549), the minions get them (CalcPerform 1101) and
     the Amulet leaves the player's item list (CalcPerform 1233). Probe POE2T3907: Life 1323 under the Talisman with or
     without a "+50 to maximum Life" Amulet (1239 vs 1187 without it). COV44 made bridge.sourceLines follow the same test,
-    so our models don't read the Amulet's lines as the player's either. Not covered: a Talisman granted by an item
-    (Flesh Crucible's keystone outcome) isn't node 39935, so PoB keeps the Amulet on the player there (open, COV44's
-    report).
+    so our models don't read the Amulet's lines as the player's either. A Talisman an item grants (Flesh Crucible's
+    keystone variant / Vaal Cultivation outcome) isn't node 39935, and PoB kept the Amulet on the player there (probe
+    POE2T3918); the bridge's initEnv wrapper now puts the node in spec.allocNodes for that call (grantedTalismanNode),
+    so PoB's own code moves the Amulet then too.
   sources: ["vendor PoB Modules/CalcSetup.lua 1549-1555, CalcPerform.lua 1100-1103 / 1230-1233", "engine/bridge.lua (sourceLines' toMinions)"]
+  status: proposed
+
+- id: model-read-heavy-drinker-guard
+  title: 'Heavy Drinker, "Life Flasks applied to you grant Guard for N seconds equal to N% of the Life Recovery per Second they apply" (recovery.event_guard, MECHC40)'
+  kind: pob_gap
+  model: guard
+  match: '^Life Flasks applied to you grant Guard for \d+(?:\.\d+)? seconds equal to \d+(?:\.\d+)?% of the Life Recovery per Second they apply$'
+  replace: []
+  confidence: theory
+  notes: >-
+    MECHC40's a792074c (train 89): recovery.DRINKER_GUARD, the Life flask's recovery over its duration at its uses
+    (flasks.uses_per_second), into event_guard (up all fight: PoB's Guard pool; else a row).
+  sources: ["builder/search/recovery.py (DRINKER_GUARD, event_guard)"]
   status: proposed

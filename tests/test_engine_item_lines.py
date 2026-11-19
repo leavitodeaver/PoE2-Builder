@@ -498,21 +498,27 @@ def test_necromantic_talisman_keeps_the_amulets_lines_off_the_player(engine):
     amulet = "\n".join(["Rarity: Rare", "Test Amulet", "Jade Amulet", "Implicits: 0", "+50 to maximum Life",
                         "Share Charges with Allies in your Presence"])
 
-    def read(talisman: bool):
+    crucible = "\n".join(["Rarity: Unique", "Flesh Crucible", "Diamond", "Necromantic Talisman", "Corrupted"])
+
+    def read(talisman):
         engine.call("newBuild")
         engine.call("setClass", className="Witch", ascendancy="Infernalist")
         engine.call("setLevel", level=90)
-        if talisman:
+        engine.call("allocate", add=[2491])  # (a jewel socket)
+        if talisman == "node":
             engine.call("allocate", add=[39935])
+        elif talisman == "crucible":  # (COV44: an item's Talisman, probe POE2T3918; before, the Amulet stayed on you)
+            engine.call("equip", slot="Jewel 2491", raw=crucible, fields=[])
         bare = engine.call("stats", fields=["Life"])["Life"]
         engine.call("equip", slot="Amulet", raw=amulet, fields=[])
         life = engine.call("stats", fields=["Life"])["Life"]
         texts = [x["text"] for x in engine.call("sourceLines")["lines"]]
         return life - bare, "Share Charges with Allies in your Presence" in texts
 
-    gained, listed = read(False)
+    gained, listed = read(None)
     assert gained > 0 and listed  # (+50, scaled by the build's increased Life)
-    assert read(True) == (0, False)
+    assert read("node") == (0, False)
+    assert read("crucible") == (0, False)
 
 
 def test_tolerant_equipment_reads_the_equipped_helmets_armour_and_evasion(engine):

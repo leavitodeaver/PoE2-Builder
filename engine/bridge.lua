@@ -1038,6 +1038,39 @@ local function setAugmentCounts(env)
 	modDB.multipliers["RunesInEquipment"] = runeCount
 end
 
+-- (COV44) Necromantic Talisman granted by an equipped item (Flesh Crucible's keystone variant / its Vaal Cultivation
+-- outcome: a Keystone LIST mod). PoB moves the Amulet's mods to the minions only when node 39935 itself is allocated
+-- (CalcSetup 1549: env.allocNodes[39935]), so with the item's Talisman the Amulet stayed on the player (probe POE2T3918:
+-- Life 1470 -> 1523 with a "+50 to maximum Life" Amulet; 1575 either way with the node). Returns the tree's node when an
+-- active item (a what-if's replacement included; a jewel only in an allocated socket) grants it and the node isn't
+-- allocated; the initEnv wrapper puts that node in spec.allocNodes for the call, so PoB's own Talisman code runs. The
+-- node's own mods are its keystone mod (deduplicated by mergeKeystones' keystonesAdded) and its line, which parses to
+-- nothing (ModCache 5611).
+local function grantedTalismanNode(override)
+	local spec = build and build.spec
+	local node = spec and spec.nodes and spec.nodes[39935]
+	if not node or node.dn ~= "Necromantic Talisman" or spec.allocNodes[39935] then
+		return nil
+	end
+	for slotName, slot in pairs(build.itemsTab.slots) do
+		local item = slot.selItemId and build.itemsTab.items[slot.selItemId]
+		if override and override.repSlotName == slotName then
+			item = override.repItem
+		end
+		local socket = slot.nodeId and spec.nodes[slot.nodeId]
+		local socketOn = not slot.nodeId or (spec.allocNodes[slot.nodeId] and not (override and override.removeNodes
+			and override.removeNodes[socket])) or (override and override.addNodes and socket and override.addNodes[socket])
+		if item and not slot.inactive and socketOn then
+			for _, mod in ipairs(item.modList or { }) do
+				if mod.name == "Keystone" and mod.value == "Necromantic Talisman" then
+					return node
+				end
+			end
+		end
+	end
+	return nil
+end
+
 -- Runes (ModRunes type "Rune") in the character rune slots (Runic Meridians), with a what-if's replaced slot as PoB's
 -- CalcSetup 1195-1207 reads it (override.repSlotName / repRune); 0 without the slots
 local function characterRuneCount(override)
@@ -2883,10 +2916,18 @@ installRadiusModel = function()
 				end
 			end
 		end
+		-- (COV44) an item's Necromantic Talisman: node 39935 in spec.allocNodes for this call (grantedTalismanNode)
+		local talisman = build and buildArg == build and grantedTalismanNode(override)
+		if talisman then
+			build.spec.allocNodes[39935] = talisman
+		end
 		-- Put PoB's own node sets back whatever happens, and pass every result through
 		local function restore(ok, ...)
 			for i = #swapped, 1, -1 do
 				swapped[i][1][swapped[i][2]] = swapped[i][3]
+			end
+			if talisman then
+				build.spec.allocNodes[39935] = nil
 			end
 			if not ok then
 				error((...), 0)
@@ -5550,9 +5591,10 @@ function bridge.sourceLines()
 	-- itemModDB; CalcPerform 1101 / 1233), so the Amulet's lines aren't the player's either: before, the models read them
 	-- as the player's (probe POE2T3907: Life 1323 with or without a "+50 to maximum Life" Amulet under the Talisman, and
 	-- both its lines still listed here). PoB's own test, so the two can't disagree; the minions' side of a line only a
-	-- model reads isn't counted (an undercount, said in COV44's report).
+	-- model reads isn't counted (an undercount, said in COV44's report). An item's Talisman (Flesh Crucible) too: the
+	-- initEnv wrapper makes PoB move the Amulet then as well (grantedTalismanNode), and `keystones` holds it.
 	local talismanNode = build.spec.allocNodes[39935]
-	local talisman = talismanNode and talismanNode.dn == "Necromantic Talisman"
+	local talisman = (talismanNode and talismanNode.dn == "Necromantic Talisman") or keystones["Necromantic Talisman"]
 	for slotName, slot in pairs(build.itemsTab.slots) do
 		local item = slot.selItemId and build.itemsTab.items[slot.selItemId]
 		-- a flask or charm slot the search switched off (flasks.ACTIVE_UPTIME) gives no lines either (MECHC4; COVD5: before,
