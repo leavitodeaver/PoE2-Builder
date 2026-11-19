@@ -214,6 +214,25 @@ do
 	end
 end
 
+-- Idol of Egrin's bonded "Curse zones erupt after 20% reduced delay" (MECH90; RESEARCH33 R33-9, HIGH: it is the stat
+-- base_curse_delay_+%, the curse activation delay, which PoB maps to CurseDelay INC for gems, SkillStatMap 2769-2770, and
+-- CalcOffence 1577-1580 reads; ModParser / ModCache have no "erupt after" form, so PoB dropped the item's line, an
+-- UNDERCOUNT). Parsed here as that INC (reduced: negative), on every parse from now on; PoB's own bonded-mod rules decide
+-- when the line is active. models.curse_uses reads PoB's CurseDelay (the bridge's activeSkills curseDelay).
+do
+	local parseBefore = modLib.parseMod
+	modLib.parseMod = function(line, ...)
+		local list, extra = parseBefore(line, ...)
+		if (not list or extra) and type(line) == "string" then
+			local n, way = line:lower():match("^%s*curse zones erupt after (%d+%.?%d*)%% (%a+) delay%s*$")
+			if n and (way == "reduced" or way == "increased") then
+				return { modLib.createMod("CurseDelay", "INC", (way == "reduced" and -1 or 1) * tonumber(n), "Curse zone delay") }, nil
+			end
+		end
+		return list, extra
+	end
+end
+
 -- Raw ledger modifiers (COV25; builder/ledger RAW_MOD): a ledger line "mod:<Name> <TYPE> <value>" (a passive's, through
 -- applyLedger) or its item form "LedgerMod:<Name> <TYPE> <value>" (ledger.item_lines) is PoB's modifier <Name> of that
 -- type and value, for a line no PoB text can carry: Rune of Reach's "Remnants you create have 25% reduced effect" is

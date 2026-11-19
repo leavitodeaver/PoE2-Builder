@@ -189,3 +189,30 @@ def test_inner_turmoil_plays_the_volatility_cycle_only_when_it_pays():
     # no ailment: nothing gained, not played; no line: nothing
     assert models.volatility_model(lines, {"Speed": 2.0, "HitChance": 100.0})[0] == []
     assert models.volatility_model([], fast) == ([], [])
+
+
+def test_saitha_aggravates_the_ignite_at_the_builds_own_rates():
+    """RESEARCH33 R33-8: lambda = h / (1/c + 1/p) Aggravations a second; the Ignite Aggravated a = 1 - (1 - e^-x) / x
+    of its life (x = lambda D); 0 when every Bleed is already Aggravated (the line never fires: an OVERCOUNT trap)."""
+    import math
+
+    from builder.search import models
+
+    lines = ["Aggravating any Bleeding with this Weapon also Aggravates all Ignites on the target",
+             "30% chance to Aggravate Bleeding on Hit"]
+    stats = {"Speed": 3.0, "HitChance": 100.0, "BleedChancePerHit": 20.0, "IgniteDuration": 4.0, "IgniteDPS": 100.0,
+             "IgniteChancePerHit": 10.0}
+    mods, notes = models.saitha_ignite_mods(lines, stats, "Spear Throw", True)
+    rate = 3.0 / (1 / 0.2 + 1 / 0.3)  # 0.36 / s, the research's example
+    a = 1 - (1 - math.exp(-rate * 4)) / (rate * 4)  # 0.47
+    assert mods[0]["line"] == models.COMPOUND_LINE and mods[0]["scale"] == pytest.approx(a * 100, abs=0.01)
+    assert notes[0]["value"] == f"x{1 + a:.2f} Ignite damage"
+    assert models.saitha_ignite_mods(lines + ["Bleeding you inflict is Aggravated"], stats, "Spear Throw", True)[0] == []
+    assert models.saitha_ignite_mods(lines, stats, "Spark", False)[0] == []
+    assert models.saitha_ignite_mods(lines[1:], stats, "Spear Throw", True) == ([], [])
+
+
+def test_idol_of_egrin_curse_zone_delay_is_curse_delay(engine):
+    """RESEARCH33 R33-9: "Curse zones erupt after 20% reduced delay" is base_curse_delay_+%, PoB's CurseDelay INC."""
+    got = engine.call("parseLines", lines=["Curse zones erupt after 20% reduced delay"])["results"][0]
+    assert got["supported"] and got["parsed"][0]["name"] == "CurseDelay" and got["parsed"][0]["value"] == -20

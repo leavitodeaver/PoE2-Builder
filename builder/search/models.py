@@ -9923,6 +9923,75 @@ def volatility_model(texts: list[str], stats: dict) -> tuple[list[dict], list[di
                  f"them x{value:.2f} damage")}]
 
 
+# Saitha's Spear's Aggravated Ignites (MECH90; RESEARCH33 R33-8, scratch/manager/research/aggravate-ignite-saitha.md; an
+# UNDERCOUNT: PoB leaves "Aggravating any Bleeding with this Weapon also Aggravates all Ignites on the target" unparsed,
+# ModCache 5578). KeywordPopups AggravateIgnite: an Aggravated Ignite "deals 100% extra damage" until it expires (HIGH; no
+# refresh, later Ignites not Aggravated: MEDIUM-HIGH); LocalOnAggravateBleeding: it fires only when a hit with the weapon
+# Aggravates at least one Bleed that wasn't yet (HIGH as text), so a build whose Bleeds are all Aggravated when inflicted
+# ("Bleeding you inflict is Aggravated") never fires it (0: counting it there would be an OVERCOUNT); a conditional
+# "... on Cursed / Pinned targets is Aggravated" line is taken the same way (0, the cautious reading, labelled). The
+# research's model, every input the build's own: the main skill's hits h (it must be an Attack: the weapon's hits, MEDIUM),
+# Bleed chance c (PoB's BleedChancePerHit), Aggravate chance p per hit (the build's "N% chance to Aggravate Bleeding on
+# Hit / on targets you Hit with Attacks", and the Critically Hit forms x its crit chance; Empowered / Presence / Jagged
+# Ground forms not counted, a lower reading); Aggravations a second lambda = h / (1/c + 1/p) (a hit's own Bleed isn't
+# Aggravated by it: MEDIUM-LOW); the damaging Ignite (duration D, PoB's IgniteDuration) Aggravated a = 1 - (1 -
+# e^(-lambda D)) / (lambda D) of its life (Aggravation counting toward "strongest": MEDIUM-LOW); PoB gets a x 100% more
+# Ignite Magnitude on the main skill (COMPOUND_LINE). Row: Aggravation not counting toward strongest, each fresh Ignite
+# (h x IgniteChancePerHit a second) taking over un-Aggravated: D replaced by min(D, 1 / that rate).
+SAITHA_LINE = re.compile(r"^aggravating any bleeding with this weapon also aggravates all ignites on the target$", re.I)
+AGGRAVATE_ON_HIT = re.compile(r"^(\d+(?:\.\d+)?)% chance to aggravate bleeding on (?:hit|targets you hit with attacks)$",
+                              re.I)
+AGGRAVATE_ON_CRIT = re.compile(r"^(?:(\d+(?:\.\d+)?)% chance to )?aggravate bleeding on targets you critically hit with "
+                               r"attacks$", re.I)
+ALL_BLEEDS_AGGRAVATED = re.compile(r"^bleeding you inflict (?:on [\w ]+ )?is aggravated$", re.I)
+
+
+def _aggravated_share(rate: float, duration: float) -> float:
+    x = rate * duration
+    return 1 - (1 - math.exp(-x)) / x if x > 0 else 0.0
+
+
+def saitha_ignite_mods(texts: list[str], stats: dict, main: str | None, attack: bool) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for Saitha's Spear's "also Aggravates all Ignites" (the note above)."""
+    if not any(SAITHA_LINE.match(t.strip()) for t in texts):
+        return [], []
+    label = "Saitha's Spear: Aggravated Ignites*"
+    ignite = number(stats.get("IgniteDPS"))
+    every = [t for t in texts if ALL_BLEEDS_AGGRAVATED.match(t.strip())]
+    if every:
+        return [], [{"label": label, "value": "+0", "confidence": "HIGH",
+                     "basis": (f"'{every[0]}': every Bleed you inflict is already Aggravated, and the spear's line fires "
+                               "only when its hit Aggravates a Bleed that wasn't (KeywordPopups LocalOnAggravateBleeding; "
+                               "a conditional one taken the same way, cautious): never (RESEARCH33 R33-8)")}]
+    if not attack or ignite <= 0 or main is None:
+        return [], [{"label": label, "value": "+0", "confidence": "MEDIUM",
+                     "basis": "the main skill isn't an Attack that Ignites (only the spear's hits Aggravate): +0"}]
+    h = hits_per_second(stats)
+    c = min(max(number(stats.get("BleedChancePerHit")), 0.0), 100.0) / 100
+    crit = min(max(number(stats.get("CritChance")), 0.0), 100.0) / 100
+    p = sum(float(m.group(1)) for t in texts if (m := AGGRAVATE_ON_HIT.match(t.strip()))) / 100
+    p += sum(float(m.group(1) or 100) for t in texts if (m := AGGRAVATE_ON_CRIT.match(t.strip()))) / 100 * crit
+    p = min(p, 1.0)
+    duration = number(stats.get("IgniteDuration"))
+    if h <= 0 or c <= 0 or p <= 0 or duration <= 0:
+        return [], [{"label": label, "value": "+0", "confidence": "MEDIUM",
+                     "basis": f"no Bleed ({c:.0%}) or no Aggravate chance ({p:.0%}) on the main skill's hits: +0"}]
+    rate = h / (1 / c + 1 / p)
+    share = _aggravated_share(rate, duration)
+    fresh = h * min(max(number(stats.get("IgniteChancePerHit")), 0.0), 100.0) / 100
+    row = _aggravated_share(rate, min(duration, 1 / fresh) if fresh > 0 else duration)
+    return [line(COMPOUND_LINE, scale=share * 100.0, skill=main)], [{
+        "label": label, "value": f"x{1 + share:.2f} Ignite damage", "confidence": "MEDIUM-LOW",
+        "basis": (f"{h:.2f} hits/s x {c:.0%} to Bleed, {p:.0%} to Aggravate: {rate:.2f} Aggravations a second (h / (1/c + "
+                  f"1/p), RESEARCH33 R33-8); each Aggravates the Ignite for 100% extra damage until it expires "
+                  f"(KeywordPopups AggravateIgnite), so the {duration:.2f} s Ignite is Aggravated {share:.0%} of its life: "
+                  f"x{1 + share:.2f}. If Aggravation doesn't count toward the strongest Ignite (MEDIUM-LOW either way), "
+                  f"each fresh Ignite ({fresh:.2f} a second) takes over un-Aggravated: x{1 + row:.2f}. Assumed: your main "
+                  "skill's hits are the spear's; a hit's own Bleed isn't Aggravated by it. PoB leaves the line unparsed"),
+        "play": (f"Hit with Saitha's Spear to Bleed then Aggravate: without Bleed or Aggravate chance x1.00; with them "
+                 f"x{1 + share:.2f} Ignite damage")}]
+
+
 # The Disciple of Varashta's djinn Commands (MECH83; FIX_QUEUE 75 / COV3, PATCH_CHECK H4-2, MECH49's open item: an
 # UNDERCOUNT, they scored 0). The Barya notables grant the djinns (tree.lua: "Grants Skill: Kelari, the Tainted Sands" /
 # "Ruzhan, the Blazing Sword" / "Navira, the Last Mirage"), the other notables one Command each ("Grants Skill: Kelari's

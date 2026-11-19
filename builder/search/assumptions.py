@@ -2913,6 +2913,13 @@ class Assumptions:
                                                         "ChillChanceOnHit", "ColdHitAverage", "ColdCritAverage"])
             turmoil_mods, turmoil_notes = models.volatility_model(turmoil_texts, turmoil_stats)
             hand_mods, hand_notes = hand_mods + turmoil_mods, hand_notes + turmoil_notes
+        if any(models.SAITHA_LINE.match(t.strip()) for t in turmoil_texts):  # (MECH90, R33-8: PoB leaves it unparsed)
+            saitha_stats = build.call("stats", fields=["Speed", "HitChance", "CritChance", "BleedChancePerHit",
+                                                       "IgniteChancePerHit", "IgniteDuration", "IgniteDPS"])
+            saitha_mods, saitha_notes = models.saitha_ignite_mods(
+                turmoil_texts, saitha_stats, main.name if main is not None else None,
+                bool(main is not None and main.attack))
+            hand_mods, hand_notes = hand_mods + saitha_mods, hand_notes + saitha_notes
         djinn, djinn_mods, djinn_notes = djinn_commands(build, main)  # (MECH83: the Disciple's djinn Commands; PoB 0)
         hand_mods, hand_notes = hand_mods + djinn_mods, hand_notes + djinn_notes
         briar, briar_notes = briarpatch(build, main, found)  # (MECHB31: Briarpatch's creation hit, PoB 0)
