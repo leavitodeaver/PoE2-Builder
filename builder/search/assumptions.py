@@ -4130,6 +4130,44 @@ class Assumptions:
                 "Warding Rune of Protection", float(m.group(2)) / 100 * ward, 1 / every if every > 0 else 0.0,
                 float(m.group(3)), texts, life, f"{m.group(2)}% of your {ward:,.0f} maximum Runic Ward every {every:g} s",
                 True, expiry))
+        insight = next((grp for grp in groups for g in grp.get("gems") or []
+                        if g["name"] == recovery.MORRIGANS_INSIGHT and g.get("enabled", True)), None)
+        if insight is not None:  # (MECHC41: Morrigan's Insight's Nature's Exchange)
+            found = next((s for s in build.call("activeSkills", levelStats=[recovery.NATURES_EXCHANGE])["skills"]
+                          if s["name"] == recovery.NATURES_EXCHANGE and not s.get("disabled")), {})
+            amount = number((found.get("levelStats") or {}).get(recovery.NATURES_GUARD_STAT))
+            recover = number(found.get("cooldownRecovery")) or 1.0
+            cap = recover / recovery.NATURES_COOLDOWN
+            if insight is main_group:
+                freezes = models.buildup_rate(stats, "Freeze")
+                rate = min(freezes, cap)
+                how = (f"the boss Frozen {freezes:.3f} times a second (the build's Freeze buildup), each consumed by the "
+                       f"supported main skill's next hit (MEDIUM), held to its {recovery.NATURES_COOLDOWN / recover:.2g} s "
+                       f"cooldown: {rate:.3f}/s")
+            else:
+                rate, how = 0.0, ("it supports a side skill whose hits on the Frozen boss aren't rated: 0 (an UNDERCOUNT "
+                                  "kept)")
+            if not found:
+                how += "; PoB lists no Nature's Exchange (no Guard read)"
+            out.append(recovery.event_guard(
+                f"{recovery.NATURES_EXCHANGE} ({recovery.MORRIGANS_INSIGHT})", amount, rate, recovery.NATURES_SECONDS,
+                texts, life, f"{amount:g} Guard (its level) for {recovery.NATURES_SECONDS:g} s; {how}", True, expiry))
+        hide = next((grp for grp in groups for g in grp.get("gems") or []
+                     if g["name"] == recovery.HELBRYMS_HIDE and g.get("enabled", True)), None)
+        if hide is not None and main:  # (MECHC41: Helbrym's Hide's Composure)
+            fields = sorted(set(objective.RECOVERY_INPUTS) | {"Speed"})
+            added = getattr(build, "added_stats", None)
+            read = {**build.call("stats", fields=fields), **(added() if callable(added) else {}), "_boss": boss}
+            shifts, shifts_how = conditions_mod.Conditions(build, main)._human_shifts(number(read.get("Speed")))
+            kept = math.exp(-recovery.HELBRYM_SOAK * shifts)
+            taken = sum(objective.boss_taken(read)[0].values())
+            amount = recovery.HELBRYM_SHARE * taken * recovery.HELBRYM_SOAK
+            out.append(recovery.event_guard(
+                f"Helbrym's Composure ({recovery.HELBRYMS_HIDE})", amount, shifts * kept, recovery.HELBRYM_SECONDS, texts,
+                life, f"50% of the {taken:,.0f} damage a second the boss lands after your mitigation, stored over "
+                f"{recovery.HELBRYM_SOAK:g} s; one per shift into the supported skill's form ({shifts_how}), kept if no "
+                f"other shift comes in its {recovery.HELBRYM_SOAK:g} s: {kept:.0%} (MEDIUM-LOW; without that loss: "
+                f"{shifts:.2f}/s); its Rage not counted", True, expiry))
         if m := next((m for t in stripped if (m := recovery.COMBO_GUARD.match(t))), None):  # (MECHC41: Duality)
             from builder.search.usage import Usage, requirements
 
@@ -4300,6 +4338,15 @@ class Assumptions:
                 held = sum(number(x.get("value")) for x in self.full_guard_mods if x.get("name") == "GuardAbsorbLimit")
                 if whole and guard > held:  # (one Guard buff at a time: the largest up all fight counts)
                     self.full_guard_mods = whole
+        if any("Deflected no Hits Recently" in t for t in texts):  # (MECHC41: recovery.deflect_rested_row)
+            from builder.search import boss_hits
+
+            seen = {**stats, **build.call("stats", fields=["DeflectChance", "DeflectEffect", "enemySkillTime"]),
+                    "_boss": boss}
+            landed = boss_hits.land_share(seen) / (number(seen.get("enemySkillTime")) or 0.7)
+            if row := recovery.deflect_rested_row(texts, landed, number(seen.get("DeflectChance")),
+                                                  number(seen.get("DeflectEffect"))):
+                guard_rows.append(row)
         for guard, up, row in self.event_guards(texts, stats, main, present, boss):  # (MECHC40: Guard from events)
             guard_rows.append(row)
             whole = recovery.full_guard_mods(guard, up)

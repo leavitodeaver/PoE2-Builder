@@ -2623,3 +2623,65 @@ def test_chaos_inoculation_raises_pobs_stun_threshold_to_its_value_without_the_k
     assert mods[0]["tag"] == boss_hits.CI_STUN_TAG and "1,200 -> 3,000" in row["value"]
     assert boss_hits.ci_stun_threshold(1200.0, 1200.0) == ([], None)
     assert boss_hits.ci_stun_threshold(1000.0, 0.0) == ([], None)
+
+
+def test_natures_exchange_and_helbryms_composure_grant_guard_at_the_builds_own_rates(monkeypatch):
+    """MECHC41: Morrigan's Insight's Nature's Exchange (its level's Guard for 8 s) at the boss's Freezes a second, held to
+    its 8 s cooldown, when it supports the main skill (a side skill: 0, said); Helbrym's Composure stores 2 s of the
+    boss's damage after mitigation and grants 50% as Guard for 4 s, once per shift into the form, kept e^(-2h)."""
+    from types import SimpleNamespace
+
+    from builder.search import assumptions, conditions, models, objective
+
+    groups = [{"main": True, "gems": [{"name": "Ice Strike"}, {"name": "Morrigan's Insight"}]},
+              {"gems": [{"name": "Rampage"}, {"name": "Helbrym's Hide"}]}]
+
+    def call(name, **kw):
+        if name == "activeSkills":
+            return {"skills": [{"name": "Nature's Exchange", "levelStats": {"morrigan_ward_gain_X_guard": 531},
+                                "cooldownRecovery": 1.0}]}
+        if name == "stats":
+            return {"Speed": 2.0}
+        raise AssertionError(name)
+
+    build = SimpleNamespace(call=call, equipped={}, groups=lambda: groups)
+    monkeypatch.setattr(models, "buildup_rate", lambda stats, ailment: 0.5)
+    monkeypatch.setattr(conditions, "Conditions",
+                        lambda b, main: SimpleNamespace(_human_shifts=lambda speed: (0.25, "each Rampage")))
+    monkeypatch.setattr(objective, "boss_taken", lambda stats: ({"Physical": 300.0, "Fire": 100.0}, 0.5, 1.0))
+    hook = assumptions.Assumptions.__new__(assumptions.Assumptions)
+    hook.build = build
+    found = {row["label"].split(" (")[0]: (g, up, row) for g, up, row in
+             hook.event_guards([], {"Life": 3000.0}, "Ice Strike", {}, None)}
+    guard, up, row = found["Guard from Nature's Exchange"]
+    assert guard == 531 and up == pytest.approx(1.0)  # (held to one every 8 s, lasting 8 s)
+    guard, up, row = found["Guard from Helbrym's Composure"]
+    assert guard == pytest.approx(0.5 * 400 * 2) and up == pytest.approx(min(1.0, 0.25 * math.exp(-0.5) * 4))
+    groups[0]["main"] = False  # (on a side skill: its hits on the Frozen boss aren't rated)
+    side = {row["label"].split(" (")[0]: up for g, up, row in hook.event_guards([], {"Life": 3000.0}, "Ice Strike", {}, None)}
+    assert side["Guard from Nature's Exchange"] == 0.0
+
+
+def test_more_charm_charges_gained_scales_each_charms_share_of_generated_charges():
+    """MECHC41 (COV44's routed UNDERCOUNT): Intricate Sigils' "20% more Charm Charges gained" (PoB: CharmChargesGained
+    MORE, which the bridge's INC sum never read) multiplies the charges a charm generates; granted charges aren't scaled."""
+    from dataclasses import replace
+
+    from builder.search import flasks
+
+    assert flasks.CHARM_GAIN_MORE.match("20% more Charm Charges gained")
+    base = flasks.Charges(charm=1.0, charm_gain_inc=50.0)
+    info = {"kind": "Charm", "gainBase": 0.5}
+    plain = flasks.charges_per_second(info, base, None)
+    more = flasks.charges_per_second(info, replace(base, charm_gain_more=1.2), None)
+    assert plain == pytest.approx(1.5 * 1.5) and more == pytest.approx(plain * 1.2)
+
+
+def test_deflection_after_none_recently_is_a_row_at_its_share():
+    """MECHC41 (MECHC38's rows-only leftover): the Idol's "Prevent +5% of Damage from Deflected Hits if you've Deflected
+    no Hits Recently" (PoB splits it over two lines) on the Deflected Hits with none in the 4 s before, e^(-4 d)."""
+    texts = ["Prevent +5% of Damage from Deflected Hits if you've", "Deflected no Hits Recently"]
+    row = recovery.deflect_rested_row(texts, 1.0, 25.0, 40.0)
+    assert f"{math.exp(-1.0):.0%} of your Deflected Hits" in row["value"] and "40% -> 45%" in row["value"]
+    assert recovery.deflect_rested_row(texts, 1.0, 0.0, 40.0)["value"].startswith("0:")
+    assert recovery.deflect_rested_row(["Deflected no Hits Recently"], 1.0, 25.0, 40.0) is None

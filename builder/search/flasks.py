@@ -113,6 +113,7 @@ class Charges:
     # charms15, Heart of the Well's unveiled mod; PoB parses it with leftover text and never applies it): the summed chance,
     # and each equipped charm's free uses a second from the others' uses ((item text, uses/s, how), charm_free_uses)
     charm_another: float = 0.0
+    charm_gain_more: float = 1.0  # (MECHC41) "N% more Charm Charges gained" (Intricate Sigils): see CHARM_GAIN_MORE
     charm_extra: tuple = ()
     # (MECHC7, #105) Wildwood's Gifts: Ancient Blooms per second and the charges a Bloom of each kind gives (bloom_charges)
     bloom_rate: float = 0.0
@@ -194,6 +195,14 @@ class Charges:
                 infos = build.call("flaskData", raws=raws)["results"]
                 gain = replace(gain, charm_another=another,
                                charm_extra=charm_free_uses(list(zip(infos, raws)), replace(gain, charm_another=another)))
+        equipped_now = getattr(build, "equipped", None) or {}
+        if any(equipped_now.get(slot) is not None for slot in CHARM_SLOTS):  # (MECHC41: CHARM_GAIN_MORE)
+            from dataclasses import replace
+
+            more = 1.0
+            for m in (m for t in (texts if texts is not None else _texts(build)) if (m := CHARM_GAIN_MORE.match(t.strip()))):
+                more *= 1 + float(m.group(1)) / 100 * (1 if m.group(2).lower() == "more" else -1)
+            gain = replace(gain, charm_gain_more=max(more, 0.0))
         if drunk and any(LIFE_FLASK_INSTANT.match(t.strip()) or LIFE_NEVER_INSTANT.search(t) for t in texts_now):
             from dataclasses import replace  # (MECHC38: instant_share)
 
@@ -500,8 +509,8 @@ def charges_per_second(info: dict, gain: Charges, pool: str | None) -> float:
     """Charges an item gains per second: generated, and from the boss's adds killed (kill_charges)."""
     kills = kill_charges(gain) if gain.add_kills > 0 else 0.0
     if info.get("kind") == "Charm":
-        generated, inc, granted = (gain.charm + info.get("gainBase", 0) + bloom_charges(gain, "Charm") + kills,
-                                   gain.charm_gain_inc, gain.granted_charm)
+        generated, inc, granted = ((gain.charm + info.get("gainBase", 0) + bloom_charges(gain, "Charm") + kills)
+                                   * gain.charm_gain_more, gain.charm_gain_inc, gain.granted_charm)
     else:
         specific = gain.life_flask if pool == "Life" else gain.mana_flask if pool == "Mana" else 0.0
         # (MECHC5, A14-2: "Gain a Flask Charge when you deal a Critical Hit" gives each flask a charge, at the main skill's
@@ -592,6 +601,14 @@ def charm_extra_uses(gain: Charges, raw: str) -> tuple[float, str]:
 # is down, at most once per its effect (as its other uses; SETTLED, RESEARCH26 R26-5: not reusable during its own effect,
 # MEDIUM-HIGH); a trigger this doesn't read: once per its effect (the
 # charm's own pace, UNVERIFIED). A charm that waits for a kill still never fires on a lone boss.
+# "20% more Charm Charges gained" (MECHC41; COV44's routed UNDERCOUNT, the manager 00:15 19 Nov): the Huntress
+# ascendancy notable Intricate Sigils (AscendancyHuntress3Notable3_, primalist_charm_charges_gained_+%_
+# final 20; checked: every Stats id with charm / flask charges and "final", their PassiveSkills and Mods carriers, game
+# 26650308: Intricate Sigils is this stat's one carrier). PoB parses it (ModCache 3023: CharmChargesGained MORE 20) but
+# the bridge's chargeGain sums only the INC, so the charm model never read it. Read here from the build's lines, any
+# "N% more / less Charm Charges gained", each a multiplier on the charges a charm gains (as PoB's MORE would be),
+# granted charges not scaled (as the INC; charges_per_second).
+CHARM_GAIN_MORE = re.compile(r"^(\d+(?:\.\d+)?)% (more|less) Charm Charges gained$", re.I)
 CHARMS_FREE = re.compile(r"^\s*charms use no charges\s*$", re.I | re.M)
 
 

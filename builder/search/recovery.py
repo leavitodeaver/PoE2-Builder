@@ -2317,6 +2317,61 @@ WARD_TIMER_GUARD = re.compile(r"^Every (\d+(?:\.\d+)?) seconds, gain Guard equal
 DECREE_GUARD = re.compile(r"^Gain Guard equal to (\d+(?:\.\d+)?)% of missing Energy Shield for (\d+(?:\.\d+)?) seconds when "
                           r"you Dodge Roll$", re.I)
 DECREE_CAP = re.compile(r"^Maximum amount of Guard is based on maximum Energy Shield instead$", re.I)
+# - Morrigan's Insight (MECHC41; a Lineage support, PoB SupportMorrigansInsight: "trigger Nature's Exchange when
+#   consuming Freeze on enemies"; consume_enemy_freeze_to_trigger_morrigan_ward; its supported skill never Freezes):
+#   Nature's Exchange (TriggeredMorrigansInsightPlayer: cooldown 8 s, one stored use; base_skill_effect_duration 8000,
+#   "Buff duration is {0} seconds"; morrigan_ward_gain_X_guard "Grants {0} Guard", 531 at level 20) at each Freeze of
+#   the boss the supported skill consumes: the boss's Freezes a second (models.buildup_rate: the main skill's and the
+#   other groups' buildup, MECH-A's) held to the cooldown (/ PoB's cooldown recovery), taken as consumed by the
+#   supported skill's next hit when it's the main skill (MEDIUM); on a side skill its hits on the Frozen boss aren't
+#   rated: 0, said. Paced. Its Cold Thorns and 50% more damage vs Frozen are not this row (PoB reads the latter).
+MORRIGANS_INSIGHT, NATURES_EXCHANGE = "Morrigan's Insight", "Nature's Exchange"
+NATURES_GUARD_STAT, NATURES_COOLDOWN, NATURES_SECONDS = "morrigan_ward_gain_X_guard", 8.0, 8.0
+# - Helbrym's Hide (MECHC41; a Lineage support for Shapeshift skills, SupportHelbrymsHidePlayer: soak 2000 ms, Guard
+#   4000 ms, 50% of damage taken as Guard, 3% as Rage). KeywordPopups HelbrymsComposure: "While you have this Buff,
+#   damage you take is stored. When the Buff expires, you gain Guard equal to 50% of the stored damage and Rage equal to
+#   3% of the stored damage"; the gem: granted "when Supported Skills cause you to Shapeshift", and "Shapeshifting into a
+#   different form before the Buff expires causes it to be removed without effect". So one per shift into the supported
+#   skill's form, at the build's form changes a second h (conditions.human_shifts: the shifts into and back out of a
+#   form come at the same rate), kept only if no other shift comes within the 2 s soak: shifts taken as random,
+#   e^(-2h) (MEDIUM-LOW; Human form read as "a different form", UNVERIFIED: the row without the loss gives h). Stored:
+#   the boss's damage a second after your mitigation (objective.boss_taken) x 2 s. Its Rage isn't counted here (an
+#   UNDERCOUNT of Rage, named). A build that never shifts (no other-form skill pressed): 0, said.
+HELBRYMS_HIDE = "Helbrym's Hide"
+HELBRYM_SOAK, HELBRYM_SECONDS, HELBRYM_SHARE = 2.0, 4.0, 0.50
+# "Prevent +5% of Damage from Deflected Hits if you've Deflected no Hits Recently" (MECHC41; MECHC38 / MECHC39's
+# rows-only leftover; the body-armour Idol in PoB's ModRunes.lua 10047-10051, base_damage_%_deflected_if_you_have_not_
+# deflected_recently; PoB parses nothing of it, so no overcount). Recently = the last 4 s (KeywordPopups Recently). A
+# Deflected Hit meets it when no other was Deflected in the 4 s before: the boss's landed hits a second x your Deflect
+# chance d, taken as random, so e^(-4 d) of them (MEDIUM). Part-time, so a row (the manager's 17 Nov ruling (b)), not
+# in the floors.
+DEFLECT_RESTED = re.compile(r"^Prevent \+(\d+(?:\.\d+)?)% of Damage from Deflected Hits if you've Deflected no Hits "
+                            r"Recently$", re.I)
+DEFLECT_RESTED_SECONDS = 4.0
+
+
+def deflect_rested_row(texts: list[str], landed: float, chance: float, effect: float) -> dict | None:
+    """The row for DEFLECT_RESTED (the note above): `landed` the boss's landed hits a second, `chance` your Deflect
+    chance %, `effect` PoB's DeflectEffect %; None without the line."""
+    joined = [t.strip() for t in texts]
+    # (PoB's item text may split it across two lines: "... if you've" / "Deflected no Hits Recently")
+    joined += [f"{a} {b}" for a, b in zip(joined, joined[1:]) if b.lower() == "deflected no hits recently"]
+    found = [m for t in joined if (m := DEFLECT_RESTED.match(t))]
+    if not found:
+        return None
+    pct = sum(float(m.group(1)) for m in found)
+    d = max(landed, 0.0) * min(max(chance, 0.0), 100.0) / 100
+    share = math.exp(-DEFLECT_RESTED_SECONDS * d) if d > 0 else 0.0
+    return {"label": "Deflection after none Recently (a row, not in the defences)*",
+            "value": (f"+{pct:g}% of a Deflected Hit's damage prevented ({effect:g}% -> {effect + pct:g}%) on {share:.0%} "
+                      "of your Deflected Hits" if d > 0 else "0: no hit is Deflected"),
+            "basis": (f"the boss's {landed:.2f} landed hits a second x your {chance:.0f}% Deflect chance = {d:.2f} Deflected "
+                      f"a second; a Deflected Hit with none in the {DEFLECT_RESTED_SECONDS:g} s before: e^(-4 x {d:.2f}) = "
+                      f"{share:.0%} (random hits, MEDIUM); part-time, so in no defence floor (the manager's 17 Nov ruling "
+                      "(b)); PoB counts none; without it: none"),
+            "confidence": "MEDIUM", "play": ""}
+
+
 COMBO_GUARD = re.compile(r"^Gain (\d+(?:\.\d+)?) Guard for (\d+(?:\.\d+)?) seconds per Combo expended when using Skills$",
                          re.I)
 WARD_END_GUARD = re.compile(r"^Gain Guard equal to Current Runic Ward for (\d+(?:\.\d+)?) seconds when Effect ends$", re.I)
