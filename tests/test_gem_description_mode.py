@@ -708,6 +708,23 @@ def test_firestorm_rate_scale_readings():
     assert models.firestorm_infusion_model(Skill("Spark", 1, spell=True), "Firestorm", FIRESTORM_SETS, {}) == ([], [])
 
 
+def test_firestorm_and_frost_darts_give_their_parts_shares_for_the_strongest_ailment():
+    """GEM23: the notes carry set_shares (strongest_ailment_model): Firestorm's fire bolts always, its ice / lightning
+    bolts on their Infused casts' share, at the headline's hits a second; Frost Darts' parts a cast."""
+    sets = [dict(row, Speed=5.0) for row in FIRESTORM_SETS]
+    _, notes = models.firestorm_infusion_model(Skill("Firestorm", 1, spell=True), "Firestorm", sets,
+                                               {"Fire": (0.5, "t"), "Cold": (0.25, "t"), "Lightning": (0.0, "t")})
+    assert notes[0]["set_shares"] == {"Firestorm": 1.0, "Ice Bolts": 0.25, "Lightning Bolts": 0.0}
+    assert notes[0]["set_uses"] == pytest.approx(5.0 * models.firestorm_rate_scale(0.5, 0.25, True))
+    darts = [{"label": "Projectile", "TotalDPS": 100.0, "Speed": 1.0}, {"label": "Explosion", "TotalDPS": 300.0, "Speed": 1.0},
+             {"label": "Ice Chunk", "TotalDPS": 50.0, "Speed": 1.0}]
+    _, notes = models.frost_darts_model("Frost Darts", "Projectile", darts, 3, 0.5, "x", 0.25, "y", 0.3)
+    q = models.frost_chunk_chance(0.3)
+    assert notes[0]["set_shares"] == {"Projectile": 1.0, "Explosion": 0.25,
+                                      "Ice Chunk": pytest.approx((0.5 * 2 + 0.25 * 3) * q)}
+    assert "set_uses" not in notes[0]  # (PoB's casts a second)
+
+
 THUNDER_SETS = [{"label": "Melee", "TotalDPS": 127.5}, {"label": "Projectile", "TotalDPS": 162.3}]
 
 

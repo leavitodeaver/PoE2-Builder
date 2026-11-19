@@ -6552,6 +6552,7 @@ def firestorm_infusion_model(main: Skill | None, scored: str | None, sets: list[
     if main is None or main.name != FIRESTORM or FIRESTORM_ENTRY in forbidden or scored not in FIRESTORM_SETS:
         return [], []
     dps = {s.get("label"): number(s.get("TotalDPS")) for s in sets}
+    speed = next((number(s.get("Speed")) for s in sets if s.get("label") == FIRESTORM), 0.0)  # (the fire bolts' hits/s)
     fire, ice, bolt = (dps.get(k, 0.0) for k in FIRESTORM_SETS)
     if fire <= 0 or dps.get(scored, 0.0) <= 0:
         return [], []
@@ -6573,6 +6574,10 @@ def firestorm_infusion_model(main: Skill | None, scored: str | None, sets: list[
         "label": "Firestorm: its Infusions (fire bolts + ice / lightning bolts)*", "value": f"x{low:.3f}",
         "confidence": "MEDIUM",
         "entry": FIRESTORM_ENTRY,
+        # (GEM23: strongest_ailment_model; the fire bolts always, the ice / lightning bolts on their Infused casts' share
+        # of the storm's time, each stream at its share of the headline's (shared-limit) hits a second)
+        "set_shares": {"Firestorm": 1.0, "Ice Bolts": s["Cold"], "Lightning Bolts": s["Lightning"]},
+        "set_uses": speed * firestorm_rate_scale(s["Fire"], extra, True),
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; Firestorm {fire:,.0f}, Ice Bolts {ice:,.0f}, "
                   f"Lightning Bolts {bolt:,.0f}, each its own storm). The game: fire bolts always, ice / lightning bolts on "
                   f"the casts that consume a Cold / Lightning Infusion, all with Fire Infusion's 100% increased Damage and "
@@ -15165,6 +15170,9 @@ def frost_darts_model(main: str | None, scored: str | None, sets: list[dict], pr
     every = max(projectiles, FROST_BASE_DARTS)  # (PoB's count on the Explosion set reads 1.2: probe POE2T3261)
     note = {"label": "Frost Darts: darts, Ice Chunks and Infused explosions over one cast*", "value": f"x{factor:.3f}",
             "entry": FROST_ENTRY, "confidence": "LOW",
+            # (GEM23: strongest_ailment_model; each set's uses a cast, at PoB's casts a second)
+            "set_shares": {"Projectile": 1.0, "Explosion": infused,
+                           "Ice Chunk": (chilled * FROST_CHUNKS_A_HIT + infused * FROST_CHUNKS_AN_EXPLOSION) * q},
             "basis": (f"one dart on the boss a cast ({dart:,.0f}); Ice Chunks {FROST_CHUNKS_A_HIT} a hit on a Chilled or "
                       f"Frozen boss, {chilled:.0%} of the fight ({chill_how}); a Cold Infusion on {infused:.0%} of casts "
                       f"({infused_how}): its explosion ({blast:,.0f}) and {FROST_CHUNKS_AN_EXPLOSION} more chunks; each "

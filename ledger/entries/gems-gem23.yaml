@@ -1,0 +1,21 @@
+# GEM23: gem stats a model's reasoning already covers, linked so the audit counts them (no number moves; each checked in
+# the code named).
+- id: model-gem23-link-shield-charge-extra-distance
+  title: "Shield Charge: its longer travel (shield_charge_extra_distance 80) is covered by GEM14's distance model; no number moves against one boss"
+  kind: model
+  model: shield_charge_distance
+  stats: ["shield_charge_extra_distance"]
+  skill: [Shield Charge]
+  confidence: MEDIUM-LOW
+  notes: >-
+    models.shield_charge_distance_model (GEM14). The game (ShieldChargePlayer): "80% increased maximum travel distance"
+    beside "up to 100% more Damage, based on the distance travelled" (base_additional_damage_from_distance_+%_final).
+    Against one boss the charge stops at the boss (channel_shield_charge: "You will crash into enemies on your path,
+    stopping your charge"), so the distance travelled is the gap the player leaves, not the maximum. A longer maximum
+    either changes nothing there (the bonus ramps over a fixed distance) or stretches the ramp (each metre is worth less),
+    so it never raises the damage of a charge from melee range or makes stepping back pay more than the model's test
+    (which already finds stepping back never pays, or labels it not counted). Neither reading moves a number: a link
+    only. Stampede's copy of the stat is not linked (Stampede not checked).
+  sources: ["builder/search/models.py (shield_charge_distance_model and the comment above it)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua (ShieldChargePlayer: shield_charge_extra_distance 80)"]
+  status: proposed
