@@ -195,9 +195,13 @@ def pob_unique_templates(src: Path = POB_SRC) -> frozenset[str]:
 # (COV42, RESEARCH32 R32-3, research/unique-only-open38.md) unique-only mods on no PoB-PoE2 unique that ARE live: open
 # rows (PoB lacks them), no longer labelled "a PoE1 leftover or PoE2 content PoB lacks (UNVERIFIED)"
 R32_3_OBTAINABLE = {
-    "UniqueCharmRandomPossess1": ("obtainable (RESEARCH32 R32-3, HIGH): Rite of Passage's variant \"Possessed by a random "
-                                  "Spirit for 20 seconds on use\" (poe2db lists 10 variants); PoB's Rite of Passage has "
-                                  "the nine named Spirits only, so the search can't offer this one"),
+    # (COV43, the manager 18:15: RESEARCH32 R32-6 R-d corrects R32-3's HIGH, research/uniques16-and-rite-variant.md)
+    "UniqueCharmRandomPossess1": ("obtainability UNVERIFIED (RESEARCH32 R32-6 R-d, correcting R32-3's HIGH; MEDIUM-LOW "
+                                  "that it can drop): Rite of Passage's variant \"Possessed by a random Spirit for 20 "
+                                  "seconds on use\" is listed on poe2db only (no date or note; poe2db keeps deprecated "
+                                  "entries unmarked), left out of poe2wiki's page, and named in no patch note; the mod is "
+                                  "real (PoB ModItemExclusive 2405). PoB's Rite of Passage has the nine named Spirits "
+                                  "only (and parses no possession line), so the search can't offer this one"),
     "DemigodsVirtue1": ("Demigod's Virtue's \"Virtuous\" (RESEARCH32 R32-3, HIGH: no gameplay effect; a race reward, "
                         "drop disabled); not in PoB-PoE2's uniques"),
 }

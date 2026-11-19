@@ -850,8 +850,8 @@ def test_researched_unique_leftovers_are_unreachable_and_obtainable_ones_are_not
 def test_r32_3_settled_unique_only_rows():
     """COV42 (RESEARCH32 R32-3): Prism of Belief's "+(1-3) to Level of all 0 Skills" (the game's placeholder for the
     skill name) is carried by the unique PoB builds per gem (Generated.lua, expanded in uniques.json), so it is PoB's;
-    the two triggers granting "[DNT-UNUSED]" skills are unreachable; Rite of Passage's random Spirit is labelled
-    obtainable (still open: PoB lacks it); Demigod's Virtue's "Virtuous" is no effect."""
+    the two triggers granting "[DNT-UNUSED]" skills are unreachable; Rite of Passage's random Spirit stays open,
+    its obtainability UNVERIFIED (R32-6 R-d corrected R32-3's HIGH: poe2db only); Demigod's Virtue's "Virtuous" is no effect."""
     assert coverage.placeholder_carried("+(1-3) to Level of all 0 Skills", frozenset({"# to Level of all Arc Skills"}))
     assert not coverage.placeholder_carried("+(1-3) to Level of all 0 Skills", frozenset({"# to Level of all Skills"}))
     assert not coverage.placeholder_carried("+1 to Level of all Spell Skills", frozenset({"# to Level of all Arc Skills"}))
@@ -861,7 +861,9 @@ def test_r32_3_settled_unique_only_rows():
     assert rows["UniqueJewelSpecificSkillLevelBonus2"]["status"] == "pob"
     for mod in ("UniqueTriggerGasCloudOnMainHandHit1", "UniqueTriggerDetonationOnOffHandHit1"):
         assert rows[mod]["status"] == "unreachable" and "DNT-UNUSED" in rows[mod]["reason"]
-    assert rows["UniqueCharmRandomPossess1"]["status"] == "none" and "UNVERIFIED" not in rows["UniqueCharmRandomPossess1"]["reason"]
+    rite = rows["UniqueCharmRandomPossess1"]  # (COV43: R32-6 R-d made its obtainability UNVERIFIED; still open)
+    assert rite["status"] == "none" and "obtainability UNVERIFIED (RESEARCH32 R32-6" in rite["reason"]
+    assert "a PoE1 leftover" not in rite["reason"]
     assert rows["DemigodsVirtue1"]["status"] == "ledger"
 
 
