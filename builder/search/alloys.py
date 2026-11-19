@@ -127,7 +127,10 @@ def alloy_key(raw: str) -> str:
 
 
 def enabled() -> bool:
-    """POE2_SEARCH_ALLOYS=0 turns the Alloy trial off (a gate's baseline arm)."""
+    """POE2_SEARCH_ALLOYS=1 turns the Alloy trial on. OFF by default (THE MANAGER'S RULING, 19 Nov 02:50): a search
+    feature is on by default only when its 3-run set measures higher, and the Alloys' can't (SEARCH29's 2b75b set:
+    Alloys 1,400 / 22,506 vs baseline 23,881 / 26,999, so its median <= 22,506 < the baseline's best). Code and switch
+    kept so a later set can bring them back."""
     import os
 
-    return os.environ.get("POE2_SEARCH_ALLOYS", "1") != "0"
+    return os.environ.get("POE2_SEARCH_ALLOYS", "0") != "0"

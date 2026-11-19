@@ -225,3 +225,13 @@ def test_the_seeded_curse_trial_adds_a_curse_with_a_damage_support_only_if_highe
     else:
         assert build.score == pytest.approx(before) and not groups
     assert search.gems.curse_round(clock.now() + 120) is False  # (once per line)
+
+
+def test_alloys_are_off_by_default_and_the_switch_turns_them_on(monkeypatch):
+    """The manager's 19 Nov 02:50 ruling: off by default (their 3-run set can't measure higher); the switch stays."""
+    from builder.search import alloys
+
+    monkeypatch.delenv("POE2_SEARCH_ALLOYS", raising=False)
+    assert not alloys.enabled()
+    monkeypatch.setenv("POE2_SEARCH_ALLOYS", "1")
+    assert alloys.enabled()
