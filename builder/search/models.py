@@ -109,13 +109,16 @@ def derived(name: str, fn: str, value: float, **args) -> dict:
 
 
 def raw_mod(name: str, kind: str, value: float, skill: str | None = None, tag: str | None = None,
-            condition: str | None = None, not_condition: str | None = None, slots: list[str] | None = None) -> dict:
+            condition: str | None = None, not_condition: str | None = None, slots: list[str] | None = None,
+            keywords: list[str] | None = None) -> dict:
     """A PoB modifier by its internal name (no text to parse): `kind` "INC" / "MORE" / "BASE" / "FLAG", tagged to
     `skill` if given (SkillName). For what PoB has no parseable line for, such as one skill's DebuffEffect MORE.
     `tag`: its source becomes "Assumption:<tag>", which a bridge read can leave out (TOTEM_ONE_TAG). `condition`: PoB
     applies it only under that player condition (MECH75: "Shocked"); `not_condition` only while it's off (MECHC32);
     `slots`: only on those items' own defences (PoB's SlotName tag, e.g. ["Helmet", "Boots", "Gloves"]; MECHC32)."""
     mod: dict = {"kind": "Raw", "name": name, "type": kind, "value": _round(value)}
+    if keywords:  # (GEM22: PoB KeywordFlag names, e.g. ["Ignite"]: the mod applies only where its cfg carries one)
+        mod["keywordFlags"] = list(keywords)
     if condition:
         mod["condition"] = condition
     if not_condition:
@@ -6732,6 +6735,84 @@ def unscale_own(sets: list[dict], previous: list[dict] | None, entry: str) -> di
     return {x.get("label"): number(x.get("TotalDPS")) / own for x in sets}
 
 
+# One Ignite / Bleed counts, the strongest, at its own set's uptime (GEM22; an OVERCOUNT GEM21 found, lead (a)). A set
+# model's DPS line (a mix of a skill's stat sets) also scales PoB's ailment stack count (CalcOffence 4065
+# DpsMultiplier, 5254 ailmentStacks), and PoB counts one Ignite / Bleed (maxStacks 1 unless IgniteCanStack /
+# BleedCanStack, 5229-5234) at min(1, stacks) (5399). So under a line k on the scored (strong) set, PoB keeps that
+# set's Ignite / Bleed up min(1, chance x duration x uses x k) of the fight, where the game renews it only at that set's
+# own share of the uses: when the strong part comes less often than once per Ignite's 4 s / Bleed's 5 s (KeywordPopups),
+# PoB keeps it up all fight (probe POE2T3492 for the stacks; GEM22's report for the reading). The game's: the sets'
+# full-strength ailments in strength order, each up u = min(1, its applications a use x its share x uses a second x its
+# duration) (PoB's own linear uptime), the stronger one hiding the weaker while up: E = sum A_i u_i prod(1 - u_j),
+# j stronger. "Only the strongest counts" is PoB's reading (UNVERIFIED as the game's rule: KeywordPopups Ignite /
+# Bleeding don't say; for RESEARCH). The correction goes in as an AilmentMagnitude MORE scoped to that ailment
+# (KeywordFlag Ignite / Bleed: only the ailment's cfg carries it, CalcOffence 5206-5213; MagnitudeEffect 5353 scales
+# the ailment's DPS and not its chance). Poison stacks (PoB's count follows the DPS line, as the mix's: no correction).
+# A set's applications a use x duration = its StackPotential / (its Speed x its DpsMultiplier) (5254-5262).
+STRONG_ENTRY = "model-gem22-strongest-ailment-mix"
+STRONG_AILMENTS = ("Ignite", "Bleed")
+
+
+def strongest_ailment_model(main: Skill | None, sets: list[dict], shares: dict[str, float], uses: float,
+                            previous: list[dict] | None = None, forbidden: set[str] = frozenset(),
+                            how: str = "") -> tuple[list[dict], list[dict]]:
+    """AilmentMagnitude MORE lines (Ignite / Bleed) that turn PoB's reading of the scored set's ailment into the
+    strongest-wins mix of the sets the skill really uses (comment above). `sets`: setRates for its group; `shares`:
+    {set label: uses of that set a use of the skill}; `uses`: the skill's uses a second; `previous`: the last pass's
+    mods (this model's own lines are taken back out of the sets' readings)."""
+    if main is None or STRONG_ENTRY in forbidden or not shares or uses <= 0:
+        return [], []
+    rows = {s.get("label"): s for s in sets}
+    scored = rows.get(main.stat_set)
+    if scored is None:
+        return [], []
+    mods, parts = [], []
+    for ailment in STRONG_AILMENTS:
+        tag = f"{STRONG_ENTRY}:{ailment}"
+        own = 1.0
+        for mod in previous or []:
+            if mod.get("tag") == tag and mod.get("name") == "AilmentMagnitude" and mod.get("type") == "MORE":
+                own *= 1.0 + number(mod.get("value")) / 100.0
+        own = own if own > 0 else 1.0
+        pob = number(scored.get(f"{ailment}DPS")) / own
+        if pob <= 0 or number(scored.get(f"{ailment}StacksMax")) > 1:
+            continue
+        found = []
+        for label, share in shares.items():
+            row = rows.get(label)
+            if row is None or share <= 0:
+                continue
+            potential, dps = number(row.get(f"{ailment}StackPotential")), number(row.get(f"{ailment}DPS")) / own
+            speed, multiplier = number(row.get("Speed")), number(row.get("DpsMultiplier")) or 1.0
+            if potential <= 0 or dps <= 0 or speed <= 0 or number(row.get(f"{ailment}StacksMax")) > 1:
+                continue
+            full = dps / min(1.0, potential)
+            up = min(1.0, potential / (speed * multiplier) * share * uses)
+            found.append((full, up, label))
+        if not found:
+            continue
+        found.sort(key=lambda x: -x[0])
+        game, free = 0.0, 1.0
+        for full, up, _ in found:
+            game, free = game + full * up * free, free * (1 - up)
+        factor = game / pob
+        if abs(factor - 1) <= 0.005:
+            continue
+        mods.append(raw_mod("AilmentMagnitude", "MORE", 100 * (factor - 1), main.name, tag=tag, keywords=[ailment]))
+        parts.append(f"{ailment}: PoB {pob:,.0f} DPS on its {main.stat_set} set, the game's {game:,.0f} ("
+                     + "; ".join(f"{label} {full:,.0f} up {up:.0%}" for full, up, label in found) + ")")
+    if not mods:
+        return [], []
+    return mods, [{"label": f"{main.name}: the strongest Ignite / Bleed of its parts, at each part's own uptime*",
+                   "value": ", ".join(f"{m['keywordFlags'][0]} x{1 + m['value'] / 100:.3f}" for m in mods),
+                   "confidence": "MEDIUM-LOW", "entry": STRONG_ENTRY,
+                   "basis": ("PoB counts one Ignite / Bleed from the set it scores, kept up by the whole skill's DPS "
+                             "line; the game renews each part's at that part's own uses (shares: "
+                             + ", ".join(f"{k} {v:.0%}" for k, v in shares.items()) + f" of {uses:.2f} uses/s"
+                             + (f"; {how}" if how else "") + "), the strongest hiding the others while up: "
+                             + "; ".join(parts) + ". Only the strongest counting is PoB's reading (UNVERIFIED)")}]
+
+
 def gated_set_model(main: Skill | None, scored: str | None, sets: list[dict], share: float, how: str,
                     forbidden: set[str] = frozenset(), previous: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
     """A GATED_SETS skill's use as the game makes it (see above): `sets` the bridge's setRates for its group, `share` of
@@ -6758,6 +6839,7 @@ def gated_set_model(main: Skill | None, scored: str | None, sets: list[dict], sh
     return mods, [{
         "label": f"{main.name}: its {gated_label} part needs {resource}*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM", "entry": entry,
+        "set_shares": ({base_label: 1.0, gated_label: share} if adds else {base_label: 1 - share, gated_label: share}),  # (GEM22: strongest_ailment_model)
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; {base_label} {base:,.0f}, {gated_label} "
                   f"{gated:,.0f}) and reads no gate. The game uses the {gated_label} part only with {resource}: {share:.0%} "
                   f"({how}), so {total:,.0f} DPS"
@@ -6946,6 +7028,7 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
         "label": (f"{main.name}: its {det_label} needs another skill to "
                   + ("set it off*" if main.name in DETONATED_BY else "Detonate it*")), "value": f"x{factor:.3f}",
         "confidence": "MEDIUM-LOW", "entry": entry,
+        "set_shares": {plain_label: 1.0, det_label: s},  # (GEM22: strongest_ailment_model)
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; {plain_label} {plain:,.0f}, {det_label} "
                   f"{det:,.0f}). The game sets the {det_label} off only when {by_note}: {s:.0%} of "
                   f"them ({how}), so {plain_label} + {det_label} x {s:.0%} = {total:,.0f} DPS"
@@ -7406,6 +7489,7 @@ def stun_set_model(main: Skill | None, scored: str | None, sets: list[dict], sta
     return mods, [{
         "label": f"{main.name}: its {wave_label} only on a Heavy Stun*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM", "entry": entry,
+        "set_shares": {plain_label: 1.0, wave_label: share},  # (GEM22: strongest_ailment_model)
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; {plain_label} {plain:,.0f}, {wave_label} "
                   f"{wave:,.0f}) as if every use made one. The game makes it when a use Heavy Stuns the boss Primed for "
                   f"Stun (70% of the bar for a Unique); the use's own hit builds no stun (its -100% stun multiplier), so "
@@ -7504,6 +7588,7 @@ def shock_set_model(main: Skill | None, scored: str | None, sets: list[dict], sh
         return mods, [{
             "label": f"{main.name}: its {extra_label} only on a Parried boss*", "value": f"x{factor:.3f}",
             "confidence": "MEDIUM", "entry": entry,
+            "set_shares": {plain_label: 1.0, extra_label: share},  # (GEM22: strongest_ailment_model)
             "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; {plain_label} {plain:,.0f}, "
                       f"{extra_label} {extra:,.0f}) as if every hit made one. The game makes it only when the hit "
                       f"Consumes Parried on the boss: {share:.1%} of its hits ({how}; the parry plan weighs Parried's 50% "
@@ -7518,6 +7603,7 @@ def shock_set_model(main: Skill | None, scored: str | None, sets: list[dict], sh
     return mods, [{
         "label": f"{main.name}: its {extra_label} only on a Shocked boss*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM", "entry": entry,
+        "set_shares": {plain_label: 1.0, extra_label: share},  # (GEM22: strongest_ailment_model)
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; {plain_label} {plain:,.0f}, {extra_label} "
                   f"{extra:,.0f}) as if every hit made one. The game makes it only when the hit finds the boss {ailment}"
                   + (", and consumes the Shock" if consumes else "") + f"; the skill never Shocks itself (never_shock), "

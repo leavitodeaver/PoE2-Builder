@@ -1,0 +1,25 @@
+- id: model-gem22-strongest-ailment-mix
+  title: "Set-mix skills: one Ignite / Bleed counts, the strongest of the parts the skill uses, each at its own part's uptime (PoB kept the scored part's up under the skill's DPS line)"
+  kind: model
+  model: strongest_ailment
+  stats: []
+  skill: [Furious Slam, Oil Barrage, Glacial Lance, High Velocity Rounds, Storm Lance, Rapid Assault, Stormblast Bolts,
+          Earthshatter, Boneshatter, Wing Blast, Siphoning Strike, Shockburst Rounds, Shockchain Arrow, Fangs of Frost, Disengage]
+  confidence: MEDIUM-LOW
+  notes: >-
+    models.strongest_ailment_model (GEM22; lead (a) of GEM21: an OVERCOUNT). The set models (GATED_SETS, DETONATED_SETS,
+    STUN_SETS, SHOCK_SETS / PARRIED_SETS) put a mix of a skill's stat sets on the scored set as a DPS MORE line, which
+    also scales PoB's ailment stack count (CalcOffence 4065, 5254); PoB counts one Ignite / Bleed (maxStacks 1 unless
+    IgniteCanStack / BleedCanStack, 5229-5234) at min(1, stacks) (5399), so the scored part's Ignite / Bleed stayed up
+    at the whole skill's rate even where that part comes less often than once per Ignite's 4 s / Bleed's 5 s
+    (KeywordPopups). The model reads each set's IgniteDPS / BleedDPS, StackPotential, StacksMax, Speed and DpsMultiplier
+    (bridge setRates, GEM22), the set model's shares (its note's set_shares), and counts the strongest part's ailment at
+    its own uptime, the next one while it's down, as an AilmentMagnitude MORE scoped by KeywordFlag Ignite / Bleed (the
+    ailment's cfg only, 5206-5213). Poison is left (its stack count follows the line, as the mix's). "Only the
+    strongest counts" is PoB's reading, UNVERIFIED as the game's rule (KeywordPopups Ignite / Bleeding don't say; a
+    RESEARCH question).
+  sources: ["builder/search/models.py (strongest_ailment_model, the four set models' set_shares)", "engine/bridge.lua (setRates fields, Raw keywordFlags)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua (4065, 5206-5262, 5353, 5399)",
+            "data/game-26650308/tables/KeywordPopups.json (Ignite, Bleeding)", "scratch/gem22/probe_ail2.json"]
+  test_in_game: "Optional: a Boneshatter with Bleed and a rare Heavy Stun: the Shockwave's Bleed should fall off between Heavy Stuns."
+  status: proposed

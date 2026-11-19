@@ -1348,3 +1348,26 @@ def test_high_velocity_rounds_vs_armour_broken_only_on_a_fully_broken_boss():
     assert notes[0]["entry"] == "model-gem21-high-velocity-rounds-armour-broken" and "Fully Broken Armour" in notes[0]["label"]
     mods, _ = models.gated_set_model(hvr, "Vs Armour Broken", sets, 0.0, "none")
     assert mods[0]["value"] == pytest.approx(100 * (69.1 * 0.9 / 99.4 - 1), abs=0.01)  # (steered to the Projectile)
+
+
+def test_one_ignite_counts_the_strongest_part_at_its_own_uptime():
+    """GEM22: a set model's DPS line kept the scored (strong) part's Ignite up all fight; the game renews it only at
+    that part's own uses. Strong part: 50 a full Ignite, 0.8 applications x duration a use, used 10% of uses ->
+    up 8%; the plain part's 10 (up 100%) the rest: 50 x 0.08 + 10 x 0.92 = 13.2 against PoB's 40."""
+    sets = [{"label": "Plain", "IgniteDPS": 10.0, "IgniteStackPotential": 2.0, "Speed": 1.0, "DpsMultiplier": 1.0},
+            {"label": "Strong", "IgniteDPS": 40.0, "IgniteStackPotential": 0.8, "Speed": 1.0, "DpsMultiplier": 1.0}]
+    skill = Skill("Boneshatter", 1, attack=True, melee=True, stat_set="Strong")
+    mods, notes = models.strongest_ailment_model(skill, sets, {"Plain": 1.0, "Strong": 0.1}, 1.0)
+    assert len(mods) == 1 and mods[0]["name"] == "AilmentMagnitude" and mods[0]["keywordFlags"] == ["Ignite"]
+    assert mods[0]["value"] == pytest.approx(100 * (13.2 / 40 - 1), abs=0.01)
+    assert notes[0]["entry"] == models.STRONG_ENTRY and "Strong 50 up 8%" in notes[0]["basis"]
+    # (the next pass reads the sets under its own line: the same line)
+    scaled = [{**s, "IgniteDPS": s["IgniteDPS"] * (1 + mods[0]["value"] / 100)} for s in sets]
+    again, _ = models.strongest_ailment_model(skill, scaled, {"Plain": 1.0, "Strong": 0.1}, 1.0, previous=mods)
+    assert again[0]["value"] == pytest.approx(mods[0]["value"], abs=0.01)
+    # (the strong part every use: up 80%, the plain part's fills the rest: 50 x 0.8 + 10 x 0.2 = 42, PoB 40; a
+    # stacking Ignite: left to PoB)
+    every, _ = models.strongest_ailment_model(skill, sets, {"Plain": 1.0, "Strong": 1.0}, 1.0)
+    assert every[0]["value"] == pytest.approx(100 * (42 / 40 - 1), abs=0.01)
+    stacking = [{**s, "IgniteStacksMax": 3} for s in sets]
+    assert models.strongest_ailment_model(skill, stacking, {"Plain": 1.0, "Strong": 0.1}, 1.0) == ([], [])

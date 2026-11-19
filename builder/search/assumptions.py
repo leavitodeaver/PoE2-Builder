@@ -2657,6 +2657,15 @@ class Assumptions:
             kills, kills_how = bosses.kills_per_second(bosses.of({"_boss": getattr(request, "boss", None)}).name)
             hb_mods, hb_notes = models.herald_of_blood_model(main, main.stat_set, sets, kills, kills_how, forbidden)
             hand_mods, hand_notes = hand_mods + hb_mods, hand_notes + hb_notes
+        mix = next((n for n in hand_notes if n.get("set_shares")), None) if main is not None and group else None
+        if mix is not None:  # (GEM22: one Ignite / Bleed counts, the strongest, at its own set's uptime)
+            got = build.call("stats", fields=["IgniteDPS", "BleedDPS", "Speed"])
+            if number(got.get("IgniteDPS")) > 0 or number(got.get("BleedDPS")) > 0:
+                sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+                sa_mods, sa_notes = models.strongest_ailment_model(main, sets, mix["set_shares"], number(got.get("Speed")),
+                                                                   previous=self.mods, forbidden=forbidden,
+                                                                   how=mix.get("label", "").rstrip("*"))
+                hand_mods, hand_notes = hand_mods + sa_mods, hand_notes + sa_notes
         side_mods, side_notes = self.multi_set_side(main)  # (MECH-B, MECHB16: Rolling Slam in a Full DPS group)
         hand_mods, hand_notes = hand_mods + side_mods, hand_notes + side_notes
         cap_mods, cap_notes = self.main_cap(group, name)  # (MECH-B: the press hook on the main skill, MECHB5)

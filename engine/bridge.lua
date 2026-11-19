@@ -3747,8 +3747,17 @@ local function installAssumptions()
 					self.modList:NewMod("Condition:Ledger" .. mod.name, "FLAG", true, "Ledger")
 				elseif mod.kind == "Raw" then  -- a PoB modifier by name (models.raw_mod), e.g. a skill's DebuffEffect MORE
 					-- (mod.tag: a sub-source, "Assumption:<tag>", that a bridge read can leave out: models.TOTEM_ONE_TAG)
-					self.modList:NewMod(mod.name, mod.type, mod.value, "Assumption" .. (mod.tag and (":" .. mod.tag) or ""),
-						unpack(tags))
+					local source = "Assumption" .. (mod.tag and (":" .. mod.tag) or "")
+					if mod.keywordFlags then  -- (GEM22: models.raw_mod's keywords, e.g. {"Ignite"}: only that ailment's
+						-- calculation, whose cfg carries KeywordFlag[ailment], CalcOffence 5206-5213)
+						local bits = 0
+						for _, name in ipairs(mod.keywordFlags) do
+							bits = bit.bor(bits, KeywordFlag[name] or 0)
+						end
+						self.modList:NewMod(mod.name, mod.type, mod.value, source, 0, bits, unpack(tags))
+					else
+						self.modList:NewMod(mod.name, mod.type, mod.value, source, unpack(tags))
+					end
 				elseif mod.kind == "Line" then
 					for _, parsed in ipairs(mod.parsed) do
 						self.modList:AddMod(parsed)
@@ -4275,7 +4284,11 @@ function bridge.setRates(args)
 			local output = env.player.output
 			-- (MECHB38: ProjectileCount, Dusk Vigil's Embers a trigger, models.dusk_vigil_model; GEM21: PoisonDPS, Gas
 			-- Arrow's cloud Poison beside the Arrow set it scores, models.gas_arrow_model, SEARCH28's item 5)
-			for _, field in ipairs({ "TotalDPS", "AverageDamage", "Speed", "ProjectileCount", "PoisonDPS" }) do
+			-- (GEM22: each set's Ignite / Bleed, their stack potential and cap, and the DPS multiplier, for
+			-- models.strongest_ailment_model: one Ignite / Bleed counts, the strongest, at its own set's uptime)
+			for _, field in ipairs({ "TotalDPS", "AverageDamage", "Speed", "ProjectileCount", "PoisonDPS", "IgniteDPS",
+					"BleedDPS", "IgniteStackPotential", "BleedStackPotential", "IgniteStacksMax", "BleedStacksMax",
+					"DpsMultiplier" }) do
 				if type(output[field]) == "number" then
 					entry[field] = jsonNumber(output[field])
 				end
