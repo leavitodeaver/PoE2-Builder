@@ -142,3 +142,50 @@ def test_lycosidae_blocks_poison_the_boss():
     assert models.block_poison_model(line, stats, 0.0, 100.0)[0] == 0.0
     # no Block: 0
     assert models.block_poison_model(line, {**stats, "EffectiveBlockChance": 0.0}, 0.0, 0.0)[0] == 0.0
+
+
+def test_lycosidae_poison_runs_beside_the_builds_own_with_room_to_stack():
+    """The manager, 11:45: with PoB's PoisonStacksMax above 1 Lycosidae's Poison takes a free slot instead of having to
+    beat the build's own: its average count on the boss (blocks x 2 s), up to the slots left."""
+    from builder.search import boss_hits, bosses, models
+
+    line = ["Blocking Damage Poisons the Enemy as though dealing 200 Base Chaos Damage"]
+    stats = {"EffectiveBlockChance": 50.0, "EvadeChance": 0.0, "enemySkillTime": 1.0}
+    n = 2 * boss_hits.block_share(stats) / bosses.benefit_skill_time(stats)
+    # 3 slots, the build's own stronger Poison in one: two free, n < 2 on average
+    assert models.block_poison_model(line, stats, 0.0, 100.0, 3.0)[0] == pytest.approx(40.0 * min(n, 2.0))
+    # 2 slots and no Poison of its own: both free
+    assert models.block_poison_model(line, stats, 0.0, 0.0, 2.0)[0] == pytest.approx(40.0 * min(n, 2.0))
+    # 1 slot: the strongest-only reading
+    assert models.block_poison_model(line, stats, 0.0, 100.0, 1.0)[0] == 0.0
+
+
+def test_engineered_blaze_counts_the_ignited_boss():
+    """MECH90 (an UNDERCOUNT): PoB parses Engineered Blaze only in part (never applied); a lone boss Ignited is 1 enemy:
+    +4% Attack Area of Effect at its Ignited share."""
+    from builder.search import models
+
+    line = ["4% increased Area of Effect for Attacks per Enemy you've Ignited in the last 8 seconds, up to 40%"]
+    mods, notes = models.engineered_blaze_mods(line, 0.5)
+    assert mods[0]["line"] == models.ATTACK_AREA_LINE and mods[0]["scale"] == pytest.approx(2.0)
+    assert models.engineered_blaze_mods(line, 0.0)[0] == [] and models.engineered_blaze_mods([], 1.0) == ([], [])
+
+
+def test_inner_turmoil_plays_the_volatility_cycle_only_when_it_pays():
+    """MECH90 (an UNDERCOUNT: PoB reads no Volatility): attack T s, stop 4 s so it explodes, 10 s of Volatile Power."""
+    from builder.search import models
+
+    lines = ["Gain 1 Volatility on inflicting an Elemental Ailment", "Take no Damage from Volatility"]
+    fast = {"Speed": 10.0, "HitChance": 100.0, "IgniteChancePerHit": 100.0}
+    mods, notes = models.volatility_model(lines, fast)
+    # 10 Volatility a second: attack 20 s, 200 (the cap) explode, stop 4 s: (10 x 3.0 + 10) / 24 = 1.67, the best T
+    # (10 s: 20 / 14 = 1.43)
+    assert [m["line"] for m in mods] == ["1% less Damage", "Gain 1% of Damage as Extra Chaos Damage"]
+    assert mods[0]["scale"] == pytest.approx(400 / 24, abs=0.01) and mods[1]["scale"] == pytest.approx(100.0)
+    assert "attack 20 s" in notes[0]["basis"]
+    # Maximum Volatility 30: at best (3 x 1.3 + 0) / 7 or (10 x 1.3) / 14, under 1 at every T: not played
+    capped = models.volatility_model(lines + ["Maximum Volatility is 30"], fast)
+    assert capped[0] == [] and "not played" in capped[1][0]["value"]
+    # no ailment: nothing gained, not played; no line: nothing
+    assert models.volatility_model(lines, {"Speed": 2.0, "HitChance": 100.0})[0] == []
+    assert models.volatility_model([], fast) == ([], [])

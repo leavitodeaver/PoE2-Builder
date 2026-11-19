@@ -9795,7 +9795,8 @@ POISON_SHARE_PER_SECOND = 0.20  # KeywordPopups Poison: 20% of the hit's Physica
 POISON_SECONDS = 2.0  # KeywordPopups Poison: 2 seconds by default
 
 
-def block_poison_model(texts: list[str], stats: dict, chaos_resist: float, own_poison: float) -> tuple[float, list[dict]]:
+def block_poison_model(texts: list[str], stats: dict, chaos_resist: float, own_poison: float,
+                       stacks_max: float = 1.0) -> tuple[float, list[dict]]:
     """(added DPS, notes) for "Blocking Damage Poisons the Enemy as though dealing N Base Chaos Damage" (the note above)."""
     base = sum(float(m.group(1)) for t in texts if (m := BLOCK_POISON.match(t.strip())))
     if base <= 0:
@@ -9804,20 +9805,122 @@ def block_poison_model(texts: list[str], stats: dict, chaos_resist: float, own_p
     blocks = boss_hits.block_share(stats) / every if every > 0 else 0.0
     poison = POISON_SHARE_PER_SECOND * base * (1 - chaos_resist / 100)
     up = 1 - math.exp(-blocks * POISON_SECONDS) if blocks > 0 else 0.0
-    gain = up * max(0.0, poison - own_poison)
     stacked = blocks * POISON_SECONDS * poison
+    # (the manager, 11:45: with room for more than one of your Poisons, PoB's PoisonStacksMax > 1, Lycosidae's run beside
+    # the build's own in the free slots: its average count on the boss, blocks x 2 s, up to the slots the build's own
+    # Poison leaves, one taken by it when it has one: MEDIUM-LOW, the build's own taken to hold a single slot)
+    slots = max(0.0, stacks_max - (1.0 if own_poison > 0 else 0.0)) if stacks_max > 1 else 0.0
+    beside = poison * min(blocks * POISON_SECONDS, slots) if slots > 0 else 0.0
+    gain = beside if slots > 0 else up * max(0.0, poison - own_poison)
     return gain, [{
         "label": "Lycosidae: your Blocks Poison the boss*", "value": f"+{gain:,.1f} DPS",
         "confidence": "MEDIUM-LOW",
         "basis": (f"{blocks:.3f} Blocks a second (the boss's blockable hits at its benefit cadence x your Block chance); "
                   f"each Poisons as though dealing {base:g} Chaos: 20% of it a second (KeywordPopups Poison), through the "
                   f"boss's {chaos_resist:g}% Chaos resistance = {poison:,.1f} DPS for 2 s (Poison Duration and Magnitude "
-                  f"modifiers not applied: UNVERIFIED, the lower reading); Poisoned by it {up:.0%} of the fight. Only "
-                  f"your strongest Poison counts unless lines let more stack: +{max(0.0, poison - own_poison):,.1f} over "
-                  f"the build's own {own_poison:,.1f} while up. Stacked with your others instead it would add "
-                  f"{stacked:,.1f} DPS. PoB leaves the line unparsed (0)"),
+                  f"modifiers not applied: UNVERIFIED, the lower reading); Poisoned by it {up:.0%} of the fight. "
+                  + (f"room for {stacks_max:g} of your Poisons at once (PoB's PoisonStacksMax): it runs beside the build's own "
+                   f"in {slots:g} free slot(s), {min(blocks * POISON_SECONDS, slots):.2f} on the boss on average (the "
+                   f"build's own taken to hold one slot), +{beside:,.1f} DPS"
+                   if slots > 0 else
+                   f"Only your strongest Poison counts unless lines let more stack (PoB's PoisonStacksMax {stacks_max:g}): "
+                   f"+{max(0.0, poison - own_poison):,.1f} over the build's own {own_poison:,.1f} while up. Stacked "
+                   f"with your others instead it would add {stacked:,.1f} DPS")
+                  + ". PoB leaves the line unparsed (0)"),
         "play": (f"Block the boss's hits with Lycosidae (raise your shield into them): without blocks +0 DPS; at "
                  f"{blocks:.2f} blocks a second +{gain:,.1f} DPS.")}]
+
+
+# Engineered Blaze (MECH90; the catalog's damaging-ailments passive row, an UNDERCOUNT: PoB parses "4% increased Area of
+# Effect for Attacks per Enemy you've Ignited in the last 8 seconds, up to 40%" only in part (ModCache: AreaOfEffect INC
+# with " per Enemy you've Ignited in the last 8 seconds, up to 40% " left over), so never applies it). Against a lone boss
+# the count is 1 when you've Ignited it in the last 8 s (its adds not counted): N% Attack Area of Effect, at the share
+# of the fight the boss is Ignited (build.ailment_uptimes "Ignited": the lower reading, as a boss Ignited within 8 s
+# also counts after its Ignite ends).
+ENGINEERED_BLAZE = re.compile(r"^(\d+(?:\.\d+)?)% increased area of effect for attacks per enemy you've ignited in the "
+                              r"last 8 seconds, up to (\d+(?:\.\d+)?)%$", re.I)
+ATTACK_AREA_LINE = "1% increased Area of Effect for Attacks"
+
+
+def engineered_blaze_mods(texts: list[str], ignited: float) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for "N% increased Area of Effect for Attacks per Enemy you've Ignited in the last 8 seconds"."""
+    each = sum(min(float(m.group(1)), float(m.group(2))) for t in texts if (m := ENGINEERED_BLAZE.match(t.strip())))
+    if each <= 0:
+        return [], []
+    value = each * min(max(ignited, 0.0), 1.0)
+    note = {"label": "Engineered Blaze: Attack Area per enemy Ignited*", "value": f"+{value:.1f}% Area of Effect on average",
+            "confidence": "MEDIUM",
+            "basis": (f"one enemy, the boss, Ignited by you {ignited:.0%} of the fight (its Ignited share: the lower "
+                      f"reading for 'in the last 8 seconds'): +{each:g}% Attack Area of Effect for that share. PoB parses "
+                      "the line only in part, so it counted 0")}
+    return ([line(ATTACK_AREA_LINE, scale=value)] if value > 0 else []), [note]
+
+
+# Inner Turmoil's Volatility (MECH90; the catalog's damaging-ailments passive row, an UNDERCOUNT: PoB reads no
+# Volatility at all: ModCache "Gain 1 Volatility on inflicting an Elemental Ailment" = {{}, leftover}, and nothing in its
+# Modules names it). KeywordPopups Volatility (26650308): "Volatility explodes after 4 seconds, dealing 100 Physical Damage
+# to you per Volatility. For 10 seconds after explosion, you will gain Volatile Power, Gaining 1% of Damage as Chaos for
+# each Volatility which exploded. The explosion timer will reset on gaining another stack of Volatility. Volatility can be
+# gained once every 0.1 seconds, and the default maximum for Volatility stacks on you at once is 200." Inner Turmoil
+# (tree: "Gain 1 Volatility on inflicting an Elemental Ailment", "Take no Damage from Volatility"). Attacking without a
+# break never lets it explode (each ailment resets the timer), so it pays only when played on purpose (CLAUDE.md, no flat
+# rates): attack T s gaining min(10, the main skill's elemental-ailment hits a second) Volatility a second, stop for the
+# delay D (4 s x the "Volatility Explosion delay" lines) so it explodes, then attack again under Volatile Power for 10 s.
+# The search's model picks T (1-30 s) for the most damage over the cycle, [min(T, 10) x (1 + k / 100) + max(0, T - 10)]
+# / (T + D) with k = min(maximum, rate x T) exploded (Gain as Chaos taken at face value for the choice), and plays it only
+# if that beats 1; then PoB gets "less Damage" for the time stopped, D / (T + D), and k x min(T, 10) / T % of Damage as
+# extra Chaos while attacking. Elemental-ailment hits: 1 - (1 - Ignite)(1 - Shock)(1 - Chill) chance per hit (PoB's
+# per-hit chances; Chill on any hit with Cold damage, PoB's ChillChanceOnHit), Freeze / Electrocute buildup not counted
+# (a lower reading); Ignites keep burning while you stop (not counted: a lower reading). "Maximum Volatility is N" caps k.
+# Its other lines (Growing Peril's per-Volatility Chaos DoT, Precise Volatility's crit, Instability, Volatility on Kill /
+# when Stunned / on minion death) are not counted here (no kills on a lone boss; the rest: an UNDERCOUNT, said).
+INNER_TURMOIL = re.compile(r"^gain 1 volatility on inflicting an elemental ailment$", re.I)
+VOLATILITY_MAX = re.compile(r"^maximum volatility is (\d+)$", re.I)
+VOLATILITY_DELAY = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) volatility explosion delay$", re.I)
+VOLATILITY_SECONDS, VOLATILE_POWER_SECONDS, VOLATILITY_EVERY, VOLATILITY_CAP = 4.0, 10.0, 0.1, 200.0
+
+
+def volatility_model(texts: list[str], stats: dict) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for Inner Turmoil's Volatility played as a cycle (the note above)."""
+    if not any(INNER_TURMOIL.match(t.strip()) for t in texts):
+        return [], []
+    cap = min([float(m.group(1)) for t in texts if (m := VOLATILITY_MAX.match(t.strip()))] or [VOLATILITY_CAP])
+    inc = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+              for t in texts if (m := VOLATILITY_DELAY.match(t.strip())))
+    delay = VOLATILITY_SECONDS * max(0.0, 1 + inc / 100)
+    chances = [min(max(number(stats.get(k)), 0.0), 100.0) / 100 for k in ("IgniteChancePerHit", "ShockChancePerHit")]
+    chill = 1.0 if number(stats.get("ColdHitAverage")) > 0 or number(stats.get("ColdCritAverage")) > 0 else min(
+        max(number(stats.get("ChillChanceOnHit")), 0.0), 100.0) / 100
+    any_ailment = 1 - math.prod(1 - c for c in (*chances, chill))
+    rate = min(1 / VOLATILITY_EVERY, hits_per_second(stats) * any_ailment)
+    best = (1.0, 0.0, 0.0)
+    for attack in range(1, 31):
+        exploded = min(cap, rate * attack)
+        powered = min(attack, VOLATILE_POWER_SECONDS)
+        value = (powered * (1 + exploded / 100) + max(0.0, attack - VOLATILE_POWER_SECONDS)) / (attack + delay)
+        if value > best[0] + 1e-9:
+            best = (value, float(attack), exploded)
+    value, attack, exploded = best
+    head = (f"{rate:.2f} Volatility a second ({hits_per_second(stats):.2f} hits/s x {any_ailment:.0%} inflicting an "
+            f"Elemental Ailment, at most 10 a second); it explodes {delay:g} s after the last gain (KeywordPopups "
+            f"Volatility), up to {cap:g}")
+    if attack <= 0:
+        return [], [{"label": "Inner Turmoil: Volatile Power*", "value": "not played (0)", "confidence": "MEDIUM",
+                     "basis": (head + ": no attack-then-stop cycle beats attacking without a break (Volatility never "
+                               "explodes then, so +0). PoB reads no Volatility")}]
+    stopped = delay / (attack + delay) * 100
+    gain = exploded * min(attack, VOLATILE_POWER_SECONDS) / attack
+    return [line("1% less Damage", stopped), line("Gain 1% of Damage as Extra Chaos Damage", gain)], [{
+        "label": "Inner Turmoil: Volatile Power*", "value": f"x{value:.3f} (before the Chaos gain's own scaling)",
+        "confidence": "MEDIUM-LOW",
+        "basis": (head + f". Played: attack {attack:g} s, stop {delay:g} s so {exploded:.0f} Volatility explodes (Inner "
+                  f"Turmoil: no damage to you), then {VOLATILE_POWER_SECONDS:g} s of Volatile Power, {exploded:.0f}% of "
+                  f"Damage as Chaos: {stopped:.1f}% less Damage for the time stopped and +{gain:.1f}% of Damage as Chaos "
+                  "while attacking. Ignites burning on while you stop, Freeze / Electrocute buildup and Growing Peril / "
+                  "Precise Volatility not counted (lower). PoB reads no Volatility"),
+        "play": (f"Attack {attack:g} s, then stop inflicting ailments for {delay:g} s so your Volatility explodes, and "
+                 f"attack again inside the {VOLATILE_POWER_SECONDS:g} s of Volatile Power: without the pauses +0; with "
+                 f"them x{value:.2f} damage")}]
 
 
 # The Disciple of Varashta's djinn Commands (MECH83; FIX_QUEUE 75 / COV3, PATCH_CHECK H4-2, MECH49's open item: an

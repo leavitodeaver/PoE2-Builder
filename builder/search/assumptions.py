@@ -2897,11 +2897,22 @@ class Assumptions:
         hand_notes += burn_notes
         block_texts = [e["text"] for e in source_lines if models.BLOCK_POISON.match(e["text"].strip())]
         if block_texts:  # (MECH90: Lycosidae's Poison on Block; PoB leaves the line unparsed, 0)
+            own = build.call("stats", fields=["PoisonDPS", "PoisonStacksMax"])
             block_poison, block_notes = models.block_poison_model(
                 block_texts, stats, number(build.call("getConfig")["input"].get("enemyChaosResist")),
-                number(build.call("stats", fields=["PoisonDPS"]).get("PoisonDPS")))
+                number(own.get("PoisonDPS")), number(own.get("PoisonStacksMax")) or 1.0)
             hand_mods += [models.added_input("BlockPoison", block_poison)] if block_poison > 0 else []
             hand_notes += block_notes
+        blaze_mods, blaze_notes = models.engineered_blaze_mods(  # (MECH90: PoB applies none of it)
+            [e["text"] for e in source_lines],
+            models.number((getattr(build, "ailment_uptimes", None) or {}).get("Ignited")))
+        hand_mods, hand_notes = hand_mods + blaze_mods, hand_notes + blaze_notes
+        turmoil_texts = [e["text"] for e in source_lines]
+        if any(models.INNER_TURMOIL.match(t.strip()) for t in turmoil_texts):  # (MECH90: PoB reads no Volatility)
+            turmoil_stats = build.call("stats", fields=["Speed", "HitChance", "IgniteChancePerHit", "ShockChancePerHit",
+                                                        "ChillChanceOnHit", "ColdHitAverage", "ColdCritAverage"])
+            turmoil_mods, turmoil_notes = models.volatility_model(turmoil_texts, turmoil_stats)
+            hand_mods, hand_notes = hand_mods + turmoil_mods, hand_notes + turmoil_notes
         djinn, djinn_mods, djinn_notes = djinn_commands(build, main)  # (MECH83: the Disciple's djinn Commands; PoB 0)
         hand_mods, hand_notes = hand_mods + djinn_mods, hand_notes + djinn_notes
         briar, briar_notes = briarpatch(build, main, found)  # (MECHB31: Briarpatch's creation hit, PoB 0)
