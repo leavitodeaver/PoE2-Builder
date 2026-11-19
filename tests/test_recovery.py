@@ -2498,6 +2498,29 @@ def test_shared_charges_reach_your_minions_and_nothing_without_one():
     assert conditions.minion_shared("Frenzy")(lines, dict(stats))[0] == 0.0  # (no Frenzy gains to share)
 
 
+def test_melee_minions_share_charges_only_with_the_boss_inside_your_presence():
+    """MECHC41 (R32-7 (3), MEDIUM-LOW): ranged / caster minions stay near you, inside your Presence; melee minions go to
+    the boss, inside only while the boss stands within your Presence. The main skill's minions decide; else the share."""
+    from builder.search import conditions
+
+    lines = ["Gain a Power Charge on Critical Hit", "Share Charges with Allies in your Presence"]
+    base = {"Speed": 2.0, "HitChance": 100, "CritChance": 50, "PowerChargesMax": 3, "PowerChargesDuration": 15,
+            "_has_ally": True, "PresenceRadius": 40}
+    every = conditions.minion_shared("Power")(lines, dict(base))[0]
+    far = {**base, "_distance_choice": (5.0, "standing back")}
+    near = {**base, "_distance_choice": (2.0, "close")}
+    zombies = {"_minion_gems": {"Raise Zombie"}, "_main_skill": "Raise Zombie"}
+    snipers = {"_minion_gems": {"Skeletal Sniper"}, "_main_skill": "Skeletal Sniper"}
+    count, how = conditions.minion_shared("Power")(lines, {**far, **zombies})
+    assert count == 0.0 and "outside" in how and f"every minion inside: {every:.1f}" in how
+    assert conditions.minion_shared("Power")(lines, {**near, **zombies})[0] == every
+    assert conditions.minion_shared("Power")(lines, {**far, **snipers})[0] == every
+    # (no minion skill as the main skill: the share of the build's minion skills inside)
+    mixed = {"_minion_gems": {"Raise Zombie", "Skeletal Sniper"}, "_main_skill": "Fireball"}
+    half = conditions.minion_shared("Power")(lines, {**far, **mixed})[0]
+    assert abs(half - round(every / 2, 1)) <= 0.1
+
+
 def test_the_other_weapon_sets_runes_are_a_row_only():
     """MECHC40 (R31-14, UNVERIFIED): "per Rune Socketed in Equipped Items" counts the active weapon set's Runes (the
     headline); a row gives the other set's Runes (Soul Cores and Idols aren't Runes)."""
@@ -2541,3 +2564,62 @@ def test_chaos_inoculation_keeps_the_ailment_threshold_of_your_life_before_it():
     assert mods[0]["name"] == "AilmentThreshold" and mods[0]["value"] == pytest.approx(1500.0)
     assert mods[0]["tag"] == boss_hits.CI_THRESHOLD_TAG and "0.5.0" in row["basis"]
     assert boss_hits.ci_ailment_threshold(1.0)[0] == []
+
+
+def test_duality_olroths_resolve_and_decree_of_flight_grant_guard_at_the_builds_own_rates(monkeypatch):
+    """MECHC41 (the bigger Guard sources by impact): Duality's Guard lasts 0.5 s per Combo a use expends, at the Combo
+    skill's uses; Olroth's Resolve grants the current Runic Ward as Guard for 10 s at the flask's uses; Decree of Flight
+    grants 20% of the missing Energy Shield on each roll every 2 s, only while below full (half missing then), capped at
+    200% of maximum Energy Shield. Hollow Shell grants Allies only (you aren't your own Ally): no row."""
+    from types import SimpleNamespace
+
+    from builder.search import assumptions, flasks, usage
+
+    duality = "Gain 750 Guard for 0.5 seconds per Combo expended when using Skills"
+    olroth = "Gain Guard equal to Current Runic Ward for 10 seconds when Effect ends"
+    decree = ["Gain Guard equal to 20% of missing Energy Shield for 4 seconds when you Dodge Roll",
+              "Maximum amount of Guard is based on maximum Energy Shield instead"]
+    flask = SimpleNamespace(name="Olroth's Resolve", raw=f"Olroth's Resolve\nUltimate Life Flask\n{olroth}")
+
+    def call(name, **kw):
+        if name == "stats":
+            return {"Ward": 600.0, "EnergyShield": 4000.0, "Life": 1000.0}
+        if name == "flaskData":
+            return {"results": [{}]}
+        raise AssertionError(name)
+
+    build = SimpleNamespace(call=call, equipped={"Flask 1": flask}, groups=lambda: [], ward_sustain={})
+    monkeypatch.setattr(assumptions, "usage_rules", lambda b: {"Tempest Bell": ["combo"]})
+    monkeypatch.setattr(usage, "requirements", lambda name, rule: [SimpleNamespace(kind="combo", amount=10.0)])
+    monkeypatch.setattr(usage, "Usage", lambda b, _: SimpleNamespace(combo_rate=lambda n, a: (0.15, 0.5, "Quarterstaff Strike")))
+    monkeypatch.setattr(flasks.Charges, "of", staticmethod(lambda b: None))
+    monkeypatch.setattr(flasks, "uses_per_second", lambda info, gain, raw, pool: (0.05, "every 20 s"))
+    monkeypatch.setattr(recovery, "full_es_share", lambda stats: (0.4, "x"))
+    hook = assumptions.Assumptions.__new__(assumptions.Assumptions)
+    hook.build = build
+    stats = {"Life": 1000.0}
+    found = {row["label"].split(" (")[0]: (guard, up, row) for guard, up, row in
+             hook.event_guards([duality, olroth, *decree], stats, None, {"Tempest Bell": {}}, None)}
+    guard, up, row = found["Guard from Duality"]
+    assert guard == 750 and up == pytest.approx(0.15 * 0.5 * 10)  # (5 s a use expending 10 Combo)
+    guard, up, row = found["Guard from Olroth's Resolve"]
+    assert guard == 600 and up == pytest.approx(0.5) and "full, 600" in row["basis"]
+    guard, up, row = found["Guard from Decree of Flight"]
+    assert guard == pytest.approx(0.2 * 4000 / 2) and up == pytest.approx(0.6)  # (below full 60%; 2 s rolls x 4 s)
+    assert "maximum Energy Shield" in row["basis"]  # (its cap; 2,000 Life would cap at 2,000 too, not reached)
+    # (the current Ward with spends: each spend's deficit while it refills; spends outrunning the recovery: empty)
+    now, how = recovery.ward_current(600.0, {"Skill": (1.0, 0.4, 100.0), "WardRecoveryPerSecond": 50.0})
+    assert now == pytest.approx(600 - 0.4 * 100 ** 2 / 100)
+    assert recovery.ward_current(600.0, {"Skill": (1.0, 1.0, 100.0), "WardRecoveryPerSecond": 50.0})[0] == 0.0
+
+
+def test_chaos_inoculation_raises_pobs_stun_threshold_to_its_value_without_the_keystone():
+    """MECHC41 (patch 0.5.0): PoB's Stun Threshold under CI counts only the base Life before it; the fix is a StunThreshold
+    MORE of PoB's own threshold without the keystone over it with; none when it isn't lower."""
+    from builder.search import boss_hits
+
+    mods, row = boss_hits.ci_stun_threshold(3000.0, 1200.0)
+    assert mods[0]["name"] == "StunThreshold" and mods[0]["type"] == "MORE" and mods[0]["value"] == pytest.approx(150.0)
+    assert mods[0]["tag"] == boss_hits.CI_STUN_TAG and "1,200 -> 3,000" in row["value"]
+    assert boss_hits.ci_stun_threshold(1200.0, 1200.0) == ([], None)
+    assert boss_hits.ci_stun_threshold(1000.0, 0.0) == ([], None)

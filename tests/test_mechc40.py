@@ -69,3 +69,33 @@ def test_a_chaos_inoculation_build_keeps_its_ailment_threshold(engine):
     print(bare, life, after)
     assert bare["Life"] == 1 and life > 100
     assert after - bare["AilmentThreshold"] > 0.25 * life  # (50% of it, x the build's own increases)
+    # (MECHC41: and its Stun Threshold: PoB's own value without the keystone, through a StunThreshold MORE; this also
+    # probes that a MORE of that name reaches PoB's threshold, CalcDefence 2767)
+    stun = engine.call("stats", fields=["StunThreshold"])["StunThreshold"]
+    stun_without = engine.call("nodeDeltas", cases=[{"remove": [ci["id"]]}], fields=["StunThreshold"],
+                               fullDPS=False)["results"][0]["StunThreshold"]
+    print(bare, stun, stun_without)
+    assert stun == pytest.approx(stun_without, rel=0.01)
+
+
+def test_soul_mantle_curses_you_at_the_shared_totem_death_rate(engine):
+    """MECHC41: Soul Mantle's curses come at the shared totem-death rate (assumptions.totem_deaths, MECHB39): a Shockwave
+    Totem build's totems over their own duration, re-placed as they expire; the "level gate blocks them" row stays."""
+    payload = make_payload(BuildRequest(main_skill="Shockwave Totem", ascendancies=["Warbringer"], level=90))
+    skeleton = enumerate_skeletons(Context(payload), ["Shockwave Totem"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    mantle = chr(10).join(["Rarity: UNIQUE", "Soul Mantle", "Sacrificial Mantle", "+75 to Spirit",
+                           "+1 to maximum number of Summoned Totems",
+                           "Inflicts a random Curse on you when your Totems die, ignoring Curse limit"])
+    build.call("equip", slot="Body Armour", raw=mantle, fields=["FullDPS"])
+    texts = [e["text"] for e in build.call("sourceLines")["lines"]]
+    if not any("random Curse on you when your Totems die" in t for t in texts):
+        pytest.skip("PoB didn't equip Soul Mantle in this skeleton")
+    skills = build.call("activeSkills")["skills"]
+    _, notes, _ = search.assumptions.models(skills)
+    row = next(n for n in notes if str(n.get("label", "")).startswith("Soul Mantle: random Curses"))
+    print(row)
+    assert "totems die a second" in row["basis"] and "Shockwave Totem" in row["basis"]
+    assert any(str(n.get("label", "")).startswith("Soul Mantle: if the level gate") for n in notes)

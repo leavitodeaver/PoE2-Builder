@@ -2032,9 +2032,10 @@ def emergent_vigour(texts: list[str], stats: dict, off_hand_armour: bool = False
 # PoB parses nothing). Curse LEVEL 1 (HIGH): Enfeeble 20% less damage dealt, Temporal Chains 40% less action speed,
 # Elemental Weakness -40% to all Elemental Resistances, Vulnerability -16 Armour, Despair -35% Chaos Resistance, 6 s each
 # (GrantedEffectStatSetsPerLevel level 1); the pool isn't in the data: the five, equally likely (MEDIUM-LOW); they stack.
-# A totem expiring or being replaced counts as dying (MEDIUM): deaths a second = the main skill's totems up / PoB's
-# TotemDuration (re-placed as they expire, totem_count_model's play); other groups' totems and Splinter Totem's dying
-# splinters not counted (an undercount of the drawback, named); boss kills of totems not counted (LOW, no source). Each
+# A totem expiring or being replaced counts as dying (MEDIUM): deaths a second from the shared rate (MECHC41:
+# assumptions.totem_deaths / models.totem_deaths, MECHB39: every totem skill's totems up over their own durations,
+# re-placed as they expire or at the search's chosen press rate); Splinter Totem's dying splinters not counted (an
+# undercount of the drawback, named); boss kills of totems not counted (LOW, no source). Each
 # curse up 1 - e^(-deaths x D / 5), D = 6 s x your "Duration of Curses on you", x your "effect of Curses on you"; immune
 # to Curses: none. Counted (the manager's ruling: "curses land" is the HEADLINE): the average in the headline (Damage /
 # ActionSpeed MORE, the resistances and Armour BASE), each curse up 7%+ IN FULL in the defence floors (ruling (i)'s
@@ -2099,7 +2100,7 @@ def soul_mantle(texts: list[str], deaths: float, deaths_how: str, full: bool = F
                        f"{seconds:g} s each, x{effect:.2f} effect on you; they stack (ignoring the Curse limit): each up "
                        f"1 - e^(-{deaths:.3f} x {seconds:g} / 5) = {up:.0%}; counted at the average in the headline"
                        + (", in full in the defence floors (a harm at its worst, ruling (i)'s reading)" if whole else "")
-                       + "; other totem skills' and Splinter Totem's deaths not counted; without it: none"),
+                       + "; Splinter Totem's splinters' deaths not counted; without it: none"),
              "confidence": "MEDIUM-LOW (the pool; expiry as death MEDIUM)",
              "play": (f"each totem that expires or is replaced curses you ({deaths:.2f} a second): a curse-immunity source "
                       "or reduced Curse effect / duration on you cuts it; without Soul Mantle: no curses"
@@ -2287,17 +2288,71 @@ DRINKER_GUARD = re.compile(r"^Life Flasks applied to you grant Guard for (\d+(?:
                            r"of the Life Recovery per Second they apply$", re.I)
 WARD_TIMER_GUARD = re.compile(r"^Every (\d+(?:\.\d+)?) seconds, gain Guard equal to (\d+(?:\.\d+)?)% of maximum Runic Ward "
                               r"for (\d+(?:\.\d+)?) seconds$", re.I)
+# (MECHC41, the bigger sources by the audit's impact)
+# - Duality (Warding Quarterstaff; Mods UniqueGainXGuardPerComboLostUsingSkills1,
+#   unique_gain_x_guard_for_500_ms_per_combo_lost_using_skills 500-1000): "Gain (500-1000) Guard for 0.5 seconds per
+#   Combo expended when using Skills". Read as X Guard lasting 0.5 s for each Combo the use expends (the duration scales
+#   with the Combo, as its twin line "Gain Finality for 0.5 seconds per Combo expended" can only mean; MEDIUM-LOW: "X
+#   Guard per Combo for 0.5 s" is the other reading, said in the row). The Combo a use expends: the Combo skill's own
+#   requirement (usage.combo_rate's rotation builds that much a use), at combo_rate's uses a second. Paced.
+# - Olroth's Resolve (Ultimate Life Flask; Mods UniqueFlaskWardGainedAsGuard1: local_unique_flask_gain_%_of_current_ward_
+#   as_guard_when_flask_effect_ends 100, ..._duration_ms 10000): "Gain Guard equal to Current Runic Ward for 10 seconds
+#   when Effect ends", at the flask's uses (flasks.uses_per_second). The current Runic Ward: the maximum less the average
+#   deficit the build's Ward spends leave (ward_current); nothing spends it, full (KeywordPopups Ward: it regenerates 5%
+#   a second; the flask's own "Regenerate N% of maximum Runic Ward per second during Effect" only fills it faster). Its
+#   older "Excess Life Recovery added as Guard" line is on the pre-0.5.0 versions only (PoB's Uniques/flask.lua versions
+#   1-2; patch 0.4.0 changed it to 20 s); a build carrying it isn't counted (said in no row: PoB's current item lacks it).
+# - Hollow Shell gives YOU no Guard: "Pulse spends 100% of your Runic Ward to grant Allies Guard equal to {0}% of Runic
+#   Ward spent" (its stat description, PoB hollow_shell.lua 24 / the game's hollow_shell.csd), and KeywordPopups Allies:
+#   "You do not count as your own Ally" (checked: both game files; the skill's own text "grants nearby Allies Guard",
+#   ActiveSkills hollow_shell). Its Guard goes to your minions (a minion defence, not modelled), so no row here.
+# - Decree of Flight (Ancient Leggings; Mods UniqueGuardFromMissingEnergyShieldOnDodge1, gain_guard_equal_to_%_of_your_
+#   missing_energy_shield_for_4_seconds_on_dodge_roll 10-20, and UniqueMaximumGuardBasedOnEnergyShield1): "Gain Guard
+#   equal to (10-20)% of missing Energy Shield for 4 seconds when you Dodge Roll" and "Maximum amount of Guard is based on
+#   maximum Energy Shield instead" (the cap 200% of maximum Energy Shield). The rolls: the build relies on rolling (its
+#   line is assumptions.ROLL_RELIANT's "when you Dodge Roll"), so one every models.DODGE_EVERY s (the user's default, 7 Nov).
+#   The Energy Shield missing at a roll: none while on Full Energy Shield (full_es_share, MEDIUM); below full, half of it
+#   on average (the ES left spread from 0 to full, as conditions.current_es_percent's other reading; MEDIUM-LOW); so only
+#   the rolls below full grant it (event_guard's `share`). Rows: missing all of it below full (the upper reading), none.
+DECREE_GUARD = re.compile(r"^Gain Guard equal to (\d+(?:\.\d+)?)% of missing Energy Shield for (\d+(?:\.\d+)?) seconds when "
+                          r"you Dodge Roll$", re.I)
+DECREE_CAP = re.compile(r"^Maximum amount of Guard is based on maximum Energy Shield instead$", re.I)
+COMBO_GUARD = re.compile(r"^Gain (\d+(?:\.\d+)?) Guard for (\d+(?:\.\d+)?) seconds per Combo expended when using Skills$",
+                         re.I)
+WARD_END_GUARD = re.compile(r"^Gain Guard equal to Current Runic Ward for (\d+(?:\.\d+)?) seconds when Effect ends$", re.I)
+
+
+def ward_current(pool: float, sustain: dict) -> tuple[float, str]:
+    """(the average current Runic Ward, how): the maximum less each spend's average deficit while it refills (a spend c
+    at p a second refilled at the build's Ward recovery R leaves p x c^2 / (2 R) missing on average; spends taken one at
+    a time from full, a lower bound where they overlap); 0 when the spends outrun the recovery (held near empty)."""
+    income = _num(sustain.get("WardRecoveryPerSecond"))
+    uses = [(v[1], v[2]) for k, v in sustain.items() if not k.startswith("_") and k != "WardRecoveryPerSecond"
+            and isinstance(v, (tuple, list)) and len(v) == 3 and v[1] > 0 and v[2] > 0]
+    spent = sum(p * c for p, c in uses)
+    if pool <= 0:
+        return 0.0, "no Runic Ward"
+    if spent <= 0:
+        return pool, f"nothing spends it: full, {pool:,.0f}"
+    if income <= spent:
+        return 0.0, f"spends {spent:,.1f} Ward/s against {income:,.1f} recovered: held near empty, 0"
+    deficit = sum(p * min(c, pool) ** 2 / (2 * income) for p, c in uses)
+    now = max(0.0, pool - deficit)
+    return now, (f"{pool:,.0f} maximum less {deficit:,.0f} missing on average (spends {spent:,.1f} Ward/s, "
+                 f"{income:,.1f} recovered): {now:,.0f}")
 
 
 def event_guard(source: str, amount: float, rate: float, seconds: float, texts: list[str], life: float, how: str,
-                paced: bool = True, expiry: float = 1.0) -> tuple[float, float, dict]:
-    """(Guard, its share of the fight, its row) for one event-driven Guard source (the note above)."""
+                paced: bool = True, expiry: float = 1.0, share: float = 1.0) -> tuple[float, float, dict]:
+    """(Guard, its share of the fight, its row) for one event-driven Guard source (the note above). `life`: the pool its
+    cap is 200% of; `share`: the share of the fight its events grant it at all (Decree of Flight: below full ES)."""
     inc = _guard_inc(texts)
     raw = max(amount, 0.0) * (1 + inc / 100)
     guard = min(raw, GUARD_CAP * max(life, 0.0))
     length = max(seconds, 0.0) * expiry
     r = max(rate, 0.0)
     up = (min(1.0, r * length) if paced else 1 - math.exp(-r * length)) if guard > 0 else 0.0
+    up *= min(1.0, max(share, 0.0))
     whole = bool(full_guard_mods(guard, up))
     basis = (f"{how}; {guard:,.0f} Guard" + (f" (x {1 + inc / 100:.2f}, increased Guard gained)" if inc else "")
              + (f", capped at 200% of maximum Life from {raw:,.0f}" if raw > guard + 0.5 else "")

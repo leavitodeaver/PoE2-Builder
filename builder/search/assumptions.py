@@ -2128,9 +2128,15 @@ class Assumptions:
         ci = next((p for p in build.call("facts", fields=[]).get("passives") or []
                    if p.get("name") == boss_hits.CI_KEYSTONE), None)
         if ci is not None:  # (MECHC40: PoB's Ailment Threshold under CI reads 1 Life; patch 0.5.0 fixed it in game)
-            without = build.call("nodeDeltas", cases=[{"remove": [ci["id"]]}], fields=["Life"], fullDPS=False)
+            without = build.call("nodeDeltas", cases=[{"remove": [ci["id"]]}], fields=["Life", "StunThreshold"],
+                                 fullDPS=False)
             ci_mods, ci_row = boss_hits.ci_ailment_threshold(number(without["results"][0].get("Life")))
             hand_mods, hand_notes = hand_mods + ci_mods, hand_notes + [ci_row]
+            # (MECHC41: and its Stun Threshold, the same patch note; PoB's base-Life-only reading)
+            stun_mods, stun_row = boss_hits.ci_stun_threshold(
+                number(without["results"][0].get("StunThreshold")),
+                number(build.call("stats", fields=["StunThreshold"]).get("StunThreshold")))
+            hand_mods, hand_notes = hand_mods + stun_mods, hand_notes + ([stun_row] if stun_row else [])
         added = getattr(build, "added_stats", None)
         seen = {**build.call("stats", fields=sorted(set(boss_hits.SELF_BLEED_FIELDS) | set(objective.RECOVERY_INPUTS)
                                                     | set(boss_hits.SELF_AILMENT_FIELDS))),
@@ -2658,17 +2664,11 @@ class Assumptions:
         build.consume_gains = consume_gains
         self.soul_mantle_part_time = 0.0
         if any(recovery_mod.SOUL_MANTLE.match(t.strip()) for t in texts):
-            # (MECHC38, R31-2: Soul Mantle's curses at the main skill's totem deaths; the floors read them in full)
-            summoner = next((s for s in found if main is not None and s.group == main.group and s.totem_limit > 0), None)
-            if summoner is not None:
-                others = {s.name for s in found if s.totem_limit > 0 and s.group != main.group}
-                totems = max(1.0, summoner.totem_limit - len(others))
-                lasts = number(stats.get("TotemDuration"))
-                deaths = totems / lasts if lasts > 0 else 0.0
-                deaths_how = (f"{totems:g} {summoner.name} totems up, each lasting PoB's {lasts:.2f} s, re-placed as it "
-                              "expires" if lasts > 0 else f"{summoner.name}: PoB gives no totem duration (0)")
-            else:
-                deaths, deaths_how = 0.0, "the main skill isn't a totem's (other totem skills not counted)"
+            # (MECHC38, R31-2: Soul Mantle's curses at your totems' deaths; the floors read them in full. MECHC41: the
+            # shared rate, totem_deaths (MECHB39): every totem skill's totems over their own durations, re-placed as
+            # they expire or at the search's chosen press rate, Spell Totem's charge-limited count, Ancestral Bond;
+            # before, the main skill's totems alone at PoB's main-skill TotemDuration)
+            deaths, deaths_how = totem_deaths(build, found, main, stats, texts)
             soul_mods, self.soul_mantle_part_time, soul_rows = recovery_mod.soul_mantle(
                 texts, deaths, deaths_how,
                 full=getattr(self, "ledger_switch", {}).get(recovery_mod.SOUL_MANTLE_FLOOR_KEY, True) is False)
@@ -4003,7 +4003,7 @@ class Assumptions:
                      boss: str | None) -> list[tuple[float, float, dict]]:
         """(MECHC40) [(Guard, share of the fight, row)] for the build's event-driven Guard sources
         (recovery.event_guard's note: Fortifying Cry, Vanguard, Savage Hits, Heavy Drinker, Warding Rune of Protection)."""
-        from builder.search import boss_hits, flasks, recovery
+        from builder.search import boss_hits, flasks, objective, recovery
 
         build, out = self.build, []
         stripped = [t.strip() for t in texts]
@@ -4074,6 +4074,60 @@ class Assumptions:
                 "Warding Rune of Protection", float(m.group(2)) / 100 * ward, 1 / every if every > 0 else 0.0,
                 float(m.group(3)), texts, life, f"{m.group(2)}% of your {ward:,.0f} maximum Runic Ward every {every:g} s",
                 True, expiry))
+        if m := next((m for t in stripped if (m := recovery.COMBO_GUARD.match(t))), None):  # (MECHC41: Duality)
+            from builder.search.usage import Usage, requirements
+
+            rules, usage, total, weighted, parts = usage_rules(build), None, 0.0, 0.0, []
+            for name in present:
+                for need in requirements(name, rules[name]) if rules.get(name) else []:
+                    if need.kind != "combo":
+                        continue
+                    usage = usage or Usage(build, None)
+                    found = usage.combo_rate(name, need.amount)
+                    if found:
+                        total += found[0]
+                        weighted += found[0] * float(m.group(2)) * need.amount
+                        parts.append(f"{name} {found[0]:.3f} uses/s expending {need.amount:g} Combo (from {found[2]})")
+                    else:
+                        parts.append(f"{name}: no skill of the build Strikes to build its Combo")
+            seconds = weighted / total if total > 0 else 0.0
+            out.append(recovery.event_guard(
+                "Duality (Combo expended)", float(m.group(1)), total, seconds, texts, life,
+                f"{m.group(1)} Guard for {m.group(2)} s per Combo a use expends (MEDIUM-LOW: the duration read as scaling "
+                f"with the Combo; the other reading, {m.group(1)} Guard per Combo for {m.group(2)} s, is larger); "
+                + ("; ".join(parts) or "no Combo skill in the build"), True, expiry))
+        if m := next((m for t in stripped if (m := recovery.WARD_END_GUARD.match(t))), None):  # (MECHC41: Olroth's)
+            option = (getattr(build, "equipped", {}) or {}).get("Flask 1")
+            rate, amount, how = 0.0, 0.0, "no Life flask equipped"
+            if option is not None and "guard equal to current runic ward" in (option.raw or "").lower():
+                info = build.call("flaskData", raws=[option.raw])["results"][0] or {}
+                gain = flasks.Charges.of(build)
+                rate, used = flasks.uses_per_second(info, gain, option.raw, "Life")
+                pool = number(build.call("stats", fields=["Ward"]).get("Ward"))
+                amount, now = recovery.ward_current(pool, getattr(build, "ward_sustain", None) or {})
+                how = f"{option.name}, used {used}; the current Runic Ward when its Effect ends: {now}"
+            elif option is not None:
+                how = f"the line isn't on the Life flask in use ({option.name})"
+            out.append(recovery.event_guard("Olroth's Resolve (its Effect ending)", amount, rate, float(m.group(1)), texts,
+                                            life, how, True, expiry))
+        if m := next((m for t in stripped if (m := recovery.DECREE_GUARD.match(t))), None):  # (MECHC41: Decree of Flight)
+            fields = sorted(set(objective.RECOVERY_INPUTS) | set(conditions_mod.FULL_LIFE_FIELDS))
+            added = getattr(build, "added_stats", None)
+            read = {**build.call("stats", fields=fields), **(added() if callable(added) else {})}
+            es = number(read.get("EnergyShield"))
+            full, full_how = recovery.full_es_share(read)
+            below = 1.0 - full
+            pct = float(m.group(1))
+            on_es = any(recovery.DECREE_CAP.match(t) for t in stripped)
+            cap = es if on_es else life
+            amount = pct / 100 * es / 2
+            out.append(recovery.event_guard(
+                "Decree of Flight (Dodge Roll)", amount, 1 / models.DODGE_EVERY, float(m.group(2)), texts, cap,
+                f"{pct:g}% of the Energy Shield missing at a roll, a roll every {models.DODGE_EVERY:g} s (the build relies "
+                f"on rolling; the user's default); below Full Energy Shield {below:.0%} of the fight ({full_how}), half "
+                f"your {es:,.0f} missing on average then (MEDIUM-LOW; all of it: {pct / 100 * es:,.0f} Guard; on full: "
+                "none); the cap 200% of " + ("maximum Energy Shield (its own line)" if on_es else "maximum Life"),
+                True, expiry, share=below))
         return out
 
     def life_mana_income(self, skills: list[dict], main: str | None) -> list[dict]:

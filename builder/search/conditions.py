@@ -1381,10 +1381,45 @@ CHARGE_OVERRIDES = {f"override{kind}Charges": kind for kind in ("Power", "Frenzy
 # gives its minions the charges: PoB's "Do your Minions use <kind> Charges?" boxes and their counts (ConfigOptions
 # minionsUse<kind>Charges / minionsOverride<kind>Charges). The minions' count: the same gains, each minion's own maximum 3
 # (Monster.ot, MECHC31's note) and 15 s duration (KeywordPopups Charges), the refresh model (charges_with_refresh); they
-# spend none (MEDIUM); the minions taken as inside your Presence (MEDIUM; a minion fighting beyond it gets none). No
-# minion skill: 0, said (against a lone boss nothing else is an ally of yours).
+# spend none (MEDIUM). No minion skill: 0, said (against a lone boss nothing else is an ally of yours).
+# Which minions are in your Presence (MECHC41; RESEARCH32 R32-7 (3), MEDIUM-LOW, by geometry; no AI leash value is in the
+# exported data and no player source measures it): ranged and caster minions stay near you, so inside; melee minions go
+# to the boss, so inside only while the boss is within your Presence (the boss's distance, _boss_distance, against PoB's
+# PresenceRadius; the Presence is 4 m by default, KeywordPopups Presence). Ranged / caster by their minions' skills in
+# PoB's Data/Skills/minion.lua (each minion's skillList in Minions.lua): the Skeletal Sniper (Gas Shot), Storm Mage (Arc,
+# Death Storm), Frost Mage (Frost Bolt), Cleric (Heal), Arsonist (Fire Bomb), Supporting Fire's Artillery Squad (Death
+# from Above), Navira (spells only), Kelari, the Tainted Sands (Knife Throw first) and the Wardbound Caster (a spell). Every
+# other minion, and any minion the list doesn't name (Spectres, tamed Companions: their monster decides), is taken as
+# melee, the lower reading (MEDIUM-LOW). The main skill's minions decide when the main skill summons them (their damage
+# is what PoB's boxes move); otherwise the share of the build's minion skills inside scales the count. Row: "every
+# minion inside", the reading before.
 SHARE_TO_ALLIES = re.compile(r"^Share Charges with Allies in your Presence$", re.I)
 MINION_CHARGES_MAX, MINION_CHARGES_SECONDS = 3, 15.0
+RANGED_MINION_SKILLS = ("Sniper", "Storm Mage", "Frost Mage", "Cleric", "Arsonist", "Supporting Fire", "Navira",
+                        "Kelari, the Tainted", "Wardbound")
+
+
+def minions_in_presence(stats: dict, lines: list[str] | None = None) -> tuple[float, str]:
+    """(share of the build's minions inside your Presence, how): the comment above SHARE_TO_ALLIES."""
+    gems = sorted(stats.get("_minion_gems") or ())
+    main = stats.get("_main_skill")
+    if main in gems:
+        gems = [main]
+    if not gems:
+        return 1.0, "minions taken as inside your Presence"
+    metres = _boss_distance(lines or [], stats)[0] / 10
+    radius = number(stats.get("PresenceRadius")) / 10
+    near = radius >= metres
+    ranged = [g for g in gems if any(r in g for r in RANGED_MINION_SKILLS)]
+    melee = [g for g in gems if g not in ranged]
+    inside = len(ranged) + (len(melee) if near else 0)
+    where = (f"the boss {metres:g} m away, {'inside' if near else 'outside'} your {radius:.1f} m Presence")
+    parts = []
+    if ranged:
+        parts.append(f"{', '.join(ranged)}: ranged / caster minions stay near you, inside")
+    if melee:
+        parts.append(f"{', '.join(melee)}: melee minions at the boss, {'inside' if near else 'outside'} ({where})")
+    return inside / len(gems), "; ".join(parts) + " (MEDIUM-LOW, R32-7 (3))"
 
 
 def minion_shared(kind: str):
@@ -1404,10 +1439,13 @@ def minion_shared(kind: str):
         gains, extra, fill = (stats.get("_charge_gains") or {}).get(kind) or (0.0, 0.0, 0.0)
         if gains <= 0:
             return 0.0, f"'{line}': you gain no {kind} Charges to share: 0"
-        count = charges_with_refresh(gains, MINION_CHARGES_SECONDS, MINION_CHARGES_MAX, extra, fill)
-        return round(count, 1), (f"'{line}': each {kind} Charge you gain ({gains:.2f}/s) your minions gain too (Minions "
-                                 f"are Allies; taken as inside your Presence, MEDIUM): {count:.1f} held of their "
-                                 f"{MINION_CHARGES_MAX} on average, none spent; without it: 0")
+        every = charges_with_refresh(gains, MINION_CHARGES_SECONDS, MINION_CHARGES_MAX, extra, fill)
+        share, where = minions_in_presence(stats, lines)
+        count = every * share
+        return round(count, 1), (f"'{line}': each {kind} Charge you gain ({gains:.2f}/s) your minions in your Presence "
+                                 f"gain too (Minions are Allies): {where}: {count:.1f} held of their "
+                                 f"{MINION_CHARGES_MAX} on average, none spent; with every minion inside: {every:.1f}; "
+                                 "without it: 0")
     return fn
 
 
@@ -6828,7 +6866,7 @@ CONDITIONS: list[Condition] = [
     # (MECHC40, COV43: Lochtonial Caress's charges shared to your minions, minion_shared)
     *(Condition(f"minions{use}{kind}Charges", f"Minions hold {kind} Charges you share", value_fn=minion_shared(kind),
                 fields=("Speed", "CritChance", "EffectiveBlockChance", f"{kind}ChargesMax", f"{kind}ChargesDuration",
-                        *CHARGE_EVENT_FIELDS, *models.IMMOBILISE_FIELDS))
+                        "PresenceRadius", *CHARGE_EVENT_FIELDS, *models.IMMOBILISE_FIELDS))
       for kind in ("Power", "Frenzy", "Endurance") for use in ("Use", "Override")),
     Condition("multiplierWitheredStackCount", "Withered stacks on the boss", value_fn=_withered_stacks,
               fields=WITHER_FIELDS),
@@ -7923,6 +7961,7 @@ class Conditions:
             FLASK_EVENT.search(t) for t in texts) else {}
         boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         stats = {**stats, "_has_ally": any(t & {"Minion", "CreatesMinion"} for t in gem_types.values()),  # (MECHC31, Conduit)
+                 "_minion_gems": {n for n, t in gem_types.items() if "CreatesMinion" in t},  # (MECHC41, minions_in_presence)
                  "_gem_names": set(gem_types), "_boss": boss, "_events": events, "_item_uses": item_uses, "_texts": texts, "_weapon": getattr(self.build.equipped.get("Weapon 1"), "type", ""), "_consumers": consumers, "_rage_spend": rage_spend, "_consume_gains": dict(getattr(self.build, "consume_gains", None) or {}),
                  "_main_channel_rage": self.main_skill in RAGE_PER_SECOND, "_main_types": main_types, "_main_skill": self.main_skill, "_distance_choice": self.distance,
                  "_weapon_types": [o.type for slot in ("Weapon 1", "Weapon 2")

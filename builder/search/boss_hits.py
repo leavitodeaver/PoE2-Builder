@@ -1587,9 +1587,39 @@ def ci_ailment_threshold(life_without_ci: float) -> tuple[list[dict], dict]:
                   "value": f"+{add:,.0f} base Ailment Threshold (50% of {life_without_ci:,.0f} Life, not of 1)",
                   "basis": ("patch 0.5.0 fixed Chaos Inoculation's Life of 1 lowering the player's stun and ailment "
                             "thresholds; PoB still reads 50% of 1 Life: added 50% of the Life you'd have without the "
-                            "keystone (PoB's own calculation without it), then your increases; the Stun Threshold's "
-                            "matching fix is PoB's partial one (base Life only); without it: PoB's threshold"),
+                            "keystone (PoB's own calculation without it), then your increases (the Stun Threshold's "
+                            "own fix: ci_stun_threshold); without it: PoB's threshold"),
                   "confidence": "MEDIUM-HIGH (the patch note)", "play": ""}
+
+
+# Chaos Inoculation and your Stun Threshold (MECHC41; MECHC40's named UNDERCOUNT). The same patch 0.5.0 fix ("... stun
+# and ailment thresholds for the player as well"). PoB's Stun Threshold under CI takes "Life before Chaos Inoculation"
+# as only the BASE Life sum, without its increases (CalcDefence 2756-2758: modDB:Sum("BASE", nil, "Life")), so a CI build's
+# threshold reads low: an UNDERCOUNT of the threshold, an OVERCOUNT of the Heavy Stuns, Light Stuns and stun-fed rows on
+# you. Fixed here as a StunThreshold MORE of (PoB's Stun Threshold without the keystone / with it) - 1, both from PoB's own
+# what-if without CI (the nodeDeltas call the Ailment Threshold fix makes; the keystone's only stats are "Maximum Life is
+# 1" and "Immune to Chaos Damage and Bleeding", TreeData 0_5): this MORE reaches PoB's threshold (CalcDefence 2767:
+# modDB:More("INC", nil, "StunThreshold") passes a string as the config, so its names are (nil, "StunThreshold") and
+# the MORE mods of that name apply; probed in tests/test_mechc40.py), and the ratio is the same with this MORE in both
+# what-ifs, so it settles in one round. What else differs without CI: PoB sets Full Life under CI (CalcDefence 125), so
+# a "while on Full Life" Stun Threshold line would read off in the what-if (named; none known). MEDIUM-HIGH.
+CI_STUN_TAG = "CIStunThreshold"
+
+
+def ci_stun_threshold(without_ci: float, with_ci: float) -> tuple[list[dict], dict | None]:
+    """(mods, row) for a Chaos Inoculation build: PoB's Stun Threshold raised to its value without the keystone."""
+    from builder.search import models
+
+    if with_ci <= 0 or without_ci <= with_ci * (1 + 1e-9):
+        return [], None
+    more = (without_ci / with_ci - 1) * 100
+    return [models.raw_mod("StunThreshold", "MORE", more, tag=CI_STUN_TAG)], {
+        "label": "Chaos Inoculation: your Stun Threshold from your Life before it*",
+        "value": f"{with_ci:,.0f} -> {without_ci:,.0f} Stun Threshold (x {without_ci / with_ci:.2f})",
+        "basis": ("patch 0.5.0 fixed Chaos Inoculation's Life of 1 lowering the player's stun and ailment thresholds; "
+                  "PoB counts only your base Life before it, without its increases: raised to PoB's own threshold "
+                  "without the keystone; without it: PoB's threshold"),
+        "confidence": "MEDIUM-HIGH (the patch note)", "play": ""}
 
 
 # The boss's Freeze on you (MECHC39; found by MECHC38, an OVERCOUNT of DPS like the Chill: nothing counted your time
