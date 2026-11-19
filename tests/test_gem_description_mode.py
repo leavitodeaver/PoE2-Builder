@@ -508,6 +508,9 @@ def test_meteors_fall_at_the_games_rate_with_every_15th_large_and_walking_calami
     mods, notes = models.meteor_rate_model(meteors, sets, 0.5, "half")
     assert [m["value"] for m in mods] == [pytest.approx(100 * (active * 0.5 / 375 - 1), abs=0.01)]
     assert notes[0]["entry"] == models.METEOR_ENTRY and "50%" in notes[0]["basis"]
+    # (GEM22: strongest_ailment_model reads 1 in 15 large at the game's meteors a second, not PoB's per-set timing)
+    assert notes[0]["set_shares"] == {"Small Meteor": pytest.approx(14 / 15), "Large Meteor": pytest.approx(1 / 15)}
+    assert notes[0]["set_uses"] == pytest.approx(0.5 / 0.15)
     stars = [{"label": "Small Star", "TotalDPS": 1000.0, "AverageDamage": 300.0},
              {"label": "Large Star", "TotalDPS": 450.0, "AverageDamage": 900.0}]
     starfall = Skill("Starfall", 1, spell=True, triggered=True, stat_set="Small Star")

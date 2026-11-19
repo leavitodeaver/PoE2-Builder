@@ -2745,7 +2745,8 @@ class Assumptions:
             got = build.call("stats", fields=["IgniteDPS", "BleedDPS", "Speed"])
             if number(got.get("IgniteDPS")) > 0 or number(got.get("BleedDPS")) > 0:
                 sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
-                sa_mods, sa_notes = models.strongest_ailment_model(main, sets, mix["set_shares"], number(got.get("Speed")),
+                uses = number(mix.get("set_uses")) or number(got.get("Speed"))  # (a model's own use rate: Meteors')
+                sa_mods, sa_notes = models.strongest_ailment_model(main, sets, mix["set_shares"], uses,
                                                                    previous=self.mods, forbidden=forbidden,
                                                                    how=mix.get("label", "").rstrip("*"))
                 hand_mods, hand_notes = hand_mods + sa_mods, hand_notes + sa_notes

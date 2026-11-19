@@ -5604,6 +5604,7 @@ def whirlwind_stage_model(main: Skill | None, sets: list[dict], forbidden: set[s
     factor = average / pob
     note = {"label": f"{main.name}: {stages} stages, then the Whirlwind collapses*", "value": f"x{factor:.3f}",
             "confidence": "LOW", "entry": WHIRL_ENTRY,
+            "set_shares": {own: 1.0, WHIRL_SET: 1 / stages},  # (GEM22: strongest_ailment_model)
             "basis": (f"{stages} uses ({own} {hit:,.0f} each at {speed:.2f}/s) over one Whirlwind, then its collapse at "
                       f"stage {stages} ({more:g}% more a stage after the first, x{staged:.2f} before the boss's armour): "
                       f"{collapse:,.0f} a collapse{' (PoB, armour in)' if applied else ' (first pass)'}: {average:,.0f} DPS against PoB's {scored} set at every use ({pob:,.0f}"
@@ -5740,6 +5741,8 @@ def meteor_rate_model(main: Skill | None, sets: list[dict], uptime: float | None
     factor = dps / rows[scored][0]
     note = {"label": f"{main.name}: one meteor every {every:g} s, every {METEOR_EVERY}th large*", "value": f"x{factor:.3f}",
             "confidence": "MEDIUM" if uptime is None else "LOW", "entry": METEOR_ENTRY,
+            # (GEM22: strongest_ailment_model; uses = meteors a second, not PoB's per-set timing)
+            "set_shares": {small: (METEOR_EVERY - 1) / METEOR_EVERY, large: 1 / METEOR_EVERY}, "set_uses": rate * up,
             "basis": (f"{rate:.2f} meteors a second on the lone boss (no extra frequency: the first enemy is ignored), "
                       f"{METEOR_EVERY - 1} of {METEOR_EVERY} {small} ({small_hit:,.0f}) and 1 {large} ({large_hit:,.0f}): "
                       f"{active:,.0f} DPS while {buff} is up"
@@ -6619,6 +6622,7 @@ def falling_thunder_model(main: Skill | None, scored: str | None, sets: list[dic
     return mods, [{
         "label": "Falling Thunder: the slam and its Power Charge projectiles*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM", "entry": FALLING_THUNDER_ENTRY,
+        "set_shares": {FALLING_THUNDER_SETS[0]: 1.0, FALLING_THUNDER_SETS[1]: 1.0 if charges > 0 else 0.0},  # (GEM22: strongest_ailment_model)
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS). The game: each use slams, and fires "
                   f"projectiles only by consuming Power Charges; this use is {what}"
                   + ("; scored on the Projectile set with no charges, it's kept 10% under the slam so the search keeps "
@@ -6676,6 +6680,7 @@ def icestorm_model(main: Skill | None, scored: str | None, sets: list[dict], cas
     return mods, [{
         "label": "Icestorm: improved bolts from Chill / Freeze consumed*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM", "entry": ICESTORM_ENTRY,
+        "set_shares": {ICESTORM_SETS[0]: 1 - u, ICESTORM_SETS[1]: u},  # (GEM22: strongest_ailment_model)
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; Storm {storm:,.0f}, Improved Bolt "
                   f"{improved:,.0f}, each a storm of that bolt). The game: one improved bolt per Chill and one per Power "
                   f"of a Freeze consumed at the cast. {casts:.3g} casts/s x (Chilled {chilled:.0%} + Frozen {frozen:.0%} x "
@@ -6908,6 +6913,7 @@ def ailment_set_model(main: Skill | None, scored: str | None, sets: list[dict], 
         arrow, blast, icy = (dps.get(k, 0.0) for k in ("Arrow", "Explosion", "Icy Blast"))
         f = share["Freeze"]
         total = arrow + blast * (1 - f) + icy * f
+        mix = {"Arrow": 1.0, "Explosion": 1 - f, "Icy Blast": f}  # (GEM22: strongest_ailment_model)
         steer = scored == "Icy Blast" and f <= 0
         what = (f"the arrow ({arrow:,.0f}) plus its explosion ({blast:,.0f}), enhanced to the Icy Blast ({icy:,.0f}) "
                 f"while the boss is Frozen ({f:.0%})")
@@ -6916,6 +6922,7 @@ def ailment_set_model(main: Skill | None, scored: str | None, sets: list[dict], 
     else:
         parts = [(label, dps.get(label, 0.0), share[ailment], ailment) for label, ailment in SUNDERING_SETS.items()]
         total = sum(d * s for _, d, s, _ in parts)
+        mix = {label: s for label, _, s, _ in parts}  # (GEM22: strongest_ailment_model)
         steer = False
         what = "; ".join(f"{label} {d:,.0f} x {a} {s:.0%}" for label, d, s, a in parts) + (
             " (no ailment on the boss: nothing explodes)" if total <= 0 else "")
@@ -6932,7 +6939,7 @@ def ailment_set_model(main: Skill | None, scored: str | None, sets: list[dict], 
     mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=entry)] if abs(factor - 1) > 1e-9 else []
     return mods, [{
         "label": f"{main.name}: its parts need ailments on the boss to consume*", "value": f"x{factor:.3f}",
-        "confidence": "MEDIUM", "entry": entry,
+        "confidence": "MEDIUM", "entry": entry, "set_shares": mix,
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS) with no ailment check. The game: {what} "
                   f"({how}): {total:,.0f} DPS" + ("; scored on the Icy Blast with no Freeze, it's kept 10% under so the "
                                                   "search keeps a fed set" if steer else "")),
@@ -7746,6 +7753,7 @@ def gas_arrow_model(main: Skill | None, scored: str | None, sets: list[dict], sh
     return mods, [{
         "label": f"{main.name}: its clouds explode only on an Ignited boss or a Detonation*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM", "entry": GAS_ARROW_ENTRY,
+        "set_shares": {GAS_ARROW_SETS[0]: 1.0, GAS_ARROW_SETS[2]: share},  # (GEM22: strongest_ailment_model)
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; Arrow {arrow:,.0f}, Poison Cloud "
                   f"{cloud:,.0f} as a hit, Explosion {blast:,.0f}). The game: every use hits with the arrow and leaves a "
                   f"cloud whose damage is its Poison (no hit); the cloud explodes only if the boss is Ignited while it "
@@ -7923,6 +7931,7 @@ def magnetic_salvo_model(main: Skill | None, scored: str | None, sets: list[dict
     return mods, [{
         "label": f"{main.name}: its missiles explode only by a lingering Lightning arrow*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM", "entry": MAGNETIC_SALVO_ENTRY,
+        "set_shares": {"Impact": 1 - e, "Explosion": e * count},  # (GEM22: strongest_ailment_model)
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; Impact {impact:,.0f}, Explosion "
                   f"{blast:,.0f})" + (" as if every missile exploded" if scored == "Explosion" else
                                       ", no missile exploding") + f". The game explodes a missile only by a lingering bolt or "

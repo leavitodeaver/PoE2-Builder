@@ -4,11 +4,14 @@
   model: strongest_ailment
   stats: []
   skill: [Furious Slam, Oil Barrage, Glacial Lance, High Velocity Rounds, Storm Lance, Rapid Assault, Stormblast Bolts,
-          Earthshatter, Boneshatter, Wing Blast, Siphoning Strike, Shockburst Rounds, Shockchain Arrow, Fangs of Frost, Disengage]
+          Earthshatter, Boneshatter, Wing Blast, Siphoning Strike, Shockburst Rounds, Shockchain Arrow, Fangs of Frost, Disengage,
+          Falling Thunder, Icestorm, Snipe, Elemental Sundering, Magnetic Salvo, Gas Arrow, Starfall, Meteors, Whirling Slash,
+          Whirlwind Lance]
   confidence: MEDIUM-LOW
   notes: >-
     models.strongest_ailment_model (GEM22; lead (a) of GEM21: an OVERCOUNT). The set models (GATED_SETS, DETONATED_SETS,
-    STUN_SETS, SHOCK_SETS / PARRIED_SETS) put a mix of a skill's stat sets on the scored set as a DPS MORE line, which
+    STUN_SETS, SHOCK_SETS / PARRIED_SETS; then Falling Thunder, Icestorm, Snipe / Elemental Sundering, Magnetic Salvo, Gas
+    Arrow, Meteors / Starfall at the game's meteor rate, Whirlwind) put a mix of a skill's stat sets on the scored set as a DPS MORE line, which
     also scales PoB's ailment stack count (CalcOffence 4065, 5254); PoB counts one Ignite / Bleed (maxStacks 1 unless
     IgniteCanStack / BleedCanStack, 5229-5234) at min(1, stacks) (5399), so the scored part's Ignite / Bleed stayed up
     at the whole skill's rate even where that part comes less often than once per Ignite's 4 s / Bleed's 5 s
@@ -22,4 +25,68 @@
             "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua (4065, 5206-5262, 5353, 5399)",
             "data/game-26650308/tables/KeywordPopups.json (Ignite, Bleeding)", "scratch/gem22/probe_ail2.json"]
   test_in_game: "Optional: a Boneshatter with Bleed and a rare Heavy Stun: the Shockwave's Bleed should fall off between Heavy Stuns."
+  status: proposed
+
+# Gem stats other lanes' models already carry out, linked so the audit counts them (GEM22; no number moves: each
+# entry only names the model that reads or acts on the stat; checked in the code named in each).
+- id: model-gem22-link-compounding-ignite
+  title: "Incinerate / Flame Breath: Compounding Ignite (active_skill_compounding_ignites) is MECH79's compounding model"
+  kind: model
+  model: compound_ignite
+  stats: ["active_skill_compounding_ignites"]
+  skill: [Incinerate, Flame Breath]
+  confidence: MEDIUM
+  notes: >-
+    conditions.COMPOUNDING_SKILLS = {Incinerate, Flame Breath} and the Compounding Ignite factor (conditions.py 5677-5700,
+    7217; models.compound_ignite_mods), MECH79. KeywordPopups CompoundIgnite. A link only.
+  sources: ["builder/search/conditions.py (COMPOUNDING_SKILLS, compounding_factor)"]
+  status: proposed
+- id: model-gem22-link-arctic-howl-primed-freeze
+  title: "Arctic Howl: 'Freeze enemies that are Primed for Freeze' (has_freeze_cull) is MECH82's Primed Freeze refill"
+  kind: model
+  model: primed_refill
+  stats: ["has_freeze_cull"]
+  skill: [Arctic Howl]
+  confidence: MEDIUM
+  notes: >-
+    conditions.ARCTIC_HOWL and models.primed_refill (MECH82; models.py comment above PRIMED_FREEZE_UNIQUE). Arctic Howl
+    only: the stat's other carriers (Shattering Concoction, Wave of Frost) aren't linked here (not checked to be
+    modelled). A link only.
+  sources: ["builder/search/models.py (PRIMED_FREEZE_UNIQUE, primed_refill)", "builder/search/conditions.py (ARCTIC_HOWL)"]
+  status: proposed
+- id: model-gem22-link-runic-reprieve-channel-start
+  title: "Runic Reprieve: its wind-up (channel_start_duration_as_%_of_cast_time 200) is taken off the main skill and read by recovery"
+  kind: model
+  model: runic_reprieve
+  stats: ["channel_start_duration_as_%_of_cast_time"]
+  skill: [Runic Reprieve]
+  confidence: MEDIUM
+  notes: >-
+    assumptions.py (Runic Reprieve's busy share, comment at 254) and recovery.py (CHANNEL_START_REPRIEVE, 1687).
+    Runic Reprieve only (Volcano's not linked). A link only.
+  sources: ["builder/search/assumptions.py (Runic Reprieve)", "builder/search/recovery.py (CHANNEL_START_REPRIEVE)"]
+  status: proposed
+- id: model-gem22-link-flame-breath-free-rage
+  title: "Flame Breath: its first X ms without the Rage cost (channelled_skill_suppress_ongoing_rage_cost_for_first_X_ms) is read by conditions"
+  kind: model
+  model: flame_breath_rage
+  stats: ["channelled_skill_suppress_ongoing_rage_cost_for_first_X_ms"]
+  skill: [Flame Breath]
+  confidence: MEDIUM
+  notes: >-
+    conditions.FLAME_BREATH_FREE_STAT (conditions.py 5694) reads the stat. Flame Breath only (Rampage's not linked).
+    A link only.
+  sources: ["builder/search/conditions.py (FLAME_BREATH_FREE_STAT)"]
+  status: proposed
+- id: model-gem22-link-oil-ground-ignite
+  title: "Oil Grenade / Oil Barrage: lit Oil Ground's Ignite adds 150% / 100% of the Attack's Fire damage (MECH82's oil_ignite)"
+  kind: model
+  model: oil_ignite
+  stats: ["skill_main_hand_total_attack_fire_damage_permyriad_to_add_as_unscalable_damage_to_oil_ground_ignite"]
+  skill: [Oil Grenade, Oil Barrage]
+  confidence: MEDIUM
+  notes: >-
+    conditions.OIL_ADDED = {Oil Grenade: 1.5, Oil Barrage: 1.0} (the stat / 10000, conditions.py 5556) feeds
+    build.oil_ignite and models.oil_ignite_model (MECH82). A link only.
+  sources: ["builder/search/conditions.py (OIL_ADDED)", "builder/search/models.py (oil_ignite_model)"]
   status: proposed
