@@ -1899,6 +1899,78 @@ def reflected_poison(texts: list[str], stats: dict) -> tuple[float, list[dict]]:
         "play": (f"your own Poisons hit you for {dps:,.0f} Chaos damage a second" if dps > 0 else "")}]
 
 
+# "Per Poison on you" (MECHC43; RESEARCH33 R33-19 cultivated-handwraps-per-poison-frozen.md, MEDIUM-HIGH: OBTAINABLE, narrowly:
+# a Vaal Cultivation Orb on a Corrupted Snakebite worn as Fists of Stone, Way of the Stonefist; at most 2 Cultivated
+# lines; MECH89's never-on rows; PoB parses none, an UNDERCOUNT). The three hand-wraps lines (PoB ModItem 2222-2224:
+# HandWrapsUniqueMutatedVaal*) each come with "Poison you inflict is Reflected to you", so the Poisons on you are the
+# build's own (no flat rate): the main skill's Poisons on the boss (PoB's PoisonStackPotential x PoisonStacksMax: its
+# applications over the Poison's duration), each lasting x your Poison duration on you (PoB's SelfPoisonDuration %),
+# capped at your Poisons-at-once limit (PoisonStacksMax: the lower reading, MEDIUM-LOW; MECHC35 took Poisons on you as all
+# stacking, here the cap is the headline and the uncapped count a row). Other skills' Poisons not counted (an
+# undercount). Reflected Poisons the line avoids (PoB's PoisonAvoidChance) are taken off. Damage: plain "N% increased
+# Damage" at the average count, up to the line's maximum. Chaos Resistance: a ROW (a defence from a count that rises and
+# falls: the floors count what is up all fight). Movement Speed: a row (no number of ours reads it). Their cost, the
+# reflected Poison's damage, is reflected_poison's (above). The fixed Exclusive __1 lines (15% / +1% / 10%) are PoE1
+# leftovers (R33-19: UNREACHABLE); the patterns read them too if one ever appears.
+PER_POISON_DAMAGE = re.compile(r"^(\d+(?:\.\d+)?)% increased Damage for each Poison on you up to a maximum of "
+                               r"(\d+(?:\.\d+)?)%$", re.I)
+PER_POISON_SPEED = re.compile(r"^(\d+(?:\.\d+)?)% increased Movement Speed for each Poison on you up to a maximum of "
+                              r"(\d+(?:\.\d+)?)%$", re.I)
+PER_POISON_CHAOS = re.compile(r"^\+(\d+(?:\.\d+)?)% to Chaos Resistance per Poison on you$", re.I)
+PER_POISON_FIELDS = ("PoisonStackPotential", "PoisonStacksMax", "SelfPoisonDuration", "PoisonAvoidChance")
+
+
+def poisons_on_you(stats: dict) -> tuple[float, float, str]:
+    """(Poisons on you, capped; uncapped; how) from your main skill's Poisons reflected (the note above)."""
+    most = max(_num(stats.get("PoisonStacksMax")), 0.0)
+    potential = max(_num(stats.get("PoisonStackPotential")), 0.0)
+    scale = (_num(stats.get("SelfPoisonDuration")) or 100.0) / 100
+    kept = 1 - min(max(_num(stats.get("PoisonAvoidChance")), 0.0), 100.0) / 100
+    uncapped = potential * most * scale * kept
+    capped = min(uncapped, most) if most > 0 else 0.0
+    return capped, uncapped, (f"your main skill's Poisons on the boss ({potential * most:.2f} at once: PoB's stack potential "
+                              f"x its {most:g} limit) reflected to you, x{scale:.2f} Poison duration on you"
+                              + (f", {1 - kept:.0%} avoided" if kept < 1 else "")
+                              + f": {uncapped:.2f} on you, capped at your {most:g} Poisons at once: {capped:.2f}")
+
+
+def per_poison_lines(texts: list[str], stats: dict) -> tuple[list[dict], list[dict]]:
+    """(mods, rows) for the PER_POISON_* lines (the note above); nothing without one."""
+    from builder.search import models
+
+    stripped = [t.strip() for t in texts]
+    damage = [(float(m.group(1)), float(m.group(2))) for t in stripped if (m := PER_POISON_DAMAGE.match(t))]
+    speed = [(float(m.group(1)), float(m.group(2))) for t in stripped if (m := PER_POISON_SPEED.match(t))]
+    chaos = [float(m.group(1)) for t in stripped if (m := PER_POISON_CHAOS.match(t))]
+    if not (damage or speed or chaos):
+        return [], []
+    count, uncapped, how = poisons_on_you(stats)
+    reflected = any(REFLECT_POISON.match(t) for t in stripped)
+    if not reflected:
+        count, uncapped, how = 0.0, 0.0, "no line reflects your Poisons to you and nothing else Poisons you here: 0"
+    mods, rows = [], []
+    for each, top in damage:
+        got, other = min(each * count, top), min(each * uncapped, top)
+        if got > 0:
+            mods.append(models.line("1% increased Damage", got))
+        rows.append({"label": f"{each:g}% increased Damage for each Poison on you (up to {top:g}%)*",
+                     "value": f"{got:.1f}% increased Damage", "basis": f"{how}; row, every Poison on you counted (no "
+                     f"limit): {other:.1f}%; PoB counts none",
+                     "confidence": "MEDIUM-LOW (R33-19 obtainable MEDIUM-HIGH; the count's cap MEDIUM-LOW)",
+                     "play": "Keep Poisoning the boss: your Poisons reflect onto you and feed it" if got > 0 else ""})
+    for each, top in speed:
+        rows.append({"label": f"{each:g}% increased Movement Speed for each Poison on you (up to {top:g}%) (a row)*",
+                     "value": f"{min(each * count, top):.1f}% increased Movement Speed",
+                     "basis": f"{how}; movement isn't scored", "confidence": "MEDIUM-LOW", "play": ""})
+    for each in chaos:
+        rows.append({"label": f"+{each:g}% to Chaos Resistance per Poison on you (a row)*",
+                     "value": f"+{each * count:.1f}% Chaos Resistance on average",
+                     "basis": (f"{how}; the count rises and falls with your Poisons, so it is a row, not in the floors "
+                               f"or PoB's numbers (every Poison counted: +{each * uncapped:.1f}%)"),
+                     "confidence": "MEDIUM-LOW", "play": ""})
+    return mods, rows
+
+
 def jade_heritage(texts: list[str], life: float, quality: float = 0.0, seconds: float = ENCASE_SECONDS,
                   expiry: tuple[float, str] | None = None) -> tuple[float, dict | None]:
     """(Physical Damage Reduction % counted, the row) for Jade Heritage (see the note above): (0, None) without it."""
@@ -2654,3 +2726,36 @@ def raised_max_block_row(texts: list[str], raised: float, every: float, block: f
                       + "; part-time, so not in the defence floors; PoB doesn't read the line"),
             "confidence": "MEDIUM-LOW (the raised share from the build's own shield use)",
             "play": ("Raise your shield into the boss's hits to keep it on" if share > 0 and capped else "")}
+
+
+# Sacrifice of Blood (MECHC43; MECH89's never-on rows, an UNDERCOUNT: PoB parses it under Multiplier:LifeSpentRecently,
+# ModCache 9222, set only by the Configuration box multiplierLifeSpentRecently, which the optimizer never sets; that box
+# also feeds "if you've spent Life recently" lines and an Arcane Surge grant (ModParser 2047 / 4447), so it stays off):
+# "Regenerate 1 Life per second per 16 Life spent in the past 4 seconds" (a Timeless jewel's conquered passive, PoB
+# LegionPassives abyss_keystone_4; the model reads the text, wherever it comes from). The Life spent in the past 4 s:
+# 4 s x PoB's LifePerSecondCost, the main skill's Life cost a second at its use rate (other skills' Life costs aren't
+# counted: the lower reading, an UNDERCOUNT named in the row), steady. A plain "Regenerate N Life per second" for PoB.
+LIFE_SPENT_REGEN = re.compile(r"^Regenerate (\d+(?:\.\d+)?) Life per second per (\d+) Life spent in the past 4 seconds$",
+                              re.I)
+
+
+def life_spent_regen(texts: list[str], life_cost: float) -> tuple[list[dict], list[dict]]:
+    """(mods, rows) for the LIFE_SPENT_REGEN lines at `life_cost` (Life spent a second); nothing without a line."""
+    from builder.search import models
+
+    found = [(float(m.group(1)), float(m.group(2))) for t in texts if (m := LIFE_SPENT_REGEN.match(t.strip()))]
+    if not found:
+        return [], []
+    spent = 4.0 * max(life_cost, 0.0)
+    regen = sum(each * (spent / per) for each, per in found if per > 0)
+    mods = [models.line("Regenerate 1 Life per second", regen)] if regen > 0 else []
+    return mods, [{
+        "label": "Regenerate Life per Life spent in the past 4 seconds*",
+        "value": f"{regen:.1f} Life per second",
+        "basis": (f"{spent:.0f} Life spent in the past 4 s (the main skill's {life_cost:.1f} Life cost a second x 4, "
+                  "steady; other skills' Life costs not counted: the lower reading)" if spent > 0 else
+                  "the main skill costs no Life: 0 (other skills' Life costs not counted)")
+                 + "; PoB's box for it is never set",
+        "confidence": "MEDIUM (the main skill's costs only)",
+        "play": ("Keep using your Life-costing skill: without it 0 regeneration" if regen > 0 else "")}]
+

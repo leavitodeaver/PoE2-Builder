@@ -2870,3 +2870,103 @@ def test_research33_answers_on_mechc42s_models():
     others = {"Wolf skill": ({"Shapeshift", "Wolf"}, 0.25), "Human skill": (set(), 0.25)}
     assert conditions.human_shifts(bear, others, 1.0)[0] == pytest.approx(0.25)
     assert conditions.human_shifts(bear, others, 1.0, any_form=True)[0] == pytest.approx(0.5)
+
+
+def test_one_charge_of_each_type_a_use_unless_the_skill_is_flagged():
+    """MECHC43 (RESEARCH33 R33-17, MEDIUM): a main skill without skill_can_add_multiple_charges_per_action grants at most
+    one charge of each type a use: two 50% on-hit Frenzy lines at 2 uses/s make 2 x (1 - 0.5 x 0.5) = 1.5/s, not 2/s; a
+    flagged skill (Twister, Orb of Storms ...) keeps the sum; a line not fed by the uses (every N seconds) stays added."""
+    from builder.search.conditions import _charges_held, _per_use_joined
+
+    lines = ["50% chance to gain a Frenzy Charge on Hit", "50% chance to gain a Frenzy Charge on Hit",
+             "Gain a Frenzy Charge every 10 seconds"]
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 0, "FrenzyChargesMax": 3, "FrenzyChargesDuration": 15}
+    found = [(t, "Frenzy", (r, "x")) for t, r in zip(lines, (1.0, 1.0, 0.1))]
+    joined, how = _per_use_joined(found, dict(stats))
+    assert [round(f[2][0], 6) for f in joined] == [0.75, 0.75, 0.1] and "1.50/s as one chance a use" in how
+    flagged = dict(stats, _multi_charge="skill_can_add_multiple_charges_per_action")
+    assert _per_use_joined(found, flagged) == (found, "")
+    count, basis = _charges_held("Frenzy")(lines, dict(stats))
+    assert basis.startswith("1.60 gains/s") and "one Frenzy Charge a use at most" in basis
+    assert "R33-17: MEDIUM, UNVERIFIED for PoE2" in basis and "ROW, the other reading" in basis  # (the manager 15:50)
+    assert _charges_held("Frenzy")(lines, flagged)[1].startswith("2.10 gains/s")
+    assert "ROW, the other reading" not in _charges_held("Frenzy")(lines, flagged)[1]
+    alone = [(lines[0], "Frenzy", (1.0, "x"))]
+    assert _per_use_joined(alone, dict(stats)) == (alone, "")
+
+
+def test_raging_cry_grants_rage_per_5_power_at_its_warcrys_uses():
+    """MECHC43 (the manager's 12:35 from MECHB41; an UNDERCOUNT: PoB maps warcry_grant_X_rage_per_5_power to a CanGainRage
+    flag only): each Warcry a Raging Cry supports grants 4 Rage per whole 5 of the Power it counts on each use, at its
+    group's rate; Echoing Cry's less Power first. rage_held counts it as a gain."""
+    from types import SimpleNamespace
+
+    from builder.search import conditions, models
+
+    skills = [{"name": "Infernal Cry", "supportStats": {conditions.RAGING_CRY_STAT: 4}},
+              {"name": "Seismic Cry", "supportStats": {conditions.RAGING_CRY_STAT: 4, models.ECHO_POWER_STAT: -50}},
+              {"name": "Boneshatter", "supportStats": {}}]
+    build = SimpleNamespace(call=lambda name, **kw: {"skills": skills} if name == "activeSkills" else {"groups": []})
+    me = SimpleNamespace(build=build, _group_uses=lambda groups, names: {"Infernal Cry": 0.125},
+                         _chosen_use=lambda name: 0.1)
+    cries = conditions.Conditions._raging_cry(me, 20.0)
+    assert [(n, u, a) for n, u, a, _ in cries] == [("Infernal Cry", 0.125, 16.0), ("Seismic Cry", 0.1, 8.0)]
+    assert "50% less Power: 20 -> 10" in cries[1][3]
+    assert conditions.Conditions._raging_cry(me, 22.0)[0][2] == 16.0  # (whole steps of 5)
+    stats = {"Speed": 2.0, "HitChance": 100, "MaximumRage": 30, "_main_types": set()}
+    assert conditions.rage_held([], dict(stats)) == (0.0, "")
+    held, basis = conditions.rage_held([], dict(stats, _raging_cry=cries[:1]))
+    assert 0 < held <= 16 and "Infernal Cry with Raging Cry (16 Rage a use" in basis
+
+
+def test_sacrifice_of_blood_regenerates_at_the_main_skills_life_spent():
+    """MECHC43 (MECH89's never-on rows; PoB's multiplierLifeSpentRecently box is never set): "Regenerate 1 Life per
+    second per 16 Life spent in the past 4 seconds" at 4 s x the main skill's Life cost a second, a plain regen line."""
+    line = "Regenerate 1 Life per second per 16 Life spent in the past 4 seconds"
+    mods, rows = recovery.life_spent_regen([line], 20.0)  # 80 Life in 4 s: 5 Life a second
+    assert mods[0]["line"] == "Regenerate 1 Life per second" and mods[0]["scale"] == pytest.approx(5.0)
+    assert rows[0]["value"] == "5.0 Life per second" and "main skill's 20.0 Life cost" in rows[0]["basis"]
+    assert recovery.life_spent_regen([line], 0.0)[0] == []
+    assert recovery.life_spent_regen(["Regenerate 1 Life per second"], 20.0) == ([], [])
+
+
+def test_pobs_combo_count_is_the_main_skills_combo_on_use():
+    """MECHC43 (RESEARCH33 R33-16): PoB's Combo count (multiplierCombo, read by Chakra of Impact and Culmination) is set
+    to the Combo the main skill spends a use: Tempest Bell its required 4 (HIGH), a Combo Finisher skill its requirement
+    (MEDIUM); a Culmination / Vruun's skill's built Combo isn't read (0, said); no Combo skill, nothing."""
+    from types import SimpleNamespace
+
+    from builder.search import conditions
+
+    def me(level, support, name="Tempest Bell"):
+        skills = [{"name": name, "levelStats": level, "supportStats": support}]
+        return SimpleNamespace(main_skill=name, build=SimpleNamespace(call=lambda n, **kw: {"skills": skills}))
+
+    bell = conditions.Conditions._combo_on_use(me({"active_skill_required_number_of_combo_stacks": 4}, {}))
+    assert bell[0] == 4 and "HIGH" in bell[1]
+    finisher = conditions.Conditions._combo_on_use(
+        me({}, {"support_combo_finisher_required_number_of_combo_stacks": 5}, "Falling Thunder"))
+    assert finisher[0] == 5 and "MEDIUM" in finisher[1]
+    culmination = conditions.Conditions._combo_on_use(me({}, {"skill_maximum_number_of_combo_stacks": 10}, "Ice Strike"))
+    assert culmination[0] == 0 and "UNDERCOUNT" in culmination[1]
+    assert conditions.Conditions._combo_on_use(me({}, {}, "Boneshatter")) == (0.0, "")
+    assert conditions.combo_on_use([], {"_combo_on_use": bell}) == bell and conditions.combo_on_use([], {}) == (0.0, "")
+
+
+def test_per_poison_on_you_lines_count_your_reflected_poisons():
+    """MECHC43 (RESEARCH33 R33-19: the Fists of Stone Cultivated lines, obtainable): Poisons on you = your main skill's
+    Poisons on the boss (PoB's stack potential x limit) reflected, x your Poison duration on you, capped at your limit
+    (the headline; uncapped a row); Damage a plain line up to its maximum, Chaos Resistance and Movement Speed rows."""
+    damage = "(20-35)% increased Damage for each Poison on you up to a maximum of 75%".replace("(20-35)", "30")
+    reflect = "Poison you inflict is Reflected to you"
+    chaos = "+20% to Chaos Resistance per Poison on you"
+    stats = {"PoisonStackPotential": 2.0, "PoisonStacksMax": 2, "SelfPoisonDuration": 100, "PoisonAvoidChance": 0}
+    count, uncapped, how = recovery.poisons_on_you(stats)
+    assert count == pytest.approx(2.0) and uncapped == pytest.approx(4.0)
+    mods, rows = recovery.per_poison_lines([damage, reflect, chaos], stats)
+    assert mods[0]["line"] == "1% increased Damage" and mods[0]["scale"] == pytest.approx(60.0)
+    assert "row, every Poison on you counted (no limit): 75.0%" in rows[0]["basis"]  # (120% capped at the line's 75%)
+    assert rows[1]["value"] == "+40.0% Chaos Resistance on average" and "(a row)" in rows[1]["label"]
+    assert recovery.per_poison_lines([damage], stats)[0] == []  # (no reflect line: nothing Poisons you, 0)
+    assert recovery.per_poison_lines([reflect], stats) == ([], [])
+

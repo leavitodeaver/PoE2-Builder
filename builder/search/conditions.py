@@ -565,6 +565,21 @@ NO_FRENZY_STAT = "skill_cannot_generate_frenzy_charges"
 # PoB act_int.lua FlickerStrikePlayer: Display Only); read from the main skill's own stats and its supports', so any
 # other carrier counts too
 NO_POWER_STAT = "cannot_gain_power_charges_during_skill"
+# (MECHC43; RESEARCH19 charges-per-action.md, RESEARCH33 R33-17 multiple-charges-per-action.md, MEDIUM) By default a skill
+# use grants at most one Charge of each type, however many hits, crits or other events it makes ("most skills are
+# limited to granting 1 of each type of charge per skill use", poewiki Charge, PoE1, the same engine; forum 2244397). The
+# implicit flag skill_can_add_multiple_charges_per_action (Stats 1713, no description; GrantedEffectStatSets ImplicitStats
+# of Orb of Storms, Galvanic Field's orb, Twister, Elemental Storm, Killing Palm, Siphoning Strike, Wing Blast, the
+# Heralds' explosions (Ice, Blood, the unique Ice and Atziri's) and monster sets; game 26650308) lifts it. PoB reads it
+# nowhere (checked: vendor/PathOfBuilding-PoE2/src, only the skill data lists it). So for a main skill WITHOUT the flag,
+# the lines of one charge type its uses feed (rates that scale with its use rate: on hit, on crit, on Freeze / Electrocute /
+# Pin) are joined as one chance a use, 1 - prod(1 - e_i) (e_i: line i's events a use, taken independent), not added (an
+# OVERCOUNT before: two 50% on-hit lines made 1 a use, now 0.75). Lines granting several charges at once ("Gain 3 ...")
+# and lines not fed by the main skill's uses (on kill, when hit, every N seconds, a line's own once-every cap) stay
+# added. Read from the main skill's own stats and its supports', so any other carrier counts too. With the flag: added
+# (each hit may grant); the flagged skills' extra hits a use (an Orb's bolts, a Twister's ticks) are not read here: PoB's
+# Speed is the rate used, an UNDERCOUNT left (charges-per-action.md: hits/s of the lingering effect x p).
+MULTI_CHARGE_STAT = "skill_can_add_multiple_charges_per_action"
 PIN_MORE_SUPPORT, PIN_MORE_STAT = "Pin III", "support_pin_pin_duration_+%_final"  # (MECH66: "Pin caused by Supported
 # Skills has 30% more duration", gem_stat_descriptions.csd; read by models.pin_duration_scale)
 NO_BLIND_STAT = "cannot_inflict_blind"  # Blindside (sup_dex.lua SupportBlindsidePlayer; Stats.json)
@@ -1274,6 +1289,46 @@ def bypass_mods(uses: dict, rage_support: bool = False) -> tuple[list[dict], lis
     return mods, rows, inc_by
 
 
+def _per_use_joined(found: list[tuple[str, str, tuple[float, str]]], stats: dict
+                    ) -> tuple[list[tuple[str, str, tuple[float, str]]], str]:
+    """(found with the main skill's per-use lines joined, how) (MULTI_CHARGE_STAT's note): `found` holds (text, the kind
+    its source names, (rate, how)). A line is fed by the main skill's uses when its rate doubles with the use rate
+    (PoB's Speed); those of one source kind, two or more, are scaled together so their sum is uses x (1 - prod(1 - e_i)).
+    Unchanged with the flag, with no use rate, or with fewer than two such lines."""
+    speed = number(stats.get("Speed"))
+    if stats.get("_multi_charge") or speed <= 0 or len(found) < 2:
+        return found, ""
+    fast = {**stats, "Speed": 2 * speed}
+    per_kind: dict[str, list[int]] = {}
+    for i, (text, source, r) in enumerate(found):
+        m = re.search(CHARGE_SOURCE.format(kind=source), text, re.I)
+        if r[0] <= 0 or (m and int(m.group("count") or 1) > 1):
+            continue
+        again = _charge_rate(text, source, fast)
+        if again is not None and abs(again[0] - 2 * r[0]) <= 1e-9 * max(1.0, r[0]):
+            per_kind.setdefault(source, []).append(i)
+    out, notes = list(found), []
+    for source, idx in per_kind.items():
+        if len(idx) < 2:
+            continue
+        total = sum(found[i][2][0] for i in idx)
+        miss = 1.0
+        for i in idx:
+            miss *= 1 - min(found[i][2][0] / speed, 1.0)
+        kept = speed * (1 - miss)
+        if kept >= total:
+            continue
+        scale = kept / total
+        for i in idx:
+            text, src, (rate, how) = found[i]
+            out[i] = (text, src, (rate * scale, f"{how}; x {scale:.3f}, joined"))
+        notes.append(f"one {source} Charge a use at most (the main skill lacks {MULTI_CHARGE_STAT}; RESEARCH33 R33-17: "
+                     f"MEDIUM, UNVERIFIED for PoE2, a labelled assumption, the lower reading): its {len(idx)} lines "
+                     f"{total:.2f}/s added -> {kept:.2f}/s as one chance a use (the other reading, each line adding: "
+                     f"{total:.2f}/s)")
+    return out, "; ".join(notes)
+
+
 def _charges_held(kind: str):
     def held(lines: list[str], stats: dict) -> tuple[float, str]:
         kinds, redirected = _charge_sources(lines, kind)
@@ -1291,15 +1346,19 @@ def _charges_held(kind: str):
         gains, bonus, how = 0.0, 0.0, []
         by_kind = {}  # (G4-2: gains per the kind its source names, before Resonance moves it)
         profusion = stats.get("_profusion") or {}  # gem description -> (chance of one more, of a random one)
-        for text in lines:
-            if (hit := next(((k, x) for k in kinds if (x := _charge_rate(text, k, stats)) is not None), None)) is not None:
-                source, r = hit
-                more = profusion.get(text)
-                plus = (more[0] + more[1] / 3) if more else 0.0
-                gains += r[0]
-                by_kind[source] = by_kind.get(source, 0.0) + r[0]
-                bonus += r[0] * plus
-                how.append(f"{text[:60]} ({r[1]}" + (f"; Charge Profusion +{plus:.0%} per gain" if more else "") + ")")
+        found = [(text, *hit) for text in lines
+                 if (hit := next(((k, x) for k in kinds if (x := _charge_rate(text, k, stats)) is not None), None))
+                 is not None]
+        found, joined = _per_use_joined(found, stats)  # (MECHC43: one charge of each type a use)
+        for text, source, r in found:
+            more = profusion.get(text)
+            plus = (more[0] + more[1] / 3) if more else 0.0
+            gains += r[0]
+            by_kind[source] = by_kind.get(source, 0.0) + r[0]
+            bonus += r[0] * plus
+            how.append(f"{text[:60]} ({r[1]}" + (f"; Charge Profusion +{plus:.0%} per gain" if more else "") + ")")
+        if joined:
+            how.insert(0, joined)
         steal = next((t for t in lines if STEAL_CHARGES.search(t)), None)
         if steal is not None and how:  # (MECHC7, #107: counted 0, said)
             how.append(f"'{steal[:60]}': 0, {STEAL_NOTE}")
@@ -1365,8 +1424,14 @@ def _charges_held(kind: str):
                 count = cycling
                 basis += (f"; '{reset[:70]}': the count climbs to {most:g} and drops to 0, so {cycling:.1f} held on "
                           f"average ({left:.2f} gains/s kept)")
+        other = ""
+        if joined:  # (MECHC43, the manager 15:50: R33-17's other reading as a row, the count with each line adding)
+            alt = held(lines, {**stats, "_multi_charge": "the other reading of R33-17", "_charge_gains": {},
+                               "_charge_flow": {}, "_bypass_uses": {}})[0]  # (fresh: the headline's stay as written)
+            other = (f"; ROW, the other reading (R33-17 UNVERIFIED: each line adds, the per-line sum): {alt:.1f} held "
+                     f"(the headline keeps the lower, {round(count, 1):.1f})")
         return round(count, 1), ((redirected + "; ") if redirected else "") + (
-            f"{basis} = {count:.1f} held, at most {most:g}: " + "; ".join(how[:3]) + shared_note)
+            f"{basis} = {count:.1f} held, at most {most:g}: " + "; ".join(how[:3]) + shared_note + other)
     return held
 
 
@@ -1504,6 +1569,23 @@ RAGE_SKIP_CHANCE = {"Rageforged II": 0.30}
 RAGE_PER_USE = {"Molten Crash": 10, "Furious Slam": 10, "Fury of the Mountain": 10, "Rageforged I": 10,
                 "Rageforged II": 10 * (1 - RAGE_SKIP_CHANCE["Rageforged II"])}
 RAGE_PER_SECOND = {"Rampage": 5.0, "Flame Breath": 6.0}
+# Raging Cry (MECHC43; the manager's 12:35 from MECHB41's report, an UNDERCOUNT: PoB maps warcry_grant_X_rage_per_5_power
+# to a CanGainRage flag only, SkillStatMap 2955, so the Rage itself was never counted): "Supports Warcry skills, causing
+# them to grant you Rage on use depending on counted monster Power" (SupportRagingCryPlayer, ConstantStats
+# warcry_grant_X_rage_per_5_power 4). Its one carrier in the game files (checked: Stats 19213 in every table's stat
+# columns, game 26650308: only GrantedEffectStatSets SupportRagingCryPlayer; berserker_warcry_grant_X_rage_per_5_power_
+# while_less_than_25_rage, the other "rage per 5 power" id, has no carrier. Second source, 19 Nov: poe2db's Raging Cry
+# page gives "Supported Skills grant 4 Rage per 5 Power of counted Enemies in range", not marked deprecated, but poe2db
+# has no page listing the stat's carriers (404), so "only carrier" has no second source: UNVERIFIED beyond the game
+# files; the patch-notes archive's one Raging Cry entry, 0.4.0 Hotfix 4, "Fixed a bug where Raging Cry Support wasn't
+# delaying Rage decay", fits each use counting as a gain that pauses the loss). The model is asked for any build
+# with a Warcry and reads the stat from any skill's supportStats. Read from the supported Warcry's supportStats (any other carrier counts
+# too): X Rage per whole 5 of the Power the Warcry counts (models.power_of: the boss and its adds by the build's distance;
+# Echoing Cry's less Power first, models.echo_power's stat), floor (MEDIUM: "per 5" read in whole steps, as PoB's
+# per-N-Power Warcry buffs), on each use at the Warcry's group rate (its cooldown, else the search's chosen rate, else 0).
+# An Echo's repeat gives none (R33-4's reading for Ferocious Roar's count: UNVERIFIED whether an Echo grants it again).
+# A gain event each use (the loss pause): rage_held.
+RAGING_CRY_STAT, RAGING_CRY_STEP = "warcry_grant_X_rage_per_5_power", 5
 
 
 def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, str] | None:
@@ -1656,6 +1738,9 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
     spend = stats.get("_rage_spend") or {}
     own_hits = not (stats.get("_main_channel_rage") or False)
     gain, events, how, refund = 0.0, 0.0, [], 0.0
+    for name, uses, amount, said in stats.get("_raging_cry") or ():  # (MECHC43: Raging Cry, RAGING_CRY_STAT's note)
+        gain, events = gain + uses * amount, events + uses
+        how.append(f"{name} with Raging Cry ({amount:g} Rage a use, {said}; {uses:.3f} uses/s)")
     for text in lines:
         if not qualifies(text, main_types):
             continue
@@ -2212,6 +2297,35 @@ def trinity_count(lines: list[str], stats: dict) -> tuple[float, str]:
 # takes one rolls to feed it), so the two read one cadence. Rolls at a steady cadence of T s: recently min(1, 4 / T) of
 # the fight (80% at 5 s, all of it at 2 s). The time the extra rolls take isn't charged here (nor in Stoicism's).
 DODGE_RECENTLY_LINE = re.compile(r"\bif you(?:'ve| have) dodge rolled recently\b", re.I)
+
+
+# The Combo a use spends (MECHC43; RESEARCH33 R33-16 chakra-of-impact-combo-consumed.md; MECH89's never-on rows, an
+# UNDERCOUNT): PoB's Combo count, Multiplier:ComboStacks, is set only by the Configuration box multiplierCombo, which nothing
+# set (pob-gaps-boss.yaml no-effect-extra-combo's note), so its two readers counted at 0 Combo: Chakra of Impact ("Skills
+# deal 8% increased Damage per Combo consumed, up to 40%", ModCache 9375, for SkillType ComboStacking skills) and
+# Culmination's more Damage per Combo (SkillStatMap 867, support_culmination_damage_+%_final_per_combo_stack, up to
+# ComboStacksMax). Both mean the Combo the skill had on use (checked: every ComboStacks reader in vendor PoB src: those two,
+# the box, and Culmination's ComboStacksMax; R33-16: "a use spends all the Combo the skill holds", HIGH). So the box is
+# set to the main skill's Combo on use:
+# - a skill that needs a Combo count to be used (active_skill_required_number_of_combo_stacks: Tempest Bell 4, Mantra of
+#   Destruction 8) spends that count: it is used "after reaching maximum Combo" (HIGH);
+# - a skill supported by Combo Finisher I / II (support_combo_finisher_required_number_of_combo_stacks 3 / 5) spends its
+#   requirement (R33-16: MEDIUM, whether it can hold more isn't stated);
+# - a skill supported by Culmination or Vruun's Inevitability (skill_maximum_number_of_combo_stacks, up to 10) spends what
+#   the build's other Strikes built since its last use: NOT read here (0, an UNDERCOUNT left, said in the basis; GEM7's
+#   models.vruun_combo_share works it out for Vruun's area from Skill objects this resolver doesn't hold).
+# The use rate the requirement allows is usage.py's (unchanged). Main skill only: the box is one number for the build.
+COMBO_REQUIRED_STATS = ("active_skill_required_number_of_combo_stacks",
+                        "support_combo_finisher_required_number_of_combo_stacks")
+COMBO_MAX_STAT = "skill_maximum_number_of_combo_stacks"
+COMBO_GEMS = ("Tempest Bell", "Mantra of Destruction", "Combo Finisher I", "Combo Finisher II", "Culmination I",
+              "Culmination II", "Vruun's Inevitability")
+
+
+def combo_on_use(lines: list[str], stats: dict) -> tuple[float, str]:
+    """(the main skill's Combo on use, how) from stats["_combo_on_use"] (Conditions.evidence; COMBO_REQUIRED_STATS'
+    note); (0, "") without a Combo skill."""
+    return stats.get("_combo_on_use") or (0.0, "")
 
 
 def dodge_rolled_recently(lines: list[str], stats: dict) -> tuple[object, str, float] | tuple[float, str]:
@@ -6827,6 +6941,7 @@ CONDITIONS: list[Condition] = [
               value_fn=lambda lines, stats: dodge_rolled_recently(lines, stats), fields=()),
     Condition("buffArcaneSurge", "Arcane Surge", value_fn=lambda lines, stats: arcane_surge_uptime(lines, stats),
               fields=("Speed", "HitChance", "CritChance", "Mana", "ManaPerSecondCost", "Devotion")),
+    Condition("multiplierCombo", "Combo on use", value_fn=combo_on_use, fields=()),  # (MECHC43)
     Condition("multiplierRage", "Rage held", value_fn=lambda lines, stats: rage_held(lines, stats),
               fields=("Speed", "HitChance", "CritChance", "MaximumRage", "enemySkillTime", "EvadeChance")),
     Condition("conditionLeeching", "Leeching", value_fn=leeching_uptime(None), fields=()),
@@ -7169,6 +7284,43 @@ class Conditions:
         rates = self._group_uses(groups, shouts - {self.main_skill})
         return sum(number(self.build.call("stats", fields=["Speed"]).get("Speed")) if name == self.main_skill
                    else rates.get(name, self._chosen_use(name)) for name in shouts)
+
+    def _combo_on_use(self) -> tuple[float, str]:
+        """(the main skill's Combo on use, how) (COMBO_REQUIRED_STATS' note)."""
+        wanted = [*COMBO_REQUIRED_STATS, COMBO_MAX_STAT]
+        raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=wanted)["skills"]
+        main = next((s for s in raw if s["name"] == self.main_skill and not s.get("disabled")), {})
+        level, support = main.get("levelStats") or {}, main.get("supportStats") or {}
+        for stat in COMBO_REQUIRED_STATS:
+            need = number(level.get(stat)) or number(support.get(stat))
+            if need > 0:
+                sure = "HIGH" if stat == COMBO_REQUIRED_STATS[0] else "MEDIUM (R33-16: whether it holds more isn't stated)"
+                return need, (f"{self.main_skill} is used at {need:g} Combo and spends it all (R33-16, {sure}); PoB's "
+                              "Combo count for Chakra of Impact and Culmination")
+        if number(support.get(COMBO_MAX_STAT)) or number(level.get(COMBO_MAX_STAT)):
+            return 0.0, (f"{self.main_skill} spends the Combo the build's other Strikes built since its last use: not read "
+                         "here, 0 (an UNDERCOUNT left: Chakra of Impact and Culmination's per-Combo damage count none)")
+        return 0.0, ""
+
+    def _raging_cry(self, power: float) -> list[tuple[str, float, float, str]]:
+        """[(Warcry, uses a second, Rage a use, how)] for each enabled skill a Raging Cry supports (RAGING_CRY_STAT's
+        note)."""
+        raw = self.build.call("activeSkills", supportStats=[RAGING_CRY_STAT, models.ECHO_POWER_STAT])["skills"]
+        found = [(s["name"], number((s.get("supportStats") or {}).get(RAGING_CRY_STAT)),
+                  number((s.get("supportStats") or {}).get(models.ECHO_POWER_STAT))) for s in raw
+                 if not s.get("disabled") and number((s.get("supportStats") or {}).get(RAGING_CRY_STAT)) > 0]
+        if not found:
+            return []
+        uses = self._group_uses(self.build.call("groups")["groups"], {n for n, _, _ in found})
+        out = []
+        for name, per, less in found:
+            counted = power * max(0.0, 1 + less / 100) if less < 0 else power
+            amount = per * math.floor(counted / RAGING_CRY_STEP + 1e-9)
+            said = (f"{per:g} per 5 of {counted:g} Power" + (f" (Echoing Cry's {-less:g}% less Power: {power:g} -> "
+                                                              f"{counted:g})" if less < 0 else "")
+                    + ", whole steps (MEDIUM)")
+            out.append((name, uses.get(name, self._chosen_use(name)), float(amount), said))
+        return out
 
     def _chosen_use(self, name: str) -> float:
         """Uses per second of a skill beside the main one that no group rate covers: the search's chosen press rate for
@@ -8088,6 +8240,14 @@ class Conditions:
             if number((main.get("supportStats") or {}).get(NO_POWER_STAT)) or number(
                     (main.get("levelStats") or {}).get(NO_POWER_STAT)):
                 stats["_main_no_power"] = NO_POWER_STAT
+        if sum(1 for t in texts if re.search(r"\bCharges?\b", t)) >= 2:
+            # (MECHC43) the main skill's skill_can_add_multiple_charges_per_action: without it, one charge of each type a
+            # use (_per_use_joined); asked only when two or more charge lines could be joined
+            raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=[MULTI_CHARGE_STAT])
+            main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
+            if number((main.get("supportStats") or {}).get(MULTI_CHARGE_STAT)) or number(
+                    (main.get("levelStats") or {}).get(MULTI_CHARGE_STAT)):
+                stats["_multi_charge"] = MULTI_CHARGE_STAT
         if any(BLIND_LINE.search(t) for t in texts):
             # a main skill that "cannot themselves inflict Blind" (Blindside's cannot_inflict_blind, on the skill or a
             # support of it; RESEARCH9 / COVE3's OVERCOUNT, MECH55): its hits and crits feed no Blind line (_debuff_source)
@@ -8190,6 +8350,11 @@ class Conditions:
         # (MECH67) the boss's Power with the build's Power lines (models.boss_power): Glory, the roar's Empowers
         stats["_boss_power"] = models.boss_power(texts, stats, _boss_distance(texts, stats)[0], "Attack" in main_types,
                                                  self.main_skill)
+        if any(n in gem_types for n in COMBO_GEMS) and self.main_skill:  # (MECHC43: COMBO_REQUIRED_STATS' note)
+            stats["_combo_on_use"] = self._combo_on_use()
+        if any("Warcry" in (types or ()) for types in gem_types.values()):  # (MECHC43: RAGING_CRY_STAT's note; any
+            # Warcry, so a carrier other than Raging Cry counts too: its exclusivity is UNVERIFIED beyond the game files)
+            stats["_raging_cry"] = self._raging_cry(models.power_of(stats))
         stats["_shocked_ground"] = shocked_ground(stats, texts)
         stats["_chilled_ground"] = chilled_ground(stats, texts, main_gems)  # (MECH76, for COV-A's Desert's Scorn)
         # (MECH79) the build's Ignited Ground at the boss: the ground gains' Fire, COV-A's Desert's Scorn cold half

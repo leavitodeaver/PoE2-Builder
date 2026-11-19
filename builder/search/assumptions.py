@@ -2325,6 +2325,12 @@ class Assumptions:
                 texts, build.call("stats", fields=list(recovery_mod.REFLECT_POISON_FIELDS)))
             build.self_poison += reflected
             hand_notes = hand_notes + reflect_notes
+        if any(p.match(t.strip()) for t in texts for p in (recovery_mod.PER_POISON_DAMAGE, recovery_mod.PER_POISON_SPEED,
+                                                             recovery_mod.PER_POISON_CHAOS)):
+            # (MECHC43, R33-19: the Fists of Stone "per Poison on you" lines, from your own reflected Poisons)
+            poison_mods, poison_rows = recovery_mod.per_poison_lines(
+                texts, build.call("stats", fields=list(recovery_mod.PER_POISON_FIELDS)))
+            hand_mods, hand_notes = hand_mods + poison_mods, hand_notes + poison_rows
         config_in = build.call("getConfig")["input"]  # (PoB's Shocked box ticked: its Shock already counts all fight)
         on_you = boss_hits.boss_ailments_on_you(seen, bool(config_in.get("conditionShocked")
                                                            or config_in.get("conditionOnShockedGround")), texts)
@@ -2394,6 +2400,10 @@ class Assumptions:
         if any(flasks_mod.NO_LIFE_USES.match(t.strip()) for t in texts):  # (MECHC42: Last Stand, MECH89's never-on)
             stand_mods, stand_rows = flasks_mod.no_life_uses_model(build, texts)
             hand_mods, hand_notes = hand_mods + stand_mods, hand_notes + stand_rows
+        if any(recovery_mod.LIFE_SPENT_REGEN.match(t.strip()) for t in texts):  # (MECHC43: Sacrifice of Blood)
+            spent_mods, spent_rows = recovery_mod.life_spent_regen(
+                texts, number(build.call("stats", fields=["LifePerSecondCost"]).get("LifePerSecondCost")))
+            hand_mods, hand_notes = hand_mods + spent_mods, hand_notes + spent_rows
         if any(recovery_mod.KILLED_RECENTLY.match(t.strip()) for t in texts):  # (MECHC42: each line at the build's kills)
             kr_mods, kr_rows = recovery_mod.killed_recently_lines(texts, build.kills)
             hand_mods, hand_notes = hand_mods + kr_mods, hand_notes + kr_rows
@@ -4336,16 +4346,23 @@ class Assumptions:
         expiry = (conditions_mod.buff_expiry(texts)[0] if any(conditions_mod.BUFF_EXPIRY.search(t) for t in texts)
                   else 1.0)
         if recovery.FORTIFYING_CRY in present:
-            found = [s for s in build.call("activeSkills", levelStats=[recovery.FORTIFYING_CRY])["skills"]
+            found = [s for s in build.call("activeSkills", levelStats=[recovery.FORTIFYING_CRY],
+                                           supportStats=[models.ECHO_POWER_STAT])["skills"]
                      if s["name"] == recovery.FORTIFYING_CRY and not s.get("disabled")]
             per = number(((found[0].get("levelStats") or {}) if found else {}).get(recovery.FORTIFY_GUARD_STAT))
-            power = min(models.BOSS_POWER, recovery.FORTIFY_POWER_CAP)
+            # (MECHC43, the manager's 12:35 from MECHB41: the build's own Power, models.power_of (the boss and its adds by
+            # the build's distance), Echoing Cry's less Power first (models.echo_power's stat); before, a flat 20)
+            less = number(((found[0].get("supportStats") or {}) if found else {}).get(models.ECHO_POWER_STAT))
+            seen = models.power_of(stats, texts)
+            counted = seen * max(0.0, 1 + less / 100) if less < 0 else seen
+            power = min(counted, recovery.FORTIFY_POWER_CAP)
             uses = group_uses(build, recovery.FORTIFYING_CRY) or (0.0, "not in an enabled group")
-            amount = per * power // recovery.FORTIFY_POWER_STEP
+            amount = per * (power // recovery.FORTIFY_POWER_STEP)
+            echo = f" (Echoing Cry's {-less:g}% less Power: {seen:g} -> {counted:g})" if less < 0 else ""
             out.append(recovery.event_guard(
                 recovery.FORTIFYING_CRY, amount, uses[0], recovery.FORTIFY_SECONDS, texts, guard_pool,
-                f"{per:g} Guard for every 5 enemy Power (the gem's level), a lone Unique boss's {models.BOSS_POWER:g} "
-                f"Power counted up to {recovery.FORTIFY_POWER_CAP}: {amount:g}; used {uses[1]}", True, expiry))
+                f"{per:g} Guard for every 5 enemy Power (the gem's level), the {seen:g} Power the build counts{echo}, up "
+                f"to {recovery.FORTIFY_POWER_CAP}: {amount:g}; used {uses[1]}", True, expiry))
         groups = build.groups() if hasattr(build, "groups") else []
         main_group = next((g for g in groups if g.get("main")), None)
         vanguard = next((g["name"] for g in (main_group or {}).get("gems") or []

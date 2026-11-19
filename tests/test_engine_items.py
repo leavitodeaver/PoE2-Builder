@@ -1619,3 +1619,29 @@ def test_martial_artists_runic_meridians_rune_slots_are_listed_tried_and_kept(en
     assert 'slotName="Boots Rune #1"' in xml and 'runeName="Greater Desert Rune"' in xml
     engine.call("loadXml", xml=xml)
     assert {s["slot"]: s["rune"] for s in engine.call("characterRunes")["slots"]}["Boots Rune #1"] == "Greater Desert Rune"
+
+
+def test_pob_counts_the_helmet_armour_and_evasion_passives(engine):
+    """MECHC43 (the manager's 11:45, from MECH90's report; LANE_RULES: "PoB already does X" needs a probe): Ruinic Helm
+    (node 18959, energy_shield_+_per_8_helmet_armour: "+1 to Maximum Energy Shield per 8 Item Armour on Equipped Helmet")
+    and Strong Chin (node 10998, stun_threshold_+_from_lowest_of_base_helmet_evasion_rating_and_armour: "Gain Stun
+    Threshold equal to the lowest of Evasion and Armour on your Helmet") are counted by PoB (ModCache PerStat ArmourOnHelmet
+    / LowestOfArmourAndEvasionOnHelmet, set in CalcDefence's slot loop before the Energy Shield and Stun Threshold sums):
+    removing each node with an Armour / Evasion helmet on takes its amount away."""
+    engine.call("newBuild")
+    engine.call("setLevel", level=90)
+    helmet = ("Rarity: Rare\nOptimizer Helmet\nVisored Helm\nItem Level: 82\nImplicits: 0\n+60 to Armour\n"
+              "+40 to Evasion Rating")
+    engine.call("equip", slot="Helmet", raw=helmet, fields=[])
+    fields = ["EnergyShield", "StunThreshold", "ArmourOnHelmet", "LowestOfArmourAndEvasionOnHelmet"]
+    engine.call("allocate", add=[18959, 10998])
+    both = engine.call("stats", fields=fields)
+    armour, lowest = both["ArmourOnHelmet"], both["LowestOfArmourAndEvasionOnHelmet"]
+    assert armour > 60 and 0 < lowest <= armour
+    engine.call("allocate", remove=[18959])
+    no_es = engine.call("stats", fields=fields)
+    assert both["EnergyShield"] - no_es["EnergyShield"] >= int(armour // 8) > 0
+    engine.call("allocate", add=[18959], remove=[10998])
+    no_chin = engine.call("stats", fields=fields)
+    assert both["StunThreshold"] - no_chin["StunThreshold"] >= lowest * 0.99
+
