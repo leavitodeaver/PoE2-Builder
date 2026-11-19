@@ -3461,6 +3461,9 @@ def _armour_broken(lines: list[str], stats: dict) -> tuple[float, str]:
             continue
         rate, share, full = rate + r[0], share + r[1], full + r[2]
         how.append(f"{text[:60]} ({r[3]})")
+    if (apex := stats.get("_final_break")) and apex[0] > 0:  # (MECH89: Rending Apex, final_strike_break)
+        rate += apex[0]
+        how.append(apex[1])
     for key, (name, state) in CONDITIONAL_BREAKS.items():  # (MECH89: Mark for Death, Brittle Armour: (%, share, how))
         got = stats.get(key)
         if got and got[1] > 0 and (r := _armour_break_source(MARK_BREAK_LINE.format(f"{got[0]:g}"), stats)):
@@ -4335,6 +4338,31 @@ MARK_BREAK_LINE = "Break Armour equal to {}% of Physical Damage dealt"
 # modelled apart from the bar).
 BRITTLE_BREAK_STAT = "freeze_applies_%_physical_damage_taken_as_armour_break"
 CONDITIONAL_BREAKS = {"_mark_break": ("Mark for Death", "Marked"), "_brittle_break": ("Brittle Armour", "Frozen")}
+# Rending Apex (MECH89, an UNDERCOUNT before: no reader): "Final Strikes of Supported Skills Break Armour equal to {0}% of
+# Attack Damage dealt" (gem_stat_descriptions; SupportRendingApexPlayer 75, PoB sup_str.lua the same; it supports skills
+# of type PerformsFinalStrike: Ice Strike, Tempest Flurry, Shred, Primal Strikes in PoB's data). On the main skill: one
+# Final Strike a combo (models.COMBO_SEQUENCES' last step, the combo never broken as the combo model reads it, LOW), its
+# hit = that set's per-use damage (the bridge's setRates TotalDPS / Speed, x its Strikes, COMBO_STRIKES), over the
+# combo's time (the sum of each step's 1 / Speed). On a side skill: 0, labelled (its combo isn't read). PoB maps the
+# stat to nothing (no statMap).
+FINAL_BREAK_STAT = "final_strike_attack_damage_%_dealt_as_armour_break"
+
+
+def final_strike_break(main: str, pct: float, sets: list[dict]) -> tuple[float, str]:
+    """(Armour broken a second by the main skill's Final Strikes, how) for Rending Apex's `pct` (see the note above)."""
+    steps = models.COMBO_SEQUENCES.get(main)
+    if not steps or pct <= 0:
+        return 0.0, ""
+    rows = {s.get("label"): (number(s.get("TotalDPS")), number(s.get("Speed"))) for s in sets}
+    if any(rows.get(label, (0, 0))[1] <= 0 for label in steps):
+        return 0.0, f"Rending Apex: a step of {main}'s combo has no speed from PoB, so its Final Strike isn't rated (0)"
+    final = steps[-1]
+    hit = rows[final][0] / rows[final][1] * models.COMBO_STRIKES.get((main, final), 1)
+    seconds = sum(1 / rows[label][1] for label in steps)
+    rate = pct / 100 * hit / seconds
+    return rate, (f"Rending Apex: {pct:g}% of {main}'s Final Strike ({final}, {hit:,.0f} a use, PoB's set) once a "
+                  f"{len(steps)}-step combo of {seconds:.2f} s = {rate:,.0f} Armour broken a second (the combo never "
+                  "broken, LOW)")
 SIDE_BREAK_SKIP = re.compile(r"heavy stun|stunning|when (?:freezing|electrocuting)", re.I)
 
 
@@ -8081,7 +8109,7 @@ class Conditions:
                   and not (every.get(n["name"]) or {"support": True}).get("support")}
         raw = self.build.call("activeSkills", levelStats=[self.main_skill, *sorted(beside)],
                               supportStats=[*DAZE_SKILL_STATS, *BREAK_STATS, BREAK_MORE_STAT, CANNOT_BREAK,
-                                            MARK_BREAK_STAT, BRITTLE_BREAK_STAT])
+                                            MARK_BREAK_STAT, BRITTLE_BREAK_STAT, FINAL_BREAK_STAT])
         effects: dict[str, list[dict]] = {}
         for entry in raw["skills"]:
             if not entry.get("disabled"):
@@ -8122,6 +8150,12 @@ class Conditions:
                         if not s.get("disabled") and s["name"] in (*models.MARKS, models.PREDATORS_MARK)), default=0.0)
         if mark_pct > 0:
             stats["_mark_break"] = (mark_pct, *self._marked_share())
+        # (MECH89) Rending Apex on the main skill: its Final Strikes (final_strike_break)
+        apex = max((number((s.get("supportStats") or {}).get(FINAL_BREAK_STAT)) for s in raw["skills"]
+                    if not s.get("disabled") and s["name"] == self.main_skill), default=0.0)
+        if apex > 0 and self.main_skill in models.COMBO_SEQUENCES and (apex_group := self.build.main_group()):
+            stats["_final_break"] = final_strike_break(self.main_skill, apex, self.build.call(
+                "setRates", index=apex_group["index"], active=apex_group.get("mainActiveSkill") or 1)["sets"])
         # (MECH89) Brittle Armour on the main skill, at the Frozen share (BRITTLE_BREAK_STAT)
         brittle = max((number((s.get("supportStats") or {}).get(BRITTLE_BREAK_STAT)) for s in raw["skills"]
                        if not s.get("disabled") and s["name"] == self.main_skill), default=0.0)
@@ -8209,7 +8243,7 @@ class Conditions:
         if "Ferocious Roar" in gem_types and (roar := self.roar_evidence()):
             broken, stats["_full_break_rate"] = roar, roar[2] / models.full_break_duration([line["text"] for line in lines])
         elif (any(ARMOUR_BREAK_LINE.search(line["text"]) for line in lines) or stats.get("_break_others")
-              or stats.get("_mark_break") or stats.get("_brittle_break")):
+              or stats.get("_mark_break") or stats.get("_brittle_break") or stats.get("_final_break")):
             raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=list(BREAK_STATS))
             main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
             gem_lines = [BREAK_STATS[stat].format(f"{value:g}") for part in ("levelStats", "supportStats")

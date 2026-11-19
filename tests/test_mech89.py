@@ -178,3 +178,39 @@ def test_brittle_armour_breaks_with_every_hit_on_the_frozen_boss():
     got = break_others([_skill()], {2: ROW}, GROUPS, {"Armour Piercing Rounds"}, 1, [], EVERY, None, None,
                        (10.0, 0.25, ""))
     assert got[0][1] == pytest.approx(0.10 * 1000 * 1.0 * 0.25)
+
+
+def test_rending_apex_breaks_with_the_final_strike_once_a_combo():
+    """MECH89: Rending Apex (no reader before, an UNDERCOUNT): 75% of the Final Strike's hit once per combo."""
+    sets = [{"label": "Normal Strikes", "TotalDPS": 1000.0, "Speed": 2.0},
+            {"label": "Third Strike", "TotalDPS": 1500.0, "Speed": 1.0}]
+    rate, how = conditions.final_strike_break("Ice Strike", 75, sets)
+    # Normal, Normal, Third: 0.5 + 0.5 + 1.0 = 2 s a combo; the Third Strike 1,500 a use; 75% of it every 2 s
+    assert rate == pytest.approx(0.75 * 1500 / 2.0) and "Third Strike" in how
+    assert conditions.final_strike_break("Cleave", 75, sets) == (0.0, "")
+    stats = {"Speed": 1.0, "HitChance": 100, "CritChance": 0, "_main_types": {"Attack"}, "_enemy_armour": 1200,
+             "_final_break": (100.0, "test")}
+    assert _armour_broken([], stats)[0] == pytest.approx(0.5)
+
+
+def test_rending_apex_on_ice_strike_fully_breaks_the_boss(engine):
+    """The probe: Ice Strike with Rending Apex in its group Breaks Armour with its Third Strike (0 before MECH89)."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Ice Strike", ascendancies=["Invoker"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Ice Strike"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    search.conditions.evidence()
+    before = build.full_break_up
+    main = build.main_group()
+    old = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} for g in main["gems"]]
+    build.set_group(index=main["index"], gems=[*old, {"name": "Rending Apex", "level": 1, "quality": 0}])
+    search.conditions.evidence()
+    after = build.full_break_up
+    print("PROBE rending apex", before, after)
+    assert after[0] > before[0] and "Rending Apex" in after[1]
