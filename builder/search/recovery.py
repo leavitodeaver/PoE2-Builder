@@ -68,7 +68,8 @@ FIELDS = {
              "LifeRiftRecovery"),  # (MECHC29: Temporal Rift's reset to 4 s ago, rift_income)
     "Mana": ("ManaOnKillRecovery", "ManaRemnantRecovery", "CharmManaRecoveryRate", "ManaOnEventRecovery",
              "ManaOnConsumeRecovery", "ManaFlameLeechRecovery", "ManaRiftRecovery",
-             "ManaFlaskDrain"),  # (MECHC38: a Life flask's "Removes N% of Life Recovered from Mana", NEGATIVE)
+             "ManaFlaskDrain",  # (MECHC38: a Life flask's "Removes N% of Life Recovered from Mana", NEGATIVE)
+             "ManaLostOnKill"),  # (MECHC42: Arvil's Wheel's "Lose 1% of maximum Mana on Kill", NEGATIVE: kill_loss_income)
     # (MECHC17) Energy Shield on events: "Regenerate N% of maximum Energy Shield over 1 second when Stunned" (hit_income).
     # For SEARCH: objective.RECOVERY_POOLS["EnergyShield"] doesn't read it yet
     "EnergyShield": ("EnergyShieldOnEventRecovery", "EnergyShieldPreventedRecoup",  # (MECHC21: Scarred Faith's)
@@ -83,7 +84,7 @@ FIELDS = {
 # NEGATIVE field per pool: what PoB's {pool}LeechRate holds that the boss resists (leech_resisted). In FIELDS, so the
 # sustain and recovery floors (objective's ADDED_RECOVERY) take it off once; Income.pool leaves it out (its sums are the
 # event sources, and PoB's leech isn't one of them).
-NEGATIVE_FIELDS = {"LifeFlaskDrain", "ManaFlaskDrain", "EnergyShieldSacrificed", "LifeSacrificed"}  # (losses, not event income: Income.pool leaves them out)
+NEGATIVE_FIELDS = {"LifeFlaskDrain", "ManaFlaskDrain", "EnergyShieldSacrificed", "LifeSacrificed", "ManaLostOnKill"}  # (losses, not event income: Income.pool leaves them out)
 LEECH_RESISTED = {"Life": "LifeLeechResisted", "Mana": "ManaLeechResisted", "EnergyShield": "EnergyShieldLeechResisted"}
 for _pool, _field in LEECH_RESISTED.items():
     FIELDS[_pool] = (*FIELDS[_pool], _field)
@@ -2450,3 +2451,198 @@ def event_guard(source: str, amount: float, rate: float, seconds: float, texts: 
            "basis": basis, "confidence": "MEDIUM (the event rate; the Guard's timing)",
            "play": f"{source}: {guard:,.0f} Guard while it lasts" if up > 0 else ""}
     return guard, up, row
+
+
+# "while Frozen" / "while Bleeding" lines on you (MECHC42; MECH89's never-on rows, UNDERCOUNTS: PoB parses them under
+# Condition Frozen / Bleeding, which only their configuration boxes set). Carriers (checked: every Stats id holding
+# while_frozen / while_bleeding / when_frozen / if_frozen, and their Mods, PassiveSkills, skill stat sets and Soul Core
+# users, game 26650308): physical_damage_reduction_rating_while_frozen (Flesh Withstands: "+500 to Armour while Frozen"),
+# armour_+%_while_bleeding (Unfettered, Vale Dweller, the "Armour while Bleeding" smalls, a jewel-domain unique mod),
+# life_regeneration_per_minute_%_while_frozen (Exclusive LifeRegenerationWhileFrozenUnique__1 and the mutated Vaal
+# hand-wraps suffix: whether either can be got in a new league is UNVERIFIED, a research question; the model reads the
+# text, so it counts only if the search offers it). The share Frozen is boss_hits.boss_freeze_on_you's, Bleeding
+# boss_hits.bleeding_on_you's.
+# - Armour: part-time, so a row only (the floors count only what is up all fight: the user's 9 Nov rule, as Bulwark).
+# - Life Regeneration while Frozen: averaged over the fight, handed to PoB as plain "Regenerate N% of maximum Life per
+#   second" x the Frozen share (as passive_models' flask-used regen; MEDIUM).
+# Not modelled (said): "20% increased Movement Speed while Bleeding" (movement only), "Gain a Frenzy Charge on Hit while
+# Bleeding" and "N% increased Physical Damage while Frozen" (no PoB unique carries either: Exclusive mods only; and a
+# Frozen player doesn't hit), "Cannot be Shocked while Frozen" (the Shock while Frozen is a sliver of the fight).
+FROZEN_ARMOUR = re.compile(r"^\+(\d+(?:\.\d+)?) to Armour while Frozen$", re.I)
+BLEEDING_ARMOUR = re.compile(r"^(\d+(?:\.\d+)?)% increased Armour while Bleeding$", re.I)
+FROZEN_REGEN = re.compile(r"^Regenerate (\d+(?:\.\d+)?)% of maximum Life per second while Frozen$", re.I)
+
+
+def frozen_bleeding_lines(texts: list[str], frozen: float, bleeding: tuple[float, str]) -> tuple[list[dict], list[dict]]:
+    """(mods, rows) for the build's "while Frozen" / "while Bleeding" lines (the note above). `frozen`: the share of the
+    fight Frozen; `bleeding`: (share Bleeding, how)."""
+    from builder.search import models
+
+    lines = [t.strip() for t in texts]
+    flat = sum(float(m.group(1)) for t in lines if (m := FROZEN_ARMOUR.match(t)))
+    inc = sum(float(m.group(1)) for t in lines if (m := BLEEDING_ARMOUR.match(t)))
+    regen = sum(float(m.group(1)) for t in lines if (m := FROZEN_REGEN.match(t)))
+    mods, rows = [], []
+    if flat > 0:
+        rows.append({"label": f"+{flat:g} to Armour while Frozen (a row, not in the defences)*",
+                     "value": f"+{flat:g} Armour {frozen:.0%} of the fight",
+                     "basis": (f"Frozen {frozen:.0%} of the fight (the boss's Freezes on you); part-time, so not in the "
+                               "defence floors (they count only what is up all fight); PoB counts none (its box is off)"),
+                     "confidence": "MEDIUM-LOW (the Freeze share)", "play": ""})
+    share, how = bleeding
+    if inc > 0:
+        rows.append({"label": f"{inc:g}% increased Armour while Bleeding (a row, not in the defences)*",
+                     "value": f"{inc:g}% increased Armour {share:.0%} of the fight",
+                     "basis": (f"{how}; part-time, so not in the defence floors (they count only what is up all "
+                               "fight); PoB counts none (its box is off)" if share > 0 else
+                               f"never Bleeding: {how}; without a Bleed source it adds nothing"),
+                     "confidence": "MEDIUM (the Bleed share)", "play": ""})
+    if regen > 0:
+        if frozen > 0:
+            mods.append(models.line("Regenerate 1% of maximum Life per second", regen * frozen))
+        rows.append({"label": f"Regenerate {regen:g}% of maximum Life per second while Frozen*",
+                     "value": f"{regen * frozen:.2f}% of maximum Life a second on average (Frozen {frozen:.0%} of the fight)",
+                     "basis": "the line x the share of the fight the boss's Freezes hold you, averaged over the fight; "
+                              "PoB counts none (its box is off)",
+                     "confidence": "MEDIUM-LOW (the Freeze share)", "play": ""})
+    return mods, rows
+
+
+# "if you've Killed Recently" lines and "Lose N% of maximum Mana / Energy Shield on Kill" (MECHC42; MECH89's never-on
+# rows; the manager's 10:55 ruling: each line on its own, never through PoB's KilledRecently box, which also switches on
+# Onslaught on Kill, Phasing, the "Gain N Life on Kill per Level" lines and others: ModCache holds 25 lines under it).
+# PoB's own parses stay off (its box is never set). Kills are the build's own (models.kill_rate: the boss preset's adds,
+# 0 against a lone boss, whose death ends the fight; plus your own minions Killed, counted as Kills by lines that don't say
+# "enemy": the ruling on A17-4, LOW). "Recently" is the past 4 s (KeywordPopups Recently); kills taken as random: on
+# 1 - e^(-4 k) of the fight (MEDIUM). Carriers (checked: PoB's ModCache keys holding "Killed Recently" and "on Kill"
+# under Condition KilledRecently; the never-on audit's rows): Primal Growth / its small (Area of Effect), Adrenaline Rush
+# (Attack Speed; its Movement Speed and the other Movement Speed lines not modelled: movement only), the crit smalls
+# (Critical Hit Chance), Arvil's Wheel and the Exclusive UniqueMaximumManaOnKillPercent (Mana lost), the Energy Shield
+# twin (Exclusive). Not here: Bond of the Wolf's Companion Onslaught on Kill (a companion's kills, MECH-B's), "You have
+# Phasing if you've Killed Recently" (evasion-side, no number our floors read), the "for each Shocked Enemy you've Killed
+# Recently" and "Killed a Cursed Enemy Recently" lines (PoE1 leftovers / other conditions: not checked here, UNVERIFIED).
+KILLED_RECENTLY = re.compile(r"^(\d+(?:\.\d+)?)% increased (Area of Effect|Attack Speed|Critical Hit Chance) if "
+                             r"you(?:'ve| have) killed Recently$", re.I)
+KILL_LOSS = re.compile(r"^Lose (\d+(?:\.\d+)?)% of maximum (Mana|Energy Shield) on Kill$", re.I)
+
+
+def killed_recently_share(kills: float) -> float:
+    """The share of the fight with a Kill in the past 4 s at `kills` a second (random)."""
+    return 1 - math.exp(-4.0 * kills) if kills > 0 else 0.0
+
+
+def killed_recently_lines(texts: list[str], kills: tuple) -> tuple[list[dict], list[dict]]:
+    """(mods, rows) for the build's "N% increased ... if you've Killed Recently" lines at its own kills (`kills`:
+    models.kill_rate's (enemies/s, all/s, how))."""
+    from builder.search import models
+
+    found: dict[str, float] = {}
+    for t in texts:
+        if m := KILLED_RECENTLY.match(t.strip()):
+            what = m.group(2).title().replace("Of", "of")
+            found[what] = found.get(what, 0.0) + float(m.group(1))
+    if not found:
+        return [], []
+    total, how = float(kills[1] or 0.0), kills[2] if len(kills) > 2 else ""
+    share = killed_recently_share(total)
+    mods = [models.line(f"1% increased {what}", value * share) for what, value in found.items() if share > 0]
+    rows = [{"label": f"{value:g}% increased {what} if you've Killed Recently*",
+             "value": f"{value * share:.2f}% on average (a Kill in the past 4 s {share:.0%} of the fight)",
+             "basis": (f"{total:.3f} Kills a second ({how}) x 4 s, kills at random: 1 - e^(-4 k); PoB counts none (its "
+                       "box is never set)" if share > 0 else f"no Kills before the boss dies ({how}): 0"),
+             "play": ("Kill the boss's adds (or your own minions, LOW) to keep it on: with them "
+                      f"{value * share:.2f}% on average, without them 0." if share > 0 else ""),
+             "confidence": "LOW (the boss preset's add kills; own minions Killed counted, LOW)"}
+            for what, value in found.items()]
+    return mods, rows
+
+
+def kill_loss_income(income: "Income", texts: list[str], mana: float, es: float, kills: tuple) -> list[dict]:
+    """Arvil's Wheel's "Lose N% of maximum Mana on Kill" into ManaLostOnKill (NEGATIVE) at all the build's Kills (a
+    downside: the cautious side counts own minions Killed too); the Energy Shield twin a row only (the Energy Shield
+    recovery pool doesn't read event fields yet). Returns its rows."""
+    total, how = float(kills[1] or 0.0), kills[2] if len(kills) > 2 else ""
+    rows = []
+    for t in texts:
+        if not (m := KILL_LOSS.match(t.strip())):
+            continue
+        pct, pool = float(m.group(1)), m.group(2).title()
+        size = mana if pool == "Mana" else es
+        lost = pct / 100 * max(size, 0.0) * max(total, 0.0)
+        if pool == "Mana" and lost > 0:
+            income.rates["ManaLostOnKill"] -= lost
+            income.parts.append(f"Mana lost on Kill: {pct:g}% of {size:,.0f} x {total:.3f} Kills/s: -{lost:,.1f}/s")
+        rows.append({"label": f"Lose {pct:g}% of maximum {pool} on Kill*",
+                     "value": f"-{lost:,.1f} {pool} a second" if lost > 0 else "0: no Kills before the boss dies",
+                     "basis": (f"{pct:g}% of your {size:,.0f} maximum {pool} x {total:.3f} Kills a second ({how})"
+                               + ("; counted in the Mana sustain" if pool == "Mana" else
+                                  "; a row only: the Energy Shield recovery doesn't read on-Kill events yet")),
+                     "confidence": "LOW (the boss preset's add kills)", "play": ""})
+    return rows
+
+
+# Immaterial (MECHC42; MECH89's never-on row, 3.0): "50% increased Evasion Rating if Energy Shield Recharge has started in
+# the past 2 seconds" (PoB: Condition EnergyShieldRechargePastTwoSec, set only by its box; the stat evasion_rating_+%_if_
+# energy_shield_recharge_started_in_past_2_seconds has the one carrier, checked: Stats ids holding recharge_started /
+# begin_es_recharge and their users in every table, game 26650308; PoB's ModCache: this line only). Recharge starts after
+# PoB's EnergyShieldRechargeDelay with no hit: with the boss's landed hits at random (h a second, boss_hits.landing_hits)
+# each hit is followed by a start when the next comes after the delay d, so starts come at h e^(-h d) a second, and one
+# has started in the past 2 s on 1 - e^(-2 h e^(-h d)) of the fight (MEDIUM; the item / charm starts of flasks.
+# es_recharge_starts not added: the lower reading). No Energy Shield, or no landed hit: 0. Part-time, so a row only (the
+# floors count only what is up all fight).
+RECHARGE_STARTED_EVASION = re.compile(r"^(\d+(?:\.\d+)?)% increased Evasion Rating if Energy Shield Recharge has "
+                                      r"started in the past 2 seconds$", re.I)
+
+
+def recharge_started_row(texts: list[str], stats: dict) -> dict | None:
+    """Immaterial's row (the note above); None without the line."""
+    from builder.search import boss_hits
+
+    value = sum(float(m.group(1)) for t in texts if (m := RECHARGE_STARTED_EVASION.match(t.strip())))
+    if value <= 0:
+        return None
+    es = max(float(stats.get("EnergyShield") or 0.0), 0.0)
+    delay = float(stats.get("EnergyShieldRechargeDelay") or 0.0) or 4.0
+    hits = boss_hits.landing_hits(stats) if es > 0 else 0.0
+    starts = hits * math.exp(-hits * delay) if hits > 0 else 0.0
+    share = 1 - math.exp(-2.0 * starts) if starts > 0 else 0.0
+    return {"label": f"{value:g}% increased Evasion Rating after Energy Shield Recharge starts (a row, not in the defences)*",
+            "value": f"{value:g}% increased Evasion Rating {share:.0%} of the fight",
+            "basis": (f"{hits:.2f} landed boss hits a second, each followed by a Recharge start when the next comes after "
+                      f"your {delay:.2f} s delay: {starts:.3f} starts a second, one in the past 2 s on {share:.0%} of the "
+                      "fight (item and charm starts not added: the lower reading); part-time, so not in the defence "
+                      "floors; PoB counts none (its box is off)" if es > 0 else "no Energy Shield: never Recharges, 0"),
+            "confidence": "MEDIUM (random hits)", "play": ""}
+
+
+# The raised-Block rune (MECHC42; MECHC38 / MECHC39's rows-only leftover): "+N% to maximum Block chance if you've Blocked
+# with a raised Shield Recently" (the Soul Core's additional_maximum_block_%_if_blocked_with_active_block_recently, its
+# one carrier: checked, every Stats id holding active_block / raised / shield_raised and their users in every table, game
+# 26650308; PoB's ModCache has no key for it: unparsed, so no overcount). Raised Blocks a second: the boss's hits (one
+# every enemySkillTime) x the share of the fight the shield is raised (1 for a channelled shield skill, ACTIVE_BLOCK_
+# CHANNELS; Raise Shield taps x RAISED_TAP_SECONDS; else 0), every Blockable hit Blocked while raised (as raised_block_
+# taken); a raised Block in the past 4 s on 1 - e^(-4 r) of the fight (MEDIUM-LOW). Part-time, and it moves Block only
+# where Block chance reaches its maximum: a row only.
+RAISED_MAX_BLOCK = re.compile(r"^\+(\d+(?:\.\d+)?)% to maximum Block chance if you've Blocked with a raised Shield "
+                              r"Recently$", re.I)
+
+
+def raised_max_block_row(texts: list[str], raised: float, every: float, block: float, block_max: float) -> dict | None:
+    """The rune's row (the note above): `raised` the share of the fight the shield is up, `every` the boss's seconds
+    between hits, `block` / `block_max` PoB's Block chance and its maximum (%); None without the line."""
+    value = sum(float(m.group(1)) for t in texts if (m := RAISED_MAX_BLOCK.match(t.strip())))
+    if value <= 0:
+        return None
+    rate = min(max(raised, 0.0), 1.0) / (every or 0.7)
+    share = 1 - math.exp(-4.0 * rate) if rate > 0 else 0.0
+    capped = block_max > 0 and block >= block_max
+    return {"label": f"+{value:g}% to maximum Block chance after a Block with your shield raised (a row)*",
+            "value": f"+{value:g}% maximum Block {share:.0%} of the fight",
+            "basis": ((f"{rate:.2f} raised Blocks a second (the shield up {raised:.0%} of the fight, every Blockable hit "
+                       f"Blocked then), one in the past 4 s on {share:.0%} of the fight" if share > 0 else
+                       "the build never raises its shield (no channelled shield skill, no Raise Shield taps): 0")
+                      + f"; your Block chance {block:g}% against its {block_max:g}% maximum: "
+                      + ("at the maximum, so this would raise it" if capped else "below the maximum, so it adds nothing now")
+                      + "; part-time, so not in the defence floors; PoB doesn't read the line"),
+            "confidence": "MEDIUM-LOW (the raised share from the build's own shield use)",
+            "play": ("Raise your shield into the boss's hits to keep it on" if share > 0 and capped else "")}

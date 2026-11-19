@@ -2244,6 +2244,9 @@ class Assumptions:
         # (MECHC38) the Chills on you as action speed: the boss's Slow (an OVERCOUNT before), Sierran Inheritance's reversed
         # Chill (the manager's ruling (iii), R31-1)
         chill_seen = {**build.call("stats", fields=list(boss_hits.CHILL_FIELDS)), **seen}
+        bleeding = (0.0, "")  # (MECHC42: the share of the fight you're Bleeding, for the "while Bleeding" lines)
+        if any(boss_hits.BLEEDING_CHILLS.match(t.strip()) or recovery_mod.BLEEDING_ARMOUR.match(t.strip()) for t in texts):
+            bleeding = chill_seen["_bleeding"] = boss_hits.bleeding_on_you(texts, seen)
         speed, chill_notes = boss_hits.boss_chill_on_you(chill_seen, texts, bool(
             config_in.get("conditionChilled") or config_in.get("conditionOnChilledGround")))
         # (MECHC39, R31-8: the boss's Freeze on you, the share of the fight Frozen, with the Chill as one action-speed
@@ -2260,6 +2263,12 @@ class Assumptions:
         if inc:
             hand_mods = hand_mods + [models.raw_mod("ActionSpeed", "INC", inc, tag="BossChill")]
         hand_notes = hand_notes + chill_notes + ([freeze_row] if freeze_row else []) + speed_rows
+        if any(p.match(t.strip()) for t in texts for p in (recovery_mod.FROZEN_ARMOUR, recovery_mod.BLEEDING_ARMOUR,
+                                                             recovery_mod.FROZEN_REGEN)):
+            # (MECHC42, MECH89's never-on rows: Armour while Frozen / Bleeding as rows, Life Regeneration while Frozen at
+            # the Frozen share)
+            fb_mods, fb_rows = recovery_mod.frozen_bleeding_lines(texts, frozen, bleeding)
+            hand_mods, hand_notes = hand_mods + fb_mods, hand_notes + fb_rows
         if recovery_mod.has_divinity(texts):
             # (MECHC39, R31-3: Immaculate Adherence's Divinity pays every Mana / Life cost; the main skill held to what it
             # regenerates). The costs it pays are read without its own mods (they zero PoB's costs): one recalculation
@@ -2290,6 +2299,9 @@ class Assumptions:
         if any(flasks_mod.NO_LIFE_USES.match(t.strip()) for t in texts):  # (MECHC42: Last Stand, MECH89's never-on)
             stand_mods, stand_rows = flasks_mod.no_life_uses_model(build, texts)
             hand_mods, hand_notes = hand_mods + stand_mods, hand_notes + stand_rows
+        if any(recovery_mod.KILLED_RECENTLY.match(t.strip()) for t in texts):  # (MECHC42: each line at the build's kills)
+            kr_mods, kr_rows = recovery_mod.killed_recently_lines(texts, build.kills)
+            hand_mods, hand_notes = hand_mods + kr_mods, hand_notes + kr_rows
         if any(WARCRIED_EACH.match(t.strip()) for t in texts):  # (MECHC42: Deafening Cries, MECH89's never-on)
             cry_mods, cry_rows = warcried_model(build, texts)
             hand_mods, hand_notes = hand_mods + cry_mods, hand_notes + cry_rows
@@ -2447,6 +2459,15 @@ class Assumptions:
             hand_notes = hand_notes + [{"label": "Damage from Blocks with your shield raised (your item's downside)*",
                                         "value": f"{effect:.1f}% of each Blocked hit", "basis": effect_how,
                                         "confidence": "MEDIUM (the raised share from the build's own shield use)"}]
+        if any(recovery_mod.RAISED_MAX_BLOCK.match(e["text"].strip()) for e in source_lines):  # (MECHC42: a row)
+            raised = (1.0 if main is not None and main.name in recovery_mod.ACTIVE_BLOCK_CHANNELS else
+                      min(1.0, presses[models.RAISE_SHIELD][0] * recovery_mod.RAISED_TAP_SECONDS)
+                      if models.RAISE_SHIELD in presses else 0.0)
+            seen_block = build.call("stats", fields=["BlockChance", "BlockChanceMax", "enemySkillTime"])
+            if rune_row := recovery_mod.raised_max_block_row(
+                    [e["text"] for e in source_lines], raised, models.number(seen_block.get("enemySkillTime")),
+                    models.number(seen_block.get("BlockChance")), models.number(seen_block.get("BlockChanceMax"))):
+                hand_notes = hand_notes + [rune_row]
         roar_mods, roar_notes = models.roar_model(found, {**stats, "_texts": [e["text"] for e in source_lines]}, main)
         hand_mods, hand_notes = hand_mods + roar_mods, hand_notes + roar_notes
         rod_mods, rod_notes = models.rod_model(found, stats, main)
@@ -4439,6 +4460,10 @@ class Assumptions:
                                                   number(seen.get("DeflectEffect"))):
                 guard_rows.append(row)
         recovery.life_sacrifice_income(income, texts, number(stats.get("Life")), 1 / models.DODGE_EVERY)  # (MECHC41)
+        guard_rows += recovery.kill_loss_income(income, texts, number(stats.get("Mana")),  # (MECHC42: Arvil's Wheel)
+                                                number(stats.get("EnergyShield")), kills)
+        if immaterial := recovery.recharge_started_row(texts, stats):  # (MECHC42: Immaterial, a row)
+            guard_rows.append(immaterial)
         for guard, up, row in self.event_guards(texts, stats, main, present, boss):  # (MECHC40: Guard from events)
             guard_rows.append(row)
             whole = recovery.full_guard_mods(guard, up)

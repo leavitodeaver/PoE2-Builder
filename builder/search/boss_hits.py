@@ -885,6 +885,32 @@ def self_bleed(texts: list[str], stats: dict) -> tuple[float, list[dict]]:
                              "(without it: none)") if taken > 0 else ""}]
 
 
+# The share of the fight you're Bleeding (MECHC42; for the "while Bleeding" lines: Venopuncture's Chill downside in
+# boss_chill_on_you, the Armour rows in recovery.frozen_bleeding_lines): the boss's own Bleeds (ailment_rate: Olroth's
+# ThrowBack, the one pinnacle source) plus your own items' "N% chance to be inflicted with Bleeding when Hit" (self_bleed's
+# rate: its landed Physical hits that reach Life), each Bleed lasting BLEED_SECONDS, hits taken as random (Poisson):
+# 1 - e^(-rate x 5 s) (MEDIUM). Deflection's "Deflected Hits cannot inflict Bleeding" is read only where stats carry
+# "_deflect_stops" (an upper reading of the share elsewhere, LOW).
+def bleeding_on_you(texts: list[str], stats: dict) -> tuple[float, str]:
+    """(share of the fight you're Bleeding, how)."""
+    name = boss_name(stats)
+    every = number(stats.get("enemySkillTime")) or 0.7
+    land = land_share(stats) / every
+    boss_rate, boss_how = ailment_rate(stats, "Bleed", land)
+    chance = min(sum(float(m.group(1)) for t in texts if (m := SELF_BLEED.match(t.strip()))), 100.0) / 100
+    own, own_how = 0.0, ""
+    if chance > 0:
+        physical = type_shares(name).get("Physical", 0.0)
+        kept, _ = deflect_kept(stats, "Bleed")
+        reach = life_reach(stats)[0] if physical > 0 else 1.0
+        own = chance * land * physical * kept * reach
+        own_how = f"; your own items' {chance:.0%} chance when Hit: {own * 60:.1f} a minute"
+    rate = boss_rate + max(own, 0.0)
+    share = 1 - math.exp(-rate * BLEED_SECONDS) if rate > 0 else 0.0
+    return share, (f"the boss's Bleeds: {boss_how}{own_how}; {BLEED_SECONDS:g} s each: Bleeding {share:.0%} of the fight "
+                   "(MEDIUM)")
+
+
 # "+N% chance to be Poisoned / Ignited / Shocked" on your own items (MECHC35; COV38's downside sweep, the manager 21:50
 # 16 Nov: OVERCOUNTS while nothing counted them; PoB parses none of them: Apep's Supremacy's "+25% chance to be Poisoned"
 # and the Exclusive mods IncreasedChanceToBeIgnitedUnique* "+25% chance to be Ignited", ChanceToBeShockedUnique__1 / 2
@@ -1240,6 +1266,9 @@ def immune_after(texts: list[str] | None, ailment: str) -> float:
                 and m.group(1).capitalize() == ailment), default=0.0)
 ALL_DAMAGE_CHILLS = re.compile(r"^All Damage taken from Hits Contributes to Magnitude of Chill inflicted on you$", re.I)
 CHILL_REVERSED = re.compile(r"^The Effect of Chill on you is reversed$", re.I)
+# (MECHC42; an OVERCOUNT before: PoB leaves it unparsed, ModCache 5599-5601) Venopuncture's downside: the boss's hits of
+# every type Chill you while you're Bleeding (stats["_bleeding"]: bleeding_on_you's share), Cold hits as always
+BLEEDING_CHILLS = re.compile(r"^All Damage taken from Hits while Bleeding Contributes to Magnitude of Chill on you$", re.I)
 CHILL_FIELDS = ("ChillAvoidChance", "SelfChillDuration", "SelfChillEffect", "AilmentThreshold", "Life", "enemySkillTime",
                 "EvadeChance", "EffectiveBlockChance", "ManaPerSecondCost", "Speed",
                 *(f"{t}TakenHit" for t in ("Physical", "Fire", "Cold", "Lightning", "Chaos")))
@@ -1273,15 +1302,19 @@ def boss_chill_on_you(stats: dict, texts: list[str], chilled_box: bool = False) 
         return min(m, CHILL_MAX_ON_PLAYER) if m >= 100 * CHILL_FLOOR else 0.0
 
     sources = []  # (rate a second, magnitude, what)
+    bleeding = (stats.get("_bleeding") or (0.0, ""))[0] if any(BLEEDING_CHILLS.match(t) for t in lines) else 0.0
     for kind, share in type_shares(name).items():
-        if share <= 0 or (kind != "Cold" and not all_types):
+        part = 1.0 if kind == "Cold" or all_types else bleeding  # (MECHC42: Venopuncture's, while you're Bleeding)
+        if share <= 0 or part <= 0:
             continue
         key = f"{kind}TakenHit"
         hit = max(number(stats.get(key)) if key in stats else hit_sizes(name).get(kind, 0.0), 0.0)
         m = magnitude(hit)
-        rate = land * share * (1 - avoid)
+        rate = land * share * (1 - avoid) * part
         if m > 0 and rate > 0:
-            sources.append((rate, m, f"the boss's {kind} hits ({hit:,.0f} after your mitigation, {rate * 60:.1f} a minute)"))
+            sources.append((rate, m, f"the boss's {kind} hits ({hit:,.0f} after your mitigation, {rate * 60:.1f} a minute"
+                                     + (f", while you're Bleeding {part:.0%} of the fight: "
+                                        f"{(stats.get('_bleeding') or (0, ''))[1]}" if part < 1 else "") + ")"))
     if all_types:
         taken, uses, _ = recovery.cost_damage(lines, stats)
         if taken > 0 and uses > 0:

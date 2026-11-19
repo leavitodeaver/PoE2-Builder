@@ -2760,3 +2760,82 @@ def test_deafening_cries_counts_each_warcry_used_recently_at_the_builds_own_rate
     none = SimpleNamespace(ctx=SimpleNamespace(all_gems=gems), groups=lambda: groups[3:], call=lambda name, **kw: {})
     assert assumptions.warcries_used_recently(none)[0] == 0.0
     assert assumptions.warcried_model(none, [line])[0] == []
+
+
+def test_frozen_and_bleeding_lines_count_at_the_shares_the_boss_holds_you_in():
+    """MECHC42 (MECH89's never-on rows): "+500 to Armour while Frozen" and "N% increased Armour while Bleeding" are rows
+    (part-time: not in the floors); "Regenerate N% of maximum Life per second while Frozen" counts at the Frozen share;
+    the Bleeding share is the boss's Bleeds (Olroth's) plus your own items' chance; Venopuncture's "All Damage taken from
+    Hits while Bleeding Contributes to Magnitude of Chill on you" Chills you with every type's hits while you Bleed (an
+    OVERCOUNT before: unread)."""
+    from builder.search import boss_hits
+
+    texts = ["+500 to Armour while Frozen", "50% increased Armour while Bleeding",
+             "Regenerate 10% of maximum Life per second while Frozen"]
+    mods, rows = recovery.frozen_bleeding_lines(texts, 0.2, (0.5, "half the fight"))
+    assert mods[0]["line"] == "Regenerate 1% of maximum Life per second" and mods[0]["scale"] == pytest.approx(2.0)
+    assert len(rows) == 3 and "20% of the fight" in rows[0]["value"] and "50% of the fight" in rows[1]["value"]
+    assert recovery.frozen_bleeding_lines(texts, 0.0, (0.0, "none"))[0] == []
+    assert recovery.frozen_bleeding_lines(["10% increased Armour"], 0.5, (0.5, ""))  == ([], [])
+    lone = boss_hits.bleeding_on_you([], {"_boss": "Arbiter of Ash", "Life": 3000.0})
+    olroth = boss_hits.bleeding_on_you([], {"_boss": "Olroth, Origin of the Fall", "Life": 3000.0})
+    assert lone[0] == 0.0 and 0.0 < olroth[0] < 1.0
+    own = boss_hits.bleeding_on_you(["50% chance to be inflicted with Bleeding when Hit"],
+                                    {"_boss": "Arbiter of Ash", "Life": 3000.0})
+    assert own[0] > 0.0 and "your own items" in own[1]
+    seen = {"_boss": "Olroth, Origin of the Fall", "Life": 3000.0, "AilmentThreshold": 100.0}
+    vein = "All Damage taken from Hits while Bleeding Contributes to Magnitude of Chill on you"
+    plain, _ = boss_hits.boss_chill_on_you(seen, [])
+    bled, rows = boss_hits.boss_chill_on_you({**seen, "_bleeding": (0.5, "half")}, [vein])
+    assert bled < plain <= 0.0 and "while you're Bleeding 50%" in rows[0]["basis"]
+    assert boss_hits.boss_chill_on_you({**seen, "_bleeding": (0.0, "")}, [vein])[0] == pytest.approx(plain)
+
+
+def test_killed_recently_lines_count_each_on_its_own_at_the_builds_kills():
+    """MECHC42 (MECH89's never-on rows; the manager's 10:55 ruling: each line on its own, never PoB's KilledRecently
+    box): "N% increased Area of Effect / Attack Speed / Critical Hit Chance if you've Killed Recently" at 1 - e^(-4 k) of
+    the fight, k the build's Kills (0 against a lone boss); Arvil's Wheel's "Lose 1% of maximum Mana on Kill" as a
+    NEGATIVE Mana field, its Energy Shield twin a row."""
+    texts = ["15% increased Area of Effect if you've Killed Recently", "8% increased Attack Speed if you've killed Recently",
+             "10% increased Critical Hit Chance if you have Killed Recently", "4% increased Movement Speed if you've Killed Recently"]
+    lone = (0.0, 0.0, "a lone boss")
+    mods, rows = recovery.killed_recently_lines(texts, lone)
+    assert mods == [] and len(rows) == 3 and rows[0]["value"].startswith("0.00%")
+    adds = (0.25, 0.25, "adds")
+    share = 1 - math.exp(-1.0)
+    mods, rows = recovery.killed_recently_lines(texts, adds)
+    assert [m["line"] for m in mods] == ["1% increased Area of Effect", "1% increased Attack Speed",
+                                         "1% increased Critical Hit Chance"]
+    assert mods[0]["scale"] == pytest.approx(15 * share, abs=1e-3) and mods[1]["scale"] == pytest.approx(8 * share, abs=1e-3)
+    income = recovery.Income()
+    rows = recovery.kill_loss_income(income, ["Lose 1% of maximum Mana on Kill", "Lose 1% of maximum Energy Shield on Kill"],
+                                     1000.0, 2000.0, adds)
+    assert income.rates["ManaLostOnKill"] == pytest.approx(-2.5) and income.pool("Mana") == 0.0
+    assert len(rows) == 2 and "row only" in rows[1]["basis"]
+    blank = recovery.Income()
+    recovery.kill_loss_income(blank, ["Lose 1% of maximum Mana on Kill"], 1000.0, 0.0, lone)
+    assert blank.rates["ManaLostOnKill"] == 0.0
+
+
+def test_immaterial_is_a_row_at_the_share_a_recharge_started_in_the_past_2_seconds():
+    """MECHC42 (MECH89's never-on rows): Immaterial's Evasion after an Energy Shield Recharge start, a row: starts at
+    h e^(-h d) a second from the boss's landed hits h and the delay d, on 1 - e^(-2 starts) of the fight; none without ES."""
+    line = "50% increased Evasion Rating if Energy Shield Recharge has started in the past 2 seconds"
+    row = recovery.recharge_started_row([line], {"EnergyShield": 2000.0, "EnergyShieldRechargeDelay": 4.0,
+                                                 "enemySkillTime": 2.0})
+    starts = 0.5 * math.exp(-2.0)
+    assert f"{1 - math.exp(-2 * starts):.0%} of the fight" in row["value"]
+    assert recovery.recharge_started_row([line], {"EnergyShield": 0.0})["value"].endswith("0% of the fight")
+    assert recovery.recharge_started_row(["50% increased Evasion Rating"], {}) is None
+
+
+def test_the_raised_block_rune_is_a_row_at_the_raised_blocks_recently():
+    """MECHC42 (MECHC38's rows-only leftover): "+N% to maximum Block chance if you've Blocked with a raised Shield
+    Recently" on 1 - e^(-4 r) of the fight, r = the boss's hits x the raised share; it matters only at maximum Block."""
+    line = "+5% to maximum Block chance if you've Blocked with a raised Shield Recently"
+    row = recovery.raised_max_block_row([line], 0.3, 1.0, 50.0, 50.0)
+    assert f"{1 - math.exp(-1.2):.0%} of the fight" in row["value"] and "would raise it" in row["basis"]
+    low = recovery.raised_max_block_row([line], 0.3, 1.0, 30.0, 50.0)
+    assert "adds nothing now" in low["basis"] and low["play"] == ""
+    assert recovery.raised_max_block_row([line], 0.0, 1.0, 50.0, 50.0)["value"].endswith("0% of the fight")
+    assert recovery.raised_max_block_row(["+5% to maximum Block chance"], 1.0, 1.0, 50.0, 50.0) is None
