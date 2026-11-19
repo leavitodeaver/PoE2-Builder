@@ -23,7 +23,7 @@ from builder.data.rules import rules as game_rules
 from builder.ledger import gap_list, item_lines, translate, wrong
 from builder.request.constraints import PRESSED_PERSISTENT, CompiledRequest, compile_request
 from builder.request.schema import BuildRequest, DefenceStyle, GearTier
-from builder.search import alloys, anoints, base_variants, cultivated, granted_rolls
+from builder.search import alloys, anoints, base_variants, cultivated, desecrated, granted_rolls
 
 # Most a single unique may cost at each gear tier (divine), on top of the request's divine cap
 TIER_UNIQUE_CAP = {GearTier.LEAGUE_START: 1.0, GearTier.MID: 20.0, GearTier.ENDGAME: 300.0, GearTier.MIRROR: math.inf}
@@ -222,6 +222,10 @@ class ItemOption:
     alloy: str = ""
     alloy_scale: float = 1.0
     alloy_report: tuple[str, ...] = ()
+    # (SEARCH30) runes socket-bound to the item (an influence rune whose affixes it carries: builder/search/influence.py):
+    # they stay first in `runes` and are never replaced; `craft_route`: how its price was found (the craft route's steps)
+    bound: tuple[str, ...] = ()
+    craft_route: tuple[str, ...] = ()
 
     @property
     def granted_basis(self) -> str:
@@ -241,6 +245,10 @@ class ItemOption:
         if self.version:
             described["version"] = self.version
             described["price_note"] = self.price_note
+        if self.bound:
+            described["bound_runes"] = list(self.bound)
+        if self.craft_route:
+            described["craft_route"] = list(self.craft_route)
         if self.alloy:
             described["alloy"] = {"name": self.alloy, "dps_scale": round(self.alloy_scale, 4), "rows": list(self.alloy_report)}
         return described
@@ -305,6 +313,8 @@ class Context:
         self.augment_prices: dict[str, float] = payload.get("augment_prices") or {}
         self.emotion_prices: dict[str, float] = payload.get("emotion_prices") or {}  # Liquid Emotions, for anoints
         self.alloy_prices: dict[str, float] = payload.get("alloy_prices") or {}  # (SEARCH29) Alloys, builder/search/alloys.py
+        # (SEARCH30) bones and Omens for Desecrated affixes, builder/search/desecrated.py
+        self.desecration_prices: dict[str, float] = payload.get("desecration_prices") or {}
         # Trade prices of specific versions of a unique (builder/data/unique_versions.py)
         self.unique_versions: dict[str, dict] = payload.get("unique_versions") or {}
         self.rare_model = rare_prices.RarePriceModel.from_payload(payload.get("rare_model"))
@@ -790,6 +800,7 @@ def make_payload(request: BuildRequest, prices=None) -> dict:
         "augment_prices": augment_prices,
         "emotion_prices": anoints.emotion_prices(prices),
         "alloy_prices": alloys.payload_prices(prices),  # (SEARCH29)
+        "desecration_prices": desecrated.payload_prices(prices),  # (SEARCH30)
         "league": league,
         "rare_model": rare_prices.RarePriceModel.load(league).payload(),
         "craft_prices": craft_prices(prices),

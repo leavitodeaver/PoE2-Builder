@@ -13,11 +13,13 @@ much data it had. They always count against the budget.
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from dataclasses import dataclass
 from functools import cached_property
 
 from builder.data import rare_prices
+from builder.search import desecrated
 from builder.ledger.items import corrected_item  # ledger translations on affix, implicit and rune lines (COV2)
 from builder.request.schema import GearTier
 from builder.search.context import Context, ItemOption, implicit_variant
@@ -94,6 +96,8 @@ class Affix:
     ranged: bool = False  # it rolls within a range (Divine Orbs reroll it)
     adds: tuple[str, ...] = ()  # tags it gives the item ("no_cold_spell_mods" on a Fire Damage focus prefix)
     excluded_by: frozenset[str] = frozenset()  # tags with spawn weight 0 for it: an item carrying one can't roll it
+    influence: str = ""  # (SEARCH30) the influence tag it spawns by ("marksman"): only with that influence rune socketed
+    desecrated: str = ""  # (SEARCH30) a Desecrated affix's lord (builder/search/desecrated.py)
 
     @property
     def top(self) -> bool:
@@ -116,17 +120,24 @@ class AffixPools:
     def mods(self) -> list[dict]:
         return [m for m in self.ctx.data.mods.get(self.source, []) if m.get("type") in ("Prefix", "Suffix")]
 
-    def pool(self, base_name: str) -> list[Affix]:
-        if base_name not in self._pools:
-            tags = pool_tags(self.ctx.bases_by_name[base_name])
+    def pool(self, base_name: str, extra: tuple[str, ...] = ()) -> list[Affix]:
+        """`extra`: tags a socketed influence rune adds (SEARCH30, influence_tag); their affixes are marked `influence`."""
+        key = base_name if not extra else (base_name, tuple(sorted(extra)))
+        if key not in self._pools:
+            tags = pool_tags(self.ctx.bases_by_name[base_name]) | set(extra)
+            spawned: dict[str, str] = {}  # mod id -> the extra tag it spawns by
             groups: dict[tuple[str, str], list[dict]] = {}
             weights: dict[str, int] = {}  # spawn weight of each affix this base can roll at this item level
             totals = {"Prefix": 0, "Suffix": 0}
             for mod in self.mods:
+                if self.source == "Desecrated" and not desecrated.lord(mod):
+                    continue  # (only the lords' rows: desecrated.py)
                 weight = 0
-                for key, value in zip(mod.get("weightKey") or [], mod.get("weightVal") or []):
-                    if key in tags:
+                for tag, value in zip(mod.get("weightKey") or [], mod.get("weightVal") or []):
+                    if tag in tags:
                         weight = value
+                        if tag in extra:
+                            spawned[mod["id"]] = tag
                         break
                 if weight > 0:
                     groups.setdefault((mod["group"], mod["type"]), []).append(mod)
@@ -150,9 +161,16 @@ class AffixPools:
                 (tier, mod), lower = allowed[0], None
                 if len(allowed) > 1:
                     lower = self.affix(allowed[1][1], group, kind, allowed[1][0], len(ranked), odds(allowed[1][1]))
-                affixes.append(self.affix(mod, group, kind, tier, len(ranked), odds(mod), lower))
-            self._pools[base_name] = affixes
-        return self._pools[base_name]
+                affix = self.affix(mod, group, kind, tier, len(ranked), odds(mod), lower)
+                if self.source == "Desecrated":
+                    lower = None if lower is None else dataclasses.replace(lower, desecrated=desecrated.lord(allowed[1][1]))
+                    affix = dataclasses.replace(affix, desecrated=desecrated.lord(mod), lower=lower)
+                if mod["id"] in spawned:
+                    lower = None if lower is None else dataclasses.replace(lower, influence=spawned.get(lower.id, ""))
+                    affix = dataclasses.replace(affix, influence=spawned[mod["id"]], lower=lower)
+                affixes.append(affix)
+            self._pools[key] = affixes
+        return self._pools[key]
 
     def affix(self, mod: dict, group: str, kind: str, tier: int, tiers: int, odds: tuple[float, float],
               lower: Affix | None = None) -> Affix:

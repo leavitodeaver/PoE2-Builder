@@ -23,7 +23,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from builder import clock
-from builder.search import alloys, anoints, cultivated
+from builder.data import rare_prices
+from builder.search import alloys, anoints, cultivated, desecrated, influence
 from builder.search.context import ARMOUR_SLOTS, JEWELLERY_SLOTS, SLOT_TYPE, ItemOption, implicit_variant, implicit_variants
 from builder.search.flasks import (
     CHARM_SLOTS, FLASK_SLOTS, RECOVERY_FIELDS, Charges, charges_per_second, is_flask_slot,
@@ -527,6 +528,16 @@ class Gear:
             current = best_value + self.lam * price_of(slot, chosen)
         if not chosen:
             return None
+        if not magic and influence.enabled():  # (SEARCH30: an influence rune and the affixes it lets roll, influence.py)
+            influenced = self.influence_trial(slot, base, base_option, level, pools, limits, chosen, current, left,
+                                              deadline)
+            if influenced is not None:
+                return influenced
+        if not magic and desecrated.enabled():  # (SEARCH30: one Desecrated lord affix, desecrated.py)
+            desecrated_option = self.desecrated_trial(slot, base, base_option, level, pools, limits, chosen, current,
+                                                      left, deadline)
+            if desecrated_option is not None:
+                return desecrated_option
         if not magic and alloys.enabled():  # (SEARCH29: an Alloy in place of a random modifier, builder/search/alloys.py)
             alloyed = self.alloy_trial(slot, base, base_option, level, pools, limits, chosen, current, left, deadline)
             if alloyed is not None:
@@ -615,22 +626,183 @@ class Gear:
         build.alloy_raws[alloys.alloy_key(option.raw)] = option.alloy_scale
         return option
 
+    INFLUENCE_KEEP = 2  # influence affixes (by a screen what-if) fully tried each round (SEARCH30; a search budget)
+
+    @property
+    def influence_tags(self) -> dict[str, str]:
+        if getattr(self, "_influence_tags", None) is None:
+            self._influence_tags = influence.rune_tags(self.ctx.data.runes)
+        return self._influence_tags
+
+    def runes_used(self, slot: str) -> dict[str, int]:
+        """Per-character augment limits taken by the other equipped items: limit group -> count."""
+        used: dict[str, int] = {}
+        for other_slot, other in self.build.equipped.items():
+            if other_slot != slot and other is not None:
+                for name in other.runes:
+                    if limit := self.runes.limit(name):
+                        used[limit[0]] = used.get(limit[0], 0) + 1
+        return used
+
+    def influence_price(self, slot: str, affixes: list, rune_price: float | None, chaos: float | None
+                        ) -> tuple[float | None, list[str]]:
+        """The craft route's price for a rare with these affixes and an influence rune (influence.craft_price)."""
+        ordinary = [a for a in affixes if not a.influence]
+        return influence.craft_price(rare_price(slot, ordinary), rune_price, chaos, [a for a in affixes if a.influence])
+
+    def influence_trial(self, slot: str, base: dict, base_option: ItemOption, level: int, pools, limits: dict,
+                        chosen: list, current: float, left: float, deadline: float) -> ItemOption | None:
+        """(SEARCH30) The rare with an influence rune socketed first and the affixes its tag lets roll, if it beats the
+        plain rare `chosen` (score `current`) after prices, the plain rare given its best rune in the socket the
+        influence rune takes (both fill any other sockets alike later). Each round screens every influence affix the
+        rare can still take (added, as if there were room), then tries the best INFLUENCE_KEEP added where its kind has
+        room or in place of each modifier of its kind, priced by the craft route (influence.py); greedy while it gains."""
+        if clock.now() > deadline or socket_count(base, False) < 1:
+            return None
+        tags = self.influence_tags
+        used = self.runes_used(slot)
+        runes = [n for n in self.runes.candidates(base, False) if n in tags
+                 and not ((limit := self.runes.limit(n)) and used.get(limit[0], 0) >= limit[1])]
+        if not runes:
+            return None
+        ssf = self.ctx.ssf
+        chaos = rare_prices.active().materials.get(influence.CHAOS)
+        if ssf and chaos is None:
+            chaos = 0.0
+        plain = current - self.lam * rare_price(slot, chosen)
+        best = None  # (value, rune, affixes, price, steps)
+        for rune in runes:
+            tag = tags[rune]
+            wide = [a for a in pools.pool(base["name"], (tag,)) if a.influence == tag]
+            rune_price = self.runes.price(rune)
+            if not wide or rune_price is None:
+                continue
+            picked, value, priced = list(chosen), None, None
+            while clock.now() < deadline:
+                groups = {a.group for a in picked}
+                fresh = [c for a in wide if a.group not in groups for c in pools.choices(a, picked)[:1]]
+                if not fresh:
+                    break
+                floor = self.deltas(slot, [rare_text(slot, base, level, picked, runes=[rune])])[0][0]
+                screen = self.deltas(slot, [rare_text(slot, base, level, picked + [a], runes=[rune]) for a in fresh])
+                top = [a for s, a in sorted(((s, a) for (s, _), a in zip(screen, fresh)), key=lambda x: -x[0])
+                       if s > floor + EPSILON][:self.INFLUENCE_KEEP]
+                trials = []  # (affixes, price, steps)
+                for a in top:
+                    for c in pools.choices(a, picked):
+                        if sum(1 for x in picked if x.type == c.type) < limits.get(c.type, 0):
+                            variants = [picked + [c]]
+                        else:
+                            variants = [[x for x in picked if x is not out] + [c] for out in picked if out.type == c.type]
+                        for v in variants:
+                            price, steps = self.influence_price(slot, v, rune_price, chaos)
+                            if price is not None and price <= left + 1e-9:
+                                trials.append((v, price, steps))
+                if not trials:
+                    break
+                scored = self.deltas(slot, [rare_text(slot, base, level, v, runes=[rune]) for v, _, _ in trials])
+                gain, i = max(((s - self.lam * t[1], i) for i, ((s, _), t) in enumerate(zip(scored, trials))),
+                              key=lambda x: x[0])
+                if gain <= (plain if value is None else value) + EPSILON:
+                    break
+                picked, value, priced = trials[i][0], gain, trials[i][1:]
+            if value is not None and (best is None or value > best[0]):
+                best = (value, rune, picked, *priced)
+        if best is None:
+            return None
+        value, rune, picked, price, steps = best
+        # The plain rare with its best ordinary rune in that socket (the influence rune takes it for good)
+        others = [n for n in self.runes.candidates(base, False) if n not in tags and self.runes.price(n) is not None
+                  and not ((limit := self.runes.limit(n)) and used.get(limit[0], 0) >= limit[1])
+                  and rare_price(slot, chosen) + self.runes.price(n) <= left + 1e-9]
+        if others and clock.now() < deadline:
+            socketed = self.deltas(slot, [rare_text(slot, base, level, chosen, runes=[n]) for n in others])
+            plain = max([plain] + [s - self.lam * (rare_price(slot, chosen) + self.runes.price(n))
+                                   for (s, _), n in zip(socketed, others)])
+        if value <= plain + EPSILON:
+            return None
+        names = [a for a in picked if a.influence]
+        note = (f"{rune} socketed first (socket-bound) lets {len(names)} influence modifier{'s' if len(names) != 1 else ''}"
+                f" roll; priced by the craft route (MEDIUM)")
+        return ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
+                          rare_text(slot, base, level, picked, runes=[rune]), False, None if ssf else price,
+                          "ssf" if ssf else "estimate (craft route: influence rune + Chaos Orbs)", base_option.level,
+                          rare=True, affixes=tuple(line for a in picked for line in a.lines), runes=(rune,),
+                          bound=(rune,), craft_route=(note, *steps))
+
+    DESECRATED_KEEP = 3  # Desecrated affixes (by a screen what-if) fully tried (SEARCH30; a search budget)
+
+    @property
+    def desecrated_pools(self) -> AffixPools:
+        if getattr(self, "_desecrated_pools", None) is None:
+            self._desecrated_pools = AffixPools(self.ctx, "Desecrated")
+        return self._desecrated_pools
+
+    def desecrated_trial(self, slot: str, base: dict, base_option: ItemOption, level: int, pools, limits: dict,
+                         chosen: list, current: float, left: float, deadline: float) -> ItemOption | None:
+        """(SEARCH30) The rare with one Desecrated (lord) affix, added where its side has room or in place of each
+        modifier of its side, if it beats the plain rare `chosen` (score `current`) after the craft route's price
+        (desecrated.py). The screen scores each lord affix added; the best DESECRATED_KEEP get every placement."""
+        kind = desecrated.family(base["type"])
+        if kind is None or clock.now() > deadline:
+            return None
+        pool = self.desecrated_pools.pool(base["name"])
+        groups = {a.group for a in chosen}
+        fresh = [a for a in pool if a.group not in groups and a.type in limits]
+        if not fresh:
+            return None
+        ssf = self.ctx.ssf
+        prices = self.ctx.desecration_prices if not ssf else {m: 0.0 for m in desecrated.MATERIALS}
+
+        def rivals(affix) -> int:
+            return sum(1 for a in pool if a.type == affix.type and (kind == "armour" or a.desecrated == affix.desecrated))
+
+        plain = current - self.lam * rare_price(slot, chosen)
+        screen = self.deltas(slot, [rare_text(slot, base, level, chosen + [a]) for a in fresh])
+        top = [a for s, a in sorted(((s, a) for (s, _), a in zip(screen, fresh)), key=lambda x: -x[0])
+               if s > current + EPSILON][:self.DESECRATED_KEEP]
+        trials = []  # (affixes, the Desecrated affix, price, steps)
+        for a in top:
+            for c in self.desecrated_pools.choices(a, chosen):
+                if sum(1 for x in chosen if x.type == c.type) < limits[c.type]:
+                    variants = [list(chosen)]
+                else:
+                    variants = [[x for x in chosen if x is not out] for out in chosen if out.type == c.type]
+                for kept in variants:
+                    market = rare_price(slot, kept)
+                    price, steps = desecrated.craft_price(base["type"], market, c, rivals(c), prices)
+                    if price is not None and price <= left + 1e-9:
+                        trials.append((kept + [c], c, price, steps))
+        if not trials or clock.now() > deadline:
+            return None
+        scored = self.deltas(slot, [rare_text(slot, base, level, t[0]) for t in trials])
+        value, i = max(((s - self.lam * t[2], i) for i, ((s, _), t) in enumerate(zip(scored, trials))), key=lambda x: x[0])
+        if value <= plain + EPSILON:
+            return None
+        affixes, affix, price, steps = trials[i]
+        note = f"one Desecrated modifier ({affix.desecrated}, {affix.type}); priced by the craft route (MEDIUM)"
+        return ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
+                          rare_text(slot, base, level, affixes), False, None if ssf else price,
+                          "ssf" if ssf else "estimate (craft route: Desecration)", base_option.level, rare=True,
+                          affixes=tuple(line for a in affixes for line in a.lines), craft_route=(note, *steps))
+
     def socketed(self, slot: str, option: ItemOption, deadline: float) -> ItemOption:
-        """The option with its sockets filled by the runes that score best."""
+        """The option with its sockets filled by the runes that score best (its socket-bound runes stay: SEARCH30)."""
         build = self.build
         base = self.ctx.bases_by_name.get(option.base)
         count = socket_count(base, option.unique, unique_text(self.ctx, option)) if base else 0
-        if count == 0 or clock.now() > deadline:
+        bound = list(option.bound)
+        if count <= len(bound) or clock.now() > deadline:
             return option
-        raw = with_runes(option.raw, [])
+        raw = with_runes(option.raw, bound)
         left = self.left_for(slot) - (option.price or 0.0)
         names = [n for n in self.runes.candidates(base, option.unique, option.raw)
                  if (self.runes.price(n) or 0.0) <= left]
         if not names:
             return option
-        scored = build.item_deltas([{"slot": slot, "raw": with_runes(raw, [n])} for n in names])
+        scored = build.item_deltas([{"slot": slot, "raw": with_runes(raw, bound + [n])} for n in names])
         top = [n for _, n in sorted(zip((s for s, _ in scored), names), key=lambda x: -x[0])[:RUNE_KEEP]]
-        chosen: list[str] = []
+        chosen: list[str] = list(bound)
         current = build.item_deltas([{"slot": slot, "raw": raw}])[0][0]
         used: dict[str, int] = {}  # per-character augment limits, across every other item
         for other_slot, other in build.equipped.items():
@@ -647,8 +819,8 @@ class Gear:
             return taken < limit[1]
 
         top = [n for n in top if within_limit(n)]
-        for _ in range(count):
-            spend = sum(self.runes.price(n) or 0.0 for n in chosen)
+        for _ in range(count - len(bound)):
+            spend = sum(self.runes.price(n) or 0.0 for n in chosen[len(bound):])
             options = [n for n in top if spend + (self.runes.price(n) or 0.0) <= left + 1e-9 and within_limit(n)]
             if not options:
                 break
@@ -659,9 +831,9 @@ class Gear:
                 break
             chosen.append(best)
             current = best_value + self.lam * (self.runes.price(best) or 0.0)
-        if not chosen:
+        if len(chosen) == len(bound):
             return option
-        price = option.price if option.price is None else option.price + sum(self.runes.price(n) or 0.0 for n in chosen)
+        price = option.price if option.price is None else             option.price + sum(self.runes.price(n) or 0.0 for n in chosen[len(bound):])
         return dataclasses.replace(option, raw=with_runes(raw, chosen), runes=tuple(chosen), price=price)
 
     # Anoints ---------------------------------------------------------------------------------
@@ -749,6 +921,8 @@ class Gear:
                 return option
         runes = list(option.runes)
         dropped = runes[count - 1:] if len(runes) >= count else []
+        if any(n in option.bound for n in dropped):  # (SEARCH30: a socket-bound influence rune is never replaced)
+            return option
         new = runes[:count - 1] + [anoints.SHARD] if dropped else runes + [anoints.SHARD]
         price = option.price
         if price is not None:
@@ -839,7 +1013,7 @@ class Gear:
             if full:
                 # Sockets, on the new choice or on what's there now
                 target = choice or current
-                if target is not None and not target.runes:
+                if target is not None and tuple(target.runes) == tuple(target.bound):  # (bound runes: SEARCH30)
                     filled = self.socketed(slot, target, deadline)
                     if filled is not target:
                         choice = filled
