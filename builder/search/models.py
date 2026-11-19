@@ -6770,8 +6770,10 @@ def unscale_own(sets: list[dict], previous: list[dict] | None, entry: str) -> di
 # PoB keeps it up all fight (probe POE2T3492 for the stacks; GEM22's report for the reading). The game's: the sets'
 # full-strength ailments in strength order, each up u = min(1, its applications a use x its share x uses a second x its
 # duration) (PoB's own linear uptime), the stronger one hiding the weaker while up: E = sum A_i u_i prod(1 - u_j),
-# j stronger. "Only the strongest counts" is PoB's reading (UNVERIFIED as the game's rule: KeywordPopups Ignite /
-# Bleeding don't say; for RESEARCH). The correction goes in as an AilmentMagnitude MORE scoped to that ailment
+# j stronger. Only the strongest counts: the game's rule, HIGH (KeywordPopups Debuff, 26650308: "Unless otherwise
+# stated, Debuffs of the same type do not stack - only the copy with the strongest effect applies"; RESEARCH33 R33-2:
+# the weaker copies stay and take over when the strongest expires, MEDIUM-HIGH; multiple-Ignite / Bleed stats exist
+# but nothing in 0.5.5 grants them, checked by R33-2). The correction goes in as an AilmentMagnitude MORE scoped to that ailment
 # (KeywordFlag Ignite / Bleed: only the ailment's cfg carries it, CalcOffence 5206-5213; MagnitudeEffect 5353 scales
 # the ailment's DPS and not its chance). Poison stacks (PoB's count follows the DPS line, as the mix's: no correction).
 # A set's applications a use x duration = its StackPotential / (its Speed x its DpsMultiplier) (5254-5262).
@@ -6836,7 +6838,7 @@ def strongest_ailment_model(main: Skill | None, sets: list[dict], shares: dict[s
                              "line; the game renews each part's at that part's own uses (shares: "
                              + ", ".join(f"{k} {v:.0%}" for k, v in shares.items()) + f" of {uses:.2f} uses/s"
                              + (f"; {how}" if how else "") + "), the strongest hiding the others while up: "
-                             + "; ".join(parts) + ". Only the strongest counting is PoB's reading (UNVERIFIED)")}]
+                             + "; ".join(parts) + ". Only the strongest counts: the game's rule (KeywordPopups Debuff; RESEARCH33 R33-2), HIGH")}]
 
 
 def gated_set_model(main: Skill | None, scored: str | None, sets: list[dict], share: float, how: str,

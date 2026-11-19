@@ -18,12 +18,13 @@
     (KeywordPopups). The model reads each set's IgniteDPS / BleedDPS, StackPotential, StacksMax, Speed and DpsMultiplier
     (bridge setRates, GEM22), the set model's shares (its note's set_shares), and counts the strongest part's ailment at
     its own uptime, the next one while it's down, as an AilmentMagnitude MORE scoped by KeywordFlag Ignite / Bleed (the
-    ailment's cfg only, 5206-5213). Poison is left (its stack count follows the line, as the mix's). "Only the
-    strongest counts" is PoB's reading, UNVERIFIED as the game's rule (KeywordPopups Ignite / Bleeding don't say; a
-    RESEARCH question).
+    ailment's cfg only, 5206-5213). Poison is left (its stack count follows the line, as the mix's). Only the
+    strongest counts: the game's rule, HIGH (KeywordPopups Debuff: "Unless otherwise stated, Debuffs of the same type do
+    not stack - only the copy with the strongest effect applies"; RESEARCH33 R33-2: weaker copies stay and take over
+    when the strongest expires, MEDIUM-HIGH; no 0.5.5 source grants multiple Ignites / Bleeds).
   sources: ["builder/search/models.py (strongest_ailment_model, the four set models' set_shares)", "engine/bridge.lua (setRates fields, Raw keywordFlags)",
             "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua (4065, 5206-5262, 5353, 5399)",
-            "data/game-26650308/tables/KeywordPopups.json (Ignite, Bleeding)", "scratch/gem22/probe_ail2.json"]
+            "data/game-26650308/tables/KeywordPopups.json (Ignite, Bleeding, Debuff)", "scratch/manager/research (RESEARCH33 R33-2)", "scratch/gem22/probe_ail2.json"]
   test_in_game: "Optional: a Boneshatter with Bleed and a rare Heavy Stun: the Shockwave's Bleed should fall off between Heavy Stuns."
   status: proposed
 
