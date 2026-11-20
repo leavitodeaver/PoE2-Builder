@@ -152,6 +152,77 @@ def _base_of(lines: list[str], directory: Path | None) -> dict | None:
     return None
 
 
+# "N% increased Explicit <type> Modifier magnitudes" (COV45; the manager 16:00, 19 Nov: Thrud's Might's influence affixes,
+# DestructionInfluence*ModifierEffect, which SEARCH30's influence runes roll, and Verisium's Alloy for Resistance). The
+# game's stats are PoE1's Heist enchantments, heist_enchantment_<tag>_mod_effect_+% (Elemental: local_explicit_elemental_
+# damage_mod_effect_+%; game 26650308 Mods / Stats): the item's own explicit modifiers carrying that mod tag have their
+# values raised by N% (the line itself, implicits and runes excluded). PoB ignores the line (no ModCache entry), so it
+# counted 0: an UNDERCOUNT. Each scaled line's extra goes to PoB as a stand-in copy of it (ADDED) with every number
+# raised by N% and rounded down at the line's own precision (whole numbers, or hundredths for "1.5%"-style values; the
+# game's rounding: UNVERIFIED, the lower reading). A line's tags are those of PoB ModItem's mods with its template (the
+# union where several share it: MEDIUM). Which explicit lines a type covers rests on the mod tag (HIGH for the tag, the
+# stat names say so; MEDIUM that hybrid mods scale whole).
+EXPLICIT_MAGNITUDE = re.compile(r"^(\d+(?:\.\d+)?)% increased Explicit (Critical|Elemental Damage|Fire|Cold|Lightning|Chaos|"
+                                r"Physical|Mana|Speed|Resistance) Modifier magnitudes$")
+MAGNITUDE_TAGS = {"Critical": "critical", "Elemental Damage": "elemental_damage", "Fire": "fire", "Cold": "cold",
+                  "Lightning": "lightning", "Chaos": "chaos", "Physical": "physical", "Mana": "mana", "Speed": "speed",
+                  "Resistance": "resistance"}
+
+
+@lru_cache(maxsize=1)
+def _template_tags() -> dict[str, frozenset[str]]:
+    """Each item mod line's template -> the union of its mods' modTags (PoB Data/ModItem.lua)."""
+    from builder.ledger.coverage import POB_SRC
+
+    text = (POB_SRC / "Data" / "ModItem.lua").read_text(encoding="utf-8", errors="replace")
+    found: dict[str, set[str]] = {}
+    for row in re.finditer(r'^\s*\["[^"]+"\] = \{ type = "[^"]*", affix = "[^"]*", (.*?), statOrder = .*?modTags = \{([^}]*)\}',
+                           text, re.M):
+        tags = set(re.findall(r'"(\w+)"', row.group(2)))
+        for line in re.findall(r'"((?:[^"\\]|\\.)*)"', row.group(1)):
+            found.setdefault(template(line), set()).update(tags)
+    return {k: frozenset(v) for k, v in found.items()}
+
+
+def _raised(value: str, pct: float) -> str:
+    """The extra of `value` raised by pct%, rounded down at its own precision ("" when it rounds to nothing)."""
+    places = len(value.split(".")[1]) if "." in value else 0
+    scale = 10 ** max(places, 2 if places else 0)
+    old = round(float(value) * scale)
+    extra = int(old * (1 + pct / 100)) - old
+    if extra <= 0:
+        return ""
+    return f"{extra / scale:.{max(places, 2) if places else 0}f}".rstrip("0").rstrip(".") if places else str(extra)
+
+
+def magnitude_lines(lines: list[str]) -> list[str]:
+    """Stand-ins for the extra of the explicit lines an "Explicit <type> Modifier magnitudes" line raises (the note above)."""
+    at = next((i for i, l in enumerate(lines) if l.startswith("Implicits:")), None)
+    if at is None:
+        return []
+    explicit = [l for l in lines[at + 1 + int(lines[at].split(":", 1)[1]):] if l and not l.startswith("{")]
+    raises: dict[str, float] = {}
+    for line in explicit:
+        if m := EXPLICIT_MAGNITUDE.match(line.strip()):
+            tag = MAGNITUDE_TAGS[m.group(2)]
+            raises[tag] = raises.get(tag, 0.0) + float(m.group(1))
+    if not raises:
+        return []
+    tags_of = _template_tags()
+    out = []
+    for line in explicit:
+        if EXPLICIT_MAGNITUDE.match(line.strip()):
+            continue
+        pct = sum(v for tag, v in raises.items() if tag in tags_of.get(template(line), ()))
+        if pct <= 0:
+            continue
+        parts, extras = PLAIN_NUMBER.split(line), [_raised(n, pct) for n in PLAIN_NUMBER.findall(line)]
+        if not any(extras):
+            continue
+        out.append("".join(p + (extras[i] or "0") if i < len(extras) else p for i, p in enumerate(parts)))
+    return out
+
+
 def corrected_item(raw: str, directory: Path | None = None) -> str:
     """The item's text with the ledger's corrections (module docstring). Idempotent."""
     lines = [l for l in raw.split("\n") if not l.startswith(ADDED)]
@@ -172,6 +243,7 @@ def corrected_item(raw: str, directory: Path | None = None) -> str:
                     added += item_lines(translated[1])
             elif fixed := wrong(line):
                 lines[i] = fixed[1] if fixed[1] is not None else DISABLED + line
+        added += magnitude_lines(lines)  # (COV45: "N% increased Explicit <type> Modifier magnitudes")
     runes = [l.split(":", 1)[1].strip() for l in lines if l.startswith("Rune:")]
     if runes and (base := _base_of(lines, directory)):
         for line in rune_lines(runes, base, directory):

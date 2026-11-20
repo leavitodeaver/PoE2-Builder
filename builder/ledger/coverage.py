@@ -301,13 +301,15 @@ def _param_built_names(text: str) -> set[str]:
 # Configuration page reads the name (ConfigOptions 726-727, ifFlag), but CalcActiveSkill 1053-1080 makes the skill's
 # Warcry buff from any GlobalEffect-tagged modifier, and CalcPerform 2197-2284 gives that buff its Power from the enemies
 # (WarcryPower, the boss's 20), its Empowered attacks (Num<Name>Empowers) and its uptime. Arctic Howl, whose stat sets lack
-# the stat, gets no Warcry buff and 0 Empowers in PoB (GEM14 / MECHB33's find, models.py's Arctic Howl note): the stat is
-# what PoB counts it by. (checked: every SkillStatMap entry holding a GlobalEffect-tagged flag: this one.)
+# the stat, gets no Warcry buff and 0 Empowers in PoB (GEM14 / MECHB33's find, models.py's Arctic Howl note). PROBE
+# POE2T3939 (COV45, the manager's 16:00 ask; scratch/cov45/probe_warcry.py, probe3939.log): Infernal Cry alone, Warrior
+# 90: with the stat PoB builds the buff "Infernal Cry: Warcry"; with the stat renamed to a dummy in PoB's skill data, no
+# buff at all. (checked: every SkillStatMap entry holding a GlobalEffect-tagged flag: this one.)
 BUFF_MAKING_STATS = {
     "warcry_count_power_from_enemies": (
         "PoB makes the skill's Warcry buff from it (its GlobalEffect Warcry tag, CalcActiveSkill 1053-1080) and gives that "
-        "buff Power from the enemies, Empowers and uptime (CalcPerform 2197-2284); without it no buff (Arctic Howl: GEM14 / "
-        "MECHB33)"),
+        "buff Power from the enemies, Empowers and uptime (CalcPerform 2197-2284); probe POE2T3939: Infernal Cry with it has "
+        "the Warcry buff, without it none"),
 }
 
 
@@ -838,7 +840,7 @@ def _researched_unique_leftovers() -> dict[str, str]:
     for mod, (family, *uses) in data["mods"].items():
         f = data["families"][family]
         evidence = f["evidence"].replace("N live", f"{uses[0]} live") if uses else f["evidence"]
-        who = "RESEARCH32" if family.startswith("R32") else "RESEARCH30"  # (COV42: R32-3's DNT-UNUSED triggers)
+        who = f.get("who") or ("RESEARCH32" if family.startswith("R32") else "RESEARCH30")  # (COV42: R32-3's DNT-UNUSED triggers)
         out[mod] = f"{who} {family.rsplit('-', 1)[0] if family.count('-') > 1 else family}, {f['confidence']}: {evidence}"
     return out
 

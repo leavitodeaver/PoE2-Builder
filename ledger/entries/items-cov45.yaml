@@ -25,9 +25,12 @@
   replace: []
   confidence: theory
   notes: >-
-    recovery.sprint_row (MECHC34; RESEARCH26 R26-22, MEDIUM): sprinting between boss repositions, a row only (a sprint
-    ends on any skill use and a hit knocks you down), so every "while Sprinting" line is 0 in the headline (PoB's
-    Condition:Sprinting is never set). The row reads SPRINT_SPEED and SPRINT_EVASION (numbers), SPRINT_GUARD (Emergent
+    recovery.sprint_row (MECHC34; RESEARCH26 R26-22, MEDIUM): part-time, these apply only while you are sprinting, which
+    players do only to reposition between boss attacks (a sprint ends on any skill use and a hit knocks you down), so a
+    play row with the row's share of the fight, 0 in the headline: the user's 9 Nov uptime rule ("if something isn't
+    active at least 7% of the time, it's basically worthless": an effect up under ~7% of the fight can be left out) and
+    the play guide's "without it / with it" design. PoB's Condition:Sprinting is never set. If a model ever counts one
+    in the headline, `play_row` must go. The row reads SPRINT_SPEED and SPRINT_EVASION (numbers), SPRINT_GUARD (Emergent
     Protection), SPRINT_LIFE_LOSS (a cost). Left open: the three lines the row only names, with no value
     (SPRINT_NAMED: "Cannot be Heavy Stunned while Sprinting", "Your speed is Unaffected by Slows while Sprinting",
     "N% increased Runic Ward Regeneration Rate while Sprinting").
@@ -49,4 +52,38 @@
     no hit for it (no hit is not evidence of absence).
   sources: ["game 26650308 Mods.json EssenceAbyssPrefix / EssenceAbyssSuffix; Stats.json essence_abyss_guaranteed_pick",
             "https://poe2db.tw/us/Essence_of_the_Abyss"]
+  status: proposed
+
+- id: model-read-mechb4-non-instant-spells-recently
+  title: 'The Kurgal wand suffix, "N% increased Cast Speed for each different Non-Instant Spell you''ve Cast Recently" (models.different_skills_counts, MECHB4 / MECHB6)'
+  kind: pob_gap
+  model: different_skills
+  match: '^\d+(?:\.\d+)?% increased Cast Speed for each different Non-Instant Spell you''ve Cast Recently$'
+  replace: []
+  confidence: theory
+  notes: >-
+    PoB parses it as Cast Speed INC per Multiplier:NonInstantSpellCastRecently (ModParser 1998), set only by its
+    configuration box. models.different_skills_counts (called for every build, assumptions.py) sets that multiplier to the
+    different non-instant, non-triggered, non-Persistent, non-totem spells the build uses at least once per Recently (4 s;
+    the main skill, others by their cooldown: a play strategy, MEDIUM), so PoB counts the line itself from it. (The
+    manager 16:00, 19 Nov: modelled, but no entry named it.)
+  sources: ["builder/search/models.py (different_skills_counts: Multiplier:NonInstantSpellCastRecently)", "builder/search/assumptions.py"]
+  status: proposed
+
+- id: model-read-explicit-modifier-magnitudes
+  title: '"N% increased Explicit <type> Modifier magnitudes" (Thrud''s Might''s influence affixes, Verisium''s Alloy): the item''s own tagged explicit lines raised (ledger.items.magnitude_lines)'
+  kind: pob_gap
+  model: item_magnitudes
+  match: '^\d+(?:\.\d+)?% increased Explicit (Critical|Elemental Damage|Fire|Cold|Lightning|Chaos|Physical|Mana|Speed|Resistance) Modifier magnitudes$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Game stats heist_enchantment_<tag>_mod_effect_+% / local_explicit_elemental_damage_mod_effect_+% (Mods
+    DestructionInfluence*ModifierEffect, AlloyEffectOfResistanceMods1; game 26650308). PoB ignores the line (0 before: an
+    UNDERCOUNT). builder/ledger/items.py magnitude_lines, applied in corrected_item to rare / magic / normal items (the
+    search's rares, SEARCH30's influence-rune rares included): every other explicit line whose mod carries the tag (PoB
+    ModItem modTags, by the line's template) gets a stand-in copy with its numbers raised by N%, rounded down at the line's
+    own precision (UNVERIFIED rounding, the lower reading). Implicits, runes and the line itself are not raised.
+  sources: ["builder/ledger/items.py (EXPLICIT_MAGNITUDE, magnitude_lines)", "vendor PoB Data/ModItem.lua 2495-2503, 1806",
+            "scratch/manager/research/influence-rune-mods.md (R32-6), influence-rune-craft-route-and-weights.md (R33-23)"]
   status: proposed

@@ -538,3 +538,24 @@ def test_tolerant_equipment_reads_the_equipped_helmets_armour_and_evasion(engine
     assert avoid("Rusted Greathelm") == (100, 0)  # (Armour only)
     assert avoid("Shabby Hood") == (0, 100)  # (Evasion only)
     assert avoid("Twig Circlet") == (0, 0)  # (Energy Shield only: 0 and 0, a tie)
+
+
+def test_explicit_critical_magnitudes_raise_the_bows_own_crit(engine):
+    """COV45: "25% increased Explicit Critical Modifier magnitudes" (Thrud's Might's influence affix) raises the bow's own
+    "+1.5% to Critical Hit Chance" through ledger.items' stand-in "+0.37%", which PoB applies as the bow's local line
+    (the weapon's crit rises); without the magnitude line nothing changes."""
+    from builder.ledger.items import corrected_item
+
+    engine.call("newBuild")
+    engine.call("setClass", className="Ranger")
+    engine.call("setLevel", level=90)
+    engine.call("addSkillGroup", text="Lightning Arrow 20/0 1", main=True)
+    lines = ["Rarity: Rare", "Test Bow", "Dualstring Bow", "Item Level: 82", "Implicits: 0",
+             "+1.5% to Critical Hit Chance"]
+
+    def crit(extra):
+        raw = corrected_item("\n".join(lines + extra))
+        return engine.call("equip", slot="Weapon 1", raw=raw, fields=["CritChance"])["stats"]["CritChance"]
+
+    plain, with_line = crit([]), crit(["25% increased Explicit Critical Modifier magnitudes"])
+    assert with_line > plain

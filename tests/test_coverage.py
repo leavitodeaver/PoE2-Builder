@@ -831,8 +831,11 @@ def test_researched_unique_leftovers_are_unreachable_and_obtainable_ones_are_not
     from builder.ledger import coverage
 
     data = json.loads((Path(coverage.__file__).with_name("unreachable_unique_mods.json")).read_text(encoding="utf-8"))
-    assert len(data["mods"]) == 331  # (COV42: + R32-3's two DNT-UNUSED triggers, family R32-3-2)
+    assert len(data["mods"]) == 335  # (COV42: + R32-3's two DNT-UNUSED triggers, family R32-3-2; COV45: + R33-19's four)
     why = coverage.NOT_OBTAINABLE
+    for mod in ("DamagePerPoisonOnSelfUnique__1_", "ChaosResistancePerPoisonOnSelfUnique__1",
+                "MovementSpeedPerPoisonOnSelfUnique__1_", "LifeRegenerationWhileFrozenUnique__1"):
+        assert why[mod].startswith("RESEARCH34 R33-19, MEDIUM-HIGH"), mod  # (PoE1 leftovers; the hand-wraps twins stay live)
     assert "R30-6" in why["HarvestAlternateWeaponQualityAreaOfEffect_"]
     assert "RePoE" in why["ActorSizeUniqueBeltDemigods1"] and "MEDIUM-HIGH" in why["ActorSizeUniqueBeltDemigods1"]
     for live in ("UniqueRecoupLifeOpenWeakness1", "HandWrapsUniqueRecoupLifeEnergyShieldOpenWeakness1",
@@ -1264,3 +1267,21 @@ def test_warcry_power_stat_is_read_by_its_buff_tag():
     assert "warcry_count_power_from_enemies" in coverage.BUFF_MAKING_STATS
     stat_map = (coverage.POB_SRC / "Data" / "SkillStatMap.lua").read_text(encoding="utf-8", errors="replace")
     assert 'flag("UsesWarcryPower", { type = "GlobalEffect", effectType = "Warcry" })' in stat_map
+
+
+def test_explicit_modifier_magnitudes_raise_the_items_tagged_lines():
+    """COV45 (the manager 16:00, 19 Nov): Thrud's "N% increased Explicit <type> Modifier magnitudes" raises the item's own
+    explicit lines whose mod carries the tag, as stand-in copies of their extra (rounded down); other lines, implicits and
+    the line itself are untouched; the line is model-read."""
+    from builder.ledger import items, model_entry
+
+    raw = "\n".join(["Rarity: Rare", "Optimizer Weapon", "Expert Dualstring Bow", "Item Level: 82", "Implicits: 1",
+                     "+1.5% to Critical Hit Chance", "+1.5% to Critical Hit Chance", "Adds 10 to 21 Fire Damage",
+                     "10% increased Attack Speed", "25% increased Explicit Critical Modifier magnitudes",
+                     "20% increased Explicit Fire Modifier magnitudes"])
+    assert items.magnitude_lines(raw.split("\n")) == ["+0.37% to Critical Hit Chance", "Adds 2 to 4 Fire Damage"]
+    assert items.magnitude_lines(raw.replace("25% increased Explicit Critical Modifier magnitudes", "")
+                                 .replace("20% increased Explicit Fire Modifier magnitudes", "").split("\n")) == []
+    assert model_entry("25% increased Explicit Critical Modifier magnitudes").id == "model-read-explicit-modifier-magnitudes"
+    assert model_entry("(3-5)% increased Cast Speed for each different Non-Instant Spell you've Cast Recently").id == (
+        "model-read-mechb4-non-instant-spells-recently")

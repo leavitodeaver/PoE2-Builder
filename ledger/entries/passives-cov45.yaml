@@ -1,6 +1,6 @@
 # COV45 (19 Nov 2026): passive lines train 92's models read (MECHC42, bb4fc20e / 5a9542dc), each checked to feed the
-# headline (assumptions.py adds their mods to hand_mods), and Bulwark's part-time line, read by a play row only
-# (`play_row: true`: the audit closes it; the search doesn't re-score items for it).
+# headline (assumptions.py adds their mods to hand_mods), and Bulwark's part-time line (only while dodge rolling), read by
+# a play row only (`play_row: true`: the audit closes it; the search doesn't re-score items for it).
 
 - id: model-read-mechc42-last-stand
   title: 'Last Stand and its small, "N% increased Attack Damage while you have no Life Flask uses left" (flasks.no_life_uses_model, MECHC42)'
@@ -39,8 +39,10 @@
   replace: []
   confidence: theory
   notes: >-
-    recovery.ROLLING_LESS (MECHC38): a row at the build's share of the fight spent dodge rolling, not in the defences
-    (part-time: the floors count only what is up all fight, the user's 9 Nov rule); PoB's Condition:InDodgeRoll stays
-    off. A play row only, so 0 in the headline (an UNDERCOUNT of average damage taken, by the rule).
+    recovery.ROLLING_LESS (MECHC38): part-time, it applies only while you are dodge rolling (the build's rolling share
+    of the fight, the "Time spent dodge rolling" row), so a play row with "without it / with it" values, not in the
+    defences: the user's 9 Nov uptime rule ("if something isn't active at least 7% of the time, it's basically
+    worthless": an effect up under ~7% of the fight can be left out) and the play guide's "without it / with it" design.
+    PoB's Condition:InDodgeRoll stays off. If a model ever counts it in the headline, `play_row` must go.
   sources: ["builder/search/recovery.py (ROLLING_LESS, rolling_less_row)", "builder/search/assumptions.py (Bulwark row)"]
   status: proposed

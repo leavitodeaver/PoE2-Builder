@@ -281,9 +281,13 @@ def model_entry(line: str) -> Entry | None:
 @lru_cache(maxsize=None)
 def play_row_entry(line: str) -> Entry | None:
     """The entry naming the play row that reads this line (`play_row: true`; COV45, the manager's 19 Nov ask from
-    MECHC42): a model reads it for the play guide only, 0 in the headline by the user's 9 Nov rule (the floors and the
-    score count only what is up all fight). The audit closes its row as modelled; model_entry leaves it out, so the
-    search doesn't re-score items for a line that can't move their score (models.item_read_by_models)."""
+    MECHC42, confirmed 16:00): the effect is part-time (only while dodge rolling, only while sprinting), so a model reads
+    it for the play guide's "without it / with it" rows and leaves it out of the headline, by the user's 9 Nov uptime
+    rule ("if something isn't active at least 7% of the time, it's basically worthless": an effect up under ~7% of the
+    fight can be left out). The audit closes its row as modelled; model_entry leaves it out, so the search doesn't re-score
+    items for a line that can't move their score (models.item_read_by_models).
+    IF A MODEL EVER PUTS ONE OF THESE LINES INTO THE HEADLINE, ITS ENTRY'S `play_row` FLAG MUST GO (it then is a plain
+    model-read line, and items carrying it must be re-scored)."""
     for entry in entries():
         if entry.raw.get("model") and entry.raw.get("play_row") and entry.matches(line):
             return entry

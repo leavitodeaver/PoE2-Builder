@@ -24,6 +24,11 @@
   "R32-3-2": {
    "confidence": "HIGH",
    "evidence": "RESEARCH32 R32-3: the skill it grants is GGG-marked unused (game 26650308 ActiveSkills triggered_gas_cloud / triggered_detonation are named \"[DNT-UNUSED] Gas Cloud\" / \"[DNT-UNUSED] Detonation\")"
+  },
+  "R33-19": {
+   "confidence": "MEDIUM-HIGH",
+   "who": "RESEARCH34",
+   "evidence": "R33-19 (research/cultivated-handwraps-per-poison-frozen.md): a PoE1 leftover: the same id, stat and value in PoE1 (RePoE mods_poe1.json); on no PoE2 unique (checked there: PoB-PoE2 Data/Uniques, poe2db Snakebite, a web search for the exact text, the patch-notes archive; game 26650308 Mods by id and stat). The reachable PoE2 versions are the Cultivated hand-wraps twins (HandWrapsUniqueMutatedVaal*, ranged values; MECH-C)"
   }
  },
  "mods": {
@@ -1041,6 +1046,18 @@
   ],
   "UniqueTriggerDetonationOnOffHandHit1": [
    "R32-3-2"
+  ],
+  "DamagePerPoisonOnSelfUnique__1_": [
+   "R33-19"
+  ],
+  "ChaosResistancePerPoisonOnSelfUnique__1": [
+   "R33-19"
+  ],
+  "MovementSpeedPerPoisonOnSelfUnique__1_": [
+   "R33-19"
+  ],
+  "LifeRegenerationWhileFrozenUnique__1": [
+   "R33-19"
   ]
  }
 }
