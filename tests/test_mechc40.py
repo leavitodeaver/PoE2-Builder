@@ -182,3 +182,29 @@ def test_a_side_orb_of_storms_bolts_feed_on_hit_charges(engine):
     assert 0 < share < 1  # (MECHC44: the Orb's presses take part of Spark's time; its hits feed the lines at that share)
     assert bolts is not None and bolts[0] > 0
     assert after is not None and "side Orb of Storms" in after[1]
+
+
+def test_the_main_skill_spends_charges_at_its_share_of_the_fight(engine, monkeypatch):
+    """MECHC45 (an OVERCOUNT of its spending before): the main skill as a charge consumer (Lightning Spear spends Frenzy
+    Charges) is taken at its share of the fight (Conditions._main_share, as objective.dps scores it), not at PoB's full
+    Speed: at half the fight, half the uses a second wanted."""
+    import re
+
+    from builder.search.conditions import Conditions
+
+    payload = make_payload(BuildRequest(main_skill="Lightning Spear", ascendancies=["Amazon"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Lightning Spear"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    ring = chr(10).join(["Rarity: Rare", "Test Ring", "Ruby Ring", "Item Level: 82", "Implicits: 0",
+                         "20% chance to gain a Frenzy Charge on Hit"])
+    build.call("equip", slot="Ring 1", raw=ring, fields=[])
+    wanted = {}
+    for share in (1.0, 0.5):
+        monkeypatch.setattr(Conditions, "_main_share", lambda self, s=share: s)
+        search.conditions.evidence()
+        flow = (build.charge_flow or {}).get("Frenzy")
+        print(share, flow)
+        wanted[share] = float(re.search(r"([\d.]+)/s wanted by", flow[1]).group(1))
+    assert wanted[1.0] > 0 and wanted[0.5] == pytest.approx(wanted[1.0] / 2, abs=0.006)

@@ -136,3 +136,14 @@ def test_unbound_fury_and_arbiters_ignition_count_the_main_skill_at_its_share():
     assert half[0] == pytest.approx(slow[0]) and half[0] < models.unbound_uptime(stats, 8.0, False)[0]
     wait = lambda st: next(s.wait for s in models.archon_sources(st, {"Arbiter's Ignition"}) if s.name == "Arbiter's Ignition")
     assert wait({**stats, "_main_share": 0.5}) == pytest.approx(2 * wait(stats))
+
+
+def test_hit_remnants_count_the_main_skills_hits_at_its_share():
+    """(MECHC45) Life / Mana Remnants and Sanguine Revelry from the main skill's hits (assumptions.hit_remnant_rate)
+    read stats["_main_share"]: the same as its Speed at that share."""
+    from builder.search.assumptions import hit_remnant_rate
+
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 0}
+    assert hit_remnant_rate("Life Remnants", {**stats, "_main_share": 0.5})[0] == pytest.approx(
+        hit_remnant_rate("Life Remnants", {**stats, "Speed": 1.0})[0])
+    assert hit_remnant_rate("Life Remnants", {**stats, "_main_share": 0.5})[0] < hit_remnant_rate("Life Remnants", stats)[0]

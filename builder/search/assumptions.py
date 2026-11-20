@@ -173,6 +173,8 @@ def hit_remnant_rate(name: str, stats: dict) -> tuple[float, str]:
     the ailments at their uptime from the main skill's own hits. Other skills' hits aren't counted (an undercount)."""
     cooldown = HIT_REMNANTS[name]
     hits = number(stats.get("Speed")) * min(number(stats.get("HitChance")) or 100.0, 100.0) / 100.0
+    if stats.get("_main_share") is not None:  # (MECHC45, an OVERCOUNT before: at its share of the fight)
+        hits *= max(0.0, min(1.0, number(stats["_main_share"])))
     if name == "Sanguine Revelry":
         share = ailment_uptime(stats, "Bleed")
         how = f"hits on a Bleeding boss: {hits:.2f} hits/s, the boss Bleeding {share:.0%} of the fight"
@@ -4219,7 +4221,9 @@ class Assumptions:
                 rate, condition = living_bomb_rate(self.build.call("stats", fields=list(LIVING_BOMB_FIELDS)),
                                                    skill.get("castTime") or 0.0)
             elif name in HIT_REMNANTS:
-                rate, condition = hit_remnant_rate(name, self.build.call("stats", fields=list(HIT_REMNANT_FIELDS)))
+                rate, condition = hit_remnant_rate(name, with_main_share(  # (MECHC45)
+                    self.build, self.build.call("stats", fields=list(HIT_REMNANT_FIELDS)),
+                    SimpleNamespace(name=self.main_skill()) if self.main_skill() else None))
             elif name == "Snap":  # (MECH46: it needs an ailment on the boss to Consume)
                 found, how = snap_found(snap_stats(self.build))
                 rate *= found
@@ -5061,8 +5065,8 @@ class Assumptions:
         enemies = number(kills[0])
         # (MECHC44, an OVERCOUNT before: the main skill's hits at PoB's full Speed though the pressed side skills take
         # part of its time) at its share of the fight as objective.dps scores it (main_time_share, GEM22's)
-        share = main_time_share(build, SimpleNamespace(name=main)) if main else 1.0
-        hits = models.hits_per_second(stats) * share
+        main_share = main_time_share(build, SimpleNamespace(name=main)) if main else 1.0
+        hits = models.hits_per_second(stats) * main_share
         lowered = [t.lower() for t in texts]
         has = lambda pattern: any(pattern.search(t) for t in lowered)  # noqa: E731
         recovery.on_kill(income, stats, texts, enemies)
@@ -5095,7 +5099,7 @@ class Assumptions:
             # additional-Remnant / reappear / double-pickup lines on every Remnant, the Life / Mana ones included)
             others = self.remnant_supply(skills, skip=recovery.REMNANT_SKILLS) if pickup else (0.0, [])
             multiplier, multiplier_how = remnant_multiplier(texts)
-            recovery.remnant_income(income, infos, stats, texts, hits=hits, crits=models.crits_per_second(stats) * share,
+            recovery.remnant_income(income, infos, stats, texts, hits=hits, crits=models.crits_per_second(stats) * main_share,
                                     ailment_share=share, ailment_how=how, enemies=enemies,
                                     others=(others[0], "; ".join(others[1])), multiplier=multiplier,
                                     multiplier_how=multiplier_how)
@@ -5181,7 +5185,8 @@ class Assumptions:
         if has(recovery.WARCRY_BOTH) or has(recovery.WARCRY_LIFE):
             main_types = set((build.ctx.gems.get(main) or {}).get("skillTypes") or []) if main else set()
             events = conditions_mod.event_rates(
-                build.call("groups")["groups"], build.ctx.gems, main or "", main_types, number(stats.get("Speed")),
+                build.call("groups")["groups"], build.ctx.gems, main or "", main_types,
+                number(stats.get("Speed")) * main_share,  # (MECHC45: the main skill at its share of the fight)
                 lambda idx: build.call("useRates", indices=idx)["rates"], texts, models.press_choices(build))
             warcries, warcry_how = events.get("Warcry", (0.0, ""))
         heavy, heavy_how = models.heavy_stun_rate(stats) if has(recovery.HEAVY_STUN_UNIQUE) else (0.0, "")
@@ -5194,7 +5199,8 @@ class Assumptions:
             recovery.hit_income(income, stats, texts, **self.hit_rates(main, stats, before=income.pool("Life")))
         if any(g.get("name") == SECOND_WIND and g.get("enabled", True) for grp in (build.groups() if hasattr(build, "groups") else [])
                for g in grp.get("gems") or []):  # (MECHC29, PATCH_CHECK G4-6) Second Wind III's Life per use
-            life_s, wind_how = self.second_wind_life(number(stats.get("Life")), main, number(stats.get("Speed")))
+            life_s, wind_how = self.second_wind_life(number(stats.get("Life")), main,
+                                                     number(stats.get("Speed")) * main_share)  # (MECHC45)
             if life_s > 0:
                 income.add("LifeOnEventRecovery", life_s, wind_how)
         if recovery.GHOST_DANCE in present:  # (MECHC27) Ghost Dance's ES regeneration while a Shroud was lost recently
@@ -5273,7 +5279,9 @@ class Assumptions:
                 cap = int(m.group(1))
         cap += sum(int(m.group(1)) for t in texts if (m := SOUL_MAX_PLUS.match(t)))
         stats = build.call("stats", fields=["Speed", "HitChance", "FullDPS", "CombinedDPS"])
-        hits = models.hits_per_second(stats)
+        main = self.main_skill()
+        hits = models.hits_per_second(stats) * (  # (MECHC45: the main skill at its share of the fight)
+            main_time_share(build, SimpleNamespace(name=main)) if main and getattr(build, "objective", None) else 1.0)
         boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         life = bosses.PRESETS.get(boss, bosses.PRESETS[bosses.DEFAULT]).life
         dps = number(stats.get("FullDPS")) or number(stats.get("CombinedDPS"))
@@ -5711,7 +5719,8 @@ class Assumptions:
                                                [line["text"] for line in build.call("sourceLines")["lines"]])
                             if names else (0.0, "no Glory skill"))
         groups = [g for g in build.call("groups")["groups"] if g.get("enabled") is not False]
-        speed = number(stats.get("Speed"))
+        speed = number(stats.get("Speed")) * (  # (MECHC45: the main skill's uses at its share of the fight)
+            main_time_share(build, SimpleNamespace(name=main)) if main and getattr(build, "objective", None) else 1.0)
         main_index = (build.main_group() or {}).get("index")
         choices = models.press_choices(build)
 

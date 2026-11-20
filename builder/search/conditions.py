@@ -8475,7 +8475,9 @@ class Conditions:
                 if flag in types:
                     if hollow and types == main_types and name != HOLLOW_FORM:
                         continue
-                    uses = (number(stats.get("Speed")) if types == main_types or (hollow and name == HOLLOW_FORM)
+                    # (MECHC45, an OVERCOUNT of its spending before: the main skill at its share of the fight)
+                    uses = (number(stats.get("Speed")) * _main_share(stats)
+                            if types == main_types or (hollow and name == HOLLOW_FORM)
                             else None)  # (None: rated from its group below)
                     consumers.setdefault(kind, {})[name] = uses
         if CREEPING_CHILL in gem_types:  # (MECH93: the support makes its crystal skill spend Power Charges; see
@@ -8489,8 +8491,8 @@ class Conditions:
         main_gems = {g["name"] for g in group["gems"]} if group is not None else set()
         rage_spend: dict[str, float] = {}
         for name in gem_types:
-            uses = number(stats.get("Speed")) if name == self.main_skill or (
-                name in main_gems and name.startswith("Rageforged")) else None
+            uses = number(stats.get("Speed")) * _main_share(stats) if name == self.main_skill or (
+                name in main_gems and name.startswith("Rageforged")) else None  # (MECHC45: at its share)
             if name in RAGE_PER_USE:
                 rage_spend[name] = RAGE_PER_USE[name] * uses if uses is not None else None
             elif name in RAGE_PER_SECOND:
@@ -8508,13 +8510,14 @@ class Conditions:
             for each in consumers.values():
                 for n in [n for n, u in each.items() if u is None]:
                     # (a support in the main skill's group consumes on the main skill's uses)
-                    each[n] = number(stats.get("Speed")) if n in main_gems else uses.get(n, self._chosen_use(n))
+                    each[n] = (number(stats.get("Speed")) * _main_share(stats) if n in main_gems  # (MECHC45)
+                               else uses.get(n, self._chosen_use(n)))
             for n in [n for n, u in rage_spend.items() if u is None]:
                 each = uses.get(n, self._chosen_use(n))
                 rage_spend[n] = RAGE_PER_USE[n] * each if n in RAGE_PER_USE else RAGE_PER_SECOND[n] * min(1.0, each)
         if any(INVIGORATING_HATE.search(t) or SHIFTED_ANIMAL_RECENTLY.search(t) or SHIFTED_HUMAN_RECENTLY.search(t)
                for t in texts):  # (MECHC21: shifts back to Human form, from the build's presses; MECHC34: MB-8)
-            stats["_human_shifts"] = self._human_shifts(number(stats.get("Speed")))
+            stats["_human_shifts"] = self._human_shifts(number(stats.get("Speed")) * _main_share(stats))  # (MECHC45)
         if any(BUFF_EXPIRY.search(t) for t in texts):  # (MECHC35: "Buffs on you expire N% slower", buff_expiry)
             stats["_buff_expiry"] = buff_expiry(texts)
         if any("with your shield raised" in t.lower() and "lava" in t.lower() for t in texts):
