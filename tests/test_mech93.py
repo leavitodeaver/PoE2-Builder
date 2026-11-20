@@ -196,3 +196,37 @@ def test_mecha_readers_take_the_main_skill_at_its_share_of_the_fight():
     turmoil = ["Gain 1 Volatility on inflicting an Elemental Ailment", "Take no Damage from Volatility"]
     got = models.volatility_model(turmoil, {**base, "_main_share": 0.5})[1][0]["basis"]
     assert got == models.volatility_model(turmoil, half)[1][0]["basis"]
+
+
+def test_repulsion_is_on_the_boss_only_until_the_next_hit():
+    """MECH93 (GEM26's two OVERCOUNTS; R35-25): any Hit removes Repulsion, so each wave holds (1 - e^(-hD)) / h;
+    cast by hand a wave every hold + 0.5 s cast + 1.5 s delay; no Runic Ward: never cast; under Blasphemy the 1 s block
+    + the delay; another curse unchanged."""
+    import math
+
+    from builder.search import models
+
+    gems = {"Repulsion": {"skillTypes": ["Spell", "AppliesCurse"], "castTime": 0.5},
+            "Vulnerability": {"skillTypes": ["Spell", "AppliesCurse"]},
+            "Blasphemy": {"skillTypes": ["Aura", "Meta"]}}
+    hand = [{"enabled": True, "gems": [{"name": "Repulsion"}]}, {"enabled": True, "gems": [{"name": "Vulnerability"}]}]
+    stats = {"Speed": 2.0, "HitChance": 100.0, "Ward": 500.0, "PresenceRadius": 40}
+    got = {u.name: u for u in models.curse_uses(hand, gems, stats, 2.0)}
+    d = models.CURSE_DURATION
+    hold = (1 - math.exp(-2.0 * d)) / 2.0
+    assert got["Repulsion"].share == pytest.approx(hold / (hold + 0.5 + 1.5))
+    assert got["Repulsion"].by_hand and got["Repulsion"].duration == pytest.approx(hold + 2.0)
+    assert got["Vulnerability"].share == 1.0
+    # pressed half the fight: half the hits, a longer hold
+    half = {u.name: u for u in models.curse_uses(hand, gems, {**stats, "_main_share": 0.5}, 2.0)}
+    assert half["Repulsion"].share > got["Repulsion"].share
+    # no Runic Ward: never cast
+    none = {u.name: u for u in models.curse_uses(hand, gems, {**stats, "Ward": 0.0}, 2.0)}
+    assert none["Repulsion"].share == 0.0 and not none["Repulsion"].by_hand and "Runic Ward" in none["Repulsion"].how
+    # under Blasphemy, inside the Presence: reapplied after the block and the delay, no Ward needed
+    aura = [{"enabled": True, "gems": [{"name": "Repulsion"}, {"name": "Blasphemy", "support": True}]}]
+    up = models.curse_uses(aura, gems, {**stats, "Ward": 0.0}, 2.0)[0]
+    assert up.share == pytest.approx(hold / (hold + 1.0 + 1.5)) and not up.by_hand
+    # no hits read: the wave lasts its duration
+    idle = {u.name: u for u in models.curse_uses(hand, gems, {**stats, "Speed": 0.0}, 2.0)}
+    assert idle["Repulsion"].share == pytest.approx(d / (d + 2.0))

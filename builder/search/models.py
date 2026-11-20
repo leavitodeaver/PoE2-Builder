@@ -2597,6 +2597,55 @@ class CurseUse:
     delay: float = CURSE_DELAY  # (MECH86) its activation delay: PoB's with the build's modifiers, else 1.5 s
 
 
+# Repulsion (MECH93; GEM26's two OVERCOUNTS, the manager 07:40; RESEARCH35 R35-25, research/caltrops-fulmination-
+# repulsion.md). ActiveSkills repulsion: "Spend Runic Ward to Curse enemies with a Verisium Rune, inflicting them with
+# Fragility. Hitting these enemies removes the Curse to Trigger an explosion" (any Hit: HIGH; damage over time isn't a
+# Hit); repulsion_curse_when_detonated_prevent_curse_for_X_ms 1000 (the block starts at detonation: MEDIUM-HIGH); the
+# curse lands curse_delay after the cast (1.5 s, PoB's with the build's modifiers). Before, curse_uses had it on the boss
+# all fight like any curse, so "against Cursed enemies" lines counted in full. Now each wave is on the boss only until
+# the build's next Hit: (1 - e^(-h D)) / h on average, h = the main skill's hits a second at its share of the fight
+# (other skills' and minions' hits not counted: a higher reading, MEDIUM), D its duration; a wave every that + the
+# recast: cast by hand, its cast time (PoB's gem castTime 0.5 s; cast speed not read: a lower reading) + the delay (a
+# recast during the 1 s block lands, the delay being longer: MEDIUM-LOW); under Blasphemy (reapplied, no Ward spent:
+# player reports, MEDIUM-LOW) the 1 s block + the delay; triggered at a model's rate, that rate x the hold. Cast by
+# hand it needs Runic Ward (its cost): PoB's Ward 0 means no cast (0, said); the Ward spent a cast against its regain
+# isn't checked (a higher reading). CurseUse.duration becomes the wave cycle (one press a wave); Impending Doom then
+# reads share / cycle (whether a detonation counts as the curse expiring: UNVERIFIED).
+REPULSION = "Repulsion"
+REPULSION_BLOCK = 1.0  # s (repulsion_curse_when_detonated_prevent_curse_for_X_ms 1000)
+REPULSION_CAST = 0.5  # s (PoB's castTime, when the gem data gives none)
+
+
+def repulsion_use(use: "CurseUse", stats: dict, gems: dict, aura: bool, rate: float | None) -> "CurseUse":
+    """(MECH93) Repulsion's CurseUse on the boss (the note above): held from application to the next Hit."""
+    hits = hits_per_second(at_main_share(stats))
+    lasts = use.duration if use.duration > 0 else CURSE_DURATION
+    hold = (1 - math.exp(-hits * lasts)) / hits if hits > 0 else lasts
+    head = (f"; Repulsion: any Hit removes it, so each wave holds {hold:.2f} s on average (the main skill's "
+            f"{hits:.2f} hits/s, R35-25)")
+    if rate is not None:
+        share = min(1.0, rate * hold)
+        return replace(use, share=share, how=use.how + head + f": {share:.0%} of the fight")
+    if aura:
+        if use.share <= 0:
+            return use
+        cycle = hold + REPULSION_BLOCK + use.delay
+        share = hold / cycle
+        return replace(use, share=share, how=use.how + head + f", reapplied (an Aura or a trigger) after the "
+                                                             f"{REPULSION_BLOCK:g} s block and "
+                                                             f"its {use.delay:g} s delay (MEDIUM-LOW): {share:.0%}")
+    ward = stats.get("Ward")
+    if ward is not None and number(ward) <= 0:
+        return replace(use, share=0.0, how=use.how + "; Repulsion spends Runic Ward and the build has none: never cast (0)",
+                       by_hand=False, lapse=False, hexblast=False)
+    cast = number((gems.get(REPULSION) or {}).get("castTime")) or REPULSION_CAST
+    cycle = hold + cast + use.delay
+    share = hold / cycle
+    return replace(use, share=share, duration=cycle, by_hand=True, lapse=False, hexblast=False,
+                   how=(f"cast by hand (Runic Ward), a wave every {cycle:.2f} s ({cast:g} s cast + {use.delay:g} s delay "
+                        f"+ the hold)" + head + f": {share:.0%} of the fight"))
+
+
 def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
                lines: list[str] = (), rates: dict[str, float] | None = None) -> list[CurseUse]:
     """How the build applies each of its curses, and the share of the fight each is on the boss. `rates`: triggered
@@ -2652,6 +2701,9 @@ def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
                 uses.append(CurseUse(name, 1.0, f"cast by hand every {lasts} (its duration; recast "
                                                 f"{delay:g} s before it runs out, the curse delay)", True, duration))
             uses[-1] = replace(uses[-1], delay=delay)  # (MECH86: its own activation delay)
+            if name == REPULSION:  # (MECH93: on the boss only until the next Hit; R35-25)
+                rate = number(rates[name]) if meta is not None and rates is not None and name in rates else None
+                uses[-1] = repulsion_use(uses[-1], stats, gems, "Blasphemy" in types or meta is not None, rate)
         if zone:  # (every curse this group applies is laid as the support's area, the Blasphemy aura excepted)
             uses[before:] = [replace(u, how=u.how + CURSE_ZONE_NOTE.format(zone), zone=zone)
                              if "Blasphemy" not in u.how else u for u in uses[before:]]
