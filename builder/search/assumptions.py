@@ -3240,9 +3240,11 @@ class Assumptions:
         volatility_crit = volatility_support(build, main)  # (MECH91: the Volatility support's chance on crit)
         if volatility_crit > 0 or any(models.INNER_TURMOIL.match(t.strip())
                                       or models.VOLATILITY_ON_CRIT.match(t.strip())
+                                      or models.VOLATILITY_ON_KILL.match(t.strip())  # (MECH92)
                                       for t in turmoil_texts):  # (MECH90: PoB reads no Volatility)
             turmoil_stats = build.call("stats", fields=models.VOLATILITY_STATS)  # (MECH91: + the Chaos DoT share's)
-            turmoil_mods, turmoil_notes = models.volatility_model(turmoil_texts, turmoil_stats, volatility_crit)
+            turmoil_mods, turmoil_notes = models.volatility_model(  # (MECH92: + Instability, on Kill at build.kills)
+                turmoil_texts, turmoil_stats, volatility_crit, getattr(build, "kills", None))
             hand_mods, hand_notes = hand_mods + turmoil_mods, hand_notes + turmoil_notes
         if any(models.UNSTABLE_BOND.match(t.strip()) for t in turmoil_texts):  # (MECHB44: Volatility on minion death)
             bond_mods, bond_notes = models.unstable_bond_model(turmoil_texts, models.minion_deaths(found, main, stats))

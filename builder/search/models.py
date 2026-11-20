@@ -10058,8 +10058,9 @@ def engineered_blaze_mods(texts: list[str], ignited: float) -> tuple[list[dict],
 # extra Chaos while attacking. Elemental-ailment hits: 1 - (1 - Ignite)(1 - Shock)(1 - Chill) chance per hit (PoB's
 # per-hit chances; Chill on any hit with Cold damage, PoB's ChillChanceOnHit), Freeze / Electrocute buildup not counted
 # (a lower reading); Ignites keep burning while you stop (not counted: a lower reading). "Maximum Volatility is N" caps k.
-# Its other lines (Growing Peril's per-Volatility Chaos DoT, Precise Volatility's crit, Instability, Volatility on Kill /
-# when Stunned / on minion death) are not counted here (no kills on a lone boss; the rest: an UNDERCOUNT, said).
+# Its other lines: Growing Peril and Precise Volatility (MECH90, below), Instability and Volatility on Kill (MECH92,
+# below VOLATILITY_SUPPORT_STAT); Volatility when Stunned / on minion death are not counted here (MECH-C's / MECH-B's
+# topics: an UNDERCOUNT, said).
 INNER_TURMOIL = re.compile(r"^gain 1 volatility on inflicting an elemental ailment$", re.I)
 # (MECH90, the manager 16:20) Growing Peril "1% increased Chaos Damage over Time per Volatility" (PoB: parsed in part,
 # never applied) on the Volatility held: at the cap all fight when the cycle isn't played (it never explodes; the climb to
@@ -10080,24 +10081,63 @@ VOLATILITY_SECONDS, VOLATILE_POWER_SECONDS, VOLATILITY_EVERY, VOLATILITY_CAP = 4
 # KeywordPopups' Volatility is on you; MEDIUM). Without "Take no Damage from Volatility" each Volatility explodes for
 # 100 Physical Damage to you (KeywordPopups), so the cycle lets at most what the build's Life + Energy Shield survives
 # explode, unmitigated (the "75% ... taken as Cold" line not read: a lower cap). Other gains not counted (an
-# UNDERCOUNT, said): on Kill (no kills on a lone boss), when Stunned (stuns on you: MECH-C's), on minion death (MECH-B),
-# the Volatile Power support on Empowered use, Catharsis' spending, the refresh chance.
+# UNDERCOUNT, said): when Stunned (stuns on you: MECH-C's), on minion death (MECH-B), the Volatile Power support on
+# Empowered use, Catharsis' spending (on Kill and the refresh chance: MECH92, below).
 VOLATILITY_ON_CRIT = re.compile(r"^(\d+(?:\.\d+)?)% chance to grant volatility on critical hit$", re.I)
 VOLATILITY_IMMUNE = re.compile(r"^take no damage from volatility$", re.I)
 # Dream Fragments' Cultivated "75% of Volatility Physical Damage Taken as Cold Damage" (PoB: unread): that part of the
 # explosion is reduced by your Cold Resistance (the rest unmitigated, as above)
 VOLATILITY_AS_COLD = re.compile(r"^(\d+(?:\.\d+)?)% of volatility physical damage taken as cold damage$", re.I)
 VOLATILITY_SUPPORT_STAT, VOLATILITY_HIT = "instability_on_critical_%_chance", 100.0
+# (MECH92; the catalog's damaging-ailments / term-consume passive rows, UNDERCOUNTS: PoB reads neither line) Instability
+# (volatility_refresh_%_chance 25; Ancient Rune of Decay's 15% on a wand): "N% chance that when Volatility on you
+# explodes, you regain an equivalent amount of Volatility" (the same stat, summed). In the attack-then-stop cycle a
+# regained count starts the next attack window, so after j regains in a row the window explodes min(cap, (j + 1) x
+# rate x T): expected sum_j (1 - p) p^j min(cap, (j + 1) rate T) a cycle (the regains independent; Growing Peril's held
+# count still climbs from 0, a lower reading). Volatility on Kill (volatility_on_kill_%_chance: the Volatility on Kill
+# passives 3-5%, Volatility 10%, the Volatility on Kill jewels 1-3%, a Hand Wraps line 30-50%; checked: Stats ->
+# Mods / PassiveSkills by stat, 26650308) at the build's own kills (build.kills: the boss preset's adds and your own
+# minions Killed, models.kill_rate; 0 on a lone boss, said): its gains join the attack window's rate when Inner Turmoil
+# or crits play the cycle; alone, each kill's Volatility explodes by itself (the adds die 25-45 s apart, longer than the
+# delay), its Volatile Power 10 s, a regained one exploding again a delay later (expected chain 1 / (1 - p) explosions,
+# the buff held 10 s + delay x p / (1 - p)), so +1% of Damage as Chaos for kills/s x chance x that time of the fight.
+VOLATILITY_ON_KILL = re.compile(r"^(\d+(?:\.\d+)?)% chance to gain volatility on kill$", re.I)
+VOLATILITY_REFRESH = re.compile(r"^(\d+(?:\.\d+)?)% chance that when volatility on you explodes, you regain an "
+                                r"equivalent amount of volatility$", re.I)
+VOLATILITY_REFRESH_MAX = 0.95  # (the summed chance kept below 1: a chain that never ends; the lines sum to 40% at most)
 
 
-def volatility_model(texts: list[str], stats: dict, support_crit: float = 0.0) -> tuple[list[dict], list[dict]]:
+def volatility_refreshed(per_window: float, cap: float, refresh: float) -> float:
+    """(MECH92) Expected Volatility exploded per cycle when each explosion is regained with chance `refresh` and the
+    next window adds `per_window` on top of it, up to `cap`: sum_j (1 - p) p^j min(cap, (j + 1) per_window)."""
+    if refresh <= 0 or per_window <= 0:
+        return min(cap, per_window)
+    total, weight, j = 0.0, 1 - refresh, 0
+    while weight > 1e-12 and j < 10000:
+        if (j + 1) * per_window >= cap:
+            return total + weight / (1 - refresh) * cap  # (this and every later term are at the cap)
+        total += weight * (j + 1) * per_window
+        weight *= refresh
+        j += 1
+    return total
+
+
+def volatility_model(texts: list[str], stats: dict, support_crit: float = 0.0,
+                     kills: tuple | None = None) -> tuple[list[dict], list[dict]]:
     """(mods, notes) for Inner Turmoil's Volatility played as a cycle (the note above); (MECH91) also Volatility on
-    Critical Hit (support_crit: the main skill's Volatility support chance, %; the lines VOLATILITY_ON_CRIT)."""
+    Critical Hit (support_crit: the main skill's Volatility support chance, %; the lines VOLATILITY_ON_CRIT); (MECH92)
+    Instability's regain and Volatility on Kill at `kills` (models.kill_rate's (enemies/s, all/s, how))."""
     inner = any(INNER_TURMOIL.match(t.strip()) for t in texts)
     on_crit = min(100.0, max(0.0, support_crit) + sum(float(m.group(1)) for t in texts
                                                       if (m := VOLATILITY_ON_CRIT.match(t.strip())))) / 100
+    refresh = min(VOLATILITY_REFRESH_MAX, sum(float(m.group(1)) for t in texts
+                                              if (m := VOLATILITY_REFRESH.match(t.strip()))) / 100)
+    kill_chance = min(100.0, sum(float(m.group(1)) for t in texts if (m := VOLATILITY_ON_KILL.match(t.strip())))) / 100
+    killed, kill_how = ((max(number(kills[1]), 0.0), str(kills[2])) if kills and len(kills) >= 3 else
+                        (0.0, "the build's kills weren't read"))
+    kill_gain = kill_chance * killed
     if not inner and on_crit <= 0:
-        return [], []
+        return volatility_on_kill_alone(texts, kill_chance, killed, kill_how, refresh)
     cap = min([float(m.group(1)) for t in texts if (m := VOLATILITY_MAX.match(t.strip()))] or [VOLATILITY_CAP])
     immune = any(VOLATILITY_IMMUNE.match(t.strip()) for t in texts)
     pool = max(number(stats.get("Life")), 0.0) + max(number(stats.get("EnergyShield")), 0.0)
@@ -10116,7 +10156,7 @@ def volatility_model(texts: list[str], stats: dict, support_crit: float = 0.0) -
     any_ailment = (1 - math.prod(1 - c for c in (*chances, chill))) if inner else 0.0
     crit = min(max(number(stats.get("CritChance")), 0.0), 100.0) / 100
     any_gain = 1 - (1 - any_ailment) * (1 - crit * on_crit)
-    rate = min(1 / VOLATILITY_EVERY, hits_per_second(stats) * any_gain)
+    rate = min(1 / VOLATILITY_EVERY, hits_per_second(stats) * any_gain + kill_gain)
     peril = sum(float(m.group(1)) for t in texts if (m := GROWING_PERIL.match(t.strip())))
     precise = sum(float(m.group(1)) for t in texts if (m := PRECISE_VOLATILITY.match(t.strip())))
     chaos_dot = chaos_dot_share(stats) if peril > 0 else 0.0
@@ -10131,7 +10171,7 @@ def volatility_model(texts: list[str], stats: dict, support_crit: float = 0.0) -
     unplayed = peril_factor(cap if rate > 0 else 0.0)
     best = (unplayed, 0.0, 0.0)
     for attack in range(1, 31):
-        exploded = min(cap, rate * attack)
+        exploded = volatility_refreshed(rate * attack, cap, refresh)  # (MECH92: min(cap, rate x T) without Instability)
         powered = min(attack, VOLATILE_POWER_SECONDS)
         value = ((powered * (1 + exploded / 100) + max(0.0, attack - VOLATILE_POWER_SECONDS)) / (attack + delay)
                  * peril_factor(held_while_attacking(exploded, attack)))
@@ -10145,8 +10185,14 @@ def volatility_model(texts: list[str], stats: dict, support_crit: float = 0.0) -
     gains = ([f"{any_ailment:.0%} inflicting an Elemental Ailment (Inner Turmoil)"] if inner else []) + (
         [f"{crit:.0%} crit x {on_crit:.0%} Volatility on Critical Hit"] if on_crit > 0 else [])
     head = (f"{rate:.2f} Volatility a second ({hits_per_second(stats):.2f} hits/s x {' or '.join(gains)}: "
-            f"{any_gain:.0%} a hit, at most 10 a second); it explodes {delay:g} s after the last gain (KeywordPopups "
-            f"Volatility), up to {cap:g}" + ("" if immune else
+            f"{any_gain:.0%} a hit"
+            + (f", plus {kill_gain:.3f}/s from Volatility on Kill ({kill_chance:.0%} x {killed:.3f} Kills/s: "
+               f"{kill_how}; LOW)" if kill_chance > 0 else "")
+            + f", at most 10 a second); it explodes {delay:g} s after the last gain (KeywordPopups "
+            f"Volatility), up to {cap:g}"
+            + (f"; Instability: {refresh:.0%} chance each explosion is regained and starts the next window (the "
+               "expected count over regains in a row, taken as independent)" if refresh > 0 else "")
+            + ("" if immune else
                              f" (no 'Take no Damage from Volatility': each explodes for {per:.0f} Damage to you "
                              f"({VOLATILITY_HIT:g} Physical, {as_cold:.0%} of it taken as Cold at {cold_res:.0%} "
                              "resistance), so at most what your {pool:.0f} Life + Energy Shield survives, "
@@ -10179,11 +10225,45 @@ def volatility_model(texts: list[str], stats: dict, support_crit: float = 0.0) -
                      "Chaos Damage over Time" if peril > 0 else "")
                   + (f"; Precise Volatility: +{precise * gain:.0f}% Critical Hit chance (the powered share)"
                      if precise > 0 else "") + weighed
-                  + ". Ignites burning on while you stop, Freeze / Electrocute buildup and Instability not counted "
+                  + ". Ignites burning on while you stop and Freeze / Electrocute buildup not counted "
                   "(lower). PoB reads no Volatility"),
         "play": (f"Attack {attack:g} s, then stop inflicting ailments for {delay:g} s so your Volatility explodes, and "
                  f"attack again inside the {VOLATILE_POWER_SECONDS:g} s of Volatile Power: without the pauses +0; with "
                  f"them x{value:.2f} damage")}]
+
+
+def volatility_on_kill_alone(texts: list[str], chance: float, killed: float, how: str,
+                             refresh: float) -> tuple[list[dict], list[dict]]:
+    """(MECH92) Volatility on Kill without Inner Turmoil or crit gains: each kill's Volatility explodes by itself (the
+    note above VOLATILITY_ON_KILL); +1% of Damage as Chaos for the share of the fight Volatile Power is up."""
+    if chance <= 0:
+        return [], []
+    label = "Volatility on Kill: Volatile Power*"
+    if killed <= 0:
+        return [], [{"label": label, "value": "0 (no kills)", "confidence": "MEDIUM",
+                     "basis": (f"{chance:.0%} chance to gain Volatility on Kill, and nothing dies before the boss ({how}): "
+                               "0. PoB reads no Volatility")}]
+    inc = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+              for t in texts if (m := VOLATILITY_DELAY.match(t.strip())))
+    delay = VOLATILITY_SECONDS * max(0.0, 1 + inc / 100)
+    gains = chance * killed
+    chain = 1 / (1 - refresh)  # (expected explosions from one gain: the first and each regained one)
+    held = VOLATILE_POWER_SECONDS + delay * (chain - 1)
+    up = min(1.0, gains * held)
+    peril = sum(float(m.group(1)) for t in texts if (m := GROWING_PERIL.match(t.strip())))
+    volatile = min(1.0, gains * delay * chain)  # (the share of the fight one Volatility sits on you before exploding)
+    mods = [line("Gain 1% of Damage as Extra Chaos Damage", up)] + (
+        [line("1% increased Chaos Damage over Time", peril * volatile)] if peril > 0 else [])
+    return mods, [{"label": label, "value": f"+{up:.2f}% of Damage as Chaos on average", "confidence": "LOW",
+                   "basis": (f"{chance:.0%} chance x {killed:.3f} Kills/s ({how}) = {gains:.4f} Volatility a second, "
+                             f"each exploding by itself {delay:g} s later (the kills come further apart than that) for "
+                             f"{VOLATILE_POWER_SECONDS:g} s of Volatile Power, 1% of Damage as Chaos"
+                             + (f"; Instability {refresh:.0%}: {chain:.2f} explosions a gain on average, the buff "
+                                f"held {held:.1f} s" if refresh > 0 else "")
+                             + f": up {up:.1%} of the fight"
+                             + (f"; Growing Peril on the one Volatility held {volatile:.1%} of the fight"
+                                if peril > 0 else "")
+                             + ". The kills' rate is averaged over the fight (LOW). PoB reads no Volatility")}]
 
 
 DOT_TYPES = ("Physical", "Lightning", "Cold", "Fire", "Chaos")

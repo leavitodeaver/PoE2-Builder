@@ -4532,6 +4532,9 @@ def buildup_others(rows: dict, groups: list[dict], hitters: set[str], main_index
 # and "Stunning" wordings (they ride the boss's shared bars, which _armour_broken rates once from the main skill), and
 # the support stats outside BREAK_STATS (Rending Apex's final strike, Mark for Death's Marked target, Brittle Armour's
 # Freeze, Tumult's Frenzy Charge, Corrosion's Poison, Outmaneuver's Parried: not read for the main skill either).
+# Tumult and Outmaneuver aren't obtainable in 0.5.5 (RESEARCH33 R33-18, MEDIUM-HIGH; checked: SkillGems CraftingTypes []
+# / CraftingLevel 0 like the removed Untouchable / Unyielding, single level, no granting table; poe2wiki: Tumult removed
+# in 0.3.0, Outmaneuver drop restricted; no patch-note hit), so their Break lines move no league build.
 CANNOT_BREAK = "cannot_break_armour"
 # Mark for Death (MECH89, an UNDERCOUNT before: no reader): "Hits against targets Marked by Supported Skills Break Armour
 # equal to {0}% of Physical damage dealt" (gem_stat_descriptions; SupportMarkForDeathPlayer 10, ...PlayerTwo 15; PoB
