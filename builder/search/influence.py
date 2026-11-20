@@ -15,6 +15,13 @@ weights.md). Odds rest on equal weights: the real spawn weights can't be known f
 often rarer, so the real cost may be higher). Omens of Homogenising Exaltation are Standard-only since 0.5.0: no route.
 One influence rune per item (UNVERIFIED in R-b; the lower reading). No priced route (or no rune price): no offer.
 
+SEARCH31 (the user, 19 Nov ~21:55: "Sample trade prices first"): 12 trade-site samples (Forbidden Rites, 19 Nov,
+MARKET_SAMPLES) show these rares on sale in quantity, mostly at 0.02-1 div (uncorrupted 0.1-5; Medved's Life + Mana 2-20),
+while the craft route said 15-23 div: an OVERPRICE (an undervalue in the search). So where every sampled mod of a rune
+has LIQUID+ listings the headline is the finished rare bought on the trade site (`market_price`: the rare price model
+counting the influence affix as an ordinary affix, never below the cheapest real listings), MEDIUM-LOW; the craft route
+is a row. Thrud's Might (1 and 0 listings) keeps the craft route.
+
 OFF by default until a 3-run gate set measures it higher (the manager's rule): POE2_SEARCH_INFLUENCE=1 turns it on.
 """
 
@@ -103,3 +110,52 @@ def craft_price(market: float, rune_price: float | None, prices: dict[str, float
         steps.append(f"roll \"{'; '.join(affix.lines)}\": {how}, {cost:.3f} div (the cheapest of {len(found)} routes; "
                      f"equal weights: LOW)")
     return total, steps
+
+
+# (SEARCH31, the user 19 Nov ~21:55: "Sample trade prices first") Trade-site samples, Forbidden Rites, 19 Nov 2026 22:08:
+# per rune, its sampled influence mods (tier 2, or 1 where it has one tier): (mod id, listings matching the stat on its
+# item class, the median of the 5 cheapest instant-buyout listings that carry the rune AND the stat, divines). Most such
+# listings are corrupted (Omen of Putrefaction outputs); the uncorrupted ones cost 0.1-5 div (Medved's Life + Mana 2-20).
+# Log and listings: scratch/SEARCH31/infl_samples.log, infl_repriced.json.
+MARKET_SAMPLES = {
+    "Kolr's Hunt": [("MarksmanInfluenceChanceToPierce1", 2085, 0.0988), ("MarksmanInfluenceProjectileDamage2", 9649, 0.0988)],
+    "Katla's Gloom": [("DecayInfluenceAilmentDuration1", 926, 0.0988), ("DecayInfluenceIgniteMagnitude1", 1898, 0.1854)],
+    "Vorana's Carnage": [("BerserkInfluenceArmourBreakDuration1", 162, 0.0988),
+                         ("BerserkInfluenceArmourBreakMagnitude2", 184, 0.2965)],
+    "Uhtred's Sidereus": [("TimeInfluenceCharges1", 4744, 1.0), ("TimeInfluenceDebuffExpiry1", 1182, 0.0178)],
+    "Medved's Tending": [("SoulInfluenceReducedAilmentDurationAgainstYou", 130, 1.0),
+                         ("SoulInfluenceIncreasedLifeAndMana", 181, 5.0)],
+    "Thrud's Might": [("DestructionInfluenceChaosModifierEffect", 1, 900.0), ("DestructionInfluenceColdModifierEffect", 0, None)],
+}
+LIQUID = 100  # listings every sampled mod of a rune needs before the market prices its rares (a judgement: MEDIUM-LOW)
+
+
+def supplied(rune: str) -> bool:
+    """Whether the trade site sells this rune's rares in quantity (every sampled mod listed LIQUID+ times)."""
+    rows = MARKET_SAMPLES.get(rune)
+    return bool(rows) and all(listed >= LIQUID for _, listed, _ in rows)
+
+
+def market_price(rune: str, full: float, affixes) -> tuple[float | None, list[str]]:
+    """The finished rare bought on the trade site (the rune comes with it): the rare price model counting each influence
+    affix as an ordinary affix of its tier (`full`), never below the dearest sampled cheapest listing of its sampled mods
+    (MEDIUM-LOW: 12 samples of the mod alone). None for a rune the market doesn't supply (Thrud's Might: 1 listing)."""
+    if not supplied(rune):
+        return None, []
+    floor = max(price for _, _, price in MARKET_SAMPLES[rune] if price is not None)
+    total = max(full, floor)
+    lines = "; ".join(line for a in affixes if a.influence for line in a.lines)
+    return total, [f"buy it finished on the trade site: {total:.3f} div (the rare price model counting \"{lines}\" as "
+                   f"ordinary affixes, at least {floor:.3f} div, the cheapest real listings of {rune}'s sampled mods; "
+                   f"samples of 19 Nov, MEDIUM-LOW)"]
+
+
+def price(rune: str, market: float, full: float, rune_price: float | None, prices: dict[str, float], affixes
+          ) -> tuple[float | None, list[str], str]:
+    """(price, steps, how): the trade site where it supplies the rune's rares, else the craft route; the other a row."""
+    crafted, craft_steps = craft_price(market, rune_price, prices, affixes)
+    bought, buy_steps = market_price(rune, full, affixes)
+    if bought is not None:
+        row = [f"row: crafting it instead: {crafted:.3f} div ({'; '.join(craft_steps[2:])})"] if crafted is not None else []
+        return bought, buy_steps + row, "trade samples"
+    return crafted, craft_steps, "craft route: influence rune + Chaos Orbs"

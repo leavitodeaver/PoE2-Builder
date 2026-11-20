@@ -19,11 +19,17 @@ The price (R-e: no market price level found, UNVERIFIED) is THE CRAFT ROUTE at t
 the ordinary affixes at the market model's price (the rare bought with that slot open) + per try a bone (the cheapest
 Preserved / Ancient one of the class; a Gnawed bone caps at item level 64, below the lord mods) + the Necromancy Omen
 for the side, optionally Omen of Abyssal Echoes (one reroll of the three), and on Weapons / Jewellery optionally the
-lord's Omen (refused on Armour, Shields and Foci). A reveal's three options are drawn from the side's ORDINARY affixes
-and every lord row, not lord rows only (R33-20, MEDIUM: "may include base modifiers"; the first model, 3 / lord rows,
-was an OVERCOUNT and is now a row), each at weight 1 (LOW: real weights hidden); a lord Omen guarantees one option
-from its lord (MEDIUM-LOW; with a Necromancy Omen three players saw it fail: R33-21 UNSETTLED, a row). Each failed try
-also pays to clear the wrong mod: the cheaper of Omen of Light + Orb of Annulment and a fresh copy of the plain rare.
+lord's Omen (refused on Armour, Shields and Foci).
+THE DETERMINISTIC ROUTE (SEARCH31; the user, 19 Nov: "desecrated mods are relatively straightforward to craft and can be
+made deterministically with enough currency"): try, reveal, and on a miss remove only the Desecrated mod (Omen of Light:
+"your next Orb of Annulment will remove only Desecrated modifiers") or start on a fresh copy, until the wanted mod comes:
+nothing else on the item is ever lost, so the cost is the expected number of tries. With a lord Omen ("will guarantee a
+random <lord> modifier") the three options are that lord's rows on the forced side (poe2db: reveals "may include base
+modifiers. Unless you use Omen to guarantee named modifiers"), p = min(1, 3 / n_lord) (MEDIUM; `named`); RESEARCH34's
+reading (one option named, two from the whole side) and the Omen pair's reported failure (R33-21) are rows. Without a
+lord Omen (Armour, Shields, Foci, the Altered Collarbone, the Cranium: no Omen names their rows) a reveal's options are
+drawn from the side's ORDINARY affixes and every Desecrated row the bone gives, each at weight 1 (LOW: real weights
+hidden; R33-20); "only Desecrated mods offered" is a row.
 A missing price means no route. Ribs work on Shields and Foci (R33-24, MEDIUM-HIGH: game ItemClasses flag 5).
 
 Two more routes (SEARCH31; RESEARCH34 R33-22, MEDIUM-HIGH), each priced the same way (the reveal drawn from the side's
@@ -147,11 +153,20 @@ def routes(item_type: str, affix, n_lord: int, n_lords: int, n_ordinary: int) ->
              ("bone + Necromancy Omen + Omen of Abyssal Echoes", side + [ECHOES], offered(n_all, 2 * REVEAL))]
     if family(item_type) in ("weapon", "jewellery") and n_lord > 0 and affix.desecrated in LORD_OMEN:
         omen = LORD_OMEN[affix.desecrated]
-        guaranteed = min(1.0, 1 / n_lord + (REVEAL - 1) / max(1, n_all))
+        guaranteed = named(n_lord)
         found += [(f"bone + Necromancy Omen + {omen}", side + [omen], guaranteed),
                   (f"bone + Necromancy Omen + {omen} + Omen of Abyssal Echoes", side + [omen, ECHOES],
-                   1 - (1 - guaranteed) * (1 - plain))]
+                   1 - (1 - guaranteed) ** 2)]
     return found
+
+
+def named(n_lord: int) -> float:
+    """(SEARCH31, the user 19 Nov: "can be made deterministically with enough currency") With a lord Omen the three options
+    are that lord's rows on the forced side (poe2db Desecrated_Modifiers: reveals "may include base modifiers. Unless you
+    use Omen to guarantee named modifiers"; the Omen: "will guarantee a random <lord> modifier"), three different rows:
+    p = min(1, 3 / n_lord) (MEDIUM). Abyssal Echoes rerolls the three once: 1 - (1 - p)^2. RESEARCH34's reading (one
+    option the lord's, two from the side's whole pool: 1 / n_lord + 2 / N, MEDIUM-LOW) is a row."""
+    return min(1.0, REVEAL / n_lord) if n_lord > 0 else 0.0
 
 
 def bones_for(kind: str | None, route: str) -> tuple[str, ...]:
@@ -189,19 +204,39 @@ def craft_price(item_type: str, market: float, affix, n_lord: int, n_lords: int,
     if not priced:
         return None, []
     total, name, tries, per_try = min(priced)
-    lord_only = min(1.0, REVEAL / max(1, n_lord if kind in ("weapon", "jewellery") and route == "bone" else n_lords))
-    steps = [f"buy the rare with that slot open ({market:.3f} div, the rare price model)",
-             f"each try: {name.replace('bone', bone)} ({per_try:.3f} div); about {tries:.1f} tries: a reveal's 3 options "
-             f"drawn from {n_ordinary} ordinary + {n_lords} Desecrated {affix.type.lower()}es at equal weight (RESEARCH34 R33-20: "
-             f"LOW / MEDIUM-LOW)",
-             f"each failed try clears the wrong mod: {clear:.3f} div (the cheaper of Omen of Light + Orb of Annulment "
-             f"and a fresh copy of the rare)",
-             f"reveal \"{'; '.join(affix.lines)}\" ({affix.desecrated}, {affix.type})",
-             f"row: if reveals offered only Desecrated mods, one try would succeed {lord_only:.0%} of the time (the old "
-             f"reading; RESEARCH34 R33-22's headline for the Altered Collarbone)"]
-    if "Omen of the" in name:
-        steps.append("row: the lord Omen with a Necromancy Omen failed its guarantee in three player reports (R33-21, "
-                     "UNSETTLED): then the try is a plain one")
+
+    def cost(p: float) -> float:
+        return market + per_try / p + (1 / p - 1) * clear if p > 0 else float("inf")
+
+    side = affix.type.lower()
+    omened = "Omen of the" in name
+    echoes = ECHOES in name
+    clear_how = "Omen of Light + Orb of Annulment" if clear < market else "a fresh copy of the rare instead"
+    if omened:
+        odds = (f"the lord Omen makes the three options {affix.desecrated} {side}es: {n_lord} the item can take, so one "
+                f"reveal offers the wanted one {named(n_lord):.0%} of the time" + (", two with the Echoes reroll" if echoes else "")
+                + " (MEDIUM: poe2db 'Unless you use Omen to guarantee named modifiers')")
+    else:
+        odds = (f"no Omen can name the mod here (lord Omens: 'Weapon or Jewellery' only), so the three options are drawn "
+                f"from the side's {n_ordinary} ordinary + {n_lords} Desecrated {side}es at equal weight (LOW: RESEARCH34 "
+                f"R33-20; poe2db 'may include base modifiers')")
+    steps = [f"1. buy the rare with its {side} slot open ({market:.3f} div, the rare price model; a Desecration on a full "
+             f"side also removes a random mod)",
+             f"2. each try ({per_try:.3f} div): {name.replace('bone', bone)}, then reveal at the Well of Souls; {odds}",
+             f"3. on a miss, remove the wrong Desecrated mod with {clear_how} ({clear:.3f} div; Omen of Light: 'your next "
+             f"Orb of Annulment will remove only Desecrated modifiers'), and repeat from 2: about {tries:.1f} tries, "
+             f"{total:.3f} div in all",
+             f"4. pick \"{'; '.join(affix.lines)}\" ({affix.desecrated}, {affix.type})"]
+    if omened:
+        one = 1 / n_lord + (REVEAL - 1) / max(1, n_ordinary + n_lords)
+        one = 1 - (1 - one) * (1 - offered(n_ordinary + n_lords, REVEAL)) if echoes else one
+        steps += [f"row: if the Omen names only one option and the other two come from the whole side (RESEARCH34's "
+                  f"reading): {cost(one):.3f} div",
+                  "row: the lord Omen with a Necromancy Omen failed its guarantee in three 0.3-era player reports (R33-21, "
+                  f"UNSETTLED): then a try is a plain one ({cost(offered(n_ordinary + n_lords, REVEAL)):.3f} div)"]
+    else:
+        only = min(1.0, REVEAL / max(1, n_lords))
+        steps.append(f"row: if reveals offered only Desecrated mods: {cost(1 - (1 - only) ** (2 if echoes else 1)):.3f} div")
     return total, steps
 
 

@@ -245,7 +245,7 @@ class Jewels:
             return None
         affixes, affix, price, steps = trials[i]
         note = (f"one Desecrated modifier ({affix.desecrated}, {affix.type}) by a Preserved Cranium; priced by the cheapest "
-                f"craft route (LOW / MEDIUM-LOW: RESEARCH34)")
+                f"repeat-until-hit craft route (LOW: no Omen names a jewel row; desecrated.py)")
         return found, ItemOption("Rare Jewel", name, "Jewel", None, rare_text("Jewel", base, level, affixes), False,
                                  None if ssf else price, "ssf" if ssf else "estimate (craft route: Desecration)", 0,
                                  rare=True, affixes=tuple(line for a in affixes for line in a.lines),

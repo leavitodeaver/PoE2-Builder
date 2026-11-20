@@ -189,3 +189,23 @@ def test_the_breach_and_cranium_trials_offer_one_desecrated_affix(engine, monkey
     cranium_lines = {l for a in jewels.cranium_pools.pool("Sapphire") for l in a.lines}
     assert sum(1 for line in option.affixes if line in cranium_lines) == 1
     assert len(option.affixes) <= sum(JEWEL_LIMIT.values()) * 2 and jpool
+
+
+# Influence runes at trade-site prices (SEARCH31; builder/search/influence.py MARKET_SAMPLES) -------------------------------
+
+def test_the_trade_samples_price_supplied_runes_and_leave_thrud_to_the_craft_route():
+    from builder.search import influence
+
+    assert all(influence.supplied(r) for r in ("Kolr's Hunt", "Katla's Gloom", "Vorana's Carnage", "Uhtred's Sidereus",
+                                                "Medved's Tending"))
+    assert not influence.supplied("Thrud's Might")  # (1 and 0 listings)
+    affix = SimpleNamespace(influence="decay", lines=("46% increased Ignite Magnitude",), odds=1 / 200, side_odds=1 / 100,
+                            type="Prefix")
+    prices = {influence.CHAOS: 0.1}
+    price, steps, how = influence.price("Katla's Gloom", 0.05, 0.08, 0.4, prices, [affix])
+    assert how == "trade samples" and price == pytest.approx(0.1854)  # (the floor: the dearer sampled mod's cheapest)
+    assert any(s.startswith("row: crafting it instead") for s in steps)
+    price, _, _ = influence.price("Katla's Gloom", 0.05, 3.0, 0.4, prices, [affix])
+    assert price == pytest.approx(3.0)  # (the rare price model counting it as an ordinary affix, above the floor)
+    price, steps, how = influence.price("Thrud's Might", 0.05, 0.08, 0.5, prices, [affix])
+    assert how.startswith("craft route") and price == pytest.approx(0.05 + 0.5 + 200 * 0.1)

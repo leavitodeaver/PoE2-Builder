@@ -643,11 +643,12 @@ class Gear:
                         used[limit[0]] = used.get(limit[0], 0) + 1
         return used
 
-    def influence_price(self, slot: str, affixes: list, rune_price: float | None, prices: dict[str, float]
-                        ) -> tuple[float | None, list[str]]:
-        """The cheapest craft route's price for a rare with these affixes and an influence rune (influence.craft_price)."""
+    def influence_price(self, slot: str, affixes: list, rune: str, rune_price: float | None, prices: dict[str, float]
+                        ) -> tuple[float | None, list[str], str]:
+        """A rare with these affixes and an influence rune: (price, steps, how): bought finished where the trade samples
+        show supply, else the craft route (influence.price; SEARCH31)."""
         ordinary = [a for a in affixes if not a.influence]
-        return influence.craft_price(rare_price(slot, ordinary), rune_price, prices, affixes)
+        return influence.price(rune, rare_price(slot, ordinary), rare_price(slot, affixes), rune_price, prices, affixes)
 
     def influence_trial(self, slot: str, base: dict, base_option: ItemOption, level: int, pools, limits: dict,
                         chosen: list, current: float, left: float, deadline: float) -> ItemOption | None:
@@ -684,7 +685,7 @@ class Gear:
                 screen = self.deltas(slot, [rare_text(slot, base, level, picked + [a], runes=[rune]) for a in fresh])
                 top = [a for s, a in sorted(((s, a) for (s, _), a in zip(screen, fresh)), key=lambda x: -x[0])
                        if s > floor + EPSILON][:self.INFLUENCE_KEEP]
-                trials = []  # (affixes, price, steps)
+                trials = []  # (affixes, price, steps, how)
                 for a in top:
                     for c in pools.choices(a, picked):
                         if sum(1 for x in picked if x.type == c.type) < limits.get(c.type, 0):
@@ -692,12 +693,12 @@ class Gear:
                         else:
                             variants = [[x for x in picked if x is not out] + [c] for out in picked if out.type == c.type]
                         for v in variants:
-                            price, steps = self.influence_price(slot, v, rune_price, prices)
+                            price, steps, how = self.influence_price(slot, v, rune, rune_price, prices)
                             if price is not None and price <= left + 1e-9:
-                                trials.append((v, price, steps))
+                                trials.append((v, price, steps, how))
                 if not trials:
                     break
-                scored = self.deltas(slot, [rare_text(slot, base, level, v, runes=[rune]) for v, _, _ in trials])
+                scored = self.deltas(slot, [rare_text(slot, base, level, v, runes=[rune]) for v, *_ in trials])
                 gain, i = max(((s - self.lam * t[1], i) for i, ((s, _), t) in enumerate(zip(scored, trials))),
                               key=lambda x: x[0])
                 if gain <= (plain if value is None else value) + EPSILON:
@@ -707,7 +708,7 @@ class Gear:
                 best = (value, rune, picked, *priced)
         if best is None:
             return None
-        value, rune, picked, price, steps = best
+        value, rune, picked, price, steps, how = best
         # The plain rare with its best ordinary rune in that socket (the influence rune takes it for good)
         others = [n for n in self.runes.candidates(base, False) if n not in tags and self.runes.price(n) is not None
                   and not ((limit := self.runes.limit(n)) and used.get(limit[0], 0) >= limit[1])
@@ -720,10 +721,10 @@ class Gear:
             return None
         names = [a for a in picked if a.influence]
         note = (f"{rune} socketed first (socket-bound) lets {len(names)} influence modifier{'s' if len(names) != 1 else ''}"
-                f" roll; priced by the craft route (MEDIUM)")
+                f" roll; priced by {'the trade samples (MEDIUM-LOW)' if how == 'trade samples' else 'the craft route (LOW)'}")
         return ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
                           rare_text(slot, base, level, picked, runes=[rune]), False, None if ssf else price,
-                          "ssf" if ssf else "estimate (craft route: influence rune + Chaos Orbs)", base_option.level,
+                          "ssf" if ssf else f"estimate ({how})", base_option.level,
                           rare=True, affixes=tuple(line for a in picked for line in a.lines), runes=(rune,),
                           bound=(rune,), craft_route=(note, *steps))
 
@@ -794,8 +795,8 @@ class Gear:
         if value <= plain + EPSILON:
             return None
         affixes, affix, price, steps = trials[i]
-        note = (f"one Desecrated modifier ({affix.desecrated}, {affix.type}); priced by the cheapest craft route (LOW / "
-                f"MEDIUM-LOW: RESEARCH34)")
+        note = (f"one Desecrated modifier ({affix.desecrated}, {affix.type}); priced by the cheapest repeat-until-hit craft "
+                f"route (MEDIUM with a lord Omen, LOW without: desecrated.py)")
         return ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
                           rare_text(slot, base, level, affixes), False, None if ssf else price,
                           "ssf" if ssf else "estimate (craft route: Desecration)", base_option.level, rare=True,
