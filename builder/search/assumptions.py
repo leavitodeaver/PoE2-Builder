@@ -1895,6 +1895,20 @@ def thorns(build: Build, main: models.Skill | None, stats: dict, texts: list[str
                                barbs)
 
 
+def runic_tempering(build: Build, main: models.Skill | None, stats: dict, texts: list[str]
+                    ) -> tuple[float, list[dict], list[dict]]:
+    """(added DPS, mods, notes) for Runic Tempering (models.runic_tempering_model, MECHB44): only when an enabled group
+    holds it; PoB's Thorns group's hit (None before the build has Thorns), the boss's hits and the main skill's DPS."""
+    if not any(s["name"] == models.RUNIC_TEMPERING and not s.get("disabled")
+               for g in build.groups() if g.get("enabled") is not False for s in g["skills"]):
+        return 0.0, [], []
+    group = next((g for g in build.groups() if g["fromItem"] and g["label"] == models.THORNS_GROUP and g["gems"]), None)
+    rate = (build.call("useRates", indices=[group["index"]]).get("rates") or [None])[0] if group else None
+    player = 0.0 if main is not None and main.name == models.RUNIC_TEMPERING else per_second(
+        build.call("stats", fields=HUNT_FIELDS))
+    return models.runic_tempering_model(rate, texts, {**stats, **build.call("stats", fields=models.THORNS_FIELDS)},
+                                        player)
+
 def brambles(build: Build, main: models.Skill | None) -> list[dict]:
     """Notes (with "full_dps" scales) for each Brambleslam's Brambles (models.brambles_model, MECHB24): PoB scores the
     Brambles skill it adds to the slam's group at its own Speed; the slam's real uses a second set the Brambles' rate:
@@ -3117,12 +3131,18 @@ class Assumptions:
         if raven > 0:  # (a Command press: the button cap counts it, as Inevitable Agony's)
             presses = getattr(build, models.ITEM_PRESSES, None)
             if isinstance(presses, dict):
-                presses["Command: Mist Raven"] = (1 / models.MIRROR_BREAKER_COOLDOWN, raven_notes[0]["play"])
+                presses["Command: Mist Raven"] = (1 / models.MIRROR_BREAKER_COOLDOWN, raven_notes[-1]["play"])
         # separately computed damage (Melting Maelstrom's pulses, Eternal Hunt: models.added_input); what-ifs get their own
         # sum from the bridge's LedgerAddedDPS; set_added (SEARCH14) keeps each source for the result's list
         thorn, thorn_notes = thorns(build, main, stats, [e["text"] for e in source_lines])  # (MECHB22)
         hand_mods += [models.added_input("Thorns", thorn)] if thorn > 0 else []
         hand_notes += thorn_notes
+        tempering, tempering_mods, tempering_notes = runic_tempering(build, main, stats, [e["text"] for e in source_lines])
+        hand_mods, hand_notes = hand_mods + tempering_mods, hand_notes + tempering_notes  # (MECHB44: PoB scores it 0)
+        if tempering > 0:  # (its channel is a press: the button cap counts it)
+            presses = getattr(build, models.ITEM_PRESSES, None)
+            if isinstance(presses, dict):
+                presses[models.RUNIC_TEMPERING] = (1 / tempering_notes[0]["every"], tempering_notes[0]["play"])
         bramble_notes = brambles(build, main)  # (MECHB24: Brambleslam's Brambles at the slams' rate)
         hand_notes += bramble_notes
         for note in thorn_notes + bramble_notes:  # (MECHB23: PoB's Barbs entries, scored at a flat 1 use a second, out of Full DPS)
@@ -3246,7 +3266,8 @@ class Assumptions:
             presses = getattr(build, models.ITEM_PRESSES, None)
             if isinstance(presses, dict):
                 presses[models.INEVITABLE_AGONY] = (agony_rate, agony_notes[0]["play"])
-        build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt, "Mirror Breaker": raven, "Thorns": thorn, "Riven Armour": riven,
+        build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt, "Mirror Breaker": raven,
+                                   "Runic Tempering": tempering, "Thorns": thorn, "Riven Armour": riven,
                                    "Elemental Discharge": discharge, "Broken Stance": stance, "Grisly Pyre": pyre,
                                    "Battershout": shout, "Crackling Palm": palm, "Blood Hunt": blood, "Ancestral Spirits": spirits,
                                    "Inevitable Agony": agony, "Impale": impaled + impaled_others, "Infernal Legion": legion,

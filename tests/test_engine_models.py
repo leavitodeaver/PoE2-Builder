@@ -4084,3 +4084,21 @@ def test_mist_raven_is_a_minion_with_its_drive_by_and_mirror_breaker(engine):
     assert (drive.get("AverageHit") or 0) > 0 and (dive.get("AverageHit") or 0) > 2 * drive["AverageHit"]
     note = next(x for x in search.assumptions.active if x["label"].startswith("Mirror Breaker"))
     assert note["value"] > 0
+
+
+def test_runic_tempering_feeds_serles_grit_plates_as_thorns_pob_can_read(engine):
+    """MECHB44 (an UNDERCOUNT: PoB scores Runic Tempering 0 and leaves the per-plate line unparsed): the model's plate
+    line ("N to M Physical Thorns damage") parses, so PoB builds its Thorns group from it (probe POE2T4653)."""
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", level=90))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    raw = chr(10).join(["Rarity: UNIQUE", "Serle's Grit", "Kalguuran Forgehammer", "League: Runes of Aldur", "Implicits: 0",
+                        "Grants Skill: Level 20 Runic Tempering", "Adds 30 to 55 Physical Damage",
+                        "45 to 90 added Physical Thorns damage per Runic Plate"])
+    build.call("equip", slot="Weapon 1", raw=raw, fields=["FullDPS"])
+    search.settle()
+    note = next(x for x in search.assumptions.active if x["label"].startswith("Runic Tempering"))
+    assert "45-90 Physical Thorns damage per plate" in note["basis"]
+    assert any(g["label"] == models.THORNS_GROUP for g in build.groups())

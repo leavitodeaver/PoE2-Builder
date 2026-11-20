@@ -13,7 +13,8 @@
     PoB's minion DPS) and Mirror Breaker (x10, 12 s cooldown), at PoB's minion level for the skill level (MEDIUM). The
     model adds Mirror Breaker's hit once a cooldown, a Command press under the button cap, less the Command's 1 s of the
     main skill and the dive's 1 s of the drive-by. MEDIUM-LOW (attack time from the animation; one hit a dive on a lone
-    boss). Its Frenzy Charge per Cull: 0 on a lone boss (RESEARCH R120a).
+    boss). Its Frenzy Charge per Cull: 0 on a lone boss (RESEARCH R120a). The drive-by every 1.0 s is the largest single
+    assumption in a build with The Auspex (RESEARCH35 R35-5): its own note with a half-rate row.
   sources: [engine/bridge.lua (The Auspex's Mist Raven block), builder/search/models.py (MIST_RAVEN, mist_raven_model),
             builder/search/assumptions.py (mist_raven), "C:/PROJECTS/PoE2 Builder/scratch/research33/gx2 (MonsterVarieties)"]
   status: proposed
@@ -50,4 +51,21 @@
     not modelled.
   sources: [builder/search/models.py (UNSTABLE_BOND, unstable_bond_model), builder/search/assumptions.py (after
             Inner Turmoil's volatility_model)]
+  status: proposed
+
+- id: model-mechb44-runic-tempering
+  title: "Runic Tempering's backlash and Serle's Grit's Runic Plates (models.runic_tempering_model)"
+  kind: model
+  model: runic_tempering_model
+  skill: ["Runic Tempering"]
+  confidence: theory
+  notes: >-
+    An UNDERCOUNT: PoB scores Runic Tempering 0 and leaves "(40-50) to (80-100) added Physical Thorns damage per Runic
+    Plate" with leftover text (never applied). Game 26650308 RunicTemperingPlayer: 4 plates, 5 hits each, backlash at
+    most once per 0.4 s, Cooldown 5 s, channel 1.125 s a plate (MEDIUM-LOW). Played as a cycle against the boss's landed
+    hits: backlash = your Thorns hit (PoB's Thorns group) per plated hit, less the channel's time off the main skill (not
+    played when that's a loss); the plates' Thorns as PoB's "N to M Physical Thorns damage" at the plates held per hit on
+    average. Blocked hits not counted as "Hit" (lower). The 10% less damage taken: not modelled.
+  sources: [builder/search/models.py (RUNIC_TEMPERING, runic_tempering_model), builder/search/assumptions.py
+            (runic_tempering, after thorns)]
   status: proposed

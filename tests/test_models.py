@@ -6679,6 +6679,10 @@ def test_mist_ravens_mirror_breaker_hits_once_a_cooldown_less_the_command_and_di
     zero, none, why = models.mist_raven_model({"AverageHit": 100.0}, 2400.0, 0.0)  # (a net loss: not pressed)
     assert zero == 0 and none == [] and "not pressed" in why[0]["basis"]
     assert models.mist_raven_model({}, 10.0, 0.0)[:2] == (0.0, [])
+    # (the manager, 23:40: the drive-by's 1.0 s rate is the largest single assumption: its own note, a half-rate row)
+    drive = models.mist_raven_model({"AverageHit": 1200.0, "baseDPS": 580.0}, 0.0, 580.0)[2]
+    assert drive[0]["value"] == 580.0 and "290.0 DPS" in drive[0]["basis"] and "largest single assumption" in drive[0]["basis"]
+    assert drive[0]["confidence"] == "MEDIUM-LOW" and drive[1]["label"].startswith("Mirror Breaker")
 
 
 def test_casting_cascade_counts_each_different_spell_cast_in_8_s_instant_ones_too():
@@ -6705,3 +6709,23 @@ def test_unstable_bond_explodes_each_deaths_volatility_only_when_the_deaths_are_
     assert models.unstable_bond_model([bond], (0.0, "none"))[0] == []
     assert models.unstable_bond_model([bond, "Gain 1 Volatility on inflicting an Elemental Ailment"], (0.1, "x"))[0] == []
     assert models.unstable_bond_model(["Gain 3 Volatility"], (1.0, "x")) == ([], [])
+
+
+def test_runic_tempering_backlashes_on_plated_hits_and_adds_the_plates_thorns():
+    """MECHB44 (coverage section I, an UNDERCOUNT: PoB scores Runic Tempering 0 and leaves Serle's Grit's per-plate line
+    unparsed): 4 plates cover 20 landed hits, one backlash per plated hit (at most one per 0.4 s), less the channel."""
+    from builder.search import bosses
+    stats = {"_boss": bosses.DEFAULT, "enemySkillTime": 1.0, "EvadeChance": 0, "EffectiveBlockChance": 0}
+    landed = models.boss_hits.land_share(stats) / bosses.benefit_skill_time(stats)
+    rate = {"PhysicalHitAverage": 1000.0}
+    plate = "50 to 100 added Physical Thorns damage per Runic Plate"
+    dps, mods, notes = models.runic_tempering_model(rate, [plate], stats, 10.0)
+    cycle = 4.5 + max(5.0, 20 / landed)
+    assert notes[0]["every"] == pytest.approx(cycle)
+    backlash = 20 * min(1.0, 1 / (0.4 * landed)) * 1000.0 / cycle
+    assert dps == pytest.approx(backlash - 10.0 * 4.5 / cycle)
+    held = 2.5 * 20 / (landed * cycle)
+    assert mods[0] == models.line("50 to 100 Physical Thorns damage", held) and "MEDIUM-LOW" == notes[0]["confidence"]
+    lossy = models.runic_tempering_model({"PhysicalHitAverage": 1.0}, [], stats, 1e6)  # (the channel costs more)
+    assert lossy[:2] == (0.0, []) and "not played" in lossy[2][0]["value"]
+    assert models.runic_tempering_model(None, [], stats, 0.0)[:2] == (0.0, [])  # (no Thorns, no plates: nothing)

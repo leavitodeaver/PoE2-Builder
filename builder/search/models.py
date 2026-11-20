@@ -8715,10 +8715,33 @@ MIRROR_BREAKER_COOLDOWN = 12.0  # s (GrantedEffectsPerLevel 21453 Cooldown 12000
 MIRROR_BREAKER_DIVE = 1.0  # s (GrantedEffects 1260 CastTime 1000; it uses its animation length: MEDIUM-LOW)
 
 
+def mist_raven_drive_note(drive_dps: float, counted: bool) -> dict:
+    """The Mist Raven's drive-by attack as PoB's minion path scores it (bridge: one attack every 1.0 s, the monster's
+    AttackSpeed; how often the raven attacks by itself is UNVERIFIED, RESEARCH35 R35-5), with a half-rate row (the
+    manager, 19 Nov 23:40: the largest single assumption in a build that uses The Auspex)."""
+    return {"label": "Mist Raven's drive-by attack (PoB's minion score)*", "value": round(drive_dps, 1),
+            "confidence": "MEDIUM-LOW",
+            "basis": (f"{drive_dps:,.1f} DPS: the raven's drive-by (x3 base, 70% Physical to Chaos) at one attack every "
+                      "1.0 s, the game's monster AttackSpeed; the skill uses its animation length and how often the raven "
+                      "attacks by itself is UNVERIFIED (RESEARCH35 R35-5). This rate is the largest single assumption in "
+                      f"a build that uses The Auspex. At half the rate: {drive_dps / 2:,.1f} DPS"
+                      + ("" if counted else "; the score doesn't count the raven's own DPS here (not the main skill, or "
+                                            "not in Full DPS)")),
+            "play": (f"The Mist Raven attacks the boss by itself: +{drive_dps:,.1f} DPS at one attack a second (the "
+                     f"model's reading), +{drive_dps / 2:,.1f} DPS at half that rate; without the raven +0.")}
+
+
 def mist_raven_model(dive: dict, player_dps: float, raven_dps: float) -> tuple[float, list[dict], list[dict]]:
     """(added DPS, mods, notes) for the Mist Raven's Mirror Breaker. `dive`: the bridge's minionSkillHit for it;
     `player_dps`: the main skill's DPS a Command press costs time from (0 when the raven is the main skill);
-    `raven_dps`: the raven's own counted drive-by DPS (0 when the score doesn't count it)."""
+    `raven_dps`: the raven's own counted drive-by DPS (0 when the score doesn't count it). The drive-by's own note
+    (mist_raven_drive_note) comes first."""
+    drive = [mist_raven_drive_note(number(dive.get("baseDPS")), raven_dps > 0)] if number(dive.get("baseDPS")) > 0 else []
+    dps, mods, notes = _mirror_breaker(dive, player_dps, raven_dps)
+    return dps, mods, drive + notes
+
+
+def _mirror_breaker(dive: dict, player_dps: float, raven_dps: float) -> tuple[float, list[dict], list[dict]]:
     hit = number(dive.get("AverageDamage")) or number(dive.get("AverageHit"))
     label = "Mirror Breaker (the Mist Raven's Command, added to the boss DPS)"
     if hit <= 0:
@@ -12306,6 +12329,84 @@ BARBS = {"Barbs I": (4, 1), "Barbs II": (6, 1), "Barbs III": (1, 2)}  # (hits af
 # DPS at Speed 1 (probe POE2T1097: Boneshatter + Quill Burst + a Thorns belt, FullDPS 376.99 -> 381.99, entry "Quill
 # Burst" 5): an OVERCOUNT, scaled to 0 as Barbs' is.
 QUILL_BURST = "Quill Burst"
+
+# Runic Tempering and Serle's Grit's Runic Plates (MECHB44; coverage section I, an UNDERCOUNT: PoB scores the skill 0 and
+# leaves "(40-50) to (80-100) added Physical Thorns damage per Runic Plate" with leftover text, ModCache 4297 / 4470, so it
+# never applies). Game 26650308, RunicTemperingPlayer (granted by Serle's Grit, PoB mace.lua 244): Channel, CastTime
+# 1.125 s, Cooldown 5 s (1 stored use); runic_tempering_max_runes 4, runic_tempering_hit_per_rune 5,
+# runic_tempering_backlash_cooldown_ms 400, runic_tempering_damage_taken_+%_final -10. ActiveSkills: "When you are Hit
+# while you have these plates, some of the damage you would take will be prevented, and this skill will cause backlash,
+# dealing your Thorns damage in an area around your attacker." Played as a cycle (a play strategy, CLAUDE.md): channel P
+# plates (one per 1.125 s channel interval, MEDIUM-LOW: the plate rate isn't stated), they cover P x 5 of the boss's hits
+# that land on you (bosses.benefit_skill_time / boss_hits.land_share; Blocked hits not counted as "Hit": a lower reading,
+# row), channel again when they're spent and the cooldown is up: a cycle C = Tc + max(5 s, P x 5 / h). Backlash: one per
+# plated hit, at most one per 0.4 s, each your Thorns hit (PoB's Thorns group). The plates' added Thorns (PoB's
+# "N to M Physical Thorns damage", which it parses whole) at the plates held when hit, averaged over every hit the boss
+# lands: (P + 1) / 2 on a plated hit x the plated share. Cost: the channel's time off the main skill (Tc / C of its DPS);
+# not played (0) when the backlash doesn't pay that back (the plates' Retaliation gain left out of that choice: lower).
+# The 10% less damage taken while plated is a defence (not modelled, said).
+RUNIC_TEMPERING = "Runic Tempering"
+RUNIC_PLATES, RUNIC_HITS_PER_PLATE, RUNIC_CHANNEL, RUNIC_COOLDOWN, RUNIC_BACKLASH_EVERY = 4, 5, 1.125, 5.0, 0.4
+RUNIC_PLATE_THORNS = re.compile(r"^(\d+) to (\d+) added physical thorns damage per runic plate$", re.I)
+
+
+def runic_tempering_model(rate: dict | None, texts: list[str], stats: dict, main_dps: float
+                          ) -> tuple[float, list[dict], list[dict]]:
+    """(added DPS, mods, notes) for Runic Tempering's cycle and Serle's Grit's per-plate Thorns (the note above).
+    `rate`: the bridge's useRates entry for PoB's Thorns group (None: no Thorns hit yet); `stats`: with THORNS_FIELDS
+    and _boss; `main_dps`: the main skill's DPS the channel takes time from."""
+    plates = [(int(m.group(1)), int(m.group(2))) for t in texts if (m := RUNIC_PLATE_THORNS.match(t.strip()))]
+    label = "Runic Tempering: Runic Plates and backlash*"
+    boss = boss_hits.boss_name(stats)
+    every = bosses.benefit_skill_time(stats)
+    landed = boss_hits.land_share(stats) / every if every > 0 else 0.0
+    blocked = boss_hits.block_share(stats) / every if every > 0 else 0.0
+    if landed <= 0:
+        return 0.0, [], [{"label": label, "value": 0, "confidence": "MEDIUM",
+                          "basis": f"{boss}'s hits never land on you here: no plate is spent, no backlash (+0)"}]
+    covered = RUNIC_PLATES * RUNIC_HITS_PER_PLATE
+    channel = RUNIC_PLATES * RUNIC_CHANNEL
+    plated = covered / landed
+    cycle = channel + max(RUNIC_COOLDOWN, plated)
+    backlashes = covered * min(1.0, 1 / (RUNIC_BACKLASH_EVERY * landed))
+    hit = thorns_hit(rate)
+    backlash = backlashes * hit / cycle
+    lost = main_dps * channel / cycle
+    net = backlash - lost
+    held = (RUNIC_PLATES + 1) / 2 * covered / (landed * cycle)  # (plates at a hit, averaged over every landed hit)
+    base = (f"{boss}'s hits landing on you {landed:.3g}/s; {RUNIC_PLATES} plates channelled in {channel:g} s (one per "
+            f"{RUNIC_CHANNEL:g} s channel interval, MEDIUM-LOW) cover {covered} hits ({plated:.1f} s), then again after "
+            f"the {RUNIC_COOLDOWN:g} s cooldown: a {cycle:.1f} s cycle; {backlashes:.0f} backlashes a cycle (one per plated "
+            f"hit, at most one per {RUNIC_BACKLASH_EVERY:g} s) x your Thorns hit {hit:,.0f} (PoB's Thorns group) = "
+            f"{backlash:,.1f} DPS, less {lost:,.1f} DPS for the channel's time off the main skill ({main_dps:,.0f} DPS)")
+    if blocked > 0:
+        base += (f"; Blocked hits ({blocked:.3g}/s) not counted as \"Hit\" (a lower reading; if they count, more plates "
+                 "are spent and more backlash)")
+    if net <= 0 and hit > 0 or hit <= 0 and not plates:
+        return 0.0, [], [{"label": label, "value": "not played (0)", "confidence": "MEDIUM-LOW",
+                          "basis": base + (": a net loss, so the cycle isn't played (0)" if hit > 0 else
+                                           ": no Thorns damage to deal, so no backlash (0)") + ". PoB scores it 0"}]
+    mods = []
+    plate_how = ""
+    if plates:
+        lo, hi = sum(p[0] for p in plates), sum(p[1] for p in plates)
+        mods.append(line(f"{lo} to {hi} Physical Thorns damage", held))
+        plate_how = (f"; Serle's Grit's {lo}-{hi} Physical Thorns damage per plate at {held:.2f} plates a hit on "
+                     f"average ({(RUNIC_PLATES + 1) / 2:g} on a plated hit x the plated share), on every Thorns hit; "
+                     "the backlash's own hit read before the plates (a lower reading)"
+                     + ("; PoB had no Thorns hit yet when this was read (its Thorns group appears once the plates "
+                        "apply, probe POE2T4653), so the backlash counts 0 here: an UNDERCOUNT left for a build whose "
+                        "only Thorns are the plates" if hit <= 0 else ""))
+    gain = max(net, 0.0)
+    if gain > 0:
+        mods.append(added_input("RunicTempering", gain))
+    return gain, mods, [{"label": label, "value": round(gain, 1), "confidence": "MEDIUM-LOW", "every": cycle,
+                         "basis": base + f": +{gain:,.1f} DPS" + plate_how + ". The plates' 10% less damage taken: a "
+                                  "defence, not modelled. PoB scores the skill 0 and applies none of the plate line",
+                         "play": (f"Channel Runic Tempering's {RUNIC_PLATES} plates whenever they're spent and its "
+                                  f"cooldown is up (every {cycle:.1f} s), and let the boss hit you: with it +{gain:,.1f} "
+                                  "DPS of backlash" + (" and the plates' Thorns" if plates else "") + "; without it +0")}]
+
 
 
 def thorns_hit(rate: dict | None) -> float:
