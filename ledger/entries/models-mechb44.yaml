@@ -65,8 +65,9 @@
     An UNDERCOUNT: PoB scores Runic Tempering 0 and leaves "(40-50) to (80-100) added Physical Thorns damage per Runic
     Plate" with leftover text (never applied). Game 26650308 RunicTemperingPlayer: 4 plates, 5 hits each, backlash at
     most once per 0.4 s, Cooldown 5 s, channel 1.125 s a plate (MEDIUM-LOW). Played as a cycle against the boss's landed
-    hits: backlash = your Thorns hit (PoB's Thorns group) per plated hit, less the channel's time off the main skill (not
-    played when that's a loss); the plates' Thorns as PoB's "N to M Physical Thorns damage" at the plates held per hit on
+    hits: backlash = your Thorns hit (PoB's Thorns group, read the resolve round after the plate line applies) per plated
+    hit, an added source; the channel's time off the main skill as its skill-tagged "less Damage" (not played when a loss,
+    unless Serle's plates are in the build: then always, so PoB's Thorns group doesn't flip); the plates' Thorns as PoB's "N to M Physical Thorns damage" at the plates held per hit on
     average. Blocked hits not counted as "Hit" (lower). The 10% less damage taken: not modelled.
   sources: [builder/search/models.py (RUNIC_TEMPERING, runic_tempering_model), builder/search/assumptions.py
             (runic_tempering, after thorns)]

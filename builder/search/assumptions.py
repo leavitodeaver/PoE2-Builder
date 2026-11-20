@@ -2133,7 +2133,7 @@ def runic_tempering(build: Build, main: models.Skill | None, stats: dict, texts:
     player = 0.0 if main is not None and main.name == models.RUNIC_TEMPERING else per_second(
         build.call("stats", fields=HUNT_FIELDS))
     return models.runic_tempering_model(rate, texts, {**stats, **build.call("stats", fields=models.THORNS_FIELDS)},
-                                        player)
+                                        player, main.name if main is not None and player > 0 else None)
 
 def brambles(build: Build, main: models.Skill | None) -> list[dict]:
     """Notes (with "full_dps" scales) for each Brambleslam's Brambles (models.brambles_model, MECHB24): PoB scores the
@@ -3365,7 +3365,7 @@ class Assumptions:
         hand_notes += thorn_notes
         tempering, tempering_mods, tempering_notes = runic_tempering(build, main, stats, [e["text"] for e in source_lines])
         hand_mods, hand_notes = hand_mods + tempering_mods, hand_notes + tempering_notes  # (MECHB44: PoB scores it 0)
-        if tempering > 0:  # (its channel is a press: the button cap counts it)
+        if tempering_mods:  # (its channel is a press: the button cap counts it)
             presses = getattr(build, models.ITEM_PRESSES, None)
             if isinstance(presses, dict):
                 presses[models.RUNIC_TEMPERING] = (1 / tempering_notes[0]["every"], tempering_notes[0]["play"])

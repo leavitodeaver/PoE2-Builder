@@ -13219,7 +13219,7 @@ RUNIC_PLATES, RUNIC_HITS_PER_PLATE, RUNIC_CHANNEL, RUNIC_COOLDOWN, RUNIC_BACKLAS
 RUNIC_PLATE_THORNS = re.compile(r"^(\d+) to (\d+) added physical thorns damage per runic plate$", re.I)
 
 
-def runic_tempering_model(rate: dict | None, texts: list[str], stats: dict, main_dps: float
+def runic_tempering_model(rate: dict | None, texts: list[str], stats: dict, main_dps: float, main: str | None = None
                           ) -> tuple[float, list[dict], list[dict]]:
     """(added DPS, mods, notes) for Runic Tempering's cycle and Serle's Grit's per-plate Thorns (the note above).
     `rate`: the bridge's useRates entry for PoB's Thorns group (None: no Thorns hit yet); `stats`: with THORNS_FIELDS
@@ -13251,7 +13251,10 @@ def runic_tempering_model(rate: dict | None, texts: list[str], stats: dict, main
     if blocked > 0:
         base += (f"; Blocked hits ({blocked:.3g}/s) not counted as \"Hit\" (a lower reading; if they count, more plates "
                  "are spent and more backlash)")
-    if net <= 0 and hit > 0 or hit <= 0 and not plates:
+    # (MECHB44 turn 4) With Serle's Grit's plates the cycle is always played: the plates' Thorns ride on every Retaliation,
+    # which this choice can't price, and dropping them would drop PoB's Thorns group too (it exists only with a Thorns
+    # source), so the next round would add them back (a flip-flop). The channel's cost is then counted even as a net loss.
+    if not plates and (net <= 0 or hit <= 0):
         return 0.0, [], [{"label": label, "value": "not played (0)", "confidence": "MEDIUM-LOW",
                           "basis": base + (": a net loss, so the cycle isn't played (0)" if hit > 0 else
                                            ": no Thorns damage to deal, so no backlash (0)") + ". PoB scores it 0"}]
@@ -13262,18 +13265,24 @@ def runic_tempering_model(rate: dict | None, texts: list[str], stats: dict, main
         mods.append(line(f"{lo} to {hi} Physical Thorns damage", held))
         plate_how = (f"; Serle's Grit's {lo}-{hi} Physical Thorns damage per plate at {held:.2f} plates a hit on "
                      f"average ({(RUNIC_PLATES + 1) / 2:g} on a plated hit x the plated share), on every Thorns hit; "
-                     "the backlash's own hit read before the plates (a lower reading)"
-                     + ("; PoB had no Thorns hit yet when this was read (its Thorns group appears once the plates "
-                        "apply, probe POE2T4653), so the backlash counts 0 here: an UNDERCOUNT left for a build whose "
-                        "only Thorns are the plates" if hit <= 0 else ""))
-    gain = max(net, 0.0)
+                     "the backlash's hit is PoB's Thorns hit with the plates already applied at that average (a lower "
+                     "reading than the plated hit's own (P + 1) / 2)"
+                     + ("; PoB had no Thorns hit yet (its Thorns group appears once the plate line applies, probe "
+                        "POE2T4653): the next resolve round reads it (the search settles until nothing moves)"
+                        if hit <= 0 else ""))
+    # the backlash an added source; the channel's time off the main skill as its "less Damage" (skill-tagged), so a net
+    # loss with the plates still counts (objective.set_added keeps positive parts only)
+    gain = backlash
     if gain > 0:
         mods.append(added_input("RunicTempering", gain))
-    return gain, mods, [{"label": label, "value": round(gain, 1), "confidence": "MEDIUM-LOW", "every": cycle,
-                         "basis": base + f": +{gain:,.1f} DPS" + plate_how + ". The plates' 10% less damage taken: a "
+    if main and lost > 0:
+        mods.append(line("1% less Damage", 100 * channel / cycle, skill=main))
+    return gain, mods, [{"label": label, "value": round(net, 1), "confidence": "MEDIUM-LOW", "every": cycle,
+                         "basis": base + f": {net:+,.1f} DPS net (the channel as {100 * channel / cycle:.1f}% less "
+                                  "Damage on the main skill)" + plate_how + ". The plates' 10% less damage taken: a "
                                   "defence, not modelled. PoB scores the skill 0 and applies none of the plate line",
                          "play": (f"Channel Runic Tempering's {RUNIC_PLATES} plates whenever they're spent and its "
-                                  f"cooldown is up (every {cycle:.1f} s), and let the boss hit you: with it +{gain:,.1f} "
+                                  f"cooldown is up (every {cycle:.1f} s), and let the boss hit you: with it {net:+,.1f} "
                                   "DPS of backlash" + (" and the plates' Thorns" if plates else "") + "; without it +0")}]
 
 

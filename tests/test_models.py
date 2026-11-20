@@ -6723,13 +6723,20 @@ def test_runic_tempering_backlashes_on_plated_hits_and_adds_the_plates_thorns():
     landed = models.boss_hits.land_share(stats) / bosses.benefit_skill_time(stats)
     rate = {"PhysicalHitAverage": 1000.0}
     plate = "50 to 100 added Physical Thorns damage per Runic Plate"
-    dps, mods, notes = models.runic_tempering_model(rate, [plate], stats, 10.0)
+    dps, mods, notes = models.runic_tempering_model(rate, [plate], stats, 10.0, "Boneshatter")
     cycle = 4.5 + max(5.0, 20 / landed)
     assert notes[0]["every"] == pytest.approx(cycle)
     backlash = 20 * min(1.0, 1 / (0.4 * landed)) * 1000.0 / cycle
-    assert dps == pytest.approx(backlash - 10.0 * 4.5 / cycle)
+    # (turn 4: the backlash is the added source; the channel's time is the main skill's own "less Damage")
+    assert dps == pytest.approx(backlash) and notes[0]["value"] == pytest.approx(backlash - 10.0 * 4.5 / cycle, abs=0.06)
     held = 2.5 * 20 / (landed * cycle)
     assert mods[0] == models.line("50 to 100 Physical Thorns damage", held) and "MEDIUM-LOW" == notes[0]["confidence"]
+    assert mods[-1] == models.line("1% less Damage", 100 * 4.5 / cycle, skill="Boneshatter")
     lossy = models.runic_tempering_model({"PhysicalHitAverage": 1.0}, [], stats, 1e6)  # (the channel costs more)
     assert lossy[:2] == (0.0, []) and "not played" in lossy[2][0]["value"]
+    # (with the plates it's played even at a loss: no flip-flop of PoB's Thorns group; the cost still charged)
+    kept = models.runic_tempering_model({"PhysicalHitAverage": 1.0}, [plate], stats, 1e6, "Boneshatter")[1]
+    assert kept[0]["line"].startswith("50 to 100") and kept[-1]["line"] == "1% less Damage"
+    first = models.runic_tempering_model(None, [plate], stats, 10.0, "Boneshatter")  # (round 1: no Thorns hit yet)
+    assert first[0] == 0 and "next resolve round" in first[2][0]["basis"]
     assert models.runic_tempering_model(None, [], stats, 0.0)[:2] == (0.0, [])  # (no Thorns, no plates: nothing)

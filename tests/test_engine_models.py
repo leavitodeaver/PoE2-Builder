@@ -4113,6 +4113,7 @@ def test_runic_tempering_feeds_serles_grit_plates_as_thorns_pob_can_read(engine)
                         "45 to 90 added Physical Thorns damage per Runic Plate"])
     build.call("equip", slot="Weapon 1", raw=raw, fields=["FullDPS"])
     search.settle()
+    search.settle_still()  # (turn 4: the plates' Thorns group is read in the next resolve round, as the search's end does)
     note = next(x for x in search.assumptions.active if x["label"].startswith("Runic Tempering"))
-    assert "45-90 Physical Thorns damage per plate" in note["basis"]
+    assert "45-90 Physical Thorns damage per plate" in note["basis"] and "your Thorns hit 0 " not in note["basis"]
     assert any(g["label"] == models.THORNS_GROUP for g in build.groups())
