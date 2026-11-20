@@ -16,7 +16,7 @@ import os
 import random
 import re
 import time
-from typing import Any
+from typing import Any, Callable
 
 from builder import clock
 from builder.ledger.coverage import build_blind_spots
@@ -1822,6 +1822,57 @@ def restore_drift(build: Build) -> dict:
             "worst": round(min(drifts, key=lambda d: (d > 0, -abs(d))), 4) if drifts else 0.0}
 
 
+REAPPLY_ROUNDS = 2  # settles of the finished, reloaded build
+REAPPLY_TOLERANCE = 0.01  # a DPS move above 1% from the same state applied again is flagged
+
+
+def fresh_score(engine: Any, payload: dict, skeleton: dict, xml: str) -> float:
+    """The exported build scored from scratch the search's way, in a new Search on this engine: its code loaded, the boss
+    preset's config, then the steps finalize_task runs on a finished build (gate4.fair_reference's, which scores the
+    references the same way). Nothing of the finished search's state (its assumption mods, conditions, rates) is kept."""
+    fresh = Search(engine, None, payload, skeleton, 0, full=True)
+    build = fresh.build
+    build.call("loadXml", xml=xml)
+    build.call("resetConfig", **boss_config(fresh.ctx.request))
+    build.boss_stats = boss_stats(fresh.ctx.request)
+    build.refresh()
+    for _ in range(4):
+        if not fresh.settle():
+            break
+    fresh.conditions_round()
+    fresh.choose_play()
+    fresh.resolve()
+    fresh.press_round(float("inf"))
+    fresh.weigh_uptimes()
+    if fresh.gems.refresh_infused():
+        fresh.weigh_uptimes()
+    return build.objective.dps(build.stats)
+
+
+def reapply_drift(search: Any, fresh: Callable[[], float] | None = None) -> dict:
+    """(SEARCH32; the manager's 09:35 ruling, 20 Nov) Does the delivered number hold when the same build is applied again?
+    (1) the finished, reloaded build settled REAPPLY_ROUNDS more times (Search.settle) with nothing changed; (2) `fresh`:
+    its exported code scored from scratch (fresh_score). Either moving more than REAPPLY_TOLERANCE off the delivered DPS is
+    flagged: a model fed on its own last output or on state the search carried. 2b75b, Explosive Transmutation with The
+    Covenant's Life Remnants as its only Remnant source (its rate read from the explosion's own last rate, 1 / (3 + 1 / r)
+    per apply): searched 12,219, delivered 207, the same code scored fresh 28,581 (gates POE2T5406 / 5408, probes
+    POE2T5412-5413, 5421). The delivered numbers are left as they are (this runs last)."""
+    build = search.build
+    delivered = build.objective.dps(build.stats)
+    after, again = [], None
+    try:
+        for _ in range(REAPPLY_ROUNDS):
+            search.settle()
+            after.append(build.objective.dps(build.stats))
+        if fresh is not None:
+            again = fresh()
+    except Exception as error:  # (a check, never a reason to lose the finished build)
+        return {"delivered": delivered, "after": after, "fresh": again, "flagged": False, "error": str(error)[:200]}
+    seen = after + ([again] if again is not None else [])
+    worst = max((abs(d / delivered - 1) if delivered > 0 else (1.0 if d > 0 else 0.0) for d in seen), default=0.0)
+    return {"delivered": delivered, "after": after, "fresh": again, "worst": worst, "flagged": worst > REAPPLY_TOLERANCE}
+
+
 def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state: dict, seconds: float) -> dict:
     """Switch to Full DPS, include damaging non-main groups in it, polish briefly, then export
     the build and reload the exported code to prove it reproduces the same numbers."""
@@ -1938,7 +1989,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     tree_check = reloaded["treeCheck"]
     assumptions += search.jewels.radius_notes()  # the larger Time-Lost radius (custom model)
     assumptions += list(search.play_notes.values())  # standing still not counted, the Low Life weighting
-    return {
+    result = {
         **summary, "facts": facts, "code": code, "groups": groups, "conditions": conditions, "quests": quests,
         "play_guide": play, "finalize_trace": trace, "finalize_drift": restore_drift(build), "over_budget": build.over_budget,
         "floor_deltas": [dict(d) for d in build.objective.floor_deltas],  # the floors' part-time effects off (run.result)
@@ -1951,6 +2002,9 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         "verified": not mismatched, "verify_mismatch": mismatched,
         "tree_check": tree_check, "radius_jewels": reloaded["radiusJewels"], "left_out": {**search.jewels.left_out, **search.gems.left_out},
     }
+    # Last, after everything above has read the build: the same state applied again (SEARCH32, the manager's 09:35 ruling)
+    result["reapply_drift"] = reapply_drift(search, lambda: fresh_score(engine, payload, skeleton, codes.decode(code)))
+    return result
 
 
 __all__ = ["Search", "optimize_task", "screen_task", "finalize_task", "ItemOption"]

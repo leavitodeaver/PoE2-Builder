@@ -334,6 +334,9 @@ def test_finalize_sweeps_supports_on_full_dps_despite_the_search_shortlist(engin
     # (counted over finalize's rounds: a sweep that finds a move is followed by shortlist rounds, which the census's
     # last-round fields describe)
     assert out["support_census"]["sweeps"] >= 1 and out["support_census"]["swept_cases"] > 50
+    # (SEARCH32) a plain Spark build is settled: applying the same state again moves nothing (inner.reapply_drift)
+    drift = out["reapply_drift"]
+    assert drift["after"] and not drift["flagged"] and "error" not in drift, drift
 
 
 @pytest.mark.own_pob_engine  # its PoB calls differ run to run (PERF6, POE2T2622 against POE2T2623)

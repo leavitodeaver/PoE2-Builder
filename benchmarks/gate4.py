@@ -268,7 +268,7 @@ def main() -> None:
                      "feasible": result.get("feasible"), "failing": failing, "request": request.model_dump(mode="json"), "code": result.get("code"),
                      "play_guide": result.get("play_guide"), "evaluations": result.get("evaluations"),
                      "wall_seconds": result.get("wall_seconds"), "workers": result.get("workers"),
-                     "checks": result.get("checks")})  # (each floor's row: the sustain and recovery rows' delivered values)
+                     "checks": result.get("checks"), "reapply_drift": result.get("reapply_drift")})  # (each floor's row: the sustain and recovery rows' delivered values)
         rows[-1].update({"reference_dps_fair": fair["dps"], "ratio_fair": dps / fair["dps"] if fair["dps"] else None,
                          "reference_fair_short": fair["short"], "reference_fair_conditions": fair["conditions"],
                          "floors_from": "fair", "reference_pob_floors": fair["pob_floors"]})
@@ -277,6 +277,9 @@ def main() -> None:
               f"toggles {reference_dps:,.0f} (x{dps / reference_dps:.2f}); verdict on the "
               + ("toggled" if args.author_toggles else "fair") + " one; "
               + ("all floors met" if result.get("feasible") else "short: " + ", ".join(failing))
+              + ("; UNSETTLED: re-settled " + ", ".join(f"{d:,.0f}" for d in result["reapply_drift"]["after"])
+                 + f", scored fresh {result['reapply_drift'].get('fresh') or 0:,.0f}"
+                 if (result.get("reapply_drift") or {}).get("flagged") else "")
               + f"; {result.get('evaluations', 0):,} evaluations, {result.get('wall_seconds', 0):,.0f} s wall"
               + (" (processor-time clock)" if args.cpu else ""), flush=True)
     RESULT_DIR.mkdir(parents=True, exist_ok=True)

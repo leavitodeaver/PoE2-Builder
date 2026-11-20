@@ -553,7 +553,15 @@ class Run:
                       value=self.goal_of(final), score=final["score"],
                       deficits=[d["label"] for d in final["deficits"]], final=True,
                       trace=final.get("finalize_trace"), searched=best.get("score"),
-                      drift=final.get("finalize_drift"), over_budget=final.get("over_budget"))
+                      drift=final.get("finalize_drift"), over_budget=final.get("over_budget"),
+                      reapply=final.get("reapply_drift"))
+            unsettled = final.get("reapply_drift") or {}
+            if unsettled.get("flagged"):  # (SEARCH32: a model feeding on its own last output; inner.reapply_drift)
+                self.notes.append(
+                    f"UNSETTLED: the delivered DPS ({unsettled['delivered']:,.0f}) moves when the same build is settled "
+                    f"again ({', '.join(f'{d:,.0f}' for d in unsettled['after'])}) or when its code is scored from "
+                    f"scratch ({unsettled['fresh'] or 0:,.0f}): a model reads its own last output or state the search "
+                    "carried, so this number depends on how the build was reached; treat it as uncertain")
             return self.result(final, problems)
 
     # Results -----------------------------------------------------------------------------------
@@ -709,6 +717,7 @@ class Run:
             "timing": final.get("timing"), "escalations": final.get("escalations"),
             "requirement_weights": final.get("multipliers"),
             "radius_jewels": final.get("radius_jewels") or [], "tree_check": final.get("tree_check"),
+            "reapply_drift": final.get("reapply_drift"),  # (SEARCH32: inner.reapply_drift)
         })
         result["shopping"] = shopping_list(result, self.ctx.data, self.report_prices(), TradeClient().stats(offline=True),
                                            self.variant)
