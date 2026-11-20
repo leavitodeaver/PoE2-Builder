@@ -140,7 +140,6 @@ RANGED_ITEM_LINES = [  # (COV37) each entry matched single rolls only, so a uniq
     "(20-30)% increased chance to inflict Bleeding", "(20-30)% increased chance to Poison",
     "(10-16)% chance for Mace Slam Skills you use yourself to cause an additional Aftershock",
     "(5-10)% chance for Slam Skills you use yourself to cause an additional Aftershock",
-    "(30-40)% increased Magnitude of Elemental Ailments you inflict with Spells",
     "Minions have (35-45)% increased Magnitude of Damaging Ailments",
     "(10-15)% increased Magnitudes of Non-Curse Auras from your Skills",
     "(6-8)% increased Attack Speed with Maces or Sceptres", "(12-16)% increased Critical Hit Chance with Maces or Sceptres",

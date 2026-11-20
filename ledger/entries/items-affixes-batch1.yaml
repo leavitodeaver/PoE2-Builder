@@ -61,21 +61,29 @@
   status: proposed
 
 - id: items-spell-elemental-ailment-magnitude
-  title: Increased Magnitude of Elemental Ailments you inflict with Spells (Ignite, Shock, Chill; Freeze buildup as PoB maps it)
+  title: Increased Magnitude of Elemental Ailments you inflict with Spells (model-read since MECH93's spell_ailment_magnitude_mods)
   kind: pob_gap
+  model: spell_ailment_magnitude
   match: '^(\(\d+-\d+\)|\d+)% increased Magnitude of Elemental Ailments you inflict with Spells$'
-  replace: ['Spells have {1}% increased Magnitude of Ignite', 'Spells have {1}% increased Magnitude of Non-Damaging Ailments you inflict']
+  replace: []
   confidence: theory
   notes: >-
-    Elemental Ailments are Ignite, Chill, Freeze, Shock and Electrocute (KeywordPopups ElementalAilments). PoB has no
-    "elemental ailments" magnitude name; its Ignite magnitude (AilmentMagnitude, keyword Ignite) and its "magnitude of
-    non-damaging ailments you inflict" (EnemyShockMagnitude, EnemyChillMagnitude, EnemyFreezeBuildup: PoB's own
-    mapping, kept) cover four of the five. Electrocute is left out (no magnitude name in PoB: an undercount for
-    Electrocute builds, UNVERIFIED whether its buildup should rise). "Spells have" (ModFlag Spell, all-match) is used,
-    not "with spells" (a KeywordFlag that PoB matches with ANY of the line's keyword flags: it would have reached
-    attack Ignites and spells' Poison / Bleed, an overcount). Whether PoB's ailment calculation carries a spell's
-    Spell flag into the ailment's configuration is UNVERIFIED (if not, the line adds nothing: the undercount stays).
-  sources: ["game files KeywordPopups ElementalAilments", "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (magnitude of ignite; magnitude of non-damaging ailments you inflict; with spells; ^spells have)"]
+    (COV48, train 102: an OVERCOUNT closed) MECH93's models.SPELL_AILMENT_MAGNITUDE / spell_ailment_magnitude_mods
+    (assumptions.py, over the bridge's source lines: the item's original text) gives AilmentMagnitude INC (Ignite,
+    Spell, MatchAll) and EnemyShockMagnitude / EnemyChillMagnitude INC (Spell); probe POE2T5046: Fireball IgniteDPS
+    x1.35, Spark ShockEffectMod 1 -> 1.35 with 35%. This entry's old stand-ins ("Spells have N% increased Magnitude of
+    Ignite / of Non-Damaging Ailments you inflict", COV15) went beside the line on items the search builds
+    (ledger/items.corrected_item), so a rolled line was counted twice. Where: the Item craft
+    GenesisTreeBeltSpellElementalAilmentMagnitudeCrafted has spawn weight 0 (PoB ModItem.lua: default 0, belt 0), so
+    the search rolls the line only as the Desecrated form (ModVeiled GenesisTreeBeltSpellElementalAilmentMagnitude,
+    breach_desecration 1) with SEARCH's Desecrated switches on (OFF by default); imported items aren't ledger-corrected
+    (corrected_item's callers: context.py bases, rares.py, stonefist.py; checked by grep). Now the model alone counts
+    it. Freeze buildup no longer rises with it (the stand-in's PoB mapping did; MECH93's reading: Freeze and
+    Electrocute have no Magnitude, buildup only). Elemental Ailments: Ignite, Chill, Freeze, Shock, Electrocute
+    (KeywordPopups ElementalAilments).
+  sources: ["builder/search/models.py (SPELL_AILMENT_MAGNITUDE, spell_ailment_magnitude_mods)", "builder/search/assumptions.py (MECH93 hook)",
+            "vendor/PathOfBuilding-PoE2-v0.23.1/src/Data/ModItem.lua, ModVeiled.lua (GenesisTreeBeltSpellElementalAilmentMagnitude*)",
+            "game files KeywordPopups ElementalAilments"]
   test_in_game: "A spell's Ignite and Shock magnitudes rise by the line's percent; an attack's do not."
   status: proposed
 

@@ -32,3 +32,54 @@
     assumptions.py (models.SPECTRAL_FIRE over the build's texts).
   sources: ["builder/search/models.py (SPECTRAL_FIRE, spectral_fire_mods)", "builder/search/assumptions.py"]
   status: proposed
+
+# MECH93's train-102 readers (aac6046b Creeping Chill, VOLATILITY_TAKEN, 6f1e0d4b Repulsion; the manager 09:50).
+- id: model-read-mech93-calloused-marrow
+  title: 'Calloused Marrow, "N% reduced Damage taken from Volatility if you have at least N Tribute" (models.VOLATILITY_TAKEN, MECH93)'
+  kind: pob_gap
+  model: volatility
+  match: '^\d+(?:\.\d+)?% (?:increased|reduced) Damage taken from Volatility if you have at least \d+ Tribute$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.VOLATILITY_TAKEN in volatility_model's survival cap: the explosion's damage x (1 - 40%) after Armour (MEDIUM)
+    when PoB's Tribute is at least 100, not applied under it (said). PoB reads nothing (no negation). The notable
+    (PassiveSkills AbyssJewelHistoricOverrideNotable_T_T_8) isn't in the audit's passive list today, so this closes no
+    row yet; it marks the line for when it appears.
+  sources: ["builder/search/models.py (VOLATILITY_TAKEN, volatility_model)"]
+  status: proposed
+
+- id: model-mech93-creeping-chill
+  title: "Creeping Chill: triggers from the build's Power Charge spending on its Ice Crystal skill, the ground growing to the boss (conditions._creeping_chill, MECH93)"
+  kind: model
+  model: creeping_chill
+  stats: ["support_creeping_chill_consume_X_power_charges_to_trigger_on_ice_crystals", "triggered_by_support_creeping_chill_%",
+          "active_skill_ground_effect_area_of_effect_+%_final_per_second", "active_skill_ground_effect_area_of_effect_+%_final_per_second_max"]
+  skill: [Creeping Chill]
+  confidence: theory
+  notes: >-
+    conditions.CREEPING_CHILL* / Conditions._creeping_chill / creeping_chill_reach (aac6046b, train 102): one Chilled
+    Ground a supported crystal skill use that finds a Power Charge (the build's own gains and spends; 0 with no Power
+    Charge source), at the target for Frost Wall / Glacial Bolt, at you for Frozen Locus / Grim Pillars only while the
+    ground (1.2 m, +50% area a second to +300%: the two area stats, read as constants) reaches the boss; 6 s a ground
+    (Chilled Ground's default, MEDIUM). Left open on purpose: support_creeping_chill_cold_damage_equal_to_%_ice_crystal_
+    maximum_life (the ground's Chill magnitude: not read, labelled there).
+  sources: ["builder/search/conditions.py (CREEPING_CHILL, _creeping_chill, creeping_chill_reach)"]
+  status: proposed
+
+- id: model-mech93-repulsion-use
+  title: "Repulsion: on the boss only until the build's next Hit, a Repulsion Wave each removal (models.repulsion_use, MECH93; repulsion_wave_model, GEM26)"
+  kind: model
+  model: repulsion_use
+  stats: ["base_deal_no_damage", "triggered_by_primary_skill"]
+  skill: [Repulsion, Repulsion Wave]
+  confidence: theory
+  notes: >-
+    Repulsion's curse set deals no damage (base_deal_no_damage; its skill-zero row is GEM26's model) and Repulsion
+    Wave is triggered when a Hit removes the curse (triggered_by_primary_skill): models.repulsion_use (6f1e0d4b, train
+    102; R35-25) holds each curse (1 - e^(-hD)) / h on the boss at the main skill's hits, a wave per removal, recast by
+    hand (cast + delay, Runic Ward needed) or the 1 s block + delay under Blasphemy / a trigger; repulsion_wave_model
+    scores the wave at that rate. Left open (no reader): Fragility (curse_repulsion_applies_X_fragility and the wave's
+    stun per Fragility on special objects), the movement-while-casting stats, the special-object knockback flag.
+  sources: ["builder/search/models.py (REPULSION, repulsion_use, repulsion_wave_model)", "ledger/entries/gems-gem26.yaml (model-gem26-repulsion-wave)"]
+  status: proposed

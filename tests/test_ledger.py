@@ -120,9 +120,8 @@ def test_cov15_item_lines_translate_to_lines_pob_parses():
         "Lightning Damage from Hits also Contributes to Flammability and Ignite Magnitudes": ["Your Lightning Damage can Ignite"],
         "Cold Damage from Hits also Contributes to Flammability and Ignite Magnitudes": ["Your Cold Damage can Ignite"],
         "15% increased Mana Cost Efficiency of Spells": ["Spells have 15% increased Mana Cost Efficiency"],
-        "35% increased Magnitude of Elemental Ailments you inflict with Spells":
-            ["Spells have 35% increased Magnitude of Ignite",
-             "Spells have 35% increased Magnitude of Non-Damaging Ailments you inflict"],
+        # (COV48: model-read since MECH93's spell_ailment_magnitude_mods; the stand-ins doubled it on search-built items)
+        "35% increased Magnitude of Elemental Ailments you inflict with Spells": [],
         "Minions' Strikes have Melee Splash": [],
     }
     for line, want in cases.items():

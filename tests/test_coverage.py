@@ -1579,3 +1579,32 @@ def test_cov48_train102_readers_crafted_jewels_frightening_shield_spectral_fire(
     entry, out = translate("Attack Hits inflict Spectral Fire for 8 seconds")
     assert entry.id == "model-read-mecha-spectral-fire" and out == []
     assert models.SPECTRAL_FIRE.match("Attack Hits inflict Spectral Fire for 8 seconds")
+
+
+def test_cov48_mech93_readers_are_model_read_and_the_spell_magnitude_stand_in_is_gone():
+    """COV48 (the manager 09:50, MECH93's train-102 readers): the Genesis Tree "N% increased Magnitude of Elemental
+    Ailments you inflict with Spells" is model-read with no stand-in (MECH93's spell_ailment_magnitude_mods reads the
+    item's own text, so COV15's stand-ins counted it twice on search-built items); Calloused Marrow is model-read
+    (VOLATILITY_TAKEN); Creeping Chill's and Repulsion's read stats are the models', the unread ones stay open."""
+    from builder.ledger import translate
+    from builder.search import conditions, models
+
+    line = "(30-40)% increased Magnitude of Elemental Ailments you inflict with Spells"
+    entry, out = translate(line)
+    assert entry.id == "items-spell-elemental-ailment-magnitude" and out == [] and entry.raw["model"]
+    assert models.SPELL_AILMENT_MAGNITUDE.match("35% increased Magnitude of Elemental Ailments you inflict with Spells")
+    marrow = "40% reduced Damage taken from Volatility if you have at least 100 Tribute"
+    entry, out = translate(marrow)
+    assert entry.id == "model-read-mech93-calloused-marrow" and out == [] and models.VOLATILITY_TAKEN.match(marrow)
+    assert conditions.CREEPING_CHILL == "Creeping Chill" and models.REPULSION == "Repulsion"
+    covered = coverage.stat_entries()
+    for stat, skill, entry_id in (
+            ("support_creeping_chill_consume_X_power_charges_to_trigger_on_ice_crystals", "Creeping Chill",
+             "model-mech93-creeping-chill"),
+            ("active_skill_ground_effect_area_of_effect_+%_final_per_second", "Creeping Chill", "model-mech93-creeping-chill"),
+            ("triggered_by_primary_skill", "Repulsion Wave", "model-mech93-repulsion-use"),
+            ("base_deal_no_damage", "Repulsion", "model-mech93-repulsion-use")):
+        assert coverage.stat_covered(covered, stat, skill) == ("model", entry_id), (stat, skill)
+    for stat, skill in (("support_creeping_chill_cold_damage_equal_to_%_ice_crystal_maximum_life", "Creeping Chill"),
+                        ("curse_repulsion_applies_X_fragility", "Repulsion")):
+        assert coverage.stat_covered(covered, stat, skill) is None, stat
