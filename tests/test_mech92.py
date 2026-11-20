@@ -124,6 +124,45 @@ def test_unstable_bond_joins_inner_turmoils_cycle():
     assert "Unstable Bond" not in notes[0]["basis"] and "5.00 Volatility a second" in notes[0]["basis"]
 
 
+def test_the_crafted_jewels_two_jewel_condition():
+    """MECH92: "Blind / Debilitate Enemies on Hit" and "Inflict Elemental Exposure on Hit" "while you have a <X> and a
+    <Y> socketed in your tree" count only with both jewels in the tree's sockets (Blind / Debilitate read 0 before; the
+    Exposure line counted on every hit before: an OVERCOUNT)."""
+    from builder.search import conditions
+
+    hits = {"Speed": 2.0, "HitChance": 100.0}
+    blind = "Blind Enemies on Hit while you have a Ruby and a Sapphire socketed in your tree"
+    up, how = conditions._debuff_source(blind, "conditionEnemyBlinded", [], {**hits, "_tree_jewels": ["Ruby"]})
+    assert up == 0.0 and "Sapphire missing" in how
+    up, how = conditions._debuff_source(blind, "conditionEnemyBlinded", [],
+                                        {**hits, "_tree_jewels": ["Ruby", "Sapphire", "Emerald"]})
+    assert up == pytest.approx(1.0) and "both are" in how
+    debilitate = "Debilitate Enemies on Hit while you have an Emerald and a Sapphire socketed in your tree"
+    up, how = conditions._debuff_source(debilitate, "conditionEnemyDebilitated", [],
+                                        {**hits, "_tree_jewels": ["Emerald", "Sapphire"]})
+    assert up == pytest.approx(1.0)  # (2 hits a second x Debilitate's 1 s)
+    exposure = "Inflict Elemental Exposure on Hit while you have a Ruby and an Emerald socketed in your tree"
+    assert conditions._exposure_source(exposure, "Fire", {**hits, "_tree_jewels": ["Ruby", "Time-Lost Emerald"]})[0] == 0
+    assert conditions._exposure_source(exposure, "Cold", {**hits, "_tree_jewels": ["Emerald", "Ruby"]})[0] == 1.0
+    # a line without the clause is untouched
+    assert conditions.socketed_pair("Blind Enemies on Hit", {}) is None
+
+
+def test_frightening_shields_debilitate_rides_bastions_taps():
+    """MECH92: "Apply Debilitate to Enemies 30 Metres in front of you while your Shield is raised" at Bastion of Light's
+    shield taps (each Debilitating for the 0.55 s tap and Debilitate's 1 s after); no taps or the boss out of reach: 0."""
+    from builder.search import conditions, models
+
+    line = "Apply Debilitate to Enemies 30 Metres in front of you while your Shield is raised"
+    var = "conditionEnemyDebilitated"
+    plan = models.RaisedPlan(1.0, 0.14, "test", 0.25)
+    up, how = conditions._debuff_source(line, var, [], {"_raised_plan": plan, "_distance_choice": (2.0, "")})
+    assert up == pytest.approx(0.25 * (models.RAISE_TAP + 1.0)) and "Bastion of Light" in how
+    assert conditions._debuff_source(line, var, [], {"_distance_choice": (2.0, "")})[0] == 0.0
+    far = conditions._debuff_source(line, var, [], {"_raised_plan": plan, "_distance_choice": (40.0, "")})
+    assert far[0] == 0.0 and "beyond" in far[1]
+
+
 @pytest.fixture(scope="module")
 def engine():
     import faulthandler
@@ -172,3 +211,22 @@ def test_the_stack_boxes_placeholder_reads_as_one_stack(engine, skill, kind, fie
     print("PROBE placeholder", kind, unset, got)
     assert got[0] == pytest.approx(unset) and got[1] == pytest.approx(unset)
     assert abs(got[2] - unset) > 0.05 * abs(unset)
+
+
+def test_the_tree_jewels_bases_are_read_from_the_allocated_sockets(engine):
+    """MECH92 probe: Conditions._tree_jewels' source, the bridge's facts items, lists a jewel in an allocated tree socket
+    with its base and type Jewel (the two-jewel condition of the crafted jewel suffixes reads these)."""
+    from builder import ROOT
+    from builder.pob import codes
+
+    xml = codes.decode((ROOT / "benchmarks" / "reference" / "2b75b.txt").read_text(encoding="utf-8").strip())
+    engine.call("loadXml", xml=xml)
+    sockets = [n["id"] for n in engine.call("allocatedNodes")["nodes"] if n["type"] == "Socket"]
+    assert len(sockets) >= 2
+    for socket, base in zip(sockets, ("Ruby", "Sapphire")):
+        engine.call("equip", slot=f"Jewel {socket}", raw="\n".join([
+            "Rarity: Rare", f"Test {base}", base, "Item Level: 82", "Implicits: 0",
+            "Blind Enemies on Hit while you have a Ruby and a Sapphire socketed in your tree"]))
+    jewels = sorted(str(i.get("base")) for i in engine.call("facts", fields=[])["items"] if i.get("type") == "Jewel")
+    print("PROBE tree jewels", jewels)
+    assert "Ruby" in jewels and "Sapphire" in jewels

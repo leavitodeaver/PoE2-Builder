@@ -2654,6 +2654,32 @@ def _debuff_pattern(var: str) -> re.Pattern:
                       rf"\benemies\b(.*?)\b(?:are|become) {participle}\b(.*)$", re.I)
 
 
+# (MECH92; the catalog's kw-debilitate / parry-blind rows and an OVERCOUNT) The crafted jewel suffixes "Blind Enemies on
+# Hit while you have a Ruby and a Sapphire socketed in your tree", "Debilitate Enemies on Hit while you have an Emerald
+# and a Sapphire ..." and "Inflict Elemental Exposure on Hit while you have a Ruby and an Emerald ..." (CraftedJewel*
+# Socketed, Mods 26650308; the three are the only "socketed in your tree" lines, checked: the coverage report's lines,
+# POE2T5023; PoB parses none, ModCache 6739 / 7166 / 8345). Before, the Blind and Debilitate lines read 0 and the
+# Exposure line counted on every hit whether or not both jewels were socketed (an OVERCOUNT). Now each counts only
+# when the build's allocated tree sockets hold both named jewels (Conditions._tree_jewels: their base names; the
+# jewel carrying the line counts as one of them). A Time-Lost Ruby / Emerald / Sapphire is taken as NOT the named jewel
+# (UNVERIFIED: the lower reading). The search offers none of these crafts (rares.JEWEL_CRAFTS): imported builds only.
+SOCKETED_PAIR = re.compile(r"\s*\bwhile you have an? (\w+) and an? (\w+) socketed in your tree\b", re.I)
+
+
+def socketed_pair(text: str, stats: dict) -> tuple[str, bool, str] | None:
+    """(the text without the clause, whether both jewels are socketed, how) for a "while you have a <X> and a <Y>
+    socketed in your tree" line; None without the clause."""
+    m = SOCKETED_PAIR.search(text)
+    if not m:
+        return None
+    have = [b.lower() for b in stats.get("_tree_jewels") or []]
+    need = [m.group(1), m.group(2)]
+    missing = [n for n in need if n.lower() not in have]
+    how = (f"needs a {need[0]} and a {need[1]} socketed in your tree: "
+           + (f"{', '.join(missing)} missing, so 0" if missing else "both are"))
+    return SOCKETED_PAIR.sub("", text), not missing, how
+
+
 WHEN_YOU_AILMENT = re.compile(r"\bwhen you (poison|ignite|shock)\b", re.I)
 
 
@@ -2668,6 +2694,10 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
     m = _debuff_pattern(var).search(text)
     if not m or DEBUFF_NOT_SOURCE.search(text):
         return None
+    if pair := socketed_pair(text, stats):  # (MECH92: the crafted jewels' two-jewel condition)
+        rest, ok, how = pair
+        got = _debuff_source(rest, var, lines, stats) if ok else None
+        return (got[0], f"{got[1]}; {how}") if got else (0.0, how)
     chance = float(m.group(1)) / 100 if m.group(1) else 1.0
     when = (m.group(2) if m.group(2) is not None else f"{m.group(3)} {m.group(4)}").lower()
     d = re.search(r"for (\d+(?:\.\d+)?) seconds?", when)
@@ -2692,6 +2722,27 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
         if plan is None:
             return 0.0, "the build's shield taps weren't read (0, labelled)"
         return plan.blind, plan.how
+    if "shield is raised" in when and var == "conditionEnemyDebilitated":
+        # (MECH92; the catalog's kw-debilitate row, an UNDERCOUNT of defence: 0 before) Frightening Shield's "Apply
+        # Debilitate to Enemies 30 Metres in front of you while your Shield is raised" (debilitate_enemies_within_X_
+        # metres_while_active_blocking; PoB leaves it unparsed). Debilitate (KeywordPopups: 10% reduced damage dealt,
+        # 20% reduced movement speed; 1 s unless specified) lowers only the boss's damage, so the build doesn't tap its
+        # shield for it alone: the taps are Bastion of Light's (models.raised_plan, one per Blind duration with the boss
+        # in reach), each Debilitating for the tap and 1 s after (MEDIUM-LOW: the 1 s default read as running from the
+        # release). Within the line's reach only. No taps: 0, labelled (tapping for Debilitate alone: not played).
+        plan = stats.get("_raised_plan")
+        reach = min((float(r.group(1)) for r in [models.RAISED_REACH.search(when)] if r), default=math.inf)
+        metres = (stats.get("_distance_choice") or (natural_distance(stats.get("_main_types") or set(),
+                                                                     stats.get("_main_skill") or ""), ""))[0]
+        if metres > reach:
+            return 0.0, f"the boss {metres:g} m away, beyond the line's {reach:g} m in front of you: 0"
+        if plan is None or plan.taps <= 0:
+            return 0.0, ("Debilitate while your Shield is raised: the build doesn't tap its shield (taps are planned "
+                         "for Bastion of Light's Blind only; Debilitate alone lowers only the boss's damage): 0, "
+                         "labelled")
+        up = min(1.0, plan.taps * (models.RAISE_TAP + duration))
+        return up, (f"Bastion of Light's shield taps, {plan.taps:.2f} a second, each Debilitating the boss for the "
+                    f"{models.RAISE_TAP:g} s tap and {duration:g} s after: {up:.0%} up (MEDIUM-LOW)")
     if "stun you" in when:
         # (MECHC25; plans/term-blind-enemies.md G3) Blinding Flash's "Blind Enemies when they Stun you"
         # (blind_enemies_when_they_stun_you): at the boss's hits that Light Stun you, flasks.Charges.stuns (recovery's
@@ -3976,7 +4027,8 @@ def armour_broken_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
 # "Elemental Exposure" and plain "Exposure" count for all three; sources combine as independent; the box is on at
 # UPTIME, else explicitly off with its basis. Events: the main skill's hits, crits, Shocks / Ignites (PoB's chance per
 # hit), Fully Breaking Armour (armour_broken_share's Full Breaks), "to Enemies 3 metres in front of you" while the boss
-# stands that close (the build's distance). A line's own condition (Devotion, socketed jewels) is left to PoB, which
+# stands that close (the build's distance). A line's own condition (Devotion) is left to PoB (the crafted jewels'
+# "while you have a <X> and a <Y> socketed in your tree": MECH92's socketed_pair checks the build's sockets), which
 # applies the box only with a source it accepts. Exposure duration modifiers aren't read (4 s, labelled).
 # (MECH69; AUDIT31 A31-26, an UNDERCOUNT) Today's game has one Exposure on all three elements (KeywordPopups above;
 # AUDIT31 checked poe2db's keyword page; the 0.3.0 notes move sources from one element's Exposure to Elemental Exposure
@@ -4045,6 +4097,10 @@ def _exposure_source(text: str, element: str, stats: dict) -> tuple[float, str] 
     m = _exposure_match(text, element)
     if m is None:
         return None
+    if pair := socketed_pair(text, stats):  # (MECH92: the crafted jewel's two-jewel condition; an OVERCOUNT before)
+        rest, ok, how = pair
+        got = _exposure_source(rest, element, stats) if ok else None
+        return (got[0], f"{got[1]}; {how}") if got else (0.0, how)
     chance = float(m.group(1)) / 100 if m.group(1) else 1.0
     when = m.group(3).lower()
     if "fully breaks armour" in when:
@@ -7590,6 +7646,12 @@ class Conditions:
         return bolts * up / speed, (f"its Orb's {bolts:.2f} bolts/s (PoB's HitSpeed) x attached {up:.0%} of the fight "
                                     f"(GEM20's cycle; Shocks: {how}) / {speed:.2f} casts/s")
 
+    def _tree_jewels(self) -> list[str]:
+        """(MECH92) The base names of the jewels in the build's allocated passive-tree sockets (bridge facts' items: PoB's
+        item slots that aren't inactive, type Jewel)."""
+        items = self.build.call("facts", fields=[]).get("items") or []
+        return sorted(str(i.get("base") or "") for i in items if i.get("type") == "Jewel")
+
     def _kills(self) -> tuple[float, float, str]:
         """models.kill_rate's (enemies/s, all/s, how) for the request's boss: its preset's add kills (bosses.kill_stats,
         MECH-D's) and your own minions Killed (self._minion_deaths); MECHC9, A23-4."""
@@ -8367,6 +8429,8 @@ class Conditions:
             stats["_full_es"] = self._full_life(es=True)
         if any(KILL_LINE.search(t) for t in texts):  # (MECHC9, A23-4: on-kill lines at the build's kills)
             stats["_kills"] = self._kills()
+        if any(SOCKETED_PAIR.search(t) for t in texts):  # (MECH92: "while you have a <X> and a <Y> socketed in your tree")
+            stats["_tree_jewels"] = self._tree_jewels()
         if banners := sorted({n["name"] for g in self.build.call("groups")["groups"] if g.get("enabled") is not False
                               for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in BANNERS}):
             # (MECHC7: the placed banner at its Glory share)
