@@ -1209,7 +1209,11 @@ MODELED_SKILLS = {"Iron Ward": "iron-ward-store", "Elemental Expression": "eleme
                   "Elemental Storm": "model-read-tempest-caller-elemental-storm",
                   # (COV46, train 97: MECHB44's bridge raven minion and models.mist_raven_model; The Auspex, level 15 by
                   # R35-7 in granted_rolls.KNOWN_LEVELS)
-                  "Mist Raven": "model-mechb44-mist-raven"}
+                  "Mist Raven": "model-mechb44-mist-raven",
+                  # (COV47) MECHB44's runic_tempering_model (train 98): the backlash, your Thorns hit per plated hit
+                  "Runic Tempering": "model-mechb44-runic-tempering",
+                  # (COV47) GEM26's Repulsion Wave (train 100): the detonation's Physical wave; the curse itself deals none
+                  "Repulsion": "model-gem26-repulsion-wave"}
 # Skills whose 0 in PoB is right: they deal no damage of their own (COV46, from MECHB44 23:28). (checked: game 26650308
 # GrantedEffectStatSets: SacrificePlayer and EternalMarchPlayer carry base_deal_no_damage; SummonSkeletalClericsPlayer
 # carries display_statset_no_hit_damage and its minion's skills are HealSkeletonClericMinion /
@@ -1221,6 +1225,33 @@ NO_OWN_DAMAGE_SKILLS = {
     "Skeletal Cleric": ("its summon's stat set shows no hit damage (display_statset_no_hit_damage) and its minion only "
                         "heals and resurrects (HealSkeletonClericMinion, ResurrectSkeletonClericMinion; PoB Minions.lua)"),
 }
+# (COV47) Every stat set of these skills' player effect carries base_deal_no_damage or display_statset_no_hit_damage
+# (checked per stat set, not merged: game 26650308 GrantedEffects -> GrantedEffectStatSets, scratch/cov47/zero_sets2.py;
+# second source: the same stat in PoB's Data/Skills entry of each; the game's ActiveSkills descriptions agree: curses,
+# buffs, a meta trigger, totems whose bolts are their own skills). Not here, though they carry it on one set: Elemental
+# Sundering, Frostflame Nova, Frozen Locus (their other sets deal damage); Fortifying Cry and Infernal Cry (no hit damage
+# of their own, but the Shield Waves / Combust they cause aren't all counted yet: left open so the row isn't hidden).
+_NO_DAMAGE_SET = "every stat set of its player effect carries {} (game GrantedEffectStatSets {}; PoB Data/Skills the same)"
+NO_OWN_DAMAGE_SKILLS.update({
+    "Despair": "a curse: " + _NO_DAMAGE_SET.format("base_deal_no_damage", "DespairPlayer"),
+    "Elemental Weakness": "a curse: " + _NO_DAMAGE_SET.format("base_deal_no_damage", "ElementalWeaknessPlayer"),
+    "Enfeeble": "a curse: " + _NO_DAMAGE_SET.format("base_deal_no_damage", "EnfeeblePlayer"),
+    "Temporal Chains": "a curse: " + _NO_DAMAGE_SET.format("base_deal_no_damage", "TemporalChainsPlayer"),
+    "Vulnerability": "a curse: " + _NO_DAMAGE_SET.format("base_deal_no_damage", "VulnerabilityPlayer"),
+    "Artillery Ballista": ("the totem: " + _NO_DAMAGE_SET.format("base_deal_no_damage", "ArtilleryBallistaPlayer")
+                           + "; its bolts are their own skill, which PoB scores and models.totem_count_model scales"),
+    "Siege Ballista": ("the totem: " + _NO_DAMAGE_SET.format("base_deal_no_damage", "SiegeBallistaPlayer")
+                       + "; its bolts are their own skill, which PoB scores and models.totem_count_model scales"),
+    "Cast on Minion Death": ("a meta trigger: " + _NO_DAMAGE_SET.format("base_deal_no_damage", "MetaCastOnMinionDeathPlayer")
+                             + "; the spells it triggers are their own skills"),
+    "Grim Feast": _NO_DAMAGE_SET.format("base_deal_no_damage", "GrimFeastPlayer"),
+    "Tame Beast": _NO_DAMAGE_SET.format("base_deal_no_damage", "TameBeastPlayer"),
+    "Bone Offering": _NO_DAMAGE_SET.format("display_statset_no_hit_damage", "BoneOfferingPlayer"),
+    "Pain Offering": _NO_DAMAGE_SET.format("display_statset_no_hit_damage", "PainOfferingPlayer"),
+    "Soul Offering": _NO_DAMAGE_SET.format("display_statset_no_hit_damage", "SoulOfferingPlayer"),
+    "Navira, the Last Mirage": ("restorative spells on Command: "
+                                + _NO_DAMAGE_SET.format("display_statset_no_hit_damage", "SummonWaterDjinnPlayer")),
+})
 DAMAGE_STATS = ("CombinedDPS", "TotalDPS", "TotalDotDPS", "FullDPS", "AverageDamage")
 
 

@@ -1308,7 +1308,7 @@ def test_train93_reads_and_play_rows():
     """COV45 turn 3 (train 93; the manager 18:15): MECH90's Engineered Blaze, Inner Turmoil's Volatility and Saitha's Spear,
     MECHC42's Killed Recently lines, Frozen regen and Mana lost on Kill are model-read by their headline models; Armour
     while Frozen / Bleeding, the raised-shield max Block and Immaterial are play rows (no item re-scoring); Growing Peril
-    and Precise Volatility (not counted by the model) and the Energy Shield on-Kill twin stay open."""
+    and Precise Volatility were not counted by the model then (model-read since COV47); the Energy Shield on-Kill twin stays open."""
     from builder.ledger import model_entry, play_row_entry
     from builder.search import models, recovery
 
@@ -1340,9 +1340,14 @@ def test_train93_reads_and_play_rows():
     for line, (entry, pattern) in rows.items():
         assert model_entry(line) is None and (found := play_row_entry(line)) is not None and found.id == entry, line
         assert pattern.match(line), line
-    for line in ("1% increased Chaos Damage over Time per Volatility", "Lose 1% of maximum Energy Shield on Kill",
-                 "Volatile Power also grants 1% increased Critical Hit chance per Volatility exploded"):
+    # (COV47) Growing Peril and Precise Volatility are counted since MECH91 / MECH92 (volatility_model emits "1% increased
+    # Chaos Damage over Time" x Volatility held and "1% increased Critical Hit Chance" x the powered share), so they're
+    # model-read now (items-cov47.yaml); the Energy Shield on-Kill twin stays open
+    for line in ("Lose 1% of maximum Energy Shield on Kill",):
         assert model_entry(line) is None and play_row_entry(line) is None, line
+    for line in ("1% increased Chaos Damage over Time per Volatility",
+                 "Volatile Power also grants 1% increased Critical Hit chance per Volatility exploded"):
+        assert model_entry(line).raw.get("model") == "volatility", line
 
 
 def test_train94_reads():
@@ -1488,3 +1493,31 @@ def test_cov47_ancestral_bond_has_no_stand_in_the_totem_models_double_again():
     assert entry.id == "ancestral-bond" and lines == []
     assert model_entry("Your Totem Limit is doubled").id == "ancestral-bond"
     assert models.bond_totems(2, 0, True)[0] == 4
+
+
+def test_cov47_skills_with_no_damage_of_their_own_and_newly_modelled_skills():
+    """COV47: skills every stat set of whose player effect carries base_deal_no_damage or display_statset_no_hit_damage
+    (game GrantedEffectStatSets, per set; PoB's Data/Skills the same) are "pob" (0 is right); Runic Tempering (MECHB44)
+    and Repulsion (GEM26's wave) are modelled. A skill with one damaging set (Frostflame Nova) stays out, and the
+    warcries whose triggered damage isn't all counted (Fortifying Cry, Infernal Cry) stay open."""
+    from builder.ledger import coverage
+
+    assert {"Despair", "Temporal Chains", "Artillery Ballista", "Cast on Minion Death", "Soul Offering"} <= set(
+        coverage.NO_OWN_DAMAGE_SKILLS)
+    assert coverage.MODELED_SKILLS["Runic Tempering"] == "model-mechb44-runic-tempering"
+    assert coverage.MODELED_SKILLS["Repulsion"] == "model-gem26-repulsion-wave"
+    for name in ("Frostflame Nova", "Frozen Locus", "Elemental Sundering", "Fortifying Cry", "Infernal Cry"):
+        assert name not in coverage.NO_OWN_DAMAGE_SKILLS and name not in coverage.MODELED_SKILLS, name
+
+
+def test_cov47_volatility_passives_and_answered_call_are_model_read():
+    """COV47: passive lines models on main read (volatility_model's Precise Volatility, Growing Peril, Volatility when
+    Stunned; ancestral_spirits_model's Answered Call trigger) are model-read through empty pob_gap entries."""
+    from builder.ledger import model_entry, translate
+
+    for line, entry in (
+            ("Volatile Power also grants 2% increased Critical Hit chance per Volatility exploded", "model-read-cov47-precise-volatility"),
+            ("4% increased Chaos Damage over Time per Volatility", "model-read-cov47-growing-peril"),
+            ("10% chance to gain Volatility when you are Stunned", "model-read-cov47-volatility-when-stunned"),
+            ("Trigger Ancestral Spirits when you Summon a Totem", "model-read-cov47-answered-call-trigger")):
+        assert model_entry(line).id == entry and translate(line)[1] == [], line

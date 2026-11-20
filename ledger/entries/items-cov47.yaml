@@ -47,3 +47,54 @@
     kills) x the chance, in the Volatility cycle. PoB reads no Volatility (an UNDERCOUNT before).
   sources: ["builder/search/models.py (VOLATILITY_ON_KILL, volatility_model)"]
   status: proposed
+
+# (COV47) The Volatility passives models.volatility_model reads (MECH92 / MECHC44, on main since trains 99-100), which the
+# audit still counted open: model-read through empty pob_gap entries (PoB reads no Volatility, so nothing to negate).
+- id: model-read-cov47-precise-volatility
+  title: '"Volatile Power also grants N% increased Critical Hit chance per Volatility exploded" (models.volatility_model, PRECISE_VOLATILITY)'
+  kind: pob_gap
+  model: volatility
+  match: '^Volatile Power also grants \d+(?:\.\d+)?% increased Critical Hit chance per Volatility exploded$'
+  replace: []
+  confidence: theory
+  notes: models.PRECISE_VOLATILITY, summed in volatility_model's Volatile Power (MECH92). PoB reads no Volatility.
+  sources: ["builder/search/models.py (PRECISE_VOLATILITY, volatility_model)"]
+  status: proposed
+
+- id: model-read-cov47-growing-peril
+  title: '"N% increased Chaos Damage over Time per Volatility" (models.volatility_model, GROWING_PERIL)'
+  kind: pob_gap
+  model: volatility
+  match: '^\d+(?:\.\d+)?% increased Chaos Damage over Time per Volatility$'
+  replace: []
+  confidence: theory
+  notes: models.GROWING_PERIL, at the Volatility held in the attack-then-stop cycle (volatility_model). PoB reads no Volatility.
+  sources: ["builder/search/models.py (GROWING_PERIL, volatility_model)"]
+  status: proposed
+
+- id: model-read-cov47-volatility-when-stunned
+  title: '"N% chance to gain Volatility when you are Stunned" (models.VOLATILITY_STUNNED, MECHC44: at the boss''s Stuns on you)'
+  kind: pob_gap
+  model: volatility
+  match: '^\d+(?:\.\d+)?% chance to gain Volatility when you are Stunned$'
+  replace: []
+  confidence: theory
+  notes: assumptions.py reads models.VOLATILITY_STUNNED at the boss's Stuns on you into the Volatility cycle (MECHC44). PoB reads no Volatility.
+  sources: ["builder/search/models.py (VOLATILITY_STUNNED)", "builder/search/assumptions.py"]
+  status: proposed
+
+# (COV47) Warbringer's Answered Call (tree node 39411): "Grants Skill: Ancestral Spirits" gives PoB the skill; the trigger
+# line's meaning (a spirit per totem summoned, dying with it) is models.ancestral_spirits_model's (MECHB29: one spirit
+# per totem alive, at the mean of PoB's four spirit types; Ancestral Bond's doubling counted). PoB ignores the line.
+- id: model-read-cov47-answered-call-trigger
+  title: 'Answered Call, "Trigger Ancestral Spirits when you Summon a Totem" (models.ancestral_spirits_model, MECHB29)'
+  kind: pob_gap
+  model: ancestral_spirits_model
+  match: '^Trigger Ancestral Spirits when you Summon a Totem$'
+  replace: []
+  confidence: theory
+  notes: >-
+    assumptions.ancestral_spirits: with the granted Ancestral Spirits skill in the build, one spirit per totem the main
+    skill keeps up (MEDIUM), each at the mean of PoB's spirit types (LOW), PoB's own one-Turtle entry out of Full DPS.
+  sources: ["builder/search/models.py (ancestral_spirits_model)", "builder/search/assumptions.py (ancestral_spirits)"]
+  status: proposed
