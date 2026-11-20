@@ -443,8 +443,8 @@ def still_far(config: dict) -> bool:
 # maximum_<type>_damage_resistance_+%_per_<type>_infusion stats sit on no Mod or passive, game 26650308 by stat id; PoB
 # ModCache has no "per ... Infusion" line). Model: Infusions arrive at random (Poisson: Remnants come from random
 # Ignites, Freezes, Shocks and crits) between evenly spaced uses, any arrival over the cap lost; a use finds one if any
-# is held and removes it unless it keeps it (KEEP_INFUSION). The 20 s expiry isn't modelled (a small overcount where
-# uses are rare). MEDIUM-LOW (Poisson arrivals; the build's consumers merged into one even stream); the smooth reading
+# is held and removes it unless it keeps it (KEEP_INFUSION). (MECHC46) The 20 s expiry: INFUSION_SECONDS's note below.
+# MEDIUM-LOW (Poisson arrivals; the build's consumers merged into one even stream); the smooth reading
 # (min(1, supply / casts)) is said in the basis.
 INFUSION_CAP = 3
 INFUSION_CAP_ALL = re.compile(r"^\+?(\d+) to maximum number of elemental infusions$", re.I)
@@ -460,14 +460,96 @@ def infusion_cap(lines: list[str], element: str, verisium: bool = False) -> int:
     return own.get(element, INFUSION_CAP + every) + (max(own.values()) if verisium else 0)
 
 
-def infusion_found(supply: float, uses: float, keep: float = 0.0, cap: int = INFUSION_CAP) -> float:
+# (MECHC46; MECHC45's Handover, a small OVERCOUNT where uses are rare) Each Infusion lasts INFUSION_SECONDS (KeywordPopups
+# ElementalInfusion: "grants you the Infusion for 20 seconds or until it is Consumed"; VerisiumInfusion: "last for 20
+# seconds"), x the build's "N% increased / reduced Elemental Infusion duration" (stat infusion_duration_+%: PassiveSkills
+# infusion5 / 8-11, power_charges17-19, lightning34 Principal Infusion; checked by stat id over Mods and PassiveSkills,
+# game 26650308; PoB parses the line to a bare Duration INC that no Infusion reader uses) or a line naming the element
+# (fire / cold / lightning / verisium_infusion_duration_+%: no Mods or PassiveSkills carrier found; read if one appears).
+# "<type> Infusions do not expire" (the *_infusion_do_not_expire stats: no Mods or PassiveSkills carrier found; read if a
+# line says it): no expiry. Before: none ever expired. Model (infusion_found): each held Infusion expires on its own timer;
+# a use takes the OLDEST held (ASSUMED, UNVERIFIED: the game text doesn't say which; oldest-first is the reading where
+# the fewest expire, the smaller correction). Without a keep chance a held Infusion then waits at most cap / uses seconds,
+# so where that is within the duration nothing expires and the exact chain stands; otherwise a seeded simulation
+# (_infusion_simulated: Poisson pickups, pickups at the cap lost, expiries, evenly spaced uses; 20,000 uses), MEDIUM-LOW.
+INFUSION_SECONDS = 20.0
+INFUSION_DURATION = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) (Elemental|Fire|Cold|Lightning|Verisium) Infusion "
+                               r"duration\b", re.I)
+INFUSION_NO_EXPIRY = re.compile(r"\b(?:(Elemental|Fire|Cold|Lightning|Verisium) )?Infusions? (?:you have )?do(?:es)? not "
+                                r"expire\b", re.I)
+
+
+def infusion_seconds(lines: list[str], element: str = "") -> float:
+    """(MECHC46) How long an `element` Infusion lasts (INFUSION_SECONDS's note); math.inf if a line stops it expiring."""
+    named = {"elemental", element.lower()} if element else {"elemental"}
+    for t in lines:
+        if (m := INFUSION_NO_EXPIRY.search(t)) and (m.group(1) is None or m.group(1).lower() in named):
+            return math.inf
+    inc = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+              for t in lines if (m := INFUSION_DURATION.match(t.strip())) and m.group(3).lower() in named)
+    return INFUSION_SECONDS * max(0.0, 1 + inc / 100)
+
+
+_EXPIRY_CACHE: dict[tuple, float] = {}
+
+
+def _infusion_simulated(supply: float, uses: float, keep: float, cap: int, seconds: float, n: int = 20000) -> float:
+    """(MECHC46) The share of uses finding an Infusion with expiry (INFUSION_SECONDS's note), by a seeded simulation."""
+    key = (round(supply, 4), round(uses, 4), round(keep, 3), cap, round(seconds, 3) if math.isfinite(seconds) else None)
+    if key in _EXPIRY_CACHE:
+        return _EXPIRY_CACHE[key]
+    import random
+    from collections import deque
+
+    arrivals, keeps = random.Random(20261120), random.Random(46)
+    gap = 1.0 / uses
+    held: deque = deque()
+    t = arrivals.expovariate(supply)  # (the next pickup's time)
+    found = counted = 0
+    warm = min(500, n // 10)
+    for k in range(1, n + warm + 1):
+        now = k * gap
+        while True:  # (the pickups up to this use: expired Infusions leave first; a pickup at the cap is lost)
+            while held and held[0] + seconds < min(t, now):
+                held.popleft()
+            if t > now:
+                break
+            if len(held) < cap:
+                held.append(t)
+                t += arrivals.expovariate(supply)
+            else:  # (full: nothing counts until the oldest expires or the next use takes one; pickups are memoryless,
+                # so restart from there)
+                t = max(t, min(held[0] + seconds, now)) + arrivals.expovariate(supply)
+        kept = keeps.random() < keep
+        if k > warm:
+            counted += 1
+            found += bool(held)
+        if held and not kept:
+            held.popleft()
+    share = found / counted if counted else 0.0
+    if len(_EXPIRY_CACHE) > 4096:
+        _EXPIRY_CACHE.clear()
+    _EXPIRY_CACHE[key] = share
+    return share
+
+
+def infusion_found(supply: float, uses: float, keep: float = 0.0, cap: int = INFUSION_CAP,
+                   seconds: float = INFUSION_SECONDS) -> float:
     """(MECHC45) The share of uses that find an Infusion: `supply` Infusions a second arriving at random, `uses` evenly
-    spaced uses a second each taking one (removed unless kept, chance `keep`), at most `cap` held (the note above)."""
+    spaced uses a second each taking one (removed unless kept, chance `keep`), at most `cap` held (the note above).
+    (MECHC46) Each lasting `seconds` (infusion_seconds; INFUSION_SECONDS's note)."""
     if supply <= 0:
         return 0.0
     if uses <= 0:
         return 1.0
     cap = max(1, int(cap))
+    # (MECHC46) expiry can bite only where a held Infusion can wait the duration: cap / uses without a keep chance; with
+    # one, the wait behind kept ones grows (taken as 3 x the mean cap / (uses x (1 - keep)), a tail margin)
+    wait = cap / uses if keep <= 0 else (3 * cap / (uses * (1 - keep)) if keep < 1 else math.inf)
+    expiry = 1.0
+    if math.isfinite(seconds) and wait > seconds:
+        free = _infusion_simulated(supply, uses, keep, cap, math.inf)
+        expiry = _infusion_simulated(supply, uses, keep, cap, seconds) / free if free > 0 else 1.0
     mean = supply / uses
     pois = [math.exp(-mean) * mean ** k / math.factorial(k) for k in range(cap)]
     pois.append(max(0.0, 1.0 - sum(pois)))  # (k >= cap arrivals: the cap)
@@ -493,7 +575,7 @@ def infusion_found(supply: float, uses: float, keep: float = 0.0, cap: int = INF
     for n, p in enumerate(after):
         for k, q in enumerate(pois):
             before[min(cap, n + k)] += p * q
-    return 1.0 - before[0]
+    return (1.0 - before[0]) * min(1.0, expiry)
 
 
 def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[str] | dict[str, float],
@@ -3084,8 +3166,10 @@ class Assumptions:
         # Chill (the manager's ruling (iii), R31-1)
         chill_seen = {**build.call("stats", fields=list(boss_hits.CHILL_FIELDS)), **seen}
         bleeding = (0.0, "")  # (MECHC42: the share of the fight you're Bleeding, for the "while Bleeding" lines)
-        if any(boss_hits.BLEEDING_CHILLS.match(t.strip()) or recovery_mod.BLEEDING_ARMOUR.match(t.strip()) for t in texts):
+        if any(boss_hits.BLEEDING_CHILLS.match(t.strip()) or recovery_mod.BLEEDING_ARMOUR.match(t.strip())
+               or conditions_mod.CHARGE_WHILE_BLEEDING.search(t) for t in texts):  # (MECHC46: the charge line too)
             bleeding = chill_seen["_bleeding"] = boss_hits.bleeding_on_you(texts, seen)
+        build.you_bleeding = bleeding  # (MECHC46: Conditions.evidence's "_you_bleeding", a round behind)
         speed, chill_notes = boss_hits.boss_chill_on_you(chill_seen, texts, bool(
             config_in.get("conditionChilled") or config_in.get("conditionOnChilledGround")))
         # (MECHC39, R31-8: the boss's Freeze on you, the share of the fight Frozen, with the Chill as one action-speed
@@ -6701,11 +6785,13 @@ class Assumptions:
         # (MECHC45: at most `cap` held, the rest picked up at the cap lost: infusion_found; every consumer's uses as one
         # even stream, each finding one with the same chance)
         cap = infusion_cap(lines, element, supply["Any"] > 0)
-        share = infusion_found(have, uses + others, keep, cap) if uses + others > 0 else float(have > 0)
+        seconds = infusion_seconds(lines, element)  # (MECHC46: each lasts this long)
+        share = infusion_found(have, uses + others, keep, cap, seconds) if uses + others > 0 else float(have > 0)
         basis = (f"{have:.2f} {element} Infusions/s from {', '.join(used) or 'nothing'} for {uses:.2f} casts/s"
                  + (f", {keep:.0%} of casts keeping theirs" if keep else "")
                  + (f"; shared with {other_how}, so {mine:.2f}/s reach the main skill" if others > 0 else "")
-                 + f"; at most {cap} held (Infusions picked up at the cap are lost; random pickups, MEDIUM-LOW): "
+                 + f"; at most {cap} held (Infusions picked up at the cap are lost; random pickups, MEDIUM-LOW), each "
+                   f"lasting {seconds:g} s (the oldest used first, ASSUMED): "
                    f"{share:.0%} of casts find one (smoothly spread pickups: {smooth:.0%})")
         return share, basis
 

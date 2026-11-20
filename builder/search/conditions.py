@@ -668,10 +668,22 @@ def consume_gain(build, skill: str, share: float, what: str) -> dict[str, tuple[
 # (MECHC46; MECHC44's list, an UNDERCOUNT before) A charge line that names no skill and no condition ("N% chance to gain a
 # Frenzy Charge on Hit", "... a Power Charge on Critical Hit": an item, a passive) fires on any of your hits, so the
 # build's other hitting groups count beside the main skill: stats["_side_hits"] (Conditions.evidence, side_hits: each
-# group's hits a second at its pressed rate, one hit a use as the USER's 20 Nov test for unflagged skills, and its own
-# crit chance). Not added: a gem's own line (its skill's hits only), a conditioned line ("on Hit while Bleeding", "on
-# Melee Hit": the side skills' types aren't read, the main skill's hits alone as before: an undercount kept).
+# group's hits a second at its pressed rate, one hit a use, and its own crit chance). Added after the main skill's
+# one-a-use join (_per_use_joined reads the main skill's lines alone) as their own entries (_side_hit_gains), the lines of
+# one charge kind joined as one chance a side use (the USER's 20 Nov test: one charge of each type a use for a skill
+# without the multiple-charges flag; flagged side skills taken at one hit a use too: an UNDERCOUNT kept), and within a
+# line's own "no more than once every N s" cap. Not added: a gem's own line (its skill's hits only), a conditioned line
+# ("on Hit while Bleeding", "on Melee Hit": the side skills' types aren't read: an undercount kept). Left out of
+# side_hits: a side Orb of Storms (its bolts are the hits: _side_orb_gains counts them) and Galvanic Field (its casts
+# aren't hits; its bolts need another skill's Shock, MULTI_CHARGE_STAT's note: an UNDERCOUNT kept).
 GENERIC_HIT = re.compile(r"^\s*on (critical )?hit\s*$", re.I)
+# (MECHC46, an OVERCOUNT before: every hit counted) "Gain a Frenzy Charge on Hit while Bleeding" (stat
+# gain_frenzy_charge_on_hit_while_bleeding, Mods FrenzyChargeOnHitWhileBleedingUnique__1; checked: the Stats ids holding
+# charge and bleed, by stat id over Mods and PassiveSkills, game 26650308; no unique in PoB's Uniques data carries the mod,
+# so it may be unobtainable: UNVERIFIED) is the main skill's hits x the share of the fight YOU are Bleeding
+# (boss_hits.bleeding_on_you: the boss's Bleeds and your own items' chance, as the other "while Bleeding" lines read it;
+# Assumptions keeps it as build.you_bleeding, a round behind). Not yet known: 0, said.
+CHARGE_WHILE_BLEEDING = re.compile(r"\bcharges? on hit while bleeding\b", re.I)
 
 
 def side_hits(rows: dict, groups: list[dict], hitters: set[str], main_index,
@@ -682,8 +694,11 @@ def side_hits(rows: dict, groups: list[dict], hitters: set[str], main_index,
              for g in groups if g.get("enabled") is not False}
     hits = crits = 0.0
     parts = []
+    lingering = (models.ORB_OF_STORMS, models.GALVANIC_FIELD)  # (GENERIC_HIT's note: their casts aren't the hits)
     for index, row in sorted(rows.items(), key=lambda kv: str(kv[0])):
         if index == main_index or not names.get(index):
+            continue
+        if any(str(row.get("name") or "").startswith(n) for n in lingering):
             continue
         if row.get("triggered"):
             uses, why = number(row.get("speed")), "PoB's trigger rate"
@@ -697,15 +712,6 @@ def side_hits(rows: dict, groups: list[dict], hitters: set[str], main_index,
         crits += landed * crit
         parts.append(f"{row.get('name') or names[index][0]} {landed:.2f} hits/s ({why}, {crit:.0%} critical)")
     return hits, crits, "; ".join(parts)
-
-
-def _side_events(text: str, when: str, stats: dict, crit: bool) -> tuple[float, str]:
-    """(the other groups' hits or crits a second for a generic on-Hit charge line, how); (0, "") otherwise."""
-    side = stats.get("_side_hits")
-    if not side or not GENERIC_HIT.match(when) or text in (stats.get("_gem_line_texts") or ()):
-        return 0.0, ""
-    rate = number(side[1] if crit else side[0])
-    return (rate, f" + the other groups' {rate:.2f} {'crits' if crit else 'hits'}/s ({side[2]})") if rate > 0 else (0.0, "")
 
 
 def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
@@ -743,8 +749,7 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
     if (why := _hit_restriction(when, stats)) is not None:
         return 0.0, why
     if "critical hit" in when and "take" not in when:
-        extra, said = _side_events(text, when, stats, crit=True)  # (MECHC46: GENERIC_HIT's note)
-        return chance * (crits + extra), f"{chance:.0%} x {crits:.2f} crits/s{many}{said}"
+        return chance * crits, f"{chance:.0%} x {crits:.2f} crits/s{many}"
     if "take a critical hit" in when:
         # (MECHC20: a crit on you is a hit that lands: the boss's landed hits, the worst case's lowest real boss's; before,
         # every use of its skills, evaded and blocked ones too, an overcount)
@@ -753,9 +758,11 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
     if "block" in when:
         block = boss_hits.block_share(stats, evaded_first=False)  # (red-flash hits can't be Blocked, MECHC5)
         return chance * boss * block, f"{chance:.0%} x {boss * block:.2f} blocks/s"
+    if CHARGE_WHILE_BLEEDING.search(text):  # (MECHC46: CHARGE_WHILE_BLEEDING's note)
+        up, why = stats.get("_you_bleeding") or (0.0, "not worked out yet (a round behind): 0")
+        return chance * hits * number(up), f"{chance:.0%} x {hits:.2f} hits/s{many} x you Bleeding {number(up):.0%} ({why})"
     if "on hit" in when or when.strip() in ("", "on hit") or "hit" in when:
-        extra, said = _side_events(text, when, stats, crit=False)  # (MECHC46: GENERIC_HIT's note)
-        return chance * (hits + extra), f"{chance:.0%} x {hits:.2f} hits/s{many}{said}"
+        return chance * hits, f"{chance:.0%} x {hits:.2f} hits/s{many}"
     if m2 := re.search(r"every (\d+(?:\.\d+)?)? ?seconds?|once per second|every second", when):
         every = float(m2.group(1)) if m2.groups() and m2.group(1) else 1.0
         if NOT_LOST_RECENTLY.search(when):  # (MECHC33: the Cultivated Redflare's line)
@@ -1444,6 +1451,40 @@ def _side_orb_gains(found: list[tuple[str, str, tuple[float, str]]], stats: dict
     return out
 
 
+def _side_hit_gains(found: list[tuple[str, str, tuple[float, str]]], stats: dict
+                    ) -> list[tuple[str, str, tuple[float, str]]]:
+    """(MECHC46) extra (text, kind, (rate, how)) entries for the other groups' hits on generic on-Hit / on-Critical-Hit
+    lines (GENERIC_HIT's note), the lines of one kind joined as one chance a side use."""
+    side = stats.get("_side_hits")
+    if not side or number(side[0]) <= 0:
+        return []
+    hits, crits, how = number(side[0]), number(side[1]), side[2]
+    gem = stats.get("_gem_line_texts") or ()
+    per_kind: dict[str, list[tuple[str, float, float]]] = {}
+    for text, source, (rate, _) in found:
+        m = re.search(CHARGE_SOURCE.format(kind=source), text, re.I)
+        if not m or text in gem or not GENERIC_HIT.match(m.group(3)) or NOT_A_GAIN.match(text[m.start():]):
+            continue
+        chance = (float(m.group(1)) / 100 if m.group(1) else 1.0) * float(m.group("count") or 1)
+        each = chance * (min(crits / hits, 1.0) if "critical" in m.group(3).lower() else 1.0)  # (a side hit's)
+        per_kind.setdefault(source, []).append((text, each, rate))
+    out = []
+    for source, items in per_kind.items():
+        total = sum(e for _, e, _ in items)
+        miss = 1.0
+        for _, e, _ in items:
+            miss *= 1 - min(e, 1.0)
+        scale = (1 - miss) / total if total > 0 else 0.0
+        for text, e, rate in items:
+            extra = hits * e * min(1.0, scale)
+            if (cap := ONCE_EVERY.search(text)) is not None:
+                extra = min(extra, max(0.0, 1 / float(cap.group(1) or 1.0) - rate))
+            if extra > 0:
+                out.append((text, source, (extra, f"the other groups' {hits:.2f} hits/s ({how}), one {source} Charge "
+                                                  f"a use at most{' (joined)' if len(items) > 1 else ''}")))
+    return out
+
+
 def _charges_held(kind: str):
     def held(lines: list[str], stats: dict) -> tuple[float, str]:
         kinds, redirected = _charge_sources(lines, kind)
@@ -1465,7 +1506,8 @@ def _charges_held(kind: str):
                  if (hit := next(((k, x) for k in kinds if (x := _charge_rate(text, k, stats)) is not None), None))
                  is not None]
         found, joined = _per_use_joined(found, stats)  # (MECHC43: one charge of each type a use)
-        found = found + _side_orb_gains(found, stats)  # (MECHC44: a side Orb of Storms' bolts, SIDE_ORB_HIT's note)
+        found = (found + _side_orb_gains(found, stats)  # (MECHC44: a side Orb of Storms' bolts, SIDE_ORB_HIT's note)
+                 + _side_hit_gains(found, stats))  # (MECHC46: the other groups' hits, GENERIC_HIT's note)
         for text, source, r in found:
             more = profusion.get(text)
             plus = (more[0] + more[1] / 3) if more else 0.0
@@ -7947,10 +7989,10 @@ class Conditions:
         keep = min(1.0, sum(float(m.group(1)) for t in texts if (m := KEEP_INFUSION.search(t))) / 100.0)
         total = sum(uses.values())
         mine = have * arc / total if total > 0 else 0.0
-        from builder.search.assumptions import infusion_cap, infusion_found
+        from builder.search.assumptions import infusion_cap, infusion_found, infusion_seconds
 
         cap = infusion_cap(texts, "Lightning", supply["Any"] > 0)  # (MECHC45: the Infusion cap, infusion_found)
-        share = infusion_found(have, total, keep, cap)
+        share = infusion_found(have, total, keep, cap, infusion_seconds(texts, "Lightning"))  # (MECHC46: the expiry)
         return share, (f"{have:.2f} Lightning Infusions/s from {', '.join(made) or 'nothing'}"
                        + (f", shared with {', '.join(sorted(users - {ARC}))}" if users - {ARC} else "")
                        + f": {mine:.2f}/s for {ARC}'s {arc:.2f} casts/s"
@@ -7974,14 +8016,15 @@ class Conditions:
         elements = {e for each in consumers.values() for e in each}
         have = sum(supply[e] for e in elements) + supply["Any"]
         cast = sum(uses.values())
-        from builder.search.assumptions import infusion_cap, infusion_found
+        from builder.search.assumptions import infusion_cap, infusion_found, infusion_seconds
 
         # (MECHC45: at most the caps of the consumed elements held, pickups at random: infusion_found; before min(have,
         # cast), an unlimited cap)
         texts = [line["text"] for line in lines]
         cap = sum(infusion_cap(texts, e) for e in elements) + (infusion_cap(texts, "", True) - infusion_cap(texts, "")
                                                                if supply["Any"] > 0 else 0)
-        rate = cast * infusion_found(have, cast, 0.0, max(cap, 1)) if cast > 0 else 0.0
+        seconds = min(infusion_seconds(texts, e) for e in elements) if elements else infusion_seconds(texts)
+        rate = cast * infusion_found(have, cast, 0.0, max(cap, 1), seconds) if cast > 0 else 0.0  # (MECHC46: the expiry)
         return rate, (f"{rate:.2f}/s: {have:.2f} {'/'.join(sorted(elements)) or 'Verisium'} Infusions/s from "
                       f"{', '.join(made) or 'nothing'}, for {', '.join(f'{n} {u:.2f}/s' for n, u in uses.items())}"
                       + (f" ({volley_how})" if volley_how else ""))
@@ -8510,6 +8553,7 @@ class Conditions:
         lines = self.build.call("sourceLines")["lines"]
         stats = self.build.call("stats", fields=EVIDENCE_FIELDS)
         stats["_main_share"] = self._main_share()  # (MECHC45: for the readers below, as for the Conditions' readers)
+        stats["_you_bleeding"] = getattr(self.build, "you_bleeding", None)  # (MECHC46: CHARGE_WHILE_BLEEDING's note)
         gem_types = {}
         for line in lines:
             if line["source"].startswith("gem:"):

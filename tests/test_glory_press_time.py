@@ -230,22 +230,69 @@ def test_a_self_fed_chain_reads_the_bosss_ailments_at_its_own_rate():
 
 def test_generic_on_hit_charge_lines_count_the_other_groups_hits():
     """(MECHC46, an UNDERCOUNT before) "N% chance to gain a <kind> Charge on Hit / on Critical Hit" from an item or a
-    passive fires on any of your hits: the other groups' hits (stats["_side_hits"]) join the main skill's; a gem's own
-    line and a conditioned line ("on Hit while Bleeding") keep the main skill's alone."""
+    passive fires on any of your hits: the other groups' hits (stats["_side_hits"]) add their own entries after the main
+    skill's one-a-use join, the lines of one kind joined as one chance a side use; a gem's own line and a conditioned
+    line ("on Hit while Bleeding") add none; the main skill's lines still join as before; a side Orb of Storms /
+    Galvanic Field isn't a side hitter (their casts aren't the hits)."""
     from builder.search import conditions as c
 
     stats = {"Speed": 1.0, "HitChance": 100.0, "CritChance": 10.0, "_side_hits": (2.0, 0.5, "Side 2.00 hits/s")}
     hit = "20% chance to gain a Frenzy Charge on Hit"
-    assert c._charge_rate(hit, "Frenzy", stats)[0] == pytest.approx(0.2 * 3.0)
-    assert c._charge_rate(hit, "Frenzy", {**stats, "_side_hits": None})[0] == pytest.approx(0.2)
     crit = "20% chance to gain a Power Charge on Critical Hit"
-    assert c._charge_rate(crit, "Power", stats)[0] == pytest.approx(0.2 * (0.1 + 0.5))
-    assert c._charge_rate(hit, "Frenzy", {**stats, "_gem_line_texts": {hit}})[0] == pytest.approx(0.2)
+    main = c._charge_rate(hit, "Frenzy", stats)
+    assert main[0] == pytest.approx(0.2)  # (the main skill's hits alone in the line's own rate)
+    got = c._side_hit_gains([(hit, "Frenzy", main)], stats)
+    assert len(got) == 1 and got[0][2][0] == pytest.approx(0.2 * 2.0)
+    got = c._side_hit_gains([(crit, "Power", c._charge_rate(crit, "Power", stats))], stats)
+    assert got[0][2][0] == pytest.approx(0.2 * 0.5)  # (the side crits: 2 hits/s x 25%)
+    # two 50% Frenzy lines: one chance a side use, 1 - 0.5 x 0.5 = 0.75 a hit, not 1.0
+    two = ["50% chance to gain a Frenzy Charge on Hit", "50% chance to gain a Frenzy Charge on Hit "]
+    got = c._side_hit_gains([(t, "Frenzy", c._charge_rate(t, "Frenzy", stats)) for t in two], stats)
+    assert sum(g[2][0] for g in got) == pytest.approx(2.0 * 0.75)
+    assert c._side_hit_gains([(hit, "Frenzy", main)], {**stats, "_gem_line_texts": {hit}}) == []
     bleeding = "Gain a Frenzy Charge on Hit while Bleeding"
-    got = c._charge_rate(bleeding, "Frenzy", stats)
-    assert got is None or "other groups" not in got[1]
+    if (r := c._charge_rate(bleeding, "Frenzy", stats)) is not None:
+        assert c._side_hit_gains([(bleeding, "Frenzy", r)], stats) == []
+    # the main skill's two lines still join (the side hits don't sit inside their rates)
+    found = [(t, "Frenzy", c._charge_rate(t, "Frenzy", stats)) for t in two]
+    joined, how = c._per_use_joined(found, stats)
+    assert sum(f[2][0] for f in joined) == pytest.approx(0.75) and "joined" in joined[0][2][1]
     rows = {1: {"name": "Main", "speed": 5.0}, 2: {"name": "Side", "speed": 9.0, "cooldown": 2.0, "HitChance": 50.0,
-                                                   "CritChance": 20.0}}
-    groups = [{"index": 1, "gems": [{"name": "Main"}]}, {"index": 2, "gems": [{"name": "Side"}]}]
-    hits, crits, how = c.side_hits(rows, groups, {"Main", "Side"}, 1)
-    assert hits == pytest.approx(0.25) and crits == pytest.approx(0.05) and "Side" in how
+                                                   "CritChance": 20.0},
+            3: {"name": "Orb of Storms", "speed": 2.0}, 4: {"name": "Galvanic Field", "speed": 2.0}}
+    groups = [{"index": 1, "gems": [{"name": "Main"}]}, {"index": 2, "gems": [{"name": "Side"}]},
+              {"index": 3, "gems": [{"name": "Orb of Storms"}]}, {"index": 4, "gems": [{"name": "Galvanic Field"}]}]
+    hits, crits, how = c.side_hits(rows, groups, {"Main", "Side", "Orb of Storms", "Galvanic Field"}, 1)
+    assert hits == pytest.approx(0.25) and crits == pytest.approx(0.05) and "Side" in how and "Orb" not in how
+
+
+def test_infusions_expire_after_their_duration():
+    """(MECHC46, a small OVERCOUNT before) Each Infusion lasts 20 s (KeywordPopups ElementalInfusion), x "N% increased
+    Elemental Infusion duration"; "Infusions do not expire" stops it. Frequent uses: no change (an Infusion waits at most
+    cap / uses s, oldest first); rare uses lose the expired ones."""
+    import math
+
+    from builder.search.assumptions import infusion_found, infusion_seconds
+
+    assert infusion_seconds([]) == 20.0
+    assert infusion_seconds(["30% increased Elemental Infusion duration", "10% reduced Elemental Infusion duration"]) == 24.0
+    assert infusion_seconds(["Fire Infusions do not expire"], "Fire") == math.inf
+    assert infusion_seconds(["Fire Infusions do not expire"], "Cold") == 20.0
+    inf = math.inf
+    assert infusion_found(1.0, 1.0, 0.0, 3, 20.0) == infusion_found(1.0, 1.0, 0.0, 3, inf)  # (3 s wait at most)
+    rare = infusion_found(0.05, 0.05, 0.0, 3, 20.0)
+    assert rare < infusion_found(0.05, 0.05, 0.0, 3, inf) - 0.15
+    assert rare < infusion_found(0.05, 0.05, 0.0, 3, 26.0) < infusion_found(0.05, 0.05, 0.0, 3, inf)
+    assert infusion_found(0.05, 0.05, 0.0, 3, 20.0) == rare  # (seeded: the same answer every time)
+
+
+def test_a_charge_on_hit_while_bleeding_reads_the_share_you_bleed():
+    """(MECHC46, an OVERCOUNT before: every hit) "Gain a Frenzy Charge on Hit while Bleeding": the main skill's hits x the
+    share of the fight you're Bleeding (stats["_you_bleeding"]); not known yet: 0."""
+    from builder.search import conditions as c
+
+    line = "Gain a Frenzy Charge on Hit while Bleeding"
+    stats = {"Speed": 1.0, "HitChance": 100.0, "CritChance": 0.0}
+    assert c._charge_rate(line, "Frenzy", stats)[0] == 0.0
+    assert c._charge_rate(line, "Frenzy", {**stats, "_you_bleeding": (0.4, "the boss's Bleeds")})[0] == pytest.approx(0.4)
+    assert c._charge_rate("Gain a Frenzy Charge on Hit", "Frenzy", stats)[0] == pytest.approx(1.0)
