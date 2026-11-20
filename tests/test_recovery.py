@@ -2950,7 +2950,10 @@ def test_pobs_combo_count_is_the_main_skills_combo_on_use():
         me({}, {"support_combo_finisher_required_number_of_combo_stacks": 5}, "Falling Thunder"))
     assert finisher[0] == 5 and "MEDIUM" in finisher[1]
     culmination = conditions.Conditions._combo_on_use(me({}, {"skill_maximum_number_of_combo_stacks": 10}, "Ice Strike"))
-    assert culmination[0] == 0 and "UNDERCOUNT" in culmination[1]
+    assert culmination[0] == 0 and "not read yet" in culmination[1]
+    built = me({}, {"skill_maximum_number_of_combo_stacks": 10}, "Ice Strike")
+    built.build.combo_on_use = (6.0, "two other Strikes")  # (Assumptions.models' last round, MECHC43)
+    assert conditions.Conditions._combo_on_use(built)[0] == 6.0
     assert conditions.Conditions._combo_on_use(me({}, {}, "Boneshatter")) == (0.0, "")
     assert conditions.combo_on_use([], {"_combo_on_use": bell}) == bell and conditions.combo_on_use([], {}) == (0.0, "")
 

@@ -2314,8 +2314,9 @@ DODGE_RECENTLY_LINE = re.compile(r"\bif you(?:'ve| have) dodge rolled recently\b
 # - a skill supported by Combo Finisher I / II (support_combo_finisher_required_number_of_combo_stacks 3 / 5) spends its
 #   requirement (R33-16: MEDIUM, whether it can hold more isn't stated);
 # - a skill supported by Culmination or Vruun's Inevitability (skill_maximum_number_of_combo_stacks, up to 10) spends what
-#   the build's other Strikes built since its last use: NOT read here (0, an UNDERCOUNT left, said in the basis; GEM7's
-#   models.vruun_combo_share works it out for Vruun's area from Skill objects this resolver doesn't hold).
+#   the build's other Strikes built since its last use: Assumptions.models works it out (GEM7's models.vruun_combo_share:
+#   the other Strikes' hits a second x the press model's shares over the skill's own uses, up to its maximum) and hands
+#   it here a round behind (build.combo_on_use; 0 before the first round), MEDIUM.
 # The use rate the requirement allows is usage.py's (unchanged). Main skill only: the box is one number for the build.
 COMBO_REQUIRED_STATS = ("active_skill_required_number_of_combo_stacks",
                         "support_combo_finisher_required_number_of_combo_stacks")
@@ -7300,8 +7301,12 @@ class Conditions:
                 return need, (f"{self.main_skill} is used at {need:g} Combo and spends it all (R33-16, {sure}); PoB's "
                               "Combo count for Chakra of Impact and Culmination")
         if number(support.get(COMBO_MAX_STAT)) or number(level.get(COMBO_MAX_STAT)):
-            return 0.0, (f"{self.main_skill} spends the Combo the build's other Strikes built since its last use: not read "
-                         "here, 0 (an UNDERCOUNT left: Chakra of Impact and Culmination's per-Combo damage count none)")
+            built = getattr(self.build, "combo_on_use", None)  # (Assumptions.models: the last round's, MECHC43)
+            if built is None:
+                return 0.0, (f"{self.main_skill} spends the Combo the build's other Strikes built since its last use: not "
+                             "read yet (the assumptions' first round), 0")
+            return float(built[0]), (f"{self.main_skill} spends the Combo the build's other Strikes built since its last "
+                                     f"use: {built[0]:.1f} (R33-16: all of it, HIGH; {built[1]}; the last round's, MEDIUM)")
         return 0.0, ""
 
     def _raging_cry(self, power: float) -> list[tuple[str, float, float, str]]:

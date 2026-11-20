@@ -2050,6 +2050,18 @@ class Assumptions:
                                                       [e["text"] for e in source_lines],  # (GEM11: Salvo's Seal lines)
                                                       enemy_level(build))  # (GEM13: Frost Bomb's level cap)
         stat_mods = stat_mods + models.cry_stage_floor(stat_mods, forbidden)  # (GEM17: PoB's stages box reads 10)
+        # (MECHC43) a main skill that spends the Combo other Strikes build (Culmination / Vruun's Inevitability,
+        # skill_maximum_number_of_combo_stacks): its Combo on use from the build's own Strikes and the press model's
+        # shares (models.vruun_combo_share's math), for PoB's Combo count (conditions.Conditions._combo_on_use, a round
+        # behind, as build.consume_gains); None otherwise
+        build.combo_on_use = None
+        if main is not None and (number(main.support_stats.get("skill_maximum_number_of_combo_stacks"))
+                                 or number(main.level_stats.get("skill_maximum_number_of_combo_stacks"))):
+            builders = models.vruun_builder_groups(found, main)
+            rows = ({r["index"]: {**r, "_press": press.get(r["name"])}
+                     for r in build.call("useRates", indices=builders)["rates"]} if builders else {})
+            combo, why, _ = models.vruun_combo_share(main, {**stats, "_groups": rows, "_skills": found}, main)
+            build.combo_on_use = (combo, why)
         harmony_mods, harmony_notes = models.harmony_model(inputs, stats)
         ring_mods, ring_notes = models.resist_rings_model(source_lines) if models.RESIST_ENTRY not in forbidden else ([], [])
         main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if main is not None else set()
