@@ -212,6 +212,63 @@ R32_3_OBTAINABLE = {
     "DemigodsVirtue1": ("Demigod's Virtue's \"Virtuous\" (RESEARCH32 R32-3, HIGH: no gameplay effect; a race reward, "
                         "drop disabled); not in PoB-PoE2's uniques"),
 }
+# (COV48, the manager 14:45: the "carrier unverified" rows) Carriers found for unique-only ("Exclusive") mods no PoB-PoE2
+# unique lists: a base's implicit (game 26650308 BaseItemTypes.Implicit_Mods holds the mod: checked by scanning every
+# exported table's mod columns for the mod's index, scratch/cov48/carrier.py), or a unique gloves line Way of the
+# Stonefist transforms (poe2db's texts, builder/data/stonefist_uniques.json; builder/search/stonefist.py). Real carriers:
+# the row stays open for its lane's model; the reason names the carrier instead of "UNVERIFIED".
+_BASE_CARRIER = "a real carrier: the {} base's implicit (game 26650308 BaseItemTypes {}.Implicit_Mods); {}"
+_STONEFIST_CARRIER = ("a real carrier: {}'s line as Way of the Stonefist transforms it (poe2db's transformed text, "
+                      "builder/data/stonefist_uniques.json; stonefist.py applies it); a model in {}'s topic")
+R32_3_OBTAINABLE.update({
+    "CharmImplicitUseOnCurse1": _BASE_CARRIER.format("Cleansing Charm", "FourCharm13",
+                                                     "flasks.py reads it: none against a pinnacle boss (RESEARCH #33)"),
+    "FlailImplicitIgnoreBlock1": _BASE_CARRIER.format("Stone Flail", "FourFlail7", "whether a boss blocks: MECH-D"),
+    "ItemCanHaveBaseAndCatalystQuality": _BASE_CARRIER.format("Grasping Mail", "FourBodyStrDexInt3",
+                                                              "catalysts: the search applies none (SEARCH)"),
+    "RingImplicitMaximumQualityAdditional1": _BASE_CARRIER.format("Breach Ring", "FourRingBreach",
+                                                                  "catalyst quality: the search applies none (SEARCH)"),
+    "RingImplicitMaximumQualityAdditional2": _BASE_CARRIER.format("Refined Breach Ring", "FourRingBreach2",
+                                                                  "catalyst quality: the search applies none (SEARCH)"),
+    "TwistedEmpyreanVerisiumImplicitAdditionalFissures1": _BASE_CARRIER.format(
+        "Runemastered Aberrant Sledge (a Verisium unique's)", "FourTwoHandMaceUnique1VerisiumUnique2", "Fissures: MECH-B"),
+    "WaistgateVerisiumImplicitRunicWardCanOverflow1": _BASE_CARRIER.format(
+        "Runemastered Heavy Belt (a Verisium unique's)", "FourBelt9VerisiumUnique3", "Runic Ward: MECH-C"),
+    "UniqueRandomKeystoneFromTable1": ("a real carrier: Flesh Crucible (Diamond; Atziri's Vault), \"(1-33)\" is its "
+                                       "random keystone's table index, which PoB models as one variant per keystone "
+                                       "(Data/Uniques/Special/Generated.lua fleshCrucible): no effect of its own"),
+    # (COV48's helper, poe2db 20 Nov: Rite of Passage's "Local Rite of Passage Modifiers /10" lists it beside the nine
+    # named Spirits, no legacy tag; 0.5.0 fixed and buffed the player's Azmeri possessions; MEDIUM; roll weights unseen)
+    "UniqueCharmRandomPossess1": ("a real carrier: Rite of Passage (Golden Charm) can roll \"Possessed by a random "
+                                  "Spirit for 20 seconds on use\" (poe2db's current modifier list, no legacy tag; patch "
+                                  "0.5.0; MEDIUM; supersedes R32-6 R-d's MEDIUM-LOW). PoB's Rite of Passage has only the "
+                                  "nine named Spirits, so the search can't offer this variant: a charm model, MECH-C"),
+    # Orb of Sacrifice "Corrupted Upgrade" mods (0.5.4: they upgrade Corrupted Enchantments on Rare items): listed on
+    # poe2db's Orb pages with an empty item-class weight, and no corruption enchant (generation 5) shares their stats
+    "CorruptionUpgradeAdditionalChainChance": ("UNVERIFIED (leans no carrier, MEDIUM): an Orb of Sacrifice upgrade "
+        "outcome listed on poe2db with no item-class weight; no corruption enchant in game 26650308 Mods has its stat "
+        "(the chain enchant upgrades to the terrain-chain one); left open, not excluded (CLAUDE.md)"),
+    "CorruptionUpgradeAdditionalFissureChance": ("UNVERIFIED (leans no carrier, MEDIUM): an Orb of Sacrifice upgrade "
+        "outcome listed on poe2db with no item-class weight; no corruption enchant has its stat; left open (CLAUDE.md)"),
+    "CorruptionUpgradeDeflectDamageTakenRecoupedAsLife": ("UNVERIFIED (leans no carrier, MEDIUM): an Orb of Sacrifice "
+        "upgrade outcome listed on poe2db with no item-class weight; Quatl's Molt's Cultivated (10-20)% line is another "
+        "id; left open (CLAUDE.md)"),
+    "UniqueRecoupLifeOpenWeakness1": ("a real carrier: The Master's Reach (poe2db; builder/data/stonefist_uniques.json "
+                                      "lists the unique's lines); a recovery model in MECH-C's topic"),
+    **{mod: _STONEFIST_CARRIER.format(unique, lane) for mod, unique, lane in (
+        ("HandWrapsUniqueImmobiliseIncreasedDamageTaken1", "Sine Aequo", "MECH-C"),
+        ("HandWrapsUniqueGainArmourEqualToStrength1", "Facebreaker", "MECH-B"),
+        ("HandWrapsUniqueIncreasedAttackSpeed8", "Deathblow", "MECH-A"),
+        ("HandWrapsUniqueRecoupLifeEnergyShieldOpenWeakness1", "The Master's Reach", "MECH-C"),
+        ("HandWrapsUniqueLightningDamageCanElectrocute1", "Kitoko's Current", "MECH-A"),
+        ("HandWrapsUniqueIncreasedPhysicalDamagePercent1", "Empire's Grasp", "MECH-A"),
+        ("HandWrapsUniqueDecimatingStrike1", "Aerisvane's Wings", "MECH-A"),
+        ("HandWrapsUniqueStrengthSatisfiesAllWeaponRequirements1", "Jarngreipr", "SEARCH (attribute requirements)"),
+        ("HandWrapsUniqueElementalPenetrationBelowZero1", "Leopold's Applause", "MECH-A"),
+        ("HandWrapsUniqueGainFearIncarnateOnCulling1", "Horror's Flight", "MECH-C"),
+        ("HandWrapsUniqueGainChargesOnMaximumRage1", "Hateforge", "MECH-C"),
+        ("HandWrapsUniqueNoManaRegenIfNotCritRecently1", "Nightscale", "MECH-C"))},
+})
 
 
 def dumped_unique_templates(data_dir: Path) -> frozenset[str]:
@@ -874,6 +931,66 @@ NOT_OBTAINABLE = {
             "; no player Fire Burst skill in ActiveSkills / GrantedEffects"),
            ("SpiritMinionEssence1", "+3 to maximum number of Spectral Spirits", "HIGH",
             "; no Spectral Spirits skill in ActiveSkills / GrantedEffects"))},
+    # (COV48, the manager 14:45) Essence display rows: the text an Essence shows for "+N to Strength, Dexterity or
+    # Intelligence", never an item's line: the item gets one of the row's OutcomeMods, a single-attribute mod (checked:
+    # game 26650308 EssenceMods 87-90 DisplayMod 14308 / 14309 / 14310 / 14312 with OutcomeMods; EssenceDisplayAttributes4
+    # (14311) referenced by no exported table's mod column, scratch/cov48/carrier.py; spawn weight 0, unique generation)
+    **{mod: (f"an Essence's display text, never an item's line: the item gets one of EssenceMods {row}'s OutcomeMods, "
+             "a single-attribute mod (game 26650308; checked: every exported table's mod columns, scratch/cov48/carrier.py)")
+       for mod, row in (("EssenceDisplayAttributes1", "87"), ("EssenceDisplayAttributes2", "88"),
+                        ("EssenceDisplayAttributes3", "89"), ("EssenceDisplayAttributes5", "90"))},
+    "EssenceDisplayAttributes4": ("an Essence display row no Essence uses (checked: game 26650308, no EssenceMods row or "
+                                  "other exported table's mod column references it, scratch/cov48/carrier.py; spawn weight 0)"),
+    # (COV48, the manager 14:45: the "carrier unverified" unique-only mods) No league carrier today. Checked (COV48's
+    # research helper, 20 Nov; scratch/cov48/carrier.py): poe2db's current unique lists (Weapon / Armour / Other /
+    # Cultivated), its Fists of Stone page (37), the 31 pages of 1.0's new and changed uniques (poe2db "Deferred"), the
+    # patch-notes archive 0.1.0-0.5.5f (no hit is not proof), game 26650308 Mods (spawn weight 0, unique generation; the
+    # other mods sharing each stat), PoB-PoE2's unique texts; the search never rolls or offers them (spawn weight 0; on no
+    # PoB unique), so no overcount path. Recheck at 1.0 (unrevealed uniques may use some).
+    **{mod: f"no league carrier today: {why} ({conf}; checked: poe2db current unique lists incl. Cultivated and Fists of "
+            "Stone, the 31 1.0 preview pages, patch notes 0.1.0-0.5.5f, game 26650308 Mods; COV48, 20 Nov; recheck at 1.0)"
+       for mod, why, conf in (
+           ("FireDamagePercentPerArmourBreakUnique__1", "on no current or 1.0 unique", "MEDIUM-HIGH"),
+           ("IncreasedManaLeechRateUnique__1", "on no unique; its stat lives on only as HandWrapsManaLeech1-5", "HIGH"),
+           ("MaximumMinionCountUnique__1__", "no Spectres line on any unique (domain 11), a PoE1 leftover", "HIGH"),
+           ("MaximumMinionCountUnique__2", "no Spectres line on any unique, a PoE1 leftover", "HIGH"),
+           ("ReducedProjectileDamageTakenUniqueAmulet12", "on no current or 1.0 unique", "MEDIUM-HIGH"),
+           ("UniqueAttackMinLightningDamage1", "Mind of the Council carries only the maximum line", "HIGH"),
+           ("UniqueAttackSpeedPerOvercappedBlock1", "on no current or 1.0 unique", "MEDIUM-HIGH"),
+           ("UniqueAttackerTakesLightningDamage1", "on no unique, a PoE1 leftover", "HIGH"),
+           ("UniqueCanActiveBlockAllDirections1", "on no current or 1.0 unique", "MEDIUM-HIGH"),
+           ("UniqueChaosDamageMaximumLife1", "Plaguefinger's (1-3)% line is another id (HandWrapsUniqueMutatedVaal...)",
+            "HIGH"),
+           ("UniqueConsumeFrenzyChargeAdditionalProjectile1", "on no current or 1.0 unique", "MEDIUM-HIGH"),
+           ("UniqueDamageCannotBypassEnergyShield1", "its stat names Shavronne's Wrappings, which PoE2 doesn't have", "HIGH"),
+           ("UniqueDexterityInherentBonusChange1", "no \"Inherent bonus of\" line on any unique", "MEDIUM-HIGH"),
+           ("UniqueIntelligenceInherentBonusChange1", "no \"Inherent bonus of\" line on any unique", "MEDIUM-HIGH"),
+           ("UniqueStrengthInherentBonusChange1", "no \"Inherent bonus of\" line on any unique", "MEDIUM-HIGH"),
+           ("UniqueElementalDamageFromBlockedHits1", "the shields' blocked-hit lines are other mods", "MEDIUM-HIGH"),
+           ("UniqueHitsTreatColdResistance1", "no \"Hits are Resisted by\" line on any unique", "MEDIUM-HIGH"),
+           ("UniqueHitsTreatFireResistance1", "no \"Hits are Resisted by\" line on any unique", "MEDIUM-HIGH"),
+           ("UniqueHitsTreatLightningResistance1", "no \"Hits are Resisted by\" line on any unique", "MEDIUM-HIGH"),
+           ("UniqueIgnoreStrengthRequirementsWeapons1", "on no current or 1.0 unique", "MEDIUM-HIGH"),
+           ("UniqueLocalFreezeOnFullLife1", "only \"Heavy Stuns Enemies that are on Full Life\" exists, another mod",
+            "MEDIUM-HIGH"),
+           ("UniqueMinionAddedColdDamageMaximumLife1", "on no current or 1.0 unique", "MEDIUM-HIGH"),
+           ("UniqueMinionLifeTiedToOwner1", "on no current or 1.0 unique", "MEDIUM-HIGH"),
+           ("UniqueMutatedVaalReflectElementalAilmentsToSelf", "removed in 0.5.0 (\"Shackles of the Wretched can no "
+            "longer roll Elemental Ailments other than Freeze you inflict are Reflected to you\"; poe2db's Cultivated "
+            "Shackles list lacks it; pre-0.5.0 items may keep it)", "HIGH"),
+           ("UniqueNonChannellingAttackLightningDamage1", "Mind of the Council's lines are \"Attacks ...\", other mods",
+            "HIGH"),
+           ("UniqueNonChannellingAttackManaCost1", "Mind of the Council's \"Attacks cost an additional 6%\" is another id",
+            "HIGH"),
+           ("UniqueNonChannellingSpellsDoubleManaAndCrit1", "Rathpith Globe's Non-Channelling lines differ", "MEDIUM-HIGH"),
+           ("UniquePhysicalDamageTakenUnmetRequirements1", "on no current or 1.0 unique", "MEDIUM-HIGH"),
+           ("UniqueReflectCurses1", "no \"Curse Reflection\" line on any unique, a PoE1 leftover", "HIGH"),
+           ("UniqueTotemReflectFireDamage1", "on no current or 1.0 unique", "MEDIUM-HIGH"),
+           # 1.0 preview only (poe2db "Deferred" tab; 1.0 hasn't started on 20 Nov): obtainable once 1.0 is live
+           ("ColdDamageIgnitesUnique__1", "only on Blueflame Bracers' 1.0 rework (poe2db Deferred), not the live item",
+            "HIGH"),
+           ("UniqueMinionsExplodeAsPercentPhysicalOnDeath1", "only on The Watcher in the Dark, a 1.0 unique (poe2db "
+            "Deferred)", "HIGH"))},
     # (COV48, RESEARCH36 R36-8b, the manager 13:50 20 Nov; research/infusion-stack-timer-and-frenzy-bleed-unique.md)
     "FrenzyChargeOnHitWhileBleedingUnique__1": (
         "\"Gain a Frenzy Charge on Hit while Bleeding\" is on no PoE2 unique, a PoE1 leftover (RESEARCH36 R36-8b, "

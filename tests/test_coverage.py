@@ -332,7 +332,8 @@ def test_poe1_leftover_unique_mods_are_unreachable_and_uncarried_ones_stay_open_
     for r in exclusive:
         by_mod.setdefault(r["source"].split()[1], []).append(r["line"])
     assert not any(coverage.template(line) in carried for r in marked for line in by_mod[r["source"].split()[1]])
-    assert any(r["status"] == "none" and "Searching Eye" not in r["line"] and r["reason"].endswith("(UNVERIFIED)")
+    # (COV48: the generic "(UNVERIFIED)" rows are settled; the Orb of Sacrifice upgrades stay open, labelled UNVERIFIED)
+    assert any(r["status"] == "none" and "Searching Eye" not in r["line"] and "UNVERIFIED" in r["reason"]
                for r in exclusive)
     assert not any("Eye Jewel Socketed" in r["line"] for r in exclusive if r["status"] == "none")
     assert not any(g["template"] == coverage.template("Recover 20% of maximum Life on Rampage")
@@ -864,8 +865,8 @@ def test_r32_3_settled_unique_only_rows():
     assert rows["UniqueJewelSpecificSkillLevelBonus2"]["status"] == "pob"
     for mod in ("UniqueTriggerGasCloudOnMainHandHit1", "UniqueTriggerDetonationOnOffHandHit1"):
         assert rows[mod]["status"] == "unreachable" and "DNT-UNUSED" in rows[mod]["reason"]
-    rite = rows["UniqueCharmRandomPossess1"]  # (COV43: R32-6 R-d made its obtainability UNVERIFIED; still open)
-    assert rite["status"] == "none" and "obtainability UNVERIFIED (RESEARCH32 R32-6" in rite["reason"]
+    rite = rows["UniqueCharmRandomPossess1"]  # (COV48: a carrier found, Rite of Passage on poe2db; still open: a model)
+    assert rite["status"] == "none" and "a real carrier: Rite of Passage" in rite["reason"]
     assert "a PoE1 leftover" not in rite["reason"]
     assert rows["DemigodsVirtue1"]["status"] == "ledger"
 
@@ -1650,3 +1651,18 @@ def test_cov48_grasping_mail_ring_pool_line_is_the_rare_generators():
     assert entry.id == "model-read-cov48-grasping-mail-ring-pool" and out == []
     assert "Can roll Ring Modifiers" in rares.IMPLICIT_POOL_TAGS
     assert translate("Catalysts can be applied to this item") is None
+
+
+def test_cov48_carrier_unverified_rows_settled():
+    """COV48 (the manager 14:45): the "carrier unverified" unique-only rows. Real carriers (base implicits in
+    BaseItemTypes, Way of the Stonefist forms, Rite of Passage) say so and stay open; the Orb of Sacrifice upgrades stay
+    open as UNVERIFIED; mods with no league carrier today (incl. Essence display rows and 1.0-only lines) are
+    NOT_OBTAINABLE with their evidence."""
+    for mod in ("FlailImplicitIgnoreBlock1", "HandWrapsUniqueDecimatingStrike1", "UniqueCharmRandomPossess1"):
+        assert coverage.R32_3_OBTAINABLE[mod].startswith("a real carrier"), mod
+        assert mod not in coverage.NOT_OBTAINABLE, mod
+    assert coverage.R32_3_OBTAINABLE["CorruptionUpgradeAdditionalChainChance"].startswith("UNVERIFIED")
+    assert "CorruptionUpgradeAdditionalChainChance" not in coverage.NOT_OBTAINABLE
+    for mod in ("UniqueReflectCurses1", "EssenceDisplayAttributes4", "ColdDamageIgnitesUnique__1",
+                "UniqueMutatedVaalReflectElementalAilmentsToSelf"):
+        assert "checked" in coverage.NOT_OBTAINABLE[mod], mod
