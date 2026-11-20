@@ -49,7 +49,7 @@
     Deaths from models.minion_deaths (the build's own sources; 0 with none). Spaced at least the explosion delay apart,
     each death's 3 explode: 3% of Damage as Chaos for 10 s, each explosion's Power its own and adding (RESEARCH35 R35-8,
     MEDIUM): 3% x 10 x deaths/s on average (row: a later one replaces it). Deaths more often than the delay: never explodes, 0 (row: paced). With Inner Turmoil:
-    not added to its cycle (lower reading). The explosion's 100 Physical per Volatility to you (no Inner Turmoil): said,
+    +0 here, the gains counted in Inner Turmoil's cycle (MECH-A's volatility_model, MECH92 af43dcbb). The explosion's 100 Physical per Volatility to you (no Inner Turmoil): said,
     not modelled.
   sources: [builder/search/models.py (UNSTABLE_BOND, unstable_bond_model), builder/search/assumptions.py (after
             Inner Turmoil's volatility_model)]
@@ -71,4 +71,35 @@
     average. Blocked hits not counted as "Hit" (lower). The 10% less damage taken: not modelled.
   sources: [builder/search/models.py (RUNIC_TEMPERING, runic_tempering_model), builder/search/assumptions.py
             (runic_tempering, after thorns)]
+  status: proposed
+
+- id: model-mechb44-orb-stand-share
+  title: "Orb of Storms: cast bolts only while you stand in its radius (models.orb_stand_share)"
+  kind: model
+  model: orb_stand_share
+  skill: ["Orb of Storms"]
+  confidence: theory
+  notes: >-
+    An OVERCOUNT before: every main-Spell cast was taken as near the Orb (MECHB28, UNVERIFIED). The user's in-game test
+    (20 Nov): "orb of storms only fires a bolt when you yourself are standing in its radius". The near casts now count at
+    the share of the fight the player stands in it while it can bolt the boss: 0 beyond 5.6 m reach + 3.6 m radius from
+    the boss (the build's distance); the dodge roll leaving a 7.2 m circle (2 x the roll's time of every 2 s); the boss's
+    moving ceiling out. Which radius (3.6 / 5.6 m): UNVERIFIED, the smaller taken. Timer bolts unchanged.
+  sources: [builder/search/models.py (ORB_REACH, ORB_STAND, orb_stand_share, orb_cycle), builder/search/assumptions.py
+            (Assumptions.orb_stand)]
+  status: proposed
+
+- id: model-mechb44-toxic-growth-reach
+  title: "Toxic Growth: of the Limit's Pustules a fuse, those whose burst reaches the boss (models.pustules_on_boss)"
+  kind: model
+  model: pustule_cap
+  skill: ["Toxic Growth"]
+  confidence: theory
+  notes: >-
+    An OVERCOUNT before (every Pustule of the Limit taken as bursting on the boss): RESEARCH35 R35-4's geometry, a 4.5 m
+    spread and 0.8 m bursts: min(n, max(1, n x ((r_boss + 0.8) / 4.5)^2)) a fuse, 1 of 5 on the 0.3 m default.
+    MEDIUM-LOW. Rows: full stored Poison's +1.5 m burst (LOW: ground Pustules don't store the boss's Poisons), every
+    Pustule (the old reading). The boss-arena forum report: UNVERIFIED, not modelled.
+  sources: [builder/search/models.py (TOXIC_SPREAD, pustules_on_boss, pustule_cap), builder/search/assumptions.py
+            (Assumptions.pustule_cap)]
   status: proposed

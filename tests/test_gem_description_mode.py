@@ -720,8 +720,9 @@ def test_firestorm_and_frost_darts_give_their_parts_shares_for_the_strongest_ail
              {"label": "Ice Chunk", "TotalDPS": 50.0, "Speed": 1.0}]
     _, notes = models.frost_darts_model("Frost Darts", "Projectile", darts, 3, 0.5, "x", 0.25, "y", 0.3)
     q = models.frost_chunk_chance(0.3)
-    assert notes[0]["set_shares"] == {"Projectile": 1.0, "Explosion": 0.25,
-                                      "Ice Chunk": pytest.approx((0.5 * 2 + 0.25 * 3) * q)}
+    # (MECHB44: all 3 darts hit a lone target, the user's in-game test: each part's uses a cast x the darts)
+    assert notes[0]["set_shares"] == {"Projectile": 3.0, "Explosion": 0.75,
+                                      "Ice Chunk": pytest.approx(3 * (0.5 * 2 + 0.25 * 3) * q)}
     assert "set_uses" not in notes[0]  # (PoB's casts a second)
 
 

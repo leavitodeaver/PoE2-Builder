@@ -5113,8 +5113,9 @@ def salvo_model(skills: list[Skill], stats: dict, main: Skill | None, config: di
            f"{speed:.2f} uses/s) add {seals * per_seal:.2f} projectiles to PoB's {count:g}: {fired:.2f} a use, each in a "
            f"random direction, {q:.1%} of them at a boss {radius:g} m in radius {metres:g} m away ({where}); "
            + (f"all of {main.name}'s projectiles can hit: {fired * q:.2f} hits for PoB's {count:g}"
-              if every else f"one projectile of a use can hit the boss (KeywordPopups Projectile): "
-                            f"{1 - (1 - q) ** fired:.2f} hits a use for PoB's aimed 1"))
+              if every else f"one projectile of a use can hit the boss ({group_rule_label(None)[1]}): "
+                            f"{1 - (1 - q) ** fired:.2f} hits a use for PoB's aimed 1; if each can hit, "
+                            f"{fired * q:.2f}"))
     note = {"label": label, "value": f"x{factor:.3f}", "confidence": "LOW", "entry": SALVO_ENTRY,
             "basis": f"{how}. The boss's radius: {radius_how}; the upper reading {upper:g} m: x{factor_at(metres, r=upper):.3f}; "
                      f"a {big:g} m boss ({bosses.LARGEST_RADIUS}): x{factor_at(metres, r=big):.3f}. LOW: the "
@@ -12260,6 +12261,22 @@ def rod_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[lis
 SHOTGUN_SKILLS = frozenset({"Galvanic Shards", "Fragmentation Rounds", "Incendiary Shot", "Permafrost Bolts", "Ice Fragments"})
 SEQUENCE_SKILLS = frozenset({"Crossbow Shot", "Explosive Shot", "High Velocity Rounds", "Glacial Bolt", "Rapid Shot",
                              "Armour Piercing Rounds", "Ice Shards", "Shockburst Rounds", "Oil Barrage", "Requiem"})
+# (MECHB44, the manager 04:15-04:40; RESEARCH35 R35-15, projectile-group-rule-scope.md) KeywordPopups 74 caps only
+# projectiles fired "from the same source at the same time" (a simultaneous spread); ones fired in sequence can each hit,
+# and crossbow skills are exempt (KeywordPopups 122). Bows: one arrow of a plain shot's spread hits a target, MEDIUM-HIGH
+# (R35-15: Multishot adds projectiles with no sequence stat; PoB counts one; player reports; no counted test), "all
+# arrows hit" a LOW row; Barrage's repeats, Freezing Salvo, rain skills and each arrow's own area uncapped. Other
+# skills: which leave together is R35-15's open classification, so a one-per-target reading there is UNVERIFIED.
+# No new cap is added anywhere until R35-15 classifies a skill (the manager, 04:15).
+def group_rule_label(main_types: set[str] | None) -> tuple[str, str]:
+    """(confidence, words) for a one-projectile-per-target reading of the main skill (see above)."""
+    if "Bow" in (main_types or set()):
+        return "MEDIUM-HIGH", ("one arrow of a shot's spread a target (RESEARCH35 R35-15, MEDIUM-HIGH; all arrows hitting "
+                               "a LOW row)")
+    return "UNVERIFIED", ("one projectile of the group a target, if they leave together (KeywordPopups 74; which skills "
+                          "fire together is RESEARCH35 R35-15's open question: UNVERIFIED)")
+
+
 RUN_AND_GUN = re.compile(r"^Projectile Attacks have a (\d+(?:\.\d+)?)% chance to fire two additional Projectiles while moving$",
                          re.I)
 
@@ -12271,8 +12288,11 @@ def run_and_gun_model(texts: list[str], stats: dict, main: Skill | None, main_ty
         return [], []
     label = f"Run and Gun ({chance:g}% chance of two more projectiles while moving)"
     if main.name not in SHOTGUN_SKILLS | SEQUENCE_SKILLS:
-        return [], [{"label": label, "value": 0, "confidence": "theory",
-                     "basis": f"{main.name}'s projectiles can't hit one target together (KeywordPopups Projectile): none"}]
+        sure, words = group_rule_label(main_types)
+        count = max(number(stats.get("ProjectileCount")), 1.0)
+        return [], [{"label": label, "value": 0, "confidence": sure,
+                     "basis": (f"{main.name}: {words}: the two more projectiles add no hit on the boss (0). Row (LOW): if "
+                               f"all its projectiles can hit, {200 * chance / 100 / count:.1f}% more while moving")}]
     if "UsableWhileMoving" not in main_types or standing:
         why = "the build stands still while using it" if standing else f"{main.name} isn't used while moving"
         return [], [{"label": label, "value": 0, "confidence": "theory", "basis": f"{why}: none"}]
@@ -16176,8 +16196,9 @@ def different_spells_cast_speed(texts: list[str], skills: list[Skill], main: Ski
 # Sacrifice, Minion Pact, ...; 0 with none: CLAUDE.md's no-flat-rates rule). Deaths at most one per D s: each death's 3
 # explode alone, each explosion's Volatile Power its own 10 s, adding (RESEARCH35 R35-8, MEDIUM): 3% x 10 r on average
 # (row: a later one replaces it, 3% x min(1, 10 r)). Deaths more often than one per D s keep resetting the timer, so it never
-# explodes (0; row: pace the deaths one per D s). With Inner Turmoil the ailment gains reset the timer too: its cycle
-# (volatility_model) is MECH-A's and these gains aren't added to it (a lower reading, said). Without Inner Turmoil's "Take
+# explodes (0; row: pace the deaths one per D s). With Inner Turmoil the ailment gains reset the timer too, and MECH-A's
+# cycle (volatility_model; MECH92 af43dcbb) counts these gains in it, so this model gives +0 there (nothing counted
+# twice). Without Inner Turmoil's "Take
 # no Damage from Volatility" each explosion hits you for 100 Physical per Volatility (a defence cost, said, not modelled).
 UNSTABLE_BOND = re.compile(r"^gain (\d+) volatility when an allied persistent reviving minion is killed$", re.I)
 TAKE_NO_VOLATILITY = re.compile(r"^take no damage from volatility$", re.I)
@@ -16201,10 +16222,11 @@ def unstable_bond_model(texts: list[str], deaths: tuple[float, str]) -> tuple[li
         "Volatility' in the build; a defence cost, not modelled)")
     paced = VOLATILE_POWER_SECONDS / delay * k if delay > 0 else k  # (one death per delay, Powers adding: R35-8)
     if any(INNER_TURMOIL.match(t.strip()) for t in texts):
-        return [], [{"label": label, "value": "+0 (with Inner Turmoil)", "confidence": "LOW",
+        return [], [{"label": label, "value": "+0 here (counted in Inner Turmoil's cycle)", "confidence": "MEDIUM",
                      "basis": (f"{rate:.3f} deaths a second ({how}); with Inner Turmoil your ailments reset the "
-                               "explosion timer too, and its attack-then-stop cycle (Inner Turmoil's note) counts only "
-                               "the ailment gains: these aren't added to it (a lower reading)")}]
+                               "explosion timer too, and its attack-then-stop cycle (Inner Turmoil's note, MECH-A's "
+                               "volatility_model) counts these gains with the ailments' own (MECH92 af43dcbb; before it lands, "
+                               "nowhere: a lower reading): +0 here, so they aren't counted twice")}]
     if rate <= 0:
         return [], [{"label": label, "value": 0, "confidence": "MEDIUM",
                      "basis": f"no Persistent Reviving minion of yours is Killed ({how}): no Volatility, +0"}]
@@ -16544,6 +16566,41 @@ def orb_of_storms_note(main: Skill | None, stats: dict, orb: dict | None = None)
 # 12 s (floor(duration / frequency): the one at 12 s at the edge counted, UNVERIFIED), and the casts' bolts on top;
 # when the two reach the maximum before the duration ends, the Orb expires at max hits / (casts/s + 1/frequency) (bolts
 # taken as spread evenly, MEDIUM) and is recast at once; each cycle is its life plus one cast of the Orb.
+# (MECHB44, the user's in-game test, 20 Nov ~04:15: "orb of storms only fires a bolt when you yourself are standing in its
+# radius") A cast fires a bolt only while the player stands in the Orb's radius, so the near casts count at the share of
+# the fight the player stands there while the Orb can still bolt the boss (the user's 9 Nov conditional rule: a
+# positioning the build leans into, in the headline, with the "without it" row: timer bolts only). From the build:
+# - the Orb (OrbOfStormsPlayer, 26650308): active_skill_base_area_of_effect_radius 56 (5.6 m, the bolts' reach: "fires
+#   Chaining Lightning bolts at nearby enemies") and active_skill_base_secondary_area_of_effect_radius 36 (3.6 m). Which
+#   radius the player must stand in isn't in the game text: the smaller 3.6 m taken (UNVERIFIED; the 5.6 m reading a row);
+# - the boss within the bolts' reach of the Orb and the player within the standing radius: the build's own distance to
+#   the boss (PoB's enemyDistance, else conditions.natural_distance) must be at most 5.6 + 3.6 m, else 0;
+# - the boss moving out of reach in its own dashes / leaps: bosses.moving_ceiling's share (an upper bound, LOW) is
+#   taken out (a lower reading: a dash may stay in reach);
+# - the player's dodge rolls (dodge_roll, every DODGE_EVERY s): a roll of d metres stays inside a circle of radius R when
+#   d <= 2 R (rolled across it); a longer one leaves it for the roll and the way back (2 x the roll's time, MEDIUM-LOW).
+# Triggered / channelled spells still don't fire it (UNVERIFIED, unchanged).
+ORB_REACH, ORB_STAND = 5.6, 3.6  # m (radius 56 and secondary radius 36, OrbOfStormsPlayer, game 26650308)
+
+
+def orb_stand_share(roll: dict, distance: float, moving: tuple[float, str], stand: float = ORB_STAND
+                    ) -> tuple[float, str]:
+    """(share of the fight the player casts standing in the Orb's radius while it can bolt the boss, how)."""
+    if distance > ORB_REACH + stand:
+        return 0.0, (f"the build fights {distance:g} m from the boss, beyond the Orb's {ORB_REACH:g} m bolt reach plus "
+                     f"its {stand:g} m radius: it can't stand in its Orb with the boss in reach (0)")
+    d, seconds = number(roll.get("metres")), number(roll.get("seconds")) or DODGE_ROLL_SECONDS
+    out = 0.0 if d <= 2 * stand else min(1.0, 2 * seconds / DODGE_EVERY)
+    share = max(0.0, (1 - out) * (1 - number(moving[0])))
+    rolled = (f"its {d:.2f} m dodge roll fits inside the {2 * stand:g} m circle (rolled across it)" if out == 0 else
+              f"its {d:.2f} m dodge roll leaves the {2 * stand:g} m circle: out {2 * seconds:g} s of every "
+              f"{DODGE_EVERY:g} s (the roll and the way back, MEDIUM-LOW)")
+    return share, (f"stands in the Orb's {stand:g} m radius {share:.0%} of the fight (the user's in-game test: a cast fires "
+                   f"a bolt only while you stand in it; which radius: UNVERIFIED, the smaller taken): it fights "
+                   f"{distance:g} m from the boss, within the Orb's {ORB_REACH:g} m reach plus its radius; {rolled}; "
+                   f"the boss out of reach while it moves ({moving[1]})")
+
+
 def orb_cycle(orb: dict, main: dict | None, others: float, pace: float | None = None,
               cap: "PressCap | None" = None, spells: dict[str, float] | None = None,
               near: bool = True) -> tuple[float, float, dict]:
@@ -16555,9 +16612,12 @@ def orb_cycle(orb: dict, main: dict | None, others: float, pace: float | None = 
     every = number(orb.get("orbBoltFrequency")) / 1000 or ORB_BOLT_EVERY
     duration = number(orb.get("duration")) or ORB_DURATION
     action = press_action(orb)
+    # (MECHB44) `near`: True / False (the play-guide switch), or (share, how) from orb_stand_share
+    stand, stand_how = (near if isinstance(near, tuple) else (1.0 if near else 0.0, ""))
+    near = stand > 0
     casting = near and bool(main) and main.get("spell") and not main.get("triggered") and not main.get("channel")
-    own = number(main.get("speed")) * max(0.0, 1.0 - others) if casting else 0.0
-    beside = sum(number(v) for v in (spells or {}).values()) if near else 0.0  # (MECHB30: ORB_NEAR off: none)
+    own = number(main.get("speed")) * max(0.0, 1.0 - others) * stand if casting else 0.0
+    beside = sum(number(v) for v in (spells or {}).values()) * stand if near else 0.0  # (MECHB30: ORB_NEAR off: none)
     casts = own + beside
     timer = math.floor(duration / every + 1e-9)
 
@@ -16583,10 +16643,12 @@ def orb_cycle(orb: dict, main: dict | None, others: float, pace: float | None = 
                + ", ".join(f"{k} {number(v):.2f}" for k, v in (spells or {}).items() if number(v) > 0) + ")"
                if beside > 0 else "")
     if casting:
-        how = (f"{name}'s {own:.2f} casts/s{besides} near the Orb (a play strategy: cast them where the Orb is*) plus "
-               f"{timer} timer bolts: {per:.2g} bolts an Orb, which lasts {life:.2f} s")
+        how = (f"{name}'s {own:.2f} casts/s{besides} near the Orb (a play strategy: stand in your Orb's radius*"
+               + (f"; it {stand_how}" if stand_how else "") + f") plus {timer} timer bolts: {per:.2g} bolts an Orb, "
+               f"which lasts {life:.2f} s")
     else:
-        why = ("not cast near the Orb (the play-guide switch is off: ORB_NEAR)" if not near else
+        why = (("not cast standing in the Orb: it " + stand_how) if stand_how and not near else
+               "not cast near the Orb (the play-guide switch is off: ORB_NEAR)" if not near else
                "a triggered Spell (whether it counts as cast near the Orb: UNVERIFIED, not counted)" if main and
                main.get("triggered") else "a channelled Spell (how it feeds the Orb: UNVERIFIED, not counted)" if main
                and main.get("channel") else "not a Spell (only casting a Spell fires a bolt)")
@@ -16596,9 +16658,10 @@ def orb_cycle(orb: dict, main: dict | None, others: float, pace: float | None = 
             "value": f"{bolts:.2f}/s ({presses:.3f} Orbs/s); without casting near it {without:.2f}/s",
             "basis": (f"{how}{held}; at most {hits:g} bolts an Orb (game files, quality as PoB builds it), a bolt every "
                       f"{every:g} s and when you cast a Spell near it, {duration:.2f} s, recast at once ({action:.2f} s "
-                      "each). Replaces PoB's one bolt per Orb cast. Every cast of the main Spell and of the other "
-                      "pressed Spells is taken as near the Orb (what 'near' covers: UNVERIFIED); a triggered or "
-                      "channelled side Spell isn't counted (UNVERIFIED whether it feeds the Orb). "
+                      "each). Replaces PoB's one bolt per Orb cast. The casts of the main Spell and of the other "
+                      "pressed Spells fire bolts only while you stand in the Orb's radius (the user's in-game test, 20 "
+                      "Nov), counted at that share; a triggered or channelled side Spell isn't counted (UNVERIFIED "
+                      "whether it feeds the Orb). "
                       f"Without it / with it: {without:.2f} / {bolts:.2f} bolts a second"),
             "confidence": "MEDIUM" if casting or beside > 0 else "UNVERIFIED" if main and (
                 main.get("triggered") or main.get("channel")) else "MEDIUM"}
@@ -16763,10 +16826,10 @@ def lust_for_sacrifice_model(texts: list[str], skills: list[Skill], supports: di
 #   h x (Projectile + chilled x 2 x q x Chunk + infused x (Explosion + 3 x q x Chunk)),
 # each set's per-cast damage PoB's (setRates TotalDPS / Speed: one dart, one explosion, one chunk), against the scored
 # set's, as DPS "more" on the main skill.
-# - h, darts on the boss a cast: 1 (KeywordPopups Projectile: "only one Projectile in the group can hit each target
-#   unless otherwise specified"; Frost Darts carries no projectiles_can_shotgun, which six skills carry and nothing
-#   grants; PoB scores one too; the guides' "all darts" counts are their writers' arithmetic, not tests: MEDIUM,
-#   RESEARCH29 R29-1, research/frost-darts-shotgun.md; the note's row still counts all of PoB's ProjectileCount).
+# - h, darts on the boss a cast: ALL of them (max(PoB's ProjectileCount, the base 3); MECHB44: the user's in-game test,
+#   20 Nov ~04:15, "all darts from frost darts can hit a single target": HIGH). R29-1's one dart (KeywordPopups 74's
+#   group rule) is dropped: that rule caps projectiles fired "from the same source at the same time" (the manager, 04:30,
+#   R35-15), and the darts leave in sequence. PoB scores one dart a cast, so the whole cast is h x the per-dart sum.
 # - chilled: the boss Chilled or Frozen. Frost Darts never Chills (never_freeze_or_chill), so from the build's Chilled
 #   Ground (MECH-A's chilled_ground_up) and its Freeze uptime, taken as independent; other skills' Chills not counted (an
 #   undercount, labelled). No source: 0.
@@ -16818,25 +16881,25 @@ def frost_darts_model(main: str | None, scored: str | None, sets: list[dict], pr
             + infused * (blast + FROST_CHUNKS_AN_EXPLOSION * q * chunk))
     each_area = (dart + chilled * FROST_CHUNKS_A_HIT * q_area * chunk
                  + infused * (blast + FROST_CHUNKS_AN_EXPLOSION * q_area * chunk))
-    factor = each / per[scored]
     every = max(projectiles, FROST_BASE_DARTS)  # (PoB's count on the Explosion set reads 1.2: probe POE2T3261)
+    factor = every * each / per[scored]  # (MECHB44: all darts, the user's test)
     note = {"label": "Frost Darts: darts, Ice Chunks and Infused explosions over one cast*", "value": f"x{factor:.3f}",
             "entry": FROST_ENTRY, "confidence": "LOW",
             # (GEM23: strongest_ailment_model; each set's uses a cast, at PoB's casts a second)
-            "set_shares": {"Projectile": 1.0, "Explosion": infused,
-                           "Ice Chunk": (chilled * FROST_CHUNKS_A_HIT + infused * FROST_CHUNKS_AN_EXPLOSION) * q},
-            "basis": (f"one dart on the boss a cast ({dart:,.0f}); Ice Chunks {FROST_CHUNKS_A_HIT} a hit on a Chilled or "
+            "set_shares": {"Projectile": every, "Explosion": infused * every,
+                           "Ice Chunk": (chilled * FROST_CHUNKS_A_HIT + infused * FROST_CHUNKS_AN_EXPLOSION) * q * every},
+            "basis": (f"all {every:g} darts on the boss a cast ({dart:,.0f} each; the user's in-game test, 20 Nov: \"all "
+                      "darts from frost darts can hit a single target\", HIGH); per dart, Ice Chunks "
+                      f"{FROST_CHUNKS_A_HIT} a hit on a Chilled or "
                       f"Frozen boss, {chilled:.0%} of the fight ({chill_how}); a Cold Infusion on {infused:.0%} of casts "
                       f"({infused_how}): its explosion ({blast:,.0f}) and {FROST_CHUNKS_AN_EXPLOSION} more chunks; each "
                       f"chunk ({chunk:,.0f}) lands on the boss {q:.0%} of the time (a {radius:g} m boss; 0.5-1.7 m from "
-                      f"the hit, 0.8 m radius): {each:,.0f} a cast against PoB's {scored} set alone ({per[scored]:,.0f}). "
-                      f"Rows: if all {every:g} darts hit the boss, x{factor * every:.3f} (not the reading: RESEARCH29 R29-1, MEDIUM: "
-                      f"one projectile of a group per target, and Frost Darts can't shotgun); chunks spread evenly over the ring's area, {q_area:.0%} land: "
-                      f"x{each_area / per[scored]:.3f} (R28-8). Other skills' "
-                      "Chills not counted"),
+                      f"the hit, 0.8 m radius): {each:,.0f} a dart, {every * each:,.0f} a cast against PoB's {scored} "
+                      f"set alone ({per[scored]:,.0f}). Row: chunks spread evenly over the ring's area, {q_area:.0%} land: "
+                      f"x{every * each_area / per[scored]:.3f} (R28-8). Other skills' Chills not counted"),
             "play": (f"Frost Darts' chunks need a Chilled boss (Chilled Ground, or another skill that Chills) and its "
                      f"explosions a Cold Infusion: as built x{factor:.3f}; without either, the darts alone "
-                     f"x{dart / per[scored]:.3f}.")}
+                     f"x{every * dart / per[scored]:.3f}.")}
     return [raw_mod("DPS", "MORE", 100 * (factor - 1), main)], [note]
 
 
@@ -17785,10 +17848,11 @@ def minion_projectile_notes(texts: list[str]) -> list[dict]:
         return []
     return [{"label": "Minions' extra Projectile chance on the boss*", "value": "no change",
              "basis": (f"+{chance:g}% Surpassing chance (about {chance / 100:.2f} extra Projectiles a use): against a lone "
-                       "boss only one Projectile of a group can hit it (RESEARCH29 R29-1's group rule) unless the skill "
+                       "boss only one Projectile of a group can hit it if they leave together (KeywordPopups 74; which "
+                       "skills do: RESEARCH35 R35-15, UNVERIFIED) unless the skill "
                        "can shotgun, and no player minion skill can (game files). PoB doesn't apply the line either. "
                        "With adds (not modelled) the extra Projectiles would hit other targets"),
-             "play": "", "confidence": "MEDIUM"}]
+             "play": "", "confidence": "UNVERIFIED"}]  # (MECHB44: R35-15 pending, the group rule's scope)
 
 
 def splinter_model(main: Skill, group: list[Skill], stats: dict) -> tuple[list[dict], list[dict]]:
@@ -17950,7 +18014,25 @@ def pustule_stored(rates: list[dict], poison_dps: float, fuse: float) -> tuple[f
                   f"+{more:.0f}% more (max {top:.0f}%)")
 
 
-def pustule_cap(rates: list[dict], name: str = PUSTULE_SKILL, poison_dps: float = 0.0) -> tuple[list[dict], list[dict]]:
+# (MECHB44; RESEARCH35 R35-4, toxic-growth-pustules-on-boss.md, and GEM25's lead (a)) Toxic Growth's ground Pustules land
+# in a 4.5 m spread (the hidden secondary radius as the rain area, MEDIUM-LOW) and burst 0.8 m (+1.5 m with full stored
+# Poison); of the Limit's n Pustules a fuse, k = min(n, max(1, n x ((r_boss + 0.8) / 4.5)^2)) reach the boss (the one
+# aimed at it at least; spread evenly over the area: R35-4's formula, also GEM25's pustules_reaching for Accelerated
+# Growth), so at most k bursts on the boss a fuse, not n (an OVERCOUNT of up to ~5x before on the small presets). Area
+# modifiers scale the spread and the burst together (not read: their ratio barely moves). Rows: full stored Poison's
+# +1.5 m burst (an undercount here: Toxic Growth's ground Pustules don't store the boss's Poisons, R26-79, so LOW) and
+# every Pustule (the old reading). The May 2026 forum report that Pustules don't burst in boss arenas: UNVERIFIED, not
+# modelled (no patch note names it).
+TOXIC_SPREAD, TOXIC_BURST, TOXIC_STORED_BURST = 4.5, 0.8, 1.5  # metres
+
+
+def pustules_on_boss(n: float, radius: float, burst: float = TOXIC_BURST) -> float:
+    """Of n ground Pustules a cast, those whose burst reaches a boss of `radius` metres (see above)."""
+    return min(n, max(1.0, n * ((radius + burst) / TOXIC_SPREAD) ** 2))
+
+
+def pustule_cap(rates: list[dict], name: str = PUSTULE_SKILL, poison_dps: float = 0.0,
+                radius: float = 0.3) -> tuple[list[dict], list[dict]]:
     """The Pustule Explosion held to one a fuse (Poison Spores, Toxic Domain: one per enemy) or to its Limit a fuse
     (Toxic Growth) (see above). `rates`: bridge useRates for each group's `name` skill. `poison_dps`: PoB's PoisonDPS
     on the boss, for the stored-Poison harder burst (pustule_stored; scored for Poison Spores / Toxic Domain since MECHB34,
@@ -17985,7 +18067,8 @@ def pustule_cap(rates: list[dict], name: str = PUSTULE_SKILL, poison_dps: float 
             "confidence": "LOW"}]
     limits = [number(r.get("pustuleLimit")) for r in rates if number(r.get("pustuleLimit")) > 0]
     limit = (max(limits) if limits else float(PUSTULE_LIMIT[name])) if ground else 1.0
-    share = min(1.0, limit / fuse / speed)
+    reach = pustules_on_boss(limit, radius) if ground else 1.0  # (MECHB44, R35-4: of the Limit, those reaching the boss)
+    share = min(1.0, reach / fuse / speed)
     if share >= 1.0:
         return stored_mods, stored
     fuse_text = f"{fuse:.1f} s fuse{'' if fuses else ' (base; PoB gave no Detonation Time)'}"
@@ -17994,9 +18077,14 @@ def pustule_cap(rates: list[dict], name: str = PUSTULE_SKILL, poison_dps: float 
             "label": f"{name}: at most its Pustule Limit bursts a fuse*", "value": f"x{share:.3f}",
             "basis": f"PoB counts {speed:.2f} explosions/s; the game keeps {limit:g} Pustules at a time "
                      f"(Limit{'' if limits else ', base'}: a new one makes the oldest disappear), each bursting after "
-                     f"its {fuse_text}: at most {limit / fuse:.3f}/s, each taken as hitting the boss (UNVERIFIED how "
-                     "many of a cast's spread land on it: an upper bound). Not counted (undercount side): stored "
-                     "Poison making them burst sooner and up to 300% harder, and the Pustules' impacts beyond one",
+                     f"its {fuse_text}, and of them {reach:.2f} burst on a {radius:g} m boss (a {TOXIC_SPREAD:g} m spread, "
+                     f"{TOXIC_BURST:g} m bursts: RESEARCH35 R35-4, MEDIUM-LOW): at most {reach / fuse:.3f}/s. Rows: with "
+                     f"full stored Poison's +{TOXIC_STORED_BURST:g} m burst "
+                     f"{pustules_on_boss(limit, radius, TOXIC_BURST + TOXIC_STORED_BURST):.2f} a fuse (LOW: ground "
+                     f"Pustules don't store the boss's Poisons, R26-79); every Pustule on the boss {limit:g} a fuse "
+                     f"(x{min(1.0, limit / fuse / speed):.3f}, the old reading, an upper bound). Not counted (undercount "
+                     "side): the Pustules' impacts beyond one. A May 2026 forum report that they don't burst in boss "
+                     "arenas: UNVERIFIED, not modelled",
             "play": f"Fire {name} about once every {fuse:.0f} s and let its Pustules burst: firing again sooner "
                     "replaces the waiting ones (spammed, without the pacing: no bursts at all)",
             "confidence": "LOW-MEDIUM (game files give the Limit, the fuse and what the Limit does; the hits on the "
@@ -18372,7 +18460,8 @@ def tornado_copy_model(main: Skill | None, main_types: set[str], stats: dict, to
     firing = uses / speed
     factor = per_use * firing / (firing + 1 / tornado_speed)
     how = (f"{count:g} arrow(s) a use, each sucked in and copied into a ring of which one copy hits the boss at "
-           f"{penalty:+g}% more (one projectile of a group a target, KeywordPopups Projectile), against {direct:g} direct "
+           f"{penalty:+g}% more (one copy of the ring a target: the ring leaves together, KeywordPopups 74; MEDIUM, "
+           f"RESEARCH35 R35-15 pending), against {direct:g} direct "
            f"hit(s): x{per_use:.3f} a use; a Tornado takes {hits:g} arrows or lasts {duration:g} s, so {uses:.2f} uses "
            f"({firing:.2f} s) a Tornado, and each Tornado costs a {TORNADO_SHOT} use ({1 / tornado_speed:.2f} s)")
     if factor <= 1:

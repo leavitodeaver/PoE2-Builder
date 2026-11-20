@@ -11,11 +11,11 @@
   notes: >-
     PoB scores one of Frost Darts' three stat sets (Projectile, Explosion, Ice Chunk) and the search keeps the best, so a
     cast was the darts alone (no chunks or explosions: an UNDERCOUNT) or the Explosion on every cast whatever the Cold
-    Infusions (an OVERCOUNT). models.frost_darts_model: one dart on the boss a cast, 2 Ice Chunks a hit on a Chilled or
+    Infusions (an OVERCOUNT). models.frost_darts_model: all darts on the boss a cast (MECHB44: the user's in-game test, 20 Nov, HIGH), 2 Ice Chunks a hit on a Chilled or
     Frozen boss (the build's Chilled Ground and Freeze; Frost Darts never Chills), on Infused casts the explosion and 3
     more chunks; a chunk lands on the boss by the boss's hit radius (0.5-1.7 m from the hit, 0.8 m radius: 48% on the
-    0.3 m default boss). LOW: the chunk spread. One dart a cast is MEDIUM (RESEARCH29 R29-1: the group rule, no
-    projectiles_can_shotgun on Frost Darts); all darts a row.
+    0.3 m default boss). LOW: the chunk spread. R29-1's one dart a cast (the group rule) is dropped: the rule caps projectiles fired
+    together, and the darts leave in sequence (KeywordPopups 74; RESEARCH35 R35-15).
   sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua (FrostDartsPlayer)",
             "data/game-26650308 ActiveSkills frost_darts", "scratch/manager/plans/term-explode.md (D)"]
   test_in_game: "Frost Darts with a Cold Infusion on a Chilled boss: count the Ice Chunk damage numbers a cast."

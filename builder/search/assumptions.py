@@ -3598,6 +3598,20 @@ class Assumptions:
                                                     | verisium_groups},
                              **expression_groups, **storm_groups}
 
+    def orb_stand(self, rates: list[dict], main: int | None) -> tuple[float, str]:
+        """(share, how) of the fight the player casts standing in a side Orb of Storms' radius (models.orb_stand_share,
+        MECHB44): its own dodge roll, its distance to the boss (PoB's enemyDistance, else its natural distance), the
+        boss's moving ceiling."""
+        build = self.build
+        texts = [e["text"] for e in build.call("sourceLines")["lines"]]
+        stats = {**build.call("stats", fields=["MovementSpeedMod"]),
+                 "_boss": getattr(getattr(build.ctx, "request", None), "boss", None)}
+        name = next((str(r.get("name")) for r in rates if r["index"] == main), "")
+        types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or [])
+        metres = models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10 or natural_distance(types, name)
+        from builder.search import bosses
+        return models.orb_stand_share(models.dodge_roll(texts, stats), metres, bosses.moving_ceiling(stats))
+
     def rate_presses(self) -> list[dict]:
         """Pressed non-main skills in Full DPS count at their real use, the main skill at the time they leave it
         (models.press_model; objective.Objective.press_scales). Returns the notes."""
@@ -3631,6 +3645,8 @@ class Assumptions:
         self.untether_side_feed = (0.0, "")
         caps = self.press_caps(groups["groups"], pressed)
         near = getattr(build, models.ORB_NEAR, True) is not False  # (MECHB30: MECHC26's "without it" row switch)
+        if near and any(r.get("name") == models.ORB_OF_STORMS for r in rates if r["index"] in pressed and r["index"] != main):
+            near = self.orb_stand(rates, main)  # (MECHB44: the user's in-game test: only while you stand in its radius)
         build.objective.press_scales, notes = models.press_model(rates, main, pressed, paced, caps,
                                                                  models.press_choices(build), near)
         side = {g["index"] for g in groups["groups"] if g["index"] in pressed and g["index"] != main
@@ -4081,7 +4097,9 @@ class Assumptions:
             rates = self.build.call("useRates", indices=indices, actives=actives)["rates"]
             if poison is None:  # (MECHB15: the stored-Poison "with it" row; PoB's Poison DPS on the boss, main skill)
                 poison = number(self.build.call("stats", fields=["PoisonDPS"]).get("PoisonDPS"))
-            more, why = models.pustule_cap(rates, name, poison)
+            from builder.search import bosses  # (MECHB44, R35-4: the boss's hit radius for Toxic Growth's spread)
+            radius = bosses.hit_radius({"_boss": getattr(getattr(self.build.ctx, "request", None), "boss", None)})[0]
+            more, why = models.pustule_cap(rates, name, poison, radius)
             mods, notes = mods + more, notes + why
         return mods, notes
 

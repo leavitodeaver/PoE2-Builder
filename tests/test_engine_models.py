@@ -1743,7 +1743,10 @@ def test_a_side_orb_of_storms_rate_is_published_on_the_build_for_its_remnants(en
     rates = build.call("useRates", indices=sorted(pressed | {main}))["rates"]
     rate, how = build.orb_presses[models.ORB_OF_STORMS]
     assert rate > 1 / 12.8 and "orbs_per_second" in how  # (Spark's casts end each Orb before its 12 s)
-    assert rate == pytest.approx(sum(models.orbs_per_second(rates, main, pressed).values()), rel=1e-6)
+    # (MECHB44: the near casts at the share the build stands in the Orb's radius, the user's in-game test)
+    stand = search.assumptions.orb_stand(rates, main)
+    assert 0 < stand[0] <= 1 and "radius" in stand[1]
+    assert rate == pytest.approx(sum(models.orbs_per_second(rates, main, pressed, near=stand).values()), rel=1e-6)
     # (MECHB30, the manager 21:40's second half, now that MECHC25's orb_remnants is on main: it reads this rate, one
     # Remnant per Orb, not its own timer-only cycle)
     from builder.search.assumptions import orb_remnants

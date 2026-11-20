@@ -82,7 +82,8 @@
   confidence: theory
   notes: >-
     PoB leaves it part-parsed (never applied). On a lone boss an extra projectile adds no hit: one Projectile of a group
-    hits a target unless the skill can shotgun (RESEARCH29 R29-1), and no player minion skill carries
-    projectiles_can_shotgun (game files). A labelled no-change note.
+    hits a target if they leave together (KeywordPopups 74; which skills do is RESEARCH35 R35-15's open question:
+    UNVERIFIED since MECHB44) unless the skill can shotgun, and no player minion skill carries projectiles_can_shotgun
+    (game files). A labelled no-change note.
   sources: [builder/search/models.py (MINION_EXTRA_PROJECTILE, minion_projectile_notes), scratch/mechb39/p3394.log]
   status: proposed

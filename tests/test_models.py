@@ -1905,7 +1905,10 @@ def test_run_and_gun_counts_for_shotgun_and_sequence_fired_skills_while_moving()
     assert models.run_and_gun_model(line, {}, galvanic, {"Attack", "Projectile"}, False)[0] == []  # not used while moving
     arrow = models.Skill("Lightning Arrow", group=1, attack=True)
     mods, notes = models.run_and_gun_model(line, {}, arrow, moving, False)
-    assert mods == [] and "can't hit one target together" in notes[0]["basis"]
+    # (MECHB44: the group rule labelled by R35-15: a bow's spread MEDIUM-HIGH, others UNVERIFIED; an all-hit LOW row)
+    assert mods == [] and "one projectile of the group" in notes[0]["basis"] and notes[0]["confidence"] == "UNVERIFIED"
+    bow = models.run_and_gun_model(line, {}, arrow, moving | {"Bow"}, False)[1][0]
+    assert bow["confidence"] == "MEDIUM-HIGH" and "R35-15" in bow["basis"] and "Row (LOW)" in bow["basis"]
     assert models.run_and_gun_model([], {}, galvanic, moving, False) == ([], [])
 
 
@@ -3367,12 +3370,17 @@ def test_toxic_growth_bursts_at_most_its_pustule_limit_a_fuse():
 
     found = [models.Skill("Toxic Growth", 3, stat_set="Explosion"), models.Skill("Toxic Growth", 5, stat_set="Pustules")]
     assert models.pustule_groups(found, "Toxic Growth") == [3]
+    # (MECHB44, RESEARCH35 R35-4: of the Limit, those whose 0.8 m burst reaches the boss in the 4.5 m spread: 1 of 5 on
+    # the 0.3 m default, so at most 1 / 15 a second, not 5 / 15: an OVERCOUNT fixed; every Pustule the old row)
+    assert models.pustules_on_boss(5, 0.3) == 1.0 and models.pustules_on_boss(5, 0.3, 2.3) == pytest.approx(5 * (2.6 / 4.5) ** 2)
     mods, notes = models.pustule_cap([{"speed": 1.5, "detonationTime": 15}], "Toxic Growth")
-    assert mods == [models.raw_mod("DPS", "MORE", 100 * (5 / 15 / 1.5 - 1), "Toxic Growth")]
-    assert notes[0]["value"] == "x0.222" and "Limit, base" in notes[0]["basis"] and "once every 15 s" in notes[0]["play"]
-    mods, notes = models.pustule_cap([{"speed": 1.5, "detonationTime": 15, "pustuleLimit": 7}], "Toxic Growth")
-    assert abs(mods[0]["value"] - 100 * (7 / 15 / 1.5 - 1)) < 0.01 and "keeps 7 Pustules" in notes[0]["basis"]
-    assert models.pustule_cap([{"speed": 0.3, "detonationTime": 15}], "Toxic Growth") == ([], [])  # (under 5 / 15: as PoB)
+    assert mods == [models.raw_mod("DPS", "MORE", 100 * (1 / 15 / 1.5 - 1), "Toxic Growth")]
+    assert notes[0]["value"] == "x0.044" and "Limit, base" in notes[0]["basis"] and "once every 15 s" in notes[0]["play"]
+    assert "R35-4" in notes[0]["basis"] and "the old reading" in notes[0]["basis"]
+    big = models.pustule_cap([{"speed": 1.5, "detonationTime": 15, "pustuleLimit": 7}], "Toxic Growth", radius=2.0)[0]
+    reach = models.pustules_on_boss(7, 2.0)
+    assert abs(big[0]["value"] - 100 * (reach / 15 / 1.5 - 1)) < 0.01 and reach > 1
+    assert models.pustule_cap([{"speed": 0.05, "detonationTime": 15}], "Toxic Growth") == ([], [])  # (under 1 / 15: as PoB)
 
 
 def test_pustule_stored_poison_is_scored_for_a_carried_pustule():
@@ -5861,11 +5869,13 @@ def test_frost_darts_counts_its_chunks_on_a_chilled_boss_and_its_explosions_on_i
     assert models.frost_chunk_chance(1.0) > models.frost_chunk_chance(0.3)
     mods, notes = models.frost_darts_model("Frost Darts", "Projectile", sets, 3, 0.5, "x", 0.25, "y", 0.3)
     each = 100 + 0.5 * 2 * q * 50 + 0.25 * (300 + 3 * q * 50)
-    assert mods == [models.raw_mod("DPS", "MORE", 100 * (each / 100 - 1), "Frost Darts")]
-    assert notes[0]["confidence"] == "LOW" and "all 3 darts" in notes[0]["basis"]
+    # (MECHB44: all darts hit a lone target, the user's in-game test, 20 Nov: the cast is 3 x the per-dart sum)
+    assert mods == [models.raw_mod("DPS", "MORE", 100 * (3 * each / 100 - 1), "Frost Darts")]
+    assert notes[0]["confidence"] == "LOW" and "all 3 darts" in notes[0]["basis"] and "HIGH" in notes[0]["basis"]
+    assert "if all" not in notes[0]["basis"]  # (the 1-dart reading and its row dropped)
     # the Explosion scored on every cast with no Infusion and no Chill: the darts alone (an overcount fixed)
     mods, _ = models.frost_darts_model("Frost Darts", "Explosion", sets, 3, 0.0, "x", 0.0, "y", 0.3)
-    assert mods == [models.raw_mod("DPS", "MORE", 100 * (100 / 300 - 1), "Frost Darts")]
+    assert mods == [models.raw_mod("DPS", "MORE", 100 * (300 / 300 - 1), "Frost Darts")]
     assert models.frost_darts_model("Spark", "Projectile", sets, 3, 1, "", 1, "", 0.3) == ([], [])
 
 
@@ -6628,7 +6638,8 @@ def test_the_minions_extra_projectile_chance_is_a_labelled_no_change_on_a_boss()
     does: a note, no mod."""
     assert models.minion_projectile_notes(["Minions deal 10% increased Damage"]) == []
     notes = models.minion_projectile_notes(["Minions have +75% Surpassing chance to fire an additional Projectile"])
-    assert notes[0]["value"] == "no change" and "R29-1" in notes[0]["basis"] and "0.75" in notes[0]["basis"]
+    assert notes[0]["value"] == "no change" and "R35-15" in notes[0]["basis"] and "0.75" in notes[0]["basis"]
+    assert notes[0]["confidence"] == "UNVERIFIED"  # (MECHB44: the group rule's scope is R35-15's open question)
 
 
 def test_full_salvo_and_demolitionist_count_the_ammo_and_grenades_the_build_fires_each_window():
@@ -6740,3 +6751,21 @@ def test_runic_tempering_backlashes_on_plated_hits_and_adds_the_plates_thorns():
     first = models.runic_tempering_model(None, [plate], stats, 10.0, "Boneshatter")  # (round 1: no Thorns hit yet)
     assert first[0] == 0 and "next resolve round" in first[2][0]["basis"]
     assert models.runic_tempering_model(None, [], stats, 0.0)[:2] == (0.0, [])  # (no Thorns, no plates: nothing)
+
+
+def test_a_side_orb_fires_cast_bolts_only_while_you_stand_in_its_radius():
+    """MECHB44 (the user's in-game test, 20 Nov: "orb of storms only fires a bolt when you yourself are standing in its
+    radius"; every cast counted as near before: an OVERCOUNT): the near casts at the share the build stands in it."""
+    roll = {"metres": 4.6, "seconds": 0.75}
+    share, how = models.orb_stand_share(roll, 5.0, (0.2, "moving"))
+    assert share == pytest.approx(0.8) and "UNVERIFIED" in how  # (a 4.6 m roll fits the 7.2 m circle: only the boss's moves)
+    long_roll = models.orb_stand_share({"metres": 9.0, "seconds": 0.75}, 2.0, (0.0, ""))[0]
+    assert long_roll == pytest.approx(1 - 1.5 / models.DODGE_EVERY)
+    assert models.orb_stand_share(roll, 12.0, (0.0, ""))[0] == 0.0  # (beyond the reach plus the radius)
+    orb = {"orbMaxHits": 6, "orbBoltFrequency": 4000, "duration": 12.0, "speed": 1.0}
+    main = {"name": "Spark", "spell": True, "speed": 0.25}
+    full = models.orb_cycle(orb, main, 0.0, near=True)
+    half = models.orb_cycle(orb, main, 0.0, near=(0.5, "stands in it half the fight"))
+    none = models.orb_cycle(orb, main, 0.0, near=False)
+    assert none[1] < half[1] < full[1] and "stand in your Orb's radius" in half[2]["basis"]
+    assert "casts/s near the Orb (a play strategy" in half[2]["basis"]  # (play_guide.ORB_NEAR_WORDS finds the row)

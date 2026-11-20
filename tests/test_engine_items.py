@@ -1032,7 +1032,9 @@ def test_toxic_growth_explosion_is_held_to_its_pustule_limit(engine):
     # (MECHB15) the set's stored-Poison stats at gem level 20 (GrantedEffectStatSetsPerLevel: 969; the maximum 300)
     assert rate["storedPoisonPerPercent"] == 969 and rate["storedPoisonMaxMore"] == 300, rate
     mods, notes = search.assumptions.pustule_cap(found)
-    share = 6 / 15 / rate["speed"]
+    # (MECHB44, RESEARCH35 R35-4: of the Limit's 6, those whose burst reaches the default boss a fuse)
+    from builder.search import bosses
+    share = models.pustules_on_boss(6, bosses.hit_radius({"_boss": None})[0]) / 15 / rate["speed"]
     assert mods == [models.raw_mod("DPS", "MORE", 100 * (share - 1), "Toxic Growth")], mods
     assert notes[0]["value"] == f"x{share:.3f}"
 
