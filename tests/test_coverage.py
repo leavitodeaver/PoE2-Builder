@@ -1631,3 +1631,11 @@ def test_cov48_train103_reactive_growth_reads_the_bosses_elemental_mix_and_infus
         entry, out = translate(line)
         assert entry.id == "model-read-mechc45-infusion-cap" and out == [], line
         assert assumptions.INFUSION_CAP_ALL.match(line) or assumptions.INFUSION_CAP_ONE.match(line), line
+
+
+def test_cov48_r36_8b_frenzy_on_hit_while_bleeding_is_unreachable():
+    """COV48 (the manager 13:50; RESEARCH36 R36-8b, MEDIUM-HIGH): "Gain a Frenzy Charge on Hit while Bleeding" is on no
+    PoE2 unique (a PoE1 leftover), so its Exclusive mod is not league-obtainable; NOT_OBTAINABLE now relabels a "model"
+    row too (the resolver reads the line as a Frenzy source), not only a "none" one."""
+    why = coverage.NOT_OBTAINABLE["FrenzyChargeOnHitWhileBleedingUnique__1"]
+    assert "R36-8b" in why and "PoE1 leftover" in why

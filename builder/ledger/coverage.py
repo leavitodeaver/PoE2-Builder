@@ -874,6 +874,13 @@ NOT_OBTAINABLE = {
             "; no player Fire Burst skill in ActiveSkills / GrantedEffects"),
            ("SpiritMinionEssence1", "+3 to maximum number of Spectral Spirits", "HIGH",
             "; no Spectral Spirits skill in ActiveSkills / GrantedEffects"))},
+    # (COV48, RESEARCH36 R36-8b, the manager 13:50 20 Nov; research/infusion-stack-timer-and-frenzy-bleed-unique.md)
+    "FrenzyChargeOnHitWhileBleedingUnique__1": (
+        "\"Gain a Frenzy Charge on Hit while Bleeding\" is on no PoE2 unique, a PoE1 leftover (RESEARCH36 R36-8b, "
+        "MEDIUM-HIGH; checked there: Mods 10032 (unique generation, stat gain_frenzy_charge_on_hit_while_bleeding) among "
+        "PoE1 unique leftovers, no client table references it, on no PoB-PoE2 unique (ModCache parses it only in part), "
+        "poe2db's current Bleeding / Frenzy_Charges pages list no item with it; the patch-notes archive: no hit, not proof; "
+        "game 26650308)"),
 }
 
 
@@ -1161,7 +1168,9 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
             record["reason"] = (record["reason"] + "; " if record["reason"] else "") + why
     # Item mods no league character can get (COV40), each settled by research, by mod id (NOT_OBTAINABLE)
     for record in records:
-        if (record["status"] == "none" and record["source"].startswith(("Item ", "Exclusive "))
+        # (COV48) a "model" row too: a resolver reading a line no character can carry isn't work either (R36-8b's Frenzy
+        # line, which the condition resolver reads as a Frenzy source)
+        if (record["status"] in ("none", "model") and record["source"].startswith(("Item ", "Exclusive "))
                 and (why := NOT_OBTAINABLE.get(record["source"].split()[1]))):
             record["status"] = "unreachable"
             record["reason"] = f"not league-obtainable: {why}; was: " + record["reason"]
