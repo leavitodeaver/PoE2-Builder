@@ -4247,6 +4247,11 @@ function bridge.useRates(args)
 				-- PoB's HitTime or Time; NOTE Time is 1 / Speed AFTER the cooldown cap (CalcOffence 3008 then 3052), so for a
 				-- cooldown-capped skill it is the capped interval, not one use (models.press_action, MECH94)
 				time = (output.HitTime or output.Time) and jsonNumber(output.HitTime or output.Time) or nil,
+				-- (MECH94: conditions.Conditions._creeping_chill_magnitude) an Ice Crystal skill's crystal Life with the
+				-- build's modifiers (CalcOffence 1724-1726) and its Chill magnitude multiplier (5689)
+				iceCrystalLife = (type(output.IceCrystalLife) == "number" and output.IceCrystalLife > 0)
+					and jsonNumber(output.IceCrystalLife) or nil,
+				chillEffectMod = type(output.ChillEffectMod) == "number" and jsonNumber(output.ChillEffectMod) or nil,
 				-- each ailment's stacks at that speed over the most that count (PoB: chance x duration x rate / max)
 				stackPotential = setmetatable({ Ignite = output.IgniteStackPotential and jsonNumber(output.IgniteStackPotential),
 					Bleed = output.BleedStackPotential and jsonNumber(output.BleedStackPotential),

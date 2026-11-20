@@ -2690,11 +2690,18 @@ REPULSION_CAST = 0.5  # s (PoB's castTime, when the gem data gives none)
 
 def repulsion_use(use: "CurseUse", stats: dict, gems: dict, aura: bool, rate: float | None) -> "CurseUse":
     """(MECH93) Repulsion's CurseUse on the boss (the note above): held from application to the next Hit."""
-    hits = hits_per_second(at_main_share(stats))
+    own = hits_per_second(at_main_share(stats))
+    # (MECH94, RESEARCH36 R36-2, MEDIUM-HIGH: minions' hits remove it too, "Hitting these enemies" with no "you"; an
+    # OVERCOUNT before for minion builds) the main skill's minions' hits (stats["_repulsion_minion_hits"]: PoB's
+    # Minion.Speed x hit chance x their count, Conditions' curse_uses); other minion groups have no PoB rate and aren't
+    # counted (the higher reading, labelled)
+    minions, minion_how = stats.get("_repulsion_minion_hits") or (0.0, "")
+    hits = own + number(minions)
     lasts = use.duration if use.duration > 0 else CURSE_DURATION
     hold = (1 - math.exp(-hits * lasts)) / hits if hits > 0 else lasts
-    head = (f"; Repulsion: any Hit removes it, so each wave holds {hold:.2f} s on average (the main skill's "
-            f"{hits:.2f} hits/s, R35-25)")
+    head = (f"; Repulsion: any Hit removes it, yours or your minions' (R36-2), so each wave holds {hold:.2f} s on "
+            f"average (the main skill's {own:.2f} hits/s" + (f" + {minion_how}" if number(minions) > 0 else
+                                                             "; other minions' hits, if any, not read") + ", R35-25)")
     if rate is not None:
         share = min(1.0, rate * hold)
         return replace(use, share=share, how=use.how + head + f": {share:.0%} of the fight")
@@ -11426,6 +11433,41 @@ def slow_magnitude_mods(texts: list[str]) -> tuple[list[dict], list[dict]]:
                   "parses none of these lines: 0 before); before the Unique boss's 50% less Slow and the 25% speed "
                   "floor; a Chill held at its maximum (past it: UNVERIFIED). It slows the boss's hits (survival, "
                   "'when Hit' sources), no damage")}]
+
+
+# Freeze buildup from ailment Magnitude (MECH94; the manager 14:20, RESEARCH36 R36-9, research/ailment-magnitude-vs-
+# freeze-electrocute-buildup.md, MEDIUM-HIGH: an OVERCOUNT). "N% increased Magnitude of Non-Damaging Ailments you inflict"
+# (the Thane Grannell rune, the Breaking Point notable, ...) raises Chill and Shock Magnitude; Freeze has no Magnitude
+# (its buff applies no stat values: KeywordPopups BuffMagnitude; the game's texts say "Chill Magnitude" but "Freeze
+# Buildup"), yet PoB's ModParser 818-820 also gives it EnemyFreezeBuildup INC (and SkillStatMap 1412-1431 does for the
+# non_damaging_ailment_effect_+% / cold_ailment_effect_+% gem stats, which no PoB gem carries: checked, grep over
+# Data/Skills). So each such line's Freeze buildup part is taken back (EnemyFreezeBuildup INC -N, the crit-only form
+# under PoB's CriticalStrike condition); its Chill / Shock parts stay. The "per 10 Devotion" form (a Timeless jewel's
+# conquered passive) isn't taken back (PoB's PerStat: not modelled, a small OVERCOUNT left, labelled).
+NON_DAMAGING_MAGNITUDE = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) magnitude of non-damaging ailments you "
+                                    r"inflict( with critical hits)?$", re.I)
+
+
+def freeze_magnitude_cancel_mods(texts: list[str]) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): PoB's Freeze buildup from "Magnitude of Non-Damaging Ailments" lines taken back (the note above)."""
+    plain = crit = 0.0
+    for t in texts:
+        if m := NON_DAMAGING_MAGNITUDE.match(t.strip()):
+            value = float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+            if m.group(3):
+                crit += value
+            else:
+                plain += value
+    mods = ([raw_mod("EnemyFreezeBuildup", "INC", -plain)] if plain else []) + (
+        [raw_mod("EnemyFreezeBuildup", "INC", -crit, condition="CriticalStrike")] if crit else [])
+    if not mods:
+        return [], []
+    return mods, [{"label": "Freeze buildup from ailment Magnitude taken back*", "value": f"{-(plain + crit):+g}%",
+                   "confidence": "MEDIUM-HIGH",
+                   "basis": (f"PoB gives \"Magnitude of Non-Damaging Ailments\" lines ({plain + crit:+g}%"
+                             + (f", {crit:+g}% of it with Critical Hits" if crit else "") + ") to Freeze buildup too; "
+                             "Freeze has no Magnitude (RESEARCH36 R36-9), so that part is taken back; their Chill and "
+                             "Shock Magnitude stay")}]
 
 
 # Spectral Fire (MECH92; RESEARCH35 R35-16, scratch/manager/research/spectral-fire-refresh-and-reignite.md; PoB ignores

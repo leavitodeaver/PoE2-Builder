@@ -164,3 +164,95 @@ def test_blood_explosions_full_dps_entry_is_scaled_in_a_real_build(engine):
     # (the press model doesn't charge the Mark's group as a skill pressed nonstop: probe POE2T5070, Boneshatter 0%)
     assert "Bloodhound's Mark" not in (build.objective.press_scales or {})
     assert (build.objective.press_scales or {}).get("Boneshatter", 1.0) > 0.5
+
+
+def test_ailment_magnitude_lines_raise_chill_not_freeze_buildup(engine):
+    """RESEARCH36 R36-9: "Magnitude of Non-Damaging Ailments" raises Chill / Shock Magnitude, not Freeze buildup; PoB
+    (ModParser 818-820) gives it EnemyFreezeBuildup too. The probe: PoB's FreezeBuildupAvg with the line moves; after
+    our cancel (freeze_magnitude_cancel_mods) it's back to the plain build's, and the Chill part stays."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Frostbolt"))
+    skeleton = enumerate_skeletons(Context(payload), ["Frostbolt"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    fields = ["FreezeBuildupAvg"]
+    search.assumptions.mods = None
+    search.assumptions.apply()
+    plain = build.call("stats", fields=fields)
+    amulet = chr(10).join(["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82", "Implicits: 0",
+                           "30% increased Magnitude of Non-Damaging Ailments you inflict"])
+    build.call("equip", slot="Amulet", raw=amulet, fields=[])
+    build.call("setAssumptions", mods=[], fields=[])
+    raw = build.call("stats", fields=fields)
+    search.assumptions.mods = None
+    search.assumptions.apply()
+    fixed = build.call("stats", fields=fields)
+    print("PROBE freeze buildup", plain, raw, fixed)
+    assert raw["FreezeBuildupAvg"] > plain["FreezeBuildupAvg"] > 0  # (PoB's overcount)
+    assert fixed["FreezeBuildupAvg"] == pytest.approx(plain["FreezeBuildupAvg"], rel=1e-3)
+    # (the Chill / Shock part stays: the cancel touches EnemyFreezeBuildup only; PoB returns no ChillEffectMod here)
+    from builder.search import models
+
+    mods = models.freeze_magnitude_cancel_mods(["30% increased Magnitude of Non-Damaging Ailments you inflict"])[0]
+    assert {m["name"] for m in mods} == {"EnemyFreezeBuildup"}
+
+
+def test_freeze_magnitude_cancel_reads_each_form():
+    from builder.search import models
+
+    mods, notes = models.freeze_magnitude_cancel_mods([
+        "30% increased Magnitude of Non-Damaging Ailments you inflict",
+        "20% increased Magnitude of Non-Damaging Ailments you inflict with Critical Hits",
+        "3% increased Magnitude of Non-Damaging Ailments you inflict per 10 Devotion"])  # (not read: labelled)
+    assert [(m["value"], m.get("condition")) for m in mods] == [(-30.0, None), (-20.0, "CriticalStrike")]
+    assert models.freeze_magnitude_cancel_mods(["30% increased Chill Magnitude"]) == ([], [])
+
+
+def test_a_creeping_chill_ground_under_the_chill_floor_doesnt_chill_the_boss():
+    """R36-4: the ground stays (on-Chilled-Ground lines), but under the 30% floor it doesn't make the boss Chilled."""
+    from builder.search import conditions as c
+
+    ground = (0.6, "Creeping Chill on Frost Wall")
+    assert c.chilled_share({"_chilled_ground": ground}) == pytest.approx(0.6)
+    assert c.chilled_share({"_chilled_ground": ground, "_chilled_ground_chills": (0.0, "under 30%")}) == 0.0
+
+
+def test_creeping_chill_at_base_crystal_life_is_under_the_floor_on_a_pinnacle(engine):
+    """R36-4's numbers through PoB: Frost Wall's crystal Life against the boss's ailment threshold, under 30% at base."""
+    from builder.request.schema import BuildRequest
+    from builder.search import models
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Frost Wall"))
+    skeleton = enumerate_skeletons(Context(payload), ["Frost Wall"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    stats = search.build.call("stats", fields=models.MODEL_FIELDS)
+    got = search.conditions._creeping_chill_magnitude(["Frost Wall"], stats)
+    print("PROBE creeping chill magnitude", got, stats.get("EnemyAilmentThreshold"))
+    magnitude, how = got["Frost Wall"]
+    assert magnitude is not None and 0 < magnitude < 30 and "Life" in how
+
+
+def test_repulsions_hold_counts_the_minions_hits_too():
+    """RESEARCH36 R36-2: minions' hits remove Repulsion as well ("Hitting these enemies"): their hits shorten the hold."""
+    import math
+
+    from builder.search import models
+
+    gems = {"Repulsion": {"skillTypes": ["Spell", "AppliesCurse"], "castTime": 0.5}}
+    hand = [{"enabled": True, "gems": [{"name": "Repulsion"}]}]
+    stats = {"Speed": 2.0, "HitChance": 100.0, "Ward": 500.0, "PresenceRadius": 40}
+    own = models.curse_uses(hand, gems, stats, 2.0)[0]
+    with_minions = models.curse_uses(hand, gems, {**stats, "_repulsion_minion_hits": (3.0, "3 minions x 1.00")}, 2.0)[0]
+    d = models.CURSE_DURATION
+    hold = (1 - math.exp(-5.0 * d)) / 5.0
+    assert with_minions.share == pytest.approx(hold / (hold + 0.5 + 1.5))
+    assert with_minions.share < own.share and "3 minions" in with_minions.how

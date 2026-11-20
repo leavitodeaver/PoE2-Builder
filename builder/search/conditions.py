@@ -2790,7 +2790,27 @@ def curse_uses(build: Build, stats: dict, texts: list[str], metres: float | None
     stats = {"_curse_delays": getattr(build, "curse_delays", {}), **stats}  # (MECH86: each curse's own delay)
     # (MECH75) the hand-cast curses the search chose to let run out before each recast (models.CURSE_LAPSE)
     stats["_curse_lapse"] = set(getattr(getattr(build, "objective", None), models.CURSE_LAPSE, None) or ())
+    if any(n.get("name") == models.REPULSION for g in build.groups() for n in g.get("gems") or []):
+        stats["_repulsion_minion_hits"] = repulsion_minion_hits(build, stats)  # (MECH94, R36-2)
     return models.curse_uses(build.groups(), build.ctx.gems, stats, metres, texts, getattr(build, "trigger_rates", None))
+
+
+def repulsion_minion_hits(build: Build, stats: dict) -> tuple[float, str]:
+    """(MECH94, R36-2) (hits a second the main skill's minions land on the boss, how): PoB's Minion.Speed x
+    Minion.HitChance (the main skill's own minion; 0 when the main skill makes none) x their count (the bridge's
+    activeSkills minion limit, else 1)."""
+    speed = number(stats.get("Minion.Speed"))
+    if speed <= 0:
+        return 0.0, ""
+    chance = number(stats.get("Minion.HitChance")) / 100 if stats.get("Minion.HitChance") is not None else 1.0
+    group = build.main_group() if callable(getattr(build, "main_group", None)) else None
+    name = (group["skills"][min(group.get("mainActiveSkill") or 1, len(group["skills"])) - 1]["name"]
+            if group and group.get("skills") else None)
+    raw = next((s for s in build.call("activeSkills")["skills"] if s.get("name") == name and not s.get("disabled")), {})
+    minion = raw.get("minion") or {}
+    count = max(1.0, number(minion.get("limit")) or number(minion.get("desired")) or 1.0)
+    hits = speed * chance * count
+    return hits, f"{count:g} minions x {speed * chance:.2f} hits/s (PoB's Minion.Speed x hit chance)"
 
 
 def _debuff_pattern(var: str) -> re.Pattern:
@@ -3074,7 +3094,9 @@ def chilled_share(stats: dict) -> float:
     gives, with its labels), taken as independent. Before, the ground's Chill fed only the "on Chilled Ground" lines (an
     UNDERCOUNT for the Chilled condition). The hit-only readers (Mana Remnants, elemental_ailment_share: ailments the
     hits inflict) keep chill_share."""
-    ground = min(max(number((stats.get("_chilled_ground") or (0.0, ""))[0]), 0.0), 1.0)
+    # (MECH94, R36-4: a Creeping Chill ground under the 30% floor is ground, but doesn't Chill: "_chilled_ground_chills")
+    got = stats.get("_chilled_ground_chills") or stats.get("_chilled_ground") or (0.0, "")
+    ground = min(max(number(got[0]), 0.0), 1.0)
     return 1.0 - (1.0 - chill_share(stats)) * (1.0 - ground)
 
 
@@ -8267,6 +8289,31 @@ class Conditions:
             out.append((name, rate, f"{name}: {rate:.2f} of its {uses:.2f} uses/s find a Power Charge ({flow[1]})"))
         return out
 
+    def _creeping_chill_magnitude(self, names: list[str], stats: dict) -> dict[str, tuple[float | None, str]]:
+        """(MECH94; RESEARCH36 R36-4, HIGH for the rule) {crystal skill: (the Chill magnitude its Creeping Chill ground
+        inflicts, in %, or None when PoB gives no crystal Life, how)}: "Chills as though dealing damage equal to 100% of
+        the Ice Crystal's maximum Life" (triggered_creeping_chill.csd), at PoB's formula 100 x damage / the boss's
+        EnemyAilmentThreshold x ChillEffectMod (chill_effect's note), with PoB's IceCrystalLife and ChillEffectMod for
+        the crystal skill (the bridge's useRates row). Under CHILL_FLOOR (30%) the game ignores it: a level-20 Frost Wall
+        crystal (12,714 Life) is 17.8% of a level-82 boss's 71,303 (R36-4), so at base it never Chills a pinnacle; the
+        build's crystal Life (Glacier / Icicle, passives, uniques) or Chill magnitude can lift it."""
+        rows: dict = {}
+        self._group_uses(self.build.call("groups")["groups"], set(names), rows)
+        groups = {n["name"]: g["index"] for g in self.build.call("groups")["groups"] if g.get("enabled") is not False
+                  for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in names}
+        threshold = number(stats.get("EnemyAilmentThreshold"))
+        out = {}
+        for name in names:
+            row = rows.get(groups.get(name)) or {}
+            life, mod = number(row.get("iceCrystalLife")), number(row.get("chillEffectMod")) or 1.0
+            if life <= 0 or threshold <= 0:
+                out[name] = (None, "no crystal Life or boss threshold from PoB: counted as Chilling (UNVERIFIED)")
+                continue
+            magnitude = 100.0 * life / threshold * mod
+            out[name] = (magnitude, f"its crystal's {life:,.0f} Life x{mod:.2f} Chill magnitude against the boss's "
+                                    f"{threshold:,.0f} threshold: a {magnitude:.1f}% Chill")
+        return out
+
     def _oil_ground(self, texts: list[str], stats: dict, pieces: list) -> list[tuple[str, float, float]]:
         """The build's lit Oil Ground under the boss (MECH82, oil_ground): each Oil skill's uses a second (the main skill's
         Speed, else its group's rate, else the search's chosen rate) and its Oil Ground set's Fire hit (the bridge's
@@ -8918,8 +8965,19 @@ class Conditions:
         if HELBRYMS_HIDE in gem_types and self.main_skill:  # (MECHC44: Helbrym's Hide's Rage, rage_held)
             stats["_helbrym_rage"] = self._helbrym_rage(stats.get("_boss"))
         stats["_shocked_ground"] = shocked_ground(stats, texts)
+        creeping = self._creeping_chill(texts, stats) if CREEPING_CHILL in gem_types else None
         stats["_chilled_ground"] = chilled_ground(  # (MECH76, for COV-A's Desert's Scorn; MECH93: Creeping Chill)
-            stats, texts, main_gems, self._creeping_chill(texts, stats) if CREEPING_CHILL in gem_types else None)
+            stats, texts, main_gems, creeping)
+        if creeping:  # (MECH94, R36-4: only a ground past the 30% Chill floor Chills the boss)
+            magnitudes = self._creeping_chill_magnitude([c[0] for c in creeping], stats)
+            strong = [c for c in creeping if magnitudes[c[0]][0] is None or magnitudes[c[0]][0] >= CHILL_FLOOR]
+            weak = [f"{c[0]}: {magnitudes[c[0]][1]}" for c in creeping if c not in strong]
+            if weak:
+                share, how = chilled_ground(stats, texts, main_gems, strong or None)
+                stats["_chilled_ground_chills"] = (share, (how + "; " if how else "") + "Creeping Chill doesn't Chill "
+                                                   "the boss (the game ignores a Chill under 30%, KeywordPopups Chill; "
+                                                   "its ground still counts for the on-Chilled-Ground lines): "
+                                                   + "; ".join(weak))
         # (MECH79) the build's Ignited Ground at the boss: the ground gains' Fire, COV-A's Desert's Scorn cold half
         if self.main_skill == INCINERATE:  # (MECH79: its fuel, the Channelling box's share)
             stats["_incinerate_fuel"] = self._incinerate_fuel()
