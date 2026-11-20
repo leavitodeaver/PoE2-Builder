@@ -1355,6 +1355,9 @@ def test_train94_reads():
     assert conditions.MULTI_CHARGE_STAT == "skill_can_add_multiple_charges_per_action"
     assert coverage.stat_covered(coverage.stat_entries(), conditions.MULTI_CHARGE_STAT, "Orb of Storms") == (
         "model", "model-mechc43-multiple-charges-per-action")
+    # (COV46: R33-17 settled HIGH by the user's in-game tests, 20 Nov 2026 ~03:45 / ~04:00)
+    from builder.ledger import entries
+    assert next(e for e in entries() if e.id == "model-mechc43-multiple-charges-per-action").raw["confidence"] == "HIGH"
     for line, entry, pattern in (
             ("15% increased Damage for each Poison on you up to a maximum of 75%", "model-read-mechc43-damage-per-poison-on-you",
              recovery.PER_POISON_DAMAGE),

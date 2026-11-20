@@ -6,12 +6,15 @@
   kind: model
   model: charges
   stats: ['skill_can_add_multiple_charges_per_action']
-  confidence: MEDIUM
+  confidence: HIGH
   notes: >-
-    MECHC43 (96ec2ef8, train 94; RESEARCH33 R33-17, MEDIUM / UNVERIFIED for PoE2). conditions.MULTI_CHARGE_STAT, read from
+    MECHC43 (96ec2ef8, train 94; RESEARCH33 R33-17). HIGH since the user's in-game tests (20 Nov 2026, ~03:45 / ~04:00,
+    via the manager 04:05): an unflagged skill gains at most one Charge of each type a use (Ice Nova cast into packs,
+    30+ casts), and a flagged skill gains them per hit / bolt (Orb of Storms). conditions.MULTI_CHARGE_STAT, read from
     the main skill's level and support stats when the build has two or more charge lines: without the flag, the charge
     lines of one type fed by the main skill's uses are joined as one chance a use (1 - prod(1 - e_i)); with it, added.
     So the stat moves the charge rates (an OVERCOUNT before for unflagged skills). PoB reads it nowhere. The flagged
     skills' extra hits a use are not read (MECHC43's named UNDERCOUNT).
-  sources: ["builder/search/conditions.py (MULTI_CHARGE_STAT, _per_use_joined)"]
+  sources: ["builder/search/conditions.py (MULTI_CHARGE_STAT, _per_use_joined)",
+            "the user's in-game tests, 20 Nov 2026 ~03:45 (Ice Nova) / ~04:00 (Orb of Storms), via the manager 04:05"]
   status: proposed
