@@ -83,3 +83,18 @@
     stun per Fragility on special objects), the movement-while-casting stats, the special-object knockback flag.
   sources: ["builder/search/models.py (REPULSION, repulsion_use, repulsion_wave_model)", "ledger/entries/gems-gem26.yaml (model-gem26-repulsion-wave)"]
   status: proposed
+
+# MECH-C's train-103 reader (89fafdd0, MECHC45): the Infusion maximum lines (COV47 routed the 21.7 row to MECH-C).
+- id: model-read-mechc45-infusion-cap
+  title: '"+N to maximum number of Elemental Infusions" / "+N to maximum Fire / Cold / Lightning Infusions" (assumptions.infusion_cap, MECHC45)'
+  kind: pob_gap
+  model: infusion_cap
+  match: '^\+?(\(\d+-\d+\)|\d+) to maximum (number of Elemental|Fire|Cold|Lightning) Infusions$'
+  replace: []
+  confidence: theory
+  notes: >-
+    assumptions.INFUSION_CAP_ALL / INFUSION_CAP_ONE in infusion_cap (89fafdd0, train 103): each type held up to 3 (+ the
+    lines), pickups at the cap lost (Poisson pickups between evenly spaced uses, MEDIUM-LOW), read by infusion_share and
+    Conditions._arc_infused / _infusion_consumed. PoB reads neither line (nothing to negate).
+  sources: ["builder/search/assumptions.py (INFUSION_CAP_ALL, INFUSION_CAP_ONE, infusion_cap)"]
+  status: proposed

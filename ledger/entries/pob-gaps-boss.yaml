@@ -413,15 +413,48 @@
   status: proposed
 
 - id: reactive-growth
-  title: Reactive Growth, less damage taken per matching Adaptation
+  title: Reactive Growth, less damage taken per matching Adaptation (the boss's own elemental mix)
   kind: pob_gap
   match: '^(\d+)% less Damage taken of each Elemental Damage Type per matching Adaptation$'
-  replace: ['{1}% less Fire Damage taken', '{1}% less Cold Damage taken', '{1}% less Lightning Damage taken']
+  replace: ['share:ReactiveGrowthFire {1}% less Fire Damage taken', 'share:ReactiveGrowthCold {1}% less Cold Damage taken',
+            'share:ReactiveGrowthLightning {1}% less Lightning Damage taken']
   confidence: reported
   notes: >-
-    Up to 3 Adaptations, gained from the element of each Hit taken. A boss that mostly uses one
-    element keeps all three on it (27% less); assumed one per element, as against a mixed boss.
-  sources: ["https://poe2db.tw/Reactive_Growth", "https://poe2db.tw/Adaptation"]
+    Up to 3 Adaptations, gained from the highest element of each Hit taken, no duration (KeywordPopups Adaptation, game
+    26650308). (COV48; COV47's routed FLAT assumption, the manager 11:45) Each element's line counts N x the matching
+    Adaptations expected when that element's hit lands: MECH-C's boss_hits.adaptations_held (3 x the element's share of
+    the scored boss's elemental hits, the hits in random order; MEDIUM-LOW), conditions ReactiveGrowthFire / Cold /
+    Lightning. The worst case: Fire 1.12, Cold 0.79, Lightning 1.09; the Arbiter of Ash: 3 Fire; a boss with no
+    elemental hit (Zarokh): 0. Before: one per element whatever the boss dealt (an OVERCOUNT of defence against a
+    Physical-only boss, an UNDERCOUNT against a one-element boss: COV47).
+  sources: ["https://poe2db.tw/Reactive_Growth", "https://poe2db.tw/Adaptation", "builder/search/boss_hits.py (elemental_shares, adaptations_held)"]
+  status: proposed
+
+- id: ReactiveGrowthFire
+  title: Matching Fire Adaptations (Reactive Growth's Fire line)
+  kind: condition
+  adaptations: Fire
+  confidence: theory
+  notes: "A count, not on / off: boss_hits.adaptations_held(boss)['Fire'] in whole percent (MECH-C's MECHC45)."
+  sources: ["builder/search/boss_hits.py adaptations_held"]
+  status: proposed
+
+- id: ReactiveGrowthCold
+  title: Matching Cold Adaptations (Reactive Growth's Cold line)
+  kind: condition
+  adaptations: Cold
+  confidence: theory
+  notes: "A count, not on / off: boss_hits.adaptations_held(boss)['Cold'] in whole percent (MECH-C's MECHC45)."
+  sources: ["builder/search/boss_hits.py adaptations_held"]
+  status: proposed
+
+- id: ReactiveGrowthLightning
+  title: Matching Lightning Adaptations (Reactive Growth's Lightning line)
+  kind: condition
+  adaptations: Lightning
+  confidence: theory
+  notes: "A count, not on / off: boss_hits.adaptations_held(boss)['Lightning'] in whole percent (MECH-C's MECHC45)."
+  sources: ["builder/search/boss_hits.py adaptations_held"]
   status: proposed
 
 - id: keeper-of-the-arc

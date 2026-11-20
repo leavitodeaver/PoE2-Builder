@@ -1608,3 +1608,26 @@ def test_cov48_mech93_readers_are_model_read_and_the_spell_magnitude_stand_in_is
     for stat, skill in (("support_creeping_chill_cold_damage_equal_to_%_ice_crystal_maximum_life", "Creeping Chill"),
                         ("curse_repulsion_applies_X_fragility", "Repulsion")):
         assert coverage.stat_covered(covered, stat, skill) is None, stat
+
+
+def test_cov48_train103_reactive_growth_reads_the_bosses_elemental_mix_and_infusion_caps_are_model_read():
+    """COV48 (the manager 11:45; COV47's routed FLAT assumption): Reactive Growth's line counts N x the matching
+    Adaptations of each element, MECH-C's boss_hits.adaptations_held for the scored boss (conditions ReactiveGrowth<E>,
+    kind `adaptations`), not one per element whatever the boss deals; the Infusion maximum lines are model-read
+    (assumptions.infusion_cap, MECHC45)."""
+    from builder.ledger import conditions, translate
+    from builder.search import assumptions, boss_hits, bosses
+
+    entry, out = translate("9% less Damage taken of each Elemental Damage Type per matching Adaptation")
+    assert entry.id == "reactive-growth"
+    assert out == [f"share:ReactiveGrowth{e} 9% less {e} Damage taken" for e in ("Fire", "Cold", "Lightning")]
+    assert {c["id"]: c["adaptations"] for c in conditions() if c.get("adaptations")} == {
+        f"ReactiveGrowth{e}": e for e in ("Fire", "Cold", "Lightning")}
+    assert boss_hits.adaptations_held("Arbiter of Ash") == {"Fire": 3.0, "Cold": 0.0, "Lightning": 0.0}
+    assert sum(boss_hits.adaptations_held("Zarokh, the Temporal").values()) == 0
+    worst = boss_hits.adaptations_held(bosses.WORST)
+    assert sum(worst.values()) == pytest.approx(3.0) and round(worst["Fire"], 2) == 1.12
+    for line in ("+1 to maximum number of Elemental Infusions", "+1 to maximum Fire Infusions"):
+        entry, out = translate(line)
+        assert entry.id == "model-read-mechc45-infusion-cap" and out == [], line
+        assert assumptions.INFUSION_CAP_ALL.match(line) or assumptions.INFUSION_CAP_ONE.match(line), line

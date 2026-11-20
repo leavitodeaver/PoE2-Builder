@@ -6920,6 +6920,25 @@ class Assumptions:
                                                 "Ward each blocked hit takes is the hit's damage after mitigation, "
                                                 "UNVERIFIED)"})
                 continue
+            if condition.get("adaptations"):
+                # (COV48; COV47's routed FLAT assumption, the manager 11:45) Reactive Growth's "N% less Damage taken of each
+                # Elemental Damage Type per matching Adaptation": the expected matching Adaptations of this element when
+                # its hit lands, MECH-C's boss_hits.adaptations_held (3 held x the element's share of the boss's
+                # elemental hits; MEDIUM-LOW), as a count in whole percent (`share:ReactiveGrowth<Element>` lines count
+                # their value x it). A physical-only boss gives none (before: one per element whatever the boss dealt)
+                element = condition["adaptations"]
+                count = boss_hits.adaptations_held(boss).get(element, 0.0)
+                percent = round(100 * max(count, 0.0))
+                if percent > 0:
+                    self.ledger_shares[condition["id"]] = percent
+                    found.append(condition["id"])
+                if self.has_line(r"per matching Adaptation"):
+                    notes.append({"label": condition["title"], "value": round(count, 2),
+                                  "basis": (f"{boss}: {element} is {boss_hits.elemental_shares(boss)[element]:.0%} of its "
+                                            f"elemental hits, so {count:.2f} of the 3 Adaptations match a {element} hit "
+                                            "(the hits taken in random order); its line counts that many times"),
+                                  "confidence": "MEDIUM-LOW (the boss's elemental mix: its damaging skills' types, no use rates)"})
+                continue
             if condition.get("warcries_recently"):
                 # different Warcries used Recently (4 s), summed over the build's own Warcries (Escalation; COV13: before,
                 # a flat half of the line's value whenever any Warcry was used Recently): its ledger lines are
