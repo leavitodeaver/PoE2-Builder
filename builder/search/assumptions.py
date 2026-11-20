@@ -350,6 +350,73 @@ def still_far(config: dict) -> bool:
         conditions_mod.MELEE_DISTANCE * 10 + 1e-6)
 
 
+# (MECHC45, the manager's 08:05 from COV47, an OVERCOUNT and an UNDERCOUNT) The Infusion cap. KeywordPopups
+# ElementalInfusion (game 26650308): "Picking up the Remnant grants you the Infusion for 20 seconds or until it is
+# Consumed by another Skill. You can have up to 3 of each Infusion by default"; VerisiumInfusion: "Your maximum number of
+# Verisium Infusions is equal to the maximum number of any single type of Elemental Infusion you can have". Before, the
+# share of casts finding an Infusion was min(1, supply / casts): an unlimited cap, so Infusions picked up at the cap were
+# never lost (an OVERCOUNT where supply and casts are close), and "+N to maximum number of Elemental Infusions" (stat
+# additional_maximum_infusion_stacks: Mods AbyssModStaffKurgalPrefixMaximumInfusions, GenesisTreeRingMaximumElemental
+# Infusion(+Crafted), AlloyMaximumElementalInfusions1, PassiveSkills infusion1 and BrequelTreeRings50a) / "+N to maximum
+# Fire / Cold / Lightning Infusions" (maximum_<type>_infusion_stacks: PassiveSkills infusion23-25) moved nothing (PoB
+# parses none of them: ModCache 118-121 leave them unparsed). Every consumer takes one Infusion a use (checked: the
+# skills' stat sets carry only active_skill_consumes_a_<type>_infusion; no line counts Infusions held: the
+# maximum_<type>_damage_resistance_+%_per_<type>_infusion stats sit on no Mod or passive, game 26650308 by stat id; PoB
+# ModCache has no "per ... Infusion" line). Model: Infusions arrive at random (Poisson: Remnants come from random
+# Ignites, Freezes, Shocks and crits) between evenly spaced uses, any arrival over the cap lost; a use finds one if any
+# is held and removes it unless it keeps it (KEEP_INFUSION). The 20 s expiry isn't modelled (a small overcount where
+# uses are rare). MEDIUM-LOW (Poisson arrivals; the build's consumers merged into one even stream); the smooth reading
+# (min(1, supply / casts)) is said in the basis.
+INFUSION_CAP = 3
+INFUSION_CAP_ALL = re.compile(r"^\+?(\d+) to maximum number of elemental infusions$", re.I)
+INFUSION_CAP_ONE = re.compile(r"^\+?(\d+) to maximum (fire|cold|lightning) infusions$", re.I)
+
+
+def infusion_cap(lines: list[str], element: str, verisium: bool = False) -> int:
+    """The most `element` Infusions you can hold (3 + the build's maximum lines); with `verisium` (Verisium Infusions in
+    the supply) their own cap too, the largest single type's."""
+    every = sum(int(m.group(1)) for t in lines if (m := INFUSION_CAP_ALL.match(t.strip())))
+    own = {e: INFUSION_CAP + every + sum(int(m.group(1)) for t in lines if (m := INFUSION_CAP_ONE.match(t.strip()))
+                                        and m.group(2).lower() == e.lower()) for e in ("Fire", "Cold", "Lightning")}
+    return own.get(element, INFUSION_CAP + every) + (max(own.values()) if verisium else 0)
+
+
+def infusion_found(supply: float, uses: float, keep: float = 0.0, cap: int = INFUSION_CAP) -> float:
+    """(MECHC45) The share of uses that find an Infusion: `supply` Infusions a second arriving at random, `uses` evenly
+    spaced uses a second each taking one (removed unless kept, chance `keep`), at most `cap` held (the note above)."""
+    if supply <= 0:
+        return 0.0
+    if uses <= 0:
+        return 1.0
+    cap = max(1, int(cap))
+    mean = supply / uses
+    pois = [math.exp(-mean) * mean ** k / math.factorial(k) for k in range(cap)]
+    pois.append(max(0.0, 1.0 - sum(pois)))  # (k >= cap arrivals: the cap)
+    after = [1.0] + [0.0] * cap  # (held just after a use)
+    for _ in range(2000):
+        before = [0.0] * (cap + 1)
+        for n, p in enumerate(after):
+            if p:
+                for k, q in enumerate(pois):
+                    before[min(cap, n + k)] += p * q
+        new = [0.0] * (cap + 1)
+        for n, p in enumerate(before):
+            if n == 0:
+                new[0] += p
+            else:
+                new[n - 1] += p * (1 - keep)
+                new[n] += p * keep
+        if max(abs(x - y) for x, y in zip(new, after)) < 1e-12:
+            after = new
+            break
+        after = new
+    before = [0.0] * (cap + 1)
+    for n, p in enumerate(after):
+        for k, q in enumerate(pois):
+            before[min(cap, n + k)] += p * q
+    return 1.0 - before[0]
+
+
 def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[str] | dict[str, float],
                     siphon: tuple[float, str] = (0.0, ""), bomb: tuple[float, str] = (0.0, ""),
                     orb: tuple[float, str] = (0.0, ""), far: bool = False) -> tuple[dict[str, float], list[str]]:
@@ -6175,10 +6242,16 @@ class Assumptions:
         # (the main skill's share of the supply: every consumer takes Infusions as they come, so each gets its share of
         # uses; MECHC4, COVC4: before, the main skill had the whole supply)
         mine = have * uses / (uses + others) if uses + others > 0 else have
-        share = min(1.0, mine / needed) if needed > 0 else float(have > 0)
+        smooth = min(1.0, mine / needed) if needed > 0 else float(have > 0)
+        # (MECHC45: at most `cap` held, the rest picked up at the cap lost: infusion_found; every consumer's uses as one
+        # even stream, each finding one with the same chance)
+        cap = infusion_cap(lines, element, supply["Any"] > 0)
+        share = infusion_found(have, uses + others, keep, cap) if uses + others > 0 else float(have > 0)
         basis = (f"{have:.2f} {element} Infusions/s from {', '.join(used) or 'nothing'} for {uses:.2f} casts/s"
                  + (f", {keep:.0%} of casts keeping theirs" if keep else "")
-                 + (f"; shared with {other_how}, so {mine:.2f}/s reach the main skill" if others > 0 else ""))
+                 + (f"; shared with {other_how}, so {mine:.2f}/s reach the main skill" if others > 0 else "")
+                 + f"; at most {cap} held (Infusions picked up at the cap are lost; random pickups, MEDIUM-LOW): "
+                   f"{share:.0%} of casts find one (smoothly spread pickups: {smooth:.0%})")
         return share, basis
 
     def other_infusion_users(self, element: str) -> tuple[float, str]:

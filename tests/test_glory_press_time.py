@@ -147,3 +147,28 @@ def test_hit_remnants_count_the_main_skills_hits_at_its_share():
     assert hit_remnant_rate("Life Remnants", {**stats, "_main_share": 0.5})[0] == pytest.approx(
         hit_remnant_rate("Life Remnants", {**stats, "Speed": 1.0})[0])
     assert hit_remnant_rate("Life Remnants", {**stats, "_main_share": 0.5})[0] < hit_remnant_rate("Life Remnants", stats)[0]
+
+
+def test_the_boss_hit_boxes_left_to_pobs_placeholders_stay_unset():
+    """(MECHC45, the manager's 08:05) the boss's crit chance / damage, Overwhelm and roll range stay PoB's placeholders
+    (5%, +30%, 0, no reader; probe POE2T4829): no preset's config writes them."""
+    from builder.search import bosses
+
+    for name in bosses.PRESETS:
+        assert not set(bosses.config_vars(name)) & set(bosses.BOSS_HIT_PLACEHOLDERS), name
+
+
+def test_the_infusion_cap_loses_pickups_and_maximum_lines_raise_it():
+    """(MECHC45, the manager's 08:05 from COV47) at most 3 of each Infusion by default (KeywordPopups); pickups at random
+    between even uses: at supply = uses, about 85% of uses find one (smoothly, 100%); "+1 to maximum number of Elemental
+    Infusions" raises the cap and the share; far apart or far over, the smooth reading."""
+    from builder.search.assumptions import infusion_cap, infusion_found
+
+    assert infusion_cap([], "Fire") == 3
+    lines = ["+1 to maximum number of Elemental Infusions", "+1 to maximum Fire Infusions"]
+    assert infusion_cap(lines, "Fire") == 5 and infusion_cap(lines, "Cold") == 4
+    assert infusion_cap([], "Cold", verisium=True) == 6
+    assert infusion_found(1.0, 1.0, 0.0, 3) == pytest.approx(0.85, abs=0.01)
+    assert infusion_found(1.0, 1.0, 0.0, 3) < infusion_found(1.0, 1.0, 0.0, 4) < 1.0
+    assert infusion_found(0.25, 1.0) == pytest.approx(0.25, abs=0.002) and infusion_found(4.0, 1.0) > 0.999
+    assert infusion_found(0.0, 1.0) == 0.0 and infusion_found(1.0, 0.0) == 1.0

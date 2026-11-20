@@ -7902,12 +7902,15 @@ class Conditions:
         keep = min(1.0, sum(float(m.group(1)) for t in texts if (m := KEEP_INFUSION.search(t))) / 100.0)
         total = sum(uses.values())
         mine = have * arc / total if total > 0 else 0.0
-        needed = arc * (1.0 - keep)
-        share = min(1.0, mine / needed) if needed > 0 else float(have > 0)
+        from builder.search.assumptions import infusion_cap, infusion_found
+
+        cap = infusion_cap(texts, "Lightning", supply["Any"] > 0)  # (MECHC45: the Infusion cap, infusion_found)
+        share = infusion_found(have, total, keep, cap)
         return share, (f"{have:.2f} Lightning Infusions/s from {', '.join(made) or 'nothing'}"
                        + (f", shared with {', '.join(sorted(users - {ARC}))}" if users - {ARC} else "")
                        + f": {mine:.2f}/s for {ARC}'s {arc:.2f} casts/s"
-                       + (f" ({keep:.0%} keeping theirs)" if keep else ""))
+                       + (f" ({keep:.0%} keeping theirs)" if keep else "")
+                       + f"; at most {cap} held, pickups at random: {share:.0%} of casts find one (MEDIUM-LOW)")
 
     def _infusion_consumed(self, lines: list[dict], stats: dict) -> tuple[float, str]:
         """(Infusions consumed per second, how): the build's consumers (INFUSION_CONSUMERS) take what it makes."""
@@ -7926,7 +7929,14 @@ class Conditions:
         elements = {e for each in consumers.values() for e in each}
         have = sum(supply[e] for e in elements) + supply["Any"]
         cast = sum(uses.values())
-        rate = min(have, cast)
+        from builder.search.assumptions import infusion_cap, infusion_found
+
+        # (MECHC45: at most the caps of the consumed elements held, pickups at random: infusion_found; before min(have,
+        # cast), an unlimited cap)
+        texts = [line["text"] for line in lines]
+        cap = sum(infusion_cap(texts, e) for e in elements) + (infusion_cap(texts, "", True) - infusion_cap(texts, "")
+                                                               if supply["Any"] > 0 else 0)
+        rate = cast * infusion_found(have, cast, 0.0, max(cap, 1)) if cast > 0 else 0.0
         return rate, (f"{rate:.2f}/s: {have:.2f} {'/'.join(sorted(elements)) or 'Verisium'} Infusions/s from "
                       f"{', '.join(made) or 'nothing'}, for {', '.join(f'{n} {u:.2f}/s' for n, u in uses.items())}"
                       + (f" ({volley_how})" if volley_how else ""))

@@ -23,10 +23,15 @@ def _stub(main: str, groups: list[list[str]], others: dict[str, float], lightnin
 def test_arcs_infused_share_is_its_part_of_the_lightning_infusions_over_its_casts():
     stub = _stub("Arc", [["Arc"], ["Orb of Storms"], ["Frost Wall"]], {"Frost Wall": 0.5}, 1.0, ["Orb of Storms"])
     share, how = conditions.Conditions._arc_infused(stub, [], {"Speed": 1.5})
-    # 1 Infusion/s shared 1.5 : 0.5 with Frost Wall: 0.75/s for 1.5 casts/s
-    assert share == pytest.approx(0.5) and "Orb of Storms" in how and "Frost Wall" in how
+    # 1 Infusion/s shared 1.5 : 0.5 with Frost Wall: 0.75/s for 1.5 casts/s, smoothly 50% of casts; (MECHC45) at most 3
+    # held, random pickups: infusion_found(1, 2 uses/s), a little under
+    from builder.search.assumptions import infusion_found
+
+    assert share == pytest.approx(infusion_found(1.0, 2.0, 0.0, 3)) and 0.48 < share < 0.5
+    assert "Orb of Storms" in how and "Frost Wall" in how and "at most 3 held" in how
     keep = [{"text": "50% chance to not remove an Infusion but still count as consuming it", "source": "tree"}]
-    assert conditions.Conditions._arc_infused(stub, keep, {"Speed": 1.5})[0] == pytest.approx(1.0)
+    kept = conditions.Conditions._arc_infused(stub, keep, {"Speed": 1.5})[0]
+    assert kept == pytest.approx(infusion_found(1.0, 2.0, 0.5, 3)) and 0.75 < kept < 1.0  # (smoothly 100%)
 
 
 def test_arc_with_no_infusion_source_gets_nothing_and_the_box_needs_arc():
