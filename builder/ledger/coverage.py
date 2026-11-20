@@ -1213,7 +1213,27 @@ MODELED_SKILLS = {"Iron Ward": "iron-ward-store", "Elemental Expression": "eleme
                   # (COV47) MECHB44's runic_tempering_model (train 98): the backlash, your Thorns hit per plated hit
                   "Runic Tempering": "model-mechb44-runic-tempering",
                   # (COV47) GEM26's Repulsion Wave (train 100): the detonation's Physical wave; the curse itself deals none
-                  "Repulsion": "model-gem26-repulsion-wave"}
+                  "Repulsion": "model-gem26-repulsion-wave",
+                  # (COV48) The audit's sweep scores a skill's first stat set; these deal their damage in another set or
+                  # skill of the same gem, which the search scores and a model on main rates (game 26650308
+                  # GrantedEffects / GrantedEffectStatSets, per set: scratch/cov47/zero_sets2.py; PoB Gems.lua the same):
+                  # FrostflameNovaPlayer, FrozenLocusPlayer, ElementalSunderingPlayer carry base_deal_no_damage and their
+                  # FrostflameNovaColdHit / FrozenLocusExplode / ElementalSundering{Cold,Fire,Lightning} sets deal it
+                  "Frostflame Nova": "model-gem8-frostflame-volatile-ice",
+                  "Frozen Locus": "model-gem20-frozen-locus-crystal-breaks",
+                  "Elemental Sundering": "model-gem17-elemental-sundering-ailments",
+                  # PoB fires it once per Cooldown whatever you take, or never beside a main skill; valako_model rates it
+                  "Valako's Charge": "model-read-valakos-charge-lightning-taken",
+                  # PoB has no calc for its recorded-damage stat; inevitable_agony_model gives 25% of the main hit DPS
+                  "Inevitable Agony": "model-gem13-inevitable-agony-read",
+                  # totems: the summon (no damage of its own, though its set has no marker) and its attack a second
+                  # granted effect of the gem (ShockwaveTotemQuakePlayer, DarkEffigyProjectilePlayer: Gems.lua
+                  # additionalGrantedEffectId1), which PoB scores and totem_count_model scales by the totems up
+                  "Shockwave Totem": "model:totem_count",
+                  "Dark Effigy": "model-mechb43-dark-effigy-volley",
+                  # bridge.lua installSpiritVessel: its companion uses copies of the socketed Bear / Werewolf / Wyvern
+                  # skills (0 with none socketed, as the sweep has it); the search fills its group (gems.granted_meta_round)
+                  "Spirit Vessel": "bridge:spirit-vessel"}
 # Skills whose 0 in PoB is right: they deal no damage of their own (COV46, from MECHB44 23:28). (checked: game 26650308
 # GrantedEffectStatSets: SacrificePlayer and EternalMarchPlayer carry base_deal_no_damage; SummonSkeletalClericsPlayer
 # carries display_statset_no_hit_damage and its minion's skills are HealSkeletonClericMinion /

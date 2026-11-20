@@ -1507,7 +1507,27 @@ def test_cov47_skills_with_no_damage_of_their_own_and_newly_modelled_skills():
     assert coverage.MODELED_SKILLS["Runic Tempering"] == "model-mechb44-runic-tempering"
     assert coverage.MODELED_SKILLS["Repulsion"] == "model-gem26-repulsion-wave"
     for name in ("Frostflame Nova", "Frozen Locus", "Elemental Sundering", "Fortifying Cry", "Infernal Cry"):
-        assert name not in coverage.NO_OWN_DAMAGE_SKILLS and name not in coverage.MODELED_SKILLS, name
+        assert name not in coverage.NO_OWN_DAMAGE_SKILLS, name
+    for name in ("Fortifying Cry", "Infernal Cry"):
+        assert name not in coverage.MODELED_SKILLS, name
+
+
+def test_cov48_skills_whose_damage_another_set_or_a_model_gives():
+    """COV48: the sweep scores a skill's first stat set; Frostflame Nova, Frozen Locus and Elemental Sundering deal theirs
+    in another set, the totems in a second granted effect, Valako's Charge / Inevitable Agony through their models, Spirit
+    Vessel through its socketed skills: each names the ledger entry (or bridge / model) that rates it, and each entry
+    exists. Summon Spectre and Tamed Companion stay open (the search picks no monster for them)."""
+    from builder.ledger import coverage, entries
+
+    ids = {e.id for e in entries()}
+    for name in ("Frostflame Nova", "Frozen Locus", "Elemental Sundering", "Valako's Charge", "Inevitable Agony",
+                 "Dark Effigy"):
+        entry = coverage.MODELED_SKILLS[name]
+        assert entry in ids, (name, entry)
+    assert coverage.MODELED_SKILLS["Shockwave Totem"] == "model:totem_count"
+    assert coverage.MODELED_SKILLS["Spirit Vessel"] == "bridge:spirit-vessel"
+    for name in ("Summon Spectre", "Tamed Companion"):
+        assert name not in coverage.MODELED_SKILLS and name not in coverage.NO_OWN_DAMAGE_SKILLS, name
 
 
 def test_cov47_volatility_passives_and_answered_call_are_model_read():
@@ -1521,3 +1541,18 @@ def test_cov47_volatility_passives_and_answered_call_are_model_read():
             ("10% chance to gain Volatility when you are Stunned", "model-read-cov47-volatility-when-stunned"),
             ("Trigger Ancestral Spirits when you Summon a Totem", "model-read-cov47-answered-call-trigger")):
         assert model_entry(line).id == entry and translate(line)[1] == [], line
+
+
+def test_cov48_glory_not_consume_is_model_read():
+    """COV48: Everlasting Glory's "chance to not consume Glory" (models.glory_lines / glory_plan) is model-read through an
+    empty pob_gap entry. The Ordained's Fragment of Divinity line stays open (COV43's rule: the model keys on Righteous
+    Descent at a fixed 4 s, no pattern of its own reads the line)."""
+    from builder.ledger import model_entry, translate
+    from builder.search import models
+
+    entry, out = translate("Skills have a 15% chance to not consume Glory")
+    assert entry.id == "model-read-cov48-glory-not-consume" and out == [] and entry.raw["model"]
+    assert models.GLORY_NOT_CONSUME.match("Skills have a 15% chance to not consume Glory")
+    assert models.glory_lines(["Skills have a 15% chance to not consume Glory"])["not_consume"] == pytest.approx(0.15)
+    found = model_entry("Create a Fragment of Divinity in your Presence every 4 seconds")
+    assert found is None or not found.id.startswith("model-read-")

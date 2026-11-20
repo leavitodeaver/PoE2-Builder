@@ -1,0 +1,17 @@
+# COV48 (20 Nov 2026): item lines a model on main already reads, which the audit still counted open.
+
+# Everlasting Glory's "Skills have a N% chance to not consume Glory": MECH-C's models.GLORY_NOT_CONSUME in glory_lines,
+# which glory_plan turns into the Glory a use consumes (cost x (1 - the chance) x (1 - 0.4 x retain), models.py 13535),
+# so the build's Glory skill uses rise. COV37's model-read-glory-lines covers the retain / Banner / Mark lines only.
+- id: model-read-cov48-glory-not-consume
+  title: '"(Skills have a) N% chance to not consume Glory" (Everlasting Glory; models.glory_lines / glory_plan)'
+  kind: pob_gap
+  model: glory
+  match: '^(?:Skills have an? )?(\(\d+-\d+\)|\d+(?:\.\d+)?)% chance to not consume Glory$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.GLORY_NOT_CONSUME: chances combine as independent (1 - product of misses), and a use consumes its Glory x (1 -
+    that); glory_plan's Glory skill uses read it. PoB ignores the line (nothing to negate).
+  sources: ["builder/search/models.py (GLORY_NOT_CONSUME, glory_lines, glory_plan)"]
+  status: proposed
