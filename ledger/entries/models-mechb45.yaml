@@ -13,7 +13,8 @@
     otherwise. Spark (game 26650308 spark/statset_0.csd; poe2db Spark, 0.5): "Projectiles fired at the same time can Hit
     the same target no more than once every 0.66 seconds", sparks living 2 s (PoB's Duration): min(sparks,
     floor(life / 0.66)) hits a cast, each cast its own group; the ceil reading a row. Freezing Shards: "Multiple
-    Projectiles can hit the same enemy": all its projectiles. Both at point-blank (the manager's 14 Nov ruling for GEM2's
+    Projectiles can hit the same enemy": (MECHB46, RESEARCH36 R36-5: player reports conflict at point-blank) 40% of
+    its projectiles, the lower report, a flat LOW share; all of them and PoB's one are rows. Both at point-blank (the manager's 14 Nov ruling for GEM2's
     Merging fragments: a condition the player controls, with "without it" x1 and a play note). LOW: whether Spark's
     sparks pass through the boss inside a window and wander back, and how much of Freezing Shards' arc a boss covers, are
     UNVERIFIED (routed to RESEARCH). Main skill only.

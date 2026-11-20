@@ -6800,8 +6800,10 @@ def test_group_exception_model_spark_and_freezing_shards():
     mods, notes = models.group_exception_model(SPARK, {"ProjectileCount": 9, "Duration": 0.5})
     assert mods == [] and notes[0]["value"] == "x1"
     shards = Skill("Freezing Shards", group=1, spell=True, cast_time=1.2)
-    mods, notes = models.group_exception_model(shards, {"ProjectileCount": 6})
-    assert notes[0]["value"] == "x6" and mods[0]["value"] == pytest.approx(500)
+    mods, notes = models.group_exception_model(shards, {"ProjectileCount": 6})  # (MECHB46, R36-5: 40% of the arc)
+    assert notes[0]["value"] == "x2.4" and mods[0]["value"] == pytest.approx(140) and "x6" in notes[0]["basis"]
+    mods, notes = models.group_exception_model(shards, {"ProjectileCount": 5})
+    assert notes[0]["value"] == "x2" and mods[0]["value"] == pytest.approx(100)
     assert models.group_exception_model(Skill("Frostbolt", group=1, spell=True), {"ProjectileCount": 3}) == ([], [])
     assert models.group_exception_model(SPARK, {"ProjectileCount": 9}, {models.GROUP_EXCEPTION_ENTRY}) == ([], [])
 

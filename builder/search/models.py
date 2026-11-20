@@ -18710,6 +18710,7 @@ GROUP_EXCEPTION_ENTRY = "model-mechb45-projectile-group-exceptions"
 SPARK, FREEZING_SHARDS = "Spark", "Freezing Shards"
 SPARK_REHIT, SPARK_LIFE = 0.66, 2.0  # spark_min_time_between_target_clearing_ms 660; base_skill_effect_duration 2000
 FREEZING_SHARDS_BASE = 5.0  # FreezingShardsPlayer base_number_of_projectiles
+FREEZING_SHARDS_SHARE = 0.4  # (MECHB46, RESEARCH36 R36-5: the lower report, "the majority ... fly off": 2 of 5; LOW, a flat game-decided share)
 
 
 def group_exception_model(main: Skill | None, stats: dict,
@@ -18729,18 +18730,23 @@ def group_exception_model(main: Skill | None, stats: dict,
                  f"same target once per {SPARK_REHIT:g} s (spark_min_time_between_target_clearing_ms 660; its text), so "
                  f"at most min({sparks:g}, floor({life:.2f} / {SPARK_REHIT:g})) = {hits:g} hits a cast against PoB's 1. "
                  f"LOW: cast point-blank, every window taken to find a spark on the boss (whether sparks pass through it "
-                 f"during a window and wander back is UNVERIFIED). Rows: the first hit at once, ceil: x{high:g}; "
-                 "without it (PoB): x1")
+                 f"during a window and wander back is UNVERIFIED; RESEARCH36 R36-5: the 0.66 s limit is shared by a "
+                 f"cast's sparks and a spark ends on hit, so 3-4 a cast is the cap, keep 3). Rows: the first hit at "
+                 f"once, ceil: x{high:g}; at range 1-2; without it (PoB): x1")
         play = (f"Cast Spark point-blank into the boss so its sparks keep crossing it: one cast hits up to {hits:g} "
                 f"times (once per {SPARK_REHIT:g} s while they live); from range, as few as 1 (PoB's x1).")
     else:
-        hits = max(count, FREEZING_SHARDS_BASE)
-        label = "Freezing Shards: several of a cast's shards hit the boss*"
-        basis = (f"its text: \"Multiple Projectiles can hit the same enemy\" (an exception to KeywordPopups 74); all "
-                 f"{hits:g} shards of the arc taken to hit at point-blank (LOW: how much of the arc a boss covers is "
-                 "UNVERIFIED) against PoB's one. Without it (PoB): x1")
-        play = (f"Cast Freezing Shards point-blank so the whole arc lands on the boss: x{hits:g}; from range, as few as "
-                "one shard (PoB's x1).")
+        shards = max(count, FREEZING_SHARDS_BASE)
+        hits = max(1.0, round(shards * FREEZING_SHARDS_SHARE, 2))
+        label = "Freezing Shards: some of a cast's shards hit the boss*"
+        basis = (f"its text: \"Multiple Projectiles can hit the same enemy\" (an exception to KeywordPopups 74), so all "
+                 f"{shards:g} may hit (HIGH) but not all do: player reports conflict at point-blank (RESEARCH36 R36-5: "
+                 "\"the majority of projectiles often seem to fly off\" against \"much easier for every projectile to "
+                 f"connect\"), and no arc angle is in the data. Headline the lower report: {FREEZING_SHARDS_SHARE:.0%} "
+                 f"of the arc, {hits:g} hits a cast (a flat, game-decided share: LOW, named to the manager). Rows: all "
+                 f"{shards:g} at point-blank x{shards:g}; PoB's one x1")
+        play = (f"Cast Freezing Shards point-blank: {hits:g} of its {shards:g} shards taken to hit (x{hits:g}); if the "
+                f"whole arc lands, x{shards:g}; from range, as few as one (PoB's x1).")
     if hits <= 1:
         return [], [{"label": label, "value": "x1", "confidence": "LOW", "entry": GROUP_EXCEPTION_ENTRY,
                      "basis": basis + ": nothing to add"}]
@@ -18791,7 +18797,8 @@ def crossbow_sequence_model(main: Skill | None, stats: dict,
                      "basis": (f"{count:g} projectiles a use, all can hit one target (KeywordPopups 122); {main.name} "
                                "carries no crossbow_barrage_attack_time_ratio_%, so each additional one taken to add "
                                f"100% of the attack time (PoB's default for that case): x{flat:.3f}, nothing applied "
-                               f"(UNVERIFIED). Row: at its sibling skills' 10% each, x{row:.3f}. PoB counts none of them "
+                               f"(UNVERIFIED: the game data gives the cost only for Explosive Shot, Glacial Bolt, High "
+                               f"Velocity Rounds and Crossbow Shot, RESEARCH36 R36-5). Row: at its sibling skills' 10% each, x{row:.3f}. PoB counts none of them "
                                "(its sequence path needs the Barrageable type: probe POE2T4663)")}]
     factor = count / (1 + ratio / 100 * extra)
     return ([raw_mod("DPS", "MORE", 100 * extra, main.name),
