@@ -26,23 +26,6 @@
   test_in_game: "Optional: Vine Arrow with Accelerated Growth and Boundless Growth on a boss: about one explosion in five arrows, 1.2 s after landing."
   status: proposed
 
-- id: model-gem24-link-multiple-charges-per-action
-  title: "skill_can_add_multiple_charges_per_action: read by MECHC43's one-Charge-of-each-type-a-use rule (link; no number moves)"
-  kind: model
-  model: charges_per_use
-  stats: ["skill_can_add_multiple_charges_per_action"]
-  confidence: MEDIUM
-  notes: >-
-    conditions.MULTI_CHARGE_STAT (MECHC43, train 94, 96732d2d; RESEARCH33 R33-17, MEDIUM / UNVERIFIED for PoE2): a main
-    skill without the flag gets its charge lines of one type joined as one chance a use (1 - prod(1 - e_i)); with it
-    (from the skill's own stats or a support's), the lines add. The resolver asks the main skill's levelStats and
-    supportStats for the stat, so every carrier (Orb of Storms, Galvanic Field, Twister, Elemental Storm, Killing Palm,
-    Siphoning Strike, Wing Blast, the Heralds' explosions) is read: no skill limit here. The flagged skills' extra hits
-    a use are MECHC43's open undercount (its comment).
-  sources: ["builder/search/conditions.py (MULTI_CHARGE_STAT and its comment; the resolver's _multi_charge)",
-            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/multiple-charges-per-action.md (R33-17)"]
-  status: proposed
-
 - id: model-gem24-link-walking-calamity-trigger
   title: "triggered_by_walking_calamity: Meteors / Starfall's trigger flag; their rate is GEM12's meteor model (link; no number moves)"
   kind: model
@@ -137,17 +120,17 @@
   status: proposed
 
 - id: model-gem24-link-primary-skill-trigger
-  title: "triggered_by_primary_skill on Manifest Rune and the Transmutation Explosion: their trigger rates are modelled (link; no number moves)"
+  title: "triggered_by_primary_skill on the Transmutation Explosion: its trigger rate is modelled (link; no number moves)"
   kind: model
   model: trigger_rate
   stats: ["triggered_by_primary_skill"]
-  skill: [Manifest Rune, Transmutation Explosion]
+  skill: [Transmutation Explosion]
   confidence: MEDIUM
   notes: >-
-    Manifest Rune: models.py "Verisium Manifestations" (MECHB42) hands PoB its trigger rate (min(the main Attack's hits
-    a second, 1 / its cooldown), held to what Runic Ward pays). Transmutation Explosion: Assumptions.wanted sets its
+    Manifest Rune is MECHB42's own entry (model-mechb42-verisium-manifestations, the same stat; GEM25 took it off
+    this link: two entries for one stat and skill clash in the coverage lookup). Transmutation Explosion: Assumptions.wanted sets its
     SkillData triggerRate to the build's Remnant supply, capped by its cooldown (the first entry, assumptions.py's
-    header). The flag says they are set off by their primary skill, which those rates already price. Not linked (no
+    header). The flag says it is set off by their primary skill, which that rate already prices. Not linked (no
     rate model checked): Ice Fragments (IceFragmentsPlayer, FragmentsOfThePastFragmentPlayer) and Repulsion Wave
     (CurseOfRepulsionShockwavePlayer).
   sources: ["builder/search/models.py (VERISIUM, MANIFEST_RUNE and their comment)",
