@@ -8388,6 +8388,73 @@ def fan_the_flames_model(parts: list[dict]) -> tuple[float, list[dict]]:
                  f"on the boss and hit it with the Wind skill. With this build's Ignite {total:,.1f} DPS; without an "
                  f"Ignite on the boss: 0.")}]
 
+
+# Accelerated Growth's explosions (GEM24; an UNDERCOUNT: probe POE2T3548, Vine Arrow 246.5 FullDPS with or without the
+# support, PoB's triggered row speed 0, AverageHit 38.2). The game (26650308): the support (SupportExplosiveGrowthPlayer /
+# Two, AllowedActiveSkillTypes [Plant]; support_explosive_growth_trigger_explosion_on_plant_growth): "Triggers
+# Accelerated Growth on Overgrowing Plants created by Supported Skills"; the explosion (TriggeredExplosiveGrowthPlayer /
+# Two): triggered_by_support_explosive_growth_% 100, no cooldown (GrantedEffectsPerLevel; poe2db's level table: 0),
+# "Explosion occurs after 1.2 seconds", radius 1.8 m (II: Blinds). So explosions a second = the supported skill's plants
+# made a second x the share of them Overgrown (GEM16's overgrown_share: Thunderstorm's cover, "Plants have N% chance to
+# immediately Overgrow" (Boundless Growth), its Presence form (Idol of Yeena); Navira's Oasis and Nature's Archon not
+# counted, 0 with the reason; CLAUDE.md: no source, 0), each at PoB's explosion hit (its useRates row AverageHit x hit
+# chance), the 1.8 m explosion taken to reach the boss (the play: make the plants at the boss; MEDIUM). Overgrow sources
+# (checked: game Stats ids holding overgrow / plant_growth through Mods, stat sets, PassiveSkills, SoulCoreStats (GEM16,
+# GEM23); poe2db Plant_Skills_and_Overgrowth, 19 Nov 2026: Boundless Growth, Idol of Yeena, Thunderstorm, Navira's Oasis,
+# Nature's Archon, no others). What a "plant" is differs by skill (each skill's own "Overgrown ..." text, PoB's
+# Specific_Skill_Stat_Descriptions): Vine Arrow's plant (one a use: "causing a plant to spring up at the impact
+# location", landing hit or miss), Toxic Growth's Pustules ("Overgrown Pustules grow ..."; "Fires 5 Pustules" into a 4.5
+# m spread (MECHB14's reading of active_skill_base_secondary_area_of_effect_radius 45): one a use counted at the boss,
+# as PoB counts one impact a cast; the other four, whose reach to the boss (and into a 2.3 m Thunderstorm) is
+# UNVERIFIED, not counted: an undercount of up to 5x, said in the note), Entangle's fissure (one a use), Thrashing Vines' vines (awakened_
+# forest_spawn_vines_per_X%_cast_time 50: two a cast time channelled; LOW). Briarpatch's Thorny Ground (made by your Spell
+# casts from stored damage) and Toxic Domain's Pustules (on your Projectile Attacks in the Bloom) have no rate read here:
+# 0, said (PoB's 0 too, so no overcount). LOW where Thunderstorm or Presence carry the share, MEDIUM otherwise.
+ACCELERATED_GROWTH = "Accelerated Growth"
+ACCELERATED_GROWTH_ENTRY = "model-gem24-accelerated-growth"
+PLANTS_A_USE = {"Vine Arrow": (1.0, "one plant a landed arrow"),
+                "Toxic Growth": (1.0, "one Pustule a use at the boss (it fires 5 into a 4.5 m spread: how many of the "
+                                      "others the 1.8 m explosion or the storm reaches is UNVERIFIED, not counted: up to "
+                                      "5 times this)"),
+                "Entangle": (1.0, "one fissure a use"),
+                "Thrashing Vines": (2.0, "two vines a cast time channelled (one per 50% of it; LOW)")}
+
+
+def accelerated_growth_model(parts: list[dict], share: float, share_parts: list[str],
+                             share_conf: str = "MEDIUM") -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Accelerated Growth (see above): `parts`, one per supported group: {"source": the Plant
+    skill, "uses": its uses a second (PoB's rate x its press share), "blast": one explosion's hit on the boss (PoB's
+    AverageHit x hit chance)}; `share`, `share_parts`, `share_conf`: overgrown_share's answer for the build."""
+    if not parts:
+        return 0.0, []
+    share = min(max(number(share), 0.0), 1.0)
+    total, rows, unread = 0.0, [], []
+    for part in parts:
+        per, what = PLANTS_A_USE.get(part.get("source"), (0.0, ""))
+        if per <= 0:
+            unread.append(str(part.get("source")))
+            continue
+        uses, blast = max(number(part.get("uses")), 0.0), max(number(part.get("blast")), 0.0)
+        plants = uses * per
+        rate = plants * share
+        total += rate * blast
+        rows.append(f"{part.get('source')}: {uses:.2f} uses a second x {what} = {plants:.2f} plants a second x "
+                    f"{share:.0%} Overgrown = {rate:.2f} explosions a second at {blast:,.1f}")
+    why = (("; Overgrown share: " + "; ".join(share_parts)) if share_parts else
+           "; nothing the build uses Overgrows its plants (no Thunderstorm with a use rate, no \"chance to immediately "
+           "Overgrow\" line): 0")
+    skipped = (f"; {', '.join(unread)}: no plant rate read here (their plants come from your other Spells or Projectile "
+               "Attacks), 0") if unread else ""
+    return total, [{
+        "label": "Accelerated Growth: explosions from Overgrown plants*", "value": f"{total:,.1f} DPS",
+        "confidence": share_conf if total > 0 else "LOW", "entry": ACCELERATED_GROWTH_ENTRY,
+        "basis": ("PoB gives the explosion no rate (0 DPS). The game: each Overgrown plant of the supported skill "
+                  "triggers it (no cooldown), exploding 1.2 s later in 1.8 m, taken to reach the boss: "
+                  + "; ".join(rows) + why + skipped + " (Navira's Oasis and Nature's Archon not counted)"),
+        "play": ("Make the plants at the boss and Overgrow them: cast Thunderstorm on the boss, or take Boundless Growth "
+                 f"/ an Idol of Yeena (a chance for each plant). Without an Overgrow source: 0; with this build's: "
+                 f"{total:,.1f} DPS.")}]
+
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
 # "Hit damage is taken from Mana before Life if your current Mana is higher than your current Life" (poe2db): counted as
 # 100% Mind over Matter while the build's unreserved Mana is above its Life, both pools full (the manager's ruling,

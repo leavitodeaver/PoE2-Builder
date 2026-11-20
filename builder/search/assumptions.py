@@ -1594,6 +1594,43 @@ def fan_the_flames(build: Build, main: models.Skill | None) -> tuple[float, list
     return models.fan_the_flames_model(parts)
 
 
+def accelerated_growth(build: Build, found: list[models.Skill], texts: list[str]) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Accelerated Growth (GEM24's models.accelerated_growth_model): in each enabled group
+    holding the triggered explosion, the supported Plant skill's uses a second (PoB's rate x its press share, less the
+    main group's busy time; plants land hit or miss), the explosion's hit (its useRates row), and the build's Overgrown
+    share (GEM16's models.overgrown_share over its Thunderstorm groups' rates and the build's lines)."""
+    press = getattr(build.objective, "press_scales", None) or {}
+    main_index = None
+    parts = []
+    for group in build.groups():
+        if not group["enabled"]:
+            continue
+        skills = group.get("skills") or []
+        n = next((i for i, x in enumerate(skills, 1) if x["name"] == models.ACCELERATED_GROWTH), 0)
+        if not n:
+            continue
+        chosen = group.get("mainActiveSkill") or 1
+        src = chosen if chosen != n and 0 < chosen <= len(skills) else next(
+            (i for i, x in enumerate(skills, 1) if i != n), 0)
+        if not src:
+            continue
+        own, blast_row = (build.call("useRates", indices=[group["index"]] * 2, actives=[src, n])["rates"] + [{}, {}])[:2]
+        if main_index is None:
+            main_index = build.call("groups")["mainSocketGroup"]
+        busy = build.objective.busy() if group["index"] == main_index else 0.0
+        uses = models.number(own.get("speed")) * models.number(press.get(own.get("name"), 1.0)) * (1.0 - busy)
+        chance = min(models.number(blast_row.get("HitChance", 100) or 100), 100.0) / 100
+        parts.append({"source": own.get("name") or skills[src - 1]["name"], "uses": uses,
+                      "blast": models.number(blast_row.get("AverageHit")) * chance})
+    if not parts:
+        return 0.0, []
+    storms = sorted({s.group for s in found if s.name in models.OVERGROW_SKILLS and s.group is not None})
+    groups = {r["index"]: {**r, "_press": press.get(r["name"])}
+              for r in build.call("useRates", indices=storms)["rates"]} if storms else {}
+    share, share_parts, conf = models.overgrown_share(found, groups, texts)
+    return models.accelerated_growth_model(parts, share, share_parts, conf)
+
+
 def broken_stance(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Vaulting Impact's Broken Stance (GEM5's models.broken_stance_model; GEM6 wires it): the
     best Vaulting Impact in an enabled group (its pre-mitigation Physical hit, PoB's PhysicalStoredCombinedAvg, and its
@@ -3181,6 +3218,9 @@ class Assumptions:
         hand_notes += flames_notes
         for note in flames_notes:
             build.objective.entry_scales.update(note.get("full_dps") or {})
+        growth, growth_notes = accelerated_growth(build, found, [e["text"] for e in source_lines])  # (GEM24: Overgrown plants)
+        hand_mods += [models.added_input("AcceleratedGrowth", growth)] if growth > 0 else []
+        hand_notes += growth_notes
         stance, stance_notes = broken_stance(build, main)  # (GEM5's model; MECH-A's build.dazed_up, 0 until published)
         hand_mods += [models.added_input("BrokenStance", stance)] if stance > 0 else []
         hand_notes += stance_notes

@@ -1414,3 +1414,20 @@ def test_fan_the_flames_explodes_on_hits_against_an_ignited_boss_up_to_its_coold
     dps, notes = models.fan_the_flames_model([{"hits": 2.0, "ignited": 0.0, "cooldown": 0.5, "blast": 100.0}])
     assert dps == 0.0 and notes[0]["full_dps"] == {models.FAN_THE_FLAMES: 0.0}  # (no Ignite: 0, PoB's entry still out)
     assert models.fan_the_flames_model([]) == (0.0, [])
+
+
+def test_accelerated_growth_explodes_each_overgrown_plant_of_the_supported_skill():
+    """GEM24: explosions a second = plants a second (per skill) x the Overgrown share x one explosion; no source, 0."""
+    dps, notes = models.accelerated_growth_model([{"source": "Vine Arrow", "uses": 0.6, "blast": 40.0}], 0.2,
+                                                 ["20% chance to immediately Overgrow"])
+    assert dps == pytest.approx(0.6 * 1 * 0.2 * 40.0)
+    assert notes[0]["entry"] == models.ACCELERATED_GROWTH_ENTRY and notes[0]["confidence"] == "MEDIUM"
+    assert models.accelerated_growth_model([{"source": "Toxic Growth", "uses": 1.0, "blast": 10.0}], 0.5, ["x"])[0] == \
+        pytest.approx(1.0 * 1 * 0.5 * 10.0)  # (one Pustule a use at the boss)
+    dps, notes = models.accelerated_growth_model([{"source": "Vine Arrow", "uses": 0.6, "blast": 40.0}], 0.0, [])
+    assert dps == 0.0 and "0" in notes[0]["value"]  # (nothing Overgrows the plants: 0, said)
+    dps, notes = models.accelerated_growth_model([{"source": "Briarpatch", "uses": 1.0, "blast": 40.0}], 1.0, ["x"])
+    assert dps == 0.0 and "Briarpatch" in notes[0]["basis"]  # (no plant rate read: 0, said)
+    assert models.accelerated_growth_model([], 1.0, []) == (0.0, [])
+    share = models.overgrown_share([], {}, ["Plants have a 20% chance to immediately Overgrow"])[0]
+    assert share == pytest.approx(0.2)

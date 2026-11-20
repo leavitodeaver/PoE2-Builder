@@ -1,0 +1,154 @@
+# GEM24: gem stats PoB never reads (GEM lane).
+- id: model-gem24-accelerated-growth
+  title: "Accelerated Growth: an explosion for each Overgrown plant of the supported Plant skill, 1.2 s later (PoB: 0)"
+  kind: model
+  model: accelerated_growth
+  stats: ["triggered_by_support_explosive_growth_%", "support_explosive_growth_trigger_explosion_on_plant_growth",
+          "support_explosive_growth_explosion_delay_X_ms"]
+  skill: [Accelerated Growth, Accelerated Growth II]
+  confidence: LOW
+  notes: >-
+    models.accelerated_growth_model + assumptions.accelerated_growth (GEM24; an UNDERCOUNT). Probe POE2T3548
+    (scratch/gem23/probe_trig.json): Vine Arrow 246.5 FullDPS with or without Accelerated Growth I / II (PoB's explosion
+    row speed 0, AverageHit 38.2). Game: "Triggers Accelerated Growth on Overgrowing Plants created by Supported Skills"
+    (SupportExplosiveGrowthPlayer / Two), the explosion's triggered_by_support_explosive_growth_% 100, no cooldown, 1.2 s
+    delay, 1.8 m radius. Explosions a second = the supported skill's plants a second (Vine Arrow 1 a use, Toxic Growth 1
+    Pustule at the boss of its 5 (the rest UNVERIFIED, not counted), Entangle 1 fissure, Thrashing Vines 2 vines a cast time; Briarpatch / Toxic Domain not read: 0) x GEM16's
+    overgrown_share (Thunderstorm's cover, Boundless Growth's 20%, Idol of Yeena's 25% in Presence; Navira's Oasis and
+    Nature's Archon not counted), each at PoB's explosion hit. No Overgrow source: 0 (CLAUDE.md). Overgrow sources
+    (checked: game Stats ids with overgrow / plant_growth through Mods, stat sets, PassiveSkills, SoulCoreStats; poe2db
+    Plant_Skills_and_Overgrowth 19 Nov 2026: the same five, no others).
+  sources: ["builder/search/models.py (accelerated_growth_model, overgrown_share)",
+            "builder/search/assumptions.py (accelerated_growth)",
+            "data/game-26650308/tables (GrantedEffects 503 / 504 / 1127 / 1128; ActiveSkills type 250 Plant)",
+            "https://poe2db.tw/us/Accelerated_Growth", "https://poe2db.tw/us/Plant_Skills_and_Overgrowth",
+            "scratch/gem23/probe_trig.json"]
+  test_in_game: "Optional: Vine Arrow with Accelerated Growth and Boundless Growth on a boss: about one explosion in five arrows, 1.2 s after landing."
+  status: proposed
+
+- id: model-gem24-link-multiple-charges-per-action
+  title: "skill_can_add_multiple_charges_per_action: read by MECHC43's one-Charge-of-each-type-a-use rule (link; no number moves)"
+  kind: model
+  model: charges_per_use
+  stats: ["skill_can_add_multiple_charges_per_action"]
+  confidence: MEDIUM
+  notes: >-
+    conditions.MULTI_CHARGE_STAT (MECHC43, train 94, 96732d2d; RESEARCH33 R33-17, MEDIUM / UNVERIFIED for PoE2): a main
+    skill without the flag gets its charge lines of one type joined as one chance a use (1 - prod(1 - e_i)); with it
+    (from the skill's own stats or a support's), the lines add. The resolver asks the main skill's levelStats and
+    supportStats for the stat, so every carrier (Orb of Storms, Galvanic Field, Twister, Elemental Storm, Killing Palm,
+    Siphoning Strike, Wing Blast, the Heralds' explosions) is read: no skill limit here. The flagged skills' extra hits
+    a use are MECHC43's open undercount (its comment).
+  sources: ["builder/search/conditions.py (MULTI_CHARGE_STAT and its comment; the resolver's _multi_charge)",
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/multiple-charges-per-action.md (R33-17)"]
+  status: proposed
+
+- id: model-gem24-link-walking-calamity-trigger
+  title: "triggered_by_walking_calamity: Meteors / Starfall's trigger flag; their rate is GEM12's meteor model (link; no number moves)"
+  kind: model
+  model: meteor_rate
+  stats: ["triggered_by_walking_calamity"]
+  skill: [Meteors, Starfall]
+  confidence: MEDIUM
+  notes: >-
+    models.meteor_rate_model (GEM12, model-gem12-meteor-rates): the triggered Meteors (WalkingCalamityMeteorPlayer) and
+    Starfall's stars (TheStarsAnswerCometPlayer) at the game's spawn interval (walking_calamity_spawn_meteor_every_ms) and
+    large-meteor share, Walking Calamity's at its Glory uptime. The flag says only that the buff skill triggers them,
+    which that model already prices; nothing else reads it.
+  sources: ["builder/search/models.py (meteor_rate_model and the comment above it)", "ledger/entries/gems-gem12.yaml"]
+  status: proposed
+
+- id: model-gem24-link-lingering-mirage-trigger
+  title: "triggered_by_lingering_mirage: the Mirage spawns' trigger flag; their rate is the Mirage model's (link; no number moves)"
+  kind: model
+  model: mirage
+  stats: ["triggered_by_lingering_mirage"]
+  confidence: MEDIUM
+  notes: >-
+    models.py "Mirages (slice 7)": Mirage Archer (on a dodge roll) and Mirage Deadeye (on a ranged Projectile Attack),
+    MirageArcherSpawnPlayer / MirageDeadeyeSpawnPlayer, one Mirage per their shared 10 s cooldown for its duration at the
+    less damage. Those two spawns are the flag's only carriers (checked: coverage report records for the stat; game
+    GrantedEffectStatSets via the report's sources), both read by that model: no skill limit (their names are blank in
+    the report).
+  sources: ["builder/search/models.py (MIRAGE_METAS, MIRAGE_COOLDOWN and the Mirages comment)"]
+  status: proposed
+
+- id: model-gem24-link-herald-of-blood-explode
+  title: "Herald of Blood's explode-on-kill stat: GEM20's kills model (link; no number moves)"
+  kind: model
+  model: herald_of_blood
+  stats: ["skill_herald_bleeding_enemies_explode_for_%_blood_loss_as_unscalable_physical_damage"]
+  skill: [Herald of Blood]
+  confidence: LOW
+  notes: >-
+    models.herald_of_blood_model (GEM20, model-gem20-herald-of-blood-kills): the explosion only on a kill of an enemy with
+    Blood Loss, at the boss preset's add kills (0 against a lone boss); the Blood Loss part of the hit is PoB's. Herald of
+    the Royal Queen (UniqueAtziriHeraldPlayer) carries the stat too and is NOT linked (the model names Herald of Blood only).
+  sources: ["builder/search/models.py (herald_of_blood_model and the comment above it)", "ledger/entries/gems-gem20.yaml"]
+  status: proposed
+
+- id: model-gem24-link-corrupted-cry-trigger
+  title: "Corrupted Cry's skill_triggered_by_support_which_grants_it: GEM10's stacks model reads its warcry's rate (link; no number moves)"
+  kind: model
+  model: corrupting_cry
+  stats: ["skill_triggered_by_support_which_grants_it"]
+  skill: [Corrupted Cry]
+  confidence: MEDIUM
+  notes: >-
+    models.corrupting_cry_model (GEM10, model-gem10-corrupting-cry-stacks): one Corrupted Blood stack per use of the
+    supported Warcry (its group's use rate, models.gem_stat_side_groups), stacks held to the 5 s / 10 cap. The flag's
+    other carriers are not linked: Fragment Self, Nature's Exchange, Profane Decay and Twisted Pact (the last two have no
+    model; GEM24's probe POE2T3561 asks whether PoB counts them).
+  sources: ["builder/search/models.py (corrupting_cry_model, CORRUPTED_CRY)", "ledger/entries/gems-gem10.yaml"]
+  status: proposed
+
+- id: model-gem24-link-generic-ongoing-trigger
+  title: "triggered_by_generic_ongoing_trigger on the Energy metas: the Energy model's trigger rate (link; no number moves)"
+  kind: model
+  model: energy
+  stats: ["triggered_by_generic_ongoing_trigger"]
+  skill: [SupportBarrierInvocationPlayer, SupportElementalInvocationPlayer, SupportMetaCastFireSpellOnHitPlayer,
+          SupportMetaCastLightningSpellOnHitPlayer, SupportMetaCastOnBlockPlayer, SupportMetaCastOnCharmUsePlayer,
+          SupportMetaCastOnCritPlayer, SupportMetaCastOnDodgePlayer, SupportMetaCastOnElementalAilmentPlayer,
+          SupportMetaCastOnMinionDeathPlayer, SupportReapersInvocationPlayer, SupportSpellslingerPlayer]
+  confidence: datamined
+  notes: >-
+    models.energy_model / META_GEMS (Reaper's Invocation since MECHB9): each meta triggers its socketed spells when its
+    Energy reaches their total (model-stats-energy-cost, gem-stats-energy.yaml, names the same supports for the
+    generic_ongoing_trigger_* stats); this flag marks the triggered spells as set off by that ongoing trigger, which the
+    model already prices. Caltrops (TriggeredTrailOfCaltropsPlayer) carries the flag too and is NOT linked (its rate is
+    not the Energy model's; the hazard model reads it as PoB's one a use).
+  sources: ["builder/search/models.py (META_GEMS, energy_model)", "ledger/entries/gem-stats-energy.yaml (model-stats-energy-cost)"]
+  status: proposed
+
+- id: model-gem24-link-unleash-the-elements-trigger
+  title: "triggered_by_unleash_the_elements: Apocalypse's three disasters, at MECHB7's trigger rate (link; no number moves)"
+  kind: model
+  model: apocalypse
+  stats: ["triggered_by_unleash_the_elements"]
+  skill: [Crash Lightning, Hailstorm, Meteor]
+  confidence: MEDIUM
+  notes: >-
+    models.apocalypse_model (MECHB7): PoB gives Hailstorm, Meteor and Crash Lightning (ApocalypseColdPlayer / FirePlayer /
+    LightningPlayer) Speed 0; the model hands each a trigger rate = the buff's share of the fight (Apocalypse's Glory
+    uses x 12 s) x (1 + frequency %) / 0.75 s / 3. This flag marks them as triggered by the buff, which that rate prices.
+  sources: ["builder/search/models.py (apocalypse_model and its comment)", "builder/search/assumptions.py (apocalypse)"]
+  status: proposed
+
+- id: model-gem24-link-primary-skill-trigger
+  title: "triggered_by_primary_skill on Manifest Rune and the Transmutation Explosion: their trigger rates are modelled (link; no number moves)"
+  kind: model
+  model: trigger_rate
+  stats: ["triggered_by_primary_skill"]
+  skill: [Manifest Rune, Transmutation Explosion]
+  confidence: MEDIUM
+  notes: >-
+    Manifest Rune: models.py "Verisium Manifestations" (MECHB42) hands PoB its trigger rate (min(the main Attack's hits
+    a second, 1 / its cooldown), held to what Runic Ward pays). Transmutation Explosion: Assumptions.wanted sets its
+    SkillData triggerRate to the build's Remnant supply, capped by its cooldown (the first entry, assumptions.py's
+    header). The flag says they are set off by their primary skill, which those rates already price. Not linked (no
+    rate model checked): Ice Fragments (IceFragmentsPlayer, FragmentsOfThePastFragmentPlayer) and Repulsion Wave
+    (CurseOfRepulsionShockwavePlayer).
+  sources: ["builder/search/models.py (VERISIUM, MANIFEST_RUNE and their comment)",
+            "builder/search/assumptions.py (Assumptions.wanted: Transmutation Explosion triggerRate)"]
+  status: proposed
