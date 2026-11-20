@@ -455,19 +455,24 @@
   status: proposed
 
 - id: ancestral-bond
-  title: Ancestral Bond, your Totem Limit is doubled (PoB's totem limit +1; Spell Totem's count is models.totem_model's)
+  title: Ancestral Bond, your Totem Limit is doubled (read by the totem models, which double it themselves; no stand-in since COV47)
   kind: pob_gap
+  model: bond_totems
   match: '^Your Totem Limit is doubled$'
-  replace: ['+1 to maximum number of Summoned Totems']
+  replace: []
   confidence: reported
   notes: >-
-    PoB's totem limit starts at 1 here; doubled is one more, so the stand-in adds +1 to PoB's ActiveTotemLimit,
-    which PoB uses for a totem skill's ailment stacks (CalcOffence 5264: stacks x active totems) and "per Summoned
-    Totem" lines (TotemsSummoned). A build with more totem limit from elsewhere gets only +1, not double (an
-    undercount, not counted). Spell Totem's own count is models.totem_model's (MECHB4): it reads this line itself
-    and doubles the gem level's limit (2 -> 4 at level 20), capped by free Spirit at 75 per totem; PoB's one-totem
-    DPS is scaled there, not by this +1.
-  sources: ["https://poe2db.tw/us/Ancestral_Bond"]
+    PoB leaves the line unparsed. Every totem model reads it from the build's text and doubles the limit itself
+    (models.bond_totems: totem_model for Spell Totem, totem_count_model, ancestral_spirits_model, totem_deaths), from
+    the skill's own limit plus the build's "+N Totems" adds, which the bridge reads as PoB's Totem Limit less the
+    skill's own. Until COV47 this entry also gave PoB a "+1 to maximum number of Summoned Totems" stand-in, which the
+    bridge counted among those adds, so the models doubled it again: an OVERCOUNT of 1.5x totems (probe POE2T3978,
+    scratch/cov47/probe3978.log: Spell Totem 20 with Ancestral Bond, PoB's limit 2 own 2 without the stand-in, 3 own 2
+    with it, so (2 + 1) x 2 = 6 totems where the doubling gives 4). Now the line is model-read only. Left (an
+    UNDERCOUNT, labelled, routed to MECH-B): PoB's own uses of the limit, its ailment stacks x active totems
+    (CalcOffence 5099) and the "per Summoned Totem" lines (TotemsSummoned = ActiveTotemLimit, CalcPerform 1253), now
+    read the undoubled limit (2 where the game gives 4; the stand-in gave 3).
+  sources: ["https://poe2db.tw/us/Ancestral_Bond", "builder/search/models.py (bond_totems and its callers)", "scratch/cov47/probe3978.log (POE2T3978)"]
   test_in_game: "Place totems with Ancestral Bond: two of the same totem stay at once."
   status: proposed
 

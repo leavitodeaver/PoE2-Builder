@@ -1475,3 +1475,16 @@ def test_cov47_train98_and_99_readers_are_model_read():
         assert coverage.resolver_condition(line).var == var, line
     # a kill event the resolver rates 0 stays open
     assert coverage.resolver_condition("Enemies you Kill while Shapeshifted are Intimidated for 4 seconds") is None
+
+
+def test_cov47_ancestral_bond_has_no_stand_in_the_totem_models_double_again():
+    """COV47 (an OVERCOUNT, probe POE2T3978): the ledger's old "+1 to maximum number of Summoned Totems" stand-in for
+    "Your Totem Limit is doubled" reached PoB's Totem Limit, which the bridge reads as one of the build's "+N Totems"
+    adds, so models.bond_totems doubled it again ((2 + 1) x 2 = 6 Spell Totems, not 4). The line is model-read only."""
+    from builder.ledger import model_entry, translate
+    from builder.search import models
+
+    entry, lines = translate("Your Totem Limit is doubled")
+    assert entry.id == "ancestral-bond" and lines == []
+    assert model_entry("Your Totem Limit is doubled").id == "ancestral-bond"
+    assert models.bond_totems(2, 0, True)[0] == 4

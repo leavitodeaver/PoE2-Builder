@@ -704,7 +704,8 @@ def not_applied(status: str, entry: str | None, reason: str, pool: str = "Item",
     lines and to socketed runes (`pool` "Item", "Jewel", "Flask", "Charm", "Runes", "implicit"); since COV13 a rune's
     or Idol's Bonded line too, under PoB's own Bonded switch (items.py: it counts only with a Bonded source, Wisdom of
     the Maji or an Idol in an item that lets Idols use their Bonded lines; `bonded` is kept for callers). Still not
-    applied: desecrated, corruption and limb mods (the search never rolls them), a unique's own mod
+    applied: corruption and limb mods (the search never rolls them), desecrated ones (rolled only with SEARCH's
+    switches on, OFF by default), a unique's own mod
     ("Exclusive": applied through the unique's text when PoB lists the line among the unique's ignored ones, so it
     is counted there), and Timeless jewels' passives ("legion"). An entry recording "no effect" needs nothing applied."""
     if status != "ledger" or reason != "translated":
@@ -718,7 +719,12 @@ def not_applied(status: str, entry: str | None, reason: str, pool: str = "Item",
         # stonefist.py): its translation is applied there (stonefist.ledger_corrected)
         return status, entry, "translated in Way of the Stonefist's transformed unique text (stonefist.ledger_corrected)"
     why = {"Exclusive": "a unique's mod PoB doesn't list among the unique's ignored lines",
-           "legion": "a Timeless jewel's passive (the tree side)"}.get(pool, f"the search never rolls {pool} mods")
+           "legion": "a Timeless jewel's passive (the tree side)",
+           # (COV47) since train 99 (SEARCH30 / 31, builder/search/desecrated.py) the search can roll one Desecrated affix
+           # on a rare, through rares.py's corrected_item (so the translation applies), but only with its switches on
+           "Desecrated": ("the search rolls Desecrated mods only with POE2_SEARCH_DESECRATED / _BREACH / _JEWEL on (all "
+                          "OFF by default, desecrated.py; with them on, the translation applies)")
+           }.get(pool, f"the search never rolls {pool} mods")
     return "none", entry, f"{NOT_APPLIED_WHY}{why}"
 
 
