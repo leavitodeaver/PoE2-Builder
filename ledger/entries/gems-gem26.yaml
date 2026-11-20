@@ -86,3 +86,22 @@
             "scratch/gem26/probe_sweep.json"]
   test_in_game: "Optional: with Magma Barrier, raise the shield into a boss hit after the lava fills: one spray per charge."
   status: proposed
+
+- id: model-gem26-trail-of-caltrops
+  title: "Trail of Caltrops: 3 Caltrops a dodge roll, set off by a boss standing still (PoB gives them no rate: 0 DPS)"
+  kind: model
+  model: trail_of_caltrops
+  stats: ["caltrops_on_dodge_X_triggers"]
+  skill: [Trail of Caltrops]
+  confidence: LOW
+  notes: >-
+    models.trail_of_caltrops_model + assumptions.trail_of_caltrops (GEM26; an UNDERCOUNT; probe POE2T3584: Caltrops
+    speed 0, TotalDPS 0). RESEARCH35 R35-23: 3 a roll (this stat; at 5 / 25 / 45% of the roll), +3 per added projectile,
+    at most 20 active for 8 s (HIGH, game data); a boss can set them off; they land where it WAS (MEDIUM-LOW, forum
+    3852574). Caltrops a second = the user's one roll every 2 s x 3 x the projectile count, held to the 20 active; the
+    headline takes the boss standing still (the manager, 20 Nov), rows: moving its preset's most (bosses.moving_ceiling)
+    and 0. Each at PoB's Caltrops AverageDamage.
+  sources: ["builder/search/models.py (trail_of_caltrops_model)", "builder/search/assumptions.py (trail_of_caltrops)",
+            "scratch/manager/research/caltrops-fulmination-repulsion.md (R35-23)"]
+  test_in_game: "Optional: roll past a standing boss with Trail of Caltrops: about 3 hits a roll."
+  status: proposed

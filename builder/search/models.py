@@ -8547,8 +8547,9 @@ def fan_the_flames_model(parts: list[dict]) -> tuple[float, list[dict]]:
 # Two): triggered_by_support_explosive_growth_% 100, no cooldown (GrantedEffectsPerLevel; poe2db's level table: 0),
 # "Explosion occurs after 1.2 seconds", radius 1.8 m (II: Blinds). So explosions a second = the supported skill's plants
 # made a second x the share of them Overgrown (GEM16's overgrown_share: Thunderstorm's cover, "Plants have N% chance to
-# immediately Overgrow" (Boundless Growth), its Presence form (Idol of Yeena); Navira's Oasis and Nature's Archon not
-# counted, 0 with the reason; CLAUDE.md: no source, 0), each at PoB's explosion hit (its useRates row AverageHit x hit
+# immediately Overgrow" (Boundless Growth), its Presence form (Idol of Yeena); Nature's Archon (GEM26: MECHC44's
+# natures_archon_uptime, fed these plants a second x that share, combined 1 - (1 - uptime) x (1 - share), in
+# assumptions.accelerated_growth); Navira's Oasis not counted, 0 with the reason; CLAUDE.md: no source, 0), each at PoB's explosion hit (its useRates row AverageHit x hit
 # chance), the 1.8 m explosion taken to reach the boss (the play: make the plants at the boss; MEDIUM). Overgrow sources
 # (checked: game Stats ids holding overgrow / plant_growth through Mods, stat sets, PassiveSkills, SoulCoreStats (GEM16,
 # GEM23); poe2db Plant_Skills_and_Overgrowth, 19 Nov 2026: Boundless Growth, Idol of Yeena, Thunderstorm, Navira's Oasis,
@@ -8657,7 +8658,8 @@ def accelerated_growth_model(parts: list[dict], share: float, share_parts: list[
         "confidence": share_conf if total > 0 else "LOW", "entry": ACCELERATED_GROWTH_ENTRY,
         "basis": ("PoB gives the explosion no rate (0 DPS). The game: each Overgrown plant of the supported skill "
                   "triggers it (no cooldown), exploding 1.2 s later in 1.8 m, taken to reach the boss: "
-                  + "; ".join(rows) + why + skipped + " (Navira's Oasis and Nature's Archon not counted)"),
+                  + "; ".join(rows) + why + skipped + " (Navira's Oasis not counted; Nature's Archon in the share when "
+                  "the build has its line, MECHC44's uptime)"),
         "play": ("Make the plants at the boss and Overgrow them: cast Thunderstorm on the boss, or take Boundless Growth "
                  f"/ an Idol of Yeena (a chance for each plant). Without an Overgrow source: 0; with this build's: "
                  f"{total:,.1f} DPS.")}] + extra
@@ -8835,7 +8837,9 @@ def twisted_pact_model(parts: list[dict], fight: float | None, cap: float = CRY_
 # the support is in the main skill's group (a side group's Electrocute isn't read: 0, said). Each explosion taken to
 # reach the boss (the add dies beside it: LOW, as Herald of Blood's). Each: PoB's AverageHit for the explosion in its
 # own group, which takes the slain enemy's Life as a normal monster's at the enemy level (CalcOffence 2410-2414:
-# monsterLifeTable; the preset's adds' own Life not read: LOW, an UNDERCOUNT for a magic / rare add). LOW.
+# monsterLifeTable). The game uses the slain add's own maximum Life (RESEARCH35 R35-24, HIGH: "equal to N% of Corpse's
+# maximum Life"), which the boss presets don't hold (bosses.Kills has no Life: asked of MECH-D), so PoB's normal-monster
+# Life stands in (LOW: an UNDERCOUNT for a magic / rare add, an OVERCOUNT for a weaker one). LOW.
 VOLTAIC_FULMINATION = "Voltaic Fulmination"
 VOLTAIC_FULMINATION_ENTRY = "model-gem26-voltaic-fulmination"
 
@@ -8858,8 +8862,9 @@ def voltaic_fulmination_model(blast: float, kills: float, electrocuted: float, c
         "confidence": "LOW", "entry": VOLTAIC_FULMINATION_ENTRY,
         "basis": (f"PoB gives the explosion no rate (0 DPS). The game: the supported skill's Electrocuted enemies explode "
                   f"when killed, for a share of their maximum Life as Lightning; {how}; {why}: {rate:.4f} explosions a "
-                  f"second at {blast:,.0f} each (PoB's, a normal monster's Life at the enemy level; each taken to reach "
-                  f"the boss, LOW)"),
+                  f"second at {blast:,.0f} each (PoB's, a normal monster's Life at the enemy level standing in for the slain "
+                  f"add's own Life, which the game uses (R35-24) and the presets don't hold; each taken to reach the boss, "
+                  f"LOW)"),
         "play": (f"Voltaic Fulmination fires only when you kill an enemy your Eonyr's Thunder skill Electrocuted: against "
                  f"a lone boss it deals nothing. Electrocute the boss's adds and kill them beside it: with this fight's "
                  f"adds {dps:,.1f} DPS; with every add Electrocuted when it dies {every:,.1f}; without Electrocuted "
@@ -8939,6 +8944,60 @@ def magma_spray_model(rate: float, blast: float, how: str, pob: float = 0.0) -> 
         "play": (f"Magma Spray fires when you Block with your shield raised after the lava has charged: raise the shield "
                  f"(Raise Shield, or a shield-channel main skill) when the boss swings: with this build {dps:,.1f} DPS; "
                  f"without raising it: 0.")}]
+
+
+# Trail of Caltrops (GEM26; an UNDERCOUNT: probe POE2T3584, PoB rates its Caltrops Speed 0, TotalDPS 0). RESEARCH35
+# R35-23 (research/caltrops-fulmination-repulsion.md): 3 Caltrops a dodge roll (caltrops_on_dodge_X_triggers 3, at 5 /
+# 25 / 45% of the roll), +3 per added projectile, at most 20 active, 8 s each (HIGH, game data); a boss can set them off
+# (no boss exclusion in the Hazard keyword); they land where the target WAS, so they hit a boss that stands still and
+# miss one that moves (MEDIUM-LOW, forum 3852574). Caltrops a second on the boss = the build's dodge rolls a second (the
+# user's default, one every DODGE_EVERY s against a boss) x 3 x its projectile count (PoB's ProjectileCount for the
+# Caltrops, 1 base) x the share of the time the boss stands still; held to the 20 active over their 8 s. The headline
+# takes the boss standing still (the manager, 20 Nov 07:45); rows: the boss moving its preset's most
+# (bosses.moving_ceiling, MECH-D's upper bound) and 0 (a boss always on the move). Each Caltrop: PoB's AverageDamage for
+# the Caltrops set (its hit chance in). LOW.
+TRAIL_OF_CALTROPS = "Trail of Caltrops"
+CALTROPS = "Caltrops"
+TRAIL_CALTROPS_ENTRY = "model-gem26-trail-of-caltrops"
+CALTROPS_A_ROLL, CALTROPS_MAX, CALTROPS_SECONDS = 3.0, 20.0, 8.0
+
+
+def trail_of_caltrops_model(hit: float, projectiles: float, moving: float, moving_how: str = "",
+                            every: float = DODGE_EVERY, main_dps: float = 0.0, roll_seconds: float = DODGE_ROLL_SECONDS,
+                            charged: bool = False, main: str = "") -> tuple[float, list[dict], list[dict]]:
+    """(added DPS, mods, notes) for Trail of Caltrops (see above): `hit` one Caltrop's damage on the boss (PoB's),
+    `projectiles` its projectile count, `moving` the most of the fight the boss moves (bosses.moving_ceiling); the rolls'
+    time comes off `main` (the user, 7 Nov: a build that relies on rolling loses the time its rolls take; `charged`: another
+    model already charges it), and the player rolls for them only when the Caltrops beat that lost time."""
+    hit = max(number(hit), 0.0)
+    if hit <= 0:
+        return 0.0, [], []
+    per = CALTROPS_A_ROLL * max(number(projectiles), 1.0)
+    laid = min(per / every, CALTROPS_MAX / CALTROPS_SECONDS)
+    dps = laid * hit
+    moving = min(max(number(moving), 0.0), 1.0)
+    busy = 0.0 if charged else min(roll_seconds / every, 0.95)
+    if dps <= busy * max(number(main_dps), 0.0):
+        return 0.0, [], [{
+            "label": "Trail of Caltrops: not worth rolling for*", "value": "0 DPS", "confidence": "LOW",
+            "entry": TRAIL_CALTROPS_ENTRY,
+            "basis": (f"rolling every {every:g} s for {dps:,.1f} DPS of Caltrops would cost {main or 'the main skill'} "
+                      f"{busy:.0%} of its time ({busy * number(main_dps):,.1f} DPS): not counted"),
+            "play": f"Rolling for Caltrops costs more than it gives here: {dps:,.1f} DPS of Caltrops vs {busy * number(main_dps):,.1f} lost."}]
+    mods = [line("1% more Attack and Cast Speed", -100 * busy, skill=main)] if busy > 0 and main else []
+    roll_note = [{"label": f"Time spent dodge rolling ({main})", "value": f"{busy:.1%} less Attack and Cast Speed",
+                  "basis": (f"the build rolls every {every:g} s for Trail of Caltrops (the user's default), each roll "
+                            f"{roll_seconds:.3g} s away from {main}"), "confidence": "theory"}] if mods else []
+    return dps, mods, roll_note + [{
+        "label": "Trail of Caltrops: Caltrops from your dodge rolls under a boss standing still*", "value": f"{dps:,.1f} DPS",
+        "confidence": "LOW", "entry": TRAIL_CALTROPS_ENTRY,
+        "basis": (f"PoB gives the Caltrops no rate (0 DPS). The game: {per:g} Caltrops a dodge roll (3 x {max(number(projectiles), 1.0):g} "
+                  f"projectiles), one roll every {every:g} s (the user's default against a boss), at most "
+                  f"{CALTROPS_MAX:g} active for {CALTROPS_SECONDS:g} s: {laid:.2f} a second, each set off by the boss where "
+                  f"it stood (RESEARCH35 R35-23: they hit a boss that stands still, MEDIUM-LOW), at {hit:,.1f} each"),
+        "play": (f"Roll past a boss that's standing still: your Caltrops land where it was. Boss standing still: {dps:,.1f} "
+                 f"DPS; moving as much as it can ({moving_how or f'{moving:.0%} of the fight'}): {dps * (1 - moving):,.1f}; "
+                 f"always on the move: 0.")}]
 
 
 # Repulsion's Repulsion Wave (GEM26; an UNDERCOUNT: probe POE2T3584, Boneshatter + Repulsion: PoB rates the wave Speed 0,

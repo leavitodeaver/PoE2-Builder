@@ -1557,3 +1557,25 @@ def test_magma_spray_fires_once_per_charged_raised_block_and_takes_pobs_flat_ent
     rate, how = conditions.magma_barrier_rate({"_raised_share": 0.0}, 0.5)
     dps, notes = models.magma_spray_model(rate, 500.0, how)
     assert dps == 0.0 and notes[0]["full_dps"] == {models.MAGMA_SPRAY: 0.0} and "without raising it: 0" in notes[0]["play"]
+
+
+def test_trail_of_caltrops_three_a_roll_under_a_still_boss_with_moving_and_zero_rows():
+    """GEM26, RESEARCH35 R35-23: Caltrops a second = rolls a second x 3 x projectiles (held to 20 active over 8 s), each
+    at PoB's hit; the boss standing still the headline; moving-ceiling and 0 rows."""
+    dps, mods, notes = models.trail_of_caltrops_model(40.0, 1.0, 0.2, "test", main_dps=20.0, main="Spark")
+    assert dps == pytest.approx(3 / models.DODGE_EVERY * 40.0)
+    assert notes[0]["label"].startswith("Time spent dodge rolling")  # (the user, 7 Nov: the rolls' time off the main)
+    assert mods[0]["scale"] == pytest.approx(-100 * models.DODGE_ROLL_SECONDS / models.DODGE_EVERY)
+    assert f"{dps * 0.8:,.1f}" in notes[1]["play"] and "always on the move: 0" in notes[1]["play"]
+    assert models.trail_of_caltrops_model(40.0, 1.0, 0.0, charged=True, main_dps=20.0, main="Spark")[1] == []  # (charged)
+    assert models.trail_of_caltrops_model(40.0, 3.0, 0.0)[0] == pytest.approx(20 / 8 * 40.0)  # (the 20-active cap)
+    assert models.trail_of_caltrops_model(40.0, 1.0, 0.0, main_dps=1000.0, main="Spark")[0] == 0.0  # (not worth it)
+    assert models.trail_of_caltrops_model(0.0, 1.0, 0.0) == (0.0, [], [])
+
+
+def test_natures_archon_raises_the_overgrown_share_for_accelerated_growth():
+    """GEM26: MECHC44's natures_archon_uptime fed the plants a second x the other share; combined 1 - (1 - up)(1 - share)."""
+    texts = ["50% chance to gain Nature's Archon when your Plants Overgrow"]
+    up, how = models.natures_archon_uptime(texts, 1.0 * 0.2, {}, False, 1.0)
+    assert 0 < up < 1 and "Nature's Archon" in how
+    assert models.natures_archon_uptime([], 1.0, {}, False, 1.0)[0] == 0.0

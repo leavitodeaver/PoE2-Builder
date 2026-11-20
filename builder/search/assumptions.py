@@ -1837,6 +1837,30 @@ def magma_spray(build: Build, main: models.Skill | None, stats: dict) -> tuple[f
     return models.magma_spray_model(rate, blast, how, pob)
 
 
+def trail_of_caltrops(build: Build, stats: dict, main: models.Skill | None = None,
+                      charged: bool = False) -> tuple[float, list[dict], list[dict]]:
+    """(added DPS, notes) for Trail of Caltrops (GEM26's models.trail_of_caltrops_model): in the first enabled group
+    holding the gem, its Caltrops set's AverageDamage and ProjectileCount (setRates), and the boss's moving ceiling
+    (bosses.moving_ceiling) for the play rows."""
+    group = next((g for g in build.groups() if g["enabled"]
+                  and any(x["name"] == models.TRAIL_OF_CALTROPS for x in g.get("gems") or [] if x.get("enabled", True))),
+                 None)
+    if group is None:
+        return 0.0, [], []
+    n = next((i for i, x in enumerate(group.get("skills") or [], 1) if x["name"] == models.CALTROPS), 0)
+    if not n:
+        return 0.0, [], []
+    sets = build.call("setRates", index=group["index"], active=n)["sets"] or [{}]
+    hit = max(models.number(x.get("AverageDamage")) for x in sets)
+    projectiles = max((models.number(x.get("ProjectileCount")) for x in sets), default=1.0) or 1.0
+    from builder.search import bosses
+    moving, how = bosses.moving_ceiling(stats)
+    roll = (stats.get("_dodge_roll") or {}).get("seconds", models.DODGE_ROLL_SECONDS)
+    main_dps = models.number(build.call("stats", fields=["CombinedDPS"]).get("CombinedDPS"))
+    return models.trail_of_caltrops_model(hit, projectiles, moving, how, main_dps=main_dps, roll_seconds=roll,
+                                          charged=charged, main=main.name if main is not None else "")
+
+
 def fan_the_flames(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Fan the Flames (GEM23's models.fan_the_flames_model): in each enabled group holding the
     triggered explosion, the supported skill's hits a second (_skill_hits), the explosion's row (cooldown, damage a use),
@@ -1933,7 +1957,7 @@ def support_dots(build: Build, found: list[models.Skill], curses: list[models.Cu
 
 
 def accelerated_growth(build: Build, found: list[models.Skill], texts: list[str],
-                       stats: dict | None = None) -> tuple[float, list[dict]]:
+                       stats: dict | None = None, archon_x: dict | None = None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Accelerated Growth (GEM24's models.accelerated_growth_model): in each enabled group
     holding the triggered explosion, the supported Plant skill's uses a second (PoB's rate x its press share, less the
     main group's busy time; plants land hit or miss), the explosion's hit (its useRates row), and the build's Overgrown
@@ -1977,6 +2001,16 @@ def accelerated_growth(build: Build, found: list[models.Skill], texts: list[str]
     groups = {r["index"]: {**r, "_press": press.get(r["name"])}
               for r in build.call("useRates", indices=storms)["rates"]} if storms else {}
     share, share_parts, conf = models.overgrown_share(found, groups, texts)
+    # (GEM26: Nature's Archon, MECHC44's natures_archon_uptime, fed the build's Overgrows a second outside it: its
+    # plants a second x the other sources' share; combined 1 - (1 - uptime) x (1 - share), MECHC44's rule)
+    plants = sum(models.number(p["uses"]) * (models.number(p["per"]) if p.get("per") is not None else
+                                             models.PLANTS_A_USE.get(p["source"], (0.0, ""))[0]) for p in parts)
+    expiry = (stats or {}).get("_buff_expiry") or (1.0, "")
+    archon, archon_how = models.natures_archon_uptime(texts, plants * share, archon_x or {}, False,
+                                                      models.number(expiry[0]) or 1.0)
+    if archon > 0:
+        share = 1 - (1 - archon) * (1 - share)
+        share_parts = share_parts + [archon_how + " (Dominion's no-recovery not read: the lower reading)"]
     return models.accelerated_growth_model(parts, share, share_parts, conf)
 
 
@@ -3589,6 +3623,10 @@ class Assumptions:
         hand_notes += spray_notes
         for note in spray_notes:
             build.objective.entry_scales.update(note.get("full_dps") or {})
+        rolling = any(str(n.get("label", "")).startswith("Time spent dodge rolling") for n in hand_notes)
+        trail, trail_mods, trail_notes = trail_of_caltrops(build, stats, main, rolling)  # (GEM26, R35-23)
+        hand_mods += trail_mods + ([models.added_input("TrailOfCaltrops", trail)] if trail > 0 else [])
+        hand_notes += trail_notes
         shred, shred_notes = shred_fragments(build, main, self.cut_entries)  # (GEM26: on hits vs a Frozen boss; PoB's
         hand_mods += [models.added_input("ShredFragments", shred)] if shred > 0 else []  # entry out: its own, MECHB45)
         hand_notes += shred_notes
@@ -3599,7 +3637,8 @@ class Assumptions:
         hand_notes += flames_notes
         for note in flames_notes:
             build.objective.entry_scales.update(note.get("full_dps") or {})
-        growth, growth_notes = accelerated_growth(build, found, [e["text"] for e in source_lines], stats)  # (GEM24: Overgrown plants)
+        growth, growth_notes = accelerated_growth(build, found, [e["text"] for e in source_lines], stats,
+                                                  {k: inputs.total(k) for k in models.ARCHON_TIMING})  # (GEM24: Overgrown plants)
         hand_mods += [models.added_input("AcceleratedGrowth", growth)] if growth > 0 else []
         hand_notes += growth_notes
         dot_mods, dot_notes = support_dots(build, found, curses, stats, stat_notes, [e["text"] for e in source_lines],
