@@ -82,8 +82,11 @@
     DestructionInfluence*ModifierEffect, AlloyEffectOfResistanceMods1; game 26650308). PoB ignores the line (0 before: an
     UNDERCOUNT). builder/ledger/items.py magnitude_lines, applied in corrected_item to rare / magic / normal items (the
     search's rares, SEARCH30's influence-rune rares included): every other explicit line whose mod carries the tag (PoB
-    ModItem modTags, by the line's template) gets a stand-in copy with its numbers raised by N%, rounded down at the line's
-    own precision (UNVERIFIED rounding, the lower reading). Implicits, runes and the line itself are not raised.
+    ModItem modTags, by the line's template) gets a stand-in copy with its numbers raised by N%, truncated at the line's
+    own precision, the whole mod scaling (RESEARCH34 R34-9, MEDIUM both: PoB's catalyst code, a PoE1 tooltip report, the
+    PoE2 wiki's Quality page; no PoE2 test; the unrounded and "only the matching stat of a hybrid" readings are the
+    other, not taken). Lines PoB's Data/ModScalability.lua marks unscalable stay. Implicits, runes and the line itself
+    are not raised.
   sources: ["builder/ledger/items.py (EXPLICIT_MAGNITUDE, magnitude_lines)", "vendor PoB Data/ModItem.lua 2495-2503, 1806",
             "scratch/manager/research/influence-rune-mods.md (R32-6), influence-rune-craft-route-and-weights.md (R33-23)"]
   status: proposed

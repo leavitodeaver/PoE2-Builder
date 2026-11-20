@@ -706,12 +706,24 @@ def not_applied(status: str, entry: str | None, reason: str, pool: str = "Item",
         return status, entry, reason
     if pool == "Exclusive" and template(line) in unique_templates:
         return status, entry, "translated in the unique's own text (its unique record)"
+    if pool == "Exclusive" and template(line) in stonefist_templates():
+        # (COV46) a hand-wraps line of a unique Way of the Stonefist transforms (poe2db's text, builder/search/
+        # stonefist.py): its translation is applied there (stonefist.ledger_corrected)
+        return status, entry, "translated in Way of the Stonefist's transformed unique text (stonefist.ledger_corrected)"
     why = {"Exclusive": "a unique's mod PoB doesn't list among the unique's ignored lines",
            "legion": "a Timeless jewel's passive (the tree side)"}.get(pool, f"the search never rolls {pool} mods")
     return "none", entry, f"{NOT_APPLIED_WHY}{why}"
 
 
 NOT_APPLIED_WHY = "a ledger entry translates it, but the search doesn't apply it: "
+
+
+@lru_cache(maxsize=1)
+def stonefist_templates() -> frozenset[str]:
+    """Templates of the explicit lines of the uniques Way of the Stonefist transforms (poe2db's Fists of Stone text)."""
+    from builder.search import stonefist
+
+    return frozenset(template(line) for unique in stonefist.unique_texts().values() for line in unique["explicit"])
 
 
 @lru_cache(maxsize=1)

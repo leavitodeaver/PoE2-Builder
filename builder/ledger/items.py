@@ -158,15 +158,29 @@ def _base_of(lines: list[str], directory: Path | None) -> dict | None:
 # damage_mod_effect_+%; game 26650308 Mods / Stats): the item's own explicit modifiers carrying that mod tag have their
 # values raised by N% (the line itself, implicits and runes excluded). PoB ignores the line (no ModCache entry), so it
 # counted 0: an UNDERCOUNT. Each scaled line's extra goes to PoB as a stand-in copy of it (ADDED) with every number
-# raised by N% and rounded down at the line's own precision (whole numbers, or hundredths for "1.5%"-style values; the
-# game's rounding: UNVERIFIED, the lower reading). A line's tags are those of PoB ModItem's mods with its template (the
-# union where several share it: MEDIUM). Which explicit lines a type covers rests on the mod tag (HIGH for the tag, the
-# stat names say so; MEDIUM that hybrid mods scale whole).
+# raised by N% and truncated at the line's own precision (whole numbers, or hundredths for "1.5%"-style values).
+# RESEARCH34 R34-9 (scratch/manager/research/explicit-modifier-magnitude-rounding.md), both readings MEDIUM (PoB's
+# catalyst code ItemTools formatValue's floorSymmetric and Item.lua getCatalystScalar, a PoE1 tooltip report, the PoE2
+# wiki's Quality page; no PoE2 test): each scaled stat is truncated toward zero at its own precision, and the WHOLE mod
+# scales (tags belong to the modifier), so a hybrid line scales in every number. The other readings (unrounded; only
+# the matching stat of a hybrid) would be rows: higher, not taken. A line's tags are those of PoB ModItem's mods with
+# its template (the union where several share it: MEDIUM). Lines the game's scalability data marks unscalable (PoB
+# Data/ModScalability.lua isScalable = false) are not raised; "+N to Level" lines are scalable there, but truncation
+# leaves +1..+3 unchanged at every reachable magnitude (6-8% a prefix).
 EXPLICIT_MAGNITUDE = re.compile(r"^(\d+(?:\.\d+)?)% increased Explicit (Critical|Elemental Damage|Fire|Cold|Lightning|Chaos|"
                                 r"Physical|Mana|Speed|Resistance) Modifier magnitudes$")
 MAGNITUDE_TAGS = {"Critical": "critical", "Elemental Damage": "elemental_damage", "Fire": "fire", "Cold": "cold",
                   "Lightning": "lightning", "Chaos": "chaos", "Physical": "physical", "Mana": "mana", "Speed": "speed",
                   "Resistance": "resistance"}
+
+
+@lru_cache(maxsize=1)
+def _unscalable() -> frozenset[str]:
+    """Templates (numbers as "#", no sign) PoB's generated Data/ModScalability.lua marks isScalable = false."""
+    from builder.ledger.coverage import POB_SRC
+
+    text = (POB_SRC / "Data" / "ModScalability.lua").read_text(encoding="utf-8", errors="replace")
+    return frozenset(m.group(1) for m in re.finditer(r'^\t\["(.*?)"\] = \{ \{ isScalable = false', text, re.M))
 
 
 @lru_cache(maxsize=1)
@@ -214,7 +228,7 @@ def magnitude_lines(lines: list[str]) -> list[str]:
         if EXPLICIT_MAGNITUDE.match(line.strip()):
             continue
         pct = sum(v for tag, v in raises.items() if tag in tags_of.get(template(line), ()))
-        if pct <= 0:
+        if pct <= 0 or re.sub(r"[+-]#", "#", template(line)) in _unscalable():
             continue
         parts, extras = PLAIN_NUMBER.split(line), [_raised(n, pct) for n in PLAIN_NUMBER.findall(line)]
         if not any(extras):

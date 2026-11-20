@@ -123,11 +123,36 @@ def unique_texts() -> dict[str, dict]:
     return {u["name"]: u for u in json.loads(UNIQUES_FILE.read_text(encoding="utf-8"))["uniques"]}
 
 
+def ledger_corrected(explicits: list[str], name: str) -> list[str]:
+    """A transformed unique's explicit lines with the ledger's corrections (COV46). The unique's own corrections
+    (context.corrected_raw) were made on its untransformed text, which the transform drops, so its hand-wraps lines got
+    none: Painter's Servant's "Physical damage from Hits Contributes to ..." counted 0 (MECH91). As corrected_raw and
+    ledger.items.corrected_item do: a line PoB can't parse gets its gap entry's stand-ins (added at the end), a line PoB
+    gets wrong its pob_wrong replacement (or is switched off)."""
+    from builder.ledger import item_lines, translate, wrong
+    from builder.ledger.items import template as item_template, unparsed_templates
+
+    unparsed = unparsed_templates()
+    out, added = [], []
+    for line in explicits:
+        if item_template(line) in unparsed:
+            if (translated := translate(line)) and translated[0].on_items:
+                added += item_lines(translated[1])
+        elif fixed := wrong(line, name):
+            line = fixed[1] if fixed[1] is not None else "{disabled}" + line
+        out.append(line)
+    return out + added
+
+
 def transform(raw: str, mod_pools: dict) -> tuple[str, list[str]]:
     """A gloves item's text as Way of the Stonefist makes it: (text, lines kept untransformed). The header (rarity,
     name, base), quality, sockets and runes stay; the base becomes Fists of Stone; implicits become the base's
     per-level pair (a unique's from poe2db's text); explicits are transformed."""
-    lines = raw.split("\n")
+    from builder.ledger.items import ADDED, corrected_item
+
+    # (COV46) the ledger's stand-ins stood for the untransformed lines: dropped here; the transformed text gets its
+    # corrections again (a rare's by corrected_item at the end, a unique's in ledger_corrected)
+    lines = [line for line in raw.split("\n") if not line.startswith(ADDED)]
     head_end = next((k for k, line in enumerate(lines) if line.startswith("Implicits:")), None)
     if head_end is None:
         return raw, []
@@ -146,12 +171,12 @@ def transform(raw: str, mod_pools: dict) -> tuple[str, list[str]]:
     if unique is not None:
         new_implicits = unique["implicit"] if any(l.startswith("Has ") for l in unique["implicit"]) else \
             [l for l in unique["implicit"] if l.startswith("Grants Skill:")] + IMPLICITS
-        new_explicits, kept = list(unique["explicit"]), []
+        new_explicits, kept = ledger_corrected(list(unique["explicit"]), unique["name"]), []
     else:
         new_implicits = granted + IMPLICITS
         new_explicits, kept = transform_lines(explicits, mod_pools)
-    text = head + [f"Implicits: {len(new_implicits)}", *new_implicits, *new_explicits]
-    return "\n".join(text), kept
+    text = "\n".join(head + [f"Implicits: {len(new_implicits)}", *new_implicits, *new_explicits])
+    return (text if unique is not None else corrected_item(text)), kept
 
 
 def node_id(tree: dict) -> int | None:

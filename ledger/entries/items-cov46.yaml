@@ -1,0 +1,61 @@
+# COV46 (19 Nov 2026): item lines MECH91 found unread (MECH91.report.md, Handover 21:48, part 7).
+
+# Painter's Servant as Way of the Stonefist's Fists of Stone: its "33% of Elemental Damage Converted to Fire Damage"
+# (UniqueElementalDamageConvertToFire1) becomes HandWrapsUniqueElementalDamageConvertToFire1, whose one stat
+# physical_damage_can_ignite_freeze_shock (game 26650308 Stats 26298) the game describes over two lines
+# ("[Physical] damage from [Hit|Hits] [Contributes] to [Flammability] and\n[Ignite] [Magnitudes], [Freeze] Buildup, and
+# [Shock] Chance", stat_descriptions.csd 103271-103273). The stat is on that mod alone (checked: every game 26650308
+# table row whose stat fields hold 26298: Mods HandWrapsUniqueElementalDamageConvertToFire1 and ModType only,
+# scratch/cov45/stat_users.py; PoB ModItemExclusive 5315 the same mod; poe2db's Fists of Stone page, as saved in
+# builder/data/stonefist_uniques.json, gives Painter's Servant these two lines). PoB parses neither half (no ModCache entry), so the line counted 0: an UNDERCOUNT for a
+# Stonefist build whose hits deal Physical damage. PoB has no single line for exactly these three flags ("All Damage
+# from Hits Contributes to Shock Chance" also lets Fire / Cold / Chaos Shock; "Physical damage from Hits Contributes to
+# Chill Magnitude and Freeze Buildup" also Chills), so the first half becomes PoB's three raw flags; the second half
+# carries nothing.
+
+- id: items-painters-servant-physical-ignite-freeze-shock-first-line
+  title: 'Painter''s Servant (Fists of Stone), "Physical damage from Hits Contributes to Flammability and" + "Ignite Magnitudes, Freeze Buildup, and Shock Chance": PoB''s PhysicalCanIgnite / PhysicalCanFreeze / PhysicalCanShock'
+  kind: pob_gap
+  match: '^Physical damage from Hits Contributes to Flammability and$'
+  replace: ['mod:PhysicalCanIgnite FLAG 1', 'mod:PhysicalCanFreeze FLAG 1', 'mod:PhysicalCanShock FLAG 1']
+  confidence: datamined
+  notes: >-
+    The flags are the ones PoB's own lines of the same meaning set: "(%a+) damage from (%a+) spells contributes to
+    flammability and ignite magnitudes" -> <Type>CanIgnite (ModParser 2614), "Physical damage from Hits Contributes to
+    Chill Magnitude and Freeze Buildup" -> PhysicalCanFreeze (ModCache 6427), "All Damage from Hits Contributes to Shock
+    Chance" -> PhysicalCanShock (ModCache 3792). The hand-wraps text comes from builder/search/stonefist.py, which now
+    applies the ledger to a transformed unique's lines (COV46).
+  sources: ["data/game-26650308/tables/Mods.json (HandWrapsUniqueElementalDamageConvertToFire1)",
+            "data/game-26650308/files/data/statdescriptions/stat_descriptions.csd (physical_damage_can_ignite_freeze_shock)",
+            "vendor/PathOfBuilding-PoE2/src/Data/ModItemExclusive.lua 5315", "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua 2614, 3020",
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/workers/MECH91.report.md (Handover 21:48, part 7)"]
+  status: proposed
+
+- id: items-painters-servant-physical-ignite-freeze-shock-second-line
+  title: 'Painter''s Servant (Fists of Stone), "Ignite Magnitudes, Freeze Buildup, and Shock Chance" (second half; counted by the first)'
+  kind: pob_gap
+  match: '^Ignite Magnitudes, Freeze Buildup, and Shock Chance$'
+  replace: []
+  confidence: datamined
+  notes: Carried by items-painters-servant-physical-ignite-freeze-shock-first-line (the game's one stat, split over two lines).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModItemExclusive.lua 5315"]
+  status: proposed
+
+# Idol of Egrin (sceptre rune, bonded): "Curse zones erupt after N% reduced delay". MECH90's engine/bridge.lua parseMod
+# rule (train 95) parses it as PoB's CurseDelay INC -N (RESEARCH33 R33-9, HIGH: the stat base_curse_delay_+%, which
+# SkillStatMap 2769-2770 maps to CurseDelay for gems; CalcOffence 1577-1580 reads it), so PoB now counts it on every
+# parse; models.curse_uses reads the delay. The audit's coverage.json (15 Nov) predates the rule, hence this entry: it
+# adds nothing (an empty replacement, so nothing counts twice) and records the line as counted.
+- id: items-idol-of-egrin-curse-zone-delay
+  title: 'Idol of Egrin (sceptre), "Curse zones erupt after N% reduced delay": the bridge''s parse rule makes it PoB''s CurseDelay (MECH90)'
+  kind: pob_gap
+  match: '^Curse zones erupt after (\d+(?:\.\d+)?)% (?:reduced|increased) delay$'
+  replace: []
+  confidence: datamined
+  absorbed_by: "engine/bridge.lua's parseMod rule (MECH90, train 95): the line becomes PoB's CurseDelay INC (reduced: negative)"
+  notes: >-
+    Proven by MECH90's engine test tests/test_mech90.py test_idol_of_egrin_curse_zone_delay_is_curse_delay. PoB's own
+    bonded-mod rules decide when the rune's bonded line is active.
+  sources: ["engine/bridge.lua (Idol of Egrin's parse rule)", "C:/PROJECTS/PoE2 Builder/scratch/manager/research/INDEX.md (R33-9)",
+            "vendor/PathOfBuilding-PoE2/src/Data/SkillStatMap.lua 2769-2770"]
+  status: proposed

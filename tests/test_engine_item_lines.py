@@ -559,3 +559,31 @@ def test_explicit_critical_magnitudes_raise_the_bows_own_crit(engine):
 
     plain, with_line = crit([]), crit(["25% increased Explicit Critical Modifier magnitudes"])
     assert with_line > plain
+
+
+def test_painters_servant_as_fists_of_stone_lets_physical_hits_ignite_and_shock(engine):
+    """COV46 (MECH91 part 7): Way of the Stonefist's Painter's Servant has "Physical damage from Hits Contributes to
+    Flammability and" / "Ignite Magnitudes, Freeze Buildup, and Shock Chance", which PoB parses as nothing; the ledger's
+    PhysicalCanIgnite / PhysicalCanFreeze / PhysicalCanShock (stonefist.ledger_corrected) let a Physical bow attack's
+    hits Ignite and Shock in PoB; without those lines they can't."""
+    from builder.data import GameData
+    from builder.search import stonefist
+
+    data = GameData()
+    raw = next(u["raw"] for u in data.uniques if u["name"] == "Painter's Servant")
+    text = stonefist.transform(raw, data.mods)[0]
+    engine.call("newBuild")
+    engine.call("setClass", className="Ranger")
+    engine.call("setLevel", level=90)
+    engine.call("addSkillGroup", text="Snipe 20/0 1", main=True)
+    engine.call("equip", slot="Weapon 1", raw="Rarity: Normal\nDualstring Bow", fields=[])
+    fields = ["IgniteChancePerHit", "ShockChancePerHit"]
+
+    def chances(lines):
+        return engine.call("equip", slot="Gloves", raw="\n".join(lines), fields=fields)["stats"]
+
+    lines = text.split("\n")
+    without = chances([l for l in lines if not l.startswith("LedgerMod:")])
+    with_flags = chances(lines)
+    assert without.get("IgniteChancePerHit", 0) == 0 and without.get("ShockChancePerHit", 0) == 0
+    assert with_flags["IgniteChancePerHit"] > 0 and with_flags["ShockChancePerHit"] > 0

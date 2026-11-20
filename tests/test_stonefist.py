@@ -120,3 +120,23 @@ def test_the_search_sends_transformed_gloves_only_with_the_notable(data):
 def test_an_already_transformed_item_is_never_transformed_twice(data):
     once, _ = stonefist.transform("\n".join(RARE), data.mods)
     assert stonefist.transform(once, data.mods) == (once, [])
+
+
+def test_a_transformed_uniques_lines_get_the_ledgers_corrections(data):
+    """COV46 (MECH91 part 7): the unique's own corrections were made on its untransformed text, which the transform drops;
+    the hand-wraps lines now get theirs. Painter's Servant's "Physical damage from Hits Contributes to Flammability and" /
+    "Ignite Magnitudes, Freeze Buildup, and Shock Chance" (one stat, physical_damage_can_ignite_freeze_shock), which PoB
+    parses as nothing, becomes PoB's three raw flags; the second half carries nothing."""
+    raw = next(u["raw"] for u in data.uniques if u["name"] == "Painter's Servant")
+    text, _ = stonefist.transform(raw, data.mods)
+    lines = text.split("\n")
+    assert "Physical damage from Hits Contributes to Flammability and" in lines
+    assert [l for l in lines if l.startswith("LedgerMod:")] == [
+        "LedgerMod:PhysicalCanIgnite FLAG 1", "LedgerMod:PhysicalCanFreeze FLAG 1", "LedgerMod:PhysicalCanShock FLAG 1"]
+
+
+def test_a_rares_stand_ins_for_its_untransformed_lines_are_dropped(data):
+    """COV46: a ledger stand-in ("{custom}" line) stood for an untransformed line; the transformed rare gets its
+    corrections again from its new text (ledger.items.corrected_item), so the stale stand-in goes."""
+    text, kept = stonefist.transform("\n".join(RARE + ["{custom}+10% to Fire Resistance"]), data.mods)
+    assert "{custom}+10% to Fire Resistance" not in text and kept == []

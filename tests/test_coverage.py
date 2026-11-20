@@ -1281,6 +1281,13 @@ def test_explicit_modifier_magnitudes_raise_the_items_tagged_lines():
     assert items.magnitude_lines(raw.split("\n")) == ["+0.37% to Critical Hit Chance", "Adds 2 to 4 Fire Damage"]
     assert items.magnitude_lines(raw.replace("25% increased Explicit Critical Modifier magnitudes", "")
                                  .replace("20% increased Explicit Fire Modifier magnitudes", "").split("\n")) == []
+    # R34-9 (COV46): a line the game's scalability data marks unscalable is not raised; "+3 to Level" truncates to no
+    # change at a reachable magnitude.
+    lines = raw.split("\n")
+    lines[lines.index("+1.5% to Critical Hit Chance") + 1] = "Socketed Gems have 10% Critical Hit Chance"
+    assert items.magnitude_lines(lines) == ["Adds 2 to 4 Fire Damage"]  # the implicit crit line is never raised
+    lines = raw.replace("Adds 10 to 21 Fire Damage", "+3 to Level of all Fire Spell Skills").replace("20%", "8%").split("\n")
+    assert items.magnitude_lines(lines) == ["+0.37% to Critical Hit Chance"]
     assert model_entry("25% increased Explicit Critical Modifier magnitudes").id == "model-read-explicit-modifier-magnitudes"
     assert model_entry("(3-5)% increased Cast Speed for each different Non-Instant Spell you've Cast Recently").id == (
         "model-read-mechb4-non-instant-spells-recently")
@@ -1368,3 +1375,17 @@ def test_verisium_manifestations_is_a_modelled_skill():
     from builder.search import models
 
     assert coverage.MODELED_SKILLS["Verisium Manifestations"] == "model:verisium" and models.VERISIUM == "Verisium Manifestations"
+
+
+def test_cov46_stonefist_unique_lines_and_idol_of_egrin_are_counted():
+    """COV46: a hand-wraps line of a unique Way of the Stonefist transforms is applied there (stonefist.ledger_corrected),
+    so Painter's Servant's two halves are "ledger", not "the search doesn't apply it" / "no unique carries it"; Idol of
+    Egrin's curse-zone delay is the bridge's CurseDelay parse (MECH90, train 95), absorbed with an empty replacement."""
+    from builder.ledger import coverage, translate
+
+    records = [r for r in coverage.audit()["records"]
+               if r["source"] == "Exclusive HandWrapsUniqueElementalDamageConvertToFire1"]
+    assert len(records) == 2 and all(r["status"] == "ledger" for r in records)
+    assert any("Stonefist" in r["reason"] for r in records if r["line"].startswith("Physical damage from Hits"))
+    assert translate("Curse zones erupt after 20% reduced delay")[1] == []
+    assert translate("Curse zones erupt after 20% reduced delay")[0].raw.get("absorbed_by")
