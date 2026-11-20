@@ -2894,7 +2894,8 @@ def test_one_charge_of_each_type_a_use_unless_the_skill_is_flagged():
     assert _per_use_joined(found, flagged) == (found, "")
     count, basis = _charges_held("Frenzy")(lines, dict(stats))
     assert basis.startswith("1.60 gains/s") and "one Frenzy Charge a use at most" in basis
-    assert "R33-17: MEDIUM, UNVERIFIED for PoE2" in basis and "ROW, the other reading" in basis  # (the manager 15:50)
+    assert "R33-17: HIGH, the user's in-game test" in basis and "disproved in game" in basis  # (the user, 20 Nov)
+    assert "ROW, the other reading" not in basis  # (MECHC44: the per-line sum disproved in game; no row)
     assert _charges_held("Frenzy")(lines, flagged)[1].startswith("2.10 gains/s")
     assert "ROW, the other reading" not in _charges_held("Frenzy")(lines, flagged)[1]
     alone = [(lines[0], "Frenzy", (1.0, "x"))]

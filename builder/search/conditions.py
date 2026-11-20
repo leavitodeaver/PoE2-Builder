@@ -565,7 +565,10 @@ NO_FRENZY_STAT = "skill_cannot_generate_frenzy_charges"
 # PoB act_int.lua FlickerStrikePlayer: Display Only); read from the main skill's own stats and its supports', so any
 # other carrier counts too
 NO_POWER_STAT = "cannot_gain_power_charges_during_skill"
-# (MECHC43; RESEARCH19 charges-per-action.md, RESEARCH33 R33-17 multiple-charges-per-action.md, MEDIUM) By default a skill
+# (MECHC43; RESEARCH19 charges-per-action.md, RESEARCH33 R33-17 multiple-charges-per-action.md; HIGH since the USER's
+# in-game tests, 20 Nov, relayed by the manager 03:50 / 04:05: Redflare Conduit's "20% chance to gain a Power Charge on
+# Hit" with Ice Nova (unflagged) "cast into packs ... over 30 times, never saw more than one power charge get added", and
+# with Orb of Storms (flagged) "I was swimming in power charges": both halves below are settled) By default a skill
 # use grants at most one Charge of each type, however many hits, crits or other events it makes ("most skills are
 # limited to granting 1 of each type of charge per skill use", poewiki Charge, PoE1, the same engine; forum 2244397). The
 # implicit flag skill_can_add_multiple_charges_per_action (Stats 1713, no description; GrantedEffectStatSets ImplicitStats
@@ -1353,9 +1356,8 @@ def _per_use_joined(found: list[tuple[str, str, tuple[float, str]]], stats: dict
             text, src, (rate, how) = found[i]
             out[i] = (text, src, (rate * scale, f"{how}; x {scale:.3f}, joined"))
         notes.append(f"one {source} Charge a use at most (the main skill lacks {MULTI_CHARGE_STAT}; RESEARCH33 R33-17: "
-                     f"MEDIUM, UNVERIFIED for PoE2, a labelled assumption, the lower reading): its {len(idx)} lines "
-                     f"{total:.2f}/s added -> {kept:.2f}/s as one chance a use (the other reading, each line adding: "
-                     f"{total:.2f}/s)")
+                     f"HIGH, the user's in-game test, 20 Nov): its {len(idx)} lines {total:.2f}/s added -> {kept:.2f}/s as "
+                     f"one chance a use (each line adding, {total:.2f}/s: disproved in game for a skill without the flag)")
     return out, "; ".join(notes)
 
 
@@ -1491,12 +1493,9 @@ def _charges_held(kind: str):
                 count = cycling
                 basis += (f"; '{reset[:70]}': the count climbs to {most:g} and drops to 0, so {cycling:.1f} held on "
                           f"average ({left:.2f} gains/s kept)")
+        # (MECHC44: R33-17's per-line-sum row is gone: disproved in game for a skill without the flag, the user's
+        # Ice Nova test, 20 Nov; the manager 04:05: keep it out of the play guide)
         other = ""
-        if joined:  # (MECHC43, the manager 15:50: R33-17's other reading as a row, the count with each line adding)
-            alt = held(lines, {**stats, "_multi_charge": "the other reading of R33-17", "_charge_gains": {},
-                               "_charge_flow": {}, "_bypass_uses": {}})[0]  # (fresh: the headline's stay as written)
-            other = (f"; ROW, the other reading (R33-17 UNVERIFIED: each line adds, the per-line sum): {alt:.1f} held "
-                     f"(the headline keeps the lower, {round(count, 1):.1f})")
         return round(count, 1), ((redirected + "; ") if redirected else "") + (
             f"{basis} = {count:.1f} held, at most {most:g}: " + "; ".join(how[:3]) + shared_note + other)
     return held
