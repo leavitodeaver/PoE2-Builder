@@ -199,6 +199,55 @@ def hit_remnant_rate(name: str, stats: dict) -> tuple[float, str]:
     return rate, f"once every {cooldown:g} s + the wait for the next of the main skill's {how}"
 
 
+def hit_remnant_share(name: str, stats: dict) -> float:
+    """(MECHC45) The share of hits that qualify for a HIT_REMNANTS source (any hit; a Critical Hit on an Elementally
+    Ailmented boss; a hit on a Bleeding boss), from hit_remnant_rate at one hit a second."""
+    rate, _ = hit_remnant_rate(name, {**stats, "Speed": 1.0, "HitChance": 100.0, "_main_share": None})
+    return 1.0 / (1.0 / rate - HIT_REMNANTS[name]) if rate > 0 else 0.0
+
+
+# (MECHC45; the manager's 09:35 from SEARCH32, MECHB45's review 10:10) A Transmutation Explosion main skill fed by a
+# hit-made Remnant source (Life Remnants from The Covenant, Mana Remnants, Sanguine Revelry) whose hits are the explosion's
+# own: before, the source read PoB's Speed, which is the explosion's triggerRate from the LAST assumptions pass, so each
+# pass computed r_next = 1 / (3 + 1 / r) and the score fell toward 0 with the number of passes (SEARCH32: 12,219 in the
+# search, 207 after finalize's passes, 28,581 from a fresh load). Now solved within one pass: explosions r = min(its
+# cooldown cap, m x (o + sum of the hit sources' Remnants at r)), m the build's extra-Remnant / reappear / double-pickup
+# multipliers, o the other Remnant sources, each hit source fed by the explosion's qualifying hits (q x hit chance x r)
+# and the main group's other skills' hits (h, random). The least fixed point (bisection; nothing read from a past pass).
+# The play (CLAUDE.md, no flat rates: how the player feeds it): the headline WAITS out the source's cooldown before each
+# pickup (a Remnant lies 8 s on the ground, base_remnant_duration_ms 8000 > the 3 s cooldown; MECHB45), so the
+# explosion's own hits always find it ready: min(1 / cooldown, other hits' rate + q p r); the row picks each up at once
+# (the explosion's hit then lands inside the cooldown: 1 / (cooldown + 1 / (q (h + p r))) as before, whose only steady
+# state without another source is 0, MECHB45's closed form). MEDIUM-LOW (the waiting play; other groups' hits not counted).
+def remnant_chain(other: float, sources: list[tuple[float, float, float]], chance: float, mult: float, cap: float,
+                  wait: bool = True) -> float:
+    """(MECHC45) Explosions a second: the least r with r = min(cap, mult x (other + sum spawn(r))) over `sources`
+    (cooldown, qualifying share, other skills' hits a second); `chance` the explosion's hit chance (0-1)."""
+    def spawn(r: float) -> float:
+        total = 0.0
+        for cooldown, share, hits in sources:
+            mine, rest = share * chance * r, share * hits
+            if wait:
+                total += min(1.0 / cooldown, (rest / (1.0 + cooldown * rest) if rest > 0 else 0.0) + mine)
+            elif mine + rest > 0:
+                total += 1.0 / (cooldown + 1.0 / (mine + rest))
+        return total
+
+    top = mult * (other + sum(1.0 / c for c, _, _ in sources))
+    high = min(cap, top) if math.isfinite(cap) else top
+    gap = lambda r: min(cap, mult * (other + spawn(r))) - r  # noqa: E731
+    if high <= 0 or gap(0.0) <= 0:
+        return 0.0
+    low = 0.0
+    for _ in range(100):
+        mid = (low + high) / 2
+        if gap(mid) > 0:
+            low = mid
+        else:
+            high = mid
+    return high
+
+
 def snap_found(stats: dict) -> tuple[float, str]:
     """The chance a Snap cast finds an Ignite, Shock or Freeze on the boss to Consume (its ActiveSkills description:
     "Consume the elemental energy from a Frozen, Shocked or Ignited enemy"), each at its uptime from the main skill's own
@@ -4287,6 +4336,13 @@ class Assumptions:
             elif name == LIVING_BOMB:
                 rate, condition = living_bomb_rate(self.build.call("stats", fields=list(LIVING_BOMB_FIELDS)),
                                                    skill.get("castTime") or 0.0)
+            elif name in HIT_REMNANTS and (solved := getattr(self.build, "remnant_hit_solved", None)) is not None \
+                    and self.main_skill() == "Transmutation Explosion":
+                # (MECHC45: fed by the explosion's own hits: the chain wanted() solved in this pass, not the explosion's
+                # Speed from a past pass; all hit sources together under the first)
+                if name != next(n for n in HIT_REMNANTS if n in present):
+                    continue
+                rate, condition = solved
             elif name in HIT_REMNANTS:
                 rate, condition = hit_remnant_rate(name, with_main_share(  # (MECHC45)
                     self.build, self.build.call("stats", fields=list(HIT_REMNANT_FIELDS)),
@@ -4298,6 +4354,22 @@ class Assumptions:
             supply += rate
             used.append(f"{name} {rate:.2f}/s ({condition})")
         return supply, used
+
+    def main_group_other_hits(self, skip: str) -> tuple[float, str]:
+        """(MECHC45) (hits a second on the boss, how) of the main group's active skills other than `skip` (_skill_hits:
+        PoB's use rate x hit chance x the press share); other groups' hits not counted (an undercount, labelled)."""
+        group = self.build.main_group() or {}
+        press = getattr(getattr(self.build, "objective", None), "press_scales", None) or {}
+        total, parts = 0.0, []
+        for position, skill in enumerate(group.get("skills") or [], start=1):
+            name = skill.get("name") if isinstance(skill, dict) else str(skill)
+            if not name or name == skip or (isinstance(skill, dict) and skill.get("disabled")):
+                continue
+            hits, _ = _skill_hits(self.build, group, position, press)
+            if hits > 0:
+                total += hits
+                parts.append(f"{name} {hits:.2f} hits/s")
+        return total, ("the main group's other hits: " + ", ".join(parts)) if parts else "no other hits in its group"
 
     def orb_remnants(self, skill: dict) -> tuple[float, str]:
         """(Orbs of Storms a second, how): orb_remnants for this build."""
@@ -4480,7 +4552,10 @@ class Assumptions:
         mods, notes, self.extra_groups = self.models(skills)
         explosion = next((s for s in skills if s["name"] == "Transmutation Explosion"), None)
         if explosion is not None:
-            supply, used = self.remnant_supply(skills)
+            self_fed = self.main_skill() == "Transmutation Explosion" and any(
+                s["name"] in HIT_REMNANTS and not s.get("disabled") for s in skills)
+            self.build.remnant_hit_solved = None  # (MECHC45: set below for a self-fed chain; remnant_supply reads it)
+            supply, used = self.remnant_supply(skills, skip=tuple(HIT_REMNANTS) if self_fed else ())
             lines = self.build.call("sourceLines")["lines"]
             extra = sum(float(m.group(1)) for line in lines if (m := ADDITIONAL_REMNANT.search(line["text"]))) / 100.0
             supply *= 1.0 + extra
@@ -4492,6 +4567,36 @@ class Assumptions:
             cooldown = explosion.get("cooldown") or 0.0
             cap = (explosion.get("cooldownRecovery") or 1.0) / cooldown if cooldown else math.inf
             rate = min(supply, cap)
+            if self_fed:  # (MECHC45: the chain solved in this pass, remnant_chain's note)
+                mult = (1.0 + extra) * (2.0 if twice else 1.0) * (1.0 + duplicate)
+                base = supply / mult if mult > 0 else 0.0
+                stats = self.build.call("stats", fields=list(HIT_REMNANT_FIELDS))
+                chance = min(number(stats.get("HitChance")) or 100.0, 100.0) / 100.0
+                others = self.main_group_other_hits("Transmutation Explosion")
+                present = {s["name"] for s in skills if not s.get("disabled")}
+                sources = [(HIT_REMNANTS[n], hit_remnant_share(n, stats), others[0]) for n in HIT_REMNANTS
+                           if n in present]
+                rate = remnant_chain(base, sources, chance, mult, cap, wait=True)
+                at_once = remnant_chain(base, sources, chance, mult, cap, wait=False)
+                hit_made = max(rate / mult - base, 0.0) if mult > 0 else 0.0
+                self.build.remnant_hit_solved = (hit_made, (
+                    f"the explosion's own hits ({chance:.0%} hit chance) and {others[1]}, the source's cooldown waited "
+                    f"out before each pickup (MEDIUM-LOW)"))
+                used.append(f"{', '.join(n for n in HIT_REMNANTS if n in present)} {hit_made:.2f}/s (fed by the "
+                            f"explosion's own hits: solved in this pass; picking each up after the source's cooldown; "
+                            f"picked up at once: {at_once:.3f} explosions/s)")
+                supply = rate
+                notes.append({
+                    "label": "Explosive Transmutation: Remnants fed by its own explosions*",
+                    "value": f"{rate:.3f} explosions/s (picked up at once: {at_once:.3f})",
+                    "basis": (f"{', '.join(n for n in HIT_REMNANTS if n in present)} make Remnants from the explosion's "
+                              f"own hits and {others[1]}; other sources {base:.2f}/s, x{mult:.2f} per Remnant; solved "
+                              "as one steady rate (assumptions.remnant_chain). Wait out the source's cooldown before "
+                              "each pickup (Remnants last 8 s): picked up at once, the explosion's hit lands inside the "
+                              "cooldown and the chain dies without another source"),
+                    "play": ("Pick each Remnant up only after the Remnant skill's cooldown ends (watch its icon); "
+                             "picking it up at once stops the chain"),
+                    "confidence": "MEDIUM-LOW (the waiting play; other groups' hits not counted)"})
             mods += [
                 {"kind": "SkillData", "skill": "Transmutation Explosion", "key": "triggerRate", "value": rate},
                 {"kind": "SkillData", "skill": "Transmutation Explosion", "key": "triggered", "value": True},

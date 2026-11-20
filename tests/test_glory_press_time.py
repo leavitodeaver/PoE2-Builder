@@ -183,3 +183,21 @@ def test_adaptations_follow_the_bosss_elemental_hits():
     assert boss_hits.adaptations_held("Arbiter of Ash")["Fire"] == pytest.approx(3.0)
     mixed = boss_hits.adaptations_held("The Raven Trickster")
     assert sum(mixed.values()) == pytest.approx(3.0) and all(v > 0 for v in mixed.values())
+
+
+def test_a_self_fed_remnant_chain_is_solved_in_one_pass():
+    """(MECHC45; the manager's 09:35 from SEARCH32, MECHB45's review) a Transmutation Explosion fed by Life Remnants (3 s
+    cooldown, any hit) from its own hits: one steady rate, not r_next = 1 / (3 + 1 / r) pass after pass. Waiting out the
+    cooldown: one a cooldown; picked up at once: anchored only by the group's other hits; with neither, 0."""
+    from builder.search.assumptions import hit_remnant_share, remnant_chain
+
+    inf = float("inf")
+    life = [(3.0, 1.0, 0.69)]  # (cooldown, qualifying share, the cast's own hits a second)
+    assert remnant_chain(0.0, life, 1.0, 1.0, inf, wait=True) == pytest.approx(1 / 3, abs=1e-6)
+    once = remnant_chain(0.0, life, 1.0, 1.0, inf, wait=False)
+    assert 0.2 < once < 1 / 3  # (steady: r = 1 / (3 + 1 / (0.69 + r)))
+    assert once == pytest.approx(1 / (3 + 1 / (0.69 + once)), abs=1e-6)
+    assert remnant_chain(0.0, [(3.0, 1.0, 0.0)], 1.0, 1.0, inf, wait=False) == 0.0
+    assert remnant_chain(0.8, [(3.0, 1.0, 0.0)], 1.0, 1.0, inf, wait=True) == pytest.approx(0.8 + 1 / 3, abs=1e-6)
+    assert remnant_chain(0.0, life, 1.0, 2.0, 0.5, wait=True) == pytest.approx(0.5, abs=1e-6)  # (the cooldown cap)
+    assert hit_remnant_share("Life Remnants", {"Speed": 0.01, "HitChance": 50, "CritChance": 0}) == pytest.approx(1.0)
