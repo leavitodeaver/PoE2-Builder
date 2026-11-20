@@ -2917,10 +2917,20 @@ def chill_share(stats: dict) -> float:
     return side_consumed(share, stats, "Chill", hits, chill)
 
 
+def chilled_share(stats: dict) -> float:
+    """(MECH93) Share of the fight the boss is Chilled: the main skill's hits (chill_share) or your Chilled Ground under
+    it (KeywordPopups ChilledGround: "Chilled Ground Chills those standing in it"; the share conditions.chilled_ground
+    gives, with its labels), taken as independent. Before, the ground's Chill fed only the "on Chilled Ground" lines (an
+    UNDERCOUNT for the Chilled condition). The hit-only readers (Mana Remnants, elemental_ailment_share: ailments the
+    hits inflict) keep chill_share."""
+    ground = min(max(number((stats.get("_chilled_ground") or (0.0, ""))[0]), 0.0), 1.0)
+    return 1.0 - (1.0 - chill_share(stats)) * (1.0 - ground)
+
+
 def target_ailment_share(stats: dict, participle: str) -> float:
     """Share of the fight the boss carries the ailment a line names (TARGET_AILMENT's word)."""
     if participle == "chilled":
-        return chill_share(stats)
+        return chilled_share(stats)  # (MECH93: with your Chilled Ground)
     if participle == "shocked":
         return shock_share(stats)
     if participle in ("frozen", "electrocuted"):
@@ -5648,7 +5658,7 @@ SHOCKED_GROUND_MAGNITUDE = 20  # the base Shock (PoB's BaseShockMagnitude); the 
 #   - "X% chance to create Chilled Ground when you Freeze an Enemy" (chilled_ground_on_freeze_%_chance_for_3_seconds:
 #     3 s; its Mod SpreadChilledGroundOnFreezeUnique__1 has no carrier in PoB's uniques: UNVERIFIED that one drops).
 # Not counted (labelled, an UNDERCOUNT where they reach the boss): skills' own ground (Ice Nova near a Frostbolt, the
-# Frost Wolf howl, Ice Crystal supports), the flask's "Creates Chilled Ground on Use" and "when Hit with an Attack"
+# Frost Wolf howl; Creeping Chill is counted since MECH93, below), the flask's "Creates Chilled Ground on Use" and "when Hit with an Attack"
 # (both at your feet: MECH-C's flask rates, the boss's hits), Freezes from other skills. Duration modifiers not read.
 # (checked: Stats ids holding chilled_ground / chill + ground and their Mods / PassiveSkills / GrantedEffectStatSets
 # users; PoB ModCache's Chilled Ground lines; poe2db not checked: UNVERIFIED there)
@@ -5658,10 +5668,70 @@ FROST_NEXUS_SECONDS = 8.0  # (chilling_ice_create_chilled_ground_on_freeze_base_
 CHILLED_ON_FREEZE = re.compile(r"^On Freezing Enemies create Chilled Ground$", re.I)
 CHILLED_CHANCE_ON_FREEZE = re.compile(r"^(\d+)% chance to create Chilled Ground when you Freeze an Enemy$", re.I)
 CHILLED_CHANCE_SECONDS = 3.0  # (the stat id: "_for_3_seconds")
+# Creeping Chill (MECH93; GEM25's routed UNDERCOUNT: nothing read it). The support (SupportCreepingChillPlayer:
+# AllowedActiveSkillTypes [168] = IceCrystal; PoB requireSkillTypes IceCrystal, addSkillTypes
+# SkillConsumesPowerChargesOnUse): "Consume a Power Charge to Trigger Creeping Chill on an Ice Crystal created by
+# Supported Skills" (support_creeping_chill_consume_X_power_charges_to_trigger_on_ice_crystals 1); its skill
+# TriggeredCreepingChillPlayer "Creates spreading Chilled Ground around Ice Crystals": radius 1.2 m
+# (active_skill_base_area_of_effect_radius 12), area +50% a second to +300% (radius x2 = 2.4 m after 6 s), "Chills as
+# though dealing damage equal to 100% of the Ice Crystal's maximum Life"; no duration stat in its set (checked:
+# GrantedEffectStatSets TriggeredCreepingChillPlayer's constant / implicit stats, game 26650308), so Chilled Ground's
+# 6 s default (KeywordPopups; MEDIUM). Counted:
+# - the triggers a second: the supported crystal skill's uses that find a Power Charge (one charge, one trigger a use:
+#   the stat's singular "an Ice Crystal", and the user's in-game result of 20 Nov, one charge of each type a use; a
+#   wall of several crystals taken as one ground: LOW, the lower reading) from the build's own Power Charge gains and
+#   spends (_charges_held's flow; the supported skill joins stats["_consumers"]: before, the gem data's static skill
+#   types lacked the support's flag, so no Power Charge spend was counted for it: the held Power Charges read high);
+#   no Power Charge source: 0, said;
+# - where: Frost Wall's wall and Glacial Bolt's walls are made at the target (LOW: the boss taken to stay in the ground,
+#   as the other grounds made at the boss); Frozen Locus' crystal and Grim Pillars' spears at you: only the seconds the
+#   growing ground reaches the boss at the build's fighting distance (radius 1.2 m x sqrt(1 + 0.5 t), t to 6 s).
+# Not counted (labelled): Midnight Zenith's crystals (its petal rate is MECH-B's; VRUUN_UNCOUNTED); the ground's Chill
+# magnitude (the crystal's Life against the boss's threshold: PoB's IceCrystalLife isn't read by the bridge for a side
+# skill), and the ground's Chill on the boss outside the on-Chilled-Ground lines (as for every Chilled Ground source).
+# Which skills carry type 168 (checked: ActiveSkills.json ActiveSkillTypes holding 168, game 26650308: frost_wall_new,
+# glacial_bolt, frozen_locus, midnight_star, grim_pillars; PoB's IceCrystal skill type: the same less Glacial Bolt's
+# ammo gem, whose fired skill carries it in the game: UNVERIFIED that the support attaches there; poe2db not checked).
+CREEPING_CHILL = "Creeping Chill"
+CREEPING_CHILL_AT_BOSS = {"Frost Wall", "Glacial Bolt"}
+CREEPING_CHILL_AT_YOU = {"Frozen Locus", "Grim Pillars"}
+CREEPING_CHILL_MAKERS = CREEPING_CHILL_AT_BOSS | CREEPING_CHILL_AT_YOU
+CREEPING_CHILL_RADIUS = 1.2  # m (active_skill_base_area_of_effect_radius 12)
+CREEPING_CHILL_GROWTH = 0.5  # area +50% a second (active_skill_ground_effect_area_of_effect_+%_final_per_second 50)
+CREEPING_CHILL_GROWTH_MAX = 3.0  # to +300% (..._per_second_max 300)
 
 
-def chilled_ground(stats: dict, texts: list[str], main_gems: set[str]) -> tuple[float, str]:
-    """(share of the fight the boss stands on your Chilled Ground, how); see the note above. (0.0, "") with no source."""
+def creeping_chill_reach(metres: float, seconds: float = CHILLED_GROUND_SECONDS) -> float:
+    """(MECH93) Seconds of a Creeping Chill ground made at you that reach a boss `metres` away: its radius
+    1.2 m x sqrt(1 + 0.5 t) (area +50% a second, to +300%), over its `seconds`."""
+    if metres <= CREEPING_CHILL_RADIUS:
+        return seconds
+    grown = (metres / CREEPING_CHILL_RADIUS) ** 2 - 1
+    if grown > CREEPING_CHILL_GROWTH_MAX:
+        return 0.0
+    return max(0.0, seconds - grown / CREEPING_CHILL_GROWTH)
+
+
+def chilled_ground(stats: dict, texts: list[str], main_gems: set[str],
+                   creeping: list[tuple[str, float, str]] | None = None) -> tuple[float, str]:
+    """(share of the fight the boss stands on your Chilled Ground, how); see the note above. (0.0, "") with no source.
+    `creeping` (MECH93): [(crystal skill, Creeping Chill triggers a second, how)] (Conditions._creeping_chill)."""
+    creeping_parts, creeping_off = [], 1.0
+    for name, rate, how in creeping or []:
+        if name in CREEPING_CHILL_AT_BOSS:
+            seconds, where = CHILLED_GROUND_SECONDS, "made at the target, the boss taken to stay in it (LOW)"
+        else:
+            metres = _boss_metres(stats)
+            seconds = creeping_chill_reach(metres)
+            where = (f"made at you: it reaches the boss {metres:g} m away {seconds:.1f} s of its "
+                     f"{CHILLED_GROUND_SECONDS:g} s (radius 1.2 m growing to 2.4 m)")
+        up = _covered(rate, 1.0, seconds)
+        creeping_off *= 1 - up
+        creeping_parts.append(f"{CREEPING_CHILL} on {how}; {CHILLED_GROUND_SECONDS:g} s a ground (the default, MEDIUM), "
+                              f"{where}: {up:.0%}")
+    if creeping_parts:
+        creeping_parts.append("not counted: the ground's Chill magnitude (the crystal's Life against the boss's "
+                              "threshold) and a ground per crystal of a wall (one per use taken: LOW)")
     sources = []
     if FROST_NEXUS in main_gems:
         sources.append((1.0, FROST_NEXUS_SECONDS, f"{FROST_NEXUS} on the main skill ({FROST_NEXUS_SECONDS:g} s a Freeze)"))
@@ -5672,15 +5742,18 @@ def chilled_ground(stats: dict, texts: list[str], main_gems: set[str]) -> tuple[
             sources.append((int(m.group(1)) / 100, CHILLED_CHANCE_SECONDS,
                             f"{m.group(1)}% a Freeze ({CHILLED_CHANCE_SECONDS:g} s)"))
     if not sources:
-        return 0.0, ""
+        if not creeping_parts:
+            return 0.0, ""
+        share = 1 - creeping_off
+        return share, "; ".join(creeping_parts) + f": on Chilled Ground {share:.0%} of the fight"
     freezes = models.buildup_rate(stats, "Freeze")
-    off, parts = 1.0, []
+    off, parts = creeping_off, []
     for chance, seconds, how in sources:
         up = _covered(freezes, chance, seconds)
         off *= 1 - up
         parts.append(f"{how}: {up:.0%}")
     share = 1 - off
-    return share, (f"the boss Frozen {freezes:.3f}/s by the main skill; " + "; ".join(parts)
+    return share, (f"the boss Frozen {freezes:.3f}/s by the main skill; " + "; ".join(parts + creeping_parts)
                    + f": on Chilled Ground {share:.0%} of the fight (the frozen boss taken to stay in the patch, MEDIUM; "
                    "skills' own ground and other skills' Freezes not counted)")
 
@@ -7121,7 +7194,7 @@ CONDITIONS: list[Condition] = [
               fields=("PoisonChancePerHit", "Speed", "HitChance", "PoisonDuration")),
     Condition("conditionEnemyBleeding", "Bleeding", stat=_ailment_up("Bleed"), uptime_fn=_ailment_share("Bleed"),
               fields=("BleedChancePerHit", "Speed", "HitChance", "BleedDuration")),
-    Condition("conditionEnemyChilled", "Chilled", stat=lambda s: chill_share(s) >= MIN_UPTIME, uptime_fn=chill_share,
+    Condition("conditionEnemyChilled", "Chilled", stat=lambda s: chilled_share(s) >= MIN_UPTIME, uptime_fn=chilled_share,
               fields=CHILL_FIELDS),
     Condition("parryActive", "Parried", value_fn=_parried, fields=("enemySkillTime", "Ward")),
     Condition("conditionParriedRecently", "Parried recently (MECH85: the build's Parry plan)",
@@ -7978,6 +8051,41 @@ class Conditions:
         rate = min(spear, flow[0] * spear / total)
         return rate, f"{rate:.2f} of its {spear:.2f} throws/s Frenzy-Charged ({flow[1]})"
 
+    def _creeping_chill_skills(self) -> list[str]:
+        """(MECH93) The Ice Crystal skills sharing an enabled group with an enabled Creeping Chill support
+        (CREEPING_CHILL_MAKERS), Midnight Zenith left out (CREEPING_CHILL's note)."""
+        found = []
+        for g in self.build.call("groups")["groups"]:
+            if g.get("enabled") is False:
+                continue
+            names = [n["name"] for n in g.get("gems") or [] if n.get("enabled", True)]
+            if CREEPING_CHILL in names:
+                found += [n for n in names if n in CREEPING_CHILL_MAKERS and n not in found]
+        return found
+
+    def _creeping_chill(self, texts: list[str], stats: dict) -> list[tuple[str, float, str]]:
+        """(MECH93) [(crystal skill, Creeping Chill triggers a second, how)]: the Power Charges consumed a second
+        (_charges_held's charge flow over stats["_consumers"], which evidence() gave the supported skills), each
+        supported skill's share of them by uses, at most its own uses (one charge, one trigger a use: CREEPING_CHILL)."""
+        skills = self._creeping_chill_skills()
+        if not skills:
+            return []
+        scratch = {**stats, "_charge_flow": {}}
+        _charges_held("Power")(texts, scratch)
+        flow = scratch["_charge_flow"].get("Power")
+        wanted = {n: number(u) for n, u in ((stats.get("_consumers") or {}).get("Power") or {}).items()}
+        total = sum(wanted.values())
+        out = []
+        for name in skills:
+            uses = wanted.get(name, 0.0)
+            if not flow or total <= 0 or uses <= 0:
+                out.append((name, 0.0, f"{name} {uses:.2f} uses/s, no Power Charge reaches it (no Power Charge "
+                                       "source, or its uses not rated): no Creeping Chill"))
+                continue
+            rate = min(uses, flow[0] * uses / total)
+            out.append((name, rate, f"{name}: {rate:.2f} of its {uses:.2f} uses/s find a Power Charge ({flow[1]})"))
+        return out
+
     def _oil_ground(self, texts: list[str], stats: dict, pieces: list) -> list[tuple[str, float, float]]:
         """The build's lit Oil Ground under the boss (MECH82, oil_ground): each Oil skill's uses a second (the main skill's
         Speed, else its group's rate, else the search's chosen rate) and its Oil Ground set's Fire hit (the bridge's
@@ -8344,6 +8452,12 @@ class Conditions:
                     uses = (number(stats.get("Speed")) if types == main_types or (hollow and name == HOLLOW_FORM)
                             else None)  # (None: rated from its group below)
                     consumers.setdefault(kind, {})[name] = uses
+        if CREEPING_CHILL in gem_types:  # (MECH93: the support makes its crystal skill spend Power Charges; see
+            # CREEPING_CHILL's note: PoB adds SkillConsumesPowerChargesOnUse at run time, the gem data above lacks it)
+            for name in self._creeping_chill_skills():
+                if name not in (consumers.get("Power") or {}):
+                    consumers.setdefault("Power", {})[name] = (number(stats.get("Speed")) if name == self.main_skill
+                                                               else None)
         # Rage spenders (RAGE_PER_USE / RAGE_PER_SECOND): the main skill, or a support in its group, at the main skill's
         # uses per second; any other at its group's rate (a per-second channel held 1 s a press, assumed; MECHC1)
         main_gems = {g["name"] for g in group["gems"]} if group is not None else set()
@@ -8608,7 +8722,8 @@ class Conditions:
         if HELBRYMS_HIDE in gem_types and self.main_skill:  # (MECHC44: Helbrym's Hide's Rage, rage_held)
             stats["_helbrym_rage"] = self._helbrym_rage(stats.get("_boss"))
         stats["_shocked_ground"] = shocked_ground(stats, texts)
-        stats["_chilled_ground"] = chilled_ground(stats, texts, main_gems)  # (MECH76, for COV-A's Desert's Scorn)
+        stats["_chilled_ground"] = chilled_ground(  # (MECH76, for COV-A's Desert's Scorn; MECH93: Creeping Chill)
+            stats, texts, main_gems, self._creeping_chill(texts, stats) if CREEPING_CHILL in gem_types else None)
         # (MECH79) the build's Ignited Ground at the boss: the ground gains' Fire, COV-A's Desert's Scorn cold half
         if self.main_skill == INCINERATE:  # (MECH79: its fuel, the Channelling box's share)
             stats["_incinerate_fuel"] = self._incinerate_fuel()

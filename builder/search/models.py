@@ -10600,6 +10600,15 @@ VOLATILITY_IMMUNE = re.compile(r"^take no damage from volatility$", re.I)
 VOLATILITY_AS_COLD = re.compile(r"^(\d+(?:\.\d+)?)% of volatility physical damage taken as cold damage$", re.I)
 VOLATILITY_SUPPORT_STAT, VOLATILITY_HIT = "instability_on_critical_%_chance", 100.0
 VOLATILITY_ARMOUR_RATIO, VOLATILITY_DR_MAX = 10.0, 90.0  # (PoB's data.misc.ArmourRatio; its DamageReductionCap)
+# (MECH93; MECH92's routed UNDERCOUNT) Calloused Marrow (PassiveSkills AbyssJewelHistoricOverrideNotable_T_T_8, a notable
+# a Timeless-style abyss jewel puts on the tree): "40% reduced Damage taken from Volatility if you have at least 100
+# Tribute" (damage_taken_+%_from_volatility_if_you_have_at_least_100_tribute -40; PoB: unread). Taken off the explosion
+# after Armour (a damage-taken modifier; Armour still worked out on the unreduced hit: MEDIUM), when PoB's Tribute (its
+# output.Tribute, CalcPerform 493) is at least 100; under it, not applied, said. (checked: the Stats ids holding
+# "volatility" with "taken" / "damage_taken": this one, volatility_physical_damage_taken_%_as_cold (VOLATILITY_AS_COLD)
+# and immune_to_volatility_damage (VOLATILITY_IMMUNE), 26650308; poe2db not checked)
+VOLATILITY_TAKEN = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) damage taken from volatility if you have at least "
+                              r"(\d+) tribute$", re.I)
 # (MECH92; the catalog's damaging-ailments / term-consume passive rows, UNDERCOUNTS: PoB reads neither line) Instability
 # (volatility_refresh_%_chance 25; Ancient Rune of Decay's 15% on a wand): "N% chance that when Volatility on you
 # explodes, you regain an equivalent amount of Volatility" (the same stat, summed). In the attack-then-stop cycle a
@@ -10691,12 +10700,23 @@ def volatility_model(texts: list[str], stats: dict, support_crit: float = 0.0,
     armour = max(number(stats.get("Armour")), 0.0)
     base_dr = max(number(stats.get("BasePhysicalDamageReduction")), 0.0)
     max_dr = number(stats.get("PhysicalDamageReductionMax")) or VOLATILITY_DR_MAX
+    tribute = number(stats.get("Tribute"))
+    taken_inc, taken_parts = 0.0, []  # (MECH93: Calloused Marrow, VOLATILITY_TAKEN's note)
+    for t in texts:
+        if m := VOLATILITY_TAKEN.match(t.strip()):
+            value = float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+            if tribute >= float(m.group(3)):
+                taken_inc += value
+                taken_parts.append(f"{value:+g}% Damage taken from Volatility ({tribute:.0f} Tribute)")
+            else:
+                taken_parts.append(f"'{t.strip()}' not applied: {tribute:.0f} Tribute, under {m.group(3)}")
+    taken_mult = max(0.0, 1 + taken_inc / 100)
 
     def taken(raw: float, armoured: bool = True) -> float:  # (MECH92, R35-2: one hit of `raw` Volatility damage to you)
         phys, cold = raw * (1 - as_cold), raw * as_cold
         dr = (min(100 * armour / (armour + VOLATILITY_ARMOUR_RATIO * phys) + base_dr, max_dr)
               if armoured and phys > 0 else 0.0)
-        return phys * (1 - dr / 100) + cold * (1 - cold_res)
+        return (phys * (1 - dr / 100) + cold * (1 - cold_res)) * taken_mult
 
     def survives(damage) -> float:  # (the most Volatility whose explosion your Life + Energy Shield survives, up to cap)
         lo, hi = 0, int(cap)
@@ -10788,7 +10808,9 @@ def volatility_model(texts: list[str], stats: dict, support_crit: float = 0.0,
                f" (no 'Take no Damage from Volatility': the explosion is one hit of {VOLATILITY_HIT:g} Physical a "
                f"Volatility ({as_cold:.0%} of it taken as Cold at {cold_res:.0%} resistance), reduced by your "
                f"{armour:.0f} Armour and {base_dr:g}% other Physical Damage Reduction (R35-2, MEDIUM: a Hit; one "
-               f"hit of 100 x stacks MEDIUM-LOW), so at most what your {pool:.0f} Life + Energy Shield survives)")
+               f"hit of 100 x stacks MEDIUM-LOW), "
+               + (f"then {'; '.join(taken_parts)} (after Armour, MEDIUM), " if taken_parts else "")
+               + f"so at most what your {pool:.0f} Life + Energy Shield survives)")
             + "; each explosion's Volatile Power is its own 10 s buff, adding to any still running (R35-8, MEDIUM)"
             + (f"; with {stunned:.3f} a second from being Stunned ({stunned_how}), which also resets the timer while "
                f"you stop: the explosion comes a mean {explode:.2f} s after you stop (random Stuns, MEDIUM)"
@@ -10868,7 +10890,7 @@ DOT_TYPES = ("Physical", "Lightning", "Cold", "Fire", "Chaos")
 VOLATILITY_STATS = ["Speed", "HitChance", "IgniteChancePerHit", "ShockChancePerHit", "ChillChanceOnHit",
                     "ColdHitAverage", "ColdCritAverage", "CombinedDPS", "PoisonDPS", "TotalDotDPS", "CritChance",
                     "Life", "EnergyShield", "ColdResist", "Armour", "BasePhysicalDamageReduction",
-                    "PhysicalDamageReductionMax",
+                    "PhysicalDamageReductionMax", "Tribute",
                     *(f"{t}Dot" for t in DOT_TYPES)]
 
 
@@ -10912,6 +10934,33 @@ def frenzy_poison_duration_mods(texts: list[str], flow: tuple | None) -> tuple[l
                   f"so +{value:g}% x {share:.0%}. PoB parses the line only in part, so it counted 0"),
         "play": (f"Consume a Frenzy Charge at least every {RECENTLY:g} s: without it +0; with it +{value:g}% Poison "
                  "Duration")}]
+
+
+# (MECH93; the catalog's damaging-ailments / kw-ailments rows, an UNDERCOUNT: PoB parses "N% increased Magnitude of
+# Elemental Ailments you inflict with Spells" only in part, ModCache 3955, so never applies it) The Genesis Tree's belt
+# craft GenesisTreeBeltSpellElementalAilmentMagnitude(Crafted) (spell_elemental_ailment_magnitude_+% 30-40; 0.5.0 notes:
+# "a new set of Caster and Minion mods that can be crafted onto Rings and Belts using the Genesis Tree") and the Genesis
+# Tree passive BrequelTreeBelts44b (checked: Mods and PassiveSkills by stat 26622, 26650308; poe2db not checked). Given
+# as PoB's own magnitude mods for the elemental ailments that have one, Spells only: AilmentMagnitude for Ignite
+# (keywords Ignite + Spell, MatchAll: not a Spell's Poison or Bleed), EnemyShockMagnitude and EnemyChillMagnitude
+# (keyword Spell), the names PoB gives "Magnitude of Ignite / Shock / Chill" (ModCache 3337, 1645, 1642). Freeze and
+# Electrocute have no Magnitude (buildup only). Whether the Spell flag reaches each calculation: probe POE2T5046.
+SPELL_AILMENT_MAGNITUDE = re.compile(r"^(\d+(?:\.\d+)?)% increased magnitude of elemental ailments you inflict with "
+                                     r"spells$", re.I)
+
+
+def spell_ailment_magnitude_mods(texts: list[str]) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for SPELL_AILMENT_MAGNITUDE (the note above)."""
+    value = sum(float(m.group(1)) for t in texts if (m := SPELL_AILMENT_MAGNITUDE.match(t.strip())))
+    if value <= 0:
+        return [], []
+    mods = [raw_mod("AilmentMagnitude", "INC", value, keywords=["Ignite", "Spell", "MatchAll"]),
+            raw_mod("EnemyShockMagnitude", "INC", value, keywords=["Spell"]),
+            raw_mod("EnemyChillMagnitude", "INC", value, keywords=["Spell"])]
+    return mods, [{"label": "Magnitude of Elemental Ailments with Spells*", "value": f"+{value:g}%",
+                   "confidence": "MEDIUM",
+                   "basis": (f"+{value:g}% increased Magnitude of Ignite, Shock and Chill from Spells (PoB parses the "
+                             "line only in part, so it counted 0); Freeze and Electrocute have no Magnitude")}]
 
 
 # Spectral Fire (MECH92; RESEARCH35 R35-16, scratch/manager/research/spectral-fire-refresh-and-reignite.md; PoB ignores

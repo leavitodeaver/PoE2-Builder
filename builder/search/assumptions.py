@@ -3477,7 +3477,9 @@ class Assumptions:
         frenzy_mods, frenzy_notes = models.frenzy_poison_duration_mods(  # (MECH91: PoB parses it only in part)
             turmoil_texts, (getattr(build, "charge_flow", None) or {}).get("Frenzy"))
         hand_mods, hand_notes = hand_mods + frenzy_mods, hand_notes + frenzy_notes
-        volatility_crit = volatility_support(build, main)  # (MECH91: the Volatility support's chance on crit)
+        spell_ailment_mods, spell_ailment_notes = models.spell_ailment_magnitude_mods(turmoil_texts)  # (MECH93)
+        hand_mods, hand_notes = hand_mods + spell_ailment_mods, hand_notes + spell_ailment_notes
+        volatility_crit =volatility_support(build, main)  # (MECH91: the Volatility support's chance on crit)
         if volatility_crit > 0 or any(models.INNER_TURMOIL.match(t.strip())
                                       or models.VOLATILITY_ON_CRIT.match(t.strip())
                                       or models.VOLATILITY_ON_KILL.match(t.strip())  # (MECH92)
