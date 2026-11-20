@@ -1,5 +1,7 @@
-"""SEARCH33: Build.restore keeps the config inputs a reload dropped (train 108 carries this test alone; the side-group
-supports tests join this file when their commits land after the re-gate)."""
+"""SEARCH33: Build.restore keeps the config inputs a reload dropped (train 108), and the side groups' supports
+(gems.side_groups / optimize_supports): only the main group, the meta group and a granted meta holding a spell were ever
+given supports, so persistent buffs, Blasphemy curses and skills a notable or item grants stayed bare (2b75b's delivered
+I2: Wildwood's Gifts, Blasphemy + Despair, Archon of Chayula)."""
 from __future__ import annotations
 
 import faulthandler
@@ -48,3 +50,37 @@ def test_a_restore_keeps_a_config_input_at_pobs_own_default(ctx, engine):
     build.set_config({"enemyDistance": 50})
     build.restore(snap)
     assert build.call("getConfig")["input"].get("enemyDistance") == 20
+
+def test_a_side_group_gets_its_supports_and_the_score_never_falls(ctx, engine, monkeypatch):
+    from builder.search import gems as gems_mod
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    skeleton = enumerate_skeletons(ctx, ["Spark"])[0][0]
+    search = Search(engine, None, make_payload(ctx.request), skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build, gems = search.build, search.gems
+    side = build.set_group(gems=[{"name": "Blasphemy", "level": 20, "quality": 0},
+                                 {"name": "Elemental Weakness", "level": 20, "quality": 0}], label="test")["index"]
+    found = gems.side_groups()
+    assert side in [g["index"] for g in found]
+    assert not any(g["main"] for g in found)
+    called = []
+    real = gems_mod.Gems.supports_round
+
+    def spy(self, full_sweep=False, meta=False, granted=None):
+        called.append(granted)
+        return real(self, full_sweep=full_sweep, meta=meta, granted=granted)
+
+    monkeypatch.setattr(gems_mod.Gems, "supports_round", spy)
+    before = build.score
+    gems.optimize_supports(float("inf"), rounds=2)
+    assert side in called
+    assert build.score >= before - 1e-9
+    group = next(g for g in build.groups() if g["index"] == side)
+    supports = [g["name"] for g in group["gems"] if g["support"]]
+    assert supports, "Blasphemy + Elemental Weakness on a Spark build: some curse support should raise the score"
+    # a second step with nothing changed doesn't sweep an idle side group again (side_idle), but a kept group is retried
+    called.clear()
+    gems.optimize_supports(float("inf"), rounds=1)
+    assert build.score >= before - 1e-9

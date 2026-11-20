@@ -94,6 +94,11 @@ GLOBAL_BENEFIT_SUPPORTS = frozenset({
     "Direstrike II", "Upwelling I", "Upwelling II", "Warm Blooded", "Cool Headed", "Strong Hearted"})
 LINEAGE_COPIES = re.compile(r"You can Socket (an|\d+) additional cop(?:y|ies) of each Lineage Support Gem", re.I)
 META_TRIALS = 3  # spells per meta gem tried for real (trigger rates show only after a resolve)
+# (SEARCH33) Support changes each side group gets per supports step (side_groups / optimize_supports), and how far the
+# score must move before a side group whose last full sweep found nothing is swept again (a sweep is ~one what-if per
+# offered support: ~200-300 a group)
+SIDE_SUPPORT_ROUNDS = 4
+SIDE_RESWEEP = 0.05
 # Moves per round of the main group's supports that get a real trial, the next when one turns out worse. The what-if
 # doesn't resolve conditions: Exploit Weakness ("more Damage against enemies with Broken Armour but preventing them from
 # Breaking Armour themselves", GemEffects) kept the armour break it takes away, ranked first at +0.20 every round, failed
@@ -186,6 +191,9 @@ class Gems:
         self.rng = None  # the task's random.Random (set by the search): which seeds rebuild_main tries; None: the top ones
         self.meta_shortlist: list[str] | None = None  # the same for the meta group's
         self.granted_shortlists: dict[int, list[str]] = {}  # and for each item- or notable-granted meta group's
+        # (SEARCH33) side groups (side_groups) whose last full sweep found no gain: index -> (gems, score then)
+        self.side_idle: dict[int, tuple[tuple, float]] = {}
+        self.side_names: dict[int, str] = {}  # side group index -> its first gem's name when its shortlist was kept
         self.conditions = None  # the condition resolver, when supports should be tried with it
         self.assumptions = None
         self.resolve = None  # re-resolves conditions and assumptions after a trial commit
@@ -679,16 +687,29 @@ class Gems:
     def optimize_supports(self, deadline: float, rounds: int = 12, allow_sweep: bool = True) -> bool:
         """Weakest-slot moves against the shortlist; once those run out (and if allowed), one
         full sweep of every candidate in every slot. The main group first, then the meta group's, then each granted
-        meta group holding a spell."""
+        meta group holding a spell, then (SEARCH33) each side group (side_groups), SIDE_SUPPORT_ROUNDS changes each."""
 
         improved = False
         granted = [g["index"] for g in self.filled_granted_groups()]
-        for meta, index in [(False, None), (True, None), *((True, i) for i in granted)]:
+        side = self.side_groups()
+        for meta, index in [(False, None), (True, None), *((True, i) for i in granted), *((True, g["index"]) for g in side)]:
+            is_side = index is not None and index not in granted
+            if is_side:
+                group = next(g for g in side if g["index"] == index)
+                key, idle = tuple(x["name"] for x in group["gems"]), self.side_idle.get(index)
+                if self.side_names.get(index) != key[0]:  # (a group removed before it moves the indexes after it)
+                    self._set_shortlist(True, index, None)
+                    self.side_names[index] = key[0]
             sweep = self._shortlist(meta, index) is None
-            for _ in range(rounds):
+            if is_side:
+                if sweep and idle is not None and idle[0] == key and abs(self.build.score - idle[1]) <= SIDE_RESWEEP * max(abs(idle[1]), 1e-9):
+                    continue  # its last full sweep found nothing, and neither its gems nor the score have moved since
+            for _ in range(SIDE_SUPPORT_ROUNDS if is_side else rounds):
                 if clock.now() > deadline:
                     break
                 if not self.supports_round(full_sweep=sweep, meta=meta, granted=index):
+                    if sweep and is_side:
+                        self.side_idle[index] = (key, self.build.score)
                     if sweep or not allow_sweep:
                         break
                     sweep = True
@@ -1294,6 +1315,20 @@ class Gems:
 
         return [g for g in self.build.groups() if g["fromItem"] and g["enabled"] and g["gems"]
                 and g["gems"][0]["name"] in models.GRANTED_FILLED and any(not x["support"] for x in g["gems"][1:])]
+
+    def side_groups(self) -> list[dict]:
+        """(SEARCH33) The build's other enabled groups whose supports are the player's and no other round fills: the
+        persistent buffs (Withering Presence), the Blasphemy and hand-cast curse groups, and skills a notable or an item
+        grants (Into the Breach, Wildwood's Gifts, Archon of Chayula; their supports are the player's gems, socketed with
+        the granted skill: used_supports' note). Until now only the main group, the meta group and a granted meta holding
+        a spell were ever filled (callers of supports_round), so every other group stayed bare: 2b75b's delivered I2 had
+        Wildwood's Gifts, Blasphemy + Despair and Archon of Chayula with no support, where its reference supports each
+        buff (SEARCH32's diff_ref.out). Each is filled by what-if like a granted meta's (supports_round with its index:
+        its active gems take sockets, the cautious reading), kept only when the build scores higher."""
+        groups = self.build.groups()
+        filled = {g["index"] for g in self.filled_granted_groups()}
+        return [g for g in groups if g["enabled"] and g["gems"] and not g["main"] and g["label"] != META_LABEL
+                and g["index"] not in filled and not g["gems"][0]["support"]]
 
     def refill_main_supports(self, deadline: float, rounds: int = GRANTED_SUPPORT_ROUNDS) -> bool:
         """A sweep of the main group's supports, then weakest-slot rounds, so an item taken off for the meta it granted
