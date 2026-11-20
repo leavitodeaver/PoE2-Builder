@@ -3527,7 +3527,10 @@ class Assumptions:
         briar, briar_notes = briarpatch(build, main, found)  # (MECHB31: Briarpatch's creation hit, PoB 0)
         hand_mods += [models.added_input("Briarpatch", briar)] if briar > 0 else []
         hand_notes += briar_notes
-        tail_mods, tail_notes = models.tailwind_model([e["text"] for e in source_lines], stats, main)  # (MECHB30, MB-3)
+        tail_mods, tail_notes = models.tailwind_model(  # (MECHB30, MB-3; MECHB45: at the main's share, side uses added)
+            [e["text"] for e in source_lines], stats, main, main_time_share(build, main),
+            self.tailwind_use_rates(main.name if main is not None else None)
+            if any(models.TAILWIND_ON_USE.search(e["text"]) for e in source_lines) else None)
         hand_mods, hand_notes = hand_mods + tail_mods, hand_notes + tail_notes
         eldritch_mods, eldritch_notes = models.eldritch_empowerment_model([e["text"] for e in source_lines], stats, main)
         hand_mods, hand_notes = hand_mods + eldritch_mods, hand_notes + eldritch_notes  # (MECHB30, MB-1: PoB's box unset)
@@ -7059,6 +7062,27 @@ class Assumptions:
         if state == "missing":
             return missing, f"missing Runic Ward {missing:.0%} of the fight: {how}"
         return 1.0 - missing, f"on full Runic Ward {1.0 - missing:.0%} of the fight (missing it {missing:.0%}): {how}"
+
+    def tailwind_use_rates(self, main: str | None) -> dict[str, tuple[float, str]]:
+        """{skill: (uses a second, how)} of each enabled non-support gem other than the main skill that the player uses
+        (not Persistent, Triggered or Meta: NOT_PRESSED_TYPES), at its group's rate (conditions.skill_use_rate: cooldown,
+        duration or the search's chosen presses, else 0), for models.tailwind_model's "Gain Tailwind on Skill use"
+        (MECHB45)."""
+        build = self.build
+        ctx = build.ctx
+        groups = [g for g in build.call("groups")["groups"] if g.get("enabled") is not False]
+        where = {g["index"]: n["name"] for g in groups for n in g.get("gems") or []
+                 if n.get("enabled", True) and not n.get("support") and n["name"] != main
+                 and not (set(gem_of(ctx, n["name"]).get("skillTypes") or []) & NOT_PRESSED_TYPES)}
+        out: dict[str, tuple[float, str]] = {}
+        if where:
+            choices = models.press_choices(build)
+            for rate in build.call("useRates", indices=sorted(where))["rates"]:
+                name = where.get(rate.get("index"))
+                if name is not None and name not in out:
+                    each, why, _ = conditions_mod.skill_use_rate(rate, choices)
+                    out[name] = (each, f"on {why}")
+        return out
 
     def projectile_attack_rates(self, main: str | None, stats: dict) -> dict[str, tuple[float, str]]:
         """{Projectile Attack skill: (hits a second, how)} for models.projectile_hit_recently_model (COV35): the main

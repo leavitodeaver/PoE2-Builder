@@ -9523,24 +9523,39 @@ def infernal_legion_ignited(skills: list[Skill], main: Skill | None, stats: dict
 # is a hit, for Thorns; Evaded hits don't hit). Between hits g s apart the stack count climbs one a gain to 10, so the
 # fight's mean is r g / 2 when r g <= 10, else 10 - 50 / (r g) (the gaps taken as even, MEDIUM). Handed to PoB as
 # Multiplier:Tailwind.
+# (MECHB45; MECHC45's note via the manager 07:25, an OVERCOUNT before) The main skill's uses and crits at its share of
+# the fight as the score counts it (assumptions.main_time_share: the time the pressed side skills take, MECHC44's
+# 13b01eb2), not PoB's full Speed; and "on Skill use" counts every skill used, so the pressed side skills' uses are added
+# (Assumptions.tailwind_use_rates: each enabled, non-support gem the player uses, at conditions.skill_use_rate's rate:
+# cooldown, duration or the search's chosen presses, else 0; Persistent, Triggered and Meta skills out: whether a
+# triggered skill's use counts is UNVERIFIED, left out, the lower reading). Their crits aren't added (an undercount).
 TAILWIND_MAX = 10
 TAILWIND_ON_USE = re.compile(r"gain tailwind on skill use", re.I)
 TAILWIND_ON_CRIT = re.compile(r"gain tailwind on critical hit, no more than once per second", re.I)
 
 
-def tailwind_model(texts: list[str], stats: dict, main: Skill | None) -> tuple[list[dict], list[dict]]:
-    """(mods, notes): the mean Tailwind stacks over the fight, as PoB's Multiplier:Tailwind."""
+def tailwind_model(texts: list[str], stats: dict, main: Skill | None, share: float = 1.0,
+                   others: dict[str, tuple[float, str]] | None = None) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): the mean Tailwind stacks over the fight, as PoB's Multiplier:Tailwind. `share`: the main skill's
+    share of the fight (assumptions.main_time_share); `others`: {side skill: (uses a second, how)} (see above)."""
+    share = max(0.0, min(1.0, share))
     on_use = any(TAILWIND_ON_USE.search(t) for t in texts)
     on_crit = any(TAILWIND_ON_CRIT.search(t) for t in texts)
     if not (on_use or on_crit):
         return [], []
     parts, rate = [], 0.0
     if on_use and main is not None and not main.triggered:
-        uses = number(stats.get("Speed"))
+        uses = number(stats.get("Speed")) * share
         rate += uses
-        parts.append(f"{uses:.2f} uses/s of {main.name}")
+        parts.append(f"{uses:.2f} uses/s of {main.name}" + (f" (PoB's {number(stats.get('Speed')):.2f} x its {share:.0%} "
+                                                             "share of the fight)" if share < 1 else ""))
+    if on_use:
+        for name, (each, how) in (others or {}).items():
+            if each > 0:
+                rate += each
+                parts.append(f"{each:.2f} uses/s of {name} ({how})")
     if on_crit:
-        crits = min(1.0, crits_per_second(stats))
+        crits = min(1.0, crits_per_second(stats) * share)
         rate += crits
         parts.append(f"{crits:.2f} crits/s (at most 1)")
     hits = (boss_hits.land_share(stats) + boss_hits.block_share(stats)) / bosses.benefit_skill_time(stats)
@@ -9552,8 +9567,8 @@ def tailwind_model(texts: list[str], stats: dict, main: Skill | None) -> tuple[l
         climb = rate / hits
         stacks = climb / 2 if climb <= TAILWIND_MAX else TAILWIND_MAX - TAILWIND_MAX ** 2 / (2 * climb)
     basis = (f"gained at {rate:.2f}/s ({'; '.join(parts) or 'nothing'}), all lost at each of the boss's {hits:.2f} hits/s "
-             f"that land or are Blocked: {stacks:.1f} of {TAILWIND_MAX} stacks on average (even gaps, MEDIUM; other "
-             "skills' uses not counted)")
+             f"that land or are Blocked: {stacks:.1f} of {TAILWIND_MAX} stacks on average (even gaps, MEDIUM; "
+             "triggered skills' uses and other skills' crits not counted)")
     note = {"label": "Tailwind stacks (mean over the fight)", "value": round(stacks, 2), "basis": basis,
             "confidence": "MEDIUM"}
     return ([raw_mod("Multiplier:Tailwind", "BASE", stacks)] if stacks > 0 else []), [note]

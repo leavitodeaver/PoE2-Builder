@@ -5057,6 +5057,14 @@ def test_tailwind_stacks_climb_between_the_bosss_hits_and_reset_on_each():
     assert models.tailwind_model([], stats, spark) == ([], [])
     nothing = models.tailwind_model(["Gain Tailwind on Critical Hit, no more than once per second"], stats, spark)
     assert nothing[0] == [] and nothing[1][0]["value"] == 0  # (no crits: no stacks)
+    # (MECHB45, MECHC45's note: an OVERCOUNT before) the main skill at its share of the fight, the side presses added
+    lines = ["Gain Tailwind on Skill use"]
+    half = models.tailwind_model(lines, stats, spark, share=0.5)[1][0]
+    climb = 1.0 / hits
+    assert half["value"] == pytest.approx(climb / 2 if climb <= 10 else 10 - 50 / climb, abs=0.01)
+    assert "50% share" in half["basis"]
+    back = models.tailwind_model(lines, stats, spark, share=0.5, others={"Orb of Storms": (1.0, "on presses")})[1][0]
+    assert back["value"] == pytest.approx(want, abs=0.01) and "Orb of Storms" in back["basis"]
 
 
 def test_added_sources_sum_and_eternal_hunt_counts_five_wolves_net_of_its_presses():
