@@ -8494,8 +8494,9 @@ class Conditions:
             # CREEPING_CHILL's note: PoB adds SkillConsumesPowerChargesOnUse at run time, the gem data above lacks it)
             for name in self._creeping_chill_skills():
                 if name not in (consumers.get("Power") or {}):
-                    consumers.setdefault("Power", {})[name] = (number(stats.get("Speed")) if name == self.main_skill
-                                                               else None)
+                    # (MECHC46, an OVERCOUNT before: the main crystal skill at its share of the fight, as above)
+                    consumers.setdefault("Power", {})[name] = (number(stats.get("Speed")) * _main_share(stats)
+                                                               if name == self.main_skill else None)
         # Rage spenders (RAGE_PER_USE / RAGE_PER_SECOND): the main skill, or a support in its group, at the main skill's
         # uses per second; any other at its group's rate (a per-second channel held 1 s a press, assumed; MECHC1)
         main_gems = {g["name"] for g in group["gems"]} if group is not None else set()

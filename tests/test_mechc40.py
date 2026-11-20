@@ -208,3 +208,33 @@ def test_the_main_skill_spends_charges_at_its_share_of_the_fight(engine, monkeyp
         print(share, flow)
         wanted[share] = float(re.search(r"([\d.]+)/s wanted by", flow[1]).group(1))
     assert wanted[1.0] > 0 and wanted[0.5] == pytest.approx(wanted[1.0] / 2, abs=0.006)
+
+
+def test_the_main_crystal_skill_spends_power_charges_for_creeping_chill_at_its_share(engine, monkeypatch):
+    """MECHC46 (MECH93's routed item; an OVERCOUNT of its spending before): Frost Wall (main) with Creeping Chill joins
+    the Power Charge consumers at its share of the fight (Conditions._main_share), not at PoB's full Speed: at half the
+    fight, half the uses a second wanted."""
+    import re
+
+    from builder.search.conditions import Conditions
+
+    payload = make_payload(BuildRequest(main_skill="Frost Wall"))
+    skeleton = enumerate_skeletons(Context(payload), ["Frost Wall"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    main = build.main_group()
+    old = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} for g in main["gems"]
+           if g["name"] != "Creeping Chill"]
+    build.set_group(index=main["index"], gems=[*old, {"name": "Creeping Chill", "level": 1, "quality": 0}])
+    amulet = chr(10).join(["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82", "Implicits: 0",
+                           "Gain a Power Charge every 2 seconds"])
+    build.call("equip", slot="Amulet", raw=amulet, fields=[])
+    wanted = {}
+    for share in (1.0, 0.5):
+        monkeypatch.setattr(Conditions, "_main_share", lambda self, s=share: s)
+        search.conditions.evidence()
+        flow = (build.charge_flow or {}).get("Power")
+        print(share, flow)
+        wanted[share] = float(re.search(r"([\d.]+)/s wanted by", flow[1]).group(1))
+    assert wanted[1.0] > 0 and wanted[0.5] == pytest.approx(wanted[1.0] / 2, abs=0.006)
