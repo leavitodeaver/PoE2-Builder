@@ -15,3 +15,20 @@
     that); glory_plan's Glory skill uses read it. PoB ignores the line (nothing to negate).
   sources: ["builder/search/models.py (GLORY_NOT_CONSUME, glory_lines, glory_plan)"]
   status: proposed
+
+# MECH-A's train-102 reader (ef59881e, MECH92; drafted by COV46 / COV47, checked against main's code at COV48).
+- id: model-read-mecha-spectral-fire
+  title: 'Fairgraves'' Curse, "Attack Hits inflict Spectral Fire for N seconds" (models.spectral_fire_mods, MECH92 / train 102)'
+  kind: pob_gap
+  model: spectral_fire
+  match: '^Attack Hits inflict Spectral Fire for (\d+(?:\.\d+)?) seconds$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.SPECTRAL_FIRE / spectral_fire_mods (ef59881e, train 102; RESEARCH35 R35-16): the Ignite stored and exploded
+    every 8 s as your own Fire hit, resisted again (PoB's Ignite x its IgniteEffMult as less Ignite Magnitude,
+    MEDIUM-LOW), Attack main skills only; rows: the debuff refreshing on each hit, not resisted again, the explosion
+    Igniting again. PoB left the line unparsed and counted plain Ignite DPS (an OVERCOUNT before). Read in
+    assumptions.py (models.SPECTRAL_FIRE over the build's texts).
+  sources: ["builder/search/models.py (SPECTRAL_FIRE, spectral_fire_mods)", "builder/search/assumptions.py"]
+  status: proposed

@@ -1556,3 +1556,26 @@ def test_cov48_glory_not_consume_is_model_read():
     assert models.glory_lines(["Skills have a 15% chance to not consume Glory"])["not_consume"] == pytest.approx(0.15)
     found = model_entry("Create a Fragment of Divinity in your Presence every 4 seconds")
     assert found is None or not found.id.startswith("model-read-")
+
+
+def test_cov48_train102_readers_crafted_jewels_frightening_shield_spectral_fire():
+    """COV48: train 102's MECH-A readers. conditions._debuff_source strips the crafted jewels' "while you have a <X> and a
+    <Y> socketed in your tree" (SOCKETED_PAIR) and rates Frightening Shield's raised-shield Debilitate, so the audit
+    reads both as the resolver's; a kill-event line with the clause stays open. Fairgraves' Curse's Spectral Fire line
+    is model-read (models.SPECTRAL_FIRE)."""
+    from builder.ledger import translate
+    from builder.search import conditions, models
+
+    cases = {"Blind Enemies on Hit while you have a Ruby and a Sapphire socketed in your tree": "conditionEnemyBlinded",
+             "Debilitate Enemies on Hit while you have an Emerald and a Sapphire socketed in your tree":
+                 "conditionEnemyDebilitated",
+             "Apply Debilitate to Enemies 30 Metres in front of you while your Shield is raised": "conditionEnemyDebilitated"}
+    for line, var in cases.items():
+        found = coverage.resolver_condition(line)
+        assert found is not None and found.var == var, line
+    assert conditions.SOCKETED_PAIR.search(next(iter(cases)))
+    assert coverage.resolver_condition("Blind Enemies when they Kill you while you have a Ruby and a Sapphire socketed "
+                                       "in your tree") is None
+    entry, out = translate("Attack Hits inflict Spectral Fire for 8 seconds")
+    assert entry.id == "model-read-mecha-spectral-fire" and out == []
+    assert models.SPECTRAL_FIRE.match("Attack Hits inflict Spectral Fire for 8 seconds")

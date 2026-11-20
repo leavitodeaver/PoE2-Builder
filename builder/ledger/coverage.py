@@ -764,6 +764,12 @@ def resolver_condition(line: str):
     for condition in c.CONDITIONS:
         var = condition.var
         if var in c.DEBUFFS and (m := c._debuff_pattern(var).search(rolled)) and not c.DEBUFF_NOT_SOURCE.search(rolled):
+            # (COV48, train 102's b9c1c49d) the crafted jewels' "while you have a <X> and a <Y> socketed in your tree":
+            # conditions._debuff_source strips the clause (socketed_pair) and rates the rest when both are socketed, so
+            # the audit reads the rest the same way
+            if (pair := getattr(c, "SOCKETED_PAIR", None)) and pair.search(rolled):
+                if not (m := c._debuff_pattern(var).search(pair.sub("", rolled))):
+                    continue
             when = (m.group(2) if m.group(2) is not None else f"{m.group(3)} {m.group(4)}").lower()
             # (the events _debuff_source rates: your hits and crits, the boss's hits on you or your Blocks, your
             # Presence, your curses, Full Breaks; any other wording it rates 0, so the line stays open here). (COV37) And
@@ -780,7 +786,8 @@ def resolver_condition(line: str):
             if not re.search(r"\bkill|heavy stun|immobilis|shapeshift|burning|socketed|\bfrozen by\b", when) and (
                     re.search(r"presence|you curse|fully (?:armour )?break|block|hit you|critical|on hit|stun you", when)
                     or c.WHEN_YOU_AILMENT.search(when)
-                    or ("shield is raised" in when and var == "conditionEnemyBlinded")
+                    # (COV48, train 102's b9c1c49d) Frightening Shield's Debilitate rides Bastion of Light's taps
+                    or ("shield is raised" in when and var in ("conditionEnemyBlinded", "conditionEnemyDebilitated"))
                     or (not when.strip() and c.WARCRIES_SUBJECT.search(rolled))):
                 return condition
         elif var.endswith("Exposure") and (m := c.EXPOSURE_SOURCE.search(rolled)) and                 m.group(2).lower() in ("elemental", "", var[len("conditionEnemy"):-len("Exposure")].lower()):
