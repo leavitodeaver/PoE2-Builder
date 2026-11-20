@@ -3492,6 +3492,8 @@ class Assumptions:
                 gain = flasks.Charges.of(build)
                 turmoil_stats = {**turmoil_stats, "_stunned_volatility": models.volatility_when_stunned(
                     turmoil_texts, gain.stuns, gain.stuns_how)}
+            if getattr(build, "objective", None) is not None:  # (MECH93: its hits at its share of the fight)
+                turmoil_stats["_main_share"] = main_time_share(build, main)
             bond_deaths = (models.minion_deaths(found, main, stats)  # (MECH92: Unstable Bond's deaths join the cycle)
                            if any(models.UNSTABLE_BOND.match(t.strip()) for t in turmoil_texts) else None)
             turmoil_mods, turmoil_notes = models.volatility_model(  # (MECH92: + Instability, on Kill at build.kills)

@@ -273,6 +273,20 @@ class Skill:
                    number(raw.get("totemLimitOwn")), bool(raw.get("byTotem")), bool(raw.get("projectileAttack")))
 
 
+# (MECH93, an OVERCOUNT before; the manager 07:25, MECHC45's list) AT_MAIN_SHARE: the main skill's share of the fight
+# as the score counts it (assumptions.main_time_share: the press model's time the pressed side skills leave it, x the
+# search's chosen presses outside it), which Conditions.evidence puts in stats["_main_share"] (MECHC44). MECH-A's
+# ailment, debuff, ground and buildup readers took the main skill's hits at PoB's full Speed, as if it were used all
+# fight. at_main_share gives the stats with Speed x the share and "_main_share" blanked (MECHC45's own convention, so a
+# reader called inside another, or a MECH-C reader, never scales twice); unchanged where no share is set (1 with no
+# presses; readers called from Assumptions with PoB's plain stats: not scaled, UNVERIFIED there).
+def at_main_share(stats: dict) -> dict:
+    share = stats.get("_main_share")
+    if share is None:
+        return stats
+    return {**stats, "Speed": number(stats.get("Speed")) * max(0.0, min(1.0, number(share))), "_main_share": None}
+
+
 def hits_per_second(stats: dict) -> float:
     return number(stats.get("Speed")) * number(stats.get("HitChance")) / 100
 
@@ -10670,6 +10684,7 @@ def volatility_model(texts: list[str], stats: dict, support_crit: float = 0.0,
     """(mods, notes) for Inner Turmoil's Volatility played as a cycle (the note above); (MECH91) also Volatility on
     Critical Hit (support_crit: the main skill's Volatility support chance, %; the lines VOLATILITY_ON_CRIT); (MECH92)
     Instability's regain and Volatility on Kill at `kills` (models.kill_rate's (enemies/s, all/s, how))."""
+    stats = at_main_share(stats)  # (MECH93: the main skill's hits at its share of the fight, AT_MAIN_SHARE)
     inner = any(INNER_TURMOIL.match(t.strip()) for t in texts)
     on_crit = min(100.0, max(0.0, support_crit) + sum(float(m.group(1)) for t in texts
                                                       if (m := VOLATILITY_ON_CRIT.match(t.strip())))) / 100
@@ -11853,6 +11868,7 @@ def thorns_fills(row: dict | None, procs: float, how: str) -> dict:
 def immobilise_period(stats: dict, ailment: str) -> float:
     """Seconds from one Freeze / Electrocute to the next (0 with no buildup): its duration, then the time to fill the bar
     again at x6 for the rest of the 14 / 15 s after it (a Freeze sooner with Arctic Howl: primed_refill)."""
+    stats = at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     fill = (hits_per_second(stats) * number(stats.get(f"{ailment}BuildupAvg")) / 100
             + thorns_fill(stats, ailment)  # (MECH84: Thorns hits' buildup, L4-2)
             + others_fill(stats, ailment)) * ailment_scale(stats, ailment)  # (MECH87: other groups' buildup)
@@ -11908,6 +11924,7 @@ def immobilised_share(stats: dict, ailment: str) -> tuple[float, str]:
     fill the bar again, buildup paused while the boss is Frozen / Electrocuted (the user, 11 Nov 2026: it pauses; the game
     files don't say, MEDIUM), the threshold x6 for the rest of the
     14 / 15 s after each one (AILMENT_REPEAT)."""
+    stats = at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     fill = (hits_per_second(stats) * number(stats.get(f"{ailment}BuildupAvg")) / 100
             + thorns_fill(stats, ailment)  # (MECH84: Thorns hits' buildup, L4-2)
             + others_fill(stats, ailment)) * ailment_scale(stats, ailment)  # (MECH87: other groups' buildup)

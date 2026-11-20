@@ -204,6 +204,7 @@ def _withered_stacks(lines: list[str], stats: dict) -> tuple:
     done by the uptime machinery, not a fractional count. Labelled: stacks that outlast an Ignite by their own duration
     aren't counted (a small undercount), the build-up to 10 at the fight's start is taken as instant, and duration
     modifiers aren't read (Withering Presence's base 6 s; skill duration mods would lengthen it: an undercount)."""
+    stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     hit = number(stats.get("HitChance")) / 100 if "HitChance" in stats else 1.0
     rate = number(stats.get("Speed")) * hit  # hits per second
     spell = "Spell" in (stats.get("_main_types") or set())
@@ -327,6 +328,7 @@ INCISION_SUPPORT_STATS = ("apply_X_incision_on_hit",)
 
 def incision_state(lines: list[str], stats: dict) -> tuple[float, float, str]:
     """(average stacks on the boss, Incision consumed per second, how) for the main skill's hits."""
+    stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     hits = models.hits_per_second(stats)
     attack = "Attack" in (stats.get("_main_types") or set())
     gains: list[tuple[float, int]] = []  # (chance per hit, stacks)
@@ -2691,6 +2693,7 @@ SHAPESHIFT_TYPES = {"Shapeshift", "Bear", "Wolf", "Wyvern"}  # (PoB skill types 
 
 def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[float, str] | None:
     """(uptime, how) of one line for this debuff, or None if it isn't a source of it."""
+    stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     m = _debuff_pattern(var).search(text)
     if not m or DEBUFF_NOT_SOURCE.search(text):
         return None
@@ -2901,6 +2904,7 @@ def chill_share(stats: dict) -> float:
     a 1% Chill): a hit Chills only when chill_effect's magnitude is >= CHILL_FLOOR, a critical hit on its own
     (CritChance; MECH54, an OVERCOUNT before). Each Chill lasts PoB's ChillDuration, else 8 s. Without the boss's
     threshold in the stats, PoB's check alone (as before)."""
+    stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     if number(stats.get("ChillChanceOnHit")) <= 0:
         return 0.0
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
@@ -2953,6 +2957,7 @@ SELF_IGNITED_USE = re.compile(r"\bwhile (?:you are )?(?:ignited|burning)\b", re.
 
 def grinning_ignited(stats: dict) -> tuple[float, str]:
     """(share of the fight you are Ignited by your own crits (SELF_IGNITE_LINE), how)."""
+    stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     avoid = min(max(number(stats.get("IgniteAvoidChance")), 0.0), 100.0) / 100.0
     crits = models.crits_per_second(stats)
     scale = number(stats.get("SelfIgniteDuration")) / 100 if "SelfIgniteDuration" in stats else 1.0
@@ -3101,6 +3106,7 @@ def grinning_burn(lines: list[str], stats: dict) -> tuple[float, str, float]:
 
 def reflected_ignite_share(lines: list[str], stats: dict) -> tuple[float, str]:
     """(share of the fight a reflected Ignite of yours burns you, how) for Self Immolation's line (the comment above)."""
+    stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     if not any(SELF_IMMOLATION_LINE.match(t.strip()) for t in lines):
         return 0.0, ""
     boss = ailment_uptime(stats, "Ignite")
@@ -3598,6 +3604,7 @@ def _daze_source(text: str, lines: list[str], stats: dict, types: set | None = N
                  hits: float | None = None) -> tuple[float, float, str] | None:
     """(chance per event, events per second, how) of one Daze line on the main skill's hits (or another skill's: its
     types and hits per second, MECH71), or None if it isn't one."""
+    stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     m = DAZE_LINE.match(text.strip())
     if not m:
         return None
@@ -3641,6 +3648,7 @@ def _daze_others(lines: list[str], stats: dict) -> list[tuple[str, tuple[float, 
 
 def _dazed(lines: list[str], stats: dict) -> tuple[object, str]:
     """The Dazed box at the share of the fight the boss carries Daze from the main skill's hits (see the note above)."""
+    stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     own = stats.get("_daze") or {}
     found = [(text, r) for text in lines if (r := _daze_source(text, lines, stats)) is not None]
     if own.get("chance"):
@@ -3737,6 +3745,7 @@ def _hit_average(stats: dict, types: tuple[str, ...], crit_only: bool = False) -
 def _armour_break_source(text: str, stats: dict) -> tuple[float, float, float, str] | None:
     """(Armour broken per second, share of the Armour broken per second, Full Breaks per second, how) of one line, or None
     if it isn't a source for you."""
+    stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     if not ARMOUR_BREAK_LINE.search(text) or ARMOUR_BREAK_NOT_SOURCE.search(text):
         return None
     low = text.lower()
@@ -4088,6 +4097,7 @@ def _exposure_match(text: str, element: str | None = None) -> re.Match | None:
 
 def _exposure_events(kind: str, stats: dict) -> tuple[float, str]:
     """(events per second, what they are) for an Exposure source fired by `kind`."""
+    stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     hits = models.hits_per_second(stats)
     if kind == "shock":
         return hits * min(number(stats.get("ShockChancePerHit")), 100) / 100, "Shocks (PoB's chance per hit)"
@@ -4265,6 +4275,7 @@ def ailment_uptime(stats: dict, ailment: str) -> float:
     (hits that land: uses per second x hit chance). A main skill that consumes it: consumed_share. The build's other
     groups' applications (stats["_ailment_others"], MECH75: Ignite, ignite_others) are added, each source taken as
     independent; a consumer then waits for the next application from any of them."""
+    stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     chance = min(number(stats.get(f"{ailment}ChancePerHit")) / 100.0, 1.0)
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
     duration = number(stats.get(f"{ailment}Duration")) or AILMENT_DURATION[ailment]
@@ -4316,6 +4327,7 @@ def stacked_ignite_chance(chance: float, hits: float, extra: float = 0.0) -> tup
 def flammability_ignite_scale(stats: dict) -> tuple[float, str]:
     """(x on PoB's own Ignite DPS for the main skill, how): the Ignited uptime with stacked Flammability over PoB's
     activeAilments, min(1, IgniteStackPotential). (1.0, "") where it doesn't apply (no Ignite chance, a consumed Ignite)."""
+    stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     chance = min(number(stats.get("IgniteChancePerHit")) / 100.0, 1.0)
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
     if (chance <= 0 or hits <= 0 or "Ignite" in (stats.get("_consumes") or {})
@@ -5202,6 +5214,7 @@ APPLIED_RECENTLY_FIELDS = tuple(dict.fromkeys(("IgniteChancePerHit", "ShockChanc
 
 def applied_recently(stats: dict, ailment: str) -> tuple[float, str]:
     """(share of the fight you applied `ailment` to the boss in the past 4 s, how); see the note above."""
+    stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
     if ailment == "Freeze":
         rate = models.buildup_rate(stats, "Freeze")
@@ -5292,6 +5305,7 @@ DRAIN_CONSUMES = ("Freeze", "Shock", "Ignite", "Bleed", "Poison")
 
 def drain_share(stats: dict) -> tuple[float, str]:
     """(share of the main skill's casts that consume an Ailment, how), for a main skill supported by Drain Ailments."""
+    stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     consumes = stats.get("_consumes") or {}
     if consumes.get("Poison") != DRAIN_AILMENTS:
         return 0.0, f"{DRAIN_AILMENTS} doesn't support the main skill"
@@ -5458,6 +5472,7 @@ POISONS_RECENTLY = re.compile(r"for each Poison you have inflicted Recently", re
 
 
 def _poisons_recently(lines: list[str], stats: dict) -> tuple[object, str]:
+    stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     if not any(POISONS_RECENTLY.search(line) for line in lines):
         return 0, ""
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
@@ -5898,6 +5913,7 @@ def _as_though_life(text: str, stats: dict) -> float | None:
 def flammability_sources(stats: dict) -> list[tuple[str, float, float]]:
     """[(source, applications per second, Flammability % each)]: the main skill's landing hits and the other groups'
     Ignites (see the note above)."""
+    stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     out = []
     hits = number(stats.get("Speed")) * min(number(stats.get("HitChance")) or 100.0, 100.0) / 100.0
     each = min(number(stats.get("IgniteChancePerHit")), 100.0)
@@ -6354,7 +6370,7 @@ def shocked_ground(stats: dict, texts: list[str]) -> tuple[float, str]:
     from a skill other than the main one. The main skill's ground carries the build's duration modifiers (MECH68,
     Conditions.ground_ms); Shocking Leap's takes only Persistent Ground's line and the "chance on Shocking" ground stays at its base (whether
     other duration lines lengthen them: UNVERIFIED)."""
-    uses = number(stats.get("Speed"))
+    uses = number(models.at_main_share(stats).get("Speed"))  # (MECH93: at its share of the fight)
     hit = min(number(stats.get("HitChance")) or 100.0, 100.0) / 100.0
     parts: list[str] = []
     notes: list[str] = []
@@ -6468,6 +6484,7 @@ def jagged_ground(main: str | None, main_types: set[str], main_gems: set[str], s
     """(share of the fight the boss stands in your Jagged Ground, how), from the main skill's own sources. Sources combine as
     independent; a skill other than the main one makes none here (an undercount, said in the note). `texts`: the build's
     lines, for the "N% increased Jagged Ground Duration" lines."""
+    stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     uses = number(stats.get("Speed"))
     off, parts, notes = 1.0, [], []
     inc = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
@@ -6521,6 +6538,7 @@ def jagged_ground(main: str | None, main_types: set[str], main_gems: set[str], s
 def shock_share(stats: dict) -> float:
     """The boss Shocked: by hits (ailment_uptime) or by standing in your Shocked Ground (or a Whirlwind carrying its
     debuff: _ground_shocked), taken as independent."""
+    stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     ground = _ground_shocked(stats)[0]
     if "Shock" in (stats.get("_consumes") or {}):  # (consumed: the ground reapplies it after the 1 s immunity too)
         chance = min(number(stats.get("ShockChancePerHit")) / 100.0, 1.0)
@@ -6579,6 +6597,7 @@ def stacked_mean(m: float, cap: int) -> float:
 
 def ailment_stacks(kind: str) -> Callable[[list[str], dict], tuple[object, str]]:
     def stacks(lines: list[str], stats: dict) -> tuple[object, str]:
+        stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
         cap = ailment_stack_cap(lines, kind)
         if cap <= 1:
             return 0.0, ""
@@ -6961,6 +6980,7 @@ def _divinity(lines: list[str], stats: dict) -> tuple[object, str]:
     """The Divinity box at its share of the fight: the main skill's landed hits fill the Divine Charge maximum, Divinity
     lasts its seconds and the charges are lost; refilled within that time it never drops. Other skills' hits aren't
     counted (an undercount, LOW). Without the "Lose all" line the maximum is reached once and then held: 0."""
+    stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     durations = [float(m.group(1)) for t in lines if (m := DIVINITY_ON_MAX.search(t))]
     if not durations:
         return 0.0, ""
@@ -7024,6 +7044,7 @@ NON_CRIT_RECENTLY = re.compile(r"\bnon-critical hit recently\b", re.I)
 
 
 def _non_crit_recently(lines: list[str], stats: dict) -> tuple[object, str]:
+    stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     if not any(NON_CRIT_RECENTLY.search(t) for t in lines):
         return 0.0, ""
     crit = min(max(number(stats.get("CritChance")), 0.0), 100.0) / 100.0
@@ -7939,6 +7960,7 @@ class Conditions:
         """{Incinerate / Ball Lightning: (its Fire-Infused casts per second, how)} (MECH79, ignited_ground): the build's
         Fire and any-element Infusions shared over its Fire consumers (INFUSION_CONSUMERS) by uses, as
         Assumptions.infusion_share shares them; each maker gets at most its own uses."""
+        stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
         groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
         names = {n["name"] for g in groups for n in g.get("gems") or [] if n.get("enabled", True)} | {self.main_skill}
         if not names & set(IGNITED_GROUND_MAKERS):
@@ -8024,6 +8046,7 @@ class Conditions:
         """(Burning Inscriptions a second, how) (MECH84, ignited_ground): the casts of the active skills in each enabled
         group Burning Inscription supports (the main skill at its speed, another at its group's rate, else the chosen
         rate, else 0)."""
+        stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
         gems = self.build.ctx.gems
         held = {n["name"] for g in groups
                 if any(x.get("enabled", True) and x["name"] == BURNING_INSCRIPTION for x in g.get("gems") or [])
@@ -8102,7 +8125,7 @@ class Conditions:
         power = _charges_held("Power")(texts, stats)[0] if "Oil Barrage" in where else 0.0
         makers = {}
         for name, index in where.items():
-            rate = (number(stats.get("Speed")) if name == self.main_skill
+            rate = (number(models.at_main_share(stats).get("Speed")) if name == self.main_skill  # (MECH93)
                     else uses.get(name, self._chosen_use(name)))
             how = f"{rate:.2f} uses/s"
             if name == "Oil Barrage" and power > 0:
@@ -8120,7 +8143,8 @@ class Conditions:
         lighters = []
         main_types = stats.get("_main_types") or set()
         if DETONATOR in main_types:
-            hits = number(stats.get("Speed")) * min(number(stats.get("HitChance")) or 100.0, 100.0) / 100.0
+            hits = number(models.at_main_share(stats).get("Speed")) * min(  # (MECH93: at its share)
+                number(stats.get("HitChance")) or 100.0, 100.0) / 100.0
             lighters.append((f"{self.main_skill}'s hits (a Detonator)", hits))
         side = {n["name"] for g in groups for n in g.get("gems") or [] if n.get("enabled", True)
                 and n["name"] != self.main_skill and DETONATOR in ((gems.get(n["name"]) or {}).get("skillTypes") or ())}
@@ -8153,6 +8177,7 @@ class Conditions:
     def _primed_freeze(self, stats: dict) -> tuple[float, str] | None:
         """(Arctic Howl's uses a second, how) for models.primed_refill: the main skill's Speed if it is the Howl, else its
         group's rate (else the search's chosen rate, else 0); None at 0."""
+        stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
         if self.main_skill == ARCTIC_HOWL:
             rate = number(stats.get("Speed"))
         else:
@@ -8208,6 +8233,7 @@ class Conditions:
 
     def _compounding(self, stats: dict, fuel: tuple[float, float, str] | None) -> tuple[float, str]:
         """(Compounding Ignite's more Ignite Magnitude factor, how) for the main skill (MECH79, compounding_factor)."""
+        stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
         rate = number(stats.get("Speed")) * min(number(stats.get("IgniteChancePerHit")), 100.0) / 100.0 * min(
             number(stats.get("HitChance")) or 100.0, 100.0) / 100.0
         duration = (number(self.build.call("stats", fields=["IgniteDuration"]).get("IgniteDuration"))

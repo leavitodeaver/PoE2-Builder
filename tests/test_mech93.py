@@ -163,3 +163,36 @@ def test_the_chilled_condition_counts_your_chilled_ground():
     assert c.chilled_share(grounded) == pytest.approx(1 - (1 - hits) * 0.5)
     assert c.target_ailment_share(grounded, "chilled") == pytest.approx(c.chilled_share(grounded))
     assert c.chilled_share({"_chilled_ground": (0.4, "")}) == pytest.approx(0.4)  # (no Chill from hits)
+
+
+def test_mecha_readers_take_the_main_skill_at_its_share_of_the_fight():
+    """MECH93 (the manager 07:25; MECHC45's list, an OVERCOUNT for builds pressing side skills): with
+    stats["_main_share"] 0.5 each MECH-A reader equals itself at half PoB's Speed (so a reader inside another, or a
+    MECH-C reader, doesn't scale twice); without a share, nothing changes."""
+    from builder.search import conditions as c
+    from builder.search import models
+
+    base = {"Speed": 0.2, "HitChance": 100.0, "CritChance": 20.0, "IgniteChancePerHit": 30.0, "ShockChancePerHit": 25.0,
+            "PoisonChancePerHit": 40.0, "ChillChanceOnHit": 100.0, "FreezeBuildupAvg": 8.0, "ElectrocuteBuildupAvg": 5.0,
+            "ColdHitAverage": 100.0}
+    half = {**base, "Speed": 0.1}
+    shared = {**base, "_main_share": 0.5}
+    assert models.at_main_share(base) is base
+    assert models.at_main_share(shared)["Speed"] == pytest.approx(0.1) and models.at_main_share(shared)["_main_share"] is None
+    for ailment in ("Ignite", "Poison", "Shock"):
+        assert c.ailment_uptime(shared, ailment) == pytest.approx(c.ailment_uptime(half, ailment))
+        assert c.ailment_uptime(shared, ailment) < c.ailment_uptime(base, ailment)
+        assert c.applied_recently(shared, ailment)[0] == pytest.approx(c.applied_recently(half, ailment)[0])
+    assert c.shock_share(shared) == pytest.approx(c.shock_share(half))
+    assert c.chill_share(shared) == pytest.approx(c.chill_share(half))
+    assert c.chilled_share(shared) == pytest.approx(c.chilled_share(half))
+    for kind in ("hit", "crit", "ignite", "shock"):
+        assert c._exposure_events(kind, shared)[0] == pytest.approx(c._exposure_events(kind, half)[0])
+    for ailment in ("Freeze", "Electrocute"):
+        assert models.immobilise_period(shared, ailment) == pytest.approx(models.immobilise_period(half, ailment))
+        assert models.immobilised_share(shared, ailment)[0] == pytest.approx(models.immobilised_share(half, ailment)[0])
+        assert models.buildup_rate(shared, ailment) == pytest.approx(models.buildup_rate(half, ailment))
+    # volatility_model: Inner Turmoil's gains at the main skill's hits, at its share
+    turmoil = ["Gain 1 Volatility on inflicting an Elemental Ailment", "Take no Damage from Volatility"]
+    got = models.volatility_model(turmoil, {**base, "_main_share": 0.5})[1][0]["basis"]
+    assert got == models.volatility_model(turmoil, half)[1][0]["basis"]
