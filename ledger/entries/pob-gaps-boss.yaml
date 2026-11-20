@@ -607,12 +607,17 @@
   status: proposed
 
 - id: cast-speed-per-different-spell
-  title: Cast speed for each different spell cast in the last 8 seconds
+  title: Cast speed for each different spell cast in the last 8 seconds (read by models.different_spells_cast_speed, MECHB44)
   kind: pob_gap
-  match: "^(\\d+)% increased Cast Speed for each different Spell you've Cast in the last eight seconds$"
-  replace: ['{1}% increased Cast Speed']
+  model: different_spells_cast_speed
+  match: "^(\\d+(?:\\.\\d+)?)% increased Cast Speed for each different Spell you've Cast in the last eight seconds$"
+  replace: []
   confidence: reported
-  notes: "Counts only the main spell; a rotation of several spells gets more."
+  notes: >-
+    Was a flat "{1}% increased Cast Speed" stand-in (the main spell only). Since train 97 MECHB44's
+    models.different_spells_cast_speed adds N% x every Spell the build casts once per 8 s, the main one included, and
+    reads the line itself; the stand-in beside it counted the main spell twice (an OVERCOUNT, COV46), so the
+    replacement is empty and the model alone counts it (the line stays in the item's text for the model).
   sources: ["https://poe2db.tw/Casting_Cascade"]
   status: approved
 

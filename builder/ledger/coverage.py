@@ -1193,7 +1193,10 @@ MODELED_SKILLS = {"Iron Ward": "iron-ward-store", "Elemental Expression": "eleme
                   # models.verisium_model the number alive from the main Attack's hits and the Runic Ward paid)
                   "Verisium Manifestations": "model:verisium",
                   # (COV46, MECHB44 23:28) models.tempest_caller_model (MECHB37)
-                  "Elemental Storm": "model-read-tempest-caller-elemental-storm"}
+                  "Elemental Storm": "model-read-tempest-caller-elemental-storm",
+                  # (COV46, train 97: MECHB44's bridge raven minion and models.mist_raven_model; The Auspex, level 15 by
+                  # R35-7 in granted_rolls.KNOWN_LEVELS)
+                  "Mist Raven": "model-mechb44-mist-raven"}
 # Skills whose 0 in PoB is right: they deal no damage of their own (COV46, from MECHB44 23:28). (checked: game 26650308
 # GrantedEffectStatSets: SacrificePlayer and EternalMarchPlayer carry base_deal_no_damage; SummonSkeletalClericsPlayer
 # carries display_statset_no_hit_damage and its minion's skills are HealSkeletonClericMinion /

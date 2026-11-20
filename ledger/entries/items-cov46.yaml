@@ -121,3 +121,18 @@
   sources: ["builder/search/assumptions.py (volatility_support)", "builder/search/models.py (VOLATILITY_SUPPORT_STAT, volatility_model)"]
   status: proposed
 
+# MECHB44's train-97 readers (models-mechb44.yaml has the model entries without a `match`, so the audit couldn't close
+# the line's own row; the manager 23:35).
+- id: model-read-mechb44-unstable-bond
+  title: 'Unstable Bond, "Gain N Volatility when an Allied Persistent Reviving Minion is Killed" (models.unstable_bond_model, MECHB44)'
+  kind: pob_gap
+  model: unstable_bond_model
+  match: '^Gain (\d+) Volatility when an Allied Persistent Reviving Minion is Killed$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.UNSTABLE_BOND (e0e283b6, train 97): Volatility from the build's own minion deaths (models.minion_deaths; 0
+    with none), its explosion's 3% of Damage as Chaos at its uptime. PoB parses the line with leftover text and reads no
+    Volatility (an UNDERCOUNT before). No ledger stand-in existed, so nothing counts twice.
+  sources: ["builder/search/models.py (UNSTABLE_BOND, unstable_bond_model)", "ledger/entries/models-mechb44.yaml"]
+  status: proposed

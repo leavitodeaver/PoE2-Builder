@@ -1441,3 +1441,15 @@ def test_cov46_mech91_readers_are_model_read_and_their_cultivated_outcomes_offer
         assert any(o.startswith(mod) for o in offered), mod
     assert coverage.stat_covered(coverage.stat_entries(), "instability_on_critical_%_chance", "Volatility")[0] == "model"
 
+
+def test_cov46_train97_readers_and_no_double_count_of_the_main_spell():
+    """COV46 (train 97, MECHB44): the "Cast Speed for each different Spell" lines are read by
+    models.different_spells_cast_speed, which counts the main spell too, so the old flat stand-in is gone (it counted the
+    main spell twice: an OVERCOUNT); Unstable Bond's line is model-read; Mist Raven is a modelled skill."""
+    from builder.ledger import coverage, model_entry, translate
+
+    line = "6% increased Cast Speed for each different Spell you've Cast in the last eight seconds"
+    assert translate(line)[1] == [] and model_entry(line).raw["model"] == "different_spells_cast_speed"
+    bond = "Gain 3 Volatility when an Allied Persistent Reviving Minion is Killed"
+    assert model_entry(bond).id == "model-read-mechb44-unstable-bond" and translate(bond)[1] == []
+    assert coverage.MODELED_SKILLS["Mist Raven"] == "model-mechb44-mist-raven"
