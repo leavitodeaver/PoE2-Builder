@@ -15,6 +15,7 @@ import os
 import math
 import re
 from collections import Counter
+from typing import Callable
 
 from builder import clock
 from builder.search.assumptions import INFUSED_ELEMENT, INFUSED_NOTE
@@ -990,12 +991,14 @@ class Gems:
             return False
         stop = min(deadline, clock.now() + CURSE_SECONDS)
         present = {g["name"] for group in groups for g in group["gems"]}
+        held = self.blasphemy_held(groups)
         cap = self.ctx.request.max_buttons
         before = build.score
 
         def trial(gems: list[dict], fill: bool) -> tuple[float | None, list[dict]]:
             """Commit the group, fill its supports by what-if with fullDPS on (PoB counts a support's damage only
             then), read the settled score with the curse models' own flag, undo. (score or None over the cap, gems)."""
+            undo = self.release_curse(held.get(gems[0]["name"]), gems[0]["name"])
             index = build.set_group(gems=gems, label=CURSE_LABEL)["index"]
             build.set_group(index=index, fullDPS=True)
             while fill and clock.now() < stop and len(gems) - 1 < SUPPORT_SLOTS:
@@ -1016,13 +1019,14 @@ class Gems:
                 self.resolve()
             score = build.score if cap is None or len(self.buttons()) <= cap else None
             build.remove_group(index)
+            undo()
             if self.resolve is not None:
                 self.resolve()
             return score, gems
 
         cut = False
         screened = []
-        for curse in self.curse_candidates(present, self.budget_left()):
+        for curse in self.curse_candidates(present - set(held), self.budget_left()):
             if clock.now() > stop:
                 cut = True
                 break
@@ -1043,15 +1047,54 @@ class Gems:
         self.curses_tried = not cut  # (a trial the time box cut runs again on the line's next task)
         if best is None:
             return False
+        undo = self.release_curse(held.get(best[1][0]["name"]), best[1][0]["name"])
         build.set_group(gems=best[1], label=CURSE_LABEL)
         if self.resolve is not None:
             self.resolve()
         if build.score <= before + EPSILON:  # (a resolve can move the score: keep it only if still better)
             build.remove_group(next(g for g in build.groups() if g["label"] == CURSE_LABEL)["index"])
+            undo()
             if self.resolve is not None:
                 self.resolve()
             return False
         return True
+
+    @staticmethod
+    def blasphemy_held(groups: list[dict]) -> dict[str, int]:
+        """(SEARCH32) Curses that only a Blasphemy group holds: {curse: that group's index}. The seeded trial used to skip
+        every curse already in the build, so a Despair on Blasphemy was never tried hand-cast with its curse-damage
+        supports: on 2b75b's delivered I2 (61,550, POE2T5429) the reference's hand-cast Despair group (Impending Doom,
+        Spell Echo, Burning Inscription, Doedre's Undoing, Abiding Hex) reads 140,711, and 163,684 with Blasphemy off
+        (one Despair on the boss either way; Blasphemy's Spirit freed)."""
+        where: dict[str, set[int]] = {}
+        aura: set[int] = set()
+        for group in groups:
+            for gem in group["gems"]:
+                where.setdefault(gem["name"], set()).add(group["index"])
+                if gem["name"] == BLASPHEMY:
+                    aura.add(group["index"])
+        return {name: next(iter(found)) for name, found in where.items()
+                if name != BLASPHEMY and len(found) == 1 and found <= aura}
+
+    def release_curse(self, index: int | None, curse: str) -> Callable[[], None]:
+        """Take `curse` out of the Blasphemy group `index` (the group switched off when only Blasphemy is left), for a
+        hand-cast trial of it; returns the undo. A no-op for a curse no Blasphemy group holds."""
+        build = self.build
+        group = next((g for g in build.groups() if g["index"] == index), None) if index is not None else None
+        if group is None:
+            return lambda: None
+        old = [{k: g[k] for k in ("name", "level", "quality") if k in g} for g in group["gems"]]
+        enabled = group.get("enabled", True)
+        rest = [g for g in old if g["name"] != curse]
+        if all(g["name"] == BLASPHEMY for g in rest):
+            build.set_group(index=index, enabled=False)
+        else:
+            build.set_group(index=index, gems=rest)
+
+        def undo() -> None:
+            build.set_group(index=index, gems=old, enabled=enabled)
+
+        return undo
 
     def blasphemy_gems(self, curse: str) -> list[dict]:
         return [{"name": BLASPHEMY, "level": self.usable_level(BLASPHEMY) or GEM_LEVEL, "quality": GEM_QUALITY},

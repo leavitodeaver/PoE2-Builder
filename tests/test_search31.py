@@ -236,3 +236,34 @@ def test_time_lost_jewels_draw_only_their_own_cranium_rows(ctx):
         pool = pools.pool(name)
         assert pool and all("RadiusJewel" in a.id for a in pool)
     assert not any("RadiusJewel" in a.id for a in pools.pool("Ruby"))
+
+
+def test_a_curse_only_blasphemy_holds_can_be_tried_hand_cast(ctx, engine):
+    """SEARCH32: the seeded curse trial skipped any curse already in the build, so 2b75b's Despair on Blasphemy was never
+    tried hand-cast with Doedre's Undoing / Impending Doom (worth +128.6% on its delivered I2, POE2T5429). A curse only a
+    Blasphemy group holds is now a candidate; its trial takes it out of Blasphemy and puts it back after."""
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    skeleton = enumerate_skeletons(ctx, ["Spark"])[0][0]
+    search = Search(engine, None, make_payload(ctx.request), skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build, gems = search.build, search.gems
+    lone = build.set_group(gems=[{"name": "Blasphemy", "level": 20, "quality": 0},
+                                 {"name": "Despair", "level": 20, "quality": 0}], label="test")["index"]
+    held = gems.blasphemy_held(build.groups())
+    assert held.get("Despair") == lone
+    undo = gems.release_curse(lone, "Despair")
+    assert next(g for g in build.groups() if g["index"] == lone)["enabled"] is False
+    undo()
+    after = next(g for g in build.groups() if g["index"] == lone)
+    assert after["enabled"] is not False and [g["name"] for g in after["gems"]] == ["Blasphemy", "Despair"]
+    build.set_group(index=lone, gems=[{"name": "Blasphemy", "level": 20, "quality": 0},
+                                      {"name": "Despair", "level": 20, "quality": 0},
+                                      {"name": "Enfeeble", "level": 20, "quality": 0}])
+    undo = gems.release_curse(lone, "Despair")
+    kept = next(g for g in build.groups() if g["index"] == lone)
+    assert kept["enabled"] is not False and [g["name"] for g in kept["gems"]] == ["Blasphemy", "Enfeeble"]
+    undo()
+    hand = build.set_group(gems=[{"name": "Vulnerability", "level": 20, "quality": 0}], label="hand")["index"]
+    assert "Vulnerability" not in gems.blasphemy_held(build.groups()) and hand is not None
