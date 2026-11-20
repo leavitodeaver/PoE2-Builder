@@ -1829,11 +1829,8 @@ def magma_spray(build: Build, main: models.Skill | None, stats: dict) -> tuple[f
               if models.RAISE_SHIELD in presses else 0.0)
     boss = 1 / bosses.benefit_skill_time(stats)
     rate, how = conditions_mod.magma_barrier_rate({**stats, "_raised_share": raised}, boss)
-    pob = 0.0
-    if group.get("fullDPS"):
-        entries = build.call("stats", fields=["SkillDPS"]).get("SkillDPS") or []
-        pob = sum(models.number(e.get("dps")) * (e.get("count") or 1) for e in entries
-                  if e.get("name") == models.MAGMA_SPRAY)
+    # (GEM27, the manager 11:00: this group's own entry through MECHB45's tally, the share child_entry_cuts leaves)
+    pob = models.number(row.get("TotalDPS")) * _child_left(build, group) if group.get("fullDPS") else 0.0
     return models.magma_spray_model(rate, blast, how, pob)
 
 
@@ -3783,8 +3780,8 @@ class Assumptions:
         spray, spray_notes = magma_spray(build, main, stats)  # (GEM26: PoB's flat 1/s out; MECHC36's raised-Block cycle)
         hand_mods += [models.added_input("MagmaSpray", spray)] if spray > 0 else []
         hand_notes += spray_notes
-        for note in spray_notes:
-            build.objective.entry_scales.update(note.get("full_dps") or {})
+        for note in spray_notes:  # (its own group's entry, MECHB45's tally)
+            self.cut_entries(note.pop("entry_cut", None) or {})
         rolling = any(str(n.get("label", "")).startswith("Time spent dodge rolling") for n in hand_notes)
         trail, trail_mods, trail_notes = trail_of_caltrops(build, stats, main, rolling)  # (GEM26, R35-23)
         hand_mods += trail_mods + ([models.added_input("TrailOfCaltrops", trail)] if trail > 0 else [])

@@ -8937,7 +8937,8 @@ def magma_spray_model(rate: float, blast: float, how: str, pob: float = 0.0) -> 
     dps = rate * blast
     return dps, [{
         "label": "Magma Barrier: Magma Spray on a raised-shield Block after the lava charges*", "value": f"{dps:,.1f} DPS",
-        "confidence": "MEDIUM", "entry": MAGMA_SPRAY_ENTRY, "full_dps": {MAGMA_SPRAY: 0.0},
+        "confidence": "MEDIUM", "entry": MAGMA_SPRAY_ENTRY,
+        "entry_cut": {MAGMA_SPRAY: pob} if pob > 0 else {},  # (its own entry, MECHB45's tally; GEM27)
         "basis": (f"PoB rates Magma Spray at a flat 1 use a second ({pob:,.1f} DPS in Full DPS), taken out. The game: "
                   f"the shield's lava charges for 8 s, then the next Block with the shield raised Triggers it: {how}: "
                   f"{rate:.3f} sprays a second at {blast:,.1f} each"),

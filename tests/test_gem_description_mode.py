@@ -1553,10 +1553,10 @@ def test_magma_spray_fires_once_per_charged_raised_block_and_takes_pobs_flat_ent
     rate, how = conditions.magma_barrier_rate({"_raised_share": 1.0}, 0.5)
     assert rate == pytest.approx(1 / (8.0 + 2.0))
     dps, notes = models.magma_spray_model(rate, 500.0, how, pob=587.0)
-    assert dps == pytest.approx(50.0) and notes[0]["full_dps"] == {models.MAGMA_SPRAY: 0.0}
+    assert dps == pytest.approx(50.0) and notes[0]["entry_cut"] == {models.MAGMA_SPRAY: 587.0}
     rate, how = conditions.magma_barrier_rate({"_raised_share": 0.0}, 0.5)
     dps, notes = models.magma_spray_model(rate, 500.0, how)
-    assert dps == 0.0 and notes[0]["full_dps"] == {models.MAGMA_SPRAY: 0.0} and "without raising it: 0" in notes[0]["play"]
+    assert dps == 0.0 and notes[0]["entry_cut"] == {} and "without raising it: 0" in notes[0]["play"]
 
 
 def test_trail_of_caltrops_three_a_roll_under_a_still_boss_with_moving_and_zero_rows():
