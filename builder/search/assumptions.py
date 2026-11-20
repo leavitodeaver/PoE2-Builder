@@ -1726,7 +1726,9 @@ def support_dots(build: Build, found: list[models.Skill], curses: list[models.Cu
             else:
                 landings, how = models.curse_landings(use, casts.get((curse, index)) or 0.0, fight)
             decay.append({"curse": curse, "dot": row.get("TotalDot"), "seconds": row.get("Duration"),
-                          "landings": landings, "how": how, "in_full": scored and bool(group.get("fullDPS"))})
+                          "landings": landings, "how": how, "in_full": scored and bool(group.get("fullDPS")),
+                          "aura": use is not None and "Blasphemy" in use.how,  # (R35-20: no Decay under Blasphemy)
+                          "by_hand": use is not None and use.by_hand, "fight": fight})
         if models.TWISTED_PACT in skills:
             cry = next((n for n in skills if "Warcry" in ((gems.get(n) or {}).get("skillTypes") or [])), None)
             row = own(models.TWISTED_PACT)

@@ -1428,7 +1428,7 @@ def test_accelerated_growth_explodes_each_overgrown_plant_of_the_supported_skill
     assert notes[0]["entry"] == models.ACCELERATED_GROWTH_ENTRY and notes[0]["confidence"] == "MEDIUM"
     dps, notes = models.accelerated_growth_model([{"source": "Toxic Growth", "uses": 1.0, "blast": 10.0}], 0.5, ["x"])
     assert dps == pytest.approx(1.0 * 1 * 0.5 * 10.0)  # (one Pustule a use at the boss, the headline)
-    assert len(notes) == 2 and "not counted" in notes[1]["label"] and notes[1]["confidence"] == "LOW"
+    assert len(notes) == 3 and "not counted" in notes[1]["label"] and notes[1]["confidence"] == "LOW"  # (+ the arena row, GEM26)
     assert notes[1]["value"] == f"{1.0 * 5 * 0.5 * 10.0:,.1f} DPS"  # (GEM25: all 5 Pustules, the upper reading's row)
     assert len(models.accelerated_growth_model([{"source": "Vine Arrow", "uses": 0.6, "blast": 40.0}], 0.2,
                                                ["x"])[1]) == 1  # (no upper reading for one plant a use)
@@ -1468,6 +1468,15 @@ def test_profane_decay_is_up_while_its_curse_lands_and_less_what_pob_counts():
     added, notes = models.profane_decay_model([part, {**part, "curse": "Enfeeble", "dot": 100.0}])
     assert added == pytest.approx(287.0) and "not counted" in notes[1]["label"]  # (the strongest only; the sum a row)
     assert models.profane_decay_model([]) == (0.0, [])
+    # GEM26, RESEARCH35 R35-20: under Blasphemy no Profane Decay at all (0; less PoB's always-up figure where scored),
+    # "once a fight" a not-counted row
+    blas = {**part, "landings": 1 / 80.0, "aura": True, "fight": 80.0}
+    added, notes = models.profane_decay_model([blas])
+    assert added == 0.0 and any("Blasphemy if GGG fixed" in n["label"] and n["value"] == "28.7 DPS" for n in notes)
+    assert models.profane_decay_model([{**blas, "in_full": True}])[0] == pytest.approx(-287.0)  # (the OVERCOUNT out)
+    # R35-18: a hand recast refreshes it (the headline); "only on a new curse" a row, once a fight
+    added, notes = models.profane_decay_model([{**part, "by_hand": True, "fight": 80.0}])
+    assert added == pytest.approx(287.0) and any("only a new curse" in n["label"] for n in notes)
 
 
 def test_twisted_pact_inflicts_five_corrupted_blood_stacks_a_warcry():
@@ -1525,3 +1534,13 @@ def test_repulsion_wave_a_wave_each_detonation_recast_when_worth_it_and_held_to_
     assert models.repulsion_wave_model(100.0, 0.0, 0.5, 1.5, 7.4, 100.0, 100.0, 50.0)[0] == 0.0  # (nothing hits)
     dps, lost, _ = models.repulsion_wave_model(100.0, 2.0, 0.5, 1.5, 7.4, 100.0, 100.0, 50.0, landings=0.2)
     assert dps == pytest.approx(20.0) and lost == 0.0  # (a meta / Aura: one a landing)
+
+
+def test_accelerated_growth_toxic_growth_has_a_not_counted_boss_arena_row():
+    """GEM26, RESEARCH35 R35-22: Toxic Growth's explosions counted as working on bosses; '0 in boss arenas' a row."""
+    total, notes = models.accelerated_growth_model(
+        [{"source": "Toxic Growth", "uses": 1.0, "blast": 40.0, "per": 1.5},
+         {"source": "Vine Arrow", "uses": 0.5, "blast": 40.0}], 0.5, ["test"])
+    assert total == pytest.approx(1.0 * 1.5 * 0.5 * 40 + 0.5 * 0.5 * 40)
+    row = next(n for n in notes if "boss arenas" in n["label"])
+    assert row["value"] == f"{0.5 * 0.5 * 40:,.1f} DPS" and "not counted" in row["label"]

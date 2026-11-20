@@ -8439,12 +8439,14 @@ PLANTS_A_USE_UPPER = {"Toxic Growth": (5.0, "all 5 Pustules a use, each explosio
 # Accelerated Growth's 1.8 m at its own spot (its own radius, the supported skill's area mods not applied: UNVERIFIED).
 # The explosions reaching a boss of hit radius r (bosses.hit_radius): min(n, max(1, n x ((r + 1.8) / R)^2)), about 1.1
 # on a 0.3 m boss to 1.9 on the Fell Serpent's 1.0 m at the base spread; never below the one a use counted before (the
-# player aims a use at the boss). Rows: one a use and all n. Not modelled: forum threads 3935112, 3935889 and 3936713
-# (30-31 May 2026) report Pustules not exploding in boss arenas; all three predate 0.5.0b Hotfix 2 (31 May 2026, thread
-# 3937394): "Fixed a bug where some sources of damage like Pyromantic Pact would not deal damage within boss arenas", the
-# only damage-in-arena fix in the notes (checked: grep_notes "boss arena", "within boss arenas", --history "Toxic Growth"
-# and "Pustule", 0.1.0-0.5.5f; a web search 20 Nov found no later report). The note doesn't name Toxic Growth, so "fixed"
-# is MEDIUM-LOW, not checked in game (RESEARCH35 asked for any report after it): counted as working, no zeroing.
+# player aims a use at the boss). Rows: one a use and all n. The boss-arena bug (forum threads 3935112, 3935889 and
+# 3936713, 30-31 May 2026: Pustules not exploding in boss arenas): 0.5.0b Hotfix 2 (31 May 2026, thread 3937394) "Fixed a
+# bug where some sources of damage like Pyromantic Pact would not deal damage within boss arenas" is the only
+# damage-in-arena fix in the notes (checked: grep_notes "boss arena", "within boss arenas", --history "Toxic Growth" and
+# "Pustule", 0.1.0-0.5.5f), and doesn't name Toxic Growth; one post says it was still broken right after that hotfix, but
+# no report follows 31 May and Maxroll's 0.5.5 guide (8 Sep 2026) uses Toxic Growth on bosses (RESEARCH35 R35-22,
+# research/toxic-growth-boss-arena-bug.md): counted as working on bosses, MEDIUM-LOW; "0 in boss arenas" a not-counted
+# row (accelerated_growth_model).
 TOXIC_SPREAD, AG_BLAST_RADIUS = 4.5, 1.8
 # base_number_of_projectiles 5 (ToxicGrowthPlayer's Pustules set; patch 0.5.0 "Now fires 5 Pustules"). PoB's ProjectileCount
 # for it is 1 (its number_of_projectiles_override 1, act_dex.lua: one impact counted), so it can't give the count.
@@ -8468,7 +8470,7 @@ def accelerated_growth_model(parts: list[dict], share: float, share_parts: list[
     if not parts:
         return 0.0, []
     share = min(max(number(share), 0.0), 1.0)
-    total, rows, unread, upper, upper_rows = 0.0, [], [], 0.0, []
+    total, rows, unread, upper, upper_rows, arena = 0.0, [], [], 0.0, [], 0.0
     for part in parts:
         per, what = PLANTS_A_USE.get(part.get("source"), (0.0, ""))
         if part.get("per") is not None:  # (GEM25: the build's own count, Toxic Growth's pustules_reaching)
@@ -8480,6 +8482,8 @@ def accelerated_growth_model(parts: list[dict], share: float, share_parts: list[
         plants = uses * per
         rate = plants * share
         total += rate * blast
+        if part.get("source") == "Toxic Growth":  # (RESEARCH35 R35-22: the boss-arena bug's row)
+            arena += rate * blast
         up_per, up_what = PLANTS_A_USE_UPPER.get(part.get("source"), (per, what))
         if part.get("most") is not None and up_per > per:
             up_per, up_what = number(part["most"]), f"all {number(part['most']):g} Pustules a use reaching the boss (LOW)"
@@ -8499,6 +8503,14 @@ def accelerated_growth_model(parts: list[dict], share: float, share_parts: list[
         "basis": ("the upper reading, " + "; ".join(upper_rows) + f": {upper:,.1f} DPS instead of {total:,.1f}. How "
                   "many of the spread reach a boss's body is UNVERIFIED; the headline counts those whose explosion "
                   "reaches the boss (RESEARCH35 R35-4)")}] if upper > total + 1e-9 else []
+    if arena > 0:
+        extra.append({
+            "label": "Accelerated Growth if Toxic Growth's Pustules don't explode in boss arenas (not counted)",
+            "value": f"{total - arena:,.1f} DPS", "confidence": "LOW", "entry": ACCELERATED_GROWTH_ENTRY,
+            "basis": (f"the arena bug (forum threads 3935112 / 3935889 / 3936713, May 2026; one post says it was still "
+                      f"broken right after 0.5.0b Hotfix 2): Toxic Growth's {arena:,.1f} DPS of explosions would be 0 in "
+                      "boss arenas. Counted as working (RESEARCH35 R35-22, MEDIUM-LOW: no report since 31 May 2026, "
+                      "Maxroll's 0.5.5 guide uses Toxic Growth on bosses)")})
     return total, [{
         "label": "Accelerated Growth: explosions from Overgrown plants*", "value": f"{total:,.1f} DPS",
         "confidence": share_conf if total > 0 else "LOW", "entry": ACCELERATED_GROWTH_ENTRY,
@@ -8520,10 +8532,14 @@ def accelerated_growth_model(parts: list[dict], share: float, share_parts: list[
 # both effects), so PoB's DecayDPS is 0. So: one Decay on the boss, PoB's DoT for the Profane Decay skill (its level and
 # the build's Chaos / DoT modifiers, after the boss's resistance), up min(1, landings a second x its duration) of the
 # fight. The landings: each time the supported curse curses the boss (curse_uses: cast by hand, recast once a duration
-# (MEDIUM: a recast on the still-cursed boss taken as Cursing it again, UNVERIFIED); let run out (Withering Hex play);
-# detonated and recast by Hexblast; triggered by a meta at its rate; an Aura (Blasphemy) or an infinite curse lands once
-# a fight (its first Decay only, LOW: whether an aura re-curses is UNVERIFIED)). Several curses with the support: their
-# Decays taken not to stack, the strongest counted (UNVERIFIED: the lower reading; a not-counted row gives the sum).
+# (RESEARCH35 R35-18, MEDIUM-LOW: a hand recast on the still-cursed boss re-Curses it and retriggers Profane Decay,
+# refreshing the one Decay; row: "only on a new curse", once a fight); let run out (Withering Hex play); detonated and
+# recast by Hexblast; triggered by a meta at its rate; an infinite curse lands once a fight (its first Decay only, LOW)).
+# Under Blasphemy (an Aura): 0 (R35-20, MEDIUM-HIGH: Decaying Hex gives no Profane Decay at all under Blasphemy, broken
+# since Early Access, the latest report forum 3829544, 20 Jun 2026, on 0.5; no GGG reply, no patch-note fix (checked:
+# research/profane-decay-and-corrupted-blood-cap.md); GEM25's "once a fight" was an OVERCOUNT), "once a fight" kept as a
+# not-counted row "if GGG fixed it silently". Several curses with the support: one Decay (R35-19, MEDIUM: the same
+# `decay` debuff, BuffDefinitions MergeMode 3, single-instance), the strongest counted; the sum a not-counted row.
 # PoB (probe POE2T3564, Spark + Despair / Decaying Hex at level 90): out of Full DPS the group adds 0; IN Full DPS PoB adds
 # Profane Decay's DoT (286.95) as always up, one per group ("Full DoT DPS"). The search fills a curse group's supports
 # with it in Full DPS and then takes it out (gems.py), so a found build reads 0; a group a model or an import keeps in
@@ -8563,15 +8579,33 @@ def profane_decay_model(parts: list[dict]) -> tuple[float, list[dict]]:
     a second, "how"}."""
     if not parts:
         return 0.0, []
-    rows, values = [], []
+    rows, values, extra = [], [], []
     counted = sum(max(number(p.get("dot")), 0.0) for p in parts if p.get("in_full"))  # (PoB's own, always up, scored)
     for part in parts:
         dot, seconds = max(number(part.get("dot")), 0.0), max(number(part.get("seconds")), 0.0) or PROFANE_DECAY_SECONDS
         landings = max(number(part.get("landings")), 0.0)
         up = min(1.0, landings * seconds)
+        fight = number(part.get("fight"))
+        once = min(1.0, seconds / fight) if fight > 0 else 0.0
+        if part.get("aura"):  # (R35-20: no Profane Decay under Blasphemy; the old reading a not-counted row)
+            extra.append({"label": f"Profane Decay under Blasphemy if GGG fixed it silently (not counted)",
+                          "value": f"{dot * once:,.1f} DPS", "confidence": "LOW", "entry": PROFANE_DECAY_ENTRY,
+                          "basis": (f"{part.get('curse')} as an Aura lands once a fight: up {once:.0%} at {dot:,.1f} a "
+                                    "second. Counted 0: Decaying Hex gives no Profane Decay under Blasphemy (RESEARCH35 "
+                                    "R35-20, MEDIUM-HIGH: player reports through 0.5, forum 3829544, 20 Jun 2026; no fix "
+                                    "in the patch notes)")})
+            up = 0.0
+            rows.append(f"{part.get('curse')}: under Blasphemy, no Profane Decay (R35-20, MEDIUM-HIGH): 0")
+        else:
+            rows.append(f"{part.get('curse')}: {part.get('how')}: {landings:.3f} landings a second x {seconds:.3g} s = up "
+                        f"{up:.0%}, at {dot:,.1f} a second = {dot * up:,.1f}")
+            if part.get("by_hand") and once < up:
+                extra.append({"label": f"Profane Decay if only a new curse triggers it (not counted)",
+                              "value": f"{dot * once:,.1f} DPS", "confidence": "LOW", "entry": PROFANE_DECAY_ENTRY,
+                              "basis": (f"{part.get('curse')} recast before it runs out keeps the boss cursed, so only "
+                                        f"the first landing would trigger it: up {once:.0%} of the fight (RESEARCH35 "
+                                        "R35-18 reads a recast as re-Cursing, MEDIUM-LOW: the headline)")})
         values.append(dot * up)
-        rows.append(f"{part.get('curse')}: {part.get('how')}: {landings:.3f} landings a second x {seconds:.3g} s = up "
-                    f"{up:.0%}, at {dot:,.1f} a second = {dot * up:,.1f}")
     best, total = max(values), sum(values)
     pob = (f"PoB already counts {counted:,.1f} (Profane Decay always up in each curse group in Full DPS), so "
            f"{best - counted:+,.1f} is added" if counted > 0 else
@@ -8582,14 +8616,17 @@ def profane_decay_model(parts: list[dict]) -> tuple[float, list[dict]]:
         "confidence": "MEDIUM" if best > 0 else "LOW", "entry": PROFANE_DECAY_ENTRY,
         "basis": (pob + ". The game: each time the supported curse Curses the boss it triggers Profane Decay, Chaos "
                   "damage over time for 8 s: " + "; ".join(rows)
-                  + (". One Decay counted (the strongest): whether two stack is UNVERIFIED" if len(parts) > 1 else "")),
-        "play": (f"Keep the Decaying Hex curse on the boss: recast it before Profane Decay's {PROFANE_DECAY_SECONDS:g} s "
-                 f"run out. With it: {best:,.1f} DPS; without a curse landing: 0.")}]
+                  + (". One Decay counted (the strongest): two curses' Decays don't stack (R35-19, MEDIUM)"
+                     if len(parts) > 1 else "")),
+        "play": (f"Keep the Decaying Hex curse on the boss: recast it by hand before Profane Decay's "
+                 f"{PROFANE_DECAY_SECONDS:g} s run out (not through Blasphemy: no Decay there). With it: {best:,.1f} DPS; "
+                 f"without a curse landing: 0.")}]
     if len(parts) > 1 and total > best + 1e-9:
         notes.append({"label": "Profane Decay if each curse's Decay stacks (not counted)", "value": f"{total:,.1f} DPS",
                       "confidence": "LOW", "entry": PROFANE_DECAY_ENTRY,
-                      "basis": f"the upper reading: every supported curse's Decay at once, {total:,.1f} instead of {best:,.1f}"})
-    return best - counted, notes
+                      "basis": (f"the upper reading: every supported curse's Decay at once, {total:,.1f} instead of "
+                                f"{best:,.1f} (RESEARCH35 R35-19: one Decay, MEDIUM)")})
+    return best - counted, notes + extra
 
 
 # Twisted Pact (GEM25; an UNDERCOUNT out of Full DPS, an UNDERCOUNT of its stacks in it). Paquate's Pact
@@ -8602,7 +8639,8 @@ def profane_decay_model(parts: list[dict]) -> tuple[float, list[dict]]:
 # stack; PoB counts the best Corrupted Blood source only). The game: 5 stacks a warcry, up to 10 on the boss (KeywordPopups
 # CorruptedBlood), so the stacks are cry_stacks' with 5 a warcry (each new stack refreshing all, R26-15's MEDIUM-LOW rule,
 # the climb over the fight counted; each its own 5 s timer the "without it" row), the cap shared with Corrupted Cry's
-# stacks (theirs first: the lower reading). An added source, PoB's one-stack Corrupted Blood x the stacks, less the one
+# stacks (theirs first: the lower reading; the shared cap RESEARCH35 R35-21, MEDIUM-HIGH: KeywordPopups CorruptedBlood "Up to
+# 10 ... on each target", one corrupted_blood debuff; what happens at the cap UNVERIFIED, refresh-all kept MEDIUM-LOW). An added source, PoB's one-stack Corrupted Blood x the stacks, less the one
 # stack PoB counts itself where the score reads it (the group in Full DPS and the objective reading Full DPS: probe
 # POE2T3565, with the objective on main DPS a Full DPS group's damage isn't scored). PoB's "Best Corr. Blood" counts one
 # source, so where another Corrupted Blood beats Twisted Pact's one stack PoB counts that one instead and the stack taken

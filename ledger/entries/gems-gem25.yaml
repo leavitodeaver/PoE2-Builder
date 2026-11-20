@@ -45,9 +45,11 @@
     (Intelligence-based "decay") the game's support no longer carries (checked: Stats ids holding decaying_hex / decay;
     both effects' GrantedEffectStatSets), and counts Profane Decay's DoT only with its curse group in Full DPS, as always
     up (probe POE2T3564: 286.95 in, 0 out). One Decay at PoB's DoT x min(1, the curse's landings a second x its
-    duration): recast by hand once a duration (each recast taken to Curse it again, MEDIUM, UNVERIFIED), let run out,
-    Hexblast's cycle, a meta's rate, an Aura / infinite curse once a fight (LOW). Two supported curses: the strongest
-    Decay (whether they stack is UNVERIFIED; the sum a not-counted row). Added less PoB's own always-up figure where the score reads it (the group in Full DPS and the
+    duration): recast by hand once a duration (each recast re-Curses and retriggers it, refreshing the one Decay:
+    RESEARCH35 R35-18, MEDIUM-LOW; row "only on a new curse"), let run out, Hexblast's cycle, a meta's rate, an
+    infinite curse once a fight (LOW). Under Blasphemy: 0 (R35-20, MEDIUM-HIGH: no Profane Decay under Blasphemy, forum
+    3829544 on 0.5, no fix in the patch notes; row "if GGG fixed it silently", once a fight). Two supported curses: one
+    Decay, the strongest (R35-19, MEDIUM; the sum a not-counted row). Added less PoB's own always-up figure where the score reads it (the group in Full DPS and the
     objective on Full DPS: probe POE2T3565).
   sources: ["builder/search/models.py (profane_decay_model, curse_landings)", "builder/search/assumptions.py (support_dots)",
             "data/game-26650308/tables (GrantedEffects 7713 / 7714, GrantedEffectStatSets 7515 / 7516)",
