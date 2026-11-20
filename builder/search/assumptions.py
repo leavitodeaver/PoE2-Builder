@@ -4397,7 +4397,10 @@ class Assumptions:
             out.append(recovery.event_guard(
                 recovery.FORTIFYING_CRY, amount, uses[0], recovery.FORTIFY_SECONDS, texts, guard_pool,
                 f"{per:g} Guard for every 5 enemy Power (the gem's level), the {seen:g} Power the build counts{echo}, up "
-                f"to {recovery.FORTIFY_POWER_CAP}: {amount:g}; used {uses[1]}", True, expiry))
+                f"to {recovery.FORTIFY_POWER_CAP}: {amount:g} (whole steps of 5, RESEARCH34 R34-2, MEDIUM"
+                + (f"; row, unrounded: {per * power / recovery.FORTIFY_POWER_STEP:g}"
+                   if abs(per * power / recovery.FORTIFY_POWER_STEP - amount) > 1e-9 else "")
+                + f"); used {uses[1]}", True, expiry))
         groups = build.groups() if hasattr(build, "groups") else []
         main_group = next((g for g in groups if g.get("main")), None)
         vanguard = next((g["name"] for g in (main_group or {}).get("gems") or []

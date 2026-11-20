@@ -1583,9 +1583,11 @@ RAGE_PER_SECOND = {"Rampage": 5.0, "Flame Breath": 6.0}
 # too): X Rage per whole 5 of the Power the Warcry counts (models.power_of: the boss and its adds by the build's distance;
 # Echoing Cry's less Power first, models.echo_power's stat), floor (MEDIUM: "per 5" read in whole steps, as PoB's
 # per-N-Power Warcry buffs), on each use at the Warcry's group rate (its cooldown, else the search's chosen rate, else 0).
-# An Echo's repeat gives none (R33-4's reading for Ferocious Roar's count: UNVERIFIED whether an Echo grants it again).
+# An Echo's repeat gives none (RESEARCH34 R34-1, MEDIUM: the gem grants Rage "on use" and an Echo isn't a use; the
+# "each Echo too" reading a row). Whole steps of 5 Power: R34-2, MEDIUM (the unrounded reading a row).
 # A gain event each use (the loss pause): rage_held.
 RAGING_CRY_STAT, RAGING_CRY_STEP = "warcry_grant_X_rage_per_5_power", 5
+ECHO_TIMES_STAT = "base_warcry_echo_X_times"  # (Echoing Cry; PoB maps it to nothing: R34-1's "each Echo too" row)
 
 
 def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, str] | None:
@@ -7305,20 +7307,26 @@ class Conditions:
     def _raging_cry(self, power: float) -> list[tuple[str, float, float, str]]:
         """[(Warcry, uses a second, Rage a use, how)] for each enabled skill a Raging Cry supports (RAGING_CRY_STAT's
         note)."""
-        raw = self.build.call("activeSkills", supportStats=[RAGING_CRY_STAT, models.ECHO_POWER_STAT])["skills"]
+        raw = self.build.call("activeSkills", supportStats=[RAGING_CRY_STAT, models.ECHO_POWER_STAT,
+                                                            ECHO_TIMES_STAT])["skills"]
         found = [(s["name"], number((s.get("supportStats") or {}).get(RAGING_CRY_STAT)),
-                  number((s.get("supportStats") or {}).get(models.ECHO_POWER_STAT))) for s in raw
+                  number((s.get("supportStats") or {}).get(models.ECHO_POWER_STAT)),
+                  number((s.get("supportStats") or {}).get(ECHO_TIMES_STAT))) for s in raw
                  if not s.get("disabled") and number((s.get("supportStats") or {}).get(RAGING_CRY_STAT)) > 0]
         if not found:
             return []
-        uses = self._group_uses(self.build.call("groups")["groups"], {n for n, _, _ in found})
+        uses = self._group_uses(self.build.call("groups")["groups"], {n for n, *_ in found})
         out = []
-        for name, per, less in found:
+        for name, per, less, echoes in found:
             counted = power * max(0.0, 1 + less / 100) if less < 0 else power
             amount = per * math.floor(counted / RAGING_CRY_STEP + 1e-9)
+            unrounded = per * counted / RAGING_CRY_STEP
             said = (f"{per:g} per 5 of {counted:g} Power" + (f" (Echoing Cry's {-less:g}% less Power: {power:g} -> "
                                                               f"{counted:g})" if less < 0 else "")
-                    + ", whole steps (MEDIUM)")
+                    + ", whole steps (RESEARCH34 R34-2, MEDIUM)"
+                    + (f"; row, unrounded: {unrounded:g} a use" if abs(unrounded - amount) > 1e-9 else "")
+                    + ("; Echoes grant none (R34-1, MEDIUM: Rage is granted on use, an Echo isn't a use); row, each "
+                       f"of its {echoes:g} Echoes granting it again: {amount * (1 + echoes):g} a use" if echoes > 0 else ""))
             out.append((name, uses.get(name, self._chosen_use(name)), float(amount), said))
         return out
 

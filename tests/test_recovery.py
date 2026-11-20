@@ -2903,7 +2903,7 @@ def test_raging_cry_grants_rage_per_5_power_at_its_warcrys_uses():
 
     from builder.search import conditions, models
 
-    skills = [{"name": "Infernal Cry", "supportStats": {conditions.RAGING_CRY_STAT: 4}},
+    skills = [{"name": "Infernal Cry", "supportStats": {conditions.RAGING_CRY_STAT: 4, conditions.ECHO_TIMES_STAT: 2}},
               {"name": "Seismic Cry", "supportStats": {conditions.RAGING_CRY_STAT: 4, models.ECHO_POWER_STAT: -50}},
               {"name": "Boneshatter", "supportStats": {}}]
     build = SimpleNamespace(call=lambda name, **kw: {"skills": skills} if name == "activeSkills" else {"groups": []})
@@ -2912,7 +2912,9 @@ def test_raging_cry_grants_rage_per_5_power_at_its_warcrys_uses():
     cries = conditions.Conditions._raging_cry(me, 20.0)
     assert [(n, u, a) for n, u, a, _ in cries] == [("Infernal Cry", 0.125, 16.0), ("Seismic Cry", 0.1, 8.0)]
     assert "50% less Power: 20 -> 10" in cries[1][3]
-    assert conditions.Conditions._raging_cry(me, 22.0)[0][2] == 16.0  # (whole steps of 5)
+    assert conditions.Conditions._raging_cry(me, 22.0)[0][2] == 16.0  # (whole steps of 5, R34-2)
+    assert "row, unrounded: 17.6 a use" in conditions.Conditions._raging_cry(me, 22.0)[0][3]
+    assert "row, each of its 2 Echoes granting it again: 48 a use" in cries[0][3]  # (R34-1: none in the headline)
     stats = {"Speed": 2.0, "HitChance": 100, "MaximumRage": 30, "_main_types": set()}
     assert conditions.rage_held([], dict(stats)) == (0.0, "")
     held, basis = conditions.rage_held([], dict(stats, _raging_cry=cries[:1]))
@@ -2970,3 +2972,17 @@ def test_per_poison_on_you_lines_count_your_reflected_poisons():
     assert recovery.per_poison_lines([damage], stats)[0] == []  # (no reflect line: nothing Poisons you, 0)
     assert recovery.per_poison_lines([reflect], stats) == ([], [])
 
+
+
+def test_glory_reads_an_attacks_hits_per_hand_and_chayulas_archon_lasts_10_seconds():
+    """MECHC43 (MECHB42 / COV45's routed items): PoB keeps an Attack's hit averages per hand (MainHand. / OffHand.), so
+    Glory from Chaos and elemental hits read none on Attack builds (an UNDERCOUNT); Archon of Chayula's instance is the
+    Archon's 10 s (the game's Archon keyword, poe2db "Duration: 10"), not its tornado's 8 s."""
+    from builder.search import models
+
+    attack = {"Speed": 2.0, "HitChance": 100, "MainHand.ChaosHitAverage": 50.0, "OffHand.ColdHitAverage": 10.0}
+    events = models.glory_events(attack, None)
+    assert events["chaos hit"] == pytest.approx(2.0) and events["elemental hit"] == pytest.approx(2.0)
+    assert models.glory_events({"Speed": 2.0, "HitChance": 100}, None)["chaos hit"] == 0.0
+    assert models.GLORY_INSTANCE["Archon of Chayula"] == 10.0
+    assert "MainHand.ChaosHitAverage" in models.MODEL_FIELDS

@@ -2079,7 +2079,12 @@ def roar_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[li
                                f"{hold:.2g} s, then {loss:.2g} lost per second (game files: 4 s and 5/s"
                                + (f"; the build's {how}" if how else "") + "); 1% more Attack damage each. "
                                "Loss paused by the boss's hits isn't counted (an undercount); Rage-per lines of the build "
-                               "aren't fed"})
+                               "aren't fed" + (
+                                   f"; row, each of its {echoes:g} Echoes gaining it too (RESEARCH34 R34-1's side note, "
+                                   "MEDIUM-LOW: the Roar's Rage has no 'on use' wording; the headline keeps one gain a roar, "
+                                   f"R33-12): {min(gain * (1 + echoes), number(stats.get('MaximumRage')) or RAGE_MAXIMUM):g} "
+                                   "Rage a roar" if (echoes := number(skill.support_stats.get("base_warcry_echo_X_times")))
+                                   > 0 else "")})
     lost = min(1.0, (skill.cast_time or 1.1) / period)
     mods.append(line("1% more Attack and Cast Speed", -100 * lost, skill=main.name))
     notes.append({"label": f"{FEROCIOUS_ROAR}: time it takes from {main.name}", "value": round(lost, 3),
@@ -12311,21 +12316,30 @@ def glory_gains(events: float, uses: float) -> float:
 # (duration + cost / Glory per second). Durations: base_skill_effect_duration of the skill's stat set (game files, build
 # 26476662, level 20; read with RESEARCH6's gestats.py): Ancestral Cry 8 s, Apocalypse 12 s, Walking Calamity 10 s, Skyfall
 # 20 s, Starborn Onslaught 8 s, Hammer of the Gods 2.5 s; Archon of Chayula's own stat set has none, its tornado 8 s (taken
-# as the instance, MEDIUM). Spear of Solaris carries no duration, but its Ground Spear pulses 20 times 0.2 s apart
+# as the instance, MEDIUM, until MECHC43: the Archon's own 10 s, below). Spear of Solaris carries no duration, but its Ground Spear pulses 20 times 0.2 s apart
 # (SpearOfSolarisPulsePlayer: solaris_spear_number_of_pulses 20, solaris_spear_pulse_delay_ms 200; poe2db "pulses every 0.2
 # seconds, up to 20 times"): 4 s, the spear taken as the skill's active instance (MEDIUM; RESEARCH17, AUDIT11 A11-1, MECHC5;
 # before, 0: about 5x its uses at a high Glory rate). Hammer of the Gods' 2.5 s is the delay before the hammer lands (#87,
 # MEDIUM), so its own Heavy Stun isn't counted toward the next one (UNVERIFIED either way; the lower reading). Molten Blast
 # carries none (0). Increased skill duration isn't read (the instance lasts longer then: a small overcount left, labelled).
 GLORY_INSTANCE = {"Ancestral Cry": 8.0, "Apocalypse": 12.0, "Walking Calamity": 10.0, "Skyfall": 20.0,
-                  "Starborn Onslaught": 8.0, "Hammer of the Gods": 2.5, "Archon of Chayula": 8.0, "Spear of Solaris": 4.0}
+                  "Starborn Onslaught": 8.0, "Hammer of the Gods": 2.5, "Archon of Chayula": 10.0, "Spear of Solaris": 4.0}
+# (MECHC43, COV45's routed fix: Archon of Chayula's instance is the Archon itself, 10 s: the game's Archon keyword ("By
+# default, each Archon Buff lasts 10 seconds", as ARCHON_DURATION) and poe2db's Archon of Chayula "Duration: 10"; the 8 s
+# above was its tornado's. An OVERCOUNT of its uses before: one per 10 s + refill, not 8 s + refill)
+MODEL_FIELDS.extend(f for f in (f"{h}{t}HitAverage" for h in ("MainHand.", "OffHand.") for t in DAMAGE_TYPES)
+                    if f not in MODEL_FIELDS)  # (glory_events: an Attack's hits per hand)
 
 
 def glory_events(stats: dict, main: Skill | None) -> dict[str, float]:
     """Glory-building events per second from the main skill on the boss."""
     hits = hits_per_second(stats)
     crit = min(number(stats.get("CritChance")), 100) / 100
-    hit = {t: number(stats.get(f"{t}HitAverage")) > 0 for t in DAMAGE_TYPES}
+    # (MECHC43, MECHB42 / COV45's routed UNDERCOUNT: PoB keeps an Attack's hits per hand, MainHand. / OffHand.
+    # <type>HitAverage, and leaves the plain field empty, so an Attack's Chaos / elemental hits read none: Archon of
+    # Chayula's and Apocalypse's Glory were 0 on every Attack build; either hand's hits count)
+    hit = {t: max(number(stats.get(f"{p}{t}HitAverage")) for p in ("", "MainHand.", "OffHand.")) > 0
+           for t in DAMAGE_TYPES}
     chance = lambda a: (number(stats.get(f"{a}ChanceOnHit")) * (1 - crit) + number(stats.get(f"{a}ChanceOnCrit")) * crit) / 100
     return {
         "attack hit": hits if main is not None and main.attack else 0.0,
