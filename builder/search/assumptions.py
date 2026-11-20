@@ -4028,7 +4028,8 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + spell_ailment_mods, hand_notes + spell_ailment_notes
         slow_mods, slow_notes = models.slow_magnitude_mods(turmoil_texts)  # (MECH94: PoB parses none)
         hand_mods, hand_notes = hand_mods + slow_mods, hand_notes + slow_notes
-        freeze_mods, freeze_notes = models.freeze_magnitude_cancel_mods(turmoil_texts)  # (MECH94: R36-9)
+        freeze_mods, freeze_notes = models.freeze_magnitude_cancel_mods(  # (MECH94: R36-9; MECH95: the Devotion form)
+            turmoil_texts, number(stats.get("Devotion")))
         hand_mods, hand_notes = hand_mods + freeze_mods, hand_notes + freeze_notes
         volatility_crit =volatility_support(build, main)  # (MECH91: the Volatility support's chance on crit)
         if volatility_crit > 0 or any(models.INNER_TURMOIL.match(t.strip())

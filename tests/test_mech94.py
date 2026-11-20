@@ -14,7 +14,7 @@ def test_slow_magnitude_lines_sum_to_one_pob_mod():
         "Debuffs inflicted by Hazards have 30% increased Slow Magnitude",  # (Hazards' Debuffs only: not read)
         "Debuffs inflicted with Supported Skills have 25% increased Slow Magnitude"])  # (one skill's: not read)
     assert [(m["name"], m["type"], m["value"]) for m in mods] == [(models.SLOW_MAGNITUDE_MOD, "INC", 15.0)]
-    assert notes[0]["confidence"] == "MEDIUM" and "UNVERIFIED" in notes[0]["basis"]
+    assert notes[0]["confidence"] == "MEDIUM" and "R36-20" in notes[0]["basis"] and "R36-21" in notes[0]["basis"]
     assert models.slow_magnitude_mods(["+10% to Fire Resistance"]) == ([], [])
 
 
@@ -37,7 +37,7 @@ def engine():
 
 def test_slow_magnitude_scales_the_boss_chill_up_to_its_maximum(engine):
     """A 30% Chill on the default (Unique) boss: 15% slower (MECHD2's half). +50% Slow Magnitude: a 45% Chill slow,
-    22.5% slower; +100%: 60%, held at the Chill's 50% maximum (UNVERIFIED past it), 25% slower."""
+    22.5% slower; +100%: 60%, held at the Chill's 50% maximum (RESEARCH36 R36-20), 25% slower."""
     from builder.search import bosses, models
 
     slow_taken = bosses.PRESETS[bosses.DEFAULT].slow_taken
@@ -119,12 +119,32 @@ def test_blood_explosion_counts_at_the_marks_activations_not_pobs_flat_one_a_sec
     assert fill == pytest.approx(1000 * 3.0 * 0.05 / 3000)  # (5% of the bar per 2000 x 1.5 stun-weighted damage)
     stuns = models.heavy_stun_rate({**stats, "_blood_loss_fill": fill})[0]
     assert stuns > models.heavy_stun_rate(stats)[0]
-    assert notes[0]["full_dps"][models.BLOOD_EXPLOSION] == pytest.approx(stuns * 2.0, rel=1e-4)
+    # (MECH95, R36-19: x(1 + Blood Loss's share of the bar), not a flat x2: the hits build 5% x 2/s = 0.10 of the bar a
+    # second, Blood Loss 0.05: a third of it)
+    share, _ = models.blood_loss_share(stats)
+    assert share == pytest.approx(0.05 / (0.05 + 0.10))
+    assert notes[0]["full_dps"][models.BLOOD_EXPLOSION] == pytest.approx(stuns * (1 + share), rel=1e-4)
     # (recast once consumed: one press per Heavy Stun, not every 0.5 s cooldown: 100% of the main skill's time before)
     speed = next(m for m in mods if m["line"] == "1% more Attack and Cast Speed")
     assert speed["scale"] == pytest.approx(-100 * 0.5 * stuns, rel=1e-3)
-    (_, notes), _, _ = _bloodhound(0.0)  # (no Bleed: the hits' Heavy Stuns only, the Mark expiring after 8 s)
-    assert 0 < notes[0]["full_dps"][models.BLOOD_EXPLOSION] < stuns * 2.0
+    (_, notes), stats0, _ = _bloodhound(0.0)  # (no Bleed: the hits' Heavy Stuns only, the Mark expiring after 8 s)
+    assert models.blood_loss_share(stats0)[0] == 0  # (no Blood Loss: each explosion at x1)
+    assert 0 < notes[0]["full_dps"][models.BLOOD_EXPLOSION] < stuns
+
+
+def test_the_marks_blood_loss_buildup_doesnt_take_the_hits_stun_buildup_multiplier():
+    """RESEARCH36 R36-18: "increased Stun Buildup" (and Melee's 50% more) scale Hits; Blood Loss isn't a Hit. The
+    bridge's HeavyStunHitMult (the main skill's own INC x skill-side MORE) comes out of the bar per damage, so a build
+    with x1.5 on its hits gets the same Blood Loss buildup a second as one without, and a smaller share of the bar."""
+    from builder.search import models
+
+    _, stats, _ = _bloodhound(1000.0)
+    plain = models.bloodhound_fill(stats)[0]
+    # (the same boss and damage, the hits' buildup x1.5 from the build's Stun Buildup lines)
+    boosted = {**stats, "HeavyStunBuildupAvg": 7.5, "HeavyStunHitMult": 1.5}
+    assert models.bloodhound_fill(boosted)[0] == pytest.approx(plain)
+    assert models.blood_loss_share(boosted)[0] == pytest.approx(0.05 / (0.05 + 0.15))
+    assert models.blood_loss_share(boosted)[0] < models.blood_loss_share(stats)[0]
 
 
 def test_a_mark_never_activates_faster_than_its_event():
@@ -161,6 +181,7 @@ def test_blood_explosions_full_dps_entry_is_scaled_in_a_real_build(engine):
     print("PROBE bloodhound", entries, scale, note["basis"][:500])
     assert models.BLOOD_EXPLOSION in entries and scale is not None and 0 <= scale < 1
     assert "100% of Boneshatter" not in note["basis"]
+    assert "caused by Blood Loss" in note["basis"]  # (MECH95: the share, R36-19)
     # (the press model doesn't charge the Mark's group as a skill pressed nonstop: probe POE2T5070, Boneshatter 0%)
     assert "Bloodhound's Mark" not in (build.objective.press_scales or {})
     assert (build.objective.press_scales or {}).get("Boneshatter", 1.0) > 0.5
@@ -200,6 +221,20 @@ def test_ailment_magnitude_lines_raise_chill_not_freeze_buildup(engine):
 
     mods = models.freeze_magnitude_cancel_mods(["30% increased Magnitude of Non-Damaging Ailments you inflict"])[0]
     assert {m["name"] for m in mods} == {"EnemyFreezeBuildup"}
+    # (MECH95) the "per 10 Devotion" form: PoB applies it at the player's own Devotion (ModStore's PerStat, actor
+    # "parent" read as the player); the cancel takes it back at floor(Devotion / 10)
+    amulet = chr(10).join(["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82", "Implicits: 0",
+                           "+10 to Devotion", "30% increased Magnitude of Non-Damaging Ailments you inflict per 10 Devotion"])
+    build.call("equip", slot="Amulet", raw=amulet, fields=[])
+    build.call("setAssumptions", mods=[], fields=[])
+    raw = build.call("stats", fields=fields + ["Devotion"])
+    search.assumptions.mods = None
+    search.assumptions.apply()
+    fixed = build.call("stats", fields=fields)
+    print("PROBE freeze buildup per Devotion", raw, fixed)
+    assert raw["Devotion"] == pytest.approx(10)
+    assert raw["FreezeBuildupAvg"] == pytest.approx(plain["FreezeBuildupAvg"] * 1.30, rel=1e-3)  # (PoB: +30% x 1)
+    assert fixed["FreezeBuildupAvg"] == pytest.approx(plain["FreezeBuildupAvg"], rel=1e-3)
 
 
 def test_freeze_magnitude_cancel_reads_each_form():
@@ -208,8 +243,12 @@ def test_freeze_magnitude_cancel_reads_each_form():
     mods, notes = models.freeze_magnitude_cancel_mods([
         "30% increased Magnitude of Non-Damaging Ailments you inflict",
         "20% increased Magnitude of Non-Damaging Ailments you inflict with Critical Hits",
-        "3% increased Magnitude of Non-Damaging Ailments you inflict per 10 Devotion"])  # (not read: labelled)
+        "3% increased Magnitude of Non-Damaging Ailments you inflict per 10 Devotion"])  # (no Devotion given: 0)
     assert [(m["value"], m.get("condition")) for m in mods] == [(-30.0, None), (-20.0, "CriticalStrike")]
+    # (MECH95: the Devotion form at PoB's floor(Devotion / 10): 57 Devotion -> 5 x 3%)
+    mods, _ = models.freeze_magnitude_cancel_mods(
+        ["3% increased Magnitude of Non-Damaging Ailments you inflict per 10 Devotion"], devotion=57)
+    assert [(m["value"], m.get("condition")) for m in mods] == [(-15.0, None)]
     assert models.freeze_magnitude_cancel_mods(["30% increased Chill Magnitude"]) == ([], [])
 
 
@@ -256,3 +295,30 @@ def test_repulsions_hold_counts_the_minions_hits_too():
     hold = (1 - math.exp(-5.0 * d)) / 5.0
     assert with_minions.share == pytest.approx(hold / (hold + 0.5 + 1.5))
     assert with_minions.share < own.share and "3 minions" in with_minions.how
+
+
+def test_temporal_chains_curse_and_slow_magnitude_add(engine):
+    """RESEARCH36 R36-21 (HIGH): Temporal Chains' curse magnitude and slow magnitude ADD (GGG's 3 Apr 2025 correction
+    of the 0.2.0 notes). With +50% curse effect and +50% Slow Magnitude the boss's Slow from the curse is x(1 + 0.5 +
+    0.5) / (1 + 0.5) of the curse-only one (MECH94 multiplied them: x1.5, an OVERCOUNT of the boss's Slow)."""
+    from builder.search import models
+
+    engine.call("newBuild")
+    engine.call("setAssumptions", mods=[], fields=[])
+    engine.call("setGroup", gems=[{"name": "Frostbolt", "level": 20, "quality": 0}], main=True)
+    # (the boss's own speed, no curse: POE2T5079 measured "plain" with the curse on, which isn't a baseline)
+    plain = engine.call("setConfig", vars={"conditionEnemyChilled": False}, fields=["enemySkillTime"])["stats"][
+        "enemySkillTime"]
+    engine.call("setGroup", gems=[{"name": "Temporal Chains", "level": 20, "quality": 0}])
+    curse = [models.raw_mod("CurseEffect", "INC", 50)]
+    slow = models.slow_magnitude_mods(["Debuffs you inflict have 50% increased Slow Magnitude"])[0]
+    got = {}
+    for name, mods in (("curse", curse), ("both", curse + slow)):
+        engine.call("setAssumptions", mods=mods, fields=[])
+        got[name] = engine.call("setConfig", vars={}, fields=["enemySkillTime"])["stats"]["enemySkillTime"]
+    print("PROBE temporal chains", plain, got)
+    engine.call("setAssumptions", mods=[], fields=[])
+    # (no Chill or other Slow here: the speed is 1 - the curse's Slow at the boss's potency, above the 25% floor)
+    slowed = {k: 1 - plain / v for k, v in got.items()}
+    assert 0 < slowed["curse"] < slowed["both"] < 0.75
+    assert slowed["both"] / slowed["curse"] == pytest.approx(2.0 / 1.5, rel=2e-3)

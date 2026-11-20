@@ -2398,13 +2398,17 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
                     # the boss suffers Blood Loss)
                     expiry = math.inf if bloodhound_fill(stats)[0] > 0 else dur
                     period = max(period, min(1 / acts if acts > 0 else math.inf, expiry))
-                scales[BLOOD_EXPLOSION] = round(acts * BLOOD_EXPLOSION_FULL_BAR / BLOOD_EXPLOSION_POB_RATE, 6)
+                # (MECH95, RESEARCH36 R36-19, an OVERCOUNT before: a flat x2) "up to 100% more damage ... based on the
+                # percentage of target's Heavy Stun buildup caused by Blood Loss": x(1 + Blood Loss's share of the bar)
+                blood_share, share_how = blood_loss_share(stats)
+                more = 1 + (BLOOD_EXPLOSION_FULL_BAR - 1) * blood_share
+                scales[BLOOD_EXPLOSION] = round(acts * more / BLOOD_EXPLOSION_POB_RATE, 6)
                 label = f"{mark.name}: Blood Explosion at its Activations*"
                 basis = (f"PoB's Full DPS counts {BLOOD_EXPLOSION} at a flat {BLOOD_EXPLOSION_POB_RATE:g} a second (its "
                          f"1 s base time; no trigger rate); it fires when the Mark Activates: {acts_how}; each at "
-                         f"x{BLOOD_EXPLOSION_FULL_BAR:g} of PoB's hit (\"up to 100% more damage based on the percentage "
-                         "of target's Heavy Stun buildup\": the bar is full at the Heavy Stun; PoB applies none of it, "
-                         f"MEDIUM): x{scales[BLOOD_EXPLOSION]:.3f} of PoB's entry")
+                         f"x{more:.3f} of PoB's hit (\"up to 100% more damage ... based on the percentage of target's "
+                         f"Heavy Stun buildup caused by Blood Loss\": {share_how}; read as linear, MEDIUM, RESEARCH36 "
+                         f"R36-19; PoB applies none of it): x{scales[BLOOD_EXPLOSION]:.3f} of PoB's entry")
         if share < 1.0:
             mods.append(line("1% more Effect of your Curses", 100 * (share - 1), skill=mark.name))
         if (use.pressed is not None and use.pressed.name in MARK_CARRIERS and use.pressed is not main
@@ -2455,18 +2459,23 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
 # (BloodhoundsMarkExplosionPlayer): castTime 1, no trigger rate (PoB's flat 1 a second), and "Gains up to 100% more
 # damage and 100% more area of effect based on the percentage of target's Heavy Stun buildup"
 # (hunters_mark_buildup_%_as_explosion_damage_+%_final 100; PoB maps none of it: checked, grep hunters_mark over
-# SkillStatMap.lua and act_dex.lua: constantStats only): at a Heavy Stun the bar is full, so x2 (MEDIUM).
+# SkillStatMap.lua and act_dex.lua: constantStats only). The full text ends "... caused by Blood Loss" (RESEARCH36
+# R36-19, HIGH): x(1 + Blood Loss's share of the bar), read as linear (MEDIUM; blood_loss_share). MECH94 had x2 (an
+# OVERCOUNT wherever hits build the bar too).
 # So Activations/s = mark_activations (the Mark's applications, mark_use, each Activating on the boss's next Heavy Stun
 # within its duration; held without end while the boss Bleeds), the Heavy Stuns from the main skill's hits plus the
 # Mark's own Blood Loss buildup (bloodhound_fill: the main skill's Bleed DPS at its share of the fight x 300%, at the
-# bar per damage the main skill's own hits show: PoB's HeavyStunBuildupAvg over its stun-weighted hit, which carries
-# the build's Stun buildup increases: whether those raise the Mark's buildup is UNVERIFIED, the higher reading).
+# bar per damage the main skill's own hits show: PoB's HeavyStunBuildupAvg over its stun-weighted hit, less the main
+# skill's own multiplier on its hits' buildup, the bridge's HeavyStunHitMult: MECH95, RESEARCH36 R36-18, an OVERCOUNT
+# before: "increased Stun Buildup" (hit_damage_stun_multiplier_+%, every variant) and Melee's 50% more scale Hits, and
+# Blood Loss isn't a Hit. What stays: the boss-side terms (its threshold, Daze); Physical's 50% more isn't given to
+# Blood Loss either (UNVERIFIED: the game's text says Physical damage, read as Hits like Melee's; the lower reading).)
 # Other Physical damage over time (Corrupted Blood, other skills' Bleeds) isn't read (the lower reading). No Heavy
 # Stun, no Blood Explosion: 0, said. The entry is scaled in Full DPS by mark_model's full_dps.
 BLOOD_EXPLOSION = "Blood Explosion"
 BLOODHOUND_BUILDUP = 300.0  # % of Blood Loss as Heavy Stun buildup (gem level 1-20 alike; quality not read)
 BLOOD_EXPLOSION_POB_RATE = 1.0  # PoB's Full DPS rate for it (castTime 1, NoAttackOrCastTime; GEM26's probe: 1/s)
-BLOOD_EXPLOSION_FULL_BAR = 2.0  # up to 100% more damage at a full Heavy Stun bar
+BLOOD_EXPLOSION_FULL_BAR = 2.0  # up to 100% more damage when Blood Loss built the whole Heavy Stun bar (R36-19)
 
 
 def bloodhound_fill(stats: dict) -> tuple[float, str]:
@@ -2482,9 +2491,38 @@ def bloodhound_fill(stats: dict) -> tuple[float, str]:
                  * (HEAVY_STUN_PHYSICAL if t == "Physical" else 1.0) for t in DAMAGE_TYPES)
     if per_hit <= 0 or weight <= 0:
         return 0.0, "the main skill's hits show no Heavy Stun buildup per damage to read the bar by (not counted)"
-    fill = bleed * BLOODHOUND_BUILDUP / 100 * per_hit / weight
+    # (MECH95, R36-18) the hits' own multiplier taken out: Blood Loss isn't a Hit (the note above)
+    hit_mult = number(stats.get("HeavyStunHitMult"))
+    hit_mult = hit_mult if hit_mult > 0 else 1.0
+    fill = bleed * BLOODHOUND_BUILDUP / 100 * per_hit / weight / hit_mult
     return fill, (f"Blood Loss: {bleed:,.0f} Bleed DPS x {BLOODHOUND_BUILDUP:g}% as Heavy Stun buildup = "
-                  f"{fill:.2%} of the bar a second at PoB's threshold")
+                  f"{fill:.2%} of the bar a second at PoB's threshold"
+                  + (f" (the hits' x{hit_mult:.2f} Stun Buildup and Melee multiplier not applied: Blood Loss isn't a "
+                     "Hit, R36-18)" if hit_mult != 1.0 else ""))
+
+
+def blood_loss_share(stats: dict) -> tuple[float, str]:
+    """(MECH95, RESEARCH36 R36-19) The share of the boss's Heavy Stun bar Bloodhound's Mark's Blood Loss builds, against
+    the main skill's hits and Thorns (heavy_stun_rate's parts, at PoB's threshold: the boss-side terms scale them all
+    alike), and how. Other skills' hits aren't read (heavy_stun_rate's note): the higher share, said."""
+    blood, _ = bloodhound_fill(stats)
+    if blood <= 0:
+        return 0.0, "no Blood Loss buildup from the main skill, so none of the bar is from Blood Loss"
+    s = at_main_share(stats)
+    hit = 0.0
+    if not s.get("Flag:CannotStun"):
+        per_hit = number(s.get("HeavyStunBuildupAvg")) / 100
+        crit = min(number(s.get("CritChance")), 100) / 100
+        weight = {t: (number(s.get(f"{t}HitAverage")) * (1 - crit) + number(s.get(f"{t}CritAverage")) * crit)
+                  * (HEAVY_STUN_PHYSICAL if t == "Physical" else 1.0) for t in DAMAGE_TYPES}
+        total = sum(weight.values())
+        uncold = 1 - weight["Cold"] / total if total > 0 else 1.0
+        hit = max(0.0, per_hit * uncold * hits_per_second(s))
+    thorns = max(0.0, thorns_fill(s, "HeavyStun"))
+    share = blood / (blood + hit + thorns)
+    return share, (f"Blood Loss builds {blood:.2%} of the bar a second against the main skill's hits' {hit:.2%}"
+                   + (f" and Thorns' {thorns:.2%}" if thorns > 0 else "") + f": {share:.0%} of it (other skills' hits "
+                   "not read: the higher share)")
 
 
 def mark_activations(mark: Skill, skills: list[Skill], stats: dict, disabled: list[Skill] | None = None,
@@ -5850,6 +5888,8 @@ EMBER_DURATION = 1.3  # s: base_skill_effect_duration 1300
 EMBER_CAP, EMBER_MORE = 10, 5.0  # level 20's cap; the base more per previous Ember (used when the gem's own isn't read)
 MODEL_FIELDS.extend(f for f in ("Duration",) if f not in MODEL_FIELDS)  # (ember_fusillade_model)
 MODEL_FIELDS.extend(f for f in ("BleedDPS",) if f not in MODEL_FIELDS)  # (MECH94: bloodhound_fill)
+MODEL_FIELDS.extend(f for f in ("HeavyStunHitMult",) if f not in MODEL_FIELDS)  # (MECH95: bloodhound_fill, the bridge)
+MODEL_FIELDS.extend(f for f in ("Devotion",) if f not in MODEL_FIELDS)  # (MECH95: freeze_magnitude_cancel_mods)
 # (GEM13) His Scattering Calamity (act_int.lua ScatteringCalamityPlayer, the staff's "Grants Skill: Level (1-20) His
 # Scattering Calamity", Uniques/staff.lua variant 4): "Conjure a crackling Wellsprite that hovers above you. After a short
 # duration, the Wellsprite launches at an enemy ... Recasting this spell resets the duration for all active Wellsprites";
@@ -11411,8 +11451,12 @@ def spell_ailment_magnitude_mods(texts: list[str]) -> tuple[list[dict], list[dic
 # and Temporal Chains "slows those affected". So the total goes to PoB as MECH_SLOW_MAGNITUDE INC on you, and the
 # bridge's boss-slow function (installBossSlow) scales the boss's Chill, Temporal Chains and other Slows the build puts
 # on it by (1 + N%) before the Unique's 50% less and the 25% floor; the Chill is held at its maximum (PoB's ChillMax or
-# 50%): whether the line lifts a Chill's slow past it is UNVERIFIED, and the held reading is the lower Slow on the boss
-# (more boss hits: the lower survival reading). Only the Slow moves: Bonechill and the other Chill-magnitude lines read
+# 50%): the line can't lift a Chill past it (RESEARCH36 R36-20, MEDIUM; checked: KeywordPopups Chill's "default maximum
+# of 50%" and SlowMagnitudeModifier, stat_descriptions, the patch archive "Slow Magnitude|Slow Potency"; only the "Your
+# Chills can Slow targets by up to a maximum of N%" overrides lift it). Temporal Chains: its curse magnitude and this
+# slow magnitude ADD (RESEARCH36 R36-21, HIGH: GGG's 3 Apr 2025 correction of the 0.2.0 notes, "multiplicative" ->
+# "additive"; MECH95, an OVERCOUNT of the boss's Slow when both were multiplied): the bridge enters it as
+# (1 + c + s) / (1 + c) on PoB's curse-scaled value. Only the Slow moves: Bonechill and the other Chill-magnitude lines read
 # PoB's own Chill, untouched. It moves the boss's hit rate only (survival time and "when Hit" sources), no damage.
 # Not read (UNDERCOUNTS, defence only, labelled): the Hazard-only line (hazard_base_debuff_slow_magnitude_+%: only
 # Hazards' Debuffs) and Slow Potency's "Debuffs inflicted with Supported Skills have N% increased Slow Magnitude" (one
@@ -11431,7 +11475,7 @@ def slow_magnitude_mods(texts: list[str]) -> tuple[list[dict], list[dict]]:
         "label": "Slow Magnitude of your Debuffs*", "value": f"{value:+g}%", "confidence": "MEDIUM",
         "basis": (f"{value:+g}% Slow Magnitude on the boss's Chill, Temporal Chains and other Slows you inflict (PoB "
                   "parses none of these lines: 0 before); before the Unique boss's 50% less Slow and the 25% speed "
-                  "floor; a Chill held at its maximum (past it: UNVERIFIED). It slows the boss's hits (survival, "
+                  "floor; a Chill held at its maximum (R36-20); Temporal Chains' curse and slow magnitude added (R36-21). It slows the boss's hits (survival, "
                   "'when Hit' sources), no damage")}]
 
 
@@ -11443,18 +11487,24 @@ def slow_magnitude_mods(texts: list[str]) -> tuple[list[dict], list[dict]]:
 # non_damaging_ailment_effect_+% / cold_ailment_effect_+% gem stats, which no PoB gem carries: checked, grep over
 # Data/Skills). So each such line's Freeze buildup part is taken back (EnemyFreezeBuildup INC -N, the crit-only form
 # under PoB's CriticalStrike condition); its Chill / Shock parts stay. The "per 10 Devotion" form (a Timeless jewel's
-# conquered passive) isn't taken back (PoB's PerStat: not modelled, a small OVERCOUNT left, labelled).
+# conquered passive; ModCache 3561: EnemyShock / EnemyChill Magnitude and EnemyFreezeBuildup, PerStat Devotion div 10,
+# actor "parent", which on the player reads the player's own Devotion: ModStore 606-625, floor(Devotion / 10)) is
+# taken back too (MECH95; MECH94 left it, a small OVERCOUNT): N x floor(PoB's Devotion / 10), from the build's stats.
 NON_DAMAGING_MAGNITUDE = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) magnitude of non-damaging ailments you "
-                                    r"inflict( with critical hits)?$", re.I)
+                                    r"inflict( with critical hits| per 10 devotion)?$", re.I)
 
 
-def freeze_magnitude_cancel_mods(texts: list[str]) -> tuple[list[dict], list[dict]]:
-    """(mods, notes): PoB's Freeze buildup from "Magnitude of Non-Damaging Ailments" lines taken back (the note above)."""
+def freeze_magnitude_cancel_mods(texts: list[str], devotion: float = 0.0) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): PoB's Freeze buildup from "Magnitude of Non-Damaging Ailments" lines taken back (the note above).
+    `devotion`: PoB's Devotion (its output.Devotion), for the "per 10 Devotion" form."""
     plain = crit = 0.0
+    tens = math.floor(max(0.0, number(devotion)) / 10 + 0.0001)  # (PoB's PerStat: ModStore 625)
     for t in texts:
         if m := NON_DAMAGING_MAGNITUDE.match(t.strip()):
             value = float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
-            if m.group(3):
+            if m.group(3) and "devotion" in m.group(3).lower():
+                plain += value * tens
+            elif m.group(3):
                 crit += value
             else:
                 plain += value

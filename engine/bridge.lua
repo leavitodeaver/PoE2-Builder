@@ -634,6 +634,24 @@ local function shockChancePerHit(output)
 	return main or off
 end
 
+-- (MECH95, RESEARCH36 R36-18; models.bloodhound_fill) The main skill's own multiplier on its Hits' Heavy Stun buildup,
+-- as CalcOffence 5573-5575 build it: (1 + INC EnemyHeavyStunBuildup / EnemyImmobilisationBuildup) x their skill-side
+-- MORE (the build's "increased Stun Buildup" lines, Melee's 50% more from CalcSetup 999). The boss-side terms (its
+-- threshold, Daze's HeavyStunBuildup on the enemy) aren't in it. Bloodhound's Mark's buildup from Blood Loss isn't a
+-- Hit, so the models take this out of the bar per damage they read from HeavyStunBuildupAvg. Read from the main
+-- skill's mod list as "Flag:" fields are (a what-if reads the committed build's, as those do).
+local function heavyStunHitMult()
+	local env = build.calcsTab and build.calcsTab.mainEnv
+	local skill = env and env.player and env.player.mainSkill
+	if not (skill and skill.skillModList) then
+		return nil
+	end
+	local list, cfg = skill.skillModList, skill.skillCfg
+	local inc = list:Sum("INC", cfg, "EnemyHeavyStunBuildup", "EnemyImmobilisationBuildup")
+	local more = list:More(cfg, "EnemyHeavyStunBuildup", "EnemyImmobilisationBuildup")
+	return (1 + inc / 100) * more
+end
+
 -- (SEARCH29, MECHC40's item (a)) A build's own LedgerAddedDPS, summed from its output as derivedCalc sums a what-if's
 -- (assigned below DERIVED; nil when no added source is set)
 local committedAddedDPS
@@ -660,6 +678,9 @@ local function pickStats(output, fields)
 		end
 		if value == nil and field == "ShockChancePerHit" then
 			value = shockChancePerHit(output)  -- (MECH86: PoB never writes it; shockChancePerHit)
+		end
+		if value == nil and field == "HeavyStunHitMult" then
+			value = heavyStunHitMult()  -- (MECH95: Blood Loss isn't a Hit; models.bloodhound_fill)
 		end
 		if value == nil and field:match("^Flag:") then
 			-- (MECH84) "Flag:<Name>": whether the main skill's mod list holds that PoB flag (models.light_stun_rate reads
@@ -1362,8 +1383,8 @@ end
 -- A Chill counts once, the strongest: PoB adds a configured Chill to the boss twice (two -30 rows for a 30% Chill,
 -- summed to -60: a probe, 12 Nov), and a target carries one Chill (KeywordPopups "Debuff": "Unless otherwise stated,
 -- Debuffs of the same type do not stack - only the copy with the strongest effect applies"; "Ailments" lists Chill).
--- Whether Temporal Chains' slow takes both the curse halving (CurseEffectOnSelf) and this one is UNVERIFIED; both apply
--- here, as the game's text gives each without an exception.
+-- Temporal Chains' slow takes both the curse halving (CurseEffectOnSelf) and this one: both are target-side terms, which
+-- multiply with the applier's magnitudes (KeywordPopups BuffMagnitude; RESEARCH36 R36-21, MEDIUM for this part).
 -- Freeze (MECH55, MECHD3's note): PoB's Freeze row is a steady -70% action speed (CalcPerform 767-770) whenever the
 -- Frozen box is on, so the boss hit at 0.3x its rate all fight whatever its Frozen share. The game's Freeze is a stop
 -- (KeywordPopups "Freeze": a Frozen target can't act) for the share of the fight it lasts: with the share the conditions
@@ -1383,8 +1404,29 @@ end
 -- reaches the player's modDB as MECH_SLOW_MAGNITUDE INC (PoB parses none of it); each Slow the build puts on the
 -- boss (the Chill, held at its maximum; Temporal Chains, before its cap; the other negative ActionSpeed rows; not
 -- Freeze, a stop) is scaled by (1 + N%) before the potency and the floor.
+-- (MECH95) The Chill's hold at its maximum: RESEARCH36 R36-20 (MEDIUM; checked: KeywordPopups Chill "a default maximum
+-- of 50%", SlowMagnitudeModifier "scales only the specific Magnitude that slows the target"; only the "Your Chills can
+-- Slow targets by up to a maximum of N%" overrides, PoB's ChillMax, lift it; no source or test says otherwise).
+-- Temporal Chains (MECH95, RESEARCH36 R36-21, HIGH; an OVERCOUNT of the boss's Slow before, defence only): its curse
+-- magnitude and slow magnitude ADD (GGG corrected the 0.2.0 notes on 3 Apr 2025, "Old: ... multiplicative" -> "New:
+-- ... additive with each other for Temporal Chains"; KeywordPopups BuffMagnitude: an applier's magnitude modifiers sum,
+-- and multiply with the target's effect terms). PoB's TemporalChainsActionSpeed is already x(1 + the curse's INC)
+-- (CalcPerform 2503-2510: CurseEffect INC + the enemy's CurseEffectOnSelf INC, x its MORE terms), so the Slow
+-- Magnitude enters as (1 + c + s) / (1 + c). No Temporal Chains skill found (the curse from elsewhere): c read as 0,
+-- which is the multiplied reading (the higher Slow, said in the code).
 local FREEZE_SHARE_INPUT = "mechFreezeShare"
 local bossSlowInstalled = false
+
+-- (MECH95, the note above) the INC PoB scaled Temporal Chains' curse by (CalcPerform 2503), or nil
+local function chainsCurseInc(player, enemyDB)
+	for _, skill in ipairs(player.activeSkillList or { }) do
+		local effect = skill.activeEffect and skill.activeEffect.grantedEffect
+		if effect and effect.name == "Temporal Chains" and skill.skillModList then
+			return skill.skillModList:Sum("INC", skill.skillCfg, "CurseEffect") + enemyDB:Sum("INC", nil, "CurseEffectOnSelf")
+		end
+	end
+	return nil
+end
 local function installBossSlow()
 	if bossSlowInstalled then
 		return
@@ -1447,7 +1489,14 @@ local function installBossSlow()
 		if chains >= 0 then
 			positive = positive + chains
 		elseif not unaffected then
-			mult = mult * math.max(0, 1 + math.max(-data.misc.TemporalChainsEffectCap, chains * magnitude) * potency / 100)
+			local chainsMagnitude = magnitude
+			if magnitude ~= 1 and player then  -- (MECH95, R36-21: curse and slow magnitude add, the note above)
+				local base = 1 + (chainsCurseInc(player, modDB) or 0) / 100
+				if base > 0 then
+					chainsMagnitude = math.max(0, base + magnitude - 1) / base
+				end
+			end
+			mult = mult * math.max(0, 1 + math.max(-data.misc.TemporalChainsEffectCap, chains * chainsMagnitude) * potency / 100)
 		end
 		local speed = (1 + positive / 100) * math.max(0.25, mult) * (1 - frozen)
 		speed = math.max((modDB:Max(nil, "MinimumActionSpeed") or 0) / 100, speed)
