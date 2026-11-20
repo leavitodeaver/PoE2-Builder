@@ -1,0 +1,46 @@
+# MECH-B's model entries (MECHB46).
+
+- id: model-mechb46-oil-barrage-volley
+  title: "Oil Barrage: a plain use is a 350% wind-up, then one group of projectiles that all hit (models.oil_barrage_volley_model)"
+  kind: model
+  model: oil_barrage_volley_model
+  skill: ["Oil Barrage"]
+  confidence: theory
+  notes: >-
+    An OVERCOUNT of about x1.5 (MECHB45's find). PoB scores one projectile an attack time at the skill's 300% attack
+    speed (AttackSpeedMultiplier 200, CalcOffence 2874) and reads none of its channel stats (probe POE2T4663: the same
+    TotalDPS at 3, 4, 5 projectiles). Game 26650308 OilBarragePlayer, second source poe2db Oil_Barrage (current):
+    channel_start_duration_as_%_of_attack_time 350, display_attack_time_+% 350, "[Channelling] ends after one group of
+    [Projectiles]", "Fires 3 Projectiles", fired in sequence so all can hit one target. Read as 3 hits in 4.5 attack
+    times (x0.667), each projectile past 3 adding one attack time (UNVERIFIED; extra-projectiles-free a row), applied as
+    attack time x (N + 1.5) / N so the hit rate moves too. The 1000% channel end taken as not spent (UNVERIFIED, a row);
+    the Empowered barrage kept at PoB's rate (UNVERIFIED, a group-every-attack-time row), weighed by GEM17's gated share.
+    MEDIUM-LOW. RESEARCH Q4 (MECHB45) asks what one use fires and costs in time.
+  sources: [builder/search/models.py (oil_barrage_volley_model), builder/search/assumptions.py (after the gated sets),
+            "data/game-26650308/tables/GrantedEffectStatSets.json (OilBarragePlayer)",
+            "data/game-26650308/tables/GrantedEffectsPerLevel.json (AttackSpeedMultiplier 200)",
+            data/game-26650308/files/data/statdescriptions/specific_skill_stat_descriptions/oil_barrage/statset_0.csd,
+            "https://poe2db.tw/us/Oil_Barrage", scratch/mechb45/p4663.log]
+  status: proposed
+
+- id: model-mechb46-fortifying-cry-shield-wave
+  title: "Fortifying Cry's Shield Waves at the build's cries and Shield Attack hits (models.shield_wave_model)"
+  kind: model
+  model: shield_wave_model
+  skill: ["Fortifying Cry"]
+  confidence: theory
+  notes: >-
+    An UNDERCOUNT (COV47's routing): PoB lists the hidden granted Shield Wave (FortifyingCryShockwavePlayer) in the cry's
+    group but gives it no trigger rate, and maps neither shielding_cry_an_additional_empowered_attack_per_X_mp nor its
+    _mp_cap (SkillStatMap maps warcry_empowers_per_X_monster_power only). Game 26650308 fortifying_cry.csd: "Can
+    [Trigger] Shield Wave once per {0} enemy [Power] in range, counting up to {1} [Power]" (5, 50); ActiveSkills: Triggers
+    Shield Wave "when subsequent Shield Attacks deal damage"; base_skill_effect_duration 8000 taken as the window
+    (MEDIUM). Waves a cry = min(floor(min(Power, 50) / 5), the main skill's Shield Attack hits in 8 s); cries at the
+    cry's cooldown (Endurance Charge bypass not counted). Other pressed shield skills and Echoing Cry's Echoes not
+    counted (UNVERIFIED, undercounts). Probe POE2T4683: Shield Charge + Fortifying Cry, 0.499 waves/s, Shield Wave 37.4
+    DPS in Full DPS (0 before).
+  sources: [builder/search/models.py (shield_wave_model), builder/search/assumptions.py (Assumptions.shield_waves),
+            data/game-26650308/files/data/statdescriptions/specific_skill_stat_descriptions/fortifying_cry.csd,
+            data/game-26650308/files/data/statdescriptions/specific_skill_stat_descriptions/fortifying_cry_shockwave.csd,
+            scratch/mechb46/p4683.log]
+  status: proposed

@@ -2054,6 +2054,15 @@ def test_a_repeat_does_not_echo_but_its_use_still_does():
     assert models.repeat_echo_model(texts, both, set(), models.Skill("Spark", spell=True))[0]
 
 
+def test_a_capped_press_takes_its_use_time_not_pobs_post_cap_time():
+    # (MECHB46, probe POE2T4683) PoB's Time after the cooldown cap is the cooldown: a Warcry on its 8 s cooldown took 8 s
+    cry = {"index": 2, "name": "Fortifying Cry", "speed": 1 / 8.019, "cooldown": 8.019, "castTime": 0.8, "time": 8.019}
+    assert models.press_action(cry) == pytest.approx(0.8)
+    assert models.press_action({**cry, "time": 0.5}) == pytest.approx(0.5)  # (a real use time, HitTime: kept)
+    assert models.press_action({**cry, "castTime": 0, "time": 8.019}) == 0.0  # (an instant skill)
+    assert models.press_action({**cry, "speed": 0.5, "cooldown": 0}) == pytest.approx(2.0)  # (not capped: 1/speed)
+
+
 def test_snap_needs_an_ailment_and_its_presses_cost_the_main_skill_time():
     """MECH46 (FLAT_RATES A14): Snap's Remnants only when an Ignite, Shock or Freeze is on the boss to Consume; a non-main
     Snap / Frost Bomb pressed for its Remnants costs the main skill its cast time, in Full DPS or not."""
@@ -2452,9 +2461,11 @@ def test_guided_hand_gives_a_boosted_slam_30_percent_more_and_triggered_skills_n
 
 
 def test_a_channels_wind_up_is_labelled_not_guessed():
-    """MECHB3: Oil Barrage's 350% channel start isn't counted (its length is the build's Power Charge supply): a note."""
-    note, = models.channel_windup_note(models.Skill("Oil Barrage", attack=True))
-    assert note["confidence"] == "UNVERIFIED" and "Power Charge" in note["basis"] and "too high" in note["basis"]
+    """MECHB3: a channel's start time isn't counted (its share depends on the channel's length): a note. (MECHB46: Oil
+    Barrage's is counted by oil_barrage_volley_model, so it gets none.)"""
+    note, = models.channel_windup_note(models.Skill("Volcano", spell=True))
+    assert note["confidence"] == "UNVERIFIED" and "50%" in note["value"] and "too high" in note["basis"]
+    assert models.channel_windup_note(models.Skill("Oil Barrage", attack=True)) == []
     assert models.channel_windup_note(models.Skill("Fireball", spell=True)) == []
 
 
@@ -6849,3 +6860,34 @@ def test_entry_cut_scale_takes_one_groups_entry_off_a_shared_name():
     assert scale * 195.0 == pytest.approx(104.0)
     assert models.entry_cut_scale(rows, "Ice Fragments", 500.0) == 0.0
     assert models.entry_cut_scale(rows, "Spark", 10.0) == 1.0
+
+
+def test_oil_barrage_volley_model():
+    # (MECHB46) a plain use: a 350% wind-up, then one group of 3 projectiles that all hit: 3 hits in 4.5 attack times
+    oil = Skill("Oil Barrage", group=1, attack=True, stat_set="Base")
+    sets = [{"label": "Base", "TotalDPS": 100.0}, {"label": "Oil Ground", "TotalDPS": 0.0},
+            {"label": "Empowered", "TotalDPS": 160.0}]
+    mods, notes = models.oil_barrage_volley_model(oil, {"ProjectileCount": 3}, sets, 0.0)
+    assert [m["name"] for m in mods] == ["SkillAttackTime"] and mods[0]["value"] == pytest.approx(50)
+    assert notes[0]["value"] == "x0.667"
+    mods, notes = models.oil_barrage_volley_model(oil, {"ProjectileCount": 5}, sets, 0.0)  # 5 hits in 6.5
+    assert notes[0]["value"] == "x0.769"
+    # half the time Empowered at PoB's rate: (0.5 x 100 x 2/3 + 0.5 x 160) / (0.5 x 100 + 0.5 x 160)
+    mods, notes = models.oil_barrage_volley_model(oil, {"ProjectileCount": 3}, sets, 0.5)
+    assert float(notes[0]["value"][1:]) == pytest.approx((50 / 1.5 + 80) / 130, abs=1e-3)
+    assert models.oil_barrage_volley_model(Skill("Oil Grenade", group=1), {"ProjectileCount": 3}, sets, 0.0) == ([], [])
+    assert models.channel_windup_note(oil) == []
+
+
+def test_shield_wave_model():
+    # (MECHB46) a lone Unique boss's 20 Power: 4 Shield Waves a cry, capped by the Shield Attack hits in its 8 s
+    row = {"speed": 0.125, "warcryPower": 20}
+    mods, notes = models.shield_wave_model(row, 0.0, 2.0, "main")
+    assert mods[0]["skill"] == "Shield Wave" and mods[0]["value"] == pytest.approx(0.5)
+    mods, _ = models.shield_wave_model(row, 0.0, 0.25, "main")  # 2 hits in the window
+    assert mods[0]["value"] == pytest.approx(0.25)
+    mods, notes = models.shield_wave_model(row, 0.0, 0.0, "none")
+    assert mods[0]["value"] == 0 and "with one, up to 0.50/s" in notes[0]["play"]
+    mods, _ = models.shield_wave_model({"speed": 0.125, "warcryPower": 200}, 0.0, 9.0, "main")  # the 50 Power cap
+    assert mods[0]["value"] == pytest.approx(1.25)
+    assert models.shield_wave_model({"speed": 0.0, "warcryPower": 20}, 0.0, 2.0, "main") == ([], [])

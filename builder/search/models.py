@@ -12374,7 +12374,7 @@ def rod_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[lis
 # - fired in sequence (projectiles_crossbow_barrage: the crossbow skills; projectiles_barrage: Oil Barrage): the chance
 #   goes to PoB as its TwoAdditionalProjectilesChance. (MECHB45: PoB's SequentialProjectiles path, CalcOffence 1114,
 #   needs SkillType.Barrageable, which none of these has, so PoB only raises ProjectileCount: probe POE2T4663. The
-#   crossbow skills' projectiles are counted by crossbow_sequence_model; Oil Barrage's are not, UNVERIFIED.)
+#   crossbow skills' projectiles are counted by crossbow_sequence_model; Oil Barrage's by oil_barrage_volley_model.)
 # "While moving": a skill usable while moving (skill type UsableWhileMoving) fired while walking, a way to play the build,
 # said in the guide, unless the build stands still (its stationary lines, the Standing still box); other skills: none.
 # Ice Fragments is a shotgun skill by its own stat set (IceFragmentsPlayer: projectiles_can_shotgun), so it stays for
@@ -14953,21 +14953,19 @@ def hazard_early_model(skills: list[Skill], stats: dict, forbidden: set[str] = f
 # is wind-up depends on how long the channel lasts (Oil Barrage's channelled barrage consumes a Power Charge per 1.5 s, so its length is the build's Power Charge
 # supply, MECH-C's), and whether PoB's attack time already holds the 350% (display_attack_time_+% 350) is UNVERIFIED. No
 # honest lower bound exists without them, so the note says the DPS may be too high instead of guessing a channel length.
+# (MECHB46: Oil Barrage's plain use is now counted, wind-up and group, by oil_barrage_volley_model: no note for it.)
 CHANNEL_WINDUP = {"Oil Barrage": (350, "attack"), "Fury of the Mountain": (36, "attack"), "Hollow Form": (30, "attack"),
                   "Volcano": (50, "cast"), "Runic Reprieve": (200, "cast")}
 
 
 def channel_windup_note(main: Skill | None) -> list[dict]:
     """A labelled note for a main skill whose channel wind-up isn't counted (CHANNEL_WINDUP)."""
-    if main is None or main.name not in CHANNEL_WINDUP:
-        return []
+    if main is None or main.name not in CHANNEL_WINDUP or main.name == OIL_BARRAGE:  # (MECHB46: oil_barrage_volley_model
+        return []                                                                      # counts Oil Barrage's)
     pct, kind = CHANNEL_WINDUP[main.name]
     return [{"label": f"{main.name}'s channel wind-up (not counted)", "value": f"{pct}% of its {kind} time a channel",
              "basis": f"the game files' channel_start_duration_as_%_of_{kind}_time {pct}, which PoB doesn't read; its share "
-                      "of the fight depends on how long each channel lasts" + (
-                          " (Oil Barrage's barrage consumes a Power Charge every 1.5 s, so its length is the build's Power "
-                          "Charge supply), and whether PoB's attack time already holds it (display_attack_time_+% 350) is "
-                          "UNVERIFIED" if main.name == "Oil Barrage" else "") + ": the DPS may be too high",
+                      "of the fight depends on how long each channel lasts: the DPS may be too high",
              "confidence": "UNVERIFIED"}]
 
 
@@ -18887,3 +18885,116 @@ def entry_cut_scale(entries: list[dict], name: str, removed: float) -> float:
     if total <= 0:
         return 1.0
     return max(0.0, min(1.0, (total - max(removed, 0.0)) / total))
+
+
+# Oil Barrage's use: a wind-up, then one group of projectiles (MECHB46; MECHB45's find, an OVERCOUNT of ~x1.5). Game files
+# 26650308, OilBarragePlayer (second source poe2db Oil_Barrage, current: "Attack Speed: 300% of base", "Fires 3
+# Projectiles", "[Channelling] ends after one group of [Projectiles]", the same hidden stats): AttackSpeedMultiplier 200
+# (PoB reads it: CalcOffence 2874, AttackRate x3), base_number_of_projectiles 3, projectiles_barrage ("Projectiles are
+# fired in sequence, allowing multiple Projectiles to Hit the same target", ActiveSkills oil_barrage),
+# channel_start_duration_as_%_of_attack_time 350, display_attack_time_+% 350, channel_end_duration_as_%_of_attack_time 1000,
+# skill_do_not_elapse_channel_time_while_barraging. PoB reads none of the channel stats (MECHB3's check) and scores one
+# projectile an attack time (probe POE2T4663: TotalDPS = AverageDamage x Speed at 3, 4 and 5 projectiles alike).
+# Reading (MEDIUM-LOW): a plain (Base) use is the 350% wind-up and then the group, which together take the tooltip's
+# attack time +350% (display_attack_time_+%), i.e. 4.5 PoB attack times for 3 hits on the target: one hit every 1.5
+# attack times, x0.667. Each additional projectile taken to add a whole attack time (PoB's default barrage penalty where
+# a skill gives no ratio, as crossbow_sequence_model): (N + 1.5) attack times for N hits (UNVERIFIED; row: extra
+# projectiles free, N / 4.5). Applied as attack time x (N + 1.5) / N, so PoB's hit rate (ailments, on-hit) moves with
+# the DPS; "Speed" then reads hits a second, not uses. The 1000% channel end: taken as not spent, since the channel ends
+# after the group (UNVERIFIED; row: if it is, 3 hits in 14.5 attack times). The Empowered barrage ("Consumes a Power
+# Charge every 1.5 seconds to continue Channelling", a sustained channel): kept at PoB's one projectile an attack time,
+# its one wind-up a channel not taken off (UNVERIFIED both ways; row: a group of N every attack time, xN); its share of
+# the time is GEM17's gated_set_model share (oil_barrage_share), and the factor here weighs the two by it.
+OIL_BARRAGE = "Oil Barrage"
+OIL_VOLLEY_ENTRY = "model-mechb46-oil-barrage-volley"
+OIL_WINDUP = 3.5  # channel_start_duration_as_%_of_attack_time 350
+OIL_GROUP = 3  # base_number_of_projectiles 3 (fired within one attack time: display_attack_time_+% 350 = 3.5 + 1)
+OIL_CHANNEL_END = 10.0  # channel_end_duration_as_%_of_attack_time 1000 (a row only)
+
+
+def oil_barrage_volley_model(main: Skill | None, stats: dict, sets: list[dict], share: float,
+                             forbidden: set[str] = frozenset(),
+                             previous: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
+    """Oil Barrage's plain use as the game makes it (see above): `stats` with ProjectileCount, `sets` the bridge's setRates
+    for its group, `share` of the time the Empowered barrage runs (GEM17's gated share)."""
+    if main is None or main.name != OIL_BARRAGE or OIL_VOLLEY_ENTRY in forbidden:
+        return [], []
+    if main.stat_set not in (None, "Base", "Empowered"):
+        return [], []
+    n = number(stats.get("ProjectileCount")) or OIL_GROUP
+    units = OIL_WINDUP + 1 + max(0.0, n - OIL_GROUP)  # attack times a plain use takes
+    k = n / units  # hits an attack time, over PoB's one
+    dps = unscale_own(sets, previous, OIL_VOLLEY_ENTRY)
+    base, gated = dps.get("Base", 0.0), dps.get("Empowered", 0.0)
+    s = min(1.0, max(0.0, number(share))) if base > 0 and gated > 0 else 0.0
+    h = (1 - s) * k + s  # the hit rate over PoB's
+    mixed = (1 - s) * base + s * gated
+    g = ((1 - s) * base * k + s * gated) / (mixed * h) if s > 0 and mixed > 0 else 1.0
+    total = h * g
+    mods = [raw_mod("SkillAttackTime", "MORE", 100 * (1 / h - 1), main.name, tag=OIL_VOLLEY_ENTRY)]
+    if abs(g - 1) > 1e-9:
+        mods.append(raw_mod("DPS", "MORE", 100 * (g - 1), main.name, tag=OIL_VOLLEY_ENTRY))
+    free = n / (OIL_WINDUP + 1)
+    ended = OIL_GROUP / (OIL_WINDUP + 1 + OIL_CHANNEL_END) if n <= OIL_GROUP else n / (units + OIL_CHANNEL_END)
+    return mods, [{
+        "label": f"{main.name}: a plain use is a wind-up, then one group of {n:g} projectiles*", "value": f"x{total:.3f}",
+        "confidence": "MEDIUM-LOW", "entry": OIL_VOLLEY_ENTRY,
+        "basis": (f"PoB scores one projectile an attack time and no wind-up (probe POE2T4663). The game: a 350% wind-up "
+                  f"(channel_start_duration_as_%_of_attack_time), then one group; the tooltip's attack time +350% "
+                  f"(display_attack_time_+%), so {n:g} hits in {units:g} attack times (each projectile past {OIL_GROUP} "
+                  f"taken to add one attack time, UNVERIFIED), all on the target (they fire in sequence): x{k:.3f} on the "
+                  f"plain use" + (f"; the Empowered barrage {s:.0%} of the time kept at PoB's one projectile an attack time "
+                                  "(UNVERIFIED)" if s > 0 else "")
+                  + f". Rows (UNVERIFIED): extra projectiles free x{free:.3f}; if each use also spends its 1000% channel "
+                  f"end x{ended:.3f}; Empowered firing a group of {n:g} every attack time x{n:g} on its share"),
+        "play": (f"Each plain {main.name} fires its {n:g} projectiles after a long wind-up: x{k:.3f} on PoB's rate "
+                 f"(PoB counts one projectile and no wind-up).")}]
+
+
+# Fortifying Cry's Shield Waves (MECHB46; COV47's routing, an UNDERCOUNT: PoB gives the hidden granted Shield Wave no
+# trigger rate). Game 26650308: FortifyingCryPlayer "Perform a Warcry that grants Guard and Triggers Shield Wave when
+# subsequent Shield Attacks deal damage" (ActiveSkills); fortifying_cry.csd: "Can [Trigger] Shield Wave once per {0} enemy
+# [Power] in range, counting up to {1} [Power]" (shielding_cry_an_additional_empowered_attack_per_X_mp 5, its _mp_cap 50);
+# base_skill_effect_duration 8000 (the window, MEDIUM: Guard's is the secondary 4000); fortifying_cry_shockwave.csd: "This
+# Attack is Triggered by Fortifying Cry and counts as Empowered by it". PoB maps neither stat to WarcryPowerPer / Cap
+# (SkillStatMap maps warcry_empowers_per_X_monster_power only), so it counts no Empowers for it either. Waves a cry =
+# min(floor(min(Power, 50) / 5), the Shield Attack hits in the 8 s window): a lone Unique boss's 20 Power gives 4 (PoB's
+# WarcryPower, the useRates row's warcryPower; Echoing Cry's less Power read as unbuffed_warcry_empowers does). Shield
+# Attack hits: the main skill's when it is an Attack that needs a shield (PoB's RequiresShield type), Speed x hit chance;
+# other pressed shield skills not read (an undercount, labelled); 0 with none (no flat rate). Echoing Cry's Echoes: not
+# counted (UNVERIFIED, an undercount). Rate = Fortifying Cry's uses a second x waves a cry, as Shield Wave's triggerRate.
+FORTIFYING_CRY = "Fortifying Cry"
+SHIELD_WAVE = "Shield Wave"
+SHIELD_WAVE_ENTRY = "model-mechb46-fortifying-cry-shield-wave"
+SHIELD_WAVE_PER = 5.0  # shielding_cry_an_additional_empowered_attack_per_X_mp
+SHIELD_WAVE_CAP = 50.0  # shielding_cry_an_additional_empowered_attack_per_X_mp_mp_cap
+SHIELD_WAVE_WINDOW = 8.0  # base_skill_effect_duration 8000 ms
+
+
+def shield_wave_model(cry_row: dict, echo_less: float, shield_hits: float, hits_how: str,
+                      forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Shield Wave's trigger rate (see above): `cry_row` Fortifying Cry's useRates row (speed, warcryPower), `echo_less`
+    Echoing Cry's support stat (negative, or 0), `shield_hits` the build's Shield Attack hits a second."""
+    if SHIELD_WAVE_ENTRY in forbidden:
+        return [], []
+    cries = number(cry_row.get("speed"))
+    if cries <= 0:
+        return [], []
+    n, n_how = unbuffed_warcry_empowers({"warcryPowerPer": SHIELD_WAVE_PER, "warcryPowerCap": SHIELD_WAVE_CAP,
+                                         "warcryPower": cry_row.get("warcryPower")}, echo_less)
+    per = min(float(n), max(shield_hits, 0.0) * SHIELD_WAVE_WINDOW)
+    rate = cries * per
+    full = cries * n
+    mods = [{"kind": "SkillData", "skill": SHIELD_WAVE, "key": "triggerRate", "value": rate},
+            {"kind": "SkillData", "skill": SHIELD_WAVE, "key": "triggered", "value": True}]
+    return mods, [{
+        "label": f"{FORTIFYING_CRY}: Shield Waves a second*", "value": round(rate, 3), "confidence": "MEDIUM",
+        "entry": SHIELD_WAVE_ENTRY,
+        "basis": (f"PoB gives Shield Wave no trigger rate. Each cry Triggers it once per {SHIELD_WAVE_PER:g} enemy Power "
+                  f"(up to {SHIELD_WAVE_CAP:g}) when later Shield Attacks deal damage (game files): {n_how}; capped by the "
+                  f"Shield Attack hits in its {SHIELD_WAVE_WINDOW:g} s ({hits_how}: {shield_hits * SHIELD_WAVE_WINDOW:.1f}"
+                  f"), so {per:g} a cry x {cries:.3f} cries/s. Other pressed shield skills and Echoing Cry's Echoes not "
+                  "counted (UNVERIFIED, an undercount)"),
+        "play": (f"Hit with Shield Attacks after each {FORTIFYING_CRY}: {per:g} Shield Waves a cry, {rate:.2f}/s"
+                 + (f" (with no Shield Attack, 0)" if per > 0 else
+                    f" (this build has no Shield Attack: 0; with one, up to {full:.2f}/s)"))}]

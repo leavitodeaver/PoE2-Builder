@@ -3300,6 +3300,11 @@ class Assumptions:
             gate_mods, gate_notes = models.gated_set_model(main, main.stat_set, sets, gate_share, gate_how, forbidden,
                                                            previous=self.mods)
             hand_mods, hand_notes = hand_mods + gate_mods, hand_notes + gate_notes
+            if main.name == models.OIL_BARRAGE:  # (MECHB46: a plain use's wind-up and group, weighed by the gated share)
+                oil_mods, oil_notes = models.oil_barrage_volley_model(
+                    main, build.call("stats", fields=["ProjectileCount"]), sets, gate_share, forbidden,
+                    previous=self.mods)
+                hand_mods, hand_notes = hand_mods + oil_mods, hand_notes + oil_notes
         if main is not None and group and main.name in models.AILMENT_SETS:  # (GEM17: Snipe / Sundering consume ailments)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             up, up_how = models.ailment_up_of(build)
@@ -4641,6 +4646,8 @@ class Assumptions:
         mods, notes = mods + apocalypse_mods, notes + apocalypse_notes
         temper_mods, temper_notes = self.temper_weapon(skills)  # (GEM19: Temper Weapon's Combust, Smith of Kitava)
         mods, notes = mods + temper_mods, notes + temper_notes
+        wave_mods, wave_notes = self.shield_waves(skills)  # (MECHB46: Fortifying Cry's Shield Waves)
+        mods, notes = mods + wave_mods, notes + wave_notes
         if glory is None:
             glory = self.flask_main(skills, main)  # (also a use rate set from a resource; it rules out the fallback)
             if glory is not None:
@@ -7354,6 +7361,33 @@ class Assumptions:
                     each, why, _ = conditions_mod.skill_use_rate(rate, choices)
                     out[name] = (each, f"on {why}")
         return out
+
+    def shield_waves(self, skills: list[dict]) -> tuple[list[dict], list[dict]]:
+        """Fortifying Cry's Shield Waves (models.shield_wave_model, MECHB46): Fortifying Cry's useRates row, Echoing
+        Cry's less Power, and the main skill's hits when it is an Attack that needs a shield; Shield Wave's group counted
+        in Full DPS when it gets a rate. ([], []) without an enabled Fortifying Cry and its Shield Wave."""
+        cry = next((s for s in skills if s["name"] == models.FORTIFYING_CRY and not s["disabled"] and s.get("group")),
+                   None)
+        wave = next((s for s in skills if s["name"] == models.SHIELD_WAVE and not s["disabled"] and s.get("group")),
+                    None)
+        if cry is None or wave is None:
+            return [], []
+        build = self.build
+        row = next(iter(build.call("useRates", indices=[cry["group"]])["rates"]), None) or {}
+        cries, _, _ = conditions_mod.skill_use_rate(row, models.press_choices(build))  # (its cooldown; Endurance
+        row = {**row, "speed": cries}  # Charges' bypass not counted, an undercount)
+        main_group = (build.main_group() or {}).get("index")
+        mains = [s for s in skills if s.get("group") == main_group and not s["disabled"] and s["name"] == self.main_skill()]
+        if any(s.get("attack") and s.get("shield") for s in mains):
+            stats = build.call("stats", fields=models.MODEL_FIELDS)
+            hits, how = models.hits_per_second(stats), f"the main skill {mains[0]['name']}'s hits"
+        else:
+            hits, how = 0.0, "the main skill isn't a Shield Attack"
+        echo = number((cry.get("supportStats") or {}).get(models.ECHO_POWER_STAT))
+        mods, notes = models.shield_wave_model(row, echo, hits, how, set(build.ctx.request.forbid_ledger_entries))
+        if any(m.get("key") == "triggerRate" and number(m.get("value")) > 0 for m in mods):
+            self.extra_groups.setdefault(wave["group"], None)
+        return mods, notes
 
     def projectile_attack_rates(self, main: str | None, stats: dict) -> dict[str, tuple[float, str]]:
         """{Projectile Attack skill: (hits a second, how)} for models.projectile_hit_recently_model (COV35): the main
