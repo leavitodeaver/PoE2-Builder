@@ -1254,6 +1254,37 @@ def pob_disabled(build: Build) -> set[tuple]:
     return {(s.get("group"), s["name"]) for s in build.call("activeSkills")["skills"] if s.get("disabled")}
 
 
+# (MECHB47, RESEARCH36 R36-13) Volcanic Steps: "[Trigger] Volcanic Steps every 1.2 metre travelled"
+# (ancestral_cry_triggers_shockwave_every_X_units_travelled 12); a step-out of a boss hit of about 3 m (R36-13's 2-4 m,
+# LOW: no source measures it; a game-decided distance, named for the manager): a row in side_trigger_cuts' note only.
+VOLCANIC_STEP_METRES, VOLCANIC_DODGE_METRES = 1.2, 3.0
+
+
+def mana_short(build: Build, name: str) -> tuple[float, float] | None:
+    """(MECHB47, RESEARCH36 R36-12) (Mana needed, the build's maximum Mana) when `name` needs a Mana pool to be cast
+    (usage.py's "mana pool" requirement: The Stars Answer's mana_required_to_activate_skill 10000, "Cannot be cast if
+    you have less than 10000 Mana") and the build's maximum Mana is below it; None when it can be cast."""
+    from builder.search.usage import requirements
+
+    rule = usage_rules(build).get(name)
+    need = next((r for r in requirements(name, rule) if r.kind == "mana pool"), None) if rule else None
+    if need is None:
+        return None
+    have = number(build.call("stats", fields=["Mana"]).get("Mana"))
+    return (need.amount, have) if have < need.amount else None
+
+
+def mana_short_note(skill: str, buff: str, short: tuple[float, float]) -> dict:
+    """The note for a meteor skill whose buff can't be cast for want of Mana (mana_short)."""
+    return {"label": f"{skill}: {buff} can't be cast without {short[0]:,.0f} Mana*", "value": "x0",
+            "confidence": "HIGH", "entry": "model-mechb47-side-meteors",
+            "basis": (f"\"Cannot be cast if you have less than {short[0]:,.0f} Mana\" (the_stars_answer.csd, "
+                      f"mana_required_to_activate_skill); the build's maximum Mana is {short[1]:,.0f}, so {buff} never "
+                      f"goes up and {skill} never falls (RESEARCH36 R36-12: no duration, no drain: once cast it lasts "
+                      "the fight). PoB scores it regardless: counted 0"),
+            "play": f"Reach {short[0]:,.0f} maximum Mana to cast {buff} once at the start of the fight."}
+
+
 def ancestral_spirits(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Warbringer's Ancestral Spirits (models.ancestral_spirits_model, MECHB29): the bridge's
     minionTypes rates each of the four spirit types."""
@@ -1870,9 +1901,12 @@ def shred_fragments(build: Build, main: models.Skill | None, cut=None) -> tuple[
         in_full = bool(group.get("fullDPS"))
         row = next(iter(build.call("useRates", indices=[group["index"]], actives=[n])["rates"]), None) or {}
         own = models.number(row.get("TotalDPS"))  # (MECHB45: this group's own Full DPS entry)
+        # (MECHB47, GEM27's find: child_entry_cuts already cuts this entry when Shred is unpressed or Ward-held; only the
+        # part it leaves is cut here, so another group's "Ice Fragments" entry never loses damage to a double cut)
+        left = _child_left(build, group)
         if group["index"] != main_index and not (in_full and full):
             if in_full and cut is not None:  # (not scored now; PoB's flat entry still out, for when Full DPS is read)
-                cut({models.ICE_TIPPED_FRAGMENT: own})
+                cut({models.ICE_TIPPED_FRAGMENT: own * left})
             continue
         src = next(i for i, x in enumerate(skills, 1) if x["name"] == models.SHRED)
         hits, _ = _skill_hits(build, group, src, press)
@@ -1881,7 +1915,7 @@ def shred_fragments(build: Build, main: models.Skill | None, cut=None) -> tuple[
         pob = own if in_full else 0.0
         dps, these = models.shred_fragments_model(hits, up.get("Freeze", 0.0), fragment, pob, up_how, in_full)
         if in_full and cut is not None:
-            cut({models.ICE_TIPPED_FRAGMENT: own})
+            cut({models.ICE_TIPPED_FRAGMENT: own * left})
             for note in these:
                 note.pop("full_dps", None)
         total, notes = total + dps, notes + these
@@ -2993,7 +3027,7 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + boost_mods, hand_notes + boost_notes
         sanguine_mods, sanguine_notes = models.sanguine_model(inputs, stats, self.life_flask_charges())             if inputs.has(models.SANGUINE) else ([], [])
         hand_mods, hand_notes = hand_mods + sanguine_mods, hand_notes + sanguine_notes
-        resolve_mods, resolve_notes = models.deadly_resolve_model(found, stats, main)             if "deadly-resolve-rate" not in forbidden else ([], [])
+        resolve_mods, resolve_notes = models.deadly_resolve_model(found, stats, main, "Channel" in main_types)             if "deadly-resolve-rate" not in forbidden else ([], [])
         hand_mods, hand_notes = hand_mods + resolve_mods, hand_notes + resolve_notes
         metres = None
         if any(s.name == models.PREDATORS_MARK for s in found):  # (it counts you within 6 m of the boss)
@@ -3646,7 +3680,13 @@ class Assumptions:
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             whirl_mods, whirl_notes = models.whirlwind_stage_model(main, sets, forbidden, previous=self.mods)
             hand_mods, hand_notes = hand_mods + whirl_mods, hand_notes + whirl_notes
-        if main is not None and group and main.name in models.METEOR_SKILLS:  # (GEM12: the meteors' rate and mix)
+        short = (mana_short(build, models.METEOR_BUFF.get(main.name, "The Stars Answer"))
+                 if main is not None and group and main.name in models.METEOR_SKILLS else None)
+        if short is not None:  # (MECHB47, R36-12: its buff can't be cast without the Mana: 0, not PoB's always-on)
+            buff = models.METEOR_BUFF.get(main.name, "The Stars Answer")
+            hand_mods = hand_mods + [models.raw_mod("DPS", "MORE", -100, main.name)]
+            hand_notes = hand_notes + [mana_short_note(main.name, buff, short)]
+        elif main is not None and group and main.name in models.METEOR_SKILLS:  # (GEM12: the meteors' rate and mix)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             buff, up, up_how = models.METEOR_BUFF.get(main.name), None, ""
             if buff is not None:  # (its uses a second from its Glory, as press_caps reads it for a side group)
@@ -5316,7 +5356,7 @@ class Assumptions:
             if mod.get("kind") == "SkillData" and mod.get("key") == "triggerRate":
                 triggered[mod["skill"]] = number(mod.get("value"))
         scales = getattr(build.objective, "press_scales", None) or {}
-        uses, skipped = [], []
+        uses, skipped, press_rows = [], [], {}
         for s, group, position in pairs:
             rate = by_pair.get((group["index"], position)) or {}
             cost = number(rate.get("wardCost"))
@@ -5334,6 +5374,7 @@ class Assumptions:
                 uses.append(models.WardUse(name, "main", speed * held, cost, group["index"]))
             elif rate.get("name") in scales and group.get("fullDPS"):
                 uses.append(models.WardUse(rate["name"], "pressed", speed * scales[rate["name"]], cost, group["index"]))
+                press_rows[rate["name"]] = rate
             elif group.get("fullDPS") and group.get("enabled", True):
                 uses.append(models.WardUse(name, "full", speed, cost, group["index"]))
             else:
@@ -5382,7 +5423,36 @@ class Assumptions:
             elif u.kind == "pressed":  # (its Full DPS entry and its ailments' entries, a lower bound for the stacks)
                 for key in [k for k in scales if k == u.name or k.endswith(f" from {u.name}")]:
                     scales[key] *= share
+        notes += self.ward_freed_time(uses, share, press_rows, main, main_index, scales)
         return out, notes
+
+    def ward_freed_time(self, uses: list, share: float, press_rows: dict, main: str | None, main_index: int | None,
+                        scales: dict) -> list[dict]:
+        """(MECHB47; GEM27's probe POE2T5715, an UNDERCOUNT) The press model charges the main skill for each pressed
+        Ward-cost skill at its planned rate before the Ward plan runs (rate_presses, then ward_paid), so a press Runic Ward
+        can't pay for still took the main skill's time: Voltaic Barrier with no Runic Ward pool, press scale 0, left
+        Lightning Arrow 71.5% of the fight. The unpaid presses' time (their planned uses x (1 - share) x press_action)
+        goes back to the main skill's press scale (and its ailments' entries, as press_model scales them). Walking
+        between uses (a PressCap's moving) isn't given back: a small undercount where a press needs it."""
+        if main is None or share >= 1.0 or main not in scales:
+            return []
+        freed = sum(u.rate * (1 - share) * models.press_action(press_rows[u.name])
+                    for u in uses if u.kind == "pressed" and u.name in press_rows)
+        old = number(scales[main])
+        if freed <= 0 or old >= 1.0:
+            return []
+        new = min(1.0, old + freed)
+        scales[main] = new
+        row = (self.build.call("useRates", indices=[main_index])["rates"] or [{}])[0] if main_index is not None else {}
+        for entry, ailment in models.PRESS_AILMENTS.items():
+            potential = number((row.get("stackPotential") or {}).get(ailment))
+            if potential > 0 and models.press_key(entry, main) in scales:
+                scales[models.press_key(entry, main)] = min(potential * new, 1.0) / min(potential, 1.0)
+        unpaid = ", ".join(u.name for u in uses if u.kind == "pressed" and u.name in press_rows)
+        return [{"label": f"{main}: time back from presses Runic Ward can't pay*", "value": f"{old:.1%} -> {new:.1%}",
+                 "confidence": "MEDIUM", "entry": "model-mechb47-ward-freed-time",
+                 "basis": (f"{unpaid} pressed only {share:.0%} as often as planned (Runic Ward pays for that), so the "
+                           f"other presses' {freed:.1%} of the fight goes back to {main}")}]
 
     def ward_feeds(self, texts: list[str], main: str | None, uses: list, mods: list[dict], skills: list[dict]) -> dict:
         """The rates three Runic Ward sources read (models.ward_income's keywords; MECHB14), only for a build with the
@@ -7850,6 +7920,14 @@ class Assumptions:
                 continue
             skill = models.Skill.of(info)
             sets = build.call("setRates", index=group["index"], active=n)["sets"]
+            short = mana_short(build, models.METEOR_BUFF.get(name, "The Stars Answer"))
+            if short is not None:  # (R36-12: never cast, so the whole of PoB's entry for this group comes out)
+                scored = next((number(x.get("TotalDPS")) for x in sets if x.get("label") == skill.stat_set), 0.0)
+                if scored > 0:
+                    cuts[name] = cuts.get(name, 0.0) + scored
+                    parts.append(f"{name}: PoB's {skill.stat_set} set {scored:,.1f} DPS -{scored:,.1f} (no Mana pool)")
+                notes.append(mana_short_note(name, models.METEOR_BUFF.get(name, "The Stars Answer"), short))
+                continue
             buff, up, up_how = models.METEOR_BUFF.get(name), None, ""
             if buff is not None:  # (as the main skill's block in models(): its uses a second from its Glory)
                 uses, up_how = self.glory_caps().get(buff, (0.0, f"{buff}: its Glory wasn't read"))
@@ -7917,6 +7995,18 @@ class Assumptions:
                     continue
                 keep, why = models.side_trigger_keep(child["name"], cries, number(row.get("duration")),
                                                      number(kills[0]), kaom, melee_strike)
+                if child["name"] == "Volcanic Steps":  # (MECHB47, RESEARCH36 R36-13: a row only, LOW, never the headline)
+                    from builder.search import bosses
+
+                    every = bosses.benefit_skill_time(build.call("stats", fields=list(dict.fromkeys(
+                        ["enemySkillTime", *models.MODEL_FIELDS]))))
+                    steps = (1 / every if every > 0 else 0.0) * VOLCANIC_DODGE_METRES / VOLCANIC_STEP_METRES * kaom
+                    speed = number(rows[0].get("speed")) if rows else 0.0
+                    row_dps = dps / speed * steps if speed > 0 else 0.0
+                    why += (f"; row (LOW, a game-decided distance named for the manager): stepping out of each boss hit "
+                            f"({1 / every if every > 0 else 0:.2f}/s) about {VOLCANIC_DODGE_METRES:g} m, one Steps per "
+                            f"{VOLCANIC_STEP_METRES:g} m while embodying Kaom ({kaom:.0%}): {steps:.2f}/s, "
+                            f"{row_dps:,.1f} DPS (a dodge roll's ~3.7 m counting as travel: MEDIUM-LOW)")
                 if keep < 1:
                     cuts[child["name"]] = cuts.get(child["name"], 0.0) + dps * (1 - keep)
                     parts.append(f"{child['name']} ({parent}): PoB's {dps:,.1f} x {keep:.0%} ({why})")
@@ -7964,6 +8054,11 @@ class Assumptions:
         build = self.build
         row = next(iter(build.call("useRates", indices=[cry["group"]])["rates"]), None) or {}
         cries, _, _ = conditions_mod.skill_use_rate(row, models.press_choices(build))  # (its cooldown; Endurance
+        # (MECHB47, RESEARCH36 R36-11) Echoing Cry's "usable after you have moved 10 metres": the press caps' travel gate
+        # (COV-C's travel_rate, as the press model holds the cry to it), and any other cap they put on the cry
+        cap = self.press_caps(build.call("groups")["groups"], {cry["group"]}).get(cry["group"])
+        if cap is not None and cap.uses < cries:
+            cries = cap.uses
         row = {**row, "speed": cries}  # Charges' bypass not counted, an undercount)
         main_group = (build.main_group() or {}).get("index")
         mains = [s for s in skills if s.get("group") == main_group and not s["disabled"] and s["name"] == self.main_skill()]

@@ -14315,11 +14315,22 @@ DEADLY_RESOLVE_STAGE_EVERY = 1.0  # seconds of channelling per stage
 DEADLY_RESOLVE_COOLDOWN = 0.3
 
 
-def deadly_resolve_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[list[dict], list[dict]]:
+def deadly_resolve_model(skills: list[Skill], stats: dict, main: Skill | None,
+                         channelled: bool = True) -> tuple[list[dict], list[dict]]:
+    """`channelled`: the main skill carries the Channel skill type (MECHB47, MECH94's find in GEM26's sweep: beside a
+    Boneshatter PoB still scored the slash, 227 DPS; stages come only "while channelling", so a skill that isn't
+    channelled gives none: an OVERCOUNT, now 0)."""
     slashes = [s for s in skills if s.name == DEADLY_RESOLVE and s.triggered]
     if not slashes:
         return [], []
     slash = slashes[0]
+    if main is not None and slash.group == main.group and not channelled:
+        return trigger_rate(DEADLY_RESOLVE, 0.0), [{
+            "label": "Deadly Resolve slashes per second", "value": 0,
+            "basis": (f"its stages come only while channelling (\"Gain a stage every 1 second\" while channelling the "
+                      f"supported skill); {main.name} isn't a Channelling skill (no Channel skill type), so it never "
+                      "gains a stage: not counted (PoB scores the slash at its own use rate regardless)"),
+            "confidence": "HIGH", "entry": "deadly-resolve-rate"}]
     if main is None or slash.group != main.group:
         return trigger_rate(DEADLY_RESOLVE, 0.0), [{
             "label": "Deadly Resolve slashes per second", "value": 0,
@@ -14592,12 +14603,12 @@ def press_action(rate: dict) -> float:
     speed, repeats, cooldown = number(rate.get("speed")), number(rate.get("repeats")) or 1.0, number(rate.get("cooldown"))
     if speed <= 0:
         return 0.0
+    cast_rate = number(rate.get("castRate"))
+    if cast_rate > 0:  # (uncapped too: a Warcry's PoB Speed counts the action speed twice, probe POE2T4710: Ancestral
+        return min(1 / speed, 1 / cast_rate)  # Cry, no cooldown, 2.99 s for its 1.55 s WarcryCastTime)
     capped = cooldown > 0 and speed >= repeats / cooldown * (1 - 1e-6)
     if not capped:
         return 1 / speed
-    cast_rate = number(rate.get("castRate"))
-    if cast_rate > 0:
-        return min(1 / speed, 1 / cast_rate)
     time = number(rate.get("time"))
     uncapped = time if 0 < time < (1 / speed) * (1 - 1e-6) else number(rate.get("castTime"))
     return min(1 / speed, uncapped)
@@ -19332,7 +19343,9 @@ def oil_barrage_volley_model(main: Skill | None, stats: dict, sets: list[dict], 
                   f"(display_attack_time_+%), so {n:g} hits in {units:g} attack times (each projectile past {OIL_GROUP} "
                   f"taken to add one attack time, UNVERIFIED), all on the target (they fire in sequence): x{k:.3f} on the "
                   f"plain use" + (f"; the Empowered barrage {s:.0%} of the time kept at PoB's one projectile an attack time "
-                                  "(UNVERIFIED)" if s > 0 else "")
+                                  "(UNVERIFIED), its one wind-up a held channel not taken off (RESEARCH36 R36-10: the "
+                                  "held channel ends on release or when a Power Charge is due every 1.5 s and none is "
+                                  "left, MEDIUM; the wind-up once a channel, UNVERIFIED)" if s > 0 else "")
                   + f". Rows (UNVERIFIED): extra projectiles free x{free:.3f}; if each use also spends its 1000% channel "
                   f"end x{ended:.3f}; Empowered firing a group of {n:g} every attack time x{n:g} on its share"),
         "play": (f"Each plain {main.name} fires its {n:g} projectiles after a long wind-up: x{k:.3f} on PoB's rate "
@@ -19359,6 +19372,9 @@ SHIELD_WAVE_CAP = 50.0  # shielding_cry_an_additional_empowered_attack_per_X_mp_
 SHIELD_WAVE_WINDOW = 8.0  # base_skill_effect_duration 8000 ms
 
 
+SHIELD_WAVE_ECHOES = 2  # Echoing Cry: "Echo 2 times, with a 1.3 second delay" (RESEARCH36 R36-11)
+
+
 def shield_wave_model(cry_row: dict, echo_less: float, shield_hits: float, hits_how: str,
                       forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
     """Shield Wave's trigger rate (see above): `cry_row` Fortifying Cry's useRates row (speed, warcryPower), `echo_less`
@@ -19373,6 +19389,13 @@ def shield_wave_model(cry_row: dict, echo_less: float, shield_hits: float, hits_
     per = min(float(n), max(shield_hits, 0.0) * SHIELD_WAVE_WINDOW)
     rate = cries * per
     full = cries * n
+    # (MECHB47, RESEARCH36 R36-11, MEDIUM-LOW) Echoing Cry: "Echo 2 times" (gem_stat_descriptions; poe2db Echoing_Cry),
+    # each echo the warcry again at the same 50% less Power: if each adds its own allowance, 3 x n a use; if it
+    # refreshes it, n (the headline: the lower, UNSETTLED). The Jul 2026 stack-counter bug (forum 3982833) not modelled.
+    adds = min(float(n) * (1 + SHIELD_WAVE_ECHOES), max(shield_hits, 0.0) * SHIELD_WAVE_WINDOW) if echo_less < 0 else per
+    echo_row = (f"; with Echoing Cry, if each of its {SHIELD_WAVE_ECHOES} echoes adds its own allowance rather than "
+                f"refreshing it (UNSETTLED, RESEARCH36 R36-11): {adds:g} a use, {cries * adds:.3f}/s (row); its 10 m "
+                "travel gate is in the cries a second" if echo_less < 0 else "")
     mods = [{"kind": "SkillData", "skill": SHIELD_WAVE, "key": "triggerRate", "value": rate},
             {"kind": "SkillData", "skill": SHIELD_WAVE, "key": "triggered", "value": True}]
     return mods, [{
@@ -19381,8 +19404,9 @@ def shield_wave_model(cry_row: dict, echo_less: float, shield_hits: float, hits_
         "basis": (f"PoB gives Shield Wave no trigger rate. Each cry Triggers it once per {SHIELD_WAVE_PER:g} enemy Power "
                   f"(up to {SHIELD_WAVE_CAP:g}) when later Shield Attacks deal damage (game files): {n_how}; capped by the "
                   f"Shield Attack hits in its {SHIELD_WAVE_WINDOW:g} s ({hits_how}: {shield_hits * SHIELD_WAVE_WINDOW:.1f}"
-                  f"), so {per:g} a cry x {cries:.3f} cries/s. Other pressed shield skills and Echoing Cry's Echoes not "
-                  "counted (UNVERIFIED, an undercount)"),
+                  f"), so {per:g} a cry x {cries:.3f} cries/s. A Shield Wave isn't a Shield Attack (no RequiresShield "
+                  "type, RESEARCH36 R36-11): it can't feed itself. Other pressed shield skills not counted (an "
+                  f"undercount){echo_row}"),
         "play": (f"Hit with Shield Attacks after each {FORTIFYING_CRY}: {per:g} Shield Waves a cry, {rate:.2f}/s"
                  + (f" (with no Shield Attack, 0)" if per > 0 else
                     f" (this build has no Shield Attack: 0; with one, up to {full:.2f}/s)"))}]

@@ -15,3 +15,18 @@
   sources: [builder/search/assumptions.py (side_meteors), builder/search/models.py (meteor_rate_model),
             "C:/PROJECTS/PoE2-Builder-cov5/scratch/gem26/probe_sweep.json", scratch/mechb47/p4698.log]
   status: proposed
+
+- id: model-mechb47-ward-freed-time
+  title: "A pressed Ward-cost skill Runic Ward can't pay for gives its press time back to the main skill (Assumptions.ward_freed_time)"
+  kind: model
+  model: ward_freed_time
+  skill: ["Voltaic Barrier"]
+  confidence: theory
+  notes: >-
+    An UNDERCOUNT GEM27 found (probe POE2T5715): the press model charged the main skill for each pressed Ward-cost skill
+    at its planned rate before the Ward plan ran, so with no Runic Ward pool (the barrier's press scale 0) Lightning
+    Arrow still lost 28.5% of the fight to Voltaic Barrier presses. The unpaid presses' time (planned uses x (1 - the
+    Ward share) x press_action) goes back to the main skill's press scale and its ailments' entries. Walking between
+    uses isn't given back (a small undercount, labelled). MEDIUM.
+  sources: [builder/search/assumptions.py (ward_freed_time, ward_paid), "C:/PROJECTS/PoE2 Builder/scratch/manager/workers/GEM27.report.md"]
+  status: proposed
