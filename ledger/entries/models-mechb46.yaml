@@ -44,3 +44,21 @@
             data/game-26650308/files/data/statdescriptions/specific_skill_stat_descriptions/fortifying_cry_shockwave.csd,
             scratch/mechb46/p4683.log]
   status: proposed
+
+- id: model-mechb46-warcry-side-triggers
+  title: "Infernal Cry's Combust and Ancestral Cry's Volcanic Eruption / Steps at the rate the build feeds them (Assumptions.side_trigger_cuts)"
+  kind: model
+  model: side_trigger_keep
+  skill: ["Infernal Cry", "Ancestral Cry"]
+  confidence: theory
+  notes: >-
+    OVERCOUNTS (GEM26's sweep POE2T3595; the manager 10:50): PoB scores the granted triggered skills at a flat rate in
+    Full DPS (Combust 82.1, Volcanic Eruption 102.7, Volcanic Steps 119.1 DPS beside a Boneshatter). Combust "on death"
+    of enemies in the cry's area: adds killed a second (the boss preset's) x the share the cry's 8 s debuff is up, 0 on a
+    lone boss. Volcanic Eruption (Melee Strikes) and Volcanic Steps (travelling) only "While embodying Kaom": Eruption x
+    Kaom's uptime when the main skill is a Melee Strike, else 0; Steps 0 (no travel modelled: an undercount where the
+    player moves, labelled). Each group's own entry cut (Assumptions.cut_entries), so Temper Weapon's same-named Combust
+    is untouched. LOW.
+  sources: [builder/search/models.py (side_trigger_keep), builder/search/assumptions.py (side_trigger_cuts),
+            "game 26650308 ActiveSkills infernal_cry / ancestral_cry", scratch/mechb46/p4691.log]
+  status: proposed

@@ -18998,3 +18998,40 @@ def shield_wave_model(cry_row: dict, echo_less: float, shield_hits: float, hits_
         "play": (f"Hit with Shield Attacks after each {FORTIFYING_CRY}: {per:g} Shield Waves a cry, {rate:.2f}/s"
                  + (f" (with no Shield Attack, 0)" if per > 0 else
                     f" (this build has no Shield Attack: 0; with one, up to {full:.2f}/s)"))}]
+
+
+# Warcries' granted triggered skills PoB scores at a flat rate (MECHB46; GEM26's sweep POE2T3595, the manager 10:50,
+# OVERCOUNTS: each scored at its castTime 1 rate whether or not anything triggers it, so a side group in Full DPS kept it):
+# - Infernal Cry's Combust (InfernalCryCorpseExplosionPlayer): "Enemies in the warcry's area are destabilised and will
+#   Combust on death" (ActiveSkills infernal_cry); PoB: 82.1 DPS at 1 a second beside a Boneshatter. One a death of an
+#   enemy the cry reached: the boss preset's adds killed a second (models.kill_rate; 0 on a lone boss, whose own death
+#   ends the fight) x the share of the time the cry's 8 s debuff is fresh (cries a second x its duration, at most 1),
+#   every Combust taken to reach the boss (LOW: the add dies somewhere in the 4 m cry area; the Combust's 1.6 m radius).
+# - Ancestral Cry's Volcanic Eruption ("your Melee Strikes Trigger Volcanic Eruption") and Volcanic Steps ("you Trigger
+#   Volcanic Steps while travelling", ancestral_cry_triggers_shockwave_every_X_units_travelled 12), both only "While
+#   embodying Kaom" (ActiveSkills ancestral_cry); PoB: 102.7 and 119.1 DPS beside a Boneshatter, always. Eruption at
+#   PoB's rate x Kaom's uptime (kaom_uptime) when the main skill is a Melee Strike, else 0; Steps 0: no travel is
+#   modelled in a boss fight (an UNDERCOUNT where the player walks or rolls through Kaom's uptime, a row; how far a
+#   dodge roll counts as travelling: UNVERIFIED).
+SIDE_TRIGGERS = {"Combust": "Infernal Cry", "Volcanic Eruption": "Ancestral Cry", "Volcanic Steps": "Ancestral Cry"}
+INFERNAL_CRY = "Infernal Cry"
+
+
+def side_trigger_keep(child: str, cries: float, duration: float, adds: float, kaom: float,
+                      melee_strike: bool) -> tuple[float, str]:
+    """(the share of PoB's flat rate kept, why) for a Warcry's granted triggered skill (see above). `cries` the Warcry's
+    uses a second, `duration` its debuff's, `adds` adds killed a second, `kaom` Kaom's uptime."""
+    if child == "Combust":
+        fresh = min(1.0, max(cries, 0.0) * max(duration, 0.0))
+        rate = max(adds, 0.0) * fresh
+        return min(1.0, rate), (f"one a death in the cry's area: {adds:.3f} adds killed/s x {fresh:.0%} of the time "
+                                f"the cry's {duration:g} s debuff is up = {rate:.3f}/s" if adds > 0 else
+                                "no enemy dies in the cry's area before the boss (a lone boss): 0")
+    if child == "Volcanic Eruption":
+        if not melee_strike:
+            return 0.0, "only Melee Strikes Trigger it, and the main skill isn't one: 0"
+        return min(1.0, max(kaom, 0.0)), f"only while embodying Kaom, {kaom:.0%} of the fight"
+    if child == "Volcanic Steps":
+        return 0.0, ("only while travelling as Kaom: no travel is modelled in a boss fight, 0 (an undercount where the "
+                     f"player walks or rolls through Kaom's {kaom:.0%} uptime)")
+    return 1.0, ""

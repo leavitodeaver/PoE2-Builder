@@ -6891,3 +6891,13 @@ def test_shield_wave_model():
     mods, _ = models.shield_wave_model({"speed": 0.125, "warcryPower": 200}, 0.0, 9.0, "main")  # the 50 Power cap
     assert mods[0]["value"] == pytest.approx(1.25)
     assert models.shield_wave_model({"speed": 0.0, "warcryPower": 20}, 0.0, 2.0, "main") == ([], [])
+
+
+def test_side_trigger_keep():
+    # (MECHB46, GEM26's sweep) Warcries' granted triggered skills at the rate the build feeds them
+    assert models.side_trigger_keep("Combust", 0.125, 8.0, 0.0, 0.0, False)[0] == 0.0  # (a lone boss: no deaths)
+    assert models.side_trigger_keep("Combust", 0.125, 8.0, 0.5, 0.0, False)[0] == pytest.approx(0.5)
+    assert models.side_trigger_keep("Combust", 0.0625, 8.0, 0.5, 0.0, False)[0] == pytest.approx(0.25)
+    assert models.side_trigger_keep("Volcanic Eruption", 0, 8, 0, 0.4, True)[0] == pytest.approx(0.4)
+    assert models.side_trigger_keep("Volcanic Eruption", 0, 8, 0, 0.4, False)[0] == 0.0
+    assert models.side_trigger_keep("Volcanic Steps", 0, 8, 0, 0.4, True)[0] == 0.0

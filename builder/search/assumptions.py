@@ -1442,15 +1442,36 @@ def ice_tipped(build: Build, main: models.Skill | None) -> tuple[float, list[dic
     Projectile Spear main attack (models.ice_tipped_cycle; PoB counts 0): its time share, its Physical-to-Cold
     conversion on the Empowered share, and one Ice Fragment hit per Empowered hit (PoB's own fragment hit, read with
     useRates on the gem's fragment skill)."""
-    if main is None or not main.attack:
+    ita = empower_skill(build, models.ICE_TIPPED)
+    main_index = (build.main_group() or {}).get("index")
+    group = next((g for g in build.groups() if ((g["index"] == ita.get("group")) if ita is not None else (
+        g.get("enabled") is not False and g["index"] != main_index
+        and any(x["name"] == models.ICE_TIPPED and not x.get("support") for x in g.get("gems") or [])))), None)
+    if group is None:
         return 0.0, [], []
+    active = next((i for i, x in enumerate((group or {}).get("skills") or [], start=1)
+                   if x["name"] == models.ICE_TIPPED_FRAGMENT), 0)
+    rows = build.call("useRates", indices=[group["index"]], actives=[active])["rates"] if active else []
+    # (MECHB46, GEM26's sweep POE2T3595, an OVERCOUNT: every path that gives no fragments returned before the cut below,
+    # so PoB's flat entry (91 DPS at 1.4/s beside a Boneshatter) stayed in Full DPS. Each now takes this group's out.)
+    cut = ({models.ICE_TIPPED_FRAGMENT: number(rows[0].get("TotalDPS"))}
+           if group is not None and group.get("fullDPS") and rows and number(rows[0].get("TotalDPS")) > 0 else {})
+
+    def none(why: str, value: str = "not counted") -> tuple[float, list[dict], list[dict]]:
+        if not cut:
+            return 0.0, [], []
+        return 0.0, [], [{"label": "Ice-Tipped Arrows: no Ice Fragments*", "value": value, "confidence": "MEDIUM",
+                          "basis": (f"{why}: PoB's flat Ice Fragments entry for its group "
+                                    f"({cut[models.ICE_TIPPED_FRAGMENT]:,.1f} DPS) is taken out"),
+                          "entry_cut": cut}]
+    if ita is None:  # (MECHB46: PoB disables the gem itself (its Bow / Spear need) yet scores its Ice Fragments)
+        return none("Ice-Tipped Arrows itself can't be used here (PoB marks it disabled: the build's weapon)")
+    if main is None or not main.attack:
+        return none("its fragments come from Empowered attacks, and the main skill isn't an attack")
     gem = build.ctx.gems.get(main.name) or {}
     types, weapons = set(gem.get("skillTypes") or []), set(gem.get("weaponTypes") or [])
     if not ("Bow" in weapons or ("Spear" in weapons and "Projectile" in types)) or types & {"Channel", "Sustained"}:
-        return 0.0, [], []
-    ita = empower_skill(build, models.ICE_TIPPED)
-    if ita is None:
-        return 0.0, [], []
+        return none(f"it Empowers Repeatable Bow / Projectile Spear attacks, and {main.name} isn't one")
     level = ita.get("levelStats") or {}
     empowers = (number(level.get(models.ICE_TIPPED_EMPOWERS)) or 4.0) + number(
         (ita.get("supportStats") or {}).get(models.OLROTH_EMPOWERS))
@@ -1461,12 +1482,8 @@ def ice_tipped(build: Build, main: models.Skill | None) -> tuple[float, list[dic
                                                            number(ita.get("castTime")) or models.ICE_TIPPED_CAST)
     if share <= 0:
         return 0.0, [], [{"label": "Ice-Tipped Arrows: Empowered attacks*", "value": "not counted", "basis": how,
-                          "confidence": "MEDIUM"}]
+                          "confidence": "MEDIUM", **({"entry_cut": cut} if cut else {})}]
     convert = number(level.get(models.ICE_TIPPED_CONVERT)) or 100.0
-    group = next((g for g in build.groups() if g["index"] == ita.get("group")), None)
-    active = next((i for i, x in enumerate((group or {}).get("skills") or [], start=1)
-                   if x["name"] == models.ICE_TIPPED_FRAGMENT), 0)
-    rows = build.call("useRates", indices=[group["index"]], actives=[active])["rates"] if active else []
     # (a fragment use's damage, its own hit chance in: PoB's TotalDPS over its speed; the row has no AverageHit for
     # this Triggered attack, probe POE2T3218)
     fragment = (number(rows[0].get("TotalDPS")) / number(rows[0].get("speed"))
@@ -1477,7 +1494,8 @@ def ice_tipped(build: Build, main: models.Skill | None) -> tuple[float, list[dic
         return 0.0, [], [{"label": "Ice-Tipped Arrows: Empowered attacks*", "value": "not pressed",
                           "basis": (f"{how}; its Ice Fragments ({added:,.1f} DPS) give less than its cast takes from the "
                                     f"main attack ({lost:,.1f} DPS; the Cold conversion's change not weighed: MEDIUM)"),
-                          "confidence": "MEDIUM", "play": "Ice-Tipped Arrows costs more than it gives here: not pressed"}]
+                          "confidence": "MEDIUM", "play": "Ice-Tipped Arrows costs more than it gives here: not pressed",
+                          **({"entry_cut": cut} if cut else {})}]
     mods = [models.raw_mod("DPS", "MORE", (time - 1) * 100, skill=main.name),
             models.line("1% of Physical Damage Converted to Cold Damage", convert * share, skill=main.name)]
     note = {"label": "Ice-Tipped Arrows: Empowered attacks convert to Cold and Trigger Ice Fragments*",
@@ -1490,11 +1508,11 @@ def ice_tipped(build: Build, main: models.Skill | None) -> tuple[float, list[dic
             "confidence": "MEDIUM",
             "play": (f"Press Ice-Tipped Arrows each time it's ready, then attack: without it x1.000 and no fragments; "
                      f"with it {convert * share:.0f}% of Physical as Cold on average, +{added:,.1f} DPS of Ice Fragments")}
-    if group is not None and group.get("fullDPS") and rows:
+    if cut:
         # (PoB's Full DPS would count the gem's fragment skill on its own at its at-will speed, 1.2/s in POE2T3218:
         # its entry comes out, the fragments counted above instead. MECHB45, GEM26's routing: only THIS group's entry,
         # its own TotalDPS off the name's total, not every "Ice Fragments" entry (Escape Shot's, Shred's ...))
-        note["entry_cut"] = {models.ICE_TIPPED_FRAGMENT: number(rows[0].get("TotalDPS"))}
+        note["entry_cut"] = cut
     return added, mods, [note]
 
 
@@ -4715,6 +4733,7 @@ class Assumptions:
         mods, ward_notes = self.ward_paid(skills, mods, main)  # (MECH-B: Runic Ward pays for Ward-cost skills, MECHB13)
         notes += ward_notes
         notes += self.child_entry_cuts()  # (MECHB45, GEM26: a Ward-held or unpressed skill's granted children too)
+        notes += self.side_trigger_cuts()  # (MECHB46, GEM26's sweep: Warcries' flat-rate triggered skills)
         texts = [e["text"] for e in self.build.call("sourceLines")["lines"]]
         if any(models.BODYGUARDS.search(t.strip()) for t in texts):  # (MECHB31: Warding Rune of Bodyguards, at the Low Ward share)
             low, _, how = ward_shares(self.build)
@@ -7310,11 +7329,16 @@ class Assumptions:
         ward = getattr(build, "ward_sustain", None) or {}
         share = number(ward.get("_share")) if "_share" in ward else 1.0
         cuts, parts, partial = {}, [], []
+        disabled = None
         for group in build.groups():
             if not group.get("enabled", True) or not group.get("fullDPS") or len(group["skills"]) < 2:
                 continue
             parent = group["skills"][0]["name"]
-            if parent in scales and number(scales[parent]) <= 0:
+            if disabled is None:  # (bridge groups carry no disabled flag; activeSkills does)
+                disabled = {(s.get("group"), s["name"]) for s in build.call("activeSkills")["skills"] if s.get("disabled")}
+            if (group["index"], parent) in disabled:  # (MECHB46, GEM26's sweep: Escape Shot beside a non-bow weapon)
+                keep, why = 0.0, f"{parent} can't be used (PoB marks it disabled: the build's weapon)"
+            elif parent in scales and number(scales[parent]) <= 0:
                 keep, why = 0.0, f"{parent} isn't used (press scale 0)"
             elif parent in ward and parent not in ("_share", "WardRecoveryPerSecond") and share < 1:
                 keep, why = share, f"{parent} is used {share:.0%} as often as planned (Runic Ward pays for that)"
@@ -7340,6 +7364,58 @@ class Assumptions:
                            + (f". Left at PoB's rate (UNVERIFIED: how PoB rates the child against its maker's partial "
                               f"presses): the children of {', '.join(partial)}" if partial else "")
                            + ". Other entries of the same name (another group's) keep their damage")}]
+
+    def side_trigger_cuts(self) -> list[dict]:
+        """(MECHB46; GEM26's sweep, the manager 10:50) Infernal Cry's Combust and Ancestral Cry's Volcanic Eruption /
+        Volcanic Steps (models.side_trigger_keep): each Full DPS group's own entry cut to the share of PoB's flat rate
+        the build feeds (Assumptions.cut_entries: only that group's amount, not the name's)."""
+        build = self.build
+        cuts, parts = {}, []
+        if getattr(build, "objective", None) is None:  # (as child_entry_cuts: the cuts go to its entry scales)
+            return []
+        if not any(g.get("fullDPS") and any(x["name"] in models.SIDE_TRIGGERS for x in g.get("skills") or [])
+                   for g in build.groups()):
+            return []
+        main_name = self.main_skill()
+        info = ((getattr(getattr(build, "ctx", None), "gems", None) or {}).get(main_name or "")) or {}
+        types = set(info.get("skillTypes") or [])
+        melee_strike = {"Melee", "Strike", "Attack"} <= types
+        kills = getattr(build, "kills", None) or (0.0, 0.0, "")
+        choices = models.press_choices(build)
+        for group in build.groups():
+            if not group.get("enabled", True) or not group.get("fullDPS"):
+                continue
+            names = [x["name"] for x in group.get("skills") or []]
+            parent = next((n for n in names if n in (models.INFERNAL_CRY, models.ANCESTRAL_CRY)), None)
+            if parent is None:
+                continue
+            row = (build.call("useRates", indices=[group["index"]])["rates"] or [{}])[0]
+            cries, _, _ = conditions_mod.skill_use_rate(row, choices)
+            kaom = 0.0
+            if parent == models.ANCESTRAL_CRY:
+                uses, how = self.glory_caps().get(models.ANCESTRAL_CRY, (0.0, "its Glory wasn't read"))
+                kaom = models.kaom_uptime(uses, number(row.get("duration")), number(row.get("castTime")), how)[0]
+            for position, child in enumerate(group.get("skills") or [], start=1):
+                if models.SIDE_TRIGGERS.get(child["name"]) != parent or child.get("disabled"):
+                    continue
+                rows = build.call("useRates", indices=[group["index"]], actives=[position])["rates"]
+                dps = number(rows[0].get("TotalDPS")) if rows else 0.0
+                if dps <= 0:
+                    continue
+                keep, why = models.side_trigger_keep(child["name"], cries, number(row.get("duration")),
+                                                     number(kills[0]), kaom, melee_strike)
+                if keep < 1:
+                    cuts[child["name"]] = cuts.get(child["name"], 0.0) + dps * (1 - keep)
+                    parts.append(f"{child['name']} ({parent}): PoB's {dps:,.1f} x {keep:.0%} ({why})")
+        self.cut_entries(cuts)
+        if not parts:
+            return []
+        return [{"label": "Warcries' triggered skills at the rate the build feeds them*", "value": "; ".join(parts),
+                 "confidence": "LOW", "entry": "model-mechb46-warcry-side-triggers",
+                 "basis": ("PoB scores Combust, Volcanic Eruption and Volcanic Steps at a flat rate (its castTime 1) in "
+                           "Full DPS whether or not anything triggers them (GEM26's sweep POE2T3595): " + "; ".join(parts)),
+                 "play": ("Combust needs enemies dying in Infernal Cry's area; Volcanic Eruption needs Melee Strikes "
+                          "while embodying Kaom; Volcanic Steps needs travel while embodying Kaom")}]
 
     def tailwind_use_rates(self, main: str | None) -> dict[str, tuple[float, str]]:
         """{skill: (uses a second, how)} of each enabled non-support gem other than the main skill that the player uses
