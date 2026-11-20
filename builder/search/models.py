@@ -2390,6 +2390,21 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
             share = 0.0 if period == math.inf else 1.0
             label, basis = f"{mark.name}", ("PoB adds nothing to the main skill's damage from it; Blood Explosion's "
                                             "damage on a Heavy Stun isn't counted") + (f"; {how}" if share == 0 else "")
+            if mark.name == "Bloodhound's Mark":  # (MECH94: PoB scores Blood Explosion at a flat 1 a second)
+                acts, acts_how = mark_activations(mark, skills, stats, disabled, rates, uses == 2)
+                if use.on_demand and period and period != math.inf:
+                    # (MECH94, an UNDERCOUNT of the main skill before: it was charged a recast every cooldown, 0.5 s,
+                    # 100% of its time) recast once consumed (each Activation) or run out (its duration; not while
+                    # the boss suffers Blood Loss)
+                    expiry = math.inf if bloodhound_fill(stats)[0] > 0 else dur
+                    period = max(period, min(1 / acts if acts > 0 else math.inf, expiry))
+                scales[BLOOD_EXPLOSION] = round(acts * BLOOD_EXPLOSION_FULL_BAR / BLOOD_EXPLOSION_POB_RATE, 6)
+                label = f"{mark.name}: Blood Explosion at its Activations*"
+                basis = (f"PoB's Full DPS counts {BLOOD_EXPLOSION} at a flat {BLOOD_EXPLOSION_POB_RATE:g} a second (its "
+                         f"1 s base time; no trigger rate); it fires when the Mark Activates: {acts_how}; each at "
+                         f"x{BLOOD_EXPLOSION_FULL_BAR:g} of PoB's hit (\"up to 100% more damage based on the percentage "
+                         "of target's Heavy Stun buildup\": the bar is full at the Heavy Stun; PoB applies none of it, "
+                         f"MEDIUM): x{scales[BLOOD_EXPLOSION]:.3f} of PoB's entry")
         if share < 1.0:
             mods.append(line("1% more Effect of your Curses", 100 * (share - 1), skill=mark.name))
         if (use.pressed is not None and use.pressed.name in MARK_CARRIERS and use.pressed is not main
@@ -2430,6 +2445,48 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
     return mods, notes
 
 
+# Bloodhound's Mark's Blood Explosion (MECH94; the manager 10:50, GEM26's sweep POE2T3595: PoB scored it at a flat 1 a
+# second, 550 DPS on its probe build, with no model). Game text (26650308; PoB act_dex.lua 496-700, the same stats):
+# the Mark "Activates when Marked enemy is Heavy Stunned" or dies with enough Heavy Stun (none on a lone boss: its death
+# ends the fight); "Marked target receives Heavy Stun buildup equal to 300% of Blood Loss"
+# (hunters_mark_%_of_phys_damage_over_time_as_build_up 300, +2.5% per quality: quality not read, the lower reading);
+# KeywordPopups BloodLoss "All Physical damage over time taken by a target (including Bleeding) is accumulated as Blood
+# Loss"; "The Mark's duration does not expire while the Marked target is suffering Blood Loss". Blood Explosion
+# (BloodhoundsMarkExplosionPlayer): castTime 1, no trigger rate (PoB's flat 1 a second), and "Gains up to 100% more
+# damage and 100% more area of effect based on the percentage of target's Heavy Stun buildup"
+# (hunters_mark_buildup_%_as_explosion_damage_+%_final 100; PoB maps none of it: checked, grep hunters_mark over
+# SkillStatMap.lua and act_dex.lua: constantStats only): at a Heavy Stun the bar is full, so x2 (MEDIUM).
+# So Activations/s = mark_activations (the Mark's applications, mark_use, each Activating on the boss's next Heavy Stun
+# within its duration; held without end while the boss Bleeds), the Heavy Stuns from the main skill's hits plus the
+# Mark's own Blood Loss buildup (bloodhound_fill: the main skill's Bleed DPS at its share of the fight x 300%, at the
+# bar per damage the main skill's own hits show: PoB's HeavyStunBuildupAvg over its stun-weighted hit, which carries
+# the build's Stun buildup increases: whether those raise the Mark's buildup is UNVERIFIED, the higher reading).
+# Other Physical damage over time (Corrupted Blood, other skills' Bleeds) isn't read (the lower reading). No Heavy
+# Stun, no Blood Explosion: 0, said. The entry is scaled in Full DPS by mark_model's full_dps.
+BLOOD_EXPLOSION = "Blood Explosion"
+BLOODHOUND_BUILDUP = 300.0  # % of Blood Loss as Heavy Stun buildup (gem level 1-20 alike; quality not read)
+BLOOD_EXPLOSION_POB_RATE = 1.0  # PoB's Full DPS rate for it (castTime 1, NoAttackOrCastTime; GEM26's probe: 1/s)
+BLOOD_EXPLOSION_FULL_BAR = 2.0  # up to 100% more damage at a full Heavy Stun bar
+
+
+def bloodhound_fill(stats: dict) -> tuple[float, str]:
+    """(bars a second at PoB's threshold, how) the Mark's Blood Loss adds to the boss's Heavy Stun (the note above)."""
+    share = stats.get("_main_share")
+    share = 1.0 if share is None else max(0.0, min(1.0, number(share)))
+    bleed = number(stats.get("BleedDPS")) * share
+    if bleed <= 0:
+        return 0.0, "no Bleeding from the main skill, so no Blood Loss buildup"
+    per_hit = number(stats.get("HeavyStunBuildupAvg")) / 100
+    crit = min(number(stats.get("CritChance")), 100) / 100
+    weight = sum((number(stats.get(f"{t}HitAverage")) * (1 - crit) + number(stats.get(f"{t}CritAverage")) * crit)
+                 * (HEAVY_STUN_PHYSICAL if t == "Physical" else 1.0) for t in DAMAGE_TYPES)
+    if per_hit <= 0 or weight <= 0:
+        return 0.0, "the main skill's hits show no Heavy Stun buildup per damage to read the bar by (not counted)"
+    fill = bleed * BLOODHOUND_BUILDUP / 100 * per_hit / weight
+    return fill, (f"Blood Loss: {bleed:,.0f} Bleed DPS x {BLOODHOUND_BUILDUP:g}% as Heavy Stun buildup = "
+                  f"{fill:.2%} of the bar a second at PoB's threshold")
+
+
 def mark_activations(mark: Skill, skills: list[Skill], stats: dict, disabled: list[Skill] | None = None,
                      rates: dict[str, float] | None = None, eternal: bool = False) -> tuple[float, str]:
     """(MECH61) Activations of `mark` per second on the boss, and how. A Mark that Activates is Consumed (KeywordPopups
@@ -2457,14 +2514,29 @@ def mark_activations(mark: Skill, skills: list[Skill], stats: dict, disabled: li
         if use.on_demand:
             period = max(period, dur)  # (reapplied as it runs out, as mark_model)
     elif mark.name == "Bloodhound's Mark":
-        rate, event = heavy_stun_rate(stats)[0], "the boss's next Heavy Stun (or a kill: none on a lone boss)"
+        fill, fill_how = bloodhound_fill(stats)  # (MECH94: the Mark's own Heavy Stun buildup from Blood Loss)
+        rate = heavy_stun_rate({**stats, "_blood_loss_fill": fill} if fill > 0 else stats)[0]
+        event = (f"the boss's next Heavy Stun ({fill_how}; a kill: none on a lone boss)" if fill > 0
+                 else f"the boss's next Heavy Stun ({fill_how}; a kill: none on a lone boss)")
+        if fill > 0:
+            dur = math.inf  # ("The Mark's duration does not expire while the Marked target is suffering Blood Loss")
     else:
         return 0.0, f"{mark.name}'s Activation isn't modelled (not counted, an undercount)"
     if rate <= 0:
         return 0.0, f"{mark.name} Activates on {event}, which the main skill never brings: never Activated"
+    if mark.name == "Bloodhound's Mark" and use.on_demand:
+        period = max(period, min(1 / rate, dur))  # (MECH94: recast once consumed or run out, as the other Marks)
+    if dur == math.inf:  # (MECH94: Bloodhound's Mark held while the boss suffers Blood Loss: it waits for the stun)
+        each = float(uses)
+        per_second = min(each / period, rate)
+        return per_second, (f"{mark.name} applied every {period:.1f} s ({how}); it Activates on {event}, {rate:.2f}/s, "
+                            "and doesn't expire while the boss suffers Blood Loss (the Mark's text): every application "
+                            f"Activates, at most once per Heavy Stun: {per_second:.3f} Activations/s")
     x = rate * dur
     each = (1 - math.exp(-x)) + ((1 - math.exp(-x) - x * math.exp(-x)) if eternal else 0.0)
-    per_second = each / period
+    # (MECH94, an OVERCOUNT where a Mark is reapplied faster than its event comes: one Mark on the boss at a time, so it
+    # Activates at most as often as its event)
+    per_second = min(each / period, rate)
     return per_second, (f"{mark.name} applied every {period:.1f} s ({how}); it Activates on {event}, {rate:.2f}/s, so "
                         f"{each:.2f} Activations per application within its {dur:g} s"
                         + (" (Eternal Mark: not Consumed the first time, so up to 2)" if eternal else "")
@@ -5770,6 +5842,7 @@ EMBER_MORE_STAT = "ember_fusillade_damage_+%_final_per_ember_fired"
 EMBER_DURATION = 1.3  # s: base_skill_effect_duration 1300
 EMBER_CAP, EMBER_MORE = 10, 5.0  # level 20's cap; the base more per previous Ember (used when the gem's own isn't read)
 MODEL_FIELDS.extend(f for f in ("Duration",) if f not in MODEL_FIELDS)  # (ember_fusillade_model)
+MODEL_FIELDS.extend(f for f in ("BleedDPS",) if f not in MODEL_FIELDS)  # (MECH94: bloodhound_fill)
 # (GEM13) His Scattering Calamity (act_int.lua ScatteringCalamityPlayer, the staff's "Grants Skill: Level (1-20) His
 # Scattering Calamity", Uniques/staff.lua variant 4): "Conjure a crackling Wellsprite that hovers above you. After a short
 # duration, the Wellsprite launches at an enemy ... Recasting this spell resets the duration for all active Wellsprites";
@@ -11738,7 +11811,8 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
     per_hit = number(stats.get("HeavyStunBuildupAvg")) / 100
     hits = hits_per_second(stats)
     thorns = thorns_fill(stats, "HeavyStun")  # (MECH84: Thorns hits' own buildup, PATCH_CHECK L4-2)
-    if (per_hit <= 0 or hits <= 0) and thorns <= 0:
+    blood = max(0.0, number(stats.get("_blood_loss_fill")))  # (MECH94: Bloodhound's Mark's Blood Loss buildup)
+    if (per_hit <= 0 or hits <= 0) and thorns <= 0 and blood <= 0:
         return 0.0, "the main skill's hits build no Heavy Stun"
     crit = min(number(stats.get("CritChance")), 100) / 100
     weight = {t: (number(stats.get(f"{t}HitAverage")) * (1 - crit) + number(stats.get(f"{t}CritAverage")) * crit)
@@ -11748,7 +11822,7 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
     scale = bosses.threshold_scale(stats)  # (938 / the boss's own threshold: MECHD1, RESEARCH18 #91)
     dazed = min(1.0, max(0.0, number(stats.get("_dazed_share"))))
     daze = (1 + DAZED_STUN_MORE * dazed) / ((1 + DAZED_STUN_MORE) if stats.get("_dazed_box") else 1.0)
-    fill = (per_hit * uncold * hits + thorns) * scale * daze  # bars per second at the plain threshold
+    fill = (per_hit * uncold * hits + thorns + blood) * scale * daze  # bars per second at the plain threshold
     if fill <= 0:
         return 0.0, "Cold hits build no Heavy Stun (the game's Cold text; PoB counts them)"
     t = 1 / fill
@@ -11772,7 +11846,8 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
                 if dazed or stats.get("_dazed_box") else "")
              + f"{hits:.2f} hits/s"
              + (f" + Thorns {thorns:.2%} of the bar a second ({(stats.get('_thorns_fill') or {}).get('how', '')})"
-                if thorns > 0 else "") + ": "
+                if thorns > 0 else "")
+             + (f" + the Mark's Blood Loss {blood:.2%} of the bar a second" if blood > 0 else "") + ": "
              f"full in {t:.1f} s; the bar doesn't fill during the {d:g} s stun (RESEARCH26, MEDIUM), then +500% threshold "
              f"for the rest of the 16.5 s after it"
              + (f"; {crush_how}: Heavy Stunned once Primed at {PRIMED_UNIQUE:.0%} of the bar, by the hit that Primes it "

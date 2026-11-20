@@ -94,3 +94,70 @@ def test_a_pressed_cooldown_skill_takes_its_cast_not_its_cooldown_from_the_main_
     assert scales["Spark"] == pytest.approx(1 - 0.8 / 6.006)
     assert models.press_action({**bomb, "time": 0.4}) == pytest.approx(0.4)  # (a HitTime shorter than the interval)
     assert models.press_action({**bomb, "cooldown": None}) == pytest.approx(6.006)  # (no cap: 1 / speed)
+
+
+def _bloodhound(bleed):
+    from builder.search import models
+    from builder.search.models import Skill
+
+    main = Skill("Boneshatter", group=1, attack=True, melee=True, cast_time=1.0)
+    mark = Skill("Bloodhound's Mark", group=2, cast_time=0.5, cooldown=0.5)
+    blood = Skill(models.BLOOD_EXPLOSION, group=2, attack=True, triggered=True, cast_time=1.0)
+    stats = {"BleedDPS": bleed, "HeavyStunBuildupAvg": 5.0, "CritChance": 0, "PhysicalHitAverage": 2000.0,
+             "Speed": 2.0, "HitChance": 100}
+    return models.mark_model([main, mark, blood], stats, main), stats, (main, mark, blood)
+
+
+def test_blood_explosion_counts_at_the_marks_activations_not_pobs_flat_one_a_second():
+    """PoB scores Blood Explosion at a flat 1 a second (GEM26's sweep: 550 DPS); it fires when Bloodhound's Mark
+    Activates on the boss's Heavy Stun, at twice PoB's hit (the full bar's "up to 100% more damage"). The Mark's Blood
+    Loss buildup (300% of the Bleed DPS) adds to the stun bar, and the Mark doesn't expire while the boss Bleeds."""
+    from builder.search import models
+
+    (mods, notes), stats, skills = _bloodhound(1000.0)
+    fill = models.bloodhound_fill(stats)[0]
+    assert fill == pytest.approx(1000 * 3.0 * 0.05 / 3000)  # (5% of the bar per 2000 x 1.5 stun-weighted damage)
+    stuns = models.heavy_stun_rate({**stats, "_blood_loss_fill": fill})[0]
+    assert stuns > models.heavy_stun_rate(stats)[0]
+    assert notes[0]["full_dps"][models.BLOOD_EXPLOSION] == pytest.approx(stuns * 2.0, rel=1e-4)
+    # (recast once consumed: one press per Heavy Stun, not every 0.5 s cooldown: 100% of the main skill's time before)
+    speed = next(m for m in mods if m["line"] == "1% more Attack and Cast Speed")
+    assert speed["scale"] == pytest.approx(-100 * 0.5 * stuns, rel=1e-3)
+    (_, notes), _, _ = _bloodhound(0.0)  # (no Bleed: the hits' Heavy Stuns only, the Mark expiring after 8 s)
+    assert 0 < notes[0]["full_dps"][models.BLOOD_EXPLOSION] < stuns * 2.0
+
+
+def test_a_mark_never_activates_faster_than_its_event():
+    from builder.search import models
+
+    _, stats, (main, mark, blood) = _bloodhound(0.0)
+    timer = models.Skill("Bloodhound's Mark", group=2, cast_time=0.5, cooldown=0.5)
+    acts, _ = models.mark_activations(timer, [main, timer, blood], stats)
+    assert acts <= models.heavy_stun_rate(stats)[0] + 1e-12
+
+
+def test_blood_explosions_full_dps_entry_is_scaled_in_a_real_build(engine):
+    """GEM26's sweep build: Boneshatter with Bloodhound's Mark in Full DPS. PoB's Blood Explosion entry (a flat 1 a
+    second) gets mark_model's scale (its Activations x 2), and Boneshatter isn't charged a Mark every 0.5 s."""
+    from builder.request.schema import BuildRequest
+    from builder.search import models
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0, full=True)
+    search.setup(quests=False)
+    build = search.build
+    group = build.set_group(gems=[{"name": "Bloodhound's Mark", "level": 20, "quality": 0}], label="mark")
+    build.set_group(index=group["index"], fullDPS=True)
+    search.assumptions.mods = None
+    search.assumptions.apply()
+    stats = build.call("stats", fields=build.objective.fields)
+    entries = {e["name"]: e["dps"] * (e.get("count") or 1) for e in stats["SkillDPS"]}
+    scale = build.objective.entry_scales.get(models.BLOOD_EXPLOSION)
+    note = next(n for n in search.assumptions.active if n["label"].startswith("Bloodhound's Mark"))
+    print("PROBE bloodhound", entries, scale, note["basis"][:500])
+    assert models.BLOOD_EXPLOSION in entries and scale is not None and 0 <= scale < 1
+    assert "100% of Boneshatter" not in note["basis"]
