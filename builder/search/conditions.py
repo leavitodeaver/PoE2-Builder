@@ -665,6 +665,49 @@ def consume_gain(build, skill: str, share: float, what: str) -> dict[str, tuple[
     return {text: (hits * share, f"{hits:.2f} hits/s x {share:.0%} {what} (GEM19's share, the last resolve's)")}
 
 
+# (MECHC46; MECHC44's list, an UNDERCOUNT before) A charge line that names no skill and no condition ("N% chance to gain a
+# Frenzy Charge on Hit", "... a Power Charge on Critical Hit": an item, a passive) fires on any of your hits, so the
+# build's other hitting groups count beside the main skill: stats["_side_hits"] (Conditions.evidence, side_hits: each
+# group's hits a second at its pressed rate, one hit a use as the USER's 20 Nov test for unflagged skills, and its own
+# crit chance). Not added: a gem's own line (its skill's hits only), a conditioned line ("on Hit while Bleeding", "on
+# Melee Hit": the side skills' types aren't read, the main skill's hits alone as before: an undercount kept).
+GENERIC_HIT = re.compile(r"^\s*on (critical )?hit\s*$", re.I)
+
+
+def side_hits(rows: dict, groups: list[dict], hitters: set[str], main_index,
+              choices: dict[str, float] | None = None) -> tuple[float, float, str]:
+    """(hits a second, crits a second, how) of the build's other hitting groups (the rows ignite_others reads): PoB's
+    trigger rate, else skill_use_rate at the press choices, x hit chance; crits x its CritChance."""
+    names = {g["index"]: [n["name"] for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in hitters]
+             for g in groups if g.get("enabled") is not False}
+    hits = crits = 0.0
+    parts = []
+    for index, row in sorted(rows.items(), key=lambda kv: str(kv[0])):
+        if index == main_index or not names.get(index):
+            continue
+        if row.get("triggered"):
+            uses, why = number(row.get("speed")), "PoB's trigger rate"
+        else:
+            uses, why, _ = skill_use_rate(row, choices)
+        landed = uses * min(number(row.get("HitChance")) or 100.0, 100.0) / 100.0
+        if landed <= 0:
+            continue
+        crit = min(max(number(row.get("CritChance")), 0.0), 100.0) / 100.0
+        hits += landed
+        crits += landed * crit
+        parts.append(f"{row.get('name') or names[index][0]} {landed:.2f} hits/s ({why}, {crit:.0%} critical)")
+    return hits, crits, "; ".join(parts)
+
+
+def _side_events(text: str, when: str, stats: dict, crit: bool) -> tuple[float, str]:
+    """(the other groups' hits or crits a second for a generic on-Hit charge line, how); (0, "") otherwise."""
+    side = stats.get("_side_hits")
+    if not side or not GENERIC_HIT.match(when) or text in (stats.get("_gem_line_texts") or ()):
+        return 0.0, ""
+    rate = number(side[1] if crit else side[0])
+    return (rate, f" + the other groups' {rate:.2f} {'crits' if crit else 'hits'}/s ({side[2]})") if rate > 0 else (0.0, "")
+
+
 def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
     """_charge_rate before the line's own "no more than once every N seconds" cap."""
     m = re.search(CHARGE_SOURCE.format(kind=kind), text, re.I)
@@ -700,7 +743,8 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
     if (why := _hit_restriction(when, stats)) is not None:
         return 0.0, why
     if "critical hit" in when and "take" not in when:
-        return chance * crits, f"{chance:.0%} x {crits:.2f} crits/s{many}"
+        extra, said = _side_events(text, when, stats, crit=True)  # (MECHC46: GENERIC_HIT's note)
+        return chance * (crits + extra), f"{chance:.0%} x {crits:.2f} crits/s{many}{said}"
     if "take a critical hit" in when:
         # (MECHC20: a crit on you is a hit that lands: the boss's landed hits, the worst case's lowest real boss's; before,
         # every use of its skills, evaded and blocked ones too, an overcount)
@@ -710,7 +754,8 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
         block = boss_hits.block_share(stats, evaded_first=False)  # (red-flash hits can't be Blocked, MECHC5)
         return chance * boss * block, f"{chance:.0%} x {boss * block:.2f} blocks/s"
     if "on hit" in when or when.strip() in ("", "on hit") or "hit" in when:
-        return chance * hits, f"{chance:.0%} x {hits:.2f} hits/s{many}"
+        extra, said = _side_events(text, when, stats, crit=False)  # (MECHC46: GENERIC_HIT's note)
+        return chance * (hits + extra), f"{chance:.0%} x {hits:.2f} hits/s{many}{said}"
     if m2 := re.search(r"every (\d+(?:\.\d+)?)? ?seconds?|once per second|every second", when):
         every = float(m2.group(1)) if m2.groups() and m2.group(1) else 1.0
         if NOT_LOST_RECENTLY.search(when):  # (MECHC33: the Cultivated Redflare's line)
@@ -8850,6 +8895,10 @@ class Conditions:
         # (MECH75) the other groups' Ignites on the boss, from the same rows: ailment_uptime adds them to the main skill's
         others, others_how = ignite_others(group_rows, groups_now, hitters, groups_all.get("mainSocketGroup"),
                                            models.press_choices(self.build))
+        # (MECHC46) the other groups' hits and crits for the generic on-Hit charge lines (GENERIC_HIT's note)
+        side = side_hits(group_rows, groups_now, hitters, groups_all.get("mainSocketGroup"), models.press_choices(self.build))
+        stats["_side_hits"] = side if side[0] > 0 else None
+        stats["_gem_line_texts"] = {line["text"] for line in lines if str(line.get("source") or "").startswith("gem:")}
         # (MECH87) the other groups' Freeze / Electrocute / Pin buildup on the boss's one bar (models.others_fill); also
         # published for readers that fetch the main skill's stats afresh (models.dazed_stats)
         stats["_buildup_others"] = buildup_others(group_rows, groups_now, hitters, groups_all.get("mainSocketGroup"),

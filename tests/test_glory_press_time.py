@@ -226,3 +226,26 @@ def test_a_self_fed_chain_reads_the_bosss_ailments_at_its_own_rate():
     assert remnant_chain(0.0, [(2.0, share, 0.69)], 1.0, 1.0, inf, wait=True) == 0.0
     # a constant share as before (Life Remnants)
     assert remnant_chain(0.0, [(3.0, 1.0, 0.69)], 1.0, 1.0, inf, wait=True) == pytest.approx(1 / 3, abs=1e-6)
+
+
+def test_generic_on_hit_charge_lines_count_the_other_groups_hits():
+    """(MECHC46, an UNDERCOUNT before) "N% chance to gain a <kind> Charge on Hit / on Critical Hit" from an item or a
+    passive fires on any of your hits: the other groups' hits (stats["_side_hits"]) join the main skill's; a gem's own
+    line and a conditioned line ("on Hit while Bleeding") keep the main skill's alone."""
+    from builder.search import conditions as c
+
+    stats = {"Speed": 1.0, "HitChance": 100.0, "CritChance": 10.0, "_side_hits": (2.0, 0.5, "Side 2.00 hits/s")}
+    hit = "20% chance to gain a Frenzy Charge on Hit"
+    assert c._charge_rate(hit, "Frenzy", stats)[0] == pytest.approx(0.2 * 3.0)
+    assert c._charge_rate(hit, "Frenzy", {**stats, "_side_hits": None})[0] == pytest.approx(0.2)
+    crit = "20% chance to gain a Power Charge on Critical Hit"
+    assert c._charge_rate(crit, "Power", stats)[0] == pytest.approx(0.2 * (0.1 + 0.5))
+    assert c._charge_rate(hit, "Frenzy", {**stats, "_gem_line_texts": {hit}})[0] == pytest.approx(0.2)
+    bleeding = "Gain a Frenzy Charge on Hit while Bleeding"
+    got = c._charge_rate(bleeding, "Frenzy", stats)
+    assert got is None or "other groups" not in got[1]
+    rows = {1: {"name": "Main", "speed": 5.0}, 2: {"name": "Side", "speed": 9.0, "cooldown": 2.0, "HitChance": 50.0,
+                                                   "CritChance": 20.0}}
+    groups = [{"index": 1, "gems": [{"name": "Main"}]}, {"index": 2, "gems": [{"name": "Side"}]}]
+    hits, crits, how = c.side_hits(rows, groups, {"Main", "Side"}, 1)
+    assert hits == pytest.approx(0.25) and crits == pytest.approx(0.05) and "Side" in how
