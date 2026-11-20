@@ -566,10 +566,29 @@ def config_vars(name: str = DEFAULT) -> dict[str, float]:
     # (MECHC31: every boss's, the worst case's too, are boss_hits.config_vars: each type's average hit, the worst case
     # the highest average of any real preset; worst_hit_sizes stays the survival check's biggest hits)
     hits = boss_hits.config_vars(name)
+    # (MECHC45, the manager's 08:05 from COV46 / COV47's placeholder audit) The boss-hit boxes left to PoB's placeholders
+    # on purpose (BOSS_HIT_PLACEHOLDERS; probe POE2T4829, a skeleton against the default boss):
+    # - enemyCritChance: PoB 5% (ConfigOptions 1967). Game: a monster attack's stat set has AttackCritChance 0, so it
+    #   takes the monster's own 5% / +30% (RESEARCH2 boss-crit.md: poe2db's Arbiter of Ash monster block, MEDIUM-HIGH);
+    #   spells carry their own SpellCritChance, 5-7% (some 0). Over each preset's non-nuke skills (builder/data/
+    #   boss_skill_hits.json, game 26650308 GrantedEffectStatSetsPerLevel) the mean is 5.0-5.57% (a spell's 0 read as the
+    #   monster's 5%) or 3.16-5.46% (read as 0, UNVERIFIED which). Kept at 5%: at the highest mean (the Raven, 5.57%)
+    #   TotalEHP falls 0.17% (951.9 -> 950.3); no use rates weight the skills (LOW for the mix).
+    # - enemyCritDamage: PoB's data.monsterConstants base_critical_hit_damage_bonus 30 = the monster's +30% above.
+    # - enemyPhysicalOverwhelm: no preset skill carries an Overwhelm or Physical-Damage-Reduction-ignoring stat (checked:
+    #   every stat id in each preset skill's stat set, implicit / constant / per level, game 26650308); PoB reads 0
+    #   (its placeholder is looked up under "enemyPhysicalenemyOverwhelm", CalcDefence 2113, so an unset box is 0).
+    # - enemyDamageRollRange: read only by PoB's own boss-skill preset (ConfigOptions 2185), which stays "None": no
+    #   reader (the probe: 0 and 100 move nothing); the boss's hits per type are ours (boss_hits.config_vars).
     return {"enemyFireResist": b.fire, "enemyColdResist": b.cold, "enemyLightningResist": b.lightning,
             "enemyChaosResist": b.chaos, "enemySpeed": round(defence_hit_every(name) * 1000),
             "cullingStrikeUniqueThreshold": round(cull_threshold(name), 4), **hits,
             **defence_vars(name)}  # (MECHC34, R28-11 CD-1..3: the boss's own Armour / Evasion, no penetration)
+
+
+# (MECHC45) PoB config boxes for the boss's hit that config_vars leaves to PoB's placeholders (the note in config_vars)
+BOSS_HIT_PLACEHOLDERS = {"enemyCritChance": 5, "enemyCritDamage": 30, "enemyPhysicalOverwhelm": 0,
+                         "enemyDamageRollRange": None}
 
 
 def note(name: str = DEFAULT) -> dict:
