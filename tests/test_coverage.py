@@ -688,8 +688,8 @@ def test_item_lines_a_model_reads_count_as_the_models():
     assert conditions.NOT_LOST_RECENTLY.search("Gain a Power Charge every Second if you haven't lost Power Charges Recently")
     for line, entry in cases.items():
         assert (found := model_entry(line)) is not None and found.id == entry, line
-    for line in ("+2 metres to Dodge Roll distance if you haven't Dodge Rolled Recently",
-                 "20% increased Glory generation for Tribute", "Used when you become Cursed"):
+    # (COV45, the manager 18:15: Lioneye's "+2 metres ... if you haven't Dodge Rolled Recently" is read with MECH89's label)
+    for line in ("20% increased Glory generation for Tribute", "Used when you become Cursed"):
         found = model_entry(line)
         assert found is None or not found.id.startswith("model-read-"), line
 
@@ -920,8 +920,7 @@ def test_cov43_model_read_item_lines_are_the_models_own():
         assert pattern.search(line), line
     # ("20% increased Guard gained" left this list in COV44: train 89's event_guard scales every Guard source)
     for line in ("Grants effect of Guided Meteoric Shrine",
-                 "Create a Fragment of Divinity in your Presence every 4 seconds",
-                 "+2 metres to Dodge Roll distance if you haven't Dodge Rolled Recently"):
+                 "Create a Fragment of Divinity in your Presence every 4 seconds"):  # (Lioneye's +2 m: read, COV45)
         assert (found := model_entry(line)) is None or not found.id.startswith("model-read-"), line
 
 
@@ -1285,3 +1284,55 @@ def test_explicit_modifier_magnitudes_raise_the_items_tagged_lines():
     assert model_entry("25% increased Explicit Critical Modifier magnitudes").id == "model-read-explicit-modifier-magnitudes"
     assert model_entry("(3-5)% increased Cast Speed for each different Non-Instant Spell you've Cast Recently").id == (
         "model-read-mechb4-non-instant-spells-recently")
+
+
+def test_lightning_stun_buildup_line_is_labelled_without_a_known_carrier():
+    """COV45 (the manager 18:15, R34-6): "(50-100)% more Stun Buildup with Lightning Damage" has no league carrier that
+    research could show (UNVERIFIED, not a PoE1 leftover): labelled so, status kept."""
+    from builder.ledger import coverage
+
+    records = [r for r in coverage.audit()["records"]
+               if r["source"] == "Exclusive UniqueTwoHandedWeaponLightningStunMultiplier1"]
+    assert records and all(r.get("no_known_carrier") and "R34-6" in r["reason"] for r in records)
+    assert not any(r["reason"].startswith("a PoE1 leftover") or r["status"] == "unreachable" for r in records)
+
+
+def test_train93_reads_and_play_rows():
+    """COV45 turn 3 (train 93; the manager 18:15): MECH90's Engineered Blaze, Inner Turmoil's Volatility and Saitha's Spear,
+    MECHC42's Killed Recently lines, Frozen regen and Mana lost on Kill are model-read by their headline models; Armour
+    while Frozen / Bleeding, the raised-shield max Block and Immaterial are play rows (no item re-scoring); Growing Peril
+    and Precise Volatility (not counted by the model) and the Energy Shield on-Kill twin stay open."""
+    from builder.ledger import model_entry, play_row_entry
+    from builder.search import models, recovery
+
+    read = {
+        "4% increased Area of Effect for Attacks per Enemy you've Ignited in the last 8 seconds, up to 16%":
+            ("model-read-mech90-engineered-blaze", models.ENGINEERED_BLAZE),
+        "Gain 1 Volatility on inflicting an Elemental Ailment": ("model-read-mech90-inner-turmoil-volatility", models.INNER_TURMOIL),
+        "Maximum Volatility is 30": ("model-read-mech90-inner-turmoil-volatility", models.VOLATILITY_MAX),
+        "15% reduced Volatility Explosion delay": ("model-read-mech90-inner-turmoil-volatility", models.VOLATILITY_DELAY),
+        "Aggravating any Bleeding with this Weapon also Aggravates all Ignites on the target":
+            ("model-read-mech90-saithas-spear", models.SAITHA_LINE),
+        "+2 metres to Dodge Roll distance if you haven't Dodge Rolled Recently":
+            ("model-read-mech89-conditional-dodge-roll-distance", models.DODGE_DISTANCE),
+        "8% increased Attack Speed if you've killed Recently": ("model-read-mechc42-killed-recently", recovery.KILLED_RECENTLY),
+        "Regenerate 10% of maximum Life per second while Frozen": ("model-read-mechc42-frozen-regen", recovery.FROZEN_REGEN),
+        "Lose 1% of maximum Mana on Kill": ("model-read-mechc42-mana-lost-on-kill", recovery.KILL_LOSS),
+    }
+    for line, (entry, pattern) in read.items():
+        assert (found := model_entry(line)) is not None and found.id == entry, line
+        assert pattern.match(line), line
+    rows = {
+        "+500 to Armour while Frozen": ("play-row-mechc42-armour-while-frozen-or-bleeding", recovery.FROZEN_ARMOUR),
+        "30% increased Armour while Bleeding": ("play-row-mechc42-armour-while-frozen-or-bleeding", recovery.BLEEDING_ARMOUR),
+        "+5% to maximum Block chance if you've Blocked with a raised Shield Recently":
+            ("play-row-mechc42-raised-shield-max-block", recovery.RAISED_MAX_BLOCK),
+        "50% increased Evasion Rating if Energy Shield Recharge has started in the past 2 seconds":
+            ("play-row-mechc42-immaterial", recovery.RECHARGE_STARTED_EVASION),
+    }
+    for line, (entry, pattern) in rows.items():
+        assert model_entry(line) is None and (found := play_row_entry(line)) is not None and found.id == entry, line
+        assert pattern.match(line), line
+    for line in ("1% increased Chaos Damage over Time per Volatility", "Lose 1% of maximum Energy Shield on Kill",
+                 "Volatile Power also grants 1% increased Critical Hit chance per Volatility exploded"):
+        assert model_entry(line) is None and play_row_entry(line) is None, line

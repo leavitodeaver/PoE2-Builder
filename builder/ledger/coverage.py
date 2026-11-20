@@ -313,6 +313,15 @@ BUFF_MAKING_STATS = {
 }
 
 
+# Mods with no league carrier found, not shown unobtainable (UNVERIFIED): a label only, nothing dropped (CLAUDE.md rule 5)
+NO_KNOWN_CARRIER = {
+    "UniqueTwoHandedWeaponLightningStunMultiplier1": (
+        "no league character can be shown to get it (RESEARCH34 R34-6, UNVERIFIED: one unique mod in the game data, the "
+        "0.3.0 Abyss block, not a PoE1 leftover (RePoE); on no PoB or poe2db unique; probably an unreleased item). If a "
+        "carrier appears: the game scales only the Lightning part of the buildup (MEDIUM-HIGH), PoB the whole hit "
+        "(Condition:LightningHasDamage, CalcOffence 4491): an OVERCOUNT on mixed hits to fix then"),
+}
+
 @lru_cache(maxsize=1)
 def skill_flag_stats(src: Path = POB_SRC) -> dict[str, str]:
     """Stats PoB maps to a skill flag and no modifier (SkillStatMap.lua, the skills' own statMaps): `skill_can_fire_arrows`
@@ -1106,6 +1115,11 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
             record["reason"] = (f"a legacy variant's line ({', '.join(legacy[record['source'], record['template']])} "
                                 "only): no new item carries it (league-obtainable only; PoB equips the current "
                                 "variant); was: " + record["reason"])
+    # Mods research found no league carrier for, but couldn't show unobtainable (COV45, R34-6): labelled, status kept
+    for record in records:
+        if why := NO_KNOWN_CARRIER.get(record["source"].split()[-1]):
+            record["no_known_carrier"] = True
+            record["reason"] = (record["reason"] + "; " if record["reason"] else "") + why
     # Item mods no league character can get (COV40), each settled by research, by mod id (NOT_OBTAINABLE)
     for record in records:
         if (record["status"] == "none" and record["source"].startswith(("Item ", "Exclusive "))

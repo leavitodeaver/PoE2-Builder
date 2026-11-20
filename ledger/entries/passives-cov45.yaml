@@ -46,3 +46,140 @@
     PoB's Condition:InDodgeRoll stays off. If a model ever counts it in the headline, `play_row` must go.
   sources: ["builder/search/recovery.py (ROLLING_LESS, rolling_less_row)", "builder/search/assumptions.py (Bulwark row)"]
   status: proposed
+
+# (turn 3, the manager 18:15 from MECH90) lines MECH90's train-93 models read, each checked to reach hand_mods.
+
+- id: model-read-mech90-engineered-blaze
+  title: 'Engineered Blaze, "N% increased Area of Effect for Attacks per Enemy you''ve Ignited in the last 8 seconds, up to N%" (models.engineered_blaze_mods, MECH90)'
+  kind: pob_gap
+  model: engineered_blaze
+  match: '^\d+(?:\.\d+)?% increased Area of Effect for Attacks per Enemy you''ve Ignited in the last \d+ seconds, up to \d+(?:\.\d+)?%$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.ENGINEERED_BLAZE (92d2bba6, train 93): Attack Area of Effect for the Ignited boss, added through hand_mods
+    (0 when the build ignites nothing). PoB ignores the line.
+  sources: ["builder/search/models.py (ENGINEERED_BLAZE, engineered_blaze_mods)"]
+  status: proposed
+
+- id: model-read-mech90-inner-turmoil-volatility
+  title: 'Inner Turmoil''s Volatility and the lines its model reads: "Gain 1 Volatility on inflicting an Elemental Ailment", "Take no Damage from Volatility", "Maximum Volatility is N", "N% increased / reduced Volatility Explosion delay" (models.volatility_model, MECH90)'
+  kind: pob_gap
+  model: volatility
+  match: '^(Gain 1 Volatility on inflicting an Elemental Ailment|Take no Damage from Volatility|Maximum Volatility is \d+|\d+(?:\.\d+)?% (increased|reduced) Volatility Explosion delay)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.volatility_model (92d2bba6, train 93): with Inner Turmoil, Volatility played as an attack-then-pause cycle when
+    it pays: "1% less Damage" for the pauses and Volatile Power's gain, through hand_mods; the cap (VOLATILITY_MAX) and the
+    explosion delay (VOLATILITY_DELAY) set the cycle; "Take no Damage from Volatility" (the same notable) is why the cycle
+    costs no Life. Without Inner Turmoil the model gives 0, so the cap / delay lines then move nothing. Left open: Growing
+    Peril's per-Volatility Chaos DoT and Precise Volatility's crit (the model says "not counted (lower)"), Volatility on
+    Kill / Stunned / Instability.
+  sources: ["builder/search/models.py (INNER_TURMOIL, VOLATILITY_MAX, VOLATILITY_DELAY, volatility_model)"]
+  status: proposed
+
+- id: model-read-mech89-conditional-dodge-roll-distance
+  title: 'Lioneye''s Glare "+2 metres to Dodge Roll distance if you haven''t Dodge Rolled Recently" and Tactical Retreat "+0.5 metres ... while Surrounded" (models.dodge_roll, MECHB3 / MECH89)'
+  kind: pob_gap
+  model: dodge_roll
+  match: '^\+\d+(?:\.\d+)? metres? to Dodge Roll distance (if you haven''t Dodge Rolled Recently|while Surrounded)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.dodge_roll reads both (DODGE_DISTANCE): every reader of the roll distance rolls every DODGE_EVERY 2 s, so a
+    build has always rolled within Recently (4 s) and the "+2 metres if you haven't" bonus never applies (MECH89's label;
+    0 by the game's words, not dropped); "while Surrounded" counts only with the unique that lowers the enemies needed to
+    one (a play condition). (The manager 18:15, 19 Nov, from MECH90.)
+  sources: ["builder/search/models.py (DODGE_DISTANCE, dodge_roll)"]
+  status: proposed
+
+# (turn 3) MECHC42 / MECHC43's train-93 readers (recovery.py), each checked: three feed the headline through hand_mods or
+# the Mana sustain; three are play rows only (part-time effects: `play_row: true`, the user's 9 Nov uptime rule).
+
+- id: model-read-mechc42-killed-recently
+  title: '"N% increased Area of Effect / Attack Speed / Critical Hit Chance if you''ve Killed Recently" at the build''s own Kills (recovery.killed_recently_lines, MECHC42)'
+  kind: pob_gap
+  model: kills
+  match: '^\d+(?:\.\d+)?% increased (Area of Effect|Attack Speed|Critical Hit Chance) if you(''ve| have) killed Recently$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.KILLED_RECENTLY: each line as plain "N% increased <stat>" x the share of the fight with a Kill in the past
+    4 s at the build's own Kills (models.kill_rate: the boss preset's adds, own minions Killed, LOW), through hand_mods;
+    no Kills: 0. PoB's Condition:KilledRecently is set only by its configuration box.
+  sources: ["builder/search/recovery.py (KILLED_RECENTLY, killed_recently_lines)", "builder/search/assumptions.py"]
+  status: proposed
+
+- id: model-read-mechc42-frozen-regen
+  title: '"Regenerate N% of maximum Life per second while Frozen" at the share of the fight you are Frozen (recovery.frozen_bleeding_lines, MECHC42)'
+  kind: pob_gap
+  model: boss_ailments
+  match: '^Regenerate \d+(?:\.\d+)?% of maximum Life per second while Frozen$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.FROZEN_REGEN: "Regenerate N% of maximum Life per second" x boss_hits.boss_freeze_on_you's Frozen share,
+    through hand_mods (MEDIUM). The fixed Exclusive __1 line is a PoE1 leftover (R33-19, unreachable); the Cultivated
+    hand-wraps twin is the reachable carrier.
+  sources: ["builder/search/recovery.py (FROZEN_REGEN, frozen_bleeding_lines)"]
+  status: proposed
+
+- id: model-read-mechc42-mana-lost-on-kill
+  title: 'Arvil''s Wheel, "Lose N% of maximum Mana on Kill" in the Mana sustain at the build''s Kills (recovery.kill_loss_income, MECHC42)'
+  kind: pob_gap
+  model: kills
+  match: '^Lose \d+(?:\.\d+)?% of maximum Mana on Kill$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.KILL_LOSS: N% of maximum Mana x the build's Kills a second, subtracted in the Mana sustain (ManaLostOnKill);
+    no Kills: 0. The Energy Shield twin is a row only (the ES recovery pool reads no on-Kill events yet): left open.
+  sources: ["builder/search/recovery.py (KILL_LOSS, kill_loss_income)"]
+  status: proposed
+
+- id: play-row-mechc42-armour-while-frozen-or-bleeding
+  title: '"+N to Armour while Frozen" / "N% increased Armour while Bleeding" (recovery.frozen_bleeding_lines, MECHC42: play rows)'
+  kind: pob_gap
+  model: boss_ailments
+  play_row: true
+  match: '^(\+\d+(?:\.\d+)? to Armour while Frozen|\d+(?:\.\d+)?% increased Armour while Bleeding)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Part-time: they apply only while the boss has you Frozen / Bleeding (boss_hits' shares), so play rows with "without it
+    / with it" values, not in the defences: the user's 9 Nov uptime rule ("if something isn't active at least 7% of the
+    time, it's basically worthless": an effect up under ~7% of the fight can be left out) and the play guide's design.
+    If a model ever counts one in the headline, `play_row` must go.
+  sources: ["builder/search/recovery.py (FROZEN_ARMOUR, BLEEDING_ARMOUR, frozen_bleeding_lines)"]
+  status: proposed
+
+- id: play-row-mechc42-raised-shield-max-block
+  title: 'Carved Mischief, "+N% to maximum Block chance if you''ve Blocked with a raised Shield Recently" (recovery.raised_max_block_row, MECHC42: a play row)'
+  kind: pob_gap
+  model: block
+  play_row: true
+  match: '^\+\d+(?:\.\d+)? ?% to maximum Block chance if you''ve Blocked with a raised Shield Recently$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Part-time: it applies only within 4 s of a Block made with the shield raised (the build's own raised share), so a
+    play row, not in the defences: the user's 9 Nov uptime rule and the play guide's "without it / with it" design. If a
+    model ever counts it in the headline, `play_row` must go.
+  sources: ["builder/search/recovery.py (RAISED_MAX_BLOCK, raised_max_block_row)"]
+  status: proposed
+
+- id: play-row-mechc42-immaterial
+  title: 'Immaterial, "N% increased Evasion Rating if Energy Shield Recharge has started in the past 2 seconds" (recovery.recharge_started_row, MECHC42: a play row)'
+  kind: pob_gap
+  model: recharge
+  play_row: true
+  match: '^\d+(?:\.\d+)?% increased Evasion Rating if Energy Shield Recharge has started in the past 2 seconds$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Part-time: it applies only within 2 s of an Energy Shield recharge starting, so a play row, not in the defences: the
+    user's 9 Nov uptime rule and the play guide's "without it / with it" design. If a model ever counts it in the
+    headline, `play_row` must go.
+  sources: ["builder/search/recovery.py (RECHARGE_STARTED_EVASION, recharge_started_row)"]
+  status: proposed

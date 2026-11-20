@@ -87,3 +87,16 @@
   sources: ["builder/ledger/items.py (EXPLICIT_MAGNITUDE, magnitude_lines)", "vendor PoB Data/ModItem.lua 2495-2503, 1806",
             "scratch/manager/research/influence-rune-mods.md (R32-6), influence-rune-craft-route-and-weights.md (R33-23)"]
   status: proposed
+
+- id: model-read-mech90-saithas-spear
+  title: 'Saitha''s Spear, "Aggravating any Bleeding with this Weapon also Aggravates all Ignites on the target" (models.saitha_ignite_mods, MECH90)'
+  kind: pob_gap
+  model: saitha
+  match: '^Aggravating any Bleeding with this Weapon also Aggravates all Ignites on the target$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.SAITHA_LINE (7e48624f, train 93; RESEARCH33 R33-8): Aggravated Ignites from the build's own Bleed and Aggravate
+    rates, through hand_mods; 0 where every Bleed is already Aggravated or nothing Aggravates. PoB leaves the line unparsed.
+  sources: ["builder/search/models.py (SAITHA_LINE, saitha_ignite_mods)"]
+  status: proposed

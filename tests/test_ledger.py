@@ -240,8 +240,7 @@ def test_item_lines_a_model_already_reads_are_counted_by_the_audit():
         rolled = re.sub(r"\((-?[\d.]+)-(-?[\d.]+)\)", r"\1", line)
         assert pattern.search(rolled), line
         assert ignored_line_status(line, False)[0] == "model", line
-    for line in ("You gain Onslaught for 20 seconds on using a Vaal Skill",
-                 "+2 metres to Dodge Roll distance if you haven't Dodge Rolled Recently"):
+    for line in ("You gain Onslaught for 20 seconds on using a Vaal Skill",):  # (Lioneye's +2 m: read since COV45)
         assert ignored_line_status(line, False)[0] == "none", line
     # a socketed-jewel condition the Onslaught model doesn't check stays open
     assert ignored_line_status("With a Searching Eye Jewel Socketed, Attacks have 25% chance to grant Onslaught On Kill",
