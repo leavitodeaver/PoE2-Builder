@@ -10914,6 +10914,58 @@ def frenzy_poison_duration_mods(texts: list[str], flow: tuple | None) -> tuple[l
                  "Duration")}]
 
 
+# Spectral Fire (MECH92; RESEARCH35 R35-16, scratch/manager/research/spectral-fire-refresh-and-reignite.md; PoB ignores
+# Fairgraves' Curse's "Attack Hits inflict Spectral Fire for 8 seconds", ModCache 6613, so it counted plain Ignite DPS).
+# KeywordPopups SpectralFire (26650308): "Targets affected by a Spectral Fire Debuff do not take damage from Ignite.
+# Instead that damage feeds the Spectral Fire. When the Spectral Fire Debuff expires or the target dies, the Spectral
+# Fire explodes, dealing all the damage it has absorbed ... Damage modifiers do not apply to the explosion." The headline
+# (R35-16): a new hit does NOT restart the 8 s (MEDIUM-LOW: one source), so the Ignite lands as an explosion every 8 s,
+# the same amount on average; the explosion is the player's own Fire hit (0.4.0d) and so is resisted again (MEDIUM-LOW):
+# PoB's Ignite x its effectiveness against the boss (PoB's IgniteEffMult: Fire resistance with Exposure and curses,
+# damage taken; FireEffMult is written only in PoB's CALCS mode, probe POE2T5041; the explosion's own penetration not
+# counted: a lower reading), as "N% less Magnitude of Ignite". Rows: the debuff refreshing on each hit (the stored Ignite
+# lands only when the boss dies: Ignite adds nothing to the kill, x0 on it), not resisted again (PoB's own, x1), and
+# the explosion Igniting again (the ramp, LOW-MEDIUM: each explosion's Ignite feeds the next window; at PoB's Ignite per
+# Fire hit damage, k = IgniteDPS x IgniteDuration / FireHitAverage, the windows sum to 1 / (1 - k x eff) when that
+# converges, else it grows each window). An Attack main skill only (the line's "Attack Hits"); the last window's Ignite
+# lands as overkill at the boss's death (not counted: small over a long fight).
+SPECTRAL_FIRE = re.compile(r"^attack hits inflict spectral fire for (\d+(?:\.\d+)?) seconds$", re.I)
+SPECTRAL_FIRE_STATS = ["IgniteDPS", "IgniteDuration", "FireHitAverage", "IgniteEffMult", "CombinedDPS"]
+
+
+def spectral_fire_mods(texts: list[str], stats: dict, attack: bool) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for Fairgraves' Curse's Spectral Fire (the note above)."""
+    seconds = max((float(m.group(1)) for t in texts if (m := SPECTRAL_FIRE.match(t.strip()))), default=0.0)
+    if seconds <= 0:
+        return [], []
+    label = "Spectral Fire: the Ignite explodes every few seconds*"
+    ignite = max(number(stats.get("IgniteDPS")), 0.0)
+    if not attack or ignite <= 0:
+        return [], [{"label": label, "value": "no change", "confidence": "MEDIUM",
+                     "basis": ("the main skill isn't an Attack, so its hits inflict no Spectral Fire" if not attack else
+                               "the build deals no Ignite damage for it to absorb") + ": PoB's numbers stand"}]
+    eff = min(max(number(stats.get("IgniteEffMult")) or 1.0, 0.0), 1.0)
+    total = number(stats.get("CombinedDPS"))
+    per_hit = max(number(stats.get("FireHitAverage")), 0.0)
+    k = ignite * max(number(stats.get("IgniteDuration")), 0.0) / per_hit if per_hit > 0 else 0.0
+    ramp = k * eff
+    ramp_text = (f"x{1 / (1 - ramp):.2f} on the Ignite" if 0 < ramp < 1 else
+                 "it grows every window without bound" if ramp >= 1 else "no Ignite on the explosion (no Fire hit read)")
+    less = (1 - eff) * 100
+    mods = [line("1% less Magnitude of Ignite", less)] if less > 0 else []
+    share = ignite / total if total > 0 else 0.0
+    return mods, [{"label": label, "value": f"x{eff:.2f} on the Ignite ({share:.0%} of the damage)",
+                   "confidence": "MEDIUM-LOW",
+                   "basis": (f"the boss takes no Ignite damage while it carries Spectral Fire; each {seconds:g} s window's "
+                             f"Ignite ({ignite:,.0f} a second, PoB's) explodes when the debuff runs out (a new hit "
+                             "doesn't restart it: R35-16, MEDIUM-LOW, one source), as your own Fire hit, so resisted "
+                             f"again: x{eff:.2f} (PoB's Ignite effectiveness against the boss, its Fire resistance "
+                             "and damage taken; your penetration not counted; MEDIUM-LOW). Rows: if each hit "
+                             "restarted it, the stored Ignite lands only at the boss's death (x0 on the Ignite, "
+                             f"{(1 - share):.0%} of the damage left); not resisted again, x1 (PoB's); if the explosion "
+                             f"Ignites again (the ramp, LOW-MEDIUM), {ramp_text}. PoB ignores the line")}]
+
+
 # Saitha's Spear's Aggravated Ignites (MECH90; RESEARCH33 R33-8, scratch/manager/research/aggravate-ignite-saitha.md; an
 # UNDERCOUNT: PoB leaves "Aggravating any Bleeding with this Weapon also Aggravates all Ignites on the target" unparsed,
 # ModCache 5578). KeywordPopups AggravateIgnite: an Aggravated Ignite "deals 100% extra damage" until it expires (HIGH; no

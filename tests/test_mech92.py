@@ -163,6 +163,24 @@ def test_frightening_shields_debilitate_rides_bastions_taps():
     assert far[0] == 0.0 and "beyond" in far[1]
 
 
+def test_spectral_fire_resists_the_exploded_ignite_again():
+    """MECH92 (R35-16): Fairgraves' Curse's Spectral Fire explodes each 8 s window's Ignite as your own Fire hit,
+    resisted again: PoB's Ignite x IgniteEffMult as less Ignite Magnitude; rows for refresh-on-hit, x1 and the ramp."""
+    from builder.search import models
+
+    line = ["Attack Hits inflict Spectral Fire for 8 seconds"]
+    stats = {"IgniteDPS": 400.0, "IgniteDuration": 4.0, "FireHitAverage": 4000.0, "IgniteEffMult": 0.6,
+             "CombinedDPS": 1000.0}
+    mods, notes = models.spectral_fire_mods(line, stats, True)
+    assert mods == [{"kind": "Line", "line": "1% less Magnitude of Ignite", "scale": pytest.approx(40.0)}]
+    assert "x0.60 on the Ignite (40% of the damage)" == notes[0]["value"]
+    assert "x1.32 on the Ignite" in notes[0]["basis"]  # (the ramp row: k = 400 x 4 / 4000 = 0.4, x0.6: 1 / 0.76)
+    # not an Attack, or no Ignite: PoB's numbers stand
+    assert models.spectral_fire_mods(line, stats, False)[0] == []
+    assert models.spectral_fire_mods(line, {**stats, "IgniteDPS": 0.0}, True)[0] == []
+    assert models.spectral_fire_mods([], stats, True) == ([], [])
+
+
 @pytest.fixture(scope="module")
 def engine():
     import faulthandler
@@ -230,3 +248,23 @@ def test_the_tree_jewels_bases_are_read_from_the_allocated_sockets(engine):
     jewels = sorted(str(i.get("base")) for i in engine.call("facts", fields=[])["items"] if i.get("type") == "Jewel")
     print("PROBE tree jewels", jewels)
     assert "Ruby" in jewels and "Sapphire" in jewels
+
+
+def test_spectral_fire_reads_pobs_fire_effectiveness(engine):
+    """MECH92 probe: the Spectral Fire model's stats come back from PoB for a Fire skill (IgniteEffMult in (0, 1] against
+    the boss; IgniteDPS and the Fire hit read)."""
+    from builder.request.schema import BuildRequest
+    from builder.search import models
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Fireball"))
+    skeleton = enumerate_skeletons(Context(payload), ["Fireball"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    search.settle()
+    stats = search.build.call("stats", fields=models.SPECTRAL_FIRE_STATS)
+    print("PROBE spectral", stats)
+    assert 0 < models.number(stats.get("IgniteEffMult")) <= 1
+    assert models.number(stats.get("FireHitAverage")) > 0 and "IgniteDPS" in stats

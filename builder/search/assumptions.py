@@ -3505,6 +3505,11 @@ class Assumptions:
                 turmoil_texts, saitha_stats, main.name if main is not None else None,
                 bool(main is not None and main.attack), getattr(build, "enemy_shares", None))
             hand_mods, hand_notes = hand_mods + saitha_mods, hand_notes + saitha_notes
+        if any(models.SPECTRAL_FIRE.match(t.strip()) for t in turmoil_texts):  # (MECH92, R35-16: PoB ignores the line)
+            spectral_mods, spectral_notes = models.spectral_fire_mods(
+                turmoil_texts, build.call("stats", fields=models.SPECTRAL_FIRE_STATS),
+                bool(main is not None and main.attack))
+            hand_mods, hand_notes = hand_mods + spectral_mods, hand_notes + spectral_notes
         djinn, djinn_mods, djinn_notes = djinn_commands(build, main)  # (MECH83: the Disciple's djinn Commands; PoB 0)
         hand_mods, hand_notes = hand_mods + djinn_mods, hand_notes + djinn_notes
         briar, briar_notes = briarpatch(build, main, found)  # (MECHB31: Briarpatch's creation hit, PoB 0)
