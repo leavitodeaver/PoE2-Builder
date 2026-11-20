@@ -183,3 +183,49 @@
     headline, `play_row` must go.
   sources: ["builder/search/recovery.py (RECHARGE_STARTED_EVASION, recharge_started_row)"]
   status: proposed
+
+# (turn 3b, train 94) MECHC43's 96ec2ef8 readers, each checked in recovery.py / assumptions.py.
+
+- id: model-read-mechc43-damage-per-poison-on-you
+  title: '"N% increased Damage for each Poison on you up to a maximum of N%" at the build''s own Poisons on you (recovery.per_poison_lines, MECHC43)'
+  kind: pob_gap
+  model: poisons_on_you
+  match: '^\d+(?:\.\d+)?% increased Damage for each Poison on you up to a maximum of \d+(?:\.\d+)?%$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.PER_POISON_DAMAGE (96ec2ef8, train 94; R33-19: reachable on the Cultivated hand-wraps, with "Poison you
+    inflict is Reflected to you"): "1% increased Damage" x the capped count of Poisons on you from the build's own
+    reflected Poisons, through hand_mods. The fixed Exclusive __1 line is unreachable (R33-19).
+  sources: ["builder/search/recovery.py (PER_POISON_DAMAGE, poisons_on_you, per_poison_lines)"]
+  status: proposed
+
+- id: play-row-mechc43-chaos-resistance-per-poison-on-you
+  title: '"+N% to Chaos Resistance per Poison on you" (recovery.per_poison_lines, MECHC43: a play row)'
+  kind: pob_gap
+  model: poisons_on_you
+  play_row: true
+  match: '^\+\d+(?:\.\d+)?% to Chaos Resistance per Poison on you$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Part-time: the count of Poisons on you rises and falls with your own Poisons, so the floors (which count only what is
+    up all fight) leave it out and it is a play row with "without it / with it" values: the user's 9 Nov uptime rule
+    ("if something isn't active at least 7% of the time, it's basically worthless") and the play guide's design. If a
+    model ever counts it in the headline, `play_row` must go. (The Movement Speed twin stays open: a row because no
+    number of ours reads Movement Speed, not a part-time effect.)
+  sources: ["builder/search/recovery.py (PER_POISON_CHAOS, per_poison_lines)"]
+  status: proposed
+
+- id: model-read-mechc43-life-spent-regen
+  title: '"Regenerate N Life per second per N Life spent in the past 4 seconds" at the build''s own Life spent (recovery.life_spent_regen, MECHC43)'
+  kind: pob_gap
+  model: life_spent
+  match: '^Regenerate \d+(?:\.\d+)? Life per second per \d+ Life spent in the past 4 seconds$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.LIFE_SPENT_REGEN (96ec2ef8, train 94): "Regenerate 1 Life per second" x the regen from the build's Life
+    spent a second (its Life costs), through hand_mods; no Life cost: 0.
+  sources: ["builder/search/recovery.py (LIFE_SPENT_REGEN, life_spent_regen)"]
+  status: proposed

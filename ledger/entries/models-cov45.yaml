@@ -1,0 +1,17 @@
+# COV45 (COV-A; train 94, MECHC43's 96ec2ef8): gem stats a custom model now reads (kind: model with `stats`, the
+# models-cov43.yaml / models-cov44.yaml form).
+
+- id: model-mechc43-multiple-charges-per-action
+  title: 'skill_can_add_multiple_charges_per_action: without it a skill use grants one Charge of each type (conditions._per_use_joined, MECHC43)'
+  kind: model
+  model: charges
+  stats: ['skill_can_add_multiple_charges_per_action']
+  confidence: MEDIUM
+  notes: >-
+    MECHC43 (96ec2ef8, train 94; RESEARCH33 R33-17, MEDIUM / UNVERIFIED for PoE2). conditions.MULTI_CHARGE_STAT, read from
+    the main skill's level and support stats when the build has two or more charge lines: without the flag, the charge
+    lines of one type fed by the main skill's uses are joined as one chance a use (1 - prod(1 - e_i)); with it, added.
+    So the stat moves the charge rates (an OVERCOUNT before for unflagged skills). PoB reads it nowhere. The flagged
+    skills' extra hits a use are not read (MECHC43's named UNDERCOUNT).
+  sources: ["builder/search/conditions.py (MULTI_CHARGE_STAT, _per_use_joined)"]
+  status: proposed

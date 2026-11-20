@@ -1336,3 +1336,35 @@ def test_train93_reads_and_play_rows():
     for line in ("1% increased Chaos Damage over Time per Volatility", "Lose 1% of maximum Energy Shield on Kill",
                  "Volatile Power also grants 1% increased Critical Hit chance per Volatility exploded"):
         assert model_entry(line) is None and play_row_entry(line) is None, line
+
+
+def test_train94_reads():
+    """COV45 (train 94, MECHC43's 96ec2ef8): skill_can_add_multiple_charges_per_action is model-read (charge lines joined
+    one a use without it); Damage per Poison on you and Life-spent regen are model-read; Chaos Resistance per Poison on you
+    is a play row; the Movement Speed twin stays open."""
+    from builder.ledger import coverage, model_entry, play_row_entry
+    from builder.search import conditions, recovery
+
+    assert conditions.MULTI_CHARGE_STAT == "skill_can_add_multiple_charges_per_action"
+    assert coverage.stat_covered(coverage.stat_entries(), conditions.MULTI_CHARGE_STAT, "Orb of Storms") == (
+        "model", "model-mechc43-multiple-charges-per-action")
+    for line, entry, pattern in (
+            ("15% increased Damage for each Poison on you up to a maximum of 75%", "model-read-mechc43-damage-per-poison-on-you",
+             recovery.PER_POISON_DAMAGE),
+            ("Regenerate 1 Life per second per 10 Life spent in the past 4 seconds", "model-read-mechc43-life-spent-regen",
+             recovery.LIFE_SPENT_REGEN)):
+        assert (found := model_entry(line)) is not None and found.id == entry and pattern.match(line), line
+    line = "+12% to Chaos Resistance per Poison on you"
+    assert model_entry(line) is None and play_row_entry(line).id == "play-row-mechc43-chaos-resistance-per-poison-on-you"
+    assert recovery.PER_POISON_CHAOS.match(line)
+    speed = "17% increased Movement Speed for each Poison on you up to a maximum of 50%"
+    assert model_entry(speed) is None and play_row_entry(speed) is None
+
+
+def test_verisium_manifestations_is_a_modelled_skill():
+    """COV45 (train 94, MECHB42's bae8fb78): Verisium Manifestations, 0 in PoB alone before, is scored by the bridge's
+    minion and models.verisium_model."""
+    from builder.ledger import coverage
+    from builder.search import models
+
+    assert coverage.MODELED_SKILLS["Verisium Manifestations"] == "model:verisium" and models.VERISIUM == "Verisium Manifestations"

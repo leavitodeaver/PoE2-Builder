@@ -1169,7 +1169,10 @@ def record_order(record: dict) -> tuple[str, ...]:
 
 # Skills our own models give damage, or an assumption gives a trigger rate (builder/search/models.py, assumptions.py)
 MODELED_SKILLS = {"Iron Ward": "iron-ward-store", "Elemental Expression": "elemental-expression-trigger",
-                  "Transmutation Explosion": "assumption:remnants"}
+                  "Transmutation Explosion": "assumption:remnants",
+                  # (COV45, train 94: MECHB42's bae8fb78: engine/bridge.lua adds the Manifestation minion and its attack,
+                  # models.verisium_model the number alive from the main Attack's hits and the Runic Ward paid)
+                  "Verisium Manifestations": "model:verisium"}
 DAMAGE_STATS = ("CombinedDPS", "TotalDPS", "TotalDotDPS", "FullDPS", "AverageDamage")
 
 
