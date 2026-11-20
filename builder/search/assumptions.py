@@ -3118,6 +3118,14 @@ class Assumptions:
                 f"Chilled Ground {ground:.0%}: {ground_how}; Frozen {frozen:.0%}", infused, infused_how,
                 bosses.hit_radius(stats)[0], forbidden)
             hand_mods, hand_notes = hand_mods + frost_mods, hand_notes + frost_notes
+        if main is not None and group and main.name in (models.SPARK, models.FREEZING_SHARDS):  # (MECHB45, R35-15)
+            spark_mods, spark_notes = models.group_exception_model(
+                main, {**stats, **build.call("stats", fields=["ProjectileCount", "Duration"])}, forbidden)
+            hand_mods, hand_notes = hand_mods + spark_mods, hand_notes + spark_notes
+        if main is not None and group and main.name in models.CROSSBOW_SEQUENCE_RATIO:  # (MECHB45, R35-15)
+            bolt_mods, bolt_notes = models.crossbow_sequence_model(
+                main, {**stats, **build.call("stats", fields=["ProjectileCount"])}, forbidden)
+            hand_mods, hand_notes = hand_mods + bolt_mods, hand_notes + bolt_notes
         if main is not None and group and main.name in models.WHIRL_SKILLS:  # (GEM12: Whirlwind stages, then collapse)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             whirl_mods, whirl_notes = models.whirlwind_stage_model(main, sets, forbidden, previous=self.mods)

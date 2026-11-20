@@ -5098,7 +5098,7 @@ def salvo_model(skills: list[Skill], stats: dict, main: Skill | None, config: di
     else:
         metres = MELEE_DISTANCE if main.melee else RANGED_DISTANCE
         where = "the tool's natural distance for the main skill"
-    every = main.name in SHOTGUN_SKILLS | SEQUENCE_SKILLS
+    every = main.name in SHOTGUN_SKILLS | SEQUENCE_SKILLS | GROUP_RULE_ALL_HIT  # (MECHB45: R35-15's exceptions)
     radius, radius_how = bosses.hit_radius(stats)
     upper, _ = bosses.hit_radius(stats, "upper")
     big = bosses.HIT_RADIUS[bosses.LARGEST_RADIUS]
@@ -12249,9 +12249,10 @@ def rod_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[lis
 # with projectiles_can_shotgun, projectiles_crossbow_barrage or projectiles_barrage):
 # - shotgun (projectiles_can_shotgun: all can hit one target): SHOTGUN_SKILLS. PoB reads nothing of it; counted as more
 #   damage, 2 x the chance over the skill's projectile count (PoB's ProjectileCount; all of them assumed to hit the boss);
-# - fired in sequence (projectiles_crossbow_barrage: the crossbow skills; projectiles_barrage: Oil Barrage): PoB's own
-#   SequentialProjectiles path counts PoB's TwoAdditionalProjectilesChance (more DPS per projectile and the extra attack
-#   time each costs, CalcOffence), so the chance goes to PoB as that modifier.
+# - fired in sequence (projectiles_crossbow_barrage: the crossbow skills; projectiles_barrage: Oil Barrage): the chance
+#   goes to PoB as its TwoAdditionalProjectilesChance. (MECHB45: PoB's SequentialProjectiles path, CalcOffence 1114,
+#   needs SkillType.Barrageable, which none of these has, so PoB only raises ProjectileCount: probe POE2T4663. The
+#   crossbow skills' projectiles are counted by crossbow_sequence_model; Oil Barrage's are not, UNVERIFIED.)
 # "While moving": a skill usable while moving (skill type UsableWhileMoving) fired while walking, a way to play the build,
 # said in the guide, unless the build stands still (its stationary lines, the Standing still box); other skills: none.
 # Ice Fragments is a shotgun skill by its own stat set (IceFragmentsPlayer: projectiles_can_shotgun), so it stays for
@@ -12266,15 +12267,19 @@ SEQUENCE_SKILLS = frozenset({"Crossbow Shot", "Explosive Shot", "High Velocity R
 # and crossbow skills are exempt (KeywordPopups 122). Bows: one arrow of a plain shot's spread hits a target, MEDIUM-HIGH
 # (R35-15: Multishot adds projectiles with no sequence stat; PoB counts one; player reports; no counted test), "all
 # arrows hit" a LOW row; Barrage's repeats, Freezing Salvo, rain skills and each arrow's own area uncapped. Other
-# skills: which leave together is R35-15's open classification, so a one-per-target reading there is UNVERIFIED.
-# No new cap is added anywhere until R35-15 classifies a skill (the manager, 04:15).
+# skills (MECHB45, R35-15's landed table): a non-crossbow skill's additional projectiles fire in a spread (KeywordPopups
+# 122's contrast with crossbows), one group, so one hit a target: MEDIUM (the rule's wording; no test). Its exceptions
+# (each can hit): sequence / crossbow (SEQUENCE_SKILLS, crossbow_sequence_model), projectiles_can_shotgun
+# (SHOTGUN_SKILLS), the skill's own text (Freezing Shards; Spark's once per 0.66 s), conjured darts (Frost Darts, the
+# user's test), rain / repeats (each its own area or group). No new cap is added on the keyword alone (the manager, 04:15).
+GROUP_RULE_ALL_HIT = frozenset({"Frost Darts", "Freezing Shards"})  # (the user's test 20 Nov; its own text)
 def group_rule_label(main_types: set[str] | None) -> tuple[str, str]:
     """(confidence, words) for a one-projectile-per-target reading of the main skill (see above)."""
     if "Bow" in (main_types or set()):
         return "MEDIUM-HIGH", ("one arrow of a shot's spread a target (RESEARCH35 R35-15, MEDIUM-HIGH; all arrows hitting "
                                "a LOW row)")
-    return "UNVERIFIED", ("one projectile of the group a target, if they leave together (KeywordPopups 74; which skills "
-                          "fire together is RESEARCH35 R35-15's open question: UNVERIFIED)")
+    return "MEDIUM", ("one projectile of a group fired together a target (KeywordPopups 74; RESEARCH35 R35-15: a "
+                      "non-crossbow skill's additional projectiles fire in a spread, MEDIUM on the rule's wording, no test)")
 
 
 RUN_AND_GUN = re.compile(r"^Projectile Attacks have a (\d+(?:\.\d+)?)% chance to fire two additional Projectiles while moving$",
@@ -12300,8 +12305,10 @@ def run_and_gun_model(texts: list[str], stats: dict, main: Skill | None, main_ty
     if main.name in SEQUENCE_SKILLS:
         return [raw_mod("TwoAdditionalProjectilesChance", "BASE", chance, main.name)], [{
             "label": label, "value": chance, "confidence": "theory",
-            "basis": f"{main.name} fires its projectiles in sequence: PoB counts the chance as its own "
-                     f"TwoAdditionalProjectilesChance (more damage per projectile, more attack time each); {play}"}]
+            "basis": f"{main.name} fires its projectiles in sequence: the chance goes to PoB as its "
+                     f"TwoAdditionalProjectilesChance, which raises PoB's ProjectileCount only (its sequence DPS path "
+                     f"needs the Barrageable type: probe POE2T4663), and crossbow_sequence_model counts the projectiles "
+                     f"(MECHB45; Oil Barrage's: not counted, UNVERIFIED); {play}"}]
     count = max(number(stats.get("ProjectileCount")), 1.0)
     more = 100.0 * 2 * chance / 100 / count
     return [line("1% more Damage", more, skill=main.name)], [{
@@ -17848,11 +17855,11 @@ def minion_projectile_notes(texts: list[str]) -> list[dict]:
         return []
     return [{"label": "Minions' extra Projectile chance on the boss*", "value": "no change",
              "basis": (f"+{chance:g}% Surpassing chance (about {chance / 100:.2f} extra Projectiles a use): against a lone "
-                       "boss only one Projectile of a group can hit it if they leave together (KeywordPopups 74; which "
-                       "skills do: RESEARCH35 R35-15, UNVERIFIED) unless the skill "
+                       "boss only one Projectile of a group can hit it (KeywordPopups 74; RESEARCH35 R35-15: a "
+                       "non-crossbow skill's extra projectiles fire in a spread, one group, MEDIUM) unless the skill "
                        "can shotgun, and no player minion skill can (game files). PoB doesn't apply the line either. "
                        "With adds (not modelled) the extra Projectiles would hit other targets"),
-             "play": "", "confidence": "UNVERIFIED"}]  # (MECHB44: R35-15 pending, the group rule's scope)
+             "play": "", "confidence": "MEDIUM"}]  # (MECHB45: R35-15's table, the rule's wording; no test)
 
 
 def splinter_model(main: Skill, group: list[Skill], stats: dict) -> tuple[list[dict], list[dict]]:
@@ -18461,7 +18468,7 @@ def tornado_copy_model(main: Skill | None, main_types: set[str], stats: dict, to
     factor = per_use * firing / (firing + 1 / tornado_speed)
     how = (f"{count:g} arrow(s) a use, each sucked in and copied into a ring of which one copy hits the boss at "
            f"{penalty:+g}% more (one copy of the ring a target: the ring leaves together, KeywordPopups 74; MEDIUM, "
-           f"RESEARCH35 R35-15 pending), against {direct:g} direct "
+           f"RESEARCH35 R35-15: a ring fired at once is the rule's own case), against {direct:g} direct "
            f"hit(s): x{per_use:.3f} a use; a Tornado takes {hits:g} arrows or lasts {duration:g} s, so {uses:.2f} uses "
            f"({firing:.2f} s) a Tornado, and each Tornado costs a {TORNADO_SHOT} use ({1 / tornado_speed:.2f} s)")
     if factor <= 1:
@@ -18521,3 +18528,122 @@ def projectile_hit_recently_model(texts: list[str], rates: dict[str, tuple[float
                    "basis": basis, "play": "Hit with a Projectile Attack at least every few seconds (a thrown spear, an "
                                            "arrow) to keep the melee bonus up",
                    "confidence": "MEDIUM (LOW where a side skill's rate is the search's chosen press rate)"}]
+
+
+# Projectile skills the group rule doesn't cap (MECHB45; RESEARCH35 R35-15, research/projectile-group-rule-scope.md; an
+# UNDERCOUNT: PoB scores one projectile hit a use for both, checked by reading their skill data (no DPS multiplier, part or
+# config: Data/Skills/act_int.lua SparkPlayer / FreezingShardsPlayer; CalcOffence 1114's projectile-count DPS needs the
+# Barrageable type, which neither has) and by probe POE2T4663). KeywordPopups 74 caps only a group fired "from the same
+# source at the same time ... unless otherwise specified"; these two specify otherwise in their own text (game 26650308):
+# - Spark: "Projectiles fired at the same time can [Hit] the same target no more than once every {0} seconds"
+#   (spark_min_time_between_target_clearing_ms 660 on SparkPlayer and the Infused / Earthbound sets; spark/statset_0.csd),
+#   its sparks living base_skill_effect_duration 2 s (PoB's Duration, with the build's duration modifiers). So one cast's
+#   sparks can hit a boss once per 0.66 s window of their life: at most min(sparks, floor(life / 0.66)) hits a cast (the
+#   first hit taken a moment after the cast, so floor, not ceil: the lower reading; the ceil reading is a row). Each cast
+#   is its own group, so overlapping casts each hit. Headline: every window finds a spark on the boss, cast point-blank
+#   into it (the manager's ruling of 14 Nov for GEM2's Merging fragments, by the user's rule of 9 Nov: a condition the
+#   player controls counts when the build leans into it, with "without it" and a play note). LOW: whether a spark that
+#   touches the boss inside a window passes through and comes back, and how many wander back, is UNVERIFIED (no file says;
+#   the research question is in MECHB45's report).
+# - Freezing Shards (an item's skill): "Launch icy Projectiles in a sweeping arc. Multiple Projectiles can hit the same
+#   enemy." Headline: all its projectiles (PoB's ProjectileCount, base 5) at point-blank (the same ruling); LOW: how much of
+#   the arc a boss covers is UNVERIFIED (no arc stat in its set).
+# Without it (PoB): one hit a use, x1. Main skill only (another group's copy keeps PoB's one: an undercount, said).
+GROUP_EXCEPTION_ENTRY = "model-mechb45-projectile-group-exceptions"
+SPARK, FREEZING_SHARDS = "Spark", "Freezing Shards"
+SPARK_REHIT, SPARK_LIFE = 0.66, 2.0  # spark_min_time_between_target_clearing_ms 660; base_skill_effect_duration 2000
+FREEZING_SHARDS_BASE = 5.0  # FreezingShardsPlayer base_number_of_projectiles
+
+
+def group_exception_model(main: Skill | None, stats: dict,
+                          forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Spark's and Freezing Shards' hits a use on one boss, against PoB's one (see above)."""
+    if main is None or main.name not in (SPARK, FREEZING_SHARDS) or GROUP_EXCEPTION_ENTRY in forbidden:
+        return [], []
+    count = number(stats.get("ProjectileCount"))
+    if main.name == SPARK:
+        sparks = max(count, 1.0)
+        life = number(stats.get("Duration")) or SPARK_LIFE
+        windows = max(1, math.floor(life / SPARK_REHIT + 1e-9))
+        upper = max(1, math.ceil(life / SPARK_REHIT - 1e-9))
+        hits, high = min(sparks, windows), min(sparks, upper)
+        label = "Spark: one cast's sparks hit the boss once per 0.66 s of their life*"
+        basis = (f"{sparks:g} sparks a cast living {life:.2f} s (PoB's Duration); the game lets one cast's sparks hit the "
+                 f"same target once per {SPARK_REHIT:g} s (spark_min_time_between_target_clearing_ms 660; its text), so "
+                 f"at most min({sparks:g}, floor({life:.2f} / {SPARK_REHIT:g})) = {hits:g} hits a cast against PoB's 1. "
+                 f"LOW: cast point-blank, every window taken to find a spark on the boss (whether sparks pass through it "
+                 f"during a window and wander back is UNVERIFIED). Rows: the first hit at once, ceil: x{high:g}; "
+                 "without it (PoB): x1")
+        play = (f"Cast Spark point-blank into the boss so its sparks keep crossing it: one cast hits up to {hits:g} "
+                f"times (once per {SPARK_REHIT:g} s while they live); from range, as few as 1 (PoB's x1).")
+    else:
+        hits = max(count, FREEZING_SHARDS_BASE)
+        label = "Freezing Shards: several of a cast's shards hit the boss*"
+        basis = (f"its text: \"Multiple Projectiles can hit the same enemy\" (an exception to KeywordPopups 74); all "
+                 f"{hits:g} shards of the arc taken to hit at point-blank (LOW: how much of the arc a boss covers is "
+                 "UNVERIFIED) against PoB's one. Without it (PoB): x1")
+        play = (f"Cast Freezing Shards point-blank so the whole arc lands on the boss: x{hits:g}; from range, as few as "
+                "one shard (PoB's x1).")
+    if hits <= 1:
+        return [], [{"label": label, "value": "x1", "confidence": "LOW", "entry": GROUP_EXCEPTION_ENTRY,
+                     "basis": basis + ": nothing to add"}]
+    return [raw_mod("DPS", "MORE", 100 * (hits - 1), main.name)], [{
+        "label": label, "value": f"x{hits:g}", "confidence": "LOW", "entry": GROUP_EXCEPTION_ENTRY,
+        "basis": basis, "play": play}]
+
+
+# Crossbow skills' additional projectiles fired in sequence (MECHB45; RESEARCH35 R35-15; an UNDERCOUNT, probe POE2T4663).
+# The game (26650308): KeywordPopups 122, "Multiple Projectiles fired from a single Crossbow skill can all hit the same
+# target, and single-Projectile skills fire additional Projectiles in sequence rather than in a spread"; the skills
+# carry projectiles_crossbow_barrage (ImplicitStats of MeleeCrossbowPlayer, ExplosiveShotPlayer, HighVelocityRoundsPlayer,
+# GlacialBoltPlayer, RapidShotPlayer, ArmourPiercingBoltsPlayer, IceShardsPlayer, ShockburstRoundsPlayer,
+# CrossbowRequiemPlayer: every player set with it, checked with scratch/mechb45/carriers.py over GrantedEffectStatSets),
+# and the first four also crossbow_barrage_attack_time_ratio_% 10. PoB means to count them (SkillStatMap 2847 maps the
+# ratio to BarrageAttackTimePenalty, "actual handling ... in CalcOffence"; CalcOffence 1114-1126: DPS x the projectile
+# count, each additional projectile adding the penalty % of attack time, 100% if the skill gives none), but that path
+# needs SkillType.Barrageable, which no crossbow skill has (PoB act_*.lua): probe POE2T4663, Rapid Shot / High Velocity
+# Rounds / Armour Piercing Rounds with 1, 2 and 3 projectiles all read the same TotalDPS. So, PoB's own reading applied
+# here: DPS x N (PoB's ProjectileCount, which carries Run and Gun's TwoAdditionalProjectilesChance) and attack time
+# +ratio% per additional projectile. Skills with no ratio stat: PoB's default 100% (x1 on DPS, so nothing applied),
+# UNVERIFIED, with the 10% reading as a row. MEDIUM where the ratio is in the files (KeywordPopups 122 says they all hit;
+# whether an extra bolt spends ammunition is UNVERIFIED, taken as no, as PoB's path takes it). Main skill only.
+# Permafrost Bolts, Incendiary Shot, Fragmentation Rounds and Galvanic Shards are GEM2's Merging fragments (SHOTGUN_SKILLS:
+# shotgun_fragments_share), not this.
+CROSSBOW_SEQUENCE_ENTRY = "model-mechb45-crossbow-sequence-projectiles"
+CROSSBOW_SEQUENCE_RATIO = {"Crossbow Shot": 10.0, "Explosive Shot": 10.0, "High Velocity Rounds": 10.0,
+                           "Glacial Bolt": 10.0, "Rapid Shot": None, "Armour Piercing Rounds": None, "Ice Shards": None,
+                           "Shockburst Rounds": None, "Requiem": None}  # crossbow_barrage_attack_time_ratio_% or None
+CROSSBOW_DEFAULT_RATIO, CROSSBOW_ROW_RATIO = 100.0, 10.0  # PoB's default when unspecified; the sibling skills' 10
+
+
+def crossbow_sequence_model(main: Skill | None, stats: dict,
+                            forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """A crossbow skill's additional projectiles in sequence, all hitting one target (see above)."""
+    if main is None or main.name not in CROSSBOW_SEQUENCE_RATIO or CROSSBOW_SEQUENCE_ENTRY in forbidden:
+        return [], []
+    count = number(stats.get("ProjectileCount"))
+    extra = count - 1
+    if extra <= 1e-9:
+        return [], []
+    ratio = CROSSBOW_SEQUENCE_RATIO[main.name]
+    label = f"{main.name}: its additional projectiles fire in sequence and all hit the boss*"
+    row = count / (1 + CROSSBOW_ROW_RATIO / 100 * extra)
+    if ratio is None:
+        flat = count / (1 + CROSSBOW_DEFAULT_RATIO / 100 * extra)
+        return [], [{"label": label, "value": f"x{flat:.3f}", "confidence": "UNVERIFIED", "entry": CROSSBOW_SEQUENCE_ENTRY,
+                     "basis": (f"{count:g} projectiles a use, all can hit one target (KeywordPopups 122); {main.name} "
+                               "carries no crossbow_barrage_attack_time_ratio_%, so each additional one taken to add "
+                               f"100% of the attack time (PoB's default for that case): x{flat:.3f}, nothing applied "
+                               f"(UNVERIFIED). Row: at its sibling skills' 10% each, x{row:.3f}. PoB counts none of them "
+                               "(its sequence path needs the Barrageable type: probe POE2T4663)")}]
+    factor = count / (1 + ratio / 100 * extra)
+    return ([raw_mod("DPS", "MORE", 100 * extra, main.name),
+             raw_mod("SkillAttackTime", "MORE", ratio * extra, main.name)],
+            [{"label": label, "value": f"x{factor:.3f}", "confidence": "MEDIUM", "entry": CROSSBOW_SEQUENCE_ENTRY,
+              "basis": (f"{count:g} projectiles a use fired in sequence, all hitting one target (KeywordPopups 122), each "
+                        f"additional one adding {ratio:g}% of the attack time (crossbow_barrage_attack_time_ratio_%): "
+                        f"x{count:g} damage over x{1 + ratio / 100 * extra:.2f} attack time = x{factor:.3f}. PoB means to "
+                        "count this (BarrageAttackTimePenalty) but its path needs the Barrageable type, which crossbow "
+                        "skills lack (probe POE2T4663: 1-3 projectiles, the same DPS). Whether an extra bolt spends "
+                        "ammunition: UNVERIFIED, taken as no (PoB's reading)"),
+              "play": f"{main.name}'s extra projectiles all hit a single boss: x{factor:.3f} (without them, x1)."}])

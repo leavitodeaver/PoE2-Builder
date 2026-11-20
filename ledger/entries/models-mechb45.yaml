@@ -1,0 +1,45 @@
+# MECH-B's model entries (MECHB45).
+
+- id: model-mechb45-projectile-group-exceptions
+  title: "Spark and Freezing Shards: several projectiles of a cast hit one boss (models.group_exception_model)"
+  kind: model
+  model: group_exception_model
+  skill: ["Spark", "Freezing Shards"]
+  confidence: theory
+  notes: >-
+    An UNDERCOUNT: PoB scores one projectile hit a use for both (no DPS multiplier in their skill data; CalcOffence
+    1114's projectile-count path needs the Barrageable type; probe POE2T4663). KeywordPopups 74 caps only a group fired
+    "from the same source at the same time ... unless otherwise specified" (RESEARCH35 R35-15), and both specify
+    otherwise. Spark (game 26650308 spark/statset_0.csd; poe2db Spark, 0.5): "Projectiles fired at the same time can Hit
+    the same target no more than once every 0.66 seconds", sparks living 2 s (PoB's Duration): min(sparks,
+    floor(life / 0.66)) hits a cast, each cast its own group; the ceil reading a row. Freezing Shards: "Multiple
+    Projectiles can hit the same enemy": all its projectiles. Both at point-blank (the manager's 14 Nov ruling for GEM2's
+    Merging fragments: a condition the player controls, with "without it" x1 and a play note). LOW: whether Spark's
+    sparks pass through the boss inside a window and wander back, and how much of Freezing Shards' arc a boss covers, are
+    UNVERIFIED (routed to RESEARCH). Main skill only.
+  sources: [builder/search/models.py (group_exception_model), builder/search/assumptions.py (after Frost Darts),
+            data/game-26650308/files/data/statdescriptions/specific_skill_stat_descriptions/spark/statset_0.csd,
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/projectile-group-rule-scope.md (R35-15)"]
+  status: proposed
+
+- id: model-mechb45-crossbow-sequence-projectiles
+  title: "Crossbow skills' additional projectiles fire in sequence and all hit one target (models.crossbow_sequence_model)"
+  kind: model
+  model: crossbow_sequence_model
+  skill: ["Crossbow Shot", "Explosive Shot", "High Velocity Rounds", "Glacial Bolt", "Rapid Shot", "Armour Piercing Rounds",
+          "Ice Shards", "Shockburst Rounds", "Requiem"]
+  confidence: theory
+  notes: >-
+    An UNDERCOUNT: probe POE2T4663 (Rapid Shot, High Velocity Rounds, Armour Piercing Rounds with 1, 2, 3 projectiles:
+    the same TotalDPS). KeywordPopups 122 (game 26650308): "Multiple Projectiles fired from a single Crossbow skill can
+    all hit the same target, and single-Projectile skills fire additional Projectiles in sequence". PoB means to count
+    them (SkillStatMap: crossbow_barrage_attack_time_ratio_% -> BarrageAttackTimePenalty; CalcOffence 1114-1126) but
+    the path needs SkillType.Barrageable, which no crossbow skill has. Applied here as PoB intends: DPS x the projectile
+    count, attack time + ratio% per additional projectile (10% on Crossbow Shot, Explosive Shot, High Velocity Rounds,
+    Glacial Bolt: MEDIUM). Rapid Shot, Armour Piercing Rounds, Ice Shards, Shockburst Rounds, Requiem carry no ratio:
+    PoB's default 100% (x1), UNVERIFIED, the 10% reading a row. Ammunition per extra bolt UNVERIFIED (taken as none).
+    Run and Gun's crossbow chance reaches it through PoB's ProjectileCount.
+  sources: [builder/search/models.py (crossbow_sequence_model), builder/search/assumptions.py (after Frost Darts),
+            "data/game-26650308/tables/KeywordPopups.json (Crossbow)", "data/game-26650308/tables/GrantedEffectStatSets.json",
+            scratch/mechb45/p4663.log]
+  status: proposed

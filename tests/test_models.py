@@ -1905,8 +1905,8 @@ def test_run_and_gun_counts_for_shotgun_and_sequence_fired_skills_while_moving()
     assert models.run_and_gun_model(line, {}, galvanic, {"Attack", "Projectile"}, False)[0] == []  # not used while moving
     arrow = models.Skill("Lightning Arrow", group=1, attack=True)
     mods, notes = models.run_and_gun_model(line, {}, arrow, moving, False)
-    # (MECHB44: the group rule labelled by R35-15: a bow's spread MEDIUM-HIGH, others UNVERIFIED; an all-hit LOW row)
-    assert mods == [] and "one projectile of the group" in notes[0]["basis"] and notes[0]["confidence"] == "UNVERIFIED"
+    # (MECHB44 / MECHB45: the group rule labelled by R35-15: a bow's spread MEDIUM-HIGH, others MEDIUM; an all-hit LOW row)
+    assert mods == [] and "one projectile of a group" in notes[0]["basis"] and notes[0]["confidence"] == "MEDIUM"
     bow = models.run_and_gun_model(line, {}, arrow, moving | {"Bow"}, False)[1][0]
     assert bow["confidence"] == "MEDIUM-HIGH" and "R35-15" in bow["basis"] and "Row (LOW)" in bow["basis"]
     assert models.run_and_gun_model([], {}, galvanic, moving, False) == ([], [])
@@ -6639,7 +6639,7 @@ def test_the_minions_extra_projectile_chance_is_a_labelled_no_change_on_a_boss()
     assert models.minion_projectile_notes(["Minions deal 10% increased Damage"]) == []
     notes = models.minion_projectile_notes(["Minions have +75% Surpassing chance to fire an additional Projectile"])
     assert notes[0]["value"] == "no change" and "R35-15" in notes[0]["basis"] and "0.75" in notes[0]["basis"]
-    assert notes[0]["confidence"] == "UNVERIFIED"  # (MECHB44: the group rule's scope is R35-15's open question)
+    assert notes[0]["confidence"] == "MEDIUM"  # (MECHB45: R35-15's table, a spread is one group)
 
 
 def test_full_salvo_and_demolitionist_count_the_ammo_and_grenades_the_build_fires_each_window():
@@ -6769,3 +6769,31 @@ def test_a_side_orb_fires_cast_bolts_only_while_you_stand_in_its_radius():
     none = models.orb_cycle(orb, main, 0.0, near=False)
     assert none[1] < half[1] < full[1] and "stand in your Orb's radius" in half[2]["basis"]
     assert "casts/s near the Orb (a play strategy" in half[2]["basis"]  # (play_guide.ORB_NEAR_WORDS finds the row)
+
+
+def test_group_exception_model_spark_and_freezing_shards():
+    # (MECHB45, R35-15) Spark: one cast's sparks hit a boss once per 0.66 s of their life, at most one per spark
+    mods, notes = models.group_exception_model(SPARK, {"ProjectileCount": 9, "Duration": 2.0})
+    assert notes[0]["value"] == "x3" and mods[0]["value"] == pytest.approx(200)
+    assert notes[0]["confidence"] == "LOW" and "x4" in notes[0]["basis"]  # (the ceil row)
+    mods, notes = models.group_exception_model(SPARK, {"ProjectileCount": 2, "Duration": 4.0})
+    assert notes[0]["value"] == "x2"  # (two sparks: at most two hits)
+    mods, notes = models.group_exception_model(SPARK, {"ProjectileCount": 9, "Duration": 0.5})
+    assert mods == [] and notes[0]["value"] == "x1"
+    shards = Skill("Freezing Shards", group=1, spell=True, cast_time=1.2)
+    mods, notes = models.group_exception_model(shards, {"ProjectileCount": 6})
+    assert notes[0]["value"] == "x6" and mods[0]["value"] == pytest.approx(500)
+    assert models.group_exception_model(Skill("Frostbolt", group=1, spell=True), {"ProjectileCount": 3}) == ([], [])
+    assert models.group_exception_model(SPARK, {"ProjectileCount": 9}, {models.GROUP_EXCEPTION_ENTRY}) == ([], [])
+
+
+def test_crossbow_sequence_model():
+    # (MECHB45, R35-15; probe POE2T4663: PoB counts one of a crossbow skill's projectiles)
+    hvr = Skill("High Velocity Rounds", group=1, attack=True)
+    mods, notes = models.crossbow_sequence_model(hvr, {"ProjectileCount": 3})
+    assert [m["value"] for m in mods] == [pytest.approx(200), pytest.approx(20)]
+    assert notes[0]["value"] == "x2.500" and notes[0]["confidence"] == "MEDIUM"
+    assert models.crossbow_sequence_model(hvr, {"ProjectileCount": 1}) == ([], [])
+    mods, notes = models.crossbow_sequence_model(Skill("Rapid Shot", group=1, attack=True), {"ProjectileCount": 3})
+    assert mods == [] and notes[0]["value"] == "x1.000" and "x2.500" in notes[0]["basis"]
+    assert models.crossbow_sequence_model(Skill("Permafrost Bolts", group=1, attack=True), {"ProjectileCount": 9}) == ([], [])
