@@ -1,0 +1,49 @@
+# COV47 (20 Nov 2026): item lines a model on main already reads, which the audit still counted open.
+
+# Serle's Grit's "(40-50) to (80-100) added Physical Thorns damage per Runic Plate": MECH-B's runic_tempering_model
+# (7e997f5c, train 98; entry model-mechb44-runic-tempering, scoped to the skill Runic Tempering) reads it from the item
+# text (models.RUNIC_PLATE_THORNS) as PoB's "N to M Physical Thorns damage" at the plates held per hit. PoB leaves the
+# line with leftover text, so it never applies it (Classes/Item.lua's `not modLine.extra`): nothing to negate. The
+# pob_gap + model + empty replacement form, so a carrier the search rolls (the audit lists an affix form too) stays
+# offerable and the model still reads the line.
+- id: model-read-cov47-runic-plate-thorns
+  title: 'Serle''s Grit, "N to M added Physical Thorns damage per Runic Plate" (models.runic_tempering_model, MECHB44 / train 98)'
+  kind: pob_gap
+  model: runic_tempering_model
+  match: '^\d+ to \d+ added Physical Thorns damage per Runic Plate$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.runic_tempering_model: the plates' added Thorns at the plates held when hit, averaged over every hit the boss
+    lands ((P + 1) / 2 on a plated hit x the plated share), with Runic Tempering's cycle (MEDIUM-LOW plate rate). PoB
+    never applied the line (leftover text), so no negation.
+  sources: ["builder/search/models.py (RUNIC_PLATE_THORNS, runic_tempering_model)", "ledger/entries/models-mechb44.yaml (model-mechb44-runic-tempering)"]
+  status: proposed
+
+# MECH92's train-99 readers (62f72966 on main since train 99, d4d31ab0; the manager 04:08; drafted by COV46).
+- id: model-read-mech92-volatility-regain
+  title: '"N% chance that when Volatility on you explodes, you regain an equivalent amount of Volatility" (Instability, Ancient Rune of Decay; models.volatility_model, MECH92)'
+  kind: pob_gap
+  model: volatility
+  match: '^\d+(?:\.\d+)?% chance that when Volatility on you explodes, you regain an equivalent amount of Volatility$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.VOLATILITY_REFRESH (62f72966, train 99): the expected count of explosions over regains in a row (the summed
+    chance kept under VOLATILITY_REFRESH_MAX 0.95), in the Volatility cycle. PoB reads no Volatility (an UNDERCOUNT
+    before).
+  sources: ["builder/search/models.py (VOLATILITY_REFRESH, volatility_model)"]
+  status: proposed
+
+- id: model-read-mech92-volatility-on-kill
+  title: '"N% chance to gain Volatility on Kill" (passives, jewels, the hand-wraps line; models.volatility_model, MECH92)'
+  kind: pob_gap
+  model: volatility
+  match: '^\d+(?:\.\d+)?% chance to gain Volatility on Kill$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.VOLATILITY_ON_KILL (62f72966, train 99): Volatility at the build's own kill rate (0 on a lone boss with no
+    kills) x the chance, in the Volatility cycle. PoB reads no Volatility (an UNDERCOUNT before).
+  sources: ["builder/search/models.py (VOLATILITY_ON_KILL, volatility_model)"]
+  status: proposed

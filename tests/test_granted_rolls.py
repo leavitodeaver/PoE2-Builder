@@ -172,3 +172,10 @@ def test_the_auspex_unpriced_assumes_its_researched_level_15():
     unpriced = Context.granted_versions(SimpleNamespace(ssf=False, unique_versions={}, price_cap=50.0), option)
     assert len(unpriced) == 1 and unpriced[0].describe()["granted_level"] == 15
     assert models.granted_level_notes([("The Auspex", unpriced[0].raw, unpriced[0].granted_basis)])[0]["value"] == 15
+    # COV47: its labels say the researched 15 (R35-7) and the unsettled endgame reading, not "an endgame copy"
+    note = models.granted_level_notes([("The Auspex", unpriced[0].raw, unpriced[0].granted_basis)])[0]
+    assert "R35-7" in note["basis"] and "endgame copy, item level ~80" not in note["basis"]
+    assert note["confidence"] == "medium" and "up to the endgame 18" in note["basis"]
+    shop = granted_roll_note(raw, None, unpriced[0].describe()["granted_level"])
+    assert shop.startswith("* The build assumes Mist Raven at level 15 of 1-20: the level research found")
+    assert "may grant up to 18" in shop

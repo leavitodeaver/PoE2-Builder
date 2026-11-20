@@ -311,6 +311,11 @@ def granted_roll_note(raw: str, chosen=None, assumed: int | None = None) -> str 
         return None
     parts = ", ".join(f"{skill} at level {level} of {low}-{high}"
                       for level, low, high, skill in map(models.granted_level, matches))
+    if assumed and assumed < granted_rolls.ENDGAME_LEVEL:  # (COV47) a level research settled (KNOWN_LEVELS)
+        return (f"* The build assumes {parts}: the level research found for this unique (poe2db and Fextralife; "
+                f"MEDIUM confidence); an endgame copy may grant up to {granted_rolls.ENDGAME_LEVEL} (unsettled). Its "
+                "levels aren't priced yet, the Price unique versions job prices them. The price shown is poe.ninja's "
+                "for the cheapest copy of any level: check the level before you buy.")
     if assumed:
         return (f"* The build assumes {parts}: an endgame copy, item level ~80; lower-level copies grant less "
                 "(MEDIUM confidence; its levels aren't priced yet, the Price unique versions job prices them). The price "

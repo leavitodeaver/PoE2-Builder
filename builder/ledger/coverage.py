@@ -764,6 +764,13 @@ def resolver_condition(line: str):
             # the events it has rated since: your Poisons / Ignites / Shocks (WHEN_YOU_AILMENT, MECH63's Murkshaft line),
             # the boss's Stuns on you (MECHC25's Blinding Flash), a raised shield's Blind (MECHC21's Bastion of Light), and
             # a Warcry-subject line with no "when" (MECH78)
+            # (COV47) and the two event kinds conditions._debuff_source rates since MECH85 / MECH92, with its own exclusions:
+            # your Heavy Stuns of the boss ("Enemies you Heavy Stun (while Shapeshifted) are Intimidated", models.
+            # heavy_stun_rate) and your Immobilises / Pins ending (Fearful Paralysis, Lockdown; models.immobilise_rate)
+            if "heavy stun" in when and not re.search(r"\bkill|immobilis|burning|socketed|\bfrozen by\b", when):
+                return condition
+            if ("immobilis" in when or "unpinned" in when) and not re.search(r"\bkill|shapeshift|burning|socketed", when):
+                return condition
             if not re.search(r"\bkill|heavy stun|immobilis|shapeshift|burning|socketed|\bfrozen by\b", when) and (
                     re.search(r"presence|you curse|fully (?:armour )?break|block|hit you|critical|on hit|stun you", when)
                     or c.WHEN_YOU_AILMENT.search(when)

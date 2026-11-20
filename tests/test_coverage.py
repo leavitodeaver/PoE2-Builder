@@ -1456,3 +1456,22 @@ def test_cov46_train97_readers_and_no_double_count_of_the_main_spell():
     bond = "Gain 3 Volatility when an Allied Persistent Reviving Minion is Killed"
     assert model_entry(bond).id == "model-read-mechb44-unstable-bond" and translate(bond)[1] == []
     assert coverage.MODELED_SKILLS["Mist Raven"] == "model-mechb44-mist-raven"
+
+
+def test_cov47_train98_and_99_readers_are_model_read():
+    """COV47: Serle's Grit's per-plate Thorns (MECHB44's runic_tempering_model, train 98) and MECH92's Volatility lines
+    (train 99) are model-read through empty pob_gap translations; the audit's copy of the condition resolver's events
+    counts your Heavy Stuns (MECH85) and Immobilises / Pins ending (MECH92) as rated, as conditions._debuff_source does."""
+    from builder.ledger import coverage, model_entry, translate
+
+    for line, entry in (("45 to 90 added Physical Thorns damage per Runic Plate", "model-read-cov47-runic-plate-thorns"),
+                        ("25% chance that when Volatility on you explodes, you regain an equivalent amount of Volatility",
+                         "model-read-mech92-volatility-regain"),
+                        ("3% chance to gain Volatility on Kill", "model-read-mech92-volatility-on-kill")):
+        assert model_entry(line).id == entry and translate(line)[1] == []
+    for line, var in (("Enemies are Intimidated for 4 seconds when you Immobilise them", "conditionEnemyIntimidated"),
+                      ("Enemies are Maimed for 4 seconds after becoming Unpinned", "conditionEnemyMaimed"),
+                      ("Enemies you Heavy Stun while Shapeshifted are Intimidated for 6 seconds", "conditionEnemyIntimidated")):
+        assert coverage.resolver_condition(line).var == var, line
+    # a kill event the resolver rates 0 stays open
+    assert coverage.resolver_condition("Enemies you Kill while Shapeshifted are Intimidated for 4 seconds") is None

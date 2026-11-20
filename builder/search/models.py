@@ -1935,6 +1935,13 @@ def granted_level_notes(items: list[tuple]) -> list[dict]:
                                "unique versions job prices its levels: the price shown meanwhile is poe.ninja's for the "
                                "cheapest copy of any level", "medium"),
                    "middle": ("PoB's middle roll (SSF: the level of a copy you find isn't known)", "theory")}[basis]
+            from builder.search import granted_rolls  # (lazy: granted_rolls imports this module)
+            if basis == "endgame" and granted_rolls.KNOWN_LEVELS.get(name) == level:
+                # (COV47) a level research settled below the endgame 18 (The Auspex's 15, R35-7), not "an endgame copy"
+                why = (f"the level research found for {name} (granted_rolls.KNOWN_LEVELS: poe2db and Fextralife list "
+                       f"Level {level}, R35-7, MEDIUM-HIGH); the other reading, UNSETTLED: an item-level-80 copy may "
+                       f"grant up to the endgame {granted_rolls.ENDGAME_LEVEL}. ASSUMED until the Price unique versions "
+                       "job prices its levels", "medium")
             notes.append({"label": f"{name}'s {skill}: level {level} assumed", "value": level,
                           "basis": f"the item rolls 'Grants Skill: Level ({low}-{high}) {skill}'; the build assumes "
                                    f"{level}: {why[0]} (builder/search/granted_rolls.py). The item's level sets it, "
