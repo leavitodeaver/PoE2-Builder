@@ -13877,8 +13877,14 @@ def echoing_power_model(skills: list[Skill], rows: dict[str, dict], attacks: flo
 # (warcry_empowers), and each Empowered attack of the main skill adds the Cold. The id says "per 5 Power up to cap", the
 # text gives a flat range: the text is taken (the lower reading, as Vruun's Aftermath's), the id's reading (x Power / 5) in
 # the note (UNVERIFIED which holds). Its buff's added Cold to Allies' Attacks (minions): arctic_howl_buff below
-# (MECHB42). Not counted (open): Empowered Slams' Chilled Ground (MECH-A's grounds); warcry_minimum_benefit_if_monster_power_present (no description) is read as
-# nothing.
+# (MECHB42). Not counted (open): Empowered Slams' Chilled Ground (MECH-A's grounds). warcry_minimum_benefit_if_monster_power_present
+# (an implicit of Infernal, Seismic, Fortifying Cry, Ferocious Roar and Arctic Howl; no stat description, PoB maps it to
+# nothing) is read as nothing; its likely meaning, at least one step of benefit while any Power is present, is
+# UNVERIFIED, and it can't bind against the boss presets (MECHB43; checked: every preset is a Unique, BOSS_POWER 20; the
+# Power stats in game 26650308 Stats / Mods / PassiveSkills (ids with "power" and monster / warcry / enemy): the only cut
+# is Echoing Cry's support_echoing_cry_warcry_monster_power_+%_final -50, the rest raise it (warcry_monster_power_+% 5-55,
+# Redblade's +100% final), so Power' >= 10, and the steps are 10 (Infernal, Seismic), 8 (Roar), 5 (Howl, Fortifying):
+# floor(Power' / step) >= 1 already. Second source: poe2db Monster_Power "Unique monsters always have 20 Power").
 ARCTIC_HOWL = "Arctic Howl"
 UNBUFFED_WARCRIES = {ARCTIC_HOWL}  # (Warcries PoB makes no buff for, so no Num<Name>Empowers: GEM14's find, by name)
 ARCTIC_HOWL_COLD = ("wolf_warcry_empowered_attack_cold_damage_min_per_5_power_up_to_cap",
@@ -13995,15 +14001,37 @@ LL_LIMIT = ("base_number_of_living_lightning_allowed", 5.0)
 # (Living Lightning II's trigger has its 0.2 s Cooldown and 8 stored uses on its level-1 row only, levels 2-40 0 / 0:
 # GrantedEffectsPerLevel 26650308 TriggeredLivingLightningPlayerTwo; it is a SingleLevelSkill, so the game uses level 1,
 # but the bridge's granted-level copy hands PoB its level-20 row: no cooldown, probe POE2T4628. So a missing cooldown
-# is the level-1 row's 0.2 s, MEDIUM)
+# is the level-1 row's 0.2 s, MEDIUM. No other player skill PoB scores has a level-1-only cooldown or limit (checked,
+# MECHB43: game 26650308 GrantedEffectsPerLevel, every field of every effect, level 1 against level 20 (or its top level):
+# only this one and a monster's, MDExpeditionHermitSpiderFireball; GrantedEffectStatSetsPerLevel, every additional,
+# float, implicit stat and flag, crit and multiplier: Soulbreaker's 11% crit (no PoB skill data: PoB scores it 0), Demon
+# Magus's triggered_by_meta_minion flag and the unused "[DNT-UNUSED] Shadow Thief Slash" (neither in PoB), the curses' and
+# Thunderstorm's target-level caps (rising per level, none from 18: MECH33's and GEM15's notes); PoB's Data/Skills: MECHB42's
+# SingleLevelSkill scan, the same one. Second source: poe2db Living_Lightning_II "Cooldown Time: 0.20 s (8 Times)" and
+# patch 0.4.0 "Cooldown count of 8", RESEARCH34 R34-5; poe2db not searched for other skills' level-1-only rows.)
 LL_COOLDOWN = 0.2
+# One minion per Lightning HIT, not per use (RESEARCH34 R34-5, MEDIUM-HIGH: "Trigger Living Lightning on dealing Lightning
+# Damage", 100% chance; chayula-tornado-living-lightning-lightning-stun.md): a use hitting the boss k times makes up to k,
+# capped by the cooldown (0.2 s, Cooldown Recovery applies since 0.3.1) and the limit. k = the hits on the boss PoB itself
+# scores a use: its TotalDPS / (AverageHit x hit chance x Speed), its own projectile count / DPS multipliers in (CullMultiplier
+# divided out), at least 1 (MEDIUM: Repeats PoB doesn't score aren't counted, an undercount there). One per use as a row.
+
+
+def ll_hits_a_use(row: dict) -> float:
+    """Hits on the boss a use of the skill whose useRates row this is, as PoB scores them (see above); 1 when unreadable."""
+    speed, hit = number(row.get("speed")), number(row.get("AverageHit"))
+    chance = min(number(row.get("HitChance")) or 100.0, 100.0) / 100
+    dps = number(row.get("TotalDPS")) / max(number(row.get("cullMultiplier")) or 1.0, 1.0)
+    if speed <= 0 or hit <= 0 or chance <= 0 or dps <= 0:
+        return 1.0
+    return max(1.0, dps / (hit * chance * speed))
 
 
 def living_lightning_model(parts: list[dict]) -> tuple[float, list[dict]]:
     """(added DPS, notes) for the build's Living Lightning groups. Each part: source (the supported skill), hits (its
-    hits a second), lightning (whether it deals Lightning hit damage), cooldown (the trigger's, s), level (its level
+    hits on the boss a second), uses (its uses that hit, a second; default hits), lightning (whether it deals Lightning hit damage), cooldown (the trigger's, s), level (its level
     stats), zap (PoB's AverageDamage of one Zap) and pob (PoB's own Full DPS entry, or None)."""
-    total, parts_how = 0.0, []
+    total, row, dispersed, parts_how = 0.0, 0.0, 0.0, []
     for p in parts:
         level = p.get("level") or {}
         attacks = number(level.get(LL_ATTACKS[0])) or LL_ATTACKS[1]
@@ -14020,8 +14048,13 @@ def living_lightning_model(parts: list[dict]) -> tuple[float, list[dict]]:
         made, why = min(caps, key=lambda c: c[0]) if p.get("lightning") else (0.0, f"{p.get('source')} deals no Lightning hit")
         dps = made * attacks * zap
         total += dps
+        dispersed += made
+        uses = number(p.get("uses")) if p.get("uses") is not None else hits
+        per_use = min([uses] + [c[0] for c in caps[1:]]) if p.get("lightning") else 0.0
+        row += per_use * attacks * zap
         pob = p.get("pob")
-        parts_how.append(f"{made:.2f} minions/s ({why}) x {attacks:g} Zaps x {zap:,.1f} a Zap = {dps:,.1f} DPS"
+        parts_how.append(f"{made:.2f} minions/s ({why}; {hits / uses if uses > 0 else 1:.2f} hits on the boss a use) x "
+                         f"{attacks:g} Zaps x {zap:,.1f} a Zap = {dps:,.1f} DPS"
                          + (f" (PoB's own entry: {number(pob):,.1f}, as one minion attacking all fight)" if pob else ""))
     if not parts:
         return 0.0, []
@@ -14029,11 +14062,65 @@ def living_lightning_model(parts: list[dict]) -> tuple[float, list[dict]]:
             "basis": ("Triggered on dealing Lightning damage with the supported skill, its minions Attack every 0.14 s "
                       "and disperse after 3 Attacks (the game's text): " + "; ".join(parts_how) + ". PoB scores a minion "
                       "that never disperses: its entry is replaced (an OVERCOUNT before, where it was in Full DPS). "
-                      "MEDIUM: one hit on the boss a use of the supported skill (a lower reading for a skill that hits "
-                      "it more often, up to the cooldown's cap)"),
+                      "One minion per Lightning hit on the boss (RESEARCH34 R34-5, MEDIUM-HIGH), the hits a use as PoB "
+                      "scores them (MEDIUM), up to the cooldown's and the limit's caps; one minion per use instead: "
+                      f"{row:,.1f} DPS (a row). Its minions aren't Persistent, so their dispersal feeds no minion-death "
+                      "model (Cast on Minion Death needs Persistent minions since 0.2.0, HIGH; 'Killed' effects never; "
+                      f"'dies' effects: no, MEDIUM-LOW, RESEARCH34 R34-4); if a dispersal counted as a death: "
+                      f"{dispersed:.2f} a second (a row, not counted)"),
             "play": "Living Lightning needs the supported skill to deal Lightning damage; its minions fire 3 Zaps each",
             "confidence": "MEDIUM", "full_dps": {LIVING_LIGHTNING: 0.0}}
     return total, [note]
+
+
+# Dark Effigy's Vile Effusion (MECHB43, an OVERCOUNT of one projectile a volley; RESEARCH34 R34-7, research/dark-effigy-
+# debuff-count.md). The game (ActiveSkills / poe2db Dark_Effigy): "Fire a Projectile at every nearby enemy that is afflicted
+# by a Chaos damage over time Debuff. Fires multiple Projectiles at enemies afflicted by multiple Debuffs": on a lone boss,
+# a volley = the distinct Chaos-DoT debuff TYPES on it (the Debuff keyword: "Debuffs of the same type do not stack"; Poison
+# stacks add none, MEDIUM; forum 3626927 / 3773666 / 3775944), 0 with none. PoB (act_int.lua 4920): DPS MORE 100 per the
+# enemy's Multiplier:ChaosDebuff, which Contagion, Essence Drain, Profane Ritual, Soulrend (each skill's GlobalEffect
+# Debuff, act_int.lua 4008 / 6657 / 16053 / 19825), Decaying Hex (sup_int.lua 2861) and Vile Effusion's own Poison line
+# (under the PLAYER's Condition Poisoned, not the boss's: counted in PoB's k when that box is on) each set to 1: x (1 + k), one more
+# projectile than the game's k, always on (probe POE2T4635: Essence Drain alone, PoB's TotalDPS / AverageHit / Speed = 2).
+# Here: k' = the sum, over the debuff types the build keeps on the boss, of each one's uptime: a skill's min(1, its uses
+# a second (PoB's use rate x the press model's share) x its Duration) (MEDIUM); Poison 1 while the resolver has the boss
+# Poisoned (MEDIUM); Decaying Hex 1 when a curse it supports is in the build (curses are kept up: MECH33's curse_uses;
+# R34-7's headline MEDIUM-LOW; the row: it doesn't count). Vile Effusion's DPS x k' / (1 + k) as a DPS MORE on it.
+# Withered never counts (a damage-taken debuff, HIGH). Other Chaos-DoT debuffs (a chaos ground, an item's) aren't counted:
+# an UNDERCOUNT where a build has one (R34-7: MEDIUM-LOW that they count). Rows: Decaying Hex not counting; one per Poison
+# stack (LOW).
+VILE_EFFUSION = "Vile Effusion"
+EFFIGY_DEBUFF_SKILLS = ("Contagion", "Essence Drain", "Profane Ritual", "Soulrend")  # (PoB's ChaosDebuff setters)
+DECAYING_HEX = "Decaying Hex"
+
+
+def dark_effigy_model(debuffs: list[tuple[str, float, str]], pob_debuffs: int, hex_up: float,
+                      poisoned: float) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for Vile Effusion: `debuffs` (skill, its uptime on the boss, how) for the build's Chaos-DoT debuff
+    skills, `pob_debuffs` the ChaosDebuff count PoB uses (its k), `hex_up` Decaying Hex's (1 or 0), `poisoned` the boss's
+    Poisoned share (1 / 0)."""
+    skills_up = sum(min(1.0, max(0.0, up)) for _, up, _ in debuffs)
+    game = skills_up + hex_up + poisoned
+    pob = 1 + max(0, pob_debuffs)
+    factor = game / pob
+    parts = [f"{name} {min(1.0, up):.0%} ({how})" for name, up, how in debuffs]
+    parts += [f"Decaying Hex {hex_up:.0%} (a curse it supports, kept up; R34-7 MEDIUM-LOW)"] if hex_up else []
+    parts += ["Poison 100% (the boss Poisoned; once, not per stack)"] if poisoned else []
+    note = {"label": "Dark Effigy: one Vile Effusion projectile per Chaos-DoT debuff on the boss*",
+            "value": f"{game:.2f} a volley, not PoB's {pob}",
+            "basis": ("Vile Effusion fires one projectile per Chaos damage-over-time Debuff type on the boss (RESEARCH34 "
+                      "R34-7, MEDIUM; same-type debuffs don't stack, Poison stacks add none): "
+                      + ("; ".join(parts) if parts else "none on the boss: no projectiles")
+                      + f" = {game:.2f}. PoB fires 1 + its {pob_debuffs} debuff(s) = {pob} (an OVERCOUNT of one a volley; "
+                      f"0 debuffs: 1, not 0): x{factor:.2f}. Rows: Decaying Hex not counting, {game - hex_up:.2f}; one per "
+                      "Poison stack (LOW, not computed). Not counted: Chaos-DoT debuffs from grounds or items (an "
+                      "UNDERCOUNT where the build has one)"),
+            "play": ("Keep your Chaos damage-over-time debuffs (" + ", ".join(n for n, _, _ in debuffs) + ") on the boss: "
+                     "each adds a Vile Effusion projectile" if debuffs else ""),
+            "confidence": "MEDIUM"}
+    if abs(factor - 1) < 1e-9:
+        return [], [note]
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), VILE_EFFUSION)], [note]
 
 
 # Verisium Manifestations (MECHB42; RESEARCH33 R33-10, research/verisium-manifestation-numbers.md; an UNDERCOUNT: PoB had
@@ -14070,8 +14157,10 @@ def verisium_model(rune: Skill, hits: float, cooldown: float, duration: float, p
             "basis": (f"one a {cooldown:.3g} s cooldown on an Attack hit ({hits:.2f} hits/s of the main skill): {planned:.2f} "
                       f"a second planned, {made:.2f} paid for by Runic Ward (30 a summon at level 20{'; ' + paid_how if paid_how else ''}), "
                       f"x {seconds:g} s each = {alive:.2f} alive (limit {limit:g}); PoB scores one Manifestation (the minion "
-                      "added from the game's rows: Physical x0.70 x1.5, a 1.0 s attack, MEDIUM-LOW; R33-10), its entry x "
-                      "that. 0 before (PoB had no minion for it: an UNDERCOUNT)"),
+                      "added from the game's rows: Physical x0.70 x1.5, R33-10; a 1.0 s attack, MEDIUM: RESEARCH34 R34-8, "
+                      "its attack_01 timeline 1.0 s with the launch at 0.4 s, matching AttackSpeed 1000), its entry x "
+                      "that. 0 before (PoB had no minion for it: an UNDERCOUNT). Row: a 0.5 s attack (a LOW what-if, no "
+                      f"source supports it): twice that, {2 * alive:.2f} Manifestations' worth"),
             "play": ("Keep Runic Ward recovering and attack: each Attack hit summons a Manifestation while Ward pays for it "
                      f"(without Ward: 0; with it: {alive:.1f} of {limit:g} up)"),
             "confidence": "MEDIUM-LOW", "full_dps": {MANIFEST_RUNE: alive}}
@@ -14100,22 +14189,32 @@ CHAYULA_TORNADO_SECONDS = 8.0  # its base_skill_effect_duration (when PoB gives 
 ARCHON_BUFF_SECONDS = 10.0  # KeywordPopups Archon: "By default, each Archon Buff lasts 10 seconds"
 
 
-def chayulas_will_model(tornado: Skill, archons: float, archons_how: str,
-                        duration: float = 0.0) -> tuple[list[dict], list[dict], set[int]]:
+def chayulas_will_model(tornado: Skill, archons: float, archons_how: str, duration: float = 0.0,
+                        archon_seconds: float = 0.0, moving: tuple[float, str] = (0.0, "")
+                        ) -> tuple[list[dict], list[dict], set[int]]:
     """(mods, notes, Full DPS groups): Chayula's Will's attacks a second as its trigger rate, from `archons` (Archon of
-    Chayula uses a second, how `archons_how`) and the tornado's `duration` (PoB's; 0: its base 8 s)."""
+    Chayula uses a second, how `archons_how`), the tornado's `duration` (PoB's; 0: its base 8 s), the Archon's own
+    `archon_seconds` (the build's Archon duration; 0: the base 10 s) and the boss preset's `moving` ceiling (a row)."""
     seconds = duration if duration > 0 else CHAYULA_TORNADO_SECONDS
-    per_archon = math.floor(ARCHON_BUFF_SECONDS / CHAYULA_TORNADO_EVERY + 1e-9)
+    lasts = archon_seconds if archon_seconds > 0 else ARCHON_BUFF_SECONDS
+    per_archon = math.floor(lasts / CHAYULA_TORNADO_EVERY + 1e-9)
     hits = max(0.0, archons) * per_archon * seconds / CHAYULA_TORNADO_ATTACK
+    at_start = max(0.0, archons) * (per_archon + 1) * seconds / CHAYULA_TORNADO_ATTACK
+    share, share_how = moving
     note = {"label": "Chayula's Will: Archon of Chayula's tornadoes*", "value": f"{hits:.2f} attacks/s",
             "basis": (f"{archons:.4f} Archons a second ({archons_how}) x {per_archon} tornadoes an Archon (one every "
-                      f"{CHAYULA_TORNADO_EVERY:g} s of its {ARCHON_BUFF_SECONDS:g} s: the Archon keyword's default "
-                      "duration, poe2db's Archon buff 'Duration: 10'; none counted as it starts, UNVERIFIED) x one attack every "
-                      f"{CHAYULA_TORNADO_ATTACK:g} s for its {seconds:g} s (each tornado chases the boss: taken to stay "
-                      "on it, MEDIUM). PoB gives the triggered tornado no rate (0 before: an UNDERCOUNT)"),
+                      f"{CHAYULA_TORNADO_EVERY:g} s of its {lasts:g} s: 10 s at base, KeywordPopups Archon and poe2db's "
+                      "Archon buff 'Duration: 10', with the build's Archon duration lines; the first at 3 s, none as it "
+                      "starts: RESEARCH34 R34-3, MEDIUM-LOW, UNVERIFIED) x one attack every "
+                      f"{CHAYULA_TORNADO_ATTACK:g} s for its {seconds:g} s (each tornado chases the boss and Slows it "
+                      "near it: taken to stay on a lone boss its whole Duration, outliving the Archon, R34-3 MEDIUM). "
+                      "PoB gives the triggered tornado no rate (0 before: an UNDERCOUNT). Rows: one at the start too, "
+                      f"{per_archon + 1} an Archon: {at_start:.2f} attacks/s"
+                      + (f"; the boss moving at its most ({share_how}): {hits * (1 - share):.2f} attacks/s"
+                         if share > 0 else "")),
             "play": ("Become the Archon whenever your Glory is full: each one conjures Chaos tornadoes that chase the "
                      f"boss (without it 0; with it {per_archon} tornadoes an Archon)"),
-            "confidence": "MEDIUM"}
+            "confidence": "MEDIUM-LOW"}
     if hits <= 0 or tornado.group is None:
         return [], [note], set()
     return trigger_rate(CHAYULAS_WILL, hits), [note], {tornado.group}
@@ -14988,6 +15087,61 @@ def different_skills_counts(skills: list[Skill], main: Skill | None, persistent:
         notes.append({"label": f"Different Non-Instant Spells Cast Recently ({RECENTLY:g} s)", "value": len(recent),
                       "basis": ", ".join(recent) + f": the same play, over Recently ({RECENTLY:g} s), for Rapid Casting III "
                                "and the Kurgal wand suffix (\"... you've Cast Recently\")", "confidence": "MEDIUM"})
+    return mods, notes
+
+
+# Full Salvo and Demolitionist (MECHB43; routed from MECHC43 / MECH89's never-on rows; an UNDERCOUNT: PoB 0). Full Salvo
+# (Deadeye's notable, "Allocates Full Salvo" on items): "25% increased Damage with Crossbows for each type of Ammunition
+# fired in the past 10 seconds"; Demolitionist: "Gain 4% of Damage as Extra Fire Damage for every different Grenade fired
+# in the past 8 seconds". PoB parses both whole behind Multiplier:DifferentAmmoFired / DifferentGrenadeFired (ModParser
+# 1557-1558), capped at the build's distinct ammo / grenade skills (AmmoTypes / GrenadeTypes, CalcPerform 1398-1407), and
+# only its config boxes set the two multipliers (ConfigOptions 1657-1661; checked: grep of builder/ and engine/ for
+# DifferentAmmoFired / DifferentGrenadeFired before this change: none), so both lines counted 0. From the build (CLAUDE.md's
+# no-flat-rates rule): the distinct gems typed CrossbowAmmoSkill / Grenade (the game's skill types, gem data) the player
+# fires at least once a window: the main skill, and each other one of the build that isn't triggered, Meta or a totem's
+# and whose cooldown allows a use per window (a play strategy: fire each that often; the "only the main skill" row in the
+# note), as different_skills_counts reads its skills. Triggered ones (a Mortar Cannon's grenades) aren't counted: whether
+# a grenade a Meta fires counts as yours is UNVERIFIED (the lower reading). MEDIUM. The window: the line's own number.
+AMMO_FIRED = re.compile(r"for each type of ammunition fired in the past (\d+) seconds", re.I)
+GRENADE_FIRED = re.compile(r"for every different grenade fired in the past (\d+) seconds", re.I)
+
+
+def ammo_grenade_counts(skills: list[Skill], main: Skill | None, persistent: set[str], types_of,
+                        texts: list[str]) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): PoB's Multiplier:DifferentAmmoFired / DifferentGrenadeFired from the build's ammo and grenade skills
+    (see above). `types_of(name)` gives a skill's game skill types (gem data)."""
+    mods: list[dict] = []
+    notes: list[dict] = []
+    for kind, pattern, var, label in (("CrossbowAmmoSkill", AMMO_FIRED, "DifferentAmmoFired", "types of Ammunition"),
+                                      ("Grenade", GRENADE_FIRED, "DifferentGrenadeFired", "different Grenades")):
+        windows = [float(m.group(1)) for t in texts if (m := pattern.search(t))]
+        if not windows:
+            continue
+        window = min(windows)
+        typed = [x for x in skills if kind in (types_of(x.name) or ()) and "Meta" not in (types_of(x.name) or ())]
+        fired, left = set(), set()
+        for x in typed:
+            if main is not None and x.name == main.name:
+                fired.add(x.name)
+            elif x.triggered or x.name in persistent or cast_by_totem(skills, x):
+                left.add(x.name)
+            elif number(x.cooldown) / (x.cooldown_recovery or 1.0) <= window:
+                fired.add(x.name)
+            else:
+                left.add(x.name)
+        count = len(fired)
+        if count:
+            mods.append(raw_mod(f"Multiplier:{var}", "BASE", count))
+        alone = 1 if main is not None and main.name in fired else 0
+        notes.append({"label": f"{label.capitalize()} fired in the past {window:g} s*", "value": count,
+                      "basis": ((", ".join(sorted(fired)) if fired else "none") + f": the main skill and each other one "
+                                f"the build has whose cooldown lets you fire it once per {window:g} s (a play strategy: fire "
+                                f"each that often; with only the main skill: {alone})"
+                                + (f"; not counted (triggered, a totem's or a longer cooldown): {', '.join(sorted(left))}"
+                                   if left else "") + ". PoB reads 0 (only its config box sets it: an UNDERCOUNT before)"),
+                      "play": (f"Fire each of {', '.join(sorted(fired))} at least once every {window:g} s (without it: "
+                               f"{alone}, with it: {count})" if count > 1 else ""),
+                      "confidence": "MEDIUM"})
     return mods, notes
 
 

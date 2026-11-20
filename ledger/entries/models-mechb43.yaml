@@ -1,0 +1,34 @@
+# MECH-B's model entries (MECHB43).
+
+- id: model-mechb43-full-salvo-demolitionist
+  title: "Full Salvo / Demolitionist: the ammo and grenade types the build fires each window (models.ammo_grenade_counts)"
+  kind: model
+  model: ammo_grenade_counts
+  skill: []
+  confidence: theory
+  notes: >-
+    An UNDERCOUNT: "25% increased Damage with Crossbows for each type of Ammunition fired in the past 10 seconds" (Full
+    Salvo) and "Gain 4% of Damage as Extra Fire Damage for every different Grenade fired in the past 8 seconds"
+    (Demolitionist) parse whole in PoB behind Multiplier:DifferentAmmoFired / DifferentGrenadeFired, which only its config
+    boxes set (0 in our builds). Now the distinct CrossbowAmmoSkill / Grenade gems the player fires once a window: the
+    main skill and each other one not triggered, Meta or a totem's whose cooldown allows it (a play strategy, with the
+    "only the main skill" row). Triggered grenades (a Mortar Cannon's) not counted (UNVERIFIED whether they count). MEDIUM.
+  sources: [builder/search/models.py (AMMO_FIRED, GRENADE_FIRED, ammo_grenade_counts),
+            builder/search/assumptions.py (after different_skills_counts)]
+  status: proposed
+
+- id: model-mechb43-dark-effigy-volley
+  title: "Dark Effigy: one Vile Effusion projectile per Chaos-DoT debuff type on the boss (models.dark_effigy_model)"
+  kind: model
+  model: dark_effigy_model
+  skill: ["Dark Effigy", "Vile Effusion"]
+  confidence: theory
+  notes: >-
+    An OVERCOUNT of one projectile a volley: PoB's DPS MORE 100 per the enemy's ChaosDebuff fires 1 + k (Essence Drain
+    alone: 2, probe POE2T4635), the game k (RESEARCH34 R34-7: one per distinct Chaos-DoT debuff type, Poison stacks add
+    none, MEDIUM; 0 with none). k' = each debuff skill's uptime (Contagion, Essence Drain, Profane Ritual, Soulrend: uses
+    x Duration), Poison once while the boss is Poisoned, Decaying Hex (headline, MEDIUM-LOW; row: no). Vile Effusion DPS
+    MORE x k' / (1 + k). Withered never; grounds' / items' Chaos DoTs not counted (an undercount, labelled).
+  sources: [builder/search/models.py (VILE_EFFUSION, EFFIGY_DEBUFF_SKILLS, dark_effigy_model),
+            builder/search/assumptions.py (dark_effigy; its hook before Living Lightning)]
+  status: proposed

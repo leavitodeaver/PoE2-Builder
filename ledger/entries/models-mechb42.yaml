@@ -39,8 +39,10 @@
     PoB scores a minion attacking all fight. Now: R = min(the supported skill's hits a second, 1 / the trigger's
     cooldown, the limit / (3 x 0.14 s)), 0 without a Lightning hit; DPS = R x 3 x one Zap's damage (PoB's minion
     AverageDamage, bridge minionSkillHit), an added damage source; PoB's own entry scaled to 0 (Objective.entry_scales).
-    MEDIUM: one hit on the boss a use of the supported skill (lower for a skill hitting it more often).
-  sources: [builder/search/models.py (LIVING_LIGHTNING, LL_*, living_lightning_model),
+    MECHB43 (RESEARCH34 R34-5): one minion per Lightning HIT on the boss, the hits a use as PoB scores them
+    (models.ll_hits_a_use: TotalDPS / (AverageHit x hit chance x Speed)), one per use as a row; R34-4: its minions aren't
+    Persistent, so they feed no minion-death model.
+  sources: [builder/search/models.py (LIVING_LIGHTNING, LL_*, ll_hits_a_use, living_lightning_model),
             builder/search/assumptions.py (living_lightning; its hook after Riven Armour)]
   status: proposed
 
@@ -59,6 +61,8 @@
     "Duration: 10"; none at its start, UNVERIFIED),
     each on the boss for its Duration (it chases: MEDIUM), at glory_caps' Archons a second; the rate goes to PoB as its
     trigger rate, its group into Full DPS. Not counted: the Slow; the Archon's 20% more on hits made while it lasts.
+    MECHB43 (RESEARCH34 R34-3): the Archon's duration from the build (10 s x its Archon duration lines x buff expiry),
+    floor(D / 3) tornadoes, the first at 3 s (MEDIUM-LOW); rows: one at the start too, the boss preset's moving ceiling.
   sources: [builder/search/models.py (CHAYULAS_WILL, chayulas_will_model), builder/search/assumptions.py (the hook
             after Tawhoa's; chayula_groups into Full DPS)]
   test_in_game: "RESEARCH: does a tornado spawn as the Archon starts (4 an Archon, not 3)? does it stay on the boss its whole 8 s?"

@@ -455,6 +455,41 @@ def test_living_lightning_counts_three_zaps_a_minion_not_pobs_minion_attacking_a
     assert 0 < modelled < entry / 3 and build.objective.entry_scales.get("Living Lightning") == 0.0
 
 
+def test_dark_effigy_fires_a_projectile_per_chaos_dot_debuff_not_one_more(engine):
+    """MECHB43 (R34-7, an OVERCOUNT): PoB's Vile Effusion fires 1 + its ChaosDebuff count a volley (2 with Essence Drain:
+    probe POE2T4635); the game one per debuff type on the boss. With the model, the volley is Essence Drain's uptime."""
+    payload = make_payload(BuildRequest(main_skill="Essence Drain", level=90))
+    skeleton = enumerate_skeletons(Context(payload), ["Essence Drain"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    group = build.set_group(gems=[{"name": "Dark Effigy", "level": 20, "quality": 0}], fullDPS=True)
+    search.settle()
+    skills = next(g for g in build.groups() if g["index"] == group["index"])["skills"]
+    n = next(i for i, x in enumerate(skills, 1) if x["name"] == "Vile Effusion")
+    row = build.call("useRates", indices=[group["index"]], actives=[n])["rates"][0]
+    volley = row["TotalDPS"] / (row["AverageHit"] * row["speed"])
+    note = next(x for x in search.assumptions.active if x["label"].startswith("Dark Effigy"))
+    assert 0 < volley <= 1.0 + 1e-6 and "not PoB's 2" in note["value"]
+
+
+def test_full_salvo_counts_the_ammunition_types_the_build_fires(engine):
+    """MECHB43 (an UNDERCOUNT: PoB's DifferentAmmoFired only by config, so 0): the main ammo skill fires its type, so
+    Full Salvo's line gives its 25% at least once."""
+    payload = make_payload(BuildRequest(main_skill="Permafrost Bolts", level=90))
+    skeleton = enumerate_skeletons(Context(payload), ["Permafrost Bolts"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    before = build.call("stats", fields=["TotalDPS"])["TotalDPS"]
+    raw = chr(10).join(["Rarity: RARE", "Probe Charm", "Gold Amulet", "Item Level: 80", "Implicits: 0",
+                     "25% increased Damage with Crossbows for each type of Ammunition fired in the past 10 seconds"])
+    build.call("equip", slot="Amulet", raw=raw, fields=["TotalDPS"])
+    search.settle()
+    note = next(x for x in search.assumptions.active if x["label"].startswith("Types of ammunition fired"))
+    assert note["value"] >= 1 and build.call("stats", fields=["TotalDPS"])["TotalDPS"] > before * 1.05
+
+
 def test_verisium_manifestations_minion_is_scored_by_pob(engine):
     """MECHB42 (R33-10, an UNDERCOUNT: PoB had no minion for Manifest Rune): the bridge adds the Verisium Manifestation
     and its projectile attack, so PoB scores one, at minion level 2 x the gem's (probe POE2T4636)."""

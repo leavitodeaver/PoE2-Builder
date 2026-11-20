@@ -1074,8 +1074,9 @@ def living_lightning(build: Build) -> tuple[float, list[dict]]:
         if entries is None:
             entries = build.call("stats", fields=["SkillDPS"]).get("SkillDPS") or []
         pob = sum(number(e.get("dps")) * (e.get("count") or 1) for e in entries if e.get("name") == models.LIVING_LIGHTNING)
+        uses = number(own.get("speed")) * min(number(own.get("HitChance")) or 100.0, 100.0) / 100
         parts.append({"source": own.get("name") or skills[src - 1]["name"],
-                      "hits": number(own.get("speed")) * min(number(own.get("HitChance")) or 100.0, 100.0) / 100,
+                      "hits": uses * models.ll_hits_a_use(own), "uses": uses,
                       # (an attack's per-type hit is per hand: the row's MainHand.* fields, probe POE2T4628)
                       "lightning": any(number(own.get(f"{hand}Lightning{part}Average")) > 0
                                        for hand in ("", "MainHand.") for part in ("Hit", "Crit")),
@@ -1083,6 +1084,35 @@ def living_lightning(build: Build) -> tuple[float, list[dict]]:
                       "level": level, "zap": number(zap.get("AverageDamage")) or number(zap.get("AverageHit")),
                       "pob": pob or None})
     return models.living_lightning_model(parts)
+
+
+def dark_effigy(build: Build) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for Dark Effigy's Vile Effusion (models.dark_effigy_model, MECHB43): the build's Chaos-DoT debuff
+    skills (PoB's ChaosDebuff setters) at their uptimes (useRates speed x the press model's share x Duration), Decaying Hex
+    on a curse, and the boss's Poisoned box."""
+    groups = [g for g in build.groups() if g.get("enabled") is not False]
+    if not any(x["name"] == models.VILE_EFFUSION for g in groups for x in g.get("skills") or []):
+        return [], []
+    press = getattr(build.objective, "press_scales", None) or {}
+    debuffs, seen = [], set()
+    for group in groups:
+        for n, x in enumerate(group.get("skills") or [], 1):
+            if x["name"] not in models.EFFIGY_DEBUFF_SKILLS or x["name"] in seen or x.get("disabled"):
+                continue
+            seen.add(x["name"])
+            row = next(iter(build.call("useRates", indices=[group["index"]], actives=[n])["rates"]), None) or {}
+            uses = number(row.get("speed")) * number(press.get(row.get("name") or x["name"], 1.0))
+            duration = number(row.get("duration"))
+            debuffs.append((x["name"], uses * duration, f"{uses:.2f} uses/s x {duration:.2f} s"))
+    hexed = any(g2.get("name") == models.DECAYING_HEX for g in groups for g2 in g.get("gems") or []
+                if any("Curse" in ((build.ctx.gems.get(s2["name"]) or {}).get("skillTypes") or []) or
+                       "AppliesCurse" in ((build.ctx.gems.get(s2["name"]) or {}).get("skillTypes") or [])
+                       for s2 in g.get("skills") or []))
+    config = build.call("getConfig")["input"]
+    poisoned = bool(config.get("conditionEnemyPoisoned"))
+    # (PoB's own k: the skills, Decaying Hex, and Vile Effusion's Poison line, which reads the PLAYER's Poisoned box)
+    pob = len(seen) + (1 if hexed else 0) + (1 if config.get("conditionPoisoned") else 0)
+    return models.dark_effigy_model(debuffs, pob, 1.0 if hexed else 0.0, 1.0 if poisoned else 0.0)
 
 
 def djinn_commands(build: Build, main: models.Skill | None) -> tuple[float, list[dict], list[dict]]:
@@ -2721,8 +2751,11 @@ class Assumptions:
             index = next((i for g in build.groups() if g["index"] == tornado.group
                           for i, x in enumerate(g.get("skills") or [], 1) if x["name"] == models.CHAYULAS_WILL), 0)
             rows = build.call("useRates", indices=[tornado.group], actives=[index])["rates"] if index else []
+            expiry = (stats.get("_buff_expiry") or (1.0, ""))[0]
+            lasts = models.ARCHON_BUFF_SECONDS * max(0.0, 1 + inputs.total("ArchonDuration") / 100) * expiry
             will_mods, will_notes, chayula_groups = models.chayulas_will_model(
-                tornado, archons, archons_how, models.number((rows or [{}])[0].get("duration")))
+                tornado, archons, archons_how, models.number((rows or [{}])[0].get("duration")), lasts,
+                bosses.moving_ceiling({"_boss": boss}))  # (the boss preset's moving ceiling, a row: R34-3)
             hand_mods, hand_notes = hand_mods + will_mods, hand_notes + will_notes
         warcries ={s.name for s in found if "Warcry" in ((build.ctx.gems.get(s.name) or {}).get("skillTypes") or [])}
         if warcries:  # (MECH-B: Echoing Cry's Echoes; COV-E's support_part_scale "warcry_echo")
@@ -2758,6 +2791,10 @@ class Assumptions:
         persistent = {s.name for s in found if "Persistent" in ((build.ctx.gems.get(s.name) or {}).get("skillTypes") or [])}
         diff_mods, diff_notes = models.different_skills_counts(found, main, persistent)  # (MECH-B: different skills per 8 s)
         hand_mods, hand_notes = hand_mods + diff_mods, hand_notes + diff_notes
+        ammo_mods, ammo_notes = models.ammo_grenade_counts(  # (MECHB43: Full Salvo / Demolitionist, PoB 0)
+            found, main, persistent, lambda name: (build.ctx.gems.get(name) or {}).get("skillTypes"),
+            [e["text"] for e in source_lines])
+        hand_mods, hand_notes = hand_mods + ammo_mods, hand_notes + ammo_notes
         if main is not None and main.name == models.RAPID_SHOT:  # (MECH-B: Rapid Shot's Heat lockout)
             heat_mods, heat_notes = models.heat_model(main, stats, next((s for s in found if s.name == models.RAPID_SHOT),
                                                                          None), self.heat_spenders(found))
@@ -3054,6 +3091,8 @@ class Assumptions:
         riven, riven_notes = riven_armour(build, main)  # (GEM3's model; MECH69's Armour Break cycle gives its uptime)
         hand_mods += [models.added_input("RivenArmour", riven)] if riven > 0 else []
         hand_notes += riven_notes
+        effigy_mods, effigy_notes = dark_effigy(build)  # (MECHB43: a Vile Effusion projectile per Chaos-DoT debuff, R34-7)
+        hand_mods, hand_notes = hand_mods + effigy_mods, hand_notes + effigy_notes
         lightning, lightning_notes = living_lightning(build)  # (MECHB42: 3 Zaps a minion; PoB's own entry out of Full DPS)
         hand_mods += [models.added_input("LivingLightning", lightning)] if lightning > 0 else []
         hand_notes += lightning_notes

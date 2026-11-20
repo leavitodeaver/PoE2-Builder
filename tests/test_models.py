@@ -6471,6 +6471,14 @@ def test_living_lightning_counts_three_zaps_per_minion_made_per_lightning_hit_an
     assert four == pytest.approx(2.0 * 4 * 10.0)  # (the attacks read off its level stats)
     assert models.living_lightning_model([{**part, "hits": 9.0, "cooldown": 0.0}])[0] == pytest.approx(5.0 * 3 * 10.0)
     assert models.living_lightning_model([]) == (0.0, [])
+    # (MECHB43, RESEARCH34 R34-5: one minion per Lightning HIT: a use hitting the boss 3 times makes 3, the per-use row 1)
+    multi = {**part, "hits": 3.0, "uses": 1.0}
+    dps3, notes3 = models.living_lightning_model([multi])
+    assert dps3 == pytest.approx(3.0 * 3 * 10.0) and "one minion per use instead: 30.0 DPS" in notes3[0]["basis"]
+    row = {"speed": 2.0, "AverageHit": 100.0, "HitChance": 50.0, "TotalDPS": 300.0}  # (3 hits a use, PoB's own count)
+    assert models.ll_hits_a_use(row) == pytest.approx(3.0)
+    assert models.ll_hits_a_use({**row, "cullMultiplier": 1.5}) == pytest.approx(2.0)  # (Cull divided out)
+    assert models.ll_hits_a_use({**row, "TotalDPS": 50.0}) == 1.0 and models.ll_hits_a_use({}) == 1.0  # (at least 1)
 
 
 def test_verisium_manifestations_alive_by_the_ward_paid_summon_rate():
@@ -6491,7 +6499,11 @@ def test_chayulas_will_counts_three_tornadoes_an_archon_attacking_every_fifth_of
     tornado = models.Skill("Chayula's Will", group=4)
     mods, notes, groups = models.chayulas_will_model(tornado, 0.05, "100 Glory at 5/s", 8.0)
     assert mods == models.trigger_rate("Chayula's Will", 0.05 * 3 * 8.0 / 0.2) and groups == {4}
-    assert "UNVERIFIED" in notes[0]["basis"] and notes[0]["confidence"] == "MEDIUM"
+    assert "UNVERIFIED" in notes[0]["basis"] and notes[0]["confidence"] == "MEDIUM-LOW"
+    # (MECHB43, R34-3: the build's Archon duration sets the tornadoes an Archon; rows: one at the start, a moving boss)
+    longer, long_notes, _ = models.chayulas_will_model(tornado, 0.05, "", 8.0, 15.0, (0.1, "10% moving"))
+    assert longer == models.trigger_rate("Chayula's Will", 0.05 * 5 * 8.0 / 0.2)
+    assert "6 an Archon: 12.00 attacks/s" in long_notes[0]["basis"] and "10% moving): 9.00" in long_notes[0]["basis"]
     assert models.chayulas_will_model(tornado, 0.05, "", 0.0)[0] == models.trigger_rate("Chayula's Will", 6.0)  # (base 8 s)
     assert models.chayulas_will_model(tornado, 0.0, "no Chaos hits", 8.0)[0::2] == ([], set())
 
@@ -6613,3 +6625,37 @@ def test_the_minions_extra_projectile_chance_is_a_labelled_no_change_on_a_boss()
     assert models.minion_projectile_notes(["Minions deal 10% increased Damage"]) == []
     notes = models.minion_projectile_notes(["Minions have +75% Surpassing chance to fire an additional Projectile"])
     assert notes[0]["value"] == "no change" and "R29-1" in notes[0]["basis"] and "0.75" in notes[0]["basis"]
+
+
+def test_full_salvo_and_demolitionist_count_the_ammo_and_grenades_the_build_fires_each_window():
+    """MECHB43 (an UNDERCOUNT: PoB's DifferentAmmoFired / DifferentGrenadeFired only by config, 0): the main skill and each
+    other ammo / grenade skill whose cooldown allows a use per window; triggered, Meta and long-cooldown ones not."""
+    types = {"Permafrost Bolts": ["CrossbowAmmoSkill"], "Galvanic Shards": ["CrossbowAmmoSkill"],
+             "Gas Grenade": ["Grenade"], "Explosive Grenade": ["Grenade"], "Oil Grenade": ["Grenade"],
+             "Mortar Cannon": ["Grenade", "Meta"]}
+    main = models.Skill("Permafrost Bolts", group=1, attack=True)
+    skills = [main, models.Skill("Galvanic Shards", group=2, attack=True),
+              models.Skill("Gas Grenade", group=3, attack=True, cooldown=5.0),
+              models.Skill("Explosive Grenade", group=3, attack=True, triggered=True),
+              models.Skill("Oil Grenade", group=4, attack=True, cooldown=12.0),
+              models.Skill("Mortar Cannon", group=3)]
+    texts = ["25% increased Damage with Crossbows for each type of Ammunition fired in the past 10 seconds",
+             "Gain 4% of Damage as Extra Fire Damage for every different Grenade fired in the past 8 seconds"]
+    mods, notes = models.ammo_grenade_counts(skills, main, set(), types.get, texts)
+    assert {m["name"]: m["value"] for m in mods} == {"Multiplier:DifferentAmmoFired": 2, "Multiplier:DifferentGrenadeFired": 1}
+    assert "Explosive Grenade, Oil Grenade" in notes[1]["basis"] and "with only the main skill: 0" in notes[1]["basis"]
+    assert models.ammo_grenade_counts(skills, main, set(), types.get, texts[:1])[0] == mods[:1]  # (no line: no count)
+    assert models.ammo_grenade_counts(skills, main, set(), types.get, []) == ([], [])
+
+
+def test_dark_effigy_fires_one_projectile_per_chaos_dot_debuff_type_not_pobs_one_more():
+    """MECHB43 (R34-7; an OVERCOUNT: PoB's DPS MORE 100 per ChaosDebuff fires 1 + k a volley, the game k): Essence Drain
+    and Contagion at their uptimes, Poison once, Decaying Hex (headline); none: no projectiles."""
+    debuffs = [("Essence Drain", 1.5, "kept up"), ("Contagion", 0.5, "half the fight")]
+    mods, notes = models.dark_effigy_model(debuffs, 2, 0.0, 1.0)
+    assert mods == [models.raw_mod("DPS", "MORE", 100 * (2.5 / 3 - 1), "Vile Effusion")]
+    assert "2.50 a volley, not PoB's 3" == notes[0]["value"]
+    assert models.dark_effigy_model([], 0, 0.0, 0.0)[0] == [models.raw_mod("DPS", "MORE", -100, "Vile Effusion")]
+    assert models.dark_effigy_model([("Essence Drain", 1.0, "")], 0, 0.0, 0.0)[0] == []  # (1 = PoB's 1: nothing)
+    hexed = models.dark_effigy_model([("Essence Drain", 1.0, "")], 2, 1.0, 0.0)[1][0]
+    assert "Decaying Hex not counting, 1.00" in hexed["basis"] and hexed["value"].startswith("2.00")
