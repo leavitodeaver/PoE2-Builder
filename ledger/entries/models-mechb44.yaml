@@ -1,0 +1,53 @@
+# MECH-B's model entries (MECHB44).
+
+- id: model-mechb44-mist-raven
+  title: "The Auspex's Mist Raven: the game's raven as a PoB minion, and Mirror Breaker's Command (models.mist_raven_model)"
+  kind: model
+  model: mist_raven_model
+  skill: ["Mist Raven"]
+  confidence: theory
+  notes: >-
+    An UNDERCOUNT: PoB's SummonMistRavenPlayer has no minionList, so the raven scored 0 (probe POE2T4643); PoB's own
+    "MistRaven" minion is Spiraling Conspiracy's flock. engine/bridge.lua adds the game's raven (MonsterVarieties 1622:
+    DamageMultiplier 150, 1.0 s attack, MonsterTypes 245 spread 20) with its drive-by attack (x3, 70% Physical to Chaos;
+    PoB's minion DPS) and Mirror Breaker (x10, 12 s cooldown), at PoB's minion level for the skill level (MEDIUM). The
+    model adds Mirror Breaker's hit once a cooldown, a Command press under the button cap, less the Command's 1 s of the
+    main skill and the dive's 1 s of the drive-by. MEDIUM-LOW (attack time from the animation; one hit a dive on a lone
+    boss). Its Frenzy Charge per Cull: 0 on a lone boss (RESEARCH R120a).
+  sources: [engine/bridge.lua (The Auspex's Mist Raven block), builder/search/models.py (MIST_RAVEN, mist_raven_model),
+            builder/search/assumptions.py (mist_raven), "C:/PROJECTS/PoE2 Builder/scratch/research33/gx2 (MonsterVarieties)"]
+  status: proposed
+
+- id: model-mechb44-different-spells-cast-speed
+  title: "Casting Cascade / Effervescent: Cast Speed per different Spell cast in 8 s (models.different_spells_cast_speed)"
+  kind: model
+  model: different_spells_cast_speed
+  skill: []
+  confidence: theory
+  notes: >-
+    An UNDERCOUNT: "N% increased Cast Speed for each different Spell you've Cast in the last eight seconds" (Casting
+    Cascade 6%, Effervescent 4%; stat cast_speed_+%_per_num_unique_spells_cast_in_last_8_seconds) is parsed by PoB only in
+    part (ModCache 4047 / 4761, leftover text), so it applied nothing. Now N% x the Spells the build casts once per 8 s
+    (different_skills_counts' play, instant Spells included: the line says any Spell; triggered, Persistent and totem
+    skills out). MEDIUM. PoB never applied it, so no negation.
+  sources: [builder/search/models.py (DIFFERENT_SPELL_SPEED, different_spells_cast_speed),
+            builder/search/assumptions.py (after different_skills_counts)]
+  status: proposed
+
+- id: model-mechb44-unstable-bond
+  title: "Unstable Bond: Volatility on your Persistent Reviving minions' deaths (models.unstable_bond_model)"
+  kind: model
+  model: unstable_bond_model
+  skill: []
+  confidence: theory
+  notes: >-
+    An UNDERCOUNT: "Gain 3 Volatility when an Allied Persistent Reviving Minion is Killed" (anointable notable volatility1;
+    stat gain_X_volatility_on_persistent_minion_death) is parsed by PoB with leftover text, and PoB reads no Volatility.
+    Deaths from models.minion_deaths (the build's own sources; 0 with none). Spaced at least the explosion delay apart,
+    each death's 3 explode: 3% of Damage as Chaos for 10 s, up min(1, 10 x deaths/s) (a later explosion replaces the Power:
+    MEDIUM-LOW; row: they add). Deaths more often than the delay: never explodes, 0 (row: paced). With Inner Turmoil:
+    not added to its cycle (lower reading). The explosion's 100 Physical per Volatility to you (no Inner Turmoil): said,
+    not modelled.
+  sources: [builder/search/models.py (UNSTABLE_BOND, unstable_bond_model), builder/search/assumptions.py (after
+            Inner Turmoil's volatility_model)]
+  status: proposed

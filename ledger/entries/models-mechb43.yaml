@@ -10,7 +10,8 @@
     An UNDERCOUNT: "25% increased Damage with Crossbows for each type of Ammunition fired in the past 10 seconds" (Full
     Salvo) and "Gain 4% of Damage as Extra Fire Damage for every different Grenade fired in the past 8 seconds"
     (Demolitionist) parse whole in PoB behind Multiplier:DifferentAmmoFired / DifferentGrenadeFired, which only its config
-    boxes set (0 in our builds). Now the distinct CrossbowAmmoSkill / Grenade gems the player fires once a window: the
+    boxes set: their placeholder, 1, is applied while unset (MECHB44, probe POE2T4652; MECHB43 read 0, wrong), so the
+    model sets PoB's total to the build's count (count - 1; an OVERCOUNT of one before MECHB44). Now the distinct CrossbowAmmoSkill / Grenade gems the player fires once a window: the
     main skill and each other one not triggered, Meta or a totem's whose cooldown allows it (a play strategy, with the
     "only the main skill" row). Triggered grenades (a Mortar Cannon's) not counted (UNVERIFIED whether they count). MEDIUM.
   sources: [builder/search/models.py (AMMO_FIRED, GRENADE_FIRED, ammo_grenade_counts),

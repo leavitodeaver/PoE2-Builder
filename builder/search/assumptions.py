@@ -1045,6 +1045,24 @@ def eternal_hunt(build: Build, main: models.Skill | None) -> tuple[float, list[d
     return 0.0, [], []
 
 
+def mist_raven(build: Build, main: models.Skill | None) -> tuple[float, list[dict], list[dict]]:
+    """(added DPS, mods, notes) for the Mist Raven's Mirror Breaker (models.mist_raven_model, MECHB44): the bridge's
+    minionSkillHit scores the raven with the dive chosen; costs as eternal_hunt's."""
+    for group in build.groups():
+        if group.get("enabled") is False:
+            continue
+        for n, skill in enumerate(group["skills"], 1):
+            if skill["name"] != models.MIST_RAVEN or skill.get("disabled"):
+                continue
+            dive = build.call("minionSkillHit", index=group["index"], active=n, skill=models.MIRROR_BREAKER)
+            dive = dive if isinstance(dive, dict) else {}  # (an empty Lua table reaches Python as a list)
+            raven_main = main is not None and main.name == models.MIST_RAVEN
+            full = bool(getattr(getattr(build, "objective", None), "full", False))
+            counted = raven_main or (full and group.get("fullDPS"))
+            player = 0.0 if raven_main else per_second(build.call("stats", fields=HUNT_FIELDS))
+            return models.mist_raven_model(dive, player, number(dive.get("baseDPS")) if counted else 0.0)
+    return 0.0, [], []
+
 def living_lightning(build: Build) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Living Lightning (models.living_lightning_model, MECHB42): each enabled group holding the
     triggered skill; its supported skill's row (speed, hit chance, Lightning hit), the trigger's row (cooldown), its level
@@ -2791,6 +2809,9 @@ class Assumptions:
         persistent = {s.name for s in found if "Persistent" in ((build.ctx.gems.get(s.name) or {}).get("skillTypes") or [])}
         diff_mods, diff_notes = models.different_skills_counts(found, main, persistent)  # (MECH-B: different skills per 8 s)
         hand_mods, hand_notes = hand_mods + diff_mods, hand_notes + diff_notes
+        cascade_mods, cascade_notes = models.different_spells_cast_speed(  # (MECHB44: Casting Cascade / Effervescent)
+            [e["text"] for e in source_lines], found, main, persistent)
+        hand_mods, hand_notes = hand_mods + cascade_mods, hand_notes + cascade_notes
         ammo_mods, ammo_notes = models.ammo_grenade_counts(  # (MECHB43: Full Salvo / Demolitionist, PoB 0)
             found, main, persistent, lambda name: (build.ctx.gems.get(name) or {}).get("skillTypes"),
             [e["text"] for e in source_lines])
@@ -3079,6 +3100,12 @@ class Assumptions:
         hand_mods += models.maelstrom_inputs(source_lines, pulse) if pulse_notes else []
         hunt, hunt_mods, hunt_notes = eternal_hunt(build, main)  # (MECHB20: the Azmerian Wolf's Command, an added source)
         hand_mods, hand_notes = hand_mods + hunt_mods, hand_notes + hunt_notes
+        raven, raven_mods, raven_notes = mist_raven(build, main)  # (MECHB44: the Mist Raven's Command, an added source)
+        hand_mods, hand_notes = hand_mods + raven_mods, hand_notes + raven_notes
+        if raven > 0:  # (a Command press: the button cap counts it, as Inevitable Agony's)
+            presses = getattr(build, models.ITEM_PRESSES, None)
+            if isinstance(presses, dict):
+                presses["Command: Mist Raven"] = (1 / models.MIRROR_BREAKER_COOLDOWN, raven_notes[0]["play"])
         # separately computed damage (Melting Maelstrom's pulses, Eternal Hunt: models.added_input); what-ifs get their own
         # sum from the bridge's LedgerAddedDPS; set_added (SEARCH14) keeps each source for the result's list
         thorn, thorn_notes = thorns(build, main, stats, [e["text"] for e in source_lines])  # (MECHB22)
@@ -3182,6 +3209,9 @@ class Assumptions:
             turmoil_stats = build.call("stats", fields=models.VOLATILITY_STATS)  # (MECH91: + the Chaos DoT share's)
             turmoil_mods, turmoil_notes = models.volatility_model(turmoil_texts, turmoil_stats, volatility_crit)
             hand_mods, hand_notes = hand_mods + turmoil_mods, hand_notes + turmoil_notes
+        if any(models.UNSTABLE_BOND.match(t.strip()) for t in turmoil_texts):  # (MECHB44: Volatility on minion death)
+            bond_mods, bond_notes = models.unstable_bond_model(turmoil_texts, models.minion_deaths(found, main, stats))
+            hand_mods, hand_notes = hand_mods + bond_mods, hand_notes + bond_notes
         if any(models.SAITHA_LINE.match(t.strip()) for t in turmoil_texts):  # (MECH90, R33-8: PoB leaves it unparsed)
             saitha_stats = build.call("stats", fields=["Speed", "HitChance", "CritChance", "BleedChancePerHit",
                                                        "IgniteChancePerHit", "IgniteDuration", "IgniteDPS"])
@@ -3204,7 +3234,7 @@ class Assumptions:
             presses = getattr(build, models.ITEM_PRESSES, None)
             if isinstance(presses, dict):
                 presses[models.INEVITABLE_AGONY] = (agony_rate, agony_notes[0]["play"])
-        build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt, "Thorns": thorn, "Riven Armour": riven,
+        build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt, "Mirror Breaker": raven, "Thorns": thorn, "Riven Armour": riven,
                                    "Elemental Discharge": discharge, "Broken Stance": stance, "Grisly Pyre": pyre,
                                    "Battershout": shout, "Crackling Palm": palm, "Blood Hunt": blood, "Ancestral Spirits": spirits,
                                    "Inevitable Agony": agony, "Impale": impaled + impaled_others, "Infernal Legion": legion,

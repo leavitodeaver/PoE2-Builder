@@ -453,6 +453,9 @@ def test_living_lightning_counts_three_zaps_a_minion_not_pobs_minion_attacking_a
     note = next(n for n in search.assumptions.active if n["label"].startswith("Living Lightning: 3 Zaps"))
     modelled = float(note["value"].split()[0].replace(",", ""))
     assert 0 < modelled < entry / 3 and build.objective.entry_scales.get("Living Lightning") == 0.0
+    # (MECHB44: an Attack's per-hand hit reaches models.ll_hits_a_use, which read 1 hit a use on every Attack before)
+    row = build.call("useRates", indices=[main["index"]])["rates"][0]
+    assert (row.get("AverageHit") or row.get("MainHand.AverageHit") or 0) > 0
 
 
 def test_dark_effigy_fires_a_projectile_per_chaos_dot_debuff_not_one_more(engine):
@@ -488,6 +491,10 @@ def test_full_salvo_counts_the_ammunition_types_the_build_fires(engine):
     search.settle()
     note = next(x for x in search.assumptions.active if x["label"].startswith("Types of ammunition fired"))
     assert note["value"] >= 1 and build.call("stats", fields=["TotalDPS"])["TotalDPS"] > before * 1.05
+    # (MECHB44, an OVERCOUNT before: PoB's config placeholder counted 1 more, x1.50 at one type, POE2T4652): PoB's
+    # total is now the note's count, so one type gives the line's 25% once
+    if note["value"] == 1:
+        assert build.call("stats", fields=["TotalDPS"])["TotalDPS"] == pytest.approx(before * 1.25, rel=0.01)
 
 
 def test_verisium_manifestations_minion_is_scored_by_pob(engine):
@@ -4058,3 +4065,22 @@ def test_the_empowered_gain_and_howl_hand_lines_parse_whole(engine):
                                                "Minions' Attacks deal 37 to 56 additional Cold Damage"])["results"]
     print("PROBE empowered gain", results)  # (MECHB42: the last, models.arctic_howl_buff's minion line)
     assert [r["supported"] for r in results] == [True, True, True, False, False, True]
+
+
+def test_mist_raven_is_a_minion_with_its_drive_by_and_mirror_breaker(engine):
+    """MECHB44 (an UNDERCOUNT): PoB's Mist Raven (The Auspex) summoned no minion, so it scored 0 (probe POE2T4643). The
+    bridge adds the game's raven: its drive-by is PoB's minion DPS, and Mirror Breaker's Command hits ~x10 of it."""
+    payload = make_payload(BuildRequest(main_skill="Lightning Arrow", level=90))
+    skeleton = enumerate_skeletons(Context(payload), ["Lightning Arrow"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    group = build.set_group(gems=[{"name": "Mist Raven", "level": 20, "quality": 0}], fullDPS=True)
+    search.settle()
+    skills = next(g for g in build.groups() if g["index"] == group["index"])["skills"]
+    n = next(i for i, x in enumerate(skills, 1) if x["name"] == "Mist Raven")
+    drive = build.call("minionSkillHit", index=group["index"], active=n, skill="MistRavenDriveByAttack")
+    dive = build.call("minionSkillHit", index=group["index"], active=n, skill=models.MIRROR_BREAKER)
+    assert (drive.get("AverageHit") or 0) > 0 and (dive.get("AverageHit") or 0) > 2 * drive["AverageHit"]
+    note = next(x for x in search.assumptions.active if x["label"].startswith("Mirror Breaker"))
+    assert note["value"] > 0

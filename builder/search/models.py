@@ -8700,6 +8700,47 @@ def eternal_hunt_model(hunt: dict, player_dps: float, wolf_dps: float) -> tuple[
     return dps, ([added_input("EternalHunt", dps)] if dps > 0 else []), [note]
 
 
+
+# The Auspex's Mist Raven (MECHB44, an UNDERCOUNT: PoB had no minion for SummonMistRavenPlayer, so 0). The bridge adds
+# the raven (MonsterVarieties 1622) with its drive-by attack (PoB's minion DPS, its first skill) and its Command,
+# MistRavenCommandDiveBomb "Mirror Breaker" (x10 base, 12 s cooldown, 1 stored use, a radius-25 area: GrantedEffects
+# 1260 / stat set 7362, game 26650308). Counted here: Mirror Breaker's hit once each cooldown, a press under the button
+# cap (CommandMistRavenPlayer, PoB castTime 1 s), less the main skill's time for the Command's cast and the raven's own
+# drive-by time for its dive (castTime 1 s, its animation: MEDIUM-LOW). A lone boss takes one hit a dive (one area hit,
+# MEDIUM). Its Frenzy Charge per Cull: 0 on a lone boss (RESEARCH R120a, minion-skills-charge-gain.md: a Cull ends the
+# fight), not counted.
+MIST_RAVEN = "Mist Raven"
+MIRROR_BREAKER = "MistRavenCommandDiveBomb"
+MIRROR_BREAKER_COOLDOWN = 12.0  # s (GrantedEffectsPerLevel 21453 Cooldown 12000)
+MIRROR_BREAKER_DIVE = 1.0  # s (GrantedEffects 1260 CastTime 1000; it uses its animation length: MEDIUM-LOW)
+
+
+def mist_raven_model(dive: dict, player_dps: float, raven_dps: float) -> tuple[float, list[dict], list[dict]]:
+    """(added DPS, mods, notes) for the Mist Raven's Mirror Breaker. `dive`: the bridge's minionSkillHit for it;
+    `player_dps`: the main skill's DPS a Command press costs time from (0 when the raven is the main skill);
+    `raven_dps`: the raven's own counted drive-by DPS (0 when the score doesn't count it)."""
+    hit = number(dive.get("AverageDamage")) or number(dive.get("AverageHit"))
+    label = "Mirror Breaker (the Mist Raven's Command, added to the boss DPS)"
+    if hit <= 0:
+        return 0.0, [], [{"label": label, "value": 0, "confidence": "LOW",
+                          "basis": "PoB gave no hit for the Mist Raven with Mirror Breaker chosen: not counted (0)"}]
+    every = max(number(dive.get("Cooldown")) or MIRROR_BREAKER_COOLDOWN, COMMAND_CAST)
+    lost = player_dps * COMMAND_CAST / every + raven_dps * min(MIRROR_BREAKER_DIVE / every, 1.0)
+    gross = hit / every
+    dps = max(gross - lost, 0.0)
+    basis = (f"one hit on the boss a dive ({hit:,.0f}, PoB's Mist Raven with Mirror Breaker chosen: x10 base, 70% "
+             f"Physical to Chaos), one dive every {every:.3g} s (its cooldown: a press under the button cap): "
+             f"{gross:,.1f} DPS, less {lost:,.1f} DPS for the Command's {COMMAND_CAST:g} s cast ({player_dps:,.0f} "
+             f"main-skill DPS; whether a Command stops your skill is UNVERIFIED) and the raven's {MIRROR_BREAKER_DIVE:g} s "
+             f"dive ({raven_dps:,.0f} drive-by DPS where the score counts it): {dps:,.1f} DPS. The raven's damage is the "
+             "game's monster row (DamageMultiplier 150, 1.0 s attack) at PoB's minion level for the skill's level (MEDIUM)")
+    if gross - lost <= 0:
+        basis += "; a net loss, so not pressed (0)"
+    note = {"label": label, "value": round(dps, 1), "basis": basis, "confidence": "MEDIUM-LOW",
+            "play": (f"Command the Mist Raven's Mirror Breaker each time its cooldown is up (every {every:.3g} s): with it "
+                     f"+{dps:,.1f} DPS; without it +0.")}
+    return dps, ([added_input("MirrorBreaker", dps)] if dps > 0 else []), [note]
+
 # Inevitable Agony (MECHB30, PATCH_CHECK H1-4; plans/term-agony.md, PLANS5): Chronomancer's Inevitability grants it
 # (ActiveSkills inevitable_agony): "Debuff all targets in an area, causing a portion of Damage they take from Hits to be
 # tracked by the Debuff. When the debuff's duration expires or can kill the target, the target loses life equal to that
@@ -14020,6 +14061,11 @@ LL_COOLDOWN = 0.2
 def ll_hits_a_use(row: dict) -> float:
     """Hits on the boss a use of the skill whose useRates row this is, as PoB scores them (see above); 1 when unreadable."""
     speed, hit = number(row.get("speed")), number(row.get("AverageHit"))
+    if hit <= 0:
+        # (MECHB44) an Attack's hit is per hand (bridge.useRates' MainHand. / OffHand.AverageHit): dual wielding, PoB's
+        # TotalDPS alternates the hands, so their mean stands for one hit (MEDIUM); one hand alone is that hand's
+        hands = [h for h in (number(row.get("MainHand.AverageHit")), number(row.get("OffHand.AverageHit"))) if h > 0]
+        hit = sum(hands) / len(hands) if hands else 0.0
     chance = min(number(row.get("HitChance")) or 100.0, 100.0) / 100
     dps = number(row.get("TotalDPS")) / max(number(row.get("cullMultiplier")) or 1.0, 1.0)
     if speed <= 0 or hit <= 0 or chance <= 0 or dps <= 0:
@@ -15090,13 +15136,116 @@ def different_skills_counts(skills: list[Skill], main: Skill | None, persistent:
     return mods, notes
 
 
-# Full Salvo and Demolitionist (MECHB43; routed from MECHC43 / MECH89's never-on rows; an UNDERCOUNT: PoB 0). Full Salvo
+
+# Casting Cascade (6%) / Effervescent (4%) (MECHB44; COV45's routed rows, an UNDERCOUNT): "N% increased Cast Speed for
+# each different Spell you've Cast in the last eight seconds" (PassiveSkills cast_speed31 / cast_speed32, stat
+# cast_speed_+%_per_num_unique_spells_cast_in_last_8_seconds, game 26650308). PoB parses it only in part (ModCache 4047 /
+# 4761 leave "for each different  you've Cast in the last eight seconds"), so it never applies (Item.lua / PassiveTree.lua
+# `not modLine.extra`: LANE_RULES). No "Non-Instant" in the wording, so instant Spells count too (the manager's routing,
+# COV45 18:08). The count is different_skills_counts' play (the main skill and each other Spell whose cooldown allows a
+# cast once per 8 s; triggered, Persistent and totem skills out), instant ones in: the line's % x that count as Cast Speed.
+DIFFERENT_SPELL_SPEED = re.compile(r"^(\d+(?:\.\d+)?)% increased cast speed for each different spell you've cast in the "
+                                   r"last eight seconds$", re.I)
+
+
+def different_spells_cast_speed(texts: list[str], skills: list[Skill], main: Skill | None, persistent: set[str]
+                                ) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for the "Cast Speed for each different Spell you've Cast in the last eight seconds" lines."""
+    pct = sum(float(m.group(1)) for m in (DIFFERENT_SPELL_SPEED.match(t.strip()) for t in texts) if m)
+    if pct <= 0:
+        return [], []
+
+    def cast(s: Skill) -> bool:
+        if not s.spell or s.triggered or s.name in persistent or cast_by_totem(skills, s):
+            return False
+        if main is not None and s.name == main.name:
+            return True
+        return number(s.cooldown) / (s.cooldown_recovery or 1.0) <= DIFFERENT_WINDOW
+
+    names = sorted({s.name for s in skills if cast(s)})
+    note = {"label": f"Cast Speed per different Spell cast in the last {DIFFERENT_WINDOW:g} s", "value": len(names),
+            "basis": (f"{pct:g}% increased Cast Speed for each ({', '.join(names) if names else 'none'}): "
+                      f"+{pct * len(names):g}%. The main skill and every other Spell of the build whose cooldown lets you "
+                      f"cast it once per {DIFFERENT_WINDOW:g} s, instant ones included (the line says any Spell); "
+                      "triggered, Persistent and totem skills not counted. PoB parses the line only in part, so it "
+                      "applied nothing before"),
+            "confidence": "MEDIUM",
+            "play": (f"Cast each of your Spells at least once every {DIFFERENT_WINDOW:g} s: with it +{pct * len(names):g}% "
+                     f"Cast Speed ({len(names)} Spells); with only the main skill +{pct if main is not None and main.spell else 0:g}%.")}
+    return ([line("1% increased Cast Speed", pct * len(names))] if names else []), [note]
+
+
+# Unstable Bond (MECHB44; routed from MECH91, the minion-death side of Volatility; an UNDERCOUNT: PoB reads no Volatility,
+# ModCache 7626 leaves "Gain 3 Volatility when an Allied Persistent Reviving Minion is Killed" with leftover text). Stat
+# gain_X_volatility_on_persistent_minion_death 3, on the anointable notable volatility1 only (checked: PassiveSkills,
+# Mods, GrantedEffectStatSets of 26650308 for the stat: PassiveSkills volatility1 alone; PoB tree 0_5 node 18485; patch
+# notes: no hit, which is not evidence of absence). Volatility (KeywordPopups, see volatility_model) explodes D s (4 s x the
+# delay lines) after the last gain, then Volatile Power gives 1% of Damage as Chaos per Volatility exploded for 10 s.
+# The deaths are models.minion_deaths' (your Persistent, Reviving minions Killed a second from the build's own sources:
+# Sacrifice, Minion Pact, ...; 0 with none: CLAUDE.md's no-flat-rates rule). Deaths at most one per D s: each death's 3
+# explode alone, Volatile Power up min(1, 10 r) of the fight at 3% (a later explosion taken to replace the Power, not add:
+# MEDIUM-LOW, the lower reading; row: they add). Deaths more often than one per D s keep resetting the timer, so it never
+# explodes (0; row: pace the deaths one per D s). With Inner Turmoil the ailment gains reset the timer too: its cycle
+# (volatility_model) is MECH-A's and these gains aren't added to it (a lower reading, said). Without Inner Turmoil's "Take
+# no Damage from Volatility" each explosion hits you for 100 Physical per Volatility (a defence cost, said, not modelled).
+UNSTABLE_BOND = re.compile(r"^gain (\d+) volatility when an allied persistent reviving minion is killed$", re.I)
+TAKE_NO_VOLATILITY = re.compile(r"^take no damage from volatility$", re.I)
+
+
+def unstable_bond_model(texts: list[str], deaths: tuple[float, str]) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for Unstable Bond's Volatility on your Persistent Reviving minions' deaths (the note above)."""
+    each = sum(float(m.group(1)) for m in (UNSTABLE_BOND.match(t.strip()) for t in texts) if m)
+    if each <= 0:
+        return [], []
+    label = "Unstable Bond: Volatile Power from minion deaths*"
+    cap = min([float(m.group(1)) for t in texts if (m := VOLATILITY_MAX.match(t.strip()))] or [VOLATILITY_CAP])
+    inc = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+              for t in texts if (m := VOLATILITY_DELAY.match(t.strip())))
+    delay = VOLATILITY_SECONDS * max(0.0, 1 + inc / 100)
+    rate, how = deaths
+    rate = max(number(rate), 0.0)
+    k = min(cap, each)
+    hurt = "" if any(TAKE_NO_VOLATILITY.match(t.strip()) for t in texts) else (
+        f"; each explosion hits you for {100 * k:g} Physical Damage (100 per Volatility: no 'Take no Damage from "
+        "Volatility' in the build; a defence cost, not modelled)")
+    paced = min(1.0, VOLATILE_POWER_SECONDS / delay) * k if delay > 0 else k
+    if any(INNER_TURMOIL.match(t.strip()) for t in texts):
+        return [], [{"label": label, "value": "+0 (with Inner Turmoil)", "confidence": "LOW",
+                     "basis": (f"{rate:.3f} deaths a second ({how}); with Inner Turmoil your ailments reset the "
+                               "explosion timer too, and its attack-then-stop cycle (Inner Turmoil's note) counts only "
+                               "the ailment gains: these aren't added to it (a lower reading)")}]
+    if rate <= 0:
+        return [], [{"label": label, "value": 0, "confidence": "MEDIUM",
+                     "basis": f"no Persistent Reviving minion of yours is Killed ({how}): no Volatility, +0"}]
+    if 1 / rate < delay:
+        return [], [{"label": label, "value": "+0 (never explodes)", "confidence": "MEDIUM-LOW",
+                     "basis": (f"{rate:.3f} deaths a second ({how}), one every {1 / rate:.2f} s: each gain resets the "
+                               f"{delay:g} s explosion timer, so the Volatility never explodes (+0). Pacing the deaths "
+                               f"to one every {delay:g} s: +{paced:g}% of Damage as Chaos" + hurt),
+                     "play": (f"Let your minions die at most once every {delay:g} s so the Volatility explodes: with "
+                              f"it +{paced:g}% of Damage as Chaos; without it +0")}]
+    up = min(1.0, VOLATILE_POWER_SECONDS * rate)
+    gain = k * up
+    stacked = min(cap, k * max(1.0, VOLATILE_POWER_SECONDS * rate)) * up
+    return [line("Gain 1% of Damage as Extra Chaos Damage", gain)], [{
+        "label": label, "value": f"+{gain:.2f}% of Damage as Chaos", "confidence": "MEDIUM-LOW",
+        "basis": (f"{rate:.3f} deaths a second ({how}), one every {1 / rate:.2f} s, at least the {delay:g} s explosion "
+                  f"delay: each death's {k:g} Volatility explodes, Volatile Power ({k:g}% of Damage as Chaos for "
+                  f"{VOLATILE_POWER_SECONDS:g} s) up {up:.0%} of the fight: +{gain:.2f}%. A later explosion taken to "
+                  f"replace the Power (MEDIUM-LOW); if they add: +{stacked:.2f}%" + hurt + ". PoB reads no Volatility"),
+        "play": (f"Your minions' deaths feed it (one every {1 / rate:.2f} s): with them +{gain:.2f}% of Damage as "
+                 "Chaos; without them +0")}]
+
+# Full Salvo and Demolitionist (MECHB43; routed from MECHC43 / MECH89's never-on rows; MECHB44: PoB counts 1, not 0,
+# see AMMO_PLACEHOLDER; the model sets PoB's total to the build's count: an OVERCOUNT of one fixed). Full Salvo
 # (Deadeye's notable, "Allocates Full Salvo" on items): "25% increased Damage with Crossbows for each type of Ammunition
 # fired in the past 10 seconds"; Demolitionist: "Gain 4% of Damage as Extra Fire Damage for every different Grenade fired
 # in the past 8 seconds". PoB parses both whole behind Multiplier:DifferentAmmoFired / DifferentGrenadeFired (ModParser
 # 1557-1558), capped at the build's distinct ammo / grenade skills (AmmoTypes / GrenadeTypes, CalcPerform 1398-1407), and
 # only its config boxes set the two multipliers (ConfigOptions 1657-1661; checked: grep of builder/ and engine/ for
-# DifferentAmmoFired / DifferentGrenadeFired before this change: none), so both lines counted 0. From the build (CLAUDE.md's
+# DifferentAmmoFired / DifferentGrenadeFired before this change: none). MECHB43 read that as 0; WRONG (MECHB44, probe
+# POE2T4652: a plain 25% gives x1.25, the line with the model's +1 gave x1.50 = two types): both boxes' placeholder, 1, is
+# applied while the input is unset (ConfigTab.lua 1186), so PoB counted 1 type of each. From the build (CLAUDE.md's
 # no-flat-rates rule): the distinct gems typed CrossbowAmmoSkill / Grenade (the game's skill types, gem data) the player
 # fires at least once a window: the main skill, and each other one of the build that isn't triggered, Meta or a totem's
 # and whose cooldown allows a use per window (a play strategy: fire each that often; the "only the main skill" row in the
@@ -15104,6 +15253,9 @@ def different_skills_counts(skills: list[Skill], main: Skill | None, persistent:
 # a grenade a Meta fires counts as yours is UNVERIFIED (the lower reading). MEDIUM. The window: the line's own number.
 AMMO_FIRED = re.compile(r"for each type of ammunition fired in the past (\d+) seconds", re.I)
 GRENADE_FIRED = re.compile(r"for every different grenade fired in the past (\d+) seconds", re.I)
+
+
+AMMO_PLACEHOLDER = 1  # (PoB's multiplierDifferentAmmoFired / multiplierDifferentGrenadeFired placeholder, applied)
 
 
 def ammo_grenade_counts(skills: list[Skill], main: Skill | None, persistent: set[str], types_of,
@@ -15130,15 +15282,20 @@ def ammo_grenade_counts(skills: list[Skill], main: Skill | None, persistent: set
             else:
                 left.add(x.name)
         count = len(fired)
-        if count:
-            mods.append(raw_mod(f"Multiplier:{var}", "BASE", count))
+        # (MECHB44, probe POE2T4652: an OVERCOUNT before) PoB's config box for the multiplier applies its placeholder, 1,
+        # whenever its input is unset (ConfigOptions 1657 / 1660 defaultPlaceholderState = 1; ConfigTab 1186 applies a
+        # placeholder like an input), which the tool never sets: so PoB already counted 1, and adding the count made it
+        # count + 1 (Permafrost Bolts with Full Salvo: x1.50 = a plain 50%, POE2T4652). The mod is the count less it.
+        if count != AMMO_PLACEHOLDER:
+            mods.append(raw_mod(f"Multiplier:{var}", "BASE", count - AMMO_PLACEHOLDER))
         alone = 1 if main is not None and main.name in fired else 0
         notes.append({"label": f"{label.capitalize()} fired in the past {window:g} s*", "value": count,
                       "basis": ((", ".join(sorted(fired)) if fired else "none") + f": the main skill and each other one "
                                 f"the build has whose cooldown lets you fire it once per {window:g} s (a play strategy: fire "
                                 f"each that often; with only the main skill: {alone})"
                                 + (f"; not counted (triggered, a totem's or a longer cooldown): {', '.join(sorted(left))}"
-                                   if left else "") + ". PoB reads 0 (only its config box sets it: an UNDERCOUNT before)"),
+                                   if left else "") + f". PoB's config box counts {AMMO_PLACEHOLDER} by itself (its placeholder, applied): the model sets the total to "
+                                     "the build's count (an OVERCOUNT of one before, POE2T4652)"),
                       "play": (f"Fire each of {', '.join(sorted(fired))} at least once every {window:g} s (without it: "
                                f"{alone}, with it: {count})" if count > 1 else ""),
                       "confidence": "MEDIUM"})

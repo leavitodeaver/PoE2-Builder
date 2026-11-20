@@ -506,6 +506,87 @@ do
 	end
 end
 
+-- The Auspex's Mist Raven (MECHB44): PoB's SummonMistRavenPlayer has no minionList, so it scored 0 (an UNDERCOUNT; probe
+-- POE2T4643: "the skill summons no minion"). PoB's own "MistRaven" minion is Spiraling Conspiracy's flock ("Raven
+-- Conspiracy", MonsterVarieties 2734, Tangmazu's Winged Entropy / Mad Flight), not this raven. Added here from the
+-- game's rows (build 26650308; MonsterVarieties from RESEARCH33's read-only export, scratch/research33/gx2):
+-- MonsterVarieties 1622 MistRavenCompanion "Mist Raven" (DamageMultiplier 150, AttackSpeed 1000 ms, LifeMultiplier 150,
+-- AttackCrit 5%, attack distance 3-9, GrantedEffects 1259 / 1260 only), MonsterTypes 245 (DamageSpread 20, resistances 0).
+-- Its skills: MistRavenDriveByAttack (its basic attack, ActiveSkills 40 "melee"; BaseMultiplier 20000 = x3 by PoB's own
+-- conversion of monster skills, as GreatHuntPackleaderMinion's 90000 = x10; is_area_damage; 70% Physical to Chaos) and
+-- MistRavenCommandDiveBomb "Mirror Breaker" (the Command; BaseMultiplier 90000 = x10, Cooldown 12 s, 1 stored use,
+-- radius 25, 70% Physical to Chaos). Both use their animation length (action_attack_or_cast_time_uses_animation_length):
+-- the monster's 1.0 s attack time stands for it (MEDIUM-LOW, as Verisium's). PoB's minion path gives the drive-by's DPS
+-- (its first skill); Mirror Breaker's press is MECH-B's model (models.mist_raven_model) through bridge.minionSkillHit.
+do
+	if data.skills.SummonMistRavenPlayer and not data.skills.MistRavenDriveByAttack then
+		local function ravenSkill(id, name, mult, extra, types, levelExtra)
+			local level = { baseMultiplier = mult, levelRequirement = 0, }
+			for k, v in pairs(levelExtra or { }) do level[k] = v end
+			local skill = {
+				name = name,
+				hidden = true,
+				description = "The Mist Raven's " .. name .. ".",
+				skillTypes = types,
+				castTime = 1,
+				qualityStats = { },
+				altQualityStats = { },
+				levels = { [1] = level, },
+				statSets = {
+					[1] = {
+						label = name,
+						incrementalEffectiveness = 0.054999999701977,
+						statDescriptionScope = "skill_stat_descriptions",
+						baseFlags = { attack = true, melee = true, area = true, },
+						constantStats = extra,
+						stats = { "is_area_damage", "action_attack_or_cast_time_uses_animation_length", },
+						levels = { [1] = { actorLevel = 1, }, },
+					},
+				},
+			}
+			-- as Data.lua 916-955 sets up every skill it loads (no mods to source)
+			skill.id = id
+			skill.modSource = "Skill:" .. id
+			for _, statSet in pairs(tableConcat({ skill }, skill.statSets)) do
+				statSet.statMap = statSet.statMap or { }
+				setmetatable(statSet.statMap, data.skillStatMapMeta)
+				statSet.statMap._grantedEffect = skill
+			end
+			data.skills[id] = skill
+		end
+		ravenSkill("MistRavenDriveByAttack", "Drive-by Attack", 3,
+			{ { "attack_maximum_action_distance_+", 50 }, { "active_skill_base_physical_damage_%_to_convert_to_chaos", 70 }, },
+			{ [SkillType.Attack] = true, [SkillType.Melee] = true, [SkillType.Area] = true, [SkillType.Damage] = true,
+				[SkillType.Physical] = true, [SkillType.Chaos] = true, })
+		ravenSkill("MistRavenCommandDiveBomb", "Mirror Breaker", 10,
+			{ { "attack_maximum_action_distance_+", 120 }, { "active_skill_base_area_of_effect_radius", 25 },
+				{ "active_skill_base_physical_damage_%_to_convert_to_chaos", 70 }, },
+			{ [SkillType.Attack] = true, [SkillType.Area] = true, [SkillType.Damage] = true, [SkillType.Cooldown] = true,
+				[SkillType.Physical] = true, [SkillType.Chaos] = true, },
+			{ cooldown = 12, storedUses = 1, })
+		data.minions.MistRavenCompanion = {
+			name = "Mist Raven",
+			monsterTags = { "ranged", },
+			life = 1.5,
+			fireResist = 0, coldResist = 0, lightningResist = 0, chaosResist = 0,
+			companionFireResist = 0, companionColdResist = 0, companionLightningResist = 0, companionChaosResist = 0,
+			damage = 1.5,
+			damageSpread = 0.2,
+			attackTime = 1,
+			attackRange = 9,
+			accuracy = 1,
+			critChance = 5,
+			baseMovementSpeed = 36,
+			spectreReservation = 50,
+			companionReservation = 30,
+			spawnLocation = { },
+			skillList = { "MistRavenDriveByAttack", "MistRavenCommandDiveBomb", },
+			modList = { },
+		}
+		data.skills.SummonMistRavenPlayer.minionList = { "MistRavenCompanion", }
+	end
+end
+
 local DEFAULT_FIELDS = {
 	"FullDPS", "CombinedDPS", "TotalDPS", "TotalDotDPS", "Life", "EnergyShield", "Mana",
 	"TotalEHP", "Armour", "Evasion", "FireResist", "ColdResist", "LightningResist", "ChaosResist",
@@ -4259,6 +4340,15 @@ function bridge.useRates(args)
 					"PoisonDPS", "BleedDPS", "CorruptingBloodDPS", "BurningGroundDPS", "CausticGroundDPS" }) do
 				if type(output[field]) == "number" then
 					entry[field] = jsonNumber(output[field])
+				end
+			end
+			-- (MECHB44: models.ll_hits_a_use) an Attack keeps its average hit per hand (output.MainHand / OffHand.AverageHit),
+			-- not at the top level, so Living Lightning read one hit a use on every Attack (an UNDERCOUNT, probe POE2T4643)
+			if type(output.AverageHit) ~= "number" then
+				for _, hand in ipairs({ "MainHand", "OffHand" }) do
+					if output[hand] and type(output[hand].AverageHit) == "number" then
+						entry[hand .. ".AverageHit"] = jsonNumber(output[hand].AverageHit)
+					end
 				end
 			end
 			local shock = shockChancePerHit(output)  -- (MECH86: PoB never writes ShockChancePerHit; shockChancePerHit)

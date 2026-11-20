@@ -6479,6 +6479,10 @@ def test_living_lightning_counts_three_zaps_per_minion_made_per_lightning_hit_an
     assert models.ll_hits_a_use(row) == pytest.approx(3.0)
     assert models.ll_hits_a_use({**row, "cullMultiplier": 1.5}) == pytest.approx(2.0)  # (Cull divided out)
     assert models.ll_hits_a_use({**row, "TotalDPS": 50.0}) == 1.0 and models.ll_hits_a_use({}) == 1.0  # (at least 1)
+    # (MECHB44: an Attack's hit is per hand, the top-level AverageHit absent; dual wield the hands' mean)
+    attack = {"speed": 2.0, "MainHand.AverageHit": 100.0, "HitChance": 50.0, "TotalDPS": 300.0}
+    assert models.ll_hits_a_use(attack) == pytest.approx(3.0)
+    assert models.ll_hits_a_use({**attack, "OffHand.AverageHit": 50.0}) == pytest.approx(4.0)
 
 
 def test_verisium_manifestations_alive_by_the_ward_paid_summon_rate():
@@ -6642,7 +6646,11 @@ def test_full_salvo_and_demolitionist_count_the_ammo_and_grenades_the_build_fire
     texts = ["25% increased Damage with Crossbows for each type of Ammunition fired in the past 10 seconds",
              "Gain 4% of Damage as Extra Fire Damage for every different Grenade fired in the past 8 seconds"]
     mods, notes = models.ammo_grenade_counts(skills, main, set(), types.get, texts)
-    assert {m["name"]: m["value"] for m in mods} == {"Multiplier:DifferentAmmoFired": 2, "Multiplier:DifferentGrenadeFired": 1}
+    # (MECHB44, POE2T4652: PoB's config placeholder already counts 1, so the mod is the count less 1; none at 1)
+    assert {m["name"]: m["value"] for m in mods} == {"Multiplier:DifferentAmmoFired": 1}
+    assert notes[0]["value"] == 2 and notes[1]["value"] == 1 and "placeholder" in notes[0]["basis"]
+    none = models.ammo_grenade_counts([models.Skill("Spark", group=1, spell=True)], None, set(), types.get, texts)[0]
+    assert {m["name"]: m["value"] for m in none} == {"Multiplier:DifferentAmmoFired": -1, "Multiplier:DifferentGrenadeFired": -1}
     assert "Explosive Grenade, Oil Grenade" in notes[1]["basis"] and "with only the main skill: 0" in notes[1]["basis"]
     assert models.ammo_grenade_counts(skills, main, set(), types.get, texts[:1])[0] == mods[:1]  # (no line: no count)
     assert models.ammo_grenade_counts(skills, main, set(), types.get, []) == ([], [])
@@ -6659,3 +6667,41 @@ def test_dark_effigy_fires_one_projectile_per_chaos_dot_debuff_type_not_pobs_one
     assert models.dark_effigy_model([("Essence Drain", 1.0, "")], 0, 0.0, 0.0)[0] == []  # (1 = PoB's 1: nothing)
     hexed = models.dark_effigy_model([("Essence Drain", 1.0, "")], 2, 1.0, 0.0)[1][0]
     assert "Decaying Hex not counting, 1.00" in hexed["basis"] and hexed["value"].startswith("2.00")
+
+
+def test_mist_ravens_mirror_breaker_hits_once_a_cooldown_less_the_command_and_dive_time():
+    """MECHB44 (an UNDERCOUNT: PoB had no minion for The Auspex's Mist Raven): Mirror Breaker's hit once each 12 s
+    cooldown, less the Command's 1 s of the main skill and the dive's 1 s of the raven's drive-by."""
+    dps, mods, notes = models.mist_raven_model({"AverageDamage": 1200.0, "Cooldown": 12.0}, 60.0, 24.0)
+    assert dps == pytest.approx(1200 / 12 - 60 / 12 - 24 / 12) and mods and notes[0]["confidence"] == "MEDIUM-LOW"
+    assert "with it +93.0 DPS" in notes[0]["play"]
+    assert models.mist_raven_model({"AverageHit": 1200.0}, 0.0, 0.0)[0] == pytest.approx(100.0)  # (the 12 s default)
+    zero, none, why = models.mist_raven_model({"AverageHit": 100.0}, 2400.0, 0.0)  # (a net loss: not pressed)
+    assert zero == 0 and none == [] and "not pressed" in why[0]["basis"]
+    assert models.mist_raven_model({}, 10.0, 0.0)[:2] == (0.0, [])
+
+
+def test_casting_cascade_counts_each_different_spell_cast_in_8_s_instant_ones_too():
+    """MECHB44 (COV45's rows, an UNDERCOUNT: PoB parses the line only in part): 6% Cast Speed per different Spell."""
+    main = models.Skill(name="Spark", spell=True, cast_time=0.7)
+    others = [models.Skill(name="Flame Wall", spell=True, cast_time=0.0),  # (instant: counted, the line says any Spell)
+              models.Skill(name="Frost Bomb", spell=True, cast_time=0.6, cooldown=10.0),  # (cooldown over 8 s: not)
+              models.Skill(name="Arc", spell=True, cast_time=0.6, triggered=True)]  # (triggered: not)
+    text = "6% increased Cast Speed for each different Spell you've Cast in the last eight seconds"
+    mods, notes = models.different_spells_cast_speed([text, text.replace("6%", "4%")], [main] + others, main, set())
+    assert mods == [models.line("1% increased Cast Speed", 20.0)] and notes[0]["value"] == 2
+    assert models.different_spells_cast_speed(["6% increased Cast Speed"], [main], main, set()) == ([], [])
+
+
+def test_unstable_bond_explodes_each_deaths_volatility_only_when_the_deaths_are_spaced_out():
+    """MECHB44 (MECH91's routing, an UNDERCOUNT: PoB reads no Volatility): 3 Volatility a Persistent Reviving minion
+    Killed, from the build's own deaths; it explodes only D s after the last gain."""
+    bond = "Gain 3 Volatility when an Allied Persistent Reviving Minion is Killed"
+    mods, notes = models.unstable_bond_model([bond], (0.05, "Sacrifice"))  # (one every 20 s: Power up half the fight)
+    assert mods == [models.line("Gain 1% of Damage as Extra Chaos Damage", 1.5)] and "100 per Volatility" in notes[0]["basis"]
+    assert models.unstable_bond_model([bond], (0.2, "x"))[0] == [models.line("Gain 1% of Damage as Extra Chaos Damage", 3.0)]
+    fast, why = models.unstable_bond_model([bond, "Take no Damage from Volatility"], (1.0, "x"))  # (resets: never explodes)
+    assert fast == [] and "never explodes" in why[0]["value"] and "100 per" not in why[0]["basis"]
+    assert models.unstable_bond_model([bond], (0.0, "none"))[0] == []
+    assert models.unstable_bond_model([bond, "Gain 1 Volatility on inflicting an Elemental Ailment"], (0.1, "x"))[0] == []
+    assert models.unstable_bond_model(["Gain 3 Volatility"], (1.0, "x")) == ([], [])
