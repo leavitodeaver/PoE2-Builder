@@ -595,6 +595,11 @@ NO_POWER_STAT = "cannot_gain_power_charges_during_skill"
 # rate): one hit on the boss a use as read; the flag lets each enemy hit grant, and a lone boss is one enemy (MEDIUM;
 # Siphoning Strike's strike and shockwave both hitting the boss, two a use, UNVERIFIED: not counted). A side Orb of
 # Storms' bolts: the charge readers count the main skill's hits only (an UNDERCOUNT left).
+# (MECHC47, SIDE_TWISTER: MECHC46's labelled undercount) a flagged Twister in another group: its hits and crits a second
+# x recovery.twister_hits' headline from its own group's ProjectileCount and Duration (PoB's setRates for that group; its
+# projectile speed and area modifiers aren't in setRates' fields: taken at their base, MEDIUM-LOW, as the main's
+# reading). A side Galvanic Field is still left out of the side rows (GENERIC_HIT's note: its casts aren't its hits; its
+# bolts need its HitSpeed, which setRates doesn't give yet: an UNDERCOUNT left).
 MULTI_CHARGE_STAT = "skill_can_add_multiple_charges_per_action"
 HELBRYMS_HIDE = "Helbrym's Hide"  # (MECHC44: recovery.HELBRYMS_HIDE; its Rage, Conditions._helbrym_rage)
 HITS_A_USE = {"Twister", "Galvanic Field"}  # (MECHC44: main skills whose hits a use Conditions._hits_per_use reads)
@@ -700,6 +705,9 @@ GENERIC_HIT = re.compile(r"^\s*on (critical )?hit\s*$", re.I)
 # OVERRIDE (CalcOffence 3852-3892: it replaces the pre-accuracy, pre-Lucky chance and skips inc / more) to
 # f x 100 + (1 - f) x PoB's own PreEffectiveCritChance read without it (NEBULOCH_TAG). MEDIUM (the charge flow; PoB's
 # later accuracy / Lucky steps act on the blend, not on each part). Side Attacks' crits: not read (an undercount).
+# (MECHC47, RESEARCH36 R36-22, MEDIUM-HIGH: the forced crit replaces only the crit roll, the Attack must still hit, so
+# the blend under PoB's hit chance stands. Whether a MISSED Attack spends the charge: UNVERIFIED (no source either
+# way): headline on use (misses spend too, the lower f), a row with only hits spending (build.nebuloch_found[2]).)
 NEBULOCH_CRIT = re.compile(r"^Attacks consume an Endurance Charge to Critically Hit$", re.I)
 CHARGE_WHILE_BLEEDING = re.compile(r"\bcharges? on hit while bleeding\b", re.I)
 
@@ -735,7 +743,7 @@ def side_hit_rows(rows: dict, groups: list[dict], hitters: set[str], main_index,
         crit = min(max(number(row.get("CritChance")), 0.0), 100.0) / 100.0
         label = str(row.get("name") or names[index][0])
         name = next((n for n in names[index] if label.startswith(n)), names[index][0])
-        out.append({"name": name, "hits": landed, "crits": landed * crit, "melee": name in (melee or ()),
+        out.append({"name": name, "index": index, "hits": landed, "crits": landed * crit, "melee": name in (melee or ()),
                     "flagged": name in (flagged or ()),
                     "how": f"{label} {landed:.2f} hits/s ({why}, {crit:.0%} critical)"})
     return out
@@ -1531,6 +1539,116 @@ def _side_hit_gains(found: list[tuple[str, str, tuple[float, str]]], stats: dict
     return out
 
 
+def rage_max_charges(lines: list[str], stats: dict, kinds: list[str]) -> list[tuple[str, str, tuple[float, str]]]:
+    """(text, source kind, (gains a second, how)) for "Gain a random Charge on reaching Maximum Rage, no more than once
+    every N seconds" (MECHC47, RAGE_MAX_CHARGE's note): a third of its charges to each of `kinds` (the kinds feeding the
+    one asked for, Resonance included)."""
+    line = next(((t, m) for t in lines if (m := RAGE_MAX_CHARGE.search(t.strip()))), None)
+    if line is None:
+        return []
+    text, m = line
+    if "_rage_max_reaches" not in stats:
+        rage_held(lines, stats)  # (Rage is read before the charges in a pass; this covers a call outside one)
+    reaches = stats.get("_rage_max_reaches")
+    cooldown = float(m.group(1))
+    if not reaches or reaches[0] <= 0:
+        why = ("the maximum isn't reached again without a line that empties it (UNVERIFIED how often), 0"
+               if not any(RAGE_RESET_AT_MAX.search(t) for t in lines) else "the build doesn't reach its maximum Rage, 0")
+        return [(text, kinds[0], (0.0, why))] if kinds else []
+    climb = 1 / reaches[0]
+    every = climb * max(1, math.ceil(cooldown / climb - 1e-9))
+    return [(text, k, (1 / every / 3, f"{reaches[1]}; {RAGE_MAX_CHARGE_HOW} {every:.1f} s (the {cooldown:g} s cooldown), "
+                                      f"a third of them {k} (the pick assumed even)")) for k in kinds]
+
+
+# (MECHC47; COV48's MECH-C row 17.4 / 8.8) Druidic Prowess (KeywordPopups DruidicProwess, game 26650308: "a stacking
+# Buff which grants 10% increased Skill Speed and causes Hits with Spell Damage to grant 3 Rage per stack for 10 seconds.
+# Each stack has an independent duration. Maximum 3 stacks"). Its sources (checked: Stats ids holding "druidic" /
+# "prowess", and every table row whose stat columns carry them, game 26650308: gain_druidic_prowess_per_X_rage_spent on
+# Mods UniqueGainDruidicProwessOnSpendingXRage1 (a Talisman unique) and a Soul Core's SoulCoreStats;
+# gain_X_druidic_prowess_on_heavy_stunning_rare_or_unique_enemy on a Soul Core's SoulCoreStats; no passive or skill stat
+# set carries either; PoB's Data (ModItemExclusive, ModRunes) agrees; PoB parses neither, ModCache 7487 leaves the line
+# whole): "Gain N Druidic Prowess for every M total Rage spent" at the Rage the build really spends (rage_held's spenders,
+# all they ask while Rage keeps up), steady: N x spent / M stacks a second; "Gain N Druidic Prowess when you Heavy Stun a
+# Rare or Unique Enemy" at the main skill's Heavy Stuns of the boss (models.heavy_stun_rate), random. Stacks held:
+# E[min(3, steady x 10 + N x Poisson(stuns x 10))] (a stack past the maximum taken as replacing the oldest, UNVERIFIED;
+# Buff Effect and duration modifiers not read, an undercount where a build has them). Its "Hits with Spell Damage grant
+# 3 Rage per stack" isn't fed back into Rage (an undercount for a Spell build that spends Rage). MEDIUM.
+DRUIDIC_PROWESS_SPENT = re.compile(r"^Gain (\d+) Druidic Prowess for every (\d+) total Rage spent$", re.I)
+DRUIDIC_PROWESS_STUN = re.compile(r"^Gain (\d+) Druidic Prowess when you Heavy Stun a Rare or Unique Enemy$", re.I)
+DRUIDIC_PROWESS_MAX, DRUIDIC_PROWESS_SECONDS, DRUIDIC_PROWESS_SPEED = 3, 10.0, 10.0
+
+
+def druidic_prowess(texts: list[str], rage_spent: tuple[float, str] | None,
+                    heavy_stuns: tuple[float, str] | None) -> tuple[float, str]:
+    """(Druidic Prowess stacks held on average, how) from the build's lines (DRUIDIC_PROWESS's note); (0, "") with no
+    line."""
+    steady, random, events, how = 0.0, 0.0, 0.0, []
+    for text in texts:
+        if m := DRUIDIC_PROWESS_SPENT.search(text.strip()):
+            spent = rage_spent[0] if rage_spent else 0.0
+            steady += float(m.group(1)) * spent / float(m.group(2))
+            how.append(f"{m.group(1)} per {m.group(2)} Rage spent: " + (
+                f"{spent:.2f} Rage/s spent ({rage_spent[1]})" if spent > 0 else "the build spends no Rage, 0"))
+        elif m := DRUIDIC_PROWESS_STUN.search(text.strip()):
+            rate = heavy_stuns[0] if heavy_stuns else 0.0
+            random += float(m.group(1)) * rate
+            events += rate
+            how.append(f"{m.group(1)} per Heavy Stun of the boss: " + (
+                f"{rate:.3f}/s ({heavy_stuns[1][:80]})" if rate > 0 else "no Heavy Stuns, 0"))
+    if not how:
+        return 0.0, ""
+    base, mean = steady * DRUIDIC_PROWESS_SECONDS, events * DRUIDIC_PROWESS_SECONDS
+    batch = random / events if events > 0 else 1.0  # (stacks a Heavy Stun brings)
+    stacks, p, below, k = 0.0, math.exp(-mean), 0.0, 0  # E[min(cap, base + batch x Poisson(mean))]
+    while base + batch * k < DRUIDIC_PROWESS_MAX:
+        stacks += p * (base + batch * k)
+        below += p
+        k += 1
+        p *= mean / k
+    stacks += (1.0 - below) * DRUIDIC_PROWESS_MAX
+    stacks = min(stacks, float(DRUIDIC_PROWESS_MAX))
+    return stacks, (f"{steady + random:.2f} stacks/s x {DRUIDIC_PROWESS_SECONDS:g} s each, at most {DRUIDIC_PROWESS_MAX}: "
+                    f"{stacks:.2f} held ({'; '.join(how)})")
+
+
+# (MECHC47; COV48's MECH-C row 16.3; plans/kw-shrine.md item 2, RESEARCH26 shrine-proc-rates-r26.md (a)) The Hammer of
+# Faith's "Every 10 seconds, gain a random non-damaging Shrine buff for 20 seconds" (stat gain_shrine_buff_every_10_seconds,
+# Mods UniqueShrineBuffAlternating1; PoB leaves it unparsed). The pool (R26, MEDIUM; weights LOW): 8 shrines, equal
+# weights: Acceleration (60% increased Skill Speed, 40% increased Movement Speed), Diamond ("You always deal Critical
+# Hits"), Enduring (50% increased maximum Life; 100% increased Global Armour, Evasion and Energy Shield), Replenishing
+# (Regenerate 10% of maximum Life and Mana per second), Resistance (+50% all Elemental Resistances, +10% all maximum),
+# Divine ("You cannot be Damaged"), Seeking and Enlightening (nothing in a fight); row: n = 10 with Greed and Tainted. A
+# roll of a buff already held only refreshes it (R26: two forum guides), so each buff is up u = 1 - (1 - 1/n)^(rolls in
+# its duration), rolls = D / 10 per line (two Hammers, two lines), D = 20 x (1 + "increased Duration of Shrine Effects on
+# you"). DPS: Diamond as a crit-chance blend (u x 100 + (1 - u) x PoB's own), Acceleration as u x 60% increased Skill
+# Speed (an increase is linear in the time-average); the defence buffs as rows only. Not read: "increased effect of
+# Shrine Buffs" (PoB's ShrineBuffEffect), "Buffs expire slower" lines (undercounts, said).
+SHRINE_EVERY = re.compile(r"^Every (\d+(?:\.\d+)?) seconds, gain a random non-damaging Shrine buff for (\d+(?:\.\d+)?) "
+                          r"seconds$", re.I)
+SHRINE_DURATION = re.compile(r"(\d+(?:\.\d+)?)% (increased|reduced) Duration of Shrine Effects on you", re.I)
+SHRINE_POOL, SHRINE_POOL_ROW = 8, 10
+SHRINE_SKILL_SPEED = 60.0  # (Acceleration Shrine: 60% increased Skill Speed, R26)
+
+
+def shrine_uptime(texts: list[str], pool: int = SHRINE_POOL) -> tuple[float, str]:
+    """(each shrine buff's share of the fight, how) for The Hammer of Faith's lines (SHRINE_EVERY's note); (0, "") with
+    none."""
+    found = [m for t in texts if (m := SHRINE_EVERY.search(t.strip()))]
+    if not found:
+        return 0.0, ""
+    inc = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+              for t in texts for m in SHRINE_DURATION.finditer(t))
+    rolls = 0.0
+    for m in found:
+        duration = float(m.group(2)) * max(0.0, 1 + inc / 100)
+        rolls += duration / float(m.group(1))
+    up = 1 - (1 - 1 / pool) ** rolls
+    return up, (f"{len(found)} line(s): {rolls:.1f} rolls inside a buff's {float(found[0].group(2)) * max(0.0, 1 + inc / 100):g} s"
+                + (f" ({inc:+g}% Shrine Effect duration)" if inc else "")
+                + f", one of {pool} shrines each at equal weight (R26: pool MEDIUM, weights LOW): each up {up:.0%}")
+
+
 def _charges_held(kind: str):
     def held(lines: list[str], stats: dict) -> tuple[float, str]:
         kinds, redirected = _charge_sources(lines, kind)
@@ -1553,7 +1671,8 @@ def _charges_held(kind: str):
                  is not None]
         found, joined = _per_use_joined(found, stats)  # (MECHC43: one charge of each type a use)
         found = (found + _side_orb_gains(found, stats)  # (MECHC44: a side Orb of Storms' bolts, SIDE_ORB_HIT's note)
-                 + _side_hit_gains(found, stats))  # (MECHC46: the other groups' hits, GENERIC_HIT's note)
+                 + _side_hit_gains(found, stats)  # (MECHC46: the other groups' hits, GENERIC_HIT's note)
+                 + rage_max_charges(lines, stats, kinds))  # (MECHC47: Hateforge, RAGE_MAX_CHARGE's note)
         for text, source, r in found:
             more = profusion.get(text)
             plus = (more[0] + more[1] / 3) if more else 0.0
@@ -1744,7 +1863,20 @@ RAGE_NO_LOSS = re.compile(r"^No Inherent loss of Rage(?: during effect)?$", re.I
 #   PoB parses it to nothing, ModCache): a build that would reach the maximum climbs 0 -> M and drops back, M / 2 on
 #   average (gains taken as steady, LOW: lumpy gains of a large share of M sit lower); one that never reaches it keeps
 #   its level. The line's "Gain a random Charge on reaching Maximum Rage, no more than once every 6 seconds" isn't
-#   counted (an undercount).
+#   counted (an undercount). (MECHC47: now counted, RAGE_MAX_CHARGE's note.)
+# - (MECHC47; COV48's MECH-C row 15.3) "Gain a random Charge on reaching Maximum Rage, no more than once every (3-6) seconds"
+#   (stat gain_1_random_charge_on_reaching_maximum_rage_no_more_than_once_every_X_ms, Mods UniqueGainChargesOnMaximumRage1:
+#   Hateforge, beside its "Lose all Rage on reaching Maximum Rage"; PoB leaves it unparsed, the coverage audit's open row.
+#   The other stat, gain_X_random_charges_on_reaching_maximum_rage, is on no mod (checked: Mods Stat1-6 for both stat
+#   rows, game 26650308; PoB's Uniques: Hateforge alone; passives and stat sets not searched, UNVERIFIED for those)).
+#   With the reset the build reaches the maximum once per climb, every M / net s (rage_held's reset branch, gains taken
+#   as steady, LOW as there); the cooldown N s skips the reaches inside it, so one charge every T x ceil(N / T) s
+#   (T = M / net). The pick is random: a third to each of Power, Frenzy and Endurance (assumed, labelled, as
+#   EXTRA_RANDOM_CHARGE's). Without a reset line nothing says how often the maximum is reached again: not counted,
+#   said (UNVERIFIED; no PoE2 item carries the line without it, checked as above).
+RAGE_MAX_CHARGE = re.compile(r"^Gain a random Charge on reaching Maximum Rage, no more than once every (\d+(?:\.\d+)?) "
+                             r"seconds?$", re.I)
+RAGE_MAX_CHARGE_HOW = "one random Charge every"
 RAGE_LOST_ON_CRIT_STAT = "lose_%_of_maximum_rage_on_dealing_critical_strike"
 RAGE_RESET_AT_MAX = re.compile(r"\blose all rage on reaching maximum rage\b", re.I)
 RAGE_FILL_ON_USE = re.compile(r"^Grants up to your maximum Rage on use$", re.I)  # (MECHC38: Ngamahu's Chosen)
@@ -1953,6 +2085,8 @@ def rage_on_shift(held: float, net: float, shifts: float, bonus: float = 0.0, sh
 
 
 def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
+    stats["_rage_max_reaches"] = None  # (MECHC47: (reaches of the maximum a second, how), RAGE_MAX_CHARGE's note)
+    stats["_rage_spent_real"] = None  # (MECHC47: (Rage spent a second, how), DRUIDIC_PROWESS's note)
     main_types = stats.get("_main_types") or set()
     spend = stats.get("_rage_spend") or {}
     own_hits = not (stats.get("_main_channel_rage") or False)
@@ -1980,6 +2114,7 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
         return 0.0, ""
     most = number(stats.get("MaximumRage"))
     spent = sum(spend.values())
+    asked = spent  # (MECHC47: the spenders' own Rage a second, before Primal Hunger's refund)
     if refund and spent and gain:
         back = min(refund, 1.0) * spent
         events, spent = events + 1.0, spent - back  # (regenerated every second: the loss paused; the net spend falls)
@@ -1995,6 +2130,10 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
     if spent:
         basis += f", {spent:.2f}/s spent by " + ", ".join(f"{n} {v:.2f}/s" for n, v in spend.items())
     net = gain - spent
+    if asked > 0:  # (MECHC47: what the spenders really spend: all they ask while Rage keeps up, else all that comes)
+        real = asked if net > 0 else max(0.0, gain + (asked - spent))
+        stats["_rage_spent_real"] = (real, ", ".join(f"{n} {v:.2f}/s" for n, v in spend.items()) + (
+            "" if net > 0 else f" (asking {asked:.2f}/s, more than comes: {real:.2f}/s)"))
     if net <= 0 or most <= 0:
         held = 0.0
         basis += " (spent as fast as it comes: none held)" if gain > 0 else " (no gain a boss fight feeds)"
@@ -2041,6 +2180,9 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
         held = most / 2
         basis += (f"; all Rage is lost on reaching the maximum (a line of the build): it climbs to {most:g} and drops "
                   f"back, {held:g} on average (gains taken as steady, LOW)")
+        if net > 0:
+            stats["_rage_max_reaches"] = (net / most, f"the maximum {most:g} reached every {most / net:.1f} s "
+                                                      f"({net:.2f} Rage/s net, then all lost)")
     if any(INVIGORATING_HATE.search(t) for t in lines):  # (MECHC21: each shift back to Human form consumes all Rage)
         shifts, shift_how = stats.get("_human_shifts") or (0.0, "the build's shifts weren't read, 0")
         before = held
@@ -7877,6 +8019,29 @@ class Conditions:
                               f"{at_boss:.2f} fallen at the boss on average and {chance:.0%} of Commands strike one "
                               "there (MEDIUM; ranged Skeletons' bodies taken to be away from it, LOW)")
 
+    def _side_twisters(self, rows: list[dict]) -> None:
+        """(MECHC47, SIDE_TWISTER's note) a flagged side Twister's hits a cast: its row's hits and crits x the twister-count
+        headline from its own group's ProjectileCount and Duration (setRates)."""
+        from builder.search import recovery
+
+        for row in rows:
+            if row["name"] != TWISTER or not row["flagged"] or row.get("index") is None:
+                continue
+            sets = self.build.call("setRates", index=row["index"]).get("sets") or []
+            first = next((x for x in sets if x.get("ProjectileCount") or x.get("Duration")), None)
+            if first is None:
+                row["how"] += "; its twisters a cast weren't read (no stat set), one a cast"
+                continue
+            boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+            radius, _ = bosses.hit_radius({"_boss": boss})
+            head, open_row, _ = recovery.twister_hits(
+                {"ProjectileCount": first.get("ProjectileCount"), "Duration": first.get("Duration")}, radius)
+            row["hits"] *= head
+            row["crits"] *= head
+            row["how"] += (f"; x {head:.2f} hits a cast from its {number(first.get('ProjectileCount')) or 1:g} twister(s) "
+                           f"(recovery.twister_hits' headline, MEDIUM-LOW; projectile speed and area at their base: "
+                           f"not read for a side group; open arena {open_row:g} a cast)")
+
     def _hits_per_use(self) -> tuple[float, str]:
         """(MECHC44) (hits on the boss a use, how) for a HITS_A_USE main skill: Twister's twister-count headline
         (recovery.twister_hits, the same reading Assumptions.models scales its DPS by; the open arena's 1 a cast a row);
@@ -9084,6 +9249,7 @@ class Conditions:
         melee = {n for n in hitters if "Melee" in ((every.get(n) or {}).get("skillTypes") or ())}
         stats["_side_rows"] = side_hit_rows(group_rows, groups_now, hitters, groups_all.get("mainSocketGroup"),
                                             models.press_choices(self.build), melee, flagged)
+        self._side_twisters(stats["_side_rows"])  # (MECHC47: SIDE_TWISTER's note)
         side = side_hits(group_rows, groups_now, hitters, groups_all.get("mainSocketGroup"), models.press_choices(self.build))
         stats["_side_hits"] = side if side[0] > 0 else None
         stats["_gem_line_texts"] = {line["text"] for line in lines if str(line.get("source") or "").startswith("gem:")}
@@ -9278,6 +9444,11 @@ class Conditions:
         self.found_uptimes = uptimes
         # (MECHC13) charges consumed a second by kind ({kind: (rate, how)}; _charges_held), for recovery.spent_income
         self.build.charge_flow = dict(stats.get("_charge_flow") or {})
+        # (MECHC47) the Rage the build really spends a second, for Druidic Prowess (DRUIDIC_PROWESS's note)
+        self.build.rage_spent = stats.get("_rage_spent_real")
+        # (MECHC47, for MECH-B's models.WARD_UNREAD "Runic Ward on reaching Maximum Rage": (reaches of the maximum a
+        # second, how) where the build climbs to it and loses all ("Lose all Rage on reaching Maximum Rage"), else None)
+        self.build.rage_max_reaches = stats.get("_rage_max_reaches")
         # (MECHC46) Nebuloch: the share of the main Attack's uses that find an Endurance Charge (NEBULOCH_CRIT's note)
         self.build.nebuloch_found = None
         endurance = (stats.get("_consumers") or {}).get("Endurance") or {}
@@ -9285,7 +9456,13 @@ class Conditions:
             spent = sum(number(u) for u in endurance.values() if u is not None)
             flow = (stats.get("_charge_flow") or {}).get("Endurance")
             share = min(1.0, number(flow[0]) / spent) if flow and spent > 0 else 0.0
-            self.build.nebuloch_found = (share, flow[1] if flow else "no Endurance Charge source")
+            # (MECHC47, R36-22: whether a missed Attack spends the charge is UNVERIFIED; headline: "Attacks consume"
+            # read as on use, misses too; row: only hits spend, so the main Attack's misses leave charges for later hits)
+            hit = min(1.0, number(stats.get("HitChance")) / 100) if "HitChance" in stats else 1.0
+            main_uses = number(endurance.get(self.main_skill))
+            hits_spent = spent - main_uses * (1 - hit)
+            on_hits = min(1.0, number(flow[0]) / hits_spent) if flow and hits_spent > 0 else share
+            self.build.nebuloch_found = (share, flow[1] if flow else "no Endurance Charge source", on_hits, hit)
         # (MECHC40, K2-9) {skill: (more uses/s, how, uses/s spending every charge)} from charges bypassing its cooldown
         self.build.bypass_uses = dict(stats.get("_bypass_uses") or {})
         # (MECH69, for GEM3's models.riven_armour_model: the share of the fight Riven Armour is up, and its basis)
@@ -9340,7 +9517,8 @@ class Conditions:
             elif held is None:
                 pass
             elif f"use{kind}Charges" not in found:
-                if CHARGE_REDIRECTED in held[1]:  # (its sources name another kind: Resonance)
+                if CHARGE_REDIRECTED in held[1] or RAGE_MAX_CHARGE_HOW in held[1]:
+                    # (its sources name another kind: Resonance; MECHC47: a random Charge, Hateforge's, names none)
                     found[f"use{kind}Charges"] = (True, held[1])
                 else:
                     found.pop(f"override{kind}Charges")  # (no source the resolver accepts for the box itself)

@@ -374,7 +374,13 @@ SNAP_AILMENTS = {"conditionEnemyIgnited": "Fire", "conditionEnemyShocked": "Ligh
 EQUILIBRIUM = re.compile(r"Create Lightning Infusion Remnants instead of Fire", re.I)  # Elemental Equilibrium
 EQUILIBRIUM_SHIFT = {"Fire": "Lightning", "Lightning": "Cold", "Cold": "Fire"}
 EXTRA_INFUSION_REMNANT = re.compile(r"(\d+(?:\.\d+)?)% chance to spawn an additional Infusion Remnant", re.I)
-EXTRA_INFUSION = re.compile(r"(\d+(?:\.\d+)?)% chance to gain an additional Infusion$", re.I)
+# (MECHC47, COV48's MECH-C row 12.0, an UNDERCOUNT: additional_infusion_gain_chance_% reads "N% chance when collecting an
+# Elemental Infusion to gain an" / "additional Elemental Infusion of the same type", two lines (PoB's tree 0_4 / 0_5
+# infusion2 / 6 / 7, ModVeiled AbyssModFocusKurgalSuffixChanceForAdditionalInfusion, its Soul Core), which the older
+# one-line wording below never matched. Carriers checked: Stats 23694 in Mods, PassiveSkills and SoulCoreStats, game
+# 26650308. The first line alone carries the chance; it's read whole or joined.)
+EXTRA_INFUSION = re.compile(r"(\d+(?:\.\d+)?)% chance (?:to gain an additional Infusion|when collecting an Elemental "
+                            r"Infusion to gain an(?: additional Elemental Infusion of the same type)?)$", re.I)
 # (MECHC46: and Refracted Infusion's "When collecting an Elemental Infusion, gain another different Elemental Infusion",
 # no chance named: 100%; the coverage audit's "PoB ignores the line", read by no model before: an UNDERCOUNT)
 OTHER_INFUSION = re.compile(r"(?:(\d+(?:\.\d+)?)% chance )?when collecting an Elemental Infusion,? (?:to )?gain another "
@@ -382,12 +388,24 @@ OTHER_INFUSION = re.compile(r"(?:(\d+(?:\.\d+)?)% chance )?when collecting an El
 # (MECHC33: also the game's "Skills have N% chance to not remove Elemental Infusions but still count as consuming them",
 # PoB ModCache 9391 / 9398 / 9400, parsed to nothing, which the older pattern missed: an UNDERCOUNT. The variant "... if
 # you've lost an Archon Buff in the past 6 seconds" (9397) needs the Archon-loss share: not read, an undercount.)
+# (MECHC47, COV48's MECH-C rows 12.0 x3, an UNDERCOUNT) "N% increased <E> Damage if you've collected a <E> Infusion in the
+# last 8 seconds" (stats fire / lightning / cold_damage_+%_if_<e>_infusion_collected_last_8_seconds: Mods GenesisTreeBelt*
+# and their Crafted twins; BrequelTreeBelts42a-c's reward stats name the same lines; checked: Stats ids holding "infusion"
+# and "collected", in Mods, PassiveSkills and SoulCoreStats, game 26650308). PoB parses it only in part (ModCache 4513 /
+# 4561 / 4583, leftover text), so it applies none of it. Read at the share of the fight an Infusion of that element was
+# collected in the last N s: 1 - e^(-pickups x N), pickups from infusion_supply (taken as random, MEDIUM); a Verisium
+# Infusion ("any element") not counted toward it (UNVERIFIED whether it counts, the lower reading). An increase is
+# linear in damage, so its time-average is the value x that share.
+INFUSION_COLLECTED_DAMAGE = re.compile(r"^(\d+(?:\.\d+)?)% increased (Fire|Cold|Lightning) Damage if you've collected an? "
+                                       r"(Fire|Cold|Lightning) Infusion in the last (\d+(?:\.\d+)?) seconds$", re.I)
 KEEP_INFUSION = re.compile(r"^(?:Skills have )?(\d+(?:\.\d+)?)% chance to not remove (?:an Infusion|Elemental "
                            r"Infusions) but still count as consuming(?: them| it)?$", re.I)
 VERISIUM_EVERY = re.compile(r"Every (?:(\d+(?:\.\d+)?) )?seconds?, gain an? Verisium Infusion", re.I)
 GRANTED_SKILL = re.compile(r"Grants Skill: (?:Level \S+ )?(.+?)\s*$")  # (context.granted_by's pattern)
 SECOND_WIND, SECOND_WIND_PCT = "Second Wind III", 1.0  # (MECHC29, G4-6: restore_%_life_on_skill_use_per_1000_ms_cooldown)
 NEBULOCH_TAG = "NebulochCrit"  # (MECHC46: conditions.NEBULOCH_CRIT's note)
+DRUIDIC_TAG = "DruidicProwess"  # (MECHC47: conditions.DRUIDIC_PROWESS's note)
+SHRINE_TAG = "HammerShrine"  # (MECHC47: conditions.SHRINE_EVERY's note)
 INFUSED_ELEMENT = re.compile(r"\b(fire|cold|lightning)-infused\b", re.I)
 
 
@@ -2900,8 +2918,9 @@ class Assumptions:
         nebuloch = getattr(build, "nebuloch_found", None)
         if main is not None and "Attack" in main_types and nebuloch \
                 and any(conditions_mod.NEBULOCH_CRIT.match(t.strip()) for t in texts):
-            share, how = nebuloch
-            own = [m for m in self.mods or [] if m.get("tag") != NEBULOCH_TAG]
+            share, how = nebuloch[:2]
+            on_hits, hit = (nebuloch[2], nebuloch[3]) if len(nebuloch) > 3 else (share, 1.0)
+            own = [m for m in self.mods or [] if m.get("tag") not in (NEBULOCH_TAG, SHRINE_TAG)]  # (MECHC47: and Diamond's)
             if len(own) != len(self.mods or []):  # (PoB's own chance, without the override set last pass)
                 pre = build.call("setAssumptions", mods=own, fields=["PreEffectiveCritChance"])["stats"]
                 build.call("setAssumptions", mods=self.mods, fields=[])
@@ -2918,6 +2937,70 @@ class Assumptions:
                           "PoB's own chance; each spends the charge (fewer held: the Chaos damage per charge falls too)"),
                 "confidence": "MEDIUM (the charge flow; PoB's accuracy and Lucky steps act on the blend)",
                 "play": "Keep an Endurance Charge source running: each attack spends one to Critically Hit"}]
+            if share > 0 and on_hits - share > 1e-9:  # (MECHC47, R36-22: a miss spending the charge is UNVERIFIED)
+                row = on_hits * 100 + (1 - on_hits) * base
+                hand_notes = hand_notes + [{
+                    "label": "Nebuloch, row: only Attacks that hit spend the Endurance Charge*",
+                    "value": f"{row:.1f}% critical (headline {blend:.1f}%)",
+                    "basis": (f"if a missed Attack keeps its charge, {on_hits:.0%} of {main.name}'s hits find one (its hit "
+                              f"chance {hit:.0%}); the headline reads \"Attacks consume\" as on use, misses too"),
+                    "confidence": "UNVERIFIED (R36-22: no source says whether a miss spends the charge)",
+                    "play": ""}]
+        # (MECHC47) The Hammer of Faith's random Shrine buffs (conditions.SHRINE_EVERY's note): Diamond's crits as a blend
+        # (merged into Nebuloch's blend when both are on), Acceleration's Skill Speed at its uptime; the rest rows
+        shrine_up, shrine_how = conditions_mod.shrine_uptime(texts)
+        if shrine_up > 0 and main is not None:
+            row_up = conditions_mod.shrine_uptime(texts, conditions_mod.SHRINE_POOL_ROW)[0]
+            neb = next((m for m in hand_mods if m.get("tag") == NEBULOCH_TAG), None)
+            own = [m for m in self.mods or [] if m.get("tag") not in (NEBULOCH_TAG, SHRINE_TAG)]
+            if neb is not None:
+                crit_now = number(neb.get("value"))
+            elif len(own) != len(self.mods or []):  # (PoB's own chance, without the overrides set last pass)
+                crit_now = number(build.call("setAssumptions", mods=own, fields=["PreEffectiveCritChance"])["stats"]
+                                  .get("PreEffectiveCritChance"))
+                build.call("setAssumptions", mods=self.mods, fields=[])
+            else:
+                crit_now = number(build.call("stats", fields=["PreEffectiveCritChance"]).get("PreEffectiveCritChance"))
+            crit_now = min(100.0, max(0.0, crit_now))
+            crit = shrine_up * 100 + (1 - shrine_up) * crit_now
+            hand_mods = [m for m in hand_mods if m.get("tag") != NEBULOCH_TAG] + [
+                models.raw_mod("CritChance", "OVERRIDE", crit, skill=main.name, tag=SHRINE_TAG)]
+            speed = round(shrine_up * conditions_mod.SHRINE_SKILL_SPEED, 1)
+            hand_mods = hand_mods + [models.raw_mod(n, "INC", speed, tag=SHRINE_TAG)
+                                     for n in ("Speed", "WarcrySpeed", "TotemPlacementSpeed")]
+            hand_notes = hand_notes + [{
+                "label": "The Hammer of Faith: random Shrine buffs*",
+                "value": (f"Diamond (always Critically Hit) and Acceleration (60% increased Skill Speed) each {shrine_up:.0%}"
+                          f" of the fight: {crit:.1f}% critical (was {crit_now:.1f}%), +{speed:g}% Skill Speed"),
+                "basis": (f"{shrine_how}. Enduring, Replenishing, Resistance and Divine each up {shrine_up:.0%} too: "
+                          "defence only, not scored; Seeking / Enlightening do nothing in a fight. Shrine Buff effect "
+                          "lines not read"),
+                "confidence": "LOW (the roll's weights: equal assumed, R26); the cadence and duration HIGH",
+                "play": "Keep The Hammer of Faith equipped: weapon swap removes its Shrine buffs"}, {
+                "label": "The Hammer of Faith, row: 10 shrines in the pool (Greed and Tainted too)*",
+                "value": f"each up {row_up:.0%} (headline {shrine_up:.0%})",
+                "basis": "if Greed and Tainted (no effect in a fight) are in the roll (R26: n = 8 or 10)",
+                "confidence": "LOW", "play": ""}]
+        infusion_mods, infusion_notes = self.infusion_collected_mods(texts)  # (MECHC47: INFUSION_COLLECTED_DAMAGE)
+        hand_mods, hand_notes = hand_mods + infusion_mods, hand_notes + infusion_notes
+        # (MECHC47) Druidic Prowess: 10% increased Skill Speed a stack, from Rage spent / Heavy Stuns (conditions.
+        # DRUIDIC_PROWESS's note; the Rage spent a round behind, build.rage_spent)
+        if any(conditions_mod.DRUIDIC_PROWESS_SPENT.search(t.strip()) or conditions_mod.DRUIDIC_PROWESS_STUN.search(t.strip())
+               for t in texts):
+            stuns = (models.heavy_stun_rate({**build.call("stats", fields=models.MODEL_FIELDS), **models.dazed_stats(build)})
+                     if any(conditions_mod.DRUIDIC_PROWESS_STUN.search(t.strip()) for t in texts) else None)
+            stacks, how = conditions_mod.druidic_prowess(texts, getattr(build, "rage_spent", None), stuns)
+            speed = round(stacks * conditions_mod.DRUIDIC_PROWESS_SPEED, 1)
+            if speed > 0:
+                hand_mods = hand_mods + [models.raw_mod(n, "INC", speed, tag=DRUIDIC_TAG)
+                                         for n in ("Speed", "WarcrySpeed", "TotemPlacementSpeed")]
+            hand_notes = hand_notes + [{
+                "label": "Druidic Prowess: 10% increased Skill Speed a stack*",
+                "value": f"{stacks:.2f} stacks, +{speed:g}% Skill Speed",
+                "basis": how,
+                "confidence": "MEDIUM (stacks from the build's own Rage spent and Heavy Stuns; Buff Effect not read)",
+                "play": ("Spend Rage steadily (and Heavy Stun the boss) to keep Druidic Prowess stacked" if speed > 0
+                         else "")}]
         # (MECH69) PoB's CanApply flags for Exposure lines it doesn't parse ("N% chance to inflict Exposure on Hit"): the
         # -20% comes from the condition box at the line's uptime (conditions._exposure_uptime)
         exposure_flags = conditions_mod.exposure_source_flags(texts, main_types)
@@ -5867,6 +5950,7 @@ class Assumptions:
         boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         stats = {**build.call("stats", fields=list(dict.fromkeys([
             "Life", "Mana", "EnergyShield", "LifeOnKill", "ManaOnKill", "IgniteChancePerHit", "ShockChancePerHit", "Tribute",
+            "LifeRegen",  # (MECHC47: recovery.regen_burst_income, Igniferis)
             *models.MODEL_FIELDS,
             *conditions_mod.EVIDENCE_FIELDS, *CHILL_FIELDS]))), **bosses.kill_stats(boss),
                  **models.dazed_stats(build)}  # (MECH71: the recovery unique's Heavy Stuns read the Dazed share)
@@ -5979,7 +6063,12 @@ class Assumptions:
             if row := recovery.deflect_rested_row(texts, landed, number(seen.get("DeflectChance")),
                                                   number(seen.get("DeflectEffect"))):
                 guard_rows.append(row)
-        recovery.life_sacrifice_income(income, texts, number(stats.get("Life")), 1 / models.DODGE_EVERY)  # (MECHC41)
+        recovery.regen_burst_income(income, texts, number(stats.get("LifeRegen")))  # (MECHC47: Igniferis)
+        spell = main is not None and "Spell" in ((build.ctx.gems.get(main) or {}).get("skillTypes") or [])
+        recovery.life_sacrifice_income(income, texts, number(stats.get("Life")), 1 / models.DODGE_EVERY,  # (MECHC41)
+                                       number(stats.get("Speed")) * main_share if spell else 0.0,  # (MECHC47: Stitcher)
+                                       f"{main}'s casts at its {main_share:.0%} share of the fight" if spell else
+                                       f"{main or 'no main skill'} isn't a Spell")
         guard_rows += recovery.kill_loss_income(income, texts, number(stats.get("Mana")),  # (MECHC42: Arvil's Wheel)
                                                 number(stats.get("EnergyShield")), kills)
         if immaterial := recovery.recharge_started_row(texts, stats):  # (MECHC42: Immaterial, a row)
@@ -6952,6 +7041,44 @@ class Assumptions:
                     "you keep.",
             "confidence": "game files' trigger, cooldown and mana share; Critical Hits taken at their average rate",
         }
+
+    def infusion_collected_mods(self, texts: list[str]) -> tuple[list[dict], list[dict]]:
+        """(mods, notes) for "N% increased <E> Damage if you've collected a <E> Infusion in the last N seconds"
+        (MECHC47, INFUSION_COLLECTED_DAMAGE's note)."""
+        found = [m for t in texts if (m := INFUSION_COLLECTED_DAMAGE.search(t.strip()))]
+        if not found:
+            return [], []
+        build = self.build
+        up, _ = models.ailment_up_of(build)
+        ailments = {var: (up or {}).get(name, 0.0) for var, name in (
+            ("conditionEnemyIgnited", "Ignite"), ("conditionEnemyShocked", "Shock"), ("conditionEnemyFrozen", "Freeze"))}
+        raw = build.call("activeSkills")["skills"]
+        present = {s["name"]: s for s in raw if not s["disabled"]}
+        lines = [line["text"] for line in build.call("sourceLines")["lines"]]
+        siphon = siphon_freezes(build.call("stats", fields=models.IMMOBILISE_FIELDS)) if SIPHON in present else (0.0, "")
+        bomb = living_bomb_rate(build.call("stats", fields=list(LIVING_BOMB_FIELDS)),
+                                present[LIVING_BOMB].get("castTime") or 0.0) if LIVING_BOMB in present else (0.0, "")
+        orb = orb_remnants(build, present[ORB_OF_STORMS]) if ORB_OF_STORMS in present else (0.0, "")
+        supply, used = infusion_supply(present, lines, ailments, siphon, bomb, orb,
+                                       far=still_far(build.call("getConfig")))
+        mods, notes = [], []
+        for m in found:
+            value, element, collected, seconds = float(m.group(1)), m.group(2).capitalize(), m.group(3).capitalize(), \
+                float(m.group(4))
+            rate = number(supply.get(collected))
+            share = 1.0 - math.exp(-rate * seconds) if rate > 0 else 0.0
+            if share > 0:
+                mods.append(models.raw_mod(f"{element}Damage", "INC", round(value * share, 2), tag="InfusionCollected"))
+            notes.append({
+                "label": f"{value:g}% increased {element} Damage after collecting a {collected} Infusion*",
+                "value": f"+{value * share:.1f}% ({share:.0%} of the fight)",
+                "basis": (f"{rate:.3f} {collected} Infusions collected a second (" + ("; ".join(used[:3]) or
+                          "no source of them") + f"), taken as random: one in the last {seconds:g} s {share:.0%} of "
+                          "the time; Verisium Infusions not counted toward it (UNVERIFIED)") if rate > 0 else
+                         f"the build makes no {collected} Infusions: 0",
+                "confidence": "MEDIUM (pickups taken as random arrivals)",
+                "play": (f"Collect a {collected} Infusion at least every {seconds:g} s" if share > 0 else "")})
+        return mods, notes
 
     def infusion_share(self, element: str, ailments: set[str] | dict[str, float],
                        casts: float | None = None) -> tuple[float, str]:

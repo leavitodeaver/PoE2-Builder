@@ -283,3 +283,107 @@ def test_nebulochs_attacks_critically_hit_when_they_spend_a_charge(engine):
     assert found is not None and found[0] > 0
     assert crit[True] > crit[False]
     assert crit[True] == pytest.approx(found[0] * 100 + (1 - found[0]) * crit[False], abs=1.0)
+    # (MECHC47, R36-22) the UNVERIFIED row where only hits spend the charge: never below the headline's share
+    assert len(found) == 4 and found[0] <= found[2] <= 1.0 and 0.0 < found[3] <= 1.0
+    if found[3] < 1.0 and found[0] < 1.0:
+        assert found[2] > found[0]
+
+
+def test_hateforge_gains_a_random_charge_on_reaching_maximum_rage(engine):
+    """MECHC47 (an UNDERCOUNT before, COV48's MECH-C row): Hateforge's "Gain a random Charge on reaching Maximum Rage, no
+    more than once every N seconds" beside its "Lose all Rage on reaching Maximum Rage" gives a charge each climb to the
+    maximum (at most one per N s), a third to each kind (conditions.RAGE_MAX_CHARGE's note)."""
+    payload = make_payload(BuildRequest(main_skill="Boneshatter"))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    found = {}
+    for line in ("", "Gain a random Charge on reaching Maximum Rage, no more than once every 4 seconds"):
+        ring = chr(10).join(["Rarity: Rare", "Test Ring", "Ruby Ring", "Item Level: 82", "Implicits: 0",
+                             "Gain 5 Rage on Hit", "Lose all Rage on reaching Maximum Rage", *([line] if line else [])])
+        build.call("equip", slot="Ring 1", raw=ring, fields=[])
+        found[bool(line)] = search.conditions.evidence()
+        print(bool(line), found[bool(line)].get("multiplierRage"), found[bool(line)].get("overridePowerCharges"),
+              found[bool(line)].get("overrideFrenzyCharges"))
+    for key in ("overridePowerCharges", "overrideFrenzyCharges", "overrideEnduranceCharges"):
+        got = found[True].get(key)
+        assert got is not None and got[0] > 0 and "one random Charge every" in got[1]
+        before = found[False].get(key)
+        assert before is None or "random Charge" not in before[1]
+
+
+def test_druidic_prowess_from_rage_spent_raises_skill_speed(engine):
+    """MECHC47 (an UNDERCOUNT before, COV48's MECH-C rows 17.4 / 8.8): "Gain 1 Druidic Prowess for every 20 total Rage
+    spent" with a Rage-spending main skill (Furious Slam, 10 Rage a use) gives stacks of 10% increased Skill Speed at the
+    Rage it really spends (conditions.DRUIDIC_PROWESS's note): the main skill's Speed rises with the line."""
+    payload = make_payload(BuildRequest(main_skill="Furious Slam"))
+    skeleton = enumerate_skeletons(Context(payload), ["Furious Slam"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    speed = {}
+    for line in ("", "Gain 1 Druidic Prowess for every 20 total Rage spent"):
+        ring = chr(10).join(["Rarity: Rare", "Test Ring", "Ruby Ring", "Item Level: 82", "Implicits: 0",
+                             "Gain 10 Rage on Hit", *([line] if line else [])])
+        build.call("equip", slot="Ring 1", raw=ring, fields=[])
+        for _ in range(2):
+            search.conditions_round()
+            search.settle()
+        speed[bool(line)] = number(build.call("stats", fields=["Speed"]).get("Speed"))
+        print(bool(line), speed[bool(line)], getattr(build, "rage_spent", None))
+    spent = build.rage_spent
+    assert spent is not None and spent[0] > 0 and "Furious Slam" in spent[1]
+    assert speed[True] > speed[False]
+
+
+def test_a_side_twisters_hits_a_cast_feed_on_hit_charges(engine):
+    """MECHC47 (MECHC46's labelled UNDERCOUNT): a flagged Twister in another group grants on-Hit charges on each of its
+    twisters' hits a cast (recovery.twister_hits' headline from its own group's ProjectileCount and Duration), not one a
+    cast (conditions.SIDE_TWISTER's note)."""
+    from builder.request.schema import Choices
+
+    payload = make_payload(BuildRequest(main_skill="Lightning Spear", require=Choices(skills=["Twister"])))
+    skeleton = enumerate_skeletons(Context(payload), ["Lightning Spear"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    ring = chr(10).join(["Rarity: Rare", "Test Ring", "Ruby Ring", "Item Level: 82", "Implicits: 0",
+                         "20% chance to gain a Frenzy Charge on Hit"])
+    build.call("equip", slot="Ring 1", raw=ring, fields=[])
+    twister = next((g["index"] for g in build.groups() if any(x["name"] == "Twister" for x in g["gems"])), None)
+    if twister is None:
+        pytest.skip("the skeleton has no Twister group")
+    build.call("setGroup", index=twister, fullDPS=True, fields=[])
+    search.assumptions.rate_presses()
+    found = search.conditions.evidence()
+    # (Lightning Spear spends Frenzy Charges, so none may be held: the basis is on the count or on the use box, probe
+    # POE2T4852: "x 1.27 hits a cast from its 1 twister(s)")
+    basis = " ".join(str(v[1]) for k, v in found.items() if k in ("overrideFrenzyCharges", "useFrenzyCharges"))
+    print("PROBE side twister", basis)
+    assert "hits a cast from its" in basis
+
+
+def test_the_hammer_of_faiths_shrines_raise_crit_and_skill_speed(engine):
+    """MECHC47 (an UNDERCOUNT before, COV48's MECH-C row 16.3; RESEARCH26 R26 (a)): "Every 10 seconds, gain a random
+    non-damaging Shrine buff for 20 seconds" keeps each of 8 shrines up 23% of the fight: Diamond's crits blend into the
+    crit chance and Acceleration's 60% Skill Speed counts at that share (conditions.SHRINE_EVERY's note)."""
+    payload = make_payload(BuildRequest(main_skill="Boneshatter"))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    seen = {}
+    for line in ("", "Every 10 seconds, gain a random non-damaging Shrine buff for 20 seconds"):
+        ring = chr(10).join(["Rarity: Rare", "Test Ring", "Ruby Ring", "Item Level: 82", "Implicits: 0",
+                             "+10% to all Elemental Resistances", *([line] if line else [])])
+        build.call("equip", slot="Ring 1", raw=ring, fields=[])
+        for _ in range(2):
+            search.conditions_round()
+            search.settle()
+        got = build.call("stats", fields=["PreEffectiveCritChance", "Speed"])
+        seen[bool(line)] = (number(got.get("PreEffectiveCritChance")), number(got.get("Speed")))
+        print(bool(line), seen[bool(line)])
+    up = 1 - (7 / 8) ** 2
+    assert seen[True][0] == pytest.approx(up * 100 + (1 - up) * seen[False][0], abs=1.0)
+    assert seen[True][1] > seen[False][1]

@@ -348,3 +348,109 @@ def test_boss_preset_adds_carry_their_life():
     assert life == 1318.0 and rows and rows[0][1] == 16478.0
     assert bosses.add_life("Zarokh, the Temporal")[0] == 0.0
     assert bosses.kill_stats("The King in the Mists")[bosses.ADD_LIFE_STAT] == 1318.0
+
+
+def test_additional_infusion_chance_reads_the_two_line_wording():
+    """(MECHC47, an UNDERCOUNT before) additional_infusion_gain_chance_% comes as "N% chance when collecting an Elemental
+    Infusion to gain an" / "additional Elemental Infusion of the same type" (the tree's infusion2 / 6 / 7, the Kurgal
+    focus suffix): its first line carries the chance, the same element's supply rises by it."""
+    from builder.search.assumptions import infusion_supply
+
+    present = {"Living Bomb": {}}
+    plain = infusion_supply(present, [], set(), bomb=(0.2, "test"))[0]["Fire"]
+    lines = ["5% chance when collecting an Elemental Infusion to gain an", "additional Elemental Infusion of the same type"]
+    assert infusion_supply(present, lines, set(), bomb=(0.2, "test"))[0]["Fire"] == pytest.approx(plain * 1.05)
+    joined = ["25% chance when collecting an Elemental Infusion to gain an additional Elemental Infusion of the same type"]
+    assert infusion_supply(present, joined, set(), bomb=(0.2, "test"))[0]["Fire"] == pytest.approx(plain * 1.25)
+
+
+def test_infusion_collected_damage_at_its_share_of_the_fight(monkeypatch):
+    """(MECHC47, an UNDERCOUNT before: PoB parses it only in part) "50% increased Cold Damage if you've collected a Cold
+    Infusion in the last 8 seconds" at 1 - e^(-pickups x 8) of its value; no Cold Infusions: nothing."""
+    import math
+
+    from builder.search import assumptions, models
+
+    class FakeBuild:
+        def call(self, name, **kw):
+            return {"activeSkills": {"skills": [{"name": "Frost Bomb", "disabled": False, "cooldownRecovery": 1.0}]},
+                    "sourceLines": {"lines": []}, "getConfig": {}, "stats": {}}.get(name, {})
+
+    monkeypatch.setattr(models, "ailment_up_of", lambda build: ({}, ""))
+    a = assumptions.Assumptions.__new__(assumptions.Assumptions)
+    a.build = FakeBuild()
+    line = "50% increased Cold Damage if you've collected a Cold Infusion in the last 8 seconds"
+    mods, notes = a.infusion_collected_mods([line])
+    rate = assumptions.REMNANT_SOURCES["Frost Bomb"][0]
+    share = 1 - math.exp(-rate * 8)
+    assert mods and mods[0]["name"] == "ColdDamage" and mods[0]["value"] == pytest.approx(50 * share, abs=0.01)
+    fire = "50% increased Fire Damage if you've collected a Fire Infusion in the last 8 seconds"
+    mods, notes = a.infusion_collected_mods([fire])
+    assert not mods and "no Fire Infusions" in notes[0]["basis"]
+
+
+def test_druidic_prowess_and_hateforge_charges():
+    """(MECHC47) Druidic Prowess: 1 per 20 Rage spent at 2 Rage/s is 1 stack held (10 s each); 2 a Heavy Stun at 0.05
+    stuns/s is E[min(3, 2 x Poisson(0.5))]. Hateforge: the maximum reached every 2 s with a 4 s cooldown gives one random
+    Charge every 4 s, a third of them each kind."""
+    import math
+
+    from builder.search import conditions
+
+    spent = "Gain 1 Druidic Prowess for every 20 total Rage spent"
+    stun = "Gain 2 Druidic Prowess when you Heavy Stun a Rare or Unique Enemy"
+    assert conditions.druidic_prowess([spent], (2.0, "x"), None)[0] == pytest.approx(1.0)
+    assert conditions.druidic_prowess([spent], (10.0, "x"), None)[0] == pytest.approx(3.0)
+    p0, p1 = math.exp(-0.5), 0.5 * math.exp(-0.5)
+    assert conditions.druidic_prowess([stun], None, (0.05, "y"))[0] == pytest.approx(p1 * 2 + (1 - p0 - p1) * 3)
+    assert conditions.druidic_prowess(["Gain 5 Rage on Hit"], (2.0, "x"), None) == (0.0, "")
+    line = "Gain a random Charge on reaching Maximum Rage, no more than once every 4 seconds"
+    got = conditions.rage_max_charges([line], {"_rage_max_reaches": (0.5, "test")}, ["Power", "Frenzy"])
+    assert [g[1] for g in got] == ["Power", "Frenzy"] and got[0][2][0] == pytest.approx(1 / 4 / 3)
+    got = conditions.rage_max_charges([line], {"_rage_max_reaches": None}, ["Power"])
+    assert got[0][2][0] == 0.0 and "UNVERIFIED" in got[0][2][1]
+
+
+def test_the_hammer_of_faiths_shrine_uptime():
+    """(MECHC47; RESEARCH26 R26 (a)) each of n shrines up 1 - (1 - 1/n)^(rolls in its duration): one Hammer 23.4% (n = 8),
+    19.0% (n = 10); two Hammers 41.4%; +50% Shrine Effect duration makes 3 rolls."""
+    from builder.search import conditions
+
+    line = "Every 10 seconds, gain a random non-damaging Shrine buff for 20 seconds"
+    assert conditions.shrine_uptime([line])[0] == pytest.approx(0.234375)
+    assert conditions.shrine_uptime([line], 10)[0] == pytest.approx(0.19)
+    assert conditions.shrine_uptime([line, line])[0] == pytest.approx(1 - (7 / 8) ** 4)
+    assert conditions.shrine_uptime([line, "50% increased Duration of Shrine Effects on you"])[0] == pytest.approx(
+        1 - (7 / 8) ** 3)
+    assert conditions.shrine_uptime(["Gain 5 Rage on Hit"]) == (0.0, "")
+
+
+def test_demon_stitcher_moves_life_into_energy_shield_per_spell_cast():
+    """(MECHC47, an UNDERCOUNT of ES income and of Life spent before) "Sacrifice N% of maximum Life to gain that much
+    Energy Shield when you Cast a Spell": N% x Life x the main Spell's casts a second, out of Life, into Energy Shield;
+    no Spell cast: 0 both ways, said."""
+    from builder.search import recovery
+
+    line = "Sacrifice 10% of maximum Life to gain that much Energy Shield when you Cast a Spell"
+    income = recovery.Income()
+    recovery.life_sacrifice_income(income, [line], 2000.0, 0.25, 1.5, "test")
+    assert income.rates["LifeSacrificed"] == pytest.approx(-300.0)
+    assert income.rates["EnergyShieldOnEventRecovery"] == pytest.approx(300.0)
+    income = recovery.Income()
+    recovery.life_sacrifice_income(income, [line], 2000.0, 0.25, 0.0, "not a Spell")
+    assert income.rates["LifeSacrificed"] == 0.0 and "casts no Spell" in income.parts[0]
+
+
+def test_igniferis_bursts_its_regeneration_back():
+    """(MECHC47, an UNDERCOUNT before: PoB zeroes the Regeneration but never adds the bursts) "Every 4 seconds, Recover 1
+    Life for every 0.2 Life Recovery per second from Regeneration" at 50 Life Regeneration: 50 / 0.2 / 4 = 62.5 a second."""
+    from builder.search import recovery
+
+    income = recovery.Income()
+    recovery.regen_burst_income(income, ["Every 4 seconds, Recover 1 Life for every 0.2 Life Recovery per second from "
+                                         "Regeneration"], 50.0)
+    assert income.rates["LifeOnEventRecovery"] == pytest.approx(62.5)
+    income = recovery.Income()
+    recovery.regen_burst_income(income, ["Every 4 seconds, Recover 1 Life for every 0.2 Life Recovery per second from "
+                                         "Regeneration"], 0.0)
+    assert income.rates["LifeOnEventRecovery"] == 0.0

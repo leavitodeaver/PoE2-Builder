@@ -2470,14 +2470,61 @@ CITAQUALOTL_GUARD = re.compile(r"^Sacrifice (\d+(?:\.\d+)?)% of maximum Life to 
 CITAQUALOTL_SECONDS, CITAQUALOTL_ROWS = 4.0, (2.0, 10.0)
 
 
-def life_sacrifice_income(income: "Income", texts: list[str], life: float, rolls: float) -> None:
-    """Citaqualotl's Thesis' Life sacrificed a second into LifeSacrificed (negative); nothing without the line."""
+# (MECHC47; COV48's MECH-C row 11.8) Igniferis' "Every 4 seconds, Recover 1 Life for every 0.2 Life Recovery per second
+# from Regeneration" beside its "Life Recovery from Regeneration is not applied": PoB applies the second (ModCache 8493,
+# UnaffectedByLifeRegen: LifeRegenRecovery 0, CalcDefence 1752) but not the first (ModCache 7414, nil), so the floors
+# read no Life from Regeneration at all, an UNDERCOUNT. PoB still gives the regeneration it would have (output LifeRegen,
+# CalcDefence 1742), so the bursts are LifeRegen / 0.2 Life every 4 s: LifeRegen x 1.25 a second (LifeOnEventRecovery;
+# Life Recovery rate modifiers not applied to the burst, UNVERIFIED whether they do: the lower reading). HIGH for the
+# arithmetic; the bursts' timing against the boss's hits isn't modelled (the floors are per-second rates).
+REGEN_BURST = re.compile(r"^Every (\d+(?:\.\d+)?) seconds, Recover (\d+(?:\.\d+)?) Life for every (\d+(?:\.\d+)?) Life "
+                         r"Recovery per second from Regeneration$", re.I)
+
+
+def regen_burst_income(income: "Income", texts: list[str], regen: float) -> None:
+    """Igniferis' Life bursts from the build's Life Regeneration (REGEN_BURST's note), into LifeOnEventRecovery."""
+    for t in texts:
+        if (m := REGEN_BURST.match(t.strip())) and regen > 0:
+            every, amount, per = float(m.group(1)), float(m.group(2)), float(m.group(3))
+            if every > 0 and per > 0:
+                income.add("LifeOnEventRecovery", regen / per * amount / every,
+                           f"Recover {amount:g} Life every {every:g} s per {per:g} Life Regeneration ({regen:,.1f}/s, "
+                           "PoB's LifeRegen before its 'not applied' line): Igniferis")
+
+
+# (MECHC47; COV48's MECH-C row 13.4) Demon Stitcher's "Sacrifice (5-15)% of maximum Life to gain that much Energy Shield
+# when you Cast a Spell" (PoB's Uniques/gloves.lua 174; PoB leaves it unparsed): each Spell cast moves N% of maximum Life
+# into Energy Shield (KeywordPopups Sacrifice: not damage taken). Read at the main skill's casts when it is a Spell, at
+# its share of the fight (other Spells' casts not read: an undercount of both sides, said); the Life as LifeSacrificed
+# (negative), the Energy Shield as EnergyShieldOnEventRecovery (the floors read both). The ES gained past its maximum
+# isn't held (the gain is income for the floors, as the other event sources). MEDIUM.
+STITCHER_ES = re.compile(r"^Sacrifice (\d+(?:\.\d+)?)% of maximum Life to gain that much Energy Shield when you Cast a "
+                         r"Spell$", re.I)
+
+
+def life_sacrifice_income(income: "Income", texts: list[str], life: float, rolls: float, casts: float = 0.0,
+                          cast_how: str = "") -> None:
+    """Citaqualotl's Thesis' Life sacrificed a second into LifeSacrificed (negative), and Demon Stitcher's (STITCHER_ES:
+    `casts` Spell casts a second, the Energy Shield it gains too); nothing without the lines."""
     pct = sum(float(m.group(1)) for t in texts if (m := CITAQUALOTL_GUARD.match(t.strip())))
     drain = pct / 100 * max(life, 0.0) * max(rolls, 0.0)
     if drain > 0:
-        income.rates["LifeSacrificed"] = -drain
+        income.rates["LifeSacrificed"] -= drain
         income.parts.append(f"Life sacrificed for Guard: {pct:g}% of {life:,.0f} a Dodge Roll x {rolls:.2f} rolls/s: "
                             f"-{drain:,.1f}/s (Citaqualotl's Thesis)")
+    pct = sum(float(m.group(1)) for t in texts if (m := STITCHER_ES.match(t.strip())))
+    if pct <= 0:
+        return
+    moved = pct / 100 * max(life, 0.0) * max(casts, 0.0)
+    if moved <= 0:
+        income.parts.append(f"Sacrifice {pct:g}% of maximum Life for Energy Shield on each Spell cast: the main skill "
+                            f"casts no Spell ({cast_how or 'not a Spell'}), 0")
+        return
+    income.rates["LifeSacrificed"] -= moved
+    income.rates["EnergyShieldOnEventRecovery"] += moved
+    income.parts.append(f"Life sacrificed for Energy Shield: {pct:g}% of {life:,.0f} a Spell cast x {casts:.2f} casts/s "
+                        f"({cast_how}): -{moved:,.1f} Life/s, +{moved:,.1f} Energy Shield/s (Demon Stitcher; other Spells' "
+                        "casts not read)")
 
 
 COMBO_GUARD = re.compile(r"^Gain (\d+(?:\.\d+)?) Guard for (\d+(?:\.\d+)?) seconds per Combo expended when using Skills$",
