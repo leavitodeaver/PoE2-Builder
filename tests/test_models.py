@@ -6805,3 +6805,47 @@ def test_crossbow_sequence_model():
     mods, notes = models.crossbow_sequence_model(Skill("Rapid Shot", group=1, attack=True), {"ProjectileCount": 3})
     assert mods == [] and notes[0]["value"] == "x1.000" and "x2.500" in notes[0]["basis"]
     assert models.crossbow_sequence_model(Skill("Permafrost Bolts", group=1, attack=True), {"ProjectileCount": 9}) == ([], [])
+
+
+def test_bonestorm_circle_drops_the_full_channel():
+    # (MECHB45, R31-11) Spells firing in a circle: one spike a release on a lone boss, so PoB's one stands
+    bone = Skill("Bonestorm", group=1, spell=True, level_stats={"base_number_of_allowed_bone_storm_projectiles": 20})
+    full = models.bonestorm_model(bone)
+    assert models.bonestorm_circle(["Spells fire 4 additional Projectiles"], *full) == full
+    mods, notes = models.bonestorm_circle(["Spells fire Projectiles in a circle"], *full)
+    assert mods == [] and notes[0]["value"] == "x1 (PoB's)" and "20 spikes" in notes[0]["basis"]
+
+
+def test_shapeshift_every_second_strike_feeds_empowered_lines():
+    # (MECHB45, COV47's routing) half a Shapeshift Strike's uses boosted; boosted Attacks count as Empowered
+    shred = Skill("Shred", group=1, attack=True, melee=True)
+    texts = ["Every second Strike Skill you use while Shapeshifted is Ancestrally Boosted",
+             "Empowered Attacks deal 40% increased Damage"]
+    types = {"Attack", "Melee", "Strike", "Shapeshift"}
+    mods, notes = models.ancestral_boost_model(texts, {"Speed": 2.0}, [shred], shred, types)
+    assert [m["scale"] for m in mods] == [pytest.approx(20)] and notes[0]["value"] == "50% of Shred's uses boosted"
+    mods, _ = models.ancestral_boost_model(texts, {"Speed": 2.0, "ExertedAttackUptimeRatio": 30}, [shred], shred, types)
+    assert [m["scale"] for m in mods] == [pytest.approx(8)]  # (the share above PoB's own 30% Empowered uptime)
+    assert models.ancestral_boost_model(texts, {"Speed": 2.0}, [shred], shred, {"Attack", "Melee", "Strike"}) == ([], [])
+
+
+def test_bond_limit_mods_hand_pob_the_doubled_limit_under_the_left_out_tag():
+    # (MECHB45, COV47's routing) PoB's own per-totem reads at Ancestral Bond's doubled limit; the models' reads skip it
+    totem = Skill("Shockwave Totem", group=2, totem_limit=3, totem_limit_own=1)
+    mods, notes = models.bond_limit_mods([totem], ["Your Totem Limit is doubled"])
+    assert mods == [models.raw_mod("ActiveTotemLimit", "BASE", 3, "Shockwave Totem", tag=models.TOTEM_ONE_TAG)]
+    assert "3 -> 6" in notes[0]["value"]
+    assert models.bond_limit_mods([totem], []) == ([], [])
+    one = Skill("Shockwave Totem", group=2, totem_limit=3, totem_limit_own=1)
+    sup = Skill("Ancestral Warrior Totem", group=2, support_stats={models.TOTEM_ONE_STAT: 1})
+    assert models.bond_limit_mods([one, sup], ["Your Totem Limit is doubled"]) == ([], [])
+
+
+def test_entry_cut_scale_takes_one_groups_entry_off_a_shared_name():
+    # (MECHB45, GEM26) two "Ice Fragments" rows: cutting one group's 91 leaves the other's 104 whole
+    rows = [{"name": "Ice Fragments", "dps": 104.0, "count": 1}, {"name": "Ice Fragments", "dps": 91.0, "count": 1},
+            {"name": "Lightning Arrow", "dps": 61.0, "count": 1}]
+    scale = models.entry_cut_scale(rows, "Ice Fragments", 91.0)
+    assert scale * 195.0 == pytest.approx(104.0)
+    assert models.entry_cut_scale(rows, "Ice Fragments", 500.0) == 0.0
+    assert models.entry_cut_scale(rows, "Spark", 10.0) == 1.0

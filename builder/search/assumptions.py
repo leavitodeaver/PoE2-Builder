@@ -1367,10 +1367,11 @@ def ice_tipped(build: Build, main: models.Skill | None) -> tuple[float, list[dic
             "confidence": "MEDIUM",
             "play": (f"Press Ice-Tipped Arrows each time it's ready, then attack: without it x1.000 and no fragments; "
                      f"with it {convert * share:.0f}% of Physical as Cold on average, +{added:,.1f} DPS of Ice Fragments")}
-    if group is not None and group.get("fullDPS"):
+    if group is not None and group.get("fullDPS") and rows:
         # (PoB's Full DPS would count the gem's fragment skill on its own at its at-will speed, 1.2/s in POE2T3218:
-        # its entry goes to 0, the fragments counted above instead)
-        note["full_dps"] = {models.ICE_TIPPED_FRAGMENT: 0.0}
+        # its entry comes out, the fragments counted above instead. MECHB45, GEM26's routing: only THIS group's entry,
+        # its own TotalDPS off the name's total, not every "Ice Fragments" entry (Escape Shot's, Shred's ...))
+        note["entry_cut"] = {models.ICE_TIPPED_FRAGMENT: number(rows[0].get("TotalDPS"))}
     return added, mods, [note]
 
 
@@ -1585,16 +1586,18 @@ def voltaic_fulmination(build: Build, main: models.Skill | None, stats: dict) ->
     return models.voltaic_fulmination_model(blast, kills, share, models.number(row.get("cooldown")), how, side)
 
 
-def shred_fragments(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
+def shred_fragments(build: Build, main: models.Skill | None, cut=None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Shred's Ice Fragments (GEM26's models.shred_fragments_model): in each enabled group holding
     Shred and its Ice Fragments, Shred's hits a second (_skill_hits), the fragment's useRates row (TotalDPS / speed),
     PoB's own Full DPS entry, and the boss's Freeze uptime (models.ailment_up_of). Counted when Shred is the main skill
-    or its group is in Full DPS while the score reads Full DPS."""
+    or its group is in Full DPS while the score reads Full DPS. (MECHB45, GEM26's routing) PoB's entry comes out by THIS
+    group's own amount through `cut` (Assumptions.cut_entries: {name: DPS}), not by zeroing every "Ice Fragments" entry
+    (Escape Shot's, Fragments of the Past's, Ice-Tipped Arrows' keep theirs)."""
     press = getattr(build.objective, "press_scales", None) or {}
     main_index = build.call("groups")["mainSocketGroup"]
     full = bool(getattr(build.objective, "full", False))
     up, up_how = models.ailment_up_of(build)
-    total, notes, entries = 0.0, [], None
+    total, notes = 0.0, []
     for group in build.groups():
         skills = group.get("skills") or []
         if not group["enabled"] or not any(x["name"] == models.SHRED for x in skills):
@@ -1603,22 +1606,22 @@ def shred_fragments(build: Build, main: models.Skill | None) -> tuple[float, lis
         if not n:
             continue
         in_full = bool(group.get("fullDPS"))
+        row = next(iter(build.call("useRates", indices=[group["index"]], actives=[n])["rates"]), None) or {}
+        own = models.number(row.get("TotalDPS"))  # (MECHB45: this group's own Full DPS entry)
         if group["index"] != main_index and not (in_full and full):
-            if in_full:  # (not scored now; PoB's flat entry still out, for when Full DPS is read)
-                build.objective.entry_scales.update({models.ICE_TIPPED_FRAGMENT: 0.0})
+            if in_full and cut is not None:  # (not scored now; PoB's flat entry still out, for when Full DPS is read)
+                cut({models.ICE_TIPPED_FRAGMENT: own})
             continue
         src = next(i for i, x in enumerate(skills, 1) if x["name"] == models.SHRED)
         hits, _ = _skill_hits(build, group, src, press)
-        row = next(iter(build.call("useRates", indices=[group["index"]], actives=[n])["rates"]), None) or {}
         speed = models.number(row.get("speed"))
         fragment = models.number(row.get("TotalDPS")) / speed if speed > 0 else 0.0
-        pob = 0.0
-        if in_full:
-            if entries is None:
-                entries = build.call("stats", fields=["SkillDPS"]).get("SkillDPS") or []
-            pob = sum(models.number(e.get("dps")) * (e.get("count") or 1) for e in entries
-                      if e.get("name") == models.ICE_TIPPED_FRAGMENT)
+        pob = own if in_full else 0.0
         dps, these = models.shred_fragments_model(hits, up.get("Freeze", 0.0), fragment, pob, up_how, in_full)
+        if in_full and cut is not None:
+            cut({models.ICE_TIPPED_FRAGMENT: own})
+            for note in these:
+                note.pop("full_dps", None)
         total, notes = total + dps, notes + these
     return total, notes
 
@@ -2275,6 +2278,8 @@ class Assumptions:
         energy_mods, energy_notes = energy_mods + totem_mods, energy_notes + totem_notes
         count_mods, count_notes = models.totem_count_model(found, main, [e["text"] for e in source_lines], stats)  # (MECH-B, MECHB8: other totems' count)
         energy_mods, energy_notes = energy_mods + count_mods, energy_notes + count_notes
+        bond_mods, bond_notes = models.bond_limit_mods(found, [e["text"] for e in source_lines])  # (MECHB45, COV47)
+        energy_mods, energy_notes = energy_mods + bond_mods, energy_notes + bond_notes
         pact_mods, pact_notes = models.minion_pact_model(found, main, stats)  # (MECH-B, MECHB11: A23-2)
         energy_mods, energy_notes = energy_mods + pact_mods, energy_notes + pact_notes
         ward_mods, ward_notes = models.iron_ward_model(
@@ -2470,6 +2475,7 @@ class Assumptions:
             if kaom_busy > 0:  # (its casts take the main skill's time: nothing else charges a Warcry's)
                 hand_mods = hand_mods + [models.line("1% more Attack and Cast Speed", -100 * kaom_busy, skill=main.name)]
         if embodiment[0] > 0 or any(models.KAOMS_BLESSING.match(t.strip()) or models.SHAPESHIFT_EVERY_SECOND_SLAM.search(t)
+                                    or models.SHAPESHIFT_EVERY_SECOND_STRIKE.search(t)  # (MECHB45)
                                     or models.EMPOWERMENT_EVERY_SECOND_SLAM.match(t.strip()) for t in texts)                 or any(g.startswith("Fist of War") for g in main_gems):  # (MECHB35: Fist of War alone, R26-58 (b))
             # (MECH-B, MECHB18: Ancestral Boost's sources PoB leaves unparsed; PoB's own boost uptimes beside the stats;
             # MECHB19: Ancestral Empowerment + Fist of War at the lower reading; MECHB29: the Kaom embodiment)
@@ -2496,6 +2502,7 @@ class Assumptions:
                 (metres, [models.Skill.of(s) for s in skills if s["disabled"]], build.trigger_rates))
             hand_mods, hand_notes = hand_mods + siphon_mods, hand_notes + siphon_notes
         build.objective.entry_scales = {k: v for n in mark_notes for k, v in (n.get("full_dps") or {}).items()}
+        self.entry_cuts = {}  # (MECHB45: DPS taken off same-named Full DPS entries, models.entry_cut_scale)
         curses = curse_uses(build, stats, [e["text"] for e in source_lines])
         if curses or any(models.CURSED_UNSCALED.search(e["text"]) or p.search(e["text"])
                          for e in source_lines for p, _ in models.CURSED_LINES):
@@ -3210,7 +3217,8 @@ class Assumptions:
             eye_mods, eye_notes = models.eye_of_winter_model(main, eye_stats, eye_own, forbidden)
             hand_mods, hand_notes = hand_mods + eye_mods, hand_notes + eye_notes
         if main is not None and main.name == models.BONESTORM:  # (GEM19: a full channel of spikes, not PoB's one)
-            bs_mods, bs_notes = models.bonestorm_model(main, forbidden)
+            bs_mods, bs_notes = models.bonestorm_circle(  # (MECHB45, R31-11: Spells' Projectiles in a circle)
+                [e["text"] for e in source_lines], *models.bonestorm_model(main, forbidden))
             hand_mods, hand_notes = hand_mods + bs_mods, hand_notes + bs_notes
         if main is not None and main.name == models.FLAMEBLAST:  # (GEM18: its stages and its channel + cooldown cycle)
             fb_mods, fb_notes = models.flameblast_model(main, stats, forbidden)
@@ -3400,8 +3408,8 @@ class Assumptions:
         fulmination, fulmination_notes = voltaic_fulmination(build, main, stats)  # (GEM26: Electrocuted add kills)
         hand_mods += [models.added_input("VoltaicFulmination", fulmination)] if fulmination > 0 else []
         hand_notes += fulmination_notes
-        shred, shred_notes = shred_fragments(build, main)  # (GEM26: on hits vs a Frozen boss; PoB's entry out of Full DPS)
-        hand_mods += [models.added_input("ShredFragments", shred)] if shred > 0 else []
+        shred, shred_notes = shred_fragments(build, main, self.cut_entries)  # (GEM26: on hits vs a Frozen boss; PoB's
+        hand_mods += [models.added_input("ShredFragments", shred)] if shred > 0 else []  # entry out: its own, MECHB45)
         hand_notes += shred_notes
         for note in shred_notes:
             build.objective.entry_scales.update(note.get("full_dps") or {})
@@ -3454,8 +3462,8 @@ class Assumptions:
         frost, ita_mods, ita_notes = ice_tipped(build, main)  # (MECHB32: Ice-Tipped Arrows' Empowered attacks; PoB 0)
         hand_mods += ita_mods + ([models.added_input("IceTippedFragments", frost)] if frost > 0 else [])
         hand_notes += ita_notes
-        for note in ita_notes:  # (PoB's own Ice Fragments entry, where its group is in Full DPS, out)
-            build.objective.entry_scales.update(note.get("full_dps") or {})
+        for note in ita_notes:  # (PoB's own Ice Fragments entry, where its group is in Full DPS, out: MECHB45, its own)
+            self.cut_entries(note.get("entry_cut") or {})
         legion, legion_notes = infernal_legion(build, stats)  # (MECHB30, H1-7: PoB rates no boss Ignite from it)
         hand_mods += [models.added_input("InfernalLegion", legion)] if legion > 0 else []
         hand_notes += legion_notes
@@ -4510,6 +4518,7 @@ class Assumptions:
         mods += getattr(self, "ledger_derived", [])  # (COV32: shares the bridge works out again per calculation)
         mods, ward_notes = self.ward_paid(skills, mods, main)  # (MECH-B: Runic Ward pays for Ward-cost skills, MECHB13)
         notes += ward_notes
+        notes += self.child_entry_cuts()  # (MECHB45, GEM26: a Ward-held or unpressed skill's granted children too)
         texts = [e["text"] for e in self.build.call("sourceLines")["lines"]]
         if any(models.BODYGUARDS.search(t.strip()) for t in texts):  # (MECHB31: Warding Rune of Bodyguards, at the Low Ward share)
             low, _, how = ward_shares(self.build)
@@ -7062,6 +7071,68 @@ class Assumptions:
         if state == "missing":
             return missing, f"missing Runic Ward {missing:.0%} of the fight: {how}"
         return 1.0 - missing, f"on full Runic Ward {1.0 - missing:.0%} of the fight (missing it {missing:.0%}): {how}"
+
+    def cut_entries(self, cuts: dict[str, float]) -> None:
+        """Add `cuts` ({SkillDPS name: DPS to take off}) to this resolve's tally and set each name's entry_scales from the
+        whole tally (models.entry_cut_scale: other entries of the same name keep their damage; MECHB45, GEM26)."""
+        if not cuts or getattr(self.build, "objective", None) is None:
+            return
+        tally = getattr(self, "entry_cuts", None)
+        if tally is None:
+            tally = self.entry_cuts = {}
+        for name, value in cuts.items():
+            tally[name] = tally.get(name, 0.0) + max(number(value), 0.0)
+        entries = self.build.call("stats", fields=["SkillDPS"]).get("SkillDPS") or []
+        for name in cuts:
+            self.build.objective.entry_scales[name] = models.entry_cut_scale(entries, name, tally[name])
+
+    def child_entry_cuts(self) -> list[dict]:
+        """(MECHB45; GEM26's routing, an OVERCOUNT) A Full DPS group's other active skills (the ones its gem grants and
+        triggers: Fragments of the Past's and Escape Shot's Ice Fragments) score at PoB's own rate whatever the press
+        model or the Runic Ward plan did to the skill that makes them, and objective.press_scales keys them by their own
+        name (probe POE2T4674: with 0 Runic Ward, Fragments of the Past's press scale 0 and its Ice Fragments' 91 DPS
+        counted whole; Escape Shot unpressed, its Ice Fragments' 104 DPS counted). Each child's entry (its group's useRates
+        TotalDPS, as PoB's Full DPS calculates the group) is cut by (1 - the Ward share) when its group's first skill is
+        Ward-paid (build.ward_sustain), and wholly when the press model doesn't use that skill (press scale 0). A press
+        scale between 0 and 1 leaves the child at PoB's rate (how PoB rates the child against the parent's uses is
+        UNVERIFIED, said in the note)."""
+        build = self.build
+        if getattr(build, "objective", None) is None:
+            return []
+        scales = getattr(build.objective, "press_scales", None) or {}
+        ward = getattr(build, "ward_sustain", None) or {}
+        share = number(ward.get("_share")) if "_share" in ward else 1.0
+        cuts, parts, partial = {}, [], []
+        for group in build.groups():
+            if not group.get("enabled", True) or not group.get("fullDPS") or len(group["skills"]) < 2:
+                continue
+            parent = group["skills"][0]["name"]
+            if parent in scales and number(scales[parent]) <= 0:
+                keep, why = 0.0, f"{parent} isn't used (press scale 0)"
+            elif parent in ward and parent not in ("_share", "WardRecoveryPerSecond") and share < 1:
+                keep, why = share, f"{parent} is used {share:.0%} as often as planned (Runic Ward pays for that)"
+            else:
+                if parent in scales and number(scales[parent]) < 1:
+                    partial.append(parent)
+                continue
+            for position, child in enumerate(group["skills"][1:], start=2):
+                if child.get("disabled") or child["name"] == parent:
+                    continue
+                rows = build.call("useRates", indices=[group["index"]], actives=[position])["rates"]
+                dps = number(rows[0].get("TotalDPS")) if rows else 0.0
+                if dps > 0:
+                    cuts[child["name"]] = cuts.get(child["name"], 0.0) + dps * (1 - keep)
+                    parts.append(f"{child['name']} from {parent}: {dps:,.1f} x {keep:.0%} ({why})")
+        self.cut_entries(cuts)
+        if not parts and not partial:
+            return []
+        return [{"label": "Granted skills follow the skill that makes them*", "value": "; ".join(parts) or "none cut",
+                 "confidence": "MEDIUM",
+                 "basis": ("PoB scores a group's granted, triggered skill at its own rate in Full DPS; it is counted at the "
+                           "share its maker is used: " + ("; ".join(parts) or "nothing to cut")
+                           + (f". Left at PoB's rate (UNVERIFIED: how PoB rates the child against its maker's partial "
+                              f"presses): the children of {', '.join(partial)}" if partial else "")
+                           + ". Other entries of the same name (another group's) keep their damage")}]
 
     def tailwind_use_rates(self, main: str | None) -> dict[str, tuple[float, str]]:
         """{skill: (uses a second, how)} of each enabled non-support gem other than the main skill that the player uses

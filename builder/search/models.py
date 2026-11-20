@@ -12928,7 +12928,18 @@ def kaom_uptime(uses: float, duration: float, cast_time: float, how: str,
 
 
 ANCESTRAL_FIELDS = ["Speed", "FistOfWarCooldown", "FistOfWarDamageMultiplier", "AncestralEmpowermentDamageMultiplier",
-                    "AncestralEmpowermentUptimeRatio", "AncestralEmpowermentCombinedUptimeRatio", "FistOfWarUptimeRatio"]
+                    "AncestralEmpowermentUptimeRatio", "AncestralEmpowermentCombinedUptimeRatio", "FistOfWarUptimeRatio",
+                    "ExertedAttackUptimeRatio"]  # (MECHB45: PoB's Empowered uptime, CalcOffence 3723-3756)
+# (MECHB45; COV47's routing, an UNDERCOUNT) The same unique stat's second line, "Every second Strike Skill you use while
+# Shapeshifted is Ancestrally Boosted" (stat_descriptions.csd, one stat, two lines), was read as nothing: a boosted Strike
+# targets 2 more enemies (nothing on one boss), but "Ancestrally Boosted Attacks count as being Empowered" (KeywordPopups
+# AncestralBoost), so the build's "Empowered Attacks deal N% increased Damage" lines gain on the boosted share (PoB applies
+# them only at its own Empowered uptime, ExertedAttackUptimeRatio: Infernal Cry and its Ancestral sources, none for a
+# Strike; so only the share above it is added). Half a Shapeshift Strike main skill's uses (every second one, MEDIUM);
+# with Kaom's embodiment, embodied + (1 - embodied) / 2 (MEDIUM-LOW). Other Empowered-reading lines: not counted.
+SHAPESHIFT_EVERY_SECOND_STRIKE = re.compile(r"Every second Strike Skill you use while Shapeshifted is Ancestrally Boosted",
+                                            re.I)
+EMPOWERED_LINE = re.compile(r"^Empowered Attacks deal (\d+)% increased Damage$", re.I)
 SHAPESHIFT_EVERY_SECOND_SLAM = re.compile(r"Every second Slam Skill you use while Shapeshifted is Ancestrally Boosted",
                                           re.I)
 EMPOWERMENT_EVERY_SECOND_SLAM = re.compile(r"^Every second Slam Skill you use yourself is Ancestrally Boosted$", re.I)
@@ -12956,7 +12967,8 @@ def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], ma
                    or number(stats.get("AncestralEmpowermentCombinedUptimeRatio")) > 0)
     both = empowerment and cooldown > 0
     alone = cooldown > 0 and not empowerment  # (MECHB35: Fist of War alone, R26-58 (b)'s wait on PoB's own ratio)
-    if not unique and not kaom and not both and not alone and embodied <= 0:
+    strikes = any(SHAPESHIFT_EVERY_SECOND_STRIKE.search(t) for t in texts)  # (MECHB45)
+    if not unique and not kaom and not both and not alone and embodied <= 0 and not strikes:
         return [], []
     if main.triggered:
         if not unique and not kaom and embodied <= 0:
@@ -13044,17 +13056,32 @@ def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], ma
             "play": play,
             "confidence": "MEDIUM" if alone and not unique else "LOW" if cooldown > 0 else "MEDIUM" if embodied > 0 else "theory",
             "entry": "ancestral-boost"}]
-    if embodied > 0 and "Strike" in main_types and main.attack and main.melee:
+    every_second = strikes and "Shapeshift" in main_types  # (MECHB45: the unique's Strike line)
+    if (embodied > 0 or every_second) and "Strike" in main_types and main.attack and main.melee:
         # (MECHB29) a boosted Strike targets 2 more enemies (nothing on one boss); its "Ancestrally Boosted Attacks deal
-        # N% increased Damage" lines count at the embodied share (PoB counts no boost for a Strike)
+        # N% increased Damage" lines count at the boosted share (PoB counts no boost for a Strike); (MECHB45) and, as
+        # boosted Attacks count as Empowered, its "Empowered Attacks deal N% increased Damage" lines on the share above
+        # PoB's own Empowered uptime
+        share = embodied + (1 - embodied) * 0.5 if every_second else embodied
+        how = "; ".join(x for x in (f"Ancestral Cry's Kaom embodiment boosts Melee Strikes: {embodied_how}"
+                                    if embodied > 0 else "",
+                                    "every second Strike used while Shapeshifted (the unique's line): half the rest"
+                                    if every_second else "") if x)
         boost = sum(int(m.group(1)) for t in texts if (m := BOOSTED_LINE.match(t.strip())))
-        mods = [line("1% increased Attack Damage", boost * embodied, skill=main.name)] if boost else []
-        return mods, [{"label": label, "value": f"{embodied:.0%} of {main.name}'s uses boosted (embodying Kaom)",
-                       "basis": (f"Ancestral Cry's Kaom embodiment boosts Melee Strikes: {embodied_how}; a boosted Strike "
-                                 "targets 2 additional enemies (nothing on one boss)"
+        empowered = sum(int(m.group(1)) for t in texts if (m := EMPOWERED_LINE.match(t.strip())))
+        pob_up = min(max(number(stats.get("ExertedAttackUptimeRatio")) / 100, 0.0), 1.0)
+        extra = max(0.0, share - pob_up)
+        mods = ([line("1% increased Attack Damage", boost * share, skill=main.name)] if boost else []) + (
+            [line("1% increased Attack Damage", empowered * extra, skill=main.name)] if empowered and extra > 0 else [])
+        return mods, [{"label": label, "value": f"{share:.0%} of {main.name}'s uses boosted",
+                       "basis": (f"{how}; a boosted Strike targets 2 additional enemies (nothing on one boss)"
                                  + (f"; the build's {boost}% increased damage for Ancestrally Boosted Attacks at that share"
-                                    if boost else "") + "; the Empowered-only lines aren't counted"),
-                       "confidence": "MEDIUM", "entry": "ancestral-boost"}]
+                                    if boost else "")
+                                 + (f"; boosted Attacks count as Empowered (KeywordPopups AncestralBoost): the build's "
+                                    f"{empowered}% increased Empowered Attack damage on {extra:.0%} of uses (the share "
+                                    f"above PoB's own {pob_up:.0%} Empowered uptime)" if empowered else "")
+                                 + "; other Empowered-reading lines aren't counted"),
+                       "confidence": "MEDIUM" if not every_second else "MEDIUM-LOW", "entry": "ancestral-boost"}]
     if kaom and main.spell and "Fire" in main_types:
         if cast_by_totem(skills, main):
             return [], [{"label": label, "value": "0 (totem)", "confidence": "theory", "entry": "ancestral-boost",
@@ -18043,8 +18070,9 @@ def pustule_stored(rates: list[dict], poison_dps: float, fuse: float) -> tuple[f
 # Growth), so at most k bursts on the boss a fuse, not n (an OVERCOUNT of up to ~5x before on the small presets). Area
 # modifiers scale the spread and the burst together (not read: their ratio barely moves). Rows: full stored Poison's
 # +1.5 m burst (an undercount here: Toxic Growth's ground Pustules don't store the boss's Poisons, R26-79, so LOW) and
-# every Pustule (the old reading). The May 2026 forum report that Pustules don't burst in boss arenas: UNVERIFIED, not
-# modelled (no patch note names it).
+# every Pustule (the old reading). Boss arenas (MECHB45; RESEARCH35 R35-22, GEM26's routing): the May 2026 reports that
+# Pustules don't burst in boss arenas stop after 31 May and Maxroll's 0.5.5 guide (8 Sep 2026) uses Toxic Growth on
+# bosses, though no patch line names a fix: headline it works (MEDIUM-LOW), a "0 in boss arenas" row.
 TOXIC_SPREAD, TOXIC_BURST, TOXIC_STORED_BURST = 4.5, 0.8, 1.5  # metres
 
 
@@ -18105,8 +18133,9 @@ def pustule_cap(rates: list[dict], name: str = PUSTULE_SKILL, poison_dps: float 
                      f"{pustules_on_boss(limit, radius, TOXIC_BURST + TOXIC_STORED_BURST):.2f} a fuse (LOW: ground "
                      f"Pustules don't store the boss's Poisons, R26-79); every Pustule on the boss {limit:g} a fuse "
                      f"(x{min(1.0, limit / fuse / speed):.3f}, the old reading, an upper bound). Not counted (undercount "
-                     "side): the Pustules' impacts beyond one. A May 2026 forum report that they don't burst in boss "
-                     "arenas: UNVERIFIED, not modelled",
+                     "side): the Pustules' impacts beyond one. Boss arenas: taken to burst (RESEARCH35 R35-22, "
+                     "MEDIUM-LOW: the May 2026 reports stop after 31 May, Maxroll's 0.5.5 guide uses it on bosses, no "
+                     "patch line names a fix); row: if they still don't burst in boss arenas, 0 from the Pustules",
             "play": f"Fire {name} about once every {fuse:.0f} s and let its Pustules burst: firing again sooner "
                     "replaces the waiting ones (spammed, without the pacing: no bursts at all)",
             "confidence": "LOW-MEDIUM (game files give the Limit, the fuse and what the Limit does; the hits on the "
@@ -18662,3 +18691,84 @@ def crossbow_sequence_model(main: Skill | None, stats: dict,
                         "skills lack (probe POE2T4663: 1-3 projectiles, the same DPS). Whether an extra bolt spends "
                         "ammunition: UNVERIFIED, taken as no (PoB's reading)"),
               "play": f"{main.name}'s extra projectiles all hit a single boss: x{factor:.3f} (without them, x1)."}])
+
+
+# Bonestorm with Spells' Projectiles in a circle (MECHB45; COV47's routing, FIX_QUEUE line 138, RESEARCH31 R31-11; an
+# OVERCOUNT before: GEM19's bonestorm_model counted every spike of a full 20-spike channel on the boss whatever the
+# layout). Sire of Shards: "Spells fire Projectiles in a circle" (PoB Data/Uniques/staff.lua; game stat
+# local_display_socketed_spells_projectiles_circle / the cultivated spell_projectile_skills_fire_X_additional_projectiles_
+# in_a_circle: "Spells fire {0} additional Projectiles / Spells fire Projectiles in a circle"; SPELL_CIRCLE matches both).
+# R31-11 (b): a circle spreads a release's spikes evenly over 360 degrees with one aimed at the target (PoE1 behaviour,
+# MEDIUM-LOW): a boss 5 m away spans ~23 degrees, so one spike a release reaches it (and the group rule caps a release to
+# one in any case: R35-15, MEDIUM). With one spike a release, the full channel's 20 spikes over 2.5 s give no more than one;
+# the best play is PoB's own reading, a release at the 0.3 s minimum channel (1 spike a 0.3 s). So GEM19's stage
+# multiplier is not applied (PoB's one spike a release stands), and "all spikes hit" (GEM19's x) is a row. Whether the
+# circle splits one release: UNVERIFIED (R31-11).
+def bonestorm_circle(texts: list[str], bs_mods: list[dict], bs_notes: list[dict]) -> tuple[list[dict], list[dict]]:
+    """GEM19's Bonestorm mods and notes, or none and a labelled note when the build's Spells fire in a circle."""
+    circle = next((t for t in texts if SPELL_CIRCLE.search(t)), None)
+    if circle is None or not bs_mods:
+        return bs_mods, bs_notes
+    spikes = (bs_notes[0].get("value") if bs_notes else "") or "a full channel"
+    return [], [{
+        "label": f"{BONESTORM}: Projectiles in a circle, one spike a release on the boss*", "value": "x1 (PoB's)",
+        "confidence": "MEDIUM-LOW", "entry": BONESTORM_ENTRY,
+        "basis": (f"\"{circle}\": a release's spikes spread over 360 degrees with one aimed at the target (RESEARCH31 "
+                  "R31-11 (b), MEDIUM-LOW; the group rule caps a release to one hit anyway, R35-15), so one spike a release "
+                  "reaches a lone boss and the best play is a release at the 0.3 s minimum channel: PoB's own one spike "
+                  f"a 0.3 s. Row (UNVERIFIED): if every spike of a full channel hits, {spikes} a release (GEM19's model)"),
+        "play": f"With Spells firing in a circle, release {BONESTORM} at its 0.3 s minimum: one spike reaches the boss a "
+                f"release (a full channel adds nothing on one target)."}]
+
+
+# Ancestral Bond's doubled Totem Limit for PoB's own per-totem reads (MECHB45; COV47's routing after its 30a28c10, an
+# UNDERCOUNT): PoB leaves "Your Totem Limit is doubled" unparsed (ModCache 9994, text left over: never applied), so its own
+# uses of the limit read the undoubled number: TotemsSummoned = the Configuration override or the skill's
+# ActiveTotemLimit (CalcOffence 1938, CalcPerform 1302-1303), which "per Summoned Totem" / "for each summoned totem" lines
+# (ModParser 1661-1664: PerStat TotemsSummoned) and a totem skill's Ignite / Poison / Bleed stacks (CalcOffence
+# 5264-5267) read. The models already count the doubling themselves (bond_totems), from the bridge's totemLimit, which
+# leaves out the "Assumption:OneTotem" source. So each totem-summoning skill gets ActiveTotemLimit BASE (doubled - PoB's)
+# under that tag (TOTEM_ONE_TAG): PoB's reads see the doubled limit, the models' reads don't, so nothing doubles twice
+# (the same fixed point as the one-totem correction). Skipped where a one-totem support holds the skill to 1 (its own
+# tagged line sets the limit; whether Ancestral Bond doubles that 1 is UNVERIFIED: the lower reading) and where a
+# TotemsSummoned override is set (it wins in PoB; the bridge's totemLimit reads the override too, so no line).
+def bond_limit_mods(skills: list[Skill], texts: Iterable[str]) -> tuple[list[dict], list[dict]]:
+    """Ancestral Bond's doubled Totem Limit handed to PoB's own per-totem reads (see above)."""
+    if not any(ANCESTRAL_BOND_DOUBLE.match(t.strip()) for t in texts):
+        return [], []
+    mods, parts, done = [], [], set()
+    for s in skills:
+        if s.totem_limit <= 0 or s.name in done:
+            continue
+        done.add(s.name)
+        if any(number(x.support_stats.get(TOTEM_ONE_STAT)) > 0 for x in skills if x.group == s.group):
+            continue
+        own = s.totem_limit_own if 0 < s.totem_limit_own <= s.totem_limit else s.totem_limit
+        high = bond_totems(own, s.totem_limit - own, True)[0]
+        if high > s.totem_limit:
+            mods.append(raw_mod("ActiveTotemLimit", "BASE", high - s.totem_limit, s.name, tag=TOTEM_ONE_TAG))
+            parts.append(f"{s.name} {s.totem_limit:g} -> {high:g}")
+    if not mods:
+        return [], []
+    return mods, [{"label": "Ancestral Bond: PoB's per-totem reads at the doubled Totem Limit*",
+                   "value": "; ".join(parts), "confidence": "MEDIUM",
+                   "basis": ("PoB leaves 'Your Totem Limit is doubled' unparsed, so its 'per Summoned Totem' lines and a "
+                             "totem skill's ailment stacks read the undoubled limit; handed to PoB as each totem skill's "
+                             "ActiveTotemLimit (a source the totem models' own count leaves out, so it isn't doubled "
+                             "again). Which comes first, the doubling or the +Totem lines: UNVERIFIED, (base + adds) x 2 "
+                             "taken (bond_totems)")}]
+
+
+# Full DPS entries that share a name (MECHB45; GEM26's routing, an UNDERCOUNT): PoB's SkillDPS rows carry only a name
+# (Calcs.lua mergeFullDPSPass: name, dps, count, trigger, skillPart; the bridge passes name, dps, count, source), and
+# objective.entry_scales scales every row of that name. Several skills grant a skill of the same name (Ice Fragments:
+# Ice-Tipped Arrows, Escape Shot, Fragments of the Past, Shred, Frozen Spite ...), so zeroing one group's "Ice Fragments"
+# zeroed all of them. Instead, the one group's own amount (its useRates TotalDPS, the same per-group calculation PoB's Full
+# DPS makes) comes off the name's total: scale = (total - removed) / total over that name's rows. Exact for the Full DPS
+# sum; a second model cutting the same name must combine its cut here too (entry_cuts sums them).
+def entry_cut_scale(entries: list[dict], name: str, removed: float) -> float:
+    """The entry_scales value for `name` that takes `removed` DPS off the total of its SkillDPS rows (see above)."""
+    total = sum(number(e.get("dps")) * (number(e.get("count")) or 1.0) for e in entries or [] if e.get("name") == name)
+    if total <= 0:
+        return 1.0
+    return max(0.0, min(1.0, (total - max(removed, 0.0)) / total))

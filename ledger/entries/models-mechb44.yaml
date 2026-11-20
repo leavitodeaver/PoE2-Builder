@@ -99,7 +99,7 @@
     An OVERCOUNT before (every Pustule of the Limit taken as bursting on the boss): RESEARCH35 R35-4's geometry, a 4.5 m
     spread and 0.8 m bursts: min(n, max(1, n x ((r_boss + 0.8) / 4.5)^2)) a fuse, 1 of 5 on the 0.3 m default.
     MEDIUM-LOW. Rows: full stored Poison's +1.5 m burst (LOW: ground Pustules don't store the boss's Poisons), every
-    Pustule (the old reading). The boss-arena forum report: UNVERIFIED, not modelled.
+    Pustule (the old reading). Boss arenas (MECHB45, R35-22): taken to burst (MEDIUM-LOW), "0 in boss arenas" a row.
   sources: [builder/search/models.py (TOXIC_SPREAD, pustules_on_boss, pustule_cap), builder/search/assumptions.py
             (Assumptions.pustule_cap)]
   status: proposed

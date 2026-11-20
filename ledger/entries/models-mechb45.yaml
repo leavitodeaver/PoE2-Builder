@@ -43,3 +43,68 @@
             "data/game-26650308/tables/KeywordPopups.json (Crossbow)", "data/game-26650308/tables/GrantedEffectStatSets.json",
             scratch/mechb45/p4663.log]
   status: proposed
+
+- id: model-mechb45-bonestorm-circle
+  title: "Bonestorm with Spells' Projectiles in a circle: one spike a release on a lone boss (models.bonestorm_circle)"
+  kind: model
+  model: bonestorm_circle
+  skill: ["Bonestorm"]
+  confidence: theory
+  notes: >-
+    An OVERCOUNT before (COV47's routing, FIX_QUEUE line 138): GEM19's bonestorm_model counted a full channel's 20 spikes
+    whatever the layout. With Sire of Shards' "Spells fire Projectiles in a circle" (or the cultivated "... additional
+    Projectiles in a circle"), a release spreads over 360 degrees with one aimed at the target (RESEARCH31 R31-11 (b),
+    MEDIUM-LOW; the group rule caps a release to one hit anyway), so the best play is a release at the 0.3 s minimum:
+    PoB's own one spike a release; GEM19's multiplier not applied, "every spike hits" a row (UNVERIFIED).
+  sources: [builder/search/models.py (bonestorm_circle, SPELL_CIRCLE), builder/search/assumptions.py (Bonestorm call),
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/INDEX.md (R31-11)"]
+  status: proposed
+
+- id: model-mechb45-granted-children-follow-their-maker
+  title: "A Full DPS group's granted, triggered skills counted at the share their maker is used (Assumptions.child_entry_cuts)"
+  kind: model
+  model: entry_cut_scale
+  skill: ["Ice Fragments"]
+  confidence: theory
+  notes: >-
+    An OVERCOUNT (GEM26's routing; probe POE2T4674): Fragments of the Past with 0 Runic Ward had press scale 0 but its
+    triggered Ice Fragments (91 DPS) counted whole; an unpressed Escape Shot's Ice Fragments (104 DPS) too. Each child's
+    entry is cut by (1 - the Ward share) when its maker is Ward-paid, wholly when its maker's press scale is 0 (probe
+    POE2T4675: both cut, Lightning Arrow's share left). A partial press scale leaves the child at PoB's rate (UNVERIFIED).
+    Same-named entries (several skills grant "Ice Fragments") are cut by the one group's own amount
+    (models.entry_cut_scale), not zeroed by name: Ice-Tipped Arrows' fragment entry now uses it too (it zeroed every
+    "Ice Fragments" entry before, an UNDERCOUNT beside Escape Shot or Fragments of the Past).
+  sources: [builder/search/assumptions.py (cut_entries, child_entry_cuts, ice_tipped), builder/search/models.py
+            (entry_cut_scale), scratch/mechb45/p4674.log, scratch/mechb45/p4675.log]
+  status: proposed
+
+- id: model-mechb45-ancestral-bond-pob-limit
+  title: "Ancestral Bond's doubled Totem Limit handed to PoB's own per-totem reads (models.bond_limit_mods)"
+  kind: model
+  model: bond_limit_mods
+  skill: []
+  confidence: theory
+  notes: >-
+    An UNDERCOUNT (COV47's routing after 30a28c10): PoB leaves "Your Totem Limit is doubled" unparsed, so TotemsSummoned
+    (CalcOffence 1938 / CalcPerform 1302: the skill's ActiveTotemLimit) read by "per Summoned Totem" lines (ModParser
+    1661-1664) and a totem skill's ailment stacks used the undoubled limit. Each totem skill gets ActiveTotemLimit BASE
+    (doubled - PoB's) under the "Assumption:OneTotem" source, which the bridge's totem reads leave out, so the models
+    (bond_totems) don't double it again. Skipped under a one-totem support. (base + adds) x 2 (bond_totems' headline).
+  sources: [builder/search/models.py (bond_limit_mods, bond_totems), engine/bridge.lua (totemLimitBase)]
+  status: proposed
+
+- id: model-mechb45-every-second-strike-empowered
+  title: "The Shapeshift unique's every second Strike is Ancestrally Boosted, so Empowered (models.ancestral_boost_model)"
+  kind: model
+  model: ancestral_boost_model
+  skill: []
+  confidence: theory
+  notes: >-
+    An UNDERCOUNT (COV47's routing): the stat's second line, "Every second Strike Skill you use while Shapeshifted is
+    Ancestrally Boosted", was read as nothing (a boosted Strike's 2 more targets don't matter on one boss), but
+    "Ancestrally Boosted Attacks count as being Empowered" (KeywordPopups AncestralBoost): half a Shapeshift Strike's
+    uses (with Kaom's embodiment, e + (1 - e) / 2) get the build's "Ancestrally Boosted Attacks deal N%" lines and its
+    "Empowered Attacks deal N% increased Damage" lines above PoB's own Empowered uptime (ExertedAttackUptimeRatio).
+    MEDIUM-LOW. Other Empowered-reading lines not counted.
+  sources: [builder/search/models.py (SHAPESHIFT_EVERY_SECOND_STRIKE, EMPOWERED_LINE, ancestral_boost_model)]
+  status: proposed
