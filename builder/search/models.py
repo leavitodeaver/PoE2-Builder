@@ -14585,13 +14585,19 @@ def press_action(rate: dict) -> float:
     so the row's `time` of a capped skill is its whole cooldown interval, not one use: a pressed Frost Bomb (6 s
     cooldown, 0.8 s cast) charged 6 s a press and left the main skill 0% of the fight (probe POE2T5059). A `time` as
     long as the capped interval is now dropped for the base cast time (cast speed not read: a press reads a little long
-    where the build casts faster, LOW).)"""
+    where the build casts faster, LOW).)
+    (MECHB47) The row's `castRate` (PoB's CastRate: the rate before the cooldown cap, with the build's cast / attack,
+    action, totem or warcry speed) gives that use time exactly where the bridge has it; the two readings above stay as
+    the fallback for a row without it."""
     speed, repeats, cooldown = number(rate.get("speed")), number(rate.get("repeats")) or 1.0, number(rate.get("cooldown"))
     if speed <= 0:
         return 0.0
     capped = cooldown > 0 and speed >= repeats / cooldown * (1 - 1e-6)
     if not capped:
         return 1 / speed
+    cast_rate = number(rate.get("castRate"))
+    if cast_rate > 0:
+        return min(1 / speed, 1 / cast_rate)
     time = number(rate.get("time"))
     uncapped = time if 0 < time < (1 / speed) * (1 - 1e-6) else number(rate.get("castTime"))
     return min(1 / speed, uncapped)

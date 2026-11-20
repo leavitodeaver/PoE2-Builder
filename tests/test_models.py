@@ -2061,6 +2061,9 @@ def test_a_capped_press_takes_its_use_time_not_pobs_post_cap_time():
     assert models.press_action({**cry, "time": 0.5}) == pytest.approx(0.5)  # (a real use time, HitTime: kept)
     assert models.press_action({**cry, "castTime": 0, "time": 8.019}) == 0.0  # (an instant skill)
     assert models.press_action({**cry, "speed": 0.5, "cooldown": 0}) == pytest.approx(2.0)  # (not capped: 1/speed)
+    # (MECHB47) PoB's pre-cap CastRate, where the bridge has it, is the use time exactly (warcry speed counted)
+    assert models.press_action({**cry, "castRate": 1 / 0.6}) == pytest.approx(0.6)
+    assert models.press_action({**cry, "speed": 0.5, "cooldown": 0, "castRate": 0.5}) == pytest.approx(2.0)
 
 
 def test_snap_needs_an_ailment_and_its_presses_cost_the_main_skill_time():

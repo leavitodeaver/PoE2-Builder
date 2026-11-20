@@ -1,0 +1,17 @@
+# MECH-B's model entries (MECHB47).
+
+- id: model-mechb47-side-meteors
+  title: "Starfall / Walking Calamity's Meteors in a Full DPS side group at the game's meteor rate and mix (Assumptions.side_meteors)"
+  kind: model
+  model: side_meteors
+  skill: ["The Stars Answer", "Walking Calamity"]
+  confidence: theory
+  notes: >-
+    GEM12's meteor_rate_model reads the main skill only, so a Full DPS side group's Starfall kept PoB's per-set timing:
+    its Small Star every 0.3 s and never a Large Star (GEM26's sweep POE2T3595: 886.8 = 266.0 / 0.3), or its Large Star
+    every 2 s where that set is chosen. The same model runs on the side group's own sets (setRates) and uptime (Walking
+    Calamity's from its Glory; The Stars Answer's always up, its duration UNVERIFIED as on the main skill); the change
+    against PoB's set is added DPS (a gain) or a cut of that group's own entry. LOW (as the main skill's model).
+  sources: [builder/search/assumptions.py (side_meteors), builder/search/models.py (meteor_rate_model),
+            "C:/PROJECTS/PoE2-Builder-cov5/scratch/gem26/probe_sweep.json", scratch/mechb47/p4698.log]
+  status: proposed

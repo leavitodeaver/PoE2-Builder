@@ -4301,6 +4301,17 @@ function bridge.useRates(args)
 				iceCrystalLife = (type(output.IceCrystalLife) == "number" and output.IceCrystalLife > 0)
 					and jsonNumber(output.IceCrystalLife) or nil,
 				chillEffectMod = type(output.ChillEffectMod) == "number" and jsonNumber(output.ChillEffectMod) or nil,
+				-- (MECHB47: models.press_action) one use's rate BEFORE the cooldown cap: PoB's CastRate (CalcOffence 2983-3003:
+				-- 1 / (cast or attack time) with the build's speed, action speed and totem speed), set before Speed is capped at
+				-- 3008; an attack's own pass output where the combined one lacks it. A Warcry's is 1 / its WarcryCastTime
+				-- (calcWarcryCastTime, 435: warcry speed and action speed in it): PoB's CastRate multiplies that by the action
+				-- speed a second time (2978 then 2985, probe POE2T4700: 0.8 s base, action speed 0.517, WarcryCastTime 1.547 s,
+				-- CastRate 1 / 2.99 s); an instant Warcry (WarcryCastTime 0) one server tick
+				castRate = (type(output.WarcryCastTime) == "number" and (output.WarcryCastTime > 0
+						and jsonNumber(1 / output.WarcryCastTime) or jsonNumber(data.misc.ServerTickRate)))
+					or (type(output.CastRate) == "number" and output.CastRate > 0 and jsonNumber(output.CastRate))
+					or (output.MainHand and type(output.MainHand.CastRate) == "number" and output.MainHand.CastRate > 0
+						and jsonNumber(output.MainHand.CastRate)) or nil,
 				-- each ailment's stacks at that speed over the most that count (PoB: chance x duration x rate / max)
 				stackPotential = setmetatable({ Ignite = output.IgniteStackPotential and jsonNumber(output.IgniteStackPotential),
 					Bleed = output.BleedStackPotential and jsonNumber(output.BleedStackPotential),

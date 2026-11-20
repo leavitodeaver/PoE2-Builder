@@ -1247,12 +1247,19 @@ HUNT_FIELDS = ["CombinedDPS", "ShowAverage", "CullMultiplier", "ReservationDpsMu
                "TotalDotDPS"]
 
 
+def pob_disabled(build: Build) -> set[tuple]:
+    """(MECHB47) The (group index, skill name) pairs PoB marks disabled (activeSkills' `disabled`: the skill's flags, e.g.
+    a weapon it can't use). The bridge's groups() skill entries carry no such flag, so a `skill.get("disabled")` on them
+    is always falsy: loops over groups() check this set instead."""
+    return {(s.get("group"), s["name"]) for s in build.call("activeSkills")["skills"] if s.get("disabled")}
+
+
 def ancestral_spirits(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Warbringer's Ancestral Spirits (models.ancestral_spirits_model, MECHB29): the bridge's
     minionTypes rates each of the four spirit types."""
     for group in build.groups():
         for n, skill in enumerate(group["skills"], 1):
-            if skill["name"] != models.ANCESTRAL_SPIRITS or skill.get("disabled"):
+            if skill["name"] != models.ANCESTRAL_SPIRITS or (group["index"], skill["name"]) in pob_disabled(build):
                 continue
             found = build.call("minionTypes", index=group["index"], active=n)
             types = found.get("types") if isinstance(found, dict) else None  # (an empty Lua table reaches Python as a list)
@@ -1268,7 +1275,7 @@ def eternal_hunt(build: Build, main: models.Skill | None) -> tuple[float, list[d
     main skill, or its group is in Full DPS while the objective scores Full DPS)."""
     for group in build.groups():
         for n, skill in enumerate(group["skills"], 1):
-            if skill["name"] != models.AZMERIAN_WOLF or skill.get("disabled"):
+            if skill["name"] != models.AZMERIAN_WOLF or (group["index"], skill["name"]) in pob_disabled(build):
                 continue
             hunt = build.call("minionSkillHit", index=group["index"], active=n, skill=models.ETERNAL_HUNT)
             hunt = hunt if isinstance(hunt, dict) else {}  # (an empty Lua table reaches Python as a list)
@@ -1287,7 +1294,7 @@ def mist_raven(build: Build, main: models.Skill | None) -> tuple[float, list[dic
         if group.get("enabled") is False:
             continue
         for n, skill in enumerate(group["skills"], 1):
-            if skill["name"] != models.MIST_RAVEN or skill.get("disabled"):
+            if skill["name"] != models.MIST_RAVEN or (group["index"], skill["name"]) in pob_disabled(build):
                 continue
             dive = build.call("minionSkillHit", index=group["index"], active=n, skill=models.MIRROR_BREAKER)
             dive = dive if isinstance(dive, dict) else {}  # (an empty Lua table reaches Python as a list)
@@ -1350,10 +1357,10 @@ def dark_effigy(build: Build) -> tuple[list[dict], list[dict]]:
     if not any(x["name"] == models.VILE_EFFUSION for g in groups for x in g.get("skills") or []):
         return [], []
     press = getattr(build.objective, "press_scales", None) or {}
-    debuffs, seen = [], set()
+    debuffs, seen, off = [], set(), pob_disabled(build)
     for group in groups:
         for n, x in enumerate(group.get("skills") or [], 1):
-            if x["name"] not in models.EFFIGY_DEBUFF_SKILLS or x["name"] in seen or x.get("disabled"):
+            if x["name"] not in models.EFFIGY_DEBUFF_SKILLS or x["name"] in seen or (group["index"], x["name"]) in off:
                 continue
             seen.add(x["name"])
             row = next(iter(build.call("useRates", indices=[group["index"]], actives=[n])["rates"]), None) or {}
@@ -1415,7 +1422,7 @@ def inevitable_agony(build: Build, main: models.Skill | None) -> tuple[float, fl
         if not group["enabled"]:
             continue
         for n, skill in enumerate(group["skills"], 1):
-            if skill["name"] != models.INEVITABLE_AGONY or skill.get("disabled"):
+            if skill["name"] != models.INEVITABLE_AGONY or (group["index"], skill["name"]) in pob_disabled(build):
                 continue
             row = next(iter(build.call("useRates", indices=[group["index"]], actives=[n])["rates"]), None) or {}
             minion = main is not None and bool(main.summon)
@@ -1631,13 +1638,16 @@ def infernal_legion(build: Build, stats: dict) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Infernal Legion I / II (models.infernal_legion_model, MECHB30): each supported minion
     skill's minion Life (PoB's useRates minionLife, as minion_lives reads it), the boss's Fire resistance (the config's
     enemyFireResist) and the build's own Ignite (PoB's IgniteDPS)."""
-    indices, actives, names = [], [], []
+    indices, actives, names, off = [], [], [], None
     for group in build.groups():
         if not group["enabled"]:
             continue
         legion = any(g["name"] in models.INFERNAL_LEGION and g.get("enabled", True) for g in group["gems"])
         for n, skill in enumerate(group["skills"], 1):  # (MECHB40: and the Infernal Hound, wherever it is)
-            if not skill.get("disabled") and (legion or skill["name"] == models.INFERNAL_HOUND):
+            if not (legion or skill["name"] == models.INFERNAL_HOUND):
+                continue
+            off = pob_disabled(build) if off is None else off
+            if (group["index"], skill["name"]) not in off:
                 indices.append(group["index"]); actives.append(n); names.append(skill["name"])
     if not indices:
         return 0.0, []
@@ -3645,6 +3655,8 @@ class Assumptions:
                 up_how = f"{uses:.3f} uses a second x its {models.GLORY_INSTANCE.get(buff, 0.0):g} s; {up_how}"
             meteor_mods, meteor_notes = models.meteor_rate_model(main, sets, up, up_how, forbidden)
             hand_mods, hand_notes = hand_mods + meteor_mods, hand_notes + meteor_notes
+        side_meteors, side_meteor_notes = self.side_meteors(skills, group, forbidden)  # (MECHB47: a side group's too)
+        hand_notes = hand_notes + side_meteor_notes
         if main is not None and group and main.name == models.FIRESTORM:  # (GEM16: its Infusions' bolts and bonuses)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             duration = number(build.call("stats", fields=["Duration"]).get("Duration"))
@@ -4091,6 +4103,7 @@ class Assumptions:
                                    "Inevitable Agony": agony, "Impale": impaled + impaled_others, "Infernal Legion": legion,
                                    "Briarpatch": briar, "Ice-Tipped Fragments": frost, "Oil Ground": oil,
                                    "Ignited Ground's Ignite": burn, "Djinn Commands": djinn,
+                                   "Meteors (side group)": side_meteors,
                                    # (GEM21: Gas Arrow's cloud Poison beside its Arrow / Explosion set, gas_arrow_model)
                                    "Gas Arrow's cloud Poison": sum(number(m.get("value")) / 100 for m in hand_mods
                                                                    if m.get("name") == "AddedGasArrowCloud")})
@@ -7810,6 +7823,60 @@ class Assumptions:
                               f"presses): the children of {', '.join(partial)}" if partial else "")
                            + ". Other entries of the same name (another group's) keep their damage")}]
 
+    def side_meteors(self, skills: list[dict], main_group: dict | None,
+                     forbidden: set[str]) -> tuple[float, list[dict]]:
+        """(MECHB47; MECHB46's lead from GEM26's sweep POE2T3595) Starfall / Walking Calamity's Meteors in a Full DPS group
+        other than the main skill's: models.meteor_rate_model (GEM12) reads the main skill only, so PoB's per-set timing
+        (Starfall's Small Star every 0.3 s and never a Large Star, or its Large Star every 2 s; the Meteors at the attack
+        rate) stood for a side group. The same model is run on the side group's own sets (setRates) and the same
+        uptime (Walking Calamity's from its Glory; The Stars Answer's always up, its duration UNVERIFIED as the main
+        skill's note says); the change against PoB's set goes in as added DPS (above PoB's) or as a cut of that group's
+        own entry (Assumptions.cut_entries). (added DPS, notes)."""
+        build = self.build
+        if getattr(build, "objective", None) is None or not getattr(build.objective, "full", False):
+            return 0.0, []  # (a side group counts only where the objective scores Full DPS, as eternal_hunt's)
+        here = [(g, n, x["name"]) for g in build.groups()
+                if g.get("enabled", True) and g.get("fullDPS") and not (main_group and g["index"] == main_group["index"])
+                for n, x in enumerate(g.get("skills") or [], 1) if x["name"] in models.METEOR_SKILLS]
+        if not here:
+            return 0.0, []
+        off = pob_disabled(build)
+        added, cuts, parts, notes = 0.0, {}, [], []
+        for group, n, name in here:
+            if (group["index"], name) in off:
+                continue
+            info = next((s for s in skills if s["name"] == name and s.get("group") == group["index"]), None)
+            if info is None:
+                continue
+            skill = models.Skill.of(info)
+            sets = build.call("setRates", index=group["index"], active=n)["sets"]
+            buff, up, up_how = models.METEOR_BUFF.get(name), None, ""
+            if buff is not None:  # (as the main skill's block in models(): its uses a second from its Glory)
+                uses, up_how = self.glory_caps().get(buff, (0.0, f"{buff}: its Glory wasn't read"))
+                up = uses * models.GLORY_INSTANCE.get(buff, 0.0)
+                up_how = f"{uses:.3f} uses a second x its {models.GLORY_INSTANCE.get(buff, 0.0):g} s; {up_how}"
+            got, got_notes = models.meteor_rate_model(skill, sets, up, up_how, forbidden)
+            scored = next((number(x.get("TotalDPS")) for x in sets if x.get("label") == skill.stat_set), 0.0)
+            for note in got_notes:  # (set_shares / set_uses are the main skill's, for strongest_ailment_model: dropped)
+                notes.append({**{k: v for k, v in note.items() if k not in ("set_shares", "set_uses")},
+                              "label": f"{note['label']} (side group {group.get('label') or group['index']})"})
+            if not got or scored <= 0:
+                continue
+            change = scored * number(got[0].get("value")) / 100
+            if change >= 0:
+                added += change
+            else:
+                cuts[name] = cuts.get(name, 0.0) - change
+            parts.append(f"{name}: PoB's {skill.stat_set} set {scored:,.1f} DPS {change:+,.1f}")
+        self.cut_entries(cuts)
+        if parts:
+            notes.append({"label": "Meteors in a side group at the game's rate and mix*", "value": "; ".join(parts),
+                          "confidence": "LOW", "entry": "model-mechb47-side-meteors",
+                          "basis": ("the main skill's meteor model run on a Full DPS side group's own sets: the change "
+                                    "against PoB's set is added to Full DPS (a gain) or cut from that group's entry: "
+                                    + "; ".join(parts))})
+        return added, notes
+
     def side_trigger_cuts(self) -> list[dict]:
         """(MECHB46; GEM26's sweep, the manager 10:50) Infernal Cry's Combust and Ancestral Cry's Volcanic Eruption /
         Volcanic Steps (models.side_trigger_keep): each Full DPS group's own entry cut to the share of PoB's flat rate
@@ -7826,7 +7893,7 @@ class Assumptions:
         types = set(info.get("skillTypes") or [])
         melee_strike = {"Melee", "Strike", "Attack"} <= types
         kills = getattr(build, "kills", None) or (0.0, 0.0, "")
-        choices = models.press_choices(build)
+        choices, off = models.press_choices(build), None
         for group in build.groups():
             if not group.get("enabled", True) or not group.get("fullDPS"):
                 continue
@@ -7841,7 +7908,8 @@ class Assumptions:
                 uses, how = self.glory_caps().get(models.ANCESTRAL_CRY, (0.0, "its Glory wasn't read"))
                 kaom = models.kaom_uptime(uses, number(row.get("duration")), number(row.get("castTime")), how)[0]
             for position, child in enumerate(group.get("skills") or [], start=1):
-                if models.SIDE_TRIGGERS.get(child["name"]) != parent or child.get("disabled"):
+                if models.SIDE_TRIGGERS.get(child["name"]) != parent or (group["index"], child["name"]) in (
+                        off if off is not None else (off := pob_disabled(build))):
                     continue
                 rows = build.call("useRates", indices=[group["index"]], actives=[position])["rates"]
                 dps = number(rows[0].get("TotalDPS")) if rows else 0.0
