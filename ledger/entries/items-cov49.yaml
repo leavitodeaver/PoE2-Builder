@@ -1,0 +1,103 @@
+# COV49 (20 Nov 2026): train 104's readers in the audit (the brief's job 2; COV43's rule: a line counts model-read only
+# if the model's own pattern reads it).
+
+# MECHC46 (6775842d): Nebuloch's crit line. conditions.NEBULOCH_CRIT (an exact match on the line) makes every enabled
+# Attack gem an Endurance Charge consumer and sets the main Attack's crit chance to the share of its uses that find a
+# charge (assumptions NEBULOCH_TAG, a CritChance OVERRIDE blend). PoB leaves the line unparsed (ModCache 6636 maps it to
+# nil), so no negation.
+- id: model-read-mechc46-nebuloch
+  title: 'Nebuloch, "Attacks consume an Endurance Charge to Critically Hit" (conditions.NEBULOCH_CRIT, MECHC46)'
+  kind: pob_gap
+  model: nebuloch
+  match: '^Attacks consume an Endurance Charge to Critically Hit$'
+  replace: []
+  confidence: theory
+  notes: >-
+    conditions.NEBULOCH_CRIT (MECHC46, train 104): the build's Attacks spend an Endurance Charge a use when they have
+    one (the charge flow's consumers), and the main Attack's uses that find one Critically Hit: PoB's CritChance is
+    overridden to f x 100 + (1 - f) x its own chance (MEDIUM, the charge flow). Not read (labelled there): side Attacks'
+    crits (an undercount). PoB parses nothing of the line (ModCache 6636: nil), so nothing to negate.
+  sources: ["builder/search/conditions.py (NEBULOCH_CRIT)", "builder/search/assumptions.py (NEBULOCH_TAG)"]
+  status: proposed
+
+# MECHC46 (6775842d): Refracted Infusion. assumptions.OTHER_INFUSION (a search over the line; no chance named = 100%)
+# gives each collected Elemental Infusion another of a different element in infusion_found. PoB: ModCache 9777, nil.
+- id: model-read-mechc46-refracted-infusion
+  title: 'Refracted Infusion, "When collecting an Elemental Infusion, gain another different Elemental Infusion" (assumptions.OTHER_INFUSION, MECHC46)'
+  kind: pob_gap
+  model: infusions
+  match: '^(?:(\(\d+-\d+\)|\d+(?:\.\d+)?)% chance )?when collecting an Elemental Infusion,? (?:to )?gain another different Elemental Infusion$'
+  replace: []
+  confidence: theory
+  notes: >-
+    assumptions.OTHER_INFUSION (MECHC46, train 104): each Infusion collected adds the line's chance (100% when none is
+    named) of another Infusion of a different element to the build's Infusion supply. PoB parses nothing of the line
+    (ModCache 9777: nil), so nothing to negate.
+  sources: ["builder/search/assumptions.py (OTHER_INFUSION, infusion_found)"]
+  status: proposed
+
+# MECHC46 (d6803f15): "N% increased Elemental Infusion duration". assumptions.INFUSION_DURATION scales each held
+# Infusion's 20 s (KeywordPopups ElementalInfusion). PoB parses the line only in part (ModCache 1607 / 3697 / 4777 /
+# 5095: a Duration INC with " Elemental Infusion " left over), so it applies none of it (Item.lua / PassiveTree.lua's
+# `not modLine.extra`, PLANS3): no negation.
+- id: model-read-mechc46-infusion-duration
+  title: '"N% increased / reduced Elemental Infusion duration" (assumptions.INFUSION_DURATION / infusion_seconds, MECHC46)'
+  kind: pob_gap
+  model: infusions
+  match: '^(\(\d+-\d+\)|\d+(?:\.\d+)?)% (?:increased|reduced) Elemental Infusion duration$'
+  replace: []
+  confidence: theory
+  notes: >-
+    assumptions.infusion_seconds (MECHC46, train 104): each Elemental Infusion lasts 20 s x (1 + N%) (KeywordPopups
+    ElementalInfusion "for 20 seconds or until it is Consumed"); infusion_found lets held Infusions expire on their
+    timers (oldest used first: ASSUMED, UNVERIFIED, the smaller correction there). PoB parses the line only in part (a
+    bare Duration INC with text left over), so it applies none of it: no negation.
+  sources: ["builder/search/assumptions.py (INFUSION_DURATION, infusion_seconds, infusion_found)"]
+  status: proposed
+
+# MECH94 (00c98905): Bloodhound's Mark's Blood Explosion. models.bloodhound_fill / mark_activations / mark_model read
+# three of the skills' constant stats (PoB act_dex.lua 685-690 and the Mark's own set): the buildup from Blood Loss, the
+# explosion's damage from the bar, and its trigger chance (100%: each Activation explodes).
+- id: model-mech94-bloodhounds-mark
+  title: "Bloodhound's Mark: Blood Explosion at the Mark's Activations, the Mark's Heavy Stun buildup from Blood Loss, x2 at a full bar (models.bloodhound_fill / mark_activations / mark_model, MECH94)"
+  kind: model
+  model: bloodhounds_mark
+  stats: ["hunters_mark_%_of_phys_damage_over_time_as_build_up", "hunters_mark_buildup_%_as_explosion_damage_+%_final",
+          "chance_to_trigger_hunters_mark_explosion_%"]
+  skill: [Bloodhound's Mark, Blood Explosion]
+  confidence: theory
+  notes: >-
+    models.BLOODHOUND_BUILDUP 300 (hunters_mark_%_of_phys_damage_over_time_as_build_up: the main skill's Bleed DPS at
+    its share of the fight x 300% as Heavy Stun buildup, held while the boss Bleeds; gem quality's +2.5% not read, the
+    lower reading), BLOOD_EXPLOSION_FULL_BAR 2 (hunters_mark_buildup_%_as_explosion_damage_+%_final 100: "up to 100% more
+    damage" at the full bar of a Heavy Stun, MEDIUM), and chance_to_trigger_hunters_mark_explosion_% 100 (constant: each
+    Activation explodes, as mark_activations counts them). All three read as the constants PoB's data gives (act_dex.lua
+    687-689). Left open (no reader): hunters_mark_explosion_area_of_effect_+%_final_from_buildup (the explosion's area;
+    UNVERIFIED whether it moves anything on a lone boss).
+  sources: ["builder/search/models.py (BLOODHOUND_BUILDUP, BLOOD_EXPLOSION_FULL_BAR, bloodhound_fill, mark_activations, mark_model)"]
+  status: proposed
+
+# The radius damage transforms (the brief's job 3; the manager's ruling: COV-A's item, jewels.py lent): engine/bridge.lua
+# applyRadiusTransforms (the note above it). Each mod is two lines on the item ("Increases and Reductions to" and the
+# rest); the first is matched alone only because no other carrier has it (checked: the audit's own sources for that
+# text are the three JewelRadiusInc*To* mods; PoB's Data: only ModJewel.lua 360-362).
+- id: model-read-cov49-radius-damage-transform
+  title: '"Increases and Reductions to <A> and <B> Damage in Radius are transformed to apply to <C> Damage" (Time-Lost jewels; bridge applyRadiusTransforms, COV49)'
+  kind: pob_gap
+  model: radius_transform
+  match: '^(?:Increases and Reductions to(?:\s+(?:Cold|Fire|Lightning) and (?:Cold|Fire|Lightning) Damage in Radius are transformed to apply to (?:Cold|Fire|Lightning) Damage)?|\s*(?:Cold|Fire|Lightning) and (?:Cold|Fire|Lightning) Damage in Radius are transformed to apply to (?:Cold|Fire|Lightning) Damage)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Game 26650308 Mods JewelRadiusIncColdFreToLightning / IncLightningColdToFire / IncLightningFireToCold (stats
+    local_jewel_transform_damage_increases_from_cold_fire_to_lightning / cold_lightning_to_fire / fire_lightning_to_cold;
+    spawn weight 0): the crafted line Ancient Concentrated Liquid Isolation (BaseItemTypes DistilledEmotionTimeLost10,
+    a Delirium Liquid Emotion) adds to a Rare Time-Lost jewel, Emerald -> Lightning, Ruby -> Fire, Sapphire -> Cold
+    (poe2db's Jewels and Liquid Emotions pages, current; no legacy mark). PoB parses none of it (ModCache 8322-8324)
+    and runs no per-node function for Time-Lost jewels, so it counted 0. The bridge moves the passives' <A> / <B> Damage
+    increases and reductions in the radius to <C> (PoB's own getSimpleConv move). UNVERIFIED readings, labelled in the
+    bridge: "Elemental Damage" lines aren't moved; the Time-Lost "also grant" lines on those passives are; two
+    transforms move an increase once. The search doesn't craft the line (no Liquid Emotion crafting; the rare
+    generator skips spawn weight 0), so it's read on imported builds' jewels only.
+  sources: ["engine/bridge.lua (applyRadiusTransforms)", "https://poe2db.tw/us/Ancient_Concentrated_Liquid_Isolation", "https://poe2db.tw/us/Jewels"]
+  status: proposed

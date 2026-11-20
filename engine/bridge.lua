@@ -689,6 +689,13 @@ local function pickStats(output, fields)
 			local skill = env and env.player and env.player.mainSkill
 			value = skill and skill.skillModList and skill.skillModList:Flag(skill.skillCfg, field:sub(6)) or false
 		end
+		if value == nil and field:match("^ModSum:") then
+			-- (COV49) "ModSum:<TYPE>:<Name>": the COMMITTED build's player modDB total of that mod with no skill config
+			-- (unflagged mods only; a what-if's stats still read the committed build here), for checks such as the radius damage transforms moving increases between types
+			local modType, name = field:match("^ModSum:(%u+):(.+)$")
+			local env = build.calcsTab and build.calcsTab.mainEnv
+			value = modType and env and env.player and env.player.modDB and env.player.modDB:Sum(modType, nil, name) or 0
+		end
 		if type(value) == "number" then
 			picked[field] = jsonNumber(value)
 		elseif type(value) == "string" or type(value) == "boolean" then
@@ -3124,10 +3131,108 @@ local function helmetConditions(env)
 	end
 end
 
+-- Radius damage transforms (COV49; the manager's ruling 20 Nov: COV-A's item, jewels.py lent): "Increases and
+-- Reductions to <A> and <B> Damage in Radius are transformed to apply to <C> Damage" (game 26650308 Mods
+-- JewelRadiusIncColdFreToLightning / IncLightningColdToFire / IncLightningFireToCold, stats
+-- local_jewel_transform_damage_increases_from_*; spawn weight 0: a crafted line that Ancient Concentrated Liquid
+-- Isolation (BaseItemTypes DistilledEmotionTimeLost10, a Delirium Liquid Emotion) adds to a Rare Time-Lost jewel,
+-- Emerald -> Lightning, Ruby -> Fire, Sapphire -> Cold (poe2db's Jewels / Liquid Emotions pages, current). PoB parses
+-- none of it (ModCache 8322-8324: nil), and for a Time-Lost jewel PoB never runs a per-node radius function anyway
+-- (CalcSetup 220-238 copies its cached "also grant" lists and stops), so the line counted 0: an UNDERCOUNT for a build
+-- with Lightning skills and Cold / Fire passives in the radius (and an overcount of the Cold / Fire it moves away).
+-- Here, every passive in the jewel's radius (allocated ones are the ones PoB adds to the build) has its <A> and <B>
+-- Damage increases and reductions (PoB's ColdDamage / FireDamage / LightningDamage INC, with their flags and tags:
+-- "with Spells", "over time", conditions) moved to <C>: the same move PoB's own getSimpleConv makes for its other
+-- "transformed" radius lines (ModParser.lua 29-49, 7093). Read this way, UNVERIFIED (no in-game test found): lines
+-- naming another type or "Elemental Damage" aren't moved (the line names two types); the passives' Time-Lost
+-- "also grant" lines in the radius are moved too (they are increases on those passives); two transforms on one passive
+-- move each increase once (the first jewel's). The game's wording sets nothing else (checked: stat_descriptions text
+-- via PoB's ModJewel.lua 360-362 and QueryMods.lua; patch notes: no hit for "transformed to apply", which is not
+-- evidence of absence).
+local RADIUS_TRANSFORM_LINE = "(%a+) and (%a+) damage in radius are transformed to apply to (%a+) damage"
+local RADIUS_TRANSFORM_TYPES = { cold = "ColdDamage", fire = "FireDamage", lightning = "LightningDamage",
+	physical = "PhysicalDamage", chaos = "ChaosDamage" }
+local radiusTransformCache = setmetatable({ }, { __mode = "k" })
+local function radiusTransforms(item)
+	local cached = radiusTransformCache[item]
+	if cached ~= nil then
+		return cached or nil
+	end
+	local found = { }
+	for _, kind in ipairs({ "enchantModLines", "runeModLines", "implicitModLines", "explicitModLines" }) do
+		for _, modLine in ipairs(item[kind] or { }) do
+			local a, b, to = tostring(modLine.line or ""):lower():match(RADIUS_TRANSFORM_LINE)
+			local from = a and { [RADIUS_TRANSFORM_TYPES[a] or ""] = true, [RADIUS_TRANSFORM_TYPES[b] or ""] = true }
+			if from and RADIUS_TRANSFORM_TYPES[to] and (not item.CheckModLineVariant or item:CheckModLineVariant(modLine)) then
+				from[""] = nil
+				found[#found + 1] = { from = from, to = RADIUS_TRANSFORM_TYPES[to], line = modLine.line }
+			end
+		end
+	end
+	radiusTransformCache[item] = #found > 0 and found or false
+	return #found > 0 and found or nil
+end
+local function applyRadiusTransforms(env, node, modList)
+	if not env or not env.radiusJewelList or #env.radiusJewelList == 0 or not node or node.type == "Mastery" then
+		return
+	end
+	local seen, moves
+	for _, rad in ipairs(env.radiusJewelList) do
+		if rad.item and rad.nodes and rad.nodes[node.id] and not (seen and seen[rad.item]) then
+			seen = seen or { }
+			seen[rad.item] = true
+			for _, move in ipairs(radiusTransforms(rad.item) or { }) do
+				moves = moves or { }
+				moves[#moves + 1] = move
+			end
+		end
+	end
+	if not moves then
+		return
+	end
+	for i = 1, #modList do
+		local mod = modList[i]
+		if mod.type == "INC" and mod.value ~= 0 then
+			for _, move in ipairs(moves) do
+				if move.from[mod.name] then
+					modList:NewMod(mod.name, "INC", -mod.value, mod.source, mod.flags, mod.keywordFlags, unpack(mod))
+					modList:NewMod(move.to, "INC", mod.value, mod.source, mod.flags, mod.keywordFlags, unpack(mod))
+					break
+				end
+			end
+		end
+	end
+end
+-- The item's radius damage transform lines, for bridge.radiusJewels (nil when none)
+local function transformLines(item)
+	local lines = { }
+	for _, move in ipairs(radiusTransforms(item) or { }) do
+		lines[#lines + 1] = move.line
+	end
+	return #lines > 0 and lines or nil
+end
+local wrappedNodeModList
+local function installRadiusTransforms()
+	local calcs = require("Modules.CalcBase")
+	if calcs.buildModListForNode == wrappedNodeModList or not calcs.buildModListForNode then
+		return
+	end
+	local original = calcs.buildModListForNode
+	wrappedNodeModList = function(env, node, ...)
+		local modList = original(env, node, ...)
+		if modList then
+			applyRadiusTransforms(env, node, modList)
+		end
+		return modList
+	end
+	calcs.buildModListForNode = wrappedNodeModList
+end
+
 -- Installed before every bridge call: PoB defines calcs.initEnv again whenever it loads its
 -- calculation modules (a new build's CalcsTab)
 local wrappedInitEnv
 installRadiusModel = function()
+	installRadiusTransforms()  -- (COV49: the radius damage transforms, above; PoB redefines it with CalcSetup too)
 	local calcs = require("Modules.CalcBase")
 	if calcs.initEnv == wrappedInitEnv or not calcs.initEnv then
 		return
@@ -3280,6 +3385,7 @@ function bridge.radiusJewels()
 				radius = traits.radius, centres = centres, inRadius = inRadius, affected = affected,
 				unconnected = through, allowsUnconnected = traits.unconnected or (traits.keystones and true) or nil,
 				conquers = traits.conquers, enlarged = enlarged,
+				transforms = transformLines(item),  -- (COV49: its radius damage transforms, applyRadiusTransforms)
 			}
 		end
 	end

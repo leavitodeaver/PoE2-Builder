@@ -313,13 +313,13 @@ class Jewels:
         return True
 
     def radius_notes(self) -> list[dict]:
-        """The larger Time-Lost radius, for the result's assumptions (marked with an asterisk)."""
+        """The larger Time-Lost radius and the radius damage transforms, for the result's assumptions (asterisked)."""
+        notes = self.transform_notes()
         model = self.build.call("radiusModel")
         if model["increase"] <= 0:
-            return []
+            return notes
         allocated = {n["id"] for n in self.build.call("facts", fields=[])["passives"]}
         source = ", ".join(p["name"] for p in model["passives"] if p["id"] in allocated)
-        notes = []
         for jewel in self.build.call("radiusJewels")["jewels"]:
             if enlarged := jewel.get("enlarged"):
                 reached = set(enlarged["extra"]) & set(jewel["affected"])
@@ -331,6 +331,21 @@ class Jewels:
                              "radius\"; the jewel's \"in Radius\" lines also apply to the passives within its "
                              f"radius made {enlarged['percent']}% longer, by PoB's own distance rule. Assumed: the "
                              "increase lengthens the radius rather than its area",
+                    "confidence": "theory"})
+        return notes
+
+    def transform_notes(self) -> list[dict]:
+        """(COV49) A socketed jewel's "Increases and Reductions to <A> and <B> Damage in Radius are transformed to apply
+        to <C> Damage" (engine/bridge.lua applyRadiusTransforms: PoB parses none of it)."""
+        notes = []
+        for jewel in self.build.call("radiusJewels")["jewels"]:
+            for line in jewel.get("transforms") or []:
+                notes.append({
+                    "label": f"{jewel['name']} (Jewel {jewel['socket']}): {line.strip()} (custom model)",
+                    "value": len(jewel.get("affected") or []),
+                    "basis": "PoB parses none of the line; the allocated passives in the radius (the value) have those two "
+                             "types' Damage increases and reductions moved to the third. UNVERIFIED readings: "
+                             "'Elemental Damage' lines stay, the jewels' 'also grant' lines on those passives move too",
                     "confidence": "theory"})
         return notes
 

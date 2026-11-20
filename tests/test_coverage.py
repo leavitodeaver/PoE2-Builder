@@ -1666,3 +1666,40 @@ def test_cov48_carrier_unverified_rows_settled():
     for mod in ("UniqueReflectCurses1", "EssenceDisplayAttributes4", "ColdDamageIgnitesUnique__1",
                 "UniqueMutatedVaalReflectElementalAilmentsToSelf"):
         assert "checked" in coverage.NOT_OBTAINABLE[mod], mod
+
+
+def test_cov49_train104_readers_are_model_read():
+    """COV49 (the brief's job 2, train 104's readers; COV43's rule: each line against the model's own pattern):
+    Nebuloch's crit line (conditions.NEBULOCH_CRIT), Refracted Infusion (assumptions.OTHER_INFUSION) and "N% increased
+    Elemental Infusion duration" (assumptions.INFUSION_DURATION) are model-read; Bloodhound's Mark's buildup, explosion
+    damage and trigger-chance stats are the MECH94 model's, the explosion's area stays open; Repulsion's Fragility and
+    the Hazard-only Slow Magnitude line stay open (no reader)."""
+    from builder.ledger import translate
+    from builder.search import assumptions, conditions
+
+    for line, entry_id, pattern in (
+            ("Attacks consume an Endurance Charge to Critically Hit", "model-read-mechc46-nebuloch",
+             conditions.NEBULOCH_CRIT.match),
+            ("When collecting an Elemental Infusion, gain another different Elemental Infusion",
+             "model-read-mechc46-refracted-infusion", assumptions.OTHER_INFUSION.search),
+            ("10% increased Elemental Infusion duration", "model-read-mechc46-infusion-duration",
+             assumptions.INFUSION_DURATION.match),
+            ("8% reduced Elemental Infusion duration", "model-read-mechc46-infusion-duration",
+             assumptions.INFUSION_DURATION.match)):
+        entry, out = translate(line)
+        assert entry.id == entry_id and out == [] and entry.raw["model"], line
+        assert pattern(line), line
+    assert translate("Debuffs inflicted by Hazards have 30% increased Slow Magnitude") is None
+    for line in ("Increases and Reductions to", " Cold and Fire Damage in Radius are transformed to apply to Lightning Damage",
+                 "Fire and Lightning Damage in Radius are transformed to apply to Cold Damage"):
+        entry, out = translate(line)
+        assert entry.id == "model-read-cov49-radius-damage-transform" and out == [], line
+    assert translate("Increases and Reductions to Life in Radius are Transformed to apply to Energy Shield") is None
+    covered = coverage.stat_entries()
+    for stat, skill in (("hunters_mark_%_of_phys_damage_over_time_as_build_up", "Bloodhound's Mark"),
+                        ("hunters_mark_buildup_%_as_explosion_damage_+%_final", "Blood Explosion"),
+                        ("chance_to_trigger_hunters_mark_explosion_%", "Blood Explosion")):
+        assert coverage.stat_covered(covered, stat, skill) == ("model", "model-mech94-bloodhounds-mark"), stat
+    for stat, skill in (("hunters_mark_explosion_area_of_effect_+%_final_from_buildup", "Blood Explosion"),
+                        ("curse_repulsion_applies_X_fragility", "Repulsion")):
+        assert coverage.stat_covered(covered, stat, skill) is None, stat

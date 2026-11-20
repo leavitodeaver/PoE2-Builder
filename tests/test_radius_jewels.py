@@ -344,3 +344,55 @@ def test_pre_patch_variants_are_not_offered():
         variants = variants_of(uniques()[name]["raw"])
         old = [i for i, n in enumerate(variants.names, start=1) if n.startswith("Pre ")]
         assert old and not set(old) & set(variants.usable) and variants.usable, (name, variants.names)
+
+
+def test_radius_damage_transform_is_a_labelled_assumption():
+    """COV49: a socketed jewel's transform line reaches the result's assumptions (jewels.transform_notes)."""
+    from types import SimpleNamespace
+
+    from builder.search.jewels import Jewels
+
+    line = " Cold and Fire Damage in Radius are transformed to apply to Lightning Damage"
+    jewels = [{"socket": 61834, "name": "Probe Jewel", "affected": [1, 2, 3], "transforms": [line]},
+              {"socket": 26725, "name": "Other Jewel", "affected": [4]}]
+    stub = SimpleNamespace(build=SimpleNamespace(call=lambda method, **_: {"jewels": jewels}))
+    notes = Jewels.transform_notes(stub)
+    assert len(notes) == 1 and notes[0]["value"] == 3 and line.strip() in notes[0]["label"]
+    assert notes[0]["confidence"] == "theory" and "UNVERIFIED" in notes[0]["basis"]
+
+
+TRANSFORM_FIELDS = ["ModSum:INC:ColdDamage", "ModSum:INC:FireDamage", "ModSum:INC:LightningDamage"]
+
+
+def transform_jewel(transform: bool) -> str:
+    lines = ["Rarity: Rare", "Probe Jewel", "Time-Lost Emerald", "Item Level: 80", "Radius: Small", "Implicits: 0",
+             "Small Passive Skills in Radius also grant 10% increased Cold Damage"]
+    if transform:
+        lines += ["Increases and Reductions to", "Cold and Fire Damage in Radius are transformed to apply to Lightning Damage"]
+    return "\n".join(lines)
+
+
+def test_radius_damage_transform_moves_cold_and_fire_increases_to_lightning(engine):
+    """COV49 (bridge applyRadiusTransforms): an Emerald's "Increases and Reductions to Cold and Fire Damage in Radius
+    are transformed to apply to Lightning Damage" (Ancient Concentrated Liquid Isolation's crafted line; PoB parses
+    none of it) moves the Cold / Fire increases on the passives in its radius to Lightning: here the jewel's own "also
+    grant 10% increased Cold Damage" on each allocated small passive. The three types' total is unchanged."""
+    sockets = load_reference(engine)
+    best = None
+    for socket in sockets:
+        slot = f"Jewel {socket}"
+        engine.call("equip", slot=slot, raw=transform_jewel(False))
+        plain = engine.call("stats", fields=TRANSFORM_FIELDS)
+        engine.call("equip", slot=slot, raw=transform_jewel(True))
+        moved = engine.call("stats", fields=TRANSFORM_FIELDS)
+        listed = {j["socket"]: j for j in engine.call("radiusJewels")["jewels"]}
+        engine.call("equip", slot=slot, raw=None)
+        gained = moved["ModSum:INC:LightningDamage"] - plain["ModSum:INC:LightningDamage"]
+        if best is None or gained > best[0]:
+            best = (gained, plain, moved, listed.get(socket))
+    gained, plain, moved, jewel = best
+    assert gained >= 10  # at least one allocated small passive in a socket's radius
+    assert jewel and [line.strip() for line in jewel["transforms"]] == [
+        "Cold and Fire Damage in Radius are transformed to apply to Lightning Damage"]
+    assert moved["ModSum:INC:ColdDamage"] <= plain["ModSum:INC:ColdDamage"] - 10
+    assert sum(moved.values()) == pytest.approx(sum(plain.values()))
