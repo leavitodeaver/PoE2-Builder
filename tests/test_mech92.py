@@ -62,3 +62,23 @@ def test_volatility_on_kill_joins_the_cycles_rate():
     notes = models.volatility_model(TURMOIL + ["10% chance to gain Volatility on Kill"], FOUR, kills=kills)[1]
     assert "4.05 Volatility a second" in notes[0]["basis"] and "Volatility on Kill (10% x 0.500 Kills/s" in notes[0][
         "basis"]
+
+
+def test_debuffs_on_immobilise_and_after_unpinned(monkeypatch):
+    """MECH92: Fearful Paralysis' Intimidate "when you Immobilise them" at the main skill's Freezes, Electrocutes, Pins
+    and Heavy Stuns, and Lockdown's Maim "after becoming Unpinned" at its Pins (both 0 before)."""
+    from builder.search import conditions, models
+
+    asked = []
+
+    def rate(stats, events):
+        asked.append(set(events))
+        return (0.1 if events == {"pin"} else 0.2), "test"
+
+    monkeypatch.setattr(models, "immobilise_rate", rate)
+    up, how = conditions._debuff_source("Enemies are Intimidated for 4 seconds when you Immobilise them",
+                                        "conditionEnemyIntimidated", [], {})
+    assert up == pytest.approx(0.8) and asked[-1] == {"freeze", "electrocute", "pin", "stun"} and "Immobilised" in how
+    up, how = conditions._debuff_source("Enemies are Maimed for 4 seconds after becoming Unpinned",
+                                        "conditionEnemyMaimed", [], {})
+    assert up == pytest.approx(0.4) and asked[-1] == {"pin"} and "Pins ending" in how

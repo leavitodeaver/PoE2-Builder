@@ -2533,7 +2533,7 @@ def arcane_surge_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
 # Block); "Enemies in your Presence" while the boss stands inside it (the build's distance); "Enemies you Curse" with a
 # curse gem in the build (the Cursed box's own evidence); "while at maximum Endurance Charges" by the charges held;
 # "Enemies you Fully Armour Break" at armour_broken's Full Break rate. A
-# Heavy Stun, Immobilise, Shapeshift, Burning, a socketed jewel or a gem's own effect: rate not modelled (0,
+# Shapeshift, Burning, a socketed jewel or a gem's own effect (Heavy Stun, Immobilise: own branches): rate not modelled (0,
 # labelled). "X% increased <Debuff> Duration" lines scale each line's duration (models.duration_scale: Hinder and Blind
 # have them in the game files, MECH44); Blind / Maim effect isn't read.
 DEBUFF_DURATION = 4.0
@@ -2657,6 +2657,22 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
         up = 1 - (1 - min(chance, 1.0)) ** (events * duration) if chance < 1 else min(1.0, events * duration)
         return up, (f"the boss Heavy Stunned {events:.3f}/s by the main skill ({how}), each debuff {duration:g} s: "
                     f"{up:.0%} up (without Heavy Stuns: 0)")
+    if ("immobilis" in when or "unpinned" in when) and not re.search(r"\bkill|shapeshift|burning|socketed", when):
+        # (MECH92; the catalog's kw-stun / Pin passive rows, UNDERCOUNTS: before, 0 for every build) Fearful Paralysis'
+        # "Enemies are Intimidated for 4 seconds when you Immobilise them": KeywordPopups Immobilised (26650308) "A
+        # target is immobilised if it cannot move, for example due to being Frozen, Pinned, Heavy Stunned, or
+        # Electrocuted", so the main skill's Freezes, Electrocutes, Pins and Heavy Stuns of the boss
+        # (models.immobilise_rate, as the charge reader's "when you Immobilise" above; other skills' and anything the
+        # "for example" leaves out not counted: a lower reading). Lockdown's "Enemies are Maimed for 4 seconds after
+        # becoming Unpinned": one Maim per Pin of the boss, at the main skill's Pins (each Pin ends; a lower reading as
+        # the Maim starts only when it does).
+        events, how = models.immobilise_rate(stats, {"pin"} if "unpinned" in when else
+                                             {"freeze", "electrocute", "pin", "stun"})
+        n = events * duration
+        up = 1 - (1 - min(chance, 1.0)) ** n if chance < 1 else min(1.0, n)
+        what = "Pins ending" if "unpinned" in when else "Immobilised (Frozen, Electrocuted, Pinned or Heavy Stunned)"
+        return up, (f"the boss {what} {events:.3f}/s by the main skill ({how}), each debuff {duration:g} s: {up:.0%} up "
+                    "(without them: 0)")
     if re.search(r"\bkill|heavy stun|immobilis|shapeshift|burning|socketed|\bfrozen by\b", when):
         return 0.0, f"'{when.strip()[:30]}': its rate isn't modelled (0, labelled)"
     if "maximum endurance" in when:
