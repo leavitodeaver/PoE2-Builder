@@ -8648,6 +8648,12 @@ class Conditions:
         # or not a box is on; Frozen from its resolver share, 0 without a Freeze source)
         self.build.ailment_uptimes = {"Ignited": _ailment_share("Ignite")(stats), "Shocked": shock_share(stats),
                                       "Frozen": number(uptimes.get("conditionEnemyFrozen"))}
+        # (MECH90, for models.saitha_ignite_mods: the share of the fight the boss is Cursed / Pinned, from the boxes' own
+        # models: a box found with no share is up all fight, one not found 0)
+        self.build.enemy_shares = {
+            name: (min(max(number(uptimes[var]), 0.0), 1.0) if var in uptimes
+                   else 1.0 if var in found and found[var][0] not in (False, 0, 0.0) else 0.0)
+            for name, var in (("Cursed", "conditionEnemyCursed"), ("Pinned", "conditionEnemyPinned"))}
         # (MECH75: the other groups' Ignites, for readers that fetch the main skill's stats afresh: assumptions.snap_stats)
         self.build.ailment_others = dict(stats.get("_ailment_others") or {})
         self.build.ailment_ground = dict(stats.get("_ailment_ground") or {})  # (MECH75: Radiant Grief's aura)

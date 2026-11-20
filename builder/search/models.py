@@ -9927,6 +9927,14 @@ def engineered_blaze_mods(texts: list[str], ignited: float) -> tuple[list[dict],
 # Its other lines (Growing Peril's per-Volatility Chaos DoT, Precise Volatility's crit, Instability, Volatility on Kill /
 # when Stunned / on minion death) are not counted here (no kills on a lone boss; the rest: an UNDERCOUNT, said).
 INNER_TURMOIL = re.compile(r"^gain 1 volatility on inflicting an elemental ailment$", re.I)
+# (MECH90, the manager 16:20) Growing Peril "1% increased Chaos Damage over Time per Volatility" (PoB: parsed in part,
+# never applied) on the Volatility held: at the cap all fight when the cycle isn't played (it never explodes; the climb to
+# the cap not counted), the attack window's average when it is; Precise Volatility "Volatile Power also grants 1%
+# increased Critical Hit chance per Volatility exploded" (PoB: unparsed) for the powered share of the attack time. The
+# cycle's choice still weighs Volatile Power's Chaos gain only (labelled).
+GROWING_PERIL = re.compile(r"^(\d+(?:\.\d+)?)% increased chaos damage over time per volatility$", re.I)
+PRECISE_VOLATILITY = re.compile(r"^volatile power also grants (\d+(?:\.\d+)?)% increased critical hit chance per "
+                                r"volatility exploded$", re.I)
 VOLATILITY_MAX = re.compile(r"^maximum volatility is (\d+)$", re.I)
 VOLATILITY_DELAY = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) volatility explosion delay$", re.I)
 VOLATILITY_SECONDS, VOLATILE_POWER_SECONDS, VOLATILITY_EVERY, VOLATILITY_CAP = 4.0, 10.0, 0.1, 200.0
@@ -9956,20 +9964,36 @@ def volatility_model(texts: list[str], stats: dict) -> tuple[list[dict], list[di
     head = (f"{rate:.2f} Volatility a second ({hits_per_second(stats):.2f} hits/s x {any_ailment:.0%} inflicting an "
             f"Elemental Ailment, at most 10 a second); it explodes {delay:g} s after the last gain (KeywordPopups "
             f"Volatility), up to {cap:g}")
+    peril = sum(float(m.group(1)) for t in texts if (m := GROWING_PERIL.match(t.strip())))
+    precise = sum(float(m.group(1)) for t in texts if (m := PRECISE_VOLATILITY.match(t.strip())))
     if attack <= 0:
-        return [], [{"label": "Inner Turmoil: Volatile Power*", "value": "not played (0)", "confidence": "MEDIUM",
-                     "basis": (head + ": no attack-then-stop cycle beats attacking without a break (Volatility never "
-                               "explodes then, so +0). PoB reads no Volatility")}]
+        held = cap if rate > 0 else 0.0
+        peril_mods = [line("1% increased Chaos Damage over Time", peril * held)] if peril > 0 and held > 0 else []
+        return peril_mods, [{"label": "Inner Turmoil: Volatile Power*", "value": "not played (0)", "confidence": "MEDIUM",
+                             "basis": (head + ": no attack-then-stop cycle beats attacking without a break (Volatility "
+                                       "never explodes then, so +0)"
+                                       + (f"; Growing Peril: {held:g} Volatility held all fight, +{peril * held:g}% "
+                                          "Chaos Damage over Time" if peril_mods else "") + ". PoB reads no Volatility")}]
     stopped = delay / (attack + delay) * 100
-    gain = exploded * min(attack, VOLATILE_POWER_SECONDS) / attack
-    return [line("1% less Damage", stopped), line("Gain 1% of Damage as Extra Chaos Damage", gain)], [{
+    powered = min(attack, VOLATILE_POWER_SECONDS) / attack
+    gain = exploded * powered
+    climb = exploded / rate if rate > 0 else attack  # (seconds to reach the exploded count; then held there)
+    held = (exploded * climb / 2 + exploded * max(0.0, attack - climb)) / attack
+    extra = ([line("1% increased Chaos Damage over Time", peril * held)] if peril > 0 and held > 0 else []) + (
+        [line("1% increased Critical Hit Chance", precise * gain)] if precise > 0 and gain > 0 else [])
+    return [line("1% less Damage", stopped), line("Gain 1% of Damage as Extra Chaos Damage", gain), *extra], [{
         "label": "Inner Turmoil: Volatile Power*", "value": f"x{value:.3f} (before the Chaos gain's own scaling)",
         "confidence": "MEDIUM-LOW",
         "basis": (head + f". Played: attack {attack:g} s, stop {delay:g} s so {exploded:.0f} Volatility explodes (Inner "
                   f"Turmoil: no damage to you), then {VOLATILE_POWER_SECONDS:g} s of Volatile Power, {exploded:.0f}% of "
                   f"Damage as Chaos: {stopped:.1f}% less Damage for the time stopped and +{gain:.1f}% of Damage as Chaos "
-                  "while attacking. Ignites burning on while you stop, Freeze / Electrocute buildup and Growing Peril / "
-                  "Precise Volatility not counted (lower). PoB reads no Volatility"),
+                  "while attacking"
+                  + (f"; Growing Peril: {held:.0f} Volatility held on average while attacking, +{peril * held:.0f}% "
+                     "Chaos Damage over Time" if peril > 0 else "")
+                  + (f"; Precise Volatility: +{precise * gain:.0f}% Critical Hit chance (the powered share)"
+                     if precise > 0 else "")
+                  + ". Ignites burning on while you stop, Freeze / Electrocute buildup and Instability not counted "
+                  "(lower). PoB reads no Volatility"),
         "play": (f"Attack {attack:g} s, then stop inflicting ailments for {delay:g} s so your Volatility explodes, and "
                  f"attack again inside the {VOLATILE_POWER_SECONDS:g} s of Volatile Power: without the pauses +0; with "
                  f"them x{value:.2f} damage")}]
@@ -9981,7 +10005,8 @@ def volatility_model(texts: list[str], stats: dict) -> tuple[list[dict], list[di
 # refresh, later Ignites not Aggravated: MEDIUM-HIGH); LocalOnAggravateBleeding: it fires only when a hit with the weapon
 # Aggravates at least one Bleed that wasn't yet (HIGH as text), so a build whose Bleeds are all Aggravated when inflicted
 # ("Bleeding you inflict is Aggravated") never fires it (0: counting it there would be an OVERCOUNT); a conditional
-# "... on Cursed / Pinned targets is Aggravated" line is taken the same way (0, the cautious reading, labelled). The
+# "... on Cursed targets / Pinned Enemies is Aggravated" line takes the boss's Cursed / Pinned share (SOME_BLEEDS_AGGRAVATED,
+# the manager 16:20), the spear's line firing on the Bleeds of the rest. The
 # research's model, every input the build's own: the main skill's hits h (it must be an Attack: the weapon's hits, MEDIUM),
 # Bleed chance c (PoB's BleedChancePerHit), Aggravate chance p per hit (the build's "N% chance to Aggravate Bleeding on
 # Hit / on targets you Hit with Attacks", and the Critically Hit forms x its crit chance; Empowered / Presence / Jagged
@@ -9995,7 +10020,12 @@ AGGRAVATE_ON_HIT = re.compile(r"^(\d+(?:\.\d+)?)% chance to aggravate bleeding o
                               re.I)
 AGGRAVATE_ON_CRIT = re.compile(r"^(?:(\d+(?:\.\d+)?)% chance to )?aggravate bleeding on targets you critically hit with "
                                r"attacks$", re.I)
-ALL_BLEEDS_AGGRAVATED = re.compile(r"^bleeding you inflict (?:on [\w ]+ )?is aggravated$", re.I)
+ALL_BLEEDS_AGGRAVATED = re.compile(r"^bleeding you inflict is aggravated$", re.I)
+# (the manager, 16:20: a conditional "Bleeding you inflict on <Cursed targets / Pinned Enemies> is Aggravated" takes the
+# share of the fight the boss is so, the boxes' own models (Conditions' build.enemy_shares); the spear's line fires only on
+# the Bleeds inflicted in the rest, independent where there are several; a condition not modelled takes 0, UNVERIFIED)
+SOME_BLEEDS_AGGRAVATED = re.compile(r"^bleeding you inflict on ([\w ]+?) is aggravated$", re.I)
+AGGRAVATED_ON = {"cursed targets": "Cursed", "pinned enemies": "Pinned"}
 
 
 def _aggravated_share(rate: float, duration: float) -> float:
@@ -10003,7 +10033,8 @@ def _aggravated_share(rate: float, duration: float) -> float:
     return 1 - (1 - math.exp(-x)) / x if x > 0 else 0.0
 
 
-def saitha_ignite_mods(texts: list[str], stats: dict, main: str | None, attack: bool) -> tuple[list[dict], list[dict]]:
+def saitha_ignite_mods(texts: list[str], stats: dict, main: str | None, attack: bool,
+                       enemy_shares: dict | None = None) -> tuple[list[dict], list[dict]]:
     """(mods, notes) for Saitha's Spear's "also Aggravates all Ignites" (the note above)."""
     if not any(SAITHA_LINE.match(t.strip()) for t in texts):
         return [], []
@@ -10013,8 +10044,8 @@ def saitha_ignite_mods(texts: list[str], stats: dict, main: str | None, attack: 
     if every:
         return [], [{"label": label, "value": "+0", "confidence": "HIGH",
                      "basis": (f"'{every[0]}': every Bleed you inflict is already Aggravated, and the spear's line fires "
-                               "only when its hit Aggravates a Bleed that wasn't (KeywordPopups LocalOnAggravateBleeding; "
-                               "a conditional one taken the same way, cautious): never (RESEARCH33 R33-8)")}]
+                               "only when its hit Aggravates a Bleed that wasn't (KeywordPopups LocalOnAggravateBleeding): "
+                               "never (RESEARCH33 R33-8)")}]
     if not attack or ignite <= 0 or main is None:
         return [], [{"label": label, "value": "+0", "confidence": "MEDIUM",
                      "basis": "the main skill isn't an Attack that Ignites (only the spear's hits Aggravate): +0"}]
@@ -10028,6 +10059,18 @@ def saitha_ignite_mods(texts: list[str], stats: dict, main: str | None, attack: 
     if h <= 0 or c <= 0 or p <= 0 or duration <= 0:
         return [], [{"label": label, "value": "+0", "confidence": "MEDIUM",
                      "basis": f"no Bleed ({c:.0%}) or no Aggravate chance ({p:.0%}) on the main skill's hits: +0"}]
+    open_share, already = 1.0, []
+    for t in texts:
+        if m := SOME_BLEEDS_AGGRAVATED.match(t.strip()):
+            name = AGGRAVATED_ON.get(m.group(1).lower())
+            up = min(max(number((enemy_shares or {}).get(name)), 0.0), 1.0) if name else 0.0
+            open_share *= 1 - up
+            already.append(f"'{t.strip()}': the boss {name or m.group(1)} {up:.0%} of the fight"
+                           + ("" if name else " (not modelled: 0, UNVERIFIED)"))
+    if open_share <= 0:
+        return [], [{"label": label, "value": "+0", "confidence": "MEDIUM",
+                     "basis": "; ".join(already) + ": every Bleed is Aggravated when inflicted, so the line never fires"}]
+    c *= open_share
     rate = h / (1 / c + 1 / p)
     share = _aggravated_share(rate, duration)
     fresh = h * min(max(number(stats.get("IgniteChancePerHit")), 0.0), 100.0) / 100
@@ -10039,7 +10082,9 @@ def saitha_ignite_mods(texts: list[str], stats: dict, main: str | None, attack: 
                   f"(KeywordPopups AggravateIgnite), so the {duration:.2f} s Ignite is Aggravated {share:.0%} of its life: "
                   f"x{1 + share:.2f}. If Aggravation doesn't count toward the strongest Ignite (MEDIUM-LOW either way), "
                   f"each fresh Ignite ({fresh:.2f} a second) takes over un-Aggravated: x{1 + row:.2f}. Assumed: your main "
-                  "skill's hits are the spear's; a hit's own Bleed isn't Aggravated by it. PoB leaves the line unparsed"),
+                  "skill's hits are the spear's; a hit's own Bleed isn't Aggravated by it. PoB leaves the line unparsed"
+                  + (f". Bleeds already Aggravated when inflicted don't fire it: {'; '.join(already)}; the Bleed chance "
+                     f"counted is the {open_share:.0%} of the fight outside those" if already else "")),
         "play": (f"Hit with Saitha's Spear to Bleed then Aggravate: without Bleed or Aggravate chance x1.00; with them "
                  f"x{1 + share:.2f} Ignite damage")}]
 

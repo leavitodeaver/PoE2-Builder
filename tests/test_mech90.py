@@ -209,6 +209,16 @@ def test_saitha_aggravates_the_ignite_at_the_builds_own_rates():
     assert notes[0]["value"] == f"x{1 + a:.2f} Ignite damage"
     assert models.saitha_ignite_mods(lines + ["Bleeding you inflict is Aggravated"], stats, "Spear Throw", True)[0] == []
     assert models.saitha_ignite_mods(lines, stats, "Spark", False)[0] == []
+    # (the manager, 16:20) a conditional line takes its condition's share: Bleeds on a Cursed boss (60% of the fight) are
+    # already Aggravated, so only the Bleed chance of the other 40% feeds the spear
+    cursed = models.saitha_ignite_mods(lines + ["Bleeding you inflict on Cursed targets is Aggravated"], stats,
+                                       "Spear Throw", True, {"Cursed": 0.6})
+    rate_c = 3.0 / (1 / (0.2 * 0.4) + 1 / 0.3)
+    a_c = 1 - (1 - math.exp(-rate_c * 4)) / (rate_c * 4)
+    assert cursed[0][0]["scale"] == pytest.approx(a_c * 100, abs=0.01) and "Cursed 60%" in cursed[1][0]["basis"]
+    # Cursed all fight: never fires
+    assert models.saitha_ignite_mods(lines + ["Bleeding you inflict on Cursed targets is Aggravated"], stats,
+                                     "Spear Throw", True, {"Cursed": 1.0})[0] == []
     assert models.saitha_ignite_mods(lines[1:], stats, "Spear Throw", True) == ([], [])
 
 
@@ -216,3 +226,20 @@ def test_idol_of_egrin_curse_zone_delay_is_curse_delay(engine):
     """RESEARCH33 R33-9: "Curse zones erupt after 20% reduced delay" is base_curse_delay_+%, PoB's CurseDelay INC."""
     got = engine.call("parseLines", lines=["Curse zones erupt after 20% reduced delay"])["results"][0]
     assert got["supported"] and got["parsed"][0]["name"] == "CurseDelay" and got["parsed"][0]["value"] == -20
+
+
+def test_growing_peril_and_precise_volatility_on_the_cycle():
+    """The manager, 16:20: Growing Peril on the Volatility held (the cap all fight when not played), Precise Volatility
+    on the powered share."""
+    from builder.search import models
+
+    lines = ["Gain 1 Volatility on inflicting an Elemental Ailment", "1% increased Chaos Damage over Time per Volatility",
+             "Volatile Power also grants 1% increased Critical Hit chance per Volatility exploded"]
+    fast = {"Speed": 10.0, "HitChance": 100.0, "IgniteChancePerHit": 100.0}
+    mods = {m["line"]: m["scale"] for m in models.volatility_model(lines, fast)[0]}
+    # attack 20 s at 10 a second: the cap 200 reached at 20 s, so 100 held on average; 100% crit (200 x half powered)
+    assert mods["1% increased Chaos Damage over Time"] == pytest.approx(100.0)
+    assert mods["1% increased Critical Hit Chance"] == pytest.approx(100.0)
+    # not played (Maximum 30): 30 held all fight, no crit
+    capped = {m["line"]: m["scale"] for m in models.volatility_model(lines + ["Maximum Volatility is 30"], fast)[0]}
+    assert capped == {"1% increased Chaos Damage over Time": 30.0}
