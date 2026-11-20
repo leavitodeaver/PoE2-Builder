@@ -194,23 +194,36 @@ def test_the_breach_and_cranium_trials_offer_one_desecrated_affix(engine, monkey
 # Influence runes at trade-site prices (SEARCH31; builder/search/influence.py MARKET_SAMPLES) -------------------------------
 
 def test_the_users_chaos_spam_route_is_the_headline():
-    """The user, 20 Nov ~03:00: spam Chaos Orbs until the mod lands, fracture it to lock it, Omens of Whittling for more;
-    the Exalt / Annulment loop a row; the trade samples a cross-check row."""
+    """The user, 20 Nov ~03:00: spam Chaos Orbs until the mod lands, then keep it ("fracture that one to lock it in, or
+    you can use omens of whittling"), priced by RESEARCH35 R35-17: protect the landed mod per try (Whittling while it sits
+    above the item's lowest level; the side Erasure Omen while it sits on the other side), fracture at 1 / N only where
+    nothing protects, the fracture route a row; the Exalt / Annulment loop a row; the trade samples a cross-check row."""
     from builder.search import influence
 
     assert not influence.supplied("Thrud's Might")
-    a1 = SimpleNamespace(influence="decay", lines=("Ignite",), odds=1 / 200, side_odds=1 / 100, type="Prefix")
-    a2 = SimpleNamespace(influence="decay", lines=("Duration",), odds=1 / 250, side_odds=1 / 120, type="Suffix")
-    plain = SimpleNamespace(influence="", lines=("Life",), odds=0.01, side_odds=0.02, type="Prefix")
+    a1 = SimpleNamespace(influence="decay", lines=("Ignite",), odds=1 / 200, side_odds=1 / 100, type="Prefix", level=75)
+    a2 = SimpleNamespace(influence="decay", lines=("Duration",), odds=1 / 250, side_odds=1 / 120, type="Suffix", level=75)
+    plain = SimpleNamespace(influence="", lines=("Life",), odds=0.01, side_odds=0.02, type="Prefix", level=30)
     prices = {influence.CHAOS: 0.1, influence.EXALT: 0.0015, influence.ANNUL: 0.29, "Omen of Sinistral Exaltation": 0.15,
-              "Omen of Dextral Exaltation": 0.06, "Fracturing Orb": 9.87, "Omen of Whittling": 13.94}
+              "Omen of Dextral Exaltation": 0.06, "Fracturing Orb": 9.87, "Omen of Whittling": 13.94,
+              "Omen of Sinistral Erasure": 20.35, "Omen of Dextral Erasure": 13.58}
     price, steps, how = influence.price("Katla's Gloom", 0.05, 0.08, 0.4, prices, [a1])
-    assert how.endswith("Chaos Orbs") and price == pytest.approx(0.4 + 200 * 0.1)  # (alone: no lock needed)
+    assert how.endswith("Chaos Orbs") and price == pytest.approx(0.4 + 200 * 0.1)  # (alone: nothing to keep safe)
     assert any(s.startswith("row: the Exalted Orb") for s in steps) and any(s.startswith("cross-check") for s in steps)
+    # the other mod made with the level-75 influence mod kept safe by Whittling (one Omen, LOW) + its market price
     price, _, _ = influence.price("Katla's Gloom", 0.05, 0.08, 0.4, prices, [a1, plain])
-    assert price == pytest.approx(0.4 + 20 + 4 * 9.87 + 3 * (20 + 0.4) + 0.05)  # (+ the lock, + the other mod's market)
-    price, _, _ = influence.price("Katla's Gloom", 0.05, 0.08, 0.4, prices, [a1, a2])
-    assert price == pytest.approx(0.4 + 20 + 4 * 9.87 + 3 * 20.4 + 250 * (0.1 + 13.94))  # (Whittling for the second)
+    assert price == pytest.approx(0.4 + 20 + 0.05 + 13.94)
+    # a second influence mod on the other side: Dextral Erasure + Chaos (1 in 120) beats Whittling + Chaos (1 in 250)
+    price, steps, _ = influence.price("Katla's Gloom", 0.05, 0.08, 0.4, prices, [a1, a2])
+    assert price == pytest.approx(0.4 + 20 + 120 * (0.1 + 13.58))
+    fractured = 0.4 + 20 + 4 * 9.87 + 3 * 20.4 + 250 * 0.1  # (the row: fracture at 1 in 4, a miss redoes the item)
+    assert any(s.startswith("row: lock each landed mod with a Fracturing Orb") and f"{fractured:.3f}" in s for s in steps)
+    # same side, and the landed mod the item's lowest level (45): nothing protects it, so it's fractured first
+    low = SimpleNamespace(influence="decay", lines=("Low",), odds=1 / 200, side_odds=1 / 100, type="Prefix", level=45)
+    a3 = SimpleNamespace(influence="decay", lines=("Other",), odds=1 / 300, side_odds=1 / 150, type="Prefix", level=75)
+    price, steps, _ = influence.price("Katla's Gloom", 0.05, 0.08, 0.4, prices, [low, a3])
+    assert price == pytest.approx(0.4 + 20 + (4 * 9.87 + 3 * 20.4) + 300 * 0.1)
+    assert any("Fracturing Orb (1 in 4" in s for s in steps)
     assert influence.price("Katla's Gloom", 0.05, 0.08, 0.4, {}, [a1])[0] is None
 
 

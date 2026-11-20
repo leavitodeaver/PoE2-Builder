@@ -721,7 +721,8 @@ class Gear:
             return None
         names = [a for a in picked if a.influence]
         note = (f"{rune} socketed first (socket-bound) lets {len(names)} influence modifier{'s' if len(names) != 1 else ''}"
-                f" roll; priced by the user's Chaos-spam route (+ a Fracturing Orb / Omens of Whittling; LOW odds)")
+                f" roll; priced by the user's Chaos-spam route (the landed mod kept safe by Omens of Whittling / Erasure,"
+                f" or fractured where nothing protects it: R35-17; LOW odds)")
         return ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
                           rare_text(slot, base, level, picked, runes=[rune]), False, None if ssf else price,
                           "ssf" if ssf else f"estimate ({how})", base_option.level,

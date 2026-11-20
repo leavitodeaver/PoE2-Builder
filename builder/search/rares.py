@@ -98,6 +98,7 @@ class Affix:
     excluded_by: frozenset[str] = frozenset()  # tags with spawn weight 0 for it: an item carrying one can't roll it
     influence: str = ""  # (SEARCH30) the influence tag it spawns by ("marksman"): only with that influence rune socketed
     desecrated: str = ""  # (SEARCH30) a Desecrated affix's lord (builder/search/desecrated.py)
+    level: int = 0  # (SEARCH32) its mod level (Mods.level): Omen of Whittling removes "the lowest level modifier"
 
     @property
     def top(self) -> bool:
@@ -182,7 +183,7 @@ class AffixPools:
               lower: Affix | None = None) -> Affix:
         return Affix(mod["id"], group, kind, tier, tuple(roll(line, self.roll) for line in mod_lines(mod)), tiers, lower,
                      odds=odds[0], side_odds=odds[1], ranged=any(RANGE.search(line) for line in mod_lines(mod)),
-                     adds=tuple(mod.get("tags") or ()), excluded_by=excluded_by(mod))
+                     adds=tuple(mod.get("tags") or ()), excluded_by=excluded_by(mod), level=int(mod.get("level") or 0))
 
     def choices(self, affix: Affix, chosen: list[Affix]) -> list[Affix]:
         """The tiers of the affix's group worth trying next: a tier-1 affix and its tier 2 (often

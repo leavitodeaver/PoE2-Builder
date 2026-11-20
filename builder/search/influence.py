@@ -18,7 +18,8 @@ One influence rune per item (UNVERIFIED in R-b; the lower reading). No priced ro
 SEARCH31 (the user, 19 Nov ~21:55: "Sample trade prices first"): 12 trade-site samples (Forbidden Rites, 19 Nov,
 MARKET_SAMPLES) show these rares on sale in quantity, mostly at 0.02-1 div (uncorrupted 0.1-5; Medved's Life + Mana 2-20),
 while the Chaos-spam route said 15-23 div. The user then asked (19 Nov ~22:12) for the DETERMINISTIC craft route,
-and on seeing it (20 Nov ~03:00) ruled the HEADLINE is Chaos spam + a Fracturing Orb + Omens of Whittling (`chaos_price`;
+and on seeing it (20 Nov ~03:00) ruled the HEADLINE is Chaos spam + a Fracturing Orb + Omens of Whittling (`chaos_price`; RESEARCH35 R35-17, 20 Nov:
+protect the landed mod with Whittling / the side Erasure Omens per try, fracture at 1 / N only where nothing protects;
 "annulment orbs are way more expensive than chaos"); the Exalt loop (the 22:12 "basically the same method as desecrated runes with
 a wider mod pool": `deterministic_price`, Exalted Orb + Exaltation Omen, Annulment on a miss, repeat) is a row, and the
 samples a CROSS-CHECK row only (`market_price`:
@@ -39,7 +40,8 @@ EXALT = "Exalted Orb"
 ANNUL = "Orb of Annulment"
 EXALTATION = {"Prefix": "Omen of Sinistral Exaltation", "Suffix": "Omen of Dextral Exaltation"}
 ANNULMENT = {"Prefix": "Omen of Sinistral Annulment", "Suffix": "Omen of Dextral Annulment"}
-MATERIALS = (CHAOS, EXALT, ANNUL, *EXALTATION.values(), *ANNULMENT.values(), "Fracturing Orb", "Omen of Whittling")
+MATERIALS = (CHAOS, EXALT, ANNUL, *EXALTATION.values(), *ANNULMENT.values(), "Fracturing Orb", "Omen of Whittling",
+             "Omen of Sinistral Erasure", "Omen of Dextral Erasure")
 
 
 def enabled() -> bool:
@@ -189,51 +191,112 @@ def deterministic_price(market: float, rune_price: float | None, prices: dict[st
 
 FRACTURE = "Fracturing Orb"
 WHITTLING = "Omen of Whittling"
-FRACTURE_MODS = 4  # a Fracturing Orb needs a rare with at least 4 modifiers and picks one at random (poe2db): 1 in 4 at best
+ERASURE = {"Prefix": "Omen of Sinistral Erasure", "Suffix": "Omen of Dextral Erasure"}
+FRACTURE_MIN = 4  # "Fracture a random modifier on a rare item with at least 4 modifiers" (poe2db): 1 / N, 1 / 4 at best
+SAFE_LEVEL = 65  # (LOW) with no other affix on the finished item, a landed mod at this level or above is taken to sit
+# above the random filler mods a Chaos-spammed item carries while it's crafted, so Whittling passes it over
 
 
-def chaos_price(market: float, rune_price: float | None, prices: dict[str, float], affixes
+def whittling_safe(landed: list, others: list) -> bool:
+    """(R35-17, MEDIUM) Omen of Whittling's Chaos Orb removes "the lowest level modifier": the landed wanted mods are safe
+    if every one is above the lowest level among the item's other modifiers (SAFE_LEVEL when it has none: LOW)."""
+    floor = min((a.level for a in others), default=SAFE_LEVEL - 1)
+    return all(a.level > floor for a in landed)
+
+
+def protected_try(affix, landed: list, others: list, prices: dict[str, float]) -> tuple[float, float, str] | None:
+    """The cheapest protected Chaos try for `affix` with the `landed` wanted mods already on the item (R35-17):
+    (cost a try, odds a try, how), or None when no Omen keeps them safe. Whittling + Chaos: a new mod from the whole pool
+    (odds), the lowest-level mod removed; Sinistral / Dextral Erasure + Chaos ("remove only prefix [suffix] modifiers"):
+    only when every landed mod is on the other side, the new mod taken to land on the freed side (side_odds; UNVERIFIED,
+    MEDIUM-LOW). The cheaper per expected landing wins."""
+    chaos = prices.get(CHAOS)
+    if chaos is None:
+        return None
+    found = []
+    if prices.get(WHITTLING) is not None and affix.odds > 0 and whittling_safe(landed, others):
+        found.append((chaos + prices[WHITTLING], affix.odds, f"a Chaos Orb with an {WHITTLING}"))
+    erasure = ERASURE[affix.type]
+    if prices.get(erasure) is not None and affix.side_odds > 0 and all(a.type != affix.type for a in landed):
+        found.append((chaos + prices[erasure], affix.side_odds, f"a Chaos Orb with an {erasure}"))
+    return min(found, key=lambda f: f[0] / f[1]) if found else None
+
+
+def fracture_lock(n_mods: int, redo: float, prices: dict[str, float]) -> tuple[float, str] | None:
+    """(R35-17) Fracturing the landed mod: a random one of the item's N modifiers (at least 4) fractures, so 1 / N; a miss
+    locks a wrong mod for good (the item can't be fractured again): counted as a lost item, redone (`redo`: the rune and
+    the first spam; LOW). (cost, how), or None without a price."""
+    if prices.get(FRACTURE) is None:
+        return None
+    n = max(FRACTURE_MIN, n_mods)
+    cost = n * prices[FRACTURE] + (n - 1) * redo
+    return cost, (f"a Fracturing Orb (1 in {n}: it fractures a random one of the item's {n} modifiers; each miss locks a "
+                  f"wrong one for good, so the item is redone): {cost:.3f} div (LOW)")
+
+
+def chaos_price(market: float, rune_price: float | None, prices: dict[str, float], affixes, fracture: bool = False
                 ) -> tuple[float | None, list[str]]:
     """THE USER'S METHOD (20 Nov ~03:00): "you can just spam chaos orbs on an item until you get the mod you want ...
     once you get a mod you want, then people usually try and fracture that one to lock it in, or you can use omens of
-    whittling to forcibly remove the lower rolls". With the rune socketed, spam Chaos Orbs ("Removes a random modifier and
-    augments a Rare item with a new random modifier") until the first influence mod lands: 1 / odds Chaos Orbs (odds: its
-    share of the widened pool, equal weights for the rune's rows, LOW). If the item needs anything else, lock it with a
-    Fracturing Orb ("Fracture a random modifier on a rare item with at least 4 modifiers"): 1 in 4 at best, so about 4
-    Orbs, and each miss locks a wrong mod: the item is spent, and 3 more spam runs on a fresh base with a fresh rune (LOW).
-    Each further influence mod: Chaos Orbs each with an Omen of Whittling ("your next Chaos Orb will remove the lowest
-    level modifier"), so the landed wanted mods stay (LOW: they are taken to be above the item's lowest level). The other
-    modifiers: the market price of the rare with them (the rare price model, as every route). None without prices."""
+    whittling to forcibly remove the lower rolls", priced by RESEARCH35 R35-17 (research/locking-a-crafted-mod.md).
+    With the rune socketed, spam Chaos Orbs ("Removes a random modifier and augments a Rare item with a new random
+    modifier") until the first influence mod lands: 1 / odds Chaos Orbs (odds: its share of the widened pool, equal
+    weights for the rune's rows, LOW). Then the landed mods are PROTECTED, not locked (R35-17's headline): each later
+    influence mod by protected Chaos tries (`protected_try`: Omen of Whittling while the landed mods sit above the item's
+    lowest level, the side Erasure Omen while they sit on the other side); the other modifiers at the market price of a
+    rare with them (the rare price model), plus one protecting Omen each (LOW: their Chaos tries aren't counted one by
+    one). Where no Omen protects (a later mod on the same side while the landed one is the lowest level), the landed mods
+    are fractured first (`fracture_lock`: 1 / N at the item's N modifiers, a miss redoes the item), then plain Chaos.
+    `fracture`: the fracture route for every step (the row). None without prices."""
     if rune_price is None or prices.get(CHAOS) is None:
         return None, []
-    landed = sorted([a for a in affixes if a.influence], key=lambda a: -a.odds)
-    if not landed or any(a.odds <= 0 for a in landed):
+    wanted = sorted([a for a in affixes if a.influence], key=lambda a: -a.odds)
+    if not wanted or any(a.odds <= 0 for a in wanted):
         return None, []
+    others = [a for a in affixes if not a.influence]
     chaos = prices[CHAOS]
-    first = landed[0]
+    first = wanted[0]
     spam = chaos / first.odds
     steps = [f"1. socket the rune in the base first ({rune_price:.3f} div; socket-bound)",
              f"2. spam Chaos Orbs until \"{'; '.join(first.lines)}\" lands: about {1 / first.odds:.0f} Chaos Orbs, "
              f"{spam:.3f} div (one in {1 / first.odds:.0f} of the mods the item can roll with the rune in; equal weights: LOW)"]
     total = rune_price + spam
-    if len(affixes) > 1:
-        if prices.get(FRACTURE) is None:
-            return None, []
-        lock = FRACTURE_MODS * prices[FRACTURE] + (FRACTURE_MODS - 1) * (spam + rune_price)
-        total += lock
-        steps.append(f"3. lock it with a Fracturing Orb (random among at least {FRACTURE_MODS} mods: about "
-                     f"{FRACTURE_MODS} Orbs at {prices[FRACTURE]:.2f} div, each miss spends the item and redoes 1-2): "
-                     f"{lock:.3f} div (LOW)")
-    for affix in landed[1:]:
-        if prices.get(WHITTLING) is None:
-            return None, []
-        extra = (chaos + prices[WHITTLING]) / affix.odds
+    landed, locked = [first], False
+
+    def lock_now() -> bool:
+        nonlocal total, locked
+        lock = fracture_lock(len(affixes), rune_price + spam, prices)
+        if lock is None:
+            return False
+        total += lock[0]
+        steps.append(f"lock the landed influence mod{'s' if len(landed) > 1 else ''} with {lock[1]}")
+        locked = True
+        return True
+
+    for affix in wanted[1:]:
+        found = None if fracture or locked else protected_try(affix, landed, others, prices)
+        if found is None:
+            if not locked and not lock_now():
+                return None, []
+            extra = chaos / affix.odds
+            how = f"about {1 / affix.odds:.0f} plain Chaos Orbs (the fractured mod stays)"
+        else:
+            cost, odds, way = found
+            extra = cost / odds
+            how = f"about {1 / odds:.0f} tries, each {way} (the landed mod{'s' if len(landed) > 1 else ''} kept safe)"
         total += extra
-        steps.append(f"then \"{'; '.join(affix.lines)}\": about {1 / affix.odds:.0f} Chaos Orbs each with an Omen of "
-                     f"Whittling (the lowest-level mod goes, not the landed ones): {extra:.3f} div (LOW)")
-    if len(affixes) > len(landed):
-        total += market
-        steps.append(f"the other modifiers: {market:.3f} div (the rare price model's price for them)")
+        steps.append(f"then \"{'; '.join(affix.lines)}\": {how}: {extra:.3f} div (LOW: equal weights)")
+        landed.append(affix)
+    if others:
+        guard = [] if locked else [protected_try(a, landed, [o for o in others if o is not a], prices) for a in others]
+        if not locked and (fracture or any(g is None for g in guard)):
+            if not lock_now():
+                return None, []
+            guard = []
+        omens = sum(g[0] - chaos for g in guard if g)
+        total += market + omens
+        steps.append(f"the other modifiers: {market:.3f} div (the rare price model's price for them)"
+                     + (f" + one protecting Omen each, {omens:.3f} div (LOW)" if omens else ""))
     steps.append(f"in all {total:.3f} div (the user: \"crafting is pretty expensive either way\")")
     return total, steps
 
@@ -245,6 +308,9 @@ def price(rune: str, market: float, full: float, rune_price: float | None, price
     crafted, steps = chaos_price(market, rune_price, prices, affixes)
     if crafted is None:
         return None, [], ""
+    fractured, _ = chaos_price(market, rune_price, prices, affixes, fracture=True)
+    if fractured is not None and abs(fractured - crafted) > 1e-9:
+        steps = steps + [f"row: lock each landed mod with a Fracturing Orb instead of protecting it (R35-17): {fractured:.3f} div"]
     looped, _ = deterministic_price(market, rune_price, prices, affixes)
     if looped is not None:
         steps = steps + [f"row: the Exalted Orb + Exaltation Omen loop with an Annulment on a miss instead: {looped:.3f} div"]
