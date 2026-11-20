@@ -31,6 +31,7 @@ from collections.abc import Callable
 
 from builder import clock
 from builder.data import unique_versions
+from builder.search import desecrated
 from builder.search.context import ItemOption
 from builder.search.radius import Variants, compact, miscalculated, tree_changing, unlocks, variants_of, with_variants
 from builder.search.rares import SCREEN_KEEP, Affix, AffixPools, boosted, rare_price, rare_text
@@ -187,7 +188,68 @@ class Jewels:
                         "Rare Jewel", base_name, "Jewel", None, rare_text("Jewel", base, level, chosen), False, price,
                         "ssf" if self.ctx.ssf else "estimate (uncalibrated)", 0, rare=True,
                         affixes=tuple(line for a in chosen for line in a.lines)))
+                    if required is None and not fixed and desecrated.cranium_enabled():
+                        crafted = self.cranium_trial(slot, base, chosen, value, left, deadline)
+                        if crafted is not None and crafted[0] > best[0]:
+                            best = crafted
         return best[1] if best else None
+
+    CRANIUM_KEEP = 3  # jewel Desecrated affixes (by a screen what-if) fully tried (SEARCH31; a search budget)
+
+    @property
+    def cranium_pools(self) -> AffixPools:
+        if self.__dict__.get("_cranium_pools") is None:
+            self._cranium_pools = AffixPools(self.ctx, "Desecrated", "cranium")
+        return self._cranium_pools
+
+    def cranium_trial(self, slot: str, base: dict, chosen: list, value: float, left: float,
+                      deadline: float) -> tuple[float, ItemOption] | None:
+        """(SEARCH31) The plain-shape rare jewel `chosen` (score less price's weight: `value`) with one Desecrated jewel
+        affix by a Preserved Cranium (desecrated.py "cranium"; RESEARCH34 R33-22, MEDIUM-HIGH), added where its side has
+        room or in place of each affix of its side (a full side loses a random mod: the jewel is bought with that slot
+        open), priced by the craft route; (value, option) if it beats `value`, else None."""
+        build, lam, level, name = self.build, self.gear.lam, self.pools.item_level, base["name"]
+        pool = self.cranium_pools.pool(name)
+        groups = {a.group for a in chosen}
+        fresh = [a for a in pool if a.group not in groups and a.type in JEWEL_LIMIT]
+        if not fresh or clock.now() > deadline:
+            return None
+        ssf = self.ctx.ssf
+        prices = self.ctx.desecration_prices if not ssf else {m: 0.0 for m in desecrated.MATERIALS}
+        ordinary = {}  # the reveal's ordinary rows per side (equal weights, as gear.desecrated_trial)
+        for a in self.pools.pool(name):
+            if a.side_odds > 0:
+                ordinary[a.type] = round(1 / a.side_odds)
+        screen = build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, chosen + [a])} for a in fresh])
+        top = [a for s, a in sorted(((s, a) for (s, _), a in zip(screen, fresh)), key=lambda x: -x[0])][:self.CRANIUM_KEEP]
+        trials = []  # (affixes, the Desecrated affix, price, steps)
+        for a in top:
+            for c in self.cranium_pools.choices(a, chosen):
+                if sum(1 for x in chosen if x.type == c.type) < JEWEL_LIMIT[c.type]:
+                    variants = [list(chosen)]
+                else:
+                    variants = [[x for x in chosen if x is not out] for out in chosen if out.type == c.type]
+                for kept in variants:
+                    held = {x.group for x in kept}
+                    n_side = sum(1 for x in pool if x.type == c.type and x.group not in held)
+                    market = rare_price("Jewel", kept)
+                    price, steps = desecrated.craft_price("Jewel", market, c, 0, n_side, ordinary.get(c.type, 0),
+                                                          prices, "cranium")
+                    if price is not None and price <= left + 1e-9:
+                        trials.append((kept + [c], c, price, steps))
+        if not trials or clock.now() > deadline:
+            return None
+        scored = build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, t[0])} for t in trials])
+        found, i = max(((s - lam * t[2], i) for i, ((s, _), t) in enumerate(zip(scored, trials))), key=lambda x: x[0])
+        if found <= value + EPSILON:
+            return None
+        affixes, affix, price, steps = trials[i]
+        note = (f"one Desecrated modifier ({affix.desecrated}, {affix.type}) by a Preserved Cranium; priced by the cheapest "
+                f"craft route (LOW / MEDIUM-LOW: RESEARCH34)")
+        return found, ItemOption("Rare Jewel", name, "Jewel", None, rare_text("Jewel", base, level, affixes), False,
+                                 None if ssf else price, "ssf" if ssf else "estimate (craft route: Desecration)", 0,
+                                 rare=True, affixes=tuple(line for a in affixes for line in a.lines),
+                                 craft_route=(note, *steps))
 
     def greedy(self, slot: str, base: dict, shortlist: list, limits: dict[str, int], fixed: list, left: float,
                deadline: float, fixed_only: bool = False) -> tuple[float, list] | None:

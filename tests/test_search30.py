@@ -150,14 +150,15 @@ def test_build_rare_offers_kolrs_gloves_when_a_marksman_affix_wins(engine, monke
     aempty = gear.deltas("Amulet", [rare_text("Amulet", abase, level, [])])[0][0]
     ascores = gear.deltas("Amulet", [rare_text("Amulet", abase, level, [a]) for a in apool])
     aworthless = [a for (s, _), a in zip(ascores, apool) if abs(s - aempty) < 1e-9]
-    if not aworthless or gear.desecrated_pools.item_level < 65:
+    if not aworthless or gear.desecrated_pools().item_level < 65:
         pytest.skip("no worthless amulet modifier, or item level under 65")
+    monkeypatch.setenv("POE2_SEARCH_DESECRATED", "1")  # (the trial tries the switched-on routes: SEARCH31)
     option = gear.desecrated_trial("Amulet", abase, amulet, level, pools, affix_limits(abase), [aworthless[0]], aempty,
                                    1e9, clock.now() + 180)
     print("PROBE desecrated", option.affixes if option else None, option.price if option else None,
           option.craft_route if option else None)
     assert option is not None and option.craft_route and "Desecrat" in option.confidence
-    lord_lines = {l for a in gear.desecrated_pools.pool(abase["name"]) for l in a.lines}
+    lord_lines = {l for a in gear.desecrated_pools().pool(abase["name"]) for l in a.lines}
     assert sum(1 for line in option.affixes if line in lord_lines) == 1
 
 

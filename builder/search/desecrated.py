@@ -25,10 +25,28 @@ was an OVERCOUNT and is now a row), each at weight 1 (LOW: real weights hidden);
 from its lord (MEDIUM-LOW; with a Necromancy Omen three players saw it fail: R33-21 UNSETTLED, a row). Each failed try
 also pays to clear the wrong mod: the cheaper of Omen of Light + Orb of Annulment and a fresh copy of the plain rare.
 A missing price means no route. Ribs work on Shields and Foci (R33-24, MEDIUM-HIGH: game ItemClasses flag 5).
-Not offered yet: the Breach rows by an Altered Collarbone on jewellery (5.4 div a try) and the jewel rows by a Preserved
-Cranium (29 div): R33-22 routes, an UNDERCOUNT for now, said here.
 
-OFF by default until a 3-run gate set measures it higher (the manager's rule): POE2_SEARCH_DESECRATED=1 turns it on.
+Two more routes (SEARCH31; RESEARCH34 R33-22, MEDIUM-HIGH), each priced the same way (the reveal drawn from the side's
+ordinary rows + every Desecrated row that bone can give there, weight 1 each, LOW):
+- "breach": an ALTERED COLLARBONE ("Desecrates a Rare Amulet, Ring or Belt with a chance for otherworldly modifiers",
+  Genesis Tree output) gives the 36 Breach rows ("of Esh", "Tul's", "Storm Chaser's" ...: game Mods ids GenesisTree*,
+  Domain 28, spawn tag breach_desecration, which no base carries, so the route adds it, on jewellery only; their ring /
+  belt / amulet zero weights leave Amulet 4, Ring 16, Belt 16 rows, as poe2db's Otherworldly lists). Its reveal also
+  counts the lord rows ("a chance for otherworldly modifiers": the share is UNVERIFIED, so the lord rows stay in the
+  draw, the lower reading). No lord Omen (it fixes a lord, not a Breach row). The Necromancy Omen is taken to work on it
+  (it is a Desecration: MEDIUM, UNVERIFIED for this bone).
+- "cranium": a PRESERVED CRANIUM ("Desecrates a Jewel"; the one Cranium: checked game BaseItemTypes for "Cranium", one
+  row, Metadata/Items/Currency/AbyssalBenchTicketJewel; poe.ninja's Abyss exchange lists only it) gives the jewel rows
+  ("Lightless", "of the Abyss": spawn tags strjewel / dexjewel / intjewel and *_radius_jewel) on a rare jewel (jewels.py,
+  the plain 2 + 2 shape). No lord Omen (Weapons / Jewellery only, 0.3.0c).
+The unique-only rows (Heart of the Well, Undying Hate, the Unborn Lich, Grip of Kulemak) and the Waystone rows stay out
+(R33-22, HIGH: their spawn tags are those items'). Not modelled, UNDERCOUNTS said here: Genesis Tree items carrying the
+"Crafted" copies of the Breach rows (game Domain 1 rows at weight 0, so from no currency: an item source the rare price
+model doesn't cover); an Altered Collarbone giving a LORD row (a Preserved Collarbone does that far cheaper); a Cranium on
+a jewel of the boosted 3 + 1 shape.
+
+OFF by default until a 3-run gate set measures it higher (the manager's rule): POE2_SEARCH_DESECRATED=1 turns the bone
+route on, POE2_SEARCH_DESECRATED_BREACH=1 the Altered Collarbone and POE2_SEARCH_DESECRATED_JEWEL=1 the Preserved Cranium.
 """
 
 from __future__ import annotations
@@ -50,11 +68,42 @@ ARMOUR_TYPES = {"Helmet", "Body Armour", "Gloves", "Boots", "Shield", "Focus"}
 JEWELLERY_TYPES = {"Ring", "Amulet", "Belt"}
 BONES = {"weapon": ("Preserved Jawbone", "Ancient Jawbone"), "armour": ("Preserved Rib", "Ancient Rib"),
          "jewellery": ("Preserved Collarbone", "Ancient Collarbone")}
+ALTERED = "Altered Collarbone"  # (SEARCH31) the Breach rows, on Amulets / Rings / Belts
+CRANIUM = "Preserved Cranium"  # (SEARCH31) the jewel rows, on rare Jewels
+BREACH_TAG = "breach_desecration"
+JEWEL_TAGS = {"strjewel", "dexjewel", "intjewel", "str_radius_jewel", "dex_radius_jewel", "int_radius_jewel"}
+ROUTE_LABEL = {"breach": "Breach", "cranium": "Abyss jewel"}
 LORD = re.compile(r"(Amanamu|Kurgal|Ulaman)")
 
 
 def enabled() -> bool:
     return os.environ.get("POE2_SEARCH_DESECRATED", "0") == "1"
+
+
+def breach_enabled() -> bool:
+    return os.environ.get("POE2_SEARCH_DESECRATED_BREACH", "0") == "1"
+
+
+def cranium_enabled() -> bool:
+    return os.environ.get("POE2_SEARCH_DESECRATED_JEWEL", "0") == "1"
+
+
+def route_of(mod: dict) -> str:
+    """Which bone gives a Desecrated row: "bone" (a lord row: a Jawbone / Rib / Collarbone), "breach" (an Altered
+    Collarbone), "cranium" (a Preserved Cranium), or "" (unique / Waystone rows, never from currency: R33-22)."""
+    if lord(mod):
+        return "bone"
+    spawn = {t for t, v in zip(mod.get("weightKey") or [], mod.get("weightVal") or []) if v > 0}
+    if BREACH_TAG in spawn:
+        return "breach"
+    if spawn & JEWEL_TAGS:
+        return "cranium"
+    return ""
+
+
+def label(mod: dict) -> str:
+    """Affix.desecrated: the lord's name for a bone row, else the route's label."""
+    return lord(mod) or ROUTE_LABEL.get(route_of(mod), "")
 
 
 def lord(mod: dict) -> str:
@@ -70,6 +119,8 @@ def lord(mod: dict) -> str:
 
 
 def family(item_type: str) -> str | None:
+    if item_type == "Jewel":
+        return "jewel"
     if item_type in JEWELLERY_TYPES:
         return "jewellery"
     if item_type in ARMOUR_TYPES:
@@ -94,7 +145,7 @@ def routes(item_type: str, affix, n_lord: int, n_lords: int, n_ordinary: int) ->
     plain = offered(n_all, REVEAL)
     found = [("bone + Necromancy Omen", side, plain),
              ("bone + Necromancy Omen + Omen of Abyssal Echoes", side + [ECHOES], offered(n_all, 2 * REVEAL))]
-    if family(item_type) in ("weapon", "jewellery") and n_lord > 0:
+    if family(item_type) in ("weapon", "jewellery") and n_lord > 0 and affix.desecrated in LORD_OMEN:
         omen = LORD_OMEN[affix.desecrated]
         guaranteed = min(1.0, 1 / n_lord + (REVEAL - 1) / max(1, n_all))
         found += [(f"bone + Necromancy Omen + {omen}", side + [omen], guaranteed),
@@ -103,17 +154,27 @@ def routes(item_type: str, affix, n_lord: int, n_lords: int, n_ordinary: int) ->
     return found
 
 
+def bones_for(kind: str | None, route: str) -> tuple[str, ...]:
+    """The bones that Desecrate an item of `kind` by `route`."""
+    if route == "breach":
+        return (ALTERED,) if kind == "jewellery" else ()
+    if route == "cranium":
+        return (CRANIUM,) if kind == "jewel" else ()
+    return BONES.get(kind or "", ())
+
+
 def craft_price(item_type: str, market: float, affix, n_lord: int, n_lords: int, n_ordinary: int,
-                prices: dict[str, float]) -> tuple[float | None, list[str]]:
+                prices: dict[str, float], route: str = "bone") -> tuple[float | None, list[str]]:
     """The cheapest craft route's expected cost (divines) and its steps; None without a priced route. `affix` has
     .desecrated (its lord), .type and .lines; n_lord: its lord's rows on its side for this base; n_lords: every lord's
-    rows on its side; n_ordinary: the base's ordinary rows on its side. A failed try leaves a wrong Desecrated mod, cleared
+    rows on its side (for "breach" / "cranium": every Desecrated row that bone can give on its side); n_ordinary: the
+    base's ordinary rows on its side. `route`: "bone", "breach" (Altered Collarbone) or "cranium" (Preserved Cranium). A failed try leaves a wrong Desecrated mod, cleared
     at the cheaper of Omen of Light + Orb of Annulment and a fresh copy of the plain rare. A Desecration on a full side
     removes a random mod (R33-22): the search buys the rare with that slot open instead (`market` is its price)."""
     kind = family(item_type)
     if kind is None or n_lords < 1:
         return None, []
-    bones = [(prices[b], b) for b in BONES[kind] if prices.get(b) is not None]
+    bones = [(prices[b], b) for b in bones_for(kind, route) if prices.get(b) is not None]
     if not bones or any(prices.get(m) is None for m in CLEAR):
         return None, []
     bone_price, bone = min(bones)
@@ -128,22 +189,24 @@ def craft_price(item_type: str, market: float, affix, n_lord: int, n_lords: int,
     if not priced:
         return None, []
     total, name, tries, per_try = min(priced)
-    lord_only = min(1.0, REVEAL / max(1, n_lord if kind != "armour" else n_lords))
+    lord_only = min(1.0, REVEAL / max(1, n_lord if kind in ("weapon", "jewellery") and route == "bone" else n_lords))
     steps = [f"buy the rare with that slot open ({market:.3f} div, the rare price model)",
              f"each try: {name.replace('bone', bone)} ({per_try:.3f} div); about {tries:.1f} tries: a reveal's 3 options "
-             f"drawn from {n_ordinary} ordinary + {n_lords} lord {affix.type.lower()}es at equal weight (RESEARCH34 R33-20: "
+             f"drawn from {n_ordinary} ordinary + {n_lords} Desecrated {affix.type.lower()}es at equal weight (RESEARCH34 R33-20: "
              f"LOW / MEDIUM-LOW)",
              f"each failed try clears the wrong mod: {clear:.3f} div (the cheaper of Omen of Light + Orb of Annulment "
              f"and a fresh copy of the rare)",
              f"reveal \"{'; '.join(affix.lines)}\" ({affix.desecrated}, {affix.type})",
-             f"row: if reveals offered only lord mods, one try would succeed {lord_only:.0%} of the time (the old reading)"]
+             f"row: if reveals offered only Desecrated mods, one try would succeed {lord_only:.0%} of the time (the old "
+             f"reading; RESEARCH34 R33-22's headline for the Altered Collarbone)"]
     if "Omen of the" in name:
         steps.append("row: the lord Omen with a Necromancy Omen failed its guarantee in three player reports (R33-21, "
                      "UNSETTLED): then the try is a plain one")
     return total, steps
 
 
-MATERIALS = tuple(dict.fromkeys([b for pair in BONES.values() for b in pair] + list(LORD_OMEN.values())
+MATERIALS = tuple(dict.fromkeys([b for pair in BONES.values() for b in pair] + [ALTERED, CRANIUM]
+                                + list(LORD_OMEN.values())
                                 + list(SIDE_OMEN.values()) + list(CLEAR) + [ECHOES]))
 
 

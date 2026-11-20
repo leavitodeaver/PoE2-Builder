@@ -108,10 +108,12 @@ class Affix:
 class AffixPools:
     """Which affixes each base can roll at this request's gear tier."""
 
-    def __init__(self, ctx: Context, source: str = "Item") -> None:
-        """`source` is the modifier pool: "Item" for equipment, "Jewel" for jewels."""
+    def __init__(self, ctx: Context, source: str = "Item", route: str = "bone") -> None:
+        """`source` is the modifier pool: "Item" for equipment, "Jewel" for jewels, "Desecrated" for Desecrated rows,
+        of which `route` keeps one bone's (desecrated.route_of: "bone", "breach" or "cranium"; SEARCH31)."""
         self.ctx = ctx
         self.source = source
+        self.route = route
         self.item_level, self.best_tier, self.roll = TIER_RULES[GearTier(ctx.request.budget.gear_tier)]
         self.top_cap = BUY_RULES[GearTier(ctx.request.budget.gear_tier)]
         self._pools: dict[str, list[Affix]] = {}
@@ -124,14 +126,18 @@ class AffixPools:
         """`extra`: tags a socketed influence rune adds (SEARCH30, influence_tag); their affixes are marked `influence`."""
         key = base_name if not extra else (base_name, tuple(sorted(extra)))
         if key not in self._pools:
-            tags = pool_tags(self.ctx.bases_by_name[base_name]) | set(extra)
+            base = self.ctx.bases_by_name[base_name]
+            tags = pool_tags(base) | set(extra)
+            if self.source == "Desecrated" and self.route == "breach":
+                # (SEARCH31) the Breach rows spawn by a tag no base carries: the Altered Collarbone's, jewellery only
+                tags |= {desecrated.BREACH_TAG} if desecrated.family(base.get("type") or "") == "jewellery" else set()
             spawned: dict[str, str] = {}  # mod id -> the extra tag it spawns by
             groups: dict[tuple[str, str], list[dict]] = {}
             weights: dict[str, int] = {}  # spawn weight of each affix this base can roll at this item level
             totals = {"Prefix": 0, "Suffix": 0}
             for mod in self.mods:
-                if self.source == "Desecrated" and not desecrated.lord(mod):
-                    continue  # (only the lords' rows: desecrated.py)
+                if self.source == "Desecrated" and desecrated.route_of(mod) != self.route:
+                    continue  # (only this route's rows: desecrated.py)
                 weight = 0
                 for tag, value in zip(mod.get("weightKey") or [], mod.get("weightVal") or []):
                     if tag in tags:
@@ -163,8 +169,8 @@ class AffixPools:
                     lower = self.affix(allowed[1][1], group, kind, allowed[1][0], len(ranked), odds(allowed[1][1]))
                 affix = self.affix(mod, group, kind, tier, len(ranked), odds(mod), lower)
                 if self.source == "Desecrated":
-                    lower = None if lower is None else dataclasses.replace(lower, desecrated=desecrated.lord(allowed[1][1]))
-                    affix = dataclasses.replace(affix, desecrated=desecrated.lord(mod), lower=lower)
+                    lower = None if lower is None else dataclasses.replace(lower, desecrated=desecrated.label(allowed[1][1]))
+                    affix = dataclasses.replace(affix, desecrated=desecrated.label(mod), lower=lower)
                 if mod["id"] in spawned:
                     lower = None if lower is None else dataclasses.replace(lower, influence=spawned.get(lower.id, ""))
                     affix = dataclasses.replace(affix, influence=spawned[mod["id"]], lower=lower)

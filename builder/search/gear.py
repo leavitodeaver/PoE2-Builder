@@ -532,7 +532,7 @@ class Gear:
                                               deadline)
             if influenced is not None:
                 return influenced
-        if not magic and desecrated.enabled():  # (SEARCH30: one Desecrated lord affix, desecrated.py)
+        if not magic and (desecrated.enabled() or desecrated.breach_enabled()):  # (SEARCH30 / 31: one Desecrated affix)
             desecrated_option = self.desecrated_trial(slot, base, base_option, level, pools, limits, chosen, current,
                                                       left, deadline)
             if desecrated_option is not None:
@@ -729,57 +729,64 @@ class Gear:
 
     DESECRATED_KEEP = 3  # Desecrated affixes (by a screen what-if) fully tried (SEARCH30; a search budget)
 
-    @property
-    def desecrated_pools(self) -> AffixPools:
-        if getattr(self, "_desecrated_pools", None) is None:
-            self._desecrated_pools = AffixPools(self.ctx, "Desecrated")
-        return self._desecrated_pools
+    def desecrated_pools(self, route: str = "bone") -> AffixPools:
+        pools = self.__dict__.setdefault("_desecrated_pools", {})
+        if route not in pools:
+            pools[route] = AffixPools(self.ctx, "Desecrated", route)
+        return pools[route]
 
     def desecrated_trial(self, slot: str, base: dict, base_option: ItemOption, level: int, pools, limits: dict,
                          chosen: list, current: float, left: float, deadline: float) -> ItemOption | None:
-        """(SEARCH30) The rare with one Desecrated (lord) affix, added where its side has room or in place of each
-        modifier of its side, if it beats the plain rare `chosen` (score `current`) after the craft route's price
-        (desecrated.py). The screen scores each lord affix added; the best DESECRATED_KEEP get every placement."""
+        """(SEARCH30) The rare with one Desecrated affix, added where its side has room or in place of each modifier of
+        its side, if it beats the plain rare `chosen` (score `current`) after the craft route's price (desecrated.py).
+        Each switched-on route ("bone": a lord row; "breach": an Altered Collarbone's Breach row on jewellery, SEARCH31)
+        screens its affixes added; its best DESECRATED_KEEP get every placement; the best of all wins."""
         kind = desecrated.family(base["type"])
         if kind is None or clock.now() > deadline:
             return None
-        pool = self.desecrated_pools.pool(base["name"])
+        routes = [r for r, on in (("bone", desecrated.enabled()), ("breach", desecrated.breach_enabled())) if on]
         groups = {a.group for a in chosen}
-        fresh = [a for a in pool if a.group not in groups and a.type in limits]
-        if not fresh:
-            return None
         ssf = self.ctx.ssf
         prices = self.ctx.desecration_prices if not ssf else {m: 0.0 for m in desecrated.MATERIALS}
 
         # The reveal's draw (desecrated.routes, RESEARCH34 R33-20): the side's ordinary rows (equal weights: 1 / side_odds
-        # of any of its affixes; groups already on the item are still counted, the lower reading) + the lord rows whose
-        # group the item doesn't hold
+        # of any of its affixes; groups already on the item are still counted, the lower reading) + the Desecrated rows the
+        # bone can give whose group the item doesn't hold (an Altered Collarbone: its Breach rows and the lord rows, R33-22)
         ordinary = {}
         for a in pools.pool(base["name"]):
             if a.side_odds > 0:
                 ordinary[a.type] = round(1 / a.side_odds)
 
-        def counts(affix, kept) -> tuple[int, int, int]:
+        def counts(affix, kept, route) -> tuple[int, int, int]:
             held = {x.group for x in kept}
-            side = [a for a in pool if a.type == affix.type and a.group not in held]
-            return (sum(1 for a in side if a.desecrated == affix.desecrated), len(side), ordinary.get(affix.type, 0))
+            drawn = self.desecrated_pools(route).pool(base["name"])
+            if route == "breach":
+                drawn = drawn + self.desecrated_pools("bone").pool(base["name"])
+            side = [a for a in drawn if a.type == affix.type and a.group not in held]
+            return (sum(1 for a in side if a.desecrated == affix.desecrated) if route == "bone" else 0, len(side),
+                    ordinary.get(affix.type, 0))
 
         plain = current - self.lam * rare_price(slot, chosen)
-        screen = self.deltas(slot, [rare_text(slot, base, level, chosen + [a]) for a in fresh])
-        top = [a for s, a in sorted(((s, a) for (s, _), a in zip(screen, fresh)), key=lambda x: -x[0])
-               if s > current + EPSILON][:self.DESECRATED_KEEP]
         trials = []  # (affixes, the Desecrated affix, price, steps)
-        for a in top:
-            for c in self.desecrated_pools.choices(a, chosen):
-                if sum(1 for x in chosen if x.type == c.type) < limits[c.type]:
-                    variants = [list(chosen)]
-                else:
-                    variants = [[x for x in chosen if x is not out] for out in chosen if out.type == c.type]
-                for kept in variants:
-                    market = rare_price(slot, kept)
-                    price, steps = desecrated.craft_price(base["type"], market, c, *counts(c, kept), prices)
-                    if price is not None and price <= left + 1e-9:
-                        trials.append((kept + [c], c, price, steps))
+        for route in routes:
+            fresh = [a for a in self.desecrated_pools(route).pool(base["name"]) if a.group not in groups and a.type in limits]
+            if not fresh or clock.now() > deadline:
+                continue
+            screen = self.deltas(slot, [rare_text(slot, base, level, chosen + [a]) for a in fresh])
+            top = [a for s, a in sorted(((s, a) for (s, _), a in zip(screen, fresh)), key=lambda x: -x[0])
+                   if s > current + EPSILON][:self.DESECRATED_KEEP]
+            for a in top:
+                for c in self.desecrated_pools(route).choices(a, chosen):
+                    if sum(1 for x in chosen if x.type == c.type) < limits[c.type]:
+                        variants = [list(chosen)]
+                    else:
+                        variants = [[x for x in chosen if x is not out] for out in chosen if out.type == c.type]
+                    for kept in variants:
+                        market = rare_price(slot, kept)
+                        price, steps = desecrated.craft_price(base["type"], market, c, *counts(c, kept, route), prices,
+                                                              route)
+                        if price is not None and price <= left + 1e-9:
+                            trials.append((kept + [c], c, price, steps))
         if not trials or clock.now() > deadline:
             return None
         scored = self.deltas(slot, [rare_text(slot, base, level, t[0]) for t in trials])
