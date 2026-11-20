@@ -1619,12 +1619,13 @@ def test_event_trigger_supports_fire_on_their_event_not_every_use():
 
 
 def test_voltaic_beams_need_projectiles_through_a_standing_wall():
-    """GEM27: beams a second = the main skill's hits x the wall's uptime, only for a Projectile main skill; else 0."""
+    """GEM27, RESEARCH36 R36-14: the beams go to other enemies within 2 m, none to the struck boss: 0 on the boss; the
+    beam-on-the-boss reading (hits x the wall's uptime x a beam) a row; a main skill without projectiles: 0."""
     dps, notes = models.voltaic_beams_model(2.0, True, 0.5, 40.0, "Lightning Arrow", "test", pob=60.7)
-    assert dps == pytest.approx(40.0) and "taken out" in notes[0]["basis"]
+    assert dps == 0.0 and "taken out" in notes[0]["basis"] and "40.0" in notes[0]["play"]
     dps, notes = models.voltaic_beams_model(1.4, False, 1.0, 40.0, "Boneshatter", "test", pob=60.7)
     assert dps == 0.0 and "fires none" in notes[0]["basis"]
-    assert models.voltaic_beams_model(2.0, True, 3.0, 40.0, "Lightning Arrow", "t")[0] == pytest.approx(80.0)
+    assert "80.0" in models.voltaic_beams_model(2.0, True, 3.0, 40.0, "Lightning Arrow", "t")[1][0]["play"]
 
 
 def test_empowered_sparks_three_per_power_charge_held_to_the_attacks():

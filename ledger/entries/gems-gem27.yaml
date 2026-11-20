@@ -83,20 +83,21 @@
   status: proposed
 
 - id: model-gem27-voltaic-barrier-beams
-  title: "Voltaic Barrier: chaining beams only from the main skill's projectiles fired through the wall (PoB: the barrier's attack speed, an OVERCOUNT)"
+  title: "Voltaic Barrier: its beams go to other enemies near the struck one, none to the boss (PoB: the barrier's attack speed, an OVERCOUNT)"
   kind: model
   model: voltaic_beams
   stats: ["triggered_on_voltaic_barrier_boosted_projectile_collision"]
   skill: [Voltaic Barrier]
-  confidence: LOW
+  confidence: MEDIUM-LOW
   notes: >-
     models.voltaic_beams_model + assumptions.voltaic_beams (GEM27). Sweep probe POE2T3595: a Voltaic Barrier group in
     Full DPS beside Boneshatter 26.38 -> 81.06 (the unnamed beam 60.74 at 1.4 a second, Boneshatter firing no
     projectiles). The game (ActiveSkills voltaic_barrier): "Projectiles you fire through the wall become energised, and
     discharge that energy on Hit as Chaining Lightning beams"; the wall lasts 6 s, one at a time. Beams a second = the
     main skill's hits when it is a Projectile skill (else 0) x the wall's uptime (the barrier's uses x the press scale x
-    its duration), each at PoB's beam; whether the beam hits the struck boss itself on a lone boss: UNVERIFIED (taken
-    as PoB scores it). PoB's entry out of Full DPS by this group's share of the unnamed entries.
+    its duration), each at PoB's beam; RESEARCH36 R36-14 (MEDIUM-LOW): the beams go to up to 3 ADDITIONAL enemies within
+    2 m of the target, none to it: 0 on the boss (the headline), the beam-on-the-boss reading a row. PoB's entry out of
+    Full DPS by this group's share of the unnamed entries.
   sources: ["builder/search/models.py (voltaic_beams_model)", "builder/search/assumptions.py (voltaic_beams)",
             "vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (VoltaicBarrierPlayer, VoltaicBarrierTriggeredChainLightningPlayer)",
             "scratch/gem26/probe_sweep.json"]
@@ -116,8 +117,8 @@
     supported skill generates Empowers the next 3 Attacks (this stat) to Trigger Sparks. Sparks a second = min(3 x the
     supported skill's Power Charges a second, the build's attacks a second): Power Siphon / Killing Palm at the preset's
     add kills, Devour / Profane Ritual at their corpses, Siphoning Strike at its hits x the boss's Shock uptime, Wing
-    Blast at min(uses, Heavy Stuns) x 15%, Lingering Illusion at the user's 5 s copies x 1.76 Remnants (UNVERIFIED,
-    R36-16); others 0, said. Each at PoB's Spark; PoB's own entry out of Full DPS (the shared cut tally).
+    Blast at min(uses, Heavy Stuns) x 15%, Lingering Illusion at the user's 5 s copies x 1.76 Remnants (R36-16,
+    MEDIUM: the Remnant's charge counts); others 0, said. Each at PoB's Spark; PoB's own entry out of Full DPS (the shared cut tally).
   sources: ["builder/search/models.py (empowered_sparks_model)", "builder/search/assumptions.py (empowered_sparks)",
             "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_int.lua (SupportEmpoweredSparksPlayer, TriggeredSparkEmpowerPlayer)",
             "data/game-26650308/tables/ActiveSkills.json (the Power Charge skills' texts)", "scratch/gem26/probe_sweep.json"]
