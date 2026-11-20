@@ -275,8 +275,9 @@ def test_generic_on_hit_charge_lines_count_the_other_groups_hits():
 
 def test_infusions_expire_after_their_duration():
     """(MECHC46, a small OVERCOUNT before) Each Infusion lasts 20 s (KeywordPopups ElementalInfusion), x "N% increased
-    Elemental Infusion duration"; "Infusions do not expire" stops it. Frequent uses: no change (an Infusion waits at most
-    cap / uses s, oldest first); rare uses lose the expired ones."""
+    Elemental Infusion duration"; "Infusions do not expire" stops it. One shared timer per element, refreshed by each
+    pickup (RESEARCH36 R36-8). Frequent uses: no change (the stock drains within cap / uses s of the last pickup); rare
+    uses lose the expired ones."""
     import math
 
     from builder.search.assumptions import infusion_found, infusion_seconds
@@ -335,3 +336,15 @@ def test_refracted_infusion_gains_another_different_infusion():
     m = OTHER_INFUSION.search("25% chance when collecting an Elemental Infusion to gain another different Elemental "
                               "Infusion")
     assert m and float(m.group(1)) == 25.0
+
+
+def test_boss_preset_adds_carry_their_life():
+    """(MECHC46; RESEARCH36 R36-6) bosses.Kills' Life: Atziri's Royal Acolyte 32,956; the King's headline the Affliction
+    Totem 1,318 with the Mystic Fetish 16,478 as a row; no adds: 0; kill_stats carries it as AddLife."""
+    from builder.search import bosses
+
+    assert bosses.add_life("Atziri, the Red Queen")[0] == 32956.0
+    life, how, rows = bosses.add_life("The King in the Mists")
+    assert life == 1318.0 and rows and rows[0][1] == 16478.0
+    assert bosses.add_life("Zarokh, the Temporal")[0] == 0.0
+    assert bosses.kill_stats("The King in the Mists")[bosses.ADD_LIFE_STAT] == 1318.0

@@ -35,11 +35,16 @@ from typing import NamedTuple
 
 class Kills(NamedTuple):
     """Killable adds in a boss fight (MECHD1; AUDIT16 A16-2, the manager's ruling): one add every `every` s while the
-    fight is in the part that summons them, `share` of the fight (by Life, at equal DPS)."""
+    fight is in the part that summons them, `share` of the fight (by Life, at equal DPS). (MECHC46; RESEARCH36 R36-6,
+    boss-preset-add-life.md) `life`: one add's Life at the pinnacle level 82 (PoB's monsterLifeTable 32,956 x its
+    MonsterVarieties LifeMultiplier x Normal rarity: the adds carry only MonsterNoDropsOrExperience; HIGH for the
+    multipliers, MEDIUM for Normal / level 82), 0 = not known; `life_rows`: other readings, (label, Life)."""
     every: float
     share: float
     what: str
     confidence: str
+    life: float = 0.0
+    life_rows: tuple = ()
 
 
 class Boss(NamedTuple):
@@ -102,7 +107,11 @@ PRESETS: dict[str, Boss] = {b.name: b for b in (
          poise=468, es_from_life=10,
          kills=(Kills(25.0, 0.43, "the King's Affliction Totems / Mystic Fetishes, first form only (the second form's "
                                   "effigies can't be killed, RESEARCH25 #147)",
-                      "MEDIUM: summon cooldown, RESEARCH14 #66"),),
+                      "MEDIUM: summon cooldown, RESEARCH14 #66",
+                      # (R36-6: which of the two the 25 s summon makes isn't settled: the Affliction Totem, LifeMultiplier
+                      # 4%, the lower reading, headlines; the Mystic Fetish, 50%, a row. PoB's normal-monster stand-in
+                      # reads x25 / x2 too much for them)
+                      1318.0, (("Mystic Fetish (VoodooKingBoss2RitualPillar, LifeMultiplier 50%)", 16478.0),)),),
          inflicts=("Withered", "Ignite", "Slow")),
     Boss("Zarokh, the Temporal", 15, 15, 15, 0, 7167930, "Construct",
          "Sekhemas; can't be Frozen or Electrocuted (its own monster mod, AUDIT9 A9-7); EnergyShieldFromLife 7 (its meaning UNVERIFIED, A22-5); its "
@@ -127,7 +136,8 @@ PRESETS: dict[str, Boss] = {b.name: b for b in (
     Boss("Atziri, the Red Queen", 15, 15, 15, 0, 7091472, "Demon", "Vaal; phase 1; EnergyShieldFromLife 33 (its meaning UNVERIFIED, A22-5)", poise=926,
          es_from_life=33,
          kills=(Kills(45.0, 1.0, "Atziri's Royal Acolytes, killed before they reach you and explode (1 per wave: the "
-                                 "wave size is UNVERIFIED, so its lower bound)", "LOW: RESEARCH16 #81"),),
+                                 "wave size is UNVERIFIED, so its lower bound)", "LOW: RESEARCH16 #81",
+                      32956.0),),  # (R36-6: VaalZealotSacrifice, LifeMultiplier 100%: PoB's normal-monster Life exact)
          inflicts=("Ignite", "Shock", "Corrupted Blood")),
     Boss("Atziri, the Fell Serpent", 15, 15, 15, 0, 9461668, "Demon", "Vaal phase 2; EnergyShieldFromLife 33 (its meaning UNVERIFIED, A22-5)", poise=1235,
          es_from_life=33, inflicts=("Ignite", "Shock", "Corrupted Blood")),
@@ -508,6 +518,23 @@ def kills_per_second(name: str = DEFAULT) -> tuple[float, str]:
 
 
 KILLS_STAT, CULLS_STAT = "AddKillsPerSecond", "AddCullsPerSecond"
+ADD_LIFE_STAT = "AddLife"  # (MECHC46: add_life's headline, in kill_stats)
+
+
+def add_life(name: str = DEFAULT) -> tuple[float, str, list[tuple[str, float]]]:
+    """(MECHC46; R36-6) (one killed add's Life, the kill-rate-weighted mean over the preset's Kills rows; how; other
+    readings [(label, Life)]) for "% of the slain enemy's Life" sources (GEM's Voltaic Fulmination). (0, why, []) with no
+    killable adds or no known Life."""
+    b = PRESETS[name]
+    rows = [k for k in b.kills if k.life > 0]
+    if not rows:
+        return 0.0, f"no killable adds with a known Life against {name}", []
+    weight = sum(k.share / k.every for k in rows)
+    life = sum(k.life * k.share / k.every for k in rows) / weight if weight > 0 else 0.0
+    how = "; ".join(f"{k.what.split(' (')[0]}: {k.life:,.0f} Life" for k in rows) + \
+        " (level 82, Normal; RESEARCH36 R36-6)"
+    others = [(label, life_) for k in rows for label, life_ in k.life_rows]
+    return life, how, others
 
 
 def kill_stats(name: str = DEFAULT) -> dict:
@@ -516,7 +543,7 @@ def kill_stats(name: str = DEFAULT) -> dict:
     isn't Culled in game: not modelled, a possible overcount for Cull-triggered lines (LOW: the King's Affliction Totems
     have x0.04 Life)."""
     rate, _ = kills_per_second(name)
-    return {"_boss": name, KILLS_STAT: rate, CULLS_STAT: rate}
+    return {"_boss": name, KILLS_STAT: rate, CULLS_STAT: rate, ADD_LIFE_STAT: add_life(name)[0]}
 
 
 # Culling Strike against the boss (MECHD4, A22-5). KeywordPopups CullingStrike: "Culling Strikes kill ... Unique at 5%.

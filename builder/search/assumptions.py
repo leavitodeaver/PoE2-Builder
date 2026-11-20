@@ -471,11 +471,15 @@ def infusion_cap(lines: list[str], element: str, verisium: bool = False) -> int:
 # game 26650308; PoB parses the line to a bare Duration INC that no Infusion reader uses) or a line naming the element
 # (fire / cold / lightning / verisium_infusion_duration_+%: no Mods or PassiveSkills carrier found; read if one appears).
 # "<type> Infusions do not expire" (the *_infusion_do_not_expire stats: no Mods or PassiveSkills carrier found; read if a
-# line says it): no expiry. Before: none ever expired. Model (infusion_found): each held Infusion expires on its own timer;
-# a use takes the OLDEST held (ASSUMED, UNVERIFIED: the game text doesn't say which; oldest-first is the reading where
-# the fewest expire, the smaller correction). Without a keep chance a held Infusion then waits at most cap / uses seconds,
-# so where that is within the duration nothing expires and the exact chain stands; otherwise a seeded simulation
-# (_infusion_simulated: Poisson pickups, pickups at the cap lost, expiries, evenly spaced uses; 20,000 uses), MEDIUM-LOW.
+# line says it): no expiry. Before: none ever expired. Model (infusion_found; RESEARCH36 R36-8, MEDIUM): each element's
+# Infusions are ONE counter with ONE shared timer, stored like Power / Frenzy / Endurance Charges: a pickup refreshes it
+# (also one at the cap, as a charge gained at its maximum refreshes them: MEDIUM), a use doesn't, and when it runs out
+# every held Infusion of that element goes. (MECHC46's first reading, a timer per Infusion with the oldest used first,
+# slightly UNDERCOUNTED the held ones.) Without a keep chance every held Infusion is used within cap / uses seconds of
+# its pickup, which is after the last pickup, so where that is within the duration nothing expires and the exact chain
+# stands; and where a pickup comes within the duration nearly always (no pickup for that long below 1 in a million)
+# likewise; otherwise a seeded simulation (_infusion_simulated: Poisson pickups, pickups at the cap lost but refreshing,
+# the shared expiry, evenly spaced uses; 20,000 uses), MEDIUM-LOW.
 INFUSION_SECONDS = 20.0
 INFUSION_DURATION = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) (Elemental|Fire|Cold|Lightning|Verisium) Infusion "
                                r"duration\b", re.I)
@@ -503,33 +507,29 @@ def _infusion_simulated(supply: float, uses: float, keep: float, cap: int, secon
     if key in _EXPIRY_CACHE:
         return _EXPIRY_CACHE[key]
     import random
-    from collections import deque
 
     arrivals, keeps = random.Random(20261120), random.Random(46)
     gap = 1.0 / uses
-    held: deque = deque()
+    held, last = 0, 0.0  # (Infusions held; the last pickup, which set the shared timer)
     t = arrivals.expovariate(supply)  # (the next pickup's time)
     found = counted = 0
     warm = min(500, n // 10)
     for k in range(1, n + warm + 1):
         now = k * gap
-        while True:  # (the pickups up to this use: expired Infusions leave first; a pickup at the cap is lost)
-            while held and held[0] + seconds < min(t, now):
-                held.popleft()
-            if t > now:
-                break
-            if len(held) < cap:
-                held.append(t)
-                t += arrivals.expovariate(supply)
-            else:  # (full: nothing counts until the oldest expires or the next use takes one; pickups are memoryless,
-                # so restart from there)
-                t = max(t, min(held[0] + seconds, now)) + arrivals.expovariate(supply)
+        while t <= now:  # (the pickups up to this use: the shared timer runs out first, then the pickup refreshes it)
+            if held and t - last > seconds:
+                held = 0
+            held = min(cap, held + 1)  # (one at the cap is lost, but refreshes the timer)
+            last = t
+            t += arrivals.expovariate(supply)
+        if held and now - last > seconds:
+            held = 0
         kept = keeps.random() < keep
         if k > warm:
             counted += 1
             found += bool(held)
         if held and not kept:
-            held.popleft()
+            held -= 1
     share = found / counted if counted else 0.0
     if len(_EXPIRY_CACHE) > 4096:
         _EXPIRY_CACHE.clear()
@@ -551,7 +551,7 @@ def infusion_found(supply: float, uses: float, keep: float = 0.0, cap: int = INF
     # one, the wait behind kept ones grows (taken as 3 x the mean cap / (uses x (1 - keep)), a tail margin)
     wait = cap / uses if keep <= 0 else (3 * cap / (uses * (1 - keep)) if keep < 1 else math.inf)
     expiry = 1.0
-    if math.isfinite(seconds) and wait > seconds:
+    if math.isfinite(seconds) and wait > seconds and math.exp(-supply * seconds) > 1e-6:  # (R36-8: the shared timer)
         free = _infusion_simulated(supply, uses, keep, cap, math.inf)
         expiry = _infusion_simulated(supply, uses, keep, cap, seconds) / free if free > 0 else 1.0
     mean = supply / uses
@@ -5193,11 +5193,14 @@ class Assumptions:
                               "hits apply none here). Wait out the source's cooldown before "
                               "each pickup (Remnants last 8 s): picked up at once, the explosion's hit lands inside the "
                               "cooldown and the chain dies without another source"),
-                    "play": ("Pick each Remnant up only after the Remnant skill's cooldown ends (watch its icon); "
-                             "picking it up at once stops the chain"),
-                    "confidence": "MEDIUM-LOW (the waiting play; other groups' hits at their pressed rates; "
-                                  "whether an explosion where the Remnant lay reaches the boss is UNVERIFIED: taken "
-                                  "as hitting it)"})
+                    "play": ("Pick each Remnant up only after the Remnant skill's cooldown ends (watch its icon): the "
+                             "cooldown limits how often Remnants SPAWN (RESEARCH36 R36-3), so a later pickup makes no extra "
+                             "Remnants, but it lets the explosion's own hit spawn the next one and keeps the chain at one "
+                             "a cooldown; picked up at once, that hit lands inside the cooldown and the chain stops"),
+                    "confidence": "MEDIUM-LOW (the waiting play; other groups' hits at their pressed rates; the "
+                                  "explosion taken to reach the boss: on-hit Remnants spawn at the boss's centre and "
+                                  "it covers 1.8 m around the Remnant, R36-7 MEDIUM-LOW; the risk is picking the "
+                                  "Remnant up from under a big boss, 0.3.1's ~50% larger pickup radius)"})
             mods += [
                 {"kind": "SkillData", "skill": "Transmutation Explosion", "key": "triggerRate", "value": rate},
                 {"kind": "SkillData", "skill": "Transmutation Explosion", "key": "triggered", "value": True},
@@ -6991,7 +6994,7 @@ class Assumptions:
                  + (f", {keep:.0%} of casts keeping theirs" if keep else "")
                  + (f"; shared with {other_how}, so {mine:.2f}/s reach the main skill" if others > 0 else "")
                  + f"; at most {cap} held (Infusions picked up at the cap are lost; random pickups, MEDIUM-LOW), each "
-                   f"lasting {seconds:g} s (the oldest used first, ASSUMED): "
+                   f"sharing one {seconds:g} s timer that each pickup refreshes (RESEARCH36, MEDIUM): "
                    f"{share:.0%} of casts find one (smoothly spread pickups: {smooth:.0%})")
         return share, basis
 

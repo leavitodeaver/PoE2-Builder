@@ -684,8 +684,9 @@ def consume_gain(build, skill: str, share: float, what: str) -> dict[str, tuple[
 GENERIC_HIT = re.compile(r"^\s*on (critical )?hit\s*$", re.I)
 # (MECHC46, an OVERCOUNT before: every hit counted) "Gain a Frenzy Charge on Hit while Bleeding" (stat
 # gain_frenzy_charge_on_hit_while_bleeding, Mods FrenzyChargeOnHitWhileBleedingUnique__1; checked: the Stats ids holding
-# charge and bleed, by stat id over Mods and PassiveSkills, game 26650308; no unique in PoB's Uniques data carries the mod,
-# so it may be unobtainable: UNVERIFIED) is the main skill's hits x the share of the fight YOU are Bleeding
+# charge and bleed, by stat id over Mods and PassiveSkills, game 26650308) is on no PoE2 unique: a PoE1 leftover
+# (RESEARCH36, 20 Nov: checked game tables, PoB, poe2db and the patch notes; COV-A marks the row unreachable). Kept read
+# in case a line carries it: the main skill's hits x the share of the fight YOU are Bleeding
 # (boss_hits.bleeding_on_you: the boss's Bleeds and your own items' chance, as the other "while Bleeding" lines read it;
 # Assumptions keeps it as build.you_bleeding, a round behind). Not yet known: 0, said.
 # (MECHC46; MECHC3's "overcounts left" list) Nebuloch's "Attacks consume an Endurance Charge to Critically Hit" (Mods
