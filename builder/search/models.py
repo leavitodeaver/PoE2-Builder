@@ -8429,9 +8429,32 @@ PLANTS_A_USE = {"Vine Arrow": (1.0, "one plant a landed arrow"),
                 "Entangle": (1.0, "one fissure a use"),
                 "Thrashing Vines": (2.0, "two vines a cast time channelled (one per 50% of it; LOW)")}
 # The upper reading, a row not counted (GEM25, the manager's GEM25 brief: the lower reading the headline, overcounts first):
-# all 5 of Toxic Growth's Pustules a use exploding on the boss (LOW: how many reach a boss's body is RESEARCH's question).
+# all of Toxic Growth's Pustules a use exploding on the boss (LOW).
 PLANTS_A_USE_UPPER = {"Toxic Growth": (5.0, "all 5 Pustules a use, each explosion reaching the boss "
                                               "(LOW)")}
+# Toxic Growth's Pustules reaching the boss (GEM25; RESEARCH35 R35-4, research/toxic-growth-pustules-on-boss.md, LOW-MEDIUM):
+# a use fires n Pustules (base_number_of_projectiles 5, TOXIC_PUSTULES) landing over a 4.5 m spread (the skill's
+# hidden active_skill_base_secondary_area_of_effect_radius 45, a rain area that area modifiers scale: R = 4.5 m x
+# sqrt(PoB's AreaOfEffectMod); MEDIUM-LOW, landing taken as uniform in the circle); each Overgrown one explodes in
+# Accelerated Growth's 1.8 m at its own spot (its own radius, the supported skill's area mods not applied: UNVERIFIED).
+# The explosions reaching a boss of hit radius r (bosses.hit_radius): min(n, max(1, n x ((r + 1.8) / R)^2)), about 1.1
+# on a 0.3 m boss to 1.9 on the Fell Serpent's 1.0 m at the base spread; never below the one a use counted before (the
+# player aims a use at the boss). Rows: one a use and all n. Not modelled (UNVERIFIED): forum thread 3935112 (May 2026)
+# reports Pustules not exploding in boss arenas, with no staff reply and no patch note naming it (checked: grep_notes
+# --history "Toxic Growth" and "Pustule": newest 0.5.0, no fix or bug entry).
+TOXIC_SPREAD, AG_BLAST_RADIUS = 4.5, 1.8
+# base_number_of_projectiles 5 (ToxicGrowthPlayer's Pustules set; patch 0.5.0 "Now fires 5 Pustules"). PoB's ProjectileCount
+# for it is 1 (its number_of_projectiles_override 1, act_dex.lua: one impact counted), so it can't give the count.
+TOXIC_PUSTULES = 5.0
+
+
+def pustules_reaching(n: float, boss_radius: float, area_mod: float) -> tuple[float, str]:
+    """(Accelerated Growth explosions of a Toxic Growth use that reach the boss, how): see above."""
+    n = max(number(n), 1.0)
+    spread = TOXIC_SPREAD * math.sqrt(max(number(area_mod), 0.0)) or TOXIC_SPREAD
+    count = min(n, max(1.0, n * ((boss_radius + AG_BLAST_RADIUS) / spread) ** 2))
+    return count, (f"{count:.2f} of its {n:g} Pustules a use (a {spread:.2f} m landing spread, the boss's {boss_radius:g} m "
+                   f"radius + the 1.8 m explosion: RESEARCH35 R35-4, LOW-MEDIUM)")
 
 
 def accelerated_growth_model(parts: list[dict], share: float, share_parts: list[str],
@@ -8445,6 +8468,8 @@ def accelerated_growth_model(parts: list[dict], share: float, share_parts: list[
     total, rows, unread, upper, upper_rows = 0.0, [], [], 0.0, []
     for part in parts:
         per, what = PLANTS_A_USE.get(part.get("source"), (0.0, ""))
+        if part.get("per") is not None:  # (GEM25: the build's own count, Toxic Growth's pustules_reaching)
+            per, what = number(part["per"]), part.get("per_how") or what
         if per <= 0:
             unread.append(str(part.get("source")))
             continue
@@ -8453,6 +8478,8 @@ def accelerated_growth_model(parts: list[dict], share: float, share_parts: list[
         rate = plants * share
         total += rate * blast
         up_per, up_what = PLANTS_A_USE_UPPER.get(part.get("source"), (per, what))
+        if part.get("most") is not None and up_per > per:
+            up_per, up_what = number(part["most"]), f"all {number(part['most']):g} Pustules a use reaching the boss (LOW)"
         upper += uses * up_per * share * blast
         if up_per > per:
             upper_rows.append(f"{part.get('source')}: {up_what}")
@@ -8467,8 +8494,8 @@ def accelerated_growth_model(parts: list[dict], share: float, share_parts: list[
         "label": "Accelerated Growth with every plant of a use reaching the boss (not counted)",
         "value": f"{upper:,.1f} DPS", "confidence": "LOW", "entry": ACCELERATED_GROWTH_ENTRY,
         "basis": ("the upper reading, " + "; ".join(upper_rows) + f": {upper:,.1f} DPS instead of {total:,.1f}. How "
-                  "many of the spread reach a boss's body is UNVERIFIED (a research question); the headline counts "
-                  "one a use")}] if upper > total + 1e-9 else []
+                  "many of the spread reach a boss's body is UNVERIFIED; the headline counts those whose explosion "
+                  "reaches the boss (RESEARCH35 R35-4)")}] if upper > total + 1e-9 else []
     return total, [{
         "label": "Accelerated Growth: explosions from Overgrown plants*", "value": f"{total:,.1f} DPS",
         "confidence": share_conf if total > 0 else "LOW", "entry": ACCELERATED_GROWTH_ENTRY,

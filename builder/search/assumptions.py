@@ -1658,7 +1658,8 @@ def support_dots(build: Build, found: list[models.Skill], curses: list[models.Cu
     return mods, notes
 
 
-def accelerated_growth(build: Build, found: list[models.Skill], texts: list[str]) -> tuple[float, list[dict]]:
+def accelerated_growth(build: Build, found: list[models.Skill], texts: list[str],
+                       stats: dict | None = None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Accelerated Growth (GEM24's models.accelerated_growth_model): in each enabled group
     holding the triggered explosion, the supported Plant skill's uses a second (PoB's rate x its press share, less the
     main group's busy time; plants land hit or miss), the explosion's hit (its useRates row), and the build's Overgrown
@@ -1684,8 +1685,18 @@ def accelerated_growth(build: Build, found: list[models.Skill], texts: list[str]
         busy = build.objective.busy() if group["index"] == main_index else 0.0
         uses = models.number(own.get("speed")) * models.number(press.get(own.get("name"), 1.0)) * (1.0 - busy)
         chance = min(models.number(blast_row.get("HitChance", 100) or 100), 100.0) / 100
-        parts.append({"source": own.get("name") or skills[src - 1]["name"], "uses": uses,
-                      "blast": models.number(blast_row.get("AverageHit")) * chance})
+        part = {"source": own.get("name") or skills[src - 1]["name"], "uses": uses,
+                "blast": models.number(blast_row.get("AverageHit")) * chance}
+        if part["source"] == "Toxic Growth":  # (GEM25, R35-4: the Pustules reaching the boss from the build's spread)
+            from builder.search import bosses
+            main = group["index"] == main_index and stats is not None
+            area = models.number((stats or {}).get("AreaOfEffectMod")) if main else 0.0
+            n = models.TOXIC_PUSTULES  # (PoB's ProjectileCount is its number_of_projectiles_override 1: not the Pustules)
+            per, how = models.pustules_reaching(n, bosses.hit_radius(stats)[0], area or 1.0)
+            part.update(per=per, most=n, per_how=how + ("; the game's base 5 (Quality's +0-1 and extra-Pustule supports "
+                                                        "not read: an undercount)" if main else "; a side group: its base 5 "
+                                                        "and no area modifiers read"))
+        parts.append(part)
     if not parts:
         return 0.0, []
     storms = sorted({s.group for s in found if s.name in models.OVERGROW_SKILLS and s.group is not None})
@@ -3282,7 +3293,7 @@ class Assumptions:
         hand_notes += flames_notes
         for note in flames_notes:
             build.objective.entry_scales.update(note.get("full_dps") or {})
-        growth, growth_notes = accelerated_growth(build, found, [e["text"] for e in source_lines])  # (GEM24: Overgrown plants)
+        growth, growth_notes = accelerated_growth(build, found, [e["text"] for e in source_lines], stats)  # (GEM24: Overgrown plants)
         hand_mods += [models.added_input("AcceleratedGrowth", growth)] if growth > 0 else []
         hand_notes += growth_notes
         dot_mods, dot_notes = support_dots(build, found, curses, stats, stat_notes, [e["text"] for e in source_lines],

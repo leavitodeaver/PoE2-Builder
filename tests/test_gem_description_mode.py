@@ -1432,6 +1432,14 @@ def test_accelerated_growth_explodes_each_overgrown_plant_of_the_supported_skill
     assert notes[1]["value"] == f"{1.0 * 5 * 0.5 * 10.0:,.1f} DPS"  # (GEM25: all 5 Pustules, the upper reading's row)
     assert len(models.accelerated_growth_model([{"source": "Vine Arrow", "uses": 0.6, "blast": 40.0}], 0.2,
                                                ["x"])[1]) == 1  # (no upper reading for one plant a use)
+    # (GEM25, R35-4) the Pustules reaching the boss: min(n, max(1, n x ((r + 1.8) / (4.5 x sqrt(area)))^2))
+    assert models.pustules_reaching(5, 0.3, 1.0)[0] == pytest.approx(5 * (2.1 / 4.5) ** 2)  # (1.09)
+    assert models.pustules_reaching(5, 1.0, 1.0)[0] == pytest.approx(5 * (2.8 / 4.5) ** 2)  # (1.94, the Fell Serpent)
+    assert models.pustules_reaching(5, 0.3, 4.0)[0] == 1.0  # (a wide spread: never below one a use)
+    assert models.pustules_reaching(5, 3.0, 1.0)[0] == 5.0  # (a huge boss: all of them)
+    dps, notes = models.accelerated_growth_model([{"source": "Toxic Growth", "uses": 1.0, "blast": 10.0, "per": 1.5,
+                                                   "per_how": "x", "most": 6.0}], 0.5, ["x"])
+    assert dps == pytest.approx(1.5 * 0.5 * 10.0) and notes[1]["value"] == f"{6 * 0.5 * 10.0:,.1f} DPS"
     dps, notes = models.accelerated_growth_model([{"source": "Vine Arrow", "uses": 0.6, "blast": 40.0}], 0.0, [])
     assert dps == 0.0 and "0" in notes[0]["value"]  # (nothing Overgrows the plants: 0, said)
     dps, notes = models.accelerated_growth_model([{"source": "Briarpatch", "uses": 1.0, "blast": 40.0}], 1.0, ["x"])

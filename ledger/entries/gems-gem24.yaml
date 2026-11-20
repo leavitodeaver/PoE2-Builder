@@ -13,7 +13,7 @@
     row speed 0, AverageHit 38.2). Game: "Triggers Accelerated Growth on Overgrowing Plants created by Supported Skills"
     (SupportExplosiveGrowthPlayer / Two), the explosion's triggered_by_support_explosive_growth_% 100, no cooldown, 1.2 s
     delay, 1.8 m radius. Explosions a second = the supported skill's plants a second (Vine Arrow 1 a use, Toxic Growth 1
-    Pustule at the boss of its 5 (the rest UNVERIFIED, not counted; GEM25: all 5 a use a not-counted row, LOW), Entangle 1 fissure, Thrashing Vines 2 vines a cast time; Briarpatch / Toxic Domain not read: 0) x GEM16's
+    Pustules: GEM25 counts those reaching the boss, min(n, max(1, n x ((boss radius + 1.8 m) / (4.5 m x sqrt(area)))^2)), RESEARCH35 R35-4, LOW-MEDIUM; all n a not-counted row, LOW), Entangle 1 fissure, Thrashing Vines 2 vines a cast time; Briarpatch / Toxic Domain not read: 0) x GEM16's
     overgrown_share (Thunderstorm's cover, Boundless Growth's 20%, Idol of Yeena's 25% in Presence; Navira's Oasis and
     Nature's Archon not counted), each at PoB's explosion hit. No Overgrow source: 0 (CLAUDE.md). Overgrow sources
     (checked: game Stats ids with overgrow / plant_growth through Mods, stat sets, PassiveSkills, SoulCoreStats; poe2db
