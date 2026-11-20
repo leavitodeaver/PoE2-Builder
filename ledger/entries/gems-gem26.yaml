@@ -66,3 +66,23 @@
             "data/game-26650308/tables/ActiveSkills.json (repulsion, repulsion_shockwave)", "scratch/gem26/probe_side.json"]
   test_in_game: "Optional: curse a boss with Repulsion, hit it, recast after each wave: about one wave per cycle."
   status: proposed
+
+- id: model-gem26-magma-spray
+  title: "Magma Barrier: Magma Spray once the lava charges and a raised-shield Block lands (PoB: a flat 1 a second in Full DPS, an OVERCOUNT)"
+  kind: model
+  model: magma_spray
+  stats: ["igneous_shield_charge_up_time_ms"]
+  skill: [Magma Barrier, Magma Spray]
+  confidence: MEDIUM
+  notes: >-
+    models.magma_spray_model + assumptions.magma_spray (GEM26). Sweep probe POE2T3595 (scratch/gem26/probe_sweep.json):
+    a Magma Barrier group in Full DPS beside Boneshatter 26.38 -> 615.97 (Magma Spray 587.26 at 1 a second), beside
+    Spark 50.27 -> 520.49. The game: the lava charges for 8 s (this stat), then the next Block with the shield raised
+    Triggers Magma Spray. Sprays a second = MECHC36's conditions.magma_barrier_rate (the boss's hits x the share the
+    shield is raised; 0 when never raised), each at PoB's spray; PoB's entry out of Full DPS.
+  sources: ["builder/search/models.py (magma_spray_model)", "builder/search/assumptions.py (magma_spray)",
+            "builder/search/conditions.py (magma_barrier_rate, MECHC36)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua (MagmaBarrierPlayer, MagmaSprayPlayer)",
+            "scratch/gem26/probe_sweep.json"]
+  test_in_game: "Optional: with Magma Barrier, raise the shield into a boss hit after the lava fills: one spray per charge."
+  status: proposed

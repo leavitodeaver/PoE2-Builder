@@ -8911,6 +8911,36 @@ def shred_fragments_model(hits: float, frozen: float, fragment: float, pob: floa
     return dps, [note]
 
 
+# Magma Barrier's Magma Spray (GEM26; an OVERCOUNT: sweep probe POE2T3595, a Magma Barrier group in Full DPS beside
+# Boneshatter 26.38 -> 615.97 (Magma Spray 587.26) and beside Spark 50.27 -> 520.49, PoB rating the triggered Magma
+# Spray (MagmaSprayPlayer, castTime 1) at a flat 1 use a second; include_in_full_dps adds such a group whenever it raises
+# the score). The game (PoB act_str.lua MagmaBarrierPlayer, its description from the game): "imbues your Shield with lava
+# over time. When fully imbued, your next Block with your Shield raised will expend the lava to Trigger the Magma Spray
+# skill" (igneous_shield_charge_up_time_ms 8000). So Magma Sprays a second are MECHC36's conditions.magma_barrier_rate
+# (one per the 8 s charge-up + the wait for the next raised-shield Block: the boss's hits x the share the shield is
+# raised; 0 when the build never raises it), each at PoB's own Magma Spray use (TotalDPS / speed), counted whether or not
+# its group is in Full DPS (Magma Barrier is a persistent buff: the spray fires on its own), PoB's entry out of Full DPS.
+# MEDIUM (MECHC36's cycle).
+MAGMA_SPRAY = "Magma Spray"
+MAGMA_SPRAY_ENTRY = "model-gem26-magma-spray"
+
+
+def magma_spray_model(rate: float, blast: float, how: str, pob: float = 0.0) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Magma Barrier's Magma Spray (see above): `rate` sprays a second (magma_barrier_rate),
+    `blast` one spray's damage (PoB's), `pob` PoB's Full DPS entry (taken out)."""
+    rate, blast = max(number(rate), 0.0), max(number(blast), 0.0)
+    dps = rate * blast
+    return dps, [{
+        "label": "Magma Barrier: Magma Spray on a raised-shield Block after the lava charges*", "value": f"{dps:,.1f} DPS",
+        "confidence": "MEDIUM", "entry": MAGMA_SPRAY_ENTRY, "full_dps": {MAGMA_SPRAY: 0.0},
+        "basis": (f"PoB rates Magma Spray at a flat 1 use a second ({pob:,.1f} DPS in Full DPS), taken out. The game: "
+                  f"the shield's lava charges for 8 s, then the next Block with the shield raised Triggers it: {how}: "
+                  f"{rate:.3f} sprays a second at {blast:,.1f} each"),
+        "play": (f"Magma Spray fires when you Block with your shield raised after the lava has charged: raise the shield "
+                 f"(Raise Shield, or a shield-channel main skill) when the boss swings: with this build {dps:,.1f} DPS; "
+                 f"without raising it: 0.")}]
+
+
 # Repulsion's Repulsion Wave (GEM26; an UNDERCOUNT: probe POE2T3584, Boneshatter + Repulsion: PoB rates the wave Speed 0,
 # TotalDPS 0, AverageHit 93.2, in or out of Full DPS). The game (26650308): Repulsion (ActiveSkills repulsion): "Spend
 # Runic Ward to Curse enemies with a Verisium Rune ... Hitting these enemies removes the Curse to Trigger an explosion";

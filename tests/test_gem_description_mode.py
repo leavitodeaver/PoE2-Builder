@@ -1545,3 +1545,15 @@ def test_accelerated_growth_toxic_growth_has_a_not_counted_boss_arena_row():
     assert total == pytest.approx(1.0 * 1.5 * 0.5 * 40 + 0.5 * 0.5 * 40)
     row = next(n for n in notes if "boss arenas" in n["label"])
     assert row["value"] == f"{0.5 * 0.5 * 40:,.1f} DPS" and "not counted" in row["label"]
+
+
+def test_magma_spray_fires_once_per_charged_raised_block_and_takes_pobs_flat_entry_out():
+    """GEM26: sprays a second = MECHC36's magma_barrier_rate x one spray; PoB's flat Full DPS entry out; never raised, 0."""
+    from builder.search import conditions
+    rate, how = conditions.magma_barrier_rate({"_raised_share": 1.0}, 0.5)
+    assert rate == pytest.approx(1 / (8.0 + 2.0))
+    dps, notes = models.magma_spray_model(rate, 500.0, how, pob=587.0)
+    assert dps == pytest.approx(50.0) and notes[0]["full_dps"] == {models.MAGMA_SPRAY: 0.0}
+    rate, how = conditions.magma_barrier_rate({"_raised_share": 0.0}, 0.5)
+    dps, notes = models.magma_spray_model(rate, 500.0, how)
+    assert dps == 0.0 and notes[0]["full_dps"] == {models.MAGMA_SPRAY: 0.0} and "without raising it: 0" in notes[0]["play"]

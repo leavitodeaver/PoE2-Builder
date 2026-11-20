@@ -1808,6 +1808,35 @@ def repulsion_wave(build: Build, main: models.Skill | None, found: list[models.S
     return dps, mods, notes
 
 
+def magma_spray(build: Build, main: models.Skill | None, stats: dict) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Magma Barrier's Magma Spray (GEM26's models.magma_spray_model): in the first enabled group
+    holding it, its useRates row (TotalDPS / speed) and PoB's Full DPS entry, at MECHC36's conditions.magma_barrier_rate
+    (the boss's hits, bosses.benefit_skill_time; the shield raised all fight by a shield-channel main skill, else Raise
+    Shield's taps from the press model, else 0)."""
+    group = next((g for g in build.groups() if g["enabled"]
+                  and any(s["name"] == models.MAGMA_SPRAY for s in g.get("skills") or [])), None)
+    if group is None:
+        return 0.0, []
+    from builder.search import bosses, recovery
+    from builder.search import conditions as conditions_mod
+    n = next(i for i, s in enumerate(group["skills"], 1) if s["name"] == models.MAGMA_SPRAY)
+    row = next(iter(build.call("useRates", indices=[group["index"]], actives=[n])["rates"]), None) or {}
+    speed = models.number(row.get("speed"))
+    blast = models.number(row.get("TotalDPS")) / speed if speed > 0 else models.number(row.get("AverageHit"))
+    presses = getattr(build, models.ITEM_PRESSES, None) or {}
+    raised = (1.0 if main is not None and main.name in recovery.ACTIVE_BLOCK_CHANNELS else
+              min(1.0, models.number(presses[models.RAISE_SHIELD][0]) * recovery.RAISED_TAP_SECONDS)
+              if models.RAISE_SHIELD in presses else 0.0)
+    boss = 1 / bosses.benefit_skill_time(stats)
+    rate, how = conditions_mod.magma_barrier_rate({**stats, "_raised_share": raised}, boss)
+    pob = 0.0
+    if group.get("fullDPS"):
+        entries = build.call("stats", fields=["SkillDPS"]).get("SkillDPS") or []
+        pob = sum(models.number(e.get("dps")) * (e.get("count") or 1) for e in entries
+                  if e.get("name") == models.MAGMA_SPRAY)
+    return models.magma_spray_model(rate, blast, how, pob)
+
+
 def fan_the_flames(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Fan the Flames (GEM23's models.fan_the_flames_model): in each enabled group holding the
     triggered explosion, the supported skill's hits a second (_skill_hits), the explosion's row (cooldown, damage a use),
@@ -3555,6 +3584,11 @@ class Assumptions:
         fulmination, fulmination_notes = voltaic_fulmination(build, main, stats)  # (GEM26: Electrocuted add kills)
         hand_mods += [models.added_input("VoltaicFulmination", fulmination)] if fulmination > 0 else []
         hand_notes += fulmination_notes
+        spray, spray_notes = magma_spray(build, main, stats)  # (GEM26: PoB's flat 1/s out; MECHC36's raised-Block cycle)
+        hand_mods += [models.added_input("MagmaSpray", spray)] if spray > 0 else []
+        hand_notes += spray_notes
+        for note in spray_notes:
+            build.objective.entry_scales.update(note.get("full_dps") or {})
         shred, shred_notes = shred_fragments(build, main, self.cut_entries)  # (GEM26: on hits vs a Frozen boss; PoB's
         hand_mods += [models.added_input("ShredFragments", shred)] if shred > 0 else []  # entry out: its own, MECHB45)
         hand_notes += shred_notes
