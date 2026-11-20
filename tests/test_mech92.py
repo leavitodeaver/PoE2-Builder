@@ -268,3 +268,22 @@ def test_spectral_fire_reads_pobs_fire_effectiveness(engine):
     print("PROBE spectral", stats)
     assert 0 < models.number(stats.get("IgniteEffMult")) <= 1
     assert models.number(stats.get("FireHitAverage")) > 0 and "IgniteDPS" in stats
+
+
+def test_an_imported_critically_weak_box_is_dropped_before_scoring(engine):
+    """MECH92 probe (GEM25's routed question, the manager 04:20): an imported code with PoB's "Is the enemy Critically
+    Weak" box ticked would apply the box's placeholder 20 stacks (+10% crit) beside models.critical_weakness_mods; the
+    search's resetConfig (inner.Search.setup / seed: a fresh config set, quest choices only) drops the box first."""
+    from builder import ROOT
+    from builder.pob import codes
+
+    xml = codes.decode((ROOT / "benchmarks" / "reference" / "2b75b.txt").read_text(encoding="utf-8").strip())
+    engine.call("loadXml", xml=xml)
+    base = engine.call("stats", fields=["CritChance"])["CritChance"]
+    engine.call("setConfig", vars={"conditionEnemyCriticalWeakness": True}, fields=[])
+    ticked = engine.call("stats", fields=["CritChance"])["CritChance"]
+    engine.call("resetConfig")
+    assert not engine.call("getConfig")["input"].get("conditionEnemyCriticalWeakness")
+    after = engine.call("stats", fields=["CritChance"])["CritChance"]
+    print("PROBE critical weakness box", base, ticked, after)
+    assert after == pytest.approx(base)
