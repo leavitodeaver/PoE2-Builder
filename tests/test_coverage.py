@@ -1639,3 +1639,14 @@ def test_cov48_r36_8b_frenzy_on_hit_while_bleeding_is_unreachable():
     row too (the resolver reads the line as a Frenzy source), not only a "none" one."""
     why = coverage.NOT_OBTAINABLE["FrenzyChargeOnHitWhileBleedingUnique__1"]
     assert "R36-8b" in why and "PoE1 leftover" in why
+
+
+def test_cov48_grasping_mail_ring_pool_line_is_the_rare_generators():
+    """COV48: "Can roll Ring Modifiers" is model-read: the rare generator's own pool rule reads it."""
+    from builder.ledger import translate
+    from builder.search import rares
+
+    entry, out = translate("Can roll Ring Modifiers")
+    assert entry.id == "model-read-cov48-grasping-mail-ring-pool" and out == []
+    assert "Can roll Ring Modifiers" in rares.IMPLICIT_POOL_TAGS
+    assert translate("Catalysts can be applied to this item") is None

@@ -98,3 +98,22 @@
     Conditions._arc_infused / _infusion_consumed. PoB reads neither line (nothing to negate).
   sources: ["builder/search/assumptions.py (INFUSION_CAP_ALL, INFUSION_CAP_ONE, infusion_cap)"]
   status: proposed
+
+# Grasping Mail's implicit "Can roll Ring Modifiers": a crafting rule, no stat, read by the rare generator (COV36:
+# rares.IMPLICIT_POOL_TAGS / pool_tags add the mod's ring / genesis_tree_caster / genesis_tree_minion tags to the base's
+# pool; tests/test_grasping_mail.py). COV46's "the search rolls no ring mods on it" was stale. Its twin "Catalysts can be
+# applied to this item" stays open: the search applies no catalysts (SEARCH's topic).
+- id: model-read-cov48-grasping-mail-ring-pool
+  title: '"Can roll Ring Modifiers" (Grasping Mail): read by the rare generator (rares.IMPLICIT_POOL_TAGS, COV36)'
+  kind: pob_gap
+  model: rare_pool
+  match: '^Can roll Ring Modifiers$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    The line widens the item's affix pool (game Mods ItemCanAlsoRollRingMods, Tags ring / genesis_tree_caster /
+    genesis_tree_minion); no stat of its own. builder/search/rares.py pool_tags joins those tags to the base's when it
+    builds a Grasping Mail rare (offered in SSF only until a price exists: context.CRAFTED_BASES). On an imported item
+    its affixes count as they are.
+  sources: ["builder/search/rares.py (IMPLICIT_POOL_TAGS, pool_tags)", "tests/test_grasping_mail.py"]
+  status: proposed
