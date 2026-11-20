@@ -1060,7 +1060,10 @@ def mist_raven(build: Build, main: models.Skill | None) -> tuple[float, list[dic
             full = bool(getattr(getattr(build, "objective", None), "full", False))
             counted = raven_main or (full and group.get("fullDPS"))
             player = 0.0 if raven_main else per_second(build.call("stats", fields=HUNT_FIELDS))
-            return models.mist_raven_model(dive, player, number(dive.get("baseDPS")) if counted else 0.0)
+            drive = build.call("minionSkillHit", index=group["index"], active=n, skill=models.MIST_RAVEN_DRIVE_BY)
+            drive = drive if isinstance(drive, dict) else {}
+            return models.mist_raven_model(dive, player, number(dive.get("baseDPS")) if counted else 0.0,
+                                           number(drive.get("Speed")))
     return 0.0, [], []
 
 def living_lightning(build: Build) -> tuple[float, list[dict]]:

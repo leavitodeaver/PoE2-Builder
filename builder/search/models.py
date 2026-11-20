@@ -8711,55 +8711,73 @@ def eternal_hunt_model(hunt: dict, player_dps: float, wolf_dps: float) -> tuple[
 # fight), not counted.
 MIST_RAVEN = "Mist Raven"
 MIRROR_BREAKER = "MistRavenCommandDiveBomb"
+MIST_RAVEN_DRIVE_BY = "MistRavenDriveByAttack"
 MIRROR_BREAKER_COOLDOWN = 12.0  # s (GrantedEffectsPerLevel 21453 Cooldown 12000)
-MIRROR_BREAKER_DIVE = 1.0  # s (GrantedEffects 1260 CastTime 1000; it uses its animation length: MEDIUM-LOW)
+MIRROR_BREAKER_DIVE = 2.666  # s, its animation (RESEARCH35 R35-6, MEDIUM; GrantedEffects 1260 CastTime 1000 is unused)
+MIST_RAVEN_DRIVE = 1.5  # s, the drive-by's animation (R35-5, MEDIUM; the bridge's attackSpeedMultiplier)
+MIST_RAVEN_DRIVE_SLOW = 2.0  # s, a LOW row: AI pauses / flying back, which the game decides and no data gives (R35-5)
 
 
 def mist_raven_drive_note(drive_dps: float, counted: bool) -> dict:
-    """The Mist Raven's drive-by attack as PoB's minion path scores it (bridge: one attack every 1.0 s, the monster's
-    AttackSpeed; how often the raven attacks by itself is UNVERIFIED, RESEARCH35 R35-5), with a half-rate row (the
-    manager, 19 Nov 23:40: the largest single assumption in a build that uses The Auspex)."""
+    """The Mist Raven's drive-by attack as PoB's minion path scores it (the bridge: one attack per its 1.5 s animation,
+    RESEARCH35 R35-5, MEDIUM; one hit per target per pass), with the 2.0 s row (LOW) and the label the manager asked for
+    (19 Nov 23:40: the largest single assumption in a build that uses The Auspex)."""
+    slow = drive_dps * MIST_RAVEN_DRIVE / MIST_RAVEN_DRIVE_SLOW
     return {"label": "Mist Raven's drive-by attack (PoB's minion score)*", "value": round(drive_dps, 1),
-            "confidence": "MEDIUM-LOW",
-            "basis": (f"{drive_dps:,.1f} DPS: the raven's drive-by (x3 base, 70% Physical to Chaos) at one attack every "
-                      "1.0 s, the game's monster AttackSpeed; the skill uses its animation length and how often the raven "
-                      "attacks by itself is UNVERIFIED (RESEARCH35 R35-5). This rate is the largest single assumption in "
-                      f"a build that uses The Auspex. At half the rate: {drive_dps / 2:,.1f} DPS"
+            "confidence": "MEDIUM",
+            "basis": (f"{drive_dps:,.1f} DPS: the raven's drive-by (x3 base, 70% Physical to Chaos), one hit on the boss "
+                      f"a pass, one pass per its {MIST_RAVEN_DRIVE:g} s animation (RESEARCH35 R35-5: the skill uses its "
+                      "animation length, not the monster's 1.0 s; the hit's base damage stays the monster's), after the "
+                      "build's minion attack speed. This rate is the largest single assumption in a build that uses The "
+                      f"Auspex. At one pass every {MIST_RAVEN_DRIVE_SLOW:g} s (LOW: AI pauses and flying back, which the "
+                      f"game decides): {slow:,.1f} DPS"
                       + ("" if counted else "; the score doesn't count the raven's own DPS here (not the main skill, or "
                                             "not in Full DPS)")),
-            "play": (f"The Mist Raven attacks the boss by itself: +{drive_dps:,.1f} DPS at one attack a second (the "
-                     f"model's reading), +{drive_dps / 2:,.1f} DPS at half that rate; without the raven +0.")}
+            "play": (f"The Mist Raven attacks the boss by itself: +{drive_dps:,.1f} DPS at one pass every "
+                     f"{MIST_RAVEN_DRIVE:g} s, +{slow:,.1f} DPS at one every {MIST_RAVEN_DRIVE_SLOW:g} s; without the "
+                     "raven +0.")}
 
 
-def mist_raven_model(dive: dict, player_dps: float, raven_dps: float) -> tuple[float, list[dict], list[dict]]:
+def mist_raven_model(dive: dict, player_dps: float, raven_dps: float, drive_speed: float = 0.0
+                     ) -> tuple[float, list[dict], list[dict]]:
     """(added DPS, mods, notes) for the Mist Raven's Mirror Breaker. `dive`: the bridge's minionSkillHit for it;
     `player_dps`: the main skill's DPS a Command press costs time from (0 when the raven is the main skill);
-    `raven_dps`: the raven's own counted drive-by DPS (0 when the score doesn't count it). The drive-by's own note
-    (mist_raven_drive_note) comes first."""
+    `raven_dps`: the raven's own counted drive-by DPS (0 when the score doesn't count it); `drive_speed`: the drive-by's
+    passes a second (minionSkillHit's Speed: 1 / 1.5 s x the minion's attack speed), for the dive's time off it. The
+    drive-by's own note (mist_raven_drive_note) comes first."""
     drive = [mist_raven_drive_note(number(dive.get("baseDPS")), raven_dps > 0)] if number(dive.get("baseDPS")) > 0 else []
-    dps, mods, notes = _mirror_breaker(dive, player_dps, raven_dps)
+    dps, mods, notes = _mirror_breaker(dive, player_dps, raven_dps, drive_speed)
     return dps, mods, drive + notes
 
 
-def _mirror_breaker(dive: dict, player_dps: float, raven_dps: float) -> tuple[float, list[dict], list[dict]]:
+def _mirror_breaker(dive: dict, player_dps: float, raven_dps: float, drive_speed: float = 0.0
+                    ) -> tuple[float, list[dict], list[dict]]:
     hit = number(dive.get("AverageDamage")) or number(dive.get("AverageHit"))
     label = "Mirror Breaker (the Mist Raven's Command, added to the boss DPS)"
     if hit <= 0:
         return 0.0, [], [{"label": label, "value": 0, "confidence": "LOW",
                           "basis": "PoB gave no hit for the Mist Raven with Mirror Breaker chosen: not counted (0)"}]
     every = max(number(dive.get("Cooldown")) or MIRROR_BREAKER_COOLDOWN, COMMAND_CAST)
-    lost = player_dps * COMMAND_CAST / every + raven_dps * min(MIRROR_BREAKER_DIVE / every, 1.0)
+    # (R35-6) the dive's 2.666 s animation, divided by (1 + the minion's attack speed): the drive-by's own speed-up over
+    # its base 1 / 1.5 s, read from its Speed (1 when unread)
+    faster = number(drive_speed) * MIST_RAVEN_DRIVE if number(drive_speed) > 0 else 1.0
+    diving = MIRROR_BREAKER_DIVE / faster
+    lost = player_dps * COMMAND_CAST / every + raven_dps * min(diving / every, 1.0)
     gross = hit / every
     dps = max(gross - lost, 0.0)
+    twice = max(2 * gross - lost, 0.0)
     basis = (f"one hit on the boss a dive ({hit:,.0f}, PoB's Mist Raven with Mirror Breaker chosen: x10 base, 70% "
              f"Physical to Chaos), one dive every {every:.3g} s (its cooldown: a press under the button cap): "
              f"{gross:,.1f} DPS, less {lost:,.1f} DPS for the Command's {COMMAND_CAST:g} s cast ({player_dps:,.0f} "
-             f"main-skill DPS; whether a Command stops your skill is UNVERIFIED) and the raven's {MIRROR_BREAKER_DIVE:g} s "
-             f"dive ({raven_dps:,.0f} drive-by DPS where the score counts it): {dps:,.1f} DPS. The raven's damage is the "
-             "game's monster row (DamageMultiplier 150, 1.0 s attack) at PoB's minion level for the skill's level (MEDIUM)")
+             f"main-skill DPS; whether a Command stops your skill is UNVERIFIED) and the raven's {diving:.2f} s dive (its "
+             f"{MIRROR_BREAKER_DIVE:g} s animation / {faster:.2f}, the minion's attack speed: RESEARCH35 R35-6) off its "
+             f"drive-by ({raven_dps:,.0f} DPS where the score counts it): {dps:,.1f} DPS. One hit on a lone boss a dive "
+             f"(R35-6, MEDIUM); two hits a dive (LOW row): {twice:,.1f} DPS. The raven's damage is the game's monster row "
+             "(DamageMultiplier 150, 1.0 s base) at PoB's minion level for the skill's level: The Auspex grants level "
+             "15 (R35-7, minion level 30); the level the build's copy grants is the item pool's (MEDIUM)")
     if gross - lost <= 0:
         basis += "; a net loss, so not pressed (0)"
-    note = {"label": label, "value": round(dps, 1), "basis": basis, "confidence": "MEDIUM-LOW",
+    note = {"label": label, "value": round(dps, 1), "basis": basis, "confidence": "MEDIUM",  # (R35-6)
             "play": (f"Command the Mist Raven's Mirror Breaker each time its cooldown is up (every {every:.3g} s): with it "
                      f"+{dps:,.1f} DPS; without it +0.")}
     return dps, ([added_input("MirrorBreaker", dps)] if dps > 0 else []), [note]
@@ -15284,8 +15302,8 @@ def different_spells_cast_speed(texts: list[str], skills: list[Skill], main: Ski
 # delay lines) after the last gain, then Volatile Power gives 1% of Damage as Chaos per Volatility exploded for 10 s.
 # The deaths are models.minion_deaths' (your Persistent, Reviving minions Killed a second from the build's own sources:
 # Sacrifice, Minion Pact, ...; 0 with none: CLAUDE.md's no-flat-rates rule). Deaths at most one per D s: each death's 3
-# explode alone, Volatile Power up min(1, 10 r) of the fight at 3% (a later explosion taken to replace the Power, not add:
-# MEDIUM-LOW, the lower reading; row: they add). Deaths more often than one per D s keep resetting the timer, so it never
+# explode alone, each explosion's Volatile Power its own 10 s, adding (RESEARCH35 R35-8, MEDIUM): 3% x 10 r on average
+# (row: a later one replaces it, 3% x min(1, 10 r)). Deaths more often than one per D s keep resetting the timer, so it never
 # explodes (0; row: pace the deaths one per D s). With Inner Turmoil the ailment gains reset the timer too: its cycle
 # (volatility_model) is MECH-A's and these gains aren't added to it (a lower reading, said). Without Inner Turmoil's "Take
 # no Damage from Volatility" each explosion hits you for 100 Physical per Volatility (a defence cost, said, not modelled).
@@ -15309,7 +15327,7 @@ def unstable_bond_model(texts: list[str], deaths: tuple[float, str]) -> tuple[li
     hurt = "" if any(TAKE_NO_VOLATILITY.match(t.strip()) for t in texts) else (
         f"; each explosion hits you for {100 * k:g} Physical Damage (100 per Volatility: no 'Take no Damage from "
         "Volatility' in the build; a defence cost, not modelled)")
-    paced = min(1.0, VOLATILE_POWER_SECONDS / delay) * k if delay > 0 else k
+    paced = VOLATILE_POWER_SECONDS / delay * k if delay > 0 else k  # (one death per delay, Powers adding: R35-8)
     if any(INNER_TURMOIL.match(t.strip()) for t in texts):
         return [], [{"label": label, "value": "+0 (with Inner Turmoil)", "confidence": "LOW",
                      "basis": (f"{rate:.3f} deaths a second ({how}); with Inner Turmoil your ailments reset the "
@@ -15326,14 +15344,15 @@ def unstable_bond_model(texts: list[str], deaths: tuple[float, str]) -> tuple[li
                      "play": (f"Let your minions die at most once every {delay:g} s so the Volatility explodes: with "
                               f"it +{paced:g}% of Damage as Chaos; without it +0")}]
     up = min(1.0, VOLATILE_POWER_SECONDS * rate)
-    gain = k * up
-    stacked = min(cap, k * max(1.0, VOLATILE_POWER_SECONDS * rate)) * up
+    gain = k * VOLATILE_POWER_SECONDS * rate  # (R35-8: each explosion's Power its own 10 s, they add, no cap)
+    replaced = k * up
     return [line("Gain 1% of Damage as Extra Chaos Damage", gain)], [{
-        "label": label, "value": f"+{gain:.2f}% of Damage as Chaos", "confidence": "MEDIUM-LOW",
+        "label": label, "value": f"+{gain:.2f}% of Damage as Chaos", "confidence": "MEDIUM",
         "basis": (f"{rate:.3f} deaths a second ({how}), one every {1 / rate:.2f} s, at least the {delay:g} s explosion "
-                  f"delay: each death's {k:g} Volatility explodes, Volatile Power ({k:g}% of Damage as Chaos for "
-                  f"{VOLATILE_POWER_SECONDS:g} s) up {up:.0%} of the fight: +{gain:.2f}%. A later explosion taken to "
-                  f"replace the Power (MEDIUM-LOW); if they add: +{stacked:.2f}%" + hurt + ". PoB reads no Volatility"),
+                  f"delay: each death's {k:g} Volatility explodes, and each explosion's Volatile Power ({k:g}% of Damage "
+                  f"as Chaos) lasts its own {VOLATILE_POWER_SECONDS:g} s and adds to the others (RESEARCH35 R35-8, MEDIUM): "
+                  f"{VOLATILE_POWER_SECONDS * rate:.2f} at once on average, +{gain:.2f}%. If a later one replaced the "
+                  f"Power: +{replaced:.2f}%" + hurt + ". PoB reads no Volatility"),
         "play": (f"Your minions' deaths feed it (one every {1 / rate:.2f} s): with them +{gain:.2f}% of Damage as "
                  "Chaos; without them +0")}]
 

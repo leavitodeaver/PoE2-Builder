@@ -12,9 +12,11 @@
     DamageMultiplier 150, 1.0 s attack, MonsterTypes 245 spread 20) with its drive-by attack (x3, 70% Physical to Chaos;
     PoB's minion DPS) and Mirror Breaker (x10, 12 s cooldown), at PoB's minion level for the skill level (MEDIUM). The
     model adds Mirror Breaker's hit once a cooldown, a Command press under the button cap, less the Command's 1 s of the
-    main skill and the dive's 1 s of the drive-by. MEDIUM-LOW (attack time from the animation; one hit a dive on a lone
-    boss). Its Frenzy Charge per Cull: 0 on a lone boss (RESEARCH R120a). The drive-by every 1.0 s is the largest single
-    assumption in a build with The Auspex (RESEARCH35 R35-5): its own note with a half-rate row.
+    main skill and the dive's 2.666 s (its animation, / the minion's attack speed) of the drive-by. RESEARCH35: the
+    drive-by one pass per its 1.5 s animation (R35-5, MEDIUM; a 2.0 s LOW row), the hit's base damage still the monster's
+    1.0 s; Mirror Breaker once a dive on a lone boss (R35-6, MEDIUM; two a LOW row); The Auspex grants level 15 (R35-7,
+    the item pool's level, routed). Its Frenzy Charge per Cull: 0 on a lone boss (RESEARCH R120a). The drive-by rate is
+    the largest single assumption in a build with The Auspex: its own note.
   sources: [engine/bridge.lua (The Auspex's Mist Raven block), builder/search/models.py (MIST_RAVEN, mist_raven_model),
             builder/search/assumptions.py (mist_raven), "C:/PROJECTS/PoE2 Builder/scratch/research33/gx2 (MonsterVarieties)"]
   status: proposed
@@ -45,8 +47,8 @@
     An UNDERCOUNT: "Gain 3 Volatility when an Allied Persistent Reviving Minion is Killed" (anointable notable volatility1;
     stat gain_X_volatility_on_persistent_minion_death) is parsed by PoB with leftover text, and PoB reads no Volatility.
     Deaths from models.minion_deaths (the build's own sources; 0 with none). Spaced at least the explosion delay apart,
-    each death's 3 explode: 3% of Damage as Chaos for 10 s, up min(1, 10 x deaths/s) (a later explosion replaces the Power:
-    MEDIUM-LOW; row: they add). Deaths more often than the delay: never explodes, 0 (row: paced). With Inner Turmoil:
+    each death's 3 explode: 3% of Damage as Chaos for 10 s, each explosion's Power its own and adding (RESEARCH35 R35-8,
+    MEDIUM): 3% x 10 x deaths/s on average (row: a later one replaces it). Deaths more often than the delay: never explodes, 0 (row: paced). With Inner Turmoil:
     not added to its cycle (lower reading). The explosion's 100 Physical per Volatility to you (no Inner Turmoil): said,
     not modelled.
   sources: [builder/search/models.py (UNSTABLE_BOND, unstable_bond_model), builder/search/assumptions.py (after

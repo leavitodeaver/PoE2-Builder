@@ -4082,6 +4082,8 @@ def test_mist_raven_is_a_minion_with_its_drive_by_and_mirror_breaker(engine):
     drive = build.call("minionSkillHit", index=group["index"], active=n, skill="MistRavenDriveByAttack")
     dive = build.call("minionSkillHit", index=group["index"], active=n, skill=models.MIRROR_BREAKER)
     assert (drive.get("AverageHit") or 0) > 0 and (dive.get("AverageHit") or 0) > 2 * drive["AverageHit"]
+    # (RESEARCH35 R35-5: one pass per its 1.5 s animation, the hit's base damage still the monster's 1.0 s)
+    assert drive["Speed"] == pytest.approx(1 / 1.5, rel=0.05)
     note = next(x for x in search.assumptions.active if x["label"].startswith("Mirror Breaker"))
     assert note["value"] > 0
 

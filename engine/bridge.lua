@@ -516,8 +516,11 @@ end
 -- conversion of monster skills, as GreatHuntPackleaderMinion's 90000 = x10; is_area_damage; 70% Physical to Chaos) and
 -- MistRavenCommandDiveBomb "Mirror Breaker" (the Command; BaseMultiplier 90000 = x10, Cooldown 12 s, 1 stored use,
 -- radius 25, 70% Physical to Chaos). Both use their animation length (action_attack_or_cast_time_uses_animation_length):
--- the monster's 1.0 s attack time stands for it (MEDIUM-LOW, as Verisium's). PoB's minion path gives the drive-by's DPS
--- (its first skill); Mirror Breaker's press is MECH-B's model (models.mist_raven_model) through bridge.minionSkillHit.
+-- RESEARCH35 R35-5 / R35-6 (auspex-mist-raven-rate-dive-level.md): the drive-by's animation is 1,500 ms and the dive's
+-- 2,666 ms (MEDIUM), not the monster's 1.0 s. The monster's 1.0 s still sets the hit's base damage (CalcActiveSkill
+-- 983-988: damage x attackTime), so the rate alone is slowed, by each skill's attackSpeedMultiplier (CalcOffence 2874:
+-- AttackRate x (1 + m / 100)): 1 / 1.5 and 1 / 2.666 of the monster's. PoB's minion path gives the drive-by's DPS (its
+-- first skill); Mirror Breaker's press is MECH-B's model (models.mist_raven_model) through bridge.minionSkillHit.
 do
 	if data.skills.SummonMistRavenPlayer and not data.skills.MistRavenDriveByAttack then
 		local function ravenSkill(id, name, mult, extra, types, levelExtra)
@@ -557,13 +560,14 @@ do
 		ravenSkill("MistRavenDriveByAttack", "Drive-by Attack", 3,
 			{ { "attack_maximum_action_distance_+", 50 }, { "active_skill_base_physical_damage_%_to_convert_to_chaos", 70 }, },
 			{ [SkillType.Attack] = true, [SkillType.Melee] = true, [SkillType.Area] = true, [SkillType.Damage] = true,
-				[SkillType.Physical] = true, [SkillType.Chaos] = true, })
+				[SkillType.Physical] = true, [SkillType.Chaos] = true, },
+			{ attackSpeedMultiplier = (1 / 1.5 - 1) * 100, })  -- (R35-5: a 1,500 ms animation)
 		ravenSkill("MistRavenCommandDiveBomb", "Mirror Breaker", 10,
 			{ { "attack_maximum_action_distance_+", 120 }, { "active_skill_base_area_of_effect_radius", 25 },
 				{ "active_skill_base_physical_damage_%_to_convert_to_chaos", 70 }, },
 			{ [SkillType.Attack] = true, [SkillType.Area] = true, [SkillType.Damage] = true, [SkillType.Cooldown] = true,
 				[SkillType.Physical] = true, [SkillType.Chaos] = true, },
-			{ cooldown = 12, storedUses = 1, })
+			{ cooldown = 12, storedUses = 1, attackSpeedMultiplier = (1 / 2.666 - 1) * 100, })  -- (R35-6: 2,666 ms)
 		data.minions.MistRavenCompanion = {
 			name = "Mist Raven",
 			monsterTags = { "ranged", },

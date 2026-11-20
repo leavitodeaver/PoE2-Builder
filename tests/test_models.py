@@ -6673,16 +6673,19 @@ def test_mist_ravens_mirror_breaker_hits_once_a_cooldown_less_the_command_and_di
     """MECHB44 (an UNDERCOUNT: PoB had no minion for The Auspex's Mist Raven): Mirror Breaker's hit once each 12 s
     cooldown, less the Command's 1 s of the main skill and the dive's 1 s of the raven's drive-by."""
     dps, mods, notes = models.mist_raven_model({"AverageDamage": 1200.0, "Cooldown": 12.0}, 60.0, 24.0)
-    assert dps == pytest.approx(1200 / 12 - 60 / 12 - 24 / 12) and mods and notes[0]["confidence"] == "MEDIUM-LOW"
-    assert "with it +93.0 DPS" in notes[0]["play"]
+    # (RESEARCH35 R35-6: the dive takes its 2.666 s animation off the drive-by, / the minion's attack speed; MEDIUM)
+    assert dps == pytest.approx(1200 / 12 - 60 / 12 - 24 * 2.666 / 12) and mods and notes[0]["confidence"] == "MEDIUM"
+    assert "two hits a dive (LOW row)" in notes[0]["basis"]
+    faster = models.mist_raven_model({"AverageDamage": 1200.0, "Cooldown": 12.0}, 60.0, 24.0, 2 / 1.5)[0]
+    assert faster == pytest.approx(1200 / 12 - 60 / 12 - 24 * 2.666 / 2 / 12)  # (a minion attacking twice as fast)
     assert models.mist_raven_model({"AverageHit": 1200.0}, 0.0, 0.0)[0] == pytest.approx(100.0)  # (the 12 s default)
     zero, none, why = models.mist_raven_model({"AverageHit": 100.0}, 2400.0, 0.0)  # (a net loss: not pressed)
     assert zero == 0 and none == [] and "not pressed" in why[0]["basis"]
     assert models.mist_raven_model({}, 10.0, 0.0)[:2] == (0.0, [])
     # (the manager, 23:40: the drive-by's 1.0 s rate is the largest single assumption: its own note, a half-rate row)
     drive = models.mist_raven_model({"AverageHit": 1200.0, "baseDPS": 580.0}, 0.0, 580.0)[2]
-    assert drive[0]["value"] == 580.0 and "290.0 DPS" in drive[0]["basis"] and "largest single assumption" in drive[0]["basis"]
-    assert drive[0]["confidence"] == "MEDIUM-LOW" and drive[1]["label"].startswith("Mirror Breaker")
+    assert drive[0]["value"] == 580.0 and "435.0 DPS" in drive[0]["basis"] and "largest single assumption" in drive[0]["basis"]
+    assert drive[0]["confidence"] == "MEDIUM" and drive[1]["label"].startswith("Mirror Breaker")  # (R35-5: 1.5 s, row 2.0 s)
 
 
 def test_casting_cascade_counts_each_different_spell_cast_in_8_s_instant_ones_too():
@@ -6703,7 +6706,8 @@ def test_unstable_bond_explodes_each_deaths_volatility_only_when_the_deaths_are_
     bond = "Gain 3 Volatility when an Allied Persistent Reviving Minion is Killed"
     mods, notes = models.unstable_bond_model([bond], (0.05, "Sacrifice"))  # (one every 20 s: Power up half the fight)
     assert mods == [models.line("Gain 1% of Damage as Extra Chaos Damage", 1.5)] and "100 per Volatility" in notes[0]["basis"]
-    assert models.unstable_bond_model([bond], (0.2, "x"))[0] == [models.line("Gain 1% of Damage as Extra Chaos Damage", 3.0)]
+    # (RESEARCH35 R35-8: each explosion's Power adds for its own 10 s: 3% x 10 x 0.2)
+    assert models.unstable_bond_model([bond], (0.2, "x"))[0] == [models.line("Gain 1% of Damage as Extra Chaos Damage", 6.0)]
     fast, why = models.unstable_bond_model([bond, "Take no Damage from Volatility"], (1.0, "x"))  # (resets: never explodes)
     assert fast == [] and "never explodes" in why[0]["value"] and "100 per" not in why[0]["basis"]
     assert models.unstable_bond_model([bond], (0.0, "none"))[0] == []
