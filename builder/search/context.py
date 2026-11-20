@@ -23,7 +23,7 @@ from builder.data.rules import rules as game_rules
 from builder.ledger import gap_list, item_lines, translate, wrong
 from builder.request.constraints import PRESSED_PERSISTENT, CompiledRequest, compile_request
 from builder.request.schema import BuildRequest, DefenceStyle, GearTier
-from builder.search import alloys, anoints, base_variants, cultivated, desecrated, granted_rolls
+from builder.search import alloys, anoints, base_variants, cultivated, desecrated, granted_rolls, influence
 
 # Most a single unique may cost at each gear tier (divine), on top of the request's divine cap
 TIER_UNIQUE_CAP = {GearTier.LEAGUE_START: 1.0, GearTier.MID: 20.0, GearTier.ENDGAME: 300.0, GearTier.MIRROR: math.inf}
@@ -315,6 +315,8 @@ class Context:
         self.alloy_prices: dict[str, float] = payload.get("alloy_prices") or {}  # (SEARCH29) Alloys, builder/search/alloys.py
         # (SEARCH30) bones and Omens for Desecrated affixes, builder/search/desecrated.py
         self.desecration_prices: dict[str, float] = payload.get("desecration_prices") or {}
+        # (SEARCH30) Chaos / Exalted / Annulment Orbs and the side Omens for influence affixes, builder/search/influence.py
+        self.influence_prices: dict[str, float] = payload.get("influence_prices") or {}
         # Trade prices of specific versions of a unique (builder/data/unique_versions.py)
         self.unique_versions: dict[str, dict] = payload.get("unique_versions") or {}
         self.rare_model = rare_prices.RarePriceModel.from_payload(payload.get("rare_model"))
@@ -801,6 +803,7 @@ def make_payload(request: BuildRequest, prices=None) -> dict:
         "emotion_prices": anoints.emotion_prices(prices),
         "alloy_prices": alloys.payload_prices(prices),  # (SEARCH29)
         "desecration_prices": desecrated.payload_prices(prices),  # (SEARCH30)
+        "influence_prices": influence.payload_prices(prices),  # (SEARCH30)
         "league": league,
         "rare_model": rare_prices.RarePriceModel.load(league).payload(),
         "craft_prices": craft_prices(prices),

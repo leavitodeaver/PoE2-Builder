@@ -23,7 +23,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from builder import clock
-from builder.data import rare_prices
 from builder.search import alloys, anoints, cultivated, desecrated, influence
 from builder.search.context import ARMOUR_SLOTS, JEWELLERY_SLOTS, SLOT_TYPE, ItemOption, implicit_variant, implicit_variants
 from builder.search.flasks import (
@@ -644,11 +643,11 @@ class Gear:
                         used[limit[0]] = used.get(limit[0], 0) + 1
         return used
 
-    def influence_price(self, slot: str, affixes: list, rune_price: float | None, chaos: float | None
+    def influence_price(self, slot: str, affixes: list, rune_price: float | None, prices: dict[str, float]
                         ) -> tuple[float | None, list[str]]:
-        """The craft route's price for a rare with these affixes and an influence rune (influence.craft_price)."""
+        """The cheapest craft route's price for a rare with these affixes and an influence rune (influence.craft_price)."""
         ordinary = [a for a in affixes if not a.influence]
-        return influence.craft_price(rare_price(slot, ordinary), rune_price, chaos, [a for a in affixes if a.influence])
+        return influence.craft_price(rare_price(slot, ordinary), rune_price, prices, affixes)
 
     def influence_trial(self, slot: str, base: dict, base_option: ItemOption, level: int, pools, limits: dict,
                         chosen: list, current: float, left: float, deadline: float) -> ItemOption | None:
@@ -666,9 +665,7 @@ class Gear:
         if not runes:
             return None
         ssf = self.ctx.ssf
-        chaos = rare_prices.active().materials.get(influence.CHAOS)
-        if ssf and chaos is None:
-            chaos = 0.0
+        prices = {m: 0.0 for m in influence.MATERIALS} if ssf else self.ctx.influence_prices
         plain = current - self.lam * rare_price(slot, chosen)
         best = None  # (value, rune, affixes, price, steps)
         for rune in runes:
@@ -695,7 +692,7 @@ class Gear:
                         else:
                             variants = [[x for x in picked if x is not out] + [c] for out in picked if out.type == c.type]
                         for v in variants:
-                            price, steps = self.influence_price(slot, v, rune_price, chaos)
+                            price, steps = self.influence_price(slot, v, rune_price, prices)
                             if price is not None and price <= left + 1e-9:
                                 trials.append((v, price, steps))
                 if not trials:
@@ -754,8 +751,18 @@ class Gear:
         ssf = self.ctx.ssf
         prices = self.ctx.desecration_prices if not ssf else {m: 0.0 for m in desecrated.MATERIALS}
 
-        def rivals(affix) -> int:
-            return sum(1 for a in pool if a.type == affix.type and (kind == "armour" or a.desecrated == affix.desecrated))
+        # The reveal's draw (desecrated.routes, RESEARCH34 R33-20): the side's ordinary rows (equal weights: 1 / side_odds
+        # of any of its affixes; groups already on the item are still counted, the lower reading) + the lord rows whose
+        # group the item doesn't hold
+        ordinary = {}
+        for a in pools.pool(base["name"]):
+            if a.side_odds > 0:
+                ordinary[a.type] = round(1 / a.side_odds)
+
+        def counts(affix, kept) -> tuple[int, int, int]:
+            held = {x.group for x in kept}
+            side = [a for a in pool if a.type == affix.type and a.group not in held]
+            return (sum(1 for a in side if a.desecrated == affix.desecrated), len(side), ordinary.get(affix.type, 0))
 
         plain = current - self.lam * rare_price(slot, chosen)
         screen = self.deltas(slot, [rare_text(slot, base, level, chosen + [a]) for a in fresh])
@@ -770,7 +777,7 @@ class Gear:
                     variants = [[x for x in chosen if x is not out] for out in chosen if out.type == c.type]
                 for kept in variants:
                     market = rare_price(slot, kept)
-                    price, steps = desecrated.craft_price(base["type"], market, c, rivals(c), prices)
+                    price, steps = desecrated.craft_price(base["type"], market, c, *counts(c, kept), prices)
                     if price is not None and price <= left + 1e-9:
                         trials.append((kept + [c], c, price, steps))
         if not trials or clock.now() > deadline:
@@ -780,7 +787,8 @@ class Gear:
         if value <= plain + EPSILON:
             return None
         affixes, affix, price, steps = trials[i]
-        note = f"one Desecrated modifier ({affix.desecrated}, {affix.type}); priced by the craft route (MEDIUM)"
+        note = (f"one Desecrated modifier ({affix.desecrated}, {affix.type}); priced by the cheapest craft route (LOW / "
+                f"MEDIUM-LOW: RESEARCH34)")
         return ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
                           rare_text(slot, base, level, affixes), False, None if ssf else price,
                           "ssf" if ssf else "estimate (craft route: Desecration)", base_option.level, rare=True,

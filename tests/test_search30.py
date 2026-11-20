@@ -58,13 +58,22 @@ def test_the_tag_widens_only_that_items_pool_and_marks_its_affixes(ctx):
     assert next(a for a in wide if a.id == ordinary.id).odds < ordinary.odds
 
 
-def test_the_craft_route_price_and_no_price_no_offer():
-    affix = SimpleNamespace(odds=0.02, lines=("+1 to Level of all Projectile Skills",))
-    price, steps = influence.craft_price(0.1, 1.5, 0.1, [affix])
-    assert price == pytest.approx(0.1 + 1.5 + 50 * 0.1) and len(steps) == 3
-    assert influence.craft_price(0.1, None, 0.1, [affix])[0] is None  # (no rune price)
-    assert influence.craft_price(0.1, 1.5, None, [affix])[0] is None  # (no Chaos Orb price)
-    assert influence.craft_price(0.1, 1.5, None, [])[0] == pytest.approx(1.6)
+def test_the_craft_route_takes_the_cheaper_of_chaos_spam_and_exalt_with_an_omen():
+    """RESEARCH34 R33-23: Chaos spam (1 / odds) or an Exalted Orb + the side's Exaltation Omen (1 / side_odds tries), a miss
+    cleared by an Annulment (with or without the side's Annulment Omen) that hits a wanted mod m / (m + 1) of the time."""
+    affix = SimpleNamespace(influence="marksman", odds=0.02, side_odds=0.04, type="Suffix",
+                            lines=("+1 to Level of all Projectile Skills",))
+    other = SimpleNamespace(influence="", type="Suffix", lines=("+10% to Fire Resistance",))
+    price, steps = influence.craft_price(0.1, 1.5, {"Chaos Orb": 0.1}, [other, affix])
+    assert price == pytest.approx(0.1 + 1.5 + 50 * 0.1) and len(steps) == 3 and "Chaos Orbs" in steps[2]
+    prices = {"Chaos Orb": 1.0, "Exalted Orb": 0.001, "Omen of Dextral Exaltation": 0.05, "Orb of Annulment": 0.3,
+              "Omen of Dextral Annulment": 13.6}
+    price, steps = influence.craft_price(0.1, 1.5, prices, [other, affix])
+    exalt = 25 * 0.051 + 24 * (0.3 + 0.5 * 0.1)  # (the plain Annulment: 1 other mod, half the misses cost the rare)
+    assert price == pytest.approx(0.1 + 1.5 + exalt) and "Exalted Orbs" in steps[2]
+    assert influence.craft_price(0.1, None, prices, [affix])[0] is None  # (no rune price)
+    assert influence.craft_price(0.1, 1.5, {}, [affix])[0] is None  # (no priced route)
+    assert influence.craft_price(0.1, 1.5, {}, [other])[0] == pytest.approx(1.6)
 
 
 def test_influence_runes_stay_off_jewellery(ctx):
@@ -92,7 +101,6 @@ def engine(data):
 
 def test_build_rare_offers_kolrs_gloves_when_a_marksman_affix_wins(engine, monkeypatch):
     from builder import clock
-    from builder.data import rare_prices
     from builder.search.gear import affix_limits
     from builder.search.inner import Search
     from builder.search.rares import rare_text
@@ -106,7 +114,7 @@ def test_build_rare_offers_kolrs_gloves_when_a_marksman_affix_wins(engine, monke
     tags = gear.influence_tags
     for name in tags:
         gear.runes.prices[name] = 0.001
-    monkeypatch.setitem(rare_prices.active().materials, influence.CHAOS, 0.0001)
+    search.ctx.influence_prices = {influence.CHAOS: 0.0001}
     gear.lam = 0.0
     plain = gear.build_rare("Gloves", clock.now() + 120)
     assert plain is not None and not plain.bound  # (the switch is off: no trial)
@@ -187,16 +195,28 @@ def test_the_desecrated_pool_holds_lord_affixes_marked_with_their_lord(ctx):
 
 
 def test_the_desecration_craft_route():
+    """RESEARCH34 R33-20 / 21: a reveal draws 3 options from the side's ordinary rows + every lord row (N); a lord Omen
+    (Weapons / Jewellery only) guarantees one of its lord; Abyssal Echoes rerolls once; the cheapest route prices it."""
     from builder.search import desecrated
 
     prices = {"Preserved Collarbone": 0.26, "Ancient Collarbone": 9.0, "Preserved Rib": 0.015, "Ancient Rib": 6.0,
               "Omen of the Blackblooded": 0.004, "Omen of Dextral Necromancy": 0.0045,
-              "Omen of Sinistral Necromancy": 0.001, "Omen of Light": 10.66, "Orb of Annulment": 0.29}
+              "Omen of Sinistral Necromancy": 0.001, "Omen of Light": 10.66, "Orb of Annulment": 0.29,
+              "Omen of Abyssal Echoes": 0.08}
     affix = SimpleNamespace(desecrated="Kurgal", type="Suffix", lines=("+(3-5)% to Quality of all Skills",))
-    price, steps = desecrated.craft_price("Amulet", 1.0, affix, 6, prices)  # (3 of 6: two tries)
-    assert price == pytest.approx(1.0 + 2 * (0.26 + 0.0045 + 0.004) + 1 * 1.0) and len(steps) == 4
-    # Armour: no lord Omen; a failed try is cleared by a fresh rare when that's cheaper than Light + Annulment
-    price, _ = desecrated.craft_price("Gloves", 0.5, affix, 3, prices)
-    assert price == pytest.approx(0.5 + 0.015 + 0.0045)
-    assert desecrated.craft_price("Amulet", 1.0, affix, 6, {**prices, "Omen of the Blackblooded": None})[0] is None
-    assert desecrated.craft_price("Charm", 1.0, affix, 6, prices)[0] is None
+    n = 30 + 18
+    plain, omen = 1 - (1 - 1 / n) ** 3, 1 / 6 + 2 / n
+    tries = {0.26 + 0.0045: plain, 0.26 + 0.0045 + 0.08: 1 - (1 - 1 / n) ** 6, 0.26 + 0.0045 + 0.004: omen,
+             0.26 + 0.0045 + 0.004 + 0.08: 1 - (1 - omen) * (1 - plain)}
+    want = min(1.0 + per / p + (1 / p - 1) * 1.0 for per, p in tries.items())  # (a fresh rare clears cheaper than Light)
+    price, steps = desecrated.craft_price("Amulet", 1.0, affix, 6, 18, 30, prices)
+    assert price == pytest.approx(want) and any("old reading" in s for s in steps)
+    old = 1.0 + 2 * (0.26 + 0.0045 + 0.004) + 1 * 1.0  # (the first model: 3 of 6 lord rows, two tries)
+    assert price > old  # (the first model's odds were an OVERCOUNT)
+    # Armour: no lord Omen route
+    _, steps = desecrated.craft_price("Gloves", 0.5, affix, 5, 15, 40, prices)
+    assert not any("Omen of the Blackblooded" in s for s in steps[:2])
+    # an unpriced lord Omen leaves the plain routes; no Light / Annulment price or no bone family: no offer
+    assert desecrated.craft_price("Amulet", 1.0, affix, 6, 18, 30, {**prices, "Omen of the Blackblooded": None})[0]
+    assert desecrated.craft_price("Amulet", 1.0, affix, 6, 18, 30, {**prices, "Omen of Light": None})[0] is None
+    assert desecrated.craft_price("Charm", 1.0, affix, 6, 18, 30, prices)[0] is None
