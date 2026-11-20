@@ -2417,10 +2417,13 @@ NATURES_GUARD_STAT, NATURES_COOLDOWN, NATURES_SECONDS = "morrigan_ward_gain_X_gu
 #   form come at the same rate), kept only if no other shift comes within the 2 s soak: shifts taken as random,
 #   e^(-2h) (RESEARCH33 R33-7: Human form is "a different form", MEDIUM; animal to animal too, HIGH, so h counts every
 #   change out of the form, conditions.human_shifts(any_form=True); the row without the loss gives h). Stored:
-#   the boss's damage a second after your mitigation (objective.boss_taken) x 2 s. Its Rage isn't counted here (an
-#   UNDERCOUNT of Rage, named). A build that never shifts (no other-form skill pressed): 0, said.
+#   the boss's damage a second after your mitigation (objective.boss_taken) x 2 s. (MECHC44, an UNDERCOUNT of Rage
+#   before) its Rage, 3% of the stored damage (support_hide_of_helbrym_gain_rage_from_%_of_damage_taken 3, PoB's
+#   sup_str.lua and the keyword), at the same kept grants a second, feeds conditions.rage_held as a gain
+#   (stats["_helbrym_rage"]; the Rage maximum caps it there). Conditions.helbrym_composure gives both. A build that never
+#   shifts (no other-form skill pressed): 0, said.
 HELBRYMS_HIDE = "Helbrym's Hide"
-HELBRYM_SOAK, HELBRYM_SECONDS, HELBRYM_SHARE = 2.0, 4.0, 0.50
+HELBRYM_SOAK, HELBRYM_SECONDS, HELBRYM_SHARE, HELBRYM_RAGE_SHARE = 2.0, 4.0, 0.50, 0.03
 # "Prevent +5% of Damage from Deflected Hits if you've Deflected no Hits Recently" (MECHC41; MECHC38 / MECHC39's
 # rows-only leftover; the body-armour Idol in PoB's ModRunes.lua 10047-10051, base_damage_%_deflected_if_you_have_not_
 # deflected_recently; PoB parses nothing of it, so no overcount). Recently = the last 4 s (KeywordPopups Recently). A

@@ -3568,6 +3568,18 @@ def test_twister_hits_on_the_boss_rise_with_its_twisters(engine):
     assert 1 < head_one < head_many <= k and "open arena: 1" in many_note["value"]
     assert many and many[0]["value"] == pytest.approx((head_many - 1) * 100, abs=0.1)
 
+    # (MECHC44) Twister carries skill_can_add_multiple_charges_per_action (game files; PoB's TwisterPlayer stats): its
+    # on-hit charge lines roll on each of its hits a cast, the same headline its DPS uses
+    ring = chr(10).join(["Rarity: Rare", "Test Ring", "Ruby Ring", "Item Level: 82", "Implicits: 0",
+                         "20% chance to gain a Frenzy Charge on Hit"])
+    build.call("setAssumptions", mods=[models.raw_mod("ProjectileCount", "BASE", 8)], fields=[])
+    build.call("equip", slot="Ring 1", raw=ring, fields=[])
+    found = search.conditions.evidence()
+    build.call("setAssumptions", mods=[], fields=[])
+    basis = found["overrideFrenzyCharges"][1]
+    print("PROBE twister charges", found["overrideFrenzyCharges"])
+    assert f"{head_many:.2f} hits a use, each may grant" in basis and "at one hit a use" in basis
+
 
 def test_your_curses_reflected_back_to_you_curse_you_through_pobs_own_path(engine):
     """MECH84 (COV38's downside sweep, an OVERCOUNT): Atziri's Allure on Enfeeble puts Enfeeble on you too (PoB parses

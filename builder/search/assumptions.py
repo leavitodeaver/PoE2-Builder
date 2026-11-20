@@ -3241,8 +3241,15 @@ class Assumptions:
         if volatility_crit > 0 or any(models.INNER_TURMOIL.match(t.strip())
                                       or models.VOLATILITY_ON_CRIT.match(t.strip())
                                       or models.VOLATILITY_ON_KILL.match(t.strip())  # (MECH92)
+                                      or models.VOLATILITY_STUNNED.match(t.strip())  # (MECHC44)
                                       for t in turmoil_texts):  # (MECH90: PoB reads no Volatility)
             turmoil_stats = build.call("stats", fields=models.VOLATILITY_STATS)  # (MECH91: + the Chaos DoT share's)
+            if any(models.VOLATILITY_STUNNED.match(t.strip()) for t in turmoil_texts):  # (MECHC44: the boss's Stuns)
+                from builder.search import flasks
+
+                gain = flasks.Charges.of(build)
+                turmoil_stats = {**turmoil_stats, "_stunned_volatility": models.volatility_when_stunned(
+                    turmoil_texts, gain.stuns, gain.stuns_how)}
             bond_deaths = (models.minion_deaths(found, main, stats)  # (MECH92: Unstable Bond's deaths join the cycle)
                            if any(models.UNSTABLE_BOND.match(t.strip()) for t in turmoil_texts) else None)
             turmoil_mods, turmoil_notes = models.volatility_model(  # (MECH92: + Instability, on Kill at build.kills)
@@ -4570,14 +4577,31 @@ class Assumptions:
             name = vanguard or side
             strength = number(build.call("stats", fields=["Str"]).get("Str"))
             heavy, per_stun = recovery.VANGUARD[name]
-            amount = heavy * strength / 10
-            rate, how = models.heavy_stun_rate(stats) if vanguard else (
-                0.0, "the shield skill it supports isn't the main skill, so its stuns aren't rated: 0")
+            # (MECHC44, an UNDERCOUNT before: only the Heavy Stun stat, alone, was counted) the game's text
+            # (gem_stat_descriptions.csd): "Gain {1} Guard per ten Strength when you Stun an Enemy / Gain an additional
+            # {0} Guard per ten Strength if Heavily Stunning": a Light Stun grants the Stun amount, a Heavy Stun both
+            # (the "additional" wording, MEDIUM-HIGH); Light Stuns at models.light_stun_rate (the boss's Life against
+            # each hit, 0 under the 15% floor: MECH-A's model, LOW), Heavy at heavy_stun_rate; one grant's size their
+            # rate-weighted mean (MEDIUM: the 4 s Guard buffs taken as replacing each other)
+            light_amt, heavy_amt = per_stun * strength / 10, (heavy + per_stun) * strength / 10
+            if vanguard:
+                hrate, hhow = models.heavy_stun_rate(stats)
+                main_types = set((build.ctx.gems.get(main) or {}).get("skillTypes") or []) if main else set()
+                lrate, lhow = models.light_stun_rate(stats, "Melee" in main_types)
+            else:
+                hrate = lrate = 0.0
+                hhow = lhow = "the shield skill it supports isn't the main skill, so its stuns aren't rated: 0"
+            rate = hrate + lrate
+            amount = (hrate * heavy_amt + lrate * light_amt) / rate if rate > 0 else heavy_amt
+            alone = recovery.event_guard(name, heavy_amt, hrate, recovery.VANGUARD_SECONDS, texts, guard_pool, "",
+                                         False, expiry)
             out.append(recovery.event_guard(
                 name, amount, rate, recovery.VANGUARD_SECONDS, texts, guard_pool,
-                f"{heavy:g} Guard per 10 Strength on Heavy Stun x your {strength:,.0f} Strength; Heavy Stuns: {how}; its "
-                f"{per_stun:g} per 10 Strength on any Stun NOT counted (no light-stun rate on a boss in the models: an "
-                "UNDERCOUNT kept)", False, expiry))
+                f"{per_stun:g} Guard per 10 Strength when you Stun, {heavy:g} more if Heavily Stunning, x your "
+                f"{strength:,.0f} Strength: {light_amt:,.0f} a Light Stun, {heavy_amt:,.0f} a Heavy Stun (the game's "
+                f"'additional', MEDIUM-HIGH); Heavy Stuns {hrate:.3f}/s ({hhow}); Light Stuns {lrate:.3f}/s ({lhow}); a "
+                f"grant's mean {amount:,.0f} (MEDIUM); ROW, Heavy Stuns alone: {alone[0]:,.0f} Guard up {alone[1]:.0%}",
+                False, expiry))
         if m := next((m for t in stripped if (m := recovery.SAVAGE_GUARD.match(t))), None):
             seen = {**stats, "_boss": boss}
             name = boss_hits.boss_name(seen)
@@ -4638,21 +4662,15 @@ class Assumptions:
         hide = next((grp for grp in groups for g in grp.get("gems") or []
                      if g["name"] == recovery.HELBRYMS_HIDE and g.get("enabled", True)), None)
         if hide is not None and main:  # (MECHC41: Helbrym's Hide's Composure)
-            fields = sorted(set(objective.RECOVERY_INPUTS) | {"Speed"})
-            added = getattr(build, "added_stats", None)
-            read = {**build.call("stats", fields=fields), **(added() if callable(added) else {}), "_boss": boss}
-            shifts, shifts_how = conditions_mod.Conditions(build, main)._human_shifts(number(read.get("Speed")),
-                                                                                     any_form=True)
-            kept = math.exp(-recovery.HELBRYM_SOAK * shifts)
-            taken = sum(objective.boss_taken(read)[0].values())
+            shifts, kept, taken, shifts_how = conditions_mod.Conditions(build, main).helbrym_composure(boss)
             amount = recovery.HELBRYM_SHARE * taken * recovery.HELBRYM_SOAK
             out.append(recovery.event_guard(
                 f"Helbrym's Composure ({recovery.HELBRYMS_HIDE})", amount, shifts * kept, recovery.HELBRYM_SECONDS, texts,
                 guard_pool, f"50% of the {taken:,.0f} damage a second the boss lands after your mitigation, stored over "
                 f"{recovery.HELBRYM_SOAK:g} s; one per shift into the supported skill's form ({shifts_how}), kept if no "
                 f"other shift comes in its {recovery.HELBRYM_SOAK:g} s: {kept:.0%} (R33-7: any change of form removes it, "
-                f"back to Human form MEDIUM, animal to animal HIGH; without that loss: {shifts:.2f}/s); its Rage not "
-                "counted", True, expiry))
+                f"back to Human form MEDIUM, animal to animal HIGH; without that loss: {shifts:.2f}/s); its Rage (3%) "
+                "in the Rage held (conditions.rage_held, MECHC44)", True, expiry))
         if m := next((m for t in stripped if (m := recovery.CITAQUALOTL_GUARD.match(t))), None):  # (MECHC41, R33-1)
             rolls = 1 / models.DODGE_EVERY
             pct = sum(float(x.group(1)) for t in stripped if (x := recovery.CITAQUALOTL_GUARD.match(t)))

@@ -2646,8 +2646,14 @@ def test_natures_exchange_and_helbryms_composure_grant_guard_at_the_builds_own_r
 
     build = SimpleNamespace(call=call, equipped={}, groups=lambda: groups)
     monkeypatch.setattr(models, "buildup_rate", lambda stats, ailment: 0.5)
-    monkeypatch.setattr(conditions, "Conditions",
-                        lambda b, main: SimpleNamespace(_human_shifts=lambda speed, any_form=False: (0.25, "each Rampage")))
+    real = conditions.Conditions
+
+    def fake(b, main):  # (MECHC44: the real helbrym_composure, on the faked form changes)
+        me = SimpleNamespace(build=b, _human_shifts=lambda speed, any_form=False: (0.25, "each Rampage"))
+        me.helbrym_composure = lambda boss=None: real.helbrym_composure(me, boss)
+        return me
+
+    monkeypatch.setattr(conditions, "Conditions", fake)
     monkeypatch.setattr(objective, "boss_taken", lambda stats: ({"Physical": 300.0, "Fire": 100.0}, 0.5, 1.0))
     hook = assumptions.Assumptions.__new__(assumptions.Assumptions)
     hook.build = build
@@ -2989,3 +2995,70 @@ def test_glory_reads_an_attacks_hits_per_hand_and_chayulas_archon_lasts_10_secon
     assert models.glory_events({"Speed": 2.0, "HitChance": 100}, None)["chaos hit"] == 0.0
     assert models.GLORY_INSTANCE["Archon of Chayula"] == 10.0
     assert "MainHand.ChaosHitAverage" in models.MODEL_FIELDS
+
+
+def test_a_flagged_twister_grants_on_hit_charges_per_hit_not_per_cast():
+    """MECHC44 (charges-per-action.md; MULTI_CHARGE_STAT): a main skill with skill_can_add_multiple_charges_per_action
+    and several hits a use (Twister: recovery.twister_hits' headline) rolls its on-hit and on-crit charge lines on each
+    hit: 2 casts/s x 2.5 hits a cast x 20% = 1.0/s, not 0.4/s; without the flag the hits a use aren't read."""
+    from builder.search.conditions import _charge_rate
+
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 50}
+    per = {"_hits_per_use": (2.5, "Twister's twister-count reading")}
+    hit = "20% chance to gain a Frenzy Charge on Hit"
+    crit = "20% chance to gain a Power Charge on Critical Hit"
+    assert _charge_rate(hit, "Frenzy", stats)[0] == pytest.approx(0.4)
+    assert _charge_rate(hit, "Frenzy", {**stats, **per})[0] == pytest.approx(0.4)  # (no flag: one hit a use)
+    rate, how = _charge_rate(hit, "Frenzy", {**stats, **per, "_multi_charge": "skill_can_add_multiple_charges_per_action"})
+    assert rate == pytest.approx(1.0) and "2.50 hits a use, each may grant" in how and "at one hit a use: 2.00/s" in how
+    assert _charge_rate(crit, "Power", {**stats, **per, "_multi_charge": "x"})[0] == pytest.approx(0.5)
+
+
+def test_helbryms_hide_grants_rage_from_the_damage_its_composure_stores():
+    """MECHC44 (an UNDERCOUNT of Rage: MECHC41 counted only the Guard): Helbrym's Composure returns 3% of the damage it
+    stored over its 2 s soak as Rage when it expires (support_hide_of_helbrym_gain_rage_from_%_of_damage_taken 3), at the
+    kept Composures a second; rage_held counts it as a gain, capped at the maximum."""
+    from types import SimpleNamespace
+
+    from builder.search import conditions
+
+    me = SimpleNamespace(helbrym_composure=lambda boss: (0.25, 0.6, 500.0, "one shift a 4 s"))
+    found = conditions.Conditions._helbrym_rage(me, None)
+    assert [(n, u, a) for n, u, a, _ in found] == [("Helbrym's Hide", pytest.approx(0.15), pytest.approx(30.0))]
+    assert "3% of the 500 damage a second" in found[0][3] and "without that loss: 0.25/s" in found[0][3]
+    stats = {"Speed": 2.0, "HitChance": 100, "MaximumRage": 30, "_main_types": set()}
+    held, basis = conditions.rage_held([], dict(stats, _helbrym_rage=found))
+    assert 0 < held <= 30 and "Helbrym's Hide's Composure (30 Rage each" in basis
+    assert conditions.rage_held([], dict(stats, _helbrym_rage=[("Helbrym's Hide", 0.0, 30.0, "x")])) == (0.0, "")
+
+
+def test_natures_archon_uptime_cycles_at_the_builds_overgrows():
+    """MECHC44 (for GEM24's Accelerated Growth): Nature's Archon, gained at N% on each Overgrow, is one Archon cycle: 10 s
+    up, 20 s recovery, then a mean 1 / (chance x Overgrows a second) wait; no line or no Overgrow: 0."""
+    from builder.search import models
+
+    line = ["50% chance to gain Nature's Archon when your Plants Overgrow"]
+    up, how = models.natures_archon_uptime(line, 0.4)  # (one gain every 5 s on average)
+    assert up == pytest.approx(10 / (10 + 20 + 5)) and "up 29%" in how
+    assert models.natures_archon_uptime(line, 0.4, {"ArchonDuration": 100})[0] == pytest.approx(20 / 45)
+    assert models.natures_archon_uptime(line, 0.4, no_recovery=True)[0] == pytest.approx(10 / 15)
+    assert models.natures_archon_uptime(line, 0.0)[0] == 0.0
+    assert models.natures_archon_uptime([], 1.0) == (0.0, "")
+
+
+def test_volatility_when_stunned_feeds_inner_turmoils_cycle_and_delays_its_explosion():
+    """MECHC44 (MECH91's routed item): "50% chance to gain Volatility when you are Stunned" at the boss's Light Stuns on you
+    adds to Inner Turmoil's gain rate, and each gain resets the explosion timer, so the stop lasts (e^(gD) - 1) / g."""
+    import math
+
+    from builder.search import models
+
+    texts = ["Gain 1 Volatility on inflicting an Elemental Ailment", "50% chance to gain Volatility when you are Stunned"]
+    rate, how = models.volatility_when_stunned(texts, 0.2, "x")
+    assert rate == pytest.approx(0.1) and "50% chance when Stunned" in how
+    assert models.volatility_when_stunned(texts[:1], 0.2) == (0.0, "")
+    stats = {"Speed": 2.0, "HitChance": 100, "IgniteChancePerHit": 50}
+    plain = models.volatility_model(texts[:1], stats)[1][0]
+    stunned = models.volatility_model(texts, {**stats, "_stunned_volatility": (rate, how)})[1][0]
+    assert "from being Stunned" in stunned["basis"] and "from being Stunned" not in plain["basis"]
+    assert f"{math.expm1(0.1 * 4) / 0.1:.2f} s after you stop" in stunned["basis"]

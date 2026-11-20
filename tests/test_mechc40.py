@@ -99,3 +99,31 @@ def test_soul_mantle_curses_you_at_the_shared_totem_death_rate(engine):
     print(row)
     assert "totems die a second" in row["basis"] and "Shockwave Totem" in row["basis"]
     assert any(str(n.get("label", "")).startswith("Soul Mantle: if the level gate") for n in notes)
+
+
+def test_vanguard_grants_its_stun_guard_on_every_stun_and_more_on_heavy_stuns(engine):
+    """MECHC44 (an UNDERCOUNT before: only the Heavy Stun stat was counted, alone): Vanguard I's text "Gain 2 Guard per
+    ten Strength when you Stun an Enemy / Gain an additional 4 Guard per ten Strength if Heavily Stunning": a Heavy Stun
+    grants 6 per 10 Strength, a Light Stun 2, each at the main skill's own stun rates (models.heavy_stun_rate /
+    light_stun_rate)."""
+    from builder.search import bosses, models
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    main = build.main_group()
+    old = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} for g in main["gems"]]
+    build.set_group(index=main["index"], gems=[*old, {"name": "Vanguard I", "level": 1, "quality": 0}])
+    present = {s["name"]: s for s in build.call("activeSkills")["skills"] if not s.get("disabled")}
+    stats = {**build.call("stats", fields=list(dict.fromkeys(["Life", "Str", *models.MODEL_FIELDS]))),
+             **bosses.kill_stats(bosses.DEFAULT)}
+    found = [f for f in search.assumptions.event_guards([], stats, "Boneshatter", present, bosses.DEFAULT)
+             if f[2]["label"].startswith("Guard from Vanguard I")]
+    strength = stats["Str"]
+    print(found, strength, models.heavy_stun_rate(stats), models.light_stun_rate(stats, True))
+    assert found
+    basis = found[0][2]["basis"]
+    assert f"{6 * strength / 10:,.0f} a Heavy Stun" in basis and f"{2 * strength / 10:,.0f} a Light Stun" in basis
+    assert "Light Stuns" in basis and "ROW, Heavy Stuns alone" in basis

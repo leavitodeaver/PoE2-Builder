@@ -577,9 +577,16 @@ NO_POWER_STAT = "cannot_gain_power_charges_during_skill"
 # OVERCOUNT before: two 50% on-hit lines made 1 a use, now 0.75). Lines granting several charges at once ("Gain 3 ...")
 # and lines not fed by the main skill's uses (on kill, when hit, every N seconds, a line's own once-every cap) stay
 # added. Read from the main skill's own stats and its supports', so any other carrier counts too. With the flag: added
-# (each hit may grant); the flagged skills' extra hits a use (an Orb's bolts, a Twister's ticks) are not read here: PoB's
-# Speed is the rate used, an UNDERCOUNT left (charges-per-action.md: hits/s of the lingering effect x p).
+# (each hit may grant). The flagged skills' extra hits a use (charges-per-action.md: hits/s of the lingering effect x p):
+# (MECHC44) a flagged Twister main skill's hits on the boss a cast (recovery.twister_hits' headline, the one its DPS
+# uses: MEDIUM-LOW, the open-arena 1 a cast a row) multiply its hits and crits a second (stats["_hits_per_use"]; an
+# UNDERCOUNT before: one hit a cast). Orb of Storms as the main skill needs none: PoB's Speed is already its bolts a
+# second under the kept one-bolt-a-recast reading (models.orb_of_storms_note), each bolt one hit. Still one hit a use (an
+# UNDERCOUNT left, said): Galvanic Field's orb, Elemental Storm, Killing Palm, Siphoning Strike, Wing Blast and the
+# Heralds' explosions as main skills, and a side Orb's bolts (the charge readers count the main skill's hits only).
 MULTI_CHARGE_STAT = "skill_can_add_multiple_charges_per_action"
+HELBRYMS_HIDE = "Helbrym's Hide"  # (MECHC44: recovery.HELBRYMS_HIDE; its Rage, Conditions._helbrym_rage)
+HITS_A_USE = {"Twister"}  # (MECHC44: main skills whose hits a use Conditions._hits_per_use reads)
 PIN_MORE_SUPPORT, PIN_MORE_STAT = "Pin III", "support_pin_pin_duration_+%_final"  # (MECH66: "Pin caused by Supported
 # Skills has 30% more duration", gem_stat_descriptions.csd; read by models.pin_duration_scale)
 NO_BLIND_STAT = "cannot_inflict_blind"  # Blindside (sup_dex.lua SupportBlindsidePlayer; Stats.json)
@@ -648,6 +655,11 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
     chance *= float(m.group("count") or 1)  # ("Gain 3 Power Charges on use": three per event; MECH48, was one)
     when = m.group(3).lower()
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
+    per_use = stats.get("_hits_per_use") if stats.get("_multi_charge") else None
+    if per_use and number(per_use[0]) > 0:
+        hits *= number(per_use[0])  # (MECHC44: a flagged main skill's hits a use, Twister's twisters; MULTI_CHARGE_STAT)
+    many = (f" ({number(per_use[0]):.2f} hits a use, each may grant: {per_use[1]}; at one hit a use: "
+            f"{hits / number(per_use[0]):.2f}/s)" if per_use and number(per_use[0]) > 0 else "")
     crits = hits * number(stats.get("CritChance")) / 100
     boss = 1 / bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHC11)
     if re.search(r"\bkill", when):  # (MECHC38: "kill" inside "This skill ..." read as on-kill before)
@@ -665,7 +677,7 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
     if (why := _hit_restriction(when, stats)) is not None:
         return 0.0, why
     if "critical hit" in when and "take" not in when:
-        return chance * crits, f"{chance:.0%} x {crits:.2f} crits/s"
+        return chance * crits, f"{chance:.0%} x {crits:.2f} crits/s{many}"
     if "take a critical hit" in when:
         # (MECHC20: a crit on you is a hit that lands: the boss's landed hits, the worst case's lowest real boss's; before,
         # every use of its skills, evaded and blocked ones too, an overcount)
@@ -675,7 +687,7 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
         block = boss_hits.block_share(stats, evaded_first=False)  # (red-flash hits can't be Blocked, MECHC5)
         return chance * boss * block, f"{chance:.0%} x {boss * block:.2f} blocks/s"
     if "on hit" in when or when.strip() in ("", "on hit") or "hit" in when:
-        return chance * hits, f"{chance:.0%} x {hits:.2f} hits/s"
+        return chance * hits, f"{chance:.0%} x {hits:.2f} hits/s{many}"
     if m2 := re.search(r"every (\d+(?:\.\d+)?)? ?seconds?|once per second|every second", when):
         every = float(m2.group(1)) if m2.groups() and m2.group(1) else 1.0
         if NOT_LOST_RECENTLY.search(when):  # (MECHC33: the Cultivated Redflare's line)
@@ -1743,6 +1755,10 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
     for name, uses, amount, said in stats.get("_raging_cry") or ():  # (MECHC43: Raging Cry, RAGING_CRY_STAT's note)
         gain, events = gain + uses * amount, events + uses
         how.append(f"{name} with Raging Cry ({amount:g} Rage a use, {said}; {uses:.3f} uses/s)")
+    for name, kept, amount, said in stats.get("_helbrym_rage") or ():  # (MECHC44: recovery.HELBRYMS_HIDE's note)
+        if kept > 0 and amount > 0:
+            gain, events = gain + kept * amount, events + kept
+            how.append(f"{name}'s Composure ({amount:,.0f} Rage each, {kept:.3f}/s: {said})")
     for text in lines:
         if not qualifies(text, main_types):
             continue
@@ -7354,6 +7370,34 @@ class Conditions:
             out.append((name, uses.get(name, self._chosen_use(name)), float(amount), said))
         return out
 
+    def helbrym_composure(self, boss=None) -> tuple[float, float, float, str]:
+        """(MECHC41 / MECHC44; recovery.HELBRYMS_HIDE's note) (form changes a second, the share of Composures kept,
+        the boss's damage a second after your mitigation, how the changes were read) for Helbrym's Hide: one Composure
+        per change into the supported form, kept if no other change comes in its 2 s soak (e^(-2h)); it stores the damage
+        taken over the soak, returned as Guard (50%) and Rage (3%) when it expires."""
+        from builder.search import objective, recovery
+
+        fields = sorted(set(objective.RECOVERY_INPUTS) | {"Speed"})
+        added = getattr(self.build, "added_stats", None)
+        read = {**self.build.call("stats", fields=fields), **(added() if callable(added) else {}), "_boss": boss}
+        shifts, how = self._human_shifts(number(read.get("Speed")), any_form=True)
+        kept = math.exp(-recovery.HELBRYM_SOAK * shifts)
+        taken = sum(objective.boss_taken(read)[0].values())
+        return shifts, kept, taken, how
+
+    def _helbrym_rage(self, boss) -> list[tuple[str, float, float, str]]:
+        """(MECHC44) [(source, Composures kept a second, Rage each, how)] for rage_held: 3% of the damage the 2 s soak
+        stores (recovery.HELBRYMS_HIDE's note)."""
+        from builder.search import recovery
+
+        shifts, kept, taken, how = self.helbrym_composure(boss)
+        rage = recovery.HELBRYM_RAGE_SHARE * taken * recovery.HELBRYM_SOAK
+        return [(recovery.HELBRYMS_HIDE, shifts * kept, rage,
+                 f"{recovery.HELBRYM_RAGE_SHARE:.0%} of the {taken:,.0f} damage a second the boss lands after your "
+                 f"mitigation, stored over {recovery.HELBRYM_SOAK:g} s, when Helbrym's Composure expires; one per change "
+                 f"into the supported form ({how}), kept {kept:.0%} (no other change in its soak; without that loss: "
+                 f"{shifts:.2f}/s); a lump, so the Rage maximum caps it")]
+
     def _chosen_use(self, name: str) -> float:
         """Uses per second of a skill beside the main one that no group rate covers: the search's chosen press rate for
         it (models.press_choices), else 0 (no source, 0; MECH56: before, one use every models.PRESS_EVERY s)."""
@@ -7445,6 +7489,18 @@ class Conditions:
         return uses, chance, (f"{how}; {melee:g} of your {total:g} Reviving Skeletons fight in melee, so "
                               f"{at_boss:.2f} fallen at the boss on average and {chance:.0%} of Commands strike one "
                               "there (MEDIUM; ranged Skeletons' bodies taken to be away from it, LOW)")
+
+    def _hits_per_use(self) -> tuple[float, str]:
+        """(MECHC44) (hits on the boss a use, how) for a HITS_A_USE main skill: Twister's twister-count headline
+        (recovery.twister_hits, the same reading Assumptions.models scales its DPS by; the open arena's 1 a cast a row)."""
+        from builder.search import recovery  # (recovery imports nothing of this module at load, but keep it lazy)
+
+        boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+        seen = self.build.call("stats", fields=list(recovery.TWISTER_FIELDS))
+        radius, _ = bosses.hit_radius({"_boss": boss})
+        head, open_row, _ = recovery.twister_hits(seen, radius)
+        return head, (f"Twister's twister-count reading, MEDIUM-LOW, as its DPS counts; in an open arena {open_row:g} "
+                      "a cast")
 
     def _kills(self) -> tuple[float, float, str]:
         """models.kill_rate's (enemies/s, all/s, how) for the request's boss: its preset's add kills (bosses.kill_stats,
@@ -8272,14 +8328,18 @@ class Conditions:
             if number((main.get("supportStats") or {}).get(NO_POWER_STAT)) or number(
                     (main.get("levelStats") or {}).get(NO_POWER_STAT)):
                 stats["_main_no_power"] = NO_POWER_STAT
-        if sum(1 for t in texts if re.search(r"\bCharges?\b", t)) >= 2:
+        hits_a_use = self.main_skill in HITS_A_USE and any(re.search(r"\bCharges?\b", t) for t in texts)
+        if hits_a_use or sum(1 for t in texts if re.search(r"\bCharges?\b", t)) >= 2:
             # (MECHC43) the main skill's skill_can_add_multiple_charges_per_action: without it, one charge of each type a
-            # use (_per_use_joined); asked only when two or more charge lines could be joined
+            # use (_per_use_joined); asked only when two or more charge lines could be joined, or (MECHC44) for a main
+            # skill with several hits a use (HITS_A_USE), whose hits each grant when flagged
             raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=[MULTI_CHARGE_STAT])
             main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
             if number((main.get("supportStats") or {}).get(MULTI_CHARGE_STAT)) or number(
                     (main.get("levelStats") or {}).get(MULTI_CHARGE_STAT)):
                 stats["_multi_charge"] = MULTI_CHARGE_STAT
+                if hits_a_use:
+                    stats["_hits_per_use"] = self._hits_per_use()
         if any(BLIND_LINE.search(t) for t in texts):
             # a main skill that "cannot themselves inflict Blind" (Blindside's cannot_inflict_blind, on the skill or a
             # support of it; RESEARCH9 / COVE3's OVERCOUNT, MECH55): its hits and crits feed no Blind line (_debuff_source)
@@ -8387,6 +8447,8 @@ class Conditions:
         if any("Warcry" in (types or ()) for types in gem_types.values()):  # (MECHC43: RAGING_CRY_STAT's note; any
             # Warcry, so a carrier other than Raging Cry counts too: its exclusivity is UNVERIFIED beyond the game files)
             stats["_raging_cry"] = self._raging_cry(models.power_of(stats))
+        if HELBRYMS_HIDE in gem_types and self.main_skill:  # (MECHC44: Helbrym's Hide's Rage, rage_held)
+            stats["_helbrym_rage"] = self._helbrym_rage(stats.get("_boss"))
         stats["_shocked_ground"] = shocked_ground(stats, texts)
         stats["_chilled_ground"] = chilled_ground(stats, texts, main_gems)  # (MECH76, for COV-A's Desert's Scorn)
         # (MECH79) the build's Ignited Ground at the boss: the ground gains' Fire, COV-A's Desert's Scorn cold half
