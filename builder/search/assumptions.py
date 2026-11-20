@@ -1504,6 +1504,35 @@ def herald_of_thunder(build: Build, main: models.Skill | None) -> tuple[float, l
     return models.herald_of_thunder_model(bolt, hits, kills, up.get("Shock", 0.0), storm, how)
 
 
+def fan_the_flames(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Fan the Flames (GEM23's models.fan_the_flames_model): in each enabled group holding the
+    triggered explosion, the supported skill's hits a second (_skill_hits), the explosion's row (cooldown, damage a use),
+    PoB's own Full DPS entry, and the boss's Ignite uptime (models.ailment_up_of)."""
+    press = getattr(build.objective, "press_scales", None) or {}
+    up, up_how = models.ailment_up_of(build)
+    parts, entries = [], None
+    for group in build.groups():
+        if not group["enabled"]:
+            continue
+        skills = group.get("skills") or []
+        n = next((i for i, x in enumerate(skills, 1) if x["name"] == models.FAN_THE_FLAMES), 0)
+        src = next((i for i, x in enumerate(skills, 1) if i != n), 0) if n else 0
+        if not src:
+            continue
+        hits, own = _skill_hits(build, group, src, press)
+        row = next(iter(build.call("useRates", indices=[group["index"]], actives=[n])["rates"]), None) or {}
+        speed = models.number(row.get("speed"))
+        blast = models.number(row.get("TotalDPS")) / speed if speed > 0 else models.number(row.get("AverageHit"))
+        if entries is None:
+            entries = build.call("stats", fields=["SkillDPS"]).get("SkillDPS") or []
+        pob = sum(models.number(e.get("dps")) * (e.get("count") or 1) for e in entries
+                  if e.get("name") == models.FAN_THE_FLAMES)
+        parts.append({"source": own.get("name") or skills[src - 1]["name"], "hits": hits,
+                      "ignited": up.get("Ignite", 0.0), "how": up_how, "cooldown": models.number(row.get("cooldown")),
+                      "blast": blast, "pob": pob})
+    return models.fan_the_flames_model(parts)
+
+
 def broken_stance(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Vaulting Impact's Broken Stance (GEM5's models.broken_stance_model; GEM6 wires it): the
     best Vaulting Impact in an enabled group (its pre-mitigation Physical hit, PoB's PhysicalStoredCombinedAvg, and its
@@ -3025,6 +3054,11 @@ class Assumptions:
         thunder, thunder_notes = herald_of_thunder(build, main)  # (GEM23: its bolts after Shocked kills)
         hand_mods += [models.added_input("HeraldOfThunder", thunder)] if thunder > 0 else []
         hand_notes += thunder_notes
+        flames, flames_notes = fan_the_flames(build, main)  # (GEM23: on hits vs an Ignited boss; PoB's entry out of Full DPS)
+        hand_mods += [models.added_input("FanTheFlames", flames)] if flames > 0 else []
+        hand_notes += flames_notes
+        for note in flames_notes:
+            build.objective.entry_scales.update(note.get("full_dps") or {})
         stance, stance_notes = broken_stance(build, main)  # (GEM5's model; MECH-A's build.dazed_up, 0 until published)
         hand_mods += [models.added_input("BrokenStance", stance)] if stance > 0 else []
         hand_notes += stance_notes

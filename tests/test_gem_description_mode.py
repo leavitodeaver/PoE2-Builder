@@ -1401,3 +1401,16 @@ def test_herald_of_thunder_bolts_follow_shocked_kills_and_the_attacks_hits():
     assert models.herald_of_thunder_model(100.0, 0.1, 1.0, 1.0, 3)[0] == pytest.approx(10.0)  # (capped by the hits)
     assert models.herald_of_thunder_model(100.0, 2.0, 0.0, 1.0, 3)[0] == 0.0  # (a lone boss: no source, 0)
     assert models.herald_of_thunder_model(0.0, 2.0, 1.0, 1.0, 3) == (0.0, [])
+
+
+def test_fan_the_flames_explodes_on_hits_against_an_ignited_boss_up_to_its_cooldown():
+    """GEM23: explosions a second = min(hits x Ignite uptime, 1 / cooldown) x one explosion; PoB's entry out of Full DPS."""
+    dps, notes = models.fan_the_flames_model([{"source": "Twister", "hits": 1.5, "ignited": 0.4, "cooldown": 0.5,
+                                               "blast": 200.0, "pob": 234.8}])
+    assert dps == pytest.approx(1.5 * 0.4 * 200)
+    assert notes[0]["full_dps"] == {models.FAN_THE_FLAMES: 0.0} and notes[0]["entry"] == models.FAN_THE_FLAMES_ENTRY
+    assert models.fan_the_flames_model([{"hits": 10.0, "ignited": 1.0, "cooldown": 0.5, "blast": 100.0}])[0] == \
+        pytest.approx(200.0)  # (the cooldown caps it)
+    dps, notes = models.fan_the_flames_model([{"hits": 2.0, "ignited": 0.0, "cooldown": 0.5, "blast": 100.0}])
+    assert dps == 0.0 and notes[0]["full_dps"] == {models.FAN_THE_FLAMES: 0.0}  # (no Ignite: 0, PoB's entry still out)
+    assert models.fan_the_flames_model([]) == (0.0, [])

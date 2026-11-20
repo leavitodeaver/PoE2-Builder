@@ -8291,6 +8291,53 @@ def herald_of_thunder_model(bolt: float, attack_hits: float, kills: float, shock
                  f"nothing. Shock the boss's adds and kill them with attacks: with this fight's adds {dps:,.1f} DPS; "
                  f"without Shocked kills: 0.")}]
 
+
+# Fan the Flames' explosions (GEM23; an OVERCOUNT in Full DPS: probe POE2T3548, Twister 23.1 -> 257.9 FullDPS with the
+# support, PoB's triggered skill at a flat 1 use a second (castTime 1, cooldown 0.5 s) whatever the supported skill's
+# hits and whether the boss is Ignited; the boss score, CombinedDPS, didn't move). The game (26650308): the support
+# (SupportFanTheFlamesPlayer / Two, support_fan_the_flames_trigger_explosion_on_hit_vs_ignited_enemies): "Supports Wind
+# Skills which Hit enemies. Hits with Supported Skills against Ignited enemies Trigger a fiery explosion"; the explosion
+# (TriggeredFanTheFlamesPlayer / Two): triggered_by_support_fan_the_flames_% 100, cooldown 500 ms with 5 stored uses
+# (GrantedEffectsPerLevel), "Cannot Ignite" (never_ignite). So explosions a second = min(the supported skill's hits a
+# second on the boss x 100% x the boss's Ignite uptime, 1 / its cooldown) (stored uses only bunch them), each at PoB's
+# own explosion damage (its useRates row: TotalDPS / speed). The hits: the supported skill's useRates row x its hit
+# chance x its press share (assumptions._skill_hits), one hit a use (a skill hitting the boss more than once a use:
+# an UNDERCOUNT, labelled). The Ignite uptime: the resolver's (models.ailment_up_of, after the consume cut; no Ignite
+# source: 0, CLAUDE.md). PoB's own entry is taken out of Full DPS (Objective.entry_scales 0, as MECHB42's Living
+# Lightning) and this rate added as an added source, so both scoring modes count the same. MEDIUM (the trigger, chance
+# and cooldown are the game's; one hit a use and independence of the hits from the Ignite's timing are labelled).
+FAN_THE_FLAMES = "Fan the Flames"
+FAN_THE_FLAMES_ENTRY = "model-gem23-fan-the-flames-rate"
+
+
+def fan_the_flames_model(parts: list[dict]) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Fan the Flames (see above): `parts`, one per supported group: {"source": the supported
+    skill, "hits": its hits a second on the boss, "ignited": the boss's Ignite uptime, "how": its basis, "cooldown":
+    the explosion's cooldown (s), "blast": one explosion's damage on the boss (PoB's), "pob": PoB's Full DPS entry}."""
+    total, rows = 0.0, []
+    for part in parts:
+        hits, ignited = max(number(part.get("hits")), 0.0), min(max(number(part.get("ignited")), 0.0), 1.0)
+        cooldown, blast = number(part.get("cooldown")), max(number(part.get("blast")), 0.0)
+        offered = hits * ignited
+        rate = min(offered, 1.0 / cooldown) if cooldown > 0 else offered
+        total += rate * blast
+        rows.append(f"{part.get('source')}: {hits:.2f} hits a second x the boss Ignited {ignited:.0%} "
+                    f"({part.get('how') or 'the resolver'}) = {offered:.2f}, at most 1 / {cooldown:g} s: {rate:.2f} "
+                    f"explosions a second at {blast:,.0f}" + (f" (PoB's entry {number(part.get('pob')):,.1f} DPS)"
+                                                                if part.get("pob") is not None else ""))
+    if not parts:
+        return 0.0, []
+    return total, [{
+        "label": "Fan the Flames: explosions on your hits against an Ignited boss*", "value": f"{total:,.1f} DPS",
+        "confidence": "MEDIUM", "entry": FAN_THE_FLAMES_ENTRY, "full_dps": {FAN_THE_FLAMES: 0.0},
+        "basis": ("PoB counts the explosion once a second whatever your hits and whether the boss is Ignited (its entry "
+                  "is taken out of Full DPS). The game: each hit of the supported Wind skill against an Ignited enemy "
+                  "triggers it, 0.5 s cooldown (the explosion can't Ignite): " + "; ".join(rows)
+                  + ". One hit a use counted (more hits a use: an undercount)"),
+        "play": (f"Fan the Flames needs the boss Ignited by something else (its explosion can't Ignite): keep an Ignite "
+                 f"on the boss and hit it with the Wind skill. With this build's Ignite {total:,.1f} DPS; without an "
+                 f"Ignite on the boss: 0.")}]
+
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
 # "Hit damage is taken from Mana before Life if your current Mana is higher than your current Life" (poe2db): counted as
 # 100% Mind over Matter while the build's unreserved Mana is above its Life, both pools full (the manager's ruling,

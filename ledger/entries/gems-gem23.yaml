@@ -41,3 +41,26 @@
             "scratch/gem23/probe_hot.json"]
   test_in_game: "Optional: a Shocking attack build with Herald of Thunder against a boss with adds: bolts should fall on the boss for a few hits after each Shocked add dies."
   status: proposed
+
+- id: model-gem23-fan-the-flames-rate
+  title: "Fan the Flames: explosions on the supported Wind skill's hits against an Ignited boss, 0.5 s cooldown (PoB: a flat 1 a second in Full DPS)"
+  kind: model
+  model: fan_the_flames
+  stats: ["triggered_by_support_fan_the_flames_%", "support_fan_the_flames_trigger_explosion_on_hit_vs_ignited_enemies"]
+  skill: [Fan the Flames, Fan The Flames, Fan The Flames II]
+  confidence: MEDIUM
+  notes: >-
+    models.fan_the_flames_model + assumptions.fan_the_flames (GEM23; an OVERCOUNT in Full DPS). Probe POE2T3548
+    (scratch/gem23/probe_trig.json): Twister's FullDPS 23.1 -> 257.9 with Fan The Flames I or II (PoB's explosion at
+    speed 1, 234.8 a use, whether or not the boss is Ignited); CombinedDPS unchanged. Game: "Hits with Supported Skills
+    against Ignited enemies Trigger a fiery explosion" (SupportFanTheFlamesPlayer), the explosion's
+    triggered_by_support_fan_the_flames_% 100, cooldown 500 ms, 5 stored uses (GrantedEffectsPerLevel), "Cannot Ignite".
+    Explosions a second = min(the supported skill's hits a second x the boss's Ignite uptime, 1 / cooldown), each at
+    PoB's explosion damage; PoB's own entry scaled to 0 in Full DPS (Objective.entry_scales), the rate added as an added
+    source. Fan The Flames II's Ignite spread to other enemies isn't read (adds only).
+  sources: ["builder/search/models.py (fan_the_flames_model)", "builder/search/assumptions.py (fan_the_flames)",
+            "data/game-26650308/tables (GrantedEffects 505 / 506 / 1129 / 1130; GrantedEffectsPerLevel)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_str.lua (SupportFanTheFlamesPlayer, TriggeredFanTheFlamesPlayer)",
+            "scratch/gem23/probe_trig.json"]
+  test_in_game: "Optional: Twister with Fan the Flames on a boss with and without an Ignite: explosions only while it's Ignited, at most two a second."
+  status: proposed
