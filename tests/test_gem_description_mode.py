@@ -1579,3 +1579,49 @@ def test_natures_archon_raises_the_overgrown_share_for_accelerated_growth():
     up, how = models.natures_archon_uptime(texts, 1.0 * 0.2, {}, False, 1.0)
     assert 0 < up < 1 and "Nature's Archon" in how
     assert models.natures_archon_uptime([], 1.0, {}, False, 1.0)[0] == 0.0
+
+
+def test_void_illusion_explodes_at_the_destroyed_copy_rate_and_takes_pobs_flat_entry_out():
+    """GEM27: explosions a second = min(rolls, 1 / cooldown, one destroyed copy every 5 s), each at PoB's explosion; the
+    rolls' time off the main skill unless already charged; not worth it: 0; PoB's own Full DPS entry cut (MECHB45's tally)."""
+    dps, mods, notes = models.void_illusion_model(400.0, 4.0, main_dps=100.0, pob=104.8, main="Boneshatter")
+    assert dps == pytest.approx(400.0 / models.ILLUSION_DESTROYED_EVERY)
+    assert notes[0]["label"].startswith("Time spent dodge rolling")
+    assert mods[0]["scale"] == pytest.approx(-100 * models.DODGE_ROLL_SECONDS / models.ILLUSION_DESTROYED_EVERY)
+    assert notes[-1]["entry_cut"] == {models.VOID_ILLUSION: 104.8} and "taken out" in notes[-1]["basis"]
+    dps, mods, notes = models.void_illusion_model(400.0, 4.0, main_dps=100.0, charged=True, main="Boneshatter")
+    assert dps == pytest.approx(80.0) and mods == [] and len(notes) == 1  # (rolling already charged elsewhere)
+    dps, mods, notes = models.void_illusion_model(400.0, 4.0, main_dps=1000.0, main="Boneshatter")
+    assert dps == 0.0 and notes[0]["entry_cut"] == {}  # (not worth rolling for; no Full DPS entry given)
+    assert models.void_illusion_model(0.0, 4.0)[0] == 0.0
+
+
+def test_gale_force_fires_on_landed_boss_hits_with_a_stage_held_and_takes_pobs_flat_entry_out():
+    """GEM27: Gale Forces a second = the boss's landed hits L x e^(-L T) (a stage held), held to the cooldown, each at
+    PoB's use; PoB's flat Full DPS entry out; a boss that lands nothing: 0."""
+    import math
+    dps, notes = models.gale_force_model(0.4, 1.5, 100.0, 0.264, pob=27.2)
+    assert dps == pytest.approx(0.4 * math.exp(-0.6) * 100.0)
+    assert notes[0]["entry_cut"] == {models.GALE_FORCE: 27.2} and "taken out" in notes[0]["basis"]
+    assert models.gale_force_model(10.0, 0.0, 100.0, 0.5)[0] == pytest.approx(200.0)  # (the cooldown holds it)
+    assert models.gale_force_model(0.0, 1.5, 100.0)[0] == 0.0
+
+
+def test_event_trigger_supports_fire_on_their_event_not_every_use():
+    """GEM27: Volcanic Eruption at the hits on an Ignited boss held to its cooldown; Armour Explosion at the Full Breaks
+    held to the hits; no event: 0."""
+    dps, notes = models.event_trigger_model(models.VOLCANIC_ERUPTION, 1.4 * 0.5, 1 / 0.4, 10.0, "test", "Sunder", pob=8.9)
+    assert dps == pytest.approx(7.0) and "taken out" in notes[0]["basis"]
+    assert models.event_trigger_model(models.VOLCANIC_ERUPTION, 10.0, 1 / 0.4, 10.0, "t", "Sunder")[0] == pytest.approx(25.0)
+    assert models.event_trigger_model(models.ARMOUR_EXPLOSION, 0.0, 1.4, 10.0, "t", "Sunder")[0] == 0.0
+    dps, notes = models.event_trigger_model(models.ARMOUR_EXPLOSION, 1 / 12, 1.4, 120.0, "t", "Sunder")
+    assert dps == pytest.approx(10.0) and notes[0]["entry"] == "model-gem27-armour-explosion"
+
+
+def test_voltaic_beams_need_projectiles_through_a_standing_wall():
+    """GEM27: beams a second = the main skill's hits x the wall's uptime, only for a Projectile main skill; else 0."""
+    dps, notes = models.voltaic_beams_model(2.0, True, 0.5, 40.0, "Lightning Arrow", "test", pob=60.7)
+    assert dps == pytest.approx(40.0) and "taken out" in notes[0]["basis"]
+    dps, notes = models.voltaic_beams_model(1.4, False, 1.0, 40.0, "Boneshatter", "test", pob=60.7)
+    assert dps == 0.0 and "fires none" in notes[0]["basis"]
+    assert models.voltaic_beams_model(2.0, True, 3.0, 40.0, "Lightning Arrow", "t")[0] == pytest.approx(80.0)

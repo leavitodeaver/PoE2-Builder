@@ -9071,6 +9071,192 @@ def repulsion_wave_model(wave: float, hits: float, cast: float, delay: float, du
                     f"of the main skill than it gives ({gain_fast:,.1f} net)."))}]
 
 
+# Void Illusion's explosions (GEM27; an OVERCOUNT: sweep probe POE2T3595, a Void Illusion group in Full DPS beside
+# Boneshatter 26.38 -> 131.22, PoB rating the triggered explosion (VoidIllusionSpawnPlayer, castTime 1) at its cooldown,
+# a flat 1 every 4 s (speed 0.25, 104.83 DPS), whether or not the build ever rolls or the boss ever touches a copy). The
+# game (26650308): Void Illusion (Acolyte of Chayula's Grasp of the Void, "Grants Skill: Void Illusion"; ActiveSkills
+# void_illusion): "While active, creates a short-lived illusory copy of yourself whenever you dodge roll. The copy can be
+# damaged by enemies, and copies that are destroyed by an enemy will cause damaging explosions. Copies created this way
+# have 1 Life"; the copy (VoidIllusionSpawnPlayer, GrantedEffectsPerLevel): Cooldown 4000 ms, 3 stored uses, 2 s
+# duration (base_skill_effect_duration 2000). So explosions a second = the copies the build's dodge rolls make (held to
+# 1 / cooldown: the stored uses only bunch them) x the share an enemy destroys. A boss destroying a copy is the boss's
+# AI (no data gives it): the user's own rate for dodge-roll copies, "the boss destroys one of your dodge-roll copies
+# every 5 s" (9 Nov, Lingering Illusion; questions_for_morning.md "Answered 9 Nov ~03:05" 2), is used here too (LOW:
+# the user set it for Lingering Illusion's copies; these have 1 Life and last 2 s). A player who takes it rolls to feed
+# it (CLAUDE.md): every max(DODGE_EVERY, the time per destroyed copy) s, the rolls' time off the main skill (the user,
+# 7 Nov), not charged twice when another model already charges rolling, and only when the explosions beat that time.
+# Each explosion: PoB's own use (its useRates TotalDPS / speed). Counted whether or not its group is in Full DPS (a
+# persistent buff: the copies come on their own), PoB's entry out of Full DPS. LOW.
+VOID_ILLUSION = "Void Illusion"
+VOID_ILLUSION_ENTRY = "model-gem27-void-illusion"
+ILLUSION_DESTROYED_EVERY = 5.0  # the user's rate for dodge-roll copies destroyed by a boss (9 Nov), LOW for Void Illusion
+
+
+def void_illusion_model(blast: float, cooldown: float, main_dps: float = 0.0, pob: float = 0.0,
+                        roll_seconds: float = DODGE_ROLL_SECONDS, charged: bool = False,
+                        main: str = "") -> tuple[float, list[dict], list[dict]]:
+    """(added DPS, mods, notes) for Void Illusion (see above): `blast` one explosion's damage (PoB's), `cooldown` the
+    copy's cooldown (PoB's, after recovery), `main_dps` the main skill's, `pob` PoB's Full DPS entry (taken out);
+    `charged`: another model already has the build rolling every DODGE_EVERY s."""
+    blast, cooldown = max(number(blast), 0.0), max(number(cooldown), 0.0)
+    label = "Void Illusion: explosions when the boss destroys your dodge-roll copies*"
+    out = {VOID_ILLUSION: pob} if pob > 0 else {}  # (MECHB45's tally: this group's own entry off the name's total)
+    took = f"PoB rates the explosion at its cooldown ({pob:,.1f} DPS in Full DPS), taken out. " if pob > 0 else ""
+    if blast <= 0:
+        return 0.0, [], [{"label": label, "value": "0 DPS", "confidence": "LOW", "entry": VOID_ILLUSION_ENTRY,
+                          "entry_cut": out, "basis": took + "PoB gives the explosion no damage here"}]
+    cap = min(1 / cooldown if cooldown > 0 else float("inf"), 1 / ILLUSION_DESTROYED_EVERY)
+    every = DODGE_EVERY if charged else max(DODGE_EVERY, 1 / cap)
+    rate = min(1 / every, cap)
+    dps = rate * blast
+    busy = 0.0 if charged else min(roll_seconds / every, 0.95)
+    lost = busy * max(number(main_dps), 0.0)
+    basis = (took + f"The game: a copy each dodge roll, at most one per {cooldown:g} s (its cooldown), 1 Life, 2 s; it "
+             f"explodes only when an enemy destroys it: the boss destroys one every {ILLUSION_DESTROYED_EVERY:g} s at "
+             f"most (the user's rate for dodge-roll copies, 9 Nov; LOW here), a roll every {every:g} s"
+             + (" (another model already has the build rolling)" if charged else " (rolling to feed it)")
+             + f": {rate:.3f} explosions a second at {blast:,.1f} each")
+    if dps <= lost:
+        return 0.0, [], [{"label": "Void Illusion: not worth rolling for*", "value": "0 DPS", "confidence": "LOW",
+                          "entry": VOID_ILLUSION_ENTRY, "entry_cut": out,
+                          "basis": basis + f"; rolling costs {main or 'the main skill'} {busy:.0%} of its time "
+                                           f"({lost:,.1f} DPS): not counted",
+                          "play": f"Rolling for Void Illusion costs more than it gives here: {dps:,.1f} DPS vs {lost:,.1f} lost."}]
+    mods = [line("1% more Attack and Cast Speed", -100 * busy, skill=main)] if busy > 0 and main else []
+    roll_note = [{"label": f"Time spent dodge rolling ({main})", "value": f"{busy:.1%} less Attack and Cast Speed",
+                  "basis": (f"the build rolls every {every:g} s for Void Illusion's copies, each roll {roll_seconds:.3g} "
+                            f"s away from {main}"), "confidence": "theory"}] if mods else []
+    return dps, mods, roll_note + [{
+        "label": label, "value": f"{dps:,.1f} DPS", "confidence": "LOW", "entry": VOID_ILLUSION_ENTRY,
+        "entry_cut": out, "basis": basis,
+        "play": (f"Dodge roll near the boss so it hits your copy (every {every:g} s): {dps:,.1f} DPS"
+                 + (f", net of the rolls' time ({lost:,.1f})" if lost > 0 else "")
+                 + f"; rolling every {DODGE_EVERY:g} s with the boss destroying every copy the cooldown allows: "
+                   f"{min(1 / DODGE_EVERY, 1 / cooldown if cooldown > 0 else 1 / DODGE_EVERY) * blast:,.1f} (before "
+                   f"the rolls' time); never rolling, or "
+                   f"the boss ignoring the copies: 0.")}]
+
+
+# Wind Dancer's Gale Force (GEM27; an OVERCOUNT: sweep probe POE2T3595, a Wind Dancer group in Full DPS beside
+# Boneshatter 26.38 -> 53.58, PoB rating the triggered Gale Force (TriggeredWindDancerPlayer, castTime 1) at a flat 1.4
+# uses a second, castTime x the build's attack speed, whether or not the boss ever hits). The game (26650308,
+# ActiveSkills wind_dancer): "Being Hit by an Enemy while you have this buff consumes all stages to damage and Knock
+# Back enemies around you": one Gale Force per landed boss hit while at least one stage is held. MECH-C's
+# conditions.wind_dancer_stages takes the boss's landed hits as random arrivals at L a second (boss_hits.land_share over
+# bosses.benefit_skill_time) and a stage every T s (wind_dancer_stages_gained_every_x_ms): a hit finds at least one stage
+# with chance e^(-L T). So Gale Forces a second = L x e^(-L T), held to its cooldown (PoB's), each at PoB's own use
+# (TotalDPS / speed; PoB's more damage per stage at MECH-C's average stages: the stages a hit consumes, conditional on
+# at least one, run a little higher, an UNDERCOUNT, labelled). Counted whether or not its group is in Full DPS (a
+# persistent buff), PoB's entry out of Full DPS. MEDIUM (MECH-C's arrival model; the boss's hit rate is MECH-D's).
+GALE_FORCE = "Gale Force"
+GALE_FORCE_ENTRY = "model-gem27-gale-force"
+
+
+def gale_force_model(landed: float, every: float, blast: float, cooldown: float = 0.0,
+                     pob: float = 0.0) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Gale Force (see above): `landed` the boss's landed hits a second, `every` Wind Dancer's
+    stage interval (s), `blast` one Gale Force (PoB's), `cooldown` its cooldown, `pob` PoB's Full DPS entry (taken out)."""
+    landed, every, blast = max(number(landed), 0.0), max(number(every), 0.0), max(number(blast), 0.0)
+    if blast <= 0:
+        took = f"PoB's Gale Force entry ({pob:,.1f} DPS in Full DPS) taken out; " if pob > 0 else ""
+        return 0.0, [{"label": "Wind Dancer: Gale Force when the boss hits you with a stage held*", "value": "0 DPS",
+                      "confidence": "MEDIUM", "entry": GALE_FORCE_ENTRY, "entry_cut": {GALE_FORCE: pob} if pob > 0 else {},
+                      "basis": took + "PoB gives Gale Force no damage here (no usable weapon for it): 0"}]
+    held = math.exp(-landed * every) if every > 0 else 1.0
+    rate = landed * held
+    if cooldown > 0:
+        rate = min(rate, 1 / cooldown)
+    dps = rate * blast
+    took = f"PoB rates Gale Force at the build's attack speed ({pob:,.1f} DPS in Full DPS), taken out. " if pob > 0 else ""
+    return dps, [{
+        "label": "Wind Dancer: Gale Force when the boss hits you with a stage held*", "value": f"{dps:,.1f} DPS",
+        "confidence": "MEDIUM", "entry": GALE_FORCE_ENTRY, "entry_cut": {GALE_FORCE: pob} if pob > 0 else {},
+        "basis": (took + f"The game: each boss hit that lands while you hold a stage consumes them all in a Gale Force: "
+                  f"the boss lands {landed:.3f} hits a second (taken as random), a stage every {every:.2f} s, so "
+                  f"{held:.0%} of them find one: {rate:.3f} a second at {blast:,.1f} each (PoB's, at the average "
+                  f"stages; the stages a hit consumes run a little higher: an undercount)"),
+        "play": (f"Gale Force fires when the boss hits you: {dps:,.1f} DPS at this build's defences; a boss that never "
+                 f"lands a hit: 0.")}]
+
+
+# Supports whose triggered skill fires on an event of the supported skill's hits, scored by PoB at one a use of the
+# supported skill whatever the event (GEM27; OVERCOUNTS: sweep probe POE2T3595, each support on Boneshatter, Full DPS
+# objective: Volcanic Eruption 26.38 -> 35.25, Armour Explosion 26.38 -> 40.96, each triggered skill at Boneshatter's 1.4
+# uses a second, though the boss was never Ignited or Fully Broken). The game (26650308):
+# - Volcanic Eruption (SupportVolcanicEruptionPlayer): "Supported Skills trigger Volcanic Eruption on Hit against
+#   Ignited Enemies" (support_volcanic_eruption_%_chance_to_trigger_vs_ignited_enemies 100); TriggeredVolcanicEruption
+#   Cooldown 400 ms, 1 stored use. Eruptions a second = the supported skill's hits a second on the boss (_skill_hits) x
+#   the boss's Ignite uptime (the resolver's, models.ailment_up_of; no Ignite: 0), held to the cooldown (PoB's). MEDIUM.
+# - Armour Explosion (SupportArmourExplosionPlayer): "trigger a Fiery explosion when they Fully Break an enemy's Armour"
+#   (trigger_on_armour_break_%_chance 100; no cooldown). Explosions a second = the boss's Full Breaks a second: MECH-A's
+#   Fully Broken share (build.full_break_up) / the Full Break's duration (models.full_break_duration: one Full Break per
+#   Broken stint, as conditions.scavenged_plating_stacks), held to the supported skill's hits; the build's other break
+#   sources are counted as the supported skill's (an OVERCOUNT where another skill breaks: labelled). No break: 0.
+#   MEDIUM-LOW.
+# Each at PoB's own use (its useRates TotalDPS / speed). PoB's entry for this group's triggered skill is taken out of Full
+# DPS by the share it holds of the entries of that name (Ancestral Cry's projectiles are also "Volcanic Eruption": a
+# name-wide 0 would take MECH-B's out too). Counted for the main group, or a group in Full DPS while the score reads it.
+VOLCANIC_ERUPTION, ARMOUR_EXPLOSION = "Volcanic Eruption", "Armour Explosion"
+EVENT_TRIGGER_ENTRY = {VOLCANIC_ERUPTION: "model-gem27-volcanic-eruption", ARMOUR_EXPLOSION: "model-gem27-armour-explosion"}
+EVENT_TRIGGER_SUPPORTS = {VOLCANIC_ERUPTION: "Volcanic Eruption", ARMOUR_EXPLOSION: "Armour Explosion"}  # support gem
+
+
+def voltaic_beams_model(hits: float, projectile: bool, uptime: float, beam: float, main: str, how: str,
+                        pob: float = 0.0) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Voltaic Barrier's chaining beams (see VOLTAIC_BARRIER below): `hits` the main skill's hits
+    a second on the boss, `projectile` whether it fires projectiles, `uptime` the share of the fight a wall stands,
+    `beam` one beam's hit (PoB's), `pob` PoB's Full DPS entry (taken out)."""
+    rate = max(number(hits), 0.0) * min(max(number(uptime), 0.0), 1.0) if projectile else 0.0
+    dps = rate * max(number(beam), 0.0)
+    took = f"PoB rates the beams at Voltaic Barrier's own attack speed ({pob:,.1f} DPS in Full DPS), taken out. " if pob > 0 else ""
+    if not projectile:
+        basis = took + f"The game: only Projectiles fired through the wall discharge beams; {main} fires none: 0"
+    else:
+        basis = (took + f"The game: each Projectile fired through the wall discharges a beam on Hit: {main}'s {hits:.2f} "
+                 f"hits a second x a wall up {uptime:.0%} of the fight ({how}) = {rate:.3f} beams a second at "
+                 f"{beam:,.1f} each (one projectile hit a use as PoB scores the main skill; the beam taken to hit the "
+                 f"struck boss as PoB does: UNVERIFIED on a lone boss)")
+    return dps, [{
+        "label": f"Voltaic Barrier: chaining beams from {main}'s projectiles through the wall*", "value": f"{dps:,.1f} DPS",
+        "confidence": "LOW", "entry": VOLTAIC_BEAMS_ENTRY, "basis": basis,
+        "play": (f"Raise Voltaic Barrier between you and the boss and fire {main} through it: {dps:,.1f} DPS; without "
+                 f"the wall in the way, or a main skill without projectiles: 0.")}]
+
+
+# Voltaic Barrier's chaining beams (GEM27; an OVERCOUNT: sweep probe POE2T3595, a Voltaic Barrier group in Full DPS
+# beside Boneshatter 26.38 -> 81.06, PoB scoring the triggered beam (VoltaicBarrierTriggeredChainLightningPlayer, an
+# entry with no name) at a flat 1.4 a second, castTime 1 x the barrier's attack speed, though Boneshatter fires no
+# projectiles). The game (26650308, ActiveSkills voltaic_barrier): "Projectiles you fire through the wall become
+# energised, and discharge that energy on Hit as Chaining Lightning beams"; the wall lasts base_skill_effect_duration
+# 6 s, one at a time (voltaic_barrier_active_actions_limit 1). So beams a second = the main skill's hits a second on the
+# boss when it is a Projectile skill (useRates projectile; else 0) x the share of the fight a wall stands (the
+# barrier's uses a second as the score counts them, PoB's speed x the press model's scale, x its duration, at most 1),
+# each at PoB's beam (TotalDPS / speed). The beam on the struck boss itself (a lone boss has nothing to chain to) is
+# taken as PoB scores it: UNVERIFIED, a research question. PoB's entry for this group's beam taken out of Full DPS by
+# its share of the unnamed entries. Counted when the barrier's group is in Full DPS while the score reads it or is
+# pressed. LOW.
+VOLTAIC_BARRIER, VOLTAIC_BEAMS_ENTRY = "Voltaic Barrier", "model-gem27-voltaic-barrier-beams"
+
+
+def event_trigger_model(name: str, events: float, cap: float, blast: float, how: str, source: str,
+                        pob: float = 0.0) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for a support's triggered skill fired on an event of `source`'s hits (see above): `events` the
+    events a second, `cap` the most a second (its cooldown, or the source's hits), `blast` one use (PoB's), `how` the
+    events' basis, `pob` PoB's Full DPS entry for it (taken out)."""
+    events, blast = max(number(events), 0.0), max(number(blast), 0.0)
+    rate = min(events, cap) if cap > 0 else events
+    dps = rate * blast
+    what = {VOLCANIC_ERUPTION: "on hits against an Ignited boss", ARMOUR_EXPLOSION: "when the boss's Armour is Fully Broken"}
+    took = (f"PoB rates {name} at one a use of {source} ({pob:,.1f} DPS in Full DPS), taken out. " if pob > 0
+            else f"PoB rates {name} at one a use of {source}; ")
+    return dps, [{
+        "label": f"{name} {what.get(name, '')} ({source})*", "value": f"{dps:,.1f} DPS",
+        "confidence": "MEDIUM" if name == VOLCANIC_ERUPTION else "MEDIUM-LOW", "entry": EVENT_TRIGGER_ENTRY.get(name),
+        "basis": took + f"the game triggers it {what.get(name, '')}: {how}: {rate:.3f} a second at {blast:,.1f} each",
+        "play": (f"{name} needs {'the boss Ignited' if name == VOLCANIC_ERUPTION else 'the boss Fully Broken'}: with "
+                 f"this build {dps:,.1f} DPS; without it: 0.")}]
+
+
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
 # "Hit damage is taken from Mana before Life if your current Mana is higher than your current Life" (poe2db): counted as
 # 100% Mind over Matter while the build's unreserved Mana is above its Life, both pools full (the manager's ruling,

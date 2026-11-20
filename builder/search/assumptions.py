@@ -1861,6 +1861,168 @@ def trail_of_caltrops(build: Build, stats: dict, main: models.Skill | None = Non
                                           charged=charged, main=main.name if main is not None else "")
 
 
+def _child_left(build: Build, group: dict) -> float:
+    """The share of a Full DPS group's granted child entry that Assumptions.child_entry_cuts (MECHB45) leaves for a GEM27
+    model to cut: 0 when the group's first skill isn't used (press scale 0: it cuts the whole entry), the Runic Ward share
+    when that skill is Ward-paid (it cuts the rest; build.ward_sustain as last set), else 1. So a group's entry is never
+    cut twice in the shared tally."""
+    scales = getattr(build.objective, "press_scales", None) or {}
+    ward = getattr(build, "ward_sustain", None) or {}
+    parent = ((group.get("skills") or [{}])[0]).get("name")
+    if parent in scales and models.number(scales[parent]) <= 0:
+        return 0.0
+    share = models.number(ward.get("_share")) if "_share" in ward else 1.0
+    if parent in ward and parent not in ("_share", "WardRecoveryPerSecond") and share < 1:
+        return max(0.0, share)
+    return 1.0
+
+
+def void_illusion(build: Build, stats: dict, main: models.Skill | None = None,
+                  charged: bool = False) -> tuple[float, list[dict], list[dict]]:
+    """(added DPS, mods, notes) for Void Illusion (GEM27's models.void_illusion_model): in the first enabled group
+    holding the copy's explosion (the second "Void Illusion" skill: VoidIllusionSpawnPlayer), its useRates row (TotalDPS /
+    speed, cooldown) and PoB's Full DPS entry."""
+    for group in build.groups():
+        if not group["enabled"]:
+            continue
+        found = [i for i, s in enumerate(group.get("skills") or [], 1) if s["name"] == models.VOID_ILLUSION]
+        rows = [next(iter(build.call("useRates", indices=[group["index"]], actives=[i])["rates"]), None) or {}
+                for i in found]
+        row = next((r for r in rows if models.number(r.get("cooldown")) > 0 or models.number(r.get("speed")) > 0), None)
+        if row is None:
+            continue
+        speed = models.number(row.get("speed"))
+        blast = models.number(row.get("TotalDPS")) / speed if speed > 0 else models.number(row.get("AverageHit"))
+        pob = models.number(row.get("TotalDPS")) * _child_left(build, group) if group.get("fullDPS") else 0.0
+        roll = (stats.get("_dodge_roll") or {}).get("seconds", models.DODGE_ROLL_SECONDS)
+        main_dps = models.number(build.call("stats", fields=["CombinedDPS"]).get("CombinedDPS"))
+        return models.void_illusion_model(blast, models.number(row.get("cooldown")), main_dps, pob, roll, charged,
+                                          main.name if main is not None else "")
+    return 0.0, [], []
+
+
+def gale_force(build: Build, stats: dict) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Wind Dancer's Gale Force (GEM27's models.gale_force_model): in the first enabled group
+    holding it, its useRates row (TotalDPS / speed, cooldown), Wind Dancer's stage interval (its level stat), the boss's
+    landed hits a second (MECH-C's wind_dancer_stages reading: boss_hits.land_share / bosses.benefit_skill_time) and
+    PoB's Full DPS entry."""
+    group = next((g for g in build.groups() if g["enabled"]
+                  and any(s["name"] == models.GALE_FORCE for s in g.get("skills") or [])), None)
+    if group is None:
+        return 0.0, []
+    from builder.search import boss_hits, bosses
+    from builder.search import conditions as conditions_mod
+    n = next(i for i, s in enumerate(group["skills"], 1) if s["name"] == models.GALE_FORCE)
+    row = next(iter(build.call("useRates", indices=[group["index"]], actives=[n])["rates"]), None) or {}
+    speed = models.number(row.get("speed"))
+    blast = models.number(row.get("TotalDPS")) / speed if speed > 0 else models.number(row.get("AverageHit"))
+    dancer = [s for s in build.call("activeSkills", levelStats=[conditions_mod.WIND_DANCER])["skills"]
+              if s["name"] == conditions_mod.WIND_DANCER and not s.get("disabled")]
+    every = (models.number((dancer[0].get("levelStats") or {}).get(conditions_mod.WIND_DANCER_STAT)) / 1000
+             if dancer else 0.0)
+    landed = boss_hits.land_share(stats) / bosses.benefit_skill_time(stats)
+    pob = models.number(row.get("TotalDPS")) * _child_left(build, group) if group.get("fullDPS") else 0.0
+    return models.gale_force_model(landed, every, blast, models.number(row.get("cooldown")), pob)
+
+
+def voltaic_beams(build: Build, main: models.Skill | None, cut=None) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Voltaic Barrier's chaining beams (GEM27's models.voltaic_beams_model): the first enabled group
+    holding Voltaic Barrier and its unnamed beam; the main skill's hits a second and Projectile flag (its useRates row),
+    the wall's uptime (the barrier's speed x the press model's scale x its duration), PoB's Full DPS entry share."""
+    group = next((g for g in build.groups() if g["enabled"]
+                  and any(s["name"] == models.VOLTAIC_BARRIER for s in g.get("skills") or [])), None)
+    if group is None or main is None:
+        return 0.0, []
+    skills = group.get("skills") or []
+    n = next((i for i, s in enumerate(skills, 1) if s["name"] == ""), 0)
+    wall = next(i for i, s in enumerate(skills, 1) if s["name"] == models.VOLTAIC_BARRIER)
+    if not n:
+        return 0.0, []
+    press = getattr(build.objective, "press_scales", None) or {}
+    full = bool(getattr(build.objective, "full", False))
+    in_full = bool(group.get("fullDPS"))
+    rates = {i: next(iter(build.call("useRates", indices=[group["index"]], actives=[i])["rates"]), None) or {}
+             for i in (n, wall)}
+    pob = 0.0
+    if in_full:  # (this group's own unnamed entry off the name's total: MECHB45's tally, Assumptions.cut_entries)
+        pob = models.number(rates[n].get("TotalDPS")) * _child_left(build, group)
+        if pob > 0 and cut is not None:
+            cut({"": pob})
+    pressed = models.VOLTAIC_BARRIER in press
+    if not ((in_full and full) or pressed):
+        return 0.0, []
+    main_group = build.main_group()
+    position = next((i for i, s in enumerate((main_group or {}).get("skills") or [], 1) if s["name"] == main.name), 0)
+    if not position:
+        return 0.0, []
+    hits, row = _skill_hits(build, main_group, position, press)
+    speed = models.number(rates[wall].get("speed")) * models.number(press.get(models.VOLTAIC_BARRIER, 1.0))
+    duration = models.number(rates[wall].get("duration"))
+    uptime = min(1.0, speed * duration)
+    how = (f"Voltaic Barrier {speed:.3f} uses a second" + (" (the press model's)" if pressed else " (PoB's, in Full DPS)")
+           + f" x {duration:.3g} s")
+    beam_speed = models.number(rates[n].get("speed"))
+    beam = models.number(rates[n].get("TotalDPS")) / beam_speed if beam_speed > 0 else 0.0
+    return models.voltaic_beams_model(hits, bool(row.get("projectile")), uptime, beam, main.name, how, pob)
+
+
+def event_triggers(build: Build, texts: list[str], cut=None) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for the supports whose triggered skill fires on an event of the supported skill's hits (GEM27's
+    models.event_trigger_model: Volcanic Eruption on an Ignited boss, Armour Explosion on a Full Break): in each enabled
+    group holding the support and its triggered skill, counted for the main group or a group in Full DPS while the score
+    reads it; PoB's entry for that group's triggered skill taken out of Full DPS by its share of the entries of that name."""
+    press = getattr(build.objective, "press_scales", None) or {}
+    main_index = build.call("groups")["mainSocketGroup"]
+    full = bool(getattr(build.objective, "full", False))
+    total, notes, mine = 0.0, [], {}
+    up = None
+    for group in build.groups():
+        if not group["enabled"]:
+            continue
+        gems = {x["name"] for x in group.get("gems") or [] if x.get("enabled", True)}
+        skills = group.get("skills") or []
+        for name, support in models.EVENT_TRIGGER_SUPPORTS.items():
+            n = next((i for i, x in enumerate(skills, 1) if x["name"] == name), 0)
+            if support not in gems or not n:
+                continue
+            in_full = bool(group.get("fullDPS"))
+            row = next(iter(build.call("useRates", indices=[group["index"]], actives=[n])["rates"]), None) or {}
+            if in_full:
+                mine[name] = mine.get(name, 0.0) + models.number(row.get("TotalDPS")) * _child_left(build, group)
+            if group["index"] != main_index and not (in_full and full):
+                continue
+            src = next((i for i, x in enumerate(skills, 1) if x["name"] not in models.EVENT_TRIGGER_SUPPORTS
+                        and not x.get("disabled")), 0)
+            if not src:
+                continue
+            source = skills[src - 1]["name"]
+            hits, _ = _skill_hits(build, group, src, press)
+            speed = models.number(row.get("speed"))
+            blast = models.number(row.get("TotalDPS")) / speed if speed > 0 else 0.0
+            if name == models.VOLCANIC_ERUPTION:
+                if up is None:
+                    up = models.ailment_up_of(build)
+                ignited = up[0].get("Ignite", 0.0)
+                cooldown = models.number(row.get("cooldown"))
+                events, cap = hits * ignited, (1 / cooldown if cooldown > 0 else 0.0)
+                how = (f"{source}'s {hits:.2f} hits a second x the boss Ignited {ignited:.0%} ({up[1]})"
+                       + (f", at most one per {cooldown:.3g} s (its cooldown)" if cooldown > 0 else ""))
+            else:
+                share, broken_how = getattr(build, "full_break_up", None) or (0.0, "")
+                share = min(max(models.number(share), 0.0), 1.0)
+                held = models.full_break_duration(texts)
+                events, cap = (share / held if held > 0 else 0.0), hits
+                how = (f"the boss Fully Broken {share:.0%} of the fight ({broken_how or 'no Armour Break source'}; "
+                       f"MECH-A's cycle), {held:.3g} s a Full Break: {events:.3f} Full Breaks a second (the build's other "
+                       f"break sources counted as {source}'s), at most {source}'s {hits:.2f} hits a second")
+            dps, these = models.event_trigger_model(name, events, cap, blast, how, source,
+                                                    models.number(row.get("TotalDPS")) if in_full else 0.0)
+            total, notes = total + dps, notes + these
+    if cut is not None and any(own > 0 for own in mine.values()):  # (MECHB45's tally: each group's own entry off the
+        cut({name: own for name, own in mine.items() if own > 0})  # name's total; Ancestral Cry's eruptions keep theirs)
+    return total, notes
+
+
 def fan_the_flames(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Fan the Flames (GEM23's models.fan_the_flames_model): in each enabled group holding the
     triggered explosion, the supported skill's hits a second (_skill_hits), the explosion's row (cooldown, damage a use),
@@ -3627,6 +3789,23 @@ class Assumptions:
         trail, trail_mods, trail_notes = trail_of_caltrops(build, stats, main, rolling)  # (GEM26, R35-23)
         hand_mods += trail_mods + ([models.added_input("TrailOfCaltrops", trail)] if trail > 0 else [])
         hand_notes += trail_notes
+        rolling = any(str(n.get("label", "")).startswith("Time spent dodge rolling") for n in hand_notes)
+        void, void_mods, void_notes = void_illusion(build, stats, main, rolling)  # (GEM27: PoB's flat 1 / 4 s out)
+        hand_mods += void_mods + ([models.added_input("VoidIllusion", void)] if void > 0 else [])
+        hand_notes += void_notes
+        for note in void_notes:  # (its own group's entry, MECHB45's tally)
+            self.cut_entries(note.pop("entry_cut", None) or {})
+        gale, gale_notes = gale_force(build, stats)  # (GEM27: a Gale Force a landed boss hit; PoB's flat rate out)
+        hand_mods += [models.added_input("GaleForce", gale)] if gale > 0 else []
+        hand_notes += gale_notes
+        for note in gale_notes:
+            self.cut_entries(note.pop("entry_cut", None) or {})
+        events, event_notes = event_triggers(build, [e["text"] for e in source_lines], self.cut_entries)  # (GEM27:
+        hand_mods += [models.added_input("EventTriggers", events)] if events > 0 else []  # on Ignite / Full Break)
+        hand_notes += event_notes
+        beams, beam_notes = voltaic_beams(build, main, self.cut_entries)  # (GEM27: projectiles through the wall)
+        hand_mods += [models.added_input("VoltaicBeams", beams)] if beams > 0 else []
+        hand_notes += beam_notes
         shred, shred_notes = shred_fragments(build, main, self.cut_entries)  # (GEM26: on hits vs a Frozen boss; PoB's
         hand_mods += [models.added_input("ShredFragments", shred)] if shred > 0 else []  # entry out: its own, MECHB45)
         hand_notes += shred_notes

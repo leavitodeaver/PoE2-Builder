@@ -1,0 +1,104 @@
+# GEM27 (20 Nov 2026): triggered gem skills PoB scores at a flat rate in Full DPS (GEM26's sweep POE2T3595), counted at
+# the build's own cycle, PoB's flat entry out.
+
+- id: model-gem27-void-illusion
+  title: "Void Illusion: explosions when the boss destroys a dodge-roll copy (PoB: a flat 1 every 4 s in Full DPS, an OVERCOUNT)"
+  kind: model
+  model: void_illusion
+  stats: ["triggered_by_void_illusion"]
+  skill: [Void Illusion]
+  confidence: LOW
+  notes: >-
+    models.void_illusion_model + assumptions.void_illusion (GEM27). Sweep probe POE2T3595 (scratch/gem26/probe_sweep.json):
+    a Void Illusion group in Full DPS beside Boneshatter 26.38 -> 131.22 (the explosion 104.83 at its 4 s cooldown). The
+    game (26650308, ActiveSkills void_illusion; VoidIllusionSpawnPlayer Cooldown 4000 ms, 3 stored uses, 2 s): a 1-Life
+    copy each dodge roll, exploding only when an enemy destroys it. Explosions a second = min(rolls, 1 / cooldown, the
+    user's one destroyed dodge-roll copy every 5 s (9 Nov, set for Lingering Illusion; LOW here)); the player rolls to
+    feed it (every max(2 s, 5 s)), the rolls' time off the main skill (the user, 7 Nov), only when worth it; each at
+    PoB's explosion; PoB's entry out of Full DPS.
+  sources: ["builder/search/models.py (void_illusion_model)", "builder/search/assumptions.py (void_illusion)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (VoidIllusionPlayer, VoidIllusionSpawnPlayer)",
+            "data/game-26650308/tables/GrantedEffectsPerLevel.json (VoidIllusionSpawnPlayer)",
+            "scratch/gem26/probe_sweep.json"]
+  test_in_game: "Optional: roll beside a boss with Void Illusion and count the explosions over a minute."
+  status: proposed
+
+- id: model-gem27-gale-force
+  title: "Wind Dancer: Gale Force on each landed boss hit with a stage held (PoB: the build's attack speed in Full DPS, an OVERCOUNT)"
+  kind: model
+  model: gale_force
+  stats: ["chance_to_trigger_wind_dancer_on_taken_hit_%"]
+  skill: [Wind Dancer, Gale Force]
+  confidence: MEDIUM
+  notes: >-
+    models.gale_force_model + assumptions.gale_force (GEM27). Sweep probe POE2T3595: a Wind Dancer group in Full DPS
+    beside Boneshatter 26.38 -> 53.58 (Gale Force 27.2 at 1.4 a second, castTime 1 x attack speed). The game
+    (ActiveSkills wind_dancer): being Hit while holding stages consumes them in a Gale Force (this stat: 100% on a taken hit). Gale Forces a second = the
+    boss's landed hits L (MECH-C's wind_dancer_stages reading) x e^(-L T) (a stage held at the hit; T the stage
+    interval), held to the cooldown, each at PoB's use; PoB's entry out of Full DPS.
+  sources: ["builder/search/models.py (gale_force_model)", "builder/search/assumptions.py (gale_force)",
+            "builder/search/conditions.py (wind_dancer_stages, MECHC29)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_dex.lua (WindDancerPlayer, TriggeredWindDancerPlayer)",
+            "scratch/gem26/probe_sweep.json"]
+  test_in_game: "Optional: with Wind Dancer, count Gale Forces against a boss's landed hits."
+  status: proposed
+
+- id: model-gem27-volcanic-eruption
+  title: "Volcanic Eruption (support): eruptions on hits against an Ignited boss (PoB: one a use of the supported skill, an OVERCOUNT)"
+  kind: model
+  model: event_triggers
+  stats: ["support_volcanic_eruption_%_chance_to_trigger_vs_ignited_enemies"]
+  skill: [Volcanic Eruption]
+  confidence: MEDIUM
+  notes: >-
+    models.event_trigger_model + assumptions.event_triggers (GEM27). Sweep probe POE2T3595: the support on Boneshatter,
+    Full DPS objective 26.38 -> 35.25 (eruptions at Boneshatter's 1.4 uses a second, the boss never Ignited). The game:
+    "Supported Skills trigger Volcanic Eruption on Hit against Ignited Enemies" (this stat, 100), cooldown 400 ms.
+    Eruptions a second = the supported skill's hits x the boss's Ignite uptime (the resolver's), held to the cooldown,
+    each at PoB's use; PoB's entry out of Full DPS by this group's share of the "Volcanic Eruption" entries (Ancestral
+    Cry's projectiles share the name).
+  sources: ["builder/search/models.py (event_trigger_model)", "builder/search/assumptions.py (event_triggers)",
+            "data/game-26650308/tables/GrantedEffectStatSets.json (SupportVolcanicEruptionPlayer, TriggeredVolcanicEruptionPlayer)",
+            "scratch/gem26/probe_sweep.json"]
+  test_in_game: "Optional: the support on a melee strike against an un-Ignited boss: no eruptions."
+  status: proposed
+
+- id: model-gem27-armour-explosion
+  title: "Armour Explosion (support): an explosion each time the boss's Armour is Fully Broken (PoB: one a use, an OVERCOUNT)"
+  kind: model
+  model: event_triggers
+  stats: ["trigger_on_armour_break_%_chance"]
+  skill: [Armour Explosion]
+  confidence: MEDIUM-LOW
+  notes: >-
+    models.event_trigger_model + assumptions.event_triggers (GEM27). Sweep probe POE2T3595: the support on Boneshatter,
+    Full DPS objective 26.38 -> 40.96 (explosions at 1.4 a second, no Full Break). The game: "trigger a Fiery explosion
+    when they Fully Break an enemy's Armour" (this stat, 100). Explosions a second = MECH-A's Fully Broken share
+    (build.full_break_up) / the Full Break's duration, held to the supported skill's hits (the build's other break
+    sources counted as its own: an overcount where another skill breaks, labelled); each at PoB's use; PoB's entry out
+    of Full DPS by this group's share.
+  sources: ["builder/search/models.py (event_trigger_model)", "builder/search/assumptions.py (event_triggers)",
+            "builder/search/conditions.py (_armour_broken, scavenged_plating_stacks)", "scratch/gem26/probe_sweep.json"]
+  test_in_game: "Optional: count explosions against a boss whose Armour you Fully Break: one a Full Break."
+  status: proposed
+
+- id: model-gem27-voltaic-barrier-beams
+  title: "Voltaic Barrier: chaining beams only from the main skill's projectiles fired through the wall (PoB: the barrier's attack speed, an OVERCOUNT)"
+  kind: model
+  model: voltaic_beams
+  stats: ["triggered_on_voltaic_barrier_boosted_projectile_collision"]
+  skill: [Voltaic Barrier]
+  confidence: LOW
+  notes: >-
+    models.voltaic_beams_model + assumptions.voltaic_beams (GEM27). Sweep probe POE2T3595: a Voltaic Barrier group in
+    Full DPS beside Boneshatter 26.38 -> 81.06 (the unnamed beam 60.74 at 1.4 a second, Boneshatter firing no
+    projectiles). The game (ActiveSkills voltaic_barrier): "Projectiles you fire through the wall become energised, and
+    discharge that energy on Hit as Chaining Lightning beams"; the wall lasts 6 s, one at a time. Beams a second = the
+    main skill's hits when it is a Projectile skill (else 0) x the wall's uptime (the barrier's uses x the press scale x
+    its duration), each at PoB's beam; whether the beam hits the struck boss itself on a lone boss: UNVERIFIED (taken
+    as PoB scores it). PoB's entry out of Full DPS by this group's share of the unnamed entries.
+  sources: ["builder/search/models.py (voltaic_beams_model)", "builder/search/assumptions.py (voltaic_beams)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (VoltaicBarrierPlayer, VoltaicBarrierTriggeredChainLightningPlayer)",
+            "scratch/gem26/probe_sweep.json"]
+  test_in_game: "Wanted: fire a projectile through Voltaic Barrier at a lone boss: does the boss take a beam hit?"
+  status: proposed
