@@ -17,9 +17,11 @@ One influence rune per item (UNVERIFIED in R-b; the lower reading). No priced ro
 
 SEARCH31 (the user, 19 Nov ~21:55: "Sample trade prices first"): 12 trade-site samples (Forbidden Rites, 19 Nov,
 MARKET_SAMPLES) show these rares on sale in quantity, mostly at 0.02-1 div (uncorrupted 0.1-5; Medved's Life + Mana 2-20),
-while the Chaos-spam route said 15-23 div. The user then ruled (19 Nov ~22:12) that the DETERMINISTIC craft route is the
-headline ("basically the same method as desecrated runes with a wider mod pool": `deterministic_price`, Exalted Orb +
-Exaltation Omen, Annulment on a miss, repeat), Chaos spam a row, and the samples a CROSS-CHECK row only (`market_price`:
+while the Chaos-spam route said 15-23 div. The user then asked (19 Nov ~22:12) for the DETERMINISTIC craft route,
+and on seeing it (20 Nov ~03:00) ruled the HEADLINE is Chaos spam + a Fracturing Orb + Omens of Whittling (`chaos_price`;
+"annulment orbs are way more expensive than chaos"); the Exalt loop (the 22:12 "basically the same method as desecrated runes with
+a wider mod pool": `deterministic_price`, Exalted Orb + Exaltation Omen, Annulment on a miss, repeat) is a row, and the
+samples a CROSS-CHECK row only (`market_price`:
 the rare price model counting the influence affix as an ordinary affix, never below the cheapest real listings, for
 runes the market supplies: every sampled mod LIQUID+ listings; Thrud's Might isn't).
 
@@ -37,7 +39,7 @@ EXALT = "Exalted Orb"
 ANNUL = "Orb of Annulment"
 EXALTATION = {"Prefix": "Omen of Sinistral Exaltation", "Suffix": "Omen of Dextral Exaltation"}
 ANNULMENT = {"Prefix": "Omen of Sinistral Annulment", "Suffix": "Omen of Dextral Annulment"}
-MATERIALS = (CHAOS, EXALT, ANNUL, *EXALTATION.values(), *ANNULMENT.values())
+MATERIALS = (CHAOS, EXALT, ANNUL, *EXALTATION.values(), *ANNULMENT.values(), "Fracturing Orb", "Omen of Whittling")
 
 
 def enabled() -> bool:
@@ -185,17 +187,71 @@ def deterministic_price(market: float, rune_price: float | None, prices: dict[st
     return total, head + steps
 
 
+FRACTURE = "Fracturing Orb"
+WHITTLING = "Omen of Whittling"
+FRACTURE_MODS = 4  # a Fracturing Orb needs a rare with at least 4 modifiers and picks one at random (poe2db): 1 in 4 at best
+
+
+def chaos_price(market: float, rune_price: float | None, prices: dict[str, float], affixes
+                ) -> tuple[float | None, list[str]]:
+    """THE USER'S METHOD (20 Nov ~03:00): "you can just spam chaos orbs on an item until you get the mod you want ...
+    once you get a mod you want, then people usually try and fracture that one to lock it in, or you can use omens of
+    whittling to forcibly remove the lower rolls". With the rune socketed, spam Chaos Orbs ("Removes a random modifier and
+    augments a Rare item with a new random modifier") until the first influence mod lands: 1 / odds Chaos Orbs (odds: its
+    share of the widened pool, equal weights for the rune's rows, LOW). If the item needs anything else, lock it with a
+    Fracturing Orb ("Fracture a random modifier on a rare item with at least 4 modifiers"): 1 in 4 at best, so about 4
+    Orbs, and each miss locks a wrong mod: the item is spent, and 3 more spam runs on a fresh base with a fresh rune (LOW).
+    Each further influence mod: Chaos Orbs each with an Omen of Whittling ("your next Chaos Orb will remove the lowest
+    level modifier"), so the landed wanted mods stay (LOW: they are taken to be above the item's lowest level). The other
+    modifiers: the market price of the rare with them (the rare price model, as every route). None without prices."""
+    if rune_price is None or prices.get(CHAOS) is None:
+        return None, []
+    landed = sorted([a for a in affixes if a.influence], key=lambda a: -a.odds)
+    if not landed or any(a.odds <= 0 for a in landed):
+        return None, []
+    chaos = prices[CHAOS]
+    first = landed[0]
+    spam = chaos / first.odds
+    steps = [f"1. socket the rune in the base first ({rune_price:.3f} div; socket-bound)",
+             f"2. spam Chaos Orbs until \"{'; '.join(first.lines)}\" lands: about {1 / first.odds:.0f} Chaos Orbs, "
+             f"{spam:.3f} div (one in {1 / first.odds:.0f} of the mods the item can roll with the rune in; equal weights: LOW)"]
+    total = rune_price + spam
+    if len(affixes) > 1:
+        if prices.get(FRACTURE) is None:
+            return None, []
+        lock = FRACTURE_MODS * prices[FRACTURE] + (FRACTURE_MODS - 1) * (spam + rune_price)
+        total += lock
+        steps.append(f"3. lock it with a Fracturing Orb (random among at least {FRACTURE_MODS} mods: about "
+                     f"{FRACTURE_MODS} Orbs at {prices[FRACTURE]:.2f} div, each miss spends the item and redoes 1-2): "
+                     f"{lock:.3f} div (LOW)")
+    for affix in landed[1:]:
+        if prices.get(WHITTLING) is None:
+            return None, []
+        extra = (chaos + prices[WHITTLING]) / affix.odds
+        total += extra
+        steps.append(f"then \"{'; '.join(affix.lines)}\": about {1 / affix.odds:.0f} Chaos Orbs each with an Omen of "
+                     f"Whittling (the lowest-level mod goes, not the landed ones): {extra:.3f} div (LOW)")
+    if len(affixes) > len(landed):
+        total += market
+        steps.append(f"the other modifiers: {market:.3f} div (the rare price model's price for them)")
+    steps.append(f"in all {total:.3f} div (the user: \"crafting is pretty expensive either way\")")
+    return total, steps
+
+
 def price(rune: str, market: float, full: float, rune_price: float | None, prices: dict[str, float], affixes
           ) -> tuple[float | None, list[str], str]:
-    """(price, steps, how): the deterministic craft route (the user, 19 Nov ~22:12); the trade samples a cross-check
-    row (MARKET_SAMPLES, `market_price`)."""
-    crafted, steps = deterministic_price(market, rune_price, prices, affixes)
+    """(price, steps, how): the user's Chaos-spam route (20 Nov ~03:00) the headline; the Exalt / Annulment loop a row;
+    the trade samples a cross-check row (MARKET_SAMPLES, `market_price`)."""
+    crafted, steps = chaos_price(market, rune_price, prices, affixes)
     if crafted is None:
         return None, [], ""
+    looped, _ = deterministic_price(market, rune_price, prices, affixes)
+    if looped is not None:
+        steps = steps + [f"row: the Exalted Orb + Exaltation Omen loop with an Annulment on a miss instead: {looped:.3f} div"]
     bought, _ = market_price(rune, full, affixes)
     if bought is not None:
         steps = steps + [f"cross-check: the trade site sells such rares from about {bought:.3f} div (samples of 19 Nov; "
                          f"most listings corrupted Omen of Putrefaction outputs)"]
     else:
         steps = steps + [f"cross-check: the trade site barely lists {rune}'s rares (samples of 19 Nov)"]
-    return crafted, steps, "craft route: influence rune + Exalted Orbs"
+    return crafted, steps, "craft route: influence rune + Chaos Orbs"

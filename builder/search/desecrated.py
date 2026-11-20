@@ -141,32 +141,45 @@ def offered(pool_size: int, draws: int) -> float:
     return 1 - (1 - 1 / pool_size) ** draws if pool_size > 0 else 0.0
 
 
-def routes(item_type: str, affix, n_lord: int, n_lords: int, n_ordinary: int) -> list[tuple[str, list[str], float]]:
-    """(name, fixed materials per try besides the bone, chance one try offers the wanted row), RESEARCH34 R33-20 / 21:
-    a reveal's 3 options are drawn from the side's ORDINARY affixes plus every lord row (N = n_ordinary + n_lords), each at
-    weight 1 (LOW); a lord Omen (Weapons / Jewellery only) guarantees one option from its lord (p = 1/n_lord + 2/N,
-    MEDIUM-LOW); Omen of Abyssal Echoes rerolls the three once. The Necromancy Omen fixes the side in every route."""
+LORD_SHARE = 1.16  # lord options per un-Omened reveal (RESEARCH35 R35-14: 563 ring reveals, 85% one / 14% two / 1% three)
+
+
+def plain_odds(route: str, n_lords: int, n_all: int) -> float:
+    """One reveal without a lord Omen offering a wanted row. A plain bone (lord rows): at least one option is a lord row
+    (R35-14 MEDIUM, and the user 20 Nov: "I don't know that I've ever seen a desecration offer only the standard mods"),
+    LORD_SHARE lord options a reveal on average, so p ~ 1.16 / n (n = the lord rows the side can take). The Altered
+    Collarbone / the Cranium: equal weights over the side's ordinary + Desecrated rows (R35-10, LOW)."""
+    if route == "bone":
+        return min(1.0, LORD_SHARE / n_lords) if n_lords > 0 else 0.0
+    return offered(n_all, REVEAL)
+
+
+def routes(item_type: str, affix, n_lord: int, n_lords: int, n_ordinary: int, route: str = "bone"
+           ) -> list[tuple[str, list[str], float]]:
+    """(name, fixed materials per try besides the bone, chance one try offers the wanted row). The Necromancy Omen fixes
+    the side in every route (R35-9); Omen of Abyssal Echoes rerolls the three once: 1 - (1 - p)^2. With a lord Omen
+    (Weapons / Jewellery, plain bones): `named`."""
     side = [SIDE_OMEN[affix.type]]
     n_all = n_ordinary + n_lords
-    plain = offered(n_all, REVEAL)
+    plain = plain_odds(route, n_lords, n_all)
     found = [("bone + Necromancy Omen", side, plain),
-             ("bone + Necromancy Omen + Omen of Abyssal Echoes", side + [ECHOES], offered(n_all, 2 * REVEAL))]
-    if family(item_type) in ("weapon", "jewellery") and n_lord > 0 and affix.desecrated in LORD_OMEN:
+             ("bone + Necromancy Omen + Omen of Abyssal Echoes", side + [ECHOES], 1 - (1 - plain) ** 2)]
+    if route == "bone" and family(item_type) in ("weapon", "jewellery") and n_lord > 0 and affix.desecrated in LORD_OMEN:
         omen = LORD_OMEN[affix.desecrated]
-        guaranteed = named(n_lord)
+        guaranteed = named(n_lord, n_all)
         found += [(f"bone + Necromancy Omen + {omen}", side + [omen], guaranteed),
                   (f"bone + Necromancy Omen + {omen} + Omen of Abyssal Echoes", side + [omen, ECHOES],
                    1 - (1 - guaranteed) ** 2)]
     return found
 
 
-def named(n_lord: int) -> float:
-    """(SEARCH31, the user 19 Nov: "can be made deterministically with enough currency") With a lord Omen the three options
-    are that lord's rows on the forced side (poe2db Desecrated_Modifiers: reveals "may include base modifiers. Unless you
-    use Omen to guarantee named modifiers"; the Omen: "will guarantee a random <lord> modifier"), three different rows:
-    p = min(1, 3 / n_lord) (MEDIUM). Abyssal Echoes rerolls the three once: 1 - (1 - p)^2. RESEARCH34's reading (one
-    option the lord's, two from the side's whole pool: 1 / n_lord + 2 / N, MEDIUM-LOW) is a row."""
-    return min(1.0, REVEAL / n_lord) if n_lord > 0 else 0.0
+def named(n_lord: int, n_all: int) -> float:
+    """With a lord Omen ONE option is a random row of that lord on the forced side and the other two are normal draws from
+    the side's ordinary + lord rows (THE USER, in game 20 Nov: "only one is guaranteed ... I got two amanamu mod choices
+    using an omen of the liege on a wand"; overrides R35-13's all-three): p = 1 - (1 - 1/n_lord)(1 - 1/N)^2 (MEDIUM)."""
+    if n_lord <= 0:
+        return 0.0
+    return 1 - (1 - 1 / n_lord) * (1 - 1 / max(1, n_all)) ** (REVEAL - 1)
 
 
 def bones_for(kind: str | None, route: str) -> tuple[str, ...]:
@@ -195,7 +208,7 @@ def craft_price(item_type: str, market: float, affix, n_lord: int, n_lords: int,
     bone_price, bone = min(bones)
     clear = min(sum(prices[m] for m in CLEAR), market)
     priced = []
-    for name, fixed, p in routes(item_type, affix, n_lord, n_lords, n_ordinary):
+    for name, fixed, p in routes(item_type, affix, n_lord, n_lords, n_ordinary, route):
         if p <= 0 or any(prices.get(m) is None for m in fixed):
             continue
         tries = 1 / p
@@ -212,14 +225,20 @@ def craft_price(item_type: str, market: float, affix, n_lord: int, n_lords: int,
     omened = "Omen of the" in name
     echoes = ECHOES in name
     clear_how = "Omen of Light + Orb of Annulment" if clear < market else "a fresh copy of the rare instead"
+    n_all = n_ordinary + n_lords
+    twice = (lambda p: 1 - (1 - p) ** 2) if echoes else (lambda p: p)
     if omened:
-        odds = (f"the lord Omen makes the three options {affix.desecrated} {side}es: {n_lord} the item can take, so one "
-                f"reveal offers the wanted one {named(n_lord):.0%} of the time" + (", two with the Echoes reroll" if echoes else "")
-                + " (MEDIUM: poe2db 'Unless you use Omen to guarantee named modifiers')")
+        odds = (f"the lord Omen makes one option a {affix.desecrated} {side} ({n_lord} the item can take) and the other two "
+                f"normal draws from the side's {n_ordinary} ordinary + {n_lords} lord {side}es, so one reveal offers the "
+                f"wanted one {named(n_lord, n_all):.0%} of the time" + (", more with the Echoes reroll" if echoes else "")
+                + " (MEDIUM: the user's in-game check, 20 Nov)")
+    elif route == "bone":
+        odds = (f"no lord Omen here (they are 'Weapon or Jewellery' only), but a reveal offers at least one lord {side} and "
+                f"{LORD_SHARE} on average (RESEARCH35 R35-14; the user's experience): {n_lords} lord {side}es the item can "
+                f"take, so one reveal offers the wanted one {plain_odds(route, n_lords, n_all):.0%} of the time (MEDIUM)")
     else:
-        odds = (f"no Omen can name the mod here (lord Omens: 'Weapon or Jewellery' only), so the three options are drawn "
-                f"from the side's {n_ordinary} ordinary + {n_lords} Desecrated {side}es at equal weight (LOW: RESEARCH34 "
-                f"R33-20; poe2db 'may include base modifiers')")
+        odds = (f"no Omen names these rows, so the three options are drawn from the side's {n_ordinary} ordinary + "
+                f"{n_lords} Desecrated {side}es at equal weight (LOW: RESEARCH35 R35-10)")
     steps = [f"1. buy the rare with its {side} slot open ({market:.3f} div, the rare price model; a Desecration on a full "
              f"side also removes a random mod)",
              f"2. each try ({per_try:.3f} div): {name.replace('bone', bone)}, then reveal at the Well of Souls; {odds}",
@@ -228,15 +247,13 @@ def craft_price(item_type: str, market: float, affix, n_lord: int, n_lords: int,
              f"{total:.3f} div in all",
              f"4. pick \"{'; '.join(affix.lines)}\" ({affix.desecrated}, {affix.type})"]
     if omened:
-        one = 1 / n_lord + (REVEAL - 1) / max(1, n_ordinary + n_lords)
-        one = 1 - (1 - one) * (1 - offered(n_ordinary + n_lords, REVEAL)) if echoes else one
-        steps += [f"row: if the Omen names only one option and the other two come from the whole side (RESEARCH34's "
-                  f"reading): {cost(one):.3f} div",
-                  "row: the lord Omen with a Necromancy Omen failed its guarantee in three 0.3-era player reports (R33-21, "
-                  f"UNSETTLED): then a try is a plain one ({cost(offered(n_ordinary + n_lords, REVEAL)):.3f} div)"]
-    else:
-        only = min(1.0, REVEAL / max(1, n_lords))
-        steps.append(f"row: if reveals offered only Desecrated mods: {cost(1 - (1 - only) ** (2 if echoes else 1)):.3f} div")
+        steps.append("row: the lord Omen with a Necromancy Omen failed its guarantee in three 0.3-era player reports "
+                     f"(R33-21, UNSETTLED): then a try is a plain one ({cost(twice(plain_odds(route, n_lords, n_all))):.3f} div)")
+    if route == "bone":
+        steps.append(f"row: if a reveal could offer only ordinary mods (equal weights over all {n_all}): "
+                     f"{cost(twice(offered(n_all, REVEAL))):.3f} div")
+    only = min(1.0, REVEAL / max(1, n_lords))
+    steps.append(f"row: if reveals offered only Desecrated mods: {cost(twice(only)):.3f} div")
     return total, steps
 
 

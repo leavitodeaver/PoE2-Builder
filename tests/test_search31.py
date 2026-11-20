@@ -193,23 +193,33 @@ def test_the_breach_and_cranium_trials_offer_one_desecrated_affix(engine, monkey
 
 # Influence runes at trade-site prices (SEARCH31; builder/search/influence.py MARKET_SAMPLES) -------------------------------
 
-def test_the_deterministic_exalt_route_is_the_headline_and_the_samples_a_cross_check():
-    """The user, 19 Nov ~22:12: the deterministic craft route (Exalted Orb + Exaltation Omen, Annulment on a miss) is the
-    headline; Chaos spam is a row; the trade samples a cross-check row."""
+def test_the_users_chaos_spam_route_is_the_headline():
+    """The user, 20 Nov ~03:00: spam Chaos Orbs until the mod lands, fracture it to lock it, Omens of Whittling for more;
+    the Exalt / Annulment loop a row; the trade samples a cross-check row."""
     from builder.search import influence
 
-    assert all(influence.supplied(r) for r in ("Kolr's Hunt", "Katla's Gloom", "Vorana's Carnage", "Uhtred's Sidereus",
-                                                "Medved's Tending"))
-    assert not influence.supplied("Thrud's Might")  # (1 and 0 listings)
-    affix = SimpleNamespace(influence="decay", lines=("46% increased Ignite Magnitude",), odds=1 / 200, side_odds=1 / 100,
-                            type="Prefix")
-    prices = {influence.CHAOS: 0.1, influence.EXALT: 0.0015, influence.ANNUL: 0.29,
-              "Omen of Sinistral Exaltation": 0.15, "Omen of Sinistral Annulment": 20.37}
-    price, steps, how = influence.price("Katla's Gloom", 0.05, 0.08, 0.4, prices, [affix])
-    # no other modifier (m = 0): 100 tries of Exalt + Omen, 99 plain Annulments
-    assert how.startswith("craft route") and price == pytest.approx(0.05 + 0.4 + 100 * 0.1515 + 99 * 0.29)
-    assert any(s.startswith("row: Chaos Orb spam") for s in steps) and any(s.startswith("cross-check") for s in steps)
-    # no priced Exalt route: no offer (Chaos spam is a row only)
-    assert influence.price("Katla's Gloom", 0.05, 0.08, 0.4, {influence.CHAOS: 0.1}, [affix])[0] is None
-    _, steps, _ = influence.price("Thrud's Might", 0.05, 0.08, 0.5, prices, [affix])
-    assert any("barely lists" in s for s in steps)
+    assert not influence.supplied("Thrud's Might")
+    a1 = SimpleNamespace(influence="decay", lines=("Ignite",), odds=1 / 200, side_odds=1 / 100, type="Prefix")
+    a2 = SimpleNamespace(influence="decay", lines=("Duration",), odds=1 / 250, side_odds=1 / 120, type="Suffix")
+    plain = SimpleNamespace(influence="", lines=("Life",), odds=0.01, side_odds=0.02, type="Prefix")
+    prices = {influence.CHAOS: 0.1, influence.EXALT: 0.0015, influence.ANNUL: 0.29, "Omen of Sinistral Exaltation": 0.15,
+              "Omen of Dextral Exaltation": 0.06, "Fracturing Orb": 9.87, "Omen of Whittling": 13.94}
+    price, steps, how = influence.price("Katla's Gloom", 0.05, 0.08, 0.4, prices, [a1])
+    assert how.endswith("Chaos Orbs") and price == pytest.approx(0.4 + 200 * 0.1)  # (alone: no lock needed)
+    assert any(s.startswith("row: the Exalted Orb") for s in steps) and any(s.startswith("cross-check") for s in steps)
+    price, _, _ = influence.price("Katla's Gloom", 0.05, 0.08, 0.4, prices, [a1, plain])
+    assert price == pytest.approx(0.4 + 20 + 4 * 9.87 + 3 * (20 + 0.4) + 0.05)  # (+ the lock, + the other mod's market)
+    price, _, _ = influence.price("Katla's Gloom", 0.05, 0.08, 0.4, prices, [a1, a2])
+    assert price == pytest.approx(0.4 + 20 + 4 * 9.87 + 3 * 20.4 + 250 * (0.1 + 13.94))  # (Whittling for the second)
+    assert influence.price("Katla's Gloom", 0.05, 0.08, 0.4, {}, [a1])[0] is None
+
+
+def test_time_lost_jewels_draw_only_their_own_cranium_rows(ctx):
+    """RESEARCH35 R35-11: a Time-Lost jewel takes only its 12 radius-jewel Desecrated rows, never the regular ones."""
+    from builder.search.rares import AffixPools
+
+    pools = AffixPools(ctx, "Desecrated", "cranium")
+    for name in ("Time-Lost Ruby", "Time-Lost Emerald", "Time-Lost Sapphire"):
+        pool = pools.pool(name)
+        assert pool and all("RadiusJewel" in a.id for a in pool)
+    assert not any("RadiusJewel" in a.id for a in pools.pool("Ruby"))

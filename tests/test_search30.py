@@ -207,16 +207,17 @@ def test_the_desecration_craft_route():
               "Omen of Abyssal Echoes": 0.08}
     affix = SimpleNamespace(desecrated="Kurgal", type="Suffix", lines=("+(3-5)% to Quality of all Skills",))
     n = 30 + 18
-    plain, omen = 1 - (1 - 1 / n) ** 3, 3 / 6  # (SEARCH31: the lord Omen names all three options: min(1, 3 / n_lord))
-    tries = {0.26 + 0.0045: plain, 0.26 + 0.0045 + 0.08: 1 - (1 - 1 / n) ** 6, 0.26 + 0.0045 + 0.004: omen,
+    # (SEARCH31) plain bone: >= 1 lord option a reveal, 1.16 on average (R35-14): p = 1.16 / 18; with a lord Omen one
+    # option is the lord's and two are normal draws (the user's in-game check): p = 1 - (5/6)(1 - 1/48)^2
+    plain, omen = 1.16 / 18, 1 - (1 - 1 / 6) * (1 - 1 / n) ** 2
+    tries = {0.26 + 0.0045: plain, 0.26 + 0.0045 + 0.08: 1 - (1 - plain) ** 2, 0.26 + 0.0045 + 0.004: omen,
              0.26 + 0.0045 + 0.004 + 0.08: 1 - (1 - omen) ** 2}
     want = min(1.0 + per / p + (1 / p - 1) * 1.0 for per, p in tries.items())  # (a fresh rare clears cheaper than Light)
     price, steps = desecrated.craft_price("Amulet", 1.0, affix, 6, 18, 30, prices)
-    assert price == pytest.approx(want) and any("RESEARCH34's reading" in s for s in steps)
-    assert price < 1.0 + 2 * (0.26 + 0.0045 + 0.004) + 1 * 1.0  # (Echoes beats the plain Omen route's 2 tries here)
-    # Armour: no lord Omen route; the equal-weight draw is its headline
+    assert price == pytest.approx(want) and any("only ordinary mods" in s for s in steps)
+    # Armour: no lord Omen route
     _, steps = desecrated.craft_price("Gloves", 0.5, affix, 5, 15, 40, prices)
-    assert not any("Omen of the Blackblooded" in s for s in steps[:3]) and any("only Desecrated" in s for s in steps)
+    assert not any("Omen of the Blackblooded" in s for s in steps[:3]) and any("at least one lord" in s for s in steps)
     # an unpriced lord Omen leaves the plain routes; no Light / Annulment price or no bone family: no offer
     assert desecrated.craft_price("Amulet", 1.0, affix, 6, 18, 30, {**prices, "Omen of the Blackblooded": None})[0]
     assert desecrated.craft_price("Amulet", 1.0, affix, 6, 18, 30, {**prices, "Omen of Light": None})[0] is None
