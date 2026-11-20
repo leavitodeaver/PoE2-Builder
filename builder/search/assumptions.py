@@ -20,6 +20,7 @@ included in it and the objective switches to Full DPS while any exist.
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
 import os
 import re
 
@@ -4772,7 +4773,10 @@ class Assumptions:
                  **models.dazed_stats(build)}  # (MECH71: the recovery unique's Heavy Stuns read the Dazed share)
         kills = getattr(build, "kills", None) or (0.0, 0.0, "")  # (models.kill_rate: the boss preset's adds)
         enemies = number(kills[0])
-        hits = models.hits_per_second(stats)
+        # (MECHC44, an OVERCOUNT before: the main skill's hits at PoB's full Speed though the pressed side skills take
+        # part of its time) at its share of the fight as objective.dps scores it (main_time_share, GEM22's)
+        share = main_time_share(build, SimpleNamespace(name=main)) if main else 1.0
+        hits = models.hits_per_second(stats) * share
         lowered = [t.lower() for t in texts]
         has = lambda pattern: any(pattern.search(t) for t in lowered)  # noqa: E731
         recovery.on_kill(income, stats, texts, enemies)
@@ -4805,7 +4809,7 @@ class Assumptions:
             # additional-Remnant / reappear / double-pickup lines on every Remnant, the Life / Mana ones included)
             others = self.remnant_supply(skills, skip=recovery.REMNANT_SKILLS) if pickup else (0.0, [])
             multiplier, multiplier_how = remnant_multiplier(texts)
-            recovery.remnant_income(income, infos, stats, texts, hits=hits, crits=models.crits_per_second(stats),
+            recovery.remnant_income(income, infos, stats, texts, hits=hits, crits=models.crits_per_second(stats) * share,
                                     ailment_share=share, ailment_how=how, enemies=enemies,
                                     others=(others[0], "; ".join(others[1])), multiplier=multiplier,
                                     multiplier_how=multiplier_how)

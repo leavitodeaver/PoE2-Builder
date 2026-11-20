@@ -3097,3 +3097,17 @@ def test_a_side_orb_of_storms_bolts_feed_on_hit_charge_lines():
     assert got == [] or got[0][2][0] == pytest.approx(0.1)  # (0.5 a second at most, 0.4 from the main skill)
     with_orb = _charges_held("Frenzy")(lines[:1], {**stats, "_side_orb_bolts": (2.0, "x")})[1]
     assert with_orb.startswith("0.60 gains/s") and "side Orb of Storms" in with_orb
+
+
+def test_the_main_skills_hits_feed_charge_lines_at_its_share_of_the_fight():
+    """MECHC44 (an OVERCOUNT before): with pressed side skills taking part of the main skill's time (main_time_share),
+    its hits and uses feed the charge lines at that share, not at PoB's full Speed; the one-a-use join too."""
+    from builder.search.conditions import _charge_rate, _per_use_joined
+
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 0}
+    hit = "50% chance to gain a Frenzy Charge on Hit"
+    assert _charge_rate(hit, "Frenzy", stats)[0] == pytest.approx(1.0)
+    assert _charge_rate(hit, "Frenzy", {**stats, "_main_share": 0.6})[0] == pytest.approx(0.6)
+    found = [(hit, "Frenzy", (0.6, "x")), (hit, "Frenzy", (0.6, "x"))]
+    joined, _ = _per_use_joined(found, {**stats, "_main_share": 0.6})
+    assert sum(f[2][0] for f in joined) == pytest.approx(1.2 * (1 - 0.25))  # (1.2 uses/s x (1 - 0.5 x 0.5))

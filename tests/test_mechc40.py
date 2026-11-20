@@ -173,6 +173,12 @@ def test_a_side_orb_of_storms_bolts_feed_on_hit_charges(engine):
     search.assumptions.rate_presses()
     bolts = getattr(build, "orb_bolts", None)
     after = search.conditions.evidence().get("overrideFrenzyCharges")
-    print("PROBE side orb", bolts, before, after)
+    from types import SimpleNamespace
+
+    from builder.search.assumptions import main_time_share
+
+    share = main_time_share(build, SimpleNamespace(name="Spark"))
+    print("PROBE side orb", bolts, share, before, after)
+    assert 0 < share < 1  # (MECHC44: the Orb's presses take part of Spark's time; its hits feed the lines at that share)
     assert bolts is not None and bolts[0] > 0
     assert after is not None and "side Orb of Storms" in after[1]

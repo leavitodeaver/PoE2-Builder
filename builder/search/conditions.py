@@ -607,6 +607,16 @@ BLIND_LINE = re.compile(r"\bblind", re.I)
 ONCE_EVERY = re.compile(r"no more than once (?:per second|every (\d+(?:\.\d+)?) seconds?)", re.I)
 
 
+# (MECHC44, an OVERCOUNT before) The main skill's hits and uses feed the charge lines at its share of the fight as the
+# score counts it (assumptions.main_time_share: objective.press_scales, the time the pressed side skills leave it in Full
+# DPS, x the search's chosen presses outside it), not at PoB's full Speed: a build pressing other skills used the main
+# skill's whole Speed and the presses' time twice. Conditions.evidence sets stats["_main_share"] (a round behind the
+# press model, as the other press readers; 1 with no presses).
+def _main_share(stats: dict) -> float:
+    got = stats.get("_main_share")
+    return 1.0 if got is None else max(0.0, min(1.0, number(got)))
+
+
 def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
     """(charges per second, how) from one line, or None if it isn't a source of that charge."""
     if kind == "Power" and stats.get("_main_no_power"):
@@ -661,6 +671,7 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
     chance *= float(m.group("count") or 1)  # ("Gain 3 Power Charges on use": three per event; MECH48, was one)
     when = m.group(3).lower()
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
+    hits *= _main_share(stats)  # (MECHC44: MAIN_SHARE's note)
     per_use = stats.get("_hits_per_use") if stats.get("_multi_charge") else None
     many = ""
     if per_use is not None:  # (MECHC44: a flagged main skill's hits a use, Twister's twisters, Galvanic Field's bolts)
@@ -1314,10 +1325,10 @@ def _per_use_joined(found: list[tuple[str, str, tuple[float, str]]], stats: dict
     its source names, (rate, how)). A line is fed by the main skill's uses when its rate doubles with the use rate
     (PoB's Speed); those of one source kind, two or more, are scaled together so their sum is uses x (1 - prod(1 - e_i)).
     Unchanged with the flag, with no use rate, or with fewer than two such lines."""
-    speed = number(stats.get("Speed"))
+    speed = number(stats.get("Speed")) * _main_share(stats)  # (MECHC44: its uses at its share of the fight)
     if stats.get("_multi_charge") or speed <= 0 or len(found) < 2:
         return found, ""
-    fast = {**stats, "Speed": 2 * speed}
+    fast = {**stats, "Speed": 2 * number(stats.get("Speed"))}  # (PoB's Speed doubled; the share stays)
     per_kind: dict[str, list[int]] = {}
     for i, (text, source, r) in enumerate(found):
         m = re.search(CHARGE_SOURCE.format(kind=source), text, re.I)
@@ -1682,6 +1693,7 @@ def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, st
         return events * amount, events, (f"{chance:.0%} x {amount:g} Rage per {spend.group(1)} Mana spent, the main skill "
                                          f"spending {rate:.1f}/s (other skills' Mana not counted): {events:.2f} gains/s")
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
+    hits *= _main_share(stats)  # (MECHC44: the main skill at its share of the fight, MAIN_SHARE's note)
     every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
     # (red-flash hits always land, MECHC5; MECHC20: a gain, so the worst case reads the lowest real boss's landed hits)
     land = boss_hits.gain_hits(stats)[0]
@@ -7550,6 +7562,16 @@ class Conditions:
         return head, (f"Twister's twister-count reading, MEDIUM-LOW, as its DPS counts; in an open arena {open_row:g} "
                       "a cast")
 
+    def _main_share(self) -> float:
+        """(MECHC44) the main skill's share of the fight as objective.dps scores it (assumptions.main_time_share)."""
+        from types import SimpleNamespace
+
+        from builder.search.assumptions import main_time_share
+
+        if not self.main_skill or getattr(self.build, "objective", None) is None:
+            return 1.0
+        return main_time_share(self.build, SimpleNamespace(name=self.main_skill))
+
     def _galvanic_bolts(self) -> tuple[float, str]:
         """(MECHC44) (Galvanic Field's bolts on the boss a cast, how): PoB's HitSpeed x GEM20's attached share
         (models.galvanic_orb_uptime with Assumptions.other_shocks) / PoB's Speed; its "Orb" set only (else 1)."""
@@ -8360,7 +8382,7 @@ class Conditions:
         boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         stats = {**stats, "_has_ally": any(t & {"Minion", "CreatesMinion"} for t in gem_types.values()),  # (MECHC31, Conduit)
                  "_minion_gems": {n for n, t in gem_types.items() if "CreatesMinion" in t},  # (MECHC41, minions_in_presence)
-                 "_gem_names": set(gem_types), "_boss": boss, "_events": events, "_item_uses": item_uses, "_texts": texts, "_weapon": getattr(self.build.equipped.get("Weapon 1"), "type", ""), "_consumers": consumers, "_rage_spend": rage_spend, "_consume_gains": dict(getattr(self.build, "consume_gains", None) or {}), "_side_orb_bolts": getattr(self.build, "orb_bolts", None),
+                 "_gem_names": set(gem_types), "_boss": boss, "_events": events, "_item_uses": item_uses, "_texts": texts, "_weapon": getattr(self.build.equipped.get("Weapon 1"), "type", ""), "_consumers": consumers, "_rage_spend": rage_spend, "_consume_gains": dict(getattr(self.build, "consume_gains", None) or {}), "_side_orb_bolts": getattr(self.build, "orb_bolts", None), "_main_share": self._main_share(),
                  "_main_channel_rage": self.main_skill in RAGE_PER_SECOND, "_main_types": main_types, "_main_skill": self.main_skill, "_distance_choice": self.distance,
                  "_weapon_types": [o.type for slot in ("Weapon 1", "Weapon 2")
                                    if (o := (getattr(self.build, "equipped", None) or {}).get(slot)) is not None],
