@@ -3360,6 +3360,7 @@ class Assumptions:
         # (MECH62: the Cull models' scales, reset beside press_scales and set again by cull_window)
         build.objective.whole_scales, build.objective.cull_scale = {}, 1.0
         build.orb_presses = {}  # (MECHB29, for MECH-C's orb_remnants: {skill: (Orbs a second, how)}, set below)
+        build.orb_bolts = None  # (MECHC44: a side Orb's bolts a second for the on-hit charge lines, set below)
         if not pressed:
             build.objective.press_scales = {}
             return self.consume_ignite(groups, []) + self.cull_window()
@@ -3396,6 +3397,9 @@ class Assumptions:
         # (MECHB29, the manager 21:40: MECH-C's orb_remnants reads it) a pressed side Orb's Orbs a second, as press_model
         # scores it: each Orb ends at its maximum hits or its duration and is recast at once (models.orbs_per_second)
         orbs = models.orbs_per_second(rates, main, pressed, paced, caps, models.press_choices(build), near)
+        # (MECHC44, for conditions' on-hit charge lines: a side Orb's bolts a second, the same cycle; a round behind)
+        bolts = models.side_orbs(rates, main, pressed, paced, caps, models.press_choices(build), near)
+        build.orb_bolts = (sum(b for _, b, _ in bolts.values()), "MECH-B's side-Orb cycle (models.side_orbs)") if bolts else None
         if orbs:
             build.orb_presses = {models.ORB_OF_STORMS: (sum(orbs.values()), (
                 "MECH-B's side-Orb cycle, models.orbs_per_second: each Orb ends at its maximum hits, fed by the Spells "

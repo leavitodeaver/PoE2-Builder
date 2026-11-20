@@ -10,6 +10,7 @@ from builder.data import GameData
 from builder.request.schema import BuildRequest
 from builder.search.context import Context, make_payload
 from builder.search.inner import Search
+from builder.search.objective import number
 from builder.search.skeletons import enumerate_skeletons
 
 
@@ -127,3 +128,51 @@ def test_vanguard_grants_its_stun_guard_on_every_stun_and_more_on_heavy_stuns(en
     basis = found[0][2]["basis"]
     assert f"{6 * strength / 10:,.0f} a Heavy Stun" in basis and f"{2 * strength / 10:,.0f} a Light Stun" in basis
     assert "Light Stuns" in basis and "ROW, Heavy Stuns alone" in basis
+
+
+def test_galvanic_fields_on_hit_charges_follow_its_orbs_bolts_not_its_casts(engine):
+    """MECHC44 (probe POE2T4808: PoB's Speed 0.80 casts/s, HitSpeed 1.67 bolts/s): Galvanic Field carries
+    skill_can_add_multiple_charges_per_action; its on-hit charge lines roll on its Orb's bolts, which come only while an
+    Orb is attached (GEM20: after another skill Shocks the boss). A lone skeleton Shocks nothing: 0 hits a cast."""
+    payload = make_payload(BuildRequest(main_skill="Galvanic Field", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Galvanic Field"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    ring = chr(10).join(["Rarity: Rare", "Test Ring", "Ruby Ring", "Item Level: 82", "Implicits: 0",
+                         "20% chance to gain a Frenzy Charge on Hit"])
+    build.call("equip", slot="Ring 1", raw=ring, fields=[])
+    found = search.conditions.evidence()
+    bolts, how = search.conditions._galvanic_bolts()
+    print(found.get("overrideFrenzyCharges"), bolts, how)
+    assert bolts == 0.0 and "attached 0%" in how and "1.67 bolts/s" in how
+    assert number((found.get("overrideFrenzyCharges") or (0.0, ""))[0]) == 0.0  # (before: 2.5 held, its casts as hits)
+
+
+def test_a_side_orb_of_storms_bolts_feed_on_hit_charges(engine):
+    """MECHC44: a pressed side Orb of Storms' bolts (MECH-B's side-Orb cycle, kept as build.orb_bolts by
+    Assumptions.rate_presses) feed the build's on-hit charge lines, each bolt may grant (Orb of Storms carries the
+    multiple-charges flag)."""
+    from builder.request.schema import Choices
+
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"], level=90,
+                                        require=Choices(skills=["Orb of Storms"])))  # (MECHB29's setup)
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    ring = chr(10).join(["Rarity: Rare", "Test Ring", "Ruby Ring", "Item Level: 82", "Implicits: 0",
+                         "20% chance to gain a Frenzy Charge on Hit"])
+    build.call("equip", slot="Ring 1", raw=ring, fields=[])
+    orb = next(g["index"] for g in build.groups() if any(x["name"] == "Orb of Storms" for x in g["gems"]))
+    build.call("setGroup", index=orb, fullDPS=False, fields=[])
+    search.assumptions.rate_presses()
+    before = search.conditions.evidence().get("overrideFrenzyCharges")
+    assert getattr(build, "orb_bolts", None) is None
+    build.call("setGroup", index=orb, fullDPS=True, fields=[])
+    search.assumptions.rate_presses()
+    bolts = getattr(build, "orb_bolts", None)
+    after = search.conditions.evidence().get("overrideFrenzyCharges")
+    print("PROBE side orb", bolts, before, after)
+    assert bolts is not None and bolts[0] > 0
+    assert after is not None and "side Orb of Storms" in after[1]

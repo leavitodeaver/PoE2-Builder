@@ -580,13 +580,19 @@ NO_POWER_STAT = "cannot_gain_power_charges_during_skill"
 # (each hit may grant). The flagged skills' extra hits a use (charges-per-action.md: hits/s of the lingering effect x p):
 # (MECHC44) a flagged Twister main skill's hits on the boss a cast (recovery.twister_hits' headline, the one its DPS
 # uses: MEDIUM-LOW, the open-arena 1 a cast a row) multiply its hits and crits a second (stats["_hits_per_use"]; an
-# UNDERCOUNT before: one hit a cast). Orb of Storms as the main skill needs none: PoB's Speed is already its bolts a
-# second under the kept one-bolt-a-recast reading (models.orb_of_storms_note), each bolt one hit. Still one hit a use (an
-# UNDERCOUNT left, said): Galvanic Field's orb, Elemental Storm, Killing Palm, Siphoning Strike, Wing Blast and the
-# Heralds' explosions as main skills, and a side Orb's bolts (the charge readers count the main skill's hits only).
+# UNDERCOUNT before: one hit a cast). Galvanic Field (its "Orb" set; MECHC44, probe POE2T4808): PoB's Speed is its
+# casts (0.80/s on the probe's skeleton) while its DPS runs on HitSpeed (1.67/s, a bolt every 0.6 s: hitTimeOverride)
+# x GEM20's attached share (models.galvanic_orb_uptime: only after another skill Shocks the boss), so hits a cast =
+# HitSpeed x that share / Speed (0 with no Shock in the build: an OVERCOUNT before, the casts counted as hits; an
+# UNDERCOUNT with the Orb up). Orb of Storms as the main skill needs none (probe POE2T4808: PoB's TotalDPS 53.58 =
+# AverageHit 82.885 x Speed 0.6464, one bolt a cast, and the charge reader read the same 0.65 hits/s). Killing Palm,
+# Siphoning Strike, Wing Blast and Herald of Blood's explosion (probe POE2T4808: no HitSpeed; PoB's Speed is the use
+# rate): one hit on the boss a use as read; the flag lets each enemy hit grant, and a lone boss is one enemy (MEDIUM;
+# Siphoning Strike's strike and shockwave both hitting the boss, two a use, UNVERIFIED: not counted). A side Orb of
+# Storms' bolts: the charge readers count the main skill's hits only (an UNDERCOUNT left).
 MULTI_CHARGE_STAT = "skill_can_add_multiple_charges_per_action"
 HELBRYMS_HIDE = "Helbrym's Hide"  # (MECHC44: recovery.HELBRYMS_HIDE; its Rage, Conditions._helbrym_rage)
-HITS_A_USE = {"Twister"}  # (MECHC44: main skills whose hits a use Conditions._hits_per_use reads)
+HITS_A_USE = {"Twister", "Galvanic Field"}  # (MECHC44: main skills whose hits a use Conditions._hits_per_use reads)
 PIN_MORE_SUPPORT, PIN_MORE_STAT = "Pin III", "support_pin_pin_duration_+%_final"  # (MECH66: "Pin caused by Supported
 # Skills has 30% more duration", gem_stat_descriptions.csd; read by models.pin_duration_scale)
 NO_BLIND_STAT = "cannot_inflict_blind"  # Blindside (sup_dex.lua SupportBlindsidePlayer; Stats.json)
@@ -656,10 +662,11 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
     when = m.group(3).lower()
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
     per_use = stats.get("_hits_per_use") if stats.get("_multi_charge") else None
-    if per_use and number(per_use[0]) > 0:
-        hits *= number(per_use[0])  # (MECHC44: a flagged main skill's hits a use, Twister's twisters; MULTI_CHARGE_STAT)
-    many = (f" ({number(per_use[0]):.2f} hits a use, each may grant: {per_use[1]}; at one hit a use: "
-            f"{hits / number(per_use[0]):.2f}/s)" if per_use and number(per_use[0]) > 0 else "")
+    many = ""
+    if per_use is not None:  # (MECHC44: a flagged main skill's hits a use, Twister's twisters, Galvanic Field's bolts)
+        many = (f" ({number(per_use[0]):.2f} hits a use, each may grant: {per_use[1]}; at one hit a use: "
+                f"{hits:.2f}/s)")
+        hits *= max(number(per_use[0]), 0.0)
     crits = hits * number(stats.get("CritChance")) / 100
     boss = 1 / bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHC11)
     if re.search(r"\bkill", when):  # (MECHC38: "kill" inside "This skill ..." read as on-kill before)
@@ -1341,6 +1348,42 @@ def _per_use_joined(found: list[tuple[str, str, tuple[float, str]]], stats: dict
     return out, "; ".join(notes)
 
 
+# (MECHC44) A side Orb of Storms' bolts hit too, and Orb of Storms carries skill_can_add_multiple_charges_per_action
+# (GrantedEffectStatSets OrbOfStormsPlayer ImplicitStats, game 26650308), so each bolt may grant an on-hit / on-crit
+# charge line (an UNDERCOUNT before: the charge readers counted the main skill's hits only). Its bolts a second: MECH-B's
+# side-Orb cycle (models.side_orbs, the one press_model scores; Assumptions.rate_presses keeps it as build.orb_bolts, read
+# a round behind, MEDIUM). Each line's hit-fed part only (its rate at the bolts as hits less its rate at none), after the
+# main skill's one-a-use join (another skill's hits), a bolt taken to hit (a Spell) and to crit at the main skill's chance
+# (LOW: the Orb's own isn't read); a line's own "no more than once every N s" cap holds for both together. Other side
+# skills' hits: still not counted (an UNDERCOUNT, said).
+SIDE_ORB_HIT = re.compile(r"\bon (?:critical )?hit\b", re.I)
+SIDE_ORB_NOT = re.compile(r"freeze|electrocute|\bpin\b|stun|immobilise|kill|cull|\btake|block", re.I)
+
+
+def _side_orb_gains(found: list[tuple[str, str, tuple[float, str]]], stats: dict
+                    ) -> list[tuple[str, str, tuple[float, str]]]:
+    """(MECHC44) extra (text, kind, (rate, how)) entries for a side Orb of Storms' bolts (SIDE_ORB_HIT's note)."""
+    bolts, why = stats.get("_side_orb_bolts") or (0.0, "")
+    if number(bolts) <= 0:
+        return []
+    out = []
+    for text, source, (rate, _) in found:
+        if not SIDE_ORB_HIT.search(text) or SIDE_ORB_NOT.search(text):
+            continue
+        bare = {**stats, "_hits_per_use": None, "_main_no_power": None, "_main_no_frenzy": None}
+        at = _charge_rate(text, source, {**bare, "Speed": number(bolts), "HitChance": 100})
+        none = _charge_rate(text, source, {**bare, "Speed": 0.0})
+        if at is None or none is None or at[0] - none[0] <= 0:
+            continue
+        extra = at[0] - none[0]
+        if (cap := ONCE_EVERY.search(text)) is not None:
+            extra = min(extra, max(0.0, 1 / float(cap.group(1) or 1.0) - rate))
+        if extra > 0:
+            out.append((text, source, (extra, f"a side Orb of Storms' {number(bolts):.2f} bolts/s ({why}), each may "
+                                              "grant (Orb of Storms carries the multiple-charges flag; MEDIUM)")))
+    return out
+
+
 def _charges_held(kind: str):
     def held(lines: list[str], stats: dict) -> tuple[float, str]:
         kinds, redirected = _charge_sources(lines, kind)
@@ -1362,6 +1405,7 @@ def _charges_held(kind: str):
                  if (hit := next(((k, x) for k in kinds if (x := _charge_rate(text, k, stats)) is not None), None))
                  is not None]
         found, joined = _per_use_joined(found, stats)  # (MECHC43: one charge of each type a use)
+        found = found + _side_orb_gains(found, stats)  # (MECHC44: a side Orb of Storms' bolts, SIDE_ORB_HIT's note)
         for text, source, r in found:
             more = profusion.get(text)
             plus = (more[0] + more[1] / 3) if more else 0.0
@@ -7492,8 +7536,12 @@ class Conditions:
 
     def _hits_per_use(self) -> tuple[float, str]:
         """(MECHC44) (hits on the boss a use, how) for a HITS_A_USE main skill: Twister's twister-count headline
-        (recovery.twister_hits, the same reading Assumptions.models scales its DPS by; the open arena's 1 a cast a row)."""
+        (recovery.twister_hits, the same reading Assumptions.models scales its DPS by; the open arena's 1 a cast a row);
+        Galvanic Field's bolts a cast (MULTI_CHARGE_STAT's note)."""
         from builder.search import recovery  # (recovery imports nothing of this module at load, but keep it lazy)
+
+        if self.main_skill == models.GALVANIC_FIELD:
+            return self._galvanic_bolts()
 
         boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         seen = self.build.call("stats", fields=list(recovery.TWISTER_FIELDS))
@@ -7501,6 +7549,24 @@ class Conditions:
         head, open_row, _ = recovery.twister_hits(seen, radius)
         return head, (f"Twister's twister-count reading, MEDIUM-LOW, as its DPS counts; in an open arena {open_row:g} "
                       "a cast")
+
+    def _galvanic_bolts(self) -> tuple[float, str]:
+        """(MECHC44) (Galvanic Field's bolts on the boss a cast, how): PoB's HitSpeed x GEM20's attached share
+        (models.galvanic_orb_uptime with Assumptions.other_shocks) / PoB's Speed; its "Orb" set only (else 1)."""
+        from builder.search.assumptions import Assumptions
+
+        raw = self.build.call("activeSkills")["skills"]
+        main = next((s for s in raw if s["name"] == self.main_skill and not s.get("disabled")), {})
+        if main.get("statSet") != "Orb" or main.get("group") is None:
+            return 1.0, "Galvanic Field scored on its Buff set: one a cast as read"
+        seen = self.build.call("stats", fields=["Speed", "HitSpeed"])
+        speed, bolts = number(seen.get("Speed")), number(seen.get("HitSpeed"))
+        if speed <= 0 or bolts <= 0:
+            return 1.0, "no HitSpeed from PoB: one a cast as read"
+        shocks, how = Assumptions(self.build).other_shocks(main["group"])
+        up = models.galvanic_orb_uptime(1.0 / speed, shocks)
+        return bolts * up / speed, (f"its Orb's {bolts:.2f} bolts/s (PoB's HitSpeed) x attached {up:.0%} of the fight "
+                                    f"(GEM20's cycle; Shocks: {how}) / {speed:.2f} casts/s")
 
     def _kills(self) -> tuple[float, float, str]:
         """models.kill_rate's (enemies/s, all/s, how) for the request's boss: its preset's add kills (bosses.kill_stats,
@@ -8294,7 +8360,7 @@ class Conditions:
         boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         stats = {**stats, "_has_ally": any(t & {"Minion", "CreatesMinion"} for t in gem_types.values()),  # (MECHC31, Conduit)
                  "_minion_gems": {n for n, t in gem_types.items() if "CreatesMinion" in t},  # (MECHC41, minions_in_presence)
-                 "_gem_names": set(gem_types), "_boss": boss, "_events": events, "_item_uses": item_uses, "_texts": texts, "_weapon": getattr(self.build.equipped.get("Weapon 1"), "type", ""), "_consumers": consumers, "_rage_spend": rage_spend, "_consume_gains": dict(getattr(self.build, "consume_gains", None) or {}),
+                 "_gem_names": set(gem_types), "_boss": boss, "_events": events, "_item_uses": item_uses, "_texts": texts, "_weapon": getattr(self.build.equipped.get("Weapon 1"), "type", ""), "_consumers": consumers, "_rage_spend": rage_spend, "_consume_gains": dict(getattr(self.build, "consume_gains", None) or {}), "_side_orb_bolts": getattr(self.build, "orb_bolts", None),
                  "_main_channel_rage": self.main_skill in RAGE_PER_SECOND, "_main_types": main_types, "_main_skill": self.main_skill, "_distance_choice": self.distance,
                  "_weapon_types": [o.type for slot in ("Weapon 1", "Weapon 2")
                                    if (o := (getattr(self.build, "equipped", None) or {}).get(slot)) is not None],

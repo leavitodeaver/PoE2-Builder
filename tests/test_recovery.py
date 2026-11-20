@@ -3062,3 +3062,38 @@ def test_volatility_when_stunned_feeds_inner_turmoils_cycle_and_delays_its_explo
     stunned = models.volatility_model(texts, {**stats, "_stunned_volatility": (rate, how)})[1][0]
     assert "from being Stunned" in stunned["basis"] and "from being Stunned" not in plain["basis"]
     assert f"{math.expm1(0.1 * 4) / 0.1:.2f} s after you stop" in stunned["basis"]
+
+
+def test_a_flagged_main_skill_with_no_hits_a_use_grants_no_on_hit_charges():
+    """MECHC44 (probe POE2T4808): Galvanic Field's bolts come only while its Orb is attached (GEM20: after another skill
+    Shocks the boss); with no Shock its hits a cast are 0, so its on-hit charge lines give 0 (before: its casts, an
+    OVERCOUNT); with the Orb up, its bolts (PoB's HitSpeed) x the share / its casts."""
+    from builder.search.conditions import _charge_rate
+
+    stats = {"Speed": 0.8, "HitChance": 100, "CritChance": 0, "_multi_charge": "x"}
+    hit = "20% chance to gain a Frenzy Charge on Hit"
+    rate, how = _charge_rate(hit, "Frenzy", {**stats, "_hits_per_use": (0.0, "no Shock: no Orb")})
+    assert rate == 0.0 and "0.00 hits a use" in how and "at one hit a use: 0.80/s" in how
+    bolts = 1.67 * 0.5 / 0.8  # (the Orb up half the fight)
+    assert _charge_rate(hit, "Frenzy", {**stats, "_hits_per_use": (bolts, "x")})[0] == pytest.approx(0.2 * 1.67 * 0.5)
+
+
+def test_a_side_orb_of_storms_bolts_feed_on_hit_charge_lines():
+    """MECHC44: a side Orb of Storms' bolts (MECH-B's side-Orb cycle, build.orb_bolts) hit too, and the Orb carries the
+    multiple-charges flag, so each bolt may grant an on-hit line, added after the main skill's one-a-use join; lines
+    on other events (every N seconds, Freeze) aren't fed; a line's own once-every cap holds for both together."""
+    from builder.search.conditions import _charges_held, _side_orb_gains
+
+    stats = {"Speed": 1.0, "HitChance": 100, "CritChance": 0, "FrenzyChargesMax": 3, "FrenzyChargesDuration": 15}
+    lines = ["20% chance to gain a Frenzy Charge on Hit", "Gain a Frenzy Charge every 10 seconds",
+             "Gain a Frenzy Charge when you Freeze an enemy"]
+    found = [(lines[0], "Frenzy", (0.2, "x")), (lines[1], "Frenzy", (0.1, "x"))]
+    assert _side_orb_gains(found, dict(stats)) == []
+    side = _side_orb_gains(found, {**stats, "_side_orb_bolts": (2.0, "MECH-B's side-Orb cycle")})
+    assert len(side) == 1 and side[0][0] == lines[0] and side[0][2][0] == pytest.approx(0.4)
+    assert "2.00 bolts/s" in side[0][2][1]
+    capped = "Gain a Frenzy Charge on Hit, no more than once every 2 seconds"
+    got = _side_orb_gains([(capped, "Frenzy", (0.4, "x"))], {**stats, "_side_orb_bolts": (2.0, "x")})
+    assert got == [] or got[0][2][0] == pytest.approx(0.1)  # (0.5 a second at most, 0.4 from the main skill)
+    with_orb = _charges_held("Frenzy")(lines[:1], {**stats, "_side_orb_bolts": (2.0, "x")})[1]
+    assert with_orb.startswith("0.60 gains/s") and "side Orb of Storms" in with_orb
