@@ -7636,7 +7636,8 @@ def stun_set_model(main: Skill | None, scored: str | None, sets: list[dict], sta
     rate, stun_how = 0.0, how
     if primed > 0:
         flat = {f"{t}{k}Average": 0.0 for t in DAMAGE_TYPES for k in ("Hit", "Crit")}
-        rate, stun_how = heavy_stun_rate({**stats, **flat, "PhysicalHitAverage": 1.0, "Speed": 1.0, "HitChance": 100,
+        rate, stun_how = heavy_stun_rate({**stats, **flat, "_main_share": None,  # (MECH93: a per-unit rate)
+                                         "PhysicalHitAverage": 1.0, "Speed": 1.0, "HitChance": 100,
                                           "CritChance": 0, "HeavyStunBuildupAvg": primed / PRIMED_STUN_UNIQUE})
         stun_how = f"{how}; {stun_how}"
     share = min(1.0, rate / uses) if uses > 0 else 0.0
@@ -11683,6 +11684,7 @@ def repeat_every(t: float, times: float, window: float) -> float:
 
 def heavy_stun_rate(stats: dict) -> tuple[float, str]:
     """Heavy Stuns of the boss per second from the main skill's hits, and how it was worked out."""
+    stats = at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     if stats.get("Flag:CannotStun"):  # (MECH84: PoB's CannotHeavyStun beside it zeroes the buildup too)
         return 0.0, "Your Hits cannot Stun enemies: no Heavy Stuns"
     per_hit = number(stats.get("HeavyStunBuildupAvg")) / 100
@@ -18246,6 +18248,7 @@ def light_stun_rate(stats: dict, melee: bool = False) -> tuple[float, str]:
     """Light Stuns of the boss per second from the main skill's hits: each hit's chance is its damage (Physical x1.5, all
     x1.5 for a player Melee skill) over the boss's maximum Life (bosses.of(stats).life), 0 under 15%. None with "Your
     Hits cannot Stun enemies" (MECH84: PoB's CannotStun flag, conditions.cannot_stun_mods, read as "Flag:CannotStun")."""
+    stats = at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     if stats.get("Flag:CannotStun"):
         return 0.0, "Your Hits cannot Stun enemies: no Light Stuns"
     life = bosses.of(stats).life

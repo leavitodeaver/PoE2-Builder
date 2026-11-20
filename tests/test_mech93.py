@@ -230,3 +230,16 @@ def test_repulsion_is_on_the_boss_only_until_the_next_hit():
     # no hits read: the wave lasts its duration
     idle = {u.name: u for u in models.curse_uses(hand, gems, {**stats, "Speed": 0.0}, 2.0)}
     assert idle["Repulsion"].share == pytest.approx(d / (d + 2.0))
+
+
+def test_the_stun_rates_take_the_main_skill_at_its_share_of_the_fight():
+    """MECH93 (the manager 08:10: the rest of the full-Speed check): the boss's Heavy and Light Stuns from the main
+    skill's hits at its share of the fight (as the other readers, fb0acb80)."""
+    from builder.search import models
+
+    base = {"Speed": 0.5, "HitChance": 100.0, "CritChance": 10.0, "HeavyStunBuildupAvg": 10.0,
+            "PhysicalHitAverage": 2000.0, "PhysicalCritAverage": 3000.0, "_main_types": {"Melee", "Attack"}}
+    half, shared = {**base, "Speed": 0.25}, {**base, "_main_share": 0.5}
+    assert models.heavy_stun_rate(shared)[0] == pytest.approx(models.heavy_stun_rate(half)[0])
+    assert models.heavy_stun_rate(shared)[0] < models.heavy_stun_rate(base)[0]
+    assert models.light_stun_rate(shared, True)[0] == pytest.approx(models.light_stun_rate(half, True)[0])
