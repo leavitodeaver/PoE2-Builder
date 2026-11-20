@@ -1379,6 +1379,10 @@ end
 -- the first counts as another Chill Slow of the same size, multiplied with the rest (KeywordPopups Slow: "always
 -- multiplicative"; the line's own "affected by two of your Chills" overrides the Debuff rule that same-type Debuffs
 -- don't stack; MEDIUM).
+-- Slow Magnitude (MECH94; models.SLOW_MAGNITUDE's note): "Debuffs you inflict have N% increased Slow Magnitude"
+-- reaches the player's modDB as MECH_SLOW_MAGNITUDE INC (PoB parses none of it); each Slow the build puts on the
+-- boss (the Chill, held at its maximum; Temporal Chains, before its cap; the other negative ActionSpeed rows; not
+-- Freeze, a stop) is scaled by (1 + N%) before the potency and the floor.
 local FREEZE_SHARE_INPUT = "mechFreezeShare"
 local bossSlowInstalled = false
 local function installBossSlow()
@@ -1399,6 +1403,11 @@ local function installBossSlow()
 		end
 		local unaffected = modDB:Flag(nil, "UnaffectedBySlows")
 		local positive, mult, chill, frozen = 0, 1, 0, 0
+		local player = actor.enemy
+		local magnitude = 1  -- (MECH94: Slow Magnitude, the note above)
+		if player and player.modDB then
+			magnitude = math.max(0, 1 + player.modDB:Sum("INC", nil, "MECH_SLOW_MAGNITUDE") / 100)
+		end
 		local freezeShare = tonumber(build and build.configTab and build.configTab.input[FREEZE_SHARE_INPUT])
 		for _, row in ipairs(modDB:Tabulate("INC", nil, "ActionSpeed")) do
 			local value = row.value or 0
@@ -1414,13 +1423,18 @@ local function installBossSlow()
 					positive = positive + value
 				end
 			elseif not unaffected then
-				mult = mult * math.max(0, 1 + value * potency / 100)
+				mult = mult * math.max(0, 1 + value * magnitude * potency / 100)
 			end
+		end
+		if chill < 0 and magnitude ~= 1 then  -- (MECH94: held at the Chill's maximum)
+			local most = (player and player.modDB and player.modDB:Override(nil, "ChillMax"))
+				or (data.nonDamagingAilment and data.nonDamagingAilment.Chill and data.nonDamagingAilment.Chill.max) or 50
+			chill = math.max(-most, chill * magnitude)
 		end
 		if chill < 0 and not unaffected then
 			local each = math.max(0, 1 + chill * potency / 100)
 			mult = mult * each
-			local player = actor.enemy  -- (MECH84: stacking Chills, the note above)
+			-- (MECH84: stacking Chills, the note above; `player` is actor.enemy)
 			if player and player.modDB and player.modDB:Flag(nil, "ChillCanStack") then
 				local cap = player.modDB:Override(nil, "ChillStacksMax") or player.modDB:Sum("BASE", nil, "ChillStacksMax")
 				local extra = math.min(modDB:Sum("BASE", nil, "Multiplier:ChillStacks"), cap) - 1
@@ -1433,7 +1447,7 @@ local function installBossSlow()
 		if chains >= 0 then
 			positive = positive + chains
 		elseif not unaffected then
-			mult = mult * math.max(0, 1 + math.max(-data.misc.TemporalChainsEffectCap, chains) * potency / 100)
+			mult = mult * math.max(0, 1 + math.max(-data.misc.TemporalChainsEffectCap, chains * magnitude) * potency / 100)
 		end
 		local speed = (1 + positive / 100) * math.max(0.25, mult) * (1 - frozen)
 		speed = math.max((modDB:Max(nil, "MinimumActionSpeed") or 0) / 100, speed)
@@ -4230,7 +4244,8 @@ function bridge.useRates(args)
 				-- thing kept up: pressing again adds projectiles
 				projectile = (skill.skillTypes and skill.skillTypes[SkillType.Projectile]) and true or nil,
 				castTime = jsonNumber(skill.activeEffect.grantedEffect.castTime or 0),
-				-- one use's time before the cooldown caps Speed (PoB's own ailment stacks read it the same way)
+				-- PoB's HitTime or Time; NOTE Time is 1 / Speed AFTER the cooldown cap (CalcOffence 3008 then 3052), so for a
+				-- cooldown-capped skill it is the capped interval, not one use (models.press_action, MECH94)
 				time = (output.HitTime or output.Time) and jsonNumber(output.HitTime or output.Time) or nil,
 				-- each ailment's stacks at that speed over the most that count (PoB: chance x duration x rate / max)
 				stackPotential = setmetatable({ Ignite = output.IgniteStackPotential and jsonNumber(output.IgniteStackPotential),

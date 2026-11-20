@@ -265,6 +265,11 @@ def snap_stats(build) -> dict:
     """The main skill's stats for snap_found, with the other groups' Ignites Conditions.evidence found
     (build.ailment_others, MECH75; none before evidence() has run)."""
     stats = build.call("stats", fields=list(HIT_REMNANT_FIELDS))
+    group = build.main_group() if callable(getattr(build, "main_group", None)) else None
+    if group and group.get("skills"):  # (MECH94: the main skill's hits at its share of the fight, an OVERCOUNT before:
+        # snap_found's readers take stats["_main_share"] through models.at_main_share)
+        name = group["skills"][min(group.get("mainActiveSkill") or 1, len(group["skills"])) - 1]["name"]
+        stats = with_main_share(build, stats, SimpleNamespace(name=name))
     if others := getattr(build, "ailment_others", None):
         stats = {**stats, "_ailment_others": others}
     if ground := getattr(build, "ailment_ground", None):  # (Radiant Grief's Presence Ignite)
@@ -2522,8 +2527,9 @@ class Assumptions:
                                "basis": no_stun_how, "confidence": "HIGH"})
         if any(conditions_mod.SELF_IMMOLATION_LINE.match(t.strip()) for t in texts):
             # (MECH85: Self Immolation's "Ignites you cause are reflected back to you": the burn on you, PoB's degen)
-            burn, burn_how = conditions_mod.reflected_ignite_burn(
-                texts, build.call("stats", fields=list(conditions_mod.REFLECTED_IGNITE_FIELDS)))
+            burn, burn_how = conditions_mod.reflected_ignite_burn(  # (MECH94: the main skill's hits at its share)
+                texts, with_main_share(build, build.call("stats", fields=list(conditions_mod.REFLECTED_IGNITE_FIELDS)),
+                                       main))
             if burn > 0:
                 hand_mods = hand_mods + [models.line("1 Fire Damage taken per second", burn)]
             hand_notes.append({"label": "Your Ignites reflected back to you (Self Immolation)*",
@@ -2538,8 +2544,8 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + pr_mods, hand_notes + pr_notes
         if any(conditions_mod.GRINNING_BURN.search(t) for t in texts):
             # (MECH89: Grinning Immolation's 15% of Life + ES a second while you are Ignited by your crits, COV43)
-            burn, burn_how, burn_plain = conditions_mod.grinning_burn(
-                texts, build.call("stats", fields=list(conditions_mod.GRINNING_FIELDS)))
+            burn, burn_how, burn_plain = conditions_mod.grinning_burn(  # (MECH94: the main skill's hits at its share)
+                texts, with_main_share(build, build.call("stats", fields=list(conditions_mod.GRINNING_FIELDS)), main))
             if burn > 0:
                 hand_mods = hand_mods + [models.line("1 Fire Damage taken per second", burn)]
             hand_notes.append({"label": "Ignited by your own crits (Grinning Immolation)*",
@@ -3613,6 +3619,8 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + frenzy_mods, hand_notes + frenzy_notes
         spell_ailment_mods, spell_ailment_notes = models.spell_ailment_magnitude_mods(turmoil_texts)  # (MECH93)
         hand_mods, hand_notes = hand_mods + spell_ailment_mods, hand_notes + spell_ailment_notes
+        slow_mods, slow_notes = models.slow_magnitude_mods(turmoil_texts)  # (MECH94: PoB parses none)
+        hand_mods, hand_notes = hand_mods + slow_mods, hand_notes + slow_notes
         volatility_crit =volatility_support(build, main)  # (MECH91: the Volatility support's chance on crit)
         if volatility_crit > 0 or any(models.INNER_TURMOIL.match(t.strip())
                                       or models.VOLATILITY_ON_CRIT.match(t.strip())
@@ -7520,6 +7528,9 @@ class Assumptions:
         stats = {**self.build.call("stats", fields=models.MODEL_FIELDS + ["enemySkillTime", "EvadeChance",
                                                                           "EffectiveBlockChance"]),
                  "_main_types": main_types}
+        # (MECH94: the main skill's hits, uses and Endurance Charges from them at its share of the fight, as
+        # Conditions.evidence reads them; an OVERCOUNT for builds pressing side skills before)
+        stats = with_main_share(self.build, stats, SimpleNamespace(name=main))
         texts = [line["text"] for line in self.build.call("sourceLines")["lines"]]
         gains = 0.0
         if "Jagged Ground I" in main_gems:

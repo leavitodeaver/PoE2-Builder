@@ -11047,6 +11047,38 @@ def spell_ailment_magnitude_mods(texts: list[str]) -> tuple[list[dict], list[dic
                              "line only in part, so it counted 0); Freeze and Electrocute have no Magnitude")}]
 
 
+# Slow Magnitude (MECH94; plans/kw-slow.md item 2, an UNDERCOUNT of the boss's Slow: PoB parses none of these lines,
+# ModCache 7178-7193, so it counted 0). stat_descriptions.csd (26650308) base_debuff_slow_magnitude_+%: "Debuffs you
+# inflict have {0}% increased Slow Magnitude" ("reduced": negated). KeywordPopups SlowMagnitudeModifier: "applies to
+# Debuffs you inflict that Slow enemies, and scales only the specific Magnitude that slows the target"; "Ailments are a
+# family of common Debuffs" (Chill among them, and Chill "Slows the afflicted target"); Curses "Debuff affected targets"
+# and Temporal Chains "slows those affected". So the total goes to PoB as MECH_SLOW_MAGNITUDE INC on you, and the
+# bridge's boss-slow function (installBossSlow) scales the boss's Chill, Temporal Chains and other Slows the build puts
+# on it by (1 + N%) before the Unique's 50% less and the 25% floor; the Chill is held at its maximum (PoB's ChillMax or
+# 50%): whether the line lifts a Chill's slow past it is UNVERIFIED, and the held reading is the lower Slow on the boss
+# (more boss hits: the lower survival reading). Only the Slow moves: Bonechill and the other Chill-magnitude lines read
+# PoB's own Chill, untouched. It moves the boss's hit rate only (survival time and "when Hit" sources), no damage.
+# Not read (UNDERCOUNTS, defence only, labelled): the Hazard-only line (hazard_base_debuff_slow_magnitude_+%: only
+# Hazards' Debuffs) and Slow Potency's "Debuffs inflicted with Supported Skills have N% increased Slow Magnitude" (one
+# skill's Debuffs; which Slow it supports isn't traced).
+SLOW_MAGNITUDE = re.compile(r"^debuffs you inflict have (\d+(?:\.\d+)?)% (increased|reduced) slow magnitude$", re.I)
+SLOW_MAGNITUDE_MOD = "MECH_SLOW_MAGNITUDE"  # (read by engine/bridge.lua installBossSlow)
+
+
+def slow_magnitude_mods(texts: list[str]) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for SLOW_MAGNITUDE (the note above)."""
+    value = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+                for t in texts if (m := SLOW_MAGNITUDE.match(t.strip())))
+    if value == 0:
+        return [], []
+    return [raw_mod(SLOW_MAGNITUDE_MOD, "INC", value)], [{
+        "label": "Slow Magnitude of your Debuffs*", "value": f"{value:+g}%", "confidence": "MEDIUM",
+        "basis": (f"{value:+g}% Slow Magnitude on the boss's Chill, Temporal Chains and other Slows you inflict (PoB "
+                  "parses none of these lines: 0 before); before the Unique boss's 50% less Slow and the 25% speed "
+                  "floor; a Chill held at its maximum (past it: UNVERIFIED). It slows the boss's hits (survival, "
+                  "'when Hit' sources), no damage")}]
+
+
 # Spectral Fire (MECH92; RESEARCH35 R35-16, scratch/manager/research/spectral-fire-refresh-and-reignite.md; PoB ignores
 # Fairgraves' Curse's "Attack Hits inflict Spectral Fire for 8 seconds", ModCache 6613, so it counted plain Ignite DPS).
 # KeywordPopups SpectralFire (26650308): "Targets affected by a Spectral Fire Debuff do not take damage from Ignite.
@@ -14098,13 +14130,21 @@ def press_group_rate(rate: dict, pace: float | None = None, cap: "PressCap | Non
 
 def press_action(rate: dict) -> float:
     """The main skill's time one press of a `useRates` row takes: 1/speed, unless the cooldown capped PoB's speed: then
-    its own use time (PoB's Time/HitTime, before action speed), else its base cast time."""
+    its own use time (PoB's HitTime where shorter than the capped interval), else its base cast time.
+    (MECH94, an UNDERCOUNT since MECH37: PoB sets Time = 1 / Speed AFTER the cooldown cap (CalcOffence 3008 then 3052),
+    so the row's `time` of a capped skill is its whole cooldown interval, not one use: a pressed Frost Bomb (6 s
+    cooldown, 0.8 s cast) charged 6 s a press and left the main skill 0% of the fight (probe POE2T5059). A `time` as
+    long as the capped interval is now dropped for the base cast time (cast speed not read: a press reads a little long
+    where the build casts faster, LOW).)"""
     speed, repeats, cooldown = number(rate.get("speed")), number(rate.get("repeats")) or 1.0, number(rate.get("cooldown"))
     if speed <= 0:
         return 0.0
     capped = cooldown > 0 and speed >= repeats / cooldown * (1 - 1e-6)
-    uncapped = number(rate.get("time")) or number(rate.get("castTime"))
-    return min(1 / speed, uncapped) if capped else 1 / speed
+    if not capped:
+        return 1 / speed
+    time = number(rate.get("time"))
+    uncapped = time if 0 < time < (1 / speed) * (1 - 1e-6) else number(rate.get("castTime"))
+    return min(1 / speed, uncapped)
 
 
 # (MECHB30, for MECHC26's play-guide row) the switch for "the player casts Spells near the side Orb" (MECHB28's play
