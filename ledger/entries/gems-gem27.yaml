@@ -102,3 +102,24 @@
             "scratch/gem26/probe_sweep.json"]
   test_in_game: "Wanted: fire a projectile through Voltaic Barrier at a lone boss: does the boss take a beam hit?"
   status: proposed
+
+- id: model-gem27-empowered-sparks
+  title: "Empowered Sparks: Sparks on the attacks the supported skill's Power Charges Empower (PoB: a flat 1 a second, an OVERCOUNT)"
+  kind: model
+  model: empowered_sparks
+  stats: ["support_empower_X_attacks_with_spark_on_power_charge_gain"]
+  skill: [Empowered Sparks I, Empowered Sparks]
+  confidence: LOW
+  notes: >-
+    models.empowered_sparks_model + assumptions.empowered_sparks (GEM27). Sweep probe POE2T3595: the support on
+    Boneshatter, Full DPS objective 26.38 -> 71.95 (Sparks 45.56 at a flat 1 a second). The game: each Power Charge the
+    supported skill generates Empowers the next 3 Attacks (this stat) to Trigger Sparks. Sparks a second = min(3 x the
+    supported skill's Power Charges a second, the build's attacks a second): Power Siphon / Killing Palm at the preset's
+    add kills, Devour / Profane Ritual at their corpses, Siphoning Strike at its hits x the boss's Shock uptime, Wing
+    Blast at min(uses, Heavy Stuns) x 15%, Lingering Illusion at the user's 5 s copies x 1.76 Remnants (UNVERIFIED,
+    R36-16); others 0, said. Each at PoB's Spark; PoB's own entry out of Full DPS (the shared cut tally).
+  sources: ["builder/search/models.py (empowered_sparks_model)", "builder/search/assumptions.py (empowered_sparks)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_int.lua (SupportEmpoweredSparksPlayer, TriggeredSparkEmpowerPlayer)",
+            "data/game-26650308/tables/ActiveSkills.json (the Power Charge skills' texts)", "scratch/gem26/probe_sweep.json"]
+  test_in_game: "Optional: support Siphoning Strike; Sparks appear only on the attacks after it consumes a Shock."
+  status: proposed

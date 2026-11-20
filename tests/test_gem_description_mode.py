@@ -1625,3 +1625,13 @@ def test_voltaic_beams_need_projectiles_through_a_standing_wall():
     dps, notes = models.voltaic_beams_model(1.4, False, 1.0, 40.0, "Boneshatter", "test", pob=60.7)
     assert dps == 0.0 and "fires none" in notes[0]["basis"]
     assert models.voltaic_beams_model(2.0, True, 3.0, 40.0, "Lightning Arrow", "t")[0] == pytest.approx(80.0)
+
+
+def test_empowered_sparks_three_per_power_charge_held_to_the_attacks():
+    """GEM27: Sparks a second = min(3 x the supported skill's Power Charges, the build's attacks), each at PoB's Spark;
+    PoB's flat entry out; no Power Charge or no attack: 0."""
+    dps, notes = models.empowered_sparks_model(0.2, "test", 1.4, 50.0, "Siphoning Strike", pob=45.6)
+    assert dps == pytest.approx(0.6 * 50.0) and notes[0]["entry_cut"] == {models.EMPOWERED_SPARKS: 45.6}
+    assert models.empowered_sparks_model(1.0, "t", 1.4, 50.0, "Siphoning Strike")[0] == pytest.approx(70.0)
+    assert models.empowered_sparks_model(0.0, "t", 1.4, 50.0, "Power Siphon")[0] == 0.0
+    assert models.empowered_sparks_model(1.0, "t", 0.0, 50.0, "Power Siphon")[0] == 0.0

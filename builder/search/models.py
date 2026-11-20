@@ -9179,7 +9179,8 @@ def void_illusion_model(blast: float, cooldown: float, main_dps: float = 0.0, po
     return dps, mods, roll_note + [{
         "label": label, "value": f"{dps:,.1f} DPS", "confidence": "LOW", "entry": VOID_ILLUSION_ENTRY,
         "entry_cut": out, "basis": basis,
-        "play": (f"Dodge roll near the boss so it hits your copy (every {every:g} s): {dps:,.1f} DPS"
+        "play": (f"Dodge roll near the boss so it hits your copy (every {every:g} s; assumed: the boss destroys one copy "
+                 f"every {ILLUSION_DESTROYED_EVERY:g} s, the user's rate for dodge-roll copies, LOW): {dps:,.1f} DPS"
                  + (f", net of the rolls' time ({lost:,.1f})" if lost > 0 else "")
                  + f"; rolling every {DODGE_EVERY:g} s with the boss destroying every copy the cooldown allows: "
                    f"{min(1 / DODGE_EVERY, 1 / cooldown if cooldown > 0 else 1 / DODGE_EVERY) * blast:,.1f} (before "
@@ -9227,6 +9228,54 @@ def gale_force_model(landed: float, every: float, blast: float, cooldown: float 
                   f"stages; the stages a hit consumes run a little higher: an undercount)"),
         "play": (f"Gale Force fires when the boss hits you: {dps:,.1f} DPS at this build's defences; a boss that never "
                  f"lands a hit: 0.")}]
+
+
+# Empowered Sparks (GEM27; an OVERCOUNT: sweep probe POE2T3595, the support on Boneshatter, Full DPS objective 26.38 ->
+# 71.95, PoB rating its triggered Spark (TriggeredEmpoweredSparkPlayer, castTime 1) at a flat 1 a second whatever the
+# supported skill does). The game (PoB sup_int.lua SupportEmpoweredSparksPlayer, the game's text): "Supports Skills which
+# generate Charges. When generating Power Charge with Supported Skills, Empower some of your Attacks to Trigger Spark
+# Projectiles on use" (support_empower_X_attacks_with_spark_on_power_charge_gain 3). So Sparks a second = min(3 x the
+# Power Charges the SUPPORTED skill makes a second, the build's attacks a second), each at PoB's Spark use. The supported
+# skill's Power Charges (ActiveSkills, 26650308; its event on a boss fight):
+# - Power Siphon ("instantly killed on Hit, granting a Power Charge") and Killing Palm ("Each enemy killed by this strike
+#   grants a Power Charge"): the preset's add kills a second (bosses.kill_stats; a player who takes it culls the adds with
+#   it: CLAUDE.md), at most its uses; 0 on a lone boss;
+# - Devour ("For each enemy or corpse devoured ... gain a Power Charge") and Profane Ritual ("When the ritual is complete
+#   the Corpse is consumed and you gain a Power Charge"): the corpses the preset's add kills leave, at most its uses (one
+#   corpse a Devour: the lower reading; its extra nearby corpses not counted);
+# - Siphoning Strike ("If the target is Shocked, Consume their Shock ... and grant you a Power Charge"): its hits x the
+#   boss's Shock uptime (the resolver's);
+# - Wing Blast ("Enemies Primed for Heavy Stun will be stunned ... and have a chance to grant you a Power Charge",
+#   wing_blast_chance_to_gain_power_charge_on_stun_% 15): min(its uses, the boss's Heavy Stuns a second from the main
+#   skill, models.heavy_stun_rate, as the Primed episodes) x 15% (LOW);
+# - Lingering Illusion (its copies' Remnants grant a Power Charge on pickup): the user's one destroyed copy every 5 s x
+#   1.76 Remnants (assumptions.REMNANT_SOURCES); whether a picked-up Remnant counts as "generating with Supported Skills"
+#   is UNVERIFIED (RESEARCH36 R36-16): counted, labelled;
+# - any other supported skill: its Power Charges not read: 0, said (an UNDERCOUNT where it makes some).
+# The build's attacks: the main skill's uses at its share of the fight if it is an Attack, plus the supported skill's
+# own uses if it is an Attack and not the main skill. Power Charges made at the maximum still counted as generated
+# (UNVERIFIED). PoB's entry out of Full DPS (its own group's, the shared cut tally). LOW-MEDIUM.
+EMPOWERED_SPARKS, EMPOWERED_SPARKS_SUPPORT = "Empowered Sparks", "Empowered Sparks I"
+EMPOWERED_SPARKS_ENTRY, EMPOWERED_A_CHARGE = "model-gem27-empowered-sparks", 3.0
+WING_BLAST_POWER_CHANCE = 0.15  # (wing_blast_chance_to_gain_power_charge_on_stun_% 15, PoB act_str.lua, level 20)
+
+
+def empowered_sparks_model(gains: float, gains_how: str, attacks: float, spark: float, source: str,
+                           pob: float = 0.0) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Empowered Sparks (see above): `gains` the supported skill's Power Charges a second, `attacks`
+    the build's attacks a second, `spark` one Spark use (PoB's), `pob` PoB's own Full DPS entry (taken out)."""
+    gains, attacks, spark = max(number(gains), 0.0), max(number(attacks), 0.0), max(number(spark), 0.0)
+    rate = min(EMPOWERED_A_CHARGE * gains, attacks)
+    dps = rate * spark
+    took = f"PoB rates the Sparks at a flat 1 a second ({pob:,.1f} DPS in Full DPS), taken out. " if pob > 0 else ""
+    return dps, [{
+        "label": f"Empowered Sparks: Sparks on the attacks {source}'s Power Charges Empower*", "value": f"{dps:,.1f} DPS",
+        "confidence": "LOW", "entry": EMPOWERED_SPARKS_ENTRY, "entry_cut": {EMPOWERED_SPARKS: pob} if pob > 0 else {},
+        "basis": (took + f"The game: each Power Charge {source} generates Empowers your next {EMPOWERED_A_CHARGE:g} "
+                  f"Attacks to Trigger Sparks: {gains_how} = {gains:.3f} Power Charges a second, at most your "
+                  f"{attacks:.2f} attacks a second: {rate:.3f} Sparks a second at {spark:,.1f} each"),
+        "play": (f"Empowered Sparks fires only after {source} makes a Power Charge: with this build {dps:,.1f} DPS; "
+                 f"without a Power Charge from it, or without attacks: 0.")}]
 
 
 # Supports whose triggered skill fires on an event of the supported skill's hits, scored by PoB at one a use of the
