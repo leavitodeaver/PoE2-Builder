@@ -78,3 +78,61 @@ def test_a_pressed_glory_skill_is_held_to_the_uses_its_glory_pays_for(monkeypatc
     assert set(caps) == {1} and caps[1].uses == pytest.approx(0.4) and caps[1].how.startswith("Glory")
     real, how, _ = models.press_group_rate({"speed": 4.0}, cap=caps[1], chosen=2.0)
     assert real == pytest.approx(0.4) and "Glory" in how
+
+
+def test_the_main_skills_glory_events_count_at_its_share_of_the_fight():
+    """(MECHC45, an OVERCOUNT before) glory_plan takes the main skill's hits at stats["_main_share"] (main_time_share):
+    at half the fight, the events (and so the Glory) are what half its Speed makes; no main skill or no share: unchanged."""
+    main = models.Skill(name="Fireball")
+    stats = {"Speed": 1.0, "HitChance": 100, "IgniteChanceOnHit": 100}  # (under the one-gain-per-0.5 s cap)
+    full, _ = models.glory_plan(["Ancestral Cry"], stats, main, texts=[])
+    half, how = models.glory_plan(["Ancestral Cry"], {**stats, "_main_share": 0.5}, main, texts=[])
+    slow, _ = models.glory_plan(["Ancestral Cry"], {**stats, "Speed": 0.5}, main, texts=[])
+    assert half["Ancestral Cry"][0] == pytest.approx(slow["Ancestral Cry"][0])
+    assert half["Ancestral Cry"][0] < full["Ancestral Cry"][0]
+    assert "50% of the fight" in how
+    same, _ = models.glory_plan(["Ancestral Cry"], {**stats, "_main_share": 0.5}, None, texts=[])
+    assert same == models.glory_plan(["Ancestral Cry"], stats, None, texts=[])[0]
+
+
+def test_glory_presses_and_the_main_skills_share_are_solved_together(monkeypatch):
+    """(MECHC45) Molten Blast's Glory comes from the main skill's hits (2 uses a second at the whole fight, here
+    proportional to the main skill's share), and each press takes 1 / 4 s from it: the busy share g = 2 (1 - g) / 4,
+    so g = 1/3 and 4/3 uses a second (before: g = 1/2 at the main skill's full Speed, 2 uses a second)."""
+    monkeypatch.setattr(models, "glory_uses", lambda names, stats, *more: (
+        2.0 * (1.0 if stats.get("_main_share") is None else stats["_main_share"]) if "Molten Blast" in names else 0.0,
+        "x"))
+    a = Assumptions.__new__(Assumptions)
+    a.build = Build()
+    o = SimpleNamespace(full=False, press_choices={}, press_busy=0.0, glory_busy=0.0, press_scales={})
+    o.busy = lambda: min(o.press_busy + o.glory_busy, 1.0)  # (as Objective.busy)
+    a.build.objective = o
+    total, how = a.glory_uses_capped(["Molten Blast", "Fireball"], {}, models.Skill(name="Fireball"))
+    assert o.glory_busy == pytest.approx(1 / 3, abs=1e-5)
+    assert total == pytest.approx(4 / 3, abs=1e-4) and "33.3% of the fight" in how
+
+
+def test_onslaught_and_arcane_surge_on_hit_count_the_main_skill_at_its_share():
+    """(MECHC45, an OVERCOUNT before) "N% chance to gain Onslaught / Arcane Surge on Hit / Critical Hit" lines read the
+    main skill's hits at its share of the fight (stats["_main_share"], as the charge and Rage readers since MECHC44)."""
+    from builder.search import conditions as c
+
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 20}
+    half = {**stats, "_main_share": 0.5}
+    for f, text in ((c._onslaught_source, "10% chance to gain Onslaught on Hit for 4 seconds"),
+                    (c._arcane_surge_source, "10% chance to gain Arcane Surge on Hit for 4 seconds")):
+        assert f(text, [text], stats)[0] == pytest.approx(1 - 0.9 ** 8)
+        assert f(text, [text], half)[0] == pytest.approx(1 - 0.9 ** 4)
+    crit = "Gain Arcane Surge on Critical Hit for 1 second"
+    assert c._arcane_surge_source(crit, [crit], half)[0] == pytest.approx(0.2)
+
+
+def test_unbound_fury_and_arbiters_ignition_count_the_main_skill_at_its_share():
+    """(MECHC45) Unbound Avatar's Fury (models.unbound_uptime) and Arbiter's Ignition's Archon wait (archon_sources) read
+    the main skill's hits at stats["_main_share"]: the same as its Speed at that share."""
+    stats = {"Speed": 2.0, "HitChance": 100, "IgniteChancePerHit": 30, "IgniteChanceOnHit": 30, "CritChance": 0}
+    half = models.unbound_uptime({**stats, "_main_share": 0.5}, 8.0, False)
+    slow = models.unbound_uptime({**stats, "Speed": 1.0}, 8.0, False)
+    assert half[0] == pytest.approx(slow[0]) and half[0] < models.unbound_uptime(stats, 8.0, False)[0]
+    wait = lambda st: next(s.wait for s in models.archon_sources(st, {"Arbiter's Ignition"}) if s.name == "Arbiter's Ignition")
+    assert wait({**stats, "_main_share": 0.5}) == pytest.approx(2 * wait(stats))

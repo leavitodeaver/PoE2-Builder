@@ -1878,7 +1878,7 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
         basis += (f", one gain every {gap:.1f} s of {level:.0f} Rage held {pause:.2g} s, then lost {decay:.2g}/s while no "
                   f"boss hit ({land:.2f}/s landing){burning} paused it ({rate:.2g}/s on average): {held:.1f} on average")
     if held > 0 and (lost := number(stats.get("_main_rage_lost_on_crit"))) > 0:
-        crits = models.crits_per_second(stats)
+        crits = models.crits_per_second(stats) * _main_share(stats)  # (MECHC45: at its share of the fight)
         if crits > 0 and net > 0:
             between = (net / crits) * (1 - math.exp(-crits * most / net)) * min(lost, 100) / 100 + held * (
                 1 - min(lost, 100) / 100)
@@ -1902,7 +1902,7 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
         # before the consume; the higher reading, its share named in the line).
         bonus = sum(float(m.group(1)) for t in lines for m in SHIFTED_RAGE.finditer(t)) if not any(
             f in main_types for f in ANIMAL_FORMS) else 0.0
-        speed = number(stats.get("Speed"))
+        speed = number(stats.get("Speed")) * _main_share(stats)  # (MECHC45: its next use at its share of the fight)
         held, consumed = rage_on_shift(held, net, shifts, bonus, 1 / speed if speed > 0 else 0.0)
         plain = rage_on_shift(before, net, shifts)[1] if bonus > 0 else consumed
         stats.setdefault("_charge_flow", {})["Rage"] = (consumed, shift_how + (
@@ -1991,6 +1991,7 @@ def _onslaught_source(text: str, lines: list[str], stats: dict) -> tuple[float, 
     duration = float(d.group(1)) if d else ONSLAUGHT_DURATION
     duration *= _buff_scale(stats)  # (MECHC35: "Buffs on you expire N% slower")
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
+    hits *= _main_share(stats)  # (MECHC45: the main skill at its share of the fight, MAIN_SHARE's note)
     every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
     # (red-flash hits always land, MECHC5; MECHC20: a gain, so the worst case reads the lowest real boss's landed hits)
     land = boss_hits.gain_hits(stats)[0]
@@ -2551,9 +2552,9 @@ def _arcane_surge_source(text: str, lines: list[str], stats: dict) -> tuple[floa
         return up, f"{chance:.0%} x {how}, {duration:g} s: {up:.0%} up (kills taken as evenly random, LOW)"
     if re.search(r"minion|shapeshift|\bmines?\b|\btraps?\b", when):
         return 0.0, f"'{when.strip()[:30]}': its rate isn't modelled (0, labelled)"
-    hits = models.hits_per_second(stats)
+    hits = models.hits_per_second(stats) * _main_share(stats)  # (MECHC45: at its share of the fight)
     if "critical" in when:
-        events, how = models.crits_per_second(stats), "crits"
+        events, how = models.crits_per_second(stats) * _main_share(stats), "crits"
     elif "hit" in when:
         events, how = hits, "hits"
     elif (named := _named_event(when, stats)) is not None:
@@ -7610,6 +7611,7 @@ class Conditions:
             if where else {}
         shares = []
         texts = [line["text"] for line in self.build.call("sourceLines")["lines"]]  # (the Glory lines, MECHC13)
+        stats = {**stats, "_main_share": self._main_share()}  # (MECHC45: the main skill's hits at its share of the fight)
         for name in banners:
             uses, how = models.glory_uses([name], stats, main, found, texts)
             duration = number((rates.get(where.get(name)) or {}).get("duration")) or BANNER_SECONDS
@@ -7646,7 +7648,8 @@ class Conditions:
             self.build.call("setConfig", vars={"physMode": before if before is not None else "AVERAGE"}, fields=[])
         if all(highest_element_shares([r]) == highest_element_shares(reads[:1]) for r in reads):
             reads = reads[:1]  # (no random element: one read)
-        return trinity_affinity(highest_element_shares(reads), models.hits_per_second(stats), grant)
+        return trinity_affinity(highest_element_shares(reads), models.hits_per_second(stats) * _main_share(stats),
+                                grant)  # (MECHC45: the main skill's hits at its share of the fight)
 
     def _infusion_supply(self, lines: list[dict], bomb: bool = False) -> tuple[dict[str, float], list[str]]:
         """assumptions.infusion_supply for the build as it stands: Infusions per second by element and what makes them
@@ -7732,8 +7735,8 @@ class Conditions:
         names = {n["name"] for g in groups for n in g.get("gems") or [] if n.get("enabled", True)} | {self.main_skill}
         users = {n for n in names if "Lightning" in INFUSION_CONSUMERS.get(n, ())}
         others = self._group_uses(groups, users - {self.main_skill})
-        uses = {n: number(stats.get("Speed")) if n == self.main_skill else others.get(n, self._chosen_use(n))
-                for n in users}
+        uses = {n: number(stats.get("Speed")) * _main_share(stats) if n == self.main_skill  # (MECHC45: at its share)
+                else others.get(n, self._chosen_use(n)) for n in users}
         arc = uses.get(ARC, 0.0)
         if arc <= 0:
             return 0.0, f"{ARC} isn't cast (no use rate): 0"
@@ -7758,8 +7761,8 @@ class Conditions:
         if not consumers:
             return 0.0, "no skill of the build consumes Infusions: 0"
         others = self._group_uses(groups, set(consumers) - {self.main_skill})
-        uses = {n: number(stats.get("Speed")) if n == self.main_skill else others.get(n, self._chosen_use(n))
-                for n in consumers}
+        uses = {n: number(stats.get("Speed")) * _main_share(stats) if n == self.main_skill  # (MECHC45: at its share)
+                else others.get(n, self._chosen_use(n)) for n in consumers}
         volley_how = ""
         if EMBER_FUSILLADE in uses and uses[EMBER_FUSILLADE] > 0:  # (MECHC29, K2-11: one Infusion per Fusillade)
             uses[EMBER_FUSILLADE], volley_how = self._fusillades(uses[EMBER_FUSILLADE])
@@ -7877,7 +7880,8 @@ class Conditions:
         group = self.build.main_group()
         main = next((s for s in found if group and s.group == group["index"] and s.name == self.main_skill), None)
         texts = [line["text"] if isinstance(line, dict) else line for line in lines]
-        uses, how = models.glory_uses([SPEAR_OF_SOLARIS], self.build.call("stats", fields=models.MODEL_FIELDS),
+        uses, how = models.glory_uses([SPEAR_OF_SOLARIS], {**self.build.call("stats", fields=models.MODEL_FIELDS),
+                                                           "_main_share": self._main_share()},  # (MECHC45)
                                       main, found, texts)
         return uses, f"{uses:.3f} uses/s ({how})"
 
@@ -8254,6 +8258,7 @@ class Conditions:
         """What the build can sustain now: var -> (value, evidence)."""
         lines = self.build.call("sourceLines")["lines"]
         stats = self.build.call("stats", fields=EVIDENCE_FIELDS)
+        stats["_main_share"] = self._main_share()  # (MECHC45: for the readers below, as for the Conditions' readers)
         gem_types = {}
         for line in lines:
             if line["source"].startswith("gem:"):
@@ -8372,7 +8377,9 @@ class Conditions:
             stats["_arc_infused"] = self._arc_infused(lines, stats)
         if bypass := self._bypass_skills(gem_types):  # (MECHC40, K2-9: cooldowns a charge bypasses, _charges_held)
             stats["_bypass"] = bypass
-        events =event_rates(groups_now, self.build.ctx.gems, self.main_skill, main_types, number(stats.get("Speed")),
+        # (MECHC45: the main skill as a Warcry / Totem / Mark event source at its share of the fight)
+        events =event_rates(groups_now, self.build.ctx.gems, self.main_skill, main_types,
+                             number(stats.get("Speed")) * _main_share(stats),
                              lambda idx: self.build.call("useRates", indices=idx)["rates"], texts,
                              models.press_choices(self.build)) if groups_now else {}
         item_uses = self._item_uses(lines, events) if any(

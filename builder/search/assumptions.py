@@ -1497,6 +1497,15 @@ def main_time_share(build: Build, main: models.Skill | None) -> float:
     return max(0.0, min(1.0, own * (1.0 - objective.busy())))
 
 
+def with_main_share(build: Build, stats: dict, main: models.Skill | None) -> dict:
+    """(MECHC45) `stats` with "_main_share" (main_time_share) for a model that reads the main skill's hits at its share
+    of the fight (models.glory_plan, archon_sources, unbound_uptime; conditions' readers); unchanged without a main
+    skill or an objective (a stand-in build in a unit test)."""
+    if main is None or not callable(getattr(getattr(build, "objective", None), "busy", None)):
+        return stats
+    return {**stats, "_main_share": main_time_share(build, main)}
+
+
 def elemental_discharge(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Elemental Discharge (GEM5's models.elemental_discharge_model; GEM6 wires it): in each
     enabled group holding the triggered skill (PoB adds it beside a spell the support supports), the supported spell's
@@ -2020,7 +2029,7 @@ class Assumptions:
         stats = {**stats, "_boss_power": power}
         if any(conditions_mod.BUFF_EXPIRY.search(e["text"]) for e in source_lines):  # (MECHC35, RESEARCH29)
             stats = {**stats, "_buff_expiry": conditions_mod.buff_expiry([e["text"] for e in source_lines])}
-        mods, notes = models.archon_model(inputs, stats, main, main_gems)
+        mods, notes = models.archon_model(inputs, with_main_share(build, stats, main), main, main_gems)  # (MECHC45)
         # (MECH79, MECH-A) Incinerate's fuel (its idle line) and the main skill's Compounding Ignite
         compound_mods, compound_notes = models.compound_ignite_mods(name or "", getattr(build, "compound_ignite", None))
         mods, notes = mods + compound_mods, notes + compound_notes
@@ -3815,7 +3824,7 @@ class Assumptions:
         out = {}
         for s in skills:
             if (s.name in models.GLORY_SKILLS or s.name in models.GLORY_FROM_LIFE) and s.name not in out:
-                plan, how = models.glory_plan([s.name], stats, main, skills, texts)
+                plan, how = models.glory_plan([s.name], self.glory_stats(stats, main), main, skills, texts)
                 out[s.name] = (plan.get(s.name, (0.0, 0.0))[0], how)
         return out
 
@@ -5421,7 +5430,7 @@ class Assumptions:
         main_skill = models.Skill.of(present[main]) if main in present else None
         if has(recovery.GLORY_SPENT):
             names = [n for n in present if n in models.GLORY_SKILLS or n in models.GLORY_FROM_LIFE]
-            out["glory"] = (models.glory_spent(names, stats, main_skill, [models.Skill.of(s) for s in present.values()],
+            out["glory"] = (models.glory_spent(names, self.glory_stats(stats, main_skill), main_skill, [models.Skill.of(s) for s in present.values()],
                                                [line["text"] for line in build.call("sourceLines")["lines"]])
                             if names else (0.0, "no Glory skill"))
         groups = [g for g in build.call("groups")["groups"] if g.get("enabled") is not False]
@@ -6228,6 +6237,12 @@ class Assumptions:
                 found.append(condition["id"])
         return sorted(found), notes
 
+    def glory_stats(self, stats: dict, main_skill) -> dict:
+        """(MECHC45) `stats` with "_main_share" (main_time_share: the main skill's share of the fight as objective.dps
+        scores it) for models.glory_plan, which takes the main skill's hits at that share; unchanged without an
+        objective (a stand-in build) or a main skill."""
+        return with_main_share(self.build, stats, main_skill)
+
     def glory_uses_capped(self, names: list[str], stats: dict, main_skill, skills: list | None = None,
                           texts: list[str] | None = None) -> tuple[float, str]:
         """(Glory skill uses per second, how) for the ledger's Glory shares: models.glory_uses for each Glory skill, never
@@ -6265,18 +6280,40 @@ class Assumptions:
                     name, speed = found.get(rate.get("index")), number(rate.get("speed"))
                     if name and speed > 0:
                         speeds[name] = max(speed, speeds.get(name, 0.0))
-        total, how = models.glory_uses(names, stats, main_skill, skills, texts)  # (cooldowns, Glory lines: MECHC13)
-        busy = 0.0
-        for name, cap in speeds.items():  # (each capped skill's excess over its own speed comes back out)
-            own = models.glory_uses([name], stats, main_skill, skills, texts)[0]
-            if own > cap:
-                total -= own - cap
-                how += f"; {name} capped at its own {cap:.2f} uses/s (not {own:.2f})"
-            if name not in charged:
-                busy += min(own, cap) / cap
-        if objective is not None and busy > 0:
-            objective.glory_busy = round(min(busy, 1.0), 9)
-            how += f"; pressing them takes {objective.glory_busy:.1%} of the fight from the main skill"
+
+        def counted(st: dict) -> tuple[float, str, float]:
+            total, how = models.glory_uses(names, st, main_skill, skills, texts)  # (cooldowns, Glory lines: MECHC13)
+            busy = 0.0
+            for name, cap in speeds.items():  # (each capped skill's excess over its own speed comes back out)
+                own = models.glory_uses([name], st, main_skill, skills, texts)[0]
+                if own > cap:
+                    total -= own - cap
+                    how += f"; {name} capped at its own {cap:.2f} uses/s (not {own:.2f})"
+                if name not in charged:
+                    busy += min(own, cap) / cap
+            return total, how, round(min(busy, 1.0), 9)
+
+        # (MECHC45, an OVERCOUNT before) the main skill's hits feed Glory at its share of the fight (glory_stats), and
+        # that share falls with the Glory presses this sets (objective.glory_busy, in objective.busy()): the presses a
+        # second and the share they leave are solved together (the busy share g with g = presses(share(g)): falling in
+        # g, so bisection), not the main skill at PoB's full Speed with the presses' time taken twice.
+        if objective is not None and main_skill is not None and speeds:
+            objective.glory_busy = 0.0
+            low, high = 0.0, counted(self.glory_stats(stats, main_skill))[2]
+            for _ in range(30):
+                if high - low < 1e-6:
+                    break
+                objective.glory_busy = (low + high) / 2
+                if counted(self.glory_stats(stats, main_skill))[2] > objective.glory_busy:
+                    low = objective.glory_busy
+                else:
+                    high = objective.glory_busy
+            objective.glory_busy = round(high, 9)
+        total, how, busy = counted(self.glory_stats(stats, main_skill))
+        if objective is not None:
+            objective.glory_busy = busy
+            if busy > 0:
+                how += f"; pressing them takes {busy:.1%} of the fight from the main skill"
         return max(total, 0.0), how
 
     def warcries_recently(self) -> tuple[float, str]:

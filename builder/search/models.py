@@ -467,6 +467,8 @@ def archon_sources(stats: dict, main_gems: set[str]) -> list[ArchonSource]:
         crit = number(stats.get("CritChance")) / 100
         chance = (number(stats.get("IgniteChanceOnHit")) * (1 - crit) + number(stats.get("IgniteChanceOnCrit")) * crit) / 100
         ignites = hits_per_second(stats) * min(chance, 1.0)
+        if stats.get("_main_share") is not None:  # (MECHC45: the main skill's hits at its share of the fight)
+            ignites *= max(0.0, min(1.0, number(stats["_main_share"])))
         if ignites > 0:
             sources.append(ArchonSource("Arbiter's Ignition", None, 1 / ignites,
                                         f"the main skill ignites {ignites:.2f} times per second"))
@@ -3270,6 +3272,9 @@ def unbound_uptime(stats: dict, duration: float, on: bool) -> tuple[float, str, 
     (duration + max(cooldown, fill)): an UNDERCOUNT; that reading is the second figure now."""
     if duration <= 0:
         return 0.0, "", 0.0
+    if stats.get("_main_share") is not None:  # (MECHC45, an OVERCOUNT before: the main skill at its share of the fight)
+        stats = {**stats, "Speed": number(stats.get("Speed")) * max(0.0, min(1.0, number(stats["_main_share"]))),
+                 "_main_share": None}
     chance_div = 1 + UNBOUND_CHANCE_MORE / 100 if on else 1.0
     buildup_div = 1 + UNBOUND_BUILDUP_MORE / 100 if on else 1.0
     hits = hits_per_second(stats)
@@ -13005,7 +13010,19 @@ def glory_spent(names: list[str], stats: dict, main: Skill | None, skills: list[
 def glory_plan(names: list[str], stats: dict, main: Skill | None, skills: list[Skill] | None = None,
                texts: list[str] | None = None) -> tuple[dict[str, tuple[float, float]], str]:
     """({Glory skill: (uses per second, Glory a use consumes)}, how) on a boss. `skills`: the build's skills, for each
-    Glory skill's cooldown; `texts`: the build's lines (glory_lines; stats["_texts"] when not given)."""
+    Glory skill's cooldown; `texts`: the build's lines (glory_lines; stats["_texts"] when not given).
+    (MECHC45, an OVERCOUNT before) stats["_main_share"], when the caller sets it: the main skill's share of the fight
+    (assumptions.main_time_share, as objective.dps scores it): its Speed and Life spent a second are taken at that share,
+    so its hits, Heavy Stuns, Freezes, Ignites, Shocks and Life spent feed Glory only while it is used (before, at PoB's
+    full Speed though the pressed side skills and the Glory presses take part of its time)."""
+    share = stats.get("_main_share")
+    share_how = ""
+    if share is not None and main is not None:
+        share = max(0.0, min(1.0, number(share)))
+        stats = {**stats, "_main_share": None, "Speed": number(stats.get("Speed")) * share,
+                 "LifePerSecondCost": number(stats.get("LifePerSecondCost")) * share}
+        if share < 1.0:
+            share_how = f"the main skill used {share:.0%} of the fight (the rest pressing other skills); "
     events = glory_events(stats, main)
     lines = glory_lines(list(texts if texts is not None else stats.get("_texts") or []))
     cooldowns = {s.name: s.cooldown / (s.cooldown_recovery or 1.0) for s in skills or [] if s.cooldown}
@@ -13072,7 +13089,7 @@ def glory_plan(names: list[str], stats: dict, main: Skill | None, skills: list[S
                      + (f" (no Glory while its {held:g} s instance is up)" if held else ""))
     if lines["unread"]:
         parts.append("not counted: " + ", ".join(lines["unread"]))
-    return plan, "; ".join(parts) or "no Glory skill"
+    return plan, share_how + ("; ".join(parts) or "no Glory skill")
 
 
 def glory_mark_rate(skills: list[Skill], stats: dict) -> tuple[float, str]:
