@@ -1607,6 +1607,17 @@ def stoicism_average(per_second: float, every: float) -> float:
     return STOICISM_CAP - STOICISM_CAP ** 2 / (2 * ramp)
 
 
+def volatility_support(build, main) -> float:
+    """(MECH91) The main skill's Volatility support chance to gain Volatility on Critical Hit (%; 0 without it):
+    instability_on_critical_%_chance from the support, read only when the main group holds a gem named Volatility."""
+    group = build.main_group() if main is not None else None
+    if not any(g.get("name") == "Volatility" and g.get("enabled", True) for g in (group or {}).get("gems") or []):
+        return 0.0
+    raw = build.call("activeSkills", supportStats=[models.VOLATILITY_SUPPORT_STAT])
+    got = next((s for s in raw["skills"] if s["name"] == main.name and not s.get("disabled")), {})
+    return models.number((got.get("supportStats") or {}).get(models.VOLATILITY_SUPPORT_STAT))
+
+
 def stoicism(build, main, main_types: set[str], texts: list[str]) -> tuple[list[dict], list[dict]]:
     """(mods, notes) for Stoicism on the main skill (see the note above)."""
     group = build.main_group() if main is not None else None
@@ -3122,10 +3133,15 @@ class Assumptions:
             models.number((getattr(build, "ailment_uptimes", None) or {}).get("Ignited")))
         hand_mods, hand_notes = hand_mods + blaze_mods, hand_notes + blaze_notes
         turmoil_texts = [e["text"] for e in source_lines]
-        if any(models.INNER_TURMOIL.match(t.strip()) for t in turmoil_texts):  # (MECH90: PoB reads no Volatility)
-            turmoil_stats = build.call("stats", fields=["Speed", "HitChance", "IgniteChancePerHit", "ShockChancePerHit",
-                                                        "ChillChanceOnHit", "ColdHitAverage", "ColdCritAverage"])
-            turmoil_mods, turmoil_notes = models.volatility_model(turmoil_texts, turmoil_stats)
+        frenzy_mods, frenzy_notes = models.frenzy_poison_duration_mods(  # (MECH91: PoB parses it only in part)
+            turmoil_texts, (getattr(build, "charge_flow", None) or {}).get("Frenzy"))
+        hand_mods, hand_notes = hand_mods + frenzy_mods, hand_notes + frenzy_notes
+        volatility_crit = volatility_support(build, main)  # (MECH91: the Volatility support's chance on crit)
+        if volatility_crit > 0 or any(models.INNER_TURMOIL.match(t.strip())
+                                      or models.VOLATILITY_ON_CRIT.match(t.strip())
+                                      for t in turmoil_texts):  # (MECH90: PoB reads no Volatility)
+            turmoil_stats = build.call("stats", fields=models.VOLATILITY_STATS)  # (MECH91: + the Chaos DoT share's)
+            turmoil_mods, turmoil_notes = models.volatility_model(turmoil_texts, turmoil_stats, volatility_crit)
             hand_mods, hand_notes = hand_mods + turmoil_mods, hand_notes + turmoil_notes
         if any(models.SAITHA_LINE.match(t.strip()) for t in turmoil_texts):  # (MECH90, R33-8: PoB leaves it unparsed)
             saitha_stats = build.call("stats", fields=["Speed", "HitChance", "CritChance", "BleedChancePerHit",

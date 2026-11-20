@@ -233,7 +233,8 @@ def test_growing_peril_and_precise_volatility_on_the_cycle():
     on the powered share."""
     from builder.search import models
 
-    lines = ["Gain 1 Volatility on inflicting an Elemental Ailment", "1% increased Chaos Damage over Time per Volatility",
+    lines = ["Gain 1 Volatility on inflicting an Elemental Ailment", "Take no Damage from Volatility",
+             "1% increased Chaos Damage over Time per Volatility",
              "Volatile Power also grants 1% increased Critical Hit chance per Volatility exploded"]
     fast = {"Speed": 10.0, "HitChance": 100.0, "IgniteChancePerHit": 100.0}
     mods = {m["line"]: m["scale"] for m in models.volatility_model(lines, fast)[0]}

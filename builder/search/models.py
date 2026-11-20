@@ -9983,72 +9983,174 @@ INNER_TURMOIL = re.compile(r"^gain 1 volatility on inflicting an elemental ailme
 # never applied) on the Volatility held: at the cap all fight when the cycle isn't played (it never explodes; the climb to
 # the cap not counted), the attack window's average when it is; Precise Volatility "Volatile Power also grants 1%
 # increased Critical Hit chance per Volatility exploded" (PoB: unparsed) for the powered share of the attack time. The
-# cycle's choice still weighs Volatile Power's Chaos gain only (labelled).
+# cycle's choice weighs Volatile Power's Chaos gain and (MECH91) Growing Peril on the build's Chaos DoT share
+# (chaos_dot_share; the build's other increased Chaos DoT taken as 0, Growing Peril's higher weight: a choice only, the
+# chosen play's numbers are PoB's); Precise Volatility's crit is not weighed in the choice (labelled).
 GROWING_PERIL = re.compile(r"^(\d+(?:\.\d+)?)% increased chaos damage over time per volatility$", re.I)
 PRECISE_VOLATILITY = re.compile(r"^volatile power also grants (\d+(?:\.\d+)?)% increased critical hit chance per "
                                 r"volatility exploded$", re.I)
 VOLATILITY_MAX = re.compile(r"^maximum volatility is (\d+)$", re.I)
 VOLATILITY_DELAY = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) volatility explosion delay$", re.I)
 VOLATILITY_SECONDS, VOLATILE_POWER_SECONDS, VOLATILITY_EVERY, VOLATILITY_CAP = 4.0, 10.0, 0.1, 200.0
+# (MECH91) Volatility on Critical Hit: the Volatility support (SupportVolatilityPlayer, instability_on_critical_%_chance
+# 100: "Supported Skills grant Volatility on Critical Hit") and UniqueMutatedVaalVolatilityOnCritChance's "(30-50)%
+# chance to grant Volatility on Critical Hit" (the same stat; PoB reads neither). "grant" read as Volatility on you (the
+# KeywordPopups' Volatility is on you; MEDIUM). Without "Take no Damage from Volatility" each Volatility explodes for
+# 100 Physical Damage to you (KeywordPopups), so the cycle lets at most what the build's Life + Energy Shield survives
+# explode, unmitigated (the "75% ... taken as Cold" line not read: a lower cap). Other gains not counted (an
+# UNDERCOUNT, said): on Kill (no kills on a lone boss), when Stunned (stuns on you: MECH-C's), on minion death (MECH-B),
+# the Volatile Power support on Empowered use, Catharsis' spending, the refresh chance.
+VOLATILITY_ON_CRIT = re.compile(r"^(\d+(?:\.\d+)?)% chance to grant volatility on critical hit$", re.I)
+VOLATILITY_IMMUNE = re.compile(r"^take no damage from volatility$", re.I)
+# Dream Fragments' Cultivated "75% of Volatility Physical Damage Taken as Cold Damage" (PoB: unread): that part of the
+# explosion is reduced by your Cold Resistance (the rest unmitigated, as above)
+VOLATILITY_AS_COLD = re.compile(r"^(\d+(?:\.\d+)?)% of volatility physical damage taken as cold damage$", re.I)
+VOLATILITY_SUPPORT_STAT, VOLATILITY_HIT = "instability_on_critical_%_chance", 100.0
 
 
-def volatility_model(texts: list[str], stats: dict) -> tuple[list[dict], list[dict]]:
-    """(mods, notes) for Inner Turmoil's Volatility played as a cycle (the note above)."""
-    if not any(INNER_TURMOIL.match(t.strip()) for t in texts):
+def volatility_model(texts: list[str], stats: dict, support_crit: float = 0.0) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for Inner Turmoil's Volatility played as a cycle (the note above); (MECH91) also Volatility on
+    Critical Hit (support_crit: the main skill's Volatility support chance, %; the lines VOLATILITY_ON_CRIT)."""
+    inner = any(INNER_TURMOIL.match(t.strip()) for t in texts)
+    on_crit = min(100.0, max(0.0, support_crit) + sum(float(m.group(1)) for t in texts
+                                                      if (m := VOLATILITY_ON_CRIT.match(t.strip())))) / 100
+    if not inner and on_crit <= 0:
         return [], []
     cap = min([float(m.group(1)) for t in texts if (m := VOLATILITY_MAX.match(t.strip()))] or [VOLATILITY_CAP])
+    immune = any(VOLATILITY_IMMUNE.match(t.strip()) for t in texts)
+    pool = max(number(stats.get("Life")), 0.0) + max(number(stats.get("EnergyShield")), 0.0)
+    as_cold = min(sum(float(m.group(1)) for t in texts if (m := VOLATILITY_AS_COLD.match(t.strip()))), 100.0) / 100
+    cold_res = min(number(stats.get("ColdResist")), 75.0) / 100  # (PoB's ColdResist, already capped; 75 at most)
+    per = VOLATILITY_HIT * ((1 - as_cold) + as_cold * (1 - cold_res))  # (MECH91: Dream Fragments' Cold part resisted)
+    survive = math.floor(max(pool - 1, 0.0) / per) if per > 0 else VOLATILITY_CAP
+    if not immune:
+        cap = min(cap, survive)
     inc = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
               for t in texts if (m := VOLATILITY_DELAY.match(t.strip())))
     delay = VOLATILITY_SECONDS * max(0.0, 1 + inc / 100)
     chances = [min(max(number(stats.get(k)), 0.0), 100.0) / 100 for k in ("IgniteChancePerHit", "ShockChancePerHit")]
     chill = 1.0 if number(stats.get("ColdHitAverage")) > 0 or number(stats.get("ColdCritAverage")) > 0 else min(
         max(number(stats.get("ChillChanceOnHit")), 0.0), 100.0) / 100
-    any_ailment = 1 - math.prod(1 - c for c in (*chances, chill))
-    rate = min(1 / VOLATILITY_EVERY, hits_per_second(stats) * any_ailment)
-    best = (1.0, 0.0, 0.0)
+    any_ailment = (1 - math.prod(1 - c for c in (*chances, chill))) if inner else 0.0
+    crit = min(max(number(stats.get("CritChance")), 0.0), 100.0) / 100
+    any_gain = 1 - (1 - any_ailment) * (1 - crit * on_crit)
+    rate = min(1 / VOLATILITY_EVERY, hits_per_second(stats) * any_gain)
+    peril = sum(float(m.group(1)) for t in texts if (m := GROWING_PERIL.match(t.strip())))
+    precise = sum(float(m.group(1)) for t in texts if (m := PRECISE_VOLATILITY.match(t.strip())))
+    chaos_dot = chaos_dot_share(stats) if peril > 0 else 0.0
+
+    def held_while_attacking(exploded: float, attack: float) -> float:
+        climb = exploded / rate if rate > 0 else attack  # (seconds to reach the exploded count; then held there)
+        return (exploded * climb / 2 + exploded * max(0.0, attack - climb)) / attack
+
+    def peril_factor(held: float) -> float:  # (MECH91: Growing Peril on the build's Chaos DoT share, in the choice)
+        return 1 - chaos_dot + chaos_dot * (1 + peril * held / 100)
+
+    unplayed = peril_factor(cap if rate > 0 else 0.0)
+    best = (unplayed, 0.0, 0.0)
     for attack in range(1, 31):
         exploded = min(cap, rate * attack)
         powered = min(attack, VOLATILE_POWER_SECONDS)
-        value = (powered * (1 + exploded / 100) + max(0.0, attack - VOLATILE_POWER_SECONDS)) / (attack + delay)
+        value = ((powered * (1 + exploded / 100) + max(0.0, attack - VOLATILE_POWER_SECONDS)) / (attack + delay)
+                 * peril_factor(held_while_attacking(exploded, attack)))
         if value > best[0] + 1e-9:
             best = (value, float(attack), exploded)
     value, attack, exploded = best
-    head = (f"{rate:.2f} Volatility a second ({hits_per_second(stats):.2f} hits/s x {any_ailment:.0%} inflicting an "
-            f"Elemental Ailment, at most 10 a second); it explodes {delay:g} s after the last gain (KeywordPopups "
-            f"Volatility), up to {cap:g}")
-    peril = sum(float(m.group(1)) for t in texts if (m := GROWING_PERIL.match(t.strip())))
-    precise = sum(float(m.group(1)) for t in texts if (m := PRECISE_VOLATILITY.match(t.strip())))
+    value /= unplayed  # (the cycle against attacking without a break, Growing Peril's cap held there)
+    weighed = (f"; the choice weighs Growing Peril on the build's Chaos Damage over Time, {chaos_dot:.0%} of its "
+               "damage (Poison and the skill's own Chaos DoT; your other increased Chaos DoT taken as 0, the higher "
+               "weight for Growing Peril)" if peril > 0 else "")
+    gains = ([f"{any_ailment:.0%} inflicting an Elemental Ailment (Inner Turmoil)"] if inner else []) + (
+        [f"{crit:.0%} crit x {on_crit:.0%} Volatility on Critical Hit"] if on_crit > 0 else [])
+    head = (f"{rate:.2f} Volatility a second ({hits_per_second(stats):.2f} hits/s x {' or '.join(gains)}: "
+            f"{any_gain:.0%} a hit, at most 10 a second); it explodes {delay:g} s after the last gain (KeywordPopups "
+            f"Volatility), up to {cap:g}" + ("" if immune else
+                             f" (no 'Take no Damage from Volatility': each explodes for {per:.0f} Damage to you "
+                             f"({VOLATILITY_HIT:g} Physical, {as_cold:.0%} of it taken as Cold at {cold_res:.0%} "
+                             "resistance), so at most what your {pool:.0f} Life + Energy Shield survives, "
+                             "unmitigated: MEDIUM-LOW, the most you could let explode)"))
     if attack <= 0:
         held = cap if rate > 0 else 0.0
         peril_mods = [line("1% increased Chaos Damage over Time", peril * held)] if peril > 0 and held > 0 else []
-        return peril_mods, [{"label": "Inner Turmoil: Volatile Power*", "value": "not played (0)", "confidence": "MEDIUM",
+        return peril_mods, [{"label": "Volatility: Volatile Power*", "value": "not played (0)", "confidence": "MEDIUM",
                              "basis": (head + ": no attack-then-stop cycle beats attacking without a break (Volatility "
                                        "never explodes then, so +0)"
                                        + (f"; Growing Peril: {held:g} Volatility held all fight, +{peril * held:g}% "
-                                          "Chaos Damage over Time" if peril_mods else "") + ". PoB reads no Volatility")}]
+                                          "Chaos Damage over Time" if peril_mods else "") + weighed
+                                       + ". PoB reads no Volatility")}]
     stopped = delay / (attack + delay) * 100
     powered = min(attack, VOLATILE_POWER_SECONDS) / attack
     gain = exploded * powered
-    climb = exploded / rate if rate > 0 else attack  # (seconds to reach the exploded count; then held there)
-    held = (exploded * climb / 2 + exploded * max(0.0, attack - climb)) / attack
+    held = held_while_attacking(exploded, attack)
     extra = ([line("1% increased Chaos Damage over Time", peril * held)] if peril > 0 and held > 0 else []) + (
         [line("1% increased Critical Hit Chance", precise * gain)] if precise > 0 and gain > 0 else [])
     return [line("1% less Damage", stopped), line("Gain 1% of Damage as Extra Chaos Damage", gain), *extra], [{
-        "label": "Inner Turmoil: Volatile Power*", "value": f"x{value:.3f} (before the Chaos gain's own scaling)",
+        "label": "Volatility: Volatile Power*", "value": f"x{value:.3f} (before the Chaos gain's own scaling)",
         "confidence": "MEDIUM-LOW",
-        "basis": (head + f". Played: attack {attack:g} s, stop {delay:g} s so {exploded:.0f} Volatility explodes (Inner "
-                  f"Turmoil: no damage to you), then {VOLATILE_POWER_SECONDS:g} s of Volatile Power, {exploded:.0f}% of "
+        "basis": (head + f". Played: attack {attack:g} s, stop {delay:g} s so {exploded:.0f} Volatility explodes ("
+                  + ("Inner Turmoil: no damage to you" if immune
+                     else f"{exploded * VOLATILITY_HIT:.0f} Physical Damage to you")
+                  + f"), then {VOLATILE_POWER_SECONDS:g} s of Volatile Power, {exploded:.0f}% of "
                   f"Damage as Chaos: {stopped:.1f}% less Damage for the time stopped and +{gain:.1f}% of Damage as Chaos "
                   "while attacking"
                   + (f"; Growing Peril: {held:.0f} Volatility held on average while attacking, +{peril * held:.0f}% "
                      "Chaos Damage over Time" if peril > 0 else "")
                   + (f"; Precise Volatility: +{precise * gain:.0f}% Critical Hit chance (the powered share)"
-                     if precise > 0 else "")
+                     if precise > 0 else "") + weighed
                   + ". Ignites burning on while you stop, Freeze / Electrocute buildup and Instability not counted "
                   "(lower). PoB reads no Volatility"),
         "play": (f"Attack {attack:g} s, then stop inflicting ailments for {delay:g} s so your Volatility explodes, and "
                  f"attack again inside the {VOLATILE_POWER_SECONDS:g} s of Volatile Power: without the pauses +0; with "
                  f"them x{value:.2f} damage")}]
+
+
+DOT_TYPES = ("Physical", "Lightning", "Cold", "Fire", "Chaos")
+VOLATILITY_STATS = ["Speed", "HitChance", "IgniteChancePerHit", "ShockChancePerHit", "ChillChanceOnHit",
+                    "ColdHitAverage", "ColdCritAverage", "CombinedDPS", "PoisonDPS", "TotalDotDPS", "CritChance",
+                    "Life", "EnergyShield", "ColdResist",
+                    *(f"{t}Dot" for t in DOT_TYPES)]
+
+
+def chaos_dot_share(stats: dict) -> float:
+    """(MECH91) The share of the build's damage that is Chaos Damage over Time: Poison plus the skill's own DoT's Chaos
+    part (PoB's per-type <Type>Dot outputs, CalcOffence 6077), of CombinedDPS; 0 without those stats."""
+    total = number(stats.get("CombinedDPS"))
+    if total <= 0:
+        return 0.0
+    dots = {t: max(number(stats.get(f"{t}Dot")), 0.0) for t in DOT_TYPES}
+    skill = number(stats.get("TotalDotDPS")) * dots["Chaos"] / sum(dots.values()) if sum(dots.values()) > 0 else 0.0
+    return min(max((max(number(stats.get("PoisonDPS")), 0.0) + skill) / total, 0.0), 1.0)
+
+
+# (MECH91; the catalog's damaging-ailments row, an UNDERCOUNT: PoB parses "N% increased Duration of Poisons you inflict
+# when you've consumed a Frenzy Charge Recently" only in part, ModCache 3942, so never applies it) The Vaal-mutated
+# outcome UniqueMutatedVaalPoisonDurationIfConsumedFrenzyChargeRecently (poison_duration_+%_if_consumed_frenzy_charge_
+# recently). The share of the fight a Frenzy Charge was consumed in the last 4 s, from the build's own consumption
+# (Conditions' build.charge_flow["Frenzy"], charges consumed a second): min(1, 4 x rate) for evenly spaced uses
+# (MEDIUM; 1 - e^(-4 x rate) for random ones, the row); PoB gets "N% increased Poison Duration" x that share (its
+# EnemyPoisonDuration, ModCache 1674). No Frenzy consumer: 0, said.
+POISON_DURATION_FRENZY = re.compile(r"^(\d+(?:\.\d+)?)% increased duration of poisons you inflict when you've consumed "
+                                    r"a frenzy charge recently$", re.I)
+
+
+def frenzy_poison_duration_mods(texts: list[str], flow: tuple | None) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for the Poison Duration line above; flow = (Frenzy Charges consumed a second, how) or None."""
+    value = sum(float(m.group(1)) for t in texts if (m := POISON_DURATION_FRENZY.match(t.strip())))
+    if value <= 0:
+        return [], []
+    rate = max(number(flow[0]), 0.0) if flow else 0.0
+    share = min(1.0, RECENTLY * rate)
+    label = "Poison Duration after consuming a Frenzy Charge*"
+    if share <= 0:
+        return [], [{"label": label, "value": "+0", "confidence": "MEDIUM",
+                     "basis": "no Frenzy Charge is consumed by the build (no consumer or no source): +0"}]
+    return [line("1% increased Poison Duration", value * share)], [{
+        "label": label, "value": f"+{value * share:.1f}% Poison Duration on average", "confidence": "MEDIUM",
+        "basis": (f"{rate:.2f} Frenzy Charges consumed a second ({flow[1]}): one in the last {RECENTLY:g} s "
+                  f"{share:.0%} of the fight (evenly spaced uses; at random, {1 - math.exp(-RECENTLY * rate):.0%}), "
+                  f"so +{value:g}% x {share:.0%}. PoB parses the line only in part, so it counted 0"),
+        "play": (f"Consume a Frenzy Charge at least every {RECENTLY:g} s: without it +0; with it +{value:g}% Poison "
+                 "Duration")}]
 
 
 # Saitha's Spear's Aggravated Ignites (MECH90; RESEARCH33 R33-8, scratch/manager/research/aggravate-ignite-saitha.md; an
@@ -10077,7 +10179,14 @@ ALL_BLEEDS_AGGRAVATED = re.compile(r"^bleeding you inflict is aggravated$", re.I
 # share of the fight the boss is so, the boxes' own models (Conditions' build.enemy_shares); the spear's line fires only on
 # the Bleeds inflicted in the rest, independent where there are several; a condition not modelled takes 0, UNVERIFIED)
 SOME_BLEEDS_AGGRAVATED = re.compile(r"^bleeding you inflict on ([\w ]+?) is aggravated$", re.I)
-AGGRAVATED_ON = {"cursed targets": "Cursed", "pinned enemies": "Pinned"}
+# (MECH91) "on Shocked enemies" takes the boss's Shocked share. Its stat aggravate_bleeding_inflicted_vs_shocked_enemy
+# is on one mod, UniqueBleedingInflictedOnShockedEnemiesIsAggravated1, named "DNT-UNUSED" by PoB (checked: Mods.json
+# 26650308 by stat; every other table for the stat id: none; PoB's Data/Uniques: no unique carries it; patch notes: no
+# hit, which proves nothing; poe2db not checked, so on-no-item-today is UNVERIFIED): read in case it ships. A condition
+# not modelled takes 0 (the spear counts on every Bleed: the HIGHER reading) with the other extreme as a row: the
+# condition always on, every Bleed already Aggravated, the line never firing (x1.00) (the brief, MECH91: both readings,
+# overcounts first)
+AGGRAVATED_ON = {"cursed targets": "Cursed", "pinned enemies": "Pinned", "shocked enemies": "Shocked"}
 
 
 def _aggravated_share(rate: float, duration: float) -> float:
@@ -10111,12 +10220,13 @@ def saitha_ignite_mods(texts: list[str], stats: dict, main: str | None, attack: 
     if h <= 0 or c <= 0 or p <= 0 or duration <= 0:
         return [], [{"label": label, "value": "+0", "confidence": "MEDIUM",
                      "basis": f"no Bleed ({c:.0%}) or no Aggravate chance ({p:.0%}) on the main skill's hits: +0"}]
-    open_share, already = 1.0, []
+    open_share, already, unknown = 1.0, [], []
     for t in texts:
         if m := SOME_BLEEDS_AGGRAVATED.match(t.strip()):
             name = AGGRAVATED_ON.get(m.group(1).lower())
             up = min(max(number((enemy_shares or {}).get(name)), 0.0), 1.0) if name else 0.0
             open_share *= 1 - up
+            unknown += [] if name else [t.strip()]
             already.append(f"'{t.strip()}': the boss {name or m.group(1)} {up:.0%} of the fight"
                            + ("" if name else " (not modelled: 0, UNVERIFIED)"))
     if open_share <= 0:
@@ -10136,9 +10246,14 @@ def saitha_ignite_mods(texts: list[str], stats: dict, main: str | None, attack: 
                   f"each fresh Ignite ({fresh:.2f} a second) takes over un-Aggravated: x{1 + row:.2f}. Assumed: your main "
                   "skill's hits are the spear's; a hit's own Bleed isn't Aggravated by it. PoB leaves the line unparsed"
                   + (f". Bleeds already Aggravated when inflicted don't fire it: {'; '.join(already)}; the Bleed chance "
-                     f"counted is the {open_share:.0%} of the fight outside those" if already else "")),
+                     f"counted is the {open_share:.0%} of the fight outside those" if already else "")
+                  + (f". Row (the other extreme, UNVERIFIED which holds): if {' and '.join(repr(u) for u in unknown)} "
+                     "held all fight, every Bleed would be Aggravated when inflicted and the line would never fire: "
+                     "x1.00" if unknown else "")),
         "play": (f"Hit with Saitha's Spear to Bleed then Aggravate: without Bleed or Aggravate chance x1.00; with them "
-                 f"x{1 + share:.2f} Ignite damage")}]
+                 f"x{1 + share:.2f} Ignite damage"
+                 + (" (x1.00 if the boss is always under the unmodelled 'is Aggravated' condition)"
+                    if unknown else ""))}]
 
 
 # The Disciple of Varashta's djinn Commands (MECH83; FIX_QUEUE 75 / COV3, PATCH_CHECK H4-2, MECH49's open item: an

@@ -8662,6 +8662,8 @@ class Conditions:
             name: (min(max(number(uptimes[var]), 0.0), 1.0) if var in uptimes
                    else 1.0 if var in found and found[var][0] not in (False, 0, 0.0) else 0.0)
             for name, var in (("Cursed", "conditionEnemyCursed"), ("Pinned", "conditionEnemyPinned"))}
+        # (MECH91: Saitha's "Bleeding you inflict on Shocked enemies is Aggravated": the Shocked share as above)
+        self.build.enemy_shares["Shocked"] = min(max(number(self.build.ailment_uptimes["Shocked"]), 0.0), 1.0)
         # (MECH75: the other groups' Ignites, for readers that fetch the main skill's stats afresh: assumptions.snap_stats)
         self.build.ailment_others = dict(stats.get("_ailment_others") or {})
         self.build.ailment_ground = dict(stats.get("_ailment_ground") or {})  # (MECH75: Radiant Grief's aura)
