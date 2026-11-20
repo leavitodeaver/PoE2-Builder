@@ -134,7 +134,7 @@ def test_the_breach_and_cranium_trials_offer_one_desecrated_affix(engine, monkey
     from builder.search.rares import rare_text
     from builder.search.skeletons import enumerate_skeletons
 
-    monkeypatch.delenv("POE2_SEARCH_DESECRATED", raising=False)
+    monkeypatch.setenv("POE2_SEARCH_DESECRATED", "0")  # (the plain bone route is on by default: this tests the Breach one)
     monkeypatch.delenv("POE2_SEARCH_DESECRATED_BREACH", raising=False)
     payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"], require=Choices()))
     skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
@@ -193,7 +193,9 @@ def test_the_breach_and_cranium_trials_offer_one_desecrated_affix(engine, monkey
 
 # Influence runes at trade-site prices (SEARCH31; builder/search/influence.py MARKET_SAMPLES) -------------------------------
 
-def test_the_trade_samples_price_supplied_runes_and_leave_thrud_to_the_craft_route():
+def test_the_deterministic_exalt_route_is_the_headline_and_the_samples_a_cross_check():
+    """The user, 19 Nov ~22:12: the deterministic craft route (Exalted Orb + Exaltation Omen, Annulment on a miss) is the
+    headline; Chaos spam is a row; the trade samples a cross-check row."""
     from builder.search import influence
 
     assert all(influence.supplied(r) for r in ("Kolr's Hunt", "Katla's Gloom", "Vorana's Carnage", "Uhtred's Sidereus",
@@ -201,11 +203,13 @@ def test_the_trade_samples_price_supplied_runes_and_leave_thrud_to_the_craft_rou
     assert not influence.supplied("Thrud's Might")  # (1 and 0 listings)
     affix = SimpleNamespace(influence="decay", lines=("46% increased Ignite Magnitude",), odds=1 / 200, side_odds=1 / 100,
                             type="Prefix")
-    prices = {influence.CHAOS: 0.1}
+    prices = {influence.CHAOS: 0.1, influence.EXALT: 0.0015, influence.ANNUL: 0.29,
+              "Omen of Sinistral Exaltation": 0.15, "Omen of Sinistral Annulment": 20.37}
     price, steps, how = influence.price("Katla's Gloom", 0.05, 0.08, 0.4, prices, [affix])
-    assert how == "trade samples" and price == pytest.approx(0.1854)  # (the floor: the dearer sampled mod's cheapest)
-    assert any(s.startswith("row: crafting it instead") for s in steps)
-    price, _, _ = influence.price("Katla's Gloom", 0.05, 3.0, 0.4, prices, [affix])
-    assert price == pytest.approx(3.0)  # (the rare price model counting it as an ordinary affix, above the floor)
-    price, steps, how = influence.price("Thrud's Might", 0.05, 0.08, 0.5, prices, [affix])
-    assert how.startswith("craft route") and price == pytest.approx(0.05 + 0.5 + 200 * 0.1)
+    # no other modifier (m = 0): 100 tries of Exalt + Omen, 99 plain Annulments
+    assert how.startswith("craft route") and price == pytest.approx(0.05 + 0.4 + 100 * 0.1515 + 99 * 0.29)
+    assert any(s.startswith("row: Chaos Orb spam") for s in steps) and any(s.startswith("cross-check") for s in steps)
+    # no priced Exalt route: no offer (Chaos spam is a row only)
+    assert influence.price("Katla's Gloom", 0.05, 0.08, 0.4, {influence.CHAOS: 0.1}, [affix])[0] is None
+    _, steps, _ = influence.price("Thrud's Might", 0.05, 0.08, 0.5, prices, [affix])
+    assert any("barely lists" in s for s in steps)

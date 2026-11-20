@@ -106,6 +106,7 @@ def test_build_rare_offers_kolrs_gloves_when_a_marksman_affix_wins(engine, monke
     from builder.search.rares import rare_text
     from builder.search.skeletons import enumerate_skeletons
 
+    monkeypatch.setenv("POE2_SEARCH_DESECRATED", "0")  # (on by default since SEARCH31: the plain rares stay plain here)
     payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"], require=Choices()))
     skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
     search = Search(engine, None, payload, skeleton.as_dict(), 0)
@@ -114,7 +115,7 @@ def test_build_rare_offers_kolrs_gloves_when_a_marksman_affix_wins(engine, monke
     tags = gear.influence_tags
     for name in tags:
         gear.runes.prices[name] = 0.001
-    search.ctx.influence_prices = {influence.CHAOS: 0.0001}
+    search.ctx.influence_prices = {m: 0.0001 for m in influence.MATERIALS}  # (SEARCH31: the Exalt route is the headline)
     gear.lam = 0.0
     plain = gear.build_rare("Gloves", clock.now() + 120)
     assert plain is not None and not plain.bound  # (the switch is off: no trial)

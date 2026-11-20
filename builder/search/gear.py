@@ -645,8 +645,8 @@ class Gear:
 
     def influence_price(self, slot: str, affixes: list, rune: str, rune_price: float | None, prices: dict[str, float]
                         ) -> tuple[float | None, list[str], str]:
-        """A rare with these affixes and an influence rune: (price, steps, how): bought finished where the trade samples
-        show supply, else the craft route (influence.price; SEARCH31)."""
+        """A rare with these affixes and an influence rune: (price, steps, how): the deterministic craft route, the trade
+        samples a cross-check row (influence.price; SEARCH31, the user 19 Nov ~22:12)."""
         ordinary = [a for a in affixes if not a.influence]
         return influence.price(rune, rare_price(slot, ordinary), rare_price(slot, affixes), rune_price, prices, affixes)
 
@@ -721,7 +721,7 @@ class Gear:
             return None
         names = [a for a in picked if a.influence]
         note = (f"{rune} socketed first (socket-bound) lets {len(names)} influence modifier{'s' if len(names) != 1 else ''}"
-                f" roll; priced by {'the trade samples (MEDIUM-LOW)' if how == 'trade samples' else 'the craft route (LOW)'}")
+                f" roll; priced by the repeat-until-hit craft route (Exalted Orb + Exaltation Omen; LOW odds)")
         return ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
                           rare_text(slot, base, level, picked, runes=[rune]), False, None if ssf else price,
                           "ssf" if ssf else f"estimate ({how})", base_option.level,

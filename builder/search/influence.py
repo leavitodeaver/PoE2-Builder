@@ -17,10 +17,11 @@ One influence rune per item (UNVERIFIED in R-b; the lower reading). No priced ro
 
 SEARCH31 (the user, 19 Nov ~21:55: "Sample trade prices first"): 12 trade-site samples (Forbidden Rites, 19 Nov,
 MARKET_SAMPLES) show these rares on sale in quantity, mostly at 0.02-1 div (uncorrupted 0.1-5; Medved's Life + Mana 2-20),
-while the craft route said 15-23 div: an OVERPRICE (an undervalue in the search). So where every sampled mod of a rune
-has LIQUID+ listings the headline is the finished rare bought on the trade site (`market_price`: the rare price model
-counting the influence affix as an ordinary affix, never below the cheapest real listings), MEDIUM-LOW; the craft route
-is a row. Thrud's Might (1 and 0 listings) keeps the craft route.
+while the Chaos-spam route said 15-23 div. The user then ruled (19 Nov ~22:12) that the DETERMINISTIC craft route is the
+headline ("basically the same method as desecrated runes with a wider mod pool": `deterministic_price`, Exalted Orb +
+Exaltation Omen, Annulment on a miss, repeat), Chaos spam a row, and the samples a CROSS-CHECK row only (`market_price`:
+the rare price model counting the influence affix as an ordinary affix, never below the cheapest real listings, for
+runes the market supplies: every sampled mod LIQUID+ listings; Thrud's Might isn't).
 
 OFF by default until a 3-run gate set measures it higher (the manager's rule): POE2_SEARCH_INFLUENCE=1 turns it on.
 """
@@ -150,12 +151,51 @@ def market_price(rune: str, full: float, affixes) -> tuple[float | None, list[st
                    f"samples of 19 Nov, MEDIUM-LOW)"]
 
 
+def deterministic_price(market: float, rune_price: float | None, prices: dict[str, float], affixes
+                        ) -> tuple[float | None, list[str]]:
+    """(SEARCH31; the user, 19 Nov ~22:12: "figure out the deterministic crafting cost for the influence runes as well,
+    since those are basically the same method as desecrated runes with a wider mod pool") The repeat-until-hit route: buy
+    the rare with its other modifiers and the side open, socket the rune, then per try an Exalted Orb with the side's
+    Exaltation Omen (one modifier from the side's widened pool: the ordinary ones + the rune's); on a miss an Orb of
+    Annulment (with or without the side's Annulment Omen, the cheaper) removes it, or a wanted modifier m / (m + 1) of the
+    time (then a fresh copy of the rare), and repeat. The odds per try are the affix's share of its side's pool (`routes`;
+    equal weights for the rune's rows: LOW). Chaos spam is a row. None without a priced Exalt route."""
+    if rune_price is None:
+        return None, []
+    total, steps = market + rune_price, []
+    for affix in [a for a in affixes if a.influence]:
+        others = [a for a in affixes if a is not affix]
+        found = routes(affix, others, market, prices)
+        exalt = [r for r in found if "Exalted" in r[1]]
+        chaos = [r for r in found if "Chaos" in r[1]]
+        if not exalt:
+            return None, []
+        cost, how = min(exalt)
+        total += cost
+        tries = 1 / affix.side_odds
+        steps.append(f"roll \"{'; '.join(affix.lines)}\" ({affix.type.lower()}): {how}: about {tries:.0f} tries, one in "
+                     f"{tries:.0f} {affix.type.lower()}es the item can roll with the rune in (LOW: equal weights), "
+                     f"{cost:.3f} div")
+        if chaos:
+            steps.append(f"row: Chaos Orb spam instead (random, every modifier rerolled): {chaos[0][1]}, {chaos[0][0]:.3f} div")
+    head = [f"1. buy the rare with its other modifiers and that side open ({market:.3f} div, the rare price model)",
+            f"2. socket the rune first ({rune_price:.3f} div; socket-bound, it stays and lets its modifiers roll)",
+            "3. each try: an Exalted Orb with the side's Exaltation Omen; on a miss an Orb of Annulment removes a mod "
+            "(the miss, or a wanted one m / (m + 1) of the time: then a fresh copy), and repeat:"]
+    return total, head + steps
+
+
 def price(rune: str, market: float, full: float, rune_price: float | None, prices: dict[str, float], affixes
           ) -> tuple[float | None, list[str], str]:
-    """(price, steps, how): the trade site where it supplies the rune's rares, else the craft route; the other a row."""
-    crafted, craft_steps = craft_price(market, rune_price, prices, affixes)
-    bought, buy_steps = market_price(rune, full, affixes)
+    """(price, steps, how): the deterministic craft route (the user, 19 Nov ~22:12); the trade samples a cross-check
+    row (MARKET_SAMPLES, `market_price`)."""
+    crafted, steps = deterministic_price(market, rune_price, prices, affixes)
+    if crafted is None:
+        return None, [], ""
+    bought, _ = market_price(rune, full, affixes)
     if bought is not None:
-        row = [f"row: crafting it instead: {crafted:.3f} div ({'; '.join(craft_steps[2:])})"] if crafted is not None else []
-        return bought, buy_steps + row, "trade samples"
-    return crafted, craft_steps, "craft route: influence rune + Chaos Orbs"
+        steps = steps + [f"cross-check: the trade site sells such rares from about {bought:.3f} div (samples of 19 Nov; "
+                         f"most listings corrupted Omen of Putrefaction outputs)"]
+    else:
+        steps = steps + [f"cross-check: the trade site barely lists {rune}'s rares (samples of 19 Nov)"]
+    return crafted, steps, "craft route: influence rune + Exalted Orbs"
