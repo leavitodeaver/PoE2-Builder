@@ -161,3 +161,6 @@ def test_blood_explosions_full_dps_entry_is_scaled_in_a_real_build(engine):
     print("PROBE bloodhound", entries, scale, note["basis"][:500])
     assert models.BLOOD_EXPLOSION in entries and scale is not None and 0 <= scale < 1
     assert "100% of Boneshatter" not in note["basis"]
+    # (the press model doesn't charge the Mark's group as a skill pressed nonstop: probe POE2T5070, Boneshatter 0%)
+    assert "Bloodhound's Mark" not in (build.objective.press_scales or {})
+    assert (build.objective.press_scales or {}).get("Boneshatter", 1.0) > 0.5

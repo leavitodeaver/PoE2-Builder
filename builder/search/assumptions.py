@@ -3779,6 +3779,11 @@ class Assumptions:
         # UNDERCOUNT), and under Hayoxi's Fulmination's 2 s cooldown at 0.5 casts/s of 2 s each: the main skill at 0
         curses = {r["index"] for r in rates if r["index"] != main
                   and "AppliesCurse" in ((build.ctx.gems.get(str(r.get("name"))) or {}).get("skillTypes") or [])}
+        # (MECH94, an UNDERCOUNT: a Mark's group in Full DPS (for Bloodhound's Mark's Blood Explosion) was charged as a
+        # skill pressed nonstop, 1.03 casts/s of 0.97 s beside Boneshatter, leaving it 0% of the fight (probe POE2T5070);
+        # mark_model already charges the Mark's casts (mark_use: recast once consumed or run out), as curse_model does
+        # a curse's. Only the Marks mark_model rates (models.MARKS); Mark of Siphoning stays here.)
+        curses |= {r["index"] for r in rates if r["index"] != main and r.get("name") in models.MARKS}
         if curses:
             pressed -= curses
             rates = [r for r in rates if r["index"] not in curses]
