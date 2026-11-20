@@ -175,6 +175,17 @@ def hit_remnant_rate(name: str, stats: dict) -> tuple[float, str]:
     hits = number(stats.get("Speed")) * min(number(stats.get("HitChance")) or 100.0, 100.0) / 100.0
     if stats.get("_main_share") is not None:  # (MECHC45, an OVERCOUNT before: at its share of the fight)
         hits *= max(0.0, min(1.0, number(stats["_main_share"])))
+    share, how = hit_remnant_condition(name, stats, hits)
+    events = hits * share
+    rate = 1.0 / (cooldown + 1.0 / events) if events > 0 else 0.0
+    return rate, f"once every {cooldown:g} s + the wait for the next of the main skill's {how}"
+
+
+def hit_remnant_condition(name: str, stats: dict, hits: float = 0.0) -> tuple[float, str]:
+    """(MECHC46) (the share of hits that qualify for a HIT_REMNANTS source, how): any hit; a hit on a Bleeding boss; a
+    Critical Hit on an Elementally Ailmented boss, the ailments at their uptime from the main skill's own hits in `stats`
+    (and the other groups' / ground's, stats["_ailment_others"] / ["_ailment_ground"] where given). `hits` is for the
+    text only."""
     if name == "Sanguine Revelry":
         share = ailment_uptime(stats, "Bleed")
         how = f"hits on a Bleeding boss: {hits:.2f} hits/s, the boss Bleeding {share:.0%} of the fight"
@@ -194,16 +205,18 @@ def hit_remnant_rate(name: str, stats: dict) -> tuple[float, str]:
                f"(taken as independent; a Chill lasting {chill_seconds:g} s on the boss, KeywordPopups Chill's 8 s base)")
     else:
         share, how = 1.0, f"hits on the boss: {hits:.2f} hits/s"
-    events = hits * share
-    rate = 1.0 / (cooldown + 1.0 / events) if events > 0 else 0.0
-    return rate, f"once every {cooldown:g} s + the wait for the next of the main skill's {how}"
+    return share, how
 
 
-def hit_remnant_share(name: str, stats: dict) -> float:
+def hit_remnant_share(name: str, stats: dict, speed: float | None = None) -> float:
     """(MECHC45) The share of hits that qualify for a HIT_REMNANTS source (any hit; a Critical Hit on an Elementally
-    Ailmented boss; a hit on a Bleeding boss), from hit_remnant_rate at one hit a second."""
-    rate, _ = hit_remnant_rate(name, {**stats, "Speed": 1.0, "HitChance": 100.0, "_main_share": None})
-    return 1.0 / (1.0 / rate - HIT_REMNANTS[name]) if rate > 0 else 0.0
+    Ailmented boss; a hit on a Bleeding boss). (MECHC46) The boss's ailments at their uptime from the main skill's hits at
+    `speed` uses a second (its own hit chance), else at stats' Speed; never at its share of the fight (a triggered
+    explosion's own rate is given)."""
+    at = {**stats, "_main_share": None}
+    if speed is not None:
+        at["Speed"] = max(0.0, speed)
+    return hit_remnant_condition(name, at)[0]
 
 
 # (MECHC45; the manager's 09:35 from SEARCH32, MECHB45's review 10:10) A Transmutation Explosion main skill fed by a
@@ -218,14 +231,21 @@ def hit_remnant_share(name: str, stats: dict) -> float:
 # pickup (a Remnant lies 8 s on the ground, base_remnant_duration_ms 8000 > the 3 s cooldown; MECHB45), so the
 # explosion's own hits always find it ready: min(1 / cooldown, other hits' rate + q p r); the row picks each up at once
 # (the explosion's hit then lands inside the cooldown: 1 / (cooldown + 1 / (q (h + p r))) as before, whose only steady
-# state without another source is 0, MECHB45's closed form). MEDIUM-LOW (the waiting play; other groups' hits not counted).
-def remnant_chain(other: float, sources: list[tuple[float, float, float]], chance: float, mult: float, cap: float,
+# state without another source is 0, MECHB45's closed form). MEDIUM-LOW (the waiting play). (MECHC46) The other groups' hits
+# at their pressed rates join h (Assumptions.other_group_hits; MECHB46's review: a seed, an UNDERCOUNT before).
+# (MECHC46) A source's qualifying share may depend on r: Mana Remnants' Elementally Ailmented boss and Sanguine Revelry's
+# Bleeding boss are ailmented by the explosion's own hits, so their uptime is read at r itself (before: at one explosion
+# a second whatever r was: an OVERCOUNT below 1/s, an UNDERCOUNT above). spawn(r) then needn't be linear, so the least
+# crossing is found by a scan (400 steps) and bisection inside the first step where the gap turns <= 0.
+def remnant_chain(other: float, sources: list[tuple[float, object, float]], chance: float, mult: float, cap: float,
                   wait: bool = True) -> float:
     """(MECHC45) Explosions a second: the least r with r = min(cap, mult x (other + sum spawn(r))) over `sources`
-    (cooldown, qualifying share, other skills' hits a second); `chance` the explosion's hit chance (0-1)."""
+    (cooldown, qualifying share or (MECHC46) a function of r giving it, other skills' hits a second); `chance` the
+    explosion's hit chance (0-1)."""
     def spawn(r: float) -> float:
         total = 0.0
         for cooldown, share, hits in sources:
+            share = share(r) if callable(share) else share
             mine, rest = share * chance * r, share * hits
             if wait:
                 total += min(1.0 / cooldown, (rest / (1.0 + cooldown * rest) if rest > 0 else 0.0) + mine)
@@ -238,8 +258,13 @@ def remnant_chain(other: float, sources: list[tuple[float, float, float]], chanc
     gap = lambda r: min(cap, mult * (other + spawn(r))) - r  # noqa: E731
     if high <= 0 or gap(0.0) <= 0:
         return 0.0
-    low = 0.0
-    for _ in range(100):
+    low, steps = 0.0, 400
+    for k in range(1, steps + 1):  # (MECHC46: the first step where the gap turns <= 0 holds the least crossing)
+        r = high * k / steps
+        if gap(r) <= 0:
+            low, high = high * (k - 1) / steps, r
+            break
+    for _ in range(60):
         mid = (low + high) / 2
         if gap(mid) > 0:
             low = mid
@@ -4642,7 +4667,7 @@ class Assumptions:
 
     def main_group_other_hits(self, skip: str) -> tuple[float, str]:
         """(MECHC45) (hits a second on the boss, how) of the main group's active skills other than `skip` (_skill_hits:
-        PoB's use rate x hit chance x the press share); other groups' hits not counted (an undercount, labelled)."""
+        PoB's use rate x hit chance x the press share); other groups': other_group_hits (MECHC46)."""
         group = self.build.main_group() or {}
         press = getattr(getattr(self.build, "objective", None), "press_scales", None) or {}
         total, parts = 0.0, []
@@ -4655,6 +4680,33 @@ class Assumptions:
                 total += hits
                 parts.append(f"{name} {hits:.2f} hits/s")
         return total, ("the main group's other hits: " + ", ".join(parts)) if parts else "no other hits in its group"
+
+    def other_group_hits(self, skills: list[dict]) -> tuple[float, str]:
+        """(MECHC46; MECHB46's review (a), an UNDERCOUNT before: a pressed hitter seeds the chain) (hits a second on the
+        boss, how) of the build's other enabled groups' hitting skills (hitters()): PoB's trigger rate for a triggered
+        one, else conditions.skill_use_rate at the search's chosen presses (its cooldown, duration, else the chosen
+        rate, else 0), x its hit chance; one hit a use, each group's useRates row (its selected active skill)."""
+        found = [models.Skill.of(s) for s in skills if not s["disabled"]]
+        main = (self.build.main_group() or {}).get("index")
+        hitters = self.hitters(found)
+        groups = sorted({s.group for s in found if s.name in hitters and s.group is not None and s.group != main})
+        if not groups:
+            return 0.0, ""
+        choices = models.press_choices(self.build)
+        total, parts = 0.0, []
+        for row in self.build.call("useRates", indices=groups)["rates"]:
+            name = str(row.get("name") or "")
+            if not any(name.startswith(h) for h in hitters):
+                continue
+            if row.get("triggered"):
+                uses, why = number(row.get("speed")), "PoB's trigger rate"
+            else:
+                uses, why, _ = conditions_mod.skill_use_rate(row, choices)
+            hits = uses * min(number(row.get("HitChance")) or 100.0, 100.0) / 100.0
+            if hits > 0:
+                total += hits
+                parts.append(f"{name} {hits:.2f} hits/s ({why})")
+        return total, ("other groups' hits: " + ", ".join(parts)) if parts else ""
 
     def orb_remnants(self, skill: dict) -> tuple[float, str]:
         """(Orbs of Storms a second, how): orb_remnants for this build."""
@@ -4858,9 +4910,15 @@ class Assumptions:
                 stats = self.build.call("stats", fields=list(HIT_REMNANT_FIELDS))
                 chance = min(number(stats.get("HitChance")) or 100.0, 100.0) / 100.0
                 others = self.main_group_other_hits("Transmutation Explosion")
+                pressed = self.other_group_hits(skills)  # (MECHC46: MECHB46's review (a))
+                if pressed[0] > 0:
+                    others = (others[0] + pressed[0], f"{others[1]}; {pressed[1]}")
                 present = {s["name"] for s in skills if not s.get("disabled")}
-                sources = [(HIT_REMNANTS[n], hit_remnant_share(n, stats), others[0]) for n in HIT_REMNANTS
-                           if n in present]
+                # (MECHC46: the boss's ailments for Mana Remnants / Sanguine Revelry at the explosion's own rate r, with
+                # the other groups' Ignites and an Igniting aura, snap_stats; not from the main group's other hits)
+                ailed = {**stats, **{k: v for k, v in snap_stats(self.build).items() if k.startswith("_ailment")}}
+                sources = [(HIT_REMNANTS[n], (lambda r, n=n: hit_remnant_share(n, ailed, r)), others[0])
+                           for n in HIT_REMNANTS if n in present]
                 rate = remnant_chain(base, sources, chance, mult, cap, wait=True)
                 at_once = remnant_chain(base, sources, chance, mult, cap, wait=False)
                 hit_made = max(rate / mult - base, 0.0) if mult > 0 else 0.0
@@ -4876,12 +4934,16 @@ class Assumptions:
                     "value": f"{rate:.3f} explosions/s (picked up at once: {at_once:.3f})",
                     "basis": (f"{', '.join(n for n in HIT_REMNANTS if n in present)} make Remnants from the explosion's "
                               f"own hits and {others[1]}; other sources {base:.2f}/s, x{mult:.2f} per Remnant; solved "
-                              "as one steady rate (assumptions.remnant_chain). Wait out the source's cooldown before "
+                              "as one steady rate (assumptions.remnant_chain; a Bleeding / Elementally Ailmented boss "
+                              "read at that rate's own hits, with the other groups' Ignites; the main group's other "
+                              "hits apply none here). Wait out the source's cooldown before "
                               "each pickup (Remnants last 8 s): picked up at once, the explosion's hit lands inside the "
                               "cooldown and the chain dies without another source"),
                     "play": ("Pick each Remnant up only after the Remnant skill's cooldown ends (watch its icon); "
                              "picking it up at once stops the chain"),
-                    "confidence": "MEDIUM-LOW (the waiting play; other groups' hits not counted)"})
+                    "confidence": "MEDIUM-LOW (the waiting play; other groups' hits at their pressed rates; "
+                                  "whether an explosion where the Remnant lay reaches the boss is UNVERIFIED: taken "
+                                  "as hitting it)"})
             mods += [
                 {"kind": "SkillData", "skill": "Transmutation Explosion", "key": "triggerRate", "value": rate},
                 {"kind": "SkillData", "skill": "Transmutation Explosion", "key": "triggered", "value": True},

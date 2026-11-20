@@ -201,3 +201,28 @@ def test_a_self_fed_remnant_chain_is_solved_in_one_pass():
     assert remnant_chain(0.8, [(3.0, 1.0, 0.0)], 1.0, 1.0, inf, wait=True) == pytest.approx(0.8 + 1 / 3, abs=1e-6)
     assert remnant_chain(0.0, life, 1.0, 2.0, 0.5, wait=True) == pytest.approx(0.5, abs=1e-6)  # (the cooldown cap)
     assert hit_remnant_share("Life Remnants", {"Speed": 0.01, "HitChance": 50, "CritChance": 0}) == pytest.approx(1.0)
+
+
+def test_a_self_fed_chain_reads_the_bosss_ailments_at_its_own_rate():
+    """(MECHC46) Mana Remnants / Sanguine Revelry in a self-fed Transmutation Explosion: the qualifying share (a Bleeding
+    boss) is read at the explosion's own solved rate r, not at one explosion a second whatever r is; the solve finds the
+    least crossing even where the share grows with r."""
+    import time
+
+    from builder.search.assumptions import hit_remnant_share, remnant_chain
+
+    inf = float("inf")
+    stats = {"Speed": 1.0, "HitChance": 100.0, "CritChance": 0.0, "BleedChancePerHit": 50.0, "BleedDuration": 5.0}
+    slow, fast = hit_remnant_share("Sanguine Revelry", stats, 0.1), hit_remnant_share("Sanguine Revelry", stats, 2.0)
+    assert 0.0 < slow < hit_remnant_share("Sanguine Revelry", stats, 1.0) < fast <= 1.0
+    assert hit_remnant_share("Sanguine Revelry", stats, 0.0) == 0.0
+    share = lambda r: hit_remnant_share("Sanguine Revelry", stats, r)  # noqa: E731
+    start = time.perf_counter()
+    rate = remnant_chain(0.2, [(2.0, share, 0.0)], 1.0, 1.0, inf, wait=True)
+    assert time.perf_counter() - start < 0.5
+    # the fixed point: r = 0.2 + min(1/2, q(r) r) (no other hits), with q read at r itself
+    assert rate == pytest.approx(0.2 + min(0.5, share(rate) * rate), abs=1e-6)
+    # no seed and no ailment at r = 0: the chain never starts (the least fixed point)
+    assert remnant_chain(0.0, [(2.0, share, 0.69)], 1.0, 1.0, inf, wait=True) == 0.0
+    # a constant share as before (Life Remnants)
+    assert remnant_chain(0.0, [(3.0, 1.0, 0.69)], 1.0, 1.0, inf, wait=True) == pytest.approx(1 / 3, abs=1e-6)
