@@ -1,0 +1,75 @@
+# GEM25: gem stats PoB never reads (GEM lane).
+- id: model-gem25-link-fragment-self-trigger
+  title: "Fragment Self's skill_triggered_by_support_which_grants_it: GEM11's Fractured Mimics model prices each trigger (link; no number moves)"
+  kind: model
+  model: trickster
+  stats: ["skill_triggered_by_support_which_grants_it"]
+  skill: [Fragment Self]
+  confidence: LOW
+  notes: >-
+    models.trickster_model (GEM11, model-gem11-trickster-fractured-mimics): Trickster's Shard triggers Fragment Self on
+    each cast of the supported Spell; the model counts each cast's Fractured Mimic (4 within its 5 s reach the Limit:
+    0.6 casts a second) casting the spell again at 50% less. The flag marks Fragment Self as set off by the support,
+    which that per-cast rate already prices. Main skill only (a side spell's mimics are said, not counted: an UNDERCOUNT
+    kept, as the model's note says).
+  sources: ["builder/search/models.py (trickster_model and the comment above it)", "ledger/entries/gems-gem11.yaml"]
+  status: proposed
+
+- id: model-gem25-link-natures-exchange-trigger
+  title: "Nature's Exchange's skill_triggered_by_support_which_grants_it: MECHC41's Guard model prices each trigger (link; no number moves)"
+  kind: model
+  model: event_guard
+  stats: ["skill_triggered_by_support_which_grants_it"]
+  skill: [Nature's Exchange]
+  confidence: MEDIUM
+  notes: >-
+    assumptions.py's Morrigan's Insight branch (MECHC41; recovery.NATURES_EXCHANGE): Nature's Exchange's Guard (its
+    morrigan_ward_gain_X_guard at its level) for 8 s at the rate the supported main skill's hits consume the boss's
+    Freeze (models.buildup_rate), held to the 8 s cooldown; a side skill with the support: 0, an UNDERCOUNT kept. The
+    flag marks the skill as set off by the support, which that rate prices.
+  sources: ["builder/search/assumptions.py (the Morrigan's Insight branch, recovery.event_guard)",
+            "builder/search/recovery.py (MORRIGANS_INSIGHT, NATURES_EXCHANGE, NATURES_COOLDOWN)"]
+  status: proposed
+
+- id: model-gem25-profane-decay
+  title: "Decaying Hex: Profane Decay on each curse landing, up its 8 s (PoB: 0 out of Full DPS, always up in it)"
+  kind: model
+  model: profane_decay
+  stats: ["curse_triggers_decaying_hex", "base_chaos_damage_to_deal_per_minute"]
+  skill: [Decaying Hex, Profane Decay]
+  confidence: MEDIUM
+  notes: >-
+    models.profane_decay_model + curse_landings, assumptions.support_dots (GEM25). Game 26650308: Decaying Hex's one
+    stat curse_triggers_decaying_hex ("Supported Skills trigger Profane Decay on each target Cursed"); Profane Decay
+    (TriggeredDecayingHexPlayer) base_chaos_damage_to_deal_per_minute (17,217 at 20), 8 s. PoB maps an old support stat
+    (Intelligence-based "decay") the game's support no longer carries (checked: Stats ids holding decaying_hex / decay;
+    both effects' GrantedEffectStatSets), and counts Profane Decay's DoT only with its curse group in Full DPS, as always
+    up (probe POE2T3564: 286.95 in, 0 out). One Decay at PoB's DoT x min(1, the curse's landings a second x its
+    duration): recast by hand once a duration (each recast taken to Curse it again, MEDIUM, UNVERIFIED), let run out,
+    Hexblast's cycle, a meta's rate, an Aura / infinite curse once a fight (LOW). Two supported curses: the strongest
+    Decay (whether they stack is UNVERIFIED; the sum a not-counted row). Added less PoB's own always-up figure where the score reads it (the group in Full DPS and the
+    objective on Full DPS: probe POE2T3565).
+  sources: ["builder/search/models.py (profane_decay_model, curse_landings)", "builder/search/assumptions.py (support_dots)",
+            "data/game-26650308/tables (GrantedEffects 7713 / 7714, GrantedEffectStatSets 7515 / 7516)",
+            "scratch/gem25/probe_dot.json"]
+  test_in_game: "Optional: does recasting a curse on a boss that still carries it trigger a new Profane Decay?"
+  status: proposed
+
+- id: model-gem25-twisted-pact-stacks
+  title: "Paquate's Pact: Twisted Pact's 5 Corrupted Blood stacks a warcry, to the shared cap of 10 (PoB: one stack, in Full DPS only)"
+  kind: model
+  model: twisted_pact
+  stats: ["warcry_triggers_paquates_pact", "add_buff_to_target_skill_number_of_corrupted_blood_debuffs_to_inflict"]
+  skill: [Paquate's Pact, Twisted Pact]
+  confidence: LOW
+  notes: >-
+    models.twisted_pact_model (cry_stacks with 5 a warcry), assumptions.support_dots (GEM25). Game 26650308: Twisted
+    Pact "Inflicts 5 Corrupted Blood Debuffs", 5 s; Corrupted Blood up to 10 a target (KeywordPopups). PoB maps the 5 to
+    CorruptingCryStagesFromWarcry, which nothing reads, scores one stack (the Corrupting Cry stage multiplier held at
+    one: cry_stage_floor), and only with the warcry's group in Full DPS (probe POE2T3564: Best Corr. Blood 339.1 in, 0
+    out). Stacks: each new stack refreshing all (RESEARCH26 R26-15, MEDIUM-LOW; each on its own timer the play row),
+    the climb over the fight counted, the cap shared with Corrupted Cry's stacks (theirs first). An added source, less
+    the one stack PoB scores itself (its group in Full DPS and the objective on Full DPS: probe POE2T3565).
+  sources: ["builder/search/models.py (twisted_pact_model, cry_stacks)", "builder/search/assumptions.py (support_dots)",
+            "scratch/gem25/probe_dot.json"]
+  status: proposed

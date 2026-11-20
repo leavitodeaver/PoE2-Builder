@@ -4759,11 +4759,13 @@ def anaemia_cap(texts: list[str], stats: dict) -> tuple[float, str]:
                         "usual on-Hit debuff default, LOW)")
 
 
-def cry_stacks(rate: float, fight: float | None, seconds: float = 5.0, cap: float = 10.0) -> tuple[float, float]:
-    """(average stacks with each new debuff refreshing all of them, average with each on its own timer) for one stack a
-    warcry at `rate` a second over a `fight`-second fight (None: the climb to the cap not counted)."""
-    own = min(cap, rate * seconds)
-    if rate <= 0:
+def cry_stacks(rate: float, fight: float | None, seconds: float = 5.0, cap: float = 10.0,
+               per: float = 1.0) -> tuple[float, float]:
+    """(average stacks with each new debuff refreshing all of them, average with each on its own timer) for `per`
+    stacks a warcry (GEM25: Twisted Pact's 5; Corrupted Cry's 1) at `rate` a second over a `fight`-second fight (None:
+    the climb to the cap not counted)."""
+    own = min(cap, per * rate * seconds)
+    if rate <= 0 or per <= 0:
         return 0.0, 0.0
     gap = 1.0 / rate
     if gap > seconds:  # (each stack runs out before the next: the two rules agree)
@@ -4771,8 +4773,9 @@ def cry_stacks(rate: float, fight: float | None, seconds: float = 5.0, cap: floa
     if not fight or fight <= 0:
         return cap, own
     m = int(fight // gap)
-    total = sum(min(k + 1, cap) * gap for k in range(min(m, int(cap)))) + max(0, m - int(cap)) * cap * gap
-    total += min(m + 1, cap) * (fight - m * gap)
+    steps = int(math.ceil(cap / per - 1e-9))  # (warcries to reach the cap)
+    total = sum(min(per * (k + 1), cap) * gap for k in range(min(m, steps))) + max(0, m - steps) * cap * gap
+    total += min(per * (m + 1), cap) * (fight - m * gap)
     return total / fight, own
 
 
@@ -8266,14 +8269,21 @@ def galvanic_field_model(main: Skill | None, scored: str | None, speed: float, s
 # Physical damage over time: LOW, the "without it" row is 0) and to die within the explosion's 1.5 m of the boss (LOW,
 # fight-decided, as Bone Shrapnel's `near`: the manager's to ask). The Blood Loss part of the explosion's damage is
 # PoB's (not read here). With no explosions the set is held at AILMENT_FLOOR (a DPS line). LOW.
+# (GEM25) Herald of the Royal Queen (UniqueAtziriHeraldPlayer, granted by Atziri's Acuity's current variant) is the same
+# skill shape: ActiveSkills atziri_herald "Killing an enemy with [BloodLoss|Blood Loss] will cause a bloody explosion
+# that deals [Physical] [Attack] damage to surrounding enemies ... based on their accumulated [BloodLoss|Blood Loss]",
+# its Explosion set (UniqueAtziriHeraldExplosionPlayer) radius 15 like Herald of Blood's (GrantedEffectStatSets
+# 26650308), PoB's sets the same "Buff" / "Explosion" (other.lua): so the same kills model, the same OVERCOUNT fixed.
 HERALD_OF_BLOOD = "Herald of Blood"
+HERALD_OF_THE_ROYAL_QUEEN = "Herald of the Royal Queen"
+HERALD_EXPLOSIONS = (HERALD_OF_BLOOD, HERALD_OF_THE_ROYAL_QUEEN)
 HERALD_OF_BLOOD_ENTRY = "model-gem20-herald-of-blood-kills"
 
 
 def herald_of_blood_model(main: Skill | None, scored: str | None, sets: list[dict], kills: float, how: str,
                           forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
     """Herald of Blood's explosions at the boss preset's add kills a second (see above): `kills` adds killed a second."""
-    if main is None or main.name != HERALD_OF_BLOOD or HERALD_OF_BLOOD_ENTRY in forbidden or scored != "Explosion":
+    if main is None or main.name not in HERALD_EXPLOSIONS or HERALD_OF_BLOOD_ENTRY in forbidden or scored != "Explosion":
         return [], []
     dps = set_dps_unscaled(sets)
     speed = next((number(x.get("Speed")) for x in sets if x.get("label") == scored), 0.0)
@@ -8293,7 +8303,7 @@ def herald_of_blood_model(main: Skill | None, scored: str | None, sets: list[dic
                   f"enemy with Blood Loss when you kill it; the boss's own death ends the fight: {how}; each slain add "
                   f"taken to carry Blood Loss and to die within 1.5 m of the boss (LOW): {kills:.3f} explosions a "
                   f"second, {kills * blast:,.0f} DPS" + ("; none: held at 1%" if floor else "")),
-        "play": (f"Herald of Blood explodes only when you kill an enemy with Blood Loss (Physical damage over time on "
+        "play": (f"{main.name} explodes only when you kill an enemy with Blood Loss (Physical damage over time on "
                  f"it): against a lone boss it deals nothing. Kill the boss's adds beside it with Blood Loss on them "
                  f"(any Physical damage over time, Bleeding or not): "
                  f"with this fight's adds {kills * blast:,.0f}; without Blood Loss on them: 0.")}]
@@ -8418,6 +8428,10 @@ PLANTS_A_USE = {"Vine Arrow": (1.0, "one plant a landed arrow"),
                                       "5 times this)"),
                 "Entangle": (1.0, "one fissure a use"),
                 "Thrashing Vines": (2.0, "two vines a cast time channelled (one per 50% of it; LOW)")}
+# The upper reading, a row not counted (GEM25, the manager's GEM25 brief: the lower reading the headline, overcounts first):
+# all 5 of Toxic Growth's Pustules a use exploding on the boss (LOW: how many reach a boss's body is RESEARCH's question).
+PLANTS_A_USE_UPPER = {"Toxic Growth": (5.0, "all 5 Pustules a use, each explosion reaching the boss "
+                                              "(LOW)")}
 
 
 def accelerated_growth_model(parts: list[dict], share: float, share_parts: list[str],
@@ -8428,7 +8442,7 @@ def accelerated_growth_model(parts: list[dict], share: float, share_parts: list[
     if not parts:
         return 0.0, []
     share = min(max(number(share), 0.0), 1.0)
-    total, rows, unread = 0.0, [], []
+    total, rows, unread, upper, upper_rows = 0.0, [], [], 0.0, []
     for part in parts:
         per, what = PLANTS_A_USE.get(part.get("source"), (0.0, ""))
         if per <= 0:
@@ -8438,6 +8452,10 @@ def accelerated_growth_model(parts: list[dict], share: float, share_parts: list[
         plants = uses * per
         rate = plants * share
         total += rate * blast
+        up_per, up_what = PLANTS_A_USE_UPPER.get(part.get("source"), (per, what))
+        upper += uses * up_per * share * blast
+        if up_per > per:
+            upper_rows.append(f"{part.get('source')}: {up_what}")
         rows.append(f"{part.get('source')}: {uses:.2f} uses a second x {what} = {plants:.2f} plants a second x "
                     f"{share:.0%} Overgrown = {rate:.2f} explosions a second at {blast:,.1f}")
     why = (("; Overgrown share: " + "; ".join(share_parts)) if share_parts else
@@ -8445,6 +8463,12 @@ def accelerated_growth_model(parts: list[dict], share: float, share_parts: list[
            "Overgrow\" line): 0")
     skipped = (f"; {', '.join(unread)}: no plant rate read here (their plants come from your other Spells or Projectile "
                "Attacks), 0") if unread else ""
+    extra = [{
+        "label": "Accelerated Growth with every plant of a use reaching the boss (not counted)",
+        "value": f"{upper:,.1f} DPS", "confidence": "LOW", "entry": ACCELERATED_GROWTH_ENTRY,
+        "basis": ("the upper reading, " + "; ".join(upper_rows) + f": {upper:,.1f} DPS instead of {total:,.1f}. How "
+                  "many of the spread reach a boss's body is UNVERIFIED (a research question); the headline counts "
+                  "one a use")}] if upper > total + 1e-9 else []
     return total, [{
         "label": "Accelerated Growth: explosions from Overgrown plants*", "value": f"{total:,.1f} DPS",
         "confidence": share_conf if total > 0 else "LOW", "entry": ACCELERATED_GROWTH_ENTRY,
@@ -8453,7 +8477,140 @@ def accelerated_growth_model(parts: list[dict], share: float, share_parts: list[
                   + "; ".join(rows) + why + skipped + " (Navira's Oasis and Nature's Archon not counted)"),
         "play": ("Make the plants at the boss and Overgrow them: cast Thunderstorm on the boss, or take Boundless Growth "
                  f"/ an Idol of Yeena (a chance for each plant). Without an Overgrow source: 0; with this build's: "
-                 f"{total:,.1f} DPS.")}]
+                 f"{total:,.1f} DPS.")}] + extra
+
+# Profane Decay (GEM25; an UNDERCOUNT: probe POE2T3561, Spark + a Despair / Decaying Hex group 45.75 FullDPS with or
+# without the support, Profane Decay's row TotalDPS 0; probe POE2T3564 for its DoT). The game (26650308): Decaying Hex
+# (SupportDecayingHexPlayer, AllowedActiveSkillTypes [AppliesCurse]) carries one stat, curse_triggers_decaying_hex:
+# "Supported Skills trigger Profane Decay on each target Cursed"; Profane Decay (TriggeredDecayingHexPlayer):
+# base_chaos_damage_to_deal_per_minute (17,217 at level 20), base_skill_effect_duration 8000 ("Decay deals {0} Chaos
+# damage per second", "Decay duration is {0} seconds", PoB's triggered_decaying_hex descriptions). PoB still maps an old
+# support stat (support_decaying_hex_base_chaos_damage_per_minute_as_%_of_intelligence...) to its "decay" DecayDPS, but
+# the game's support no longer carries it (checked: Stats ids holding decaying_hex / decay, GrantedEffectStatSets of
+# both effects), so PoB's DecayDPS is 0. So: one Decay on the boss, PoB's DoT for the Profane Decay skill (its level and
+# the build's Chaos / DoT modifiers, after the boss's resistance), up min(1, landings a second x its duration) of the
+# fight. The landings: each time the supported curse curses the boss (curse_uses: cast by hand, recast once a duration
+# (MEDIUM: a recast on the still-cursed boss taken as Cursing it again, UNVERIFIED); let run out (Withering Hex play);
+# detonated and recast by Hexblast; triggered by a meta at its rate; an Aura (Blasphemy) or an infinite curse lands once
+# a fight (its first Decay only, LOW: whether an aura re-curses is UNVERIFIED)). Several curses with the support: their
+# Decays taken not to stack, the strongest counted (UNVERIFIED: the lower reading; a not-counted row gives the sum).
+# PoB (probe POE2T3564, Spark + Despair / Decaying Hex at level 90): out of Full DPS the group adds 0; IN Full DPS PoB adds
+# Profane Decay's DoT (286.95) as always up, one per group ("Full DoT DPS"). The search fills a curse group's supports
+# with it in Full DPS and then takes it out (gems.py), so a found build reads 0; a group a model or an import keeps in
+# Full DPS reads PoB's always-up figure, which the score reads only while the objective is on Full DPS (finalists, or a
+# model's Full DPS groups: probe POE2T3565, with the objective on main DPS it scored 45.75 beside Full DPS 332.70). So
+# the added source is the model's figure less what the score already reads of PoB's (a negative where PoB counts a Decay
+# that isn't up, or two that don't stack: the OVERCOUNT side).
+PROFANE_DECAY = "Profane Decay"
+DECAYING_HEX = "Decaying Hex"
+PROFANE_DECAY_ENTRY = "model-gem25-profane-decay"
+PROFANE_DECAY_SECONDS = 8.0  # base_skill_effect_duration 8000 (PoB's Duration with the build's modifiers when given)
+
+
+def curse_landings(use: "CurseUse", cast_time: float, fight: float | None) -> tuple[float, str]:
+    """(times a second `use`'s curse lands on the boss, how), for skills triggered on each target Cursed."""
+    if use.hexblast:
+        cycle = hexblast_cycle(use, cast_time)
+        return (1.0 / cycle if cycle > 0 else 0.0), f"recast once a Hexblast cycle ({cycle:.3g} s)"
+    if use.lapse:
+        every = use.duration + CURSE_LAPSE_GAP
+        return 1.0 / every, f"let run out and recast every {every:.3g} s"
+    if use.by_hand:
+        return 1.0 / use.duration, f"recast by hand every {use.duration:.3g} s (each recast taken to Curse it again, MEDIUM)"
+    if use.how.startswith("triggered by"):
+        if use.share < 1.0:
+            return use.share / use.duration, f"triggered {use.share / use.duration:.3f} times a second"
+        return 1.0 / use.duration, f"triggered when needed, taken as once a duration ({use.duration:.3g} s; LOW)"
+    if fight and fight > 0:
+        return 1.0 / fight, (f"lands once a fight (an Aura or an infinite curse; LOW: re-cursing UNVERIFIED), over a "
+                             f"{fight:.0f} s fight")
+    return 0.0, "lands once a fight (an Aura or an infinite curse) and the fight's length isn't read: 0"
+
+
+def profane_decay_model(parts: list[dict]) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Profane Decay (see above): `parts`, one per curse supported by Decaying Hex: {"curse",
+    "dot": PoB's DoT a second for Profane Decay in that group, "seconds": its duration, "landings": the curse's landings
+    a second, "how"}."""
+    if not parts:
+        return 0.0, []
+    rows, values = [], []
+    counted = sum(max(number(p.get("dot")), 0.0) for p in parts if p.get("in_full"))  # (PoB's own, always up, scored)
+    for part in parts:
+        dot, seconds = max(number(part.get("dot")), 0.0), max(number(part.get("seconds")), 0.0) or PROFANE_DECAY_SECONDS
+        landings = max(number(part.get("landings")), 0.0)
+        up = min(1.0, landings * seconds)
+        values.append(dot * up)
+        rows.append(f"{part.get('curse')}: {part.get('how')}: {landings:.3f} landings a second x {seconds:.3g} s = up "
+                    f"{up:.0%}, at {dot:,.1f} a second = {dot * up:,.1f}")
+    best, total = max(values), sum(values)
+    pob = (f"PoB already counts {counted:,.1f} (Profane Decay always up in each curse group in Full DPS), so "
+           f"{best - counted:+,.1f} is added" if counted > 0 else
+           "PoB's Decay isn't scored (it counts one only with the curse group in Full DPS and the objective on Full "
+           "DPS; its old Intelligence-based stat is no longer on the game's support)")
+    notes = [{
+        "label": "Decaying Hex: Profane Decay on the cursed boss*", "value": f"{best:,.1f} DPS",
+        "confidence": "MEDIUM" if best > 0 else "LOW", "entry": PROFANE_DECAY_ENTRY,
+        "basis": (pob + ". The game: each time the supported curse Curses the boss it triggers Profane Decay, Chaos "
+                  "damage over time for 8 s: " + "; ".join(rows)
+                  + (". One Decay counted (the strongest): whether two stack is UNVERIFIED" if len(parts) > 1 else "")),
+        "play": (f"Keep the Decaying Hex curse on the boss: recast it before Profane Decay's {PROFANE_DECAY_SECONDS:g} s "
+                 f"run out. With it: {best:,.1f} DPS; without a curse landing: 0.")}]
+    if len(parts) > 1 and total > best + 1e-9:
+        notes.append({"label": "Profane Decay if each curse's Decay stacks (not counted)", "value": f"{total:,.1f} DPS",
+                      "confidence": "LOW", "entry": PROFANE_DECAY_ENTRY,
+                      "basis": f"the upper reading: every supported curse's Decay at once, {total:,.1f} instead of {best:,.1f}"})
+    return best - counted, notes
+
+
+# Twisted Pact (GEM25; an UNDERCOUNT out of Full DPS, an UNDERCOUNT of its stacks in it). Paquate's Pact
+# (SupportCorruptingCryPlayerThree, Warcries): warcry_triggers_paquates_pact; Twisted Pact (TriggeredCorruptingCryThree
+# Player): "Inflicts {0} Corrupted Blood Debuffs" (add_buff_to_target_skill_number_of_corrupted_blood_debuffs_to_inflict
+# 5), "Corrupted Blood deals {0} Physical damage per second", base_skill_effect_duration 5000 (game 26650308; PoB's
+# triggered_paquates_pact). PoB maps the 5 to CorruptingCryStagesFromWarcry, which no calculation reads, and scores the
+# stages through the Corrupting Cry multiplier corrupting_cry_model / cry_stage_floor hold at one stack. Probe POE2T3564
+# (Boneshatter + an Infernal Cry / Paquate's Pact group): out of Full DPS 0; in it, "Best Corr. Blood DPS" 339.1 (one
+# stack; PoB counts the best Corrupted Blood source only). The game: 5 stacks a warcry, up to 10 on the boss (KeywordPopups
+# CorruptedBlood), so the stacks are cry_stacks' with 5 a warcry (each new stack refreshing all, R26-15's MEDIUM-LOW rule,
+# the climb over the fight counted; each its own 5 s timer the "without it" row), the cap shared with Corrupted Cry's
+# stacks (theirs first: the lower reading). An added source, PoB's one-stack Corrupted Blood x the stacks, less the one
+# stack PoB counts itself where the score reads it (the group in Full DPS and the objective reading Full DPS: probe
+# POE2T3565, with the objective on main DPS a Full DPS group's damage isn't scored). PoB's "Best Corr. Blood" counts one
+# source, so where another Corrupted Blood beats Twisted Pact's one stack PoB counts that one instead and the stack taken
+# off here is an UNDERCOUNT of one stack (the safe side). No "more" line on Twisted Pact: it would raise the one-stack
+# figure the next pass reads.
+TWISTED_PACT = "Twisted Pact"
+TWISTED_PACT_ENTRY = "model-gem25-twisted-pact-stacks"
+TWISTED_PACT_PER = 5.0
+
+
+def twisted_pact_model(parts: list[dict], fight: float | None, cap: float = CRY_MAX, taken: float = 0.0,
+                       forbidden: set[str] = frozenset()) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Twisted Pact (see above): `parts`, one per warcry group with Paquate's Pact: {"rate": its
+    warcry's uses a second, "where", "one": PoB's one-stack Corrupted Blood DPS, "seconds": its duration, "in_full":
+    PoB's one stack is in the score}; `taken`: the stacks Corrupted Cry already keeps up (of the shared `cap`)."""
+    if not parts or TWISTED_PACT_ENTRY in forbidden:
+        return 0.0, []
+    rate = sum(max(number(p.get("rate")), 0.0) for p in parts)
+    seconds = next((number(p.get("seconds")) for p in parts if number(p.get("seconds")) > 0), CRY_SECONDS)
+    room = max(cap - max(taken, 0.0), 0.0)
+    stacks, own = cry_stacks(rate, fight, seconds, room, TWISTED_PACT_PER)
+    one = max((max(number(p.get("one")), 0.0) for p in parts), default=0.0)
+    in_full = any(p.get("in_full") for p in parts)
+    added = one * (stacks - (1.0 if in_full else 0.0))
+    where = "; ".join(f"{p.get('where')}: {max(number(p.get('rate')), 0.0):.3g}/s" for p in parts)
+    return added, [{
+        "label": "Paquate's Pact: Twisted Pact's Corrupted Blood stacks on the boss*", "value": f"{stacks:.2f}",
+        "confidence": "theory", "entry": TWISTED_PACT_ENTRY,
+        "basis": (f"5 stacks a warcry ({where}), each new one refreshing all (MEDIUM-LOW, RESEARCH26 R26-15), up to "
+                  f"{room:.3g}" + (f" (the cap {cap:.3g} less Corrupted Cry's {taken:.2f})" if taken > 0 else "")
+                  + f": {stacks:.2f} on average"
+                  + (f" over a {fight:.0f} s fight, the climb counted" if fight else " (the fight's length not read)")
+                  + f"; {own:.2f} if each keeps its own {seconds:.3g} s. PoB: one stack ({one:,.1f} DPS), scored only "
+                  "with the warcry's group in Full DPS and the objective on Full DPS: "
+                  + (f"so {added:+,.1f} DPS added to its one" if in_full else f"not scored here, so {added:,.1f} DPS added")),
+        "play": (f"Warcry with Paquate's Pact under every {seconds:.3g} s and its 5 stacks a cry climb to the cap: "
+                 f"{stacks:.2f} on average; each stack on its own timer: {own:.2f}.")}]
+
 
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
 # "Hit damage is taken from Mana before Life if your current Mana is higher than your current Life" (poe2db): counted as

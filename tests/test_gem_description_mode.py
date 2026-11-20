@@ -1209,6 +1209,10 @@ def test_herald_of_blood_explodes_only_on_kills():
     mods, _ = models.herald_of_blood_model(hb, "Explosion", sets, 0.043, "the King's totems")
     assert mods[0]["name"] == "DPS" and mods[0]["value"] == pytest.approx(100 * (0.043 - 1))
     assert models.herald_of_blood_model(hb, "Buff", sets, 0.0, "") == ([], [])
+    # (GEM25) Herald of the Royal Queen (Atziri's Acuity): the same kill-only explosion
+    mods, notes = models.herald_of_blood_model(Skill("Herald of the Royal Queen", 1, attack=True), "Explosion", sets,
+                                               0.0, "a lone boss")
+    assert mods[0]["value"] == pytest.approx(-99.0) and "Herald of the Royal Queen" in notes[0]["play"]
 
 
 def test_shield_wall_explodes_when_shattered_more_by_slams():
@@ -1422,8 +1426,12 @@ def test_accelerated_growth_explodes_each_overgrown_plant_of_the_supported_skill
                                                  ["20% chance to immediately Overgrow"])
     assert dps == pytest.approx(0.6 * 1 * 0.2 * 40.0)
     assert notes[0]["entry"] == models.ACCELERATED_GROWTH_ENTRY and notes[0]["confidence"] == "MEDIUM"
-    assert models.accelerated_growth_model([{"source": "Toxic Growth", "uses": 1.0, "blast": 10.0}], 0.5, ["x"])[0] == \
-        pytest.approx(1.0 * 1 * 0.5 * 10.0)  # (one Pustule a use at the boss)
+    dps, notes = models.accelerated_growth_model([{"source": "Toxic Growth", "uses": 1.0, "blast": 10.0}], 0.5, ["x"])
+    assert dps == pytest.approx(1.0 * 1 * 0.5 * 10.0)  # (one Pustule a use at the boss, the headline)
+    assert len(notes) == 2 and "not counted" in notes[1]["label"] and notes[1]["confidence"] == "LOW"
+    assert notes[1]["value"] == f"{1.0 * 5 * 0.5 * 10.0:,.1f} DPS"  # (GEM25: all 5 Pustules, the upper reading's row)
+    assert len(models.accelerated_growth_model([{"source": "Vine Arrow", "uses": 0.6, "blast": 40.0}], 0.2,
+                                               ["x"])[1]) == 1  # (no upper reading for one plant a use)
     dps, notes = models.accelerated_growth_model([{"source": "Vine Arrow", "uses": 0.6, "blast": 40.0}], 0.0, [])
     assert dps == 0.0 and "0" in notes[0]["value"]  # (nothing Overgrows the plants: 0, said)
     dps, notes = models.accelerated_growth_model([{"source": "Briarpatch", "uses": 1.0, "blast": 40.0}], 1.0, ["x"])
@@ -1431,3 +1439,40 @@ def test_accelerated_growth_explodes_each_overgrown_plant_of_the_supported_skill
     assert models.accelerated_growth_model([], 1.0, []) == (0.0, [])
     share = models.overgrown_share([], {}, ["Plants have a 20% chance to immediately Overgrow"])[0]
     assert share == pytest.approx(0.2)
+
+
+def test_profane_decay_is_up_while_its_curse_lands_and_less_what_pob_counts():
+    """GEM25: one Decay at PoB's DoT x min(1, landings x duration); PoB's always-up figure in Full DPS taken off."""
+    use = models.CurseUse("Despair", 1.0, "cast by hand", True, 7.4)
+    landings, _ = models.curse_landings(use, 0.7, None)
+    assert landings == pytest.approx(1 / 7.4)
+    part = {"curse": "Despair", "dot": 287.0, "seconds": 8.0, "landings": landings, "how": "x", "in_full": False}
+    added, notes = models.profane_decay_model([part])
+    assert added == pytest.approx(287.0) and notes[0]["entry"] == models.PROFANE_DECAY_ENTRY
+    assert models.profane_decay_model([{**part, "in_full": True}])[0] == pytest.approx(0.0)  # (PoB counts it already)
+    lapse = models.CurseUse("Despair", 0.9, "x", True, 4.0, lapse=True)
+    landings, _ = models.curse_landings(lapse, 0.7, None)
+    added, _ = models.profane_decay_model([{**part, "seconds": 2.0, "landings": landings}])
+    assert added == pytest.approx(287.0 * 2.0 / 4.5)  # (up 2 s of each 4.5 s)
+    aura = models.CurseUse("Despair", 1.0, "an Aura (Blasphemy) on enemies nearby")
+    assert models.curse_landings(aura, 0.7, 80.0)[0] == pytest.approx(1 / 80.0)
+    assert models.curse_landings(aura, 0.7, None)[0] == 0.0
+    added, notes = models.profane_decay_model([part, {**part, "curse": "Enfeeble", "dot": 100.0}])
+    assert added == pytest.approx(287.0) and "not counted" in notes[1]["label"]  # (the strongest only; the sum a row)
+    assert models.profane_decay_model([]) == (0.0, [])
+
+
+def test_twisted_pact_inflicts_five_corrupted_blood_stacks_a_warcry():
+    """GEM25: 5 stacks a warcry to the shared cap of 10, an added source less the one stack PoB scores itself."""
+    part = {"rate": 0.125, "where": "Infernal Cry", "one": 100.0, "seconds": 5.0, "in_full": False}
+    added, notes = models.twisted_pact_model([part], None)
+    assert added == pytest.approx(100.0 * 5 * 0.125 * 5.0)  # (each 5 s burst runs out before the next)
+    assert notes[0]["entry"] == models.TWISTED_PACT_ENTRY
+    added, _ = models.twisted_pact_model([{**part, "rate": 0.5}], None)
+    assert added == pytest.approx(1000.0)  # (a cry every 2 s: the climb not counted, the cap of 10)
+    added, _ = models.twisted_pact_model([{**part, "rate": 0.5, "in_full": True}], None)
+    assert added == pytest.approx(900.0)  # (PoB scores one stack itself)
+    added, _ = models.twisted_pact_model([{**part, "rate": 0.5}], None, taken=7.0)
+    assert added == pytest.approx(300.0)  # (Corrupted Cry's 7 stacks first, of the shared 10)
+    assert models.cry_stacks(0.5, 100, 5, 10, 1) == models.cry_stacks(0.5, 100, 5, 10)
+    assert models.twisted_pact_model([], None) == (0.0, [])

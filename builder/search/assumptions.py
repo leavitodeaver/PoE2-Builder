@@ -1594,6 +1594,70 @@ def fan_the_flames(build: Build, main: models.Skill | None) -> tuple[float, list
     return models.fan_the_flames_model(parts)
 
 
+def support_dots(build: Build, found: list[models.Skill], curses: list[models.CurseUse], stats: dict,
+                 stat_notes: list[dict], texts: list[str], forbidden: set[str]) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for the support-triggered damage over time PoB counts only in Full DPS (GEM25): Decaying Hex's
+    Profane Decay (models.profane_decay_model) and Paquate's Pact's Twisted Pact (models.twisted_pact_model), each from
+    its group's own rows (the bridge's setRates for the triggered skill: TotalDot / CorruptingBloodDPS, Duration)."""
+    from builder.search import bosses
+    from builder.search import conditions as conditions_mod
+
+    groups = [g for g in build.groups() if g["enabled"]]
+    names = {g["index"]: [x["name"] for x in g.get("skills") or []] for g in groups}
+    if not any(models.PROFANE_DECAY in n or models.TWISTED_PACT in n for n in names.values()):
+        return [], []
+    gems = getattr(build.ctx, "gems", {}) or {}
+    full = models.number(stats.get("FullDPS"))
+    fight = conditions_mod.boss_pool(bosses.of(stats).name) / full if full > 0 else None
+    press = getattr(build.objective, "press_scales", None) or {}
+    main_index = build.call("groups")["mainSocketGroup"]
+    casts = {(s.name, s.group): s.cast_time for s in found}
+    scored = bool(getattr(build.objective, "full", False))  # (a Full DPS group's damage is scored only then)
+    decay, pacts = [], []
+    for group in groups:
+        index, skills = group["index"], names[group["index"]]
+        own = lambda name: (build.call("setRates", index=index, active=skills.index(name) + 1)["sets"] or [{}])[0]
+        if models.PROFANE_DECAY in skills:
+            curse = next((n for n in skills if n != models.PROFANE_DECAY
+                          and "AppliesCurse" in ((gems.get(n) or {}).get("skillTypes") or [])), None)
+            use = next((u for u in curses if u.name == curse), None)
+            row = own(models.PROFANE_DECAY)
+            if use is None:
+                landings, how = 0.0, f"{curse or 'its curse'}: no application read"
+            else:
+                landings, how = models.curse_landings(use, casts.get((curse, index)) or 0.0, fight)
+            decay.append({"curse": curse, "dot": row.get("TotalDot"), "seconds": row.get("Duration"),
+                          "landings": landings, "how": how, "in_full": scored and bool(group.get("fullDPS"))})
+        if models.TWISTED_PACT in skills:
+            cry = next((n for n in skills if "Warcry" in ((gems.get(n) or {}).get("skillTypes") or [])), None)
+            row = own(models.TWISTED_PACT)
+            if cry is None:
+                rate, where = 0.0, "no warcry read"
+            elif index == main_index:
+                rate, where = models.number(stats.get("Speed")), f"{cry} (main) at PoB's Speed"
+            else:
+                rated = (build.call("useRates", indices=[index], actives=[skills.index(cry) + 1])["rates"] or [{}])[0]
+                share = press.get(rated.get("name") or cry)
+                rate = models.number(rated.get("speed")) * models.number(share if share is not None else 1.0)
+                where = cry + (f" pressed {models.number(share):.0%}" if share is not None
+                               else " at PoB's rate (no press share chosen)")
+            pacts.append({"rate": rate, "where": where, "one": row.get("CorruptingBloodDPS"),
+                          "seconds": row.get("Duration"), "in_full": scored and bool(group.get("fullDPS"))})
+    mods, notes = [], []
+    if decay and models.PROFANE_DECAY_ENTRY not in forbidden:
+        added, decay_notes = models.profane_decay_model(decay)
+        mods += [models.added_input("ProfaneDecay", added)] if abs(added) > 1e-9 else []
+        notes += decay_notes
+    if pacts:
+        taken = next((float(str(n.get("value")).replace(",", "")) for n in stat_notes  # (its value: the stacks, "4.00")
+                      if n.get("entry") == models.CRY_ENTRY), 0.0)
+        cap = models.CRY_MAX + models.anaemia_cap(texts, stats)[0]
+        added, pact_notes = models.twisted_pact_model(pacts, fight, cap, taken, forbidden)
+        mods += [models.added_input("TwistedPact", added)] if abs(added) > 1e-9 else []
+        notes += pact_notes
+    return mods, notes
+
+
 def accelerated_growth(build: Build, found: list[models.Skill], texts: list[str]) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Accelerated Growth (GEM24's models.accelerated_growth_model): in each enabled group
     holding the triggered explosion, the supported Plant skill's uses a second (PoB's rate x its press share, less the
@@ -3134,7 +3198,7 @@ class Assumptions:
             gf_mods, gf_notes = models.galvanic_field_model(main, main.stat_set, number(stats.get("Speed")), shocks,
                                                             shocks_how, forbidden)
             hand_mods, hand_notes = hand_mods + gf_mods, hand_notes + gf_notes
-        if main is not None and group and main.name == models.HERALD_OF_BLOOD:  # (GEM20: an explosion only on a kill)
+        if main is not None and group and main.name in models.HERALD_EXPLOSIONS:  # (GEM20 / GEM25: an explosion only on a kill)
             from builder.search import bosses
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             request = getattr(getattr(build, "ctx", None), "request", None)
@@ -3221,6 +3285,9 @@ class Assumptions:
         growth, growth_notes = accelerated_growth(build, found, [e["text"] for e in source_lines])  # (GEM24: Overgrown plants)
         hand_mods += [models.added_input("AcceleratedGrowth", growth)] if growth > 0 else []
         hand_notes += growth_notes
+        dot_mods, dot_notes = support_dots(build, found, curses, stats, stat_notes, [e["text"] for e in source_lines],
+                                           forbidden)  # (GEM25: Profane Decay, Twisted Pact: PoB counts them in Full DPS only)
+        hand_mods, hand_notes = hand_mods + dot_mods, hand_notes + dot_notes
         stance, stance_notes = broken_stance(build, main)  # (GEM5's model; MECH-A's build.dazed_up, 0 until published)
         hand_mods += [models.added_input("BrokenStance", stance)] if stance > 0 else []
         hand_notes += stance_notes

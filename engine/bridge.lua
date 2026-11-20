@@ -4593,9 +4593,11 @@ function bridge.setRates(args)
 			-- Arrow's cloud Poison beside the Arrow set it scores, models.gas_arrow_model, SEARCH28's item 5)
 			-- (GEM22: each set's Ignite / Bleed, their stack potential and cap, and the DPS multiplier, for
 			-- models.strongest_ailment_model: one Ignite / Bleed counts, the strongest, at its own set's uptime)
+			-- (GEM25: a support-triggered skill's own damage over time and its Duration, for models.profane_decay_model
+			-- (TotalDot) and models.twisted_pact_model (CorruptingBloodDPS): PoB counts them only in Full DPS)
 			for _, field in ipairs({ "TotalDPS", "AverageDamage", "Speed", "ProjectileCount", "PoisonDPS", "IgniteDPS",
 					"BleedDPS", "IgniteStackPotential", "BleedStackPotential", "IgniteStacksMax", "BleedStacksMax",
-					"DpsMultiplier" }) do
+					"DpsMultiplier", "TotalDot", "CorruptingBloodDPS", "Duration" }) do
 				if type(output[field]) == "number" then
 					entry[field] = jsonNumber(output[field])
 				end
