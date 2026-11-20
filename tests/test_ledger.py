@@ -386,3 +386,37 @@ def test_cov41_item_lines_translate_to_lines_pob_parses():
     }
     for line, want in cases.items():
         assert translate(line)[1] == want, line
+
+
+# Stats two active ledger entries may both claim (overlapping skills), each pair reviewed: two different readers of one
+# stat, not one reader written twice. Add a pair here only with its reason.
+TWO_READERS = {
+    ("is_area_damage", "gem-active-pob-area-flag", "model-stats-is-area-damage"):
+        "PoB's own Area flag from baseFlags for the listed skills; the bridge's model for sets PoB lacks it on",
+    ("bear_slam_spend_X_rage_for_stronger_slam", "model-gem17-furious-slam-rage", "model-gem1-jagged-ground"):
+        "two models: the Enraged slam's Rage gate (GEM17) and the Jagged Ground it leaves (GEM1)",
+}
+
+
+def test_no_stat_has_two_ledger_entries_for_the_same_skills():
+    """COV46 (the manager 01:30, 20 Nov): GEM24's model-gem24-link-multiple-charges-per-action repeated MECHC43's entry for
+    skill_can_add_multiple_charges_per_action, which then won by file order and failed train 97 at the merge. Any stat
+    claimed by two active entries whose skills overlap (an entry without `skill` covers every skill) fails here, in the
+    lane, unless TWO_READERS lists the pair with its reason."""
+    from collections import defaultdict
+
+    from builder.ledger import entries
+
+    by_stat = defaultdict(list)
+    for entry in entries():
+        for stat in entry.raw.get("stats") or []:
+            by_stat[stat].append(entry)
+    found = []
+    for stat, claimed in by_stat.items():
+        for i, a in enumerate(claimed):
+            for b in claimed[i + 1:]:
+                skills_a, skills_b = set(a.raw.get("skill") or []), set(b.raw.get("skill") or [])
+                if (not skills_a or not skills_b or skills_a & skills_b) and (stat, a.id, b.id) not in TWO_READERS \
+                        and (stat, b.id, a.id) not in TWO_READERS:
+                    found.append((stat, a.id, b.id))
+    assert not found, f"a stat with two ledger entries for the same skills (merge them, or list the pair): {found}"

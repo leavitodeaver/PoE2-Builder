@@ -135,6 +135,13 @@ _POE1_ONLY = [(name, re.compile(rx)) for name, rx in POE1_ONLY_GROUPS.items()]
 # TriggeredShockingRiftPlayer from, and no "Flawed Edict" name is in Words or UniqueStashLayout; second source: poe2db's
 # unique lists (COV19, both halves) carry none of the seven lines, and poe2db has no The_Flawed_Edict page (404).)
 DNT_UNUSED = re.compile(r"^DNT\b")
+# Research that settled a DNT mod on its own (cited in its record's reason).
+DNT_RESEARCHED = {
+    "UniqueBleedingInflictedOnShockedEnemiesIsAggravated1": (
+        "RESEARCH35 R35-3, MEDIUM-HIGH (research/bleed-on-shocked-aggravated-dnt.md): the game's English text is "
+        "\"[DNT-UNUSED] ...\", no table refers to the mod (alone in its ModFamily), not in PoB's uniques or poe2db's "
+        "Aggravated Bleeding entries, no patch-note hit; recheck at 1.0; "),
+}
 
 # Cultivated uniques (A32-10, COV27): the game's "UniqueMutatedVaal*" mods (Mods GenerationType 3) are the Vaal
 # Cultivation Orb's outcomes, which replace 1-2 lines of a Corrupted Vaal unique. Fate of the Vaal moved to core in 0.5.0
@@ -1098,8 +1105,8 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                     and DNT_UNUSED.match(record["line"])):
                 record["status"] = "unreachable"
                 record["reason"] = ("GGG-marked unused (DNT): the game's own text for this unique-only mod starts "
-                                    "\"DNT\" and no PoE2 item carries it (DNT_UNUSED's evidence, COV20); was: "
-                                    + record["reason"])
+                                    "\"DNT\" and no PoE2 item carries it (DNT_UNUSED's evidence, COV20); "
+                                    + DNT_RESEARCHED.get(record["source"].split()[1], "") + "was: " + record["reason"])
                 continue
             if record["status"] == "none" and record["source"].startswith("Exclusive "):
                 group = leftovers.get(record["source"].split()[1])
@@ -1184,7 +1191,20 @@ MODELED_SKILLS = {"Iron Ward": "iron-ward-store", "Elemental Expression": "eleme
                   "Transmutation Explosion": "assumption:remnants",
                   # (COV45, train 94: MECHB42's bae8fb78: engine/bridge.lua adds the Manifestation minion and its attack,
                   # models.verisium_model the number alive from the main Attack's hits and the Runic Ward paid)
-                  "Verisium Manifestations": "model:verisium"}
+                  "Verisium Manifestations": "model:verisium",
+                  # (COV46, MECHB44 23:28) models.tempest_caller_model (MECHB37)
+                  "Elemental Storm": "model-read-tempest-caller-elemental-storm"}
+# Skills whose 0 in PoB is right: they deal no damage of their own (COV46, from MECHB44 23:28). (checked: game 26650308
+# GrantedEffectStatSets: SacrificePlayer and EternalMarchPlayer carry base_deal_no_damage; SummonSkeletalClericsPlayer
+# carries display_statset_no_hit_damage and its minion's skills are HealSkeletonClericMinion /
+# ResurrectSkeletonClericMinion; PoB's other.lua / act_int.lua the same stats, Minions.lua Skeletal Cleric: Heal,
+# Resurrect, DoLiterallyNothing.) What they do for other skills (a sacrificed or revived minion) is the models' business.
+NO_OWN_DAMAGE_SKILLS = {
+    "Eternal March": "its stat set carries base_deal_no_damage (game GrantedEffectStatSets EternalMarchPlayer; PoB other.lua)",
+    "Sacrifice": "its stat set carries base_deal_no_damage (game GrantedEffectStatSets SacrificePlayer; PoB act_int.lua)",
+    "Skeletal Cleric": ("its summon's stat set shows no hit damage (display_statset_no_hit_damage) and its minion only "
+                        "heals and resurrects (HealSkeletonClericMinion, ResurrectSkeletonClericMinion; PoB Minions.lua)"),
+}
 DAMAGE_STATS = ("CombinedDPS", "TotalDPS", "TotalDotDPS", "FullDPS", "AverageDamage")
 
 
@@ -1216,7 +1236,10 @@ def zero_skills(data_dir: Path) -> list[dict]:
                 or not (minion or types & {"Damage", "DamageOverTime", "Projectile", "AreaSpell", "Nova", "SummonsTotem",
                                            "SummonsAttackTotem", "Attack"}):
             continue
-        if entry := MODELED_SKILLS.get(skill["name"]):
+        if why := NO_OWN_DAMAGE_SKILLS.get(skill["name"]):
+            found.append({"name": name, "skillId": skill.get("skillId"), "status": "pob", "entry": None,
+                          "reason": "0 in PoB is right: no damage of its own: " + why})
+        elif entry := MODELED_SKILLS.get(skill["name"]):
             found.append({"name": name, "skillId": skill.get("skillId"), "status": "model", "entry": entry,
                           "reason": "0 in PoB alone; a custom model or assumption gives it damage"})
         else:

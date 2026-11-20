@@ -45,6 +45,18 @@ from builder.search import models
 LABEL = re.compile(r"^Grants Skill: Level (\d+)\+ (.+)$")
 LISTED_LEVEL = r"Level (\d+) %s\s*$"
 ENDGAME_LEVEL = 18  # an endgame copy (item level ~80), assumed until its levels are priced
+# Uniques whose granted level research has settled lower than ENDGAME_LEVEL (COV46). The Auspex's Mist Raven: Level 15
+# (RESEARCH35 R35-7, MEDIUM-HIGH: poe2db's full page and Fextralife "Grants Skill: Level 15 Mist Raven", requirement 65,
+# which a level-15 Mist Raven's 64 matches; PoB's "(1-20)" is its template on every granted-skill unique). The other
+# reading, UNSETTLED: the endgame 18 of this module's note (poe2db showed Mjolner at 15 too, yet trade copies at item
+# level 79-84 grant 18-19), so whether an item-level-80 Auspex grants more than 15 is open (routed to RESEARCH). The
+# lower reading goes in the headline until its levels are priced; a priced listing's level always wins.
+KNOWN_LEVELS = {"The Auspex": 15}
+
+
+def assumed_level(name: str) -> int:
+    """The granted level assumed for an unpriced copy of unique `name`: ENDGAME_LEVEL, or a lower researched one."""
+    return min(ENDGAME_LEVEL, KNOWN_LEVELS.get(name, ENDGAME_LEVEL))
 
 
 def rolled(raw: str) -> list[tuple[str, int, int]]:

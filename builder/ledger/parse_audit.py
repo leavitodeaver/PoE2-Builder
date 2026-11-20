@@ -46,7 +46,16 @@ def config_options(src: Path = POB_SRC) -> dict[str, dict]:
             sets.add(("enemy:" if m.group(1).startswith("enemy") else "") + m.group(2))
         # (a list option's default branch counts as on: enemyIsBoss defaults to Pinnacle, which makes the enemy Unique; names
         # built from the chosen value, "Condition:" .. val, aren't matched)
-        options[var] = {"sets": sets, "default": bool(re.search(r"defaultState\s*=\s*true|defaultIndex\s*=", block))}
+        # (COV46, the manager 23:35 from MECHB44's Full Salvo find) a number box's defaultPlaceholderState is APPLIED while
+        # its input is unset (or 0 on a "count" box): ConfigTab BuildModList 896-901, by var only. Recorded only where
+        # the box's mods carry no condition tag but Effective / Combat (StunnedRecently's needs its own box, left off).
+        placeholder = None
+        if (m := re.search(r"defaultPlaceholderState\s*=\s*(-?\d+(?:\.\d+)?)(?![\w.\[])", block)) and float(m.group(1)) != 0:
+            tags = set(re.findall(r'type\s*=\s*"Condition",\s*var\s*=\s*"(\w+)"', block))
+            if tags <= {"Effective", "Combat"}:
+                placeholder = float(m.group(1))
+        options[var] = {"sets": sets, "default": bool(re.search(r"defaultState\s*=\s*true|defaultIndex\s*=", block)),
+                        "placeholder": placeholder}
     return options
 
 
@@ -217,7 +226,12 @@ class Setters:
             else:
                 options = [v for v, o in self.options.items() if full in o["sets"] or (not enemy and name in o["sets"])]
                 on = [v for v in options if v in self.turned_on or self.options[v]["default"]]
-                if on:
+                held = [v for v in options if self.options[v].get("placeholder") is not None]
+                if held and not on:
+                    found = ("config-on", "set by the Configuration option " + ", ".join(held) + " at its placeholder "
+                             + ", ".join(f"{self.options[v]['placeholder']:g}" for v in held)
+                             + ", which PoB applies while the box is unset (ConfigTab BuildModList)")
+                elif on:
                     found = ("config-on", "set by the Configuration option " + ", ".join(on) + ", which the optimizer turns on")
                 elif options:
                     found = ("config-off", "set only by the Configuration option " + ", ".join(options[:3])

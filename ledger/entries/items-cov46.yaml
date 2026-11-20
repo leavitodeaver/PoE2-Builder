@@ -59,3 +59,65 @@
   sources: ["engine/bridge.lua (Idol of Egrin's parse rule)", "C:/PROJECTS/PoE2 Builder/scratch/manager/research/INDEX.md (R33-9)",
             "vendor/PathOfBuilding-PoE2/src/Data/SkillStatMap.lua 2769-2770"]
   status: proposed
+# MECH91's train-96 readers (cb67ea7c; MECH91.report.md Handover 21:48, part 7). The three item lines are Vaal
+# Cultivation outcomes (Exclusive UniqueMutatedVaal*): kind pob_gap with `model` and an empty replacement (the
+# items-cov45 form), so the search's Cultivation trial can offer the outcome (cultivated.outcome_lines needs a ledger
+# translation for every line PoB doesn't read; an empty one keeps the line in the item's text) and the model reads the
+# line there; model_entry finds them for the audit and the item re-scoring.
+
+- id: model-read-mech91-volatility-on-critical-hit
+  title: '"N% chance to grant Volatility on Critical Hit" (the Vaal Cultivation outcome; models.volatility_model, MECH91)'
+  kind: pob_gap
+  model: volatility
+  match: '^\d+(?:\.\d+)?% chance to grant Volatility on Critical Hit$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.VOLATILITY_ON_CRIT (cb67ea7c, train 96): Volatility gained at the build's crit rate x the chance, into the
+    Volatility cycle (volatility_model), read as granted to you (MEDIUM, MECH91's open RESEARCH question); without "Take no
+    Damage from Volatility" the exploded count is capped at what Life + Energy Shield survives. PoB leaves the line
+    unparsed (an UNDERCOUNT before).
+  sources: ["builder/search/models.py (VOLATILITY_ON_CRIT, volatility_model)", "C:/PROJECTS/PoE2 Builder/scratch/manager/workers/MECH91.report.md"]
+  status: proposed
+
+- id: model-read-mech91-volatility-taken-as-cold
+  title: '"N% of Volatility Physical Damage Taken as Cold Damage" (the Vaal Cultivation outcome; the Volatility survival cap, MECH91)'
+  kind: pob_gap
+  model: volatility
+  match: '^\d+(?:\.\d+)?% of Volatility Physical Damage Taken as Cold Damage$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.VOLATILITY_AS_COLD (cb67ea7c, train 96): the Cold part of each Volatility explosion is resisted by your Cold
+    Resistance in the cap on how many explosions Life + Energy Shield survive (volatility_model). Unread before.
+  sources: ["builder/search/models.py (VOLATILITY_AS_COLD, volatility_model)"]
+  status: proposed
+
+- id: model-read-mech91-poison-duration-after-frenzy
+  title: '"N% increased Duration of Poisons you inflict when you''ve consumed a Frenzy Charge Recently" (the Vaal Cultivation outcome; models.frenzy_poison_duration_mods, MECH91)'
+  kind: pob_gap
+  model: frenzy_poison_duration
+  match: '^\d+(?:\.\d+)?% increased Duration of Poisons you inflict when you''ve consumed a Frenzy Charge Recently$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.POISON_DURATION_FRENZY (cb67ea7c, train 96): the Poison duration at the share of the fight the build has
+    consumed a Frenzy Charge in the last 4 s (models.RECENTLY), from its own Frenzy consumption rate, evenly spaced uses (frenzy_poison_duration_mods; a play row says how to feed it). PoB parses the line only in part, so it counted 0.
+  sources: ["builder/search/models.py (POISON_DURATION_FRENZY, frenzy_poison_duration_mods)"]
+  status: proposed
+
+- id: model-read-mech91-volatility-support-on-crit
+  title: 'The Volatility support''s instability_on_critical_%_chance: Volatility on Critical Hit for the main skill (assumptions.volatility_support -> models.volatility_model, MECH91)'
+  kind: model
+  model: volatility
+  stats: ['instability_on_critical_%_chance']
+  skill: ['Volatility']
+  confidence: MEDIUM
+  notes: >-
+    MECH91 (cb67ea7c, train 96; PoB maps the stat to nothing: an UNDERCOUNT before). Read from PoB's support stats when
+    the main skill's group holds the Volatility support (engine probe in tests/test_mech91.py: 100 on Fireball); the
+    chance adds to the "chance to grant Volatility on Critical Hit" lines (capped at 100%) in the Volatility cycle. Only
+    the main skill's group is read (the support on another skill isn't counted: a lower reading).
+  sources: ["builder/search/assumptions.py (volatility_support)", "builder/search/models.py (VOLATILITY_SUPPORT_STAT, volatility_model)"]
+  status: proposed
+

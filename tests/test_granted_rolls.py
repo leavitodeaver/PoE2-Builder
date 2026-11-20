@@ -160,3 +160,15 @@ def test_a_level_whose_text_two_stats_share_is_searched_by_either(data) -> None:
     assert label == "this version"
     assert query["query"]["stats"] == [{"type": "count", "value": {"min": 1}, "filters": [
         {"id": stat_id, "value": {"min": 18}} for stat_id in both]}]
+
+
+def test_the_auspex_unpriced_assumes_its_researched_level_15():
+    """COV46 (RESEARCH35 R35-7, MEDIUM-HIGH; the manager 23:55): The Auspex grants Mist Raven at level 15 (poe2db,
+    Fextralife, requirement 65), not the endgame 18 assumed for other unpriced copies; a priced listing still wins."""
+    assert granted_rolls.assumed_level("The Auspex") == 15
+    assert granted_rolls.assumed_level("Mjolner") == granted_rolls.ENDGAME_LEVEL == 18
+    raw = "The Auspex\nExquisite Vest\nImplicits: 0\nGrants Skill: Level (1-20) Mist Raven"
+    option = ItemOption("The Auspex", "Exquisite Vest", "Body Armour", None, raw, True, 5.0, "high", 65)
+    unpriced = Context.granted_versions(SimpleNamespace(ssf=False, unique_versions={}, price_cap=50.0), option)
+    assert len(unpriced) == 1 and unpriced[0].describe()["granted_level"] == 15
+    assert models.granted_level_notes([("The Auspex", unpriced[0].raw, unpriced[0].granted_basis)])[0]["value"] == 15

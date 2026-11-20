@@ -1389,3 +1389,55 @@ def test_cov46_stonefist_unique_lines_and_idol_of_egrin_are_counted():
     assert any("Stonefist" in r["reason"] for r in records if r["line"].startswith("Physical damage from Hits"))
     assert translate("Curse zones erupt after 20% reduced delay")[1] == []
     assert translate("Curse zones erupt after 20% reduced delay")[0].raw.get("absorbed_by")
+
+
+def test_cov46_a_config_box_whose_placeholder_pob_applies_is_not_never_on():
+    """COV46 (the manager 23:35, from MECHB44's Full Salvo find): PoB applies a number box's defaultPlaceholderState
+    while its input is unset (ConfigTab BuildModList), so the Full Salvo / Demolitionist lines read 1 ammo / grenade type,
+    not 0: not never-on. A box whose mods need another condition box (Stunned Recently) is not counted as applied."""
+    from builder.ledger.parse_audit import Setters, config_options
+
+    options = config_options()
+    assert options["multiplierDifferentGrenadeFired"]["placeholder"] == 1
+    assert options["multiplierWitheredStackCountSelf"]["placeholder"] == 15
+    assert options["multiplierStunnedRecently"]["placeholder"] is None  # gated on Condition:StunnedRecently
+    assert options["demonFormStacks"]["placeholder"] is None  # gated on Condition:DemonForm
+    setters = Setters({})
+    kind, detail = setters.status("Multiplier:DifferentAmmoFired")
+    assert kind == "config-on" and "placeholder 1" in detail
+    assert setters.status("Multiplier:StunnedRecently")[0] != "config-on"
+
+
+def test_cov46_r35_3_and_mechb44_skill_rows():
+    """COV46: R35-3's evidence on the DNT Bleed-on-Shocked mod (unreachable); Elemental Storm a modelled skill; Eternal
+    March, Sacrifice and Skeletal Cleric deal no damage of their own (game stat sets), so PoB's 0 is right."""
+    from builder.ledger import coverage
+
+    records = coverage.audit()["records"]
+    dnt = [r for r in records if r["source"] == "Exclusive UniqueBleedingInflictedOnShockedEnemiesIsAggravated1"]
+    assert dnt and all(r["status"] == "unreachable" and "R35-3" in r["reason"] for r in dnt)
+    zero = {r["line"]: r for r in records if r["category"] == "skill-zero"}
+    for name in ("Eternal March", "Sacrifice", "Skeletal Cleric"):
+        assert name not in zero or zero[name]["status"] == "pob", name
+    assert "Elemental Storm" not in zero or zero["Elemental Storm"]["status"] == "model"
+
+
+def test_cov46_mech91_readers_are_model_read_and_their_cultivated_outcomes_offered():
+    """COV46 (train 96, MECH91's cb67ea7c): the Vaal Cultivation outcomes "chance to grant Volatility on Critical Hit",
+    "Volatility Physical Damage Taken as Cold" and "Poison duration after a Frenzy Charge" are model-read through empty
+    pob_gap translations, so the search's Cultivation trial offers them (cultivated.outcome_lines needs a translation for
+    every line PoB doesn't read); the Volatility support's stat is model-read."""
+    from builder.ledger import coverage, model_entry, translate
+    from builder.search import cultivated
+
+    for line, entry in (("40% chance to grant Volatility on Critical Hit", "model-read-mech91-volatility-on-critical-hit"),
+                        ("75% of Volatility Physical Damage Taken as Cold Damage", "model-read-mech91-volatility-taken-as-cold"),
+                        ("35% increased Duration of Poisons you inflict when you've consumed a Frenzy Charge Recently",
+                         "model-read-mech91-poison-duration-after-frenzy")):
+        assert model_entry(line).id == entry and translate(line)[1] == []
+    offered = {o["mod"] for name in cultivated.uniques() for o in cultivated.outcomes(name)}
+    for mod in ("UniqueMutatedVaalVolatilityOnCritChance", "UniqueMutatedVaalVolatilityDamageTakenAsCold",
+                "UniqueMutatedVaalPoisonDurationIfConsumedFrenzy"):
+        assert any(o.startswith(mod) for o in offered), mod
+    assert coverage.stat_covered(coverage.stat_entries(), "instability_on_critical_%_chance", "Volatility")[0] == "model"
+

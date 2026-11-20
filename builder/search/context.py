@@ -646,8 +646,8 @@ class Context:
             option = ItemOption(unique["name"], base["name"], base["type"], base.get("subType"), raw, True, price,
                                 confidence, (base.get("req") or {}).get("level") or 0, version=version, price_note=how)
             if granted_rolls.rolled(raw) and not self.ssf:
-                option = dataclasses.replace(option, raw=granted_rolls.with_level(raw, granted_rolls.ENDGAME_LEVEL),
-                                             granted_assumed=granted_rolls.ENDGAME_LEVEL)
+                level = granted_rolls.assumed_level(unique["name"])  # (COV46: The Auspex 15, R35-7)
+                option = dataclasses.replace(option, raw=granted_rolls.with_level(raw, level), granted_assumed=level)
             out.append(option)
         return out
 
@@ -699,8 +699,8 @@ class Context:
                 variants=(granted_rolls.label(*parsed),),
                 confidence=f"trade, {skill} level {parsed[0]}+ ({entry['listed']} listed, {day})"))
         return sorted(found, key=lambda o: o.price) or [
-            dataclasses.replace(option, raw=granted_rolls.with_level(option.raw, granted_rolls.ENDGAME_LEVEL),
-                                granted_assumed=granted_rolls.ENDGAME_LEVEL)]
+            dataclasses.replace(option, raw=granted_rolls.with_level(option.raw, granted_rolls.assumed_level(option.name)),
+                                granted_assumed=granted_rolls.assumed_level(option.name))]
 
     # Passive tree -----------------------------------------------------------------------------
 
