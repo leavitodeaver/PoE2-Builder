@@ -671,9 +671,14 @@ def consume_gain(build, skill: str, share: float, what: str) -> dict[str, tuple[
 # group's hits a second at its pressed rate, one hit a use, and its own crit chance). Added after the main skill's
 # one-a-use join (_per_use_joined reads the main skill's lines alone) as their own entries (_side_hit_gains), the lines of
 # one charge kind joined as one chance a side use (the USER's 20 Nov test: one charge of each type a use for a skill
-# without the multiple-charges flag; flagged side skills taken at one hit a use too: an UNDERCOUNT kept), and within a
-# line's own "no more than once every N s" cap. Not added: a gem's own line (its skill's hits only), a conditioned line
-# ("on Hit while Bleeding", "on Melee Hit": the side skills' types aren't read: an undercount kept). Left out of
+# without the multiple-charges flag), and within a line's own "no more than once every N s" cap. (MECHC46 turn 3) A side
+# skill WITH skill_can_add_multiple_charges_per_action (MULTI_CHARGE_STAT, read from its own stats and its supports')
+# has each hit grant: its lines added, not joined (the USER's ruling: per hit for flagged skills), at one hit on the boss
+# a use (Killing Palm, Siphoning Strike, Wing Blast, Elemental Storm, the Heralds' explosions: a lone boss is one
+# enemy, MULTI_CHARGE_STAT's note; a side Twister's extra twisters a cast aren't read: an UNDERCOUNT kept). "on Hit while
+# Bleeding" (CHARGE_WHILE_BLEEDING) takes the side hits too, x the share you're Bleeding. Rage: "Gain N Rage on Hit /
+# on Melee Hit" (_rage_gain) takes the side hits too, only Melee side skills (their gem's skillTypes) for "Melee", under
+# the same one-gain-every-0.5 s cap. Not added: a gem's own line (its skill's hits only). Left out of
 # side_hits: a side Orb of Storms (its bolts are the hits: _side_orb_gains counts them) and Galvanic Field (its casts
 # aren't hits; its bolts need another skill's Shock, MULTI_CHARGE_STAT's note: an UNDERCOUNT kept).
 GENERIC_HIT = re.compile(r"^\s*on (critical )?hit\s*$", re.I)
@@ -683,17 +688,36 @@ GENERIC_HIT = re.compile(r"^\s*on (critical )?hit\s*$", re.I)
 # so it may be unobtainable: UNVERIFIED) is the main skill's hits x the share of the fight YOU are Bleeding
 # (boss_hits.bleeding_on_you: the boss's Bleeds and your own items' chance, as the other "while Bleeding" lines read it;
 # Assumptions keeps it as build.you_bleeding, a round behind). Not yet known: 0, said.
+# (MECHC46; MECHC3's "overcounts left" list) Nebuloch's "Attacks consume an Endurance Charge to Critically Hit" (Mods
+# UniqueConsumeEnduranceChargeAlwaysCrit1; PoB leaves it unparsed: ModCache 6636 maps it to nil, the coverage audit's
+# "PoB ignores the line"): every Attack of the build spends an Endurance Charge when it has one (an OVERCOUNT of Endurance Charges
+# held before: nothing spent them, so its own "Take 100 Chaos damage per second per Endurance Charge", which PoB reads
+# per charge held, and every per-charge benefit read the cap). Now each enabled Attack gem is an Endurance consumer
+# (Conditions.evidence's consumers: the main skill at its share of the fight, others at their group's rate), one charge
+# a use (the line names one). Their Critical Hits: the main Attack's uses that find a charge, f (this charge flow:
+# build.nebuloch_found, a round behind), Critically Hit, the rest at PoB's own chance: Assumptions sets PoB's CritChance
+# OVERRIDE (CalcOffence 3852-3892: it replaces the pre-accuracy, pre-Lucky chance and skips inc / more) to
+# f x 100 + (1 - f) x PoB's own PreEffectiveCritChance read without it (NEBULOCH_TAG). MEDIUM (the charge flow; PoB's
+# later accuracy / Lucky steps act on the blend, not on each part). Side Attacks' crits: not read (an undercount).
+NEBULOCH_CRIT = re.compile(r"^Attacks consume an Endurance Charge to Critically Hit$", re.I)
 CHARGE_WHILE_BLEEDING = re.compile(r"\bcharges? on hit while bleeding\b", re.I)
 
 
 def side_hits(rows: dict, groups: list[dict], hitters: set[str], main_index,
               choices: dict[str, float] | None = None) -> tuple[float, float, str]:
-    """(hits a second, crits a second, how) of the build's other hitting groups (the rows ignite_others reads): PoB's
-    trigger rate, else skill_use_rate at the press choices, x hit chance; crits x its CritChance."""
+    """(hits a second, crits a second, how) of the build's other hitting groups (side_hit_rows summed)."""
+    each = side_hit_rows(rows, groups, hitters, main_index, choices)
+    return (sum(r["hits"] for r in each), sum(r["crits"] for r in each), "; ".join(r["how"] for r in each))
+
+
+def side_hit_rows(rows: dict, groups: list[dict], hitters: set[str], main_index, choices: dict[str, float] | None = None,
+                  melee: set[str] | None = None, flagged: set[str] | None = None) -> list[dict]:
+    """(MECHC46) [{name, hits, crits, melee, flagged, how}] for the build's other hitting groups (the rows ignite_others
+    reads): PoB's trigger rate, else skill_use_rate at the press choices, x hit chance; crits x its CritChance; `melee` /
+    `flagged`: the hitter names that are Melee / carry MULTI_CHARGE_STAT (GENERIC_HIT's note)."""
     names = {g["index"]: [n["name"] for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in hitters]
              for g in groups if g.get("enabled") is not False}
-    hits = crits = 0.0
-    parts = []
+    out = []
     lingering = (models.ORB_OF_STORMS, models.GALVANIC_FIELD)  # (GENERIC_HIT's note: their casts aren't the hits)
     for index, row in sorted(rows.items(), key=lambda kv: str(kv[0])):
         if index == main_index or not names.get(index):
@@ -708,10 +732,22 @@ def side_hits(rows: dict, groups: list[dict], hitters: set[str], main_index,
         if landed <= 0:
             continue
         crit = min(max(number(row.get("CritChance")), 0.0), 100.0) / 100.0
-        hits += landed
-        crits += landed * crit
-        parts.append(f"{row.get('name') or names[index][0]} {landed:.2f} hits/s ({why}, {crit:.0%} critical)")
-    return hits, crits, "; ".join(parts)
+        label = str(row.get("name") or names[index][0])
+        name = next((n for n in names[index] if label.startswith(n)), names[index][0])
+        out.append({"name": name, "hits": landed, "crits": landed * crit, "melee": name in (melee or ()),
+                    "flagged": name in (flagged or ()),
+                    "how": f"{label} {landed:.2f} hits/s ({why}, {crit:.0%} critical)"})
+    return out
+
+
+def _side_sum(stats: dict, melee: bool = False) -> tuple[float, float, float, float, str]:
+    """(MECHC46) (unflagged hits, unflagged crits, flagged hits, flagged crits, how) a second from stats["_side_rows"]
+    (only Melee side skills with `melee`)."""
+    rows = [r for r in stats.get("_side_rows") or () if r["hits"] > 0 and (r["melee"] or not melee)]
+    plain, flag = [r for r in rows if not r["flagged"]], [r for r in rows if r["flagged"]]
+    return (sum(r["hits"] for r in plain), sum(r["crits"] for r in plain), sum(r["hits"] for r in flag),
+            sum(r["crits"] for r in flag), "; ".join(r["how"] + (" (multiple-charges flag)" if r["flagged"] else "")
+                                                     for r in rows))
 
 
 def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
@@ -1455,33 +1491,42 @@ def _side_hit_gains(found: list[tuple[str, str, tuple[float, str]]], stats: dict
                     ) -> list[tuple[str, str, tuple[float, str]]]:
     """(MECHC46) extra (text, kind, (rate, how)) entries for the other groups' hits on generic on-Hit / on-Critical-Hit
     lines (GENERIC_HIT's note), the lines of one kind joined as one chance a side use."""
-    side = stats.get("_side_hits")
-    if not side or number(side[0]) <= 0:
+    hits, crits, f_hits, f_crits, how = _side_sum(stats)
+    if hits + f_hits <= 0:
         return []
-    hits, crits, how = number(side[0]), number(side[1]), side[2]
     gem = stats.get("_gem_line_texts") or ()
-    per_kind: dict[str, list[tuple[str, float, float]]] = {}
+    bleeding = number((stats.get("_you_bleeding") or (0.0,))[0])
+    per_kind: dict[str, list[tuple[str, float, float, float]]] = {}
     for text, source, (rate, _) in found:
         m = re.search(CHARGE_SOURCE.format(kind=source), text, re.I)
-        if not m or text in gem or not GENERIC_HIT.match(m.group(3)) or NOT_A_GAIN.match(text[m.start():]):
+        if not m or text in gem or NOT_A_GAIN.match(text[m.start():]):
             continue
-        chance = (float(m.group(1)) / 100 if m.group(1) else 1.0) * float(m.group("count") or 1)
-        each = chance * (min(crits / hits, 1.0) if "critical" in m.group(3).lower() else 1.0)  # (a side hit's)
-        per_kind.setdefault(source, []).append((text, each, rate))
+        if GENERIC_HIT.match(m.group(3)):
+            share = 1.0
+        elif CHARGE_WHILE_BLEEDING.search(text):  # (x the share you're Bleeding, CHARGE_WHILE_BLEEDING's note)
+            share = bleeding
+        else:
+            continue
+        chance = (float(m.group(1)) / 100 if m.group(1) else 1.0) * float(m.group("count") or 1) * share
+        crit = "critical" in m.group(3).lower()
+        each = chance * (min(crits / hits, 1.0) if crit and hits > 0 else 0.0 if crit else 1.0)  # (an unflagged hit's)
+        flag_each = chance * (min(f_crits / f_hits, 1.0) if crit and f_hits > 0 else 0.0 if crit else 1.0)
+        per_kind.setdefault(source, []).append((text, each, flag_each, rate))
     out = []
     for source, items in per_kind.items():
-        total = sum(e for _, e, _ in items)
+        total = sum(e for _, e, _, _ in items)
         miss = 1.0
-        for _, e, _ in items:
+        for _, e, _, _ in items:
             miss *= 1 - min(e, 1.0)
         scale = (1 - miss) / total if total > 0 else 0.0
-        for text, e, rate in items:
-            extra = hits * e * min(1.0, scale)
+        for text, e, fe, rate in items:
+            extra = hits * e * min(1.0, scale) + f_hits * fe  # (flagged side skills: each hit may grant, not joined)
             if (cap := ONCE_EVERY.search(text)) is not None:
                 extra = min(extra, max(0.0, 1 / float(cap.group(1) or 1.0) - rate))
             if extra > 0:
-                out.append((text, source, (extra, f"the other groups' {hits:.2f} hits/s ({how}), one {source} Charge "
-                                                  f"a use at most{' (joined)' if len(items) > 1 else ''}")))
+                out.append((text, source, (extra, f"the other groups' hits ({how}), one {source} Charge a use at most for "
+                                                  f"a skill without the multiple-charges flag"
+                                                  f"{' (joined)' if len(items) > 1 else ''}")))
     return out
 
 
@@ -1799,24 +1844,39 @@ def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, st
     elif "hit] by" in when or "hit by" in when:
         events, how = land, f"the boss's hits that land, {land:.2f}/s"
     else:
-        if not own_hits and re.search(r"hit", when):
-            return 0.0, 0.0, "on your hits, but the main skill can't gain Rage while used"
-        if (why := _hit_restriction(when, stats)) is not None:
-            return 0.0, 0.0, why
+        # (MECHC46: the main skill's own hits out, the other groups' still counted below, GENERIC_HIT's note)
+        blocked = ("on your hits, but the main skill can't gain Rage while used"
+                   if not own_hits and re.search(r"hit", when) else _hit_restriction(when, stats))
+        if blocked is not None:
+            hits = 0.0
         if "ignite" in when:
             events = hits * min(number(stats.get("IgniteChancePerHit")), 100) / 100
             how = f"{events:.2f} Ignites/s"
         elif "critical" in when:
             events = hits * number(stats.get("CritChance")) / 100
             how = f"{events:.2f} crits/s"
+            if text not in (stats.get("_gem_line_texts") or ()):  # (MECHC46: the other groups' crits, GENERIC_HIT's note)
+                side = _side_sum(stats, melee=bool(re.search(r"\bmelee\b", when)))
+                if side[1] + side[3] > 0:
+                    events += side[1] + side[3]
+                    how += f" + the other groups' {side[1] + side[3]:.2f} crits/s ({side[4]})"
         elif "hit" in when:
             events, how = hits, f"{hits:.2f} hits/s"
+            if text not in (stats.get("_gem_line_texts") or ()):  # (MECHC46: the other groups' hits, GENERIC_HIT's note)
+                side = _side_sum(stats, melee=bool(re.search(r"\bmelee\b", when)))
+                if side[0] + side[2] > 0:
+                    events += side[0] + side[2]
+                    how += f" + the other groups' {side[0] + side[2]:.2f} hits/s ({side[4]})"
         elif re.fullmatch(r"\s*on use\s*", when) and (used := (stats.get("_item_uses") or {}).get(text)) is not None:
             events, how = used[0], f"the item's uses: {used[1]}"  # (a flask's or charm's own line, MECH48)
         elif (named := _named_event(when, stats)) is not None:
             events, how = named
         else:
             events, how = 1 / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed (LOW)"
+        if blocked is not None:
+            if events <= 0:
+                return 0.0, 0.0, blocked
+            how += f" (the main skill's own: none, {blocked})"
     events = min(events * chance, 1 / RAGE_HIT_EVERY)  # (one Hit every 0.5 s can gain Rage)
     if cap := re.search(r"no more than once every (\d+(?:\.\d+)?) seconds?", when):
         events = min(events, 1 / float(cap.group(1)))
@@ -8586,6 +8646,13 @@ class Conditions:
                     # (MECHC46, an OVERCOUNT before: the main crystal skill at its share of the fight, as above)
                     consumers.setdefault("Power", {})[name] = (number(stats.get("Speed")) * _main_share(stats)
                                                                if name == self.main_skill else None)
+        if any(NEBULOCH_CRIT.match(line["text"].strip()) for line in lines):  # (MECHC46: NEBULOCH_CRIT's note)
+            every_gem = self.build.ctx.all_gems
+            for name, types in gem_types.items():
+                if "Attack" in types and not (every_gem.get(name) or {}).get("support") \
+                        and name not in (consumers.get("Endurance") or {}):
+                    consumers.setdefault("Endurance", {})[name] = (
+                        number(stats.get("Speed")) * _main_share(stats) if name == self.main_skill else None)
         # Rage spenders (RAGE_PER_USE / RAGE_PER_SECOND): the main skill, or a support in its group, at the main skill's
         # uses per second; any other at its group's rate (a per-second channel held 1 s a press, assumed; MECHC1)
         main_gems = {g["name"] for g in group["gems"]} if group is not None else set()
@@ -8908,7 +8975,8 @@ class Conditions:
                   and not (every.get(n["name"]) or {"support": True}).get("support")}
         raw = self.build.call("activeSkills", levelStats=[self.main_skill, *sorted(beside)],
                               supportStats=[*DAZE_SKILL_STATS, *BREAK_STATS, BREAK_MORE_STAT, CANNOT_BREAK,
-                                            MARK_BREAK_STAT, BRITTLE_BREAK_STAT, FINAL_BREAK_STAT])
+                                            MARK_BREAK_STAT, BRITTLE_BREAK_STAT, FINAL_BREAK_STAT,
+                                            MULTI_CHARGE_STAT])  # (MECHC46: the side skills' flag, GENERIC_HIT's note)
         effects: dict[str, list[dict]] = {}
         for entry in raw["skills"]:
             if not entry.get("disabled"):
@@ -8940,6 +9008,12 @@ class Conditions:
         others, others_how = ignite_others(group_rows, groups_now, hitters, groups_all.get("mainSocketGroup"),
                                            models.press_choices(self.build))
         # (MECHC46) the other groups' hits and crits for the generic on-Hit charge lines (GENERIC_HIT's note)
+        flagged = {e["name"] for e in raw["skills"] if not e.get("disabled") and (
+            number((e.get("supportStats") or {}).get(MULTI_CHARGE_STAT))
+            or number((e.get("levelStats") or {}).get(MULTI_CHARGE_STAT)))}
+        melee = {n for n in hitters if "Melee" in ((every.get(n) or {}).get("skillTypes") or ())}
+        stats["_side_rows"] = side_hit_rows(group_rows, groups_now, hitters, groups_all.get("mainSocketGroup"),
+                                            models.press_choices(self.build), melee, flagged)
         side = side_hits(group_rows, groups_now, hitters, groups_all.get("mainSocketGroup"), models.press_choices(self.build))
         stats["_side_hits"] = side if side[0] > 0 else None
         stats["_gem_line_texts"] = {line["text"] for line in lines if str(line.get("source") or "").startswith("gem:")}
@@ -9134,6 +9208,14 @@ class Conditions:
         self.found_uptimes = uptimes
         # (MECHC13) charges consumed a second by kind ({kind: (rate, how)}; _charges_held), for recovery.spent_income
         self.build.charge_flow = dict(stats.get("_charge_flow") or {})
+        # (MECHC46) Nebuloch: the share of the main Attack's uses that find an Endurance Charge (NEBULOCH_CRIT's note)
+        self.build.nebuloch_found = None
+        endurance = (stats.get("_consumers") or {}).get("Endurance") or {}
+        if self.main_skill in endurance and any(NEBULOCH_CRIT.match(line["text"].strip()) for line in lines):
+            spent = sum(number(u) for u in endurance.values() if u is not None)
+            flow = (stats.get("_charge_flow") or {}).get("Endurance")
+            share = min(1.0, number(flow[0]) / spent) if flow and spent > 0 else 0.0
+            self.build.nebuloch_found = (share, flow[1] if flow else "no Endurance Charge source")
         # (MECHC40, K2-9) {skill: (more uses/s, how, uses/s spending every charge)} from charges bypassing its cooldown
         self.build.bypass_uses = dict(stats.get("_bypass_uses") or {})
         # (MECH69, for GEM3's models.riven_armour_model: the share of the fight Riven Armour is up, and its basis)

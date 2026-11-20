@@ -238,3 +238,48 @@ def test_the_main_crystal_skill_spends_power_charges_for_creeping_chill_at_its_s
         print(share, flow)
         wanted[share] = float(re.search(r"([\d.]+)/s wanted by", flow[1]).group(1))
     assert wanted[1.0] > 0 and wanted[0.5] == pytest.approx(wanted[1.0] / 2, abs=0.006)
+
+
+def test_nebulochs_attacks_spend_endurance_charges(engine):
+    """MECHC46 (an OVERCOUNT of Endurance Charges held before): with "Attacks consume an Endurance Charge to Critically
+    Hit" (Nebuloch's line, here on a rare ring) the main Attack (Boneshatter) spends Endurance Charges: it joins the
+    Endurance consumers; without the line it doesn't."""
+    payload = make_payload(BuildRequest(main_skill="Boneshatter"))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    flows = {}
+    for line in ("", "Attacks consume an Endurance Charge to Critically Hit"):
+        ring = chr(10).join(["Rarity: Rare", "Test Ring", "Ruby Ring", "Item Level: 82", "Implicits: 0",
+                             "Gain an Endurance Charge every 2 seconds", *([line] if line else [])])
+        build.call("equip", slot="Ring 1", raw=ring, fields=[])
+        search.conditions.evidence()
+        flows[bool(line)] = (build.charge_flow or {}).get("Endurance")
+        print(bool(line), flows[bool(line)])
+    assert flows[True] is not None and "Boneshatter" in flows[True][1]
+    assert flows[False] is None or "Boneshatter" not in flows[False][1]
+
+
+def test_nebulochs_attacks_critically_hit_when_they_spend_a_charge(engine):
+    """MECHC46: with Nebuloch's line the main Attack's crit chance is f x 100 + (1 - f) x PoB's own, f the share of its
+    uses finding an Endurance Charge (conditions.NEBULOCH_CRIT's note): above PoB's own with a charge source."""
+    payload = make_payload(BuildRequest(main_skill="Boneshatter"))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    crit = {}
+    for line in ("", "Attacks consume an Endurance Charge to Critically Hit"):
+        ring = chr(10).join(["Rarity: Rare", "Test Ring", "Ruby Ring", "Item Level: 82", "Implicits: 0",
+                             "Gain an Endurance Charge every 2 seconds", *([line] if line else [])])
+        build.call("equip", slot="Ring 1", raw=ring, fields=[])
+        for _ in range(2):
+            search.conditions_round()
+            search.settle()
+        crit[bool(line)] = number(build.call("stats", fields=["PreEffectiveCritChance"]).get("PreEffectiveCritChance"))
+        print(bool(line), crit[bool(line)], getattr(build, "nebuloch_found", None))
+    found = build.nebuloch_found
+    assert found is not None and found[0] > 0
+    assert crit[True] > crit[False]
+    assert crit[True] == pytest.approx(found[0] * 100 + (1 - found[0]) * crit[False], abs=1.0)

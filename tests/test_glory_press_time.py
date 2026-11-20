@@ -236,7 +236,8 @@ def test_generic_on_hit_charge_lines_count_the_other_groups_hits():
     Galvanic Field isn't a side hitter (their casts aren't the hits)."""
     from builder.search import conditions as c
 
-    stats = {"Speed": 1.0, "HitChance": 100.0, "CritChance": 10.0, "_side_hits": (2.0, 0.5, "Side 2.00 hits/s")}
+    side = {"name": "Side", "hits": 2.0, "crits": 0.5, "melee": False, "flagged": False, "how": "Side 2.00 hits/s"}
+    stats = {"Speed": 1.0, "HitChance": 100.0, "CritChance": 10.0, "_side_rows": [side]}
     hit = "20% chance to gain a Frenzy Charge on Hit"
     crit = "20% chance to gain a Power Charge on Critical Hit"
     main = c._charge_rate(hit, "Frenzy", stats)
@@ -250,9 +251,15 @@ def test_generic_on_hit_charge_lines_count_the_other_groups_hits():
     got = c._side_hit_gains([(t, "Frenzy", c._charge_rate(t, "Frenzy", stats)) for t in two], stats)
     assert sum(g[2][0] for g in got) == pytest.approx(2.0 * 0.75)
     assert c._side_hit_gains([(hit, "Frenzy", main)], {**stats, "_gem_line_texts": {hit}}) == []
-    bleeding = "Gain a Frenzy Charge on Hit while Bleeding"
-    if (r := c._charge_rate(bleeding, "Frenzy", stats)) is not None:
-        assert c._side_hit_gains([(bleeding, "Frenzy", r)], stats) == []
+    bleeding = "Gain a Frenzy Charge on Hit while Bleeding"  # (side hits x the share you're Bleeding, MECHC46 turn 3)
+    assert c._side_hit_gains([(bleeding, "Frenzy", c._charge_rate(bleeding, "Frenzy", stats))], stats) == []
+    bled = {**stats, "_you_bleeding": (0.25, "x")}
+    got = c._side_hit_gains([(bleeding, "Frenzy", c._charge_rate(bleeding, "Frenzy", bled))], bled)
+    assert got[0][2][0] == pytest.approx(2.0 * 0.25)
+    # a flagged side skill: each hit may grant, its lines added, not joined: 2 hits/s x (0.5 + 0.5)
+    flag = {**stats, "_side_rows": [{**side, "flagged": True}]}
+    got = c._side_hit_gains([(t, "Frenzy", c._charge_rate(t, "Frenzy", flag)) for t in two], flag)
+    assert sum(g[2][0] for g in got) == pytest.approx(2.0)
     # the main skill's two lines still join (the side hits don't sit inside their rates)
     found = [(t, "Frenzy", c._charge_rate(t, "Frenzy", stats)) for t in two]
     joined, how = c._per_use_joined(found, stats)
@@ -296,3 +303,35 @@ def test_a_charge_on_hit_while_bleeding_reads_the_share_you_bleed():
     assert c._charge_rate(line, "Frenzy", stats)[0] == 0.0
     assert c._charge_rate(line, "Frenzy", {**stats, "_you_bleeding": (0.4, "the boss's Bleeds")})[0] == pytest.approx(0.4)
     assert c._charge_rate("Gain a Frenzy Charge on Hit", "Frenzy", stats)[0] == pytest.approx(1.0)
+
+
+def test_rage_on_melee_hit_counts_the_other_groups_melee_hits():
+    """(MECHC46 turn 3, an UNDERCOUNT before) "Gain 1 Rage on Melee Hit": the main skill's hits plus the other groups'
+    Melee hits (stats["_side_rows"]' melee), under the one gain every 0.5 s cap; a non-Melee main skill's own hits out,
+    the side Melee hits still counted; "on Hit" takes every side skill."""
+    from builder.search import conditions as c
+
+    rows = [{"name": "Slam", "hits": 0.5, "crits": 0.0, "melee": True, "flagged": False, "how": "Slam 0.50 hits/s"},
+            {"name": "Bolt", "hits": 0.3, "crits": 0.0, "melee": False, "flagged": False, "how": "Bolt 0.30 hits/s"}]
+    stats = {"Speed": 1.0, "HitChance": 100.0, "CritChance": 0.0, "_main_types": {"Melee"}, "_side_rows": rows}
+    melee = "Gain 1 Rage on Melee Hit"
+    assert c._rage_gain(melee, stats, True)[1] == pytest.approx(1.5)
+    assert c._rage_gain(melee, {**stats, "_side_rows": None}, True)[1] == pytest.approx(1.0)
+    assert c._rage_gain("Gain 1 Rage on Hit", stats, True)[1] == pytest.approx(1.8)
+    spell = {**stats, "_main_types": {"Spell"}}
+    assert c._rage_gain(melee, spell, True)[1] == pytest.approx(0.5)
+    assert c._rage_gain(melee, {**spell, "_side_rows": rows[1:]}, True)[1] == 0.0
+    assert c._rage_gain(melee, {**stats, "Speed": 5.0}, True)[1] == pytest.approx(2.0)  # (the 0.5 s cap)
+
+
+def test_refracted_infusion_gains_another_different_infusion():
+    """(MECHC46, an UNDERCOUNT before) Refracted Infusion's "When collecting an Elemental Infusion, gain another different
+    Elemental Infusion" (no chance named: every pickup) reads as the "N% chance ..." lines do: one more, of either other
+    element evenly."""
+    from builder.search.assumptions import OTHER_INFUSION
+
+    m = OTHER_INFUSION.search("When collecting an Elemental Infusion, gain another different Elemental Infusion")
+    assert m and float(m.group(1) or 100.0) == 100.0
+    m = OTHER_INFUSION.search("25% chance when collecting an Elemental Infusion to gain another different Elemental "
+                              "Infusion")
+    assert m and float(m.group(1)) == 25.0

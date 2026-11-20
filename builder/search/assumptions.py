@@ -375,7 +375,10 @@ EQUILIBRIUM = re.compile(r"Create Lightning Infusion Remnants instead of Fire", 
 EQUILIBRIUM_SHIFT = {"Fire": "Lightning", "Lightning": "Cold", "Cold": "Fire"}
 EXTRA_INFUSION_REMNANT = re.compile(r"(\d+(?:\.\d+)?)% chance to spawn an additional Infusion Remnant", re.I)
 EXTRA_INFUSION = re.compile(r"(\d+(?:\.\d+)?)% chance to gain an additional Infusion$", re.I)
-OTHER_INFUSION = re.compile(r"(\d+(?:\.\d+)?)% chance when collecting an Elemental Infusion to gain another different", re.I)
+# (MECHC46: and Refracted Infusion's "When collecting an Elemental Infusion, gain another different Elemental Infusion",
+# no chance named: 100%; the coverage audit's "PoB ignores the line", read by no model before: an UNDERCOUNT)
+OTHER_INFUSION = re.compile(r"(?:(\d+(?:\.\d+)?)% chance )?when collecting an Elemental Infusion,? (?:to )?gain another "
+                            r"different", re.I)
 # (MECHC33: also the game's "Skills have N% chance to not remove Elemental Infusions but still count as consuming them",
 # PoB ModCache 9391 / 9398 / 9400, parsed to nothing, which the older pattern missed: an UNDERCOUNT. The variant "... if
 # you've lost an Archon Buff in the past 6 seconds" (9397) needs the Archon-loss share: not read, an undercount.)
@@ -384,6 +387,7 @@ KEEP_INFUSION = re.compile(r"^(?:Skills have )?(\d+(?:\.\d+)?)% chance to not re
 VERISIUM_EVERY = re.compile(r"Every (?:(\d+(?:\.\d+)?) )?seconds?, gain an? Verisium Infusion", re.I)
 GRANTED_SKILL = re.compile(r"Grants Skill: (?:Level \S+ )?(.+?)\s*$")  # (context.granted_by's pattern)
 SECOND_WIND, SECOND_WIND_PCT = "Second Wind III", 1.0  # (MECHC29, G4-6: restore_%_life_on_skill_use_per_1000_ms_cooldown)
+NEBULOCH_TAG = "NebulochCrit"  # (MECHC46: conditions.NEBULOCH_CRIT's note)
 INFUSED_ELEMENT = re.compile(r"\b(fire|cold|lightning)-infused\b", re.I)
 
 
@@ -641,7 +645,7 @@ def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[st
         remnants *= 2.0
     remnants *= 1.0 + duplicate_pickups(texts)
     gain = 1.0 + sum(float(m.group(1)) for t in texts if "weapon" not in t.lower() and (m := EXTRA_INFUSION.search(t))) / 100.0
-    other = sum(float(m.group(1)) for t in texts if (m := OTHER_INFUSION.search(t))) / 100.0
+    other = min(1.0, sum(float(m.group(1) or 100.0) for t in texts if (m := OTHER_INFUSION.search(t))) / 100.0)
     for e, rate in made.items():
         rate *= remnants * gain
         supply[e] += rate
@@ -2782,6 +2786,28 @@ class Assumptions:
         main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if main is not None else set()
         hand_mods, hand_notes = models.guided_hand_model(inputs, source_lines, stats, main, slam="Slam" in main_types)
         texts = [e["text"] for e in source_lines]
+        # (MECHC46) Nebuloch: the main Attack Critically Hits when it spends an Endurance Charge (conditions.NEBULOCH_CRIT)
+        nebuloch = getattr(build, "nebuloch_found", None)
+        if main is not None and "Attack" in main_types and nebuloch \
+                and any(conditions_mod.NEBULOCH_CRIT.match(t.strip()) for t in texts):
+            share, how = nebuloch
+            own = [m for m in self.mods or [] if m.get("tag") != NEBULOCH_TAG]
+            if len(own) != len(self.mods or []):  # (PoB's own chance, without the override set last pass)
+                pre = build.call("setAssumptions", mods=own, fields=["PreEffectiveCritChance"])["stats"]
+                build.call("setAssumptions", mods=self.mods, fields=[])
+            else:
+                pre = build.call("stats", fields=["PreEffectiveCritChance"])
+            base = min(100.0, max(0.0, number(pre.get("PreEffectiveCritChance"))))
+            blend = share * 100 + (1 - share) * base
+            if share > 0:
+                hand_mods = hand_mods + [models.raw_mod("CritChance", "OVERRIDE", blend, skill=main.name, tag=NEBULOCH_TAG)]
+            hand_notes = hand_notes + [{
+                "label": "Nebuloch: Attacks spend an Endurance Charge to Critically Hit*",
+                "value": f"{blend:.1f}% critical (PoB's own {base:.1f}%)",
+                "basis": (f"{share:.0%} of {main.name}'s uses find an Endurance Charge ({how}) and Critically Hit, the rest at "
+                          "PoB's own chance; each spends the charge (fewer held: the Chaos damage per charge falls too)"),
+                "confidence": "MEDIUM (the charge flow; PoB's accuracy and Lucky steps act on the blend)",
+                "play": "Keep an Endurance Charge source running: each attack spends one to Critically Hit"}]
         # (MECH69) PoB's CanApply flags for Exposure lines it doesn't parse ("N% chance to inflict Exposure on Hit"): the
         # -20% comes from the condition box at the line's uptime (conditions._exposure_uptime)
         exposure_flags = conditions_mod.exposure_source_flags(texts, main_types)
