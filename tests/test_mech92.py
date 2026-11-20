@@ -111,6 +111,19 @@ def test_volatile_power_from_each_explosion_adds():
     assert "replaces the earlier one's (R35-8's other reading): x1.333 (attack 10 s" in notes[0]["basis"]
 
 
+def test_unstable_bond_joins_inner_turmoils_cycle():
+    """MECH92 (MECHB44's routing): with Inner Turmoil, Unstable Bond's 3 Volatility a Persistent Reviving minion Killed
+    adds to the cycle's rate at the build's death rate; without it, unstable_bond_model counts it alone (not here)."""
+    from builder.search import models
+
+    bond = "Gain 3 Volatility when an Allied Persistent Reviving Minion is Killed"
+    notes = models.volatility_model(TURMOIL + [bond], FOUR, deaths=(0.5, "test deaths"))[1]
+    assert "5.50 Volatility a second" in notes[0]["basis"] and "Unstable Bond (3 x 0.500" in notes[0]["basis"]
+    crits = {"Speed": 10.0, "HitChance": 100.0, "CritChance": 50.0, "Life": 5001.0}
+    notes = models.volatility_model(["Take no Damage from Volatility", bond], crits, 100.0, deaths=(0.5, "x"))[1]
+    assert "Unstable Bond" not in notes[0]["basis"] and "5.00 Volatility a second" in notes[0]["basis"]
+
+
 @pytest.fixture(scope="module")
 def engine():
     import faulthandler

@@ -10132,7 +10132,7 @@ def volatility_refreshed(per_window: float, cap: float, refresh: float) -> float
 
 
 def volatility_model(texts: list[str], stats: dict, support_crit: float = 0.0,
-                     kills: tuple | None = None) -> tuple[list[dict], list[dict]]:
+                     kills: tuple | None = None, deaths: tuple | None = None) -> tuple[list[dict], list[dict]]:
     """(mods, notes) for Inner Turmoil's Volatility played as a cycle (the note above); (MECH91) also Volatility on
     Critical Hit (support_crit: the main skill's Volatility support chance, %; the lines VOLATILITY_ON_CRIT); (MECH92)
     Instability's regain and Volatility on Kill at `kills` (models.kill_rate's (enemies/s, all/s, how))."""
@@ -10145,6 +10145,14 @@ def volatility_model(texts: list[str], stats: dict, support_crit: float = 0.0,
     killed, kill_how = ((max(number(kills[1]), 0.0), str(kills[2])) if kills and len(kills) >= 3 else
                         (0.0, "the build's kills weren't read"))
     kill_gain = kill_chance * killed
+    # (MECH92; MECHB44's routing, 23:28: Unstable Bond's "Gain N Volatility when an Allied Persistent Reviving Minion is
+    # Killed" at models.minion_deaths' rate joins Inner Turmoil's cycle; only with Inner Turmoil, as unstable_bond_model
+    # counts it alone otherwise and returns +0 with it: no double count. Crits without Inner Turmoil plus Unstable Bond:
+    # each counted on its own, labelled there.)
+    bond_each = sum(float(m.group(1)) for t in texts if (m := UNSTABLE_BOND.match(t.strip()))) if inner else 0.0
+    bond_rate, bond_how = ((max(number(deaths[0]), 0.0), str(deaths[1])) if deaths and len(deaths) >= 2 else
+                           (0.0, "your minions' deaths weren't read"))
+    bond_gain = bond_each * bond_rate
     if not inner and on_crit <= 0:
         return volatility_on_kill_alone(texts, kill_chance, killed, kill_how, refresh)
     cap = min([float(m.group(1)) for t in texts if (m := VOLATILITY_MAX.match(t.strip()))] or [VOLATILITY_CAP])
@@ -10187,7 +10195,7 @@ def volatility_model(texts: list[str], stats: dict, support_crit: float = 0.0,
     any_ailment = (1 - math.prod(1 - c for c in (*chances, chill))) if inner else 0.0
     crit = min(max(number(stats.get("CritChance")), 0.0), 100.0) / 100
     any_gain = 1 - (1 - any_ailment) * (1 - crit * on_crit)
-    rate = min(1 / VOLATILITY_EVERY, hits_per_second(stats) * any_gain + kill_gain)
+    rate = min(1 / VOLATILITY_EVERY, hits_per_second(stats) * any_gain + kill_gain + bond_gain)
     peril = sum(float(m.group(1)) for t in texts if (m := GROWING_PERIL.match(t.strip())))
     precise = sum(float(m.group(1)) for t in texts if (m := PRECISE_VOLATILITY.match(t.strip())))
     chaos_dot = chaos_dot_share(stats) if peril > 0 else 0.0
@@ -10240,6 +10248,8 @@ def volatility_model(texts: list[str], stats: dict, support_crit: float = 0.0,
             f"{any_gain:.0%} a hit"
             + (f", plus {kill_gain:.3f}/s from Volatility on Kill ({kill_chance:.0%} x {killed:.3f} Kills/s: "
                f"{kill_how}; LOW)" if kill_chance > 0 else "")
+            + (f", plus {bond_gain:.3f}/s from Unstable Bond ({bond_each:g} x {bond_rate:.3f} minion deaths/s: "
+               f"{bond_how})" if bond_each > 0 else "")
             + f", at most 10 a second); it explodes {delay:g} s after the last gain (KeywordPopups "
             f"Volatility), up to {cap:g}"
             + (f"; Instability: {refresh:.0%} chance each explosion is regained and starts the next window (the "
