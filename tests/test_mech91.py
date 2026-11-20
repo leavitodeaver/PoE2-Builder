@@ -88,7 +88,7 @@ def test_volatility_on_critical_hit_without_inner_turmoil():
     # 5 a second (10 hits x 50% crit); cap 50 (5000 / 100): attack 10 s, 50 explode: (10 x 1.5) / 14 = 1.07
     mods, notes = models.volatility_model([], crits, support_crit=100.0)
     assert {m["line"]: m["scale"] for m in mods}["Gain 1% of Damage as Extra Chaos Damage"] == pytest.approx(50.0)
-    assert "attack 10 s" in notes[0]["basis"] and "5000 Physical Damage to you" in notes[0]["basis"]
+    assert "attack 10 s" in notes[0]["basis"] and "5000 Damage to you after Armour" in notes[0]["basis"]
     # the same with Inner Turmoil's immunity: up to 200 (attack 30 s at 5 a second: 150; (10 x 2.5 + 20) / 34 = 1.32)
     immune = models.volatility_model(["Take no Damage from Volatility"], crits, support_crit=100.0)
     assert "attack 30 s" in immune[1][0]["basis"]
@@ -119,7 +119,7 @@ def test_volatility_taken_as_cold_raises_the_survival_cap():
 
     crits = {"Speed": 10.0, "HitChance": 100.0, "CritChance": 50.0, "Life": 5001.0, "ColdResist": 75.0}
     notes = models.volatility_model(["75% of Volatility Physical Damage Taken as Cold Damage"], crits, 100.0)[1]
-    assert "up to 114" in notes[0]["basis"] and "44 Damage to you" in notes[0]["basis"]
+    assert "up to 114" in notes[0]["basis"] and "4988 Damage to you after Armour" in notes[0]["basis"]
 
 
 def test_the_volatility_supports_chance_is_read_on_a_real_build(engine):

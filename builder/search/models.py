@@ -10077,18 +10077,26 @@ VOLATILITY_DELAY = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) volatility
 VOLATILITY_SECONDS, VOLATILE_POWER_SECONDS, VOLATILITY_EVERY, VOLATILITY_CAP = 4.0, 10.0, 0.1, 200.0
 # (MECH91) Volatility on Critical Hit: the Volatility support (SupportVolatilityPlayer, instability_on_critical_%_chance
 # 100: "Supported Skills grant Volatility on Critical Hit") and UniqueMutatedVaalVolatilityOnCritChance's "(30-50)%
-# chance to grant Volatility on Critical Hit" (the same stat; PoB reads neither). "grant" read as Volatility on you (the
-# KeywordPopups' Volatility is on you; MEDIUM). Without "Take no Damage from Volatility" each Volatility explodes for
-# 100 Physical Damage to you (KeywordPopups), so the cycle lets at most what the build's Life + Energy Shield survives
-# explode, unmitigated (the "75% ... taken as Cold" line not read: a lower cap). Other gains not counted (an
-# UNDERCOUNT, said): when Stunned (stuns on you: MECH-C's), on minion death (MECH-B), the Volatile Power support on
-# Empowered use, Catharsis' spending (on Kill and the refresh chance: MECH92, below).
+# chance to grant Volatility on Critical Hit" (the same stat; PoB reads neither). "grant" puts the Volatility on you
+# (RESEARCH35 R35-1, HIGH: all 45 Volatility stat ids and their texts, the tables using them, poe2db's Volatility /
+# Catharsis / Seed of Cataclysm pages). Without "Take no Damage from Volatility" each Volatility explodes for 100
+# Physical Damage to you (KeywordPopups), so the cycle lets at most what the build's Life + Energy Shield survives
+# explode: (MECH92, R35-2, MEDIUM: the explosion is a Hit, so Armour and other Physical Damage Reduction reduce it; the
+# manager's ruling 22:40) the headline takes one hit of 100 x stacks after Armour (PoB's formula, armour / (armour +
+# 10 x hit), plus BasePhysicalDamageReduction, to the cap), the rows MECH91's unreduced cap and one hit per stack
+# (UNVERIFIED); Dream Fragments' "taken as Cold" part resisted, not armoured. Other gains not counted (an UNDERCOUNT,
+# said): when Stunned (stuns on you: MECH-C's), on minion death (MECH-B), Catharsis' spending (on Kill and the refresh
+# chance: MECH92, below). The Volatile Power support's "Volatility on Empowered use" has no league source (R35-8's side
+# finding, MEDIUM-HIGH: no engraving recipe, not in PoB's gem list, a 0.3.0 notes translation lists it removed):
+# UNREACHABLE, not modelled. (R35-8, MEDIUM) Each explosion's Volatile Power is its own 10 s buff and adds to any still
+# running (the game's buff table stacking settings): the cycle sums those from the last 10 s ('replaces' a row).
 VOLATILITY_ON_CRIT = re.compile(r"^(\d+(?:\.\d+)?)% chance to grant volatility on critical hit$", re.I)
 VOLATILITY_IMMUNE = re.compile(r"^take no damage from volatility$", re.I)
 # Dream Fragments' Cultivated "75% of Volatility Physical Damage Taken as Cold Damage" (PoB: unread): that part of the
 # explosion is reduced by your Cold Resistance (the rest unmitigated, as above)
 VOLATILITY_AS_COLD = re.compile(r"^(\d+(?:\.\d+)?)% of volatility physical damage taken as cold damage$", re.I)
 VOLATILITY_SUPPORT_STAT, VOLATILITY_HIT = "instability_on_critical_%_chance", 100.0
+VOLATILITY_ARMOUR_RATIO, VOLATILITY_DR_MAX = 10.0, 90.0  # (PoB's data.misc.ArmourRatio; its DamageReductionCap)
 # (MECH92; the catalog's damaging-ailments / term-consume passive rows, UNDERCOUNTS: PoB reads neither line) Instability
 # (volatility_refresh_%_chance 25; Ancient Rune of Decay's 15% on a wand): "N% chance that when Volatility on you
 # explodes, you regain an equivalent amount of Volatility" (the same stat, summed). In the attack-then-stop cycle a
@@ -10100,7 +10108,8 @@ VOLATILITY_SUPPORT_STAT, VOLATILITY_HIT = "instability_on_critical_%_chance", 10
 # minions Killed, models.kill_rate; 0 on a lone boss, said): its gains join the attack window's rate when Inner Turmoil
 # or crits play the cycle; alone, each kill's Volatility explodes by itself (the adds die 25-45 s apart, longer than the
 # delay), its Volatile Power 10 s, a regained one exploding again a delay later (expected chain 1 / (1 - p) explosions,
-# the buff held 10 s + delay x p / (1 - p)), so +1% of Damage as Chaos for kills/s x chance x that time of the fight.
+# each its own 10 s, adding: R35-8), so +1% of Damage as Chaos x kills/s x chance x 10 s / (1 - p) on average ('replaces'
+# a row: the buff held 10 s + delay x p / (1 - p)).
 VOLATILITY_ON_KILL = re.compile(r"^(\d+(?:\.\d+)?)% chance to gain volatility on kill$", re.I)
 VOLATILITY_REFRESH = re.compile(r"^(\d+(?:\.\d+)?)% chance that when volatility on you explodes, you regain an "
                                 r"equivalent amount of volatility$", re.I)
@@ -10144,9 +10153,31 @@ def volatility_model(texts: list[str], stats: dict, support_crit: float = 0.0,
     as_cold = min(sum(float(m.group(1)) for t in texts if (m := VOLATILITY_AS_COLD.match(t.strip()))), 100.0) / 100
     cold_res = min(number(stats.get("ColdResist")), 75.0) / 100  # (PoB's ColdResist, already capped; 75 at most)
     per = VOLATILITY_HIT * ((1 - as_cold) + as_cold * (1 - cold_res))  # (MECH91: Dream Fragments' Cold part resisted)
-    survive = math.floor(max(pool - 1, 0.0) / per) if per > 0 else VOLATILITY_CAP
-    if not immune:
-        cap = min(cap, survive)
+    armour = max(number(stats.get("Armour")), 0.0)
+    base_dr = max(number(stats.get("BasePhysicalDamageReduction")), 0.0)
+    max_dr = number(stats.get("PhysicalDamageReductionMax")) or VOLATILITY_DR_MAX
+
+    def taken(raw: float, armoured: bool = True) -> float:  # (MECH92, R35-2: one hit of `raw` Volatility damage to you)
+        phys, cold = raw * (1 - as_cold), raw * as_cold
+        dr = (min(100 * armour / (armour + VOLATILITY_ARMOUR_RATIO * phys) + base_dr, max_dr)
+              if armoured and phys > 0 else 0.0)
+        return phys * (1 - dr / 100) + cold * (1 - cold_res)
+
+    def survives(damage) -> float:  # (the most Volatility whose explosion your Life + Energy Shield survives, up to cap)
+        lo, hi = 0, int(cap)
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if damage(mid) <= pool - 1:
+                lo = mid
+            else:
+                hi = mid - 1
+        return float(lo)
+
+    caps = {"one hit, Armour": cap, "unreduced": cap, "a hit per stack": cap}
+    if not immune:  # (MECH92, R35-2 and the manager's ruling 22:40: the first is the headline, the others rows)
+        caps = {"one hit, Armour": survives(lambda k: taken(VOLATILITY_HIT * k)),
+                "unreduced": survives(lambda k: k * taken(VOLATILITY_HIT, False)),
+                "a hit per stack": survives(lambda k: k * taken(VOLATILITY_HIT))}
     inc = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
               for t in texts if (m := VOLATILITY_DELAY.match(t.strip())))
     delay = VOLATILITY_SECONDS * max(0.0, 1 + inc / 100)
@@ -10168,17 +10199,38 @@ def volatility_model(texts: list[str], stats: dict, support_crit: float = 0.0,
     def peril_factor(held: float) -> float:  # (MECH91: Growing Peril on the build's Chaos DoT share, in the choice)
         return 1 - chaos_dot + chaos_dot * (1 + peril * held / 100)
 
-    unplayed = peril_factor(cap if rate > 0 else 0.0)
-    best = (unplayed, 0.0, 0.0)
-    for attack in range(1, 31):
-        exploded = volatility_refreshed(rate * attack, cap, refresh)  # (MECH92: min(cap, rate x T) without Instability)
-        powered = min(attack, VOLATILE_POWER_SECONDS)
-        value = ((powered * (1 + exploded / 100) + max(0.0, attack - VOLATILE_POWER_SECONDS)) / (attack + delay)
-                 * peril_factor(held_while_attacking(exploded, attack)))
-        if value > best[0] + 1e-9:
-            best = (value, float(attack), exploded)
-    value, attack, exploded = best
-    value /= unplayed  # (the cycle against attacking without a break, Growing Peril's cap held there)
+    def powered_time(attack: float, adds: bool) -> float:
+        """(MECH92, R35-8) Seconds of the attack window under Volatile Power, weighted by how many are up: each
+        explosion's own 10 s, the earlier cycles' still running (adds), or only the newest (replaces)."""
+        if not adds:
+            return min(attack, VOLATILE_POWER_SECONDS)
+        period, total, j = attack + delay, 0.0, 0
+        while VOLATILE_POWER_SECONDS - j * period > 0 and j < 1000:
+            total += min(attack, VOLATILE_POWER_SECONDS - j * period)
+            j += 1
+        return total
+
+    def play(top: float, adds: bool) -> tuple[float, float, float]:
+        """(value against attacking without a break, attack seconds, exploded) of the best cycle: 0 s when none pays."""
+        unplayed = peril_factor(top if rate > 0 else 0.0)
+        best = (unplayed, 0.0, 0.0)
+        for attack in range(1, 31):
+            exploded = volatility_refreshed(rate * attack, top, refresh)  # (MECH92: min(top, rate x T) without Instability)
+            value = ((attack + exploded / 100 * powered_time(attack, adds)) / (attack + delay)
+                     * peril_factor(held_while_attacking(exploded, attack)))
+            if value > best[0] + 1e-9:
+                best = (value, float(attack), exploded)
+        return best[0] / unplayed, best[1], best[2]
+
+    cap = caps["one hit, Armour"]
+    value, attack, exploded = play(cap, True)
+    rows = [(f"if a later explosion's Volatile Power replaces the earlier one's (R35-8's other reading)", play(cap, False))]
+    if not immune:
+        rows += [(f"the cap {caps[k]:g} with {k} (" + ("MECH91's, no Armour" if k == "unreduced" else
+                                                       "R35-2's UNVERIFIED reading") + ")", play(caps[k], True))
+                 for k in ("unreduced", "a hit per stack") if caps[k] != cap]
+    row_text = "".join(f"; row, {label}: " + (f"x{v:.3f} (attack {a:g} s, {e:.0f} explode)" if a > 0 else "not played")
+                       for label, (v, a, e) in rows)
     weighed = (f"; the choice weighs Growing Peril on the build's Chaos Damage over Time, {chaos_dot:.0%} of its "
                "damage (Poison and the skill's own Chaos DoT; your other increased Chaos DoT taken as 0, the higher "
                "weight for Growing Peril)" if peril > 0 else "")
@@ -10193,10 +10245,11 @@ def volatility_model(texts: list[str], stats: dict, support_crit: float = 0.0,
             + (f"; Instability: {refresh:.0%} chance each explosion is regained and starts the next window (the "
                "expected count over regains in a row, taken as independent)" if refresh > 0 else "")
             + ("" if immune else
-                             f" (no 'Take no Damage from Volatility': each explodes for {per:.0f} Damage to you "
-                             f"({VOLATILITY_HIT:g} Physical, {as_cold:.0%} of it taken as Cold at {cold_res:.0%} "
-                             "resistance), so at most what your {pool:.0f} Life + Energy Shield survives, "
-                             "unmitigated: MEDIUM-LOW, the most you could let explode)"))
+               f" (no 'Take no Damage from Volatility': the explosion is one hit of {VOLATILITY_HIT:g} Physical a "
+               f"Volatility ({as_cold:.0%} of it taken as Cold at {cold_res:.0%} resistance), reduced by your "
+               f"{armour:.0f} Armour and {base_dr:g}% other Physical Damage Reduction (R35-2, MEDIUM: a Hit; one "
+               f"hit of 100 x stacks MEDIUM-LOW), so at most what your {pool:.0f} Life + Energy Shield survives)")
+            + "; each explosion's Volatile Power is its own 10 s buff, adding to any still running (R35-8, MEDIUM)")
     if attack <= 0:
         held = cap if rate > 0 else 0.0
         peril_mods = [line("1% increased Chaos Damage over Time", peril * held)] if peril > 0 and held > 0 else []
@@ -10204,27 +10257,26 @@ def volatility_model(texts: list[str], stats: dict, support_crit: float = 0.0,
                              "basis": (head + ": no attack-then-stop cycle beats attacking without a break (Volatility "
                                        "never explodes then, so +0)"
                                        + (f"; Growing Peril: {held:g} Volatility held all fight, +{peril * held:g}% "
-                                          "Chaos Damage over Time" if peril_mods else "") + weighed
+                                          "Chaos Damage over Time" if peril_mods else "") + weighed + row_text
                                        + ". PoB reads no Volatility")}]
     stopped = delay / (attack + delay) * 100
-    powered = min(attack, VOLATILE_POWER_SECONDS) / attack
-    gain = exploded * powered
+    gain = exploded * powered_time(attack, True) / attack
     held = held_while_attacking(exploded, attack)
     extra = ([line("1% increased Chaos Damage over Time", peril * held)] if peril > 0 and held > 0 else []) + (
         [line("1% increased Critical Hit Chance", precise * gain)] if precise > 0 and gain > 0 else [])
+    you = ("Inner Turmoil: no damage to you" if immune
+           else f"{taken(exploded * VOLATILITY_HIT):.0f} Damage to you after Armour")
     return [line("1% less Damage", stopped), line("Gain 1% of Damage as Extra Chaos Damage", gain), *extra], [{
         "label": "Volatility: Volatile Power*", "value": f"x{value:.3f} (before the Chaos gain's own scaling)",
         "confidence": "MEDIUM-LOW",
         "basis": (head + f". Played: attack {attack:g} s, stop {delay:g} s so {exploded:.0f} Volatility explodes ("
-                  + ("Inner Turmoil: no damage to you" if immune
-                     else f"{exploded * VOLATILITY_HIT:.0f} Physical Damage to you")
-                  + f"), then {VOLATILE_POWER_SECONDS:g} s of Volatile Power, {exploded:.0f}% of "
-                  f"Damage as Chaos: {stopped:.1f}% less Damage for the time stopped and +{gain:.1f}% of Damage as Chaos "
-                  "while attacking"
+                  + you + f"), then {VOLATILE_POWER_SECONDS:g} s of Volatile Power, {exploded:.0f}% of Damage as "
+                  f"Chaos (with the earlier cycles' still running): {stopped:.1f}% less Damage for the time stopped "
+                  f"and +{gain:.1f}% of Damage as Chaos on average while attacking"
                   + (f"; Growing Peril: {held:.0f} Volatility held on average while attacking, +{peril * held:.0f}% "
                      "Chaos Damage over Time" if peril > 0 else "")
                   + (f"; Precise Volatility: +{precise * gain:.0f}% Critical Hit chance (the powered share)"
-                     if precise > 0 else "") + weighed
+                     if precise > 0 else "") + weighed + row_text
                   + ". Ignites burning on while you stop and Freeze / Electrocute buildup not counted "
                   "(lower). PoB reads no Volatility"),
         "play": (f"Attack {attack:g} s, then stop inflicting ailments for {delay:g} s so your Volatility explodes, and "
@@ -10248,8 +10300,9 @@ def volatility_on_kill_alone(texts: list[str], chance: float, killed: float, how
     delay = VOLATILITY_SECONDS * max(0.0, 1 + inc / 100)
     gains = chance * killed
     chain = 1 / (1 - refresh)  # (expected explosions from one gain: the first and each regained one)
-    held = VOLATILE_POWER_SECONDS + delay * (chain - 1)
-    up = min(1.0, gains * held)
+    held = VOLATILE_POWER_SECONDS + delay * (chain - 1)  # (the 'replaces' reading: the chain's buffs back to back)
+    up = gains * chain * VOLATILE_POWER_SECONDS  # (R35-8, MEDIUM: each explosion's own 10 s, adding; MECH92)
+    replaced = min(1.0, gains * held)
     peril = sum(float(m.group(1)) for t in texts if (m := GROWING_PERIL.match(t.strip())))
     volatile = min(1.0, gains * delay * chain)  # (the share of the fight one Volatility sits on you before exploding)
     mods = [line("Gain 1% of Damage as Extra Chaos Damage", up)] + (
@@ -10258,9 +10311,11 @@ def volatility_on_kill_alone(texts: list[str], chance: float, killed: float, how
                    "basis": (f"{chance:.0%} chance x {killed:.3f} Kills/s ({how}) = {gains:.4f} Volatility a second, "
                              f"each exploding by itself {delay:g} s later (the kills come further apart than that) for "
                              f"{VOLATILE_POWER_SECONDS:g} s of Volatile Power, 1% of Damage as Chaos"
-                             + (f"; Instability {refresh:.0%}: {chain:.2f} explosions a gain on average, the buff "
-                                f"held {held:.1f} s" if refresh > 0 else "")
-                             + f": up {up:.1%} of the fight"
+                             + (f"; Instability {refresh:.0%}: {chain:.2f} explosions a gain on average, each its "
+                                f"own {VOLATILE_POWER_SECONDS:g} s of Volatile Power, adding (R35-8, MEDIUM; row, if a "
+                                f"later one replaces the earlier: held {held:.1f} s, +{replaced:.2f}%)"
+                                if refresh > 0 else "")
+                             + f": +{up:.2f}% of Damage as Chaos on average"
                              + (f"; Growing Peril on the one Volatility held {volatile:.1%} of the fight"
                                 if peril > 0 else "")
                              + ". The kills' rate is averaged over the fight (LOW). PoB reads no Volatility")}]
@@ -10269,7 +10324,8 @@ def volatility_on_kill_alone(texts: list[str], chance: float, killed: float, how
 DOT_TYPES = ("Physical", "Lightning", "Cold", "Fire", "Chaos")
 VOLATILITY_STATS = ["Speed", "HitChance", "IgniteChancePerHit", "ShockChancePerHit", "ChillChanceOnHit",
                     "ColdHitAverage", "ColdCritAverage", "CombinedDPS", "PoisonDPS", "TotalDotDPS", "CritChance",
-                    "Life", "EnergyShield", "ColdResist",
+                    "Life", "EnergyShield", "ColdResist", "Armour", "BasePhysicalDamageReduction",
+                    "PhysicalDamageReductionMax",
                     *(f"{t}Dot" for t in DOT_TYPES)]
 
 
@@ -10342,9 +10398,9 @@ ALL_BLEEDS_AGGRAVATED = re.compile(r"^bleeding you inflict is aggravated$", re.I
 # the Bleeds inflicted in the rest, independent where there are several; a condition not modelled takes 0, UNVERIFIED)
 SOME_BLEEDS_AGGRAVATED = re.compile(r"^bleeding you inflict on ([\w ]+?) is aggravated$", re.I)
 # (MECH91) "on Shocked enemies" takes the boss's Shocked share. Its stat aggravate_bleeding_inflicted_vs_shocked_enemy
-# is on one mod, UniqueBleedingInflictedOnShockedEnemiesIsAggravated1, named "DNT-UNUSED" by PoB (checked: Mods.json
-# 26650308 by stat; every other table for the stat id: none; PoB's Data/Uniques: no unique carries it; patch notes: no
-# hit, which proves nothing; poe2db not checked, so on-no-item-today is UNVERIFIED): read in case it ships. A condition
+# is on one mod, UniqueBleedingInflictedOnShockedEnemiesIsAggravated1: UNREACHABLE today (RESEARCH35 R35-3,
+# MEDIUM-HIGH: the game's own text carries [DNT-UNUSED]; no other table refers to the mod; not in PoB's uniques or
+# poe2db's Aggravated Bleeding list; no patch note; recheck at 1.0): read in case it ships (harmless). A condition
 # not modelled takes 0 (the spear counts on every Bleed: the HIGHER reading) with the other extreme as a row: the
 # condition always on, every Bleed already Aggravated, the line never firing (x1.00) (the brief, MECH91: both readings,
 # overcounts first)
