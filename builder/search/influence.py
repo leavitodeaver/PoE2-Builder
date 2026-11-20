@@ -19,7 +19,8 @@ SEARCH31 (the user, 19 Nov ~21:55: "Sample trade prices first"): 12 trade-site s
 MARKET_SAMPLES) show these rares on sale in quantity, mostly at 0.02-1 div (uncorrupted 0.1-5; Medved's Life + Mana 2-20),
 while the Chaos-spam route said 15-23 div. The user then asked (19 Nov ~22:12) for the DETERMINISTIC craft route,
 and on seeing it (20 Nov ~03:00) ruled the HEADLINE is Chaos spam + a Fracturing Orb + Omens of Whittling (`chaos_price`; RESEARCH35 R35-17, 20 Nov:
-protect the landed mod with Whittling / the side Erasure Omens per try, fracture at 1 / N only where nothing protects;
+protect the landed mod with Whittling / the side Erasure Omens per try (an Erasure try lands on the cleared side only
+when the other side is full: R36-3), fracture at 1 / N only where nothing protects;
 "annulment orbs are way more expensive than chaos"); the Exalt loop (the 22:12 "basically the same method as desecrated runes with
 a wider mod pool": `deterministic_price`, Exalted Orb + Exaltation Omen, Annulment on a miss, repeat) is a row, and the
 samples a CROSS-CHECK row only (`market_price`:
@@ -204,12 +205,20 @@ def whittling_safe(landed: list, others: list) -> bool:
     return all(a.level > floor for a in landed)
 
 
-def protected_try(affix, landed: list, others: list, prices: dict[str, float]) -> tuple[float, float, str] | None:
+SIDE_SLOTS = 3  # a rare's prefixes, and its suffixes (3 + 3)
+
+
+def protected_try(affix, landed: list, others: list, prices: dict[str, float], item: list | None = None
+                  ) -> tuple[float, float, str] | None:
     """The cheapest protected Chaos try for `affix` with the `landed` wanted mods already on the item (R35-17):
     (cost a try, odds a try, how), or None when no Omen keeps them safe. Whittling + Chaos: a new mod from the whole pool
     (odds), the lowest-level mod removed; Sinistral / Dextral Erasure + Chaos ("remove only prefix [suffix] modifiers"):
-    only when every landed mod is on the other side, the new mod taken to land on the freed side (side_odds; UNVERIFIED,
-    MEDIUM-LOW). The cheaper per expected landing wins."""
+    only when every landed mod is on the other side. (R36-3, the manager 13:50 20 Nov, MEDIUM) the Erasure Omen only
+    limits which mod the Chaos Orb REMOVES: the new one lands on the cleared side only when the other side is full;
+    with room there it comes from both sides' pool, about half the tries missing: its odds are then the affix's share of
+    the whole pool (odds), as plain Chaos, not of its side's (side_odds). `item`: the finished item's affixes (the
+    other side counted from them: Chaos keeps the mod count); unknown (None): the room case, the cautious one. The
+    cheaper per expected landing wins."""
     chaos = prices.get(CHAOS)
     if chaos is None:
         return None
@@ -218,7 +227,12 @@ def protected_try(affix, landed: list, others: list, prices: dict[str, float]) -
         found.append((chaos + prices[WHITTLING], affix.odds, f"a Chaos Orb with an {WHITTLING}"))
     erasure = ERASURE[affix.type]
     if prices.get(erasure) is not None and affix.side_odds > 0 and all(a.type != affix.type for a in landed):
-        found.append((chaos + prices[erasure], affix.side_odds, f"a Chaos Orb with an {erasure}"))
+        other_full = item is not None and sum(1 for a in item if a.type != affix.type) >= SIDE_SLOTS
+        odds = affix.side_odds if other_full else affix.odds
+        where = ("the other side full, so it lands on the cleared side" if other_full
+                 else "room on the other side, so about half the tries land there (R36-3, MEDIUM)")
+        if odds > 0:
+            found.append((chaos + prices[erasure], odds, f"a Chaos Orb with an {erasure} ({where})"))
     return min(found, key=lambda f: f[0] / f[1]) if found else None
 
 
@@ -274,7 +288,7 @@ def chaos_price(market: float, rune_price: float | None, prices: dict[str, float
         return True
 
     for affix in wanted[1:]:
-        found = None if fracture or locked else protected_try(affix, landed, others, prices)
+        found = None if fracture or locked else protected_try(affix, landed, others, prices, affixes)
         if found is None:
             if not locked and not lock_now():
                 return None, []
@@ -288,7 +302,8 @@ def chaos_price(market: float, rune_price: float | None, prices: dict[str, float
         steps.append(f"then \"{'; '.join(affix.lines)}\": {how}: {extra:.3f} div (LOW: equal weights)")
         landed.append(affix)
     if others:
-        guard = [] if locked else [protected_try(a, landed, [o for o in others if o is not a], prices) for a in others]
+        guard = [] if locked else [protected_try(a, landed, [o for o in others if o is not a], prices, affixes)
+                                    for a in others]
         if not locked and (fracture or any(g is None for g in guard)):
             if not lock_now():
                 return None, []

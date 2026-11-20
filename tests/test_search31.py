@@ -213,9 +213,10 @@ def test_the_users_chaos_spam_route_is_the_headline():
     # the other mod made with the level-75 influence mod kept safe by Whittling (one Omen, LOW) + its market price
     price, _, _ = influence.price("Katla's Gloom", 0.05, 0.08, 0.4, prices, [a1, plain])
     assert price == pytest.approx(0.4 + 20 + 0.05 + 13.94)
-    # a second influence mod on the other side: Dextral Erasure + Chaos (1 in 120) beats Whittling + Chaos (1 in 250)
+    # a second influence mod on the other side: Dextral Erasure + Chaos beats Whittling + Chaos (both 1 in 250: with room
+    # on the prefix side the new mod comes from both sides' pool, R36-3; the Erasure Omen is the cheaper)
     price, steps, _ = influence.price("Katla's Gloom", 0.05, 0.08, 0.4, prices, [a1, a2])
-    assert price == pytest.approx(0.4 + 20 + 120 * (0.1 + 13.58))
+    assert price == pytest.approx(0.4 + 20 + 250 * (0.1 + 13.58))
     fractured = 0.4 + 20 + 4 * 9.87 + 3 * 20.4 + 250 * 0.1  # (the row: fracture at 1 in 4, a miss redoes the item)
     assert any(s.startswith("row: lock each landed mod with a Fracturing Orb") and f"{fractured:.3f}" in s for s in steps)
     # same side, and the landed mod the item's lowest level (45): nothing protects it, so it's fractured first
@@ -225,6 +226,22 @@ def test_the_users_chaos_spam_route_is_the_headline():
     assert price == pytest.approx(0.4 + 20 + (4 * 9.87 + 3 * 20.4) + 300 * 0.1)
     assert any("Fracturing Orb (1 in 4" in s for s in steps)
     assert influence.price("Katla's Gloom", 0.05, 0.08, 0.4, {}, [a1])[0] is None
+
+
+def test_an_erasure_omen_lands_on_the_cleared_side_only_when_the_other_side_is_full():
+    """(R36-3, the manager 13:50 20 Nov, MEDIUM) Sinistral / Dextral Erasure only limits which mod the Chaos Orb removes:
+    the new mod lands on the cleared side only when the other side is full; with room there about half the tries miss."""
+    from builder.search import influence
+
+    prices = {influence.CHAOS: 0.1, "Omen of Dextral Erasure": 13.58}
+    want = SimpleNamespace(influence="decay", lines=("Duration",), odds=1 / 250, side_odds=1 / 120, type="Suffix", level=75)
+    kept = SimpleNamespace(influence="decay", lines=("Ignite",), odds=1 / 200, side_odds=1 / 100, type="Prefix", level=75)
+    prefix = lambda n: SimpleNamespace(influence="", lines=(n,), odds=0.01, side_odds=0.02, type="Prefix", level=30)
+    room = influence.protected_try(want, [kept], [], prices, [kept, want])
+    assert room[1] == pytest.approx(1 / 250) and "R36-3" in room[2]
+    full = influence.protected_try(want, [kept], [prefix("a"), prefix("b")], prices, [kept, prefix("a"), prefix("b"), want])
+    assert full[1] == pytest.approx(1 / 120) and "cleared side" in full[2]
+    assert influence.protected_try(want, [kept], [], prices)[1] == pytest.approx(1 / 250)  # (unknown item: the room case)
 
 
 def test_time_lost_jewels_draw_only_their_own_cranium_rows(ctx):
