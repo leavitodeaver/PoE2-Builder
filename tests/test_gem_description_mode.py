@@ -1484,3 +1484,44 @@ def test_twisted_pact_inflicts_five_corrupted_blood_stacks_a_warcry():
     assert added == pytest.approx(300.0)  # (Corrupted Cry's 7 stacks first, of the shared 10)
     assert models.cry_stacks(0.5, 100, 5, 10, 1) == models.cry_stacks(0.5, 100, 5, 10)
     assert models.twisted_pact_model([], None) == (0.0, [])
+
+
+def test_voltaic_fulmination_follows_electrocuted_kills_up_to_its_cooldown():
+    """GEM26: explosions a second = min(kills x Electrocuted share, 1 / cooldown) x one explosion; 0 with no kills or
+    with the support outside the main skill's group."""
+    dps, notes = models.voltaic_fulmination_model(1000.0, 0.05, 0.4, 0.3, "test")
+    assert dps == pytest.approx(0.05 * 0.4 * 1000)
+    assert notes[0]["entry"] == models.VOLTAIC_FULMINATION_ENTRY and "without Electrocuted kills: 0" in notes[0]["play"]
+    assert models.voltaic_fulmination_model(1000.0, 10.0, 1.0, 0.5)[0] == pytest.approx(2000.0)  # (the cooldown caps it)
+    assert models.voltaic_fulmination_model(1000.0, 0.0, 1.0, 0.3)[0] == 0.0  # (a lone boss: no source, 0)
+    assert models.voltaic_fulmination_model(1000.0, 0.05, 1.0, 0.3, side=True)[0] == 0.0  # (a side group: not read)
+    assert models.voltaic_fulmination_model(0.0, 1.0, 1.0, 0.3) == (0.0, [])
+
+
+def test_shred_fragments_follow_hits_on_a_frozen_boss_and_take_pobs_flat_entry_out():
+    """GEM26: fragment hits a second = Shred's hits x the boss's Freeze uptime x one fragment use; PoB's flat Full DPS
+    entry out where its group is in Full DPS; no Freeze, 0."""
+    dps, notes = models.shred_fragments_model(2.0, 0.3, 50.0, pob=68.0, how="test", in_full=True)
+    assert dps == pytest.approx(2.0 * 0.3 * 50.0)
+    assert notes[0]["full_dps"] == {models.ICE_TIPPED_FRAGMENT: 0.0} and notes[0]["entry"] == models.SHRED_FRAGMENTS_ENTRY
+    assert "without Freeze: 0" in notes[0]["play"]
+    dps, notes = models.shred_fragments_model(2.0, 0.0, 50.0)
+    assert dps == 0.0 and "full_dps" not in notes[0]  # (no Freeze source: 0; out of Full DPS, nothing to take out)
+
+
+def test_repulsion_wave_a_wave_each_detonation_recast_when_worth_it_and_held_to_ward():
+    """GEM26: by hand, recast after each wave (cycle max(cast + delay, 1 s) + half a hit interval) when the waves beat the
+    casts' cost to the main skill, else one a duration; Runic Ward caps the casts; no hit, 0."""
+    # waves worth it: cycle max(0.5 + 1.5, 1) + 0.5 / 2 = 2.25 s; Ward pays 1 a second; lost (1/2.25 - 1/7.4) x 0.5
+    dps, lost, notes = models.repulsion_wave_model(100.0, 2.0, 0.5, 1.5, 7.4, 100.0, 100.0, 50.0)
+    assert dps == pytest.approx(100.0 / 2.25) and lost == pytest.approx((1 / 2.25 - 1 / 7.4) * 0.5)
+    assert notes[0]["entry"] == models.REPULSION_WAVE_ENTRY
+    # a weak wave on a strong main skill: once a duration, no extra cast charged
+    dps, lost, _ = models.repulsion_wave_model(10.0, 2.0, 0.5, 1.5, 7.4, 100.0, 100.0, 10_000.0)
+    assert dps == pytest.approx(10.0 / 7.4) and lost == 0.0
+    # Ward pays one cast every 10 s: held to it
+    dps, lost, _ = models.repulsion_wave_model(100.0, 2.0, 0.5, 1.5, 7.4, 10.0, 100.0, 50.0)
+    assert dps == pytest.approx(100.0 * 0.1) and lost == 0.0
+    assert models.repulsion_wave_model(100.0, 0.0, 0.5, 1.5, 7.4, 100.0, 100.0, 50.0)[0] == 0.0  # (nothing hits)
+    dps, lost, _ = models.repulsion_wave_model(100.0, 2.0, 0.5, 1.5, 7.4, 100.0, 100.0, 50.0, landings=0.2)
+    assert dps == pytest.approx(20.0) and lost == 0.0  # (a meta / Aura: one a landing)

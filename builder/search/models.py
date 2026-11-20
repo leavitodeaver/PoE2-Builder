@@ -8439,9 +8439,12 @@ PLANTS_A_USE_UPPER = {"Toxic Growth": (5.0, "all 5 Pustules a use, each explosio
 # Accelerated Growth's 1.8 m at its own spot (its own radius, the supported skill's area mods not applied: UNVERIFIED).
 # The explosions reaching a boss of hit radius r (bosses.hit_radius): min(n, max(1, n x ((r + 1.8) / R)^2)), about 1.1
 # on a 0.3 m boss to 1.9 on the Fell Serpent's 1.0 m at the base spread; never below the one a use counted before (the
-# player aims a use at the boss). Rows: one a use and all n. Not modelled (UNVERIFIED): forum thread 3935112 (May 2026)
-# reports Pustules not exploding in boss arenas, with no staff reply and no patch note naming it (checked: grep_notes
-# --history "Toxic Growth" and "Pustule": newest 0.5.0, no fix or bug entry).
+# player aims a use at the boss). Rows: one a use and all n. Not modelled: forum threads 3935112, 3935889 and 3936713
+# (30-31 May 2026) report Pustules not exploding in boss arenas; all three predate 0.5.0b Hotfix 2 (31 May 2026, thread
+# 3937394): "Fixed a bug where some sources of damage like Pyromantic Pact would not deal damage within boss arenas", the
+# only damage-in-arena fix in the notes (checked: grep_notes "boss arena", "within boss arenas", --history "Toxic Growth"
+# and "Pustule", 0.1.0-0.5.5f; a web search 20 Nov found no later report). The note doesn't name Toxic Growth, so "fixed"
+# is MEDIUM-LOW, not checked in game (RESEARCH35 asked for any report after it): counted as working, no zeroing.
 TOXIC_SPREAD, AG_BLAST_RADIUS = 4.5, 1.8
 # base_number_of_projectiles 5 (ToxicGrowthPlayer's Pustules set; patch 0.5.0 "Now fires 5 Pustules"). PoB's ProjectileCount
 # for it is 1 (its number_of_projectiles_override 1, act_dex.lua: one impact counted), so it can't give the count.
@@ -8637,6 +8640,167 @@ def twisted_pact_model(parts: list[dict], fight: float | None, cap: float = CRY_
                   + (f"so {added:+,.1f} DPS added to its one" if in_full else f"not scored here, so {added:,.1f} DPS added")),
         "play": (f"Warcry with Paquate's Pact under every {seconds:.3g} s and its 5 stacks a cry climb to the cap: "
                  f"{stacks:.2f} on average; each stack on its own timer: {own:.2f}.")}]
+
+
+# Eonyr's Thunder's Voltaic Fulmination (GEM26; an UNDERCOUNT: PoB rates the triggered explosion at Speed 0, so 0 DPS).
+# The game (26650308): the lineage support (SupportEonyrsThunderPlayer, patch 0.5.0 "New Lineage Support: Eonyr's
+# Thunder"; no later note names it, checked grep_notes --history "Eonyr" / "Voltaic Fulmination") carries
+# support_electrocute_lineage_triggers_explosion, "Supported Skills Trigger Voltaic Fulmination on killing Electrocuted
+# enemies" (gem_stat_descriptions.csd); the explosion (TriggeredLightningDetonateDeadPlayer: triggered 100%, a 0.3 s
+# cooldown at level 1 falling 0.005 s a level, 5 stored uses, explosion radius 1.5 m +) deals its level's 5-14% of the
+# slain enemy's maximum Life as Lightning (skill_specific_stat_description_mode; PoB's corpseExplosionLifeMultiplier).
+# The boss's own death ends the fight, so only the boss preset's killable adds feed it (bosses.kills_per_second; 0
+# against a lone boss: no source, 0, CLAUDE.md). Explosions a second = min(the kills a second x the share of them
+# Electrocuted by the supported skill, 1 / the cooldown). The share: the boss's Electrocute share from the main skill's
+# hits (immobilised_share; LOW: an add's lower threshold Electrocutes more easily, an UNDERCOUNT side), and only when
+# the support is in the main skill's group (a side group's Electrocute isn't read: 0, said). Each explosion taken to
+# reach the boss (the add dies beside it: LOW, as Herald of Blood's). Each: PoB's AverageHit for the explosion in its
+# own group, which takes the slain enemy's Life as a normal monster's at the enemy level (CalcOffence 2410-2414:
+# monsterLifeTable; the preset's adds' own Life not read: LOW, an UNDERCOUNT for a magic / rare add). LOW.
+VOLTAIC_FULMINATION = "Voltaic Fulmination"
+VOLTAIC_FULMINATION_ENTRY = "model-gem26-voltaic-fulmination"
+
+
+def voltaic_fulmination_model(blast: float, kills: float, electrocuted: float, cooldown: float, how: str = "",
+                              side: bool = False) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Voltaic Fulmination (see above): `blast` one explosion's hit on the boss (PoB's), `kills`
+    adds killed a second, `electrocuted` the share of them Electrocuted by the supported skill, `cooldown` the
+    explosion's (s); `side`: the support is outside the main skill's group (its Electrocute not read: 0, said)."""
+    if blast <= 0:
+        return 0.0, []
+    kills, share = max(number(kills), 0.0), (0.0 if side else min(max(number(electrocuted), 0.0), 1.0))
+    cap = 1 / cooldown if number(cooldown) > 0 else float("inf")
+    rate = min(kills * share, cap)
+    dps, every = rate * blast, min(kills, cap) * blast
+    why = ("its group isn't the main skill's, so its Electrocute isn't read: 0" if side
+           else f"Electrocuted when they die {share:.0%} (the boss's Electrocute share from the main skill's hits, LOW)")
+    return dps, [{
+        "label": "Eonyr's Thunder: Voltaic Fulmination on killing Electrocuted enemies*", "value": f"{dps:,.1f} DPS",
+        "confidence": "LOW", "entry": VOLTAIC_FULMINATION_ENTRY,
+        "basis": (f"PoB gives the explosion no rate (0 DPS). The game: the supported skill's Electrocuted enemies explode "
+                  f"when killed, for a share of their maximum Life as Lightning; {how}; {why}: {rate:.4f} explosions a "
+                  f"second at {blast:,.0f} each (PoB's, a normal monster's Life at the enemy level; each taken to reach "
+                  f"the boss, LOW)"),
+        "play": (f"Voltaic Fulmination fires only when you kill an enemy your Eonyr's Thunder skill Electrocuted: against "
+                 f"a lone boss it deals nothing. Electrocute the boss's adds and kill them beside it: with this fight's "
+                 f"adds {dps:,.1f} DPS; with every add Electrocuted when it dies {every:,.1f}; without Electrocuted "
+                 f"kills: 0.")}]
+
+
+# Shred's Ice Fragments (GEM26; an OVERCOUNT in Full DPS: probe POE2T3584, Boneshatter + a Shred group in Full DPS 26.38 ->
+# 94.42 FullDPS, PoB scoring the Ice Fragments (IceFragmentsPlayer) at a flat 1.4 uses a second (castTime 1 x the build's
+# speed), whether or not Shred is used (here it can't be: no Talisman, its own speed 0) or the boss is Frozen; out of
+# Full DPS PoB adds 0). The game (26650308): Shred (WolfShredPlayer, a Talisman shapeshift attack; its stat
+# frozen_claws_hits_trigger_ballistic_ice_chunks_vs_frozen_enemies, shred.csd): "Triggers Ice Fragments on Hit against
+# Frozen enemies, no more than once per use"; Shred carries never_freeze, so the Freeze comes from the build's other
+# skills. Ice Fragments fires 3 (base_number_of_projectiles 3), and KeywordPopups IceFragment: "If a Skill creates
+# multiple Ice Fragments at the same time, only one of them can damage a single enemy": one fragment hit on the boss a
+# trigger. Patch notes (--history "Shred": newest 0.5.2, a visual fix; 0.5.0 its quality) change none of this. So
+# fragment hits a second = Shred's hits a second on the boss (its use rate x hit chance x its share of the fight,
+# assumptions._skill_hits) x the boss's Freeze uptime (the resolver's, after the consume cut; no Freeze source: 0,
+# CLAUDE.md), each at PoB's own fragment use (its useRates TotalDPS / speed). Counted when Shred is the main skill, or
+# its group is in Full DPS and the score reads Full DPS; PoB's own "Ice Fragments" entry is taken out of Full DPS where
+# Shred's group is in it (Objective.entry_scales 0, as MECHB32's Ice-Tipped Arrows: the name is shared by every Ice
+# Fragments skill, each scored by PoB at the same flat rate). MEDIUM (the trigger and the one-a-burst rule are the
+# game's; the Freeze uptime is the resolver's).
+SHRED = "Shred"
+SHRED_FRAGMENTS_ENTRY = "model-gem26-shred-ice-fragments"
+
+
+def shred_fragments_model(hits: float, frozen: float, fragment: float, pob: float = 0.0, how: str = "",
+                          in_full: bool = False) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Shred's Ice Fragments (see above): `hits` Shred's hits a second on the boss, `frozen` the
+    boss's Freeze uptime, `fragment` one fragment use's damage (PoB's), `pob` PoB's own Full DPS entry for it (taken
+    out where `in_full`)."""
+    hits, frozen, fragment = max(number(hits), 0.0), min(max(number(frozen), 0.0), 1.0), max(number(fragment), 0.0)
+    rate = hits * frozen
+    dps = rate * fragment
+    note = {
+        "label": "Shred: Ice Fragments on hits against a Frozen boss*", "value": f"{dps:,.1f} DPS",
+        "confidence": "MEDIUM", "entry": SHRED_FRAGMENTS_ENTRY,
+        "basis": (f"The game: Shred Triggers Ice Fragments on a hit against a Frozen enemy, no more than once a use, and "
+                  f"only one fragment of a burst damages an enemy: Shred's hits {hits:.2f} a second x the boss Frozen "
+                  f"{frozen:.0%} ({how or 'the resolver, after the consume cut'}) = {rate:.3f} fragment hits a second at "
+                  f"{fragment:,.1f} each (PoB's fragment use)"
+                  + (f"; PoB scored its Ice Fragments at a flat rate in Full DPS ({pob:,.1f} DPS), taken out"
+                     if in_full else "")),
+        "play": (f"Shred makes Ice Fragments only against a Frozen boss: Freeze it with another skill, then Shred it: "
+                 f"with this build's Freeze {dps:,.1f} DPS of fragments; with the boss always Frozen "
+                 f"{hits * fragment:,.1f}; without Freeze: 0.")}
+    if in_full:
+        note["full_dps"] = {ICE_TIPPED_FRAGMENT: 0.0}
+    return dps, [note]
+
+
+# Repulsion's Repulsion Wave (GEM26; an UNDERCOUNT: probe POE2T3584, Boneshatter + Repulsion: PoB rates the wave Speed 0,
+# TotalDPS 0, AverageHit 93.2, in or out of Full DPS). The game (26650308): Repulsion (ActiveSkills repulsion): "Spend
+# Runic Ward to Curse enemies with a Verisium Rune ... Hitting these enemies removes the Curse to Trigger an explosion";
+# the wave (repulsion_shockwave, CurseOfRepulsionShockwavePlayer): "Deals Physical Attack damage in an area around the
+# Cursed target", cooldown 0.5 s, 5 stored uses; repulsion_curse_when_detonated_prevent_curse_for_X_ms 1000 (no new
+# Repulsion curse for 1 s after a detonation); the curse lands curse_delay_duration_ms 1.5 s after the cast (PoB's
+# CurseDelay with the build's modifiers, CurseUse.delay); a cast costs its level's Runic Ward (15-116 at levels 1-20).
+# So each landing is detonated by the main skill's next hit: one wave a landing. Cast by hand (the user's rule: a player
+# who takes it plays to feed it), the fastest cycle is recast after each detonation: max(cast + delay, the 1 s block) +
+# the wait for the main skill's next hit (half its hit interval, random phase: MEDIUM), held to the casts the build's
+# Runic Ward regeneration pays for (WardRegenRecovery / the cast's Ward cost, as models.ward_plan holds the Ward-cost
+# skills). curse_model already charges one cast per curse duration (a normal hand curse's recast); each extra cast takes
+# its cast time from the main skill. The player recasts fast only if a wave is worth more than the main skill's damage
+# in a cast (picked here: the higher net, the slow row in the note), else one wave a duration. Triggered by a meta or
+# an Aura: one wave per curse_landings landing (no extra cast to charge). No hit from the main skill: 0 (its other
+# skills' hits aren't read, an UNDERCOUNT said). Each wave: PoB's AverageHit x hit chance for the wave in Repulsion's
+# group (after the boss's mitigation). MEDIUM-LOW.
+REPULSION = "Repulsion"
+REPULSION_WAVE = "Repulsion Wave"
+REPULSION_WAVE_ENTRY = "model-gem26-repulsion-wave"
+REPULSION_BLOCK = 1.0  # repulsion_curse_when_detonated_prevent_curse_for_X_ms 1000 (GrantedEffectStatSets, 26650308)
+
+
+def repulsion_wave_model(wave: float, hits: float, cast: float, delay: float, duration: float, ward_regen: float,
+                         ward_cost: float, main_dps: float, landings: float | None = None,
+                         how: str = "") -> tuple[float, float, list[dict]]:
+    """(added DPS, the main skill's extra time lost to recasts (a share), notes) for Repulsion Wave (see above): `wave`
+    one wave's hit on the boss, `hits` the main skill's hits a second, `cast` / `delay` / `duration` Repulsion's cast time,
+    curse delay and duration (s), `ward_regen` Runic Ward a second, `ward_cost` Ward a cast, `main_dps` the main skill's
+    damage a second; `landings`: a meta's / Aura's landings a second (not cast by hand), else None."""
+    wave, hits = max(number(wave), 0.0), max(number(hits), 0.0)
+    if wave <= 0:
+        return 0.0, 0.0, []
+    label = "Repulsion: a Repulsion Wave each time your hit removes the curse*"
+    pays = number(ward_regen) / number(ward_cost) if number(ward_cost) > 0 else float("inf")
+    ward = (f"Runic Ward pays {pays:.3f} casts a second ({number(ward_regen):.1f}/s over {number(ward_cost):g} a cast)"
+            if number(ward_cost) > 0 else "no Ward cost read")
+    if hits <= 0:
+        return 0.0, 0.0, [{"label": label, "value": "0 DPS", "confidence": "LOW", "entry": REPULSION_WAVE_ENTRY,
+                           "basis": "the main skill doesn't hit the boss, so nothing detonates the curse (other skills' "
+                                    "hits not read: an UNDERCOUNT)"}]
+    if landings is not None:
+        rate = min(max(number(landings), 0.0), pays)
+        dps = rate * wave
+        return dps, 0.0, [{"label": label, "value": f"{dps:,.1f} DPS", "confidence": "LOW", "entry": REPULSION_WAVE_ENTRY,
+                           "basis": (f"PoB gives the wave no rate (0 DPS). {how}: {rate:.3f} landings a second, each "
+                                     f"detonated by the main skill's next hit; {ward}; {wave:,.1f} a wave")}]
+    cycle = max(cast + delay, REPULSION_BLOCK) + 0.5 / hits
+    slow = min(1 / duration, pays) if duration > 0 else 0.0
+    fast = max(min(1 / cycle, pays), slow)
+    gain_slow = slow * wave
+    lost = (fast - slow) * cast
+    gain_fast = fast * wave - lost * max(number(main_dps), 0.0)
+    pick_fast = gain_fast > gain_slow
+    rate = fast if pick_fast else slow
+    dps = rate * wave
+    basis = (f"PoB gives the wave no rate (0 DPS). Each landing is detonated by the main skill's next hit ({hits:.2f} a "
+             f"second): recast after each wave, a cycle of max({cast:.2f} s cast + {delay:g} s delay, the {REPULSION_BLOCK:g} s "
+             f"block) + {0.5 / hits:.2f} s for the next hit = {cycle:.2f} s; {ward}: {fast:.3f} waves a second, the extra "
+             f"casts taking {lost:.1%} of the main skill's time ({gain_fast:,.1f} DPS net); once a {duration:.3g} s "
+             f"duration (the recast curse_model already charges): {slow:.3f} a second ({gain_slow:,.1f} DPS). "
+             + ("Recast fast" if pick_fast else "Once a duration") + f": {dps:,.1f} DPS at {wave:,.1f} a wave (MEDIUM-LOW)")
+    return dps, (lost if pick_fast else 0.0), [{
+        "label": label, "value": f"{dps:,.1f} DPS", "confidence": "LOW", "entry": REPULSION_WAVE_ENTRY, "basis": basis,
+        "play": (f"Repulsion's wave fires when you hit the cursed boss, which removes the curse: "
+                 + (f"recast it right after each wave (every {cycle:.2f} s, Ward permitting): {gain_fast:,.1f} DPS net of "
+                    f"the casts; once a duration: {gain_slow:,.1f}." if pick_fast else
+                    f"recast it once its duration would end: {gain_slow:,.1f} DPS; recasting after each wave costs more "
+                    f"of the main skill than it gives ({gain_fast:,.1f} net)."))}]
 
 
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------

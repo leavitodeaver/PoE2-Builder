@@ -1,0 +1,68 @@
+# GEM26: gem stats PoB never reads (GEM lane).
+- id: model-gem26-voltaic-fulmination
+  title: "Eonyr's Thunder: Voltaic Fulmination on killing Electrocuted enemies (PoB gives the explosion no rate: 0 DPS)"
+  kind: model
+  model: voltaic_fulmination
+  stats: ["support_electrocute_lineage_triggers_explosion"]
+  skill: [Eonyr's Thunder, Voltaic Fulmination]
+  confidence: LOW
+  notes: >-
+    models.voltaic_fulmination_model + assumptions.voltaic_fulmination (GEM26; an UNDERCOUNT). Game text
+    (gem_stat_descriptions.csd): "Supported Skills Trigger Voltaic Fulmination on killing Electrocuted enemies"; the
+    explosion (TriggeredLightningDetonateDeadPlayer) deals 5-14% (by level) of the slain enemy's maximum Life as
+    Lightning, 0.3 s cooldown at level 1 (-0.005 s a level), 5 stored uses. Explosions a second = min(the boss preset's
+    add kills a second x the boss's Electrocute share from the main skill's hits, 1 / cooldown), each at PoB's
+    AverageHit (a normal monster's Life at the enemy level). 0 against a lone boss (no kills: no source, 0) and when the
+    support sits outside the main skill's group (its Electrocute not read, said). LOW: adds Electrocuted as often as
+    the boss, dying beside it, a normal monster's Life.
+  sources: ["builder/search/models.py (voltaic_fulmination_model)", "builder/search/assumptions.py (voltaic_fulmination)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_dex.lua (SupportEonyrsThunderPlayer, TriggeredLightningDetonateDeadPlayer)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua 2410-2414",
+            "data/game-26650308/files/data/statdescriptions/gem_stat_descriptions.csd"]
+  test_in_game: "Optional: an Electrocuting Lightning build with Eonyr's Thunder against a boss with adds: an explosion should hit the boss when an Electrocuted add dies beside it."
+  status: proposed
+
+- id: model-gem26-shred-ice-fragments
+  title: "Shred: Ice Fragments on hits against a Frozen boss, once a use (PoB: a flat 1.4 a second in Full DPS, an OVERCOUNT; 0 out of it)"
+  kind: model
+  model: shred_fragments
+  stats: ["frozen_claws_hits_trigger_ballistic_ice_chunks_vs_frozen_enemies"]
+  skill: [Shred]
+  confidence: MEDIUM
+  notes: >-
+    models.shred_fragments_model + assumptions.shred_fragments (GEM26). Probe POE2T3584 (scratch/gem26/probe_side.json):
+    Boneshatter + a Shred group in Full DPS: FullDPS 26.38 -> 94.42, PoB scoring Ice Fragments at 1.4 uses a second
+    though Shred can't even be used (no Talisman: its speed 0); out of Full DPS 0. Game text (shred.csd): "Triggers Ice
+    Fragments on Hit against Frozen enemies, no more than once per use"; KeywordPopups IceFragment: only one fragment of
+    a burst damages an enemy. Fragment hits a second = Shred's hits a second x the boss's Freeze uptime (Shred can't
+    Freeze: never_freeze), each at PoB's fragment use; PoB's "Ice Fragments" Full DPS entry taken out where Shred's
+    group is in Full DPS. Counted when Shred is the main skill or its group is in Full DPS while the score reads it.
+  sources: ["builder/search/models.py (shred_fragments_model)", "builder/search/assumptions.py (shred_fragments)",
+            "data/game-26650308/files/data/statdescriptions/specific_skill_stat_descriptions/shred.csd",
+            "data/game-26650308/tables/KeywordPopups.json (IceFragment)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (WolfShredPlayer, IceFragmentsPlayer)",
+            "scratch/gem26/probe_side.json"]
+  test_in_game: "Not needed: the trigger is the game's text; the Freeze uptime is the resolver's."
+  status: proposed
+
+- id: model-gem26-repulsion-wave
+  title: "Repulsion: a Repulsion Wave each time the main skill's hit removes the curse (PoB gives the wave no rate: 0 DPS)"
+  kind: model
+  model: repulsion_wave
+  stats: ["repulsion_curse_when_detonated_prevent_curse_for_X_ms"]
+  skill: [Repulsion, Repulsion Wave]
+  confidence: LOW
+  notes: >-
+    models.repulsion_wave_model + assumptions.repulsion_wave (GEM26; an UNDERCOUNT). Probe POE2T3584
+    (scratch/gem26/probe_side.json): the wave's row Speed 0, TotalDPS 0, AverageHit 93.2 (Boneshatter's build, level
+    90), in or out of Full DPS. Game (ActiveSkills repulsion): "Hitting these enemies removes the Curse to Trigger an
+    explosion"; no new Repulsion curse for 1 s after a detonation (this stat); 1.5 s curse delay; a Runic Ward cost a
+    cast. By hand: recast after each wave, a cycle of max(cast + delay, 1 s) + half the main skill's hit interval,
+    held to the casts Runic Ward regeneration pays for, the extra casts' time taken from the main skill, chosen only
+    when the waves are worth more (else one wave a curse duration, the recast curse_model already charges). A meta or
+    an Aura: one wave a curse_landings landing. No main-skill hit: 0. MEDIUM-LOW.
+  sources: ["builder/search/models.py (repulsion_wave_model)", "builder/search/assumptions.py (repulsion_wave)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (CurseOfRepulsionPlayer, CurseOfRepulsionShockwavePlayer)",
+            "data/game-26650308/tables/ActiveSkills.json (repulsion, repulsion_shockwave)", "scratch/gem26/probe_side.json"]
+  test_in_game: "Optional: curse a boss with Repulsion, hit it, recast after each wave: about one wave per cycle."
+  status: proposed

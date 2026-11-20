@@ -1565,6 +1565,105 @@ def herald_of_thunder(build: Build, main: models.Skill | None) -> tuple[float, l
     return models.herald_of_thunder_model(bolt, hits, kills, up.get("Shock", 0.0), storm, how)
 
 
+def voltaic_fulmination(build: Build, main: models.Skill | None, stats: dict) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Eonyr's Thunder's Voltaic Fulmination (GEM26's models.voltaic_fulmination_model): in the
+    first enabled group holding the explosion, its useRates row (AverageHit, cooldown), the boss preset's add kills
+    (bosses.kills_per_second) and the boss's Electrocute share from the main skill's hits (models.immobilised_share)."""
+    group = next((g for g in build.groups() if g["enabled"]
+                  and any(s["name"] == models.VOLTAIC_FULMINATION for s in g.get("skills") or [])), None)
+    if group is None or main is None:
+        return 0.0, []
+    position = next(i for i, s in enumerate(group["skills"], start=1) if s["name"] == models.VOLTAIC_FULMINATION)
+    row = next(iter(build.call("useRates", indices=[group["index"]], actives=[position])["rates"]), None) or {}
+    blast = (models.number(row.get("AverageHit"))
+             * min(models.number(row.get("HitChance", 100) or 100), 100) / 100)
+    from builder.search import bosses
+    request = getattr(getattr(build, "ctx", None), "request", None)
+    kills, how = bosses.kills_per_second(bosses.of({"_boss": getattr(request, "boss", None)}).name)
+    side = group["index"] != build.call("groups")["mainSocketGroup"]
+    share = 0.0 if side else models.immobilised_share(stats, "Electrocute")[0]
+    return models.voltaic_fulmination_model(blast, kills, share, models.number(row.get("cooldown")), how, side)
+
+
+def shred_fragments(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Shred's Ice Fragments (GEM26's models.shred_fragments_model): in each enabled group holding
+    Shred and its Ice Fragments, Shred's hits a second (_skill_hits), the fragment's useRates row (TotalDPS / speed),
+    PoB's own Full DPS entry, and the boss's Freeze uptime (models.ailment_up_of). Counted when Shred is the main skill
+    or its group is in Full DPS while the score reads Full DPS."""
+    press = getattr(build.objective, "press_scales", None) or {}
+    main_index = build.call("groups")["mainSocketGroup"]
+    full = bool(getattr(build.objective, "full", False))
+    up, up_how = models.ailment_up_of(build)
+    total, notes, entries = 0.0, [], None
+    for group in build.groups():
+        skills = group.get("skills") or []
+        if not group["enabled"] or not any(x["name"] == models.SHRED for x in skills):
+            continue
+        n = next((i for i, x in enumerate(skills, 1) if x["name"] == models.ICE_TIPPED_FRAGMENT), 0)
+        if not n:
+            continue
+        in_full = bool(group.get("fullDPS"))
+        if group["index"] != main_index and not (in_full and full):
+            if in_full:  # (not scored now; PoB's flat entry still out, for when Full DPS is read)
+                build.objective.entry_scales.update({models.ICE_TIPPED_FRAGMENT: 0.0})
+            continue
+        src = next(i for i, x in enumerate(skills, 1) if x["name"] == models.SHRED)
+        hits, _ = _skill_hits(build, group, src, press)
+        row = next(iter(build.call("useRates", indices=[group["index"]], actives=[n])["rates"]), None) or {}
+        speed = models.number(row.get("speed"))
+        fragment = models.number(row.get("TotalDPS")) / speed if speed > 0 else 0.0
+        pob = 0.0
+        if in_full:
+            if entries is None:
+                entries = build.call("stats", fields=["SkillDPS"]).get("SkillDPS") or []
+            pob = sum(models.number(e.get("dps")) * (e.get("count") or 1) for e in entries
+                      if e.get("name") == models.ICE_TIPPED_FRAGMENT)
+        dps, these = models.shred_fragments_model(hits, up.get("Freeze", 0.0), fragment, pob, up_how, in_full)
+        total, notes = total + dps, notes + these
+    return total, notes
+
+
+def repulsion_wave(build: Build, main: models.Skill | None, found: list[models.Skill], curses: list[models.CurseUse],
+                   stats: dict) -> tuple[float, list[dict], list[dict]]:
+    """(added DPS, mods, notes) for Repulsion's Repulsion Wave (GEM26's models.repulsion_wave_model): the first enabled
+    group holding the wave, its useRates rows (the wave's AverageHit x hit chance; Repulsion's Ward cost), Repulsion's
+    curse use (curse_uses: by hand, a meta or an Aura; its duration and delay), its cast time, the main skill's hits a
+    second and damage, and the build's Runic Ward regeneration. A hand recast's extra cast time goes on the main skill
+    as curse_model's does (less Attack and Cast Speed)."""
+    if main is None:
+        return 0.0, [], []
+    group = next((g for g in build.groups() if g["enabled"]
+                  and any(s["name"] == models.REPULSION_WAVE for s in g.get("skills") or [])), None)
+    use = next((u for u in curses if u.name == models.REPULSION), None)
+    if group is None or use is None:
+        return 0.0, [], []
+    skills = group["skills"]
+    pos_wave = next(i for i, s in enumerate(skills, 1) if s["name"] == models.REPULSION_WAVE)
+    pos_curse = next((i for i, s in enumerate(skills, 1) if s["name"] == models.REPULSION), 0)
+    rows = build.call("useRates", indices=[group["index"]] * (2 if pos_curse else 1),
+                      actives=[pos_wave] + ([pos_curse] if pos_curse else []))["rates"]
+    wave_row = rows[0] if rows else {}
+    curse_row = rows[1] if len(rows) > 1 else {}
+    wave = (models.number(wave_row.get("AverageHit"))
+            * min(models.number(wave_row.get("HitChance", 100) or 100), 100) / 100)
+    cast = next((s.cast_time for s in found if s.name == models.REPULSION), 0.0) or 0.5
+    got = build.call("stats", fields=["WardRegenRecovery", "CombinedDPS"])
+    landings = None
+    if not use.by_hand:
+        from builder.search import bosses
+        from builder.search import conditions as conditions_mod
+        full = models.number(stats.get("FullDPS"))
+        fight = conditions_mod.boss_pool(bosses.of(stats).name) / full if full > 0 else None
+        landings, how = models.curse_landings(use, cast, fight)
+    else:
+        how = use.how
+    dps, lost, notes = models.repulsion_wave_model(
+        wave, models.hits_per_second(stats), cast, use.delay, use.duration, models.number(got.get("WardRegenRecovery")),
+        models.number(curse_row.get("wardCost")), models.number(got.get("CombinedDPS")), landings, how)
+    mods = [models.line("1% more Attack and Cast Speed", -100 * lost, skill=main.name)] if lost > 0 else []
+    return dps, mods, notes
+
+
 def fan_the_flames(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Fan the Flames (GEM23's models.fan_the_flames_model): in each enabled group holding the
     triggered explosion, the supported skill's hits a second (_skill_hits), the explosion's row (cooldown, damage a use),
@@ -3288,6 +3387,14 @@ class Assumptions:
         thunder, thunder_notes = herald_of_thunder(build, main)  # (GEM23: its bolts after Shocked kills)
         hand_mods += [models.added_input("HeraldOfThunder", thunder)] if thunder > 0 else []
         hand_notes += thunder_notes
+        fulmination, fulmination_notes = voltaic_fulmination(build, main, stats)  # (GEM26: Electrocuted add kills)
+        hand_mods += [models.added_input("VoltaicFulmination", fulmination)] if fulmination > 0 else []
+        hand_notes += fulmination_notes
+        shred, shred_notes = shred_fragments(build, main)  # (GEM26: on hits vs a Frozen boss; PoB's entry out of Full DPS)
+        hand_mods += [models.added_input("ShredFragments", shred)] if shred > 0 else []
+        hand_notes += shred_notes
+        for note in shred_notes:
+            build.objective.entry_scales.update(note.get("full_dps") or {})
         flames, flames_notes = fan_the_flames(build, main)  # (GEM23: on hits vs an Ignited boss; PoB's entry out of Full DPS)
         hand_mods += [models.added_input("FanTheFlames", flames)] if flames > 0 else []
         hand_notes += flames_notes
@@ -3299,6 +3406,9 @@ class Assumptions:
         dot_mods, dot_notes = support_dots(build, found, curses, stats, stat_notes, [e["text"] for e in source_lines],
                                            forbidden)  # (GEM25: Profane Decay, Twisted Pact: PoB counts them in Full DPS only)
         hand_mods, hand_notes = hand_mods + dot_mods, hand_notes + dot_notes
+        wave, wave_mods, wave_notes = repulsion_wave(build, main, found, curses, stats)  # (GEM26: a wave a detonation)
+        hand_mods += wave_mods + ([models.added_input("RepulsionWave", wave)] if wave > 0 else [])
+        hand_notes += wave_notes
         stance, stance_notes = broken_stance(build, main)  # (GEM5's model; MECH-A's build.dazed_up, 0 until published)
         hand_mods += [models.added_input("BrokenStance", stance)] if stance > 0 else []
         hand_notes += stance_notes
