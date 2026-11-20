@@ -172,3 +172,14 @@ def test_the_infusion_cap_loses_pickups_and_maximum_lines_raise_it():
     assert infusion_found(1.0, 1.0, 0.0, 3) < infusion_found(1.0, 1.0, 0.0, 4) < 1.0
     assert infusion_found(0.25, 1.0) == pytest.approx(0.25, abs=0.002) and infusion_found(4.0, 1.0) > 0.999
     assert infusion_found(0.0, 1.0) == 0.0 and infusion_found(1.0, 0.0) == 1.0
+
+
+def test_adaptations_follow_the_bosss_elemental_hits():
+    """(MECHC45, for COV-A's Reactive Growth entry) expected matching Adaptations = 3 x the element's share of the boss's
+    elemental hits: none against a Physical-only boss, all three against a one-element boss."""
+    from builder.search import boss_hits
+
+    assert boss_hits.adaptations_held("Zarokh, the Temporal") == {"Fire": 0.0, "Cold": 0.0, "Lightning": 0.0}
+    assert boss_hits.adaptations_held("Arbiter of Ash")["Fire"] == pytest.approx(3.0)
+    mixed = boss_hits.adaptations_held("The Raven Trickster")
+    assert sum(mixed.values()) == pytest.approx(3.0) and all(v > 0 for v in mixed.values())

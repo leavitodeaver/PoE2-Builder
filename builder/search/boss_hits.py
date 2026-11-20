@@ -360,6 +360,29 @@ def type_shares(name: str | None = None) -> dict[str, float]:
     return {t: counts.get(t, 0) / total for t in TYPES}
 
 
+ELEMENTS = ("Fire", "Cold", "Lightning")
+ADAPTATIONS_HELD = 3  # (KeywordPopups Adaptation, game 26650308: "you can have 3 Adaptations at a time")
+
+
+def elemental_shares(name: str | None = None) -> dict[str, float]:
+    """(MECHC45, for COV-A's Reactive Growth entry; the manager's 08:30 from COV47) Each element's share of the boss's
+    ELEMENTAL hits (type_shares over Fire / Cold / Lightning only; all 0 for a boss with no elemental hit). LOW, as
+    type_shares: a type's share of the boss's damaging skills, no use rates; a hit of two elements counts for each."""
+    shares = type_shares(name)
+    total = sum(shares[e] for e in ELEMENTS)
+    return {e: (shares[e] / total if total > 0 else 0.0) for e in ELEMENTS}
+
+
+def adaptations_held(name: str | None = None, held: int = ADAPTATIONS_HELD) -> dict[str, float]:
+    """(MECHC45) Expected matching Adaptations when a hit of each element lands: KeywordPopups Adaptation ("gained by
+    taking Elemental Damage from Hits ... take less damage of that Type from subsequent Hits ... 3 Adaptations at a time
+    ... do not have a duration"; Reactive Growth: "Adapt to the highest Elemental Damage Type of each Hit you take"), so
+    the last `held` elemental hits set them: held x the element's share of the boss's elemental hits (elemental_shares;
+    the hits taken as a random order, MEDIUM-LOW; a physical-only boss gives none). For "N% less Damage taken of each
+    Elemental Damage Type per matching Adaptation": N x this, per element."""
+    return {e: held * s for e, s in elemental_shares(name).items()}
+
+
 def config_vars(name: str | None = None) -> dict[str, int]:
     """PoB config inputs for the boss's hits: each type it deals at its average headline hit (mean_hits; MECHC31: was
     one size per type from the boss's multiplier), the others 0. PoB adds the five into one hit; consumers that sum
