@@ -4879,6 +4879,143 @@ function bridge.minionTypes(args)
 	return { types = types }
 end
 
+-- (MECHB49, Spectre / Tamed Companion step 1; MECHB48's plan) PoB fills a Spectre's / Tamed Companion's minion list from
+-- build.spectreList / build.beastList (CalcActiveSkill 924-930, for a granted effect named "Spectre..." / "Companion...")
+-- and picks srcInstance.skillMinion from it (951-953); only a build load, an import (ImportTab 1177-1214) or PoB's library
+-- sets them (checked: every spectreList / beastList use in PoB's Modules and Classes: Build.lua 49-50, 1146-1155,
+-- 1684-1858, ImportTab, CompareEntry), so the tool's Summon Spectre / Tamed Companion gems scored 0 (probe POE2T4728). Every listed Spectre's modList buffs apply whichever is
+-- chosen (CalcPerform 2064), so a list holds only the monsters gems really have (monsterList below).
+local MONSTER_GEMS = { SummonSpectrePlayer = "spectreList", SummonBeastPlayer = "beastList" }
+
+-- The ids every group's Spectre (kind "spectreList") or Tamed Companion ("beastList") gem has chosen, in group order.
+local function monsterList(key)
+	local list, seen = { }, { }
+	for _, group in ipairs(build.skillsTab.socketGroupList) do
+		for _, activeSkill in ipairs(group.displaySkillList or { }) do
+			local granted = activeSkill.activeEffect and activeSkill.activeEffect.grantedEffect
+			local instance = activeSkill.activeEffect and activeSkill.activeEffect.srcInstance
+			local id = instance and instance.skillMinion
+			if granted and MONSTER_GEMS[granted.id] == key and id and data.minions[id] and not seen[id] then
+				seen[id] = true
+				list[#list + 1] = id
+			end
+		end
+	end
+	return list
+end
+
+-- The env's copy of a group's active skill (CalcDefence writes the Spirit reservation there, not on the display list's).
+local function envSkill(env, instance)
+	for _, activeSkill in ipairs(env.player.activeSkillList or { }) do
+		if activeSkill.activeEffect and activeSkill.activeEffect.srcInstance == instance then
+			return activeSkill
+		end
+	end
+end
+
+-- args.index: the group; args.active: the gem's position in it; args.ids: monster ids (data.minions keys, PoB
+-- Data/Spectres.lua); args.skills: also score each of the monster's skills chosen in turn (srcInstance.skillMinionSkill,
+-- as minionSkillHit). Gives { kind, rates = { { id, name, CombinedDPS, TotalDPS, Speed, spiritFlat, spiritPercent,
+-- skills = { { index, name, TotalDPS, Speed, Cooldown } } } } }: each scored with only that monster listed beside the
+-- other gems' own choices, and chosen; the list, the choice, the main group and outputs are put back.
+function bridge.monsterRates(args)
+	local calcs = require("Modules.CalcBase")
+	local group = build.skillsTab.socketGroupList[args.index]
+	local position = tonumber(args.active) or (group and group.mainActiveSkill) or 1
+	local activeSkill = group and group.displaySkillList and group.displaySkillList[position]
+	local instance = activeSkill and activeSkill.activeEffect.srcInstance
+	local key = activeSkill and MONSTER_GEMS[activeSkill.activeEffect.grantedEffect.id]
+	if not instance or not key then
+		return { reason = not instance and "no such skill in the group" or "not a Spectre / Tamed Companion gem" }
+	end
+	local savedList, savedMinion, savedCalcs = build[key], instance.skillMinion, instance.skillMinionCalcs
+	local savedSkill, saved, oldActive = instance.skillMinionSkill, build.mainSocketGroup, group.mainActiveSkill
+	instance.skillMinion = nil
+	local others = monsterList(key)  -- (the other gems' monsters stay listed: their buffs apply in the game too)
+	local rates = { }
+	local function score(id, skill)
+		local list = { id }
+		for _, other in ipairs(others) do
+			if other ~= id then
+				list[#list + 1] = other
+			end
+		end
+		build[key] = list
+		build.mainSocketGroup, group.mainActiveSkill = args.index, position
+		instance.skillMinion, instance.skillMinionCalcs, instance.skillMinionSkill = id, id, skill
+		local ok, env = pcall(calcs.initEnv, build, "CALCULATOR")
+		if ok and env and pcall(calcs.perform, env, true) and env.minion then
+			return env
+		end
+	end
+	for _, id in ipairs(args.ids or { }) do
+		local entry = { id = id, name = data.minions[id] and data.minions[id].name or id }
+		if data.minions[id] then
+			local env = score(id, savedSkill)
+			if env then
+				local output = env.minion.output or { }
+				for _, field in ipairs({ "CombinedDPS", "TotalDPS", "Speed" }) do
+					if type(output[field]) == "number" then
+						entry[field] = jsonNumber(output[field])
+					end
+				end
+				local own = envSkill(env, instance)
+				local skillData = own and own.skillData or { }  -- (CalcDefence 205-213)
+				entry.spiritFlat = type(skillData.spiritReservationFlat) == "number" and skillData.spiritReservationFlat or nil
+				entry.spiritPercent = type(skillData.spiritReservationPercent) == "number"
+					and skillData.spiritReservationPercent or nil
+				local count = #(env.minion.activeSkillList or { })
+				if args.skills and count > 0 then
+					entry.skills = { }
+					for k = 1, count do
+						local env2 = score(id, k)
+						local row = { index = k }
+						if env2 then
+							local out2 = env2.minion.output or { }
+							row.name = env2.minion.mainSkill and env2.minion.mainSkill.activeEffect.grantedEffect.name or nil
+							for _, field in ipairs({ "TotalDPS", "Speed", "Cooldown" }) do
+								if type(out2[field]) == "number" then
+									row[field] = jsonNumber(out2[field])
+								end
+							end
+						end
+						entry.skills[#entry.skills + 1] = row
+					end
+				end
+			else
+				entry.reason = "PoB calculated no minion"
+			end
+		else
+			entry.reason = "no such monster"
+		end
+		rates[#rates + 1] = entry
+	end
+	build[key], instance.skillMinion, instance.skillMinionCalcs = savedList, savedMinion, savedCalcs
+	instance.skillMinionSkill, build.mainSocketGroup, group.mainActiveSkill = savedSkill, saved, oldActive
+	return { kind = key, rates = rates }
+end
+
+-- Keeps one: args.id becomes the gem's monster (args.skill: its skill index, else PoB's first), the list is rebuilt from
+-- every gem's choice (monsterList: no stale monster's buffs), then a recalc. exportXml / loadXml carry both (Build.lua
+-- 1146-1155 / 1190-1193 the list, SkillsTab 357-362 the gem's skillMinion); set_group keeps the gem's choice
+-- (GEM_CHOICES). Gives { ok, list }.
+function bridge.setMonster(args)
+	local group = build.skillsTab.socketGroupList[args.index]
+	local position = tonumber(args.active) or (group and group.mainActiveSkill) or 1
+	local activeSkill = group and group.displaySkillList and group.displaySkillList[position]
+	local instance = activeSkill and activeSkill.activeEffect.srcInstance
+	local key = activeSkill and MONSTER_GEMS[activeSkill.activeEffect.grantedEffect.id]
+	if not instance or not key or (args.id and not data.minions[args.id]) then
+		return { reason = not instance and "no such skill in the group" or not key and "not a Spectre / Tamed Companion gem"
+			or "no such monster" }
+	end
+	instance.skillMinion, instance.skillMinionCalcs = args.id, args.id
+	instance.skillMinionSkill, instance.skillMinionSkillCalcs = tonumber(args.skill), tonumber(args.skill)
+	build[key] = monsterList(key)
+	recalc()
+	return { ok = true, list = build[key] }
+end
+
 -- (MECH72, models.battershout_model) Battershout's explosion (TriggeredBattershoutExplosionPlayer, the support gem's
 -- additional granted effect) has no base damage in PoB: "Physical Area Damage based off of the Broken Armour of the
 -- target" (support_battershout_physical_damage_equal_to_%_of_broken_armour 40, which PoB maps to nothing). Each
