@@ -83,6 +83,15 @@ FILL_FINALIZE_RATIO = 1.5  # (SEARCH34) the open-socket fill's time, at most thi
 # the line grows under the better set. OFF until a gate set measures it: POE2_SEARCH_FILL_IN_SEARCH=1 turns it on
 FILL_IN_SEARCH = os.environ.get("POE2_SEARCH_FILL_IN_SEARCH", "0") == "1"
 FILL_SEARCH_SECONDS = 60.0
+# (SEARCH35; SEARCH34's ranked list, item 3) Steps that rarely pay: over SEARCH34's 210 2b75b gate tasks, persistent
+# (3,344 s, a gain in 9 of 89 runs, summed +0.02), condition sources (3,078 s, 10 of 85, +1.9) and meta gems (2,848 s,
+# 0 of 74) took ~25% of the search's time. With POE2_SEARCH_IDLE_SKIP=1 such a step that gained nothing in its last
+# IDLE_AFTER runs on the line is skipped, except every IDLE_RETRY-th time it comes up and after a kick touched it (LOW,
+# a time-sharing rule, no DPS assumption). OFF until a gate set measures it
+IDLE_SKIP = os.environ.get("POE2_SEARCH_IDLE_SKIP", "0") == "1"
+IDLE_STEPS = ("persistent", "condition sources", "meta gems")
+IDLE_AFTER = 1
+IDLE_RETRY = 3
 FINALIZE_SWEEP_MIN = 20.0  # finalize's polish sweeps supports on Full DPS first when it has this long (finalize_task)
 # How far past its deadline a search may run before its build stops it at the next evaluation (Build.stop_at): a share
 # of the task's time, at least STOP_GRACE_MIN seconds, so a step that watches the deadline itself finishes normally
@@ -178,6 +187,8 @@ class Search:
         self.press_rows: dict[str, dict] = {}  # (Search.press_round: each candidate's useRates row, its trial DPS)
         self.tree_rebuilt = False  # M2: the line's tree rebuild was tried (carried in the line's state)
         self.fill_seen: list[list] = []  # (SEARCH35, socket_fill_round: the main-group sets the line's fill has seen)
+        self.skipped: dict[str, int] = {}  # (IDLE_SKIP: phase -> times this task skipped it, in the task's event)
+        self.idle: dict[str, list[int]] = {}  # (SEARCH35, IDLE_SKIP: phase -> [runs in a row with no gain, times skipped])
         self.current_step: str | None = None
         self.kick_kinds: dict[str, int] = {}
         self.kicked: set[str] = set()  # blocks a kick disturbed, swept fully on the next pass
@@ -402,7 +413,8 @@ class Search:
             "line": {"passes": self.line_passes, "step": self.resume_step, "sweep": self.resume_sweep,
                      "short": self.line_short,
                      "kicked": sorted(self.kicked), "rebuilt": self.gems.rebuilt, "curses_tried": self.gems.curses_tried,
-                     "tree_rebuilt": self.tree_rebuilt, "fill_seen": copy.deepcopy(self.fill_seen)} if PERSIST_LINES else None,
+                     "tree_rebuilt": self.tree_rebuilt, "fill_seen": copy.deepcopy(self.fill_seen),
+                     "idle": copy.deepcopy(self.idle)} if PERSIST_LINES else None,
         }
 
     # The objective's per-build factors (not its requirement weights: an escalation raises those for the rest of the
@@ -476,6 +488,7 @@ class Search:
             self.gems.curses_tried = bool(line.get("curses_tried"))  # (the seeded curse trial: once per line, SEARCH29)
             self.tree_rebuilt = bool(line.get("tree_rebuilt"))
             self.fill_seen = [list(k) for k in line.get("fill_seen") or []]
+            self.idle = {k: list(v) for k, v in (line.get("idle") or {}).items()}
         self.gear.sync_flasks()
 
     SETTLE_ROUNDS = 10  # (settle_still: the boss's Freeze on you settles in 3-4, MECHC40's probe POE2T3739)
@@ -1160,11 +1173,31 @@ class Search:
                 pass  # a meta kick took the group out: the meta round re-chooses it now, not at the next sweep
             elif phase in ("ascendancy", "condition sources", "meta gems", "meta spells", "totems", "marks", "mirages", "roar") and not sweep:
                 continue
-            improved = self.step(phase, fn, *args) or improved
+            if self.idle_skip(phase):
+                continue
+            gained = self.step(phase, fn, *args)
+            if IDLE_SKIP and phase in IDLE_STEPS:
+                entry = self.idle.setdefault(phase, [0, 0])
+                entry[0] = 0 if gained else entry[0] + 1
+            improved = gained or improved
         self.current_step = None
         self.kicked.clear()
         self.passes_done += finished
         return improved
+
+    def idle_skip(self, phase: str) -> bool:
+        """(SEARCH35, IDLE_SKIP) Whether this pass skips a step that gained nothing in its last IDLE_AFTER runs on the
+        line: skipped IDLE_RETRY - 1 times, then run again; a kick that touched it runs it now."""
+        if not IDLE_SKIP or phase not in IDLE_STEPS:
+            return False
+        entry = self.idle.setdefault(phase, [0, 0])
+        if entry[0] < IDLE_AFTER or phase in self.kicked or ("meta" in self.kicked and phase == "meta gems"):
+            return False
+        entry[1] += 1
+        if entry[1] % IDLE_RETRY == 0:
+            return False
+        self.skipped[phase] = self.skipped.get(phase, 0) + 1
+        return True
 
     def socket_fill_round(self, deadline: float) -> bool:
         """(SEARCH35, FILL_IN_SEARCH) The open-socket fill (Gems.fill_open, the main group) inside the search, once per
@@ -1514,7 +1547,7 @@ class Search:
             "deficits": [{"label": label, "amount": amount, "hard": hard}
                          for label, amount, hard in build.objective.deficits(build.stats)],
             "evals": build.evals, "commits": build.commits, "seconds": clock.now() - build.started,
-            "kicks": self.kicks, "kicks_kept": self.kicks_kept, "kick_kinds": dict(self.kick_kinds),
+            "kicks": self.kicks, "kicks_kept": self.kicks_kept, "kick_kinds": dict(self.kick_kinds), "skipped": dict(self.skipped),
             "passes": self.passes, "passes_done": self.passes_done, "problems": self.problems, "reverts": build.reverts,
             "restore_drift": restore_drift(build), "over_budget": build.over_budget, "gear": self.gear_census(),
             "line": {"passes": self.line_passes, "resume": self.resume_step},  # (M1: the line's pass, where it goes on)

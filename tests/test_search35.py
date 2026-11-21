@@ -200,3 +200,29 @@ def test_the_socket_fill_runs_inside_the_search_once_per_main_group_set(monkeypa
     groups["main"] = {"index": 1, "enabled": True, "gems": [{"name": "Spark"}, {"name": "Elemental Focus"}]}
     open_["n"] = 3
     assert search.socket_fill_round(float("inf")) is False and len(fills) == 1  # (off by default)
+
+
+def test_a_step_that_keeps_finding_nothing_is_skipped_on_the_line_unless_kicked(monkeypatch):
+    """SEARCH35 (SEARCH34's ranked list, item 3): with POE2_SEARCH_IDLE_SKIP on, persistent / condition sources / meta
+    gems that gained nothing in its last run on the line is skipped, run again every IDLE_RETRY-th time and after a kick;
+    a gain resets it; other steps never skip."""
+    from builder.search import inner
+
+    monkeypatch.setattr(inner, "IDLE_SKIP", True)
+    search = inner.Search.__new__(inner.Search)
+    search.idle, search.skipped, search.kicked = {}, {}, set()
+    assert not search.idle_skip("persistent")  # (never run yet)
+    search.idle["persistent"] = [1, 0]  # (its last run gained nothing)
+    assert [search.idle_skip("persistent") for _ in range(4)] == [True, True, False, True]
+    search.kicked.add("persistent")
+    assert not search.idle_skip("persistent")
+    search.kicked.clear()
+    search.idle["meta gems"] = [2, 0]
+    search.kicked.add("meta")
+    assert not search.idle_skip("meta gems")  # (a meta kick took the group out: re-chosen now)
+    search.idle["gear"] = [5, 0]
+    assert not search.idle_skip("gear")
+    assert search.skipped == {"persistent": 3}
+    monkeypatch.setattr(inner, "IDLE_SKIP", False)
+    search.idle["persistent"] = [3, 0]
+    assert not search.idle_skip("persistent")  # (off by default)
