@@ -191,3 +191,60 @@
             "scratch/gem31/inhibitor_plan.md (GEM31)"]
   test_in_game: "Not needed."
   status: proposed
+
+# GEM29's ranking rows (scratch/gem28/gem_rows_5096.txt), the top three still open after GEM30 (GEM31 turn 3; the
+# manager 13:56: DPS-moving rows first). Each counts nothing new; each says why, with its evidence.
+
+- id: gem-gem31-crossbow-recoil-not-counted
+  title: "Crossbow recoil (the burst's stacking spread and its 0.3-0.5 s lapse): not counted, labelled (RESEARCH40 R40-14)"
+  kind: gem_stat
+  match: '^crossbow_barrage_(debuff_duration_ms|recoil_per_shot|total_recoil_buff_count)$'
+  replace: []
+  stats: ["crossbow_barrage_debuff_duration_ms", "crossbow_barrage_recoil_per_shot", "crossbow_barrage_total_recoil_buff_count"]
+  confidence: LOW
+  notes: >-
+    RESEARCH40 R40-14 (research/crossbow-recoil-cascade-starfall-r40.md): the recoil stats have no description text;
+    the best reading is a per-shot stacking spread of a burst's later bolts (8-10 stacks, lapsing after 0.3 s, Ice Shards
+    0.5 s), and no obtainable modifier changes them (checked there: the stats in Mods, PassiveSkills, non-crossbow
+    GrantedEffectStatSets, SoulCoreStats, quality: 0 rows). Crossbow bolts in a burst can each hit one target
+    (KeywordPopups Crossbow; the sequence model), so a wider spread could only make later bolts miss a small boss: an
+    OVERCOUNT at most, of a size no source gives (UNVERIFIED). PoB's numbers are left as they are; the row's lane
+    (MECH-B, R40-14's "keep uncounted, labelled") owns any model.
+  sources: ["C:/PROJECTS/PoE2 Builder/scratch/manager/research/crossbow-recoil-cascade-starfall-r40.md (R40-14)"]
+  test_in_game: "A long Rapid Shot burst at a small target: do the later bolts miss?"
+  status: proposed
+
+- id: gem-gem31-projectiles-fire-at-ground
+  title: "Projectiles fired at the targeted ground (grenade / mortar-style skills): aimed at the boss they land on it"
+  kind: gem_stat
+  match: '^projectiles_fire_at_ground$'
+  replace: []
+  stats: ["projectiles_fire_at_ground"]
+  confidence: LOW
+  notes: >-
+    No description text (GEM29's triage). The flag sits on skills that lob their projectiles at the target location
+    (Bonestorm, Escape Shot, Explosive Shot, Gas Arrow, Glacial Bolt, Ice Shards, Molten Blast, Oil Barrage, the Toxic
+    grenade and others): read as where the projectile lands, not how much it deals. Against one boss the player aims at
+    it, so its hit or explosion lands there: PoB's number stands (UNVERIFIED reading, LOW; no number is zeroed or
+    dropped). Ice Shards' one shard per bolt at the ground is read by models.py's crossbow sequence note (MECH-B).
+  sources: ["scratch/gem29/triage_0_45.txt (#1)", "builder/search/models.py (Ice Shards' crossbow note)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: gem-gem31-secondary-skill-flag
+  title: "secondary_skill_triggered_by_primary_skill_of_gem: a flag naming a gem's second skill; its own model counts it"
+  kind: gem_stat
+  match: '^secondary_skill_triggered_by_primary_skill_of_gem$'
+  skill: [Ice Fragments, Magma Spray, "Predator's Mark", Summon Wolf, Volcanic Steps]
+  replace: []
+  stats: ["secondary_skill_triggered_by_primary_skill_of_gem"]
+  confidence: datamined
+  notes: >-
+    A flag on the second skill a gem grants, triggered by the gem's first (Moonbeam, Ice Fragments, Magma Spray,
+    Predator's Mark, Summon Wolf, Volcanic Steps; Moonbeam's and Chayula's Will's are in their own model entries). It adds no number itself; each such skill's damage is
+    counted (or not) by its own reading: Moonbeam (model-gem31-moonbeam), Magma Spray (model-gem26-magma-spray), Chayula's
+    Will (model-mechb42-chayulas-will), Ice Fragments (Shred's / Ice-Tipped Arrows' fragment notes), Volcanic Steps
+    (MECH-B's shockwave readers); Predator's Mark and Summon Wolf are a Mark and a minion PoB handles as such.
+  sources: ["scratch/gem29/triage_0_45.txt (#2)"]
+  test_in_game: "Not needed."
+  status: proposed
