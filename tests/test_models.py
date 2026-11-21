@@ -6958,3 +6958,17 @@ def test_a_flask_that_cannot_be_used_manually_runs_at_its_trigger_only():
     timed = replace(rich, perfect_main_rate=0.05)  # (one perfect release every 20 s: 4 s of 20)
     assert uptime(life, timed, "Life", raw) == pytest.approx(0.2)
     assert uses_per_second(life, timed, raw, "Life")[0] <= 0.05 + 1e-9
+
+
+def test_reveries_constant_life_flask_never_reaches_your_minions():
+    """MECHC49 (an OVERCOUNT for Reverie + Umbilicus Immortalis): Reverie's stat
+    non_unique_life_flasks_always_applied_with_no_instant_recovery_only_to_you keeps its constant Life flask on you
+    alone, and its "Cannot use Life Flasks" leaves no other use, so flasks.minion_uptime is 0 under it (flasks.uptime
+    reads 1.0 there); elsewhere the flask's own uptime."""
+    from builder.search.flasks import Charges, minion_uptime, uptime
+
+    info = {"kind": "Flask", "unique": False, "duration": 4.0, "chargesUsed": 10, "chargesMax": 60}
+    reverie = Charges(life_flask_constant=True, life_flask_unusable=True)
+    assert uptime(info, reverie, "Life") == 1.0 and minion_uptime(info, reverie) == 0.0
+    plain = Charges(flask=1.0)
+    assert minion_uptime(info, plain) == pytest.approx(uptime(info, plain, "Life"))

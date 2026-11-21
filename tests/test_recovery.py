@@ -3307,3 +3307,20 @@ def test_overflow_rows_climb_at_the_source_less_the_drains_to_one_and_a_half_tim
     short = overflow_row("Life", "Life Leech", 100.0, 150.0, 2000.0, "test")
     assert short["value"].startswith("none held") and not short["play"]
     assert overflow_row("Life", "Life Leech", 0.0, 0.0, 2000.0, "test")["value"].startswith("none")
+
+
+def test_chaos_prevented_recoups_as_life_and_mana_during_the_charms_effect():
+    """MECHC49 (COV48 row 10.1, an UNDERCOUNT: PoB leaves leftover text): Forsaken Bangle's "50% of Chaos damage you
+    prevent when Hit Recouped as Life and Mana during effect": N% x the Chaos prevented a second x the charm's uptime,
+    the same amount to Life and to Mana; never up: 0, said."""
+    line = "50% of Chaos damage you prevent when Hit Recouped as Life and Mana during effect"
+    assert recovery.CHAOS_PREVENTED in recovery.HIT_LINES and recovery.CHAOS_PREVENTED.match(line)
+    income = Income()
+    recovery.hit_income(income, {"Life": 2000}, [line], chaos_recoup=[(50.0, 0.4, "Forsaken Bangle")],
+                        chaos_prevented=300.0, chaos_how="test")
+    assert income.rates["LifePreventedRecoup"] == pytest.approx(0.5 * 300 * 0.4)
+    assert income.rates["ManaOnEventRecovery"] == pytest.approx(0.5 * 300 * 0.4)
+    down = Income()
+    recovery.hit_income(down, {"Life": 2000}, [line], chaos_recoup=[(50.0, 0.0, "Forsaken Bangle")],
+                        chaos_prevented=300.0, chaos_how="test")
+    assert down.pool("Life") == down.pool("Mana") == 0 and "never up" in " ".join(down.parts)

@@ -186,8 +186,21 @@ FLASK_RECOUP = re.compile(rf"^{NUM}% of Damage taken during effect Recouped as L
 # UNVERIFIED), at the boss's blocked hits a second (the benefit pace, as objective.on_block). Mana recovery-rate
 # modifiers not applied (UNVERIFIED, lower).
 BLOCK_RECOUP_MANA = re.compile(rf"^(?:{NUM}% of )?damage blocked is recouped as mana$", re.I)
+# Chaos damage prevented Recouped during a charm's effect (MECHC49; COV48 row 10.1, an UNDERCOUNT: PoB leaves leftover
+# text, ModCache 4645, so applies none). Forsaken Bangle (Amethyst Charm, "Used when you take Chaos damage from a Hit"):
+# "50% of Chaos damage you prevent when Hit Recouped as Life and Mana during effect", stat
+# charm_x%_of_chaos_damage_from_hits_prevented_recouped_as_life_and_mana_during_effect (checked: Stats ids holding chaos
+# with prevent / recoup over Mods, PassiveSkills, SoulCoreStats and GrantedEffectStatSets, game 26650308: one Mods row,
+# UniqueCharmRecoupChaosDamagePrevented1; the non-charm twin x%_of_chaos_damage_from_hits_prevented_recouped_as_life_and_
+# mana has no user; second source PoB's Uniques/flask.lua 124). The Chaos you prevent per hit: PoB's ChaosEnemyDamage (the hit before your mitigation) less ChaosTakenHit
+# (after it), at Deflection's expected share and the boss's Chaos share of hits, at its landed hits (the gain pace, as the
+# Physical line); what Deflection itself prevents isn't counted (UNVERIFIED whether it is "prevented": the lower
+# reading). x the charm's uptime (flasks.uptime with its trigger); the same amount to Life and to Mana. Recovery-rate
+# modifiers not applied (UNVERIFIED).
+CHAOS_PREVENTED = re.compile(rf"^{NUM}% of chaos damage you prevent when hit recouped as life and mana during effect$",
+                             re.I)
 HIT_LINES = (MISSING_BEFORE_HIT, ARMOUR_ON_BLOCK, CAST_REGEN, CAST_LEECH, STUNNED_LIFE, STUNNED_ES, PREVENTED_ES,
-             PREVENTED_LIFE, PREVENTED_LIFE_TRIBUTE, FLASK_RECOUP, BLOCK_RECOUP_MANA)
+             PREVENTED_LIFE, PREVENTED_LIFE_TRIBUTE, FLASK_RECOUP, BLOCK_RECOUP_MANA, CHAOS_PREVENTED)
 # The game's Light Stun rule (KeywordPopups LightStun, build 26476662): "up to 100% base chance for Hits that deal 100%
 # of the target's maximum Life" (StunThreshold: "A Hit that deals damage equal to or greater than your Stun Threshold
 # is guaranteed to Stun you, and the chance scales down linearly"), "Chances lower than 15% are treated as 0%" (the
@@ -474,7 +487,9 @@ def hit_income(income: Income, stats: dict, texts: list[str], *, landed: float =
                blocked: float = 0.0, casts: float = 0.0, cast_how: str = "", stunned: float = 0.0,
                stunned_how: str = "", refill: float = 0.0, refill_how: str = "", prevented: float = 0.0,
                prevented_how: str = "", power: float = 0.0, power_how: str = "", taken: float = 0.0,
-               flask_recoup: list[tuple[float, float, str]] | None = None, blocked_hit: float = 0.0) -> None:
+               flask_recoup: list[tuple[float, float, str]] | None = None, blocked_hit: float = 0.0,
+               chaos_recoup: list[tuple[float, float, str]] | None = None, chaos_prevented: float = 0.0,
+               chaos_how: str = "") -> None:
     """Life on the boss's hits, your Blocks and your casts (MECHC14, A27-32), each at the build's own rate: `landed` boss
     hits a second and the Life each takes (`life_per_hit`), `blocked` boss hits a second, `casts` Spells cast a second.
     "Recover N% of Missing Life before being Hit" (MECHC16, AUDIT28 A28-1: before, the last hit's Life alone, an OVERCOUNT
@@ -550,6 +565,16 @@ def hit_income(income: Income, stats: dict, texts: list[str], *, landed: float =
                        "not applied: UNVERIFIED)")
         else:
             income.parts.append(f"{pct:g}% of damage Blocked Recouped as Mana: 0, the build Blocks none of the boss's hits")
+    for pct, up, what in chaos_recoup or []:  # (MECHC49: CHAOS_PREVENTED's note)
+        amount = pct / 100 * chaos_prevented * up
+        if amount > 0:
+            how = (f"{pct:g}% of Chaos damage prevented Recouped during {what}'s effect x {chaos_prevented:,.1f} Chaos "
+                   f"prevented/s ({chaos_how}) x the charm up {up:.0%} of the fight")
+            income.add("LifePreventedRecoup", amount, how + " (as Life)")
+            income.add("ManaOnEventRecovery", amount, how + " (as Mana)")
+        else:
+            income.parts.append(f"{pct:g}% of Chaos damage prevented Recouped as Life and Mana during {what}'s effect: 0, "
+                                + ("the charm is never up" if up <= 0 else chaos_how or "no Chaos prevented"))
     for pct, up, what in flask_recoup or []:  # (MECHC48: FLASK_RECOUP's note)
         if taken > 0 and up > 0:
             income.add("LifeOnEventRecovery", pct / 100 * taken * up,

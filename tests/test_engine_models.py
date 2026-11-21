@@ -4156,3 +4156,37 @@ def test_blood_of_the_warriors_recoup_reads_its_own_uptime_and_the_bosss_damage(
     income = recovery.Income()
     recovery.hit_income(income, stats, [raw.split(chr(10))[-1]], **rates)
     assert income.rates["LifeOnEventRecovery"] >= 0.25 * rates["taken"] * rates["flask_recoup"][0][1] - 1e-6
+
+
+def test_forsaken_bangles_chaos_recoup_reads_the_prevented_chaos_and_the_charms_uptime(engine):
+    """MECHC49 (COV48 row 10.1, an UNDERCOUNT before): Forsaken Bangle in a usable charm slot hands recovery.hit_income
+    its "50% of Chaos damage you prevent when Hit Recouped as Life and Mana during effect" at the charm's uptime and the
+    Chaos prevented a second (Assumptions.hit_rates: ChaosEnemyDamage less ChaosTakenHit, the boss's Chaos share)."""
+    from types import SimpleNamespace
+
+    from builder.search import recovery
+    from builder.search.assumptions import Assumptions
+
+    search = spark_with(engine, [])
+    build = search.build
+    belt = chr(10).join(["Rarity: Rare", "Test Belt", "Utility Belt", "Item Level: 82", "Implicits: 1",
+                         "Has 2 Charm Slot", "Charms gain 4 charges per Second"])
+    build.call("equip", slot="Belt", raw=belt, fields=[])
+    raw = chr(10).join(["Rarity: Unique", "Forsaken Bangle", "Amethyst Charm", "Implicits: 1",
+                        "Used when you take Chaos damage from a Hit", "20% increased Duration",
+                        "50% of Chaos damage you prevent when Hit Recouped as Life and Mana during effect"])
+    build.call("equip", slot="Charm 1", raw=raw, active=True, fields=[])
+    build.equipped["Charm 1"] = SimpleNamespace(name="Forsaken Bangle", raw=raw)
+    stats = build.call("stats", fields=["Life", "Speed"])
+    rates = Assumptions(build).hit_rates("Spark", stats)
+    from builder.search import flasks
+    assert "chaos_recoup" in rates and rates["chaos_recoup"][0][0] == 50.0 and rates["chaos_prevented"] > 0
+    # (the worst case: a gain reads the lowest real boss, Arbiter of Ash, who deals no Chaos, A29-1's rule, so the
+    # charm's trigger never fires and it is never up)
+    assert flasks.trigger_rate(raw.lower(), flasks.Charges.of(build))[0] == 0.0 and rates["chaos_recoup"][0][1] == 0.0
+    income = recovery.Income()
+    recovery.hit_income(income, stats, [raw.split(chr(10))[-1]], **rates)
+    expected = 0.5 * rates["chaos_prevented"] * rates["chaos_recoup"][0][1]
+    assert income.rates["LifePreventedRecoup"] == pytest.approx(expected)
+    assert income.rates["ManaOnEventRecovery"] >= expected - 1e-6
+    assert "never up" in " ".join(income.parts)

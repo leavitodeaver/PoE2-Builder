@@ -7034,6 +7034,23 @@ class Assumptions:
         if recoups:
             out["taken"] = sum(taken.values())
             out["flask_recoup"] = recoups
+        # (MECHC49: recovery.CHAOS_PREVENTED's note) the usable charms carrying it, each at its own uptime
+        gain = flasks.Charges.of(build)
+        usable = [o for slot in flasks.CHARM_SLOTS[:max(gain.charm_limit, 0)] if (o := equipped.get(slot)) is not None]
+        chaos = [(o, m) for o in usable for t in str(o.raw or "").split("\n")
+                 if (m := recovery.CHAOS_PREVENTED.match(t.strip()))]
+        if chaos:
+            more = build.call("stats", fields=["ChaosEnemyDamage", "ChaosTakenHit"])
+            _, _, deflect = objective.boss_taken(hit)
+            share = boss_hits.type_shares(boss_hits.boss_name(hit)).get("Chaos", 0.0)
+            raw, kept = number(more.get("ChaosEnemyDamage")), max(number(more.get("ChaosTakenHit")), 0.0)
+            per = max(raw - kept, 0.0) * deflect
+            out["chaos_prevented"] = per * share * landed
+            out["chaos_how"] = (f"the boss's {raw:,.0f} Chaos a hit less the {kept:,.0f} you take, x {share:.0%} of its hits "
+                                f"Chaos x {landed:.3f} landing/s; what Deflection prevents not counted (UNVERIFIED)")
+            infos = build.call("flaskData", raws=[o.raw for o, _ in chaos])["results"]
+            out["chaos_recoup"] = [(float(m.group(1)), flasks.uptime(info or {}, gain, None, o.raw),
+                                    str(getattr(o, "name", "") or "the charm")) for (o, m), info in zip(chaos, infos)]
         texts = [line["text"].strip() for line in build.call("sourceLines")["lines"]]
         if any(p.search(t) for p in (recovery.PREVENTED_ES, recovery.PREVENTED_LIFE, recovery.PREVENTED_LIFE_TRIBUTE)
                for t in texts):

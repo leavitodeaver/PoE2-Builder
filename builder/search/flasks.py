@@ -1137,6 +1137,20 @@ def reverie_constant(info: dict, gain: Charges, pool: str | None) -> bool:
     return pool == "Life" and gain.life_flask_constant and info.get("kind") == "Flask" and not info.get("unique")
 
 
+# The Life flask's effect on your minions (MECHC49; an OVERCOUNT for Reverie + Umbilicus Immortalis): Reverie's three
+# Life flask lines are one game stat, non_unique_life_flasks_always_applied_with_no_instant_recovery_only_to_you (Mods
+# UniqueLifeRegenerationFromLifeFlaskRecovery1, game 26650308; 0.5.0's note: "Recovery from Life Flasks cannot be
+# applied to anything other than you"), so the constant effect reaches you alone, and its "Cannot use Life Flasks"
+# leaves no other use: under Reverie no Life flask affects your minions. Elsewhere the flask's own uptime. (For MECH-B:
+# assumptions.minion_deathless reads flasks.uptime, 1.0 under Reverie, so its minions never died; this is the share.)
+def minion_uptime(info: dict, gain: Charges, raw: str = "") -> float:
+    """Share of the fight the Life flask's effect is on your minions ("Your Life Flask also applies to your Minions",
+    "Minions cannot Die while affected by a Life Flask"): 0 under Reverie (the note above), else uptime."""
+    if gain.life_flask_constant or gain.life_flask_unusable:
+        return 0.0
+    return uptime(info, gain, "Life", raw)
+
+
 def thrown(gain: Charges, pool: str | None) -> bool:
     """Whether a Concoction main skill throws away the `pool` flask's charges (MECHC3): its throw rate is set from every charge
     the flask gains (Assumptions.flask_main), so none are left for the flask's own use: no recovery, no effect uptime.
