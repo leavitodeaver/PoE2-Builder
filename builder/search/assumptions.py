@@ -4008,6 +4008,9 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + meteor_mods, hand_notes + meteor_notes
         side_meteors, side_meteor_notes = self.side_meteors(skills, group, forbidden)  # (MECHB47: a side group's too)
         hand_notes = hand_notes + side_meteor_notes
+        hand_notes = hand_notes + self.side_sparks(skills, main, forbidden)  # (MECHB49: R36-5's cap on a side Spark)
+        hand_notes = hand_notes + self.side_forge_hammer(main, name or "", main_types, number(stats.get("Speed")),
+                                                         [e["text"] for e in source_lines], bosses.hit_radius(stats)[0])
         if main is not None and group and main.name == models.FIRESTORM:  # (GEM16: its Infusions' bolts and bonuses)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             duration = number(build.call("stats", fields=["Duration"]).get("Duration"))
@@ -4092,7 +4095,7 @@ class Assumptions:
             fis_mods, fis_notes = models.fissure_count_model(
                 main, main.stat_set, sets, got.get("levelStats") or {}, got.get("supportStats") or {},
                 [e["text"] for e in source_lines], bosses.hit_radius(stats)[0], det_split, forbidden,
-                previous=self.mods)
+                previous=self.mods, rage_spent=getattr(build, "rage_spent", None))  # (MECHB49: Molten Crash's Rage)
             hand_mods, hand_notes = hand_mods + fis_mods, hand_notes + fis_notes
         if main is not None and main.name == models.EYE:  # (GEM19: its first hit a use, 900% more, never read by PoB)
             eye_stats = build.call("stats", fields=["AverageDamage", "Speed", "TotalDPS"])
@@ -4261,6 +4264,18 @@ class Assumptions:
         # separately computed damage (Melting Maelstrom's pulses, Eternal Hunt: models.added_input); what-ifs get their own
         # sum from the bridge's LedgerAddedDPS; set_added (SEARCH14) keeps each source for the result's list
         thorn, thorn_notes = thorns(build, main, stats, [e["text"] for e in source_lines])  # (MECHB22)
+        reflect, reflect_notes = 0.0, []
+        if any(models.MELEE_REFLECT.match(e["text"].strip()) for e in source_lines):  # (MECHB49: rows 12.9 / 7.0)
+            from builder.search import boss_hits as boss_hits_mod
+
+            got = {**stats, **build.call("stats", fields=list(dict.fromkeys(
+                models.MELEE_REFLECT_FIELDS + list(models.MODEL_FIELDS))))}
+            boss_name = bosses.of(got).name
+            reflect, reflect_notes = models.melee_reflect_model(
+                [e["text"] for e in source_lines], got, boss_name, bosses.benefit_skill_time(got),
+                boss_hits_mod.land_share(got), number(bosses.defence_vars(boss_name)["enemyArmour"]))
+        hand_mods += [models.added_input("MeleeReflect", reflect)] if reflect > 0 else []
+        hand_notes += reflect_notes
         hand_mods += [models.added_input("Thorns", thorn)] if thorn > 0 else []
         hand_notes += thorn_notes
         tempering, tempering_mods, tempering_notes = runic_tempering(build, main, stats, [e["text"] for e in source_lines])
@@ -4511,7 +4526,7 @@ class Assumptions:
                                    "Runic Tempering": tempering, "Thorns": thorn, "Riven Armour": riven,
                                    "Elemental Discharge": discharge, "Broken Stance": stance, "Grisly Pyre": pyre,
                                    "Battershout": shout, "Crackling Palm": palm, "Blood Hunt": blood, "Ancestral Spirits": spirits,
-                                   "Inevitable Agony": agony, "Impale": impaled + impaled_others, "Infernal Legion": legion,
+                                   "Inevitable Agony": agony, "Melee reflect": reflect, "Impale": impaled + impaled_others, "Infernal Legion": legion,
                                    "Briarpatch": briar, "Ice-Tipped Fragments": frost, "Oil Ground": oil,
                                    "Ignited Ground's Ignite": burn, "Djinn Commands": djinn,
                                    "Meteors (side group)": side_meteors,
@@ -4527,6 +4542,15 @@ class Assumptions:
         mods += energy_mods + expression_mods + ward_mods + stat_mods + harmony_mods + ring_mods + hand_mods + exposure_flags
         notes += energy_notes + expression_notes + ward_notes + stat_notes + harmony_notes + ring_notes + hand_notes + pulse_notes
         mods, corpse_notes = models.corpse_model(found, mods, stats, main)  # last: it overrides the trigger rates above (MECHB11: the adds' corpses)
+        if any(models.DECOMPOSE_TRAVEL.match(e["text"].strip()) for e in source_lines):  # (MECHB49: Corpsewade, a row)
+            from builder.search import bosses as bosses_mod
+
+            every = bosses_mod.benefit_skill_time(build.call("stats", fields=list(dict.fromkeys(
+                ["enemySkillTime", *models.MODEL_FIELDS]))))
+            supply = next((number(n.get("value")) for n in corpse_notes
+                           if str(n.get("label")).startswith("Corpses per second")), 0.0)
+            corpse_notes = corpse_notes + models.decompose_travel_note(
+                [e["text"] for e in source_lines], supply, every, VOLCANIC_DODGE_METRES)
         # (MECHB31, MB-2: "if you've Triggered a Skill Recently" from every trigger rate handed PoB above, and a triggered
         # main skill's own rate)
         triggered = {m["skill"]: models.number(m.get("value")) for m in mods
@@ -8378,6 +8402,99 @@ class Assumptions:
                                     "against PoB's set is added to Full DPS (a gain) or cut from that group's entry: "
                                     + "; ".join(parts))})
         return added, notes
+
+    def side_sparks(self, skills: list[dict], main: models.Skill | None, forbidden: set[str]) -> list[dict]:
+        """(MECHB49; the manager 19:55 from GEM28) A Spark in a Full DPS group other than the main skill's: PoB scores it
+        one hit a cast (models.group_exception_model's note) and the main-skill model never reached it (an UNDERCOUNT).
+        The same model on the side group's own set (setRates: its ProjectileCount and Duration), R36-5's 3-4 hits a cast
+        (LOW), as its Full DPS entry x hits (Objective.entry_scales, which the press share multiplies). With Spark the main
+        skill its SkillName mod already reaches every Spark group, so nothing more is done here."""
+        build = self.build
+        if getattr(build, "objective", None) is None or not getattr(build.objective, "full", False):
+            return []
+        if main is not None and main.name == models.SPARK:
+            return []
+        off = pob_disabled(build)
+        here = [(g, n) for g in build.groups() if g.get("enabled", True) and g.get("fullDPS")
+                for n, x in enumerate(g.get("skills") or [], 1) if x["name"] == models.SPARK
+                and (g["index"], x["name"]) not in off]
+        if not here:
+            return []
+        group, n = here[0]  # (one entry by name: every Spark group shares it)
+        info = next((s for s in skills if s["name"] == models.SPARK and s.get("group") == group["index"]), None)
+        if info is None:
+            return []
+        skill = models.Skill.of(info)
+        sets = build.call("setRates", index=group["index"], active=n)["sets"]
+        got = next((x for x in sets if x.get("label") == skill.stat_set), sets[0] if sets else {})
+        mods, notes = models.group_exception_model(skill, got, forbidden)
+        if not notes:
+            return []
+        hits = 1 + number(mods[0].get("value")) / 100 if mods else 1.0
+        if hits > 1:
+            build.objective.entry_scales[models.SPARK] = (
+                number(build.objective.entry_scales.get(models.SPARK, 1.0)) * hits)
+        return [{**note, "label": f"{note['label']} (side group {group.get('label') or group['index']})",
+                 "side_hits": hits} for note in notes]
+
+    def side_forge_hammer(self, main: models.Skill | None, name: str, main_types: set[str], speed: float,
+                          texts: list[str] | None = None, radius: float = 0.0) -> list[dict]:
+        """(MECHB49; MECHB48's leftover) Forge Hammer in a Full DPS group other than the main skill's: PoB scores the
+        group's chosen set every use (Impact, its first, unless a set was chosen: then its Fissures every use, an
+        OVERCOUNT with no Warcry), while the game makes the Fissures only when a Warcry shatters the lodged hammer
+        (models.DETONATED_SETS' note, MECHB48). The use is its Impact + the shattered share of its Fissures
+        (models.detonated_share at the build's Warcry rate, conditions.event_rates as the main skill's block), so its
+        Full DPS entry is scaled by that over the set PoB scored (Objective.entry_scales). With Forge Hammer the main
+        skill, the main block does it (the entry's name is shared). Its Fissures a use (base 5, the supports' and the
+        item chance's more: models.fissure_count_model, as the main skill's) on the shattered share."""
+        build, hammer = self.build, "Forge Hammer"
+        if getattr(build, "objective", None) is None or not getattr(build.objective, "full", False):
+            return []
+        if main is not None and main.name == hammer:
+            return []
+        off = pob_disabled(build)
+        here = [(g, n) for g in build.groups() if g.get("enabled", True) and g.get("fullDPS")
+                for n, x in enumerate(g.get("skills") or [], 1) if x["name"] == hammer and (g["index"], hammer) not in off]
+        if not here:
+            return []
+        group, n = here[0]
+        got = build.call("setRates", index=group["index"], active=n)
+        dps = {x.get("label"): number(x.get("TotalDPS")) for x in got.get("sets") or []}
+        chosen = got.get("chosen") or "Impact"
+        impact, fissures = dps.get("Impact", 0.0), dps.get("Fissures", 0.0)
+        if dps.get(chosen, 0.0) <= 0:
+            return []
+        rate = next(iter(build.call("useRates", indices=[group["index"]], actives=[n])["rates"]), {})
+        uses = number(rate.get("speed"))
+        cries, how = conditions_mod.event_rates(
+            build.call("groups")["groups"], build.ctx.gems, name, main_types, speed,
+            lambda idx: build.call("useRates", indices=idx)["rates"], ["when you use a Warcry"],
+            models.press_choices(build)).get("Warcry", (0.0, "no Warcry in the build"))
+        share = models.detonated_share(hammer, uses, cries)
+        real = impact + share * fissures
+        count_how = ""
+        if share > 0 and fissures > 0:  # (its Fissures a use, not PoB's one: the main skill's count model)
+            row = next((x for x in build.call("activeSkills", levelStats=[hammer], supportStats=[
+                models.FISSURE_EXTRA_STAT])["skills"] if x["name"] == hammer and x.get("group") == group["index"]), {})
+            fis_mods, fis_notes = models.fissure_count_model(
+                models.Skill(hammer, group["index"], attack=True, melee=True), "Fissures", got.get("sets") or [],
+                row.get("levelStats") or {}, row.get("supportStats") or {}, texts or [], radius, share)
+            if fis_mods:
+                real *= 1 + number(fis_mods[0].get("value")) / 100
+                count_how = f"; {fis_notes[0]['label']} {fis_notes[0]['value']}"
+        scale = real / dps[chosen]
+        if abs(scale - 1) < 1e-6:
+            return []
+        build.objective.entry_scales[hammer] = number(build.objective.entry_scales.get(hammer, 1.0)) * scale
+        return [{"label": f"Forge Hammer (side group {group.get('label') or group['index']}): Fissures only when a "
+                          "Warcry shatters the hammer*", "value": f"x{scale:.3f}", "confidence": "MEDIUM-LOW",
+                 "entry": models.DETONATED_SETS[hammer][4],
+                 "basis": (f"PoB scores its {chosen} set every use ({dps[chosen]:,.1f} DPS). The game: its Impact "
+                           f"({impact:,.1f}) every use, its Fissures ({fissures:,.1f}) only on the {share:.0%} of hammers a "
+                           f"Warcry shatters ({how or 'no Warcry in the build'}; {uses:.2f} throws/s, one hammer lying "
+                           f"{models.DETONATED_SETS[hammer][3]:g} s, UNVERIFIED as its lying time{count_how}): {real:,.1f}, "
+                           f"x{scale:.3f} on its Full DPS entry"),
+                 "play": "Use a Warcry next to the lodged hammer to shatter it into Fissures."}]
 
     def side_trigger_cuts(self) -> list[dict]:
         """(MECHB46; GEM26's sweep, the manager 10:50) Infernal Cry's Combust and Ancestral Cry's Volcanic Eruption /

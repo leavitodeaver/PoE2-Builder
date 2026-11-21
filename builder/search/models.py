@@ -2113,6 +2113,37 @@ def corpse_model(skills: list[Skill], mods: list[dict], stats: dict | None = Non
     return mods, notes
 
 
+# Corpsewade's "Trigger Decompose every 1.2 metres travelled" (MECHB49; COV48's lane row 17.6; Mods UniqueTriggerDecomposeOnStep1,
+# stat local_display_triggers_corpse_cloud_on_12_units_travelled, game 26650308; PoB parses it to nothing, ModCache 9658
+# `nil`, and no Module reads it: checked by grep). The boots
+# also grant Decompose itself, a Spell the player uses (CorpseCloudPlayer: Spell, Totemable, Trappable), whose uses
+# corpse_model already holds to the corpses there are. The travel trigger adds uses only while the player moves, which the
+# game decides in a boss fight (no data gives it: CLAUDE.md's last resort), so the headline adds none (as Volcanic
+# Steps, R36-13). Row (LOW): stepping out of each boss hit about 3 m (VOLCANIC_DODGE_METRES, the same game-decided
+# distance, named for the manager), one Decompose per 1.2 m, each still needing a corpse (the supply corpse_model shares).
+DECOMPOSE_TRAVEL = re.compile(r"^Trigger Decompose every (\d+(?:\.\d+)?) metres? travelled$", re.I)
+DECOMPOSE_ENTRY = "model-mechb49-decompose-on-travel"
+
+
+def decompose_travel_note(texts: list[str], supply: float, every: float, dodge_metres: float) -> list[dict]:
+    """A LOW row for Corpsewade's travel-triggered Decompose (see above): `supply` the corpses a second there are,
+    `every` the seconds between boss hits."""
+    line = next((m for t in texts if (m := DECOMPOSE_TRAVEL.match(t.strip()))), None)
+    if line is None:
+        return []
+    step = float(line.group(1))
+    steps = (dodge_metres / step / every) if every > 0 and step > 0 else 0.0
+    row = min(steps, max(supply, 0.0))
+    return [{"label": "Corpsewade: Decompose every metre travelled*", "value": "0 in the headline",
+             "confidence": "LOW", "entry": DECOMPOSE_ENTRY,
+             "basis": (f"its line triggers Decompose every {step:g} m travelled; how far you move in a boss fight is the "
+                       "game's (no data gives it), so no uses are added (the Decompose you press is counted, held to "
+                       f"the corpses). Row (LOW): stepping about {dodge_metres:g} m out of each boss hit "
+                       f"({1 / every if every > 0 else 0:.2f}/s) makes {steps:.2f} Decompose/s, each needing a corpse "
+                       f"({supply:.3g}/s there): {row:.2f}/s"),
+             "play": "Keep moving through the corpses: each 1.2 m sets off a Decompose on one."}]
+
+
 def sacrifice_note(stats: dict | None) -> str:
     value = (stats or {}).get(SACRIFICE_CORPSES_STAT)
     return value[1] if isinstance(value, (tuple, list)) else "Sacrifice's rate wasn't read"
@@ -20020,17 +20051,35 @@ def explosive_rhythm_model(main: Skill | None, texts: list[str], row: dict, reco
 # (MEDIUM-LOW); Fury of the Mountain's random 120-degree arc, about all at 1.5 m (the row at 3 m:
 # 2 asin((R + w) / d) / 120 degrees, ~46%). Rows: at range, only the one aimed at the boss. Not scaled: Earthshatter's end
 # spikes and Glacial Cascade's final spike (they land at each Fissure's end, beyond the boss: R37-16 counts one at the
-# boss, LOW), Entangle's vines, Sunder's shockwaves; Molten Crash's Rage-made Fissures (molten_crash_number_of_additional_
-# fissures_from_rage_consumption: Rage not read here, an UNDERCOUNT); Starborn Onslaught (no stat set PoB scores is its
-# Fissures: an UNDERCOUNT, not counted) and Crater (a triggered skill, not a main skill: not counted). The live-Fissure
-# limits (Volcanic Fissure 8, Fury of the Mountain 12, Molten Crash 8, Forge Hammer 10) cap only what lingers: a use's
-# count is held to Forge Hammer's 10.
+# boss, LOW), Entangle's vines, Sunder's shockwaves; the branching Fissures (number_of_branching_fissures 2: Volcanic
+# Fissure, Molten Crash, Starborn Onslaught) leave the main line at angles, away from the boss (R37-16: 0 at the boss,
+# LOW); Crater (a triggered skill, not a main skill: not counted). The live-Fissure limits (Volcanic Fissure 8, Fury of
+# the Mountain 12, Molten Crash 8, Forge Hammer 10) cap only what lingers: a use's count is held to Forge Hammer's 10.
+# (MECHB49, the manager 21:38: MECH-B owns the Fissure counts; GEM28's per-skill table folded in.) Starborn Onslaught:
+# its Fissures are in its main stat set, PoB's "Impact" (GrantedEffectStatSets StarbornOnslaughtPlayer holds
+# base_number_of_fissures 3 and the implicit fissures_nova; its only other set, StarbornOnslaughtExplosions, is the
+# Star Fall; checked: both rows' stat ids, game 26650308; PoB act_str / other.lua the same two sets), so they share the
+# Impact's damage: a ring out from the impact on the target, all 3 (+N) at the boss (R37-16, MEDIUM). Whether the impact
+# itself is a hit beside its 3 Fissures (4 a use, not 3) isn't in the data (UNVERIFIED): PoB's one is taken as one of
+# them, the lower reading. Molten Crash: "Consumes Rage to create additional Molten Fissures"
+# (molten_crash_optionally_consume_X_rage_for_fissures 10, molten_crash_number_of_additional_fissures_from_rage_
+# consumption 1: one more for the 10 Rage a use, conditions.RAGE_PER_USE) on the share of its uses the build's Rage pays
+# (MECH-C's build.rage_spent: all while the gain keeps up, else what comes, cut across the spenders in proportion, LOW
+# for the cut); no Rage gained, no Rage Fissure. Its base without Rage is one (its text gives no count; R37-16 / GEM28,
+# LOW).
 # {skill: (its Fissure stat sets, the layout)}
 FISSURE_SETS = {"Earthshatter": (("Slam",), "line"), "Sunder": (("Wave",), "line"),
                 "Volcanic Fissure": (("Volcanic Fissure",), "line"), "Storm Wave": (("Storm Wave",), "line"),
                 "Glacial Cascade": (("Wave",), "line"), "Entangle": (("Fissures",), "line"),
                 "Molten Crash": (("Fissures",), "slam"), "Fury of the Mountain": (("Fury of the Mountain",), "arc"),
-                "Forge Hammer": (("Fissures",), "spiral")}
+                "Forge Hammer": (("Fissures",), "spiral"), "Starborn Onslaught": (("Impact",), "nova")}
+# (MECHB49, probe POE2T4728) Molten Crash's one use makes its slams ("Slamming twice and creating Molten Fissures",
+# ActiveSkills molten_crash) and its Fissures, two stat sets of which PoB scores one (the slam set, 406.9 against the
+# Fissures' 168.7 at level 90: an UNDERCOUNT beyond the count): the use = the slam set + N x the Fissure set, over the one
+# PoB scored, as Earthshatter's Slam beside its spikes. Whether the slam set is one slam or both: PoB's set, as it stands.
+FISSURE_BESIDE = {"Molten Crash": ("Molten Crash",)}
+FISSURE_RAGE = {"Molten Crash": 1.0}  # (molten_crash_number_of_additional_fissures_from_rage_consumption, a paid use)
+FISSURE_ASKING = re.compile(r"\(asking (\d+(?:\.\d+)?)/s, more than comes: (\d+(?:\.\d+)?)/s\)")
 FISSURE_BASE_STAT, FISSURE_EXTRA_STAT = "base_number_of_fissures", "base_number_of_additional_fissures"
 FISSURE_CHANCE_STAT = "skill_additional_fissure_chance_%"
 FISSURE_CHANCE = re.compile(r"^skills which create fissures have a (\d+(?:\.\d+)?)% chance to create an additional "
@@ -20048,13 +20097,28 @@ def fissure_arc_share(boss_radius: float, metres: float) -> float:
     return min(1.0, 2.0 * math.degrees(math.asin(reach / metres)) / FISSURE_ARC_DEGREES)
 
 
+def fissure_rage_paid(name: str, rage_spent: tuple[float, str] | None) -> tuple[float, str]:
+    """(the share of `name`'s uses whose Rage is paid, how) from MECH-C's build.rage_spent (see above)."""
+    if not rage_spent or rage_spent[0] <= 0:
+        return 0.0, "the build gains no Rage to spend, 0"
+    if not re.search(re.escape(name) + r" \d", rage_spent[1]):
+        return 0.0, f"its Rage spend isn't read (no use rate for {name}), 0"
+    if short := FISSURE_ASKING.search(rage_spent[1]):
+        asked, real = float(short.group(1)), float(short.group(2))
+        share = min(1.0, real / asked) if asked > 0 else 0.0
+        return share, f"{share:.0%} of its uses paid: Rage {real:.2f}/s comes for {asked:.2f}/s asked (cut in proportion, LOW)"
+    return 1.0, f"every use paid: the build's Rage keeps up ({rage_spent[1]})"
+
+
 def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict], level_stats: dict,
                         support_stats: dict, texts: list[str], boss_radius: float,
                         det_share: float | None = None, forbidden: set[str] = frozenset(),
-                        previous: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
+                        previous: list[dict] | None = None,
+                        rage_spent: tuple[float, str] | None = None) -> tuple[list[dict], list[dict]]:
     """A Fissure skill's Fissures a use at the boss against PoB's one (see above). `level_stats` / `support_stats` the
     activeSkills row's, `texts` the build's lines, `det_share` the share of a DETONATED_SETS skill's set-off part the
-    detonated model counts (Earthshatter's spikes, Forge Hammer's hammers), None for the others."""
+    detonated model counts (Earthshatter's spikes, Forge Hammer's hammers), None for the others; `rage_spent` MECH-C's
+    build.rage_spent (Molten Crash's Rage Fissure)."""
     if main is None or main.name not in FISSURE_SETS or FISSURE_ENTRY in forbidden:
         return [], []
     labels, layout = FISSURE_SETS[main.name]
@@ -20064,12 +20128,17 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
     lines = [float(m.group(1)) for t in texts if (m := FISSURE_CHANCE.match(t.strip()))]
     own = number(level_stats.get(FISSURE_CHANCE_STAT))
     chance = min(1.0, (sum(lines) + own) / 100.0)
-    count = min(cap, base + extra + chance)
-    if count <= 1.0 + 1e-9:
+    rage, rage_how = (0.0, "")
+    if main.name in FISSURE_RAGE:
+        paid, rage_how = fissure_rage_paid(main.name, rage_spent)
+        rage = FISSURE_RAGE[main.name] * paid
+    count = min(cap, base + extra + rage + chance)
+    if count <= 1.0 + 1e-9 and main.name not in FISSURE_BESIDE:
         return [], []
     share = fissure_arc_share(boss_radius, FISSURE_MELEE_METRES) if layout == "arc" else 1.0
     row_share = fissure_arc_share(boss_radius, FISSURE_ROW_METRES) if layout == "arc" else None
     dps = unscale_own(sets, previous, FISSURE_ENTRY)
+    beside = None  # (FISSURE_BESIDE: the use's other set's DPS)
     if main.name in DETONATED_SETS and det_share is not None:
         plain_labels, det_label, *_ = DETONATED_SETS[main.name]
         if scored not in plain_labels + (det_label,):
@@ -20077,6 +20146,9 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
         plain = max((dps.get(k, 0.0) for k in plain_labels), default=0.0)
         total = plain + dps.get(det_label, 0.0) * det_share
         fissure = plain if labels[0] in plain_labels else dps.get(det_label, 0.0) * det_share
+    elif main.name in FISSURE_BESIDE and scored in FISSURE_BESIDE[main.name] + labels:
+        beside = max((dps.get(k, 0.0) for k in FISSURE_BESIDE[main.name]), default=0.0)
+        fissure, total = dps.get(labels[0], 0.0), dps.get(scored or "", 0.0)
     else:
         total = dps.get(scored or "", 0.0)
         fissure = total if scored in labels else 0.0
@@ -20084,15 +20156,22 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
         return [], []
 
     def scale(n: float) -> float:  # (PoB's one Fissure taken as hitting: the share applies to the whole use)
+        if beside is not None:  # (the use's other set + n Fissures, over the one set PoB scored)
+            return (beside + n * fissure) / total
         return 1.0 + fissure / total * (n - 1.0)
     factor, one = scale(count * share), scale(base)
+    if fissure > 0 and abs(factor - 1.0) < 1e-9:
+        return [], []
     parts = [f"{base:g} base"] + ([f"+{extra:g} from supports (Upheaval / Kaom's Madness)"] if extra else []) + (
+        [f"+{rage:.2f} from its 10 Rage a use ({rage_how})"] if main.name in FISSURE_RAGE else []) + (
         [f"+{chance:.0%} chance of one more ({' + '.join(f'{x:g}%' for x in lines + ([own] if own else []))}"
          f"{', held to 100%' if sum(lines) + own > 100 else ''})"] if chance else [])
     how = {"line": "a fan in melee: every one passes within the boss's reach (R37-16, the fan LOW, the melee count "
                    "MEDIUM-LOW)",
            "slam": "from the slam's landing at the boss: all hit in melee (R37-16, MEDIUM-LOW)",
            "spiral": "a spiral from the hammer lodged at the boss: all hit (R37-16, MEDIUM-LOW)",
+           "nova": ("a ring out from the impact on the target: all at the boss (R37-16, MEDIUM; whether the impact is "
+                    "a hit of its own beside them UNVERIFIED, PoB's one taken as one of them)"),
            "arc": f"aimed at random over {FISSURE_ARC_DEGREES:g} degrees: {share:.0%} pass within the boss's "
                   f"{boss_radius:g} m + {FISSURE_HALF_WIDTH:g} m at {FISSURE_MELEE_METRES:g} m (R37-16, MEDIUM-LOW)"}[layout]
     if fissure <= 0:
@@ -20100,6 +20179,13 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
                      "entry": FISSURE_ENTRY,
                      "basis": (f"{'; '.join(parts)}, {how}; but the scored {scored} set isn't a Fissure (or none is "
                                f"set off), so nothing changes")}]
+    if layout == "nova":  # (it lands on its target: no range row)
+        return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=FISSURE_ENTRY)], [{
+            "label": f"{main.name}: {count:.2f} Fissures a use at the boss*", "value": f"x{factor:.3f}",
+            "confidence": "MEDIUM", "entry": FISSURE_ENTRY,
+            "basis": (f"PoB counts one Fissure a use. The game makes {count:.2f}: {'; '.join(parts)}; {how}. "
+                      f"The Fissures are {fissure / total:.0%} of the {scored} DPS scored: x{factor:.3f}. Not counted: "
+                      "the branching Fissures (2 from each, outward: 0 at the boss, R37-16 LOW)")}]
     rows = f"; at range only the one aimed at the boss: x{one:.3f}" + (
         f"; at {FISSURE_ROW_METRES:g} m {row_share:.0%} of them: x{scale(count * row_share):.3f}"
         if row_share is not None else "")
@@ -20107,8 +20193,13 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
         "label": f"{main.name}: {count:.2f} Fissures a use at the boss*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM-LOW", "entry": FISSURE_ENTRY,
         "basis": (f"PoB counts one Fissure a use. The game makes {count:.2f}: {'; '.join(parts)}; {how}. "
-                  f"The Fissures are {fissure / total:.0%} of the {scored} DPS scored: x{factor:.3f}{rows}. Not "
-                  "counted: the end spikes, vines and shockwaves of the extra Fissures (R37-16: beyond the boss, LOW)"),
+                  + (f"The Fissures are {fissure / total:.0%} of the {scored} DPS scored" if beside is None else
+                     f"One use makes its {FISSURE_BESIDE[main.name][0]} set ({beside:,.1f} DPS) and its Fissures "
+                     f"({fissure:,.1f} DPS each), PoB scoring the {scored} set alone ({total:,.1f}; an UNDERCOUNT)")
+                  + f": x{factor:.3f}{rows}. Not "
+                  "counted: the end spikes, vines and shockwaves of the extra Fissures (R37-16: beyond the boss, LOW)" + (
+                      "; the branching Fissures (2 from each, outward: 0 at the boss, R37-16 LOW)"
+                      if number(level_stats.get("number_of_branching_fissures")) else "")),
         "play": (f"Use {main.name} in melee range, facing the boss, so every Fissure runs through it. At range only "
                  f"the one aimed at it hits: x{one:.3f} instead of x{factor:.3f}.")}]
 
@@ -20217,3 +20308,50 @@ def runic_binding_model(main: Skill | None, texts: list[str], stats: dict, forbi
                   "increased Damage each while Shapeshifted: not counted, your main Spell is cast as a Human)"),
         "play": ("The Unleashed's Runic Bindings cut your Spell damage while you cast: Shapeshift to spend them as "
                  f"Unbound Potential. Without them: no penalty; this build: {less:.0f}% reduced Spell Damage.")}]
+
+
+# Melee Physical damage taken reflected to the attacker (MECHB49; COV48's lane rows 12.9 [unique] / 7.0 [affix]). The
+# stat melee_physical_damage_taken_%_to_deal_to_attacker (Stats 1081, game 26650308) is on Mods
+# UniquePhysicalDamageTakenPercentToReflect1 (Bramblejack, 250%), PhysicalDamageTakenPercentToReflectUniqueBodyStr2
+# (1000%) and a Soul Core (SoulCoreStats 463, 250%) (checked: the stat id over Mods' Stat1-6, SoulCoreStats' Stats,
+# PassiveSkills' and GrantedEffectStatSets' stat columns; poe2db not checked: UNVERIFIED as a full list, and the model
+# reads the line by its text, whatever carries it). PoB parses it only in part (ModCache 1887 / 3487: a PhysicalDamage
+# BASE with "taken reflected to Attacker" left over), so it never applies it (Item.lua's `not modLine.extra`): no
+# overcount from PoB, the reflected damage an UNDERCOUNT. What it deals: N% of the Physical damage each boss Melee hit
+# deals you (after your mitigation: PoB's PhysicalTakenHit, the boss's average Physical hit, LOW: each Melee hit taken
+# to carry it), on each landed hit (a Blocked or Evaded hit deals you none) of the boss's Melee share
+# (boss_melee_share's lower bound, as Thorns' Retaliation: 0 on the worst-case preset and on bosses not read), one hit
+# per damaging boss use (bosses.benefit_skill_time, LOW). Whether the reflected damage is a Hit the boss's Armour
+# reduces isn't in its text or KeywordPopups (Armour: "reduces Damage taken from Hits"): UNVERIFIED; the headline takes
+# it as a hit (PoB's Armour formula A / (A + 10 x hit), the preset's enemyArmour: the lower reading), the row without it.
+# Not counted: the boss's other damage-taken modifiers (LOW) and any reflect-damage-taken modifier on the boss
+# (bosses.py's presets carry none; whether the game's bosses have one: UNVERIFIED).
+MELEE_REFLECT = re.compile(r"^(\d+(?:\.\d+)?)% of Melee Physical Damage taken reflected to Attacker$", re.I)
+MELEE_REFLECT_ENTRY = "model-mechb49-melee-reflect"
+MELEE_REFLECT_FIELDS = ["PhysicalTakenHit", "EvadeChance", "EffectiveBlockChance", "enemySkillTime"]
+
+
+def melee_reflect_model(texts: list[str], stats: dict, boss: str, every: float, land: float,
+                        boss_armour: float) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for "N% of Melee Physical Damage taken reflected to Attacker" (see above): `every` the seconds
+    between boss hits, `land` the share that land, `boss_armour` the preset's enemyArmour."""
+    lines = [float(m.group(1)) for t in texts if (m := MELEE_REFLECT.match(t.strip()))]
+    if not lines:
+        return 0.0, []
+    percent = sum(lines)
+    taken = max(number(stats.get("PhysicalTakenHit")), 0.0)
+    share, share_how = boss_melee_share(boss)
+    hits = (land / every if every > 0 else 0.0) * share
+    raw = taken * percent / 100
+    cut = boss_armour / (boss_armour + 10 * raw) if raw > 0 and boss_armour > 0 else 0.0
+    dps, row = hits * raw * (1 - cut), hits * raw
+    label = f"{percent:g}% of Melee Physical damage taken reflected*"
+    basis = (f"PoB parses the line only in part and never applies it. {percent:g}% of the {taken:,.0f} Physical damage a "
+             f"boss hit deals you (PoB's PhysicalTakenHit, after your mitigation; each Melee hit taken to carry it, LOW) "
+             f"= {raw:,.0f} a landed Melee hit; {land:.0%} of its hits land, one every {every:.2f} s, and {share_how}: "
+             f"{hits:.3f} a second. Taken as a hit the boss's Armour ({boss_armour:,.0f}) reduces by {cut:.0%} "
+             f"(UNVERIFIED: the lower reading): {dps:,.1f} DPS; as damage Armour doesn't touch: {row:,.1f}")
+    note = {"label": label, "value": f"{dps:,.1f} DPS", "confidence": "LOW", "entry": MELEE_REFLECT_ENTRY,
+            "basis": basis, "play": "Let the boss's Melee hits land on you (no Evasion or Block against them) to "
+                                    "reflect their Physical damage."}
+    return dps, [note]

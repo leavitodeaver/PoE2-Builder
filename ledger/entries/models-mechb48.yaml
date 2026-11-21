@@ -16,6 +16,10 @@
     all at the boss in melee for line / slam / spiral layouts (MEDIUM-LOW; the fan reading LOW), Fury of the Mountain's
     120-degree random arc at 1.5 m (row at 3 m); a row at range with only the aimed one. Only the Fissure set's share
     of the scored DPS is scaled (with Earthshatter's / Forge Hammer's set-off share from detonated_set_model).
+    MECHB49 (the manager 21:38: MECH-B owns the Fissure counts; GEM28's table folded in): Starborn Onslaught's ring of
+    3 on its Impact set (its Fissure stats are in that set: GrantedEffectStatSets StarbornOnslaughtPlayer, MEDIUM);
+    Molten Crash's one Rage Fissure on the share of uses MECH-C's build.rage_spent pays; the branching Fissures 0 at
+    the boss (LOW).
   sources: ["builder/search/models.py (FISSURE_SETS, fissure_count_model)", "builder/search/assumptions.py (models(), after the detonated sets)",
             "C:/PROJECTS/PoE2 Builder/scratch/manager/research/radius-transform-jewels-and-fissure-layouts.md (R37-16)",
             "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:9410-9413",

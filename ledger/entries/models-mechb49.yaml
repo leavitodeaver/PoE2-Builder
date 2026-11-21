@@ -1,0 +1,38 @@
+# MECH-B's model entries (MECHB49).
+
+- id: model-mechb49-decompose-on-travel
+  title: "Corpsewade's travel-triggered Decompose: 0 in the headline, a LOW step-out row (models.decompose_travel_note)"
+  kind: pob_gap
+  model: decompose_travel
+  match: '^Trigger Decompose every (\(\d+(?:\.\d+)?-\d+(?:\.\d+)?\)|\d+(?:\.\d+)?) metres? travelled$'
+  replace: []
+  confidence: theory
+  notes: >-
+    MECHB49 (COV48's lane row 17.6). Mods UniqueTriggerDecomposeOnStep1 (local_display_triggers_corpse_cloud_on_12_units_
+    travelled, game 26650308); PoB gives the line nothing. The boots also grant Decompose (a Spell the player uses,
+    CorpseCloudPlayer), whose uses corpse_model already holds to the corpses there are. How far the player moves in a
+    boss fight is the game's (no data), so the travel trigger adds no uses to the headline (as Volcanic Steps, R36-13);
+    a LOW row steps about 3 m out of each boss hit (the same game-decided distance as Volcanic Steps, named for the
+    manager), one Decompose per 1.2 m, held to the corpse supply.
+  sources: ["builder/search/models.py (DECOMPOSE_TRAVEL, decompose_travel_note)", "builder/search/assumptions.py (models(), after corpse_model)",
+            "data/game-26650308/tables/Mods.json (UniqueTriggerDecomposeOnStep1)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Uniques/boots.lua (Corpsewade)"]
+  status: proposed
+
+- id: model-mechb49-melee-reflect
+  title: "N% of Melee Physical Damage taken reflected to Attacker: an added damage source at the boss's landed Melee hits (models.melee_reflect_model)"
+  kind: pob_gap
+  model: melee_reflect
+  match: '^(\(\d+(?:\.\d+)?-\d+(?:\.\d+)?\)|\d+(?:\.\d+)?)% of Melee Physical Damage taken reflected to Attacker$'
+  replace: []
+  confidence: theory
+  notes: >-
+    MECHB49 (COV48's lane rows 12.9 / 7.0), an UNDERCOUNT. melee_physical_damage_taken_%_to_deal_to_attacker on Bramblejack
+    (250%), PhysicalDamageTakenPercentToReflectUniqueBodyStr2 (1000%) and a Soul Core (SoulCoreStats 463, 250%). PoB
+    parses it only in part (ModCache 1887 / 3487), so never applies it. N% of PoB's PhysicalTakenHit on each landed boss
+    Melee hit (Thorns' lower-bound Melee share, one hit per boss use; LOW), the boss's Armour taken to reduce it as a hit
+    (UNVERIFIED, the lower reading; the row without it).
+  sources: ["builder/search/models.py (MELEE_REFLECT, melee_reflect_model)", "builder/search/assumptions.py (models(), beside Thorns)",
+            "data/game-26650308/tables/Mods.json (UniquePhysicalDamageTakenPercentToReflect1, PhysicalDamageTakenPercentToReflectUniqueBodyStr2)",
+            "data/game-26650308/tables/SoulCoreStats.json (row 463)", "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:1887,3487"]
+  status: proposed
