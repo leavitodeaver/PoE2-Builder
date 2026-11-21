@@ -1297,6 +1297,79 @@ CHILL_FIELDS = ("ChillAvoidChance", "SelfChillDuration", "SelfChillEffect", "Ail
                 *(f"{t}TakenHit" for t in ("Physical", "Fire", "Cold", "Lightning", "Chaos")))
 
 
+# The boss's hits that Chill / Freeze you, per type (MECHC48; the manager's ruling of 19:10 20 Nov on RESEARCH37 R37-17,
+# research/pinnacle-boss-hit-cadence-on-player.md). Before, both read the DEFENCE cadence (enemySkillTime: the faster of
+# PoB's 0.7 s and HITS_EVERY, 0.51 s on the worst case) x land_share x the type's share: an upper bound on hits used for a
+# DPS penalty. Now:
+# - EVENTS, not strikes: one per damaging USE (bosses.HIT_EVERY, LOW): a use's strikes land within ~1 s (MECHD5's .ao
+#   patterns 0.01-0.6 s apart) and a Chill / Freeze on players lasts 2 s (BaseChillDurationPlayer 2, FreezeDurationPlayer
+#   2000), so extra strikes only refresh. x the type's OWN share of the boss's damaging skills (type_shares: 0 Cold for 7
+#   of the 12 presets, so 0 there; checked: boss_skill_hits.json's rows for all 12, R37-17's guides agree), x PoB's
+#   scored enemySkillTime over the preset's defence cadence (the build's Slows on the boss: the same ratio as
+#   benefit_skill_time).
+# - Landing per type (kind_land_share): the share of that type's skills that are red-flash (no evade / block roll), the
+#   rest evaded and blocked as PoB rolls them. R37-17 said none of the Cold hits is red-flash; the skill rows say
+#   Olroth's GAOlrothGroundSlamInitial is (red, Physical 1,114 + Cold 1,114 converted): 1 of his 16 Cold rows (checked:
+#   every row of boss_skill_hits.json with a Cold part, the 12 presets; no other Cold row is red). Evadable-but-unblockable
+#   skills (RED_FLASH's middle count: the Bodach's Head Slam, Kulemak's Teleport Slam and its trigger) carry no Cold
+#   (checked: their rows' parts) and are read as blockable per type.
+# - x (1 - the share you dodge): the USER's call (R37-17's card; the manager 19:10: dodge 0 as the headline, LOW, rows at
+#   50% and 75% dodged).
+# - Rows (chill_and_freeze_on_you): the dodge rows, one per strike (HITS_EVERY) and the old defence cadence, as upper rows.
+# - The worst-case pinnacle mixes the Red Queen's 0.51 s cadence (no Cold) with the pooled 15% Cold share: its Chill /
+#   Freeze reads the worst REAL preset instead (chill_and_freeze_on_you, each read as real_readings gives it: its own
+#   cadence, shares and hit sizes; Olroth on most builds, 21.8 Cold uses a minute). A direct call on the worst case keeps
+#   the old defence reading (only that function resolves it).
+# - Downtime windows (immune phases, burrows) aren't counted: the player can't hit the boss then either, so they cancel
+#   out of DPS (R37-17).
+ON_YOU_DODGE = 0.0  # the headline share of the boss's hits you dodge (the user's call, R37-17; LOW): rows below
+ON_YOU_DODGE_ROWS = (0.5, 0.75)
+ON_YOU_CADENCES = ("use", "strike", "defence")
+POB_SKILL_TIME = 0.7  # (PoB's enemySpeed placeholder: the old fallback)
+
+
+def kind_land_share(stats: dict, kind: str) -> float:
+    """The share of the boss's `kind` hits that land: that type's red-flash share of the preset's skill rows always do,
+    the rest are evaded and blocked as PoB rolls them (land_share for a preset without rows, the worst case)."""
+    rows = [r for r in skill_hits(boss_name(stats)) if kind in (r.get("hit") or {})]
+    if not rows:
+        return land_share(stats)
+    red = sum(1 for r in rows if r.get("red")) / len(rows)
+    evade, block = evade_block(stats)
+    return red + (1 - red) * (1 - evade) * (1 - block)
+
+
+def ailment_hits(stats: dict, kind: str) -> tuple[float, str]:
+    """(landed `kind` hits a second that can Chill / Freeze you, how) at stats["_onyou_cadence"] ("use", the headline;
+    "strike"; "defence", the old reading) and stats["_onyou_dodge"] (the share dodged, ON_YOU_DODGE). Before your
+    avoidance. The comment above."""
+    from builder.search import bosses
+
+    name = boss_name(stats)
+    cadence = stats.get("_onyou_cadence") or "use"
+    if name == _worst() or name not in bosses.HIT_EVERY:
+        cadence = "defence"  # (resolved to the worst real preset by chill_and_freeze_on_you only)
+    dodge = min(max(float(stats.get("_onyou_dodge", ON_YOU_DODGE)), 0.0), 1.0)
+    share = type_shares(name).get(kind, 0.0)
+    scored = number(stats.get("enemySkillTime"))
+    if cadence == "defence":
+        every = scored or POB_SKILL_TIME
+        land = land_share(stats)
+        how = f"one hit every {every:.2f} s (the defence cadence: an upper bound on hits)"
+    else:
+        slowed = scored / bosses.defence_hit_every(name) if scored > 0 else 1.0
+        base = bosses.HIT_EVERY[name] if cadence == "use" else bosses.HITS_EVERY[name]
+        every = base * slowed
+        land = kind_land_share(stats, kind)
+        how = (f"{name}: one damaging {'use' if cadence == 'use' else 'strike'} every {base:g} s"
+               + (f" x{slowed:.2f} (your Slows on it)" if abs(slowed - 1) > 1e-9 else "")
+               + (" (LOW: the tables' cadence; a use's strikes land within ~1 s and only refresh a 2 s Chill / Freeze)"
+                  if cadence == "use" else " (every strike counted: an upper bound)"))
+    rate = share / every * land * (1 - dodge) if every > 0 else 0.0
+    how += f", {share:.0%} {kind}, {land:.0%} landing" + (f", {dodge:.0%} dodged" if dodge > 0 else ", none dodged (LOW: the user's call)")
+    return rate, how
+
+
 def boss_chill_on_you(stats: dict, texts: list[str], chilled_box: bool = False) -> tuple[float, list[dict]]:
     """(ActionSpeed INC % to add: negative for the Slow, positive reversed; play rows) for the Chills on you (the comment
     above). `stats`: PoB's CHILL_FIELDS and "_boss"; `texts`: the build's lines."""
@@ -1308,8 +1381,7 @@ def boss_chill_on_you(stats: dict, texts: list[str], chilled_box: bool = False) 
     if chilled_box:
         return 0.0, []
     name = boss_name(stats)
-    every = number(stats.get("enemySkillTime")) or 0.7
-    land = land_share(stats) / every
+    cadence_how = ailment_hits(stats, "Cold")[1]  # (MECHC48: the boss's own per-use cadence, R37-17)
     threshold = number(stats.get("AilmentThreshold")) or 0.5 * number(stats.get("Life"))
     avoid = min(max(number(stats.get("ChillAvoidChance")), 0.0), 100.0) / 100
     effect = max(number(stats.get("SelfChillEffect")), 0.0) / 100 if "SelfChillEffect" in stats else 1.0
@@ -1333,7 +1405,7 @@ def boss_chill_on_you(stats: dict, texts: list[str], chilled_box: bool = False) 
         key = f"{kind}TakenHit"
         hit = max(number(stats.get(key)) if key in stats else hit_sizes(name).get(kind, 0.0), 0.0)
         m = magnitude(hit)
-        rate = land * share * (1 - avoid) * part
+        rate = ailment_hits(stats, kind)[0] * (1 - avoid) * part
         if m > 0 and rate > 0:
             sources.append((rate, m, f"the boss's {kind} hits ({hit:,.0f} after your mitigation, {rate * 60:.1f} a minute"
                                      + (f", while you're Bleeding {part:.0%} of the fight: "
@@ -1377,7 +1449,8 @@ def boss_chill_on_you(stats: dict, texts: list[str], chilled_box: bool = False) 
     average = share * mean
     stats["_chill_share"] = share  # (MECHC47: speed_from_chill_and_freeze's overlap with the Freeze)
     sign = 1.0 if reversed_ else -1.0
-    basis = ("; ".join(f"{what}: a {m:.0f}% Chill" for _, m, what in sources) + f"; {rate * 60:.1f} Chills a minute x "
+    basis = ("; ".join(f"{what}: a {m:.0f}% Chill" for _, m, what in sources) + f" ({cadence_how})"
+             + f"; {rate * 60:.1f} Chills a minute x "
              f"{1 - avoid:.0%} not avoided, {share_how}; magnitude 100% x hit / your {threshold:,.0f} Ailment Threshold x "
              f"{effect:.0%} (your effect of Chill on you)" + (f" x {potency:.0%} (Slowing Potency on you)" if potency != 1
                                                                else "")
@@ -1748,8 +1821,7 @@ def boss_freeze_on_you(stats: dict, texts: list[str], frozen_box: bool = False,
     if frozen_box:
         return 0.0, 0.0, None
     name = boss_name(stats)
-    every = number(stats.get("enemySkillTime")) or 0.7
-    land = land_share(stats) / every
+    land, cadence_how = ailment_hits(stats, "Cold")  # (MECHC48: landed Cold hits a second at the boss's own cadence)
     share = type_shares(name).get("Cold", 0.0)
     avoid = min(max(number(stats.get("FreezeAvoidChance")), 0.0), 100.0) / 100
     lines = [t.strip() for t in texts]
@@ -1764,7 +1836,7 @@ def boss_freeze_on_you(stats: dict, texts: list[str], frozen_box: bool = False,
     hit *= max(hit_scale, 0.0)
     factor = _factor(name, FREEZE_FACTORS, "Cold")
     build = hit / threshold * FREEZE_SCALE_PLAYER * factor if threshold > 0 else 0.0
-    rate = land * share * (1 - avoid)
+    rate = land * (1 - avoid)
     length = FREEZE_SECONDS_PLAYER * (number(stats.get("SelfFreezeDuration")) / 100 if "SelfFreezeDuration" in stats
                                       else 1.0)
     label = "The boss Freezes you*"
@@ -1785,7 +1857,8 @@ def boss_freeze_on_you(stats: dict, texts: list[str], frozen_box: bool = False,
     up = length / (length + gap)
     up_bare = length / (length + bare)
     unaffected = any(recovery.NO_SLOW_POTENCY.match(t) for t in lines)
-    basis = (f"{rate * 60:.1f} landed Cold hits a minute ({share:.0%} of the boss's hits, {1 - avoid:.0%} not avoided), "
+    basis = (f"{rate * 60:.1f} landed Cold hits a minute ({share:.0%} of the boss's hits, {1 - avoid:.0%} not avoided; "
+             f"{cadence_how}), "
              f"each {hit:,.0f} after your mitigation x {FREEZE_SCALE_PLAYER:g}"
              + (f" x {factor:.2f} (the boss's buildup stats)" if factor != 1 else "")
              + f" against your {threshold:,.0f} Freeze Threshold = {build:.0%} buildup a hit, kept between hits "
@@ -1842,3 +1915,62 @@ def speed_from_chill_and_freeze(chill: float, frozen: float, action_mod: float, 
                        f"(\"Slows multiply\", R31-13: MEDIUM-LOW): x{more:.3f}"),
              "confidence": "MEDIUM-LOW (more vs increased)", "play": ""}]
     return inc, rows
+
+
+def chill_and_freeze_on_you(chill_seen: dict, freeze_seen: dict, texts: list[str], chilled_box: bool = False,
+                            frozen_box: bool = False, hit_scale: float = 1.0, own: float = 0.0
+                            ) -> tuple[float, float, list[dict]]:
+    """(MECHC48) (ActionSpeed INC to add, share of the fight Frozen, rows): boss_chill_on_you, boss_freeze_on_you and
+    speed_from_chill_and_freeze at the boss's own per-use cadence with none dodged (ailment_hits' comment), with rows
+    for 50% / 75% dodged, every strike and the old defence cadence. On the worst-case pinnacle the worst REAL preset
+    (real_readings: the lowest action speed; ties to the most Cold uses), named, the others listed. `chill_seen` /
+    `freeze_seen`: PoB's CHILL_FIELDS / FREEZE_FIELDS + ActionSpeedMod and "_boss"."""
+    action_mod = number(freeze_seen.get("ActionSpeedMod")) or 1.0
+
+    def run(chill: dict, freeze: dict, cadence: str = "use", dodge: float = ON_YOU_DODGE):
+        c = {**chill, "_onyou_cadence": cadence, "_onyou_dodge": dodge}
+        f = {**freeze, "_onyou_cadence": cadence, "_onyou_dodge": dodge}
+        speed, chill_rows = boss_chill_on_you(c, texts, chilled_box)
+        frozen, _, freeze_row = boss_freeze_on_you(f, texts, frozen_box, hit_scale)
+        inc, speed_rows = speed_from_chill_and_freeze(speed, frozen, action_mod, own, c.get("_chill_share"))
+        return inc, frozen, chill_rows + ([freeze_row] if freeze_row else []) + speed_rows
+
+    name = boss_name(chill_seen)
+    worst = _worst()
+    if worst is not None and name == worst:
+        frozen_reads = dict(real_readings(freeze_seen))
+        picks = []
+        for boss, chill in real_readings(chill_seen):
+            inc, frozen, rows = run(chill, frozen_reads[boss])
+            picks.append((inc, -ailment_hits(chill, "Cold")[0], boss, chill, frozen_reads[boss], frozen, rows))
+        picks.sort(key=lambda r: (r[0], r[1]))
+        inc, _, boss, chill, freeze, frozen, rows = picks[0]
+        others = ", ".join(f"{b}: {i:+.1f}%" for i, _, b, *_ in picks[1:] if abs(i) > 1e-9)
+        zero = sum(1 for i, *_ in picks[1:] if abs(i) <= 1e-9)
+        pick_how = (f"the worst case reads the worst real preset, {boss} (its own cadence, Cold share and hit sizes; "
+                    f"not the Red Queen's 0.51 s x the pooled Cold share): {inc:+.1f}% action speed"
+                    + (f"; the others: {others}" if others else "") + (f"; {zero} at 0" if zero else ""))
+        old_chill, old_freeze = chill_seen, freeze_seen  # (the old reading: the worst case's own pooled figures)
+    else:
+        boss, chill, freeze = name, chill_seen, freeze_seen
+        inc, frozen, rows = run(chill, freeze)
+        pick_how = ""
+        old_chill, old_freeze = chill, freeze
+    alt = [(f"{d:.0%} of its hits dodged", run(chill, freeze, "use", d)[0]) for d in ON_YOU_DODGE_ROWS]
+    alt.append(("every strike, not every use (HITS_EVERY: an upper bound)", run(chill, freeze, "strike")[0]))
+    alt.append(("the old defence cadence (before MECHC48: enemySkillTime x the type's share"
+                + (", the worst case's pooled share" if pick_how else "") + ")",
+                run(old_chill, old_freeze, "defence")[0]))
+    if abs(inc) < 1e-9 and all(abs(v) < 1e-9 for _, v in alt):
+        return inc, frozen, rows
+    base = 1 + ((action_mod - 1) * 100 - own) / 100
+    rows = rows + [{
+        "label": "The boss's Chill / Freeze cadence on you*",
+        "value": f"{inc:+.1f}% action speed (x{base + inc / 100:.3f}) at one Cold event a damaging use, none dodged",
+        "basis": ((pick_how + "; " if pick_how else "") + "rows: " + "; ".join(
+            f"{what}: {v:+.1f}% (x{base + v / 100:.3f})" for what, v in alt)
+            + ". Downtime (immune phases, burrows) cancels out of DPS: not counted (R37-17)"),
+        "confidence": "LOW (the tables' cadence, no measured hit rate; the dodged share is the user's call)",
+        "play": (f"dodging the boss's telegraphed Cold attacks lowers it: half dodged {alt[0][1]:+.1f}%, three in four "
+                 f"{alt[1][1]:+.1f}%; without dodging {inc:+.1f}%")}]
+    return inc, frozen, rows

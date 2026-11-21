@@ -3444,22 +3444,22 @@ class Assumptions:
                or conditions_mod.CHARGE_WHILE_BLEEDING.search(t) for t in texts):  # (MECHC46: the charge line too)
             bleeding = chill_seen["_bleeding"] = boss_hits.bleeding_on_you(texts, seen)
         build.you_bleeding = bleeding  # (MECHC46: Conditions.evidence's "_you_bleeding", a round behind)
-        speed, chill_notes = boss_hits.boss_chill_on_you(chill_seen, texts, bool(
-            config_in.get("conditionChilled") or config_in.get("conditionOnChilledGround")))
         # (MECHC39, R31-8: the boss's Freeze on you, the share of the fight Frozen, with the Chill as one action-speed
         # INC in PoB's additive form; R31-13 (c)'s separate multiplier is the row: boss_hits.speed_from_chill_and_freeze)
+        # (MECHC48, the manager's 19:10 ruling on R37-17: both at the boss's own per-use cadence, the worst case read as
+        # the worst real preset, dodge / strike / defence-cadence rows: boss_hits.chill_and_freeze_on_you)
         freeze_seen = {**build.call("stats", fields=[*boss_hits.FREEZE_FIELDS, "ActionSpeedMod"]), **seen}
         last_shock = sum(number(m.get("value")) for m in self.mods or []
                          if m.get("tag") == "BossShock" and m.get("name") == "DamageTaken")
-        frozen, _, freeze_row = boss_hits.boss_freeze_on_you(freeze_seen, texts, bool(config_in.get("conditionFrozen")),
-                                                             (1 + shock_taken / 100) / (1 + last_shock / 100))
         own = sum(number(m.get("value")) for m in self.mods or []
                   if m.get("tag") == "BossChill" and m.get("name") == "ActionSpeed")
-        inc, speed_rows = boss_hits.speed_from_chill_and_freeze(speed, frozen, number(freeze_seen.get("ActionSpeedMod")) or 1.0,
-                                                                own, chill_seen.get("_chill_share"))  # (MECHC47)
+        inc, frozen, chill_rows = boss_hits.chill_and_freeze_on_you(
+            chill_seen, freeze_seen, texts,
+            bool(config_in.get("conditionChilled") or config_in.get("conditionOnChilledGround")),
+            bool(config_in.get("conditionFrozen")), (1 + shock_taken / 100) / (1 + last_shock / 100), own)
         if inc:
             hand_mods = hand_mods + [models.raw_mod("ActionSpeed", "INC", inc, tag="BossChill")]
-        hand_notes = hand_notes + chill_notes + ([freeze_row] if freeze_row else []) + speed_rows
+        hand_notes = hand_notes + chill_rows
         if any(p.match(t.strip()) for t in texts for p in (recovery_mod.FROZEN_ARMOUR, recovery_mod.BLEEDING_ARMOUR,
                                                              recovery_mod.FROZEN_REGEN)):
             # (MECHC42, MECH89's never-on rows: Armour while Frozen / Bleeding as rows, Life Regeneration while Frozen at

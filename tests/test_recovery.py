@@ -3124,3 +3124,38 @@ def test_the_freezing_hit_chills_too_so_frozen_time_is_chilled_time():
     assert inc == pytest.approx(-50 * 0.24 - 16)
     assert boss_hits.speed_from_chill_and_freeze(-20.0, 0.16, 1.0, 0.0)[0] == pytest.approx(-20 * 0.84 - 16)
     assert "Frozen time is Chilled time" in rows[0]["basis"]
+
+
+def test_the_bosss_chill_and_freeze_on_you_count_its_own_cold_uses_not_the_defence_cadence():
+    """(MECHC48, the manager's 19:10 ruling on RESEARCH37 R37-17) Chill / Freeze events on you are one per damaging USE
+    (bosses.HIT_EVERY) x the boss's OWN Cold share x the Cold hits' landing x (1 - dodged): a boss with no Cold hit (the
+    Red Queen, whose 0.51 s set the old defence cadence) never Chills or Freezes you; the worst case reads the worst real
+    preset (Olroth on this build), named; rows for 50% / 75% dodged, every strike and the old defence cadence."""
+    from builder.search import boss_hits, bosses
+
+    olroth, queen = "Olroth, Origin of the Fall", "Atziri, the Red Queen"
+    st = {"Life": 1857.0, "AilmentThreshold": 929.0, "ColdTakenHit": 1070.0, "enemySkillTime": 0.51, "EvadeChance": 0,
+          "EffectiveBlockChance": 0, "ActionSpeedMod": 1.0}
+    # the Red Queen deals no Cold: 0 Chill, 0 Freeze, at any cadence
+    inc, frozen, rows = boss_hits.chill_and_freeze_on_you({**st, "_boss": queen}, {**st, "_boss": queen}, [])
+    assert inc == 0.0 and frozen == 0.0
+    # Olroth: one Cold event a use, 52% of his uses; his Cold rows: 1 of 16 red-flash (GAOlrothGroundSlamInitial)
+    named = {**st, "_boss": olroth, "enemySkillTime": bosses.defence_hit_every(olroth), "EvadeChance": 50}
+    land = boss_hits.kind_land_share(named, "Cold")
+    assert land == pytest.approx(1 / 16 + 15 / 16 * 0.5)
+    rate, how = boss_hits.ailment_hits(named, "Cold")
+    assert rate == pytest.approx(boss_hits.type_shares(olroth)["Cold"] / 1.43 * land) and "every 1.43 s" in how
+    assert boss_hits.ailment_hits({**named, "_onyou_cadence": "strike"}, "Cold")[0] > rate
+    assert boss_hits.ailment_hits({**named, "_onyou_dodge": 0.5}, "Cold")[0] == pytest.approx(rate / 2)
+    slowed = {**named, "enemySkillTime": 2 * named["enemySkillTime"]}  # (your Slows on the boss halve it)
+    assert boss_hits.ailment_hits(slowed, "Cold")[0] == pytest.approx(rate / 2)
+    # the worst case: the worst real preset, the dodge rows smaller, the strike row larger
+    inc, frozen, rows = boss_hits.chill_and_freeze_on_you(dict(st), dict(st), [])
+    row = next(r for r in rows if r["label"] == "The boss's Chill / Freeze cadence on you*")
+    assert inc < 0 and 0 < frozen < 1 and "the worst real preset, Olroth" in row["basis"] and "7 at 0" in row["basis"]
+    readings = [float(x.split("%")[0]) for x in row["basis"].split("dodged: ")[1:]]
+    assert inc < readings[0] < readings[1] < 0  # (50%, then 75% dodged)
+    assert "every strike" in row["basis"] and "the old defence cadence" in row["basis"]
+    # a direct call on the worst case keeps the old defence reading (enemySkillTime x the pooled share)
+    old, _ = boss_hits.ailment_hits(dict(st), "Cold")
+    assert old == pytest.approx(boss_hits.type_shares(bosses.WORST)["Cold"] / 0.51 * boss_hits.land_share(st))
