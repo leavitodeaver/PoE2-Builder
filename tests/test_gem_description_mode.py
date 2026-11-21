@@ -1822,6 +1822,18 @@ def test_lightning_conduit_adds_its_bolts_on_a_shocked_boss():
     assert models.lightning_conduit_model(Skill(name="Spark"), 0.5, "t") == ([], [])
     assert models.lightning_conduit_model(Skill(name="Lightning Conduit"), 0.5, "t")[0] == []
     assert models.LIGHTNING_CONDUIT in models.gem_stat_skills()
+    # GEM31 (R42-28c / d): a Gemling's alternate quality reaches the stat (2 + 4 at 20%); the bolts are full hits
+    gemling = Skill(name="Lightning Conduit", spell=True, level_stats={models.CONDUIT_BOLTS_STAT: 6})
+    mods, notes = models.lightning_conduit_model(gemling, 1.0, "test")
+    assert mods[0]["value"] == pytest.approx(600.0) and notes[0]["confidence"] == "MEDIUM-HIGH"
+
+
+def test_concoction_speed_row_keeps_pobs_rate_as_the_headline():
+    """GEM31 (R42-28f, the manager's call): PoB's throws a second stay; the x0.85 reading is a row, no number moved."""
+    notes = models.concoction_speed_note(Skill(name="Explosive Concoction"), 1.4025)
+    assert notes[0]["value"] == pytest.approx(1.4025, abs=1e-3) and "1.19 a second" in notes[0]["basis"]
+    assert models.concoction_speed_note(Skill(name="Spark"), 1.4) == []
+    assert models.concoction_speed_note(Skill(name="Acidic Concoction"), 1.4, {models.CONCOCTION_SPEED_ENTRY}) == []
 
 
 def test_life_sacrificed_on_use_is_counted_a_second():
@@ -1851,6 +1863,37 @@ def test_ravenous_swarm_and_hollow_focus_follow_their_repeat_interval():
     assert models.repeat_interval_model([bells], bells, {"Speed": 1.14}, {"enemyDistance": 90})[0][0]["value"] == -100
     assert models.repeat_interval_model([swarm], melee, {}, {}, {models.REPEAT_ENTRY}) == ([], [])
     assert {models.RAVENOUS_SWARM, models.HOLLOW_FOCUS} <= set(models.gem_stat_skills())
+
+
+def test_moonbeam_follows_hits_capped_by_its_cooldown_at_the_buffs_uptime():
+    """GEM31: one Moonbeam a Werewolf Melee Hit (its extra beams go to other targets), at most its cooldown rate, while
+    Lunar Blessing lasts; PoB's own Full DPS entry taken out."""
+    dps, notes = models.moonbeam_model(0.98, 109.5, 1.375, 0.5, "test", pob=107.1, main="Lunar Assault")
+    assert dps == pytest.approx(0.98 * 0.5 * 109.5) and notes[0]["entry_cut"] == {models.MOONBEAM: 107.1}
+    slow, _ = models.moonbeam_model(0.98, 109.5, 0.2, 1.0, "test")
+    assert slow == pytest.approx(0.2 * 109.5)
+    assert models.moonbeam_model(0.98, 109.5, 1.0, 0.0, "off")[0] == 0.0
+    assert {"Attack", "Melee", "Wolf", "Shapeshift"} == models.WEREWOLF_MELEE_TYPES
+
+
+def test_mirror_of_refraction_copies_only_spare_projectiles():
+    """GEM31: a mirror every I s shattered by the main Spell's spare projectiles; at most one copy of the nova hits the
+    boss (R35-15), with chance min(1, k x 2 asin(r / d) / 360); none with one projectile a cast or a shotgun skill."""
+    mirror = Skill(name="Mirror of Refraction", cooldown_recovery=1.0,
+                   level_stats={models.REPEAT_STAT: 2000, models.MIRROR_COPIES_STAT: 9})
+    spark = Skill(name="Spark", spell=True)
+    stats = {"ProjectileCount": 9, "Speed": 2.0}
+    mods, notes = models.mirror_of_refraction_model([mirror, spark], spark, stats, {"enemyDistance": 50})
+    radius = models.bosses.hit_radius(stats)[0]
+    p = min(1.0, models.nova_unaimed_hits(9, radius, 5.0))
+    assert mods[0]["value"] == pytest.approx(100 * min(0.5, 2.0 * 8) * p / 2.0, abs=1e-3) and notes[0]["confidence"] == "LOW"
+    one = models.mirror_of_refraction_model([mirror, spark], spark, {"ProjectileCount": 1, "Speed": 2.0}, {})
+    assert one[0] == [] and one[1][0]["value"] == "x1"
+    shotgun = Skill(name="Galvanic Shards", attack=True)
+    assert models.mirror_of_refraction_model([mirror, shotgun], shotgun, stats, {})[0] == []
+    assert models.mirror_of_refraction_model([spark], spark, stats, {}) == ([], [])
+    assert models.mirror_of_refraction_model([mirror, spark], spark, stats, {}, {models.MIRROR_ENTRY}) == ([], [])
+    assert models.MIRROR_OF_REFRACTION in models.gem_stat_skills()
 
 
 def test_delayed_gratification_is_not_a_free_support():

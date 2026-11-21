@@ -2114,6 +2114,39 @@ def magma_spray(build: Build, main: models.Skill | None, stats: dict) -> tuple[f
     return models.magma_spray_model(rate, blast, how, pob)
 
 
+def moonbeam(build: Build, main: models.Skill | None, stats: dict) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Lunar Blessing's Moonbeam (GEM31's models.moonbeam_model): in the first enabled group
+    holding it, Moonbeam's setRates row (its cooldown rate as Speed, TotalDPS / Speed a beam) and PoB's Full DPS entry;
+    the main skill's Hits a second (a Werewolf Melee Attack only) at its share of the fight; Lunar Blessing's uptime."""
+    group = next((g for g in build.groups() if g["enabled"]
+                  and any(s["name"] == models.MOONBEAM for s in g.get("skills") or [])), None)
+    if group is None or main is None:
+        return 0.0, []
+    types = set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or [])
+    if not models.WEREWOLF_MELEE_TYPES <= types:
+        return 0.0, [{"label": "Lunar Blessing: Moonbeams*", "value": "0 DPS", "confidence": "MEDIUM-LOW",
+                      "entry": models.MOONBEAM_ENTRY,
+                      "basis": f"{main.name} isn't a Werewolf Melee Attack, so it calls down no Moonbeams"}]
+    n = next(i for i, s in enumerate(group["skills"], 1) if s["name"] == models.MOONBEAM)
+    sets = build.call("setRates", index=group["index"], active=n)["sets"] or [{}]
+    row = max(sets, key=lambda x: models.number(x.get("TotalDPS")))
+    cap = models.number(row.get("Speed"))
+    beam = models.number(row.get("TotalDPS")) / cap if cap > 0 else 0.0
+    got = {**stats, **build.call("stats", fields=["Speed", "HitChance", "MaximumRage"])}
+    hits = (models.number(got.get("Speed")) * min(models.number(got.get("HitChance")) or 100.0, 100.0) / 100.0
+            * main_time_share(build, main))
+    info = next((s for s in build.call("activeSkills", levelStats=[models.LUNAR_BLESSING])["skills"]
+                 if s["name"] == models.LUNAR_BLESSING and not s.get("disabled")), None)
+    if info is None:
+        return 0.0, []
+    up, up_how, _ = models.lunar_blessing_uptime(models.Skill.of(info), got)
+    pob = 0.0
+    if group.get("fullDPS"):
+        full = next(iter(build.call("useRates", indices=[group["index"]], actives=[n])["rates"]), None) or {}
+        pob = models.number(full.get("TotalDPS")) * _child_left(build, group)
+    return models.moonbeam_model(cap, beam, hits, up, up_how, pob, main.name)
+
+
 def trail_of_caltrops(build: Build, stats: dict, main: models.Skill | None = None,
                       charged: bool = False) -> tuple[float, list[dict], list[dict]]:
     """(added DPS, notes) for Trail of Caltrops (GEM26's models.trail_of_caltrops_model): in the first enabled group
@@ -3282,6 +3315,11 @@ class Assumptions:
         stat_notes = stat_notes + sacrifice_life(build, found, main, stats)[1]  # (GEM30: Life Sacrificed on use)
         rep_mods, rep_notes = models.repeat_interval_model(found, main, stats, build.call("getConfig")["input"], forbidden)
         stat_mods, stat_notes = stat_mods + rep_mods, stat_notes + rep_notes  # (GEM30: Ravenous Swarm, Hollow Focus)
+        if any(s.name == models.MIRROR_OF_REFRACTION for s in found):  # (GEM31: its copies from spare projectiles)
+            mir_mods, mir_notes = models.mirror_of_refraction_model(
+                found, main, {**stats, **build.call("stats", fields=["ProjectileCount", "Speed"])},
+                build.call("getConfig")["input"], forbidden)
+            stat_mods, stat_notes = stat_mods + mir_mods, stat_notes + mir_notes
         # (MECHC43) a main skill that spends the Combo other Strikes build (Culmination / Vruun's Inevitability,
         # skill_maximum_number_of_combo_stacks): its Combo on use from the build's own Strikes and the press model's
         # shares (models.vruun_combo_share's math), for PoB's Combo count (conditions.Conditions._combo_on_use, a round
@@ -4596,6 +4634,9 @@ class Assumptions:
             shock, shock_how = self.shock_set_share(group["index"], main.name, False)
             lc_mods, lc_notes = models.lightning_conduit_model(main, shock, shock_how, forbidden)
             hand_mods, hand_notes = hand_mods + lc_mods, hand_notes + lc_notes
+        if main is not None and group and main.name in models.CONCOCTIONS:  # (GEM31: R42-28f's 1.19 a second row)
+            hand_notes = hand_notes + models.concoction_speed_note(
+                main, number(build.call("stats", fields=["Speed"]).get("Speed")), forbidden)
         if main is not None and group and main.name in models.PARRIED_SETS:  # (GEM19: a part only on a Parried boss)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             plan = models.parry_plan(found, {**stats, "_texts": texts}, main.attack, True,
@@ -4776,6 +4817,11 @@ class Assumptions:
         hand_mods += [models.added_input("MagmaSpray", spray)] if spray > 0 else []
         hand_notes += spray_notes
         for note in spray_notes:  # (its own group's entry, MECHB45's tally)
+            self.cut_entries(note.pop("entry_cut", None) or {})
+        beams, beam_notes = moonbeam(build, main, stats)  # (GEM31: Lunar Blessing's beams; PoB's group out of Full DPS)
+        hand_mods += [models.added_input("Moonbeam", beams)] if beams > 0 else []
+        hand_notes += beam_notes
+        for note in beam_notes:  # (its own group's entry, MECHB45's tally)
             self.cut_entries(note.pop("entry_cut", None) or {})
         rolling = any(str(n.get("label", "")).startswith("Time spent dodge rolling") for n in hand_notes)
         trail, trail_mods, trail_notes = trail_of_caltrops(build, stats, main, rolling)  # (GEM26, R35-23)

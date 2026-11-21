@@ -42,9 +42,10 @@
     1-3 and 2 from level 4 (game 26650308 GrantedEffectStatSetsPerLevel StatSet 163; poe2db, 21 Nov: "(1-2) additional
     bolts"); no Shock is consumed since 0.3.0. PoB reads it nowhere (no statMap; grep of Modules/). The skill never
     Shocks, so the share of casts finding the boss Shocked is Assumptions.shock_set_share's (Shock alone: other skills'
-    Shocks and Shocked Ground). Headline DPS x (1 + bolts x share), each bolt a full hit on the lone boss (MEDIUM-LOW,
-    UNVERIFIED); rows: never Shocked x1, always x(1 + bolts). PoB's alternate quality (+0.2 bolts a point) not read
-    (UNVERIFIED in PoE2). Main skill only.
+    Shocks and Shocked Ground). Headline DPS x (1 + bolts x share), each bolt a full hit on the lone boss (MEDIUM-HIGH,
+    RESEARCH42 R42-28d); rows: never Shocked x1, always x(1 + bolts). GEM31: alternate quality (+0.2 bolts a quality
+    point, +4 at 20%) for a Gemling Legionnaire with Advanced Thaumaturgy (R42-28c, HIGH): the bridge's stat readers
+    now pass PoB's env.useAltGemQualityStats (bridge altGemQuality), so the bolts read 6 there. Main skill only.
   sources: ["builder/search/models.py (lightning_conduit_model)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua (LightningConduitPlayer)",
             "data/game-26650308/tables/GrantedEffectStatSetsPerLevel.json (StatSet 163)",
             "C:/PROJECTS/PoE2 Builder/scratch/manager/plans/kw-conduit.md"]

@@ -1,0 +1,172 @@
+- id: model-gem31-concoction-speed-row
+  title: "A Concoction's throws a second: PoB's 1.40 at base (headline) and 1.19 if the skill's -15% stacks on 714 ms (row)"
+  kind: model
+  model: concoction_speed
+  stats: []
+  skill: [Explosive Concoction, Acidic Concoction, Bleeding Concoction, Fulminating Concoction, Shattering Concoction]
+  confidence: LOW
+  notes: >-
+    models.concoction_speed_note (GEM31), hooked in Assumptions after Lightning Conduit's. RESEARCH42 R42-28f left it
+    unsettled whether the game applies a Concoction's attackSpeedMultiplier -15 on top of its
+    main_hand_base_weapon_attack_duration_ms 714 (1.19 throws a second at base) or 714 ms is the final base (1.40, PoB's
+    1.65 x 0.85: gem-active-pob-concoction-attack-time). The manager's call (08:25, 21 Nov): PoB's rate stays the
+    headline; the x0.85 reading is a labelled row (no number moved). A Pathfinder's Concoction tooltip would settle it.
+  sources: ["builder/search/models.py (concoction_speed_note)", "C:/PROJECTS/PoE2 Builder/scratch/manager/research/gem30-six-r42.md (R42-28f)"]
+  test_in_game: "A Pathfinder's Concoction tooltip at no attack speed: 1.40 or 1.19 attacks a second."
+  status: proposed
+
+# PLANS7's four open rows (plans/gs-triage-damage-speed.md; GEM30 left them open, gems-gem30.yaml 155-158), GEM31.
+
+- id: model-gem31-link-shield-charge-distance
+  title: "Shield Charge's 'up to 100% more Damage, based on the distance travelled' (the shield_charge_distance note)"
+  kind: model
+  model: shield_charge_distance
+  stats: ["base_additional_damage_from_distance_+%_final"]
+  skill: [Shield Charge]
+  confidence: LOW
+  notes: >-
+    The reader exists: models.shield_charge_distance_model (GEM14), called from gem_stat_model by the skill's name,
+    so the stat id never matched the ledger (PLANS7's "no reader": the audit row's, not the code's). It is a note, no
+    mod: against one boss the charge ends at the boss, so a charge from d metres needs a step back first, and with
+    PoB's use time and the walking speed stepping back pays only below walk / Speed metres of full-bonus distance; a
+    charge covers at least its 1.3 s minimum channel at walking speed (LOW), so PoB's 0% is kept there, and otherwise
+    "not counted" (no source gives the full-bonus distance). Rechecked on game 26650308 (GEM31): the stat's text is
+    still "Deals up to {0}% more Damage, based on the distance travelled" (skill_stat_descriptions.csd), and none of the
+    37 Stats ids holding "shield_charge" or "from_distance" is a base travel distance (they are modifiers such as
+    shield_charge_range_+% / _extra_distance, the end slide's distance and speed, movement speed, acceleration,
+    knockback, stun and damage lines, or other skills' distance ramps; checked: Stats.json ids, 26650308).
+    An UNDERCOUNT only where a build covers distance anyway (a moving boss), labelled in the note.
+  sources: ["builder/search/models.py (shield_charge_distance_model)",
+            "data/game-26650308/files/data/statdescriptions/skill_stat_descriptions.csd"]
+  test_in_game: "Shield Charge a dummy from its full travel distance and from melee range."
+  status: proposed
+
+- id: gem-gem31-thunderous-leap-warp-delay
+  title: "Thunderous Leap's 2 s warp / teleport delay: no text, no damage effect (RESEARCH41 R41-12)"
+  kind: gem_stat
+  match: '^spear_lightning_warp_teleport_delay_ms$'
+  replace: []
+  stats: ["spear_lightning_warp_teleport_delay_ms"]
+  skill: [Thunderous Leap]
+  confidence: LOW
+  notes: >-
+    RESEARCH41 R41-12 (research/plans7-ten-r41.md): no description text for spear_lightning_warp_teleport_delay_ms 2000
+    (checked: every .csd, KeywordPopups); Thunderous Leap's description ("Leap into the air and plunge your Spear into
+    the ground at the target location, emitting a Lightning-charged shockwave", ActiveSkills thunderous_leap, 26650308)
+    names no warp or teleport. Read as an internal visual / teleport delay: no damage effect (LOW, UNVERIFIED; the
+    manager's brief closes it as no-effect, labelled).
+  sources: ["C:/PROJECTS/PoE2 Builder/scratch/manager/research/plans7-ten-r41.md (R41-12)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: gem-gem31-incinerate-stage-step
+  title: "Incinerate's 250 ms stage step: a stage worth 0%, at most 1 (the stages are vestigial); the hit rate is the 0.25 s cast"
+  kind: gem_stat
+  match: '^incinerate_gain_stage_every_x_ms$'
+  replace: []
+  stats: ["incinerate_gain_stage_every_x_ms"]
+  skill: [Incinerate]
+  confidence: datamined
+  notes: >-
+    Game 26650308 IncineratePlayer: incinerate_gain_stage_every_x_ms 250 beside incinerate_maximum_stages 1 and
+    incinerate_damage_+%_final_per_stage 0 (no-effect-gem15-incinerate-maximum-stages); its statset_0.csd lists the stat
+    as no_description. PoB maps it to channelTimeOverride, which only sets its ChannelTime display (CalcOffence
+    2989-2996: the stage time x Multiplier:IncinerateStage, which nothing sets, floored at the 0.6 s minimum channel); the
+    hit rate is the skill's castTime 0.25 with cast speed (Speed), not this stat. MECH79's fuel model
+    (conditions.incinerate_channel) scales the share of the fight channelled, not the step, so nothing reads the step
+    and nothing needs to. Probe POE2T5810 (scratch/gem31/probe5810.log): Incinerate's Speed 3.02 on the skeleton
+    build, i.e. the 0.25 s cast with its cast speed (the step and the cast time are both 250 ms, so the probe can't tell
+    them apart; CalcOffence's code does: the override reaches only ChannelTime).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua (IncineratePlayer)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua 2989-2996"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: gem-gem31-storm-lance-bolt-interval
+  title: "Storm Lance's bolt interval: PoB maps it where the game shows it (Frenzy-Charged 0.2 s, Lodged Spear 0.8 s)"
+  kind: gem_stat
+  match: '^overcharged_spear_base_frequency_ms$'
+  replace: []
+  stats: ["overcharged_spear_base_frequency_ms"]
+  skill: [Storm Lance]
+  confidence: datamined
+  notes: >-
+    The game text, "Fires a bolt every {0} seconds", is on Storm Lance's statset_1 and statset_2 only
+    (specific_skill_stat_descriptions/storm_lance, 26650308): the Frenzy-Charged spear (200 ms) and the Lodged Spear
+    (800 ms). PoB maps the stat to hitTimeOverride on exactly those two sets (act_dex.lua StormLancePlayer); the
+    Projectile and Detonation sets carry the stat (800) without text or map: the throw is one hit, the Detonation one
+    volley. So PoB reads it wherever it acts. Probe POE2T5810 (scratch/gem31/probe5810.log): HitSpeed 5 a second on
+    Frenzy-Charged, 1.25 on Lodged Spear, none on Projectile / Detonation (one hit each). The
+    number of spears lodged at once and their duration are MECH-B's (plans gs-existing-model-extensions item 5).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_dex.lua (StormLancePlayer)",
+            "data/game-26650308/files/data/statdescriptions/specific_skill_stat_descriptions/storm_lance/statset_1.csd"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: model-gem31-mirror-of-refraction-copies
+  title: "Mirror of Refraction: a mirror every 2 s shattered by the main Spell's spare projectiles, one copy of the nova on the boss at most"
+  kind: model
+  model: mirror_of_refraction
+  stats: ["base_cooldown_modifiable_repeat_interval_ms", "cooldown_recovery_modifiers_also_apply_to_repeat_interval",
+          "base_number_of_projectiles", "base_mirror_of_refraction_limit"]
+  skill: [Mirror of Refraction]
+  confidence: theory
+  notes: >-
+    models.mirror_of_refraction_model (GEM31), hooked in Assumptions after repeat_interval_model. PoB scores the skill as
+    a Buff with no damage (an UNDERCOUNT for a multi-projectile Spell). A mirror every 2 s at gem level 20 (3.9 s at 1;
+    PoB act_int.lua MirrorOfRefractionPlayer, the game's text: Cooldown Recovery applies), limit 4, 8 s; a Spell
+    Projectile that hits one is copied 7 times (+0.1 a quality point) in a nova round it. One nova from one source at one
+    time: at most one copy hits the boss (RESEARCH35 R35-15, MEDIUM), with chance min(1, k x 2 asin(r / d) / 360), d the
+    fight distance (mirrors appear in your Presence; LOW). The shattering projectile is taken as spent (UNVERIFIED), so
+    only spare projectiles (N - 1 of a Spell's N: one hits a lone boss a cast) feed it: min(1 / I, casts x (N - 1))
+    shatters a second, each p more hits of the skill: DPS x (1 + shatters x p / casts). x1 with one projectile a cast,
+    or for skills whose every projectile already hits by our score (SHOTGUN / SEQUENCE skills, Nova Projectiles). Not
+    counted: copies copied again (an undercount). The limit adds nothing while spares shatter each mirror as it comes.
+  sources: ["builder/search/models.py (mirror_of_refraction_model)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua (MirrorOfRefractionPlayer)",
+            "data/game-26650308/files/data/statdescriptions/specific_skill_stat_descriptions/mirror_of_refraction.csd",
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/projectile-group-rule-scope.md (R35-15)"]
+  test_in_game: "Spark with Mirror of Refraction on a dummy 5 m away: about one extra Spark hit per shattered mirror at most."
+  status: proposed
+
+- id: model-gem31-link-heat-consumed-bonus
+  title: "The Heat spenders' 'if Heat is consumed' bonuses (the heat_consumed model, MECHB35)"
+  kind: model
+  model: heat_consumed
+  stats: ["active_skill_all_damage_%_as_fire_if_heat_is_consumed", "ignite_effect_+%_final_if_heat_is_consumed"]
+  skill: [Explosive Grenade, Cluster Grenade, Incendiary Shot]
+  confidence: theory
+  notes: >-
+    GEM29's ranking row (20.0, OPEN on Explosive / Cluster Grenade): the reader exists. models.heat_consumed_model
+    (MECHB35) adds Explosive / Cluster Grenade's "Gain 50% of Damage as Extra Fire" and Incendiary Shot's 100% more
+    Ignite Magnitude at the share of the spender's uses that find 15 Heat from Rapid Shot pressed beside it (0 without
+    Rapid Shot: no flat rate). PoB maps neither stat (the model's note: SkillStatMap / Modules). Keyed on the skill by
+    name (HEAT_BONUS), so the stat ids never matched the ledger. GEM31 links only; no number moves.
+  sources: ["builder/search/models.py (heat_consumed_model, HEAT_BONUS)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: model-gem31-moonbeam
+  title: "Lunar Blessing's Moonbeam: one beam a Werewolf Melee Hit while the Buff lasts, at most one a second (PoB's group outside Full DPS scored none)"
+  kind: model
+  model: moonbeam
+  stats: ["wolf_lunar_blessing_beam_attack_extra_beams_to_trigger", "wolf_lunar_blessing_beam_attack_delay_ms",
+          "wolf_lunar_blessing_beam_attack_delay_between_beams_ms", "secondary_skill_triggered_by_primary_skill_of_gem",
+          "wolf_lunar_blessing_same_target_trigger_beam_attack_prevention_duration_ms"]
+  skill: [Moonbeam, Lunar Blessing]
+  confidence: theory
+  notes: >-
+    models.moonbeam_model + assumptions.moonbeam (GEM31), beside Magma Spray's added source. Probe POE2T5810
+    (scratch/gem31/probe5810.log): PoB lists Moonbeam in the Lunar Blessing group (109.5 a beam, Speed 0.98 = its 1 s
+    cooldown with Cooldown Recovery) but the group isn't in Full DPS: Lunar Assault 72.7 DPS with or without it, an
+    UNDERCOUNT. The game: "While the Buff is active, your Werewolf Melee Attacks call down Moonbeams on Hit"; "Calls
+    down a Moonbeam on the target Hit and up to {0} other targets within {1} metres" (wolf_lunar_blessing_beam_attack.csd):
+    the extra beams (4-8 by level) go to OTHER targets, none on a lone boss; the same-target lockout is 0 ms. Beams a
+    second = min(Moonbeam's cooldown rate, the main Werewolf Melee Attack's Hits a second x its fight share) x Lunar
+    Blessing's uptime (models.lunar_blessing_uptime, MECHC36), each PoB's beam; PoB's own entry (if its group is ticked
+    into Full DPS) taken out. The 0.95 s / 0.2 s delays: timing only; a boss moving off the spot in 0.95 s isn't
+    counted (UNVERIFIED). MEDIUM-LOW.
+  sources: ["builder/search/models.py (moonbeam_model)", "builder/search/assumptions.py (moonbeam)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua (WolfLunarBlessingPlayer, WolfLunarBlessingBeamAttackPlayer)",
+            "data/game-26650308/files/data/statdescriptions/specific_skill_stat_descriptions/wolf_lunar_blessing_beam_attack.csd"]
+  test_in_game: "Lunar Blessing + Lunar Assault on a dummy: about one Moonbeam a second while the Buff lasts."
+  status: proposed

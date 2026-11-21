@@ -760,6 +760,16 @@ local function heavyStunHitMult()
 	return (1 + inc / 100) * more
 end
 
+-- (GEM31, RESEARCH42 R42-28c) PoB's alternate gem quality: the Gemling Legionnaire's Advanced Thaumaturgy ("Gem
+-- quality grants socketed skills an additional effect": ModParser's GemlingQuality flag, CalcSetup 1142) makes PoB's own
+-- calc add each gem's altQualityStats (CalcActiveSkill 81 / 574 pass env.useAltGemQualityStats). The bridge's stat
+-- readers built the stats without it, so a model reading a gem's stats missed them for that ascendancy (Lightning
+-- Conduit: +0.2 bolts a quality point, +4 at 20%: an UNDERCOUNT). nil without the flag, so nothing moves for others.
+local function altGemQuality()
+	local env = build.calcsTab and build.calcsTab.mainEnv
+	return env and env.useAltGemQualityStats or nil
+end
+
 -- (SEARCH29, MECHC40's item (a)) A build's own LedgerAddedDPS, summed from its output as derivedCalc sums a what-if's
 -- (assigned below DERIVED; nil when no added source is set)
 local committedAddedDPS
@@ -2108,7 +2118,8 @@ local function setImpale(env)
 	local set = skill.activeEffect and skill.activeEffect.statSet
 	set = set and (set.statSet or set)
 	if set and (set.constantStats or set.stats) then
-		local ok, built = pcall(calcLib.buildSkillInstanceStats, skill.activeEffect, skill.activeEffect.grantedEffect, set)
+		local ok, built = pcall(calcLib.buildSkillInstanceStats, skill.activeEffect, skill.activeEffect.grantedEffect, set,
+			altGemQuality())
 		gem = ok and built or { }
 	end
 	local inc = mods:Sum("INC", cfg, "ImpaleEffect") + num(gem["impale_magnitude_+%"])
@@ -4737,7 +4748,8 @@ function bridge.useRates(args)
 			local set = skill.activeEffect.statSet
 			set = set and (set.statSet or set)
 			if set and set.constantStats then
-				local okStats, stats = pcall(calcLib.buildSkillInstanceStats, skill.activeEffect, skill.activeEffect.grantedEffect, set)
+				local okStats, stats = pcall(calcLib.buildSkillInstanceStats, skill.activeEffect, skill.activeEffect.grantedEffect, set,
+					altGemQuality())
 				local base = okStats and stats and stats["number_of_poisonbloom_arrow_bloom_allowed"]
 				if base and base > 0 then
 					entry.pustuleLimit = jsonNumber(base + skill.skillModList:Sum("BASE", skill.skillCfg, "AdditionalCooldownUses"))
@@ -5707,7 +5719,7 @@ function bridge.activeSkills(args)
 					desired = (function()
 						local sets = effect.statSets
 						local ok2, built = pcall(calcLib.buildSkillInstanceStats, activeSkill.activeEffect, effect,
-							sets and sets[1])
+							sets and sets[1], altGemQuality())
 						return ok2 and built and (built["skill_desired_initial_amount"] or built["skill_desired_amount_override"])
 							or nil
 					end)(),
@@ -5739,7 +5751,7 @@ function bridge.activeSkills(args)
 			-- gem_stat entries read stats of any set
 			local stats = setmetatable({ }, { __jsontype = "object" })
 			for _, set in ipairs(effect.statSets) do
-				local ok, built = pcall(calcLib.buildSkillInstanceStats, activeSkill.activeEffect, effect, set)
+				local ok, built = pcall(calcLib.buildSkillInstanceStats, activeSkill.activeEffect, effect, set, altGemQuality())
 				for stat, value in pairs(ok and built or { }) do
 					if type(value) == "number" and stats[stat] == nil then
 						stats[stat] = value
@@ -5754,7 +5766,8 @@ function bridge.activeSkills(args)
 			for _, support in ipairs(activeSkill.effectList or { }) do
 				local granted = support.grantedEffect
 				if granted and granted.support and granted.statSets and granted.statSets[1] then
-					local ok, built = pcall(calcLib.buildSkillInstanceStats, support, granted, granted.statSets[1])
+					local ok, built = pcall(calcLib.buildSkillInstanceStats, support, granted, granted.statSets[1],
+						altGemQuality())
 					for _, stat in ipairs(args.supportStats) do
 						local value = ok and built and built[stat]
 						if type(value) == "number" then
@@ -5812,7 +5825,7 @@ function bridge.activeSkills(args)
 				local minionSkill = activeSkill.minion.mainSkill
 				local casts
 				for _, set in ipairs(effect.statSets or { }) do
-					local built = calcLib.buildSkillInstanceStats(activeSkill.activeEffect, effect, set)
+					local built = calcLib.buildSkillInstanceStats(activeSkill.activeEffect, effect, set, altGemQuality())
 					for stat, value in pairs(built or { }) do
 						if stat:match("maximum_number_of_casts$") and type(value) == "number" then
 							casts = value
@@ -7092,7 +7105,7 @@ function bridge.chargeGain()
 		if effect and effect.name == "Wildwood's Gifts" and effect.statSets then
 			local stats = { }
 			for _, set in ipairs(effect.statSets) do
-				local ok, built = pcall(calcLib.buildSkillInstanceStats, skill.activeEffect, effect, set)
+				local ok, built = pcall(calcLib.buildSkillInstanceStats, skill.activeEffect, effect, set, altGemQuality())
 				for stat, value in pairs(ok and built or { }) do
 					if type(value) == "number" and stats[stat] == nil then
 						stats[stat] = value

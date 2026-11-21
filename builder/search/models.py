@@ -3801,8 +3801,8 @@ def gem_stat_skills() -> list[str]:
     from builder.ledger import gem_stat_entries
 
     return sorted({name for e in gem_stat_entries() if not e.raw.get("support") for name in _skill_names(e)}
-                  | {LIGHTNING_CONDUIT, RAVENOUS_SWARM, HOLLOW_FOCUS})  # (GEM30: lightning_conduit_model /
-    # repeat_interval_model read their level stats)
+                  | {LIGHTNING_CONDUIT, RAVENOUS_SWARM, HOLLOW_FOCUS, MIRROR_OF_REFRACTION})  # (GEM30: lightning_conduit_model /
+    # repeat_interval_model read their level stats; GEM31: mirror_of_refraction_model)
 
 
 def gem_stat_support_stats() -> list[str]:
@@ -5640,10 +5640,17 @@ def abyssal_apparition_model(texts: list[str], main: Skill | None, main_types: s
 # and a cast-time list only). The skill has never_shock, so the Shock comes from the build's other skills or its Shocked
 # Ground: Assumptions.shock_set_share (GEM19's, Shock alone for this skill: an Electrocute isn't a Shock), the share P of
 # its casts that find the boss Shocked. On a lone boss every bolt goes to it (the only target hit), each taken as one
-# more full hit of the skill (MEDIUM-LOW: the bolts' own size isn't stated, UNVERIFIED). So DPS x (1 + b x P). Rows: the
-# boss never Shocked x1; always Shocked x(1 + b). PoB's alternate quality (+0.2 bolts a point, altQualityStats) isn't
-# read: whether PoE2 still offers it is UNVERIFIED (named). As the main skill only; a side group's copy isn't counted
-# (named: an undercount left).
+# more full hit of the skill (MEDIUM-HIGH, RESEARCH42 R42-28d: the skill's only stat set, no damage penalty stated; 0.2.0:
+# the bolts can hit the same target again). So DPS x (1 + b x P). Rows: the boss never Shocked x1; always Shocked
+# x(1 + b). Alternate quality (GEM31, R42-28c, HIGH): PoE2 offers it through the Gemling Legionnaire's Advanced
+# Thaumaturgy (0.5.0: "All gems ... additional quality stat"; tree node 14429 "Gem Quality grants Socketed Skills an
+# additional effect", PoB's GemlingQuality flag; no other source found (checked: game 26650308 Stats ids holding
+# quality + alt / additional_effect / gemling: ascendancy_gemling_enable_thaumaturgy_quality_stats only; it sits on
+# PassiveSkills AscendancyMercenary3Notable4 alone, in no Mods Stat1-8 or SoulCoreStats Stats / BondedStats; PoB's
+# ModCache / ModParser hold GemlingQuality once, for that line; R42-28c the same), and for Lightning Conduit it is
+# +0.2 bolts a quality point (altQualityStats; +4 at 20%). The bridge's stat readers now build with PoB's own switch
+# (bridge altGemQuality, as CalcActiveSkill 81 / 574 do), so b is 2 + 4 = 6 for that Gemling at 20% quality, 2 otherwise.
+# As the main skill only; a side group's copy isn't counted (named: an undercount left).
 LIGHTNING_CONDUIT = "Lightning Conduit"
 CONDUIT_BOLTS_STAT = "lightning_conduit_x_additional_strikes_if_consumed_a_shock"
 CONDUIT_ENTRY = "model-gem30-lightning-conduit-bolts"
@@ -5657,20 +5664,46 @@ def lightning_conduit_model(main: Skill | None, share: float, how: str,
     bolts = number(main.level_stats.get(CONDUIT_BOLTS_STAT))
     label = f"{LIGHTNING_CONDUIT}: additional bolts on a Shocked boss*"
     if bolts <= 0:
-        return [], [{"label": label, "value": "not counted", "confidence": "MEDIUM-LOW", "entry": CONDUIT_ENTRY,
+        return [], [{"label": label, "value": "not counted", "confidence": "MEDIUM-HIGH", "entry": CONDUIT_ENTRY,
                      "basis": f"its level stats carry no {CONDUIT_BOLTS_STAT} (not read from the bridge)"}]
     share = min(1.0, max(0.0, share))
     factor = 1.0 + bolts * share
     mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=CONDUIT_ENTRY)] if share > 0 else []
     return mods, [{
-        "label": label, "value": f"x{factor:.3f}", "confidence": "MEDIUM-LOW", "entry": CONDUIT_ENTRY,
-        "basis": (f"{bolts:g} additional bolt(s) a cast when a Shocked enemy is in the area (its gem level's stat; PoB "
-                  f"never reads it), all on the lone boss, each a full hit (UNVERIFIED); {share:.0%} of casts find the boss "
+        "label": label, "value": f"x{factor:.3f}", "confidence": "MEDIUM-HIGH", "entry": CONDUIT_ENTRY,
+        "basis": (f"{bolts:g} additional bolt(s) a cast when a Shocked enemy is in the area (its gem level's stat, with "
+                  f"+0.2 a quality point for a Gemling with Advanced Thaumaturgy; PoB never reads it), all on the lone "
+                  f"boss, each a full hit (R42-28d, MEDIUM-HIGH); {share:.0%} of casts find the boss "
                   f"Shocked ({how}; the skill never Shocks itself): x{factor:.3f}. Rows: never Shocked x1; always "
                   f"Shocked x{1 + bolts:g}"),
         "play": (f"{LIGHTNING_CONDUIT} fires {bolts:g} extra bolt(s) into a Shocked boss: Shock it with another skill or "
                  f"Shocked Ground first. Without Shock: x1; with this build's ({share:.0%} of casts): x{factor:.2f}; "
                  f"always Shocked: x{1 + bolts:g}.")}]
+
+
+# A Concoction's throws a second (GEM31; RESEARCH42 R42-28f, the manager's call 08:25, 21 Nov). The Concoctions carry
+# main_hand_base_weapon_attack_duration_ms 714 and attackSpeedMultiplier -15 (game 26650308; PoB act_dex.lua). PoB's base
+# rate is 1.40 a second at no attack speed (1.65 x 0.85 = 1.4025 = 1000 / 713, so the -15% looks folded into the 714 ms:
+# GEM30's turn-1 check agreed): the HEADLINE, no number moved. Whether the game applies the -15% again on top of the 714 ms
+# (1000 / 714 x 0.85 = 1.19 a second at base) is NOT settled (R42-28f, LOW: a Pathfinder's Concoction tooltip would settle
+# it): a labelled row at x0.85 of PoB's rate. A note only; the Mana Flask's charges cap the rate separately
+# (Assumptions.flask_main, MECH-C's).
+CONCOCTIONS = ("Explosive Concoction", "Fulminating Concoction", "Shattering Concoction", "Acidic Concoction",
+               "Bleeding Concoction")
+CONCOCTION_SPEED_ENTRY = "model-gem31-concoction-speed-row"
+CONCOCTION_STACKED_SPEED = 0.85  # (the skill's attackSpeedMultiplier -15, if it stacks on the 714 ms: UNVERIFIED)
+
+
+def concoction_speed_note(main: Skill | None, speed: float, forbidden: set[str] = frozenset()) -> list[dict]:
+    """A main Concoction's throws a second: PoB's (the headline) and the x0.85 row if the -15% stacks (see above)."""
+    if main is None or main.name not in CONCOCTIONS or CONCOCTION_SPEED_ENTRY in forbidden or speed <= 0:
+        return []
+    return [{"label": f"{main.name}: throws a second*", "value": round(speed, 3), "confidence": "LOW",
+             "entry": CONCOCTION_SPEED_ENTRY,
+             "basis": (f"PoB's rate, {speed:.2f} a second with this build's attack speed (its 714 ms base with the "
+                       f"skill's -15% taken as already in it: 1.65 x 0.85 = 1.40 at base); if the game applies the -15% "
+                       f"again on top of 714 ms (R42-28f, UNVERIFIED): {speed * CONCOCTION_STACKED_SPEED:.2f} a second, "
+                       f"x{CONCOCTION_STACKED_SPEED:g} on its DPS (row only, not applied)")}]
 
 
 # Ravenous Swarm and Hollow Focus at their repeat interval (GEM30; RESEARCH39 R39-13, research/ravenous-swarm-hollow-focus-
@@ -5767,6 +5800,89 @@ def repeat_interval_model(skills: list[Skill], main: Skill | None, stats: dict, 
                 "play": (f"{skill.name}: fight at the boss and hit the bells as they appear; Cooldown Recovery makes "
                          f"them come faster (here {1 / interval:.2f} a second).")})
     return mods, notes
+
+
+# Mirror of Refraction's copied projectiles (GEM31; the manager's brief item 3, a repeat-interval skill; an UNDERCOUNT:
+# PoB scores it as a Buff with no damage). The game (26650308, ActiveSkills mirror_of_refraction / mirror_of_refraction.csd):
+# "Mirrors of Refraction appear in your Presence periodically. Hitting a mirror with a Spell Projectile causes it to
+# shatter, copying the projectiles in a nova around the destroyed mirror. Copied Projectiles may be copied again when
+# colliding with other mirrors"; "A Mirror appears in your Presence every {0} seconds" (base_cooldown_modifiable_repeat_
+# interval_ms 3900 at gem level 1 ... 2000 at 20, PoB act_int.lua MirrorOfRefractionPlayer; Cooldown Recovery applies:
+# cooldown_recovery_modifiers_also_apply_to_repeat_interval), "Limit 4", "persist for 8 seconds", "Projectiles which
+# shatter Mirrors are copied {0} times" (base_number_of_projectiles 7, +0.1 a quality point). Against one boss:
+# - The copies are one nova from one source at one time, so at most ONE of them can hit the boss (KeywordPopups 74's
+#   projectile group rule; RESEARCH35 R35-15, research/projectile-group-rule-scope.md's table: Mirror of Refraction "1,
+#   MEDIUM"). Whether one does: the boss's arc's share of the k copies, p = min(1, k x 2 asin(r / d) / 360 degrees)
+#   (R39-12's nova_unaimed_hits; the mirror appears in your Presence, so d is taken as the fight distance, LOW).
+# - The projectile that shatters a mirror is spent on it (LOW: a projectile ends on what it hits; UNVERIFIED for a
+#   mirror). So shattering pays only with a SPARE projectile, one that wouldn't have hit the boss: a Spell firing N
+#   projectiles a cast hits a lone boss with one (the same group rule; Spark's headline 1, SPARK_HEADLINE_HITS), leaving
+#   N - 1 spares. With no spare (N = 1), the play is not to feed the mirrors: x1 (each shatter would trade a sure hit for
+#   p <= 1). Skills whose projectiles each hit by our score (SHOTGUN_SKILLS, SEQUENCE_SKILLS, Nova Projectiles) aren't
+#   counted (no spares by that score; named).
+# - Shatters a second s = min(1 / I, casts a second x (N - 1)), I = the interval / Cooldown Recovery (a player who takes
+#   it fires spares through the mirrors: the play that feeds it). Each adds p hits of the main skill's projectile on the
+#   boss (the copy deals the skill's hit: MEDIUM-LOW). DPS x (1 + s x p / casts a second), PoB's one hit a cast the base.
+# Not counted (labelled, an undercount): copies copied again by other mirrors (a chain needs a second mirror in a copy's
+# path), and mirrors the boss's own movement brings into play. Rows: at melee distance (p at MELEE_DISTANCE); no mirror fed
+# x1. The main skill only (a side group's spell isn't counted: named).
+MIRROR_OF_REFRACTION = "Mirror of Refraction"
+MIRROR_COPIES_STAT = "base_number_of_projectiles"
+MIRROR_ENTRY = "model-gem31-mirror-of-refraction-copies"
+
+
+def mirror_of_refraction_model(skills: list[Skill], main: Skill | None, stats: dict, config: dict | None = None,
+                               forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Mirror of Refraction's copies on the boss from the main Spell's spare projectiles (see above)."""
+    from builder.search.conditions import MELEE_DISTANCE, RANGED_DISTANCE  # (conditions imports models)
+
+    mirror = next((s for s in skills if s.name == MIRROR_OF_REFRACTION), None)
+    if mirror is None or MIRROR_ENTRY in forbidden:
+        return [], []
+    label = f"{MIRROR_OF_REFRACTION}: copied projectiles on the boss*"
+    base = number(mirror.level_stats.get(REPEAT_STAT)) / 1000
+    copies = number(mirror.level_stats.get(MIRROR_COPIES_STAT))
+    if main is None or not main.spell or base <= 0 or copies <= 0:
+        return [], [{"label": label, "value": "x1", "confidence": "LOW", "entry": MIRROR_ENTRY,
+                     "basis": ("no main Spell (only Spell Projectiles shatter mirrors), or its level stats weren't read: "
+                               "nothing counted")}]
+    count, casts = number(stats.get("ProjectileCount")), number(stats.get("Speed"))
+    if main.name in SHOTGUN_SKILLS or main.name in SEQUENCE_SKILLS or nova_on(main):
+        why = "each of its projectiles already counts as a hit on the boss in our score, so it has no spare to feed a mirror"
+        count = 0.0
+    else:
+        why = "it fires one projectile a cast: shattering a mirror would spend the one that hits the boss"
+    if count < 2 or casts <= 0:
+        return [], [{"label": label, "value": "x1", "confidence": "LOW", "entry": MIRROR_ENTRY,
+                     "basis": f"{main.name}: {why}; don't feed the mirrors: x1 (PoB's)",
+                     "play": f"{MIRROR_OF_REFRACTION} adds nothing against one boss with {main.name}: its Spirit is better spent elsewhere."}]
+    units = number((config or {}).get("enemyDistance"))
+    if units > 0:
+        metres, where = units / 10, "the fight distance this build is calculated at"
+    else:
+        metres = MELEE_DISTANCE if main.melee else RANGED_DISTANCE
+        where = "the main skill's natural distance"
+    radius = bosses.hit_radius(stats)[0]
+    interval = base / (mirror.cooldown_recovery or 1.0)
+    shatters = min(1 / interval, casts * (count - 1))
+    p = min(1.0, nova_unaimed_hits(copies, radius, metres))
+    p_near = min(1.0, nova_unaimed_hits(copies, radius, MELEE_DISTANCE))
+    factor = 1 + shatters * p / casts
+    near = 1 + shatters * p_near / casts
+    mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=MIRROR_ENTRY)] if factor > 1 else []
+    return mods, [{
+        "label": label, "value": f"x{factor:.3f}", "confidence": "LOW", "entry": MIRROR_ENTRY,
+        "basis": (f"a mirror every {base:g} s / {mirror.cooldown_recovery or 1.0:.2f} Cooldown Recovery = {interval:.2f} s; "
+                  f"{main.name} fires {count:g} projectiles a cast, one of which hits the boss, so {count - 1:g} spare(s) "
+                  f"x {casts:.2f} casts a second can shatter them: {shatters:.2f} shatters a second. Each copies the "
+                  f"projectile {copies:g} times in a nova, of which at most one can hit the boss (one source, one time: "
+                  f"R35-15, MEDIUM); a mirror {metres:g} m from the boss ({where}; mirrors appear in your Presence, LOW), "
+                  f"radius {radius:g} m: one hits {p:.0%} of the time (k x 2 asin(r / d) / 360). +{shatters * p:.2f} hits a "
+                  f"second on {casts:.2f}: x{factor:.3f}. Rows: fighting at {MELEE_DISTANCE:g} m x{near:.3f}; mirrors not "
+                  "fed x1. Not counted: copies copied again by a second mirror (an undercount)"),
+        "play": (f"{MIRROR_OF_REFRACTION}: let {main.name}'s spare projectiles pass through the mirrors that appear around "
+                 f"you; closer to the boss, more copies reach it. Without it: x1; at this distance x{factor:.2f}; at "
+                 f"{MELEE_DISTANCE:g} m x{near:.2f}.")}]
 
 
 # Life Sacrificed on use (GEM30; plans/kw-sacrifice.md item 1, the gem side; the manager's 03:25 note: MECH-C leads the
@@ -9610,6 +9726,46 @@ def magma_spray_model(rate: float, blast: float, how: str, pob: float = 0.0) -> 
         "play": (f"Magma Spray fires when you Block with your shield raised after the lava has charged: raise the shield "
                  f"(Raise Shield, or a shield-channel main skill) when the boss swings: with this build {dps:,.1f} DPS; "
                  f"without raising it: 0.")}]
+
+
+# Lunar Blessing's Moonbeam (GEM31; an UNDERCOUNT: probe POE2T5810, scratch/gem31/probe5810.log: PoB lists Moonbeam in
+# the Lunar Blessing group, 109.5 a beam at 0.98 a second (its 1 s cooldown, WolfLunarBlessingBeamAttackPlayer), but the
+# group isn't in Full DPS, so the score counted none: Lunar Assault 72.7 DPS with or without it). The game (ActiveSkills
+# wolf_lunar_blessing, 26650308): "While the Buff is active, your Werewolf Melee Attacks call down Moonbeams on Hit";
+# wolf_lunar_blessing_beam_attack.csd: "Calls down a Moonbeam on the target Hit and up to {0} other targets within {1}
+# metres": the 4-8 extra beams (wolf_lunar_blessing_beam_attack_extra_beams_to_trigger) go to OTHER targets, none on a
+# lone boss (GEM29's "extra beams" lead was a misread). Lunar Blessing's same-target lockout is 0 ms
+# (wolf_lunar_blessing_same_target_trigger_beam_attack_prevention_duration_ms 0), so Moonbeam's own 1 s cooldown (with
+# Cooldown Recovery: PoB's Speed for it) caps the beams. Beams a second = min(that cap, the main Werewolf Melee Attack's
+# hits a second x its share of the fight) x Lunar Blessing's uptime (models.lunar_blessing_uptime, MECHC36: its duration +
+# 0.2 s per Rage spent over its cooldown), each PoB's Moonbeam use (TotalDPS / Speed); PoB's own entry, if its group is in
+# Full DPS (at the cap all fight), taken out. The beam lands 0.95 s after the Hit (wolf_lunar_blessing_beam_attack_delay_
+# ms) at the target: a boss that moves away in that time is missed (not counted: UNVERIFIED, RESEARCH). Werewolf Melee
+# Attacks: the main skill's types hold Attack, Melee, Wolf and Shapeshift (Lunar Assault, Pounce, ...). MEDIUM-LOW.
+MOONBEAM, LUNAR_BLESSING = "Moonbeam", "Lunar Blessing"
+MOONBEAM_ENTRY = "model-gem31-moonbeam"
+WEREWOLF_MELEE_TYPES = frozenset({"Attack", "Melee", "Wolf", "Shapeshift"})
+
+
+def moonbeam_model(cap: float, beam: float, hits: float, uptime: float, uptime_how: str, pob: float = 0.0,
+                   main: str = "") -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Moonbeam (see above): `cap` its uses a second at its cooldown (PoB's Speed), `beam` one
+    beam's damage (PoB's), `hits` the main Werewolf Melee Attack's hits a second on the boss, `uptime` Lunar Blessing's,
+    `pob` PoB's Full DPS entry for it (taken out)."""
+    cap, beam, hits, uptime = (max(number(v), 0.0) for v in (cap, beam, hits, uptime))
+    rate = min(cap, hits) * min(uptime, 1.0)
+    dps = rate * beam
+    return dps, [{
+        "label": "Lunar Blessing: a Moonbeam on your Werewolf Melee Hits while the Buff lasts*", "value": f"{dps:,.1f} DPS",
+        "confidence": "MEDIUM-LOW", "entry": MOONBEAM_ENTRY,
+        "entry_cut": {MOONBEAM: pob} if pob > 0 else {},
+        "basis": (f"one beam on the boss per Hit ({hits:.2f} Hits a second from {main or 'the main skill'}), at most "
+                  f"{cap:.2f} a second (Moonbeam's cooldown), while Lunar Blessing is up {uptime:.0%} of the fight "
+                  f"({uptime_how}): {rate:.3f} beams a second at {beam:,.1f} each (PoB's Moonbeam). Its extra beams go to "
+                  "other targets: none on a lone boss. A boss leaving the spot in the beam's 0.95 s delay isn't counted"
+                  + (f"; PoB's own {pob:,.1f} DPS entry (the cooldown rate all fight) taken out" if pob > 0 else "")),
+        "play": (f"Keep Lunar Blessing up (with full Rage) and keep hitting in Werewolf form: Moonbeams follow your Hits, "
+                 f"one a second at most: {dps:,.1f} DPS here; without the Buff: 0.")}]
 
 
 # Trail of Caltrops (GEM26; an UNDERCOUNT: probe POE2T3584, PoB rates its Caltrops Speed 0, TotalDPS 0). RESEARCH35
