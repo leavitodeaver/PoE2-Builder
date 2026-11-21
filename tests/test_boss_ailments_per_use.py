@@ -33,14 +33,15 @@ def test_per_use_reads_below_the_defence_cadence_and_the_dodge_rows_bracket_it()
     rows = dict(got["rows"])
     assert rows["0% of the dodgeable uses dodged"] > got["uptime"] > rows["75% of the dodgeable uses dodged"]
     assert got["uptime"] < rows["the defence cadence (enemySkillTime, no dodge: the old reading)"]
-    assert "EXTENSION" in got["how"]  # (the user's 50% was given for Cold attacks)
+    assert "the user's rate for every telegraphed attack" in got["how"]  # (the user, 21 Nov: one rate for all)
+    assert "EXTENSION" not in got["how"]
 
 
 def test_a_chance_ailment_counts_every_strike_of_a_use():
     stats = seen(DIVINITY)
     got = boss_hits.ailments_on_you(stats)["Shock"]
-    uses, _ = boss_hits.ailment_hits({**stats, "_onyou_cadence": "use", "_onyou_dodge": boss_hits.ON_YOU_DODGE},
-                                     "Lightning")
+    red, rest = boss_hits.kind_land_parts(stats, "Lightning")
+    uses = boss_hits.type_shares(DIVINITY)["Lightning"] / bosses.HIT_EVERY[DIVINITY] * rest * (1 - boss_hits.ON_YOU_DODGE)
     p = boss_hits.own_shock_chance(stats, DIVINITY)
     k = bosses.HIT_EVERY[DIVINITY] / bosses.HITS_EVERY[DIVINITY]
     assert k > 1
@@ -125,3 +126,26 @@ def test_a_shielded_presets_cull_reads_the_shield_assumption_with_its_rows():
     assert bosses.cull_rows(ASH) == [("no Energy Shield: 5% of its Life", 5.0)]
     assert "Energy Shield down" in bosses.note("Atziri, the Red Queen")["basis"]
     assert all(bosses.can_be_culled(n)[0] for n in bosses.PRESETS)  # (R40-8: none marked uncullable)
+
+
+def test_red_flash_hits_are_avoided_in_the_headline_and_land_in_a_row():
+    stats = seen(OLROTH)  # (its Ground Slam is red-flash and half Cold)
+    red, _ = boss_hits.kind_land_parts(stats, "Cold")
+    assert red > 0
+    got = boss_hits.ailments_on_you(stats)["Chill"]
+    rows = dict(got["rows"])
+    assert rows["red-flash hits land (a tanky build that stands in them)"] > got["uptime"] > 0
+    assert "avoided by moving out" in got["how"]
+
+
+def test_red_flash_uses_and_the_time_they_cost():
+    rate, how = boss_hits.red_flash_rate(ASH)
+    una, _, total, _ = boss_hits.RED_FLASH[ASH]
+    assert rate == pytest.approx(una / total / bosses.HIT_EVERY[ASH])
+    share, how = boss_hits.red_flash_time_share(ASH)
+    assert share == pytest.approx(rate * boss_hits.RED_FLASH_AVOID_SECONDS) and "LOW" in how
+    assert boss_hits.RED_FLASH_AVOID_SECONDS == 0.75  # (DodgeRollPlayer CastTime 750 ms, game 26650308)
+    worst = boss_hits.red_flash_rate(bosses.WORST)[0]
+    assert worst == pytest.approx(max(boss_hits.red_flash_rate(n)[0] for n in bosses.REAL))
+    slowed = boss_hits.red_flash_rate({"_boss": ASH, "enemySkillTime": 2 * bosses.defence_hit_every(ASH)})[0]
+    assert slowed == pytest.approx(rate / 2)

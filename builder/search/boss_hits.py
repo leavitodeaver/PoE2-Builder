@@ -2012,11 +2012,15 @@ def chill_and_freeze_on_you(chill_seen: dict, freeze_seen: dict, texts: list[str
 # a reader that turns the rate into a GAIN (removing or avoiding an ailment), that is an OVERCOUNT. Here, for each of
 # Ignite, Shock, Chill, Freeze, Bleed, Poison and Electrocute:
 # - Events per USE (R37-17, research/pinnacle-boss-hit-cadence-on-player.md): ailment_hits' landed uses of the type a
-#   second (bosses.HIT_EVERY, the type's own share of the boss's damaging skills, red-flash hits always landing, the rest
-#   evaded / blocked as PoB rolls them, x your Slows on the boss), x (1 - ON_YOU_DODGE) on the dodgeable ones. The user
-#   gave the 50% dodge for the pinnacles' telegraphed COLD attacks (20 Nov 21:50); taking it for Fire / Lightning /
-#   Physical uses too is an EXTENSION (MEDIUM-LOW: R37-17's guides call the bosses' big attacks telegraphed, not every
-#   Fire or Lightning hit), labelled in every "how", with dodge 0 as a row.
+#   second (bosses.HIT_EVERY, the type's own share of the boss's damaging skills, evaded / blocked as PoB rolls them, x
+#   your Slows on the boss), x (1 - ON_YOU_DODGE) on the dodgeable ones: THE USER'S RULING (21 Nov 04:32, the manager's
+#   cards): ONE dodge rate for every telegraphed attack, "they definitely all need the same hit rate", Fire, Lightning,
+#   Cold and Physical alike; 50% the headline, labelled the user's rate (the user doubts it: research measures it from
+#   fight videos), none / three in four as rows.
+# - Red-flash hits (no evade / block / dodge roll): THE USER'S RULING (21 Nov 04:32, "Avoided, time cost counted": "those
+#   attacks are often one-shot kills on a player with lower defenses"): the headline takes them as AVOIDED by moving out
+#   (no hit, no ailment on you), the time it costs taken off attacking (red_flash_rate / red_flash_time_share, read by
+#   MECH-C); "they land" stays a row for tanky builds.
 # - A use's strikes: Ignite and Shock are a CHANCE per hit (KeywordPopups Ignite: Flammability "including the amount added
 #   by that Hit"; Shock: "1% chance to Shock for every 4% of the target's Ailment Threshold"), so a use of k strikes
 #   afflicts with 1 - (1 - p)^k, k = HIT_EVERY / HITS_EVERY (the boss's mean strikes a use, MECHD5's melee strikes: LOW,
@@ -2054,8 +2058,7 @@ ON_YOU_AILMENTS = ("Ignite", "Shock", "Chill", "Freeze", "Bleed", "Poison", "Ele
 DAMAGING_AILMENTS = ("Ignite", "Bleed", "Poison")  # KeywordPopups DamagingAilments (game 26650308): HIGH
 _AILMENT_KIND = {"Ignite": "Fire", "Shock": "Lightning", "Chill": "Cold", "Freeze": "Cold", "Bleed": "Physical"}
 _AILMENT_VERB = {"Ignite": "Ignited", "Shock": "Shocked", "Freeze": "Frozen", "Chill": "Chilled", "Bleed": "Bleeding"}
-DODGE_EXTENSION = ("the user's 50% for the pinnacles' telegraphed Cold attacks (20 Nov), extended here to the boss's {kind} "
-                   "uses: an EXTENSION, MEDIUM-LOW")
+DODGE_HOW = "the user's rate for every telegraphed attack (21 Nov; research to measure it from fight videos)"
 NO_SOURCE = {
     "Poison": ("no pinnacle preset has a Poison chance (checked, MECHD7: 695 boss skills' stats in game 26650308, the "
                "presets' variety mods, the Monster* Poison mods; RESEARCH13 #60 / RESEARCH14 #67's skills, buffs and "
@@ -2081,7 +2084,33 @@ def strikes_per_use(name: str) -> float:
     return max(1.0, bosses.HIT_EVERY[name] / bosses.HITS_EVERY[name])
 
 
-def _ailment_on_you(stats: dict, ailment: str, texts: list[str], cadence: str, dodge: float) -> dict:
+def _type_uses(stats: dict, kind: str, cadence: str, dodge: float, red_lands: bool) -> tuple[float, str]:
+    """(landed uses of the boss's `kind` hits a second, how) at a cadence ("use", "strike"; "defence" = ailment_hits'
+    old reading), `dodge` of the dodgeable ones dodged, red-flash ones avoided (the headline) or landing (`red_lands`)."""
+    from builder.search import bosses
+    name = boss_name(stats)
+    if cadence == "defence" or name == _worst() or name not in bosses.HIT_EVERY:
+        return ailment_hits({**stats, "_onyou_cadence": "defence"}, kind)
+    share = type_shares(name).get(kind, 0.0)
+    scored = number(stats.get("enemySkillTime"))
+    slowed = scored / bosses.defence_hit_every(name) if scored > 0 else 1.0
+    base = bosses.HIT_EVERY[name] if cadence == "use" else bosses.HITS_EVERY[name]
+    every = base * slowed
+    red, rest = kind_land_parts(stats, kind)
+    land = (red if red_lands else 0.0) + rest * (1 - dodge)
+    rate = share / every * land if every > 0 else 0.0
+    how = (f"{name}: one damaging {'use' if cadence == 'use' else 'strike'} every {base:g} s"
+           + (f" x{slowed:.2f} (your Slows on it)" if abs(slowed - 1) > 1e-9 else "")
+           + (" (LOW: the tables' cadence)" if cadence == "use" else " (every strike counted: an upper bound)")
+           + f", {share:.0%} {kind}; of those, {red:.0%} red-flash "
+           + ("LANDING (the tanky row)" if red_lands else "avoided by moving out (the user's ruling, 21 Nov)")
+           + f", the rest {rest / (1 - red) if red < 1 else 0:.0%} past your evade / block and {dodge:.0%} dodged ("
+           + (DODGE_HOW if dodge == ON_YOU_DODGE else "a row") + f"): {land:.0%} landing")
+    return rate, how
+
+
+def _ailment_on_you(stats: dict, ailment: str, texts: list[str], cadence: str, dodge: float,
+                    red_lands: bool = False) -> dict:
     """One ailment from one boss (no worst-case resolution): the dict ailments_on_you gives per ailment, without rows."""
     name = boss_name(stats)
     out = {"rate": 0.0, "uptime": 0.0, "seconds": 0.0, "dps": 0.0, "effect": 0.0, "boss": name,
@@ -2090,9 +2119,7 @@ def _ailment_on_you(stats: dict, ailment: str, texts: list[str], cadence: str, d
         return {**out, "how": NO_SOURCE[ailment], "confidence": "MEDIUM-HIGH (game files; the .ao scripts unseen)"}
     kind = _AILMENT_KIND[ailment]
     read = {**stats, "_onyou_cadence": cadence, "_onyou_dodge": dodge}
-    uses, how = ailment_hits(read, kind)
-    if dodge > 0 and kind != "Cold" and cadence != "defence":
-        how += " (" + DODGE_EXTENSION.format(kind=kind) + ")"
+    uses, how = _type_uses(stats, kind, cadence, dodge, red_lands)
     if ailment == "Bleed":
         bleeds = BLEED_SKILLS.get(name, 0)
         count = hit_table(name)[1].get("Physical", 0)
@@ -2167,7 +2194,7 @@ def ailments_on_you(stats: dict, texts: list[str] | None = None, worst: str = "l
     afflicted, "seconds": one's length on you, "dps": damage a second while on before your mitigation (Ignite, Bleed),
     "effect": Shock's % increased damage taken while on, "boss": the preset read, "ground": a ground that also inflicts it
     (not counted; "" without), "how", "confidence", "rows": [(label, uptime)] for dodge none / 75%, every strike and the
-    old defence cadence]} for the boss's own ailments on you, per use of its skills (the comment above). `stats`: PoB's
+    old defence cadence; red-flash hits landing]} for the boss's own ailments on you, per use of its skills (the comment above). `stats`: PoB's
     {Type}TakenHit, AilmentThreshold, Life, <Ailment>AvoidChance, Self<Ailment>Duration, SelfShockEffect, EvadeChance,
     EffectiveBlockChance, enemySkillTime and "_boss"; `texts`: the build's lines (immunity windows); `worst`: on the
     worst-case pinnacle, "lowest" (a gain reads the lowest real preset) or "highest" (a harm)."""
@@ -2187,6 +2214,8 @@ def ailments_on_you(stats: dict, texts: list[str] | None = None, worst: str = "l
                                     f"the highest: {top['boss']}, {top['uptime']:.0%}): " + pick["how"])}
         rows = [(f"{d:.0%} of the dodgeable uses dodged", _ailment_on_you(seen, ailment, texts, "use", d)["uptime"])
                 for d in ON_YOU_DODGE_ROWS]
+        rows.append(("red-flash hits land (a tanky build that stands in them)",
+                     _ailment_on_you(seen, ailment, texts, "use", ON_YOU_DODGE, red_lands=True)["uptime"]))
         rows.append(("every strike, not every use (HITS_EVERY: an upper bound)",
                      _ailment_on_you(seen, ailment, texts, "strike", ON_YOU_DODGE)["uptime"]))
         rows.append(("the defence cadence (enemySkillTime, no dodge: the old reading)",
@@ -2200,3 +2229,49 @@ def ailment_uptime(stats: dict, ailment: str, texts: list[str] | None = None, wo
     """(share of the fight the boss keeps you afflicted by `ailment`, how): ailments_on_you's headline for one."""
     got = ailments_on_you(stats, texts, worst, (ailment,))[ailment]
     return got["uptime"], got["how"]
+
+
+# The boss's red-flash uses and the time avoiding them costs (MECHD7; THE USER'S RULING 21 Nov 04:32, "Avoided, time cost
+# counted"). Red-flash skills (no evade / block / dodge-roll roll: RED_FLASH's first count over the preset's damaging
+# skills, the same share land_share uses) are AVOIDED by moving out in the headline, each use costing time off attacking.
+# Uses a second: that share / bosses.HIT_EVERY (one per damaging use, LOW: the tables' cadence), x your Slows on the boss
+# (PoB's scored enemySkillTime over the preset's defence cadence). The worst-case pinnacle takes the HIGHEST real
+# preset's (the user's worst-case rule: the most time lost). Time per avoided use: one dodge roll, RED_FLASH_AVOID_SECONDS
+# 0.75 s (game 26650308 GrantedEffects DodgeRollPlayer CastTime 750 ms, action_attack_or_cast_time_uses_animation_length;
+# dodge_roll_base_travel_distance 46 = 4.6 m; second source R26-44 (poe2wiki, Mobalytics): movement speed lengthens the
+# roll within the same 0.75 s). A STAND-IN, LOW: research measures the real time from fight videos (a nuke may take more
+# than one roll). Read by MECH-C (MECHC49): the main skill's share x (1 - red_flash_time_share).
+RED_FLASH_AVOID_SECONDS = 0.75
+RED_FLASH_AVOID_HOW = ("one dodge roll, 0.75 s (DodgeRollPlayer CastTime 750 ms, 4.6 m; a stand-in until research times "
+                       "it from fight videos: LOW)")
+
+
+def red_flash_rate(stats: dict | str | None = None) -> tuple[float, str]:
+    """(the boss's red-flash uses a second, how); `stats` a stats dict ("_boss", enemySkillTime) or a preset's name. The
+    worst-case pinnacle: the highest real preset's."""
+    from builder.search import bosses
+    stats = {"_boss": stats} if isinstance(stats, str) else dict(stats or {})
+    name = boss_name(stats)
+    if name == _worst() or name not in bosses.HIT_EVERY:
+        rows = [(red_flash_rate({**stats, "_boss": n, "enemySkillTime": 0})[0], n) for n in bosses.REAL]
+        rate, top = max(rows)
+        return rate, (f"worst case: the highest real preset's, {top} ({rate * 60:.1f} a minute): "
+                      + red_flash_rate({**stats, "_boss": top, "enemySkillTime": 0})[1])
+    una, _, total, what = RED_FLASH[name]
+    share = una / total if total else 0.0
+    scored = number(stats.get("enemySkillTime"))
+    slowed = scored / bosses.defence_hit_every(name) if scored > 0 else 1.0
+    every = bosses.HIT_EVERY[name] * slowed
+    rate = share / every if every > 0 else 0.0
+    return rate, (f"{name}: {share:.0%} of its damaging skills are red-flash ({what}), one use every {every:.2f} s"
+                  + (f" (x{slowed:.2f}, your Slows on it)" if abs(slowed - 1) > 1e-9 else "")
+                  + f": {rate * 60:.1f} red-flash uses a minute (LOW: the tables' cadence)")
+
+
+def red_flash_time_share(stats: dict | str | None = None) -> tuple[float, str]:
+    """(the share of the fight spent moving out of the boss's red-flash attacks, how): red_flash_rate x
+    RED_FLASH_AVOID_SECONDS, at most 1. The user's ruling (the comment above); "they land" (0 time) is the row."""
+    rate, how = red_flash_rate(stats)
+    share = min(1.0, rate * RED_FLASH_AVOID_SECONDS)
+    return share, (f"{how}; each avoided by moving out, {RED_FLASH_AVOID_HOW}: {share:.1%} of the fight not attacking "
+                   "(the user's ruling, 21 Nov: 'Avoided, time cost counted'; if they land instead, a tanky build: 0%)")
