@@ -5436,6 +5436,12 @@ def break_others(skills: list[dict], rows: dict, groups: list[dict], hitters: se
         if more:
             rate *= 1 + more / 100
             parts.append(f"{more:+g}% more from its support")
+        if own := got.get(BREAK_INC_STAT):  # (MECH98, GEM31: its own quality stat, as MECH97's main-skill reading)
+            lines_inc = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+                            for t in build_lines if (m := BREAK_INCREASED.match(t.strip())))
+            base = max(1e-9, 1 + lines_inc / 100)  # (added to the build's increase, which _armour_broken applies after)
+            rate *= max(0.0, 1 + (lines_inc + own) / 100) / base
+            parts.append(f"{own:+g}% increased from the skill's own quality (added to the build's {lines_inc:+g}%)")
         out.append((name, rate, f"{name} at {why}: " + "; ".join(parts)))
     return out
 

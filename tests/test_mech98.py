@@ -195,3 +195,20 @@ def test_kills_of_shocked_enemies_count_at_the_shock_share():
     rate, _ = kill_events("on killing a shocked enemy", {**base, "ShockChancePerHit": 2, "ShockDuration": 1.0})
     assert 0 < rate < 0.05
     assert kill_events("on kill", dict(base))[0] == 0.5  # (no state named: every kill)
+
+
+def test_a_side_break_skills_own_quality_counts():
+    """GEM31 (the manager 13:03): Armour Piercing Rounds' own armour_break_amount_+% (its quality stat) counted beside
+    another main skill too (MECH97 read it only as the main skill); added to the build's Break increase lines."""
+    from builder.search.conditions import BREAK_INC_STAT, break_others
+
+    groups = [{"index": 1, "gems": [{"name": "Strike"}]}, {"index": 2, "gems": [{"name": "Armour Piercing Rounds"}]}]
+    every = {"Armour Piercing Rounds": {"skillTypes": ["Attack", "Projectile"]}}
+    row = {"index": 2, "name": "Armour Piercing Rounds", "triggered": True, "speed": 2.0, "HitChance": 50.0}
+    skill = {"name": "Armour Piercing Rounds", "levelStats": {"apply_X_armour_break_on_hit": 300, BREAK_INC_STAT: 20},
+             "supportStats": {}}
+    got = break_others([skill], {2: row}, groups, {"Armour Piercing Rounds"}, 1, [], every)
+    assert abs(got[0][1] - 300 * 1.2) < 1e-6 and "own quality" in got[0][2]
+    # with the build's 30% increased line, which _armour_broken applies after: (1 + 0.5) / (1 + 0.3) here
+    got = break_others([skill], {2: row}, groups, {"Armour Piercing Rounds"}, 1, ["Break 30% increased Armour"], every)
+    assert abs(got[0][1] - 300 * 1.5 / 1.3) < 1e-6
