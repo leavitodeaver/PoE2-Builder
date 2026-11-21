@@ -140,7 +140,9 @@ PRESETS: dict[str, Boss] = {b.name: b for b in (
     Boss("Atziri, the Red Queen", 15, 15, 15, 0, 7091472, "Demon", "Vaal; phase 1; EnergyShieldFromLife 33 (its meaning UNVERIFIED, A22-5)", poise=926,
          es_from_life=33,
          kills=(Kills(45.0, 1.0, "Atziri's Royal Acolytes, killed before they reach you and explode (1 per wave: the "
-                                 "wave size is UNVERIFIED, so its lower bound)", "LOW: RESEARCH16 #81",
+                                 "wave size is UNVERIFIED, so its lower bound: R42-22's three video tries counted none, one weak guide "
+                                 "says they 'swarm'; normal monsters, not Rare: no summon skill of hers sets a rarity, "
+                                 "R42-21, MEDIUM-LOW, UNVERIFIED)", "LOW: RESEARCH16 #81, RESEARCH42 R42-21 / R42-22",
                       32956.0),),  # (R36-6: VaalZealotSacrifice, LifeMultiplier 100%: PoB's normal-monster Life exact)
          inflicts=("Ignite", "Shock", "Corrupted Blood")),
     Boss("Atziri, the Fell Serpent", 15, 15, 15, 0, 9461668, "Demon", "Vaal phase 2; EnergyShieldFromLife 33 (its meaning UNVERIFIED, A22-5)", poise=1235,
@@ -544,7 +546,13 @@ def kills_per_second(name: str = DEFAULT) -> tuple[float, str]:
 # share of the fight, what, confidence). The Aberration's Verisium Web: poe2db lists a monster with 1 Life and an attack;
 # no source says players can target it or that on-kill effects fire on it (UNVERIFIED): headline 0, this row.
 KILL_ROWS = {"The Aberration": ((30.0, 1, 1.0, "one Verisium Web killed every 30 s (GTCyclopsSpiderSpawnVerisium; "
-                                               "targetable / on-kill UNVERIFIED)", "LOW"),)}
+                                               "targetable / on-kill UNVERIFIED)", "LOW"),),
+             # (MECHD8) The 25 s EASVoodooKingSummonEffigy is on the second form's row too (VoodooKingBoss3MAP, game
+             # 26476662; HIGH for the listing): if that form casts it, its 57% of the fight adds the same waves (the
+             # ceiling 1.0 of the headline's 0.43; whether it casts it MEDIUM-LOW, RESEARCH #147 saw killable adds in
+             # the first form only).
+             "The King in the Mists": ((25.0, 1, 0.57, "the second form's Affliction Totems too (its row lists the 25 s "
+                                                       "summon; whether it casts it UNVERIFIED)", "MEDIUM-LOW"),)}
 
 
 def kill_rows(name: str = DEFAULT) -> list[tuple[str, float]]:

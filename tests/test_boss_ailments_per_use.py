@@ -141,8 +141,15 @@ def test_red_flash_hits_are_avoided_in_the_headline_and_land_in_a_row():
 
 def test_red_flash_uses_and_the_time_they_cost():
     rate, how = boss_hits.red_flash_rate(ASH)
+    # (MECHD8: per USE from the cadence model, not the flagged-skill share; the old reading is the "skills" row)
+    assert rate == pytest.approx(boss_hits.RED_FLASH_USES[ASH][0] / 60) and "upper bound" in how
     una, _, total, _ = boss_hits.RED_FLASH[ASH]
-    assert rate == pytest.approx(una / total / bosses.HIT_EVERY[ASH])
+    old = boss_hits.red_flash_rate(ASH, "skills")[0]
+    assert old == pytest.approx(una / total / bosses.HIT_EVERY[ASH]) and rate < old / 2
+    video = boss_hits.red_flash_rate(ASH, "video")[0]
+    assert video * 60 == pytest.approx(4.5 / 261 * 60) and video < rate  # (R41-2: about 1 a minute)
+    assert boss_hits.red_flash_time_share(ASH, rate_reading="skills")[0] == pytest.approx(old * 0.75)
+    assert boss_hits.red_use_share(ASH) == pytest.approx(3.69 / 26.7)
     share, how = boss_hits.red_flash_time_share(ASH)
     assert share == pytest.approx(rate * boss_hits.RED_FLASH_AVOID_SECONDS) and "LOW" in how
     assert boss_hits.RED_FLASH_AVOID_SECONDS == 0.75  # (DodgeRollPlayer CastTime 750 ms, game 26650308)
@@ -162,7 +169,7 @@ def test_the_videos_rows_and_the_landed_hits_cross_check():
                                          all_in=boss_hits.VIDEO_LANDED_SHARE)
     assert no_evade["uptime"] == pytest.approx(video)  # (evasion isn't counted twice)
     per_min, how = boss_hits.landed_cross_check(seen(ASH))
-    red, _ = boss_hits.shares(seen(ASH))
+    red = boss_hits.red_use_share(ASH)  # (MECHD8: the per-use red share, as the headline avoids)
     assert per_min == pytest.approx(60 / bosses.HIT_EVERY[ASH] * (1 - red) * 0.7 * (1 - boss_hits.ON_YOU_DODGE))
     assert "videos 6 (4.5-9.5" in how
 
@@ -178,3 +185,10 @@ def test_atziris_video_es_reading_and_the_verisium_web_row():
     assert bosses.pool(ASH, "video")[1] == 0
     assert bosses.kills_per_second("The Aberration")[0] == 0
     assert bosses.kill_rows("The Aberration")[0][1] == pytest.approx(1 / 30)
+
+
+def test_the_kings_second_form_totems_are_a_row_not_the_headline():
+    king = "The King in the Mists"
+    (what, rate), = bosses.kill_rows(king)
+    assert "second form" in what and rate == pytest.approx(0.57 / 25)
+    assert [k.share for k in bosses.PRESETS[king].kills] == [0.43]  # (the headline unchanged)

@@ -2253,9 +2253,10 @@ def ailment_uptime(stats: dict, ailment: str, texts: list[str] | None = None, wo
 
 
 # The boss's red-flash uses and the time avoiding them costs (MECHD7; THE USER'S RULING 21 Nov 04:32, "Avoided, time cost
-# counted"). Red-flash skills (no evade / block / dodge-roll roll: RED_FLASH's first count over the preset's damaging
-# skills, the same share land_share uses) are AVOIDED by moving out in the headline, each use costing time off attacking.
-# Uses a second: that share / bosses.HIT_EVERY (one per damaging use, LOW: the tables' cadence), x your Slows on the boss
+# counted"). Red-flash skills (no evade / block / dodge-roll roll) are AVOIDED by moving out in the headline, each use
+# costing time off attacking. Uses a second: RED_FLASH_USES, per use (MECHD8, below; the old reading, RED_FLASH's
+# flagged-skill share / bosses.HIT_EVERY, is the "skills" row; land_share and the defence floors keep the skill-count
+# share, so red-flash hits stay landing there at the cautious share: the manager's 07:25 ruling), x your Slows on the boss
 # (PoB's scored enemySkillTime over the preset's defence cadence). The worst-case pinnacle takes the HIGHEST real
 # preset's (the user's worst-case rule: the most time lost). Time per avoided use: one dodge roll, RED_FLASH_AVOID_SECONDS
 # 0.75 s (game 26650308 GrantedEffects DodgeRollPlayer CastTime 750 ms, action_attack_or_cast_time_uses_animation_length;
@@ -2269,32 +2270,99 @@ RED_FLASH_AVOID_HOW = ("one dodge roll, 0.75 s (DodgeRollPlayer CastTime 750 ms,
 RED_FLASH_READINGS = ("moves", "tanks")  # (MECHD7: "tanks": 0 s, the hit lands in full: ailments_on_you's red_lands row)
 
 
-def red_flash_rate(stats: dict | str | None = None) -> tuple[float, str]:
+# Red-flash USES a minute per preset (MECHD8; the manager's 07:25 note 21 Nov: the skill-count reading gave the Arbiter of
+# Ash 11.8 a minute where RESEARCH41's videos show about 1-3). The old reading took RED_FLASH's flagged-skill share (7 of
+# 20 for the Arbiter) as the share of its USES, so a red-flash skill's sub-effects (Bullet Hell's three effects, the
+# Chasm combo's two, Olroth's slam and two aftershocks) each counted as a use, and its long cooldowns (Bullet Hell and
+# the Chasm combo 55 s) weighed like the 5 s Fireball. Now: MECHD5's cadence model (scratch/mechd5/cadence5.py: each
+# cooldown skill used every cooldown, scaled down when they overfill the time, the basic attack filling the rest; an
+# UPPER bound on a cooldown skill's uses, as the AI need not use it the moment it is ready) gives each row skill's uses a
+# minute; a use is red when its own stat sets, or a flagged effect named after it, carry
+# base_skill_cannot_be_avoided_by_dodge_roll_or_evaded_or_blocked (game 26476662, RESEARCH15's flagged effects). By
+# hand (LOW, by name): the Arbiter's Chasm Burst / Big Chasm Slash to its Chasm Shenanigans (55 s), the King's
+# Punishment to its Hexes (one Punishment a Hex, 25 s; the upper row: a player who obeys the Hex isn't punished), the
+# Raven's Volatile Flame Blast to its Flame Blast start (30 s); the Bodach's meteor slams share Fist Slam's timer, half
+# its uses (an even split, LOW). Flagged effects that neither the name match nor a hand mapping tie to a use (the
+# Arbiter's Offscreen Slam and Flame Seed nuke, Zarokh's Death Touch, the Raven's Phase Change Blast; which use fires
+# them is UNVERIFIED: the .ao scripts are unread) each count as one average damaging skill of the preset (the old
+# reading, kept for them: not zeroed on an unverified mapping). scratch/mechd8/redshare.py, .txt.
+# (red-flash uses a minute, damaging uses a minute, which); the King weighted 43 / 57 by form (HIT_EVERY's note).
+RED_FLASH_USES: dict[str, tuple[float, float, str]] = {
+    "Arbiter of Ash": (3.69, 26.7, "Bullet Hell 0.51 and the Chasm combo 0.51 (55 s each), Offscreen Slam and the Flame "
+                                   "Seed nuke 1.33 each (no use named: one average skill each)"),
+    "Arbiter of Divinity": (8.72, 44.2, "Spear Toss impacts 3.33 + 2.31 (18 s / 26 s), Storm Blink 1.71, Extendo Spear "
+                                        "Combo's slam 1.36"),
+    "Xesht, We That Are One": (12.0, 48.0, "Pistol Flick wave 5.0, Hand Slams 4.0, Multi Flick 3.0"),
+    "The King in the Mists": (0.43 * 6.4 + 0.57 * 9.4, 0.43 * 28.1 + 0.57 * 51.6,
+                              "Vine Slam 4.0, Punishment 2.4 (one a Hex), Bug Bomb 3.0 (second form)"),
+    "Zarokh, the Temporal": (2.39, 52.5, "Death Touch (no use named: one average skill)"),
+    "The Raven Trickster": (1.88, 28.6, "Volatile Flame Blast 1.07 (30 s), Phase Change Blast 0.82 (no use named: one "
+                                        "average skill)"),
+    "The Bodach": (4.5, 49.2, "phase 2 meteor slams 2.5 (half of Fist Slam's shared timer) and the Meteor Combo 2.0"),
+    "Olroth, Origin of the Fall": (6.06, 26.9, "Throw Out 3.33 (18 s), Ground Slam and its aftershocks 2.73 (22 s)"),
+    "The Aberration": (3.59, 36.2, "Spider Mortar 3.59"),
+    "Vessel of Kulemak": (0.0, 54.8, "none (Teleport Slam can still be evaded)"),
+    "Atziri, the Red Queen": (0.0, 53.0, "none in phase 1"),
+    "Atziri, the Fell Serpent": (1.5, 43.4, "Flesh Bubble Explosion 1.5 (40 s)"),
+}
+# RESEARCH41 R41-2's videos (LOW, 4 fights): the Arbiter 2 in 41 s (VDA), 1 in 48 s (SlayerD, Uber), 0-1 in 76 s
+# (Lambark); Olroth 1 in 96 s (echoburn): 4.5 in 261 s, about 1 a minute, a red share of the counted attacks ~10% (3 of
+# 29). The row, not the headline: four fights, skilled players, one preset each but two.
+RED_FLASH_VIDEO_PER_MINUTE = 4.5 / 261 * 60
+RED_FLASH_RATE_READINGS = ("uses", "skills", "video")
+
+
+def red_use_share(name: str) -> float:
+    """The share of the preset's damaging USES that are red-flash (RED_FLASH_USES; the worst case's own skill-count
+    share, as before, for a name the table lacks)."""
+    if name in RED_FLASH_USES:
+        red, dmg, _ = RED_FLASH_USES[name]
+        return red / dmg if dmg else 0.0
+    una, _, total, _ = RED_FLASH.get(name, RED_FLASH[DEFAULT_BOSS])
+    return una / total if total else 0.0
+
+
+def red_flash_rate(stats: dict | str | None = None, reading: str = "uses") -> tuple[float, str]:
     """(the boss's red-flash uses a second, how); `stats` a stats dict ("_boss", enemySkillTime) or a preset's name. The
-    worst-case pinnacle: the highest real preset's."""
+    worst-case pinnacle: the highest real preset's. `reading`: "uses" (the headline: RED_FLASH_USES, per use), "skills"
+    (the old reading: the flagged-skill share over HIT_EVERY, an overcount of uses), "video" (RESEARCH41's ~1 a minute,
+    the same for every preset)."""
     from builder.search import bosses
     stats = {"_boss": stats} if isinstance(stats, str) else dict(stats or {})
     name = boss_name(stats)
     if name == _worst() or name not in bosses.HIT_EVERY:
-        rows = [(red_flash_rate({**stats, "_boss": n, "enemySkillTime": 0})[0], n) for n in bosses.REAL]
+        rows = [(red_flash_rate({**stats, "_boss": n, "enemySkillTime": 0}, reading)[0], n) for n in bosses.REAL]
         rate, top = max(rows)
         return rate, (f"worst case: the highest real preset's, {top} ({rate * 60:.1f} a minute): "
-                      + red_flash_rate({**stats, "_boss": top, "enemySkillTime": 0})[1])
-    una, _, total, what = RED_FLASH[name]
-    share = una / total if total else 0.0
+                      + red_flash_rate({**stats, "_boss": top, "enemySkillTime": 0}, reading)[1])
     scored = number(stats.get("enemySkillTime"))
     slowed = scored / bosses.defence_hit_every(name) if scored > 0 else 1.0
-    every = bosses.HIT_EVERY[name] * slowed
-    rate = share / every if every > 0 else 0.0
-    return rate, (f"{name}: {share:.0%} of its damaging skills are red-flash ({what}), one use every {every:.2f} s"
-                  + (f" (x{slowed:.2f}, your Slows on it)" if abs(slowed - 1) > 1e-9 else "")
-                  + f": {rate * 60:.1f} red-flash uses a minute (LOW: the tables' cadence)")
+    slow = f" (x{1 / slowed:.2f}, your Slows on it)" if abs(slowed - 1) > 1e-9 else ""
+    if reading == "video":
+        rate = RED_FLASH_VIDEO_PER_MINUTE / 60 / slowed
+        return rate, (f"{name}: the videos' {RED_FLASH_VIDEO_PER_MINUTE:.1f} red-flash uses a minute{slow} (R41-2: 4.5 in "
+                      f"261 s over 4 fights, LOW)")
+    if reading == "skills":
+        una, _, total, what = RED_FLASH[name]
+        share = una / total if total else 0.0
+        every = bosses.HIT_EVERY[name] * slowed
+        rate = share / every if every > 0 else 0.0
+        return rate, (f"{name}: {share:.0%} of its damaging skills are red-flash ({what}), one use every {every:.2f} s"
+                      + slow + f": {rate * 60:.1f} red-flash uses a minute (the old skill-count reading: sub-effects and "
+                      "long cooldowns counted as uses, an overcount; MECHD8)")
+    red, dmg, what = RED_FLASH_USES[name]
+    rate = red / 60 / slowed
+    return rate, (f"{name}: {rate * 60:.1f} red-flash uses a minute{slow}, {red / dmg if dmg else 0:.0%} of its damaging "
+                  f"uses ({what}; MECHD5's cadence, each cooldown skill used when ready: an upper bound; LOW). The "
+                  f"videos: about {RED_FLASH_VIDEO_PER_MINUTE:.0f} a minute (R41-2, 4 fights)")
 
 
-def red_flash_time_share(stats: dict | str | None = None, reading: str = "moves") -> tuple[float, str]:
+def red_flash_time_share(stats: dict | str | None = None, reading: str = "moves",
+                         rate_reading: str = "uses") -> tuple[float, str]:
     """(the share of the fight spent moving out of the boss's red-flash attacks, how): red_flash_rate x
-    RED_FLASH_AVOID_SECONDS, at most 1 ("moves", the headline); "tanks": 0 s, the hit lands in full (the row)."""
-    rate, how = red_flash_rate(stats)
+    RED_FLASH_AVOID_SECONDS, at most 1 ("moves", the headline); "tanks": 0 s, the hit lands in full (the row).
+    `rate_reading`: red_flash_rate's ("uses" the headline; "skills", "video" rows)."""
+    rate, how = red_flash_rate(stats, rate_reading)
     if reading == "tanks":
         return 0.0, (f"{how}; tanked, not avoided: no time lost, every red-flash hit lands in full (the tanky row; "
                      "R41-2 saw a Titan tank one)")
@@ -2317,7 +2385,7 @@ def landed_cross_check(stats: dict) -> tuple[float, str]:
         return hi, (f"worst case: the real presets give {lo:.1f} ({low}) to {hi:.1f} ({top}) landed boss uses a minute; "
                     f"the videos {VIDEO_LANDED_PER_MINUTE[0]:g} ({VIDEO_LANDED_PER_MINUTE[1]:g}-"
                     f"{VIDEO_LANDED_PER_MINUTE[2]:g}, R41-1, 8 fights)")
-    red, _ = shares(stats)
+    red = red_use_share(name)  # (MECHD8: per use, not the skill-count share)
     evade, block = evade_block(stats)
     scored = number(stats.get("enemySkillTime"))
     slowed = scored / bosses.defence_hit_every(name) if scored > 0 else 1.0
