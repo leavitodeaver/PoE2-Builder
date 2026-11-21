@@ -33,7 +33,8 @@ def test_per_use_reads_below_the_defence_cadence_and_the_dodge_rows_bracket_it()
     rows = dict(got["rows"])
     assert rows["0% of the dodgeable uses dodged"] > got["uptime"] > rows["75% of the dodgeable uses dodged"]
     assert got["uptime"] < rows["the defence cadence (enemySkillTime, no dodge: the old reading)"]
-    assert "the user's rate for every telegraphed attack" in got["how"]  # (the user, 21 Nov: one rate for all)
+    assert "one rate for every telegraphed attack" in got["how"]  # (the user, 21 Nov: one rate for all)
+    assert boss_hits.ON_YOU_DODGE_HOW in got["how"]  # (MECH-C's constant read, never copied)
     assert "EXTENSION" not in got["how"]
 
 
@@ -149,3 +150,31 @@ def test_red_flash_uses_and_the_time_they_cost():
     assert worst == pytest.approx(max(boss_hits.red_flash_rate(n)[0] for n in bosses.REAL))
     slowed = boss_hits.red_flash_rate({"_boss": ASH, "enemySkillTime": 2 * bosses.defence_hit_every(ASH)})[0]
     assert slowed == pytest.approx(rate / 2)
+
+
+def test_the_videos_rows_and_the_landed_hits_cross_check():
+    got = boss_hits.ailments_on_you(seen(ASH))["Ignite"]
+    rows = dict(got["rows"])
+    video = rows["the videos' all-in landing share, 8 of 29 (R41-1; your evade / block not stacked on it)"]
+    alone = boss_hits._ailment_on_you(seen(ASH), "Ignite", [], "use", 0.0, all_in=boss_hits.VIDEO_LANDED_SHARE)
+    assert video == alone["uptime"] > 0 and "not stacked" in alone["how"]
+    no_evade = boss_hits._ailment_on_you(seen(ASH, EvadeChance=0), "Ignite", [], "use", 0.0,
+                                         all_in=boss_hits.VIDEO_LANDED_SHARE)
+    assert no_evade["uptime"] == pytest.approx(video)  # (evasion isn't counted twice)
+    per_min, how = boss_hits.landed_cross_check(seen(ASH))
+    red, _ = boss_hits.shares(seen(ASH))
+    assert per_min == pytest.approx(60 / bosses.HIT_EVERY[ASH] * (1 - red) * 0.7 * (1 - boss_hits.ON_YOU_DODGE))
+    assert "videos 6 (4.5-9.5" in how
+
+
+def test_red_flash_tanks_row_and_the_video_evidence():
+    assert boss_hits.red_flash_time_share(ASH, "tanks")[0] == 0
+    assert "R41-2" in boss_hits.red_flash_time_share(ASH)[1]
+
+
+def test_atziris_video_es_reading_and_the_verisium_web_row():
+    life, es, how = bosses.pool("Atziri, the Red Queen", "video")
+    assert es / life == pytest.approx(0.135) and "R42-1" in how
+    assert bosses.pool(ASH, "video")[1] == 0
+    assert bosses.kills_per_second("The Aberration")[0] == 0
+    assert bosses.kill_rows("The Aberration")[0][1] == pytest.approx(1 / 30)

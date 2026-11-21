@@ -2058,7 +2058,20 @@ ON_YOU_AILMENTS = ("Ignite", "Shock", "Chill", "Freeze", "Bleed", "Poison", "Ele
 DAMAGING_AILMENTS = ("Ignite", "Bleed", "Poison")  # KeywordPopups DamagingAilments (game 26650308): HIGH
 _AILMENT_KIND = {"Ignite": "Fire", "Shock": "Lightning", "Chill": "Cold", "Freeze": "Cold", "Bleed": "Physical"}
 _AILMENT_VERB = {"Ignite": "Ignited", "Shock": "Shocked", "Freeze": "Frozen", "Chill": "Chilled", "Bleed": "Bleeding"}
-DODGE_HOW = "the user's rate for every telegraphed attack (21 Nov; research to measure it from fight videos)"
+# (MECHD7) The dodge share is MECH-C's ON_YOU_DODGE (THE USER'S RULING, 21 Nov 05:20: "2 in 3, the videos", by movement
+# alone, one rate for every telegraphed attack; MECHC49 sets it): read, never copied; its rows ON_YOU_DODGE_ROWS. It is a
+# MOVEMENT-only share, so stacking it on PoB's evade / block roll counts each once (independent). The videos' all-in figure
+# (RESEARCH41 R41-1, research/boss-dodge-share-video-r41.md: 8 of 29 attacks landing, about 1 in 4, over 8 fights; it
+# already holds evasion, block and tiny hits) is a row that is NEVER stacked on a modelled evade or block chance.
+VIDEO_LANDED_SHARE = 8 / 29  # R41-1: attacks landing in the videos, all causes (LOW)
+VIDEO_LANDED_PER_MINUTE = (6.0, 4.5, 9.5)  # R41-1: hits landed a minute, median and range over 8 fights (LOW)
+
+
+def dodge_how() -> str:
+    return f"{ON_YOU_DODGE_HOW}; one rate for every telegraphed attack, by movement alone"
+
+
+DODGE_HOW = "the user's dodge rate (ON_YOU_DODGE)"
 NO_SOURCE = {
     "Poison": ("no pinnacle preset has a Poison chance (checked, MECHD7: 695 boss skills' stats in game 26650308, the "
                "presets' variety mods, the Monster* Poison mods; RESEARCH13 #60 / RESEARCH14 #67's skills, buffs and "
@@ -2084,7 +2097,8 @@ def strikes_per_use(name: str) -> float:
     return max(1.0, bosses.HIT_EVERY[name] / bosses.HITS_EVERY[name])
 
 
-def _type_uses(stats: dict, kind: str, cadence: str, dodge: float, red_lands: bool) -> tuple[float, str]:
+def _type_uses(stats: dict, kind: str, cadence: str, dodge: float, red_lands: bool,
+               all_in: float | None = None) -> tuple[float, str]:
     """(landed uses of the boss's `kind` hits a second, how) at a cadence ("use", "strike"; "defence" = ailment_hits'
     old reading), `dodge` of the dodgeable ones dodged, red-flash ones avoided (the headline) or landing (`red_lands`)."""
     from builder.search import bosses
@@ -2097,6 +2111,11 @@ def _type_uses(stats: dict, kind: str, cadence: str, dodge: float, red_lands: bo
     base = bosses.HIT_EVERY[name] if cadence == "use" else bosses.HITS_EVERY[name]
     every = base * slowed
     red, rest = kind_land_parts(stats, kind)
+    if all_in is not None:  # (the videos' all-in landing share: evade / block not stacked on it)
+        rate = share / every * (1 - red) * all_in if every > 0 else 0.0
+        return rate, (f"{name}: one damaging use every {every:.2f} s, {share:.0%} {kind}, {red:.0%} red-flash avoided, "
+                      f"the rest landing {all_in:.0%} (the videos' all-in share, R41-1: your evade / block not stacked "
+                      "on it)")
     land = (red if red_lands else 0.0) + rest * (1 - dodge)
     rate = share / every * land if every > 0 else 0.0
     how = (f"{name}: one damaging {'use' if cadence == 'use' else 'strike'} every {base:g} s"
@@ -2105,12 +2124,12 @@ def _type_uses(stats: dict, kind: str, cadence: str, dodge: float, red_lands: bo
            + f", {share:.0%} {kind}; of those, {red:.0%} red-flash "
            + ("LANDING (the tanky row)" if red_lands else "avoided by moving out (the user's ruling, 21 Nov)")
            + f", the rest {rest / (1 - red) if red < 1 else 0:.0%} past your evade / block and {dodge:.0%} dodged ("
-           + (DODGE_HOW if dodge == ON_YOU_DODGE else "a row") + f"): {land:.0%} landing")
+           + (dodge_how() if dodge == ON_YOU_DODGE else "a row") + f"): {land:.0%} landing")
     return rate, how
 
 
 def _ailment_on_you(stats: dict, ailment: str, texts: list[str], cadence: str, dodge: float,
-                    red_lands: bool = False) -> dict:
+                    red_lands: bool = False, all_in: float | None = None) -> dict:
     """One ailment from one boss (no worst-case resolution): the dict ailments_on_you gives per ailment, without rows."""
     name = boss_name(stats)
     out = {"rate": 0.0, "uptime": 0.0, "seconds": 0.0, "dps": 0.0, "effect": 0.0, "boss": name,
@@ -2119,7 +2138,7 @@ def _ailment_on_you(stats: dict, ailment: str, texts: list[str], cadence: str, d
         return {**out, "how": NO_SOURCE[ailment], "confidence": "MEDIUM-HIGH (game files; the .ao scripts unseen)"}
     kind = _AILMENT_KIND[ailment]
     read = {**stats, "_onyou_cadence": cadence, "_onyou_dodge": dodge}
-    uses, how = _type_uses(stats, kind, cadence, dodge, red_lands)
+    uses, how = _type_uses(stats, kind, cadence, dodge, red_lands, all_in)
     if ailment == "Bleed":
         bleeds = BLEED_SKILLS.get(name, 0)
         count = hit_table(name)[1].get("Physical", 0)
@@ -2214,6 +2233,8 @@ def ailments_on_you(stats: dict, texts: list[str] | None = None, worst: str = "l
                                     f"the highest: {top['boss']}, {top['uptime']:.0%}): " + pick["how"])}
         rows = [(f"{d:.0%} of the dodgeable uses dodged", _ailment_on_you(seen, ailment, texts, "use", d)["uptime"])
                 for d in ON_YOU_DODGE_ROWS]
+        rows.append(("the videos' all-in landing share, 8 of 29 (R41-1; your evade / block not stacked on it)",
+                     _ailment_on_you(seen, ailment, texts, "use", 0.0, all_in=VIDEO_LANDED_SHARE)["uptime"]))
         rows.append(("red-flash hits land (a tanky build that stands in them)",
                      _ailment_on_you(seen, ailment, texts, "use", ON_YOU_DODGE, red_lands=True)["uptime"]))
         rows.append(("every strike, not every use (HITS_EVERY: an upper bound)",
@@ -2242,8 +2263,10 @@ def ailment_uptime(stats: dict, ailment: str, texts: list[str] | None = None, wo
 # roll within the same 0.75 s). A STAND-IN, LOW: research measures the real time from fight videos (a nuke may take more
 # than one roll). Read by MECH-C (MECHC49): the main skill's share x (1 - red_flash_time_share).
 RED_FLASH_AVOID_SECONDS = 0.75
-RED_FLASH_AVOID_HOW = ("one dodge roll, 0.75 s (DodgeRollPlayer CastTime 750 ms, 4.6 m; a stand-in until research times "
-                       "it from fight videos: LOW)")
+RED_FLASH_AVOID_HOW = ("one dodge roll, 0.75 s (DodgeRollPlayer CastTime 750 ms, 4.6 m), the 'moves' figure; RESEARCH41 "
+                       "R41-2's videos (LOW, 4 sure cases): about 1 s (0.75-1.25 s) when the player rolls out, 0 s in 2 "
+                       "of 4 (out of range; a Titan tanked it), 0.5-1 s a use on average")
+RED_FLASH_READINGS = ("moves", "tanks")  # (MECHD7: "tanks": 0 s, the hit lands in full: ailments_on_you's red_lands row)
 
 
 def red_flash_rate(stats: dict | str | None = None) -> tuple[float, str]:
@@ -2268,10 +2291,40 @@ def red_flash_rate(stats: dict | str | None = None) -> tuple[float, str]:
                   + f": {rate * 60:.1f} red-flash uses a minute (LOW: the tables' cadence)")
 
 
-def red_flash_time_share(stats: dict | str | None = None) -> tuple[float, str]:
+def red_flash_time_share(stats: dict | str | None = None, reading: str = "moves") -> tuple[float, str]:
     """(the share of the fight spent moving out of the boss's red-flash attacks, how): red_flash_rate x
-    RED_FLASH_AVOID_SECONDS, at most 1. The user's ruling (the comment above); "they land" (0 time) is the row."""
+    RED_FLASH_AVOID_SECONDS, at most 1 ("moves", the headline); "tanks": 0 s, the hit lands in full (the row)."""
     rate, how = red_flash_rate(stats)
+    if reading == "tanks":
+        return 0.0, (f"{how}; tanked, not avoided: no time lost, every red-flash hit lands in full (the tanky row; "
+                     "R41-2 saw a Titan tank one)")
     share = min(1.0, rate * RED_FLASH_AVOID_SECONDS)
     return share, (f"{how}; each avoided by moving out, {RED_FLASH_AVOID_HOW}: {share:.1%} of the fight not attacking "
                    "(the user's ruling, 21 Nov: 'Avoided, time cost counted'; if they land instead, a tanky build: 0%)")
+
+
+def landed_cross_check(stats: dict) -> tuple[float, str]:
+    """(the model's landed boss uses a minute, how against the videos' ~6 (4.5-9.5), RESEARCH41 R41-1): one per damaging
+    use (HIT_EVERY, x your Slows on it), red-flash avoided, the rest past PoB's evade / block and the movement dodge
+    (ON_YOU_DODGE). A cross-check row, not a headline (LOW both sides)."""
+    from builder.search import bosses
+    name = boss_name(stats)
+    if name == _worst() or name not in bosses.HIT_EVERY:
+        reads = real_readings(stats)
+        got = [(landed_cross_check(s)[0], n) for n, s in reads]
+        hi, top = max(got)
+        lo, low = min(got)
+        return hi, (f"worst case: the real presets give {lo:.1f} ({low}) to {hi:.1f} ({top}) landed boss uses a minute; "
+                    f"the videos {VIDEO_LANDED_PER_MINUTE[0]:g} ({VIDEO_LANDED_PER_MINUTE[1]:g}-"
+                    f"{VIDEO_LANDED_PER_MINUTE[2]:g}, R41-1, 8 fights)")
+    red, _ = shares(stats)
+    evade, block = evade_block(stats)
+    scored = number(stats.get("enemySkillTime"))
+    slowed = scored / bosses.defence_hit_every(name) if scored > 0 else 1.0
+    per_min = 60 / (bosses.HIT_EVERY[name] * slowed) * (1 - red) * (1 - evade) * (1 - block) * (1 - ON_YOU_DODGE)
+    lo, hi = VIDEO_LANDED_PER_MINUTE[1:]
+    verdict = "inside" if lo <= per_min <= hi else ("below" if per_min < lo else "above")
+    return per_min, (f"{name}: the model lands {per_min:.1f} boss uses a minute (one a use every "
+                     f"{bosses.HIT_EVERY[name] * slowed:.2f} s, {red:.0%} red-flash avoided, {evade:.0%} evaded, "
+                     f"{block:.0%} blocked, {ON_YOU_DODGE:.0%} dodged); the videos {VIDEO_LANDED_PER_MINUTE[0]:g} "
+                     f"({lo:g}-{hi:g}, R41-1, 8 fights): {verdict} their range")

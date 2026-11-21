@@ -532,11 +532,24 @@ def kills_per_second(name: str = DEFAULT) -> tuple[float, str]:
     """Killable adds per second over the whole fight (every add killed: a build that takes on-kill lines plays to kill
     them, CLAUDE.md's second rule), and how."""
     b = PRESETS[name]
+    rows = "; ".join(f"row, not counted: {what}, {r * 60:.1f} a minute" for what, r in kill_rows(name))
     if not b.kills:
-        return 0.0, f"no killable adds with a known rate against {name} (research #19 / #66)"
+        return 0.0, f"no killable adds with a known rate against {name} (research #19 / #66)" + (f"; {rows}" if rows else "")
     rate = sum(k.wave * k.share / k.every for k in b.kills)
-    return rate, "; ".join(f"one per {k.every:g} s for {k.share:.0%} of the fight: {k.what} ({k.confidence})"
-                           for k in b.kills)
+    return rate, "; ".join([f"one per {k.every:g} s for {k.share:.0%} of the fight: {k.what} ({k.confidence})"
+                            for k in b.kills] + ([rows] if rows else []))
+
+
+# (MECHD7; RESEARCH41 R41-16, the manager 05:15 21 Nov) kill sources kept OUT of the headline, as rows: (every s, adds,
+# share of the fight, what, confidence). The Aberration's Verisium Web: poe2db lists a monster with 1 Life and an attack;
+# no source says players can target it or that on-kill effects fire on it (UNVERIFIED): headline 0, this row.
+KILL_ROWS = {"The Aberration": ((30.0, 1, 1.0, "one Verisium Web killed every 30 s (GTCyclopsSpiderSpawnVerisium; "
+                                               "targetable / on-kill UNVERIFIED)", "LOW"),)}
+
+
+def kill_rows(name: str = DEFAULT) -> list[tuple[str, float]]:
+    """[(what, kills a second)] the headline leaves out (KILL_ROWS), for the report's "with it" rows."""
+    return [(f"{what} ({conf})", wave * share / every) for every, wave, share, what, conf in KILL_ROWS.get(name, ())]
 
 
 def add_waves(name: str = DEFAULT) -> list[tuple[float, int, float, str, str]]:
@@ -628,7 +641,13 @@ def life_share_of_pool(name: str = DEFAULT) -> float:
 # - "poe2db" (poe2db's own figure adds the ES and leaves Life whole): Life = 29 x the base Life = the preset's `life`.
 # So `life` (RESEARCH9's figure) is the poe2db reading's Life; under the headline the Red Queen has 4.75M Life + 0.40M ES
 # (5.15M), under poe2db's 7.09M + 0.40M (7.49M). An in-game Life / ES readout would settle it (MECHD5's question).
-POOL_READINGS = ("headline", "poe2db")
+# (MECHD7; RESEARCH42 R42-1, research/atziri-es-bar-acolytes-r42.md, LOW-MEDIUM) Atziri's bar in a no-commentary kill
+# video: each phase opens with a thin ES layer over full Life, stripped before Life moves (sure); from the Life-damage
+# counter ES is about 13-14% of Life in both phases (8-17%, assuming equal damage on ES and Life): nearer the headline's
+# 8.5% than poe2db's 5.7%. A third reading, "video": ES 13.5% of the headline's Life (Atziri only). The blue refill at each
+# phase's end (~9% / ~4% Life) comes while she is immune: nothing to count.
+ES_FROM_VIDEO = {"Atziri, the Red Queen": 0.135, "Atziri, the Fell Serpent": 0.135}
+POOL_READINGS = ("headline", "poe2db", "video")
 
 
 def pool(name: str = DEFAULT, reading: str = "headline") -> tuple[float, float, str]:
@@ -637,9 +656,14 @@ def pool(name: str = DEFAULT, reading: str = "headline") -> tuple[float, float, 
     f = b.es_from_life / 100
     base = b.life / RARITY_LIFE
     es = RARITY_ES * f * base
-    life = b.life * (1 - f) if reading == "headline" else float(b.life)
+    life = b.life * (1 - f) if reading in ("headline", "video") else float(b.life)
+    if reading == "video" and name in ES_FROM_VIDEO:
+        es = ES_FROM_VIDEO[name] * life
     how = (f"{name}: Life {life:,.0f} + Energy Shield {es:,.0f} (EnergyShieldFromLife {b.es_from_life}%: "
            + ("converted from Life, the headline, MEDIUM-LOW" if reading == "headline" else
+              f"ES {ES_FROM_VIDEO[name]:.1%} of Life from a kill video (R42-1, LOW-MEDIUM)"
+              if reading == "video" and name in ES_FROM_VIDEO else
+              "no video reading: the headline" if reading == "video" else
               "added on top of Life, poe2db's reading") + ")")
     return life, es, how
 
