@@ -23,3 +23,20 @@
             "scratch/manager/research/caltrops-support-end-of-flight.md (RESEARCH36 R36-15)", "scratch/gem26/probe_sweep.json"]
   test_in_game: "Optional: support a spear throw with Caltrops, throw at a still boss; count the Caltrops that go off under it."
   status: proposed
+
+- id: model-gem28-stomping-ground
+  title: "Stomping Ground: shockwaves at the boss from the supported skill's footsteps (PoB: one a use; Shield Charge 2)"
+  kind: model
+  model: stomping_ground
+  stats: ["stomping_ground_trigger_on_footstep_%_chance"]
+  skill: [Stomping Ground]
+  confidence: theory
+  notes: >-
+    models.stomping_ground_model + assumptions.stomping_ground (GEM28). "Triggers a Shockwave when you take a step while
+    using Supported Skills"; PoB scores the shockwave at one a use. RESEARCH38 R38-17 (the game's animation timelines'
+    footstep events; MEDIUM, UNVERIFIED that the support fires on exactly them): Shield Charge 2 at the boss a use (rows
+    1 and 3), Leap Slam 1 (PoB's). Other Travel skills: PoB's one stands. PoB's own entry out of Full DPS.
+  sources: ["builder/search/models.py (stomping_ground_model)", "builder/search/assumptions.py (stomping_ground)",
+            "scratch/manager/research/eye-crossbow-caltrops-steps-movement-r38.md (RESEARCH38 R38-17)"]
+  test_in_game: "Shield Charge into a still boss with Stomping Ground: count the shockwaves that hit it (2 vs 1)."
+  status: proposed

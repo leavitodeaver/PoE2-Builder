@@ -9318,15 +9318,16 @@ def repulsion_wave_model(wave: float, hits: float, cast: float, delay: float, du
 # duration (base_skill_effect_duration 2000). So explosions a second = the copies the build's dodge rolls make (held to
 # 1 / cooldown: the stored uses only bunch them) x the share an enemy destroys. A boss destroying a copy is the boss's
 # AI (no data gives it): the user's own rate for dodge-roll copies, "the boss destroys one of your dodge-roll copies
-# every 5 s" (9 Nov, Lingering Illusion; questions_for_morning.md "Answered 9 Nov ~03:05" 2), is used here too (LOW:
-# the user set it for Lingering Illusion's copies; these have 1 Life and last 2 s). A player who takes it rolls to feed
+# every 5 s" (9 Nov, Lingering Illusion; questions_for_morning.md "Answered 9 Nov ~03:05" 2), is used here too: the
+# user confirmed on 20 Nov (card, 21:50; the manager 21:55) that Void Illusion's copies use the same rate (LOW: a flat
+# rate the boss's AI decides; these copies have 1 Life and last 2 s). A player who takes it rolls to feed
 # it (CLAUDE.md): every max(DODGE_EVERY, the time per destroyed copy) s, the rolls' time off the main skill (the user,
 # 7 Nov), not charged twice when another model already charges rolling, and only when the explosions beat that time.
 # Each explosion: PoB's own use (its useRates TotalDPS / speed). Counted whether or not its group is in Full DPS (a
 # persistent buff: the copies come on their own), PoB's entry out of Full DPS. LOW.
 VOID_ILLUSION = "Void Illusion"
 VOID_ILLUSION_ENTRY = "model-gem27-void-illusion"
-ILLUSION_DESTROYED_EVERY = 5.0  # the user's rate for dodge-roll copies destroyed by a boss (9 Nov), LOW for Void Illusion
+ILLUSION_DESTROYED_EVERY = 5.0  # the user's rate for dodge-roll copies destroyed by a boss (9 Nov; Void Illusion's too: 20 Nov), LOW
 
 
 def void_illusion_model(blast: float, cooldown: float, main_dps: float = 0.0, pob: float = 0.0,
@@ -9350,7 +9351,8 @@ def void_illusion_model(blast: float, cooldown: float, main_dps: float = 0.0, po
     lost = busy * max(number(main_dps), 0.0)
     basis = (took + f"The game: a copy each dodge roll, at most one per {cooldown:g} s (its cooldown), 1 Life, 2 s; it "
              f"explodes only when an enemy destroys it: the boss destroys one every {ILLUSION_DESTROYED_EVERY:g} s at "
-             f"most (the user's rate for dodge-roll copies, 9 Nov; LOW here), a roll every {every:g} s"
+             f"most (the user's rate for dodge-roll copies, 9 Nov, confirmed for Void Illusion 20 Nov; LOW), a roll every "
+             f"{every:g} s"
              + (" (another model already has the build rolling)" if charged else " (rolling to feed it)")
              + f": {rate:.3f} explosions a second at {blast:,.1f} each")
     if dps <= lost:
@@ -9367,7 +9369,7 @@ def void_illusion_model(blast: float, cooldown: float, main_dps: float = 0.0, po
         "label": label, "value": f"{dps:,.1f} DPS", "confidence": "LOW", "entry": VOID_ILLUSION_ENTRY,
         "entry_cut": out, "basis": basis,
         "play": (f"Dodge roll near the boss so it hits your copy (every {every:g} s; assumed: the boss destroys one copy "
-                 f"every {ILLUSION_DESTROYED_EVERY:g} s, the user's rate for dodge-roll copies, LOW): {dps:,.1f} DPS"
+                 f"every {ILLUSION_DESTROYED_EVERY:g} s, the user's rate (20 Nov), LOW): {dps:,.1f} DPS"
                  + (f", net of the rolls' time ({lost:,.1f})" if lost > 0 else "")
                  + f"; rolling every {DODGE_EVERY:g} s with the boss destroying every copy the cooldown allows: "
                    f"{min(1 / DODGE_EVERY, 1 / cooldown if cooldown > 0 else 1 / DODGE_EVERY) * blast:,.1f} (before "
@@ -9458,11 +9460,13 @@ def gale_force_model(landed: float, every: float, blast: float, cooldown: float 
 # Empowered Sparks II (GEM28; RESEARCH36 R36-16, obtainable, MEDIUM-HIGH; PoB has none: the bridge adds it from the
 # game's rows, engine/bridge.lua): I's support and Empower skill, its own Spark with 2 more projectiles at every level
 # (11 vs 9 at level 20, 15 vs 13 at 40), the same damage. PoB scores a triggered Spark as one hit whatever its projectile
-# count. Hits a trigger on the boss (GEM28; RESEARCH36 R36-5, the manager 19:55: the main-skill Spark's reading, MECH-B's
-# group_exception_model): the triggered Spark carries the same spark_min_time_between_target_clearing_ms 660 (its stat
-# set), a limit shared by every spark of one trigger, each spark ending on its hit, so min(sparks, floor(life / 0.66))
-# a trigger: 3 at the 2 s life (LOW: every window taken to find a spark on the boss), rows the cap ceil (4) and PoB's 1
-# (at range). II's 2 extra sparks don't raise that cap (both carry 9+): the same headline as I.
+# count. Hits a trigger on the boss (GEM28): the triggered Spark carries the same spark_min_time_between_target_clearing_ms
+# 660 as the main-skill Spark (its stat set), a limit shared by every spark of one trigger. RESEARCH38 R38-13 (MEDIUM-LOW;
+# an OVERCOUNT in 2fea54ed's 3, which followed R36-5's cap): the 0.66 s timer clears the hit list, but at point blank every
+# spark has reached the boss and passed it within ~0.3 s, so a second hit needs a spark coming back off a wall: about 1
+# hit a trigger on a single boss, the headline (as PoB's one; MECHB49 makes the main-skill Spark the same). Rows: 2 with
+# walls bouncing sparks back (LOW), and the cap min(sparks, floor / ceil(life / 0.66)), 3-4. II's 2 extra sparks change
+# none of these on one boss: the same as I.
 EMPOWERED_SPARKS, EMPOWERED_SPARKS_SUPPORT = "Empowered Sparks", "Empowered Sparks I"
 EMPOWERED_SPARKS_SUPPORTS = ("Empowered Sparks I", "Empowered Sparks II")
 EMPOWERED_SPARKS_ENTRY, EMPOWERED_A_CHARGE = "model-gem27-empowered-sparks", 3.0
@@ -9508,13 +9512,13 @@ def empowered_sparks_model(gains: float, gains_how: str, attacks: float, spark: 
     trigger (PoB's ProjectileCount; 0: not read, one hit a trigger), `life` their life (PoB's Duration; 0: 2 s), `gem`
     the support (I or II)."""
     gains, attacks, spark = max(number(gains), 0.0), max(number(attacks), 0.0), max(number(spark), 0.0)
-    hits, cap, hits_how = 1.0, 1.0, "one hit a trigger (PoB's; its projectiles not read)"
+    hits, low, cap, hits_how = 1.0, 1.0, 1.0, "one hit a trigger (PoB's; its projectiles not read)"
     if number(sparks) > 0:
         span = number(life) or SPARK_LIFE
-        hits = min(number(sparks), max(1, math.floor(span / SPARK_REHIT + 1e-9)))
+        low = min(number(sparks), max(1, math.floor(span / SPARK_REHIT + 1e-9)))
         cap = min(number(sparks), max(1, math.ceil(span / SPARK_REHIT - 1e-9)))
-        hits_how = (f"{hits:g} hits a trigger: its {number(sparks):g} sparks share a {SPARK_REHIT:g} s limit on one target "
-                    f"over their {span:.2f} s life and a spark ends on hit (RESEARCH36 R36-5, LOW; as the main-skill "
+        hits_how = (f"1 hit a trigger: its {number(sparks):g} sparks share a {SPARK_REHIT:g} s limit on one target, and at "
+                    "point blank all have passed the boss within ~0.3 s (RESEARCH38 R38-13, MEDIUM-LOW; as the main-skill "
                     "Spark)")
     spark = spark * hits
 
@@ -9525,9 +9529,9 @@ def empowered_sparks_model(gains: float, gains_how: str, attacks: float, spark: 
     dps = rate * spark
     took = f"PoB rates the Sparks at a flat 1 a second ({pob:,.1f} DPS in Full DPS), taken out. " if pob > 0 else ""
     others = "".join(f"; {what}: {at(n):,.1f} DPS" for what, n in rows or [])
-    if hits > 1 and dps > 0:
-        others += (f"; at the cap of {cap:g} hits a trigger (the first spark at once): {dps * cap / hits:,.1f} DPS; at "
-                   f"range, one hit a trigger (PoB's): {dps / hits:,.1f} DPS")
+    if cap > 1 and dps > 0:
+        others += (f"; with walls bouncing sparks back, 2 hits a trigger (LOW): {dps * min(2.0, cap):,.1f} DPS; at the "
+                   f"cap of {low:g}-{cap:g} hits a trigger: {dps * low:,.1f}-{dps * cap:,.1f} DPS")
     capped = ("; the \"capped\" reading (RESEARCH37 R37-4: only a Power Charge gained below your maximum counts): at most "
               "your Power Charge spends and expiries a second, ~0 with no consumer: down to 0 DPS")
     return dps, [{
@@ -9596,10 +9600,12 @@ def caltrops_support_model(hits: float, end_share: float, end_how: str, projecti
     landing = number(radii[1]) if number(radii[1]) > 0 else CALTROPS_LAND_RADIUS
     share = caltrops_under_boss_share(radius, caltrop, landing)
     dps = laid * share * hit
-    chained = ""
+    spread = min(1.0, (max(number(radius), 0.0) + caltrop) / landing)  # (R38-16: landing uniform in distance, LOW)
+    chained = (f"; if the Caltrops land uniform in distance from the impact rather than over the area (R38-16, no "
+               f"measurement): {laid * spread * hit:,.1f} ({spread:.0%} under the boss)")
     if chain_row is not None and end_share > 0:
         row = min(hits * min(max(number(chain_row), 0.0), 1.0) * each, held) * share * hit
-        chained = f"; if Chain carries the spear on from a lone boss: {row:,.1f}"
+        chained += f"; if Chain carries the spear on from a lone boss: {row:,.1f}"
     took = f"PoB rates its Caltrops at one a use of {source} ({pob:,.1f} DPS in Full DPS), taken out. " if pob > 0 else ""
     return dps, [{
         "label": f"Caltrops support: Caltrops landing under the boss from {source}'s spears*", "value": f"{dps:,.1f} DPS",
@@ -9617,6 +9623,41 @@ def caltrops_support_model(hits: float, end_share: float, end_how: str, projecti
                  f"boss walks over every one landed around it: {laid * hit:,.1f}; PoB's own rate: "
                  f"{(pob if pob > 0 else max(number(uses), 0.0) * each * hit):,.1f}{chained}; with Pierce, Fork or "
                  f"Split: 0.")}]
+
+
+# Stomping Ground (GEM28; RESEARCH38 R38-17, eye-crossbow-caltrops-steps-movement-r38.md; an UNDERCOUNT on Shield
+# Charge): "Triggers a Shockwave when you take a step while using Supported Skills" (stomping_ground_trigger_on_footstep_
+# %_chance 100; a 2 m shockwave). PoB scores StompingGroundShockwavePlayer at one a use of the supported skill. The game's
+# animation timelines carry the footstep events (R38-17, MEDIUM: the event times are data; UNVERIFIED that the support
+# fires on exactly them): Shield Charge, 1 step at the start, 2 a loop cycle (~0.31 s apart) and 2 in the strike at the
+# boss, so ~2 shockwaves reach the boss a use (the strike's; a loop step within 2 m now and then): headline 2, rows 1 and
+# 3; Leap Slam, 1 at the landing (PoB's one: unchanged); other Travel skills' timelines not read (PoB's one stands, said).
+# Shockwaves a second at the boss = the supported skill's uses a second (its press share, as the event triggers) x that
+# count, each at PoB's shockwave hit (its TotalDPS / use); PoB's own entry for the group out of Full DPS (the shared cut
+# tally). Counted for the main group, or a group in Full DPS while the score reads it.
+STOMPING_GROUND, STOMPING_SHOCKWAVE = "Stomping Ground", "Stomping Ground Shockwave"
+STOMPING_ENTRY = "model-gem28-stomping-ground"
+STOMP_AT_BOSS = {"Shield Charge": (2.0, 1.0, 3.0, "its 2 strike steps at the boss (R38-17: start 1, 2 a loop cycle "
+                                                  "~0.31 s apart, 2 in the strike; MEDIUM)"),
+                 "Leap Slam": (1.0, 1.0, 2.0, "its landing step (R38-17; a moving take-off step lands away)")}
+
+
+def stomping_ground_model(uses: float, hit: float, source: str, pob: float = 0.0) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Stomping Ground's shockwaves at the boss (see above): `uses` the supported skill's uses a
+    second, `hit` one shockwave's hit (PoB's), `pob` PoB's own Full DPS entry (taken out)."""
+    if source not in STOMP_AT_BOSS:
+        return 0.0, []
+    each, low, high, how = STOMP_AT_BOSS[source]
+    uses, hit = max(number(uses), 0.0), max(number(hit), 0.0)
+    dps = uses * each * hit
+    took = f"PoB rates the shockwave at one a use ({pob:,.1f} DPS in Full DPS), taken out. " if pob > 0 else ""
+    return dps, [{
+        "label": f"Stomping Ground: shockwaves at the boss from {source}'s footsteps*", "value": f"{dps:,.1f} DPS",
+        "confidence": "MEDIUM-LOW", "entry": STOMPING_ENTRY, "entry_cut": {STOMPING_SHOCKWAVE: pob} if pob > 0 else {},
+        "basis": (took + f"The game: a shockwave each footstep while using {source}; {each:g} a use reach the boss: "
+                  f"{how}; {uses:.3f} uses a second x {each:g} at {hit:,.1f} each"),
+        "play": (f"{source} into the boss: its footsteps at the boss each make a shockwave: with this build "
+                 f"{dps:,.1f} DPS; {low:g} a use: {uses * low * hit:,.1f}; {high:g} a use: {uses * high * hit:,.1f}.")}]
 
 
 # Supports whose triggered skill fires on an event of the supported skill's hits, scored by PoB at one a use of the

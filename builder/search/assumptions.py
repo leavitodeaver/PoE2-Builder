@@ -2156,6 +2156,45 @@ def _spark_count(build: Build, group: dict, position: int) -> tuple[float, float
     return models.number(sets[0].get("ProjectileCount")), models.number(sets[0].get("Duration"))
 
 
+def stomping_ground(build: Build, cut=None) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Stomping Ground (GEM28's models.stomping_ground_model): in each enabled group holding the
+    support and its shockwave, counted for the main group or a group in Full DPS while the score reads it; PoB's own
+    shockwave entry for that group out of Full DPS (the shared cut tally)."""
+    press = getattr(build.objective, "press_scales", None) or {}
+    main_index = build.call("groups")["mainSocketGroup"]
+    full = bool(getattr(build.objective, "full", False))
+    total, notes = 0.0, []
+    for group in build.groups():
+        gems = {x["name"] for x in group.get("gems") or [] if x.get("enabled", True)}
+        skills = group.get("skills") or []
+        n = next((i for i, x in enumerate(skills, 1) if x["name"] == models.STOMPING_SHOCKWAVE), 0)
+        if not group["enabled"] or models.STOMPING_GROUND not in gems or not n:
+            continue
+        src = next((i for i, x in enumerate(skills, 1) if x["name"] != models.STOMPING_SHOCKWAVE
+                    and not x.get("disabled")), 0)
+        if not src or skills[src - 1]["name"] not in models.STOMP_AT_BOSS:
+            continue
+        in_full = bool(group.get("fullDPS"))
+        row = next(iter(build.call("useRates", indices=[group["index"]], actives=[n])["rates"]), None) or {}
+        own = models.number(row.get("TotalDPS")) * _child_left(build, group) if in_full else 0.0
+        if own > 0 and cut is not None:
+            cut({models.STOMPING_SHOCKWAVE: own})
+        if group["index"] != main_index and not (in_full and full):
+            continue
+        source = skills[src - 1]["name"]
+        _, src_row = _skill_hits(build, group, src, press)
+        uses = models.number(src_row.get("speed")) * models.number(press.get(source, 1.0))
+        if group["index"] == main_index:
+            uses *= 1.0 - build.objective.busy()
+        speed = models.number(row.get("speed"))
+        hit = models.number(row.get("TotalDPS")) / speed if speed > 0 else 0.0
+        dps, these = models.stomping_ground_model(uses, hit, source, models.number(row.get("TotalDPS")) if in_full else 0.0)
+        for note in these:
+            note.pop("entry_cut", None)  # (cut above, by this group's share)
+        total, notes = total + dps, notes + these
+    return total, notes
+
+
 def caltrops_support(build: Build, stats: dict, cut=None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for the Caltrops support (GEM28's models.caltrops_support_model): in each enabled group
     holding the support (gem "Caltrops") and its triggered Caltrops, counted for the main group or a group in Full DPS
@@ -4423,6 +4462,9 @@ class Assumptions:
         sparks, spark_notes = empowered_sparks(build, main, found, stats, self.cut_entries)  # (GEM27: on Power Charges)
         hand_mods += [models.added_input("EmpoweredSparks", sparks)] if sparks > 0 else []
         hand_notes += spark_notes
+        stomps, stomp_notes = stomping_ground(build, self.cut_entries)  # (GEM28: R38-17's footsteps at the boss)
+        hand_mods += [models.added_input("StompingGround", stomps)] if stomps > 0 else []
+        hand_notes += stomp_notes
         caltrops, caltrops_notes = caltrops_support(build, stats, self.cut_entries)  # (GEM28: Caltrops under the boss)
         hand_mods += [models.added_input("CaltropsSupport", caltrops)] if caltrops > 0 else []
         hand_notes += caltrops_notes

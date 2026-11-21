@@ -1655,8 +1655,8 @@ def test_empowered_sparks_wing_blast_three_a_heavy_stun_and_devour_three_corpses
     assert "capped" in notes[0]["play"] and "R37-4" in notes[0]["basis"]
     dps, notes = models.empowered_sparks_model(0.3, "t", 10.0, 50.0, "Wing Blast", sparks=11, gem="Empowered Sparks II",
                                                life=2.013)
-    assert dps == pytest.approx(45.0 * 3) and notes[0]["label"].startswith("Empowered Sparks II")  # (R36-5: 3 a trigger)
-    assert "cap of 4 hits" in notes[0]["play"] and "180.0 DPS" in notes[0]["play"] and "45.0 DPS" in notes[0]["play"]
+    assert dps == pytest.approx(45.0) and notes[0]["label"].startswith("Empowered Sparks II")  # (R38-13: 1 a trigger)
+    assert "2 hits a trigger (LOW): 90.0 DPS" in notes[0]["play"] and "135.0-180.0 DPS" in notes[0]["play"]
 
 
 def test_descent_fragments_come_from_the_builds_own_line():
@@ -1699,6 +1699,15 @@ def test_a_warcry_used_nonstop_runs_at_its_cast_rate_held_to_its_cooldown():
     assert models.warcry_use_rate({}, 0.334)[0] == pytest.approx(0.334)
 
 
+def test_stomping_ground_counts_shield_charges_footsteps_at_the_boss():
+    """GEM28 (RESEARCH38 R38-17): Shield Charge 2 shockwaves at the boss a use (rows 1 and 3); other skills PoB's."""
+    dps, notes = models.stomping_ground_model(0.5, 40.0, "Shield Charge", pob=20.0)
+    assert dps == pytest.approx(40.0) and notes[0]["entry_cut"] == {models.STOMPING_SHOCKWAVE: 20.0}
+    assert "1 a use: 20.0" in notes[0]["play"] and "3 a use: 60.0" in notes[0]["play"]
+    assert models.stomping_ground_model(0.5, 40.0, "Shield Charge")[0] == pytest.approx(40.0)
+    assert models.stomping_ground_model(0.5, 40.0, "Whirling Slash") == (0.0, [])
+
+
 def test_caltrops_support_lands_a_share_under_the_boss_and_none_with_pierce():
     """GEM28 (RESEARCH36 R36-15): a spear ending its flight on the boss drops its Caltrops within 3 m; ((r + 0.5) / 3)^2
     land under a boss of radius r (LOW), held to 20 active over 8 s; with Pierce / Chain / Fork none end on the boss;
@@ -1717,4 +1726,5 @@ def test_caltrops_support_lands_a_share_under_the_boss_and_none_with_pierce():
     # (R38-4: Chain on a lone boss ends there, the 0 a row)
     dps, notes = models.caltrops_support_model(1.0, 1.0, "Chain", 1, 0.4, "", 100.0, 1, "S", chain_row=0.0)
     assert dps == pytest.approx(9.0) and "if Chain carries the spear on from a lone boss: 0.0" in notes[0]["play"]
+    assert "uniform in distance" in notes[0]["play"] and "30% under the boss" in notes[0]["play"]  # (R38-16)
 
