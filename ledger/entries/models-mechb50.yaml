@@ -40,3 +40,20 @@
             "vendor/PathOfBuilding-PoE2/src/Modules/Calcs.lua:334-368", "vendor/PathOfBuilding-PoE2/src/Modules/CalcDefence.lua:149-172",
             "scratch/mechb50/p4749.log"]
   status: proposed
+
+- id: model-mechb50-bear-stance
+  title: "Bear skills' +0.3-0.5 s base attack time from the default stance (models.bear_stance_model)"
+  kind: model
+  model: bear_stance
+  stats: ["bear_skills_additional_base_attack_time_when_performing_from_default_stance"]
+  skill: [Furious Slam, Rampage, Walking Calamity]
+  confidence: theory
+  notes: >-
+    MECHB50 (PLANS7 gs-bear-stance.md, an OVERCOUNT: about x0.7 on Furious Slam at 1 attack a second). "+{0} seconds to
+    base attack time if not standing" (Furious Slam 400, Rampage 500, Walking Calamity 300 ms; game 26650308); PoB reads
+    it nowhere, and nothing modifies it (checked: Mods, PassiveSkills, GrantedEffectQualityStats: 0 rows). Added as a BASE
+    Speed mod (PoB adds its seconds to the base attack time, CalcOffence 2881-2883); every use from the default stance
+    (which skills leave the bear standing isn't in the data; the "if standing" mirror is on [DNT] Landslide and a monster
+    skill only), MEDIUM.
+  sources: ["builder/search/models.py (BEAR_DEFAULT_STANCE, bear_stance_model)", "data/game-26650308/tables/GrantedEffectStatSets.json (FuriousSlamPlayer, BearRampagePlayer, WalkingCalamityPlayer)"]
+  status: proposed

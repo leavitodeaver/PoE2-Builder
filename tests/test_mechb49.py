@@ -219,12 +219,12 @@ def test_crater_makes_three_fissures_each_landing():
 
 def test_starborn_onslaughts_star_fall_adds_the_stars_that_land_on_the_boss():
     """MECHB50: 20 stars 2-6 m from the impact, each 2 m: spread over the ring's area, (2.3^2 - 2^2) / (6^2 - 2^2)."""
-    head, unscaled, by_distance, _ = models.star_fall_hits({}, 2.0, 0.3)
-    assert head == pytest.approx(20 * (2.3 ** 2 - 4) / 32) and unscaled == pytest.approx(head)
+    head, scaled, by_distance, _ = models.star_fall_hits({}, 2.0, 0.3)
+    assert head == pytest.approx(20 * (2.3 ** 2 - 4) / 32) and scaled == pytest.approx(head)
     assert by_distance == pytest.approx(20 * 0.3 / 4)
-    head, unscaled, _, _ = models.star_fall_hits({}, 3.0, 0.3)  # (a bigger star: the ring scaled with it is lower)
-    assert head == pytest.approx(20 * (3.3 ** 2 - 9) / (81 - 9)) and unscaled == pytest.approx(20 * (3.3 ** 2 - 4) / 32)
-    assert models.star_fall_hits({}, 7.0, 0.3)[1] == 20  # (the whole unscaled ring inside its reach)
+    head, scaled, _, _ = models.star_fall_hits({}, 3.0, 0.3)  # (R40-16: the ring fixed, a bigger star reaches more)
+    assert head == pytest.approx(20 * (3.3 ** 2 - 4) / 32) and scaled == pytest.approx(20 * (3.3 ** 2 - 9) / (81 - 9))
+    assert models.star_fall_hits({}, 7.0, 0.3)[0] == 20  # (the whole fixed ring inside its reach)
     star = Skill("Starborn Onslaught", 1, attack=True, melee=True)
     sets = _sets(Impact=100.0, Star_Fall=50.0)
     sets[1]["AreaOfEffectRadius"] = 20.0  # (PoB units)

@@ -3970,6 +3970,8 @@ class Assumptions:
                 main, number(stats.get("Speed")), bosses_mod.benefit_skill_time(wind_stats),
                 number(wind_stats.get("enemySkillTime")), VOLCANIC_DODGE_SHARE, forbidden)
             hand_mods, hand_notes = hand_mods + wind_mods, hand_notes + wind_notes
+        bear_mods, bear_notes = models.bear_stance_model(main, number(stats.get("Speed")), forbidden)  # (MECHB50)
+        hand_mods, hand_notes = hand_mods + bear_mods, hand_notes + bear_notes
         if main is not None and main.name == models.ORB_OF_STORMS and main.group is not None:  # (MECH-B: its recast
             # bolt, labelled; MECHB29: its bolts, frequency and duration from its own useRates row)
             orb_rows = build.call("useRates", indices=[main.group])["rates"]

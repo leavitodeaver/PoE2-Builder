@@ -25,3 +25,10 @@ def test_only_the_hits_multiply():
     assert models.minion_count_scale(4, 100.0, 100.0) == pytest.approx(4.0)
     assert models.minion_count_scale(4, 60.0, 100.0) == pytest.approx((60 * 4 + 40) / 100)  # (the Ignite once)
     assert models.minion_count_scale(1, 60.0, 100.0) == 1.0
+
+
+def test_bear_skills_take_their_default_stance_attack_time():
+    mods, notes = models.bear_stance_model(Skill("Furious Slam", 1, attack=True, melee=True), 1.0)
+    assert mods[0]["name"] == "Speed" and mods[0]["type"] == "BASE" and mods[0]["value"] == pytest.approx(0.4)
+    assert notes[0]["confidence"] == "MEDIUM" and "x0.714" in notes[0]["basis"]
+    assert models.bear_stance_model(Skill("Boneshatter", 1, attack=True, melee=True), 1.0) == ([], [])

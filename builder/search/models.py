@@ -17004,15 +17004,33 @@ def heat_side_spenders(made: float, spenders: list[tuple[str, float, str]]) -> t
 GUIDED_SHRINE = re.compile(r"^Grants effect of Guided (Meteoric|Freezing|Tempest) Shrine$", re.I)
 
 
+# (MECHB50; RESEARCH39 R39-19, RESEARCH40 R40-1 / R40-21) The rates now: Meteoric one per 2.5 s (its Cooldown, the
+# files); Freezing and Tempest have no cooldown (Cooldown 0 and a 1,000 ms cast animation: at most one a second, "the
+# files' ceiling"); the Tempest Shrine timed from one video at ~2 bolts a second landing at random around the player
+# (MEDIUM-LOW: boss hits ~2 x (bolt radius + boss radius)^2 / zone radius^2 a second, the zone ~3-6 m and the bolt size
+# LOW); the Freezing Shrine untimed (2.5 s headline LOW, as the Meteoric; rows 1 s and Tempest's 2 a second). The bursts'
+# damage is in the game files (GrantedEffectStatSets GSShrineFirePlayer BaseEffectiveness 20, GSShrineLightningPlayer
+# 10, MPSShrineColdPlayer 0.6; spell base damage 0.8-1.2 / 0.5-1.5) but PoB has no skill for them, so the damage stays
+# 0 until one is built (an engine task, named for the manager).
+GUIDED_SHRINE_RATES = {
+    "Meteoric": "one burst per 2.5 s while enemies are in range (its Cooldown, game files)",
+    "Freezing": ("one per 2.5 s ASSUMED like the Meteoric (LOW: no cooldown in the files, the rate is server-side; "
+                 "R39-19 / R40-1); rows: once a second (the files' ceiling: a 1 s cast, Cooldown 0) and 2 a second "
+                 "like the Tempest (R40-21)"),
+    "Tempest": ("~2 bolts a second at random spots around you (RESEARCH40 R40-21, one video, MEDIUM-LOW), hitting the "
+                "boss ~2 x (bolt radius + boss radius)^2 / zone radius^2 a second (about 0.5 for a 1 m bolt and boss "
+                "in a 4 m zone, LOW)"),
+}
+
+
 def guided_shrine_notes(texts: list[str]) -> list[dict]:
     """A labelled 0 for each Guided Shrine the build's items grant (see above)."""
     out = []
     for kind in sorted({m.group(1).title() for t in texts if (m := GUIDED_SHRINE.search(t.strip()))}):
         out.append({"label": f"Guided {kind} Shrine's damage (not counted)*", "value": 0,
                     "basis": (f"Guiding Palm's Guided {kind} Shrine triggers a shrine skill PoB doesn't have; "
-                              + ("at most one trigger per 2.5 s while enemies are in range (its Cooldown, game files)"
-                                 if kind == "Meteoric" else "its rate is ASSUMED one per 2.5 s like the Meteoric one (LOW)")
-                              + ": its damage isn't counted, a small UNDERCOUNT (RESEARCH26 R26-39)"),
+                              f"{GUIDED_SHRINE_RATES[kind]}: its damage isn't counted, a small UNDERCOUNT (RESEARCH26 "
+                              "R26-39; the bursts' damage is in the game files, but no PoB skill scores it)"),
                     "confidence": "LOW"})
     return out
 
@@ -20549,10 +20567,11 @@ FISSURE_OWN_HIT = {"Starborn Onslaught": 1.0}  # (R39-5: the impact's own area h
 # hits the boss when its centre falls within its own radius + the boss's hit radius of the boss's centre. Where in the
 # 2-6 m ring each falls isn't in the data (checked: the two stat sets' stats and statset_0 / statset_1.csd's texts,
 # "Calls down {0} Stars"; poe2db's Starborn_Onslaught page per R39-5 gives counts and radii only): the headline takes
-# them spread evenly over the ring's area (LOW, a number the game decides: for the manager / RESEARCH) with the ring
-# scaled with the star's own area (PoB's Star Fall AreaOfEffectRadius / 10 from setRates, over its base 2 m: the lower reading);
-# rows: the ring not scaled, and spread evenly over the distance from the impact (more near the middle). On a 0.3 m
-# boss, about 1 of the 20 lands (x the Star Fall set's DPS beside the Impact set's 4 hits).
+# them spread evenly over the ring's area (LOW, a number the game decides), the ring FIXED while each star grows with
+# area (RESEARCH40 R40-16: HIGH on the ring, LOW on the spread; the star's radius PoB's Star Fall AreaOfEffectRadius / 10
+# from setRates); rows: the ring scaled with the star (MECHB50's first, lower reading), and spread evenly over the
+# distance from the impact (more near the middle). On a 0.3 m boss, about 1 of the 20 lands (x the Star Fall set's DPS
+# beside the Impact set's 4 hits).
 STAR_FALL = {"Starborn Onslaught": "Star Fall"}
 STAR_COUNT_STAT, STAR_INNER_STAT, STAR_OUTER_STAT = ("empyrean_descent_number_of_explosions",
                                                      "empyrean_descent_secondary_explosions_inner_radius",
@@ -20561,7 +20580,8 @@ STAR_BASE = (20.0, 2.0, 6.0, 2.0)  # (count, inner m, outer m, the star's own ra
 
 
 def star_fall_hits(level_stats: dict, star_radius: float, boss_radius: float) -> tuple[float, float, float, str]:
-    """(stars landing on the boss a use: the headline, the ring-unscaled row, the even-in-distance row, how) (above)."""
+    """(stars landing on the boss a use: the headline (the ring fixed), the ring-scaled row, the even-in-distance row,
+    how) (above)."""
     n = number(level_stats.get(STAR_COUNT_STAT)) or STAR_BASE[0]
     inner = number(level_stats.get(STAR_INNER_STAT)) / 10 or STAR_BASE[1]
     outer = number(level_stats.get(STAR_OUTER_STAT)) / 10 or STAR_BASE[2]
@@ -20571,11 +20591,11 @@ def star_fall_hits(level_stats: dict, star_radius: float, boss_radius: float) ->
     def by_area(a: float, b: float) -> float:
         return min(1.0, max(0.0, (reach * reach - a * a) / (b * b - a * a))) if b > a else 1.0
     k = r / STAR_BASE[3]
-    head, unscaled = n * by_area(inner * k, outer * k), n * by_area(inner, outer)
+    head, scaled = n * by_area(inner, outer), n * by_area(inner * k, outer * k)  # (R40-16: the ring fixed)
     by_distance = n * (min(1.0, max(0.0, (reach - inner) / (outer - inner))) if outer > inner else 1.0)
     how = (f"{n:g} stars a use fall {inner:g}-{outer:g} m from the impact on the boss; each hits it within its "
            f"{r:.2f} m + the boss's {boss_radius:g} m")
-    return head, unscaled, by_distance, how
+    return head, scaled, by_distance, how
 # (RESEARCH39 R39-7) Molten Crash's base with no Rage isn't settled (no base-count stat): headline 1 (Volcanic Fissure's
 # analogy), rows 2 (one a slam of its two) and 8 (one guide's "8 around you"), each + the Rage one inside its Limit 8
 # (molten_crash_max_number_of_fissures), a number the game decides (LOW). Its Rage extra: +1 a use, once on landing, for
@@ -20698,9 +20718,9 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
             def with_stars(n_star: float, n: float = count * share) -> float:
                 return (n_star * star_dps + n * fissure) / total
             star_part = (f"; and its Star Fall: {stars[3]}: {stars[0]:.2f} land spread evenly over the ring's area "
-                         f"(scaled with the star's area), at {star_dps:,.1f} DPS each (the Star Fall set; LOW, the "
+                         f"(the ring fixed, R40-16), at {star_dps:,.1f} DPS each (the Star Fall set; LOW, the "
                          f"placement isn't in the data). PoB scores the {scored} set alone ({total:,.1f}; an "
-                         f"UNDERCOUNT): x{factor:.3f}. Rows: the ring not scaled, {stars[1]:.2f} stars, "
+                         f"UNDERCOUNT): x{factor:.3f}. Rows: the ring scaled with the star, {stars[1]:.2f} stars, "
                          f"x{with_stars(stars[1]):.3f}; spread evenly over the distance, {stars[2]:.2f}, "
                          f"x{with_stars(stars[2]):.3f}; no star counted, x{with_stars(0.0):.3f}")
         else:
@@ -21046,3 +21066,37 @@ def minion_count_scale(count: float, hit_dps: float, combined_dps: float) -> flo
         return 1.0
     hit = min(max(hit_dps, 0.0), combined_dps) if hit_dps > 0 else combined_dps
     return (hit * count + (combined_dps - hit)) / combined_dps
+
+
+# Bear skills' added base attack time from the default stance (MECHB50; PLANS7 gs-bear-stance.md, an OVERCOUNT): the
+# game's bear_skills_additional_base_attack_time_when_performing_from_default_stance, "+{0} seconds to base attack time
+# if not standing" (GrantedEffectStatSets 26650308: Furious Slam 400, Rampage 500, Walking Calamity 300 ms; the mirror
+# ..._from_standing_stance, "if standing": Landslide -333, a "[DNT] Landslide" (ActiveSkills bear_landslide) PoB doesn't
+# have, and the bear companion's slam -500, a monster skill). PoB reads neither (checked:
+# FuriousSlamPlayer castTime 1, no statMap for the stat; no Modules hit) and nothing modifies them (checked: the three
+# stance stat ids in Mods, PassiveSkills, GrantedEffectQualityStats: 0 rows). PoB adds a BASE "Speed" mod's seconds to
+# a skill's base attack time (CalcOffence 2881-2883), so the added time goes in as that. Which skills leave the bear
+# standing isn't in the data (is_in_bear_standing_stance_or_would_be has no carrier in the stat sets): every use is taken
+# from the default stance (the game's default, MEDIUM).
+BEAR_DEFAULT_STANCE = {"Furious Slam": 0.4, "Rampage": 0.5, "Walking Calamity": 0.3}
+BEAR_STANCE_ENTRY = "model-mechb50-bear-stance"
+
+
+def bear_stance_model(main: Skill | None, speed: float, forbidden: set[str] = frozenset()
+                      ) -> tuple[list[dict], list[dict]]:
+    """The default stance's added base attack time on a bear skill (see above). `speed` PoB's attacks a second."""
+    if main is None or BEAR_STANCE_ENTRY in forbidden:
+        return [], []
+    added = BEAR_DEFAULT_STANCE.get(main.name)
+    if added is None:
+        return [], []
+    row = ""
+    if speed > 0:
+        row = f" (PoB's {speed:.2f} attacks/s before it: about x{1 / (1 + added * speed):.3f}, the speed modifiers aside)"
+    return [raw_mod("Speed", "BASE", added, main.name, tag=BEAR_STANCE_ENTRY)], [{
+        "label": f"{main.name}: +{added:g} s base attack time from the default stance*", "value": f"+{added:g} s",
+        "confidence": "MEDIUM", "entry": BEAR_STANCE_ENTRY,
+        "basis": (f"the game's '+{added:g} seconds to base attack time if not standing' "
+                  "(bear_skills_additional_base_attack_time_when_performing_from_default_stance), which PoB doesn't "
+                  f"read{row}; every use taken from the default stance (the game's default; which skills leave the "
+                  "bear standing isn't in the data)")}]
