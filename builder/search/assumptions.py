@@ -422,8 +422,11 @@ OVERWHELMING_PRESENCE = "Overwhelming Presence"  # (MECHC48: only on a boss in y
 # its use rate (Assumptions._side_rows: trigger rate, cooldown, duration or the search's press choice) x its own hit and
 # crit chance), crits taken as a Poisson stream; the main skill (an Attack) then gains gain% x u: PoB's whole gain taken
 # back under the box, gain x u added. u under conditions.MIN_UPTIME (5%) is left out (the off rule). A non-Attack main skill gets none in
-# PoB or here. MEDIUM (game numbers; the Poisson spread). Whether "increased Skill Effect Duration" scales the 5 s:
-# UNVERIFIED (the base 5 s, the lower reading). Rows: PoB's box (on / off at 90%).
+# PoB or here. MEDIUM (game numbers; the Poisson spread). The window (MECHC51; RESEARCH43 R43-9, MEDIUM: the support adds
+# the Duration skill type, "can be modified", and PoB scales Innervate's buff the same way): 5 s x the supported skill's
+# Skill Effect Duration (PoB's DurationMod for the main skill; another group's not read: the base 5 s, the lower reading),
+# each source's crits over its own window: u = 1 - e^(-sum k_i x T_i). Rows: PoB's fixed 4 s window (an UNDERCOUNT for
+# rare crits), PoB's box (on / off at 90%); Buff Duration on it UNVERIFIED (not counted, the upper row).
 # Atziri's Impatience (MECHC50; plans/gs-atziri-impatience.md, PLANS7; an OVERCOUNT: a support that looked free). The game:
 # SupportAtzirisImpatiencePlayer, "Lose 25% of maximum Life, Mana, and Energy Shield when you use Supported Skills"
 # (lose_%_of_life_es_and_mana_when_skill_is_used 25, gem_stat_descriptions, game 26650308), beside +100% Cooldown
@@ -465,7 +468,74 @@ WAR_BANNER, WAR_BANNER_SPEED = "War Banner", 25.0  # (MECHC50: gs-war-banner-spe
 BLAZING_CRITICAL = "Blazing Critical"
 BLAZING_GAIN_STAT = "support_blazing_crits_gain_%_fire_damage_with_attacks_on_critical_hit"
 BLAZING_SECONDS = 5.0
+BLAZING_POB_SECONDS = 4.0  # (R43-9: PoB's "crit recently" window, the lower row)
 BLAZING_TAG = "BlazingCritical"
+# (MECHC51; plans/gs-charged-staff-stacks.md; RESEARCH41 R41-6, HIGH: one shared buff, each consumed Power Charge adds
+# its damage and 6 s; an OVERCOUNT when the staff is never pressed, an UNDERCOUNT when it is) Charged Staff's buff adds
+# charged_staff_attack_{minimum,maximum}_added_lightning_damage_per_stack per stack (act_int.lua ChargedStaffPlayer). PoB
+# multiplies it by the Power Charges HELD (Multiplier RemovablePowerCharge; MECHC50's probe POE2T4929, Falling Thunder:
+# TotalDPS 121.8 / 141.0 / 179.7 at 0 / 1 / 3 held), so a build that spends its charges on the staff got the few left
+# held, and one that never pressed it got the maximum. Now the stacks up on average S = the Power Charges the staff
+# spends a second (conditions.consume_all_split: what the other consumers leave, at most its presses x the maximum) x
+# charged_staff_buff_duration_per_stack_ms (6 s; Little's law: each spent charge is one stack for 6 s), and PoB's held
+# count is taken back: LightningMin / Max BASE per-stack x (S - held). Only on an Attack main skill (the buff adds to
+# Quarterstaff Attacks; PoB's mod reaches a Spell main skill too, an OVERCOUNT taken back). Whether increased Skill
+# Effect Duration lengthens the 6 s is UNVERIFIED (its quality stat is skill_effect_duration_+%): base taken, the lower
+# reading. PoB's ConsumedPowerChargeEffect scalar (chance_%_to_double_effect_of_removing_charges) isn't read on the added
+# part (UNVERIFIED, a small undercount where a build has it). The shockwave (ChargedStaffShockwavePlayer, hidden in PoB,
+# no trigger wired) is MECH-B's (a triggered skill): not counted here.
+# (MECHC51; MECHB51's routed item: an UNDERCOUNT) Fist of Kalguur (SupportFistOfKalguurPlayer, PoB other.lua): "Supports
+# Slams you use yourself, allowing them to spend large amounts of Runic Ward to become Runically Boosted. Runically Boosted
+# Slams are Empowered with extra Physical damage and create a rune ..." (constantStats
+# support_slam_spend_%_supported_skill_cost_as_ward_for_runic_boost 150, runic_boosted_attack_damage_%_gained_as_physical
+# 20). PoB has no statMap for either (MECHB51's probe POE2T4763: no aftershock, no gain). Now the main Slam it supports
+# gains 20% of its damage as Physical x the share of its uses boosted: b = the Runic Ward a second left after the build's
+# Ward-cost skills (build.ward_sustain: Assumptions.ward_paid's income over every source, less what they spend; with no
+# Ward-cost skill, models.ward_income over PoB's regeneration and the lines alone, the lower reading) / (its uses a second
+# at its share of the fight x 150% of its PoB cost), at most 1 (a boost taken whenever the Ward is there; the full pool at
+# the fight's start not counted). The cost: PoB's ManaCost of the main skill (its other costs not read, LOW). Not here:
+# the boosted Slams' Empowered lines and the rune's Aftershock (MECH-B's: a triggered hit).
+FIST_OF_KALGUUR = "Fist Of Kalguur"
+FIST_OF_KALGUUR_WARD_PCT, FIST_OF_KALGUUR_GAIN = 150.0, 20.0
+FIST_OF_KALGUUR_TAG = "FistOfKalguur"
+# (MECHC51; RESEARCH42 R42-4, HIGH for the text; an OVERCOUNT of defences) Virtuous Barrier "accumulates protective
+# gemstone Motes ... over time, but loses a random Mote when you are Hit" (ActiveSkills, game 26650308), "Gains a random
+# Mote every {0} seconds" (base_active_skill_buff_stack_gain_frequency_ms, virtuous_barrier.csd). PoB holds every Mote
+# all fight: its Str / Dex / Int Mote counts (CalcSetup 1839-2284: 3 each + 2 a single-attribute skill gem, 1 an
+# attribute of a two-attribute one) as the buff's Multipliers. Now the Motes held on average are the steady state of a
+# gain every T s against the boss's landed hits a second h (recovery.landed_hits: its own uses, 2/3 of the dodgeable
+# ones dodged, red-flash avoided, after PoB's evade and block; the worst case at the defence cadence): a birth-death
+# chain on 0..M Motes, pi_n ~ rho^n, rho = (1 / T) / h, E = sum n pi_n; each type at E / M of its count (random gains and
+# losses: proportional, MEDIUM), PoB's Multipliers taken back by M_x x (1 - E / M) (Multiplier:<Attr>MoteSkillCount BASE).
+# Rows: blocked hits costing a Mote too (R42-4: probably yes, LOW; not in the headline, which is PoB's landed hits); the
+# fight starting full (Motes persist between areas, 0.5.1): more early. No landed hit: PoB's full count stands.
+VIRTUOUS_BARRIER = "Virtuous Barrier"
+VIRTUOUS_GAIN_STAT = "base_active_skill_buff_stack_gain_frequency_ms"
+VIRTUOUS_MULTIPLIERS = {"Str": "StrengthMoteSkillCount", "Dex": "DexterityMoteSkillCount", "Int": "IntelligenceMoteSkillCount"}
+VIRTUOUS_TAG = "VirtuousBarrierMotes"
+
+
+def mote_steady_state(gain: float, hits: float, most: int) -> float:
+    """The Motes held on average (0..most) with a gain `gain` a second (while under the maximum) and one lost per hit at
+    `hits` a second (while any is held): a birth-death chain's mean."""
+    if most <= 0:
+        return 0.0
+    if hits <= 0:
+        return float(most)
+    if gain <= 0:
+        return 0.0
+    rho = gain / hits
+    weights = [rho ** n for n in range(most + 1)]
+    return sum(n * w for n, w in enumerate(weights)) / sum(weights)
+
+
+CHARGED_STAFF = "Charged Staff"
+CHARGED_STAFF_MIN = "charged_staff_attack_minimum_added_lightning_damage_per_stack"
+CHARGED_STAFF_MAX = "charged_staff_attack_maximum_added_lightning_damage_per_stack"
+CHARGED_STAFF_MS = "charged_staff_buff_duration_per_stack_ms"
+CHARGED_STAFF_TAG = "ChargedStaff"
+CHARGED_STAFF_IGNORED = "active_skill_is_ignored_by_charged_staff"
+CHARGED_STAFF_IGNORES = ("Frozen Locus",)
 
 
 def selfless_of(build) -> set[str]:
@@ -3460,6 +3530,10 @@ class Assumptions:
                          + "; without it: no lower Stun / Ailment Thresholds on the boss")}]
         blazing_mods, blazing_notes = self.blazing_critical(skills, main, stats)  # (MECHC50: BLAZING_CRITICAL's note)
         hand_mods, hand_notes = hand_mods + blazing_mods, hand_notes + blazing_notes
+        staff_mods, staff_notes = self.charged_staff(skills, main)  # (MECHC51: CHARGED_STAFF's note)
+        hand_mods, hand_notes = hand_mods + staff_mods, hand_notes + staff_notes
+        barrier_mods, barrier_notes = self.virtuous_barrier(skills)  # (MECHC51: VIRTUOUS_BARRIER's note)
+        hand_mods, hand_notes = hand_mods + barrier_mods, hand_notes + barrier_notes
         impatience_mods, impatience_notes = self.impatience_loss(skills, main, stats)  # (MECHC50: IMPATIENCE's note)
         hand_mods, hand_notes = hand_mods + impatience_mods, hand_notes + impatience_notes
         toxic_mods, toxic_notes = self.toxic_domain_cost(main)  # (MECHC50: TOXIC_DOMAIN's note)
@@ -3764,6 +3838,15 @@ class Assumptions:
         # (MECHB25, COV28) Fireflower's Fire damage taken per Ignite, at the main skill's Ignite rate: in PoB as Fire
         # damage taken per second (recovery sees it); build.ignite_self_damage = (per second, Ignites per second)
         burn, ignites, burn_notes = models.ignite_self_damage([e["text"] for e in source_lines], stats)
+        # (MECHC51, plans/un-pyromantic-pact.md (a), for SEARCH's objective.sustain: "Gain Infernal Flame instead of
+        # spending Mana for Skill costs": the Mana pool pays no cost, so its sustain share shouldn't hold the build back.
+        # build.cost_pools_replaced = {pool: why}; SEARCH's floor reads it (routed as a LOW item, the manager 12:05))
+        build.cost_pools_replaced = ({"Mana": "Pyromantic Pact: skill costs fill Infernal Flame instead of spending Mana"}
+                                     if any(recovery_mod.PACT_NO_MANA.search(e["text"]) for e in source_lines) else {})
+        # (MECHC51: Pyromantic Pact's self-hit, recovery.PACT_SELF_HIT's note: the same Fire path, one event a cycle)
+        pact_burn, pact_hits, pact_notes = recovery_mod.pact_self_hit([e["text"] for e in source_lines], stats)
+        burn_notes = burn_notes + pact_notes
+        burn, ignites = burn + pact_burn, ignites + pact_hits
         build.ignite_self_damage = (burn, ignites)
         if burn > 0:
             hand_mods = hand_mods + [models.line("1 Fire Damage taken per second", burn)]
@@ -6153,6 +6236,8 @@ class Assumptions:
         mods += getattr(self, "ledger_derived", [])  # (COV32: shares the bridge works out again per calculation)
         mods, ward_notes = self.ward_paid(skills, mods, main)  # (MECH-B: Runic Ward pays for Ward-cost skills, MECHB13)
         notes += ward_notes
+        boost_mods, boost_notes = self.kalguur_boost(skills, main)  # (MECHC51: FIST_OF_KALGUUR's note)
+        mods, notes = mods + boost_mods, notes + boost_notes
         notes += self.child_entry_cuts()  # (MECHB45, GEM26: a Ward-held or unpressed skill's granted children too)
         notes += self.side_trigger_cuts()  # (MECHB46, GEM26's sweep: Warcries' flat-rate triggered skills)
         texts = [e["text"] for e in self.build.call("sourceLines")["lines"]]
@@ -6882,7 +6967,12 @@ class Assumptions:
                                                            "enemySkillTime"]), "_boss": boss}
             landed, landed_how = boss_hits.gain_hits(seen)
             recovery.ghost_dance_income(income, ghost.get("levelStats") or {}, number(seen.get("Evasion")), landed,
-                                        f"the boss's landed hits {landed_how}")
+                                        f"the boss's landed hits {landed_how}",
+                                        number(ghost.get("cooldownRecovery")) or 1.0)  # (MECHC51: its Cooldown Recovery)
+        if recovery.TIME_OF_NEED in present:  # (MECHC51) Time of Need's Blessings (TIME_OF_NEED's note)
+            need = next((s for s in build.call("activeSkills", levelStats=[recovery.TIME_OF_NEED])["skills"]
+                         if s["name"] == recovery.TIME_OF_NEED and not s.get("disabled")), {})
+            recovery.time_of_need_income(income, need.get("levelStats") or {}, number(need.get("cooldownRecovery")) or 1.0)
         if has(recovery.SACRIFICE_ES):  # (MECHC27) Eldritch Empowerment's ES sacrificed per Spell cast
             spell = main and "Spell" in set((build.ctx.gems.get(main) or {}).get("skillTypes") or [])
             casts = number(stats.get("Speed")) if spell else 0.0
@@ -8827,7 +8917,9 @@ class Assumptions:
             "label": "Toxic Domain: 25% increased Skill costs in the Bloom*",
             "value": f"+{inc:.1f}% Skill costs (25% x {share:.0%} of the fight in the Bloom)",
             "basis": (f"{how}; 'While in the Bloom, you have increased Skill costs' (toxic_domain_mana_cost_+% 25), which "
-                      "PoB doesn't apply (an OVERCOUNT of sustain before)"),
+                      "PoB doesn't apply (an OVERCOUNT of sustain before). On every cost, Life-paid ones too (RESEARCH43 "
+                      "R43-10, LOW: the text says Skill costs, the stat's name says Mana; by the wording rule the text "
+                      "wins). Row: Mana costs only (MEDIUM-LOW): Life-paid costs unchanged"),
             "confidence": "MEDIUM (inside whenever a Bloom stands)",
             "play": (f"standing in the Bloom: Skill costs +25% (out of it: no extra cost, and no Pustules or Bloom "
                      f"regeneration)" if inc > 0 else "")}]
@@ -8867,22 +8959,32 @@ class Assumptions:
                     if not s.get("disabled") and s.get("group") in {g["index"] for g in holders}), default=0.0) or 15.0
         main_index = main.group if main is not None else None
         crits, parts = 0.0, []
+        exposure = 0.0  # (MECHC51, R43-9: sum of each source's crits/s x its own window)
         if any(g["index"] == main_index for g in holders):
             share = with_main_share(build, stats, main).get("_main_share")
             share = 1.0 if share is None else max(0.0, min(1.0, number(share)))
             k = models.hits_per_second(stats) * number(stats.get("CritChance")) / 100 * share
             crits += k
+            # (R43-9) the window with the supported skill's own Skill Effect Duration: PoB's DurationMod for it
+            scale = number(stats.get("DurationMod")) if "DurationMod" in stats else number(
+                build.call("stats", fields=["DurationMod"]).get("DurationMod"))
+            scale = scale if scale > 0 else 1.0
+            exposure += k * BLAZING_SECONDS * scale
             parts.append(f"{main.name}: {k:.2f} crits/s ({number(stats.get('CritChance')):.0f}% critical"
-                         + (f", used {share:.0%} of the fight" if share < 1 else "") + ")")
+                         + (f", used {share:.0%} of the fight" if share < 1 else "")
+                         + (f"; its Skill Effect Duration x{scale:.2f}: a {BLAZING_SECONDS * scale:.2f} s window"
+                            if abs(scale - 1) > 1e-6 else "") + ")")
         side = {g["index"] for g in holders if g["index"] != main_index}
         if side:
             for row, uses, why in self._side_rows(main_index, lambda g: g["index"] in side):
                 k = (uses * min(number(row.get("HitChance")) or 100.0, 100.0) / 100
                      * min(max(number(row.get("CritChance")), 0.0), 100.0) / 100)
                 crits += k
+                exposure += k * BLAZING_SECONDS  # (its Skill Effect Duration not read: the base 5 s, the lower reading)
                 parts.append(f"{row.get('name') or 'a supported skill'}: {k:.2f} crits/s ({why}, "
-                             f"{number(row.get('CritChance')):.0f}% critical)")
-        up = blazing_uptime(crits)
+                             f"{number(row.get('CritChance')):.0f}% critical; base {BLAZING_SECONDS:g} s window)")
+        up = 1.0 - math.exp(-exposure) if exposure > 0 else 0.0
+        pob_up = blazing_uptime(crits, BLAZING_POB_SECONDS)
         counted = up if up >= conditions_mod.MIN_UPTIME else 0.0
         box = bool(build.call("getConfig")["input"].get("conditionCritRecently"))
         attack = bool(main is not None and main.attack)
@@ -8896,15 +8998,151 @@ class Assumptions:
             "label": "Blazing Critical: its Fire gain at the buff's uptime*",
             "value": (f"{gain * counted:.1f}% of Damage as Fire on your Attacks ({counted:.0%} of {gain:g}%)" if attack
                       else "no effect on the main skill (not an Attack)"),
-            "basis": (f"the buff lasts {BLAZING_SECONDS:g} s from a critical hit by a supported skill: {how}: up "
-                      f"1 - e^(-{crits:.2f} x {BLAZING_SECONDS:g}) = {up:.0%}"
+            "basis": (f"the buff lasts {BLAZING_SECONDS:g} s x the supported skill's Skill Effect Duration from a "
+                      f"critical hit by a supported skill (RESEARCH43 R43-9, MEDIUM): {how}: up 1 - e^(-{exposure:.2f}) "
+                      f"= {up:.0%}"
                       + (f" (under {conditions_mod.MIN_UPTIME:.0%}: left out)" if 0 < up < conditions_mod.MIN_UPTIME else "")
-                      + f". Row: PoB's 'Crit recently' box ({'on' if box else 'off'}, set from the main skill's crits "
-                      f"at 90% in 4 s) gives {gain if box and attack else 0:g}%; whether Skill Effect Duration "
-                      "lengthens the 5 s is UNVERIFIED (the base 5 s taken)"),
+                      + f". Rows: PoB's fixed {BLAZING_POB_SECONDS:g} s window: up {pob_up:.0%} ({gain * pob_up:.1f}%); "
+                      f"PoB's 'Crit recently' box ({'on' if box else 'off'}, set from the main skill's crits at 90% in "
+                      f"4 s) gives {gain if box and attack else 0:g}%; Buff Duration lengthening it too: UNVERIFIED, not "
+                      "counted (an upper row)"),
             "confidence": "MEDIUM (game numbers; crits as a Poisson stream)",
             "play": (f"Blazing Critical: keep the supported skill critting; up {counted:.0%}, without it 0" if attack
                      else "")}
+        return mods, [note]
+
+    def kalguur_boost(self, skills: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
+        """(mods, notes) for Fist of Kalguur's Runic Boost on the main Slam at the share of its uses the leftover Runic
+        Ward pays for (FIST_OF_KALGUUR's note). `main`: the main skill's name."""
+        build = self.build
+        # (only for a Slam main skill: no bridge call on other builds, the search's hot path)
+        slam = next((s for s in skills if s.get("name") == main and not s.get("disabled") and s.get("slam")), None)
+        group = build.main_group() if slam is not None else None
+        if group is None or not any(g.get("name", "").lower() == FIST_OF_KALGUUR.lower() and g.get("enabled", True)
+                                    for g in group.get("gems") or []):
+            return [], []
+        if not any(s.get("name") == main and not s.get("disabled") and s.get("group") == group["index"] for s in skills):
+            return [], []
+        pools = build.call("stats", fields=["ManaCost", "Speed", "WardRegenRecovery", "Ward"])
+        sustain = getattr(build, "ward_sustain", None) or {}
+        if "WardRecoveryPerSecond" in sustain:
+            income = number(sustain["WardRecoveryPerSecond"])
+            spent = sum(number(v[1]) * number(v[2]) for k, v in sustain.items()
+                        if not str(k).startswith("_") and isinstance(v, tuple) and len(v) == 3)
+            source = f"{income:.1f} Ward/s recovered (every source), {spent:.1f}/s spent by the Ward-cost skills"
+        else:
+            texts = [line["text"] for line in build.call("sourceLines")["lines"]]
+            income = models.ward_income(number(pools.get("WardRegenRecovery")), number(pools.get("Ward")), texts)[0]
+            spent = 0.0
+            source = (f"{income:.1f} Ward/s (PoB's regeneration and the Ward lines; Remnants of Kalguur and other feeds "
+                      "read only beside a Ward-cost skill: the lower reading)")
+        left = max(income - spent, 0.0)
+        share = (main_time_share(build, models.Skill(name=main))
+                 if callable(getattr(getattr(build, "objective", None), "busy", None)) else 1.0)
+        uses = number(pools.get("Speed")) * share
+        cost = number(pools.get("ManaCost")) * FIST_OF_KALGUUR_WARD_PCT / 100
+        need = uses * cost
+        boosted = min(1.0, left / need) if need > 0 else (1.0 if left > 0 and uses > 0 else 0.0)
+        mods = ([models.raw_mod("DamageGainAsPhysical", "BASE", FIST_OF_KALGUUR_GAIN * boosted, skill=main,
+                                tag=FIST_OF_KALGUUR_TAG)] if boosted > 0 else [])
+        note = {
+            "label": "Fist of Kalguur: Runically Boosted Slams at the Runic Ward left for them*",
+            "value": f"{boosted:.0%} of {main}'s uses boosted: {FIST_OF_KALGUUR_GAIN * boosted:.1f}% of its damage as extra Physical",
+            "basis": (f"{source}: {left:.1f}/s left; each boost spends {FIST_OF_KALGUUR_WARD_PCT:g}% of its "
+                      f"{number(pools.get('ManaCost')):.0f} cost = {cost:.0f} Ward, at {uses:.2f} uses/s"
+                      + (f" ({share:.0%} of the fight)" if share < 1 else "") + f" = {need:.1f} Ward/s wanted. PoB "
+                      "reads neither stat (an UNDERCOUNT before). Not counted: the boosted Slams' Empowered lines and the "
+                      "rune's Aftershock (MECH-B's), the full Ward pool at the fight's start"),
+            "confidence": "MEDIUM (game numbers; the cost read as PoB's Mana cost, LOW)",
+            "play": (f"Fist of Kalguur: keep Runic Ward up for the boosts ({boosted:.0%} of your Slams); without Ward "
+                     "recovery, none")}
+        return mods, [note]
+
+    def virtuous_barrier(self, skills: list[dict]) -> tuple[list[dict], list[dict]]:
+        """(mods, notes) for Virtuous Barrier's Motes at their steady state under the boss's landed hits
+        (VIRTUOUS_BARRIER's note). `skills`: the bridge's activeSkills."""
+        from builder.search import bosses, recovery
+
+        build = self.build
+        if not any(s.get("name") == VIRTUOUS_BARRIER and not s.get("disabled") for s in skills):
+            return [], []
+        level = next((s.get("levelStats") or {} for s in build.call("activeSkills", levelStats=[VIRTUOUS_BARRIER])[
+            "skills"] if s.get("name") == VIRTUOUS_BARRIER and s.get("levelStats")), {})
+        every = (number(level.get(VIRTUOUS_GAIN_STAT)) or 1000.0) / 1000
+        gems = getattr(build.ctx, "all_gems", None) or build.ctx.gems
+        counts = {"Str": 3, "Dex": 3, "Int": 3}  # (PoB's count, CalcSetup 1839-2284)
+        for g in build.groups():
+            if g.get("enabled") is False:
+                continue
+            for n in g.get("gems") or []:
+                info = gems.get(n.get("name")) or {}
+                if not n.get("enabled", True) or info.get("support") or n.get("fromTree") or n.get("fromItem"):
+                    continue
+                attrs = [x for x in ("Str", "Dex", "Int") if number(info.get(f"req{x}")) > 0]
+                for x in attrs:
+                    counts[x] += 2 if len(attrs) == 1 else 1
+        most = sum(counts.values())
+        boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+        read = {**build.call("stats", fields=["EvadeChance", "EffectiveBlockChance", "enemySkillTime"]),
+                **bosses.kill_stats(boss)}
+        hits, how = recovery.landed_hits(read)
+        blocked, _ = recovery.landed_hits({**read, "EffectiveBlockChance": 0})
+        held = mote_steady_state(1 / every, hits, most)
+        held_blocked = mote_steady_state(1 / every, blocked, most)
+        f = held / most if most else 1.0
+        mods = ([models.raw_mod(f"Multiplier:{VIRTUOUS_MULTIPLIERS[x]}", "BASE", -counts[x] * (1 - f), tag=VIRTUOUS_TAG)
+                 for x in counts if counts[x] > 0] if f < 1 else [])
+        note = {
+            "label": "Virtuous Barrier: its Motes under the boss's hits*",
+            "value": f"{held:.1f} of {most} Motes held on average ({f:.0%}; PoB: all {most})",
+            "basis": (f"a Mote every {every:.2f} s against {hits:.2f} landed hits a second ({how}), one lost a hit: the "
+                      f"steady state of a 0-{most} chain. Each type at {f:.0%} of its count (Str {counts['Str']}, Dex "
+                      f"{counts['Dex']}, Int {counts['Int']}). Rows: blocked hits costing a Mote too (R42-4, LOW): "
+                      f"{held_blocked:.1f}; the fight starts full (Motes persist between areas): more early on"),
+            "confidence": "MEDIUM (the text HIGH; the boss's hits MEDIUM-LOW)",
+            "play": f"Virtuous Barrier: each hit you take costs a Mote; about {held:.1f} of {most} held against this boss"}
+        return mods, [note]
+
+    def charged_staff(self, skills: list[dict], main) -> tuple[list[dict], list[dict]]:
+        """(mods, notes) for Charged Staff's buff at the stacks the build's spent Power Charges hold up (CHARGED_STAFF's
+        note). `skills`: the bridge's activeSkills; `main`: the main models.Skill."""
+        build = self.build
+        if not any(s.get("name") == CHARGED_STAFF and not s.get("disabled") for s in skills):
+            return [], []
+        names = [CHARGED_STAFF] + ([main.name] if main is not None and main.name != CHARGED_STAFF else [])
+        raw = build.call("activeSkills", levelStats=names)["skills"]
+        level = next((s.get("levelStats") or {} for s in raw if s.get("name") == CHARGED_STAFF and s.get("levelStats")), {})
+        # (MECHC51, MECHB51's Frozen Locus guard, Charged Staff's half: a skill with active_skill_is_ignored_by_charged_
+        # staff (FrozenLocusPlayer's flag, act_int.lua) gets nothing from the buff; PoB's mod ignores the flag)
+        # (by name too: the flag may not reach levelStats; Frozen Locus carries it alone, MECHB51's check: Stats rows as
+        # GrantedEffectStatSets columns, PerLevel, Mods, PassiveSkills, game 26650308; poe2db not checked, UNVERIFIED)
+        ignored = main is not None and (main.name in CHARGED_STAFF_IGNORES or any(
+            number((s.get("levelStats") or {}).get(CHARGED_STAFF_IGNORED)) > 0
+            for s in raw if s.get("name") == main.name and s.get("group") == main.group))
+        low, high = number(level.get(CHARGED_STAFF_MIN)), number(level.get(CHARGED_STAFF_MAX))
+        seconds = (number(level.get(CHARGED_STAFF_MS)) or 6000.0) / 1000
+        spent, presses, how = ((getattr(build, "consume_all", None) or {}).get("Power") or {}).get(
+            CHARGED_STAFF, (0.0, 0.0, "no Power Charge source, or Charged Staff has no press rate"))
+        stacks = number(spent) * seconds
+        config = build.call("getConfig")["input"]
+        held = number(config.get("overridePowerCharges")) if config.get("usePowerCharges") else 0.0
+        attack = bool(main is not None and main.attack) and not ignored
+        counted = stacks if attack else 0.0
+        mods = [models.raw_mod(name, "BASE", value * (counted - held), tag=CHARGED_STAFF_TAG)
+                for name, value in (("LightningMin", low), ("LightningMax", high)) if value and counted != held]
+        note = {
+            "label": "Charged Staff: its buff at the Power Charges you spend on it*",
+            "value": (f"{stacks:.1f} stacks on average: {low * stacks:.0f}-{high * stacks:.0f} added Lightning on your "
+                      "Quarterstaff Attacks" if attack else (
+                          f"no effect on the main skill ({main.name} is ignored by Charged Staff)" if ignored
+                          else "no effect on the main skill (not an Attack)")),
+            "basis": (f"{how}; each spent charge is a {seconds:g} s stack (one shared buff, RESEARCH41 R41-6): "
+                      f"{number(spent):.2f}/s x {seconds:g} s = {stacks:.1f}. Row: PoB's reading, the "
+                      f"{held:g} Power Charges held as stacks ({low * held:.0f}-{high * held:.0f}). Whether Skill Effect "
+                      "Duration lengthens the 6 s is UNVERIFIED (base taken)"),
+            "confidence": "MEDIUM (game numbers; the stacks as charges spent x 6 s)",
+            "play": (f"Charged Staff: press it to spend your Power Charges as they come (its press rate "
+                     f"{number(presses):.2f}/s): {stacks:.1f} stacks up; without it, none" if attack else "")}
         return mods, [note]
 
     def _side_rows(self, main_index: int, pick) -> list[tuple[dict, float, str]]:

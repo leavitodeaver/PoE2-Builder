@@ -69,12 +69,14 @@ def test_blazing_critical_counts_its_gain_at_the_buffs_uptime_not_pobs_box(engin
     stats = build.call("stats", fields=models.MODEL_FIELDS)
     mods, notes = search.assumptions.blazing_critical(skills, skill, stats)
     crits = models.hits_per_second(stats) * stats["CritChance"] / 100
-    up = a.blazing_uptime(crits)
+    scale = build.call("stats", fields=["DurationMod"])["DurationMod"] or 1.0  # (MECHC51, R43-9: its own duration)
+    up = a.blazing_uptime(crits, a.BLAZING_SECONDS * scale)
     print("PROBE blazing model", mods, notes[0]["value"], notes[0]["basis"])
     assert mods[0]["value"] == -15 and mods[0]["condition"] == "CritRecently"
     if up >= 0.05:
         assert 0 < mods[1]["value"] <= 15 * up + 0.01  # (at the main skill's share of the fight)
     assert "Blazing Critical" in notes[0]["label"] and "PoB's 'Crit recently' box (on" in notes[0]["basis"]
+    assert "PoB's fixed 4 s window" in notes[0]["basis"]
 
 
 def test_atziris_impatience_drains_each_pool_at_its_supported_skills_uses(engine):

@@ -1832,6 +1832,101 @@ def fear_mods(texts: list[str], culls: float, culls_how: str, can_cull: bool, wh
     return mods, rows
 
 
+# (MECHC51; plans/gs-charged-staff-stacks.md, R41-6) Skills that consume ALL the charges of a kind a use: Charged Staff
+# ("Consume all Power Charges to charge your Quarterstaff with electricity ...", ActiveSkills charged_staff, game
+# 26650308). Before, the charge model took it as one charge a press like every SkillConsumes<Kind>ChargesOnUse skill.
+# Now a press spends what the build holds, so over a fight it spends the charges the other consumers leave (a build that
+# takes it plays to feed it), at most its presses a second (its group's rate, conditions.skill_use_rate: the search's
+# chosen rate, else 0) x the maximum held; no press rate: it spends none (no source, 0). The other "consume all" skills
+# (checked: ActiveSkills descriptions holding "consume(s) all", game 26650308: Wind Serpent's Fury (Frenzy) and Pinnacle
+# of Power (Power) too; Wind Dancer's stages and Encase in Jade's Jade are not charges) keep the one-a-use reading for
+# now: their per-use effects read the charges a use finds, a model of their own (next, MECHC51's report).
+CONSUMES_ALL = {"Power": ("Charged Staff",)}
+
+
+def consume_all_split(wanted: dict, kind: str, rate: float, most: float, kept: float = 0.0) -> dict:
+    """{name: (charges it spends a second, its presses a second, how)} for the CONSUMES_ALL skills of `kind` in
+    `wanted` ({consumer: uses a second}, the others spending first, one charge a use)."""
+    names = [n for n in CONSUMES_ALL.get(kind, ()) if n in wanted]
+    if not names:
+        return {}
+    others = sum(number(u) for n, u in wanted.items() if n not in names)
+    left = max(rate - others * (1 - kept), 0.0)
+    out = {}
+    for name in names:
+        presses = number(wanted[name])
+        cap = presses * max(most, 1.0)
+        take = min(left, cap)
+        left -= take
+        out[name] = (take, presses, (
+            f"{name} spends all your {kind} Charges a press: {take:.2f}/s of the {rate:.2f}/s made"
+            + (f" after {others:.2f}/s spent by the other consumers" if others else "")
+            + (f", at most {presses:.2f} presses/s x {most:g} held" if take >= cap - 1e-12 and cap < rate else "")
+            + ("" if presses > 0 else " (no press rate: it spends none)")))
+    return out
+
+
+# (MECHC51; kw-channelling, MECHC50's proposal APPROVED by the manager 12:05 21 Nov: MECH-C writes the share, MECH-B scales
+# PoB's "while Channelling" lines to it) PoB sets Channelling from the main skill's type (CalcPerform 394), so "while
+# Channelling" lines count all fight for a channelled main skill and never for anything else. channelling_share = the
+# main skill's share of the fight (assumptions.main_time_share, the time the side presses leave it) if it has the Channel
+# skill type, plus each other enabled, non-triggered group whose skill channels: its presses a second
+# (skill_use_rate: its cooldown, duration or the search's chosen rate, else 0) x CHANNEL_PRESS_SECONDS held a press,
+# at most 1. The hold a press is the player's choice and no data gives it: 1 s, LOW (MECHC1's Rage-channel convention),
+# named in the report; a main channel needs none (its share is the time it's used).
+CHANNEL_PRESS_SECONDS = 1.0
+
+
+def channelling_share(build, main_skill: str | None, main_share: float = 1.0) -> tuple[float, str]:
+    """(the share of the fight you channel, how) (CHANNELLING_SHARE's note)."""
+    gems = getattr(build.ctx, "all_gems", None) or build.ctx.gems
+    types = lambda n: set((gems.get(n) or {}).get("skillTypes") or [])  # noqa: E731
+    share, parts = 0.0, []
+    if main_skill and "Channel" in types(main_skill):
+        share += max(0.0, min(1.0, number(main_share)))
+        parts.append(f"{main_skill} (the main skill) {share:.0%} of the fight")
+    try:
+        result = build.call("groups")
+        groups, index = result["groups"], result.get("mainSocketGroup")
+    except Exception:  # (a stand-in build in a unit test)
+        groups, index = [], None
+    main = groups[index - 1] if isinstance(index, int) and 0 < index <= len(groups) else None
+    main_index = main["index"] if main else None
+    side = {g["index"]: n["name"] for g in groups if g.get("enabled") is not False and g["index"] != main_index
+            for n in g.get("gems") or [] if n.get("enabled", True) and not (gems.get(n["name"]) or {}).get("support")
+            and "Channel" in types(n["name"])}
+    if side:
+        choices = models.press_choices(build)
+        for row in build.call("useRates", indices=sorted(side))["rates"]:
+            if row.get("triggered"):
+                continue
+            uses, why, _ = skill_use_rate(row, choices)
+            held = min(1.0, uses * CHANNEL_PRESS_SECONDS)
+            if held > 0:
+                share += held
+                parts.append(f"{side.get(row.get('index'), 'a channelled skill')} {uses:.2f} presses/s ({why}) x "
+                             f"{CHANNEL_PRESS_SECONDS:g} s held a press (LOW) = {held:.0%}")
+    share = min(1.0, share)
+    return share, ("; ".join(parts) + f": {share:.0%} channelling") if parts else "no channelled skill: 0"
+
+
+def charges_reaching(build, kind: str, name: str) -> tuple[float, str]:
+    """(MECHC51, for MECH-B: Raise Zombie's Power Charge supply) (the charges of `kind` a second that reach consumer
+    `name`, how), from the charge model's last round (Conditions.evidence: build.charge_flow, the charges consumed a
+    second; build.charge_wanted, what each consumer asks): its share of the flow by what it asks, at most what it asks
+    (the same split _creeping_chill makes). Not a consumer, or no charge made: 0, said (no flat rate)."""
+    wanted = ((getattr(build, "charge_wanted", None) or {}).get(kind) or {})
+    flow = (getattr(build, "charge_flow", None) or {}).get(kind)
+    asks = number(wanted.get(name))
+    total = sum(number(u) for u in wanted.values())
+    if asks <= 0 or total <= 0 or not flow:
+        return 0.0, (f"no {kind} Charge reaches {name} ("
+                     + ("not a consumer of them, or its uses not rated" if asks <= 0 else f"no {kind} Charge source")
+                     + "): 0")
+    rate = min(asks, number(flow[0]) * asks / total)
+    return rate, f"{name}: {rate:.2f} of the {asks:.2f}/s it asks find a {kind} Charge ({flow[1]})"
+
+
 def _charges_held(kind: str):
     def held(lines: list[str], stats: dict) -> tuple[float, str]:
         kinds, redirected = _charge_sources(lines, kind)
@@ -1885,7 +1980,14 @@ def _charges_held(kind: str):
         # what they spend isn't held. A consumer finds a charge on a share generation / consumption of its uses. (Beside
         # a consumer the count stays the older rate left x duration, at most the maximum: how consumption and the shared
         # refresh interact isn't modelled.)
-        spent = sum((stats.get("_consumers") or {}).get(kind, {}).values())
+        wanted = dict((stats.get("_consumers") or {}).get(kind, {}))
+        all_in = consume_all_split(wanted, kind, rate, most, charges_kept_chance(lines))  # (MECHC51: CONSUMES_ALL)
+        if all_in:
+            wanted.update({n: c for n, (c, _p, _h) in all_in.items()})
+            stats.setdefault("_consume_all", {})[kind] = all_in
+        spent = sum(number(u) for u in wanted.values())
+        if wanted:
+            stats.setdefault("_charge_wanted", {})[kind] = {n: number(u) for n, u in wanted.items()}
         extra_text = f" x {1 + extra:.2f} per gain ({', '.join(extra_how)})" if extra_how else ""
         if spent:
             kept = charges_kept_chance(lines)  # (MECHC32: consumed but not removed on that chance)
@@ -2523,10 +2625,46 @@ LEYLINE_BASIS = ("on a Leyline 75% of the fight (the user, 15 Nov: a player who 
                  "outside DPS in the play guide)")
 
 
+# (MECHC51; plans/gs-leylines-ward.md, RESEARCH42 R42-17, HIGH for the rates; an OVERCOUNT where Ward runs out) "Lose N
+# Ward per second while on a Leyline. Cannot Recover Ward while on a Leyline", "Running out of Runic Ward causes the
+# energy to temporarily dissipate", "Leylines reappear 8 seconds after dissipating" (leylines.csd,
+# skill_leylines_ward_degeneration_per_minute / skill_leylines_respawn_time_ms). So the time on a line is a cycle: on
+# for the Ward refilled x W / d (d the drain), off for the 8 s (Ward recovering at r: the build's Runic Ward a second,
+# Assumptions.ward_paid's every-source total where it ran, else KeywordPopups' 5% of maximum a second), the refill f =
+# min(1, r x 8 / W); or off until full (max(8, W / r)), whichever keeps you on longer: on / (on + off), at most the
+# user's 75% (the ceiling, R42-17's change). No drain: 75%. No Runic Ward: whether the lines dissipate at once is
+# UNVERIFIED (the text says running out does): the 75% kept, a 0% row (CLAUDE.md: no zero on an unverified claim).
+LEYLINE_RESPAWN = 8.0
+LEYLINE_WARD_REGEN = 0.05  # (KeywordPopups Ward: 5% of maximum a second)
+
+
+def leyline_cycle(ward: float, drain: float, regen: float) -> tuple[float, str]:
+    """(the share of the fight on a Leyline, how) from the Ward pool, the drain and the Ward recovery a second."""
+    if drain <= 0:
+        return LEYLINE_UPTIME, LEYLINE_BASIS
+    if ward <= 0:
+        return LEYLINE_UPTIME, (LEYLINE_BASIS + "; no Runic Ward: whether the lines dissipate at once is UNVERIFIED "
+                                "(row: 0%)")
+    regen = max(regen, LEYLINE_WARD_REGEN * ward)
+    refill = min(1.0, regen * LEYLINE_RESPAWN / ward)
+    quick = (refill * ward / drain) / (refill * ward / drain + LEYLINE_RESPAWN)
+    wait = max(LEYLINE_RESPAWN, ward / regen)
+    full = (ward / drain) / (ward / drain + wait)
+    share = min(LEYLINE_UPTIME, max(quick, full))
+    return share, (f"on a Leyline {share:.0%} of the fight: its {drain:.0f} Ward/s drain empties your {ward:.0f} Runic "
+                   f"Ward (no recovery on a line) and the lines come back {LEYLINE_RESPAWN:g} s later, the Ward "
+                   f"recovering {regen:.1f}/s meanwhile ({refill:.0%} refilled): back on at once {quick:.0%}, or off "
+                   f"until full {full:.0%}; at most the user's 75% (R42-17)")
+
+
 def leyline_uptime(lines: list[str], stats: dict) -> tuple[object, str, float]:
-    """(True, how, 0.75) with the Leylines gem in the build, else (0, "", 0)."""
+    """(True, how, share) with the Leylines gem in the build, else (0, "", 0): the share from stats["_leyline"] (Ward,
+    drain, Ward recovery; Conditions.evidence) through leyline_cycle, else the user's 75%."""
     if LEYLINES not in (stats.get("_gem_names") or set()):
         return 0.0, "", 0.0
+    if stats.get("_leyline"):
+        share, how = leyline_cycle(*stats["_leyline"])
+        return (True, how, share) if share > 0 else (0.0, how, 0.0)
     return True, LEYLINE_BASIS, LEYLINE_UPTIME
 
 
@@ -3070,6 +3208,9 @@ def _arcane_surge_source(text: str, lines: list[str], stats: dict) -> tuple[floa
         if most <= 0 or held < most:
             return 0.0, f"needs maximum Power Charges ({held:g} of {most:g} held)"
     if "channelling" in when:
+        if "_channelling_share" in stats:  # (MECHC51: CHANNELLING_SHARE's note)
+            up = max(0.0, min(1.0, number(stats["_channelling_share"])))
+            return up, f"you channel {up:.0%} of the fight (channelling_share)"
         up = 1.0 if "Channel" in (stats.get("_main_types") or set()) else 0.0
         return up, "the main skill channels" if up else "the main skill doesn't channel"
     if MINION_DIES.search(when):
@@ -8646,6 +8787,20 @@ class Conditions:
         return head, (f"Twister's twister-count reading, MEDIUM-LOW, as its DPS counts; in an open arena {open_row:g} "
                       "a cast")
 
+    def _leyline_inputs(self) -> tuple[float, float, float] | None:
+        """(MECHC51) (maximum Runic Ward, the Leylines' Ward drain a second, the Ward recovered a second) for
+        leyline_cycle: the drain from the gem's level stats (skill_leylines_ward_degeneration_per_minute / 60), the
+        recovery from Assumptions.ward_paid's last total (build.ward_sustain) where it ran, else 0 (leyline_cycle's 5%
+        floor). None without the level stat."""
+        raw = self.build.call("activeSkills", levelStats=[LEYLINES])["skills"]
+        level = next((s.get("levelStats") or {} for s in raw if s.get("name") == LEYLINES and s.get("levelStats")), {})
+        drain = number(level.get("skill_leylines_ward_degeneration_per_minute")) / 60
+        if drain <= 0:
+            return None
+        ward = number(self.build.call("stats", fields=["Ward"]).get("Ward"))
+        regen = number((getattr(self.build, "ward_sustain", None) or {}).get("WardRecoveryPerSecond"))
+        return ward, drain, regen
+
     def _main_share(self) -> float:
         """(MECHC44) the main skill's share of the fight as objective.dps scores it (assumptions.main_time_share)."""
         from types import SimpleNamespace
@@ -9491,8 +9646,19 @@ class Conditions:
         # Flammability, Compounding, consumers, kills: ~x3.6 too many hits on Hailstorm's probe). A model that cuts the
         # main skill's HITS (not its damage per hit) puts the factor on build.main_hit_cut; every reader through
         # models.at_main_share then takes it with the main skill's share. Unset: 1.)
+        time_share = stats["_main_share"]  # (MECHC51: the time share, before any hit cut, for channelling_share)
         if (cut := getattr(self.build, "main_hit_cut", None)) is not None:
             stats["_main_share"] = number(stats["_main_share"]) * max(0.0, min(1.0, number(cut)))
+        # (MECHC51: leyline_cycle's note) the Ward pool, the Leylines drain and the Ward recovery, with Leylines only
+        if any(line["source"] == f"gem:{LEYLINES}" for line in lines):
+            stats["_leyline"] = self._leyline_inputs()
+        # (MECHC51, the manager's 12:05 ruling: CHANNELLING_SHARE's note) the share of the fight the build channels
+        # (only with a line naming channelling: no bridge call on other builds)
+        if any("channel" in line["text"].lower() for line in lines):
+            self.build.channelling_share = channelling_share(self.build, self.main_skill, time_share)
+            stats["_channelling_share"] = self.build.channelling_share[0]
+        else:
+            self.build.channelling_share = (0.0, "no line of the build names channelling: not read")
         stats["_you_bleeding"] = getattr(self.build, "you_bleeding", None)  # (MECHC46: CHARGE_WHILE_BLEEDING's note)
         gem_types = {}
         for line in lines:
@@ -10142,6 +10308,11 @@ class Conditions:
         self.found_uptimes = uptimes
         # (MECHC13) charges consumed a second by kind ({kind: (rate, how)}; _charges_held), for recovery.spent_income
         self.build.charge_flow = dict(stats.get("_charge_flow") or {})
+        # (MECHC51) {kind: {skill: (charges spent a second, presses a second, how)}} for CONSUMES_ALL's skills
+        # (Assumptions.charged_staff reads Charged Staff's)
+        self.build.consume_all = dict(stats.get("_consume_all") or {})
+        # (MECHC51, for MECH-B's Raise Zombie: charges_reaching) {kind: {consumer: charges it asks a second}}
+        self.build.charge_wanted = dict(stats.get("_charge_wanted") or {})
         # (MECHC47) the Rage the build really spends a second, for Druidic Prowess (DRUIDIC_PROWESS's note)
         self.build.rage_spent = stats.get("_rage_spent_real")
         # (MECHC48, for MECH-B: {"share": the share of the spenders' asked Rage really paid (1 while Rage keeps up),

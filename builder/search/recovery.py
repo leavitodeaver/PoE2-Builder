@@ -341,6 +341,22 @@ def _light_stuns(read: dict, cadence: str = "use") -> tuple[float, str]:
     return rate, f"{boss_hits.boss_name(read) or 'the boss'}: {how}"
 
 
+def landed_hits(read: dict, cadence: str = "use") -> tuple[float, str]:
+    """(MECHC51) (the boss's landed hits a second on you, how) at `cadence` (boss_hits.ailment_hits' per-type hits
+    summed: its own uses, the dodge, red-flash avoided, after PoB's evade and block)."""
+    from builder.search import boss_hits, objective  # (objective imports this module)
+
+    worst = boss_hits._worst()
+    if cadence == "use" and worst is not None and boss_hits.boss_name(read) == worst:
+        # (the worst case: the real preset landing the most hits, as light_stun_lost reads it, not the defence cadence)
+        picks = sorted(((landed_hits(r, cadence)[0], n) for n, r in boss_hits.real_readings(read)), key=lambda p: -p[0])
+        if picks:
+            return picks[0][0], f"the worst real preset, {picks[0][1]}: {picks[0][0] * 60:.1f} landed hits a minute"
+    read = {**read, "_onyou_cadence": cadence}
+    hits = sum(boss_hits.ailment_hits(read, t)[0] for t in objective.RECOVERY_DAMAGE_TYPES)
+    return hits, f"{boss_hits.boss_name(read) or 'the boss'}: {hits * 60:.1f} landed hits a minute"
+
+
 def light_stun_lost(stats: dict) -> tuple[float, list[dict]]:
     """(the share of the fight lost to Light Stuns, rows): the note above. `stats`: LIGHT_STUN_FIELDS and "_boss"."""
     from builder.search import boss_hits
@@ -1151,9 +1167,10 @@ def everlasting_sacrifice(stats: dict, expiry: tuple[float, str] | None = None) 
 # before. Shrouds are lost to the boss's landed hits at the "when hit" benefit pace (boss_hits.gain_hits, h a second):
 # with hits at least as fast as Shrouds come (g = 1 / interval), each new Shroud is lost at the next hit, so a loss every
 # 1 / g s and "Recently" (4 s) covers min(1, 4 g) of the fight; with slower hits a Shroud is always waiting, so every hit
-# is a loss and the share is 1 - e^(-4 h) (Poisson hits). ES a second = 2% x Evasion x that share. MEDIUM; not read: the
-# build's Cooldown Recovery Rate on the interval (an undercount), regeneration-rate modifiers on the amount (taken as
-# written, as the other sources here).
+# is a loss and the share is 1 - e^(-4 h) (Poisson hits). ES a second = 2% x Evasion x that share. MEDIUM. The interval
+# over the skill's Cooldown Recovery Rate (MECHC51, GEM31's route: "Modifiers to Cooldown Recovery Rate also apply";
+# the bridge's activeSkills cooldownRecovery, PoB's rate multiplier; an UNDERCOUNT before). Not read: regeneration-rate
+# modifiers on the amount (taken as written, as the other sources here).
 GHOST_DANCE = "Ghost Dance"
 GHOST_INTERVAL_STAT = "base_cooldown_modifiable_repeat_interval_ms"
 GHOST_REGEN_STAT = "skill_base_ghost_dance_grants_%_evasion_as_es_regeneration_per_minute_if_have_lost_ghost_dance_shroud_recently"
@@ -1168,14 +1185,37 @@ def ghost_dance_share(interval: float, hits: float, recently: float = 4.0) -> fl
     return min(1.0, recently * gain) if hits >= gain else 1 - math.exp(-recently * hits)
 
 
-def ghost_dance_income(income: Income, level_stats: dict, evasion: float, hits: float, hits_how: str) -> None:
-    """Ghost Dance's Energy Shield regeneration a second into EnergyShieldGhostDanceRegen."""
-    interval = _num(level_stats.get(GHOST_INTERVAL_STAT)) / 1000
+def ghost_dance_income(income: Income, level_stats: dict, evasion: float, hits: float, hits_how: str,
+                       recovery_rate: float = 1.0) -> None:
+    """Ghost Dance's Energy Shield regeneration a second into EnergyShieldGhostDanceRegen. `recovery_rate`: the skill's
+    Cooldown Recovery Rate multiplier (1 = none)."""
+    interval = _num(level_stats.get(GHOST_INTERVAL_STAT)) / 1000 / (recovery_rate if recovery_rate > 0 else 1.0)
     pct = _num(level_stats.get(GHOST_REGEN_STAT)) / 60 or 2.0
     share = ghost_dance_share(interval, hits)
     income.add("EnergyShieldGhostDanceRegen", pct / 100 * max(evasion, 0.0) * share,
                f"Ghost Dance: {pct:g}% of {evasion:,.0f} Evasion as Energy Shield a second while a Shroud was lost in the "
                f"past 4 s, {share:.0%} of the fight (a Shroud every {interval:.1f} s; {hits_how}; MEDIUM)")
+
+
+# Time of Need (MECHC51; GEM31's route, an UNDERCOUNT: no model before, PoB maps only its alternate quality's Life
+# Regeneration rate): "Blessing recovers {0} Life and removes Curses and Elemental Ailments", "{0} seconds between
+# Blessings", "Modifiers to Cooldown Recovery Rate also apply to Blessing frequency" (time_of_need.csd; TimeOfNeedPlayer
+# skill_time_of_need_gain_x_life 628 and base_cooldown_modifiable_repeat_interval_ms 8100 at level 20, PoB act_str.lua).
+# Life a second = the Blessing's Life / (the interval over the skill's Cooldown Recovery Rate), as an on-event recovery
+# (Life recovery-rate modifiers not applied, taken as written). Its removal of Curses and Elemental Ailments on you isn't
+# counted here (the ailments-on-you readings keep their own removal rows; an undercount of avoidance, named).
+TIME_OF_NEED = "Time of Need"
+TIME_OF_NEED_LIFE = "skill_time_of_need_gain_x_life"
+
+
+def time_of_need_income(income: Income, level_stats: dict, recovery_rate: float = 1.0) -> None:
+    """Time of Need's Blessing Life a second into LifeOnEventRecovery."""
+    interval = _num(level_stats.get(GHOST_INTERVAL_STAT)) / 1000 / (recovery_rate if recovery_rate > 0 else 1.0)
+    life = _num(level_stats.get(TIME_OF_NEED_LIFE))
+    if interval > 0 and life > 0:
+        income.add("LifeOnEventRecovery", life / interval,
+                   f"Time of Need: a Blessing of {life:,.0f} Life every {interval:.1f} s (its Cooldown Recovery "
+                   f"x{recovery_rate:.2f}; MEDIUM)")
 
 
 # Eldritch Empowerment's sacrifice (MECHC27; MECHB30's 7622977 models its 30% more Spell damage and left this for MECH-C:
@@ -2117,6 +2157,46 @@ def cost_damage(texts: list[str], stats: dict) -> tuple[float, float, list[dict]
         "confidence": "MEDIUM (the line's words; the main skill's costs only)",
         "play": (f"every cast costs you {pct:g}% of its Mana cost in Life / Energy Shield: {taken:,.0f} a second"
                  if taken > 0 else "")}]
+
+
+# Pyromantic Pact's self-hit (MECHC51; plans/un-pyromantic-pact.md (b), an OVERCOUNT of survival: only text in a note
+# before). AscendancyWitch1Notable7: "Take maximum Life and Energy Shield as Fire Damage when Infernal Flame reaches
+# maximum" (hit_for_%_max_life_es_on_max_infernal_flame 100, game 26650308; PoB parses it only in part, ModCache 7778,
+# so it never applies it). Infernal Flame fills with the skill costs (1 Flame a Mana of cost, MEDIUM, models.
+# archon_sources' cycle) to 2 x maximum Mana, so one hit of (maximum Life + maximum ES) every 2 x Mana / ManaPerSecondCost
+# s (the main skill's costs; other skills' not counted, the lower reading). In PoB as Fire damage taken per second (its
+# Fire resistance and damage-over-time-taken modifiers applied, standing in for the hit's mitigation, MEDIUM) and one
+# event a cycle for the Recharge stops (Build.added_stats' Fire path, beside Fireflower's). The 0.5.0b Hotfix 2 fix
+# ("some sources of damage like Pyromantic Pact would not deal damage within boss arenas") means it lands on a boss.
+# Row: pausing near the top (models.FLAME_MANAGED's play row) avoids the reset: no hit. No skill cost: no Flame, no hit.
+PACT_NO_MANA = re.compile(r"Gain Infernal Flame instead of spending Mana for Skill costs", re.I)
+PACT_SELF_HIT = re.compile(r"Take maximum Life and Energy Shield as Fire Damage when Infernal Flame reaches maximum", re.I)
+
+
+def pact_self_hit(texts: list[str], stats: dict) -> tuple[float, float, list[dict]]:
+    """(Fire damage a second before mitigation, hits a second, notes) for PACT_SELF_HIT; zeros without the line."""
+    if not any(PACT_SELF_HIT.search(t) for t in texts):
+        return 0.0, 0.0, []
+    mana, cost = max(_num(stats.get("Mana")), 0.0), max(_num(stats.get("ManaPerSecondCost")), 0.0)
+    pool = max(_num(stats.get("Life")), 0.0) + max(_num(stats.get("EnergyShield")), 0.0)
+    cycle = 2 * mana / cost if mana > 0 and cost > 0 else 0.0
+    if cycle <= 0 or pool <= 0:
+        return 0.0, 0.0, [{
+            "label": "Pyromantic Pact: the Fire hit at maximum Infernal Flame*", "value": "none",
+            "basis": "the main skill costs no Mana, so no Infernal Flame is gained and the bar never resets",
+            "confidence": "MEDIUM", "play": ""}]
+    taken, hits = pool / cycle, 1 / cycle
+    return taken, hits, [{
+        "label": "Pyromantic Pact: the Fire hit at maximum Infernal Flame*",
+        "value": f"a Fire hit of {pool:,.0f} every {cycle:.1f} s ({taken:,.0f} a second before your Fire resistance)",
+        "basis": (f"Infernal Flame fills to 2 x {mana:,.0f} Mana at {cost:,.1f} Mana of costs a second (the main skill's; "
+                  "1 Flame a Mana, MEDIUM) and resets, dealing your maximum Life and Energy Shield as Fire damage; "
+                  "counted as Fire damage taken a second after your Fire resistance, one hit a cycle for Recharge. Row: "
+                  "pausing near the top (the play guide's row) avoids it: none. PoB parses the line only in part and "
+                  "never applies it"),
+        "confidence": "MEDIUM (the cycle; the hit's size HIGH)",
+        "play": (f"Pyromantic Pact: at full Infernal Flame you take a Fire hit of your Life and Energy Shield "
+                 f"({pool:,.0f}) every {cycle:.1f} s; pause near the top to avoid it")}]
 
 
 # Reflected Poison (MECHC37; COV40's routed OVERCOUNT: a Vaal-mutated Hand Wraps line, "Poison you inflict is Reflected to
