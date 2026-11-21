@@ -23,7 +23,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from builder import clock
-from builder.search import alloys, anoints, cultivated, desecrated, influence
+from builder.search import alloys, anoints, cultivated, desecrated, essences, influence
 from builder.search.context import ARMOUR_SLOTS, JEWELLERY_SLOTS, SLOT_TYPE, ItemOption, implicit_variant, implicit_variants
 from builder.search.flasks import (
     CHARM_SLOTS, FLASK_SLOTS, RECOVERY_FIELDS, Charges, charges_per_second, is_flask_slot,
@@ -537,10 +537,20 @@ class Gear:
                                                       left, deadline)
             if desecrated_option is not None:
                 return desecrated_option
+        augmented = []  # (one augment an item: the Alloys' lower reading, kept for the Perfect Essences too)
         if not magic and alloys.enabled():  # (SEARCH29: an Alloy in place of a random modifier, builder/search/alloys.py)
             alloyed = self.alloy_trial(slot, base, base_option, level, pools, limits, chosen, current, left, deadline)
             if alloyed is not None:
-                return alloyed
+                augmented.append(alloyed)
+        if not magic and essences.enabled():  # (SEARCHB1: a Perfect Essence, the same way, builder/search/essences.py)
+            essenced = self.essence_trial(slot, base, base_option, level, pools, limits, chosen, current, left, deadline)
+            if essenced is not None:
+                augmented.append(essenced)
+        if len(augmented) > 1:  # (both beat the plain rare: the better after prices; each carries its DPS factor)
+            scored = self.deltas(slot, [o.raw for o in augmented])
+            return augmented[max(range(len(augmented)), key=lambda i: (self.adjusted(scored[i][0], augmented[i]), -i))]
+        if augmented:
+            return augmented[0]
         price = None if self.ctx.ssf else price_of(slot, chosen)
         confidence = "ssf" if self.ctx.ssf else "estimate (magic)" if magic else "estimate (uncalibrated)"
         return ItemOption(f"{'Magic' if magic else 'Rare'} {base['type']}", base["name"], base["type"],
@@ -563,7 +573,28 @@ class Gear:
         Alloy mod. THE MANAGER'S RULING (18 Nov 20:25): DPS at the mean over the outcomes, the floors at the worst. So the
         item equipped is the worst outcome (the lowest full score) and its alloy_scale is the mean DPS / its DPS
         (alloys.ALLOY_FIELD). Price: the plain rare's (kept) + the Alloy's (no price: no offer; self-found: no price)."""
-        rows = alloys.rows_for(base, level, self.alloy_mods)
+        return self.augment_trial(slot, base, base_option, level, pools, limits, chosen, current, left, deadline,
+                                  alloys.rows_for(base, level, self.alloy_mods), self.ctx.alloy_prices, "alloy")
+
+    @property
+    def essence_mods(self) -> dict[str, dict]:
+        if getattr(self, "_essence_mods", None) is None:
+            self._essence_mods = {m["id"]: m for m in self.ctx.data.mods.get("Item", []) if m["id"] in essences.ESSENCES}
+        return self._essence_mods
+
+    def essence_trial(self, slot: str, base: dict, base_option: ItemOption, level: int, pools, limits: dict,
+                      chosen: list, current: float, left: float, deadline: float) -> ItemOption | None:
+        """(SEARCHB1, G1) The rare with a Perfect Essence (builder/search/essences.py): the Alloys' trial and ruling, as a
+        Perfect Essence too removes a random modifier and adds a guaranteed one (the 0.3.0 notes)."""
+        return self.augment_trial(slot, base, base_option, level, pools, limits, chosen, current, left, deadline,
+                                  essences.rows_for(base, level, self.essence_mods), self.ctx.essence_prices, "essence")
+
+    def augment_trial(self, slot: str, base: dict, base_option: ItemOption, level: int, pools, limits: dict,
+                      chosen: list, current: float, left: float, deadline: float, rows: list, prices: dict,
+                      kind: str) -> ItemOption | None:
+        """An augment that removes a random modifier and adds a guaranteed one (an Alloy or a Perfect Essence: `kind`),
+        tried on the plain rare `chosen` as alloy_trial says; `rows` are (its name, its PoB mod row), `prices` its
+        divine prices by name."""
         if not rows or clock.now() > deadline:
             return None
         build, ssf = self.build, self.ctx.ssf
@@ -572,7 +603,7 @@ class Gear:
         groups = {a.group for a in chosen}
         trials = []  # (alloy, its Affix, kept, price)
         for alloy, mod in rows:
-            cost = None if ssf else self.ctx.alloy_prices.get(alloy)
+            cost = None if ssf else prices.get(alloy)
             if (cost is None and not ssf) or mod["group"] in groups or mod["type"] not in limits:
                 continue
             affix = pools.affix(mod, mod["group"], mod["type"], 1, 1, (0.0, 0.0))
@@ -613,9 +644,10 @@ class Gear:
                           f"Worst case: loses \"{lost(worst)}\" (DPS {dps[worst]:,.0f}; mean {sum(dps) / len(dps):,.0f})")
                 text = rare_text(slot, base, level, outcomes[worst])
                 option = ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"), text, False,
-                                    None if ssf else price, "ssf" if ssf else "estimate (uncalibrated) + Alloy",
+                                    None if ssf else price,
+                                    "ssf" if ssf else "estimate (uncalibrated) + " + ("Alloy" if kind == "alloy" else "Essence"),
                                     base_option.level, rare=True, affixes=tuple(l for a in outcomes[worst] for l in a.lines),
-                                    alloy=alloy, alloy_scale=scale, alloy_report=report)
+                                    alloy=alloy, alloy_scale=scale, alloy_report=report, augment=kind)
                 best = (value, option)
         if best is None:
             return None
