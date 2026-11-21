@@ -68,3 +68,260 @@
             "vendor/PathOfBuilding-PoE2/src/Modules/CalcSetup.lua 321-335", "data/game-26650308/tables/PassiveSkills.json (Steward of Kulemak)"]
   test_in_game: "Abyssal Lich with Steward of Kulemak, Spark and a Power Charge source: count the Apparition's casts and their damage against your own."
   status: proposed
+
+# Link entries (GEM29, 21 Nov 2026): gem stats PoB never reads that a model of ours already reads. Each reader was
+# read on 7adb5537 (the file and line in its notes); they move no build, they close the coverage rows (as GEM1's
+# gems-models-read-gem1.yaml). `skill` limits each to the carriers the reader takes.
+
+- id: model-gem29-link-fangs-parried-keep
+  title: "Fangs of Frost's chance not to consume Parried (parried model)"
+  kind: model
+  model: parried
+  stats: ["chance_to_not_consume_parried_%"]
+  skill: ["Fangs of Frost"]
+  confidence: datamined
+  notes: >-
+    Read by models.PARRIED_KEEP_STAT, read from the main skill's level stats (models.py ~13419, MECH89). No number moves: the entry records the reader.
+  sources: ["builder/search (models.PARRIED_KEEP_STAT,)"]
+  test_in_game: "Not needed: the model already reads the game's value."
+  status: proposed
+
+- id: model-gem29-link-slam-end-animation
+  title: "Supercharged Slam's end animation time (stage model)"
+  kind: model
+  model: supercharged_slam
+  stats: ["channel_skill_end_animation_duration_override_ms"]
+  skill: ["Supercharged Slam"]
+  confidence: datamined
+  notes: >-
+    Read by models.FLAMEBLAST_END_STAT read in supercharged_slam_model (models.py ~7730, GEM19). No number moves: the entry records the reader.
+  sources: ["builder/search (models.FLAMEBLAST_END_STAT)"]
+  test_in_game: "Not needed: the model already reads the game's value."
+  status: proposed
+
+- id: model-gem29-link-detonating-arrow-stages
+  title: "Detonating Arrow's end animation share and Fire gain per stage (stage model)"
+  kind: model
+  model: detonating_arrow
+  stats: ["channel_skill_end_animation_duration_multiplier_permyriad", "detonating_arrow_all_damage_%_to_gain_as_fire_per_stage"]
+  skill: ["Detonating Arrow"]
+  confidence: datamined
+  notes: >-
+    Read by detonating_arrow_model reads both from the level stats (models.py ~7796-7797, GEM19). No number moves: the entry records the reader.
+  sources: ["builder/search (detonating_arrow_model)"]
+  test_in_game: "Not needed: the model already reads the game's value."
+  status: proposed
+
+- id: model-gem29-link-incinerate-fuel
+  title: "Incinerate's fuel per Mana, maximum and minimum fuel (channel model)"
+  kind: model
+  model: incinerate_channel
+  stats: ["incinerate_fuel_gain_per_mana_spent", "incinerate_maximum_fuel", "incinerate_minimum_fuel_to_use"]
+  skill: ["Incinerate"]
+  confidence: datamined
+  notes: >-
+    Read by conditions.INCINERATE_FUEL_STAT / INCINERATE_MAX_FUEL_STAT / INCINERATE_MIN_FUEL_STAT, read for the main Incinerate (conditions.py ~8723-8742). No number moves: the entry records the reader.
+  sources: ["builder/search (conditions.INCINERATE_FUEL_STAT)"]
+  test_in_game: "Not needed: the model already reads the game's value."
+  status: proposed
+
+- id: model-gem29-link-mana-tempest-linger
+  title: "Mana Tempest's effects lingering after the storm (its uptime)"
+  kind: model
+  model: mana_tempest
+  stats: ["mana_tempest_effects_linger_X_ms"]
+  skill: ["Mana Tempest"]
+  confidence: datamined
+  notes: >-
+    Read by models.mana_tempest_linger reads it from the skill's level stats (models.py ~10002, MECHC36). No number moves: the entry records the reader.
+  sources: ["builder/search (models.mana_tempest_linger)"]
+  test_in_game: "Not needed: the model already reads the game's value."
+  status: proposed
+
+- id: model-gem29-link-mantra-destruction
+  title: "Mantra of Destruction's Chaos gain and empowered attacks (empower model)"
+  kind: model
+  model: mantra_of_destruction
+  stats: ["mantra_of_destruction_grant_all_damage_%_to_gain_as_chaos_with_attacks", "skill_empowers_next_x_melee_attacks"]
+  skill: ["Mantra of Destruction"]
+  confidence: datamined
+  notes: >-
+    Read by models.MANTRA_GAIN / MANTRA_EMPOWERS read in assumptions (~1558-1559, MECH-B). No number moves: the entry records the reader.
+  sources: ["builder/search (models.MANTRA_GAIN)"]
+  test_in_game: "Not needed: the model already reads the game's value."
+  status: proposed
+
+- id: model-gem29-link-one-totem
+  title: "One totem allowed (totem count model)"
+  kind: model
+  model: totem_count
+  stats: ["number_of_totems_allowed_is_1"]
+  skill: ["Cirel's Cultivation", "Splinter Totem I", "Splinter Totem II"]
+  confidence: datamined
+  notes: >-
+    Read by models.TOTEM_ONE_STAT, every support carrying it on the group (models.py ~1459 / ~18704; the bridge's modelSupportStats, MECHB11). No number moves: the entry records the reader.
+  sources: ["builder/search (models.TOTEM_ONE_STAT,)"]
+  test_in_game: "Not needed: the model already reads the game's value."
+  status: proposed
+
+- id: model-gem29-link-splinter-totem
+  title: "Splinter Totem's actions per splinter, less damage and less speed per splinter (splinter model)"
+  kind: model
+  model: splinter_totem
+  stats: ["support_splinter_totem_splinter_after_X_actions", "support_splinter_totem_damage_+%_final_each_splinter", "support_splinter_totem_skill_speed_+%_final_each_splinter"]
+  skill: ["Splinter Totem I", "Splinter Totem II"]
+  confidence: datamined
+  notes: >-
+    Read by models.splinter_factor reads the three (models.py ~19080-19082, MECHB34). No number moves: the entry records the reader.
+  sources: ["builder/search (models.splinter_factor)"]
+  test_in_game: "Not needed: the model already reads the game's value."
+  status: proposed
+
+- id: model-gem29-link-ice-tipped-arrows
+  title: "Ice-Tipped Arrows' empowered attacks and Cold conversion (empower model)"
+  kind: model
+  model: ice_tipped_arrows
+  stats: ["shearing_bolts_number_of_empowered_attacks", "shearing_bolts_non_skill_base_physical_damage_%_to_convert_to_cold"]
+  skill: ["Ice-Tipped Arrows"]
+  confidence: datamined
+  notes: >-
+    Read by models.ICE_TIPPED_EMPOWERS / ICE_TIPPED_CONVERT read in assumptions (~1647-1657). No number moves: the entry records the reader.
+  sources: ["builder/search (models.ICE_TIPPED_EMPOWERS)"]
+  test_in_game: "Not needed: the model already reads the game's value."
+  status: proposed
+
+- id: model-gem29-link-unleash-seals
+  title: "Unleash's Seals for the next skill and its cooldown as a share of cast time (Unleash model)"
+  kind: model
+  model: unleash
+  stats: ["staff_unleash_number_of_seals_for_next_skill", "staff_unleash_cooldown_%_of_cast_time"]
+  skill: ["Unleash"]
+  confidence: datamined
+  notes: >-
+    Read by models.UNLEASH_REPEATS / UNLEASH_COOLDOWN_PCT read in assumptions (~1598). No number moves: the entry records the reader.
+  sources: ["builder/search (models.UNLEASH_REPEATS)"]
+  test_in_game: "Not needed: the model already reads the game's value."
+  status: proposed
+
+- id: model-gem29-link-uruk-smelting
+  title: "Uruk's Smelting's Physical damage taken on a Fully Broken boss (Armour Break model)"
+  kind: model
+  model: uruk_smelting
+  stats: ["support_demolisher_physical_damage_taken_+%_on_fully_armour_breaking_up_to_20%"]
+  skill: ["Uruk's Smelting"]
+  confidence: datamined
+  notes: >-
+    Read by conditions.URUK_STAT, the main skill's support stats (conditions.py ~8705-8707, MECH-A). No number moves: the entry records the reader.
+  sources: ["builder/search (conditions.URUK_STAT,)"]
+  test_in_game: "Not needed: the model already reads the game's value."
+  status: proposed
+
+- id: model-gem29-link-minion-ignite-legion
+  title: "Minions Ignite for a share of their Life (Infernal Legion model)"
+  kind: model
+  model: infernal_legion
+  stats: ["support_minions_ignite_for_%_max_life"]
+  skill: ["Catha's Brilliance", "Infernal Legion III"]
+  confidence: datamined
+  notes: >-
+    Read by models.LEGION_STAT, any skill whose supports carry it (models.py ~10438, MECHB31). No number moves: the entry records the reader.
+  sources: ["builder/search (models.LEGION_STAT,)"]
+  test_in_game: "Not needed: the model already reads the game's value."
+  status: proposed
+
+- id: model-gem29-link-spell-cascade-sides
+  title: "Spell Cascade's cascades per side (cascade model)"
+  kind: model
+  model: spell_cascade
+  stats: ["support_spell_cascade_number_of_cascades_per_side"]
+  skill: ["Spell Cascade"]
+  confidence: datamined
+  notes: >-
+    Read by models.CASCADES_PER_SIDE read from the main skill's support stats (models.py ~16859 / ~18302, MECHB36). No number moves: the entry records the reader.
+  sources: ["builder/search (models.CASCADES_PER_SIDE)"]
+  test_in_game: "Not needed: the model already reads the game's value."
+  status: proposed
+
+- id: model-gem29-link-stormfire
+  title: "Stormfire's Lightning damage from Ignite on Shocked targets (Stormfire model)"
+  kind: model
+  model: stormfire
+  stats: ["support_stormfire_targets_shocked_by_this_take_%_of_damage_from_ignite_as_lightning_damage"]
+  skill: ["Stormfire"]
+  confidence: datamined
+  notes: >-
+    Read by conditions.STORMFIRE_STAT read from the main skill's support stats (conditions.py ~9534-9537). No number moves: the entry records the reader.
+  sources: ["builder/search (conditions.STORMFIRE_STAT)"]
+  test_in_game: "Not needed: the model already reads the game's value."
+  status: proposed
+
+- id: model-gem29-link-trinity
+  title: "Trinity's Resonance a hit (Trinity model)"
+  kind: model
+  model: trinity
+  stats: ["trinity_resonance_to_grant"]
+  skill: ["Trinity"]
+  confidence: datamined
+  notes: >-
+    Read by conditions.TRINITY_GRANT read from Trinity's level stats (conditions.py ~8271). No number moves: the entry records the reader.
+  sources: ["builder/search (conditions.TRINITY_GRANT)"]
+  test_in_game: "Not needed: the model already reads the game's value."
+  status: proposed
+
+- id: model-gem29-link-wind-dancer
+  title: "Wind Dancer's stage interval (Wind Dancer model)"
+  kind: model
+  model: wind_dancer
+  stats: ["wind_dancer_stages_gained_every_x_ms"]
+  skill: ["Wind Dancer"]
+  confidence: datamined
+  notes: >-
+    Read by conditions.WIND_DANCER_STAT read from its level stats (conditions.py ~9094, assumptions ~2099). No number moves: the entry records the reader.
+  sources: ["builder/search (conditions.WIND_DANCER_STAT)"]
+  test_in_game: "Not needed: the model already reads the game's value."
+  status: proposed
+
+- id: model-gem29-link-flicker-no-power
+  title: "Flicker Strike: no Power Charges while using it (charge model)"
+  kind: model
+  model: charges
+  stats: ["cannot_gain_power_charges_during_skill"]
+  skill: ["Flicker Strike"]
+  confidence: datamined
+  notes: >-
+    Read by conditions.NO_POWER_STAT read from the main skill's level and support stats (conditions.py ~9158-9162, MECHC33). No number moves: the entry records the reader.
+  sources: ["builder/search (conditions.NO_POWER_STAT)"]
+  test_in_game: "Not needed: the model already reads the game's value."
+  status: proposed
+
+- id: model-gem29-link-valakos-charge
+  title: "Valako's Charge: triggers from Lightning damage taken only, every time its charge fills (Valako's Charge model)"
+  kind: model
+  model: valakos_charge
+  stats: ["cast_on_damage_taken_only_tracks_lightning", "cast_on_damage_taken_%"]
+  skill: ["Valako's Charge"]
+  confidence: datamined
+  notes: >-
+    Read by models.py's Valako's Charge model (VALAKO_*, ~17220-17320, MECHB38): its rate counts only the boss hits'
+    Lightning damage taken (the only_tracks_lightning flag) and triggers on every full charge (cast_on_damage_taken_%
+    is 100, a constant stat of its Buff set: PoB act_str.lua ValakosChargePlayer, from the game's stat sets). No number
+    moves: the entry records the reader.
+  sources: ["builder/search/models.py (Valako's Charge, VALAKO_SKILL)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua (ValakosChargePlayer)"]
+  test_in_game: "Not needed: the model already reads the game's values."
+  status: proposed
+
+- id: gem-gem29-trigger-chance-100
+  title: "Elemental Expression / Elemental Surge / Chaotic Surge / Gemini Surge: their chance to be triggered is 100% (nothing to count)"
+  kind: gem_stat
+  skill: [Elemental Expression, Elemental Surge, Chaotic Surge, Gemini Surge]
+  match: '^(chance_to_be_trigger_elemental_expression_%|chance_to_be_triggered_by_(amazon_infusion|chaos_spear|reload_infusion)_%)$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    Each stat is a constant 100 on every stat set of its skill (PoB other.lua ElementalExpressionTriggeredPlayer,
+    AmazonTriggerElementalSurgePlayer, ChaosSpearTriggerChaosSurgePlayer; act_str.lua GeminiSurgePlayer; PoB's
+    constantStats are the game's stat sets' constants). PoB never reads them and scores each trigger as made; at 100%
+    reading them changes nothing. How often these skills trigger (their Surges, the Elemental Expression rate) is a
+    separate question, not this stat's. Recorded so the rows aren't counted open.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua", "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua"]
+  status: proposed
