@@ -31,7 +31,9 @@ def test_each_preset_inflicts_only_what_its_skills_deal():
 def test_per_use_reads_below_the_defence_cadence_and_the_dodge_rows_bracket_it():
     got = boss_hits.ailments_on_you(seen(ASH))["Ignite"]
     rows = dict(got["rows"])
-    assert rows["0% of the dodgeable uses dodged"] > got["uptime"] > rows["75% of the dodgeable uses dodged"]
+    # (the manager, train 112: MECHC50's a6e6f9f5 set ON_YOU_DODGE = 2/3 with rows (0.5, 0.75), the user's card 21 Nov 05:08;
+    # the 0% row is gone, so the headline is bracketed by the 50% and 75% rows)
+    assert rows["50% of the dodgeable uses dodged"] > got["uptime"] > rows["75% of the dodgeable uses dodged"]
     assert got["uptime"] < rows["the defence cadence (enemySkillTime, no dodge: the old reading)"]
     assert "one rate for every telegraphed attack" in got["how"]  # (the user, 21 Nov: one rate for all)
     assert boss_hits.ON_YOU_DODGE_HOW in got["how"]  # (MECH-C's constant read, never copied)
