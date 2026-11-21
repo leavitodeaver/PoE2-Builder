@@ -240,3 +240,44 @@ def test_ice_crystal_life_inc_reaches_pobs_crystal_life(engine):
     engine.call("setAssumptions", mods=[], fields=[])
     assert plain > 0
     assert got == pytest.approx(plain * 0.55, rel=1e-3)
+
+
+def test_a_blasphemy_curse_reaches_its_own_area_radius_not_your_presence():
+    """MECH96 (RESEARCH38 R38-2): a Blasphemy curse is up while the boss is inside the curse's own area radius (PoB's,
+    stats["_curse_radii"] in units), not your Presence: 4.1 m (a level-20 curse + 1 m) reaches a boss 4 m away, not
+    one 5 m away, even inside a 6 m Presence; without a radius read, Presence as before."""
+    from builder.search import models
+
+    group = {"index": 1, "gems": [{"name": "Temporal Chains"}, {"name": "Blasphemy", "support": True}]}
+    gems = {"Temporal Chains": {"skillTypes": ["AppliesCurse", "Spell", "Area"]}, "Blasphemy": {"skillTypes": ["Blasphemy"]}}
+    stats = {"PresenceRadius": 60, "_curse_radii": {"Temporal Chains": 41}}
+    near = models.curse_uses([group], gems, stats, 4.0)
+    far = models.curse_uses([group], gems, stats, 5.0)
+    assert [u.share for u in near] == [1.0] and [u.share for u in far] == [0.0]
+    assert "own area radius 4.1 m" in far[0].how
+    old = models.curse_uses([group], gems, {"PresenceRadius": 60}, 5.0)
+    assert [u.share for u in old] == [1.0] and "Presence" in old[0].how
+
+
+def test_blasphemys_curse_radius_from_pob_takes_its_metre_and_area(engine):
+    """Through PoB (bridge activeSkills curseRadius): Temporal Chains 20 under Blasphemy is 31 + 10 = 41 units; with
+    44% increased Area of Effect, 41 x sqrt(1.44) = 49."""
+    from builder.search import models
+
+    engine.call("newBuild")
+    engine.call("setLevel", level=90)
+    engine.call("setAssumptions", mods=[], fields=[])
+    engine.call("setGroup", gems=[{"name": "Temporal Chains", "support": False, "level": 20, "quality": 0, "enabled": True},
+                                  {"name": "Blasphemy", "support": True, "level": 20, "quality": 0, "enabled": True}])
+
+    def radius():
+        found = [s for s in engine.call("activeSkills")["skills"] if s["name"] == "Temporal Chains"]
+        return found[0].get("curseRadius") if found else None
+
+    plain = radius()
+    engine.call("setAssumptions", mods=[models.raw_mod("AreaOfEffect", "INC", 44)], fields=[])
+    wider = radius()
+    engine.call("setAssumptions", mods=[], fields=[])
+    print("PROBE blasphemy radius", plain, wider)
+    assert plain == 41
+    assert wider == 49

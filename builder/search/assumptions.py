@@ -2959,6 +2959,8 @@ class Assumptions:
         build.curse_durations = {s["name"]: s["curseDuration"] for s in skills if s.get("curseDuration")}
         # (MECH86: each curse's activation delay, PoB's with the build's modifiers, for curse_uses / hexblast_model)
         build.curse_delays = {s["name"]: s["curseDelay"] for s in skills if s.get("curseDelay") is not None}
+        # (MECH96, R38-2: each curse's own area radius, PoB's with the build's area modifiers, for a Blasphemy aura's reach)
+        build.curse_radii = {s["name"]: s["curseRadius"] for s in skills if s.get("curseRadius") is not None}
         source_lines = build.call("sourceLines")["lines"]  # (one call: the models below all read the build's lines)
         build.minion_deathless = minion_deathless(build)  # (MECHB39: Umbilicus Immortalis, for models.minion_deaths)
         line_texts = [e["text"] for e in source_lines]
@@ -2968,7 +2970,8 @@ class Assumptions:
             models.MANA_FLASK_REVIVE.match(t.strip()) for t in line_texts) else 0.0,
             self.eternal_march(found, stats, main))  # (MECHB41: Eternal March's Runic Ward revives)
         stats = {**stats, "_minion_lives": build.minion_lives, "_curse_durations": build.curse_durations,
-                 "_curse_delays": build.curse_delays, models.MINION_DEATHLESS_STAT: build.minion_deathless,
+                 "_curse_delays": build.curse_delays, "_curse_radii": build.curse_radii,
+                 models.MINION_DEATHLESS_STAT: build.minion_deathless,
                  models.FORCED_REVIVES_STAT: forced}
         if any(s.name == models.SACRIFICE for s in found):  # (MECH-B, MECHB19, A27-4: Sacrifice's corpses, the build's own
             # undead Reviving minion deaths, for models.corpse_supply's readers)

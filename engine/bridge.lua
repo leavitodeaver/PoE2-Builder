@@ -5193,6 +5193,22 @@ function bridge.activeSkills(args)
 				/ calcLib.mod(activeSkill.skillModList, activeSkill.skillCfg, "CurseActivation")
 				* calcLib.mod(activeSkill.skillModList, activeSkill.skillCfg, "CurseDelay") * data.misc.ServerTickRate)
 				/ data.misc.ServerTickRate) or nil,
+			-- (MECH96, RESEARCH38 R38-2) a curse's own area radius in units, as CalcOffence's calcAreaOfEffect builds
+			-- output.AreaOfEffectRadius (567-584: skillData.radius + radiusExtra (Blasphemy's +1 m, its
+			-- active_skill_base_area_of_effect_radius as radiusExtra on the held curse) + BASE AreaOfEffect, x the square root
+			-- of the AreaOfEffect / AreaOfEffectPrimary mod (calcAreaMod's rounding), x AreaOfEffectRadius); models.curse_uses
+			-- tests a Blasphemy aura's reach with it
+			curseRadius = types[SkillType.AppliesCurse] and activeSkill.skillData.radius and (function()
+				local mods, cfg = activeSkill.skillModList, activeSkill.skillCfg
+				local inc, more = calcLib.mods(mods, cfg, "AreaOfEffect", "AreaOfEffectPrimary")
+				local pct = roundSymmetric(inc * 100) * roundSymmetric(math.max(0, more) * 100) / 100
+				pct = pct >= 0 and math.floor(pct) or math.ceil(pct)
+				local areaMod = math.max(0, pct) / 100
+				local base = activeSkill.skillData.radius + (activeSkill.skillData.radiusExtra or 0)
+					+ mods:Sum("BASE", cfg, "AreaOfEffect")
+				local radiusPercent = math.floor(math.floor(100 * math.sqrt(areaMod)) * calcLib.mod(mods, cfg, "AreaOfEffectRadius"))
+				return jsonNumber(math.floor(base * radiusPercent / 100))
+			end)() or nil,
 			-- (MECH62, AUDIT27 A27-2) a Mark's own duration with the build's modifiers ("Mark Skills have N% increased
 			-- Skill Effect Duration": Duration on SkillType Mark, ModCache; mark_skill_duration_+% on jewels, passives and
 			-- Marksman influence), built as curseDuration; models.mark_duration

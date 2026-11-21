@@ -2593,8 +2593,15 @@ def mark_activations(mark: Skill, skills: list[Skill], stats: dict, disabled: li
 # at level 1 to 7.4 s at 20, land curse_delay_duration_ms 1.5 s after the cast, and under level 18 can't curse targets
 # above a level (skill_curses_cannot_apply_to_targets_above_level, 74 at 15: not checked, our gems are level 20).
 # How the build applies each (curse_uses):
-# - in a Blasphemy group: an Aura on "all nearby enemies" (the gem's description), taken as your Presence: up while the
-#   boss stands inside it (the build's distance); the support's base radius stat isn't read;
+# - in a Blasphemy group: an Aura on "all nearby enemies" (the gem's description), up while the boss stands inside the
+#   curse's OWN area radius (MECH96, RESEARCH38 R38-2, HIGH on the data, MEDIUM-HIGH on the reading: the curse gem's
+#   active_skill_base_area_of_effect_radius, 1.5 m at level 1 to 3.1 m at 20, + Blasphemy's 1 m, scaled by area
+#   modifiers; KeywordPopups Presence: Presence is changed "by Presence Area modifiers, but not by Skill Area
+#   modifiers", and Blasphemy's +1 m skill radius would be pointless on a Presence-sized aura), PoB's own radius for the
+#   curse skill (the bridge's activeSkills curseRadius, stats["_curse_radii"]) against the build's distance; an in / out
+#   switch at that distance (the build's distance is one number, the play's). Before, your Presence radius (4 m by
+#   default): an OVERCOUNT for curses under about gem level 19, an undercount with curse-area lines. No radius read
+#   (an old caller): Presence, as before, said in the note. Reaching the boss's centre, not its edge (the lower reading);
 # - with a Meta gem in its group: triggered at the meta's rate (its Energy, energy_model), up min(1, rate x duration)
 #   (MECH46, FLAT_RATES A5: before, always up); a meta whose rate no model gives keeps "applied when needed" (LOW);
 # - else cast by hand, recast each duration (1.5 s before it runs out, so always up after the fight's first 1.5 s,
@@ -2794,9 +2801,17 @@ def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
             lasts = f"{duration:.3g} s" + (" (PoB's, with the build's duration modifiers)" if read else
                                            " (the level-20 base; PoB gave none)")
             if "Blasphemy" in types:
-                up = 1.0 if radius >= metres else 0.0
-                how = (f"an Aura (Blasphemy) on enemies nearby, taken as your Presence ({radius:.1f} m) with the boss "
-                       f"{metres:g} m away: {'inside' if up else 'outside'} it")
+                own = (stats.get("_curse_radii") or {}).get(name)
+                if own is not None:
+                    reach = number(own) / 10
+                    what = (f"the curse's own area radius {reach:.1f} m (PoB's, Blasphemy's +1 m and the build's area "
+                            "modifiers in it; R38-2)")
+                else:
+                    reach = radius
+                    what = f"your Presence ({radius:.1f} m; the curse's own radius not read)"
+                up = 1.0 if reach >= metres else 0.0
+                how = (f"an Aura (Blasphemy) on enemies within {what}, with the boss {metres:g} m away: "
+                       f"{'inside' if up else 'outside'} it")
                 uses.append(CurseUse(name, up, how))
             elif meta is not None and rates is not None and name in rates:
                 rate = number(rates[name])

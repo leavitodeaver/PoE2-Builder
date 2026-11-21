@@ -2972,6 +2972,7 @@ def curse_uses(build: Build, stats: dict, texts: list[str], metres: float | None
         metres = number(build.call("getConfig")["input"].get("enemyDistance")) / 10 or natural_distance(set())
     stats = {"_curse_durations": getattr(build, "curse_durations", {}), **stats}  # (MECHB12, A25-41: Assumptions.models')
     stats = {"_curse_delays": getattr(build, "curse_delays", {}), **stats}  # (MECH86: each curse's own delay)
+    stats = {"_curse_radii": getattr(build, "curse_radii", {}), **stats}  # (MECH96, R38-2: a Blasphemy aura's reach)
     # (MECH75) the hand-cast curses the search chose to let run out before each recast (models.CURSE_LAPSE)
     stats["_curse_lapse"] = set(getattr(getattr(build, "objective", None), models.CURSE_LAPSE, None) or ())
     if any(n.get("name") == models.REPULSION for g in build.groups() for n in g.get("gems") or []):
