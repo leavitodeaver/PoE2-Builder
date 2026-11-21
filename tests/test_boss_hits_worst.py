@@ -19,9 +19,10 @@ def test_worst_case_reads_its_own_hits_red_flash_ignite_and_corrupted_blood():
     stats = {"_boss": worst}
     assert boss_hits.shares(stats) == pytest.approx((bosses.PRESETS[worst].unavoidable, bosses.PRESETS[worst].unblockable))
     assert "highest share of any real preset" in boss_hits.note(stats)["basis"]
-    # Ignite: the most increased chance per Fire hit of any real preset (the Fell Serpent's 80 over 4 Fire skills)
+    # Ignite: the most increased chance per Fire hit of any real preset: the Red Queen's 80 over her 10 Fire skills, 8% a
+    # hit (MECHD7: the Fell Serpent's 80 over 4 is gone, phase 2's row has no MeleeAtAnimationSpeedFire)
     chance, how = boss_hits.ignite_chance({**stats, "AilmentThreshold": 1000, "FireTakenHit": 1000})
-    assert "+20.0% increased" in how and chance == pytest.approx(0.2 * 1.2)
+    assert "+8.0% increased" in how and chance == pytest.approx(0.2 * 1.08)
     # Corrupted Blood: the real preset with the largest share (one of the Fell Serpent's 11 damaging skills, 3 s)
     assert boss_hits.corrupted_blood(worst) == pytest.approx((1 / 11, 3.0))
     assert ("Corrupted Blood" in [w for _, _, w in boss_hits.es_dot({**stats, "IgniteAvoidChance": 100})])

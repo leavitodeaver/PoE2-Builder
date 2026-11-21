@@ -45,6 +45,7 @@ class Kills(NamedTuple):
     confidence: str
     life: float = 0.0
     life_rows: tuple = ()
+    wave: int = 1  # (MECHD7) adds a summon makes; 1 = one, or the lower bound where the size is unknown (said in `what`)
 
 
 class Boss(NamedTuple):
@@ -159,6 +160,24 @@ PRESETS: dict[str, Boss] = {b.name: b for b in (
 # Divine Clone ("Aspect of Divinity", phase 2's arena mechanic) has MonsterNoFlaskCharges ("monster_slain_flask_charges")
 # so it may be slain, but with the boss's own Life multiplier 990: no add-kill rate from it, 0 (UNVERIFIED; poe2db not
 # checked; an in-game question).
+# Add waves re-checked on game 26650308 (MECHD7, the manager's 21 Nov brief item 2; GrantedEffectsPerLevel Cooldown of every
+# summon / spawn skill on the presets' MonsterVarieties rows (research13's export) and of every GrantedEffect whose Id holds
+# a preset's stem and Summon / Spawn / Minion / Totem / Effigy / Cultist; scratch/mechd7's scans):
+# - the King: EASVoodooKingSummonEffigy 25 s on both forms' rows (VoodooKingBoss3MAP lists it beside
+#   EASVoodooKingSummonDeathAuraEffigy 15 s): the 25 s row stands (the second-form question above stays open);
+# - Atziri phase 1: EASAtziriSummonCultists 45 s, no stat giving the wave's size (its stat set holds only
+#   action_attack_or_cast_time_uses_animation_length): 1 a wave, the lower bound, stands;
+# - not adds: Xesht's EASBreachBossSummonEsh / Tul / EshTul (10 s) make EshCorpse / TulCorpse, tagged is_daemon (the
+#   game's effect actors; HIGH); the Arbiter of Ash's EASDemonClawBossFlameSeedSpawn (20 s) / MultiSpawn (60 s) make no
+#   MonsterVarieties row (ground seeds); Atziri's EASAtziriSummonClones (60 s, both phases) make boss copies with the
+#   boss's map-boss mods and x1.86 / x2.47 Life (RESEARCH14 #66: not a practical kill source, MEDIUM);
+# - an UNVERIFIED kill source, not counted: the Aberration's GTCyclopsSpiderSpawnVerisium, one Verisium Web (VerisiumNode,
+#   tags construct / expedition_monster, 1 Life on poe2db) every 30 s. Whether the player can target and kill it, and
+#   whether it counts as a kill, is in no source (RESEARCH14 #66: LOW): 0 until settled (a research question, MECHD7);
+#   if it can, one kill a 30 s.
+# - Kulemak, Olroth and the Raven: their adds exist, but no summon skill sits on the boss's own rows (checked:
+#   KulemakBoss, Olroth and TangmazuBoss's GrantedEffects; the Delirium minions' summon GTCorruptedEssenceDeliriumMinion-
+#   Summon, 8 s, belongs to MonsterCorruptedEssenceDelirium, a map Delirium monster, not this fight): no rate, 0, UNVERIFIED.
 # The ailments on the player (`inflicts`): RESEARCH13 #60 (skill damage types and explicit stats), A9-1 (Xesht's corpses:
 # Shock, Chill / Freeze), A10-1 (the King's tar swamp Slow), the King's toads and Kulemak's Shamblers' Ignite (MEDIUM-LOW /
 # LOW). Poison: none found for any preset (the same search, buff-applied debuffs RESEARCH14 #67; UNVERIFIED as a zero).
@@ -512,9 +531,15 @@ def kills_per_second(name: str = DEFAULT) -> tuple[float, str]:
     b = PRESETS[name]
     if not b.kills:
         return 0.0, f"no killable adds with a known rate against {name} (research #19 / #66)"
-    rate = sum(k.share / k.every for k in b.kills)
+    rate = sum(k.wave * k.share / k.every for k in b.kills)
     return rate, "; ".join(f"one per {k.every:g} s for {k.share:.0%} of the fight: {k.what} ({k.confidence})"
                            for k in b.kills)
+
+
+def add_waves(name: str = DEFAULT) -> list[tuple[float, int, float, str, str]]:
+    """(MECHD7) The preset's add waves: [(seconds between waves, adds a wave, share of the fight they come in, what,
+    confidence)], [] with none (for readers that need the timing, not only the rate: R38-5's Fear-on-Cull refresh)."""
+    return [(k.every, k.wave, k.share, k.what, k.confidence) for k in PRESETS[name].kills]
 
 
 KILLS_STAT, CULLS_STAT = "AddKillsPerSecond", "AddCullsPerSecond"
@@ -529,8 +554,8 @@ def add_life(name: str = DEFAULT) -> tuple[float, str, list[tuple[str, float]]]:
     rows = [k for k in b.kills if k.life > 0]
     if not rows:
         return 0.0, f"no killable adds with a known Life against {name}", []
-    weight = sum(k.share / k.every for k in rows)
-    life = sum(k.life * k.share / k.every for k in rows) / weight if weight > 0 else 0.0
+    weight = sum(k.wave * k.share / k.every for k in rows)
+    life = sum(k.life * k.wave * k.share / k.every for k in rows) / weight if weight > 0 else 0.0
     how = "; ".join(f"{k.what.split(' (')[0]}: {k.life:,.0f} Life" for k in rows) + \
         " (level 82, Normal; RESEARCH36 R36-6)"
     others = [(label, life_) for k in rows for label, life_ in k.life_rows]
@@ -572,6 +597,35 @@ def life_share_of_pool(name: str = DEFAULT) -> float:
     f = PRESETS[name].es_from_life / 100
     life, es = RARITY_LIFE * (1 - f), RARITY_ES * f
     return life / (life + es)
+
+
+# (MECHD7, the manager's 21 Nov brief item 3) Each preset's Life and Energy Shield, both readings, for readers that need
+# the amounts and not only the share (MECH97's Full Life window, conditions.boss_pool's fight length). Checked against the
+# game files: research13's MonsterVarieties -> MonsterTypes export (game 26476662; the 26650308 dump has no monster tables,
+# so a later change there is UNVERIFIED): every preset's LifeMultiplier x 32,956 (monsterLifeTable[82]) x 29 gives its
+# `life` to the unit (the King's two forms 375% each, x1.75 bars), and its EnergyShieldFromLife is es_from_life (Ash,
+# the Bodach, Olroth, the Aberration 0; Xesht 5; Zarokh 7; Divinity, the King, the Raven, Kulemak 10; both Atziris 33).
+# Second source: poe2db's monster blocks (RESEARCH10 #55, 12 Nov: the same Life %s and ES From Life, Ash / the Bodach /
+# Olroth / the Aberration "none listed"; RESEARCH9 for Divinity, Xesht and the Raven). Both readings give the SAME Energy
+# Shield, f% of the base Life x5 (the Unique rarity's +400%); they differ in Life only:
+# - "headline" (the conversion reading, MEDIUM-LOW, as life_share_of_pool): Life = 29 x (1 - f) of the base Life;
+# - "poe2db" (poe2db's own figure adds the ES and leaves Life whole): Life = 29 x the base Life = the preset's `life`.
+# So `life` (RESEARCH9's figure) is the poe2db reading's Life; under the headline the Red Queen has 4.75M Life + 0.40M ES
+# (5.15M), under poe2db's 7.09M + 0.40M (7.49M). An in-game Life / ES readout would settle it (MECHD5's question).
+POOL_READINGS = ("headline", "poe2db")
+
+
+def pool(name: str = DEFAULT, reading: str = "headline") -> tuple[float, float, str]:
+    """(the boss's Life, its Energy Shield, how) under a reading (the comment above), one Life bar."""
+    b = PRESETS[name]
+    f = b.es_from_life / 100
+    base = b.life / RARITY_LIFE
+    es = RARITY_ES * f * base
+    life = b.life * (1 - f) if reading == "headline" else float(b.life)
+    how = (f"{name}: Life {life:,.0f} + Energy Shield {es:,.0f} (EnergyShieldFromLife {b.es_from_life}%: "
+           + ("converted from Life, the headline, MEDIUM-LOW" if reading == "headline" else
+              "added on top of Life, poe2db's reading") + ")")
+    return life, es, how
 
 
 def cull_threshold(name: str = DEFAULT) -> float:

@@ -71,8 +71,9 @@ def boss_name(stats: dict) -> str:
 #   (bosses.WORST_HIT_FROM; the table's raw multiplier is that of the hardest-hitting source, for the note only).
 # - RED_FLASH: bosses.WORST's unavoidable / unblockable shares (the highest real preset's of each, MECHD5) over the pooled
 #   damaging skills, naming the presets they come from (shares() reads the preset's own floats).
-# - IGNITE_INCREASE: the real preset with the most increased Ignite chance per Fire hit (Atziri, the Fell Serpent: 80 over
-#   her 4 Fire skills, 20% a hit), as an increase over the pooled Fire skills that averages to that.
+# - IGNITE_INCREASE: the real preset with the most increased Ignite chance per Fire hit (Atziri, the Red Queen: 80 over
+#   her 10 Fire skills, 8% a hit, since MECHD7 took it off the Fell Serpent), as an increase over the pooled Fire skills
+#   that averages to that.
 # - Corrupted Blood (corrupted_blood): the real preset with the largest share of hits that leave it (the Fell Serpent:
 #   one of her 11 damaging skills, 3 s).
 _worst_done = False
@@ -582,10 +583,15 @@ FLAMMABILITY_PER_THRESHOLD = 0.2  # KeywordPopups Flammability: 1% Ignite chance
 FLAMMABILITY_SECONDS = 4.0
 # The bosses' Fire skills with an "ignite_chance_+%" stat (GrantedEffectStatSets, read 12 Nov 2026 by
 # scratch/mechc7/ignitechance.py): Arbiter of Ash's MASDemonClawBossFire +20 (one of its 17 Fire skills; RESEARCH21 #126
-# names the same); Atziri's fire melee MeleeAtAnimationSpeedFire +80 (that Atziri uses it: RESEARCH21's monster scan
-# only, LOW; taken for both phases). Others: none found among the presets' skills by RESEARCH21 (UNVERIFIED beyond its
+# names the same); Atziri's fire melee MeleeAtAnimationSpeedFire +80 (on phase 1's MonsterVarieties row only, MECHD7: HIGH;
+# before, taken for both phases: the note below). Others: none found among the presets' skills by RESEARCH21 (UNVERIFIED beyond its
 # scan).
-IGNITE_INCREASE = {"Arbiter of Ash": (20,), "Atziri, the Red Queen": (80,), "Atziri, the Fell Serpent": (80,)}
+# (MECHD7) Not the Fell Serpent: phase 2's MonsterVarieties row (AtziriBossPhaseTwo______, research13's export) has no
+# MeleeAtAnimationSpeedFire, which phase 1's row has (GrantedEffects 1211 / 1221 there; boss_skill_hits.json's rows agree:
+# the Red Queen's list holds MeleeAtAnimationSpeedFire / Lightning, the Fell Serpent's neither), and game 26650308 gives
+# MeleeAtAnimationSpeedFire ignite_chance_+% 80, MeleeAtAnimationSpeedLightning active_skill_shock_chance_+%_final 80
+# (scratch/mechd7/ailscan.py): "taken for both phases" was an OVERCOUNT on the Fell Serpent (HIGH).
+IGNITE_INCREASE = {"Arbiter of Ash": (20,), "Atziri, the Red Queen": (80,)}
 CORRUPTED_BLOOD = {"Atziri, the Red Queen": 3.0, "Atziri, the Fell Serpent": 3.0}  # seconds (BloodSpearPulse, RESEARCH13)
 # (RESEARCH26 R26-59, LOW-MEDIUM, boss-dot-on-player-es-r26.md: placed grounds are taken as 0 stands, but NOT every
 # pinnacle damage over time can be stepped out of: the King in the Mists' maze phase (80% Physical / 20% Chaos over time,
@@ -742,11 +748,15 @@ FREEZE_SCALE_PLAYER = 2.0  # FreezeDamageScalePlayer (PoB Misc.lua, the game's c
 SHOCK_FACTORS = {
     "Arbiter of Divinity": (6.0, 3.0),  # ExtendoSpearComboZapBeams +500% final; StormBlinkBolt as though +200% damage
     "The Aberration": (1.5,),  # SpiderBeam +50% final
-    "Vessel of Kulemak": (1.33, 1.33, 1.33),  # its beams Shock as though +33-100% damage: the low end (LOW)
-    "Atziri, the Red Queen": (1.8,),  # her lightning melee +80% Shock chance
-    "Atziri, the Fell Serpent": (1.8,),  # (taken for both phases, as IGNITE_INCREASE: LOW)
+    # (MECHD7, game 26650308's stat sets, scratch/mechd7/ailscan.py: HIGH) TotemLaser as though +33%, MegaBeam and
+    # MegaBeamSides +100% (before: all three at the low end, 1.33)
+    "Vessel of Kulemak": (1.33, 2.0, 2.0),
+    "Atziri, the Red Queen": (1.8,),  # her lightning melee (MeleeAtAnimationSpeedLightning) +80% final Shock chance
+    # (MECHD7) not the Fell Serpent: phase 2 has no MeleeAtAnimationSpeedLightning (IGNITE_INCREASE's note)
+    "The Raven Trickster": (3.0,),  # (MECHD7) its Rage minion's GSRageBeamDamage active_skill_shock_chance_+%_final 200
 }
-FREEZE_FACTORS = {"Olroth, Origin of the Fall": (3.0,)}  # SwordGrabExplosion +200% Freeze buildup
+# Olroth: SwordGrabExplosion +200% Freeze buildup; (MECHD7) its relic's GSOlrothRelicFireballImpact (Cold) +25%
+FREEZE_FACTORS = {"Olroth, Origin of the Fall": (3.0, 1.25)}
 BLEED_SKILLS = {"Olroth, Origin of the Fall": 1}  # ThrowBack (IntroSwing: the opening only, LOW)
 AILMENT_TYPE = {"Ignite": "Fire", "Shock": "Lightning", "Freeze": "Cold"}
 
@@ -1990,3 +2000,203 @@ def chill_and_freeze_on_you(chill_seen: dict, freeze_seen: dict, texts: list[str
         "play": (f"dodge the boss's telegraphed Cold attacks (red-flash ones can't be dodged): about half dodged "
                  f"{inc:+.1f}% (the headline), three in four {alt[1][1]:+.1f}%; without dodging {alt[0][1]:+.1f}%")}]
     return inc, frozen, rows
+
+
+
+# =====================================================================================================================
+# MECH-D's section (MECHD7; the manager's brief of 21 Nov, item 1): the boss's ailments on you PER USE of its skills, one
+# read for every ailment, for MECH-A's ailment-removal lines ("Remove a Damaging Ailment when you use a Command Skill",
+# "Remove Ignite when you Warcry" and the like) and MECH-C's ailment-avoidance / threshold rows. Before, the boss's Ignite
+# and Shock on you (boss_ailments_on_you, ailment_rate) read the DEFENCE cadence (enemySkillTime: the faster of PoB's 0.7 s
+# and the boss's strikes, HITS_EVERY) with no dodge; only Chill / Freeze had moved to R37-17's per-use rule (MECHC48). For
+# a reader that turns the rate into a GAIN (removing or avoiding an ailment), that is an OVERCOUNT. Here, for each of
+# Ignite, Shock, Chill, Freeze, Bleed, Poison and Electrocute:
+# - Events per USE (R37-17, research/pinnacle-boss-hit-cadence-on-player.md): ailment_hits' landed uses of the type a
+#   second (bosses.HIT_EVERY, the type's own share of the boss's damaging skills, red-flash hits always landing, the rest
+#   evaded / blocked as PoB rolls them, x your Slows on the boss), x (1 - ON_YOU_DODGE) on the dodgeable ones. The user
+#   gave the 50% dodge for the pinnacles' telegraphed COLD attacks (20 Nov 21:50); taking it for Fire / Lightning /
+#   Physical uses too is an EXTENSION (MEDIUM-LOW: R37-17's guides call the bosses' big attacks telegraphed, not every
+#   Fire or Lightning hit), labelled in every "how", with dodge 0 as a row.
+# - A use's strikes: Ignite and Shock are a CHANCE per hit (KeywordPopups Ignite: Flammability "including the amount added
+#   by that Hit"; Shock: "1% chance to Shock for every 4% of the target's Ailment Threshold"), so a use of k strikes
+#   afflicts with 1 - (1 - p)^k, k = HIT_EVERY / HITS_EVERY (the boss's mean strikes a use, MECHD5's melee strikes: LOW,
+#   one mean for all its skills), and Flammability counts every strike landed in the last 4 s. Chill (a hit of 30%+ of
+#   your Ailment Threshold) and Freeze (counted: one hit must fill the buildup, MECHC18's lower reading) don't depend on
+#   the count: one per use; the extra strikes only refresh a 2 s ailment. Bleed: every landed hit of its skill.
+# - Uptime: Poisson uses, 1 - e^(-rate x length); with "You cannot be <Ailment>ed for N seconds after being <Ailment>ed"
+#   (immune_after) or Freeze's protection (+500% threshold for 14 s, MEDIUM-LOW on players) the renewal form.
+# - Damage while afflicted (KeywordPopups DamagingAilments: "Bleeding, Ignite, and Poison"): Ignite 20% of the boss's
+#   average Fire hit a second, Bleed 15% of its average Physical hit, before your mitigation and damage-over-time
+#   modifiers (the constants above, KeywordPopups).
+# Which preset inflicts which (checked, MECHD7: every GrantedEffect of game 26650308 whose Id holds a preset's monster stem,
+# 695 skills, for electrocut / poison / bleed / ignit / shock / chill / freez / ailment stats, scratch/mechd7/ailscan.py;
+# the 13 preset varieties' Mods / Mods2 resolved to stats; every Monster* / Pinnacle* Mods row with an Electrocute,
+# Poison or Bleed stat (MonsterAlwaysPoison1, MonsterBleedImplicit, ...: none on a preset variety); second sources:
+# RESEARCH13 #60 / RESEARCH14 #67 (BuffDefinitions and grounds) and poe2db via them; patch notes: no hit for Electrocute or
+# Poison with a boss name, which isn't proof of absence):
+# - Electrocute: none. KeywordPopups Electrocute: "Only Lightning damage from Hits with specific skills or effects
+#   Contributes to Electrocution Buildup"; no preset skill or mod carries an Electrocute stat. 0, MEDIUM-HIGH (the .ao
+#   scripts are unseen).
+# - Poison: none. The Poison-on-hit skills found (MMSVaalZealotChaosMortar, GAVaalZealotKnifeStickChaosSlash) belong to
+#   map / Incursion Vaal Zealots, not Atziri's fight (its add is VaalZealotSacrifice, one skill: VaalZealotSuicideExplosion,
+#   research13's MonsterVarieties). 0, MEDIUM-HIGH (as RESEARCH14).
+# - Bleed: Olroth (GPAOlrothThrowBack; GAOlrothIntroSwing the opening only), as BLEED_SKILLS.
+# - Freeze in the Bodach's fight: GSRitualWendigoP2_AlliedLunarPulse's "always_freeze" is Lunaris', the player's ally
+#   (RESEARCH16 #74): not on you.
+# - Not counted, said: the grounds that apply an ailment (GROUND_AILMENTS: the player steps out, GROUNDS_NOTE; the time
+#   in them is in no source, so 0, never a flat guess); the Aberration's Spider Beam "Chill as though +33%" (Chill
+#   magnitude isn't read here, only the 30% floor); the Delirium minions' Shock duration +100%
+#   (DeceleratingProjectileDeliriumMinionExplode: not a damaging row of boss_skill_hits.json).
+# The worst-case pinnacle mixes the presets (the pooled type shares, the Red Queen's cadence): it reads each REAL preset
+# (real_readings) and takes, per ailment, the LOWEST uptime for a gain (AUDIT29 A29-1's rule, `worst="lowest"`, the
+# default: removal and avoidance lines are gains) or the HIGHEST for a harm (`worst="highest"`), naming that preset.
+ON_YOU_AILMENTS = ("Ignite", "Shock", "Chill", "Freeze", "Bleed", "Poison", "Electrocute")
+DAMAGING_AILMENTS = ("Ignite", "Bleed", "Poison")  # KeywordPopups DamagingAilments (game 26650308): HIGH
+_AILMENT_KIND = {"Ignite": "Fire", "Shock": "Lightning", "Chill": "Cold", "Freeze": "Cold", "Bleed": "Physical"}
+_AILMENT_VERB = {"Ignite": "Ignited", "Shock": "Shocked", "Freeze": "Frozen", "Chill": "Chilled", "Bleed": "Bleeding"}
+DODGE_EXTENSION = ("the user's 50% for the pinnacles' telegraphed Cold attacks (20 Nov), extended here to the boss's {kind} "
+                   "uses: an EXTENSION, MEDIUM-LOW")
+NO_SOURCE = {
+    "Poison": ("no pinnacle preset has a Poison chance (checked, MECHD7: 695 boss skills' stats in game 26650308, the "
+               "presets' variety mods, the Monster* Poison mods; RESEARCH13 #60 / RESEARCH14 #67's skills, buffs and "
+               "grounds; poe2db via them): no source, 0 (MEDIUM-HIGH)"),
+    "Electrocute": ("no pinnacle preset Electrocutes you: only 'specific skills or effects' build it (KeywordPopups "
+                    "Electrocute) and none of the presets' skills or mods has one (checked, MECHD7: 695 boss skills' "
+                    "stats in game 26650308, the presets' variety mods, every Monster* Mods row with an Electrocute stat; "
+                    "RESEARCH13 #60's scan; patch notes: no hit): no source, 0 (MEDIUM-HIGH)"),
+}
+# Grounds that put an ailment on you (RESEARCH14 #67's ground chain, AilmentApplicationAura buffs): not counted (above).
+GROUND_AILMENTS = {
+    "Arbiter of Ash": {"Chill": "Chilled Ground (GSDemonClawBossChillSeedBlanket -> ChilledGround)"},
+    "The Raven Trickster": {"Ignite": "Ignited Ground (CGETangmazuPillarSlamBurn -> IgnitedGround)"},
+    "Atziri, the Red Queen": {"Shock": "Shocked Ground (CGEAtziriLightningGround -> ShockedGround)"},
+}
+
+
+def strikes_per_use(name: str) -> float:
+    """The boss's mean strikes a damaging use (HIT_EVERY / HITS_EVERY, at least 1; LOW)."""
+    from builder.search import bosses
+    if name not in bosses.HIT_EVERY or name not in bosses.HITS_EVERY:
+        return 1.0
+    return max(1.0, bosses.HIT_EVERY[name] / bosses.HITS_EVERY[name])
+
+
+def _ailment_on_you(stats: dict, ailment: str, texts: list[str], cadence: str, dodge: float) -> dict:
+    """One ailment from one boss (no worst-case resolution): the dict ailments_on_you gives per ailment, without rows."""
+    name = boss_name(stats)
+    out = {"rate": 0.0, "uptime": 0.0, "seconds": 0.0, "dps": 0.0, "effect": 0.0, "boss": name,
+           "ground": GROUND_AILMENTS.get(name, {}).get(ailment, "")}
+    if ailment in NO_SOURCE:
+        return {**out, "how": NO_SOURCE[ailment], "confidence": "MEDIUM-HIGH (game files; the .ao scripts unseen)"}
+    kind = _AILMENT_KIND[ailment]
+    read = {**stats, "_onyou_cadence": cadence, "_onyou_dodge": dodge}
+    uses, how = ailment_hits(read, kind)
+    if dodge > 0 and kind != "Cold" and cadence != "defence":
+        how += " (" + DODGE_EXTENSION.format(kind=kind) + ")"
+    if ailment == "Bleed":
+        bleeds = BLEED_SKILLS.get(name, 0)
+        count = hit_table(name)[1].get("Physical", 0)
+        uses *= bleeds / count if count else 0.0
+        if uses <= 0:
+            return {**out, "how": (f"{name} has no Bleeding chance (Olroth's attacks are the one pinnacle source: "
+                                   "research #60 / #67, MECHD7's scan): no source, 0"),
+                    "confidence": "MEDIUM-HIGH (game files; the .ao scripts unseen)"}
+        how += f", {bleeds} of its {count} Physical skills Bleed (Olroth's ThrowBack: LOW)"
+    if uses <= 0:
+        return {**out, "how": how + ": no use of that type lands, 0",
+                "confidence": "MEDIUM-HIGH (which bosses deal the type: HIGH)"}
+    k = strikes_per_use(name) if cadence == "use" else 1.0
+    kept = 1 - min(max(number(stats.get(f"{ailment}AvoidChance")), 0.0), 100.0) / 100
+    threshold = number(stats.get("AilmentThreshold")) or 0.5 * number(stats.get("Life"))
+    taken_key = f"{kind}TakenHit"
+    taken = max(number(stats.get(taken_key)) if taken_key in stats else hit_sizes(name).get(kind, 0.0), 0.0)
+    immune = immune_after(texts, _AILMENT_VERB[ailment]) if ailment != "Bleed" else 0.0
+    base_seconds = {"Ignite": IGNITE_SECONDS, "Shock": SHOCK_ON_PLAYER_SECONDS, "Chill": CHILL_SECONDS_PLAYER,
+                    "Freeze": FREEZE_SECONDS_PLAYER, "Bleed": BLEED_SECONDS}[ailment]
+    length = _self_seconds(stats, ailment, base_seconds)
+    if ailment == "Ignite":
+        p, chance_how = ignite_chance(read, uses * k)
+    elif ailment == "Shock":
+        p = own_shock_chance(stats, name)
+        chance_how = f"{p:.0%} a landed Lightning hit (1% per 4% of your Ailment Threshold dealt, x the boss's stats)"
+    elif ailment == "Chill":
+        dealt = taken / threshold if threshold > 0 else 1.0
+        p = 1.0 if dealt >= CHILL_FLOOR else 0.0
+        chance_how = f"a {taken:,.0f} Cold hit is {dealt:.0%} of your Ailment Threshold (a Chill needs 30%)"
+    elif ailment == "Freeze":
+        build = taken / threshold * FREEZE_SCALE_PLAYER * _factor(name, FREEZE_FACTORS, kind) if threshold > 0 else 1.0
+        p = 1.0 if build >= 1 else 0.0
+        if p > 0 and build < FREEZE_PROTECTION:
+            immune = max(immune, FREEZE_PROTECTION_SECONDS)
+        chance_how = (f"a {taken:,.0f} Cold hit builds {build:.0%} Freeze (one hit must fill it: the lower reading)"
+                      + (f"; then +500% threshold for {FREEZE_PROTECTION_SECONDS:g} s (MEDIUM-LOW on players)"
+                         if p > 0 and build < FREEZE_PROTECTION else ""))
+    else:  # Bleed: its skill's explicit chance, every landed hit of it that reaches your Life
+        reach = life_reach(stats)[0]
+        kept_d, kept_how = deflect_kept(stats, "Bleed")
+        p = reach * kept_d
+        chance_how = f"{reach:.0%} of its Physical hits reach your Life{kept_how}"
+    per_use = 1 - (1 - min(max(p, 0.0), 1.0)) ** k
+    rate = uses * per_use * kept
+    if rate > 0 and immune > 0:
+        uptime = min(1.0, length / (max(immune, length) + 1 / rate))
+    else:
+        uptime = 1 - math.exp(-rate * length) if rate > 0 else 0.0
+    dps = 0.0
+    if ailment == "Ignite":
+        dps = IGNITE_SHARE_PER_SECOND * mean_hits(name).get("Fire", 0.0)
+    elif ailment == "Bleed":
+        dps = BLEED_SHARE_PER_SECOND * mean_hits(name).get("Physical", 0.0)
+    effect = 0.0
+    if ailment == "Shock":
+        effect = SHOCK_ON_PLAYER_INC * (max(number(stats.get("SelfShockEffect")), 0.0) / 100
+                                        if "SelfShockEffect" in stats else 1.0)
+    how += (f"; {chance_how}" + (f", {k:.2f} strikes a use: {per_use:.0%} a use" if k > 1 and 0 < p < 1 else "")
+            + f"; {kept:.0%} not avoided: {rate * 60:.1f} a minute, {length:g} s each"
+            + (f", none for {immune:g} s after" if immune > 0 and rate > 0 else "")
+            + f": {_AILMENT_VERB[ailment]} {uptime:.0%} of the fight"
+            + (f"; {dps:,.0f} {kind} damage a second while on, before your mitigation" if dps > 0 else "")
+            + (f"; +{effect:g}% damage taken while on" if effect > 0 else ""))
+    return {**out, "rate": rate, "uptime": uptime, "seconds": length, "dps": dps, "effect": effect, "how": how,
+            "confidence": "LOW (the tables' per-use cadence; the dodge share the user's for Cold, extended)"}
+
+
+def ailments_on_you(stats: dict, texts: list[str] | None = None, worst: str = "lowest",
+                    ailments: tuple[str, ...] = ON_YOU_AILMENTS) -> dict[str, dict]:
+    """{ailment: {"rate": landed afflicting uses a second (before 'already afflicted'), "uptime": share of the fight
+    afflicted, "seconds": one's length on you, "dps": damage a second while on before your mitigation (Ignite, Bleed),
+    "effect": Shock's % increased damage taken while on, "boss": the preset read, "ground": a ground that also inflicts it
+    (not counted; "" without), "how", "confidence", "rows": [(label, uptime)] for dodge none / 75%, every strike and the
+    old defence cadence]} for the boss's own ailments on you, per use of its skills (the comment above). `stats`: PoB's
+    {Type}TakenHit, AilmentThreshold, Life, <Ailment>AvoidChance, Self<Ailment>Duration, SelfShockEffect, EvadeChance,
+    EffectiveBlockChance, enemySkillTime and "_boss"; `texts`: the build's lines (immunity windows); `worst`: on the
+    worst-case pinnacle, "lowest" (a gain reads the lowest real preset) or "highest" (a harm)."""
+    texts = [str(t).strip() for t in (texts or [])]
+    worst_name = _worst()
+    reads = real_readings(stats) if worst_name is not None and boss_name(stats) == worst_name else [
+        (boss_name(stats), stats)]
+    pick_of = max if worst == "highest" else min
+    out = {}
+    for ailment in ailments:
+        picks = [(_ailment_on_you(s, ailment, texts, "use", ON_YOU_DODGE), s) for _, s in reads]
+        pick, seen = pick_of(picks, key=lambda p: p[0]["uptime"])
+        if len(picks) > 1:
+            top = max(picks, key=lambda p: p[0]["uptime"])[0]
+            pick = {**pick, "how": (f"worst case: the {'highest' if worst == 'highest' else 'lowest'} real preset's, "
+                                    f"{pick['boss']} ({'a harm' if worst == 'highest' else 'a gain'}; AUDIT29 A29-1; "
+                                    f"the highest: {top['boss']}, {top['uptime']:.0%}): " + pick["how"])}
+        rows = [(f"{d:.0%} of the dodgeable uses dodged", _ailment_on_you(seen, ailment, texts, "use", d)["uptime"])
+                for d in ON_YOU_DODGE_ROWS]
+        rows.append(("every strike, not every use (HITS_EVERY: an upper bound)",
+                     _ailment_on_you(seen, ailment, texts, "strike", ON_YOU_DODGE)["uptime"]))
+        rows.append(("the defence cadence (enemySkillTime, no dodge: the old reading)",
+                     _ailment_on_you(seen, ailment, texts, "defence", 0.0)["uptime"]))
+        out[ailment] = {**pick, "rows": rows}
+    return out
+
+
+def ailment_uptime(stats: dict, ailment: str, texts: list[str] | None = None, worst: str = "lowest"
+                   ) -> tuple[float, str]:
+    """(share of the fight the boss keeps you afflicted by `ailment`, how): ailments_on_you's headline for one."""
+    got = ailments_on_you(stats, texts, worst, (ailment,))[ailment]
+    return got["uptime"], got["how"]
