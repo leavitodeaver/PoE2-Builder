@@ -3185,3 +3185,18 @@ def test_fear_on_culling_stacks_from_the_adds_culls_only():
     assert none == [] and "0 Culls" in rows[0]["basis"]
     assert bosses.kill_stats(bosses.DEFAULT)[bosses.CULLS_STAT] == 0.0
     assert conditions.fear_mods(["10% increased Area of Effect"], 1.0, "", True, "") == ([], [])
+
+
+def test_a_flasks_damage_taken_during_effect_recoups_life_at_its_uptime():
+    """(MECHC48, COV48 row 12.0, an UNDERCOUNT before: PoB applies none of it) Blood of the Warrior's "N% of Damage taken
+    during effect Recouped as Life": N% x the boss's damage taken a second x the flask's uptime, as Life a second."""
+    from builder.search import recovery
+
+    assert recovery.FLASK_RECOUP.match("25% of Damage taken during effect Recouped as Life")
+    income = Income()
+    recovery.hit_income(income, {"Life": 1000}, ["25% of Damage taken during effect Recouped as Life"], taken=200.0,
+                        flask_recoup=[(25.0, 0.6, "Blood of the Warrior")])
+    assert income.rates["LifeOnEventRecovery"] == pytest.approx(0.25 * 200 * 0.6)
+    never = Income()
+    recovery.hit_income(never, {"Life": 1000}, [], taken=200.0, flask_recoup=[(25.0, 0.0, "Blood of the Warrior")])
+    assert never.rates["LifeOnEventRecovery"] == 0.0 and "never up" in " ".join(never.parts)

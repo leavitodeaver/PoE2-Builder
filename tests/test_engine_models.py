@@ -4125,3 +4125,34 @@ def test_runic_tempering_feeds_serles_grit_plates_as_thorns_pob_can_read(engine)
     note = next(x for x in search.assumptions.active if x["label"].startswith("Runic Tempering"))
     assert "45-90 Physical Thorns damage per plate" in note["basis"] and "your Thorns hit 0 " not in note["basis"]
     assert any(g["label"] == models.THORNS_GROUP for g in build.groups())
+
+
+def test_blood_of_the_warriors_recoup_reads_its_own_uptime_and_the_bosss_damage(engine):
+    """MECHC48 (COV48 row 12.0, an UNDERCOUNT before): Blood of the Warrior in the Life flask slot hands
+    recovery.hit_income its "N% of Damage taken during effect Recouped as Life" at the flask's uptime and the boss's
+    damage taken a second (Assumptions.hit_rates)."""
+    from types import SimpleNamespace
+
+    from builder.search import recovery
+    from builder.search.assumptions import Assumptions
+
+    search = spark_with(engine, [])
+    build = search.build
+    raw = chr(10).join(["Rarity: Unique", "Blood of the Warrior", "Gargantuan Life Flask", "90% less Life Recovered",
+                        "Effect is not removed when Unreserved Life is Filled",
+                        "25% of Damage taken during effect Recouped as Life"])
+    build.call("equip", slot="Flask 1", raw=raw, active=True, fields=[])
+    build.equipped["Flask 1"] = SimpleNamespace(name="Blood of the Warrior", raw=raw)
+    # (no flask charges, no use: the skeleton gains none against a boss, so its uptime is 0, said in the row)
+    stats = build.call("stats", fields=["Life", "Speed"])
+    dry = Assumptions(build).hit_rates("Spark", stats)
+    assert dry["flask_recoup"][0][1] == 0.0
+    belt = chr(10).join(["Rarity: Rare", "Test Belt", "Heavy Belt", "Item Level: 82", "Implicits: 0",
+                         "Flasks gain 4 charges per Second"])
+    build.call("equip", slot="Belt", raw=belt, fields=[])
+    rates = Assumptions(build).hit_rates("Spark", stats)
+    print("PROBE blood recoup", rates.get("taken"), rates.get("flask_recoup"))
+    assert rates["taken"] > 0 and rates["flask_recoup"][0][0] == 25.0 and 0 < rates["flask_recoup"][0][1] <= 1
+    income = recovery.Income()
+    recovery.hit_income(income, stats, [raw.split(chr(10))[-1]], **rates)
+    assert income.rates["LifeOnEventRecovery"] >= 0.25 * rates["taken"] * rates["flask_recoup"][0][1] - 1e-6

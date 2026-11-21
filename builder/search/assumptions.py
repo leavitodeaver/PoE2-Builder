@@ -6842,6 +6842,23 @@ class Assumptions:
             f" ({doubled_how})" if doubled_how else "")
         out = {"landed": landed, "life_per_hit": per_hit, "blocked": blocked, "casts": casts, "cast_how": how,
                "stunned": stunned, "stunned_how": stunned_how, "refill": refill, "refill_how": refill_how}
+        # (MECHC48: recovery.FLASK_RECOUP's note) the flasks carrying "N% of Damage taken during effect Recouped as Life",
+        # each at its own uptime; the boss's damage taken a second over every pool
+        equipped = getattr(build, "equipped", None) or {}
+        recoups = []
+        for slot, pool in flasks.FLASK_SLOTS.items():
+            option = equipped.get(slot)
+            lines = [m for t in str(getattr(option, "raw", "") or "").split("\n")
+                     if (m := recovery.FLASK_RECOUP.match(t.strip()))] if option is not None else []
+            if not lines:
+                continue
+            info = build.call("flaskData", raws=[option.raw])["results"][0] or {}
+            up = flasks.uptime(info, flasks.Charges.of(build), pool, option.raw)  # (its own lines: the kept effect)
+            name = str(getattr(option, "name", "") or slot)
+            recoups += [(float(m.group(1)), up, name) for m in lines]
+        if recoups:
+            out["taken"] = sum(taken.values())
+            out["flask_recoup"] = recoups
         texts = [line["text"].strip() for line in build.call("sourceLines")["lines"]]
         if any(p.search(t) for p in (recovery.PREVENTED_ES, recovery.PREVENTED_LIFE, recovery.PREVENTED_LIFE_TRIBUTE)
                for t in texts):

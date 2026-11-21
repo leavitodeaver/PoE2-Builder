@@ -166,8 +166,16 @@ PREVENTED_ES = re.compile(rf"^{NUM}% of physical damage prevented recouped as en
 PREVENTED_LIFE = re.compile(rf"^{NUM}% of physical damage prevented recouped as life$", re.I)
 PREVENTED_LIFE_TRIBUTE = re.compile(rf"^{NUM}% of physical damage prevented recouped as life if you have at least {NUM} "
                                     r"tribute$", re.I)
+# (MECHC48; COV48's MECH-C row 12.0, an UNDERCOUNT before) Blood of the Warrior's "(15-30)% of Damage taken during
+# effect Recouped as Life": PoB parses it with leftover text (ModCache 3157 / 3814 / 7238: DamageTaken BASE + " Recouped
+# as Life"), so applies none. Its share of the damage the boss's landed hits deal a second (objective.boss_taken, every
+# pool: the line names "Damage taken", not Life lost), x the flask's uptime (flasks.uptime: the flask's own "Effect is
+# not removed when Unreserved Life is Filled" read there), as Life a second (recoup returns over 4 s: in a steady fight
+# the second's share). Your recovery-rate modifiers on it: not applied (UNVERIFIED, the lower reading, as Igniferis');
+# your own damage over time not counted as taken (the lower reading).
+FLASK_RECOUP = re.compile(rf"^{NUM}% of Damage taken during effect Recouped as Life$", re.I)
 HIT_LINES = (MISSING_BEFORE_HIT, ARMOUR_ON_BLOCK, CAST_REGEN, CAST_LEECH, STUNNED_LIFE, STUNNED_ES, PREVENTED_ES,
-             PREVENTED_LIFE, PREVENTED_LIFE_TRIBUTE)
+             PREVENTED_LIFE, PREVENTED_LIFE_TRIBUTE, FLASK_RECOUP)
 # The game's Light Stun rule (KeywordPopups LightStun, build 26476662): "up to 100% base chance for Hits that deal 100%
 # of the target's maximum Life" (StunThreshold: "A Hit that deals damage equal to or greater than your Stun Threshold
 # is guaranteed to Stun you, and the chance scales down linearly"), "Chances lower than 15% are treated as 0%" (the
@@ -453,7 +461,8 @@ def spent_income(income: Income, stats: dict, texts: list[str], *, endurance: tu
 def hit_income(income: Income, stats: dict, texts: list[str], *, landed: float = 0.0, life_per_hit: float = 0.0,
                blocked: float = 0.0, casts: float = 0.0, cast_how: str = "", stunned: float = 0.0,
                stunned_how: str = "", refill: float = 0.0, refill_how: str = "", prevented: float = 0.0,
-               prevented_how: str = "", power: float = 0.0, power_how: str = "") -> None:
+               prevented_how: str = "", power: float = 0.0, power_how: str = "", taken: float = 0.0,
+               flask_recoup: list[tuple[float, float, str]] | None = None) -> None:
     """Life on the boss's hits, your Blocks and your casts (MECHC14, A27-32), each at the build's own rate: `landed` boss
     hits a second and the Life each takes (`life_per_hit`), `blocked` boss hits a second, `casts` Spells cast a second.
     "Recover N% of Missing Life before being Hit" (MECHC16, AUDIT28 A28-1: before, the last hit's Life alone, an OVERCOUNT
@@ -520,6 +529,15 @@ def hit_income(income: Income, stats: dict, texts: list[str], *, landed: float =
         else:
             income.parts.append(f"{pct:g}% of Physical damage prevented Recouped as {pool}: 0, "
                                 + (prevented_how or "no Physical damage prevented from the boss's hits"))
+    for pct, up, what in flask_recoup or []:  # (MECHC48: FLASK_RECOUP's note)
+        if taken > 0 and up > 0:
+            income.add("LifeOnEventRecovery", pct / 100 * taken * up,
+                       f"{pct:g}% of Damage taken Recouped as Life during {what}'s effect x {taken:,.1f} damage taken/s "
+                       f"from the boss's landed hits x the flask up {up:.0%} of the fight (recovery-rate modifiers not "
+                       "applied: UNVERIFIED)")
+        else:
+            income.parts.append(f"{pct:g}% of Damage taken during {what}'s effect Recouped as Life: 0, "
+                                + ("no boss hit lands" if taken <= 0 else "the flask is never up"))
     pct = _sum(MISSING_BEFORE_HIT, texts)
     if pct > 0:
         if landed > 0 and life_per_hit > 0:
