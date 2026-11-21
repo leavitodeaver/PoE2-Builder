@@ -66,3 +66,17 @@
   sources: ["builder/search/models.py (EYE_SPEED, eye_side_shards, eye_shards_model)", "builder/search/assumptions.py (models(), after GEM19's Eye line)",
             "C:/PROJECTS/PoE2 Builder/scratch/manager/research/eye-crossbow-caltrops-steps-movement-r38.md (R38-14)"]
   status: proposed
+
+- id: model-mechb49-crater
+  title: "Crater's 3 Fissures each time the supported leap lands (Assumptions.crater_fissures)"
+  kind: model
+  model: crater_fissures
+  skill: ["Crater"]
+  confidence: theory
+  notes: >-
+    MECHB49, RESEARCH39 R39-4 (MEDIUM-LOW). PoB scores the triggered Crater at its own flat rate, one Fissure a trigger;
+    the game makes 3 on each landing of the supported leap, all under the boss it lands on. Its Full DPS entry scaled to
+    landings x 3 over PoB's rate; a row of 2.
+  sources: ["builder/search/assumptions.py (crater_fissures)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_str.lua (SupportCraterPlayer, TriggeredCraterPlayer)",
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/fissure-counts-crater-starborn-molten-crash-r39.md (R39-4)"]
+  status: proposed

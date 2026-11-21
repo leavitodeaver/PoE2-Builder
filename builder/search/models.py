@@ -16987,7 +16987,13 @@ def spell_cascade_model(main: Skill | None, stats: dict, boss_radius: float, bos
 # the pause filled by nothing else (dodging fits in it); a main skill that is Ember Fusillade itself, or not a Spell: no
 # Embers counted (PoB's 0 kept, said).
 DUSK_VIGIL = re.compile(r"^Trigger Ember Fusillade Skill on casting a Spell$", re.I)
-SPELL_CIRCLE = re.compile(r"\bSpell(?:s| Skills)\b.*\bProjectiles in a circle\b", re.I)  # (R32-2 (3))
+# (MECHB49, COV50's lead via the manager 23:32) the cultivated "(5-10)% chance for Spell Skills to fire 8 additional
+# Projectiles in a circle" is NOT a circle layout: only on that share of casts do its 8 extra projectiles fire in a circle
+# (radially: they miss a lone boss, R32-2 (3)), the base projectiles fire as before, and PoB never adds the 8 (ModCache
+# 5026: parsed only in part, not applied). Read as an always-on circle it cut Bonestorm to one spike a release and Dusk
+# Vigil to one Ember a cast on every cast (an UNDERCOUNT), so a "chance" line doesn't match here; its 8 extras add
+# nothing on a lone boss.
+SPELL_CIRCLE = re.compile(r"^(?!.*\bchance\b).*\bSpell(?:s| Skills)\b.*\bProjectiles in a circle\b", re.I)  # (R32-2 (3))
 DUSK_TAG = "dusk_vigil"  # the main skill's "less" carries it, so the next pass reads the main skill's damage without it
 
 
@@ -20325,9 +20331,8 @@ def explosive_rhythm_model(main: Skill | None, texts: list[str], row: dict, reco
 # its Fissures are in its main stat set, PoB's "Impact" (GrantedEffectStatSets StarbornOnslaughtPlayer holds
 # base_number_of_fissures 3 and the implicit fissures_nova; its only other set, StarbornOnslaughtExplosions, is the
 # Star Fall; checked: both rows' stat ids, game 26650308; PoB act_str / other.lua the same two sets), so they share the
-# Impact's damage: a ring out from the impact on the target, all 3 (+N) at the boss (R37-16, MEDIUM). Whether the impact
-# itself is a hit beside its 3 Fissures (4 a use, not 3) isn't in the data (UNVERIFIED): PoB's one is taken as one of
-# them, the lower reading. Molten Crash: "Consumes Rage to create additional Molten Fissures"
+# Impact's damage: a ring out from the impact on the target, all 3 (+N) at the boss (R37-16, MEDIUM). (RESEARCH39
+# R39-5, MEDIUM) the impact is its own 2.5 m area hit beside them: 4 (+N) hits a use, the headline; 3 (+N) a row. Molten Crash: "Consumes Rage to create additional Molten Fissures"
 # (molten_crash_optionally_consume_X_rage_for_fissures 10, molten_crash_number_of_additional_fissures_from_rage_
 # consumption 1: one more for the 10 Rage a use, conditions.RAGE_PER_USE) on the share of its uses the build's Rage pays
 # (MECH-C's build.rage_spent: all while the gain keeps up, else what comes, cut across the spenders in proportion, LOW
@@ -20345,12 +20350,21 @@ FISSURE_SETS = {"Earthshatter": (("Slam",), "line"), "Sunder": (("Wave",), "line
 # PoB scored, as Earthshatter's Slam beside its spikes. Whether the slam set is one slam or both: PoB's set, as it stands.
 FISSURE_BESIDE = {"Molten Crash": ("Molten Crash",)}
 FISSURE_RAGE = {"Molten Crash": 1.0}  # (molten_crash_number_of_additional_fissures_from_rage_consumption, a paid use)
+FISSURE_OWN_HIT = {"Starborn Onslaught": 1.0}  # (R39-5: the impact's own area hit beside its Fissures)
+# (RESEARCH39 R39-7) Molten Crash's base with no Rage isn't settled (no base-count stat): headline 1 (Volcanic Fissure's
+# analogy), rows 2 (one a slam of its two) and 8 (one guide's "8 around you"), each + the Rage one inside its Limit 8
+# (molten_crash_max_number_of_fissures), a number the game decides (LOW). Its Rage extra: +1 a use, once on landing, for
+# 10 Rage (MEDIUM-HIGH: "Consumes {1} Rage on Landing to create {0} additional Fissure"). Fury of the Mountain's "Spends
+# {0} Rage to create 2 additional fissures if possible" (fury_of_the_mountain_spend_X_rage_for_extra_fissures, Stats
+# 22465): no carrier in game 26650308 (checked: GrantedEffectStatSets' Constant / Implicit stats, the per-level stat
+# columns, Mods Stat1-6, PassiveSkills; poe2db not checked: UNVERIFIED), so not counted.
+FISSURE_BASE_ROWS = {"Molten Crash": (2.0, 8.0)}
 FISSURE_ASKING = re.compile(r"\(asking (\d+(?:\.\d+)?)/s, more than comes: (\d+(?:\.\d+)?)/s\)")
 FISSURE_BASE_STAT, FISSURE_EXTRA_STAT = "base_number_of_fissures", "base_number_of_additional_fissures"
 FISSURE_CHANCE_STAT = "skill_additional_fissure_chance_%"
 FISSURE_CHANCE = re.compile(r"^skills which create fissures have a (\d+(?:\.\d+)?)% chance to create an additional "
                             r"fissure$", re.I)
-FISSURE_MAX_A_USE = {"Forge Hammer": 10.0}  # (forge_hammer_base_maximum_number_of_fissures)
+FISSURE_MAX_A_USE = {"Forge Hammer": 10.0, "Molten Crash": 8.0}  # (forge_hammer_base_maximum_number_of_fissures; its Limit 8)
 FISSURE_HALF_WIDTH, FISSURE_ARC_DEGREES, FISSURE_MELEE_METRES, FISSURE_ROW_METRES = 1.0, 120.0, 1.5, 3.0
 FISSURE_ENTRY = "model-mechb48-fissures-at-boss"
 
@@ -20398,7 +20412,8 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
     if main.name in FISSURE_RAGE:
         paid, rage_how = fissure_rage_paid(main.name, rage_spent)
         rage = FISSURE_RAGE[main.name] * paid
-    count = min(cap, base + extra + rage + chance)
+    own_hit = FISSURE_OWN_HIT.get(main.name, 0.0)
+    count = min(cap, base + extra + rage + chance) + own_hit
     if count <= 1.0 + 1e-9 and main.name not in FISSURE_BESIDE:
         return [], []
     share = fissure_arc_share(boss_radius, FISSURE_MELEE_METRES) if layout == "arc" else 1.0
@@ -20436,8 +20451,8 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
                    "MEDIUM-LOW)",
            "slam": "from the slam's landing at the boss: all hit in melee (R37-16, MEDIUM-LOW)",
            "spiral": "a spiral from the hammer lodged at the boss: all hit (R37-16, MEDIUM-LOW)",
-           "nova": ("a ring out from the impact on the target: all at the boss (R37-16, MEDIUM; whether the impact is "
-                    "a hit of its own beside them UNVERIFIED, PoB's one taken as one of them)"),
+           "nova": ("a ring out from the impact on the target: all at the boss (R37-16, MEDIUM), with the impact's own "
+                    "area hit beside them (RESEARCH39 R39-5, MEDIUM)"),
            "arc": f"aimed at random over {FISSURE_ARC_DEGREES:g} degrees: {share:.0%} pass within the boss's "
                   f"{boss_radius:g} m + {FISSURE_HALF_WIDTH:g} m at {FISSURE_MELEE_METRES:g} m (R37-16, MEDIUM-LOW)"}[layout]
     if fissure <= 0:
@@ -20450,9 +20465,14 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
             "label": f"{main.name}: {count:.2f} Fissures a use at the boss*", "value": f"x{factor:.3f}",
             "confidence": "MEDIUM", "entry": FISSURE_ENTRY,
             "basis": (f"PoB counts one Fissure a use. The game makes {count:.2f}: {'; '.join(parts)}; {how}. "
-                      f"The Fissures are {fissure / total:.0%} of the {scored} DPS scored: x{factor:.3f}. Not counted: "
-                      "the branching Fissures (2 from each, outward: 0 at the boss, R37-16 LOW)")}]
-    rows = f"; at range only the one aimed at the boss: x{one:.3f}" + (
+                      f"The Fissures are {fissure / total:.0%} of the {scored} DPS scored: x{factor:.3f}"
+                      + (f" (the impact's hit and {count - own_hit:.2f} Fissures; without the impact's own hit, "
+                         f"x{scale((count - own_hit) * share):.3f})" if own_hit else "")
+                      + ". Not counted: the branching Fissures (2 from each, outward: 0 at the boss, R37-16 LOW)")}]
+    rows = "".join(f"; with a base of {b:g} a use (RESEARCH39 R39-7, LOW: not settled), "
+                   f"x{scale(min(cap, b + extra + rage + chance) * share):.3f}"
+                   for b in FISSURE_BASE_ROWS.get(main.name, ()))
+    rows += f"; at range only the one aimed at the boss: x{one:.3f}" + (
         f"; at {FISSURE_ROW_METRES:g} m {row_share:.0%} of them: x{scale(count * row_share):.3f}"
         if row_share is not None else "")
     return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=FISSURE_ENTRY)], [{

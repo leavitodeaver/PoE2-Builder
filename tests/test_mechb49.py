@@ -16,7 +16,7 @@ def test_starborn_onslaught_counts_its_ring_of_three_on_the_impact():
     level = {models.FISSURE_BASE_STAT: 3, "number_of_branching_fissures": 2}
     mods, notes = models.fissure_count_model(star, "Impact", _sets(Impact=100.0, Star_Fall=50.0), level,
                                              {models.FISSURE_EXTRA_STAT: 1}, [], 0.4)
-    assert mods[0]["value"] == pytest.approx(100 * (4 - 1))  # 3 + Upheaval I's 1, all under the boss
+    assert mods[0]["value"] == pytest.approx(100 * (5 - 1))  # the impact + 3 + Upheaval I's 1 (R39-5)
     assert notes[0]["confidence"] == "MEDIUM" and "branching" in notes[0]["basis"]
     mods, _ = models.fissure_count_model(star, "Star Fall", _sets(Impact=100.0, Star_Fall=50.0), level, {}, [], 0.4)
     assert not mods  # (the Star Fall isn't a Fissure)
@@ -171,3 +171,45 @@ def test_echoing_cry_echoes_add_their_own_shield_waves():
     mods, notes = models.shield_wave_model(row, -50.0, 2.0, "main")  # (10 Power: 2 a cry, x3 with two echoes)
     assert mods[0]["value"] == pytest.approx(0.125 * 6)
     assert "refreshed it instead, 2 a use, 0.250/s" in notes[0]["basis"]
+
+
+def test_a_chance_to_fire_projectiles_in_a_circle_is_not_a_circle_layout():
+    chance = "8% chance for Spell Skills to fire 8 additional Projectiles in a circle"
+    assert not models.SPELL_CIRCLE.search(chance) and models.SPELL_CIRCLE.search("Spells fire Projectiles in a circle")
+    mods = [{"kind": "Raw", "name": "DPS", "type": "MORE", "value": 300}]
+    assert models.bonestorm_circle([chance], mods, [{"value": "x4"}])[0] == mods  # (GEM19's channel kept)
+
+
+def test_molten_crash_shows_rows_for_its_unsettled_base_count():
+    crash = Skill("Molten Crash", 1, attack=True, melee=True)
+    _, notes = models.fissure_count_model(crash, "Molten Crash", _sets(Molten_Crash=400.0, Fissures=160.0), {}, {}, [],
+                                          0.4)
+    assert "with a base of 2 a use" in notes[0]["basis"] and "x1.800" in notes[0]["basis"]  # (400 + 2 x 160) / 400
+    assert "with a base of 8 a use" in notes[0]["basis"] and "x4.200" in notes[0]["basis"]  # (400 + 8 x 160), held to 8
+
+
+class _CraterBuild:
+    """A fake build: Leap Slam supported by Crater, the main skill, in Full DPS."""
+
+    def __init__(self):
+        self.objective = type("O", (), {"full": True, "entry_scales": {}})()
+
+    def groups(self):
+        return [{"index": 1, "label": "main", "enabled": True, "fullDPS": True,
+                 "skills": [{"name": "Leap Slam"}, {"name": "Crater"}], "gems": [{"name": "Leap Slam"}, {"name": "Crater"}]}]
+
+    def call(self, name, **kw):
+        if name == "activeSkills":
+            return {"skills": []}
+        if name == "getConfig":
+            return {"input": {}}
+        assert name == "useRates" and kw["actives"] == [2]
+        return {"rates": [{"name": "Crater", "speed": 1.0}]}
+
+
+def test_crater_makes_three_fissures_each_landing():
+    from builder.search.assumptions import Assumptions
+    build = _CraterBuild()
+    notes = Assumptions(build).crater_fissures(Skill("Leap Slam", 1, attack=True, melee=True), 0.8)
+    assert build.objective.entry_scales == {"Crater": pytest.approx(2.4)}  # 0.8 landings x 3 over PoB's 1 a second
+    assert "x1.600" in notes[0]["basis"]  # (the row: 2 a landing)

@@ -4132,6 +4132,7 @@ class Assumptions:
         hand_notes = hand_notes + self.side_sparks(skills, main, forbidden)  # (MECHB49: R36-5's cap on a side Spark)
         hand_notes = hand_notes + self.side_forge_hammer(main, name or "", main_types, number(stats.get("Speed")),
                                                          [e["text"] for e in source_lines], bosses.hit_radius(stats)[0])
+        hand_notes = hand_notes + self.crater_fissures(main, number(stats.get("Speed")))  # (MECHB49, R39-4)
         if main is not None and group and main.name == models.FIRESTORM:  # (GEM16: its Infusions' bolts and bonuses)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             duration = number(build.call("stats", fields=["Duration"]).get("Duration"))
@@ -8656,6 +8657,50 @@ class Assumptions:
                            f"{models.DETONATED_SETS[hammer][3]:g} s, UNVERIFIED as its lying time{count_how}): {real:,.1f}, "
                            f"x{scale:.3f} on its Full DPS entry"),
                  "play": "Use a Warcry next to the lodged hammer to shatter it into Fissures."}]
+
+    def crater_fissures(self, main: models.Skill | None, main_speed: float) -> list[dict]:
+        """(MECHB49; RESEARCH39 R39-4, MEDIUM-LOW) The Crater support's Fissures: "Supported Skills create 3 Fissures on
+        landing" (SupportCraterPlayer support_fissure_on_landing_create_X_fissures_on_impact 3; TriggeredCraterPlayer:
+        1.5 m long, Limit 9, 6 s). PoB scores the triggered Crater at its own flat rate (castTime 1, InbuiltTrigger) and
+        one Fissure a trigger; the game makes 3 each time the supported leap lands, all starting at the landing point on
+        the boss (R39-4: each overlaps a boss of any preset hit radius at its start). So its Full DPS entry is scaled to
+        the leap's landings a second x 3 (the main skill's Speed, else its group's use rate: conditions.skill_use_rate,
+        on cooldown or the search's chosen presses, else 0) over PoB's rate (Objective.entry_scales). Row: 2 a landing
+        (a wide fan on a 0.3 m boss). The Limit 9 never binds at 3 a landing under one landing every 2 s."""
+        build = self.build
+        if getattr(build, "objective", None) is None or not getattr(build.objective, "full", False):
+            return []
+        off, choices = pob_disabled(build), models.press_choices(build)
+        for group in build.groups():
+            skills = group.get("skills") or []
+            spot = next((i for i, x in enumerate(skills, 1) if x["name"] == CRATER), None)
+            if not group.get("enabled", True) or not group.get("fullDPS") or spot is None or (group["index"], CRATER) in off:
+                continue
+            leap = next(((i, x["name"]) for i, x in enumerate(skills, 1) if x["name"] != CRATER
+                         and (group["index"], x["name"]) not in off), None)
+            if leap is None:
+                continue
+            crater = next(iter(build.call("useRates", indices=[group["index"]], actives=[spot])["rates"]), {})
+            pob = number(crater.get("speed"))
+            if pob <= 0:
+                continue
+            if main is not None and main.name == leap[1] and main.group == group["index"]:
+                lands, how = main_speed, f"{leap[1]} the main skill, {main_speed:.3f} uses/s"
+            else:
+                row = next(iter(build.call("useRates", indices=[group["index"]], actives=[leap[0]])["rates"]), {})
+                lands, why, _ = conditions_mod.skill_use_rate(row, choices)
+                how = f"{leap[1]} {lands:.3f} uses/s ({why})"
+            per, low = 3.0, 2.0
+            scale = lands * per / pob
+            build.objective.entry_scales[CRATER] = number(build.objective.entry_scales.get(CRATER, 1.0)) * scale
+            return [{"label": "Crater: 3 Fissures each time the leap lands*", "value": f"x{scale:.3f}",
+                     "confidence": "MEDIUM-LOW", "entry": "model-mechb49-crater",
+                     "basis": (f"PoB scores Crater at its own {pob:.3f} triggers/s, one Fissure each. The game makes "
+                               f"{per:g} Fissures on each landing of {how}, all starting under the boss the leap lands "
+                               f"on (RESEARCH39 R39-4, MEDIUM-LOW): {lands * per:.3f} Fissures/s, x{scale:.3f} on its "
+                               f"Full DPS entry. Row: {low:g} a landing (a wide fan on a small boss), x{lands * low / pob:.3f}"),
+                     "play": f"Land {leap[1]} on the boss: Crater's 3 Fissures start under it."}]
+        return []
 
     def side_trigger_cuts(self) -> list[dict]:
         """(MECHB46; GEM26's sweep, the manager 10:50) Infernal Cry's Combust and Ancestral Cry's Volcanic Eruption /
