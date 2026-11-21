@@ -3969,14 +3969,16 @@ class Assumptions:
                 hand_notes = hand_notes + [{"label": "Styrn's Ferocity: the boss Crushed*", "value": f"{crushed:.0%}",
                                             "basis": crush_how, "confidence": "MEDIUM"}]
         presses: dict[str, tuple[float, str]] = {}  # (item-granted skills the build presses: models.ITEM_PRESSES)
-        if any(models.RAISED_BLIND.search(e["text"]) for e in source_lines):  # (Bastion of Light's shield taps, MECHC21)
+        # (Bastion of Light's shield taps, MECHC21; Window to Paradise's Exposure too, MECH98)
+        if models.raised_lines([e["text"] for e in source_lines]):
             metres = models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10 or natural_distance(main_types, name or "")
             raised_texts, taps = [e["text"] for e in source_lines], models.raised_taps_on(build)
+            held = name if name in recovery_mod.ACTIVE_BLOCK_CHANNELS else ""
             raised_mods, raised_notes = models.raised_model(
                 found, raised_texts, metres, main, taps, models.hits_per_second(stats), parry_eats,
-                models.parried_keep(build, name) if parry_eats else 0.0)
+                models.parried_keep(build, name) if parry_eats else 0.0, held)
             hand_mods, hand_notes = hand_mods + raised_mods, hand_notes + raised_notes
-            plan = models.raised_plan(found, raised_texts, metres, taps)  # (its taps are presses: the button cap's)
+            plan = models.raised_plan(found, raised_texts, metres, taps, held)  # (its taps are presses: the button cap's)
             if plan.taps > 0:
                 presses[models.RAISE_SHIELD] = (plan.taps, plan.how)
                 # (MECHC34, MECHC30's leftover (c): the taps' blocked hits can Heavy Stun you)
@@ -4753,6 +4755,9 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + spell_ailment_mods, hand_notes + spell_ailment_notes
         slow_mods, slow_notes = models.slow_magnitude_mods(turmoil_texts)  # (MECH94: PoB parses none)
         hand_mods, hand_notes = hand_mods + slow_mods, hand_notes + slow_notes
+        hazard_mods, hazard_notes = models.hazard_slow_mods(  # (MECH98: Hindering Obstacles; PoB parses none)
+            turmoil_texts, main.name if main is not None else None, main_gems | {g.name for g in found})
+        hand_mods, hand_notes = hand_mods + hazard_mods, hand_notes + hazard_notes
         freeze_mods, freeze_notes = models.freeze_magnitude_cancel_mods(  # (MECH94: R36-9; MECH95: the Devotion form)
             turmoil_texts, number(stats.get("Devotion")))
         hand_mods, hand_notes = hand_mods + freeze_mods, hand_notes + freeze_notes
@@ -4793,6 +4798,14 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + spectral_mods, hand_notes + spectral_notes
         djinn, djinn_mods, djinn_notes = djinn_commands(build, main)  # (MECH83: the Disciple's djinn Commands; PoB 0)
         hand_mods, hand_notes = hand_mods + djinn_mods, hand_notes + djinn_notes
+        if models.VARASHTA in main_gems:  # (MECH98, R41-10: Varashta's Blessing per different Command; PoB 0)
+            held = getattr(build, models.ITEM_PRESSES, None)
+            v_mods, v_notes, v_presses = models.varashta_blessing_model(
+                main_gems, main, found, [e["text"] for e in source_lines],
+                {n: r for n, (r, _) in (held or {}).items()}, main_time_share(build, main))
+            hand_mods, hand_notes = hand_mods + v_mods, hand_notes + v_notes
+            if isinstance(held, dict):  # (each extra Command a press: the button cap counts it)
+                held.update(v_presses)
         briar, briar_notes = briarpatch(build, main, found)  # (MECHB31: Briarpatch's creation hit, PoB 0)
         hand_mods += [models.added_input("Briarpatch", briar)] if briar > 0 else []
         hand_notes += briar_notes

@@ -12345,6 +12345,47 @@ def slow_magnitude_mods(texts: list[str]) -> tuple[list[dict], list[dict]]:
                   "'when Hit' sources), no damage")}]
 
 
+# Hazards' Slow Magnitude (MECH98; MECH97's catalog row 140, kw-slow: "Debuffs inflicted by Hazards have 30% increased
+# Slow Magnitude", stat hazard_base_debuff_slow_magnitude_+%; an UNDERCOUNT of the boss's Slow: PoB leaves it as text,
+# ModCache 7167-7168). (checked: Stats.json ids holding "hazard" with "slow": this one and sanctum_hazards_are_slower (a
+# Sanctum stat, not the player's); its users: PassiveSkills hazards20 Hindering Obstacles alone, no Mods row, game
+# 26650308; PoB's ModCache the same text; poe2db not checked: UNVERIFIED that no item carries it.) Which Hazard Debuffs
+# Slow the boss's actions (checked: the stat sets with is_hazard / curse_zones_are_hazards, their stats): Caltrops,
+# Brambles and Spearfield inflict Maim, which Slows Movement Speed only (KeywordPopups Maim), so it moves no boss hit
+# (not counted, no score effect); Ice Shards' and Permafrost Bolts' Hazards deal Cold damage, so their Chill is a Debuff
+# a Hazard inflicts. So with one of those as the main skill (the Chill PoB puts on the boss is the main skill's), the N%
+# goes to the bridge's Slow Magnitude (MECH_SLOW_MAGNITUDE, installBossSlow: the Chill scaled, held at its maximum,
+# R36-20). MEDIUM-LOW: the skills' non-Hazard hits Chill too, and the strongest Chill is taken to be the Hazard's. The
+# bridge scales every Slow by that Magnitude, so with Temporal Chains in the build it isn't added (its Slow isn't a
+# Hazard's: the lower reading, an undercount, labelled). Defence only: the boss's hit rate, no damage.
+HAZARD_SLOW = re.compile(r"^debuffs inflicted by hazards have (\d+(?:\.\d+)?)% (increased|reduced) slow magnitude$", re.I)
+HAZARD_CHILLERS = ("Ice Shards", "Permafrost Bolts")
+
+
+def hazard_slow_mods(texts: list[str], main: str | None, gems: set[str]) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for HAZARD_SLOW (the note above)."""
+    value = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+                for t in texts if (m := HAZARD_SLOW.match(t.strip())))
+    if value == 0:
+        return [], []
+    label = "Slow Magnitude of your Hazards' Debuffs*"
+    if main not in HAZARD_CHILLERS:
+        return [], [{"label": label, "value": "+0%", "confidence": "MEDIUM-LOW",
+                     "basis": (f"{value:+g}% Slow Magnitude on Debuffs your Hazards inflict: the main skill "
+                               f"({main or 'none'}) isn't a Hazard that Chills (Ice Shards, Permafrost Bolts), and the "
+                               "Hazards' Maim (Caltrops, Brambles, Spearfield) Slows only Movement Speed: no boss hit moves")}]
+    if "Temporal Chains" in gems:
+        return [], [{"label": label, "value": "+0%", "confidence": "LOW",
+                     "basis": (f"{value:+g}% on {main}'s Chill (a Hazard's): not added, since Temporal Chains' Slow (not "
+                               "a Hazard's) would be raised with it (the lower reading, an undercount)")}]
+    return [raw_mod(SLOW_MAGNITUDE_MOD, "INC", value)], [{
+        "label": label, "value": f"{value:+g}%", "confidence": "MEDIUM-LOW",
+        "basis": (f"{value:+g}% Slow Magnitude on {main}'s Chill, a Debuff its Hazards inflict (PoB leaves the line as "
+                  "text: 0 before); held at the Chill's maximum, before the Unique boss's 50% less Slow and the 25% "
+                  "floor; the strongest Chill taken to be the Hazard's (its other hits Chill too). It slows the boss's "
+                  "hits (survival, 'when Hit' sources), no damage")}]
+
+
 # Freeze buildup from ailment Magnitude (MECH94; the manager 14:20, RESEARCH36 R36-9, research/ailment-magnitude-vs-
 # freeze-electrocute-buildup.md, MEDIUM-HIGH: an OVERCOUNT). "N% increased Magnitude of Non-Damaging Ailments you inflict"
 # (the Thane Grannell rune, the Breaking Point notable, ...) raises Chill and Shock Magnitude; Freeze has no Magnitude
@@ -16066,6 +16107,99 @@ def power_mods(power: float) -> list[dict]:
     return [raw_mod("WarcryPower", "BASE", extra), raw_mod("Multiplier:EnemyPower", "BASE", extra)] if extra > 0 else []
 
 
+# Varashta's Blessing (MECH98; PLANS7's plans/gs-varashtas-blessing.md, RESEARCH41 R41-10; an UNDERCOUNT: nothing read
+# it, PoB has no statMap, sup_int.lua 8513). SupportVarashtasBlessingPlayer's constant stat
+# support_djinn_lineage_damage_+%_final_per_different_command_in_last_8_seconds 10, whose displayed text (gem_stat_
+# descriptions) is "Supported Skills deal {0}% more Damage for each different Command Skill you have used in the last 15
+# seconds": the text is what the game shows (R41-10, MEDIUM): 15 s the headline, the stat id's 8 s a row. The count, from
+# the build (CLAUDE.md's no-flat-rate rule; a build that takes the support presses its Commands, a play strategy):
+#   - Commands the build already presses (build.item_presses: the djinn Commands djinn_commands_model found worth their
+#     cast) count min(1, window x their presses a second), at no extra cost;
+#   - the build's other Commands (its djinns' Commands not pressed for their own damage; its minions' Commands, COMMANDS,
+#     on their cooldown over your Cooldown Recovery) are pressed once per max(cooldown, window) just to stay counted:
+#     each counts 1 and costs the main skill its cast (DJINN_COMMAND_CAST 0.4 s; a minion Command its own cast, as
+#     COMMANDS lists) a period; pressed only where the gain beats that cost (x1.10 against the time lost), each a press
+#     under the button cap (returned for build.item_presses). Ruzhan's Zealotry isn't pressed (the djinn's own): not a
+#     Command you use (not counted, labelled). A Command whose minion is fallen isn't counted out (a small overcount for
+#     death-fed builds, as MECHB39).
+# x(1 + 10% x the count) more Damage on the supported main skill (its own line, skill-scoped). Only the main skill's
+# group is read (a side skill's support: not counted, an undercount).
+VARASHTA = "Varashta's Blessing"
+VARASHTA_MORE = 10.0  # % per different Command (the gem's constant stat; every level)
+VARASHTA_WINDOW, VARASHTA_WINDOW_ROW = 15.0, 8.0  # s: the displayed text (headline) and the stat id (a row): R41-10
+
+
+def _varashta_count(window: float, pressed: dict[str, float], others: list[tuple[str, float, float]], speed_share: float
+                    ) -> tuple[float, float, dict[str, float], list[str]]:
+    """(count, main-skill time lost, extra presses {Command: a second}, how) at a `window` s reading."""
+    count, lost, presses, how = 0.0, 0.0, {}, []
+    for name, rate in sorted(pressed.items()):
+        share = min(1.0, window * rate)
+        count += share
+        how.append(f"{name} (pressed for its own damage, every {1 / rate:.3g} s" + (f", {share:.0%} of windows)" if share < 1 else ")"))
+    for name, cooldown, cast in others:
+        if name in pressed:
+            continue
+        period = max(cooldown, window, cast)
+        cost = cast / period * speed_share
+        if (1 + VARASHTA_MORE / 100 * (count + 1)) * (1 - lost - cost) <= (1 + VARASHTA_MORE / 100 * count) * (1 - lost):
+            how.append(f"{name}: its {cast:g} s cast a {period:.3g} s costs more than it gains (not pressed)")
+            continue
+        count, lost = count + 1, lost + cost
+        presses[name] = 1 / period
+        how.append(f"{name} pressed every {period:.3g} s ({cast:g} s cast: {cost:.1%} of the main skill's time)")
+    return count, lost, presses, how
+
+
+def varashta_blessing_model(main_gems: set[str], main: Skill | None, skills: list[Skill], texts: list[str],
+                            pressed: dict[str, float], main_share: float = 1.0
+                            ) -> tuple[list[dict], list[dict], dict[str, tuple[float, str]]]:
+    """(mods, notes, presses {Command: (a second, how)}) for Varashta's Blessing on the main skill (see the note above).
+    `pressed`: the Commands the build already presses {name: a second} (build.item_presses); `main_share`: the main
+    skill's share of the fight (its time a cast takes from)."""
+    if VARASHTA not in main_gems or main is None:
+        return [], [], {}
+    others: list[tuple[str, float, float]] = []
+    djinns = {s.name for s in skills if s.name in DJINNS.values()}
+    for command in djinn_commands_available(djinns, texts):
+        if command.pressed:
+            others.append((command.name, command.cooldown or BRAND_DETONATION / BRAND_LIMIT, DJINN_COMMAND_CAST))
+    seen: set[str] = set()
+    for skill in skills:
+        if not skill.summon or not number(skill.summon.get("limit")):
+            continue
+        for minion, commands in COMMANDS.items():
+            if minion in skill.name and minion not in seen:
+                seen.add(minion)
+                others += [(n, cd / (skill.cooldown_recovery or 1.0), cast) for n, cd, cast in commands]
+    pressed = {n: r for n, r in pressed.items() if r > 0 and any(n == o[0] for o in others)}
+    share = min(max(main_share, 0.0), 1.0)
+    count, lost, extra, how = _varashta_count(VARASHTA_WINDOW, pressed, others, share)
+    row, row_lost, _, _ = _varashta_count(VARASHTA_WINDOW_ROW, pressed, others, share)
+    more = VARASHTA_MORE * count
+    row_more = VARASHTA_MORE * row
+    net = (1 + more / 100) * (1 - lost) - 1
+    net_row = (1 + row_more / 100) * (1 - row_lost) - 1
+    note = {"label": "Varashta's Blessing: more Damage per different Command used*", "value": f"{net:+.1%} on the main skill",
+            "confidence": "MEDIUM (the count from the build's Commands); 15 s vs 8 s MEDIUM (R41-10)",
+            "basis": (f"{VARASHTA_MORE:g}% more a different Command used in the last {VARASHTA_WINDOW:g} s (the game's "
+                      f"displayed text; the stat id says 8 s): {count:.2f} Commands, +{more:.0f}% more"
+                      + (f", less {lost:.1%} of the main skill's time for the casts" if lost else "") + ": "
+                      + ("; ".join(how) if how else "the build has no Command to press")
+                      + f". The 8 s reading (the stat id): {row:.2f} Commands, {net_row:+.1%}. PoB has no mapping "
+                      "for the stat (0 before)"),
+            "play": (f"Use each of your {count:.0f} Commands at least once every {VARASHTA_WINDOW:g} s: without them "
+                     f"+0%; with them {net:+.1%} damage on {main.name}" if count else
+                     "No Command to use: Varashta's Blessing adds nothing here")}
+    if count <= 0:
+        return [], [note], {}
+    mods = [line("1% more Damage", more, skill=main.name)]
+    if lost > 0:
+        mods.append(line("1% more Attack and Cast Speed", -100 * lost, skill=main.name))
+    presses = {n: (r, f"{n} every {1 / r:.3g} s for Varashta's Blessing") for n, r in extra.items()}
+    return mods, [note], presses
+
+
 # Blind while the Shield is raised (MECHC21, 14 Nov 2026; plans/term-blind-enemies.md G4 with term-raised.md). Bastion of
 # Light (notable): "Blind Enemies 3 metres in front of you every 0.25 seconds while your Shield is raised"
 # (inflict_blind_on_enemies_within_x_meters_while_shield_is_raised; PoB leaves it as text, ModCache's {nil}, so it never
@@ -16100,39 +16234,100 @@ def raised_taps_on(build) -> bool:
     return getattr(getattr(build, "objective", None), RAISED_TAPS, True) is not False
 
 
+# Window to Paradise's Exposure while raised (MECH98; PLANS6's plans/un-window-to-paradise.md, an OVERCOUNT before):
+# "Inflict Elemental Exposure to Enemies 3 metres in front of you / for 4 seconds, every 0.25 seconds while raised"
+# (Mods UniqueRaiseShieldApplyExposure1, stat unique_shield_window_of_paradise_apply_elemental_exposure_while_raised;
+# PoB's unique text splits it in two lines, Uniques/shield.lua 135-136, and parses neither). Before, conditions.
+# _exposure_source read the first half alone and gave the boss Exposure ALL FIGHT within 3 m, shield raised or not, with
+# no tap, time or button. Now it is a raised-shield line like Bastion of Light's Blind: one Raise Shield tap per
+# Exposure duration (the line's own "for N seconds", 4 s; Exposure Duration lines not read, as conditions.
+# EXPOSURE_DURATION: more taps, the lower reading), each tap RAISE_TAP s of the main skill's time and a button press;
+# both lines worn: one tap renews both (the shorter duration sets the period). A main skill that holds the shield
+# raised all fight (recovery.ACTIVE_BLOCK_CHANNELS, `held`) needs no taps. The boss beyond the line's reach (the
+# build's distance): none. (checked: Stats.json ids holding "exposure" with raise / front / metre / shield / block: only
+# that one stat, build 26650308; PLANS6: one mod in stat.py; poe2db's Window to Paradise page agrees on every line)
+RAISED_EXPOSURE = re.compile(r"\bexposure\b.*\bmetres in front of you", re.I)
+RAISED_WHILE = re.compile(r"\bevery \d+(?:\.\d+)? seconds while raised\b", re.I)
+RAISED_EXPOSURE_FOR = re.compile(r"\bfor (\d+(?:\.\d+)?) seconds, every \d+(?:\.\d+)? seconds while raised", re.I)
+EXPOSURE_SECONDS = 4.0  # KeywordPopups Exposure (conditions.EXPOSURE_DURATION)
+
+
+def raised_exposure_lines(texts: list[str]) -> list[str]:
+    """Window to Paradise's Exposure line(s), when its "every N seconds while raised" half is there too (split or joined)."""
+    if not any(RAISED_WHILE.search(t) for t in texts):
+        return []
+    return [t for t in texts if RAISED_EXPOSURE.search(t) and not RAISED_BLIND.search(t)]
+
+
+def raised_lines(texts: list[str]) -> bool:
+    """Does the build hold a line that needs its shield raised (Bastion of Light's Blind, Window to Paradise's Exposure)?"""
+    return any(RAISED_BLIND.search(t) for t in texts) or bool(raised_exposure_lines(texts))
+
+
 @dataclass(frozen=True)
 class RaisedPlan:
     blind: float  # share of the fight the boss is Blinded by the raised-shield line
     lost: float  # share of the main skill's time spent raising the shield
     how: str
     taps: float = 0.0  # Raise Shield presses a second (a button: ITEM_PRESSES)
+    exposure: float = 0.0  # share of the fight the boss is Exposed by Window to Paradise (MECH98)
+    raised_exposure: bool = False  # the build holds Window to Paradise's raised Exposure line
 
 
-def raised_plan(skills: list[Skill], texts: list[str], metres: float, taps: bool = True) -> RaisedPlan:
-    """How the build raises its shield for a "Blind ... while your Shield is raised" line (Bastion of Light): one tap per
-    Blind duration while the boss is within the line's reach (`metres`, the build's distance), else none."""
+def raised_plan(skills: list[Skill], texts: list[str], metres: float, taps: bool = True,
+                held: str = "") -> RaisedPlan:
+    """How the build raises its shield for its raised-shield lines ("Blind ... while your Shield is raised", Bastion of
+    Light; "Inflict Elemental Exposure ... every 0.25 seconds while raised", Window to Paradise): one tap per debuff
+    duration while the boss is within a line's reach (`metres`, the build's distance), else none; `held`: the main skill
+    that holds the shield raised all fight (no taps)."""
     lines = [t for t in texts if RAISED_BLIND.search(t)]
-    if not lines:
+    exposed = raised_exposure_lines(texts)
+    if not lines and not exposed:
         return RaisedPlan(0.0, 0.0, "")
+    what = " and ".join(w for w, on in (("Blind", lines), ("Exposure", exposed)) if on)
+    label = f"{what} while your Shield is raised"
+
+    def plan(blind: float, lost: float, how: str, tap: float = 0.0, exposure: float = 0.0) -> RaisedPlan:
+        return RaisedPlan(blind, lost, how, tap, exposure, bool(exposed))
+
     if not any(s.name == RAISE_SHIELD for s in skills):
-        return RaisedPlan(0.0, 0.0, "Blind while your Shield is raised: the build has no Raise Shield (no shield), so 0")
-    reach = max((float(m.group(1)) for t in lines if (m := RAISED_REACH.search(t))), default=math.inf)
-    if metres > reach:
-        return RaisedPlan(0.0, 0.0, f"Blind while your Shield is raised reaches {reach:g} m in front of you and the boss "
-                                    f"stands {metres:g} m away: no taps, 0 (closer: Blinded all fight)")
+        return plan(0.0, 0.0, f"{label}: the build has no Raise Shield (no shield), so 0")
+
+    def reach_of(found: list[str]) -> float:
+        if not found:
+            return -math.inf
+        return max((float(m.group(1)) for t in found if (m := RAISED_REACH.search(t))), default=math.inf)
+
+    reach_blind, reach_exposure = reach_of(lines), reach_of(exposed)
+    near_blind, near_exposure = metres <= reach_blind, metres <= reach_exposure
+    reach = max(reach_blind, reach_exposure)
+    if not (near_blind or near_exposure):
+        return plan(0.0, 0.0, f"{label} reaches {reach:g} m in front of you and the boss stands {metres:g} m away: no "
+                              f"taps, 0 (closer: up all fight)")
+    if held:
+        return plan(float(near_blind), 0.0, f"{label}: the main skill ({held}) holds the shield raised all fight, so the "
+                                             f"boss within reach ({metres:g} m away) is under it all fight with no taps",
+                    exposure=float(near_exposure))
     if not taps:
-        return RaisedPlan(0.0, 0.0, "Blind while your Shield is raised: the build doesn't tap Raise Shield (a button: "
-                                    "the search left it out, e.g. at the button cap), so 0 and no time lost")
-    duration = BLIND_SECONDS * duration_scale(texts, "blind")
-    if duration <= 0:
-        return RaisedPlan(0.0, 0.0, "Blind while your Shield is raised: Blind lasts 0 s with the build's lines, so 0")
+        return plan(0.0, 0.0, f"{label}: the build doesn't tap Raise Shield (a button: the search left it out, e.g. at "
+                              "the button cap), so 0 and no time lost")
+    blind_for = BLIND_SECONDS * duration_scale(texts, "blind") if near_blind else 0.0
+    exposure_for = max((float(m.group(1)) for t in texts if (m := RAISED_EXPOSURE_FOR.search(t))),
+                       default=EXPOSURE_SECONDS) if near_exposure else 0.0
+    periods = [(d, n) for d, n in ((blind_for, "Blind"), (exposure_for, "Exposure")) if d > 0]
+    if not periods:
+        return plan(0.0, 0.0, f"{label}: Blind lasts 0 s with the build's lines, so 0")
+    duration, which = min(periods)
     lost = min(RAISE_TAP / duration, 1.0)
-    return RaisedPlan(1.0, lost, (
-        f"tap Raise Shield once every {duration:g} s (the Blind's duration) with the boss within "
-        f"{'' if reach == math.inf else f'{reach:g} m '}in front of you ({metres:g} m away): each pulse renews the Blind, so "
-        f"the boss is Blinded all fight; each tap takes {RAISE_TAP:g} s ({lost:.1%} of the main skill's time, counted; "
-        f"LOW: a tap's length is UNVERIFIED). Raise Shield is a button here (pressed {1 / duration:.2f} times a second). "
-        f"Without the taps: no Blind and no time lost"), 1 / duration)
+    under = " and ".join(w for w, d in (("Blinded", blind_for), ("Exposed", exposure_for)) if d > 0)
+    renewed = " and ".join(n for _, n in periods)
+    return plan(1.0 if blind_for > 0 else 0.0, lost, (
+        f"tap Raise Shield once every {duration:g} s (the {which}'s duration) with the boss within "
+        f"{'' if reach == math.inf else f'{reach:g} m '}in front of you ({metres:g} m away): each pulse renews the "
+        f"{renewed}, so the boss is {under} all fight; each tap takes {RAISE_TAP:g} s ({lost:.1%} of the main skill's "
+        f"time, counted; LOW: a tap's length is UNVERIFIED). Raise Shield is a button here (pressed {1 / duration:.2f} "
+        f"times a second). Without the taps: no {what} and no time lost"),
+        1 / duration, 1.0 if exposure_for > 0 else 0.0)
 
 
 # Bastion of Light's other line, "Raise Shield inflicts Parried for N seconds on Hit" (MECHC25; COV27's item (d)): each
@@ -16171,15 +16366,18 @@ def raised_parried(plan: RaisedPlan, texts: list[str], main: Skill, hps: float =
 
 def raised_model(skills: list[Skill], texts: list[str], metres: float, main: Skill | None,
                  taps: bool = True, hps: float = 0.0, consumes: bool = False,
-                 keep: float = 0.0) -> tuple[list[dict], list[dict]]:
+                 keep: float = 0.0, held: str = "") -> tuple[list[dict], list[dict]]:
     """The main skill's time spent tapping the shield (raised_plan; the Blinded box itself is conditions'), and the
     Parried its taps inflict (raised_parried)."""
     if main is None or main.name == RAISE_SHIELD:
         return [], []
-    plan = raised_plan(skills, texts, metres, taps)
+    plan = raised_plan(skills, texts, metres, taps, held)
     if not plan.how:
         return [], []
-    notes = [{"label": "Blind while your Shield is raised (how the build raises it)", "value": f"{plan.blind:.0%} of the fight",
+    blinds = any(RAISED_BLIND.search(t) for t in texts)
+    what = "Blind / Exposure" if blinds and plan.raised_exposure else "Exposure" if plan.raised_exposure else "Blind"
+    notes = [{"label": f"{what} while your Shield is raised (how the build raises it)",
+              "value": f"{max(plan.blind, plan.exposure):.0%} of the fight",
               "basis": plan.how, "confidence": "LOW" if plan.lost > 0 else "theory"}]
     mods = []
     if any(s.name in PARRY_SKILLS for s in skills):

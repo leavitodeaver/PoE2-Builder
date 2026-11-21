@@ -3314,8 +3314,8 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
             return 0.0, f"the boss {metres:g} m away, beyond the line's {reach:g} m in front of you: 0"
         if plan is None or plan.taps <= 0:
             return 0.0, ("Debilitate while your Shield is raised: the build doesn't tap its shield (taps are planned "
-                         "for Bastion of Light's Blind only; Debilitate alone lowers only the boss's damage): 0, "
-                         "labelled")
+                         "for Bastion of Light's Blind and Window to Paradise's Exposure; Debilitate alone lowers only "
+                         "the boss's damage): 0, labelled")
         up = min(1.0, plan.taps * (models.RAISE_TAP + duration))
         return up, (f"Bastion of Light's shield taps, {plan.taps:.2f} a second, each Debilitating the boss for the "
                     f"{models.RAISE_TAP:g} s tap and {duration:g} s after: {up:.0%} up (MEDIUM-LOW)")
@@ -4697,19 +4697,27 @@ def _exposure_events(kind: str, stats: dict) -> tuple[float, str]:
     return hits, "hits"
 
 
-def _exposure_source(text: str, element: str, stats: dict) -> tuple[float, str] | None:
-    """(uptime, how) of one line for `element`'s Exposure, or None if it isn't a source of it."""
+def _exposure_source(text: str, element: str, stats: dict, raised: bool = False) -> tuple[float, str] | None:
+    """(uptime, how) of one line for `element`'s Exposure, or None if it isn't a source of it; `raised`: the build holds
+    the line's "every N seconds while raised" half (Window to Paradise: models.raised_plan's taps, MECH98)."""
     m = _exposure_match(text, element)
     if m is None:
         return None
     if pair := socketed_pair(text, stats):  # (MECH92: the crafted jewel's two-jewel condition; an OVERCOUNT before)
         rest, ok, how = pair
-        got = _exposure_source(rest, element, stats) if ok else None
+        got = _exposure_source(rest, element, stats, raised) if ok else None
         return (got[0], f"{got[1]}; {how}") if got else (0.0, how)
     chance = float(m.group(1)) / 100 if m.group(1) else 1.0
     when = m.group(3).lower()
     if "fully breaks armour" in when:
         events, how = number(stats.get("_full_break_rate")), "Full Breaks of the boss's Armour"
+    elif raised and models.RAISED_EXPOSURE.search(text):
+        # (MECH98, an OVERCOUNT before: this branch gave Window to Paradise's Exposure all fight within 3 m, the shield
+        # never raised; now the build's Raise Shield taps, models.raised_plan, as Bastion of Light's Blind)
+        plan = stats.get("_raised_plan")
+        if plan is None:
+            return 0.0, "Exposure while your Shield is raised: the build's shield taps weren't read (0, labelled)"
+        return plan.exposure, plan.how
     elif near := re.search(r"(\d+(?:\.\d+)?) metres in front", when):
         metres = (stats.get("_distance_choice") or (natural_distance(stats.get("_main_types") or set(), stats.get("_main_skill") or ""), ""))[0]
         up = 1.0 if metres <= float(near.group(1)) else 0.0
@@ -4810,8 +4818,9 @@ def _exposure_uptime(element: str) -> Callable[[list[str], dict], tuple[object, 
     def uptime(lines: list[str], stats: dict) -> tuple[object, str]:
         main_types = stats.get("_main_types") or set()
         down, how = 1.0, []
+        raised = bool(models.raised_exposure_lines(lines))  # (MECH98: Window to Paradise's "while raised" half)
         for text in lines:
-            if not qualifies(text, main_types) or (r := _exposure_source(text, element, stats)) is None:
+            if not qualifies(text, main_types) or (r := _exposure_source(text, element, stats, raised)) is None:
                 continue
             down *= 1 - r[0]
             how.append(f"{text[:60]} ({r[1]})")
@@ -9752,11 +9761,14 @@ class Conditions:
 
             gain = flasks.Charges.of(self.build)
             stats["_stuns_you"] = (gain.stuns, gain.stuns_how)
-        if any(models.RAISED_BLIND.search(t) for t in texts):  # (Bastion of Light's shield taps, MECHC21)
+        if models.raised_lines(texts):  # (Bastion of Light's shield taps, MECHC21; Window to Paradise, MECH98)
+            from builder.search import recovery
+
             raw = self.build.call("activeSkills")
             found = [models.Skill.of(s) for s in raw["skills"] if not s.get("disabled")]
             metres = (stats.get("_distance_choice") or (natural_distance(main_types, self.main_skill), ""))[0]
-            stats["_raised_plan"] = models.raised_plan(found, texts, metres, models.raised_taps_on(self.build))
+            held = self.main_skill if self.main_skill in recovery.ACTIVE_BLOCK_CHANNELS else ""
+            stats["_raised_plan"] = models.raised_plan(found, texts, metres, models.raised_taps_on(self.build), held)
         # (MECH70: the main skill's own Daze stats, _dazed. MECH71: read for every build, not only when a line names
         # Daze: a skill's own chance (Wind Blast, Siphoning Strike's quality) has no line, and the share also feeds
         # heavy_stun_rate and GEM5's build.dazed_up; plus the build's other hitting skills, _daze_others)

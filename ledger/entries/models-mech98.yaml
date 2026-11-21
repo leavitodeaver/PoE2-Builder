@@ -1,0 +1,36 @@
+# MECH98 (MECH-A lane, 21 Nov 2026): lines and stats a MECH-A model now reads (empty replace: nothing is added to PoB
+# from the line, so nothing counts twice; PoB applies none of these itself).
+
+- id: model-read-mech98-window-to-paradise-while-raised
+  title: '"for 4 seconds, every 0.25 seconds while raised" (Window to Paradise; models.raised_plan)'
+  kind: pob_gap
+  model: raised_plan
+  match: '^for (\d+(?:\.\d+)?) seconds, every (\d+(?:\.\d+)?) seconds while raised$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    The second half of UniqueRaiseShieldApplyExposure1 (stat unique_shield_window_of_paradise_apply_elemental_exposure_
+    while_raised; PoB's unique text splits it, Uniques/shield.lua 135-136, and parses neither half: ModCache 8350 / 10016
+    leftover). With it, the first half ("Inflict Elemental Exposure to Enemies 3 metres in front of you") is a raised-
+    shield line: one Raise Shield tap per Exposure duration (4 s, the line's own) while the boss is within 3 m, each tap
+    0.55 s of the main skill's time and a button press (models.raised_plan, as Bastion of Light's Blind); taps off: none.
+    Before (an OVERCOUNT, PLANS6's plans/un-window-to-paradise.md), conditions._exposure_source read the first half alone
+    and gave the Exposure all fight within 3 m. This entry only says the model reads the line.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Uniques/shield.lua:135-136", "builder/search/models.py raised_plan"]
+  status: proposed
+
+- id: model-mech98-varashtas-blessing-commands
+  title: "Varashta's Blessing: 10% more Damage per different Command used in the last 15 s (models.varashta_blessing_model)"
+  kind: model
+  model: varashta_blessing
+  stats: ["support_djinn_lineage_damage_+%_final_per_different_command_in_last_8_seconds"]
+  skill: [Varashta's Blessing]
+  confidence: MEDIUM
+  notes: >-
+    PoB has no statMap for it (sup_int.lua 8513: 0 before, an UNDERCOUNT). The displayed text says 15 s (RESEARCH41
+    R41-10, MEDIUM): the headline; the stat id's 8 s a row in the note. The count from the build's own Commands (djinn
+    Commands it presses; its other djinn and minion Commands pressed once per max(cooldown, 15 s) at their cast's cost,
+    each a press under the button cap).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_int.lua:8513", "builder/search/models.py varashta_blessing_model"]
+  test_in_game: "Support a skill with it, use two different Commands and compare its tooltip (+20% more); wait 9 s and 16 s (settles 8 vs 15)."
+  status: proposed
