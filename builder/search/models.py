@@ -5466,6 +5466,78 @@ def nova_projectiles_model(main: Skill | None, stats: dict, config: dict | None 
                  "boss. Without Nova: every one.")}]
 
 
+# Abyssal Apparition (GEM29, 21 Nov 2026; an UNDERCOUNT). The Abyssal Lich notable Steward of Kulemak (PassiveSkills
+# AscendancyAltWitch1Notable4, game 26650308: ascendancy_lich_consume_power_for_apparition, "Damaging Spells consume a
+# Power Charge if able to trigger Abyssal Apparition", GrantedSkill: the Abyssal Apparition gem) grants
+# TriggeredAbyssalApparitionPlayer: "Consume a Power Charge when you cast a damaging Spell to trigger an Abyssal
+# Apparition who will also cast that same Spell for you. Does not work with Channelling Spells, Spells with a Cooldown,
+# Triggered Spells, Spells granted by items, or Spells which already consume a Power Charge" (its PoB / ActiveSkills
+# text), with damage_+%_final_from_lich_apparition_cloned_skill: "Spells cast by Apparition deal 60% less Damage" at
+# level 1, 56% at 10, 50% at 20 (GrantedEffectStatSetsPerLevel, PoB other.lua). PoB never grants it: the node's line is
+# unparsed (ModCache: nil), and PoB adds a node's skill only from a parsed "ExtraSkill" line (CalcSetup 321-335); no
+# model of ours counted it (checked: grep of builder/ for Apparition: MECHC38's note that the text isn't a charge gain,
+# nothing else). So the build's main spell gets a second cast at the clone's less damage on every cast that finds a
+# Power Charge: casts a second x min(1, Power Charges gained a second / casts a second), the gains from the build's own
+# lines (MECH-C's conditions._charge_rate, as the Oil Barrage / Glacial Lance shares read them; no source: 0, no flat
+# rate). Counted as DPS MORE share x (1 - less) on the main skill (the clone's cast copies the spell, so its hits and
+# ailments scale alike). The level: the grant names none and PoB gives an unlevelled "Grants Skill" level 1, so the
+# headline is level 1's 60% less (LOW; level 20's 50% a row; R39 question). The casts taken at PoB's Speed all fight
+# (the lower reading: at a smaller share of the fight the charges cover more casts); other Power Charge spenders not
+# taken off (the upper reading); the Apparition's own Power Charge spending is MECH-C's to add to its consumers.
+# Not counted (said): a main skill that's no spell, Channelling, has a cooldown, is triggered or already consumes a
+# Power Charge; item-granted spells aren't told apart (UNVERIFIED); side-group spells (their own Power Charges).
+APPARITION_LINE = re.compile(r"^Damaging Spells consume a Power Charge if able to trigger Abyssal Apparition$", re.I)
+APPARITION_LESS = {1: -60.0, 20: -50.0}  # damage_+%_final_from_lich_apparition_cloned_skill (levels 1 and 20)
+APPARITION_ENTRY = "model-gem29-abyssal-apparition"
+
+
+def abyssal_apparition_model(texts: list[str], main: Skill | None, main_types: set[str], stats: dict, gains: float,
+                             gains_how: str, forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Steward of Kulemak's Abyssal Apparition casting the main spell again (see above): `gains` the build's Power
+    Charges a second (`gains_how` its lines)."""
+    if APPARITION_ENTRY in forbidden or not any(APPARITION_LINE.match(t.strip()) for t in texts):
+        return [], []
+    label = "Abyssal Apparition: casts your Spell again for a Power Charge (Steward of Kulemak)*"
+    why = None
+    if main is None or not main.spell:
+        why = "the main skill isn't a Spell"
+    elif main.triggered or "Triggered" in main_types:
+        why = "the main Spell is triggered"
+    elif number(main.cooldown) > 0 or "Cooldown" in main_types:
+        why = "the main Spell has a cooldown"
+    elif "Channel" in main_types:
+        why = "the main Spell is Channelling"
+    elif "SkillConsumesPowerChargesOnUse" in main_types:
+        why = "the main Spell already consumes a Power Charge"
+    elif "Damage" not in main_types and main_types:
+        why = "the main Spell isn't a damaging Spell"
+    if why:
+        return [], [{"label": label, "value": 0, "confidence": "datamined", "entry": APPARITION_ENTRY,
+                     "basis": f"{why}: the Apparition doesn't copy it (its text)"}]
+    casts = number(stats.get("Speed"))
+    gains = max(number(gains), 0.0)
+    if casts <= 0 or gains <= 0:
+        return [], [{"label": label, "value": 0, "confidence": "theory", "entry": APPARITION_ENTRY,
+                     "basis": ("no Power Charge source in the build: no Apparition cast (no flat rate)" if casts > 0
+                               else "no cast rate read from PoB"),
+                     "play": "Steward of Kulemak needs Power Charges: each cast that finds one is cast again by the "
+                             "Apparition at 60% less damage. Without a Power Charge source: none."}]
+    share = min(1.0, gains / casts)
+    each = 1 + APPARITION_LESS[1] / 100
+    factor, high = 1 + share * each, 1 + share * (1 + APPARITION_LESS[20] / 100)
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], [{
+        "label": label, "value": f"x{factor:.3f}", "confidence": "LOW", "entry": APPARITION_ENTRY,
+        "basis": (f"{gains:.2f} Power Charges a second ({gains_how or 'the build lines'}) over {casts:.2f} casts a second "
+                  f"of {main.name}: {share:.0%} of casts find one and are cast again by the Apparition at "
+                  f"{-APPARITION_LESS[1]:g}% less damage (level 1: PoB's level for an unlevelled grant; LOW): "
+                  f"x{factor:.3f}. Rows: at level 20's {-APPARITION_LESS[20]:g}% less x{high:.3f}; without Power "
+                  "Charges x1. PoB never grants the skill (the node's line unparsed). Other Power Charge spenders not "
+                  "taken off"),
+        "play": (f"Steward of Kulemak: each {main.name} cast that finds a Power Charge is cast again by the Abyssal "
+                 f"Apparition ({share:.0%} of casts here). Without Power Charges: none; with one every cast: "
+                 f"x{1 + each:.2f}.")}]
+
+
 # Volt's Voltaic Charge (GEM11; PATCH_CHECK H1-8, an UNDERCOUNT). Volt (sup_dex.lua SupportVoltPlayer; the game's
 # gem_stat_descriptions.csd): "Supported Skills gain {0} Voltaic Charge per Metre travelled" (support_static_charge_charge_
 # gain_per_metre 2), "Supported Skills have {0} maximum Voltaic Charge / Supported Skills consume all Voltaic Charge on use"

@@ -1762,3 +1762,24 @@ def test_orb_of_storms_and_elemental_storm_cannot_leech():
         assert {("Cannot Leech Life", name), ("Cannot Leech Mana", name)} <= lines
     other = Skill(name="Spark", level_stats={stat: 1})
     assert not [m for m in models.gem_stat_model([other], main=other, stats={})[0] if "Leech" in str(m.get("line"))]
+
+
+def test_abyssal_apparition_casts_the_main_spell_again_for_each_power_charge():
+    """GEM29 (an UNDERCOUNT: PoB never grants the Steward of Kulemak's skill): each main-Spell cast finding a Power
+    Charge is cast again at 60% less (level 1, LOW; level 20's 50% a row); no Power Charge source: none; not for
+    Channelling, Cooldown or triggered Spells."""
+    from builder.search import conditions
+
+    line = "Damaging Spells consume a Power Charge if able to trigger Abyssal Apparition"
+    spark, types, stats = Skill(name="Spark", spell=True), {"Spell", "Damage", "Projectile"}, {"Speed": 2.0, "CritChance": 30.0}
+    gains = conditions._charge_rate("Gain a Power Charge on Critical Hit", "Power", stats)[0]
+    assert gains == pytest.approx(0.6)
+    mods, notes = models.abyssal_apparition_model([line], spark, types, stats, gains, "crit")
+    assert mods[0]["value"] == pytest.approx(100 * 0.3 * 0.4) and notes[0]["confidence"] == "LOW"
+    assert "x1.150" in notes[0]["basis"]  # (level 20's 50% less row)
+    assert models.abyssal_apparition_model([line], spark, types, stats, 5.0, "")[0][0]["value"] == pytest.approx(40.0)
+    assert models.abyssal_apparition_model([line], spark, types, stats, 0.0, "")[0] == []
+    assert models.abyssal_apparition_model([line], spark, types | {"Channel"}, stats, 1.0, "")[0] == []
+    assert models.abyssal_apparition_model([line], Skill(name="Spark", spell=True, cooldown=2.0), types, stats, 1.0, "")[0] == []
+    assert models.abyssal_apparition_model([line], Skill(name="Boneshatter", attack=True), {"Attack"}, stats, 1.0, "")[0] == []
+    assert models.abyssal_apparition_model([], spark, types, stats, 1.0, "") == ([], [])

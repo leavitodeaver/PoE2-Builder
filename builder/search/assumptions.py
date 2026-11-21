@@ -3927,6 +3927,18 @@ class Assumptions:
             standing = bool(build.call("getConfig")["input"].get("conditionStationary"))
             gun_mods, gun_notes = models.run_and_gun_model(texts, stats, main, main_types, standing)
             hand_mods, hand_notes = hand_mods + gun_mods, hand_notes + gun_notes
+        if any(models.APPARITION_LINE.match(t.strip()) for t in texts):  # (GEM29: Steward of Kulemak's Apparition)
+            app_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or [])
+            app_stats = {**stats, **build.call("stats", fields=conditions_mod.EVIDENCE_FIELDS)}
+            app_gains, app_found = 0.0, []
+            for t in texts:
+                if not models.APPARITION_LINE.match(t.strip()) and (
+                        r := conditions_mod._charge_rate(t, "Power", app_stats)) is not None:
+                    app_gains += r[0]
+                    app_found.append(f"{t[:50]} ({r[0]:.2g}/s)")
+            app_mods, app_notes = models.abyssal_apparition_model(
+                texts, main, app_types, app_stats, app_gains, "; ".join(app_found[:3]), forbidden)
+            hand_mods, hand_notes = hand_mods + app_mods, hand_notes + app_notes
         early_mods, early_notes = models.hazard_early_model(found, stats, forbidden, self.hitters(found))  # (MECH-B)
         hand_mods, hand_notes = hand_mods + early_mods, hand_notes + early_notes
         cascade_mods, cascade_notes = models.spell_cascade_model(main, stats, *bosses.hit_radius(stats))  # (MECHB36)

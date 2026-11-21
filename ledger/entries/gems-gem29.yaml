@@ -47,3 +47,24 @@
             "scratch/gem29/probe5777.log (GEM29's probe)"]
   test_in_game: "Orb of Storms with a Leech source: the orb's hits recover nothing."
   status: proposed
+
+- id: model-gem29-abyssal-apparition
+  title: "Abyssal Apparition (Steward of Kulemak): the main Spell cast again at 60% less for each Power Charge it finds (PoB never grants the skill)"
+  kind: model
+  model: abyssal_apparition
+  stats: ["damage_+%_final_from_lich_apparition_cloned_skill"]
+  skill: [Abyssal Apparition]
+  confidence: theory
+  notes: >-
+    models.abyssal_apparition_model + its hook in assumptions (after Run and Gun), GEM29. Steward of Kulemak (Abyssal
+    Lich; PassiveSkills AscendancyAltWitch1Notable4, GrantedSkill the Abyssal Apparition gem) "Damaging Spells consume a
+    Power Charge if able to trigger Abyssal Apparition"; the skill's text: the Apparition casts the same Spell, not for
+    Channelling, Cooldown, Triggered, item-granted or already Power-Charge-consuming Spells; its clone deals 60% less
+    (level 1) to 50% less (level 20). PoB leaves the node's line unparsed (ModCache nil) so it never grants the skill
+    (CalcSetup adds node skills from ExtraSkill lines only). Headline: share = min(1, Power Charges a second from the
+    build's lines (conditions._charge_rate) / casts a second) x 40% of a cast, as DPS MORE (LOW: the level, 1, PoB's
+    for an unlevelled grant; level 20 a row). No Power Charge source: 0.
+  sources: ["builder/search/models.py (abyssal_apparition_model)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (TriggeredAbyssalApparitionPlayer)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcSetup.lua 321-335", "data/game-26650308/tables/PassiveSkills.json (Steward of Kulemak)"]
+  test_in_game: "Abyssal Lich with Steward of Kulemak, Spark and a Power Charge source: count the Apparition's casts and their damage against your own."
+  status: proposed
