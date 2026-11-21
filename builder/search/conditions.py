@@ -2965,21 +2965,47 @@ def curse_uses(build: Build, stats: dict, texts: list[str], metres: float | None
 
 
 def repulsion_minion_hits(build: Build, stats: dict) -> tuple[float, str]:
-    """(MECH94, R36-2) (hits a second the main skill's minions land on the boss, how): PoB's Minion.Speed x
-    Minion.HitChance (the main skill's own minion; 0 when the main skill makes none) x their count (the bridge's
-    activeSkills minion limit, else 1)."""
-    speed = number(stats.get("Minion.Speed"))
-    if speed <= 0:
-        return 0.0, ""
-    chance = number(stats.get("Minion.HitChance")) / 100 if stats.get("Minion.HitChance") is not None else 1.0
+    """(MECH94, R36-2) (hits a second the build's other sources land on the boss, how), every Hit removing Repulsion:
+    the main skill's minions (PoB's Minion.Speed x Minion.HitChance x their count, the bridge's activeSkills minion
+    limit, else 1); (MECH95) the other groups' hitting skills (Conditions.evidence's side-hit rows, published as
+    build.side_rows: PoB's trigger rate, else skill_use_rate at the press choices, x hit chance; Repulsion's own rows
+    left out: its explosion comes after the removal) and the other groups' minions (each group's useRates minionSpeed,
+    PoB's rate for its minion's counted skill, x the minion limit; their hit chance not given: 1, the lower Repulsion
+    reading; a minion skill that doesn't hit counts as hitting, the same)."""
+    total, parts = 0.0, []
     group = build.main_group() if callable(getattr(build, "main_group", None)) else None
+    main_index = (group or {}).get("index")
     name = (group["skills"][min(group.get("mainActiveSkill") or 1, len(group["skills"])) - 1]["name"]
             if group and group.get("skills") else None)
-    raw = next((s for s in build.call("activeSkills")["skills"] if s.get("name") == name and not s.get("disabled")), {})
-    minion = raw.get("minion") or {}
-    count = max(1.0, number(minion.get("limit")) or number(minion.get("desired")) or 1.0)
-    hits = speed * chance * count
-    return hits, f"{count:g} minions x {speed * chance:.2f} hits/s (PoB's Minion.Speed x hit chance)"
+    skills = [s for s in build.call("activeSkills")["skills"] if not s.get("disabled")]
+    speed = number(stats.get("Minion.Speed"))
+    if speed > 0:
+        chance = number(stats.get("Minion.HitChance")) / 100 if stats.get("Minion.HitChance") is not None else 1.0
+        raw = next((s for s in skills if s.get("name") == name), {})
+        minion = raw.get("minion") or {}
+        count = max(1.0, number(minion.get("limit")) or number(minion.get("desired")) or 1.0)
+        total += speed * chance * count
+        parts.append(f"{count:g} minions x {speed * chance:.2f} hits/s (PoB's Minion.Speed x hit chance)")
+    for row in getattr(build, "side_rows", None) or []:
+        if str(row.get("name") or "").startswith(models.REPULSION) or number(row.get("hits")) <= 0:
+            continue
+        total += number(row["hits"])
+        parts.append(f"{row.get('name')} {number(row['hits']):.2f} hits/s")
+    others = {}
+    for s in skills:
+        minion = s.get("minion") or {}
+        index = s.get("group")
+        if index is None or index == main_index or minion.get("failed") or not minion:
+            continue
+        others[index] = max(others.get(index, 0.0), max(1.0, number(minion.get("limit")) or 1.0))
+    if others:
+        for row in build.call("useRates", indices=sorted(others))["rates"]:
+            rate = number(row.get("minionSpeed"))
+            if rate > 0:
+                count = others.get(row.get("index"), 1.0)
+                total += rate * count
+                parts.append(f"{row.get('name')}'s {count:g} minions x {rate:.2f} uses/s (PoB's minion Speed)")
+    return total, "; ".join(parts)
 
 
 def _debuff_pattern(var: str) -> re.Pattern:
@@ -9335,10 +9361,12 @@ class Conditions:
             number((e.get("supportStats") or {}).get(MULTI_CHARGE_STAT))
             or number((e.get("levelStats") or {}).get(MULTI_CHARGE_STAT)))}
         melee = {n for n in hitters if "Melee" in ((every.get(n) or {}).get("skillTypes") or ())}
+        self.build.side_rows = None  # (MECH95: published below for Repulsion's hold, repulsion_minion_hits)
         stats["_side_rows"] = side_hit_rows(group_rows, groups_now, hitters, groups_all.get("mainSocketGroup"),
                                             models.press_choices(self.build), melee, flagged)
         self._side_twisters(stats["_side_rows"])  # (MECHC47: SIDE_TWISTER's note)
         self._side_galvanic(stats["_side_rows"], group_rows, stats, groups_all.get("mainSocketGroup"))  # (MECHC48: SIDE_GALVANIC's note)
+        self.build.side_rows = list(stats["_side_rows"] or [])
         side = side_hits(group_rows, groups_now, hitters, groups_all.get("mainSocketGroup"), models.press_choices(self.build))
         stats["_side_hits"] = side if side[0] > 0 else None
         stats["_gem_line_texts"] = {line["text"] for line in lines if str(line.get("source") or "").startswith("gem:")}

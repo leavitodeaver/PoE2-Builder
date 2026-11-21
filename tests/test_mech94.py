@@ -431,3 +431,24 @@ def test_daze_magnitude_scales_the_dazed_bosss_stun_buildup():
     plain = models.heavy_stun_rate(dazed)
     more = models.heavy_stun_rate({**dazed, "_daze_magnitude": 30.0})
     assert more[0] > plain[0] and "65% more Stun Buildup" in more[1] and "50% more Stun Buildup" in plain[1]
+
+
+def test_repulsions_hold_counts_the_other_groups_hits_and_minions():
+    """MECH95 (MECH94's next step; R36-2, every Hit removes it): the other groups' hitting skills (the published side
+    rows, Repulsion's own left out) and the other groups' minions (useRates minionSpeed x the minion limit) shorten
+    Repulsion's hold too (a higher reading before: only the main skill and its minions)."""
+    from types import SimpleNamespace
+
+    from builder.search import conditions
+
+    calls = {"activeSkills": {"skills": [
+        {"name": "Spark", "group": 1}, {"name": "Raise Zombie", "group": 3, "minion": {"limit": 4}},
+        {"name": "Repulsion", "group": 2}]},
+        "useRates": {"rates": [{"index": 3, "name": "Raise Zombie", "minionSpeed": 0.5}]}}
+    build = SimpleNamespace(
+        main_group=lambda: {"index": 1, "skills": [{"name": "Spark"}], "mainActiveSkill": 1},
+        call=lambda name, **_: calls[name],
+        side_rows=[{"name": "Frost Bomb", "hits": 0.25}, {"name": "Repulsion explosion", "hits": 9.0}])
+    hits, how = conditions.repulsion_minion_hits(build, {"Minion.Speed": 0.0})
+    assert hits == pytest.approx(0.25 + 4 * 0.5)
+    assert "Frost Bomb" in how and "Raise Zombie" in how and "Repulsion" not in how.split("Raise")[0].split(";")[0]

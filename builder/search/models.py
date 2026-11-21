@@ -2718,7 +2718,7 @@ class CurseUse:
 # curse lands curse_delay after the cast (1.5 s, PoB's with the build's modifiers). Before, curse_uses had it on the boss
 # all fight like any curse, so "against Cursed enemies" lines counted in full. Now each wave is on the boss only until
 # the build's next Hit: (1 - e^(-h D)) / h on average, h = the main skill's hits a second at its share of the fight
-# (other skills' and minions' hits not counted: a higher reading, MEDIUM), D its duration; a wave every that + the
+# (MECH94 / MECH95: plus the main skill's minions, the other groups' hits and their minions; R36-2), D its duration; a wave every that + the
 # recast: cast by hand, its cast time (PoB's gem castTime 0.5 s; cast speed not read: a lower reading) + the delay (a
 # recast during the 1 s block lands, the delay being longer: MEDIUM-LOW); under Blasphemy (reapplied, no Ward spent:
 # player reports, MEDIUM-LOW) the 1 s block + the delay; triggered at a model's rate, that rate x the hold. Cast by
@@ -2735,15 +2735,15 @@ def repulsion_use(use: "CurseUse", stats: dict, gems: dict, aura: bool, rate: fl
     own = hits_per_second(at_main_share(stats))
     # (MECH94, RESEARCH36 R36-2, MEDIUM-HIGH: minions' hits remove it too, "Hitting these enemies" with no "you"; an
     # OVERCOUNT before for minion builds) the main skill's minions' hits (stats["_repulsion_minion_hits"]: PoB's
-    # Minion.Speed x hit chance x their count, Conditions' curse_uses); other minion groups have no PoB rate and aren't
-    # counted (the higher reading, labelled)
+    # Minion.Speed x hit chance x their count, Conditions' curse_uses); (MECH95) the other groups' hits and their
+    # minions' too (conditions.repulsion_minion_hits)
     minions, minion_how = stats.get("_repulsion_minion_hits") or (0.0, "")
     hits = own + number(minions)
     lasts = use.duration if use.duration > 0 else CURSE_DURATION
     hold = (1 - math.exp(-hits * lasts)) / hits if hits > 0 else lasts
     head = (f"; Repulsion: any Hit removes it, yours or your minions' (R36-2), so each wave holds {hold:.2f} s on "
             f"average (the main skill's {own:.2f} hits/s" + (f" + {minion_how}" if number(minions) > 0 else
-                                                             "; other minions' hits, if any, not read") + ", R35-25)")
+                                                             "; no other hitting source") + ", R35-25)")
     if rate is not None:
         share = min(1.0, rate * hold)
         return replace(use, share=share, how=use.how + head + f": {share:.0%} of the fight")
