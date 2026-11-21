@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from builder.search import models
@@ -1749,6 +1751,13 @@ def test_nova_projectiles_send_one_of_a_circle_at_the_boss():
     assert models.nova_projectiles_model(Skill(name="Frost Darts"), {"ProjectileCount": 3.2}, {}) == ([], [])
     assert models.nova_projectiles_model(darts, {"ProjectileCount": 3.2}, {}, {models.NOVA_ENTRY}) == ([], [])
     assert models.NOVA_STAT in models.gem_stat_support_stats()
+    # GEM30 (R39-12): the "circle ignores the aim" row, N x 2 asin(r / d) / 360 degrees; R39-11: impact projectiles uncut
+    assert models.nova_unaimed_hits(10, 0.3, 2.0) == pytest.approx(10 * 2 * math.asin(0.15) / (2 * math.pi))
+    assert models.nova_unaimed_hits(10, 0.3, 0.2) == 5 and models.nova_unaimed_hits(0.5, 0.3, 2.0) == 0.5
+    assert "ignores the aim" in models.nova_projectiles_model(hvr, {"ProjectileCount": 7}, {})[1][0]["basis"]
+    assert "ignores the aim" in models._shotgun_count(shards, {"ProjectileCount": 10}, shards)[1]
+    for name in ("Lightning Spear", "Poisonburst Arrow"):
+        assert models.nova_projectiles_model(Skill(name=name, support_stats=nova), {"ProjectileCount": 5}, {}) == ([], [])
 
 
 def test_orb_of_storms_and_elemental_storm_cannot_leech():
@@ -1783,3 +1792,57 @@ def test_abyssal_apparition_casts_the_main_spell_again_for_each_power_charge():
     assert models.abyssal_apparition_model([line], Skill(name="Spark", spell=True, cooldown=2.0), types, stats, 1.0, "")[0] == []
     assert models.abyssal_apparition_model([line], Skill(name="Boneshatter", attack=True), {"Attack"}, stats, 1.0, "")[0] == []
     assert models.abyssal_apparition_model([], spark, types, stats, 1.0, "") == ([], [])
+
+
+def test_valakos_charge_arc_builds_half_the_electrocute():
+    """GEM30 (an OVERCOUNT; RESEARCH39 R39-15): the Arc's electrocute_threshold_+%_final 100 doubles the threshold its
+    buildup is compared with: "50% less Electrocute Buildup" on Valako's Charge, nothing on another skill."""
+    stat = "electrocute_threshold_+%_final"
+    valako = Skill(name="Valako's Charge", level_stats={stat: 100})
+    mods = [m for m in models.gem_stat_model([valako], main=valako, stats={})[0] if "Electrocute" in str(m.get("line"))]
+    assert mods == [{"kind": "Line", "line": "1% less Electrocute Buildup", "scale": 50.0, "skill": "Valako's Charge"}]
+    other = Skill(name="Spark", level_stats={stat: 100})
+    assert not [m for m in models.gem_stat_model([other], main=other, stats={})[0] if "Electrocute" in str(m.get("line"))]
+    assert "Valako's Charge" in models.gem_stat_skills()
+
+
+def test_lightning_conduit_adds_its_bolts_on_a_shocked_boss():
+    """GEM30 (an UNDERCOUNT; PLANS6 kw-conduit): 1-2 additional bolts a cast on a Shocked boss, x(1 + b x share)."""
+    lc = Skill(name="Lightning Conduit", spell=True, level_stats={models.CONDUIT_BOLTS_STAT: 2})
+    mods, notes = models.lightning_conduit_model(lc, 0.5, "test")
+    assert mods[0]["value"] == pytest.approx(100.0) and "x2.000" == notes[0]["value"]
+    assert "always Shocked x3" in notes[0]["basis"]
+    assert models.lightning_conduit_model(lc, 0.0, "none")[0] == []
+    assert models.lightning_conduit_model(lc, 0.5, "t", {models.CONDUIT_ENTRY}) == ([], [])
+    assert models.lightning_conduit_model(Skill(name="Spark"), 0.5, "t") == ([], [])
+    assert models.lightning_conduit_model(Skill(name="Lightning Conduit"), 0.5, "t")[0] == []
+    assert models.LIGHTNING_CONDUIT in models.gem_stat_skills()
+
+
+def test_life_sacrificed_on_use_is_counted_a_second():
+    """GEM30 (kw-sacrifice's gem side): % of maximum Life x the supported skill's uses a second; none without a carrier."""
+    life, notes = models.sacrifice_life_model([("Spark", 2.0, 10.0, "main"), ("Pain Offering", 0.25, 15.0, "duration")],
+                                              1000.0)
+    assert life == pytest.approx(2.0 * 100 + 0.25 * 150) and notes[0]["entry"] == models.SACRIFICE_ENTRY
+    assert "UNVERIFIED" in notes[0]["basis"] and models.sacrifice_life_model([("Spark", 2.0, 0.0, "x")], 1000.0) == (0.0, [])
+    assert models.SACRIFICE_STAT in models.gem_stat_support_stats()
+
+
+def test_ravenous_swarm_and_hollow_focus_follow_their_repeat_interval():
+    """GEM30 (R39-13): swarms alive min(3, D / I), I = 6 s / Cooldown Recovery, none beyond the swarms' reach; Hollow
+    Focus's shockwaves at most one a bell, min(1 / I, PoB's rate), 0 out of reach."""
+    swarm = Skill(name="Ravenous Swarm", cooldown_recovery=1.0, summon={"duration": 9.8},
+                  level_stats={models.REPEAT_STAT: 6000, models.SWARM_MAX_STAT: 3, models.SWARM_RADIUS_STAT: 40})
+    melee = Skill(name="Boneshatter", melee=True, attack=True)
+    mods, notes = models.repeat_interval_model([swarm], melee, {}, {})
+    assert mods[0]["scale"] == pytest.approx(100 * (9.8 / 6 - 1), abs=0.01) and notes[0]["value"] == "x1.63"
+    fast = Skill(name="Ravenous Swarm", cooldown_recovery=1.5, summon={"duration": 9.8}, level_stats=swarm.level_stats)
+    assert models.repeat_interval_model([fast], melee, {}, {})[1][0]["value"] == "x2.45"
+    far = models.repeat_interval_model([swarm], melee, {}, {"enemyDistance": 80})
+    assert far[0][0]["scale"] == pytest.approx(-100) and "none hits it" in far[1][0]["basis"]
+    bells = Skill(name="Hollow Focus", attack=True, cast_time=1.0, level_stats={models.REPEAT_STAT: 2050})
+    mods, notes = models.repeat_interval_model([bells], bells, {"Speed": 1.14}, {"enemyDistance": 20})
+    assert mods[0]["value"] == pytest.approx(100 * ((1 / 2.05) / 1.14 - 1), abs=0.01)
+    assert models.repeat_interval_model([bells], bells, {"Speed": 1.14}, {"enemyDistance": 90})[0][0]["value"] == -100
+    assert models.repeat_interval_model([swarm], melee, {}, {}, {models.REPEAT_ENTRY}) == ([], [])
+    assert {models.RAVENOUS_SWARM, models.HOLLOW_FOCUS} <= set(models.gem_stat_skills())

@@ -2588,6 +2588,58 @@ function bridge.statSetSlots()
 	return { sets = sets, slots = found }
 end
 
+-- The Concoctions are not Unarmed Attacks (GEM30; plans/kw-unarmed.md, COVC3's open item; an OVERCOUNT). The game's
+-- text on all five (ActiveSkills; PoB other.lua's descriptions): "This damage is not based on your unarmed damage, so
+-- this is not considered an Unarmed Attack"; their stat sets carry replace_main_hand_unarmed_attack_stats_with_nothing_type
+-- (a "nothing" weapon in place of the unarmed one) and main_hand_base_weapon_attack_duration_ms 714. PoB reads neither
+-- (checked: grep of Modules/ and Data/SkillStatMap.lua: only the off-hand duration is mapped, 2198). Their weaponTypes
+-- are { None }, so PoB attacks with weaponData1, the class's unarmed weapon (Data.lua 626-636: 2-5 to 2-8 Physical, 1.65
+-- a second) with its ModFlag.Unarmed (Data.lua 606), and every "with Unarmed Attacks" line applied (probe POE2T5792:
+-- "100% increased Damage with Unarmed Attacks" took Explosive Concoction's hit 313 -> 626, Acidic's 97 -> 292; "Adds 100
+-- to 100 Physical Damage to Unarmed Attacks" +30 / +71). So, after PoB builds the skill's modifier list: ModFlag.Unarmed
+-- comes off its weapon flags and configs (lines for any Attack still apply); the unarmed base damage is cancelled by a
+-- BASE minus the class's unarmed Physical, which PoB sums with the skill's own main_hand_weapon damage before the
+-- skill's multiplier (CalcOffence 4135; an "added damage" multiplier, rare, would leave a sliver: named). Its attack
+-- rate is left as PoB has it: the unarmed 1.65 x the skill's attackSpeedMultiplier -15 = 1.4025 a second against
+-- 1000 / 714 ms = 1.4006 (entry gem-active-pob-concoction-attack-time; whether the game also applies the -15 to the
+-- 714 ms, 1.19 a second, is UNVERIFIED). The five by id; the stat's other carriers (Caltrops, Trail
+-- of Caltrops, Blood Explosion, the Heralds, Fan the Flames ...) are left as they are (whether they use weapon damage is
+-- UNVERIFIED, COVC3). With a weapon held PoB disables a Concoction (weaponTypes None): not changed here (UNVERIFIED
+-- whether the game lets you throw one with a weapon in hand: a research question).
+local CONCOCTIONS = { AcidicConcoctionPlayer = true, BleedingConcoctionPlayer = true, ExplosiveConcoctionPlayer = true,
+	FulminatingConcoctionPlayer = true, ShatteringConcoctionPlayer = true }
+local function installConcoctionsNotUnarmed()
+	local calcs = require("Modules.CalcBase")
+	if calcs.ledgerConcoctions or not calcs.buildActiveSkillModList then
+		return
+	end
+	calcs.ledgerConcoctions = true
+	local bit = require("bit")
+	local buildModList = calcs.buildActiveSkillModList
+	calcs.buildActiveSkillModList = function(env, activeSkill)
+		buildModList(env, activeSkill)
+		local effect = activeSkill.activeEffect and activeSkill.activeEffect.grantedEffect
+		if not (effect and CONCOCTIONS[effect.id]) or activeSkill.actor ~= env.player then
+			return
+		end
+		local keep = bit.bnot(ModFlag.Unarmed)
+		activeSkill.weapon1Flags = bit.band(activeSkill.weapon1Flags or 0, keep)
+		activeSkill.weapon2Flags = bit.band(activeSkill.weapon2Flags or 0, keep)
+		for _, key in ipairs({ "skillCfg", "weapon1Cfg", "weapon2Cfg" }) do
+			local cfg = activeSkill[key]
+			if cfg then
+				cfg.flags = bit.band(cfg.flags or 0, keep)
+			end
+		end
+		local weapon = activeSkill.actor.weaponData1
+		if weapon and weapon.type == "None" and activeSkill.skillModList then
+			local list, source = activeSkill.skillModList, "Concoction: not an Unarmed Attack (GEM30)"
+			list:NewMod("PhysicalMin", "BASE", -(weapon.PhysicalMin or 0), source, 0, KeywordFlag.Attack)
+			list:NewMod("PhysicalMax", "BASE", -(weapon.PhysicalMax or 0), source, 0, KeywordFlag.Attack)
+		end
+	end
+end
+
 local function installDerived()
 	installStatSetSlots()
 	installLedgerBonded()
@@ -2601,6 +2653,7 @@ local function installDerived()
 	installNoCritReroll()
 	installBaseChanceSwap()
 	installGrantedLevel()
+	installConcoctionsNotUnarmed()
 	local calcs = require("Modules.CalcBase")
 	if calcs.perform == wrappedPerform or not calcs.perform then
 		return

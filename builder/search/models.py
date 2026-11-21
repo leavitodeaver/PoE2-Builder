@@ -3770,7 +3770,9 @@ def gem_stat_skills() -> list[str]:
     """Skills whose level stats the bridge must read for gem_stat entries."""
     from builder.ledger import gem_stat_entries
 
-    return sorted({name for e in gem_stat_entries() if not e.raw.get("support") for name in _skill_names(e)})
+    return sorted({name for e in gem_stat_entries() if not e.raw.get("support") for name in _skill_names(e)}
+                  | {LIGHTNING_CONDUIT, RAVENOUS_SWARM, HOLLOW_FOCUS})  # (GEM30: lightning_conduit_model /
+    # repeat_interval_model read their level stats)
 
 
 def gem_stat_support_stats() -> list[str]:
@@ -3783,7 +3785,7 @@ def gem_stat_support_stats() -> list[str]:
                                          BURGEON_CAP_STAT, SALVO_PROJECTILE_STAT, SALVO_INTERVAL_STAT, SALVO_MAX_STAT,
                                          VOLT_PER_METRE_STAT, VOLT_MAX_STAT, VOLT_GAIN_STAT, RATHA_DODGE_STAT,
                                          BHATAIR_STAT, TRICKSTER_STAT, OLROTH_STAT, VRUUN_STAT,
-                                         UHTRED_RITE_STAT, NOVA_STAT})  # (gem_stat_life_loss and muster_kinds_model read these)
+                                         UHTRED_RITE_STAT, NOVA_STAT, SACRIFICE_STAT})  # (gem_stat_life_loss and muster_kinds_model read these)
 
 
 def _skill_names(entry) -> list[str]:
@@ -4554,9 +4556,11 @@ def _shotgun_count(skill: Skill, stats: dict, main: Skill | None) -> tuple[float
 
         radius = bosses.hit_radius(stats)[0]
         hits = nova_circle_hits(count, radius, MELEE_DISTANCE)
+        unaimed = nova_unaimed_hits(count, radius, MELEE_DISTANCE)
         return hits, (f"Nova Projectiles fires the {count:g} fragments round a circle with one aimed (RESEARCH31 R31-11 "
                       f"(b), MEDIUM-LOW): {hits:g} reach a boss {radius:g} m in radius at point-blank ({MELEE_DISTANCE:g} "
-                      f"m), not all {count:g} (an OVERCOUNT before; row: all {count:g} if the circle doesn't apply, "
+                      f"m), not all {count:g} (an OVERCOUNT before; rows: {unaimed:.2f} if the circle ignores the aim "
+                      f"(R39-12, N x 2 asin(r / d) / 360 degrees); all {count:g} if the circle doesn't apply, "
                       "UNVERIFIED)")
     return count, ""
 
@@ -5430,6 +5434,12 @@ def salvo_model(skills: list[Skill], stats: dict, main: Skill | None, config: di
 # Bonestorm (one spike a release already under SPELL_CIRCLE; a Nova support read the same way there), and the skills
 # whose own stat set carries the stat (Cold-Infused Spark / Empowered Sparks, Cluster Grenade's Mini Grenades,
 # Runeforged Blades: counted at one hit a use or by their own models).
+# Not cut, on purpose (RESEARCH39 R39-11, the manager 01:27, 21 Nov): skills whose extra projectiles come from the
+# IMPACT, not the release (Lightning Spear's bolts, Poisonburst Arrow's burst; forum 3848479): Nova circles what the
+# skill fires, not what an impact spawns, and neither skill is in SHOTGUN_SKILLS, CROSSBOW_SEQUENCE_RATIO or Frost
+# Darts, so neither reaches the cut below. Rows (R39-12, MEDIUM-LOW: no direct source for "one aimed"): the headline is
+# the aimed one plus its neighbours inside the boss's width (as coded); "the circle ignores the aim" reads
+# N x 2 asin(r / d) / 360 degrees (nova_unaimed_hits).
 NOVA_STAT = "projectiles_nova"
 NOVA_ENTRY = "model-gem29-nova-projectiles"
 
@@ -5441,6 +5451,15 @@ def nova_circle_hits(count: float, radius: float, metres: float) -> float:
         return count
     half = math.pi / 2 if metres <= radius else math.asin(radius / metres)
     return min(count, 1 + 2 * math.floor(half / (2 * math.pi / count) + 1e-9))
+
+
+def nova_unaimed_hits(count: float, radius: float, metres: float) -> float:
+    """R39-12's row: the circle laid down at a random angle (not aimed): the boss's arc's share of N, N x 2 asin(r / d)
+    / 360 degrees (all of them inside the boss)."""
+    if count <= 1:
+        return count
+    half = math.pi / 2 if metres <= radius else math.asin(radius / metres)
+    return min(count, count * 2 * half / (2 * math.pi))
 
 
 def nova_on(skill: Skill | None) -> bool:
@@ -5474,12 +5493,14 @@ def nova_projectiles_model(main: Skill | None, stats: dict, config: dict | None 
     hits = nova_circle_hits(count, radius, metres)
     near, large = nova_circle_hits(count, radius, MELEE_DISTANCE), nova_circle_hits(count, big, MELEE_DISTANCE)
     factor = hits / count
+    unaimed = nova_unaimed_hits(count, radius, metres)
     return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], [{
         "label": label, "value": f"x{factor:.3f}", "confidence": "LOW", "entry": NOVA_ENTRY,
         "basis": (f"{count:g} projectiles a use ({whose} count, every one on the boss) fired evenly round a circle with one "
                   f"aimed (RESEARCH31 R31-11 (b), MEDIUM-LOW): {hits:g} reach a boss {radius:g} m in radius {metres:g} m "
                   f"away ({radius_how}), x{factor:.3f}. Rows: at {MELEE_DISTANCE:g} m x{near / count:.3f}; a {big:g} m "
-                  f"boss ({bosses.LARGEST_RADIUS}) at {MELEE_DISTANCE:g} m x{large / count:.3f}; if a sequence of "
+                  f"boss ({bosses.LARGEST_RADIUS}) at {MELEE_DISTANCE:g} m x{large / count:.3f}; if the circle "
+                  f"ignores the aim (R39-12, N x 2 asin(r / d) / 360 degrees) x{unaimed / count:.3f}; if a sequence of "
                   "projectiles doesn't keep the circle (UNVERIFIED), x1 (every one hits, the count before)"),
         "play": (f"Nova Projectiles sends {main.name}'s projectiles round a circle: about {hits:g} of {count:g} reach one "
                  "boss. Without Nova: every one.")}]
@@ -5555,6 +5576,185 @@ def abyssal_apparition_model(texts: list[str], main: Skill | None, main_types: s
         "play": (f"Steward of Kulemak: each {main.name} cast that finds a Power Charge is cast again by the Abyssal "
                  f"Apparition ({share:.0%} of casts here). Without Power Charges: none; with one every cast: "
                  f"x{1 + each:.2f}.")}]
+
+
+# Lightning Conduit's additional bolts on a Shocked boss (GEM30; PLANS6 plans/kw-conduit.md, the manager 03:05, 21 Nov;
+# an UNDERCOUNT). The skill (ActiveSkills / PoB act_int.lua LightningConduitPlayer): "If there is a Shocked enemy in the
+# target area, additional lightning bolts are distributed among the targets hit"; its stat
+# lightning_conduit_x_additional_strikes_if_consumed_a_shock (description lightning_conduit: "{0} additional bolt(s) if a
+# Shocked enemy is in the target area") is 1 at gem levels 1-3 and 2 at 4-40 (game 26650308 GrantedEffectStatSetsPerLevel
+# StatSet 163 AdditionalStats, 40 rows; PoB's levels the same; poe2db Lightning_Conduit, 21 Nov: "(1-2) additional bolts if
+# a Shocked enemy is in the target area"). The id's "if_consumed" is a relic: 0.3.0 "No longer consumes Shocks from
+# targets hit" (MECH78's conditions note is right about the consume, wrong that the bolts are gone). PoB has no statMap
+# for it and no Module reads it (checked: grep lightning_conduit over SkillStatMap.lua and Modules/: none; PLANS6), and
+# until now no model of ours did (checked: grep "Lightning Conduit" / lightning_conduit over builder/: MECH78's consume note
+# and a cast-time list only). The skill has never_shock, so the Shock comes from the build's other skills or its Shocked
+# Ground: Assumptions.shock_set_share (GEM19's, Shock alone for this skill: an Electrocute isn't a Shock), the share P of
+# its casts that find the boss Shocked. On a lone boss every bolt goes to it (the only target hit), each taken as one
+# more full hit of the skill (MEDIUM-LOW: the bolts' own size isn't stated, UNVERIFIED). So DPS x (1 + b x P). Rows: the
+# boss never Shocked x1; always Shocked x(1 + b). PoB's alternate quality (+0.2 bolts a point, altQualityStats) isn't
+# read: whether PoE2 still offers it is UNVERIFIED (named). As the main skill only; a side group's copy isn't counted
+# (named: an undercount left).
+LIGHTNING_CONDUIT = "Lightning Conduit"
+CONDUIT_BOLTS_STAT = "lightning_conduit_x_additional_strikes_if_consumed_a_shock"
+CONDUIT_ENTRY = "model-gem30-lightning-conduit-bolts"
+
+
+def lightning_conduit_model(main: Skill | None, share: float, how: str,
+                            forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Lightning Conduit as the main skill: DPS x (1 + bolts x the share of its casts finding the boss Shocked)."""
+    if main is None or main.name != LIGHTNING_CONDUIT or CONDUIT_ENTRY in forbidden:
+        return [], []
+    bolts = number(main.level_stats.get(CONDUIT_BOLTS_STAT))
+    label = f"{LIGHTNING_CONDUIT}: additional bolts on a Shocked boss*"
+    if bolts <= 0:
+        return [], [{"label": label, "value": "not counted", "confidence": "MEDIUM-LOW", "entry": CONDUIT_ENTRY,
+                     "basis": f"its level stats carry no {CONDUIT_BOLTS_STAT} (not read from the bridge)"}]
+    share = min(1.0, max(0.0, share))
+    factor = 1.0 + bolts * share
+    mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=CONDUIT_ENTRY)] if share > 0 else []
+    return mods, [{
+        "label": label, "value": f"x{factor:.3f}", "confidence": "MEDIUM-LOW", "entry": CONDUIT_ENTRY,
+        "basis": (f"{bolts:g} additional bolt(s) a cast when a Shocked enemy is in the area (its gem level's stat; PoB "
+                  f"never reads it), all on the lone boss, each a full hit (UNVERIFIED); {share:.0%} of casts find the boss "
+                  f"Shocked ({how}; the skill never Shocks itself): x{factor:.3f}. Rows: never Shocked x1; always "
+                  f"Shocked x{1 + bolts:g}"),
+        "play": (f"{LIGHTNING_CONDUIT} fires {bolts:g} extra bolt(s) into a Shocked boss: Shock it with another skill or "
+                 f"Shocked Ground first. Without Shock: x1; with this build's ({share:.0%} of casts): x{factor:.2f}; "
+                 f"always Shocked: x{1 + bolts:g}.")}]
+
+
+# Ravenous Swarm and Hollow Focus at their repeat interval (GEM30; RESEARCH39 R39-13, research/ravenous-swarm-hollow-focus-
+# rate-r39.md; the manager 01:27, 21 Nov). Both carry base_cooldown_modifiable_repeat_interval_ms and
+# cooldown_recovery_modifiers_also_apply_to_repeat_interval: "Modifiers to Cooldown Recovery Rate also apply to Swarm
+# spawning frequency" / "... to bell appearance frequency" (the game's text; Ravenous Swarm's since 0.5.0), so the interval
+# is I = base / Cooldown Recovery (the skill's cooldownRecovery from the bridge; PoB's own Cooldown field for the Swarm
+# reads the same: probe POE2T5793, 6.006 -> 4.026 s at +50%).
+# - Ravenous Swarm: a swarm every I (6 s), each living D (base_skill_effect_duration, 9.8 s at level 20, with the build's
+#   duration modifiers: the bridge's summon.duration), at most ravenous_swarm_maximum_swarm_count (3) at once: min(3,
+#   D / I) alive (1.63 at base, 2.45 at +50%). PoB and our score counted ONE (probe POE2T5793: summon limit 1, "default";
+#   FullDPS 75.83 with or without +50% Cooldown Recovery): an UNDERCOUNT, x min(3, D / I) on the swarms' damage (a
+#   skill-scoped "Minions deal N% more Damage" line, as minion_alive_model's). "Swarms Attack enemies within {0} metre
+#   radius of you" (active_skill_base_area_of_effect_radius 40, +0.5 a quality point): beyond that radius + the boss's
+#   hit radius from the boss (the build's fight distance: PoB's enemyDistance, else the main skill's natural distance),
+#   none of them hits: x0 (an OVERCOUNT for a ranged build before). The ramp-up to D at the fight's start not counted
+#   (LOW, small over a long fight). MEDIUM.
+# - Hollow Focus (Persistent): a bell every I (2.05 s at level 20), at most 3, each destroyed by one of your Hits for one
+#   shockwave. PoB scores the shockwave at the skill's own attack rate (probe POE2T5793: Speed 1.14 a second, no Cooldown,
+#   35.5 DPS with or without +50% Cooldown Recovery) where the game gives at most 1 / I (0.49 a second at base): an
+#   OVERCOUNT of x2.3 at base, falling with Cooldown Recovery. Rate = min(1 / I, PoB's rate) x the share of shockwaves
+#   reaching the boss (bells appear within 3 m of you, the shockwave is 2.3 m: LOW, 1 for a melee build at the boss, 0
+#   for a ranged one beyond 3 m + 2.3 m + the boss's radius; a row at 0.5). As DPS MORE rate x share / PoB's rate.
+RAVENOUS_SWARM = "Ravenous Swarm"
+HOLLOW_FOCUS = "Hollow Focus"
+REPEAT_STAT = "base_cooldown_modifiable_repeat_interval_ms"
+SWARM_MAX_STAT = "ravenous_swarm_maximum_swarm_count"
+SWARM_RADIUS_STAT = "active_skill_base_area_of_effect_radius"
+REPEAT_ENTRY = "model-gem30-repeat-interval-skills"
+BELL_SPAWN_METRES, BELL_WAVE_METRES = 3.0, 2.3  # (R39-13: bells within 3 m of you; the shockwave's 2.3 m radius)
+
+
+def repeat_interval_model(skills: list[Skill], main: Skill | None, stats: dict, config: dict | None = None,
+                          forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Ravenous Swarm's swarms alive and Hollow Focus's bells a second at their repeat interval (see above)."""
+    from builder.search.conditions import MELEE_DISTANCE, RANGED_DISTANCE  # (conditions imports models)
+
+    if REPEAT_ENTRY in forbidden:
+        return [], []
+    units = number((config or {}).get("enemyDistance"))
+    if units > 0:
+        metres, where = units / 10, "the fight distance this build is calculated at"
+    else:
+        metres = MELEE_DISTANCE if main is not None and main.melee else RANGED_DISTANCE
+        where = "the main skill's natural distance"
+    radius = bosses.hit_radius(stats)[0]
+    mods, notes, done = [], [], set()
+    for skill in skills:
+        if skill.name in done or skill.name not in (RAVENOUS_SWARM, HOLLOW_FOCUS):
+            continue
+        done.add(skill.name)
+        base = number(skill.level_stats.get(REPEAT_STAT)) / 1000
+        if base <= 0:
+            continue
+        recovery = skill.cooldown_recovery or 1.0
+        interval = base / recovery
+        if skill.name == RAVENOUS_SWARM:
+            cap = number(skill.level_stats.get(SWARM_MAX_STAT)) or 3.0
+            duration = number((skill.summon or {}).get("duration"))
+            reach = number(skill.level_stats.get(SWARM_RADIUS_STAT)) / 10
+            alive = min(cap, duration / interval) if duration > 0 else 1.0
+            near = reach <= 0 or metres <= reach + radius
+            factor = alive if near else 0.0
+            mods.append(line("Minions deal 1% more Damage", 100 * (factor - 1), skill=skill.name))
+            notes.append({
+                "label": f"{skill.name}: swarms alive at once (PoB counts one)*", "value": f"x{factor:.2f}",
+                "confidence": "MEDIUM", "entry": REPEAT_ENTRY,
+                "basis": (f"a swarm every {base:g} s / {recovery:.2f} Cooldown Recovery = {interval:.2f} s, each living "
+                          f"{duration:.2f} s, at most {cap:g}: min({cap:g}, {duration:.2f} / {interval:.2f}) = {alive:.2f} "
+                          f"alive (R39-13; PoB scores one)" + ("" if near else
+                          f"; but they attack only within {reach:g} m of you and the boss is {metres:g} m away ({where}, "
+                          f"its radius {radius:g} m): none hits it") + ". The ramp-up at the fight's start not counted"),
+                "play": (f"{skill.name}: stay within {reach:g} m of the boss so the swarms attack it; Cooldown Recovery "
+                         f"and Skill Effect Duration add swarms (up to {cap:g}). Here: {factor:.2f} swarms' damage.")})
+        else:
+            pob_rate = number(stats.get("Speed")) if main is not None and main is skill else 0.0
+            pob_rate = pob_rate or (1 / skill.cast_time if skill.cast_time else 0.0)
+            if pob_rate <= 0:
+                continue
+            rate = min(1 / interval, pob_rate)
+            share = 1.0 if metres <= BELL_SPAWN_METRES + BELL_WAVE_METRES + radius else 0.0
+            factor = rate * share / pob_rate
+            mods.append(raw_mod("DPS", "MORE", 100 * (factor - 1), skill.name, tag=REPEAT_ENTRY))
+            notes.append({
+                "label": f"{skill.name}: one shockwave per bell (PoB times it by your attacks)*", "value": f"x{factor:.3f}",
+                "confidence": "LOW", "entry": REPEAT_ENTRY,
+                "basis": (f"a bell every {base:g} s / {recovery:.2f} Cooldown Recovery = {interval:.2f} s; each one your "
+                          f"Hits destroy makes one shockwave: at most {1 / interval:.2f} a second, not PoB's "
+                          f"{pob_rate:.2f}" + ("" if main is skill else " (beside the main skill: PoB's rate read as 1 / its cast time, LOW)")
+                          + f" (R39-13): {rate:.2f} a second; bells appear within {BELL_SPAWN_METRES:g} m of "
+                          f"you and the shockwave reaches {BELL_WAVE_METRES:g} m, so at {metres:g} m ({where}) "
+                          f"{share:.0%} of them reach the boss (LOW): x{factor:.3f}. Rows: half the shockwaves reaching "
+                          f"x{rate * 0.5 / pob_rate:.3f}; every attack a shockwave (PoB) x1"),
+                "play": (f"{skill.name}: fight at the boss and hit the bells as they appear; Cooldown Recovery makes "
+                         f"them come faster (here {1 / interval:.2f} a second).")})
+    return mods, notes
+
+
+# Life Sacrificed on use (GEM30; plans/kw-sacrifice.md item 1, the gem side; the manager's 03:25 note: MECH-C leads the
+# sustain side; an OVERCOUNT of sustain). Extraction (10), Sacrificial Offering (15) and Guatelitzi's Ablation (25) carry
+# sacrifice_%_life_on_skill_use, "Supported Skills Sacrifice {0}% of Life on use" (game 26650308: the stat's only
+# carriers are the three supports' ConstantStats, SupportExtractionPlayer / SupportSacrificialOfferingPlayer /
+# SupportGuatelitzisAblationPlayer; checked: every GrantedEffectStatSets / PerLevel stat column holding its index; the
+# other "sacrifice" stats are Eldritch Empowerment's Energy Shield, the item / rune gains and Rage: kw-sacrifice B-D).
+# KeywordPopups Sacrifice: "loss of a resource ... that does not count as taking damage ... cannot reduce you below 1
+# Life". PoB has no statMap for it and no Module reads it (checked: grep sacrifice_%_life over SkillStatMap.lua and
+# Modules/: none), so it is in no cost PoB reports (LifePerSecondCost), and our sustain / recovery floors read only that
+# cost: an Extraction or Offering build paid none of it. The Life a second: sum over the supported skills of the % x
+# maximum Life x its uses a second (the main skill: PoB's Speed; another group: conditions.skill_use_rate, as the other
+# side readers). "% of Life" read as of maximum Life (the cost at Full Life; whether it is of current Life is
+# UNVERIFIED, which would make it smaller as Life falls: the lower reading is a row). Published as build.sacrifice_life
+# with a note; the floors (objective.SUSTAIN_POOLS / RECOVERY_POOLS, recovery.py) are MECH-C's and SEARCH's to read it
+# into (routed). Its damage side is PoB's (Extraction's 35% gain as Chaos, Sacrificial Offering's more: counted).
+SACRIFICE_STAT = "sacrifice_%_life_on_skill_use"
+SACRIFICE_ENTRY = "model-gem30-life-sacrificed-on-use"
+
+
+def sacrifice_life_model(rows: list[tuple[str, float, float, str]], life: float) -> tuple[float, list[dict]]:
+    """(Life Sacrificed a second, notes) from `rows` = (skill, uses a second, % of Life a use, how its uses are known)."""
+    rows = [r for r in rows if r[2] > 0]
+    if not rows:
+        return 0.0, []
+    per_second = sum(uses * pct / 100 * life for _, uses, pct, _ in rows)
+    parts = [f"{name} {pct:g}% of {life:,.0f} Life x {uses:.2f} uses/s ({how}) = {uses * pct / 100 * life:,.1f}/s"
+             for name, uses, pct, how in rows]
+    return per_second, [{
+        "label": "Life Sacrificed on use (Extraction, Offerings)*", "value": f"{per_second:,.1f} Life a second",
+        "confidence": "MEDIUM", "entry": SACRIFICE_ENTRY,
+        "basis": ("; ".join(parts) + ". PoB counts it in no cost (it never reads " + SACRIFICE_STAT + "); \"% of "
+                  "Life\" read as of maximum Life (UNVERIFIED: of current Life, less as Life falls); a Sacrifice can't "
+                  "take you below 1 Life"),
+        "play": (f"These supports Sacrifice {per_second:,.0f} Life a second at this pace: your Life recovery has to "
+                 "pay for it (it isn't damage, so nothing mitigates it).")}]
 
 
 # Volt's Voltaic Charge (GEM11; PATCH_CHECK H1-8, an UNDERCOUNT). Volt (sup_dex.lua SupportVoltPlayer; the game's

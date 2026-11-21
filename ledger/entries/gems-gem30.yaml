@@ -1,0 +1,122 @@
+# Gem stats PoB never reads (GEM30, 21 Nov 2026). Game data 26650308; PoB vendor/PathOfBuilding-PoE2.
+
+- id: gem-gem30-valakos-arc-electrocute-threshold
+  title: "Valako's Charge: its Arc doubles the Electrocute Threshold it builds against, so half the Electrocute buildup (PoB ignores it)"
+  kind: gem_stat
+  skill: [Valako's Charge]
+  match: '^electrocute_threshold_\+%_final$'
+  replace: ["1% less Electrocute Buildup"]
+  factor: 0.5
+  confidence: theory
+  notes: >-
+    The Arc set of Valako's Charge (ValakosChargeArcPlayer; PoB's "Bolt" set, act_str.lua) has the constant stat
+    electrocute_threshold_+%_final 100 beside base_lightning_damage_can_electrocute and never_shock. It is the only
+    user of the stat (checked: Stats ids electrocute_threshold*, 5 ids; GrantedEffectStatSets Constant / Implicit /
+    Base stats, game 26650308: only ValakosChargeArcPlayer, 100 at every level; RESEARCH39 R39-15 also checked Mods and
+    passives). No game text describes it (no .csd line, R39-15); KeywordPopups ElectrocuteThreshold: "Electrocute
+    Threshold determines how much Electrocute buildup is needed to Electrocute a target". The Arc hits enemies, so the
+    threshold is the target's against the Arc's hits: +100% final doubles it, i.e. the Arc builds Electrocute at x0.5
+    (R39-15, MEDIUM: the reading by the stat id and the set's other stats). PoB has no statMap for it (checked: grep of
+    SkillStatMap.lua and Modules/ for electrocute_threshold / ElectrocuteThreshold: only CalcSections' display of the
+    enemy's EnemyElectrocuteThreshold, which no calculation reads), so it scored the Arc's buildup at x2 of the game's:
+    an OVERCOUNT wherever the Arc's buildup Electrocutes the boss (MECH-A's buildup_rate / buildup_others read PoB's
+    ElectrocuteBuildupAvg). Counted as "50% less Electrocute Buildup" on the skill (the stat's 100 x factor 0.5:
+    1 / (1 + 100%) = x0.5 exactly), which PoB's buildup multiplies in (CalcOffence 5573-5574, EnemyElectrocuteBuildup
+    MORE). Row: PoB's x1 (the threshold not read).
+  sources: ["data/game-26650308/tables/GrantedEffectStatSets.json (ValakosChargeArcPlayer)",
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/plans6-six-questions-r39.md (R39-15)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua 5573-5574"]
+  test_in_game: "Valako's Charge's Arc against a dummy: the Electrocute buildup a hit shows half that of an equal Lightning hit."
+  status: proposed
+
+- id: model-gem30-lightning-conduit-bolts
+  title: "Lightning Conduit: 1-2 additional bolts a cast when the boss is Shocked (PoB never reads them)"
+  kind: model
+  model: lightning_conduit
+  stats: ["lightning_conduit_x_additional_strikes_if_consumed_a_shock"]
+  skill: [Lightning Conduit]
+  confidence: theory
+  notes: >-
+    models.lightning_conduit_model + its hook in assumptions (after GEM19's SHOCK_SETS block), GEM30; PLANS6
+    plans/kw-conduit.md. The stat ("{0} additional bolt(s) if a Shocked enemy is in the target area") is 1 at gem levels
+    1-3 and 2 from level 4 (game 26650308 GrantedEffectStatSetsPerLevel StatSet 163; poe2db, 21 Nov: "(1-2) additional
+    bolts"); no Shock is consumed since 0.3.0. PoB reads it nowhere (no statMap; grep of Modules/). The skill never
+    Shocks, so the share of casts finding the boss Shocked is Assumptions.shock_set_share's (Shock alone: other skills'
+    Shocks and Shocked Ground). Headline DPS x (1 + bolts x share), each bolt a full hit on the lone boss (MEDIUM-LOW,
+    UNVERIFIED); rows: never Shocked x1, always x(1 + bolts). PoB's alternate quality (+0.2 bolts a point) not read
+    (UNVERIFIED in PoE2). Main skill only.
+  sources: ["builder/search/models.py (lightning_conduit_model)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua (LightningConduitPlayer)",
+            "data/game-26650308/tables/GrantedEffectStatSetsPerLevel.json (StatSet 163)",
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/plans/kw-conduit.md"]
+  test_in_game: "Lightning Conduit 20 on a Shocked dummy: count the bolts (expect 1 + 2) and their damage."
+  status: proposed
+
+- id: model-gem30-life-sacrificed-on-use
+  title: "Extraction / Sacrificial Offering / Guatelitzi's Ablation: the Life Sacrificed on each use, a second (PoB counts it nowhere)"
+  kind: model
+  model: sacrifice_life
+  stats: ["sacrifice_%_life_on_skill_use"]
+  skill: [Extraction, Sacrificial Offering, "Guatelitzi's Ablation"]
+  confidence: theory
+  notes: >-
+    models.sacrifice_life_model + assumptions.sacrifice_life (GEM30; plans/kw-sacrifice.md item 1, the gem side). "Supported
+    Skills Sacrifice {0}% of Life on use": 10 / 15 / 25, the stat's only carriers (checked: GrantedEffectStatSets and
+    PerLevel stat columns, game 26650308). PoB has no statMap for it and no Module reads it (grep), so no cost PoB reports
+    holds it. The Life a second = % x maximum Life x the supported skill's uses a second (main: PoB's Speed; another
+    group: conditions.skill_use_rate), published as build.sacrifice_life and a note; "% of Life" read as of maximum
+    Life (UNVERIFIED: current Life would make it smaller as Life falls). The sustain / recovery floors that should pay for
+    it are MECH-C's and SEARCH's (routed): until they read build.sacrifice_life the drain is shown, not charged.
+  sources: ["builder/search/models.py (sacrifice_life_model)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_int.lua (Extraction, Sacrificial Offering, Guatelitzi's Ablation)",
+            "data/game-26650308/tables/GrantedEffectStatSets.json", "C:/PROJECTS/PoE2 Builder/scratch/manager/plans/kw-sacrifice.md"]
+  test_in_game: "Extraction on a spell at Full Life: one cast takes 10% of maximum Life; at half Life, does a cast take 10% of maximum or of current?"
+  status: proposed
+
+- id: model-gem30-concoctions-not-unarmed
+  title: "The five Concoctions are not Unarmed Attacks: no Unarmed modifiers, no unarmed base damage (PoB gave them both)"
+  kind: model
+  model: concoctions_not_unarmed
+  stats: ["replace_main_hand_unarmed_attack_stats_with_nothing_type"]
+  skill: [Explosive Concoction, Acidic Concoction, Bleeding Concoction, Fulminating Concoction, Shattering Concoction]
+  confidence: datamined
+  notes: >-
+    engine/bridge.lua installConcoctionsNotUnarmed (GEM30; plans/kw-unarmed.md group A, COVC3's open item in
+    gems-active-batch3.yaml). The game's text on each: "This damage is not based on your unarmed damage, so this is not
+    considered an Unarmed Attack"; the stat replaces the unarmed weapon with a "nothing" one. PoB doesn't read it and
+    attacks with the class's unarmed weapon and its ModFlag.Unarmed (weaponTypes None): probe
+    POE2T5792, "100% increased Damage with Unarmed Attacks" doubled Explosive Concoction's hit (313 -> 626) and took
+    Acidic's 97 -> 292, "Adds 100 to 100 Physical Damage to Unarmed Attacks" +30 / +71: an OVERCOUNT for any build with
+    Unarmed lines. After PoB builds the skill: ModFlag.Unarmed off its weapon flags and configs, the unarmed base
+    Physical cancelled (BASE minus it). The attack rate stays PoB's (1.65 x 0.85 = 1.4025 a second against the
+    game's 714 ms, 1.4006: gem-active-pob-concoction-attack-time; UNVERIFIED whether the game also applies the skill's
+    -15% to the 714 ms, which would be 1.19 a second). The stat's other carriers (Caltrops,
+    the Heralds, Fan the Flames ...) untouched (UNVERIFIED for them). A held weapon still disables a Concoction in PoB
+    (UNVERIFIED whether the game allows it: research).
+  sources: ["engine/bridge.lua (installConcoctionsNotUnarmed)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (the five Concoctions)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/Data.lua 606, 626-636", "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua 2527-2530, 4135",
+            "scratch/gem30/probe5792.log (GEM30's probe)"]
+  test_in_game: "Explosive Concoction with and without a hand-wraps 'increased Unarmed damage' line: the throw's damage shouldn't change."
+  status: proposed
+
+- id: model-gem30-repeat-interval-skills
+  title: "Ravenous Swarm's swarms alive and Hollow Focus's bells a second at their Cooldown-Recovery-scaled repeat interval"
+  kind: model
+  model: repeat_interval
+  stats: ["base_cooldown_modifiable_repeat_interval_ms", "cooldown_recovery_modifiers_also_apply_to_repeat_interval",
+          "ravenous_swarm_maximum_swarm_count", "spectral_bells_maximum_active_bells"]
+  skill: [Ravenous Swarm, Hollow Focus]
+  confidence: theory
+  notes: >-
+    models.repeat_interval_model + its hook beside gem_stat_model (GEM30; RESEARCH39 R39-13). The interval I = base /
+    Cooldown Recovery (the game's text: Cooldown Recovery "also applies to Swarm spawning / bell appearance frequency").
+    Ravenous Swarm: min(3, D / I) swarms alive (1.63 at base, 2.45 at +50%) where PoB counts one (probe POE2T5793: summon
+    limit 1, FullDPS 75.83 with or without +50% Cooldown Recovery): x that on the swarms' damage (an UNDERCOUNT); 0 when
+    the boss is beyond the swarms' radius of you plus its own radius (an OVERCOUNT for ranged builds before). Hollow
+    Focus: PoB times its shockwave by the skill's attack rate (probe POE2T5793: 1.14 a second, unchanged by Cooldown
+    Recovery); the game gives one per bell your Hits destroy, at most 1 / I (0.49 a second at base): x min(1 / I, PoB's
+    rate) / PoB's rate x the share reaching the boss (LOW: 1 within 3 + 2.3 m + the boss's radius, else 0; a 0.5 row):
+    an OVERCOUNT before. The Swarm's ramp-up at the fight's start not counted (LOW). Other carriers of the repeat stats
+    (Align Fate, Ghost Dance, Mirror of Refraction, Time of Need) are not read here (open rows).
+  sources: ["builder/search/models.py (repeat_interval_model)", "C:/PROJECTS/PoE2 Builder/scratch/manager/research/ravenous-swarm-hollow-focus-rate-r39.md",
+            "scratch/gem30/probe5793.log (GEM30's probe)"]
+  test_in_game: "Ravenous Swarm with +50% Cooldown Recovery: count the swarms out at once against a boss (expect 2-3)."
+  status: proposed

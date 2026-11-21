@@ -2786,6 +2786,35 @@ def impale(build: Build, main: models.Skill | None, texts: list[str]) -> tuple[f
     return own, other, mods, notes
 
 
+def sacrifice_life(build: Build, found: list[models.Skill], main: models.Skill | None,
+                   stats: dict) -> tuple[float, list[dict]]:
+    """(Life Sacrificed a second, notes) by the skills Extraction / Sacrificial Offering / Guatelitzi's Ablation support
+    (GEM30, models.sacrifice_life_model): the main skill at PoB's Speed, another group at conditions.skill_use_rate (its
+    cooldown, duration or the search's press choice; a triggered one at its own rate). Sets build.sacrifice_life."""
+    carriers = [s for s in found if number(s.support_stats.get(models.SACRIFICE_STAT)) > 0]
+    build.sacrifice_life = (0.0, "")
+    if not carriers:
+        return 0.0, []
+    choices = models.press_choices(build)
+    side = sorted({s.group for s in carriers if s.group is not None and (main is None or s is not main)})
+    rates = {r["index"]: r for r in build.call("useRates", indices=side)["rates"]} if side else {}
+    rows = []
+    for skill in carriers:
+        pct = number(skill.support_stats.get(models.SACRIFICE_STAT))
+        if main is not None and skill is main:
+            rows.append((skill.name, number(stats.get("Speed")), pct, "PoB's use rate as the main skill"))
+            continue
+        rate = rates.get(skill.group) or {}
+        if rate.get("triggered"):
+            uses, why = number(rate.get("speed")), "its trigger rate"
+        else:
+            uses, why, _ = conditions_mod.skill_use_rate(rate, choices) if rate else (0.0, "no use rate", True)
+        rows.append((skill.name, uses, pct, why))
+    life, notes = models.sacrifice_life_model(rows, number(build.call("stats", fields=["Life"]).get("Life")))
+    build.sacrifice_life = (life, notes[0]["basis"] if notes else "")
+    return life, notes
+
+
 def grisly_pyre(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for His Winnowing Flame's Grisly Pyres (MECH71; models.grisly_pyre_model): the skill's uses
     (the main skill's Speed, else its group's rate: conditions.skill_use_rate, the search's chosen press rate where
@@ -3133,6 +3162,9 @@ class Assumptions:
                                                       [e["text"] for e in source_lines],  # (GEM11: Salvo's Seal lines)
                                                       enemy_level(build))  # (GEM13: Frost Bomb's level cap)
         stat_mods = stat_mods + models.cry_stage_floor(stat_mods, forbidden)  # (GEM17: PoB's stages box reads 10)
+        stat_notes = stat_notes + sacrifice_life(build, found, main, stats)[1]  # (GEM30: Life Sacrificed on use)
+        rep_mods, rep_notes = models.repeat_interval_model(found, main, stats, build.call("getConfig")["input"], forbidden)
+        stat_mods, stat_notes = stat_mods + rep_mods, stat_notes + rep_notes  # (GEM30: Ravenous Swarm, Hollow Focus)
         # (MECHC43) a main skill that spends the Combo other Strikes build (Culmination / Vruun's Inevitability,
         # skill_maximum_number_of_combo_stacks): its Combo on use from the build's own Strikes and the press model's
         # shares (models.vruun_combo_share's math), for PoB's Combo count (conditions.Conditions._combo_on_use, a round
@@ -4308,6 +4340,10 @@ class Assumptions:
                                                        previous=self.mods)
             consume_gains.update(conditions_mod.consume_gain(build, main.name, shock, "of its hits Consume a Shock"))
             hand_mods, hand_notes = hand_mods + sh_mods, hand_notes + sh_notes
+        if main is not None and group and main.name == models.LIGHTNING_CONDUIT:  # (GEM30: extra bolts if Shocked)
+            shock, shock_how = self.shock_set_share(group["index"], main.name, False)
+            lc_mods, lc_notes = models.lightning_conduit_model(main, shock, shock_how, forbidden)
+            hand_mods, hand_notes = hand_mods + lc_mods, hand_notes + lc_notes
         if main is not None and group and main.name in models.PARRIED_SETS:  # (GEM19: a part only on a Parried boss)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             plan = models.parry_plan(found, {**stats, "_texts": texts}, main.attack, True,
@@ -8272,7 +8308,8 @@ class Assumptions:
         hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
         applied, others = self.other_shocks(main_index)
         share, how = self._shocked_hits(base, up_how, hits, applied, others, consumes, stats)
-        if main_skill == "Siphoning Strike":  # (it reads Shock alone; the other two any Lightning Ailment)
+        if main_skill in ("Siphoning Strike", models.LIGHTNING_CONDUIT):  # (Shock alone; the other two any Lightning
+            # Ailment; GEM30: Lightning Conduit's bolts need "a Shocked enemy")
             return share, how
         # (Electrocute is a Lightning Ailment too, KeywordPopups LightningAilment, and isn't consumed by them: the main
         # skill's own Electrocute share joins as independent (Shockburst Rounds' is 0: its -100% Electrocute
