@@ -18,7 +18,7 @@
     of the scored DPS is scaled (with Earthshatter's / Forge Hammer's set-off share from detonated_set_model).
     MECHB49 (the manager 21:38: MECH-B owns the Fissure counts; GEM28's table folded in): Starborn Onslaught's ring of
     3 on its Impact set (its Fissure stats are in that set: GrantedEffectStatSets StarbornOnslaughtPlayer, MEDIUM);
-    Molten Crash's one Rage Fissure on the share of uses MECH-C's build.rage_spent pays; the branching Fissures 0 at
+    Molten Crash's one Rage Fissure on the share of uses MECH-C's build.rage_paid pays (MECHB50: its share, MECHC48); the branching Fissures 0 at
     the boss (LOW).
     MECHB50: Starborn Onslaught's Star Fall (GrantedEffectStatSets StarbornOnslaughtExplosions, PoB "Star Fall") is
     part of the same use and PoB scores one set (an UNDERCOUNT): the use = the Impact set's 4 hits + the stars landed x

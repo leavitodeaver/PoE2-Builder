@@ -4224,7 +4224,7 @@ class Assumptions:
             fis_mods, fis_notes = models.fissure_count_model(
                 main, main.stat_set, sets, got.get("levelStats") or {}, got.get("supportStats") or {},
                 [e["text"] for e in source_lines], bosses.hit_radius(stats)[0], det_split, forbidden,
-                previous=self.mods, rage_spent=getattr(build, "rage_spent", None))  # (MECHB49: Molten Crash's Rage)
+                previous=self.mods, rage_paid=getattr(build, "rage_paid", None))  # (MECHB50: Molten Crash's Rage, MECHC48)
             hand_mods, hand_notes = hand_mods + fis_mods, hand_notes + fis_notes
         if main is not None and main.name == models.EYE:  # (GEM19: its first hit a use, 900% more, never read by PoB)
             eye_stats = build.call("stats", fields=["AverageDamage", "Speed", "TotalDPS"])

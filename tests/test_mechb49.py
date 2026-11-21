@@ -24,17 +24,17 @@ def test_starborn_onslaught_counts_its_ring_of_three_on_the_impact():
 
 
 def test_molten_crash_adds_a_fissure_on_the_uses_its_rage_pays():
+    """MECHB50: the paid share from MECH-C's build.rage_paid (MECHC48), not rage_spent's text."""
     crash = Skill("Molten Crash", 1, attack=True, melee=True)
     sets = _sets(Fissures=100.0)
-    kept = (5.0, "Molten Crash 5.00/s")
-    mods, notes = models.fissure_count_model(crash, "Fissures", sets, {}, {}, [], 0.4, rage_spent=kept)
+    kept = {"share": 1.0, "asked": 5.0, "paid": 5.0}
+    mods, notes = models.fissure_count_model(crash, "Fissures", sets, {}, {}, [], 0.4, rage_paid=kept)
     assert mods[0]["value"] == pytest.approx(100.0) and "every use paid" in notes[0]["basis"]
-    short = (2.5, "Molten Crash 5.00/s (asking 5.00/s, more than comes: 2.50/s)")
-    mods, _ = models.fissure_count_model(crash, "Fissures", sets, {}, {}, [], 0.4, rage_spent=short)
-    assert mods[0]["value"] == pytest.approx(50.0)
+    short = {"share": 0.5, "asked": 5.0, "paid": 2.5}
+    mods, notes = models.fissure_count_model(crash, "Fissures", sets, {}, {}, [], 0.4, rage_paid=short)
+    assert mods[0]["value"] == pytest.approx(50.0) and "50% of its uses paid" in notes[0]["basis"]
     assert models.fissure_count_model(crash, "Fissures", _sets(Fissures=100.0), {}, {}, [], 0.4)[0] == []  # (no Rage: one)
-    other = (3.0, "Furious Slam 3.00/s")
-    assert models.fissure_count_model(crash, "Fissures", sets, {}, {}, [], 0.4, rage_spent=other) == ([], [])
+    assert models.fissure_count_model(crash, "Fissures", sets, {}, {}, [], 0.4, rage_paid=None)[0] == []
 
 
 class _SideBuild:
@@ -126,7 +126,7 @@ def test_molten_crash_counts_its_slam_and_its_fissures_each_use():
     assert mods[0]["value"] == pytest.approx(40.0)  # (400 + 1 x 160) / 400, PoB scoring the slam alone
     assert "UNDERCOUNT" in notes[0]["basis"]
     mods, _ = models.fissure_count_model(crash, "Molten Crash", sets, {}, {models.FISSURE_EXTRA_STAT: 1}, [], 0.4,
-                                         rage_spent=(5.0, "Molten Crash 5.00/s"))
+                                         rage_paid={"share": 1.0, "asked": 5.0, "paid": 5.0})
     assert mods[0]["value"] == pytest.approx(100 * ((400 + 3 * 160) / 400 - 1))  # 1 + Upheaval I + Rage
 
 

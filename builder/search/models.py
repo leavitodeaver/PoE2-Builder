@@ -20335,7 +20335,7 @@ def explosive_rhythm_model(main: Skill | None, texts: list[str], row: dict, reco
 # R39-5, MEDIUM) the impact is its own 2.5 m area hit beside them: 4 (+N) hits a use, the headline; 3 (+N) a row. Molten Crash: "Consumes Rage to create additional Molten Fissures"
 # (molten_crash_optionally_consume_X_rage_for_fissures 10, molten_crash_number_of_additional_fissures_from_rage_
 # consumption 1: one more for the 10 Rage a use, conditions.RAGE_PER_USE) on the share of its uses the build's Rage pays
-# (MECH-C's build.rage_spent: all while the gain keeps up, else what comes, cut across the spenders in proportion, LOW
+# (MECH-C's build.rage_paid, MECHC48: all while the gain keeps up, else what comes, cut across the spenders alike, LOW
 # for the cut); no Rage gained, no Rage Fissure. Its base without Rage is one (its text gives no count; R37-16 / GEM28,
 # LOW).
 # {skill: (its Fissure stat sets, the layout)}
@@ -20396,7 +20396,6 @@ def star_fall_hits(level_stats: dict, star_radius: float, boss_radius: float) ->
 # 22465): no carrier in game 26650308 (checked: GrantedEffectStatSets' Constant / Implicit stats, the per-level stat
 # columns, Mods Stat1-6, PassiveSkills; poe2db not checked: UNVERIFIED), so not counted.
 FISSURE_BASE_ROWS = {"Molten Crash": (2.0, 8.0)}
-FISSURE_ASKING = re.compile(r"\(asking (\d+(?:\.\d+)?)/s, more than comes: (\d+(?:\.\d+)?)/s\)")
 FISSURE_BASE_STAT, FISSURE_EXTRA_STAT = "base_number_of_fissures", "base_number_of_additional_fissures"
 FISSURE_CHANCE_STAT = "skill_additional_fissure_chance_%"
 FISSURE_CHANCE = re.compile(r"^skills which create fissures have a (\d+(?:\.\d+)?)% chance to create an additional "
@@ -20414,28 +20413,28 @@ def fissure_arc_share(boss_radius: float, metres: float) -> float:
     return min(1.0, 2.0 * math.degrees(math.asin(reach / metres)) / FISSURE_ARC_DEGREES)
 
 
-def fissure_rage_paid(name: str, rage_spent: tuple[float, str] | None) -> tuple[float, str]:
-    """(the share of `name`'s uses whose Rage is paid, how) from MECH-C's build.rage_spent (see above)."""
-    if not rage_spent or rage_spent[0] <= 0:
-        return 0.0, "the build gains no Rage to spend, 0"
-    if not re.search(re.escape(name) + r" \d", rage_spent[1]):
-        return 0.0, f"its Rage spend isn't read (no use rate for {name}), 0"
-    if short := FISSURE_ASKING.search(rage_spent[1]):
-        asked, real = float(short.group(1)), float(short.group(2))
-        share = min(1.0, real / asked) if asked > 0 else 0.0
-        return share, f"{share:.0%} of its uses paid: Rage {real:.2f}/s comes for {asked:.2f}/s asked (cut in proportion, LOW)"
-    return 1.0, f"every use paid: the build's Rage keeps up ({rage_spent[1]})"
+def fissure_rage_paid(name: str, rage_paid: dict | None) -> tuple[float, str]:
+    """(the share of `name`'s uses whose Rage is paid, how) from MECH-C's build.rage_paid ({"share", "asked", "paid"}:
+    share = min(1, paid / asked) over all the Rage spenders, None when nothing gains or spends Rage; MECHC48)."""
+    if not rage_paid:
+        return 0.0, "the build gains no Rage for it to spend, 0"
+    share = min(1.0, max(0.0, number(rage_paid.get("share"))))
+    asked, paid = number(rage_paid.get("asked")), number(rage_paid.get("paid"))
+    if share >= 1.0 - 1e-9:
+        return 1.0, f"every use paid: the build's Rage keeps up ({paid:.2f}/s spent of {asked:.2f}/s asked)"
+    return share, (f"{share:.0%} of its uses paid: Rage {paid:.2f}/s comes for {asked:.2f}/s asked by all its "
+                   f"spenders (cut alike, LOW)")
 
 
 def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict], level_stats: dict,
                         support_stats: dict, texts: list[str], boss_radius: float,
                         det_share: float | None = None, forbidden: set[str] = frozenset(),
                         previous: list[dict] | None = None,
-                        rage_spent: tuple[float, str] | None = None) -> tuple[list[dict], list[dict]]:
+                        rage_paid: dict | None = None) -> tuple[list[dict], list[dict]]:
     """A Fissure skill's Fissures a use at the boss against PoB's one (see above). `level_stats` / `support_stats` the
     activeSkills row's, `texts` the build's lines, `det_share` the share of a DETONATED_SETS skill's set-off part the
     detonated model counts (Earthshatter's spikes, Forge Hammer's hammers), None for the others; `rage_spent` MECH-C's
-    build.rage_spent (Molten Crash's Rage Fissure)."""
+    build.rage_paid (Molten Crash's Rage Fissure)."""
     if main is None or main.name not in FISSURE_SETS or FISSURE_ENTRY in forbidden:
         return [], []
     labels, layout = FISSURE_SETS[main.name]
@@ -20447,7 +20446,7 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
     chance = min(1.0, (sum(lines) + own) / 100.0)
     rage, rage_how = (0.0, "")
     if main.name in FISSURE_RAGE:
-        paid, rage_how = fissure_rage_paid(main.name, rage_spent)
+        paid, rage_how = fissure_rage_paid(main.name, rage_paid)
         rage = FISSURE_RAGE[main.name] * paid
     own_hit = FISSURE_OWN_HIT.get(main.name, 0.0)
     count = min(cap, base + extra + rage + chance) + own_hit
