@@ -105,13 +105,13 @@ def reference_request(name: str, facts: dict, keystones: list[str], stats: dict 
     )
 
 
-def fair_reference(engine: PobEngine, xml: str, request: BuildRequest) -> dict:
+def fair_reference(engine: PobEngine, xml: str, request: BuildRequest, legal: bool = False) -> dict:
     """The reference scored as the search scores its own builds (the verdict's reference): the same build (tree, items, gems, groups and
     their Full DPS flags kept), its PoB config reset as for every build the search makes (bridge resetConfig: the
     boss's preset; the author's quest choices are kept, resetConfig keeps every quest input), then the search's own
     scoring steps, as finalize_task runs them on a finished build: conditions and assumptions settled (Search.settle),
     the conditions round, the play choices, press rates, exact uptimes and the Infused factor read again. Returns its DPS, the floors it reads short
-    and the conditions it was granted."""
+    and the conditions it was granted; with `legal`, also the reading made legal (legal_reference, SEARCH35)."""
     from builder.search.inner import Search, boss_config, boss_stats
     from builder.search.skeletons import enumerate_skeletons
 
@@ -123,6 +123,16 @@ def fair_reference(engine: PobEngine, xml: str, request: BuildRequest) -> dict:
     build.call("resetConfig", **boss_config(request))
     build.boss_stats = boss_stats(request)
     build.refresh()
+    _score_finished(search)
+    out = {"dps": build.objective.dps(build.stats), "short": [d[0] for d in build.objective.deficits(build.stats)],
+           "conditions": sorted(search.conditions.active), "floor_stats": fair_floor_stats(build)}
+    if legal:
+        out["legal"] = legal_reference(search)
+    return out
+
+
+def _score_finished(search) -> None:
+    """The search's scoring steps on a finished build, as finalize_task runs them (fair_reference)."""
     for _ in range(4):
         if not search.settle():
             break
@@ -133,8 +143,50 @@ def fair_reference(engine: PobEngine, xml: str, request: BuildRequest) -> dict:
     search.weigh_uptimes()
     if search.gems.refresh_infused():  # (the Infused factor in the finished state, as finalize_task: SEARCH28)
         search.weigh_uptimes()
-    return {"dps": build.objective.dps(build.stats), "short": [d[0] for d in build.objective.deficits(build.stats)],
-            "conditions": sorted(search.conditions.active), "floor_stats": fair_floor_stats(build)}
+
+
+# (SEARCH35; SEARCHB1's G0, the manager 13:00 21 Nov: "Score references within the search's own budget, or show that
+# reading beside the raw one") The game limits a reference can break under the search's scoring that this reading
+# fixes: the level's passive points and Spirit. The others (attribute requirements, skill costs) stay in its "short".
+LEGAL_LIMITS = ("Passive points over the level's budget", "Spirit")
+
+
+def legal_reference(search) -> dict | None:
+    """The fair reference made legal the way the search keeps its own builds legal, then scored again: passives over
+    the level's points trimmed (tree.trim_to_budget: the weakest branches per point, the search's own trim), then while
+    Spirit is short the non-main skill group whose switching off loses least (among those that free Spirit) is switched
+    off. None when the reference breaks neither limit. Shown beside the raw fair reading; the verdict is unchanged."""
+    from builder.search.objective import number
+
+    build = search.build
+    broken = [label for label, _, hard in build.objective.deficits(build.stats) if hard and label in LEGAL_LIMITS]
+    if not broken:
+        return None
+    changes = []
+    if trimmed := search.tree.trim_to_budget():
+        changes.append(f"{trimmed} passive(s) over the level's points removed (the weakest branches)")
+    main = build.main_group()
+    for _ in range(len(build.groups())):
+        if not any(label == "Spirit" for label, _, hard in build.objective.deficits(build.stats) if hard):
+            break
+        spirit = number(build.stats.get("SpiritUnreserved"))
+        options = []
+        for group in build.groups():
+            if not group["enabled"] or (main and group["index"] == main["index"]) or group.get("fromItem"):
+                continue
+            build.set_group(index=group["index"], enabled=False)
+            freed, score = number(build.stats.get("SpiritUnreserved")), build.score
+            build.set_group(index=group["index"], enabled=True)
+            if freed > spirit:
+                options.append(((freed >= 0, score), group))
+        if not options:
+            break
+        _, group = max(options, key=lambda o: o[0])
+        build.set_group(index=group["index"], enabled=False)
+        changes.append(f"{group.get('label') or ' + '.join(g['name'] for g in group['gems'][:1])} switched off (Spirit)")
+    _score_finished(search)
+    return {"broken": broken, "changes": changes, "dps": build.objective.dps(build.stats),
+            "short": [d[0] for d in build.objective.deficits(build.stats)]}
 
 
 def fair_floor_stats(build) -> dict:
@@ -237,7 +289,7 @@ def main() -> None:
         # so the reference meets its own floors and its DPS is read with those floors' weights)
         pob_floors = request.floors.model_dump(mode="json", exclude_none=True)
         request = reference_request(path.stem, facts, keystones, fair["floor_stats"])
-        fair = fair_reference(fair_engine, xml, request)
+        fair = fair_reference(fair_engine, xml, request, legal=True)
         fair["pob_floors"] = pob_floors
         if fair["dps"] <= 0 and not args.author_toggles:
             print(f"{path.stem}: skipped, its main skill scores no damage the search's way")
@@ -245,6 +297,11 @@ def main() -> None:
         print(f"{path.stem}: reference {reference_dps:,.0f} with its own PoB config, {fair['dps']:,.0f} scored as the "
               f"search scores its builds (x{fair['dps'] / reference_dps:.2f}); "
               + ("all floors met" if not fair["short"] else "reads short: " + ", ".join(fair["short"])), flush=True)
+        if legal := fair.get("legal"):
+            print(f"{path.stem}: the fair reference breaks the game's limits ({', '.join(legal['broken'])}): made legal "
+                  f"({'; '.join(legal['changes']) or 'nothing the search could change'}) it reads {legal['dps']:,.0f} "
+                  f"(x{legal['dps'] / fair['dps'] if fair['dps'] else 0:.2f} of the raw fair reading)"
+                  + ("; short: " + ", ".join(legal["short"]) if legal["short"] else ""), flush=True)
         print(f"{path.stem}: floors from the fair scoring {request.floors.model_dump(mode='json', exclude_none=True)}; "
               f"PoB's own (before our models) were {fair['pob_floors']}", flush=True)
         references.append((path.stem, request, reference_dps, fair))
@@ -272,10 +329,16 @@ def main() -> None:
         rows[-1].update({"reference_dps_fair": fair["dps"], "ratio_fair": dps / fair["dps"] if fair["dps"] else None,
                          "reference_fair_short": fair["short"], "reference_fair_conditions": fair["conditions"],
                          "floors_from": "fair", "reference_pob_floors": fair["pob_floors"]})
+        if legal := fair.get("legal"):  # (SEARCH35: the reference within the search's own limits, beside the raw one)
+            rows[-1].update({"reference_dps_legal": legal["dps"], "ratio_legal": dps / legal["dps"] if legal["dps"] else None,
+                             "reference_legal_broken": legal["broken"], "reference_legal_changes": legal["changes"],
+                             "reference_legal_short": legal["short"]})
         print(f"[{'PASS' if passed else 'FAIL'}] {name} {result.get('label')}: {dps:,.0f} vs the reference scored the "
               f"search's way {fair['dps']:,.0f} (x{dps / fair['dps'] if fair['dps'] else 0:.2f}) and with its author's "
               f"toggles {reference_dps:,.0f} (x{dps / reference_dps:.2f}); verdict on the "
               + ("toggled" if args.author_toggles else "fair") + " one; "
+              + (f"the reference made legal {fair['legal']['dps']:,.0f} (x{dps / fair['legal']['dps']:.2f}; it breaks "
+                 f"{', '.join(fair['legal']['broken'])} raw); " if (fair.get("legal") or {}).get("dps") else "")
               + ("all floors met" if result.get("feasible") else "short: " + ", ".join(failing))
               + ("; UNSETTLED: re-settled " + ", ".join(f"{d:,.0f}" for d in result["reapply_drift"]["after"])
                  + f", scored fresh {result['reapply_drift'].get('fresh') or 0:,.0f}"
