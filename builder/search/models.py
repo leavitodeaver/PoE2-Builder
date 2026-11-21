@@ -20351,6 +20351,43 @@ FISSURE_SETS = {"Earthshatter": (("Slam",), "line"), "Sunder": (("Wave",), "line
 FISSURE_BESIDE = {"Molten Crash": ("Molten Crash",)}
 FISSURE_RAGE = {"Molten Crash": 1.0}  # (molten_crash_number_of_additional_fissures_from_rage_consumption, a paid use)
 FISSURE_OWN_HIT = {"Starborn Onslaught": 1.0}  # (R39-5: the impact's own area hit beside its Fissures)
+# (MECHB50; MECHB49's lead, the manager 23:25: Starborn Onslaught is entirely MECH-B's) Its Star Fall: "The impact
+# releases Fissures and causes stars to fall in the area for a brief period" (ActiveSkills starborn_onslaught), its own
+# stat set (GrantedEffectStatSets StarbornOnslaughtExplosions, PoB "Star Fall": a 2 m area hit, 100% Physical to Cold),
+# so one use makes the Impact set (its hit + Fissures, above) AND the stars, of which PoB scores one set: an UNDERCOUNT
+# of the multi-set kind (Molten Crash's). The Impact set's stats place them: empyrean_descent_number_of_explosions 20
+# (+0.2 a quality, PoB other.lua's qualityStats), secondary_explosions_inner_radius 20 / outer_radius 60 (2 m / 6 m from
+# the impact), initial delay 300 ms then one each 300 ms (about 6 s for 20). The impact lands on the target, so a star
+# hits the boss when its centre falls within its own radius + the boss's hit radius of the boss's centre. Where in the
+# 2-6 m ring each falls isn't in the data (checked: the two stat sets' stats and statset_0 / statset_1.csd's texts,
+# "Calls down {0} Stars"; poe2db's Starborn_Onslaught page per R39-5 gives counts and radii only): the headline takes
+# them spread evenly over the ring's area (LOW, a number the game decides: for the manager / RESEARCH) with the ring
+# scaled with the star's own area (PoB's Star Fall AreaOfEffectRadius / 10 from setRates, over its base 2 m: the lower reading);
+# rows: the ring not scaled, and spread evenly over the distance from the impact (more near the middle). On a 0.3 m
+# boss, about 1 of the 20 lands (x the Star Fall set's DPS beside the Impact set's 4 hits).
+STAR_FALL = {"Starborn Onslaught": "Star Fall"}
+STAR_COUNT_STAT, STAR_INNER_STAT, STAR_OUTER_STAT = ("empyrean_descent_number_of_explosions",
+                                                     "empyrean_descent_secondary_explosions_inner_radius",
+                                                     "empyrean_descent_secondary_explosions_outer_radius")
+STAR_BASE = (20.0, 2.0, 6.0, 2.0)  # (count, inner m, outer m, the star's own radius m: the stat sets' constants)
+
+
+def star_fall_hits(level_stats: dict, star_radius: float, boss_radius: float) -> tuple[float, float, float, str]:
+    """(stars landing on the boss a use: the headline, the ring-unscaled row, the even-in-distance row, how) (above)."""
+    n = number(level_stats.get(STAR_COUNT_STAT)) or STAR_BASE[0]
+    inner = number(level_stats.get(STAR_INNER_STAT)) / 10 or STAR_BASE[1]
+    outer = number(level_stats.get(STAR_OUTER_STAT)) / 10 or STAR_BASE[2]
+    r = star_radius if star_radius > 0 else STAR_BASE[3]
+    reach = r + max(boss_radius, 0.0)
+
+    def by_area(a: float, b: float) -> float:
+        return min(1.0, max(0.0, (reach * reach - a * a) / (b * b - a * a))) if b > a else 1.0
+    k = r / STAR_BASE[3]
+    head, unscaled = n * by_area(inner * k, outer * k), n * by_area(inner, outer)
+    by_distance = n * (min(1.0, max(0.0, (reach - inner) / (outer - inner))) if outer > inner else 1.0)
+    how = (f"{n:g} stars a use fall {inner:g}-{outer:g} m from the impact on the boss; each hits it within its "
+           f"{r:.2f} m + the boss's {boss_radius:g} m")
+    return head, unscaled, by_distance, how
 # (RESEARCH39 R39-7) Molten Crash's base with no Rage isn't settled (no base-count stat): headline 1 (Volcanic Fissure's
 # analogy), rows 2 (one a slam of its two) and 8 (one guide's "8 around you"), each + the Rage one inside its Limit 8
 # (molten_crash_max_number_of_fissures), a number the game decides (LOW). Its Rage extra: +1 a use, once on landing, for
@@ -20420,6 +20457,7 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
     row_share = fissure_arc_share(boss_radius, FISSURE_ROW_METRES) if layout == "arc" else None
     dps = unscale_own(sets, previous, FISSURE_ENTRY)
     beside = None  # (FISSURE_BESIDE: the use's other set's DPS)
+    stars, star_dps = None, 0.0  # (STAR_FALL: the stars landed a use and the Star Fall set's DPS)
     if main.name in DETONATED_SETS and det_share is not None:
         plain_labels, det_label, *_ = DETONATED_SETS[main.name]
         if scored not in plain_labels + (det_label,):
@@ -20427,6 +20465,14 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
         plain = max((dps.get(k, 0.0) for k in plain_labels), default=0.0)
         total = plain + dps.get(det_label, 0.0) * det_share
         fissure = plain if labels[0] in plain_labels else dps.get(det_label, 0.0) * det_share
+    elif main.name in STAR_FALL:  # (MECHB50: the use = the Impact set's count + the stars landed x the Star Fall set)
+        if scored not in labels + (STAR_FALL[main.name],):
+            return [], []
+        star_set = next((x for x in sets if x.get("label") == STAR_FALL[main.name]), {})
+        star_dps = dps.get(STAR_FALL[main.name], 0.0)
+        stars = star_fall_hits(level_stats, number(star_set.get("AreaOfEffectRadius")) / 10, boss_radius)
+        beside = stars[0] * star_dps
+        fissure, total = dps.get(labels[0], 0.0), dps.get(scored or "", 0.0)
     elif main.name in FISSURE_BESIDE and scored in FISSURE_BESIDE[main.name] + labels:
         beside = max((dps.get(k, 0.0) for k in FISSURE_BESIDE[main.name]), default=0.0)
         fissure, total = dps.get(labels[0], 0.0), dps.get(scored or "", 0.0)
@@ -20461,11 +20507,23 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
                      "basis": (f"{'; '.join(parts)}, {how}; but the scored {scored} set isn't a Fissure (or none is "
                                f"set off), so nothing changes")}]
     if layout == "nova":  # (it lands on its target: no range row)
+        if stars is not None:  # (MECHB50: the Star Fall beside the Impact set; PoB scores one of the two)
+            def with_stars(n_star: float, n: float = count * share) -> float:
+                return (n_star * star_dps + n * fissure) / total
+            star_part = (f"; and its Star Fall: {stars[3]}: {stars[0]:.2f} land spread evenly over the ring's area "
+                         f"(scaled with the star's area), at {star_dps:,.1f} DPS each (the Star Fall set; LOW, the "
+                         f"placement isn't in the data). PoB scores the {scored} set alone ({total:,.1f}; an "
+                         f"UNDERCOUNT): x{factor:.3f}. Rows: the ring not scaled, {stars[1]:.2f} stars, "
+                         f"x{with_stars(stars[1]):.3f}; spread evenly over the distance, {stars[2]:.2f}, "
+                         f"x{with_stars(stars[2]):.3f}; no star counted, x{with_stars(0.0):.3f}")
+        else:
+            star_part = f". The Fissures are {fissure / total:.0%} of the {scored} DPS scored: x{factor:.3f}"
         return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=FISSURE_ENTRY)], [{
-            "label": f"{main.name}: {count:.2f} Fissures a use at the boss*", "value": f"x{factor:.3f}",
-            "confidence": "MEDIUM", "entry": FISSURE_ENTRY,
-            "basis": (f"PoB counts one Fissure a use. The game makes {count:.2f}: {'; '.join(parts)}; {how}. "
-                      f"The Fissures are {fissure / total:.0%} of the {scored} DPS scored: x{factor:.3f}"
+            "label": f"{main.name}: {count:.2f} Fissures a use at the boss*"
+                     + (f" + {stars[0]:.2f} stars" if stars is not None else ""), "value": f"x{factor:.3f}",
+            "confidence": "MEDIUM" if stars is None else "MEDIUM-LOW", "entry": FISSURE_ENTRY,
+            "basis": (f"PoB counts one Fissure a use. The game makes {count:.2f}: {'; '.join(parts)}; {how}"
+                      + star_part
                       + (f" (the impact's hit and {count - own_hit:.2f} Fissures; without the impact's own hit, "
                          f"x{scale((count - own_hit) * share):.3f})" if own_hit else "")
                       + ". Not counted: the branching Fissures (2 from each, outward: 0 at the boss, R37-16 LOW)")}]

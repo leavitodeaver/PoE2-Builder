@@ -16,10 +16,11 @@ def test_starborn_onslaught_counts_its_ring_of_three_on_the_impact():
     level = {models.FISSURE_BASE_STAT: 3, "number_of_branching_fissures": 2}
     mods, notes = models.fissure_count_model(star, "Impact", _sets(Impact=100.0, Star_Fall=50.0), level,
                                              {models.FISSURE_EXTRA_STAT: 1}, [], 0.4)
-    assert mods[0]["value"] == pytest.approx(100 * (5 - 1))  # the impact + 3 + Upheaval I's 1 (R39-5)
-    assert notes[0]["confidence"] == "MEDIUM" and "branching" in notes[0]["basis"]
+    stars = models.star_fall_hits(level, 0.0, 0.4)[0]  # (MECHB50: + the stars landed x the Star Fall's 50)
+    assert mods[0]["value"] == pytest.approx(100 * (5 - 1) + stars * 50.0, abs=0.01)  # the impact + 3 + Upheaval I's 1
+    assert notes[0]["confidence"] == "MEDIUM-LOW" and "branching" in notes[0]["basis"]  # (the stars LOW)
     mods, _ = models.fissure_count_model(star, "Star Fall", _sets(Impact=100.0, Star_Fall=50.0), level, {}, [], 0.4)
-    assert not mods  # (the Star Fall isn't a Fissure)
+    assert mods[0]["value"] == pytest.approx(100 * ((4 * 100.0 + stars * 50.0) / 50.0 - 1), abs=0.01)
 
 
 def test_molten_crash_adds_a_fissure_on_the_uses_its_rage_pays():
@@ -213,3 +214,20 @@ def test_crater_makes_three_fissures_each_landing():
     notes = Assumptions(build).crater_fissures(Skill("Leap Slam", 1, attack=True, melee=True), 0.8)
     assert build.objective.entry_scales == {"Crater": pytest.approx(2.4)}  # 0.8 landings x 3 over PoB's 1 a second
     assert "x1.600" in notes[0]["basis"]  # (the row: 2 a landing)
+
+
+def test_starborn_onslaughts_star_fall_adds_the_stars_that_land_on_the_boss():
+    """MECHB50: 20 stars 2-6 m from the impact, each 2 m: spread over the ring's area, (2.3^2 - 2^2) / (6^2 - 2^2)."""
+    head, unscaled, by_distance, _ = models.star_fall_hits({}, 2.0, 0.3)
+    assert head == pytest.approx(20 * (2.3 ** 2 - 4) / 32) and unscaled == pytest.approx(head)
+    assert by_distance == pytest.approx(20 * 0.3 / 4)
+    head, unscaled, _, _ = models.star_fall_hits({}, 3.0, 0.3)  # (a bigger star: the ring scaled with it is lower)
+    assert head == pytest.approx(20 * (3.3 ** 2 - 9) / (81 - 9)) and unscaled == pytest.approx(20 * (3.3 ** 2 - 4) / 32)
+    assert models.star_fall_hits({}, 7.0, 0.3)[1] == 20  # (the whole unscaled ring inside its reach)
+    star = Skill("Starborn Onslaught", 1, attack=True, melee=True)
+    sets = _sets(Impact=100.0, Star_Fall=50.0)
+    sets[1]["AreaOfEffectRadius"] = 20.0  # (PoB units)
+    mods, notes = models.fissure_count_model(star, "Impact", sets, {models.FISSURE_BASE_STAT: 3}, {}, [], 0.3)
+    stars = 20 * (2.3 ** 2 - 4) / 32
+    assert mods[0]["value"] == pytest.approx(100 * ((4 * 100.0 + stars * 50.0) / 100.0 - 1), abs=0.01)
+    assert "stars" in notes[0]["label"] and "no star counted, x4.000" in notes[0]["basis"]

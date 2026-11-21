@@ -20,7 +20,12 @@
     3 on its Impact set (its Fissure stats are in that set: GrantedEffectStatSets StarbornOnslaughtPlayer, MEDIUM);
     Molten Crash's one Rage Fissure on the share of uses MECH-C's build.rage_spent pays; the branching Fissures 0 at
     the boss (LOW).
-  sources: ["builder/search/models.py (FISSURE_SETS, fissure_count_model)", "builder/search/assumptions.py (models(), after the detonated sets)",
+    MECHB50: Starborn Onslaught's Star Fall (GrantedEffectStatSets StarbornOnslaughtExplosions, PoB "Star Fall") is
+    part of the same use and PoB scores one set (an UNDERCOUNT): the use = the Impact set's 4 hits + the stars landed x
+    the Star Fall set; 20 stars (empyrean_descent_number_of_explosions) 2-6 m from the impact, each a 2 m area: those
+    within the star's radius + the boss's hit radius, spread evenly over the ring's area scaled with the star (LOW, the
+    placement isn't in the data; about 1 on a 0.3 m boss); rows the ring unscaled, even over distance, and none.
+  sources: ["builder/search/models.py (FISSURE_SETS, fissure_count_model, STAR_FALL, star_fall_hits)", "builder/search/assumptions.py (models(), after the detonated sets)",
             "C:/PROJECTS/PoE2 Builder/scratch/manager/research/radius-transform-jewels-and-fissure-layouts.md (R37-16)",
             "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:9410-9413",
             "data/game-26650308/tables/GrantedEffectStatSets.json (ForgeHammerPlayer, SupportUpheavalPlayer / PlayerTwo, SupportKaomsMadnessPlayer)",
