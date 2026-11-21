@@ -1,0 +1,42 @@
+- id: model-mechb52-tornado-ground
+  title: "Tornado's extra elemental damage for each absorbed elemental ground (models.tornado_ground_model)"
+  kind: model
+  model: tornado_ground
+  stats: ["active_skill_base_elemental_damage_to_deal_per_minute"]
+  skill: [Tornado]
+  confidence: theory
+  notes: >-
+    MECHB52 (PLANS7 gs-tornado-absorb.md; RESEARCH42 R42-10, LOW; an UNDERCOUNT). "Deals {0} damage per second of each
+    absorbed Elemental Damage type" (2x its Physical in PoB's level table), which PoB never reads (no statMap). Each
+    element's base DoT goes on PoB's skillData ColdDot / FireDot / LightningDot (PoB scales it), times the share of the
+    fight the build's own ground of that element is at the boss (MECH-A's build.chilled_ground_up / ignited_ground_up /
+    shocked_ground_up; the last not published yet, so Shocked Ground counts 0 until MECH-A publishes it). The element
+    only while the Tornado overlaps live ground (the headline); kept for its whole duration a row (UNVERIFIED).
+- id: model-mechb52-vivid-stampede
+  title: "Spirit Walker's Vivid Stampede at the Wisps the build makes (models.vivid_stampede_model)"
+  kind: model
+  model: vivid_stampede
+  stats: ["vivid_stag_metres_travled_per_wisp_gain", "vivid_stag_maximum_stag_wisps_allowed",
+          "vivid_stag_cascade_number_of_damaging_areas", "ascendancy_vivid_stag_gain_wisps_on_end",
+          "vivid_stag_damage_%_final_per_cascade"]
+  skill: [Vivid Stampede]
+  confidence: theory
+  notes: >-
+    MECHB52 (plans/un-morrigans-guidance.md; RESEARCH42 R42-5, RESEARCH40 R40-9; an UNDERCOUNT: PoB's tree-granted group
+    is outside Full DPS). Stags a second = Wisps from the dodge rolls the build makes anyway (x 4.6 m / 10 m; walking not
+    counted) + with The Mórrigan's Guidance one a Stampede every max(0.3 s, T_end + the next attack), T_end a LOW 1 s
+    (no game number; rows 0.3 and 4 s). 4 landings a Stag (MEDIUM-LOW); the 20% more a leap additive (x1.30; compounding
+    x1.342 a row). Its group counts through Full DPS at that rate. No Attack main skill: 0.
+- id: model-mechb52-primal-bounty
+  title: "Primal Bounty's Owl-Feather Empowerment, +2 Projectiles on the main skill's Empowered uses (models.primal_bounty_model)"
+  kind: model
+  model: primal_bounty
+  stats: ["owl_feather_max_bonus_to_stack", "owl_feather_gain_frequency_+%", "skill_triggered_by_owl_feathers"]
+  skill: [Primal Bounty]
+  confidence: theory
+  notes: >-
+    MECHB52 (PLANS7 gs-primal-bounty.md, plans/un-mhachas-gift.md; RESEARCH42 R42-15; an UNDERCOUNT). Empowered uses a
+    second = the feathers a second (every 4 s, 50% faster with The Mhacha's Gift), at most the main skill's uses (dodging
+    as each comes, as MECH-C's Sacred Unity reader). +2 Projectiles counted on the Crossbow shotgun skills (their
+    fragments Merge at point-blank); other Projectile skills 0 on a lone boss, with a row. The Mhacha's two-feather spend
+    adds nothing beyond its faster feathers (UNVERIFIED whether effect scales the count).

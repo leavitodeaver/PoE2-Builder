@@ -22306,8 +22306,8 @@ def hailstorm_rounds_model(main: Skill | None, stats: dict, boss: tuple[float, s
                   f"impact; {share(boss[0]):.0%} land on the boss ({boss[1]}; spread evenly by area, LOW) and it is hit "
                   f"at most once every {HAILSTORM_HIT_DELAY:g} s, every other one (x{cap:g}, R41-4, HIGH): "
                   f"{target:.3f} a second, x{factor:.3f} on PoB's. Rows: {boss_upper[1]}: {upper:.3f} a second, "
-                  f"x{upper / speed:.3f}; every landing a hit (no cap): x{uncapped / speed:.3f}. The ailments keep PoB's "
-                  "hit rate"),
+                  f"x{upper / speed:.3f}; every landing a hit (no cap): x{uncapped / speed:.3f}. The ailment readers take "
+                  "the same cut (build.main_hit_cut; above x1 they keep PoB's rate)"),
         "play": (f"Fire {main.name} at least every {number(stats.get('BoltCount')) * reload:.0f} s (before it holds its "
                  "most bolts), aimed at the boss's centre.")}]
 
@@ -22575,9 +22575,23 @@ def flame_breath_model(main: Skill | None, speed: float, cooldown: float, free: 
                   f"{free:g} s Rage-free window plus what Rage pays ({rage_how}; no Rage gained while in use), after a "
                   f"{windup:.2f} s wind-up (4 attack times at its own speed, MEDIUM-LOW): x{head:.3f}. Rows: no Rage "
                   f"x{share(0.0, windup):.3f}; Rage paying all x{share(1.0, windup):.3f}; the wind-up at 8x that "
-                  f"(without its attack speed multiplier) x{share(rage_share, windup * 8):.3f}"),
+                  f"(without its attack speed multiplier) x{share(rage_share, windup * 8):.3f}. The ailment readers take the "
+                  "same cut (build.main_hit_cut)"),
         "play": (f"Press {main.name} as its cooldown ends and channel through the Rage-free window"
                  + (" and on with Rage" if rage_share > 0 else "") + "; use other skills while it recovers.")}]
+
+
+# The main skill's hit-rate cut for the ailment readers (MECHB52; MECH98's build.main_hit_cut, train 113; the manager
+# 13:36 21 Nov, an OVERCOUNT). Flame Breath's channel share and Hailstorm Rounds' bolts landing cut the main skill's HITS
+# with a "DPS" MORE, which PoB's own ailment counts read through DpsMultiplier but our readers (Speed x HitChance) don't:
+# the same factor goes on build.main_hit_cut (Conditions.evidence clamps it to [0, 1], so a Hailstorm factor above 1, a
+# big boss, leaves the readers at PoB's rate: a small undercount there, said in its note).
+def hit_cut_of(mods: list[dict], cut: float | None = None) -> float | None:
+    """The hit-rate factor of a model's "DPS" MORE mods, times `cut` (an earlier model's); None with no such mod."""
+    for mod in mods:
+        if mod.get("name") == "DPS" and mod.get("type") == "MORE":
+            cut = (1.0 if cut is None else cut) * max(0.0, 1 + number(mod.get("value")) / 100)
+    return cut
 
 
 # Knockback pushing the boss out of a melee skill's reach (MECHB51; RESEARCH42 R42-26, MEDIUM-HIGH; the manager 08:07).
@@ -22659,3 +22673,195 @@ def behead_note(main: Skill | None, supports: list[str]) -> list[dict]:
                        "presets' fights (RESEARCH42 R42-21: none of their summon skills sets a rarity; a LABELLED "
                        f"assumption, UNVERIFIED): 0 counted. Row: {row}"),
              "play": f"{name} gives nothing against the boss itself; kill a Rare just before the fight for its Modifiers."}]
+
+
+# Tornado's absorbed elemental grounds (MECHB52; PLANS7 gs-tornado-absorb.md; RESEARCH42 R42-10, LOW; an UNDERCOUNT).
+# ActiveSkills tornado: "A Tornado that overlaps an Elemental Ground Surface absorbs that surface's Debuff, applying it to
+# enemies inside the Tornado and causing the Tornado to deal extra damage of that element"; TornadoPlayer's
+# active_skill_base_elemental_damage_to_deal_per_minute, "Deals {0} damage per second of each absorbed Elemental Damage
+# type" (PoB's level table: 2x its Physical, 17,530 against 8,765 a minute at level 20). PoB lists the stat with no
+# statMap (checked: grep "elemental_damage_to_deal_per_minute" over SkillStatMap.lua and Modules: none), so it scores the
+# Physical DoT alone. Counted: each element's base DoT (PoB's skillData ColdDot / FireDot / LightningDot, so PoB scales
+# it with the build's own modifiers) x the share of the fight the build's own ground of that element is at the boss
+# (MECH-A's build.chilled_ground_up / ignited_ground_up / shocked_ground_up; the Tornado placed on the boss, LOW). The
+# headline: the element only while the Tornado overlaps live ground (R42-10's reading); a row: the element kept for the
+# rest of its duration (UNVERIFIED). The ground's own Debuff (its Shock / Chill) counts through the ground models, not
+# here.
+TORNADO = "Tornado"
+TORNADO_ENTRY = "model-mechb52-tornado-ground"
+TORNADO_STAT = "active_skill_base_elemental_damage_to_deal_per_minute"
+TORNADO_GROUNDS = (("Cold", "Chilled Ground"), ("Fire", "Ignited Ground"), ("Lightning", "Shocked Ground"))
+
+
+def tornado_ground_model(main: Skill | None, level_stats: dict, grounds: dict[str, tuple[float, str]],
+                         forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Tornado's elemental DoT for each ground it absorbs (see above). `level_stats` its gem's level stats; `grounds`
+    {element: (share of the fight that ground is at the boss, how)}."""
+    if main is None or main.name != TORNADO or TORNADO_ENTRY in forbidden:
+        return [], []
+    base = number(level_stats.get(TORNADO_STAT)) / 60
+    if base <= 0:
+        return [], []
+    mods, parts = [], []
+    for element, ground in TORNADO_GROUNDS:
+        share, how = grounds.get(element) or (0.0, "")
+        share = max(0.0, min(1.0, number(share)))
+        parts.append(f"{ground} {share:.0%}" + (f" ({how})" if how and share > 0 else ""))
+        if share > 0:
+            mods.append({"kind": "SkillData", "skill": TORNADO, "key": f"{element}Dot", "value": _round(base * share)})
+    note = {"label": f"{TORNADO}: its absorbed elemental grounds*",
+            "value": (f"+{len(mods)} element(s)" if mods else "none absorbed"), "confidence": "LOW",
+            "entry": TORNADO_ENTRY,
+            "basis": (f"each absorbed element deals {base:,.0f} base damage a second (the gem's {TORNADO_STAT}, which PoB "
+                      "never reads), scaled by the build's modifiers, for the share of the fight the build's own ground of "
+                      f"it is at the boss with the Tornado on it (LOW): {'; '.join(parts)}. Row: the element kept for "
+                      "the rest of the Tornado's duration after the ground ends (UNVERIFIED, R42-10)"),
+            "play": "Cast Tornado onto your own elemental ground at the boss: it deals that element too."}
+    return mods, [note]
+
+
+# Icestorm's overlapping storms (MECHB52; PLANS7 gs-storm-overlap.md; RESEARCH42 R42-3, LOW: not settled, leans shared).
+# IcestormPlayer icestorm_max_number_of_storms 3; PoB scores one storm at its 0.15 s per-target limit (GEM17's
+# icestorm_model). If each storm kept its own limit, storms up = min(3, its Duration x casts a second) would each hit the
+# boss at the limit: an UNVERIFIED upper row only (the 0.15 s limit equals one storm's own impact interval, so a
+# per-storm limit would be idle: R42-3 leans shared). The headline stays PoB's single storm.
+ICESTORM_STORMS = 3
+
+
+def icestorm_overlap_note(main: Skill | None, speed: float, duration: float) -> list[dict]:
+    """An UNVERIFIED row: Icestorm's storms up at once, each at its own hit limit (see above)."""
+    if main is None or main.name != ICESTORM or speed <= 0 or duration <= 0:
+        return []
+    up = min(float(ICESTORM_STORMS), duration * speed)
+    if up <= 1.0 + 1e-9:
+        return []
+    return [{"label": f"{ICESTORM}: {up:.2f} storms up at once (one counted)*", "value": "x1.000", "confidence": "LOW",
+             "basis": (f"up to {ICESTORM_STORMS} storms (icestorm_max_number_of_storms); at {speed:.2f} casts a second and "
+                       f"a {duration:.2f} s duration, {up:.2f} overlap on the boss. Whether each keeps its own 0.15 s "
+                       "per-target limit is not settled (RESEARCH42 R42-3 leans shared: the limit equals one storm's own "
+                       f"impact interval): the headline keeps PoB's one storm. Row (UNVERIFIED): each its own limit, x{up:.2f} "
+                       "on the storm's hits"),
+             "play": "Recast Icestorm on the boss before the last storm ends."}]
+
+
+# Spirit Walker's Vivid Stampede at the rate the build feeds it (MECHB52; plans/un-morrigans-guidance.md; RESEARCH42
+# R42-5, RESEARCH40 R40-9; an UNDERCOUNT: PoB's tree-granted group sits outside Full DPS, and the tool never makes a
+# tree-granted skill the main one: context.gems leaves fromTree out, so PoB's own rate never scores it as main). The
+# game (PassiveSkills AscendancyHuntress2Notable1 / 2, VividStampedePlayer, 26650308): "Gain a Vivid Wisp for every 10
+# metres you move, up to a maximum of 3 / Expend all Vivid Wisps to trigger Vivid Stampede when you Attack, creating one
+# Stag per Vivid Wisp" (vivid_stag_metres_travled_per_wisp_gain 10, vivid_stag_maximum_stag_wisps_allowed 3); a 0.3 s
+# cooldown; each Stag lands 4 times (vivid_stag_cascade_number_of_damaging_areas 4, 1 m apart, a 2 m shockwave: all 4
+# reach a boss in its path, R42-5 MEDIUM-LOW). The Mórrigan's Guidance (Notable2): "Gain a Vivid Wisp when Vivid
+# Stampede ends" and "Stags deal 20% more damage per leap" (vivid_stag_damage_%_final_per_cascade 20). None read by
+# PoB (checked: grep -i "vivid_stag|cascade_number_of_damaging" over SkillStatMap.lua and Modules: none).
+# Stags a second = the movement Wisps (the dodge rolls the build makes anyway: the user's rate / the boss's attack gap,
+# x DODGE_ROLL_METRES / 10; walking not counted, an UNDERCOUNT) + with the node one a Stampede, a Stampede every
+# max(0.3 s, T_end + the next attack): T_end, how long a Stampede takes to end, is in no file (R40-9: 0.3-4 s): a LOW
+# flat 1 s, FOR THE MANAGER, rows 0.3 and 4 s. The per-leap more: additive over the 4 landings, x1.30 (leap 0 first,
+# the lower reading; compounding x1.342 a row). No Attack main skill: no Stampede (0, said).
+VIVID_STAMPEDE = "Vivid Stampede"
+VIVID_ENTRY = "model-mechb52-vivid-stampede"
+VIVID_LANDINGS = 4
+VIVID_METRES_PER_WISP = 10.0
+VIVID_COOLDOWN = 0.3
+VIVID_END = 1.0  # s, LOW (R40-9: 0.3-4 s; no game number): the time a Stampede takes to end
+VIVID_END_ROWS = (0.3, 4.0)
+VIVID_PER_LEAP = 0.20
+MORRIGAN = re.compile(r"^Gain a Vivid Wisp when Vivid Stampede ends$", re.I)
+
+
+def vivid_stampede_model(main: Skill | None, stampede: Skill | None, texts: list[str], rolls: float, attack_rate: float,
+                         forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Vivid Stampede's Stags a second (see above) as its trigger rate (landings a second) and the per-leap more.
+    `rolls` the dodge rolls a second the build makes anyway, `attack_rate` the main skill's uses a second."""
+    if stampede is None or stampede.group is None or VIVID_ENTRY in forbidden:
+        return [], []
+    if main is None or not main.attack or attack_rate <= 0:
+        return [], [{"label": f"{VIVID_STAMPEDE}: no Stags (no Attack to trigger it)*", "value": "0",
+                     "confidence": "HIGH", "entry": VIVID_ENTRY,
+                     "basis": "\"Expend all Vivid Wisps to trigger Vivid Stampede when you Attack\": the main skill isn't "
+                              "an Attack, so no Stampede is counted"}]
+    node = any(MORRIGAN.match(t.strip()) for t in texts)
+    moved = max(0.0, rolls) * DODGE_ROLL_METRES / VIVID_METRES_PER_WISP
+
+    def stags(end: float) -> float:
+        return moved + (1.0 / max(VIVID_COOLDOWN, end + 1.0 / attack_rate) if node else 0.0)
+    head = stags(VIVID_END)
+    if head <= 0:
+        return [], [{"label": f"{VIVID_STAMPEDE}: no Stags (no Wisps)*", "value": "0", "confidence": "LOW",
+                     "entry": VIVID_ENTRY,
+                     "basis": "no movement the tool counts (no dodge rolls) and no Wisp on its end: 0 counted"}]
+    leap = sum(1 + VIVID_PER_LEAP * i for i in range(VIVID_LANDINGS)) / VIVID_LANDINGS if node else 1.0
+    compound = sum((1 + VIVID_PER_LEAP) ** i for i in range(VIVID_LANDINGS)) / VIVID_LANDINGS
+    mods = trigger_rate(VIVID_STAMPEDE, head * VIVID_LANDINGS)
+    if node:
+        mods.append(raw_mod("Damage", "MORE", 100 * (leap - 1), VIVID_STAMPEDE, tag=VIVID_ENTRY))
+    rows = (f"; a Stampede's end {VIVID_END_ROWS[0]:g} s: {stags(VIVID_END_ROWS[0]):.3f} Stags a second; "
+            f"{VIVID_END_ROWS[1]:g} s: {stags(VIVID_END_ROWS[1]):.3f}; the per-leap more compounding: x{compound:.3f}"
+            if node else "")
+    return mods, [{
+        "label": f"{VIVID_STAMPEDE}: {head:.3f} Stags a second, {VIVID_LANDINGS} landings each*",
+        "value": f"{head * VIVID_LANDINGS:.3f} hits/s", "confidence": "LOW", "entry": VIVID_ENTRY,
+        "basis": (f"Wisps from movement: {rolls:.3f} dodge rolls a second made anyway (the user's rate) x "
+                  f"{DODGE_ROLL_METRES:g} m / {VIVID_METRES_PER_WISP:g} m a Wisp = {moved:.3f} (walking not counted)"
+                  + (f"; The Mórrigan's Guidance: a Wisp each time a Stampede ends, one every max({VIVID_COOLDOWN:g} s, "
+                     f"{VIVID_END:g} s to end (LOW: no game number, R40-9) + {1 / attack_rate:.2f} s to the next "
+                     f"attack), and 20% more a leap, x{leap:.2f} over the 4 landings (additive, the lower reading)"
+                     if node else "")
+                  + f". Each Stag lands {VIVID_LANDINGS} times on a boss in its path (R42-5, MEDIUM-LOW); PoB scores one "
+                  f"landing and none of the rate{rows}"),
+        "play": ("Keep attacking right after each Stampede ends to chain the next one" if node else
+                 "Vivid Stampede fires on your next Attack after you move 10 m (a dodge roll is 4.6 m)")
+                + (". Without The Mórrigan's Guidance: only the movement Wisps" if node else "") + "."}]
+
+
+# Primal Bounty's Owl-Feather Empowerment (MECHB52; PLANS7 gs-primal-bounty.md, plans/un-mhachas-gift.md; RESEARCH42
+# R42-15, MEDIUM / HIGH; an UNDERCOUNT). "Gain a Primal Owl Feather every 4 seconds, up to a maximum of 3. Expend an Owl
+# Feather when you Dodge to trigger Primal Bounty", which "Empowers the next Projectile Skill you use, causing it to create
+# additional Projectiles" (+2, R42-15 / poe2db: HIGH) "and fly faster"; The Mhacha's Gift "Gain Owl Feathers 50% faster".
+# PoB reads none (PrimalBountyPlayer base_deal_no_damage; no statMap for the feather stats). Empowered uses a second: the
+# feathers a second, at most the main skill's uses (a player who takes the node dodges as each feather comes: the same
+# play as MECH-C's conditions.sacred_unity_onslaught). The extra Projectiles add damage on one boss only where several of
+# a use's projectiles hit it: the Crossbow shotgun skills (SHOTGUN_SKILLS but Ice Fragments: their fragments Merge at
+# point-blank, as shotgun_fragments_share counts), x(1 + share x 2 / P) on the main skill; other Projectile skills: 0 on a
+# lone boss (their extra projectiles fly past; said, a row with every one hitting). The Mhacha's "up to 2 Owl Feathers ...
+# 100% more Empowerment effect" spends the same feathers in pairs (the same extra projectiles a second if effect scales the
+# count: UNVERIFIED), so it adds nothing here beyond its faster feathers.
+PRIMAL_BOUNTY = "Primal Bounty"
+PRIMAL_ENTRY = "model-mechb52-primal-bounty"
+PRIMAL_FEATHER = re.compile(r"^gain a primal owl feather every (\d+(?:\.\d+)?) seconds", re.I)
+PRIMAL_FASTER = re.compile(r"^gain owl feathers (\d+(?:\.\d+)?)% faster$", re.I)
+PRIMAL_EXTRA = 2
+
+
+def primal_bounty_model(main: Skill | None, main_types: set[str], texts: list[str], uses: float, projectiles: float,
+                        forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Primal Bounty's extra Projectiles on the main skill's Empowered uses (see above). `uses` its uses a second,
+    `projectiles` PoB's ProjectileCount."""
+    lines = [t.strip() for t in texts]
+    every = next((float(m.group(1)) for t in lines if (m := PRIMAL_FEATHER.match(t))), None)
+    if every is None or main is None or PRIMAL_ENTRY in forbidden:
+        return [], []
+    if "Projectile" not in main_types or uses <= 0:
+        return [], [{"label": f"{PRIMAL_BOUNTY}: no Projectile main skill to Empower (0)*", "value": "x1.000",
+                     "confidence": "MEDIUM", "entry": PRIMAL_ENTRY,
+                     "basis": "it Empowers the next Projectile Skill you use; the main skill isn't one (others not counted)"}]
+    faster = sum(float(m.group(1)) for t in lines if (m := PRIMAL_FASTER.match(t)))
+    feathers = (1 + faster / 100) / every
+    share = min(1.0, feathers / uses)
+    count = max(1.0, projectiles)
+    gain = share * PRIMAL_EXTRA / count
+    shotgun = main.name in SHOTGUN_SKILLS and main.name != "Ice Fragments"
+    head = 1 + gain if shotgun else 1.0
+    mods = [raw_mod("DPS", "MORE", 100 * gain, main.name, tag=PRIMAL_ENTRY)] if shotgun and gain > 0 else []
+    return mods, [{
+        "label": f"{PRIMAL_BOUNTY}: {share:.0%} of {main.name}'s uses Empowered (+{PRIMAL_EXTRA} Projectiles)*",
+        "value": f"x{head:.3f}", "confidence": "LOW" if shotgun else "MEDIUM", "entry": PRIMAL_ENTRY,
+        "basis": (f"an Owl Feather every {every / (1 + faster / 100):.2f} s"
+                  + (f" ({faster:g}% faster: The Mhacha's Gift)" if faster else "")
+                  + f", spent on a dodge as each comes: {feathers:.3f} Empowered uses a second of {uses:.2f} ({share:.0%}), "
+                  f"each +{PRIMAL_EXTRA} Projectiles on its {count:g}. "
+                  + (f"Its fragments Merge at point-blank (as its shotgun count): x{head:.3f}" if shotgun else
+                     f"On a lone boss only one projectile a use hits: 0 counted. Row: every projectile hitting, "
+                     f"x{1 + gain:.3f}")),
+        "play": f"Dodge as each Owl Feather comes so {main.name}'s next use is Empowered."}]

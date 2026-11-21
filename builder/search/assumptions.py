@@ -3235,6 +3235,7 @@ class Assumptions:
         """The custom models' lines, notes and extra damage groups ({index: stat set to calculate,
         or None to leave it}) for the current build."""
         build = self.build
+        build.main_hit_cut = None  # (MECHB52: set below by a model that cuts the main skill's hits; Conditions reads it)
         group = build.main_group()
         name = self.main_skill()
         found = [models.Skill.of(s) for s in skills if not s["disabled"]]
@@ -4379,6 +4380,7 @@ class Assumptions:
                                                           number(fb_stats.get("Cooldown")), fb_free, fb_share, fb_how,
                                                           forbidden)
             hand_mods, hand_notes = hand_mods + fb_mods, hand_notes + fb_notes
+            build.main_hit_cut = models.hit_cut_of(fb_mods, getattr(build, "main_hit_cut", None))
         if main is not None and main.name == models.HAILSTORM_ROUNDS:  # (MECHB51: R41-4 / R42-11, probe POE2T4762)
             from builder.search import bosses as bosses_mod
 
@@ -4388,6 +4390,40 @@ class Assumptions:
             hail_mods, hail_notes = models.hailstorm_rounds_model(
                 main, hail_stats, bosses_mod.hit_radius(hail_stats), bosses_mod.hit_radius(hail_stats, "upper"), forbidden)
             hand_mods, hand_notes = hand_mods + hail_mods, hand_notes + hail_notes
+            build.main_hit_cut = models.hit_cut_of(hail_mods, getattr(build, "main_hit_cut", None))
+        if main is not None and main.name == models.TORNADO:  # (MECHB52: R42-10, its absorbed elemental grounds)
+            t_level = next((x.get("levelStats") or {} for x in build.call("activeSkills", levelStats=[main.name])["skills"]
+                            if x["name"] == main.name), {})
+            t_grounds = {"Cold": getattr(build, "chilled_ground_up", None) or (0.0, ""),
+                         "Fire": getattr(build, "ignited_ground_up", None) or (0.0, ""),
+                         "Lightning": getattr(build, "shocked_ground_up", None)  # (asked of MECH-A: not published yet)
+                         or (0.0, "")}
+            t_mods, t_notes = models.tornado_ground_model(main, t_level, t_grounds, forbidden)
+            hand_mods, hand_notes = hand_mods + t_mods, hand_notes + t_notes
+        if main is not None and main.name == models.ICESTORM:  # (MECHB52: R42-3, an UNVERIFIED row only)
+            ice_stats = build.call("stats", fields=["Speed", "Duration"])
+            hand_notes = hand_notes + models.icestorm_overlap_note(main, number(ice_stats.get("Speed")),
+                                                                   number(ice_stats.get("Duration")))
+        if main is not None and main.group is not None and any(  # (MECHB52: Primal Bounty's Owl Feathers, R42-15)
+                models.PRIMAL_FEATHER.match(e["text"].strip()) for e in source_lines):
+            pb_stats = build.call("stats", fields=["Speed", "ProjectileCount"])
+            pb_mods, pb_notes = models.primal_bounty_model(
+                main, set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or ()), [e["text"] for e in source_lines],
+                number(pb_stats.get("Speed")), number(pb_stats.get("ProjectileCount")), forbidden)
+            hand_mods, hand_notes = hand_mods + pb_mods, hand_notes + pb_notes
+        stampede_groups: set[int] = set()  # (MECHB52: Vivid Stampede's group, counted through Full DPS)
+        stampede = next((s_ for s_ in found if s_.name == models.VIVID_STAMPEDE and s_.group is not None), None)
+        if stampede is not None:  # (MECHB52: Spirit Walker's Stags at the rate the build feeds them)
+            from builder.search import bosses as bosses_mod
+
+            vs_every = bosses_mod.benefit_skill_time(build.call("stats", fields=list(dict.fromkeys(
+                ["enemySkillTime", *models.MODEL_FIELDS]))))
+            vs_mods, vs_notes = models.vivid_stampede_model(
+                main, stampede, [e["text"] for e in source_lines], dodge_share()[0] / vs_every if vs_every > 0 else 0.0,
+                number(stats.get("Speed")), forbidden)
+            hand_mods, hand_notes = hand_mods + vs_mods, hand_notes + vs_notes
+            if any(m.get("key") == "triggerRate" and number(m.get("value")) > 0 for m in vs_mods):
+                stampede_groups.add(stampede.group)
         if main is not None and main.name in models.LEAP_ADDED_TIME:  # (MECHB51: R42-14, the distance leapt)
             leap_metres = (models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10
                            or conditions_mod.natural_distance({"Melee"} if main.melee else set(), main.name))
@@ -5218,7 +5254,7 @@ class Assumptions:
         vessel_groups = models.spirit_vessel_groups(skills)  # (its companion's damage is in Full DPS only)
         return mods, notes, {**{g: None for g in energy_groups | mirage_groups | vessel_groups | toad_groups | doom_groups
                                                     | annihilation_groups | tawhoa_groups | chayula_groups
-                                                    | verisium_groups},
+                                                    | verisium_groups | stampede_groups},
                              **expression_groups, **storm_groups}
 
     def orb_stand(self, rates: list[dict], main: int | None) -> tuple[float, str]:
