@@ -20,3 +20,23 @@
   sources: ["builder/search/models.py (CHANNEL_WINDUP, channel_windup_model)", "builder/search/assumptions.py (models(), after zarokh_model)",
             "data/game-26650308/tables/GrantedEffectStatSets.json (BearFuryOfTheMountainPlayer, MetaHollowFormPlayer)"]
   status: proposed
+
+- id: model-mechb50-minion-count
+  title: "Minions alive dealing damage: a minion skill's Full DPS entry x the minions the build keeps (models.minion_alive_count)"
+  kind: model
+  model: minion_count
+  stats: ["skill_wolf_pack_size"]
+  skill: [Wolf Pack]
+  confidence: theory
+  notes: >-
+    MECHB50 (the manager 03:05, PLANS6 kw-pack.md; probe POE2T4749: a large UNDERCOUNT). PoB's Full DPS takes a minion
+    skill's output x the gem's count field (Calcs.lua 334-368, getActiveSkillCount), which the bridge sets to 1, so every
+    minion skill scored one minion (Raise Zombie 32.0 = one zombie at a limit of 10; Wolf Pack one wolf of 3-6). Persistent
+    minions now count PoB's minion limit (else the gem's skill_desired_initial_amount); Wolf Pack its packs x
+    skill_wolf_pack_size; only their hits multiply (damage over time once: one Ignite / Bleed counts on a boss).
+    Temporary minions with a duration (Raise Zombie) need the build's corpse / charge supply: PoB's one kept, labelled
+    (UNVERIFIED, an undercount where the supply is there). Unearth and meta-triggered minions keep their own models.
+  sources: ["builder/search/models.py (minion_alive_count, minion_count_scale)", "builder/search/assumptions.py (Assumptions.minion_counts)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/Calcs.lua:334-368", "vendor/PathOfBuilding-PoE2/src/Modules/CalcDefence.lua:149-172",
+            "scratch/mechb50/p4749.log"]
+  status: proposed

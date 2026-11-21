@@ -20990,3 +20990,59 @@ def eye_shards_model(main: Skill | None, stats: dict, radius: float, distance: f
                   f"hit only, x1; aimed past the boss ({past:.1f} shards), x{past_value:.3f}"),
         "play": (f"Aim Eye of Winter through the boss so it flies through its body: about {shards:.0f} shards hit "
                  f"(x{value:.3f}); aimed past it, about {past:.0f} (x{past_value:.3f}).")}]
+
+
+# Minions alive, each one dealing its damage (MECHB50; the manager 03:05, PLANS6 kw-pack.md; probe POE2T4749,
+# scratch/mechb50/p4749.log: an UNDERCOUNT, large). PoB's Full DPS takes a minion skill's minion output x the gem's
+# count (Calcs.lua 334-368, calcs.getActiveSkillCount: the gem's `count` field), and the bridge sets that count to 1
+# (bridge gemInstance): so PoB scores ONE minion whatever the build keeps alive (probe: Raise Zombie's Full DPS 32.0 =
+# one zombie at a limit of 10; Wolf Pack 46.8 = one wolf of 3-6). Nothing else multiplied it (checked: every "Minions deal
+# 1% more Damage" line in models / assumptions is a per-skill model of its own: the meta-triggered Temporary minions
+# (minion_count), Unearth's constructs, the dead share, Gigantic; Objective.entry_scales' users none for minions). The
+# count, from the build's own limits (CLAUDE.md: no flat rate):
+# - Persistent minions with no duration (Skeletal Warriors / Snipers / ..., Companions, Spectres): PoB's minion limit
+#   (the bridge's `limit`: the minion's limit stat + ActiveMinionLimit, with the build's "+N to maximum" lines), else the
+#   gem's own skill_desired_initial_amount (`desired`), else 1. A Reviving minion is taken alive all fight: its deaths are
+#   the minion-death model's (the "100% less" dead share there multiplies this). HIGH for the count, MEDIUM that all of
+#   them reach the boss.
+# - Wolf Pack: the pack is one Companion (its text: "treated as a single Companion for effects that count or limit
+#   Companions"), with skill_wolf_pack_size wolves (3 at levels 1-6, 4 at 7-12, 5 at 13+, 6 at 20: PoB act_str / poe2db;
+#   the gem's level row read; quality's +0.05 a point not read, the lower reading).
+# - Temporary minions with a duration (Raise Zombie: limit 10, 20 s) need a corpse or a Power Charge a raise, so how many
+#   stand is the build's corpse / charge supply: not counted here (PoB's one kept, labelled; UNVERIFIED, an undercount
+#   where the supply is there). Skills with their own count model are left to it (Unearth; meta-triggered minions).
+# Only the hits multiply: several minions' Ignites / Bleeds don't add on one boss (the strongest counts, KeywordPopups
+# Debuff), so the minion's damage over time (PoB's CombinedDPS - TotalDPS) is taken once (the lower reading; Poison, which
+# stacks, is an undercount there, labelled). The entry is scaled through Objective.entry_scales.
+MINION_COUNT_ENTRY = "model-mechb50-minion-count"
+WOLF_PACK, WOLF_PACK_STAT = "Wolf Pack", "skill_wolf_pack_size"
+MINION_OWN_COUNT = frozenset({"Unearth"})
+
+
+def minion_alive_count(skill: Skill, pack: float = 0.0) -> tuple[float, str, str]:
+    """(minions alive dealing damage, how, confidence) for a minion skill (see above); 1 = PoB's own."""
+    summon = skill.summon or {}
+    if skill.minion is not None or skill.name in MINION_OWN_COUNT:
+        return 1.0, "counted by its own model", "-"
+    if number(summon.get("duration")) > 0 or not summon.get("persistent"):
+        return 1.0, (f"Temporary minions ({number(summon.get('duration')):g} s, limit {number(summon.get('limit')):g}): "
+                     "how many stand is the build's corpse / charge supply, not counted (PoB's one kept; UNVERIFIED, an "
+                     "undercount where the supply is there)"), "UNVERIFIED"
+    limit, desired = number(summon.get("limit")), number(summon.get("desired"))
+    if skill.name == WOLF_PACK and pack > 0:
+        packs = max(limit, 1.0)
+        return packs * pack, (f"{packs:g} pack{'s' if packs != 1 else ''} of {pack:g} wolves (skill_wolf_pack_size at "
+                              "its level; one Companion each)"), "HIGH (all in reach: MEDIUM)"
+    if limit >= 1:
+        return limit, f"its minion limit {limit:g} (PoB's, with the build's +maximum lines)", "HIGH (all in reach: MEDIUM)"
+    if desired >= 1:
+        return desired, f"the gem's {desired:g} (skill_desired_initial_amount)", "HIGH (all in reach: MEDIUM)"
+    return 1.0, "no count given: PoB's one", "-"
+
+
+def minion_count_scale(count: float, hit_dps: float, combined_dps: float) -> float:
+    """The Full DPS entry's scale for `count` minions: hits x count, the damage over time once (see above)."""
+    if count <= 1 or combined_dps <= 0:
+        return 1.0
+    hit = min(max(hit_dps, 0.0), combined_dps) if hit_dps > 0 else combined_dps
+    return (hit * count + (combined_dps - hit)) / combined_dps

@@ -3475,6 +3475,7 @@ class Assumptions:
                 (metres, [models.Skill.of(s) for s in skills if s["disabled"]], build.trigger_rates))
             hand_mods, hand_notes = hand_mods + siphon_mods, hand_notes + siphon_notes
         build.objective.entry_scales = {k: v for n in mark_notes for k, v in (n.get("full_dps") or {}).items()}
+        hand_notes = hand_notes + self.minion_counts(found)  # (MECHB50: PoB scores one minion a skill)
         self.entry_cuts = {}  # (MECHB45: DPS taken off same-named Full DPS entries, models.entry_cut_scale)
         curses = curse_uses(build, stats, [e["text"] for e in source_lines])
         if curses or any(models.CURSED_UNSCALED.search(e["text"]) or p.search(e["text"])
@@ -8551,6 +8552,44 @@ class Assumptions:
         if state == "missing":
             return missing, f"missing Runic Ward {missing:.0%} of the fight: {how}"
         return 1.0 - missing, f"on full Runic Ward {1.0 - missing:.0%} of the fight (missing it {missing:.0%}): {how}"
+
+    def minion_counts(self, found: list[models.Skill]) -> list[dict]:
+        """(MECHB50, models.minion_alive_count) Each minion skill's Full DPS entry x the minions it keeps alive (PoB
+        scores one): its hits x the count, its damage over time once (Objective.entry_scales); notes."""
+        build = self.build
+        objective = getattr(build, "objective", None)
+        minions = [s for s in found if s.summon and s.group is not None]
+        if objective is None or not minions:
+            return []
+        entries = {e.get("name"): e for e in build.call("stats", fields=["SkillDPS"]).get("SkillDPS") or []}
+        notes = []
+        for s in minions:
+            entry = entries.get(s.name)
+            if entry is None or models.number(entry.get("dps")) <= 0:
+                continue
+            pack = 0.0
+            if s.name == models.WOLF_PACK:
+                pack = models.number(next((x.get("levelStats") or {} for x in build.call(
+                    "activeSkills", levelStats=[s.name])["skills"] if x["name"] == s.name and x.get("group") == s.group),
+                    {}).get(models.WOLF_PACK_STAT))
+            count, how, confidence = models.minion_alive_count(s, pack)
+            if confidence == "-":
+                continue
+            scale, hit, combined = 1.0, 0.0, 0.0
+            if count > 1:
+                types = build.call("minionTypes", index=s.group).get("types") or []
+                chosen = types[0] if len(types) == 1 else None
+                hit, combined = (models.number(chosen.get("TotalDPS")), models.number(chosen.get("CombinedDPS"))) \
+                    if chosen else (0.0, 0.0)
+                scale = models.minion_count_scale(count, hit, combined) if combined > 0 else count
+                objective.entry_scales[s.name] = objective.entry_scales.get(s.name, 1.0) * scale
+            dot = (f"; its damage over time ({combined - hit:,.1f} of {combined:,.1f}) taken once (several minions' "
+                   "Ignites / Bleeds don't add on one boss; Poison would: an undercount)") if combined > hit > 0 else ""
+            notes.append({"label": f"{s.name}: {count:g} minions dealing damage*", "value": f"x{scale:.3f}",
+                          "confidence": confidence, "entry": models.MINION_COUNT_ENTRY,
+                          "basis": (f"PoB's Full DPS scores one minion (the gem count 1); the build keeps {how}: "
+                                    f"its hits x{count:g}{dot}; all of them taken to reach the boss")})
+        return notes
 
     def cut_entries(self, cuts: dict[str, float]) -> None:
         """Add `cuts` ({SkillDPS name: DPS to take off}) to this resolve's tally and set each name's entry_scales from the
