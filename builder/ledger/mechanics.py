@@ -158,10 +158,32 @@ def build(data_dir: Path | None = None) -> dict:
                     mech["category"] = parent["category"]
                 break
 
+    # (COV51, PLANS6's plans/unlinked-live-lines.md, the manager 03:25) the not-counted lines no mechanic's name or term
+    # links (1,772 rows, 419 distinct lines on 20 Nov) showed in no plan or catalog entry: two fallback pseudo-mechanics
+    # keep them visible, gem stats apart from the rest, ranked as any automatic entry is
+    unlinked = {"unlinked-lines": {"id": "unlinked-lines", "name": "Not-counted lines linked to no mechanic",
+                                   "category": "unlinked (to sort)", "game": "", "origin": "unlinked fallback",
+                                   "names": [], "plan": {"approach": "route each line to its lane",
+                                                         "how": "PLANS6: scratch/manager/plans/unlinked-live-lines.md"}},
+                "unlinked-gem-stats": {"id": "unlinked-gem-stats", "name": "Not-counted gem stats linked to no mechanic",
+                                       "category": "unlinked (to sort)", "game": "", "origin": "unlinked fallback",
+                                       "names": [], "plan": {"approach": "GEM's ledger: link or no-effect entries",
+                                                             "how": "PLANS7: scratch/manager/plans/gs-triage-*.md"}}}
+    seen: set[int] = set()
     # Link lines, gem stats, gems and Configuration options to each mechanic, and work out what PoB does
-    for mech in mechanics:
-        pat = _pattern(mech["names"])
-        linked = [r for r in records if pat.search(r["line"].replace("_", " "))]
+    for mech in mechanics + list(unlinked.values()):
+        if mech["origin"] == "unlinked fallback":
+            gem = mech["id"] == "unlinked-gem-stats"
+            linked = [r for k, r in enumerate(records) if r["status"] == "none" and k not in seen
+                      and (r["category"] == "gem-stat") == gem]
+            pat = re.compile(r"(?!)")
+        else:
+            pat = _pattern(mech["names"])
+            linked = []
+            for k, r in enumerate(records):
+                if pat.search(r["line"].replace("_", " ")):
+                    linked.append(r)
+                    seen.add(k)
         none = [r for r in linked if r["status"] == "none"]
         total_counted = sum(1 for text, _ in counted if pat.search(text))
         gems_using = [name for name, desc in gem_texts if pat.search(desc)]
@@ -209,6 +231,7 @@ def build(data_dir: Path | None = None) -> dict:
         impact = mech.get("impact")  # 1-5, reviewed; automatic entries rank by their lines alone
         reach = weight + 2 * len(gems_using)
         mech["priority"] = round(reach * (impact or 1) / (1 if impact else 3), 1)
+    mechanics += [m for m in unlinked.values() if m["lines"]["linked"]]
     mechanics.sort(key=lambda m: (-(m["priority"] or 0), m["name"]))
     summary = {
         "mechanics": len(mechanics), "reviewed": sum(1 for m in mechanics if m["origin"] == "catalog"),
@@ -293,6 +316,16 @@ def markdown(cat: dict) -> str:
 def main(argv: list[str]) -> None:
     from builder.data import data_dir
 
+    if "--stored-report" not in argv:
+        # (COV51, PLANS6's catalog-lag find: lines main already reads, Rune of Accumulation's since 1418e884, were still
+        # listed as not counted) build() reads the stored coverage-report.json, which only `python -m
+        # builder.ledger.coverage` writes, so a catalog made after new ledger entries or models showed the old audit.
+        # Write a fresh audit first (about 15 s); --stored-report keeps the old file.
+        from builder.ledger import coverage
+
+        report = coverage.audit()
+        (data_dir() / "coverage-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=1, default=list),
+                                                         encoding="utf-8")
     cat = build()
     out = data_dir() / "mechanics.json"
     out.write_text(json.dumps(cat, ensure_ascii=False, indent=1), encoding="utf-8")
