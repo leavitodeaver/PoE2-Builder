@@ -3949,7 +3949,14 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + comp_mods, hand_notes + comp_notes
         zarokh_mods, zarokh_notes = models.zarokh_model(main, supports.get(main.group, []) if main else [], stats)  # (MECHB33)
         hand_mods, hand_notes = hand_mods + zarokh_mods, hand_notes + zarokh_notes
-        hand_notes = hand_notes + models.channel_windup_note(main)  # (MECH-B: a channel's wind-up, labelled, not counted)
+        if main is not None and main.name in models.CHANNEL_WINDUP:  # (MECHB50: a wind-up each dodged boss attack)
+            from builder.search import bosses as bosses_mod
+
+            wind_stats = build.call("stats", fields=list(dict.fromkeys(["enemySkillTime", *models.MODEL_FIELDS])))
+            wind_mods, wind_notes = models.channel_windup_model(
+                main, number(stats.get("Speed")), bosses_mod.benefit_skill_time(wind_stats),
+                number(wind_stats.get("enemySkillTime")), VOLCANIC_DODGE_SHARE, forbidden)
+            hand_mods, hand_notes = hand_mods + wind_mods, hand_notes + wind_notes
         if main is not None and main.name == models.ORB_OF_STORMS and main.group is not None:  # (MECH-B: its recast
             # bolt, labelled; MECHB29: its bolts, frequency and duration from its own useRates row)
             orb_rows = build.call("useRates", indices=[main.group])["rates"]

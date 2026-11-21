@@ -16090,15 +16090,50 @@ CHANNEL_WINDUP = {"Oil Barrage": (350, "attack"), "Fury of the Mountain": (36, "
                   "Volcano": (50, "cast"), "Runic Reprieve": (200, "cast")}
 
 
-def channel_windup_note(main: Skill | None) -> list[dict]:
-    """A labelled note for a main skill whose channel wind-up isn't counted (CHANNEL_WINDUP)."""
+# (MECHB50; GEM29's triage rows, the manager 01:22: a small OVERCOUNT) How long a channel lasts in a boss fight: the
+# player holds it, so the wind-up is paid once a channel, and a channel ends when the player stops to dodge. The user's
+# rate (20 Nov: a melee player dodges about half of a pinnacle's telegraphed Cold attacks; extended to all its attacks,
+# as Volcanic Steps' row, LOW) gives the restarts: half the boss's skill uses a second, at the fewest hits the boss tables
+# allow (bosses.benefit_skill_time: the smallest cut; the defence cadence, enemySkillTime, a row). Each restart costs
+# channel_start_duration_as_%_of_X_time of PoB's attack / cast time (1 / Speed), when the channel deals nothing; the
+# channel_end share is cut off by the dodge (UNVERIFIED: a row with it paid too). A channel the build ends on its own
+# (Oil Barrage's Power Charges: oil_barrage_volley_model) is not this.
+CHANNEL_WINDUP_ENTRY = "model-mechb50-channel-windup"
+CHANNEL_WINDUP_END = {"Fury of the Mountain": 36, "Hollow Form": 30, "Volcano": 50}  # (channel_end_duration_as_%_of_X_time, 26650308)
+
+
+def channel_windup_model(main: Skill | None, speed: float, every: float, every_row: float, dodge_share: float,
+                         forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """A held channel's wind-up once a restart, a restart each dodged boss attack (see above). `speed` PoB's uses a
+    second of the main skill, `every` / `every_row` seconds between boss skill uses (the fewest hits / the defence
+    cadence), `dodge_share` the share dodged (the user's half)."""
     if main is None or main.name not in CHANNEL_WINDUP or main.name == OIL_BARRAGE:  # (MECHB46: oil_barrage_volley_model
-        return []                                                                      # counts Oil Barrage's)
+        return [], []                                                                  # counts Oil Barrage's)
     pct, kind = CHANNEL_WINDUP[main.name]
-    return [{"label": f"{main.name}'s channel wind-up (not counted)", "value": f"{pct}% of its {kind} time a channel",
-             "basis": f"the game files' channel_start_duration_as_%_of_{kind}_time {pct}, which PoB doesn't read; its share "
-                      "of the fight depends on how long each channel lasts: the DPS may be too high",
-             "confidence": "UNVERIFIED"}]
+    if CHANNEL_WINDUP_ENTRY in forbidden or speed <= 0 or every <= 0:
+        return [], [{"label": f"{main.name}'s channel wind-up (not counted)", "value": f"{pct}% of its {kind} time",
+                     "basis": (f"the game files' channel_start_duration_as_%_of_{kind}_time {pct}, which PoB doesn't "
+                               "read; no use rate or boss cadence to place the restarts: the DPS may be too high"),
+                     "confidence": "UNVERIFIED"}]
+    windup = pct / 100.0 / speed
+
+    def kept(gap: float, cost: float) -> float:
+        return max(0.0, 1.0 - dodge_share / gap * cost) if gap > 0 else 1.0
+    head = kept(every, windup)
+    end = CHANNEL_WINDUP_END.get(main.name, 0) / 100.0 / speed
+    rows = f"; at the boss's defence cadence ({every_row:.2f} s): x{kept(every_row, windup):.3f}" if every_row > 0 else ""
+    if end:
+        rows += f"; the {CHANNEL_WINDUP_END[main.name]}% end paid too: x{kept(every, windup + end):.3f}"
+    return [raw_mod("DPS", "MORE", 100 * (head - 1), main.name, tag=CHANNEL_WINDUP_ENTRY)], [{
+        "label": f"{main.name}: a channel wind-up each dodge*", "value": f"x{head:.3f}", "confidence": "LOW",
+        "entry": CHANNEL_WINDUP_ENTRY,
+        "basis": (f"PoB scores the channel's hits nonstop and never reads channel_start_duration_as_%_of_{kind}_time "
+                  f"{pct}. The player holds it and restarts it after each dodge: {dodge_share:.0%} of the boss's "
+                  f"attacks (the user's 'dodge about half', given for Cold attacks, extended to all: LOW), one every "
+                  f"{every:.2f} s (the fewest hits the boss tables allow), each restart a {windup:.3f} s wind-up "
+                  f"({pct}% of its {1 / speed:.3f} s {kind} time) with no hit: x{head:.3f}{rows}"),
+        "play": (f"Hold {main.name} through the fight and restart it only after a dodge: each restart costs "
+                 f"{windup:.2f} s of wind-up.")}]
 
 
 # Warcry Echoes (MECHB3; AUDIT6 A6-2) -------------------------------------------------------------------------------------

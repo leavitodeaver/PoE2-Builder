@@ -2472,13 +2472,17 @@ def test_guided_hand_gives_a_boosted_slam_30_percent_more_and_triggered_skills_n
     assert mods == [] and "cannot be Ancestrally Boosted" in notes[0]["basis"]
 
 
-def test_a_channels_wind_up_is_labelled_not_guessed():
-    """MECHB3: a channel's start time isn't counted (its share depends on the channel's length): a note. (MECHB46: Oil
-    Barrage's is counted by oil_barrage_volley_model, so it gets none.)"""
-    note, = models.channel_windup_note(models.Skill("Volcano", spell=True))
-    assert note["confidence"] == "UNVERIFIED" and "50%" in note["value"] and "too high" in note["basis"]
-    assert models.channel_windup_note(models.Skill("Oil Barrage", attack=True)) == []
-    assert models.channel_windup_note(models.Skill("Fireball", spell=True)) == []
+def test_a_channels_wind_up_is_paid_each_dodge():
+    """MECHB3 / MECHB50: a held channel's start time once a restart, a restart on half the boss's attacks (the user's
+    "dodge about half"). (MECHB46: Oil Barrage's is counted by oil_barrage_volley_model, so it gets none.)"""
+    fotm = models.Skill("Fury of the Mountain", attack=True, melee=True)
+    mods, notes = models.channel_windup_model(fotm, 1.25, 4.0, 2.0, 0.5)  # 0.36 x 0.8 s each 8 s: x0.964
+    assert mods[0]["value"] == pytest.approx(-100 * 0.5 / 4.0 * 0.36 / 1.25, abs=0.01)
+    assert notes[0]["confidence"] == "LOW" and "x0.964" in notes[0]["basis"] and "end paid too: x0.928" in notes[0]["basis"]
+    mods, notes = models.channel_windup_model(models.Skill("Volcano", spell=True), 0.0, 4.0, 2.0, 0.5)
+    assert mods == [] and notes[0]["confidence"] == "UNVERIFIED" and "too high" in notes[0]["basis"]
+    assert models.channel_windup_model(models.Skill("Oil Barrage", attack=True), 1.0, 4.0, 2.0, 0.5) == ([], [])
+    assert models.channel_windup_model(models.Skill("Fireball", spell=True), 1.0, 4.0, 2.0, 0.5) == ([], [])
 
 
 def test_echoing_cry_counts_each_echo_of_the_warcry():
@@ -6889,7 +6893,7 @@ def test_oil_barrage_volley_model():
     mods, notes = models.oil_barrage_volley_model(oil, {"ProjectileCount": 3}, sets, 0.5)
     assert float(notes[0]["value"][1:]) == pytest.approx((50 / 1.5 + 80) / 130, abs=1e-3)
     assert models.oil_barrage_volley_model(Skill("Oil Grenade", group=1), {"ProjectileCount": 3}, sets, 0.0) == ([], [])
-    assert models.channel_windup_note(oil) == []
+    assert models.channel_windup_model(oil, 1.0, 4.0, 2.0, 0.5) == ([], [])
 
 
 def test_shield_wave_model():

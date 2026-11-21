@@ -1,0 +1,22 @@
+# MECH-B's model entries (MECHB50).
+
+- id: model-mechb50-channel-windup
+  title: "A held channel's wind-up once a restart, a restart on half the boss's attacks (models.channel_windup_model)"
+  kind: model
+  model: channel_windup
+  stats: ["channel_start_duration_as_%_of_attack_time", "channel_end_duration_as_%_of_attack_time"]
+  skill: [Fury of the Mountain, Hollow Form]
+  confidence: theory
+  notes: >-
+    MECHB50 (GEM29's triage rows, a small OVERCOUNT). PoB reads neither stat (MECHB3: grep of PoB's src outside its
+    skill data and stat descriptions finds no use), so it scores a channel's hits nonstop. BearFuryOfTheMountainPlayer
+    36 / 36, MetaHollowFormPlayer 30 / 30 (GrantedEffectStatSets, game 26650308). The player holds the channel and
+    restarts it after each dodge: the user's rate (20 Nov, "dodge about half" of a pinnacle's telegraphed Cold attacks,
+    extended to all its attacks as Volcanic Steps' row, LOW) at the fewest hits the boss tables allow
+    (bosses.benefit_skill_time: the smallest cut; the defence cadence a row). Each restart costs the start share of
+    PoB's attack time with no hit; the end share taken as cut off by the dodge (UNVERIFIED; a row with it paid).
+    Volcano and Runic Reprieve (cast-time channels, channel_start_duration_as_%_of_cast_time) get the same model; their
+    stats aren't listed here (GEM's rows).
+  sources: ["builder/search/models.py (CHANNEL_WINDUP, channel_windup_model)", "builder/search/assumptions.py (models(), after zarokh_model)",
+            "data/game-26650308/tables/GrantedEffectStatSets.json (BearFuryOfTheMountainPlayer, MetaHollowFormPlayer)"]
+  status: proposed
