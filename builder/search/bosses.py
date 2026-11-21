@@ -644,6 +644,35 @@ def pool(name: str = DEFAULT, reading: str = "headline") -> tuple[float, float, 
     return life, es, how
 
 
+# (MECHD7; RESEARCH40 R40-8, the manager 04:20 21 Nov) Energy Shield and Culling. One player report (forum 3868171, 18 Oct
+# 2025, no reply, Yama the White, a non-preset boss that refilled its ES): the cull didn't kill while its ES was up, and
+# did once the ES was "down in the 5% range". The LOW assumption, for every preset with ES: a cull needs the boss's ES
+# down to the cull share. Damage takes a monster's ES before its Life, and no preset regains ES in the fight (R39-9:
+# recharge needs 4 s with no ES loss; no preset has an ES recharge / regeneration mod or skill), so its Life only reaches
+# the 5% line after its ES is gone: the assumption gives cull_threshold's headline (5% x Life / (Life + ES) of the
+# pool), and the "cull ignores ES" row (Life at 5% culls whatever the ES) gives the same number in an uninterrupted
+# fight. They part only if the boss regains ES while its Life is under 5% (Yama's case: no preset, MEDIUM-HIGH via R39-9;
+# a > 4 s gap in your hits is R39-9's LOW row); then the headline culls nothing until the ES is down again. PoB's own
+# reading (5% of the whole pool, Life + ES) is the overcount row. No preset is marked uncullable (R40-8: the 53 preset
+# rows, their mods and 101 .ot files hold no cull stat, while the same files set immunities: MEDIUM).
+CULL_ES_ASSUMPTION = ("a cull needs the boss's Energy Shield down to the cull share (LOW: one player report, forum "
+                      "3868171; RESEARCH40 R40-8)")
+
+
+def cull_rows(name: str = DEFAULT) -> list[tuple[str, float]]:
+    """[(reading, the Unique Culling Strike threshold as % of the boss's pool)]: the headline first (cull_threshold),
+    then the "cull ignores ES" row and PoB's whole-pool row (the comment above); one row for a boss with no ES."""
+    head = cull_threshold(name)
+    if not can_be_culled(name)[0]:
+        return [("can't be Culled", 0.0)]
+    if PRESETS[name].es_from_life <= 0:
+        return [("no Energy Shield: 5% of its Life", head)]
+    return [(f"headline: {CULL_ES_ASSUMPTION}", head),
+            ("cull ignores ES (Life at 5% culls whatever the ES): the same in an uninterrupted fight, since its ES is "
+             "taken first and never regained (R39-9)", head),
+            ("PoB's reading, 5% of Life + ES (an overcount)", CULL_UNIQUE)]
+
+
 def can_be_culled(name: str = DEFAULT) -> tuple[bool, str]:
     """(whether Culling Strike can kill the preset, how): the gate every culling model goes through (cull_threshold)."""
     if PRESETS[name].cullable:
@@ -715,7 +744,9 @@ def note(name: str = DEFAULT) -> dict:
                      f"them. Life {b.life:,} at level 82; Monster Category {category}; stun threshold {b.poise}% "
                      f"(PoB's buildup x{threshold_scale({'_boss': name}):.2f}); Heavy Stun {b.heavy_stun_s:g} s; "
                      f"Energy Shield {1 / life_share_of_pool(name) - 1:.1%} of Life (MEDIUM-LOW), so Culling Strike "
-                     f"takes {cull_threshold(name):g}% of the pool, not 5%; hits every {defence_hit_every(name):g} s for "
+                     f"takes {cull_threshold(name):g}% of the pool, not 5%"
+                     + (f" ({CULL_ES_ASSUMPTION}; if a cull ignored ES the same {cull_threshold(name):g}%, as its ES "
+                        "is gone first and never regained)" if b.es_from_life > 0 else "") + f"; hits every {defence_hit_every(name):g} s for "
                      f"defences, every {HIT_EVERY[name]:g} s for \"when hit\" benefits (LOW); "
                      f"add kills {kills * 60:.2f}/min ({how}); " + defence_text(name) + (f"; {b.note}" if b.note else ""),
             "confidence": "MEDIUM-HIGH (recheck after the 12 Nov game update)"}

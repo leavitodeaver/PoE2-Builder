@@ -116,3 +116,12 @@ def test_a_preset_that_cant_be_culled_gates_every_culling_model_to_nothing(monke
     monkeypatch.setitem(bosses.PRESETS, ASH, ash._replace(cullable=False))
     assert bosses.cull_threshold(ASH) == 0.0 and bosses.config_vars(ASH)["cullingStrikeUniqueThreshold"] == 0.0
     assert "can't be Culled" in bosses.can_be_culled(ASH)[1]
+
+
+def test_a_shielded_presets_cull_reads_the_shield_assumption_with_its_rows():
+    rows = bosses.cull_rows("Atziri, the Red Queen")
+    assert "Energy Shield down" in rows[0][0] and rows[0][1] == bosses.cull_threshold("Atziri, the Red Queen") < 5
+    assert rows[1][1] == rows[0][1] and rows[2][1] == bosses.CULL_UNIQUE
+    assert bosses.cull_rows(ASH) == [("no Energy Shield: 5% of its Life", 5.0)]
+    assert "Energy Shield down" in bosses.note("Atziri, the Red Queen")["basis"]
+    assert all(bosses.can_be_culled(n)[0] for n in bosses.PRESETS)  # (R40-8: none marked uncullable)
