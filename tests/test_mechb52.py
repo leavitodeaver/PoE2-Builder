@@ -79,3 +79,25 @@ def test_primal_bounty_adds_projectiles_only_where_they_hit_one_boss():
     assert mods == [] and notes[0]["value"] == "x1.000" and "x1.500" in notes[0]["basis"]
     assert models.primal_bounty_model(models.Skill("Maul", 1, attack=True), {"Melee"}, lines, 1.0, 1)[0] == []
     assert models.primal_bounty_model(arrow, {"Projectile"}, [], 1.0, 1) == ([], [])
+
+
+def test_the_hit_cut_reads_only_the_main_skills_mods():
+    """The manager 16:00 (MECH99's hit-cut survey): each owner's HIT-CUT model hands its factor on; a mod tagged to a
+    side skill is not the main skill's hits."""
+    from builder.search import assumptions
+
+    mods = [models.raw_mod("DPS", "MORE", -40, "Spark"), models.raw_mod("DPS", "MORE", -50, "Vile Effusion")]
+    assert models.hit_cut_of(mods, None, "Spark") == pytest.approx(0.6)
+    assert models.hit_cut_of(mods, 0.5, "Vile Effusion") == pytest.approx(0.25)
+    assert models.hit_cut_of(mods, None, "Arc") is None
+
+    class Stub:
+        main_hit_cut = None
+    build = Stub()
+    assumptions.hit_cut(build, mods, "Spark")
+    assumptions.hit_cut(build, [models.raw_mod("DPS", "MORE", -50, "Spark")], "Spark")
+    assert build.main_hit_cut == pytest.approx(0.3)
+    assumptions.hit_cut(build, mods, None)  # (no main skill: unchanged)
+    assert build.main_hit_cut == pytest.approx(0.3)
+    windup = models.channel_windup_model(models.Skill("Hollow Form", 1, attack=True), 2.0, 2.0, 3.0, 2 / 3)[0]
+    assert 0 < models.hit_cut_of(windup, None, "Hollow Form") < 1

@@ -22598,10 +22598,12 @@ def flame_breath_model(main: Skill | None, speed: float, cooldown: float, free: 
 # with a "DPS" MORE, which PoB's own ailment counts read through DpsMultiplier but our readers (Speed x HitChance) don't:
 # the same factor goes on build.main_hit_cut (Conditions.evidence clamps it to [0, 1], so a Hailstorm factor above 1, a
 # big boss, leaves the readers at PoB's rate: a small undercount there, said in its note).
-def hit_cut_of(mods: list[dict], cut: float | None = None) -> float | None:
-    """The hit-rate factor of a model's "DPS" MORE mods, times `cut` (an earlier model's); None with no such mod."""
+def hit_cut_of(mods: list[dict], cut: float | None = None, skill: str | None = None) -> float | None:
+    """The hit-rate factor of a model's "DPS" MORE mods, times `cut` (an earlier model's); None with no such mod.
+    `skill`: only the mods tagged to that skill (the main skill's; MECHB52, the manager 16:00: a side skill's cut is not
+    the main skill's hits)."""
     for mod in mods:
-        if mod.get("name") == "DPS" and mod.get("type") == "MORE":
+        if mod.get("name") == "DPS" and mod.get("type") == "MORE" and (skill is None or mod.get("skill") == skill):
             cut = (1.0 if cut is None else cut) * max(0.0, 1 + number(mod.get("value")) / 100)
     return cut
 

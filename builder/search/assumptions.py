@@ -1555,6 +1555,14 @@ def living_lightning(build: Build) -> tuple[float, list[dict]]:
     return models.living_lightning_model(parts)
 
 
+def hit_cut(build: Build, mods: list[dict], main: str | None) -> None:
+    """(MECHB52; the manager 16:00 from MECH99's hit-cut survey, a DPS OVERCOUNT) A model whose "DPS" MORE on the main
+    skill cuts (or raises) its HITS a second hands the same factor to the ailment readers through build.main_hit_cut
+    (MECH98's hook, Conditions.evidence; reset at the start of Assumptions.models), multiplied into any earlier one."""
+    if main:
+        build.main_hit_cut = models.hit_cut_of(mods, getattr(build, "main_hit_cut", None), main)
+
+
 def dark_effigy(build: Build) -> tuple[list[dict], list[dict]]:
     """(mods, notes) for Dark Effigy's Vile Effusion (models.dark_effigy_model, MECHB43): the build's Chaos-DoT debuff
     skills (PoB's ChaosDebuff setters) at their uptimes (useRates speed x the press model's share x Duration), Decaying Hex
@@ -3807,6 +3815,7 @@ class Assumptions:
         cannon_mods, cannon_notes = self.cannons_ready(texts, found)  # (MECHB37: Cannons, Ready!'s totems act on your shots)
         # (MECHB38: Valako's Charge at the rate the boss's Lightning hits fill it; its side group in Full DPS)
         valako_mods, valako_notes, valako_groups = self.valakos_charge(stats, found, main)
+        hit_cut(build, dusk_mods + valako_mods, main.name if main else None)  # (MECHB52: the pause; Valako's charge)
         defiler_mods, defiler_notes = models.dark_defiler_model(texts, found, main, stats)  # (MECHB38)
         giant_mods, giant_notes = models.gigantic_revived_model(texts, found, main, stats)  # (MECHB39)
         defiler_mods, defiler_notes = defiler_mods + giant_mods, defiler_notes + giant_notes
@@ -4331,6 +4340,7 @@ class Assumptions:
                 main, number(stats.get("Speed")), bosses_mod.benefit_skill_time(wind_stats),
                 number(wind_stats.get("enemySkillTime")), dodge_share()[0], forbidden, dodge_share()[1])
             hand_mods, hand_notes = hand_mods + wind_mods, hand_notes + wind_notes
+            hit_cut(build, wind_mods, main.name)  # (MECHB52: the restarts' wind-up is time without hits)
         bear_mods, bear_notes = models.bear_stance_model(main, number(stats.get("Speed")), forbidden,
                                                          *self.bear_rotation(main, found))  # (MECHB50; MECHB51: R41-3)
         hand_mods, hand_notes = hand_mods + bear_mods, hand_notes + bear_notes
@@ -4926,6 +4936,7 @@ class Assumptions:
         hand_notes += riven_notes
         effigy_mods, effigy_notes = dark_effigy(build)  # (MECHB43: a Vile Effusion projectile per Chaos-DoT debuff, R34-7)
         hand_mods, hand_notes = hand_mods + effigy_mods, hand_notes + effigy_notes
+        hit_cut(build, effigy_mods, name)  # (MECHB52: Vile Effusion's projectiles a volley, when it is the main skill)
         lightning, lightning_notes = living_lightning(build)  # (MECHB42: 3 Zaps a minion; PoB's own entry out of Full DPS)
         hand_mods += [models.added_input("LivingLightning", lightning)] if lightning > 0 else []
         hand_notes += lightning_notes
@@ -6314,6 +6325,7 @@ class Assumptions:
         panther_mods, panther_notes = self.evasion_doublings(texts)  # (MECH-C: Stalking Panther doubles once, MECHC32)
         mods, notes = mods + panther_mods, notes + panther_notes
         frost_mods, frost_notes = self.frostflame(main, skills)  # (MECH-B: Frostflame Nova's ice while Ignited, MECHB13)
+        hit_cut(self.build, frost_mods, main)  # (MECHB52: its ice's hits a second, when it is the main skill)
         mods, notes = mods + frost_mods, notes + frost_notes
         notes += self.zero_use_ailments(mods)  # (MECH88: a 0-use skill's ailment out of PoB's "Best <ailment> DPS"; last)
         # the boss the numbers are scored against (MECH50: bridge resetConfig sets its resistances; bosses.py)
