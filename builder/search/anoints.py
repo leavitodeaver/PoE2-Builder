@@ -47,7 +47,9 @@ EMOTIONS = {
     "Isolation": "Concentrated Liquid Isolation",
     "Melancholy": "Potent Liquid Melancholy", "Ferocity": "Potent Liquid Ferocity", "Contempt": "Potent Liquid Contempt",
 }
-LEFT_OUT = {"Zarokh's Gift": "grants a Sinister Jewel Socket; the search puts no jewel in a socket an item grants"}
+# (SEARCH34: a Sinister socket that IS allocated, by an import or a request, now gets a plain rare (jewels.sockets); the
+# anoint's own trial still scores the socket empty, so it would never win one: left out until that trial fills it)
+LEFT_OUT = {"Zarokh's Gift": "grants a Sinister Jewel Socket; the anoint's trial doesn't fill the socket it grants yet"}
 TWO_ANOINT_BASES = {"Twisted Amulet", "Distorted Amulet"}  # 0.5.0 patch notes (MEDIUM)
 # Tagged lines too: PoB's text of Strugglescream holds both variants' ({variant:1} 2, {variant:2} 3), and PoB takes the
 # last variant (Current) when none is selected, so the last such line counts

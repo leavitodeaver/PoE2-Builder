@@ -61,6 +61,8 @@ class Jewels:
         self.gear = gear
         self.pools = AffixPools(self.ctx, "Jewel")
         self.rare: ItemOption | None = None  # the last rare jewel built (copies may fill several sockets)
+        self.plain_rare: ItemOption | None = None  # (SEARCH34) the same for sockets that take only a plain rare
+        self.restricted: dict[int, dict] = {}  # (SEARCH34) socket -> bridge.jewelSockets' entry, for those
         self._traits: dict[str, dict] = {}  # item text -> what PoB says it does to the tree
         # (unique, socket or None when the socket doesn't matter) -> (full round, the unique at its
         # best variants then): rescored once per full round
@@ -76,7 +78,18 @@ class Jewels:
         return f"Jewel {node_id}"
 
     def sockets(self) -> list[int]:
-        return [n["id"] for n in self.build.call("allocatedNodes")["nodes"] if n["type"] == "Socket"]
+        """Every allocated node holding a jewel slot (bridge.jewelSockets): the tree's sockets, an ascendancy notable's
+        (Lich's Crystalline Phylactery) and the Sinister Jewel Sockets granted passives allocate (Zarokh's Gift). Only
+        type "Socket" nodes of the tree search's own list were taken before, so the last two were never filled (SEARCH34;
+        PLANS6 kw-basic-jewel, an UNDERCOUNT for Lich builds)."""
+        found = self.build.call("jewelSockets")["sockets"]
+        self.restricted = {s["id"]: s for s in found if s["basicOnly"] or s["nonUnique"] or s["noRadius"]}
+        return [s["id"] for s in found]
+
+    def plain_only(self, socket: int) -> bool:
+        """A socket that takes no unique (Phylactery: basic non-unique jewels only, PoB ItemsTab.lua 2654-2659; a Sinister
+        socket: non-unique, 2651) or gives a jewel no radius (noRadius): only a plain rare (JEWEL_BASES) goes in."""
+        return socket in self.restricted
 
     def sync(self) -> list[int]:
         """Forget jewels whose socket the tree no longer has; returns the allocated sockets."""
@@ -286,15 +299,23 @@ class Jewels:
     def fill(self, socket: int, deadline: float, rebuild: bool) -> bool:
         build = self.build
         slot = self.slot(socket)
-        if rebuild or self.rare is None:
-            rare = self.build_rare(slot, deadline)
-            if rare is not None:
-                self.rare = rare
         current = build.equipped.get(slot)
-        options = [self.version(slot, o, deadline) for o in self.uniques(slot)]
-        options = [o for o in options if o != current]
-        if self.rare is not None and self.rare != current and (self.rare.price or 0.0) <= self.gear.left_for(slot) + 1e-9:
-            options.append(self.rare)
+        if self.plain_only(socket):
+            # (SEARCH34) a plain rare built for this socket: no unique, no radius base
+            if rebuild or self.plain_rare is None:
+                rare = self.build_rare(slot, deadline, bases=JEWEL_BASES)
+                if rare is not None:
+                    self.plain_rare = rare
+            options, rare = [], self.plain_rare
+        else:
+            if rebuild or self.rare is None:
+                rare = self.build_rare(slot, deadline)
+                if rare is not None:
+                    self.rare = rare
+            options = [self.version(slot, o, deadline) for o in self.uniques(slot)]
+            options, rare = [o for o in options if o != current], self.rare
+        if rare is not None and rare != current and (rare.price or 0.0) <= self.gear.left_for(slot) + 1e-9:
+            options.append(rare)
         if not options:
             return False
         scored = build.item_deltas([{"slot": slot, "raw": o.raw} for o in options])
@@ -440,7 +461,7 @@ class Jewels:
             sockets = [near["id"]]
         # A Time-Lost rare built for each socket with the larger radius in effect (its worth
         # depends on where it sits), offered beside the uniques
-        for socket in sockets:
+        for socket in [s for s in sockets if not self.plain_only(s)]:  # (no radius jewel where it can't go or reach)
             if clock.now() > deadline:
                 break
             rare = self.build_rare(self.slot(socket), deadline, bases=RADIUS_BASES)
@@ -467,7 +488,8 @@ class Jewels:
         the best screens are then tried for real (try_unlock)."""
         build, tree = self.build, self.tree
         forbidden = tree.forbidden
-        paths = {s: () for s in self.sync() if not self.holds(s)}  # socket -> the path it still needs
+        # socket -> the path it still needs (not a socket that takes no unique: plain_only)
+        paths = {s: () for s in self.sync() if not self.holds(s) and not self.plain_only(s)}
         near = [n for n in build.call("frontier", maxDistance=SOCKET_REACH, sockets="only")["nodes"]
                 if not forbidden.intersection(n["path"])]
         if near:

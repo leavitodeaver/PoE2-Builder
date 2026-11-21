@@ -197,7 +197,7 @@ class Sources:
     def jewel_trials(self, condition: Condition) -> list[Trial]:
         build, jewels = self.build, self.jewels
         required = self.required(condition)
-        sockets = jewels.sockets()
+        sockets = [s for s in jewels.sockets() if not jewels.plain_only(s)]  # (SEARCH34: a Time-Lost base can't go there)
         if not sockets or not any(required(a) for base in JEWEL_BASES for a in jewels.pools.pool(base)):
             return []
 

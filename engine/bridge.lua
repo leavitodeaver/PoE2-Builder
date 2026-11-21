@@ -2913,6 +2913,24 @@ function bridge.allocatedNodes()
 	return { nodes = nodes }
 end
 
+-- (SEARCH34) Every allocated node that holds a jewel slot, with what it accepts: a tree socket (type "Socket"), an
+-- ascendancy notable with a jewel socket (containJewelSocket: Lich's Crystalline Phylactery, basic non-unique jewels only,
+-- ItemsTab.lua 2654-2659), a Sinister Jewel Socket (sinister: non-unique only, ItemsTab 2651; Zarokh's Gift's anoint and
+-- the sockets an item allocates are granted passives). allocatedNodes leaves ascendancy and granted nodes out (it is the
+-- tree search's list), so these slots were never filled: PLANS6 kw-basic-jewel, the manager's 03:05 / 03:25 notes
+function bridge.jewelSockets()
+	local sockets = { }
+	for id, node in pairs(build.spec.allocNodes) do
+		if node.type == "Socket" or node.containJewelSocket then
+			sockets[#sockets + 1] = { id = id, name = node.dn, basicOnly = node.containJewelSocket and true or false,
+				nonUnique = (node.containJewelSocket or node.sinister) and true or false, noRadius = node.noRadius and true or false,
+				granted = node.isGrantedPassive and true or false, ascendancy = node.ascendancyName ~= nil }
+		end
+	end
+	table.sort(sockets, function(a, b) return a.id < b.id end)
+	return { sockets = sockets }
+end
+
 -- The lines of the nodes a socketed Timeless jewel conquered (PassiveSpec replaces a conquered keystone by its
 -- legion keystone; the search's tree reads the raw tree's lines, SEARCH6). (MECHB20: the old example here, Dance with
 -- Death's "Can't use Helmets", is PoE1 Maraketh data left in PoB's files, not a PoE2 keystone: the user's note
