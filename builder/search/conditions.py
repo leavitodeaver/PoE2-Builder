@@ -5619,11 +5619,10 @@ def life_bars(name: str) -> float:
 # two readings (Life left whole, ES from the rarity ratio): the Red Queen 7.69M, above every reading (5.15M converted /
 # 7.49M poe2db). Now bosses.pool's (MECHD7): Life + ES of one bar x life_bars. The headline for a real preset is
 # "conversion" (EnergyShieldFromLife taken out of Life: the game files' reading, MEDIUM-LOW); poe2db's "added on top"
-# and, for the two Atziris, the fight video's ES of about 13.5% of Life (RESEARCH42 R42-1) are rows (boss_pool_rows).
+# and MECHD8's fight-video reading (Atziri's ES about 13.5% of Life, RESEARCH42 R42-1) are rows (boss_pool_rows).
 # The worst case keeps its Life whole (the user's "Keep as is" on the Arbiter of Ash's Life, 12 Nov 19:27: converting
 # its borrowed 33% would cut that Life by a third), so it reads poe2db's (ES added on top): its pool 14.50M (was
 # 14.88M); the conversion reading (9.97M) is its row. UNVERIFIED which reading the game uses (MECHD7).
-BOSS_POOL_VIDEO_ES = 0.135  # R42-1: Atziri's Energy Shield about 13.5% of her Life, from fight video (LOW)
 
 
 def boss_pool(name: str, reading: str | None = None) -> float:
@@ -5636,16 +5635,13 @@ def boss_pool(name: str, reading: str | None = None) -> float:
 
 
 def boss_pool_rows(name: str) -> list[tuple[str, float]]:
-    """The other readings of boss_pool, as (label, pool) rows."""
+    """The other readings of boss_pool (bosses.POOL_READINGS: MECHD8's video reading included since train 110), as
+    (label, pool) rows; a reading equal to the headline (no Energy Shield) is left out."""
     head = "poe2db" if name == getattr(bosses, "WORST", None) else "headline"
-    rows = [(f"{r} reading ({'ES converted out of Life' if r == 'headline' else 'ES added on top of Life'})",
-             boss_pool(name, r)) for r in bosses.POOL_READINGS if r != head]
-    rows = [(label, value) for label, value in rows if abs(value - boss_pool(name)) > 1.0]  # (no ES: one reading)
-    if name.startswith("Atziri"):
-        life, _, _ = bosses.pool(name, "headline")
-        rows.append((f"the fight video's ES ({BOSS_POOL_VIDEO_ES:.1%} of Life, R42-1, LOW)",
-                     life * (1 + BOSS_POOL_VIDEO_ES) * life_bars(name)))
-    return rows
+    words = {"headline": "ES converted out of Life", "poe2db": "ES added on top of Life",
+             "video": "the fight video's ES, R42-1, LOW"}
+    rows = [(f"{r} reading ({words.get(r, r)})", boss_pool(name, r)) for r in bosses.POOL_READINGS if r != head]
+    return [(label, value) for label, value in rows if abs(value - boss_pool(name)) > 1.0]
 
 
 def cull_window_scale(full_mult: float, main_mult: float, pool: float, dps: float, hits: float, hit_dps: float,
@@ -9454,6 +9450,14 @@ class Conditions:
         lines = self.build.call("sourceLines")["lines"]
         stats = self.build.call("stats", fields=EVIDENCE_FIELDS)
         stats["_main_share"] = self._main_share()  # (MECHC45: for the readers below, as for the Conditions' readers)
+        # (MECH98; MECHB51's find via the manager 09:38: Hailstorm Rounds' x0.28 bolts and Flame Breath's 4 s channel in its
+        # 10 s cooldown are DPS MORE cuts PoB folds into DpsMultiplier, which PoB's own ailment counts read (CalcOffence
+        # 5254: HitChance x chance x DpsMultiplier), but our ailment readers count Speed x HitChance (Shock, Ignite,
+        # Flammability, Compounding, consumers, kills: ~x3.6 too many hits on Hailstorm's probe). A model that cuts the
+        # main skill's HITS (not its damage per hit) puts the factor on build.main_hit_cut; every reader through
+        # models.at_main_share then takes it with the main skill's share. Unset: 1.)
+        if (cut := getattr(self.build, "main_hit_cut", None)) is not None:
+            stats["_main_share"] = number(stats["_main_share"]) * max(0.0, min(1.0, number(cut)))
         stats["_you_bleeding"] = getattr(self.build, "you_bleeding", None)  # (MECHC46: CHARGE_WHILE_BLEEDING's note)
         gem_types = {}
         for line in lines:
