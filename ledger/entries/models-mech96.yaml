@@ -1,0 +1,77 @@
+# MECH96 (MECH-A lane, 20 Nov 2026): lines a MECH-A model or bridge hook reads (empty replace: nothing is added to PoB,
+# so nothing counts twice; PoB applies none of these lines itself).
+
+- id: model-read-mech96-poison-from-bleed-base
+  title: '"Chance to Poison is calculated from your base chance to inflict Bleeding instead" (bridge installBaseChanceSwap)'
+  kind: pob_gap
+  model: base_chance_swap
+  match: '^Chance to Poison is calculated from your base chance to inflict Bleeding instead$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    Way of the Stonefist's form of the Desecrated gloves suffix (HandWrapsAbyssModGlovesUlamanSuffixPoisonChance, stat
+    base_poison_chance_is_bleed_chance_instead; MECH96, an UNDERCOUNT for a Bleed-based build and an OVERCOUNT for one
+    with its own Poison base: PoB parses nothing of it). With the line on any equipped item, the bridge's ModList /
+    ModDB Sum hook answers PoB's flat-ailment base query for Poison (CalcOffence 5540) with Bleed's base chance; Poison's
+    increases and MORE terms stay its own. This entry only says the bridge reads the line.
+  sources: ["engine/bridge.lua (BASE_CHANCE_SWAPS, installBaseChanceSwap, setBaseChanceSwap)"]
+  status: proposed
+
+- id: model-read-mech96-bleed-from-poison-base
+  title: '"Chance to inflict Bleeding is calculated from your base chance to Poison instead" (bridge installBaseChanceSwap)'
+  kind: pob_gap
+  model: base_chance_swap
+  match: '^Chance to inflict Bleeding is calculated from your base chance to Poison instead$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    The mirror (HandWrapsAbyssModGlovesUlamanSuffixBleedChance, stat base_bleed_chance_is_poison_chance_instead; MECH96):
+    Bleed's base chance reads Poison's. Both lines at once: each reads the other's own base (UNVERIFIED in game). This
+    entry only says the bridge reads the line.
+  sources: ["engine/bridge.lua (BASE_CHANCE_SWAPS, installBaseChanceSwap, setBaseChanceSwap)"]
+  status: proposed
+
+- id: model-read-mech96-minion-gruelling-madness
+  title: '"Minions have N% chance to inflict Gruelling Madness on Hit" (models.madness_stacks)'
+  kind: pob_gap
+  model: boss_power
+  match: '^Minions have (\(\d+-\d+\)|\d+)% chance to inflict Gruelling Madness on Hit$'
+  replace: []
+  confidence: theory
+  notes: >-
+    The minion staff's line (MECH96, an UNDERCOUNT before: read by nothing; PoB's ModCache 8719 / 8728 leave text over).
+    models.madness_stacks: N% x the build's minion hits a second (conditions.minion_hits), 10 held at one inflict per
+    2 s or more; it feeds Gruelling Madness's Slowing Potency on the boss (models.madness_slow_mods: +10% per stack past
+    the first on every Slow, bridge installBossSlow) and Sadist's Mercy's Power line (presence_power). This entry only
+    says a model reads the line.
+  sources: ["builder/search/models.py (MADNESS_MINION, madness_stacks, madness_slow_mods)"]
+  status: proposed
+
+- id: model-read-mech96-fear-incarnate
+  title: '"Gain N Fear Incarnate when you Cull a target" (models.fear_mods)'
+  kind: pob_gap
+  model: fear
+  match: '^Gain (\(\d+-\d+\)|\d+) Fear Incarnate when you Cull a target$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Horror's Flight (MECH96, an UNDERCOUNT before where the boss preset has cullable adds: PoB's ModCache 7494-7495 leave
+    text over). models.fear_mods: min(20, N x the preset's add Culls/s x 10 s) stacks, each 10% increased Culling Strike
+    Threshold as PoB's CullPercent INC; 0 with a note against a lone boss (its own Cull ends the fight). This entry only
+    says a model reads the line.
+  sources: ["builder/search/models.py (FEAR_INCARNATE, fear_mods)"]
+  status: proposed
+
+- id: model-read-mech96-fear-overwhelming
+  title: '"Gain N Fear Overwhelming when you Cull a target" (models.fear_mods)'
+  kind: pob_gap
+  model: fear
+  match: '^Gain (\(\d+-\d+\)|\d+) Fear Overwhelming when you Cull a target$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Horror's Flight's Way of the Stonefist form (HandWrapsUniqueGainFearIncarnateOnCulling1; MECH96): as Fear Incarnate,
+    each stack 5% increased Area of Effect for Attack Skills (AreaOfEffect INC on Attacks). This entry only says a model
+    reads the line.
+  sources: ["builder/search/models.py (FEAR_OVERWHELMING, fear_mods)"]
+  status: proposed

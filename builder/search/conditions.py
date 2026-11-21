@@ -457,9 +457,24 @@ def skill_use_rate(rate: dict, choices: dict[str, float] | None = None) -> tuple
     else:
         each, why, low = 0.0, ("0 presses* (LOW: no cooldown or duration sets how often it's used, and the search chose "
                                "no rate: no source, 0)"), True
-    if (speed_g := number(rate.get("speed"))) > 0:
+    if (speed_g := use_ceiling(rate)) > 0:
         each = min(each, speed_g)
     return each, why, low
+
+
+def use_ceiling(rate: dict) -> float:
+    """(MECH96; the manager 17:56 / 18:20 from MECHB47) the most uses a second of a useRates row: PoB's Speed, but for a
+    Warcry (the bridge's `warcry` flag) its castRate (1 / WarcryCastTime) under its cooldown cap: PoB's Speed for a
+    Warcry counts the action speed twice (CalcOffence 2978 then 2985; MECHB47's probe POE2T4710: 0.334/s for a 1.547 s
+    cry). Never lower than PoB's Speed (as models.press_use_rate's ceiling)."""
+    speed = number(rate.get("speed"))
+    cast_rate = number(rate.get("castRate"))
+    if not rate.get("warcry") or cast_rate <= 0:
+        return speed
+    cooldown = number(rate.get("cooldown"))
+    if cooldown > 0:
+        cast_rate = min(cast_rate, (number(rate.get("repeats")) or 1.0) / cooldown)
+    return max(speed, cast_rate)
 
 
 def event_rates(groups: list[dict], gems: dict[str, dict], main_skill: str, main_types: set[str], speed: float,
@@ -2972,12 +2987,30 @@ def repulsion_minion_hits(build: Build, stats: dict) -> tuple[float, str]:
     left out: its explosion comes after the removal) and the other groups' minions (each group's useRates minionSpeed,
     PoB's rate for its minion's counted skill, x the minion limit; their hit chance not given: 1, the lower Repulsion
     reading; a minion skill that doesn't hit counts as hitting, the same)."""
+    total, how = minion_hits(build, stats)
+    parts = [how] if total > 0 else []
+    for row in getattr(build, "side_rows", None) or []:
+        if str(row.get("name") or "").startswith(models.REPULSION) or number(row.get("hits")) <= 0:
+            continue
+        total += number(row["hits"])
+        parts.append(f"{row.get('name')} {number(row['hits']):.2f} hits/s")
+    return total, "; ".join(parts)
+
+
+def minion_hits(build: Build, stats: dict) -> tuple[float, str]:
+    """(MECH96, split out of repulsion_minion_hits for it and models.madness_stacks) (hits a second the build's minions
+    land on the boss, how): the main skill's minions (PoB's Minion.Speed x Minion.HitChance x their count, the bridge's
+    activeSkills minion limit, else 1; read from the build when `stats` lacks them) and the other groups' minions (each
+    group's useRates minionSpeed x the minion limit; their hit chance not given: 1)."""
     total, parts = 0.0, []
     group = build.main_group() if callable(getattr(build, "main_group", None)) else None
     main_index = (group or {}).get("index")
     name = (group["skills"][min(group.get("mainActiveSkill") or 1, len(group["skills"])) - 1]["name"]
             if group and group.get("skills") else None)
     skills = [s for s in build.call("activeSkills")["skills"] if not s.get("disabled")]
+    if "Minion.Speed" not in stats:
+        # (the evidence's own fields don't hold them: EVIDENCE_FIELDS, so Repulsion's main-skill minions read 0 before)
+        stats = {**stats, **(build.call("stats", fields=["Minion.Speed", "Minion.HitChance"]) or {})}
     speed = number(stats.get("Minion.Speed"))
     if speed > 0:
         chance = number(stats.get("Minion.HitChance")) / 100 if stats.get("Minion.HitChance") is not None else 1.0
@@ -2986,11 +3019,6 @@ def repulsion_minion_hits(build: Build, stats: dict) -> tuple[float, str]:
         count = max(1.0, number(minion.get("limit")) or number(minion.get("desired")) or 1.0)
         total += speed * chance * count
         parts.append(f"{count:g} minions x {speed * chance:.2f} hits/s (PoB's Minion.Speed x hit chance)")
-    for row in getattr(build, "side_rows", None) or []:
-        if str(row.get("name") or "").startswith(models.REPULSION) or number(row.get("hits")) <= 0:
-            continue
-        total += number(row["hits"])
-        parts.append(f"{row.get('name')} {number(row['hits']):.2f} hits/s")
     others = {}
     for s in skills:
         minion = s.get("minion") or {}
@@ -9246,6 +9274,8 @@ class Conditions:
         stats["_stationary"] = (not self.stationary_off and not self.moving
                                 and any(STATIONARY_LINE.search(t) for t in texts))
         # (MECH67) the boss's Power with the build's Power lines (models.boss_power): Glory, the roar's Empowers
+        if any(models.MADNESS_MINION.match(t.strip()) for t in texts):  # (MECH96: the minions' Gruelling Madness)
+            stats["_minion_hits"] = minion_hits(self.build, stats)[0]
         stats["_boss_power"] = models.boss_power(texts, stats, _boss_distance(texts, stats)[0], "Attack" in main_types,
                                                  self.main_skill)
         if any(n in gem_types for n in COMBO_GEMS) and self.main_skill:  # (MECHC43: COMBO_REQUIRED_STATS' note)

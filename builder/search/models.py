@@ -4231,6 +4231,63 @@ def cull_buff_share(skill: Skill, stats: dict, main: Skill | None = None, prev: 
                    f"Effect Duration increases not counted)"), play + f" Headline: up {share:.0%} of the fight."
 
 
+# Fear Incarnate and Fear Overwhelming (MECH96; the open rows "Gain # Fear Incarnate when you Cull a target", 17.6 + 1.2,
+# and its Way of the Stonefist form "Gain 1 Fear Overwhelming when you Cull a target"; plan kw-fear-incarnate.md). An
+# UNDERCOUNT before where the boss preset has cullable adds: PoB parses neither (ModCache 7494-7496: leftover text).
+# KeywordPopups FearIncarnate: "Each Fear Incarnate grants 10% increased Culling Strike Threshold and lasts 10 seconds.
+# This duration is refreshed when you gain another Fear Incarnate. You can have up to a maximum of 20"; FearOverwhelming:
+# "Each Fear Overwhelming grants 5% increased Area of Effect for Attack Skills and lasts 10 seconds" (same refresh, 20).
+# (checked: Stats ids grant_fear_incarnate_stack_on_culling_enemies / grant_fear_overwhelming_stack_on_culling_enemies,
+# one Mod each, UniqueGainFearIncarnateOnCulling1 (Horror's Flight) and HandWrapsUniqueGainFearIncarnateOnCulling1 (its
+# Stonefist form): kw-fear-incarnate.md; no other source; poe2db: Horror's Flight's page (the plan's second source).)
+# The event is a Cull (a kill: KeywordPopups CullingStrike); the boss's own Cull ends the fight, so the culls are the
+# preset's adds (bosses.kill_stats' AddCullsPerSecond, MECH-D: counted as its kills; whether the build can Cull is PoB's
+# own check, as its CullPercent INC does nothing without a Cull source). Held stacks: min(20, N x culls/s x 10 s), the
+# culls averaged over the fight. With the presets' adds in waves 15-45 s apart (longer than the 10 s), each wave's stacks
+# last 10 s and lapse, which this average is; where culls come closer than every 10 s the stacks would build towards 20
+# instead (not counted: the lower reading). MEDIUM-LOW (the add rate is MECH-D's). Read as PoB's CullPercent INC
+# (CalcOffence 4076-4079: its CullMultiplier) and AreaOfEffect INC on Attacks; the stacks at the moment the boss reaches
+# its threshold aren't known: the fight average stands in (LOW).
+FEAR_INCARNATE = re.compile(r"^Gain (\d+) Fear Incarnate when you Cull a target$", re.I)
+FEAR_OVERWHELMING = re.compile(r"^Gain (\d+) Fear Overwhelming when you Cull a target$", re.I)
+FEAR_SECONDS, FEAR_MAX = 10.0, 20
+FEAR_CULL_PER, FEAR_AREA_PER = 10.0, 5.0
+
+
+def fear_mods(texts: list[str], stats: dict) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for Fear Incarnate / Fear Overwhelming (the note above), from the preset's add Culls."""
+    found = {}
+    for pattern, kind in ((FEAR_INCARNATE, "Incarnate"), (FEAR_OVERWHELMING, "Overwhelming")):
+        n = sum(int(m.group(1)) for t in texts if (m := pattern.match(t.strip())))
+        if n:
+            found[kind] = n
+    if not found:
+        return [], []
+    culls = number(stats.get(CULLS_STAT))
+    mods, notes = [], []
+    for kind, n in found.items():
+        held = min(float(FEAR_MAX), n * culls * FEAR_SECONDS)
+        label = f"Fear {kind} from Culling adds*"
+        if held <= 0:
+            notes.append({"label": label, "value": "0", "confidence": "MEDIUM",
+                          "basis": ("0: it's gained on Culling a target, and the boss's own Cull ends the fight; this boss "
+                                    "preset has no killable adds with a known rate (bosses.kill_stats)")})
+            continue
+        if kind == "Incarnate":
+            value = FEAR_CULL_PER * held
+            mods.append(raw_mod("CullPercent", "INC", value))
+            what = f"+{value:.3g}% Culling Strike Threshold"
+        else:
+            value = FEAR_AREA_PER * held
+            mods.append(raw_mod("AreaOfEffect", "INC", value, keywords=["Attack"]))
+            what = f"+{value:.3g}% Area of Effect for Attacks"
+        notes.append({"label": label, "value": what, "confidence": "LOW", "basis": (
+            f"{held:.3g} stacks on average: {n} per Cull x {culls:.3g} add Culls/s (the preset's adds, counted as its "
+            f"kills) x {FEAR_SECONDS:g} s each, at most {FEAR_MAX}; the culls averaged over the fight (stacks building "
+            "past one wave not counted: the lower reading); the boss's own Cull ends the fight, so it feeds nothing")})
+    return mods, notes
+
+
 # `share: revived_recently` (COVE9): Crazed Minions, "Supported Minions deal 30% more Damage if they have Revived
 # Recently" (Recently: the past 4 s, KeywordPopups). A minion Revives only after it's Killed, so the rate comes from what
 # in the build kills its own Reviving minions (minion_deaths: Sacrifice, Explosive Demise; 0 with its note when nothing
@@ -14972,20 +15029,94 @@ def presence_power(texts: list[str], stats: dict, distance: float | None = None,
     if madness_line:
         if attack is None:
             attack = "Attack" in (stats.get("_main_types") or set())
-        per_second = max([int(m.group(1)) for t in texts if (m := MADNESS_PER_SECOND.match(t))] or [0])
-        per_hit = (max([int(m.group(1)) for t in texts if (m := MADNESS_ON_HIT.match(t))] or [0])
-                   if attack and hits > 0 else 0)
-        if per_second or (per_hit and hits >= 1 / MADNESS_DECAY):
-            stacks, why = float(MADNESS_MAX), "kept at its 10 maximum"
-        elif per_hit:
-            stacks, why = float(min(MADNESS_MAX, per_hit)), f"{per_hit} per hit, hits too slow to stack it (LOW)"
-        else:
-            stacks, why = 0.0, "nothing inflicts it on the boss from the main skill"
+        stacks, why = madness_stacks(texts, stats, attack)  # (MECH96: shared with the Slowing Potency, + minions)
         power += stacks
         parts.append(f"+{stacks:g} from Gruelling Madness ({why})")
     return power, (f"the boss's Power {power:g} (20; " + "; ".join(parts) + f"; in your {radius / 10:.1f} m Presence, "
                    f"the boss {far / 10:g} m away; two doublings counted once and Madness added after, the lower "
                    "readings, UNVERIFIED)")
+
+
+# Gruelling Madness on the boss (MECH96; the open rows "Minions have N% chance to inflict Gruelling Madness on Hit" and
+# the plan kw-gruelling-madness.md). KeywordPopups GruellingMadness: "The first Gruelling Madness on a target Slows their
+# movement speed by 15%. Each additional Gruelling Madness instead increases the Slowing Potency of Debuffs on the
+# targets by 10%, which affects both the first Gruelling Madness and any other Debuffs that are Slowing the target. A
+# maximum of 10 ... Targets will lose 1 Gruelling Madness every 2 seconds that passes without more being inflicted."
+# Sources (checked: Stats.json ids holding "gruelling", their Mods / PassiveSkills / skill stat-set users, game 26476662,
+# kw-gruelling-madness.md; PoB's uniques: body.lua 188 The Auspex, mace.lua 98 Sadist's Mercy, staff.lua 64 the minion
+# staff; nine more ids no Mod, passive or skill uses; poe2db not re-checked (UNVERIFIED that none is live elsewhere)):
+# - "Enemies in your Presence gain N Gruelling Madness each second": kept at 10 while the boss is in your Presence;
+# - "Hits with this Weapon inflict N Gruelling Madness": the main skill an Attack hitting at least once per 2 s: 10;
+#   slower: N (LOW);
+# - "Minions have N% chance to inflict Gruelling Madness on Hit" (an UNDERCOUNT before: read by nothing): N% x the
+#   build's minion hits a second (stats["_minion_hits"], conditions.minion_hits: every group's minions; else the main
+#   skill's PoB Minion.Speed x hit chance, one minion: the lower reading); at least one inflict per 2 s on average: 10
+#   (MEDIUM: random gaps over 2 s drop a stack now and then, not counted); slower: the mean of one stack held 2 s per
+#   inflict (LOW). One stack per minion hit (the line names no count).
+# The ramp to 10 isn't counted (a fight's first seconds). PoB parses none of these lines (ModCache 7313, 8255-8257, 8719,
+# 8728: nil or leftover text).
+MADNESS_MINION = re.compile(r"^Minions have (\d+(?:\.\d+)?)% chance to inflict Gruelling Madness on Hit$", re.I)
+MADNESS_POTENCY_MOD = "MECH_MADNESS_POTENCY"  # (bridge installBossSlow reads it on the player)
+MADNESS_POTENCY_PER = 10.0
+
+
+def madness_stacks(texts: list[str], stats: dict, attack: bool | None = None,
+                   in_presence: bool = True) -> tuple[float, str]:
+    """(Gruelling Madness held on the boss, how) from the build's sources (the note above). `in_presence`: whether the
+    boss is in your Presence (the per-second line needs it); `attack` as boss_power's."""
+    if attack is None:
+        attack = "Attack" in (stats.get("_main_types") or set())
+    hits = hits_per_second(stats)
+    per_second = (max([int(m.group(1)) for t in texts if (m := MADNESS_PER_SECOND.match(t.strip()))] or [0])
+                  if in_presence else 0)
+    per_hit = (max([int(m.group(1)) for t in texts if (m := MADNESS_ON_HIT.match(t.strip()))] or [0])
+               if attack and hits > 0 else 0)
+    chance = sum(float(m.group(1)) for t in texts if (m := MADNESS_MINION.match(t.strip()))) / 100
+    minion_hits = 0.0
+    if chance > 0:
+        if "_minion_hits" in stats:
+            minion_hits = number(stats["_minion_hits"])
+        else:
+            hit_chance = number(stats.get("Minion.HitChance")) / 100 if stats.get("Minion.HitChance") is not None else 1.0
+            minion_hits = number(stats.get("Minion.Speed")) * hit_chance
+    inflicts = min(1.0, chance) * minion_hits
+    if per_second:
+        return float(MADNESS_MAX), f"kept at its {MADNESS_MAX} maximum (it gains {per_second} a second in your Presence)"
+    if per_hit and hits >= 1 / MADNESS_DECAY:
+        return float(MADNESS_MAX), f"kept at its {MADNESS_MAX} maximum ({per_hit} per hit, {hits:.2f} hits/s)"
+    if inflicts >= 1 / MADNESS_DECAY:
+        return float(MADNESS_MAX), (f"kept at its {MADNESS_MAX} maximum (minions: {chance:.0%} x {minion_hits:.2f} "
+                                    f"hits/s = {inflicts:.2f} a second; MEDIUM)")
+    if per_hit:
+        return float(min(MADNESS_MAX, per_hit)), f"{per_hit} per hit, hits too slow to stack it (LOW)"
+    if inflicts > 0:
+        held = min(1.0, inflicts * MADNESS_DECAY)
+        return held, (f"{held:.2f} on average (minions inflict {inflicts:.2f} a second, each held "
+                      f"{MADNESS_DECAY:g} s: LOW)")
+    return 0.0, "nothing inflicts it on the boss"
+
+
+def madness_slow_mods(texts: list[str], stats: dict, distance: float | None = None,
+                      attack: bool | None = None) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): Gruelling Madness's Slowing Potency on the boss (the note above): +10% per stack past the first,
+    on every Slow on it (bridge installBossSlow: x(1 + N%) on the boss's own potency, its Unique 50% less included,
+    before the 25% floor; MEDIUM that the two multiply: an increase to the target's potency and the Unique's "less").
+    The first stack's own 15% movement Slow moves no hit rate: not counted. Defence only (the boss's hits)."""
+    if not any(MADNESS_PER_SECOND.match(t.strip()) or MADNESS_ON_HIT.match(t.strip()) or MADNESS_MINION.match(t.strip())
+               for t in texts):
+        return [], []
+    far = POWER_FALLBACK_DISTANCE if not distance else distance
+    stacks, why = madness_stacks(texts, stats, attack, number(stats.get("PresenceRadius")) >= far)
+    value = MADNESS_POTENCY_PER * max(0.0, stacks - 1)
+    if value <= 0:
+        return [], [{"label": "Gruelling Madness on the boss*", "value": f"{stacks:.2g} stacks", "confidence": "LOW",
+                     "basis": f"{why}: no stack past the first, so no Slowing Potency (the first slows movement only)"}]
+    return [raw_mod(MADNESS_POTENCY_MOD, "INC", value)], [{
+        "label": "Gruelling Madness's Slowing Potency on the boss*", "value": f"+{value:g}%", "confidence": "MEDIUM",
+        "basis": (f"{stacks:.3g} Gruelling Madness ({why}): +{MADNESS_POTENCY_PER:g}% Slowing Potency per stack past "
+                  "the first on the boss's Chill, Temporal Chains and other Slows (PoB parses none of these lines: 0 "
+                  "before); x the Unique boss's 50% less Slow, before the 25% speed floor; the first stack's movement "
+                  "Slow not counted. It slows the boss's hits (survival, 'when Hit' sources), no damage")}]
 
 
 def power_of(stats: dict, texts: list[str] | None = None) -> float:

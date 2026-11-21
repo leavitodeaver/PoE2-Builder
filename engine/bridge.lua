@@ -1456,6 +1456,9 @@ local function installBossSlow()
 		local magnitude = 1  -- (MECH94: Slow Magnitude, the note above)
 		if player and player.modDB then
 			magnitude = math.max(0, 1 + player.modDB:Sum("INC", nil, "MECH_SLOW_MAGNITUDE") / 100)
+			-- (MECH96: Gruelling Madness's Slowing Potency on the boss, models.madness_slow_mods: x(1 + N%) on its own
+			-- potency, the Unique's 50% less included, before the floor)
+			potency = potency * math.max(0, 1 + player.modDB:Sum("INC", nil, "MECH_MADNESS_POTENCY") / 100)
 		end
 		local freezeShare = tonumber(build and build.configTab and build.configTab.input[FREEZE_SHARE_INPUT])
 		for _, row in ipairs(modDB:Tabulate("INC", nil, "ActionSpeed")) do
@@ -1752,6 +1755,77 @@ local function itemHasLine(env, text)
 		end
 	end
 	return false
+end
+-- The base-chance swap (MECH96; an UNDERCOUNT and an OVERCOUNT): "Chance to Poison is calculated from your base chance
+-- to inflict Bleeding instead" (stat base_poison_chance_is_bleed_chance_instead) and its mirror "Chance to inflict
+-- Bleeding is calculated from your base chance to Poison instead" (base_bleed_chance_is_poison_chance_instead). PoB
+-- parses neither (no ModCache entry; ModScalability lists them with no mods; SkillStatMap has neither stat), so Poison
+-- kept its own base: a build with Bleed base chance and the line got no Poison (lower than the game), and one with its
+-- own Poison base kept it (higher). With the line on any equipped item, PoB's flat-ailment base for the swapped ailment
+-- (CalcOffence 5540: skillModList:Sum("BASE", cfg, "<Ailment>Chance", "AilmentChance")) reads the other ailment's base
+-- instead, on the player's own stores only; its increases and MORE terms stay its own (CalcOffence 5541-5543), as the
+-- wording says ("calculated from your base chance ... instead"). Both lines at once: each reads the other's own base
+-- (UNVERIFIED in game; no source says). The enemy's SelfPoisonChance / SelfBleedChance isn't "your" chance: kept.
+-- (checked: Stats.json ids holding "instead" with poison / bleed (5: the two above, two Bleeding-as-Fire, one stored
+-- Poison); Mods Stat1-6: only HandWrapsAbyssModGlovesUlamanSuffixPoisonChance / BleedChance (spawn weight 0: Way of the
+-- Stonefist's transform of the Desecrated gloves suffixes, builder/search/stonefist.py); PassiveSkills, SoulCoreStats,
+-- GrantedEffectStatSetsPerLevel, GrantedEffectQualityStats: none; GrantedEffectStatSets: SupportMaladyPlayer (Malady,
+-- both stats), drop-disabled and shut out of the search (context.py), NOT handled here: an imported build with Malady
+-- keeps PoB's reading; second source PoB's own ModItem.lua 2137-2138 texts; poe2db NOT checked.)
+local BASE_CHANCE_SWAPS = {
+	{ text = "chance to poison is calculated from your base chance to inflict bleeding instead",
+	  ailment = "PoisonChance", from = "BleedChance" },
+	{ text = "chance to inflict bleeding is calculated from your base chance to poison instead",
+	  ailment = "BleedChance", from = "PoisonChance" },
+}
+local baseSwapDB = nil -- the player's modDB while a swap line is equipped
+local baseSwapFrom = { } -- ailment chance name -> the chance name its base is read from
+local function inBaseSwapStore(store)
+	local depth = 0
+	while store and depth < 8 do
+		if store == baseSwapDB then
+			return true
+		end
+		store = store.parent
+		depth = depth + 1
+	end
+	return false
+end
+local baseSwapInstalled = false
+local function installBaseChanceSwap()
+	if baseSwapInstalled or not common or not common.classes then
+		return
+	end
+	for _, className in ipairs({ "ModList", "ModDB" }) do
+		local class = common.classes[className]
+		if class and class.Sum then
+			local sum = class.Sum
+			class.Sum = function(self, modType, cfg, ...)
+				if baseSwapDB and modType == "BASE" and select("#", ...) == 2 then
+					local name, second = ...
+					local from = baseSwapFrom[name]
+					if from and second == "AilmentChance" and inBaseSwapStore(self) then
+						return sum(self, modType, cfg, from, second)
+					end
+				end
+				return sum(self, modType, cfg, ...)
+			end
+		end
+	end
+	baseSwapInstalled = true
+end
+local function setBaseChanceSwap(env)
+	baseSwapDB = nil
+	baseSwapFrom = { }
+	if not env or not env.modDB or not env.player then
+		return
+	end
+	for _, swap in ipairs(BASE_CHANCE_SWAPS) do
+		if itemHasLine(env, swap.text) then
+			baseSwapFrom[swap.ailment] = swap.from
+			baseSwapDB = env.modDB
+		end
+	end
 end
 -- Life Recharge (SEARCH15; AUDIT28 A28-3, an UNDERCOUNT): Tetzlapokal's Desire's "Life Recharges" (Mods
 -- UniqueLifeRecharge1, stat base_life_recharges_like_energy_shield) parses to nothing in PoB (ModParser has only "life
@@ -2417,6 +2491,7 @@ local function installDerived()
 	installCorpseExplosionHits()
 	installBossSlow()
 	installNoCritReroll()
+	installBaseChanceSwap()
 	installGrantedLevel()
 	local calcs = require("Modules.CalcBase")
 	if calcs.perform == wrappedPerform or not calcs.perform then
@@ -2427,6 +2502,7 @@ local function installDerived()
 		setDerived(env)
 		setAugmentCounts(env)
 		setNoCritReroll(env)
+		setBaseChanceSwap(env)
 		local function finish(...)
 			setLowLifeCap(env, env and env.player and env.player.output)
 			setEsBypassBelowHalf(env, env and env.player and env.player.output)
@@ -4437,6 +4513,9 @@ function bridge.useRates(args)
 			-- (MECH63, Assumptions.empowered_uses) a Warcry's Empowered attacks per use, PoB's Num<Warcry>Empowers
 			-- (CalcPerform 2196-2215: its Power over the boss's, its extra Empowers), named as CalcPerform names it
 			if skill.skillTypes and skill.skillTypes[SkillType.Warcry] then
+				-- (MECH96: conditions.use_ceiling, for every reader of the row: a Warcry's PoB Speed counts the action
+				-- speed twice, its castRate doesn't; MECHB47 flagged rows only inside Assumptions.rate_presses)
+				entry.warcry = true
 				local warcryName = entry.name:gsub(" Cry", ""):gsub("'s", ""):gsub(" ", "")
 				local count = env.player.modDB:Sum("BASE", nil, "Num" .. warcryName .. "Empowers")
 				entry.warcryEmpowers = count > 0 and jsonNumber(count) or nil

@@ -1432,12 +1432,16 @@ def djinn_commands(build: Build, main: models.Skill | None) -> tuple[float, list
     djinns' groups (the Barya notables' granted summons), the Commands the tree grants, each scored by the bridge's
     minionSkillHit with that minion skill and its damage stat set; the presses go on build.item_presses."""
     where = {}
+    disabled = None  # (MECH96: PoB's own flag, pob_disabled; groups()' skill entries carry none, so the old check was dead)
     for group in build.groups():
         if group.get("enabled") is False:
             continue
         for n, skill in enumerate(group["skills"], 1):
-            if skill["name"] in models.DJINNS.values() and not skill.get("disabled"):
-                where.setdefault(skill["name"], (group["index"], n))
+            if skill["name"] in models.DJINNS.values():
+                if disabled is None:
+                    disabled = pob_disabled(build)
+                if (group["index"], skill["name"]) not in disabled:
+                    where.setdefault(skill["name"], (group["index"], n))
     if not where:
         return 0.0, [], []
     texts = [line["text"] for line in build.call("sourceLines")["lines"]]
@@ -2895,12 +2899,19 @@ class Assumptions:
         # (MECH67) the boss's Power with the build's Power lines (models.boss_power), for the Energy / Glory / roar
         # models and PoB's own EnemyPower / WarcryPower readers
         texts = [e["text"] for e in source_lines]
-        power = models.boss_power(texts, stats, models.number(build.call("getConfig")["input"].get("enemyDistance")) or None,
-                                  bool(main and main.attack), main.name if main else "")
+        if any(models.MADNESS_MINION.match(t.strip()) for t in texts):  # (MECH96: the minions' Gruelling Madness)
+            stats = {**stats, "_minion_hits": conditions_mod.minion_hits(build, stats)[0]}
+        distance = models.number(build.call("getConfig")["input"].get("enemyDistance")) or None
+        power = models.boss_power(texts, stats, distance, bool(main and main.attack), main.name if main else "")
         stats = {**stats, "_boss_power": power}
         if any(conditions_mod.BUFF_EXPIRY.search(e["text"]) for e in source_lines):  # (MECHC35, RESEARCH29)
             stats = {**stats, "_buff_expiry": conditions_mod.buff_expiry([e["text"] for e in source_lines])}
         mods, notes = models.archon_model(inputs, with_main_share(build, stats, main), main, main_gems)  # (MECHC45)
+        # (MECH96) Gruelling Madness's Slowing Potency on the boss (PoB parses none of its lines)
+        madness_mods, madness_notes = models.madness_slow_mods(texts, stats, distance, bool(main and main.attack))
+        mods, notes = mods + madness_mods, notes + madness_notes
+        fear_mods_, fear_notes = models.fear_mods(texts, stats)  # (MECH96: Fear Incarnate / Overwhelming on Culls)
+        mods, notes = mods + fear_mods_, notes + fear_notes
         # (MECH79, MECH-A) Incinerate's fuel (its idle line) and the main skill's Compounding Ignite
         compound_mods, compound_notes = models.compound_ignite_mods(name or "", getattr(build, "compound_ignite", None))
         mods, notes = mods + compound_mods, notes + compound_notes
@@ -4666,7 +4677,7 @@ class Assumptions:
             if skill is not listed[0]:
                 parts.append(f"{skill['name']} is triggered by {listed[0]['name']} (Meta), at its use rate (MEDIUM)")
             name, rate = skill["name"], rates.get(group["index"]) or {}
-            per = number(rate.get("speed"))
+            per = conditions_mod.use_ceiling(rate)  # (MECH96: a Warcry's castRate, not PoB's double-slowed Speed)
             # (MECHB32: Olroth's Conviction, models.OLROTH_EMPOWERS: each use Empowers that many more skill uses. A
             # Warcry's are in PoB's count already, GEM11's olroth_model; Mana Tempest is Indeterminate, so it can't)
             more = 1 + max(0.0, number((skill.get("supportStats") or {}).get(models.OLROTH_EMPOWERS)))
