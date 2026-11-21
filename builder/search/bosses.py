@@ -88,6 +88,9 @@ class Boss(NamedTuple):
     # when set, else its own RED_FLASH table): set only on the worst case (MECHD5).
     unavoidable: float | None = None
     unblockable: float | None = None
+    # (MECHD7; PLANS6's kw-culling-strike.md, the manager 03:48 21 Nov) whether Culling Strike can kill it: False gates
+    # every culling model to 0 (cull_threshold). True for all 12 (the comment above cull_threshold).
+    cullable: bool = True
 
 
 POB_POISE = 938  # PoB's Pinnacle preset's threshold multiplier (+838%; RESEARCH18 #91)
@@ -586,6 +589,19 @@ def kill_stats(name: str = DEFAULT) -> dict:
 # of the final Life, the gain would fall further (Atziri x1.042 instead of x1.048): this reading is the smaller cut.
 # No preset is Cull-proof (checked: the only Mods row with immune_to_culling_strike / cannot_be_culled is
 # MonsterCannotBeCulled, on none of MonsterVarieties' rows' Mods / Mods2; no exported .ot names a cull stat).
+# Re-checked MECHD7 (21 Nov) on game 26650308: Stats holds three cull-immunity stats (can_be_culled,
+# immune_to_culling_strike, cannot_be_culled); the one Mods row carrying any is still MonsterCannotBeCulled, and it is on
+# none of the 13 preset varieties' Mods / Mods2 (research13's MonsterVarieties export, 26476662; the 26650308 dump has no
+# monster tables, so a change there is UNVERIFIED); no GrantedEffect stat set (player or monster, every level row) holds
+# one, so no boss skill or phase buff grants it in the exported tables. Runic Ward also blocks Culling (KeywordPopups
+# Ward: "While a monster has Runic Ward, it cannot be Culled"): no preset's variety mods or MonsterTypes carry a Ward
+# stat (checked: the same rows for "ward"); the monster Ward mods that exist are Expedition runes
+# (ExpeditionMonsterModRuneWard / ...Power: maximum_life_%_to_gain_as_total_ward): whether one can reach Olroth's
+# arena is UNVERIFIED (a research question, MECHD7; not counted). Second sources: poe2db's Arbiter of Ash page lists no
+# such mod (it lists no rarity mod either, so its silence is weak, PLANS6); patch notes: no hit for a boss that can't be
+# Culled (grep_notes "cull"; no hit isn't proof). Scripted deaths and phase changes (a form that transforms, the
+# Arbiter's heal at a phase change) are UNVERIFIED for Culling: `cullable` stays True (never zeroed on an unverified
+# claim), the phases are conditions.life_bars' (MECH-A's) share of the threshold.
 # Forms and lives (the King's two forms, Kulemak's revive, Atziri's two phases) each Cull at 5% of their own Life,
 # the same share of the whole fight, so they don't change it (UNVERIFIED that a form that transforms can be Culled).
 CULL_UNIQUE = 5.0  # % of Life (KeywordPopups CullingStrike; PoB's CullingStrikeUniqueThreshold, Data/Misc.lua 108)
@@ -628,9 +644,20 @@ def pool(name: str = DEFAULT, reading: str = "headline") -> tuple[float, float, 
     return life, es, how
 
 
+def can_be_culled(name: str = DEFAULT) -> tuple[bool, str]:
+    """(whether Culling Strike can kill the preset, how): the gate every culling model goes through (cull_threshold)."""
+    if PRESETS[name].cullable:
+        return True, (f"{name} can be Culled (no cannot-be-Culled mod or Runic Ward on its monster data, checked "
+                      "MECHD7; phases and scripted deaths UNVERIFIED)")
+    return False, f"{name} can't be Culled: every Culling gain counts 0"
+
+
 def cull_threshold(name: str = DEFAULT) -> float:
     """PoB's Unique Culling Strike threshold to use against this boss: 5% x Life / (Life + ES), so PoB's
-    CullMultiplier, 100 / (100 - it), is the gain over the whole pool (MEDIUM-LOW, above)."""
+    CullMultiplier, 100 / (100 - it), is the gain over the whole pool (MEDIUM-LOW, above); 0 for a preset that can't be
+    Culled (can_be_culled), which leaves PoB's multiplier at x1 and every reader's Cull share at 0."""
+    if not can_be_culled(name)[0]:
+        return 0.0
     return round(CULL_UNIQUE * life_share_of_pool(name), 4)
 
 

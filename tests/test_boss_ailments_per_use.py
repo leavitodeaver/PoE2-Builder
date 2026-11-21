@@ -107,3 +107,12 @@ def test_each_presets_life_and_energy_shield_under_both_readings():
     life, es, _ = bosses.pool("Atziri, the Red Queen")
     assert round(life, -4) == 4_750_000 and round(es, -4) == 400_000
     assert bosses.pool("Arbiter of Ash")[1] == 0
+
+
+def test_a_preset_that_cant_be_culled_gates_every_culling_model_to_nothing(monkeypatch):
+    assert all(bosses.can_be_culled(n)[0] for n in bosses.PRESETS)  # (checked: no preset carries the flag)
+    ash = bosses.PRESETS[ASH]
+    assert bosses.cull_threshold(ASH) == 5.0
+    monkeypatch.setitem(bosses.PRESETS, ASH, ash._replace(cullable=False))
+    assert bosses.cull_threshold(ASH) == 0.0 and bosses.config_vars(ASH)["cullingStrikeUniqueThreshold"] == 0.0
+    assert "can't be Culled" in bosses.can_be_culled(ASH)[1]
