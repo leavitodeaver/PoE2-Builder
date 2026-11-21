@@ -83,6 +83,8 @@ def test_the_probe_reads_the_requests_boss_and_puts_the_box_back():
         def call(self, name, **kw):
             if name == "getConfig":
                 return {"input": dict(self.config)}
+            if name == "stats":
+                return {"AverageHit": 100.0, "Speed": 2.0, "HitChance": 100.0}
             self.calls.append(kw["vars"])
             on = kw["vars"][conditions.ENEMY_FULL_LIFE_VAR]
             return {"stats": {"FullDPS": 200.0 if on else 100.0}}
@@ -112,3 +114,53 @@ def test_the_full_life_gate_reads_lines_and_supports():
 def test_the_double_damage_line_reaches_the_ledger_under_the_full_life_box():
     found = translate("Deal Double Damage to Enemies that are on Full Life")
     assert found and found[1] == ["100% chance to deal Double Damage against Enemies on Full Life"]
+
+
+def test_chaos_strips_the_shield_twice_as_fast_and_bleed_or_poison_ends_full_life():
+    """RESEARCH39: Chaos removes twice the Energy Shield (a hit all Chaos halves the window's ratio); Bleed / Poison
+    bypass the shield, so the window ends at the first one (here 0.5 s into a fight of minutes)."""
+    from builder.search import conditions
+
+    shield = 1 - bosses.life_share_of_pool("Atziri, the Red Queen")
+    plain, _ = conditions.enemy_full_life_window(shield, 1.0)
+    chaos, how = conditions.enemy_full_life_window(shield, 1.0, chaos=1.0)
+    assert plain == pytest.approx(shield)
+    assert chaos == pytest.approx(conditions.enemy_full_life_share(shield, 0.5)) and "Chaos" in how
+    life = bosses.PRESETS["Atziri, the Red Queen"].life
+    cut, how = conditions.enemy_full_life_window(shield, 1.0, ailments_per_second=2.0, life=life, on=10_000.0)
+    total = life * shield / (1 - shield) / 10_000.0 + life / 10_000.0
+    assert cut == pytest.approx(0.5 / total) and cut < 0.001 and "Bleed / Poison" in how
+    # a first ailment after the shield breaks doesn't cut the window
+    late, _ = conditions.enemy_full_life_window(shield, 1.0, ailments_per_second=1e-9, life=life, on=10_000.0)
+    assert late == pytest.approx(plain)
+
+
+def test_every_primed_freeze_skill_feeds_the_primed_freeze_rate():
+    """GEM29's row: Wave of Frost and Shattering Concoction carry has_freeze_cull as Arctic Howl does; their uses are
+    summed (the main skill at its Speed, others at their group's rate)."""
+    from builder.search import conditions
+
+    class Build:
+        def call(self, name, **kw):
+            assert name == "groups"
+            return {"groups": [{"index": 2, "gems": [{"name": "Arctic Howl"}]}]}
+
+    me = conditions.Conditions.__new__(conditions.Conditions)
+    me.build, me.main_skill = Build(), "Wave of Frost"
+    me._group_uses = lambda groups, names, rows=None: {"Arctic Howl": 0.25} if "Arctic Howl" in names else {}
+    me._chosen_use = lambda name: 0.0
+    rate, how = me._primed_freeze({"Speed": 1.5})
+    assert rate == pytest.approx(1.75) and "Wave of Frost" in how and "Arctic Howl" in how
+    me.main_skill = "Spark"
+    me.build = SimpleNamespace(call=lambda name, **kw: {"groups": []})
+    assert me._primed_freeze({"Speed": 1.5}) is None
+
+
+def test_the_main_skills_own_break_quality_adds_to_the_break_increase():
+    """GEM29's row: Armour Breaker's armour_break_amount_+% (quality 20: +20%) adds to the lines' increase; a side
+    skill's scale (no stats) doesn't take it."""
+    from builder.search import conditions
+
+    scale, how = conditions.break_amount_scale(["Break 30% increased Armour"], {"_break_inc_gem": 20.0})
+    assert scale == pytest.approx(1.5) and "quality" in how
+    assert conditions.break_amount_scale(["Break 30% increased Armour"], {})[0] == pytest.approx(1.3)

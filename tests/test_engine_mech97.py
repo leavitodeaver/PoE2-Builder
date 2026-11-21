@@ -144,3 +144,21 @@ def test_the_double_damage_stand_in_doubles_only_under_the_full_life_box(engine)
     assert plain_on == pytest.approx(plain_off, rel=1e-6)
     assert with_off == pytest.approx(plain_off, rel=1e-6)
     assert with_on == pytest.approx(2 * plain_on, rel=1e-3)
+
+
+def test_full_life_fields_read_a_hits_chaos_share_and_ailment_chance(engine):
+    """The fields Conditions._enemy_full_life reads exist in PoB's output for an Attack: a bow with added Chaos gives
+    a Chaos share of the average hit between 0 and 1; the Bleed / Poison chances are numbers."""
+    from builder.search import conditions
+
+    engine.call("newBuild")
+    engine.call("setLevel", level=90)
+    engine.call("equip", slot="Weapon 1", fields=[], raw=BOW + "\nAdds 5 to 9 Chaos Damage")
+    engine.call("addSkillGroup", text="Lightning Arrow 20/0 1", main=True)
+    engine.call("setAssumptions", mods=[], fields=[])
+    read = engine.call("stats", fields=conditions.FULL_LIFE_FIELDS)
+    print("PROBE full life fields", read)
+    hit = read.get("AverageHit") or read.get("MainHandAverageHit")
+    chaos = read.get("ChaosHitAverage") or read.get("MainHandChaosHitAverage")
+    assert hit and chaos and 0 < chaos / hit < 1
+    assert read.get("Speed", 0) > 0

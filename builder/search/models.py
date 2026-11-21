@@ -13135,7 +13135,8 @@ def immobilised_share(stats: dict, ailment: str) -> tuple[float, str]:
     share = min(1.0, d / period)
     longer = f" ({pin_duration_scale(stats)[1]})" if ailment == "Pin" and pin_duration_scale(stats)[1] else ""
     if ailment == "Freeze" and (primed := stats.get("_primed_freeze")):
-        longer += (f" (Arctic Howl Freezes the boss once Primed at {PRIMED_FREEZE_UNIQUE:.0%} buildup: {primed[1]}; "
+        longer += (f" (your Primed-Freeze skills Freeze the boss once Primed at {PRIMED_FREEZE_UNIQUE:.0%} buildup: "
+                   f"{primed[1]}; "
                    "without it, one Freeze every full bar)")
     if (others := others_fill(stats, ailment)) > 0:
         longer += (f" (with other skills' hits {others:.2%} of the bar a second at PoB's threshold: "

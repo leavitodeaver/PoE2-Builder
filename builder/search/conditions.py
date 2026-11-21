@@ -4301,6 +4301,13 @@ def _armour_break_source(text: str, stats: dict) -> tuple[float, float, float, s
 BREAK_INCREASED = re.compile(r"^Break (\d+(?:\.\d+)?)% (increased|reduced) Armour$", re.I)
 BREAK_MORE_SUPPORTS = ("Armour Demolisher I", "Armour Demolisher II", "Uruk's Smelting")
 BREAK_MORE_STAT = "support_increased_armour_break_armour_break_amount_+%_final"
+# (MECH97; GEM29's routing, an UNDERCOUNT) The main skill's own armour_break_amount_+% (a quality stat, +1% a quality:
+# Armour Breaker, Armour Piercing Rounds, Resonating Shield; checked: GrantedEffectQualityStats' only three rows with the
+# stat, game 26650308; its Mods / passive / Soul Core carriers are "Break N% increased Armour" lines BREAK_INCREASED
+# already reads), read from PoB's levelStats at the gem's level and quality (stats["_break_inc_gem"]): increased, added to
+# the lines' increase.
+BREAK_INC_STAT = "armour_break_amount_+%"
+BREAK_INC_SKILLS = ("Armour Breaker", "Armour Piercing Rounds", "Resonating Shield")
 
 
 # Return to Nature's "Overgrown Plant Skills Break 50% increased Armour" (MECH82; the manager 10:02, GEM15 / GEM16's
@@ -4318,6 +4325,9 @@ def break_amount_scale(lines: list[str], stats: dict) -> tuple[float, str]:
               for t in lines if (m := BREAK_INCREASED.match(t.strip())))
     more = number(stats.get("_break_more"))
     parts = ([f"{inc:+g}% increased"] if inc else []) + ([f"{more:+g}% more from its support"] if more else [])
+    if gem := number(stats.get("_break_inc_gem")):  # (MECH97: the main skill's own quality stat)
+        inc += gem
+        parts.append(f"{gem:+g}% increased from the skill's own quality")
     grown = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
                 for t in lines if (m := BREAK_OVERGROWN.match(t.strip())))
     if grown:
@@ -6065,6 +6075,13 @@ ENEMY_FULL_LIFE_SUPPORTS = frozenset({"SupportAmbushPlayer", "SupportFirstBloodP
                                       "SupportHeightenedAccuracyPlayerTwo", "SupportOpeningMovePlayer",
                                       "SupportIntenseAgonyPlayer"})
 ENEMY_FULL_LIFE_VAR = "conditionEnemyFullLife"
+# (MECH97; GEM29's routing) The skills that "Freeze enemies that are Primed for Freeze" (has_freeze_cull; checked: every
+# game table row holding it, game 26650308: GrantedEffectStatSets WolfArcticHowlPlayer, WaveOfFrostPlayer,
+# ShatteringConcoctionPlayer only; has_freeze_cull_from_freezing_mark has no Mods / passive / skill row; poe2db NOT
+# checked). The model read Arctic Howl alone: Wave of Frost's and Shattering Concoction's were an UNDERCOUNT.
+PRIMED_FREEZE_SKILLS = ("Arctic Howl", "Wave of Frost", "Shattering Concoction")
+FULL_LIFE_FIELDS = ["AverageHit", "MainHandAverageHit", "ChaosHitAverage", "MainHandChaosHitAverage",
+                    "BleedChanceOnHit", "PoisonChanceOnHit", "Speed", "HitChance"]
 
 
 def enemy_full_life_share(shield: float, ratio: float) -> float:
@@ -6073,6 +6090,40 @@ def enemy_full_life_share(shield: float, ratio: float) -> float:
     shield = min(max(shield, 0.0), 1.0)
     inside = shield * min(max(ratio, 0.0), 1.0)
     return inside / (inside + 1.0 - shield) if inside > 0 else 0.0
+
+
+# RESEARCH39 (boss-es-recharge-and-double-damage-dot-r39.md, the manager 00:22): R39-9 a boss's shield doesn't recharge
+# while you keep hitting it (lost ES recharges after a 4 s delay any further loss resets; no preset regenerates), so no
+# recharge is counted (MEDIUM-HIGH; a gap of over 4 s before the shield breaks not modelled, LOW). KeywordPopups
+# EnergyShield: "Damage from Bleeding and Poison bypasses Energy Shield to remove Life directly" (that it holds for
+# monsters too: MEDIUM), so a build that Bleeds or Poisons the boss takes it off Full Life at its first Bleed / Poison,
+# not when the shield breaks: the window ends at the first one, taken at 1 / (chance per hit x hits a second) s (the main
+# skill's, LOW: other skills' not read); and Chaos damage removes twice as much Energy Shield, so the shield goes at the
+# Full DPS x (1 + the Chaos share of the main skill's hit). R39-10: Double Damage doubles a Hit (an ailment it applies
+# keeps the doubling once), not a skill's own damage over time, as PoB.
+def enemy_full_life_window(shield: float, ratio: float, chaos: float = 0.0, ailments_per_second: float = 0.0,
+                           life: float = 0.0, on: float = 0.0) -> tuple[float, str]:
+    """(share of the fight's time the boss is on Full Life, what cut it): `shield` its Energy Shield's share of its pool,
+    `ratio` Full DPS with the box off / on, `chaos` the Chaos share of the hit (strips ES twice), `ailments_per_second`
+    the Bleeds / Poisons inflicted a second (one ends Full Life), `life` the boss's Life and `on` the Full DPS with the
+    box on (for the times; needed only with ailments)."""
+    chaos = min(max(chaos, 0.0), 1.0)
+    share = enemy_full_life_share(shield, ratio / (1.0 + chaos))
+    said = f"Chaos {chaos:.0%} of the hit strips it x{1 + chaos:.2f} as fast" if chaos > 0 else ""
+    if share <= 0 or ailments_per_second <= 0:
+        return share, said
+    if life <= 0 or on <= 0:
+        return 0.0, "your Bleed / Poison bypasses its shield, so it leaves Full Life at the first one: 0"
+    shield = min(max(shield, 0.0), 0.999)
+    es = life * shield / (1.0 - shield)
+    strip = es / (on * (1.0 + chaos))
+    first = 1.0 / ailments_per_second
+    if first >= strip:
+        return share, said
+    total = strip + life / (on * ratio) if ratio > 0 else strip
+    cut = first / total
+    return cut, ((said + "; " if said else "") + f"your first Bleed / Poison at about {first:.2g} s (it bypasses the shield"
+                 f" and takes Life) ends Full Life before the shield's {strip:.3g} s: {cut:.2%} of the fight")
 
 
 def enemy_full_life_up(build) -> tuple[float, str]:
@@ -8526,10 +8577,18 @@ class Conditions:
                 self.build.call("setConfig", vars={ENEMY_FULL_LIFE_VAR: saved}, fields=["FullDPS"])
         if on <= 0:
             return 0.0, "no DPS read: 0"
-        share = enemy_full_life_share(shield, off / on)
+        read = self.build.call("stats", fields=FULL_LIFE_FIELDS)
+        hit = number(read.get("AverageHit")) or number(read.get("MainHandAverageHit"))
+        chaos = (number(read.get("ChaosHitAverage")) or number(read.get("MainHandChaosHitAverage"))) / hit if hit > 0 else 0.0
+        chances = [min(max(number(read.get(f)), 0.0), 100.0) / 100 for f in ("BleedChanceOnHit", "PoisonChanceOnHit")]
+        inflict = 1.0 - (1.0 - chances[0]) * (1.0 - chances[1])
+        ailments = inflict * models.hits_per_second(read)
+        share, cut = enemy_full_life_window(shield, off / on, chaos, ailments, bosses.PRESETS[boss].life, on)
         return share, (f"{boss}'s Energy Shield is {shield:.1%} of its pool and is taken before its Life, so its Life "
-                       f"stays full while you strip it; Full DPS {on:,.0f} then, {off:,.0f} after, so {share:.1%} of "
-                       f"the fight's time (its shield taken not to recharge)")
+                       f"stays full while you strip it; Full DPS {on:,.0f} then, {off:,.0f} after"
+                       + (f"; {cut}" if cut else "") + f", so {share:.1%} of the fight's time (its shield taken not to "
+                       "recharge while you keep hitting it, R39-9; a Hit doubled on Full Life doubles once, not a "
+                       "skill's own damage over time, R39-10)")
 
     def _orb_uptimes(self) -> dict[str, tuple[float, str]]:
         """{element: (share of the fight one of the build's Orbs of it is up, how)} for Eye of Winter (MECH78, MA-2):
@@ -8888,17 +8947,27 @@ class Conditions:
         return up, "; ".join(parts) or "nothing Overgrows its plants"
 
     def _primed_freeze(self, stats: dict) -> tuple[float, str] | None:
-        """(Arctic Howl's uses a second, how) for models.primed_refill: the main skill's Speed if it is the Howl, else its
-        group's rate (else the search's chosen rate, else 0); None at 0."""
+        """(the uses a second of the build's skills that Freeze a Primed boss, how) for models.primed_refill: each of
+        PRIMED_FREEZE_SKILLS in the build, the main skill at its Speed, another at its group's rate (else the search's
+        chosen rate, else 0), summed (uses taken as spread evenly, MEDIUM); None at 0."""
         stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
-        if self.main_skill == ARCTIC_HOWL:
-            rate = number(stats.get("Speed"))
-        else:
-            groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
-            rate = self._group_uses(groups, {ARCTIC_HOWL}).get(ARCTIC_HOWL, self._chosen_use(ARCTIC_HOWL))
-        if rate <= 0:
+        groups = None
+        rates, said = 0.0, []
+        for name in PRIMED_FREEZE_SKILLS:
+            if name == self.main_skill:
+                rate = number(stats.get("Speed"))
+            else:
+                groups = groups if groups is not None else [
+                    g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
+                if not any(n.get("name") == name for g in groups for n in g.get("gems") or []):
+                    continue
+                rate = self._group_uses(groups, {name}).get(name, self._chosen_use(name))
+            if rate > 0:
+                rates += rate
+                said.append(f"{name} {rate:.3f} uses/s")
+        if rates <= 0:
             return None
-        return rate, f"{ARCTIC_HOWL} {rate:.3f} uses/s, its howl taken to reach the boss (MEDIUM)"
+        return rates, f"{' + '.join(said)}, each taken to reach the boss (MEDIUM)"
 
     def _uruk_taken(self, rate: float) -> tuple[float, str]:
         """(the fight-average % increased Physical Damage taken, how) from Uruk's Smelting on the main skill (MECH80,
@@ -9433,6 +9502,10 @@ class Conditions:
             stats["_side_consumes"] = side
         if reapply := consume_reapply_chances(texts):  # (MECH85: Endless Circuit)
             stats["_consume_reapply"] = reapply
+        if self.main_skill in BREAK_INC_SKILLS:  # (MECH97: its own armour_break_amount_+%, break_amount_scale)
+            raw = self.build.call("activeSkills", levelStats=[self.main_skill])
+            main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
+            stats["_break_inc_gem"] = number((main.get("levelStats") or {}).get(BREAK_INC_STAT))
         if set(BREAK_MORE_SUPPORTS) & main_gems:  # (MECH66: Armour Demolisher / Uruk's Smelting, break_amount_scale)
             raw = self.build.call("activeSkills", supportStats=[BREAK_MORE_STAT])
             main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
@@ -9457,7 +9530,7 @@ class Conditions:
         stats["_sg_death_storm"] = self.death_storm() if DEATH_STORM_SUMMON in names else None
         if any(BREAK_OVERGROWN.match(t.strip()) for t in texts):  # (MECH82: GEM16's overgrown_share, break_amount_scale)
             stats["_overgrown"] = self._overgrown(texts)
-        if ARCTIC_HOWL in names or self.main_skill == ARCTIC_HOWL:  # (MECH82: Primed for Freeze, models.primed_refill)
+        if any(n in names or n == self.main_skill for n in PRIMED_FREEZE_SKILLS):  # (MECH82 / MECH97: Primed Freeze)
             stats["_primed_freeze"] = self._primed_freeze(stats)
         self.build.primed_freeze = stats.get("_primed_freeze")
         # (MECH76: MECHB30's Shattering Roar, routed) the Skeletal Brutes' Intimidate, one more Intimidated source

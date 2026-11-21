@@ -34,3 +34,20 @@
     the model reads the line.
   sources: ["vendor/PathOfBuilding-PoE2/src/Data/SkillStatMap.lua:1034", "vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua:521-527"]
   status: proposed
+
+- id: model-mech97-blasphemy-curse-aura-read
+  title: "Blasphemy: socketed Curses become Auras, on the boss while it stands inside the curse's own area (curse model)"
+  kind: model
+  model: curse_uses
+  stats: ["curse_apply_as_aura"]
+  skill: [Blasphemy]
+  confidence: MEDIUM
+  notes: >-
+    GEM29's routing (MECH97, bookkeeping: no number moves). models.curse_uses' Blasphemy branch (MECH96, RESEARCH38
+    R38-2) reads the group by its name, not the stat: a curse in a Blasphemy group is an Aura up all fight while the boss
+    is within the curse's own area radius (PoB's, with Blasphemy's +1 m and the build's area modifiers: bridge
+    activeSkills' curseRadius), else 0 at the build's one distance (in / out, no flat share: the manager 21:12 / 21:26,
+    20 Nov). Blasphemy's 60 Spirit per curse is the Spirit step's (gems.blasphemy_option).
+  sources: ["builder/search/models.py (curse_uses, the Blasphemy branch)", "engine/bridge.lua (activeSkills curseRadius)"]
+  test_in_game: "Not needed here: tests/test_mech96.py covers the reach (probe POE2T5106)."
+  status: proposed
