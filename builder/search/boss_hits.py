@@ -1375,6 +1375,7 @@ def boss_chill_on_you(stats: dict, texts: list[str], chilled_box: bool = False) 
                       "basis": f"Chilled {share:.0%} of the fight, no speed change (reversed: the lower reading, "
                                "UNVERIFIED); without it: 0", "confidence": "MEDIUM", "play": ""}]
     average = share * mean
+    stats["_chill_share"] = share  # (MECHC47: speed_from_chill_and_freeze's overlap with the Freeze)
     sign = 1.0 if reversed_ else -1.0
     basis = ("; ".join(f"{what}: a {m:.0f}% Chill" for _, m, what in sources) + f"; {rate * 60:.1f} Chills a minute x "
              f"{1 - avoid:.0%} not avoided, {share_how}; magnitude 100% x hit / your {threshold:,.0f} Ailment Threshold x "
@@ -1803,7 +1804,8 @@ def boss_freeze_on_you(stats: dict, texts: list[str], frozen_box: bool = False,
     return (0.0 if unaffected else up), (0.0 if unaffected else up_bare), row
 
 
-def speed_from_chill_and_freeze(chill: float, frozen: float, action_mod: float, own: float) -> tuple[float, list[dict]]:
+def speed_from_chill_and_freeze(chill: float, frozen: float, action_mod: float, own: float,
+                                chill_share: float | None = None) -> tuple[float, list[dict]]:
     """(ActionSpeed INC to add, rows): the Chill's average (`chill`, % action speed) and the share of the fight Frozen
     (`frozen`) as action speed. HEADLINE: PoB's additive reading, chill - 100 x frozen, added to your increased action
     speed, the Chill counted only while not Frozen. R31-13 (c) reads Slows as a separate multiplier (MEDIUM-LOW): that
@@ -1814,15 +1816,28 @@ def speed_from_chill_and_freeze(chill: float, frozen: float, action_mod: float, 
     # (MECHC40: the Chill only over the time you aren't Frozen: Frozen, you don't act, so a Chill then slows nothing;
     # the Chill's average counted every second Chilled, Frozen ones too, an OVERCOUNT of the slow where both land; the
     # two taken as independent, MEDIUM. With no other action speed this equals the separate multiplier's figure)
-    inc = chill * (1 - frozen) - 100 * frozen
+    # (MECHC47, the manager's 17:15 action-speed check: an OVERCOUNT of the slow) the Cold hit that Freezes you Chills you
+    # too (both from the same hit, the Chill's 2 s and the Freeze's 2 s on players: BaseChillDurationPlayer 2,
+    # FreezeDurationPlayer 2000), so the time Frozen is time Chilled, not independent of it: the Chill slows only over
+    # max(0, Chilled share - Frozen share) of the fight. `chill_share`: boss_chill_on_you's Chilled share; None keeps the
+    # independent reading (the row). Probe POE2T4859 (2b75b, Pinnacle worst case): Chilled 41%, Frozen 16%: -20.4% x 0.84
+    # = -17.1% independent, -50% x 25% = -12.6% overlapped. MEDIUM (a Chill from a hit while Frozen can outlast the Freeze
+    # a little: not counted, the lower slow).
+    independent = chill * (1 - frozen)
+    if chill_share is not None and chill_share > 0:
+        chill_part = chill / chill_share * max(0.0, chill_share - frozen)
+    else:
+        chill_part = independent
+    inc = chill_part - 100 * frozen
     if abs(inc) < 1e-9:
         return 0.0, []
     base = 1 + ((action_mod - 1) * 100 - own) / 100
-    more = base * (1 + chill / 100) * (1 - frozen)
+    more = base * (1 + (chill_part / (1 - frozen) if frozen < 1 else 0.0) / 100) * (1 - frozen)  # (MECHC47: overlapped)
     rows = [{"label": "The boss's Chill and Freeze on your action speed*",
              "value": f"{inc:+.1f}% action speed (added to your other action speed, PoB's form)",
-             "basis": (f"the Chill's average {chill:+.1f}% over the {1 - frozen:.1%} of the fight you aren't Frozen "
-                       f"({chill * (1 - frozen):+.1f}%) and Frozen {frozen:.1%} of the fight, added to your increased "
+             "basis": (f"the Chill's average {chill:+.1f}% over the time you're Chilled and not Frozen ({chill_part:+.1f}%; "
+                       f"the freezing hit Chills too, so the Frozen time is Chilled time; as independent: "
+                       f"{independent:+.1f}%) and Frozen {frozen:.1%} of the fight, added to your increased "
                        f"action speed: x{base + inc / 100:.3f} with your own x{base:.3f}. As a separate multiplier "
                        f"(\"Slows multiply\", R31-13: MEDIUM-LOW): x{more:.3f}"),
              "confidence": "MEDIUM-LOW (more vs increased)", "play": ""}]

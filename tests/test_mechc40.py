@@ -233,11 +233,14 @@ def test_the_main_crystal_skill_spends_power_charges_for_creeping_chill_at_its_s
     wanted = {}
     for share in (1.0, 0.5):
         monkeypatch.setattr(Conditions, "_main_share", lambda self, s=share: s)
-        search.conditions.evidence()
+        found = search.conditions.evidence()
         flow = (build.charge_flow or {}).get("Power")
         print(share, flow)
         wanted[share] = float(re.search(r"([\d.]+)/s wanted by", flow[1]).group(1))
     assert wanted[1.0] > 0 and wanted[0.5] == pytest.approx(wanted[1.0] / 2, abs=0.006)
+    # (MECHC47, R37-3) a Frost Wall cast spends a Power Charge per crystal: its wall's crystals, at least your maximum
+    basis = " ".join(str(v[1]) for k, v in found.items() if k in ("overridePowerCharges", "usePowerCharges"))
+    assert "per Ice Crystal" in basis and "Frost Wall" in basis
 
 
 def test_nebulochs_attacks_spend_endurance_charges(engine):
@@ -387,3 +390,33 @@ def test_the_hammer_of_faiths_shrines_raise_crit_and_skill_speed(engine):
     up = 1 - (7 / 8) ** 2
     assert seen[True][0] == pytest.approx(up * 100 + (1 - up) * seen[False][0], abs=1.0)
     assert seen[True][1] > seen[False][1]
+
+
+def test_natures_archon_gives_a_plant_main_skill_more_damage_at_its_uptime(engine):
+    """MECHC47 (an UNDERCOUNT before: only Accelerated Growth read the Archon's share): with "N% chance to gain Nature's
+    Archon when your Plants Overgrow" and an Overgrow source, a Plant main skill (Vine Arrow) gets 25% more Damage x the
+    Archon's uptime (assumptions.natures_archon_effects); without an Overgrow source, nothing."""
+    from builder.search import assumptions
+
+    payload = make_payload(BuildRequest(main_skill="Vine Arrow"))
+    skeleton = enumerate_skeletons(Context(payload), ["Vine Arrow"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    got = {}
+    for extra in ([], ["Plants have a 50% chance to immediately Overgrow"]):
+        ring = chr(10).join(["Rarity: Rare", "Test Ring", "Ruby Ring", "Item Level: 82", "Implicits: 0",
+                             "50% chance to gain Nature's Archon when your Plants Overgrow", *extra])
+        build.call("equip", slot="Ring 1", raw=ring, fields=[])
+        from builder.search import models
+
+        stats = build.call("stats", fields=["Speed"])
+        texts = [line["text"] for line in build.call("sourceLines")["lines"]]
+        skills = [models.Skill.of(s) for s in build.call("activeSkills")["skills"] if not s["disabled"]]
+        main = next(s for s in skills if s.name == "Vine Arrow")
+        mods, notes = assumptions.natures_archon_effects(build, skills, texts, stats, main, {})
+        got[bool(extra)] = (mods, notes)
+        print(bool(extra), mods, [n["value"] for n in notes], [n["basis"][:200] for n in notes])
+    assert not got[False][0] and got[False][1]
+    mods = got[True][0]
+    assert mods and mods[0]["name"] == "Damage" and 0 < mods[0]["value"] < 25

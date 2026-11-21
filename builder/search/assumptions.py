@@ -2354,6 +2354,59 @@ def support_dots(build: Build, found: list[models.Skill], curses: list[models.Cu
     return mods, notes
 
 
+# (MECHC47; MECHC46's 12:31 Handover 5 (c), the manager 16:03: after GEM26's 582a214b wired the uptime) Nature's Archon's
+# own effects (KeywordPopups NatureArchon, game 26650308: "25% more Damage with Plant Skills; Plants have a 100% chance to
+# immediately Overgrow; 200% more Skill Effect Duration of Plant Skills; Plant Skills have +2 to Limit"), for a Plant
+# main skill (PoB skill type Plant: Briarpatch, Entangle, Thrashing Vines, Toxic Domain, Toxic Growth, Vine Arrow). Its
+# uptime: models.natures_archon_uptime from the main skill's plants a second (its uses at its share of the fight x
+# PLANTS_A_USE, 1 a use where the table has none: LOW) x the share its other sources Overgrow (models.overgrown_share),
+# as accelerated_growth feeds it. Counted: 25% more Damage x the Archon's effect (ArchonEffect, as archon_effects) x the
+# uptime, as the main skill's Damage MORE (a more multiplier is linear in the time-average). Not counted (rows, an
+# UNDERCOUNT named): the 200% more Duration and +2 Limit (they move PoB's numbers non-linearly, so a time-average of the
+# modifier isn't the time-average of DPS: UNVERIFIED how much) and the main skill's own Overgrown effects while every
+# plant Overgrows (each skill's own text; Accelerated Growth's explosions already take the Archon's share).
+NATURES_ARCHON_MORE = 25.0
+
+
+def natures_archon_effects(build: Build, found: list[models.Skill], texts: list[str], stats: dict | None,
+                           main: models.Skill | None, archon_x: dict) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for Nature's Archon's own effects on a Plant main skill (the note above)."""
+    if not any(models.NATURES_ARCHON_GAIN.match(t.strip()) for t in texts):
+        return [], []
+    label = "Nature's Archon: 25% more Damage with Plant Skills*"
+    types = set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or []) if main is not None else set()
+    if main is None or "Plant" not in types:
+        return [], [{"label": label, "value": "0: the main skill isn't a Plant Skill",
+                     "basis": "Nature's Archon buffs Plant Skills only (KeywordPopups NatureArchon)",
+                     "confidence": "HIGH", "play": ""}]
+    share_main = main_time_share(build, main)
+    uses = models.number((stats or {}).get("Speed")) * share_main
+    per, per_how = models.PLANTS_A_USE.get(main.name, (1.0, "one plant a use (assumed, LOW)"))
+    storms = sorted({s.group for s in found if s.name in models.OVERGROW_SKILLS and s.group is not None})
+    press = getattr(build.objective, "press_scales", None) or {}
+    groups = {r["index"]: {**r, "_press": press.get(r["name"])}
+              for r in build.call("useRates", indices=storms)["rates"]} if storms else {}
+    share, share_parts, _ = models.overgrown_share(found, groups, texts)
+    expiry = (stats or {}).get("_buff_expiry") or (1.0, "")
+    up, how = models.natures_archon_uptime(texts, uses * per * share, archon_x or {}, False,
+                                           models.number(expiry[0]) or 1.0)
+    effect = max(0.0, 1 + models.number((archon_x or {}).get("ArchonEffect")) / 100)
+    more = round(NATURES_ARCHON_MORE * effect * up, 2)
+    mods = [models.raw_mod("Damage", "MORE", more, skill=main.name, tag="NaturesArchon")] if more > 0 else []
+    basis = (f"{main.name} {uses:.2f} uses/s at its {share_main:.0%} share of the fight x {per:g} plant(s) a use "
+             f"({per_how}) x {share:.0%} Overgrown by other sources ({'; '.join(share_parts) or 'none'}): {how or '0'}"
+             + (f"; Archon effect x{effect:.2f}" if effect != 1 else ""))
+    return mods, [{"label": label, "value": f"+{more:.1f}% more damage ({up:.0%} of the fight)", "basis": basis,
+                   "confidence": "MEDIUM (the Overgrows taken as random arrivals; plants a use LOW where untabled)",
+                   "play": ("Overgrow your plants (Thunderstorm, Boundless Growth, an Idol of Yeena) to start Nature's "
+                            "Archon; without an Overgrow source: 0" if up > 0 else
+                            "Nature's Archon needs an Overgrow source to start: none in the build, 0")},
+                  {"label": "Nature's Archon, not counted: 200% more Plant Skill Duration, +2 Plant Limit*",
+                   "value": f"while up ({up:.0%} of the fight)",
+                   "basis": "they move PoB's numbers non-linearly; not modelled (an UNDERCOUNT for skills capped by "
+                            "their Limit or duration)", "confidence": "UNVERIFIED (size)", "play": ""}]
+
+
 def accelerated_growth(build: Build, found: list[models.Skill], texts: list[str],
                        stats: dict | None = None, archon_x: dict | None = None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Accelerated Growth (GEM24's models.accelerated_growth_model): in each enabled group
@@ -3401,7 +3454,7 @@ class Assumptions:
         own = sum(number(m.get("value")) for m in self.mods or []
                   if m.get("tag") == "BossChill" and m.get("name") == "ActionSpeed")
         inc, speed_rows = boss_hits.speed_from_chill_and_freeze(speed, frozen, number(freeze_seen.get("ActionSpeedMod")) or 1.0,
-                                                                own)
+                                                                own, chill_seen.get("_chill_share"))  # (MECHC47)
         if inc:
             hand_mods = hand_mods + [models.raw_mod("ActionSpeed", "INC", inc, tag="BossChill")]
         hand_notes = hand_notes + chill_notes + ([freeze_row] if freeze_row else []) + speed_rows
@@ -4156,6 +4209,10 @@ class Assumptions:
                                                   {k: inputs.total(k) for k in models.ARCHON_TIMING})  # (GEM24: Overgrown plants)
         hand_mods += [models.added_input("AcceleratedGrowth", growth)] if growth > 0 else []
         hand_notes += growth_notes
+        archon_mods, archon_notes = natures_archon_effects(  # (MECHC47: Nature's Archon's own effects)
+            build, found, [e["text"] for e in source_lines], stats, main,
+            {k: inputs.total(k) for k in ("ArchonDuration", "ArchonRecovery", "ArchonEffect")})
+        hand_mods, hand_notes = hand_mods + archon_mods, hand_notes + archon_notes
         dot_mods, dot_notes = support_dots(build, found, curses, stats, stat_notes, [e["text"] for e in source_lines],
                                            forbidden)  # (GEM25: Profane Decay, Twisted Pact: PoB counts them in Full DPS only)
         hand_mods, hand_notes = hand_mods + dot_mods, hand_notes + dot_notes

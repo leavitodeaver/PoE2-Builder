@@ -1717,6 +1717,11 @@ def _charges_held(kind: str):
             basis = (f"{gains:.2f} gains/s{extra_text} = {rate:.2f}/s made, {spent:.2f}/s spent by " +
                      ", ".join(stats["_consumers"][kind]) +
                      f" (one per use; {share:.0%} of their uses find a charge), {net:.2f}/s left x {duration:g} s")
+            if kind == "Power" and stats.get("_creeping_per_crystal"):  # (MECHC47, R37-3's row)
+                per = stats["_creeping_per_crystal"]
+                basis += ("; Creeping Chill spends a Power Charge per Ice Crystal (R37-3, LOW-MEDIUM): "
+                          + ", ".join(f"{n} {k:g} a cast" for n, k in per.items())
+                          + "; row, one a cast: " + f"{max(rate - (spent - sum(number(stats['_consumers'][kind][n]) * (1 - 1 / k) for n, k in per.items())), 0.0):.2f}/s left")
             if kept:
                 basis += (f"; {kept:.0%} chance a consumed charge isn't removed (it still counts as consumed): "
                           f"{removed:.2f}/s removed (MEDIUM); without it: {max(rate - spent, 0.0):.2f}/s left")
@@ -6034,6 +6039,16 @@ CREEPING_CHILL = "Creeping Chill"
 CREEPING_CHILL_AT_BOSS = {"Frost Wall", "Glacial Bolt"}
 CREEPING_CHILL_AT_YOU = {"Frozen Locus", "Grim Pillars"}
 CREEPING_CHILL_MAKERS = CREEPING_CHILL_AT_BOSS | CREEPING_CHILL_AT_YOU
+# (MECHC47; RESEARCH37 R37-3, research/creeping-chill-per-use-or-per-crystal.md, LOW-MEDIUM) Creeping Chill fires once
+# per CRYSTAL, a Power Charge each while charges last ("Consume a Power Charge to Trigger Creeping Chill on an Ice Crystal",
+# the Korean text "each Ice Crystal"; Chinese "one"): a cast spends min(its crystals, the charges held). Crystals a use:
+# Frozen Locus 1 (base_number_of_frozen_locus_allowed 1), Grim Pillars 8 (grim_pillars_number_of_pillars_to_create),
+# Frost Wall's wall and Glacial Bolt's two walls "several" (wall_maximum_length by level; the crystals along it aren't
+# in the tables: None = at least your maximum Power Charges, so a cast empties them). The supported skill's Power
+# Charge consumer wants that many a use (at most the maximum); MECHC46's one a use is the row (the user's 20 Nov
+# per-use result was for charges GAINED, not this support's spend). Midnight Zenith isn't a maker here (bugged to once
+# per instance in 0.5.5, R37-3; CREEPING_CHILL's note leaves it out).
+CREEPING_CRYSTALS = {"Frozen Locus": 1, "Grim Pillars": 8, "Frost Wall": None, "Glacial Bolt": None}
 CREEPING_CHILL_RADIUS = 1.2  # m (active_skill_base_area_of_effect_radius 12)
 CREEPING_CHILL_GROWTH = 0.5  # area +50% a second (active_skill_ground_effect_area_of_effect_+%_final_per_second 50)
 CREEPING_CHILL_GROWTH_MAX = 3.0  # to +300% (..._per_second_max 300)
@@ -8906,6 +8921,19 @@ class Conditions:
             for n in [n for n, u in rage_spend.items() if u is None]:
                 each = uses.get(n, self._chosen_use(n))
                 rage_spend[n] = RAGE_PER_USE[n] * each if n in RAGE_PER_USE else RAGE_PER_SECOND[n] * min(1.0, each)
+        if CREEPING_CHILL in gem_types:  # (MECHC47, R37-3: one Power Charge per crystal, CREEPING_CRYSTALS' note)
+            power = consumers.get("Power") or {}
+            most = max(number(stats.get("PowerChargesMax")), 1.0)
+            notes = {}
+            for name in self._creeping_chill_skills():
+                if power.get(name) is None:
+                    continue
+                crystals = CREEPING_CRYSTALS.get(name, 1)
+                per = min(crystals if crystals is not None else most, most)
+                if per > 1:
+                    power[name] = number(power[name]) * per
+                    notes[name] = per
+            stats["_creeping_per_crystal"] = notes
         if any(INVIGORATING_HATE.search(t) or SHIFTED_ANIMAL_RECENTLY.search(t) or SHIFTED_HUMAN_RECENTLY.search(t)
                for t in texts):  # (MECHC21: shifts back to Human form, from the build's presses; MECHC34: MB-8)
             stats["_human_shifts"] = self._human_shifts(number(stats.get("Speed")) * _main_share(stats))  # (MECHC45)

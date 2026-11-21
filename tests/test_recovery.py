@@ -3112,3 +3112,15 @@ def test_the_main_skills_hits_feed_charge_lines_at_its_share_of_the_fight():
     found = [(hit, "Frenzy", (0.6, "x")), (hit, "Frenzy", (0.6, "x"))]
     joined, _ = _per_use_joined(found, {**stats, "_main_share": 0.6})
     assert sum(f[2][0] for f in joined) == pytest.approx(1.2 * (1 - 0.25))  # (1.2 uses/s x (1 - 0.5 x 0.5))
+
+
+def test_the_freezing_hit_chills_too_so_frozen_time_is_chilled_time():
+    """(MECHC47, the manager's 17:15 action-speed check; an OVERCOUNT of the slow before) the Cold hit that Freezes you
+    also Chills you for the same 2 s, so the Chill slows only over the Chilled share less the Frozen share: Chilled 40%
+    at -50%, Frozen 16%: -50% x 24% - 16% = -28%, not -50% x 40% x 84% - 16% = -32.8%; without a share: independent."""
+    from builder.search import boss_hits
+
+    inc, rows = boss_hits.speed_from_chill_and_freeze(-20.0, 0.16, 1.0, 0.0, 0.40)
+    assert inc == pytest.approx(-50 * 0.24 - 16)
+    assert boss_hits.speed_from_chill_and_freeze(-20.0, 0.16, 1.0, 0.0)[0] == pytest.approx(-20 * 0.84 - 16)
+    assert "Frozen time is Chilled time" in rows[0]["basis"]
