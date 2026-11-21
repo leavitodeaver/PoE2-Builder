@@ -3324,3 +3324,28 @@ def test_chaos_prevented_recoups_as_life_and_mana_during_the_charms_effect():
     recovery.hit_income(down, {"Life": 2000}, [line], chaos_recoup=[(50.0, 0.0, "Forsaken Bangle")],
                         chaos_prevented=300.0, chaos_how="test")
     assert down.pool("Life") == down.pool("Mana") == 0 and "never up" in " ".join(down.parts)
+
+
+def test_avatar_of_evolution_holds_adaptations_for_five_seconds_at_double_effect():
+    """MECHC49 (R40-3, MEDIUM; kw-adaptation, an OVERCOUNT at a slow boss before): with Avatar of Evolution the matching
+    count is 2 x s_e x E[min(Poisson(5 H), 3)] (s_e with Physical hits a third to each element); without it the last 3
+    held for ever. R40-3's table: E[min] 0.98 at 5H = 1, 2.09 at 2.5, 2.83 at 5; break-even near H 0.32."""
+    from builder.search import boss_hits
+
+    assert boss_hits.poisson_held(1.0, 3) == pytest.approx(0.98, abs=0.01)
+    assert boss_hits.poisson_held(2.5, 3) == pytest.approx(2.09, abs=0.01)
+    assert boss_hits.poisson_held(5.0, 3) == pytest.approx(2.83, abs=0.01)
+    assert boss_hits.poisson_held(0.0, 3) == 0.0
+    name = boss_hits._worst()
+    plain = boss_hits.adaptations_held(name)
+    shares = boss_hits.avatar_shares(name)
+    assert sum(shares.values()) == pytest.approx(1.0)
+    slow = boss_hits.adaptations_held(name, seconds=5.0, double=True, hits=0.2)
+    assert slow["Fire"] == pytest.approx(2 * boss_hits.poisson_held(1.0, 3) * shares["Fire"])
+    assert sum(slow.values()) < sum(plain.values())  # (2 x 0.98 < 3: below break-even)
+    fast = boss_hits.adaptations_held(name, seconds=5.0, double=True, hits=1.0)
+    assert sum(fast.values()) > sum(plain.values())
+    stats = {"enemySkillTime": 1.0, "EvadeChance": 0, "EffectiveBlockChance": 0}
+    with_phys, _ = boss_hits.adapting_hits(stats, True)
+    without, _ = boss_hits.adapting_hits(stats, False)
+    assert with_phys >= without >= 0

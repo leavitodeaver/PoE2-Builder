@@ -481,3 +481,15 @@ def test_sacred_unitys_soaring_ground_trail_gives_onslaught_at_the_feather_rate(
     assert c.sacred_unity_onslaught([bounty], stats) is None
     value, basis = c.onslaught_uptime([unity, bounty], stats)[:2]
     assert value is True and "Soaring Ground" in basis
+
+
+def test_inhibited_skills_are_the_other_gems_of_a_group_with_an_enabled_inhibitor():
+    """MECHC49 (R40-2): conditions.inhibited_skills: every other enabled gem of an enabled group holding an enabled
+    Inhibitor; a disabled Inhibitor or a disabled group supports nothing."""
+    from builder.search import conditions as c
+
+    groups = [{"enabled": True, "gems": [{"name": "Arc"}, {"name": "Inhibitor"}, {"name": "Martial Tempo", "enabled": False}]},
+              {"enabled": True, "gems": [{"name": "Fireball"}, {"name": "Inhibitor", "enabled": False}]},
+              {"enabled": False, "gems": [{"name": "Ice Nova"}, {"name": "Inhibitor"}]},
+              {"enabled": True, "gems": [{"name": "Spark"}]}]
+    assert c.inhibited_skills(groups) == {"Arc"}

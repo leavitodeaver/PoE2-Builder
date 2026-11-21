@@ -849,9 +849,11 @@ def leech_excess_income(income: Income, stats: dict, texts: list[str]) -> list[d
 # row. Above the maximum only the overflowing source can push the pool up, and the build's drains (the boss's landed
 # hits on that pool, its costs on it, its own steady loss) come off it: with the source giving I a second against D a
 # second of drains, the pool climbs at I - D, to 1.5 x maximum in 0.5 x maximum / (I - D) s; a flask's source runs for
-# its effect only (the climb stops when it ends, then the drains bring the pool back down). Whether overflowed Life
-# decays on its own, and whether Leech is still "removed when Life is filled" at the maximum or at 1.5x: UNVERIFIED
-# (LOW). Moves no number (the plan's floors rule): a play-guide row.
+# its effect only (the climb stops when it ends, then the drains bring the pool back down). RESEARCH39 R39-17 (MEDIUM):
+# overflowed Life doesn't decay (no decay stat), damage takes the overflow first, and regeneration and other flasks don't
+# refill it (only the overflowing source does: the climb above); a build with Life overflow counts as on Full Life while
+# no Life is Reserved. Whether Leech is still "removed when Life is filled" at the maximum or at 1.5x: UNVERIFIED (LOW).
+# Moves no number (the plan's floors rule): a play-guide row.
 OVERFLOW_CAP = 1.5
 OVERFLOW_LINES = {
     "leech": re.compile(r"^life leech can overflow maximum life$", re.I),
@@ -888,11 +890,11 @@ def overflow_row(pool: str, source: str, inflow: float, drains: float, maximum: 
             "basis": (f"{source} {inflow:,.1f} {pool}/s can pass the maximum, up to {OVERFLOW_CAP:g}x (KeywordPopups "
                       f"Overflow); the drains on it {drains:,.1f}/s ({drains_how})"
                       + (f"; the source runs {window:.1f} s a use (the flask's effect)" if window is not None else "")
-                      + ". The defence floors keep your maximum (the worst case, between refills: plans/kw-overflow.md); "
-                      "whether overflow decays on its own: UNVERIFIED"),
+                      + ". The defence floors keep your maximum (the worst case, between refills: plans/kw-overflow.md). "
+                      "Overflow doesn't decay; damage takes it first; only this source refills it (R39-17, MEDIUM)"),
             "play": (f"keep the {source.lower()} running to sit above your maximum {pool} (with it: the row above; "
                      f"without: your maximum)") if held > 0 else "",
-            "confidence": "LOW (the steady climb; decay and Leech's stop at full: UNVERIFIED)"}
+            "confidence": "LOW-MEDIUM (the steady climb; no decay: R39-17, MEDIUM; Leech's stop at full: UNVERIFIED)"}
 
 
 # ---------------------------------------------------------------------------------------------------------------------

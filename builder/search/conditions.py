@@ -7432,6 +7432,40 @@ def _heavy_contact(lines: list[str], stats: dict) -> tuple[object, str]:
 # player sets; checked: ImplicitStats / ConstantStats of every stat set, and GrantedEffectStatSetsPerLevel, which holds
 # none of those stats; second source poe2db's skill pages for the Infused variants (UNVERIFIED, not reached this turn)).
 # "Any": a Verisium Infusion (KeywordPopups VerisiumInfusion: usable as any element), which Skyfall alone of these takes.
+# Inhibitor (MECHC49; RESEARCH40 R40-2, HIGH: an OVERCOUNT before): the support gem Inhibitor
+# (SupportChargeInhibitionPlayer, uncut tier 2+, live) has cannot_consume_power_frenzy_endurance_charges and
+# cannot_consume_infusions ("Supported Skills cannot consume Charges / Infusions"), with 4% more damage per charge or
+# Infusion type held (PoB applies that part). The charge and Infusion consumers read each skill's own types or name, which
+# a support doesn't change, so a supported skill still counted as spending charges and Infusions. Now every skill in an
+# enabled group holding an enabled Inhibitor is left out of the consumers (charges: Conditions.evidence; Infusions: the
+# readers below and Assumptions.infusion_share, whose "-infused" sets it never reaches). (checked: Stats ids holding
+# cannot_consume over Mods, PassiveSkills, GrantedEffectStatSets, game 26650308: Inhibitor's StatSet the one user of
+# both; second source PoB's sup_dex.lua 2601 and patch 0.2.0e / 0.4.0, R40-2.)
+INHIBITOR = "Inhibitor"
+# Steward of Kulemak (MECHC49; GEM29 via the manager's 03:40, a likely OVERCOUNT before): the Abyssal Lich notable's
+# "Damaging Spells consume a Power Charge if able to trigger Abyssal Apparition" (PoB tree 0_5 29150-29157; GEM29's
+# the Abyssal Apparition model, GEM29 a921e7a6) spends a Power Charge on each cast of the main damaging Spell, but the
+# charge model's consumers (SkillConsumesPowerChargesOnUse) didn't know it, so a build with the node could be scored as
+# holding charges it spends. Now the main skill is a Power consumer at its casts when it is a damaging Spell, not a
+# Channelling, Cooldown or Triggered one (GEM29's exclusions; item-granted and Power-Charge-consuming Spells are
+# consumers already or not the main skill: LOW). Other damaging Spells the build presses: not added (a lower reading of
+# the spending, named).
+STEWARD_OF_KULEMAK = re.compile(r"^damaging spells consume a power charge if able to trigger abyssal apparition$", re.I)
+STEWARD_EXCLUDED = {"Channel", "Cooldown", "Triggered"}
+
+
+def inhibited_skills(groups: list[dict]) -> set[str]:
+    """The skills an enabled Inhibitor supports: every other enabled gem in its enabled group."""
+    out: set[str] = set()
+    for g in groups:
+        if g.get("enabled") is False:
+            continue
+        gems = [n for n in g.get("gems") or [] if n.get("enabled", True)]
+        if any(n["name"] == INHIBITOR for n in gems):
+            out |= {n["name"] for n in gems if n["name"] != INHIBITOR}
+    return out
+
+
 INFUSION_CONSUMERS = {
     "Ice Nova": ("Cold",), "Frost Wall": ("Lightning",), "Firestorm": ("Fire", "Cold", "Lightning"),
     "Arc": ("Lightning",), "Ball Lightning": ("Fire",), "Incinerate": ("Fire",), "Flame Wall": ("Lightning",),
@@ -8625,7 +8659,7 @@ class Conditions:
 
         groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
         names = {n["name"] for g in groups for n in g.get("gems") or [] if n.get("enabled", True)} | {self.main_skill}
-        users = {n for n in names if "Lightning" in INFUSION_CONSUMERS.get(n, ())}
+        users = {n for n in names if "Lightning" in INFUSION_CONSUMERS.get(n, ())} - inhibited_skills(groups)
         others = self._group_uses(groups, users - {self.main_skill})
         uses = {n: number(stats.get("Speed")) * _main_share(stats) if n == self.main_skill  # (MECHC45: at its share)
                 else others.get(n, self._chosen_use(n)) for n in users}
@@ -8652,7 +8686,9 @@ class Conditions:
         """(Infusions consumed per second, how): the build's consumers (INFUSION_CONSUMERS) take what it makes."""
         groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
         names = {n["name"] for g in groups for n in g.get("gems") or [] if n.get("enabled", True)}
-        consumers = {n: INFUSION_CONSUMERS[n] for n in names | {self.main_skill} if n in INFUSION_CONSUMERS}
+        blocked = inhibited_skills(groups)  # (MECHC49: INHIBITOR)
+        consumers = {n: INFUSION_CONSUMERS[n] for n in names | {self.main_skill} if n in INFUSION_CONSUMERS
+                     and n not in blocked}
         if not consumers:
             return 0.0, "no skill of the build consumes Infusions: 0"
         others = self._group_uses(groups, set(consumers) - {self.main_skill})
@@ -8721,7 +8757,7 @@ class Conditions:
             out[BURNING_INSCRIPTION] = self._inscriptions(groups, stats)
         if not names & set(INFUSED_MAKERS):
             return out
-        fire = {n for n in names if "Fire" in INFUSION_CONSUMERS.get(n, ())}
+        fire = {n for n in names if "Fire" in INFUSION_CONSUMERS.get(n, ())} - inhibited_skills(groups)
         others = self._group_uses(groups, fire - {self.main_skill})
         uses = {n: number(stats.get("Speed")) if n == self.main_skill else others.get(n, self._chosen_use(n))
                 for n in fire}
@@ -9306,6 +9342,14 @@ class Conditions:
             for n in [n for n, u in rage_spend.items() if u is None]:
                 each = uses.get(n, self._chosen_use(n))
                 rage_spend[n] = RAGE_PER_USE[n] * each if n in RAGE_PER_USE else RAGE_PER_SECOND[n] * min(1.0, each)
+        if (any(STEWARD_OF_KULEMAK.match(line["text"].strip()) for line in lines) and "Spell" in main_types
+                and "Damage" in main_types and not main_types & STEWARD_EXCLUDED and self.main_skill
+                and self.main_skill not in (consumers.get("Power") or {})):  # (MECHC49: STEWARD_OF_KULEMAK's note)
+            consumers.setdefault("Power", {})[self.main_skill] = number(stats.get("Speed")) * _main_share(stats)
+        if consumers and (blocked := inhibited_skills(self.build.call("groups")["groups"])):  # (MECHC49: INHIBITOR)
+            for each in consumers.values():
+                for n in [n for n in each if n in blocked]:
+                    del each[n]
         if CREEPING_CHILL in gem_types:  # (MECHC47, R37-3: one Power Charge per crystal, CREEPING_CRYSTALS' note)
             power = consumers.get("Power") or {}
             most = max(number(stats.get("PowerChargesMax")), 1.0)

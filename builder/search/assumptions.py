@@ -7595,6 +7595,9 @@ class Assumptions:
         main skill's casts per second when PoB's Speed isn't them (GEM16: Firestorm's one storm a Duration, models.
         firestorm_infusion_model); None reads PoB's Speed, net of the Remnant presses, as before."""
         build = self.build
+        if self.main_skill() in conditions_mod.inhibited_skills(build.call("groups")["groups"]):
+            return 0.0, (f"Inhibitor supports {self.main_skill()}: it cannot consume Infusions, so none of its casts is "
+                         "Infused (R40-2, HIGH)")  # (MECHC49: conditions.INHIBITOR)
         raw = build.call("activeSkills")["skills"]
         present = {s["name"]: s for s in raw if not s["disabled"]}
         lines = [line["text"] for line in build.call("sourceLines")["lines"]]
@@ -7643,8 +7646,10 @@ class Assumptions:
         groups = build.call("groups")
         main = groups["mainSocketGroup"]
         want = re.compile(rf"\b{element}-infused\b", re.I)
+        blocked = conditions_mod.inhibited_skills(groups["groups"])  # (MECHC49: an Inhibitor-supported skill takes none)
         users = {g["index"] for g in groups["groups"]
                  if g["index"] != main and g["enabled"] and pressed_group({**g, "fullDPS": True}, build.ctx.gems)
+                 and not any(n["name"] in blocked for n in g.get("gems") or [])
                  and any(want.search(label) for skill in g.get("skills") or [] for label in skill.get("statSets") or [])}
         if not users:
             return 0.0, ""
@@ -7739,16 +7744,31 @@ class Assumptions:
                 # elemental hits; MEDIUM-LOW), as a count in whole percent (`share:ReactiveGrowth<Element>` lines count
                 # their value x it). A physical-only boss gives none (before: one per element whatever the boss dealt)
                 element = condition["adaptations"]
-                count = boss_hits.adaptations_held(boss).get(element, 0.0)
+                # (MECHC49, R40-3: Avatar of Evolution's 5 s duration and doubled effect, boss_hits' note)
+                own = [line["text"] for line in self.build.call("sourceLines")["lines"]] if hasattr(self.build, "call") else []
+                avatar = next((float(m.group(1)) for t in own if (m := boss_hits.AVATAR_ADAPT.match(t.strip()))),
+                              0.0)
+                hits, hits_how = (boss_hits.adapting_hits(
+                    {**self.build.call("stats", fields=list(boss_hits.ADAPT_FIELDS)), "_boss": boss}, True)
+                    if avatar else (0.0, ""))
+                double = any(boss_hits.AVATAR_DOUBLE.match(t.strip()) for t in own) if avatar else False
+                count = boss_hits.adaptations_held(boss, seconds=avatar, double=double, hits=hits).get(element, 0.0)
                 percent = round(100 * max(count, 0.0))
                 if percent > 0:
                     self.ledger_shares[condition["id"]] = percent
                     found.append(condition["id"])
                 if self.has_line(r"per matching Adaptation"):
+                    basis = (f"{boss}: {element} is {boss_hits.elemental_shares(boss)[element]:.0%} of its "
+                             f"elemental hits, so {count:.2f} of the 3 Adaptations match a {element} hit "
+                             "(the hits taken in random order); its line counts that many times")
+                    if avatar:
+                        basis = (f"Avatar of Evolution: each Adaptation lasts {avatar:g} s"
+                                 + (", at double effect" if double else "") + f"; {hits_how}; Physical hits adapt too "
+                                 f"(a third to each element), so {count:.2f} matching {element} (the doubling folded in; "
+                                 f"without Avatar: {boss_hits.adaptations_held(boss).get(element, 0.0):.2f} at single "
+                                 "effect; R40-3, MEDIUM)")
                     notes.append({"label": condition["title"], "value": round(count, 2),
-                                  "basis": (f"{boss}: {element} is {boss_hits.elemental_shares(boss)[element]:.0%} of its "
-                                            f"elemental hits, so {count:.2f} of the 3 Adaptations match a {element} hit "
-                                            "(the hits taken in random order); its line counts that many times"),
+                                  "basis": basis,
                                   "confidence": "MEDIUM-LOW (the boss's elemental mix: its damaging skills' types, no use rates)"})
                 continue
             if condition.get("warcries_recently"):

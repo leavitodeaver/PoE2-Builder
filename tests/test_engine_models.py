@@ -4190,3 +4190,28 @@ def test_forsaken_bangles_chaos_recoup_reads_the_prevented_chaos_and_the_charms_
     assert income.rates["LifePreventedRecoup"] == pytest.approx(expected)
     assert income.rates["ManaOnEventRecovery"] >= expected - 1e-6
     assert "never up" in " ".join(income.parts)
+
+
+def test_steward_of_kulemak_spends_power_charges_and_inhibitor_stops_consumers(engine):
+    """MECHC49 (the manager's 03:40, overcounts): Steward of Kulemak's "Damaging Spells consume a Power Charge if able to
+    trigger Abyssal Apparition" makes the main damaging Spell a Power Charge consumer at its casts (GEM29); an enabled
+    Inhibitor in the skill's group ("Supported Skills cannot consume Charges / Infusions", R40-2) takes it back out."""
+    from builder.search import conditions as c
+
+    search = spark_with(engine, [])
+    build = search.build
+    ring = chr(10).join(["Rarity: Rare", "Test Ring", "Iron Ring", "Item Level: 82", "Implicits: 0",
+                         "Damaging Spells consume a Power Charge if able to trigger Abyssal Apparition",
+                         "50% chance to gain a Power Charge on Critical Hit"])
+    build.call("equip", slot="Ring 1", raw=ring, fields=[])
+    search.assumptions.apply()
+    found = search.conditions.evidence()
+    print("PROBE steward", found.get("usePowerCharges"))
+    assert "spent by Spark" in found["usePowerCharges"][1]
+    main = build.main_group()
+    old = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} for g in main["gems"]]
+    build.set_group(index=main["index"], gems=[*old, {"name": c.INHIBITOR, "level": 1, "quality": 0}])
+    assert "Spark" in c.inhibited_skills(build.call("groups")["groups"])
+    found = search.conditions.evidence()
+    print("PROBE inhibited", found.get("usePowerCharges"))
+    assert "Spark" not in (found.get("usePowerCharges") or (0, ""))[1] and found["usePowerCharges"][0]

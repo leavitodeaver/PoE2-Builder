@@ -374,7 +374,65 @@ def elemental_shares(name: str | None = None) -> dict[str, float]:
     return {e: (shares[e] / total if total > 0 else 0.0) for e in ELEMENTS}
 
 
-def adaptations_held(name: str | None = None, held: int = ADAPTATIONS_HELD) -> dict[str, float]:
+# Avatar of Evolution (MECHC49; RESEARCH40 R40-3, MEDIUM; PLANS6's kw-adaptation, an OVERCOUNT at a slow boss before):
+# the Shaman notable AscendancyDruid2Notable5's adaptation_duration_ms 5000 ("Adaptations have a duration of 5 seconds"),
+# double_adaptation_effect ("Double Adaptation Effect") and 5% of Physical Damage taken as each element. Without it the
+# 3 slots hold the last 3 Adaptations for ever (KeywordPopups Adaptation: "do not have a duration"); with it each lasts
+# 5 s, so with H adapting hits a second the slots hold E[min(N, 3)], N ~ Poisson(5 H), each at double effect: the
+# matching count is 2 x s_e x E[min(N, 3)] (the doubling folded into the count Reactive Growth's line multiplies;
+# Reactive Growth's flat "10% less Elemental Damage taken" isn't an Adaptation, so it isn't doubled: R40-3). Under Avatar
+# every Physical hit carries elemental damage and adapts too; a pure Physical hit's element is taken as a third each
+# (R40-3's headline; the tie-break UNVERIFIED). H: the boss's landed hits a second of the adapting types at its own
+# per-use cadence (ailment_hits: half the dodgeable ones dodged, red-flash always land); on the worst-case pinnacle the
+# lowest real preset's (a defence benefit: AUDIT29 A29-1's gain rule). Break-even with no Avatar at H ~ 0.32 a second.
+AVATAR_ADAPT = re.compile(r"^adaptations have a duration of (\d+(?:\.\d+)?) seconds$", re.I)
+AVATAR_DOUBLE = re.compile(r"^double adaptation effect$", re.I)
+ADAPT_FIELDS = ("enemySkillTime", "EvadeChance", "EffectiveBlockChance")
+
+
+def poisson_held(mean: float, cap: int) -> float:
+    """E[min(N, cap)] for N ~ Poisson(mean)."""
+    if mean <= 0:
+        return 0.0
+    p, below, total = math.exp(-mean), 0.0, 0.0
+    for k in range(cap):
+        total += k * p
+        below += p
+        p *= mean / (k + 1)
+    return total + cap * (1 - below)
+
+
+def avatar_shares(name: str | None = None) -> dict[str, float]:
+    """Each element's share of the adapting hits under Avatar of Evolution: the boss's elemental hits plus its Physical
+    ones a third each (type_shares; R40-3's headline)."""
+    shares = type_shares(name)
+    raw = {e: shares[e] + shares.get("Physical", 0.0) / 3 for e in ELEMENTS}
+    total = sum(raw.values())
+    return {e: (raw[e] / total if total > 0 else 0.0) for e in ELEMENTS}
+
+
+def adapting_hits(stats: dict, avatar: bool) -> tuple[float, str]:
+    """(the boss's landed hits a second you adapt to, how): elemental ones, and Physical ones under Avatar."""
+    kinds = (*ELEMENTS, "Physical") if avatar else ELEMENTS
+
+    def read(one: dict) -> tuple[float, str]:
+        rate = sum(ailment_hits(one, k)[0] for k in kinds)
+        return rate, f"{boss_name(one) or 'the boss'}: {rate * 60:.1f} adapting hits a minute"
+
+    return gain_floor(stats, read)
+
+
+def adaptations_held(name: str | None = None, held: int = ADAPTATIONS_HELD, *, seconds: float = 0.0,
+                     double: bool = False, hits: float = 0.0) -> dict[str, float]:
+    """With `seconds` (Avatar of Evolution's duration): 2 (with `double`) x s_e x E[min(Poisson(seconds x hits), held)]
+    (the note above); without, the reading below."""
+    if seconds > 0:
+        count = poisson_held(seconds * max(hits, 0.0), held) * (2 if double else 1)
+        return {e: count * s for e, s in avatar_shares(name).items()}
+    return _held_forever(name, held)
+
+
+def _held_forever(name: str | None = None, held: int = ADAPTATIONS_HELD) -> dict[str, float]:
     """(MECHC45) Expected matching Adaptations when a hit of each element lands: KeywordPopups Adaptation ("gained by
     taking Elemental Damage from Hits ... take less damage of that Type from subsequent Hits ... 3 Adaptations at a time
     ... do not have a duration"; Reactive Growth: "Adapt to the highest Elemental Damage Type of each Hit you take"), so
