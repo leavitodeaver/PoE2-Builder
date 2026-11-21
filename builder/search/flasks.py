@@ -350,7 +350,8 @@ def boss_ailments(hit: dict, data: dict) -> tuple:
 # and The Black Cat use the same wordings) is one of these. Events per second on a lone boss:
 # - "take <Type> damage from a Hit": the boss's hits that land, if its preset deals that type (PoB's <Type>EnemyDamage);
 # - "become Cursed": none against a pinnacle boss (RESEARCH #33, boss-curses-player.md, MEDIUM-HIGH: no pinnacle boss
-#   skill carries a curse stat; checked by the research there against every GrantedEffect and poe2db);
+#   skill carries a curse stat; checked by the research there against every GrantedEffect and poe2db; RESEARCH39 R39-1,
+#   HIGH: all 53 monster rows of the 13 presets, skills and mods);
 # - "release a skill with Perfect Timing": the main skill's uses when it is a Perfect Timing skill, else the build's other
 #   Perfect Timing skills' presses (MECHC12; before, one per models.PRESS_EVERY s, a flat guess): each on its cooldown,
 #   else once per its duration, else at the rate the search chose for it (models.press_use_rate), else 0;
@@ -375,6 +376,20 @@ PERFECT_EVERY = ("; every release counted as perfectly timed: play to release ea
                  "(a play strategy, LOW: a missed window gives no charm use)")
 
 
+# (MECHC48; COV50's 23:32 find, an OVERCOUNT before) A flask that "Cannot be Used manually" (Opportunity: "Used when you
+# release a skill with Perfect Timing") is used by its trigger only, as a Charm is; before, the trigger cap was applied
+# to Charms alone, so Opportunity ran at its charge rate in a build with no Perfect Timing skill. A flask WITHOUT that
+# line can be drunk by hand too, so its trigger doesn't cap it. (checked: the game's stat local_flask_cannot_be_used_manually
+# is on one Mods row, UniqueCannotDrinkFlaskManually1, game 26650308, Stats ids holding "manual" over Mods; PoB's uniques:
+# Opportunity alone, Uniques/flask.lua 33)
+NOT_MANUAL = re.compile(r"^\s*cannot be used manually\s*$", re.I | re.M)
+
+
+def trigger_only(info: dict, raw: str) -> bool:
+    """A charm, or a flask with "Cannot be Used manually": used by its "Used when" trigger alone."""
+    return info.get("kind") == "Charm" or bool(NOT_MANUAL.search(raw or ""))
+
+
 def trigger_rate(trigger: str, gain: Charges) -> tuple[float, str] | None:
     """Events per second that can fire a charm's "Used when ..." trigger on a lone boss, and how; None when the text has no
     trigger this reads (its charges alone decide, as before)."""
@@ -390,7 +405,13 @@ def trigger_rate(trigger: str, gain: Charges) -> tuple[float, str] | None:
             return 0.0, f"the boss deals no {kind} damage"
         return gain.boss_hits, f"the boss's hits that land, {gain.boss_hits:.2f}/s ({kind} among its damage)"
     if "used when you become cursed" in text:
-        return 0.0, "pinnacle bosses don't curse you (research: no pinnacle boss skill carries a curse stat)"
+        # (MECHC48, RESEARCH39 R39-1, HIGH on boss skills: none of the 13 presets' 53 monster rows' skills or mods curses
+        # the player; Waystone "Players are periodically Cursed" and the Trial of Chaos mod: UNVERIFIED for pinnacle
+        # arenas, left out. Your OWN reflected Curses (Shackles of the Wretched's "Curses you inflict are reflected back
+        # to you") would trigger it at your curse rate: not counted, an UNDERCOUNT named)
+        return 0.0, ("no pinnacle boss curses you (R39-1: none of the 13 presets' 53 monster rows' skills or mods "
+                     "curses the player, HIGH); your own reflected Curses (Shackles of the Wretched) not counted: an "
+                     "UNDERCOUNT named; map / Trial curse mods left out (UNVERIFIED for pinnacle arenas)")
     if "perfect timing" in text and "used when" in text:
         if gain.perfect_main_rate > 0:
             return gain.perfect_main_rate, (f"the main skill's Perfect Timing releases, {gain.perfect_main_rate:.2f}/s"
@@ -671,7 +692,7 @@ def uptime(info: dict, gain: Charges, pool: str | None = None, trigger: str = ""
     if used <= 0:
         return 1.0
     uses = rate / used
-    if info.get("kind") == "Charm" and (event := trigger_rate(trigger, gain)) is not None:
+    if trigger_only(info, trigger) and (event := trigger_rate(trigger, gain)) is not None:
         uses = min(uses, event[0])  # (a charm is used by its trigger only: charges and the event both needed)
     share = min(1.0, uses * duration(info, gain))
     if info.get("kind") == "Charm" and (free := charm_extra_uses(gain, trigger)[0]) > 0:
@@ -816,7 +837,7 @@ def uses_per_second(info: dict, gain: Charges, raw: str, pool: str | None) -> tu
             uses, how = dips[0], how + f", at most once a dip below full {pool} ({dips[1]})"
     if pool not in ("Life", "Mana") and (length := duration(info, gain)) > 0 and uses > 1 / length:
         uses, how = 1 / length, how + f", at most once per its {length:.1f} s effect"
-    if info.get("kind") == "Charm" and (event := trigger_rate(raw, gain)) is not None and event[0] < uses:
+    if trigger_only(info, raw) and (event := trigger_rate(raw, gain)) is not None and event[0] < uses:
         # (MECHC25, AUDIT34 A34-8: a charm is used by its trigger only, as uptime and charm_charges_used have it; before,
         # Nascent Hope's "Energy Shield Recharge starts on use" and every other "on use" reader counted a Thawing Charm at
         # its charge rate against a boss that never Freezes you: an overcount)

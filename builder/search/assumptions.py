@@ -405,6 +405,7 @@ GRANTED_SKILL = re.compile(r"Grants Skill: (?:Level \S+ )?(.+?)\s*$")  # (contex
 SECOND_WIND, SECOND_WIND_PCT = "Second Wind III", 1.0  # (MECHC29, G4-6: restore_%_life_on_skill_use_per_1000_ms_cooldown)
 NEBULOCH_TAG = "NebulochCrit"  # (MECHC46: conditions.NEBULOCH_CRIT's note)
 DRUIDIC_TAG = "DruidicProwess"  # (MECHC47: conditions.DRUIDIC_PROWESS's note)
+OVERWHELMING_PRESENCE = "Overwhelming Presence"  # (MECHC48: only on a boss in your Presence)
 SHRINE_TAG = "HammerShrine"  # (MECHC47: conditions.SHRINE_EVERY's note)
 INFUSED_ELEMENT = re.compile(r"\b(fire|cold|lightning)-infused\b", re.I)
 
@@ -3167,6 +3168,38 @@ class Assumptions:
                         f"{culler} Culls" if culler else "nothing in the build Culls (no Culling Strike)")
             fear_mods, fear_rows = conditions_mod.fear_mods(texts, culls, culls_how, can_cull, why_cull)
             hand_mods, hand_notes = hand_mods + fear_mods, hand_notes + fear_rows
+        # (MECHC48; MECH95's R37-14 probe POE2T5094, the manager's 19:17 / 23:25: an OVERCOUNT for builds fighting outside
+        # their Presence) Overwhelming Presence's two AuraDebuff stats (PoB act_str.lua 14960-14961, SkillStatMap
+        # 1266-1270: the enemy's Stun Threshold and Ailment Threshold, -25% / -24% at level 20) are applied by PoB however far
+        # the boss stands (CalcPerform 2422-2440: no distance check). The game: "makes enemies in your Presence easier to
+        # Stun and inflict Elemental Ailments upon" (its description). Outside the Presence radius (PoB's enemyDistance vs
+        # PresenceRadius, both tenths of a metre) its debuff is switched off: AuraEffect MORE -100 on the skill (PoB scales an
+        # AuraDebuff by the skill's own AuraEffect, CalcPerform 2456-2458; probe POE2T4894: the boss's Ailment Threshold back
+        # to 71,303 from 54,190, its 30 Spirit still reserved). The search tries the Presence edge only for "in your
+        # Presence" lines (conditions.distance_candidates; inner.py adds Blasphemy's and supports' lines, not this aura's:
+        # routed to SEARCH), so a ranged build reads it off until then.
+        if any(g.get("name") == OVERWHELMING_PRESENCE and g.get("enabled", True)
+               for grp in build.groups() if grp.get("enabled", True) for g in grp.get("gems") or []):
+            seen_op = build.call("stats", fields=["PresenceRadius"])
+            radius = number(seen_op.get("PresenceRadius")) / 10
+            given = number(build.call("getConfig")["input"].get("enemyDistance")) / 10
+            types = set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or []) if main is not None else set()
+            metres = given or conditions_mod.natural_distance(types, main.name if main is not None else "")
+            inside = radius > 0 and metres <= radius + 1e-9
+            if not inside:
+                hand_mods = hand_mods + [models.raw_mod("AuraEffect", "MORE", -100, skill=OVERWHELMING_PRESENCE,
+                                                        tag="OverwhelmingOutside")]
+            hand_notes = hand_notes + [{
+                "label": "Overwhelming Presence: only on a boss in your Presence*",
+                "value": ("on: the boss is in your Presence" if inside else
+                          "off: the boss stands outside your Presence (its Spirit still reserved)"),
+                "basis": (f"the boss at {metres:g} m, your Presence radius {radius:.1f} m; PoB applies the aura's lower "
+                          "Stun and Ailment Thresholds at any range (an OVERCOUNT before, outside it). The search doesn't "
+                          "yet try standing at the Presence edge for this aura (routed to SEARCH)"),
+                "confidence": "MEDIUM (the distance: the search's choice or the natural one)",
+                "play": ("Keep the boss inside your Presence for Overwhelming Presence"
+                         + ("" if inside else f": at {metres:g} m it's outside your {radius:.1f} m Presence and does nothing")
+                         + "; without it: no lower Stun / Ailment Thresholds on the boss")}]
         # (MECHC47) Druidic Prowess: 10% increased Skill Speed a stack, from Rage spent / Heavy Stuns (conditions.
         # DRUIDIC_PROWESS's note; the Rage spent a round behind, build.rage_spent)
         if any(conditions_mod.DRUIDIC_PROWESS_SPENT.search(t.strip()) or conditions_mod.DRUIDIC_PROWESS_STUN.search(t.strip())

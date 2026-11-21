@@ -2195,6 +2195,7 @@ def rage_on_shift(held: float, net: float, shifts: float, bonus: float = 0.0, sh
 def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
     stats["_rage_max_reaches"] = None  # (MECHC47: (reaches of the maximum a second, how), RAGE_MAX_CHARGE's note)
     stats["_rage_spent_real"] = None  # (MECHC47: (Rage spent a second, how), DRUIDIC_PROWESS's note)
+    stats["_rage_paid"] = None  # (MECHC48, for MECHB49: {"share", "asked", "paid"}, the spenders' Rage really paid)
     main_types = stats.get("_main_types") or set()
     spend = stats.get("_rage_spend") or {}
     own_hits = not (stats.get("_main_channel_rage") or False)
@@ -2242,6 +2243,8 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
         real = asked if net > 0 else max(0.0, gain + (asked - spent))
         stats["_rage_spent_real"] = (real, ", ".join(f"{n} {v:.2f}/s" for n, v in spend.items()) + (
             "" if net > 0 else f" (asking {asked:.2f}/s, more than comes: {real:.2f}/s)"))
+        # (MECHC48, the manager's 23:25 for MECHB49's Molten Crash reading: the paid share as plain numbers, not text)
+        stats["_rage_paid"] = {"share": min(1.0, real / asked), "asked": asked, "paid": real}
     if net <= 0 or most <= 0:
         held = 0.0
         basis += " (spent as fast as it comes: none held)" if gain > 0 else " (no gain a boss fight feeds)"
@@ -9663,6 +9666,9 @@ class Conditions:
         self.build.charge_flow = dict(stats.get("_charge_flow") or {})
         # (MECHC47) the Rage the build really spends a second, for Druidic Prowess (DRUIDIC_PROWESS's note)
         self.build.rage_spent = stats.get("_rage_spent_real")
+        # (MECHC48, for MECH-B: {"share": the share of the spenders' asked Rage really paid (1 while Rage keeps up),
+        # "asked": Rage/s they ask, "paid": Rage/s paid}, or None when nothing spends Rage; a round behind, as rage_spent)
+        self.build.rage_paid = stats.get("_rage_paid")
         # (MECHC47, for MECH-B's models.WARD_UNREAD "Runic Ward on reaching Maximum Rage": (reaches of the maximum a
         # second, how) where the build climbs to it and loses all ("Lose all Rage on reaching Maximum Rage"), else None)
         self.build.rage_max_reaches = stats.get("_rage_max_reaches")

@@ -337,6 +337,8 @@ def test_druidic_prowess_from_rage_spent_raises_skill_speed(engine):
         print(bool(line), speed[bool(line)], getattr(build, "rage_spent", None))
     spent = build.rage_spent
     assert spent is not None and spent[0] > 0 and "Furious Slam" in spent[1]
+    paid = build.rage_paid  # (MECHC48: the plain paid share for MECH-B)
+    assert paid is not None and 0 < paid["share"] <= 1 and paid["paid"] == pytest.approx(spent[0])
     assert speed[True] > speed[False]
 
 
@@ -477,3 +479,27 @@ def test_fear_on_culling_mods_reach_pob(engine):
     parsed = engine.call("parseLines", lines=["20% increased Culling Strike Threshold"])["results"]
     print("PROBE cull parse", parsed)
     assert "CullPercent" in str(parsed)
+
+
+def test_overwhelming_presence_only_lowers_thresholds_on_a_boss_in_your_presence(engine):
+    """MECHC48 (an OVERCOUNT before: PoB applies the aura's lower Stun / Ailment Thresholds at any range): with the
+    boss inside the Presence radius the aura counts; set the boss 15 m away (outside it) and its debuff is switched off
+    (AuraEffect MORE -100 on the skill, probe POE2T4894), the boss's Ailment Threshold back to its own."""
+    payload = make_payload(BuildRequest(main_skill="Boneshatter"))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    bare = number(build.call("stats", fields=["EnemyAilmentThreshold"]).get("EnemyAilmentThreshold"))
+    build.call("addSkillGroup", text="Overwhelming Presence 20/0 1")
+    search.settle()
+    note = next(n for n in search.assumptions.active if n["label"].startswith("Overwhelming Presence"))
+    near = number(build.call("stats", fields=["EnemyAilmentThreshold"]).get("EnemyAilmentThreshold"))
+    print("PROBE near", note["value"], note["basis"], bare, near)
+    assert note["value"].startswith("on") and near < bare
+    build.set_config({"enemyDistance": 150})
+    search.settle()
+    note = next(n for n in search.assumptions.active if n["label"].startswith("Overwhelming Presence"))
+    far = number(build.call("stats", fields=["EnemyAilmentThreshold"]).get("EnemyAilmentThreshold"))
+    print("PROBE far", note["value"], note["basis"], far)
+    assert note["value"].startswith("off") and far == pytest.approx(bare)

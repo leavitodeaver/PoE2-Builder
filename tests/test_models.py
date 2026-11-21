@@ -6936,3 +6936,21 @@ def test_explosive_rhythm_cycles_cooldown_stacks_then_fervour():
     want = (30 + 10 * 1.5 * 2) / ((build + 10) * 0.5)
     assert mods[0]["value"] == pytest.approx(100 * (want - 1), abs=0.01) and "x" in notes[0]["value"]
     assert models.explosive_rhythm_model(main, texts[:1], row, 1.0, 1, 1) == ([], [])
+
+
+def test_a_flask_that_cannot_be_used_manually_runs_at_its_trigger_only():
+    """MECHC48 (COV50's find, an OVERCOUNT before): Opportunity, a Life flask that "Cannot be Used manually" and is "Used
+    when you release a skill with Perfect Timing", is used by that trigger alone (as a Charm is): 0 with no Perfect
+    Timing skill, capped by the releases a second with one; a flask without the line keeps its charge rate."""
+    from dataclasses import replace
+
+    from builder.search.flasks import Charges, uptime, uses_per_second
+    life = {"kind": "Flask", "chargesUsed": 10, "duration": 4, "lifeTotal": 800}
+    raw = chr(10).join(["Opportunity", "Ultimate Life Flask", "Effect is not removed when Unreserved Life is Filled",
+                        "Cannot be Used manually", "Used when you release a skill with Perfect Timing"])
+    rich = Charges(flask=5.0)
+    assert uptime(life, rich, "Life", raw) == 0.0  # (no Perfect Timing skill: never used)
+    assert uptime(life, rich, "Life", raw.replace("Cannot be Used manually" + chr(10), "")) == 1.0  # (drunk by hand)
+    timed = replace(rich, perfect_main_rate=0.05)  # (one perfect release every 20 s: 4 s of 20)
+    assert uptime(life, timed, "Life", raw) == pytest.approx(0.2)
+    assert uses_per_second(life, timed, raw, "Life")[0] <= 0.05 + 1e-9
