@@ -4130,6 +4130,19 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + tail_mods, hand_notes + tail_notes
         area_mods, area_notes = models.unarmed_area_model([e["text"] for e in source_lines], stats, forbidden)  # (MECHB47)
         hand_mods, hand_notes = hand_mods + area_mods, hand_notes + area_notes
+        rhythm_texts = [e["text"] for e in source_lines if models.RHYTHM_EVERY.search(e["text"].strip())
+                        or models.FERVOUR_LINE.search(e["text"])]
+        if rhythm_texts and main is not None and group and "Grenade" in (
+                (build.ctx.gems.get(main.name) or {}).get("skillTypes") or []):  # (MECHB47: Trarthan Cannon's cycle)
+            row = (build.call("useRates", indices=[group["index"]])["rates"] or [{}])[0]
+            info = next((s for s in skills if s["name"] == main.name and s.get("group") == group["index"]), {})
+            grenades = len({n["name"] for g in build.groups() if g.get("enabled") is not False for n in g["gems"]
+                            if n.get("enabled", True) and not n.get("support")
+                            and "Grenade" in ((build.ctx.gems.get(n["name"]) or {}).get("skillTypes") or [])})
+            rhythm_mods, rhythm_notes = models.explosive_rhythm_model(
+                main, rhythm_texts, row, number(info.get("cooldownRecovery")) or 1.0,
+                number(build.call("stats", fields=["ProjectileCount"]).get("ProjectileCount")), grenades, forbidden)
+            hand_mods, hand_notes = hand_mods + rhythm_mods, hand_notes + rhythm_notes
         eldritch_mods, eldritch_notes = models.eldritch_empowerment_model([e["text"] for e in source_lines], stats, main)
         hand_mods, hand_notes = hand_mods + eldritch_mods, hand_notes + eldritch_notes  # (MECHB30, MB-1: PoB's box unset)
         agony, agony_rate, agony_mods, agony_notes = inevitable_agony(build, main)  # (MECHB30: PoB scores it 0)

@@ -19476,3 +19476,61 @@ def unarmed_area_model(texts: list[str], stats: dict, forbidden: set[str] = froz
         "entry": UNARMED_AREA_ENTRY,
         "basis": (f"{'; '.join(f'{n:g}% per {per:g} Intelligence' for n, per in found)} at {intelligence:,.0f} "
                   "Intelligence, on Attacks while Unarmed: PoB parses the line only in part and never applies it")}]
+
+
+# Explosive Rhythm / Explosive Fervour (MECHB47; COV48's lane rows 17.9 + 17.9, Trarthan Cannon: "Gain 1 Explosive Rhythm
+# every (2-3) times you use a Grenade Skill", "Remove all Explosive Rhythm on reaching 10 to gain Explosive Fervour for
+# 10 Seconds"; PoB parses neither: ModCache 7491-7493 {} with leftover text, 9302 nil). KeywordPopups (26650308):
+# ExplosiveRhythm "Each Explosive Rhythm Buff grants 10% increased Cooldown Recovery Rate to your Grenade Skills";
+# ExplosiveFervour "15% increased Attack Speed per different Grenade Skill you've used Recently, causes Grenade Skills to
+# ignore their cooldown and fire an additional projectile, and makes Grenades explode on any impact. You cannot gain
+# Explosive Rhythm while you have Explosive Fervour". A cycle on the main Grenade skill, from its own row: the build
+# phase takes k uses a stack at stack s's rate, min(its uncapped rate, repeats / cooldown x (r0 + 0.1 s) / r0) (r0: its
+# Cooldown Recovery, PoB's; the 10% adds to it as an increase), s = 0..9; then 10 s of Fervour at its uncapped rate
+# (castRate: no cooldown) with one more projectile, x (N + 1) / N (every projectile a grenade on the boss: MEDIUM-LOW).
+# Headline: Fervour's Attack Speed NOT counted (its increase adds to the build's own, which the row doesn't give: the
+# lower reading); a row with it as x (1 + 0.15 G) (G: the build's different Grenade skills, the upper reading). The
+# "explode on any impact" timing not read. Against PoB's rate (its cooldown-capped Speed all fight), as a DPS MORE.
+RHYTHM_EVERY = re.compile(r"^gain 1 explosive rhythm every (\d+) times you use a grenade skill", re.I)
+FERVOUR_LINE = re.compile(r"remove all explosive rhythm on reaching (\d+) to gain explosive fervour for (\d+) seconds", re.I)
+RHYTHM_CDR, FERVOUR_SPEED = 0.10, 0.15
+RHYTHM_ENTRY = "model-mechb47-explosive-rhythm"
+
+
+def explosive_rhythm_model(main: Skill | None, texts: list[str], row: dict, recovery: float, projectiles: float,
+                           grenades: int, forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """The cycle above: `row` the main skill's useRates row (speed, cooldown, castRate, repeats), `recovery` its Cooldown
+    Recovery (1 + increases), `projectiles` PoB's ProjectileCount, `grenades` the build's different Grenade skills."""
+    if main is None or RHYTHM_ENTRY in forbidden:
+        return [], []
+    every = next((int(m.group(1)) for t in texts if (m := RHYTHM_EVERY.search(t.strip()))), 0)
+    fervour = next(((int(m.group(1)), int(m.group(2))) for t in texts if (m := FERVOUR_LINE.search(t))), None)
+    speed, cooldown = number(row.get("speed")), number(row.get("cooldown"))
+    uncapped = max(number(row.get("castRate")), speed)
+    repeats, r0 = number(row.get("repeats")) or 1.0, recovery if recovery > 0 else 1.0
+    if not every or fervour is None or speed <= 0:
+        return [], []
+    stacks, seconds = fervour
+    if cooldown > 0:
+        rates = [min(uncapped, repeats / cooldown * (r0 + RHYTHM_CDR * s) / r0) for s in range(stacks)]
+    else:
+        rates = [speed] * stacks
+    build_time = sum(every / r for r in rates)
+    extra = (projectiles + 1) / projectiles if projectiles >= 1 else 1.0
+
+    def factor(attack_speed: float) -> float:
+        fervour_uses = seconds * uncapped * attack_speed
+        return (every * stacks + fervour_uses * extra) / ((build_time + seconds) * speed)
+    low, high = factor(1.0), factor(1 + FERVOUR_SPEED * max(grenades, 1))
+    return [raw_mod("DPS", "MORE", 100 * (low - 1), main.name)], [{
+        "label": f"{main.name}: Explosive Rhythm / Fervour cycle*", "value": f"x{low:.3f}", "confidence": "MEDIUM-LOW",
+        "entry": RHYTHM_ENTRY,
+        "basis": (f"PoB reads neither line. A Rhythm every {every} uses, +{RHYTHM_CDR:.0%} Cooldown Recovery each: "
+                  f"{stacks} stacks in {build_time:.1f} s ({rates[0]:.2f} -> {rates[-1]:.2f} uses/s), then Explosive "
+                  f"Fervour for {seconds} s with no cooldown ({uncapped:.2f} uses/s) and one more projectile "
+                  f"(x{extra:.2f}, every grenade taken to reach the boss), against PoB's {speed:.2f} uses/s all fight: "
+                  f"x{low:.3f}. Fervour's 15% Attack Speed per different Grenade skill not counted (it adds to the "
+                  f"build's own increases, which aren't read: the lower reading); row with it ({grenades} Grenade "
+                  f"skill{'s' if grenades != 1 else ''}): x{high:.3f}"),
+        "play": (f"Use {main.name} on cooldown to build {stacks} Explosive Rhythm, then fire it nonstop through the "
+                 f"{seconds} s of Explosive Fervour.")}]

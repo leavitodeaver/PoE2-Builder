@@ -46,3 +46,21 @@
   sources: ["builder/search/models.py (UNARMED_AREA, unarmed_area_model)", "builder/search/assumptions.py (models(), beside eldritch_empowerment_model)",
             "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:1387"]
   status: proposed
+
+- id: model-mechb47-explosive-rhythm
+  title: "Trarthan Cannon's Explosive Rhythm / Explosive Fervour as a cycle on the main Grenade skill (models.explosive_rhythm_model)"
+  kind: pob_gap
+  model: explosive_rhythm
+  match: '^(Gain 1 Explosive Rhythm every (\(\d+-\d+\)|\d+) times you use a Grenade Skill|Remove all Explosive Rhythm on reaching (\d+) to gain Explosive Fervour for (\d+) Seconds)'
+  replace: []
+  confidence: theory
+  notes: >-
+    MECHB47, an UNDERCOUNT (COV48's lane rows, 17.9 + 17.9): PoB parses neither line (ModCache 7491-7493, 9302). Per
+    KeywordPopups ExplosiveRhythm / ExplosiveFervour: a build phase (10 stacks, k uses each, each stack +10% Cooldown
+    Recovery on Grenades, from the skill's own cooldown and Recovery) then 10 s of Fervour (no cooldown: PoB's pre-cap
+    rate; one more projectile, x (N + 1) / N); Fervour's Attack Speed (15% per different Grenade skill) only as a row,
+    its increase adding to unread others (the lower reading the headline). MEDIUM-LOW.
+  sources: ["builder/search/models.py (explosive_rhythm_model)", "builder/search/assumptions.py (models(), after unarmed_area_model)",
+            "data/game-26650308/tables/KeywordPopups.json (ExplosiveRhythm, ExplosiveFervour)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Uniques/crossbow.lua:60-61"]
+  status: proposed

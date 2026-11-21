@@ -6924,3 +6924,16 @@ def test_unarmed_area_reads_facebreakers_line_per_intelligence():
     assert mods[0]["name"] == "AreaOfEffect" and mods[0]["value"] == 25 and mods[0]["condition"] == "Unarmed"
     assert mods[0]["keywordFlags"] == ["Attack"] and notes[0]["confidence"] == "HIGH"
     assert models.unarmed_area_model(["1% increased Area of Effect for Unarmed Attacks per 10 Intelligence"], {"Int": 5}) == ([], [])
+
+
+def test_explosive_rhythm_cycles_cooldown_stacks_then_fervour():
+    """MECHB47: Trarthan Cannon's lines: 10 stacks at rising Cooldown Recovery, then 10 s of no cooldown and +1 projectile."""
+    main = models.Skill("Frag Grenade", group=1)
+    texts = ["Gain 1 Explosive Rhythm every 3 times you use a Grenade Skill",
+             "Remove all Explosive Rhythm on reaching 10 to gain Explosive Fervour for 10 Seconds"]
+    row = {"speed": 0.5, "cooldown": 2.0, "castRate": 1.5, "repeats": 1}
+    mods, notes = models.explosive_rhythm_model(main, texts, row, 1.0, 1, 1)
+    build = sum(3 / min(1.5, 0.5 * (1 + 0.1 * s)) for s in range(10))
+    want = (30 + 10 * 1.5 * 2) / ((build + 10) * 0.5)
+    assert mods[0]["value"] == pytest.approx(100 * (want - 1), abs=0.01) and "x" in notes[0]["value"]
+    assert models.explosive_rhythm_model(main, texts[:1], row, 1.0, 1, 1) == ([], [])
