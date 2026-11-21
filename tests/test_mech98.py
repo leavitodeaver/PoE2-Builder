@@ -102,3 +102,96 @@ def test_hazard_slow_magnitude_on_a_hazards_chill_only():
     mods, notes = models.hazard_slow_mods([HINDERING], "Ice Shards", {"Ice Shards", "Temporal Chains"})
     assert mods == [] and "Temporal Chains" in notes[0]["basis"]
     assert models.hazard_slow_mods([], "Ice Shards", set()) == ([], [])
+
+
+def test_commiserate_boosts_one_application_per_boss_application():
+    """R42-13: no reflection; the instance inflicted while afflicted gets 40% more, then yours is removed. PoB's
+    conditional 40% is cancelled and 40% x the boosted share added; a reflected ailment keeps PoB's reading."""
+    import math
+
+    stats = {"Speed": 2.0, "HitChance": 100, "IgniteChancePerHit": 50, "IgniteDuration": 4.0, "PoisonChancePerHit": 100,
+             "PoisonDuration": 2.0}
+    on_you = {"Ignite": {"rate": 0.05, "seconds": 4.0}, "Poison": {"rate": 0.05, "seconds": 2.0}}
+    held, factor = models.commiserate_shares(0.05, 4.0, 1.0, 4.0, False)
+    first = 1 - math.exp(-4.0)
+    assert abs(held - 0.05 * first * 4.0) < 1e-9 and abs(factor - first / 4.0) < 1e-9
+    held, _ = models.commiserate_shares(0.05, 2.0, 2.0, 2.0, True)  # Poison stacks: boosted / all applications
+    assert abs(held - 0.05 * (1 - math.exp(-4.0)) / 2.0) < 1e-9
+    mods, notes, cut = models.commiserate_model({"Fireball", models.COMMISERATE}, models.Skill("Fireball"), stats, on_you,
+                                                set())
+    ignite = [m for m in mods if m["name"] == "AilmentMagnitude" and m.get("keywordFlags") == ["Ignite"]]
+    assert ignite[0]["condition"] == "Ignited" and abs(ignite[0]["value"] - 100 * (1 / 1.4 - 1)) < 0.01
+    assert abs(ignite[1]["value"] - 40 * 0.05 * first * 4.0) < 0.01 and "condition" not in ignite[1]
+    assert 0 < cut["Ignited"] < 1 and "R42-13" in notes[0]["basis"]
+    # no boss application: PoB's 40% cancelled, nothing added
+    mods, _, cut = models.commiserate_model({models.COMMISERATE}, models.Skill("Fireball"), stats, {}, set())
+    assert all(m.get("condition") for m in mods) and cut == {}
+    # Self Immolation reflects your Ignites: PoB's reading kept for Ignite (no Ignite mods)
+    mods, _, _ = models.commiserate_model({models.COMMISERATE}, models.Skill("Fireball"), stats, on_you, {"Ignite"})
+    assert not [m for m in mods if m.get("keywordFlags") == ["Ignite"]]
+    assert models.commiserate_model({"Fireball"}, models.Skill("Fireball"), stats, on_you, set()) == ([], [], {})
+
+
+def test_boss_pool_reads_one_reading_at_a_time():
+    """MECHD8 (the manager 08:22): the Red Queen's pool was 7.69M, above every reading (Life whole plus ES from the
+    rarity ratio). Now bosses.pool's conversion is the headline (5.15M), poe2db's and the video's are rows; the worst
+    case keeps its Life whole (the user's "Keep as is"), so it reads poe2db's."""
+    from builder.search import bosses, conditions
+
+    queen = "Atziri, the Red Queen"
+    life, es, _ = bosses.pool(queen, "headline")
+    assert abs(conditions.boss_pool(queen) - (life + es)) < 1 and 5.1e6 < conditions.boss_pool(queen) < 5.2e6
+    rows = dict(conditions.boss_pool_rows(queen))
+    assert len(rows) == 2 and any(7.4e6 < v < 7.6e6 for v in rows.values())
+    worst = bosses.WORST
+    life, es, _ = bosses.pool(worst, "poe2db")
+    assert abs(conditions.boss_pool(worst) - (life + es) * conditions.life_bars(worst)) < 1
+    assert conditions.boss_pool_rows("Arbiter of Ash") == []  # no Energy Shield: one reading
+
+
+def test_runeforged_blades_consumes_the_full_break():
+    """MECHB50's find: Runeforged Blades' Attacks Consume Fully Broken Armour on hit (its blades can't hit the boss they
+    came from), so the Fully Broken share follows the consumer cycle, as Battershout's Warcry; with both, one cycle and
+    Battershout's explosions at its share of the Consumes."""
+    from builder.search.conditions import _battershout_cycle
+
+    up_plain, _, _, _ = _battershout_cycle(10.0, 0.0, 12.0, 0.0001)
+    up, rate, breaks, how = _battershout_cycle(10.0, 0.0, 12.0, 2.0, "Runeforged Blades's Attack hits")
+    assert up < 0.03 and "Runeforged" in how and up_plain > up
+    both, rate_both, _, how = _battershout_cycle(10.0, 0.0, 12.0, 2.5)
+    assert both <= up and "Battershout" in how
+
+
+def test_armour_broken_reads_the_runeforged_consumer():
+    from builder.search.conditions import _armour_broken
+
+    base = {"_enemy_armour": 1000.0, "_final_break": (100.0, "a Break source")}
+    plain, _ = _armour_broken([], dict(base))
+    stats = {**base, "_runeforged_uses": 2.0}
+    eaten, how = _armour_broken([], stats)
+    assert eaten < plain and "Runeforged Blades" in how and stats["_battershout_rate"] == 0
+
+
+def test_soaring_ground_evasion_and_full_life_damage_at_the_trails_share():
+    """MECHC49's handoff: Soaring Ground's 30% increased Evasion and 40% increased damage while on Full Life, at
+    sacred_unity_onslaught's share of the fight; none without Sacred Unity."""
+    mods, notes = models.soaring_ground_mods((0.5, "the trail"))
+    assert [m["line"] for m in mods] == ["1% increased Evasion Rating", "1% increased Damage while on Full Life"]
+    assert [m["scale"] for m in mods] == [15.0, 20.0] and "the trail" in notes[0]["basis"]
+    assert models.soaring_ground_mods(None) == ([], [])
+    assert models.soaring_ground_mods((0.0, "no Primal Bounty"))[0] == []
+
+
+def test_kills_of_shocked_enemies_count_at_the_shock_share():
+    """PLANS6's open overcount: "on killing a Shocked Enemy" counted every add kill. Now x the share your hits keep
+    Shock on the boss (ailment_uptime), 0 without a Shock source."""
+    from builder.search.conditions import kill_events
+
+    base = {"_kills": (0.5, 0.5, "the adds"), "Speed": 2.0, "HitChance": 100}
+    rate, how = kill_events("on killing a shocked enemy", dict(base))
+    assert rate == 0 and "Shocked" in how
+    rate, how = kill_events("on killing a shocked enemy", {**base, "ShockChancePerHit": 100, "ShockDuration": 8.0})
+    assert abs(rate - 0.5) < 1e-6
+    rate, _ = kill_events("on killing a shocked enemy", {**base, "ShockChancePerHit": 2, "ShockDuration": 1.0})
+    assert 0 < rate < 0.05
+    assert kill_events("on kill", dict(base))[0] == 0.5  # (no state named: every kill)

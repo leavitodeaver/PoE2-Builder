@@ -16107,6 +16107,120 @@ def power_mods(power: float) -> list[dict]:
     return [raw_mod("WarcryPower", "BASE", extra), raw_mod("Multiplier:EnemyPower", "BASE", extra)] if extra > 0 else []
 
 
+# Commiserate (MECH98; PLANS7's plans/gs-commiserate-self-ailment.md, RESEARCH42 R42-13 HIGH (text) / MEDIUM (order);
+# an OVERCOUNT where your self-ailment box was on, an UNDERCOUNT where none was). SupportCommiseratePlayer: "Ailments
+# inflicted by Supported Skills have 40% more Magnitude if you are afflicted with that Ailment when inflicting it" and
+# "When inflicting an Ailment with Supported Skill, remove that Ailment from yourself". Nothing is reflected (R42-13): the
+# boost goes on the instance inflicted while you had that ailment, then yours is removed, so later ones get none until
+# the boss puts it on you again. PoB (sup_dex.lua 1382-1388) gives the 40% MORE under your Condition:Bleeding / Ignited /
+# Poisoned / Shocked / Chilled / Frozen, at whatever share our self-ailment box carries, and reads no removal. Per
+# ailment X, from the boss's own applications on you (boss_hits.ailments_on_you: E landed a second, L s on you, the
+# user's movement-dodge rate; worst case "lowest", a gain) and a = your main skill's applications a second (hits x PoB's
+# <X>ChancePerHit; Chill's ChanceOnHit):
+#   - boosted applications a second B = E (1 - e^(-a L)) (the first application while you're afflicted);
+#   - Ignite, Shock, Chill, Bleed: the boosted instance is taken to hold the boss's X for min(1, B x its duration) (the
+#     strongest one counts; Bleed's strongest-only UNVERIFIED); Poison stacks: B / a of the instances;
+#   - your afflicted time a boss application drops from L to E[min(L, the wait for your next application)] = (1 -
+#     e^(-a L)) / a: conditions' _self_ignited scales its boss and Grinning Immolation parts by (1 - e^(-a L)) / (a L).
+# Mods: PoB's conditional 40% cancelled (x1/1.4 under the same Condition and KeywordFlag) and 40% x that share added,
+# both on the main skill. PoB rounds each mod store's MORE product to 2 decimals (ModDB.lua MoreInternal) and the
+# cancel sits in another store than the gem's 40%, so it lands as x0.71: up to 0.7% low while the box is on (probe
+# POE2T5145, LOW). Where the build reflects X back to you (Self Immolation's Ignites, Overcharge's Shocks, the
+# reflected-Poison line), each application re-afflicts you right after removing yours, so nearly every one is boosted:
+# PoB's reading (the box's share) is kept there, labelled. Freeze on you stops your skills (you can't inflict while
+# Frozen): not boosted (0). Your own non-reflect self sources (Grinning Immolation's crits) aren't added to E (an
+# undercount, LOW).
+COMMISERATE = "Commiserate"
+COMMISERATE_MORE = 40.0
+# ailment: (your PoB condition, chance field, duration field on the boss, PoB mod, KeywordFlag, stacks)
+COMMISERATE_AILMENTS = {
+    "Ignite": ("Ignited", "IgniteChancePerHit", "IgniteDuration", "AilmentMagnitude", "Ignite", False),
+    "Shock": ("Shocked", "ShockChancePerHit", "ShockDuration", "EnemyShockMagnitude", None, False),
+    "Chill": ("Chilled", "ChillChanceOnHit", "ChillDuration", "EnemyChillMagnitude", None, False),
+    "Bleed": ("Bleeding", "BleedChancePerHit", "BleedDuration", "AilmentMagnitude", "Bleed", False),
+    "Poison": ("Poisoned", "PoisonChancePerHit", "PoisonDuration", "AilmentMagnitude", "Poison", True),
+}
+COMMISERATE_FIELDS = tuple(sorted({"Speed", "HitChance"} | {f for v in COMMISERATE_AILMENTS.values() for f in v[1:3]}))
+
+
+def commiserate_shares(rate_on_you: float, seconds_on_you: float, applies: float, duration: float, stacks: bool
+                       ) -> tuple[float, float]:
+    """(share of your X on the boss that is boosted, the factor on your afflicted time) for one ailment."""
+    if rate_on_you <= 0 or seconds_on_you <= 0 or applies <= 0:
+        return 0.0, 1.0
+    first = 1 - math.exp(-applies * seconds_on_you)
+    boosted = rate_on_you * first
+    held = min(1.0, boosted / applies) if stacks else min(1.0, boosted * max(duration, 0.0))
+    return held, first / (applies * seconds_on_you)
+
+
+def commiserate_model(main_gems: set[str], main: Skill | None, stats: dict, on_you: dict[str, dict],
+                      reflected: set[str]) -> tuple[list[dict], list[dict], dict[str, float]]:
+    """(mods, notes, {your condition: factor on your afflicted time}) for Commiserate on the main skill (the note above).
+    `stats`: COMMISERATE_FIELDS of the main skill; `on_you`: boss_hits.ailments_on_you; `reflected`: the ailments the
+    build reflects back to you."""
+    if COMMISERATE not in main_gems or main is None:
+        return [], [], {}
+    hps = number(stats.get("Speed")) * min(number(stats.get("HitChance")) or 100.0, 100.0) / 100.0
+    mods, parts, cut = [], [], {}
+    for ailment, (cond, chance, dur, name, keyword, stacks) in COMMISERATE_AILMENTS.items():
+        if ailment in reflected:
+            parts.append(f"{ailment}: reflected back to you, so nearly every application is boosted (PoB's reading, at "
+                         "your self-ailment box's share)")
+            continue
+        got = on_you.get(ailment) or {}
+        applies = hps * min(number(stats.get(chance)), 100.0) / 100.0
+        held, factor = commiserate_shares(number(got.get("rate")), number(got.get("seconds")), applies,
+                                          number(stats.get(dur)), stacks)
+        kw = [keyword] if keyword else None
+        mods.append(raw_mod(name, "MORE", 100 * (1 / (1 + COMMISERATE_MORE / 100) - 1), skill=main.name, condition=cond,
+                            keywords=kw))
+        if held > 0:
+            mods.append(raw_mod(name, "MORE", COMMISERATE_MORE * held, skill=main.name, keywords=kw))
+        if factor < 1:
+            cut[cond] = factor
+        parts.append(f"{ailment}: the boss's {number(got.get('rate')) * 60:.1f} a minute on you ({number(got.get('seconds')):g}"
+                     f" s each), yours {applies:.2f} a second: {held:.0%} of the boss's {ailment} boosted"
+                     + (f", your own afflicted time x{factor:.2f}" if factor < 1 else ""))
+    note = {"label": "Commiserate: 40% more Magnitude on the Ailment you inflict while you have it*",
+            "value": f"{sum(1 for m in mods if not m.get('condition'))} of {len(COMMISERATE_AILMENTS)} ailments boosted",
+            "confidence": "MEDIUM (R42-13); the boss's ailments on you MEDIUM-LOW (ailments_on_you)",
+            "basis": ("the boost goes on the instance you inflict while afflicted, then yours is removed (R42-13: no "
+                      "reflection): " + "; ".join(parts) + ". PoB's 40% under your own condition is replaced by these "
+                      "shares. Freeze on you stops your skills: not boosted"),
+            "play": "Let the boss's ailments land on you and answer each with the supported skill"}
+    return mods, [note], cut
+
+
+# Soaring Ground's Evasion and Full-Life damage (MECH98; the manager 04:00 from MECHC49: "Sacred Unity's trail's Evasion
+# and Full-Life damage are yours (reuse conditions.sacred_unity_onslaught's uptime)"; an UNDERCOUNT: PoB parses the
+# trail line to nothing). KeywordPopups SoaringGround: "30% increased Evasion Rating, 40% increased damage while on Full
+# Life, and Onslaught to you or Allies standing on it. These effects Linger for 1 second". At the trail's share of the
+# fight (conditions.sacred_unity_onslaught: one empowered Projectile use per Owl Feather, 6 s + 1 s Linger, standing on
+# it, MEDIUM-LOW): "N% increased Evasion Rating" x the share (an average of increased Evasion: the lower bound of the
+# Evade chance's mean, LOW) and "N% increased Damage while on Full Life" x the share, which PoB applies under your own
+# Full Life condition (the conditionFullLife box's share; the two taken as independent, LOW).
+SOARING_EVASION, SOARING_FULL_LIFE = 30.0, 40.0
+
+
+def soaring_ground_mods(trail: tuple[float, str] | None) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for Soaring Ground's Evasion and Full-Life damage at `trail` (sacred_unity_onslaught's (share, how))."""
+    if trail is None:
+        return [], []
+    share, how = trail
+    note = {"label": "Soaring Ground: Evasion and Full-Life damage*", "confidence": "MEDIUM-LOW",
+            "value": f"{share:.0%} of the fight on the trail",
+            "basis": (f"{how}; on it {SOARING_EVASION:g}% increased Evasion Rating and {SOARING_FULL_LIFE:g}% increased "
+                      "damage while on Full Life (KeywordPopups SoaringGround), each x that share; the damage under your "
+                      "Full Life box (independent of the trail, LOW). PoB parses the trail to nothing (0 before)"),
+            "play": ("Fire your Owl-Feather-empowered Projectile skill and stand on its trail: without it +0%; with it "
+                     f"+{SOARING_EVASION * share:.0f}% Evasion and +{SOARING_FULL_LIFE * share:.0f}% damage on Full Life")}
+    if share <= 0:
+        return [], [note]
+    return [line("1% increased Evasion Rating", SOARING_EVASION * share),
+            line("1% increased Damage while on Full Life", SOARING_FULL_LIFE * share)], [note]
+
+
 # Varashta's Blessing (MECH98; PLANS7's plans/gs-varashtas-blessing.md, RESEARCH41 R41-10; an UNDERCOUNT: nothing read
 # it, PoB has no statMap, sup_int.lua 8513). SupportVarashtasBlessingPlayer's constant stat
 # support_djinn_lineage_damage_+%_final_per_different_command_in_last_8_seconds 10, whose displayed text (gem_stat_

@@ -3798,6 +3798,17 @@ class Assumptions:
         config_in = build.call("getConfig")["input"]  # (PoB's Shocked box ticked: its Shock already counts all fight)
         on_you = boss_hits.boss_ailments_on_you(seen, bool(config_in.get("conditionShocked")
                                                            or config_in.get("conditionOnShockedGround")), texts)
+        if models.COMMISERATE in main_gems:  # (MECH98, R42-13: Commiserate's boost and removal)
+            reflected = ({"Ignite"} if any(conditions_mod.SELF_IMMOLATION_LINE.match(t.strip()) for t in texts) else set()) | (
+                {"Poison"} if any(recovery_mod.REFLECT_POISON.match(t.strip()) for t in texts) else set()) | (
+                {"Shock"} if any(n["name"] == conditions_mod.OVERCHARGE and n.get("enabled", True)
+                                 for g in build.groups() if g.get("enabled") is not False for n in g["gems"]) else set())
+            com_mods, com_notes, build.commiserate_cut = models.commiserate_model(
+                main_gems, main, build.call("stats", fields=list(models.COMMISERATE_FIELDS)),
+                boss_hits.ailments_on_you(seen, texts), reflected)
+            hand_mods, hand_notes = hand_mods + com_mods, hand_notes + com_notes
+        else:
+            build.commiserate_cut = {}
         build.boss_ignite += on_you["ignite"]
         # (MECHC38, the manager's ruling (i), 18 Nov 02:30) the floors read the boss's Shock IN FULL from 7% of the fight
         # (boss_hits.BOSS_SHOCK_FLOOR_KEY: one more part-time effect, switched to "in full" by the floors' recalculation)
@@ -4798,6 +4809,9 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + spectral_mods, hand_notes + spectral_notes
         djinn, djinn_mods, djinn_notes = djinn_commands(build, main)  # (MECH83: the Disciple's djinn Commands; PoB 0)
         hand_mods, hand_notes = hand_mods + djinn_mods, hand_notes + djinn_notes
+        soar_mods, soar_notes = models.soaring_ground_mods(conditions_mod.sacred_unity_onslaught(  # (MECH98, MECHC49)
+            [e["text"] for e in source_lines], {**stats, "_main_types": main_types, "_main_share": main_time_share(build, main)}))
+        hand_mods, hand_notes = hand_mods + soar_mods, hand_notes + soar_notes
         if models.VARASHTA in main_gems:  # (MECH98, R41-10: Varashta's Blessing per different Command; PoB 0)
             held = getattr(build, models.ITEM_PRESSES, None)
             v_mods, v_notes, v_presses = models.varashta_blessing_model(

@@ -547,6 +547,19 @@ def kill_events(when: str, stats: dict) -> tuple[float, str]:
     rate = enemies if enemy_only else total
     label = (f"{rate:.3f} kills/s" + (" (enemies only: the line says 'enemy')" if enemy_only and total > enemies else "")
              + f": {how}")
+    # (MECH98; PLANS6's open overcount, the manager 03:48: "no Shock check on 'on killing a Shocked Enemy' lines", e.g.
+    # Earthbound's socketed-spell trigger: every add kill counted, Shocked or not.) A kill of an enemy "<ailment>"
+    # counts at the share of the fight your hits keep that ailment on the boss (ailment_uptime: the main skill and the
+    # other groups, the same hits reaching the adds, MEDIUM-LOW); no source of it: 0. Chilled / Frozen / Cursed and
+    # other states aren't gated (an overcount kept, labelled).
+    if rate > 0 and (state := re.search(r"\b(shocked|ignited|bleeding|poisoned)\b", when)):
+        ailment = {"shocked": "Shock", "ignited": "Ignite", "bleeding": "Bleed", "poisoned": "Poison"}[state.group(1)]
+        share = ailment_uptime(stats, ailment)
+        rate *= share
+        label += (f"; only kills of {state.group(1).capitalize()} enemies count: x{share:.0%}, the share your hits keep "
+                  f"{ailment} on the boss, taken for the adds too (MEDIUM-LOW)")
+    elif rate > 0 and re.search(r"\b(chilled|frozen|cursed)\b", when):
+        label += "; the line's enemy state isn't checked (every kill counted: an overcount where it isn't met, LOW)"
     if rate > 0 and re.search(r"affected by|culling strike|\bcull", when):
         label += "; every kill taken to meet the line's condition (LOW: an overcount if the build doesn't)"
     return rate, label
@@ -3558,6 +3571,10 @@ def _self_ignited(lines: list[str], stats: dict) -> tuple[object, str, float] | 
     if boss > 0:
         parts.append(boss_how)
         up = 1.0 - (1.0 - up) * (1.0 - boss)
+    cut = (stats.get("_commiserate_cut") or {}).get("Ignited", 1.0)
+    if cut < 1 and up > 0:  # (MECH98: Commiserate removes your Ignite at your next one, models.commiserate_model)
+        up *= cut
+        parts.append(f"Commiserate removes it at your next Ignite: x{cut:.2f}")
     if reflect > 0:
         parts.append(reflect_how)
         up = 1.0 - (1.0 - up) * (1.0 - reflect)
@@ -4444,9 +4461,13 @@ def _armour_broken(lines: list[str], stats: dict) -> tuple[float, str]:
     if (uses := number(stats.get("_riven_uses"))) > 0 and armour > 0:
         up, stats["_riven_share"], riven = _riven_cycle(to_break, full, held, uses)
         how.insert(0, riven)
-    elif (shouts := number(stats.get("_battershout_uses"))) > 0 and armour > 0:
-        up, stats["_battershout_rate"], stats["_battershout_breaks"], shout = _battershout_cycle(to_break, full, held,
-                                                                                                 shouts)
+    elif ((shouts := number(stats.get("_battershout_uses"))) > 0
+          or (blades := number(stats.get("_runeforged_uses"))) > 0) and armour > 0:
+        blades = number(stats.get("_runeforged_uses"))
+        who = " and ".join(n for n, r in ((BATTERSHOUT + "'s Warcry", shouts), (RUNEFORGED + "'s Attack hits", blades))
+                           if r > 0)
+        up, rate_all, stats["_battershout_breaks"], shout = _battershout_cycle(to_break, full, held, shouts + blades, who)
+        stats["_battershout_rate"] = rate_all * shouts / (shouts + blades)  # (its share of the Consumes: explosions)
         how.insert(0, shout)
     return up, (f"Armour Fully Broken {up:.0%} of the fight ({shared(up)}): {rate:,.0f} Armour broken/s against "
                 f"the boss's {armour:,.0f} (PoB), {held:g} s each Full Break: " + "; ".join(how[:5]))
@@ -4507,20 +4528,33 @@ def _riven_cycle(to_break: float, full: float, held: float, uses: float) -> tupl
 BATTERSHOUT = "Battershout"
 
 
-def _battershout_cycle(to_break: float, full: float, held: float, uses: float) -> tuple[float, float, float, str]:
+# Runeforged Blades (MECH98; MECHB50's turn-2 find via the manager 07:35, an OVERCOUNT of the Fully Broken share): the
+# support makes its Attacks "Consume Fully Broken Armour on enemies to fire a nova of runic Projectiles ... The
+# Projectiles cannot Hit the enemy from which they originated" (SupportRuneforgedBladesPlayer: cannot_break_armour,
+# consume_armour_break_to_trigger_rune_forged_blades; PoB other.lua 14719 adds ConsumesFullyBrokenArmour and reads no
+# Consume). So against a lone boss each supported Attack hit while Fully Broken ends the Full Break and its blades hit
+# nothing: the Fully Broken share follows Battershout's consumer cycle (_battershout_cycle) with these hits a second
+# added to the consumers (both: one cycle, Battershout's explosions at its share of the Consumes). The blades' damage on
+# adds isn't counted (a lone boss).
+RUNEFORGED = "Runeforged Blades"
+
+
+def _battershout_cycle(to_break: float, full: float, held: float, uses: float, who: str = ""
+                       ) -> tuple[float, float, float, str]:
     """(share of the fight Fully Broken, explosions per second, Full Breaks per second, how) with the Battershout
     Warcry used `uses` times a second: `to_break` s of Breaking per Full Break (inf if none), `full` Full Breaks per
     second from other events, `held` s each Full Break lasts unconsumed."""
     breaks = (1 / to_break if 0 < to_break < float("inf") else 0.0) + full
+    who = who or f"{BATTERSHOUT}'s Warcry"
     if breaks <= 0:
-        return 0.0, 0.0, 0.0, f"{BATTERSHOUT}: no Full Break happens, so nothing to Consume"
+        return 0.0, 0.0, 0.0, f"{who}: no Full Break happens, so nothing to Consume"
     gap = 1 / uses
     broken = gap / 2 if held >= gap else held - held * held / (2 * gap)
     chance = min(1.0, held / gap)
     cycle = 1 / breaks + broken
     return broken / cycle, chance / cycle, 1 / cycle, (
-        f"{BATTERSHOUT}'s Warcry at {uses:.2f}/s Consumes each Full Break {broken:.2f} s in on average ({chance:.0%} of "
-        f"them before the {held:g} s run out): {chance / cycle:.3f} explosions/s, a Full Break every {cycle:.2f} s "
+        f"{who} at {uses:.2f}/s Consume each Full Break {broken:.2f} s in on average ({chance:.0%} of "
+        f"them before the {held:g} s run out): {chance / cycle:.3f} Consumes/s, a Full Break every {cycle:.2f} s "
         "(MEDIUM: uses periodic, at a random point of the Full Break)")
 
 
@@ -5581,9 +5615,37 @@ def life_bars(name: str) -> float:
     return LIFE_BARS.get(name, 1.0)
 
 
-def boss_pool(name: str) -> float:
-    """The Life + Energy Shield the player takes off this boss preset in the fight (all its Life bars: life_bars)."""
-    return bosses.PRESETS[name].life / bosses.life_share_of_pool(name) * life_bars(name)
+# The boss's pool (MECH98; MECHD8's item 4 via the manager 08:22, 21 Nov): before, Life / life_share_of_pool mixed the
+# two readings (Life left whole, ES from the rarity ratio): the Red Queen 7.69M, above every reading (5.15M converted /
+# 7.49M poe2db). Now bosses.pool's (MECHD7): Life + ES of one bar x life_bars. The headline for a real preset is
+# "conversion" (EnergyShieldFromLife taken out of Life: the game files' reading, MEDIUM-LOW); poe2db's "added on top"
+# and, for the two Atziris, the fight video's ES of about 13.5% of Life (RESEARCH42 R42-1) are rows (boss_pool_rows).
+# The worst case keeps its Life whole (the user's "Keep as is" on the Arbiter of Ash's Life, 12 Nov 19:27: converting
+# its borrowed 33% would cut that Life by a third), so it reads poe2db's (ES added on top): its pool 14.50M (was
+# 14.88M); the conversion reading (9.97M) is its row. UNVERIFIED which reading the game uses (MECHD7).
+BOSS_POOL_VIDEO_ES = 0.135  # R42-1: Atziri's Energy Shield about 13.5% of her Life, from fight video (LOW)
+
+
+def boss_pool(name: str, reading: str | None = None) -> float:
+    """The Life + Energy Shield the player takes off this boss preset in the fight (all its Life bars: life_bars), under
+    a bosses.pool reading (None: the headline, conversion; poe2db's for the worst case, the note above)."""
+    if reading is None:
+        reading = "poe2db" if name == getattr(bosses, "WORST", None) else "headline"
+    life, es, _ = bosses.pool(name, reading)
+    return (life + es) * life_bars(name)
+
+
+def boss_pool_rows(name: str) -> list[tuple[str, float]]:
+    """The other readings of boss_pool, as (label, pool) rows."""
+    head = "poe2db" if name == getattr(bosses, "WORST", None) else "headline"
+    rows = [(f"{r} reading ({'ES converted out of Life' if r == 'headline' else 'ES added on top of Life'})",
+             boss_pool(name, r)) for r in bosses.POOL_READINGS if r != head]
+    rows = [(label, value) for label, value in rows if abs(value - boss_pool(name)) > 1.0]  # (no ES: one reading)
+    if name.startswith("Atziri"):
+        life, _, _ = bosses.pool(name, "headline")
+        rows.append((f"the fight video's ES ({BOSS_POOL_VIDEO_ES:.1%} of Life, R42-1, LOW)",
+                     life * (1 + BOSS_POOL_VIDEO_ES) * life_bars(name)))
+    return rows
 
 
 def cull_window_scale(full_mult: float, main_mult: float, pool: float, dps: float, hits: float, hit_dps: float,
@@ -8284,6 +8346,21 @@ class Conditions:
                                              base))
         return out
 
+    def runeforged_uses(self, gems: dict) -> float:
+        """Hits per second of the Attacks Runeforged Blades supports (MECH98; RUNEFORGED's note): the main skill's
+        Speed x hit chance if it is one, else each enabled group's use rate (one hit a use, LOW), summed."""
+        groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
+        attacks = {n["name"] for g in groups
+                   if any(n.get("enabled", True) and n["name"] == RUNEFORGED for n in g.get("gems") or [])
+                   for n in g.get("gems") or []
+                   if n.get("enabled", True) and n["name"] != RUNEFORGED and not (gems.get(n["name"]) or {}).get("support")}
+        if not attacks:
+            return 0.0
+        rates = self._group_uses(groups, attacks - {self.main_skill})
+        main = self.build.call("stats", fields=["Speed", "HitChance"])
+        return sum(number(main.get("Speed")) * min(number(main.get("HitChance")) or 100.0, 100.0) / 100.0
+                   if name == self.main_skill else rates.get(name, self._chosen_use(name)) for name in attacks)
+
     def battershout_uses(self, gems: dict) -> float:
         """Uses per second of the Warcries Battershout supports (MECH72): the main skill's Speed if it is one, else each
         enabled group's rate (_group_uses; else the search's chosen press rate, else 0), summed."""
@@ -9483,6 +9560,8 @@ class Conditions:
                 if models.RAISE_SHIELD in presses else 0.0)
         if any(models.CONSUMED_CORPSE.search(t) for t in texts):  # (MECHB38: from the assumptions' corpse model)
             stats["_corpses_consumed"] = getattr(self.build, "corpses_consumed", None) or (0.0, "not read yet")
+        if getattr(self.build, "commiserate_cut", None):  # (MECH98: Commiserate's removal, models.commiserate_model)
+            stats["_commiserate_cut"] = self.build.commiserate_cut
         if any(MINION_DIES.search(t) for t in texts):  # (MECHC7: "when a Minion Dies" lines, from the build's own sources)
             inputs = self._minion_inputs()
             stats["_minion_deaths"] = models.minion_deaths(*inputs)
@@ -9947,6 +10026,8 @@ class Conditions:
                                                    RIVEN_SKILL) or self._chosen_use(RIVEN_SKILL))
             if RIVEN_SKILL not in gem_types and (shout := self.battershout_uses(gems)):
                 armour_stats["_battershout_uses"] = shout  # (MECH72: its Warcry Consumes the Full Break; _battershout_cycle)
+            if RIVEN_SKILL not in gem_types and (blades := self.runeforged_uses(gems)):
+                armour_stats["_runeforged_uses"] = blades  # (MECH98: its Attacks Consume the Full Break; RUNEFORGED's note)
             up, basis = _armour_broken(texts, armour_stats)
             self.riven_share = number(armour_stats.get("_riven_share"))  # (GEM3's riven_armour_model reads it)
             self.riven_how = basis if self.riven_share > 0 else ""

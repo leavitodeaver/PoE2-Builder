@@ -66,3 +66,32 @@ def test_window_to_paradise_exposes_the_boss_only_with_the_taps(engine):
         assert models.RAISE_SHIELD not in presses
     finally:
         setattr(build.objective, models.RAISED_TAPS, True)
+
+
+def test_commiserate_cancel_undoes_pobs_conditional_40_percent(engine):
+    """PoB's Commiserate gives 40% more Ignite Magnitude while you're Ignited (sup_dex.lua 1382-1388); the model's
+    x1/1.4 under the same condition takes it back, and its unconditioned share line adds 40% x the share."""
+    from builder.search import models
+
+    def ignite(box, mods):
+        engine.call("newBuild")
+        engine.call("setLevel", level=90)
+        engine.call("addSkillGroup", text="Fireball 20/0 1\nCommiserate 1/0 1", main=True)
+        engine.call("setAssumptions", mods=mods, fields=[])
+        return engine.call("setConfig", vars={"conditionIgnited": box}, fields=["IgniteDPS"])["stats"]["IgniteDPS"] or 0
+
+    stats = {"Speed": 1.0, "HitChance": 100, "IgniteChancePerHit": 100, "IgniteDuration": 4.0}
+    mods, _, _ = models.commiserate_model({models.COMMISERATE}, models.Skill("Fireball"), stats,
+                                          {"Ignite": {"rate": 0.05, "seconds": 4.0}}, set())
+    ignite_mods = [m for m in mods if m.get("keywordFlags") == ["Ignite"]]
+    off, on = ignite(False, []), ignite(True, [])
+    cancelled = ignite(True, ignite_mods[:1])
+    share = ignite_mods[1]["value"] / 40
+    added = ignite(False, ignite_mods[1:])
+    print("PROBE commiserate", off, on, cancelled, added, share)
+    engine.call("setAssumptions", mods=[], fields=[])
+    assert off > 0 and on == pytest.approx(off * 1.4, rel=1e-3)
+    # PoB rounds each mod store's MORE product to 2 decimals (ModDB.lua MoreInternal 241-246), and the model's cancel sits
+    # in another store than Commiserate's 40% (x0.71 for x1/1.4): within 0.7% (probe POE2T5145: 0.08816 vs 0.08870)
+    assert cancelled == pytest.approx(off, rel=7e-3)
+    assert added == pytest.approx(off * (1 + 0.4 * share), rel=7e-3)
