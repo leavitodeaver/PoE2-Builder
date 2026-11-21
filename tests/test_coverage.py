@@ -791,12 +791,14 @@ def test_slot_names_built_by_concatenation_count_as_read():
     """COV41 (probe POE2T3858): PoB reads "EffectOfBonusesFrom" .. slot (CalcPerform 1491), and slot names have a
     space ("Ring 1"), so Ingenuity's "N% increased bonuses gained from left / right Equipped Ring" (EffectOfBonusesFromRing
     1 / 2) moves Life: 1460 -> 1491 with a +100 Life ring and 30%. The wildcard takes spaces, but a bare wildcard part
-    alone still reads nothing (ActiveSkeletonLimit stays unread)."""
+    alone still reads nothing (a made-up name stays unread; COV51: ActiveSkeletonLimit, the old example here, IS read,
+    through Data/Minions.lua's `limit = "ActiveSkeletonLimit"` and CalcOffence 1420's minionData.limit)."""
     from builder.ledger.coverage import calc_reads, name_read
 
     reads = calc_reads()
     assert name_read("EffectOfBonusesFromRing 1", reads) and name_read("EffectOfBonusesFromRing 2", reads)
-    assert not name_read("ActiveSkeletonLimit", reads)
+    assert not name_read("Cov51NoSuchModifierName", reads)
+    assert name_read("ActiveSkeletonLimit", reads)
 
 
 def test_harbinger_summon_mods_are_poe1_leftovers():
@@ -1764,8 +1766,8 @@ def test_cov50_trains_104_106_readers_are_model_read():
     assert model_entry("This Flask cannot be Used but applies its Effect constantly").id == (
         "model-read-cov50-flask-effect-constantly")
     # left open: no pattern of a model reads them (the report's reasons)
-    for line in ("Cannot be Used manually", "Skills have 100% longer Perfect Timing window during effect",
-                 "The Bodach haunts your Presence", "Grants Skill: Level 20 His Dark Horizon",
+    # (COV51: Opportunity's two lines are read since train 107: test_cov51_trains_107_108_readers_are_model_read)
+    for line in ("The Bodach haunts your Presence", "Grants Skill: Level 20 His Dark Horizon",
                  "Grants Skill: Level 20 His Grave Command",
                  "Lose all Runic Bindings when you Shapeshift to gain that much Unbound Potential",
                  "Skills have 45% chance to not remove Elemental Infusions but still count as consuming them if you've "
@@ -1789,3 +1791,107 @@ def test_cov50_stonefist_recoup_gets_the_open_weakness_stand_in():
                                              line="(55-65)% of damage taken from enemies with an Open Weakness "
                                                   "Recouped as Life and Energy Shield")
     assert status == "ledger" and "Stonefist" in reason
+
+
+def test_cov51_trains_107_108_readers_are_model_read():
+    """COV51: the manager's held notes for trains 107-108. Each line is model-read through an empty pob_gap entry whose
+    model's own pattern reads it (COV43's rule); the moves-nothing lines are no-effect ledger entries; the rows no
+    pattern on main reads stay open (Runic Ward's overflow, the Stonefist forms, MECH97's stats)."""
+    from builder.ledger import model_entry, play_row_entry, translate
+    from builder.search import assumptions, conditions, flasks, recovery
+
+    cases = {
+        "22% of Damage taken during effect Recouped as Life": ("model-read-cov51-flask-recoup-life", recovery.FLASK_RECOUP),
+        "50% of Chaos damage you prevent when Hit Recouped as Life and Mana during effect":
+            ("model-read-cov51-chaos-prevented-recoup", recovery.CHAOS_PREVENTED),
+        "Damage Blocked is Recouped as Mana": ("model-read-cov51-block-recoup-mana", recovery.BLOCK_RECOUP_MANA),
+        "30% of damage Blocked is Recouped as Mana": ("model-read-cov51-block-recoup-mana", recovery.BLOCK_RECOUP_MANA),
+        "Excess Life Recovery from Leech is applied to Energy Shield":
+            ("model-read-cov51-leech-excess-es", recovery.LEECH_EXCESS_ES),
+        "Central Projectile of Owl Feather-Empowered Skills leaves a trail of Soaring Ground":
+            ("model-read-cov51-sacred-unity-soaring-ground", conditions.SACRED_UNITY),
+        "Grants Skill: Queen's Procession": ("model-read-cov51-queens-procession", assumptions.GRANTED_SKILL),
+        "Cannot be Used manually": ("model-read-cov51-cannot-be-used-manually", flasks.NOT_MANUAL),
+    }
+    for line, (entry, pattern) in cases.items():
+        assert (found := model_entry(line)) is not None and found.id == entry, line
+        assert pattern.search(line), line
+        assert translate(line)[1] == [], line
+    assert assumptions.GRANTED_SKILL.search("Grants Skill: Queen's Procession").group(1) == "Queen's Procession"
+    # the Overflow lines: play rows only (models.item_read_by_models leaves them out)
+    for line in ("Life Leech can Overflow Maximum Life", "Life Recovery from Flasks can Overflow Maximum Life",
+                 "Mana Recovery from Flasks can Overflow maximum Mana during Effect",
+                 "Mana Recovery from Regeneration Overflows maximum Mana"):
+        assert recovery.overflow_kinds([line]), line
+        assert model_entry(line) is None and play_row_entry(line).id == "model-read-cov51-overflow-rows", line
+    assert not recovery.overflow_kinds(["Runic Ward recovery can Overflow maximum Runic Ward"])
+    assert model_entry("Runic Ward recovery can Overflow maximum Runic Ward") is None
+    # moves nothing: no-effect entries (no model, no lines)
+    for line, entry in (("Skills have 100% longer Perfect Timing window during effect", "no-effect-cov51-perfect-timing-window"),
+                        ("Removes Curses on use", "no-effect-cov51-removes-curses-on-use"),
+                        ("Divine Flight", "no-effect-cov51-divine-flight"),
+                        ("Can Socket a non-Unique Basic Jewel into the Phylactery",
+                         "no-effect-cov51-phylactery-socket-permission")):
+        found, lines = translate(line)
+        assert found.id == entry and lines == [] and model_entry(line) is None, line
+    # the gem-stat links
+    from builder.ledger import entries
+
+    links = {e.id: e for e in entries()}
+    assert set(links["model-cov51-link-crater-fissures"].raw["stats"]) == {
+        "support_fissure_on_landing_create_X_fissures_on_impact", "triggered_by_fissure_on_landing_support_%",
+        "support_fissure_on_landing_maximum_fissure_count"}
+    assert links["model-cov51-link-eye-of-winter-single-eye"].raw["stats"] == ["single_primary_projectile"]
+    # waiting for train 109 (MECH97): no reader on main yet
+    for line in ("Deal Double Damage to Enemies that are on Full Life",
+                 "Elemental Damage from your Hits is Resisted by the enemy's lowest Elemental Resistance"):
+        found = model_entry(line)
+        assert found is None or not found.id.startswith("model-read-cov51"), line
+
+
+def test_cov51_ledger_items():
+    """COV51: the Phylactery's +100% effect as PoB's SocketedJewelEffect on the node (probe POE2T5211: a Ruby's +20% Fire
+    Resistance in node 17788 read +20, then +40 with the translation), Circular Teachings' cancel (PoB's flag for the
+    plural wording), Ab Aeterno's pre-0.5.0 mod unreachable, and the minion-limit names PoB reads through minionData.limit
+    (probe POE2T5211: Raise Zombie 10 / Unearth 20 = the gems' stats)."""
+    from builder.ledger import translate
+
+    assert translate("100% increased Effect of bonuses gained from Socketed Jewel")[1] == ["mod:SocketedJewelEffect INC 100"]
+    assert translate("Gain no inherent bonus from Dexterity")[1] == ["mod:NoDexterityAttributeBonuses FLAG 1"]
+    assert "UniqueSpeedPerDodgeRoll20Seconds1" in coverage.NOT_OBTAINABLE
+    reads = coverage.calc_reads()
+    for name in ("ActiveZombieLimit", "ActiveUnearthBoneConstructLimit", "ActiveSkeletonLimit"):
+        assert coverage.name_read(name, reads), name
+    assert not coverage.name_read("HyenaLimit", reads)  # (probe POE2T5212 found no hyena minion to show it on)
+
+
+def test_cov51_stonefist_recoup_split_row():
+    """COV51 (R39-8): the headline gives each pool the full N%; the split reading (N/2 each) is a LOW row."""
+    from types import SimpleNamespace
+
+    from builder.search.assumptions import Assumptions
+
+    line = "60% of damage taken from enemies with an Open Weakness Recouped as Life and Energy Shield"
+    me = SimpleNamespace(build=SimpleNamespace(call=lambda name, **_: {"lines": [{"text": line}, {"text": "+10 to Strength"}]}))
+    rows = Assumptions.stonefist_recoup_split_rows(me, 0.4)
+    assert len(rows) == 1 and rows[0]["confidence"].startswith("LOW")
+    assert rows[0]["value"].startswith("30% to Life and 30% to Energy Shield (headline 60% each)")
+    me.build.call = lambda name, **_: {"lines": [{"text": "+10 to Strength"}]}
+    assert Assumptions.stonefist_recoup_split_rows(me, 0.4) == []
+
+
+def test_cov51_the_catalog_keeps_unlinked_lines_visible():
+    """COV51 (PLANS6's unlinked-live-lines.md): the not-counted lines no mechanic links go to two fallback entries."""
+    from builder.data import data_dir
+    from builder.ledger import mechanics
+
+    if not (data_dir() / "coverage-report.json").exists():
+        pytest.skip("no coverage report")
+    cat = mechanics.build()
+    by_id = {m["id"]: m for m in cat["mechanics"]}
+    fallback = [m for m in cat["mechanics"] if m["origin"] == "unlinked fallback"]
+    assert fallback and all(m.get("plan") and m["lines"]["not_counted"] == m["lines"]["linked"] for m in fallback)
+    if "unlinked-gem-stats" in by_id:
+        assert all(x["category"] == "gem-stat" for x in by_id["unlinked-gem-stats"]["all_lines"])
+    if "unlinked-lines" in by_id:
+        assert all(x["category"] != "gem-stat" for x in by_id["unlinked-lines"]["all_lines"])

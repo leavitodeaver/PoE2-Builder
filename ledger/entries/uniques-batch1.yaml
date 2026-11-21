@@ -65,8 +65,19 @@
   confidence: datamined
   notes: >-
     PoB's parser has the other word order ("knocks enemies back on hit": flag Knockback). The translation keeps
-    the line in PoB's terms; knockback moves no damage or defence number against a boss.
-  sources: ["https://poe2db.tw/us/Tyrannys_Grip", "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (knocks enemies back on hit)"]
+    the line in PoB's terms. In PoB the flag feeds only KnockbackChance / KnockbackDistance outputs, which no damage or
+    defence calculation reads (checked: grep Knockback over PoB's Modules: CalcOffence 5522-5527 / 5807-5815 set them,
+    nothing reads them; CalcDefence 1982 KnockbackImmune is the player's own immunity), so the translation moves no
+    number. (COV51, the manager 03:48 from PLANS6: the old note said "knockback moves no damage or defence number against
+    a boss" with no evidence; that is NOT shown, and is wrong in part.) The boss CAN be knocked back: every Unique monster
+    takes 75% less knockback distance (Mods MonsterUnique12, knockback_distance_+%_final_from_rarity -75), and poe2db's
+    Arbiter of Ash, King in the Mists, Bodach and Vessel of Kulemak pages show no "Cannot be Knocked Back" (RESEARCH26
+    R26-80, MEDIUM-LOW; Mobalytics says bosses are immune: the sources disagree). So knockback can move numbers our
+    models don't read (UNVERIFIED in size, open): (a) a push out of a melee skill's reach between hits (an OVERCOUNT for
+    melee builds, PLANS6; not modelled); (b) gem stats that scale with knockback distance, Punch Through's
+    apply_attack_projectile_weakness_%_per_#m_knockback (live in 0.5, RESEARCH40 R40-10) and Tempest Bell's
+    tempest_bell_area_of_effect_+%_final_per_#_unit_of_knockback (UNDERCOUNTS; open gem-stat rows).
+  sources: ["https://poe2db.tw/us/Tyrannys_Grip", "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (knocks enemies back on hit)", "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua:5522-5527, 5807-5815", "C:/PROJECTS/PoE2 Builder/scratch/manager/research/rolling-slam-boss-knockback-r26.md (R26-80)"]
   test_in_game: "Hit a white monster with Tyranny's Grip equipped: it is pushed back on every hit."
   status: proposed
 

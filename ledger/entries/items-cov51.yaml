@@ -1,0 +1,290 @@
+# COV51 (21 Nov 2026): trains 107-108's readers in the audit (the manager's held notes, 23:25 20 Nov - 04:40 21 Nov;
+# COV43's rule: a line counts model-read only if the model's own pattern reads it, checked here for each one against
+# origin/main b0df4371). Each `model:` entry adds nothing to PoB: it says which model reads the line (no second count).
+# The entries with no `model:` and no replace lines record a line that moves no number (the audit's "ledger: no effect").
+
+# MECHC48 (8497e184): recovery.FLASK_RECOUP '^N% of Damage taken during effect Recouped as Life$', read in
+# Assumptions' hit-recovery inputs (the flask's uptime x N% of the boss's landed damage a second, as Life).
+- id: model-read-cov51-flask-recoup-life
+  title: 'Blood of the Warrior, "N% of Damage taken during effect Recouped as Life" (recovery.FLASK_RECOUP)'
+  kind: pob_gap
+  model: recovery
+  match: '^(\(\d+-\d+\)|\d+(?:\.\d+)?)% of Damage taken during effect Recouped as Life$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.FLASK_RECOUP (MECHC48, an UNDERCOUNT before: PoB parses it with leftover text, ModCache 3157 / 3814 / 7238,
+    so applies none): N% of the damage the boss's landed hits deal a second x the flask's uptime (flasks.uptime), as Life
+    a second. This entry only says a model reads the line.
+  sources: ["builder/search/recovery.py (FLASK_RECOUP, hit_income)", "builder/search/assumptions.py (flask_recoup)"]
+  status: proposed
+
+# MECHC49 (5ff540fc): recovery.CHAOS_PREVENTED, read for the usable charms carrying it at each one's uptime.
+- id: model-read-cov51-chaos-prevented-recoup
+  title: 'Forsaken Bangle, "N% of Chaos damage you prevent when Hit Recouped as Life and Mana during effect" (recovery.CHAOS_PREVENTED)'
+  kind: pob_gap
+  model: recovery
+  match: '^(\(\d+-\d+\)|\d+(?:\.\d+)?)% of Chaos damage you prevent when Hit Recouped as Life and Mana during effect$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.CHAOS_PREVENTED (MECHC49, an UNDERCOUNT before: PoB leaves leftover text, ModCache 4645): N% x the Chaos the
+    build's mitigation prevents a landed boss hit (ChaosEnemyDamage - ChaosTakenHit, at Deflection's share and the boss's
+    Chaos share) x the charm's uptime, to Life and to Mana. This entry only says a model reads the line.
+  sources: ["builder/search/recovery.py (CHAOS_PREVENTED)", "builder/search/assumptions.py (chaos_prevented)"]
+  status: proposed
+
+# MECHC49 (4d33eaf7): recovery.BLOCK_RECOUP_MANA '^(?:N% of )?damage blocked is recouped as mana$' (case-insensitive):
+# Alkem Eira's plain line (100%) and the Legacy of Alkem Eira Soul Core's "N% of damage Blocked is Recouped as Mana".
+- id: model-read-cov51-block-recoup-mana
+  title: '"Damage Blocked is Recouped as Mana" (Alkem Eira) and "N% of damage Blocked is Recouped as Mana" (Legacy of Alkem Eira) (recovery.BLOCK_RECOUP_MANA)'
+  kind: pob_gap
+  model: recovery
+  match: '^(?:(\(\d+-\d+\)|\d+(?:\.\d+)?)% of )?[Dd]amage Blocked is Recouped as Mana$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.BLOCK_RECOUP_MANA (MECHC49, an UNDERCOUNT before: PoB parses it to nothing, ModCache 7083): N% (100 without a
+    number) of one blocked hit's damage after mitigation x the boss's blocked hits a second, as Mana. This entry only
+    says a model reads the line.
+  sources: ["builder/search/recovery.py (BLOCK_RECOUP_MANA, hit_income)"]
+  status: proposed
+
+# MECHC49 (4d33eaf7): recovery.LEECH_EXCESS_ES in leech_excess_income.
+- id: model-read-cov51-leech-excess-es
+  title: 'Soul Tether, "Excess Life Recovery from Leech is applied to Energy Shield" (recovery.leech_excess_income)'
+  kind: pob_gap
+  model: recovery
+  match: '^Excess Life Recovery from Leech is applied to Energy Shield$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.leech_excess_income (MECHC49, an UNDERCOUNT before: PoB parses it to nothing, ModCache 7440): the headline
+    the lower reading (half a second of the kept leech a refill, one refill per boss hit reaching Life; LOW), the upper
+    reading (leech running on Full Life) a row. This entry only says a model reads the line.
+  sources: ["builder/search/recovery.py (LEECH_EXCESS_ES, leech_excess_income)"]
+  status: proposed
+
+# MECHC49 (4d33eaf7): recovery.OVERFLOW_LINES, read by Assumptions.overflow_rows for the play guide only (its note:
+# "Moves no number (the plan's floors rule): a play-guide row"), so a play_row entry (models.item_read_by_models leaves
+# it out: an item carrying it can't move a score). Runic Ward's overflow belt implicit is NOT one of them (no pattern
+# reads "Runic Ward recovery can Overflow maximum Runic Ward": checked, grep "overflow" over builder/ and engine/;
+# recovery.py's note routes it to MECH-B's models.ward_plan, which doesn't read it): it stays open.
+- id: model-read-cov51-overflow-rows
+  title: 'The Overflow lines (Life Leech, Life / Mana flask recovery, Mana Regeneration) (recovery.OVERFLOW_LINES, play rows)'
+  kind: pob_gap
+  model: recovery
+  play_row: true
+  match: '^(Life Leech can Overflow Maximum Life|Life Recovery from Flasks can Overflow Maximum Life|Mana Recovery from Flasks can Overflow maximum Mana during Effect|Mana Recovery from Regeneration Overflows maximum Mana)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.OVERFLOW_LINES / overflow_row (MECHC49, plans/kw-overflow.md; PoB parses each to nothing, ModCache 8477-8478,
+    8490, 8560-8562): each carrier's climb above the maximum to 1.5x at the source's rate against the pool's drains, a
+    play-guide row; the floors keep the un-overflowed pool (the worst case between refills), so no headline number moves.
+    The Mana Regeneration form is a Timeless keystone's (Kurgal's Ambition): imported builds only. This entry only says a
+    model reads the lines.
+  sources: ["builder/search/recovery.py (OVERFLOW_LINES, overflow_row)", "builder/search/assumptions.py (overflow_rows)"]
+  status: proposed
+
+# MECHC49 (67952e1a): conditions.SACRED_UNITY in sacred_unity_onslaught (Onslaught's uptime from the trail).
+- id: model-read-cov51-sacred-unity-soaring-ground
+  title: 'Sacred Unity, "Central Projectile of Owl Feather-Empowered Skills leaves a trail of Soaring Ground" (conditions.sacred_unity_onslaught)'
+  kind: pob_gap
+  model: onslaught
+  match: '^Central Projectile of Owl Feather-Empowered Skills leaves a trail of Soaring Ground$'
+  replace: []
+  confidence: theory
+  notes: >-
+    conditions.sacred_unity_onslaught (MECHC49, an UNDERCOUNT before: PoB parses it to nothing, ModCache 6903): one
+    empowered Projectile use per Owl Feather (Primal Bounty's, 50% faster with The Mhacha's Gift), Onslaught up
+    min(1, uses x (6 s + 1 s Linger)), MEDIUM-LOW; 0 without Primal Bounty or a Projectile main skill. The trail's
+    Evasion and Full-Life damage are not read yet (MECH-A's, plans/kw-soaring-ground.md). This entry only says a model
+    reads the line's Onslaught.
+  sources: ["builder/search/conditions.py (SACRED_UNITY, sacred_unity_onslaught)"]
+  status: proposed
+
+# MECH88 (COV50's find, the manager 23:32): Assumptions.unbuilt_grants' GRANTED_SKILL 'Grants Skill: (?:Level \S+ )?(.+?)'
+# over bridge sourceLines (passives included) -> models.queens_procession_model.
+- id: model-read-cov51-queens-procession
+  title: 'Devotion to the King, "Grants Skill: Queen''s Procession" (Assumptions.unbuilt_grants, models.queens_procession_model)'
+  kind: pob_gap
+  model: queens_procession
+  match: '^Grants Skill: (?:Level \S+ )?Queen''s Procession$'
+  replace: []
+  confidence: theory
+  notes: >-
+    PoB has no skill for Queen's Procession (ModCache {nil}). models.queens_procession_model (MECH88, RESEARCH31 R31-9):
+    its locust stacks and unscaled swarm against the main skill, rows (at character level only, PoB's reading). This
+    entry only says a model reads the line.
+  sources: ["builder/search/assumptions.py (GRANTED_SKILL, unbuilt_grants)", "builder/search/models.py (QUEENS_PROCESSION, queens_procession_model)"]
+  status: proposed
+
+# MECHC48 (5a4bd0a0): flasks.NOT_MANUAL in trigger_only: Opportunity is used by its "Used when" trigger alone, as a Charm.
+- id: model-read-cov51-cannot-be-used-manually
+  title: 'Opportunity, "Cannot be Used manually" (flasks.NOT_MANUAL, trigger_only)'
+  kind: pob_gap
+  model: flasks
+  match: '^Cannot be Used manually$'
+  replace: []
+  confidence: theory
+  notes: >-
+    flasks.trigger_only (MECHC48, an OVERCOUNT before: Opportunity ran at its charge rate in a build with no Perfect
+    Timing skill): a flask with this line is used only by its "Used when you release a skill with Perfect Timing"
+    trigger, capped by the build's Perfect Timing releases. (checked there: stat local_flask_cannot_be_used_manually is
+    on one Mods row, UniqueCannotDrinkFlaskManually1, game 26650308; PoB's uniques: Opportunity alone.) This entry only
+    says a model reads the line.
+  sources: ["builder/search/flasks.py (NOT_MANUAL, trigger_only)"]
+  status: proposed
+
+# MECHC48 (the manager 00:40): Opportunity's longer Perfect Timing window moves nothing: flasks.py counts every release
+# as perfectly timed (PERFECT_EVERY, a labelled play strategy), so a wider window can't add a release.
+- id: no-effect-cov51-perfect-timing-window
+  title: 'Opportunity, "Skills have N% longer Perfect Timing window during effect" (moves nothing: every release is counted as perfectly timed)'
+  kind: pob_gap
+  match: '^Skills have (\(\d+-\d+\)|\d+)% longer Perfect Timing window during effect$'
+  replace: []
+  confidence: theory
+  notes: >-
+    The flask and charm models count every Perfect Timing release as perfectly timed (flasks.PERFECT_EVERY: "play to
+    release each one in the Perfect Timing window", LOW, said in the play guide), so a longer window adds no release and
+    moves no number under that reading. It only makes the play easier (a real effect our numbers don't need). If the
+    models ever count missed windows, this line must become a model input.
+  sources: ["builder/search/flasks.py (PERFECT_EVERY)"]
+  status: proposed
+
+# R39-1 (HIGH on boss skills; the manager 00:40): no target boss curses the player, so a flask's "Removes Curses on use"
+# moves nothing against the presets (as Cleansing Charm's "Used when you become Cursed" in flasks.trigger_rate).
+- id: no-effect-cov51-removes-curses-on-use
+  title: 'Flask suffix "Removes Curses on use" (moves nothing against the boss presets: none curses the player, R39-1)'
+  kind: pob_gap
+  match: '^Removes Curses on use$'
+  replace: []
+  confidence: theory
+  notes: >-
+    RESEARCH39 R39-1 (HIGH on boss skills; checked there: all 53 MonsterVarieties rows of the 13 presets, every
+    GrantedEffect's stat sets and ActiveSkillTypes AppliesCurse, the rows' mods; web: no guide names a boss curse): no
+    preset boss curses the player, so there is no Curse on you to remove. Not counted (UNDERCOUNTS named, both small):
+    your own reflected Curses (Shackles of the Wretched's "Curses you inflict are reflected back to you"), and Waystone /
+    Trial of Chaos curse mods (UNVERIFIED for pinnacle arenas). The same reading as flasks.trigger_rate's "Used when you
+    become Cursed" (0).
+  sources: ["C:/PROJECTS/PoE2 Builder/scratch/manager/research/INDEX.md (R39-1)", "builder/search/flasks.py (trigger_rate)"]
+  status: proposed
+
+# R40-5 (MEDIUM; the manager 03:40): Decree of Flight's "Divine Flight" is cosmetic.
+- id: no-effect-cov51-divine-flight
+  title: 'Decree of Flight, "Divine Flight" (a floating look and a dodge-roll animation variant: no gameplay effect, R40-5)'
+  kind: pob_gap
+  match: '^Divine Flight$'
+  replace: []
+  confidence: theory
+  notes: >-
+    RESEARCH40 R40-5 (MEDIUM, plans6-recheck-five-r40.md): UniqueDivineFlight1's two stats are
+    enable_unfettered_authority_roll_variation (a dodge-roll animation variant) and base_is_floating (a floating look);
+    the line has no gameplay text. (checked: both stats' users over every game 26650308 table with a stat column, Mods /
+    PassiveSkills / GrantedEffectStatSets / SoulCoreStats included: UniqueDivineFlight1 alone, scratch/cov51/statusers.py;
+    PoB parses nothing of it; second source R40-5's poe2db read.) Whether floating does anything in play (ground effects
+    under you, for one): UNVERIFIED, so this is a labelled reading, not proof. The boots' other lines (Guard, Energy
+    Shield) are read where they were.
+  sources: ["C:/PROJECTS/PoE2 Builder/scratch/manager/research/plans6-recheck-five-r40.md (R40-5)", "data/game-26650308/tables/Mods.json (UniqueDivineFlight1)"]
+  status: proposed
+
+# MECHB49 (13b4a056 / a5ee7a93 on main as a5ee7a93 "Fissure counts"): Assumptions.crater_fissures reads the Crater
+# support's 3 Fissures a landing (support_fissure_on_landing_create_X_fissures_on_impact 3), the triggered Crater's 100%
+# trigger on each landing (triggered_by_fissure_on_landing_support_% 100) and its Limit 9 (support_fissure_on_landing_
+# maximum_fissure_count; "never binds at 3 a landing under one landing every 2 s"). The model entry itself is
+# model-mechb49-crater (skill only, no stats): these are the stat links.
+- id: model-cov51-link-crater-fissures
+  title: "Crater: its 3 Fissures each landing, the trigger on landing and the Limit 9 are read by Assumptions.crater_fissures (MECHB49)"
+  kind: model
+  model: crater_fissures
+  stats: ["support_fissure_on_landing_create_X_fissures_on_impact", "triggered_by_fissure_on_landing_support_%",
+          "support_fissure_on_landing_maximum_fissure_count"]
+  skill: [Crater]
+  confidence: MEDIUM
+  notes: >-
+    Assumptions.crater_fissures (MECHB49, RESEARCH39 R39-4, MEDIUM-LOW): PoB scores the triggered Crater at its own flat
+    rate, one Fissure a trigger; the model scales its Full DPS entry to the leap's landings a second x 3 (a row of 2), the
+    trigger taken on every landing (the stat's 100), the Limit 9 noted as never binding at 3 a landing. A link only.
+  sources: ["builder/search/assumptions.py (crater_fissures)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_str.lua (SupportCraterPlayer, TriggeredCraterPlayer)"]
+  status: proposed
+
+# MECHB49 (on main): models.eye_shards_model reads one Eye a use and puts ProjectileCount into its shards a second
+# (rate = ProjectileCount or 30): the single_primary_projectile reading (extra projectiles don't make more Eyes).
+- id: model-cov51-link-eye-of-winter-single-eye
+  title: "Eye of Winter: one Eye a use, its projectile count read as shards (single_primary_projectile) by models.eye_shards_model"
+  kind: model
+  model: eye_shards
+  stats: ["single_primary_projectile"]
+  skill: [Eye of Winter]
+  confidence: MEDIUM
+  notes: >-
+    models.eye_shards_model (MECHB49, RESEARCH38 R38-14): one Eye flies through the boss a use, firing PoB's
+    ProjectileCount shards a second around it, so added projectiles add shards, not Eyes, as the stat says. Its other
+    open stat projectile_firing_forward_distance_override (where the Eye starts) is NOT read (the model starts the
+    approach at the build's fighting distance): left open. A link only.
+  sources: ["builder/search/models.py (EYE_SPEED, EYE_SHARDS, eye_shards_model)"]
+  status: proposed
+
+# PLANS6 (the manager 03:05; plans/kw-basic-jewel.md item 2; COV-B is paused, so COV-A writes it): Lich's Crystalline
+# Phylactery. PoB parses "100% increased Effect of bonuses gained from Socketed Jewel" only in part (ModCache 1821:
+# LocalEffect INC 100 with leftover " of bonuses gained from Socketed Jewel "), so applies none of it (Item.lua /
+# PassiveTree.lua `not modLine.extra`): nothing to negate. Its modifier is SocketedJewelEffect (ModParser 901-902's
+# "effect of socketed jewels"), which CalcSetup 1463-1467 reads from the node's own modList for the jewel in a
+# containJewelSocket node (node 17788): the raw mod goes there (bridge.applyPassiveCorrections adds it to node.modList).
+# (checked: stat phylactery_jewel_socket_effect_+% over every game 26650308 table with a stat column: AscendancyWitch3
+# Notable1 alone, scratch/cov51/statusers.py; second source PoB's tree 0_5 node 17788, the same three lines.)
+- id: items-cov51-phylactery-socketed-jewel-effect
+  title: 'Crystalline Phylactery, "N% increased Effect of bonuses gained from Socketed Jewel" (SocketedJewelEffect INC N on the node)'
+  kind: pob_gap
+  match: '^(\d+)% increased Effect of bonuses gained from Socketed Jewel$'
+  replace: ['mod:SocketedJewelEffect INC {1}']
+  confidence: datamined
+  notes: >-
+    The game text (PassiveSkills AscendancyWitch3Notable1, stat phylactery_jewel_socket_effect_+% 100) and PoB's own
+    scaling path: CalcSetup 1463-1467 scales a jewel in a containJewelSocket node by 1 + the node's SocketedJewelEffect
+    INC / 100, so the jewel's lines count x2 (probe POE2T5211). Whether it scales every jewel line (its implicit too) is
+    PoB's reading (UNVERIFIED in game: kw-basic-jewel's in-game test, a rare Ruby in the Phylactery against a tree socket).
+    It moves a number only with a jewel in the Phylactery: imported builds now, the search's own builds once SEARCH34 fills
+    the socket (jewels.sockets() keeps type "Socket" only).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/CalcSetup.lua:1463-1467", "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua:901-902",
+            "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:1821", "C:/PROJECTS/PoE2 Builder/scratch/manager/plans/kw-basic-jewel.md"]
+  test_in_game: "Socket a rare Ruby in the Phylactery and compare its tooltip values with the same jewel in a tree socket (expect double)."
+  status: proposed
+
+# The node's permission line: PoB gives the node its jewel slot from the tree data (containJewelSocket; ItemsTab 334,
+# 2654-2659 accept only non-unique basic jewels there) and parses the line to nothing (ModCache 6818 {}), which is right.
+- id: no-effect-cov51-phylactery-socket-permission
+  title: 'Crystalline Phylactery, "Can Socket a non-Unique Basic Jewel into the Phylactery" (the slot itself: PoB gives it from the tree data)'
+  kind: pob_gap
+  match: '^Can Socket a non-Unique Basic Jewel into the Phylactery$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    A permission, no stat of its own to apply: PoB's tree 0_5 node 17788 has containJewelSocket = true, so ItemsTab lists
+    a "Jewel 17788" slot (ItemsTab.lua 334) that takes only non-unique basic jewels (2654-2659). Our search doesn't fill it
+    yet (jewels.sockets() keeps type "Socket": SEARCH34's work), named in items-cov51-phylactery-socketed-jewel-effect.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Classes/ItemsTab.lua:334", "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:6818"]
+  status: proposed
+
+# PLANS6 (the manager 03:05): Circular Teachings (the Kalguuran Timeless keystone kalguur_keystone_2, LegionPassives.lua
+# 8401: "Gain no inherent bonus from Dexterity" / "1% increased Armour per 2 Dexterity"). PoB's ModParser knows the plural
+# "gain no inherent bonuses from dexterity" (2535, flag NoDexterityAttributeBonuses, which CalcPerform 510-514 reads to
+# drop Dexterity's Accuracy) but not this singular wording, so the build keeps Dexterity's Accuracy: an OVERCOUNT on
+# imported builds only (the search never proposes Timeless jewels, jewels.py). The cancel is the flag.
+- id: items-cov51-circular-teachings-no-dex-bonus
+  title: 'Circular Teachings, "Gain no inherent bonus from Dexterity" (NoDexterityAttributeBonuses: Dexterity''s Accuracy off)'
+  kind: pob_gap
+  match: '^Gain no inherent bonus from Dexterity$'
+  replace: ['mod:NoDexterityAttributeBonuses FLAG 1']
+  confidence: datamined
+  notes: >-
+    PoB's own flag for the plural wording (ModParser 2535 "gain no inherent bonuses from dexterity"; CalcPerform 510-514
+    then adds no Accuracy from Dexterity, the one inherent Dexterity bonus PoB applies). NOT APPLIED YET: the search's
+    passive corrections reach tree nodes (bridge.applyPassiveCorrections over gaps.json's passives), not a Timeless
+    jewel's legion keystone, which PoB copies into the conquered node (PassiveSpec ReplaceNode 2080-2096); the audit keeps
+    the row open as "a Timeless jewel's passive (the tree side)". Applying it needs the bridge to add the mod to the
+    legion node (tree.legion.nodes, id kalguur_keystone_2) and to nodes it already conquered: COV51's next step.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua:2535", "vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua:510-514",
+            "vendor/PathOfBuilding-PoE2/src/Data/TimelessJewelData/LegionPassives.lua:8401"]
+  status: proposed

@@ -232,9 +232,13 @@
   notes: >-
     As items-recoup-life-open-weakness: PoB's LifeRecoup and EnergyShieldRecoup (ModParser 441 / 448) at OpenWeakness's
     share (conditions.open_weakness_up: the boss has an Open Weakness for MECH-A's share of the fight's time). Applied
-    through stonefist.ledger_corrected on the transformed unique's text. Each pool gets the full N% (UNVERIFIED: PoB's
-    own reading of its "Recouped as Life, Mana and Energy Shield" lines, ModCache 2458, gives each pool the full value;
-    the other reading, N% split between the two, would halve each; a research question).
+    through stonefist.ledger_corrected on the transformed unique's text. Each pool gets the full N% (PoB's
+    own reading of its "Recouped as Life, Mana and Energy Shield" lines, ModCache 2458, gives each pool the full value).
+    COV51: RESEARCH39 R39-8 (MEDIUM, research/recoup-life-and-es-each-full-r39.md) settles the headline as the full N%
+    each (KeywordPopups Recoup recovers "the stated resource equal to a percentage of the damage you took", per resource;
+    the 55-65% form converts a Life-only 80-100% line, so a split would leave about a third of the Life); the split
+    reading (N/2 each) is a LOW row, Assumptions.stonefist_recoup_split_rows. PoB parses nothing of the line, so these
+    stand-ins are its only reader.
   sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:4872", "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua:441-448", "data/game-26650308/tables/Stats.json (27176)"]
   test_in_game: "Wear The Master's Reach under Way of the Stonefist against a boss and compare Life and Energy Shield recouped from its hits inside and outside the highlighted segments."
   status: proposed

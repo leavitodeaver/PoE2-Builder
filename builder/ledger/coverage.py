@@ -394,6 +394,9 @@ def skill_flag_stats(src: Path = POB_SRC) -> dict[str, str]:
     return found
 
 
+UNPROBED_LIMITS = {"HyenaLimit"}  # (COV51: calc_reads' minion-limit note)
+
+
 def calc_reads(src: Path = POB_SRC) -> dict:
     """Names PoB's calculations query: exact names, wildcard patterns from concatenations, and every
     string literal and skillData key in the code (for condition and skill-data checks)."""
@@ -423,6 +426,15 @@ def calc_reads(src: Path = POB_SRC) -> dict:
                     patterns.add(glob)
             exact.update(STRING.findall(args))
         exact.update(_param_built_names(text))
+        # (COV51, PLANS7's gs-triage-behaviour.md rows 58-60) a minion's limit name is read through a variable:
+        # Data/Minions.lua gives each minion `limit = "ActiveZombieLimit"` (HyenaLimit, ActiveUnearthBoneConstructLimit,
+        # ...), and CalcOffence 1420 / CalcPerform 1352 read calcLib.val(skillModList, minionData.limit): the
+        # Raise Zombie / Unearth / Cackling Companions limit stats (SkillStatMap 2576 / 2600 / 2618) were listed as read
+        # by nothing (probe POE2T5211: Raise Zombie's ActiveMinionLimit 10 and Unearth's 20 are the gems' stats). Not
+        # HyenaLimit: probe POE2T5212 found no hyena minion to read it on (Cackling Companions' main skill "Companion:
+        # {0}", no ActiveMinionLimit, with or without a spear), so "PoB reads it" stays unshown and its row open
+        if path.name == "Minions.lua":
+            exact.update(set(re.findall(r'\blimit\s*=\s*"(\w+)"', text)) - UNPROBED_LIMITS)
     # The tool's own engine reads some names PoB's calculations don't (charm and flask charge gain for the
     # uptime of builder/search/flasks.py, ...): through the same queries, or its local helpers base("X") / inc("X")
     # (COV1, 12 Nov 2026: "Charm Charges gained" lines were listed as no-ops though the charm uptime reads them)
@@ -908,6 +920,18 @@ NOT_OBTAINABLE = {
        for mod, what in (("CorruptionUpgradeAdditionalChainChance", "additional Chain chance"),
                          ("CorruptionUpgradeAdditionalFissureChance", "additional Fissure chance"),
                          ("CorruptionUpgradeDeflectDamageTakenRecoupedAsLife", "Deflected-hit damage Recouped as Life"))},
+    # (COV51, the manager 23:25 / 00:40 from MECHC48) Ab Aeterno's old downside: patch 0.5.0 (the newest entry, --history
+    # "Ab Aeterno": 0.4.0 changed only its defences) "The Ab Aeterno Unique boots no longer grant 10% less Movement and
+    # Skill Speed per Dodge Roll in the past 20 seconds ... Existing versions ... will not receive any other changes";
+    # PoB's Uniques/boots.lua 268 carries the line on {variant:1,2} (Pre 0.4.0 / Pre 0.5.0) only, so its unique record
+    # is already unreachable (the legacy-variant rule); this is the same line's Exclusive mod row. (checked: the stat
+    # unique_movement_speed_and_skill_speed_-%_final_per_number_of_times_dodge_rolled_in_past_20_seconds over every game
+    # 26650308 table with a stat column, Mods / PassiveSkills / GrantedEffectStatSets / SoulCoreStats included: this one
+    # Mods row, GenerationType 3; no other PoB-PoE2 unique holds the line)
+    "UniqueSpeedPerDodgeRoll20Seconds1": (
+        "Ab Aeterno's pre-0.5.0 downside (patch 0.5.0: \"no longer grant 10% less Movement and Skill Speed per Dodge Roll "
+        "in the past 20 seconds\"; PoB's boots.lua gives it to the Pre 0.4.0 / Pre 0.5.0 variants only; its stat is on "
+        "this one Mods row, game 26650308): a legacy item only (COV51)"),
     "CrushOnHitChanceEssence1": (
         "\"(15-25)% chance to Crush on Hit\" has no PoE2 Essence behind it (RESEARCH30 R30-1, MEDIUM-HIGH; checked "
         "there: no EssenceMods row (Mod, DisplayMod or OutcomeMods) points at it, spawn weight 0 in game Mods and PoB "

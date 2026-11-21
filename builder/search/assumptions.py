@@ -402,6 +402,9 @@ KEEP_INFUSION = re.compile(r"^(?:Skills have )?(\d+(?:\.\d+)?)% chance to not re
                            r"Infusions) but still count as consuming(?: them| it)?$", re.I)
 VERISIUM_EVERY = re.compile(r"Every (?:(\d+(?:\.\d+)?) )?seconds?, gain an? Verisium Infusion", re.I)
 GRANTED_SKILL = re.compile(r"Grants Skill: (?:Level \S+ )?(.+?)\s*$")  # (context.granted_by's pattern)
+# (COV51, R39-8) Way of the Stonefist's Life-and-ES form of The Master's Reach (Assumptions.stonefist_recoup_split_rows)
+STONEFIST_RECOUP_SPLIT = re.compile(r"^(\d+(?:\.\d+)?)% of damage taken from enemies with an Open Weakness Recouped as "
+                                    r"Life and Energy Shield$")
 SECOND_WIND, SECOND_WIND_PCT = "Second Wind III", 1.0  # (MECHC29, G4-6: restore_%_life_on_skill_use_per_1000_ms_cooldown)
 NEBULOCH_TAG = "NebulochCrit"  # (MECHC46: conditions.NEBULOCH_CRIT's note)
 DRUIDIC_TAG = "DruidicProwess"  # (MECHC47: conditions.DRUIDIC_PROWESS's note)
@@ -7898,6 +7901,7 @@ class Assumptions:
                                       "Life passes them",
                               "confidence": "MEDIUM (MECH-A's share of the fight's time: the game's 45% of the boss's "
                                             "Life, passed faster where the build deals more damage)"})
+                notes += self.stonefist_recoup_split_rows(share)
                 continue
             if condition.get("ward_state"):
                 # (COV32, NOTES3 DEAD-1 / DEAD-2) the share of the fight on Low / missing / full Runic Ward, from what the
@@ -9121,6 +9125,33 @@ class Assumptions:
             total += each
             parts.append(f"{name} {each:.3f}/s on {why}" + (" (LOW)" if low else ""))
         return total, "; ".join(parts) or "no use rate: 0"
+
+    def stonefist_recoup_split_rows(self, share: float) -> list[dict]:
+        """(COV51; RESEARCH39 R39-8, the manager 23:46) Way of the Stonefist's form of The Master's Reach, "N% of damage
+        taken from enemies with an Open Weakness Recouped as Life and Energy Shield": the headline gives EACH pool the
+        full N% (items-cov50-recoup-life-es-open-weakness's two `share:OpenWeakness` stand-ins; R39-8, MEDIUM: KeywordPopups
+        Recoup recovers "the stated resource equal to a percentage of the damage you took", per resource, and PoB reads
+        its own "Life, Mana and Energy Shield" recoup lines so). The other reading, N% split between the two (N/2 each),
+        is this row (LOW). PoB parses nothing of the line, so the ledger's stand-ins are its only reader."""
+        call = getattr(self.build, "call", None)
+        if not call:
+            return []
+        rows = []
+        for line in call("sourceLines")["lines"]:
+            if not (m := STONEFIST_RECOUP_SPLIT.match(line["text"].strip())):
+                continue
+            n = float(m.group(1))
+            rows.append({"label": "Way of the Stonefist's Open Weakness recoup: the split reading*",
+                         "value": (f"{n / 2:g}% to Life and {n / 2:g}% to Energy Shield (headline {n:g}% each): x0.5 on "
+                                   "this line's recoup, both pools"),
+                         "basis": (f"\"{line['text'].strip()}\": the headline gives each pool the full {n:g}% of the "
+                                   f"damage the boss deals while it has an Open Weakness ({share:.0%} of the fight), as "
+                                   "PoB reads its own \"Life, Mana and Energy Shield\" recoup lines and KeywordPopups "
+                                   "Recoup words it per resource (RESEARCH39 R39-8, MEDIUM; no explicit statement or "
+                                   "patch note). If the game splits it, each pool gets half"),
+                         "confidence": "LOW (the other reading of R39-8)"})
+            break
+        return rows
 
     def has_line(self, pattern: str) -> bool:
         """Whether any of the build's source lines (passives and items, bridge sourceLines) matches `pattern`, or an
