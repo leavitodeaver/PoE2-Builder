@@ -452,3 +452,28 @@ def test_a_side_galvanic_fields_orb_bolts_feed_on_hit_charges(engine):
                                     {"Galvanic Field"}, None)
     cond._side_galvanic(none, {}, {"Speed": 2.0, "HitChance": 100, "ShockChancePerHit": 0})
     assert none[0]["hits"] == 0.0 and "no Orb" in none[0]["how"]  # (nothing Shocks the boss: no Orb)
+
+
+def test_fear_on_culling_mods_reach_pob(engine):
+    """MECHC48 (a probe, LANE_RULES "PoB already does X"): the Fear mods conditions.fear_mods makes reach PoB: Fear
+    Overwhelming's AreaOfEffect INC for Attacks raises an Attack's AreaOfEffectMod (Boneshatter's), and Fear Incarnate's
+    CullPercent INC is read as a Culling Strike Threshold increase."""
+    from builder.search import conditions
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter"))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    lines = ["Gain 1 Fear Incarnate when you Cull a target", "Gain 1 Fear Overwhelming when you Cull a target"]
+    mods, _ = conditions.fear_mods(lines, 0.1, "adds", True, "test")
+    base = list(search.assumptions.mods or [])
+    before = build.call("setAssumptions", mods=base, fields=["AreaOfEffectMod"])["stats"]
+    after = build.call("setAssumptions", mods=base + mods, fields=["AreaOfEffectMod"])["stats"]
+    print("PROBE fear", mods, before, after)
+    area = next(m["value"] for m in mods if m["name"] == "AreaOfEffect")
+    assert number(after["AreaOfEffectMod"]) > number(before["AreaOfEffectMod"])
+    assert number(after["AreaOfEffectMod"]) == pytest.approx(number(before["AreaOfEffectMod"]) + area / 100, abs=0.01)
+    parsed = engine.call("parseLines", lines=["20% increased Culling Strike Threshold"])["results"]
+    print("PROBE cull parse", parsed)
+    assert "CullPercent" in str(parsed)

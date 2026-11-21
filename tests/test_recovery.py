@@ -3159,3 +3159,29 @@ def test_the_bosss_chill_and_freeze_on_you_count_its_own_cold_uses_not_the_defen
     # a direct call on the worst case keeps the old defence reading (enemySkillTime x the pooled share)
     old, _ = boss_hits.ailment_hits(dict(st), "Cold")
     assert old == pytest.approx(boss_hits.type_shares(bosses.WORST)["Cold"] / 0.51 * boss_hits.land_share(st))
+
+
+def test_fear_on_culling_stacks_from_the_adds_culls_only():
+    """(MECHC48) "Gain 1 Fear Incarnate / Overwhelming when you Cull a target" (Horror's Flight, its Fists of Stone twin):
+    stacks share one 10 s timer, max 20, so E[stacks] = q + ... + q^20, q = 1 - e^(-10 c) for c Culls a second; only
+    the adds' Culls count, and only if the build Culls (conditions.FEAR_ON_CULL's note)."""
+    import math
+
+    from builder.search import bosses, conditions
+
+    assert conditions.fear_stacks(0.0) == 0.0
+    q = 1 - math.exp(-10 / 45)
+    assert conditions.fear_stacks(1 / 45) == pytest.approx(sum(q ** n for n in range(1, 21)))
+    assert conditions.fear_stacks(100.0) == pytest.approx(20.0)
+    lines = ["Gain 1 Fear Incarnate when you Cull a target", "Gain 1 Fear Overwhelming when you Cull a target"]
+    mods, rows = conditions.fear_mods(lines, 0.1, "adds", True, "Crushing Fear Culls")
+    by = {m["name"]: m for m in mods}
+    held = conditions.fear_stacks(0.1)
+    assert by["CullPercent"]["value"] == pytest.approx(10 * held, abs=0.01)
+    assert by["AreaOfEffect"]["value"] == pytest.approx(5 * held, abs=0.01) and by["AreaOfEffect"]["keywordFlags"] == ["Attack"]
+    assert len(rows) == 2
+    # nothing Culls: 0, said; the default worst case has no killable adds: 0
+    none, rows = conditions.fear_mods(lines, 0.1, "adds", False, "nothing in the build Culls")
+    assert none == [] and "0 Culls" in rows[0]["basis"]
+    assert bosses.kill_stats(bosses.DEFAULT)[bosses.CULLS_STAT] == 0.0
+    assert conditions.fear_mods(["10% increased Area of Effect"], 1.0, "", True, "") == ([], [])

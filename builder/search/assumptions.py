@@ -3149,6 +3149,24 @@ class Assumptions:
                 "confidence": "LOW", "play": ""}]
         infusion_mods, infusion_notes = self.infusion_collected_mods(texts)  # (MECHC47: INFUSION_COLLECTED_DAMAGE)
         hand_mods, hand_notes = hand_mods + infusion_mods, hand_notes + infusion_notes
+        if any(conditions_mod.FEAR_ON_CULL.match(t.strip()) for t in texts):
+            # (MECHC48) Fear Incarnate / Overwhelming from the adds' Culls (conditions.FEAR_ON_CULL's note)
+            from builder.search import bosses
+
+            boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+            culls = number(bosses.kill_stats(boss).get(bosses.CULLS_STAT))
+            culls_how = bosses.kills_per_second(boss)[1]
+            mult = number(build.call("stats", fields=["CullMultiplier"]).get("CullMultiplier"))
+            gems = getattr(build.ctx, "all_gems", None) or build.ctx.gems
+            culler = next((n["name"] for g in build.groups() if g.get("enabled", True) for n in g.get("gems") or []
+                           if n.get("enabled", True) and re.search(r"\bcull", str((gems.get(n["name"]) or {})
+                                                                                  .get("description") or ""), re.I)),
+                          None)
+            can_cull = mult > 1.0 or culler is not None
+            why_cull = (f"the main skill Culls (PoB's CullMultiplier x{mult:.3f})" if mult > 1.0 else
+                        f"{culler} Culls" if culler else "nothing in the build Culls (no Culling Strike)")
+            fear_mods, fear_rows = conditions_mod.fear_mods(texts, culls, culls_how, can_cull, why_cull)
+            hand_mods, hand_notes = hand_mods + fear_mods, hand_notes + fear_rows
         # (MECHC47) Druidic Prowess: 10% increased Skill Speed a stack, from Rage spent / Heavy Stuns (conditions.
         # DRUIDIC_PROWESS's note; the Rage spent a round behind, build.rage_spent)
         if any(conditions_mod.DRUIDIC_PROWESS_SPENT.search(t.strip()) or conditions_mod.DRUIDIC_PROWESS_STUN.search(t.strip())

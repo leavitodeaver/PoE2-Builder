@@ -1684,6 +1684,69 @@ def shrine_uptime(texts: list[str], pick: float = SHRINE_PICK) -> tuple[float, s
                                                   else "an even pick of 8") + f"): up {up:.0%}")
 
 
+# (MECHC48; the manager's 21:20: the Way of the Stonefist glove form and its source) Fear on culling. Horror's Flight's
+# "Gain 1 Fear Incarnate when you Cull a target" (grant_fear_incarnate_stack_on_culling_enemies, Mods
+# UniqueGainFearIncarnateOnCulling1) and its Fists of Stone twin "Gain 1 Fear Overwhelming when you Cull a target"
+# (grant_fear_overwhelming_stack_on_culling_enemies, HandWrapsUniqueGainFearIncarnateOnCulling1). These two mods are the
+# only sources of either stack (checked: every Stats id holding "fear", game 26650308, over Mods, PassiveSkills,
+# GrantedEffectStatSets and SoulCoreStats; second source PoB's ModCache 7494-7496, which parses both to nothing).
+# KeywordPopups FearIncarnate: 10% increased Culling Strike Threshold a stack; FearOverwhelming: 5% increased Area of
+# Effect for Attack Skills a stack; each lasts 10 s, refreshed when you gain another, at most 20. Against a lone boss the
+# Cull is the kill, so only the adds' Culls feed them (bosses.kill_stats' AddCullsPerSecond; 0 with no killable adds),
+# and only if the build Culls (PoB's CullMultiplier above 1, or a gem whose description names Culling: Crushing Fear).
+# One shared timer: the stacks are the gains since the last 10 s gap. With Poisson culls at c a second, each earlier gap
+# is under 10 s with chance q = 1 - e^(-10 c), so E[stacks] = q + q^2 + ... + q^20 (MEDIUM: Poisson culls). Counted as
+# CullPercent INC (PoB: "culling strike threshold", ModParser 925) and AreaOfEffect INC for Attacks.
+FEAR_ON_CULL = re.compile(r"^Gain (\d+) Fear (Incarnate|Overwhelming) when you Cull a target$", re.I)
+FEAR_SECONDS, FEAR_MAX = 10.0, 20
+FEAR_EFFECT = {"incarnate": ("CullPercent", 10.0, "increased Culling Strike Threshold"),
+               "overwhelming": ("AreaOfEffect", 5.0, "increased Area of Effect for Attack Skills")}
+
+
+def fear_stacks(culls: float, per: float = 1.0) -> float:
+    """Expected Fear stacks held (FEAR_ON_CULL's note) at `culls` a second, `per` stacks a gain."""
+    if culls <= 0 or per <= 0:
+        return 0.0
+    q = 1 - math.exp(-FEAR_SECONDS * culls)
+    total, held = 0.0, 0.0
+    n = 1
+    while held < FEAR_MAX:
+        held = min(FEAR_MAX, n * per)
+        total += (held - min(FEAR_MAX, (n - 1) * per)) * q ** n
+        n += 1
+    return total
+
+
+def fear_mods(texts: list[str], culls: float, culls_how: str, can_cull: bool, why_cull: str) -> tuple[list[dict], list[dict]]:
+    """(mods, rows) for FEAR_ON_CULL's lines; nothing without one."""
+    found: dict[str, float] = {}
+    for t in texts:
+        if m := FEAR_ON_CULL.match(t.strip()):
+            found[m.group(2).lower()] = found.get(m.group(2).lower(), 0.0) + float(m.group(1))
+    if not found:
+        return [], []
+    mods, rows = [], []
+    rate = culls if can_cull else 0.0
+    for kind, per in sorted(found.items()):
+        name, each, what = FEAR_EFFECT[kind]
+        held = fear_stacks(rate, per)
+        value = round(held * each, 2)
+        if value > 0:
+            mods.append(models.raw_mod(name, "INC", value, tag="FearOnCull",
+                                       keywords=["Attack"] if kind == "overwhelming" else None))
+        why = (f"{rate:.3g} Culls/s ({culls_how}; {why_cull})" if can_cull else f"0 Culls: {why_cull}")
+        rows.append({"label": f"Fear {kind.capitalize()} on Culling*",
+                     "value": f"{held:.2f} stacks held: +{value:g}% {what}",
+                     "basis": (f"{why}; {per:g} a Cull, {FEAR_SECONDS:g} s refreshed together, at most {FEAR_MAX}: "
+                               "E[stacks] = q + ... + q^20, q = 1 - e^(-10 x Culls/s) (Poisson Culls, MEDIUM); the "
+                               "boss's own Cull ends the fight, so only its adds count; without it: +0%"),
+                     "confidence": "MEDIUM (the adds' Cull rate: the boss preset's, LOW-MEDIUM)",
+                     "play": ("Cull the boss's adds to stack Fear: " + (f"{held:.1f} stacks held on average"
+                                                                        if held > 0 else "this boss has none to Cull")
+                              + "; without it: none")})
+    return mods, rows
+
+
 def _charges_held(kind: str):
     def held(lines: list[str], stats: dict) -> tuple[float, str]:
         kinds, redirected = _charge_sources(lines, kind)
