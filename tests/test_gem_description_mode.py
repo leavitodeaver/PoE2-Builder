@@ -1924,3 +1924,16 @@ def test_inhibitor_supported_skills_consume_no_charges_in_gem_models():
     assert share == 0.0 and "Inhibitor supports Oil Barrage" in how
     note = Assumptions.inhibited_note("Falling Thunder", "x")
     assert note["confidence"] == "HIGH" and "cannot consume" in note["basis"]
+
+
+def test_frostbolt_explosion_only_where_the_bolt_meets_terrain():
+    # (GEM32) probe POE2T5822: Explosion 166.81 vs Projectile 104.62, the Explosion scored; the game: the piercing bolt
+    # "explodes on colliding with terrain", so against a boss with no wall at it only the Projectile hit counts
+    sets = [{"label": "Projectile", "TotalDPS": 104.62}, {"label": "Explosion", "TotalDPS": 166.81}]
+    fb = Skill("Frostbolt", 1)
+    assert "Frostbolt" in models.GATED_ADDS
+    mods, notes = models.gated_set_model(fb, "Explosion", sets, 0.0, "no terrain source")
+    assert mods[0]["name"] == "Damage" and mods[0]["value"] == pytest.approx(100 * (104.62 * 0.9 / 166.81 - 1), abs=0.01)
+    assert notes[0]["entry"] == "model-gem32-frostbolt-terrain-explosion"
+    assert f"{104.62 + 166.81:,.0f}" in notes[0]["play"]  # the "boss against a wall" reading
+    assert models.gated_set_model(fb, "Projectile", sets, 0.0, "none")[0] == []  # the hit alone: nothing to change

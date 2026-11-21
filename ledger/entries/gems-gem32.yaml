@@ -1,0 +1,284 @@
+# GEM32's ranking rows (scratch/gem29/still_open.py 80): links to readers that exist, no number moved.
+
+- id: model-gem32-link-oil-barrage-wind-up
+  title: "Oil Barrage's 350% wind-up (channel_start_duration_as_%_of_attack_time) is MECHB46's oil_barrage_volley_model"
+  kind: model
+  model: oil_barrage_volley_model
+  stats: ["channel_start_duration_as_%_of_attack_time"]
+  skill: [Oil Barrage]
+  confidence: MEDIUM-LOW
+  notes: >-
+    The reader exists: models.oil_barrage_volley_model (MECHB46, OIL_WINDUP = 3.5), hooked in Assumptions after the
+    gated sets; its entry model-mechb46-oil-barrage-volley names the stat in its notes but listed no stats, so the
+    ranking row stayed open (as Fury of the Mountain's / Hollow Form's did before model-mechb50-channel-windup). A plain
+    use is the wind-up, then one group of N projectiles: N hits in (3.5 + 1 + (N - 3)) attack times. The model applies
+    to the Base and Empowered sets only (main.stat_set in None / Base / Empowered); the "Oil Ground" set carries the
+    same wind-up stat (PoB's OilBarragePlayer set 2: channel_start 350, channel_end 1000) but is never the calculated
+    set (conditions.NO_HIT_STAT_SETS, MECH79: a ground PoB scores as Hits the game doesn't deal), so its wind-up moves
+    nothing. A link only.
+  sources: ["builder/search/models.py (oil_barrage_volley_model, OIL_WINDUP)",
+            "ledger/entries/models-mechb46.yaml (model-mechb46-oil-barrage-volley)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills (OilBarragePlayer)"]
+  status: proposed
+
+- id: model-gem32-link-arc-infused
+  title: "Arc's 'Consumes a Lightning Infusion if possible to deal more damage and Chain further' is MECH-C's Arc Infused share"
+  kind: model
+  model: infusion_supply
+  stats: ["active_skill_consumes_a_lightning_infusion"]
+  skill: [Arc]
+  confidence: MEDIUM-LOW
+  notes: >-
+    The reader exists: conditions._arc_infused (MECH77, PATCH_CHECK MA-1) sets PoB's "Lightning Infused?" box
+    (arcLightningInfused) to the share of Arc's casts the build's Infusions cover (Conditions' Arc share, MECHC45 / MECHC46): the
+    Lightning (and Verisium) Infusions the build makes, shared among its Lightning consumers by their uses, over Arc's
+    casts, with the cap and the 20 s expiry (assumptions.infusion_found); PoB gates
+    arc_damage_+%_final_from_infusion_consumption (200% more) and the 6 extra chains on that box.
+    Only Arc here: the stat's other open carriers (Ember Fusillade's beams, Flame Wall's added Lightning, Fireball's
+    firebolts, Incinerate's Ignited Ground, Frost Darts', Skyfall's minions) are consumers in INFUSION_CONSUMERS (they
+    take from the shared supply) but what their Infused cast adds is read only for Frost Darts (frost_darts_model) and
+    Incinerate's ground is barred (NO_HIT_STAT_SETS); the rest stay open (GEM32's report). A link only.
+  sources: ["builder/search/conditions.py (ARC, _arc_infused, INFUSION_CONSUMERS)", "builder/search/assumptions.py (infusion_found)"]
+  status: proposed
+
+- id: model-gem32-link-primed-freeze-wave-of-frost-concoction
+  title: "Wave of Frost and Shattering Concoction: 'Freeze enemies that are Primed for Freeze' (has_freeze_cull) is MECH97's Primed Freeze reader"
+  kind: model
+  model: primed_refill
+  stats: ["has_freeze_cull"]
+  skill: [Wave of Frost, Shattering Concoction]
+  confidence: MEDIUM
+  notes: >-
+    The reader exists: conditions.PRIMED_FREEZE_SKILLS = (Arctic Howl, Wave of Frost, Shattering Concoction) (MECH97,
+    GEM29's routing; read in Conditions' Primed Freeze evidence and models.primed_refill, MECH82). GEM22's link
+    (model-gem22-link-arctic-howl-primed-freeze) covered Arctic Howl only and said the other two weren't checked; MECH97
+    added them (its note: every game table row holding has_freeze_cull, game 26650308, is one of the three stat sets).
+    A link only.
+  sources: ["builder/search/conditions.py (PRIMED_FREEZE_SKILLS)", "builder/search/models.py (primed_refill, PRIMED_FREEZE_UNIQUE)"]
+  status: proposed
+
+- id: model-gem32-link-nova-on-own-sets
+  title: "projectiles_nova on a skill's own stat set: Cold-Infused Spark, Empowered Sparks' Spark and Runeforged Blades are counted at one hit a use or none"
+  kind: model
+  model: nova_projectiles
+  stats: ["projectiles_nova"]
+  skill: [Spark, Empowered Sparks, Runeforged Blades]
+  confidence: MEDIUM-LOW
+  notes: >-
+    GEM29's nova_projectiles_model leaves out the skills whose own stat set fires in a circle (models.py above
+    NOVA_STAT); what counts them instead:
+    Spark (its Cold-Infused set): one hit a cast on a lone boss (MECHB49, RESEARCH38 R38-13, SPARK_HEADLINE_HITS 1;
+    entry model-mechb45-projectile-group-exceptions), which is PoB's own count; a circle with one spark aimed at the
+    boss gives the same one (R31-11 (b)'s aimed reading, GEM29's headline), so nothing changes. The unaimed reading
+    (R39-12's row, N x 2 asin(r / d) / 360 of a cast's sparks in the boss's arc) would be below one at range: not
+    applied (the same headline as Nova Projectiles).
+    Empowered Sparks (TriggeredEmpoweredSparkPlayer's Cold-Infused set): GEM27's empowered_sparks_model counts each
+    triggered Spark at PoB's one-hit use (model-gem27-empowered-sparks), the same as Spark's one.
+    Runeforged Blades (TriggeredRuneforgedBladesPlayer, 7 blades in a nova): "The Projectiles cannot Hit the enemy from
+    which they originated" (SupportRuneforgedBladesPlayer's text, PoB other.lua 14719): none hits the lone boss the
+    Consume came from, and PoB scores the blades at 0 (GEM26's sweep, scratch/gem26/probe_sweep.json: Boneshatter
+    26.38 and Spark 50.27 Full DPS with and without the support; the blades' useRates TotalDPS 0). MECH98 counts the
+    support's Consume of the Full Break (conditions.RUNEFORGED, fe311996, train 112). The blades' hits on adds aren't counted (a lone boss).
+    Not linked here: Cluster Grenade's Mini Grenades (PoB and the search score one of its two stat sets, never both:
+    an UNDERCOUNT lead with a geometry question, GEM32's report). A link only.
+  sources: ["builder/search/models.py (NOVA_STAT note, SPARK_HEADLINE_HITS, empowered_sparks_model)",
+            "builder/search/conditions.py (RUNEFORGED)", "scratch/gem26/probe_sweep.json",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (SupportRuneforgedBladesPlayer, TriggeredRuneforgedBladesPlayer)"]
+  status: proposed
+
+- id: model-gem32-link-living-lightning-trigger
+  title: "Living Lightning I / II's trigger flag (supported_skill_triggers_living_lightning_on_dealing_lightning_damage) is MECHB42's living_lightning_model"
+  kind: model
+  model: living_lightning_model
+  stats: ["supported_skill_triggers_living_lightning_on_dealing_lightning_damage"]
+  skill: [Living Lightning, Living Lightning II]
+  confidence: MEDIUM
+  notes: >-
+    The reader exists: models.living_lightning_model (MECHB42; entry model-mechb42-living-lightning-zaps in
+    models-mechb42.yaml, which lists the triggered skill's stats but not this support flag). One minion per Lightning
+    HIT of the supported skill (RESEARCH34 R34-5), 3 Zaps a minion; PoB's own flat-rate entry (304 DPS beside
+    Boneshatter's 26.38 in GEM26's sweep, scratch/gem26/probe_sweep.json) is cut by the model. A link only.
+  sources: ["builder/search/models.py (living_lightning_model)", "ledger/entries/models-mechb42.yaml"]
+  status: proposed
+
+- id: gem-gem32-triggerable-in-any-set
+  title: "triggerable_in_any_set: a text-less flag on triggered skills; the two open carriers are counted by their own models"
+  kind: gem_stat
+  match: '^triggerable_in_any_set$'
+  skill: [""]
+  replace: []
+  stats: ["triggerable_in_any_set"]
+  confidence: datamined
+  notes: >-
+    No stat description holds it (checked: every .csd under data/game-26650308/files/data/statdescriptions) and PoB
+    reads it nowhere (checked: grep of PoB's Modules/, Classes/ and Data/SkillStatMap.lua); its meaning is read from
+    its name only (UNVERIFIED). 42 stat sets carry it in game 26650308 (GrantedEffectStatSets: triggered skills such as
+    Ice Fragments, Living Lightning, Empowered Sparks' Spark, Crater, Moonbeam, Apocalypse's, The Stars Answer's). The
+    ranking's two open carriers are PoB's empty-named skills, so `skill` is the empty name (as model-gem14-charged-mark-read):
+    TriggeredChargedMarkPlayer (Charged Mark's Shocked Ground: conditions.charged_mark, MECH61, model-gem14-charged-mark-read)
+    and VoltaicBarrierTriggeredChainLightningPlayer (Voltaic Barrier's beams: GEM27's voltaic_beams_model, none on the
+    boss, PoB's entry cut, model-gem27-voltaic-barrier-beams). It adds no number itself.
+  sources: ["data/game-26650308/tables/GrantedEffectStatSets.json", "builder/search/conditions.py (charged_mark)",
+            "builder/search/models.py (voltaic_beams_model)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: gem-gem32-triggered-by-primary-skill
+  title: "triggered_by_primary_skill: a text-less flag on the skill a gem's first skill triggers; Ice Fragments are counted by their own readings"
+  kind: gem_stat
+  match: '^triggered_by_primary_skill$'
+  skill: [Ice Fragments]
+  replace: []
+  stats: ["triggered_by_primary_skill"]
+  confidence: datamined
+  notes: >-
+    No stat description holds it (checked: every .csd under data/game-26650308/files/data/statdescriptions) and PoB
+    reads it nowhere (checked: grep of PoB's Modules/, Classes/, Data/SkillStatMap.lua). Its carriers in game 26650308
+    (GrantedEffectStatSets): IceFragmentsPlayer, FragmentsOfThePastFragmentPlayer (the ranking's two open, both named
+    Ice Fragments), CurseOfRepulsionShockwavePlayer, TriggeredManifestRunePlayer, ExplosiveTransmutationPhysicalPlayer.
+    It adds no number itself. Ice Fragments' damage: one per group on a target (gem-ice-fragments-one-per-group), Shred's
+    (model-gem26-shred-ice-fragments), Ice-Tipped Arrows' (model-gem29-link-ice-tipped-arrows); Fragments of the Past's
+    at PoB's own rate in Full DPS, cut when its press or Runic Ward plan stops the skill (assumptions.child_entry_cuts,
+    MECHB45; how PoB rates the child against the parent's uses is UNVERIFIED there, MECH-B's).
+  sources: ["data/game-26650308/tables/GrantedEffectStatSets.json", "builder/search/assumptions.py (child_entry_cuts)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: gem-gem32-skill-triggered-by-its-support
+  title: "skill_triggered_by_support_which_grants_it: a text-less flag; Profane Decay and Twisted Pact are counted by GEM25's models"
+  kind: gem_stat
+  match: '^skill_triggered_by_support_which_grants_it$'
+  skill: [Profane Decay, Twisted Pact]
+  replace: []
+  stats: ["skill_triggered_by_support_which_grants_it"]
+  confidence: datamined
+  notes: >-
+    No stat description holds it (checked: every .csd under data/game-26650308/files/data/statdescriptions) and PoB
+    reads it nowhere (checked: grep of PoB's Modules/, Classes/, Data/SkillStatMap.lua). Carriers in game 26650308
+    (GrantedEffectStatSets): TriggeredCorruptingCry(Two/Three)Player, TriggeredMorrigansInsightPlayer,
+    TriggeredFracturedSelfPlayer, TriggeredDecayingHexPlayer. It adds no number itself. The ranking's two open
+    carriers: Profane Decay (Decaying Hex's: model-gem25-profane-decay, one Decay per Curse landing) and Twisted Pact
+    (Paquate's Pact's Corrupted Blood stacks: model-gem25-twisted-pact-stacks).
+  sources: ["data/game-26650308/tables/GrantedEffectStatSets.json", "ledger/entries/gems-gem25.yaml"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: gem-gem32-caltrops-nothing-weapon-when-unarmed
+  title: "Caltrops' replace_main_hand_unarmed_attack_stats_with_nothing_type: no effect with a weapon held; unarmed PoB keeps the bare-hand attack (a negligible overcount)"
+  kind: gem_stat
+  match: '^replace_main_hand_unarmed_attack_stats_with_nothing_type$'
+  skill: [Caltrops]
+  replace: []
+  stats: ["replace_main_hand_unarmed_attack_stats_with_nothing_type"]
+  confidence: LOW
+  notes: >-
+    Both Caltrops sets carry it (TriggeredCaltropsPlayer, the Caltrops support's; TriggeredTrailOfCaltropsPlayer, Trail
+    of Caltrops'), with no stat text (its meaning read from its name: the unarmed attack's stats become a "nothing"
+    weapon's, UNVERIFIED). Probe POE2T5821 (scratch/gem32/probe5821.log, a Lightning Arrow build, real PoB): the
+    support's Caltrops hit 25.76 with the Fanatic Bow held and 0.48 with no weapon; Trail of Caltrops' 107.5 with the bow
+    (PoB disables Trail with no weapon). So PoB attacks with the held weapon: the support's set has
+    active_skill_has_%_standard_scaling_attack_damage 75, which PoB maps to a 0.75 base multiplier on the weapon's hit
+    (SkillStatMap.lua 2179, its own note: "Should be getting value from default attack on weapon if it exists"), and the
+    stat here concerns the unarmed case only. With a weapon: no effect. Unarmed: the game would give a "nothing" weapon
+    where PoB keeps the class's bare-hand damage (0.48 a hit here): a negligible OVERCOUNT for an unarmed Caltrops
+    build, not modelled (the Concoctions' fix, bridge installConcoctionsNotUnarmed, is for skills whose text says they
+    are not Unarmed Attacks; Caltrops' text doesn't).
+  sources: ["scratch/gem32/probe5821.log", "vendor/PathOfBuilding-PoE2/src/Data/SkillStatMap.lua (2179)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_dex.lua (TriggeredCaltropsPlayer)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_dex.lua (TriggeredTrailOfCaltropsPlayer)"]
+  test_in_game: "Caltrops' tooltip damage with a weapon and unarmed."
+  status: proposed
+
+- id: gem-gem32-warcry-minimum-benefit
+  title: "warcry_minimum_benefit_if_monster_power_present: no effect against a Unique boss (its 20 Power already gives each warcry 2-4 Empowers)"
+  kind: gem_stat
+  match: '^warcry_minimum_benefit_if_monster_power_present$'
+  skill: [Arctic Howl, Ferocious Roar, Fortifying Cry, Infernal Cry, Seismic Cry]
+  replace: []
+  stats: ["warcry_minimum_benefit_if_monster_power_present"]
+  confidence: MEDIUM
+  notes: >-
+    No stat text (checked: every .csd under data/game-26650308/files/data/statdescriptions) and PoB reads it nowhere
+    (Modules/, SkillStatMap.lua); from its name, a floor on a warcry's Power-based benefit when any enemy Power is
+    counted (the floor's size UNVERIFIED). Against the tool's boss, PoB counts WarcryPower 20 (ConfigOptions 727: "Power
+    is assumed to be 20 if your target is a Boss"; KeywordPopups Power: "Unique monsters always have 20 Power"), and
+    each warcry's Empowers are floor(min(20, cap) / per): Arctic Howl 20 / 5 = 4 (cap 50), Ferocious Roar 20 / 8 = 2
+    (cap 64), Infernal Cry and Seismic Cry 20 / 10 = 2 (cap 50) (PoB's act_str.lua warcry_empowers_per_X_monster_power
+    / _mp_cap, CalcPerform 2201-2204). A floor of 1 (the plain reading of "minimum benefit") can't bind at 2 or more;
+    Fortifying Cry carries no per-Power stat in PoB's data, its benefit taken as PoB gives it. No number moves for a lone
+    Unique boss; with weaker enemies only (not the tool's fight) the floor would matter.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua", "vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua (2201-2204)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/ConfigOptions.lua (727)"]
+  test_in_game: "Not needed for a lone boss."
+  status: proposed
+
+- id: model-gem32-link-crushing-blow-skills
+  title: "crushing_blow on Boneshatter, Staggering Palm, Wing Blast and Seismic Cry is MECH85's Crushing Blow refill (heavy_stun_rate)"
+  kind: model
+  model: heavy_stun
+  stats: ["crushing_blow"]
+  skill: [Boneshatter, Staggering Palm, Wing Blast, Seismic Cry]
+  confidence: MEDIUM
+  notes: >-
+    The reader exists: models.CRUSHING_BLOW_SKILLS and crushing_source (MECH85 / MECH87; entry
+    model-read-mech85-crushing-blows, which reads the passive's line and lists no stats): as the main skill, the boss's
+    Heavy Stun refill becomes 70% of the bar (a Unique is Primed at 70%, KeywordPopups PrimedStun) with the Priming hit
+    landing it (R30-8, MEDIUM). Not linked: Hollow Focus's Shockwave set (HollowFocusPlayer) also carries crushing_blow
+    in PoB's data, and CRUSHING_BLOW_SKILLS leaves it out (MECH85's note looked for HollowFocusNovaPlayer and found no
+    PoB skill of that id): an UNDERCOUNT of Heavy Stuns for a Hollow Focus build, routed to the stun lane (MECH-D). A
+    link only.
+  sources: ["builder/search/models.py (CRUSHING_BLOW_SKILLS, crushing_source)", "ledger/entries/models-mech85.yaml"]
+  status: proposed
+
+- id: gem-gem32-description-mode-seven-skills
+  title: "skill_specific_stat_description_mode on seven skills: a display switch whose line each skill's own reading already covers (no number)"
+  kind: gem_stat
+  match: '^skill_specific_stat_description_mode$'
+  skill: [Ancestral Cry, Briarpatch, Fragmentation Rounds, "Ruzhan, the Blazing Sword", Temporal Rift, The Stars Answer, Verisium Manifestations]
+  replace: []
+  stats: ["skill_specific_stat_description_mode"]
+  confidence: MEDIUM
+  notes: >-
+    The stat selects a line in the skill's own .csd (game 26650308); on some skills it is a number a model reads (Corpse
+    Beetles, the Heat lockout, Unearth: their own entries), on these seven it only shows a line describing behaviour
+    counted elsewhere:
+    Briarpatch (briarpatch.csd): "Overgrown Thorny Ground deals damage 50% more frequently and expires 50% slower":
+    MECHB31's briarpatch model counts the creation hit only (model-gem14-briarpatch-read; the ticks while the boss moves
+    over it are not counted, labelled there), so the Overgrown bonus to the ticks moves nothing counted (it would add to
+    that undercount).
+    Fragmentation Rounds' Vs Frozen set (fragmentation_rounds/statset_1.csd): "Consumes Freeze on enemies Hit to trigger
+    a secondary explosion at their location": the set itself, which the search calculates only with Freeze evidence
+    (conditions.STAT_SET_NEEDS "vs frozen").
+    Ruzhan, the Blazing Sword (summon_fire_djinn.csd): "Attacks with Ruzhan's Zealotry when you use a damaging Skill
+    with a 4 second cooldown": MECH83's djinn Commands (Zealotry one strike per 4 s).
+    Temporal Rift (temporal_rift.csd): "Removes damage delayed by Phased Form": MECHC27's Temporal Rift (assumptions,
+    TEMPORAL_RIFT), defence.
+    Verisium Manifestations (verisium_manifestation.csd): "Trigger Manifest Rune on Hitting with an Attack":
+    model-mechb42-verisium-manifestations.
+    Ancestral Cry and The Stars Answer: no .csd line holds the stat for them (checked: grep -rl over every .csd under
+    statdescriptions finds none in ancestral_cry/ or the_stars_answer*), so it shows nothing; their damage is MECHB29 /
+    MECHB42's Ancestral Cry readings (model-mechb42-ancestral-cry-charges) and GEM12's meteors (model-gem12-meteor-rates).
+  sources: ["data/game-26650308/files/data/statdescriptions/specific_skill_stat_descriptions"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: model-gem32-frostbolt-terrain-explosion
+  title: "Frostbolt's Explosion only where the piercing bolt meets terrain: the Projectile hit alone on an open boss (an OVERCOUNT of x1.59 before)"
+  kind: model
+  model: gated_set_model
+  skill: [Frostbolt]
+  confidence: LOW
+  notes: >-
+    Game 26650308 ActiveSkills frost_bolt: "Fire a slow-moving Piercing Projectile that is effective at Chilling
+    enemies and explodes on colliding with terrain"; second source poe2db Frostbolt (current): the same line, no other
+    explosion trigger, "Pierces all Targets", the 2.4 m radius (0.2.0e). PoB scores each set alone and the search kept
+    the Explosion (probe POE2T5822: Explosion 166.8 vs Projectile 104.6 DPS). Now GEM17's gated_set_model with Frostbolt
+    in GATED_SETS / GATED_ADDS: Projectile + Explosion x the share of bolts meeting terrain within 2.4 m of the boss.
+    That share is where the boss stands, which no data gives (CLAUDE.md: no source, 0): headline the Projectile hit
+    alone (an Explosion scored is steered to the Projectile set, x0.9); the play line's "always" is the boss-against-a-
+    wall reading (both). LOW for the 0 (a player may fight a boss at a wall: RESEARCH question). Other bolts used by Ice
+    Nova / Snap are those skills' (unchanged).
+  sources: ["builder/search/models.py (GATED_SETS, GATED_ADDS, gated_set_model)", "builder/search/assumptions.py (gated_set_share)",
+            "scratch/gem32/probe5822.log", "https://poe2db.tw/us/Frostbolt"]
+  test_in_game: "Cast Frostbolt at a boss in the open and at a boss against a wall: does the open one take an explosion?"
+  status: proposed

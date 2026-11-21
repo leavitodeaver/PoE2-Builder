@@ -9322,6 +9322,9 @@ class Assumptions:
         found = []
         if skill in ("Glacial Lance", models.OIL_BARRAGE) and skill in self.inhibited():  # (GEM31: MECHC49's INHIBITOR)
             return 0.0, self.inhibited_note(skill, "none of its uses is empowered")["basis"]
+        if skill == models.FROSTBOLT:  # (GEM32: the explosion only where the bolt meets terrain)
+            return 0.0, ("no source gives terrain within 2.4 m of the boss (where the boss stands is the fight's): 0, "
+                         "LOW; the bolt pierces the boss and explodes only on terrain")
         if skill == models.RIVEN_SKILL:  # (GEM21: its "Vs Armour Broken" hits only a Fully Broken boss: MECH87's share)
             share, how = getattr(self.build, "full_break_up", None) or (0.0, "")
             share = min(max(number(share), 0.0), 1.0)

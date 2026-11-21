@@ -7673,12 +7673,24 @@ def icestorm_model(main: Skill | None, scored: str | None, sets: list[dict], cas
 #   is Fully Broken (MECH87's build.full_break_up, train 80: conditions' Armour Broken cycle, as the Armour Broken box
 #   weighs it; 0 with no Armour Break source); not consumed, so the share isn't cut by the bolts. Riven Armour's added
 #   damage on later hits stays riven_armour_model's. MEDIUM-LOW (the share is MECH-A's).
+# - (GEM32) Frostbolt's "Explosion": "Fire a slow-moving Piercing Projectile ... and explodes on colliding with terrain"
+#   (ActiveSkills frost_bolt, 26650308; poe2db Frostbolt, current, the same line and no other explosion trigger; its
+#   Projectile set has always_pierce and base_skill_effect_duration 4000). The bolt pierces the boss (its Projectile hit)
+#   and explodes only where it meets terrain, a 2.4 m radius there (0.2.0e). Probe POE2T5822 (scratch/gem32/probe5822.log,
+#   a level-90 search): Explosion 166.8 vs Projectile 104.6, the Explosion scored (an OVERCOUNT of x1.59 against a boss
+#   with no wall within 2.4 m of it). The explosion ADDS to the hit (GATED_ADDS) at the share of bolts that meet terrain
+#   within its radius of the boss: where the boss stands is the fight's, not the build's, and no data gives it, so 0
+#   (CLAUDE.md: no source, 0), the "boss against a wall: both" reading the play line's "always". MEDIUM for the text,
+#   LOW for the headline's 0 (a player can drag a boss to a wall: RESEARCH question).
 GATED_SETS = {"Furious Slam": ("Base", "Enraged", "Rage", "model-gem17-furious-slam-rage"),
               "High Velocity Rounds": ("Projectile", "Vs Armour Broken", "Fully Broken Armour",
                                        "model-gem21-high-velocity-rounds-armour-broken"),
               "Oil Barrage": ("Base", "Empowered", "Power Charges", "model-gem17-oil-barrage-power-charges"),
-              "Glacial Lance": ("Spear", "Explosion", "Frenzy Charges", "model-gem19-glacial-lance-frenzy-charge")}
-GATED_ADDS = {"Glacial Lance"}  # (the gated part comes on top of the base set, not instead of it)
+              "Glacial Lance": ("Spear", "Explosion", "Frenzy Charges", "model-gem19-glacial-lance-frenzy-charge"),
+              "Frostbolt": ("Projectile", "Explosion", "terrain within 2.4 m of the boss (fight it against a wall)",
+                            "model-gem32-frostbolt-terrain-explosion")}
+GATED_ADDS = {"Glacial Lance", "Frostbolt"}
+FROSTBOLT = "Frostbolt"  # (the gated part comes on top of the base set, not instead of it)
 FURIOUS_RAGE_A_SLAM = 10.0  # bear_slam_spend_X_rage_for_stronger_slam
 OIL_CHARGE_SECONDS = 1.5  # electric_spit_empowered_channel_consume_power_charge_per_X_ms 1500
 
