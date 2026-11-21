@@ -17026,9 +17026,16 @@ DUSK_VIGIL = re.compile(r"^Trigger Ember Fusillade Skill on casting a Spell$", r
 # Projectiles in a circle" is NOT a circle layout: only on that share of casts do its 8 extra projectiles fire in a circle
 # (radially: they miss a lone boss, R32-2 (3)), the base projectiles fire as before, and PoB never adds the 8 (ModCache
 # 5026: parsed only in part, not applied). Read as an always-on circle it cut Bonestorm to one spike a release and Dusk
-# Vigil to one Ember a cast on every cast (an UNDERCOUNT), so a "chance" line doesn't match here; its 8 extras add
-# nothing on a lone boss.
-SPELL_CIRCLE = re.compile(r"^(?!.*\bchance\b).*\bSpell(?:s| Skills)\b.*\bProjectiles in a circle\b", re.I)  # (R32-2 (3))
+# Vigil to one Ember a cast on every cast (an UNDERCOUNT), so a "chance" line is no circle layout here; its 8 extras add
+# nothing on a lone boss. (MECHB50: SPELL_CIRCLE reads both lines again, as COV50's model-read entry and test have it
+# (model-read-cov50-spell-projectiles-circle); spell_circle_layout keeps the chance line out of the layout.)
+SPELL_CIRCLE = re.compile(r"\bSpell(?:s| Skills)\b.*\bProjectiles in a circle\b", re.I)  # (R32-2 (3))
+SPELL_CIRCLE_CHANCE = re.compile(r"\bchance\b", re.I)
+
+
+def spell_circle_layout(text: str) -> bool:
+    """A line that makes every Spell cast fire its projectiles in a circle (not the cultivated chance line: above)."""
+    return bool(SPELL_CIRCLE.search(text)) and not SPELL_CIRCLE_CHANCE.search(text)
 DUSK_TAG = "dusk_vigil"  # the main skill's "less" carries it, so the next pass reads the main skill's damage without it
 
 
@@ -17054,7 +17061,7 @@ def dusk_vigil_model(texts: list[str], stats: dict, skills: list[Skill], main: S
     cap = int(number(granted.level_stats.get(EMBER_CAP_STAT)) or EMBER_CAP)
     more = number(granted.level_stats.get(EMBER_MORE_STAT)) or EMBER_MORE
     wait = max(ember_wait, 0.0) if ember_wait is not None else EMBER_DURATION
-    circle = any(SPELL_CIRCLE.search(t) for t in texts) and per_cast > 1  # (R32-2 (3): extras fire radially)
+    circle = any(spell_circle_layout(t) for t in texts) and per_cast > 1  # (R32-2 (3): extras fire radially)
     per = 1.0 if circle else max(per_cast, 1.0)
     best = None
     for casts in range(1, math.ceil(cap / per) + 1):
@@ -20017,7 +20024,7 @@ def crossbow_sequence_model(main: Skill | None, stats: dict,
 # circle splits one release: UNVERIFIED (R31-11).
 def bonestorm_circle(texts: list[str], bs_mods: list[dict], bs_notes: list[dict]) -> tuple[list[dict], list[dict]]:
     """GEM19's Bonestorm mods and notes, or none and a labelled note when the build's Spells fire in a circle."""
-    circle = next((t for t in texts if SPELL_CIRCLE.search(t)), None)
+    circle = next((t for t in texts if spell_circle_layout(t)), None)
     if circle is None or not bs_mods:
         return bs_mods, bs_notes
     spikes = (bs_notes[0].get("value") if bs_notes else "") or "a full channel"

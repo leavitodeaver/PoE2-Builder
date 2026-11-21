@@ -176,7 +176,8 @@ def test_echoing_cry_echoes_add_their_own_shield_waves():
 
 def test_a_chance_to_fire_projectiles_in_a_circle_is_not_a_circle_layout():
     chance = "8% chance for Spell Skills to fire 8 additional Projectiles in a circle"
-    assert not models.SPELL_CIRCLE.search(chance) and models.SPELL_CIRCLE.search("Spells fire Projectiles in a circle")
+    assert models.SPELL_CIRCLE.search(chance)  # (MECHB50: read, as COV50's model-read entry has it, but no layout)
+    assert not models.spell_circle_layout(chance) and models.spell_circle_layout("Spells fire Projectiles in a circle")
     mods = [{"kind": "Raw", "name": "DPS", "type": "MORE", "value": 300}]
     assert models.bonestorm_circle([chance], mods, [{"value": "x4"}])[0] == mods  # (GEM19's channel kept)
 
