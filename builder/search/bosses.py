@@ -237,6 +237,28 @@ HIT_EVERY: dict[str, float] = {
     "Atziri, the Red Queen": 0.98,  # 1.13 s before the strikes (Elemental Spear Combo: 5)
     "Atziri, the Fell Serpent": 1.13,  # 1.38 s before the strikes (Elemental Spear Combo: 5)
 }
+# One damaging USE every N s, a melee use counted once however many strikes its animation holds (MECHD8; the manager
+# 08:22 21 Nov: R37-17's "one event per USE", the manager 20 Nov). HIT_EVERY above is MECHD5's "lower" cadence, which
+# counts a melee use as its animation's strikes (scratch/mechd5/cadence5_lower.txt's "1 -> k strikes" list: the Arbiter
+# of Ash's Double / Triple Slash and Jump Slam Combo, the Arbiter of Divinity's phase 2 Basic Melee and Extendo Spear
+# Combo, Olroth's Cleave and Dash2, the Aberration's two Shotgun Combos, Atziri's Elemental Spear Combo in both phases;
+# no other preset has one): these are its "before the strikes" values, as HIT_EVERY's comments give them. The rest equal
+# HIT_EVERY. Checked against scratch/mechd8/redshare.py's own use count (one a use): 26.7, 44.2, 26.9, 36.2, 53.0, 43.4
+# a minute for the six, matching 60 / these within 0.3%. Read by the per-use readings (boss_hits.ailments_on_you /
+# ailment_uptime, red_flash_rate, landed_cross_check; MECH-C's ailment_hits / chill_and_freeze_on_you once it moves);
+# HIT_EVERY stays for the defence floors' cadence and the "every strike" rows. RESEARCH41's VDA Arbiter of Ash: 21
+# attacks in 41 s (30.7 a minute), between this 26.7 and HIT_EVERY's 33.7 (LOW: one fight).
+USE_EVERY: dict[str, float] = {
+    **HIT_EVERY,
+    "Arbiter of Ash": 2.25,
+    "Arbiter of Divinity": 1.36,
+    "Olroth, Origin of the Fall": 2.23,
+    "The Aberration": 1.66,
+    "Atziri, the Red Queen": 1.13,
+    "Atziri, the Fell Serpent": 1.38,
+}
+USE_EVERY_BASIS = ("one damaging skill USE every {s:g} s against {name}, a melee combo counted once (LOW: the exported "
+                   "tables' cooldowns, each used when ready; MECHD5 / MECHD8)")
 HIT_EVERY_BASIS = ("one damaging skill use every {s:g} s against {name} (LOW: the exported tables' action times are "
                    "defaults, multi-hit uses and moving time unmodelled; MECHD3); PoB's "
                    "placeholder is 0.7 s")
@@ -514,6 +536,7 @@ PRESETS[WORST] = Boss(
     unavoidable=_UNAVOIDABLE, unblockable=_UNBLOCKABLE)
 HIT_EVERY[WORST] = max(HIT_EVERY[n] for n in REAL)
 HITS_EVERY[WORST] = min(HITS_EVERY[n] for n in REAL)
+USE_EVERY[WORST] = max(USE_EVERY[n] for n in REAL)  # (as HIT_EVERY[WORST]: the slowest real preset's)
 MOVING_CEILING[WORST] = max(MOVING_CEILING[n] for n in REAL)  # (the play guide's optional row: the most a boss moves)
 
 DEFAULT = WORST

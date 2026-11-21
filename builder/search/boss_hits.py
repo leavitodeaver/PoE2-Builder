@@ -2012,7 +2012,7 @@ def chill_and_freeze_on_you(chill_seen: dict, freeze_seen: dict, texts: list[str
 # a reader that turns the rate into a GAIN (removing or avoiding an ailment), that is an OVERCOUNT. Here, for each of
 # Ignite, Shock, Chill, Freeze, Bleed, Poison and Electrocute:
 # - Events per USE (R37-17, research/pinnacle-boss-hit-cadence-on-player.md): ailment_hits' landed uses of the type a
-#   second (bosses.HIT_EVERY, the type's own share of the boss's damaging skills, evaded / blocked as PoB rolls them, x
+#   second (bosses.USE_EVERY since MECHD8, a melee combo once; HIT_EVERY before; the type's own share of the boss's damaging skills, evaded / blocked as PoB rolls them, x
 #   your Slows on the boss), x (1 - ON_YOU_DODGE) on the dodgeable ones: THE USER'S RULING (21 Nov 04:32, the manager's
 #   cards): ONE dodge rate for every telegraphed attack, "they definitely all need the same hit rate", Fire, Lightning,
 #   Cold and Physical alike; 50% the headline, labelled the user's rate (the user doubts it: research measures it from
@@ -2023,7 +2023,7 @@ def chill_and_freeze_on_you(chill_seen: dict, freeze_seen: dict, texts: list[str
 #   MECH-C); "they land" stays a row for tanky builds.
 # - A use's strikes: Ignite and Shock are a CHANCE per hit (KeywordPopups Ignite: Flammability "including the amount added
 #   by that Hit"; Shock: "1% chance to Shock for every 4% of the target's Ailment Threshold"), so a use of k strikes
-#   afflicts with 1 - (1 - p)^k, k = HIT_EVERY / HITS_EVERY (the boss's mean strikes a use, MECHD5's melee strikes: LOW,
+#   afflicts with 1 - (1 - p)^k, k = USE_EVERY / HITS_EVERY (HIT_EVERY / HITS_EVERY before MECHD8) (the boss's mean strikes a use, MECHD5's melee strikes: LOW,
 #   one mean for all its skills), and Flammability counts every strike landed in the last 4 s. Chill (a hit of 30%+ of
 #   your Ailment Threshold) and Freeze (counted: one hit must fill the buildup, MECHC18's lower reading) don't depend on
 #   the count: one per use; the extra strikes only refresh a 2 s ailment. Bleed: every landed hit of its skill.
@@ -2090,11 +2090,12 @@ GROUND_AILMENTS = {
 
 
 def strikes_per_use(name: str) -> float:
-    """The boss's mean strikes a damaging use (HIT_EVERY / HITS_EVERY, at least 1; LOW)."""
+    """The boss's mean strikes a damaging use (USE_EVERY / HITS_EVERY, at least 1; LOW). (MECHD8: USE_EVERY, so uses x
+    strikes a use = HITS_EVERY's strikes; HIT_EVERY / HITS_EVERY before.)"""
     from builder.search import bosses
-    if name not in bosses.HIT_EVERY or name not in bosses.HITS_EVERY:
+    if name not in bosses.USE_EVERY or name not in bosses.HITS_EVERY:
         return 1.0
-    return max(1.0, bosses.HIT_EVERY[name] / bosses.HITS_EVERY[name])
+    return max(1.0, bosses.USE_EVERY[name] / bosses.HITS_EVERY[name])
 
 
 def _type_uses(stats: dict, kind: str, cadence: str, dodge: float, red_lands: bool,
@@ -2103,12 +2104,12 @@ def _type_uses(stats: dict, kind: str, cadence: str, dodge: float, red_lands: bo
     old reading), `dodge` of the dodgeable ones dodged, red-flash ones avoided (the headline) or landing (`red_lands`)."""
     from builder.search import bosses
     name = boss_name(stats)
-    if cadence == "defence" or name == _worst() or name not in bosses.HIT_EVERY:
+    if cadence == "defence" or name == _worst() or name not in bosses.USE_EVERY:
         return ailment_hits({**stats, "_onyou_cadence": "defence"}, kind)
     share = type_shares(name).get(kind, 0.0)
     scored = number(stats.get("enemySkillTime"))
     slowed = scored / bosses.defence_hit_every(name) if scored > 0 else 1.0
-    base = bosses.HIT_EVERY[name] if cadence == "use" else bosses.HITS_EVERY[name]
+    base = bosses.USE_EVERY[name] if cadence == "use" else bosses.HITS_EVERY[name]  # (MECHD8: USE_EVERY, a combo once)
     every = base * slowed
     red, rest = kind_land_parts(stats, kind)
     if all_in is not None:  # (the videos' all-in landing share: evade / block not stacked on it)
@@ -2120,7 +2121,8 @@ def _type_uses(stats: dict, kind: str, cadence: str, dodge: float, red_lands: bo
     rate = share / every * land if every > 0 else 0.0
     how = (f"{name}: one damaging {'use' if cadence == 'use' else 'strike'} every {base:g} s"
            + (f" x{slowed:.2f} (your Slows on it)" if abs(slowed - 1) > 1e-9 else "")
-           + (" (LOW: the tables' cadence)" if cadence == "use" else " (every strike counted: an upper bound)")
+           + (" (USE_EVERY, a melee combo once; LOW: the tables' cadence)" if cadence == "use"
+              else " (every strike counted: an upper bound)")
            + f", {share:.0%} {kind}; of those, {red:.0%} red-flash "
            + ("LANDING (the tanky row)" if red_lands else "avoided by moving out (the user's ruling, 21 Nov)")
            + f", the rest {rest / (1 - red) if red < 1 else 0:.0%} past your evade / block and {dodge:.0%} dodged ("
@@ -2351,9 +2353,11 @@ def red_flash_rate(stats: dict | str | None = None, reading: str = "uses") -> tu
                       + slow + f": {rate * 60:.1f} red-flash uses a minute (the old skill-count reading: sub-effects and "
                       "long cooldowns counted as uses, an overcount; MECHD8)")
     red, dmg, what = RED_FLASH_USES[name]
-    rate = red / 60 / slowed
-    return rate, (f"{name}: {rate * 60:.1f} red-flash uses a minute{slow}, {red / dmg if dmg else 0:.0%} of its damaging "
-                  f"uses ({what}; MECHD5's cadence, each cooldown skill used when ready: an upper bound; LOW). The "
+    share = red_use_share(name)
+    rate = share / (bosses.USE_EVERY[name] * slowed)  # (MECHD8 turn 2: the per-use share over USE_EVERY)
+    return rate, (f"{name}: {rate * 60:.1f} red-flash uses a minute{slow}, {share:.0%} of its damaging uses ({what}) over "
+                  f"one use every {bosses.USE_EVERY[name]:g} s (USE_EVERY; MECHD5's cadence, each cooldown skill used "
+                  "when ready: an upper bound; LOW). The "
                   f"videos: about {RED_FLASH_VIDEO_PER_MINUTE:.0f} a minute (R41-2, 4 fights)")
 
 
@@ -2373,11 +2377,11 @@ def red_flash_time_share(stats: dict | str | None = None, reading: str = "moves"
 
 def landed_cross_check(stats: dict) -> tuple[float, str]:
     """(the model's landed boss uses a minute, how against the videos' ~6 (4.5-9.5), RESEARCH41 R41-1): one per damaging
-    use (HIT_EVERY, x your Slows on it), red-flash avoided, the rest past PoB's evade / block and the movement dodge
+    use (USE_EVERY, x your Slows on it), red-flash avoided, the rest past PoB's evade / block and the movement dodge
     (ON_YOU_DODGE). A cross-check row, not a headline (LOW both sides)."""
     from builder.search import bosses
     name = boss_name(stats)
-    if name == _worst() or name not in bosses.HIT_EVERY:
+    if name == _worst() or name not in bosses.USE_EVERY:
         reads = real_readings(stats)
         got = [(landed_cross_check(s)[0], n) for n, s in reads]
         hi, top = max(got)
@@ -2389,10 +2393,11 @@ def landed_cross_check(stats: dict) -> tuple[float, str]:
     evade, block = evade_block(stats)
     scored = number(stats.get("enemySkillTime"))
     slowed = scored / bosses.defence_hit_every(name) if scored > 0 else 1.0
-    per_min = 60 / (bosses.HIT_EVERY[name] * slowed) * (1 - red) * (1 - evade) * (1 - block) * (1 - ON_YOU_DODGE)
+    # (MECHD8: USE_EVERY, a melee combo counted once)
+    per_min = 60 / (bosses.USE_EVERY[name] * slowed) * (1 - red) * (1 - evade) * (1 - block) * (1 - ON_YOU_DODGE)
     lo, hi = VIDEO_LANDED_PER_MINUTE[1:]
     verdict = "inside" if lo <= per_min <= hi else ("below" if per_min < lo else "above")
     return per_min, (f"{name}: the model lands {per_min:.1f} boss uses a minute (one a use every "
-                     f"{bosses.HIT_EVERY[name] * slowed:.2f} s, {red:.0%} red-flash avoided, {evade:.0%} evaded, "
+                     f"{bosses.USE_EVERY[name] * slowed:.2f} s (USE_EVERY), {red:.0%} red-flash avoided, {evade:.0%} evaded, "
                      f"{block:.0%} blocked, {ON_YOU_DODGE:.0%} dodged); the videos {VIDEO_LANDED_PER_MINUTE[0]:g} "
                      f"({lo:g}-{hi:g}, R41-1, 8 fights): {verdict} their range")

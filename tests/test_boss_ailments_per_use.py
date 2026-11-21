@@ -42,9 +42,9 @@ def test_a_chance_ailment_counts_every_strike_of_a_use():
     stats = seen(DIVINITY)
     got = boss_hits.ailments_on_you(stats)["Shock"]
     red, rest = boss_hits.kind_land_parts(stats, "Lightning")
-    uses = boss_hits.type_shares(DIVINITY)["Lightning"] / bosses.HIT_EVERY[DIVINITY] * rest * (1 - boss_hits.ON_YOU_DODGE)
+    uses = boss_hits.type_shares(DIVINITY)["Lightning"] / bosses.USE_EVERY[DIVINITY] * rest * (1 - boss_hits.ON_YOU_DODGE)
     p = boss_hits.own_shock_chance(stats, DIVINITY)
-    k = bosses.HIT_EVERY[DIVINITY] / bosses.HITS_EVERY[DIVINITY]
+    k = bosses.USE_EVERY[DIVINITY] / bosses.HITS_EVERY[DIVINITY]  # (MECHD8: USE_EVERY)
     assert k > 1
     assert got["rate"] == pytest.approx(uses * (1 - (1 - p) ** k))
     assert got["uptime"] == pytest.approx(1 - math.exp(-got["rate"] * boss_hits.SHOCK_ON_PLAYER_SECONDS))
@@ -142,7 +142,8 @@ def test_red_flash_hits_are_avoided_in_the_headline_and_land_in_a_row():
 def test_red_flash_uses_and_the_time_they_cost():
     rate, how = boss_hits.red_flash_rate(ASH)
     # (MECHD8: per USE from the cadence model, not the flagged-skill share; the old reading is the "skills" row)
-    assert rate == pytest.approx(boss_hits.RED_FLASH_USES[ASH][0] / 60) and "upper bound" in how
+    assert rate == pytest.approx(boss_hits.red_use_share(ASH) / bosses.USE_EVERY[ASH]) and "upper bound" in how
+    assert rate * 60 == pytest.approx(boss_hits.RED_FLASH_USES[ASH][0], rel=0.01)
     una, _, total, _ = boss_hits.RED_FLASH[ASH]
     old = boss_hits.red_flash_rate(ASH, "skills")[0]
     assert old == pytest.approx(una / total / bosses.HIT_EVERY[ASH]) and rate < old / 2
@@ -170,7 +171,7 @@ def test_the_videos_rows_and_the_landed_hits_cross_check():
     assert no_evade["uptime"] == pytest.approx(video)  # (evasion isn't counted twice)
     per_min, how = boss_hits.landed_cross_check(seen(ASH))
     red = boss_hits.red_use_share(ASH)  # (MECHD8: the per-use red share, as the headline avoids)
-    assert per_min == pytest.approx(60 / bosses.HIT_EVERY[ASH] * (1 - red) * 0.7 * (1 - boss_hits.ON_YOU_DODGE))
+    assert per_min == pytest.approx(60 / bosses.USE_EVERY[ASH] * (1 - red) * 0.7 * (1 - boss_hits.ON_YOU_DODGE))
     assert "videos 6 (4.5-9.5" in how
 
 
@@ -192,3 +193,16 @@ def test_the_kings_second_form_totems_are_a_row_not_the_headline():
     (what, rate), = bosses.kill_rows(king)
     assert "second form" in what and rate == pytest.approx(0.57 / 25)
     assert [k.share for k in bosses.PRESETS[king].kills] == [0.43]  # (the headline unchanged)
+
+
+def test_use_every_counts_a_melee_combo_once():
+    """MECHD8 (the manager 08:22 21 Nov): the per-use readers read USE_EVERY, HIT_EVERY's "before the strikes" values."""
+    assert bosses.USE_EVERY[ASH] == 2.25 and bosses.USE_EVERY[OLROTH] == 2.23
+    assert bosses.USE_EVERY["Atziri, the Red Queen"] == 1.13
+    assert set(bosses.USE_EVERY) == set(bosses.HIT_EVERY)
+    assert all(bosses.USE_EVERY[n] >= bosses.HIT_EVERY[n] >= bosses.HITS_EVERY[n] for n in bosses.REAL)
+    assert bosses.USE_EVERY[bosses.WORST] == max(bosses.USE_EVERY[n] for n in bosses.REAL)
+    k = boss_hits.strikes_per_use(OLROTH)
+    assert k == pytest.approx(2.23 / bosses.HITS_EVERY[OLROTH])  # (uses x strikes a use = the strike rate)
+    chill = boss_hits.ailments_on_you(seen(OLROTH))["Chill"]
+    assert "USE_EVERY" in chill["how"]
