@@ -4128,6 +4128,8 @@ class Assumptions:
             self.tailwind_use_rates(main.name if main is not None else None)
             if any(models.TAILWIND_ON_USE.search(e["text"]) for e in source_lines) else None)
         hand_mods, hand_notes = hand_mods + tail_mods, hand_notes + tail_notes
+        area_mods, area_notes = models.unarmed_area_model([e["text"] for e in source_lines], stats, forbidden)  # (MECHB47)
+        hand_mods, hand_notes = hand_mods + area_mods, hand_notes + area_notes
         eldritch_mods, eldritch_notes = models.eldritch_empowerment_model([e["text"] for e in source_lines], stats, main)
         hand_mods, hand_notes = hand_mods + eldritch_mods, hand_notes + eldritch_notes  # (MECHB30, MB-1: PoB's box unset)
         agony, agony_rate, agony_mods, agony_notes = inevitable_agony(build, main)  # (MECHB30: PoB scores it 0)
@@ -4236,6 +4238,10 @@ class Assumptions:
             build.objective.press_scales = {}
             return self.consume_ignite(groups, []) + self.cull_window()
         rates = build.call("useRates", indices=sorted(pressed | {main}))["rates"]
+        for r in rates:  # (MECHB47: a Warcry's PoB Speed counts the action speed twice, so press_use_rate's ceiling for
+            # it is its castRate, 1 / WarcryCastTime: probe POE2T4710)
+            if "Warcry" in ((build.ctx.gems.get(str(r.get("name"))) or {}).get("skillTypes") or []):
+                r["warcry"] = True
         # (MECHB29, probe POE2T1148) a curse's group in Full DPS (for its Doom Blast, Witchtoads or Annihilation) whose
         # rated skill is the curse: curse_model already charges its casts (and annihilation_model the extra ones), so
         # press_model doesn't charge them again. Before, it did: Despair once per duration (a double charge, an

@@ -30,3 +30,19 @@
     uses isn't given back (a small undercount, labelled). MEDIUM.
   sources: [builder/search/assumptions.py (ward_freed_time, ward_paid), "C:/PROJECTS/PoE2 Builder/scratch/manager/workers/GEM27.report.md"]
   status: proposed
+
+- id: model-read-mechb47-unarmed-area
+  title: '"N% increased Area of Effect for Unarmed Attacks per M Intelligence" (models.unarmed_area_model)'
+  kind: pob_gap
+  model: unarmed_area
+  match: '^(\(\d+-\d+\)|\d+(?:\.\d+)?)% increased Area of Effect for Unarmed Attacks per (\d+) Intelligence$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Facebreaker (a Way of the Stonefist form; COV48's carrier check), MECHB47, an UNDERCOUNT where the area matters:
+    PoB parses the line only in part (ModCache 1387, leftover "for Attacks"), so it never applies it. Handed to PoB as
+    AreaOfEffect INC N x floor(Int / M), KeywordFlag Attack, while Condition:Unarmed (CalcPerform 3257). This entry only
+    says a model reads the line.
+  sources: ["builder/search/models.py (UNARMED_AREA, unarmed_area_model)", "builder/search/assumptions.py (models(), beside eldritch_empowerment_model)",
+            "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:1387"]
+  status: proposed

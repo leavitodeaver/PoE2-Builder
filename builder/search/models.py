@@ -14572,7 +14572,10 @@ def press_use_rate(rate: dict, chosen: float | None = None) -> tuple[float, str,
     else:
         real, how, confidence = 0.0, ("0 times* (no cooldown or duration sets how often it's pressed, and the search "
                                       "chose no rate: no source, 0)"), "LOW"
-    return min(real, speed), how, confidence
+    # (MECHB47) a Warcry's ceiling is its castRate (1 / WarcryCastTime): PoB's Speed counts the action speed twice for a
+    # warcry (CalcOffence 2978 then 2985; probe POE2T4710: 0.334/s for a 1.547 s cry). Rows flagged by Assumptions.
+    ceiling = max(speed, number(rate.get("castRate"))) if rate.get("warcry") else speed
+    return min(real, ceiling), how, confidence
 
 
 def press_group_rate(rate: dict, pace: float | None = None, cap: "PressCap | None" = None,
@@ -19447,3 +19450,29 @@ def side_trigger_keep(child: str, cries: float, duration: float, adds: float, ka
         return 0.0, ("only while travelling as Kaom: no travel is modelled in a boss fight, 0 (an undercount where the "
                      f"player walks or rolls through Kaom's {kaom:.0%} uptime)")
     return 1.0, ""
+
+
+# Unarmed Attacks' area per Intelligence (MECHB47; COV48's lane rows: Facebreaker, a Way of the Stonefist form, "N%
+# increased Area of Effect for Unarmed Attacks per M Intelligence"). PoB parses it only in part (ModCache 1387: leftover
+# "  for  Attacks  ", so never applied: Item.lua's `not modLine.extra`). Read here as PoB's own reading of the rest:
+# AreaOfEffect INC N per M Intelligence, on Attacks (KeywordFlag Attack) while Unarmed (PoB's Condition:Unarmed,
+# CalcPerform 3257), from the build's Intelligence. An UNDERCOUNT only where the area matters (an area-scaled skill or
+# a model reading the radius on the boss); HIGH that the line means this.
+UNARMED_AREA = re.compile(r"^(\d+(?:\.\d+)?)% increased Area of Effect for Unarmed Attacks per (\d+) Intelligence$", re.I)
+UNARMED_AREA_ENTRY = "model-read-mechb47-unarmed-area"
+
+
+def unarmed_area_model(texts: list[str], stats: dict, forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """The lines above as one AreaOfEffect INC on Unarmed Attacks, from the build's Intelligence (PoB's Int)."""
+    if UNARMED_AREA_ENTRY in forbidden:
+        return [], []
+    found = [(float(m.group(1)), float(m.group(2))) for t in texts if (m := UNARMED_AREA.match(t.strip()))]
+    intelligence = number(stats.get("Int"))
+    total = sum(n * math.floor(intelligence / per) for n, per in found if per > 0)
+    if not found or total <= 0:
+        return [], []
+    return [raw_mod("AreaOfEffect", "INC", total, condition="Unarmed", keywords=["Attack"])], [{
+        "label": "Unarmed Attacks' area from Intelligence*", "value": f"+{total:g}%", "confidence": "HIGH",
+        "entry": UNARMED_AREA_ENTRY,
+        "basis": (f"{'; '.join(f'{n:g}% per {per:g} Intelligence' for n, per in found)} at {intelligence:,.0f} "
+                  "Intelligence, on Attacks while Unarmed: PoB parses the line only in part and never applies it")}]

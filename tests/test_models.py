@@ -2067,6 +2067,10 @@ def test_a_capped_press_takes_its_use_time_not_pobs_post_cap_time():
     # (MECHB47) PoB's pre-cap CastRate, where the bridge has it, is the use time exactly (warcry speed counted)
     assert models.press_action({**cry, "castRate": 1 / 0.6}) == pytest.approx(0.6)
     assert models.press_action({**cry, "speed": 0.5, "cooldown": 0, "castRate": 0.5}) == pytest.approx(2.0)
+    # (MECHB47) a chosen-rate Warcry is held to its castRate, not PoB's doubly slowed Speed; other skills to Speed
+    cry2 = {"index": 3, "name": "Seismic Cry", "speed": 1 / 2.99, "castRate": 1 / 1.547, "warcry": True}
+    assert models.press_use_rate(cry2, 0.5)[0] == pytest.approx(0.5)
+    assert models.press_use_rate({**cry2, "warcry": None}, 0.5)[0] == pytest.approx(1 / 2.99)
     # (POE2T4710) an uncapped Warcry (Ancestral Cry): PoB's Speed counts the action speed twice, the castRate once
     assert models.press_action({**cry, "speed": 1 / 2.99, "cooldown": 0, "castRate": 1 / 1.547}) == pytest.approx(1.547)
 
@@ -6911,3 +6915,12 @@ def test_side_trigger_keep():
     assert models.side_trigger_keep("Volcanic Eruption", 0, 8, 0, 0.4, True)[0] == pytest.approx(0.4)
     assert models.side_trigger_keep("Volcanic Eruption", 0, 8, 0, 0.4, False)[0] == 0.0
     assert models.side_trigger_keep("Volcanic Steps", 0, 8, 0, 0.4, True)[0] == 0.0
+
+
+def test_unarmed_area_reads_facebreakers_line_per_intelligence():
+    """MECHB47: PoB parses it only in part; read as AreaOfEffect INC on Unarmed Attacks, from Intelligence."""
+    mods, notes = models.unarmed_area_model(["1% increased Area of Effect for Unarmed Attacks per 10 Intelligence"],
+                                            {"Int": 255})
+    assert mods[0]["name"] == "AreaOfEffect" and mods[0]["value"] == 25 and mods[0]["condition"] == "Unarmed"
+    assert mods[0]["keywordFlags"] == ["Attack"] and notes[0]["confidence"] == "HIGH"
+    assert models.unarmed_area_model(["1% increased Area of Effect for Unarmed Attacks per 10 Intelligence"], {"Int": 5}) == ([], [])
