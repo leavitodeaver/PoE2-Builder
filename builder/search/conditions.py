@@ -1697,6 +1697,9 @@ def shrine_uptime(texts: list[str], pick: float = SHRINE_PICK) -> tuple[float, s
 # One shared timer: the stacks are the gains since the last 10 s gap. With Poisson culls at c a second, each earlier gap
 # is under 10 s with chance q = 1 - e^(-10 c), so E[stacks] = q + q^2 + ... + q^20 (MEDIUM: Poisson culls). Counted as
 # CullPercent INC (PoB: "culling strike threshold", ModParser 925) and AreaOfEffect INC for Attacks.
+# RESEARCH38 R38-5 (research/fear-overwhelming-on-cull.md, the manager 21:26): any target you Cull counts, adds too
+# (MEDIUM-HIGH); one stack per Cull, no cooldown (HIGH); each new stack refreshes all (the shared timer above); only the
+# player's own Culls (a minion's Cull: UNVERIFIED, not counted).
 FEAR_ON_CULL = re.compile(r"^Gain (\d+) Fear (Incarnate|Overwhelming) when you Cull a target$", re.I)
 FEAR_SECONDS, FEAR_MAX = 10.0, 20
 FEAR_EFFECT = {"incarnate": ("CullPercent", 10.0, "increased Culling Strike Threshold"),
@@ -1740,7 +1743,8 @@ def fear_mods(texts: list[str], culls: float, culls_how: str, can_cull: bool, wh
                      "basis": (f"{why}; {per:g} a Cull, {FEAR_SECONDS:g} s refreshed together, at most {FEAR_MAX}: "
                                "E[stacks] = q + ... + q^20, q = 1 - e^(-10 x Culls/s) (Poisson Culls, MEDIUM); the "
                                "boss's own Cull ends the fight, so only its adds count; without it: +0%"),
-                     "confidence": "MEDIUM (the adds' Cull rate: the boss preset's, LOW-MEDIUM)",
+                     "confidence": ("MEDIUM (R38-5: any target Culled counts, MEDIUM-HIGH; one a Cull, all refreshed, "
+                                    "HIGH; the adds' Cull rate: the boss preset's, LOW-MEDIUM; Poisson Culls)"),
                      "play": ("Cull the boss's adds to stack Fear: " + (f"{held:.1f} stacks held on average"
                                                                         if held > 0 else "this boss has none to Cull")
                               + "; without it: none")})
