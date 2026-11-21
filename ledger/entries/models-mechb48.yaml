@@ -26,6 +26,11 @@
     within the star's radius + the boss's hit radius, spread evenly over the ring's area, the ring fixed while the star
     grows with area (RESEARCH40 R40-16: HIGH on the ring, LOW on the spread; about 1 on a 0.3 m boss); rows the ring
     scaled with the star, even over distance, and none.
+    MECHB51 (RESEARCH42 R42-5, an UNDERCOUNT, MEDIUM-LOW geometry): the areas along one wave that hit a boss, PoB
+    scoring one a wave (upheaval_number_of_spikes and the cascade spacing unread): Glacial Cascade 6 of 8 bursts (rows
+    5, 7), Sunder 2.5 of 5 areas (rows 2, 3; its shockwaves 0 on a lone boss) (models.FISSURE_ALONG). Entangle's
+    Vines set beside its Fissures at 3 vine hits a second (RESEARCH42 R42-8: 3 per enemy, 1 s each, one hit on
+    attaching; Overgrown's 6 a row) (models.FISSURE_VINES).
   sources: ["builder/search/models.py (FISSURE_SETS, fissure_count_model, STAR_FALL, star_fall_hits)", "builder/search/assumptions.py (models(), after the detonated sets)",
             "C:/PROJECTS/PoE2 Builder/scratch/manager/research/radius-transform-jewels-and-fissure-layouts.md (R37-16)",
             "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:9410-9413",

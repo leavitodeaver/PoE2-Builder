@@ -10,7 +10,7 @@ import pytest
 
 from builder.data import GameData
 from builder.request.schema import BuildRequest
-from builder.search import objective
+from builder.search import models, objective
 from builder.search.context import Context, make_payload
 from builder.search.inner import Search
 from builder.search.skeletons import enumerate_skeletons
@@ -77,7 +77,8 @@ def test_a_slams_main_dps_sees_attack_speed(engine, skill):
     assert objective.main_dps(after) / objective.main_dps(before) == pytest.approx(speed, rel=0.02)
     # per use x uses a second: under one use a second (Sunder, probe POE2T758: 815.5 per use, 456.7 a second) the
     # per-use number was an OVERCOUNT, over it an undercount
-    assert objective.main_dps(before) == pytest.approx(before["AverageDamage"] * before["Speed"], rel=0.05)
+    along = models.FISSURE_ALONG.get(skill, (1.0,))[0]  # (MECHB51, R42-5: Sunder's 2.5 areas a wave, a DPS more)
+    assert objective.main_dps(before) == pytest.approx(before["AverageDamage"] * before["Speed"] * along, rel=0.05)
     assert objective.main_dps(before) == pytest.approx(before["FullDPS"], rel=0.05)  # per second, like Full DPS
 
 

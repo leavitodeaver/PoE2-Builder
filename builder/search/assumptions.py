@@ -1345,9 +1345,19 @@ def pob_disabled(build: Build) -> set[tuple]:
 # LOW: no source measures it; a game-decided distance, named for the manager): a row in side_trigger_cuts' note only.
 VOLCANIC_STEP_METRES = 1.2
 # (MECHB49, RESEARCH38 R38-18: no source gives movement per boss hit) the row: one dodge roll (models.DODGE_ROLL_METRES,
-# 4.6 m, the user's Cast on Dodge default) per boss attack dodged, at the user's "dodge about half" (given for Cold
-# attacks, 20 Nov: extended to all, LOW, labelled). The headline stays 0.
-VOLCANIC_DODGE_METRES, VOLCANIC_DODGE_SHARE = models.DODGE_ROLL_METRES, 0.5
+# 4.6 m, the user's Cast on Dodge default) per boss attack dodged. The headline stays 0.
+# (MECHB51, THE USER'S RULING, the manager 05:22 21 Nov, card 05:20 "2 in 3, the videos (Recommended)", RESEARCH41 R41-1:
+# ONE rate for every telegraphed attack) the share dodged has no copy of its own: dodge_share() reads
+# boss_hits.ON_YOU_DODGE (MECH-C's; 2/3 once MECHC49's change lands, 0.5 until then) and its label ON_YOU_DODGE_HOW, with
+# rows at 1/2 and 3/4 (models.DODGE_SHARE_ROWS). The channel wind-up model and Corpsewade's row read the same.
+VOLCANIC_DODGE_METRES = models.DODGE_ROLL_METRES
+
+
+def dodge_share() -> tuple[float, str]:
+    """(the share of the boss's telegraphed attacks dodged, its label): boss_hits.ON_YOU_DODGE, the user's rate."""
+    from builder.search import boss_hits
+
+    return float(boss_hits.ON_YOU_DODGE), str(getattr(boss_hits, "ON_YOU_DODGE_HOW", models.DODGE_HOW_DEFAULT))
 
 
 def mana_short(build: Build, name: str) -> tuple[float, float] | None:
@@ -1625,6 +1635,13 @@ def empowered_presses(build: Build, main: models.Skill | None) -> tuple[list[dic
                      if s["name"] == main.name and s.get("group") == main.group), {})
     mantra = empower_skill(build, models.MANTRA_OF_DESTRUCTION) if main.attack and "Staff" in (
         gem.get("weaponTypes") or []) else None
+    if mantra is not None and main.name in models.IGNORED_BY_MANTRA:  # (MECHB51: the Frozen Locus guard)
+        notes.append({"label": f"{main.name}: Mantra of Destruction not counted on it*", "value": "x1.000",
+                      "confidence": "MEDIUM", "entry": models.IGNORED_BY_ENTRY,
+                      "basis": (f"{main.name}'s own stat set carries active_skill_is_ignored_by_mantra_of_destruction "
+                                "(game 26650308, FrozenLocusPlayer's implicit flags; read from its id: the Mantra "
+                                "doesn't take it, MEDIUM)")})
+        mantra = None
     if mantra is not None:
         level = mantra.get("levelStats") or {}
         gain = number(level.get(models.MANTRA_GAIN))
@@ -1663,6 +1680,11 @@ def empowered_presses(build: Build, main: models.Skill | None) -> tuple[list[dic
                       "play": (f"Press Mantra of Destruction at full Combo, then attack: without it +0%; with it "
                                f"+{gain * share:.1f}% of Damage as Chaos on average, {1 - time:.1%} of the time spent "
                                "pressing it" if share > 0 else "Mantra of Destruction isn't fed here")})
+        from builder.search import bosses as bosses_mod  # (the request's boss preset's add kills, as models() reads)
+        boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses_mod.DEFAULT
+        kills = number(bosses_mod.kill_stats(boss).get(models.ADD_KILLS_STAT))
+        flame_mods, flame_notes = models.purple_flames(kills, share if gain > 0 else 0.0)  # (MECHB51: R41-11)
+        mods, notes = mods + flame_mods, notes + flame_notes
     unleash = empower_skill(build, models.UNLEASH) if main.spell and not main.cooldown else None
     if unleash is not None and raw_main.get("repeatable"):
         level = unleash.get("levelStats") or {}
@@ -3078,6 +3100,14 @@ class Assumptions:
         self.cooldown_fallback: set[str] = set()  # triggered main skills PoB gave no rate
         self.extra_groups: dict[int, int | None] = {}  # groups whose triggered skills count through Full DPS
         self.stat_sets: dict[int, int] = {}  # stat sets chosen for them
+        # (MECHB51, Spectre step 3) Spectre / Tamed Companion choices: {group index: (key, id, skill, note)}, the ids the
+        # tool chose, the shortlist per (kind, The Natural Order), the notes of the last choose_monsters(), and whether a
+        # monster gem was seen (so a removed one's monster is taken off PoB's lists)
+        self.monster_choices: dict[int, tuple] = {}
+        self.monster_picked: set[str] = set()
+        self.monster_short: dict[tuple, list[str]] = {}
+        self.monster_notes: list[dict] = []
+        self.monster_seen = False
         # The main skill's Infused stat set while it's the calculated one (Gems.choose_active_skill): label, factor (its
         # damage scaled to plain + share x (Infused - plain)), share, basis. `infused_skipped`: label -> why it isn't
         self.infused: dict | None = None
@@ -4123,9 +4153,10 @@ class Assumptions:
             wind_stats = build.call("stats", fields=list(dict.fromkeys(["enemySkillTime", *models.MODEL_FIELDS])))
             wind_mods, wind_notes = models.channel_windup_model(
                 main, number(stats.get("Speed")), bosses_mod.benefit_skill_time(wind_stats),
-                number(wind_stats.get("enemySkillTime")), VOLCANIC_DODGE_SHARE, forbidden)
+                number(wind_stats.get("enemySkillTime")), dodge_share()[0], forbidden, dodge_share()[1])
             hand_mods, hand_notes = hand_mods + wind_mods, hand_notes + wind_notes
-        bear_mods, bear_notes = models.bear_stance_model(main, number(stats.get("Speed")), forbidden)  # (MECHB50)
+        bear_mods, bear_notes = models.bear_stance_model(main, number(stats.get("Speed")), forbidden,
+                                                         *self.bear_rotation(main, found))  # (MECHB50; MECHB51: R41-3)
         hand_mods, hand_notes = hand_mods + bear_mods, hand_notes + bear_notes
         if main is not None and group and main.name in models.PERFECT_SETS:  # (MECHB50: the perfect set, labelled)
             perfect_sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
@@ -4134,6 +4165,51 @@ class Assumptions:
             volcano_sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             volcano_mods, volcano_notes = models.volcano_channel_model(main, main.stat_set, volcano_sets, forbidden)
             hand_mods, hand_notes = hand_mods + volcano_mods, hand_notes + volcano_notes
+        if main is not None and main.attack and main.group is not None and models.SPECTRAL_VOLLEY in supports.get(
+                main.group, []):  # (MECHB51: R41-15, its volleys every 3 s)
+            sv_stats = build.call("stats", fields=["Speed", "TotalDPS", "ProjectileCount"])
+            sv_mods, sv_notes = models.spectral_volley_model(main, supports.get(main.group, []), sv_stats, forbidden)
+            hand_mods, hand_notes = hand_mods + sv_mods, hand_notes + sv_notes
+        hand_notes = hand_notes + models.ice_shards_note(main)  # (MECHB51: R41-13, rows only)
+        if main is not None and main.spell and any(s.name == models.ALIGN_FATE for s in found):  # (MECHB51: R41-9)
+            def visage_can(s: models.Skill) -> bool:
+                kinds = set((build.ctx.gems.get(s.name) or {}).get("skillTypes") or ())
+                return (s.spell and not s.triggered and not s.cooldown and s.group is not None
+                        and not kinds & {"Channel", "Buff", "Cooldown"} and s.name != models.ALIGN_FATE)
+            valid = sorted({s.name for s in found if visage_can(s)})
+            align_level = next((x.get("levelStats") or {} for x in build.call(
+                "activeSkills", levelStats=[models.ALIGN_FATE])["skills"]
+                if x["name"] == models.ALIGN_FATE), {})
+            al_mods, al_notes = models.align_fate_model(main, valid, align_level, number(stats.get("Speed")), forbidden)
+            hand_mods, hand_notes = hand_mods + al_mods, hand_notes + al_notes
+        if main is not None and main.spell and main.group is not None:  # (MECHB51: R42-9, a labelled 0 with rows)
+            hand_notes = hand_notes + models.wildshards_note(main, supports.get(main.group, []),
+                                                             number(stats.get("ProjectileCount")) or 1.0)
+        if main is not None and main.name == models.FLAME_BREATH:  # (MECHB51: probe POE2T4763, an OVERCOUNT)
+            fb_stats = build.call("stats", fields=["Speed", "Cooldown"])
+            fb_free = next((number((x.get("levelStats") or {}).get(conditions_mod.FLAME_BREATH_FREE_STAT)) / 1000
+                            for x in build.call("activeSkills", levelStats=[main.name])["skills"]
+                            if x["name"] == main.name), 0.0)
+            fb_share, fb_how = models.fissure_rage_paid(main.name, getattr(build, "rage_paid", None))
+            fb_mods, fb_notes = models.flame_breath_model(main, number(fb_stats.get("Speed")),
+                                                          number(fb_stats.get("Cooldown")), fb_free, fb_share, fb_how,
+                                                          forbidden)
+            hand_mods, hand_notes = hand_mods + fb_mods, hand_notes + fb_notes
+        if main is not None and main.name == models.HAILSTORM_ROUNDS:  # (MECHB51: R41-4 / R42-11, probe POE2T4762)
+            from builder.search import bosses as bosses_mod
+
+            hail_stats = build.call("stats", fields=list(dict.fromkeys(
+                ["Speed", "ReloadTime", "BoltCount", "AreaOfEffectRadius", "AreaOfEffectRadiusSecondary",
+                 *models.MODEL_FIELDS])))
+            hail_mods, hail_notes = models.hailstorm_rounds_model(
+                main, hail_stats, bosses_mod.hit_radius(hail_stats), bosses_mod.hit_radius(hail_stats, "upper"), forbidden)
+            hand_mods, hand_notes = hand_mods + hail_mods, hand_notes + hail_notes
+        if main is not None and main.name in models.LEAP_ADDED_TIME:  # (MECHB51: R42-14, the distance leapt)
+            leap_metres = (models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10
+                           or conditions_mod.natural_distance({"Melee"} if main.melee else set(), main.name))
+            leap_mods, leap_notes = models.leap_time_model(main, leap_metres, conditions_mod.MELEE_DISTANCE,
+                                                           number(stats.get("Speed")), forbidden)
+            hand_mods, hand_notes = hand_mods + leap_mods, hand_notes + leap_notes
         if main is not None and main.name == models.ORB_OF_STORMS and main.group is not None:  # (MECH-B: its recast
             # bolt, labelled; MECHB29: its bolts, frequency and duration from its own useRates row)
             orb_rows = build.call("useRates", indices=[main.group])["rates"]
@@ -4733,6 +4809,7 @@ class Assumptions:
         hand_notes += ita_notes
         for note in ita_notes:  # (PoB's own Ice Fragments entry, where its group is in Full DPS, out: MECHB45, its own)
             self.cut_entries(note.get("entry_cut") or {})
+        hand_notes += self.staggering_palm(found, main, stats)  # (MECHB51: R41-14, probe POE2T4763: an OVERCOUNT)
         legion, legion_notes = infernal_legion(build, stats)  # (MECHB30, H1-7: PoB rates no boss Ignite from it)
         hand_mods += [models.added_input("InfernalLegion", legion)] if legion > 0 else []
         hand_notes += legion_notes
@@ -4897,7 +4974,7 @@ class Assumptions:
             supply = next((number(n.get("value")) for n in corpse_notes
                            if str(n.get("label")).startswith("Corpses per second")), 0.0)
             corpse_notes = corpse_notes + models.decompose_travel_note(
-                [e["text"] for e in source_lines], supply, every, VOLCANIC_DODGE_METRES, VOLCANIC_DODGE_SHARE)
+                [e["text"] for e in source_lines], supply, every, VOLCANIC_DODGE_METRES, *dodge_share())
         # (MECHB31, MB-2: "if you've Triggered a Skill Recently" from every trigger rate handed PoB above, and a triggered
         # main skill's own rate)
         triggered = {m["skill"]: models.number(m.get("value")) for m in mods
@@ -9281,16 +9358,21 @@ class Assumptions:
 
                     every = bosses.benefit_skill_time(build.call("stats", fields=list(dict.fromkeys(
                         ["enemySkillTime", *models.MODEL_FIELDS]))))
-                    steps = ((1 / every if every > 0 else 0.0) * VOLCANIC_DODGE_SHARE * VOLCANIC_DODGE_METRES
-                             / VOLCANIC_STEP_METRES * kaom)
+                    share, how = dodge_share()
                     speed = number(rows[0].get("speed")) if rows else 0.0
-                    row_dps = dps / speed * steps if speed > 0 else 0.0
+
+                    def steps_at(d: float) -> float:
+                        return (1 / every if every > 0 else 0.0) * d * VOLCANIC_DODGE_METRES / VOLCANIC_STEP_METRES * kaom
+
+                    def dps_at(d: float) -> float:
+                        return dps / speed * steps_at(d) if speed > 0 else 0.0
+                    steps, row_dps = steps_at(share), dps_at(share)
                     why += (f"; row (LOW; no source gives movement per boss hit, RESEARCH38 R38-18): one dodge roll "
-                            f"({VOLCANIC_DODGE_METRES:g} m, the Cast on Dodge default) on {VOLCANIC_DODGE_SHARE:.0%} of the "
-                            f"boss's attacks ({1 / every if every > 0 else 0:.2f}/s; the user's 'dodge about half', given "
-                            f"for Cold attacks, extended to all), one Steps per {VOLCANIC_STEP_METRES:g} m while "
-                            f"embodying Kaom ({kaom:.0%}): {steps:.2f}/s, {row_dps:,.1f} DPS (a roll counting as "
-                            "travel: MEDIUM-LOW)")
+                            f"({VOLCANIC_DODGE_METRES:g} m, the Cast on Dodge default) on {share:.0%} of the "
+                            f"boss's attacks ({1 / every if every > 0 else 0:.2f}/s; {how}: one rate for every "
+                            f"telegraphed attack), one Steps per {VOLCANIC_STEP_METRES:g} m while embodying Kaom "
+                            f"({kaom:.0%}): {steps:.2f}/s, {row_dps:,.1f} DPS (a roll counting as travel: MEDIUM-LOW)"
+                            + models.dodge_rows(share, lambda d: f"{steps_at(d):.2f}/s, {dps_at(d):,.1f} DPS"))
                 if keep < 1:
                     cuts[child["name"]] = cuts.get(child["name"], 0.0) + dps * (1 - keep)
                     parts.append(f"{child['name']} ({parent}): PoB's {dps:,.1f} x {keep:.0%} ({why})")
@@ -9641,6 +9723,148 @@ class Assumptions:
         rage = conditions_mod.rage_held(texts, stats)[0] if main == "Furious Slam" else 0.0
         return conditions_mod.jagged_ground(main, main_types, main_gems, stats, gains, aftershock, rage, texts)
 
+    def staggering_palm(self, found: list[models.Skill], main: models.Skill | None, stats: dict) -> list[dict]:
+        """(MECHB51) PoB's Staggering Palm Projectile entry cut to the buff's uptime and the hitting Quarterstaff
+        attacks (models.staggering_palm_keep); a note."""
+        build = self.build
+        palm = next((s for s in found if s.name == models.STAGGERING_PALM and s.group is not None), None)
+        if palm is None:
+            return []
+        spot = self.skill_spot(palm.group, models.STAGGERING_PROJECTILE)
+        if spot is None:
+            return []
+        group = next((g for g in build.groups() if g["index"] == palm.group), {})
+        proj = next(iter(build.call("useRates", indices=[spot[0]], actives=[spot[1]])["rates"]), {})
+        own_rate, own_dps = number(proj.get("speed")), number(proj.get("TotalDPS"))
+        if not group.get("fullDPS") or own_dps <= 0:
+            return []
+        palm_row = next(iter(build.call("useRates", indices=[palm.group], actives=[self.skill_spot(
+            palm.group, palm.name)[1]])["rates"]), {})
+        duration = number(palm_row.get("duration")) or models.STAGGERING_DURATION
+        stuns, stun_how = models.heavy_stun_rate(stats)
+        staff = main is not None and main.attack and "Staff" in ((build.ctx.gems.get(main.name) or {}).get(
+            "weaponTypes") or [])
+        if staff:
+            attacks = number(stats.get("Speed")) * min(number(stats.get("HitChance")) or 100.0, 100.0) / 100
+            who = f"{main.name} ({attacks:.2f} hitting attacks a second)"
+        else:
+            attacks = number(palm_row.get("speed")) * min(number(palm_row.get("HitChance")) or 100.0, 100.0) / 100
+            who = f"Staggering Palm's own uses ({attacks:.2f} hitting a second; the main skill isn't a Quarterstaff attack)"
+        keep, uptime, game = models.staggering_palm_keep(stuns, duration, attacks, own_rate)
+        self.cut_entries({models.STAGGERING_PROJECTILE: own_dps * (1 - keep)})
+        return [{"label": "Staggering Palm: its Projectiles only while the buff is up*", "value": f"x{keep:.3f}",
+                 "confidence": "LOW", "entry": models.STAGGERING_ENTRY,
+                 "basis": (f"PoB counts the Projectile at its own {own_rate:.2f} a second all fight ({own_dps:,.1f} DPS; "
+                           "probe POE2T4763). The game: each Heavy Stun by Staggering Palm grants the buff for "
+                           f"{duration:.2f} s (at most {models.STAGGERING_MAX:g} s; RESEARCH41 R41-14), and while it's up "
+                           f"each Quarterstaff Attack that hits fires one: Heavy Stuns {stuns:.3f} a second ({stun_how}), "
+                           f"up {uptime:.0%} of the fight; {who}: {game:.2f} Projectiles a second, x{keep:.3f} of PoB's "
+                           "(never raised: a faster attack's extra projectiles not counted)"),
+                 "play": ("Heavy Stun the Primed boss with Staggering Palm to keep its buff up; then every Quarterstaff "
+                          "hit also fires a Projectile.")}]
+
+    def bear_rotation(self, main: models.Skill | None, found: list[models.Skill]
+                      ) -> tuple[dict | None, list[dict], float, list[dict]]:
+        """(MECHB51; R41-3) models.bear_stance_model's rotation inputs: the main bear skill's useRates row, the build's
+        other skills that stand the bear (Maul, Walking Calamity, Ferocious Roar: speed, TotalDPS, whether their group is
+        in Full DPS), dodge rolls a second (the user's dodge rate, boss_hits.ON_YOU_DODGE, on the boss's attacks) and
+        this model's own mods from the last pass."""
+        if main is None or main.name not in models.BEAR_DEFAULT_STANCE or main.group is None:
+            return None, [], 0.0, []
+        build = self.build
+        spot = self.skill_spot(main.group, main.name)
+        if spot is None:
+            return None, [], 0.0, []
+        rate = next(iter(build.call("useRates", indices=[spot[0]], actives=[spot[1]])["rates"]), None)
+        full = {g["index"]: bool(g.get("fullDPS")) for g in build.groups()}
+        standers = []
+        for skill in found:
+            if (skill.name not in (*models.BEAR_STANDERS, models.BEAR_ROAR) or skill.group is None
+                    or (skill.name, skill.group) == (main.name, main.group)):
+                continue
+            where = self.skill_spot(skill.group, skill.name)
+            row = next(iter(build.call("useRates", indices=[where[0]], actives=[where[1]])["rates"]), {}) if where else {}
+            standers.append({"name": skill.name, "speed": number(row.get("speed")), "TotalDPS": number(row.get("TotalDPS")),
+                             "full": full.get(skill.group, False) and skill.group != main.group})
+        dodges = 0.0
+        if main.name == "Walking Calamity":
+            from builder.search import bosses as bosses_mod
+
+            every = bosses_mod.benefit_skill_time(build.call("stats", fields=list(dict.fromkeys(
+                ["enemySkillTime", *models.MODEL_FIELDS]))))
+            dodges = dodge_share()[0] / every if every > 0 else 0.0
+        prev = [m for m in self.mods or [] if m.get("tag") == models.BEAR_STANCE_ENTRY and m.get("skill") == main.name]
+        return rate, standers, dodges, prev
+
+    MONSTER_SHORTLIST = 12  # (the best by PoB's monster DPS, re-rated with each support set; MECHB48's plan step 3)
+
+    def choose_monsters(self) -> bool:
+        """(MECHB50's draft, MECHB51; Spectre / Tamed Companion step 3; the manager's R38-9..11) Each enabled group's
+        Summon Spectre / Tamed Companion gem gets a monster: the best of the candidates the search may offer
+        (models.monster_candidates) by PoB's monster DPS, its best skill, within the Spirit left. The candidates are
+        rated once a search (all of them, ~3 ms each, probe POE2T4728), the best MONSTER_SHORTLIST re-rated with each
+        skill whenever the group's supports change. A monster the build already has that this didn't choose (an imported
+        build's) is kept and labelled. PoB scores the chosen skill as used nonstop at its attack rate (held to its
+        cooldown where it has one): no data gives a monster's AI skill use (R38-10, a game-decided rate: LOW), the basic
+        attack a row. True if a choice changed."""
+        build = self.build
+        changed, notes, natural, seen = False, [], None, False
+        for group in build.groups():
+            if group.get("enabled") is False:
+                continue
+            at = next((k for k, s in enumerate(group.get("skills") or []) if s.get("id") in models.MONSTER_GEM_KINDS),
+                      None)
+            if at is None:
+                continue
+            seen = True
+            skill = group["skills"][at]
+            kind, active, chosen = models.MONSTER_GEM_KINDS[skill["id"]], at + 1, skill.get("minion")
+            if kind == "beastList" and natural is None:
+                natural = any(p.get("name") == models.NATURAL_ORDER for p in
+                              build.call("facts", fields=[]).get("passives") or [])
+            key = (kind, bool(natural), tuple(sorted((g.get("name"), g.get("level")) for g in group.get("gems") or []
+                                                     if g.get("support") and g.get("enabled", True))))
+            mine = self.monster_choices.get(group["index"])
+            if chosen and chosen not in self.monster_picked:  # (the build's own monster: kept, labelled)
+                label, confidence = models.monster_source_label(chosen)
+                notes.append({"label": f"{skill.get('name')}: the build's own monster, kept*", "value": chosen,
+                              "confidence": confidence, "entry": models.MONSTER_ENTRY,
+                              "basis": f"{label}. " + models.MONSTER_AI_NOTE})
+                continue
+            if mine is not None and mine[0] == key and chosen == mine[1]:
+                notes.append(mine[3])
+                continue
+            short = self.monster_short.get((kind, bool(natural)))
+            if short is None:
+                rates = build.call("monsterRates", index=group["index"], active=active,
+                                   ids=models.monster_candidates(kind, bool(natural)))["rates"]
+                rated = sorted((r for r in rates if number(r.get("CombinedDPS")) > 0),
+                               key=lambda r: -number(r.get("CombinedDPS")))
+                short = [r["id"] for r in rated[:self.MONSTER_SHORTLIST]]
+                self.monster_short[(kind, bool(natural))] = short
+            if not short:
+                continue
+            rates = build.call("monsterRates", index=group["index"], active=active, ids=short + (
+                [chosen] if chosen and chosen not in short else []), skills=True)["rates"]
+            spirit = build.call("stats", fields=["Spirit", "SpiritUnreserved"])
+            total, free = number(spirit.get("Spirit")), number(spirit.get("SpiritUnreserved"))
+            own = next((models.monster_spirit(r, total) for r in rates if r.get("id") == chosen), 0.0)
+            best = models.monster_best(rates, total, free + own, kind)
+            if best is None:
+                continue
+            mid, index, note = best
+            if mid != chosen or (mine is not None and mine[2] != index):
+                build.call("setMonster", index=group["index"], active=active, id=mid, skill=index)
+                changed = True
+            self.monster_picked.add(mid)
+            self.monster_choices[group["index"]] = (key, mid, index, note)
+            notes.append(note)
+        if seen or self.monster_seen:  # (a removed or swapped gem's monster leaves PoB's lists)
+            changed = bool(build.call("syncMonsters").get("changed")) or changed
+        self.monster_seen = seen
+        self.monster_notes = notes
+        return changed
+
     def skill_spot(self, index: int | None, name: str) -> tuple[int, int] | None:
         """(group index, active position) of the named skill in that group, for setRates / useRates."""
         return next(((g["index"], position) for g in self.build.groups() if g["index"] == index
@@ -9803,10 +10027,11 @@ class Assumptions:
     def apply(self) -> bool:
         """Match PoB's assumed modifiers to the build. True if they changed."""
         unticked = self.untick_imported()  # (MECHB50, R40-13: before the models read PoB's numbers)
+        monster_changed = self.choose_monsters()  # (MECHB51, Spectre step 3: before the models read PoB's numbers)
         mods, notes = self.wanted()
-        self.active = notes + self.untick_notes
+        self.active = notes + self.untick_notes + self.monster_notes
         build = self.build
-        flagged = unticked
+        flagged = unticked or monster_changed
         # (scored on Full DPS once there are extra groups: the main skill's group must count in it too, which a loaded
         # build's own flags don't promise)
         main = build.main_group() if self.extra_groups else None
@@ -9850,6 +10075,8 @@ class Assumptions:
             return True  # its trigger rate and Full DPS share only arrive with the assumptions
         if gem_name == models.APOCALYPSE:
             return True  # its disasters' rates and Full DPS share only arrive with the assumptions (MECHB8)
+        if gem_name in models.MONSTER_GEM_NAMES:
+            return True  # its monster is chosen with the assumptions (MECHB51, Spectre step 3)
         text = (self.build.ctx.all_gems.get(gem_name) or {}).get("description") or ""
         return any((c.get("skills") and re.search(c["skills"], gem_name, re.I))
                    or (c.get("skill_text") and re.search(c["skill_text"], text, re.I)) for c in conditions())

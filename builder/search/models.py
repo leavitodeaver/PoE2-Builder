@@ -2157,23 +2157,25 @@ DECOMPOSE_ENTRY = "model-mechb49-decompose-on-travel"
 
 
 def decompose_travel_note(texts: list[str], supply: float, every: float, dodge_metres: float,
-                          dodge_share: float = 1.0) -> list[dict]:
+                          dodge_share: float = 1.0, dodge_how: str = "the user's rate, 21 Nov (videos)") -> list[dict]:
     """A LOW row for Corpsewade's travel-triggered Decompose (see above): `supply` the corpses a second there are,
     `every` the seconds between boss hits."""
     line = next((m for t in texts if (m := DECOMPOSE_TRAVEL.match(t.strip()))), None)
     if line is None:
         return []
     step = float(line.group(1))
-    steps = (dodge_share * dodge_metres / step / every) if every > 0 and step > 0 else 0.0
+    def steps_at(share: float) -> float:
+        return (share * dodge_metres / step / every) if every > 0 and step > 0 else 0.0
+    steps = steps_at(dodge_share)
     row = min(steps, max(supply, 0.0))
+    rows = dodge_rows(dodge_share, lambda d: f"{min(steps_at(d), max(supply, 0.0)):.2f}/s")
     return [{"label": "Corpsewade: Decompose every metre travelled*", "value": "0 in the headline",
              "confidence": "LOW", "entry": DECOMPOSE_ENTRY,
              "basis": (f"its line triggers Decompose every {step:g} m travelled; how far you move in a boss fight is the "
                        "game's (no data gives it), so no uses are added (the Decompose you press is counted, held to "
                        f"the corpses). Row (LOW, RESEARCH38 R38-18): a {dodge_metres:g} m dodge roll on {dodge_share:.0%} "
-                       f"of the boss's attacks ({1 / every if every > 0 else 0:.2f}/s; the user's 'dodge about half', "
-                       f"given for Cold attacks, extended) makes {steps:.2f} Decompose/s, each needing a corpse "
-                       f"({supply:.3g}/s there): {row:.2f}/s"),
+                       f"of the boss's attacks ({1 / every if every > 0 else 0:.2f}/s; {dodge_how}) makes "
+                       f"{steps:.2f} Decompose/s, each needing a corpse ({supply:.3g}/s there): {row:.2f}/s{rows}"),
              "play": "Keep moving through the corpses: each 1.2 m sets off a Decompose on one."}]
 
 
@@ -16815,11 +16817,22 @@ CHANNEL_WINDUP_ENTRY = "model-mechb50-channel-windup"
 CHANNEL_WINDUP_END = {"Fury of the Mountain": 36, "Hollow Form": 30, "Volcano": 50}  # (channel_end_duration_as_%_of_X_time, 26650308)
 
 
+DODGE_SHARE_ROWS = (0.5, 0.75)  # (MECHB51: the user's ruling, 21 Nov 05:20: rows at 1/2 and 3/4 around the 2 in 3)
+DODGE_HOW_DEFAULT = "the user's rate, 21 Nov (videos)"
+
+
+def dodge_rows(head: float, value) -> str:
+    """'; 50% dodged (a row): ...' for each of DODGE_SHARE_ROWS but the headline's own share; `value(share)` the row's
+    text."""
+    return "".join(f"; {d:.0%} dodged (a row): {value(d)}" for d in DODGE_SHARE_ROWS if abs(d - head) > 1e-9)
+
+
 def channel_windup_model(main: Skill | None, speed: float, every: float, every_row: float, dodge_share: float,
-                         forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+                         forbidden: set[str] = frozenset(), dodge_how: str = DODGE_HOW_DEFAULT
+                         ) -> tuple[list[dict], list[dict]]:
     """A held channel's wind-up once a restart, a restart each dodged boss attack (see above). `speed` PoB's uses a
     second of the main skill, `every` / `every_row` seconds between boss skill uses (the fewest hits / the defence
-    cadence), `dodge_share` the share dodged (the user's half)."""
+    cadence), `dodge_share` the share dodged (boss_hits.ON_YOU_DODGE, the user's rate; `dodge_how` its label)."""
     if main is None or main.name not in CHANNEL_WINDUP or main.name in (OIL_BARRAGE, VOLCANO):  # (MECHB46: oil_barrage_
         return [], []                                         # volley_model counts Oil Barrage's; MECHB50: volcano_channel_model)
     pct, kind = CHANNEL_WINDUP[main.name]
@@ -16830,19 +16843,20 @@ def channel_windup_model(main: Skill | None, speed: float, every: float, every_r
                      "confidence": "UNVERIFIED"}]
     windup = pct / 100.0 / speed
 
-    def kept(gap: float, cost: float) -> float:
-        return max(0.0, 1.0 - dodge_share / gap * cost) if gap > 0 else 1.0
+    def kept(gap: float, cost: float, share: float = dodge_share) -> float:
+        return max(0.0, 1.0 - share / gap * cost) if gap > 0 else 1.0
     head = kept(every, windup)
     end = CHANNEL_WINDUP_END.get(main.name, 0) / 100.0 / speed
     rows = f"; at the boss's defence cadence ({every_row:.2f} s): x{kept(every_row, windup):.3f}" if every_row > 0 else ""
     if end:
         rows += f"; the {CHANNEL_WINDUP_END[main.name]}% end paid too: x{kept(every, windup + end):.3f}"
+    rows += dodge_rows(dodge_share, lambda d: f"x{kept(every, windup, d):.3f}")
     return [raw_mod("DPS", "MORE", 100 * (head - 1), main.name, tag=CHANNEL_WINDUP_ENTRY)], [{
         "label": f"{main.name}: a channel wind-up each dodge*", "value": f"x{head:.3f}", "confidence": "LOW",
         "entry": CHANNEL_WINDUP_ENTRY,
         "basis": (f"PoB scores the channel's hits nonstop and never reads channel_start_duration_as_%_of_{kind}_time "
                   f"{pct}. The player holds it and restarts it after each dodge: {dodge_share:.0%} of the boss's "
-                  f"attacks (the user's 'dodge about half', given for Cold attacks, extended to all: LOW), one every "
+                  f"attacks ({dodge_how}: one rate for every telegraphed attack), one every "
                   f"{every:.2f} s (the fewest hits the boss tables allow), each restart a {windup:.3f} s wind-up "
                   f"({pct}% of its {1 / speed:.3f} s {kind} time) with no hit: x{head:.3f}{rows}"),
         "play": (f"Hold {main.name} through the fight and restart it only after a dodge: each restart costs "
@@ -21124,6 +21138,22 @@ FISSURE_SETS = {"Earthshatter": (("Slam",), "line"), "Sunder": (("Wave",), "line
 FISSURE_BESIDE = {"Molten Crash": ("Molten Crash",)}
 FISSURE_RAGE = {"Molten Crash": 1.0}  # (molten_crash_number_of_additional_fissures_from_rage_consumption, a paid use)
 FISSURE_OWN_HIT = {"Starborn Onslaught": 1.0}  # (R39-5: the impact's own area hit beside its Fissures)
+# (MECHB51; RESEARCH42 R42-5, an UNDERCOUNT, MEDIUM-LOW geometry) the areas ALONG one wave that hit one boss: PoB scores
+# one hit a wave (it reads neither upheaval_number_of_spikes 8 nor the cascade spacing: checked grep "upheaval_number_of_
+# spikes|cascade_aftershock" over SkillStatMap.lua and Modules: none). Glacial Cascade: 8 bursts along a 4.8 m wave from
+# 0.6 m (eased), radius 0.6 m: 6 of 8 (5-7) reach a boss beside you; Sunder: areas spaced at 90% of their size, 2.5 of 5
+# (2-3), its shockwaves hitting only "other enemies around them" (0 on a lone boss). Every area of one use taken to
+# hit the same enemy (MEDIUM: no text forbids it). Glacial Cascade's final spike (its own set) stays as the Fissure model
+# had it. Vivid Stampede's 4 landings a Stag: not a Fissure skill (named in the report).
+FISSURE_ALONG = {"Glacial Cascade": (6.0, (5.0, 7.0), "of its 8 bursts"), "Sunder": (2.5, (2.0, 3.0), "of its 5 areas")}
+# (MECHB51; PLANS7 gs-entangle-vines.md; RESEARCH42 R42-8, MEDIUM cap per enemy / LOW-MEDIUM one hit on attaching) Entangle's
+# Vines set (PoB "Vines", ShowAverage: one vine a use): "Attaches a Vine every 0.1 seconds", "Can attach up to 3 Vines to
+# each enemy" (entangle_vines_maximum_number_of_vines_allowed 3; +3 when Overgrown), "Vines remain attached for up to 1
+# second" (entangle_vine_duration_ms 1000): the cap is per enemy over all fissures and a vine hits once as it attaches,
+# so the boss takes at most 3 vine hits a second while it stands on a live fissure (8 s each: the build's own uses keep
+# one under it, MEDIUM). The use = its Fissures (the count above) + 3 vine hits a second at the Vines set's hit,
+# over the one set PoB scored. The Overgrown +3 is a row (models.overgrown_share's fissures not read here: the lower).
+FISSURE_VINES = {"Entangle": ("Vines", 3.0, 6.0)}  # (the set, vine hits a second, Overgrown)
 # (MECHB50; MECHB49's lead, the manager 23:25: Starborn Onslaught is entirely MECH-B's) Its Star Fall: "The impact
 # releases Fissures and causes stars to fall in the area for a brief period" (ActiveSkills starborn_onslaught), its own
 # stat set (GrantedEffectStatSets StarbornOnslaughtExplosions, PoB "Star Fall": a 2 m area hit, 100% Physical to Cold),
@@ -21225,7 +21255,8 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
         rage = FISSURE_RAGE[main.name] * paid
     own_hit = FISSURE_OWN_HIT.get(main.name, 0.0)
     count = min(cap, base + extra + rage + chance) + own_hit
-    if count <= 1.0 + 1e-9 and main.name not in FISSURE_BESIDE:
+    along, along_rows, along_what = FISSURE_ALONG.get(main.name, (1.0, (), ""))
+    if count * along <= 1.0 + 1e-9 and main.name not in FISSURE_BESIDE and main.name not in FISSURE_VINES:
         return [], []
     share = fissure_arc_share(boss_radius, FISSURE_MELEE_METRES) if layout == "arc" else 1.0
     row_share = fissure_arc_share(boss_radius, FISSURE_ROW_METRES) if layout == "arc" else None
@@ -21247,6 +21278,11 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
         stars = star_fall_hits(level_stats, number(star_set.get("AreaOfEffectRadius")) / 10, boss_radius)
         beside = stars[0] * star_dps
         fissure, total = dps.get(labels[0], 0.0), dps.get(scored or "", 0.0)
+    elif main.name in FISSURE_VINES and scored in labels + (FISSURE_VINES[main.name][0],):  # (MECHB51: R42-8)
+        vine_label, vine_rate, _ = FISSURE_VINES[main.name]
+        vine_hit = number(next((x for x in sets if x.get("label") == vine_label), {}).get("AverageDamage"))
+        beside = vine_rate * vine_hit
+        fissure, total = dps.get(labels[0], 0.0), dps.get(scored or "", 0.0)
     elif main.name in FISSURE_BESIDE and scored in FISSURE_BESIDE[main.name] + labels:
         beside = max((dps.get(k, 0.0) for k in FISSURE_BESIDE[main.name]), default=0.0)
         fissure, total = dps.get(labels[0], 0.0), dps.get(scored or "", 0.0)
@@ -21260,7 +21296,7 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
         if beside is not None:  # (the use's other set + n Fissures, over the one set PoB scored)
             return (beside + n * fissure) / total
         return 1.0 + fissure / total * (n - 1.0)
-    factor, one = scale(count * share), scale(base)
+    factor, one = scale(count * share * along), scale(base * along)
     if fissure > 0 and abs(factor - 1.0) < 1e-9:
         return [], []
     parts = [f"{base:g} base"] + ([f"+{extra:g} from supports (Upheaval / Kaom's Madness)"] if extra else []) + (
@@ -21302,18 +21338,28 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
                          f"x{scale((count - own_hit) * share):.3f})" if own_hit else "")
                       + ". Not counted: the branching Fissures (2 from each, outward: 0 at the boss, R37-16 LOW)")}]
     rows = "".join(f"; with a base of {b:g} a use (RESEARCH39 R39-7, LOW: not settled), "
-                   f"x{scale(min(cap, b + extra + rage + chance) * share):.3f}"
+                   f"x{scale(min(cap, b + extra + rage + chance) * share * along):.3f}"
                    for b in FISSURE_BASE_ROWS.get(main.name, ()))
+    if along != 1.0:  # (R42-5: the areas along each wave)
+        parts.append(f"each hitting the boss with {along:g} {along_what} (RESEARCH42 R42-5, MEDIUM-LOW geometry; "
+                     "PoB scores one a wave)")
+        rows += "".join(f"; {a:g} {along_what} a wave: x{scale(count * share * a):.3f}" for a in along_rows)
     rows += f"; at range only the one aimed at the boss: x{one:.3f}" + (
-        f"; at {FISSURE_ROW_METRES:g} m {row_share:.0%} of them: x{scale(count * row_share):.3f}"
+        f"; at {FISSURE_ROW_METRES:g} m {row_share:.0%} of them: x{scale(count * row_share * along):.3f}"
         if row_share is not None else "")
     return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=FISSURE_ENTRY)], [{
         "label": f"{main.name}: {count:.2f} Fissures a use at the boss*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM-LOW", "entry": FISSURE_ENTRY,
         "basis": (f"PoB counts one Fissure a use. The game makes {count:.2f}: {'; '.join(parts)}; {how}. "
                   + (f"The Fissures are {fissure / total:.0%} of the {scored} DPS scored" if beside is None else
-                     f"One use makes its {FISSURE_BESIDE[main.name][0]} set ({beside:,.1f} DPS) and its Fissures "
-                     f"({fissure:,.1f} DPS each), PoB scoring the {scored} set alone ({total:,.1f}; an UNDERCOUNT)")
+                     (f"Its vines: {FISSURE_VINES[main.name][1]:g} vine hits a second at most on one boss (3 attached "
+                      f"to each enemy, 1 s each, one hit on attaching: RESEARCH42 R42-8, MEDIUM / LOW-MEDIUM), "
+                      f"{beside:,.1f} DPS, beside its Fissures ({fissure:,.1f} DPS each), PoB scoring the {scored} set "
+                      f"alone ({total:,.1f}; an UNDERCOUNT); Overgrown fissures' 3 more a row: "
+                      f"x{(beside * FISSURE_VINES[main.name][2] / FISSURE_VINES[main.name][1] + count * share * fissure) / total:.3f}"
+                      if main.name in FISSURE_VINES else
+                      f"One use makes its {FISSURE_BESIDE[main.name][0]} set ({beside:,.1f} DPS) and its Fissures "
+                      f"({fissure:,.1f} DPS each), PoB scoring the {scored} set alone ({total:,.1f}; an UNDERCOUNT)"))
                   + f": x{factor:.3f}{rows}. Not "
                   "counted: the end spikes, vines and shockwaves of the extra Fissures (R37-16: beyond the boss, LOW)" + (
                       "; the branching Fissures (2 from each, outward: 0 at the boss, R37-16 LOW)"
@@ -21643,30 +21689,107 @@ def minion_count_scale(count: float, hit_dps: float, combined_dps: float) -> flo
 # FuriousSlamPlayer castTime 1, no statMap for the stat; no Modules hit) and nothing modifies them (checked: the three
 # stance stat ids in Mods, PassiveSkills, GrantedEffectQualityStats: 0 rows). PoB adds a BASE "Speed" mod's seconds to
 # a skill's base attack time (CalcOffence 2881-2883), so the added time goes in as that. Which skills leave the bear
-# standing isn't in the data (is_in_bear_standing_stance_or_would_be has no carrier in the stat sets): every use is taken
-# from the default stance (the game's default, MEDIUM).
+# standing isn't in the stat data (is_in_bear_standing_stance_or_would_be has no carrier in the stat sets).
+# (MECHB51; RESEARCH41 R41-3, HIGH: the animation timelines' stand_up / drop_down events plus guides) Maul, Ferocious Roar
+# and Walking Calamity leave the bear STANDING; Furious Slam, Rampage, Fury of the Mountain, any dodge roll and more than
+# ~0.34 s of walking drop it. So the next Slam / Rampage / Walking Calamity skips its added time only straight after one
+# of those three. The rotation, from the build (the user's no-flat-rate rule), the best of:
+# - "without it": every use from the default stance (+a base seconds, final a / m: m PoB's speed divisor, the bridge's
+#   useRates speedMod);
+# - "Maul (or Walking Calamity) then <skill>": a press skill the build already has (a button it presses: no new press);
+#   each use costs that skill's own use time (TotalAttackTime, final seconds) and adds its own hit on the boss (its
+#   useRates TotalDPS / speed; not added when its group is already in Full DPS: PoB counts it there), no added time;
+# - Ferocious Roar (a cooldown Warcry the build presses anyway): uses after a Roar, min(1, Roar rate / the skill's rate),
+#   skip it; the Roar's own cast time not charged (as before, LOW);
+# - Walking Calamity as the main skill: Walking Calamity then Walking Calamity stands, so only the first use after each
+#   dodge roll pays: min(1, dodges a second x its time) of the uses (the user's dodge rate on the boss's attacks).
+# The previous pass's own mods are taken back out of PoB's speed first (tag BEAR_STANCE_ENTRY). Labelled MEDIUM (the
+# stance rules HIGH; the walking between uses not counted: the lower reading of drops, LOW).
 BEAR_DEFAULT_STANCE = {"Furious Slam": 0.4, "Rampage": 0.5, "Walking Calamity": 0.3}
 BEAR_STANCE_ENTRY = "model-mechb50-bear-stance"
+BEAR_STANDERS = ("Maul", "Walking Calamity")  # pressed before the skill (R41-3)
+BEAR_ROAR = "Ferocious Roar"  # a cooldown Warcry that also stands the bear (R41-3)
 
 
-def bear_stance_model(main: Skill | None, speed: float, forbidden: set[str] = frozenset()
+def bear_stance_model(main: Skill | None, speed: float, forbidden: set[str] = frozenset(), rate: dict | None = None,
+                      standers: list[dict] = (), dodges: float = 0.0, prev: list[dict] = ()
                       ) -> tuple[list[dict], list[dict]]:
-    """The default stance's added base attack time on a bear skill (see above). `speed` PoB's attacks a second."""
+    """The default stance's added base attack time on a bear skill, and the rotation that skips it (see above). `speed`
+    PoB's attacks a second; `rate` the main skill's useRates row (speed, speedMod, TotalDPS) or None (every use from the
+    default stance); `standers` the build's other skills that stand the bear, each {"name", "speed", "TotalDPS",
+    "full": its group in Full DPS}; `dodges` dodge rolls a second; `prev` this model's mods from the last pass."""
     if main is None or BEAR_STANCE_ENTRY in forbidden:
         return [], []
     added = BEAR_DEFAULT_STANCE.get(main.name)
     if added is None:
         return [], []
-    row = ""
-    if speed > 0:
-        row = f" (PoB's {speed:.2f} attacks/s before it: about x{1 / (1 + added * speed):.3f}, the speed modifiers aside)"
-    return [raw_mod("Speed", "BASE", added, main.name, tag=BEAR_STANCE_ENTRY)], [{
-        "label": f"{main.name}: +{added:g} s base attack time from the default stance*", "value": f"+{added:g} s",
+    m = number((rate or {}).get("speedMod")) or 0.0
+    now = number((rate or {}).get("speed"))
+    if rate is None or m <= 0 or now <= 0:
+        row = ""
+        if speed > 0:
+            row = f" (PoB's {speed:.2f} attacks/s before it: about x{1 / (1 + added * speed):.3f}, the speed modifiers aside)"
+        return [raw_mod("Speed", "BASE", added, main.name, tag=BEAR_STANCE_ENTRY)], [{
+            "label": f"{main.name}: +{added:g} s base attack time from the default stance*", "value": f"+{added:g} s",
+            "confidence": "MEDIUM", "entry": BEAR_STANCE_ENTRY,
+            "basis": (f"the game's '+{added:g} seconds to base attack time if not standing' "
+                      "(bear_skills_additional_base_attack_time_when_performing_from_default_stance), which PoB doesn't "
+                      f"read{row}; every use taken from the default stance (no rotation read)")}]
+    base_prev = sum(number(x.get("value")) for x in prev if x.get("name") == "Speed" and x.get("type") == "BASE")
+    time_prev = sum(number(x.get("value")) for x in prev if x.get("name") == "TotalAttackTime")
+    more_prev = 1.0
+    for x in prev:
+        if x.get("name") == "DPS" and x.get("type") == "MORE":
+            more_prev *= 1 + number(x.get("value")) / 100
+    plain = max(1 / now - base_prev / m - time_prev, 1e-6)  # one use from standing, PoB's seconds without this model
+    hit = number(rate.get("TotalDPS")) / now / (more_prev or 1.0)  # its damage a use
+    t_default = plain + added / m
+
+    def dps(t: float, extra: float = 0.0) -> float:
+        return (hit + extra) / t if t > 0 else 0.0
+    plays = [("without it", f"every use from the default stance (+{added:g} s base, {added / m:.3f} s at its speed)",
+              dps(t_default), [raw_mod("Speed", "BASE", added, main.name, tag=BEAR_STANCE_ENTRY)])]
+    for st in standers:
+        rate_s = number(st.get("speed"))
+        if st.get("name") == BEAR_ROAR:
+            if rate_s <= 0:
+                continue
+            share = min(1.0, rate_s * t_default)  # (uses straight after a Roar)
+            t = plain + (1 - share) * added / m
+            plays.append((f"{BEAR_ROAR} before it", f"{BEAR_ROAR} on its cooldown ({rate_s:.3f}/s) stands the bear: "
+                          f"{share:.0%} of the uses skip the added time (the Roar's own cast time not charged, LOW)",
+                          dps(t), [raw_mod("Speed", "BASE", (1 - share) * added, main.name, tag=BEAR_STANCE_ENTRY)]))
+        elif st.get("name") in BEAR_STANDERS and st.get("name") != main.name and rate_s > 0:
+            own = number(st.get("TotalDPS")) / rate_s if not st.get("full") else 0.0
+            t = plain + 1 / rate_s
+            mods = [raw_mod("TotalAttackTime", "BASE", 1 / rate_s, main.name, tag=BEAR_STANCE_ENTRY)]
+            if own > 0 and hit > 0:
+                mods.append(raw_mod("DPS", "MORE", 100 * own / hit, main.name, tag=BEAR_STANCE_ENTRY))
+            plays.append((f"{st['name']} then {main.name}",
+                          f"each use straight after a {st['name']} ({1 / rate_s:.3f} s each, its own hit "
+                          + (f"{own:,.1f} added" if own > 0 else "counted in its own Full DPS group" if st.get("full")
+                             else "0") + "): no added time", dps(t, own), mods))
+    if main.name == "Walking Calamity" and dodges > 0:
+        share = min(1.0, dodges * t_default)  # (the first use after each dodge roll pays)
+        plays.append(("Walking Calamity then Walking Calamity",
+                      f"each use leaves the bear standing, so only the first after a dodge roll ({dodges:.3f}/s) pays: "
+                      f"{share:.0%} of the uses", dps(plain + share * added / m),
+                      [raw_mod("Speed", "BASE", share * added, main.name, tag=BEAR_STANCE_ENTRY)]))
+    best = max(plays, key=lambda p: p[2])
+    base = plays[0][2]
+    rows = "; ".join(f"{name}: {how}, {value:,.1f} DPS (x{value / base:.3f})" if base > 0 else f"{name}: {how}"
+                     for name, how, value, _ in plays)
+    chosen = best[0] != "without it"
+    return best[3], [{
+        "label": f"{main.name}: the bear's stance ({best[0]})*", "value": f"x{best[2] / base:.3f}" if base > 0 else "-",
         "confidence": "MEDIUM", "entry": BEAR_STANCE_ENTRY,
         "basis": (f"the game's '+{added:g} seconds to base attack time if not standing' "
-                  "(bear_skills_additional_base_attack_time_when_performing_from_default_stance), which PoB doesn't "
-                  f"read{row}; every use taken from the default stance (the game's default; which skills leave the "
-                  "bear standing isn't in the data)")}]
+                  "(bear_skills_additional_base_attack_time_when_performing_from_default_stance; PoB doesn't read it). "
+                  "Maul, Ferocious Roar and Walking Calamity leave the bear standing; Slams, Rampage, dodge rolls and "
+                  "walking drop it (RESEARCH41 R41-3, HIGH). PoB's one use from standing "
+                  f"{plain:.3f} s and {hit:,.1f} damage on the boss; the rotations: {rows}. Scored: {best[0]}"),
+        "play": ((f"Play {best[0]}: {best[1]}." if chosen else f"Every {main.name} from the default stance.")
+                 + " Rolling or walking between them drops the bear back to all fours.")}]
 
 
 # A perfect-release stat set chosen (MECHB50; PLANS6 kw-perfect-timing.md item 1, a small OVERCOUNT unlabelled before):
@@ -21739,3 +21862,539 @@ def volcano_channel_model(main: Skill | None, scored: str | None, sets: list[dic
                   "lone boss (LOW)"),
         "play": (f"Channel {main.name} to its last stage before releasing: x{factor:.3f}; a quick tap is "
                  f"x{rate(0):.3f}.")}]
+
+
+# Leap skills' attack time added by the distance leapt (MECHB51; PLANS7 gs-leap-attack-time.md, an OVERCOUNT; RESEARCH42
+# R42-14): skill_added_attack_time_by_distance_ms, "Up to +{0} seconds to Total Attack Time based on distance travelled"
+# (Leap Slam 500, Molten Crash 300 (both its sets), Devour 500; leap_slam_animation_distance_threshold 30, 3 m; PoB
+# act_str.lua 8243, 13986 / 14055, 3764), beside the fixed total_attack_time_+_ms (Leap Slam 650, Molten Crash 550) PoB
+# reads (SkillStatMap 2244). PoB reads the distance stat nowhere (checked: grep "by_distance" over SkillStatMap.lua,
+# Modules, Classes: none). The added part grows with distance and is full at 3 m (linear: LOW). The leap's length in a
+# boss fight is the game's (R42-14: "a hop under 1 m" beside a boss, ~0-0.17 s on Leap Slam): at the build's melee
+# distance the headline takes the middle of that, 0.5 m (LOW, a flat number of the game's: named for the manager), with
+# rows 0 m (leaping in place) and 1 m; a build standing further off leaps its distance (to 3 m). A TotalAttackTime BASE
+# (final seconds, PoB CalcOffence 2839, as the fixed part). The wolves' WolfLeapAttackMinion (250 ms) is left out (a
+# minion skill: its leap length is the minion AI's, UNVERIFIED; named in the report).
+LEAP_ADDED_TIME = {"Leap Slam": 0.5, "Molten Crash": 0.3, "Devour": 0.5}
+LEAP_FULL_METRES = 3.0
+LEAP_BESIDE_METRES, LEAP_BESIDE_ROWS = 0.5, (0.0, 1.0)
+LEAP_ENTRY = "model-mechb51-leap-time"
+
+
+def leap_time_model(main: Skill | None, metres: float, melee_metres: float, speed: float = 0.0,
+                    forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """The distance-added attack time of a leap skill (see above). `metres` the build's distance to the boss,
+    `melee_metres` the melee distance (at or under it the leap is a hop beside the boss), `speed` PoB's uses a second."""
+    if main is None or main.name not in LEAP_ADDED_TIME or LEAP_ENTRY in forbidden or main.triggered:
+        return [], []
+    full = LEAP_ADDED_TIME[main.name]
+    beside = metres <= melee_metres + 1e-9
+    leap = LEAP_BESIDE_METRES if beside else min(LEAP_FULL_METRES, metres)
+
+    def added(d: float) -> float:
+        return full * min(1.0, max(d, 0.0) / LEAP_FULL_METRES)
+
+    def kept(d: float) -> str:
+        return f"x{1 / (1 + added(d) * speed):.3f}" if speed > 0 else f"+{added(d):.3f} s"
+    rows = [d for d in ((*LEAP_BESIDE_ROWS, LEAP_FULL_METRES) if beside else (LEAP_BESIDE_METRES, LEAP_FULL_METRES))
+            if abs(d - leap) > 1e-9]
+    head = added(leap)
+    return [raw_mod("TotalAttackTime", "BASE", head, main.name, tag=LEAP_ENTRY)], [{
+        "label": f"{main.name}: +{head:.3f} s attack time for the distance leapt*", "value": f"+{head:.3f} s",
+        "confidence": "LOW", "entry": LEAP_ENTRY,
+        "basis": (f"the game's 'Up to +{full:g} seconds to Total Attack Time based on distance travelled' "
+                  f"(skill_added_attack_time_by_distance_ms), full at {LEAP_FULL_METRES:g} m (taken as linear, LOW; "
+                  "RESEARCH42 R42-14), which PoB doesn't read. "
+                  + (f"Beside the boss each leap is a short hop: {leap:g} m taken (the middle of R42-14's 0-1 m)"
+                     if beside else f"From {metres:g} m each leap covers {leap:g} m")
+                  + f": +{head:.3f} s a use ({kept(leap)} at PoB's {speed:.2f} uses/s); rows: "
+                  + "; ".join(f"{d:g} m {kept(d)}" for d in rows)),
+        "play": f"Leap from close by: each metre leapt adds {full / LEAP_FULL_METRES:.2f} s to {main.name}."}]
+
+
+# Skills the Quarterstaff buffs pass over (MECHB51; PLANS7 gs-frozen-locus-ignored-buffs.md, an OVERCOUNT guard): the
+# game's active_skill_is_ignored_by_mantra_of_destruction / _staggering_palm / _charged_staff, implicit flags with no
+# description, read from their ids (MEDIUM). Carriers: FrozenLocusPlayer alone (checked: the three Stats rows 18578,
+# 18579, 20570 as stat columns of GrantedEffectStatSets, GrantedEffectStatSetsPerLevel, Mods and PassiveSkills, game
+# 26650308: one row, FrozenLocusPlayer's ImplicitStats; poe2db not checked: UNVERIFIED there). Mantra of Destruction's
+# Chaos gain (Assumptions.empowered_presses) is not given to Frozen Locus as the main skill; Staggering Palm's projectile
+# buff isn't modelled (nothing to guard yet); Charged Staff is MECH-C's (named in the report).
+IGNORED_BY_MANTRA = ("Frozen Locus",)
+IGNORED_BY_STAGGERING_PALM = ("Frozen Locus",)
+IGNORED_BY_ENTRY = "model-mechb51-ignored-by-staff-buffs"
+
+
+# Spectres and Tamed Companions: which monsters the search may offer (MECHB50, Spectre step 2; MECHB48's plan; the
+# manager's ruling on RESEARCH38 R38-9..11, research/spectre-tame-sources-and-ai.md). PoB's Data/Spectres.lua lists
+# 619 monsters (its export: MonsterVarieties NotSpectre false, no boss bar unless a Beast) with the spawn places the
+# game's MonsterPacks give. Offered (league-obtainable: a new Forbidden Rites character can bind or tame them):
+# - the 451 with a listed place (all 218 places are current areas, R38-9, HIGH; "Design (Lite) (Act 3)", a likely
+#   developer area, is no monster's only place and is ignored);
+# - the 63 with none that come from core mechanics, by metadata path (R38-9, MEDIUM): Expedition 23, Fate of the Vaal
+#   15, Delirium 12 (LOW: PoB warns some Delirium monsters carry the flag and can't be made spectres), Trial of Chaos 11
+#   (the "Ultimatium" Vaal Flayed), Ritual 2.
+# Not offered: the 105 with no known source (boss / skill minions 36, Hellscape 16, others): never offered, but scored
+# when an imported build has one, labelled "spawn place unknown (UNVERIFIED)" (the manager's call, 20 Nov 22:02).
+# Tamed Companion (Tame Beast: "engulf a Rare Beast", R38-11, HIGH): monsterCategory Beast only, as a Rare; its up to 4
+# kept monster modifiers aren't counted (an UNDERCOUNT, named in the note). Unique Beasts only with The Natural Order
+# (AscendancyHuntress2Notable7: "Tame Beast can capture Unique Beasts"). Which entries are Unique: the 31 Beasts whose
+# Name has a boss-health-bar twin in MonsterVarieties (RESEARCH36's export, scratch/research36/gx; checked with
+# scratch/mechb50/unique_beasts.py: Mighty Silverfist, Anundr, the Sandworm, ...; MEDIUM: the twin is the boss form).
+# Their minion varieties are the tamed forms, so Summon Spectre doesn't offer them either (Bind Spectre takes a
+# defeated monster; the boss form has the bar: MEDIUM-LOW, labelled).
+MONSTER_GEM_KINDS = {"SummonSpectrePlayer": "spectreList", "SummonBeastPlayer": "beastList"}  # (bridge MONSTER_GEMS)
+MONSTER_GEM_NAMES = ("Summon Spectre", "Tamed Companion")
+MONSTER_CORE = (("Expedition", r"LeagueExpedition|Expedition2", "MEDIUM"),
+                ("Fate of the Vaal", r"LeagueIncursion", "MEDIUM"), ("Delirium", r"Delirium", "LOW"),
+                ("Trial of Chaos", r"Ultimatium", "MEDIUM"), ("Ritual", r"LeagueRitual", "MEDIUM"))
+MONSTER_DEV_PLACES = frozenset({"Design (Lite) (Act 3)"})
+NATURAL_ORDER = "The Natural Order"
+MONSTER_ENTRY = "model-mechb50-monster-choice"
+UNIQUE_BEASTS = frozenset({
+    "Metadata/Monsters/LeagueIncursionNew/MiniBosses/SoulCoreQuadrillaBoss/SoulCoreQuadrillaMinion",
+    "Metadata/Monsters/LeagueIncursionNew/MiniBosses/IncursionChainedBeastBoss/ChainedBeastBossMinion_",
+    "Metadata/Monsters/CrowBell/CrowBellBossMinion1", "Metadata/Monsters/CrowBell/CrowBellBossMinion2",
+    "Metadata/Monsters/MudBurrower/MudBurrowerHeadBossMinion1",
+    "Metadata/Monsters/MudBurrower/MudBurrowerHeadBossMinion2",
+    "Metadata/Monsters/ChimeraWetlandsBoss/ChimeraWetlandsBossMinion1",
+    "Metadata/Monsters/ChimeraWetlandsBoss/ChimeraWetlandsBossMinion2",
+    "Metadata/Monsters/Ultimatum/ChimeraUltimatumBossMinion1",
+    "Metadata/Monsters/Ultimatum/ChimeraUltimatumBossMinion2", "Metadata/Monsters/Bird2/MutantBird2Minion1",
+    "Metadata/Monsters/Bird2/MutantBird2Minion2", "Metadata/Monsters/HyenaMonster/RathbreakerBossMinion1",
+    "Metadata/Monsters/HyenaMonster/RathbreakerBossMinion2", "Metadata/Monsters/Quadrilla/QuadrillaBossMinion1",
+    "Metadata/Monsters/Quadrilla/QuadrillaBossMinion2", "Metadata/Monsters/Quadrilla/IcyQuadrillaBossMinion1",
+    "Metadata/Monsters/Quadrilla/IcyQuadrillaBossMinion2", "Metadata/Monsters/GreatWhiteOne/GreatWhiteOneMinion1",
+    "Metadata/Monsters/GreatWhiteOne/GreatWhiteOneMinion2", "Metadata/Monsters/Goblins/Beast/ArenaBeastBossMinion1_",
+    "Metadata/Monsters/ChaosGodOwlBoss/ChaosGodOwlBossMinion", "Metadata/Monsters/ChaosGodOwlBoss/IcyOwlBossMinion1",
+    "Metadata/Monsters/ChaosGodOwlBoss/IcyOwlBossMinion2",
+    "Metadata/Monsters/MarakethSanctumTrial/Boss/Shakari/ShakariMinion1_",
+    "Metadata/Monsters/MarakethSanctumTrial/Boss/Shakari/ShakariMinion2",
+    "Metadata/Monsters/Goblins/Beast/FireBeastBoss/FireBeastBossMinion1",
+    "Metadata/Monsters/Goblins/Beast/FireBeastBoss/FireBeastBossMinion2",
+    "Metadata/Monsters/MarakethSanctumTrial/Boss/Shakari/ShakariDuoMinion",
+    "Metadata/Monsters/Goblins/Beast/ArenaBeastBossMinion2",
+    "Metadata/Monsters/MudBurrower/DevourerDuo/DevourerBossDuoHeadMinion"})
+
+
+def monster_catalog(text: str | None = None) -> dict[str, dict]:
+    """{id: {"name", "category", "source": "placed" | a core mechanic | "unknown", "confidence", "unique"}} from PoB's
+    Data/Spectres.lua (see above; read once), or from `text` (a test's sample)."""
+    global _MONSTER_CATALOG
+    if text is None:
+        if _MONSTER_CATALOG is None:
+            from builder import POB_DIR
+
+            _MONSTER_CATALOG = monster_catalog((POB_DIR / "src" / "Data" / "Spectres.lua").read_text(encoding="utf-8"))
+        return _MONSTER_CATALOG
+    found: dict[str, dict] = {}
+    for mid, body in re.findall(r'^minions\["([^"]+)"\] = \{\n(.*?)^\}', text, re.S | re.M):
+        name = re.search(r'\bname = "([^"]*)"', body)
+        cat = re.search(r'\bmonsterCategory = "([^"]*)"', body)
+        places = re.search(r"\bspawnLocation = \{(.*?)\}", body, re.S)
+        places = [p for p in re.findall(r'"([^"]+)"', places.group(1)) if p not in MONSTER_DEV_PLACES] if places else []
+        source, confidence = "placed", "HIGH"
+        if not places:
+            source, confidence = next(((n, c) for n, pat, c in MONSTER_CORE if re.search(pat, mid)),
+                                      ("unknown", "UNVERIFIED"))
+        found[mid] = {"name": name.group(1) if name else mid, "category": cat.group(1) if cat else "",
+                      "source": source, "confidence": confidence, "unique": mid in UNIQUE_BEASTS}
+    return found
+
+
+_MONSTER_CATALOG: dict[str, dict] | None = None
+
+
+def monster_candidates(kind: str, natural_order: bool = False, catalog: dict | None = None) -> list[str]:
+    """The ids the search may offer a Summon Spectre ("spectreList") or Tamed Companion ("beastList") gem (above)."""
+    catalog = monster_catalog() if catalog is None else catalog
+    out = []
+    for mid, m in catalog.items():
+        if m["unique"]:  # (a Unique beast's tamed form: its boss form is where it's found, so its own place is moot)
+            if kind == "beastList" and natural_order:
+                out.append(mid)
+            continue
+        if m["source"] == "unknown" or (kind == "beastList" and m["category"] != "Beast"):
+            continue
+        out.append(mid)
+    return out
+
+
+def monster_source_label(mid: str, catalog: dict | None = None) -> tuple[str, str]:
+    """(how the monster is reached, confidence) for a chosen or imported monster (above)."""
+    m = (monster_catalog() if catalog is None else catalog).get(mid)
+    if m is None:
+        return "not in PoB's monster list", "UNVERIFIED"
+    if m["unique"]:
+        return ("a Unique beast, tamed from its boss form with The Natural Order (RESEARCH38 R38-11; Unique by its "
+                "boss-bar twin, MEDIUM)"), "MEDIUM"
+    if m["source"] == "unknown":
+        return "spawn place unknown (UNVERIFIED): kept from the imported build, never offered", "UNVERIFIED"
+    if m["source"] == "placed":
+        return "found in the campaign / maps (PoB's spawn places, all current: RESEARCH38 R38-9)", "HIGH"
+    return f"from {m['source']} (a core mechanic, RESEARCH38 R38-9)", m["confidence"]
+
+
+# What PoB scores for a chosen monster (R38-10, HIGH that no data gives AI rates): its chosen skill used nonstop at its
+# attack rate, held to the skill's cooldown where it has one (PoB CalcOffence 3006-3008, the same path for minions).
+MONSTER_AI_NOTE = ("PoB scores the monster's chosen skill as used nonstop, held to its cooldown where it has one; the "
+                   "game's monster AI picks among its skills and no game file gives how often (RESEARCH38 R38-10: a "
+                   "game-decided rate, LOW)")
+
+
+def monster_spirit(rate: dict, total_spirit: float) -> float:
+    """A rated monster's Spirit reservation (bridge.monsterRates: flat, or a percent of the build's Spirit)."""
+    return number(rate.get("spiritFlat")) + number(rate.get("spiritPercent")) / 100.0 * total_spirit
+
+
+def monster_best(rates: list[dict], total_spirit: float, room: float, kind: str,
+                 catalog: dict | None = None) -> tuple[str, int, dict] | None:
+    """(id, skill index, note) of the best rated monster and skill within `room` Spirit (bridge.monsterRates with
+    skills; see above), or None."""
+    best = None
+    for r in rates:
+        if monster_spirit(r, total_spirit) > room + 1e-6:
+            continue
+        for s in r.get("skills") or []:
+            if number(s.get("TotalDPS")) > 0 and (best is None or number(s["TotalDPS"]) > best[2]):
+                best = (r, s, number(s["TotalDPS"]))
+    if best is None:
+        return None
+    r, s, dps = best
+    basic = next((number(x.get("TotalDPS")) for x in r.get("skills") or [] if x.get("name") == "Basic Attack"), None)
+    label, confidence = monster_source_label(r["id"], catalog)
+    kind_beast = kind == "beastList"
+    rows = (f"; with its basic attack only: {basic:,.1f} DPS" if basic is not None and s.get("name") != "Basic Attack"
+            else "")
+    extra = ("; a tamed Rare keeps up to 4 monster modifiers, not counted (an UNDERCOUNT: R38-11)" if kind_beast else "")
+    return r["id"], int(s.get("index") or 1), {
+        "label": f"{r.get('name')}'s {s.get('name') or 'skill'} chosen*", "value": f"{dps:,.1f} DPS",
+        "confidence": "LOW", "entry": MONSTER_ENTRY,
+        "basis": (f"the best of {len(rates)} rated monsters within the {room:g} Spirit left "
+                  f"({monster_spirit(r, total_spirit):g} reserved); {label} ({confidence}). {MONSTER_AI_NOTE}{rows}"
+                  f"{extra}"),
+        "play": f"Bind / tame {r.get('name')} ({label.split(' (')[0]}) and let it use {s.get('name') or 'its skill'}."}
+
+
+# Hailstorm Rounds' bolts on one boss (MECHB51; PLANS7 gs-hailstorm-rounds-hit-cap.md; RESEARCH41 R41-4, RESEARCH42
+# R42-11; probe POE2T4762). PoB scores the skill as a crossbow attack firing one bolt per attack time, then reloading:
+# Speed = N / (N / FiringRate + ReloadTime) (CalcOffence 2879-2897; probe: 55 bolts, 0.636 attacks/s, reload 0.3 s ->
+# 0.634 bolt hits a second), every bolt a hit on the boss. The game: Load Hailstorm Rounds makes one bolt per reload time
+# passively (its 150% more reload speed in PoB's ReloadTime), up to its bolt count, and one use fires them all into a
+# rain: "One bolt now falls every 0.1 seconds" in an expanding circle from the centre (patch 0.3.0), each with a 1 m
+# impact (radius 10) inside a 4 m rain (secondary 40), and "Can Hit each enemy only once every 0.2 seconds"
+# (rain_hit_delay_ms 200, HIGH: the cap is live, R41-4). So the boss's hits a second = bolts made a second (1 /
+# ReloadTime; the volley min(N, rate x the gap between uses), R42-11: all of them while the player fires before the
+# cap fills) x the share landing on it ((boss radius + impact radius) / rain radius, squared, at most 1: bolts spread
+# evenly by area, LOW) x min(1, 0.1 s / 0.2 s) (the inner bolts land back to back, so the cap takes every other: R41-4).
+# PoB's radii (AreaOfEffectRadius / ...Secondary, with the build's area) and the preset's hit radius
+# (bosses.hit_radius); rows: the upper boss radius, and every landing a hit. A DPS more by target / PoB's rate (both
+# ways: PoB's rate follows the attack speed, the game's the reload); the ailments keep PoB's hit rate (named for MECH-A).
+HAILSTORM_ROUNDS, HAILSTORM_ENTRY = "Hailstorm Rounds", "model-mechb51-hailstorm-rounds"
+HAILSTORM_BOLT_INTERVAL, HAILSTORM_HIT_DELAY = 0.1, 0.2  # s (patch 0.3.0; rain_hit_delay_ms 200)
+
+
+def hailstorm_rounds_model(main: Skill | None, stats: dict, boss: tuple[float, str], boss_upper: tuple[float, str],
+                           forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Hailstorm Rounds held to the bolts the build makes and the share that hits one boss (see above). `stats` the main
+    skill's PoB output (Speed, ReloadTime, BoltCount, AreaOfEffectRadius, AreaOfEffectRadiusSecondary); `boss` /
+    `boss_upper` (hit radius in metres, how)."""
+    if main is None or main.name != HAILSTORM_ROUNDS or HAILSTORM_ENTRY in forbidden or main.triggered:
+        return [], []
+    speed, reload = number(stats.get("Speed")), number(stats.get("ReloadTime"))
+    impact = number(stats.get("AreaOfEffectRadius")) / 10 or 1.0
+    rain = number(stats.get("AreaOfEffectRadiusSecondary")) / 10 or 4.0
+    if speed <= 0 or reload <= 0:
+        return [], [{"label": f"{main.name}: bolts on the boss (not counted)", "value": "PoB's rate",
+                     "confidence": "UNVERIFIED", "entry": HAILSTORM_ENTRY,
+                     "basis": "PoB gave no reload time or rate to hold its bolts to: the DPS may be too high"}]
+    made = 1 / reload
+    cap = min(1.0, HAILSTORM_BOLT_INTERVAL / HAILSTORM_HIT_DELAY)
+
+    def share(r: float) -> float:
+        return min(1.0, ((r + impact) / rain) ** 2)
+    target = made * share(boss[0]) * cap
+    factor = target / speed
+    upper = made * share(boss_upper[0]) * cap
+    uncapped = made * share(boss[0])
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=HAILSTORM_ENTRY)], [{
+        "label": f"{main.name}: {target:.2f} bolt hits a second on the boss*", "value": f"x{factor:.3f}",
+        "confidence": "LOW", "entry": HAILSTORM_ENTRY,
+        "basis": (f"PoB scores one bolt hit per attack ({speed:.3f} a second: {number(stats.get('BoltCount')):g} bolts "
+                  f"fired one an attack, then a {reload:.2f} s reload). The game: one bolt made every {reload:.2f} s "
+                  f"({made:.2f} a second; a use fires all those made since the last, up to the bolt count: R42-11), "
+                  f"raining one every {HAILSTORM_BOLT_INTERVAL:g} s outward over {rain:.2f} m with a {impact:.2f} m "
+                  f"impact; {share(boss[0]):.0%} land on the boss ({boss[1]}; spread evenly by area, LOW) and it is hit "
+                  f"at most once every {HAILSTORM_HIT_DELAY:g} s, every other one (x{cap:g}, R41-4, HIGH): "
+                  f"{target:.3f} a second, x{factor:.3f} on PoB's. Rows: {boss_upper[1]}: {upper:.3f} a second, "
+                  f"x{upper / speed:.3f}; every landing a hit (no cap): x{uncapped / speed:.3f}. The ailments keep PoB's "
+                  "hit rate"),
+        "play": (f"Fire {main.name} at least every {number(stats.get('BoltCount')) * reload:.0f} s (before it holds its "
+                 "most bolts), aimed at the boss's centre.")}]
+
+
+# Wildshards' circle novas (MECHB51; PLANS7 gs-wildshards.md; RESEARCH42 R42-9). Wildshards I / II: "N% chance to fire
+# 8 additional Projectiles in a circle" (spell_skill_%_chance_to_fire_8_additional_projectiles_in_nova 20 / 25); Wildshards
+# III (PoB's "Sione's Temper", SupportWildshardsPlayerThree): "Gain 1 Wildshard on casting Supported Spells", "20% chance
+# to fire 8 additional Projectiles in a circle per Wildshard. All Wildshards are lost when Supported Skills fire
+# Projectiles in a circle" (no maximum stat: 100% at 5). PoB reads none (no statMap; checked sup_int.lua 7938, 8665,
+# 8695). Novas a cast: I 0.20, II 0.25; III 0.285 if the roll comes before the gain (the headline reading, the lower:
+# R42-9 UNVERIFIED order), 0.40 if after (a row). The 8 extras fire radially and miss a lone boss (R32-2 (3), forum
+# 3841032 since 0.3.0b, MEDIUM-LOW; the cultivated chance line is read the same way, MECHB49): 0 in the headline, a
+# labelled row with one of the 8 hitting the boss per nova (an UNDERCOUNT at most, the boss in the nova's path).
+WILDSHARDS_NOVAS = {"Wildshards I": (0.20, None), "Wildshards II": (0.25, None), "Sione's Temper": (0.285, 0.40),
+                    "Wildshards III": (0.285, 0.40)}
+WILDSHARDS_ENTRY = "model-mechb51-wildshards"
+
+
+def wildshards_note(main: Skill | None, supports: list[str], projectiles: float = 1.0) -> list[dict]:
+    """A labelled note for a Wildshards support on the main Spell (see above): 0 in the headline, the rows."""
+    found = next((s for s in supports if s in WILDSHARDS_NOVAS), None)
+    if main is None or found is None:
+        return []
+    head, upper = WILDSHARDS_NOVAS[found]
+    one = 1.0 / max(projectiles, 1.0)
+    rows = f"one of the 8 hitting the boss a nova: +{head * one:.3f} of a cast's projectile hits ({head:g} novas a cast)"
+    if upper is not None:
+        rows += (f"; with the Wildshard gained before the roll ({upper:g} novas a cast, R42-9's other reading): "
+                 f"+{upper * one:.3f}")
+    return [{"label": f"{main.name}: {found}'s circle novas (0 on the boss)*", "value": "x1.000", "confidence": "LOW",
+             "entry": WILDSHARDS_ENTRY,
+             "basis": (f"{found} fires 8 more projectiles in a circle on {head:g} of the casts"
+                       + (" (the roll before the Wildshard is gained: the lower of R42-9's two readings, UNVERIFIED "
+                          "order)" if upper is not None else "")
+                       + "; PoB reads none of it. They fire radially and miss a lone boss (R32-2 (3), MEDIUM-LOW): 0 "
+                       f"counted. Row: {rows}"),
+             "play": f"{found}'s novas hit the adds around the boss, not the boss."}]
+
+
+# Spectral Volley's Spectral Projectiles (MECHB51; PLANS7 gs-spectral-volley-projectiles.md; RESEARCH41 R41-15,
+# MEDIUM-HIGH; an UNDERCOUNT: the support scored as a pure loss before). SupportSpectralVolleyPlayer: one Spectral
+# Projectile stored per attack, at most 5 (support_spectral_arrows_maximum_spectral_arrows), 0.1 s apart when they fire,
+# "Spectral Projectiles will fire if no Spectral Projectiles have been created in the last 3 seconds"
+# (support_spectral_arrows_base_duration_ms 3000); 20% more Damage with them, 60% less with the attack's own (the 60%
+# less is counted: supports-translated.yaml support-spectral-volley-own-projectiles; PoB maps none, sup_dex.lua 5291).
+# R41-15: a volley every 3 s even while the player keeps attacking (the headline, MEDIUM-HIGH); the files read literally
+# (the store full after 5 attacks, then 3 s with none made) a row: every 3 s + 5 / attack rate. Each Spectral Projectile
+# = one projectile of the attack x (1 + 20%) / (1 - 60%) of what PoB scores for it now (the support's own stats; the
+# 20% through support_part_scale "spectral"), all reaching the boss (aimed shots: MEDIUM).
+SPECTRAL_VOLLEY, SPECTRAL_ENTRY = "Spectral Volley", "model-mechb51-spectral-volley"
+SPECTRAL_MAX, SPECTRAL_WAIT = 5.0, 3.0
+SPECTRAL_OWN_STAT = "support_spectral_arrows_damage_+%_final_with_non_spectral_projectiles"
+SPECTRAL_MORE_STAT = "support_spectral_arrows_damage_+%_final_with_spectral_projectiles"
+
+
+def spectral_volley_model(main: Skill | None, supports: list[str], stats: dict,
+                          forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Spectral Volley's volleys on the main attack (see above). `stats` the main skill's PoB output (Speed, TotalDPS,
+    ProjectileCount)."""
+    if main is None or SPECTRAL_VOLLEY not in supports or SPECTRAL_ENTRY in forbidden or not main.attack:
+        return [], []
+    speed, hits = number(stats.get("Speed")), number(stats.get("TotalDPS"))
+    projectiles = max(number(stats.get("ProjectileCount")) or 1.0, 1.0)
+    if speed <= 0 or hits <= 0:
+        return [], []
+    own = number((main.support_stats or {}).get(SPECTRAL_OWN_STAT)) or -60.0
+    more_stat = number((main.support_stats or {}).get(SPECTRAL_MORE_STAT)) or 20.0
+    scale, part_notes = support_part_scale(main, "spectral")
+    more = scale.get("Damage", 1.0 + more_stat / 100.0)
+    one = hits / speed / projectiles / max(1.0 + own / 100.0, 1e-6) * more  # (a Spectral Projectile's damage)
+
+    def factor(cycle: float) -> float:
+        return 1.0 + SPECTRAL_MAX * one / cycle / hits
+    head, row = factor(SPECTRAL_WAIT), factor(SPECTRAL_WAIT + SPECTRAL_MAX / speed)
+    return [raw_mod("DPS", "MORE", 100 * (head - 1), main.name, tag=SPECTRAL_ENTRY)], [{
+        "label": f"{main.name}: Spectral Volley's {SPECTRAL_MAX:g} Spectral Projectiles every {SPECTRAL_WAIT:g} s*",
+        "value": f"x{head:.3f}", "confidence": "MEDIUM", "entry": SPECTRAL_ENTRY,
+        "basis": (f"PoB counts none of them (the attack's own projectiles at {100 + own:g}% are counted). One stored a "
+                  f"attack, at most {SPECTRAL_MAX:g}, fired {SPECTRAL_WAIT:g} s after the last was made: a volley every "
+                  f"{SPECTRAL_WAIT:g} s while attacking (RESEARCH41 R41-15, MEDIUM-HIGH), each at {more:.2f}x a "
+                  f"projectile of the attack ({one:,.1f} a hit: PoB's use split over its {projectiles:g} projectiles, "
+                  f"the lower reading; all reaching the boss, MEDIUM): x{head:.3f}. Row: the "
+                  f"store filling first ({SPECTRAL_MAX:g} attacks at {speed:.2f}/s, then {SPECTRAL_WAIT:g} s): "
+                  f"x{row:.3f}; without the support, x{1 / max(1.0 + own / 100.0, 1e-6):.3f} on the attack's own "
+                  "damage"),
+        "play": f"Keep attacking with {main.name}: its Spectral Projectiles fire every {SPECTRAL_WAIT:g} s."}] + part_notes
+
+
+# Ice Shards' armed bonus (MECHB51; PLANS7 gs-ice-shards-armed-bonus.md; RESEARCH41 R41-13, HIGH that it ramps: patch
+# 0.3.0 "gained smoothly over time rather than being binary"; linear MEDIUM): "Shards deal up to 400% more damage 2
+# seconds after arming" (permafrost_shard_damage_+%_final_after_1_second 400, permafrost_shard_bonus_damage_delay_ms
+# 2000, arming 1500 ms; PoB maps none: act_str.lua's Shard set has no statMap). 400% x min(1, t / 2 s), t the time a
+# shard waits armed before the boss sets it off. The build's own use: its shards are fired at the boss (one a bolt,
+# hazards_on_boss), so each goes off as it arms, t = 0: the headline x1 (no flat wait guessed). A row for the play
+# "lay shards ahead of where the boss will stand": x(1 + 4 t / 2) on the shards' hits (t 1 s, 2 s), the boss's path the
+# fight's (LOW).
+ICE_SHARDS, ICE_SHARDS_MORE, ICE_SHARDS_RAMP = "Ice Shards", 400.0, 2.0
+
+
+def ice_shards_note(main: Skill | None) -> list[dict]:
+    """The armed bonus's play rows for Ice Shards as the main skill (see above); the headline unchanged."""
+    if main is None or main.name != ICE_SHARDS:
+        return []
+
+    def more(t: float) -> float:
+        return 1 + ICE_SHARDS_MORE / 100 * min(1.0, t / ICE_SHARDS_RAMP)
+    return [{"label": f"{main.name}: shards' armed bonus (0 at the boss's feet)*", "value": "x1.000",
+             "confidence": "LOW",
+             "basis": (f"'Shards deal up to {ICE_SHARDS_MORE:g}% more damage {ICE_SHARDS_RAMP:g} seconds after arming', "
+                       "gained smoothly (patch 0.3.0; linear: RESEARCH41 R41-13, MEDIUM); PoB reads none of it. The "
+                       "build fires its shards at the boss, so each goes off as it arms: no bonus counted. Rows (laid "
+                       f"ahead of the boss, set off t s after arming): t 1 s x{more(1):.1f}, t 2 s x{more(2):.1f} on the "
+                       "shards' hits"),
+             "play": "Lay shards where the boss will walk 2 s before it gets there: up to 5x their damage."}]
+
+
+# Align Fate (MECHB51; PLANS7 gs-align-fate.md; RESEARCH41 R41-9). "While active, visages of yourself from alternate
+# timelines will occasionally appear and cast one of your Spells from your first valid Weapon Set. Until the next visage
+# appears, your next cast of the same Spell aligns your fate, Empowering that Spell. Visages can only cast damaging,
+# non-Channelling, non-Buff Spells you could cast that have no cooldown" (ActiveSkills align_fate). AlignFatePlayer:
+# base_cooldown_modifiable_repeat_interval_ms (12 s at level 1 ... 9.15 s at 20), "25% more Visage frequency per Spell
+# Visages could cast" (..._per_socketed_valid_spell 25), "Empowered Spell Damage 30% more" (..._if_matching_flux_cast
+# 30), the quality's more frequency; PoB maps none (other.lua 348: no statMap). Visages a second = 1 / (interval / (1 +
+# 25% x N) / (1 + quality)), N the build's valid spells (gem types: Spell, no Channel / Buff / Cooldown, not triggered;
+# the weapon set not read: LOW); each casts one of them at random (R41-9, MEDIUM-HIGH): the main Spell 1 / N of them.
+# Each such visage Empowers the player's next cast of it: 30% more on that cast (the main Spell is cast far more often
+# than the visages come: one Empowered cast per visage). Whether a visage's own cast uses your stats is UNVERIFIED (a
+# 0.5.0 fix hints it does, LOW): the headline counts the Empowered casts only (the lower reading), the visage's own cast
+# at your damage a row. Cooldown recovery on the interval is not read (the lower reading).
+ALIGN_FATE, ALIGN_FATE_ENTRY = "Align Fate", "model-mechb51-align-fate"
+ALIGN_INTERVAL_STAT = "base_cooldown_modifiable_repeat_interval_ms"
+ALIGN_PER_SPELL_STAT, ALIGN_MORE_STAT = ("spellflux_frequency_+%_final_per_socketed_valid_spell",
+                                         "spellflux_spell_damage_+%_final_if_matching_flux_cast")
+ALIGN_QUALITY_STAT = "spellflux_frequency_+%_final"
+
+
+def align_fate_model(main: Skill | None, valid: list[str], level: dict, speed: float,
+                     forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Align Fate's Empowered casts of the main Spell (see above). `valid` the build's spells a visage may cast, `level`
+    Align Fate's level stats, `speed` the main Spell's casts a second."""
+    if main is None or not main.spell or ALIGN_FATE_ENTRY in forbidden or speed <= 0:
+        return [], []
+    if main.name not in valid:
+        return [], [{"label": f"{main.name}: Align Fate's visages don't cast it*", "value": "x1.000",
+                     "confidence": "MEDIUM", "entry": ALIGN_FATE_ENTRY,
+                     "basis": ("visages cast only damaging, non-Channelling, non-Buff Spells with no cooldown: "
+                               f"{main.name} isn't one, so none of its casts is Empowered")}]
+    n = len(valid)
+    base = number(level.get(ALIGN_INTERVAL_STAT)) / 1000 or 12.0
+    per = number(level.get(ALIGN_PER_SPELL_STAT)) or 25.0
+    more = number(level.get(ALIGN_MORE_STAT)) or 30.0
+    quality = number(level.get(ALIGN_QUALITY_STAT))
+    interval = base / (1 + per / 100 * n) / (1 + quality / 100)
+    mine = 1 / interval / n  # (visages a second that pick the main Spell)
+    empowered = min(mine, speed) / speed
+    head = 1 + more / 100 * empowered
+    row = head + min(mine, speed) / speed
+    return [raw_mod("DPS", "MORE", 100 * (head - 1), main.name, tag=ALIGN_FATE_ENTRY)], [{
+        "label": f"{main.name}: Align Fate Empowers one cast a visage*", "value": f"x{head:.3f}", "confidence": "LOW",
+        "entry": ALIGN_FATE_ENTRY,
+        "basis": (f"PoB counts none of Align Fate. A visage every {interval:.2f} s ({base:g} s / (1 + {per:g}% x {n} "
+                  f"valid Spells: {', '.join(valid)})" + (f" / {1 + quality / 100:.2f} quality" if quality else "")
+                  + f"; cooldown recovery not read), each casting one of them at random (RESEARCH41 R41-9, MEDIUM-HIGH): "
+                  f"{mine:.3f} a second cast {main.name}, each Empowering your next cast of it ({more:g}% more) of your "
+                  f"{speed:.2f} a second: x{head:.3f}. Whether the visage's own cast uses your stats is UNVERIFIED "
+                  f"(R41-9, LOW that it does): not counted; with it at your damage, x{row:.3f} (a row)"),
+        "play": (f"Keep casting {main.name}: each visage that casts it Empowers your next one. Fewer valid Spells means "
+                 f"more of the visages cast {main.name}.")}]
+
+
+# Mantra of Destruction's Purple Flames of Chayula (MECHB51; RESEARCH41 R41-11, HIGH on 7% / 10 stacks; the manager:
+# kill-driven, no flat rate). "Each kill with the Empowered Attack grants Purple Flames of Chayula for a duration"
+# (MantraOfDestructionPlayer); KeywordPopups: "a stacking Buff granting 7% of damage as extra Chaos damage. Stacks up to
+# 10 times" (purple_flame_all_damage_%_gained_as_chaos 7); base_secondary_skill_effect_duration 20000 read as the
+# flame's duration (LOW). Kills come only from the boss preset's adds the build kills (AddKillsPerSecond, MECH-D's
+# presets: 0 on a lone boss, said), the Empowered attack's share of them = its share of the main attack's uses (kills
+# spread evenly over the attacks, LOW). Stacks = min(10, flames a second x 20 s), each stack its own timer (UNVERIFIED);
+# the gain on all your damage ("granting ... damage": the buff's, MEDIUM).
+MANTRA_FLAME, MANTRA_FLAME_MAX, MANTRA_FLAME_DURATION = 7.0, 10.0, 20.0
+MANTRA_FLAME_ENTRY = "model-mechb51-purple-flames"
+
+
+def purple_flames(kills: float, empowered: float) -> tuple[list[dict], list[dict]]:
+    """Purple Flames from the Empowered attack's kills (see above): `kills` the preset's add kills a second,
+    `empowered` the share of the main attack's uses Empowered."""
+    gains = max(kills, 0.0) * max(empowered, 0.0)
+    stacks = min(MANTRA_FLAME_MAX, gains * MANTRA_FLAME_DURATION)
+    value = MANTRA_FLAME * stacks
+    note = {"label": "Mantra of Destruction: Purple Flames of Chayula from kills*", "value": f"{value:.1f}% as Chaos",
+            "confidence": "LOW", "entry": MANTRA_FLAME_ENTRY,
+            "basis": (f"each kill with the Empowered attack grants a Purple Flame (7% of damage as extra Chaos, up to "
+                      f"{MANTRA_FLAME_MAX:g}; {MANTRA_FLAME_DURATION:g} s each read from the skill's secondary duration, "
+                      f"LOW; RESEARCH41 R41-11). Kills: the boss preset's adds, {kills:.3f} a second, {empowered:.0%} of "
+                      f"them by the Empowered attack (its share of the uses, LOW): {gains:.3f} flames a second, "
+                      f"{stacks:.2f} held" + ("" if kills > 0 else "; a lone boss gives no kills: 0 (no flat rate)")),
+            "play": "Kill the boss's adds with the Empowered attack to stack Purple Flames."}
+    return ([line("Gain 1% of Damage as Extra Chaos Damage", value)] if value > 0 else []), [note]
+
+
+# Staggering Palm's projectile buff (MECHB51; PLANS7 gs-staggering-palm-buff.md; RESEARCH41 R41-14, HIGH 7.5 s / 30 s,
+# MEDIUM one projectile per hitting attack; probe POE2T4763: an OVERCOUNT). PoB's gem grants a second active skill,
+# StaggeringPalmProjectilePlayer ("Projectile", Gems.lua additionalGrantedEffectId1), with no trigger handling: Full DPS
+# counts it at its own attack rate all fight (probe: 41.1 of the 93.0 Full DPS on a Staggering Palm build; 41.1 added
+# beside a Falling Thunder main). The game: "Heavy Stunning an enemy with this Skill grants you a Buff that causes your
+# Quarterstaff Attacks to also fire Projectiles for a short duration. Heavy Stunning additional enemies adds to the
+# Buff's duration" (7.5 s a Heavy Stun, base_skill_effect_duration 7500 with the build's duration modifiers; at most
+# 30 s, staggering_palm_buff_max_duration_ms), one projectile per Quarterstaff Attack that hits
+# (triggered_by_staggering_palm_on_hit_with_other_skill). Uptime = min(1, Heavy Stuns a second x the duration), the
+# Heavy Stuns the build's own (heavy_stun_rate on the main skill: Staggering Palm pressed on the Primed boss makes each
+# one, LOW where Palm isn't the main skill); projectiles a second = the main Quarterstaff attack's uses x its hit chance
+# (Staggering Palm's own when the main skill isn't a Quarterstaff attack) x the uptime. PoB's entry is cut to that rate
+# (raised never: a faster main attack's extra projectiles not counted, the lower reading).
+STAGGERING_PALM, STAGGERING_PROJECTILE = "Staggering Palm", "Projectile"
+STAGGERING_ENTRY = "model-mechb51-staggering-palm"
+STAGGERING_DURATION, STAGGERING_MAX = 7.5, 30.0
+
+
+def staggering_palm_keep(stuns: float, duration: float, attacks: float, own_rate: float) -> tuple[float, float, float]:
+    """(the share of PoB's Projectile entry kept, the buff's uptime, projectiles a second in the game) (see above):
+    `stuns` Heavy Stuns a second, `duration` the buff per stun (s), `attacks` hitting Quarterstaff attacks a second,
+    `own_rate` PoB's rate for the Projectile."""
+    uptime = min(1.0, max(stuns, 0.0) * max(duration, 0.0))
+    game = max(attacks, 0.0) * uptime
+    keep = min(1.0, game / own_rate) if own_rate > 0 else 0.0
+    return keep, uptime, game
+
+
+# Flame Breath's channel inside its cooldown (MECHB51; PLANS7 gs-animation-busy-time.md item 1, an OVERCOUNT; probe
+# POE2T4763: PoB scores the channel's hits nonstop, 7.26 a second, its 10.03 s Cooldown shown but not limiting Speed).
+# WyvernFlameBreathPlayer: cooldown 10 s, channelled_skill_do_not_go_on_cooldown_on_finishing_channel (the cooldown runs
+# from the channel's start: 0.4.0c, RESEARCH28 R28-14), "Channelling ends after a short amount of time but can be
+# prolonged by spending Rage" (channelled_skill_suppress_ongoing_rage_cost_for_first_X_ms 4000: the free window; 360
+# Rage a minute after it), start_animation_duration_as_%_of_attack_time 400 (a wind-up of 4 attack times a channel; PoB
+# maps none of them: checked grep "start_animation|do_not_go_on_cooldown" over SkillStatMap.lua and Modules: none). It
+# "can't gain Rage while in use" (conditions' Compounding note), so a channel is the free window plus what the build's
+# Rage pays (MECH-C's build.rage_paid share of the Rage asked, LOW), and a cycle is max(wind-up + channel, the cooldown).
+# Damage share = channel / cycle (the wait is time for other skills, not counted here: the lower reading). The wind-up's
+# "attack time" taken as the skill's own (1 / PoB's Speed, MEDIUM-LOW); a row at 8 of those (its 700% attack speed
+# multiplier left out: UNVERIFIED which). Rows: no Rage (the free window alone) and Rage paying all.
+FLAME_BREATH, FLAME_BREATH_ENTRY = "Flame Breath", "model-mechb51-flame-breath"
+FLAME_BREATH_WINDUP, FLAME_BREATH_FREE = 4.0, 4.0  # attack times; s (the free window's fallback)
+
+
+def flame_breath_model(main: Skill | None, speed: float, cooldown: float, free: float, rage_share: float,
+                       rage_how: str, forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Flame Breath's damage share of its cooldown cycle (see above). `speed` PoB's hits a second, `cooldown` its
+    Cooldown, `free` the Rage-free window (s), `rage_share` the share of its Rage asked the build pays."""
+    if main is None or main.name != FLAME_BREATH or FLAME_BREATH_ENTRY in forbidden or main.triggered:
+        return [], []
+    if speed <= 0 or cooldown <= 0:
+        return [], []
+    free = free or FLAME_BREATH_FREE
+
+    def share(paid: float, windup: float) -> float:
+        cycle = max(windup + free, cooldown)
+        channel = free + max(0.0, min(1.0, paid)) * max(0.0, cooldown - windup - free)
+        return min(1.0, channel / cycle) if paid < 1.0 else max(0.0, 1.0 - windup / max(cycle, windup + free))
+    windup = FLAME_BREATH_WINDUP / speed
+    head = share(rage_share, windup)
+    return [raw_mod("DPS", "MORE", 100 * (head - 1), main.name, tag=FLAME_BREATH_ENTRY)], [{
+        "label": f"{main.name}: its channel {head:.0%} of each {max(windup + free, cooldown):.1f} s cooldown*",
+        "value": f"x{head:.3f}", "confidence": "LOW", "entry": FLAME_BREATH_ENTRY,
+        "basis": (f"PoB scores its hits nonstop ({speed:.2f} a second) with the {cooldown:.2f} s cooldown not limiting "
+                  "them (probe POE2T4763). The game: the cooldown runs from each channel's start, a channel lasts its "
+                  f"{free:g} s Rage-free window plus what Rage pays ({rage_how}; no Rage gained while in use), after a "
+                  f"{windup:.2f} s wind-up (4 attack times at its own speed, MEDIUM-LOW): x{head:.3f}. Rows: no Rage "
+                  f"x{share(0.0, windup):.3f}; Rage paying all x{share(1.0, windup):.3f}; the wind-up at 8x that "
+                  f"(without its attack speed multiplier) x{share(rage_share, windup * 8):.3f}"),
+        "play": (f"Press {main.name} as its cooldown ends and channel through the Rage-free window"
+                 + (" and on with Rage" if rage_share > 0 else "") + "; use other skills while it recovers.")}]

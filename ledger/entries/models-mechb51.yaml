@@ -1,0 +1,154 @@
+- id: model-mechb51-leap-time
+  title: "Leap skills' attack time added by the distance leapt (models.leap_time_model)"
+  kind: model
+  model: leap_time
+  stats: ["skill_added_attack_time_by_distance_ms", "leap_slam_animation_distance_threshold"]
+  skill: [Leap Slam, Molten Crash, Devour]
+  confidence: theory
+  notes: >-
+    MECHB51 (PLANS7 gs-leap-attack-time.md, an OVERCOUNT; RESEARCH42 R42-14). "Up to +{0} seconds to Total Attack Time
+    based on distance travelled" (Leap Slam 500, Molten Crash 300, Devour 500 ms), full at the 3 m threshold (linear:
+    LOW), which PoB reads nowhere (checked: grep "by_distance" over SkillStatMap.lua, Modules, Classes). Beside the boss
+    a 0.5 m hop (the middle of R42-14's 0-1 m, LOW; rows 0 and 1 m); from further off the build's distance, to 3 m. A
+    TotalAttackTime BASE (final seconds, like PoB's fixed total_attack_time_+_ms). The wolves' WolfLeapAttackMinion
+    (250 ms) is not modelled (its leap length is the minion AI's, UNVERIFIED).
+  sources: ["builder/search/models.py (LEAP_ADDED_TIME, leap_time_model)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua:3764,8243,13986,14055"]
+  status: proposed
+
+- id: model-mechb51-ignored-by-staff-buffs
+  title: "Frozen Locus isn't taken by Mantra of Destruction (models.IGNORED_BY_MANTRA)"
+  kind: model
+  model: ignored_by_staff_buffs
+  stats: ["active_skill_is_ignored_by_mantra_of_destruction", "active_skill_is_ignored_by_staggering_palm"]
+  skill: [Frozen Locus]
+  confidence: theory
+  notes: >-
+    MECHB51 (PLANS7 gs-frozen-locus-ignored-buffs.md, an OVERCOUNT guard). FrozenLocusPlayer's implicit flags (read from
+    their ids, MEDIUM): Mantra of Destruction's Chaos gain is not given to it as the main skill. Carriers: Frozen Locus
+    alone (checked: Stats rows 18578 / 18579 / 20570 in GrantedEffectStatSets, its PerLevel, Mods, PassiveSkills, game
+    26650308; poe2db not checked). Staggering Palm's buff isn't modelled; active_skill_is_ignored_by_charged_staff is
+    MECH-C's (Charged Staff).
+  sources: ["builder/search/models.py (IGNORED_BY_MANTRA)", "builder/search/assumptions.py (empowered_presses)", "data/game-26650308/tables/GrantedEffectStatSets.json (FrozenLocusPlayer)"]
+  status: proposed
+
+- id: model-mechb50-monster-choice
+  title: "The monster a Summon Spectre / Tamed Companion gem holds (models.monster_candidates, Assumptions.choose_monsters)"
+  kind: model
+  model: monster_choice
+  skill: [Summon Spectre, Tamed Companion]
+  confidence: theory
+  notes: >-
+    MECHB50's drafts, pasted by MECHB51 (MECHB48's plan steps 2-3; the manager's ruling on RESEARCH38 R38-9..11). PoB
+    holds no monster for the tool's own gems (they scored 0, probe POE2T4728). Offered: the 451 Spectres PoB lists with a
+    spawn place plus the 63 from core mechanics (Expedition, Fate of the Vaal, Delirium (LOW), Trial of Chaos, Ritual);
+    the 105 with no known source never offered, kept from an imported build and labelled "spawn place unknown
+    (UNVERIFIED)". Tamed Companion: Beasts only, as Rares (their up to 4 kept modifiers not counted: an UNDERCOUNT);
+    Unique Beasts only with The Natural Order. The best by PoB's monster DPS within the Spirit left, its best skill,
+    re-rated when the group's supports change. PoB scores the skill used nonstop (held to its cooldown): no data gives a
+    monster's AI use (R38-10, LOW), the basic attack a row.
+  sources: ["builder/search/models.py (monster_catalog, monster_candidates, monster_best)", "builder/search/assumptions.py (choose_monsters)", "engine/bridge.lua (describeGroup id / minion, syncMonsters)", "vendor/PathOfBuilding-PoE2/src/Data/Spectres.lua"]
+  status: proposed
+
+- id: model-mechb51-hailstorm-rounds
+  title: "Hailstorm Rounds held to the bolts the build makes and the share that hits one boss (models.hailstorm_rounds_model)"
+  kind: model
+  model: hailstorm_rounds
+  stats: ["rain_hit_delay_ms", "base_number_of_crossbow_bolts", "active_skill_reload_speed_+%_final"]
+  skill: [Hailstorm Rounds]
+  confidence: theory
+  notes: >-
+    MECHB51 (PLANS7 gs-hailstorm-rounds-hit-cap.md; RESEARCH41 R41-4, RESEARCH42 R42-11; probe POE2T4762: PoB scores
+    0.634 bolt hits a second, one bolt per attack). The game: one bolt made per reload time, all fired in one rain, one
+    falling every 0.1 s outward; ((boss radius + impact radius) / rain radius)^2 of them land on the boss (LOW: spread
+    evenly by area), and the 0.2 s per-enemy cap (HIGH) takes every other. A DPS more by target / PoB's rate (rows: the
+    upper boss radius; no cap). The ailments keep PoB's hit rate.
+  sources: ["builder/search/models.py (hailstorm_rounds_model)", "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua:2879-2897", "scratch/mechb51/p4762.log"]
+  status: proposed
+
+- id: model-mechb51-wildshards
+  title: "Wildshards' circle novas: 0 on a lone boss, labelled, with rows (models.wildshards_note)"
+  kind: model
+  model: wildshards
+  stats: ["spell_skill_%_chance_to_fire_8_additional_projectiles_in_nova", "gain_X_wildshard_stacks_on_cast", "spell_skill_%_chance_to_fire_8_additional_projectiles_in_nova_per_wildshard_stack"]
+  skill: [Wildshards I, Wildshards II, Sione's Temper]
+  confidence: theory
+  notes: >-
+    MECHB51 (PLANS7 gs-wildshards.md; RESEARCH42 R42-9). PoB reads none of the three. Novas a cast: I 0.20, II 0.25,
+    III 0.285 (roll before gain, the lower reading; 0.40 the other, UNVERIFIED order). The 8 extras fire radially and
+    miss a lone boss (R32-2 (3), MEDIUM-LOW): 0 in the headline; a row with one of the 8 hitting per nova.
+  sources: ["builder/search/models.py (WILDSHARDS_NOVAS, wildshards_note)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_int.lua:7938,8665,8695"]
+  status: proposed
+
+- id: model-mechb51-spectral-volley
+  title: "Spectral Volley's 5 Spectral Projectiles every 3 s (models.spectral_volley_model)"
+  kind: model
+  model: spectral_volley
+  stats: ["support_spectral_arrows_base_duration_ms", "support_spectral_arrows_maximum_spectral_arrows", "support_spectral_arrows_damage_+%_final_with_spectral_projectiles"]
+  skill: [Spectral Volley]
+  confidence: theory
+  notes: >-
+    MECHB51 (PLANS7 gs-spectral-volley-projectiles.md; RESEARCH41 R41-15, MEDIUM-HIGH: a volley every 3 s while
+    attacking). PoB counts none; each at 1.2x a projectile of the attack (PoB's use split over its projectiles, the
+    lower reading), all reaching the boss (MEDIUM); row: the store filling first (5 attacks, then 3 s). Reads the
+    part:spectral entry's 20% (support-spectral-volley-spectral-damage).
+  sources: ["builder/search/models.py (spectral_volley_model)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_dex.lua:5291"]
+  status: proposed
+
+- id: model-mechb51-align-fate
+  title: "Align Fate's Empowered casts of the main Spell (models.align_fate_model)"
+  kind: model
+  model: align_fate
+  stats: ["base_cooldown_modifiable_repeat_interval_ms", "spellflux_frequency_+%_final_per_socketed_valid_spell", "spellflux_spell_damage_+%_final_if_matching_flux_cast", "spellflux_frequency_+%_final"]
+  skill: [Align Fate]
+  confidence: theory
+  notes: >-
+    MECHB51 (PLANS7 gs-align-fate.md; RESEARCH41 R41-9). PoB maps none. A visage every interval / (1 + 25% x N valid
+    Spells) / (1 + quality), each casting one at random: the main Spell 1 / N; each Empowers the next cast of it (30%
+    more): the headline. The visage's own cast at your damage is UNVERIFIED (LOW that it does): a row. Cooldown recovery
+    on the interval and the weapon-set rule not read (the lower reading).
+  sources: ["builder/search/models.py (align_fate_model)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua:348-440"]
+  status: proposed
+
+- id: model-mechb51-purple-flames
+  title: "Mantra of Destruction's Purple Flames of Chayula from the Empowered attack's kills (models.purple_flames)"
+  kind: model
+  model: purple_flames
+  stats: ["purple_flame_all_damage_%_gained_as_chaos", "base_secondary_skill_effect_duration"]
+  skill: [Mantra of Destruction]
+  confidence: theory
+  notes: >-
+    MECHB51 (RESEARCH41 R41-11: 7% of damage as extra Chaos a stack, up to 10, HIGH; 20 s read from the secondary
+    duration, LOW). Kills only from the boss preset's adds (bosses.kill_stats; 0 on a lone boss, no flat rate), the
+    Empowered attack's share = its share of the uses (LOW). Stacks = min(10, flames a second x 20 s).
+  sources: ["builder/search/models.py (purple_flames)", "builder/search/assumptions.py (empowered_presses)"]
+  status: proposed
+
+- id: model-mechb51-staggering-palm
+  title: "Staggering Palm's Projectile held to its buff's uptime and the hitting Quarterstaff attacks (Assumptions.staggering_palm)"
+  kind: model
+  model: staggering_palm
+  stats: ["base_skill_effect_duration", "staggering_palm_buff_max_duration_ms", "triggered_by_staggering_palm_on_hit_with_other_skill"]
+  skill: [Staggering Palm]
+  confidence: theory
+  notes: >-
+    MECHB51 (PLANS7 gs-staggering-palm-buff.md; RESEARCH41 R41-14; probe POE2T4763, an OVERCOUNT: PoB's Full DPS counts
+    the gem's second skill "Projectile" at its own attack rate all fight, 41.1 of 93.0). Uptime = min(1, the build's
+    Heavy Stuns a second x the buff's duration); one projectile per hitting Quarterstaff attack (the main one, else
+    Staggering Palm's own); PoB's entry cut to that, never raised (the lower reading).
+  sources: ["builder/search/assumptions.py (staggering_palm)", "builder/search/models.py (staggering_palm_keep)", "scratch/mechb51/p4763.log"]
+  status: proposed
+
+- id: model-mechb51-flame-breath
+  title: "Flame Breath's channel held to its cooldown cycle (models.flame_breath_model)"
+  kind: model
+  model: flame_breath
+  stats: ["start_animation_duration_as_%_of_attack_time", "channelled_skill_do_not_go_on_cooldown_on_finishing_channel"]
+  skill: [Flame Breath]
+  confidence: theory
+  notes: >-
+    MECHB51 (PLANS7 gs-animation-busy-time.md item 1; probe POE2T4763, an OVERCOUNT: PoB scores the hits nonstop at
+    7.26 a second, the 10 s cooldown not limiting them). A cycle = max(wind-up (4 attack times at its own speed,
+    MEDIUM-LOW) + channel, the cooldown from the channel's start); the channel = the 4 s Rage-free window + the share of
+    the rest MECH-C's build.rage_paid pays (LOW). Rows: no Rage, Rage paying all, the wind-up at 8x.
+  sources: ["builder/search/models.py (flame_breath_model)", "scratch/mechb51/p4763.log"]
+  status: proposed

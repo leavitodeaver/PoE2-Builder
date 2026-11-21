@@ -3974,7 +3974,10 @@ local function describeGroup(index, group)
 			statSets[#statSets + 1] = statSet.label or ""
 		end
 		skills[#skills + 1] = { name = effect.grantedEffect.name, parts = parts, statSets = statSets,
-			part = effect.srcInstance and effect.srcInstance.skillPart }
+			part = effect.srcInstance and effect.srcInstance.skillPart,
+			-- (MECHB51, Spectre step 3: Assumptions.choose_monsters) the granted effect's id and a Spectre / Tamed
+			-- Companion gem's chosen monster
+			id = effect.grantedEffect.id, minion = effect.srcInstance and effect.srcInstance.skillMinion or nil }
 	end
 	return {
 		index = index, label = group.label, enabled = group.enabled ~= false, main = index == build.mainSocketGroup,
@@ -4661,6 +4664,16 @@ function bridge.useRates(args)
 				-- thing kept up: pressing again adds projectiles
 				projectile = (skill.skillTypes and skill.skillTypes[SkillType.Projectile]) and true or nil,
 				castTime = jsonNumber(skill.activeEffect.grantedEffect.castTime or 0),
+				-- (MECHB51: models.bear_stance_model) the divisor PoB puts on an attack's base time (CalcOffence 2839:
+				-- baseTime / round((1 + inc / 100) x more, 2)) with the main hand's cfg, and the BASE "Speed" seconds in that base
+				-- time (2741-2743): so a model can turn base seconds into final ones
+				speedMod = (function()
+					local cfg = skill.weapon1Cfg or skill.skillCfg
+					local list = skill.skillModList
+					local inc = list:Sum("INC", cfg, "Speed")
+					return jsonNumber(round((1 + inc / 100) * list:More(cfg, "Speed"), 2))
+				end)(),
+				baseSpeedAdd = jsonNumber(skill.skillModList:Sum("BASE", skill.weapon1Cfg or skill.skillCfg, "Speed")),
 				-- PoB's HitTime or Time; NOTE Time is 1 / Speed AFTER the cooldown cap (CalcOffence 3008 then 3052), so for a
 				-- cooldown-capped skill it is the capped interval, not one use (models.press_action, MECH94)
 				time = (output.HitTime or output.Time) and jsonNumber(output.HitTime or output.Time) or nil,
@@ -5092,6 +5105,27 @@ function bridge.setMonster(args)
 	build[key] = monsterList(key)
 	recalc()
 	return { ok = true, list = build[key] }
+end
+
+-- (MECHB51, Spectre step 3, MECHB50's draft) Rebuilds build.spectreList / beastList from the monsters the gems now hold
+-- (monsterList): a group removed or a gem swapped leaves its monster listed, and every listed Spectre's buffs apply while
+-- any Spectre gem is active (CalcPerform 2052-2064). Recalculates only when a list changed. Gives { changed }.
+function bridge.syncMonsters()
+	local changed = false
+	for _, key in ipairs({ "spectreList", "beastList" }) do
+		local now, old = monsterList(key), build[key] or { }
+		local same = #now == #old
+		for k = 1, #now do
+			same = same and now[k] == old[k]
+		end
+		if not same then
+			build[key], changed = now, true
+		end
+	end
+	if changed then
+		recalc()
+	end
+	return { changed = changed }
 end
 
 -- (MECH72, models.battershout_model) Battershout's explosion (TriggeredBattershoutExplosionPlayer, the support gem's

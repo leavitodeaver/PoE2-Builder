@@ -54,8 +54,11 @@
     it nowhere, and nothing modifies it (checked: Mods, PassiveSkills, GrantedEffectQualityStats: 0 rows). Added as a BASE
     Speed mod (PoB adds its seconds to the base attack time, CalcOffence 2881-2883); every use from the default stance
     (which skills leave the bear standing isn't in the data; the "if standing" mirror is on [DNT] Landslide and a monster
-    skill only), MEDIUM.
-  sources: ["builder/search/models.py (BEAR_DEFAULT_STANCE, bear_stance_model)", "data/game-26650308/tables/GrantedEffectStatSets.json (FuriousSlamPlayer, BearRampagePlayer, WalkingCalamityPlayer)"]
+    skill only), MEDIUM. MECHB51 (RESEARCH41 R41-3, HIGH: the animation timelines): Maul, Ferocious Roar and Walking
+    Calamity leave the bear standing, so the model now scores the build's best rotation: every use from the default
+    stance ("without it"), "Maul (or Walking Calamity) then <skill>" (that skill's use time and hit per use), Ferocious
+    Roar on its cooldown, or Walking Calamity chained between dodge rolls; the play guide names it with the other rows.
+  sources: ["builder/search/models.py (BEAR_DEFAULT_STANCE, bear_stance_model)", "builder/search/assumptions.py (Assumptions.bear_rotation)", "engine/bridge.lua (useRates speedMod, baseSpeedAdd)", "C:/PROJECTS/PoE2 Builder/scratch/manager/research/bear-stance-hailstorm-hollowform-r41.md (R41-3)", "data/game-26650308/tables/GrantedEffectStatSets.json (FuriousSlamPlayer, BearRampagePlayer, WalkingCalamityPlayer)"]
   status: proposed
 
 - id: model-mechb50-volcano-channel

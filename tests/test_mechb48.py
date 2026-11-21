@@ -18,19 +18,22 @@ def test_the_chance_line_and_upheaval_add_fissures_on_a_line_skill():
     sunder = Skill("Sunder", 1, attack=True, melee=True)
     mods, notes = models.fissure_count_model(sunder, "Wave", _sets(Wave=100.0, Shockwave=40.0), {},
                                              {models.FISSURE_EXTRA_STAT: 2}, [CHANCE], 0.4)
-    assert mods[0]["value"] == pytest.approx(100 * (3.3 - 1))  # 1 + 2 + 30%, all in melee
-    assert notes[0]["entry"] == models.FISSURE_ENTRY and "x1.000" in notes[0]["basis"]  # (at range: the aimed one)
+    assert mods[0]["value"] == pytest.approx(100 * (3.3 * 2.5 - 1))  # 1 + 2 + 30%, all in melee (MECHB51: R42-5's
+    assert notes[0]["entry"] == models.FISSURE_ENTRY and "x2.500" in notes[0]["basis"]  # 2.5 areas a wave; at range
+    assert "2 of its 5 areas a wave: x6.600" in notes[0]["basis"]  # (the aimed one; rows 2 and 3 areas)
     assert model_entry(CHANCE).id == models.FISSURE_ENTRY
 
 
 def test_the_chance_is_held_to_one_more_and_a_non_fissure_set_is_not_scaled():
     sunder = Skill("Sunder", 1, attack=True, melee=True)
     mods, _ = models.fissure_count_model(sunder, "Wave", _sets(Wave=100.0), {}, {}, [CHANCE] * 5, 0.4)
-    assert mods[0]["value"] == pytest.approx(100.0)  # 150% held to one more
+    assert mods[0]["value"] == pytest.approx(100 * (2 * 2.5 - 1))  # 150% held to one more (x R42-5's 2.5 a wave)
     mods, notes = models.fissure_count_model(sunder, "Shockwave", _sets(Wave=100.0, Shockwave=40.0), {}, {}, [CHANCE],
                                              0.4)
     assert not mods and notes[0]["value"] == "x1"
-    assert models.fissure_count_model(sunder, "Wave", _sets(Wave=100.0), {}, {}, [], 0.4) == ([], [])
+    assert models.fissure_count_model(sunder, "Wave", _sets(Wave=100.0), {}, {}, [], 0.4)[0][0]["value"] ==         pytest.approx(150.0)  # (MECHB51, R42-5: one Fissure, 2.5 of its 5 areas on the boss)
+    volcanic = Skill("Volcanic Fissure", 1, attack=True, melee=True)
+    assert models.fissure_count_model(volcanic, "Volcanic Fissure", _sets(Volcanic_Fissure=100.0), {}, {}, [], 0.4) ==         ([], [])
 
 
 def test_fury_of_the_mountain_counts_its_random_arc():
