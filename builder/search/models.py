@@ -22044,7 +22044,9 @@ def volcano_channel_model(main: Skill | None, scored: str | None, sets: list[dic
         rows += (f"; the end skipped by the dodge rolls you make anyway ({rolled:.0%} of releases followed by one: "
                  f"R42-25, its end isn't locked; a roll only to skip it loses time, 0.75 s against ~0.5 cast time) "
                  f"x{skip:.3f} (a row, MEDIUM)")
-    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=VOLCANO_ENTRY)], [{
+    mod = raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=VOLCANO_ENTRY)
+    mod["hit_cut"] = 1 / (2 + best)  # (MECHB52: the hit part, one eruption per 2 + k cast times; the rest is its stages)
+    return [mod], [{
         "label": f"{main.name}: each eruption channelled to {best + 1} stages*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM-LOW", "entry": VOLCANO_ENTRY,
         "basis": (f"PoB scores one Eruption hit a cast time and reads none of the channel stats. The game: a 50% wind-up, "
@@ -22604,7 +22606,9 @@ def hit_cut_of(mods: list[dict], cut: float | None = None, skill: str | None = N
     the main skill's hits)."""
     for mod in mods:
         if mod.get("name") == "DPS" and mod.get("type") == "MORE" and (skill is None or mod.get("skill") == skill):
-            cut = (1.0 if cut is None else cut) * max(0.0, 1 + number(mod.get("value")) / 100)
+            # (a MIXED model's mod names its hit part: "hit_cut", the rest of its factor being damage per hit)
+            part = number(mod["hit_cut"]) if "hit_cut" in mod else 1 + number(mod.get("value")) / 100
+            cut = (1.0 if cut is None else cut) * max(0.0, part)
     return cut
 
 

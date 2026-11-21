@@ -101,3 +101,12 @@ def test_the_hit_cut_reads_only_the_main_skills_mods():
     assert build.main_hit_cut == pytest.approx(0.3)
     windup = models.channel_windup_model(models.Skill("Hollow Form", 1, attack=True), 2.0, 2.0, 3.0, 2 / 3)[0]
     assert 0 < models.hit_cut_of(windup, None, "Hollow Form") < 1
+
+
+def test_volcanos_hit_cut_is_its_eruptions_not_its_stages():
+    """A MIXED model names its hit part: Volcano's (1 + 1.5 k) / (2 + k) is 1 / (2 + k) eruptions a cast time (the hit
+    cut) times its stage more (damage per hit)."""
+    volcano = models.Skill("Volcano", 1, spell=True, stat_set="Eruption")
+    mods, _ = models.volcano_channel_model(volcano, "Eruption", [{"label": "Eruption", "AverageDamage": 100.0}])
+    assert mods and 0 < mods[0]["hit_cut"] < 1
+    assert models.hit_cut_of(mods, None, "Volcano") == pytest.approx(mods[0]["hit_cut"])

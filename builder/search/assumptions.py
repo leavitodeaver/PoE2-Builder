@@ -4357,6 +4357,7 @@ class Assumptions:
                 main, main.stat_set, volcano_sets, forbidden, dodge_share()[0] / v_every if v_every > 0 else 0.0,
                 number(build.call("stats", fields=["Speed"]).get("Speed")))
             hand_mods, hand_notes = hand_mods + volcano_mods, hand_notes + volcano_notes
+            hit_cut(build, volcano_mods, main.name)  # (MECHB52: its eruptions, 1 / (2 + k) of PoB's casts)
         if main is not None and main.attack and main.group is not None and models.SPECTRAL_VOLLEY in supports.get(
                 main.group, []):  # (MECHB51: R41-15, its volleys every 3 s)
             sv_stats = build.call("stats", fields=["Speed", "TotalDPS", "ProjectileCount"])
