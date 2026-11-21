@@ -7663,7 +7663,7 @@ def _parried_recently(lines: list[str], stats: dict) -> tuple[object, str]:
 # taken as random in time, 1 - e^(-4 x rate)); the two combined as independent. Other skills' Stuns aren't read (an
 # undercount, LOW). No Stuns (the 15% Light Stun floor, a bar that never fills, "Your Hits cannot Stun"): off.
 STUNNED_ENEMY_RECENTLY = re.compile(r"\bstunned an enemy\b[^.]*\brecently\b", re.I)
-STUN_FIELDS = (*models.IMMOBILISE_FIELDS, "Flag:CannotStun")  # (light_stun_rate reads the hit / crit averages too)
+STUN_FIELDS = (*models.IMMOBILISE_FIELDS, "Flag:CannotStun", f"Flag:{models.MECH_BRINK}")  # (light_stun_rate reads the hit / crit averages too)
 
 
 # "if you've dealt a Non-Critical Hit Recently" (MECH86; the manager's 22:55 routing of COV40's row, 13.4: PoB's

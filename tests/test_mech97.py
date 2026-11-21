@@ -164,3 +164,41 @@ def test_the_main_skills_own_break_quality_adds_to_the_break_increase():
     scale, how = conditions.break_amount_scale(["Break 30% increased Armour"], {"_break_inc_gem": 20.0})
     assert scale == pytest.approx(1.5) and "quality" in how
     assert conditions.break_amount_scale(["Break 30% increased Armour"], {})[0] == pytest.approx(1.3)
+
+
+def test_brink_flags_its_groups_skills_and_needs_another_source_to_heavy_stun():
+    """Brink I / II (PLANS6's open OVERCOUNT): the supported skills carry MechBrink; heavy_stun_rate gives them no
+    Heavy Stun of their own; another source (other skills' buildup) finishes the bar."""
+    from builder.search import models
+
+    groups = [{"enabled": True, "gems": [{"name": "Boneshatter", "support": False}, {"name": "Brink II", "support": True}]},
+              {"enabled": True, "gems": [{"name": "Leap Slam", "support": False}]}]
+    mods, notes = models.brink_mods(groups)
+    assert mods == [models.raw_mod(models.MECH_BRINK, "FLAG", 1, skill="Boneshatter")] and notes
+    assert models.brink_mods(groups[1:]) == ([], [])
+    base = {"HeavyStunBuildupAvg": 20.0, "Speed": 2.0, "HitChance": 100.0, "PhysicalHitAverage": 100.0, "_boss": "Arbiter of Ash"}
+    plain = models.heavy_stun_rate(base)[0]
+    alone, how = models.heavy_stun_rate({**base, f"Flag:{models.MECH_BRINK}": True})
+    helped = models.heavy_stun_rate({**base, f"Flag:{models.MECH_BRINK}": True, "_buildup_others": {"HeavyStun": 0.05}})[0]
+    assert plain > 0 and alone == 0.0 and "Brink" in how and helped > 0
+
+
+def test_sundered_armour_raises_pobs_fully_broken_effect_at_its_share():
+    """R39-16: +20% increased (stacking with Fully Broken's 20%), as FullyBrokenArmourEffect INC +100% x the share."""
+    from builder.search import models
+
+    mods, notes = models.sundered_mods(1.0, "Sunder is the main skill")
+    assert mods == [models.raw_mod("FullyBrokenArmourEffect", "INC", 100.0)] and "increased" in notes[0]["confidence"]
+    assert models.sundered_mods(0.5, "x")[0][0]["value"] == pytest.approx(50.0)
+    assert models.sundered_mods(0.0, "") == ([], [])
+
+
+def test_dexterity_gives_the_users_eight_accuracy_a_point():
+    """The user's ruling (21 Nov): +8 a point through PoB's DexAccBonusOverride; none where a line sets the value."""
+    from builder.search import models
+
+    mods, notes = models.dex_accuracy_mods([], 100.0)
+    assert mods == [models.raw_mod("DexAccBonusOverride", "OVERRIDE", 8.0, tag=models.DEX_ACCURACY_TAG)]
+    assert "+200" in notes[0]["value"]
+    line = ["Dexterity's Accuracy Bonus instead grants +12 to Accuracy Rating per Dexterity"]
+    assert models.dex_accuracy_mods(line, 100.0) == ([], [])

@@ -12787,11 +12787,75 @@ def repeat_every(t: float, times: float, window: float) -> float:
     return times * t if times * t <= window else window + (1 - window / (times * t)) * t
 
 
+# Brink I / II (MECH97; PLANS6's re-check, plans/kw-stun.md, an OVERCOUNT): game files 26650308, stat
+# cannot_cause_stun_but_allow_stun_buildup on SupportBrinkPlayer / SupportBrinkPlayerTwo, gem_stat_descriptions "[Stun]
+# buildup caused by Supported Skills cannot reach 100%" (the gems: "Supported Skills build up (Heavy) Stun more quickly,
+# but cannot themselves (Heavy) Stun"). PoB reads only its more-buildup stat (SkillStatMap 1673), so a Brink-supported
+# main skill Heavy Stunned the boss on its own and fed every "vs Heavy Stunned" / on-Heavy-Stun line. (checked: every
+# game table row holding the stat: the two supports' GrantedEffectStatSets, and monster skills; PoB: no SkillStatMap or
+# Modules reader; poe2db NOT checked.) The supported skills carry MECH_BRINK (models.brink_mods: a FLAG tagged to each
+# active skill in a Brink group, read back as "Flag:MechBrink" on the main skill): their hits still fill the bar, but a
+# Heavy Stun needs another source to finish it (the build's other hitting groups, Thorns, the Mark's Blood Loss); with
+# none, no Heavy Stuns; a Crushing Blow from the skill's own hit is a Heavy Stun it can't cause (not counted). With
+# another source the rate stays the combined fill's (the wait for that source's next hit after the bar is full not
+# counted: a small overcount, LOW; other groups that are Brink-supported too aren't told apart, LOW). Light Stuns aren't
+# buildup: kept (Brink II's gem text "cannot themselves Stun" on the same stat: UNVERIFIED for Light Stuns, a RESEARCH
+# question).
+MECH_BRINK = "MechBrink"
+BRINK_SUPPORTS = ("Brink I", "Brink II")
+
+
+# Sundered Armour (MECH97; RESEARCH39 R39-16 MEDIUM-HIGH, plans/kw-sundered-armour.md, an UNDERCOUNT: nothing read it,
+# in PoB or here). Sunder (SunderPlayer, 26650308): "Hitting an enemy with Fully Broken Armour applies Sundered Armour";
+# KeywordPopups SunderedArmour: "increases the [Physical] damage they take from [Hit|Hits] by an additional 20%. This
+# effect stacks with the target's normal Fully Broken Armour"; its stat sundered_armor_physical_damage_taken_+%_from_hits
+# is the plain "+%" (increased) form, as fully_broken_armor_physical_damage_taken_+%_from_hits is: 20% + 20% = 40%
+# increased Physical damage taken from Hits while both hold (patch 0.3.0: "an additional 20% increased Physical Damage
+# Taken"; poe2db's "more" wording is the other reading, outweighed). Read as PoB's own Fully Broken effect raised:
+# FullyBrokenArmourEffect INC +100% x S (CalcPerform 727-742: 20 x (1 + inc) increased Physical damage taken from Hits,
+# its "also applies to Fire / Cold / Lightning" and "all damage" variants carried with it, and only while PoB's Fully
+# Broken box is on, weighed at the boss's Fully Broken share: Sundered counted only while Fully Broken, the lower reading,
+# UNVERIFIED whether it outlasts the Break). S, the share of the Fully Broken time the boss is Sundered: 1 with Sunder as
+# the main skill (it hits each use, its 6 s outlasting its use interval, MEDIUM); beside it, min(1, its uses a second x
+# its 6 s, skill_use_rate at the search's press choice). The build's "Broken / Sundered Armour debuff effect" lines
+# scale both in game (broken_armour_and_sundered_armour_debuff_effect_+%): added here, not multiplied (20 x (1 + i + S)
+# for 20 x (1 + i)(1 + S): a small undercount with such lines, the lower reading).
+SUNDER = "Sunder"
+SUNDER_SECONDS = 6.0  # SunderPlayer base_skill_effect_duration 6000 (duration modifiers not read: LOW, the lower reading)
+
+
+def sundered_mods(share: float, how: str) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for Sundered Armour at `share` of the Fully Broken time (the note above)."""
+    share = min(max(share, 0.0), 1.0)
+    if share <= 0:
+        return [], []
+    return ([raw_mod("FullyBrokenArmourEffect", "INC", 100 * share)],
+            [{"label": "Sundered Armour (Sunder)*", "value": f"+{20 * share:.3g}% increased Physical damage taken from Hits",
+              "confidence": "MEDIUM (R39-16: increased, stacking with Fully Broken's 20%)",
+              "basis": (f"while the boss is Fully Broken, Sunder's hits Sunder it {share:.0%} of that time ({how}): "
+                        "a further 20% increased Physical damage taken from Hits on top of Fully Broken's 20% (PoB's "
+                        "Fully Broken effect raised, its elemental variants with it); counted only while Fully Broken")}])
+
+
+def brink_mods(groups: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): MECH_BRINK on every active skill of an enabled group holding Brink I / II (the note above)."""
+    names = sorted({g["name"] for grp in groups if grp.get("enabled", True)
+                    and any(n["name"] in BRINK_SUPPORTS and n.get("enabled", True) for n in grp.get("gems") or [])
+                    for g in grp.get("gems") or [] if not g.get("support") and g.get("enabled", True)})
+    if not names:
+        return [], []
+    return ([raw_mod(MECH_BRINK, "FLAG", 1, skill=n) for n in names],
+            [{"label": "Brink: no Heavy Stuns of its own*", "value": ", ".join(names), "confidence": "HIGH",
+              "basis": ("Brink's \"Stun buildup caused by Supported Skills cannot reach 100%\": these skills fill the "
+                        "boss's Stun bar but another source (other skills, Thorns) must finish each Heavy Stun")}])
+
+
 def heavy_stun_rate(stats: dict) -> tuple[float, str]:
     """Heavy Stuns of the boss per second from the main skill's hits, and how it was worked out."""
     stats = at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     if stats.get("Flag:CannotStun"):  # (MECH84: PoB's CannotHeavyStun beside it zeroes the buildup too)
         return 0.0, "Your Hits cannot Stun enemies: no Heavy Stuns"
+    brink = bool(stats.get(f"Flag:{MECH_BRINK}"))  # (MECH97: Brink can't finish a Heavy Stun itself)
     per_hit = number(stats.get("HeavyStunBuildupAvg")) / 100
     hits = hits_per_second(stats)
     thorns = thorns_fill(stats, "HeavyStun")  # (MECH84: Thorns hits' own buildup, PATCH_CHECK L4-2)
@@ -12799,6 +12863,9 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
     others = others_fill(stats, "HeavyStun")  # (MECH95: the other hitting groups' buildup, conditions.buildup_others)
     if (per_hit <= 0 or hits <= 0) and thorns <= 0 and blood <= 0 and others <= 0:
         return 0.0, "the main skill's hits build no Heavy Stun"
+    if brink and thorns <= 0 and blood <= 0 and others <= 0:
+        return 0.0, ("Brink: the main skill's Stun buildup can't reach 100% and nothing else in the build finishes the "
+                     "bar: no Heavy Stuns")
     crit = min(number(stats.get("CritChance")), 100) / 100
     weight = {t: (number(stats.get(f"{t}HitAverage")) * (1 - crit) + number(stats.get(f"{t}CritAverage")) * crit)
               * (HEAVY_STUN_PHYSICAL if t == "Physical" else 1.0) for t in DAMAGE_TYPES}
@@ -12818,6 +12885,8 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
     times, window = HEAVY_STUN_REPEAT
     refill = repeat_every(t, times, max(window - d, 0.0))
     crushing, crush_how = crushing_blows(stats)  # (MECH85: a Crushing Blow Heavy Stuns the boss once Primed)
+    if brink:  # (MECH97: a Crushing Blow from a Brink skill's own hit is a Heavy Stun it can't cause)
+        crushing = 0
     next_every = 0.0
     if crushing:
         # (MECH87, RESEARCH30 R30-8 4b, MEDIUM: the hit that Primes the boss lands the Crushing Blow itself, so the stun
@@ -12839,6 +12908,8 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
                 f"({(stats.get('_buildup_others') or {}).get('how', '')})" if others > 0 else "") + ": "
              f"full in {t:.1f} s; the bar doesn't fill during the {d:g} s stun (RESEARCH26, MEDIUM), then +500% threshold "
              f"for the rest of the 16.5 s after it"
+             + ("; Brink: the main skill can't finish the bar itself, the other sources do (the wait for their next "
+                "hit not counted, LOW)" if brink else "")
              + (f"; {crush_how}: Heavy Stunned once Primed at {PRIMED_UNIQUE:.0%} of the bar, by the hit that Primes it "
                 f"(R30-8, MEDIUM; on the next hit instead: one every {next_every:.1f} s)"
                 if crushing else "") + f": one every {every:.1f} s")
@@ -15614,6 +15685,33 @@ def lucky_surrounded_mods(texts: list[str]) -> tuple[list[dict], list[dict]]:
               "basis": ("Way of the Stonefist's line, which PoB parses none of: Attack Hit damage is Lucky while PoB's own "
                         "Surrounded condition holds (one enemy needed after 'Require N fewer enemies to be Surrounded', the "
                         "boss within your Surrounded radius; a lone boss alone doesn't Surround you otherwise)")}])
+
+
+# Dexterity's Accuracy (MECH97; RESEARCH39 R39-14 and THE USER'S RULING, 21 Nov 2026 03:18, card: "tooltip ingame says
+# +8, I trust that over PoB"). The game's own Dexterity tooltip says +8 Accuracy per point; PoB counts 6
+# (Data.lua AccuracyPerDexBase = 6, CalcPerform 512, as 0.3.0's patch note does). Headline: the user's +8, through
+# PoB's own per-point hook DexAccBonusOverride (CalcPerform 512: Dex x it x the inherent-attribute multiplier, so
+# "Doubled inherent attribute bonuses" and "no Dexterity bonuses" lines keep working; minions' copy of your Accuracy,
+# CalcPerform 1073, reads it too). Not set where a line of the build already sets the per-point value ("Dexterity's
+# Accuracy Bonus instead grants +N to Accuracy Rating per Dexterity", ModParser 5686: that line wins). Tagged
+# DEX_ACCURACY_TAG, so a play-guide row can leave it out for PoB's +6 (MECH-C's). The user's 88-Dex character's 1080
+# Accuracy doesn't decide the per-point value (level, tree and gear add Accuracy too).
+DEX_ACCURACY_USER = 8.0  # the user's rate, 21 Nov 2026 (the game's tooltip)
+DEX_ACCURACY_POB = 6.0  # PoB's AccuracyPerDexBase (and 0.3.0's patch note): the row
+DEX_ACCURACY_TAG = "DexAccuracyUser"
+DEX_ACCURACY_LINE = re.compile(r"^Dexterity's Accuracy Bonus instead grants \+?\d+ to Accuracy Rating per Dexterity$", re.I)
+
+
+def dex_accuracy_mods(texts: list[str], dex: float) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for Dexterity's Accuracy at the user's +8 a point (the note above); none where a line sets it."""
+    if any(DEX_ACCURACY_LINE.match(t.strip()) for t in texts):
+        return [], []
+    extra = (DEX_ACCURACY_USER - DEX_ACCURACY_POB) * max(dex, 0.0)
+    return ([raw_mod("DexAccBonusOverride", "OVERRIDE", DEX_ACCURACY_USER, tag=DEX_ACCURACY_TAG)],
+            [{"label": "Dexterity's Accuracy at +8 a point*", "value": f"+{extra:,.0f} Accuracy over PoB's",
+              "confidence": "MEDIUM (the user's ruling, 21 Nov 2026: the game's tooltip)",
+              "basis": (f"{dex:g} Dexterity x +{DEX_ACCURACY_USER:g} Accuracy each, the in-game tooltip the user trusts; "
+                        f"PoB and 0.3.0's patch note give +{DEX_ACCURACY_POB:g} ({extra:,.0f} less Accuracy): the row")}])
 
 
 # Gruelling Madness on the boss (MECH96; the open rows "Minions have N% chance to inflict Gruelling Madness on Hit" and
@@ -19766,7 +19864,7 @@ def light_stun_rate(stats: dict, melee: bool = False) -> tuple[float, str]:
                            "Life; KeywordPopups LightStun, linear: LOW)")
 
 
-MODEL_FIELDS.extend(f for f in ("Flag:CannotStun",) if f not in MODEL_FIELDS)  # (MECH84: conditions.cannot_stun_mods)
+MODEL_FIELDS.extend(f for f in ("Flag:CannotStun", f"Flag:{MECH_BRINK}") if f not in MODEL_FIELDS)  # (MECH84: conditions.cannot_stun_mods)
 
 
 def stun_rate(stats: dict, melee: bool = False) -> tuple[float, str]:

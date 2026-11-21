@@ -162,3 +162,49 @@ def test_full_life_fields_read_a_hits_chaos_share_and_ailment_chance(engine):
     chaos = read.get("ChaosHitAverage") or read.get("MainHandChaosHitAverage")
     assert hit and chaos and 0 < chaos / hit < 1
     assert read.get("Speed", 0) > 0
+
+
+def test_dexterity_at_eight_accuracy_a_point_moves_a_dexterity_attack(engine):
+    """The user's ruling (21 Nov): a bow attack with +150 Dexterity on its gloves gains 2 Accuracy a Dexterity point over
+    PoB's 6 (the model's DexAccBonusOverride 8), and its hit chance against the boss rises (printed: the probe the
+    manager asked for, before / after)."""
+    from builder.search import bosses, models
+
+    def read(with_mods):
+        engine.call("newBuild")
+        engine.call("setLevel", level=90)
+        engine.call("setConfig", vars=bosses.config_vars(), fields=[])
+        engine.call("equip", slot="Weapon 1", fields=[], raw=BOW)
+        engine.call("equip", slot="Gloves", fields=[], raw=GLOVES + "+150 to Dexterity")
+        engine.call("addSkillGroup", text="Lightning Arrow 20/0 1", main=True)
+        dex = engine.call("stats", fields=["Dex"])["Dex"]
+        mods = models.dex_accuracy_mods([], dex)[0] if with_mods else []
+        engine.call("setAssumptions", mods=mods, fields=[])
+        got = engine.call("stats", fields=["Accuracy", "MainHandAccuracy", "HitChance", "TotalDPS"])
+        return dex, {**got, "Accuracy": got.get("Accuracy") or got.get("MainHandAccuracy")}
+
+    dex, pob = read(False)
+    _, user = read(True)
+    print("PROBE dex accuracy", dex, pob, user)
+    engine.call("setAssumptions", mods=[], fields=[])
+    assert dex >= 150
+    assert user["Accuracy"] == pytest.approx(pob["Accuracy"] + 2 * dex, rel=1e-3)
+    assert user["HitChance"] >= pob["HitChance"]
+
+
+def test_brinks_flag_reaches_the_supported_main_skill_only(engine):
+    """models.brink_mods tags Brink's group's skills; the bridge's Flag:MechBrink reads it on the main skill."""
+    from builder.search import models
+
+    engine.call("newBuild")
+    engine.call("setLevel", level=90)
+    engine.call("addSkillGroup", text="Boneshatter 20/0 1\nBrink II 1/0 1", main=True)
+    groups = engine.call("groups")["groups"]
+    mods, _ = models.brink_mods(groups)
+    engine.call("setAssumptions", mods=mods, fields=[])
+    on = engine.call("stats", fields=[f"Flag:{models.MECH_BRINK}"])[f"Flag:{models.MECH_BRINK}"]
+    engine.call("setAssumptions", mods=[models.raw_mod(models.MECH_BRINK, "FLAG", 1, skill="Leap Slam")], fields=[])
+    off = engine.call("stats", fields=[f"Flag:{models.MECH_BRINK}"])[f"Flag:{models.MECH_BRINK}"]
+    print("PROBE brink flag", [m.get("skill") for m in mods], on, off)
+    engine.call("setAssumptions", mods=[], fields=[])
+    assert on is True and off is False

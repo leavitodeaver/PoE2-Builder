@@ -3064,6 +3064,14 @@ class Assumptions:
         mods, notes = mods + shock_mods, notes + shock_notes
         lucky_mods, lucky_notes = models.lucky_surrounded_mods(texts)  # (MECH97: Stonefist's Lucky while Surrounded)
         mods, notes = mods + lucky_mods, notes + lucky_notes
+        dex_mods, dex_notes = models.dex_accuracy_mods(  # (MECH97: the user's +8 Accuracy per Dexterity, 21 Nov)
+            texts, models.number(build.call("stats", fields=["Dex"]).get("Dex")))
+        mods, notes = mods + dex_mods, notes + dex_notes
+        sunder_share, sunder_how = self.sunder_share(main)  # (MECH97: Sundered Armour, R39-16)
+        sunder_mods_, sunder_notes = models.sundered_mods(sunder_share, sunder_how)
+        mods, notes = mods + sunder_mods_, notes + sunder_notes
+        brink_mods_, brink_notes = models.brink_mods(build.groups())  # (MECH97: Brink can't finish a Heavy Stun)
+        mods, notes = mods + brink_mods_, notes + brink_notes
         if any(models.CRYSTAL_LIFE_PER_RES.match(t.strip()) for t in texts):  # (MECH96: Eventide Petals)
             cold_res = (stats["ColdResist"] if "ColdResist" in stats
                         else (build.call("stats", fields=["ColdResist"]) or {}).get("ColdResist"))
@@ -8958,6 +8966,28 @@ class Assumptions:
                     each, why, _ = conditions_mod.skill_use_rate(rate, choices)
                     out[name] = (each, f"on {why}")
         return out
+
+    def sunder_share(self, main) -> tuple[float, str]:
+        """(MECH97) (share of the Fully Broken time the boss is Sundered, how) for models.sundered_mods: 1 with Sunder
+        as the main skill; beside it, min(1, its uses a second x SUNDER_SECONDS) from its group's useRates row
+        (skill_use_rate at the search's press choice, PoB's speed if triggered); 0 without Sunder."""
+        build = self.build
+        if main is not None and main.name == models.SUNDER:
+            return 1.0, "Sunder is the main skill: it hits each use"
+        groups = [g for g in build.groups() if g["enabled"] and any(
+            n.get("name") == models.SUNDER and n.get("enabled", True) for n in g.get("gems") or [])]
+        if not groups:
+            return 0.0, ""
+        choices = models.press_choices(build)
+        best, said = 0.0, ""
+        for rate in build.call("useRates", indices=[g["index"] for g in groups])["rates"]:
+            if rate.get("name") != models.SUNDER:
+                continue
+            uses = number(rate.get("speed")) if rate.get("triggered") else conditions_mod.skill_use_rate(rate, choices)[0]
+            share = min(1.0, uses * models.SUNDER_SECONDS)
+            if share > best:
+                best, said = share, f"Sunder {uses:.3f} uses/s x its {models.SUNDER_SECONDS:g} s"
+        return best, said
 
     def culled_recently_share(self, window: float) -> tuple[float, str]:
         """(MECH97) (the share of the fight within `window` s after a Cull the build dealt, how) for the `culled_recently`
