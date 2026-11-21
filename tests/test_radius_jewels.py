@@ -355,10 +355,19 @@ def test_radius_damage_transform_is_a_labelled_assumption():
     line = " Cold and Fire Damage in Radius are transformed to apply to Lightning Damage"
     jewels = [{"socket": 61834, "name": "Probe Jewel", "affected": [1, 2, 3], "transforms": [line]},
               {"socket": 26725, "name": "Other Jewel", "affected": [4]}]
-    stub = SimpleNamespace(build=SimpleNamespace(call=lambda method, **_: {"jewels": jewels}))
+    answers = {"radiusJewels": {"jewels": jewels}, "stats": {"CombinedDPS": 200.0},
+               "radiusTransformBaseOnly": {"stats": {"CombinedDPS": 150.0}}}
+    stub = SimpleNamespace(build=SimpleNamespace(call=lambda method, **_: answers[method]))
+    stub.transform_base_only_row = lambda: Jewels.transform_base_only_row(stub)
     notes = Jewels.transform_notes(stub)
-    assert len(notes) == 1 and notes[0]["value"] == 3 and line.strip() in notes[0]["label"]
+    assert len(notes) == 2 and notes[0]["value"] == 3 and line.strip() in notes[0]["label"]
     assert notes[0]["confidence"] == "theory" and "UNVERIFIED" in notes[0]["basis"]
+    # (COV50, RESEARCH37 R37-15) the relabels and (b)'s row: the passives' own stats only
+    assert "MEDIUM-LOW" in notes[0]["basis"] and "MEDIUM (a move" in notes[0]["basis"]
+    assert notes[1]["value"] == "x0.750" and "own stats only" in notes[1]["label"]
+    # no transform line: no notes, no row
+    jewels[0].pop("transforms")
+    assert Jewels.transform_notes(stub) == []
 
 
 TRANSFORM_FIELDS = ["ModSum:INC:ColdDamage", "ModSum:INC:FireDamage", "ModSum:INC:LightningDamage"]
@@ -386,13 +395,23 @@ def test_radius_damage_transform_moves_cold_and_fire_increases_to_lightning(engi
         engine.call("equip", slot=slot, raw=transform_jewel(True))
         moved = engine.call("stats", fields=TRANSFORM_FIELDS)
         listed = {j["socket"]: j for j in engine.call("radiusJewels")["jewels"]}
+        # (COV50, R37-15 (b)'s row) read here, before the unequip: taking a jewel out can prune passives the tree holds
+        # through it (probe POE2T5207)
+        base_only = engine.call("radiusTransformBaseOnly", fields=TRANSFORM_FIELDS)["stats"]
+        after = engine.call("stats", fields=TRANSFORM_FIELDS)
         engine.call("equip", slot=slot, raw=None)
         gained = moved["ModSum:INC:LightningDamage"] - plain["ModSum:INC:LightningDamage"]
         if best is None or gained > best[0]:
-            best = (gained, plain, moved, listed.get(socket))
-    gained, plain, moved, jewel = best
+            best = (gained, plain, moved, listed.get(socket), base_only, after)
+    gained, plain, moved, jewel, base_only, after = best
     assert gained >= 10  # at least one allocated small passive in a socket's radius
     assert jewel and [line.strip() for line in jewel["transforms"]] == [
         "Cold and Fire Damage in Radius are transformed to apply to Lightning Damage"]
     assert moved["ModSum:INC:ColdDamage"] <= plain["ModSum:INC:ColdDamage"] - 10
     assert sum(moved.values()) == pytest.approx(sum(plain.values()))
+    # (COV50, R37-15 (b)'s row) moving only the passives' own stats leaves the jewel's "also grant" Cold where it was,
+    # and the call puts the headline reading back
+    assert base_only["ModSum:INC:LightningDamage"] <= moved["ModSum:INC:LightningDamage"] - 10
+    assert base_only["ModSum:INC:ColdDamage"] >= moved["ModSum:INC:ColdDamage"] + 10
+    assert sum(base_only.values()) == pytest.approx(sum(plain.values()))
+    assert after == pytest.approx(moved)

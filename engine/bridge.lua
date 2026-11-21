@@ -3327,10 +3327,15 @@ end
 -- Here, every passive in the jewel's radius (allocated ones are the ones PoB adds to the build) has its <A> and <B>
 -- Damage increases and reductions (PoB's ColdDamage / FireDamage / LightningDamage INC, with their flags and tags:
 -- "with Spells", "over time", conditions) moved to <C>: the same move PoB's own getSimpleConv makes for its other
--- "transformed" radius lines (ModParser.lua 29-49, 7093). Read this way, UNVERIFIED (no in-game test found): lines
--- naming another type or "Elemental Damage" aren't moved (the line names two types); the passives' Time-Lost
--- "also grant" lines in the radius are moved too (they are increases on those passives); two transforms on one passive
--- move each increase once (the first jewel's). The game's wording sets nothing else (checked: stat_descriptions text
+-- "transformed" radius lines (ModParser.lua 29-49, 7093). Read this way, UNVERIFIED (no in-game test found; RESEARCH37
+-- R37-15 kept all three, research/radius-transform-jewels-and-fissure-layouts.md): (a) lines naming another type or
+-- "Elemental Damage" aren't moved (the line names two types), MEDIUM-LOW: the same result for a build dealing only <C>
+-- (an Elemental increase already applies to it), so only a mixed-element build would need a "moved" row; (b) the
+-- passives' Time-Lost "also grant" lines in the radius are moved too (they are increases on those passives),
+-- MEDIUM-LOW, with a row for the lower reading, the passives' own stats only (radiusTransformBaseOnly,
+-- bridge.radiusTransformBaseOnly); (c) two transforms on one passive move each increase once (the first jewel's),
+-- MEDIUM: a move, not a copy, so no reading counts an increase twice (where it goes when two overlap is the open part).
+-- The game's wording sets nothing else (checked: stat_descriptions text
 -- via PoB's ModJewel.lua 360-362 and QueryMods.lua; patch notes: no hit for "transformed to apply", which is not
 -- evidence of absence).
 local RADIUS_TRANSFORM_LINE = "(%a+) and (%a+) damage in radius are transformed to apply to (%a+) damage"
@@ -3356,6 +3361,7 @@ local function radiusTransforms(item)
 	radiusTransformCache[item] = #found > 0 and found or false
 	return #found > 0 and found or nil
 end
+local radiusTransformBaseOnly = false  -- (COV50) set only inside bridge.radiusTransformBaseOnly
 local function applyRadiusTransforms(env, node, modList)
 	if not env or not env.radiusJewelList or #env.radiusJewelList == 0 or not node or node.type == "Mastery" then
 		return
@@ -3374,7 +3380,13 @@ local function applyRadiusTransforms(env, node, modList)
 	if not moves then
 		return
 	end
-	for i = 1, #modList do
+	local last = #modList
+	if radiusTransformBaseOnly then
+		-- (COV50, R37-15 (b)'s row) the passive's own stats only: CalcSetup's buildModListForNode adds node.modList first,
+		-- then the Time-Lost jewels' cached "also grant" lists (CalcSetup 212 / 228-233)
+		last = math.min(last, node.type ~= "Keystone" and #(node.modList or { }) or 0)
+	end
+	for i = 1, last do
 		local mod = modList[i]
 		if mod.type == "INC" and mod.value ~= 0 then
 			for _, move in ipairs(moves) do
@@ -3410,6 +3422,19 @@ local function installRadiusTransforms()
 		return modList
 	end
 	calcs.buildModListForNode = wrappedNodeModList
+end
+-- (COV50, RESEARCH37 R37-15 (b)) The stats with the radius damage transforms moving only the passives' own stats, not
+-- the Time-Lost jewels' "also grant" lines on them: the row for the lower reading. Two recalculations (on, then back).
+function bridge.radiusTransformBaseOnly(args)
+	radiusTransformBaseOnly = true
+	local ok, err = pcall(recalc)
+	local stats = ok and pickStats(build.calcsTab.mainOutput, args.fields) or nil
+	radiusTransformBaseOnly = false
+	recalc()
+	if not ok then
+		error(err)
+	end
+	return { stats = stats }
 end
 
 -- Installed before every bridge call: PoB defines calcs.initEnv again whenever it loads its

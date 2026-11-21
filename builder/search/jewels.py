@@ -38,6 +38,10 @@ from builder.search.rares import SCREEN_KEEP, Affix, AffixPools, boosted, rare_p
 from builder.search.state import EPSILON, Build
 from builder.search.tree import FULL_EVERY
 
+# (COV50) the fields objective.main_dps reads, player and minion, for the radius-transform row
+TRANSFORM_ROW_FIELDS = [prefix + field for prefix in ("", "Minion.") for field in (
+    "CombinedDPS", "ShowAverage", "CullMultiplier", "ReservationDpsMultiplier", "TotalDPS", "AverageDamage", "TotalDotDPS")]
+
 JEWEL_BASES = ("Ruby", "Emerald", "Sapphire")
 RADIUS_BASES = ("Time-Lost Ruby", "Time-Lost Emerald", "Time-Lost Sapphire")  # rares with a radius (Small)
 JEWEL_LIMIT = {"Prefix": 2, "Suffix": 2}
@@ -344,10 +348,32 @@ class Jewels:
                     "label": f"{jewel['name']} (Jewel {jewel['socket']}): {line.strip()} (custom model)",
                     "value": len(jewel.get("affected") or []),
                     "basis": "PoB parses none of the line; the allocated passives in the radius (the value) have those two "
-                             "types' Damage increases and reductions moved to the third. UNVERIFIED readings: "
-                             "'Elemental Damage' lines stay, the jewels' 'also grant' lines on those passives move too",
+                             "types' Damage increases and reductions moved to the third. UNVERIFIED readings (RESEARCH37 "
+                             "R37-15 kept all three): 'Elemental Damage' lines stay, MEDIUM-LOW (the same result for a "
+                             "build dealing only the third type; only a mixed-element build would differ); the jewels' "
+                             "'also grant' lines on those passives move too, MEDIUM-LOW (the passives' own stats only: "
+                             "the row below); two transforms on one passive move each increase once, MEDIUM (a move, "
+                             "not a copy: nothing counts twice)",
                     "confidence": "theory"})
+        if notes:
+            notes.append(self.transform_base_only_row())
         return notes
+
+    def transform_base_only_row(self) -> dict:
+        """(COV50, R37-15 (b)) The row for the lower reading of the radius damage transforms: only the passives' own
+        stats move, not the Time-Lost jewels' "also grant" lines on them (bridge.radiusTransformBaseOnly)."""
+        from builder.search.objective import main_dps
+
+        now = main_dps(self.build.call("stats", fields=TRANSFORM_ROW_FIELDS))
+        base = main_dps(self.build.call("radiusTransformBaseOnly", fields=TRANSFORM_ROW_FIELDS)["stats"] or {})
+        ratio = base / now if now > 0 else 1.0
+        return {
+            "label": "Radius damage transforms, row: the passives' own stats only (custom model)",
+            "value": f"x{ratio:.3f}",
+            "basis": (f"RESEARCH37 R37-15 (b)'s lower reading: the Time-Lost jewels' 'also grant' lines on the passives "
+                      f"in radius keep their own type; PoB's main-skill DPS {base:,.1f} against {now:,.1f} with them "
+                      "moved (the headline's reading, MEDIUM-LOW either way)"),
+            "confidence": "theory"}
 
     def holds(self, socket: int) -> bool:
         """Whether the tree holds nodes only through this socket's jewel."""
