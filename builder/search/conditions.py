@@ -706,8 +706,9 @@ GENERIC_HIT = re.compile(r"^\s*on (critical )?hit\s*$", re.I)
 # f x 100 + (1 - f) x PoB's own PreEffectiveCritChance read without it (NEBULOCH_TAG). MEDIUM (the charge flow; PoB's
 # later accuracy / Lucky steps act on the blend, not on each part). Side Attacks' crits: not read (an undercount).
 # (MECHC47, RESEARCH36 R36-22, MEDIUM-HIGH: the forced crit replaces only the crit roll, the Attack must still hit, so
-# the blend under PoB's hit chance stands. Whether a MISSED Attack spends the charge: UNVERIFIED (no source either
-# way): headline on use (misses spend too, the lower f), a row with only hits spending (build.nebuloch_found[2]).)
+# the blend under PoB's hit chance stands. A MISSED Attack spends the charge too (RESEARCH37 R37-7, MEDIUM: worded on
+# the Attack, as "consume a Power Charge on use"): the headline, on use; only hits spending is the row
+# (build.nebuloch_found[2]).)
 NEBULOCH_CRIT = re.compile(r"^Attacks consume an Endurance Charge to Critically Hit$", re.I)
 CHARGE_WHILE_BLEEDING = re.compile(r"\bcharges? on hit while bleeding\b", re.I)
 
@@ -1571,8 +1572,9 @@ def rage_max_charges(lines: list[str], stats: dict, kinds: list[str]) -> list[tu
 # whole): "Gain N Druidic Prowess for every M total Rage spent" at the Rage the build really spends (rage_held's spenders,
 # all they ask while Rage keeps up), steady: N x spent / M stacks a second; "Gain N Druidic Prowess when you Heavy Stun a
 # Rare or Unique Enemy" at the main skill's Heavy Stuns of the boss (models.heavy_stun_rate), random. Stacks held:
-# E[min(3, steady x 10 + N x Poisson(stuns x 10))] (a stack past the maximum taken as replacing the oldest, UNVERIFIED;
-# Buff Effect and duration modifiers not read, an undercount where a build has them). Its "Hits with Spell Damage grant
+# E[min(3, steady x 10 + N x Poisson(stuns x 10))] (a stack past the maximum replaces the oldest: RESEARCH37 R37-8,
+# MEDIUM-LOW; no live "effect of Buffs on you" line exists, the two such mods are PoE1 leftovers with no spawn weight and
+# on no unique, R37-8, so no Buff Effect scaling; duration modifiers not read). Its "Hits with Spell Damage grant
 # 3 Rage per stack" isn't fed back into Rage (an undercount for a Spell build that spends Rage). MEDIUM.
 DRUIDIC_PROWESS_SPENT = re.compile(r"^Gain (\d+) Druidic Prowess for every (\d+) total Rage spent$", re.I)
 DRUIDIC_PROWESS_STUN = re.compile(r"^Gain (\d+) Druidic Prowess when you Heavy Stun a Rare or Unique Enemy$", re.I)
@@ -1614,26 +1616,32 @@ def druidic_prowess(texts: list[str], rage_spent: tuple[float, str] | None,
 
 # (MECHC47; COV48's MECH-C row 16.3; plans/kw-shrine.md item 2, RESEARCH26 shrine-proc-rates-r26.md (a)) The Hammer of
 # Faith's "Every 10 seconds, gain a random non-damaging Shrine buff for 20 seconds" (stat gain_shrine_buff_every_10_seconds,
-# Mods UniqueShrineBuffAlternating1; PoB leaves it unparsed). The pool (R26, MEDIUM; weights LOW): 8 shrines, equal
-# weights: Acceleration (60% increased Skill Speed, 40% increased Movement Speed), Diamond ("You always deal Critical
+# Mods UniqueShrineBuffAlternating1; PoB leaves it unparsed). The pool (R26, MEDIUM): 8 shrines: Acceleration (60% increased Skill Speed, 40% increased Movement Speed), Diamond ("You always deal Critical
 # Hits"), Enduring (50% increased maximum Life; 100% increased Global Armour, Evasion and Energy Shield), Replenishing
 # (Regenerate 10% of maximum Life and Mana per second), Resistance (+50% all Elemental Resistances, +10% all maximum),
-# Divine ("You cannot be Damaged"), Seeking and Enlightening (nothing in a fight); row: n = 10 with Greed and Tainted. A
-# roll of a buff already held only refreshes it (R26: two forum guides), so each buff is up u = 1 - (1 - 1/n)^(rolls in
-# its duration), rolls = D / 10 per line (two Hammers, two lines), D = 20 x (1 + "increased Duration of Shrine Effects on
+# Divine ("You cannot be Damaged"), Seeking and Enlightening (nothing in a fight). The roll's weights (MECHC47, RESEARCH37
+# R37-10, LOW-MEDIUM; an OVERCOUNT before, equal weights): the game's Shrines table's weight column (scratch/research37/
+# gx4): Massive (Enduring), Regeneration (Replenishing), Resistance 60; Enlightening 45; Acceleration, Diamond, Seeking
+# 30; Divine 5 (Greed 0: out of the pool), 320 in all, so Diamond and Acceleration are each picked 30 / 320 a roll; a
+# forum guide's "Diamond, Seeking, Enlightening and Divine proc less" fits in part; the even pick (1 / 8) is the row. A
+# roll of a buff already held only refreshes it (R26: two forum guides), so each buff is up u = 1 - (1 - p)^(rolls in
+# its duration), p its pick chance, rolls = D / 10 per line (two Hammers, two lines), D = 20 x (1 + "increased Duration of Shrine Effects on
 # you"). DPS: Diamond as a crit-chance blend (u x 100 + (1 - u) x PoB's own), Acceleration as u x 60% increased Skill
 # Speed (an increase is linear in the time-average); the defence buffs as rows only. Not read: "increased effect of
 # Shrine Buffs" (PoB's ShrineBuffEffect), "Buffs expire slower" lines (undercounts, said).
 SHRINE_EVERY = re.compile(r"^Every (\d+(?:\.\d+)?) seconds, gain a random non-damaging Shrine buff for (\d+(?:\.\d+)?) "
                           r"seconds$", re.I)
 SHRINE_DURATION = re.compile(r"(\d+(?:\.\d+)?)% (increased|reduced) Duration of Shrine Effects on you", re.I)
-SHRINE_POOL, SHRINE_POOL_ROW = 8, 10
+SHRINE_WEIGHTS = {"Massive": 60, "Regeneration": 60, "Resistance": 60, "Enlightening": 45, "Acceleration": 30,
+                  "Diamond": 30, "Seeking": 30, "Divine": 5}  # (R37-10: the Shrines table's weights)
+SHRINE_PICK = SHRINE_WEIGHTS["Diamond"] / sum(SHRINE_WEIGHTS.values())  # (Diamond = Acceleration: 30 / 320)
+SHRINE_PICK_EVEN = 1 / len(SHRINE_WEIGHTS)  # (the row: an even pick of 8)
 SHRINE_SKILL_SPEED = 60.0  # (Acceleration Shrine: 60% increased Skill Speed, R26)
 
 
-def shrine_uptime(texts: list[str], pool: int = SHRINE_POOL) -> tuple[float, str]:
-    """(each shrine buff's share of the fight, how) for The Hammer of Faith's lines (SHRINE_EVERY's note); (0, "") with
-    none."""
+def shrine_uptime(texts: list[str], pick: float = SHRINE_PICK) -> tuple[float, str]:
+    """(the share of the fight a shrine picked at chance `pick` a roll is up, how) for The Hammer of Faith's lines
+    (SHRINE_EVERY's note; the default: Diamond's / Acceleration's weighted pick); (0, "") with none."""
     found = [m for t in texts if (m := SHRINE_EVERY.search(t.strip()))]
     if not found:
         return 0.0, ""
@@ -1643,10 +1651,11 @@ def shrine_uptime(texts: list[str], pool: int = SHRINE_POOL) -> tuple[float, str
     for m in found:
         duration = float(m.group(2)) * max(0.0, 1 + inc / 100)
         rolls += duration / float(m.group(1))
-    up = 1 - (1 - 1 / pool) ** rolls
+    up = 1 - (1 - pick) ** rolls
     return up, (f"{len(found)} line(s): {rolls:.1f} rolls inside a buff's {float(found[0].group(2)) * max(0.0, 1 + inc / 100):g} s"
                 + (f" ({inc:+g}% Shrine Effect duration)" if inc else "")
-                + f", one of {pool} shrines each at equal weight (R26: pool MEDIUM, weights LOW): each up {up:.0%}")
+                + f", picked {pick:.1%} a roll (" + ("the Shrines table's weights, R37-10 LOW-MEDIUM" if pick == SHRINE_PICK
+                                                  else "an even pick of 8") + f"): up {up:.0%}")
 
 
 def _charges_held(kind: str):
@@ -1876,8 +1885,9 @@ RAGE_NO_LOSS = re.compile(r"^No Inherent loss of Rage(?: during effect)?$", re.I
 #   rows, game 26650308; PoB's Uniques: Hateforge alone; passives and stat sets not searched, UNVERIFIED for those)).
 #   With the reset the build reaches the maximum once per climb, every M / net s (rage_held's reset branch, gains taken
 #   as steady, LOW as there); the cooldown N s skips the reaches inside it, so one charge every T x ceil(N / T) s
-#   (T = M / net). The pick is random: a third to each of Power, Frenzy and Endurance (assumed, labelled, as
-#   EXTRA_RANDOM_CHARGE's). Without a reset line nothing says how often the maximum is reached again: not counted,
+#   (T = M / net). The pick is random: a third to each of Power, Frenzy and Endurance (RESEARCH37 R37-11, LOW-MEDIUM: an
+#   even pick; a pick of a type already at its maximum is likely wasted, UNVERIFIED: here it refreshes that kind as any
+#   gain at the maximum does; a re-roll to another type is the other reading, not counted). Without a reset line nothing says how often the maximum is reached again: not counted,
 #   said (UNVERIFIED; no PoE2 item carries the line without it, checked as above).
 RAGE_MAX_CHARGE = re.compile(r"^Gain a random Charge on reaching Maximum Rage, no more than once every (\d+(?:\.\d+)?) "
                              r"seconds?$", re.I)

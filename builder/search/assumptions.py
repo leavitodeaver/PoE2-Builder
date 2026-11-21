@@ -394,7 +394,7 @@ OTHER_INFUSION = re.compile(r"(?:(\d+(?:\.\d+)?)% chance )?when collecting an El
 # and "collected", in Mods, PassiveSkills and SoulCoreStats, game 26650308). PoB parses it only in part (ModCache 4513 /
 # 4561 / 4583, leftover text), so it applies none of it. Read at the share of the fight an Infusion of that element was
 # collected in the last N s: 1 - e^(-pickups x N), pickups from infusion_supply (taken as random, MEDIUM); a Verisium
-# Infusion ("any element") not counted toward it (UNVERIFIED whether it counts, the lower reading). An increase is
+# Infusion ("any element") not counted toward it (RESEARCH37 R37-9, MEDIUM: Verisium and Elemental Infusions keep separate counters). An increase is
 # linear in damage, so its time-average is the value x that share.
 INFUSION_COLLECTED_DAMAGE = re.compile(r"^(\d+(?:\.\d+)?)% increased (Fire|Cold|Lightning) Damage if you've collected an? "
                                        r"(Fire|Cold|Lightning) Infusion in the last (\d+(?:\.\d+)?) seconds$", re.I)
@@ -2997,13 +2997,14 @@ class Assumptions:
                     "value": f"{row:.1f}% critical (headline {blend:.1f}%)",
                     "basis": (f"if a missed Attack keeps its charge, {on_hits:.0%} of {main.name}'s hits find one (its hit "
                               f"chance {hit:.0%}); the headline reads \"Attacks consume\" as on use, misses too"),
-                    "confidence": "UNVERIFIED (R36-22: no source says whether a miss spends the charge)",
+                    "confidence": ("MEDIUM that it doesn't apply: RESEARCH37 R37-7, the line is worded on the Attack "
+                                   "(as 'consume a Power Charge on use'), so a miss spends the charge too: the headline"),
                     "play": ""}]
         # (MECHC47) The Hammer of Faith's random Shrine buffs (conditions.SHRINE_EVERY's note): Diamond's crits as a blend
         # (merged into Nebuloch's blend when both are on), Acceleration's Skill Speed at its uptime; the rest rows
         shrine_up, shrine_how = conditions_mod.shrine_uptime(texts)
         if shrine_up > 0 and main is not None:
-            row_up = conditions_mod.shrine_uptime(texts, conditions_mod.SHRINE_POOL_ROW)[0]
+            row_up = conditions_mod.shrine_uptime(texts, conditions_mod.SHRINE_PICK_EVEN)[0]  # (R37-10's row)
             neb = next((m for m in hand_mods if m.get("tag") == NEBULOCH_TAG), None)
             own = [m for m in self.mods or [] if m.get("tag") not in (NEBULOCH_TAG, SHRINE_TAG)]
             if neb is not None:
@@ -3025,14 +3026,15 @@ class Assumptions:
                 "label": "The Hammer of Faith: random Shrine buffs*",
                 "value": (f"Diamond (always Critically Hit) and Acceleration (60% increased Skill Speed) each {shrine_up:.0%}"
                           f" of the fight: {crit:.1f}% critical (was {crit_now:.1f}%), +{speed:g}% Skill Speed"),
-                "basis": (f"{shrine_how}. Enduring, Replenishing, Resistance and Divine each up {shrine_up:.0%} too: "
+                "basis": (f"{shrine_how}. Enduring, Replenishing and Resistance (weight 60) and Divine (5) are up too: "
                           "defence only, not scored; Seeking / Enlightening do nothing in a fight. Shrine Buff effect "
                           "lines not read"),
-                "confidence": "LOW (the roll's weights: equal assumed, R26); the cadence and duration HIGH",
+                "confidence": ("LOW-MEDIUM (the roll's weights: the Shrines table's, R37-10); the cadence and duration "
+                               "HIGH"),
                 "play": "Keep The Hammer of Faith equipped: weapon swap removes its Shrine buffs"}, {
-                "label": "The Hammer of Faith, row: 10 shrines in the pool (Greed and Tainted too)*",
-                "value": f"each up {row_up:.0%} (headline {shrine_up:.0%})",
-                "basis": "if Greed and Tainted (no effect in a fight) are in the roll (R26: n = 8 or 10)",
+                "label": "The Hammer of Faith, row: an even pick of the 8 shrines*",
+                "value": f"Diamond and Acceleration each up {row_up:.0%} (headline {shrine_up:.0%})",
+                "basis": "if the roll ignored the Shrines table's weights (R26's equal-weight reading)",
                 "confidence": "LOW", "play": ""}]
         infusion_mods, infusion_notes = self.infusion_collected_mods(texts)  # (MECHC47: INFUSION_COLLECTED_DAMAGE)
         hand_mods, hand_notes = hand_mods + infusion_mods, hand_notes + infusion_notes
@@ -7131,7 +7133,8 @@ class Assumptions:
                 "value": f"+{value * share:.1f}% ({share:.0%} of the fight)",
                 "basis": (f"{rate:.3f} {collected} Infusions collected a second (" + ("; ".join(used[:3]) or
                           "no source of them") + f"), taken as random: one in the last {seconds:g} s {share:.0%} of "
-                          "the time; Verisium Infusions not counted toward it (UNVERIFIED)") if rate > 0 else
+                          "the time; Verisium Infusions not counted toward it (RESEARCH37 R37-9, MEDIUM: a separate "
+                          "counter)") if rate > 0 else
                          f"the build makes no {collected} Infusions: 0",
                 "confidence": "MEDIUM (pickups taken as random arrivals)",
                 "play": (f"Collect a {collected} Infusion at least every {seconds:g} s" if share > 0 else "")})

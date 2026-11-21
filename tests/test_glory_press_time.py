@@ -412,16 +412,20 @@ def test_druidic_prowess_and_hateforge_charges():
 
 
 def test_the_hammer_of_faiths_shrine_uptime():
-    """(MECHC47; RESEARCH26 R26 (a)) each of n shrines up 1 - (1 - 1/n)^(rolls in its duration): one Hammer 23.4% (n = 8),
-    19.0% (n = 10); two Hammers 41.4%; +50% Shrine Effect duration makes 3 rolls."""
+    """(MECHC47; RESEARCH37 R37-10) Diamond / Acceleration are picked 30 / 320 a roll (the Shrines table's weights): one
+    Hammer 2 rolls a buff's 20 s, up 1 - (1 - 0.09375)^2 = 17.9%; an even pick of 8 (the row) 23.4%; two Hammers 4 rolls;
+    +50% Shrine Effect duration 3 rolls."""
     from builder.search import conditions
 
     line = "Every 10 seconds, gain a random non-damaging Shrine buff for 20 seconds"
-    assert conditions.shrine_uptime([line])[0] == pytest.approx(0.234375)
-    assert conditions.shrine_uptime([line], 10)[0] == pytest.approx(0.19)
-    assert conditions.shrine_uptime([line, line])[0] == pytest.approx(1 - (7 / 8) ** 4)
+    p = 30 / 320
+    assert conditions.SHRINE_PICK == pytest.approx(p)
+    assert conditions.shrine_uptime([line])[0] == pytest.approx(1 - (1 - p) ** 2)
+    assert round(conditions.shrine_uptime([line])[0], 3) == 0.179
+    assert conditions.shrine_uptime([line], conditions.SHRINE_PICK_EVEN)[0] == pytest.approx(0.234375)
+    assert conditions.shrine_uptime([line, line])[0] == pytest.approx(1 - (1 - p) ** 4)
     assert conditions.shrine_uptime([line, "50% increased Duration of Shrine Effects on you"])[0] == pytest.approx(
-        1 - (7 / 8) ** 3)
+        1 - (1 - p) ** 3)
     assert conditions.shrine_uptime(["Gain 5 Rage on Hit"]) == (0.0, "")
 
 

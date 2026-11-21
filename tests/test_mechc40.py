@@ -369,7 +369,7 @@ def test_a_side_twisters_hits_a_cast_feed_on_hit_charges(engine):
 
 def test_the_hammer_of_faiths_shrines_raise_crit_and_skill_speed(engine):
     """MECHC47 (an UNDERCOUNT before, COV48's MECH-C row 16.3; RESEARCH26 R26 (a)): "Every 10 seconds, gain a random
-    non-damaging Shrine buff for 20 seconds" keeps each of 8 shrines up 23% of the fight: Diamond's crits blend into the
+    non-damaging Shrine buff for 20 seconds" keeps Diamond and Acceleration up 17.9% of the fight (R37-10's weights): Diamond's crits blend into the
     crit chance and Acceleration's 60% Skill Speed counts at that share (conditions.SHRINE_EVERY's note)."""
     payload = make_payload(BuildRequest(main_skill="Boneshatter"))
     skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
@@ -387,7 +387,7 @@ def test_the_hammer_of_faiths_shrines_raise_crit_and_skill_speed(engine):
         got = build.call("stats", fields=["PreEffectiveCritChance", "Speed"])
         seen[bool(line)] = (number(got.get("PreEffectiveCritChance")), number(got.get("Speed")))
         print(bool(line), seen[bool(line)])
-    up = 1 - (7 / 8) ** 2
+    up = 1 - (1 - 30 / 320) ** 2  # (R37-10: the Shrines table's weights)
     assert seen[True][0] == pytest.approx(up * 100 + (1 - up) * seen[False][0], abs=1.0)
     assert seen[True][1] > seen[False][1]
 
