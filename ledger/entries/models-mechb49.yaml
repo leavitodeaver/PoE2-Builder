@@ -36,3 +36,33 @@
             "data/game-26650308/tables/Mods.json (UniquePhysicalDamageTakenPercentToReflect1, PhysicalDamageTakenPercentToReflectUniqueBodyStr2)",
             "data/game-26650308/tables/SoulCoreStats.json (row 463)", "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:1887,3487"]
   status: proposed
+
+- id: model-mechb49-forge-hammer-loop
+  title: "Forge Hammer's throw-and-recall loop: an Impact every T + T / 1.7 s with no Warcry (models.forge_hammer_loop_model)"
+  kind: model
+  model: forge_hammer_loop
+  skill: ["Forge Hammer"]
+  confidence: theory
+  notes: >-
+    MECHB49, RESEARCH38 R38-6, an UNDERCOUNT up to ~x5. The recall resets the cooldown and has 70% more attack speed and
+    no Impact (ForgeHammerRecallPlayer); PoB caps the skill at its 8 s cooldown (CalcOffence 3005-3009). With no Warcry
+    in the build the loop is the headline (a play strategy); with one, PoB's rate stays and the loop and the lodged cycle
+    (T + the Warcry's wait + 8 s) are rows. The hammer's return delay UNVERIFIED.
+  sources: ["builder/search/models.py (FORGE_HAMMER, forge_hammer_loop_model)", "builder/search/assumptions.py (models(), the detonated sets)",
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/forge-hammer-recall-last-lament-runic-binding.md (R38-6)"]
+  status: proposed
+
+- id: model-mechb49-eye-shards
+  title: "Eye of Winter's shards that hit the boss as the Eye flies through it (models.eye_shards_model)"
+  kind: model
+  model: eye_shards
+  skill: ["Eye of Winter"]
+  confidence: theory
+  notes: >-
+    MECHB49, RESEARCH38 R38-14, an UNDERCOUNT of ~x2-4 (PoB counts one shard a use). The Eye hits nothing and flies
+    through the boss at 2.25 m/s firing its shards around it: every shard while inside the hit radius, asin(R / x) / pi
+    of them from outside over the approach and an equal exit (the range UNVERIFIED). On top of GEM19's first-hit line.
+    Headline aimed through the boss (LOW); rows the first hit only and aimed past it.
+  sources: ["builder/search/models.py (EYE_SPEED, eye_side_shards, eye_shards_model)", "builder/search/assumptions.py (models(), after GEM19's Eye line)",
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/eye-crossbow-caltrops-steps-movement-r38.md (R38-14)"]
+  status: proposed

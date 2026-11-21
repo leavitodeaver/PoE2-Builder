@@ -2119,27 +2119,29 @@ def corpse_model(skills: list[Skill], mods: list[dict], stats: dict | None = Non
 # also grant Decompose itself, a Spell the player uses (CorpseCloudPlayer: Spell, Totemable, Trappable), whose uses
 # corpse_model already holds to the corpses there are. The travel trigger adds uses only while the player moves, which the
 # game decides in a boss fight (no data gives it: CLAUDE.md's last resort), so the headline adds none (as Volcanic
-# Steps, R36-13). Row (LOW): stepping out of each boss hit about 3 m (VOLCANIC_DODGE_METRES, the same game-decided
-# distance, named for the manager), one Decompose per 1.2 m, each still needing a corpse (the supply corpse_model shares).
+# Steps, R36-13). Row (LOW; RESEARCH38 R38-18): a 4.6 m dodge roll on half the boss's attacks (VOLCANIC_DODGE_METRES /
+# _SHARE, as Volcanic Steps' row), one Decompose per 1.2 m, each still needing a corpse (the supply corpse_model shares).
 DECOMPOSE_TRAVEL = re.compile(r"^Trigger Decompose every (\d+(?:\.\d+)?) metres? travelled$", re.I)
 DECOMPOSE_ENTRY = "model-mechb49-decompose-on-travel"
 
 
-def decompose_travel_note(texts: list[str], supply: float, every: float, dodge_metres: float) -> list[dict]:
+def decompose_travel_note(texts: list[str], supply: float, every: float, dodge_metres: float,
+                          dodge_share: float = 1.0) -> list[dict]:
     """A LOW row for Corpsewade's travel-triggered Decompose (see above): `supply` the corpses a second there are,
     `every` the seconds between boss hits."""
     line = next((m for t in texts if (m := DECOMPOSE_TRAVEL.match(t.strip()))), None)
     if line is None:
         return []
     step = float(line.group(1))
-    steps = (dodge_metres / step / every) if every > 0 and step > 0 else 0.0
+    steps = (dodge_share * dodge_metres / step / every) if every > 0 and step > 0 else 0.0
     row = min(steps, max(supply, 0.0))
     return [{"label": "Corpsewade: Decompose every metre travelled*", "value": "0 in the headline",
              "confidence": "LOW", "entry": DECOMPOSE_ENTRY,
              "basis": (f"its line triggers Decompose every {step:g} m travelled; how far you move in a boss fight is the "
                        "game's (no data gives it), so no uses are added (the Decompose you press is counted, held to "
-                       f"the corpses). Row (LOW): stepping about {dodge_metres:g} m out of each boss hit "
-                       f"({1 / every if every > 0 else 0:.2f}/s) makes {steps:.2f} Decompose/s, each needing a corpse "
+                       f"the corpses). Row (LOW, RESEARCH38 R38-18): a {dodge_metres:g} m dodge roll on {dodge_share:.0%} "
+                       f"of the boss's attacks ({1 / every if every > 0 else 0:.2f}/s; the user's 'dodge about half', "
+                       f"given for Cold attacks, extended) makes {steps:.2f} Decompose/s, each needing a corpse "
                        f"({supply:.3g}/s there): {row:.2f}/s"),
              "play": "Keep moving through the corpses: each 1.2 m sets off a Decompose on one."}]
 
@@ -19597,6 +19599,13 @@ def projectile_hit_recently_model(texts: list[str], rates: dict[str, tuple[float
 #   enemy." Headline: all its projectiles (PoB's ProjectileCount, base 5) at point-blank (the same ruling); LOW: how much of
 #   the arc a boss covers is UNVERIFIED (no arc stat in its set).
 # Without it (PoB): one hit a use, x1. Main skill only (another group's copy keeps PoB's one: an undercount, said).
+# (MECHB49, RESEARCH38 R38-13, MEDIUM-LOW, an OVERCOUNT of up to ~3x fixed) Spark's headline is ONE hit a cast on a lone
+# boss: the stat clears the cast's hit list every 0.66 s (spark_min_time_between_target_clearing_ms), the sparks keep to a
+# ~2 m lane along the aim (spark_pathing_width_bounds 20) at 10 m/s (Projectiles Metadata/Projectiles/Spark), so all of a
+# point-blank cast reach the boss within ~0.1 s, the first hits and the rest pass through and leave before the list
+# clears; a second hit needs a spark to come back (an arena wall). Rows: 2 (returned off a wall, LOW) and the cap
+# min(sparks, floor(life / 0.66)) (3 at 2 s). PoB's own count is that one, so the headline adds nothing.
+SPARK_HEADLINE_HITS, SPARK_WALL_HITS = 1.0, 2.0
 GROUP_EXCEPTION_ENTRY = "model-mechb45-projectile-group-exceptions"
 SPARK, FREEZING_SHARDS = "Spark", "Freezing Shards"
 SPARK_REHIT, SPARK_LIFE = 0.66, 2.0  # spark_min_time_between_target_clearing_ms 660; base_skill_effect_duration 2000
@@ -19615,17 +19624,17 @@ def group_exception_model(main: Skill | None, stats: dict,
         life = number(stats.get("Duration")) or SPARK_LIFE
         windows = max(1, math.floor(life / SPARK_REHIT + 1e-9))
         upper = max(1, math.ceil(life / SPARK_REHIT - 1e-9))
-        hits, high = min(sparks, windows), min(sparks, upper)
-        label = "Spark: one cast's sparks hit the boss once per 0.66 s of their life*"
-        basis = (f"{sparks:g} sparks a cast living {life:.2f} s (PoB's Duration); the game lets one cast's sparks hit the "
-                 f"same target once per {SPARK_REHIT:g} s (spark_min_time_between_target_clearing_ms 660; its text), so "
-                 f"at most min({sparks:g}, floor({life:.2f} / {SPARK_REHIT:g})) = {hits:g} hits a cast against PoB's 1. "
-                 f"LOW: cast point-blank, every window taken to find a spark on the boss (whether sparks pass through it "
-                 f"during a window and wander back is UNVERIFIED; RESEARCH36 R36-5: the 0.66 s limit is shared by a "
-                 f"cast's sparks and a spark ends on hit, so 3-4 a cast is the cap, keep 3). Rows: the first hit at "
-                 f"once, ceil: x{high:g}; at range 1-2; without it (PoB): x1")
-        play = (f"Cast Spark point-blank into the boss so its sparks keep crossing it: one cast hits up to {hits:g} "
-                f"times (once per {SPARK_REHIT:g} s while they live); from range, as few as 1 (PoB's x1).")
+        cap, high = min(sparks, windows), min(sparks, upper)
+        hits = min(SPARK_HEADLINE_HITS, cap)
+        label = "Spark: one hit a cast on a lone boss*"
+        basis = (f"{sparks:g} sparks a cast living {life:.2f} s (PoB's Duration). The cast's hit list clears every "
+                 f"{SPARK_REHIT:g} s (spark_min_time_between_target_clearing_ms 660), but its sparks keep to a ~2 m "
+                 "lane at 10 m/s, reach the boss together, the first hits and the rest pass through and leave before "
+                 "the list clears (RESEARCH38 R38-13, MEDIUM-LOW): one hit a cast, PoB's own count. Rows: a spark "
+                 f"returned off an arena wall, x{min(SPARK_WALL_HITS, cap):g} (LOW); the cap min({sparks:g}, "
+                 f"floor({life:.2f} / {SPARK_REHIT:g})) = x{cap:g} (ceil x{high:g}), every window finding a spark")
+        play = ("Spark hits a lone boss about once a cast; casting with a wall behind the boss may bring a spark back "
+                f"for a second hit (x{min(SPARK_WALL_HITS, cap):g}).")
     else:
         shards = max(count, FREEZING_SHARDS_BASE)
         hits = max(1.0, round(shards * FREEZING_SHARDS_SHARE, 2))
@@ -19890,11 +19899,18 @@ def shield_wave_model(cry_row: dict, echo_less: float, shield_hits: float, hits_
     full = cries * n
     # (MECHB47, RESEARCH36 R36-11, MEDIUM-LOW) Echoing Cry: "Echo 2 times" (gem_stat_descriptions; poe2db Echoing_Cry),
     # each echo the warcry again at the same 50% less Power: if each adds its own allowance, 3 x n a use; if it
-    # refreshes it, n (the headline: the lower, UNSETTLED). The Jul 2026 stack-counter bug (forum 3982833) not modelled.
-    adds = min(float(n) * (1 + SHIELD_WAVE_ECHOES), max(shield_hits, 0.0) * SHIELD_WAVE_WINDOW) if echo_less < 0 else per
-    echo_row = (f"; with Echoing Cry, if each of its {SHIELD_WAVE_ECHOES} echoes adds its own allowance rather than "
-                f"refreshing it (UNSETTLED, RESEARCH36 R36-11): {adds:g} a use, {cries * adds:.3f}/s (row); its 10 m "
-                "travel gate is in the cries a second" if echo_less < 0 else "")
+    # refreshes it, n. (MECHB49, RESEARCH38 R38-12, MEDIUM: they ADD, the headline: BuffDefinitions'
+    # display_num_empowered_attacks has MergeMode 1, separate instances as Withered's, and the Jul 2026 stack-counter bug,
+    # forum 3982833, "stacks double after each cast", needs echoes to add; the refresh reading is the row.) The bug's
+    # doubling is not modelled (labelled).
+    refresh = per
+    if echo_less < 0:
+        per = min(float(n) * (1 + SHIELD_WAVE_ECHOES), max(shield_hits, 0.0) * SHIELD_WAVE_WINDOW)
+        rate = cries * per
+    echo_row = (f"; with Echoing Cry its {SHIELD_WAVE_ECHOES} echoes each add their own allowance (RESEARCH38 R38-12, "
+                f"MEDIUM: the count is stored as separate instances), so {per:g} a use; if they refreshed it instead, "
+                f"{refresh:g} a use, {cries * refresh:.3f}/s (row); the Jul 2026 bug that doubles the stacks each cast "
+                "isn't modelled; its 10 m travel gate is in the cries a second" if echo_less < 0 else "")
     mods = [{"kind": "SkillData", "skill": SHIELD_WAVE, "key": "triggerRate", "value": rate},
             {"kind": "SkillData", "skill": SHIELD_WAVE, "key": "triggered", "value": True}]
     return mods, [{
@@ -20212,8 +20228,8 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
 # (recovery.life_flows, as Demon Form's cycle) pays for net / N shots a second; such shots come at PoB's FiringRate with
 # no reload, the rest of the fight at PoB's clip-and-reload Speed: a share f = min(1, net / (N x FiringRate)) of the fight
 # fires unbroken, and the main skill's uses go from Speed to f x FiringRate + (1 - f) x Speed. MEDIUM-LOW: Life spent
-# this way runs the pool down to about N (whether the sacrifice is optional, and whether it needs more than N Life left,
-# UNVERIFIED: RESEARCH); the defence floors still read the full pool (an overcount of the defences, said in the note).
+# this way runs the pool down to about N (RESEARCH38 R38-7: the Sacrifice isn't optional and can't pay at N Life or
+# less, the bolt then used up, N + 1 likely needed; so the steady state above stands); the defence floors still read the full pool (an overcount of the defences, said in the note).
 # Not with Chaos Inoculation (Life 1) or a Life pool of N or less; nothing where no bolt is consumed already.
 LAMENT_LINE = re.compile(r"^sacrifice (\d+) life to not consume the last bolt when firing$", re.I)
 LAMENT_ENTRY = "model-mechb48-last-bolt-sacrifice"
@@ -20251,7 +20267,7 @@ def last_bolt_sacrifice_model(main: Skill | None, texts: list[str], stats: dict,
                       f"{firing:.2f} shots a second with no reload: {share:.0%} of the fight without reloading, the rest "
                       f"at PoB's {speed:.2f} with its {reload:.2f} s reloads: x{factor:.3f} (every reload skipped: "
                       f"x{every:.3f}). Your Life runs down to about {cost:g} while you do it (the defence floors still "
-                      "read the full pool; whether the sacrifice is optional: UNVERIFIED)"),
+                      "read the full pool; the Sacrifice isn't optional and can't pay at 300 Life or less: RESEARCH38 R38-7)"),
             "play": (f"Keep firing {main.name} past the last bolt while your Life refills; reload only when it's low. "
                      f"Without it: x1; with this build's recovery: x{factor:.3f}.")}
     if factor <= 1 + 1e-9:
@@ -20264,9 +20280,13 @@ def last_bolt_sacrifice_model(main: Skill | None, texts: list[str], stats: dict,
 # Potential"). An OVERCOUNT: PoB parses neither (ModCache 7509-7510: {} with leftover text). KeywordPopups RunicBinding
 # (26650308): "Each Runic Binding grants 10% reduced Spell Damage and 2% reduced Skill cost Efficiency. You can have up to
 # 10 Runic Bindings. Runic Bindings last for 10 seconds. Runic Bindings cannot be gained while Shapeshifted". On a main
-# Spell that hits: gained at r = min(1 / 0.5 s, its hits a second at its share of the fight), each lasting 10 s (each its
-# own duration: UNVERIFIED, the higher count; refreshed together would be the same at r >= 0.1/s), so min(10, 10 r)
-# stand: 10% reduced Spell Damage each (as the line "1% increased Spell Damage" x -10 n, PoB's own parse). The cost
+# Spell that hits: gained at r = min(1 / 0.5 s, its hits a second at its share of the fight). (MECHB49, RESEARCH38
+# R38-8, MEDIUM-HIGH: BuffDefinitions runic_binding MergeMode 4, as the charges, Infusions and Fear buffs, whose popup
+# says "This duration is refreshed when you gain another": ONE shared timer a new Binding refreshes.) So while gains
+# come under 10 s apart (r >= 0.1/s) none lapse and all 10 stand once gained (10 / r s to reach them, 5 s at 2 a second:
+# the ramp not taken off, a long fight); slower, each lapses before the next: 10 r on average. MECHB48's reading, each its
+# own 10 s (min(10, 10 r)), is the row (it read slow Spells lower: an OVERCOUNT of their DPS, now fixed). 10% reduced
+# Spell Damage each (as the line "1% increased Spell Damage" x -10 n, PoB's own parse). The cost
 # Efficiency (2% reduced each) isn't read (a small overcount of Mana sustain, said). The Unbound Potential a Shapeshift
 # turns them into (KeywordPopups UnboundPotential: 20% increased Damage each, up to 10, one lost every 5 s, all lost on
 # turning Human) isn't counted: a main Spell is cast as a Human (an UNDERCOUNT only for a build that shapeshifts to
@@ -20292,7 +20312,8 @@ def runic_binding_model(main: Skill | None, texts: list[str], stats: dict, forbi
                                "Unbound Potential a Shapeshift makes of them isn't counted)")}]
     hits = hits_per_second(at_main_share(stats))
     rate = min(1.0 / every if every > 0 else math.inf, hits)
-    stacks = min(float(BINDING_MAX), rate * BINDING_SECONDS)
+    own = min(float(BINDING_MAX), rate * BINDING_SECONDS)  # (each its own 10 s: the row)
+    stacks = float(BINDING_MAX) if rate * BINDING_SECONDS >= 1 else rate * BINDING_SECONDS  # (R38-8: one shared timer)
     if stacks <= 0:
         return [], [{"label": label, "value": 0, "confidence": "MEDIUM", "entry": BINDING_ENTRY,
                      "basis": f"{main.name} doesn't hit: no Bindings"}]
@@ -20301,9 +20322,11 @@ def runic_binding_model(main: Skill | None, texts: list[str], stats: dict, forbi
         "label": label, "value": f"{stacks:.1f} ({less:.0f}% reduced Spell Damage)", "confidence": "MEDIUM",
         "entry": BINDING_ENTRY,
         "basis": (f"PoB reads neither line. One a hit with Spells at most every {every:g} s: {main.name} hits "
-                  f"{hits:.2f} times a second at its share of the fight, so {rate:.2f} a second, each lasting "
-                  f"{BINDING_SECONDS:g} s: {stacks:.1f} of {BINDING_MAX} stand, {BINDING_LESS:g}% reduced Spell Damage "
-                  f"each (KeywordPopups RunicBinding, HIGH). Not read: their {2 * stacks:.0f}% reduced Skill cost "
+                  f"{hits:.2f} times a second at its share of the fight, so {rate:.2f} a second; they share one "
+                  f"{BINDING_SECONDS:g} s timer each new one refreshes (RESEARCH38 R38-8, MEDIUM-HIGH: MergeMode 4): "
+                  f"{stacks:.1f} of {BINDING_MAX} stand ({BINDING_MAX / rate if rate > 0 else 0:.0f} s to reach them, "
+                  f"not taken off), {BINDING_LESS:g}% reduced Spell Damage each (KeywordPopups RunicBinding, HIGH). Row: "
+                  f"each its own {BINDING_SECONDS:g} s, {own:.1f} ({BINDING_LESS * own:.0f}% reduced). Not read: their {2 * stacks:.0f}% reduced Skill cost "
                   "Efficiency (more Mana spent), and the Unbound Potential a Shapeshift would turn them into (20% "
                   "increased Damage each while Shapeshifted: not counted, your main Spell is cast as a Human)"),
         "play": ("The Unleashed's Runic Bindings cut your Spell damage while you cast: Shapeshift to spend them as "
@@ -20355,3 +20378,100 @@ def melee_reflect_model(texts: list[str], stats: dict, boss: str, every: float, 
             "basis": basis, "play": "Let the boss's Melee hits land on you (no Evasion or Block against them) to "
                                     "reflect their Physical damage."}
     return dps, [note]
+
+
+# Forge Hammer's throw-and-recall loop (MECHB49; RESEARCH38 R38-6, HIGH that the recall is a use with no Impact, MEDIUM on
+# the rates). ActiveSkills forge_hammer: "While the hammer is lodged in the ground, reusing this Skill recalls the hammer
+# and resets the Skill's cooldown"; its Recall set (ForgeHammerRecallPlayer) has no damage and 70% more attack speed
+# (supplementary_stat_container_attack_speed_+%_final 70); "Cooldown does not recover while the hammer is lodged". PoB
+# caps the skill at one use per its 8 s cooldown (CalcOffence 3005-3009), so it never counted the recall, and never the
+# loop: a player who throws and recalls lands an Impact every T + T / 1.7 s (T the throw's attack time, PoB's CastRate
+# before the cap: the bridge's castRate), an UNDERCOUNT up to ~x5 for a build with no Warcry to shatter it (a play
+# strategy: the headline there, labelled; the hammer's return delay, if any, UNVERIFIED). With a Warcry the hammer is
+# left lodged for it, so a cycle is T + the Warcry's wait + 8 s (no recovery while lodged): PoB's 1 / 8 s a little high;
+# both are rows there, the headline PoB's (the detonated model's shatter share on it).
+FORGE_HAMMER, FORGE_RECALL_SPEED = "Forge Hammer", 1.7
+FORGE_LOOP_ENTRY = "model-mechb49-forge-hammer-loop"
+
+
+def forge_hammer_loop_model(main: Skill | None, speed: float, cast_rate: float, cooldown: float, cries: float,
+                            forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """The throw-recall loop above on a main Forge Hammer: `speed` PoB's capped uses a second, `cast_rate` one throw's
+    rate before the cap, `cooldown` its cooldown (s), `cries` the build's Warcries a second."""
+    if main is None or main.name != FORGE_HAMMER or FORGE_LOOP_ENTRY in forbidden or speed <= 0 or cast_rate <= 0:
+        return [], []
+    throw = 1.0 / cast_rate
+    loop = 1.0 / (throw + throw / FORGE_RECALL_SPEED)
+    lodged = 1.0 / (throw + (1.0 / cries if cries > 0 else 0.0) + cooldown) if cooldown > 0 else speed
+    label = "Forge Hammer: throw and recall, an Impact each loop*"
+    rows = (f"PoB scores its Impact at most once per {cooldown:g} s cooldown ({speed:.3f}/s). Throwing and recalling "
+            f"(the recall resets the cooldown, 70% faster, no Impact) lands one every {throw:.2f} + {throw / FORGE_RECALL_SPEED:.2f} s"
+            f" = {loop:.3f}/s (x{loop / speed:.2f}; the hammer's return delay UNVERIFIED); lodged for a Warcry, one every "
+            f"{throw:.2f} s + the Warcry's wait + {cooldown:g} s = {lodged:.3f}/s (x{lodged / speed:.2f})")
+    if cries > 0 or loop <= speed:
+        return [], [{"label": label, "value": "rows only", "confidence": "MEDIUM", "entry": FORGE_LOOP_ENTRY,
+                     "basis": rows + ("; the build has a Warcry to shatter it, so it's left lodged: PoB's rate with the "
+                                      "shatter share stays the headline" if cries > 0 else "")}]
+    factor = loop / speed
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=FORGE_LOOP_ENTRY)], [{
+        "label": label, "value": f"x{factor:.3f}", "confidence": "MEDIUM", "entry": FORGE_LOOP_ENTRY,
+        "basis": rows + ": with no Warcry in the build, the loop is the headline (a play strategy, RESEARCH38 R38-6)",
+        "play": (f"Throw Forge Hammer, then press it again at once to recall it, and repeat: {loop:.2f} Impacts a second "
+                 f"instead of one per {cooldown:g} s. Without it: x1; with it: x{factor:.3f}.")}]
+
+
+# Eye of Winter's shards on the boss (MECHB49; RESEARCH38 R38-14, MEDIUM on the shape, LOW on the number; an UNDERCOUNT
+# of ~x2-4: PoB scores ONE shard a use, probe POE2T3438, and GEM19's eye_of_winter_model adds its first hit's 900% more).
+# The Eye "does not Hit enemies", so it flies through the boss (Projectiles: the Eye 2.25 m/s, a shard 10 m/s), firing
+# its shards (ProjectileCount a second, base 30) evenly around it: while it's inside the boss's hit radius R every shard
+# starts in the boss and hits it once (2R / 2.25 s of them); from x > R a shard meets it with chance asin(R / x) / pi,
+# integrated over the approach from the build's fighting distance d and the same length out (the shards' and the Eye's
+# range aren't in any client file: the exit taken as long as the approach, LOW). N shards a use = 30 / s x (2R / v +
+# 2 x the integral / v). A use deals (1 + 9) + (N - 1) shard hits against PoB's 1, so on top of GEM19's line this
+# model's factor is (1 + more + N - 1) / (1 + more) (one model's DPS MORE on the other's). Headline: the Eye aimed
+# through the boss (a play choice, LOW); rows: the first hit only (GEM19's alone) and aimed past it (the side terms).
+EYE_SPEED, EYE_SHARDS = 2.25, 30.0  # Metadata/Projectiles/FrozenSphere ProjectileSpeed 225; EyeOfWinterPlayer 30 a second
+EYE_SHARDS_ENTRY = "model-mechb49-eye-shards"
+
+
+def eye_side_shards(rate: float, radius: float, distance: float, steps: int = 200) -> float:
+    """Shards that meet a boss of hit radius `radius` from outside it while the Eye travels from `distance` to it."""
+    if distance <= radius or radius <= 0:
+        return 0.0
+    width = (distance - radius) / steps
+    total = sum(math.asin(radius / (radius + (i + 0.5) * width)) / math.pi for i in range(steps)) * width
+    return rate * total / EYE_SPEED
+
+
+def eye_shards_model(main: Skill | None, stats: dict, radius: float, distance: float, first_factor: float,
+                     forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Eye of Winter's shards that hit the boss (above): `stats` PoB's AverageDamage, Speed, TotalDPS (GEM19's line
+    taken back out: TotalDPS / first_factor) and ProjectileCount; `first_factor` GEM19's DPS factor now (1 for none)."""
+    if main is None or main.name != EYE or EYE_SHARDS_ENTRY in forbidden or main.triggered:
+        return [], []
+    hit, uses = number(stats.get("AverageDamage")), number(stats.get("Speed"))
+    total = number(stats.get("TotalDPS")) / max(first_factor, 1e-9)
+    rate = number(stats.get("ProjectileCount")) or EYE_SHARDS
+    if hit <= 0 or uses <= 0 or total <= 0 or radius <= 0:
+        return [], []
+    inside = rate * 2 * radius / EYE_SPEED
+    side = eye_side_shards(rate, radius, max(distance, radius))
+    shards, past = inside + 2 * side, 2 * side
+    first_more = first_factor - 1  # (GEM19's extra over PoB's TotalDPS)
+
+    def factor(n: float) -> float:
+        return (1 + first_more + max(n - 1, 0.0) * hit * uses / total) / (1 + first_more)
+    value, past_value = factor(shards), factor(past)
+    if value <= 1 + 1e-9:
+        return [], []
+    return [raw_mod("DPS", "MORE", 100 * (value - 1), main.name, tag=EYE_SHARDS_ENTRY)], [{
+        "label": f"{main.name}: about {shards:.0f} shards a cast hit the boss*", "value": f"x{value:.3f}",
+        "confidence": "LOW", "entry": EYE_SHARDS_ENTRY,
+        "basis": (f"PoB counts one shard a use. The Eye flies through the boss (it hits nothing itself) at {EYE_SPEED:g} "
+                  f"m/s firing {rate:g} shards a second around it: {inside:.1f} while inside its {radius:g} m hit radius "
+                  f"(each hits once) + {side:.1f} coming in from {distance:g} m and as many going out (asin(R / x) / pi "
+                  f"of them; the exit range UNVERIFIED) = {shards:.1f} a cast (RESEARCH38 R38-14: MEDIUM shape, LOW "
+                  f"number), each PoB's {hit:,.0f} shard, on top of the first hit's bonus: x{value:.3f}. Rows: the first "
+                  f"hit only, x1; aimed past the boss ({past:.1f} shards), x{past_value:.3f}"),
+        "play": (f"Aim Eye of Winter through the boss so it flies through its body: about {shards:.0f} shards hit "
+                 f"(x{value:.3f}); aimed past it, about {past:.0f} (x{past_value:.3f}).")}]

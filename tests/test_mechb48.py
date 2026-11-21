@@ -110,7 +110,10 @@ def test_runic_bindings_cut_a_main_spells_damage_by_the_stacks_its_hits_keep():
     mods, notes = models.runic_binding_model(spark, [BINDING], {"Speed": 3.0, "HitChance": 100})
     assert mods[0]["line"] == "1% increased Spell Damage" and mods[0]["scale"] == pytest.approx(-100.0)  # 2/s cap: 10
     mods, _ = models.runic_binding_model(spark, [BINDING], {"Speed": 0.4, "HitChance": 100, "_main_share": 0.5})
-    assert mods[0]["scale"] == pytest.approx(-20.0)  # 0.2 a second x 10 s = 2 stacks
+    assert mods[0]["scale"] == pytest.approx(-100.0)  # (MECHB49, R38-8: one shared timer, 0.2/s keeps all 10)
+    mods, notes2 = models.runic_binding_model(spark, [BINDING], {"Speed": 0.1, "HitChance": 100, "_main_share": 0.5})
+    assert mods[0]["scale"] == pytest.approx(-5.0)  # 0.05/s: each lapses before the next, 0.5 on average
+    assert "each its own 10 s, 0.5" in notes2[0]["basis"]
     assert notes[0]["entry"] == models.BINDING_ENTRY
 
 

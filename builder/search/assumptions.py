@@ -1275,7 +1275,11 @@ def pob_disabled(build: Build) -> set[tuple]:
 # (MECHB47, RESEARCH36 R36-13) Volcanic Steps: "[Trigger] Volcanic Steps every 1.2 metre travelled"
 # (ancestral_cry_triggers_shockwave_every_X_units_travelled 12); a step-out of a boss hit of about 3 m (R36-13's 2-4 m,
 # LOW: no source measures it; a game-decided distance, named for the manager): a row in side_trigger_cuts' note only.
-VOLCANIC_STEP_METRES, VOLCANIC_DODGE_METRES = 1.2, 3.0
+VOLCANIC_STEP_METRES = 1.2
+# (MECHB49, RESEARCH38 R38-18: no source gives movement per boss hit) the row: one dodge roll (models.DODGE_ROLL_METRES,
+# 4.6 m, the user's Cast on Dodge default) per boss attack dodged, at the user's "dodge about half" (given for Cold
+# attacks, 20 Nov: extended to all, LOW, labelled). The headline stays 0.
+VOLCANIC_DODGE_METRES, VOLCANIC_DODGE_SHARE = models.DODGE_ROLL_METRES, 0.5
 
 
 def mana_short(build: Build, name: str) -> tuple[float, float] | None:
@@ -4088,6 +4092,13 @@ class Assumptions:
                                                              previous=self.mods)
             hand_mods, hand_notes = hand_mods + det_mods, hand_notes + det_notes
             det_split = models.detonated_share(main.name, number(stats.get("Speed")), det_rate)
+            if main.name == models.FORGE_HAMMER:  # (MECHB49, R38-6: the throw-recall loop)
+                row = next(iter(build.call("useRates", indices=[group["index"]],
+                                           actives=[group.get("mainActiveSkill") or 1])["rates"]), {})
+                loop_mods, loop_notes = models.forge_hammer_loop_model(
+                    main, number(stats.get("Speed")), number(row.get("castRate")),
+                    number(row.get("cooldown")) or number(main.cooldown), det_rate, forbidden)
+                hand_mods, hand_notes = hand_mods + loop_mods, hand_notes + loop_notes
         if main is not None and group and main.name in models.FISSURE_SETS:  # (MECHB48, R37-16: PoB counts one a use)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             got = next((x for x in build.call("activeSkills", levelStats=[main.name], supportStats=[
@@ -4101,8 +4112,21 @@ class Assumptions:
             eye_stats = build.call("stats", fields=["AverageDamage", "Speed", "TotalDPS"])
             eye_own = sum(number(m.get("value")) for m in self.mods or []
                           if m.get("tag") == "EyeOfWinter" and m.get("name") == "DPS")
+            # (MECHB49, R38-14: the shards that hit while the Eye flies through the boss, on top of GEM19's line; its
+            # own previous line taken out of PoB's TotalDPS before either model reads it)
+            shard_own = sum(number(m.get("value")) for m in self.mods or [] if m.get("tag") == models.EYE_SHARDS_ENTRY
+                            and m.get("name") == "DPS")
+            eye_stats = {**eye_stats, "TotalDPS": number(eye_stats.get("TotalDPS")) / (1 + shard_own / 100)}
             eye_mods, eye_notes = models.eye_of_winter_model(main, eye_stats, eye_own, forbidden)
             hand_mods, hand_notes = hand_mods + eye_mods, hand_notes + eye_notes
+            first = 1 + (number(eye_mods[0].get("value")) / 100 if eye_mods else 0.0)
+            shard_stats = {**eye_stats, **build.call("stats", fields=["ProjectileCount"])}
+            shard_stats["TotalDPS"] = number(eye_stats.get("TotalDPS")) / (1 + eye_own / 100) * first
+            eye_metres = (number(build.call("getConfig")["input"].get("enemyDistance")) / 10
+                          or natural_distance(main_types, main.name))
+            shard_mods, shard_notes = models.eye_shards_model(main, shard_stats, bosses.hit_radius(stats)[0],
+                                                              eye_metres, first, forbidden)
+            hand_mods, hand_notes = hand_mods + shard_mods, hand_notes + shard_notes
         if main is not None and main.name == models.BONESTORM:  # (GEM19: a full channel of spikes, not PoB's one)
             bs_mods, bs_notes = models.bonestorm_circle(  # (MECHB45, R31-11: Spells' Projectiles in a circle)
                 [e["text"] for e in source_lines], *models.bonestorm_model(main, forbidden))
@@ -4550,7 +4574,7 @@ class Assumptions:
             supply = next((number(n.get("value")) for n in corpse_notes
                            if str(n.get("label")).startswith("Corpses per second")), 0.0)
             corpse_notes = corpse_notes + models.decompose_travel_note(
-                [e["text"] for e in source_lines], supply, every, VOLCANIC_DODGE_METRES)
+                [e["text"] for e in source_lines], supply, every, VOLCANIC_DODGE_METRES, VOLCANIC_DODGE_SHARE)
         # (MECHB31, MB-2: "if you've Triggered a Skill Recently" from every trigger rate handed PoB above, and a triggered
         # main skill's own rate)
         triggered = {m["skill"]: models.number(m.get("value")) for m in mods
@@ -8406,8 +8430,8 @@ class Assumptions:
     def side_sparks(self, skills: list[dict], main: models.Skill | None, forbidden: set[str]) -> list[dict]:
         """(MECHB49; the manager 19:55 from GEM28) A Spark in a Full DPS group other than the main skill's: PoB scores it
         one hit a cast (models.group_exception_model's note) and the main-skill model never reached it (an UNDERCOUNT).
-        The same model on the side group's own set (setRates: its ProjectileCount and Duration), R36-5's 3-4 hits a cast
-        (LOW), as its Full DPS entry x hits (Objective.entry_scales, which the press share multiplies). With Spark the main
+        The same model on the side group's own set (setRates: its ProjectileCount and Duration): since RESEARCH38 R38-13
+        one hit a cast (PoB's own, so no scale; the wall / cap rows in the note), else as its Full DPS entry x hits (Objective.entry_scales, which the press share multiplies). With Spark the main
         skill its SkillName mod already reaches every Spark group, so nothing more is done here."""
         build = self.build
         if getattr(build, "objective", None) is None or not getattr(build.objective, "full", False):
@@ -8541,13 +8565,16 @@ class Assumptions:
 
                     every = bosses.benefit_skill_time(build.call("stats", fields=list(dict.fromkeys(
                         ["enemySkillTime", *models.MODEL_FIELDS]))))
-                    steps = (1 / every if every > 0 else 0.0) * VOLCANIC_DODGE_METRES / VOLCANIC_STEP_METRES * kaom
+                    steps = ((1 / every if every > 0 else 0.0) * VOLCANIC_DODGE_SHARE * VOLCANIC_DODGE_METRES
+                             / VOLCANIC_STEP_METRES * kaom)
                     speed = number(rows[0].get("speed")) if rows else 0.0
                     row_dps = dps / speed * steps if speed > 0 else 0.0
-                    why += (f"; row (LOW, a game-decided distance named for the manager): stepping out of each boss hit "
-                            f"({1 / every if every > 0 else 0:.2f}/s) about {VOLCANIC_DODGE_METRES:g} m, one Steps per "
-                            f"{VOLCANIC_STEP_METRES:g} m while embodying Kaom ({kaom:.0%}): {steps:.2f}/s, "
-                            f"{row_dps:,.1f} DPS (a dodge roll's ~3.7 m counting as travel: MEDIUM-LOW)")
+                    why += (f"; row (LOW; no source gives movement per boss hit, RESEARCH38 R38-18): one dodge roll "
+                            f"({VOLCANIC_DODGE_METRES:g} m, the Cast on Dodge default) on {VOLCANIC_DODGE_SHARE:.0%} of the "
+                            f"boss's attacks ({1 / every if every > 0 else 0:.2f}/s; the user's 'dodge about half', given "
+                            f"for Cold attacks, extended to all), one Steps per {VOLCANIC_STEP_METRES:g} m while "
+                            f"embodying Kaom ({kaom:.0%}): {steps:.2f}/s, {row_dps:,.1f} DPS (a roll counting as "
+                            "travel: MEDIUM-LOW)")
                 if keep < 1:
                     cuts[child["name"]] = cuts.get(child["name"], 0.0) + dps * (1 - keep)
                     parts.append(f"{child['name']} ({parent}): PoB's {dps:,.1f} x {keep:.0%} ({why})")

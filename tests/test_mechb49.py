@@ -59,7 +59,7 @@ def test_a_side_spark_groups_entry_is_scaled_to_its_hits_a_cast():
     a = Assumptions(build)
     skills = [{"name": "Spark", "group": 2, "spell": True, "statSet": "Spark"}]
     notes = a.side_sparks(skills, Skill("Fireball", 1, spell=True), set())
-    assert build.objective.entry_scales == {"Spark": pytest.approx(3.0)}  # min(8, floor(2 / 0.66)), R36-5's 3
+    assert build.objective.entry_scales == {}  # (R38-13: one hit a cast, PoB's own: nothing to scale; rows in the note)
     assert "side group side" in notes[0]["label"] and notes[0]["confidence"] == "LOW"
     build = _SideBuild()
     assert Assumptions(build).side_sparks(skills, Skill("Spark", 2, spell=True), set()) == []  # (main Spark: its own mod)
@@ -110,6 +110,8 @@ def test_corpsewades_travel_trigger_adds_nothing_to_the_headline_and_a_row_held_
     from builder.ledger import model_entry
     line = "Trigger Decompose every 1.2 metres travelled"
     notes = models.decompose_travel_note([line], 0.5, 2.0, 3.0)
+    half = models.decompose_travel_note([line], 5.0, 2.0, 4.6, 0.5)  # (R38-18: a 4.6 m roll on half the attacks)
+    assert "0.96 Decompose/s" in half[0]["basis"]
     assert notes[0]["value"] == "0 in the headline" and notes[0]["confidence"] == "LOW"
     assert "1.25 Decompose/s" in notes[0]["basis"] and "0.50/s" in notes[0]["basis"]  # (3 / 1.2 / 2, held to 0.5)
     assert models.decompose_travel_note(["Grants Skill: Level 20 Decompose"], 0.5, 2.0, 3.0) == []
@@ -138,3 +140,34 @@ def test_melee_reflect_deals_its_share_of_the_physical_hits_the_boss_lands_in_me
     assert armoured == pytest.approx(dps * (1 - 10000 / (10000 + 50000)))
     assert models.melee_reflect_model([line], stats, models.THORNS_WORST, 2.0, 0.5, 0.0)[0] == 0.0  # (Zarokh: no Melee)
     assert models.melee_reflect_model(["+10 to Strength"], stats, "Arbiter of Ash", 2.0, 0.5, 0.0) == (0.0, [])
+
+
+def test_forge_hammer_throws_and_recalls_without_a_warcry():
+    hammer = Skill("Forge Hammer", 1, attack=True, melee=True)
+    mods, notes = models.forge_hammer_loop_model(hammer, 0.125, 1.0, 8.0, 0.0)
+    loop = 1 / (1 + 1 / 1.7)
+    assert mods[0]["value"] == pytest.approx(100 * (loop / 0.125 - 1), abs=0.01)  # ~0.63 Impacts/s against PoB's 1 / 8 s
+    assert "Throw Forge Hammer" in notes[0]["play"]
+    mods, notes = models.forge_hammer_loop_model(hammer, 0.125, 1.0, 8.0, 0.2)  # (a Warcry: left lodged, rows only)
+    assert mods == [] and notes[0]["value"] == "rows only" and "0.071/s (x0.57)" in notes[0]["basis"]  # (1 + 1 / 0.2 + 8 s)
+
+
+def test_eye_of_winter_counts_the_shards_fired_through_the_boss():
+    eye = Skill("Eye of Winter", 1, spell=True)
+    stats = {"AverageDamage": 100.0, "Speed": 0.1, "TotalDPS": 100.0, "ProjectileCount": 30}  # (GEM19's x10 applied)
+    mods, notes = models.eye_shards_model(eye, stats, 1.0, 3.0, 10.0)
+    inside = 30 * 2 / 2.25
+    side = models.eye_side_shards(30, 1.0, 3.0)
+    assert 2 < side < 6  # (asin(R / x) / pi from 3 m in: ~17% near the boss, ~11% at 3 m)
+    n = inside + 2 * side
+    assert mods[0]["value"] == pytest.approx(100 * ((n + 9) / 10 - 1), abs=0.1)  # ((1 + 9) + (N - 1)) / (1 + 9)
+    assert "aimed past the boss" in notes[0]["basis"] and notes[0]["confidence"] == "LOW"
+    alone, _ = models.eye_shards_model(eye, {**stats, "TotalDPS": 10.0}, 1.0, 3.0, 1.0)  # (GEM19's line off)
+    assert alone[0]["value"] == pytest.approx(100 * (n - 1), abs=0.1)
+
+
+def test_echoing_cry_echoes_add_their_own_shield_waves():
+    row = {"speed": 0.125, "warcryPower": 20}
+    mods, notes = models.shield_wave_model(row, -50.0, 2.0, "main")  # (10 Power: 2 a cry, x3 with two echoes)
+    assert mods[0]["value"] == pytest.approx(0.125 * 6)
+    assert "refreshed it instead, 2 a use, 0.250/s" in notes[0]["basis"]

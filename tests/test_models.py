@@ -6804,11 +6804,10 @@ def test_a_side_orb_fires_cast_bolts_only_while_you_stand_in_its_radius():
 
 def test_group_exception_model_spark_and_freezing_shards():
     # (MECHB45, R35-15) Spark: one cast's sparks hit a boss once per 0.66 s of their life, at most one per spark
+    # (MECHB49, RESEARCH38 R38-13: one hit a cast on a lone boss, PoB's own; rows the wall's 2 and the cap)
     mods, notes = models.group_exception_model(SPARK, {"ProjectileCount": 9, "Duration": 2.0})
-    assert notes[0]["value"] == "x3" and mods[0]["value"] == pytest.approx(200)
-    assert notes[0]["confidence"] == "LOW" and "x4" in notes[0]["basis"]  # (the ceil row)
-    mods, notes = models.group_exception_model(SPARK, {"ProjectileCount": 2, "Duration": 4.0})
-    assert notes[0]["value"] == "x2"  # (two sparks: at most two hits)
+    assert mods == [] and notes[0]["value"] == "x1" and notes[0]["confidence"] == "LOW"
+    assert "x2 (LOW)" in notes[0]["basis"] and "= x3" in notes[0]["basis"] and "ceil x4" in notes[0]["basis"]
     mods, notes = models.group_exception_model(SPARK, {"ProjectileCount": 9, "Duration": 0.5})
     assert mods == [] and notes[0]["value"] == "x1"
     shards = Skill("Freezing Shards", group=1, spell=True, cast_time=1.2)
