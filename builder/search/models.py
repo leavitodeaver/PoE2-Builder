@@ -8988,19 +8988,44 @@ def twisted_pact_model(parts: list[dict], fight: float | None, cap: float = CRY_
 # reach the boss (the add dies beside it: LOW, as Herald of Blood's). Each: PoB's AverageHit for the explosion in its
 # own group, which takes the slain enemy's Life as a normal monster's at the enemy level (CalcOffence 2410-2414:
 # monsterLifeTable). The game uses the slain add's own maximum Life (RESEARCH35 R35-24, HIGH: "equal to N% of Corpse's
-# maximum Life"), which the boss presets don't hold (bosses.Kills has no Life: asked of MECH-D), so PoB's normal-monster
-# Life stands in (LOW: an UNDERCOUNT for a magic / rare add, an OVERCOUNT for a weaker one). LOW.
+# maximum Life"). GEM28: since MECHC46 (R36-6) the presets hold each add's Life (bosses.add_life: the kill-rate-weighted
+# mean at level 82, PoB's 32,956 x its LifeMultiplier, Normal), so PoB's explosion is scaled by that Life over the one
+# PoB took (monsterLifeTable at the scored enemy level, PoB's Data/Misc.lua; 32,956 at 82): the Affliction Totems' x0.04
+# shrinks it, a Royal Acolyte's x1 keeps it. No known add Life: PoB's normal monster stands in, as before (LOW). LOW.
 VOLTAIC_FULMINATION = "Voltaic Fulmination"
+_MONSTER_LIFE: list[float] = []
+
+
+def pob_monster_life(level: int) -> float:
+    """PoB's normal monster's base Life at `level` (data.monsterLifeTable, vendor PoB Data/Misc.lua; 0 when not read)."""
+    if not _MONSTER_LIFE:
+        from pathlib import Path
+        path = Path(__file__).resolve().parents[2] / "vendor" / "PathOfBuilding-PoE2" / "src" / "Data" / "Misc.lua"
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+            m = re.search(r"data\.monsterLifeTable = \{([^}]*)\}", text)
+            _MONSTER_LIFE.extend(float(x) for x in re.findall(r"\d+", m.group(1))) if m else None
+        except OSError:
+            pass
+    if not _MONSTER_LIFE or level < 1:
+        return 0.0
+    return _MONSTER_LIFE[min(int(level), len(_MONSTER_LIFE)) - 1]
 VOLTAIC_FULMINATION_ENTRY = "model-gem26-voltaic-fulmination"
 
 
 def voltaic_fulmination_model(blast: float, kills: float, electrocuted: float, cooldown: float, how: str = "",
-                              side: bool = False) -> tuple[float, list[dict]]:
+                              side: bool = False, life: tuple[float, float, str] | None = None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Voltaic Fulmination (see above): `blast` one explosion's hit on the boss (PoB's), `kills`
     adds killed a second, `electrocuted` the share of them Electrocuted by the supported skill, `cooldown` the
-    explosion's (s); `side`: the support is outside the main skill's group (its Electrocute not read: 0, said)."""
+    explosion's (s); `side`: the support is outside the main skill's group (its Electrocute not read: 0, said);
+    `life`: (the slain add's Life, the Life PoB's explosion took, how) to scale PoB's explosion by (GEM28)."""
     if blast <= 0:
         return 0.0, []
+    sized = "PoB's, a normal monster's Life at the enemy level standing in for the slain add's own Life (R35-24)"
+    if life is not None and number(life[0]) > 0 and number(life[1]) > 0:
+        blast = blast * number(life[0]) / number(life[1])
+        sized = (f"PoB's x the slain add's own Life {number(life[0]):,.0f} / the {number(life[1]):,.0f} PoB took (R35-24; "
+                 f"{life[2]})")
     kills, share = max(number(kills), 0.0), (0.0 if side else min(max(number(electrocuted), 0.0), 1.0))
     cap = 1 / cooldown if number(cooldown) > 0 else float("inf")
     rate = min(kills * share, cap)
@@ -9012,9 +9037,7 @@ def voltaic_fulmination_model(blast: float, kills: float, electrocuted: float, c
         "confidence": "LOW", "entry": VOLTAIC_FULMINATION_ENTRY,
         "basis": (f"PoB gives the explosion no rate (0 DPS). The game: the supported skill's Electrocuted enemies explode "
                   f"when killed, for a share of their maximum Life as Lightning; {how}; {why}: {rate:.4f} explosions a "
-                  f"second at {blast:,.0f} each (PoB's, a normal monster's Life at the enemy level standing in for the slain "
-                  f"add's own Life, which the game uses (R35-24) and the presets don't hold; each taken to reach the boss, "
-                  f"LOW)"),
+                  f"second at {blast:,.0f} each ({sized}; each taken to reach the boss, LOW)"),
         "play": (f"Voltaic Fulmination fires only when you kill an enemy your Eonyr's Thunder skill Electrocuted: against "
                  f"a lone boss it deals nothing. Electrocute the boss's adds and kill them beside it: with this fight's "
                  f"adds {dps:,.1f} DPS; with every add Electrocuted when it dies {every:,.1f}; without Electrocuted "

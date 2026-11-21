@@ -1668,6 +1668,14 @@ def test_descent_fragments_come_from_the_builds_own_line():
     assert models.descent_fragment_rate(None)[0] == pytest.approx(0.25)
 
 
+def test_voltaic_fulmination_takes_the_slain_adds_own_life():
+    """GEM28 (R36-6, MECHC46's add Life): PoB's explosion scaled by the add's Life over PoB's normal monster's."""
+    assert models.pob_monster_life(82) == pytest.approx(32956.0)
+    base, _ = models.voltaic_fulmination_model(100.0, 1.0, 1.0, 0.3)
+    small, notes = models.voltaic_fulmination_model(100.0, 1.0, 1.0, 0.3, life=(1318.0, 32956.0, "Affliction Totem"))
+    assert small == pytest.approx(base * 1318 / 32956) and "Affliction Totem" in notes[0]["basis"]
+
+
 def test_caltrops_support_lands_a_share_under_the_boss_and_none_with_pierce():
     """GEM28 (RESEARCH36 R36-15): a spear ending its flight on the boss drops its Caltrops within 3 m; ((r + 0.5) / 3)^2
     land under a boss of radius r (LOW), held to 20 active over 8 s; with Pierce / Chain / Fork none end on the boss;

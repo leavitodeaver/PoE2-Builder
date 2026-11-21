@@ -1898,7 +1898,11 @@ def voltaic_fulmination(build: Build, main: models.Skill | None, stats: dict) ->
     kills, how = bosses.kills_per_second(bosses.of({"_boss": getattr(request, "boss", None)}).name)
     side = group["index"] != build.call("groups")["mainSocketGroup"]
     share = 0.0 if side else models.immobilised_share(stats, "Electrocute")[0]
-    return models.voltaic_fulmination_model(blast, kills, share, models.number(row.get("cooldown")), how, side)
+    name = bosses.of({"_boss": getattr(request, "boss", None)}).name
+    add, add_how, _ = bosses.add_life(name)  # (GEM28: MECHC46's add Life, R36-6)
+    took = models.pob_monster_life(enemy_level(build))
+    return models.voltaic_fulmination_model(blast, kills, share, models.number(row.get("cooldown")), how, side,
+                                            (add, took, add_how) if add > 0 and took > 0 else None)
 
 
 def shred_fragments(build: Build, main: models.Skill | None, cut=None) -> tuple[float, list[dict]]:
