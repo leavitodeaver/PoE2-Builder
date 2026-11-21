@@ -3789,6 +3789,8 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
                     read = {**(read or {}), "_seconds": float(entry.raw["share_seconds"])}
                 if entry.raw["share"] in CONFIG_SHARES:  # (reads PoB's config: the boss distance the build is calculated at)
                     read = {**(read or {}), "_config": config or {}}
+                if entry.raw["share"] in TEXT_SHARES and texts is not None:  # (the build's own lines: GEM28)
+                    read = {**(read or {}), "_texts": texts}
                 factor, why, play = SHARES[entry.raw["share"]](skill, read or {}, main, prev)
                 why = f"; {why}"
             else:
@@ -4586,6 +4588,7 @@ CONFIG_SHARES = {"near_boss"}  # (share functions that read PoB's config: gem_st
 
 SKILLS_SHARES = {"revived_recently", "corpse_consumed", "corpses_per_use", "vruun_combo", "kelari_beetles",
                  "cooldown_skills"}  # (read the build's skills: `_skills`)
+TEXT_SHARES = {"descent_fragments"}  # (read the build's source lines: `_texts`, when the caller hands them in; GEM28)
 
 # `share: rain_landing` (GEM9; an OVERCOUNT PoB can't see): Rain of Arrows' "Modifiers to Projectile speed apply to arrow
 # landing frequency" (rain_of_arrows_new.csd, skill_specific_stat_description_mode 1). The game: "One arrow lands every
@@ -4744,25 +4747,47 @@ def kelari_beetles_share(skill: Skill, stats: dict, main: Skill | None = None, p
 # Damage by (0.25 / PoB's Speed - 1). The player leaps to each fragment as it appears (LOW: the play pattern). Not counted
 # (labelled): the Impact uses on cooldown between fragments (an undercount), the 10% Life / Mana recovered on each
 # consume (MECH-C's recovery), and the attack's own time against the main skill's (a leap every 4 s). The main skill only.
+# (GEM28, the coverage row COV43 left open: the rate now comes from the build's own line, "Create a Fragment of Divinity in
+# your Presence every N seconds", each line one fragment every N s (UniqueDivineFragments1, manifest_a_fragment_of_
+# divinity_in_your_presence_every_4_seconds: the game's one carrier, checked by stat id across Mods, 26650308; PoB's
+# ModCache leaves the line unparsed). No such line in the build: no fragments, PoB's once per cooldown stands. Without
+# the build's lines handed in (a caller that passes none): The Ordained's 4 s, as before.)
 DESCENT, DESCENT_FRAGMENT_SECONDS = "Righteous Descent", 4.0  # (The Ordained's "every 4 seconds")
+DESCENT_FRAGMENT_LINE = re.compile(r"^Create a Fragment of Divinity in your Presence every (\d+(?:\.\d+)?) seconds?$",
+                                   re.I)
+
+
+def descent_fragment_rate(texts: list[str] | None) -> tuple[float, str]:
+    """(Fragments of Divinity a second, how) from the build's lines (see above); `texts` None: The Ordained's 4 s."""
+    if texts is None:
+        return 1.0 / DESCENT_FRAGMENT_SECONDS, (f"a fragment every {DESCENT_FRAGMENT_SECONDS:g} s from The Ordained, "
+                                                "which grants the skill")
+    seconds = [float(m.group(1)) for t in texts if (m := DESCENT_FRAGMENT_LINE.search(str(t).strip()))]
+    seconds = [s for s in seconds if s > 0]
+    if not seconds:
+        return 0.0, "no line in the build creates Fragments of Divinity"
+    return sum(1.0 / s for s in seconds), ("a fragment every " + " and every ".join(f"{s:g} s" for s in seconds)
+                                           + " (the build's \"Create a Fragment of Divinity in your Presence\" line"
+                                           + ("s" if len(seconds) > 1 else "") + ")")
 
 
 def descent_fragments_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
     """The Empowered set's more Damage (a factor of the stat's value) from one Empowered leap per fragment, against PoB's
     once-per-cooldown rate (see above), and how."""
     value = number(skill.level_stats.get("skill_specific_stat_description_mode")) or 1.0
-    play = (f"Leap to each Fragment of Divinity The Ordained creates (one every {DESCENT_FRAGMENT_SECONDS:g} s, lasting "
-            "10 s): an Empowered Righteous Descent doesn't use its cooldown.")
+    rate, rate_how = descent_fragment_rate(stats.get("_texts"))
+    play = (f"Leap to each Fragment of Divinity your gear creates ({rate_how}; each lasts 10 s): an Empowered "
+            "Righteous Descent doesn't use its cooldown.")
     if main is None or main.name != skill.name or main.group != skill.group:
         return 0.0, "0: not the main skill, so its use rate isn't read; PoB's once per cooldown stands (an undercount)", play
     speed = number(stats.get("Speed"))
     if speed <= 0:
         return 0.0, "0: PoB gives it no use rate", play
-    rate = 1.0 / DESCENT_FRAGMENT_SECONDS
+    if rate <= 0:
+        return 0.0, f"0: {rate_how}; PoB's once per cooldown stands", play
     more = (rate / speed - 1.0) * 100
-    how = (f"{rate:g} Empowered leaps/s (a fragment every {DESCENT_FRAGMENT_SECONDS:g} s from The Ordained, which grants "
-           f"the skill) against PoB's {speed:.3g}/s, its cooldown: {more:+.3g}% (LOW: each fragment reached; the Impact "
-           "uses between them not counted)")
+    how = (f"{rate:.3g} Empowered leaps/s ({rate_how}) against PoB's {speed:.3g}/s, its cooldown: {more:+.3g}% (LOW: "
+           "each fragment reached; the Impact uses between them not counted)")
     if more <= 0.05:
         return 0.0, f"0: {how}", play
     return more / value, how, play + f" Without the fragments: once per cooldown; with them: {rate / speed:.2g}x the leaps."
