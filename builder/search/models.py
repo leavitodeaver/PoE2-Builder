@@ -18922,6 +18922,10 @@ WARD_ON_MINION_KILLED = re.compile(r"recover (\d+(?:\.\d+)?)% of maximum runic w
 WARD_UNREAD = {
     "Runic Ward on reaching Maximum Rage": re.compile(r"runic ward on reaching maximum rage", re.I),
 }
+# (MECHB48; the manager 21:20 from MECHC48: Way of the Stonefist's glove form, "Recover (3-5)% of maximum Runic Ward on
+# reaching Maximum Rage"; PoB nil, ModCache 9137) read at MECHC47's build.rage_max_reaches (reaches of the maximum a
+# second, where the build climbs to it and loses all); with no such rate it stays in WARD_UNREAD (named, not counted).
+WARD_ON_MAX_RAGE = re.compile(r"recover (\d+(?:\.\d+)?)% of maximum runic ward on reaching maximum rage", re.I)
 WARD_ON_CHARM = re.compile(r"recover (\d+(?:\.\d+)?) runic ward when a charm is used", re.I)
 WARD_FROM_FLASK = re.compile(r"(\d+(?:\.\d+)?)% life recovery from flasks also applies to runic ward", re.I)
 WARD_SACRIFICE = re.compile(r"sacrifice (\d+(?:\.\d+)?)% of maximum life to gain half that much runic ward when you "
@@ -18937,7 +18941,7 @@ def ward_income(regen: float, pool: float, texts: list[str], *, kalguur: dict | 
                 stuns_how: str = "", kills: tuple[float, float] = (0.0, 0.0), on_block: float = 0.0, block: float = 0.0,
                 every: float = 0.0, charm_uses: float = 0.0, charm_how: str = "", flask_life: float = 0.0,
                 pob_flask_ward: float = 0.0, attacks: float = 0.0, life: float = 0.0,
-                life_recovery: float = 0.0) -> tuple[float, list[str], list[str]]:
+                life_recovery: float = 0.0, rage_reaches: tuple | None = None) -> tuple[float, list[str], list[str]]:
     """Runic Ward a second from every source the build has (the user's rule, 12 Nov: not regeneration alone): PoB's
     WardRegenRecovery (regeneration, its recovery lines, Mana regeneration applied to Ward); Remnants of Kalguur
     (`kalguur`: its level stats, plus "multiplier", the build's extra Remnants / pickups) from `stuns` Stuns a second
@@ -18993,7 +18997,14 @@ def ward_income(regen: float, pool: float, texts: list[str], *, kalguur: dict | 
         income += pct_minion / 100 * pool * killed
         parts.append(f"{pct_minion:g}% of maximum Ward per Reviving Minion Killed at {killed:.3f}/s (LOW: every Killed "
                      "minion taken as Reviving)")
-    unread = [name for name, pattern in WARD_UNREAD.items() if any(pattern.search(t) for t in texts)]
+    pct_rage = sum(float(m.group(1)) for t in texts if (m := WARD_ON_MAX_RAGE.search(t)))
+    reaches = number(rage_reaches[0]) if rage_reaches else 0.0
+    if pct_rage and rage_reaches:  # (MECHB48: MECHC47's reaches of Maximum Rage a second)
+        income += pct_rage / 100 * pool * reaches
+        parts.append(f"{pct_rage:g}% of maximum Ward on reaching Maximum Rage, {reaches:.3f} times a second "
+                     f"({rage_reaches[1]})")
+    unread = [name for name, pattern in WARD_UNREAD.items() if any(pattern.search(t) for t in texts)
+              and not (name == "Runic Ward on reaching Maximum Rage" and pct_rage and rage_reaches)]
     return income, parts, unread
 
 

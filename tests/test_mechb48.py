@@ -119,3 +119,14 @@ def test_runic_bindings_need_a_main_spell():
     mods, notes = models.runic_binding_model(slam, [BINDING], {"Speed": 2.0, "HitChance": 100})
     assert not mods and notes[0]["value"] == 0
     assert models.runic_binding_model(slam, [], {"Speed": 2.0}) == ([], [])
+
+
+RAGE_WARD = "Recover 4% of maximum Runic Ward on reaching Maximum Rage"
+
+
+def test_ward_on_reaching_maximum_rage_counts_at_the_builds_reaches():
+    income, parts, unread = models.ward_income(10.0, 1000.0, [RAGE_WARD], rage_reaches=(0.2, "every 5.0 s"))
+    assert income == pytest.approx(10.0 + 0.04 * 1000 * 0.2) and not unread
+    assert any("Maximum Rage" in p for p in parts)
+    income, _, unread = models.ward_income(10.0, 1000.0, [RAGE_WARD])  # (no reach rate: named, not counted)
+    assert income == pytest.approx(10.0) and unread == ["Runic Ward on reaching Maximum Rage"]

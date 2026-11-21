@@ -5682,6 +5682,7 @@ class Assumptions:
             regen, pool, texts, kalguur=kalguur, stuns=stuns, stuns_how=stuns_how,
             kills=(number(kills[0]), number(kills[1])), on_block=number(pools.get("WardOnBlock")),
             block=number(pools.get("EffectiveBlockChance")), every=bosses.benefit_skill_time(pools),  # (a "when hit" benefit, MECHD4)
+            rage_reaches=getattr(build, "rage_max_reaches", None),  # (MECHB48: MECHC47's reaches of Maximum Rage)
             **feeds)
         share, notes = models.ward_plan(uses, income, pool, parts, unread)
         build.ward_sustain = {u.name: (u.rate, u.rate * share, u.cost) for u in uses}

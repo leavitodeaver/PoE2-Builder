@@ -75,3 +75,19 @@
             "data/game-26650308/tables/KeywordPopups.json (RunicBinding, UnboundPotential)",
             "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:7509-7510", "vendor/PathOfBuilding-PoE2/src/Data/Uniques/body.lua:699-700"]
   status: proposed
+
+- id: model-mechb48-ward-on-maximum-rage
+  title: "\"Recover N% of maximum Runic Ward on reaching Maximum Rage\" as Runic Ward income at the build's reaches of Maximum Rage (models.ward_income)"
+  kind: pob_gap
+  model: ward_income
+  match: '^Recover (\(\d+-\d+\)|\d+(?:\.\d+)?)% of maximum Runic Ward on reaching Maximum Rage$'
+  replace: []
+  confidence: theory
+  notes: >-
+    MECHB48 (the manager 21:20, from MECHC48: Way of the Stonefist's glove form), an UNDERCOUNT of Ward income: PoB
+    leaves the line unparsed (ModCache 9137). Read as N% of maximum Runic Ward a reach, at MECHC47's
+    build.rage_max_reaches (where the build climbs to Maximum Rage and loses all); with no such rate the line stays
+    named as not counted (WARD_UNREAD). Feeds the Ward-cost skills' share (ward_plan). MEDIUM (the rate is MECHC47's).
+  sources: ["builder/search/models.py (WARD_ON_MAX_RAGE, ward_income)", "builder/search/assumptions.py (ward_paid)",
+            "builder/search/conditions.py (_rage_max_reaches, MECHC47)", "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:9137"]
+  status: proposed
