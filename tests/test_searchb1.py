@@ -110,3 +110,20 @@ def test_a_wand_rare_takes_perfect_essence_of_sorcery_for_a_spell(engine, monkey
     assert option.alloy_scale > 1.0  # (the worst outcome, the spell damage lost, is equipped; the mean is above it)
     assert "Worst case" in option.alloy_report[2] and "increased Spell Damage" in option.alloy_report[2]
     assert build.alloy_raws  # (its DPS factor is registered as an Alloy's is)
+    # (R43-7) with the Crystallisation Omens priced: an Omen that limits the loss to the worthless modifier's side makes
+    # the essence lose only it (one outcome, no spell damage lost), which beats the random loss above
+    search.ctx.essence_prices = {**search.ctx.essence_prices, **{o: 0.01 for o in essences.OMENS.values()}}
+    omened = gear.essence_trial(slot, wand, plain_option, level, pools, affix_limits(wand), chosen, current, 1e9,
+                                clock.now() + 120)
+    print("PROBE omen", omened and omened.alloy_report)
+    # (the registry fix) the same trial again, now that its first outcome's text is registered: the same factor and
+    # the same worst DPS as the first time (it read 128 for the 103 DPS outcome before the fix: POE2T6212)
+    again = gear.essence_trial(slot, wand, plain_option, level, pools, affix_limits(wand), chosen, current, 1e9,
+                               clock.now() + 120)
+    assert again is not None and again.alloy_report[2] == omened.alloy_report[2]
+    side = worthless[0].type
+    if side == spell.type:  # (an Omen on that side changes nothing here: the cheaper, Omen-free trial wins the tie)
+        assert omened is not None and "Crystallisation" not in omened.alloy_report[0]
+    else:
+        assert omened is not None and essences.OMENS[side] in omened.alloy_report[0]
+        assert omened.alloy_scale == pytest.approx(1.0) and "increased Spell Damage" in omened.raw

@@ -70,6 +70,12 @@ ESSENCES: dict[str, tuple[str, tuple[str, ...]]] = {
 }
 
 
+# (R43-7, RESEARCH43) the Omens that make a Perfect Essence remove a prefix only / a suffix only: the game's
+# BaseItemTypes OmenOnPerfectEssencePrefix = "Omen of Sinistral Crystallisation", ...Suffix = "Omen of Dextral
+# Crystallisation" (build 26650308); priced from poe.ninja's exchange (Ritual), no price: not offered
+OMENS = {"Prefix": "Omen of Sinistral Crystallisation", "Suffix": "Omen of Dextral Crystallisation"}
+
+
 def item_class(base: dict) -> str:
     """The base's class as Essence.lua names it: PoB's Staff with subType Warstaff is a "Warstaff"."""
     if base.get("type") == "Staff" and base.get("subType") == "Warstaff":
@@ -85,10 +91,10 @@ def rows_for(base: dict, item_level: int, mods: dict[str, dict]) -> list[tuple[s
 
 
 def payload_prices(prices) -> dict[str, float]:
-    """Each Perfect Essence's divine price from poe.ninja's "Essences" exchange (none: no offer)."""
+    """Each Perfect Essence's and Crystallisation Omen's divine price from poe.ninja's exchange (none: no offer)."""
     if prices is None:
         return {}
-    names = {essence for essence, _ in ESSENCES.values()}
+    names = {essence for essence, _ in ESSENCES.values()} | set(OMENS.values())
     return {name: price.divine for name, price in prices.exchange.items() if name in names and price.divine}
 
 

@@ -589,6 +589,19 @@ class Gear:
         return self.augment_trial(slot, base, base_option, level, pools, limits, chosen, current, left, deadline,
                                   essences.rows_for(base, level, self.essence_mods), self.ctx.essence_prices, "essence")
 
+    def without_registered(self, raw: str, stats: dict) -> dict:
+        """An item what-if's stats with the DPS factor state.item_deltas gave the item for being a registered augmented
+        item (build.alloy_raws, or an equipped item with an augment, by alloy_keys' text) taken back out: the other
+        slots' product stays. The same lookup item_deltas makes."""
+        build = self.build
+        raws = {**(getattr(build, "alloy_raws", None) or {}),
+                **{alloys.alloy_key(o.raw): o.alloy_scale for o in (getattr(build, "equipped", None) or {}).values()
+                   if getattr(o, "alloy", "")}}
+        factor = raws.get(alloys.alloy_key(raw or ""), 1.0)
+        if factor == 1.0 or not factor or alloys.ALLOY_FIELD not in stats:
+            return stats
+        return {**stats, alloys.ALLOY_FIELD: stats[alloys.ALLOY_FIELD] / factor}
+
     def augment_trial(self, slot: str, base: dict, base_option: ItemOption, level: int, pools, limits: dict,
                       chosen: list, current: float, left: float, deadline: float, rows: list, prices: dict,
                       kind: str) -> ItemOption | None:
@@ -601,7 +614,7 @@ class Gear:
         objective = build.objective
         plain = current - self.lam * rare_price(slot, chosen)
         groups = {a.group for a in chosen}
-        trials = []  # (alloy, its Affix, kept, price)
+        trials = []  # (alloy, its Affix, kept, price, the side an Omen limits the loss to (None: any modifier))
         for alloy, mod in rows:
             cost = None if ssf else prices.get(alloy)
             if (cost is None and not ssf) or mod["group"] in groups or mod["type"] not in limits:
@@ -616,18 +629,38 @@ class Gear:
                     continue
                 price = rare_price(slot, kept) + (cost or 0.0)
                 if price <= left + 1e-9:
-                    trials.append((alloy, affix, kept, price))
+                    trials.append((alloy, affix, kept, price, None))
+                if kind != "essence":
+                    continue
+                # (R43-7) Omen of Sinistral / Dextral Crystallisation: the essence removes a prefix only / a suffix only
+                # (game ids OmenOnPerfectEssencePrefix / ...Suffix); each side with a modifier to lose, the Omen priced
+                for side, omen in essences.OMENS.items():
+                    omen_cost = None if ssf else prices.get(omen)
+                    if (omen_cost is None and not ssf) or not any(a.type == side for a in kept):
+                        continue
+                    if price + (omen_cost or 0.0) <= left + 1e-9:
+                        trials.append((alloy, affix, kept, price + (omen_cost or 0.0), side))
         if not trials:
             return None
-        screened = self.deltas(slot, [rare_text(slot, base, level, kept + [affix]) for _, affix, kept, _ in trials])
-        ranked = sorted(((s - self.lam * t[3], i) for i, ((s, _), t) in enumerate(zip(screened, trials))), reverse=True)
+        screened = self.deltas(slot, [rare_text(slot, base, level, kept + [affix]) for _, affix, kept, _, _ in trials])
+        # (ties go to the cheaper trial: an Omen that changes nothing never wins on a tie)
+        ranked = sorted(((s - self.lam * t[3], -t[3], -i) for i, ((s, _), t) in enumerate(zip(screened, trials))),
+                        reverse=True)
         best = None  # (value, option)
-        for upper, i in ranked[:self.ALLOY_KEEP]:
+        for upper, _, i in ranked[:self.ALLOY_KEEP]:
+            i = -i
             if upper <= plain + EPSILON or clock.now() > deadline:
                 break  # (losing a modifier never scores above keeping it: the screen is an upper bound, MEDIUM)
-            alloy, affix, kept, price = trials[i]
-            outcomes = [[a for a in kept if a is not lost] + [affix] for lost in kept]
-            scored = self.deltas(slot, [rare_text(slot, base, level, o) for o in outcomes])
+            alloy, affix, kept, price, side = trials[i]
+            losable = [a for a in kept if side is None or a.type == side]
+            outcomes = [[a for a in kept if a is not lost] + [affix] for lost in losable]
+            texts = [rare_text(slot, base, level, o) for o in outcomes]
+            # (SEARCHB1) an outcome whose text is an augmented item already registered (a rare rebuilt with the same
+            # augment: build.alloy_raws, or the slot's equipped one) gets that item's DPS factor in its what-if
+            # (state.item_deltas), which inflated the mean (an OVERCOUNT; POE2T6212: 128 DPS read for a 103 DPS
+            # outcome): each outcome is read without it
+            scored = [(objective.score(bare), bare) for bare in
+                      (self.without_registered(text, stats) for text, (_, stats) in zip(texts, self.deltas(slot, texts)))]
             dps = [objective.dps(stats) for _, stats in scored]
             worst = min(range(len(scored)), key=lambda n: (scored[n][0], n))
             scale = alloys.mean_scale(dps, worst)
@@ -636,10 +669,11 @@ class Gear:
             value = objective.score(stats) - self.lam * price
             if value > plain + EPSILON and (best is None or value > best[0]):
                 typical = alloys.typical(dps)
-                lost = lambda n: "; ".join(kept[n].lines)
-                report = (f"{alloy}: removes a random modifier ({len(kept)} outcomes) and adds "
+                lost = lambda n: "; ".join(losable[n].lines)
+                omen = f" with {essences.OMENS[side]} (a {side.lower()} only)" if side else ""
+                report = (f"{alloy}{omen}: removes a random modifier ({len(losable)} outcomes) and adds "
                           f"\"{'; '.join(affix.lines)}\"; the floors read the worst outcome (shown in the build), DPS the "
-                          f"mean over all {len(kept)} (x{scale:.3f} of the worst's) (the manager's ruling, 18 Nov)",
+                          f"mean over all {len(losable)} (x{scale:.3f} of the worst's) (the manager's ruling, 18 Nov)",
                           f"Typical outcome: loses \"{lost(typical)}\" (DPS {dps[typical]:,.0f})",
                           f"Worst case: loses \"{lost(worst)}\" (DPS {dps[worst]:,.0f}; mean {sum(dps) / len(dps):,.0f})")
                 text = rare_text(slot, base, level, outcomes[worst])
