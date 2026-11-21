@@ -92,13 +92,15 @@ def test_the_ledger_routes_both_lines_to_the_models():
         assert translate(text)[1] == [flag]  # the old flat entries are retired
 
 
-def test_slow_magnitude_is_chill_magnitude_on_passives_and_uniques_alike():
-    """AUDIT6 A6-1: one entry owns the line, PoB's unique range and a rolled value included."""
-    for text, value in (("Debuffs you inflict have (12-30)% increased Slow Magnitude", "(12-30)"),
-                        ("Debuffs you inflict have 22% increased Slow Magnitude", "22")):
-        entry, lines = translate(text)
-        assert entry.id == "passives-slow-magnitude-chill"
-        assert lines == [f"{value}% increased Magnitude of Chill you inflict"]
+def test_slow_magnitude_is_one_model_entry_on_passives_and_uniques_alike():
+    """AUDIT6 A6-1: one entry owns the line, PoB's unique range and a rolled value included. MECH95: a model entry (the
+    boss-Slow model reads it, models.slow_magnitude_mods); its old Chill-magnitude stand-in counted the Chill twice."""
+    for text in ("Debuffs you inflict have (12-30)% increased Slow Magnitude",
+                 "Debuffs you inflict have 22% increased Slow Magnitude"):
+        entry = model_entry(text)
+        assert entry is not None and entry.id == "passives-slow-magnitude-chill"
+        assert entry.raw["model"] == "slow_magnitude"
+        assert translate(text) is None
 
 
 def test_engine_applies_the_derived_values(tmp_path):

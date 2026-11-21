@@ -2468,8 +2468,11 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
 # bar per damage the main skill's own hits show: PoB's HeavyStunBuildupAvg over its stun-weighted hit, less the main
 # skill's own multiplier on its hits' buildup, the bridge's HeavyStunHitMult: MECH95, RESEARCH36 R36-18, an OVERCOUNT
 # before: "increased Stun Buildup" (hit_damage_stun_multiplier_+%, every variant) and Melee's 50% more scale Hits, and
-# Blood Loss isn't a Hit. What stays: the boss-side terms (its threshold, Daze); Physical's 50% more isn't given to
-# Blood Loss either (UNVERIFIED: the game's text says Physical damage, read as Hits like Melee's; the lower reading).)
+# Blood Loss isn't a Hit. What stays: the boss-side terms (its threshold, Daze: RESEARCH37 R37-13, MEDIUM-HIGH, Daze
+# cuts the target's Stun Threshold, so it reaches Blood Loss's buildup; and "reduced Stun Threshold" on the boss,
+# Overwhelming Presence's, R37-14, which PoB puts on the enemy and its buildup reads: probe in tests/test_mech94.py,
+# x1.333 at gem level 20). Physical's 50% more isn't given to Blood Loss (RESEARCH37 R37-12, MEDIUM-HIGH: the
+# character's base stat is physical_hit_damage_stun_multiplier_+%_final_from_ot, a Hit stat).)
 # Other Physical damage over time (Corrupted Blood, other skills' Bleeds) isn't read (the lower reading). No Heavy
 # Stun, no Blood Explosion: 0, said. The entry is scaled in Full DPS by mark_model's full_dps.
 BLOOD_EXPLOSION = "Blood Explosion"
@@ -10818,8 +10821,21 @@ HEAVY_STUN_PHYSICAL = 1.5  # player Physical damage's 50% more buildup (weightin
 # stats["_dazed_box"]) and x(1 + 50% x the share of the fight the boss is Dazed): stats["_dazed_share"],
 # conditions._dazed's share (Conditions.evidence sets both; the models read build.dazed_up through dazed_share and the
 # box from PoB's config, dazed_box). Before, a box on at a 30% share counted the full 50%: an OVERCOUNT; with no box,
-# nothing: an UNDERCOUNT. Daze Magnitude isn't read (UNVERIFIED that it scales the 50%).
+# nothing: an UNDERCOUNT. Daze Magnitude (MECH95; RESEARCH37 R37-13, MEDIUM-HIGH: "N% increased Magnitude of Daze",
+# daze_magnitude_+%, the passives daze_8 / daze_9 at 15% each; checked: Stats ids holding daze and magnitude against
+# PassiveSkills and Mods, game 26650308; PoB's ModCache leaves "15% increased Magnitude of Daze" unparsed, so PoB counts
+# none): it scales the Daze debuff's one stat (dazed_stun_threshold_+permyriad_final, a cut to the target's Stun
+# Threshold). Read as the 50% more x (1 + N%) (MEDIUM; the lower of two readings: scaling the threshold cut itself,
+# 1 / (1 - 1/3 x (1 + N%)), gives more). Daze is target-side, so it reaches every buildup on the bar, Blood Loss's too
+# (R37-13).
 DAZED_STUN_MORE = 0.5
+DAZE_MAGNITUDE = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) Magnitude of Daze$", re.I)
+
+
+def daze_magnitude(texts: list[str]) -> float:
+    """(MECH95) The build's total "N% increased|reduced Magnitude of Daze", in % (DAZED_STUN_MORE's note)."""
+    return sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+               for t in texts if (m := DAZE_MAGNITUDE.match(t.strip())))
 
 
 def dazed_share(build) -> float:
@@ -10831,6 +10847,7 @@ def dazed_stats(build) -> dict:
     """The two Daze fields heavy_stun_rate reads: the published share and whether PoB's Dazed box is on now."""
     return {"_dazed_share": dazed_share(build),
             "_dazed_box": bool((build.call("getConfig").get("input") or {}).get("conditionEnemyDazed")),
+            "_daze_magnitude": number(getattr(build, "daze_magnitude", 0.0)),  # (MECH95: Conditions.evidence)
             "_thorns_fill": dict(getattr(build, "thorns_fill", None) or {}),  # (MECH84: thorns_fill)
             "_buildup_others": dict(getattr(build, "buildup_others", None) or {}),  # (MECH87: others_fill)
             # (MECH85: Crushing Blows and Primed-for-Pin Pins, published by Conditions.evidence)
@@ -11513,7 +11530,10 @@ def spell_ailment_magnitude_mods(texts: list[str]) -> tuple[list[dict], list[dic
 # slow magnitude ADD (RESEARCH36 R36-21, HIGH: GGG's 3 Apr 2025 correction of the 0.2.0 notes, "multiplicative" ->
 # "additive"; MECH95, an OVERCOUNT of the boss's Slow when both were multiplied): the bridge enters it as
 # (1 + c + s) / (1 + c) on PoB's curse-scaled value. Only the Slow moves: Bonechill and the other Chill-magnitude lines read
-# PoB's own Chill, untouched. It moves the boss's hit rate only (survival time and "when Hit" sources), no damage.
+# PoB's own Chill, untouched (MECH95: the ledger's old stand-in, passives-slow-magnitude-chill "N% increased
+# Magnitude of Chill you inflict", raised that Chill too and so counted the boss's Chill twice, probe POE2T5091: it
+# is a model entry now, this the one path; the lower reading for lines reading Chill magnitude other than its Slow).
+# It moves the boss's hit rate only (survival time and "when Hit" sources), no damage.
 # Not read (UNDERCOUNTS, defence only, labelled): the Hazard-only line (hazard_base_debuff_slow_magnitude_+%: only
 # Hazards' Debuffs) and Slow Potency's "Debuffs inflicted with Supported Skills have N% increased Slow Magnitude" (one
 # skill's Debuffs; which Slow it supports isn't traced).
@@ -12246,7 +12266,8 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
     uncold = 1 - weight["Cold"] / total if total > 0 else 1.0
     scale = bosses.threshold_scale(stats)  # (938 / the boss's own threshold: MECHD1, RESEARCH18 #91)
     dazed = min(1.0, max(0.0, number(stats.get("_dazed_share"))))
-    daze = (1 + DAZED_STUN_MORE * dazed) / ((1 + DAZED_STUN_MORE) if stats.get("_dazed_box") else 1.0)
+    daze_more = DAZED_STUN_MORE * max(0.0, 1 + number(stats.get("_daze_magnitude")) / 100)  # (MECH95: R37-13)
+    daze = (1 + daze_more * dazed) / ((1 + DAZED_STUN_MORE) if stats.get("_dazed_box") else 1.0)
     fill = (per_hit * uncold * hits + thorns + blood + others) * scale * daze  # bars per second at the plain threshold
     if fill <= 0:
         return 0.0, "Cold hits build no Heavy Stun (the game's Cold text; PoB counts them)"
@@ -12266,7 +12287,8 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
     every = d + refill
     basis = (f"{per_hit:.2%} of the boss's Stun bar per hit (PoB){f', {1 - uncold:.0%} of it Cold, which builds none' if uncold < 1 else ''}, "
              f"x{scale:.2f} for {bosses.of(stats).name}'s threshold ({bosses.of(stats).poise}%, the game files; PoB's is 938%), "
-             + (f"x{daze:.2f} for the boss Dazed {dazed:.0%} of the fight (50% more Stun Buildup while Dazed"
+             + (f"x{daze:.2f} for the boss Dazed {dazed:.0%} of the fight ({daze_more:.0%} more Stun Buildup while "
+                "Dazed"
                 + (", PoB's box at the full 50% taken back" if stats.get("_dazed_box") else "") + "), "
                 if dazed or stats.get("_dazed_box") else "")
              + f"{hits:.2f} hits/s"

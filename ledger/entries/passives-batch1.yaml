@@ -138,12 +138,22 @@
 # Translations ------------------------------------------------------------------------------------------------------
 
 - id: passives-slow-magnitude-chill
-  title: Debuffs you inflict have increased Slow Magnitude (counted on Chill)
-  kind: pob_gap
+  title: Debuffs you inflict have increased Slow Magnitude (read by the boss-Slow model; was counted on Chill)
+  kind: model
+  model: slow_magnitude
   match: '^Debuffs you inflict have (\(\d+-\d+\)|\d+)% increased Slow Magnitude$'
-  replace: ['{1}% increased Magnitude of Chill you inflict']
   confidence: theory
   notes: >-
+    MECH95 (20 Nov 2026; the manager 18:03 from COV49; this COV-B file edited by MECH-A at the manager's word, COV-B
+    paused): a model entry now, no translation. Since MECH94 (f0a2da9d, train 104) models.slow_magnitude_mods reads
+    the line and engine/bridge.lua installBossSlow scales the boss's Chill (held at its maximum, RESEARCH36 R36-20),
+    Temporal Chains (curse and slow magnitude added, R36-21) and its other Slows. This entry's old stand-in, "N%
+    increased Magnitude of Chill you inflict", raised the same Chill a second time: probe POE2T5091 (Frost Wall, three
+    5% passives): the boss's Chill 45 -> 50 from the stand-in alone, our scaling on top (held at 50 there, doubled
+    under the cap). On a generated item the stand-in replaced the text, so the model never saw it (Temporal Chains and
+    other Slows unscaled). One path now: the model's. What the old stand-in also raised and the model doesn't: lines
+    that read PoB's Chill magnitude other than its Slow (e.g. Bonechill's), labelled in the model's note (the lower
+    reading). The old notes follow.
     KeywordPopups SlowMagnitudeModifier: "applies to Debuffs you inflict that Slow enemies, and scales only the
     specific Magnitude that slows the target". Chill is an Ailment, Ailments are Debuffs (KeywordPopups Ailments),
     and Chill's one magnitude is its Slow (KeywordPopups Chill), so for Chill the line is "increased Magnitude of

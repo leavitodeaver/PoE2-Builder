@@ -9438,6 +9438,8 @@ class Conditions:
         self.build.crushing, self.build.pin_primed = stats["_crushing"], stats["_pin_primed"]
         stats["_dazed_share"] = number((_dazed(texts, stats) + (0.0,))[2])
         stats["_dazed_box"] = "conditionEnemyDazed" in self.active  # (PoB's box as it is now: heavy_stun_rate)
+        stats["_daze_magnitude"] = models.daze_magnitude(texts)  # (MECH95, R37-13: PoB reads none of it)
+        self.build.daze_magnitude = stats["_daze_magnitude"]
         broken = None  # Armour Broken first: Exposure on a Full Break reads its rate
         self.riven_share = 0.0  # (share of the fight Riven Armour is up: _riven_cycle)
         self.battershout = (0.0, 0.0, "")  # (MECH72: explosions/s, the boss's Armour, basis: _battershout_cycle)

@@ -2,6 +2,8 @@
 the boss's Slow from the build's Chill / Temporal Chains ignored it: an UNDERCOUNT of the boss's Slow, defence only)."""
 import faulthandler
 
+from builder.search.objective import number
+
 import pytest
 
 
@@ -348,3 +350,84 @@ def test_other_groups_heavy_stun_buildup_fills_the_bar_less_its_cold_share():
     # (a group of only Cold hits builds none)
     cold = {2: {**rows[2], "PhysicalHitAverage": 0.0}, 1: rows[1]}
     assert "HeavyStun" not in conditions.buildup_others(cold, groups, {"Boneshatter", "Rolling Slam"}, 1)
+
+
+def test_slow_magnitude_on_passives_moves_the_bosss_chill_once(engine):
+    """MECH95 (the manager 18:03, COV49; probe POE2T5091): the passive path. A tree node with "Debuffs you inflict have
+    N% increased Slow Magnitude" gets
+    the ledger's Chill-magnitude stand-in (applyPassiveCorrections) and keeps its text, which our slow_magnitude_mods
+    reads too. Frost Wall (PoB's boss Chill = its ChillOverride x Chill Magnitude), Chilled box on."""
+    from builder.request.schema import BuildRequest
+    from builder.search import models
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Frost Wall"))
+    skeleton = enumerate_skeletons(Context(payload), ["Frost Wall"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    fields = ["enemySkillTime", "CurrentChill", "MaximumChill"]
+    chilled = {"conditionEnemyChilled": True}
+    search.assumptions.mods = None
+    search.assumptions.apply()
+    plain = build.call("setConfig", vars=chilled, fields=fields)["stats"]
+    for node in (54975, 26772, 45774):
+        build.call("allocate", add=[node], fields=[])
+    lines = [e["text"] for e in build.call("sourceLines")["lines"] if "Slow Magnitude" in e["text"]]
+    search.assumptions.mods = None
+    search.assumptions.apply()
+    mods = list(search.assumptions.mods or [])
+    both = build.call("setConfig", vars=chilled, fields=fields)["stats"]
+    build.call("setAssumptions", mods=[m for m in mods if m.get("name") != models.SLOW_MAGNITUDE_MOD], fields=[])
+    ledger = build.call("setConfig", vars=chilled, fields=fields)["stats"]
+    print("PROBE slow passive", lines, plain, both, ledger,
+          [m for m in mods if m.get("name") == models.SLOW_MAGNITUDE_MOD])
+    assert lines
+    # (MECH95: one path. POE2T5091 before the fix: the ledger's stand-in alone took the Chill 45 -> 50; now the line
+    # moves the boss's Slow only through our model: without our mod, the plain Chill)
+    assert ledger["CurrentChill"] == plain["CurrentChill"] and ledger["enemySkillTime"] == pytest.approx(
+        plain["enemySkillTime"])
+    assert both["enemySkillTime"] > plain["enemySkillTime"]
+
+
+def test_overwhelming_presence_lowers_the_bosss_stun_threshold_in_pobs_buildup(engine):
+    """RESEARCH37 R37-14 (the manager 17:46): Overwhelming Presence, "Enemies in your Presence have N% reduced Stun
+    Threshold" (skill_overwhelming_pressure_aura_enemy_stun_threshold_+%, -15 at level 1 to -35 at 40). PoB maps it to
+    the enemy's EnemyStunThreshold (SkillStatMap 1269, an AuraDebuff), which its Heavy Stun buildup threshold reads
+    (CalcOffence 5570). The probe: the main skill's HeavyStunBuildupAvg rises with the aura by 1 / (1 - N%), so the
+    hits' buildup (and the Mark's Blood Loss fill, read from it per damage) already carry it."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Rolling Slam"))
+    skeleton = enumerate_skeletons(Context(payload), ["Rolling Slam"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    fields = ["HeavyStunBuildupAvg"]
+    build.call("setAssumptions", mods=[], fields=[])
+    plain = build.call("stats", fields=fields)
+    group = build.set_group(gems=[{"name": "Overwhelming Presence", "level": 20, "quality": 0}], label="aura")
+    aura = build.call("stats", fields=fields)
+    print("PROBE overwhelming presence", plain, aura, group.get("index"))
+    assert number(plain["HeavyStunBuildupAvg"]) > 0
+    # (POE2T5094: 0.0021313 -> 0.0028417, x1.3333: gem level 20's 25% reduced threshold; PoB already carries it)
+    assert aura["HeavyStunBuildupAvg"] == pytest.approx(plain["HeavyStunBuildupAvg"] / (1 - 0.25), rel=1e-3)
+
+
+def test_daze_magnitude_scales_the_dazed_bosss_stun_buildup():
+    """RESEARCH37 R37-13: "N% increased Magnitude of Daze" (two passives, 15% each; PoB parses none) scales the Daze
+    debuff, read as the 50% more x (1 + N%) (the lower reading), on every buildup the bar takes, Blood Loss's too."""
+    from builder.search import models
+
+    assert models.daze_magnitude(["15% increased Magnitude of Daze", "15% increased Magnitude of Daze",
+                                  "10% increased Daze Duration"]) == 30.0
+    _, stats, _ = _bloodhound(1000.0)
+    dazed = {**stats, "_dazed_share": 1.0}
+    plain = models.heavy_stun_rate(dazed)
+    more = models.heavy_stun_rate({**dazed, "_daze_magnitude": 30.0})
+    assert more[0] > plain[0] and "65% more Stun Buildup" in more[1] and "50% more Stun Buildup" in plain[1]
