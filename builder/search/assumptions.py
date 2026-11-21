@@ -3218,6 +3218,23 @@ class Assumptions:
             mods += models.power_mods(power[0])
             notes.append({"label": "Boss Power (your Power lines)*", "value": f"{power[0]:g}", "basis": power[1],
                           "confidence": "MEDIUM"})
+        cries = []  # (MECHB51: a Warcry's Power only inside its area, kw-monster-power)
+        for s_ in found:
+            kinds = set((build.ctx.gems.get(s_.name) or {}).get("skillTypes") or ())
+            if "Warcry" in kinds and s_.group is not None and not s_.triggered:
+                spot = self.skill_spot(s_.group, s_.name)
+                sets = build.call("setRates", index=spot[0], active=spot[1])["sets"] if spot else []
+                radius = max((number(x.get("AreaOfEffectRadius")) for x in sets), default=0.0) / 10
+                if radius > 0:
+                    cries.append((s_.name, radius))
+        if cries:
+            from builder.search import bosses as bosses_cry
+
+            cry_mods, cry_notes = models.warcry_range_mods(
+                cries, (distance or 0) / 10 or conditions_mod.natural_distance(set((build.ctx.gems.get(
+                    main.name if main else "") or {}).get("skillTypes") or ()), main.name if main else ""),
+                bosses_cry.hit_radius(stats)[0])
+            mods, notes = mods + cry_mods, notes + cry_notes
         supports = {g["index"]: [x["name"] for x in g["gems"] if x["support"] and x.get("enabled", True)]
                     for g in build.groups()}
         qualities = {g["index"]: models.number(x.get("quality")) for g in build.groups() for x in g["gems"]
@@ -4163,7 +4180,13 @@ class Assumptions:
             hand_notes = hand_notes + models.perfect_timing_note(main, main.stat_set, perfect_sets)
         if main is not None and group and main.name == models.VOLCANO:  # (MECHB50: its channel and stages)
             volcano_sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
-            volcano_mods, volcano_notes = models.volcano_channel_model(main, main.stat_set, volcano_sets, forbidden)
+            from builder.search import bosses as bosses_mod  # (MECHB51: R42-25's row, the rolls made anyway)
+
+            v_every = bosses_mod.benefit_skill_time(build.call("stats", fields=list(dict.fromkeys(
+                ["enemySkillTime", *models.MODEL_FIELDS]))))
+            volcano_mods, volcano_notes = models.volcano_channel_model(
+                main, main.stat_set, volcano_sets, forbidden, dodge_share()[0] / v_every if v_every > 0 else 0.0,
+                number(build.call("stats", fields=["Speed"]).get("Speed")))
             hand_mods, hand_notes = hand_mods + volcano_mods, hand_notes + volcano_notes
         if main is not None and main.attack and main.group is not None and models.SPECTRAL_VOLLEY in supports.get(
                 main.group, []):  # (MECHB51: R41-15, its volleys every 3 s)
@@ -4171,6 +4194,9 @@ class Assumptions:
             sv_mods, sv_notes = models.spectral_volley_model(main, supports.get(main.group, []), sv_stats, forbidden)
             hand_mods, hand_notes = hand_mods + sv_mods, hand_notes + sv_notes
         hand_notes = hand_notes + models.ice_shards_note(main)  # (MECHB51: R41-13, rows only)
+        hand_notes = hand_notes + models.behead_note(main, supports.get(main.group, []) if main else [])  # (R42-18)
+        hand_notes = hand_notes + models.knockback_note(main, number(build.call("stats", fields=[
+            "KnockbackChanceOnHit"]).get("KnockbackChanceOnHit")))  # (MECHB51: R42-26, a LOW row)
         if main is not None and main.spell and any(s.name == models.ALIGN_FATE for s in found):  # (MECHB51: R41-9)
             def visage_can(s: models.Skill) -> bool:
                 kinds = set((build.ctx.gems.get(s.name) or {}).get("skillTypes") or ())

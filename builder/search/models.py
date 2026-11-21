@@ -21837,8 +21837,10 @@ VOLCANO_STAGES, VOLCANO_MORE, VOLCANO_PROJECTILES = 4, 1.5, 4
 
 
 def volcano_channel_model(main: Skill | None, scored: str | None, sets: list[dict],
-                          forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
-    """Volcano's eruption channelled to its best stage count against PoB's one hit a cast time (see above)."""
+                          forbidden: set[str] = frozenset(), dodges: float = 0.0, cast_rate: float = 0.0
+                          ) -> tuple[list[dict], list[dict]]:
+    """Volcano's eruption channelled to its best stage count against PoB's one hit a cast time (see above). `dodges` the
+    dodge rolls a second the build makes anyway, `cast_rate` its casts a second (R42-25's row)."""
     if main is None or main.name != VOLCANO or scored != "Eruption" or VOLCANO_ENTRY in forbidden:
         return [], []
 
@@ -21852,6 +21854,12 @@ def volcano_channel_model(main: Skill | None, scored: str | None, sets: list[dic
     if eruption > 0 and projectile > 0:
         all_hit = (eruption * (1 + VOLCANO_MORE * best) + VOLCANO_PROJECTILES * best * projectile) / (eruption * (2 + best))
         rows += f"; its {VOLCANO_PROJECTILES * best} extra projectiles all hitting the boss x{all_hit:.3f} (LOW)"
+    if dodges > 0 and cast_rate > 0:  # (MECHB51; RESEARCH42 R42-25, MEDIUM-HIGH: a roll after release skips the end)
+        rolled = min(1.0, dodges * (2 + best) / cast_rate)
+        skip = (1 + VOLCANO_MORE * best) / (1.5 + best + 0.5 * (1 - rolled))
+        rows += (f"; the end skipped by the dodge rolls you make anyway ({rolled:.0%} of releases followed by one: "
+                 f"R42-25, its end isn't locked; a roll only to skip it loses time, 0.75 s against ~0.5 cast time) "
+                 f"x{skip:.3f} (a row, MEDIUM)")
     return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=VOLCANO_ENTRY)], [{
         "label": f"{main.name}: each eruption channelled to {best + 1} stages*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM-LOW", "entry": VOLCANO_ENTRY,
@@ -22398,3 +22406,84 @@ def flame_breath_model(main: Skill | None, speed: float, cooldown: float, free: 
                   f"(without its attack speed multiplier) x{share(rage_share, windup * 8):.3f}"),
         "play": (f"Press {main.name} as its cooldown ends and channel through the Rage-free window"
                  + (" and on with Rage" if rage_share > 0 else "") + "; use other skills while it recovers.")}]
+
+
+# Knockback pushing the boss out of a melee skill's reach (MECHB51; RESEARCH42 R42-26, MEDIUM-HIGH; the manager 08:07).
+# Pinnacle bosses can be knocked back, 75% less far (every Unique carries MonsterUnique12; the Aberration alone is immune
+# in one stance, StanceNoMoveNoKnockback, which phase UNVERIFIED); the base push distance is UNVERIFIED. No overcount is
+# proven: PoB's hits stay the headline, with a LOW row for a melee main skill that knocks back on every hit (PoB's
+# KnockbackChanceOnHit 100). Reversed-knockback lines pull the boss in (no reach lost); Tempest Bell's area and Punch
+# Through's Expected Knockback Distance don't need the boss to move (not this row).
+def knockback_note(main: Skill | None, chance: float) -> list[dict]:
+    """A LOW row: a melee main skill knocking the boss back on every hit (see above); [] otherwise."""
+    if main is None or not main.melee or chance < 100:
+        return []
+    return [{"label": f"{main.name}: knockback may push the boss out of reach*", "value": "not counted",
+             "confidence": "LOW",
+             "basis": ("every hit knocks back; a pinnacle boss moves 75% less far (MonsterUnique12; the Aberration "
+                       "immune in one stance; RESEARCH42 R42-26), the base distance UNVERIFIED: some hits may push it "
+                       "out of reach, a cost not counted (PoB's hits stay the headline)"),
+             "play": "Step in after a knockback so the boss stays in reach."}]
+
+
+# A Warcry's Power only from enemies inside its area (MECHB51; plans/kw-monster-power.md, a possible OVERCOUNT). KeywordPopups
+# Warcry: Warcries "count enemy Power within their area"; PoB's Boss config adds WarcryPower 20 with no range check
+# (ConfigOptions 2008 / 2050 / 2091; CalcPerform 2120 reads it for every Warcry's Empowered attacks). A build standing
+# further from the boss than its Warcries reach (PoB's AreaOfEffectRadius of each Warcry, the boss's hit radius added)
+# gets no Power from it: WarcryPower set to 0 when every Warcry falls short (a minimum-Power line, PoB's
+# MinimumWarcryPower, still applies: PoB takes the larger). Some in reach, some not: left at PoB's 20 (one global
+# number: the in-reach ones are the ones Empowering; LOW), said.
+WARCRY_RANGE_ENTRY = "model-mechb51-warcry-range"
+
+
+def warcry_range_mods(cries: list[tuple[str, float]], distance: float, boss_radius: float
+                      ) -> tuple[list[dict], list[dict]]:
+    """`cries` (Warcry, its area radius in metres); `distance` the build's distance to the boss in metres."""
+    if not cries or distance <= 0:
+        return [], []
+    short = [(n, r) for n, r in cries if r + boss_radius < distance]
+    if not short:
+        return [], []
+    listed = ", ".join(f"{n} {r:.1f} m" for n, r in cries)
+    if len(short) < len(cries):
+        return [], [{"label": "Some Warcries can't reach the boss*", "value": "PoB's 20 Power kept", "confidence": "LOW",
+                     "entry": WARCRY_RANGE_ENTRY,
+                     "basis": (f"at {distance:g} m (+{boss_radius:g} m hit radius) {', '.join(n for n, _ in short)} "
+                               f"count no Power from it ({listed}); PoB's one Warcry Power is kept for the ones in "
+                               "reach")}]
+    return [raw_mod("WarcryPower", "OVERRIDE", 0)], [{
+        "label": "Your Warcries count no Power from the boss (out of reach)*", "value": "0 Power", "confidence": "MEDIUM",
+        "entry": WARCRY_RANGE_ENTRY,
+        "basis": (f"Warcries count enemy Power within their area (KeywordPopups); from {distance:g} m every one falls "
+                  f"short ({listed}; the boss's {boss_radius:g} m hit radius added): PoB's Boss Power of 20 has no "
+                  "range, so its Empowered attacks from Power are taken off"),
+        "play": "Stand within your Warcry's area of the boss when you cry to Empower your attacks."}]
+
+
+# Behead I / II and Einhar's Beastrite's stolen Rare modifiers (MECHB51; RESEARCH42 R42-18 / R42-21, the manager 05:50 /
+# 05:58). "Killing Blows ... against Rare monsters grant one / two of their Modifiers for 20 s" (Behead I / II:
+# support_executioner_gain_one / two_rare_monster_mod_on_kill_ms 20000); Beastrite two for 5 minutes (300000). No Rare
+# adds are known in any preset fight (R42-21, MEDIUM-LOW: the Magic / Rare summon stat appears only on Delirium,
+# Incursion and Rust King summoners; every preset boss's summon skill set no rarity; files we don't export could):
+# 0 Rare kills in the fight is a LABELLED assumption (UNVERIFIED), not a fact. Rows: Beastrite's mods carried in from a
+# Rare killed just before the boss (their carry-over UNVERIFIED; which mods random: not scored); Behead's 20 s too short
+# to carry in. Beastrite's "can only Damage Low Life Enemies" is COV-E's support-einhars-beastrite-low-life-only.
+BEHEAD_SUPPORTS = {"Behead I": "one Modifier for 20 s", "Behead II": "two Modifiers for 20 s",
+                   "Einhar's Beastrite": "two Modifiers for 5 minutes"}
+
+
+def behead_note(main: Skill | None, supports: list[str]) -> list[dict]:
+    """A labelled 0 for Behead / Beastrite on the main skill (see above)."""
+    found = [s_ for s_ in supports if s_ in BEHEAD_SUPPORTS]
+    if main is None or not found:
+        return []
+    name = found[0]
+    row = ("a Rare killed just before the boss: its two Modifiers for 5 minutes may carry into the fight (UNVERIFIED; "
+           "random mods, not scored)" if name == "Einhar's Beastrite" else
+           "a Rare killed before the boss: its Modifiers last 20 s, too short to carry into the fight")
+    return [{"label": f"{main.name}: {name}'s stolen Rare Modifiers (0 in the fight)*", "value": "not counted",
+             "confidence": "LOW",
+             "basis": (f"{name} steals {BEHEAD_SUPPORTS[name]} from a Rare it kills; no Rare adds are known in the boss "
+                       "presets' fights (RESEARCH42 R42-21: none of their summon skills sets a rarity; a LABELLED "
+                       f"assumption, UNVERIFIED): 0 counted. Row: {row}"),
+             "play": f"{name} gives nothing against the boss itself; kill a Rare just before the fight for its Modifiers."}]

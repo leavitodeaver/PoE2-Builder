@@ -152,3 +152,17 @@
     the rest MECH-C's build.rage_paid pays (LOW). Rows: no Rage, Rage paying all, the wind-up at 8x.
   sources: ["builder/search/models.py (flame_breath_model)", "scratch/mechb51/p4763.log"]
   status: proposed
+
+- id: model-mechb51-warcry-range
+  title: "A Warcry counts the boss's Power only inside its area (models.warcry_range_mods)"
+  kind: model
+  model: warcry_range
+  skill: [Infernal Cry, Seismic Cry, Ancestral Cry, Fortifying Cry, Arctic Howl, Ferocious Roar, Raging Cry]
+  confidence: theory
+  notes: >-
+    MECHB51 (plans/kw-monster-power.md, a possible OVERCOUNT). Warcries "count enemy Power within their area"
+    (KeywordPopups); PoB's Boss config adds WarcryPower 20 with no range. When every Warcry's area (PoB's
+    AreaOfEffectRadius + the boss's hit radius) falls short of the build's distance, WarcryPower is set to 0; some in
+    reach: a LOW note, PoB's 20 kept.
+  sources: ["builder/search/models.py (warcry_range_mods)", "vendor/PathOfBuilding-PoE2/src/Modules/ConfigOptions.lua:2008", "vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua:2120"]
+  status: proposed

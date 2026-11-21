@@ -249,3 +249,37 @@ def test_flame_breath_channels_only_part_of_its_cooldown():
     half = models.flame_breath_model(fb, 7.257, 10.032, 4.0, 0.5, "half")[0][0]["value"]
     assert half == pytest.approx(100 * ((4.0 + 0.5 * (10.032 - 4 / 7.257 - 4.0)) / 10.032 - 1), abs=0.01)
     assert "Rage paying all x0.945" in notes[0]["basis"]
+
+
+def test_volcanos_end_is_skipped_by_the_rolls_made_anyway_as_a_row():
+    """R42-25: a roll after release skips Volcano's end; the share from the build's dodge rolls; a row only."""
+    volcano = models.Skill("Volcano", 1, spell=True)
+    sets = [{"label": "Eruption", "AverageDamage": 100.0}]
+    mods, notes = models.volcano_channel_model(volcano, "Eruption", sets, dodges=0.2, cast_rate=1.0)
+    assert mods[0]["value"] == pytest.approx(100 * (5.5 / 5 - 1))  # (the headline unchanged: k = 3)
+    rolled = min(1.0, 0.2 * 5 / 1.0)
+    assert f"x{5.5 / (4.5 + 0.5 * (1 - rolled)):.3f} (a row, MEDIUM)" in notes[0]["basis"]
+
+
+def test_knockback_is_a_low_row_for_melee_that_always_knocks_back():
+    slam = models.Skill("Boneshatter", 1, attack=True, melee=True)
+    assert models.knockback_note(slam, 100.0)[0]["confidence"] == "LOW"
+    assert models.knockback_note(slam, 20.0) == []
+    assert models.knockback_note(models.Skill("Spark", 1, spell=True), 100.0) == []
+
+
+def test_a_warcry_out_of_reach_counts_no_power():
+    """kw-monster-power: Warcries count Power within their area; PoB's 20 has no range."""
+    mods, notes = models.warcry_range_mods([("Infernal Cry", 3.0)], 6.0, 0.3)
+    assert mods[0]["type"] == "OVERRIDE" and mods[0]["value"] == 0 and notes[0]["confidence"] == "MEDIUM"
+    assert models.warcry_range_mods([("Infernal Cry", 3.0)], 2.0, 0.3) == ([], [])
+    mods, notes = models.warcry_range_mods([("Infernal Cry", 3.0), ("Seismic Cry", 8.0)], 6.0, 0.3)
+    assert mods == [] and notes[0]["confidence"] == "LOW"
+
+
+def test_behead_and_beastrite_are_a_labelled_zero_with_rows():
+    strike = models.Skill("Quarterstaff Strike", 1, attack=True, melee=True)
+    note = models.behead_note(strike, ["Einhar's Beastrite"])[0]
+    assert note["value"] == "not counted" and "UNVERIFIED" in note["basis"] and "5 minutes" in note["basis"]
+    assert "20 s" in models.behead_note(strike, ["Behead I"])[0]["basis"]
+    assert models.behead_note(strike, ["Martial Tempo"]) == []
