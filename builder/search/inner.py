@@ -1849,6 +1849,16 @@ def fresh_score(engine: Any, payload: dict, skeleton: dict, xml: str) -> float:
     return build.objective.dps(build.stats)
 
 
+def restore_config(build: Any, before: dict) -> list[str]:
+    """(SEARCH33) Put back the config inputs a code reload dropped or changed (PoB exports an input at its own default as
+    a Placeholder, which loads as unset): the names restored."""
+    now = build.call("getConfig")["input"]
+    lost = {k: v for k, v in before.items() if now.get(k) != v}
+    if lost:
+        build.set_config(lost)
+    return sorted(lost)
+
+
 def reapply_drift(search: Any, fresh: Callable[[], float] | None = None) -> dict:
     """(SEARCH32; the manager's 09:35 ruling, 20 Nov) Does the delivered number hold when the same build is applied again?
     (1) the finished, reloaded build settled REAPPLY_ROUNDS more times (Search.settle) with nothing changed; (2) `fresh`:
@@ -1962,6 +1972,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     # Reload the exported code in this engine and compare every stat (the assumptions aren't in
     # the code, so they're put back first, exactly as the search had them)
     assumptions = list(search.assumptions.active)
+    config_before = dict(build.call("getConfig")["input"])
     build.call("loadXml", xml=codes.decode(code))
     # What PoB itself warns about in the code, without the search's assumptions (a skill on weapon
     # set 2 can be flagged only on a fresh load), joins the live build's warnings for the checks
@@ -2002,6 +2013,12 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         "verified": not mismatched, "verify_mismatch": mismatched,
         "tree_check": tree_check, "radius_jewels": reloaded["radiusJewels"], "left_out": {**search.jewels.left_out, **search.gems.left_out},
     }
+    # The search's config inputs the reload dropped come back first, so the check below re-settles the build as delivered
+    # (SEARCH33, probe POE2T5455): PoB writes an input equal to its own default as a Placeholder, so the chosen "Boss at
+    # 2 m" (20, PoB's default) came back unset, the curse model read the 5 m fallback, Blasphemy's Despair left the boss,
+    # and 8 of 9 combined-set gates were flagged UNSETTLED at exactly the play guide's "without" number (A0 22,607 ->
+    # 18,722, its row "Boss at 2 m (at 5 m instead)")
+    result["reload_restored_config"] = restore_config(build, config_before)
     # Last, after everything above has read the build: the same state applied again (SEARCH32, the manager's 09:35 ruling)
     result["reapply_drift"] = reapply_drift(search, lambda: fresh_score(engine, payload, skeleton, codes.decode(code)))
     return result

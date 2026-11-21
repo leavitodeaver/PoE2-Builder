@@ -48,3 +48,27 @@ def test_a_build_whose_code_scores_differently_from_scratch_is_flagged():
     drift = inner.reapply_drift(FeedsOnItself(0.00207, loop=False), fresh=lambda: 28_581.0)
     assert drift["flagged"] and drift["fresh"] == 28_581.0 and drift["after"] == pytest.approx([207.0, 207.0])
     assert not inner.reapply_drift(FeedsOnItself(0.2, loop=False), fresh=lambda: 20_000.0)["flagged"]
+
+
+class Reloaded:
+    """A stand-in build whose code reload dropped one config input (PoB's Placeholder at its default)."""
+
+    def __init__(self, inputs: dict):
+        self.inputs, self.set = dict(inputs), []
+
+    def call(self, name, **_):
+        assert name == "getConfig"
+        return {"input": dict(self.inputs)}
+
+    def set_config(self, values):
+        self.set.append(values)
+        self.inputs.update(values)
+        return 0.0
+
+
+def test_a_config_input_the_reload_dropped_comes_back_before_the_check():
+    """SEARCH33 (POE2T5455): the chosen 2 m boss distance came back unset after the reload, and the re-settle read 5 m."""
+    build = Reloaded({"conditionIgnitedEnemyRecently": True})
+    restored = inner.restore_config(build, {"conditionIgnitedEnemyRecently": True, "enemyDistance": 20})
+    assert restored == ["enemyDistance"] and build.inputs["enemyDistance"] == 20 and build.set == [{"enemyDistance": 20}]
+    assert inner.restore_config(build, dict(build.inputs)) == [] and len(build.set) == 1
