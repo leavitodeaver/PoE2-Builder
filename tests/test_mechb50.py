@@ -49,3 +49,11 @@ def test_volcano_channels_to_its_last_stage():
     assert "a tap (no stage) x0.500" in notes[0]["basis"] and "x1.167" in notes[0]["basis"]
     assert models.volcano_channel_model(volcano, "Projectiles", sets) == ([], [])
     assert models.channel_windup_model(volcano, 1.0, 4.0, 2.0, 0.5) == ([], [])  # (left to the Volcano model)
+
+
+def test_enemies_destroyed_by_your_hits_leave_no_corpses():
+    stats = {models.ADD_KILLS_STAT: 0.5}
+    assert models.corpse_supply(set(), stats) == pytest.approx(0.5)
+    stats[models.KILLS_DESTROYED_STAT] = True
+    assert models.corpse_supply(set(), stats) == 0.0 and "leave no corpses" in models.add_corpses_note(stats)
+    assert models.KILLS_DESTROYED.search("Enemies killed by your Hits are destroyed")

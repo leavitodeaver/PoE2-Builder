@@ -1854,12 +1854,28 @@ CORPSE_OPTIONAL = {
 # (one killed before that likely leaves one); MECH-D / RESEARCH to settle it per preset. Against a lone boss: none (the
 # kill ends the fight). The "without it" figure, 0, is in the note. Corpse users share the supply (corpse_model splits it
 # evenly; Profanity's share isn't split: corpse_share's note).
+# (MECHB50; PLANS6 unlinked-live-lines.md, an OVERCOUNT) The rare gloves mod HandWrapsDecayInfluenceIgniteMagnitude1
+# "Enemies killed by your Hits are destroyed" (enemies_explode_on_kill; PoB leaves it unparsed, ModCache 7326): a
+# destroyed enemy leaves no corpse, so with the line the adds the build kills give none. All its add kills are taken to
+# be by Hits (the full cut: kills by damage over time or minions would still leave corpses, UNVERIFIED share, labelled).
+# The explosion's own damage to the boss is not counted (an undercount, labelled).
+KILLS_DESTROYED = re.compile(r"^Enemies killed by your Hits are destroyed$", re.I)
+KILLS_DESTROYED_STAT = "_kills_destroyed"
+
+
+def add_corpse_rate(stats: dict | None) -> float:
+    """Corpses per second from the boss preset's adds the build kills: 0 when its Hits destroy them (above)."""
+    if (stats or {}).get(KILLS_DESTROYED_STAT):
+        return 0.0
+    return max(number((stats or {}).get(ADD_KILLS_STAT)), 0.0)
+
+
 def corpse_supply(present: set[str], stats: dict | None = None) -> float:
     """Corpses per second on a boss: the build's own sources (Sacrifice's undead Reviving minions, stats
     SACRIFICE_CORPSES_STAT from sacrifice_corpses, when Sacrifice is present) plus the boss preset's killed adds (one
-    corpse each, LOW; see above)."""
+    corpse each, LOW; see above; none when the build's Hits destroy them)."""
     own = number((sacrifice_rate(stats))) if SACRIFICE in present else 0.0
-    return max(number((stats or {}).get(ADD_KILLS_STAT)), 0.0) + max(own, 0.0)
+    return add_corpse_rate(stats) + max(own, 0.0)
 
 
 # Sacrifice's corpses (MECHB19; AUDIT27 A27-4, for MECH-C's "recover when you Consume a corpse" and every corpse user).
@@ -1900,6 +1916,9 @@ def sacrifice_corpses(skills: list[Skill], main: Skill | None, stats: dict) -> t
 
 def add_corpses_note(stats: dict | None) -> str:
     adds = max(number((stats or {}).get(ADD_KILLS_STAT)), 0.0)
+    if adds > 0 and (stats or {}).get(KILLS_DESTROYED_STAT):
+        return (f"the boss's adds ({adds:.3f} kills/s) leave no corpses: 'Enemies killed by your Hits are destroyed' "
+                "(all their kills taken as by Hits; kills by damage over time or minions would leave some: UNVERIFIED)")
     if adds <= 0:
         return "nothing dies on a single boss (no killable adds in this boss preset)"
     return (f"{adds:.3f} corpses/s from the boss's adds the build kills ({(stats or {}).get('_boss') or 'the preset'}), "

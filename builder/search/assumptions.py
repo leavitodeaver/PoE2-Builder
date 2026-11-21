@@ -3021,6 +3021,8 @@ class Assumptions:
         source_lines = build.call("sourceLines")["lines"]  # (one call: the models below all read the build's lines)
         build.minion_deathless = minion_deathless(build)  # (MECHB39: Umbilicus Immortalis, for models.minion_deaths)
         line_texts = [e["text"] for e in source_lines]
+        # (MECHB50: "Enemies killed by your Hits are destroyed": the adds the build kills leave no corpse)
+        stats[models.KILLS_DESTROYED_STAT] = any(models.KILLS_DESTROYED.search(t.strip()) for t in line_texts)
         build.empower_keep = models.empower_keep(line_texts)  # (MECHB41: Serle's Grit's line, for empowered_uses)
         # (MECHB40: the build's forced revives, for minion_deaths' revival cap and minion_alive_model)
         forced = models.forced_revives(found, line_texts, mana_flask_uses(build) if any(
