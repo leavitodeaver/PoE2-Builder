@@ -123,8 +123,9 @@
     others 0, said. A charge generated at the maximum counts (R37-4, MEDIUM-LOW; the capped reading a row). Each at
     PoB's Spark; PoB's own entry out of Full DPS (the shared cut tally). Empowered Sparks II (GEM28, R36-16: obtainable; PoB has none, the
     bridge adds it from the game's rows): I's support and Empower skill, its own Spark with 2 more projectiles (11 vs 9
-    at level 20), the same damage: the same headline as I (PoB scores one Spark hit a trigger), its extra sparks in the
-    "every spark of a trigger hits the boss" row (UNVERIFIED).
+    at level 20), the same damage. Hits a trigger on the boss (GEM28, RESEARCH36 R36-5, the manager 19:55): Spark's 0.66 s
+    limit is shared by a trigger's sparks and a spark ends on hit, so min(sparks, floor(life / 0.66)) = 3 (LOW; rows 4,
+    the cap, and PoB's 1), for I and II alike (II's extra sparks don't raise the cap).
   sources: ["builder/search/models.py (empowered_sparks_model)", "builder/search/assumptions.py (empowered_sparks)",
             "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_int.lua (SupportEmpoweredSparksPlayer, TriggeredSparkEmpowerPlayer)",
             "data/game-26650308/tables/ActiveSkills.json (the Power Charge skills' texts)", "scratch/gem26/probe_sweep.json"]

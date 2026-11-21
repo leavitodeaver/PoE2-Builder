@@ -1653,9 +1653,10 @@ def test_empowered_sparks_wing_blast_three_a_heavy_stun_and_devour_three_corpses
     dps, notes = models.empowered_sparks_model(0.3, "t", 10.0, 50.0, "Wing Blast", rows=[("15% a stun", 0.015)])
     assert dps == pytest.approx(45.0) and "15% a stun: 2.2 DPS" in notes[0]["play"]
     assert "capped" in notes[0]["play"] and "R37-4" in notes[0]["basis"]
-    dps, notes = models.empowered_sparks_model(0.3, "t", 10.0, 50.0, "Wing Blast", sparks=11, gem="Empowered Sparks II")
-    assert dps == pytest.approx(45.0) and notes[0]["label"].startswith("Empowered Sparks II")
-    assert "every one of the 11 sparks a trigger hits the boss" in notes[0]["play"] and "495.0 DPS" in notes[0]["play"]
+    dps, notes = models.empowered_sparks_model(0.3, "t", 10.0, 50.0, "Wing Blast", sparks=11, gem="Empowered Sparks II",
+                                               life=2.013)
+    assert dps == pytest.approx(45.0 * 3) and notes[0]["label"].startswith("Empowered Sparks II")  # (R36-5: 3 a trigger)
+    assert "cap of 4 hits" in notes[0]["play"] and "180.0 DPS" in notes[0]["play"] and "45.0 DPS" in notes[0]["play"]
 
 
 def test_descent_fragments_come_from_the_builds_own_line():

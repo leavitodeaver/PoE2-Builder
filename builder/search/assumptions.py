@@ -2144,10 +2144,11 @@ def voltaic_beams(build: Build, main: models.Skill | None, cut=None) -> tuple[fl
     return models.voltaic_beams_model(hits, bool(row.get("projectile")), uptime, beam, main.name, how, pob)
 
 
-def _spark_count(build: Build, group: dict, position: int) -> float:
-    """The triggered Spark's projectiles a trigger (PoB's ProjectileCount from setRates; 0 when PoB gives none)."""
+def _spark_count(build: Build, group: dict, position: int) -> tuple[float, float]:
+    """The triggered Spark's (projectiles a trigger, their life in s) from setRates (PoB's ProjectileCount / Duration;
+    0 when PoB gives none)."""
     sets = build.call("setRates", index=group["index"], active=position)["sets"] or [{}]
-    return models.number(sets[0].get("ProjectileCount"))
+    return models.number(sets[0].get("ProjectileCount")), models.number(sets[0].get("Duration"))
 
 
 def caltrops_support(build: Build, stats: dict, cut=None) -> tuple[float, list[dict]]:
@@ -2282,9 +2283,10 @@ def empowered_sparks(build: Build, main: models.Skill | None, found: list[models
             parts.append(f"{source} {uses:.2f}")
         speed = models.number(row.get("speed"))
         spark = models.number(row.get("TotalDPS")) / speed if speed > 0 else models.number(row.get("AverageHit"))
+        sparks, life = _spark_count(build, group, n) if gains > 0 else (0.0, 0.0)  # (GEM28: R36-5's hits a trigger)
         dps, these = models.empowered_sparks_model(gains, how, attacks, spark, source,
                                                    models.number(row.get("TotalDPS")) if group.get("fullDPS") else 0.0,
-                                                   rows, _spark_count(build, group, n) if gains > 0 else 0.0, gem)
+                                                   rows, sparks, gem, life)
         for note in these:
             note.pop("entry_cut", None)  # (cut above, by this group's share)
             note["basis"] += f" (attacks: {', '.join(parts) or 'none'})"

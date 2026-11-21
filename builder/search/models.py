@@ -9395,9 +9395,11 @@ def gale_force_model(landed: float, every: float, blast: float, cooldown: float 
 # Empowered Sparks II (GEM28; RESEARCH36 R36-16, obtainable, MEDIUM-HIGH; PoB has none: the bridge adds it from the
 # game's rows, engine/bridge.lua): I's support and Empower skill, its own Spark with 2 more projectiles at every level
 # (11 vs 9 at level 20, 15 vs 13 at 40), the same damage. PoB scores a triggered Spark as one hit whatever its projectile
-# count, so II and I score alike in the headline; the "every spark of a trigger hits the boss" row (PoB's
-# ProjectileCount for the Spark: UNVERIFIED how many of a spread reach a lone boss; Spark's own text lets a spark hit a
-# target once per 0.66 s) is where II's extra sparks show.
+# count. Hits a trigger on the boss (GEM28; RESEARCH36 R36-5, the manager 19:55: the main-skill Spark's reading, MECH-B's
+# group_exception_model): the triggered Spark carries the same spark_min_time_between_target_clearing_ms 660 (its stat
+# set), a limit shared by every spark of one trigger, each spark ending on its hit, so min(sparks, floor(life / 0.66))
+# a trigger: 3 at the 2 s life (LOW: every window taken to find a spark on the boss), rows the cap ceil (4) and PoB's 1
+# (at range). II's 2 extra sparks don't raise that cap (both carry 9+): the same headline as I.
 EMPOWERED_SPARKS, EMPOWERED_SPARKS_SUPPORT = "Empowered Sparks", "Empowered Sparks I"
 EMPOWERED_SPARKS_SUPPORTS = ("Empowered Sparks I", "Empowered Sparks II")
 EMPOWERED_SPARKS_ENTRY, EMPOWERED_A_CHARGE = "model-gem27-empowered-sparks", 3.0
@@ -9436,12 +9438,22 @@ def corpse_charges(uses: float, a_use: float, kills: float, undead: float, reviv
 
 def empowered_sparks_model(gains: float, gains_how: str, attacks: float, spark: float, source: str,
                            pob: float = 0.0, rows: list[tuple[str, float]] | None = None, sparks: float = 0.0,
-                           gem: str = EMPOWERED_SPARKS_SUPPORT) -> tuple[float, list[dict]]:
+                           gem: str = EMPOWERED_SPARKS_SUPPORT, life: float = 0.0) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Empowered Sparks (see above): `gains` the supported skill's Power Charges a second, `attacks`
-    the build's attacks a second, `spark` one Spark use (PoB's), `pob` PoB's own Full DPS entry (taken out), `rows`
+    the build's attacks a second, `spark` one Spark hit (PoB's use), `pob` PoB's own Full DPS entry (taken out), `rows`
     other readings as (what, their Power Charges a second), each shown at its own DPS, `sparks` the Spark's projectiles a
-    trigger (PoB's ProjectileCount; 0: not read) for the every-spark-hits row, `gem` the support (I or II)."""
+    trigger (PoB's ProjectileCount; 0: not read, one hit a trigger), `life` their life (PoB's Duration; 0: 2 s), `gem`
+    the support (I or II)."""
     gains, attacks, spark = max(number(gains), 0.0), max(number(attacks), 0.0), max(number(spark), 0.0)
+    hits, cap, hits_how = 1.0, 1.0, "one hit a trigger (PoB's; its projectiles not read)"
+    if number(sparks) > 0:
+        span = number(life) or SPARK_LIFE
+        hits = min(number(sparks), max(1, math.floor(span / SPARK_REHIT + 1e-9)))
+        cap = min(number(sparks), max(1, math.ceil(span / SPARK_REHIT - 1e-9)))
+        hits_how = (f"{hits:g} hits a trigger: its {number(sparks):g} sparks share a {SPARK_REHIT:g} s limit on one target "
+                    f"over their {span:.2f} s life and a spark ends on hit (RESEARCH36 R36-5, LOW; as the main-skill "
+                    "Spark)")
+    spark = spark * hits
 
     def at(charges: float) -> float:
         return min(EMPOWERED_A_CHARGE * max(number(charges), 0.0), attacks) * spark
@@ -9450,10 +9462,9 @@ def empowered_sparks_model(gains: float, gains_how: str, attacks: float, spark: 
     dps = rate * spark
     took = f"PoB rates the Sparks at a flat 1 a second ({pob:,.1f} DPS in Full DPS), taken out. " if pob > 0 else ""
     others = "".join(f"; {what}: {at(n):,.1f} DPS" for what, n in rows or [])
-    if number(sparks) > 1 and dps > 0:
-        others += (f"; if every one of the {number(sparks):g} sparks a trigger hits the boss (UNVERIFIED: Spark's text "
-                   f"lets a spark hit a target once per 0.66 s; how many of a spread reach a lone boss is open): "
-                   f"{dps * number(sparks):,.1f} DPS")
+    if hits > 1 and dps > 0:
+        others += (f"; at the cap of {cap:g} hits a trigger (the first spark at once): {dps * cap / hits:,.1f} DPS; at "
+                   f"range, one hit a trigger (PoB's): {dps / hits:,.1f} DPS")
     capped = ("; the \"capped\" reading (RESEARCH37 R37-4: only a Power Charge gained below your maximum counts): at most "
               "your Power Charge spends and expiries a second, ~0 with no consumer: down to 0 DPS")
     return dps, [{
@@ -9461,7 +9472,8 @@ def empowered_sparks_model(gains: float, gains_how: str, attacks: float, spark: 
         "confidence": "LOW", "entry": EMPOWERED_SPARKS_ENTRY, "entry_cut": {EMPOWERED_SPARKS: pob} if pob > 0 else {},
         "basis": (took + f"The game: each Power Charge {source} generates Empowers your next {EMPOWERED_A_CHARGE:g} "
                   f"Attacks to Trigger Sparks: {gains_how} = {gains:.3f} Power Charges a second, at most your "
-                  f"{attacks:.2f} attacks a second: {rate:.3f} Sparks a second at {spark:,.1f} each. A Power Charge "
+                  f"{attacks:.2f} attacks a second: {rate:.3f} Sparks a second at {spark:,.1f} each ({hits_how}). A "
+                  "Power Charge "
                   "generated at your maximum counted (RESEARCH37 R37-4, MEDIUM-LOW: the game separates generating a "
                   "charge from having it; a gain at the cap still refreshes)"),
         "play": (f"{gem} fires only after {source} makes a Power Charge: with this build {dps:,.1f} DPS; "
