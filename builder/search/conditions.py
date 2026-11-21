@@ -6037,6 +6037,59 @@ def open_weakness_up(build) -> tuple[float, str]:
     return min(max(number(share), 0.0), 1.0), how or "nothing reveals the boss's weaknesses: 0"
 
 
+# The boss on Full Life (MECH97; the manager 00:18 21 Nov: conditions on the boss are MECH-A's). PoB's "Is the enemy on
+# Full Life?" box (conditionEnemyFullLife, ConfigOptions 1681: enemy Condition:FullLife) was never on for the headline
+# (play_guide.OFF_OPTIONS tried it only as "the opening hit"), so every line PoB reads under the enemy's FullLife
+# (ModParser 2097-2099 "against enemies (that are) on full life" / "that are on full life"; the supports' stats through
+# SkillStatMap) counted 0. But Energy Shield is taken before Life, so a boss's Life stays full while its shield is
+# stripped. With E and L the shield's and Life's shares of its pool (bosses.life_share_of_pool, MECH-D's reading of
+# MonsterTypes EnergyShieldFromLife) and r = PoB's Full DPS with the box off over on (probed), the shield goes in E r of
+# the time a plain build spends on L: the box's share of the fight's TIME is E r / (E r + L). Weighed by weigh_uptimes
+# (DPS averaged over time) that is the fight's true pool / time, as for the Open Weakness segments. No shield: the
+# opening hit only (0). ES recharge mid-fight not counted (RESEARCH39's open question; a build hitting all the time keeps
+# it down). Readers (checked: Stats ids holding full_life with an enemy / target / vs / against word, 23, and their rows in
+# Mods, PassiveSkills, GrantedEffectStatSets(PerLevel), SoulCoreStats, game 26650308; poe2db NOT checked): the supports
+# Ambush (support_ambush_critical_strike_chance_vs_enemies_on_full_life_+%_final), First Blood
+# (bleed_chance_+%_vs_full_life_enemy), Heightened Accuracy II and a Soul Core (cannot_miss_against_full_life_enemies),
+# Opening Move (daze_on_hit_vs_enemies_at_full_life), Intense Agony (support_chaotic_assassination_damage_over_time_+%_
+# final_against_full_life_enemies); passives (critical_strike_chance_against_enemies_on_full_life_+% criticals26 /
+# enemies_on_full_life6 / 11; critical_strike_multiplier_vs_enemies_on_full_life_+ criticals39 / enemies_on_full_life1 / 2
+# / 5 / 10; damage_+%_vs_enemies_on_full_life enemies_on_full_life4 / 12; damage_+%_with_daggers_against_full_life_enemies
+# dagger2); uniques (CriticalChanceAgainstEnemiesOnFullLifeUnique__1, IncreasedDamageVsFullLifePerPowerChargeUnique
+# GlovesStrDex6, HandWrapsUniqueDecimatingStrike1 through its ledger stand-in). Two ids hold full_life about YOU, not the
+# enemy (enemy_extra_damage_rolls_when_on_full_life, local_flask_hinder_..._if_not_on_full_life): not readers. The
+# probe reads whatever PoB applies under the box, so a reader missed here still counts if the line or gem passes the
+# gate below (the text pattern or the support names).
+ENEMY_FULL_LIFE_TEXT = re.compile(r"\b(?:enem(?:y|ies)|targets?)\b[^.]*\bon full life\b|\bfull life enem", re.I)
+ENEMY_FULL_LIFE_SUPPORTS = frozenset({"SupportAmbushPlayer", "SupportFirstBloodPlayer",
+                                      "SupportHeightenedAccuracyPlayerTwo", "SupportOpeningMovePlayer",
+                                      "SupportIntenseAgonyPlayer"})
+ENEMY_FULL_LIFE_VAR = "conditionEnemyFullLife"
+
+
+def enemy_full_life_share(shield: float, ratio: float) -> float:
+    """Share of the fight's time the boss is on Full Life: `shield` its Energy Shield's share of its pool, `ratio` = Full
+    DPS with the box off / on (the note above)."""
+    shield = min(max(shield, 0.0), 1.0)
+    inside = shield * min(max(ratio, 0.0), 1.0)
+    return inside / (inside + 1.0 - shield) if inside > 0 else 0.0
+
+
+def enemy_full_life_up(build) -> tuple[float, str]:
+    """(share of the fight's time the boss is on Full Life, how) for other readers: Conditions.evidence's probe
+    (_enemy_full_life), set on the build each conditions round; (0.0, "") before it or with no reader."""
+    share, how = getattr(build, "enemy_full_life_up", None) or (0.0, "")
+    return min(max(number(share), 0.0), 1.0), how or "nothing reads the boss on Full Life: 0"
+
+
+def _enemy_full_life(lines: list[str], stats: dict) -> tuple[object, str]:
+    found = stats.get("_enemy_full_life")
+    if not found:
+        return 0.0, ""
+    share, how = found
+    return _box(share, f"the boss on Full Life {share:.0%} of the fight ({how})")
+
+
 def _open_weakness(presence: bool) -> Callable[[list[str], dict], tuple[object, str]]:
     def value(lines: list[str], stats: dict) -> tuple[object, str]:
         found = stats.get("_open_weakness")
@@ -7768,6 +7821,8 @@ CONDITIONS: list[Condition] = [
               fields=()),  # (MECH78, MC-1)
     Condition(OPEN_WEAKNESS_VARS[1], "An enemy with an Open Weakness in your Presence", value_fn=_open_weakness(True),
               fields=("PresenceRadius",)),  # (MECH78, MC-1)
+    Condition(ENEMY_FULL_LIFE_VAR, "The boss on Full Life (while its Energy Shield is stripped; MECH97)",
+              value_fn=_enemy_full_life, fields=()),
     Condition(INCINERATE_CHANNEL_VAR, "Channelling Incinerate (its fuel: Mana spent on other skills)",
               value_fn=_incinerate_channelling, fields=()),  # (MECH79)
     Condition("conditionEnemyBurning", "Burning (Fire damage over time that isn't an Ignite)",
@@ -8443,6 +8498,38 @@ class Conditions:
         return share, (f"its Open Weakness segments are {OPEN_WEAKNESS_LIFE:.0%} of its Life; Full DPS {on:,.0f} in them"
                        + (f" x {1 + more:g} (the {more:.0%} more a ledger stand-in counts)" if stand_in else "")
                        + f", {off:,.0f} outside, so {share:.0%} of the fight's time")
+
+    def _full_life_readers(self, texts: list[str], gems) -> bool:
+        """(MECH97) the build has a line or a support that PoB reads under the boss's Full Life (ENEMY_FULL_LIFE_*)."""
+        if any(ENEMY_FULL_LIFE_TEXT.search(t) for t in texts):
+            return True
+        known = self.build.ctx.gems
+        return any((known.get(name) or {}).get("grantedEffectId") in ENEMY_FULL_LIFE_SUPPORTS for name in gems)
+
+    def _enemy_full_life(self) -> tuple[float, str]:
+        """(MECH97) (share of the fight's time the boss is on Full Life, how): enemy_full_life_share of the request
+        boss's Energy Shield share and PoB's Full DPS with the box off over on (probed, the box put back after)."""
+        from builder.search import bosses
+
+        boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+        shield = 1.0 - bosses.life_share_of_pool(boss)
+        if shield <= 0:
+            return 0.0, f"{boss} has no Energy Shield, so it's on Full Life only before your first hit: 0"
+        saved = self.build.call("getConfig")["input"].get(ENEMY_FULL_LIFE_VAR)
+        try:
+            on = number(self.build.call("setConfig", vars={ENEMY_FULL_LIFE_VAR: True},
+                                        fields=["FullDPS"])["stats"].get("FullDPS"))
+            off = number(self.build.call("setConfig", vars={ENEMY_FULL_LIFE_VAR: False},
+                                         fields=["FullDPS"])["stats"].get("FullDPS"))
+        finally:
+            if saved:
+                self.build.call("setConfig", vars={ENEMY_FULL_LIFE_VAR: saved}, fields=["FullDPS"])
+        if on <= 0:
+            return 0.0, "no DPS read: 0"
+        share = enemy_full_life_share(shield, off / on)
+        return share, (f"{boss}'s Energy Shield is {shield:.1%} of its pool and is taken before its Life, so its Life "
+                       f"stays full while you strip it; Full DPS {on:,.0f} then, {off:,.0f} after, so {share:.1%} of "
+                       f"the fight's time (its shield taken not to recharge)")
 
     def _orb_uptimes(self) -> dict[str, tuple[float, str]]:
         """{element: (share of the fight one of the build's Orbs of it is up, how)} for Eye of Winter (MECH78, MA-2):
@@ -9428,6 +9515,8 @@ class Conditions:
         stats["_whirlwind_shock"] = whirlwind_shock(self.main_skill, texts, stats.get("_element_gain"))  # (MECH80)
         if any(REVEAL_WEAKNESS.match(t.strip()) for t in texts):  # (MECH78, MC-1: its share of the fight's time)
             stats["_open_weakness"] = self._open_weakness(texts)
+        if self._full_life_readers(texts, gem_types):  # (MECH97: the boss on Full Life while its shield goes)
+            stats["_enemy_full_life"] = self._enemy_full_life()
         if _ground_shocked(stats)[0] >= MIN_UPTIME:  # its Shock's magnitude (ground_shock_magnitude)
             stats["_sg_magnitude"] = self.build.call("shockMagnitude")
         self.parry_plan = None
@@ -9769,6 +9858,7 @@ class Conditions:
         # (MECH78, MC-1; for COV-A's OpenWeakness ledger condition, the manager 12:43: one share for both) the share of
         # the fight's TIME the boss has an Open Weakness: open_weakness_up(build)
         self.build.open_weakness_up = stats.get("_open_weakness") or (0.0, "")
+        self.build.enemy_full_life_up = stats.get("_enemy_full_life") or (0.0, "")  # (MECH97)
         # (MECH70, for GEM5's Vaulting Impact Broken Stance model: the share of the fight the boss is Dazed and its basis,
         # read whether or not the box is on; (0.0, "") without a Daze source. With no consumer of Daze (_dazed's note),
         # it is also the share of any later hit that finds the boss Dazed.)

@@ -56,21 +56,59 @@ def test_lucky_while_surrounded_is_pobs_flag_under_its_own_condition():
     assert mods == [models.raw_mod("LuckyHits", "FLAG", 1, keywords=["Attack"], condition="Surrounded")]
 
 
-def test_double_damage_on_full_life_counts_the_bosss_energy_shield():
-    """x1 / (1 - E/2): Atziri (EnergyShieldFromLife 33) about +4.07%; a boss without Energy Shield nothing."""
-    from builder.search import models
-
-    line = ["Deal Double Damage to Enemies that are on Full Life"]
-    mods, notes = models.full_life_double_mods(line, bosses.life_share_of_pool("Atziri, the Red Queen"))
-    shield = 1 - bosses.life_share_of_pool("Atziri, the Red Queen")
-    assert mods[0]["name"] == "Damage" and mods[0]["type"] == "MORE"
-    assert mods[0]["value"] == pytest.approx(100 * (1 / (1 - shield / 2) - 1), rel=1e-3)
-    assert 4.0 < mods[0]["value"] < 4.2 and notes[0]["confidence"] == "LOW"
-    none, notes = models.full_life_double_mods(line, 1.0)
-    assert none == [] and "first hit" in notes[0]["basis"]
-    assert models.full_life_double_mods(["Deal Double Damage"], 0.5) == ([], [])
-
-
 def test_the_lowest_resistance_line_reaches_pobs_wording():
     found = translate("Elemental Damage from your Hits is Resisted by the enemy's lowest Elemental Resistance")
     assert found and found[1] == ["Elemental Damage you deal with Hits is Resisted by lowest Elemental Resistance instead"]
+
+
+def test_the_boss_is_on_full_life_while_its_shield_is_stripped():
+    """E r / (E r + L): Atziri's shield at the same DPS is its share of the pool; a reader doubling the damage halves the
+    time the shield takes; no shield, or nothing gained by the box, 0."""
+    from builder.search import conditions
+
+    shield = 1 - bosses.life_share_of_pool("Atziri, the Red Queen")
+    assert conditions.enemy_full_life_share(shield, 1.0) == pytest.approx(shield)
+    assert conditions.enemy_full_life_share(shield, 0.5) == pytest.approx(shield * 0.5 / (shield * 0.5 + 1 - shield))
+    assert conditions.enemy_full_life_share(0.0, 0.5) == 0.0
+
+
+def test_the_probe_reads_the_requests_boss_and_puts_the_box_back():
+    from builder.search import conditions
+
+    class Build:
+        def __init__(self, boss):
+            self.ctx = SimpleNamespace(request=SimpleNamespace(boss=boss))
+            self.config, self.calls = {}, []
+
+        def call(self, name, **kw):
+            if name == "getConfig":
+                return {"input": dict(self.config)}
+            self.calls.append(kw["vars"])
+            on = kw["vars"][conditions.ENEMY_FULL_LIFE_VAR]
+            return {"stats": {"FullDPS": 200.0 if on else 100.0}}
+
+    me = conditions.Conditions.__new__(conditions.Conditions)
+    me.build = Build("Atziri, the Red Queen")
+    share, how = me._enemy_full_life()
+    shield = 1 - bosses.life_share_of_pool("Atziri, the Red Queen")
+    assert share == pytest.approx(conditions.enemy_full_life_share(shield, 0.5)) and "Energy Shield" in how
+    assert me.build.calls[-1] == {conditions.ENEMY_FULL_LIFE_VAR: False}
+    me.build = Build("Arbiter of Ash")
+    assert me._enemy_full_life()[0] == 0.0 and me.build.calls == []
+
+
+def test_the_full_life_gate_reads_lines_and_supports():
+    from builder.search import conditions
+
+    me = conditions.Conditions.__new__(conditions.Conditions)
+    me.build = SimpleNamespace(ctx=SimpleNamespace(gems={"Ambush": {"grantedEffectId": "SupportAmbushPlayer"},
+                                                         "Spark": {"grantedEffectId": "SparkPlayer"}}))
+    assert me._full_life_readers(["30% increased Critical Hit Chance against Enemies on Full Life"], {})
+    assert me._full_life_readers(["100% chance to deal Double Damage against Enemies on Full Life"], {})
+    assert me._full_life_readers([], {"Ambush": set()})
+    assert not me._full_life_readers(["20% increased Movement Speed while on Full Life"], {"Spark": set()})
+
+
+def test_the_double_damage_line_reaches_the_ledger_under_the_full_life_box():
+    found = translate("Deal Double Damage to Enemies that are on Full Life")
+    assert found and found[1] == ["100% chance to deal Double Damage against Enemies on Full Life"]

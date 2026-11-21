@@ -15615,36 +15615,6 @@ def lucky_surrounded_mods(texts: list[str]) -> tuple[list[dict], list[dict]]:
                         "boss within your Surrounded radius; a lone boss alone doesn't Surround you otherwise)")}])
 
 
-# Way of the Stonefist's "Deal Double Damage to Enemies that are on Full Life" (MECH97; HandWrapsUniqueDecimatingStrike1,
-# game stat deal_double_damage_to_enemies_on_full_life, Stats 9138; COV48's carrier row). PoB parses it with leftover text
-# (ModCache 7153: "to Enemies" left), so it never applies it: an UNDERCOUNT against a boss with Energy Shield. Energy
-# Shield is taken before Life, so the boss's Life stays full while its Energy Shield goes: every hit on the shield is
-# doubled. With E and L the shield's and Life's shares of the pool (bosses.life_share_of_pool, MECH-D's MonsterTypes
-# EnergyShieldFromLife reading), the shield takes E / 2 of the time a plain build would, so the fight's damage is
-# x 1 / (1 - E / 2) (Atziri's 33%: E 7.8%, x1.041; the 10% bosses x1.0096; no shield: x1, only the first hit doubled,
-# not counted). Added as PoB's Damage MORE. (checked: every game table row holding stat 9138: Mods only HandWrapsUnique
-# DecimatingStrike1 and its ModType; poe2db NOT checked.) LOW: the boss's shield taken not to recharge mid-fight (a build
-# hitting it all the time keeps it down; UNVERIFIED); another always-on Double Damage source would cap this (PoB's
-# DamageDoubled limit) and isn't checked here: a possible small overcount with one.
-DOUBLE_ON_FULL_LIFE = re.compile(r"^Deal Double Damage to Enemies that are on Full Life$", re.I)
-
-
-def full_life_double_mods(texts: list[str], life_share: float) -> tuple[list[dict], list[dict]]:
-    """(mods, notes) for DOUBLE_ON_FULL_LIFE (the note above); `life_share`: the boss's Life share of its Life + ES."""
-    if not any(DOUBLE_ON_FULL_LIFE.match(t.strip()) for t in texts):
-        return [], []
-    shield = min(max(1.0 - life_share, 0.0), 1.0)
-    label = "Double Damage while the boss is on Full Life*"
-    if shield <= 0:
-        return [], [{"label": label, "value": "0", "confidence": "MEDIUM",
-                     "basis": "the boss has no Energy Shield, so it's on Full Life only before your first hit: not counted"}]
-    more = 100 * (1 / (1 - shield / 2) - 1)
-    return [raw_mod("Damage", "MORE", more)], [{
-        "label": label, "value": f"+{more:.3g}% more Damage", "confidence": "LOW",
-        "basis": (f"the boss's Life stays full while its Energy Shield ({shield:.1%} of its pool) is taken off, and those hits "
-                  f"are doubled: x1 / (1 - {shield:.3f} / 2) over the fight (its shield taken not to recharge)")}]
-
-
 # Gruelling Madness on the boss (MECH96; the open rows "Minions have N% chance to inflict Gruelling Madness on Hit" and
 # the plan kw-gruelling-madness.md). KeywordPopups GruellingMadness: "The first Gruelling Madness on a target Slows their
 # movement speed by 15%. Each additional Gruelling Madness instead increases the Slowing Potency of Debuffs on the

@@ -58,3 +58,27 @@
   sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua:4475", "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua:4320-4345"]
   test_in_game: "Wear it against a boss cursed with Flammability: a Cold hit should deal damage as if against the lowered Fire resistance."
   status: proposed
+
+# Way of the Stonefist's "Deal Double Damage to Enemies that are on Full Life" (Aerisvane's Wings' form, HandWrapsUnique
+# DecimatingStrike1, stat deal_double_damage_to_enemies_on_full_life, Stats 9138; checked: its only rows are that Mod and
+# its ModType; poe2db NOT checked). PoB parses it with leftover (ModCache 7153: "to Enemies" left), so it never applied:
+# an UNDERCOUNT against a boss with Energy Shield (its Life stays full while the shield is stripped). Rewritten into a
+# wording PoB parses whole under the enemy's FullLife (ModParser 2097 "against enemies on full life"; "N% chance to deal
+# Double Damage", DoubleDamageChance), so it counts through conditionEnemyFullLife at the boss's share of the fight on
+# Full Life (conditions._enemy_full_life, MECH97), as every other Full Life reader does; the doubling itself shortens
+# that share (the probe's off / on ratio).
+
+- id: items-mech97-stonefist-double-damage-full-life
+  title: Way of the Stonefist, Deal Double Damage to Enemies that are on Full Life, as a wording PoB parses under the enemy's Full Life
+  kind: pob_gap
+  match: '^Deal Double Damage to Enemies that are on Full Life$'
+  replace: ['100% chance to deal Double Damage against Enemies on Full Life']
+  confidence: theory
+  notes: >-
+    The same meaning (always Double Damage while the enemy is on Full Life) in PoB's parsed form: DoubleDamageChance BASE
+    100 under the enemy's FullLife (engine test tests/test_engine_mech97.py), read by PoB's DamageDoubled path. Counts
+    only while conditionEnemyFullLife is on: the share conditions._enemy_full_life gives it (0 against a boss without
+    Energy Shield: the opening hit only).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua:2097", "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:7153"]
+  test_in_game: "Against Atziri, compare the first hits on her Energy Shield with and without the gloves: they should be doubled until the shield is gone."
+  status: proposed

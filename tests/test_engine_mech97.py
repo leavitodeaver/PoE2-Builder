@@ -116,3 +116,31 @@ def test_the_lowest_resistance_stand_in_is_pobs_flag(engine):
     parsed = engine.call("parseLines", lines=out)["results"][0]
     assert parsed["supported"] and [(p["name"], p["type"]) for p in parsed["parsed"]] == [
         ("ElementalDamageUsesLowestResistance", "FLAG")]
+
+
+def test_the_double_damage_stand_in_doubles_only_under_the_full_life_box(engine):
+    """The ledger's replacement for "Deal Double Damage to Enemies that are on Full Life" parses whole under the enemy's
+    FullLife; on the gloves, the DPS doubles with conditionEnemyFullLife on and is unchanged with it off."""
+    from builder.ledger import translate
+
+    _, out = translate("Deal Double Damage to Enemies that are on Full Life")
+    parsed = engine.call("parseLines", lines=out)["results"][0]
+    print("PROBE double parse", parsed)
+    assert parsed["supported"]
+
+    def dps(lines, box):
+        engine.call("newBuild")
+        engine.call("setLevel", level=90)
+        engine.call("equip", slot="Weapon 1", fields=[], raw=BOW)
+        engine.call("equip", slot="Gloves", fields=[], raw=GLOVES + lines)
+        engine.call("addSkillGroup", text="Lightning Arrow 20/0 1", main=True)
+        engine.call("setAssumptions", mods=[], fields=[])
+        return engine.call("setConfig", vars={"conditionEnemyFullLife": box}, fields=["TotalDPS"])["stats"]["TotalDPS"]
+
+    plain_on, plain_off = dps("+10 to Strength", True), dps("+10 to Strength", False)
+    with_on, with_off = dps(out[0], True), dps(out[0], False)
+    print("PROBE double", plain_on, plain_off, with_on, with_off)
+    assert plain_off > 0
+    assert plain_on == pytest.approx(plain_off, rel=1e-6)
+    assert with_off == pytest.approx(plain_off, rel=1e-6)
+    assert with_on == pytest.approx(2 * plain_on, rel=1e-3)

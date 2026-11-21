@@ -3064,9 +3064,6 @@ class Assumptions:
         mods, notes = mods + shock_mods, notes + shock_notes
         lucky_mods, lucky_notes = models.lucky_surrounded_mods(texts)  # (MECH97: Stonefist's Lucky while Surrounded)
         mods, notes = mods + lucky_mods, notes + lucky_notes
-        if any(models.DOUBLE_ON_FULL_LIFE.match(t.strip()) for t in texts):  # (MECH97: Stonefist's Full Life line)
-            double_mods, double_notes = models.full_life_double_mods(texts, bosses.life_share_of_pool(boss))
-            mods, notes = mods + double_mods, notes + double_notes
         if any(models.CRYSTAL_LIFE_PER_RES.match(t.strip()) for t in texts):  # (MECH96: Eventide Petals)
             cold_res = (stats["ColdResist"] if "ColdResist" in stats
                         else (build.call("stats", fields=["ColdResist"]) or {}).get("ColdResist"))

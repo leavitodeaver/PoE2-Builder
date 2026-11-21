@@ -635,6 +635,9 @@ def test_a_support_sweep_where_nothing_changes_the_score_keeps_no_shortlist(engi
     search.setup(quests=False)
     build, gems = search.build, search.gems
     monkeypatch.setattr(build, "gem_deltas", lambda cases, **kw: [(build.score, {}) for _ in cases])
+    # (MECH97: discover's real trials are not what-ifs; since the boss is on Full Life while its Energy Shield goes,
+    # Ambush really gains here, POE2T5120: so they're stubbed too, for a sweep where nothing changes the score)
+    monkeypatch.setattr(gems, "discover", lambda *a, **kw: [])
     assert not gems.supports_round(full_sweep=True)
     assert gems.shortlist is None
     monkeypatch.setattr(build, "gem_deltas", lambda cases, **kw: [(build.score - 0.1 * i, {}) for i, _ in enumerate(cases)])

@@ -34,19 +34,3 @@
     the model reads the line.
   sources: ["vendor/PathOfBuilding-PoE2/src/Data/SkillStatMap.lua:1034", "vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua:521-527"]
   status: proposed
-
-- id: model-read-mech97-double-damage-full-life
-  title: '"Deal Double Damage to Enemies that are on Full Life" (models.full_life_double_mods)'
-  kind: pob_gap
-  model: full_life_double
-  match: '^Deal Double Damage to Enemies that are on Full Life$'
-  replace: []
-  confidence: theory
-  notes: >-
-    HandWrapsUniqueDecimatingStrike1 (stat deal_double_damage_to_enemies_on_full_life). Energy Shield is taken before
-    Life, so a boss's Life stays full while its shield goes and those hits are doubled: Damage MORE 100 x (1 / (1 - E/2)
-    - 1), E the shield's share of the boss's pool (bosses.life_share_of_pool, MECH-D): Atziri +4.07%, the King +0.95%, no
-    shield 0 (only the first hit; not counted). LOW: the shield taken not to recharge mid-fight. This entry only says the
-    model reads the line.
-  sources: ["builder/search/bosses.py life_share_of_pool", "builder/search/models.py full_life_double_mods"]
-  status: proposed
