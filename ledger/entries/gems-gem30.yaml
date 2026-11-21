@@ -120,3 +120,102 @@
             "scratch/gem30/probe5793.log (GEM30's probe)"]
   test_in_game: "Ravenous Swarm with +50% Cooldown Recovery: count the swarms out at once against a boss (expect 2-3)."
   status: proposed
+
+- id: support-gem30-delayed-gratification-harder-condition
+  title: "Delayed Gratification: 2 uses per condition met, the condition 2.5x harder: x0.8 uses where the condition binds (PoB reads neither)"
+  kind: gem_stat
+  support: true
+  skill: [Delayed Gratification]
+  support_stats: ['difficulty_of_meeting_conditional_requirement_+%']
+  match: '^difficulty_of_meeting_conditional_requirement_\+%$'
+  replace: ['1% less Damage']
+  factor: 0.1333333333
+  confidence: theory
+  notes: >-
+    GEM30 (the manager 04:12, PLANS7 / plans/kw-difficulty.md: a support PoB doesn't read that looks FREE). Its only
+    stats (SupportDelayedGratificationPlayer, game 26650308; PoB sup_dex.lua 1802): difficulty_of_meeting_conditional_
+    requirement_+% 150 ("Conditional requirements of Supported Skills are {0}% harder to meet"),
+    conditional_skill_additional_usages_after_meeting_requirement 1 and _duration_ms 10000 (one more use within 10 s).
+    PoB has no statMap for any of them (grep of SkillStatMap.lua and Modules/; PLANS6) and usage.py ignores them, so the
+    supported skill scored x1 and the support could fill a socket for nothing. In the game each condition met gives 2
+    uses and costs 2.5 times as much: uses x (1 + 1) / (1 + 150%) = x0.8 where the condition sets the use rate, x1 where
+    the press rate does. Headline x0.8 (MEDIUM: the condition taken as binding, the usual case for a skill gated by
+    Combo, Glory or kills; "harder" scaling every kind of condition alike is UNVERIFIED), counted as "20% less Damage" on
+    the supported skill (150 x factor 0.1333: fewer uses read as less damage a second, ailments alike); row: x1 if the
+    press rate binds. The two-uses burst isn't scored.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_dex.lua 1802 (Delayed Gratification)",
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/plans/kw-difficulty.md"]
+  test_in_game: "Delayed Gratification on a Combo skill: the Combo needed for the first use (expect 2.5x) and the second use within 10 s."
+  status: proposed
+
+# PLANS7's triage of the unlinked damage / speed gem-stat rows (plans/gs-triage-damage-speed.md, the manager 04:12,
+# 21 Nov), taken by GEM30. Links only where GEM30 found the reader (scratch/gem30/plans7_check.py, grep of builder/);
+# "no effect" entries carry PLANS7's reason and GEM30's read of it. Left open (no reader found, or UNVERIFIED):
+# overcharged_spear_base_frequency_ms (Storm Lance: PoB maps it on some sets; a probe first, COV-A's re-mark),
+# incinerate_gain_stage_every_x_ms (the Incinerate channel model's stage step not checked against it),
+# base_additional_damage_from_distance_+%_final on Shield Charge (no reader: models.RAKE_STAT is Rake's only),
+# spear_lightning_warp_teleport_delay_ms (Thunderous Leap: what the warp is is UNVERIFIED, RESEARCH).
+
+- id: model-gem30-link-deadly-resolve-stage-duration
+  title: "Deadly Resolve's 10 s stage duration (the deadly_resolve model)"
+  kind: model
+  model: deadly_resolve
+  stats: ["dangerous_resolve_stack_duration_ms"]
+  skill: [Deadly Resolve]
+  confidence: MEDIUM
+  notes: >-
+    models.py's Deadly Resolve block (DEADLY_RESOLVE) quotes "Stage duration is 10 seconds" and counts a slash per stage
+    spent when the boss hits you, at most one a second of channelling: against a boss that hits, stages are spent long
+    before they expire, so the duration moves no number (PLANS7). Where the boss hits less than once in 10 s a stage
+    could lapse (not modelled: the boss presets hit far more often). Records the reader.
+  sources: ["builder/search/models.py (Deadly Resolve, deadly_resolve)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: model-gem30-link-stomping-ground-flag
+  title: "Stomping Ground's implicit flag names the support (the Stomping Ground model)"
+  kind: model
+  model: stomping_ground
+  stats: ["support_stomping_ground"]
+  skill: [Stomping Ground]
+  confidence: datamined
+  notes: >-
+    The flag marks a skill supported by Stomping Ground; models.stomping_ground_model (GEM28) is keyed on the support by
+    name (STOMPING_GROUND) and counts its shockwaves. The flag adds no number of its own.
+  sources: ["builder/search/models.py (stomping_ground_model)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: gem-gem30-no-effect-flags-and-geometry
+  title: "Gem stats that move no number against one boss: flags, geometry, travel time, delays and variance (PLANS7's triage)"
+  kind: gem_stat
+  skill: [Inexorable Critical I, Inexorable Critical II, Stampede, Adhesive Grenades I, Adhesive Grenades II,
+          Charged Shockwave, Combust, Cross Slash, Firestorm, Forge Hammer, Glacial Cascade, Lightning Arrow,
+          Long Fuse I, Long Fuse II, Oil Barrage, Rain of Arrows, Spear of Solaris, Thrashing Vines, Thunderstorm,
+          Unearth, Vine Arrow, Whirling Slash, Raise Zombie]
+  match: '^(supported_by_inevitable_criticals|shield_charge_extra_distance|grenade_skill_does_not_bounce_off_ground|charged_staff_bonus_width|damage_cannot_be_reflected|ice_chunk_refire_overshoot_(max|min)|ice_chunk_refire_search_radius|firestorm_fall_time_ms|forge_hammer_hammer_speed|cascade_attack_radius_per_stage_\+1_per_100|glacial_cascade_attack_final_spike_rect_length|skill_lightning_rod_burst_delay_ms_override_on_damaging_lightning_rod|skill_grenade_detonate_only_at_end_of_duration|barrage_base_spread_arc_override|rain_of_arrows_arrow_speed_\+%|solaris_spear_ground_expands_to_\+%_final_by_skill_end|awakened_forest_area_of_effect_\+%_final_when_wet|lightning_storm_hit_frequency_variance_ms|unearth_base_cone_speed_multiplier|vine_arrow_area_of_effect_\+%_final_when_wet|sandstorm_swipe_nova_radius_\+_per_stage|zombie_decay_rate_increase_\+%_final)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    PLANS7 (plans/gs-triage-damage-speed.md) read each as moving no number in our boss fight; GEM30 kept its reasons
+    (MEDIUM unless said). Flags: supported_by_inevitable_criticals marks the skill Inexorable Critical supports (its
+    crit model, GEM10, reads the support's own stats). Travel / reach: Stampede's shield_charge_extra_distance (its
+    quality: longer maximum travel; the boss is reached either way, as GEM23's Shield Charge entry);
+    forge_hammer_hammer_speed, unearth_base_cone_speed_multiplier and rain_of_arrows_arrow_speed_+% (travel or fall
+    time, not a rate). Delays: firestorm_fall_time_ms (0.5 s fall), Lightning Arrow's 0.1 s rod burst delay.
+    Variance: lightning_storm_hit_frequency_variance_ms (+-150 ms around Thunderstorm's interval: the mean rate is
+    unchanged). Geometry against a lone boss inside the area: charged_staff_bonus_width (Charged Shockwave's cone),
+    Cross Slash's ice_chunk_refire_* (the flung fragments' count is Cross Slash's model's; these are distances),
+    Glacial Cascade's per-stage radius and last spike's length, Spear of Solaris' growing Ground Spear (the boss at the
+    landing point is inside from the start), Thrashing Vines' and Vine Arrow's area when Overgrown (no area-share model
+    reads their size), Whirling Slash's sandstorm radius per stage (its stages and damage are read), Oil Barrage's 25
+    degree spread (inside the boss's width at melee / close range; UNVERIFIED far off, the Nova circle precedent R39-12).
+    Adhesive Grenades' no-bounce: grenades aimed at the boss land at it either way (its more damage is mapped by PoB).
+    Long Fuse's end-of-duration detonation: no model of ours sets grenades off early (the Detonator code is for Storm
+    Lance / Firestorm / Rapid Assault), so nothing is lost (its more damage is counted). Combust's
+    damage_cannot_be_reflected: nothing reflects damage in the boss model. Raise Zombie's zombie decay: its zombies
+    aren't counted today (models.py: "zombies from corpses not counted"), so nothing to cut NOW; it becomes a minion-
+    uptime cut (an overcount guard) the day they are (gs-kill-fed-gem-stats item 6, MECH-B).
+  sources: ["C:/PROJECTS/PoE2 Builder/scratch/manager/plans/gs-triage-damage-speed.md"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed

@@ -1785,13 +1785,18 @@ def test_abyssal_apparition_casts_the_main_spell_again_for_each_power_charge():
     assert gains == pytest.approx(0.6)
     mods, notes = models.abyssal_apparition_model([line], spark, types, stats, gains, "crit")
     assert mods[0]["value"] == pytest.approx(100 * 0.3 * 0.4) and notes[0]["confidence"] == "LOW"
-    assert "x1.150" in notes[0]["basis"]  # (level 20's 50% less row)
+    assert "level 1's 60% less" in notes[0]["basis"]  # (GEM30: level 1 is now a row; level 20 at character 90)
+    assert models.abyssal_apparition_model([line], spark, types, stats, gains, "crit", char_level=90)[1][0]["value"] == "x1.150"
     assert models.abyssal_apparition_model([line], spark, types, stats, 5.0, "")[0][0]["value"] == pytest.approx(40.0)
     assert models.abyssal_apparition_model([line], spark, types, stats, 0.0, "")[0] == []
     assert models.abyssal_apparition_model([line], spark, types | {"Channel"}, stats, 1.0, "")[0] == []
     assert models.abyssal_apparition_model([line], Skill(name="Spark", spell=True, cooldown=2.0), types, stats, 1.0, "")[0] == []
     assert models.abyssal_apparition_model([line], Skill(name="Boneshatter", attack=True), {"Attack"}, stats, 1.0, "")[0] == []
     assert models.abyssal_apparition_model([], spark, types, stats, 1.0, "") == ([], [])
+    # GEM30 (R40-7): the grant levels with the character: 20 (50% less) at 90, 19 (51%) at 84-89, 1 below 3
+    assert (models.apparition_level(90), models.apparition_level(89), models.apparition_level(2)) == (20, 19, 1)
+    high = models.abyssal_apparition_model([line], spark, types, stats, 5.0, "", char_level=90)
+    assert high[0][0]["value"] == pytest.approx(50.0) and "gem level 20" in high[1][0]["basis"]
 
 
 def test_valakos_charge_arc_builds_half_the_electrocute():
@@ -1846,3 +1851,12 @@ def test_ravenous_swarm_and_hollow_focus_follow_their_repeat_interval():
     assert models.repeat_interval_model([bells], bells, {"Speed": 1.14}, {"enemyDistance": 90})[0][0]["value"] == -100
     assert models.repeat_interval_model([swarm], melee, {}, {}, {models.REPEAT_ENTRY}) == ([], [])
     assert {models.RAVENOUS_SWARM, models.HOLLOW_FOCUS} <= set(models.gem_stat_skills())
+
+
+def test_delayed_gratification_is_not_a_free_support():
+    """GEM30 (PLANS7 / kw-difficulty): 2 uses per condition 2.5x harder to meet: x0.8, so it no longer scores x1."""
+    stat = "difficulty_of_meeting_conditional_requirement_+%"
+    skill = Skill(name="Tempest Flurry", attack=True, support_stats={stat: 150})
+    lines = [m for m in models.gem_stat_model([skill], main=skill, stats={})[0] if "less Damage" in str(m.get("line"))]
+    assert lines == [{"kind": "Line", "line": "1% less Damage", "scale": 20.0, "skill": "Tempest Flurry"}]
+    assert stat in models.gem_stat_support_stats()

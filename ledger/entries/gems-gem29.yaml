@@ -63,7 +63,9 @@
     (level 1) to 50% less (level 20). PoB leaves the node's line unparsed (ModCache nil) so it never grants the skill
     (CalcSetup adds node skills from ExtraSkill lines only). Headline: share = min(1, Power Charges a second from the
     build's lines (conditions._charge_rate) / casts a second) x 40% of a cast, as DPS MORE (LOW: the level, 1, PoB's
-    for an unlevelled grant; level 20 a row). No Power Charge source: 0.
+    for an unlevelled grant; level 20 a row). No Power Charge source: 0. GEM30 (RESEARCH40 R40-7, MEDIUM-HIGH): the
+    grant levels with the character (PoB getGrantedSkillLevel): level 20, 50% less, from character level 90; level 1's
+    60% a row (the level-1 headline was an UNDERCOUNT of x1.25 on the clone's casts at endgame).
   sources: ["builder/search/models.py (abyssal_apparition_model)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (TriggeredAbyssalApparitionPlayer)",
             "vendor/PathOfBuilding-PoE2/src/Modules/CalcSetup.lua 321-335", "data/game-26650308/tables/PassiveSkills.json (Steward of Kulemak)"]
   test_in_game: "Abyssal Lich with Steward of Kulemak, Spark and a Power Charge source: count the Apparition's casts and their damage against your own."

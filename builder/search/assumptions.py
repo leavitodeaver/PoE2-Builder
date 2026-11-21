@@ -3987,7 +3987,8 @@ class Assumptions:
                     app_gains += r[0]
                     app_found.append(f"{t[:50]} ({r[0]:.2g}/s)")
             app_mods, app_notes = models.abyssal_apparition_model(
-                texts, main, app_types, app_stats, app_gains, "; ".join(app_found[:3]), forbidden)
+                texts, main, app_types, app_stats, app_gains, "; ".join(app_found[:3]), forbidden,
+                int(build.ctx.level or 0))  # (GEM30, R40-7: the grant levels with the character)
             hand_mods, hand_notes = hand_mods + app_mods, hand_notes + app_notes
         early_mods, early_notes = models.hazard_early_model(found, stats, forbidden, self.hitters(found))  # (MECH-B)
         hand_mods, hand_notes = hand_mods + early_mods, hand_notes + early_notes

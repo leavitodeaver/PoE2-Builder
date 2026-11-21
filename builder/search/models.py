@@ -5528,11 +5528,27 @@ def nova_projectiles_model(main: Skill | None, stats: dict, config: dict | None 
 # Power Charge; item-granted spells aren't told apart (UNVERIFIED); side-group spells (their own Power Charges).
 APPARITION_LINE = re.compile(r"^Damaging Spells consume a Power Charge if able to trigger Abyssal Apparition$", re.I)
 APPARITION_LESS = {1: -60.0, 20: -50.0}  # damage_+%_final_from_lich_apparition_cloned_skill (levels 1 and 20)
+# (GEM30; RESEARCH40 R40-7, MEDIUM-HIGH, the manager 04:20, 21 Nov) The grant levels with the CHARACTER, as every
+# tree-granted skill: PoB's getGrantedSkillLevel (CalcSetup 678-701, 1874-1879) gives the highest level whose
+# levelRequirement the character meets, up to 20; the requirements and the clone's less damage by level (PoB other.lua
+# TriggeredAbyssalApparitionPlayer; the game's GrantedEffectStatSetsPerLevel: -60 at 1, -55 at 11, -51 at 19, -50 at
+# 20). So level 20 (50% less) from character level 90, 19 (51%) at 84-89; level 1's 60% only at character level 1-2
+# (a row). GEM29's level-1 headline was an UNDERCOUNT of x1.25 on the clone's casts at endgame. Whether "+N to level of
+# all skills" lines raise it is UNVERIFIED (it carries skill_is_not_considered_a_skill: probably not; not added).
+APPARITION_LEVEL_REQ = (0, 3, 6, 10, 14, 18, 22, 26, 31, 36, 41, 46, 52, 58, 64, 66, 72, 78, 84, 90)  # levels 1..20
+APPARITION_LESS_BY_LEVEL = (-60, -60, -59, -59, -58, -58, -57, -57, -56, -56, -55, -55, -54, -54, -53, -53, -52, -52,
+                            -51, -50)
+
+
+def apparition_level(char_level: int) -> int:
+    """The Abyssal Apparition's gem level at a character level (see above); 1 when the level is unknown (0)."""
+    return max([i + 1 for i, req in enumerate(APPARITION_LEVEL_REQ) if req <= max(char_level, 0)] or [1])
 APPARITION_ENTRY = "model-gem29-abyssal-apparition"
 
 
 def abyssal_apparition_model(texts: list[str], main: Skill | None, main_types: set[str], stats: dict, gains: float,
-                             gains_how: str, forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+                             gains_how: str, forbidden: set[str] = frozenset(),
+                             char_level: int = 0) -> tuple[list[dict], list[dict]]:
     """Steward of Kulemak's Abyssal Apparition casting the main spell again (see above): `gains` the build's Power
     Charges a second (`gains_how` its lines)."""
     if APPARITION_ENTRY in forbidden or not any(APPARITION_LINE.match(t.strip()) for t in texts):
@@ -5563,14 +5579,17 @@ def abyssal_apparition_model(texts: list[str], main: Skill | None, main_types: s
                      "play": "Steward of Kulemak needs Power Charges: each cast that finds one is cast again by the "
                              "Apparition at 60% less damage. Without a Power Charge source: none."}]
     share = min(1.0, gains / casts)
-    each = 1 + APPARITION_LESS[1] / 100
-    factor, high = 1 + share * each, 1 + share * (1 + APPARITION_LESS[20] / 100)
+    level = apparition_level(char_level)
+    less = APPARITION_LESS_BY_LEVEL[level - 1]
+    each = 1 + less / 100
+    factor, low = 1 + share * each, 1 + share * (1 + APPARITION_LESS[1] / 100)
     return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], [{
         "label": label, "value": f"x{factor:.3f}", "confidence": "LOW", "entry": APPARITION_ENTRY,
         "basis": (f"{gains:.2f} Power Charges a second ({gains_how or 'the build lines'}) over {casts:.2f} casts a second "
                   f"of {main.name}: {share:.0%} of casts find one and are cast again by the Apparition at "
-                  f"{-APPARITION_LESS[1]:g}% less damage (level 1: PoB's level for an unlevelled grant; LOW): "
-                  f"x{factor:.3f}. Rows: at level 20's {-APPARITION_LESS[20]:g}% less x{high:.3f}; without Power "
+                  f"{-less:g}% less damage (gem level {level}, from character level {char_level}: tree-granted "
+                  f"skills level with the character, R40-7, MEDIUM-HIGH): x{factor:.3f}. Rows: at level 1's "
+                  f"{-APPARITION_LESS[1]:g}% less x{low:.3f}; without Power "
                   "Charges x1. PoB never grants the skill (the node's line unparsed). Other Power Charge spenders not "
                   "taken off"),
         "play": (f"Steward of Kulemak: each {main.name} cast that finds a Power Charge is cast again by the Abyssal "
