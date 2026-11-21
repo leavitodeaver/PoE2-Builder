@@ -1426,7 +1426,7 @@ def cast_by_totem(skills: list[Skill], skill: Skill | None) -> bool:
 
 
 def totem_model(skills: list[Skill], stats: dict, texts: list[str], levels: dict[str, int],
-                main: Skill | None) -> tuple[list[dict], list[dict]]:
+                main: Skill | None, inhibited: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
     """Spell Totem with the main spell socketed: how many totems are up, from the Power and Endurance Charges the build
     makes (3 per totem), and the damage its Power Charges add. PoB's DPS is one totem's."""
     from builder.search.conditions import _charge_rate, _extra_charges
@@ -1458,8 +1458,14 @@ def totem_model(skills: list[Skill], stats: dict, texts: list[str], levels: dict
     allowed = int(allowed)
     if any(number(s.support_stats.get(TOTEM_ONE_STAT)) > 0 for s in skills if s.group == main.group):
         allowed = 1  # (a one-totem support: "Supported Skills can only have one active Totem"; A24-3, MECHB11)
+    # (MECHB51, the manager 09:10) Inhibitor on the totem's group: "Supported Skills cannot consume Charges", so no
+    # Power Charge damage and no Endurance Charge duration; whether a totem can then be placed at all is UNVERIFIED, so
+    # its count is left as the charges make it (not zeroed: CLAUDE.md), labelled.
+    blocked = bool(inhibited & {main.name, *TOTEM_METAS})
     duration = (number(stats.get("TotemDuration")) or SPELL_TOTEM_DURATION) * (
-        1 +SPELL_TOTEM_DURATION_PER_ENDURANCE * SPELL_TOTEM_CHARGES * (1 - power))
+        1 + (0.0 if blocked else SPELL_TOTEM_DURATION_PER_ENDURANCE * SPELL_TOTEM_CHARGES * (1 - power)))
+    if blocked:
+        power = 0.0
     up = min(float(allowed), made * duration / SPELL_TOTEM_CHARGES)
     bond_note = ""
     if bond:  # (no charges needed: the build keeps its totems placed; none consumed, UNVERIFIED)
@@ -1487,7 +1493,9 @@ def totem_model(skills: list[Skill], stats: dict, texts: list[str], levels: dict
              f"{allowed} totems allowed ({base} at gem level {level}, game files"
              + (f", +{adds:g} from the build's lines" if adds else "") + ")"
              + (f" ({bond_words})" if bond_words else "")
-             + f": {up:.2f} up on average, and PoB counts one" + bond_note)
+             + f": {up:.2f} up on average, and PoB counts one" + bond_note
+             + ("; Inhibitor supports it: no charge is consumed, so no Power Charge damage and no longer duration "
+                "(whether the totem can then be placed at all: UNVERIFIED, its count kept)" if blocked else ""))
     notes = [{"label": f"Spell Totems up on average ({main.name})", "value": round(up, 2), "basis": basis
               + ("; no charges made, so no totem: no damage" if up <= 0 else "")
               + (f"; {more:.0f}% more damage from the Power Charges consumed ({SPELL_TOTEM_DAMAGE_PER_POWER:g}% each, "
@@ -1602,12 +1610,20 @@ def in_hollow_form(skills: list[Skill], skill: Skill | None) -> bool:
         s.name == HOLLOW_FORM and s.group == skill.group for s in skills)
 
 
-def hollow_model(skills: list[Skill], stats: dict, texts: list[str], main: Skill | None) -> tuple[list[dict], list[dict]]:
-    """The images Hollow Form's Power Charges add: 2 per use that finds a charge (one use per hit PoB counts)."""
+def hollow_model(skills: list[Skill], stats: dict, texts: list[str], main: Skill | None,
+                 inhibited: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """The images Hollow Form's Power Charges add: 2 per use that finds a charge (one use per hit PoB counts).
+    `inhibited` conditions.inhibited_skills: (MECHB51, the manager 09:10) Hollow Form supported by Inhibitor ("Supported
+    Skills cannot consume Charges") consumes none, so it adds no images (an OVERCOUNT before)."""
     from builder.search.conditions import _charge_rate, _extra_charges
 
     if not in_hollow_form(skills, main):
         return [], []
+    if HOLLOW_FORM in inhibited:
+        return [], [{"label": f"Hollow Form: images per use ({main.name})", "value": 1,
+                     "basis": ("Inhibitor supports Hollow Form, so it consumes no Power Charge (cannot_consume_power_"
+                               "frenzy_endurance_charges, MECHC49's R40-2): no extra images, PoB's one per use stands"),
+                     "confidence": "HIGH"}]
     uses = number(stats.get("Speed"))
     found = [r for r in (_charge_rate(t, "Power", stats) for t in texts) if r is not None]
     made = (sum(r[0] for r in found) * (1 + _extra_charges(texts, "Power")[0])  # (extra charges per gain)

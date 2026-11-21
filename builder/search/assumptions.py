@@ -3250,7 +3250,8 @@ class Assumptions:
                                if m.get("kind") == "SkillData" and m.get("key") == "triggerRate"}
         expression_mods, expression_notes, expression_groups = models.expression_model(found, stats, main)
         levels = {g["name"]: g["level"] for grp in build.groups() for g in grp["gems"] if g.get("level")}
-        totem_mods, totem_notes = models.totem_model(found, stats, [e["text"] for e in source_lines], levels, main)
+        totem_mods, totem_notes = models.totem_model(found, stats, [e["text"] for e in source_lines], levels, main,
+                                                     conditions_mod.inhibited_skills(build.groups()))  # (MECHB51)
         energy_mods, energy_notes = energy_mods + totem_mods, energy_notes + totem_notes
         count_mods, count_notes = models.totem_count_model(found, main, [e["text"] for e in source_lines], stats)  # (MECH-B, MECHB8: other totems' count)
         energy_mods, energy_notes = energy_mods + count_mods, energy_notes + count_notes
@@ -4681,7 +4682,8 @@ class Assumptions:
             found, main, {g["name"]: (g["level"], g.get("quality") or 0) for grp in build.groups() for g in grp["gems"]
                           if g.get("level")}, rolling=any(s.name == "Cast on Dodge" for s in found))
         hand_mods, hand_notes = hand_mods + mirage_mods, hand_notes + mirage_notes
-        hollow_mods, hollow_notes = models.hollow_model(found, stats, [e["text"] for e in source_lines], main)
+        hollow_mods, hollow_notes = models.hollow_model(found, stats, [e["text"] for e in source_lines], main,
+                                                        conditions_mod.inhibited_skills(build.groups()))  # (MECHB51)
         hand_mods, hand_notes = hand_mods + hollow_mods, hand_notes + hollow_notes
         pulse, pulse_notes = models.maelstrom_model(source_lines, stats) if models.MAELSTROM_ENTRY not in forbidden else (0.0, [])
         hand_mods += models.maelstrom_inputs(source_lines, pulse) if pulse_notes else []

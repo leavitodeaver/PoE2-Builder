@@ -283,3 +283,12 @@ def test_behead_and_beastrite_are_a_labelled_zero_with_rows():
     assert note["value"] == "not counted" and "UNVERIFIED" in note["basis"] and "5 minutes" in note["basis"]
     assert "20 s" in models.behead_note(strike, ["Behead I"])[0]["basis"]
     assert models.behead_note(strike, ["Martial Tempo"]) == []
+
+
+def test_an_inhibitor_supported_hollow_form_makes_no_power_charge_images():
+    """The manager 09:10 (MECHC49's inhibited_skills): Inhibitor's supported skills cannot consume Charges."""
+    strike = models.Skill("Quarterstaff Strike", 2, attack=True, melee=True)
+    hollow = models.Skill("Hollow Form", 2)
+    mods, notes = models.hollow_model([strike, hollow], {"Speed": 2.0, "PowerChargesMax": 3}, [], strike,
+                                      {"Hollow Form", "Quarterstaff Strike"})
+    assert mods == [] and notes[0]["value"] == 1 and "Inhibitor" in notes[0]["basis"]
