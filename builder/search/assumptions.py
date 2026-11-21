@@ -1257,7 +1257,7 @@ def minion_deathless(build: Build) -> tuple[float, str]:
     up = None
     if life is not None:
         info = build.call("flaskData", raws=[life.raw])["results"][0] or {}
-        up = flasks.uptime(info, flasks.Charges.of(build), "Life")
+        up = flasks.minion_uptime(info, flasks.Charges.of(build))  # (MECHC49: none under Reverie)
     return models.minion_deathless(raws, up)
 
 
