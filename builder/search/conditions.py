@@ -4821,7 +4821,10 @@ def buildup_others(rows: dict, groups: list[dict], hitters: set[str], main_index
     """{ailment: bars a second at PoB's threshold, "how": text} from the build's other hitting groups' Freeze /
     Electrocute / Pin buildup (MECH87; models.others_fill's note): each group's useRates row's <Ailment>BuildupAvg (% of
     PoB's threshold a hit, as PoB scores it as the main skill) x its hits a second (PoB's trigger rate, else
-    skill_use_rate at the press choices, as ignite_others; one hit per use). {} when none builds any."""
+    skill_use_rate at the press choices, as ignite_others; one hit per use). {} when none builds any.
+    (MECH95) And their Heavy Stun buildup, "HeavyStun", less its Cold share (models.stun_uncold on the row's hit and crit
+    averages: "Cold hits cannot build up Heavy Stun"), which models.heavy_stun_rate adds to the main skill's (an
+    UNDERCOUNT before: only the main skill's hits, Thorns and Bloodhound's Blood Loss filled the bar)."""
     names = {g["index"]: [n["name"] for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in hitters]
              for g in groups if g.get("enabled") is not False}
     out: dict = {}
@@ -4830,6 +4833,7 @@ def buildup_others(rows: dict, groups: list[dict], hitters: set[str], main_index
         if index == main_index or not names.get(index):
             continue
         each = {a: number(row.get(f"{a}BuildupAvg")) / 100 for a in BUILDUP_SHARED}
+        each["HeavyStun"] = number(row.get("HeavyStunBuildupAvg")) / 100 * models.stun_uncold(row)  # (MECH95)
         if not any(v > 0 for v in each.values()):
             continue
         if row.get("triggered"):
@@ -4846,9 +4850,10 @@ def buildup_others(rows: dict, groups: list[dict], hitters: set[str], main_index
                 out[ailment] = out.get(ailment, 0.0) + hits * v
         parts.append(f"{name} {hits:.2f} hits/s at {why} x " + ", ".join(
             f"{a} {v:.2%}" for a, v in each.items() if v > 0) + " of the bar a hit")
-    if not any(a in out for a in BUILDUP_SHARED):
+    if not any(a in out for a in (*BUILDUP_SHARED, "HeavyStun")):
         return {}
-    out["how"] = "; ".join(parts) + " (MECH87: each group's buildup as PoB scores it as the main skill; one hit per use)"
+    out["how"] = "; ".join(parts) + (" (MECH87: each group's buildup as PoB scores it as the main skill, Heavy Stun's Cold "
+                                     "share out, MECH95; one hit per use)")
     return out
 
 
@@ -5863,7 +5868,13 @@ CHILLED_CHANCE_SECONDS = 3.0  # (the stat id: "_for_3_seconds")
 # 6 s default (KeywordPopups; MEDIUM). Counted:
 # - the triggers a second: the supported crystal skill's uses that find a Power Charge (one charge, one trigger a use:
 #   the stat's singular "an Ice Crystal", and the user's in-game result of 20 Nov, one charge of each type a use; a
-#   wall of several crystals taken as one ground: LOW, the lower reading) from the build's own Power Charge gains and
+#   wall of several crystals taken as one ground: LOW. RESEARCH37 R37-3, LOW-MEDIUM, leans the other way: one charge
+#   and one ground per CRYSTAL, GGG's Korean text "each Ice Crystal". One use's crystals lie together, so their
+#   grounds overlap and add little uptime; but where Power Charges run short, per crystal spends several a use and
+#   fewer uses get a ground, so this per-use reading is then the HIGHER Chilled Ground uptime, not the lower: MECH95
+#   corrected the label; the charges spent a use are MECHC47's; crystals a use not read: Frost Wall's from
+#   wall_maximum_length, Grim Pillars' grim_pillars_number_of_pillars_to_create, Frozen Locus 1) from the build's own
+#   Power Charge gains and
 #   spends (_charges_held's flow; the supported skill joins stats["_consumers"]: before, the gem data's static skill
 #   types lacked the support's flag, so no Power Charge spend was counted for it: the held Power Charges read high);
 #   no Power Charge source: 0, said;

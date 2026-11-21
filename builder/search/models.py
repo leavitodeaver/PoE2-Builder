@@ -2504,7 +2504,7 @@ def bloodhound_fill(stats: dict) -> tuple[float, str]:
 def blood_loss_share(stats: dict) -> tuple[float, str]:
     """(MECH95, RESEARCH36 R36-19) The share of the boss's Heavy Stun bar Bloodhound's Mark's Blood Loss builds, against
     the main skill's hits and Thorns (heavy_stun_rate's parts, at PoB's threshold: the boss-side terms scale them all
-    alike), and how. Other skills' hits aren't read (heavy_stun_rate's note): the higher share, said."""
+    alike), and how. The other hitting groups (conditions.buildup_others, MECH95) count too."""
     blood, _ = bloodhound_fill(stats)
     if blood <= 0:
         return 0.0, "no Blood Loss buildup from the main skill, so none of the bar is from Blood Loss"
@@ -2519,10 +2519,11 @@ def blood_loss_share(stats: dict) -> tuple[float, str]:
         uncold = 1 - weight["Cold"] / total if total > 0 else 1.0
         hit = max(0.0, per_hit * uncold * hits_per_second(s))
     thorns = max(0.0, thorns_fill(s, "HeavyStun"))
-    share = blood / (blood + hit + thorns)
+    others = others_fill(s, "HeavyStun")  # (MECH95: the build's other hitting groups, conditions.buildup_others)
+    share = blood / (blood + hit + thorns + others)
     return share, (f"Blood Loss builds {blood:.2%} of the bar a second against the main skill's hits' {hit:.2%}"
-                   + (f" and Thorns' {thorns:.2%}" if thorns > 0 else "") + f": {share:.0%} of it (other skills' hits "
-                   "not read: the higher share)")
+                   + (f", Thorns' {thorns:.2%}" if thorns > 0 else "")
+                   + (f", the other skills' {others:.2%}" if others > 0 else "") + f": {share:.0%} of it")
 
 
 def mark_activations(mark: Skill, skills: list[Skill], stats: dict, disabled: list[Skill] | None = None,
@@ -7758,6 +7759,7 @@ def stun_set_model(main: Skill | None, scored: str | None, sets: list[dict], sta
     if primed > 0:
         flat = {f"{t}{k}Average": 0.0 for t in DAMAGE_TYPES for k in ("Hit", "Crit")}
         rate, stun_how = heavy_stun_rate({**stats, **flat, "_main_share": None,  # (MECH93: a per-unit rate)
+                                          "_buildup_others": {},  # (MECH95: `primed` already holds the other skills)
                                          "PhysicalHitAverage": 1.0, "Speed": 1.0, "HitChance": 100,
                                           "CritChance": 0, "HeavyStunBuildupAvg": primed / PRIMED_STUN_UNIQUE})
         stun_how = f"{how}; {stun_how}"
@@ -10750,7 +10752,8 @@ def ice_tipped_cycle(speed: float, empowers: float, cooldown: float, cast: float
 # - Again afterwards: the game constants HeavyStunThresholdModifier 500 and HeavyStunModifierDuration 16.5 (as PoB's
 #   Data/Misc.lua reads them; PoB doesn't use them), read as +500% threshold for 16.5 s after each Heavy Stun. With t the
 #   time to fill the bar at the plain threshold, a stun comes every 6t if 6t <= 16.5 s, else every 16.5 + (1 - 16.5/6t)t.
-# Only the main skill's hits count (other skills' buildup is an undercount); the bar's decay between hits isn't modelled
+# The main skill's hits, Thorns, Bloodhound's Blood Loss and (MECH95) the other hitting groups' buildup count; the
+# bar's decay between hits isn't modelled
 # (a main skill hits more often than any decay delay); the first stun's shorter wait isn't counted.
 HEAVY_STUN_BOSS = (9.38, 12.35)  # PoB's Pinnacle (Xesht) threshold multiplier, the game files' Arbiter of Ash (user, 9 Nov)
 HEAVY_STUN_REPEAT = (6.0, 16.5)  # threshold x(1 + 500%) for 16.5 s after a Heavy Stun
@@ -12180,7 +12183,8 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
     hits = hits_per_second(stats)
     thorns = thorns_fill(stats, "HeavyStun")  # (MECH84: Thorns hits' own buildup, PATCH_CHECK L4-2)
     blood = max(0.0, number(stats.get("_blood_loss_fill")))  # (MECH94: Bloodhound's Mark's Blood Loss buildup)
-    if (per_hit <= 0 or hits <= 0) and thorns <= 0 and blood <= 0:
+    others = others_fill(stats, "HeavyStun")  # (MECH95: the other hitting groups' buildup, conditions.buildup_others)
+    if (per_hit <= 0 or hits <= 0) and thorns <= 0 and blood <= 0 and others <= 0:
         return 0.0, "the main skill's hits build no Heavy Stun"
     crit = min(number(stats.get("CritChance")), 100) / 100
     weight = {t: (number(stats.get(f"{t}HitAverage")) * (1 - crit) + number(stats.get(f"{t}CritAverage")) * crit)
@@ -12190,7 +12194,7 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
     scale = bosses.threshold_scale(stats)  # (938 / the boss's own threshold: MECHD1, RESEARCH18 #91)
     dazed = min(1.0, max(0.0, number(stats.get("_dazed_share"))))
     daze = (1 + DAZED_STUN_MORE * dazed) / ((1 + DAZED_STUN_MORE) if stats.get("_dazed_box") else 1.0)
-    fill = (per_hit * uncold * hits + thorns + blood) * scale * daze  # bars per second at the plain threshold
+    fill = (per_hit * uncold * hits + thorns + blood + others) * scale * daze  # bars per second at the plain threshold
     if fill <= 0:
         return 0.0, "Cold hits build no Heavy Stun (the game's Cold text; PoB counts them)"
     t = 1 / fill
@@ -12215,7 +12219,9 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
              + f"{hits:.2f} hits/s"
              + (f" + Thorns {thorns:.2%} of the bar a second ({(stats.get('_thorns_fill') or {}).get('how', '')})"
                 if thorns > 0 else "")
-             + (f" + the Mark's Blood Loss {blood:.2%} of the bar a second" if blood > 0 else "") + ": "
+             + (f" + the Mark's Blood Loss {blood:.2%} of the bar a second" if blood > 0 else "")
+             + (f" + the build's other skills {others:.2%} of the bar a second "
+                f"({(stats.get('_buildup_others') or {}).get('how', '')})" if others > 0 else "") + ": "
              f"full in {t:.1f} s; the bar doesn't fill during the {d:g} s stun (RESEARCH26, MEDIUM), then +500% threshold "
              f"for the rest of the 16.5 s after it"
              + (f"; {crush_how}: Heavy Stunned once Primed at {PRIMED_UNIQUE:.0%} of the bar, by the hit that Primes it "
@@ -12382,7 +12388,8 @@ def thorns_fill(stats: dict, ailment: str) -> float:
 # ignite_others rates the groups: PoB's trigger rate, else skill_use_rate at the press choices; one hit per use);
 # stats["_buildup_others"] = {ailment: bars a second, "how": text} (Conditions.evidence; dazed_stats hands on the
 # published build.buildup_others). It adds to the main skill's fill in immobilise_period and immobilised_share (the same
-# threshold scale, the same repeat window). Heavy Stun from other groups is GEM18's stun_primers' (not added here).
+# threshold scale, the same repeat window). (MECH95) Their Heavy Stun buildup too, Cold's share out, in
+# heavy_stun_rate (stun_set_model reads GEM18's stun_primers instead and passes no _buildup_others).
 def others_fill(stats: dict, ailment: str) -> float:
     """Bars a second the build's other hitting groups add to `ailment` at PoB's threshold (stats["_buildup_others"])."""
     return max(0.0, number((stats.get("_buildup_others") or {}).get(ailment)))

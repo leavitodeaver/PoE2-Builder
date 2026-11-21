@@ -322,3 +322,29 @@ def test_temporal_chains_curse_and_slow_magnitude_add(engine):
     slowed = {k: 1 - plain / v for k, v in got.items()}
     assert 0 < slowed["curse"] < slowed["both"] < 0.75
     assert slowed["both"] / slowed["curse"] == pytest.approx(2.0 / 1.5, rel=2e-3)
+
+
+def test_other_groups_heavy_stun_buildup_fills_the_bar_less_its_cold_share():
+    """MECH95 (MECH94's next step; an UNDERCOUNT before): another hitting group's Heavy Stun buildup joins the main
+    skill's on the boss's bar (conditions.buildup_others "HeavyStun", the row's Cold share out: "Cold hits cannot build
+    up Heavy Stun"); it lowers Blood Loss's share of the bar (R36-19); stun_set_model's own Primed reading (GEM18's
+    stun_primers) isn't added to twice."""
+    from builder.search import conditions, models
+
+    rows = {2: {"index": 2, "name": "Rolling Slam", "speed": 0.5, "triggered": True, "HitChance": 100,
+                "HeavyStunBuildupAvg": 20.0, "PhysicalHitAverage": 1000.0, "ColdHitAverage": 500.0, "CritChance": 0},
+            1: {"index": 1, "name": "Boneshatter", "speed": 2.0, "triggered": True, "HeavyStunBuildupAvg": 5.0}}
+    groups = [{"index": 1, "gems": [{"name": "Boneshatter"}]}, {"index": 2, "gems": [{"name": "Rolling Slam"}]}]
+    others = conditions.buildup_others(rows, groups, {"Boneshatter", "Rolling Slam"}, 1)
+    # (0.5 hits/s x 20% a hit x the non-Cold share: Physical 1000 x 1.5 against Cold 500 -> 0.75)
+    assert others["HeavyStun"] == pytest.approx(0.5 * 0.20 * 0.75)
+    _, stats, _ = _bloodhound(1000.0)
+    plain = models.heavy_stun_rate(stats)[0]
+    joined = {**stats, "_buildup_others": others}
+    assert models.heavy_stun_rate(joined)[0] > plain
+    assert "other skills" in models.heavy_stun_rate(joined)[1]
+    # (Blood Loss 0.05 of the bar a second, the main skill's hits 0.10, the other group's 0.075)
+    assert models.blood_loss_share(joined)[0] == pytest.approx(0.05 / (0.05 + 0.10 + 0.075))
+    # (a group of only Cold hits builds none)
+    cold = {2: {**rows[2], "PhysicalHitAverage": 0.0}, 1: rows[1]}
+    assert "HeavyStun" not in conditions.buildup_others(cold, groups, {"Boneshatter", "Rolling Slam"}, 1)

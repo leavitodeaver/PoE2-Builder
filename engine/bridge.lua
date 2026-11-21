@@ -4410,7 +4410,12 @@ function bridge.useRates(args)
 					"LedgerImpaleCount", "LedgerImpaleExtract", "AverageHit", "TotalDPS",
 					-- (MECH88: each group's own ailment DPS, for the "Best <ailment> DPS" row when its source is used 0 times a
 					-- second: Assumptions.zero_use_ailments takes the next-best group's)
-					"PoisonDPS", "BleedDPS", "CorruptingBloodDPS", "BurningGroundDPS", "CausticGroundDPS" }) do
+					"PoisonDPS", "BleedDPS", "CorruptingBloodDPS", "BurningGroundDPS", "CausticGroundDPS",
+					-- (MECH95: each group's hit and crit by damage type, for its Heavy Stun buildup's Cold share,
+					-- models.stun_uncold: Cold hits build none; conditions.buildup_others, models.heavy_stun_rate)
+					"PhysicalHitAverage", "PhysicalCritAverage", "FireHitAverage", "FireCritAverage", "ColdHitAverage",
+					"ColdCritAverage", "LightningHitAverage", "LightningCritAverage", "ChaosHitAverage",
+					"ChaosCritAverage" }) do
 				if type(output[field]) == "number" then
 					entry[field] = jsonNumber(output[field])
 				end
