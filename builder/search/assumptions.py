@@ -9352,12 +9352,43 @@ class Assumptions:
                 player = (skill.name, speed)
         return models.cannons_ready_model(texts, totems, player)
 
+    # (MECHB50; RESEARCH40 R40-13, probe POE2T4756: an OVERCOUNT on imported builds) PoB loads and keeps a build author's
+    # "Include in Full DPS" tick on item-granted groups (SkillsTab 295; CalcSetup 1874-1935 keeps the state) and on its
+    # "On Kill Monster Explosion" group (CalcSetup 1978-1990): Bloodbarrier's "Inflict Corrupted Blood for 5 seconds on
+    # Block, dealing 50% of your maximum Life as Physical damage per second" then counts all fight (probe: 630 DPS beside a
+    # 38.5 DPS Boneshatter, kept through exportXml / loadXml), as would on-kill explosions on a lone boss. The search never
+    # ticks them (inner.py skips item-granted groups); an import's tick is taken off unless a model of ours chose the group
+    # (extra_groups). Bloodbarrier's Corrupted Blood at the build's Block rate is not counted (an UNDERCOUNT, labelled:
+    # a block-rate model to come); on-kill explosions of the preset's adds not counted either (labelled).
+    UNTICK_SKILLS = ("Bloodbarrier", "On Kill Monster Explosion")
+
+    def untick_imported(self) -> bool:
+        """Take an import's Full DPS tick off the groups above (True if any changed); notes in self.untick_notes."""
+        self.untick_notes = []
+        build = self.build
+        changed = False
+        for group in build.groups():
+            names = {s.get("name") for s in group.get("skills") or []} | {group.get("label")}
+            hit = next((n for n in self.UNTICK_SKILLS if n in names), None)
+            if hit is None or not group.get("fullDPS") or group["index"] in self.extra_groups:
+                continue
+            build.set_group(index=group["index"], fullDPS=False)
+            changed = True
+            self.untick_notes.append({
+                "label": f"{hit}: the build's own Full DPS tick taken off*", "value": 0, "confidence": "MEDIUM",
+                "basis": (f"an imported build had {hit} in Full DPS, which PoB counts all fight (RESEARCH40 R40-13: "
+                          "Bloodbarrier's Corrupted Blood on Block added 630 DPS to a 38.5 DPS build in probe "
+                          "POE2T4756); not counted: its damage at the build's real Block / kill rate (an UNDERCOUNT, a "
+                          "model to come)")})
+        return changed
+
     def apply(self) -> bool:
         """Match PoB's assumed modifiers to the build. True if they changed."""
+        unticked = self.untick_imported()  # (MECHB50, R40-13: before the models read PoB's numbers)
         mods, notes = self.wanted()
-        self.active = notes
+        self.active = notes + self.untick_notes
         build = self.build
-        flagged = False
+        flagged = unticked
         # (scored on Full DPS once there are extra groups: the main skill's group must count in it too, which a loaded
         # build's own flags don't promise)
         main = build.main_group() if self.extra_groups else None
