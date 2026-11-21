@@ -112,9 +112,11 @@
   replace: []
   confidence: theory
   notes: 'models.MADNESS_ON_HIT (MECH67): Gruelling Madness stacks from the main skill''s hits with this weapon, for MADNESS_POWER.
-    This entry only says a model reads the line; it adds nothing to PoB (no second count).'
+    Since MECH96 (train 106, models.madness_stacks / madness_slow_mods) the same stacks also raise the Slowing Potency of
+    the boss''s Slows (+10% per stack past the first: the boss''s Slow, defence only). This entry only says a model reads
+    the line; it adds nothing to PoB (no second count).'
   sources:
-  - builder/search/models.py (MADNESS_ON_HIT, presence_power)
+  - builder/search/models.py (MADNESS_ON_HIT, presence_power, madness_stacks, madness_slow_mods)
   status: proposed
 - id: model-read-madness-per-second
   title: models.MADNESS_PER_SECOND reads it
@@ -123,10 +125,12 @@
   match: ^Enemies in your Presence gain (\(\d+-\d+\)|\d+) Gruelling Madness each second$
   replace: []
   confidence: theory
-  notes: 'models.MADNESS_PER_SECOND (MECH67): Gruelling Madness kept at its maximum (The Auspex), for MADNESS_POWER. This
-    entry only says a model reads the line; it adds nothing to PoB (no second count).'
+  notes: 'models.MADNESS_PER_SECOND (MECH67): Gruelling Madness kept at its maximum (The Auspex), for MADNESS_POWER. Since
+    MECH96 (train 106, models.madness_stacks / madness_slow_mods) the same stacks also raise the Slowing Potency of the
+    boss''s Slows (+10% per stack past the first: the boss''s Slow, defence only). This entry only says a model reads the
+    line; it adds nothing to PoB (no second count).'
   sources:
-  - builder/search/models.py (MADNESS_PER_SECOND, presence_power)
+  - builder/search/models.py (MADNESS_PER_SECOND, presence_power, madness_stacks, madness_slow_mods)
   status: proposed
 - id: model-read-glory-every-2s
   title: models.GLORY_FLAT reads it

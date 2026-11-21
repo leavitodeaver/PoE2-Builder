@@ -922,8 +922,8 @@ def test_cov43_model_read_item_lines_are_the_models_own():
         assert (found := model_entry(line)) is not None and found.id == entry, line
         assert pattern.search(line), line
     # ("20% increased Guard gained" left this list in COV44: train 89's event_guard scales every Guard source)
-    for line in ("Grants effect of Guided Meteoric Shrine",
-                 "Create a Fragment of Divinity in your Presence every 4 seconds"):  # (Lioneye's +2 m: read, COV45)
+    # (COV50: The Ordained's Fragment of Divinity line is model-read since GEM28, models.DESCENT_FRAGMENT_LINE)
+    for line in ("Grants effect of Guided Meteoric Shrine",):  # (Lioneye's +2 m: read, COV45)
         assert (found := model_entry(line)) is None or not found.id.startswith("model-read-"), line
 
 
@@ -1548,8 +1548,8 @@ def test_cov47_volatility_passives_and_answered_call_are_model_read():
 
 def test_cov48_glory_not_consume_is_model_read():
     """COV48: Everlasting Glory's "chance to not consume Glory" (models.glory_lines / glory_plan) is model-read through an
-    empty pob_gap entry. The Ordained's Fragment of Divinity line stays open (COV43's rule: the model keys on Righteous
-    Descent at a fixed 4 s, no pattern of its own reads the line)."""
+    empty pob_gap entry. (COV50: The Ordained's Fragment of Divinity line, open here before, is model-read since GEM28's
+    models.DESCENT_FRAGMENT_LINE: test_cov50_trains_104_106_readers_are_model_read.)"""
     from builder.ledger import model_entry, translate
     from builder.search import models
 
@@ -1557,8 +1557,6 @@ def test_cov48_glory_not_consume_is_model_read():
     assert entry.id == "model-read-cov48-glory-not-consume" and out == [] and entry.raw["model"]
     assert models.GLORY_NOT_CONSUME.match("Skills have a 15% chance to not consume Glory")
     assert models.glory_lines(["Skills have a 15% chance to not consume Glory"])["not_consume"] == pytest.approx(0.15)
-    found = model_entry("Create a Fragment of Divinity in your Presence every 4 seconds")
-    assert found is None or not found.id.startswith("model-read-")
 
 
 def test_cov48_train102_readers_crafted_jewels_frightening_shield_spectral_fire():
@@ -1719,3 +1717,75 @@ def test_cov49_research37_orb_of_sacrifice_upgrades_unobtainable_and_unblockable
     entry, out = translate("Unblockable")
     assert entry.id == "items-cov49-unblockable-no-effect" and out == [] and not entry.raw.get("model")
     assert "R37-2" in coverage.R32_3_OBTAINABLE["FlailImplicitIgnoreBlock1"]
+
+
+def test_cov50_trains_104_106_readers_are_model_read():
+    """COV50: the manager's marking list for trains 104-106. Each line is model-read through an empty pob_gap entry,
+    and the model's own pattern reads it (COV43's rule). The rows no pattern reads stay open."""
+    from builder.ledger import model_entry, translate
+    from builder.search import assumptions, conditions, models, recovery
+
+    cases = {
+        "Every second Strike Skill you use while Shapeshifted is Ancestrally Boosted":
+            ("model-read-cov50-shapeshift-strike-boost", models.SHAPESHIFT_EVERY_SECOND_STRIKE),
+        "Spells fire Projectiles in a circle": ("model-read-cov50-spell-projectiles-circle", models.SPELL_CIRCLE),
+        "8% chance for Spell Skills to fire 8 additional Projectiles in a circle":
+            ("model-read-cov50-spell-projectiles-circle", models.SPELL_CIRCLE),
+        "Grants Skill: Level 20 Dark Pact": ("model-read-cov50-dark-pact", models.PACT_LEVEL),
+        "Gain a random Charge on reaching Maximum Rage, no more than once every 4 seconds":
+            ("model-read-cov50-hateforge-rage-charge", conditions.RAGE_MAX_CHARGE),
+        "Gain 1 Druidic Prowess for every 20 total Rage spent":
+            ("model-read-cov50-druidic-prowess", conditions.DRUIDIC_PROWESS_SPENT),
+        "Gain 2 Druidic Prowess when you Heavy Stun a Rare or Unique Enemy":
+            ("model-read-cov50-druidic-prowess", conditions.DRUIDIC_PROWESS_STUN),
+        "12% chance when collecting an Elemental Infusion to gain an":
+            ("model-read-cov50-extra-infusion", assumptions.EXTRA_INFUSION),
+        "50% increased Cold Damage if you've collected a Cold Infusion in the last 8 seconds":
+            ("model-read-cov50-infusion-collected-damage", assumptions.INFUSION_COLLECTED_DAMAGE),
+        "Every 10 seconds, gain a random non-damaging Shrine buff for 20 seconds":
+            ("model-read-cov50-hammer-of-faith-shrines", conditions.SHRINE_EVERY),
+        "Sacrifice 10% of maximum Life to gain that much Energy Shield when you Cast a Spell":
+            ("model-read-cov50-demon-stitcher", recovery.STITCHER_ES),
+        "Every 4 seconds, Recover 1 Life for every 0.2 Life Recovery per second from Regeneration":
+            ("model-read-cov50-igniferis-regen-burst", recovery.REGEN_BURST),
+        "15% increased Magnitude of Daze": ("model-read-cov50-daze-magnitude", models.DAZE_MAGNITUDE),
+        "Create a Fragment of Divinity in your Presence every 4 seconds":
+            ("model-read-gem28-fragment-of-divinity", models.DESCENT_FRAGMENT_LINE),
+        " Remove all Explosive Rhythm on reaching 10 to gain Explosive Fervour for 10 Seconds":
+            ("model-read-cov50-explosive-fervour-spaced", models.FERVOUR_LINE),
+    }
+    for line, (entry, pattern) in cases.items():
+        assert (found := model_entry(line)) is not None and found.id == entry, line
+        assert pattern.search(line), line
+        assert translate(line)[1] == [], line
+    # the second half of the two-line extra-Infusion mod: its chance is on the first line
+    assert model_entry("additional Elemental Infusion of the same type").id == "model-read-cov50-extra-infusion"
+    # Lavianga's Spirits: read by engine/bridge.lua flaskData (`constant`)
+    assert model_entry("This Flask cannot be Used but applies its Effect constantly").id == (
+        "model-read-cov50-flask-effect-constantly")
+    # left open: no pattern of a model reads them (the report's reasons)
+    for line in ("Cannot be Used manually", "Skills have 100% longer Perfect Timing window during effect",
+                 "The Bodach haunts your Presence", "Grants Skill: Level 20 His Dark Horizon",
+                 "Grants Skill: Level 20 His Grave Command",
+                 "Lose all Runic Bindings when you Shapeshift to gain that much Unbound Potential",
+                 "Skills have 45% chance to not remove Elemental Infusions but still count as consuming them if you've "
+                 "lost an Archon Buff in the past 6 seconds"):
+        found = model_entry(line)
+        assert found is None or not found.id.startswith("model-read-cov50"), line
+
+
+def test_cov50_stonefist_recoup_gets_the_open_weakness_stand_in():
+    """COV50 (MECHC48's routing): Way of the Stonefist's "Recouped as Life and Energy Shield" form of The Master's Reach's
+    line gets the plain line's OpenWeakness `share:` stand-in, for both pools; the audit counts it applied through
+    stonefist.ledger_corrected."""
+    from builder.ledger import translate
+
+    line = "60% of damage taken from enemies with an Open Weakness Recouped as Life and Energy Shield"
+    entry, out = translate(line)
+    assert entry.id == "items-cov50-recoup-life-es-open-weakness" and entry.on_items
+    assert out == ["share:OpenWeakness 60% of Damage taken Recouped as Life",
+                   "share:OpenWeakness 60% of Damage taken Recouped as Energy Shield"]
+    status, _, reason = coverage.not_applied("ledger", entry.id, "translated", "Exclusive",
+                                             line="(55-65)% of damage taken from enemies with an Open Weakness "
+                                                  "Recouped as Life and Energy Shield")
+    assert status == "ledger" and "Stonefist" in reason

@@ -1,0 +1,240 @@
+# COV50 (20 Nov 2026): trains 104-106's readers in the audit (the manager's marking list, 18:20-22:05; COV43's rule: a line
+# counts model-read only if the model's own pattern reads it, checked here for each one). Each entry adds nothing to PoB:
+# it says which model reads the line (no second count). One translation (the last entry) gives Way of the Stonefist's
+# recoup form The Master's Reach's Open Weakness stand-in.
+
+# MECHB45 (on main since train 102; MECHB47's list of rows that already had a reader): models.SHAPESHIFT_EVERY_SECOND_STRIKE
+# in ancestral_boost_model (half a Shapeshift Strike main skill's uses Ancestrally Boosted, MEDIUM; the Empowered lines
+# gain on that share). The Slam twin is model-read-shapeshift-slam-boost (COV35).
+- id: model-read-cov50-shapeshift-strike-boost
+  title: 'Surge of the Tide, "Every second Strike Skill you use while Shapeshifted is Ancestrally Boosted" (models.SHAPESHIFT_EVERY_SECOND_STRIKE)'
+  kind: pob_gap
+  model: ancestral_boost
+  match: '^Every second Strike Skill you use while Shapeshifted is Ancestrally Boosted$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.ancestral_boost_model (MECHB45): with the line, every second use of a Shapeshift Strike main skill is
+    Ancestrally Boosted (MEDIUM), and "Empowered Attacks deal N% increased Damage" lines gain on the boosted share above
+    PoB's own Empowered uptime. PoB parses nothing of the line, so nothing to negate.
+  sources: ["builder/search/models.py (SHAPESHIFT_EVERY_SECOND_STRIKE, ancestral_boost_model)"]
+  status: proposed
+
+# MECHB38 / MECHB45: models.SPELL_CIRCLE ("Spell(s| Skills) ... Projectiles in a circle") is read by dusk_vigil_model (the
+# extra Embers fire radially and miss a lone boss, R32-2 (3)) and bonestorm_circle (one spike a release, R31-11 (b)).
+- id: model-read-cov50-spell-projectiles-circle
+  title: 'Sire of Shards, "Spells fire Projectiles in a circle", and the Cultivated "chance for Spell Skills to fire 8 additional Projectiles in a circle" (models.SPELL_CIRCLE)'
+  kind: pob_gap
+  model: spell_circle
+  match: '^(Spells fire Projectiles in a circle|(\(\d+-\d+\)|\d+(?:\.\d+)?)% chance for Spell Skills to fire \d+ additional Projectiles in a circle)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.SPELL_CIRCLE: Dusk Vigil's extra Embers a trigger fire radially and miss a lone boss (RESEARCH32 R32-2 (3),
+    MEDIUM-LOW; "all hit" a row), and Bonestorm keeps PoB's one spike a release (RESEARCH31 R31-11 (b), MEDIUM-LOW). Both
+    lines are read the same way: the chance line is taken as always on (no chance read; for MECH-B, UNVERIFIED which way
+    that leans: the chance adds 8 radial projectiles, it may not make the base ones radial). PoB parses neither line.
+  sources: ["builder/search/models.py (SPELL_CIRCLE, dusk_vigil_model, bonestorm_circle)"]
+  status: proposed
+
+# MECH88: Dark Staff's granted Dark Pact. Assumptions.unbuilt_grants reads the build's "Grants Skill:" lines
+# (GRANTED_SKILL) and, for Dark Pact / Abyssal Pact (models.PACTS), the line's level (models.PACT_LEVEL) into
+# models.pact_model: one cast's unscaled damage against the main skill's damage in the cast's 0.7 s, 0 unless it pays.
+- id: model-read-cov50-dark-pact
+  title: 'Dark Staff, "Grants Skill: Level N Dark Pact" (Assumptions.unbuilt_grants, models.pact_model, MECH88)'
+  kind: pob_gap
+  model: pacts
+  match: '^Grants Skill: Level (\(\d+-\d+\)|\d+) Dark Pact$'
+  replace: []
+  confidence: theory
+  notes: >-
+    PoB has no skill for Dark Pact (no DarkPact in its Skills data; MECH88's check), so it builds nothing from the line.
+    models.pact_model reads the line's level: 13% of the largest minion's Life (or, with none, your own Life, 100% more)
+    plus the level's base Chaos, UNSCALED, against the main skill's damage in 0.7 s: counted only as rows, 0 in the
+    headline unless a cast beats it (named an UNDERCOUNT then: its press isn't modelled).
+  sources: ["builder/search/assumptions.py (unbuilt_grants)", "builder/search/models.py (PACTS, PACT_LEVEL, pact_model)"]
+  status: proposed
+
+# MECHC47 (train 105): its readers of COV48's MECH-C rows.
+- id: model-read-cov50-hateforge-rage-charge
+  title: 'Hateforge, "Gain a random Charge on reaching Maximum Rage, no more than once every N seconds" (conditions.RAGE_MAX_CHARGE)'
+  kind: pob_gap
+  model: charges
+  match: '^Gain a random Charge on reaching Maximum Rage, no more than once every (\(\d+-\d+\)|\d+(?:\.\d+)?) seconds?$'
+  replace: []
+  confidence: theory
+  notes: >-
+    conditions.rage_max_charges (MECHC47): a random Charge (a third to each kind the build feeds) at the build's reaches of
+    Maximum Rage, no more than once per the line's seconds; without a reset line, not counted (said there). PoB parses
+    nothing of the line.
+  sources: ["builder/search/conditions.py (RAGE_MAX_CHARGE, rage_max_charges)"]
+  status: proposed
+
+- id: model-read-cov50-druidic-prowess
+  title: '"Gain N Druidic Prowess for every M total Rage spent" / "... when you Heavy Stun a Rare or Unique Enemy" (conditions.DRUIDIC_PROWESS_SPENT / _STUN)'
+  kind: pob_gap
+  model: druidic_prowess
+  match: '^Gain (\(\d+-\d+\)|\d+) Druidic Prowess (for every (\(\d+-\d+\)|\d+) total Rage spent|when you Heavy Stun a Rare or Unique Enemy)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    conditions.py's Druidic Prowess model (MECHC47; RESEARCH37 R37-8): stacks from the Rage the build spends and the
+    main skill's Heavy Stuns of the boss, at most 3, each 10% increased Skill Speed (assumptions.py's Druidic Prowess
+    row). MEDIUM. PoB parses neither line (ModCache 7487 leaves it whole).
+  sources: ["builder/search/conditions.py (DRUIDIC_PROWESS_SPENT, DRUIDIC_PROWESS_STUN)", "builder/search/assumptions.py (Druidic Prowess)"]
+  status: proposed
+
+# The extra-Infusion mod is two lines; the chance is on the first, which assumptions.EXTRA_INFUSION reads alone or joined
+# with the second. The second line alone says nothing more (it finishes the first), so it's model-read with it.
+- id: model-read-cov50-extra-infusion
+  title: '"N% chance when collecting an Elemental Infusion to gain an" / "additional Elemental Infusion of the same type" (assumptions.EXTRA_INFUSION)'
+  kind: pob_gap
+  model: infusions
+  match: '^((\(\d+-\d+\)|\d+(?:\.\d+)?)% chance when collecting an Elemental Infusion to gain an( additional Elemental Infusion of the same type)?|additional Elemental Infusion of the same type)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    assumptions.infusion_supply (MECHC47): each Infusion collected adds the line's chance of another of the same type to
+    the build's Infusion supply. Carriers (MECHC47's check: Stats 23694 in Mods, PassiveSkills and SoulCoreStats, game
+    26650308): the Infusion passives, the Kurgal Desecrated suffix, Saqawal's Rune of the Sky. PoB parses nothing of
+    either line.
+  sources: ["builder/search/assumptions.py (EXTRA_INFUSION, infusion_supply)"]
+  status: proposed
+
+- id: model-read-cov50-infusion-collected-damage
+  title: 'The Genesis Tree belts, "N% increased <E> Damage if you''ve collected a <E> Infusion in the last N seconds" (assumptions.INFUSION_COLLECTED_DAMAGE)'
+  kind: pob_gap
+  model: infusions
+  match: '^(\(\d+-\d+\)|\d+(?:\.\d+)?)% increased (Fire|Cold|Lightning) Damage if you''ve collected an? (Fire|Cold|Lightning) Infusion in the last (\d+(?:\.\d+)?) seconds$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Assumptions.infusion_collected_mods (MECHC47): the increase at the share of the fight an Infusion of that element was
+    collected in the last N s, 1 - e^(-pickups x N) (MEDIUM; Verisium Infusions not counted, R37-9). PoB parses the line
+    only in part (ModCache 4513 / 4561 / 4583, text left over), so it applies none of it: no negation. The belts' fourth
+    line ("chance to not remove Elemental Infusions ... if you've lost an Archon Buff in the past N seconds") stays
+    open: KEEP_INFUSION doesn't read the Archon form (MECHC33's note: an undercount).
+  sources: ["builder/search/assumptions.py (INFUSION_COLLECTED_DAMAGE, infusion_collected_mods)"]
+  status: proposed
+
+- id: model-read-cov50-hammer-of-faith-shrines
+  title: 'The Hammer of Faith, "Every N seconds, gain a random non-damaging Shrine buff for N seconds" (conditions.SHRINE_EVERY)'
+  kind: pob_gap
+  model: shrines
+  match: '^Every (\d+(?:\.\d+)?) seconds, gain a random non-damaging Shrine buff for (\d+(?:\.\d+)?) seconds$'
+  replace: []
+  confidence: theory
+  notes: >-
+    conditions.shrine_uptime (MECHC47, the Shrines table's weights, R37-10): Diamond's crits as a crit-chance blend and
+    Acceleration's Skill Speed at their uptimes; the defence Shrines as rows. PoB parses nothing of the line.
+  sources: ["builder/search/conditions.py (SHRINE_EVERY, shrine_uptime)", "builder/search/assumptions.py (SHRINE_TAG)"]
+  status: proposed
+
+- id: model-read-cov50-demon-stitcher
+  title: 'Demon Stitcher, "Sacrifice N% of maximum Life to gain that much Energy Shield when you Cast a Spell" (recovery.STITCHER_ES)'
+  kind: pob_gap
+  model: recovery
+  match: '^Sacrifice (\(\d+-\d+\)|\d+(?:\.\d+)?)% of maximum Life to gain that much Energy Shield when you Cast a Spell$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.life_sacrifice_income (MECHC47): the Life sacrificed a cast as LifeSacrificed (negative) and the Energy
+    Shield as EnergyShieldOnEventRecovery, for the sustain and recovery floors. MEDIUM. PoB parses nothing of the line.
+  sources: ["builder/search/recovery.py (STITCHER_ES, life_sacrifice_income)"]
+  status: proposed
+
+- id: model-read-cov50-igniferis-regen-burst
+  title: 'Igniferis, "Every N seconds, Recover N Life for every N Life Recovery per second from Regeneration" (recovery.REGEN_BURST)'
+  kind: pob_gap
+  model: recovery
+  match: '^Every (\d+(?:\.\d+)?) seconds, Recover (\d+(?:\.\d+)?) Life for every (\d+(?:\.\d+)?) Life Recovery per second from Regeneration$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.regen_burst_income (MECHC47): PoB's LifeRegen / 0.2 Life every 4 s as LifeOnEventRecovery (beside the item's
+    "Life Recovery from Regeneration is not applied", which PoB applies). PoB parses nothing of this line (ModCache 7414).
+  sources: ["builder/search/recovery.py (REGEN_BURST, regen_burst_income)"]
+  status: proposed
+
+# MECH95 (train 105): "increased Magnitude of Daze" (RESEARCH37 R37-13).
+- id: model-read-cov50-daze-magnitude
+  title: '"N% increased / reduced Magnitude of Daze" (models.DAZE_MAGNITUDE)'
+  kind: pob_gap
+  model: daze
+  match: '^(\(\d+-\d+\)|\d+(?:\.\d+)?)% (increased|reduced) Magnitude of Daze$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.daze_magnitude (MECH95; RESEARCH37 R37-13, MEDIUM): a Dazed boss's Stun buildup at 50% more x (1 + N%). PoB
+    leaves the line unparsed (ModCache), so nothing to negate.
+  sources: ["builder/search/models.py (DAZE_MAGNITUDE)"]
+  status: proposed
+
+# GEM28 (train 105, its draft for COV-A: C:/PROJECTS/PoE2-Builder-cov5/scratch/gem28/fragment_entry_for_cova.yaml).
+- id: model-read-gem28-fragment-of-divinity
+  title: 'The Ordained, "Create a Fragment of Divinity in your Presence every N seconds" (models.descent_fragments_share)'
+  kind: pob_gap
+  model: descent_fragments
+  match: '^Create a Fragment of Divinity in your Presence every (\(\d+-\d+\)|\d+(?:\.\d+)?) seconds?$'
+  replace: []
+  confidence: theory
+  notes: >-
+    PoB leaves the line unparsed (ModCache: nil). Righteous Descent's Empowered leaps (model-gem10-righteous-descent-
+    fragments) come at the build's own fragment rate, one every N s per such line (models.DESCENT_FRAGMENT_LINE; GEM28;
+    before, a fixed 4 s keyed on the skill: the coverage row COV43 left open). The one carrier (GEM28's check: Stats ids
+    holding divin + fragment, their Mods rows, 26650308: UniqueDivineFragments1, The Ordained; poe2db's Righteous
+    Descent page names no other).
+  sources: ["builder/search/models.py (DESCENT_FRAGMENT_LINE, descent_fragment_rate, descent_fragments_share)", "data/game-26650308/tables/Mods.json (UniqueDivineFragments1)"]
+  status: proposed
+
+# MECHC48's list: Lavianga's Spirits. bridge.flaskData sets `constant` on a flask with the line, and flasks.py's uptime /
+# uses read it (always up, never "used").
+- id: model-read-cov50-flask-effect-constantly
+  title: 'Lavianga''s Spirits, "This Flask cannot be Used but applies its Effect constantly" (bridge.flaskData `constant`, flasks.uptime)'
+  kind: pob_gap
+  model: flasks
+  match: '^This Flask cannot be Used but applies its Effect constantly$'
+  replace: []
+  confidence: theory
+  notes: >-
+    engine/bridge.lua flaskData finds the line on the flask (case-insensitive) and sets `constant`; flasks.uptime gives
+    such a flask 1.0 and its uses (and charge spending) 0. PoB has no rule for the line.
+  sources: ["engine/bridge.lua (flaskData)", "builder/search/flasks.py (uptime, uses_per_second, charm_charges_used)"]
+  status: proposed
+
+# MECHB47's Explosive Fervour line as the affix table holds it (with a leading space: models-mechb47.yaml's '^Remove all'
+# doesn't match it). models.FERVOUR_LINE has no anchor, so it reads the line with or without the space.
+- id: model-read-cov50-explosive-fervour-spaced
+  title: 'Redemption, " Remove all Explosive Rhythm on reaching N to gain Explosive Fervour for N Seconds" (leading space; models.FERVOUR_LINE)'
+  kind: pob_gap
+  model: explosive_rhythm
+  match: '^\s+Remove all Explosive Rhythm on reaching (\d+) to gain Explosive Fervour for (\d+) Seconds$'
+  replace: []
+  confidence: theory
+  notes: >-
+    The same line as model-mechb47-explosive-rhythm's second form; the game's mod text starts with a space
+    (UniqueGainDisorderlyConductEveryXGrenadeSkills). models.FERVOUR_LINE (a search, no anchor) reads it in the cycle on
+    the main Grenade skill (MECHB47).
+  sources: ["builder/search/models.py (FERVOUR_LINE)"]
+  status: proposed
+
+# MECHC48's routing (21:20): Way of the Stonefist's form of The Master's Reach's recoup line gets the Open Weakness
+# stand-in items-recoup-life-open-weakness gives the plain line (COV33), for both pools. One game stat for both,
+# recoup_%_of_damage_taken_from_enemies_with_open_weakness_as_life_and_energy_shield (Stats 27176, game 26650308;
+# mod HandWrapsUniqueRecoupLifeEnergyShieldOpenWeakness1). PoB part-parses it (ModCache 4872: DamageTaken BASE with the
+# leftover " from enemies with an Open Weakness Recouped as Life and Energy Shield"), so it applies nothing.
+- id: items-cov50-recoup-life-es-open-weakness
+  title: Way of the Stonefist's The Master's Reach, N% of damage taken from enemies with an Open Weakness Recouped as Life and Energy Shield, at the boss's Open Weakness share
+  kind: pob_gap
+  match: '^(\d+)% of damage taken from enemies with an Open Weakness Recouped as Life and Energy Shield$'
+  replace: ['share:OpenWeakness {1}% of Damage taken Recouped as Life', 'share:OpenWeakness {1}% of Damage taken Recouped as Energy Shield']
+  confidence: theory
+  notes: >-
+    As items-recoup-life-open-weakness: PoB's LifeRecoup and EnergyShieldRecoup (ModParser 441 / 448) at OpenWeakness's
+    share (conditions.open_weakness_up: the boss has an Open Weakness for MECH-A's share of the fight's time). Applied
+    through stonefist.ledger_corrected on the transformed unique's text. Each pool gets the full N% (UNVERIFIED: PoB's
+    own reading of its "Recouped as Life, Mana and Energy Shield" lines, ModCache 2458, gives each pool the full value;
+    the other reading, N% split between the two, would halve each; a research question).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:4872", "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua:441-448", "data/game-26650308/tables/Stats.json (27176)"]
+  test_in_game: "Wear The Master's Reach under Way of the Stonefist against a boss and compare Life and Energy Shield recouped from its hits inside and outside the highlighted segments."
+  status: proposed
