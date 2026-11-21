@@ -12,10 +12,11 @@
     Boneshatter, Full DPS 26.38 -> 42.95 (its Caltrops at Boneshatter's 1.4 uses a second). The game (26650308):
     "Projectiles from Supported Skills trigger Caltrops when they reach the end of their flight"; Caltrops "land within
     a 3 metre radius of Projectile impact" (secondary radius 30), 0.5 m each (radius 5), at most 20 active, 8 s. A spear
-    that hits the boss without Pierce / Chain / Fork / Split ends its flight there (RESEARCH36 R36-15, MEDIUM); with
-    them 0 on the boss. Caltrops on the boss = hits on the boss x the share ending there x the Caltrops a trigger, held
-    to 20 over 8 s, x ((r + 0.5) / 3)^2 under the boss (r: bosses.hit_radius; the scatter uniform: LOW, geometry no
-    data gives). Rows: every landed one set off; PoB's one a use; 0 with Pierce / Chain / Fork. PoB's own entry out of
+    that hits the boss without Pierce / Fork / Split ends its flight there (RESEARCH36 R36-15, MEDIUM; a failed pierce
+    roll too, R38-4); Chain on a lone boss ends there (R38-4, MEDIUM-LOW; 0 a row); Pierce / Fork / Split 0. Caltrops on the boss = hits on the boss x the share ending there x the Caltrops a trigger, held
+    to 20 over 8 s, x ((r + R1) / R2)^2 under the boss (r: bosses.hit_radius; R1 / R2 PoB's scaled Caltrop and landing
+    radii, base 0.5 / 3 m, both widened by area lines, R38-3; the scatter uniform: LOW, geometry no data gives). Rows:
+    every landed one set off; PoB's own rate; Chain carrying it on; 0 with Pierce / Fork / Split. PoB's own entry out of
     Full DPS (the shared cut tally).
   sources: ["builder/search/models.py (caltrops_support_model)", "builder/search/assumptions.py (caltrops_support)",
             "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_dex.lua (SupportCaltropsPlayer, TriggeredCaltropsPlayer)",

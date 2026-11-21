@@ -3924,7 +3924,7 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
     mods, notes = mods + cost_mods, notes + cost_notes
     proof_mods, proof_notes = warcry_proof_model(main, forbidden)
     mods, notes = mods + proof_mods, notes + proof_notes
-    grown_mods, grown_notes = overgrown_model(skills, main, groups or {}, forbidden, texts or [])
+    grown_mods, grown_notes = overgrown_model(skills, main, groups or {}, forbidden, texts or [], stats)
     mods, notes = mods + grown_mods, notes + grown_notes
     drench_mods, drench_notes = drenched_model(skills, stats or {}, main, groups or {}, boss_level, forbidden)
     mods, notes = mods + drench_mods, notes + drench_notes
@@ -6761,8 +6761,12 @@ def warcry_proof_model(main: Skill | None, forbidden: set[str] = frozenset()) ->
 #   0, said).
 # - Nature's Archon, a buff: "Plants have a 100% chance to immediately Overgrow" (poe2db Natures_Archon, 16 Nov 2026; the
 #   buff's own stats aren't in our exported tables), gained from the Alloy line "(25-50)% chance to gain Nature's Archon
-#   when your Plants Overgrow" (Mods AlloyNaturesArchon1): a loop fed by the sources above. Not counted (0, said): its
-#   uptime is an Archon buff's (MECH-C's topic), routed in GEM16's report.
+#   when your Plants Overgrow" (Mods AlloyNaturesArchon1): a loop fed by the sources above. GEM28 (MECHC47's note, an
+#   UNDERCOUNT before: not counted): its uptime from MECH-C's natures_archon_uptime, fed the main skill's plants a second
+#   (PoB's Speed at its share of the fight x PLANTS_A_USE, one a use where the table has none: LOW; as MECHC47's
+#   natures_archon_effects) x the other sources' share, combined
+#   1 - (1 - uptime) x (1 - share) (MECHC44's rule, as accelerated_growth does); the Archon timing modifiers from the
+#   resolver (stats "_archon_x"), Dominion's no-recovery not read (the lower reading).
 # The chances of one line add (one stat); the three sources are taken as independent rolls: Overgrown share = 1 - (1 -
 # storm share) x (1 - chance) x (1 - Presence chance). Counted on the main skill as Damage MORE 50% x that share. Vine
 # Arrow's arrow hit is counted too: PoB puts the stat on both its sets (MEDIUM). Brambles as a side skill (Brambleslam's)
@@ -6808,7 +6812,8 @@ def overgrown_share(skills: list[Skill], groups: dict, texts: list[str] = ()) ->
 
 
 def overgrown_model(skills: list[Skill], main: Skill | None, groups: dict,
-                    forbidden: set[str] = frozenset(), texts: list[str] = ()) -> tuple[list[dict], list[dict]]:
+                    forbidden: set[str] = frozenset(), texts: list[str] = (),
+                    stats: dict | None = None) -> tuple[list[dict], list[dict]]:
     """The main Plant skill's "more damage while Overgrown" at the share of its plants that are Overgrown
     (overgrown_share: the build's Thunderstorm, Boundless Growth, Idol of Yeena)."""
     if main is None or main.name not in OVERGROWN_MORE or OVERGROWN_ENTRY in forbidden:
@@ -6816,6 +6821,16 @@ def overgrown_model(skills: list[Skill], main: Skill | None, groups: dict,
     more = OVERGROWN_MORE[main.name]
     label = f"{main.name}: Overgrown Plants deal more damage*"
     up, parts, conf = overgrown_share(skills, groups, texts)
+    stats = stats or {}
+    share_main = number(stats.get("_main_share")) if stats.get("_main_share") is not None else 1.0
+    plants = number(stats.get("Speed")) * share_main * PLANTS_A_USE.get(main.name, (1.0, ""))[0]  # (as MECHC47's)
+    expiry = stats.get("_buff_expiry") or (1.0, "")
+    archon, archon_how = natures_archon_uptime(list(texts), plants * up, stats.get("_archon_x") or {}, False,
+                                               number(expiry[0]) or 1.0)
+    if archon > 0:  # (GEM28: Nature's Archon's 100% Overgrow while it's up)
+        up = 1 - (1 - archon) * (1 - up)
+        parts = parts + [archon_how + f" ({plants:.3g} plants a second; Dominion's no-recovery not read: the lower "
+                         "reading)"]
     play = ("Cast Thunderstorm on the boss and make your plants inside it, or take Boundless Growth / an Idol of Yeena "
             f"(a chance for each plant to Overgrow): Overgrown plants deal {more:g}% more damage.")
     if up <= 0:
@@ -6828,7 +6843,7 @@ def overgrown_model(skills: list[Skill], main: Skill | None, groups: dict,
     return [raw_mod("Damage", "MORE", value, main.name)], [{
         "label": label, "value": f"{value:.1f}% more", "confidence": conf, "entry": OVERGROWN_ENTRY,
         "basis": (f"{more:g}% more damage while its Plants are Overgrown (PoB never reads it), at the share of its plants "
-                  f"Overgrown: {'; '.join(parts)} -> {up:.0%} (independent rolls; Navira's Oasis and Nature's Archon not counted)"),
+                  f"Overgrown: {'; '.join(parts)} -> {up:.0%} (independent rolls; Navira's Oasis not counted)"),
         "play": f"{play} Without it: +0; with this build's sources: {value:.1f}% more."}]
 
 
@@ -9535,56 +9550,73 @@ def empowered_sparks_model(gains: float, gains_how: str, attacks: float, spark: 
 # TriggeredCaltropsPlayer: 1 projectile, "land within a 3 metre radius of Projectile impact" (its secondary radius 30;
 # poe2db), each Caltrop 0.5 m (active_skill_base_area_of_effect_radius 5), set off by an enemy (Hazard, no boss
 # exclusion: R35-23), destroyed when triggered, at most 20 active, 8 s. A spear that hits the boss and stops (no Pierce,
-# Chain, Fork or Split) ends its flight there (R36-15, MEDIUM: poe2db's "impact", forum 3905094); with any of them it
-# flies on and its Caltrops land where it stops: 0 on the boss (R36-15; a fractional chance leaves the rest ending on
-# the boss). Caltrops on the boss a second = the supported skill's hits on the boss a second x the share that end there
+# Chain, Fork or Split) ends its flight there (R36-15, MEDIUM: poe2db's "impact", forum 3905094); with Pierce, Fork or
+# Split it flies on and its Caltrops land where it stops: 0 on the boss (R36-15; RESEARCH38 R38-4: a failed pierce roll
+# ends the flight at the boss, MEDIUM, so 1 - the pierce chance ends there). Chain on a lone boss (R38-4, MEDIUM-LOW, the
+# PoE1 rule; no PoE2 source): no other target to chain to, so it ends at the boss: the headline, its "0" a row (my
+# first reading, 0 with Chain, an UNDERCOUNT). Caltrops on the boss a second = the supported skill's hits on the boss a second x the share that end there
 # x the Caltrops' projectiles a trigger (PoB's ProjectileCount), held to the 20 active over their 8 s, x the share that
-# land under the boss: the boss's circle (radius r, bosses.hit_radius: ObjectSize / 10) widened by a Caltrop's 0.5 m,
-# over the 3 m landing disc around the impact (which lies on the boss's edge, so the circle sits inside the disc for
-# r up to 1.25 m): ((r + 0.5) / 3)^2, about 9% at 0.4 m. That share is GEOMETRY NO DATA GIVES (the scatter taken as
-# uniform over the disc; area modifiers, which may widen the disc and the Caltrop alike, not read): LOW, named in the
+# land under the boss: the boss's circle (radius r, bosses.hit_radius: ObjectSize / 10) widened by a Caltrop's radius,
+# over the landing disc around the impact (which lies on the boss's edge): ((r + R1) / R2)^2, R1 / R2 PoB's scaled
+# AreaOfEffectRadius / AreaOfEffectRadiusSecondary for the Caltrops skill (base 0.5 / 3 m; RESEARCH38 R38-3, MEDIUM-HIGH:
+# area modifiers widen both, so more area lowers the share: 0.111 -> 0.092 -> 0.080 at +0 / 50 / 100% area for a 0.5 m
+# boss; GEM28's first reading took the base radii, a small OVERCOUNT), about 9% at 0.4 m with no area lines. The share
+# is GEOMETRY NO DATA GIVES (the scatter taken as uniform over the disc): LOW, named in the
 # report (the manager has it in the user's questions). Rows: the boss walks over every Caltrop landed around it (the
 # laid rate), PoB's one a use, and 0 with Pierce / Chain / Fork. Each Caltrop at PoB's own hit (its TotalDPS / use).
 CALTROPS_SUPPORT_ENTRY = "model-gem28-caltrops-support"
 CALTROPS_LAND_RADIUS, CALTROP_RADIUS = 3.0, 0.5  # metres (secondary radius 30, radius 5: TriggeredCaltropsPlayer)
 
 
-def caltrops_under_boss_share(radius: float) -> float:
-    """The share of Caltrops landing within a 3 m disc around an impact on the boss's edge that land under the boss
-    (its `radius` widened by a Caltrop's 0.5 m), the scatter uniform (see above: LOW)."""
-    return min(1.0, ((max(number(radius), 0.0) + CALTROP_RADIUS) / CALTROPS_LAND_RADIUS) ** 2)
+def caltrops_under_boss_share(radius: float, caltrop: float = CALTROP_RADIUS,
+                              landing: float = CALTROPS_LAND_RADIUS) -> float:
+    """The share of Caltrops landing within a `landing` m disc around an impact on the boss's edge that land under the
+    boss (its `radius` widened by a Caltrop's `caltrop` m), the scatter uniform (see above: LOW)."""
+    caltrop = number(caltrop) if number(caltrop) > 0 else CALTROP_RADIUS
+    landing = number(landing) if number(landing) > 0 else CALTROPS_LAND_RADIUS
+    return min(1.0, ((max(number(radius), 0.0) + caltrop) / landing) ** 2)
 
 
 def caltrops_support_model(hits: float, end_share: float, end_how: str, projectiles: float, radius: float,
                            radius_how: str, hit: float, uses: float, source: str,
-                           pob: float = 0.0) -> tuple[float, list[dict]]:
+                           pob: float = 0.0, radii: tuple[float, float] = (0.0, 0.0),
+                           chain_row: float | None = None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for the Caltrops support (see above): `hits` the supported skill's hits on the boss a second,
     `end_share` the share of them ending their flight there, `projectiles` the Caltrops a trigger, `radius` the boss's
     hit radius, `hit` one Caltrop's damage (PoB's), `uses` the supported skill's uses a second (PoB's one-a-use row),
-    `pob` PoB's own Full DPS entry (taken out)."""
+    `pob` PoB's own Full DPS entry (taken out), `radii` (a Caltrop's, the landing disc's) in metres, PoB's scaled
+    values (0: the base), `chain_row` the ending share if Chain flies on (R38-4's "0" row; None: no Chain)."""
     hits, hit = max(number(hits), 0.0), max(number(hit), 0.0)
     end_share = min(max(number(end_share), 0.0), 1.0)
     each = max(number(projectiles), 1.0)
     landed = hits * end_share * each
     held = CALTROPS_MAX / CALTROPS_SECONDS
     laid = min(landed, held)
-    share = caltrops_under_boss_share(radius)
+    caltrop = number(radii[0]) if number(radii[0]) > 0 else CALTROP_RADIUS
+    landing = number(radii[1]) if number(radii[1]) > 0 else CALTROPS_LAND_RADIUS
+    share = caltrops_under_boss_share(radius, caltrop, landing)
     dps = laid * share * hit
+    chained = ""
+    if chain_row is not None and end_share > 0:
+        row = min(hits * min(max(number(chain_row), 0.0), 1.0) * each, held) * share * hit
+        chained = f"; if Chain carries the spear on from a lone boss: {row:,.1f}"
     took = f"PoB rates its Caltrops at one a use of {source} ({pob:,.1f} DPS in Full DPS), taken out. " if pob > 0 else ""
     return dps, [{
         "label": f"Caltrops support: Caltrops landing under the boss from {source}'s spears*", "value": f"{dps:,.1f} DPS",
         "confidence": "LOW", "entry": CALTROPS_SUPPORT_ENTRY, "entry_cut": {CALTROPS: pob} if pob > 0 else {},
         "basis": (took + f"The game: a spear that ends its flight on the boss drops {each:g} Caltrop(s) within "
-                  f"{CALTROPS_LAND_RADIUS:g} m of the impact (RESEARCH36 R36-15, MEDIUM): {hits:.2f} hits a second x "
+                  f"{landing:.2f} m of the impact (RESEARCH36 R36-15, MEDIUM): {hits:.2f} hits a second x "
                   f"{end_share:.0%} ending there ({end_how}) x {each:g} = {landed:.2f} a second"
                   + (f", held to {CALTROPS_MAX:g} active over {CALTROPS_SECONDS:g} s ({held:.2f})" if landed > held else "")
-                  + f"; {share:.1%} land under the boss (({{r}} + {CALTROP_RADIUS:g}) / {CALTROPS_LAND_RADIUS:g})^2 "
+                  + f"; {share:.1%} land under the boss (({{r}} + {caltrop:.2f}) / {landing:.2f})^2 (PoB's radii "
+                  f"with the build's area lines, R38-3) "
                   f"with r = {radius_how}; the scatter uniform over the disc: LOW, geometry no data gives): "
                   f"{laid * share:.3f} a second at {hit:,.1f} each").replace("{r}", "r"),
-        "play": (f"Caltrops land around the spot your spear hits the boss: keep its projectiles from piercing, chaining "
-                 f"or forking. With this build {dps:,.1f} DPS (a share {share:.1%} of them under the boss, LOW); if the "
+        "play": (f"Caltrops land around the spot your spear hits the boss: keep its projectiles from piercing, "
+                 f"forking or splitting. With this build {dps:,.1f} DPS (a share {share:.1%} of them under the boss, LOW); if the "
                  f"boss walks over every one landed around it: {laid * hit:,.1f}; PoB's own rate: "
-                 f"{(pob if pob > 0 else max(number(uses), 0.0) * each * hit):,.1f}; with Pierce, Chain or Fork: 0.")}]
+                 f"{(pob if pob > 0 else max(number(uses), 0.0) * each * hit):,.1f}{chained}; with Pierce, Fork or "
+                 f"Split: 0.")}]
 
 
 # Supports whose triggered skill fires on an event of the supported skill's hits, scored by PoB at one a use of the
@@ -14957,6 +14989,22 @@ def press_use_rate(rate: dict, chosen: float | None = None) -> tuple[float, str,
     # warcry (CalcOffence 2978 then 2985; probe POE2T4710: 0.334/s for a 1.547 s cry). Rows flagged by Assumptions.
     ceiling = max(speed, number(rate.get("castRate"))) if rate.get("warcry") else speed
     return min(real, ceiling), how, confidence
+
+
+def warcry_use_rate(rate: dict, speed: float) -> tuple[float, str]:
+    """(uses a second, how) of a Warcry used nonstop (GEM28, the manager 18:20 from MECHB47): its castRate (the bridge's
+    useRates: 1 / WarcryCastTime), not PoB's Speed, which counts the action speed twice for a warcry (probe POE2T4710:
+    0.334/s for a 1.547 s cry); held to its cooldown (PoB's repeats / cooldown); PoB's `speed` where no castRate."""
+    cast = number(rate.get("castRate"))
+    if cast <= 0:
+        return max(number(speed), 0.0), "at PoB's Speed (no castRate read)"
+    used, how = max(cast, number(speed)), f"at its castRate {cast:.3g}/s (PoB's Speed {number(speed):.3g}/s counts the action speed twice)"
+    cooldown = number(rate.get("cooldown"))
+    if cooldown > 0:
+        held = (number(rate.get("repeats")) or 1.0) / cooldown
+        if held < used:
+            used, how = held, f"on its {cooldown:.2f} s cooldown"
+    return used, how
 
 
 def press_group_rate(rate: dict, pace: float | None = None, cap: "PressCap | None" = None,

@@ -5113,11 +5113,12 @@ function bridge.setRates(args)
 			-- (MECHC48: HitSpeed and CritChance, a side Galvanic Field's Orb bolts and their crits a second,
 			-- conditions.Conditions._side_galvanic)
 			-- (GEM28: PierceCount, ChainMax, ForkCountMax, SplitCount, whether a projectile ends its flight on the boss
-			-- it hits, for the Caltrops support, models.caltrops_support_model)
+			-- it hits, for the Caltrops support, models.caltrops_support_model; AreaOfEffectRadius / Secondary, the
+			-- Caltrops' own and landing radii with the build's area lines, RESEARCH38 R38-3)
 			for _, field in ipairs({ "TotalDPS", "AverageDamage", "Speed", "ProjectileCount", "PoisonDPS", "IgniteDPS",
 					"BleedDPS", "IgniteStackPotential", "BleedStackPotential", "IgniteStacksMax", "BleedStacksMax",
 					"DpsMultiplier", "TotalDot", "CorruptingBloodDPS", "Duration", "HitSpeed", "CritChance", "PierceCount",
-					"ChainMax", "ForkCountMax", "SplitCount" }) do
+					"ChainMax", "ForkCountMax", "SplitCount", "AreaOfEffectRadius", "AreaOfEffectRadiusSecondary" }) do
 				if type(output[field]) == "number" then
 					entry[field] = jsonNumber(output[field])
 				end

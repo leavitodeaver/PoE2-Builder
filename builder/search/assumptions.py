@@ -2187,23 +2187,31 @@ def caltrops_support(build: Build, stats: dict, cut=None) -> tuple[float, list[d
         hits, src_row = _skill_hits(build, group, src, press)
         uses = models.number(src_row.get("speed")) * models.number(press.get(source, 1.0))
         flight = (build.call("setRates", index=group["index"], active=src)["sets"] or [{}])[0]
-        end, parts = 1.0, []
-        for field, what in (("PierceCount", "Pierce"), ("ChainMax", "Chain"), ("ForkCountMax", "Fork"),
-                            ("SplitCount", "Split")):
+        end, parts, chain = 1.0, [], 0.0
+        for field, what in (("PierceCount", "Pierce"), ("ForkCountMax", "Fork"), ("SplitCount", "Split")):
             value = models.number(flight.get(field))
             if value > 0:
                 end *= max(0.0, 1.0 - min(value, 1.0))
                 parts.append(f"{what} {value:g}")
-        end_how = (("its " + ", ".join(parts) + ": the spear flies on, its Caltrops land where it stops (R36-15)")
-                   if parts else "no Pierce, Chain, Fork or Split")
+        chain = models.number(flight.get("ChainMax"))
+        end_how = (("its " + ", ".join(parts) + ": a spear that pierces, forks or splits flies on, its Caltrops land "
+                    "where it stops; a failed pierce roll ends at the boss (R36-15, R38-4)") if parts
+                   else "no Pierce, Fork or Split")
+        if chain > 0:
+            end_how += (f"; its Chain {chain:g} finds no other target on a lone boss, so it ends there (R38-4, "
+                        "MEDIUM-LOW)")
         if not src_row.get("projectile"):
             end, end_how = 0.0, f"{source} fires no projectile"
         speed = models.number(row.get("speed"))
         hit = models.number(row.get("TotalDPS")) / speed if speed > 0 else 0.0
         each = models.number(((build.call("setRates", index=group["index"], active=n)["sets"] or [{}])[0]).get(
-            "ProjectileCount")) or 1.0
+            "ProjectileCount")) or 1.0  # (the same set as `own_set` below)
+        own_set = (build.call("setRates", index=group["index"], active=n)["sets"] or [{}])[0]
+        radii = (models.number(own_set.get("AreaOfEffectRadius")) / 10,
+                 models.number(own_set.get("AreaOfEffectRadiusSecondary")) / 10)
         dps, these = models.caltrops_support_model(hits, end, end_how, each, radius, radius_how, hit, uses, source,
-                                                   models.number(row.get("TotalDPS")) if in_full else 0.0)
+                                                   models.number(row.get("TotalDPS")) if in_full else 0.0, radii,
+                                                   0.0 if chain > 0 else None)
         for note in these:
             note.pop("entry_cut", None)  # (cut above, by this group's share)
         total, notes = total + dps, notes + these
@@ -2424,16 +2432,21 @@ def support_dots(build: Build, found: list[models.Skill], curses: list[models.Cu
         if models.TWISTED_PACT in skills:
             cry = next((n for n in skills if "Warcry" in ((gems.get(n) or {}).get("skillTypes") or [])), None)
             row = own(models.TWISTED_PACT)
+            rated = ((build.call("useRates", indices=[index], actives=[skills.index(cry) + 1])["rates"] or [{}])[0]
+                     if cry is not None else {})
             if cry is None:
                 rate, where = 0.0, "no warcry read"
             elif index == main_index:
-                rate, where = models.number(stats.get("Speed")), f"{cry} (main) at PoB's Speed"
+                rate, how = models.warcry_use_rate(rated, models.number(stats.get("Speed")))
+                where = f"{cry} (main) {how}"
             else:
-                rated = (build.call("useRates", indices=[index], actives=[skills.index(cry) + 1])["rates"] or [{}])[0]
                 share = press.get(rated.get("name") or cry)
-                rate = models.number(rated.get("speed")) * models.number(share if share is not None else 1.0)
-                where = cry + (f" pressed {models.number(share):.0%}" if share is not None
-                               else " at PoB's rate (no press share chosen)")
+                if share is not None:  # (the press model's share of PoB's speed: castRate-capped since MECHB47)
+                    rate = models.number(rated.get("speed")) * models.number(share)
+                    where = f"{cry} pressed {models.number(share):.0%}"
+                else:
+                    rate, how = models.warcry_use_rate(rated, models.number(rated.get("speed")))
+                    where = f"{cry} {how} (no press share chosen)"
             pacts.append({"rate": rate, "where": where, "one": row.get("CorruptingBloodDPS"),
                           "seconds": row.get("Duration"), "in_full": scored and bool(group.get("fullDPS"))})
     mods, notes = [], []
@@ -3057,7 +3070,9 @@ class Assumptions:
         press = getattr(build.objective, "press_scales", None) or {}
         side_groups = {r["index"]: {**r, "_press": press.get(r["name"])}
                        for r in build.call("useRates", indices=side)["rates"]} if side else None
-        stat_mods, stat_notes = models.gem_stat_model(found, set(build.ctx.request.forbid_ledger_entries), stats, main,
+        stat_stats = {**stats, "_archon_x": {k: inputs.total(k) for k in models.ARCHON_TIMING},  # (GEM28: overgrown_model)
+                      "_main_share": main_time_share(build, main)}
+        stat_mods, stat_notes = models.gem_stat_model(found, set(build.ctx.request.forbid_ledger_entries), stat_stats, main,
                                                       self.mods, build.call("getConfig")["input"], side_groups,
                                                       [e["text"] for e in source_lines],  # (GEM11: Salvo's Seal lines)
                                                       enemy_level(build))  # (GEM13: Frost Bomb's level cap)

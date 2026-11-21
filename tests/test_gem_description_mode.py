@@ -1677,6 +1677,28 @@ def test_voltaic_fulmination_takes_the_slain_adds_own_life():
     assert small == pytest.approx(base * 1318 / 32956) and "Affliction Totem" in notes[0]["basis"]
 
 
+def test_overgrown_counts_natures_archons_overgrow_while_it_is_up():
+    """GEM28 (MECHC47): a Plant skill's Overgrown share with Nature's Archon up part of the fight: 1 - (1 - uptime) x
+    (1 - the other sources' share); no Archon line: as before."""
+    main = models.Skill(name="Vine Arrow", group=1)
+    texts = ["Plants have a 20% chance to immediately Overgrow"]
+    stats = {"Speed": 2.0, "_buff_expiry": (1.0, "")}
+    before, _ = models.overgrown_model([main], main, {}, frozenset(), texts, stats)
+    archon = texts + ["50% chance to gain Nature's Archon when your Plants Overgrow"]
+    after, notes = models.overgrown_model([main], main, {}, frozenset(), archon, stats)
+    up, _ = models.natures_archon_uptime(archon, 2.0 * 0.2)
+    assert before[0]["value"] == pytest.approx(50.0 * 0.2)
+    assert after[0]["value"] == pytest.approx(50.0 * (1 - (1 - up) * 0.8), abs=1e-3) and up > 0
+    assert "Nature's Archon" in notes[0]["basis"]
+
+
+def test_a_warcry_used_nonstop_runs_at_its_cast_rate_held_to_its_cooldown():
+    """GEM28 (MECHB47): Twisted Pact's warcry rate is its castRate, not PoB's doubly slowed Speed; a cooldown holds it."""
+    assert models.warcry_use_rate({"castRate": 1 / 1.547}, 0.334)[0] == pytest.approx(1 / 1.547)
+    assert models.warcry_use_rate({"castRate": 1 / 1.547, "cooldown": 4.0}, 0.25)[0] == pytest.approx(0.25)
+    assert models.warcry_use_rate({}, 0.334)[0] == pytest.approx(0.334)
+
+
 def test_caltrops_support_lands_a_share_under_the_boss_and_none_with_pierce():
     """GEM28 (RESEARCH36 R36-15): a spear ending its flight on the boss drops its Caltrops within 3 m; ((r + 0.5) / 3)^2
     land under a boss of radius r (LOW), held to 20 active over 8 s; with Pierce / Chain / Fork none end on the boss;
@@ -1689,4 +1711,10 @@ def test_caltrops_support_lands_a_share_under_the_boss_and_none_with_pierce():
     assert notes[0]["confidence"] == "LOW" and "100.0" in notes[0]["play"] and "120.0" in notes[0]["play"]
     assert models.caltrops_support_model(10.0, 1.0, "none", 1, 0.4, "", 100.0, 10, "S")[0] == pytest.approx(2.5 * 0.09 * 100)
     assert models.caltrops_support_model(1.0, 0.0, "Pierce 1", 1, 0.4, "", 100.0, 1, "S")[0] == 0.0
+    # (RESEARCH38 R38-3: area widens both radii; 0.111 -> 0.080 at +100% area for a 0.5 m boss)
+    k = 2 ** 0.5
+    assert models.caltrops_under_boss_share(0.5, 0.5 * k, 3.0 * k) == pytest.approx(0.0801, abs=1e-3)
+    # (R38-4: Chain on a lone boss ends there, the 0 a row)
+    dps, notes = models.caltrops_support_model(1.0, 1.0, "Chain", 1, 0.4, "", 100.0, 1, "S", chain_row=0.0)
+    assert dps == pytest.approx(9.0) and "if Chain carries the spear on from a lone boss: 0.0" in notes[0]["play"]
 
