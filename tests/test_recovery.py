@@ -3205,3 +3205,105 @@ def test_a_flasks_damage_taken_during_effect_recoups_life_at_its_uptime():
     never = Income()
     recovery.hit_income(never, {"Life": 1000}, [], taken=200.0, flask_recoup=[(25.0, 0.0, "Blood of the Warrior")])
     assert never.rates["LifeOnEventRecovery"] == 0.0 and "never up" in " ".join(never.parts)
+
+
+def test_damage_blocked_recouped_as_mana_at_the_bosss_blocked_hits():
+    """MECHC49 (COV48 rows 10.2 / 5.0, an UNDERCOUNT: PoB parses it to nothing): Alkem Eira's "Damage Blocked is
+    Recouped as Mana" (100%) and the Soul Core's "30% of damage Blocked is Recouped as Mana", at the boss's blocked hits
+    a second x one blocked hit's damage after mitigation; no Block: 0, said."""
+    assert recovery.BLOCK_RECOUP_MANA in recovery.HIT_LINES
+    texts = ["Damage Blocked is Recouped as Mana", "30% of damage Blocked is Recouped as Mana"]
+    income = Income()
+    recovery.hit_income(income, {"Life": 2000}, texts, blocked=0.25, blocked_hit=1200.0)
+    assert income.rates["ManaOnEventRecovery"] == pytest.approx(1.3 * 1200 * 0.25)
+    none = Income()
+    recovery.hit_income(none, {"Life": 2000}, texts, blocked=0.0, blocked_hit=1200.0)
+    assert none.rates["ManaOnEventRecovery"] == 0.0 and "Blocks none" in " ".join(none.parts)
+
+
+def test_soul_tethers_excess_life_leech_fills_energy_shield_at_the_lower_reading():
+    """MECHC49 (COV48 row 11.5, an UNDERCOUNT: PoB parses it to nothing): Soul Tether's "Excess Life Recovery from Leech
+    is applied to Energy Shield". Headline: half a second of the kept Life Leech per refill (one per boss hit reaching
+    Life); the other reading, Leech running on Full Life, kept leech x the Full Life share, is in the row."""
+    from builder.search import objective
+    from builder.search.recovery import full_life_share, leech_excess_income
+
+    line = ["Excess Life Recovery from Leech is applied to Energy Shield"]
+    stats = {"enemySkillTime": 1.0, "EvadeChance": 0, "EffectiveBlockChance": 0, "PhysicalTakenHit": 200,
+             "Life": 2000, "LifeRegenRecovery": 100.0, "LifeLeechRate": 200.0}
+    income = Income()
+    rows = leech_excess_income(income, stats, line)
+    full = full_life_share(stats)[0]
+    hits = objective.boss_taken(stats)[1]
+    assert 0 < full < 1 and hits == pytest.approx(1.0)
+    lower = min(200.0 * 0.5 * hits, 200.0 * full)
+    assert income.rates["EnergyShieldLeechExcess"] == pytest.approx(lower)
+    assert "EnergyShieldLeechExcess" in recovery.FIELDS["EnergyShield"]
+    assert rows and f"{200.0 * full:,.1f}/s" in rows[0]["value"] and "UNVERIFIED" in rows[0]["basis"]
+    # the boss's Leech resistance comes off the leech first
+    resisted = Income()
+    resisted.rates[recovery.LEECH_RESISTED["Life"]] = -100.0
+    leech_excess_income(resisted, stats, line)
+    assert resisted.rates["EnergyShieldLeechExcess"] == pytest.approx(min(100.0 * 0.5, 100.0 * full_life_share(stats)[0]))
+    # no Life Leech, no line, or nothing taking Life off (on Full Life all fight: no refill): 0
+    assert leech_excess_income(Income(), {**stats, "LifeLeechRate": 0.0}, line) == []
+    assert leech_excess_income(Income(), stats, []) == []
+    still = Income()
+    leech_excess_income(still, {**stats, "PhysicalTakenHit": 0}, line)
+    assert still.rates["EnergyShieldLeechExcess"] == 0.0
+
+
+def test_block_recoup_and_leech_excess_reach_the_recovery_fields(engine):
+    """MECHC49: on a real Spark build, Assumptions.hit_rates gives one blocked hit's damage (each type's TakenHit at the
+    boss's type shares and Deflection's share), "Damage Blocked is Recouped as Mana" reaches ManaOnEventRecovery at the
+    blocked hits a second, and Soul Tether's line reaches life_mana_income (no Life Leech here: 0, said)."""
+    from builder.request.schema import BuildRequest, Choices
+    from builder.search import boss_hits, objective
+    from builder.search.assumptions import Assumptions
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"],
+                                        require=Choices(skills=["Mana Tempest"])))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    hook = Assumptions(build)
+    ring = chr(10).join(["Rarity: Rare", "Test Loop", "Iron Ring", "Item Level: 82", "Implicits: 0",
+                         "Damage Blocked is Recouped as Mana",
+                         "Excess Life Recovery from Leech is applied to Energy Shield",
+                         "Life Leech can Overflow Maximum Life"])
+    build.call("equip", slot="Ring 1", raw=ring, fields=[])
+    skills = build.call("activeSkills")["skills"]
+    rates = hook.hit_rates("Spark", {})
+    hit = build.call("stats", fields=[*objective.RECOVERY_INPUTS])
+    weights = boss_hits.type_shares(boss_hits.boss_name(hit))
+    expected = sum(max(float(hit.get(f"{t}TakenHit") or 0), 0.0) * weights[t] for t in objective.RECOVERY_DAMAGE_TYPES)
+    assert rates["blocked_hit"] > 0 and rates["blocked_hit"] == pytest.approx(expected * objective.boss_taken(hit)[2])
+    rows = hook.life_mana_income(skills, "Spark")
+    assert build.recovery_sources["ManaOnEventRecovery"] == pytest.approx(rates["blocked_hit"] * rates["blocked"], rel=1e-3)
+    overflow = [r for r in rows if r["label"] == "Life Overflow from Life Leech*"]
+    assert overflow and overflow[0]["value"].startswith("none")  # (MECHC49: the overflow row; Spark Leeches no Life)
+    assert build.recovery_sources["EnergyShieldLeechExcess"] == 0.0
+
+
+def test_overflow_rows_climb_at_the_source_less_the_drains_to_one_and_a_half_times_the_maximum():
+    """MECHC49 (COV48 rows 10.1 / 11.2 / 7.3 / 5.5; plans/kw-overflow.md): each Overflow carrier gets a row, the pool
+    climbing above its maximum at the overflowing source less the drains, up to 1.5x; a flask's source only over its
+    effect; nothing held when the drains outpace it. Moves no number (the floors keep the maximum)."""
+    from builder.search.recovery import OVERFLOW_LINES, overflow_kinds, overflow_row
+
+    assert overflow_kinds(["Life Leech can Overflow Maximum Life",
+                           "Mana Recovery from Flasks can Overflow maximum Mana during Effect"]) == {"leech", "mana_flask"}
+    assert overflow_kinds(["Mana Recovery from Regeneration Overflows maximum Mana",
+                           "Life Recovery from Flasks can Overflow Maximum Life"]) == {"mana_regen", "life_flask"}
+    assert set(OVERFLOW_LINES) == {"leech", "life_flask", "mana_flask", "mana_regen"}
+    steady = overflow_row("Life", "Life Leech", 300.0, 100.0, 2000.0, "test")
+    assert "up to 3,000 Life" in steady["value"] and "5.0 s" in steady["value"] and steady["play"]
+    flask = overflow_row("Mana", "Mana flask recovery", 400.0, 100.0, 1000.0, "test", window=1.0)
+    assert "up to 1,300 Mana" in flask["value"] and "1.0 s effect" in flask["value"]
+    short = overflow_row("Life", "Life Leech", 100.0, 150.0, 2000.0, "test")
+    assert short["value"].startswith("none held") and not short["play"]
+    assert overflow_row("Life", "Life Leech", 0.0, 0.0, 2000.0, "test")["value"].startswith("none")

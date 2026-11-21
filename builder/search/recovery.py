@@ -78,7 +78,8 @@ FIELDS = {
                      "EnergyShieldFlaskRecovery",
                      "EnergyShieldGhostDanceRegen",  # (MECHC27: Ghost Dance's regeneration, ghost_dance_income)
                      "EnergyShieldSacrificed",  # (MECHC27, NEGATIVE: Eldritch Empowerment's sacrifice, sacrifice_income)
-                     "EnergyShieldRiftRecovery"),  # (MECHC29: Temporal Rift, rift_income)
+                     "EnergyShieldRiftRecovery",  # (MECHC29: Temporal Rift, rift_income)
+                     "EnergyShieldLeechExcess"),  # (MECHC49: Soul Tether's excess Life Leech, leech_excess_income)
 }
 # The boss's Leech resistance (MECHC26; PATCH_CHECK H2-1, an OVERCOUNT before: neither PoB nor we applied any), a
 # NEGATIVE field per pool: what PoB's {pool}LeechRate holds that the boss resists (leech_resisted). In FIELDS, so the
@@ -174,8 +175,19 @@ PREVENTED_LIFE_TRIBUTE = re.compile(rf"^{NUM}% of physical damage prevented reco
 # the second's share). Your recovery-rate modifiers on it: not applied (UNVERIFIED, the lower reading, as Igniferis');
 # your own damage over time not counted as taken (the lower reading).
 FLASK_RECOUP = re.compile(rf"^{NUM}% of Damage taken during effect Recouped as Life$", re.I)
+# Damage Blocked Recouped as Mana (MECHC49; COV48 rows 10.2 / 5.0, an UNDERCOUNT before: PoB parses it to nothing,
+# ModCache 7083 {nil, ...}). Stat damage_blocked_%_recouped_as_mana (checked: its users over Mods, PassiveSkills,
+# SoulCoreStats and GrantedEffectStatSets, game 26650308: Alkem Eira's UniqueDamageBlockedRecoupedAsMana1 at 100, "Damage
+# Blocked is Recouped as Mana", and one Soul Core row, SoulCoreStats 496 at 30 / bonded 20, "N% of damage Blocked is
+# Recouped as Mana"; second source PoB's Uniques/shield.lua 364). KeywordPopups Recoup: "an amount of the stated resource
+# equal to a percentage of the damage you took over 8 seconds"; in a steady fight the per-second figure is the share.
+# Each blocked hit's damage is taken as the hit would have dealt after your mitigation (PoB's {Type}TakenHit at the boss's
+# type shares and Deflection's expected share: the lower reading; whether Block's "damage" is before mitigation is
+# UNVERIFIED), at the boss's blocked hits a second (the benefit pace, as objective.on_block). Mana recovery-rate
+# modifiers not applied (UNVERIFIED, lower).
+BLOCK_RECOUP_MANA = re.compile(rf"^(?:{NUM}% of )?damage blocked is recouped as mana$", re.I)
 HIT_LINES = (MISSING_BEFORE_HIT, ARMOUR_ON_BLOCK, CAST_REGEN, CAST_LEECH, STUNNED_LIFE, STUNNED_ES, PREVENTED_ES,
-             PREVENTED_LIFE, PREVENTED_LIFE_TRIBUTE, FLASK_RECOUP)
+             PREVENTED_LIFE, PREVENTED_LIFE_TRIBUTE, FLASK_RECOUP, BLOCK_RECOUP_MANA)
 # The game's Light Stun rule (KeywordPopups LightStun, build 26476662): "up to 100% base chance for Hits that deal 100%
 # of the target's maximum Life" (StunThreshold: "A Hit that deals damage equal to or greater than your Stun Threshold
 # is guaranteed to Stun you, and the chance scales down linearly"), "Chances lower than 15% are treated as 0%" (the
@@ -462,7 +474,7 @@ def hit_income(income: Income, stats: dict, texts: list[str], *, landed: float =
                blocked: float = 0.0, casts: float = 0.0, cast_how: str = "", stunned: float = 0.0,
                stunned_how: str = "", refill: float = 0.0, refill_how: str = "", prevented: float = 0.0,
                prevented_how: str = "", power: float = 0.0, power_how: str = "", taken: float = 0.0,
-               flask_recoup: list[tuple[float, float, str]] | None = None) -> None:
+               flask_recoup: list[tuple[float, float, str]] | None = None, blocked_hit: float = 0.0) -> None:
     """Life on the boss's hits, your Blocks and your casts (MECHC14, A27-32), each at the build's own rate: `landed` boss
     hits a second and the Life each takes (`life_per_hit`), `blocked` boss hits a second, `casts` Spells cast a second.
     "Recover N% of Missing Life before being Hit" (MECHC16, AUDIT28 A28-1: before, the last hit's Life alone, an OVERCOUNT
@@ -529,6 +541,15 @@ def hit_income(income: Income, stats: dict, texts: list[str], *, landed: float =
         else:
             income.parts.append(f"{pct:g}% of Physical damage prevented Recouped as {pool}: 0, "
                                 + (prevented_how or "no Physical damage prevented from the boss's hits"))
+    pct = sum(float(m.group(1) or 100) for t in texts if (m := BLOCK_RECOUP_MANA.match(t.strip())))
+    if pct > 0:  # (MECHC49: BLOCK_RECOUP_MANA's note; `blocked_hit` the damage of one blocked hit)
+        if blocked > 0 and blocked_hit > 0:
+            income.add("ManaOnEventRecovery", pct / 100 * blocked_hit * blocked,
+                       f"{pct:g}% of damage Blocked Recouped as Mana x {blocked_hit:,.0f} a blocked hit (after your "
+                       f"mitigation: the lower reading) x {blocked:.3f} boss hits Blocked/s (Mana recovery-rate modifiers "
+                       "not applied: UNVERIFIED)")
+        else:
+            income.parts.append(f"{pct:g}% of damage Blocked Recouped as Mana: 0, the build Blocks none of the boss's hits")
     for pct, up, what in flask_recoup or []:  # (MECHC48: FLASK_RECOUP's note)
         if taken > 0 and up > 0:
             income.add("LifeOnEventRecovery", pct / 100 * taken * up,
@@ -732,6 +753,121 @@ def flame_income(income: Income, stats: dict, flames: float, gain: dict, texts: 
             income.add(name, amount, f"{hue.title()} Flames of Chayula ({flames:.2f} flames/s, {how}; {colour}), Leech "
                                      f"{pct:g}% of maximum {pool} each" + (f", held to the {cap:,.0f}/s leech cap less "
                                                                             f"{kept:,.1f}/s hit leech" if amount < want else ""))
+
+
+# Excess Life Leech applied to Energy Shield (MECHC49; COV48 row 11.5, an UNDERCOUNT before: PoB parses it to nothing,
+# ModCache 7440 {nil, ...}, though it applies the same belt's "You lose 5% of maximum Energy Shield per second"). Soul
+# Tether's "Excess Life Recovery from Leech is applied to Energy Shield", stat life_leech_excess_goes_to_energy_shield
+# (checked: its users over Mods, PassiveSkills, SoulCoreStats and GrantedEffectStatSets, game 26650308: one Mods row,
+# UniqueLifeLeechExcessToEnergyShield1; second source poe2db's Soul Tether, version 0.1.0, and PoB's Uniques/belt.lua
+# 257. The PoE1 stat life_leech_applies_to_energy_shield_instead_on_full_life has no PoE2 Mods / passive user, same
+# check.) KeywordPopups LifeLeech: "all Life Leech is removed when Life is filled". Whether the line keeps Leech running
+# at full Life (so it fills Energy Shield the whole time you're on Full Life) or only passes on what's left of the leech
+# when Life fills is NOT STATED (poe2db gives the line alone; UNVERIFIED, a RESEARCH question). Two readings:
+#   - the headline, the lower one (the rule for a defence): only the leech left when Life fills, half a second of the
+#     kept leech rate (a leech lasts one second, met halfway on average: LOW) a refill, one refill per boss hit that
+#     reaches Life (none on Full Life all fight or never full: 0);
+#   - the upper one: the kept leech rate x the share of the fight on Full Life (full_life_share), a row in the note.
+# Both at most the kept leech (PoB's LifeLeechRate less the boss's Leech resistance). Energy Shield recovery-rate
+# modifiers not applied (UNVERIFIED).
+LEECH_EXCESS_ES = re.compile(r"^excess life recovery from leech is applied to energy shield$", re.I)
+LEECH_EXCESS_HALF = 0.5
+
+
+def leech_excess_income(income: Income, stats: dict, texts: list[str]) -> list[dict]:
+    """Soul Tether's excess Life Leech as Energy Shield (the note above) into EnergyShieldLeechExcess; its row, or [].
+    `stats`: full_life_share's, with LifeLeechRate. The refills a second: the boss's landed hits a second x the share
+    of their damage that reaches Life (life_flows: after Energy Shield's own refill; LOW)."""
+    from builder.search import objective
+
+    if not any(LEECH_EXCESS_ES.match(t.strip()) for t in texts):
+        return []
+    taken, hits, _ = objective.boss_taken(stats)
+    total = sum(taken.values())
+    refills = hits * min(1.0, life_flows(stats)[1] / total) if total > 0 else 0.0
+    kept = max(_num(stats.get("LifeLeechRate")) + income.rates.get(LEECH_RESISTED["Life"], 0.0), 0.0)
+    if kept <= 0:
+        income.parts.append("Excess Life Leech applied to Energy Shield: 0, the build Leeches no Life")
+        return []
+    full, full_how = full_life_share(stats)
+    upper = kept * full
+    lower = min(kept * LEECH_EXCESS_HALF * max(refills, 0.0), upper) if 0 < full < 1 else 0.0
+    if lower > 0:
+        income.add("EnergyShieldLeechExcess", lower,
+                   f"excess Life Leech applied to Energy Shield: {LEECH_EXCESS_HALF:g} s of {kept:,.1f} Life Leech/s a "
+                   f"refill x {refills:.3f} refills/s (the lower reading, LOW)")
+    return [{"label": "Excess Life Leech applied to Energy Shield*",
+             "value": f"{lower:,.1f} Energy Shield/s (if Leech keeps running at full Life: {upper:,.1f}/s)",
+             "basis": (f"Life Leech kept {kept:,.1f}/s (after the boss's Leech resistance). Headline: only the leech left "
+                       f"when Life fills, half a second of it a refill at {refills:.3f} boss hits reaching Life a second"
+                       + (" (on Full Life all fight or never: no refill, 0)" if not 0 < full < 1 else "")
+                       + f". Other reading: Leech keeps running on Full Life and fills Energy Shield then, {full:.0%} of "
+                       f"the fight ({full_how}). Which one the game does is not stated (KeywordPopups: \"all Life Leech is "
+                       "removed when Life is filled\"; poe2db gives the line alone): UNVERIFIED. Energy Shield "
+                       "recovery-rate modifiers not applied"),
+             "confidence": "LOW (which reading: UNVERIFIED; half a second a refill)"}]
+
+
+# Overflow (MECHC49; COV48 rows 10.1 / 11.2 / 7.3 / 5.5, plans/kw-overflow.md; UNDERCOUNTS: PoB parses each line to
+# nothing, ModCache 8477-8478, 8490, 8560-8562). KeywordPopups Overflow: "Recovery which Overflows its maximum can be
+# recovered up to 1.5 times that maximum." The carriers (checked: Stats ids holding overflow / overcap / excess over
+# Mods, PassiveSkills, SoulCoreStats and GrantedEffectStatSets, game 26650308, and the plan's stat.py sweep; second
+# source PoB's Uniques / ModItem / LegionPassives):
+#   - "Life Leech can Overflow Maximum Life": Couture of Crimson (UniqueLifeLeechOvercapLife1) and the Amanamu glove
+#     suffix (HandWrapsAbyssModGlovesAmanamuSuffixPercentOfLifeLeechInstant, ModItem 2143);
+#   - "Life Recovery from Flasks can Overflow Maximum Life": The Gnashing Sash (UniqueLifeFlasksOvercapLife1);
+#   - "Mana Recovery from Flasks can Overflow maximum Mana during Effect": Uhtred's Chalice;
+#   - "Mana Recovery from Regeneration Overflows maximum Mana": Kurgal's Ambition (a Timeless jewel keystone; PoB
+#     applies its "50% less Mana Regeneration Rate" half, not this one);
+#   - Runic Ward's overflow belt implicit is MECH-B's (models.ward_plan), not here.
+# The plan's handling: the floors keep the un-overflowed pool (the worst case, between refills); each carrier gets a
+# row. Above the maximum only the overflowing source can push the pool up, and the build's drains (the boss's landed
+# hits on that pool, its costs on it, its own steady loss) come off it: with the source giving I a second against D a
+# second of drains, the pool climbs at I - D, to 1.5 x maximum in 0.5 x maximum / (I - D) s; a flask's source runs for
+# its effect only (the climb stops when it ends, then the drains bring the pool back down). Whether overflowed Life
+# decays on its own, and whether Leech is still "removed when Life is filled" at the maximum or at 1.5x: UNVERIFIED
+# (LOW). Moves no number (the plan's floors rule): a play-guide row.
+OVERFLOW_CAP = 1.5
+OVERFLOW_LINES = {
+    "leech": re.compile(r"^life leech can overflow maximum life$", re.I),
+    "life_flask": re.compile(r"^life recovery from flasks can overflow maximum life$", re.I),
+    "mana_flask": re.compile(r"^mana recovery from flasks can overflow maximum mana during effect$", re.I),
+    "mana_regen": re.compile(r"^mana recovery from regeneration overflows maximum mana$", re.I),
+}
+
+
+def overflow_kinds(texts: list[str]) -> set[str]:
+    """The OVERFLOW_LINES kinds the build's lines carry."""
+    return {k for k, pattern in OVERFLOW_LINES.items() if any(pattern.match(t.strip()) for t in texts)}
+
+
+def overflow_row(pool: str, source: str, inflow: float, drains: float, maximum: float, drains_how: str,
+                 window: float | None = None) -> dict:
+    """The overflow row for one carrier (the note above): `inflow` the overflowing source a second, `drains` what comes
+    off the pool a second, `maximum` the pool's maximum; `window`: the seconds the source runs (a flask's effect), None
+    for a steady source."""
+    room = (OVERFLOW_CAP - 1) * max(maximum, 0.0)
+    net = inflow - drains
+    if room <= 0 or inflow <= 0:
+        value = f"none (no {source.lower()} a second)" if room > 0 else f"none (no maximum {pool})"
+        held = 0.0
+    elif net <= 0:
+        value = f"none held: {source.lower()} {inflow:,.1f}/s doesn't outpace the drains {drains:,.1f}/s"
+        held = 0.0
+    else:
+        fill = room / net
+        held = room if window is None or window >= fill else net * window
+        value = (f"up to {maximum + held:,.0f} {pool} ({held:,.0f} above the maximum {maximum:,.0f}"
+                 + (f", reached in {fill:.1f} s" if held >= room else f" by the end of the {window:.1f} s effect") + ")")
+    return {"label": f"{pool} Overflow from {source}*", "value": value,
+            "basis": (f"{source} {inflow:,.1f} {pool}/s can pass the maximum, up to {OVERFLOW_CAP:g}x (KeywordPopups "
+                      f"Overflow); the drains on it {drains:,.1f}/s ({drains_how})"
+                      + (f"; the source runs {window:.1f} s a use (the flask's effect)" if window is not None else "")
+                      + ". The defence floors keep your maximum (the worst case, between refills: plans/kw-overflow.md); "
+                      "whether overflow decays on its own: UNVERIFIED"),
+            "play": (f"keep the {source.lower()} running to sit above your maximum {pool} (with it: the row above; "
+                     f"without: your maximum)") if held > 0 else "",
+            "confidence": "LOW (the steady climb; decay and Leech's stop at full: UNVERIFIED)"}
 
 
 # ---------------------------------------------------------------------------------------------------------------------

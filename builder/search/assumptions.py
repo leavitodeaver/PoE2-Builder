@@ -6521,6 +6521,14 @@ class Assumptions:
                 income.parts.append(f"lost to flasks: {drain_how}")
         leech_stats = build.call("stats", fields=list(recovery.LEECH_FIELDS))
         leech = recovery.leech_income(income, leech_stats, enemy_level(build))
+        if has(recovery.LEECH_EXCESS_ES):  # (MECHC49: Soul Tether, on the Life flows with the sources counted so far)
+            from builder.search import objective
+
+            added = getattr(build, "added_stats", None)
+            seen = {**build.call("stats", fields=sorted(set(objective.RECOVERY_INPUTS) | {
+                "Life", "LifePerSecondCost", "EnergyShield", "ChaosInoculation", "LifeLeechRate"})),
+                    **(added() if callable(added) else {}), **income.rates}
+            leech += recovery.leech_excess_income(income, seen, texts)
         breach = present.get(BREACH)
         if breach is not None and (breach.get("remnantGain") or {}).keys() & {"FlameLife", "FlameMana"}:
             # (MECHC26, H1-9) Into the Breach's Red / Blue Flames of Chayula leech on collection: at its flame rate and
@@ -6539,8 +6547,58 @@ class Assumptions:
                 "Life", "LifePerSecondCost", "ManaPerSecondCost", "EnergyShield", "ChaosInoculation"})),
                     **(added() if callable(added) else {}), **income.rates}
             recovery.rift_income(income, seen, rift[0], rift[1])
+        if recovery.overflow_kinds(texts):  # (MECHC49: the Overflow carriers' rows, plans/kw-overflow.md)
+            guard_rows += self.overflow_rows(texts, income)
         build.recovery_sources = {**income.rates, flasks.ES_STARTS_FIELD: starts}
         return recovery.note(income) + leech + guard_rows
+
+    def overflow_rows(self, texts: list[str], income) -> list[dict]:
+        """(MECHC49) recovery.overflow_row for each Overflow carrier the build has (recovery.OVERFLOW_LINES), each source
+        at the build's own rate: Life Leech kept after the boss's Leech resistance, the Life / Mana flask's recovery a
+        second over its effect (flasks.use_amount / duration; an instant flask over 1 s, LOW), PoB's Mana regeneration;
+        against the drains on that pool: the boss's landed hits reaching it, its costs and the build's own steady loss
+        (recovery.life_flows; Mana: the Mana costs and Mind over Matter's share of the hits)."""
+        from builder.search import flasks, objective, recovery
+
+        build = self.build
+        kinds = recovery.overflow_kinds(texts)
+        added = getattr(build, "added_stats", None)
+        seen = {**build.call("stats", fields=sorted(set(objective.RECOVERY_INPUTS) | {
+            "Life", "Mana", "LifePerSecondCost", "ManaPerSecondCost", "EnergyShield", "ChaosInoculation",
+            "LifeLeechRate", "ManaRegenRecovery"})), **(added() if callable(added) else {}), **income.rates}
+        _, hit_life, cost, steady, parts = recovery.life_flows(seen)
+        life, mana = number(seen.get("Life")), number(seen.get("Mana"))
+        life_drains = hit_life + cost + steady
+        life_how = "; ".join([*parts, *([f"{steady:,.1f}/s of your own steady loss"] if steady > 0 else [])])
+        mom = min(max(number(seen.get("sharedMindOverMatter")), 0.0), 100) / 100
+        mana_cost = max(number(seen.get("ManaPerSecondCost")), 0.0)
+        mana_hits = hit_life * mom / (1 - mom) if 0 < mom < 1 else 0.0
+        mana_drains = mana_cost + mana_hits
+        mana_how = f"{mana_cost:,.1f}/s of Mana costs" + (f", {mana_hits:,.1f}/s of the boss's hits through Mind over "
+                                                          "Matter" if mana_hits > 0 else "")
+        rows = []
+        if "leech" in kinds:
+            kept = max(number(seen.get("LifeLeechRate")) + income.rates.get(recovery.LEECH_RESISTED["Life"], 0.0), 0.0)
+            rows.append(recovery.overflow_row("Life", "Life Leech", kept, life_drains, life, life_how))
+        equipped = getattr(build, "equipped", {}) or {}
+        gain = flasks.Charges.of(build)
+        for kind, slot, pool, maximum, drains, how in (("life_flask", "Flask 1", "Life", life, life_drains, life_how),
+                                                       ("mana_flask", "Flask 2", "Mana", mana, mana_drains, mana_how)):
+            if kind not in kinds:
+                continue
+            option = equipped.get(slot)
+            info = (build.call("flaskData", raws=[option.raw])["results"][0] or {}) if option is not None else {}
+            uses = flasks.uses_per_second(info, gain, option.raw, pool)[0] if info else 0.0
+            amount = flasks.use_amount(info, gain, pool, option.raw) if info and uses > 0 else 0.0
+            window = flasks.duration(info, gain) if info else 0.0
+            window = window if window > 0 else 1.0
+            rows.append(recovery.overflow_row(pool, f"{pool} flask recovery", amount / window, drains, maximum,
+                                              how + ("" if uses > 0 else f"; the {pool} flask is never used"
+                                                     if option is not None else f"; no {pool} flask"), window))
+        if "mana_regen" in kinds:
+            rows.append(recovery.overflow_row("Mana", "Mana Regeneration", number(seen.get("ManaRegenRecovery")),
+                                              mana_drains, mana, mana_how))
+        return rows
 
     def soul_eater(self) -> tuple[list[dict], list[dict]]:
         """Soul Eater's average souls as "1% increased Skill Speed" x souls (the comment at SOUL_MAX)."""
@@ -6910,6 +6968,12 @@ class Assumptions:
             [*objective.RECOVERY_INPUTS, "Armour", "EnergyShield", "Life", "Speed", "StunThreshold",
              "StunAvoidChance", "LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate", "LifePerSecondCost"])))}
         taken, landed, _ = objective.boss_taken(hit)
+        # (MECHC49) one blocked hit's damage over every pool: each type's hit after mitigation at the boss's type shares
+        # and Deflection's expected share (as boss_taken, without the landing)
+        _, _, deflect = objective.boss_taken(hit)
+        weights = boss_hits.type_shares(boss_hits.boss_name(hit))
+        blocked_hit = sum(max(number(hit.get(f"{t}TakenHit")), 0.0) * weights[t]
+                          for t in objective.RECOVERY_DAMAGE_TYPES) * deflect
         life, es = number(hit.get("Life")), number(hit.get("EnergyShield"))
         mom = min(max(number(hit.get("sharedMindOverMatter")), 0.0), 100) / 100
         share = (1 - mom) * (life / (life + es) if life + es > 0 else 0.0)
@@ -6951,7 +7015,8 @@ class Assumptions:
             f", less {costs:,.1f} Life costs and own damage over time" if costs > 0 else "") + (
             f" ({doubled_how})" if doubled_how else "")
         out = {"landed": landed, "life_per_hit": per_hit, "blocked": blocked, "casts": casts, "cast_how": how,
-               "stunned": stunned, "stunned_how": stunned_how, "refill": refill, "refill_how": refill_how}
+               "stunned": stunned, "stunned_how": stunned_how, "refill": refill, "refill_how": refill_how,
+               "blocked_hit": blocked_hit}
         # (MECHC48: recovery.FLASK_RECOUP's note) the flasks carrying "N% of Damage taken during effect Recouped as Life",
         # each at its own uptime; the boss's damage taken a second over every pool
         equipped = getattr(build, "equipped", None) or {}
