@@ -1,0 +1,52 @@
+# MECH97 (MECH-A lane, 20 Nov 2026): Way of the Stonefist lines a MECH-A model reads (empty replace: nothing is added to
+# PoB from the line, so nothing counts twice; PoB applies none of these lines itself: each leaves text, ModCache 5612 /
+# 6611 / 7153).
+
+- id: model-read-mech97-all-attack-damage-electrocutes
+  title: '"All damage with Attacks Contributes to Electrocution Buildup" (models.electrocute_attack_mods)'
+  kind: pob_gap
+  model: electrocute_attack
+  match: '^All damage with Attacks Contributes to Electrocution Buildup$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    HandWrapsUniqueLightningDamageCanElectrocute1 (stat all_attack_damage_can_electrocute). PoB parses none of it, and
+    its Electrocute builds from no damage type by default (Data.lua buildupTypes.Electrocute ScalesFrom empty; KeywordPopups
+    Electrocute: "Only Lightning damage from Hits with specific skills or effects Contributes"). The model adds PoB's own
+    <Type>CanElectrocute flags (CalcOffence canDoAilment 5012) for all five damage types on Attacks only (KeywordFlag
+    Attack), so an Attack Hit's whole damage builds Electrocute through PoB's buildup. This entry only says the model
+    reads the line.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua:4999-5016", "builder/search/models.py electrocute_attack_mods"]
+  status: proposed
+
+- id: model-read-mech97-lucky-while-surrounded
+  title: '"Attack Damage with Hits is Lucky while you are Surrounded" (models.lucky_surrounded_mods)'
+  kind: pob_gap
+  model: lucky_surrounded
+  match: '^Attack Damage with Hits is Lucky while you are Surrounded$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    HandWrapsUniqueIncreasedPhysicalDamagePercent1 (stat attack_damage_is_lucky_if_surrounded, which PoB reads on the Defy
+    supports as LuckyHits under Condition:Surrounded, SkillStatMap 1034). The model adds that flag on Attacks; PoB sets
+    Surrounded itself (CalcPerform 525-527: only when "Require N fewer enemies to be Surrounded" brings it to one enemy and
+    the boss is within your Surrounded radius). 5 adds within 3 m not modelled (the lower reading). This entry only says
+    the model reads the line.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/SkillStatMap.lua:1034", "vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua:521-527"]
+  status: proposed
+
+- id: model-read-mech97-double-damage-full-life
+  title: '"Deal Double Damage to Enemies that are on Full Life" (models.full_life_double_mods)'
+  kind: pob_gap
+  model: full_life_double
+  match: '^Deal Double Damage to Enemies that are on Full Life$'
+  replace: []
+  confidence: theory
+  notes: >-
+    HandWrapsUniqueDecimatingStrike1 (stat deal_double_damage_to_enemies_on_full_life). Energy Shield is taken before
+    Life, so a boss's Life stays full while its shield goes and those hits are doubled: Damage MORE 100 x (1 / (1 - E/2)
+    - 1), E the shield's share of the boss's pool (bosses.life_share_of_pool, MECH-D): Atziri +4.07%, the King +0.95%, no
+    shield 0 (only the first hit; not counted). LOW: the shield taken not to recharge mid-fight. This entry only says the
+    model reads the line.
+  sources: ["builder/search/bosses.py life_share_of_pool", "builder/search/models.py full_life_double_mods"]
+  status: proposed

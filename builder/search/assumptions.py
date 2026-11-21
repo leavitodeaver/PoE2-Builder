@@ -3060,6 +3060,13 @@ class Assumptions:
         mods, notes = mods + madness_mods, notes + madness_notes
         fear_mods_, fear_notes = models.fear_mods(texts, stats)  # (MECH96: Fear Incarnate / Overwhelming on Culls)
         mods, notes = mods + fear_mods_, notes + fear_notes
+        shock_mods, shock_notes = models.electrocute_attack_mods(texts)  # (MECH97: Stonefist's all-Attack Electrocute)
+        mods, notes = mods + shock_mods, notes + shock_notes
+        lucky_mods, lucky_notes = models.lucky_surrounded_mods(texts)  # (MECH97: Stonefist's Lucky while Surrounded)
+        mods, notes = mods + lucky_mods, notes + lucky_notes
+        if any(models.DOUBLE_ON_FULL_LIFE.match(t.strip()) for t in texts):  # (MECH97: Stonefist's Full Life line)
+            double_mods, double_notes = models.full_life_double_mods(texts, bosses.life_share_of_pool(boss))
+            mods, notes = mods + double_mods, notes + double_notes
         if any(models.CRYSTAL_LIFE_PER_RES.match(t.strip()) for t in texts):  # (MECH96: Eventide Petals)
             cold_res = (stats["ColdResist"] if "ColdResist" in stats
                         else (build.call("stats", fields=["ColdResist"]) or {}).get("ColdResist"))
@@ -7890,6 +7897,21 @@ class Assumptions:
                                       "stay full: these lines count only for that part of the fight",
                               "confidence": "MEDIUM-LOW (MECH-C's Ward spending; spends taken one at a time)"})
                 continue
+            if condition.get("culled_recently"):
+                # (MECH97) the share of the fight within N s of a Cull the build dealt: culled_recently_share (the
+                # boss preset's add Culls; 0 against a lone boss, whose Cull ends the fight); its lines are `share:`
+                if not self.has_line(condition.get("shown_for") or "$^"):
+                    continue
+                share, how = self.culled_recently_share(float(condition["culled_recently"]))
+                percent = round(100 * share)
+                if percent > 0:
+                    self.ledger_shares[condition["id"]] = percent
+                    found.append(condition["id"])
+                notes.append({"label": condition["title"], "value": f"{share:.0%}", "basis": how,
+                              "play": "Cull the boss's adds (the King in the Mists' totems, Atziri's cultists) as they "
+                                      "come: without them the line adds nothing, as Culling the boss ends the fight",
+                              "confidence": "LOW (the preset's add rate, MECH-D's; Culls taken as evenly spaced)"})
+                continue
             if condition.get("enemy_power_hit"):
                 # (COV35, PATCH_CHECK G3-3: Olrovasara) a count: the summed Power of the enemies the build hit in the
                 # past N seconds, up to the line's cap (enemy_power_hit_count), in whole percent; its lines are `share:`
@@ -8939,6 +8961,26 @@ class Assumptions:
                     each, why, _ = conditions_mod.skill_use_rate(rate, choices)
                     out[name] = (each, f"on {why}")
         return out
+
+    def culled_recently_share(self, window: float) -> tuple[float, str]:
+        """(MECH97) (the share of the fight within `window` s after a Cull the build dealt, how) for the `culled_recently`
+        conditions (Way of the Stonefist's "N% increased Culling Strike Threshold if you've dealt a Culling Strike
+        Recently"; Recently = the past 4 s, KeywordPopups). A Cull kills (KeywordPopups CullingStrike), so the boss's own
+        Cull ends the fight and feeds nothing; the Culls are the request's boss preset's adds (bosses.kill_stats'
+        AddCullsPerSecond, MECH-D's: counted as its kills), taken as evenly spaced: min(1, Culls/s x window), as
+        models.cull_buff_share counts Thrill of the Kill. Adds that come in waves give a lower share than this (each wave's
+        Culls overlap one window): a possible overcount, LOW. Whether the build can Cull at all is PoB's own check (its
+        CullPercent INC does nothing without a Cull source)."""
+        from builder.search import bosses
+
+        boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+        culls = number(bosses.kill_stats(boss).get(bosses.CULLS_STAT))
+        if culls <= 0:
+            return 0.0, (f"0: Culling the boss ends the fight, and {boss} has no killable adds with a known rate "
+                         "(bosses.kill_stats)")
+        share = min(1.0, culls * window)
+        return share, (f"{share:.0%} of the fight: {culls:.3g} add Culls/s ({boss}'s adds, counted as its kills) x "
+                       f"{window:g} s (Recently), Culls taken as evenly spaced")
 
     def enemy_power_hit_count(self, window: float, cap: float, main: str | None,
                               main_types: set[str]) -> tuple[float, str]:

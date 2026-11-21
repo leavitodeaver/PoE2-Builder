@@ -1,0 +1,60 @@
+# MECH97 (MECH-A lane, 20 Nov 2026): Way of the Stonefist's "(30-40)% increased Culling Strike Threshold if you've dealt a
+# Culling Strike Recently" (HandWrapsUniqueIncreasedAttackSpeed8, game stat culling_strike_threshold_+%_if_culled_recently,
+# Stats 26297; COV48's carrier row). PoB parses it with leftover text (ModCache 3937: CullPercent INC plus "if you've dealt a
+# Culling Strike Recently"), so it never applies it (Item.lua `not modLine.extra`): it counted 0, an UNDERCOUNT for a build
+# that Culls the boss's adds. (checked: every game table row holding stat 26297 or have_culled_recently /
+# track_have_culled_recently: Mods only HandWrapsUniqueIncreasedAttackSpeed8, ModType CullThresholdIfCulledRecently, no
+# PassiveSkills / skill stat set / SoulCoreStats row; PoB's data: ModItemExclusive 5360 is its only item line; poe2db NOT
+# checked.) Its Area twin, area_of_effect_+%_if_culled_recently (Stats 12624), has no Mods carrier (only its ModType
+# CullingStrikeMaven): nothing to count.
+# Counted at CulledRecently4s: the share of the fight within 4 s (Recently, KeywordPopups) of a Cull the build dealt. The
+# boss's own Cull is its death (KeywordPopups CullingStrike), so only the preset's adds feed it (Assumptions.
+# culled_recently_share, bosses.kill_stats' AddCullsPerSecond); a lone boss: 0.
+
+- id: CulledRecently4s
+  title: The share of the fight within 4 seconds of a Cull you dealt (the boss's adds; Culling the boss ends the fight)
+  kind: condition
+  culled_recently: 4
+  shown_for: "(?:if you've dealt a Culling Strike Recently|^LedgerShare:CulledRecently4s$)"
+  confidence: theory
+  sources: ["data/game-26650308/tables/Stats.json (26297)", "builder/search/bosses.py kill_stats (AddCullsPerSecond)"]
+  status: proposed
+
+- id: items-mech97-stonefist-cull-threshold-culled-recently
+  title: Way of the Stonefist, increased Culling Strike Threshold if you've dealt a Culling Strike Recently, at CulledRecently4s's share
+  kind: pob_gap
+  match: '^(\d+)% increased Culling Strike Threshold if you''ve dealt a Culling Strike Recently$'
+  replace: ['share:CulledRecently4s {1}% increased Culling Strike Threshold']
+  confidence: theory
+  notes: >-
+    PoB parses "N% increased Culling Strike Threshold" whole as CullPercent INC (ModParser; its CullMultiplier, CalcOffence
+    4071-4079), so the stand-in counts the line's value at CulledRecently4s's share: min(1, the preset's add Culls/s x 4 s),
+    Culls taken as evenly spaced (LOW: adds in waves give less). Against a lone boss 0 (the boss's own Cull ends the fight).
+    Without a Cull source PoB's CullPercent INC does nothing, as in game.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:3937", "vendor/PathOfBuilding-PoE2/src/Data/ModItemExclusive.lua:5360"]
+  test_in_game: "Against the King in the Mists, Cull a totem, then compare the boss's Cull threshold within 4 s and after."
+  status: proposed
+
+# Way of the Stonefist's "Elemental Damage from your Hits is Resisted by the enemy's lowest Elemental Resistance"
+# (Leopold's Applause's form, HandWrapsUniqueElementalPenetrationBelowZero1, stat elemental_damage_resisted_by_lowest_
+# elemental_resistance, Stats 12069; COV48's carrier row). PoB parses none of it (ModCache 7248: the whole line left), so
+# it counted nothing: an UNDERCOUNT where the boss's resistances differ (a curse or Exposure on one element, or a preset
+# with unequal resistances). PoB has the mechanic itself: its flag ElementalDamageUsesLowestResistance (CalcOffence
+# 4320-4345: each elemental Hit type uses the lowest of the enemy's Fire / Cold / Lightning resistances, with that
+# element's penetration), set by its own wording (ModParser 4475). (checked: every game table row holding stat 12069:
+# Mods only HandWrapsUniqueElementalPenetrationBelowZero1 and its ModType ElementalDamageLowestResist; poe2db NOT
+# checked.)
+
+- id: items-mech97-stonefist-lowest-elemental-resistance
+  title: Way of the Stonefist, Elemental Damage from your Hits is Resisted by the enemy's lowest Elemental Resistance, as PoB's own wording
+  kind: pob_gap
+  match: '^Elemental Damage from your Hits is Resisted by the enemy''s lowest Elemental Resistance$'
+  replace: ['Elemental Damage you deal with Hits is Resisted by lowest Elemental Resistance instead']
+  confidence: datamined
+  notes: >-
+    The same meaning in PoB's parsed wording (ModParser 4475: FLAG ElementalDamageUsesLowestResistance), which its Hit
+    calculation reads (CalcOffence 4320). Hits only, as the line says; ailments keep each element's own resistance (PoB's
+    reading too).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua:4475", "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua:4320-4345"]
+  test_in_game: "Wear it against a boss cursed with Flammability: a Cold hit should deal damage as if against the lowered Fire resistance."
+  status: proposed
