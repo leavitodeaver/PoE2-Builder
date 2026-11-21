@@ -2140,6 +2140,66 @@ def voltaic_beams(build: Build, main: models.Skill | None, cut=None) -> tuple[fl
     return models.voltaic_beams_model(hits, bool(row.get("projectile")), uptime, beam, main.name, how, pob)
 
 
+def _spark_count(build: Build, group: dict, position: int) -> float:
+    """The triggered Spark's projectiles a trigger (PoB's ProjectileCount from setRates; 0 when PoB gives none)."""
+    sets = build.call("setRates", index=group["index"], active=position)["sets"] or [{}]
+    return models.number(sets[0].get("ProjectileCount"))
+
+
+def caltrops_support(build: Build, stats: dict, cut=None) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for the Caltrops support (GEM28's models.caltrops_support_model): in each enabled group
+    holding the support (gem "Caltrops") and its triggered Caltrops, counted for the main group or a group in Full DPS
+    while the score reads it; PoB's own Caltrops entry for that group out of Full DPS (the shared cut tally)."""
+    press = getattr(build.objective, "press_scales", None) or {}
+    main_index = build.call("groups")["mainSocketGroup"]
+    full = bool(getattr(build.objective, "full", False))
+    total, notes = 0.0, []
+    from builder.search import bosses  # (as Assumptions' boss readers import it)
+    boss = (stats or {}).get("_boss") or getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None)
+    radius, radius_how = bosses.hit_radius({"_boss": boss or bosses.DEFAULT})
+    for group in build.groups():
+        gems = {x["name"] for x in group.get("gems") or [] if x.get("enabled", True)}
+        skills = group.get("skills") or []
+        n = next((i for i, x in enumerate(skills, 1) if x["name"] == models.CALTROPS), 0)
+        if not group["enabled"] or models.CALTROPS not in gems or models.TRAIL_OF_CALTROPS in gems or not n:
+            continue
+        in_full = bool(group.get("fullDPS"))
+        row = next(iter(build.call("useRates", indices=[group["index"]], actives=[n])["rates"]), None) or {}
+        own = models.number(row.get("TotalDPS")) * _child_left(build, group) if in_full else 0.0
+        if own > 0 and cut is not None:
+            cut({models.CALTROPS: own})
+        if group["index"] != main_index and not (in_full and full):
+            continue
+        src = next((i for i, x in enumerate(skills, 1) if x["name"] != models.CALTROPS and not x.get("disabled")), 0)
+        if not src:
+            continue
+        source = skills[src - 1]["name"]
+        hits, src_row = _skill_hits(build, group, src, press)
+        uses = models.number(src_row.get("speed")) * models.number(press.get(source, 1.0))
+        flight = (build.call("setRates", index=group["index"], active=src)["sets"] or [{}])[0]
+        end, parts = 1.0, []
+        for field, what in (("PierceCount", "Pierce"), ("ChainMax", "Chain"), ("ForkCountMax", "Fork"),
+                            ("SplitCount", "Split")):
+            value = models.number(flight.get(field))
+            if value > 0:
+                end *= max(0.0, 1.0 - min(value, 1.0))
+                parts.append(f"{what} {value:g}")
+        end_how = (("its " + ", ".join(parts) + ": the spear flies on, its Caltrops land where it stops (R36-15)")
+                   if parts else "no Pierce, Chain, Fork or Split")
+        if not src_row.get("projectile"):
+            end, end_how = 0.0, f"{source} fires no projectile"
+        speed = models.number(row.get("speed"))
+        hit = models.number(row.get("TotalDPS")) / speed if speed > 0 else 0.0
+        each = models.number(((build.call("setRates", index=group["index"], active=n)["sets"] or [{}])[0]).get(
+            "ProjectileCount")) or 1.0
+        dps, these = models.caltrops_support_model(hits, end, end_how, each, radius, radius_how, hit, uses, source,
+                                                   models.number(row.get("TotalDPS")) if in_full else 0.0)
+        for note in these:
+            note.pop("entry_cut", None)  # (cut above, by this group's share)
+        total, notes = total + dps, notes + these
+    return total, notes
+
+
 def empowered_sparks(build: Build, main: models.Skill | None, found: list[models.Skill], stats: dict,
                      cut=None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Empowered Sparks (GEM27's models.empowered_sparks_model): in each enabled group holding the
@@ -2152,7 +2212,8 @@ def empowered_sparks(build: Build, main: models.Skill | None, found: list[models
         gems = {x["name"] for x in group.get("gems") or [] if x.get("enabled", True)}
         skills = group.get("skills") or []
         n = next((i for i, x in enumerate(skills, 1) if x["name"] == models.EMPOWERED_SPARKS), 0)
-        if not group["enabled"] or models.EMPOWERED_SPARKS_SUPPORT not in gems or not n:
+        gem = next((x for x in models.EMPOWERED_SPARKS_SUPPORTS if x in gems), None)
+        if not group["enabled"] or gem is None or not n:
             continue
         row = next(iter(build.call("useRates", indices=[group["index"]], actives=[n])["rates"]), None) or {}
         own = models.number(row.get("TotalDPS")) * _child_left(build, group) if group.get("fullDPS") else 0.0
@@ -2167,19 +2228,39 @@ def empowered_sparks(build: Build, main: models.Skill | None, found: list[models
         if group["index"] == main_index:
             uses *= 1.0 - build.objective.busy()
         kills = models.number(stats.get("AddKillsPerSecond"))
+        rows: list[tuple[str, float]] = []
         if source in ("Power Siphon", "Killing Palm"):
             gains, how = min(uses, kills), f"the preset's {kills:.3f} add kills a second culled with it (at most its {uses:.2f} uses)"
         elif source in ("Devour", "Profane Ritual"):
-            gains, how = min(uses, kills), (f"a corpse of the preset's {kills:.3f} add kills a second each (at most its "
-                                             f"{uses:.2f} uses; Devour's extra corpses not counted)")
+            a_use = models.DEVOUR_CORPSES_A_USE if source == "Devour" else 1.0
+            reviving = [x for x in found if x.summon and x.summon.get("persistent")
+                        and not models.number(x.summon.get("duration"))]
+            sacrifice = any(x.name == models.SACRIFICE for x in found)
+            undead = sum(models.number(x.summon.get("limit")) for x in reviving if x.summon.get("undead")) if sacrifice else 0.0
+            revive, revive_how = models.revive_seconds(reviving) if undead > 0 else (0.0, "")
+            gains, minions = models.corpse_charges(uses, a_use, kills, undead, revive)
+            how = (f"a Power Charge a corpse, up to {a_use:g} a use ({uses:.2f} uses"
+                   + ("; Devour takes 1 + 2 nearby corpses: RESEARCH37 R37-5" if source == "Devour" else "")
+                   + f"): the preset's {kills:.3f} add kills' corpses"
+                   + (f" + {minions:.3f} of your {undead:g} undead minions a second through Sacrifice (each back "
+                      f"{revive:.3g} s after: {revive_how})" if undead > 0 else
+                      " (no Sacrifice with undead Reviving minions: no lone-boss corpses)")
+                   + ("; its quality chance of an additional charge not counted" if source == "Devour" else ""))
+            if source == "Devour" and gains > 0:
+                rows.append(("one corpse a Devour (the lower reading)",
+                             models.corpse_charges(uses, 1.0, kills, undead, revive)[0]))
         elif source == "Siphoning Strike":
             up, up_how = models.ailment_up_of(build)
             gains, how = hits * up.get("Shock", 0.0), f"its {hits:.2f} hits x the boss Shocked {up.get('Shock', 0.0):.0%} ({up_how})"
         elif source == "Wing Blast":
             stuns, stun_how = models.heavy_stun_rate(stats)
-            gains = min(uses, stuns) * models.WING_BLAST_POWER_CHANCE
-            how = (f"min(its {uses:.2f} uses, the boss's {stuns:.3f} Heavy Stuns a second: {stun_how}) x "
-                   f"{models.WING_BLAST_POWER_CHANCE:.0%} (LOW)")
+            quality = next((models.number(x.get("quality")) for x in group.get("gems") or [] if x["name"] == source), 0.0)
+            each, row15, each_how = models.wing_blast_power_a_stun(quality, models.number(stats.get("PowerChargesMax")))
+            gains = min(uses, stuns) * each
+            how = (f"min(its {uses:.2f} uses, the boss's {stuns:.3f} Heavy Stuns a second: {stun_how}; Wing Blast "
+                   f"itself builds no stun) x {each_how}")
+            if gains > 0:
+                rows.append(("\"modified by Power\" not a multiply: 15% a Heavy Stun", min(uses, stuns) * row15))
         elif source == "Lingering Illusion":
             gains = REMNANT_SOURCES["Lingering Illusion"][0]
             how = ("the user's one destroyed copy every 5 s x 1.76 Power Charge Remnants (a picked-up Remnant's charge "
@@ -2198,7 +2279,8 @@ def empowered_sparks(build: Build, main: models.Skill | None, found: list[models
         speed = models.number(row.get("speed"))
         spark = models.number(row.get("TotalDPS")) / speed if speed > 0 else models.number(row.get("AverageHit"))
         dps, these = models.empowered_sparks_model(gains, how, attacks, spark, source,
-                                                   models.number(row.get("TotalDPS")) if group.get("fullDPS") else 0.0)
+                                                   models.number(row.get("TotalDPS")) if group.get("fullDPS") else 0.0,
+                                                   rows, _spark_count(build, group, n) if gains > 0 else 0.0, gem)
         for note in these:
             note.pop("entry_cut", None)  # (cut above, by this group's share)
             note["basis"] += f" (attacks: {', '.join(parts) or 'none'})"
@@ -4222,6 +4304,9 @@ class Assumptions:
         sparks, spark_notes = empowered_sparks(build, main, found, stats, self.cut_entries)  # (GEM27: on Power Charges)
         hand_mods += [models.added_input("EmpoweredSparks", sparks)] if sparks > 0 else []
         hand_notes += spark_notes
+        caltrops, caltrops_notes = caltrops_support(build, stats, self.cut_entries)  # (GEM28: Caltrops under the boss)
+        hand_mods += [models.added_input("CaltropsSupport", caltrops)] if caltrops > 0 else []
+        hand_notes += caltrops_notes
         beams, beam_notes = voltaic_beams(build, main, self.cut_entries)  # (GEM27: projectiles through the wall)
         hand_mods += [models.added_input("VoltaicBeams", beams)] if beams > 0 else []
         hand_notes += beam_notes

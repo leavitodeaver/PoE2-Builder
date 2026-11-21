@@ -1,0 +1,24 @@
+# GEM28 (20 Nov 2026): the Caltrops support's Caltrops at the share landing under the boss (RESEARCH36 R36-15).
+
+- id: model-gem28-caltrops-support
+  title: "Caltrops support: Caltrops landing under the boss from the supported spear's hits (PoB: one a use wherever they land, an OVERCOUNT)"
+  kind: model
+  model: caltrops_support
+  stats: ["trigger_caltrops_at_end_of_projectile_flight"]
+  skill: [Caltrops]
+  confidence: LOW
+  notes: >-
+    models.caltrops_support_model + assumptions.caltrops_support (GEM28). Sweep probe POE2T3595: the support on
+    Boneshatter, Full DPS 26.38 -> 42.95 (its Caltrops at Boneshatter's 1.4 uses a second). The game (26650308):
+    "Projectiles from Supported Skills trigger Caltrops when they reach the end of their flight"; Caltrops "land within
+    a 3 metre radius of Projectile impact" (secondary radius 30), 0.5 m each (radius 5), at most 20 active, 8 s. A spear
+    that hits the boss without Pierce / Chain / Fork / Split ends its flight there (RESEARCH36 R36-15, MEDIUM); with
+    them 0 on the boss. Caltrops on the boss = hits on the boss x the share ending there x the Caltrops a trigger, held
+    to 20 over 8 s, x ((r + 0.5) / 3)^2 under the boss (r: bosses.hit_radius; the scatter uniform: LOW, geometry no
+    data gives). Rows: every landed one set off; PoB's one a use; 0 with Pierce / Chain / Fork. PoB's own entry out of
+    Full DPS (the shared cut tally).
+  sources: ["builder/search/models.py (caltrops_support_model)", "builder/search/assumptions.py (caltrops_support)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_dex.lua (SupportCaltropsPlayer, TriggeredCaltropsPlayer)",
+            "scratch/manager/research/caltrops-support-end-of-flight.md (RESEARCH36 R36-15)", "scratch/gem26/probe_sweep.json"]
+  test_in_game: "Optional: support a spear throw with Caltrops, throw at a still boss; count the Caltrops that go off under it."
+  status: proposed

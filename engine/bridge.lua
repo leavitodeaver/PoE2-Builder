@@ -440,6 +440,114 @@ do
 	end
 end
 
+-- Empowered Sparks II (GEM28; RESEARCH36 R36-16: obtainable in 0.5, MEDIUM-HIGH: SkillGems 1101, CraftingTypes [11] as
+-- I's, CraftingLevel 4, poe2db "From: Uncut Support Gem", Tier 4, no legacy marker): PoB has no such gem (checked: PoB
+-- src Data/Gems.lua and Data/Skills/*.lua hold "Empowered Sparks I" only; the game's BaseItemTypes 5034
+-- Metadata/Items/Gems/SupportGemEmpoweredSparksTwo "Empowered Sparks II"). The game's rows (build 26650308): GemEffects
+-- 1103 EmpoweredSparksSupportTwo, the same support effect as I's (GrantedEffects 1138 SupportEmpoweredSparksPlayer, its
+-- text and stat skill_has_empowered_spark_support) and the same Empower skill (512 TriggeredSparkEmpowerPlayer), with
+-- its own Spark, 514 TriggeredEmpoweredSparkPlayerTwo: GrantedEffectStatSets 649 against I's 651 the same constants and
+-- effectiveness, and GrantedEffectStatSetsPerLevel the same damage at every level 1-40, base_number_of_projectiles 2
+-- higher at every level (6 vs 4 at level 1, 11 vs 9 at 20, 15 vs 13 at 40; checked level by level). Added here as I's
+-- rows with that one change; the support gets an id of its own (SupportEmpoweredSparksPlayerTwo, a copy of I's)
+-- because PoB keys a gem by its granted effect (Data.lua setupGem: gemForSkill, gemNameForModSource). PoB scores a
+-- triggered Spark as one hit whatever its projectile count (CalcOffence reads ProjectileCount for output only), so II
+-- scores as I in PoB; how many sparks reach the boss is the Empowered Sparks model's row (models.empowered_sparks_model).
+-- Tier 4 (PoB's Tier is the game's CraftingLevel: Minion Pact I / II 1 / 4, Empowered Sparks I 2).
+do
+	local support, spark = data.skills.SupportEmpoweredSparksPlayer, data.skills.TriggeredEmpoweredSparkPlayer
+	local gemId = "Metadata/Items/Gems/SkillGemEmpoweredSparksSupportTwo"
+	local function copySkill(from, id, name)
+		local skill = { }
+		for k, v in pairs(from) do
+			skill[k] = v
+		end
+		skill.name = name or from.name
+		skill.statSets = { }
+		for i, set in ipairs(from.statSets or { }) do
+			local copy = { }
+			for k, v in pairs(set) do
+				copy[k] = v
+			end
+			copy.levels = { }
+			for level, row in pairs(set.levels or { }) do
+				local r = { }
+				for k, v in pairs(row) do
+					r[k] = v
+				end
+				copy.levels[level] = r
+			end
+			copy.statMap = { }
+			for k, v in pairs(set.statMap or { }) do
+				if k ~= "_grantedEffect" then
+					copy.statMap[k] = v
+				end
+			end
+			skill.statSets[i] = copy
+		end
+		skill.statMap = { }
+		for k, v in pairs(from.statMap or { }) do
+			if k ~= "_grantedEffect" then
+				skill.statMap[k] = v
+			end
+		end
+		-- as Data.lua 929-965 sets up every skill it loads
+		skill.id = id
+		skill.modSource = "Skill:" .. id
+		for _, statSet in pairs(tableConcat({ skill }, skill.statSets)) do
+			setmetatable(statSet.statMap, data.skillStatMapMeta)
+			statSet.statMap._grantedEffect = skill
+		end
+		data.skills[id] = skill
+		return skill
+	end
+	if support and spark and data.skills.TriggeredSparkEmpowerPlayer and not data.gems[gemId]
+			and not data.skills.SupportEmpoweredSparksPlayerTwo then
+		local supportTwo = copySkill(support, "SupportEmpoweredSparksPlayerTwo", "Empowered Sparks II")
+		if supportTwo.statSets[1] then
+			supportTwo.statSets[1].label = "Empowered Sparks II"
+		end
+		local sparkTwo = copySkill(spark, "TriggeredEmpoweredSparkPlayerTwo")
+		for _, set in ipairs(sparkTwo.statSets) do
+			local at
+			for i, stat in ipairs(set.stats or { }) do
+				if stat == "base_number_of_projectiles" then
+					at = i
+				end
+			end
+			if at then
+				for _, row in pairs(set.levels) do
+					if type(row[at]) == "number" then
+						row[at] = row[at] + 2
+					end
+				end
+			end
+		end
+		local gem = {
+			name = "Empowered Sparks II", gameId = "Metadata/Items/Gems/SupportGemEmpoweredSparksTwo",
+			variantId = "EmpoweredSparksSupportTwo", grantedEffectId = "SupportEmpoweredSparksPlayerTwo",
+			additionalGrantedEffectId1 = "TriggeredSparkEmpowerPlayer",
+			additionalGrantedEffectId2 = "TriggeredEmpoweredSparkPlayerTwo",
+			grantedEffectDisplayOrder = { 1, 2 },
+			tags = { support = true, grants_active_skill = true, projectile = true, trigger = true, lightning = true, duration = true, },
+			gemType = "Support", gemFamily = "Empowered Sparks", tagString = "Projectile, Trigger, Lightning, Duration",
+			reqStr = 0, reqDex = 0, reqInt = 100, Tier = 4, naturalMaxLevel = 1,
+		}
+		-- set up as Data.lua's setupGem does
+		gem.id = gemId
+		gem.grantedEffect = supportTwo
+		gem.additionalGrantedEffects = { data.skills.TriggeredSparkEmpowerPlayer, sparkTwo }
+		-- (grantedEffectDisplayOrder { 1, 2 }, as setupGem orders I's list: the Empower skill, the Spark, then the support)
+		gem.grantedEffectList = { data.skills.TriggeredSparkEmpowerPlayer, sparkTwo, supportTwo }
+		data.gems[gemId] = gem
+		data.gemForSkill[supportTwo] = gemId
+		data.gemsByGameId[gem.gameId] = data.gemsByGameId[gem.gameId] or { }
+		data.gemsByGameId[gem.gameId][gem.variantId] = gem
+		data.gemNameForModSource[supportTwo.modSource] = gem.name
+		data.gemForBaseName["empowered sparks ii support"] = gemId
+	end
+end
+
 -- Verisium Manifestations' minion (MECHB42; RESEARCH33 R33-10, research/verisium-manifestation-numbers.md): the gem's
 -- Manifest Rune (TriggeredManifestRunePlayer) summons a "Verisium Manifestation", but PoB has no minion for it, so it
 -- scored 0. Added here from the game's rows (build 26650308): MonsterVarieties 2792 (DamageMultiplier 70, AttackSpeed
@@ -4867,9 +4975,12 @@ function bridge.setRates(args)
 			-- (TotalDot) and models.twisted_pact_model (CorruptingBloodDPS): PoB counts them only in Full DPS)
 			-- (MECHC48: HitSpeed and CritChance, a side Galvanic Field's Orb bolts and their crits a second,
 			-- conditions.Conditions._side_galvanic)
+			-- (GEM28: PierceCount, ChainMax, ForkCountMax, SplitCount, whether a projectile ends its flight on the boss
+			-- it hits, for the Caltrops support, models.caltrops_support_model)
 			for _, field in ipairs({ "TotalDPS", "AverageDamage", "Speed", "ProjectileCount", "PoisonDPS", "IgniteDPS",
 					"BleedDPS", "IgniteStackPotential", "BleedStackPotential", "IgniteStacksMax", "BleedStacksMax",
-					"DpsMultiplier", "TotalDot", "CorruptingBloodDPS", "Duration", "HitSpeed", "CritChance" }) do
+					"DpsMultiplier", "TotalDot", "CorruptingBloodDPS", "Duration", "HitSpeed", "CritChance", "PierceCount",
+					"ChainMax", "ForkCountMax", "SplitCount" }) do
 				if type(output[field]) == "number" then
 					entry[field] = jsonNumber(output[field])
 				end

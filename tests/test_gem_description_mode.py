@@ -1636,3 +1636,38 @@ def test_empowered_sparks_three_per_power_charge_held_to_the_attacks():
     assert models.empowered_sparks_model(1.0, "t", 1.4, 50.0, "Siphoning Strike")[0] == pytest.approx(70.0)
     assert models.empowered_sparks_model(0.0, "t", 1.4, 50.0, "Power Siphon")[0] == 0.0
     assert models.empowered_sparks_model(1.0, "t", 0.0, 50.0, "Power Siphon")[0] == 0.0
+
+
+def test_empowered_sparks_wing_blast_three_a_heavy_stun_and_devour_three_corpses():
+    """GEM28 (RESEARCH37 R37-4..6): Wing Blast's 15% Surpassing chance x a Unique's 20 Power = 3 Power Charges a Heavy
+    Stun, held to the maximum (15% a row); Devour up to 3 corpses a use, Sacrifice's undead minions as lone-boss corpses;
+    the capped reading a row."""
+    each, row, how = models.wing_blast_power_a_stun(0, 3)
+    assert each == pytest.approx(3.0) and row == pytest.approx(0.15) and "300%" in how
+    assert models.wing_blast_power_a_stun(20, 3)[0] == pytest.approx(3.0)  # (400% held to 3)
+    assert models.wing_blast_power_a_stun(20, 5)[0] == pytest.approx(4.0)
+    assert models.corpse_charges(1.0, 3.0, 0.5, 0.0, 7.5) == (pytest.approx(0.5), 0.0)
+    assert models.corpse_charges(1.0, 3.0, 5.0, 0.0, 7.5)[0] == pytest.approx(3.0)
+    got, minions = models.corpse_charges(1.0, 3.0, 0.0, 6.0, 7.5)  # (6 undead, 3 wanted a second: 6x3 / (6 + 22.5))
+    assert minions == pytest.approx(18.0 / 28.5) and got == pytest.approx(minions)
+    dps, notes = models.empowered_sparks_model(0.3, "t", 10.0, 50.0, "Wing Blast", rows=[("15% a stun", 0.015)])
+    assert dps == pytest.approx(45.0) and "15% a stun: 2.2 DPS" in notes[0]["play"]
+    assert "capped" in notes[0]["play"] and "R37-4" in notes[0]["basis"]
+    dps, notes = models.empowered_sparks_model(0.3, "t", 10.0, 50.0, "Wing Blast", sparks=11, gem="Empowered Sparks II")
+    assert dps == pytest.approx(45.0) and notes[0]["label"].startswith("Empowered Sparks II")
+    assert "every one of the 11 sparks a trigger hits the boss" in notes[0]["play"] and "495.0 DPS" in notes[0]["play"]
+
+
+def test_caltrops_support_lands_a_share_under_the_boss_and_none_with_pierce():
+    """GEM28 (RESEARCH36 R36-15): a spear ending its flight on the boss drops its Caltrops within 3 m; ((r + 0.5) / 3)^2
+    land under a boss of radius r (LOW), held to 20 active over 8 s; with Pierce / Chain / Fork none end on the boss;
+    PoB's one-a-use entry out."""
+    assert models.caltrops_under_boss_share(0.4) == pytest.approx(0.09)
+    assert models.caltrops_under_boss_share(5.0) == 1.0
+    dps, notes = models.caltrops_support_model(1.0, 1.0, "none", 1, 0.4, "0.4 m", 100.0, 1.2, "Explosive Spear",
+                                               pob=120.0)
+    assert dps == pytest.approx(9.0) and notes[0]["entry_cut"] == {models.CALTROPS: 120.0}
+    assert notes[0]["confidence"] == "LOW" and "100.0" in notes[0]["play"] and "120.0" in notes[0]["play"]
+    assert models.caltrops_support_model(10.0, 1.0, "none", 1, 0.4, "", 100.0, 10, "S")[0] == pytest.approx(2.5 * 0.09 * 100)
+    assert models.caltrops_support_model(1.0, 0.0, "Pierce 1", 1, 0.4, "", 100.0, 1, "S")[0] == 0.0
+

@@ -1,5 +1,5 @@
 {
- "about": "Skills the tool adds where PoB's gem dump (data/pob-*/gems.json) has none, in that dump's form, with their sources (COV35, 15 Nov 2026). GameData.gems appends each entry whose name PoB doesn't list. The bridge adds the same skill to PoB itself (engine/bridge.lua, Untether's block): this file is the Python side's copy, so lookups by name or skill id (Context.all_gems / any_gems / gems_by_skill_id, gem_of) find it.",
+ "about": "Skills the tool adds where PoB's gem dump (data/pob-*/gems.json) has none, in that dump's form, with their sources (COV35, 15 Nov 2026). GameData.gems appends each entry whose name PoB doesn't list. The bridge adds the same skill or gem to PoB itself (engine/bridge.lua: Untether's block; Empowered Sparks II's, GEM28): this file is the Python side's copy, so lookups by name or skill id (Context.all_gems / any_gems / gems_by_skill_id, gem_of) find it.",
  "gems": [
   {
    "baseTypeName": "Untether",
@@ -24,6 +24,30 @@
     "engine/bridge.lua: the same skill (data.skills.AbyssalLivingBomb) and gem row, COV34 (bbc4da06)",
     "https://poe2db.tw/us/Untether (COV34's saved page, 15 Nov 2026)",
     "League-obtainable through The Master's Reach (drops from the Vessel of Kulemak, 0.5.4; COV34), the one carrier found (checked: game Mods rows naming LivingBomb: UniqueAbyssalLivingBomb1 only; ModGrantedSkills: none; poe2db's Fists of Stone version is the same gloves under Way of the Stonefist). fromItem with tier 0, so Context.gems never offers it as a socketable gem"
+   ]
+  },
+  {
+   "description": "Supports Skills which generate Charges. When generating Power Charge with Supported Skills, Empower some of your Attacks to Trigger Spark Projectiles on use.",
+   "families": ["EmpoweredSparks"],
+   "gemType": "Support",
+   "grantedEffectId": "SupportEmpoweredSparksPlayerTwo",
+   "id": "Metadata/Items/Gems/SkillGemEmpoweredSparksSupportTwo",
+   "levelRequirement": 0,
+   "name": "Empowered Sparks II",
+   "naturalMaxLevel": 1,
+   "reqDex": 0,
+   "reqInt": 100,
+   "reqStr": 0,
+   "skillTypes": [],
+   "support": true,
+   "tagString": "Projectile, Trigger, Lightning, Duration",
+   "tags": ["duration", "grants_active_skill", "lightning", "projectile", "support", "trigger"],
+   "tier": 4,
+   "sources": [
+    "game files build 26650308: BaseItemTypes 5034 Metadata/Items/Gems/SupportGemEmpoweredSparksTwo 'Empowered Sparks II'; SkillGems 1101 (CraftingTypes [11] as I's, CraftingLevel 4, Intelligence 100%); GemEffects 1103 EmpoweredSparksSupportTwo: I's support effect (GrantedEffects 1138) and Empower skill (512), its own Spark 514 TriggeredEmpoweredSparkPlayerTwo (2 more projectiles at every level, the same damage)",
+    "engine/bridge.lua: the same gem (SupportEmpoweredSparksPlayerTwo, a copy of I's support; TriggeredEmpoweredSparkPlayerTwo), GEM28",
+    "RESEARCH36 R36-16 (research/empowered-sparks-lingering-illusion.md): obtainable in 0.5, MEDIUM-HIGH; poe2db Empowered_Sparks_II: From: Uncut Support Gem, Tier 4, no legacy marker",
+    "PoB's Tier is the game's CraftingLevel (Minion Pact I / II 1 / 4; Empowered Sparks I 2): tier 4"
    ]
   }
  ]
