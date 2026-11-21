@@ -7302,8 +7302,19 @@ DETONATED_SETS = {
     # used beside them: MEDIUM-LOW, as the spears'); one spike a slam (more fissures not read); the limit 6 (patch
     # 0.4.0 made it a modifiable Limit, Overabundance: a raised limit not read, an UNDERCOUNT there, UNVERIFIED).
     "Earthshatter": (("Slam",), "Explosion", 6, 6.0, "model-gem19-earthshatter-warcry-shatter"),
+    # (MECHB48) Forge Hammer: "Hurl a fiery hammer that Slams into the ground and lodges there. While the hammer is
+    # lodged in the ground, reusing this Skill recalls the hammer and resets the Skill's cooldown. Alternatively, using a
+    # Warcry near the lodged hammer causes it to shatter, releasing a number of Molten Fissures in a spiral" (ActiveSkills
+    # forge_hammer, 26650308; patch notes 0.3.0-0.5.1, grep_notes --history "Forge Hammer": no other way to shatter it).
+    # PoB scores its Fissures set on every use (no Warcry check: grep of PoB's Modules for ForgeHammer / fissure finds
+    # none), an OVERCOUNT with no Warcry. ForgeHammerPlayer: forge_hammer_maximum_hammers 1, base_skill_effect_duration
+    # 12000 (taken as how long the hammer lies there: UNVERIFIED). Warcries only, no Detonators (the description names
+    # only Warcries; Earthshatter's Detonator reading rests on its own 0.3.0 note). How many of the spiral's Fissures
+    # reach the boss: fissure_count_model (R37-16). The recall use (a use with no Impact, between two throws) isn't
+    # read: PoB's Impact on every use (UNVERIFIED, a RESEARCH question: up to x2 over).
+    "Forge Hammer": (("Impact",), "Fissures", 1, 12.0, "model-mechb48-forge-hammer-warcry-shatter"),
 }
-DETONATED_WORD = {"Stormblast Bolts": "bolts", "Earthshatter": "spikes"}
+DETONATED_WORD = {"Stormblast Bolts": "bolts", "Earthshatter": "spikes", "Forge Hammer": "hammers"}
 # (GEM20) Earthshatter's quality stat earthshatter_damage_+%_final_per_spike, "{0}% more Damage with [Hit|Hits] for each
 # Spike" (0.3% a quality, GrantedEffectQualityStats 90; came in 0.3.0 in place of "+0-3 to maximum Spikes"; PoB doesn't
 # read it: act_str.lua's qualityStats, no SkillStatMap entry). RESEARCH30 R30-5 (2), UNVERIFIED, best reading
@@ -7324,7 +7335,12 @@ def spike_standing(skill: str, uses: float, detonations: float) -> float:
 # What sets the parts off when it isn't a Detonator skill (GEM19): (the event conditions.event_rates counts, how the note
 # names it, the play guide's examples)
 DETONATED_BY = {"Earthshatter": ("Warcry", "a Warcry is used near them or a Detonator skill hits them",
-                                  "a Warcry (Infernal Cry, Seismic Cry, ...) or a Detonator skill")}
+                                  "a Warcry (Infernal Cry, Seismic Cry, ...) or a Detonator skill"),
+                "Forge Hammer": ("Warcry", "a Warcry is used near the lodged hammer",
+                                 "a Warcry (Infernal Cry, Seismic Cry, ...) used beside the lodged hammer")}
+# Which DETONATED_BY skills Detonator skills also set off (Earthshatter: patch 0.3.0 "Detonation now also triggers
+# existing spikes"; Forge Hammer: no such line, Warcries only)
+DETONATORS_TOO = {"Earthshatter"}
 
 
 def detonated_share(skill: str, uses: float, detonations: float) -> float:
@@ -19740,3 +19756,221 @@ def explosive_rhythm_model(main: Skill | None, texts: list[str], row: dict, reco
                   f"skill{'s' if grenades != 1 else ''}): x{high:.3f}"),
         "play": (f"Use {main.name} on cooldown to build {stacks} Explosive Rhythm, then fire it nonstop through the "
                  f"{seconds} s of Explosive Fervour.")}]
+
+
+# Fissures at the boss (MECHB48; RESEARCH37 R37-16, research/radius-transform-jewels-and-fissure-layouts.md; COV48's lane
+# row "Skills which create Fissures have a #% chance to create an additional Fissure"). PoB reads no Fissure count
+# (checked: every "fissure" in PoB's Modules, SkillStatMap and ModCache: the chance line is left unparsed, ModCache
+# 9410-9413; base_number_of_fissures, base_number_of_additional_fissures and skill_additional_fissure_chance_% have no
+# statMap in act_str.lua / sup_str.lua), so each Fissure stat set scores ONE Fissure a use. What the game makes a use:
+# - its base count (base_number_of_fissures: Forge Hammer 5, Starborn Onslaught 3; the rest one, by their text);
+# - the supports' extra Fissures (base_number_of_additional_fissures: Upheaval I 1, Upheaval II 2, Kaom's Madness 3;
+#   their less damage / speed PoB already applies, sup_str.lua);
+# - the chance of one more (skill_additional_fissure_chance_%: the Abyss mace suffixes "of Amanamu" 15-25% / 25-31%, the
+#   Twisted Empyrean Verisium implicit 50%, a corruption upgrade 20-40%, the Splitting Ground notable 20%, Entangle's
+#   own quality; checked: every Stats id holding "fissure" through Mods, GrantedEffectStatSets / QualityStats,
+#   PassiveSkills, SoulCoreStats, 26650308), summed and taken as at most one more (over 100%: UNVERIFIED).
+# These add (one count a use), so they are counted here together, never as separate multipliers.
+# How many reach one boss (R37-16): no angle for the extras in any source (checked by RESEARCH37), a fan the working
+# reading (LOW); in melee every Fissure of a fan narrower than about +-40 degrees passes within the boss's hit radius +
+# the Fissure's ~1 m half-width, so all of them hit (MEDIUM-LOW); a spiral from the hammer lodged at the boss, all
+# (MEDIUM-LOW); Fury of the Mountain's random 120-degree arc, about all at 1.5 m (the row at 3 m:
+# 2 asin((R + w) / d) / 120 degrees, ~46%). Rows: at range, only the one aimed at the boss. Not scaled: Earthshatter's end
+# spikes and Glacial Cascade's final spike (they land at each Fissure's end, beyond the boss: R37-16 counts one at the
+# boss, LOW), Entangle's vines, Sunder's shockwaves; Molten Crash's Rage-made Fissures (molten_crash_number_of_additional_
+# fissures_from_rage_consumption: Rage not read here, an UNDERCOUNT); Starborn Onslaught (no stat set PoB scores is its
+# Fissures: an UNDERCOUNT, not counted) and Crater (a triggered skill, not a main skill: not counted). The live-Fissure
+# limits (Volcanic Fissure 8, Fury of the Mountain 12, Molten Crash 8, Forge Hammer 10) cap only what lingers: a use's
+# count is held to Forge Hammer's 10.
+# {skill: (its Fissure stat sets, the layout)}
+FISSURE_SETS = {"Earthshatter": (("Slam",), "line"), "Sunder": (("Wave",), "line"),
+                "Volcanic Fissure": (("Volcanic Fissure",), "line"), "Storm Wave": (("Storm Wave",), "line"),
+                "Glacial Cascade": (("Wave",), "line"), "Entangle": (("Fissures",), "line"),
+                "Molten Crash": (("Fissures",), "slam"), "Fury of the Mountain": (("Fury of the Mountain",), "arc"),
+                "Forge Hammer": (("Fissures",), "spiral")}
+FISSURE_BASE_STAT, FISSURE_EXTRA_STAT = "base_number_of_fissures", "base_number_of_additional_fissures"
+FISSURE_CHANCE_STAT = "skill_additional_fissure_chance_%"
+FISSURE_CHANCE = re.compile(r"^skills which create fissures have a (\d+(?:\.\d+)?)% chance to create an additional "
+                            r"fissure$", re.I)
+FISSURE_MAX_A_USE = {"Forge Hammer": 10.0}  # (forge_hammer_base_maximum_number_of_fissures)
+FISSURE_HALF_WIDTH, FISSURE_ARC_DEGREES, FISSURE_MELEE_METRES, FISSURE_ROW_METRES = 1.0, 120.0, 1.5, 3.0
+FISSURE_ENTRY = "model-mechb48-fissures-at-boss"
+
+
+def fissure_arc_share(boss_radius: float, metres: float) -> float:
+    """The share of Fury of the Mountain's randomly aimed Fissures that pass within the boss's reach (see above)."""
+    reach = max(boss_radius, 0.0) + FISSURE_HALF_WIDTH
+    if metres <= reach:
+        return 1.0
+    return min(1.0, 2.0 * math.degrees(math.asin(reach / metres)) / FISSURE_ARC_DEGREES)
+
+
+def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict], level_stats: dict,
+                        support_stats: dict, texts: list[str], boss_radius: float,
+                        det_share: float | None = None, forbidden: set[str] = frozenset(),
+                        previous: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
+    """A Fissure skill's Fissures a use at the boss against PoB's one (see above). `level_stats` / `support_stats` the
+    activeSkills row's, `texts` the build's lines, `det_share` the share of a DETONATED_SETS skill's set-off part the
+    detonated model counts (Earthshatter's spikes, Forge Hammer's hammers), None for the others."""
+    if main is None or main.name not in FISSURE_SETS or FISSURE_ENTRY in forbidden:
+        return [], []
+    labels, layout = FISSURE_SETS[main.name]
+    cap = FISSURE_MAX_A_USE.get(main.name, math.inf)
+    base = min(cap, number(level_stats.get(FISSURE_BASE_STAT)) or 1.0)
+    extra = number(support_stats.get(FISSURE_EXTRA_STAT))
+    lines = [float(m.group(1)) for t in texts if (m := FISSURE_CHANCE.match(t.strip()))]
+    own = number(level_stats.get(FISSURE_CHANCE_STAT))
+    chance = min(1.0, (sum(lines) + own) / 100.0)
+    count = min(cap, base + extra + chance)
+    if count <= 1.0 + 1e-9:
+        return [], []
+    share = fissure_arc_share(boss_radius, FISSURE_MELEE_METRES) if layout == "arc" else 1.0
+    row_share = fissure_arc_share(boss_radius, FISSURE_ROW_METRES) if layout == "arc" else None
+    dps = unscale_own(sets, previous, FISSURE_ENTRY)
+    if main.name in DETONATED_SETS and det_share is not None:
+        plain_labels, det_label, *_ = DETONATED_SETS[main.name]
+        if scored not in plain_labels + (det_label,):
+            return [], []
+        plain = max((dps.get(k, 0.0) for k in plain_labels), default=0.0)
+        total = plain + dps.get(det_label, 0.0) * det_share
+        fissure = plain if labels[0] in plain_labels else dps.get(det_label, 0.0) * det_share
+    else:
+        total = dps.get(scored or "", 0.0)
+        fissure = total if scored in labels else 0.0
+    if total <= 0:
+        return [], []
+
+    def scale(n: float) -> float:  # (PoB's one Fissure taken as hitting: the share applies to the whole use)
+        return 1.0 + fissure / total * (n - 1.0)
+    factor, one = scale(count * share), scale(base)
+    parts = [f"{base:g} base"] + ([f"+{extra:g} from supports (Upheaval / Kaom's Madness)"] if extra else []) + (
+        [f"+{chance:.0%} chance of one more ({' + '.join(f'{x:g}%' for x in lines + ([own] if own else []))}"
+         f"{', held to 100%' if sum(lines) + own > 100 else ''})"] if chance else [])
+    how = {"line": "a fan in melee: every one passes within the boss's reach (R37-16, the fan LOW, the melee count "
+                   "MEDIUM-LOW)",
+           "slam": "from the slam's landing at the boss: all hit in melee (R37-16, MEDIUM-LOW)",
+           "spiral": "a spiral from the hammer lodged at the boss: all hit (R37-16, MEDIUM-LOW)",
+           "arc": f"aimed at random over {FISSURE_ARC_DEGREES:g} degrees: {share:.0%} pass within the boss's "
+                  f"{boss_radius:g} m + {FISSURE_HALF_WIDTH:g} m at {FISSURE_MELEE_METRES:g} m (R37-16, MEDIUM-LOW)"}[layout]
+    if fissure <= 0:
+        return [], [{"label": f"{main.name}: {count:.2f} Fissures a use*", "value": "x1", "confidence": "MEDIUM-LOW",
+                     "entry": FISSURE_ENTRY,
+                     "basis": (f"{'; '.join(parts)}, {how}; but the scored {scored} set isn't a Fissure (or none is "
+                               f"set off), so nothing changes")}]
+    rows = f"; at range only the one aimed at the boss: x{one:.3f}" + (
+        f"; at {FISSURE_ROW_METRES:g} m {row_share:.0%} of them: x{scale(count * row_share):.3f}"
+        if row_share is not None else "")
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=FISSURE_ENTRY)], [{
+        "label": f"{main.name}: {count:.2f} Fissures a use at the boss*", "value": f"x{factor:.3f}",
+        "confidence": "MEDIUM-LOW", "entry": FISSURE_ENTRY,
+        "basis": (f"PoB counts one Fissure a use. The game makes {count:.2f}: {'; '.join(parts)}; {how}. "
+                  f"The Fissures are {fissure / total:.0%} of the {scored} DPS scored: x{factor:.3f}{rows}. Not "
+                  "counted: the end spikes, vines and shockwaves of the extra Fissures (R37-16: beyond the boss, LOW)"),
+        "play": (f"Use {main.name} in melee range, facing the boss, so every Fissure runs through it. At range only "
+                 f"the one aimed at it hits: x{one:.3f} instead of x{factor:.3f}.")}]
+
+
+# The Last Lament's "Sacrifice 300 Life to not consume the last bolt when firing" (MECHB48; COV48's lane row 17.3). PoB
+# parses it only in part (ModCache 9335: a Life BASE on the skill "Sacrifice", leftover "to not consume the last bolt
+# when firing"), so it never applies it (Item.lua's `not modLine.extra`): no overcount from PoB. What it does: at the
+# clip's last bolt the shot costs N Life instead of the bolt, so no reload while Life pays. The build decides how often
+# (CLAUDE.md: no flat rate): its Life recovery left after the boss's landed hits, its Life costs and its own steady loss
+# (recovery.life_flows, as Demon Form's cycle) pays for net / N shots a second; such shots come at PoB's FiringRate with
+# no reload, the rest of the fight at PoB's clip-and-reload Speed: a share f = min(1, net / (N x FiringRate)) of the fight
+# fires unbroken, and the main skill's uses go from Speed to f x FiringRate + (1 - f) x Speed. MEDIUM-LOW: Life spent
+# this way runs the pool down to about N (whether the sacrifice is optional, and whether it needs more than N Life left,
+# UNVERIFIED: RESEARCH); the defence floors still read the full pool (an overcount of the defences, said in the note).
+# Not with Chaos Inoculation (Life 1) or a Life pool of N or less; nothing where no bolt is consumed already.
+LAMENT_LINE = re.compile(r"^sacrifice (\d+) life to not consume the last bolt when firing$", re.I)
+LAMENT_ENTRY = "model-mechb48-last-bolt-sacrifice"
+LAMENT_STATS = ("BoltCount", "FiringRate", "Speed", "EffectiveReloadTime", "ChanceToNotConsumeAmmo", "Life",
+                "ChaosInoculation")
+
+
+def last_bolt_sacrifice_model(main: Skill | None, texts: list[str], stats: dict, flows: tuple, forbidden: set[str] = frozenset()
+                              ) -> tuple[list[dict], list[dict]]:
+    """The line above on the main Crossbow skill: `stats` PoB's LAMENT_STATS, `flows` recovery.life_flows'."""
+    if main is None or LAMENT_ENTRY in forbidden:
+        return [], []
+    cost = next((float(m.group(1)) for t in texts if (m := LAMENT_LINE.match(t.strip()))), 0.0)
+    if cost <= 0:
+        return [], []
+    speed, firing = number(stats.get("Speed")), number(stats.get("FiringRate"))
+    reload, bolts = number(stats.get("EffectiveReloadTime")), number(stats.get("BoltCount"))
+    label = f"{main.name}: Life Sacrificed for the last bolt*"
+    if bolts <= 0 or reload <= 0 or firing <= speed or number(stats.get("ChanceToNotConsumeAmmo")) >= 100:
+        return [], [{"label": label, "value": "x1", "confidence": "MEDIUM-LOW", "entry": LAMENT_ENTRY,
+                     "basis": f"{main.name} has no clip to reload (PoB gives no reload for it): the line changes nothing"}]
+    life = number(stats.get("Life"))
+    if number(stats.get("ChaosInoculation")) > 0 or life <= cost:
+        return [], [{"label": label, "value": "x1", "confidence": "MEDIUM-LOW", "entry": LAMENT_ENTRY,
+                     "basis": f"your {life:,.0f} Life can't pay {cost:g} a shot: every reload stays"}]
+    back, hit_life, spent, steady, parts = flows
+    net = back - hit_life - spent - steady
+    share = min(1.0, max(net, 0.0) / (cost * firing))
+    factor = (share * firing + (1 - share) * speed) / speed
+    every = firing / speed
+    note = {"label": label, "value": f"x{factor:.3f}", "confidence": "MEDIUM-LOW", "entry": LAMENT_ENTRY,
+            "basis": (f"PoB parses the line only in part and never applies it. Your Life recovery {back:,.1f}/s, less "
+                      f"{'; '.join(parts) or 'nothing'}{f' and {steady:,.1f}/s of your own loss' if steady > 0 else ''}: "
+                      f"{net:,.1f} Life a second pays {max(net, 0.0) / cost:.3f} shots of {cost:g} Life, at "
+                      f"{firing:.2f} shots a second with no reload: {share:.0%} of the fight without reloading, the rest "
+                      f"at PoB's {speed:.2f} with its {reload:.2f} s reloads: x{factor:.3f} (every reload skipped: "
+                      f"x{every:.3f}). Your Life runs down to about {cost:g} while you do it (the defence floors still "
+                      "read the full pool; whether the sacrifice is optional: UNVERIFIED)"),
+            "play": (f"Keep firing {main.name} past the last bolt while your Life refills; reload only when it's low. "
+                     f"Without it: x1; with this build's recovery: x{factor:.3f}.")}
+    if factor <= 1 + 1e-9:
+        return [], [note]
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=LAMENT_ENTRY)], [note]
+
+
+# Runic Bindings (MECHB48; COV48's lane row 12.9, The Unleashed, Revered Vestments: "Gain 1 Runic Binding on Hit with
+# Spells, no more than once every 0.5 seconds", "Lose all Runic Bindings when you Shapeshift to gain that much Unbound
+# Potential"). An OVERCOUNT: PoB parses neither (ModCache 7509-7510: {} with leftover text). KeywordPopups RunicBinding
+# (26650308): "Each Runic Binding grants 10% reduced Spell Damage and 2% reduced Skill cost Efficiency. You can have up to
+# 10 Runic Bindings. Runic Bindings last for 10 seconds. Runic Bindings cannot be gained while Shapeshifted". On a main
+# Spell that hits: gained at r = min(1 / 0.5 s, its hits a second at its share of the fight), each lasting 10 s (each its
+# own duration: UNVERIFIED, the higher count; refreshed together would be the same at r >= 0.1/s), so min(10, 10 r)
+# stand: 10% reduced Spell Damage each (as the line "1% increased Spell Damage" x -10 n, PoB's own parse). The cost
+# Efficiency (2% reduced each) isn't read (a small overcount of Mana sustain, said). The Unbound Potential a Shapeshift
+# turns them into (KeywordPopups UnboundPotential: 20% increased Damage each, up to 10, one lost every 5 s, all lost on
+# turning Human) isn't counted: a main Spell is cast as a Human (an UNDERCOUNT only for a build that shapeshifts to
+# spend them, said). HIGH on the penalty's size, MEDIUM on the stacks.
+BINDING_LINE = re.compile(r"^gain 1 runic binding on hit with spells, no more than once every (\d+(?:\.\d+)?) seconds$",
+                          re.I)
+BINDING_MAX, BINDING_SECONDS, BINDING_LESS = 10, 10.0, 10.0
+BINDING_ENTRY = "model-mechb48-runic-binding"
+
+
+def runic_binding_model(main: Skill | None, texts: list[str], stats: dict, forbidden: set[str] = frozenset()
+                        ) -> tuple[list[dict], list[dict]]:
+    """The penalty above on a main Spell: `stats` PoB's Speed and HitChance, with _main_share."""
+    if main is None or BINDING_ENTRY in forbidden:
+        return [], []
+    every = next((float(m.group(1)) for t in texts if (m := BINDING_LINE.match(t.strip()))), None)
+    if every is None:
+        return [], []
+    label = "Runic Bindings on your Spells*"
+    if not main.spell:
+        return [], [{"label": label, "value": 0, "confidence": "MEDIUM", "entry": BINDING_ENTRY,
+                     "basis": (f"{main.name} isn't a Spell: no Bindings from it (other Spells' hits aren't read; the "
+                               "Unbound Potential a Shapeshift makes of them isn't counted)")}]
+    hits = hits_per_second(at_main_share(stats))
+    rate = min(1.0 / every if every > 0 else math.inf, hits)
+    stacks = min(float(BINDING_MAX), rate * BINDING_SECONDS)
+    if stacks <= 0:
+        return [], [{"label": label, "value": 0, "confidence": "MEDIUM", "entry": BINDING_ENTRY,
+                     "basis": f"{main.name} doesn't hit: no Bindings"}]
+    less = BINDING_LESS * stacks
+    return [line("1% increased Spell Damage", -less)], [{
+        "label": label, "value": f"{stacks:.1f} ({less:.0f}% reduced Spell Damage)", "confidence": "MEDIUM",
+        "entry": BINDING_ENTRY,
+        "basis": (f"PoB reads neither line. One a hit with Spells at most every {every:g} s: {main.name} hits "
+                  f"{hits:.2f} times a second at its share of the fight, so {rate:.2f} a second, each lasting "
+                  f"{BINDING_SECONDS:g} s: {stacks:.1f} of {BINDING_MAX} stand, {BINDING_LESS:g}% reduced Spell Damage "
+                  f"each (KeywordPopups RunicBinding, HIGH). Not read: their {2 * stacks:.0f}% reduced Skill cost "
+                  "Efficiency (more Mana spent), and the Unbound Potential a Shapeshift would turn them into (20% "
+                  "increased Damage each while Shapeshifted: not counted, your main Spell is cast as a Human)"),
+        "play": ("The Unleashed's Runic Bindings cut your Spell damage while you cast: Shapeshift to spend them as "
+                 f"Unbound Potential. Without them: no penalty; this build: {less:.0f}% reduced Spell Damage.")}]

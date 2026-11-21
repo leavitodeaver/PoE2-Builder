@@ -1,0 +1,77 @@
+# MECH-B's model entries (MECHB48).
+
+- id: model-mechb48-fissures-at-boss
+  title: "A Fissure skill's Fissures a use at the boss: base count + supports' extra + the chance of one more (models.fissure_count_model)"
+  kind: pob_gap
+  model: fissure_count
+  match: '^Skills which create Fissures have a (\(\d+-\d+\)|\d+(?:\.\d+)?)% chance to create an additional Fissure$'
+  replace: []
+  confidence: theory
+  notes: >-
+    MECHB48, an UNDERCOUNT (COV48's lane row; RESEARCH37 R37-16). PoB reads no Fissure count: the chance line is left
+    unparsed (ModCache 9410-9413), and base_number_of_fissures (Forge Hammer 5), base_number_of_additional_fissures
+    (Upheaval I 1, II 2, Kaom's Madness 3) and skill_additional_fissure_chance_% (Abyss mace suffixes 15-31%, the
+    Verisium implicit 50%, a corruption upgrade 20-40%, the Splitting Ground notable 20%, Entangle's quality) have no
+    statMap, so each Fissure set scores one Fissure a use. Counted together (they add): base + extra + min(1, chance),
+    all at the boss in melee for line / slam / spiral layouts (MEDIUM-LOW; the fan reading LOW), Fury of the Mountain's
+    120-degree random arc at 1.5 m (row at 3 m); a row at range with only the aimed one. Only the Fissure set's share
+    of the scored DPS is scaled (with Earthshatter's / Forge Hammer's set-off share from detonated_set_model).
+  sources: ["builder/search/models.py (FISSURE_SETS, fissure_count_model)", "builder/search/assumptions.py (models(), after the detonated sets)",
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/radius-transform-jewels-and-fissure-layouts.md (R37-16)",
+            "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:9410-9413",
+            "data/game-26650308/tables/GrantedEffectStatSets.json (ForgeHammerPlayer, SupportUpheavalPlayer / PlayerTwo, SupportKaomsMadnessPlayer)",
+            "data/game-26650308/tables/Mods.json (AbyssMod1HMace / 2HMaceAmanamuSuffixAdditionalFissureChance, CorruptionUpgradeAdditionalFissureChance, TwistedEmpyreanVerisiumImplicitAdditionalFissures1)",
+            "data/game-26650308/tables/PassiveSkills.json (area_attacks40_, Splitting Ground)"]
+  status: proposed
+
+- id: model-mechb48-forge-hammer-warcry-shatter
+  title: "Forge Hammer's Fissures only when a Warcry shatters the lodged hammer (models.DETONATED_SETS / detonated_set_model)"
+  kind: model
+  model: detonated_set
+  skill: ["Forge Hammer"]
+  confidence: theory
+  notes: >-
+    MECHB48, an OVERCOUNT with no Warcry: "using a Warcry near the lodged hammer causes it to shatter, releasing a number
+    of Molten Fissures in a spiral" (ActiveSkills forge_hammer, 26650308; no other way in the patch notes 0.3.0-0.5.1).
+    PoB scores the Fissures set on every use. Now Impact + Fissures x the share the build's Warcries shatter (one
+    hammer, its 12 s duration taken as how long it lies: UNVERIFIED), as GEM19's Earthshatter; Detonators not counted
+    (no line names them for the hammer). The recall use (no Impact) isn't read: UNVERIFIED, up to x2 over on Impact.
+  sources: ["builder/search/models.py (DETONATED_SETS, DETONATED_BY, DETONATORS_TOO)", "builder/search/assumptions.py (models(), the detonated sets)",
+            "data/game-26650308/tables/ActiveSkills.json (forge_hammer)"]
+  status: proposed
+
+- id: model-mechb48-last-bolt-sacrifice
+  title: "The Last Lament's \"Sacrifice N Life to not consume the last bolt when firing\" from the build's Life recovery (models.last_bolt_sacrifice_model)"
+  kind: pob_gap
+  model: last_bolt_sacrifice
+  match: '^Sacrifice (\(\d+-\d+\)|\d+) Life to not consume the last bolt when firing$'
+  replace: []
+  confidence: theory
+  notes: >-
+    MECHB48, an UNDERCOUNT (COV48's lane row 17.3): PoB parses the line only in part (ModCache 9335, leftover text), so it
+    never applies it. At the clip's last bolt a shot costs N Life instead, so no reload while Life pays: the build's Life
+    recovery after the boss's landed hits, Life costs and own loss (recovery.life_flows) pays net / N shots a second, at
+    PoB's FiringRate; the share f = min(1, net / (N x FiringRate)) fires unbroken, the rest at PoB's clip-and-reload
+    Speed. MEDIUM-LOW; whether the sacrifice is optional, and the Life pool it leaves for the boss's hits, UNVERIFIED.
+  sources: ["builder/search/models.py (LAMENT_LINE, last_bolt_sacrifice_model)", "builder/search/assumptions.py (models(), after the Explosive Rhythm block)",
+            "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:9335", "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua:3019-3037",
+            "vendor/PathOfBuilding-PoE2/src/Data/Uniques/crossbow.lua:28"]
+  status: proposed
+
+- id: model-mechb48-runic-binding
+  title: "The Unleashed's Runic Bindings: 10% reduced Spell Damage each on a main Spell (models.runic_binding_model)"
+  kind: pob_gap
+  model: runic_binding
+  match: '^Gain 1 Runic Binding on Hit with Spells, no more than once every (\(\d+-\d+\)|\d+(?:\.\d+)?) seconds$'
+  replace: []
+  confidence: theory
+  notes: >-
+    MECHB48, an OVERCOUNT (COV48's lane row 12.9): PoB parses neither of The Unleashed's Binding lines (ModCache
+    7509-7510). KeywordPopups RunicBinding: 10% reduced Spell Damage and 2% reduced Skill cost Efficiency each, up to
+    10, 10 s each, none while Shapeshifted. On a main Spell that hits: min(10, 10 s x min(2/s, its hits a second at its
+    share)) stand, as "1% increased Spell Damage" x -10 each. Not read: the cost Efficiency, and the Unbound Potential a
+    Shapeshift turns them into (an undercount only for a build that shapeshifts to spend them).
+  sources: ["builder/search/models.py (BINDING_LINE, runic_binding_model)", "builder/search/assumptions.py (models(), after The Last Lament)",
+            "data/game-26650308/tables/KeywordPopups.json (RunicBinding, UnboundPotential)",
+            "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:7509-7510", "vendor/PathOfBuilding-PoE2/src/Data/Uniques/body.lua:699-700"]
+  status: proposed

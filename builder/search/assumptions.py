@@ -3953,6 +3953,7 @@ class Assumptions:
             ail_mods, ail_notes = models.ailment_set_model(main, main.stat_set, sets, up, up_how, forbidden,
                                                              previous=self.mods)
             hand_mods, hand_notes = hand_mods + ail_mods, hand_notes + ail_notes
+        det_split = None  # (MECHB48: the detonated share, for the Fissure count below)
         if main is not None and group and main.name in models.DETONATED_SETS:  # (GEM17: detonations need a Detonator)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             if main.name in models.DETONATED_BY:  # (GEM19: Earthshatter's spikes shatter on a Warcry, not a Detonator)
@@ -3963,13 +3964,19 @@ class Assumptions:
                     models.press_choices(build)).get(event, (0.0, f"no {event} in the build"))
                 det_how = det_how or f"no {event} in the build"
                 # (patch 0.3.0, no later entry: "Detonation now also triggers existing spikes": Detonators too)
-                bomb_rate, bomb_how = self.detonator_rate(group["index"])
+                if main.name not in models.DETONATORS_TOO:  # (MECHB48: Forge Hammer shatters on a Warcry only)
+                    bomb_rate, bomb_how = 0.0, ""
+                else:
+                    bomb_rate, bomb_how = self.detonator_rate(group["index"])
                 cries_only = models.detonated_share(main.name, number(stats.get("Speed")), det_rate)
                 # (RESEARCH30 R30-2 (f): whether Detonations still shatter the spikes is unsettled; Detonators stay
                 # counted, MEDIUM-LOW, and the description's Warcries-only reading is a row)
-                det_rate, det_how = det_rate + bomb_rate, (
-                    f"{event}s: {det_how}; {bomb_how} (Detonators: patch 0.3.0, MEDIUM-LOW, RESEARCH30 R30-2 (f) "
-                    f"unsettled; with {event}s only, the description's reading: {cries_only:.0%} of spikes)")
+                if main.name not in models.DETONATORS_TOO:
+                    det_how = f"{event}s: {det_how} (Warcries only: no Detonator sets it off)"
+                else:
+                    det_rate, det_how = det_rate + bomb_rate, (
+                        f"{event}s: {det_how}; {bomb_how} (Detonators: patch 0.3.0, MEDIUM-LOW, RESEARCH30 R30-2 (f) "
+                        f"unsettled; with {event}s only, the description's reading: {cries_only:.0%} of spikes)")
             else:
                 det_rate, det_how = self.detonator_rate(group["index"])
             per_spike = 0.0
@@ -3981,6 +3988,16 @@ class Assumptions:
                                                              det_rate, det_how, forbidden, per_spike,
                                                              previous=self.mods)
             hand_mods, hand_notes = hand_mods + det_mods, hand_notes + det_notes
+            det_split = models.detonated_share(main.name, number(stats.get("Speed")), det_rate)
+        if main is not None and group and main.name in models.FISSURE_SETS:  # (MECHB48, R37-16: PoB counts one a use)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            got = next((x for x in build.call("activeSkills", levelStats=[main.name], supportStats=[
+                models.FISSURE_EXTRA_STAT])["skills"] if x["name"] == main.name and x.get("group") == group["index"]), {})
+            fis_mods, fis_notes = models.fissure_count_model(
+                main, main.stat_set, sets, got.get("levelStats") or {}, got.get("supportStats") or {},
+                [e["text"] for e in source_lines], bosses.hit_radius(stats)[0], det_split, forbidden,
+                previous=self.mods)
+            hand_mods, hand_notes = hand_mods + fis_mods, hand_notes + fis_notes
         if main is not None and main.name == models.EYE:  # (GEM19: its first hit a use, 900% more, never read by PoB)
             eye_stats = build.call("stats", fields=["AverageDamage", "Speed", "TotalDPS"])
             eye_own = sum(number(m.get("value")) for m in self.mods or []
@@ -4365,6 +4382,24 @@ class Assumptions:
                 main, rhythm_texts, row, number(info.get("cooldownRecovery")) or 1.0,
                 number(build.call("stats", fields=["ProjectileCount"]).get("ProjectileCount")), grenades, forbidden)
             hand_mods, hand_notes = hand_mods + rhythm_mods, hand_notes + rhythm_notes
+        lament_texts = [e["text"] for e in source_lines if models.LAMENT_LINE.match(e["text"].strip())]
+        if lament_texts and main is not None:  # (MECHB48: The Last Lament's last bolt for Life; PoB never applies it)
+            from builder.search import objective as objective_mod
+
+            fields = sorted(set(objective_mod.RECOVERY_INPUTS) | set(conditions_mod.FULL_LIFE_FIELDS)
+                            | set(models.LAMENT_STATS))
+            added = getattr(build, "added_stats", None)
+            lament_stats = {**build.call("stats", fields=fields), **(added() if callable(added) else {})}
+            lament_mods, lament_notes = models.last_bolt_sacrifice_model(
+                main, lament_texts, lament_stats, recovery_mod.life_flows(lament_stats), forbidden)
+            hand_mods, hand_notes = hand_mods + lament_mods, hand_notes + lament_notes
+        binding_texts = [e["text"] for e in source_lines if models.BINDING_LINE.match(e["text"].strip())]
+        if binding_texts and main is not None:  # (MECHB48: The Unleashed's Runic Bindings; PoB reads neither line)
+            binding_stats = build.call("stats", fields=["Speed", "HitChance"])
+            if getattr(build, "objective", None) is not None:
+                binding_stats["_main_share"] = main_time_share(build, main)
+            binding_mods, binding_notes = models.runic_binding_model(main, binding_texts, binding_stats, forbidden)
+            hand_mods, hand_notes = hand_mods + binding_mods, hand_notes + binding_notes
         eldritch_mods, eldritch_notes = models.eldritch_empowerment_model([e["text"] for e in source_lines], stats, main)
         hand_mods, hand_notes = hand_mods + eldritch_mods, hand_notes + eldritch_notes  # (MECHB30, MB-1: PoB's box unset)
         agony, agony_rate, agony_mods, agony_notes = inevitable_agony(build, main)  # (MECHB30: PoB scores it 0)
