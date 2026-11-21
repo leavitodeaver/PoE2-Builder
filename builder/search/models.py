@@ -15238,6 +15238,38 @@ def presence_power(texts: list[str], stats: dict, distance: float | None = None,
                    "readings, UNVERIFIED)")
 
 
+# Ice Crystal Life per Cold Resistance (MECH96; the open row "Ice Crystals have #% reduced maximum Life per #% Cold
+# Resistance you have", 13.1 + 0.9). Eventide Petals' "(-3-3)% reduced" per 5% (PoB's amulet.lua 107; a negative roll
+# reads as increased). PoB parses none of it (ModCache 8260-8261: nil) and has no "per N% Cold Resistance" tag
+# (ModParser has only the missing-resistance form, 1658). PoB's crystal Life is IceCrystalLifeBase x the IceCrystalLife
+# mods (CalcOffence 1724-1726; ModParser 692 "ice crystal life"), so the line is IceCrystalLife INC -N x floor(Cold
+# Resistance / 5), at PoB's ColdResist (the resistance you have: capped; MEDIUM that "you have" means the capped value,
+# not the uncapped total: UNVERIFIED, the line's sign decides which reading is the lower one). It moves the crystals'
+# Life wherever a model reads PoB's IceCrystalLife (Creeping Chill's Chill from the crystal's Life, conditions'
+# creeping_chill; Frost Wall / Frozen Locus / Midnight Zenith crystals). Floor per whole 5%: PoB's PerStat rounding.
+CRYSTAL_LIFE_PER_RES = re.compile(r"^Ice Crystals have (-?\d+(?:\.\d+)?)% (reduced|increased) maximum Life per "
+                                  r"(\d+)% Cold Resistance you have$", re.I)
+
+
+def crystal_life_mods(texts: list[str], cold_res: float) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for CRYSTAL_LIFE_PER_RES (the note above), at the build's Cold Resistance."""
+    total, parts = 0.0, []
+    for t in texts:
+        m = CRYSTAL_LIFE_PER_RES.match(t.strip())
+        if not m or float(m.group(3)) <= 0:
+            continue
+        each = float(m.group(1)) * (-1 if m.group(2).lower() == "reduced" else 1)
+        steps = math.floor(max(0.0, cold_res) / float(m.group(3)))
+        total += each * steps
+        parts.append(f"{each:+g}% per {m.group(3)}% x {steps}")
+    if not parts or total == 0:
+        return [], []
+    return [raw_mod("IceCrystalLife", "INC", total)], [{
+        "label": "Ice Crystal Life from Cold Resistance*", "value": f"{total:+g}%", "confidence": "MEDIUM",
+        "basis": (f"{'; '.join(parts)} at {cold_res:g}% Cold Resistance (PoB's ColdResist, capped): PoB parses none of "
+                  "the line; it scales the crystals' Life (Creeping Chill's Chill, the crystals' durability)")}]
+
+
 # Gruelling Madness on the boss (MECH96; the open rows "Minions have N% chance to inflict Gruelling Madness on Hit" and
 # the plan kw-gruelling-madness.md). KeywordPopups GruellingMadness: "The first Gruelling Madness on a target Slows their
 # movement speed by 15%. Each additional Gruelling Madness instead increases the Slowing Potency of Debuffs on the

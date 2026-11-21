@@ -145,3 +145,98 @@ def test_fear_incarnate_counts_at_the_presets_add_culls():
     mods, _ = models.fear_mods(["Gain 1 Fear Overwhelming when you Cull a target"], {models.CULLS_STAT: 0.2})
     assert [(m["name"], m["value"]) for m in mods] == [("AreaOfEffect", pytest.approx(10.0))]
     assert models.fear_mods(["+10 to Strength"], {models.CULLS_STAT: 1.0}) == ([], [])
+
+
+ACCUMULATION = ("On Hitting an enemy, gains maximum added Cold damage equal to the enemy's Power for 20 seconds, up to a "
+                "total of 32")
+
+
+def test_rune_of_accumulation_counts_the_power_hit_up_to_its_32_cap():
+    """MECH96: the rune's count is Olrovasara's (Assumptions.enemy_power_hit_count) at its own cap, 32: a lone boss 20,
+    adds on top held at 32; its line reaches the ledger as a share: stand-in."""
+    from builder.ledger import translate
+    from builder.search.assumptions import Assumptions
+
+    class FakeBuild:
+        def __init__(self, kills=None):
+            self.kills, self.texts = kills, []
+
+        def call(self, name, **_):
+            if name == "stats":
+                return {"Speed": 1.5, "HitChance": 100, "PresenceRadius": 40}
+            if name == "sourceLines":
+                return {"lines": []}
+            if name == "getConfig":
+                return {"input": {}}
+            raise AssertionError(name)
+
+    def count(build):
+        a = Assumptions.__new__(Assumptions)
+        a.build = build
+        return a.enemy_power_hit_count(20.0, 32.0, "Lightning Arrow", {"Attack", "Projectile"})[0]
+
+    assert count(FakeBuild()) == 20.0
+    assert count(FakeBuild(kills=(50.0, 50.0, "preset"))) == 32.0
+    assert translate(ACCUMULATION)[1] == ["share:EnemyPowerHit20sCold32 Attacks with this Weapon have Adds 0 to 1 "
+                                          "Cold Damage"]
+
+
+def test_rune_of_accumulation_adds_maximum_cold_to_its_weapons_attacks(engine):
+    """Through PoB: a bow with the rune socketed (rares.with_runes: the ledger's stand-in on the bow) at the count's
+    2000 (a lone boss's Power 20) scores as the bow's own "Adds 1 to 10 Cold Damage" raised to "Adds 1 to 30"; at 0, as
+    without the rune (PoB parses none of the rune's own line)."""
+    from builder.search import models
+    from builder.search.rares import with_runes
+
+    head = "Rarity: Rare\nTest Bow\nCrude Bow\nItem Level: 82\nImplicits: 0\n"
+
+    def dps(raw, share=None):
+        engine.call("newBuild")
+        engine.call("setLevel", level=90)
+        engine.call("equip", slot="Weapon 1", fields=[], raw=raw)
+        engine.call("addSkillGroup", text="Lightning Arrow 20/0 1", main=True)
+        engine.call("setAssumptions", mods=[] if share is None else
+                    [models.raw_mod("Multiplier:LedgerShareEnemyPowerHit20sCold32", "BASE", share)])
+        return engine.call("stats", fields=["TotalDPS"])["TotalDPS"]
+
+    socketed = with_runes(head + "Adds 1 to 10 Cold Damage", ["Rune of Accumulation"])
+    plain, raised = dps(head + "Adds 1 to 10 Cold Damage"), dps(head + "Adds 1 to 30 Cold Damage")
+    got, off = dps(socketed, 2000), dps(socketed, 0)
+    print("PROBE accumulation", plain, raised, got, off)
+    engine.call("setAssumptions", mods=[], fields=[])
+    assert raised > plain
+    assert got == pytest.approx(raised, rel=1e-6)
+    assert off == pytest.approx(plain, rel=1e-6)
+
+
+def test_eventide_petals_crystal_life_per_cold_resistance():
+    """MECH96: "Ice Crystals have N% reduced maximum Life per 5% Cold Resistance you have" as IceCrystalLife INC -N x
+    floor(Cold Resistance / 5): 3% reduced at 75% -> -45%; a negative roll (-2% reduced) at 74% -> +28%; none at 0%."""
+    from builder.search import models
+
+    line = "Ice Crystals have 3% reduced maximum Life per 5% Cold Resistance you have"
+    mods, _ = models.crystal_life_mods([line], 75.0)
+    assert [(m["name"], m["type"], m["value"]) for m in mods] == [("IceCrystalLife", "INC", -45.0)]
+    mods, _ = models.crystal_life_mods(["Ice Crystals have -2% reduced maximum Life per 5% Cold Resistance you have"], 74.0)
+    assert mods[0]["value"] == pytest.approx(28.0)
+    assert models.crystal_life_mods([line], 0.0) == ([], [])
+    assert models.crystal_life_mods(["+10 to Strength"], 75.0) == ([], [])
+
+
+def test_ice_crystal_life_inc_reaches_pobs_crystal_life(engine):
+    """Through PoB: Frost Wall's IceCrystalLife (CalcOffence 1724-1726) x(1 - 45%) with Eventide Petals' 3% per 5% at
+    75% Cold Resistance (the model's IceCrystalLife INC -45)."""
+    from builder.search import models
+
+    engine.call("newBuild")
+    engine.call("setLevel", level=90)
+    engine.call("setAssumptions", mods=[], fields=[])
+    engine.call("addSkillGroup", text="Frost Wall 20/0 1", main=True)
+    plain = engine.call("stats", fields=["IceCrystalLife"])["IceCrystalLife"]
+    mods, _ = models.crystal_life_mods(["Ice Crystals have 3% reduced maximum Life per 5% Cold Resistance you have"], 75.0)
+    engine.call("setAssumptions", mods=mods, fields=[])
+    got = engine.call("stats", fields=["IceCrystalLife"])["IceCrystalLife"]
+    print("PROBE crystal life", plain, got)
+    engine.call("setAssumptions", mods=[], fields=[])
+    assert plain > 0
+    assert got == pytest.approx(plain * 0.55, rel=1e-3)

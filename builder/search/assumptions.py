@@ -3000,6 +3000,11 @@ class Assumptions:
         mods, notes = mods + madness_mods, notes + madness_notes
         fear_mods_, fear_notes = models.fear_mods(texts, stats)  # (MECH96: Fear Incarnate / Overwhelming on Culls)
         mods, notes = mods + fear_mods_, notes + fear_notes
+        if any(models.CRYSTAL_LIFE_PER_RES.match(t.strip()) for t in texts):  # (MECH96: Eventide Petals)
+            cold_res = (stats["ColdResist"] if "ColdResist" in stats
+                        else (build.call("stats", fields=["ColdResist"]) or {}).get("ColdResist"))
+            crystal_mods, crystal_notes = models.crystal_life_mods(texts, number(cold_res))
+            mods, notes = mods + crystal_mods, notes + crystal_notes
         # (MECH79, MECH-A) Incinerate's fuel (its idle line) and the main skill's Compounding Ignite
         compound_mods, compound_notes = models.compound_ignite_mods(name or "", getattr(build, "compound_ignite", None))
         mods, notes = mods + compound_mods, notes + compound_notes

@@ -1,0 +1,36 @@
+# MECH96 (MECH-A lane, 20 Nov 2026): Rune of Accumulation's weapon line, the Cold twin of Olrovasara's (COV35's
+# EnemyPowerHit20s, items-cov35.yaml): "On Hitting an enemy, gains maximum added Cold damage equal to the enemy's Power
+# for 20 seconds, up to a total of 32" (bow / crossbow / spear; PoB's ModRunes 6964 / 6981 / 6998, localMod; game stat
+# local_maximum_added_cold_damage_equal_to_total_monster_power_of_enemies_hit_in_past_20_seconds_up_to_X, Stats 20291).
+# PoB parses none of it (ModCache: no entry; ModScalability 11795 lists it with no mods), so it counted 0: an UNDERCOUNT
+# for a bow / crossbow / spear build with the rune. (checked: Mods Stat1-6 hold none of 20291-20293 (runes live in PoB's
+# ModRunes, not Mods); PoB's data: ModRunes' three Rune of Accumulation weapon forms are the only lines with the text;
+# poe2db NOT checked.) Counted as Olrovasara's is: the summed Power of the enemies hit in the past 20 s (the boss's
+# Power, with the build's Power lines, plus the adds killed, Assumptions.enemy_power_hit_count), capped at 32, as this
+# weapon's maximum added Cold damage (PoB's "Attacks with this Weapon have Adds 0 to 1 Cold Damage", 1 per Power).
+
+- id: EnemyPowerHit20sCold32
+  title: Summed Power of the enemies hit in the past 20 seconds (Rune of Accumulation), up to 32
+  kind: condition
+  enemy_power_hit: 20
+  cap: 32
+  shown_for: '(?:the enemy''s Power for 20 seconds, up to a total of 32|^LedgerShare:EnemyPowerHit20sCold32$)'
+  confidence: theory
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModRunes.lua (Rune of Accumulation)",
+            "data/game-26650308/tables/Stats.json (20291)", "ledger/entries/items-cov35.yaml (EnemyPowerHit20s)"]
+  status: proposed
+
+- id: items-mech96-accumulation-power-cold
+  title: Rune of Accumulation, maximum added Cold equal to the Power of the enemies hit in the past 20 seconds, at EnemyPowerHit20sCold32's count
+  kind: pob_gap
+  match: '^On Hitting an enemy, gains maximum added Cold damage equal to the enemy''s Power for 20 seconds, up to a total of 32$'
+  replace: ['share:EnemyPowerHit20sCold32 Attacks with this Weapon have Adds 0 to 1 Cold Damage']
+  confidence: theory
+  notes: >-
+    As items-olrovasara-power-lightning, in Cold: the stand-in is this weapon's own maximum added Cold, 1 per Power
+    counted (EnemyPowerHit20sCold32, in whole percent: a lone boss 20 -> 2000, so +20 maximum; held at 32). Through
+    PoB's added-damage path (CalcOffence 4132-4136), the weapon's hand only (Olrovasara's probe POE2T2578; this one's
+    engine test tests/test_mech96.py). 0 when the main skill doesn't hit; nothing for Spells.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModRunes.lua (Rune of Accumulation)", "scratch/cov35/probe2578.log"]
+  test_in_game: "Hit a boss with the rune socketed: the weapon's Cold damage tooltip rises by about 20 (its Power) for 20 s."
+  status: proposed

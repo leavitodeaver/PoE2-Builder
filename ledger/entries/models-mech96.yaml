@@ -75,3 +75,33 @@
     reads the line.
   sources: ["builder/search/models.py (FEAR_OVERWHELMING, fear_mods)"]
   status: proposed
+
+- id: model-read-mech96-marks-consumed-remark
+  title: '"When your Marks are Consumed, they have N% chance to Mark another Enemy within N metres" (0 against the boss)'
+  kind: pob_gap
+  model: none
+  match: '^When your Marks are Consumed, they have (\(\d+-\d+\)|\d+)% chance to Mark another Enemy within (\d+) metres$'
+  replace: []
+  confidence: theory
+  notes: >-
+    The Marksman influence gloves forms (HandWrapsMarksmanInfluenceIncreasedMarkDuration1 / 2; MECH96). Counted as 0 for
+    the boss score, labelled: by its own words the new Mark goes on "another Enemy", never the one whose Mark was
+    Consumed, so the boss gains no Mark from it; on a preset with adds it Marks an add, which feeds no boss damage in our
+    model (a Mark-consume line on an add's Mark would, read nowhere today: an undercount there, small). PoB parses
+    nothing of it (no ModCache entry whole). This entry only records the reading.
+  sources: ["the line's own text (PoB ModItem.lua HandWrapsMarksmanInfluenceIncreasedMarkDuration1 / 2)"]
+  status: proposed
+
+- id: model-read-mech96-crystal-life-per-cold-res
+  title: '"Ice Crystals have N% reduced maximum Life per N% Cold Resistance you have" (models.crystal_life_mods)'
+  kind: pob_gap
+  model: crystal_life
+  match: '^Ice Crystals have (\(-?\d+--?\d+\)|-?\d+)% (?:reduced|increased) maximum Life per (\d+)% Cold Resistance you have$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Eventide Petals (MECH96, PoB's ModCache 8260-8261: nil). models.crystal_life_mods: IceCrystalLife INC -N x floor(Cold
+    Resistance / 5) at PoB's (capped) ColdResist, into PoB's crystal Life (CalcOffence 1724-1726), which Creeping Chill's
+    Chill model reads. This entry only says a model reads the line.
+  sources: ["builder/search/models.py (CRYSTAL_LIFE_PER_RES, crystal_life_mods)"]
+  status: proposed
