@@ -76,6 +76,13 @@ PRESS_ROUND = os.environ.get("POE2_SEARCH_PRESS", "1") != "0"
 # (SEARCH25, A36-14) a granted pressed skill tried in Full DPS on the finished build (Search.include_granted)
 GRANTED_PRESS = os.environ.get("POE2_SEARCH_GRANTED_PRESS", "1") != "0"
 FILL_FINALIZE_RATIO = 1.5  # (SEARCH34) the open-socket fill's time, at most this x finalize's own (LOW, a time budget)
+# (SEARCH35; SEARCH34's ranked list, item 5: the search stalls in the Uhtred's Augury set on 2b75b seeds 1 / 4, and the
+# end-of-run fill fixes the supports but the gear and tree were chosen under the worse set) the same fill inside the
+# search: a "socket fill" step after the supports step runs Gems.fill_open on the main group once per main-group set
+# the line holds with an open socket, up to FILL_SEARCH_SECONDS (LOW, a time budget, no DPS assumption), so the rest of
+# the line grows under the better set. OFF until a gate set measures it: POE2_SEARCH_FILL_IN_SEARCH=1 turns it on
+FILL_IN_SEARCH = os.environ.get("POE2_SEARCH_FILL_IN_SEARCH", "0") == "1"
+FILL_SEARCH_SECONDS = 60.0
 FINALIZE_SWEEP_MIN = 20.0  # finalize's polish sweeps supports on Full DPS first when it has this long (finalize_task)
 # How far past its deadline a search may run before its build stops it at the next evaluation (Build.stop_at): a share
 # of the task's time, at least STOP_GRACE_MIN seconds, so a step that watches the deadline itself finishes normally
@@ -170,6 +177,7 @@ class Search:
         self.resume_sweep = False
         self.press_rows: dict[str, dict] = {}  # (Search.press_round: each candidate's useRates row, its trial DPS)
         self.tree_rebuilt = False  # M2: the line's tree rebuild was tried (carried in the line's state)
+        self.fill_seen: list[list] = []  # (SEARCH35, socket_fill_round: the main-group sets the line's fill has seen)
         self.current_step: str | None = None
         self.kick_kinds: dict[str, int] = {}
         self.kicked: set[str] = set()  # blocks a kick disturbed, swept fully on the next pass
@@ -394,7 +402,7 @@ class Search:
             "line": {"passes": self.line_passes, "step": self.resume_step, "sweep": self.resume_sweep,
                      "short": self.line_short,
                      "kicked": sorted(self.kicked), "rebuilt": self.gems.rebuilt, "curses_tried": self.gems.curses_tried,
-                     "tree_rebuilt": self.tree_rebuilt} if PERSIST_LINES else None,
+                     "tree_rebuilt": self.tree_rebuilt, "fill_seen": copy.deepcopy(self.fill_seen)} if PERSIST_LINES else None,
         }
 
     # The objective's per-build factors (not its requirement weights: an escalation raises those for the rest of the
@@ -467,6 +475,7 @@ class Search:
             self.gems.rebuilt = bool(line.get("rebuilt"))  # (the support rebuild: once per line, SEARCH_PLAN.md §6)
             self.gems.curses_tried = bool(line.get("curses_tried"))  # (the seeded curse trial: once per line, SEARCH29)
             self.tree_rebuilt = bool(line.get("tree_rebuilt"))
+            self.fill_seen = [list(k) for k in line.get("fill_seen") or []]
         self.gear.sync_flasks()
 
     SETTLE_ROUNDS = 10  # (settle_still: the boss's Freeze on you settles in 3-4, MECHC40's probe POE2T3739)
@@ -1117,6 +1126,7 @@ class Search:
             # swept before it scored all alike; a line's one pass of focus round 1 then ended support-less, POE2T220)
             ("ascendancy", self.tree.ascendancy_round, ()),
             ("supports", self.gems.optimize_supports, (deadline, 12, sweep or "supports" in self.kicked)),
+            ("socket fill", self.socket_fill_round, (deadline,)),
             ("tree rebuild", self.tree_rebuild, (deadline,)),
             ("tree", self.tree.grow, (deadline,)),
             ("attributes", self.tree.attributes_round, ()),
@@ -1154,6 +1164,24 @@ class Search:
         self.current_step = None
         self.kicked.clear()
         self.passes_done += finished
+        return improved
+
+    def socket_fill_round(self, deadline: float) -> bool:
+        """(SEARCH35, FILL_IN_SEARCH) The open-socket fill (Gems.fill_open, the main group) inside the search, once per
+        main-group set the line holds with an open socket (fill_seen), the set it leaves counted as seen too."""
+        if not FILL_IN_SEARCH:
+            return False
+        main = self.build.main_group()
+        if main is None or not main.get("enabled", True):
+            return False
+        key = [main["index"], *(g["name"] for g in main["gems"])]
+        if key in self.fill_seen or self.gems.socket_use(main, False)[2] <= 0:
+            return False
+        self.fill_seen.append(key)
+        improved = self.gems.fill_open(min(deadline, clock.now() + FILL_SEARCH_SECONDS), kinds=("main",))
+        after = self.build.main_group()
+        if after is not None and (done := [after["index"], *(g["name"] for g in after["gems"])]) not in self.fill_seen:
+            self.fill_seen.append(done)
         return improved
 
     def tree_rebuild(self, deadline: float) -> bool:

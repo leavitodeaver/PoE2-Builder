@@ -165,3 +165,38 @@ def test_a_load_ammunition_skill_scores_nothing_and_the_firing_skill_is_chosen(e
     search.gems.choose_active_skill(settle=False)
     group = next(g for g in build.groups() if g["main"])
     assert group["skills"][group["mainActiveSkill"] - 1]["name"] == "Hailstorm Rounds"
+
+
+def test_the_socket_fill_runs_inside_the_search_once_per_main_group_set(monkeypatch):
+    """SEARCH35 (SEARCH34's ranked list, item 5): with POE2_SEARCH_FILL_IN_SEARCH on, the search's "socket fill" step
+    runs the open-socket fill on the main group once per main-group set the line holds with an open socket; the set the
+    fill leaves isn't filled again, and the sets it has seen go on in the line's state."""
+    from builder.search import inner
+
+    monkeypatch.setattr(inner, "FILL_IN_SEARCH", True)
+    search = inner.Search.__new__(inner.Search)
+    search.fill_seen = []
+    groups = {"main": {"index": 1, "enabled": True, "gems": [{"name": "Spark"}, {"name": "Uhtred's Augury"}]}}
+    fills = []
+
+    def fill_open(deadline, kinds=None):
+        fills.append(kinds)
+        groups["main"] = {"index": 1, "enabled": True, "gems": [{"name": "Spark"}, {"name": "Arcane Tempo"}]}
+        return True
+
+    open_ = {"n": 3}
+    search.build = types.SimpleNamespace(main_group=lambda: groups["main"])
+    search.gems = types.SimpleNamespace(fill_open=fill_open, socket_use=lambda group, meta: ([], 1, open_["n"]))
+    assert search.socket_fill_round(float("inf")) is True
+    assert fills == [("main",)]
+    assert search.socket_fill_round(float("inf")) is False  # (the set the fill left: seen)
+    groups["main"] = {"index": 1, "enabled": True, "gems": [{"name": "Spark"}, {"name": "Uhtred's Augury"}]}
+    assert search.socket_fill_round(float("inf")) is False  # (the first set again: seen)
+    groups["main"] = {"index": 1, "enabled": True, "gems": [{"name": "Spark"}]}
+    open_["n"] = 0
+    assert search.socket_fill_round(float("inf")) is False and len(fills) == 1  # (no open socket)
+    assert search.fill_seen == [[1, "Spark", "Uhtred's Augury"], [1, "Spark", "Arcane Tempo"]]
+    monkeypatch.setattr(inner, "FILL_IN_SEARCH", False)
+    groups["main"] = {"index": 1, "enabled": True, "gems": [{"name": "Spark"}, {"name": "Elemental Focus"}]}
+    open_["n"] = 3
+    assert search.socket_fill_round(float("inf")) is False and len(fills) == 1  # (off by default)
