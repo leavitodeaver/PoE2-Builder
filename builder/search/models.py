@@ -3764,7 +3764,7 @@ def gem_stat_support_stats() -> list[str]:
                                          BURGEON_CAP_STAT, SALVO_PROJECTILE_STAT, SALVO_INTERVAL_STAT, SALVO_MAX_STAT,
                                          VOLT_PER_METRE_STAT, VOLT_MAX_STAT, VOLT_GAIN_STAT, RATHA_DODGE_STAT,
                                          BHATAIR_STAT, TRICKSTER_STAT, OLROTH_STAT, VRUUN_STAT,
-                                         UHTRED_RITE_STAT})  # (gem_stat_life_loss and muster_kinds_model read these)
+                                         UHTRED_RITE_STAT, NOVA_STAT})  # (gem_stat_life_loss and muster_kinds_model read these)
 
 
 def _skill_names(entry) -> list[str]:
@@ -3899,6 +3899,8 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
     mods, notes = mods + burgeon_mods, notes + burgeon_notes
     salvo_mods, salvo_notes = salvo_model(skills, stats or {}, main, config, texts, forbidden)
     mods, notes = mods + salvo_mods, notes + salvo_notes
+    nova_mods, nova_notes = nova_projectiles_model(main, stats or {}, config, forbidden)  # (GEM29)
+    mods, notes = mods + nova_mods, notes + nova_notes
     volt_mods, volt_notes = volt_model(skills, stats or {}, main, texts, forbidden)
     mods, notes = mods + volt_mods, notes + volt_notes
     ratha_mods, ratha_notes = ratha_model(skills, stats or {}, main, texts, forbidden)
@@ -4528,6 +4530,15 @@ def _shotgun_count(skill: Skill, stats: dict, main: Skill | None) -> tuple[float
     count = number(stats.get("ProjectileCount"))
     if count <= 0:
         return 0.0, "PoB reports no projectile count for it: PoB's one fragment stands"
+    if nova_on(main):  # (GEM29: Nova Projectiles' circle)
+        from builder.search.conditions import MELEE_DISTANCE  # (conditions imports models)
+
+        radius = bosses.hit_radius(stats)[0]
+        hits = nova_circle_hits(count, radius, MELEE_DISTANCE)
+        return hits, (f"Nova Projectiles fires the {count:g} fragments round a circle with one aimed (RESEARCH31 R31-11 "
+                      f"(b), MEDIUM-LOW): {hits:g} reach a boss {radius:g} m in radius at point-blank ({MELEE_DISTANCE:g} "
+                      f"m), not all {count:g} (an OVERCOUNT before; row: all {count:g} if the circle doesn't apply, "
+                      "UNVERIFIED)")
     return count, ""
 
 
@@ -4535,6 +4546,8 @@ def shotgun_fragments_share(skill: Skill, stats: dict, main: Skill | None = None
     count, why = _shotgun_count(skill, stats, main)
     if count <= 1:
         return 0.0, why or "one fragment a use: nothing to add", SHOTGUN_PLAY
+    if why:  # (GEM29: Nova's circle, some still land together)
+        return 100 * (count - 1), why + f": x{count:g} the hit", SHOTGUN_PLAY + f" (x{count:g} the hit with Nova Projectiles.)"
     return 100 * (count - 1), (f"{count:g} fragments a use, all assumed to land together at point-blank and Merge into "
                                f"one hit: x{count:g} the hit PoB scores for one (LOW: the share that lands together is "
                                f"UNVERIFIED). Without it: x1, PoB's one fragment; with it: x{count:g}"), \
@@ -5375,6 +5388,82 @@ def salvo_model(skills: list[Skill], stats: dict, main: Skill | None, config: di
             "play": (f"Salvo fires {main.name} in random directions: fight close. Without Salvo's directions (PoB, aimed):"
                      f" x1.000; at {metres:g} m: x{factor:.3f}; at {MELEE_DISTANCE:g} m: x{near:.3f}.")}
     return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], notes + [note]
+
+
+# Nova Projectiles I / II (GEM29, 20 Nov 2026; an OVERCOUNT): "Supported Skills fire [Projectile|Projectiles] in a circle"
+# (gem_stat_descriptions projectiles_nova; SupportNovaProjectilesPlayer, and SupportNovaProjectilesTwoPlayer with
+# number_of_additional_projectiles 6, 50% less Damage and an 8 s cooldown: patch 0.4.0, the newest of --history "Nova
+# Projectiles"). PoB never reads projectiles_nova (sup_dex.lua: no statMap; it applies Nova II's +6, -50% and cooldown:
+# probe POE2T5775), and until now no model of ours did either (checked: grep of builder/ and engine/bridge.lua for
+# projectiles_nova / Nova Projectiles: none; the item-text circle SPELL_CIRCLE, Sire of Shards, is read for Bonestorm and
+# Ember Fusillade only). So the models that count EVERY projectile of a use on the boss kept counting them all with
+# Nova: Galvanic Shards x10 fragments with Nova I, x16 with Nova II; Frost Darts x3.2 darts; High Velocity Rounds x7
+# (probe POE2T5775). The layout (RESEARCH31 R31-11 (b), MEDIUM-LOW, PoE1's behaviour; no PoE2 statement found): N
+# projectiles evenly spaced over 360 degrees, one aimed at the target. A boss of radius r at d metres covers
+# +-asin(r / d) around the aimed one, so 1 + 2 x floor(asin(r / d) / (360 / N)) of them reach it (1 for N up to ~15 at
+# the default 0.3 m boss even at 2 m; r from bosses.hit_radius, the projectile's own width not added: LOW). Applied to:
+# the shotgun fragments' count (_shotgun_count, at point-blank, MELEE_DISTANCE, as their headline), and as DPS MORE
+# k / N on the main skill for the counts that take every one of N = PoB's ProjectileCount (crossbow_sequence_model's
+# skills) or max(ProjectileCount, 3) (Frost Darts, frost_darts_model) at the build's distance (as salvo_model). LOW for
+# those in-sequence ones: whether a sequence of projectiles keeps the circle is UNVERIFIED (a research question); the
+# "every projectile still hits" reading is a row. Not applied (said): another group's copy (PoB's one there already),
+# a skill with Salvo too (salvo_model's random directions stand), Run and Gun's shotgun branch (its % over N),
+# Bonestorm (one spike a release already under SPELL_CIRCLE; a Nova support read the same way there), and the skills
+# whose own stat set carries the stat (Cold-Infused Spark / Empowered Sparks, Cluster Grenade's Mini Grenades,
+# Runeforged Blades: counted at one hit a use or by their own models).
+NOVA_STAT = "projectiles_nova"
+NOVA_ENTRY = "model-gem29-nova-projectiles"
+
+
+def nova_circle_hits(count: float, radius: float, metres: float) -> float:
+    """Of `count` projectiles evenly spaced round a circle, one aimed at a boss of `radius` metres `metres` away: how
+    many reach it (R31-11 (b)). At most `count`; a count under 1 stays as it is."""
+    if count <= 1:
+        return count
+    half = math.pi / 2 if metres <= radius else math.asin(radius / metres)
+    return min(count, 1 + 2 * math.floor(half / (2 * math.pi / count) + 1e-9))
+
+
+def nova_on(skill: Skill | None) -> bool:
+    return skill is not None and number(skill.support_stats.get(NOVA_STAT)) > 0
+
+
+def nova_projectiles_model(main: Skill | None, stats: dict, config: dict | None = None,
+                           forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Nova Projectiles on a main skill whose every projectile a use is counted on the boss (see above): DPS MORE k / N
+    for the in-sequence counts (the shotgun fragments are cut in _shotgun_count)."""
+    from builder.search.conditions import MELEE_DISTANCE, RANGED_DISTANCE  # (conditions imports models)
+
+    if not nova_on(main) or NOVA_ENTRY in forbidden or main.name in SHOTGUN_SKILLS:
+        return [], []
+    label = f"{main.name}: Nova Projectiles fires its projectiles in a circle*"
+    if number(main.support_stats.get(SALVO_PROJECTILE_STAT)):
+        return [], [{"label": label, "value": "not applied", "confidence": "theory", "entry": NOVA_ENTRY,
+                     "basis": "Salvo's random directions are counted for it (salvo_model): the circle isn't added"}]
+    if main.name in CROSSBOW_SEQUENCE_RATIO:
+        count, whose = number(stats.get("ProjectileCount")), "crossbow_sequence_model's"
+    elif main.name == "Frost Darts":
+        count, whose = max(number(stats.get("ProjectileCount")), 3.0), "frost_darts_model's"
+    else:
+        return [], []
+    if count <= 1:
+        return [], []
+    units = number((config or {}).get("enemyDistance"))
+    metres = units / 10 if units > 0 else (MELEE_DISTANCE if main.melee else RANGED_DISTANCE)
+    radius, radius_how = bosses.hit_radius(stats)
+    big = bosses.HIT_RADIUS[bosses.LARGEST_RADIUS]
+    hits = nova_circle_hits(count, radius, metres)
+    near, large = nova_circle_hits(count, radius, MELEE_DISTANCE), nova_circle_hits(count, big, MELEE_DISTANCE)
+    factor = hits / count
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], [{
+        "label": label, "value": f"x{factor:.3f}", "confidence": "LOW", "entry": NOVA_ENTRY,
+        "basis": (f"{count:g} projectiles a use ({whose} count, every one on the boss) fired evenly round a circle with one "
+                  f"aimed (RESEARCH31 R31-11 (b), MEDIUM-LOW): {hits:g} reach a boss {radius:g} m in radius {metres:g} m "
+                  f"away ({radius_how}), x{factor:.3f}. Rows: at {MELEE_DISTANCE:g} m x{near / count:.3f}; a {big:g} m "
+                  f"boss ({bosses.LARGEST_RADIUS}) at {MELEE_DISTANCE:g} m x{large / count:.3f}; if a sequence of "
+                  "projectiles doesn't keep the circle (UNVERIFIED), x1 (every one hits, the count before)"),
+        "play": (f"Nova Projectiles sends {main.name}'s projectiles round a circle: about {hits:g} of {count:g} reach one "
+                 "boss. Without Nova: every one.")}]
 
 
 # Volt's Voltaic Charge (GEM11; PATCH_CHECK H1-8, an UNDERCOUNT). Volt (sup_dex.lua SupportVoltPlayer; the game's

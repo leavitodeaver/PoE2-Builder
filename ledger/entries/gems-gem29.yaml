@@ -1,0 +1,49 @@
+# GEM29 (20 Nov 2026): gem stats PoB never reads that a model of ours now reads.
+
+- id: model-gem29-nova-projectiles
+  title: "Nova Projectiles I / II: a use's projectiles fire round a circle, so only those within the boss's width reach it (the every-projectile counts took all)"
+  kind: model
+  model: nova_projectiles
+  stats: ["projectiles_nova"]
+  skill: [Nova Projectiles I, Nova Projectiles II]
+  confidence: theory
+  notes: >-
+    models.nova_projectiles_model and _shotgun_count (GEM29). "Supported Skills fire Projectiles in a circle"
+    (gem_stat_descriptions projectiles_nova). PoB never reads the stat (sup_dex.lua SupportNovaProjectilesPlayer /
+    TwoPlayer: no statMap; it applies Nova II's +6 projectiles, 50% less and 8 s cooldown, probe POE2T5775). RESEARCH31
+    R31-11 (b): evenly spaced over 360 degrees with one aimed at the target (MEDIUM-LOW, PoE1's behaviour), so
+    1 + 2 floor(asin(r / d) / (360 / N)) reach a boss of radius r at d metres (1 for the default 0.3 m boss). Applied to
+    the shotgun fragments' count (point-blank) and, as DPS MORE k / N, to crossbow_sequence_model's and
+    frost_darts_model's every-projectile counts (LOW: whether in-sequence projectiles keep the circle is UNVERIFIED;
+    the every-one row kept). Before, Nova I left Galvanic Shards at 10 fragments a use (probe POE2T5775): an OVERCOUNT.
+    The skills whose own stat set carries the stat (Cold-Infused Spark / Empowered Sparks, Cluster Grenade's Mini
+    Grenades, Runeforged Blades) stay open.
+  sources: ["builder/search/models.py (nova_projectiles_model, nova_circle_hits, _shotgun_count)",
+            "scratch/manager/research/salvo-misses-and-projectile-circles.md (RESEARCH31 R31-11 (b))",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_dex.lua (SupportNovaProjectilesPlayer, SupportNovaProjectilesTwoPlayer)"]
+  test_in_game: "Galvanic Shards with Nova Projectiles I point-blank into a boss: how many fragments hit (1 vs 10)."
+  status: proposed
+
+- id: gem-gem29-orb-and-storm-cannot-leech
+  title: "Orb of Storms / Elemental Storm: their damage can't be Leeched (dealt by the orb / storm), PoB leeched it"
+  kind: gem_stat
+  skill: [Orb of Storms, Elemental Storm]
+  match: '^damage_cannot_be_reflected_or_leech_if_used_by_other_object$'
+  replace: ["Cannot Leech Life", "Cannot Leech Mana"]
+  confidence: theory
+  notes: >-
+    The stat damage_cannot_be_reflected_or_leech_if_used_by_other_object (no description text; its id: damage of a skill
+    used by another object, the orb or the storm, can't be Leeched or reflected) is on OrbOfStormsPlayer and the
+    ElementalStormPlayer sets only (checked: every GrantedEffectStatSets / PerLevel / QualityStats row, Mods, PassiveSkills,
+    SoulCoreStats holding its stat index, game 26650308; PoB act_int.lua / other.lua list it, no statMap; patch notes:
+    no hit for leech on either skill, not proof). PoB leeches from them: probe POE2T5777 (scratch/gem29/probe5777.log),
+    with 10% of Damage Leeched as Life and as Mana, Orb of Storms 6.30 / 6.30 a second, Elemental Storm 16.06 / 16.06,
+    and 0 with "Cannot Leech Life / Mana" on the skill: an OVERCOUNT of the build's recovery (recovery.py reads PoB's
+    LeechRate). Energy Shield Leech isn't cut (PoB parses no "cannot leech energy shield" line): an overcount left,
+    named. The reflect half moves nothing (no reflection in a boss fight we score). Read as the id says (UNVERIFIED:
+    no game text; poe2db shows none).
+  sources: ["data/game-26650308/tables/GrantedEffectStatSets.json (OrbOfStormsPlayer, ElementalStormPlayer)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua 4209-4211 (CannotLeechLife / Mana)",
+            "scratch/gem29/probe5777.log (GEM29's probe)"]
+  test_in_game: "Orb of Storms with a Leech source: the orb's hits recover nothing."
+  status: proposed

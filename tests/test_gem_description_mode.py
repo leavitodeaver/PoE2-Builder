@@ -1728,3 +1728,37 @@ def test_caltrops_support_lands_a_share_under_the_boss_and_none_with_pierce():
     assert dps == pytest.approx(9.0) and "if Chain carries the spear on from a lone boss: 0.0" in notes[0]["play"]
     assert "uniform in distance" in notes[0]["play"] and "30% under the boss" in notes[0]["play"]  # (R38-16)
 
+
+def test_nova_projectiles_send_one_of_a_circle_at_the_boss():
+    """GEM29 (an OVERCOUNT; RESEARCH31 R31-11 (b)): Nova Projectiles spreads a use's projectiles evenly round a circle with
+    one aimed, so the every-projectile counts (shotgun fragments, the crossbow sequence, Frost Darts) take only those
+    within the boss's width; without Nova nothing changes."""
+    assert models.nova_circle_hits(10, 0.3, 2.0) == 1 and models.nova_circle_hits(16, 1.0, 2.0) == 3
+    assert models.nova_circle_hits(10, 0.3, 0.2) == 5 and models.nova_circle_hits(0.5, 0.3, 2.0) == 0.5
+    nova = {models.NOVA_STAT: 1}
+    shards = Skill(name="Galvanic Shards", support_stats=nova)
+    assert models._shotgun_count(shards, {"ProjectileCount": 10}, shards)[0] == 1
+    assert models.shotgun_fragments_share(shards, {"ProjectileCount": 10}, shards)[0] == 0.0
+    plain = Skill(name="Galvanic Shards")
+    assert models.shotgun_fragments_share(plain, {"ProjectileCount": 10}, plain)[0] == 900
+    hvr = Skill(name="High Velocity Rounds", support_stats=nova)
+    mods, notes = models.nova_projectiles_model(hvr, {"ProjectileCount": 7}, {})
+    assert mods[0]["value"] == pytest.approx(100 * (1 / 7 - 1), abs=1e-3) and notes[0]["confidence"] == "LOW"
+    darts = Skill(name="Frost Darts", support_stats=nova, spell=True)
+    assert models.nova_projectiles_model(darts, {"ProjectileCount": 3.2}, {})[0][0]["value"] == pytest.approx(-68.75)
+    assert models.nova_projectiles_model(Skill(name="Frost Darts"), {"ProjectileCount": 3.2}, {}) == ([], [])
+    assert models.nova_projectiles_model(darts, {"ProjectileCount": 3.2}, {}, {models.NOVA_ENTRY}) == ([], [])
+    assert models.NOVA_STAT in models.gem_stat_support_stats()
+
+
+def test_orb_of_storms_and_elemental_storm_cannot_leech():
+    """GEM29 (an OVERCOUNT of recovery, probe POE2T5777): damage_cannot_be_reflected_or_leech_if_used_by_other_object
+    on Orb of Storms / Elemental Storm: PoB leeched from them; the entry cuts Life and Mana Leech on the skill only."""
+    stat = "damage_cannot_be_reflected_or_leech_if_used_by_other_object"
+    for name in ("Orb of Storms", "Elemental Storm"):
+        skill = Skill(name=name, level_stats={stat: 1})
+        mods, _ = models.gem_stat_model([skill], main=skill, stats={})
+        lines = {(m["line"], m.get("skill")) for m in mods if m.get("kind") == "Line"}
+        assert {("Cannot Leech Life", name), ("Cannot Leech Mana", name)} <= lines
+    other = Skill(name="Spark", level_stats={stat: 1})
+    assert not [m for m in models.gem_stat_model([other], main=other, stats={})[0] if "Leech" in str(m.get("line"))]
