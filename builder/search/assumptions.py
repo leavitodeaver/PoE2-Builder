@@ -3972,6 +3972,13 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + wind_mods, hand_notes + wind_notes
         bear_mods, bear_notes = models.bear_stance_model(main, number(stats.get("Speed")), forbidden)  # (MECHB50)
         hand_mods, hand_notes = hand_mods + bear_mods, hand_notes + bear_notes
+        if main is not None and group and main.name in models.PERFECT_SETS:  # (MECHB50: the perfect set, labelled)
+            perfect_sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            hand_notes = hand_notes + models.perfect_timing_note(main, main.stat_set, perfect_sets)
+        if main is not None and group and main.name == models.VOLCANO:  # (MECHB50: its channel and stages)
+            volcano_sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            volcano_mods, volcano_notes = models.volcano_channel_model(main, main.stat_set, volcano_sets, forbidden)
+            hand_mods, hand_notes = hand_mods + volcano_mods, hand_notes + volcano_notes
         if main is not None and main.name == models.ORB_OF_STORMS and main.group is not None:  # (MECH-B: its recast
             # bolt, labelled; MECHB29: its bolts, frequency and duration from its own useRates row)
             orb_rows = build.call("useRates", indices=[main.group])["rates"]

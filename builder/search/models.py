@@ -16253,8 +16253,8 @@ def channel_windup_model(main: Skill | None, speed: float, every: float, every_r
     """A held channel's wind-up once a restart, a restart each dodged boss attack (see above). `speed` PoB's uses a
     second of the main skill, `every` / `every_row` seconds between boss skill uses (the fewest hits / the defence
     cadence), `dodge_share` the share dodged (the user's half)."""
-    if main is None or main.name not in CHANNEL_WINDUP or main.name == OIL_BARRAGE:  # (MECHB46: oil_barrage_volley_model
-        return [], []                                                                  # counts Oil Barrage's)
+    if main is None or main.name not in CHANNEL_WINDUP or main.name in (OIL_BARRAGE, VOLCANO):  # (MECHB46: oil_barrage_
+        return [], []                                         # volley_model counts Oil Barrage's; MECHB50: volcano_channel_model)
     pct, kind = CHANNEL_WINDUP[main.name]
     if CHANNEL_WINDUP_ENTRY in forbidden or speed <= 0 or every <= 0:
         return [], [{"label": f"{main.name}'s channel wind-up (not counted)", "value": f"{pct}% of its {kind} time",
@@ -21100,3 +21100,75 @@ def bear_stance_model(main: Skill | None, speed: float, forbidden: set[str] = fr
                   "(bear_skills_additional_base_attack_time_when_performing_from_default_stance), which PoB doesn't "
                   f"read{row}; every use taken from the default stance (the game's default; which skills leave the "
                   "bear standing isn't in the data)")}]
+
+
+# A perfect-release stat set chosen (MECHB50; PLANS6 kw-perfect-timing.md item 1, a small OVERCOUNT unlabelled before):
+# when the scored set of a Perfect Timing skill (PoB SkillType PerfectTiming: Gathering Storm, Perfect Strike, Snipe)
+# is its perfect one, every release counts as Perfect. That is a play choice, not a game rate ("release every use in
+# the window": MEDIUM), so it is named, with the plain set as the "without it" row. Snipe's own model (ailment_set_model
+# above) already says so; Gathering Storm's "Perfect Dash" / "Tempest Shockwave" and Perfect Strike's "Perfect Strike"
+# (PoB act_int / act_str stat sets) get the note here. A miss share would scale with the window (PoB's PerfectTiming
+# output): a human rate, never guessed (a question for the user, the plan's).
+PERFECT_SETS = {"Gathering Storm": (("Perfect Dash", "Tempest Shockwave"), ("Normal Dash", "Shockwave")),
+                "Perfect Strike": (("Perfect Strike",), ("Normal Strikes",))}
+
+
+def perfect_timing_note(main: Skill | None, scored: str | None, sets: list[dict]) -> list[dict]:
+    """A labelled play note when a Perfect Timing skill's perfect set is the one scored (see above)."""
+    if main is None or main.name not in PERFECT_SETS or scored not in PERFECT_SETS[main.name][0]:
+        return []
+    dps = {x.get("label"): number(x.get("TotalDPS")) for x in sets}
+    perfect, plain_labels = dps.get(scored, 0.0), PERFECT_SETS[main.name][1]
+    plain = max((dps.get(k, 0.0) for k in plain_labels), default=0.0)
+    row = (f"; every release imperfect ({' / '.join(plain_labels)}): {plain:,.1f} DPS, x{plain / perfect:.3f}"
+           if perfect > 0 else "")
+    return [{"label": f"{main.name}: every release Perfectly Timed*", "value": scored, "confidence": "MEDIUM",
+             "basis": (f"the {scored} set scored ({perfect:,.1f} DPS): a play choice, every release inside the Perfect "
+                       f"Timing window (no miss share counted: a human rate){row}"),
+             "play": (f"Release {main.name} inside its Perfect Timing window every time; missing it drops a use to the "
+                      f"plain set{f' (x{plain / perfect:.3f})' if perfect > 0 else ''}.")}]
+
+
+# Volcano's channel (MECHB50; PLANS7 gs-volcano-channel.md: an OVERCOUNT on a tap, an UNDERCOUNT on a full channel).
+# VolcanoPlayer (GrantedEffectStatSets 26650308, the same in PoB act_str): cast time 0.8 s, channel_start / channel_end_
+# duration_as_%_of_cast_time 50 / 50, volcano_gain_stage_every_%_of_cast_time 100 (a stage each cast time channelled),
+# volcano_maximum_number_of_stages 4, volcano_initial_explosion_damage_+%_final_per_additional_stage 150, ..._number_of_
+# additional_projectiles_per_additional_stage 4; nothing modifies them (checked: every volcano_ stat id in Mods,
+# PassiveSkills, GrantedEffectQualityStats: 0 rows). PoB maps none of these (its Eruption set is one hit a cast time).
+# One eruption channelled to k additional stages: the 0.5 wind-up + 1 + k stage times + the 0.5 end, (2 + k) cast
+# times, for a hit x (1 + 1.5 k) (150% more per stage, taken as additive per stage: "+%_final_per_additional_stage" is
+# one final multiplier of 150% x k, MEDIUM). Against PoB's one hit a cast time: x (1 + 1.5 k) / (2 + k): a tap x0.5,
+# k = 3 x1.1. The model takes the best k as the play ("channel to the last stage"), k at most 3 (the 4 stages taken to
+# include the first, the lower reading; 4 more a row: UNVERIFIED which). The 4 k extra projectiles a stage are sprayed
+# around the volcano: not counted on a lone boss (LOW), a row with them all hitting at the Projectiles set's hit. Only
+# when the Eruption set is the one scored; the generic channel_windup_model leaves Volcano to this.
+VOLCANO, VOLCANO_ENTRY = "Volcano", "model-mechb50-volcano-channel"
+VOLCANO_STAGES, VOLCANO_MORE, VOLCANO_PROJECTILES = 4, 1.5, 4
+
+
+def volcano_channel_model(main: Skill | None, scored: str | None, sets: list[dict],
+                          forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Volcano's eruption channelled to its best stage count against PoB's one hit a cast time (see above)."""
+    if main is None or main.name != VOLCANO or scored != "Eruption" or VOLCANO_ENTRY in forbidden:
+        return [], []
+
+    def rate(k: int) -> float:
+        return (1 + VOLCANO_MORE * k) / (2 + k)
+    best = max(range(VOLCANO_STAGES), key=rate)  # (0..3 additional stages)
+    factor = rate(best)
+    avg = {x.get("label"): number(x.get("AverageDamage")) for x in sets}
+    eruption, projectile = avg.get("Eruption", 0.0), avg.get("Projectiles", 0.0)
+    rows = f"; a tap (no stage) x{rate(0):.3f}; the 4 stages beyond the first (UNVERIFIED) x{rate(VOLCANO_STAGES):.3f}"
+    if eruption > 0 and projectile > 0:
+        all_hit = (eruption * (1 + VOLCANO_MORE * best) + VOLCANO_PROJECTILES * best * projectile) / (eruption * (2 + best))
+        rows += f"; its {VOLCANO_PROJECTILES * best} extra projectiles all hitting the boss x{all_hit:.3f} (LOW)"
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=VOLCANO_ENTRY)], [{
+        "label": f"{main.name}: each eruption channelled to {best + 1} stages*", "value": f"x{factor:.3f}",
+        "confidence": "MEDIUM-LOW", "entry": VOLCANO_ENTRY,
+        "basis": (f"PoB scores one Eruption hit a cast time and reads none of the channel stats. The game: a 50% wind-up, "
+                  f"a stage each cast time, a 50% end, 150% more Eruption damage per additional stage (game files): "
+                  f"{best} additional stage{'s' if best != 1 else ''} take {2 + best} cast times for x{1 + VOLCANO_MORE * best:g} "
+                  f"damage: x{factor:.3f}{rows}; the extra projectiles sprayed around the volcano not counted on a "
+                  "lone boss (LOW)"),
+        "play": (f"Channel {main.name} to its last stage before releasing: x{factor:.3f}; a quick tap is "
+                 f"x{rate(0):.3f}.")}]

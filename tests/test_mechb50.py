@@ -32,3 +32,20 @@ def test_bear_skills_take_their_default_stance_attack_time():
     assert mods[0]["name"] == "Speed" and mods[0]["type"] == "BASE" and mods[0]["value"] == pytest.approx(0.4)
     assert notes[0]["confidence"] == "MEDIUM" and "x0.714" in notes[0]["basis"]
     assert models.bear_stance_model(Skill("Boneshatter", 1, attack=True, melee=True), 1.0) == ([], [])
+
+
+def test_a_perfect_release_set_is_named_as_a_play_choice():
+    sets = [{"label": "Normal Strikes", "TotalDPS": 100.0}, {"label": "Perfect Strike", "TotalDPS": 250.0}]
+    note, = models.perfect_timing_note(Skill("Perfect Strike", 1, attack=True, melee=True), "Perfect Strike", sets)
+    assert note["confidence"] == "MEDIUM" and "x0.400" in note["basis"] and "play" in note
+    assert models.perfect_timing_note(Skill("Perfect Strike", 1, attack=True), "Normal Strikes", sets) == []
+
+
+def test_volcano_channels_to_its_last_stage():
+    volcano = Skill("Volcano", 1, spell=True)
+    sets = [{"label": "Eruption", "AverageDamage": 100.0}, {"label": "Projectiles", "AverageDamage": 20.0}]
+    mods, notes = models.volcano_channel_model(volcano, "Eruption", sets)
+    assert mods[0]["value"] == pytest.approx(100 * (5.5 / 5 - 1), abs=0.01)  # (3 stages: 1 + 4.5 over 5 cast times)
+    assert "a tap (no stage) x0.500" in notes[0]["basis"] and "x1.167" in notes[0]["basis"]
+    assert models.volcano_channel_model(volcano, "Projectiles", sets) == ([], [])
+    assert models.channel_windup_model(volcano, 1.0, 4.0, 2.0, 0.5) == ([], [])  # (left to the Volcano model)

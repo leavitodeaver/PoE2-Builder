@@ -57,3 +57,22 @@
     skill only), MEDIUM.
   sources: ["builder/search/models.py (BEAR_DEFAULT_STANCE, bear_stance_model)", "data/game-26650308/tables/GrantedEffectStatSets.json (FuriousSlamPlayer, BearRampagePlayer, WalkingCalamityPlayer)"]
   status: proposed
+
+- id: model-mechb50-volcano-channel
+  title: "Volcano's eruption channelled to its best stage count: (1 + 1.5 k) hits in (2 + k) cast times (models.volcano_channel_model)"
+  kind: model
+  model: volcano_channel
+  stats: ["channel_start_duration_as_%_of_cast_time", "channel_end_duration_as_%_of_cast_time",
+          "volcano_gain_stage_every_%_of_cast_time", "volcano_maximum_number_of_stages",
+          "volcano_initial_explosion_damage_+%_final_per_additional_stage",
+          "volcano_initial_explosion_number_of_additional_projectiles_per_additional_stage"]
+  skill: [Volcano]
+  confidence: theory
+  notes: >-
+    MECHB50 (PLANS7 gs-volcano-channel.md: an OVERCOUNT on a tap, x0.5; an UNDERCOUNT on a full channel). PoB scores one
+    Eruption hit a cast time and maps none of these stats; the game's eruption takes a 50% wind-up, a stage each cast
+    time and a 50% end, with 150% more damage per additional stage (game 26650308; nothing modifies them: Mods,
+    PassiveSkills, GrantedEffectQualityStats 0 rows). The best k (3 additional stages: x1.1) is the play, labelled; the
+    4-beyond-the-first reading (x1.167), a tap (x0.5) and the extra projectiles all hitting are rows (LOW).
+  sources: ["builder/search/models.py (VOLCANO, volcano_channel_model)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua (VolcanoPlayer)"]
+  status: proposed

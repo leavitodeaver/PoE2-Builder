@@ -2479,7 +2479,7 @@ def test_a_channels_wind_up_is_paid_each_dodge():
     mods, notes = models.channel_windup_model(fotm, 1.25, 4.0, 2.0, 0.5)  # 0.36 x 0.8 s each 8 s: x0.964
     assert mods[0]["value"] == pytest.approx(-100 * 0.5 / 4.0 * 0.36 / 1.25, abs=0.01)
     assert notes[0]["confidence"] == "LOW" and "x0.964" in notes[0]["basis"] and "end paid too: x0.928" in notes[0]["basis"]
-    mods, notes = models.channel_windup_model(models.Skill("Volcano", spell=True), 0.0, 4.0, 2.0, 0.5)
+    mods, notes = models.channel_windup_model(models.Skill("Runic Reprieve", spell=True), 0.0, 4.0, 2.0, 0.5)
     assert mods == [] and notes[0]["confidence"] == "UNVERIFIED" and "too high" in notes[0]["basis"]
     assert models.channel_windup_model(models.Skill("Oil Barrage", attack=True), 1.0, 4.0, 2.0, 0.5) == ([], [])
     assert models.channel_windup_model(models.Skill("Fireball", spell=True), 1.0, 4.0, 2.0, 0.5) == ([], [])
