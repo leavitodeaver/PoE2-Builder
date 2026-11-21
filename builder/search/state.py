@@ -363,13 +363,24 @@ class Build:
     def snapshot(self) -> dict:
         snap = {"xml": self.call("exportXml")["xml"], "equipped": dict(self.equipped), "score": self.score,
                 "stats": dict(self.stats), "extra_stats": dict(self.extra_stats),
-                "recovery_sources": dict(self.recovery_sources), "character_runes": dict(self.character_runes)}
+                "recovery_sources": dict(self.recovery_sources), "character_runes": dict(self.character_runes),
+                "config": dict(self.call("getConfig")["input"])}
         if self.snapshot_state is not None:
             snap["search"] = self.snapshot_state[0]()
         return snap
 
     def restore(self, snap: dict) -> None:
         self.call("loadXml", xml=snap["xml"])
+        # (SEARCH33, probes POE2T5484-5486) PoB writes a config input at its own default as a Placeholder, which loads as
+        # unset: the search's "Boss at 2 m" (enemyDistance 20, PoB's default) came back unset after every restore,
+        # conditions.sync dropped the distance choice for the 5 m natural one, and Blasphemy's Despair left the boss for
+        # every trial after the first taken back (each support trial on 2b75b read x0.82: the 3-support main-group trap
+        # and much of the seed spread). The inputs the reload dropped or changed go back before the hooks run
+        if snap.get("config") is not None:
+            now = self.call("getConfig")["input"]
+            lost = {k: v for k, v in snap["config"].items() if now.get(k) != v}
+            if lost:
+                self.call("setConfig", vars=lost, fields=[])
         self.equipped = dict(snap["equipped"])
         self.extra_stats = dict(snap.get("extra_stats") or {})
         self.recovery_sources = dict(snap.get("recovery_sources") or {})
