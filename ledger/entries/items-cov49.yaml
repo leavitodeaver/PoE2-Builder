@@ -101,3 +101,21 @@
     generator skips spawn weight 0), so it's read on imported builds' jewels only.
   sources: ["engine/bridge.lua (applyRadiusTransforms)", "https://poe2db.tw/us/Ancient_Concentrated_Liquid_Isolation", "https://poe2db.tw/us/Jewels"]
   status: proposed
+
+# RESEARCH37 R37-2 (the manager 16:18; research/pinnacle-boss-block-chance.md, MEDIUM-HIGH): no pinnacle preset can
+# Block, so "Unblockable" (Stone Flail's implicit FlailImplicitIgnoreBlock1) moves no number on them.
+- id: items-cov49-unblockable-no-effect
+  title: '"Unblockable" (Stone Flail): no pinnacle boss preset can Block (RESEARCH37 R37-2)'
+  kind: pob_gap
+  match: '^Unblockable$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    RESEARCH37 R37-2 (MEDIUM-HIGH): no pinnacle preset has a Block chance (checked there: every preset variety's Mods /
+    Mods2 / Special_Mods / Part1 / Part2 / Endgame_Mods and Tags, and their GrantedEffects stat sets, game 26650308;
+    map_monsters_base_block_% is on no Mods row); PoB's enemy Block comes only from the "Enemy Block Chance" config,
+    which the tool never sets (checked: builder/ and engine/ for enemyBlockChance), so PoB scores 0 already, and it
+    parses the line to nothing (ModCache 9712). Nothing to add or negate. If a boss preset ever gains a Block chance,
+    this entry must become a model.
+  sources: ["scratch/manager/research/pinnacle-boss-block-chance.md (RESEARCH37 R37-2)", "vendor PoB ModCache.lua 9712"]
+  status: proposed

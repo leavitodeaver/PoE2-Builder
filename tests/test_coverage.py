@@ -332,9 +332,11 @@ def test_poe1_leftover_unique_mods_are_unreachable_and_uncarried_ones_stay_open_
     for r in exclusive:
         by_mod.setdefault(r["source"].split()[1], []).append(r["line"])
     assert not any(coverage.template(line) in carried for r in marked for line in by_mod[r["source"].split()[1]])
-    # (COV48: the generic "(UNVERIFIED)" rows are settled; the Orb of Sacrifice upgrades stay open, labelled UNVERIFIED)
-    assert any(r["status"] == "none" and "Searching Eye" not in r["line"] and "UNVERIFIED" in r["reason"]
-               for r in exclusive)
+    # (COV48: the generic "(UNVERIFIED)" rows are settled; COV49: the Orb of Sacrifice upgrades too, RESEARCH37 R37-1)
+    orb = [r for r in exclusive if r["source"].split()[1] in (
+        "CorruptionUpgradeAdditionalChainChance", "CorruptionUpgradeAdditionalFissureChance",
+        "CorruptionUpgradeDeflectDamageTakenRecoupedAsLife")]
+    assert orb and all(r["status"] == "unreachable" and "R37-1" in r["reason"] for r in orb)
     assert not any("Eye Jewel Socketed" in r["line"] for r in exclusive if r["status"] == "none")
     assert not any(g["template"] == coverage.template("Recover 20% of maximum Life on Rampage")
                    for g in report["ranking"])
@@ -1661,8 +1663,6 @@ def test_cov48_carrier_unverified_rows_settled():
     for mod in ("FlailImplicitIgnoreBlock1", "HandWrapsUniqueDecimatingStrike1", "UniqueCharmRandomPossess1"):
         assert coverage.R32_3_OBTAINABLE[mod].startswith("a real carrier"), mod
         assert mod not in coverage.NOT_OBTAINABLE, mod
-    assert coverage.R32_3_OBTAINABLE["CorruptionUpgradeAdditionalChainChance"].startswith("UNVERIFIED")
-    assert "CorruptionUpgradeAdditionalChainChance" not in coverage.NOT_OBTAINABLE
     for mod in ("UniqueReflectCurses1", "EssenceDisplayAttributes4", "ColdDamageIgnitesUnique__1",
                 "UniqueMutatedVaalReflectElementalAilmentsToSelf"):
         assert "checked" in coverage.NOT_OBTAINABLE[mod], mod
@@ -1703,3 +1703,19 @@ def test_cov49_train104_readers_are_model_read():
     for stat, skill in (("hunters_mark_explosion_area_of_effect_+%_final_from_buildup", "Blood Explosion"),
                         ("curse_repulsion_applies_X_fragility", "Repulsion")):
         assert coverage.stat_covered(covered, stat, skill) is None, stat
+
+
+def test_cov49_research37_orb_of_sacrifice_upgrades_unobtainable_and_unblockable_no_effect():
+    """COV49 (the manager 16:18): RESEARCH37 R37-1, the three Orb of Sacrifice "Corrupted Upgrade" mods upgrade no
+    existing Corrupted Enchantment, so they are NOT_OBTAINABLE (recheck at 1.0); R37-2, no pinnacle preset can Block,
+    so "Unblockable" is a no-effect ledger line."""
+    from builder.ledger import translate
+
+    for mod in ("CorruptionUpgradeAdditionalChainChance", "CorruptionUpgradeAdditionalFissureChance",
+                "CorruptionUpgradeDeflectDamageTakenRecoupedAsLife"):
+        why = coverage.NOT_OBTAINABLE[mod]
+        assert "R37-1" in why and "checked" in why and "recheck at 1.0" in why, mod
+        assert mod not in coverage.R32_3_OBTAINABLE, mod
+    entry, out = translate("Unblockable")
+    assert entry.id == "items-cov49-unblockable-no-effect" and out == [] and not entry.raw.get("model")
+    assert "R37-2" in coverage.R32_3_OBTAINABLE["FlailImplicitIgnoreBlock1"]

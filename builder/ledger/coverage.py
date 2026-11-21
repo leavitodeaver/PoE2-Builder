@@ -223,7 +223,9 @@ _STONEFIST_CARRIER = ("a real carrier: {}'s line as Way of the Stonefist transfo
 R32_3_OBTAINABLE.update({
     "CharmImplicitUseOnCurse1": _BASE_CARRIER.format("Cleansing Charm", "FourCharm13",
                                                      "flasks.py reads it: none against a pinnacle boss (RESEARCH #33)"),
-    "FlailImplicitIgnoreBlock1": _BASE_CARRIER.format("Stone Flail", "FourFlail7", "whether a boss blocks: MECH-D"),
+    "FlailImplicitIgnoreBlock1": _BASE_CARRIER.format("Stone Flail", "FourFlail7",
+                                                      "no pinnacle preset can Block (RESEARCH37 R37-2): ledger entry "
+                                                      "items-cov49-unblockable-no-effect"),
     "ItemCanHaveBaseAndCatalystQuality": _BASE_CARRIER.format("Grasping Mail", "FourBodyStrDexInt3",
                                                               "catalysts: the search applies none (SEARCH)"),
     "RingImplicitMaximumQualityAdditional1": _BASE_CARRIER.format("Breach Ring", "FourRingBreach",
@@ -243,16 +245,7 @@ R32_3_OBTAINABLE.update({
                                   "Spirit for 20 seconds on use\" (poe2db's current modifier list, no legacy tag; patch "
                                   "0.5.0; MEDIUM; supersedes R32-6 R-d's MEDIUM-LOW). PoB's Rite of Passage has only the "
                                   "nine named Spirits, so the search can't offer this variant: a charm model, MECH-C"),
-    # Orb of Sacrifice "Corrupted Upgrade" mods (0.5.4: they upgrade Corrupted Enchantments on Rare items): listed on
-    # poe2db's Orb pages with an empty item-class weight, and no corruption enchant (generation 5) shares their stats
-    "CorruptionUpgradeAdditionalChainChance": ("UNVERIFIED (leans no carrier, MEDIUM): an Orb of Sacrifice upgrade "
-        "outcome listed on poe2db with no item-class weight; no corruption enchant in game 26650308 Mods has its stat "
-        "(the chain enchant upgrades to the terrain-chain one); left open, not excluded (CLAUDE.md)"),
-    "CorruptionUpgradeAdditionalFissureChance": ("UNVERIFIED (leans no carrier, MEDIUM): an Orb of Sacrifice upgrade "
-        "outcome listed on poe2db with no item-class weight; no corruption enchant has its stat; left open (CLAUDE.md)"),
-    "CorruptionUpgradeDeflectDamageTakenRecoupedAsLife": ("UNVERIFIED (leans no carrier, MEDIUM): an Orb of Sacrifice "
-        "upgrade outcome listed on poe2db with no item-class weight; Quatl's Molt's Cultivated (10-20)% line is another "
-        "id; left open (CLAUDE.md)"),
+    # (The three Orb of Sacrifice "Corrupted Upgrade" mods: settled by RESEARCH37 R37-1, now in NOT_OBTAINABLE; COV49)
     "UniqueRecoupLifeOpenWeakness1": ("a real carrier: The Master's Reach (poe2db; builder/data/stonefist_uniques.json "
                                       "lists the unique's lines); a recovery model in MECH-C's topic"),
     **{mod: _STONEFIST_CARRIER.format(unique, lane) for mod, unique, lane in (
@@ -904,6 +897,17 @@ def gem_stat_pattern_entry(stat: str, skill: str | None = None):
 # Not a rule for every "...Essence1" mod: a mod id is listed only after research (Way of the Stonefist's HandWraps twins
 # of Essence mods, e.g., have no EssenceMods row of their own yet are obtainable, RESEARCH30 R30-3).
 NOT_OBTAINABLE = {
+    # (COV49, the manager 16:18: RESEARCH37 R37-1, MEDIUM-HIGH, research/orb-of-sacrifice-blank-upgrades.md) the Orb of
+    # Sacrifice "Corrupted Upgrade" mods with no item-class weight: the orb only upgrades a Corrupted Enchantment an
+    # item already has (patch 0.5.4; latest 0.5.4b, --history "Orb of Sacrifice"), and no base corruption enchant
+    # carries these stats (checked there: every game 26650308 Mods row with each stat id; every table's mod columns,
+    # COV48's carrier.py; poe2db's unique lists): recheck at 1.0 (a new base enchant would make them live)
+    **{mod: (f"an Orb of Sacrifice upgrade of no existing Corrupted Enchantment ({what}; RESEARCH37 R37-1, MEDIUM-HIGH; "
+             "checked there: every game 26650308 Mods row with its stat, every table's mod columns, poe2db's unique "
+             "lists; patch 0.5.4 / 0.5.4b: the orb upgrades an enchantment the item already has; recheck at 1.0)")
+       for mod, what in (("CorruptionUpgradeAdditionalChainChance", "additional Chain chance"),
+                         ("CorruptionUpgradeAdditionalFissureChance", "additional Fissure chance"),
+                         ("CorruptionUpgradeDeflectDamageTakenRecoupedAsLife", "Deflected-hit damage Recouped as Life"))},
     "CrushOnHitChanceEssence1": (
         "\"(15-25)% chance to Crush on Hit\" has no PoE2 Essence behind it (RESEARCH30 R30-1, MEDIUM-HIGH; checked "
         "there: no EssenceMods row (Mod, DisplayMod or OutcomeMods) points at it, spawn weight 0 in game Mods and PoB "
