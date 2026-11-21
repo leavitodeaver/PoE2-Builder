@@ -239,3 +239,49 @@ def test_probe_charged_staff_stacks_follow_pobs_held_power_charges(engine):
     found = search.conditions.evidence()
     print("PROBE charged staff", seen, "resolver:", found.get("usePowerCharges"), found.get("overridePowerCharges"))
     assert seen[3]["TotalDPS"] >= seen[1]["TotalDPS"] >= seen[0]["TotalDPS"]
+
+
+def test_light_stuns_on_you_cost_their_half_second_each():
+    """(MECHC49's held model, landed by MECHC50 per the manager's call; R40-4) the share lost = Light Stuns a second (over
+    the boss's own USES, 2/3 of its dodgeable hits dodged, red-flash avoided; the worst case at the worst real preset) x
+    PoB's StunDuration (0.5 s without the field); "Cannot be Light Stunned" or no hit: 0, no row; the defence cadence is
+    the upper row."""
+    from builder.search import bosses, recovery
+
+    base = {"enemySkillTime": 1.0, "EvadeChance": 0, "EffectiveBlockChance": 0, "PhysicalTakenHit": 1500,
+            "ColdTakenHit": 1500, "FireTakenHit": 1500, "LightningTakenHit": 1500, "ChaosTakenHit": 1500,
+            "StunThreshold": 1000, "StunAvoidChance": 0, "StunDuration": 0.528}
+    named = {**base, "_boss": bosses.REAL[0]}
+    lost, rows = recovery.light_stun_lost(named)
+    rate = recovery._light_stuns(named)[0]
+    upper = recovery._light_stuns(named, "defence")[0]
+    assert 0 < rate < upper and lost == pytest.approx(min(rate * 0.528, 0.9))
+    assert rows and "defence cadence" in rows[0]["value"] and "without Light Stuns" in rows[0]["basis"]
+    assert recovery.light_stun_lost({**named, "StunDuration": 0})[0] == pytest.approx(min(rate * 0.5, 0.9))
+    assert recovery.light_stun_lost({**named, "StunAvoidChance": 100}) == (0.0, [])
+    worst = recovery.light_stun_lost(base)
+    assert worst[0] > 0 and "worst real preset" in worst[1][0]["basis"]
+
+
+def test_the_bosss_time_cuts_reach_pob_as_less_speed_and_switch_off(engine, monkeypatch):
+    """(MECHC50, item 3) red-flash moves and Light Stuns as Speed MORE (tags RedFlashMoves / LightStunned) with their
+    notes; assumptions.BOSS_TIME_CUTS False leaves them out (the two fixed-speed tests' setup)."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    search.assumptions.apply()
+    tags = {m.get("tag") for m in search.assumptions.mods}
+    labels = {n["label"] for n in search.assumptions.active}
+    print("PROBE time cuts", [m for m in search.assumptions.mods if m.get("tag") in ("RedFlashMoves", "LightStunned")])
+    assert "RedFlashMoves" in tags and "Time spent moving out of the boss's red-flash attacks*" in labels
+    speed = search.build.call("stats", fields=["Speed"])["Speed"]
+    monkeypatch.setattr(a, "BOSS_TIME_CUTS", False)
+    search.assumptions.apply()
+    assert not {m.get("tag") for m in search.assumptions.mods} & {"RedFlashMoves", "LightStunned"}
+    assert search.build.call("stats", fields=["Speed"])["Speed"] > speed

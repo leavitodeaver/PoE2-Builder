@@ -456,6 +456,11 @@ TOXIC_TAG = "ToxicDomainCost"
 IMPATIENCE = "Atziri's Impatience"
 IMPATIENCE_STAT = "lose_%_of_life_es_and_mana_when_skill_is_used"
 IMPATIENCE_TAG = "AtzirisImpatience"
+# (MECHC50) The boss's time cuts on your attacking: the time moving out of red-flash attacks and the time Light Stunned
+# (Assumptions.models). On by default (the manager's call, MECHC50's brief); switched off ONLY in the setup of two other
+# lanes' tests that pin a fixed use speed (test_engine_items' Freezing Salvo seals, test_engine_uniques' Hrimnor's Hymn
+# Poison stacking), so their ratios read PoB's speed as before.
+BOSS_TIME_CUTS = True
 WAR_BANNER, WAR_BANNER_SPEED = "War Banner", 25.0  # (MECHC50: gs-war-banner-speed, Assumptions.models)
 BLAZING_CRITICAL = "Blazing Critical"
 BLAZING_GAIN_STAT = "support_blazing_crits_gain_%_fire_damage_with_attacks_on_critical_hit"
@@ -3889,6 +3894,32 @@ class Assumptions:
         if inc:
             hand_mods = hand_mods + [models.raw_mod("ActionSpeed", "INC", inc, tag="BossChill")]
         hand_notes = hand_notes + chill_rows
+        # (MECHC50; THE USER'S RULING 21 Nov 04:32 "Avoided, time cost counted"; the manager 05:15 / 07:25 / 08:22, R41-2)
+        # the time spent moving out of the boss's red-flash attacks comes off your attacking: boss_hits.red_flash_time_share
+        # (MECH-D's: its red-flash USES a second x 0.75 s, LOW) as Speed MORE -share (every skill's use rate; not
+        # ActionSpeed, which "Unaffected by Slows" would drop: this isn't a Slow). Rows: "tanks it" (0 s lost, the hits
+        # land in full: R41-2's Titan) and the old skill-count rate. The defence floors keep red-flash hits landing (their
+        # own reading, unchanged). CAUTION (the manager 07:25): the rate is MECH-D's to re-check.
+        moves, moves_how = boss_hits.red_flash_time_share(chill_seen)
+        if moves > 0 and BOSS_TIME_CUTS:
+            hand_mods = hand_mods + [models.raw_mod("Speed", "MORE", -100.0 * moves, tag="RedFlashMoves")]
+        skills_rate = boss_hits.red_flash_time_share(chill_seen, rate_reading="skills")[0]
+        hand_notes = hand_notes + [{
+            "label": "Time spent moving out of the boss's red-flash attacks*",
+            "value": f"{moves:.1%} of the fight not attacking (Speed x{1 - moves:.3f})",
+            "basis": (f"{moves_how}. Rows: tanks it (stands in them, a tanky build): 0% lost, every red-flash hit lands in "
+                      f"full; the old skill-count rate: {skills_rate:.1%}; R41-2's videos: ~1 s when rolled, 0 s out of "
+                      "range or tanked, about 0.5-1 s a use on average"),
+            "confidence": "LOW (MECH-D's per-use rate; 0.75 s a dodge roll; the rate under re-check)",
+            "play": (f"move out of the boss's red-flash attacks: {moves:.1%} of the fight lost; if your defences take them "
+                     "(tanks it): none lost, but the full hit lands" if moves > 0 else "")}]
+        # (MECHC50; R40-4, the manager's call in MECHC50's brief, item 3d: LAND it) time lost to Light Stuns on you
+        # (recovery.light_stun_lost), the same switch
+        stunned, stun_rows = recovery_mod.light_stun_lost(
+            {**build.call("stats", fields=list(recovery_mod.LIGHT_STUN_FIELDS)), **seen})
+        if stunned > 0 and BOSS_TIME_CUTS:
+            hand_mods = hand_mods + [models.raw_mod("Speed", "MORE", -100.0 * stunned, tag="LightStunned")]
+        hand_notes = hand_notes + stun_rows
         if any(p.match(t.strip()) for t in texts for p in (recovery_mod.FROZEN_ARMOUR, recovery_mod.BLEEDING_ARMOUR,
                                                              recovery_mod.FROZEN_REGEN)):
             # (MECHC42, MECH89's never-on rows: Armour while Frozen / Bleeding as rows, Life Regeneration while Frozen at
@@ -9712,7 +9743,7 @@ class Assumptions:
                          f"boss_hits.RED_FLASH), so 0 (no flat guess; an undercount if it hits with {kind} often)")
         scored = number(stats.get("enemySkillTime"))
         slowed = scored / bosses.defence_hit_every(boss) if scored > 0 else 1.0
-        red, rest = boss_hits.kind_land_parts({**stats, "_boss": boss}, kind)
+        red, rest = boss_hits.kind_land_parts({**stats, "_boss": boss}, kind, per_use=reading != "every strike")
         dodge = 0.0 if reading != "headline" else boss_hits.ON_YOU_DODGE
         land = (red if reading == "every strike" else 0.0) + rest * (1 - dodge)
         interval = every * slowed / min(1.0, counts[kind] / damaging)

@@ -899,11 +899,15 @@ def test_a_spell_that_needs_corpses_counts_nothing_without_a_corpse_source(engin
     assert "Fireball" in search.gems.meta_spells(set(), float("inf"), None)
 
 
-def test_hollow_form_takes_the_main_melee_attack_as_a_button_and_is_undone_without_power_charges(engine):
+def test_hollow_form_takes_the_main_melee_attack_as_a_button_and_is_undone_without_power_charges(engine, monkeypatch):
     """Slice 8 (MECH11): Martial Artist's Hollow Form Technique grants Hollow Form (a group PoB gives a source: fromItem).
     With the main melee Attack moved into it you press Hollow Form, not the Attack, at 30% less attack speed (PoB's
     SupportHollowFormPlayer), and models.hollow_model counts the images. A bare build makes no Power Charges: one image
     per use at the penalties scores worse, so the round puts the build back as it was."""
+    # (MECHC50: this test pins the 0.7 x attack-speed ratio; the boss's time cuts, red-flash moves and Light Stuns, which
+    # move with the build's own Stun Threshold, are off here)
+    from builder.search import assumptions as _assumptions
+    monkeypatch.setattr(_assumptions, "BOSS_TIME_CUTS", False)
     payload = make_payload(BuildRequest(main_skill="Falling Thunder", ascendancies=["Martial Artist"]))
     skeleton = enumerate_skeletons(Context(payload), ["Falling Thunder"])[0][0]
     search = Search(engine, None, payload, skeleton.as_dict(), 0)

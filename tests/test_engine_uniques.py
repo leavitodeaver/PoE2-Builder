@@ -31,10 +31,13 @@ def engine():
         faulthandler.enable()
 
 
-def test_hrimnors_hymn_aftershock_doubles_slam_hits_not_ignite(engine):
+def test_hrimnors_hymn_aftershock_doubles_slam_hits_not_ignite(engine, monkeypatch):
     """Hrimnor's Hymn's extra Aftershock (uniques-hrimnors-hymn-aftershock): a second equal hit doubles the slam's hit
     DPS, but a second Ignite or Bleed of the same size doesn't stack (KeywordPopups Debuff), so they stay well under
     x2 (only the higher roll and uptime of more applications; AUDIT8 A8-1)."""
+    # (MECHC50: this test pins PoB's fixed use speed; the boss's time cuts, red-flash moves and Light Stuns, are off here)
+    from builder.search import assumptions as _assumptions
+    monkeypatch.setattr(_assumptions, "BOSS_TIME_CUTS", False)
     payload = make_payload(BuildRequest(main_skill="Sunder"))
     ctx = Context(payload)
     skeleton = enumerate_skeletons(ctx, ["Sunder"])[0][0]

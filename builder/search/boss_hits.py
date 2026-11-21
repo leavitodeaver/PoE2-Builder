@@ -1396,28 +1396,37 @@ CHILL_FIELDS = ("ChillAvoidChance", "SelfChillDuration", "SelfChillEffect", "Ail
 #   and Physical alike (the user, 21 Nov: "they definitely all need the same hit rate"). It is a MOVEMENT-only share,
 #   applied after PoB's evade and block roll (kind_land_parts), never on a share that already holds evasion or block (the
 #   videos' "1 in 4 lands" holds them: a row only, MECH-D's VIDEO_LANDED_SHARE). Rows: 1/2 (the user's earlier figure,
-#   20 Nov 21:50 "About half") and 3/4 (everything that didn't land in the videos). No "none" row: the only reading that
-#   needs a no-dodge figure is the play guide's "without dodging" text (chill_and_freeze_on_you's play row), which
-#   computes it itself. The defence floors keep dodge 0 (their defence cadence), unchanged. MECH-D's landed_cross_check
+#   20 Nov 21:50 "About half") and 3/4 (everything that didn't land in the videos), and a "none" row KEPT because a reading
+#   needs it: MECH-D's ailments_on_you rows bracket the headline with it (tests/test_boss_ailments_per_use.py), and the
+#   play guide's "without dodging" text reads it. The defence floors keep dodge 0 (their defence cadence), unchanged. MECH-D's landed_cross_check
 #   sets the model's landed hits a minute against the videos' ~6 (4.5-9.5).
 # - Red-flash hits (THE USER'S RULING, 21 Nov 04:32, "Avoided, time cost counted"): in the headline they are AVOIDED by
 #   moving out (no hit, so no Chill / Freeze on you); "they land" is a row for tanky builds (stats["_onyou_red_lands"]).
 #   The time moving out is taken off the main skill's share elsewhere (red_flash_time_share). The old "defence" cadence
 #   keeps them landing (a cautious upper reading).
 ON_YOU_DODGE = 2 / 3  # the headline share of the boss's dodgeable hits you dodge by movement: the user's rate, 21 Nov
-ON_YOU_DODGE_ROWS = (0.5, 0.75)
+ON_YOU_DODGE_ROWS = (0.0, 0.5, 0.75)
 ON_YOU_DODGE_HOW = "the user's rate, 21 Nov (8 pinnacle fight videos, movement only: R41-1, LOW-MEDIUM)"
 ON_YOU_CADENCES = ("use", "strike", "defence")
 POB_SKILL_TIME = 0.7  # (PoB's enemySpeed placeholder: the old fallback)
 
 
-def kind_land_parts(stats: dict, kind: str) -> tuple[float, float]:
+def kind_land_parts(stats: dict, kind: str, per_use: bool = False) -> tuple[float, float]:
     """(the share of the boss's `kind` hits that are red-flash and always land, the share that lands of the rest: evaded
-    and blocked as PoB rolls them, before any dodge). A preset without rows (the worst case): (0, land_share)."""
-    rows = [r for r in skill_hits(boss_name(stats)) if kind in (r.get("hit") or {})]
+    and blocked as PoB rolls them, before any dodge). A preset without rows (the worst case): (0, land_share).
+    `per_use` (MECHC50; the manager 08:22 from MECHD8, for HEADLINE readings only): the type's red share by USES, its
+    skill-count share x red_use_share / the preset's skill-count red share (RED_FLASH_USES over RED_FLASH; the per-type
+    use split isn't in the tables: LOW), at most 1. The defence floors keep the skill-count share (the default)."""
+    name = boss_name(stats)
+    rows = [r for r in skill_hits(name) if kind in (r.get("hit") or {})]
     if not rows:
         return 0.0, land_share(stats)
     red = sum(1 for r in rows if r.get("red")) / len(rows)
+    if per_use and red > 0:
+        una, _, total, _ = RED_FLASH.get(name, RED_FLASH[DEFAULT_BOSS])
+        skill_share = una / total if total else 0.0
+        if skill_share > 0:
+            red = min(1.0, red * red_use_share(name) / skill_share)
     evade, block = evade_block(stats)
     return red, (1 - red) * (1 - evade) * (1 - block)
 
@@ -1447,9 +1456,10 @@ def ailment_hits(stats: dict, kind: str) -> tuple[float, str]:
         how = f"one hit every {every:.2f} s (the defence cadence: an upper bound on hits)"
     else:
         slowed = scored / bosses.defence_hit_every(name) if scored > 0 else 1.0
-        base = bosses.HIT_EVERY[name] if cadence == "use" else bosses.HITS_EVERY[name]
+        # (MECHC50, the manager 08:22 / 10:38: bosses.USE_EVERY, a melee combo once; HIT_EVERY stays for the floors)
+        base = (getattr(bosses, "USE_EVERY", {}).get(name) or bosses.HIT_EVERY[name]) if cadence == "use"             else bosses.HITS_EVERY[name]
         every = base * slowed
-        red, rest = kind_land_parts(stats, kind)
+        red, rest = kind_land_parts(stats, kind, per_use=True)  # (the headline's per-USE red share)
         red_lands = bool(stats.get("_onyou_red_lands"))
         land = (red if red_lands else 0.0) + rest * (1 - dodge)  # (red-flash: avoided in the headline, the user's ruling)
         how = (f"{name}: one damaging {'use' if cadence == 'use' else 'strike'} every {base:g} s"
@@ -2054,7 +2064,6 @@ def chill_and_freeze_on_you(chill_seen: dict, freeze_seen: dict, texts: list[str
         old_chill, old_freeze = chill, freeze
     alt = [(f"{d:.0%} of its dodgeable hits dodged", run(chill, freeze, "use", d)[0]) for d in ON_YOU_DODGE_ROWS]
     alt.append(("its red-flash hits land (a tanky build that stands in them)", run(chill, freeze, "use", red_lands=True)[0]))
-    undodged = run(chill, freeze, "use", 0.0)[0]  # (the play text's "without dodging" only: not a row)
     alt.append(("every strike, not every use (HITS_EVERY: an upper bound)", run(chill, freeze, "strike")[0]))
     alt.append(("the old defence cadence (before MECHC48: enemySkillTime x the type's share"
                 + (", the worst case's pooled share" if pick_how else "") + ")",
@@ -2062,6 +2071,10 @@ def chill_and_freeze_on_you(chill_seen: dict, freeze_seen: dict, texts: list[str
     if abs(inc) < 1e-9 and all(abs(v) < 1e-9 for _, v in alt):
         return inc, frozen, rows
     base = 1 + ((action_mod - 1) * 100 - own) / 100
+
+    def row(what: str) -> tuple[str, float]:
+        return next(r for r in alt if r[0].startswith(what) or what in r[0])
+
     rows = rows + [{
         "label": "The boss's Chill / Freeze cadence on you*",
         "value": (f"{inc:+.1f}% action speed (x{base + inc / 100:.3f}) at one Cold event a damaging use, "
@@ -2071,8 +2084,8 @@ def chill_and_freeze_on_you(chill_seen: dict, freeze_seen: dict, texts: list[str
             + ". Downtime (immune phases, burrows) cancels out of DPS: not counted (R37-17)"),
         "confidence": "LOW (the tables' cadence); the dodged share: the user's rate, 21 Nov (fight videos, LOW-MEDIUM)",
         "play": (f"dodge the boss's telegraphed attacks and move out of its red-flash ones: 2 in 3 dodged "
-                 f"{inc:+.1f}% (the headline), half {alt[0][1]:+.1f}%, three in four {alt[1][1]:+.1f}%; standing in "
-                 f"the red-flash ones {alt[2][1]:+.1f}%; without dodging {undodged:+.1f}%")}]
+                 f"{inc:+.1f}% (the headline), half {row('50%')[1]:+.1f}%, three in four {row('75%')[1]:+.1f}%; "
+                 f"standing in the red-flash ones {row('red-flash')[1]:+.1f}%; without dodging {row('0%')[1]:+.1f}%")}]
     return inc, frozen, rows
 
 

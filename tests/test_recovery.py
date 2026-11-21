@@ -3154,22 +3154,26 @@ def test_the_bosss_chill_and_freeze_on_you_count_its_own_cold_uses_not_the_defen
     land = boss_hits.kind_land_share(named, "Cold")
     assert land == pytest.approx(1 / 16 + 15 / 16 * 0.5)
     rate, how = boss_hits.ailment_hits(named, "Cold")
-    cold = boss_hits.type_shares(olroth)["Cold"] / 1.43
-    assert rate == pytest.approx(cold * 15 / 16 * 0.5 / 3) and "every 1.43 s" in how  # (red avoided, 2/3 dodged)
+    # (MECHC50 after train 110: one event per USE, bosses.USE_EVERY 2.23 s, and the red share by uses for the headline)
+    every = bosses.USE_EVERY[olroth]
+    red, rest = boss_hits.kind_land_parts(named, "Cold", per_use=True)
+    assert 0 < red < 1 and rest == pytest.approx((1 - red) * 0.5)
+    cold = boss_hits.type_shares(olroth)["Cold"] / every
+    assert rate == pytest.approx(cold * rest / 3) and f"every {every:g} s" in how  # (red avoided, 2/3 dodged)
     assert "the user's rate, 21 Nov" in how and "avoided by moving out" in how
     tanky = boss_hits.ailment_hits({**named, "_onyou_red_lands": True}, "Cold")
-    assert tanky[0] == pytest.approx(cold * (1 / 16 + 15 / 16 * 0.5 / 3)) and "LAND" in tanky[1]
+    assert tanky[0] == pytest.approx(cold * (red + rest / 3)) and "LAND" in tanky[1]
     assert boss_hits.ailment_hits({**named, "_onyou_cadence": "strike"}, "Cold")[0] > rate
-    assert boss_hits.ailment_hits({**named, "_onyou_dodge": 0.0}, "Cold")[0] == pytest.approx(cold * (land - 1 / 16))
+    assert boss_hits.ailment_hits({**named, "_onyou_dodge": 0.0}, "Cold")[0] == pytest.approx(cold * rest)
     assert boss_hits.ailment_hits({**named, "_onyou_dodge": 1.0}, "Cold")[0] == pytest.approx(0.0)
     slowed = {**named, "enemySkillTime": 2 * named["enemySkillTime"]}  # (your Slows on the boss halve it)
     assert boss_hits.ailment_hits(slowed, "Cold")[0] == pytest.approx(rate / 2)
     # the worst case: the worst real preset, the dodge rows smaller, the strike row larger
     inc, frozen, rows = boss_hits.chill_and_freeze_on_you(dict(st), dict(st), [])
     row = next(r for r in rows if r["label"] == "The boss's Chill / Freeze cadence on you*")
-    assert inc < 0 and 0 < frozen < 1 and "the worst real preset, Olroth" in row["basis"] and "7 at 0" in row["basis"]
+    assert inc < 0 and 0 < frozen < 1 and "the worst real preset, " in row["basis"]  # (MECHC50: USE_EVERY moved the pick)
     readings = [float(x.split("%")[0]) for x in row["basis"].split("dodged: ")[1:]]
-    assert readings[0] < inc < readings[1] < 0  # (50%, then 75% dodged, around the 2/3 headline)
+    assert readings[0] < readings[1] < inc < readings[2] < 0  # (none, 50%, then 75% dodged, around the 2/3 headline)
     assert "the user's rate, 21 Nov" in row["value"] and "red-flash hits land" in row["basis"]
     assert "without dodging" in row["play"] and "standing in the red-flash ones" in row["play"]
     assert "every strike" in row["basis"] and "the old defence cadence" in row["basis"]

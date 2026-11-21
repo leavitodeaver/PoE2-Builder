@@ -65,9 +65,9 @@ def test_hit_recently_share_reads_the_landed_uses_after_dodge_evade_and_block():
 
     olroth = "Olroth, Origin of the Fall"
     head, how = Assumptions.boss_hit_recently_share(olroth, "Cold", {"EvadeChance": 40})
-    red, rest = boss_hits.kind_land_parts({"_boss": olroth, "EvadeChance": 40}, "Cold")
+    red, rest = boss_hits.kind_land_parts({"_boss": olroth, "EvadeChance": 40}, "Cold", per_use=True)
     counts = boss_hits.hit_table(olroth)[1]["Cold"] / boss_hits.RED_FLASH[olroth][2]
-    every = (getattr(bosses, "USE_EVERY", None) or bosses.HIT_EVERY).get(olroth) or bosses.HIT_EVERY[olroth]
+    every = bosses.USE_EVERY[olroth]
     assert head == pytest.approx(1 - math.exp(-4 * counts / every * rest / 3)) and "dodged" in how
     nododge = Assumptions.boss_hit_recently_share(olroth, "Cold", {"EvadeChance": 40}, "no dodge")[0]
     strike = Assumptions.boss_hit_recently_share(olroth, "Cold", {"EvadeChance": 40}, "every strike")[0]

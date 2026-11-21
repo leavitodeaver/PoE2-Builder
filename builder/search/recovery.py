@@ -304,6 +304,71 @@ EVENT_UNREAD = {
 }
 
 
+
+# Time lost to Light Stuns on you (MECHC49; RESEARCH40 R40-4, HIGH; PLANS6's kw-light-stun, an OVERCOUNT before: a
+# Light Stun stops you acting, "preventing them from taking actions for a fraction of a second" (KeywordPopups
+# LightStun), and nothing took that time off). The live character.ot: stun_base_duration_override_ms 500 (the Light
+# Stun; base_heavy_stun_duration_ms 3000 is the Heavy one); PoB's StunDuration = 0.5 s x (1 + increased stun duration on
+# you) / (1 + Stun Recovery), rounded up to a server tick (CalcDefence 2809-2813), read here. The Light Stuns a second:
+# stuns_taken (the 15% floor, Physical's and melee's more Light Stun chance, the 50% more threshold per Stun in the past
+# 4 s, PoB's StunAvoidChance: "Cannot be Light Stunned" is StunImmune there, so 0) over the boss's landed hits of each
+# type at its OWN per-USE cadence (bosses.USE_EVERY) with the user's 2/3 of its dodgeable hits dodged and red-flash hits
+# avoided (boss_hits.ailment_hits, the headline readings; MECHC50: the manager's call in its brief, item 3d). On the worst-case pinnacle, the worst
+# real preset (a cost), as chill_and_freeze_on_you; the defence cadence (one hit every enemySkillTime, 82% of the fight
+# on the bare Spark skeleton: far above any one boss) is the upper row. The share lost L = Light Stuns a second x
+# StunDuration, at most 90%; it reaches PoB as Speed MORE -100 x L (tag LightStunned; MECHC50: not ActionSpeed, which
+# "Unaffected by Slows" drops, and a stun isn't a Slow), behind assumptions.BOSS_TIME_CUTS. MEDIUM: a stun while Frozen
+# isn't taken off (a small overcount of the loss); the stun animation running past 0.5 s: UNVERIFIED (R40-4). Row:
+# without Light Stuns, 0.
+LIGHT_STUN_FIELDS = ("StunThreshold", "StunAvoidChance", "StunDuration", "enemySkillTime", "EvadeChance",
+                     "EffectiveBlockChance", "DeflectChance", "DeflectEffect",
+                     "PhysicalTakenHit", "FireTakenHit", "ColdTakenHit", "LightningTakenHit", "ChaosTakenHit")
+LIGHT_STUN_BASE, LIGHT_STUN_MOST = 0.5, 0.9
+
+
+def _light_stuns(read: dict, cadence: str = "use") -> tuple[float, str]:
+    """(Light Stuns a second, how) on one preset's stats at `cadence` (boss_hits.ailment_hits')."""
+    from builder.search import boss_hits, objective  # (objective imports this module)
+
+    _, _, deflect = objective.boss_taken(read)
+    read = {**read, "_onyou_cadence": cadence}
+    hits = {t: boss_hits.ailment_hits(read, t)[0] for t in objective.RECOVERY_DAMAGE_TYPES}
+    landed = sum(hits.values())
+    if landed <= 0:
+        return 0.0, "no boss hit lands"
+    sizes = {t: max(_num(read.get(f"{t}TakenHit")), 0.0) * deflect for t in objective.RECOVERY_DAMAGE_TYPES}
+    rate, how = stuns_taken(read, sizes, {t: h / landed for t, h in hits.items()}, landed)
+    return rate, f"{boss_hits.boss_name(read) or 'the boss'}: {how}"
+
+
+def light_stun_lost(stats: dict) -> tuple[float, list[dict]]:
+    """(the share of the fight lost to Light Stuns, rows): the note above. `stats`: LIGHT_STUN_FIELDS and "_boss"."""
+    from builder.search import boss_hits
+
+    worst = boss_hits._worst()
+    if worst is not None and boss_hits.boss_name(stats) == worst:
+        picks = sorted(((*_light_stuns(read), name) for name, read in boss_hits.real_readings(stats)),
+                       key=lambda r: -r[0])
+        rate, how, _ = picks[0]
+        others = ", ".join(f"{n}: {r * 60:.1f}" for r, _, n in picks[1:] if r > 0)
+        how = f"the worst real preset ({how})" + (f"; the others a minute: {others}" if others else "")
+    else:
+        rate, how = _light_stuns(stats)
+    upper = _light_stuns(stats, "defence")[0]
+    seconds = _num(stats.get("StunDuration")) or LIGHT_STUN_BASE
+    if rate <= 0 and upper <= 0:
+        return 0.0, []
+    lost = min(rate * seconds, LIGHT_STUN_MOST)
+    return lost, [{"label": "Time lost to Light Stuns on you*",
+                   "value": (f"{lost:.1%} of the fight (Speed x{1 - lost:.3f}); at the "
+                             f"defence cadence: {min(upper * seconds, LIGHT_STUN_MOST):.1%}"),
+                   "basis": (f"{rate * 60:.1f} Light Stuns a minute ({how}) x {seconds:.3f} s each (0.5 s base, the game's "
+                             "character file; your Stun Recovery in PoB's StunDuration; R40-4). The boss's own uses (USE_EVERY), "
+                             "2/3 of its dodgeable hits dodged (the user's rate), red-flash hits avoided; a stun while "
+                             "Frozen not taken off. Row: without Light Stuns, 0% lost"),
+                   "play": "more Stun Threshold or Stun Recovery cuts it (Cannot be Light Stunned: none)",
+                   "confidence": "MEDIUM-LOW (0.5 s HIGH; the stun count from the presets' uses MEDIUM-LOW)"}]
+
 def _sum(pattern: re.Pattern, texts: list[str], pool: str | None = None) -> float:
     total = 0.0
     for t in texts:
