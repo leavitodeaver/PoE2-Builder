@@ -458,3 +458,26 @@ def test_igniferis_bursts_its_regeneration_back():
     recovery.regen_burst_income(income, ["Every 4 seconds, Recover 1 Life for every 0.2 Life Recovery per second from "
                                          "Regeneration"], 0.0)
     assert income.rates["LifeOnEventRecovery"] == 0.0
+
+
+def test_sacred_unitys_soaring_ground_trail_gives_onslaught_at_the_feather_rate():
+    """MECHC49 (the manager's 03:05, PLANS6; an UNDERCOUNT: nothing read the line): Sacred Unity's trail of Soaring
+    Ground gives you Onslaught (KeywordPopups SoaringGround) at the empowered Projectile uses a second (one per Owl
+    Feather from Primal Bounty, 50% faster with The Mhacha's Gift) x (6 s + 1 s Linger); 0 without Primal Bounty or a
+    Projectile main skill."""
+    from builder.search import conditions as c
+
+    unity = "Central Projectile of Owl Feather-Empowered Skills leaves a trail of Soaring Ground"
+    bounty = "Gain a Primal Owl Feather every 4 seconds, up to a maximum of 3"
+    stats = {"Speed": 2.0, "HitChance": 100, "_main_types": {"Attack", "Projectile"}}
+    up, how = c.sacred_unity_onslaught([unity, bounty], stats)
+    assert up == 1.0 and "Soaring Ground" in how  # (0.25 a second x 7 s: the trail covers the fight)
+    slow = c.sacred_unity_onslaught([unity, bounty], {**stats, "Speed": 0.1})  # (the main skill's own uses cap it)
+    assert slow[0] == pytest.approx(0.1 * 7)
+    fast = c.sacred_unity_onslaught([unity, bounty, "Gain Owl Feathers 50% faster"], stats)
+    assert fast[0] == 1.0 and "0.375/s" in fast[1] and "every 2.67 s" in fast[1]
+    assert c.sacred_unity_onslaught([unity], stats)[0] == 0.0
+    assert c.sacred_unity_onslaught([unity, bounty], {**stats, "_main_types": {"Attack"}})[0] == 0.0
+    assert c.sacred_unity_onslaught([bounty], stats) is None
+    value, basis = c.onslaught_uptime([unity, bounty], stats)[:2]
+    assert value is True and "Soaring Ground" in basis

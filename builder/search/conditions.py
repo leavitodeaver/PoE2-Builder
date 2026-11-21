@@ -2873,9 +2873,53 @@ def unholy_might_uptime(lines: list[str], stats: dict) -> tuple[object, str, flo
                   f"(MEDIUM)"), share
 
 
+# Sacred Unity's Soaring Ground trail (MECHC49; the manager's 03:05 from PLANS6, an UNDERCOUNT: PoB parses it to nothing,
+# ModCache 6903, and no code of ours read it). Spirit Walker (Ascendancy Huntress2) holds all three nodes (checked: Stats
+# ids holding owl / feather / primal_bounty / multishot_empowered over Mods, PassiveSkills, SoulCoreStats and
+# GrantedEffectStatSets, game 26650308: Primal Bounty AscendancyHuntress2Notable5, The Mhacha's Gift Notable6, Sacred
+# Unity Notable9 the only passive users; max_owl_feathers and chance_to_generate_owl_feather_%_on_crit have no user;
+# second source PoB's tree 0_5): Primal Bounty "Gain a Primal Owl Feather every 4 seconds, up to a maximum of 3 / Expend
+# an Owl Feather when you Dodge to trigger Primal Bounty" (it "Empowers the next Projectile Skill you use"); The
+# Mhacha's Gift "Gain Owl Feathers 50% faster"; Sacred Unity "Central Projectile of Owl Feather-Empowered Skills leaves a
+# trail of Soaring Ground" (multishot_empowered_central_projectile_drops_feathered_ground_for_duration_ms 6000).
+# KeywordPopups SoaringGround: "30% increased Evasion Rating, 40% increased damage while on Full Life, and Onslaught to
+# you or Allies standing on it. These effects Linger for 1 second", 6 s. The Onslaught here (yours): the empowered
+# uses a second e = the feathers a second (a player who takes the node dodges as each comes: CLAUDE.md's play
+# strategy), at most the main skill's uses when it's a Projectile skill (other Projectile skills not counted: LOW, lower);
+# up min(1, e x (6 s + 1 s Linger)), standing on the trail (it starts at your feet when you fire; MEDIUM-LOW). Ground or
+# skill duration modifiers on the 6 s: not read (UNVERIFIED, lower). No Primal Bounty or no Projectile main skill: 0.
+# The trail's Evasion and Full-Life damage are MECH-A's (plans/kw-soaring-ground.md).
+SACRED_UNITY = re.compile(r"^central projectile of owl feather-empowered skills leaves a trail of soaring ground$", re.I)
+PRIMAL_BOUNTY = re.compile(r"^gain a primal owl feather every (\d+(?:\.\d+)?) seconds", re.I)
+OWL_FASTER = re.compile(r"^gain owl feathers (\d+(?:\.\d+)?)% faster$", re.I)
+SOARING_SECONDS, SOARING_LINGER = 6.0, 1.0
+
+
+def sacred_unity_onslaught(lines: list[str], stats: dict) -> tuple[float, str] | None:
+    """(Onslaught uptime, how) from Sacred Unity's trail (the note above), or None without Sacred Unity."""
+    if not any(SACRED_UNITY.match(t.strip()) for t in lines):
+        return None
+    every = next((float(m.group(1)) for t in lines if (m := PRIMAL_BOUNTY.match(t.strip()))), None)
+    if every is None:
+        return 0.0, "Sacred Unity's trail: 0, no Primal Bounty (no Owl Feathers to empower a skill)"
+    if "Projectile" not in (stats.get("_main_types") or set()):
+        return 0.0, "Sacred Unity's trail: 0, the main skill isn't a Projectile skill (other skills not counted, LOW)"
+    faster = sum(float(m.group(1)) for t in lines if (m := OWL_FASTER.match(t.strip())))
+    feathers = (1 + faster / 100) / every
+    uses = number(stats.get("Speed")) * _main_share(stats)
+    rate = min(feathers, uses)
+    up = min(1.0, rate * (SOARING_SECONDS + SOARING_LINGER))
+    return up, (f"Sacred Unity's Soaring Ground trail: an empowered Projectile use per Owl Feather, {rate:.3f}/s (a "
+                f"feather every {every / (1 + faster / 100):.2f} s, dodging as each comes), x {SOARING_SECONDS:g} s + "
+                f"{SOARING_LINGER:g} s Linger, standing on the trail you fire from (MEDIUM-LOW)")
+
+
 def onslaught_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
     main_types = stats.get("_main_types") or set()
     down, how = 1.0, []
+    if (r := sacred_unity_onslaught(lines, stats)) is not None:  # (MECHC49)
+        down *= 1 - r[0]
+        how.append(r[1])
     for text in lines:
         # ("when a Minion Dies" is yours, not a minion's line, as for Arcane Surge; MECHC7)
         own = re.sub(r"when a minion dies", "", text, flags=re.I)
