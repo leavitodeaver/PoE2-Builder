@@ -6934,13 +6934,38 @@ def incinerate_channel(mana_per_second: float, ms_per_mana: float, max_ms: float
 # is live at a time (the strongest: a previous channel's last Ignite outlives the next channel's first small ones).
 # The model: the Ignite's average magnitude over the cycle (channel + gap), with compounding over without (same Ignite
 # times, chance and duration), applied as more Ignite Magnitude on the skill. Flame Breath's channel: its free window
-# (channelled_skill_suppress_ongoing_rage_cost_for_first_X_ms, 4 s + quality) recast at once ("do not go on cooldown on
-# finishing channel"). Rage would prolong it, but the skill can't gain Rage while in use (skill_cannot_gain_rage_during_use)
-# and back-to-back channels leave no time between them to gain any, so each starts with none: the free window is the
-# channel (MEDIUM; a play that pauses to refill Rage for longer channels isn't modelled).
+# (channelled_skill_suppress_ongoing_rage_cost_for_first_X_ms, 4 s + quality), the skill can't gain Rage while in use
+# (skill_cannot_gain_rage_during_use). (MECH99: was "recast at once", which its 10 s cooldown rules out: MECHB51's
+# flame_breath_model, the cooldown running from each channel's start, 0.4.0c / R28-14.) A cycle is max(its Cooldown,
+# the wind-up + the free window); the channel is the main-skill hit cut's share of that cycle (build.main_hit_cut, set by
+# MECH-B's Flame Breath model: the free window plus what the build's Rage pays, after a 4-attack-time wind-up), or the
+# free window where no cut is set; the gap = cycle - channel. Ignites land at PoB's in-channel rate (its nonstop Speed,
+# the rate during the channel: the cut carries the time off, MEDIUM).
 COMPOUNDING_SKILLS = {INCINERATE, "Flame Breath"}
 FLAME_BREATH_FREE_STAT = "channelled_skill_suppress_ongoing_rage_cost_for_first_X_ms"
 COMPOUND_STEP = 0.01  # s, the sampling step of compounding_factor
+
+
+FLAME_BREATH_COOLDOWN = 10.0  # s, WyvernFlameBreathPlayer's cooldown (the fallback where PoB shows none)
+FLAME_BREATH_WINDUP_TIMES = 4.0  # attack times (start_animation_duration_as_%_of_attack_time 400, MECHB51's wind-up)
+
+
+def flame_breath_cycle(free: float, cooldown: float, speed: float, cut: float | None) -> tuple[float, float, str]:
+    """(channel s, gap s, how) for Flame Breath's Compounding (MECH99, the note above): `free` its Rage-free window,
+    `cooldown` PoB's Cooldown, `speed` PoB's nonstop hits a second, `cut` build.main_hit_cut (None: not set)."""
+    free = free if free > 0 else 4.0
+    cooldown = cooldown if cooldown > 0 else FLAME_BREATH_COOLDOWN
+    windup = FLAME_BREATH_WINDUP_TIMES / speed if speed > 0 else 0.0
+    cycle = max(cooldown, windup + free)
+    if cut is not None and 0 < number(cut) <= 1:
+        channel = number(cut) * cycle
+        how = f"the hit cut x{number(cut):.3f} of the cycle (MECH-B's Flame Breath model: its Rage-free window and Rage)"
+    else:
+        channel = free
+        how = "its Rage-free window (no hit cut set)"
+    channel = min(channel, cycle)
+    return channel, cycle - channel, (f"{channel:.2f} s channels ({how}) each {cycle:.2f} s (its {cooldown:g} s cooldown "
+                                      f"from each channel's start), {cycle - channel:.2f} s between them (MEDIUM)")
 
 
 def compounding_factor(rate: float, channel: float, gap: float, duration: float) -> tuple[float, int]:
@@ -9234,8 +9259,12 @@ class Conditions:
 
     def _compounding(self, stats: dict, fuel: tuple[float, float, str] | None) -> tuple[float, str]:
         """(Compounding Ignite's more Ignite Magnitude factor, how) for the main skill (MECH79, compounding_factor)."""
+        raw_speed = number(stats.get("Speed"))
         stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
-        rate = number(stats.get("Speed")) * min(number(stats.get("IgniteChancePerHit")), 100.0) / 100.0 * min(
+        speed = number(stats.get("Speed"))
+        if self.main_skill != INCINERATE:  # (MECH99: Flame Breath's Ignites land during its channel at PoB's own rate)
+            speed = raw_speed
+        rate = speed * min(number(stats.get("IgniteChancePerHit")), 100.0) / 100.0 * min(
             number(stats.get("HitChance")) or 100.0, 100.0) / 100.0
         duration = (number(self.build.call("stats", fields=["IgniteDuration"]).get("IgniteDuration"))
                     or AILMENT_DURATION["Ignite"])
@@ -9248,10 +9277,10 @@ class Conditions:
         else:
             raw = self.build.call("activeSkills", levelStats=[self.main_skill])["skills"]
             got = next((s.get("levelStats") or {} for s in raw if s["name"] == self.main_skill), {})
-            channel = (number(got.get(FLAME_BREATH_FREE_STAT)) or 4000.0) / 1000.0
-            gap = 0.0
-            play = (f"{channel:g} s channels (its Rage-free window), recast at once (it can't gain Rage while in use, so "
-                    "back-to-back channels start with none to prolong it; MEDIUM)")
+            free = (number(got.get(FLAME_BREATH_FREE_STAT)) or 4000.0) / 1000.0
+            channel, gap, play = flame_breath_cycle(
+                free, number(self.build.call("stats", fields=["Cooldown"]).get("Cooldown")), raw_speed,
+                getattr(self.build, "main_hit_cut", None))
         factor, n = compounding_factor(rate, channel, gap, duration)
         return factor, (f"{rate:.2f} Ignites/s ({number(stats.get('IgniteChancePerHit')):.0f}% a hit), {n} a channel, "
                         f"each {duration:g} s; {play}: the Ignite averages x{factor:.2f} its magnitude (the k-th Ignite "
