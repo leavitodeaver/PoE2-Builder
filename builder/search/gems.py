@@ -98,6 +98,7 @@ META_TRIALS = 3  # spells per meta gem tried for real (trigger rates show only a
 # score must move before a side group whose last full sweep found nothing is swept again (a sweep is ~one what-if per
 # offered support: ~200-300 a group)
 SIDE_SUPPORT_ROUNDS = 4
+SIDE_SUPPORTS = os.environ.get("POE2_SEARCH_SIDE_SUPPORTS", "1") != "0"  # on; POE2_SEARCH_SIDE_SUPPORTS=0 for an A/B run
 SIDE_RESWEEP = 0.05
 # Moves per round of the main group's supports that get a real trial, the next when one turns out worse. The what-if
 # doesn't resolve conditions: Exploit Weakness ("more Damage against enemies with Broken Armour but preventing them from
@@ -691,7 +692,7 @@ class Gems:
 
         improved = False
         granted = [g["index"] for g in self.filled_granted_groups()]
-        side = self.side_groups()
+        side = self.side_groups() if SIDE_SUPPORTS else []
         for meta, index in [(False, None), (True, None), *((True, i) for i in granted), *((True, g["index"]) for g in side)]:
             is_side = index is not None and index not in granted
             if is_side:
