@@ -3674,6 +3674,9 @@ class Assumptions:
             row = (build.call("useRates", indices=[cry.group])["rates"] or [{}])[0]
             charges = models.number(build.call("stats", fields=["RemovableEnduranceCharges"]).get(
                 "RemovableEnduranceCharges"))  # (MECHB42, GEM23: +50% duration per Endurance Charge consumed)
+            if cry.name in self.inhibited():  # (GEM31: MECHC49's INHIBITOR: it consumes none)
+                charges = 0.0
+                hand_notes = hand_notes + [self.inhibited_note(cry.name, "its duration gets no +50% per charge")]
             up, kaom_busy, kaom_how = models.kaom_uptime(uses, models.number(row.get("duration")),
                                                          models.number(row.get("castTime")) or cry.cast_time, how, charges)
             embodiment = (up, kaom_how)
@@ -4220,6 +4223,8 @@ class Assumptions:
                         r := conditions_mod._charge_rate(t, "Power", app_stats)) is not None:
                     app_gains += r[0]
                     app_found.append(f"{t[:50]} ({r[0]:.2g}/s)")
+            if main is not None and main.name in self.inhibited():  # (GEM31: "consume a Power Charge if able")
+                app_gains, app_found = 0.0, ["Inhibitor supports the main Spell: it can't consume a Power Charge (R40-2)"]
             app_mods, app_notes = models.abyssal_apparition_model(
                 texts, main, app_types, app_stats, app_gains, "; ".join(app_found[:3]), forbidden,
                 int(build.ctx.level or 0))  # (GEM30, R40-7: the grant levels with the character)
@@ -4502,6 +4507,9 @@ class Assumptions:
         if main is not None and group and main.name == models.FALLING_THUNDER:  # (GEM16: projectiles need Power Charges)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             charges = number(build.call("stats", fields=["RemovablePowerCharges"]).get("RemovablePowerCharges"))
+            if main.name in self.inhibited():  # (GEM31: the manager 09:10, MECHC49's INHIBITOR; a DPS OVERCOUNT before)
+                charges = 0.0
+                hand_notes = hand_notes + [self.inhibited_note(main.name, "its uses fire no Power-Charge projectiles")]
             thunder_mods, thunder_notes = models.falling_thunder_model(main, main.stat_set, sets, charges, forbidden)
             hand_mods, hand_notes = hand_mods + thunder_mods, hand_notes + thunder_notes
         if main is not None and group and main.name == models.ICESTORM:  # (GEM17: improved bolts need Chill / Freeze)
@@ -9019,6 +9027,17 @@ class Assumptions:
                          + (", MEDIUM-LOW: the row" if name in models.LINGERING_ARROWS_ROW else "") + ")")
         return head, row_rate, ("; ".join(parts) if parts else "no Lightning Rod or Shockchain Arrow in the build"), fastest
 
+    def inhibited(self) -> set[str]:
+        """The skills an enabled Inhibitor supports (conditions.inhibited_skills, MECHC49): they consume no Power, Frenzy
+        or Endurance Charges and no Infusions (R40-2). GEM31: GEM's charge-consuming models check it."""
+        return conditions_mod.inhibited_skills(self.build.call("groups")["groups"])
+
+    @staticmethod
+    def inhibited_note(skill: str, what: str) -> dict:
+        return {"label": f"Inhibitor: {skill} consumes no charges*", "value": "0 charges", "confidence": "HIGH",
+                "basis": (f"Inhibitor supports {skill}: it cannot consume Power, Frenzy or Endurance Charges "
+                          f"(cannot_consume_power_frenzy_endurance_charges, R40-2 HIGH; PoB reads no such stat), so {what}")}
+
     def gated_set_share(self, skill: str, texts: list[str], main_types: set[str]) -> tuple[float, str]:
         """(share, how) of a models.GATED_SETS skill's uses its resource covers (GEM17): Furious Slam's Rage from the
         build's Rage gains (conditions._rage_gain, the reader rage_held uses) over 10 a slam; Oil Barrage's Power Charges
@@ -9027,6 +9046,8 @@ class Assumptions:
                                                                           "EffectiveBlockChance"]),
                  "_main_types": main_types}
         found = []
+        if skill in ("Glacial Lance", models.OIL_BARRAGE) and skill in self.inhibited():  # (GEM31: MECHC49's INHIBITOR)
+            return 0.0, self.inhibited_note(skill, "none of its uses is empowered")["basis"]
         if skill == models.RIVEN_SKILL:  # (GEM21: its "Vs Armour Broken" hits only a Fully Broken boss: MECH87's share)
             share, how = getattr(self.build, "full_break_up", None) or (0.0, "")
             share = min(max(number(share), 0.0), 1.0)

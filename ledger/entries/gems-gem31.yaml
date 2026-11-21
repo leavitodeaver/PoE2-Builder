@@ -170,3 +170,24 @@
             "data/game-26650308/files/data/statdescriptions/specific_skill_stat_descriptions/wolf_lunar_blessing_beam_attack.csd"]
   test_in_game: "Lunar Blessing + Lunar Assault on a dummy: about one Moonbeam a second while the Buff lasts."
   status: proposed
+
+- id: model-gem31-inhibitor-gate
+  title: "Inhibitor: GEM's charge-consuming models give an Inhibitor-supported skill no charges (PoB reads no cannot_consume stat)"
+  kind: model
+  model: inhibitor_gate
+  stats: []
+  skill: [Inhibitor, Falling Thunder, Glacial Lance, Oil Barrage, Ancestral Cry, Hollow Form]
+  confidence: datamined
+  notes: >-
+    The manager 09:10 (MECHC49 367262e2, train 110; RESEARCH40 R40-2, HIGH): Inhibitor's "Supported Skills cannot
+    consume Charges / Infusions" (cannot_consume_power_frenzy_endurance_charges, cannot_consume_infusions). PoB has no
+    statMap or reader for either (checked: grep of Data/SkillStatMap.lua and Modules/), so its RemovablePowerCharges /
+    RemovableEnduranceCharges still counted charges the skill can't spend. GEM31 (Assumptions.inhibited, from
+    conditions.inhibited_skills): Falling Thunder fires no Power-Charge projectiles (a DPS OVERCOUNT the search could
+    pick: Inhibitor's 4% more a charge held AND the projectiles), Glacial Lance / Oil Barrage are never empowered, the
+    Steward of Kulemak Apparition needs a Power Charge the main Spell can't consume, Ancestral Cry gets no +50% duration
+    per Endurance Charge, Hollow Form makes no extra images. Infusion readers are MECHC49's (already gated).
+  sources: ["builder/search/assumptions.py (Assumptions.inhibited)", "builder/search/conditions.py (inhibited_skills)",
+            "scratch/gem31/inhibitor_plan.md (GEM31)"]
+  test_in_game: "Not needed."
+  status: proposed

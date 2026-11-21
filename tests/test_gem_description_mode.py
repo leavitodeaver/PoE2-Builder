@@ -1903,3 +1903,24 @@ def test_delayed_gratification_is_not_a_free_support():
     lines = [m for m in models.gem_stat_model([skill], main=skill, stats={})[0] if "less Damage" in str(m.get("line"))]
     assert lines == [{"kind": "Line", "line": "1% less Damage", "scale": 20.0, "skill": "Tempest Flurry"}]
     assert stat in models.gem_stat_support_stats()
+
+
+def test_inhibitor_supported_skills_consume_no_charges_in_gem_models():
+    """GEM31 (the manager 09:10; MECHC49's conditions.inhibited_skills, R40-2): an Inhibitor-supported Glacial Lance /
+    Oil Barrage is never empowered; the note says why. Falling Thunder, the Apparition, Ancestral Cry and Hollow Form are
+    gated at their hooks the same way (Assumptions.inhibited)."""
+    from builder.search.assumptions import Assumptions
+
+    class Stub:
+        def call(self, name, **_):
+            if name == "groups":
+                return {"groups": [{"enabled": True, "gems": [{"name": "Oil Barrage"}, {"name": "Inhibitor"}]}]}
+            return {}
+
+    a = Assumptions.__new__(Assumptions)
+    a.build = Stub()
+    assert a.inhibited() == {"Oil Barrage"}
+    share, how = a.gated_set_share("Oil Barrage", [], set())
+    assert share == 0.0 and "Inhibitor supports Oil Barrage" in how
+    note = Assumptions.inhibited_note("Falling Thunder", "x")
+    assert note["confidence"] == "HIGH" and "cannot consume" in note["basis"]
