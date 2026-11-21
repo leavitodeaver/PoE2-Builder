@@ -22,6 +22,7 @@ import math
 import random
 import re
 from collections import Counter, deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from itertools import product
 
@@ -414,6 +415,138 @@ class Tree:
                 branches = [b for b in branches if not (b & branch)]
         self.round += 1
         self.allocations_since_full = FULL_EVERY
+
+    # Final regrow on the finished gear (SEARCHB2) -------------------------------------------------
+
+    def shortfall(self) -> float:
+        """How far the build is from meeting the request (objective.shortfall: a game limit counts ten times a floor)."""
+        return sum(amount * (10.0 if hard else 1.0) for _, amount, hard in self.build.objective.deficits(self.build.stats))
+
+    def floor_step(self, deadline: float) -> bool:
+        """Allocate the target (with its path) that cuts the build's penalty for the request's floors and game limits
+        most per point, if any cuts it. Grow ranks by score per point, where one point that buys a few % of a floor is
+        worth less than one that buys damage until the floor is nearly met (its FLOOR_OFFSET is paid only at zero): so
+        from an empty tree it spends the points on damage and ends short (G0b's controls, SEARCHB1). This ranks by the
+        penalty alone."""
+        left = self.points_left()
+        if left <= 0 or clock.now() > deadline:
+            return False
+        candidates = self.frontier(left)
+        if not candidates:
+            return False
+        objective = self.build.objective
+        before = objective.penalty(self.build.stats)
+        cases = [{"add": [c.id], "addPaths": True, "attribute": self.attribute} for c in candidates]
+        best, best_value = None, EPSILON
+        for candidate, (_, stats) in zip(candidates, self.build.node_deltas(cases)):
+            value = (before - objective.penalty(stats)) / max(candidate.cost, 1)
+            if value > best_value:
+                best, best_value = candidate, value
+        if best is None:
+            return False
+        self.build.allocate(add=[best.id], attribute=self.attribute)
+        self.round += 1
+        self.allocations_since_full = FULL_EVERY
+        return True
+
+    def repair_floors(self, deadline: float, target: float, trades: int = 12) -> None:
+        """Bring the shortfall back to `target` (the build's before a regrow): free points go to floor_step; with none
+        left, the weakest branch (by score per point, so never one a floor leans on more than its damage) is traded
+        for them, at most `trades` times."""
+        for _ in range(trades * 4):
+            if clock.now() > deadline or self.shortfall() <= target + EPSILON:
+                return
+            if self.floor_step(deadline):
+                continue
+            if trades <= 0:
+                return
+            trades -= 1
+            branches = self.weakest_branches()
+            if not branches:
+                return
+            self.remove_branch(branches[0][1])
+            if not self.floor_step(deadline):
+                return
+
+    def regrow_variant(self, deadline: float, clear: str, target: float) -> None:
+        """One regrow of the tree: `clear` "all" (Tree.reset) or "weak:<points>" (the weakest branches per point, about
+        that many points), then grow, the floors repaired to `target`, grow again into what's left, and the attribute
+        choices; the conditions re-resolved (a cleared passive may have been a condition's source)."""
+        if clear == "all":
+            self.reset()
+        else:
+            size = int(clear.split(":")[1])
+            removed: set[int] = set()
+            for _, branch in self.weakest_branches():
+                if len(removed) >= size:
+                    break
+                if not branch & removed and len(branch) <= size - len(removed) + 3:
+                    self.remove_branch(branch)
+                    removed |= branch
+            self.candidates.clear()
+        self.grow(deadline)
+        self.repair_floors(deadline, target)
+        self.grow(deadline)
+        self.attributes_round()
+        if self.resolve is not None:
+            self.resolve()
+
+    FINAL_CLEARS = ("all", "weak:30", "weak:15", "weak:8")
+    SWAP_MIN_GAIN = 1e-3  # (ln units: 0.1% of the score's DPS) a final swap gaining less ends the swaps
+
+    def final_regrow(self, deadline: float, clears: tuple[str, ...] = FINAL_CLEARS,
+                     reweigh: Callable[[], None] | None = None) -> list[dict]:
+        """A last regrow of the tree on the finished gear (SEARCHB1's G0b: the search's own grower, regrowing the
+        delivered tree on the delivered gear, read x1.52 on 2b75d and x2.50 on 2b75b: the tree was grown against
+        earlier gear and never rebuilt for the final one; but both regrows missed the Physical max hit floor).
+
+        Each clear in `clears` is tried from the best build so far (regrow_variant). A variant is kept only if it is
+        no further from the request than the best (the shortfall, the delivered results' rank: objective.rank_key) and
+        scores higher; else the build goes back. Then the prune-and-regrow swaps run until none pays. The floors and the
+        user's bans are never relaxed: a variant short on anything the best build meets is never kept.
+        `reweigh` (the search's weigh_uptimes) is called after each variant, before it is judged: the floors are read
+        with the part-time effects off (objective.floor_deltas), and those deltas belong to the tree they were measured
+        on (SEARCHB1's G0b probe regrew before they were set and read every regrow as short on Phys max hit).
+        Returns one row per try: {"clear", "score", "shortfall", "kept"}."""
+        build = self.build
+        best_score, best_short = build.score, self.shortfall()
+        rows: list[dict] = []
+        for clear in clears:
+            if clock.now() > deadline:
+                break
+            snap = build.snapshot()
+            self.regrow_variant(deadline, clear, best_short)
+            if reweigh is not None:
+                reweigh()
+            score, short = build.score, self.shortfall()
+            kept = (self.points_left() >= 0 and short <= best_short + EPSILON and score > best_score + EPSILON)
+            rows.append({"clear": clear, "score": round(score, 4), "shortfall": round(short, 4), "kept": kept})
+            if kept:
+                best_score, best_short = score, short
+            else:
+                build.restore(snap)
+                self.candidates.clear()
+                self.round += 1
+                self.allocations_since_full = FULL_EVERY
+        while clock.now() < deadline:
+            snap = build.snapshot()
+            if not self.swap_round(deadline):
+                break
+            if reweigh is not None:
+                reweigh()
+            if self.shortfall() > best_short + EPSILON or build.score < best_score + self.SWAP_MIN_GAIN:
+                # (swap_round keeps any higher score: a floor given up for it goes back, and so does a gain too small
+                # to be worth another round: probe POE2T6221, 2b75d, swapped to its deadline on gains under 0.01%)
+                if build.score < best_score - EPSILON or self.shortfall() > best_short + EPSILON:
+                    build.restore(snap)
+                    self.candidates.clear()
+                else:
+                    best_score = build.score
+                break
+            best_score = build.score
+            rows.append({"clear": "swap", "score": round(best_score, 4), "shortfall": round(self.shortfall(), 4),
+                         "kept": True})
+        return rows
 
     # Attribute nodes ---------------------------------------------------------------------------
 
