@@ -75,6 +75,7 @@ PRESS_RATES = (0.0, 0.25, 0.5, 1.0, 2.0)
 PRESS_ROUND = os.environ.get("POE2_SEARCH_PRESS", "1") != "0"
 # (SEARCH25, A36-14) a granted pressed skill tried in Full DPS on the finished build (Search.include_granted)
 GRANTED_PRESS = os.environ.get("POE2_SEARCH_GRANTED_PRESS", "1") != "0"
+FILL_FINALIZE_RATIO = 1.5  # (SEARCH34) the open-socket fill's time, at most this x finalize's own (LOW, a time budget)
 FINALIZE_SWEEP_MIN = 20.0  # finalize's polish sweeps supports on Full DPS first when it has this long (finalize_task)
 # How far past its deadline a search may run before its build stops it at the next evaluation (Build.stop_at): a share
 # of the task's time, at least STOP_GRACE_MIN seconds, so a step that watches the deadline itself finishes normally
@@ -767,6 +768,14 @@ class Search:
         if any(g["name"] == "Blasphemy" and g.get("enabled", True) for grp in self.build.groups()
                if grp.get("enabled", True) for g in grp["gems"]):
             lines.append("Blasphemy: Curse Auras on enemies in your Presence (models.curse_uses)")
+        # (SEARCH34, MECHC48's routed item) Overwhelming Presence's debuff is on only for a boss in your Presence
+        # (assumptions: AuraEffect MORE -100 outside it), so a ranged build tries standing at the Presence edge for it too
+        from builder.search.assumptions import OVERWHELMING_PRESENCE
+
+        if any(g["name"] == OVERWHELMING_PRESENCE and g.get("enabled", True) for grp in self.build.groups()
+               if grp.get("enabled", True) for g in grp["gems"]):
+            lines.append("Overwhelming Presence: enemies in your Presence are easier to Stun and inflict Elemental "
+                         "Ailments upon (assumptions' OverwhelmingOutside)")
         lines += support_distance_lines(self.build.groups())
         # (the Presence radius in metres: the Presence-edge trial for "in your Presence" lines and the just-beyond one for
         # "no enemies are in your Presence" lines, Lioneye's Glare; distance_candidates took 0 m before, so neither was
@@ -1933,6 +1942,17 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         trace.append(["polish", round(build.score, 4)])
     except Cancelled:
         pass
+    # (SEARCH34; the user, 20 Nov: an empty support socket is a red flag to justify by score) every open socket of the
+    # MAIN group gets real trials of its legal supports, and a support needing an exact count (Uhtred's Augury) the group
+    # without it filled; empty stays only when it scores higher (Gems.fill_open). Its own FILL_SECONDS past whatever is
+    # left (the manager's 06:58: "up to about 90 s extra" for the main group's fill), at most 1.5 x finalize's own time (a
+    # short run's finalize stays short: a 600 s gate's is 60 s, so 90); what it can't try is said in the result
+    try:
+        if search.step("open sockets", search.gems.fill_open,
+                       clock.now() + min(gems_module.FILL_SECONDS, FILL_FINALIZE_RATIO * seconds)):
+            trace.append(["open sockets", round(build.score, 4)])
+    except Cancelled:
+        pass
     search.choose_play()
     trace.append(["play", round(build.score, 4)])
     search.resolve()
@@ -1959,6 +1979,8 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     play = play_guide.guide(search)  # "How to play it": the DPS without each condition the player or fight decides
     play += search.press_guide_rows()  # (and each chosen press rate, without it / with it)
     play += search.gear.filler_rows()  # (and each filler: no item raised the score in its slot)
+    open_sockets = search.gems.open_sockets()  # (SEARCH34: each open support socket and why, a warning)
+    play += search.gems.open_socket_rows(open_sockets)
     facts = build.call("facts", fields=RESULT_FIELDS)
     xml = build.call("exportXml")["xml"]
     code = codes.encode(xml)
@@ -2012,6 +2034,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         "assumptions": assumptions, "flasks": search.gear.flask_report(),
         "verified": not mismatched, "verify_mismatch": mismatched,
         "tree_check": tree_check, "radius_jewels": reloaded["radiusJewels"], "left_out": {**search.jewels.left_out, **search.gems.left_out},
+        "open_sockets": open_sockets,
     }
     # The search's config inputs the reload dropped come back first, so the check below re-settles the build as delivered
     # (SEARCH33, probe POE2T5455): PoB writes an input equal to its own default as a Placeholder, so the chosen "Boss at

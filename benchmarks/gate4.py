@@ -325,7 +325,8 @@ def main() -> None:
                      "feasible": result.get("feasible"), "failing": failing, "request": request.model_dump(mode="json"), "code": result.get("code"),
                      "play_guide": result.get("play_guide"), "evaluations": result.get("evaluations"),
                      "wall_seconds": result.get("wall_seconds"), "workers": result.get("workers"),
-                     "checks": result.get("checks"), "reapply_drift": result.get("reapply_drift")})  # (each floor's row: the sustain and recovery rows' delivered values)
+                     "checks": result.get("checks"), "reapply_drift": result.get("reapply_drift"),
+                     "open_sockets": result.get("open_sockets")})  # (each floor's row: the sustain and recovery rows' delivered values)
         rows[-1].update({"reference_dps_fair": fair["dps"], "ratio_fair": dps / fair["dps"] if fair["dps"] else None,
                          "reference_fair_short": fair["short"], "reference_fair_conditions": fair["conditions"],
                          "floors_from": "fair", "reference_pob_floors": fair["pob_floors"]})
@@ -343,6 +344,10 @@ def main() -> None:
               + ("; UNSETTLED: re-settled " + ", ".join(f"{d:,.0f}" for d in result["reapply_drift"]["after"])
                  + f", scored fresh {result['reapply_drift'].get('fresh') or 0:,.0f}"
                  if (result.get("reapply_drift") or {}).get("flagged") else "")
+              + "".join(f"; OPEN SOCKETS: {o['skill']} {o['open']} ({' / '.join(o['reasons'])[:160]})"
+                        for o in result.get("open_sockets") or [] if o["kind"] != "side")
+              + (f"; {n} side-group open sockets" if (n := sum(o["open"] for o in result.get("open_sockets") or []
+                                                            if o["kind"] == "side")) else "")
               + f"; {result.get('evaluations', 0):,} evaluations, {result.get('wall_seconds', 0):,.0f} s wall"
               + (" (processor-time clock)" if args.cpu else ""), flush=True)
     RESULT_DIR.mkdir(parents=True, exist_ok=True)

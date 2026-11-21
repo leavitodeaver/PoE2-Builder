@@ -100,6 +100,23 @@ META_TRIALS = 3  # spells per meta gem tried for real (trigger rates show only a
 SIDE_SUPPORT_ROUNDS = 4
 SIDE_SUPPORTS = os.environ.get("POE2_SEARCH_SIDE_SUPPORTS", "1") != "0"  # on; POE2_SEARCH_SIDE_SUPPORTS=0 for an A/B run
 SIDE_RESWEEP = 0.05
+# (SEARCH34; the user, 20 Nov: "having empty support sockets is a HUGE loss in power", corrected: an empty socket is a red
+# flag to justify by score, not automatically wrong: Uhtred's Augury, Spirit kept for the other Spirit skills, ...)
+# fill_open gives each open socket of each fillable group REAL trials (commit + resolve, the score with every model) of
+# its FILL_TRIALS best legal supports by what-if, a 0 or negative what-if included (a resolve-only effect never shows in
+# it), FILL_SIDE_TRIALS for a side group; and for each support a group holds, the group without it and its open sockets
+# filled (a support whose bonus needs a support count, Uhtred's Augury: "provided exactly two other supports",
+# GemEffects UhtredAugurySupport). Empty stays only when it scores higher; open_sockets says why. The manager's 06:58
+# ruling: the MAIN group only, given up to FILL_SECONDS of finalize's own (LOW, a time budget, no DPS assumption); what the
+# budget leaves untried is said in the result, never dropped silently. Other groups wait (FILL_KINDS): a side group's
+# what-ifs all read 0 (its buff or debuff shows only after a resolve), so nothing ranks its candidates yet
+FILL_TRIALS = 4
+FILL_SIDE_TRIALS = 2
+FILL_SECONDS = 90.0
+FILL_KINDS = ("main",)
+SIDE_GAP = ("not tried: a side group's support what-ifs all read 0 (its buff or debuff counts only after a resolve), so "
+            "nothing ranks its candidates yet; the fill covers the main group only (the manager's 06:58)")
+COUNT_RULE = re.compile(r"provided exactly (\w+) other supports", re.I)
 # Moves per round of the main group's supports that get a real trial, the next when one turns out worse. The what-if
 # doesn't resolve conditions: Exploit Weakness ("more Damage against enemies with Broken Armour but preventing them from
 # Breaking Armour themselves", GemEffects) kept the armour break it takes away, ranked first at +0.20 every round, failed
@@ -207,6 +224,7 @@ class Gems:
         self._requirements: dict[str, list[dict]] = {}  # gem -> requirements per level (gemRequirements)
         self.usage = None  # usage requirements (builder/search/usage.py), set by the search
         self.left_out: dict[str, str] = {}  # meta gem -> why the search doesn't propose it (said in the result)
+        self.fill_log: dict[tuple, dict] = {}  # (SEARCH34) (group, its gems after the fill) -> what fill_open tried
 
     # Helpers ---------------------------------------------------------------------------------
 
@@ -508,7 +526,7 @@ class Gems:
             new[slot - 1] = name
         return new
 
-    def commit(self, index: int, names: list[str], group: dict | None = None) -> None:
+    def commit(self, index: int, names: list[str], group: dict | None = None, resolve: bool = True) -> None:
         """Set a group's gems. The main group's skill goes in at GEM_LEVEL (gem_list); a meta group (`group` given, not
         the main one) keeps the levels its meta gem and spell were chosen at (usable_level)."""
         if group is None or group["main"]:
@@ -518,6 +536,8 @@ class Gems:
                     for g in group["gems"] if not g["support"]}
             gems = [kept.get(n) or {"name": n} for n in names]
         self.build.set_group(index=index, gems=gems)
+        if not resolve:
+            return  # (SEARCH34: a step of a greedy fill the what-if ranks; its last set is committed with the resolve)
         if self.resolve is not None:
             self.resolve()  # a condition the support turns on can also change the stat set chosen
         elif self.conditions is not None:
@@ -732,6 +752,230 @@ class Gems:
                     if self.checkpoint is not None:
                         self.checkpoint()
         return improved
+
+    # Open sockets (SEARCH34) -------------------------------------------------------------------
+
+    def fill_targets(self, side: bool | None = None) -> list[tuple[bool, int | None, str]]:
+        """The groups supports_round fills, as (meta, index, kind): the main group, the meta group, each granted meta
+        holding a spell, and with `side` the side groups (side_groups; filled only with SIDE_SUPPORTS on)."""
+        targets: list[tuple[bool, int | None, str]] = [(False, None, "main"), (True, None, "meta")]
+        granted = [g["index"] for g in self.filled_granted_groups()]
+        targets += [(True, i, "granted") for i in granted]
+        if SIDE_SUPPORTS if side is None else side:
+            targets += [(True, g["index"], "side") for g in self.side_groups() if g["index"] not in granted]
+        return targets
+
+    def socket_use(self, group: dict, meta: bool) -> tuple[list[str], int, int]:
+        """A group's gem names, the position of its first support, and its open sockets, as supports_round counts them
+        (a meta group's spells, a totem meta's spell and Hollow Form's moved Attack take sockets: the cautious reading)."""
+        from builder.search.models import TOTEM_METAS
+
+        names = [g["name"] for g in group["gems"]]
+        first = next((i for i, g in enumerate(group["gems"]) if g["support"]), len(names))
+        totem = any(n in TOTEM_METAS for n in names)
+        used = len(names) - 1 if meta or totem or self.hollow_main(group, meta) else len(names) - first
+        return names, first, max(0, SUPPORT_SLOTS - used)
+
+    def count_rule(self, name: str) -> str | None:
+        """A support whose bonus needs an exact support count, by its game text (Uhtred's Augury: "provided exactly two
+        other supports are used with the supported Skill"): that text, else None."""
+        m = COUNT_RULE.search((self.ctx.gems.get(name) or {}).get("description") or "")
+        return m.group(0) if m else None
+
+    def _fill_options(self, index: int, names: list[str], first: int, groups: list[dict]) -> list[str]:
+        """The legal supports one more socket of group `index` could take: offered, allowed, priced, usable, not held,
+        no family clash, affordable."""
+        stats = self.usage_stats()
+        taken = set().union(*(self.families(n) for n in names[first:])) if names[first:] else set()
+        left = self.budget_left()
+        return [c for c in self.candidates(index, groups) if self.usable(c, stats) and c not in names
+                and not (self.families(c) & taken) and self.affordable(c, 0.0, left)]
+
+    def _spirit_short(self) -> bool:
+        return any(label == "Spirit" for label, _, _ in self.build.objective.deficits(self.build.stats))
+
+    def fill_open(self, deadline: float, kinds: tuple[str, ...] | None = None) -> bool:
+        """(SEARCH34) Real trials for every open socket of the groups of `kinds` (FILL_KINDS; comment at FILL_TRIALS).
+        Records, per group, what was tried and why a socket stays empty (self.fill_log, read by open_sockets)."""
+        build = self.build
+        improved = False
+        kinds = FILL_KINDS if kinds is None else kinds
+        for meta, index, kind in self.fill_targets():
+            if kind not in kinds:
+                continue
+            group = self.supports_group(build.groups(), meta, index)
+            if group is None or not group["enabled"]:
+                continue
+            index = group["index"]
+            entry: dict = {"kind": kind, "tried": {}, "spirit": [], "dropped": {}, "cut": False, "untried": []}
+            # (the group without each support it holds first, while its sockets are still open: filled first, a group
+            # holding Uhtred's Augury would keep it with four others, its levels gone)
+            improved |= self._fill_without_each(index, meta, entry, deadline)
+            improved |= self._fill_sockets(index, meta, kind, entry, deadline)
+            group = next(g for g in build.groups() if g["index"] == index)
+            self.fill_log[(index, tuple(g["name"] for g in group["gems"]))] = entry
+        return improved
+
+    def _fill_sockets(self, index: int, meta: bool, kind: str, entry: dict, deadline: float) -> bool:
+        """One open socket at a time: real trials of its best legal supports by what-if, the best kept if it scores
+        higher; `entry` keeps the last socket's trials (the reason it stays open)."""
+        build = self.build
+        trials = FILL_SIDE_TRIALS if kind == "side" else FILL_TRIALS
+        improved = False
+        while True:
+            group = next(g for g in build.groups() if g["index"] == index)
+            names, first, open_ = self.socket_use(group, meta)
+            if open_ <= 0:
+                break
+            if clock.now() > deadline:
+                entry["cut"] = True
+                entry["untried_sockets"] = open_
+                break
+            options = self._fill_options(index, names, first, build.groups())
+            entry["tried"], entry["spirit"] = {}, []
+            if not options:
+                break
+            scored = build.gem_deltas([{"group": index, "slot": len(names) + 1, "gem": c} for c in options])
+            ranked = [c for _, c in sorted(zip((s for s, _ in scored), options), key=lambda x: -x[0])][:trials]
+            before, snap = build.score, build.snapshot()
+            dps_before = build.objective.dps(build.stats)
+            short_before = self._spirit_short()
+            best, best_score = None, before
+            for i, c in enumerate(ranked):
+                if clock.now() > deadline:
+                    entry["cut"] = True
+                    entry["untried"] = ranked[i:]
+                    break
+                self.commit(index, names + [c], group)
+                dps = build.objective.dps(build.stats)
+                entry["tried"][c] = round(dps / dps_before - 1, 4) if dps_before > 0 else 0.0
+                if not short_before and self._spirit_short() and dps > dps_before:
+                    entry["spirit"].append(c)  # (it adds damage but reserves more Spirit than is left)
+                if build.score > best_score + EPSILON:
+                    best, best_score = c, build.score
+                build.restore(snap)
+            if best is None:
+                break
+            self.commit(index, names + [best], group)
+            if build.score <= before + EPSILON:  # (a resolve can move the score: keep it only if still higher)
+                build.restore(snap)
+                break
+            improved = True
+            if self.checkpoint is not None:
+                self.checkpoint()
+        return improved
+
+    def _fill_without_each(self, index: int, meta: bool, entry: dict, deadline: float) -> bool:
+        """For a group with open sockets, each support it holds taken out and the open sockets filled greedily by what-if,
+        scored for real; kept only if higher. A support whose bonus needs a support count (count_rule: Uhtred's Augury)
+        is why a group can stay below its sockets; this tries the other side of that choice (2b75b: the 5-support sets
+        beat the Uhtred's Augury set by 26-34%, SEARCH33's POE2T5475 / 5477)."""
+        build = self.build
+        group = next(g for g in build.groups() if g["index"] == index)
+        names, first, open_ = self.socket_use(group, meta)
+        if open_ <= 0:
+            return False
+        before, snap = build.score, build.snapshot()
+        dps_before = build.objective.dps(build.stats)
+        best_score, best_names = before, None
+        outs = [n for n in names[first:] if n not in (set() if meta else self.required_supports)]
+        for i, out in enumerate(outs):
+            if clock.now() > deadline:
+                entry["cut"] = True
+                entry["undropped"] = outs[i:]
+                break
+            # (greedy by what-if, each step set WITHOUT the resolve and only the last set committed with it: a commit +
+            # resolve per step took 163-293 s a build (POE2T5503), and one what-if round for every socket at once missed
+            # how the supports interact (-18% / -21% on the two Uhtred's builds where the greedy set won +6% / +16%,
+            # POE2T5507))
+            current = [n for n in names if n != out]
+            self.commit(index, current, group, resolve=False)
+            while len(current) - first < len(names) - first - 1 + open_ + 1:
+                options = [c for c in self._fill_options(index, current, first, build.groups()) if c != out]
+                if not options:
+                    break
+                scored = build.gem_deltas([{"group": index, "slot": len(current) + 1, "gem": c} for c in options])
+                current = current + [max(zip((sc for sc, _ in scored), options))[1]]
+                self.commit(index, current, group, resolve=False)
+            self.commit(index, current, group)
+            entry["dropped"][out] = {"with": current[first:], "dps": round(build.objective.dps(build.stats) / dps_before - 1, 4)
+                                     if dps_before > 0 else 0.0}
+            if build.score > best_score + EPSILON:
+                best_score, best_names = build.score, current
+            build.restore(snap)
+        if best_names is None:
+            return False
+        self.commit(index, best_names, group)
+        if build.score <= before + EPSILON:
+            build.restore(snap)
+            return False
+        if self.checkpoint is not None:
+            self.checkpoint()
+        return True
+
+    def open_sockets(self) -> list[dict]:
+        """(SEARCH34) Every open support socket in the delivered build's fillable groups, with why it is open: a WARNING
+        (the user's rule: a red flag to justify by score). Reasons: a support whose bonus needs an exact support count
+        (count_rule: Uhtred's Augury); every support that adds damage reserves more Spirit than is left after the build's
+        other Spirit skills; no legal support left to try; or "no legal support helps", with each tried support's real
+        DPS change; or the fill never saw the group as it is (time, or a later step changed it)."""
+        build = self.build
+        log = self.fill_log
+        out = []
+        for meta, index, kind in self.fill_targets(side=True):
+            group = self.supports_group(build.groups(), meta, index)
+            if group is None or not group["enabled"]:
+                continue
+            names, first, open_ = self.socket_use(group, meta)
+            if open_ <= 0:
+                continue
+            entry = log.get((group["index"], tuple(names)))
+            reasons = []
+            if kind not in FILL_KINDS:
+                out.append({"group": group["index"], "kind": kind, "skill": names[0], "supports": names[first:],
+                            "open": open_, "reasons": [SIDE_GAP if kind == "side" else
+                                                       "not tried: the fill covers the main group only (the manager's 06:58)"]})
+                continue
+            for n in names[first:]:
+                if (rule := self.count_rule(n)):
+                    dropped = (entry or {}).get("dropped", {}).get(n)
+                    reasons.append(f"{n}: its levels need its exact support count ({rule})"
+                                   + (f"; without it, filled with {', '.join(dropped['with'])}: {dropped['dps']:+.1%} DPS"
+                                      if dropped else ""))
+            if entry is None:
+                reasons.append("not tried as delivered (finalize's fill never saw the group in this state)")
+            else:
+                if entry["spirit"]:
+                    reasons.append("Spirit: " + ", ".join(entry["spirit"]) + " add damage but reserve more Spirit than is "
+                                   "left after the build's other Spirit skills")
+                tried = sorted(entry["tried"].items(), key=lambda x: -x[1])
+                if tried:
+                    reasons.append("no legal support helps: tried " + ", ".join(f"{n} {v:+.1%}" for n, v in tried)
+                                   + " DPS (each scored lower than empty)")
+                elif not entry["cut"]:
+                    reasons.append("no legal support left to try (offered, allowed, priced, usable, affordable, no clash)")
+                if entry["cut"]:
+                    reasons.append(f"the fill's {FILL_SECONDS:g} s ran out: not tried "
+                                   + "; ".join(x for x in (
+                                       ("supports " + ", ".join(entry.get("untried") or [])) if entry.get("untried") else "",
+                                       (f"{entry['untried_sockets']} socket(s) at all") if entry.get("untried_sockets") else "",
+                                       ("the group without " + ", ".join(entry.get("undropped") or []))
+                                       if entry.get("undropped") else "") if x)
+                                   or "finalize's time ran out")
+            out.append({"group": group["index"], "kind": kind, "skill": names[0], "supports": names[first:],
+                        "open": open_, "reasons": reasons})
+        return out
+
+    def open_socket_rows(self, sockets: list[dict]) -> list[dict]:
+        """The play guide's row for each group with an open support socket (open_sockets): a warning, no DPS moved."""
+        from builder.search import play_guide
+
+        dps = max(self.build.objective.dps(self.build.stats), 0.0)
+        return [{"var": f"open_sockets:{o['group']}", "label": f"{o['skill']}: {o['open']} empty support socket"
+                 f"{'s' if o['open'] > 1 else ''} (WARNING)", "kind": play_guide.BUILD, "counted": False,
+                 "play": "left empty because " + "; ".join(o["reasons"]) + ". Any support you own that the search "
+                         "couldn't price or offer is worth trying here",
+                 "dps_with": dps, "dps_without": dps, "change": 0.0, "confidence": "theory"} for o in sockets]
 
     # Main active skill -------------------------------------------------------------------------
 

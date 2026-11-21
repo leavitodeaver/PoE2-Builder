@@ -654,6 +654,9 @@ class Run:
                 self.notes.append(f"{jewel['name']} (Jewel {jewel['socket']}) lets the tree take "
                                   f"{len(jewel['unconnected'])} passive{'s' if len(jewel['unconnected']) > 1 else ''} "
                                   "without a connection; taking the jewel out drops them")
+        for o in final.get("open_sockets") or []:  # (SEARCH34: an open support socket is a red flag, said with its reason)
+            self.notes.append(f"WARNING: {o['skill']}'s group ({o['kind']}) has {o['open']} empty support socket"
+                              f"{'s' if o['open'] > 1 else ''}: " + "; ".join(o["reasons"]))
         left_out = final.get("left_out") or {}
         for reason in dict.fromkeys(left_out.values()):
             names = sorted(name for name, why in left_out.items() if why == reason)
@@ -718,6 +721,7 @@ class Run:
             "requirement_weights": final.get("multipliers"),
             "radius_jewels": final.get("radius_jewels") or [], "tree_check": final.get("tree_check"),
             "reapply_drift": final.get("reapply_drift"),  # (SEARCH32: inner.reapply_drift)
+            "open_sockets": final.get("open_sockets") or [],  # (SEARCH34: Gems.open_sockets)
         })
         result["shopping"] = shopping_list(result, self.ctx.data, self.report_prices(), TradeClient().stats(offline=True),
                                            self.variant)
