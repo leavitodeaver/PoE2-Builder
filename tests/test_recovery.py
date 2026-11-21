@@ -258,6 +258,14 @@ def test_glory_reads_its_cooldown_and_the_builds_glory_lines():
     assert lines["not_consume"] == pytest.approx(0.15) and lines["banner_flat"] == 5.0 and lines["inc"] == 0.0
     plain, _ = models.glory_plan(["Ancestral Cry"], stats, None, texts=["Banners gain 5 Glory per second"])
     assert plain["Ancestral Cry"][0] == pytest.approx(uses)
+    # (MECHC50, an OVERCOUNT before) the Presence line counts only with the boss inside your Presence
+    near = "Skills gain 1 Glory every 2 seconds for each Rare or Unique monster in your Presence"
+    inside, how_in = models.glory_plan(["Ancestral Cry"], {**stats, "_boss_in_presence": True,
+                                                         "_boss_presence_how": "the boss at 2 m"}, None, texts=[near])
+    outside, how_out = models.glory_plan(["Ancestral Cry"], {**stats, "_boss_in_presence": False,
+                                                           "_boss_presence_how": "the boss at 5 m"}, None, texts=[near])
+    assert inside["Ancestral Cry"][0] == pytest.approx(1 / (held + 100 / (glory + 0.5))) and "at 2 m" in how_in
+    assert outside["Ancestral Cry"][0] == pytest.approx(uses) and "0, the boss at 5 m" in how_out
 
 
 def test_indigon_stops_mana_flask_recovery():
@@ -3127,11 +3135,12 @@ def test_the_freezing_hit_chills_too_so_frozen_time_is_chilled_time():
 
 
 def test_the_bosss_chill_and_freeze_on_you_count_its_own_cold_uses_not_the_defence_cadence():
-    """(MECHC48, the manager's 19:10 ruling on RESEARCH37 R37-17; the user's 50% dodged, 20 Nov) Chill / Freeze events on
-    you are one per damaging USE (bosses.HIT_EVERY) x the boss's OWN Cold share x the Cold hits' landing, the
-    red-flash share never dodged and half the rest dodged: a boss with no Cold hit (the
+    """(MECHC48, the manager's 19:10 ruling on RESEARCH37 R37-17; MECHC50: the user's 2 in 3 dodged and red-flash hits
+    avoided, 21 Nov) Chill / Freeze events on you are one per damaging USE (bosses.HIT_EVERY) x the boss's OWN Cold share x
+    the Cold hits' landing, the red-flash share avoided (a row lands it) and 2/3 of the rest dodged: a boss with no Cold hit (the
     Red Queen, whose 0.51 s set the old defence cadence) never Chills or Freezes you; the worst case reads the worst real
-    preset (Olroth on this build), named; rows for none / 75% dodged, every strike and the old defence cadence."""
+    preset (Olroth on this build), named; rows for 50% / 75% dodged, red-flash landing, every strike and the old defence
+    cadence."""
     from builder.search import boss_hits, bosses
 
     olroth, queen = "Olroth, Origin of the Fall", "Atziri, the Red Queen"
@@ -3146,11 +3155,13 @@ def test_the_bosss_chill_and_freeze_on_you_count_its_own_cold_uses_not_the_defen
     assert land == pytest.approx(1 / 16 + 15 / 16 * 0.5)
     rate, how = boss_hits.ailment_hits(named, "Cold")
     cold = boss_hits.type_shares(olroth)["Cold"] / 1.43
-    assert rate == pytest.approx(cold * (1 / 16 + 15 / 16 * 0.5 * 0.5)) and "every 1.43 s" in how  # (red never dodged)
-    assert "the user's rate, 20 Nov" in how
+    assert rate == pytest.approx(cold * 15 / 16 * 0.5 / 3) and "every 1.43 s" in how  # (red avoided, 2/3 dodged)
+    assert "the user's rate, 21 Nov" in how and "avoided by moving out" in how
+    tanky = boss_hits.ailment_hits({**named, "_onyou_red_lands": True}, "Cold")
+    assert tanky[0] == pytest.approx(cold * (1 / 16 + 15 / 16 * 0.5 / 3)) and "LAND" in tanky[1]
     assert boss_hits.ailment_hits({**named, "_onyou_cadence": "strike"}, "Cold")[0] > rate
-    assert boss_hits.ailment_hits({**named, "_onyou_dodge": 0.0}, "Cold")[0] == pytest.approx(cold * land)
-    assert boss_hits.ailment_hits({**named, "_onyou_dodge": 1.0}, "Cold")[0] == pytest.approx(cold / 16)
+    assert boss_hits.ailment_hits({**named, "_onyou_dodge": 0.0}, "Cold")[0] == pytest.approx(cold * (land - 1 / 16))
+    assert boss_hits.ailment_hits({**named, "_onyou_dodge": 1.0}, "Cold")[0] == pytest.approx(0.0)
     slowed = {**named, "enemySkillTime": 2 * named["enemySkillTime"]}  # (your Slows on the boss halve it)
     assert boss_hits.ailment_hits(slowed, "Cold")[0] == pytest.approx(rate / 2)
     # the worst case: the worst real preset, the dodge rows smaller, the strike row larger
@@ -3158,8 +3169,9 @@ def test_the_bosss_chill_and_freeze_on_you_count_its_own_cold_uses_not_the_defen
     row = next(r for r in rows if r["label"] == "The boss's Chill / Freeze cadence on you*")
     assert inc < 0 and 0 < frozen < 1 and "the worst real preset, Olroth" in row["basis"] and "7 at 0" in row["basis"]
     readings = [float(x.split("%")[0]) for x in row["basis"].split("dodged: ")[1:]]
-    assert readings[0] < inc < readings[1] < 0  # (none, then 75% dodged, around the 50% headline)
-    assert "the user's rate, 20 Nov" in row["value"]
+    assert readings[0] < inc < readings[1] < 0  # (50%, then 75% dodged, around the 2/3 headline)
+    assert "the user's rate, 21 Nov" in row["value"] and "red-flash hits land" in row["basis"]
+    assert "without dodging" in row["play"] and "standing in the red-flash ones" in row["play"]
     assert "every strike" in row["basis"] and "the old defence cadence" in row["basis"]
     # a direct call on the worst case keeps the old defence reading (enemySkillTime x the pooled share)
     old, _ = boss_hits.ailment_hits(dict(st), "Cold")

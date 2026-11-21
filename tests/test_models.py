@@ -1381,8 +1381,11 @@ def test_hollow_form_images_follow_the_power_charges_the_build_makes():
     stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 50, "PowerChargesMax": 3}
     # a Power Charge every 2 s against 2 uses a second: a quarter of uses make 3 images, 1.5 on average
     mods, notes = models.hollow_model(skills, stats, ["Gain a Power Charge every 2 seconds"], strike)
-    assert [(m["line"], m["scale"]) for m in mods] == [("1% more Damage", pytest.approx(50.0))]
+    assert [(m["line"], m["scale"]) for m in mods if "line" in m] == [("1% more Damage", pytest.approx(50.0))]
     assert notes[0]["value"] == pytest.approx(1.5)
+    # (MECHC50) each image spends 80% of the Attack's cost: 0.8 x 1.5 = 1.2x PoB's one cost a use
+    cost = [m for m in mods if m.get("name") == "Cost"]
+    assert len(cost) == 1 and cost[0]["type"] == "MORE" and cost[0]["value"] == pytest.approx(20.0)
     # an extra Power Charge on every gain (chance_to_gain_1_more_power_charge_% at 100): 1 per s, half the uses
     mods, _ = models.hollow_model(skills, stats, ["Gain a Power Charge every 2 seconds",
                                                   "Gain an additional Power Charge when you gain a Power Charge"], strike)
@@ -1392,8 +1395,9 @@ def test_hollow_form_images_follow_the_power_charges_the_build_makes():
     assert mods[0]["scale"] == pytest.approx(200.0)
     # no Power Charges, or no room for them: PoB's one image
     mods, notes = models.hollow_model(skills, stats, [], strike)
-    assert mods == [] and notes[0]["value"] == 1
-    assert models.hollow_model(skills, {**stats, "PowerChargesMax": 0}, ["Gain a Power Charge every 2 seconds"], strike)[0] == []
+    assert [m["value"] for m in mods] == [pytest.approx(-20.0)] and notes[0]["value"] == 1  # (one image at 80%)
+    assert [m.get("name") for m in models.hollow_model(skills, {**stats, "PowerChargesMax": 0},
+                                                       ["Gain a Power Charge every 2 seconds"], strike)[0]] == ["Cost"]
     # the Attack outside Hollow Form: nothing
     assert models.hollow_model([models.Skill("Hollow Form", group=1), strike], stats, [], strike) == ([], [])
 
@@ -4155,21 +4159,27 @@ def test_adaptive_skin_raises_only_the_maximums_of_the_elements_the_boss_hits_wi
     assert bosses.HIT_EVERY["Arbiter of Ash"] == 1.78
     found, shares, part = run("Arbiter of Ash")
     assert found == set() and shares == {} and set(part) == {"BossHitsFire"}  # Cold, Lightning: it deals none
-    assert part["BossHitsFire"] == pytest.approx(1 - math.exp(-4 / (1.78 * 20 / 17)))
+    # (MECHC50: the hits that LAND, a gain: 2/3 of the dodgeable ones dodged, red-flash avoided; a stand-in build has no
+    # evade / block) below the old every-use reading
+    assert part["BossHitsFire"] == pytest.approx(Assumptions.boss_hit_recently_share("Arbiter of Ash", "Fire", {})[0])
+    assert part["BossHitsFire"] < 1 - math.exp(-4 / (1.78 * 20 / 17))
     # no boss in the request: the default boss, the worst-case pinnacle (MECHD5). It has no RED_FLASH row yet (MECH-C's
     # WORST hook in boss_hits, MECHC11), so its share is 0 with a "no per-type hit rate" note, not the Arbiter's
     assert run(None) == run(bosses.WORST)
     # Xesht: Fire on 2 of 11, one use every 1.25 s
-    assert run("Xesht, We That Are One")[2]["BossHitsFire"] == pytest.approx(1 - math.exp(-4 / (1.25 * 11 / 2)))
+    assert run("Xesht, We That Are One")[2]["BossHitsFire"] == pytest.approx(
+        Assumptions.boss_hit_recently_share("Xesht, We That Are One", "Fire", {})[0])
     for boss, (_, counts) in boss_hits.HIT_TABLE.items():
         found, shares, part = run(boss)
         assert set(part) | found <= {f"BossHits{t}" for t in ("Fire", "Cold", "Lightning") if counts.get(t)}, boss
     # a boss with no per-type rate (not in HIT_EVERY / RED_FLASH): 0, not always up
     assert Assumptions.boss_hit_recently_share("The Trialmaster", "Fire")[0] == 0.0
     # at 99.5% or more (a Fire hit about every 0.75 s or faster) it counts whole in PoB
-    monkeypatch.setitem(bosses.HIT_EVERY, "Arbiter of Ash", 0.6)
+    monkeypatch.setitem(bosses.HIT_EVERY, "Arbiter of Ash", 0.05)
+    if hasattr(bosses, "USE_EVERY"):
+        monkeypatch.setitem(bosses.USE_EVERY, "Arbiter of Ash", 0.05)
     found, shares, part = run("Arbiter of Ash")
-    assert 1 - math.exp(-4 / (0.6 * 20 / 17)) >= conditions.FULL_UPTIME
+    assert Assumptions.boss_hit_recently_share("Arbiter of Ash", "Fire", {})[0] >= conditions.FULL_UPTIME
     assert found == {"BossHitsFire"} and shares == {"BossHitsFire": 100} and part == {}
 
 

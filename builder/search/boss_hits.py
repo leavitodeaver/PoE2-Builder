@@ -1381,8 +1381,8 @@ CHILL_FIELDS = ("ChillAvoidChance", "SelfChillDuration", "SelfChillEffect", "Ail
 #   every row of boss_skill_hits.json with a Cold part, the 12 presets; no other Cold row is red). Evadable-but-unblockable
 #   skills (RED_FLASH's middle count: the Bodach's Head Slam, Kulemak's Teleport Slam and its trigger) carry no Cold
 #   (checked: their rows' parts) and are read as blockable per type.
-# - x (1 - the share you dodge) on the hits that aren't red-flash: the user's rate, 50% (the bullet below; before the
-#   user's answer the manager's 19:10 had dodge 0 as the headline).
+# - x (1 - the share you dodge) on the hits that aren't red-flash: the user's rate, 2 in 3 (the bullet below; 50% before
+#   21 Nov 05:20, 0 before 20 Nov 21:50).
 # - Rows (chill_and_freeze_on_you): the dodge rows, one per strike (HITS_EVERY) and the old defence cadence, as upper rows.
 # - The worst-case pinnacle mixes the Red Queen's 0.51 s cadence (no Cold) with the pooled 15% Cold share: its Chill /
 #   Freeze reads the worst REAL preset instead (chill_and_freeze_on_you, each read as real_readings gives it: its own
@@ -1390,13 +1390,23 @@ CHILL_FIELDS = ("ChillAvoidChance", "SelfChillDuration", "SelfChillEffect", "Ail
 #   the old defence reading (only that function resolves it).
 # - Downtime windows (immune phases, burrows) aren't counted: the player can't hit the boss then either, so they cancel
 #   out of DPS (R37-17).
-# - (MECHC48, THE USER'S RULING, 20 Nov 21:50, the manager's card "About half": against the pinnacles' telegraphed Cold
-#   attacks a melee player dodges about half) 50% dodged is the headline, "dodge none" and "three in four" the rows.
-#   Red-flash hits are never dodged (RESEARCH38's R37-17 correction: Olroth's GAOlrothGroundSlamInitial, red-flash and
-#   50% Cold, can't be dodge-rolled): the dodge applies to the rest only (kind_land_parts).
-ON_YOU_DODGE = 0.5  # the headline share of the boss's dodgeable hits you dodge: the user's rate, 20 Nov
-ON_YOU_DODGE_ROWS = (0.0, 0.75)
-ON_YOU_DODGE_HOW = "the user's rate, 20 Nov"
+# - (MECHC50, THE USER'S RULING, 21 Nov 05:20, the manager's card "2 in 3, the videos": "From 8 fight videos, players
+#   dodged about 2 in 3 boss attacks by movement alone"; RESEARCH41 R41-1, research/boss-dodge-share-video-r41.md,
+#   LOW-MEDIUM) 2/3 of the boss's dodgeable hits are dodged: ONE rate for every telegraphed attack, Fire, Lightning, Cold
+#   and Physical alike (the user, 21 Nov: "they definitely all need the same hit rate"). It is a MOVEMENT-only share,
+#   applied after PoB's evade and block roll (kind_land_parts), never on a share that already holds evasion or block (the
+#   videos' "1 in 4 lands" holds them: a row only, MECH-D's VIDEO_LANDED_SHARE). Rows: 1/2 (the user's earlier figure,
+#   20 Nov 21:50 "About half") and 3/4 (everything that didn't land in the videos). No "none" row: the only reading that
+#   needs a no-dodge figure is the play guide's "without dodging" text (chill_and_freeze_on_you's play row), which
+#   computes it itself. The defence floors keep dodge 0 (their defence cadence), unchanged. MECH-D's landed_cross_check
+#   sets the model's landed hits a minute against the videos' ~6 (4.5-9.5).
+# - Red-flash hits (THE USER'S RULING, 21 Nov 04:32, "Avoided, time cost counted"): in the headline they are AVOIDED by
+#   moving out (no hit, so no Chill / Freeze on you); "they land" is a row for tanky builds (stats["_onyou_red_lands"]).
+#   The time moving out is taken off the main skill's share elsewhere (red_flash_time_share). The old "defence" cadence
+#   keeps them landing (a cautious upper reading).
+ON_YOU_DODGE = 2 / 3  # the headline share of the boss's dodgeable hits you dodge by movement: the user's rate, 21 Nov
+ON_YOU_DODGE_ROWS = (0.5, 0.75)
+ON_YOU_DODGE_HOW = "the user's rate, 21 Nov (8 pinnacle fight videos, movement only: R41-1, LOW-MEDIUM)"
 ON_YOU_CADENCES = ("use", "strike", "defence")
 POB_SKILL_TIME = 0.7  # (PoB's enemySpeed placeholder: the old fallback)
 
@@ -1440,7 +1450,8 @@ def ailment_hits(stats: dict, kind: str) -> tuple[float, str]:
         base = bosses.HIT_EVERY[name] if cadence == "use" else bosses.HITS_EVERY[name]
         every = base * slowed
         red, rest = kind_land_parts(stats, kind)
-        land = red + rest * (1 - dodge)  # (red-flash hits are never dodged)
+        red_lands = bool(stats.get("_onyou_red_lands"))
+        land = (red if red_lands else 0.0) + rest * (1 - dodge)  # (red-flash: avoided in the headline, the user's ruling)
         how = (f"{name}: one damaging {'use' if cadence == 'use' else 'strike'} every {base:g} s"
                + (f" x{slowed:.2f} (your Slows on it)" if abs(slowed - 1) > 1e-9 else "")
                + (" (LOW: the tables' cadence; a use's strikes land within ~1 s and only refresh a 2 s Chill / Freeze)"
@@ -1449,7 +1460,8 @@ def ailment_hits(stats: dict, kind: str) -> tuple[float, str]:
     how += (f", {share:.0%} {kind}, {land:.0%} landing"
             + ("" if cadence == "defence" else
                f" ({dodge:.0%} of the dodgeable ones dodged: {ON_YOU_DODGE_HOW if dodge == ON_YOU_DODGE else 'a row'}; "
-               "red-flash hits never)"))
+               + ("red-flash hits LAND: the tanky row)" if stats.get("_onyou_red_lands") else
+                  "red-flash hits avoided by moving out: the user's ruling, 21 Nov 04:32)")))
     return rate, how
 
 
@@ -2004,15 +2016,16 @@ def chill_and_freeze_on_you(chill_seen: dict, freeze_seen: dict, texts: list[str
                             frozen_box: bool = False, hit_scale: float = 1.0, own: float = 0.0
                             ) -> tuple[float, float, list[dict]]:
     """(MECHC48) (ActionSpeed INC to add, share of the fight Frozen, rows): boss_chill_on_you, boss_freeze_on_you and
-    speed_from_chill_and_freeze at the boss's own per-use cadence with half its dodgeable hits dodged (the user's rate,
-    ailment_hits' comment), with rows for none / 75% dodged, every strike and the old defence cadence. On the worst-case pinnacle the worst REAL preset
+    speed_from_chill_and_freeze at the boss's own per-use cadence with 2/3 of its dodgeable hits dodged and its red-flash
+    hits avoided (the user's rulings, ailment_hits' comment), with rows for 1/2 / 3/4 dodged, red-flash hits landing,
+    every strike and the old defence cadence. On the worst-case pinnacle the worst REAL preset
     (real_readings: the lowest action speed; ties to the most Cold uses), named, the others listed. `chill_seen` /
     `freeze_seen`: PoB's CHILL_FIELDS / FREEZE_FIELDS + ActionSpeedMod and "_boss"."""
     action_mod = number(freeze_seen.get("ActionSpeedMod")) or 1.0
 
-    def run(chill: dict, freeze: dict, cadence: str = "use", dodge: float = ON_YOU_DODGE):
-        c = {**chill, "_onyou_cadence": cadence, "_onyou_dodge": dodge}
-        f = {**freeze, "_onyou_cadence": cadence, "_onyou_dodge": dodge}
+    def run(chill: dict, freeze: dict, cadence: str = "use", dodge: float = ON_YOU_DODGE, red_lands: bool = False):
+        c = {**chill, "_onyou_cadence": cadence, "_onyou_dodge": dodge, "_onyou_red_lands": red_lands}
+        f = {**freeze, "_onyou_cadence": cadence, "_onyou_dodge": dodge, "_onyou_red_lands": red_lands}
         speed, chill_rows = boss_chill_on_you(c, texts, chilled_box)
         frozen, _, freeze_row = boss_freeze_on_you(f, texts, frozen_box, hit_scale)
         inc, speed_rows = speed_from_chill_and_freeze(speed, frozen, action_mod, own, c.get("_chill_share"))
@@ -2040,6 +2053,8 @@ def chill_and_freeze_on_you(chill_seen: dict, freeze_seen: dict, texts: list[str
         pick_how = ""
         old_chill, old_freeze = chill, freeze
     alt = [(f"{d:.0%} of its dodgeable hits dodged", run(chill, freeze, "use", d)[0]) for d in ON_YOU_DODGE_ROWS]
+    alt.append(("its red-flash hits land (a tanky build that stands in them)", run(chill, freeze, "use", red_lands=True)[0]))
+    undodged = run(chill, freeze, "use", 0.0)[0]  # (the play text's "without dodging" only: not a row)
     alt.append(("every strike, not every use (HITS_EVERY: an upper bound)", run(chill, freeze, "strike")[0]))
     alt.append(("the old defence cadence (before MECHC48: enemySkillTime x the type's share"
                 + (", the worst case's pooled share" if pick_how else "") + ")",
@@ -2054,9 +2069,10 @@ def chill_and_freeze_on_you(chill_seen: dict, freeze_seen: dict, texts: list[str
         "basis": ((pick_how + "; " if pick_how else "") + "rows: " + "; ".join(
             f"{what}: {v:+.1f}% (x{base + v / 100:.3f})" for what, v in alt)
             + ". Downtime (immune phases, burrows) cancels out of DPS: not counted (R37-17)"),
-        "confidence": "LOW (the tables' cadence, no measured hit rate); the dodged share: the user's rate, 20 Nov",
-        "play": (f"dodge the boss's telegraphed Cold attacks (red-flash ones can't be dodged): about half dodged "
-                 f"{inc:+.1f}% (the headline), three in four {alt[1][1]:+.1f}%; without dodging {alt[0][1]:+.1f}%")}]
+        "confidence": "LOW (the tables' cadence); the dodged share: the user's rate, 21 Nov (fight videos, LOW-MEDIUM)",
+        "play": (f"dodge the boss's telegraphed attacks and move out of its red-flash ones: 2 in 3 dodged "
+                 f"{inc:+.1f}% (the headline), half {alt[0][1]:+.1f}%, three in four {alt[1][1]:+.1f}%; standing in "
+                 f"the red-flash ones {alt[2][1]:+.1f}%; without dodging {undodged:+.1f}%")}]
     return inc, frozen, rows
 
 

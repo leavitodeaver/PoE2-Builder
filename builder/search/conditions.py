@@ -648,8 +648,57 @@ def _main_share(stats: dict) -> float:
     return 1.0 if got is None else max(0.0, min(1.0, number(got)))
 
 
+# Thaumaturgical Dynamism (MECHC50; RESEARCH39 R39-18; an UNDERCOUNT before: no code read it, PoB parses the line to
+# nothing). KeywordPopups ThaumaturgicalDynamism: you "passively generate a Power, Frenzy or Endurance Charge once every five
+# seconds"; the type follows "the Attribute Requirements of the Skills you have socketed in your Skill Gem sockets" (higher
+# Strength total: more likely Endurance; Dexterity: Frenzy; Intelligence: Power). Stat
+# gain_random_charge_every_X_ms_from_total_socketed_gem_attribute_requirements; in 0.5 from the Delirium anoint
+# "Thaumaturgic Generator" ("Grants Thaumaturgical Dynamism"). Each type at 1 / 5 s x its total / the three totals
+# (proportional, MEDIUM), over the enabled SKILL gems only (supports likely not: "Skill Gem sockets", LOW-MEDIUM; a row
+# with supports included). stats["_gem_attr_reqs"]: {"skills": {"Str", "Dex", "Int"}, "all": ...} (Conditions.evidence).
+THAUMATURGY = re.compile(r"^Grants Thaumaturgical Dynamism$", re.I)
+THAUMATURGY_SECONDS = 5.0
+THAUMATURGY_ATTR = {"Endurance": "Str", "Frenzy": "Dex", "Power": "Int"}
+
+
+def gem_attribute_reqs(groups: list[dict], gems: dict) -> dict[str, dict[str, float]]:
+    """{"skills": the enabled skill gems' Str / Dex / Int requirement totals, "all": with the supports} (THAUMATURGY)."""
+    out = {"skills": {"Str": 0.0, "Dex": 0.0, "Int": 0.0}, "all": {"Str": 0.0, "Dex": 0.0, "Int": 0.0}}
+    for g in groups:
+        if g.get("enabled") is False:
+            continue
+        for n in g.get("gems") or []:
+            if not n.get("enabled", True):
+                continue
+            info = gems.get(n.get("name")) or {}
+            for attr in ("Str", "Dex", "Int"):
+                value = number(info.get(f"req{attr}"))
+                out["all"][attr] += value
+                if not n.get("support"):
+                    out["skills"][attr] += value
+    return out
+
+
+def _thaumaturgy_rate(kind: str, stats: dict) -> tuple[float, str]:
+    reqs = stats.get("_gem_attr_reqs") or {}
+    attr = THAUMATURGY_ATTR[kind]
+
+    def share(which: str) -> float:
+        got = reqs.get(which) or {}
+        total = sum(got.values())
+        return got.get(attr, 0.0) / total if total > 0 else 0.0
+
+    head, row = share("skills"), share("all")
+    rate = head / THAUMATURGY_SECONDS
+    return rate, (f"Thaumaturgical Dynamism: a random charge every {THAUMATURGY_SECONDS:g} s, {kind} at the {attr} share of "
+                  f"your socketed skill gems' attribute requirements, {head:.0%} (MEDIUM; supports not counted, LOW-MEDIUM; "
+                  f"with them: {row:.0%}, {row / THAUMATURGY_SECONDS:.3f}/s)")
+
+
 def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
     """(charges per second, how) from one line, or None if it isn't a source of that charge."""
+    if kind in THAUMATURGY_ATTR and THAUMATURGY.match(text.strip()):
+        return _thaumaturgy_rate(kind, stats)  # (MECHC50: THAUMATURGY's note)
     if kind == "Power" and stats.get("_main_no_power"):
         # (MECHC33, GEM15's find: Flicker Strike's "You cannot gain Power Charges while using this Skill",
         # cannot_gain_power_charges_during_skill, PoB: Display Only) the main skill's hits make none, and any other
@@ -1175,6 +1224,25 @@ def _boss_distance(lines: list[str], stats: dict) -> tuple[float, str]:
     radius = number(stats.get("PresenceRadius")) / 10
     where = "in" if radius >= metres else "outside"
     return metres * 10, f"{metres:g} m: {why}; your Presence radius is {radius:.1f} m, so the boss is {where} it"
+
+
+def boss_in_presence(build, texts: list[str] | None = None) -> dict:
+    """(MECHC50) {"_boss_in_presence": bool, "_boss_presence_how": str} for a model that reads a "for each Rare or Unique
+    monster in your Presence" line PoB never applies (models.glory_plan's GLORY_PRESENCE): the boss's distance (PoB's
+    enemyDistance, which conditions.sync sets from the search's choice or the natural distance) against PoB's
+    PresenceRadius, as the bridge gates PoB's own "while a (Rare or) Unique Enemy is in your Presence" lines (ae232dc3,
+    MECH89's probe POE2T4166: counted at 1 m, not at 10 m) and Overwhelming Presence's debuff. {} when `texts` holds no
+    such line (no bridge call)."""
+    if texts is not None and not any(models.GLORY_PRESENCE.match(t.strip()) for t in texts):
+        return {}
+    radius = number(build.call("stats", fields=["PresenceRadius"]).get("PresenceRadius")) / 10
+    given = number(build.call("getConfig")["input"].get("enemyDistance")) / 10
+    metres = given or RANGED_DISTANCE
+    inside = radius > 0 and metres <= radius + 1e-9
+    return {"_boss_in_presence": inside,
+            "_boss_presence_how": (f"the boss at {metres:g} m"
+                                   + ("" if given else " (no distance set: the ranged default)")
+                                   + f", your Presence radius {radius:.1f} m: {'inside' if inside else 'outside'} it")}
 
 
 # Extra charges per gain (MECH44, 11 Nov 2026; before, the ledger's no-effect-extra-charge-chance dropped them while the
@@ -7466,6 +7534,29 @@ def inhibited_skills(groups: list[dict]) -> set[str]:
     return out
 
 
+# Selfless Remnants (MECHC50; plans/kw-allies.md D; an OVERCOUNT for a build that sockets it on a Remnant source).
+# SupportSelflessRemnantsPlayer: "Supports Skills that generate Remnants, causing those Remnants to affect Allies in your
+# Presence when collected instead of you" (remnants_affect_allies_in_presence_instead; requireSkillTypes
+# GeneratesRemnants; PoB sup_str.lua 6600: no statMap). So the skills it supports make no Remnant that affects you: no
+# Infusion, no Life / Mana / Power Charge / Ward Remnant for you (their effect on your minions isn't counted, LOW).
+# (checked: Stats ids holding remnant with ally / instead / as_well over Mods, PassiveSkills, GrantedEffectStatSets,
+# SoulCoreStats, game 26650308: SupportSelflessRemnantsPlayer the one user of this stat; The Hollow Mask's "as well as you"
+# is a different stat, remnants_affect_allies_in_presence, and keeps yours; second source PoB sup_str.lua 6600.)
+SELFLESS_REMNANTS = "Selfless Remnants"
+
+
+def selfless_skills(groups: list[dict]) -> set[str]:
+    """The skills an enabled Selfless Remnants supports: every other enabled gem in its enabled group."""
+    out: set[str] = set()
+    for g in groups:
+        if g.get("enabled") is False:
+            continue
+        gems = [n for n in g.get("gems") or [] if n.get("enabled", True)]
+        if any(n["name"] == SELFLESS_REMNANTS for n in gems):
+            out |= {n["name"] for n in gems if n["name"] != SELFLESS_REMNANTS}
+    return out
+
+
 INFUSION_CONSUMERS = {
     "Ice Nova": ("Cold",), "Frost Wall": ("Lightning",), "Firestorm": ("Fire", "Cold", "Lightning"),
     "Arc": ("Lightning",), "Ball Lightning": ("Fire",), "Incinerate": ("Fire",), "Flame Wall": ("Lightning",),
@@ -8497,7 +8588,8 @@ class Conditions:
             if where else {}
         shares = []
         texts = [line["text"] for line in self.build.call("sourceLines")["lines"]]  # (the Glory lines, MECHC13)
-        stats = {**stats, "_main_share": self._main_share()}  # (MECHC45: the main skill's hits at its share of the fight)
+        stats = {**stats, "_main_share": self._main_share(),  # (MECHC45: the main skill's hits at its share of the fight)
+                 **boss_in_presence(self.build, texts)}  # (MECHC50: the Presence Glory line)
         for name in banners:
             uses, how = models.glory_uses([name], stats, main, found, texts)
             duration = number((rates.get(where.get(name)) or {}).get("duration")) or BANNER_SECONDS
@@ -8544,7 +8636,9 @@ class Conditions:
                                                 living_bomb_rate, orb_remnants, siphon_freezes, still_far)
 
         raw = self.build.call("activeSkills")["skills"]
-        present = {s["name"]: s for s in raw if not s["disabled"]}
+        groups = getattr(self.build, "groups", None)  # (MECHC50: SELFLESS_REMNANTS' note; none on a stand-in build)
+        selfless = selfless_skills(groups()) if callable(groups) else set()
+        present = {s["name"]: s for s in raw if not s["disabled"] and s["name"] not in selfless}
         siphon = (siphon_freezes(self.build.call("stats", fields=models.IMMOBILISE_FIELDS)) if SIPHON in present
                   else (0.0, ""))
         orb = orb_remnants(self.build, present[ORB_OF_STORMS]) if ORB_OF_STORMS in present else (0.0, "")
@@ -8821,7 +8915,8 @@ class Conditions:
         main = next((s for s in found if group and s.group == group["index"] and s.name == self.main_skill), None)
         texts = [line["text"] if isinstance(line, dict) else line for line in lines]
         uses, how = models.glory_uses([SPEAR_OF_SOLARIS], {**self.build.call("stats", fields=models.MODEL_FIELDS),
-                                                           "_main_share": self._main_share()},  # (MECHC45)
+                                                           "_main_share": self._main_share(),  # (MECHC45)
+                                                           **boss_in_presence(self.build, texts)},  # (MECHC50)
                                       main, found, texts)
         return uses, f"{uses:.3f} uses/s ({how})"
 
@@ -9713,6 +9808,7 @@ class Conditions:
             or number((e.get("levelStats") or {}).get(MULTI_CHARGE_STAT)))}
         melee = {n for n in hitters if "Melee" in ((every.get(n) or {}).get("skillTypes") or ())}
         self.build.side_rows = None  # (MECH95: published below for Repulsion's hold, repulsion_minion_hits)
+        stats["_gem_attr_reqs"] = gem_attribute_reqs(groups_now, self.build.ctx.gems)  # (MECHC50: THAUMATURGY)
         stats["_side_rows"] = side_hit_rows(group_rows, groups_now, hitters, groups_all.get("mainSocketGroup"),
                                             models.press_choices(self.build), melee, flagged)
         self._side_twisters(stats["_side_rows"])  # (MECHC47: SIDE_TWISTER's note)

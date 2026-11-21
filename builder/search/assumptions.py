@@ -409,6 +409,70 @@ SECOND_WIND, SECOND_WIND_PCT = "Second Wind III", 1.0  # (MECHC29, G4-6: restore
 NEBULOCH_TAG = "NebulochCrit"  # (MECHC46: conditions.NEBULOCH_CRIT's note)
 DRUIDIC_TAG = "DruidicProwess"  # (MECHC47: conditions.DRUIDIC_PROWESS's note)
 OVERWHELMING_PRESENCE = "Overwhelming Presence"  # (MECHC48: only on a boss in your Presence)
+# Blazing Critical (MECHC50; plans/gs-blazing-critical-duration.md, PLANS7; an OVERCOUNT at PoB's cutoff and for a
+# support on another skill, an UNDERCOUNT below the cutoff). The game: "Attacks Gain {0}% of Damage as Fire Damage for {1}
+# seconds on Critically Hitting with Supported Skills" (gem_stat_descriptions; SupportBlazingCriticalPlayer
+# support_blazing_crits_gain_%_fire_damage_with_attacks_on_critical_hit 15, support_blazing_crits_base_duration_ms 5000,
+# game 26650308). PoB (sup_int.lua 958-963): DamageGainAsFire BASE on Attacks behind Condition CritRecently, a GlobalEffect
+# Buff (unscalable), applied to the player from ANY enabled skill holding the support (CalcPerform 2152: every active
+# skill's buffs merge into the player's), the duration "display only". conditionCritRecently is set from the MAIN skill's
+# crits by an all-or-nothing 90%-in-4-s cut (conditions._uptime). So PoB counts the whole gain or none, from the wrong
+# skill when the support sits on another one. Now: the buff's uptime u = 1 - e^(-k x 5 s), k the SUPPORTED skills'
+# critical hits a second (the main skill: PoB's Speed x HitChance x CritChance at its share of the fight; another group:
+# its use rate (Assumptions._side_rows: trigger rate, cooldown, duration or the search's press choice) x its own hit and
+# crit chance), crits taken as a Poisson stream; the main skill (an Attack) then gains gain% x u: PoB's whole gain taken
+# back under the box, gain x u added. u under conditions.MIN_UPTIME (5%) is left out (the off rule). A non-Attack main skill gets none in
+# PoB or here. MEDIUM (game numbers; the Poisson spread). Whether "increased Skill Effect Duration" scales the 5 s:
+# UNVERIFIED (the base 5 s, the lower reading). Rows: PoB's box (on / off at 90%).
+# Atziri's Impatience (MECHC50; plans/gs-atziri-impatience.md, PLANS7; an OVERCOUNT: a support that looked free). The game:
+# SupportAtzirisImpatiencePlayer, "Lose 25% of maximum Life, Mana, and Energy Shield when you use Supported Skills"
+# (lose_%_of_life_es_and_mana_when_skill_is_used 25, gem_stat_descriptions, game 26650308), beside +100% Cooldown
+# Recovery Rate. PoB maps only the Cooldown Recovery (SkillStatMap 600; sup_dex.lua 430-454: no statMap for the loss),
+# and nothing of ours read it (checked: git grep -i impatience over builder / engine / ledger: none). A loss, not a cost
+# (no cost modifier applies), so it reaches PoB as a steady drain: {Life,Mana,EnergyShield}DegenPercent BASE = N% x the
+# supported skills' uses a second (CalcDefence 1746: x the pool, into each pool's RegenRecovery, which the sustain and
+# recovery floors read). Uses: the main skill's PoB Speed (its cooldown, now doubled, already caps it) at its share of the
+# fight; another group's from Assumptions._side_rows (trigger rate, cooldown, duration or the search's press choice).
+# MEDIUM: one loss per use spread over the fight (a 25% chunk each use, not a smooth drain: the floors read the average);
+# Low Life / Low Mana windows it opens aren't counted (no rule for them yet: labelled).
+# Toxic Domain's "increased Skill costs" while in the Bloom (MECHC50; plans/gs-toxic-domain-cost.md, PLANS7; an OVERCOUNT
+# of sustain). The game: ActiveSkills toxic_domain "While in the Bloom, you have increased Skill costs, Regenerate Life,
+# and your Projectile Attacks attach a Toxic Pustule"; statset_0 "Skill cost increase@{0}%", toxic_domain_mana_cost_+% 25
+# at every level (PoB act_dex.lua 9420 / 9488: the same 25, no statMap; patch 0.3.0 "increased Skill costs"). PoB applies
+# none. Now: PoB's "Cost" INC (CalcOffence 2315: every resource's cost) x the share of the fight you stand in a Bloom: its
+# placements a second (conditions.skill_use_rate: its cooldown, else its duration's press rate, else the search's
+# choice) x PoB's Duration, at most 1, the same share the Pustule model takes you inside (all fight while one stands).
+# MEDIUM (the share you stand in it: inside whenever one is up, as the Pustules need).
+# Its "Regenerate Life" while in the Bloom (MECHC50; RESEARCH42 R42-6 / R42-20; an UNDERCOUNT: PoB's skill data holds
+# toxic_domain_healing_per_minute_+ (100 constant + 240..2400 by level, act_dex.lua 9419 / 9432ff) but no statMap reads it,
+# checked by R42-20 over PoB's .lua): (100 + the level's value) / 60 Life a second x the Bloom share (41.7/s at level 20,
+# the headline: the game files and two datamined sites). Row: patch 0.4.0's "54-82 (previously 27-41)", in no datamined
+# source (a server-side value is possible, UNVERIFIED): 82/s at level 20.
+TOXIC_DOMAIN = "Toxic Domain"
+TOXIC_HEAL_STAT = "toxic_domain_healing_per_minute_+"
+TOXIC_HEAL_PATCH_FACTOR = 82 / 41.67  # (patch 0.4.0's level-20 figure over the files': the row only)
+TOXIC_COST_PCT = 25.0
+TOXIC_TAG = "ToxicDomainCost"
+IMPATIENCE = "Atziri's Impatience"
+IMPATIENCE_STAT = "lose_%_of_life_es_and_mana_when_skill_is_used"
+IMPATIENCE_TAG = "AtzirisImpatience"
+WAR_BANNER, WAR_BANNER_SPEED = "War Banner", 25.0  # (MECHC50: gs-war-banner-speed, Assumptions.models)
+BLAZING_CRITICAL = "Blazing Critical"
+BLAZING_GAIN_STAT = "support_blazing_crits_gain_%_fire_damage_with_attacks_on_critical_hit"
+BLAZING_SECONDS = 5.0
+BLAZING_TAG = "BlazingCritical"
+
+
+def selfless_of(build) -> set[str]:
+    """(MECHC50) conditions.selfless_skills for a build; none for a stand-in build without groups (a unit test)."""
+    groups = getattr(build, "groups", None)
+    return conditions_mod.selfless_skills(groups()) if callable(groups) else set()
+
+
+def blazing_uptime(crits: float, seconds: float = BLAZING_SECONDS) -> float:
+    """The share of the fight Blazing Critical's buff is up from `crits` critical hits a second (Poisson)."""
+    import math
+    return 1.0 - math.exp(-max(crits, 0.0) * seconds) if crits > 0 else 0.0
 SHRINE_TAG = "HammerShrine"  # (MECHC47: conditions.SHRINE_EVERY's note)
 INFUSED_ELEMENT = re.compile(r"\b(fire|cold|lightning)-infused\b", re.I)
 
@@ -3303,6 +3367,46 @@ class Assumptions:
                 "play": ("Keep the boss inside your Presence for Overwhelming Presence"
                          + ("" if inside else f": at {metres:g} m it's outside your {radius:.1f} m Presence and does nothing")
                          + "; without it: no lower Stun / Ailment Thresholds on the boss")}]
+        blazing_mods, blazing_notes = self.blazing_critical(skills, main, stats)  # (MECHC50: BLAZING_CRITICAL's note)
+        hand_mods, hand_notes = hand_mods + blazing_mods, hand_notes + blazing_notes
+        impatience_mods, impatience_notes = self.impatience_loss(skills, main, stats)  # (MECHC50: IMPATIENCE's note)
+        hand_mods, hand_notes = hand_mods + impatience_mods, hand_notes + impatience_notes
+        toxic_mods, toxic_notes = self.toxic_domain_cost(main)  # (MECHC50: TOXIC_DOMAIN's note)
+        hand_mods, hand_notes = hand_mods + toxic_mods, hand_notes + toxic_notes
+        # (MECHC50; plans/gs-war-banner-speed.md, PLANS7; an UNDERCOUNT) War Banner's aura "grants {0}% increased Attack
+        # Speed" (base_skill_buff_banner_attack_speed_+%_to_apply 25 at every level, game 26650308 / PoB act_str.lua
+        # WarBannerPlayer): PoB's statMap maps its damage and Accuracy (both behind BannerPlanted) but not the speed. Now
+        # 25% increased Attack Speed x the share a placed banner stands (Conditions._banner_share, MECHC7 / MECHC27: the
+        # same share the BannerPlanted box reads). Aura effect on it not read (the lower reading).
+        if any(n.get("name") == WAR_BANNER and n.get("enabled", True)
+               for g in build.groups() if g.get("enabled", True) for n in g.get("gems") or []):
+            up, banner_how = conditions_mod.Conditions(build, name)._banner_share([WAR_BANNER])
+            if up > 0:
+                hand_mods = hand_mods + [models.line("1% increased Attack Speed", WAR_BANNER_SPEED * up)]
+            hand_notes = hand_notes + [{
+                "label": "War Banner: its aura's 25% increased Attack Speed*",
+                "value": f"+{WAR_BANNER_SPEED * up:.1f}% Attack Speed ({up:.0%} of the fight under a placed banner)",
+                "basis": (f"{banner_how}; PoB applies the banner's damage and Accuracy, not its Attack Speed (an "
+                          "UNDERCOUNT before); aura effect not read on it"),
+                "confidence": "MEDIUM (the banner share's)",
+                "play": (f"War Banner: fight inside the placed banner for +25% Attack Speed (without it: "
+                         f"{WAR_BANNER_SPEED * up:.1f}% less)" if up > 0 else "")}]
+        # (MECHC50; RESEARCH42 R42-12, MEDIUM-HIGH: "exerted" in a stat id is the text's "Empowered", e.g.
+        # warcry_grant_damage_+%_to_exerted_attacks "Empowered Attacks deal {0}% increased Damage") Righteous Descent's
+        # Empowered set (RighteousDescentPlayerBoosted, the only set with base_skill_exerted_itself: other.lua 14417) IS an
+        # Empowered Attack, so "Empowered Attacks ..." lines apply to it. PoB maps the flag to nothing (an UNDERCOUNT): set
+        # its Empowered condition and full Empowered uptime on that skill (PoB's own pair for "all attacks count as
+        # Empowered", ModParser 5799-5801) while the Empowered set is the one scored.
+        if main is not None and main.name == models.DESCENT and getattr(main, "stat_set", "") == "Empowered":
+            hand_mods = hand_mods + [models.raw_mod("Condition:Empowered", "FLAG", 1, skill=models.DESCENT, tag="DescentEmpowered"),
+                                     models.raw_mod("MaxEmpoweredUptimeRatio", "FLAG", 1, skill=models.DESCENT,
+                                                    tag="DescentEmpowered")]
+            hand_notes = hand_notes + [{
+                "label": "Righteous Descent: its Empowered leap is an Empowered Attack*",
+                "value": "'Empowered Attacks ...' modifiers apply to the Empowered set",
+                "basis": ("base_skill_exerted_itself on RighteousDescentPlayerBoosted; 'exerted' in the stat ids is the "
+                          "text's Empowered (RESEARCH42 R42-12); PoB maps it to nothing (an UNDERCOUNT before)"),
+                "confidence": "MEDIUM-HIGH (R42-12)", "play": ""}]
         # (MECHC47) Druidic Prowess: 10% increased Skill Speed a stack, from Rage spent / Heavy Stuns (conditions.
         # DRUIDIC_PROWESS's note; the Rage spent a round behind, build.rage_spent)
         if any(conditions_mod.DRUIDIC_PROWESS_SPENT.search(t.strip()) or conditions_mod.DRUIDIC_PROWESS_STUN.search(t.strip())
@@ -5304,6 +5408,7 @@ class Assumptions:
         stats = build.call("stats", fields=models.MODEL_FIELDS)
         stats.update(models.dazed_stats(build))  # (MECH70: heavy_stun_rate)
         texts = [line["text"] for line in build.call("sourceLines")["lines"]]
+        stats.update(self.glory_presence(texts))  # (MECHC50: the Presence Glory line)
         out = {}
         for s in skills:
             if (s.name in models.GLORY_SKILLS or s.name in models.GLORY_FROM_LIFE) and s.name not in out:
@@ -5388,9 +5493,13 @@ class Assumptions:
         the same supply). `skills`: activeSkills with KALGUUR's levelStats; `skip`: sources the caller counts itself."""
         present = {s["name"]: s for s in skills if not s.get("disabled")}
         supply, used = 0.0, []
+        selfless = selfless_of(self.build)  # (MECHC50: SELFLESS_REMNANTS' note)
         for name, (rate, condition) in REMNANT_SOURCES.items():
             skill = present.get(name)
             if skill is None or name in skip:
+                continue
+            if name in selfless:
+                used.append(f"{name} 0/s for you (Selfless Remnants: its Remnants affect your allies instead)")
                 continue
             if name in NEEDS_MINIONS:  # (Grim Feast: your minions' deaths, from the build's own sources)
                 found = [models.Skill.of(s) for s in present.values()]
@@ -6391,7 +6500,8 @@ class Assumptions:
         build.recovery_sources = dict(income.rates)
         texts = [line["text"] for line in build.call("sourceLines")["lines"]]
         present = {s["name"]: s for s in skills if not s.get("disabled")}
-        remnant_names = [n for n in recovery.REMNANT_SKILLS if n in present]
+        selfless = selfless_of(build)  # (MECHC50: SELFLESS_REMNANTS' note)
+        remnant_names = [n for n in recovery.REMNANT_SKILLS if n in present and n not in selfless]
         boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         stats = {**build.call("stats", fields=list(dict.fromkeys([
             "Life", "Mana", "EnergyShield", "LifeOnKill", "ManaOnKill", "IgniteChancePerHit", "ShockChancePerHit", "Tribute",
@@ -7157,8 +7267,9 @@ class Assumptions:
         main_skill = models.Skill.of(present[main]) if main in present else None
         if has(recovery.GLORY_SPENT):
             names = [n for n in present if n in models.GLORY_SKILLS or n in models.GLORY_FROM_LIFE]
-            out["glory"] = (models.glory_spent(names, self.glory_stats(stats, main_skill), main_skill, [models.Skill.of(s) for s in present.values()],
-                                               [line["text"] for line in build.call("sourceLines")["lines"]])
+            glory_texts = [line["text"] for line in build.call("sourceLines")["lines"]]
+            out["glory"] = (models.glory_spent(names, {**self.glory_stats(stats, main_skill), **self.glory_presence(glory_texts)},
+                                               main_skill, [models.Skill.of(s) for s in present.values()], glory_texts)
                             if names else (0.0, "no Glory skill"))
         groups = [g for g in build.call("groups")["groups"] if g.get("enabled") is not False]
         speed = number(stats.get("Speed")) * (  # (MECHC45: the main skill's uses at its share of the fight)
@@ -7429,14 +7540,14 @@ class Assumptions:
             stats = self.stats_as_main(group, position, main_index, models.MODEL_FIELDS)
             source = next((models.Skill.of(s) for s in skills if s["name"] == name), None)
             texts = [line["text"] for line in self.build.call("sourceLines")["lines"]]  # (Glory lines, MECHC13)
-            uses, how = models.glory_uses([main], stats, source, [skill], texts)
+            uses, how = models.glory_uses([main], {**stats, **self.glory_presence(texts)}, source, [skill], texts)
             rate, basis = min(uses, cap), f"Glory from {name}'s hits: {how}"
         else:
             stats = self.build.call("stats", fields=models.MODEL_FIELDS)
             # (at one use per second, so the rate this model set before doesn't decide it)
             texts = [line["text"] for line in self.build.call("sourceLines")["lines"]]  # (Glory lines, MECHC13)
             # (no cooldown here: this asks what one use builds against its cost; `cap` holds the cooldown)
-            per_use, how = models.glory_uses([main], dict(stats, Speed=1.0), skill, None, texts)
+            per_use, how = models.glory_uses([main], {**stats, "Speed": 1.0, **self.glory_presence(texts)}, skill, None, texts)
             rate = cap if per_use >= 1.0 else 0.0
             basis = (f"no other skill builds its Glory; its own hits (assumed to count for it), per use at one use/s: "
                      f"{how}: " + ("a use builds its own cost: at will" if rate else "less than a use's cost: never"))
@@ -7597,7 +7708,8 @@ class Assumptions:
         ailments = {var: (up or {}).get(name, 0.0) for var, name in (
             ("conditionEnemyIgnited", "Ignite"), ("conditionEnemyShocked", "Shock"), ("conditionEnemyFrozen", "Freeze"))}
         raw = build.call("activeSkills")["skills"]
-        present = {s["name"]: s for s in raw if not s["disabled"]}
+        selfless = selfless_of(build)  # (MECHC50: Selfless Remnants' Remnants go to allies)
+        present = {s["name"]: s for s in raw if not s["disabled"] and s["name"] not in selfless}
         lines = [line["text"] for line in build.call("sourceLines")["lines"]]
         siphon = siphon_freezes(build.call("stats", fields=models.IMMOBILISE_FIELDS)) if SIPHON in present else (0.0, "")
         bomb = living_bomb_rate(build.call("stats", fields=list(LIVING_BOMB_FIELDS)),
@@ -7636,7 +7748,8 @@ class Assumptions:
             return 0.0, (f"Inhibitor supports {self.main_skill()}: it cannot consume Infusions, so none of its casts is "
                          "Infused (R40-2, HIGH)")  # (MECHC49: conditions.INHIBITOR)
         raw = build.call("activeSkills")["skills"]
-        present = {s["name"]: s for s in raw if not s["disabled"]}
+        selfless = selfless_of(build)  # (MECHC50: Selfless Remnants' Remnants go to allies)
+        present = {s["name"]: s for s in raw if not s["disabled"] and s["name"] not in selfless}
         lines = [line["text"] for line in build.call("sourceLines")["lines"]]
         siphon = siphon_freezes(build.call("stats", fields=models.IMMOBILISE_FIELDS)) if SIPHON in present else (0.0, "")
         bomb = living_bomb_rate(build.call("stats", fields=list(LIVING_BOMB_FIELDS)),
@@ -7729,6 +7842,7 @@ class Assumptions:
         from builder.search import boss_hits, bosses  # (COV12: the damage types the scored boss deals)
         boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         dealt = {t for t, count in boss_hits.hit_table(boss)[1].items() if count}
+        hit_stats = None  # (MECHC50: PoB's evade / block for boss_hit_recently_share, once)
         for condition in wanted:
             if condition.get("boss_hits"):
                 # the share of the fight the scored boss has hit you with this damage type Recently (4 s): e.g. Adaptive
@@ -7738,7 +7852,12 @@ class Assumptions:
                 # rule); below that it counts 0 in PoB (an UNDERCOUNT outside the floors: damage taken, the play guide),
                 # and its share waits in ledger_part_time for the search's part-time weighing (routed to SEARCH)
                 kind = condition["boss_hits"]
-                share, how = self.boss_hit_recently_share(boss, kind) if kind in dealt else (0.0, f"{boss} deals no {kind} hits")
+                if hit_stats is None:  # (MECHC50: the hits that LAND, after your evade / block and the dodge: the
+                    # committed build's stats, no extra bridge call; a stand-in build without them reads none)
+                    seen = getattr(self.build, "stats", None)
+                    hit_stats = dict(seen) if isinstance(seen, dict) else {}
+                share, how = (self.boss_hit_recently_share(boss, kind, hit_stats) if kind in dealt
+                              else (0.0, f"{boss} deals no {kind} hits"))
                 share = min(max(share, 0.0), 1.0)
                 if share >= conditions_mod.FULL_UPTIME:
                     self.ledger_shares[condition["id"]] = 100
@@ -7749,7 +7868,10 @@ class Assumptions:
                     counted = ("counted whole" if share >= conditions_mod.FULL_UPTIME else
                                "counted 0: under 99.5% of the fight, so not in the defence floors (an undercount in "
                                "damage taken, where its share would count; not weighed yet)")
-                    notes.append({"label": f"{condition['title']}", "value": f"{share:.0%} up", "basis": f"{how}; {counted}",
+                    rows = "; ".join(f"{r}: {self.boss_hit_recently_share(boss, kind, hit_stats, r)[0]:.0%}"
+                                     for r in ("no dodge", "every strike"))
+                    notes.append({"label": f"{condition['title']}", "value": f"{share:.0%} up",
+                                  "basis": f"{how}; {counted}; rows: {rows}",
                                   "confidence": "LOW (the boss's per-type hit rate: HIT_EVERY and its skills' type counts)"})
                 continue
             if condition.get("ward_damaged_recently"):
@@ -8073,6 +8195,13 @@ class Assumptions:
         objective (a stand-in build) or a main skill."""
         return with_main_share(self.build, stats, main_skill)
 
+    def glory_presence(self, texts: list[str]) -> dict:
+        """(MECHC50) conditions.boss_in_presence for models.glory_plan's "in your Presence" Glory line ({} without one)."""
+        try:
+            return conditions_mod.boss_in_presence(self.build, texts)
+        except (AttributeError, KeyError, TypeError):  # (a stand-in build in a unit test)
+            return {}
+
     def glory_uses_capped(self, names: list[str], stats: dict, main_skill, skills: list | None = None,
                           texts: list[str] | None = None) -> tuple[float, str]:
         """(Glory skill uses per second, how) for the ledger's Glory shares: models.glory_uses for each Glory skill, never
@@ -8085,6 +8214,7 @@ class Assumptions:
         objective.glory_busy (Objective.busy), except the main skill itself, a pressed Full DPS group (press_model
         charges it) and a skill the search chose a press rate for (Search.press_sync charges it): no double charge."""
         glory_names = {n for n in names if n in models.GLORY_SKILLS or n in models.GLORY_FROM_LIFE}
+        stats = {**stats, **self.glory_presence(list(texts or []))}  # (MECHC50: the Presence Glory line)
         speeds: dict[str, float] = {}
         charged: set[str] = set()  # (press time charged elsewhere)
         groups = getattr(self.build, "groups", None)
@@ -8410,6 +8540,155 @@ class Assumptions:
         return share, (f"the boss Ignited {up:.1%} of the fight ({others_n} other Ignite source(s); {source}; "
                        f"{duration:.1f} s each), so at some moment of a cloud's {life:.1f} s {within:.1%}; "
                        f"Detonators set off {detonated:.0%} ({det_how}); a cloud lives {alive:.1f} s on average"), poisons
+
+    def supported_uses(self, support: str, main, stats: dict) -> tuple[list[tuple[int, float, str]], set[int]]:
+        """([(group index, the supported skill's uses a second, how)], the groups holding `support`): the main skill at
+        PoB's Speed x its share of the fight, other groups by _side_rows (MECHC50: Atziri's Impatience)."""
+        build = self.build
+        holders = {g["index"] for g in build.groups() if g.get("enabled", True)
+                   and any(n.get("name") == support and n.get("enabled", True) for n in g.get("gems") or [])}
+        out = []
+        main_index = main.group if main is not None else None
+        if main_index in holders:
+            share = with_main_share(build, stats, main).get("_main_share")
+            share = 1.0 if share is None else max(0.0, min(1.0, number(share)))
+            uses = number(stats.get("Speed")) * share
+            out.append((main_index, uses, f"{main.name} {uses:.2f} uses/s (PoB's Speed"
+                        + (f", used {share:.0%} of the fight" if share < 1 else "") + ")"))
+        side = holders - {main_index}
+        if side:
+            for row, uses, why in self._side_rows(main_index, lambda g: g["index"] in side):
+                out.append((row.get("index"), uses, f"{row.get('name') or 'a supported skill'} {uses:.2f} uses/s ({why})"))
+        return out, holders
+
+    def bloom_share(self, main) -> tuple[float, str]:
+        """(the share of the fight you stand in a Toxic Domain Bloom, how): 0 without the skill (TOXIC_DOMAIN's note)."""
+        build = self.build
+        groups = [g for g in build.groups() if g.get("enabled", True)
+                  and any(n.get("name") == TOXIC_DOMAIN and n.get("enabled", True) for n in g.get("gems") or [])]
+        if not groups:
+            return 0.0, ""
+        actives = [next((i for i, sk in enumerate(g.get("skills") or [], start=1) if sk.get("name") == TOXIC_DOMAIN), 1)
+                   for g in groups]
+        rows = build.call("useRates", indices=[g["index"] for g in groups], actives=actives)["rates"]
+        best, how = 0.0, "no Bloom placed"
+        choices = models.press_choices(build)
+        for row in rows:
+            duration = number(row.get("duration"))
+            if main is not None and row.get("index") == main.group:
+                uses, why = number(row.get("speed")), "the main skill"
+            else:
+                uses, why, _ = conditions_mod.skill_use_rate(row, choices)
+            share = min(1.0, uses * duration) if duration > 0 else (1.0 if uses > 0 else 0.0)
+            if share >= best:
+                best, how = share, f"a Bloom placed {uses:.3f}/s ({why}) lasting {duration:.1f} s: inside {share:.0%}"
+        return best, how
+
+    def toxic_domain_cost(self, main) -> tuple[list[dict], list[dict]]:
+        """(mods, notes) for Toxic Domain's +25% Skill costs and its Life regeneration while in the Bloom (TOXIC_DOMAIN's
+        notes)."""
+        share, how = self.bloom_share(main)
+        if not how:
+            return [], []
+        heal_mods, heal_notes = [], []
+        raw = self.build.call("activeSkills", levelStats=[TOXIC_DOMAIN])["skills"]
+        per_minute = max((number((s.get("levelStats") or {}).get(TOXIC_HEAL_STAT)) for s in raw
+                          if s["name"] == TOXIC_DOMAIN and not s.get("disabled")), default=0.0) or 2500.0
+        regen = per_minute / 60 * share
+        if regen > 0:
+            heal_mods = [models.line("Regenerate 1 Life per second", regen)]
+        heal_notes = [{
+            "label": "Toxic Domain: Life regeneration in the Bloom*",
+            "value": f"{regen:.1f} Life/s ({per_minute / 60:.1f}/s x {share:.0%} of the fight in the Bloom)",
+            "basis": (f"{how}; toxic_domain_healing_per_minute_+ {per_minute:g} (the game files; PoB applies 0: an "
+                      f"UNDERCOUNT before). Row: patch 0.4.0's figure, in no datamined source (UNVERIFIED): "
+                      f"{regen * TOXIC_HEAL_PATCH_FACTOR:.1f} Life/s"),
+            "confidence": "MEDIUM (the files' value; the patch note's double UNVERIFIED)",
+            "play": (f"stand in the Bloom: {regen:.1f} Life/s (without it: 0)" if regen > 0 else "")}]
+        inc = TOXIC_COST_PCT * share
+        return ([models.raw_mod("Cost", "INC", inc, tag=TOXIC_TAG)] if inc > 0 else []) + heal_mods, heal_notes + [{
+            "label": "Toxic Domain: 25% increased Skill costs in the Bloom*",
+            "value": f"+{inc:.1f}% Skill costs (25% x {share:.0%} of the fight in the Bloom)",
+            "basis": (f"{how}; 'While in the Bloom, you have increased Skill costs' (toxic_domain_mana_cost_+% 25), which "
+                      "PoB doesn't apply (an OVERCOUNT of sustain before)"),
+            "confidence": "MEDIUM (inside whenever a Bloom stands)",
+            "play": (f"standing in the Bloom: Skill costs +25% (out of it: no extra cost, and no Pustules or Bloom "
+                     f"regeneration)" if inc > 0 else "")}]
+
+    def impatience_loss(self, skills: list[dict], main, stats: dict) -> tuple[list[dict], list[dict]]:
+        """(mods, notes) for Atziri's Impatience's loss on each use (IMPATIENCE's note)."""
+        uses, holders = self.supported_uses(IMPATIENCE, main, stats)
+        if not holders:
+            return [], []
+        pct = max((number((s.get("supportStats") or {}).get(IMPATIENCE_STAT)) for s in skills
+                   if not s.get("disabled") and s.get("group") in holders), default=0.0) or 25.0
+        rate = sum(u for _, u, _ in uses)
+        per_second = pct * rate
+        mods = ([models.raw_mod(f"{pool}DegenPercent", "BASE", per_second, tag=IMPATIENCE_TAG)
+                 for pool in ("Life", "Mana", "EnergyShield")] if per_second > 0 else [])
+        how = "; ".join(h for _, _, h in uses) or "no supported skill used"
+        return mods, [{
+            "label": "Atziri's Impatience: 25% of Life, Mana and Energy Shield lost a use*",
+            "value": f"{per_second:.1f}% of each pool lost a second ({rate:.2f} uses/s x {pct:g}%)",
+            "basis": (f"'Lose {pct:g}% of maximum Life, Mana, and Energy Shield when you use Supported Skills': {how}; "
+                      "PoB counts only its +100% Cooldown Recovery (an OVERCOUNT before: the loss was free). Taken as a "
+                      "steady drain on each pool (PoB's DegenPercent), which the sustain and recovery floors read; the "
+                      "Low Life / Low Mana windows it opens aren't counted (labelled)"),
+            "confidence": "MEDIUM (game numbers; one 25% chunk a use read as its average)",
+            "play": (f"Atziri's Impatience: each use costs {pct:g}% of Life, Mana and Energy Shield; keep the supported "
+                     f"skill's uses to what your recovery refills (without the support: no loss, half the cooldown rate)")}]
+
+    def blazing_critical(self, skills: list[dict], main, stats: dict) -> tuple[list[dict], list[dict]]:
+        """(mods, notes) for Blazing Critical at its buff's uptime from the supported skills' own crits (BLAZING_CRITICAL's
+        note). `skills`: the bridge's activeSkills; `main`: the main models.Skill; `stats`: the main skill's PoB stats."""
+        build = self.build
+        holders = [g for g in build.groups() if g.get("enabled", True)
+                   and any(n.get("name") == BLAZING_CRITICAL and n.get("enabled", True) for n in g.get("gems") or [])]
+        if not holders:
+            return [], []
+        gain = max((number((s.get("supportStats") or {}).get(BLAZING_GAIN_STAT)) for s in skills
+                    if not s.get("disabled") and s.get("group") in {g["index"] for g in holders}), default=0.0) or 15.0
+        main_index = main.group if main is not None else None
+        crits, parts = 0.0, []
+        if any(g["index"] == main_index for g in holders):
+            share = with_main_share(build, stats, main).get("_main_share")
+            share = 1.0 if share is None else max(0.0, min(1.0, number(share)))
+            k = models.hits_per_second(stats) * number(stats.get("CritChance")) / 100 * share
+            crits += k
+            parts.append(f"{main.name}: {k:.2f} crits/s ({number(stats.get('CritChance')):.0f}% critical"
+                         + (f", used {share:.0%} of the fight" if share < 1 else "") + ")")
+        side = {g["index"] for g in holders if g["index"] != main_index}
+        if side:
+            for row, uses, why in self._side_rows(main_index, lambda g: g["index"] in side):
+                k = (uses * min(number(row.get("HitChance")) or 100.0, 100.0) / 100
+                     * min(max(number(row.get("CritChance")), 0.0), 100.0) / 100)
+                crits += k
+                parts.append(f"{row.get('name') or 'a supported skill'}: {k:.2f} crits/s ({why}, "
+                             f"{number(row.get('CritChance')):.0f}% critical)")
+        up = blazing_uptime(crits)
+        counted = up if up >= conditions_mod.MIN_UPTIME else 0.0
+        box = bool(build.call("getConfig")["input"].get("conditionCritRecently"))
+        attack = bool(main is not None and main.attack)
+        mods = []
+        if attack:  # (PoB's gain taken back whenever its box is on, whichever round set the box)
+            mods.append(models.raw_mod("DamageGainAsFire", "BASE", -gain, condition="CritRecently", tag=BLAZING_TAG))
+            if counted > 0:
+                mods.append(models.raw_mod("DamageGainAsFire", "BASE", gain * counted, tag=BLAZING_TAG))
+        how = "; ".join(parts) or "no supported skill crits"
+        note = {
+            "label": "Blazing Critical: its Fire gain at the buff's uptime*",
+            "value": (f"{gain * counted:.1f}% of Damage as Fire on your Attacks ({counted:.0%} of {gain:g}%)" if attack
+                      else "no effect on the main skill (not an Attack)"),
+            "basis": (f"the buff lasts {BLAZING_SECONDS:g} s from a critical hit by a supported skill: {how}: up "
+                      f"1 - e^(-{crits:.2f} x {BLAZING_SECONDS:g}) = {up:.0%}"
+                      + (f" (under {conditions_mod.MIN_UPTIME:.0%}: left out)" if 0 < up < conditions_mod.MIN_UPTIME else "")
+                      + f". Row: PoB's 'Crit recently' box ({'on' if box else 'off'}, set from the main skill's crits "
+                      f"at 90% in 4 s) gives {gain if box and attack else 0:g}%; whether Skill Effect Duration "
+                      "lengthens the 5 s is UNVERIFIED (the base 5 s taken)"),
+            "confidence": "MEDIUM (game numbers; crits as a Poisson stream)",
+            "play": (f"Blazing Critical: keep the supported skill critting; up {counted:.0%}, without it 0" if attack
+                     else "")}
+        return mods, [note]
 
     def _side_rows(self, main_index: int, pick) -> list[tuple[dict, float, str]]:
         """[(useRates row, uses a second, how)] for the build's enabled groups outside the main one that `pick(group)`
@@ -9257,26 +9536,36 @@ class Assumptions:
                        f"({paid * windup:.1%} of the fight) and its Heavy Stuns come off the main skill (MECHC35)")
 
     @staticmethod
-    def boss_hit_recently_share(boss: str, kind: str) -> tuple[float, str]:
+    def boss_hit_recently_share(boss: str, kind: str, stats: dict | None = None, reading: str = "headline"
+                                ) -> tuple[float, str]:
         """(share of the fight you have been Hit with `kind` damage by the boss Recently, how) (COV12; AUDIT25 A25-42).
-        The boss uses a damaging skill every bosses.HIT_EVERY s (LOW); a share counts[kind] / damaging skills of them deal
-        the type (boss_hits.HIT_TABLE over RED_FLASH's damaging-skill count, capped at 1). The share of the fight hit
-        Recently (4 s, KeywordPopups) is a Poisson stream's, 1 - e^(-4 s x rate) (AUDIT25 A25-48: a hit every 4 s is 63%,
-        not always; 99.5% needs one about every 0.75 s). No rate in the tables: 0, labelled. Before the player's evasion
-        and block, and before Slows on the boss (a small overcount for an evasive build or one that Slows the boss)."""
+        A GAIN, so it reads the hits that LAND (MECHC50; the manager's 08:45 note from MECHD8, an OVERCOUNT before: every
+        use at HIT_EVERY, none dodged, evaded or blocked): the boss's damaging USES a second (bosses.USE_EVERY, a melee
+        combo counted once, since its strikes land inside the 4 s window together; HIT_EVERY where USE_EVERY isn't in
+        the tables yet), x the share of its skills dealing the type (boss_hits.HIT_TABLE over RED_FLASH's damaging-skill
+        count, capped at 1), x your Slows on it (PoB's enemySkillTime over the preset's defence cadence), x the landing
+        share of the type's hits (boss_hits.kind_land_parts: PoB's evade and block), x (1 - boss_hits.ON_YOU_DODGE) (the
+        user's movement dodge, 2/3), red-flash hits AVOIDED in the headline (the user's ruling, 21 Nov 04:32). The share
+        Recently (4 s, KeywordPopups) is a Poisson stream's, 1 - e^(-4 s x rate) (AUDIT25 A25-48). `reading`: "headline";
+        "no dodge" (dodge 0, red-flash avoided); "every strike" (bosses.HITS_EVERY, no dodge, red-flash landing: the old
+        upper reading). No rate in the tables: 0, labelled. `stats` None: no evade / block / Slow known (taken as none).
+        The defence floors don't read it."""
         import math
 
         from builder.search import boss_hits, bosses
 
+        stats = dict(stats or {})
         if boss == bosses.WORST:
             # (MECHC20: a gain the boss's hits give, so the worst-case pinnacle reads the lowest real preset's share, as
             # boss_hits.gain_floor does (AUDIT29 A29-1's rule); before, its pooled type counts over its slowest cadence)
-            rows = [(name, *Assumptions.boss_hit_recently_share(name, kind)) for name in bosses.REAL]
+            rows = [(name, *Assumptions.boss_hit_recently_share(name, kind, {**stats, "enemySkillTime": 0}, reading))
+                    for name in bosses.REAL]
             low, high = min(rows, key=lambda r: r[1]), max(rows, key=lambda r: r[1])
             return low[1], (f"worst case: a gain counts the lowest real boss's share (AUDIT29 A29-1), {low[0]}'s: {low[2]} "
                             f"(the highest, {high[0]}'s: {high[1]:.0%}, not counted)")
         counts = boss_hits.hit_table(boss)[1]
-        every = bosses.HIT_EVERY.get(boss)
+        uses = getattr(bosses, "USE_EVERY", None) or {}
+        every = (bosses.HITS_EVERY.get(boss) if reading == "every strike" else uses.get(boss) or bosses.HIT_EVERY.get(boss))
         damaging = (boss_hits.RED_FLASH.get(boss) or (0, 0, 0, ""))[2]
         if not counts.get(kind):
             return 0.0, f"{boss} deals no {kind} hits"
@@ -9284,10 +9573,23 @@ class Assumptions:
             # (MECHC12: the worst-case default has both since boss_hits._worst; this is for a preset without them)
             return 0.0, (f"{boss}: no use cadence or damaging-skill count in the tables (bosses.HIT_EVERY / "
                          f"boss_hits.RED_FLASH), so 0 (no flat guess; an undercount if it hits with {kind} often)")
-        interval = every / min(1.0, counts[kind] / damaging)
-        share = 1.0 - math.exp(-4.0 / interval)
-        return share, (f"{boss} hits with {kind} about every {interval:.1f} s ({counts[kind]} of its {damaging} damaging "
-                       f"skills, one use every {every:g} s): up {share:.0%} of the fight (1 - e^(-4 s / {interval:.1f} s))")
+        scored = number(stats.get("enemySkillTime"))
+        slowed = scored / bosses.defence_hit_every(boss) if scored > 0 else 1.0
+        red, rest = boss_hits.kind_land_parts({**stats, "_boss": boss}, kind)
+        dodge = 0.0 if reading != "headline" else boss_hits.ON_YOU_DODGE
+        land = (red if reading == "every strike" else 0.0) + rest * (1 - dodge)
+        interval = every * slowed / min(1.0, counts[kind] / damaging)
+        rate = land / interval if interval > 0 else 0.0
+        share = 1.0 - math.exp(-4.0 * rate)
+        cadence = ("one strike every" if reading == "every strike" else
+                   "one use every" + ("" if boss in uses else " (HIT_EVERY: USE_EVERY not in the tables)"))
+        return share, (f"{boss} uses {kind} about every {interval:.1f} s ({counts[kind]} of its {damaging} damaging "
+                       f"skills, {cadence} {every:g} s" + (f" x{slowed:.2f} your Slows" if abs(slowed - 1) > 1e-9 else "")
+                       + f"), {land:.0%} of them landing ("
+                       + ("red-flash landing, none dodged: the every-strike row" if reading == "every strike" else
+                          f"red-flash avoided, {rest:.0%} past your evade / block, {dodge:.0%} dodged"
+                          + (f": {boss_hits.ON_YOU_DODGE_HOW}" if dodge else ": the no-dodge row"))
+                       + f"): up {share:.0%} of the fight (1 - e^(-4 s x {rate:.3f}/s))")
 
     def jagged_ground_share(self, main: str | None, main_types: set[str], main_group: dict | None) -> tuple[float, str]:
         """conditions.jagged_ground from the build: the main skill's speed, Endurance Charges gained per second (the build's

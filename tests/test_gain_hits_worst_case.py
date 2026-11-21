@@ -52,3 +52,24 @@ def test_adaptive_skins_hit_recently_share_on_the_worst_case_is_the_lowest_real_
     assert share == pytest.approx(min(lows)) and "lowest real boss" in how, how
     # an element one real boss never deals: 0 on the worst case
     assert Assumptions.boss_hit_recently_share(bosses.WORST, "Cold")[0] == 0.0
+
+
+def test_hit_recently_share_reads_the_landed_uses_after_dodge_evade_and_block():
+    """(MECHC50; the manager's 08:45 note from MECHD8, an OVERCOUNT before) a gain from being Hit Recently reads the boss's
+    hits that LAND: its uses, past PoB's evade / block, 2/3 of the rest dodged (the user's rate), red-flash avoided; rows
+    for no dodge and every strike (the old upper reading) sit above it."""
+    import math
+
+    from builder.search import boss_hits
+    from builder.search.assumptions import Assumptions
+
+    olroth = "Olroth, Origin of the Fall"
+    head, how = Assumptions.boss_hit_recently_share(olroth, "Cold", {"EvadeChance": 40})
+    red, rest = boss_hits.kind_land_parts({"_boss": olroth, "EvadeChance": 40}, "Cold")
+    counts = boss_hits.hit_table(olroth)[1]["Cold"] / boss_hits.RED_FLASH[olroth][2]
+    every = (getattr(bosses, "USE_EVERY", None) or bosses.HIT_EVERY).get(olroth) or bosses.HIT_EVERY[olroth]
+    assert head == pytest.approx(1 - math.exp(-4 * counts / every * rest / 3)) and "dodged" in how
+    nododge = Assumptions.boss_hit_recently_share(olroth, "Cold", {"EvadeChance": 40}, "no dodge")[0]
+    strike = Assumptions.boss_hit_recently_share(olroth, "Cold", {"EvadeChance": 40}, "every strike")[0]
+    assert head < nododge < strike
+    assert Assumptions.boss_hit_recently_share(olroth, "Cold", {"EvadeChance": 100})[0] == 0.0  # (red-flash avoided)

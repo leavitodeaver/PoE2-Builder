@@ -1586,6 +1586,13 @@ def mirage_model(skills: list[Skill], main: Skill | None, gems: dict[str, tuple[
 # stands for the one, and the model adds the 2 per Power Charge on the share of uses that find one.
 HOLLOW_FORM = "Hollow Form"
 HOLLOW_IMAGES_PER_POWER = 2
+# (MECHC50; plans/gs-meta-copy-costs.md item 1, PLANS7) "Creating an Image spends Socketed Skill's Cost", "Percent of
+# Socketed Skill Cost spent@80%" (hollow_form.csd; MetaHollowFormPlayer mantra_of_illusions_cloned_skill_mana_cost_% 80,
+# game 26650308). PoB prices the socketed Attack once a use at its full cost; the game: 80% for each image, 1 + 2 x share
+# images a use. So the cost a use is 0.8 x (1 + 2 x share) of PoB's: a Cost MORE of 100 x (0.8 x (1 + 2 x share) - 1) on
+# the socketed Attack (an OVERCOUNT of sustain above a 12.5% charged share, a small undercount below). MEDIUM (game
+# numbers; every image paid, none from Hollow Form's own channel cost).
+HOLLOW_COST_PCT = 80.0
 HOLLOW_EXCLUDES = {"HasUsageCondition", "Meta", "Triggered", "Persistent", "Channel"}  # (the support's excludeSkillTypes)
 
 
@@ -1608,12 +1615,17 @@ def hollow_model(skills: list[Skill], stats: dict, texts: list[str], main: Skill
     share = min(1.0, made / uses) if uses > 0 else 0.0
     more = 100.0 * HOLLOW_IMAGES_PER_POWER * share
     mods = [line("1% more Damage", more, skill=main.name)] if more else []
+    cost_more = 100.0 * (HOLLOW_COST_PCT / 100 * (1 + HOLLOW_IMAGES_PER_POWER * share) - 1)
+    if abs(cost_more) > 1e-9:  # (MECHC50: each image spends 80% of the socketed cost)
+        mods.append(raw_mod("Cost", "MORE", cost_more, skill=main.name, tag="HollowFormImageCost"))
     basis = (f"{made:.2f} Power Charges made per second against {uses:.2f} uses of Hollow Form (one per {main.name} PoB "
              f"counts; Hollow Form channels at 70% attack speed, the socketed Attack at 30% less: assumed equal, the "
              f"Attack's own attack-time modifier not counted); {share:.0%} of uses consume one for "
              f"{HOLLOW_IMAGES_PER_POWER} more images (game files, poe2db); one image per use without a charge (assumed: no "
              "stat gives it), which is what PoB's number counts; the images' hits are counted as yours (assumed, as "
-             "Mirages'); Power Charges spent this way aren't held (conditions' charge consumers)")
+             "Mirages'); Power Charges spent this way aren't held (conditions' charge consumers); each image spends "
+             f"{HOLLOW_COST_PCT:g}% of the Attack's cost (hollow_form.csd): {HOLLOW_COST_PCT / 100 * (1 + HOLLOW_IMAGES_PER_POWER * share):.2f}x "
+             "PoB's one full cost a use (MECHC50, MEDIUM)")
     notes = [{"label": f"Hollow Form: images per use ({main.name})", "value": round(1 + HOLLOW_IMAGES_PER_POWER * share, 2),
               "basis": basis + ("" if made else "; the build makes no Power Charges"), "confidence": "theory"}]
     return mods, notes
@@ -15051,8 +15063,9 @@ def mana_flare(spell: dict, cooldown: float, recovery: float) -> tuple[float, fl
 #   "generation" covers them is UNVERIFIED: the lower reading);
 # - "Skills which require Glory generate N Glory every 2 seconds": N / 2 a second for each Glory skill; "Banners gain N
 #   Glory per second" (PoB's ModCache holds it): N a second for each Banner;
-# - "Skills gain 1 Glory every N seconds for each Rare or Unique monster in your Presence": the boss is Unique, taken as in
-#   your Presence (a play note, LOW): 1 / N a second;
+# - "Skills gain 1 Glory every N seconds for each Rare or Unique monster in your Presence": the boss is Unique: 1 / N a
+#   second while it stands in your Presence (MECHC50: stats["_boss_in_presence"], conditions.boss_in_presence: the
+#   build's distance against PresenceRadius; 0 outside it, an OVERCOUNT before; a caller that doesn't say: in it, LOW);
 # - "(Skills have a) N% chance to not consume Glory": a use consumes (1 - N%); "N% chance (for Skills) to retain 40% of Glory on use": a
 #   use consumes (1 - 0.4 x N%); "When a Banner expires, recover N% of the Glory required for that Banner": a Banner's
 #   next use needs N% less (each placed Banner taken to expire, LOW);
@@ -15177,9 +15190,13 @@ def glory_plan(names: list[str], stats: dict, main: Skill | None, skills: list[S
         if banner and lines["banner_flat"]:
             glory += lines["banner_flat"]
             extra.append(f"+{lines['banner_flat']:g}/s ('Banners gain N Glory per second')")
-        if lines["presence"]:
+        if lines["presence"] and stats.get("_boss_in_presence") is False:
+            # (MECHC50, an OVERCOUNT before for a build standing outside its Presence: counted at any distance)
+            extra.append(f"'for each Rare or Unique monster in your Presence': 0, {stats.get('_boss_presence_how') or 'the boss outside your Presence'}")
+        elif lines["presence"]:
             glory += lines["presence"]
-            extra.append(f"+{lines['presence']:g}/s from the boss in your Presence (kept in it: a play note, LOW)")
+            extra.append(f"+{lines['presence']:g}/s from the boss in your Presence ("
+                         + (stats.get("_boss_presence_how") or "kept in it: a play note, LOW") + ")")
         if marked > 0:  # (MECHC26, H3-4: Quipolatl's Thesis)
             gain = marked / glory_kinds * lines["mark"] * cost
             glory += gain
