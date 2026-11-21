@@ -598,8 +598,14 @@ NO_POWER_STAT = "cannot_gain_power_charges_during_skill"
 # (MECHC47, SIDE_TWISTER: MECHC46's labelled undercount) a flagged Twister in another group: its hits and crits a second
 # x recovery.twister_hits' headline from its own group's ProjectileCount and Duration (PoB's setRates for that group; its
 # projectile speed and area modifiers aren't in setRates' fields: taken at their base, MEDIUM-LOW, as the main's
-# reading). A side Galvanic Field is still left out of the side rows (GENERIC_HIT's note: its casts aren't its hits; its
-# bolts need its HitSpeed, which setRates doesn't give yet: an UNDERCOUNT left).
+# reading). (MECHC48, SIDE_GALVANIC: MECHC47's labelled UNDERCOUNT) a side Galvanic Field: its casts aren't hits, its Orb's
+# bolts are (GENERIC_HIT's note). Its row's hits a second = the Orb set's bolts a second (PoB's HitSpeed for that set,
+# setRates: a bolt every 0.6 s, hitTimeOverride) x the Orb's attached share (models.galvanic_orb_uptime: its cast time
+# from the Orb set's Speed, then the other groups' first Shock, Assumptions.other_shocks(its group), then the Orb's 6 s);
+# its crits at the Orb set's CritChance. Flagged (skill_can_add_multiple_charges_per_action is in GalvanicFieldOrbPlayer's
+# ImplicitStats, MULTI_CHARGE_STAT's note): each bolt may grant. The Shocks: the main skill's (its Speed x HitChance x
+# ShockChancePerHit x its share of the fight) and the other groups' (useRates rows); none: no Orb, 0 hits. MEDIUM, as the
+# main skill's reading.
 MULTI_CHARGE_STAT = "skill_can_add_multiple_charges_per_action"
 HELBRYMS_HIDE = "Helbrym's Hide"  # (MECHC44: recovery.HELBRYMS_HIDE; its Rage, Conditions._helbrym_rage)
 HITS_A_USE = {"Twister", "Galvanic Field"}  # (MECHC44: main skills whose hits a use Conditions._hits_per_use reads)
@@ -731,6 +737,11 @@ def side_hit_rows(rows: dict, groups: list[dict], hitters: set[str], main_index,
     lingering = (models.ORB_OF_STORMS, models.GALVANIC_FIELD)  # (GENERIC_HIT's note: their casts aren't the hits)
     for index, row in sorted(rows.items(), key=lambda kv: str(kv[0])):
         if index == main_index or not names.get(index):
+            continue
+        if str(row.get("name") or "").startswith(models.GALVANIC_FIELD):
+            # (MECHC48, SIDE_GALVANIC's note: 0 here; Conditions._side_galvanic sets its Orb's bolts)
+            out.append({"name": models.GALVANIC_FIELD, "index": index, "hits": 0.0, "crits": 0.0, "melee": False,
+                        "flagged": True, "galvanic": True, "how": f"{row.get('name')}: its casts aren't hits"})
             continue
         if any(str(row.get("name") or "").startswith(n) for n in lingering):
             continue
@@ -7830,7 +7841,7 @@ class Conditions:
         """(MECHC40, K2-9) {kind: [(name, the most uses/s it can add above its cooldown, how)]} for the build's skills
         whose cooldown a charge bypasses (bypass_kind). The cooldown rate is read without this model's own Cooldown
         Recovery (build.bypass_inc, Assumptions' bypass hook), so the cap doesn't shrink as the bypass adds uses; the
-        most uses a second is one per use (PoB's one-use time, else its Speed)."""
+        most uses a second is one per use (the row's castRate, MECHB47's; else PoB's one-use time, else its cast time)."""
         gems = getattr(self.build.ctx, "all_gems", None) or self.build.ctx.gems
         found = {n: k for n in gem_types if (k := bypass_kind(n, (gems.get(n) or {}).get("description") or ""))}
         if not found:
@@ -7851,7 +7862,10 @@ class Conditions:
             # cast time, with no warcry / skill speed counted: the lower reading)
             time, now = number(row.get("time")), number(row.get("cooldown"))
             one = time if time > 0 and not (now > 0 and time >= 0.99 * now) else number(row.get("castTime"))
-            most = 1 / one if one > 0 else 0.0
+            # (MECHC48, the manager's 17:56: MECHB47's castRate, PoB's use rate before the cooldown cap with the build's
+            # cast / attack / action / warcry speed, is that use time exactly; the reading above is the fallback)
+            cast_rate = number(row.get("castRate"))
+            most = cast_rate if cast_rate > 0 else (1 / one if one > 0 else 0.0)
             if base <= 0 or most <= 0:
                 continue
             recovery = number(skill.get("cooldownRecovery")) or 1.0
@@ -8066,6 +8080,42 @@ class Conditions:
             row["how"] += (f"; x {head:.2f} hits a cast from its {number(first.get('ProjectileCount')) or 1:g} twister(s) "
                            f"(recovery.twister_hits' headline, MEDIUM-LOW; projectile speed and area at their base: "
                            f"not read for a side group; open arena {open_row:g} a cast)")
+
+    def _side_galvanic(self, rows: list[dict], group_rows: dict, stats: dict, main_index=None) -> None:
+        """(MECHC48, SIDE_GALVANIC's note) a side Galvanic Field's Orb bolts on the boss a second: the Orb set's HitSpeed
+        (setRates) x its attached share (models.galvanic_orb_uptime) from the build's other Shocks: the main skill's
+        (Speed x HitChance x ShockChancePerHit x its share of the fight) and the other groups' (their useRates rows, at
+        their trigger rate or skill_use_rate, as Assumptions.other_shocks)."""
+        for row in rows:
+            if not row.get("galvanic") or row.get("index") is None:
+                continue
+            sets = self.build.call("setRates", index=row["index"]).get("sets") or []
+            orb = next((x for x in sets if str(x.get("label") or "") == "Orb"), None)
+            bolts, cast = (number(orb.get("HitSpeed")), number(orb.get("Speed"))) if orb else (0.0, 0.0)
+            if bolts <= 0 or cast <= 0:
+                row["how"] += "; its Orb's bolts weren't read (no Orb set with a HitSpeed from PoB): 0 hits"
+                continue
+            main_rate = (number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
+                         * min(number(stats.get("ShockChancePerHit")), 100.0) / 100.0 * _main_share(stats))
+            shocks, parts = main_rate, ([f"{self.main_skill} {main_rate:.3g} Shocks/s"] if main_rate > 0 else [])
+            choices = models.press_choices(self.build)
+            for index, other in group_rows.items():
+                if index in (row["index"], main_index) or str(other.get("name") or "").startswith(models.GALVANIC_FIELD):
+                    continue
+                chance = min(number(other.get("ShockChance")) or number(other.get("ShockChancePerHit")), 100.0) / 100.0
+                uses = number(other.get("speed")) if other.get("triggered") else skill_use_rate(other, choices)[0]
+                rate = uses * min(number(other.get("HitChance")) or 100.0, 100.0) / 100.0 * chance
+                if rate > 0:
+                    shocks += rate
+                    parts.append(f"{other.get('name')} {rate:.3g} Shocks/s")
+            up = models.galvanic_orb_uptime(1.0 / cast, shocks)
+            crit = min(max(number(orb.get("CritChance")), 0.0), 100.0) / 100.0
+            row["hits"] = bolts * up
+            row["crits"] = row["hits"] * crit
+            row["how"] = (f"Galvanic Field's Orb {row['hits']:.2f} hits/s ({bolts:.2f} bolts/s, PoB's HitSpeed, x attached "
+                          f"{up:.0%} of the fight: a {1 / cast:.2f} s cast, then the first Shock ("
+                          + ("; ".join(parts) if parts else "nothing else Shocks the boss: no Orb")
+                          + f"), then 6 s; {crit:.0%} critical; MEDIUM)")
 
     def _hits_per_use(self) -> tuple[float, str]:
         """(MECHC44) (hits on the boss a use, how) for a HITS_A_USE main skill: Twister's twister-count headline
@@ -9288,6 +9338,7 @@ class Conditions:
         stats["_side_rows"] = side_hit_rows(group_rows, groups_now, hitters, groups_all.get("mainSocketGroup"),
                                             models.press_choices(self.build), melee, flagged)
         self._side_twisters(stats["_side_rows"])  # (MECHC47: SIDE_TWISTER's note)
+        self._side_galvanic(stats["_side_rows"], group_rows, stats, groups_all.get("mainSocketGroup"))  # (MECHC48: SIDE_GALVANIC's note)
         side = side_hits(group_rows, groups_now, hitters, groups_all.get("mainSocketGroup"), models.press_choices(self.build))
         stats["_side_hits"] = side if side[0] > 0 else None
         stats["_gem_line_texts"] = {line["text"] for line in lines if str(line.get("source") or "").startswith("gem:")}

@@ -420,3 +420,35 @@ def test_natures_archon_gives_a_plant_main_skill_more_damage_at_its_uptime(engin
     assert not got[False][0] and got[False][1]
     mods = got[True][0]
     assert mods and mods[0]["name"] == "Damage" and 0 < mods[0]["value"] < 25
+
+
+def test_a_side_galvanic_fields_orb_bolts_feed_on_hit_charges(engine):
+    """MECHC48 (MECHC47's labelled UNDERCOUNT): a Galvanic Field in another group was left out of the side hits (its
+    casts aren't hits). Its Orb's bolts are: the Orb set's HitSpeed (setRates, MECHC48's field) x the Orb's attached
+    share after the main skill's Shocks (conditions.SIDE_GALVANIC's note); flagged, so each bolt may grant."""
+    from builder.request.schema import Choices
+    from builder.search import conditions
+
+    payload = make_payload(BuildRequest(main_skill="Spark", require=Choices(skills=["Galvanic Field"])))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    galvanic = next((g["index"] for g in build.groups() if any(x["name"] == "Galvanic Field" for x in g["gems"])), None)
+    if galvanic is None:
+        pytest.skip("the skeleton has no Galvanic Field group")
+    sets = build.call("setRates", index=galvanic).get("sets") or []
+    orb = next((x for x in sets if x.get("label") == "Orb"), {})
+    print("PROBE galvanic sets", sets)
+    assert number(orb.get("HitSpeed")) > 0  # (the bridge now gives each set's HitSpeed)
+    rows = conditions.side_hit_rows({galvanic: {"name": "Galvanic Field", "speed": 1.0}}, build.groups(),
+                                    {"Galvanic Field"}, None)
+    assert rows and rows[0]["galvanic"] and rows[0]["hits"] == 0.0  # (its casts aren't hits)
+    cond = search.conditions
+    cond._side_galvanic(rows, {}, {"Speed": 2.0, "HitChance": 100, "ShockChancePerHit": 50})
+    print("PROBE side galvanic", rows[0])
+    assert rows[0]["hits"] > 0 and "Galvanic Field's Orb" in rows[0]["how"]
+    none = conditions.side_hit_rows({galvanic: {"name": "Galvanic Field", "speed": 1.0}}, build.groups(),
+                                    {"Galvanic Field"}, None)
+    cond._side_galvanic(none, {}, {"Speed": 2.0, "HitChance": 100, "ShockChancePerHit": 0})
+    assert none[0]["hits"] == 0.0 and "no Orb" in none[0]["how"]  # (nothing Shocks the boss: no Orb)
