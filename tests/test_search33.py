@@ -60,8 +60,9 @@ def test_a_side_group_gets_its_supports_and_the_score_never_falls(ctx, engine, m
     search = Search(engine, None, make_payload(ctx.request), skeleton.as_dict(), 0)
     search.setup(quests=False)
     build, gems = search.build, search.gems
-    side = build.set_group(gems=[{"name": "Blasphemy", "level": 20, "quality": 0},
-                                 {"name": "Elemental Weakness", "level": 20, "quality": 0}], label="test")["index"]
+    # (a hand-cast curse: Heightened Curse's what-if is +0.078 on it; in a Blasphemy group every support read 0.0,
+    # probe POE2T5449, scratch/SEARCH33/d5449.log)
+    side = build.set_group(gems=[{"name": "Elemental Weakness", "level": 20, "quality": 0}], label="test")["index"]
     found = gems.side_groups()
     assert side in [g["index"] for g in found]
     assert not any(g["main"] for g in found)
@@ -79,7 +80,7 @@ def test_a_side_group_gets_its_supports_and_the_score_never_falls(ctx, engine, m
     assert build.score >= before - 1e-9
     group = next(g for g in build.groups() if g["index"] == side)
     supports = [g["name"] for g in group["gems"] if g["support"]]
-    assert supports, "Blasphemy + Elemental Weakness on a Spark build: some curse support should raise the score"
+    assert supports, "a hand-cast Elemental Weakness on a Spark build: Heightened Curse raises the score"
     # a second step with nothing changed doesn't sweep an idle side group again (side_idle), but a kept group is retried
     called.clear()
     gems.optimize_supports(float("inf"), rounds=1)
