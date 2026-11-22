@@ -4762,12 +4762,24 @@ class Assumptions:
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             lone_mods, lone_notes = models.lone_boss_set_model(main, main.stat_set, sets, forbidden, previous=self.mods)
             hand_mods, hand_notes = hand_mods + lone_mods, hand_notes + lone_notes
+        if main is not None and group and main.name in models.BOTH_PARTS_SETS:  # (GEM33: Shield Charge, R44-10)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            both_mods, both_notes = models.both_parts_model(main, main.stat_set, sets, forbidden, previous=self.mods)
+            hand_mods, hand_notes = hand_mods + both_mods, hand_notes + both_notes
+        if main is not None and group and main.name == models.CLUSTER_GRENADE:  # (GEM33: its minis, R44-9, LOW)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            cg_mods, cg_notes = models.cluster_grenade_model(main, main.stat_set, sets, stats, forbidden,
+                                                             previous=self.mods)
+            hand_mods, hand_notes = hand_mods + cg_mods, hand_notes + cg_notes
         if main is not None and group and main.name in models.GATED_SETS:  # (GEM17: Enraged / Empowered need a resource)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             gate_share, gate_how = self.gated_set_share(main.name, texts, main_types)
             gate_mods, gate_notes = models.gated_set_model(main, main.stat_set, sets, gate_share, gate_how, forbidden,
                                                            previous=self.mods)
             hand_mods, hand_notes = hand_mods + gate_mods, hand_notes + gate_notes
+            if main.name == models.FROSTBOLT:  # (GEM33: the "with Frost Wall" row, R44-12; a note, no mod)
+                hand_notes = hand_notes + models.frostbolt_wall_row(main, sets, *self.frost_wall_uses(group["index"]),
+                                                                    previous=self.mods)
             if main.name == models.OIL_BARRAGE:  # (MECHB46: a plain use's wind-up and group, weighed by the gated share)
                 oil_mods, oil_notes = models.oil_barrage_volley_model(
                     main, build.call("stats", fields=["ProjectileCount"]), sets, gate_share, forbidden,
@@ -9539,6 +9551,16 @@ class Assumptions:
                 uses, why, _ = conditions_mod.skill_use_rate(row, choices)
                 out.append((row, uses, why))
         return out
+
+    def frost_wall_uses(self, main_index: int) -> tuple[float, float, str]:
+        """(the build's Frost Wall uses a second, its PoB CastRate (before the cooldown cap), how) for models.frostbolt_wall_row (GEM33):
+        its enabled groups outside the main one holding Frost Wall (_side_rows)."""
+        on = lambda g: [x["name"] for x in g.get("gems") or [] if x.get("enabled", True)]
+        rows = self._side_rows(main_index, lambda g: models.FROST_WALL in on(g))
+        uses = sum(u for _, u, _ in rows)
+        speed = max((number(r.get("castRate")) or number(r.get("speed")) for r, _, _ in rows), default=0.0)
+        how = "; ".join(f"{r.get('name')} {u:.2f} uses/s ({why})" for r, u, why in rows) or "no Frost Wall group"
+        return uses, speed, how
 
     def locus_breaks(self, main_index: int, main_skill: str) -> tuple[float, str]:
         """(the build's Ice Crystal breaker uses a second, how) for models.frozen_locus_model (GEM20): its groups with an

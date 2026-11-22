@@ -1,0 +1,39 @@
+# GEM33 (21 Nov 2026): gem stats and multi-part skills, the GEM lane.
+- id: model-gem33-shield-charge-both-parts
+  title: "Shield Charge's crash hits the collided boss with its area AND its collision (an UNDERCOUNT of about x1.22 before)"
+  kind: model
+  model: both_parts_model
+  skill: [Shield Charge]
+  confidence: MEDIUM-HIGH
+  notes: >-
+    The current gem text (poe2db, 21 Nov): "You will crash into enemies on your path, stopping your charge and dealing
+    damage to enemies in an area, and extra damage to the enemies you collided with". RESEARCH44 R44-10 (MEDIUM-HIGH):
+    both sets are area hits with a 2.4 m impact radius, so the collided enemy is in the area and takes the Collision's
+    extra damage too; patches 0.3.0 / 0.4.0 tune the two as parts of one use. PoB scores one set (probe POE2T5822: Area of
+    Effect 21.76, Collision 96.87 DPS). models.both_parts_model adds the other part as a DPS MORE (sum / scored). Not
+    counted: the second hit's own ailment and stun chances.
+  sources: ["builder/search/models.py (BOTH_PARTS_SETS, both_parts_model)", "scratch/gem32/probe5822.log",
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/two-part-skills-frostbolt-r44.md (R44-10)"]
+  test_in_game: "Shield Charge into a lone dummy: does it show two damage numbers (area and collision)?"
+  status: proposed
+
+- id: model-gem33-cluster-grenade-minis
+  title: "Cluster Grenade's mini grenades reaching the boss: about 7 of 18 at the headline (an UNDERCOUNT before: PoB scores one set)"
+  kind: model
+  model: cluster_grenade_model
+  stats: ["projectiles_nova", "base_number_of_projectiles", "projectile_distance_variance"]
+  skill: [Cluster Grenade]
+  confidence: LOW
+  notes: >-
+    ActiveSkills cluster_grenade (26650308): "throwing out a ring of mini Grenades that explode when they come to a
+    stop"; the Mini Grenades set: 18 projectiles (cannot be modified), projectiles_nova, each a 1.4 m area blast, thrown
+    over the Primary set's hidden 2.4 m secondary radius; Area modifiers widen the ring and the blasts. PoB scores one
+    set (probe POE2T5821: Primary 10.89, one Mini 7.24 DPS). RESEARCH44 R44-9: the count is geometry that the play
+    decides (where the bouncing primary bursts). The manager's call (21 Nov 17:30): headline the lower defensible count,
+    about 7 on a pinnacle-size boss: models.cluster_grenade_model puts the burst 1.6 m from the boss (LOW), the minis
+    spread evenly over the ring's disc, the boss's hit radius from bosses.hit_radius. Rows: the primary at the boss's
+    edge (9-11), point-blank with a short Detonation Time (9-18). The play line says how to feed it.
+  sources: ["builder/search/models.py (CLUSTER_*, cluster_grenade_model)", "scratch/gem32/probe5821.log",
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/cluster-grenade-minis-r44.md (R44-9)"]
+  test_in_game: "Cluster Grenade thrown at a lone boss's feet: how many mini blasts hit it (with and without a short Detonation Time)?"
+  status: proposed

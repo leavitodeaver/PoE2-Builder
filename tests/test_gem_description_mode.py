@@ -1950,3 +1950,44 @@ def test_lightning_arrow_beams_hit_only_other_enemies():
     assert notes[0]["entry"] == "model-gem32-lightning-arrow-beams"
     assert models.lone_boss_set_model(la, "Projectile", sets) == ([], [])
     assert models.lone_boss_set_model(la, "Beam", sets, {"model-gem32-lightning-arrow-beams"}) == ([], [])
+
+
+def test_shield_charge_hits_the_boss_with_both_parts():
+    # (GEM33, R44-10) probe POE2T5822: Area of Effect 21.76, Collision 96.87, the Collision scored; the crash does both
+    sets = [{"label": "Area of Effect", "TotalDPS": 21.76}, {"label": "Collision", "TotalDPS": 96.87}]
+    sc = Skill("Shield Charge", 1, attack=True)
+    mods, notes = models.both_parts_model(sc, "Collision", sets)
+    assert mods[0]["name"] == "DPS" and mods[0]["value"] == pytest.approx(100 * (118.63 / 96.87 - 1), abs=0.01)
+    assert notes[0]["entry"] == "model-gem33-shield-charge-both-parts"
+    aoe, _ = models.both_parts_model(sc, "Area of Effect", sets)  # (steered to the Collision set: probe POE2T5845)
+    assert aoe[0]["value"] == pytest.approx(100 * (118.63 / 21.76 * models.PART_STEER - 1), abs=0.01)
+    assert models.both_parts_model(sc, "Collision", sets, {"model-gem33-shield-charge-both-parts"}) == ([], [])
+    assert models.both_parts_model(Skill("Rolling Slam", 1, attack=True), "Collision", sets) == ([], [])
+
+
+def test_cluster_grenade_minis_reach_the_boss():
+    # (GEM33, R44-9, LOW) probe POE2T5821: Primary 10.89, one Mini 7.24; the headline about 7 minis on a 0.4 m boss
+    assert 6.5 < models.cluster_minis_on_boss(0.4, 1.0, models.CLUSTER_OFFSET) < 8.0
+    assert models.cluster_minis_on_boss(0.4, 1.0, 0.4) == pytest.approx(18 * (1.8 / 2.4) ** 2)  # the edge row: 10.1
+    assert models.cluster_minis_on_boss(1.0, 1.0, 0.0) == pytest.approx(18)
+    assert models.cluster_minis_on_boss(0.3, 4.0, 0.0) < models.cluster_minis_on_boss(0.3, 1.0, 0.0)  # Area can lower it
+    sets = [{"label": "Primary Grenade", "TotalDPS": 10.89}, {"label": "Mini Grenades", "TotalDPS": 7.24}]
+    cg = Skill("Cluster Grenade", 1, attack=True)
+    stats = {"AreaOfEffectMod": 1.0}
+    n = models.cluster_minis_on_boss(models.bosses.hit_radius(stats)[0], 1.0, models.CLUSTER_OFFSET)
+    mods, notes = models.cluster_grenade_model(cg, "Primary Grenade", sets, stats)
+    assert mods[0]["name"] == "DPS" and mods[0]["value"] == pytest.approx(100 * (7.24 * n / 10.89), abs=0.01)
+    assert notes[0]["confidence"] == "LOW" and "play" in notes[0]
+    assert models.cluster_grenade_model(cg, "Primary Grenade", sets, stats, {models.CLUSTER_ENTRY}) == ([], [])
+
+
+def test_frostbolt_frost_wall_row():
+    # (GEM33, R44-12) a row only: probe POE2T5823's sets (Projectile 104.6, Explosion 166.8)
+    sets = [{"label": "Projectile", "TotalDPS": 104.6}, {"label": "Explosion", "TotalDPS": 166.8}]
+    fb = Skill("Frostbolt", 1)
+    none = models.frostbolt_wall_row(fb, sets, 0.0, 0.0, "no Frost Wall group")
+    assert none[0]["value"] == "not in the build"
+    row = models.frostbolt_wall_row(fb, sets, 0.2, 1.25, "its 5.00 s cooldown")
+    want = (104.6 + 166.8) * (1 - 0.125 / 1.25) / 104.6  # (one wall a wall's 8 s is enough)
+    assert row[0]["value"].startswith(f"x{want:.3f}") and "play" in row[0]
+    assert models.frostbolt_wall_row(Skill("Spark", 1), sets, 0.2, 1.25, "") == []
