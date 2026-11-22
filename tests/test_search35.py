@@ -249,3 +249,28 @@ def test_finalize_gets_its_own_time_for_the_final_tree_regrow(monkeypatch):
     assert plan(600, on=False) == (60.0, 0.0)
     monkeypatch.undo()
     assert run_module.FINAL_REGROW is (os.environ.get("POE2_SEARCH_FINAL_REGROW") == "1")  # (off unless asked for)
+
+
+def test_the_line_regrow_replaces_m2_and_regrows_with_the_partial_clears_under_the_floors(monkeypatch):
+    """SEARCH35 (the manager's 21:12, option (a)): with POE2_SEARCH_LINE_REGROW on, the line's M2 tree rebuild is off,
+    and the line's last task regrows its tree with final_regrow's partial clears, the uptimes weighed first and after
+    each variant."""
+    from builder.search import inner
+
+    monkeypatch.setattr(inner, "LINE_REGROW", True)
+    calls = []
+    search = inner.Search.__new__(inner.Search)
+    search.tree_rebuilt, search.line_passes = False, 5
+    assert search.tree_rebuild(float("inf")) is False and not search.tree_rebuilt  # (M2 off: nothing touched)
+
+    def final_regrow(deadline, clears, reweigh):
+        calls.append(("regrow", clears, reweigh))
+        search.build.score = 2.0
+        return [{"clear": "weak:30", "kept": True}]
+
+    search.build = types.SimpleNamespace(score=1.0)
+    search.weigh_uptimes = lambda: calls.append("weigh")
+    search.tree = types.SimpleNamespace(final_regrow=final_regrow)
+    assert search.line_regrow(10.0) is True
+    assert calls == ["weigh", ("regrow", ("weak:30", "weak:15", "weak:8"), search.weigh_uptimes)]
+    assert search.line_regrow_rows == [{"clear": "weak:30", "kept": True}]

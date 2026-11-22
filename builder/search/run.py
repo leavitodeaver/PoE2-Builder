@@ -534,7 +534,8 @@ class Run:
                         "state": self.line_state(lines, states, s.label, r, goals[r]), "goal": goals[r],
                         "full": FOCUS_FULL_DPS,
                         # (SEARCH29: the seeded curse trial, gems.CURSE_SEEDS, once per run: the first focus task only)
-                        "curses": focus_round == 0 and i == 0 and r == 0})
+                        "curses": focus_round == 0 and i == 0 and r == 0,
+                        "last": focus_round == FOCUS_ROUNDS - 1})  # (SEARCH35: inner.LINE_REGROW in the line's last task)
                         for i, s in enumerate(alive) for r in range(replicas)]
                     self.diverge(tasks)
                     raw = self._tasks(pool, tasks)

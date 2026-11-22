@@ -89,6 +89,15 @@ FILL_SEARCH_SECONDS = 60.0
 # IDLE_AFTER runs on the line is skipped, except every IDLE_RETRY-th time it comes up and after a kick touched it (LOW,
 # a time-sharing rule, no DPS assumption). OFF until a gate set measures it
 IDLE_SKIP = os.environ.get("POE2_SEARCH_IDLE_SKIP", "0") == "1"
+# (SEARCH35; the manager's 21:12, option (a): the final regrow in finalize ran on one worker while the others waited and
+# measured lower, 2b75b 10,335 vs 38,066) Tree.final_regrow's partial clears in each line's LAST focus task, on every
+# worker at once, in place of the line's M2 tree rebuild (gained in 0 of 97 runs over SEARCH34's gates): the task's
+# search stops LINE_REGROW_SHARE of its time early and the line's tree is regrown on its near-final gear under the floors
+# (weigh_uptimes first and after each variant, as finalize's). LOW, a time share. OFF until a gate pair measures it:
+# POE2_SEARCH_LINE_REGROW=1 turns it on (and M2 off)
+LINE_REGROW = os.environ.get("POE2_SEARCH_LINE_REGROW", "0") == "1"
+LINE_REGROW_SHARE = 0.3
+LINE_REGROW_CLEARS = ("weak:30", "weak:15", "weak:8")  # (the variants 2b75b kept in POE2T5552; "all" was refused)
 IDLE_STEPS = ("persistent", "condition sources", "meta gems")
 IDLE_AFTER = 1
 IDLE_RETRY = 3
@@ -1200,6 +1209,14 @@ class Search:
         self.skipped[phase] = self.skipped.get(phase, 0) + 1
         return True
 
+    def line_regrow(self, deadline: float) -> bool:
+        """(SEARCH35, LINE_REGROW) The line's last task: its tree regrown on its gear under the floors (Tree.final_regrow's
+        partial clears); kept only if no further from the request and higher (final_regrow's rule)."""
+        self.weigh_uptimes()
+        before = self.build.score
+        self.line_regrow_rows = self.tree.final_regrow(deadline, clears=LINE_REGROW_CLEARS, reweigh=self.weigh_uptimes)
+        return self.build.score > before + EPSILON
+
     def socket_fill_round(self, deadline: float) -> bool:
         """(SEARCH35, FILL_IN_SEARCH) The open-socket fill (Gems.fill_open, the main group) inside the search, once per
         main-group set the line holds with an open socket (fill_seen), the set it leaves counted as seen too."""
@@ -1222,7 +1239,7 @@ class Search:
         """M2: once per line, from its second pass, clear the tree and regrow it against the build as it is now (the
         move Search.run makes at its second escalation); kept only if the build scores higher, else put back."""
         now = clock.now()
-        if not TREE_REBUILD or self.tree_rebuilt or self.line_passes < 2 or deadline - now < TREE_REBUILD_MIN:
+        if not TREE_REBUILD or LINE_REGROW or self.tree_rebuilt or self.line_passes < 2 or deadline - now < TREE_REBUILD_MIN:
             return False
         self.tree_rebuilt = True
         build = self.build
@@ -1768,7 +1785,8 @@ def use_cpu_clock(payload: dict) -> None:
 
 
 def optimize_task(engine: Any, report: Any, payload: dict, skeleton: dict, seconds: float, seed: int = 0,
-                  state: dict | None = None, goal: str | None = None, full: bool = False, curses: bool = False) -> dict:
+                  state: dict | None = None, goal: str | None = None, full: bool = False, curses: bool = False,
+                  last: bool = False) -> dict:
     """`goal` overrides the request's (a balanced run's boss-DPS searches); the result's `value` is
     on that goal, so the run ranks results on its own goal from `dps` and `clear`. `full`: scored on PoB's Full
     DPS, as the delivered build is, the damaging non-main groups included (the run's focus stage)."""
@@ -1803,13 +1821,18 @@ def optimize_task(engine: Any, report: Any, payload: dict, skeleton: dict, secon
         if curses:  # (SEARCH29, the manager 19 Nov 06:50: the seeded curse trial once per RUN: run.py flags one task)
             search.gems.curse_task = True
             search.step("curses", search.gems.curse_round, deadline)
-        search.run(deadline, best=start or floor)
+        regrow = LINE_REGROW and last  # (SEARCH35: the line's last focus task; run.py's `last`)
+        search.run(deadline - (LINE_REGROW_SHARE * seconds if regrow else 0.0), best=start or floor)
+        if regrow:
+            search.step("line regrow", search.line_regrow, deadline)
     except Cancelled:
         kept = start or floor
         if kept is not None and kept["score"] > search.build.score:
             search.build.restore(kept)
         search.keep_feasible()
     summary = search.summary()
+    if getattr(search, "line_regrow_rows", None) is not None:
+        summary["line_regrow"] = search.line_regrow_rows
     # The task's wall time and what its clock left out as suspended (the queue's holds), to check the budget held
     summary["wall"] = round(time.perf_counter() - wall, 2)
     summary["ran"] = [round(time.time() - summary["wall"], 2), round(time.time(), 2)]  # when, across processes
