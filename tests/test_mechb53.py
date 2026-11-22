@@ -92,6 +92,13 @@ def test_double_vision_blasts_at_the_reloads_it_makes():
                                                      conditions.surge_rate)
     rate = {m["key"]: m["value"] for m in mods}["triggerRate"]
     assert rate == pytest.approx(min(2.0, 0.25 * 12)) and groups == {3}  # (0.5 reloads/s: 0.25 x (6 + 6) = 3/s)
+    # (MECHB54, probe POE2T4826: a crossbow skill's gem types are CrossbowAmmoSkill, not Projectile; Melee: none)
+    crossbow = {"Attack", "CrossbowAmmoSkill"}
+    mods, _, _ = models.double_vision_model(texts, stats, [gemini, main], main, crossbow, conditions.surge_rate)
+    assert {m["key"]: m["value"] for m in mods}["triggerRate"] == pytest.approx(2.0)
+    melee = models.Skill("Galvanic Shards", 1, attack=True, melee=True)
+    mods, _, _ = models.double_vision_model(texts, stats, [gemini, melee], melee, crossbow, conditions.surge_rate)
+    assert {m["key"]: m["value"] for m in mods}["triggerRate"] == 0
     stats["ForkCountMax"] = 1
     mods, notes, groups = models.double_vision_model(texts, stats, [gemini, main], main, {"Projectile", "Attack"},
                                                      conditions.surge_rate)

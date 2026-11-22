@@ -18387,7 +18387,10 @@ def double_vision_model(texts: list[str], stats: dict, skills: list[Skill], main
     rate, bolts = number(stats.get("FiringRate")), number(stats.get("BoltCount"))
     keep = min(1.0, max(number(stats.get("ChanceToNotConsumeAmmo")) / 100, 0.0))
     reloads = rate * (1 - keep) / bolts if rate > 0 and bolts > 0 else 0.0
-    qualifies = (main is not None and main.attack and not main.melee and "Projectile" in main_types)
+    # (MECHB54, probe POE2T4826: a crossbow skill's gem types hold CrossbowAmmoSkill, not Projectile; the bridge's
+    # projectileAttack flag, Attack with Projectile / CrossbowAmmoSkill / GroundTargetedProjectile, is the test)
+    qualifies = (main is not None and main.attack and not main.melee
+                 and (main.projectile_attack or bool({"Projectile", "CrossbowAmmoSkill"} & set(main_types))))
     forks = number(stats.get("ForkCountMax")) > 0 or number(stats.get("SplitCount")) > 0
     uses = number(stats.get("Speed")) if qualifies and not forks else 0.0
     c_rate, c_how = surge_rate(reloads / 2, cold, uses, 0.0, GEMINI_CAP)
