@@ -791,3 +791,56 @@ def test_remove_ignite_when_you_warcry_shortens_the_bosss_ignite_on_you_at_the_b
     assert none["ignited"] == pytest.approx(plain["ignited"])
     assert "next Warcry" in cut["notes"][0]["basis"] and "without it: Ignited" in cut["notes"][0]["basis"]
     assert boss_hits.REMOVE_IGNITE_ON_WARCRY.match("Remove Ignite when you Warcry")
+
+
+def test_the_devouring_diadem_recovers_life_from_the_corpses_the_fight_gives():
+    """MECHC53 (recovery.DIADEM's note): 20% of maximum Life a corpse, one every 3 s at most, from the corpses there are
+    (the build's own supply); none to consume (a lone boss): 0, said."""
+    from builder.search import recovery
+    from builder.search.recovery import Income
+
+    line = "Every 3 seconds, Consume a nearby Corpse to Recover 20% of maximum Life"
+    assert any(p.search(line) for p in recovery.SPENT_LINES)
+    stats = {"Life": 3000.0, "Mana": 500.0}
+    income = Income()
+    recovery.spent_income(income, stats, [line], diadem=(0.2, "test"))
+    assert income.rates["LifeOnConsumeRecovery"] == pytest.approx(0.20 * 3000 * 0.2)
+    none = Income()
+    recovery.spent_income(none, stats, [line], diadem=(0.0, "no corpse to consume on the boss"))
+    assert none.rates["LifeOnConsumeRecovery"] == 0 and any("Devouring Diadem" in p for p in none.parts)
+
+
+def test_probe_a_main_concoction_is_capped_at_its_own_throw_rate_not_its_trigger_rate(engine, monkeypatch):
+    """MECHC53 (flask_main's cap): with the Mana Flask's charges allowing far more throws than the attack rate, the
+    throws are capped at PoB's own Speed for the skill; once the trigger rate is in, the cap is read without it (not the
+    circular read-back)."""
+    from builder.request.schema import BuildRequest
+    from builder.search import flasks
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    name = "Explosive Concoction"
+    payload = make_payload(BuildRequest(main_skill=name, ascendancies=["Pathfinder"]))
+    skeleton = enumerate_skeletons(Context(payload), [name])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build, assume = search.build, search.assumptions
+    build.call("setGroup", gems=[{"name": name, "level": 20, "quality": 0}], main=True, fields=[])
+    build.call("setAssumptions", mods=[], fields=[])
+    assume.mods = []
+    own = models.number(build.call("stats", fields=["Speed"])["Speed"])
+    monkeypatch.setattr(flasks, "charge_use_rate", lambda *a, **k: (100.0, "stand-in: 100 throws/s of charges"))
+    skills = build.call("activeSkills")["skills"]
+    found = assume.flask_main(skills, name)
+    assert found is not None
+    mods, note = found
+    print("PROBE concoction", own, mods, note["value"], note["basis"])
+    assert 0 < own < 10 and note["value"] == pytest.approx(own, rel=0.01) and "capped at its own throw rate" in note["basis"]
+    # (the next pass, after an inflated rate: PoB now reports 50 as Speed; the cap must still be the skill's own)
+    assume.mods = models.trigger_rate(name, 50.0)
+    build.call("setAssumptions", mods=assume.mods, fields=[])
+    assert models.number(build.call("stats", fields=["Speed"])["Speed"]) == pytest.approx(50.0, rel=0.01)
+    again, note2 = assume.flask_main(skills, name)
+    assert note2["value"] == pytest.approx(own, rel=0.01)
+    assert models.number(build.call("stats", fields=["Speed"])["Speed"]) == pytest.approx(50.0, rel=0.01)  # (put back)

@@ -128,9 +128,17 @@ MINION_REVIVED = re.compile(rf"recover {NUM}% of maximum life when one of your m
 # (MECHC21) Invigorating Hate (PassiveSkills rage27; conditions.INVIGORATING_HATE): at the Rage consumed a second by the
 # build's shifts back to Human form (conditions.rage_held's build.charge_flow["Rage"])
 RAGE_SHIFT = re.compile(rf"recover {NUM}% of maximum life per rage consumed", re.I)
+# (MECHC53) The Devouring Diadem (PoB Data/Uniques/helmet.lua, Wicker Tiara, current variant): "Every 3 seconds, Consume a
+# nearby Corpse to Recover 20% of maximum Life". PoB parses nothing of it and no model read it (checked: grep of builder/
+# for "Devouring" / "Consume a nearby Corpse": none). It consumes at most one corpse every N s, from the corpses the boss
+# fight gives (models.corpse_supply: the build's own Sacrifice corpses and the preset's killed adds; a lone boss gives
+# none, KeywordPopups Corpse: a Unique's corpse can't be consumed). Headline: the corpses the build's corpse skills
+# leave (the lower reading); row: the Diadem taking first. Whether its consume sets off "when you Consume a corpse"
+# lines is UNVERIFIED: not added to them (the lower reading).
+DIADEM = re.compile(rf"every {NUM} seconds, consume a nearby corpse to recover {NUM}% of maximum life", re.I)
 # (MECHC21: MINION_REVIVED was missing here, so a build whose only spent line it was counted nothing: an UNDERCOUNT)
 SPENT_LINES = (ENDURANCE_SPENT, POWER_SPENT, GLORY_SPENT, COMBO_SPENT, CORPSE_LIFE, CORPSE_MANA, OFFERING_LIFE,
-               MINION_REVIVED, RAGE_SHIFT)
+               MINION_REVIVED, RAGE_SHIFT, DIADEM)
 # On the boss's hits, your Blocks and your casts (MECHC14, AUDIT27 A27-32: PoB parses each to no mod, ModCache {nil, ...};
 # game files' stat descriptions, build 26476662: missing_life_%_gained_as_life_before_hit (UniqueGainMissingLifeBeforeHit1),
 # regenerate_%_armour_as_life_over_1_second_on_block (ArmourAsLifeRegnerationOnBlockUniqueShieldStrInt6),
@@ -534,7 +542,7 @@ def spent_income(income: Income, stats: dict, texts: list[str], *, endurance: tu
                  power: tuple[float, str] = (0.0, ""), glory: tuple[float, str] = (0.0, ""),
                  combo: tuple[float, str] = (0.0, ""), corpses: tuple[float, str] = (0.0, ""),
                  offerings: tuple[float, str] = (0.0, ""), revived: tuple[float, str] = (0.0, ""),
-                 rage: tuple[float, str] = (0.0, "")) -> None:
+                 rage: tuple[float, str] = (0.0, ""), diadem: tuple[float, str] = (0.0, "")) -> None:
     """Recovery on spending and consuming (MECHC13): each (events a second, how) from the build's own rates; Endurance /
     Power: charges consumed a second; Glory: Glory spent a second; Combo: uses of a Combo skill that expend 10 or more a
     second; corpses: corpses consumed a second; Offerings: Offerings created a second; revived: your minions Revived a
@@ -562,6 +570,16 @@ def spent_income(income: Income, stats: dict, texts: list[str], *, endurance: tu
                    f"{pct:g}% of maximum {pool} per {event} x {rate:.3f}/s ({how})")
         if pattern is CORPSE_MANA:
             income.mana_regen += amount
+    for t in texts:  # (MECHC53: DIADEM's note; `diadem`: the corpses it consumes a second, at most one every N s)
+        m = DIADEM.search(t)
+        if not m:
+            continue
+        pct, (rate, how) = float(m.group(2)), diadem
+        if rate <= 0:
+            income.parts.append(f"The Devouring Diadem's {pct:g}% of maximum Life a corpse: 0, {how or 'no corpse to consume'}")
+            continue
+        income.add("LifeOnConsumeRecovery", pct / 100 * life * rate,
+                   f"The Devouring Diadem: {pct:g}% of maximum Life a corpse x {rate:.3f} corpses/s ({how})")
 
 
 def hit_income(income: Income, stats: dict, texts: list[str], *, landed: float = 0.0, life_per_hit: float = 0.0,

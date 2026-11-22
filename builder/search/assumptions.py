@@ -7868,7 +7868,7 @@ class Assumptions:
                     parts.append(f"{name} on {why}, {each:.2f}/s" + (" (LOW)" if low else ""))
             return total, parts
 
-        if has(recovery.CORPSE_LIFE) or has(recovery.CORPSE_MANA):
+        if has(recovery.CORPSE_LIFE) or has(recovery.CORPSE_MANA) or has(recovery.DIADEM):
             uses, parts = typed_uses(set(models.CORPSE_TYPES))
             sacrifice = ""
             if models.SACRIFICE in present and models.SACRIFICE_CORPSES_STAT not in stats:
@@ -7890,6 +7890,13 @@ class Assumptions:
             out["corpses"] = (min(uses, supply), (f"corpse skills {'; '.join(parts) or 'none'}, one corpse a use, at "
                                                   f"most the corpses there are: {models.add_corpses_note(stats)}"
                                                   + sacrifice))
+            every = max((float(m.group(1)) for t in lowered for m in recovery.DIADEM.finditer(t)), default=0.0)
+            if every > 0:  # (MECHC53: recovery.DIADEM's note: the corpses the corpse skills leave, one every N s at most)
+                left = max(supply - min(uses, supply), 0.0)
+                out["diadem"] = (min(1 / every, left), (
+                    f"one corpse every {every:g} s at most, from the {left:.3f}/s the corpse skills leave of "
+                    f"{supply:.3f}/s ({models.add_corpses_note(stats)}{sacrifice}); if it takes first: "
+                    f"{min(1 / every, supply):.3f}/s"))
         if has(recovery.MINION_REVIVED):  # (MECHC18) the build's Reviving minions Killed a second, from its own sources
             found = [models.Skill.of(s) for s in present.values()]
             group = build.main_group()
@@ -8211,8 +8218,25 @@ class Assumptions:
         rate, how = charge_use_rate(flask, gain, THROW_POOL, per_use)
         how = f"{how}; {changed}" if changed else how
         skill = models.Skill.of(info)
-        cap = 1 / skill.cast_time if skill.cast_time else math.inf
+        # (MECHC53; MECHC50's open item) The cap: the Concoction's own throw rate, PoB's Speed with the build's attack
+        # speed. Once this model's trigger rate is set PoB reports it back as Speed and CastRate (CalcOffence 2866-2870:
+        # the trigger branch skips the attack-rate one), so the read leaves out only this skill's own trigger mods: one
+        # recalculation without them and one back (as the Divinity costs read above), only where they're in. Before,
+        # 1 / cast time, which an attack's 0 cast time made no cap at all (an OVERCOUNT wherever the flask's charges
+        # allowed more throws than the attack rate).
+        own = [m for m in self.mods or [] if m.get("kind") == "SkillData" and m.get("skill") == main
+               and m.get("key") in ("triggerRate", "triggered")]
+        if own:
+            free = self.build.call("setAssumptions", mods=[m for m in self.mods if m not in own], fields=["Speed"])["stats"]
+            self.build.call("setAssumptions", mods=self.mods, fields=[])
+        else:
+            free = self.build.call("stats", fields=["Speed"])
+        throws = number(free.get("Speed"))
+        cap = throws if throws > 0 else (1 / skill.cast_time if skill.cast_time else math.inf)
+        capped = rate > cap
         rate = min(rate, cap)
+        if capped:
+            how = f"{how}; capped at its own throw rate, {cap:.2f} a second (PoB's, with the build's attack speed)"
         return models.trigger_rate(main, rate), {
             "label": f"{main} throws per second (Mana Flask charges)", "value": round(rate, 3),
             "basis": (f"each throw consumes {THROW_CHARGES[main]} charges from your Mana Flask (game files, "
