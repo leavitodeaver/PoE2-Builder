@@ -538,3 +538,49 @@ def test_life_sacrificed_on_skill_use_reaches_the_floors(engine):
     build.sacrifice_life = (50.0, "stand-in: 5% of 1,000 Life x 1 use a second")
     search.assumptions.life_mana_income(skills, "Falling Thunder")
     assert build.recovery_sources["LifeSacrificed"] == pytest.approx(before - 50.0)
+
+
+def test_channelling_share_leaves_out_a_release_skills_end(monkeypatch):
+    """MECHC52 (MECHB53 via the manager 21:16; R44-1 / R44-14): a channel-and-release main skill channels one attack time
+    of each 1 + end use, so its share counts x 1 / (1 + end share), the end from the gem's own stats (Snipe's x its end
+    animation multiplier); other channels whole."""
+    from types import SimpleNamespace
+
+    gems = {n: {"skillTypes": ["Attack", "Channel"]} for n in ("Perfect Strike", "Snipe", "Incinerate")}
+    stats = {"Perfect Strike": {models.CHANNEL_END_STAT: 35},
+             "Snipe": {models.CHANNEL_END_STAT: 133, models.CHANNEL_END_MULT_STAT: 2500}}
+
+    class B:
+        ctx = SimpleNamespace(gems=gems, all_gems=gems)
+
+        def call(self, method, **kw):
+            if method == "groups":
+                return {"mainSocketGroup": 1, "groups": [{"index": 1, "gems": [{"name": self.main}]}]}
+            assert method == "activeSkills"
+            name = kw["levelStats"][0]
+            return {"skills": [{"name": name, "levelStats": stats.get(name, {})}]}
+
+    monkeypatch.setattr(models, "press_choices", lambda build: {})
+    b = B()
+    for name, want in (("Perfect Strike", 0.8 / 1.35), ("Snipe", 0.8 / 1.3325), ("Incinerate", 0.8)):
+        b.main = name
+        share, how = conditions.channelling_share(b, name, 0.8)
+        assert share == pytest.approx(want), name
+    assert conditions._release_end_share(b, "Gathering Storm")[0] == 0.0  # (no stats on the stand-in: 0)
+
+
+def test_release_end_share_reads_the_gems_own_stats(engine):
+    """MECHC52: the end shares from PoB's gem data (R44-1 / R44-14: Perfect Strike 35%, Gathering Storm 85%, Plasma
+    Blast 35%, Snipe 133% x 0.25)."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Perfect Strike", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Perfect Strike"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    share, how = conditions._release_end_share(search.build, "Perfect Strike")
+    print("PROBE release end", share, how)
+    assert share == pytest.approx(0.35) and "R44-1" in how

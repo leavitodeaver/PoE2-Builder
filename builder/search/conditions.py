@@ -1878,6 +1878,31 @@ def consume_all_split(wanted: dict, kind: str, rate: float, most: float, kept: f
 CHANNEL_PRESS_SECONDS = 1.0
 
 
+# (MECHC52; MECHB53 via the manager 21:16 21 Nov, an offense OVERCOUNT of "while Channelling" lines) A channel-and-release
+# main skill (models.CHANNEL_RELEASE: Perfect Strike, Gathering Storm, Snipe; and Plasma Blast, R44-14) spends each use as
+# the channel (one attack time, MECHB52's headline) THEN its end animation (channel_end_duration_as_%_of_attack_time x
+# channel_skill_end_animation_duration_multiplier_permyriad, the gem's own stats: Perfect Strike 35%, Gathering Storm 85%,
+# Snipe 133% x 0.25, Plasma Blast 35%; RESEARCH44 R44-1 / R44-14), and you aren't channelling during the end: its share
+# of the fight counts as channelling x 1 / (1 + end share). Other skills carrying the end stat (Fury of the Mountain,
+# Hollow Form, Oil Barrage) are not in R44-1's reading: left whole (UNVERIFIED for them).
+RELEASE_SKILLS = ("Perfect Strike", "Gathering Storm", "Snipe", "Plasma Blast")
+
+
+def _release_end_share(build, name: str) -> tuple[float, str]:
+    """(the end animation as a share of the attack time, how) for a RELEASE_SKILLS main skill; (0, "") otherwise."""
+    if name not in RELEASE_SKILLS or not callable(getattr(build, "call", None)):
+        return 0.0, ""
+    try:
+        rows = build.call("activeSkills", levelStats=[name])["skills"]
+    except Exception:  # (a stand-in build in a unit test)
+        return 0.0, ""
+    level = next((r.get("levelStats") or {} for r in rows if r.get("name") == name and r.get("levelStats")), {})
+    end = number(level.get(models.CHANNEL_END_STAT)) / 100
+    mult = number(level.get(models.CHANNEL_END_MULT_STAT)) / 10000 or 1.0
+    share = end * mult
+    return share, (f"channelling only before its end: x1 / (1 + {share:.0%} of the attack time), R44-1" if share > 0 else "")
+
+
 def channelling_share(build, main_skill: str | None, main_share: float = 1.0) -> tuple[float, str]:
     """(the share of the fight you channel, how) (CHANNELLING_SHARE's note)."""
     gems = getattr(build.ctx, "all_gems", None) or build.ctx.gems
@@ -1885,7 +1910,10 @@ def channelling_share(build, main_skill: str | None, main_share: float = 1.0) ->
     share, parts = 0.0, []
     if main_skill and "Channel" in types(main_skill):
         share += max(0.0, min(1.0, number(main_share)))
-        parts.append(f"{main_skill} (the main skill) {share:.0%} of the fight")
+        end, end_how = _release_end_share(build, main_skill)
+        if end > 0:  # (MECHC52, MECHB53 via the manager 21:16: not channelling during the end)
+            share /= 1 + end
+        parts.append(f"{main_skill} (the main skill) {share:.0%} of the fight" + (f" ({end_how})" if end > 0 else ""))
     try:
         result = build.call("groups")
         groups, index = result["groups"], result.get("mainSocketGroup")
