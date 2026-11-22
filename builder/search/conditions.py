@@ -9829,9 +9829,12 @@ class Conditions:
             ON_USE.search(line["text"]) and line["source"].startswith(USED_SLOTS) for line in lines) or any(
             FLASK_EVENT.search(t) for t in texts) else {}
         boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+        # (MECH99: keep the share set above, with build.main_hit_cut: this rebuilt dict used to reset it to the uncut
+        # self._main_share(), so every reader below (Shocked Ground, Compounding, Flammability, the ailment uptimes) kept
+        # PoB's nonstop hits whatever the cut: MECH98's hook reached only the readers between the two)
         stats = {**stats, "_has_ally": any(t & {"Minion", "CreatesMinion"} for t in gem_types.values()),  # (MECHC31, Conduit)
                  "_minion_gems": {n for n, t in gem_types.items() if "CreatesMinion" in t},  # (MECHC41, minions_in_presence)
-                 "_gem_names": set(gem_types), "_boss": boss, "_events": events, "_item_uses": item_uses, "_texts": texts, "_weapon": getattr(self.build.equipped.get("Weapon 1"), "type", ""), "_consumers": consumers, "_rage_spend": rage_spend, "_consume_gains": dict(getattr(self.build, "consume_gains", None) or {}), "_side_orb_bolts": getattr(self.build, "orb_bolts", None), "_main_share": self._main_share(),
+                 "_gem_names": set(gem_types), "_boss": boss, "_events": events, "_item_uses": item_uses, "_texts": texts, "_weapon": getattr(self.build.equipped.get("Weapon 1"), "type", ""), "_consumers": consumers, "_rage_spend": rage_spend, "_consume_gains": dict(getattr(self.build, "consume_gains", None) or {}), "_side_orb_bolts": getattr(self.build, "orb_bolts", None), "_main_share": stats["_main_share"],
                  "_main_channel_rage": self.main_skill in RAGE_PER_SECOND, "_main_types": main_types, "_main_skill": self.main_skill, "_distance_choice": self.distance,
                  "_weapon_types": [o.type for slot in ("Weapon 1", "Weapon 2")
                                    if (o := (getattr(self.build, "equipped", None) or {}).get(slot)) is not None],
@@ -10364,6 +10367,9 @@ class Conditions:
         self.build.chilled_ground_up = stats.get("_chilled_ground") or (0.0, "")
         # (MECH79, for COV-A: Desert's Scorn's "Enemies standing on Ignited Ground take 25% increased Cold Damage")
         self.build.ignited_ground_up = stats.get("_ignited_ground") or (0.0, "")
+        # (MECH99, for MECHB52's Tornado via the manager 16:30: the boss's share of the fight in your Shocked Ground,
+        # conditions.shocked_ground; (share, how), (0.0, "") without a source)
+        self.build.shocked_ground_up = stats.get("_shocked_ground") or (0.0, "")
         # (MECH79, models.compound_ignite_mods) the main skill's Compounding Ignite: (skill, factor, how) or None
         self.build.compound_ignite = ((self.main_skill, *stats["_compound"]) if stats.get("_compound") else None)
         self.build.uruk_taken = stats.get("_uruk") or (0.0, "")  # (MECH80: Uruk's Smelting, models.uruk_mods)
