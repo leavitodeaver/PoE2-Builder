@@ -72,6 +72,14 @@ def test_other_ignite_share_is_cut_by_the_consumption():
     assert "Consumes" in how
 
 
+def test_other_ignite_share_from_slow_hits_is_not_always_on():
+    """MECHB54: conditions.periodic_absent (MECH99, evenly spaced hits): one hit every 10 s at 100%, a 4 s Ignite: the
+    boss is Ignited 40% of the fight by it alone, not 100% (the old (1 - c)^(h x D))."""
+    assert models.grisly_pyre_other_ignite(0.0, 0.1, 1.0, 4.0)[0] == pytest.approx(0.4)
+    share = models.grisly_pyre_other_ignite(1.0, 0.1, 1.0, 4.0)[0]
+    assert share == pytest.approx(0.4 / (1 + 0.4 * 1.0 * (models.CONSUME_IMMUNE + 10.0)))
+
+
 def test_grisly_pyre_main_case_reads_another_groups_ignite():
     """MECH74 (AUDIT35): His Winnowing Flame as the main skill (never Ignites) Consumes the strongest other group's
     Ignite, scored by useRates as the main skill, at that group's own rate."""
