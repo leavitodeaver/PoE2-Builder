@@ -103,6 +103,18 @@ SIDE_SUPPORT_ROUNDS = 4
 # POE2_SEARCH_SIDE_SUPPORTS=1 turns it on
 SIDE_SUPPORTS = os.environ.get("POE2_SEARCH_SIDE_SUPPORTS", "0") == "1"
 SIDE_RESWEEP = 0.05
+# (SEARCH36; the manager's 03:05 22 Nov, RESEARCH46 R46-1 HIGH, the user's find) A group whose skills' Cost & Reservation
+# multiplier is 0 as PoB applies it (the bridge's groups: reservationMultiplier; in the game files exactly Purity of Fire /
+# Ice / Lightning and Impurity: checked by RESEARCH46 over all 8,350 GrantedEffects, second source the forum tests and
+# PoB's data) reserves nothing for the Spirit its supports add, so the Spirit argument for leaving side groups bare
+# (SIDE_SUPPORTS off) doesn't apply to it: free_groups are filled even with SIDE_SUPPORTS off, on every request (the
+# user, 22 Nov: "that's not an exploit, that's just how the game is built. It might not be intended, but it's not an
+# exploit"; whether it survives 1.0: UNVERIFIED). Their supports by score first (DPS), then, for a socket no support
+# raises the score in, the support that raises a defence most and lowers nothing (FREE_DEFENCE_FIELDS); free_notes
+# gives the result's plain note
+FREE_DEFENCE_FIELDS = ("Life", "EnergyShield", "Mana", "Armour", "Evasion", "LifeRegenRecovery",
+                       "EnergyShieldRegenRecovery", "ManaRegenRecovery", "PhysicalMaximumHitTaken", "FireMaximumHitTaken",
+                       "ColdMaximumHitTaken", "LightningMaximumHitTaken", "ChaosMaximumHitTaken")
 # (SEARCH34; the user, 20 Nov: "having empty support sockets is a HUGE loss in power", corrected: an empty socket is a red
 # flag to justify by score, not automatically wrong: Uhtred's Augury, Spirit kept for the other Spirit skills, ...)
 # fill_open gives each open socket of each fillable group REAL trials (commit + resolve, the score with every model) of
@@ -716,7 +728,7 @@ class Gems:
 
         improved = False
         granted = [g["index"] for g in self.filled_granted_groups()]
-        side = self.side_groups() if SIDE_SUPPORTS else []
+        side = self.side_groups() if SIDE_SUPPORTS else self.free_groups()
         for meta, index in [(False, None), (True, None), *((True, i) for i in granted), *((True, g["index"]) for g in side)]:
             is_side = index is not None and index not in granted
             if is_side:
@@ -765,8 +777,12 @@ class Gems:
         targets: list[tuple[bool, int | None, str]] = [(False, None, "main"), (True, None, "meta")]
         granted = [g["index"] for g in self.filled_granted_groups()]
         targets += [(True, i, "granted") for i in granted]
+        free = {g["index"] for g in self.free_groups()}
         if SIDE_SUPPORTS if side is None else side:
-            targets += [(True, g["index"], "side") for g in self.side_groups() if g["index"] not in granted]
+            targets += [(True, g["index"], "free" if g["index"] in free else "side") for g in self.side_groups()
+                        if g["index"] not in granted]
+        else:
+            targets += [(True, i, "free") for i in sorted(free) if i not in granted]
         return targets
 
     def socket_use(self, group: dict, meta: bool) -> tuple[list[str], int, int]:
@@ -805,7 +821,7 @@ class Gems:
         improved = False
         kinds = FILL_KINDS if kinds is None else kinds
         for meta, index, kind in self.fill_targets():
-            if kind not in kinds:
+            if kind not in kinds and not (kind == "free" and kinds):  # (a free group whenever the fill is on)
                 continue
             group = self.supports_group(build.groups(), meta, index)
             if group is None or not group["enabled"]:
@@ -824,7 +840,7 @@ class Gems:
         """One open socket at a time: real trials of its best legal supports by what-if, the best kept if it scores
         higher; `entry` keeps the last socket's trials (the reason it stays open)."""
         build = self.build
-        trials = FILL_SIDE_TRIALS if kind == "side" else FILL_TRIALS
+        trials = FILL_SIDE_TRIALS if kind in ("side", "free") else FILL_TRIALS
         improved = False
         while True:
             group = next(g for g in build.groups() if g["index"] == index)
@@ -858,16 +874,64 @@ class Gems:
                 if build.score > best_score + EPSILON:
                     best, best_score = c, build.score
                 build.restore(snap)
+            defence = False
+            if best is None and kind == "free":
+                best = self._free_defence_pick(index, names, group, options, before, snap, deadline)
+                defence = best is not None
             if best is None:
                 break
             self.commit(index, names + [best], group)
-            if build.score <= before + EPSILON:  # (a resolve can move the score: keep it only if still higher)
+            # (a resolve can move the score: keep it only if still higher; a free group's defence pick only if no lower)
+            if build.score < before - EPSILON if defence else build.score <= before + EPSILON:
                 build.restore(snap)
                 break
             improved = True
             if self.checkpoint is not None:
                 self.checkpoint()
         return improved
+
+    def _defence(self) -> dict[str, float]:
+        stats = self.build.call("stats", fields=list(FREE_DEFENCE_FIELDS))
+        return {k: float(stats.get(k) or 0) for k in FREE_DEFENCE_FIELDS}
+
+    def _free_defence_pick(self, index: int, names: list[str], group: dict, options: list[str], before: float,
+                           snap: dict, deadline: float) -> str | None:
+        """(SEARCH36) For a free group's socket that no support raises the score in: the support that raises defence
+        most (FREE_DEFENCE_FIELDS, summed relative rise), lowering no defence field and not the score; None if none.
+        The build is back at `snap` on return."""
+        build = self.build
+        base = self._defence()
+        best, best_rise = None, 0.0
+        for c in options:
+            if clock.now() > deadline:
+                break
+            self.commit(index, names + [c], group)
+            if build.score >= before - EPSILON:
+                now = self._defence()
+                if all(now[k] >= base[k] - 1e-6 for k in base):
+                    rise = sum((now[k] - base[k]) / max(abs(base[k]), 1.0) for k in base)
+                    if rise > best_rise + 1e-9:
+                        best, best_rise = c, rise
+            build.restore(snap)
+        return best
+
+    def free_groups(self) -> list[dict]:
+        """(SEARCH36; FREE_DEFENCE_FIELDS' comment) The side groups whose every skill has a 0 Cost & Reservation
+        multiplier as PoB applies it."""
+        return [g for g in self.side_groups() if g["skills"]
+                and all(isinstance(x.get("reservationMultiplier"), (int, float)) and abs(x["reservationMultiplier"]) < 1e-9
+                        for x in g["skills"])]
+
+    def free_notes(self) -> list[str]:
+        """(SEARCH36) A plain note for each free group holding a support that adds Spirit (the user, 22 Nov: "that's not
+        an exploit, that's just how the game is built")."""
+        notes = []
+        for g in self.free_groups():
+            supports = [x["name"] for x in g["gems"] if x["support"]]
+            if supports and any(float(x.get("extraSpirit") or 0) > 0 for x in g["skills"]):
+                notes.append(f"{g['gems'][0]['name']}: {', '.join(supports)} cost no Spirit (Purity / Impurity's 0% cost "
+                             "multiplier makes supports in it free; recheck at 1.0)")
+        return notes
 
     def _fill_without_each(self, index: int, meta: bool, entry: dict, deadline: float) -> bool:
         """For a group with open sockets, each support it holds taken out and the open sockets filled greedily by what-if,
@@ -935,7 +999,7 @@ class Gems:
                 continue
             entry = log.get((group["index"], tuple(names)))
             reasons = []
-            if kind not in FILL_KINDS:
+            if kind not in FILL_KINDS and not (kind == "free" and FILL_KINDS):
                 out.append({"group": group["index"], "kind": kind, "skill": names[0], "supports": names[first:],
                             "open": open_, "reasons": [SIDE_GAP if kind == "side" else
                                                        "not tried: the fill is off (POE2_SEARCH_FILL=0)" if not FILL_KINDS else

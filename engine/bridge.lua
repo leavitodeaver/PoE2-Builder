@@ -4121,8 +4121,17 @@ local function describeGroup(index, group)
 				noDamageSets[#noDamageSets + 1] = setIndex
 			end
 		end
+		-- (SEARCH36) the skill's Cost & Reservation multiplier as PoB applies it (CalcDefence: More "ReservationMultiplier";
+		-- 0 on Purity of Fire / Ice / Lightning and Impurity, RESEARCH46 R46-1) and the Spirit its supports add
+		-- (Sum BASE "ExtraSpirit"), before that multiplier: gems.free_groups and the result's at-full-cost row
+		local reservationMultiplier, extraSpirit
+		if activeSkill.skillModList and activeSkill.skillCfg then
+			reservationMultiplier = activeSkill.skillModList:More(activeSkill.skillCfg, "ReservationMultiplier")
+			extraSpirit = activeSkill.skillModList:Sum("BASE", activeSkill.skillCfg, "ExtraSpirit")
+		end
 		skills[#skills + 1] = { name = effect.grantedEffect.name, parts = parts, statSets = statSets,
 			noDamageSets = noDamageSets, statSet = currentSet,
+			reservationMultiplier = reservationMultiplier, extraSpirit = extraSpirit,
 			part = effect.srcInstance and effect.srcInstance.skillPart,
 			-- (MECHB51, Spectre step 3: Assumptions.choose_monsters) the granted effect's id and a Spectre / Tamed
 			-- Companion gem's chosen monster
@@ -4133,6 +4142,8 @@ local function describeGroup(index, group)
 		fullDPS = group.includeInFullDPS and true or false, fromItem = group.source ~= nil,
 		mainActiveSkill = group.mainActiveSkill or 1, gems = gems, skills = skills,
 		set1 = group.set1 ~= false, set2 = group.set2 ~= false,
+		-- (SEARCH36, R45-6b) an item group's slot ("Amulet", "Weapon 1") and source: which item grants it
+		slot = group.slot, source = group.source,
 	}
 end
 

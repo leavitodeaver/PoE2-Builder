@@ -2145,6 +2145,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         "verified": not mismatched, "verify_mismatch": mismatched,
         "tree_check": tree_check, "radius_jewels": reloaded["radiusJewels"], "left_out": {**search.jewels.left_out, **search.gems.left_out},
         "open_sockets": open_sockets, "final_regrow": regrow_rows,
+        "free_supports": search.gems.free_notes(),  # (SEARCH36: a Purity / Impurity group's free supports, a plain note)
     }
     # The search's config inputs the reload dropped come back first, so the check below re-settles the build as delivered
     # (SEARCH33, probe POE2T5455): PoB writes an input equal to its own default as a Placeholder, so the chosen "Boss at

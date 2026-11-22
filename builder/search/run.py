@@ -718,6 +718,7 @@ class Run:
                                   "counted and its slot is left switched off in the code"
                                   + (f"; its {flask['pool']} recovery counts at {flask['recovery']:,.0f}/s"
                                      if flask["pool"] and flask["recovery"] > 0 else ""))
+        self.notes += final.get("free_supports") or []  # (SEARCH36: plain notes, no asterisk: the game's own rule)
         for assumption in final.get("assumptions") or []:
             self.notes.append(f"* {assumption['label']}: {assumption['value']} (assumed, since PoB doesn't model it: "
                               f"{assumption['basis']}; confidence: {assumption['confidence']}). The PoB code doesn't "
