@@ -349,10 +349,12 @@ def test_main_share_readers_take_the_main_skill_hit_cut():
     build.main_hit_cut = 3.0
     assert a.main_time_share(build, main) == pytest.approx(0.8)
     build.main_hit_cut = None
-    cut = a.main_skill_cut(build, [models.raw_mod("DPS", "MORE", -50, "Main"), models.raw_mod("DPS", "MORE", -90, "Side")],
-                           "Main")
-    assert cut == pytest.approx(0.5)
-    assert a.main_skill_cut(build, [models.raw_mod("DPS", "MORE", -90, "Side")], "Main") is None
+    # (MECHC52: MECH-C's cuts go through main's assumptions.hit_cut, MECHB52's one helper)
+    a.hit_cut(build, [models.raw_mod("DPS", "MORE", -50, "Main"), models.raw_mod("DPS", "MORE", -90, "Side")], "Main")
+    assert build.main_hit_cut == pytest.approx(0.5)
+    build.main_hit_cut = None
+    a.hit_cut(build, [models.raw_mod("DPS", "MORE", -90, "Side")], "Main")
+    assert build.main_hit_cut is None
     conds = conditions.Conditions.__new__(conditions.Conditions)
     conds.build, conds.main_skill = SimpleNamespace(objective=Objective(), main_hit_cut=0.5), "Main"
     assert conds._main_share() == pytest.approx(0.4) and conds._main_share(hits=False) == pytest.approx(0.8)
@@ -379,3 +381,160 @@ def test_probe_temper_weapons_channel_cut_reaches_main_hit_cut(engine):
     if not temper:
         pytest.skip("Temper Weapon took no channel time on this build")
     assert build.main_hit_cut == pytest.approx(1 + temper[0]["value"] / 100, rel=1e-3)
+
+
+def test_abyssal_apparitions_hit_part_raises_the_main_hit_cut_and_the_readers_clamp_it():
+    """MECHC52 (the manager 18:15, MIXED): Abyssal Apparition's copied casts ADD hits: its "hit_cut" key (1 + the share
+    of casts copied), not its whole DPS factor (the copies' 60% less is damage per hit), goes on build.main_hit_cut through
+    main's assumptions.hit_cut; a raise multiplies into an earlier cut, and the readers clamp the product at 1."""
+    from types import SimpleNamespace
+    from builder.search.models import Skill
+
+    line = "Damaging Spells consume a Power Charge if able to trigger Abyssal Apparition"
+    spark, types, stats = Skill(name="Spark", spell=True), {"Spell", "Damage", "Projectile"}, {"Speed": 2.0}
+    mods, _ = models.abyssal_apparition_model([line], spark, types, stats, 1.0, "")  # half the casts copied
+    assert mods[0]["hit_cut"] == pytest.approx(1.5) and mods[0]["value"] == pytest.approx(20.0)
+    build = SimpleNamespace(main_hit_cut=None)
+    a.hit_cut(build, mods, "Spark")
+    assert build.main_hit_cut == pytest.approx(1.5)  # the hit part, not the x1.2 damage factor
+    assert a.hit_cut_share(build, 0.8) == pytest.approx(0.8)  # alone: clamped, PoB's rate kept
+    build.main_hit_cut = 0.5  # an earlier cut (a channel's time off the main skill)
+    a.hit_cut(build, mods, "Spark")
+    assert build.main_hit_cut == pytest.approx(0.75) and a.hit_cut_share(build, 0.8) == pytest.approx(0.6)
+
+
+def test_pinnacle_of_power_spends_the_maximum_a_press_beside_the_other_consumers():
+    """MECHC52 (CONSUMES_ALL): Pinnacle of Power spends what the others leave, at most its cooldown presses x the
+    maximum; beside Charged Staff the staff (listed first) takes first."""
+    split = conditions.consume_all_split
+    got = split({"Pinnacle of Power": 0.25, "Spark": 0.2}, "Power", 1.0, 3)
+    assert got["Pinnacle of Power"][0] == pytest.approx(0.75)  # (0.25 presses x 3; 0.8 left)
+    assert split({"Pinnacle of Power": 0.25}, "Power", 0.2, 3)["Pinnacle of Power"][0] == pytest.approx(0.2)
+    both = split({"Charged Staff": 1.0, "Pinnacle of Power": 0.25}, "Power", 1.0, 3)
+    assert both["Charged Staff"][0] == pytest.approx(1.0) and both["Pinnacle of Power"][0] == 0.0
+
+
+def test_probe_pinnacle_of_power_buff_at_its_uptime_not_pobs_held_count(engine):
+    """MECHC52 (PINNACLE_OF_POWER's note): PoB holds the buff all fight at the HELD count; the model gives 15% x the
+    maximum more Elemental Damage at uptime min(1, spent x 5 s x DurationMod) and takes PoB's held buff back. Probe on a
+    Lightning attack at 3 Power Charges held (Falling Thunder's own per-charge bonus in every reading): with Pinnacle's
+    group and no spend it reads as no Pinnacle; at full uptime as no Pinnacle + 45% more Elemental Damage."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Falling Thunder", ascendancies=["Invoker"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Falling Thunder"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    main = build.main_group()
+    most = models.number(build.call("stats", fields=["PowerChargesMax"])["PowerChargesMax"])
+    build.set_config({"usePowerCharges": True, "overridePowerCharges": int(most)})
+
+    def total(mods: list) -> float:
+        build.call("setAssumptions", mods=mods, fields=[])
+        return build.call("stats", fields=["TotalDPS"])["TotalDPS"]
+
+    plain = total([])
+    elemental = total([models.raw_mod("ElementalDamage", "MORE", 15 * most, skill="Falling Thunder", tag="Probe")])
+    build.set_group(gems=[{"name": a.PINNACLE_OF_POWER, "level": 20, "quality": 0}])
+    pob = total([])
+
+    def modelled(spent: float) -> tuple[float, list, list]:
+        build.call("setAssumptions", mods=[], fields=[])
+        build.consume_all = {"Power": {a.PINNACLE_OF_POWER: (spent, 0.25, "stand-in")}}
+        skills = build.call("activeSkills")["skills"]
+        found = [models.Skill.of(s) for s in skills if not s["disabled"]]
+        skill = next(s for s in found if s.group == main["index"])
+        mods, notes = search.assumptions.pinnacle_of_power(skills, skill)
+        return total(mods), mods, notes
+
+    taken, mods, _ = modelled(0.0)
+    full, _, notes = modelled(1.0)
+    part, part_mods, _ = modelled(1 / 15)
+    print("PROBE pinnacle", most, plain, elemental, pob, taken, full, part, mods, part_mods, notes[0]["basis"])
+    assert most >= 1 and pob > plain * 1.2  # (PoB's held-count buff)
+    assert taken == pytest.approx(plain, rel=0.01) and all(m["tag"] == a.PINNACLE_TAG for m in mods)
+    assert full == pytest.approx(elemental, rel=0.01) and "100% of the fight" in notes[0]["value"]
+    assert plain < part < full and 0 < part_mods[-1]["value"] < 15 * most
+
+
+def test_probe_wind_serpents_fury_thrusts_at_its_frenzy_supply_and_a_serpent_per_charge(engine):
+    """MECHC52 (WIND_SERPENT's note): PoB scores one set at the full attack rate; the game needs a Frenzy Charge a use and
+    makes a Serpent per charge consumed. Probe: PoB's two sets (Serpent at its own 199%-at-20 multiplier, below the
+    Thrust); charges spent = half PoB's uses: half the thrusts, one Serpent each; spent = twice its uses: every thrust,
+    two Serpents each; none spent: no use."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill=a.WIND_SERPENT, ascendancies=["Ritualist"]))
+    skeleton = enumerate_skeletons(Context(payload), [a.WIND_SERPENT])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.call("setAssumptions", mods=[], fields=[])
+    group = build.main_group()
+    sets = {x["label"]: x["TotalDPS"] for x in
+            build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]}
+    speed = models.number(build.call("stats", fields=["Speed"])["Speed"])
+    skills = build.call("activeSkills")["skills"]
+    main = next(models.Skill.of(s) for s in skills if not s["disabled"] and s["group"] == group["index"]
+                and s["name"] == a.WIND_SERPENT)
+    print("PROBE wind serpent sets", sets, speed, main.stat_set)
+    assert sets["Thrust"] > sets["Serpent"] > 0
+    scored = sets[main.stat_set]
+
+    def factor(spent: float) -> tuple[float, dict, dict]:
+        build.consume_all = {"Frenzy": {a.WIND_SERPENT: (spent, speed, "stand-in")}}
+        mods, notes = search.assumptions.wind_serpent(main)
+        return 1 + mods[0]["value"] / 100, mods[0], notes[0]
+
+    half, mod, note = factor(speed / 2)
+    assert half == pytest.approx((0.5 * sets["Thrust"] + 0.5 * sets["Serpent"]) / scored, rel=0.01)
+    assert mod["hit_cut"] == pytest.approx(1.0) and "1.0 a thrust" in note["basis"]
+    double, mod, _ = factor(2 * speed)
+    assert double == pytest.approx((sets["Thrust"] + 2 * sets["Serpent"]) / scored, rel=0.01)
+    assert mod["hit_cut"] == pytest.approx(3.0)
+    none, mod, note = factor(0.0)
+    assert none == pytest.approx(0.0, abs=1e-6) and mod["hit_cut"] == 0 and "can't be used" in note["play"]
+
+
+def test_boss_pool_note_gives_the_headline_pool_and_the_other_readings_as_rows():
+    """MECHC52 (the manager 12:12: MECH98's boss_pool readings in the play guide): the headline pool over every Life bar,
+    the other readings as rows; the worst case reads poe2db's (ES on top), its conversion reading a row."""
+    from builder.search import bosses
+
+    worst = a.boss_pool_note(bosses.WORST)
+    assert worst["value"] == f"{conditions.boss_pool(bosses.WORST):,.0f}" and "headline reading" in worst["basis"]
+    assert worst["confidence"].startswith("LOW") and "Life and Energy Shield to take off" in worst["play"]
+    for name in bosses.PRESETS:
+        note = a.boss_pool_note(name)
+        assert note["value"] == f"{conditions.boss_pool(name):,.0f}"
+        assert ("rows: none" in note["basis"]) == (not conditions.boss_pool_rows(name))
+
+
+def test_life_sacrificed_on_skill_use_reaches_the_floors(engine):
+    """MECHC52 (GEM30's route): models.sacrifice_life_model's build.sacrifice_life (Extraction / Sacrificial Offering:
+    in no PoB cost) is netted off in the floors as LifeSacrificed; without it nothing."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Falling Thunder", ascendancies=["Invoker"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Falling Thunder"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.call("setAssumptions", mods=[], fields=[])
+    skills = build.call("activeSkills")["skills"]
+    build.sacrifice_life = (0.0, "")
+    search.assumptions.life_mana_income(skills, "Falling Thunder")
+    before = build.recovery_sources.get("LifeSacrificed", 0.0)
+    build.sacrifice_life = (50.0, "stand-in: 5% of 1,000 Life x 1 use a second")
+    search.assumptions.life_mana_income(skills, "Falling Thunder")
+    assert build.recovery_sources["LifeSacrificed"] == pytest.approx(before - 50.0)

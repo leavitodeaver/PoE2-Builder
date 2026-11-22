@@ -538,6 +538,42 @@ CHARGED_STAFF_TAG = "ChargedStaff"
 CHARGED_STAFF_IGNORED = "active_skill_is_ignored_by_charged_staff"
 CHARGED_STAFF_IGNORES = ("Frozen Locus",)
 
+# (MECHC52; CONSUMES_ALL's note) Pinnacle of Power (Adonia's Ego's granted skill; PoB other.lua PinnacleOfPowerPlayer,
+# game 26650308 pinnacle_of_power.csd): "Consume all Power Charges ... Can only be used while you have maximum Power
+# Charges"; "{0}% more Elemental Damage per Power Charge Consumed" (15 at its one level, 20) and "Buff duration is {0}
+# seconds per Power Charge Consumed" (5). PoB holds the buff up all fight at the HELD count (Multiplier
+# RemovablePowerCharge: Damage MORE on Cold / Fire / Lightning skills), so a build spending its charges on it read the
+# charge model's instant (0.1: almost nothing), and one holding 3 read the 45% all fight whatever the press. The model:
+# each press spends the maximum M (it can't be used below it), so the presses a second are the Power Charges it spends
+# (conditions.consume_all_split: what the others leave, at most its cooldown rate x M) / M, each holding the buff
+# 5 s x M x its Skill Effect Duration (PoB's DurationMod, its useRates row): uptime u = min(1, spent x 5 s x DurationMod),
+# at 15% x M more Elemental Damage (the text: Elemental Damage, of any skill; PoB's mod was all Damage of the typed
+# skills). PoB's held-count buff taken back on a typed main skill. Rows: PoB's reading (held count, all fight); pressing
+# on its cooldown spends more charges than once a buff (the charges held for other lines a little low: the lower
+# reading). ConsumedPowerChargeEffect (PoB's scalar on both) not read (UNVERIFIED: no source of it seen on the build).
+PINNACLE_OF_POWER = "Pinnacle of Power"
+PINNACLE_PER_CHARGE = "elemental_power_elemental_damage_+%_final_per_power_charge"
+PINNACLE_MS = "elemental_power_buff_duration_per_power_charge_ms"
+PINNACLE_TYPES = {"Cold", "Fire", "Lightning"}  # (PoB's SkillType condition on its Damage MORE)
+PINNACLE_TAG = "PinnacleOfPower"
+
+# (MECHC52; CONSUMES_ALL's note) Wind Serpent's Fury as the main skill (ActiveSkills wind_serpents_fury, game 26650308):
+# "Consume all Frenzy Charges to perform a gigantic spear thrust ... For each Frenzy Charge consumed, a Wind Serpent
+# follows in the spear's wake. Each Serpent also damages"; statset_0.csd "Requires {0} Frenzy Charge to use" (1). PoB
+# has its two damaging sets, "Thrust" (598% at gem level 20) and "Serpent" (199%: the set's own multiplier, as the game's
+# GrantedEffectStatSetsPerLevel 537), and scores ONE of them at its full attack rate, one Serpent a use. In the game a
+# use needs a charge, so the thrusts a second are U = min(PoB's uses at its share of the fight, the Frenzy Charges it
+# spends a second), and every charge spent is a Serpent: Serpents a second = the charges spent (conditions.
+# consume_all_split: what the other consumers leave, at most its uses x the maximum). A DPS "more" of
+# (U x Thrust + spent x Serpent) / (its uses x the scored set), the sets' per-use damage from PoB's setRates; its hit
+# part (U + spent) / its uses for the ailment readers ("hit_cut"). No Frenzy Charge reaching it: no use (0; no source,
+# 0). Each Serpent taken as hitting the boss (they follow the thrust's line: LOW-MEDIUM). The game's third set,
+# WindSerpentsFuryKnockbackExplosionPlayer (a 2 m shockwave, 172% at 20, cannot_knockback; not in PoB): its trigger is
+# UNVERIFIED (a knocked-back enemy hitting something?), not counted, said. Frenzy gains on the skill's own hits read at
+# the hits the charge model sees (the cut's next round): LOW.
+WIND_SERPENT = "Wind Serpent's Fury"
+WIND_SERPENT_SETS = ("Thrust", "Serpent")
+
 
 def selfless_of(build) -> set[str]:
     """(MECHC50) conditions.selfless_skills for a build; none for a stand-in build without groups (a unit test)."""
@@ -1976,12 +2012,28 @@ def _skill_hits(build: Build, group: dict, position: int, press: dict) -> tuple[
     return models.number(row.get("speed")) * chance * models.number(press.get(row.get("name"), 1.0)) * (1.0 - busy), row
 
 
-def main_skill_cut(build: Build, mods: list[dict], main: str | None) -> float | None:
-    """(MECHC51) build.main_hit_cut times the hit factor of the "DPS" MORE mods in `mods` tagged to the main skill
-    `main` (models.hit_cut_of; a mod on another skill is not the main skill's hits). Unchanged without one. (MECHB52's
-    assumptions.hit_cut does the same once it lands: this then defers to it.)"""
-    own = [m for m in mods if m.get("skill") == main] if main else []
-    return models.hit_cut_of(own, getattr(build, "main_hit_cut", None)) if own else getattr(build, "main_hit_cut", None)
+def boss_pool_note(name: str) -> dict:
+    """(MECHC52; the manager 12:12 21 Nov: MECH98's boss_pool readings in the play guide, LOW, after DPS) The Life and
+    Energy Shield the fight takes off the boss (conditions.boss_pool: every Life bar), its other readings as rows
+    (conditions.boss_pool_rows: ES converted out of Life, the headline for a real preset; poe2db's ES on top, the worst
+    case's headline; the fight video's ES). Which reading the game uses: UNVERIFIED (MECHD7)."""
+    from builder.search import bosses
+
+    pool = conditions_mod.boss_pool(name)
+    bars = conditions_mod.life_bars(name)
+    rows = conditions_mod.boss_pool_rows(name)
+    head = "poe2db" if name == getattr(bosses, "WORST", None) else "headline"
+    _, _, how = bosses.pool(name, head)
+    return {"label": f"Boss: {name}'s Life and Energy Shield over the fight*", "value": f"{pool:,.0f}",
+            "basis": (f"{how}" + (f", x{bars:g} Life bars" if bars != 1 else "") + "; rows: "
+                      + ("; ".join(f"{label}: {value:,.0f}" for label, value in rows) if rows
+                         else "none (no Energy Shield: one reading)")
+                      + ". Which reading the game uses is UNVERIFIED (MECHD7): the fight's length, Culling and "
+                        "\"Full Life\" windows read the headline"),
+            "confidence": "LOW (the ES reading; Life from the game files)",
+            "play": (f"{name} has {pool:,.0f} Life and Energy Shield to take off"
+                     + (f" across {bars:g} Life bars" if bars != 1 else "")
+                     + ("; its Energy Shield is taken before its Life (bosses.py's reading, MECHD7)" if rows else ""))}
 
 
 def hit_cut_share(build: Build, share: float) -> float:
@@ -3561,6 +3613,11 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + blazing_mods, hand_notes + blazing_notes
         staff_mods, staff_notes = self.charged_staff(skills, main)  # (MECHC51: CHARGED_STAFF's note)
         hand_mods, hand_notes = hand_mods + staff_mods, hand_notes + staff_notes
+        peak_mods, peak_notes = self.pinnacle_of_power(skills, main)  # (MECHC52: PINNACLE_OF_POWER's note)
+        hand_mods, hand_notes = hand_mods + peak_mods, hand_notes + peak_notes
+        serpent_mods, serpent_notes = self.wind_serpent(main)  # (MECHC52: WIND_SERPENT's note)
+        hand_mods, hand_notes = hand_mods + serpent_mods, hand_notes + serpent_notes
+        hit_cut(build, serpent_mods, main.name if main else None)  # (its thrusts and Serpents: the hit part)
         barrier_mods, barrier_notes = self.virtuous_barrier(skills)  # (MECHC51: VIRTUOUS_BARRIER's note)
         hand_mods, hand_notes = hand_mods + barrier_mods, hand_notes + barrier_notes
         impatience_mods, impatience_notes = self.impatience_loss(skills, main, stats)  # (MECHC50: IMPATIENCE's note)
@@ -4097,7 +4154,7 @@ class Assumptions:
                 number(costs.get("ManaPerSecondCost")), number(costs.get("LifePerSecondCost")), name)
             hand_mods, hand_notes = hand_mods + div_mods, hand_notes + div_rows
             # (MECHC51, the manager 18:15: a HIT-CUT: uses held to what Divinity pays)
-            build.main_hit_cut = main_skill_cut(build, div_mods, name)
+            hit_cut(build, div_mods, name)
         if any(recovery_mod.VIGOUR_FIRST.match(t.strip()) for t in texts):  # (MECHC38, COV41: Emergent Vigour)
             vigour, vigour_row = recovery_mod.emergent_vigour(
                 texts, build.call("stats", fields=[*recovery_mod.VIGOUR_FIELDS, recovery_mod.VIGOUR_OFFHAND_FIELD]),
@@ -4344,6 +4401,9 @@ class Assumptions:
                 texts, main, app_types, app_stats, app_gains, "; ".join(app_found[:3]), forbidden,
                 int(build.ctx.level or 0))  # (GEM30, R40-7: the grant levels with the character)
             hand_mods, hand_notes = hand_mods + app_mods, hand_notes + app_notes
+            # (MECHC52, the manager 18:15: MIXED: its "hit_cut" key, 1 + the share of casts copied, a RAISE multiplied
+            # into the other cuts; the readers clamp the product at 1, so alone it keeps PoB's rate, the lower reading)
+            hit_cut(build, app_mods, main.name if main else None)
         early_mods, early_notes = models.hazard_early_model(found, stats, forbidden, self.hitters(found))  # (MECH-B)
         hand_mods, hand_notes = hand_mods + early_mods, hand_notes + early_notes
         cascade_mods, cascade_notes = models.spell_cascade_model(main, stats, *bosses.hit_radius(stats))  # (MECHB36)
@@ -6255,7 +6315,7 @@ class Assumptions:
         mods, notes = mods + temper_mods, notes + temper_notes
         # (MECHC51, the manager 18:15: a HIT-CUT, the channel time off the main attack: its "DPS" MORE on the main skill
         # also cuts the hits the ailment readers count)
-        self.build.main_hit_cut = main_skill_cut(self.build, temper_mods, main)
+        hit_cut(self.build, temper_mods, main)
         wave_mods, wave_notes = self.shield_waves(skills)  # (MECHB46: Fortifying Cry's Shield Waves)
         mods, notes = mods + wave_mods, notes + wave_notes
         if glory is None:
@@ -6374,7 +6434,7 @@ class Assumptions:
 
         from builder.search import boss_hits  # (MECHC6: how hard it hits, per damage type)
         boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
-        return mods, [bosses.note(boss), boss_hits.hits_note(boss)] + notes + condition_notes + self.unbuilt_grants(skills)  # (the boss first)
+        return mods, [bosses.note(boss), boss_pool_note(boss), boss_hits.hits_note(boss)] + notes + condition_notes + self.unbuilt_grants(skills)  # (the boss first)
 
     def zero_use_ailments(self, mods: list[dict]) -> list[dict]:
         """MECH88 (models.zero_use_ailment_scales): a "Best <ailment> DPS" row whose source the models use 0 times a second
@@ -7034,6 +7094,12 @@ class Assumptions:
                                        number(stats.get("Speed")) * main_share if spell else 0.0,  # (MECHC47: Stitcher)
                                        f"{main}'s casts at its {main_share:.0%} share of the fight" if spell else
                                        f"{main or 'no main skill'} isn't a Spell")
+        # (MECHC52, GEM30's route: models.sacrifice_life_model's build.sacrifice_life, Extraction / Sacrificial
+        # Offering's "Sacrifice N% of Life on use", in no PoB cost: the floors net it off as LifeSacrificed. Its main
+        # skill at PoB's full Speed, not its share of the fight: the cost a little high, the safe side of the floors)
+        if (sacrificed := number((getattr(build, "sacrifice_life", None) or (0.0, ""))[0])) > 0:
+            income.rates["LifeSacrificed"] -= sacrificed
+            income.parts.append(f"Life sacrificed on skill use: -{sacrificed:,.1f}/s ({build.sacrifice_life[1]})")
         guard_rows += recovery.kill_loss_income(income, texts, number(stats.get("Mana")),  # (MECHC42: Arvil's Wheel)
                                                 number(stats.get("EnergyShield")), kills)
         if immaterial := recovery.recharge_started_row(texts, stats):  # (MECHC42: Immaterial, a row)
@@ -7687,8 +7753,12 @@ class Assumptions:
                                                main_skill, [models.Skill.of(s) for s in present.values()], glory_texts)
                             if names else (0.0, "no Glory skill"))
         groups = [g for g in build.call("groups")["groups"] if g.get("enabled") is not False]
+        # (MECHC52: its USES pay the costs, not its hits: hits=False, as a hit-only cut (Hailstorm's bolts, Volcano's
+        # eruptions) leaves the uses; a use cut (Temper Weapon's channel, Divinity's held uses) not read here: the costs a
+        # little high, the safe side of the sustain floor)
         speed = number(stats.get("Speed")) * (  # (MECHC45: the main skill's uses at its share of the fight)
-            main_time_share(build, SimpleNamespace(name=main)) if main and getattr(build, "objective", None) else 1.0)
+            main_time_share(build, SimpleNamespace(name=main), hits=False)
+            if main and getattr(build, "objective", None) else 1.0)
         main_index = (build.main_group() or {}).get("index")
         choices = models.press_choices(build)
 
@@ -9145,7 +9215,9 @@ class Assumptions:
             source = (f"{income:.1f} Ward/s (PoB's regeneration and the Ward lines; Remnants of Kalguur and other feeds "
                       "read only beside a Ward-cost skill: the lower reading)")
         left = max(income - spent, 0.0)
-        share = (main_time_share(build, models.Skill(name=main))
+        # (MECHC52: its USES pay the Ward, not its hits: hits=False, as a hit-only cut (Hailstorm's bolts, Volcano's
+        # eruptions) leaves the uses; a use cut (Temper Weapon's channel) not read here: more Ward asked, the lower boost)
+        share = (main_time_share(build, models.Skill(name=main), hits=False)
                  if callable(getattr(getattr(build, "objective", None), "busy", None)) else 1.0)
         uses = number(pools.get("Speed")) * share
         cost = number(pools.get("ManaCost")) * FIST_OF_KALGUUR_WARD_PCT / 100
@@ -9270,6 +9342,94 @@ class Assumptions:
             "play": (f"Charged Staff: press it to spend your Power Charges as they come (its press rate "
                      f"{number(presses):.2f}/s): {stacks:.1f} stacks up; without it, none" if attack else "")}
         return mods, [note]
+
+    def pinnacle_of_power(self, skills: list[dict], main) -> tuple[list[dict], list[dict]]:
+        """(mods, notes) for Pinnacle of Power's buff at its uptime from the Power Charges it spends (PINNACLE_OF_POWER's
+        note). `skills`: the bridge's activeSkills; `main`: the main models.Skill."""
+        build = self.build
+        row = next((s for s in skills if s.get("name") == PINNACLE_OF_POWER and not s.get("disabled")), None)
+        if row is None or main is None:
+            return [], []
+        raw = build.call("activeSkills", levelStats=[PINNACLE_OF_POWER])["skills"]
+        level = next((s.get("levelStats") or {} for s in raw
+                      if s.get("name") == PINNACLE_OF_POWER and s.get("levelStats")), {})
+        per = number(level.get(PINNACLE_PER_CHARGE)) or 15.0
+        seconds = (number(level.get(PINNACLE_MS)) or 5000.0) / 1000
+        most = number(build.call("stats", fields=["PowerChargesMax"]).get("PowerChargesMax"))
+        spent, presses, how = ((getattr(build, "consume_all", None) or {}).get("Power") or {}).get(
+            PINNACLE_OF_POWER, (0.0, 0.0, "no Power Charge source, or Pinnacle of Power has no press rate"))
+        rows = build.call("useRates", indices=[row.get("group")])["rates"] if row.get("group") else []
+        scale = number((rows[0] if rows else {}).get("durationMod")) or 1.0
+        up = min(1.0, number(spent) * seconds * scale) if most >= 1 else 0.0
+        config = build.call("getConfig")["input"]
+        held = number(config.get("overridePowerCharges")) if config.get("usePowerCharges") else 0.0
+        types = set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or [])
+        typed = bool(types & PINNACLE_TYPES)
+        mods = []
+        if typed and held > 0:  # (PoB's held-count buff, all Damage of a typed skill, taken back)
+            mods.append(models.raw_mod("Damage", "MORE", 100 * (1 / (1 + per * held / 100) - 1), skill=main.name,
+                                       tag=PINNACLE_TAG))
+        if up > 0:
+            mods.append(models.raw_mod("ElementalDamage", "MORE", per * most * up, skill=main.name, tag=PINNACLE_TAG))
+        pob = f"{per * held:.0f}% more Damage all fight" + ("" if typed else " (none: the main skill isn't Cold, Fire "
+                                                                              "or Lightning)")
+        note = {
+            "label": "Pinnacle of Power: its buff at the Power Charges you spend on it*",
+            "value": (f"{per * most:.0f}% more Elemental Damage {up:.0%} of the fight" if up > 0
+                      else "no buff (no Power Charges reach it, or no maximum to spend)"),
+            "basis": (f"{how}; each press spends your maximum {most:g} (it can't be used below it) for {per:g}% more "
+                      f"Elemental Damage each, the buff {seconds:g} s a charge x its Skill Effect Duration x{scale:.2f}: "
+                      f"{number(spent):.2f}/s x {seconds * scale:.2f} s = {up:.0%} up. Rows: PoB's reading at the "
+                      f"{held:g} Power Charges held: {pob}; pressed once a buff instead of on its cooldown, more charges "
+                      "held for other lines (not counted). Increased effect of consumed charges not read (UNVERIFIED)"),
+            "confidence": "MEDIUM (game numbers; the uptime as charges spent x 5 s)",
+            "play": (f"Pinnacle of Power: press it at maximum Power Charges ({most:g}) as soon as it's ready: "
+                     f"{per * most:.0f}% more Elemental Damage {up:.0%} of the fight; without it, none" if up > 0 else "")}
+        return mods, [note]
+
+    def wind_serpent(self, main) -> tuple[list[dict], list[dict]]:
+        """(mods, notes) for Wind Serpent's Fury as the main skill: thrusts limited to the Frenzy Charges, a Serpent per
+        charge spent (WIND_SERPENT's note). `main`: the main models.Skill."""
+        build = self.build
+        if main is None or main.name != WIND_SERPENT:
+            return [], []
+        group = build.main_group()
+        if not group:
+            return [], []
+        sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+        dps = {x.get("label"): number(x.get("TotalDPS")) for x in sets}
+        scored = main.stat_set if main.stat_set in dps else next(iter(dps), None)
+        thrust, serpent, pob = dps.get("Thrust", 0.0), dps.get("Serpent", 0.0), dps.get(scored, 0.0)
+        if pob <= 0 or (thrust <= 0 and serpent <= 0):
+            return [], []
+        speed = number(build.call("stats", fields=["Speed"]).get("Speed"))
+        share = (main_time_share(build, main, hits=False)
+                 if callable(getattr(getattr(build, "objective", None), "busy", None)) else 1.0)
+        uses = speed * share
+        spent, _presses, how = ((getattr(build, "consume_all", None) or {}).get("Frenzy") or {}).get(
+            WIND_SERPENT, (0.0, 0.0, "no Frenzy Charge source"))
+        spent = number(spent)
+        thrusts = min(uses, spent)
+        if uses <= 0:
+            return [], []
+        factor = (thrusts * thrust + spent * serpent) / (uses * pob)
+        hits = (thrusts + spent) / uses
+        mod = models.raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)
+        mod["hit_cut"] = models._round(hits)
+        per_use = spent / thrusts if thrusts > 0 else 0.0
+        note = {
+            "label": "Wind Serpent's Fury: a thrust per Frenzy Charge supply, a Serpent per charge*",
+            "value": f"x{factor:.3f}",
+            "basis": (f"{how}; each use needs a Frenzy Charge and consumes all: {thrusts:.2f} thrusts a second of the "
+                      f"{uses:.2f} PoB's rate allows at its share of the fight, {spent:.2f} Serpents a second "
+                      f"({per_use:.1f} a thrust); PoB's sets: Thrust {thrust:,.0f} and Serpent {serpent:,.0f} DPS at "
+                      f"its full rate, PoB scoring the {scored} alone. Each Serpent taken as hitting the boss "
+                      "(LOW-MEDIUM). Not counted: the game's third set, a knockback shockwave (its trigger UNVERIFIED)"),
+            "confidence": "MEDIUM (game text: a charge to use, a Serpent per charge; PoB's per-set numbers)",
+            "play": (f"Wind Serpent's Fury: feed it Frenzy Charges; {per_use:.1f} Serpents a thrust; without charges "
+                     "it can't be used" if spent > 0 else
+                     "Wind Serpent's Fury needs a Frenzy Charge a use: with no Frenzy Charge source it can't be used")}
+        return [mod], [note]
 
     def _side_rows(self, main_index: int, pick) -> list[tuple[dict, float, str]]:
         """[(useRates row, uses a second, how)] for the build's enabled groups outside the main one that `pick(group)`

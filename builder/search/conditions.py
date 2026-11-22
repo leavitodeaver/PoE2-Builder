@@ -1839,9 +1839,10 @@ def fear_mods(texts: list[str], culls: float, culls_how: str, can_cull: bool, wh
 # takes it plays to feed it), at most its presses a second (its group's rate, conditions.skill_use_rate: the search's
 # chosen rate, else 0) x the maximum held; no press rate: it spends none (no source, 0). The other "consume all" skills
 # (checked: ActiveSkills descriptions holding "consume(s) all", game 26650308: Wind Serpent's Fury (Frenzy) and Pinnacle
-# of Power (Power) too; Wind Dancer's stages and Encase in Jade's Jade are not charges) keep the one-a-use reading for
-# now: their per-use effects read the charges a use finds, a model of their own (next, MECHC51's report).
-CONSUMES_ALL = {"Power": ("Charged Staff",)}
+# of Power (Power) too; Wind Dancer's stages and Encase in Jade's Jade are not charges).
+# (MECHC52) Pinnacle of Power and Wind Serpent's Fury join it: a press spends what's held (Pinnacle only at the maximum),
+# at most its presses x the maximum; their effects are assumptions.PINNACLE_OF_POWER's and WIND_SERPENT's.
+CONSUMES_ALL = {"Power": ("Charged Staff", "Pinnacle of Power"), "Frenzy": ("Wind Serpent's Fury",)}
 
 
 def consume_all_split(wanted: dict, kind: str, rate: float, most: float, kept: float = 0.0) -> dict:
