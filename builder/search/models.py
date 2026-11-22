@@ -12220,7 +12220,8 @@ def dazed_stats(build) -> dict:
             "_buildup_others": dict(getattr(build, "buildup_others", None) or {}),  # (MECH87: others_fill)
             # (MECH85: Crushing Blows and Primed-for-Pin Pins, published by Conditions.evidence)
             "_crushing": tuple(getattr(build, "crushing", None) or (False, "")),
-            "_pin_primed": bool(getattr(build, "pin_primed", False))}
+            "_pin_primed": bool(getattr(build, "pin_primed", False)),
+            "_electrocute_primed": str(getattr(build, "electrocute_primed", "") or "")}  # (MECH100)
 
 
 # His Winnowing Flame's Grisly Pyres (MECH71; GEM5's verdict 14 Nov: The Unborn Lich is league-obtainable, an Abyss core
@@ -13833,6 +13834,43 @@ def pins_primed(stats: dict) -> bool:
     return any(PIN_PRIMED_LINE.match(str(t).strip()) for t in stats.get("_texts") or ())
 
 
+# Electrocuting a Primed boss (MECH100; plans/gs-neural-overload.md, an UNDERCOUNT). KeywordPopups PrimedElectrocution:
+# "Normal enemies are Primed for Electrocution when they have at least 40% Electrocution buildup ... Unique at 70%". The
+# game's sources that Electrocute a Primed enemy on a hit (checked: every Stats.json id holding "overload" or "primed",
+# their stat-set and Mods / PassiveSkills rows, and the stat texts, game 26650308): Neural Overload's
+# active_skill_can_overload ("Supported Skills Electrocute Primed enemies on Hit", SupportNeuralOverloadPlayer only) and
+# Voltaic Mark's active_skill_show_overload_range_from_voltaic_mark ("Marked enemy becomes Electrocuted when Hit while
+# Primed for Electrocution", VoltaicMarkPlayer only); Moment of Vulnerability carries only the display stat
+# active_skill_show_overload_range (its visages, not an Electrocute); can_be_overloaded_from_voltaic_mark and
+# active_skill_show_overload_range_rare_or_unique_only sit on no stat set, Mod or passive. PoB reads neither (checked:
+# no statMap in Data/Skills, nothing in Modules; the support's last patch entry, 0.2.0, changed its cost only). So
+# with Neural Overload on the main skill, or Voltaic Mark on the boss (on-demand Marks, mark_use: re-marked while the
+# boss is Electrocuted, MEDIUM), the boss Electrocutes on the first main-skill hit after its bar reaches 70% (the
+# presets are Unique): primed_hit_refill, as Primed Pins. The main skill's hits are the ones counted for the wait (other
+# groups' hits would trigger a marked boss too: the lower reading). stats["_electrocute_primed"]: the source's name
+# (Conditions.evidence; dazed_stats hands on build.electrocute_primed), "" without.
+NEURAL_OVERLOAD = "Neural Overload"
+VOLTAIC_MARK = "Voltaic Mark"
+
+
+def electrocute_primed(stats: dict) -> str:
+    """The source that Electrocutes the Primed boss on a hit (the note above), or ""."""
+    return str(stats.get("_electrocute_primed") or "")
+
+
+def electrocute_primer(groups: list[dict], main_group: int | None, main: str | None) -> str:
+    """(MECH100) "Neural Overload" when it supports the main skill's group, else "Voltaic Mark" when the build's first
+    Mark is Voltaic Mark (mark_model uses one Mark), else "" (the note above)."""
+    live = [g for g in groups if g.get("enabled") is not False]
+    for group in live:
+        if group.get("index") == main_group and any(
+                g.get("support") and g.get("name") == NEURAL_OVERLOAD and g.get("enabled", True) for g in group["gems"]):
+            return NEURAL_OVERLOAD
+    marks = [g["name"] for group in live for g in group["gems"]
+             if not g.get("support") and g.get("enabled", True) and g.get("name") in MARKS and g.get("name") != main]
+    return VOLTAIC_MARK if marks and marks[0] == VOLTAIC_MARK else ""
+
+
 def primed_hit_refill(refill: float, hits: float, primed: float = PRIMED_UNIQUE, same_hit: bool = False) -> float:
     """Seconds to the next Heavy Stun / Pin when it lands on the first hit after the bar reaches `primed` of it, or
     (`same_hit`, MECH87: a Crushing Blow, R30-8 4b) on the hit that takes the bar there."""
@@ -13988,6 +14026,8 @@ def immobilise_period(stats: dict, ailment: str) -> float:
         refill = primed_refill(refill, number(primed[0]))
     if ailment == "Pin" and pins_primed(stats):  # (MECH85: Constricting Command Pins the boss once Primed)
         refill = primed_hit_refill(refill, hits_per_second(stats))
+    if ailment == "Electrocute" and electrocute_primed(stats):  # (MECH100: Neural Overload / Voltaic Mark)
+        refill = primed_hit_refill(refill, hits_per_second(stats))
     return d + refill
 
 
@@ -14078,6 +14118,9 @@ def immobilised_share(stats: dict, ailment: str) -> tuple[float, str]:
         longer += (f" (your Primed-Freeze skills Freeze the boss once Primed at {PRIMED_FREEZE_UNIQUE:.0%} buildup: "
                    f"{primed[1]}; "
                    "without it, one Freeze every full bar)")
+    if ailment == "Electrocute" and (primer := electrocute_primed(stats)):
+        longer += (f" ({primer}: the boss is Electrocuted on the first hit after it is Primed at {PRIMED_UNIQUE:.0%} "
+                   "buildup (KeywordPopups PrimedElectrocution, Unique); without it, one Electrocute every full bar)")
     if (others := others_fill(stats, ailment)) > 0:
         longer += (f" (with other skills' hits {others:.2%} of the bar a second at PoB's threshold: "
                    f"{(stats.get('_buildup_others') or {}).get('how', '')})")

@@ -10367,6 +10367,10 @@ class Conditions:
         stats["_crushing"] = models.crushing_source(texts, self.main_skill)  # (MECH85: Crushing Blows, heavy_stun_rate)
         stats["_pin_primed"] = any(models.PIN_PRIMED_LINE.match(t.strip()) for t in texts)  # (MECH85: Primed Pins)
         self.build.crushing, self.build.pin_primed = stats["_crushing"], stats["_pin_primed"]
+        main_group = self.build.main_group()  # (MECH100: Neural Overload / Voltaic Mark Electrocute the Primed boss)
+        stats["_electrocute_primed"] = models.electrocute_primer(
+            self.build.groups(), main_group["index"] if main_group else None, self.main_skill)
+        self.build.electrocute_primed = stats["_electrocute_primed"]
         stats["_dazed_share"] = number((_dazed(texts, stats) + (0.0,))[2])
         stats["_dazed_box"] = "conditionEnemyDazed" in self.active  # (PoB's box as it is now: heavy_stun_rate)
         stats["_daze_magnitude"] = models.daze_magnitude(texts)  # (MECH95, R37-13: PoB reads none of it)

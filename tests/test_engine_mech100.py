@@ -60,3 +60,23 @@ def test_a_curse_under_level_18_does_nothing_to_a_higher_level_boss(engine):
     assert pob10 > bare * 1.01  # (PoB: the curse lowers the boss's resistances at any level)
     assert share10 == 0 and ours10 == pytest.approx(bare, rel=1e-3)  # (ours: none above the cap)
     assert share20 == 1 and ours20 == pytest.approx(pob20, rel=1e-6)  # (level 20: no cap, as before)
+
+
+def test_neural_overload_on_the_main_skill_is_published_for_the_electrocute_readers(engine):
+    """MECH100 (plans/gs-neural-overload.md): Conditions.evidence names Neural Overload on the main skill's group as the
+    source that Electrocutes the Primed boss (build.electrocute_primed, dazed_stats), and nothing without it."""
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    search.conditions.evidence()
+    assert build.electrocute_primed == ""
+    group = build.main_group()
+    gems = [{"name": g["name"], "level": g.get("level") or 20, "quality": 0} for g in group["gems"]]
+    build.set_group(index=group["index"], gems=gems + [{"name": models.NEURAL_OVERLOAD, "level": 1, "quality": 0}])
+    found = search.conditions.evidence()
+    electrocuted = found.get("conditionEnemyElectrocuted")
+    print("PROBE", build.electrocute_primed, electrocuted)
+    assert build.electrocute_primed == models.NEURAL_OVERLOAD
+    assert models.dazed_stats(build)["_electrocute_primed"] == models.NEURAL_OVERLOAD
