@@ -355,8 +355,19 @@ UNCAPPED_MAIN = {
 }
 
 
+def weapon_default(ctx: Context, skill: str) -> bool:
+    """(SEARCH36; the manager's 09:55 22 Nov, MECHB54's sweep) A weapon's default attack (PoB's PlayerDefault* gems:
+    Crossbow Shot, Bow Shot, Mace Strike, Quarterstaff Strike, Spear Stab, Grenade, ...), which every base of that weapon
+    gives (CalcSetup), not a passive or unique."""
+    gem = (getattr(ctx, "all_gems", None) or {}).get(skill) or {}
+    return "SkillGemPlayerDefault" in (gem.get("id") or "") and gem.get("name") == skill
+
+
 def skill_problems(ctx: Context, skill: str) -> list[str]:
     if skill not in ctx.gems and not ctx.granted_by.get(skill):
+        if weapon_default(ctx, skill):  # (a TRUE refusal: never "no passive or unique grants it" for these)
+            return [f"{skill} is the default attack its weapon type gives; the search doesn't build around a default "
+                    "attack yet"]
         return [f"{skill} isn't a gem a level {ctx.level} character can socket, and no passive or unique grants it"]
     if skill in ctx.compiled.filters.forbidden_gems:
         return [f"{skill} is banned by the request"]

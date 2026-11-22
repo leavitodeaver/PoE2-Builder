@@ -440,6 +440,15 @@ class Context:
             for line in unique["raw"].splitlines():
                 if m := pattern.search(re.sub(r"\{[^}]*\}", "", line)):
                     grants.setdefault(m.group(1), []).append(("unique", unique["name"], None))
+        # (SEARCH36; the manager's 09:55 22 Nov, MECHB54's sweep) a line naming the skill by PoB's baseTypeName also
+        # grants the gem of that name: The Last Lament's "Compose Requiem" is gem "Requiem" (all_gems), which was refused
+        # as "no passive or unique grants it". Only for a gem no player can socket (not in self.gems): the Sceptres'
+        # "Skeletal Warrior Minion" names gem "Skeletal Warrior", which stays an ordinary gem with no grant entries
+        for name, entries in list(grants.items()):
+            gem = self.all_gems.get(name)
+            if gem and gem["name"] != name and gem["name"] not in self.gems:
+                own = grants.setdefault(gem["name"], [])
+                own += [e for e in entries if e not in own]
         return grants
 
     @cached_property

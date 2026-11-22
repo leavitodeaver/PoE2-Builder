@@ -181,3 +181,26 @@ def test_a_seed_run_honours_the_users_own_items(engine):
     pasted = build.equipped["Ring 2"]
     assert pasted.name == "Woe Loop" and pasted.price == 0.0 and pasted.confidence == OWNED
     assert {"Weapon 1", "Ring 2"} <= build.locked_slots
+
+
+def test_requiem_is_granted_by_the_last_lament_and_a_default_attack_gets_a_true_refusal(engine):
+    """SEARCH36 (the manager's 09:55 22 Nov, MECHB54's sweep): "Requiem" (The Last Lament's "Compose Requiem" line names
+    it by PoB's baseTypeName) was refused as "no passive or unique grants it"; so were the weapons' default attacks,
+    which every base of the weapon gives. Requiem now builds from The Last Lament; a default attack gets a true reason."""
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons, skill_problems
+
+    ctx = Context(make_payload(BuildRequest(main_skill="Requiem", level=90, require=Choices())))
+    assert ("unique", "The Last Lament", None) in ctx.granted_by.get("Requiem", [])
+    assert skill_problems(ctx, "Requiem") == []
+    assert all(e[0] != "unique" or e[1] != "The Last Lament" for e in ctx.granted_by.get("Skeletal Warrior", []))
+    for name in ("Crossbow Shot", "Bow Shot", "Mace Strike", "Quarterstaff Strike", "Spear Stab", "Grenade"):
+        problems = skill_problems(ctx, name)
+        assert problems and "default attack" in problems[0] and "no passive or unique" not in problems[0], (name, problems)
+    skeletons = enumerate_skeletons(ctx, ["Requiem"])[0]
+    assert skeletons, "a Requiem skeleton"
+    search = Search(engine, None, make_payload(ctx.request), skeletons[0].as_dict(), 0)
+    search.setup(quests=False)
+    main = search.build.main_group()
+    assert main is not None and any(s["name"] == "Requiem" for s in main["skills"]), main
+    print("Requiem main group", [g["name"] for g in main["gems"]], search.build.stats.get("FullDPS"))
