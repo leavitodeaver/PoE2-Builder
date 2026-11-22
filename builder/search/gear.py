@@ -127,6 +127,71 @@ def is_normal(option: ItemOption) -> bool:
     return not option.unique and not option.rare and (first == "Rarity: Normal" or not first.startswith("Rarity:"))
 
 
+RESIST_SWAP_ATTEMPTS = 4  # slot pairs one resist_swap_round tries (two rare builds each; LOW, a search-effort setting)
+# The slots resist_swap_round moves resistances into, in order (LOW: SEARCHB1's references put theirs on boots, shield
+# and helmet; Weapon 1, the damage slot, never takes them)
+RESIST_RECEIVERS = ("Boots", "Helmet", "Body Armour", "Weapon 2", "Belt", "Gloves", "Amulet", "Ring 1", "Ring 2", "Ring 3")
+SWITCH_RESIST_SWAP = "POE2_SEARCH_RESIST_SWAP"  # "1": gear_round's full rounds try resist_swap_round (OFF by default)
+RESIST_LINE = re.compile(r"^\+?[\d.()\-]+%? to (.+?) Resistances?$")
+RESIST_ELEMENTS = ("Fire", "Cold", "Lightning", "Chaos")
+
+
+def resist_kinds(line: str) -> frozenset[str]:
+    """The resistances an affix line raises ("+30% to Fire Resistance", "+12% to Fire and Cold Resistances", "+10% to
+    all Elemental Resistances"); empty for anything else (a Maximum, a penetration, an enemy's)."""
+    m = RESIST_LINE.match(line.strip())
+    if not m or "Maximum" in line:
+        return frozenset()
+    named = m.group(1)
+    if named == "all Elemental":
+        return frozenset(RESIST_ELEMENTS[:3])
+    words = set(named.replace(",", " ").split())
+    if not words <= set(RESIST_ELEMENTS) | {"and"}:
+        return frozenset()
+    return frozenset(e for e in RESIST_ELEMENTS if e in words)
+
+
+def explicit_lines(raw: str) -> list[str]:
+    """An item text's explicit modifier lines: after its "Implicits: N" lines, the tagged ones ({rune}, {enchant}...)
+    kept out."""
+    lines = raw.splitlines()
+    at = next((i for i, line in enumerate(lines) if line.startswith("Implicits:")), None)
+    if at is None:
+        return []
+    count = int(lines[at].split(":")[1].strip() or 0)
+    return [line for line in lines[at + 1 + count:] if line and not line.startswith("{")]
+
+
+def resist_lines(raw: str) -> list[frozenset[str]]:
+    """The resistances each explicit line of an item text raises, one entry a resistance line."""
+    return [k for k in (resist_kinds(line) for line in explicit_lines(raw)) if k]
+
+
+def resist_rule(kinds: frozenset[str]) -> Callable[[Affix], bool]:
+    """An affix raising at least these resistances (a hybrid or all-elemental one counts for any it covers)."""
+    return lambda affix: any(kinds <= resist_kinds(line) for line in affix.lines)
+
+
+def requires(required) -> list:
+    """build_rare's `required`: none, one rule, or a list of them."""
+    if required is None:
+        return []
+    return list(required) if isinstance(required, (list, tuple)) else [required]
+
+
+def is_rare_text(raw: str) -> bool:
+    return any(line.strip() == "Rarity: RARE" for line in raw.splitlines()[:2])
+
+
+def is_unique_text(raw: str) -> bool:
+    return any(line.strip() == "Rarity: UNIQUE" for line in raw.splitlines()[:2])
+
+
+def shortfall_of(build: Build) -> float:
+    """objective.shortfall over the build's deficits (a game limit counts ten times a floor)."""
+    return sum(amount * (10.0 if hard else 1.0) for _, amount, hard in build.objective.deficits(build.stats))
+
+
 class Gear:
     def __init__(self, build: Build, weapon: SlotSpec | None, offhand: SlotSpec | None, rng: random.Random,
                  swap: tuple[SlotSpec | None, SlotSpec | None] = (None, None)) -> None:
@@ -462,12 +527,13 @@ class Gear:
 
     # Rares -----------------------------------------------------------------------------------
 
-    def build_rare(self, slot: str, deadline: float, required: Callable[[Affix], bool] | None = None,
+    def build_rare(self, slot: str, deadline: float,
+                   required: Callable[[Affix], bool] | list[Callable[[Affix], bool]] | None = None,
                    base_name: str | None = None, variant: int | None = None) -> ItemOption | None:
         """The best rare for this slot within its budget, affix by affix (for a flask or charm, the
         best magic item: one prefix and one suffix). With `required`, the rare starts from the best
         affix that passes it (a condition's source, builder/search/sources.py), on the best base
-        that can roll one. With `variant`, the base's implicit is that variant's (Absent Amulet's Cast on Critical)."""
+        that can roll one; with a list of them, one affix for each, on a base that can roll them all. With `variant`, the base's implicit is that variant's (Absent Amulet's Cast on Critical)."""
         if self.restriction(slot) is not None:  # a rare isn't a Normal item; an unusable slot takes nothing
             return None
         bases = [o for o in self.options(slot) if not o.unique and (base_name is None or o.base == base_name)]
@@ -479,7 +545,7 @@ class Gear:
         for _, option in sorted(zip((s for s, _ in scored), bases), key=lambda x: -x[0]):
             candidate = self.ctx.bases_by_name[option.base]
             pools = self.magic_pools[candidate["type"]] if magic else self.pools
-            if required is None or any(required(a) for a in pools.pool(candidate["name"])):
+            if required is None or all(any(r(a) for a in pools.pool(candidate["name"])) for r in requires(required)):
                 base_option, base = option, candidate
                 break
         if base is None:
@@ -502,11 +568,16 @@ class Gear:
             shortlist += [a for _, a in ranked if a.type == kind][:SCREEN_KEEP]
 
         chosen: list = []
-        if required is not None:
-            forced = next(a for _, a in ranked if required(a))
-            if price_of(slot, [forced]) > left + 1e-9 and forced.lower is not None:
+        for rule in requires(required):  # (several for resist_swap_round: each its own affix, within the limits)
+            groups = {a.group for a in chosen}
+            counts = {kind: sum(1 for a in chosen if a.type == kind) for kind in limits}
+            forced = next((a for _, a in ranked if rule(a) and a.group not in groups
+                           and counts.get(a.type, 0) < limits.get(a.type, 0)), None)
+            if forced is None:
+                return None
+            if price_of(slot, chosen + [forced]) > left + 1e-9 and forced.lower is not None:
                 forced = forced.lower
-            if price_of(slot, [forced]) > left + 1e-9:
+            if price_of(slot, chosen + [forced]) > left + 1e-9:
                 return None
             chosen.append(forced)
         current = self.deltas(slot, [text(slot, base, level, chosen)])[0][0]
@@ -1125,11 +1196,75 @@ class Gear:
             improved = improved or build.score > before + EPSILON
         if full:
             improved = self.character_rune_round(deadline) or improved
+        if full and os.environ.get(SWITCH_RESIST_SWAP, "0") == "1":
+            improved = any(row["kept"] for row in self.resist_swap_round(deadline)) or improved
         if full and self.fill_granted is not None:
             improved = self.granted_meta_trials(deadline) or improved
         if full:
             self.update_lambda()
         return improved
+
+    # Resistances moved off an offence slot (SEARCHB2, SEARCHB1's G5) --------------------------------
+
+    def resist_swap_round(self, deadline: float, attempts: int = 0) -> list[dict]:
+        """A two-slot move one slot's rebuild can't make: with the resistance floors met only just, a rare holding
+        resistances (2b75d's and 2b75b's gloves: three each) can't drop one for damage until another slot has the
+        spare, and no slot rebuilds for a spare it doesn't need yet. So slot B (a rare, plain or empty gear slot) is
+        rebuilt with its own resistance affixes and as many of rare A's as it holds forced in (build_rare's
+        `required`, one affix each), then A is rebuilt with only the rest forced, free to take damage instead. Kept only if the score rises and the build is no further from the request (its
+        shortfall), else everything goes back. At most `attempts` pairs (RESIST_SWAP_ATTEMPTS when 0): A by its
+        resistance count, B in RESIST_RECEIVERS' order. Returns one row per pair tried."""
+        build = self.build
+        attempts = attempts or RESIST_SWAP_ATTEMPTS
+        equipped = build.call("equipped")["slots"]
+        gear_slots = [s for s in self.slots if not is_flask_slot(s) and s not in CHARM_SLOTS
+                      and s not in build.locked_slots and self.restriction(s) is None]
+        holders = sorted(((len(resist_lines(equipped.get(s) or "")), s) for s in gear_slots
+                          if is_rare_text(equipped.get(s) or "") and resist_lines(equipped.get(s) or "")),
+                         key=lambda x: -x[0])
+        receivers = [s for s in gear_slots if not is_unique_text(equipped.get(s) or "") and s != "Weapon 1"]
+        # B: the armour slots first, where SEARCHB1's references carry their resistances (G5: boots, shield, helmet)
+        receivers.sort(key=lambda s: RESIST_RECEIVERS.index(s) if s in RESIST_RECEIVERS else len(RESIST_RECEIVERS))
+        rows: list[dict] = []
+        for _, a in holders:
+            moving = resist_lines(equipped.get(a) or "")
+            for b in receivers:
+                if b == a or len(rows) >= attempts or clock.now() > deadline:
+                    continue
+                own = resist_lines(equipped.get(b) or "")
+                # (B's own resistances' groups are taken: A's other kinds go first. POE2T6234: 2b75d's boots hold
+                # Lightning, the gloves' first, so "Lightning first" placed nothing there)
+                covered = frozenset().union(*own) if own else frozenset()
+                moving = sorted(resist_lines(equipped.get(a) or ""), key=lambda k: k <= covered)
+                snap, before, short = build.snapshot(), build.score, shortfall_of(build)
+                rows.append({"from": a, "to": b, "kept": False})
+                # B keeps its own resistances and takes as many of A's as its affixes hold (the most first; a rule
+                # build_rare can't place, past the slot's suffixes or with no base rolling it, ends the list there)
+                rare_b, moved = None, len(moving)
+                while moved > 0 and rare_b is None and clock.now() < deadline:
+                    rare_b = self.build_rare(b, deadline, required=[resist_rule(k) for k in own + moving[:moved]])
+                    if rare_b is None:
+                        moved -= 1
+                if rare_b is None:
+                    rows[-1]["why"] = "the slot holds none of them beside its own"
+                    continue
+                rows[-1]["moved"] = [sorted(k) for k in moving[:moved]]
+                self.put(b, rare_b)
+                self.settle()
+                rare_a = self.build_rare(a, deadline, required=[resist_rule(k) for k in moving[moved:]] or None)
+                if rare_a is not None:
+                    self.put(a, rare_a)
+                    self.settle()
+                after = shortfall_of(build)
+                rows[-1].update(score=round(build.score, 4), before=round(before, 4), shortfall=round(after, 4))
+                if build.score > before + EPSILON and after <= short + EPSILON:
+                    rows[-1]["kept"] = True
+                    self.rares[b] = rare_b
+                    if rare_a is not None:
+                        self.rares[a] = rare_a
+                    break
+                build.restore(snap)
+        return rows
 
     # Martial Artist's Runic Meridians (PATCH_CHECK H5-4, an UNDERCOUNT; SEARCH22): "Can tattoo Runes onto your body,
     # gaining additional Rune-only sockets: 1 Helmet socket, 2 Body Armour sockets, 1 Gloves socket, 1 Boots socket"
