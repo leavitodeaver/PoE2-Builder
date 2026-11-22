@@ -17717,7 +17717,9 @@ def dark_effigy_model(debuffs: list[tuple[str, float, str]], pob_debuffs: int, h
             "confidence": "MEDIUM"}
     if abs(factor - 1) < 1e-9:
         return [], [note]
-    return [raw_mod("DPS", "MORE", 100 * (factor - 1), VILE_EFFUSION)], [note]
+    mod = raw_mod("DPS", "MORE", 100 * (factor - 1), VILE_EFFUSION)
+    mod[HIT_CUT_PER_USE] = factor  # (MECHB53, MECH99's split: projectiles a volley, the skill used as often)
+    return [mod], [note]
 
 
 # Verisium Manifestations (MECHB42; RESEARCH33 R33-10, research/verisium-manifestation-numbers.md; an UNDERCOUNT: PoB had
@@ -20914,7 +20916,9 @@ def frostflame_plan(uses: list[tuple[float, float]], share: float, how: str,
         cap = (f"; held by its casts ({counted:.2f}/s, each ice lasting at most the {ignite_duration:.1f} s Ignite it "
                "refreshes)")
     more = hits / counted
-    return [raw_mod("DPS", "MORE", 100 * (more - 1), FROSTFLAME)], [{
+    mod = raw_mod("DPS", "MORE", 100 * (more - 1), FROSTFLAME)
+    mod[HIT_CUT_PER_USE] = more  # (MECHB53, MECH99's split: the ice's hits a cast, the Nova cast as often)
+    return [mod], [{
         "label": "Frostflame Nova: Volatile Ice hits while the boss is Ignited*", "value": f"{hits:.2f} hits/s",
         "basis": f"the ice 'Hits enemies every 0.5 seconds until affected Ignite expires' (game files) and latches only "
                  f"onto Ignited enemies: 2 hits/s x the boss Ignited {share:.0%} of the fight ({how}){cap}; PoB counts "
@@ -22416,6 +22420,8 @@ def volcano_channel_model(main: Skill | None, scored: str | None, sets: list[dic
                  f"x{skip:.3f} (a row, MEDIUM)")
     mod = raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=VOLCANO_ENTRY)
     mod["hit_cut"] = 1 / (2 + best)  # (MECHB52: the hit part, one eruption per 2 + k cast times; the rest is its stages)
+    # (MECHB53, MECH99's split: a TIME cut, kept on "hit_cut": each eruption costs 2 + k cast times of channel, so its
+    # uses are fewer, not its hits a use)
     return [mod], [{
         "label": f"{main.name}: each eruption channelled to {best + 1} stages*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM-LOW", "entry": VOLCANO_ENTRY,
@@ -22680,7 +22686,9 @@ def hailstorm_rounds_model(main: Skill | None, stats: dict, boss: tuple[float, s
     factor = target / speed
     upper = made * share(boss_upper[0]) * cap
     uncapped = made * share(boss[0])
-    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=HAILSTORM_ENTRY)], [{
+    mod = raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=HAILSTORM_ENTRY)
+    mod[HIT_CUT_PER_USE] = factor  # (MECHB53, MECH99's split: bolts landing a use, the skill used as often)
+    return [mod], [{
         "label": f"{main.name}: {target:.2f} bolt hits a second on the boss*", "value": f"x{factor:.3f}",
         "confidence": "LOW", "entry": HAILSTORM_ENTRY,
         "basis": (f"PoB scores one bolt hit per attack ({speed:.3f} a second: {number(stats.get('BoltCount')):g} bolts "

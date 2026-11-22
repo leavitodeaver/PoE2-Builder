@@ -6720,9 +6720,11 @@ def test_dark_effigy_fires_one_projectile_per_chaos_dot_debuff_type_not_pobs_one
     and Contagion at their uptimes, Poison once, Decaying Hex (headline); none: no projectiles."""
     debuffs = [("Essence Drain", 1.5, "kept up"), ("Contagion", 0.5, "half the fight")]
     mods, notes = models.dark_effigy_model(debuffs, 2, 0.0, 1.0)
-    assert mods == [models.raw_mod("DPS", "MORE", 100 * (2.5 / 3 - 1), "Vile Effusion")]
+    want = {**models.raw_mod("DPS", "MORE", 100 * (2.5 / 3 - 1), "Vile Effusion"), models.HIT_CUT_PER_USE: 2.5 / 3}
+    assert mods == [want]  # (MECHB53: a hits-a-use cut, MECH99's split)
     assert "2.50 a volley, not PoB's 3" == notes[0]["value"]
-    assert models.dark_effigy_model([], 0, 0.0, 0.0)[0] == [models.raw_mod("DPS", "MORE", -100, "Vile Effusion")]
+    assert models.dark_effigy_model([], 0, 0.0, 0.0)[0] == [{**models.raw_mod("DPS", "MORE", -100, "Vile Effusion"),
+                                                            models.HIT_CUT_PER_USE: 0.0}]
     assert models.dark_effigy_model([("Essence Drain", 1.0, "")], 0, 0.0, 0.0)[0] == []  # (1 = PoB's 1: nothing)
     hexed = models.dark_effigy_model([("Essence Drain", 1.0, "")], 2, 1.0, 0.0)[1][0]
     assert "Decaying Hex not counting, 1.00" in hexed["basis"] and hexed["value"].startswith("2.00")

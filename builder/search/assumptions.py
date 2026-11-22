@@ -4515,7 +4515,7 @@ class Assumptions:
             hail_mods, hail_notes = models.hailstorm_rounds_model(
                 main, hail_stats, bosses_mod.hit_radius(hail_stats), bosses_mod.hit_radius(hail_stats, "upper"), forbidden)
             hand_mods, hand_notes = hand_mods + hail_mods, hand_notes + hail_notes
-            build.main_hit_cut = models.hit_cut_of(hail_mods, getattr(build, "main_hit_cut", None))
+            hit_cut(build, hail_mods, main.name)  # (MECHB53: its bolts landing, a hits-a-use cut: MECH99's split)
         if main is not None and main.name == models.TORNADO:  # (MECHB52: R42-10, its absorbed elemental grounds)
             t_level = next((x.get("levelStats") or {} for x in build.call("activeSkills", levelStats=[main.name])["skills"]
                             if x["name"] == main.name), {})

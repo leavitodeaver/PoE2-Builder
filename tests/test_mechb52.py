@@ -18,8 +18,9 @@ def test_the_hit_cut_is_the_models_dps_more():
              "AreaOfEffectRadiusSecondary": 40}
     mods, notes = models.hailstorm_rounds_model(hail, stats, (0.3, "a"), (1.5, "b"))
     target = (1 / 0.3) * (1.3 / 4) ** 2 * 0.5
-    assert models.hit_cut_of(mods) == pytest.approx(target / 0.634, abs=1e-4)
-    assert models.hit_cut_of(mods, 0.5) == pytest.approx(0.5 * target / 0.634, abs=1e-4)  # (two cuts multiply)
+    # (MECHB53, MECH99's split: Hailstorm's bolts landing are a hits-a-use cut, not time: hit_cut_of skips it)
+    assert models.hits_per_use_of(mods) == pytest.approx(target / 0.634, abs=1e-4) and models.hit_cut_of(mods) is None
+    assert models.hits_per_use_of(mods, 0.5) == pytest.approx(0.5 * target / 0.634, abs=1e-4)  # (two cuts multiply)
     assert "build.main_hit_cut" in notes[0]["basis"]
     assert models.hit_cut_of([]) is None and models.hit_cut_of([], 0.7) == 0.7
     assert models.hit_cut_of([models.raw_mod("Damage", "MORE", -50)]) is None  # (a damage cut isn't a hit cut)
