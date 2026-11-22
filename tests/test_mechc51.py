@@ -873,3 +873,49 @@ def test_probe_a_side_fireball_or_ember_fusillade_shares_the_main_skills_infusio
     assert fire > 0 and "Fireball" in fire_how and "Ember" not in fire_how
     assert lightning > 0 and "Ember Fusillade" in lightning_how and "Fireball" not in lightning_how
     assert cold == 0
+
+
+def test_endurance_supports_text_is_pobs_gem_description():
+    """MECHC53 (conditions.ENDURANCE_SUPPORTS): the keys are the supports' own descriptions, as PoB's data holds them
+    (the build's lines carry them with source "gem:<name>")."""
+    import re as re_mod
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[1] / "vendor" / "PathOfBuilding-PoE2" / "src" / "Data" / "Skills"
+           / "sup_str.lua").read_text(encoding="utf-8")
+    found = set()
+    for name in conditions.ENDURANCE_SUPPORTS:
+        block = src[src.index(f'name = "{name}"'):]
+        found.add(re_mod.search(r'description = "([^"]*)"', block).group(1).strip())
+    assert found == set(conditions.ENDURANCE_SUPPORT_TEXT)
+    stats = {"Speed": 1.5, "HitChance": 100, "CritChance": 10, "enemySkillTime": 1.0, "_full_break_rate": 0.1}
+    texts = sorted(conditions.ENDURANCE_SUPPORT_TEXT)
+    assert all(conditions._charge_rate(t, "Endurance", stats)[0] == 0 for t in texts)  # (not on the main skill)
+    on = {**stats, "_endurance_supports": {"break": (0.2, "Armour Break III")}}
+    brk = next(t for t in texts if "Fully Breaking" in t)
+    assert conditions._charge_rate(brk, "Endurance", on)[0] == pytest.approx(0.02)
+
+
+def test_probe_enduring_impact_gains_at_the_main_skills_heavy_stuns_not_a_flat_rate(engine):
+    """MECHC53: Enduring Impact II on the main skill reaches the Endurance Charge model through its description line, at
+    3 a Heavy Stun of the boss (before: one per 4 s assumed)."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    group = build.main_group()
+    gems = [{"name": g["name"]} for g in group["gems"]] + [{"name": "Enduring Impact II", "level": 20, "quality": 0}]
+    build.call("setGroup", index=group["index"], gems=gems, fields=[])
+    lines = build.call("sourceLines")["lines"]
+    text = next((ln for ln in lines if ln["source"] == "gem:Enduring Impact II"), None)
+    evidence = search.conditions.evidence()
+    held = evidence.get("useEnduranceCharges") or evidence.get("overrideEnduranceCharges")
+    print("PROBE enduring", text, held)
+    assert text is not None and text["text"].strip() in conditions.ENDURANCE_SUPPORT_TEXT
+    assert held is not None and "Enduring Impact II" in held[1] and "one per 4 s" not in held[1]

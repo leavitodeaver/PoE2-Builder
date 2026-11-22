@@ -957,10 +957,49 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
     if "with your shield raised" in full and "lava" in full:
         rate, how = magma_barrier_rate(stats, boss)
         return chance * rate, f"{chance:.0%} x {how}"
+    if (support := ENDURANCE_SUPPORT_TEXT.get(text.strip())) is not None:  # (MECHC53: ENDURANCE_SUPPORTS' note)
+        return endurance_support_rate(support, stats)
     if "block" in full:
         block = boss_hits.block_share(stats, evaded_first=False)
         return chance * boss * block, f"{chance:.0%} x {boss * block:.2f} blocks/s"
     return chance / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed (LOW)"
+
+
+# Endurance Charges from the supports Enduring Impact and Armour Break II / III (MECHC53; the coverage ranking's open
+# gem-stat rows gain_x_endurance_charges_on_heavy_stunning_unique_enemy (score 13.33) and
+# chance_to_gain_endurance_charge_on_armour_break_% (13.33); the manager 10:15: an OVERCOUNT first). Their gem
+# descriptions reach the build's lines (source "gem:<name>") and the generic reader matched them as a gain with no
+# event it knew: one per 4 s assumed (CHARGE_DEFAULT_EVERY), a flat rate where the build decides the rate (CLAUDE.md),
+# against a boss rarely Heavy Stunned or Fully Broken. The game (gem_stat_descriptions; PoB sup_str.lua, game 26650308
+# GrantedEffectStatSets): Enduring Impact "Gain {0} Endurance Charge(s) on Heavily Stunning a Unique Enemy with Supported
+# Skill" (I: 1, II: 3; its "% chance ... a non-Unique Enemy" needs adds: none on a lone boss), Armour Break II / III
+# "{0}% chance to gain an Endurance Charge when Supported Skills Fully Break Armour" (15 / 20). Rated from the build:
+# the main skill's Heavy Stuns of the boss a second (models.heavy_stun_rate) x the count, and the boss's Full Breaks a
+# second (stats["_full_break_rate"], the Armour Break model's) x the chance, when the support is on the main skill
+# (stats["_endurance_supports"], set by Conditions.evidence from the main group's gems); on another skill only: 0, said
+# (that skill's own Heavy Stuns / Breaks aren't rated here: an undercount there).
+ENDURANCE_SUPPORTS = {"Enduring Impact I": ("stun", 1.0), "Enduring Impact II": ("stun", 3.0),
+                      "Armour Break II": ("break", 0.15), "Armour Break III": ("break", 0.20)}
+ENDURANCE_SUPPORT_TEXT = {
+    "Supports any skill that Hits enemies, giving it a chance to gain an Endurance Charge when causing a Heavy Stun.":
+        "stun",
+    "Supports Skills that Hit Enemies, causing those Hits to Break Armour based on a portion of Physical Damage dealt. On "
+    "Fully Breaking Armour with Supported Skills, you have a chance to gain an Endurance Charge.": "break"}
+
+
+def endurance_support_rate(kind: str, stats: dict) -> tuple[float, str]:
+    """(Endurance Charges a second, how) for an ENDURANCE_SUPPORTS support of `kind` ("stun" / "break"); see above."""
+    value, name = (stats.get("_endurance_supports") or {}).get(kind, (0.0, ""))
+    if value <= 0:
+        return 0.0, ("the support isn't on the main skill (another skill's Heavy Stuns / Full Breaks aren't rated here): 0"
+                     if kind else "")
+    if kind == "stun":
+        stuns, how = models.heavy_stun_rate(stats)
+        return value * stuns, (f"{name}: {value:g} a Heavy Stun of the boss (a Unique) x {stuns:.3f} Heavy Stuns/s "
+                               f"({how}); its non-Unique chance needs adds: none on a lone boss")
+    breaks = number(stats.get("_full_break_rate"))
+    return value * breaks, (f"{name}: {value:.0%} x {breaks:.3f} Full Breaks of the boss's Armour/s (the Armour Break "
+                            "model's)" if breaks > 0 else f"{name}: nothing Fully Breaks the boss's Armour: 0")
 
 
 # Magma Barrier (MECHC36; PATCH_CHECK K2-6, an OVERCOUNT): "imbues your Shield with lava over time. When fully imbued,
@@ -10181,6 +10220,15 @@ class Conditions:
                         profusion[line["text"]] = more
         if profusion:
             stats["_profusion"] = profusion
+        main_group = next((g for g in self.build.groups() if g.get("main")), None)  # (MECHC53: ENDURANCE_SUPPORTS' note)
+        if main_group is not None:
+            found_supports = {}
+            for gem in main_group.get("gems") or []:
+                kind, value = ENDURANCE_SUPPORTS.get(gem["name"], (None, 0.0))
+                if kind and gem.get("enabled", True) and value > found_supports.get(kind, (0.0, ""))[0]:
+                    found_supports[kind] = (value, gem["name"])
+            if found_supports:
+                stats["_endurance_supports"] = found_supports
         if any(re.search(r"Frenzy Charge", t, re.I) for t in texts):
             # a main skill that "cannot generate Frenzy Charges" (Ferocity's skill_cannot_generate_frenzy_charges, on the
             # skill or a support of it; MECHC3): its hits feed no Frenzy Charge line (_charge_rate)
