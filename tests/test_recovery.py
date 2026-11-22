@@ -3013,7 +3013,7 @@ def test_a_flagged_twister_grants_on_hit_charges_per_hit_not_per_cast():
     from builder.search.conditions import _charge_rate
 
     stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 50}
-    per = {"_hits_per_use": (2.5, "Twister's twister-count reading")}
+    per = {"_charge_hits_a_use": (2.5, "Twister's twister-count reading")}
     hit = "20% chance to gain a Frenzy Charge on Hit"
     crit = "20% chance to gain a Power Charge on Critical Hit"
     assert _charge_rate(hit, "Frenzy", stats)[0] == pytest.approx(0.4)
@@ -3081,10 +3081,10 @@ def test_a_flagged_main_skill_with_no_hits_a_use_grants_no_on_hit_charges():
 
     stats = {"Speed": 0.8, "HitChance": 100, "CritChance": 0, "_multi_charge": "x"}
     hit = "20% chance to gain a Frenzy Charge on Hit"
-    rate, how = _charge_rate(hit, "Frenzy", {**stats, "_hits_per_use": (0.0, "no Shock: no Orb")})
+    rate, how = _charge_rate(hit, "Frenzy", {**stats, "_charge_hits_a_use": (0.0, "no Shock: no Orb")})
     assert rate == 0.0 and "0.00 hits a use" in how and "at one hit a use: 0.80/s" in how
     bolts = 1.67 * 0.5 / 0.8  # (the Orb up half the fight)
-    assert _charge_rate(hit, "Frenzy", {**stats, "_hits_per_use": (bolts, "x")})[0] == pytest.approx(0.2 * 1.67 * 0.5)
+    assert _charge_rate(hit, "Frenzy", {**stats, "_charge_hits_a_use": (bolts, "x")})[0] == pytest.approx(0.2 * 1.67 * 0.5)
 
 
 def test_a_side_orb_of_storms_bolts_feed_on_hit_charge_lines():

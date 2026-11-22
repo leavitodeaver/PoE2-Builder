@@ -612,7 +612,7 @@ NO_POWER_STAT = "cannot_gain_power_charges_during_skill"
 # added. Read from the main skill's own stats and its supports', so any other carrier counts too. With the flag: added
 # (each hit may grant). The flagged skills' extra hits a use (charges-per-action.md: hits/s of the lingering effect x p):
 # (MECHC44) a flagged Twister main skill's hits on the boss a cast (recovery.twister_hits' headline, the one its DPS
-# uses: MEDIUM-LOW, the open-arena 1 a cast a row) multiply its hits and crits a second (stats["_hits_per_use"]; an
+# uses: MEDIUM-LOW, the open-arena 1 a cast a row) multiply its hits and crits a second (stats["_charge_hits_a_use"]; an
 # UNDERCOUNT before: one hit a cast). Galvanic Field (its "Orb" set; MECHC44, probe POE2T4808): PoB's Speed is its
 # casts (0.80/s on the probe's skeleton) while its DPS runs on HitSpeed (1.67/s, a bolt every 0.6 s: hitTimeOverride)
 # x GEM20's attached share (models.galvanic_orb_uptime: only after another skill Shocks the boss), so hits a cast =
@@ -860,7 +860,10 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
     when = m.group(3).lower()
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
     hits *= _main_share(stats)  # (MECHC44: MAIN_SHARE's note)
-    per_use = stats.get("_hits_per_use") if stats.get("_multi_charge") else None
+    hits *= models.per_use_factor(stats)  # (MECHC52, MECH99's split: a hits-a-use cut, the hit readers only)
+    # (MECHC52: its own key since MECH99's "_hits_per_use" (a float, the per-use cut) took the old one: this tuple there
+    # read as 0 in models.per_use_factor, every hit reader at 0 on a flagged Twister / Galvanic Field main skill)
+    per_use = stats.get("_charge_hits_a_use") if stats.get("_multi_charge") else None
     many = ""
     if per_use is not None:  # (MECHC44: a flagged main skill's hits a use, Twister's twisters, Galvanic Field's bolts)
         many = (f" ({number(per_use[0]):.2f} hits a use, each may grant: {per_use[1]}; at one hit a use: "
@@ -1590,7 +1593,8 @@ def _side_orb_gains(found: list[tuple[str, str, tuple[float, str]]], stats: dict
     for text, source, (rate, _) in found:
         if not SIDE_ORB_HIT.search(text) or SIDE_ORB_NOT.search(text):
             continue
-        bare = {**stats, "_hits_per_use": None, "_main_no_power": None, "_main_no_frenzy": None}
+        bare = {**stats, "_hits_per_use": None, "_charge_hits_a_use": None, "_main_no_power": None,
+                "_main_no_frenzy": None}
         at = _charge_rate(text, source, {**bare, "Speed": number(bolts), "HitChance": 100})
         none = _charge_rate(text, source, {**bare, "Speed": 0.0})
         if at is None or none is None or at[0] - none[0] <= 0:
@@ -1872,10 +1876,46 @@ def consume_all_split(wanted: dict, kind: str, rate: float, most: float, kept: f
 # Channelling" lines count all fight for a channelled main skill and never for anything else. channelling_share = the
 # main skill's share of the fight (assumptions.main_time_share, the time the side presses leave it) if it has the Channel
 # skill type, plus each other enabled, non-triggered group whose skill channels: its presses a second
-# (skill_use_rate: its cooldown, duration or the search's chosen rate, else 0) x CHANNEL_PRESS_SECONDS held a press,
-# at most 1. The hold a press is the player's choice and no data gives it: 1 s, LOW (MECHC1's Rage-channel convention),
-# named in the report; a main channel needs none (its share is the time it's used).
-CHANNEL_PRESS_SECONDS = 1.0
+# (skill_use_rate: its cooldown, duration or the search's chosen rate, else 0) x its hold a press (side_channel_hold),
+# at most 1; a main channel needs none (its share is the time it's used).
+# (MECHC52; THE USER, 21 Nov ~23:45, via the manager: "as long as needed to get the desired result, it changes based on
+# the ability ... for flameblast, you pretty much want to channel that until you get the maximum amount of stages.
+# plasma blast you only want to channel until the shot is ready ... snipe requires you to release with perfect timing";
+# binding: NO flat hold, each channel held to its own payoff point from its data.) MECHC51's flat 1 s a press is gone.
+# side_channel_hold, from the skill's own stats (activeSkills levelStats) and its useRates row:
+#   - a release skill (RELEASE_SKILLS: Perfect Strike, Gathering Storm, Snipe released in the perfect window; Plasma Blast
+#     released when the shot is ready): one attack time (R44-1 / R44-14), from PoB's rate: PoB's time a use is the
+#     attack time x channel_end% for its three override skills (CHANNEL_END_OVERRIDES), the attack time for Plasma Blast;
+#   - a stage skill with a stage time (Incinerate: incinerate_gain_stage_every_x_ms x incinerate_maximum_stages): held
+#     to its maximum stages (MEDIUM; for Incinerate the user's "until the compounded ignites" payoff may come before or
+#     after: MECH99's Compounding model owns that reading);
+#   - a stage skill with only a maximum (Flameblast, Supercharged Slam, Detonating Arrow): its maximum stages x one use
+#     time from PoB's rate (a stage a use time taken: MEDIUM-LOW);
+#   - anything else (a buff or utility channel: Meditate, Parry, Raise Shield, Wither, ...): no payoff point in its data,
+#     so one use time from PoB's rate (LOW), rows at half and double, said.
+CHANNEL_END_OVERRIDES = ("Perfect Strike", "Gathering Storm", "Snipe")  # (PoB's HitTime = AT x channel_end%, R44-1)
+STAGE_MAX_STATS = ("incinerate_maximum_stages", "flameblast_maximum_stages", "channelled_slam_max_stages",
+                   "detonating_arrow_max_number_of_stages")
+STAGE_EVERY_STATS = {"incinerate_maximum_stages": "incinerate_gain_stage_every_x_ms"}
+
+
+def side_channel_hold(name: str, row: dict, level: dict) -> tuple[float, str, str]:
+    """(seconds held a press, how, confidence) for a side channel `name` (CHANNELLING_SHARE's note): `row` its useRates
+    row, `level` its levelStats."""
+    speed = number(row.get("speed"))
+    use = 1 / speed if speed > 0 else 0.0
+    if name in RELEASE_SKILLS:
+        end = number(level.get(models.CHANNEL_END_STAT)) / 100 if name in CHANNEL_END_OVERRIDES else 1.0
+        at = use / end if end > 0 else use
+        return at, f"released at its payoff (the perfect window / the shot ready): one attack time, {at:.2f} s", "MEDIUM"
+    for stat in STAGE_MAX_STATS:
+        if (stages := number(level.get(stat))) > 0:
+            every = number(level.get(STAGE_EVERY_STATS.get(stat, ""))) / 1000
+            if every > 0:
+                return stages * every, f"held to its {stages:g} stages, {every:g} s a stage", "MEDIUM"
+            return stages * use, f"held to its {stages:g} stages, a stage a use time ({use:.2f} s)", "MEDIUM-LOW"
+    return use, (f"no payoff point in its data: one use time from PoB's rate, {use:.2f} s (rows: {use / 2:.2f} s / "
+                 f"{use * 2:.2f} s)"), "LOW"
 
 
 # (MECHC52; MECHB53 via the manager 21:16 21 Nov, an offense OVERCOUNT of "while Channelling" lines) A channel-and-release
@@ -1944,15 +1984,19 @@ def channelling_share(build, main_skill: str | None, main_share: float = 1.0) ->
             and "Channel" in types(n["name"])}
     if side:
         choices = models.press_choices(build)
+        levels = {r.get("name"): r.get("levelStats") or {} for r in build.call(
+            "activeSkills", levelStats=sorted(set(side.values())))["skills"] if r.get("levelStats")}
         for row in build.call("useRates", indices=sorted(side))["rates"]:
             if row.get("triggered"):
                 continue
             uses, why, _ = skill_use_rate(row, choices)
-            held = min(1.0, uses * CHANNEL_PRESS_SECONDS)
+            name = side.get(row.get("index"), "a channelled skill")
+            hold, hold_how, confidence = side_channel_hold(name, row, levels.get(name, {}))
+            held = min(1.0, uses * hold)
             if held > 0:
                 share += held
-                parts.append(f"{side.get(row.get('index'), 'a channelled skill')} {uses:.2f} presses/s ({why}) x "
-                             f"{CHANNEL_PRESS_SECONDS:g} s held a press (LOW) = {held:.0%}")
+                parts.append(f"{name} {uses:.2f} presses/s ({why}) x {hold:.2f} s held a press ({hold_how}; "
+                             f"{confidence}) = {held:.0%}")
     share = min(1.0, share)
     return share, ("; ".join(parts) + f": {share:.0%} channelling") if parts else "no channelled skill: 0"
 
@@ -2330,7 +2374,7 @@ def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, st
         return events * amount, events, (f"{chance:.0%} x {amount:g} Rage per {spend.group(1)} Mana spent, the main skill "
                                          f"spending {rate:.1f}/s (other skills' Mana not counted): {events:.2f} gains/s")
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
-    hits *= _main_share(stats)  # (MECHC44: the main skill at its share of the fight, MAIN_SHARE's note)
+    hits *= _main_share(stats) * models.per_use_factor(stats)  # (MECHC44: at its share; MECHC52: MECH99's per-use cut)
     every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
     # (red-flash hits always land, MECHC5; MECHC20: a gain, so the worst case reads the lowest real boss's landed hits)
     land = boss_hits.gain_hits(stats)[0]
@@ -2541,7 +2585,7 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
         basis += (f", one gain every {gap:.1f} s of {level:.0f} Rage held {pause:.2g} s, then lost {decay:.2g}/s while no "
                   f"boss hit ({land:.2f}/s landing){burning} paused it ({rate:.2g}/s on average): {held:.1f} on average")
     if held > 0 and (lost := number(stats.get("_main_rage_lost_on_crit"))) > 0:
-        crits = models.crits_per_second(stats) * _main_share(stats)  # (MECHC45: at its share of the fight)
+        crits = models.crits_per_second(stats) * _main_share(stats) * models.per_use_factor(stats)  # (MECHC45; MECHC52)
         if crits > 0 and net > 0:
             between = (net / crits) * (1 - math.exp(-crits * most / net)) * min(lost, 100) / 100 + held * (
                 1 - min(lost, 100) / 100)
@@ -2657,7 +2701,7 @@ def _onslaught_source(text: str, lines: list[str], stats: dict) -> tuple[float, 
     duration = float(d.group(1)) if d else ONSLAUGHT_DURATION
     duration *= _buff_scale(stats)  # (MECHC35: "Buffs on you expire N% slower")
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
-    hits *= _main_share(stats)  # (MECHC45: the main skill at its share of the fight, MAIN_SHARE's note)
+    hits *= _main_share(stats) * models.per_use_factor(stats)  # (MECHC45: at its share; MECHC52: the per-use cut)
     every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
     # (red-flash hits always land, MECHC5; MECHC20: a gain, so the worst case reads the lowest real boss's landed hits)
     land = boss_hits.gain_hits(stats)[0]
@@ -3303,9 +3347,9 @@ def _arcane_surge_source(text: str, lines: list[str], stats: dict) -> tuple[floa
         return up, f"{chance:.0%} x {how}, {duration:g} s: {up:.0%} up (kills taken as evenly random, LOW)"
     if re.search(r"minion|shapeshift|\bmines?\b|\btraps?\b", when):
         return 0.0, f"'{when.strip()[:30]}': its rate isn't modelled (0, labelled)"
-    hits = models.hits_per_second(stats) * _main_share(stats)  # (MECHC45: at its share of the fight)
+    hits = models.hits_per_second(stats) * _main_share(stats) * models.per_use_factor(stats)  # (MECHC45; MECHC52)
     if "critical" in when:
-        events, how = models.crits_per_second(stats) * _main_share(stats), "crits"
+        events, how = models.crits_per_second(stats) * _main_share(stats) * models.per_use_factor(stats), "crits"
     elif "hit" in when:
         events, how = hits, "hits"
     elif (named := _named_event(when, stats)) is not None:
@@ -8851,7 +8895,8 @@ class Conditions:
                 row["how"] += "; its Orb's bolts weren't read (no Orb set with a HitSpeed from PoB): 0 hits"
                 continue
             main_rate = (number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
-                         * min(number(stats.get("ShockChancePerHit")), 100.0) / 100.0 * _main_share(stats))
+                         * min(number(stats.get("ShockChancePerHit")), 100.0) / 100.0 * _main_share(stats)
+                         * models.per_use_factor(stats))  # (MECHC52: MECH99's per-use cut)
             shocks, parts = main_rate, ([f"{self.main_skill} {main_rate:.3g} Shocks/s"] if main_rate > 0 else [])
             choices = models.press_choices(self.build)
             for index, other in group_rows.items():
@@ -8997,7 +9042,8 @@ class Conditions:
             self.build.call("setConfig", vars={"physMode": before if before is not None else "AVERAGE"}, fields=[])
         if all(highest_element_shares([r]) == highest_element_shares(reads[:1]) for r in reads):
             reads = reads[:1]  # (no random element: one read)
-        return trinity_affinity(highest_element_shares(reads), models.hits_per_second(stats) * _main_share(stats),
+        return trinity_affinity(highest_element_shares(reads), models.hits_per_second(stats) * _main_share(stats)
+                                * models.per_use_factor(stats),  # (MECHC52: MECH99's per-use cut)
                                 grant)  # (MECHC45: the main skill's hits at its share of the fight)
 
     def _infusion_supply(self, lines: list[dict], bomb: bool = False) -> tuple[dict[str, float], list[str]]:
@@ -9984,7 +10030,7 @@ class Conditions:
                     (main.get("levelStats") or {}).get(MULTI_CHARGE_STAT)):
                 stats["_multi_charge"] = MULTI_CHARGE_STAT
                 if hits_a_use:
-                    stats["_hits_per_use"] = self._hits_per_use()
+                    stats["_charge_hits_a_use"] = self._hits_per_use()  # (MECHC52: its own key, see _charge_rate)
         if any(BLIND_LINE.search(t) for t in texts):
             # a main skill that "cannot themselves inflict Blind" (Blindside's cannot_inflict_blind, on the skill or a
             # support of it; RESEARCH9 / COVE3's OVERCOUNT, MECH55): its hits and crits feed no Blind line (_debuff_source)

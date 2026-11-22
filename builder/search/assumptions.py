@@ -9576,9 +9576,12 @@ class Assumptions:
         if uses <= 0:
             return [], []
         factor = (thrusts * thrust + spent * serpent) / (uses * pob)
-        hits = (thrusts + spent) / uses
         mod = models.raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)
-        mod["hit_cut"] = models._round(hits)
+        # (MECHC52, MECH99's split, MIXED: the thrusts the charges allow are a USE cut ("hit_cut"); the Serpents a thrust
+        # add HITS A USE (models.HIT_CUT_PER_USE: 1 + Serpents / thrust, capped at 1 by the readers until MECH99's
+        # step 3: the lower reading for the ailments))
+        mod["hit_cut"] = models._round(thrusts / uses)
+        mod[models.HIT_CUT_PER_USE] = models._round((thrusts + spent) / thrusts) if thrusts > 0 else 0.0
         per_use = spent / thrusts if thrusts > 0 else 0.0
         note = {
             "label": "Wind Serpent's Fury: a thrust per Frenzy Charge supply, a Serpent per charge*",

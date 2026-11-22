@@ -136,7 +136,8 @@ def test_charges_reaching_splits_the_flow_by_what_each_consumer_asks():
 
 def test_channelling_share_is_the_main_channels_share_plus_side_presses_held(monkeypatch):
     """(MECHC51, the manager's 12:05 ruling) a channelled main skill at its share of the fight; a side channel at its
-    presses x 1 s held (LOW); nothing channelled: 0."""
+    presses x its payoff hold (MECHC52, the user's 23:45 ruling: Incinerate held to its maximum stages, 4 x 0.5 s);
+    nothing channelled: 0."""
     from types import SimpleNamespace
 
     gems = {"Flameblast": {"skillTypes": ["Spell", "Channel"]}, "Spark": {"skillTypes": ["Spell"]},
@@ -150,6 +151,9 @@ def test_channelling_share_is_the_main_channels_share_plus_side_presses_held(mon
                 return {"mainSocketGroup": 1, "groups": [
                     {"index": 1, "gems": [{"name": self.main}, {"name": "Sup"}]},
                     {"index": 2, "gems": [{"name": "Incinerate"}]}, {"index": 3, "gems": [{"name": "Spark"}]}]}
+            if method == "activeSkills":
+                return {"skills": [{"name": "Incinerate", "levelStats": {"incinerate_maximum_stages": 4,
+                                                                          "incinerate_gain_stage_every_x_ms": 500}}]}
             assert method == "useRates" and kw["indices"] == [2]
             return {"rates": [{"index": 2, "speed": 5.0}]}
 
@@ -157,10 +161,10 @@ def test_channelling_share_is_the_main_channels_share_plus_side_presses_held(mon
     monkeypatch.setattr(conditions, "skill_use_rate", lambda row, choices: (0.25, "chosen", False))
     b = B()
     b.main = "Flameblast"
-    share, how = conditions.channelling_share(b, "Flameblast", 0.6)
-    assert share == pytest.approx(0.6 + 0.25) and "LOW" in how
+    share, how = conditions.channelling_share(b, "Flameblast", 0.3)
+    assert share == pytest.approx(0.3 + 0.25 * 2.0) and "4 stages" in how  # (at most 1)
     b.main = "Spark"
-    assert conditions.channelling_share(b, "Spark", 0.9)[0] == pytest.approx(0.25)
+    assert conditions.channelling_share(b, "Spark", 0.9)[0] == pytest.approx(0.5)
     line = "Gain Arcane Surge while Channelling"  # (MECH-C's own "while Channelling" reader takes the share)
     assert conditions._arcane_surge_source(line, [line], {"_channelling_share": 0.4})[0] == pytest.approx(0.4)
 
@@ -495,12 +499,14 @@ def test_probe_wind_serpents_fury_thrusts_at_its_frenzy_supply_and_a_serpent_per
 
     half, mod, note = factor(speed / 2)
     assert half == pytest.approx((0.5 * sets["Thrust"] + 0.5 * sets["Serpent"]) / scored, rel=0.01)
-    assert mod["hit_cut"] == pytest.approx(1.0) and "1.0 a thrust" in note["basis"]
+    assert mod["hit_cut"] == pytest.approx(0.5) and mod[models.HIT_CUT_PER_USE] == pytest.approx(2.0)
+    assert "1.0 a thrust" in note["basis"]  # (MECHC52: MECH99's split, half the uses, two hits each)
     double, mod, _ = factor(2 * speed)
     assert double == pytest.approx((sets["Thrust"] + 2 * sets["Serpent"]) / scored, rel=0.01)
-    assert mod["hit_cut"] == pytest.approx(3.0)
+    assert mod["hit_cut"] == pytest.approx(1.0) and mod[models.HIT_CUT_PER_USE] == pytest.approx(3.0)
     none, mod, note = factor(0.0)
-    assert none == pytest.approx(0.0, abs=1e-6) and mod["hit_cut"] == 0 and "can't be used" in note["play"]
+    assert none == pytest.approx(0.0, abs=1e-6) and mod["hit_cut"] == 0 and mod[models.HIT_CUT_PER_USE] == 0
+    assert "can't be used" in note["play"]
 
 
 def test_boss_pool_note_gives_the_headline_pool_and_the_other_readings_as_rows():
@@ -680,3 +686,32 @@ def test_fist_of_kalguur_shares_the_ward_with_a_supported_side_slam(engine, monk
     print("PROBE kalguur side", pools, row.get("manaCost"), mods, build.kalguur_boosted, notes[0]["basis"])
     assert mods[0]["value"] == pytest.approx(20 * share, rel=0.05)
     assert build.kalguur_boosted["Rolling Slam"] == pytest.approx(share, rel=0.05) == build.kalguur_boosted["Sunder"]
+
+
+def test_side_channel_hold_is_each_skills_payoff_point_not_a_flat_second():
+    """MECHC52 (THE USER, 21 Nov ~23:45: "as long as needed to get the desired result, it changes based on the ability"):
+    a release skill one attack time (PoB's time a use is AT x its end% for Perfect Strike / Gathering Storm / Snipe, AT
+    for Plasma Blast); a stage skill its maximum stages x its stage time, or x one use time; else one use time (LOW)."""
+    hold = conditions.side_channel_hold
+    at, how, conf = hold("Perfect Strike", {"speed": 1 / 0.35}, {models.CHANNEL_END_STAT: 35})
+    assert at == pytest.approx(1.0) and conf == "MEDIUM" and "perfect window" in how
+    assert hold("Plasma Blast", {"speed": 0.5}, {models.CHANNEL_END_STAT: 35})[0] == pytest.approx(2.0)
+    assert hold("Incinerate", {"speed": 4.0}, {"incinerate_maximum_stages": 8,
+                                               "incinerate_gain_stage_every_x_ms": 250})[0] == pytest.approx(2.0)
+    got = hold("Flameblast", {"speed": 2.0}, {"flameblast_maximum_stages": 10})
+    assert got[0] == pytest.approx(5.0) and got[2] == "MEDIUM-LOW"
+    got = hold("Meditate", {"speed": 1.25}, {})
+    assert got[0] == pytest.approx(0.8) and got[2] == "LOW" and "no payoff point" in got[1]
+
+
+def test_charge_hits_a_use_no_longer_clashes_with_the_per_use_cut():
+    """MECHC52: MECHC44's (hits a use, how) tuple for a flagged Twister / Galvanic Field moved to "_charge_hits_a_use";
+    under MECH99's "_hits_per_use" (a float) it read as 0 in models.per_use_factor, so every hit reader through
+    at_main_share saw no hits. Now the tuple leaves the readers alone and MECH99's cut reaches the charge readers."""
+    stats = {"Speed": 2.0, "HitChance": 100, "_main_share": 1.0, "_multi_charge": "x",
+             "_charge_hits_a_use": (2.5, "Twister's twisters")}
+    assert models.at_main_share(stats)["Speed"] == pytest.approx(2.0)
+    line = "Gain a Frenzy Charge on Hit"
+    assert conditions._charge_rate(line, "Frenzy", stats)[0] == pytest.approx(5.0)  # (2 hits/s x 2.5 a use)
+    cut = {**stats, "_charge_hits_a_use": None, "_multi_charge": None, "_hits_per_use": 0.5}
+    assert conditions._charge_rate(line, "Frenzy", cut)[0] == pytest.approx(1.0)  # (MECH99's per-use cut: half)
