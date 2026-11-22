@@ -249,7 +249,7 @@ def test_leyline_cycle_ends_when_the_ward_runs_out_and_waits_8_s():
     """(MECHC51; R42-17) on for the refilled Ward / the drain, off 8 s (or until full), at most the user's 75%."""
     cycle = conditions.leyline_cycle
     assert cycle(1000, 0, 0)[0] == 0.75
-    assert cycle(0, 50, 0)[0] == 0.75 and "UNVERIFIED" in cycle(0, 50, 0)[1]
+    assert cycle(0, 50, 0)[0] == 0.0 and "R44-6" in cycle(0, 50, 0)[1] and "75%" in cycle(0, 50, 0)[1]
     share, how = cycle(400, 100, 0)  # (5% regen: 20/s, 160 back in 8 s = 40%: on 1.6 s / off 8; or full 4 s / off 20)
     assert share == pytest.approx(max(1.6 / 9.6, 4 / 24)) and "R42-17" in how
     assert cycle(10000, 10, 0)[0] == 0.75
@@ -278,3 +278,52 @@ def test_time_of_need_blessings_recover_life_at_their_interval():
     empty = recovery.Income()
     recovery.time_of_need_income(empty, {}, 1.0)
     assert empty.rates["LifeOnEventRecovery"] == 0.0
+
+
+def test_charged_staff_stacks_scale_with_its_skill_effect_duration_and_pob_does_not(engine):
+    """(MECHC51; R44-5) +50% Skill Effect Duration: PoB's DPS at 3 Power Charges held doesn't move (its stacks follow the
+    held count only), and the model's stacks go x1.5 (0.5 charges/s x 6 s x 1.5 = 4.5)."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Falling Thunder", ascendancies=["Invoker"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Falling Thunder"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.set_group(gems=[{"name": a.CHARGED_STAFF, "level": 20, "quality": 0}])
+    longer = [models.raw_mod("Duration", "INC", 50, tag="Probe")]
+    build.set_config({"usePowerCharges": True, "overridePowerCharges": 3})
+    build.call("setAssumptions", mods=[], fields=[])
+    plain = build.call("stats", fields=["TotalDPS"])["TotalDPS"]
+    build.call("setAssumptions", mods=longer, fields=[])
+    assert build.call("stats", fields=["TotalDPS"])["TotalDPS"] == pytest.approx(plain)
+    build.set_config({"usePowerCharges": False, "overridePowerCharges": 0})
+    build.call("setAssumptions", mods=longer, fields=[])
+    build.consume_all = {"Power": {a.CHARGED_STAFF: (0.5, 0.2, "stand-in")}}
+    skills = build.call("activeSkills")["skills"]
+    found = [models.Skill.of(s) for s in skills if not s["disabled"]]
+    main = build.main_group()
+    skill = next(s for s in found if s.group == main["index"])
+    mods, notes = search.assumptions.charged_staff(skills, skill)
+    print("PROBE charged staff duration", plain, mods, notes[0]["value"], notes[0]["basis"])
+    assert "4.5 stacks" in notes[0]["value"] and "flat 6 s (LOW): 3.0" in notes[0]["basis"]
+
+
+def test_surge_rate_is_the_supply_or_the_uses_whichever_is_lower():
+    """(MECHC51, for MECH-B's Double Vision) batches over the cap waste the excess; a not-consume chance stretches the
+    supply; no gain or no qualifying use: 0."""
+    rate = conditions.surge_rate
+    assert rate(0.5, 4, 3.0)[0] == pytest.approx(2.0)
+    assert rate(0.5, 4, 1.0)[0] == pytest.approx(1.0)
+    assert rate(0.5, 8, 10.0)[0] == pytest.approx(3.0)  # (cap 6)
+    assert rate(0.5, 4, 10.0, 0.5)[0] == pytest.approx(4.0)
+    assert rate(0, 4, 1)[0] == 0.0 and rate(1, 4, 0)[0] == 0.0
+
+
+def test_virtuous_barrier_draws_on_full_types_are_wasted_in_the_headline():
+    """(MECHC51; R44-8) per-type chains hold fewer Motes than the pooled one (the row)."""
+    per = sum(a.mote_steady_state(1 / 1.5 / 3, 0.5 * m / 11, m) for m in (5, 3, 3))
+    assert per < a.mote_steady_state(1 / 1.5, 0.5, 11)

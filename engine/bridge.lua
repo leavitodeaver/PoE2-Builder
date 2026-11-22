@@ -4666,6 +4666,9 @@ function bridge.useRates(args)
 				minionSpeed = env.minion and env.minion.output and type(env.minion.output.Speed) == "number"
 					and jsonNumber(env.minion.output.Speed) or nil,
 				duration = output.Duration and jsonNumber(output.Duration) or nil,
+				-- (MECHC51, R44-5) the skill's Skill Effect Duration multiplier (CalcOffence's DurationMod), for a
+				-- duration the skill's own data doesn't carry (Charged Staff's 6 s a Power Charge)
+				durationMod = type(output.DurationMod) == "number" and jsonNumber(output.DurationMod) or nil,
 				-- (MECHB39: models.totem_deaths) a totem skill's own totem duration with the build's modifiers
 				totemDuration = type(output.TotemDuration) == "number" and jsonNumber(output.TotemDuration) or nil,
 				-- (MECHB40: models.tawhoa_model) a totem skill's totem's Life with the build's modifiers (PoB's TotemLife,

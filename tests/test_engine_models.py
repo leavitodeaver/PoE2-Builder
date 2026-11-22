@@ -3104,7 +3104,7 @@ def test_zenith_on_the_main_spell_counts_at_its_share_above_ninety_percent_mana(
     assert ZENITH_STAT
 
 
-def test_leylines_count_at_the_users_seventy_five_percent_with_inside_and_outside_rows(engine):
+def test_leylines_count_at_the_users_seventy_five_percent_with_inside_and_outside_rows(engine, monkeypatch):
     """MECHC26 (PATCH_CHECK MA-11; THE USER, 15 Nov: "assume you're trying to stand in them if you take the ability, so
     75% with a note in the build result showing dps for both inside and outside"): the Leylines gem switches PoB's "on a
     Leyline" box on at 75% of the fight (weigh_uptimes), and the play guide gives DPS inside (100%) and outside (0%)."""
@@ -3114,6 +3114,14 @@ def test_leylines_count_at_the_users_seventy_five_percent_with_inside_and_outsid
     build = search.build
     assert "onLeyline" not in search.conditions.active
     build.call("addSkillGroup", text="Leylines 20/0 1")
+    search.settle()
+    # (MECHC51, RESEARCH44 R44-6) the bare build has no Runic Ward: a Leyline dissipates at once, no bonus
+    print("PROBE leylines no Ward", search.conditions.active.get("onLeyline"), search.conditions.uptimes.get("onLeyline"))
+    assert not search.conditions.uptimes.get("onLeyline")
+    # with a Ward pool its drain can't empty (conditions.leyline_cycle), the user's 75% stands
+    from builder.search import conditions as conditions_mod
+
+    monkeypatch.setattr(conditions_mod.Conditions, "_leyline_inputs", lambda self: (100000.0, 10.0, 0.0))
     search.settle()
     print("PROBE leylines", search.conditions.active.get("onLeyline"), search.conditions.uptimes.get("onLeyline"))
     assert search.conditions.uptimes.get("onLeyline") == pytest.approx(0.75)

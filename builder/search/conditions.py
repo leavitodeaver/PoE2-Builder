@@ -1910,6 +1910,39 @@ def channelling_share(build, main_skill: str | None, main_share: float = 1.0) ->
     return share, ("; ".join(parts) + f": {share:.0%} channelling") if parts else "no channelled skill: 0"
 
 
+# (MECHC51, the manager 16:30: Surges are MECH-C's; for MECH-B's Double Vision / Gemini Surge, and Elemental / Chaotic
+# Surge after it; plans/term-trigger-elemental-surge.md, un-double-vision-surges.md) KeywordPopups Surge: "Elemental
+# Surges are consumed when you use a non-[Melee] [Projectile] [Attack] to suffuse the [Projectile|Projectiles] fired by
+# that [Attack] ... Your weapon can have a maximum of 6 of each type of Surge active by default. Surges last 15 seconds".
+# One type at a time: gains arrive in batches (events a second x Surges a batch); a batch above the cap wastes the excess
+# (min(batch, cap) kept: a batch lands on a store the uses keep low, the higher reading where uses can't keep up, LOW);
+# each qualifying use takes one Surge, kept on a not-consume chance c (so a Surge serves 1 / (1 - c) uses); Surges the uses
+# don't take expire (15 s) or wait at the cap. Suffused uses a second = min(the uses, supply / (1 - c)). Which uses
+# qualify (non-Melee Projectile Attacks with the weapon, not Split / Fork) and blasts per use are the caller's (MECH-B).
+SURGE_CAP, SURGE_SECONDS = 6, 15.0
+
+
+def surge_rate(events: float, per_event: float, uses: float, not_consumed: float = 0.0,
+               cap: float = SURGE_CAP) -> tuple[float, str]:
+    """(suffused uses a second of one Surge type, how): SURGE's note. `events`: gain events a second (reloads, charges
+    consumed); `per_event`: Surges of this type a gain; `uses`: the qualifying uses a second."""
+    events, per_event, uses = max(events, 0.0), max(per_event, 0.0), max(uses, 0.0)
+    if events <= 0 or per_event <= 0:
+        return 0.0, "no Surge gained (no gain event or none a gain): 0"
+    if uses <= 0:
+        return 0.0, "no qualifying use (a non-Melee Projectile Attack with the weapon) consumes the Surges: 0"
+    kept = min(per_event, cap)
+    supply = events * kept
+    c = min(max(not_consumed, 0.0), 0.95)
+    served = supply / (1 - c)
+    rate = min(uses, served)
+    return rate, (f"{events:.2f} gains/s x {kept:g} Surges" + (f" (of {per_event:g}, the cap {cap:g})" if kept < per_event
+                                                             else "")
+                  + f" = {supply:.2f}/s" + (f", each serving {1 / (1 - c):.2f} uses ({c:.0%} not consumed)" if c else "")
+                  + f", against {uses:.2f} qualifying uses/s: {rate:.2f} suffused uses/s"
+                  + ("" if served <= uses else f" (the rest wait at the cap or expire after {SURGE_SECONDS:g} s)"))
+
+
 def charges_reaching(build, kind: str, name: str) -> tuple[float, str]:
     """(MECHC51, for MECH-B: Raise Zombie's Power Charge supply) (the charges of `kind` a second that reach consumer
     `name`, how), from the charge model's last round (Conditions.evidence: build.charge_flow, the charges consumed a
@@ -2632,8 +2665,9 @@ LEYLINE_BASIS = ("on a Leyline 75% of the fight (the user, 15 Nov: a player who 
 # for the Ward refilled x W / d (d the drain), off for the 8 s (Ward recovering at r: the build's Runic Ward a second,
 # Assumptions.ward_paid's every-source total where it ran, else KeywordPopups' 5% of maximum a second), the refill f =
 # min(1, r x 8 / W); or off until full (max(8, W / r)), whichever keeps you on longer: on / (on + off), at most the
-# user's 75% (the ceiling, R42-17's change). No drain: 75%. No Runic Ward: whether the lines dissipate at once is
-# UNVERIFIED (the text says running out does): the 75% kept, a 0% row (CLAUDE.md: no zero on an unverified claim).
+# user's 75% (the ceiling, R42-17's change). No drain: 75%. No Runic Ward: 0 (RESEARCH44 R44-6, MEDIUM-LOW: "Running
+# out of Runic Ward causes the energy to temporarily dissipate" and nothing grants the bonus without Ward), the 75% a
+# row; labelled, not a verified zero.
 LEYLINE_RESPAWN = 8.0
 LEYLINE_WARD_REGEN = 0.05  # (KeywordPopups Ward: 5% of maximum a second)
 
@@ -2642,9 +2676,10 @@ def leyline_cycle(ward: float, drain: float, regen: float) -> tuple[float, str]:
     """(the share of the fight on a Leyline, how) from the Ward pool, the drain and the Ward recovery a second."""
     if drain <= 0:
         return LEYLINE_UPTIME, LEYLINE_BASIS
-    if ward <= 0:
-        return LEYLINE_UPTIME, (LEYLINE_BASIS + "; no Runic Ward: whether the lines dissipate at once is UNVERIFIED "
-                                "(row: 0%)")
+    if ward <= 0:  # (RESEARCH44 R44-6, MEDIUM-LOW: running out of Ward dissipates the line; no source gives the bonus
+        # without Ward)
+        return 0.0, ("no Runic Ward: a Leyline dissipates as you step on it (running out of Ward dissipates it; "
+                     "RESEARCH44 R44-6, MEDIUM-LOW), so no Spell bonus. Row: the user's 75% standing in them")
     regen = max(regen, LEYLINE_WARD_REGEN * ward)
     refill = min(1.0, regen * LEYLINE_RESPAWN / ward)
     quick = (refill * ward / drain) / (refill * ward / drain + LEYLINE_RESPAWN)
@@ -2654,7 +2689,7 @@ def leyline_cycle(ward: float, drain: float, regen: float) -> tuple[float, str]:
     return share, (f"on a Leyline {share:.0%} of the fight: its {drain:.0f} Ward/s drain empties your {ward:.0f} Runic "
                    f"Ward (no recovery on a line) and the lines come back {LEYLINE_RESPAWN:g} s later, the Ward "
                    f"recovering {regen:.1f}/s meanwhile ({refill:.0%} refilled): back on at once {quick:.0%}, or off "
-                   f"until full {full:.0%}; at most the user's 75% (R42-17)")
+                   f"until full {full:.0%}; at most the user's 75% (R42-17; the ceiling: {LEYLINE_BASIS})")
 
 
 def leyline_uptime(lines: list[str], stats: dict) -> tuple[object, str, float]:

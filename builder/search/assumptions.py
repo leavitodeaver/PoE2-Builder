@@ -479,9 +479,9 @@ BLAZING_TAG = "BlazingCritical"
 # spends a second (conditions.consume_all_split: what the other consumers leave, at most its presses x the maximum) x
 # charged_staff_buff_duration_per_stack_ms (6 s; Little's law: each spent charge is one stack for 6 s), and PoB's held
 # count is taken back: LightningMin / Max BASE per-stack x (S - held). Only on an Attack main skill (the buff adds to
-# Quarterstaff Attacks; PoB's mod reaches a Spell main skill too, an OVERCOUNT taken back). Whether increased Skill
-# Effect Duration lengthens the 6 s is UNVERIFIED (its quality stat is skill_effect_duration_+%): base taken, the lower
-# reading. PoB's ConsumedPowerChargeEffect scalar (chance_%_to_double_effect_of_removing_charges) isn't read on the added
+# Quarterstaff Attacks; PoB's mod reaches a Spell main skill too, an OVERCOUNT taken back). The 6 s x the staff's Skill
+# Effect Duration (RESEARCH44 R44-5, MEDIUM-HIGH: its quality is "increased Skill Effect Duration" and the buff is its
+# only duration; PoB's DurationMod for its group, the bridge's useRates durationMod), the flat 6 s a LOW row. PoB's ConsumedPowerChargeEffect scalar (chance_%_to_double_effect_of_removing_charges) isn't read on the added
 # part (UNVERIFIED, a small undercount where a build has it). The shockwave (ChargedStaffShockwavePlayer, hidden in PoB,
 # no trigger wired) is MECH-B's (a triggered skill): not counted here.
 # (MECHC51; MECHB51's routed item: an UNDERCOUNT) Fist of Kalguur (SupportFistOfKalguurPlayer, PoB other.lua): "Supports
@@ -505,8 +505,9 @@ FIST_OF_KALGUUR_TAG = "FistOfKalguur"
 # attribute of a two-attribute one) as the buff's Multipliers. Now the Motes held on average are the steady state of a
 # gain every T s against the boss's landed hits a second h (recovery.landed_hits: its own uses, 2/3 of the dodgeable
 # ones dodged, red-flash avoided, after PoB's evade and block; the worst case at the defence cadence): a birth-death
-# chain on 0..M Motes, pi_n ~ rho^n, rho = (1 / T) / h, E = sum n pi_n; each type at E / M of its count (random gains and
-# losses: proportional, MEDIUM), PoB's Multipliers taken back by M_x x (1 - E / M) (Multiplier:<Attr>MoteSkillCount BASE).
+# chain on 0..M Motes, pi_n ~ rho^n, rho = (1 / T) / h, E = sum n pi_n; since RESEARCH44 R44-8 (the draw UNVERIFIED)
+# each type its own chain (drawn alike, a draw on a full type wasted: the lower-defence headline), the pooled chain a
+# row; PoB's Multipliers taken back to each type's mean (Multiplier:<Attr>MoteSkillCount BASE).
 # Rows: blocked hits costing a Mote too (R42-4: probably yes, LOW; not in the headline, which is PoB's landed hits); the
 # fight starting full (Motes persist between areas, 0.5.1): more early. No landed hit: PoB's full count stands.
 VIRTUOUS_BARRIER = "Virtuous Barrier"
@@ -6413,6 +6414,11 @@ class Assumptions:
         costly = [s for s in skills if s.get("wardCost") and not s["disabled"] and s.get("group")]
         march = getattr(self, "eternal_march_use", None)  # (MECHB41: Eternal March spends the same Runic Ward)
         if not costly and not (march and march[0] > 0 and march[1] > 0):
+            # (MECHC51, the manager 16:30: published with no Ward-cost skill too, for the Ward readers beside it:
+            # Fist of Kalguur's boosts, the Leylines cycle; only when one of them is on the build: no bridge call else)
+            if self._ward_income_wanted(skills, main):
+                income = self._ward_income(skills, mods, main, [])[0]
+                build.ward_sustain = {"WardRecoveryPerSecond": income, "_share": 1.0}
             return mods, []
         by_index = {g["index"]: g for g in build.groups()}
         main_group = build.main_group()
@@ -6459,6 +6465,40 @@ class Assumptions:
                 skipped.append(name)
         if march and march[0] > 0 and march[1] > 0:  # (its own kind: no DPS to scale, its revives read the share)
             uses.append(models.WardUse(models.ETERNAL_MARCH, "revive", march[0], march[1]))
+        income, parts, unread, pool = self._ward_income(skills, mods, main, uses)
+        share, notes = models.ward_plan(uses, income, pool, parts, unread)
+        build.ward_sustain = {u.name: (u.rate, u.rate * share, u.cost) for u in uses}
+        # (the total, every source: the one field SEARCH reads; its breakdown is in the note)
+        build.ward_sustain.update({"WardRecoveryPerSecond": income, "_share": share})
+        if skipped and notes:
+            notes[0]["basis"] += f". Not counted against it: {', '.join(sorted(set(skipped)))} (not used for damage here)"
+        if share >= 1.0:
+            return mods, notes
+        out = []
+        for mod in mods:
+            if mod.get("kind") == "SkillData" and mod.get("key") == "triggerRate"                     and any(u.kind == "triggered" and u.name == mod.get("skill") for u in uses):
+                mod = {**mod, "value": models._round(number(mod.get("value")) * share)}
+            out.append(mod)
+        for u in uses:
+            if u.kind in ("main", "full"):
+                out.append(models.raw_mod("DPS", "MORE", 100 * (share - 1), u.name))
+            elif u.kind == "pressed":  # (its Full DPS entry and its ailments' entries, a lower bound for the stacks)
+                for key in [k for k in scales if k == u.name or k.endswith(f" from {u.name}")]:
+                    scales[key] *= share
+        notes += self.ward_freed_time(uses, share, press_rows, main, main_index, scales)
+        return out, notes
+
+    def _ward_income_wanted(self, skills: list[dict], main: str | None) -> bool:
+        """(MECHC51) whether a Ward reader beside ward_paid needs the build's Ward income: Leylines on the build, or a
+        Slam main skill (Fist of Kalguur's boosts; kalguur_boost checks the support)."""
+        return any(s.get("name") == conditions_mod.LEYLINES and not s.get("disabled") for s in skills) or any(
+            s.get("name") == main and not s.get("disabled") and s.get("slam") for s in skills)
+
+    def _ward_income(self, skills: list[dict], mods: list[dict], main: str | None, uses: list
+                     ) -> tuple[float, list[str], list[str], float]:
+        """(Runic Ward a second from every source, its parts, its unread lines, the maximum Ward): ward_paid's income
+        (MECHB13 / 14 / 41 / 48), split out by MECHC51 so it can run without a Ward-cost skill."""
+        build = self.build
         from builder.search import bosses
 
         boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
@@ -6483,27 +6523,7 @@ class Assumptions:
             block=number(pools.get("EffectiveBlockChance")), every=bosses.benefit_skill_time(pools),  # (a "when hit" benefit, MECHD4)
             rage_reaches=getattr(build, "rage_max_reaches", None),  # (MECHB48: MECHC47's reaches of Maximum Rage)
             **feeds)
-        share, notes = models.ward_plan(uses, income, pool, parts, unread)
-        build.ward_sustain = {u.name: (u.rate, u.rate * share, u.cost) for u in uses}
-        # (the total, every source: the one field SEARCH reads; its breakdown is in the note)
-        build.ward_sustain.update({"WardRecoveryPerSecond": income, "_share": share})
-        if skipped and notes:
-            notes[0]["basis"] += f". Not counted against it: {', '.join(sorted(set(skipped)))} (not used for damage here)"
-        if share >= 1.0:
-            return mods, notes
-        out = []
-        for mod in mods:
-            if mod.get("kind") == "SkillData" and mod.get("key") == "triggerRate"                     and any(u.kind == "triggered" and u.name == mod.get("skill") for u in uses):
-                mod = {**mod, "value": models._round(number(mod.get("value")) * share)}
-            out.append(mod)
-        for u in uses:
-            if u.kind in ("main", "full"):
-                out.append(models.raw_mod("DPS", "MORE", 100 * (share - 1), u.name))
-            elif u.kind == "pressed":  # (its Full DPS entry and its ailments' entries, a lower bound for the stacks)
-                for key in [k for k in scales if k == u.name or k.endswith(f" from {u.name}")]:
-                    scales[key] *= share
-        notes += self.ward_freed_time(uses, share, press_rows, main, main_index, scales)
-        return out, notes
+        return income, parts, unread, pool
 
     def ward_freed_time(self, uses: list, share: float, press_rows: dict, main: str | None, main_index: int | None,
                         scales: dict) -> list[dict]:
@@ -9136,19 +9156,30 @@ class Assumptions:
                 **bosses.kill_stats(boss)}
         hits, how = recovery.landed_hits(read)
         blocked, _ = recovery.landed_hits({**read, "EffectiveBlockChance": 0})
-        held = mote_steady_state(1 / every, hits, most)
-        held_blocked = mote_steady_state(1 / every, blocked, most)
+        # (RESEARCH44 R44-8, UNVERIFIED: "Gains a random Mote", no stated draw) the headline the lower-defence reading:
+        # each Mote drawn from the three types alike, a draw on a full type wasted; each type its own chain (a gain
+        # every 3T s, its losses its count's share of the hits). Row: drawn only among types below their maximum (the
+        # pooled chain on 0..M, each type at the same share).
+        types = [x for x in counts if counts[x] > 0]
+        own = {x: mote_steady_state(1 / every / len(types), hits * counts[x] / most, counts[x]) for x in types}
+        held = sum(own.values())
+        pooled = mote_steady_state(1 / every, hits, most)
+        held_blocked = sum(mote_steady_state(1 / every / len(types), blocked * counts[x] / most, counts[x])
+                           for x in types)
         f = held / most if most else 1.0
-        mods = ([models.raw_mod(f"Multiplier:{VIRTUOUS_MULTIPLIERS[x]}", "BASE", -counts[x] * (1 - f), tag=VIRTUOUS_TAG)
-                 for x in counts if counts[x] > 0] if f < 1 else [])
+        mods = [models.raw_mod(f"Multiplier:{VIRTUOUS_MULTIPLIERS[x]}", "BASE", -(counts[x] - own[x]), tag=VIRTUOUS_TAG)
+                for x in types if own[x] < counts[x] - 1e-9]
         note = {
             "label": "Virtuous Barrier: its Motes under the boss's hits*",
             "value": f"{held:.1f} of {most} Motes held on average ({f:.0%}; PoB: all {most})",
-            "basis": (f"a Mote every {every:.2f} s against {hits:.2f} landed hits a second ({how}), one lost a hit: the "
-                      f"steady state of a 0-{most} chain. Each type at {f:.0%} of its count (Str {counts['Str']}, Dex "
-                      f"{counts['Dex']}, Int {counts['Int']}). Rows: blocked hits costing a Mote too (R42-4, LOW): "
-                      f"{held_blocked:.1f}; the fight starts full (Motes persist between areas): more early on"),
-            "confidence": "MEDIUM (the text HIGH; the boss's hits MEDIUM-LOW)",
+            "basis": (f"a Mote every {every:.2f} s against {hits:.2f} landed hits a second ({how}), one lost a hit. Each "
+                      "type drawn alike, a draw on a full type wasted (RESEARCH44 R44-8: the draw UNVERIFIED, the "
+                      "lower-defence reading): "
+                      + ", ".join(f"{x} {own[x]:.1f} of {counts[x]}" for x in types)
+                      + f". Rows: drawn only among types below their maximum: {pooled:.1f}; blocked hits costing a Mote "
+                      f"too (R42-4, LOW): {held_blocked:.1f}; the fight starts full (Motes persist between areas): more "
+                      "early on"),
+            "confidence": "MEDIUM-LOW (the text HIGH; the draw UNVERIFIED; the boss's hits MEDIUM-LOW)",
             "play": f"Virtuous Barrier: each hit you take costs a Mote; about {held:.1f} of {most} held against this boss"}
         return mods, [note]
 
@@ -9172,7 +9203,14 @@ class Assumptions:
         seconds = (number(level.get(CHARGED_STAFF_MS)) or 6000.0) / 1000
         spent, presses, how = ((getattr(build, "consume_all", None) or {}).get("Power") or {}).get(
             CHARGED_STAFF, (0.0, 0.0, "no Power Charge source, or Charged Staff has no press rate"))
-        stacks = number(spent) * seconds
+        # (R44-5, MEDIUM-HIGH) the 6 s a charge x the staff's own Skill Effect Duration (PoB's DurationMod for its
+        # group, the bridge's useRates row): PoB's stacks follow the held count only (no duration in them: probe in
+        # test_mechc51), so nothing is scaled twice. Row: the flat 6 s (LOW).
+        group = next((s.get("group") for s in skills if s.get("name") == CHARGED_STAFF and not s.get("disabled")), None)
+        rows = build.call("useRates", indices=[group])["rates"] if group else []
+        scale = number((rows[0] if rows else {}).get("durationMod")) or 1.0
+        flat = number(spent) * seconds
+        stacks = flat * scale
         config = build.call("getConfig")["input"]
         held = number(config.get("overridePowerCharges")) if config.get("usePowerCharges") else 0.0
         attack = bool(main is not None and main.attack) and not ignored
@@ -9185,10 +9223,10 @@ class Assumptions:
                       "Quarterstaff Attacks" if attack else (
                           f"no effect on the main skill ({main.name} is ignored by Charged Staff)" if ignored
                           else "no effect on the main skill (not an Attack)")),
-            "basis": (f"{how}; each spent charge is a {seconds:g} s stack (one shared buff, RESEARCH41 R41-6): "
-                      f"{number(spent):.2f}/s x {seconds:g} s = {stacks:.1f}. Row: PoB's reading, the "
-                      f"{held:g} Power Charges held as stacks ({low * held:.0f}-{high * held:.0f}). Whether Skill Effect "
-                      "Duration lengthens the 6 s is UNVERIFIED (base taken)"),
+            "basis": (f"{how}; each spent charge is a {seconds:g} s stack x its Skill Effect Duration x{scale:.2f} (one "
+                      f"shared buff, RESEARCH41 R41-6; the duration RESEARCH44 R44-5, MEDIUM-HIGH): {number(spent):.2f}/s "
+                      f"x {seconds * scale:.2f} s = {stacks:.1f}. Rows: the flat {seconds:g} s (LOW): {flat:.1f} stacks; "
+                      f"PoB's reading, the {held:g} Power Charges held as stacks ({low * held:.0f}-{high * held:.0f})"),
             "confidence": "MEDIUM (game numbers; the stacks as charges spent x 6 s)",
             "play": (f"Charged Staff: press it to spend your Power Charges as they come (its press rate "
                      f"{number(presses):.2f}/s): {stacks:.1f} stacks up; without it, none" if attack else "")}
