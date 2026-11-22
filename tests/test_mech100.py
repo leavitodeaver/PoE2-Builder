@@ -65,3 +65,31 @@ def test_neural_overload_or_voltaic_mark_electrocute_the_primed_boss():
     assert share > models.immobilised_share(stats, "Electrocute")[0] and "Voltaic Mark" in how
     assert models.immobilise_period({**stats, "_electrocute_primed": "Neural Overload"}, "Freeze") == \
         models.immobilise_period(stats, "Freeze")  # (Electrocute only)
+
+
+def test_a_tagged_uses_raise_reaches_the_readers_past_the_time_cuts_clamp():
+    """MECH100 (the manager 12:00, MECHB55's three: Explosive Rhythm, the Last Lament's last bolt, Forge Hammer's loop):
+    a "DPS" MORE tagged USES_RAISE is more uses a second, each one hit: never in build.main_hit_cut (clamped to [0, 1]),
+    but on build.main_uses_raise, and at_main_share raises the main skill's Speed by it for every reader."""
+    from types import SimpleNamespace
+
+    raise3 = {"name": "DPS", "type": "MORE", "value": 200.0, "skill": "Forge Hammer", models.USES_RAISE: 3.0}
+    cut = {"name": "DPS", "type": "MORE", "value": -50.0, "skill": "Forge Hammer"}
+    assert models.hit_cut_of([raise3]) is None and models.hit_cut_of([raise3, cut]) == 0.5
+    assert models.uses_raise_of([raise3, cut]) == 3.0 and models.uses_raise_of([cut]) is None
+    assert models.uses_raise_of([raise3], skill="Other") is None
+    build = SimpleNamespace()
+    assumptions.hit_cut(build, [raise3, cut], "Forge Hammer")
+    assert build.main_hit_cut == 0.5 and build.main_uses_raise == 3.0 and build.main_hits_per_use is None
+    stats = {"Speed": 2.0, "HitChance": 100, "_main_share": 0.5}
+    assert models.at_main_share({**stats, "_uses_raise": 3.0})["Speed"] == pytest.approx(3.0)
+    assert models.at_main_share({**stats, "_uses_raise": 3.0}, per_use=False)["Speed"] == pytest.approx(3.0)
+    assert models.at_main_share({**stats, "_uses_raise": None})["Speed"] == pytest.approx(1.0)
+    assert models.at_main_share({"Speed": 2.0, "_uses_raise": 0.5})["Speed"] == 2.0  # (a raise, never a cut)
+    assert models.at_main_share({"Speed": 2.0})["Speed"] == 2.0  # (untouched: no share, no raise)
+    once = models.at_main_share({**stats, "_uses_raise": 3.0})
+    assert models.at_main_share(once)["Speed"] == once["Speed"]  # (applied once)
+    shock = {"Speed": 1.0, "HitChance": 100, "ElectrocuteBuildupAvg": 5.0}
+    assert models.immobilise_period({**shock, "_uses_raise": 3.0}, "Electrocute") < \
+        models.immobilise_period(shock, "Electrocute")
+

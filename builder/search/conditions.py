@@ -1594,7 +1594,7 @@ def _side_orb_gains(found: list[tuple[str, str, tuple[float, str]]], stats: dict
         if not SIDE_ORB_HIT.search(text) or SIDE_ORB_NOT.search(text):
             continue
         bare = {**stats, "_hits_per_use": None, "_charge_hits_a_use": None, "_main_no_power": None,
-                "_main_no_frenzy": None}
+                "_main_no_frenzy": None, "_uses_raise": None}  # (MECH100: the main skill's uses raise isn't the orb's)
         at = _charge_rate(text, source, {**bare, "Speed": number(bolts), "HitChance": 100})
         none = _charge_rate(text, source, {**bare, "Speed": 0.0})
         if at is None or none is None or at[0] - none[0] <= 0:
@@ -9842,6 +9842,7 @@ class Conditions:
                             if types == main_types or (hollow and name == HOLLOW_FORM)
                             else None)  # (None: rated from its group below)
                     consumers.setdefault(kind, {})[name] = uses
+        stats["_uses_raise"] = getattr(self.build, "main_uses_raise", None)  # (MECH100: models.USES_RAISE)
         if CREEPING_CHILL in gem_types:  # (MECH93: the support makes its crystal skill spend Power Charges; see
             # CREEPING_CHILL's note: PoB adds SkillConsumesPowerChargesOnUse at run time, the gem data above lacks it)
             for name in self._creeping_chill_skills():

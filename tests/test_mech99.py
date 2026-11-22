@@ -63,7 +63,7 @@ def test_an_untagged_model_reads_exactly_as_before_the_per_use_split():
     stats = {"Speed": 5.0, "HitChance": 80, "_main_share": 0.5}
     for per_use in (True, False):
         assert models.at_main_share(stats, per_use=per_use) == {"Speed": 2.5, "HitChance": 80, "_main_share": None,
-                                                               "_hits_per_use": None}
+                                                               "_hits_per_use": None, "_uses_raise": None}
     assert models.at_main_share({"Speed": 5.0}) == {"Speed": 5.0}  # (no share, no factor: the same dict)
     assert models.at_main_share({"Speed": 5.0, "_main_share": None, "_hits_per_use": None})["Speed"] == 5.0
 

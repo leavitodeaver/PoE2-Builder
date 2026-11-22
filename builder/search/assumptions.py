@@ -1619,6 +1619,8 @@ def hit_cut(build: Build, mods: list[dict], main: str | None) -> None:
         build.main_hit_cut = models.hit_cut_of(mods, getattr(build, "main_hit_cut", None), main)
         # (MECH99: a mod tagged models.HIT_CUT_PER_USE cuts its hits a use, not its time: the hit readers only)
         build.main_hits_per_use = models.hits_per_use_of(mods, getattr(build, "main_hits_per_use", None), main)
+        # (MECH100: a mod tagged models.USES_RAISE raises its uses a second, past the time cut's clamp)
+        build.main_uses_raise = models.uses_raise_of(mods, getattr(build, "main_uses_raise", None), main)
 
 
 def dark_effigy(build: Build) -> tuple[list[dict], list[dict]]:
@@ -3339,6 +3341,7 @@ class Assumptions:
         build = self.build
         build.main_hit_cut = None  # (MECHB52: set below by a model that cuts the main skill's hits; Conditions reads it)
         build.main_hits_per_use = None  # (MECH99: its hits a use, models.HIT_CUT_PER_USE; set by hit_cut below)
+        build.main_uses_raise = None  # (MECH100: more uses a second, models.USES_RAISE; set by hit_cut below)
         group = build.main_group()
         name = self.main_skill()
         found = [models.Skill.of(s) for s in skills if not s["disabled"]]

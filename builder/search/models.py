@@ -290,6 +290,21 @@ class Skill:
 # (the lower reading; a model that ADDS hits is the manager's step 3, reader by reader). Untagged: None, no change.
 HIT_CUT_PER_USE = "hit_cut_per_use"
 HITS_PER_USE_MAX = 1.0
+# (MECH100; the manager 12:00 from MECHB55: Explosive Rhythm's uncapped uses during Fervour, the Last Lament's bolts
+# with no reload while Life pays, Forge Hammer's throw-and-recall loop) A third kind: MORE USES a second, each use still
+# one hit. Neither a time share (build.main_hit_cut is clamped to [0, 1]: such a raise never reached the readers) nor
+# hits a use (k uses aren't one use's 1 - (1 - c)^k). A model tags its "DPS" MORE mod with USES_RAISE (the factor; the
+# mod's whole value without it); hit_cut hands it to build.main_uses_raise, Conditions.evidence to stats["_uses_raise"]
+# (at least 1), and at_main_share multiplies the main skill's Speed by it for every reader, as if the skill were used
+# that much faster (uses and hits alike: each extra use is a use and its hit). Readers that read "_main_share" or
+# "Speed" directly, not through at_main_share, keep PoB's rate (the lower reading). Untagged: no change.
+USES_RAISE = "uses_raise"
+
+
+def uses_raise(stats: dict) -> float:
+    """The main skill's uses-a-second raise in `stats` (>= 1; 1 without one)."""
+    got = stats.get("_uses_raise")
+    return max(1.0, float(got)) if isinstance(got, (int, float)) and not isinstance(got, bool) else 1.0
 
 
 def _hits_a_use(stats: dict) -> float | None:
@@ -328,11 +343,12 @@ def hits_raise(stats: dict) -> float:
 def at_main_share(stats: dict, per_use: bool = True, raise_hits: bool = False) -> dict:
     share = stats.get("_main_share")
     hits = _hits_a_use(stats) if per_use else None
-    if share is None and hits is None:
+    more = uses_raise(stats)  # (MECH100: USES_RAISE, more uses a second)
+    if share is None and hits is None and more == 1.0:
         return stats
-    speed = number(stats.get("Speed")) * (1.0 if share is None else max(0.0, min(1.0, number(share))))
+    speed = number(stats.get("Speed")) * (1.0 if share is None else max(0.0, min(1.0, number(share)))) * more
     factor = (per_use_factor(stats) * (hits_raise(stats) if raise_hits else 1.0)) if per_use else 1.0
-    return {**stats, "Speed": speed * factor, "_main_share": None, "_hits_per_use": None}
+    return {**stats, "Speed": speed * factor, "_main_share": None, "_hits_per_use": None, "_uses_raise": None}
 
 
 def hits_per_second(stats: dict) -> float:
@@ -23131,8 +23147,20 @@ def hit_cut_of(mods: list[dict], cut: float | None = None, skill: str | None = N
             part = number(mod["hit_cut"]) if "hit_cut" in mod else 1 + number(mod.get("value")) / 100
             if HIT_CUT_PER_USE in mod and "hit_cut" not in mod:  # (MECH99: its whole factor is hits a use, not time)
                 continue
+            if USES_RAISE in mod and "hit_cut" not in mod:  # (MECH100: more uses a second: uses_raise_of)
+                continue
             cut = (1.0 if cut is None else cut) * max(0.0, part)
     return cut
+
+
+def uses_raise_of(mods: list[dict], factor: float | None = None, skill: str | None = None) -> float | None:
+    """(MECH100, USES_RAISE's note) The uses-a-second raise of a model's "DPS" MORE mods tagged USES_RAISE, times
+    `factor` (an earlier model's); None with no such mod. `skill`: only the mods tagged to that skill."""
+    for mod in mods:
+        if (mod.get("name") == "DPS" and mod.get("type") == "MORE" and USES_RAISE in mod
+                and (skill is None or mod.get("skill") == skill)):
+            factor = (1.0 if factor is None else factor) * max(0.0, number(mod[USES_RAISE]))
+    return factor
 
 
 def hits_per_use_of(mods: list[dict], factor: float | None = None, skill: str | None = None) -> float | None:
