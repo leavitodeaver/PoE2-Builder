@@ -96,6 +96,14 @@ IDLE_SKIP = os.environ.get("POE2_SEARCH_IDLE_SKIP", "0") == "1"
 # (weigh_uptimes first and after each variant, as finalize's). LOW, a time share. OFF until a gate pair measures it:
 # POE2_SEARCH_LINE_REGROW=1 turns it on (and M2 off)
 LINE_REGROW = os.environ.get("POE2_SEARCH_LINE_REGROW", "0") == "1"
+# (SEARCH35) A cut gear round goes on first. On 2b75b (POE2T5561) each line's first task (60 s) cut its full gear round at
+# Helmet (GEAR_SHARE), the line's next task resumed its pass at "supports", and the gear came round again only in the
+# line's second pass: Gloves / Boots / Amulet / both Rings / Belt stayed empty from 78 s to 596 s of a 600 s run while
+# ~90 s of jewels and ~90 s of supports a line were chosen without them (the last task's gear step then gained ln 27.9).
+# With POE2_SEARCH_GEAR_FIRST=1, a task that resumes a pass while gear slots are empty and a full gear round was cut
+# (gear.resume) runs that round on first, from the slot it stopped at, under GEAR_SHARE as a full round. OFF until a
+# gate pair measures it
+GEAR_FIRST = os.environ.get("POE2_SEARCH_GEAR_FIRST", "0") == "1"
 LINE_REGROW_SHARE = 0.3
 LINE_REGROW_CLEARS = ("weak:30", "weak:15", "weak:8")  # (the variants 2b75b kept in POE2T5552; "all" was refused)
 IDLE_STEPS = ("persistent", "condition sources", "meta gems")
@@ -1173,6 +1181,10 @@ class Search:
         finished = True
         if resume is not None and resume in [phase for phase, _, _ in steps]:
             steps = steps[[phase for phase, _, _ in steps].index(resume):]
+            if GEAR_FIRST and resume != "gear" and self.gear.resume is not None and self.gear_census()["empty"]:
+                now = clock.now()
+                cut = min(deadline, now + GEAR_SHARE * max(0.0, deadline - now))
+                steps.insert(0, ("gear", self.gear.gear_round, (cut, True)))  # (SEARCH35: the cut round goes on first)
         for phase, fn, args in steps:
             if clock.now() > deadline:
                 finished = False

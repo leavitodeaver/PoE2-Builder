@@ -274,3 +274,44 @@ def test_the_line_regrow_replaces_m2_and_regrows_with_the_partial_clears_under_t
     assert search.line_regrow(10.0) is True
     assert calls == ["weigh", ("regrow", ("weak:30", "weak:15", "weak:8"), search.weigh_uptimes)]
     assert search.line_regrow_rows == [{"clear": "weak:30", "kept": True}]
+
+
+def test_a_cut_gear_round_goes_on_first_when_a_task_resumes_its_pass_with_empty_slots(monkeypatch):
+    """SEARCH35 (POE2T5561: 2b75b's lines wore no Gloves / Boots / Amulet / Rings / Belt from 78 s to 596 s): with
+    POE2_SEARCH_GEAR_FIRST on, a task resuming its pass mid-way runs the cut full gear round first while slots are empty;
+    not when nothing is empty, and not off."""
+    from types import SimpleNamespace
+
+    from builder import clock
+    from builder.search import inner
+
+    monkeypatch.setattr(clock, "now", lambda: 0.0)
+    monkeypatch.setattr(inner, "PERSIST_LINES", True)
+
+    def run(on, empty, gear_resume="Helmet"):
+        monkeypatch.setattr(inner, "GEAR_FIRST", on)
+        ran = []
+
+        def step(phase, fn, *args):
+            ran.append((phase, args))
+            return False
+
+        fake = lambda *a, **k: None
+        blocks = SimpleNamespace(**{n: fake for n in (
+            "gear_round", "ascendancy_round", "optimize_supports", "grow", "attributes_round", "jewel_round", "round",
+            "optimize_persistent", "granted_meta_round", "meta_round", "meta_spell_round", "totem_round", "mark_round",
+            "mirage_round", "roar_round", "swap_round")}, resume=gear_resume)
+        search = SimpleNamespace(passes=0, passes_done=0, line_passes=1, resume_step="supports", resume_sweep=True,
+                                 current_step=None, kicked=set(), build=SimpleNamespace(equipped={}),
+                                 gear=blocks, tree=blocks, gems=blocks, jewels=blocks, sources=blocks,
+                                 conditions_round=fake, weapon_set_round=fake, tree_rebuild=fake, press_round=fake,
+                                 skeleton=SimpleNamespace(swap=False), step=step,
+                                 gear_census=lambda: {"empty": empty})
+        inner.Search.blocks(search, deadline=100.0)
+        return ran
+
+    ran = run(True, ["Gloves", "Belt"])
+    assert [p for p, _ in ran][:2] == ["gear", "supports"] and ran[0][1][1] is True  # (a full round, from where it stopped)
+    assert [p for p, _ in run(True, [])][0] == "supports"
+    assert [p for p, _ in run(True, ["Gloves"], gear_resume=None)][0] == "supports"  # (no cut round to go on with)
+    assert [p for p, _ in run(False, ["Gloves", "Belt"])][0] == "supports"
