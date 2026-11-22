@@ -888,6 +888,20 @@ def charm_stats(build: Build) -> dict:
     return {"_charm_charges": spent, "_charm_basis": basis}
 
 
+def curse_level_caps(skills: list[dict]) -> dict[str, float]:
+    """(MECH100) {curse: its level cap} from the bridge's activeSkills levelStats (models.CURSE_LEVEL_STAT; 0 = none, gem
+    level 18+). A curse used twice keeps the higher reach (0 if either instance has no cap)."""
+    caps: dict[str, float] = {}
+    for s in skills:
+        level = s.get("levelStats") or {}
+        if s.get("disabled") or models.CURSE_LEVEL_STAT not in level:
+            continue
+        cap = number(level[models.CURSE_LEVEL_STAT])
+        old = caps.get(s["name"])
+        caps[s["name"]] = cap if old is None else (0.0 if 0 in (old, cap) else max(old, cap))
+    return caps
+
+
 def enemy_level(build: Build) -> int:
     """The monster level PoB scores the boss at (MECHC26, for recovery.leech_resistance): the level PoB used
     (MECH76: the bridge's LedgerEnemyLevel, CalcSetup 875's env.enemyLevel, which takes the boss type's placeholder,
@@ -3342,6 +3356,9 @@ class Assumptions:
         build.curse_delays = {s["name"]: s["curseDelay"] for s in skills if s.get("curseDelay") is not None}
         # (MECH96, R38-2: each curse's own area radius, PoB's with the build's area modifiers, for a Blasphemy aura's reach)
         build.curse_radii = {s["name"]: s["curseRadius"] for s in skills if s.get("curseRadius") is not None}
+        # (MECH100: each curse gem's level cap at its level, 0 from level 18; the boss's level, for models.curse_uses)
+        build.curse_level_caps = curse_level_caps(skills)
+        build.curse_boss_level = enemy_level(build) if build.curse_level_caps else 0
         source_lines = build.call("sourceLines")["lines"]  # (one call: the models below all read the build's lines)
         build.minion_deathless = minion_deathless(build)  # (MECHB39: Umbilicus Immortalis, for models.minion_deaths)
         line_texts = [e["text"] for e in source_lines]
@@ -3354,6 +3371,7 @@ class Assumptions:
             self.eternal_march(found, stats, main))  # (MECHB41: Eternal March's Runic Ward revives)
         stats = {**stats, "_minion_lives": build.minion_lives, "_curse_durations": build.curse_durations,
                  "_curse_delays": build.curse_delays, "_curse_radii": build.curse_radii,
+                 "_curse_level_caps": build.curse_level_caps, "_boss_level": build.curse_boss_level,
                  models.MINION_DEATHLESS_STAT: build.minion_deathless,
                  models.FORCED_REVIVES_STAT: forced}
         if any(s.name == models.SACRIFICE for s in found):  # (MECH-B, MECHB19, A27-4: Sacrifice's corpses, the build's own
@@ -6271,7 +6289,8 @@ class Assumptions:
     def wanted(self) -> tuple[list[dict], list[dict]]:
         skills = self.build.call("activeSkills", levelStats=[
             models.IRON_WARD, models.FEROCIOUS_ROAR, models.SUMMON_WOLF, models.RAPID_SHOT, models.APOCALYPSE,
-            KALGUUR, models.TAWHOA, models.ARCTIC_HOWL, models.ETERNAL_MARCH, *models.gem_stat_skills()],
+            KALGUUR, models.TAWHOA, models.ARCTIC_HOWL, models.ETERNAL_MARCH, *models.gem_stat_skills(),
+            *models.curse_gem_names(getattr(getattr(self.build, "ctx", None), "gems", None))],  # (MECH100: each curse's level cap)
             supportStats=[*models.gem_stat_support_stats(), models.TOTEM_ONE_STAT,
                           models.CASCADES_PER_SIDE, models.ECHO_POWER_STAT])["skills"]  # (MECH-B: A23-3; MECHB36 Spell Cascade)
         mods, notes, self.extra_groups = self.models(skills)

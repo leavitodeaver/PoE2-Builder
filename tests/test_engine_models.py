@@ -615,7 +615,7 @@ def test_the_mark_round_adds_a_mark_only_when_it_pays_and_fits_the_button_cap(en
     assert "Bloodhound's Mark" in search.gems.left_out
 
 
-def test_the_spirit_step_puts_a_curse_in_blasphemy(engine):
+def test_the_spirit_step_puts_a_curse_in_blasphemy(engine, monkeypatch):
     """Slice 7: the search never proposed Curses. The Spirit step now offers the best Curse in Blasphemy (an aura: no
     button, always on the boss; PoB prices its 60 Spirit and its less Curse effect, as the game files). Taking it out
     removes the whole group, never leaving the Curse as a button."""
@@ -643,7 +643,14 @@ def test_the_spirit_step_puts_a_curse_in_blasphemy(engine):
         pass
     cursed = [g for g in build.groups() if g["label"] == BLASPHEMY_LABEL]
     assert len(cursed) == 1 and [g["name"] for g in cursed[0]["gems"]][0] == "Blasphemy"
+    # MECH100: this bare build's 25 Intelligence holds the curse at a low gem level, whose level cap (under 18) is below
+    # the level-82 boss's: never on the boss (PoB applies it anyway; probe POE2T6418: Elemental Weakness level 4, cap 29)
+    from builder.search import conditions
+
+    assert all(u.share == 0 for u in conditions.curse_uses(build, {"Speed": 1.0}, []))
     # MECH33: the Aura reaches the boss only inside your Presence, so a caster at range gains once it stands close
+    # (checked with the level cap off, as for a curse at gem level 18 or more)
+    monkeypatch.setattr(models, "curse_level_capped", lambda use, stats: use)
     search.choose_distance()
     assert search.conditions.distance and search.conditions.distance[0] <= 2.0
     assert build.score > before

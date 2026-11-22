@@ -2721,7 +2721,7 @@ def mark_activations(mark: Skill, skills: list[Skill], stats: dict, disabled: li
 # the 10 gems of skill type AppliesCurse (ActiveSkills: Conductivity, Despair, Elemental Weakness, Enfeeble,
 # Flammability, Hypothermia, Punishment, Repulsion, Temporal Chains, Vulnerability) last base_skill_effect_duration 6 s
 # at level 1 to 7.4 s at 20, land curse_delay_duration_ms 1.5 s after the cast, and under level 18 can't curse targets
-# above a level (skill_curses_cannot_apply_to_targets_above_level, 74 at 15: not checked, our gems are level 20).
+# above a level (skill_curses_cannot_apply_to_targets_above_level: CURSE_LEVEL_STAT below; MECH100 applies it).
 # How the build applies each (curse_uses):
 # - in a Blasphemy group: an Aura on "all nearby enemies" (the gem's description), up while the boss stands inside the
 #   curse's OWN area radius (MECH96, RESEARCH38 R38-2, HIGH on the data, MEDIUM-HIGH on the reading: the curse gem's
@@ -2739,6 +2739,41 @@ def mark_activations(mark: Skill, skills: list[Skill], stats: dict, disabled: li
 # - "Curse ... with X on Hit" item lines: up while the main skill hits.
 CURSE_DURATION = 7.4
 CURSE_DELAY = 1.5
+# The curse's level cap (MECH100; plans/term-targets.md item B, an OVERCOUNT). The game: "Curse does not apply to enemies
+# above level {0}" (skill_curses_cannot_apply_to_targets_above_level, PoB's skill_stat_descriptions 1441). Its values
+# (GrantedEffectStatSetsPerLevel, game 26650308): 20 at gem level 1, 52 at 10, 66 at 13, 74 at 15, 76 at 16, 78 at 17,
+# 0 (no cap) from 18, the same on the six player curse sets that carry it: Temporal Chains, Enfeeble, Vulnerability,
+# Elemental Weakness, Despair, Repulsion (checked: every Stats.json id naming a level above / higher than: only this
+# stat, Frost Bomb's (GEM13) and Thunderstorm's Drenched (GEM15) limit a debuff by the target's level; every stat-set
+# row using it: those six player sets and five Rogue Exile monster sets; Conductivity, Flammability, Hypothermia and
+# Punishment carry no cap; patch notes: no hit, which is not evidence of absence; poe2db: see the MECH100 report). PoB
+# maps it nowhere (checked: the stat sits only in the six skills' stat lists in Data/Skills, no Module or Class reads
+# it), so PoB applies such a curse to any boss. The search can pick a gem under 18 (gems.highest_usable_level: the
+# character's level and attributes), and the bosses score at level 82 (enemy_level): above 78, the cap at 17, so any of
+# those six under level 18 does nothing to the boss. Here: none (its effect -100%, no hand-cast time charged, the
+# Cursed share without it), with the play note "level it to 18". The cap is read at the gem's level PoB uses (the
+# bridge's levelStats, the build's +levels in it). "Curse Enemies with X on Hit" item lines: their level isn't read
+# (unchanged, UNVERIFIED whether a cap applies there).
+CURSE_LEVEL_STAT = "skill_curses_cannot_apply_to_targets_above_level"
+
+
+def curse_gem_names(gems: dict) -> list[str]:
+    """(MECH100) The gems of skill type AppliesCurse, for the bridge's levelStats (their level cap, CURSE_LEVEL_STAT)."""
+    return sorted(name for name, gem in (gems or {}).items()
+                  if "AppliesCurse" in ((gem or {}).get("skillTypes") or ()))
+
+
+def curse_level_capped(use: "CurseUse", stats: dict) -> "CurseUse":
+    """(MECH100) `use` with no share when its gem's level cap (stats["_curse_level_caps"], by name) is under the boss's
+    level (stats["_boss_level"]); unchanged with no cap read, a cap of 0 (gem level 18+) or no boss level."""
+    cap = number((stats.get("_curse_level_caps") or {}).get(use.name))
+    level = number(stats.get("_boss_level"))
+    if cap <= 0 or level <= 0 or level <= cap:
+        return use
+    return replace(use, share=0.0, by_hand=False, lapse=False, hexblast=False,
+                   how=(f"its gem level can't curse enemies above level {cap:g} (skill_curses_cannot_apply_to_targets_"
+                        f"above_level) and the boss is level {level:g}: never on the boss (PoB applies it anyway). "
+                        "Level the gem to 18 or more, which lifts the cap"))
 # (MECH86; the catalog's exposure-withered-curses entry, an UNDERCOUNT / OVERCOUNT of Hexblast's detonations) Each curse's
 # own delay: PoB builds it (CalcOffence 1576-1580, output.CurseDelay) from curse_delay_duration_ms (1.5 s on the 9 player
 # curse gems' stat sets, Repulsion's too, GrantedEffectStatSets 26650308) / CurseActivation x CurseDelay, and nothing
@@ -2970,6 +3005,7 @@ def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
             if name == REPULSION:  # (MECH93: on the boss only until the next Hit; R35-25)
                 rate = number(rates[name]) if meta is not None and rates is not None and name in rates else None
                 uses[-1] = repulsion_use(uses[-1], stats, gems, "Blasphemy" in types or meta is not None, rate)
+            uses[-1] = curse_level_capped(uses[-1], stats)  # (MECH100: under gem level 18, a cap below the boss's level)
         if zone:  # (every curse this group applies is laid as the support's area, the Blasphemy aura excepted)
             uses[before:] = [replace(u, how=u.how + CURSE_ZONE_NOTE.format(zone), zone=zone)
                              if "Blasphemy" not in u.how else u for u in uses[before:]]
