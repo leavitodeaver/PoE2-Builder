@@ -437,9 +437,26 @@ def _incision_consumed(lines: list[str], stats: dict) -> tuple:
 # The count a build holds is min(maximum, generation per second x the charge's duration), from the build's own sources:
 # poe2db (https://poe2db.tw/us/Charges): charges last a duration (PoB: 15 s base, ChargeDuration) and come from specific
 # sources; on-kill sources at the build's kills (kill_events: the boss preset's adds, and your own minions Killed for
-# lines that don't say "enemy"; MECHC9, A23-4; none against a lone boss). A source whose rate its line doesn't say (on use,
-# when you stun, on reaching something) is assumed once per 4 s, labelled.
-CHARGE_DEFAULT_EVERY = 4.0
+# lines that don't say "enemy"; MECHC9, A23-4; none against a lone boss). A source whose event the readers can't rate
+# from the build gives 0 with a note (no_event_rate).
+# (MECHC54, the manager's flat-rate audit ruling, 22 Nov; CLAUDE.md "No source means 0, with a note, never a flat
+# guess") Before, such a line was "assumed once per 4 s (LOW)" (CHARGE_DEFAULT_EVERY), in the Power / Frenzy /
+# Endurance, Rage, Onslaught and Arcane Surge readers: a flat rate where the build decides it, an OVERCOUNT wherever
+# the build has no such event. The audit (every ModCache line, gem description, passive-tree stat, unique line and mod
+# pool line of PoB bb52d6b368 through the four readers, scratch/mechc54/audit_flat.py) found 11 lines there; each now
+# has its own event or reads 0 here: The Power Within's Recently line (not a gain, NOT_A_GAIN), Infusion of Power
+# (Infusions consumed), Ailith's Chimes (Combo expended), Guatelitzi's Ablation (one every 4 s while its Offering is
+# up), Mist Raven's Culls (kill_events), a Power Charge per Mana spent, an item's own "on use" line on an item not in
+# use (0), and, at 0 here: Lingering Illusion's Remnant (a copy destroyed by the boss: no rate, UNVERIFIED), a trap
+# thrown / triggered and an enemy knocked back (no rate modelled).
+# (MECHC54) the descriptions of the skills that eat Hollow Focus bells for a Power Charge (assumptions.BELL_EATERS)
+BELL_EATER_TEXT = {"Devour": "devour a corpse or cullable enemy", "Killing Palm": "each enemy killed by this strike"}
+
+
+def no_event_rate(when: str) -> tuple[float, str]:
+    """(0, note) for a gain whose event the reader can't rate from the build (the note above)."""
+    return 0.0, (f"'{when.strip()[:40]}': the build's rate of this event isn't modelled: 0 (no source, never a flat "
+                 "guess; an UNDERCOUNT where the build has it)")
 # Events a line names without its rate (FLAT_RATES A3; MECH47): a Warcry used, a Totem summoned, a Mark activating.
 # Before, each fell to one per CHARGE_DEFAULT_EVERY s whether or not the build had such a skill (an overcount with
 # none). Now the rate comes from the build's own skills (event_rates, in Conditions.evidence as stats["_events"]): the
@@ -776,7 +793,10 @@ def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
 # (MECHC38) Not a gain: "granted by" (Abyssal Apparition's "Spells granted by items, or Spells which already consume a
 # Power Charge" matched CHARGE_SOURCE's "grant\w*"); and the events named before a skill's own gain that _charge_rate has
 # no rate for outside Build.consume_gains (GEM19's consumes on the main skill): a consume, a Heavy Stun of a Primed enemy
-NOT_A_GAIN = re.compile(r"(?:\d+(?:\.\d+)?% chance \w+ )?granted by\b", re.I)
+# (MECHC54, the flat-rate audit; an OVERCOUNT) nor the past tense "gained": The Power Within's "20% increased Critical
+# Damage Bonus if you've gained a Power Charge Recently" (a condition, not a source) matched "gain\w*" and fell to the
+# one-per-4-s fallback: 0.25 phantom gains a second, 3.8 Power Charges held from nothing on a build with the notable
+NOT_A_GAIN = re.compile(r"(?:\d+(?:\.\d+)?% chance \w+ )?(?:granted by|gained)\b", re.I)
 EVENT_GAIN = re.compile(r"\bconsumes?\b|primed for heavy stun", re.I)
 
 
@@ -951,6 +971,19 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
     if re.fullmatch(r"\s*on use\s*", when) and (used := (stats.get("_item_uses") or {}).get(text)) is not None:
         # a flask's or charm's own "on use" line (MECH48): that item's uses, from its generated charges
         return chance * used[0], f"{chance:.0%} x {used[0]:.3f} uses/s ({used[1]})"
+    if re.fullmatch(r"\s*on use\s*", when):  # (MECHC54) the item isn't used: not equipped, or past the charm limit
+        return 0.0, "its item's own 'on use' line, and that item isn't in use (no flask or charm slot uses it): 0"
+    if spend := re.search(r"after spending a total of (\d+(?:\.\d+)?) mana", when):
+        # (MECHC54, was the flat fallback: PowerChargeOnManaSpentUnique__1) as the Rage line's: the main skill's Mana
+        # spent a second (other skills' Mana not counted: the lower reading)
+        rate = number(stats.get("ManaPerSecondCost"))
+        return chance * rate / float(spend.group(1)), (f"{chance:.0%} x one per {spend.group(1)} Mana spent, the main "
+                                                       f"skill spending {rate:.1f}/s (other skills' Mana not counted)")
+    if INFUSION_CONSUME_GAIN.search(when):
+        # (MECHC54, was the flat fallback: the notable Infusion of Power) the build's Infusions consumed a second
+        # (Conditions._infusion_consumed: its consumers taking what it makes)
+        rate, how = stats.get("_infusion_consumed") or (0.0, "the build's Infusion consumption wasn't read: 0")
+        return chance * number(rate), f"{chance:.0%} x {number(rate):.3f} Infusions consumed/s ({how})"
     if "attack ignites" in when:
         if "Attack" not in (stats.get("_main_types") or set()):
             return 0.0, "the main skill isn't an Attack: no Attack Ignites (other Attacks not counted, LOW)"
@@ -983,6 +1016,10 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
                      "outside the main skill's own parts): 0, an UNDERCOUNT where it's used")
     if re.search(r"\bkill|\bcull", before):
         rate, how = kill_events(before, stats)
+        eater = next((name for name, words in BELL_EATER_TEXT.items() if words in full), None)
+        bells = (stats.get("_bell_charges") or {}).get(eater) if eater else None
+        if bells and number(bells[0]) > 0:  # (MECHC54: assumptions.BELL_EATERS' note)
+            return chance * (rate + number(bells[0])), f"{chance:.0%} x ({how}) + {bells[1]}"
         return chance * rate, f"{chance:.0%} x {how}"
     if "activates the mark" in full and "critical hit" in full:
         marks = number(stats.get("_mark_uses"))
@@ -1000,10 +1037,56 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
         return chance * rate, f"{chance:.0%} x {how}"
     if (support := ENDURANCE_SUPPORT_TEXT.get(text.strip())) is not None:  # (MECHC53: ENDURANCE_SUPPORTS' note)
         return endurance_support_rate(support, stats)
+    if (support := POWER_SUPPORT_TEXT.get(text.strip())) is not None:  # (MECHC54: POWER_SUPPORTS' note)
+        return power_support_rate(support, stats)
+    if re.search(r"\bculls?\b", when):
+        # (MECHC54, was the flat fallback) Mist Raven's "grants you a Frenzy Charge for each enemy it Culls": the
+        # build's kills of enemies (the boss preset's adds; 0 on a lone boss, whose death ends the fight)
+        rate, how = kill_events(when, stats)
+        return chance * rate, f"{chance:.0%} x {how} (each such kill taken as one the raven Culls, LOW: the upper reading)"
     if "block" in full:
         block = boss_hits.block_share(stats, evaded_first=False)
         return chance * boss * block, f"{chance:.0%} x {boss * block:.2f} blocks/s"
-    return chance / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed (LOW)"
+    return no_event_rate(when)
+
+
+# Power Charges from two Lineage supports (MECHC54, the flat-rate audit: both fell to the one-per-4-s fallback). The
+# game (PoB sup_dex.lua / sup_int.lua constantStats, game 26650308 gem_stat_descriptions):
+# - Ailith's Chimes (chance_%_to_gain_power_charges_per_combo_spent 25): "{0}% Surpassing chance to gain a Power Charge
+#   when expending Combo with Supported Skills per Combo expended": 0.25 charges a Combo the main skill spends (its
+#   Combo on use, stats["_combo_on_use"], x its uses a second) when the support is on the main skill; on another
+#   skill: 0, said (that skill's Combo isn't read here: an undercount there).
+# - Guatelitzi's Ablation (supported_offerings_grant_you_a_powercharge_every_x_ms 4000): "While Offering spikes from
+#   Supported Skills persist, you are periodically granted a Power Charge": one every 4 s while a supported Offering is
+#   up, taken as kept up by a build that takes the support (PoB counts an Offering's buff as up; MEDIUM).
+# Lingering Illusion's "copies that are destroyed by an enemy will drop a Remnant that grants you a Power Charge on
+# pickup" stays at 0 (no_event_rate): how often a boss destroys a copy is the game's (UNVERIFIED; research question).
+AILITH, AILITH_CHANCE = "Ailith's Chimes", 0.25
+GUATELITZI, GUATELITZI_EVERY = "Guatelitzi's Ablation", 4.0
+POWER_SUPPORT_TEXT = {
+    "Supports Skills which can expend Combo. On expending Combo with Supported Skills, you have a chance to gain Power "
+    "Charges based on the amount of Combo expended.": AILITH,
+    "Supports Offering Skills. Supported Skills Sacrifice a portion of your life on use. While Offering spikes from "
+    "Supported Skills persist, you are periodically granted a Power Charge. When spikes from Supported Skills die, "
+    "Regenerate a percentage of your maximum Life and Mana per second based on the duration the Offering persisted.":
+        GUATELITZI}
+
+
+def power_support_rate(name: str, stats: dict) -> tuple[float, str]:
+    """(Power Charges a second, how) for a POWER_SUPPORTS support (see above); stats["_power_supports"] holds
+    {name: how} for the ones Conditions.evidence found where they work."""
+    where = (stats.get("_power_supports") or {}).get(name)
+    if where is None:
+        return 0.0, (f"{name} isn't on the main skill: 0 (another skill's Combo isn't read here)" if name == AILITH
+                     else f"{name} supports no enabled Offering: 0")
+    if name == AILITH:
+        combo, how = stats.get("_combo_on_use") or (0.0, "")
+        uses = number(stats.get("Speed")) * _main_share(stats)
+        rate = AILITH_CHANCE * number(combo) * uses
+        return rate, (f"{AILITH}: {AILITH_CHANCE:.0%} a Combo expended x {number(combo):g} Combo a use "
+                      f"({how or 'the main skill spends no Combo as read'}) x {uses:.2f} uses/s")
+    return 1 / GUATELITZI_EVERY, (f"{GUATELITZI}: one every {GUATELITZI_EVERY:g} s while its Offering's spikes persist "
+                                  f"({where}; taken as kept up, as PoB counts the Offering's buff, MEDIUM)")
 
 
 # Endurance Charges from the supports Enduring Impact and Armour Break II / III (MECHC53; the coverage ranking's open
@@ -2335,8 +2418,8 @@ def minion_shared(kind: str):
 # the build's lines (every "gain # Rage" wording of the stat descriptions; on-kill gains at the build's kills, kill_events,
 # MECHC9: none against a lone boss; a kill isn't a Hit, so the one-Hit-per-0.5 s rule doesn't cap them), spends from the skills that spend it (GrantedEffectStatSets / GrantedEffectsPerLevel costs below). The maximum
 # is held while gains outrun spends and gains or the boss's landing hits come at least once per 4 s; else the average of
-# each gain held 4 s and then decaying. A source whose rate its line doesn't say (Warcry, Life Flask, on use) is assumed
-# once per CHARGE_DEFAULT_EVERY s, labelled. From the build's own rates (MECHC1, 12 Nov 2026; FLAT_RATES A3 and A10):
+# each gain held 4 s and then decaying. A source whose event the build gives no rate for reads 0, noted (no_event_rate;
+# MECHC54: was once per 4 s). From the build's own rates (MECHC1, 12 Nov 2026; FLAT_RATES A3 and A10):
 # "after Spending a total of N Mana" at the main skill's Mana spent per second (PoB ManaPerSecondCost; other skills'
 # Mana isn't counted: an undercount for builds that press others), not a Hit, so the one-Hit-per-0.5 s rule doesn't
 # cap it; "1 Rage Regenerated for every N Mana Regeneration per Second" from PoB's ManaRegenRecovery; "Regenerate X Rage
@@ -2428,7 +2511,9 @@ def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, st
             r = regen / float(per.group(1))
             return r, 1.0 if r > 0 else 0.0, f"{r:.2f}/s regenerated from {regen:.1f} Mana Regeneration per second"
         if not m.group(1) or "for every" in (m.group(3) or ""):
-            return 1.0, 1.0, "regenerated at a rate set by Life or Mana regeneration: 1/s assumed (LOW)"
+            # (MECHC54: was "1/s assumed (LOW)", a flat rate; no line of PoB bb52d6b368's corpus reaches here, checked
+            # by scratch/mechc54/rage_regen.py: every Rage-regen line has its number or the Mana-regen ratio above)
+            return 0.0, 0.0, "regenerated at a rate this reader can't read from the line: 0 (never a flat guess)"
         r = float(m.group(1)) * (number(stats.get("MaximumRage")) / 100 if m.group(2) else 1.0)
         return r, 1.0, f"{r:g}/s regenerated"
     if RAGE_FILL_ON_USE.match(text.strip()):
@@ -2500,7 +2585,7 @@ def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, st
         elif (named := _named_event(when, stats)) is not None:
             events, how = named
         else:
-            events, how = 1 / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed (LOW)"
+            events, how = no_event_rate(when)  # (MECHC54: no_event_rate's note; was one per 4 s)
         if blocked is not None:
             if events <= 0:
                 return 0.0, 0.0, blocked
@@ -2713,7 +2798,7 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
 # the last duration (1 - (1 - chance)^(events x duration)); sources combine as independent; PoB's box is on at UPTIME
 # (90%, as for ailments and flasks). Events: hits, crits from the main skill; the boss's landing hits for "when Hit"; on
 # kill / Culling Strike at the build's kills (kill_events, MECHC9: none against a lone boss); a Minion dying at the build's own minion deaths (MECHC7); a Vaal
-# skill's use 0 (no usable Vaal skill in this game version: RESEARCH #123, HIGH, labelled); Marks activating once per CHARGE_DEFAULT_EVERY s (assumed); "during effect" (a flask or charm) on (the flask
+# skill's use 0 (no usable Vaal skill in this game version: RESEARCH #123, HIGH, labelled); Marks activating at the build's Mark uses (_named_event); an event with no rate from the build 0, noted (no_event_rate, MECHC54); "during effect" (a flask or charm) on (the flask
 # model decides whether the flask counts). "While at maximum Frenzy Charges": only when the Frenzy Charges held reach it.
 ONSLAUGHT_DURATION = 4.0
 ONSLAUGHT_SOURCE = re.compile(r"(?:(\d+(?:\.\d+)?)% chance to )?\b(?:you )?(?:gain|grants?)\b (?:you )?Onslaught\b(.*)$", re.I)
@@ -2814,7 +2899,7 @@ def _onslaught_source(text: str, lines: list[str], stats: dict) -> tuple[float, 
     elif (named := _named_event(when, stats)) is not None:
         events, how = named
     else:
-        events, how = 1 / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed (LOW)"
+        events, how = no_event_rate(when)  # (MECHC54: no_event_rate's note; was one per 4 s)
     up = 1 - (1 - min(chance, 1.0)) ** (events * duration) if chance < 1 else (1.0 if events * duration >= 1 else events * duration)
     return up, f"{chance:.0%} x {how}, {duration:g} s: {up:.0%} up"
 
@@ -3368,7 +3453,7 @@ def onslaught_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
 # Devotion; "while at maximum Power Charges" only when the Power Charges held reach it; "after Channelling for 1 second"
 # when the main skill channels; a Minion dying at the build's own minion deaths (MECHC7: _minion_death_uptime); a kill at
 # the build's kills (kill_events, MECHC9);
-# Shapeshifting back, a Mine or Trap: 0 (no rate modelled, labelled); a Totem summoned: once per CHARGE_DEFAULT_EVERY s (assumed). The Arcane Surge support (GrantedEffectStatSets
+# Shapeshifting back, a Mine or Trap: 0 (no rate modelled, labelled); a Totem summoned at the build's Totem uses (_named_event); an event with no rate from the build 0, noted (no_event_rate, MECHC54). The Arcane Surge support (GrantedEffectStatSets
 # SupportArcaneSurgePlayer: 10 s after spending 100% of maximum Mana on Supported Skills) on the main skill: PoB's mana
 # spent per second (ManaPerSecondCost) against the threshold. Whether Mana spent while the buff is up counts toward the
 # next one is unsettled (RESEARCH1, scratch/manager/research/mana-spend-counters.md, LOW: no game text, patch note or test
@@ -3435,7 +3520,7 @@ def _arcane_surge_source(text: str, lines: list[str], stats: dict) -> tuple[floa
     elif (named := _named_event(when, stats)) is not None:
         events, how = named
     else:
-        events, how = 1 / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed (LOW)"
+        events, how = no_event_rate(when)  # (MECHC54: no_event_rate's note; was one per 4 s)
     n = events * duration
     up = 1 - (1 - min(chance, 1.0)) ** n if chance < 1 else min(1.0, n)
     return up, f"{chance:.0%} x {events:.2f} {how}/s, {duration:g} s: {up:.0%} up"
@@ -8111,6 +8196,9 @@ INFUSION_CONSUMERS = {
 EMBER_FUSILLADE, EMBER_MAX_STAT, EMBER_SECONDS = ("Ember Fusillade", "blazing_cluster_maximum_number_of_projectiles_allowed",
                                                  1.3)  # (MECHC29, K2-11: Conditions._fusillades)
 INFUSION_CONSUMED = re.compile(r"consumed an elemental infusion recently", re.I)
+# (MECHC54) a gain "when you consume an Elemental Infusion" (the notable Infusion of Power): _infusion_consumed is read
+# for it too (_charge_rate_uncapped)
+INFUSION_CONSUME_GAIN = re.compile(r"when you consume an? (?:elemental )?infusion", re.I)
 
 
 # Your minions dying (MECHC7, AUDIT18 A18-1; before, "when a Minion Dies" lines counted 0: an undercount for builds that
@@ -10122,6 +10210,7 @@ class Conditions:
         else:
             self.build.channelling_share = (0.0, "no line of the build names channelling: not read")
         stats["_you_bleeding"] = getattr(self.build, "you_bleeding", None)  # (MECHC46: CHARGE_WHILE_BLEEDING's note)
+        stats["_bell_charges"] = getattr(self.build, "bell_charges", None)  # (MECHC54: assumptions.BELL_EATERS' note)
         gem_types = {}
         for line in lines:
             if line["source"].startswith("gem:"):
@@ -10276,7 +10365,7 @@ class Conditions:
                               for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in BANNERS}):
             # (MECHC7: the placed banner at its Glory share)
             stats["_banner"] = self._banner_share(banners)
-        if any(INFUSION_CONSUMED.search(t) for t in texts):
+        if any(INFUSION_CONSUMED.search(t) or INFUSION_CONSUME_GAIN.search(t) for t in texts):
             stats["_infusion_consumed"] = self._infusion_consumed(lines, stats)
         if ARC in gem_types:  # (MECH77, MA-1: the share of Arc's casts the build's Lightning Infusions cover)
             stats["_arc_infused"] = self._arc_infused(lines, stats)
@@ -10326,6 +10415,19 @@ class Conditions:
                     found_supports[kind] = (value, gem["name"])
             if found_supports:
                 stats["_endurance_supports"] = found_supports
+        power_supports = {}  # (MECHC54: POWER_SUPPORTS' note)
+        for each in self.build.groups():
+            if each.get("enabled") is False:
+                continue
+            gems = [g for g in each.get("gems") or [] if g.get("enabled", True)]
+            names = {g["name"] for g in gems}
+            if AILITH in names and each.get("main"):
+                power_supports[AILITH] = f"on the main skill {self.main_skill}"
+            if GUATELITZI in names and (offerings := sorted(
+                    g["name"] for g in gems if not g.get("support") and "Offering" in gem_types.get(g["name"], ()))):
+                power_supports[GUATELITZI] = f"supporting {', '.join(offerings)}"
+        if power_supports:
+            stats["_power_supports"] = power_supports
         if any(re.search(r"Frenzy Charge", t, re.I) for t in texts):
             # a main skill that "cannot generate Frenzy Charges" (Ferocity's skill_cannot_generate_frenzy_charges, on the
             # skill or a support of it; MECHC3): its hits feed no Frenzy Charge line (_charge_rate)
@@ -10464,7 +10566,7 @@ class Conditions:
             stats["_minion_hits"] = minion_hits(self.build, stats)[0]
         stats["_boss_power"] = models.boss_power(texts, stats, _boss_distance(texts, stats)[0], "Attack" in main_types,
                                                  self.main_skill)
-        if any(n in gem_types for n in COMBO_GEMS) and self.main_skill:  # (MECHC43: COMBO_REQUIRED_STATS' note)
+        if any(n in gem_types for n in (*COMBO_GEMS, AILITH)) and self.main_skill:  # (MECHC43: COMBO_REQUIRED_STATS' note; MECHC54: Ailith's Chimes)
             stats["_combo_on_use"] = self._combo_on_use()
         if any("Warcry" in (types or ()) for types in gem_types.values()):  # (MECHC43: RAGING_CRY_STAT's note; any
             # Warcry, so a carrier other than Raging Cry counts too: its exclusivity is UNVERIFIED beyond the game files)

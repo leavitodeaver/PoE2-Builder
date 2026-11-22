@@ -1688,7 +1688,9 @@ def test_glory_skills_are_used_as_often_as_the_builds_own_glory_pays_for():
     uses, how = models.glory_uses(["War Banner"], {**stats, "PhysicalHitAverage": 0, "LightningHitAverage": 1000}, spell)
     assert uses == 0 and "never" in how  # a spell makes no attack hits
     assert models.glory_uses(["Zerphi's Infamy"], {"LifePerSecondCost": 100}, slam)[0] == pytest.approx(5 / 50)
-    assert models.glory_uses(["Skyfall"], stats, slam) == (0.0, "Skyfall: no source counted, never")
+    # (MECHC54: Skyfall builds Glory from the Ward other skills spend, models.GLORY_FROM_WARD; none here)
+    uses, how = models.glory_uses(["Skyfall"], stats, slam)
+    assert uses == 0 and "Runic Ward spent" in how and how.endswith("never")
     assert models.glory_uses(["Spark"], stats, spell) == (0.0, "no Glory skill")
 
 
@@ -2120,7 +2122,7 @@ def test_snap_needs_an_ailment_and_its_presses_cost_the_main_skill_time():
 def test_a_named_event_takes_the_builds_own_rate_not_the_4s_default():
     """FLAT_RATES A3 (MECH47): a line that names a Warcry / Totem / Mark event without its rate reads the build's own
     skills of that kind (conditions.event_rates): none in the build gives 0, not one per 4 s; a Warcry in a group runs
-    on its cooldown; a main skill of that kind at its speed. Other wordings keep the 4 s default, labelled LOW."""
+    on its cooldown; a main skill of that kind at its speed. Other wordings read 0, noted (MECHC54: was a 4 s default)."""
     from builder.search import conditions
     text = "Gain a Power Charge when you use a Warcry"
     gems = {"Infernal Cry": {"skillTypes": ["Warcry", "Cooldown"]}, "Spark": {"skillTypes": ["Spell"]}}
@@ -2137,7 +2139,8 @@ def test_a_named_event_takes_the_builds_own_rate_not_the_4s_default():
     main = conditions.event_rates(groups, gems, "Infernal Cry", {"Warcry"}, 0.5, rates, [text])
     assert main["Warcry"][0] == 0.5
     other = conditions._charge_rate("Gain a Frenzy Charge when you use a Life Flask", "Frenzy", {"Speed": 2.0, "_events": one})
-    assert other[0] == pytest.approx(0.25) and "assumed (LOW)" in other[1]  # (not a named event: the 4 s default)
+    # (MECHC54, the flat-rate audit: no 4 s default any more; an event the build gives no rate for reads 0, noted)
+    assert other[0] == 0.0 and "isn't modelled: 0" in other[1]
     assert conditions.event_rates(groups, gems, "Spark", {"Spell"}, 2.0, rates, ["10% increased Damage"]) == {}
 
 

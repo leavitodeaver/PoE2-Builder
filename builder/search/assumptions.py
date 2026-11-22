@@ -537,6 +537,38 @@ CHARGED_STAFF_MS = "charged_staff_buff_duration_per_stack_ms"
 CHARGED_STAFF_TAG = "ChargedStaff"
 CHARGED_STAFF_IGNORED = "active_skill_is_ignored_by_charged_staff"
 CHARGED_STAFF_IGNORES = ("Frozen Locus",)
+# (MECHC54; RESEARCH47 R47-3 row 9, the manager 12:05 22 Nov; a possible OVERCOUNT) a live bug: maxroll (Whirling
+# Assault guide, 4 Sep) says Charged Staff with a TALISMAN equipped "appears to be active, but provides no damage or
+# buffs"; no patch line fixes it (grep_notes.py --history "Charged Staff": the last entry 0.5.4f, a shapeshift fix), so
+# whether it survives 0.5.5h is UNVERIFIED. PoB's Charged Staff wants a Staff (act_int.lua weaponTypes), so the case is
+# a Talisman in another weapon slot (the swap set). Headline: no buff with a Talisman in any weapon slot (PoB's held-count
+# mod taken back too); the "works" reading a row.
+CHARGED_STAFF_TALISMAN = "Talisman"
+CHARGED_STAFF_WEAPON_SLOTS = ("Weapon 1", "Weapon 2", "Weapon 1 Swap", "Weapon 2 Swap")
+# (MECHC54; RESEARCH47 R47-2 / R47-3 row 4, the manager 12:00 / 12:05 22 Nov; an UNDERCOUNT) Hollow Focus's bells as a
+# Power Charge source for Devour and Killing Palm. The game (ActiveSkills, 26650308): Hollow Focus "ethereal bells
+# periodically appear near you ... The bells are themselves always Primed for Stun, they can be Culled"; Devour "devour a
+# Corpse or Cullable enemy ... For each enemy or corpse devoured, you ... gain a Power Charge"; Killing Palm "Each enemy
+# killed by this strike grants a Power Charge" (a Cull is a kill). Two guides use it (Mobalytics Scorps' Hollow Form
+# Monk, "Devour can be used on corpses AND our Bells, to manually gain Charges"; forum 4008647, Killing Palm). Before,
+# Devour's and Killing Palm's charges came only from the preset's adds (0 on a lone boss).
+# - Bells a second B = 1 / I, I = base_cooldown_modifiable_repeat_interval_ms / Cooldown Recovery (GEM30's
+#   repeat_interval_model's interval); at most 3 wait (not needed here: each use takes the oldest).
+# - Bells eaten e = min(the eaters' uses a second, B): the main skill at its share of the fight, a side one at its
+#   group's use rate (conditions.skill_use_rate: its cooldown, duration, else the search's chosen press rate, else 0).
+#   A player who takes both eats bells on purpose (CLAUDE.md: the build feeds its own mechanic).
+# - Charges a bell: 1 (UNVERIFIED: whether a bell counts as an "enemy" with Devour's 2 extra "Corpses"; Killing Palm's
+#   "higher Rarity" extra charges: a bell taken as Normal, UNVERIFIED). Tempest Bell's bell "can be Hit" but its text
+#   never says Culled: not counted (UNVERIFIED; a forum reply says Killing Palm culls it).
+# - The trade: a bell Devoured isn't Hit, so it makes no shockwave: Hollow Focus's shockwaves (GEM30: min(B, PoB's
+#   rate)) fall to min(B - e_devour, PoB's rate), a DPS MORE on Hollow Focus. Killing Palm Hits the bell it Culls ("Your
+#   Hits immediately destroy the bells, creating a shockwave"): its shockwave kept (MEDIUM-LOW; row: none).
+# - Handed to the charge reader as build.bell_charges (a round behind, as consume_gains; conditions reads
+#   stats["_bell_charges"] for Devour's and Killing Palm's descriptions). Row: not eating bells (no charge, every
+#   shockwave).
+BELL_EATERS = ("Devour", "Killing Palm")
+BELL_EATER_NO_WAVE = ("Devour",)
+BELL_TAG = "HollowFocusBellsEaten"
 
 # (MECHC52; CONSUMES_ALL's note) Pinnacle of Power (Adonia's Ego's granted skill; PoB other.lua PinnacleOfPowerPlayer,
 # game 26650308 pinnacle_of_power.csd): "Consume all Power Charges ... Can only be used while you have maximum Power
@@ -3499,6 +3531,8 @@ class Assumptions:
         stat_mods = stat_mods + models.cry_stage_floor(stat_mods, forbidden)  # (GEM17: PoB's stages box reads 10)
         stat_notes = stat_notes + sacrifice_life(build, found, main, stats)[1]  # (GEM30: Life Sacrificed on use)
         rep_mods, rep_notes = models.repeat_interval_model(found, main, stats, build.call("getConfig")["input"], forbidden)
+        bell_mods, bell_notes = self.hollow_focus_bells(found, main, stats)  # (MECHC54: BELL_EATERS' note)
+        rep_mods, rep_notes = rep_mods + bell_mods, rep_notes + bell_notes
         stat_mods, stat_notes = stat_mods + rep_mods, stat_notes + rep_notes  # (GEM30: Ravenous Swarm, Hollow Focus)
         hit_cut(build, [m for m in stat_mods if "hit_cut" in m or models.HIT_CUT_PER_USE in m] + rep_mods,
                 main.name if main else None)  # (GEM33:
@@ -8848,8 +8882,17 @@ class Assumptions:
     def glory_stats(self, stats: dict, main_skill) -> dict:
         """(MECHC45) `stats` with "_main_share" (main_time_share: the main skill's share of the fight as objective.dps
         scores it) for models.glory_plan, which takes the main skill's hits at that share; unchanged without an
-        objective (a stand-in build) or a main skill."""
-        return with_main_share(self.build, stats, main_skill)
+        objective (a stand-in build) or a main skill. (MECHC54) With "_ward_spent" (models.GLORY_FROM_WARD's note): the
+        Runic Ward the build's Ward-cost skills pay a second (build.ward_sustain, ward_paid's: paid uses x Ward a use; a
+        round behind), Skyfall's own left out."""
+        out = with_main_share(self.build, stats, main_skill)
+        sustain = getattr(self.build, "ward_sustain", None) or {}
+        paid = [(name, number(v[1]) * number(v[2])) for name, v in sustain.items()
+                if isinstance(v, tuple) and len(v) == 3 and name not in models.GLORY_FROM_WARD]
+        if paid:
+            out = {**out, "_ward_spent": (sum(w for _, w in paid),
+                                          ", ".join(f"{n} {w:.1f}/s" for n, w in paid if w > 0) or "none paid")}
+        return out
 
     def glory_presence(self, texts: list[str]) -> dict:
         """(MECHC50) conditions.boss_in_presence for models.glory_plan's "in your Presence" Glory line ({} without one)."""
@@ -9643,22 +9686,87 @@ class Assumptions:
         config = build.call("getConfig")["input"]
         held = number(config.get("overridePowerCharges")) if config.get("usePowerCharges") else 0.0
         attack = bool(main is not None and main.attack) and not ignored
-        counted = stacks if attack else 0.0
+        talisman = next((slot for slot in CHARGED_STAFF_WEAPON_SLOTS if getattr(
+            (getattr(build, "equipped", None) or {}).get(slot), "type", None) == CHARGED_STAFF_TALISMAN), None)
+        counted = stacks if attack and talisman is None else 0.0  # (MECHC54: CHARGED_STAFF_TALISMAN's note)
         mods = [models.raw_mod(name, "BASE", value * (counted - held), tag=CHARGED_STAFF_TAG)
                 for name, value in (("LightningMin", low), ("LightningMax", high)) if value and counted != held]
         note = {
             "label": "Charged Staff: its buff at the Power Charges you spend on it*",
-            "value": (f"{stacks:.1f} stacks on average: {low * stacks:.0f}-{high * stacks:.0f} added Lightning on your "
+            "value": (f"no effect: a Talisman is equipped ({talisman}; the live bug, UNVERIFIED on 0.5.5h)"
+                      if attack and talisman else
+                      f"{stacks:.1f} stacks on average: {low * stacks:.0f}-{high * stacks:.0f} added Lightning on your "
                       "Quarterstaff Attacks" if attack else (
                           f"no effect on the main skill ({main.name} is ignored by Charged Staff)" if ignored
                           else "no effect on the main skill (not an Attack)")),
             "basis": (f"{how}; each spent charge is a {seconds:g} s stack x its Skill Effect Duration x{scale:.2f} (one "
                       f"shared buff, RESEARCH41 R41-6; the duration RESEARCH44 R44-5, MEDIUM-HIGH): {number(spent):.2f}/s "
                       f"x {seconds * scale:.2f} s = {stacks:.1f}. Rows: the flat {seconds:g} s (LOW): {flat:.1f} stacks; "
-                      f"PoB's reading, the {held:g} Power Charges held as stacks ({low * held:.0f}-{high * held:.0f})"),
+                      f"PoB's reading, the {held:g} Power Charges held as stacks ({low * held:.0f}-{high * held:.0f})"
+                      + (f". A Talisman is equipped ({talisman}): maxroll (4 Sep) reports Charged Staff with a Talisman "
+                         "\"appears to be active, but provides no damage or buffs\" and no patch line fixes it "
+                         "(UNVERIFIED on 0.5.5h), so the buff counts 0; if it works: "
+                         f"{stacks:.1f} stacks, {low * stacks:.0f}-{high * stacks:.0f} added Lightning"
+                         if attack and talisman else "")),
             "confidence": "MEDIUM (game numbers; the stacks as charges spent x 6 s)",
             "play": (f"Charged Staff: press it to spend your Power Charges as they come (its press rate "
-                     f"{number(presses):.2f}/s): {stacks:.1f} stacks up; without it, none" if attack else "")}
+                     f"{number(presses):.2f}/s): {stacks:.1f} stacks up; without it, none"
+                     + (f". Take the Talisman out of {talisman}: with one equipped the buff is reported to do nothing "
+                        "(a live bug, UNVERIFIED on 0.5.5h)" if talisman else "") if attack else "")}
+        return mods, [note]
+
+    def hollow_focus_bells(self, found: list, main, stats: dict) -> tuple[list[dict], list[dict]]:
+        """(mods, notes) for Devour / Killing Palm eating Hollow Focus's bells (BELL_EATERS' note); sets
+        build.bell_charges = {eater: (Power Charges a second, how)} for the charge reader."""
+        build = self.build
+        bell = next((s for s in found if s.name == models.HOLLOW_FOCUS), None)
+        eaters = {s.name: s for s in found if s.name in BELL_EATERS}
+        build.bell_charges = {}
+        if bell is None or not eaters:
+            return [], []
+        base = number(bell.level_stats.get(models.REPEAT_STAT)) / 1000
+        if base <= 0:
+            return [], []
+        interval = base / (bell.cooldown_recovery or 1.0)
+        bells = 1 / interval
+        choices = models.press_choices(build)
+        uses = {}
+        for name, skill in eaters.items():
+            if main is not None and skill is main:
+                uses[name] = (number(stats.get("Speed")) * main_time_share(build, main), "the main skill's uses")
+            else:
+                rows = build.call("useRates", indices=[skill.group])["rates"] if skill.group else []
+                each, why, _ = conditions_mod.skill_use_rate(rows[0], choices) if rows else (0.0, "no use rate", True)
+                uses[name] = (each, why)
+        left, eaten = bells, {}
+        for name in sorted(uses, key=lambda n: n not in BELL_EATER_NO_WAVE):  # (Devour first: it eats whole)
+            take = min(uses[name][0], left)
+            left -= take
+            eaten[name] = take
+            build.bell_charges[name] = (take, (
+                f"{take:.3f} Hollow Focus bells eaten a second: min({uses[name][0]:.2f} {name} uses/s ({uses[name][1]}), "
+                f"the bells left of {bells:.2f}/s: one every {base:g} s / {bell.cooldown_recovery or 1.0:.2f} Cooldown "
+                f"Recovery), 1 Power Charge a bell (UNVERIFIED; a bell \"can be Culled\", RESEARCH47 R47-2 / R47-3)"))
+        devoured = sum(eaten.get(n, 0.0) for n in BELL_EATER_NO_WAVE)
+        mods = []
+        pob_rate = number(stats.get("Speed")) if main is not None and main is bell else 0.0
+        pob_rate = pob_rate or (1 / bell.cast_time if bell.cast_time else 0.0)
+        if devoured > 0 and pob_rate > 0:
+            factor = min(bells - devoured, pob_rate) / min(bells, pob_rate)
+            mods.append(models.raw_mod("DPS", "MORE", 100 * (factor - 1), bell.name, tag=BELL_TAG))
+        gained = sum(eaten.values())
+        note = {
+            "label": "Hollow Focus bells eaten for Power Charges*", "value": f"{gained:.2f} Power Charges a second",
+            "confidence": "LOW",
+            "basis": ("; ".join(how for _, how in build.bell_charges.values())
+                      + (f". A Devoured bell isn't Hit, so it makes no shockwave: Hollow Focus's shockwaves x"
+                         f"{min(bells - devoured, pob_rate) / min(bells, pob_rate):.3f}" if devoured > 0 and pob_rate > 0
+                         else "")
+                      + (". Killing Palm Hits the bell it Culls: its shockwave kept (MEDIUM-LOW; row: none)"
+                         if eaten.get("Killing Palm", 0) > 0 else "")
+                      + ". Row: not eating bells: no Power Charge from them, every bell a shockwave"),
+            "play": (f"Use {' / '.join(eaters)} on your Hollow Focus bells (they can be Culled): "
+                     f"{gained:.2f} Power Charges a second; without it, none from bells on a lone boss.")}
         return mods, [note]
 
     def pinnacle_of_power(self, skills: list[dict], main) -> tuple[list[dict], list[dict]]:

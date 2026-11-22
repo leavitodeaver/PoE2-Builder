@@ -15742,7 +15742,7 @@ def brambles_model(slam: str, slam_rate: float, slam_basis: str, row: dict) -> l
 # (attack, elemental or chaos hits), the boss's Heavy Stuns (heavy_stun_rate), Freezes (PoB's per-hit Freeze buildup, the
 # same boss threshold correction, no re-freeze window: an overcount if one exists), Ignites and Shocks (PoB's chance per
 # hit). Not counted (undercounts, labelled): Glory from other skills' hits, armour breaks (Molten Blast), Ward spent
-# (Skyfall), Walking Calamity's own source, increased Glory generation and Daresso's Passion's lower cost.
+# (Skyfall; MECHC54: counted since, GLORY_FROM_WARD), Walking Calamity's own source, increased Glory generation and Daresso's Passion's lower cost.
 BOSS_POWER = 20
 GLORY_SKILLS = {  # skill: (Glory per use, {event: Glory per event on a boss})
     "War Banner": (200, {"attack hit": 20}), "Defiance Banner": (200, {"attack hit": 20}),
@@ -15768,6 +15768,15 @@ GLORY_SKILLS = {  # skill: (Glory per use, {event: Glory per event on a boss})
 # no in-game measurement.
 GLORY_FLAT_EVENTS = {("Spear of Solaris", "ignite"), ("Spear of Solaris", "shock")}
 GLORY_FROM_LIFE = {"Zerphi's Infamy": (50, 0.05)}  # Glory per use, share of Life spent on skills that becomes Glory
+# (MECHC54; the coverage ranking's row 100, active_skill_generates_%_of_ward_spent_as_glory, 12; an UNDERCOUNT: Skyfall
+# read "no source counted" and was never used) Skyfall "Build Glory by spending Runic Ward" (SkyfallPlayer, PoB other.lua:
+# active_skill_generates_%_of_ward_spent_as_glory 100, requires 270 Glory at level 20; its own cost 135 Ward): Glory a
+# second = 100% of the Runic Ward the build's OTHER Ward-cost skills pay a second (assumptions.glory_stats' "_ward_spent",
+# from ward_paid's build.ward_sustain: their paid uses x Ward a use; a round behind). Skyfall's own 135 is left out: it
+# is paid on the cast that starts its 20 s instance, and no Glory comes "while any instance of that Skill is active"
+# (KeywordPopups Glory; MEDIUM). Ward spent another way (Fist of Kalguur's boost) isn't in ward_sustain: not counted
+# (an undercount, LOW). Ward spent isn't a per-monster event: the 0.5 s rule doesn't apply (as Life spent).
+GLORY_FROM_WARD = {"Skyfall": 1.0}
 # KeywordPopups Glory (build 26476662): "each Skill can only generate Glory once every 0.5 seconds per monster" (MECHC2,
 # RESEARCH4 glory-warcry-flat-rates.md, HIGH for the text; before, every event counted: a Banner at 6 hits/s got a use
 # every 1.7 s). On one boss: a gain, then 0.5 s, then the wait for the skill's next event, so gains/s = E / (1 + 0.5 E)
@@ -15985,6 +15994,11 @@ def glory_plan(names: list[str], stats: dict, main: Skill | None, skills: list[S
                 kept = glory_gains(rate, number(stats.get("Speed"))) / rate
                 glory *= kept
                 how += f", at most one gain per {GLORY_GAIN_EVERY:g} s on the boss ({kept:.0%} of them count)"
+            if name in GLORY_FROM_WARD:  # (MECHC54: GLORY_FROM_WARD's note)
+                spent, spent_how = stats.get("_ward_spent") or (0.0, "no Ward-cost skill paid")
+                glory += GLORY_FROM_WARD[name] * number(spent)
+                how = (f"{GLORY_FROM_WARD[name]:.0%} of {number(spent):.1f} Runic Ward spent/s by the build's other "
+                       f"Ward-cost skills ({spent_how}; its own cost left out)")
             inc = lines["inc"] + (lines["banner_inc"] if banner else 0.0)
             if inc and glory > 0:
                 glory *= max(0.0, 1 + inc / 100)
