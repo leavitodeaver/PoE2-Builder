@@ -1876,9 +1876,10 @@ def test_moonbeam_follows_hits_capped_by_its_cooldown_at_the_buffs_uptime():
     assert {"Attack", "Melee", "Wolf", "Shapeshift"} == models.WEREWOLF_MELEE_TYPES
 
 
-def test_mirror_of_refraction_copies_only_spare_projectiles():
-    """GEM31: a mirror every I s shattered by the main Spell's spare projectiles; at most one copy of the nova hits the
-    boss (R35-15), with chance min(1, k x 2 asin(r / d) / 360); none with one projectile a cast or a shotgun skill."""
+def test_mirror_of_refraction_copies_from_every_projectile():
+    """GEM31 / GEM32 (R44-2: the mirror lets projectiles pierce it): a mirror every I s, shattered by any of the main
+    Spell's projectiles, which still hits the boss; at most one copy of the nova hits the boss (R35-15), with chance
+    min(1, k x 2 asin(r / d) / 360); a one-projectile Spell counts too; one chain step a row."""
     mirror = Skill(name="Mirror of Refraction", cooldown_recovery=1.0,
                    level_stats={models.REPEAT_STAT: 2000, models.MIRROR_COPIES_STAT: 9})
     spark = Skill(name="Spark", spell=True)
@@ -1886,9 +1887,10 @@ def test_mirror_of_refraction_copies_only_spare_projectiles():
     mods, notes = models.mirror_of_refraction_model([mirror, spark], spark, stats, {"enemyDistance": 50})
     radius = models.bosses.hit_radius(stats)[0]
     p = min(1.0, models.nova_unaimed_hits(9, radius, 5.0))
-    assert mods[0]["value"] == pytest.approx(100 * min(0.5, 2.0 * 8) * p / 2.0, abs=1e-3) and notes[0]["confidence"] == "LOW"
-    one = models.mirror_of_refraction_model([mirror, spark], spark, {"ProjectileCount": 1, "Speed": 2.0}, {})
-    assert one[0] == [] and one[1][0]["value"] == "x1"
+    assert mods[0]["value"] == pytest.approx(100 * min(0.5, 2.0 * 9) * p / 2.0, abs=1e-3) and notes[0]["confidence"] == "LOW"
+    assert f"x{1 + 2 * 0.5 * p / 2.0:.3f}" in notes[0]["basis"]  # the one-chain-step row
+    one = models.mirror_of_refraction_model([mirror, spark], spark, {"ProjectileCount": 1, "Speed": 2.0}, {"enemyDistance": 50})
+    assert one[0][0]["value"] == pytest.approx(100 * min(0.5, 2.0) * p / 2.0, abs=1e-3)
     shotgun = Skill(name="Galvanic Shards", attack=True)
     assert models.mirror_of_refraction_model([mirror, shotgun], shotgun, stats, {})[0] == []
     assert models.mirror_of_refraction_model([spark], spark, stats, {}) == ([], [])

@@ -5814,18 +5814,19 @@ def repeat_interval_model(skills: list[Skill], main: Skill | None, stats: dict, 
 #   projectile group rule; RESEARCH35 R35-15, research/projectile-group-rule-scope.md's table: Mirror of Refraction "1,
 #   MEDIUM"). Whether one does: the boss's arc's share of the k copies, p = min(1, k x 2 asin(r / d) / 360 degrees)
 #   (R39-12's nova_unaimed_hits; the mirror appears in your Presence, so d is taken as the fight distance, LOW).
-# - The projectile that shatters a mirror is spent on it (LOW: a projectile ends on what it hits; UNVERIFIED for a
-#   mirror). So shattering pays only with a SPARE projectile, one that wouldn't have hit the boss: a Spell firing N
-#   projectiles a cast hits a lone boss with one (the same group rule; Spark's headline 1, SPARK_HEADLINE_HITS), leaving
-#   N - 1 spares. With no spare (N = 1), the play is not to feed the mirrors: x1 (each shatter would trade a sure hit for
-#   p <= 1). Skills whose projectiles each hit by our score (SHOTGUN_SKILLS, SEQUENCE_SKILLS, Nova Projectiles) aren't
-#   counted (no spares by that score; named).
-# - Shatters a second s = min(1 / I, casts a second x (N - 1)), I = the interval / Cooldown Recovery (a player who takes
-#   it fires spares through the mirrors: the play that feeds it). Each adds p hits of the main skill's projectile on the
-#   boss (the copy deals the skill's hit: MEDIUM-LOW). DPS x (1 + s x p / casts a second), PoB's one hit a cast the base.
-# Not counted (labelled, an undercount): copies copied again by other mirrors (a chain needs a second mirror in a copy's
-# path), and mirrors the boss's own movement brings into play. Rows: at melee distance (p at MELEE_DISTANCE); no mirror fed
-# x1. The main skill only (a side group's spell isn't counted: named).
+# - (GEM32; RESEARCH44 R44-2, MEDIUM-HIGH, research/mirror-of-refraction-r44.md) The projectile that shatters a mirror
+#   is NOT spent: the mirror's object (mirrorofrefraction.ot) has projectiles_always_pierce_you ("Enemy Projectiles Pierce
+#   you") and 1 Life, so every Spell Projectile passes through and can still hit the boss. GEM31's cap (only spare
+#   projectiles, N - 1, and none for one-projectile, SHOTGUN / SEQUENCE / Nova skills) undercounted and is gone: any
+#   cast can shatter the mirror on its path, so shatters a second s = min(1 / I, casts a second x N), I = the interval /
+#   Cooldown Recovery (a player who takes it fires through the mirrors: the play that feeds it). Each adds p hits of the
+#   main skill's projectile on the boss (the copy deals the skill's hit: MEDIUM-LOW). DPS x (1 + s x p / casts a second).
+# - Copies copied again by another mirror ("Copied Projectiles may be copied again when colliding with other mirrors",
+#   the game's text, HIGH; R44-2: likely with up to 4 mirrors alive, the rate LOW): each chained nova is a new source,
+#   one more copy hit at most: a row (one chain step a shatter, x(1 + 2 s p / casts)), not the headline.
+# Not counted (labelled): mirrors the boss's own movement brings into play; where mirrors appear (server-side: a uniform
+# spread in your Presence, d = the fight distance, LOW). Rows: at melee distance (p at MELEE_DISTANCE); one chain step;
+# no mirror fed x1. The main skill only (a side group's spell isn't counted: named).
 MIRROR_OF_REFRACTION = "Mirror of Refraction"
 MIRROR_COPIES_STAT = "base_number_of_projectiles"
 MIRROR_ENTRY = "model-gem31-mirror-of-refraction-copies"
@@ -5833,7 +5834,7 @@ MIRROR_ENTRY = "model-gem31-mirror-of-refraction-copies"
 
 def mirror_of_refraction_model(skills: list[Skill], main: Skill | None, stats: dict, config: dict | None = None,
                                forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
-    """Mirror of Refraction's copies on the boss from the main Spell's spare projectiles (see above)."""
+    """Mirror of Refraction's copies on the boss from the main Spell's projectiles, which pierce the mirror (see above)."""
     from builder.search.conditions import MELEE_DISTANCE, RANGED_DISTANCE  # (conditions imports models)
 
     mirror = next((s for s in skills if s.name == MIRROR_OF_REFRACTION), None)
@@ -5846,16 +5847,10 @@ def mirror_of_refraction_model(skills: list[Skill], main: Skill | None, stats: d
         return [], [{"label": label, "value": "x1", "confidence": "LOW", "entry": MIRROR_ENTRY,
                      "basis": ("no main Spell (only Spell Projectiles shatter mirrors), or its level stats weren't read: "
                                "nothing counted")}]
-    count, casts = number(stats.get("ProjectileCount")), number(stats.get("Speed"))
-    if main.name in SHOTGUN_SKILLS or main.name in SEQUENCE_SKILLS or nova_on(main):
-        why = "each of its projectiles already counts as a hit on the boss in our score, so it has no spare to feed a mirror"
-        count = 0.0
-    else:
-        why = "it fires one projectile a cast: shattering a mirror would spend the one that hits the boss"
-    if count < 2 or casts <= 0:
+    count, casts = max(number(stats.get("ProjectileCount")), 1.0), number(stats.get("Speed"))
+    if casts <= 0:
         return [], [{"label": label, "value": "x1", "confidence": "LOW", "entry": MIRROR_ENTRY,
-                     "basis": f"{main.name}: {why}; don't feed the mirrors: x1 (PoB's)",
-                     "play": f"{MIRROR_OF_REFRACTION} adds nothing against one boss with {main.name}: its Spirit is better spent elsewhere."}]
+                     "basis": f"{main.name}: PoB gives it no casts a second: nothing counted"}]
     units = number((config or {}).get("enemyDistance"))
     if units > 0:
         metres, where = units / 10, "the fight distance this build is calculated at"
@@ -5864,23 +5859,26 @@ def mirror_of_refraction_model(skills: list[Skill], main: Skill | None, stats: d
         where = "the main skill's natural distance"
     radius = bosses.hit_radius(stats)[0]
     interval = base / (mirror.cooldown_recovery or 1.0)
-    shatters = min(1 / interval, casts * (count - 1))
+    shatters = min(1 / interval, casts * count)
     p = min(1.0, nova_unaimed_hits(copies, radius, metres))
     p_near = min(1.0, nova_unaimed_hits(copies, radius, MELEE_DISTANCE))
     factor = 1 + shatters * p / casts
     near = 1 + shatters * p_near / casts
+    chain = 1 + 2 * shatters * p / casts
     mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=MIRROR_ENTRY)] if factor > 1 else []
     return mods, [{
         "label": label, "value": f"x{factor:.3f}", "confidence": "LOW", "entry": MIRROR_ENTRY,
         "basis": (f"a mirror every {base:g} s / {mirror.cooldown_recovery or 1.0:.2f} Cooldown Recovery = {interval:.2f} s; "
-                  f"{main.name} fires {count:g} projectiles a cast, one of which hits the boss, so {count - 1:g} spare(s) "
-                  f"x {casts:.2f} casts a second can shatter them: {shatters:.2f} shatters a second. Each copies the "
+                  f"{main.name} fires {count:g} projectile(s) a cast at {casts:.2f} casts a second; a mirror lets every "
+                  f"projectile pierce it (R44-2, MEDIUM-HIGH), so the one that shatters it still hits the boss: "
+                  f"{shatters:.2f} shatters a second. Each copies the "
                   f"projectile {copies:g} times in a nova, of which at most one can hit the boss (one source, one time: "
                   f"R35-15, MEDIUM); a mirror {metres:g} m from the boss ({where}; mirrors appear in your Presence, LOW), "
                   f"radius {radius:g} m: one hits {p:.0%} of the time (k x 2 asin(r / d) / 360). +{shatters * p:.2f} hits a "
-                  f"second on {casts:.2f}: x{factor:.3f}. Rows: fighting at {MELEE_DISTANCE:g} m x{near:.3f}; mirrors not "
-                  "fed x1. Not counted: copies copied again by a second mirror (an undercount)"),
-        "play": (f"{MIRROR_OF_REFRACTION}: let {main.name}'s spare projectiles pass through the mirrors that appear around "
+                  f"second on {casts:.2f}: x{factor:.3f}. Rows: fighting at {MELEE_DISTANCE:g} m x{near:.3f}; each nova's "
+                  f"copies chaining into one more mirror (the game's text; the rate LOW, R44-2) x{chain:.3f}; mirrors "
+                  "not fed x1"),
+        "play": (f"{MIRROR_OF_REFRACTION}: fire {main.name} through the mirrors that appear around "
                  f"you; closer to the boss, more copies reach it. Without it: x1; at this distance x{factor:.2f}; at "
                  f"{MELEE_DISTANCE:g} m x{near:.2f}.")}]
 
@@ -9754,6 +9752,12 @@ def magma_spray_model(rate: float, blast: float, how: str, pob: float = 0.0) -> 
 # Full DPS (at the cap all fight), taken out. The beam lands 0.95 s after the Hit (wolf_lunar_blessing_beam_attack_delay_
 # ms) at the target: a boss that moves away in that time is missed (not counted: UNVERIFIED, RESEARCH). Werewolf Melee
 # Attacks: the main skill's types hold Attack, Melee, Wolf and Shapeshift (Lunar Assault, Pounce, ...). MEDIUM-LOW.
+# (GEM32; RESEARCH44 R44-3, MEDIUM) The beam strikes a FIXED ground spot (1.6 m) 0.95 s after the Hit: a boss leaves it
+# only by a leap, charge or teleport, so every beam landing stays the headline (no boss-relocation share in the presets).
+# It is an Attack using the Talisman, NOT Melee (attack_is_not_melee_override; 0.5.0 "Triggered Moonbeams are no longer
+# considered melee skills"; HIGH): probe POE2T5830 (scratch/gem32/probe5830.log): +100% increased Melee Damage took
+# Lunar Assault's hit 52.91 -> 106.04 and left PoB's Moonbeam at 109.52; +100% Attack Damage took it to 218.83. So
+# PoB's beam, which this model reads, carries no Melee modifier.
 MOONBEAM, LUNAR_BLESSING = "Moonbeam", "Lunar Blessing"
 MOONBEAM_ENTRY = "model-gem31-moonbeam"
 WEREWOLF_MELEE_TYPES = frozenset({"Attack", "Melee", "Wolf", "Shapeshift"})
@@ -9774,7 +9778,9 @@ def moonbeam_model(cap: float, beam: float, hits: float, uptime: float, uptime_h
         "basis": (f"one beam on the boss per Hit ({hits:.2f} Hits a second from {main or 'the main skill'}), at most "
                   f"{cap:.2f} a second (Moonbeam's cooldown), while Lunar Blessing is up {uptime:.0%} of the fight "
                   f"({uptime_how}): {rate:.3f} beams a second at {beam:,.1f} each (PoB's Moonbeam). Its extra beams go to "
-                  "other targets: none on a lone boss. A boss leaving the spot in the beam's 0.95 s delay isn't counted"
+                  "other targets: none on a lone boss. The beam strikes the Hit's spot 0.95 s later (1.6 m): a boss that leaps, "
+                  "charges or teleports away in that time is missed, not counted (R44-3, MEDIUM); an Attack, not Melee: "
+                  "PoB's beam takes no Melee modifier (probe POE2T5830)"
                   + (f"; PoB's own {pob:,.1f} DPS entry (the cooldown rate all fight) taken out" if pob > 0 else "")),
         "play": (f"Keep Lunar Blessing up (with full Rage) and keep hitting in Werewolf form: Moonbeams follow your Hits, "
                  f"one a second at most: {dps:,.1f} DPS here; without the Buff: 0.")}]

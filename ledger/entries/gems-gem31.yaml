@@ -104,7 +104,7 @@
   status: proposed
 
 - id: model-gem31-mirror-of-refraction-copies
-  title: "Mirror of Refraction: a mirror every 2 s shattered by the main Spell's spare projectiles, one copy of the nova on the boss at most"
+  title: "Mirror of Refraction: a mirror every 2 s shattered by the main Spell's projectiles (they pierce it), one copy of the nova on the boss at most"
   kind: model
   model: mirror_of_refraction
   stats: ["base_cooldown_modifiable_repeat_interval_ms", "cooldown_recovery_modifiers_also_apply_to_repeat_interval",
@@ -117,14 +117,16 @@
     PoB act_int.lua MirrorOfRefractionPlayer, the game's text: Cooldown Recovery applies), limit 4, 8 s; a Spell
     Projectile that hits one is copied 7 times (+0.1 a quality point) in a nova round it. One nova from one source at one
     time: at most one copy hits the boss (RESEARCH35 R35-15, MEDIUM), with chance min(1, k x 2 asin(r / d) / 360), d the
-    fight distance (mirrors appear in your Presence; LOW). The shattering projectile is taken as spent (UNVERIFIED), so
-    only spare projectiles (N - 1 of a Spell's N: one hits a lone boss a cast) feed it: min(1 / I, casts x (N - 1))
-    shatters a second, each p more hits of the skill: DPS x (1 + shatters x p / casts). x1 with one projectile a cast,
-    or for skills whose every projectile already hits by our score (SHOTGUN / SEQUENCE skills, Nova Projectiles). Not
-    counted: copies copied again (an undercount). The limit adds nothing while spares shatter each mirror as it comes.
+    fight distance (mirrors appear in your Presence; LOW). GEM32 (RESEARCH44 R44-2, MEDIUM-HIGH): the mirror's object
+    has projectiles_always_pierce_you and 1 Life, so the shattering projectile flies on and can still hit the boss:
+    GEM31's spare-projectile cap (N - 1, and x1 for one-projectile / SHOTGUN / SEQUENCE / Nova skills) was an
+    UNDERCOUNT and is gone. Shatters a second min(1 / I, casts x N), each p more hits of the skill: DPS x (1 + shatters x
+    p / casts). Copies copied again by another mirror (the game's text, HIGH; the rate LOW): a row, one chain step a
+    shatter, x(1 + 2 shatters x p / casts). Where mirrors appear stays UNVERIFIED (server-side).
   sources: ["builder/search/models.py (mirror_of_refraction_model)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua (MirrorOfRefractionPlayer)",
             "data/game-26650308/files/data/statdescriptions/specific_skill_stat_descriptions/mirror_of_refraction.csd",
-            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/projectile-group-rule-scope.md (R35-15)"]
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/projectile-group-rule-scope.md (R35-15)",
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/mirror-of-refraction-r44.md (R44-2)"]
   test_in_game: "Spark with Mirror of Refraction on a dummy 5 m away: about one extra Spark hit per shattered mirror at most."
   status: proposed
 
@@ -165,6 +167,10 @@
     Blessing's uptime (models.lunar_blessing_uptime, MECHC36), each PoB's beam; PoB's own entry (if its group is ticked
     into Full DPS) taken out. The 0.95 s / 0.2 s delays: timing only; a boss moving off the spot in 0.95 s isn't
     counted (UNVERIFIED). MEDIUM-LOW.
+    GEM32 (RESEARCH44 R44-3, MEDIUM): the beam strikes a fixed 1.6 m ground spot 0.95 s after the Hit, so only a boss
+    that leaps, charges or teleports out is missed: every beam landing stays the headline. It is an Attack, not Melee
+    (HIGH): probe POE2T5830, +100% increased Melee Damage left PoB's Moonbeam at 109.52 (Lunar Assault 52.91 -> 106.04),
+    +100% Attack Damage took it to 218.83, so the model's beam carries no Melee modifier.
   sources: ["builder/search/models.py (moonbeam_model)", "builder/search/assumptions.py (moonbeam)",
             "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua (WolfLunarBlessingPlayer, WolfLunarBlessingBeamAttackPlayer)",
             "data/game-26650308/files/data/statdescriptions/specific_skill_stat_descriptions/wolf_lunar_blessing_beam_attack.csd"]
@@ -186,7 +192,8 @@
     conditions.inhibited_skills): Falling Thunder fires no Power-Charge projectiles (a DPS OVERCOUNT the search could
     pick: Inhibitor's 4% more a charge held AND the projectiles), Glacial Lance / Oil Barrage are never empowered, the
     Steward of Kulemak Apparition needs a Power Charge the main Spell can't consume, Ancestral Cry gets no +50% duration
-    per Endurance Charge, Hollow Form makes no extra images. Infusion readers are MECHC49's (already gated).
+    per Endurance Charge. Hollow Form makes no extra images: MECH-B's gate inside models.hollow_model (MECHB51
+    541374bd; train 113 merged GEM31's duplicate guard into that call, 8b672103). Infusion readers are MECHC49's (already gated).
   sources: ["builder/search/assumptions.py (Assumptions.inhibited)", "builder/search/conditions.py (inhibited_skills)",
             "scratch/gem31/inhibitor_plan.md (GEM31)"]
   test_in_game: "Not needed."
