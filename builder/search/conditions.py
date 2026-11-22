@@ -4604,7 +4604,8 @@ def _hit_average(stats: dict, types: tuple[str, ...], crit_only: bool = False) -
 def _armour_break_source(text: str, stats: dict) -> tuple[float, float, float, str] | None:
     """(Armour broken per second, share of the Armour broken per second, Full Breaks per second, how) of one line, or None
     if it isn't a source for you."""
-    stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
+    # (MECH93: at its share of the fight; MECH99 step 3: Armour is broken per landing hit, so hits a use above 1 count: raise_hits)
+    stats = models.at_main_share(stats, raise_hits=True)
     if not ARMOUR_BREAK_LINE.search(text) or ARMOUR_BREAK_NOT_SOURCE.search(text):
         return None
     low = text.lower()
@@ -7683,7 +7684,8 @@ def stacked_mean(m: float, cap: int) -> float:
 
 def ailment_stacks(kind: str) -> Callable[[list[str], dict], tuple[object, str]]:
     def stacks(lines: list[str], stats: dict) -> tuple[object, str]:
-        stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
+        # (MECH93: at its share of the fight; MECH99 step 3: each landing hit adds its own Shock / Chill instance, so hits a use above 1 count: raise_hits)
+        stats = models.at_main_share(stats, raise_hits=True)
         cap = ailment_stack_cap(lines, kind)
         if cap <= 1:
             return 0.0, ""

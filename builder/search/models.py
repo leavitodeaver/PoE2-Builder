@@ -8368,9 +8368,13 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
 # cooldown starts at RELEASE by default (the stat channelled_skill_do_not_go_on_cooldown_on_finishing_channel is only on
 # Flame Breath; patch 0.4.0c), so one use takes the channel, the 0.6 s end animation and the cooldown (the manager's
 # brief, 16 Nov: channel + end animation + cooldown is the headline; the end animation run inside the cooldown is the
-# note's other reading). The stage count is the player's choice: the one that deals the most a second, (1 + 75% x s) /
+# note's other reading). The stage count is the player's choice (THE USER, 21 Nov via the manager 23:47: "as long as
+# needed to get the desired result ... flameblast, you pretty much want to channel that until you get the maximum
+# amount of stages"; the manager 02:50: this optimum IS that payoff, read from the build's data): the one that deals
+# the most a second, (1 + 75% x s) /
 # (max(s / cast rate, 0.49 s) + 0.6 s + cooldown) over s = 1..max (a full channel whenever 0.6 s + the cooldown is over
-# 1.33 / the cast rate: always at 2.2 casts a second or more). Stages come one a cast time (PoB's channelTimeMultiplier / cast rate: MEDIUM, the game files carry no
+# 1.33 / the cast rate: always at 2.2 casts a second or more, every real build with its 10 s cooldown; below that
+# it releases early, the labelled EARLY-RELEASE case, where fewer stages deal more a second). Stages come one a cast time (PoB's channelTimeMultiplier / cast rate: MEDIUM, the game files carry no
 # stage-interval stat for it: checked Stats ids holding "flameblast" / "stage"). Items: no Mods row carries a Flameblast
 # stage stat (checked: every table's stat columns for flameblast_maximum_stages, flameblast_starts_with_X_additional_
 # stages, flameblast_and_incinerate_base_cooldown_modifier_ms, skill_X_fewer_maximum_stages: only the skill's own sets
@@ -8437,7 +8441,10 @@ def flameblast_model(main: Skill | None, stats: dict,
                   f"x{speed and (1 / other) / speed:.3f})"
                   + ("; a totem taken as channelling the same way (UNVERIFIED)" if totem else "")),
         "play": (f"Channel {main.name} to {stages} stage{'s' if stages != 1 else ''} before each release"
-                 + (" (its maximum)" if stages == top else "") + ", and recast as its cooldown ends"
+                 + (" (its maximum)" if stages == top else
+                    f" (an EARLY RELEASE, labelled: below its maximum {top}, fewer stages deal more a second at "
+                    f"{cast_rate:.2f} casts a second; the user's 'until the maximum stages' is this payoff on faster builds)")
+                 + ", and recast as its cooldown ends"
                  + (f". Releasing at 1 stage: x{one / value(stages):.2f} of this." if stages != 1 else
                     f": more stages take longer than they pay at {cast_rate:.2f} casts a second."))}]
 

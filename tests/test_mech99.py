@@ -134,3 +134,18 @@ def test_flammability_counts_each_hit_added_a_use_as_an_application():
     assert conditions.flammability_sources(base) == [("the main skill's hits", 1.0, 10)]
     assert conditions.flammability_sources({**base, "_hits_per_use": 3.0})[0][1] == 3.0
     assert conditions.flammability_sources({**base, "_hits_per_use": 0.25})[0][1] == 0.25
+
+
+def test_armour_break_and_stacked_ailments_count_hits_added_a_use_but_exposure_does_not():
+    """MECH99 (step 3, reader by reader): Armour broken per landing hit and stacked Shock / Chill instances (one a
+    landing hit, each its own duration) take a hits-a-use factor above 1; Exposure's events feed a duration window,
+    so they stay capped (hits landing together don't apply it more often)."""
+    import inspect
+
+    from builder.search import conditions
+
+    assert "raise_hits=True" in inspect.getsource(conditions._armour_break_source)
+    assert "raise_hits=True" in inspect.getsource(conditions.ailment_stacks)
+    base = {"Speed": 2.0, "HitChance": 100, "ShockChancePerHit": 50}
+    assert conditions._exposure_events("hits", {**base, "_hits_per_use": 3.0})[0] == 2.0
+    assert conditions._exposure_events("hits", {**base, "_hits_per_use": 0.5})[0] == 1.0
