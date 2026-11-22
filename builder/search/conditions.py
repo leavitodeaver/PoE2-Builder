@@ -8836,15 +8836,17 @@ class Conditions:
         regen = number((getattr(self.build, "ward_sustain", None) or {}).get("WardRecoveryPerSecond"))
         return ward, drain, regen
 
-    def _main_share(self) -> float:
-        """(MECHC44) the main skill's share of the fight as objective.dps scores it (assumptions.main_time_share)."""
+    def _main_share(self, hits: bool = True) -> float:
+        """(MECHC44) the main skill's share of the fight as objective.dps scores it (assumptions.main_time_share), with
+        the main-skill hit cut (MECHC51, the manager 18:28: _banner_share's and _solaris_uses' Glory per hit read it)
+        unless `hits` is False (Conditions.evidence, which applies the cut itself; time readers)."""
         from types import SimpleNamespace
 
-        from builder.search.assumptions import main_time_share
+        from builder.search.assumptions import hit_cut_share, main_time_share
 
         if not self.main_skill or getattr(self.build, "objective", None) is None:
-            return 1.0
-        return main_time_share(self.build, SimpleNamespace(name=self.main_skill))
+            return 1.0 if not hits else hit_cut_share(self.build, 1.0)
+        return main_time_share(self.build, SimpleNamespace(name=self.main_skill), hits)
 
     def _galvanic_bolts(self) -> tuple[float, str]:
         """(MECHC44) (Galvanic Field's bolts on the boss a cast, how): PoB's HitSpeed x GEM20's attached share
@@ -9674,7 +9676,7 @@ class Conditions:
         """What the build can sustain now: var -> (value, evidence)."""
         lines = self.build.call("sourceLines")["lines"]
         stats = self.build.call("stats", fields=EVIDENCE_FIELDS)
-        stats["_main_share"] = self._main_share()  # (MECHC45: for the readers below, as for the Conditions' readers)
+        stats["_main_share"] = self._main_share(hits=False)  # (MECHC45; the hit cut applied just below, MECH98's)
         # (MECH98; MECHB51's find via the manager 09:38: Hailstorm Rounds' x0.28 bolts and Flame Breath's 4 s channel in its
         # 10 s cooldown are DPS MORE cuts PoB folds into DpsMultiplier, which PoB's own ailment counts read (CalcOffence
         # 5254: HitChance x chance x DpsMultiplier), but our ailment readers count Speed x HitChance (Shock, Ignite,

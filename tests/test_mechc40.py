@@ -202,7 +202,7 @@ def test_the_main_skill_spends_charges_at_its_share_of_the_fight(engine, monkeyp
     build.call("equip", slot="Ring 1", raw=ring, fields=[])
     wanted = {}
     for share in (1.0, 0.5):
-        monkeypatch.setattr(Conditions, "_main_share", lambda self, s=share: s)
+        monkeypatch.setattr(Conditions, "_main_share", lambda self, hits=True, s=share: s)
         search.conditions.evidence()
         flow = (build.charge_flow or {}).get("Frenzy")
         print(share, flow)
@@ -232,7 +232,7 @@ def test_the_main_crystal_skill_spends_power_charges_for_creeping_chill_at_its_s
     build.call("equip", slot="Amulet", raw=amulet, fields=[])
     wanted = {}
     for share in (1.0, 0.5):
-        monkeypatch.setattr(Conditions, "_main_share", lambda self, s=share: s)
+        monkeypatch.setattr(Conditions, "_main_share", lambda self, hits=True, s=share: s)
         found = search.conditions.evidence()
         flow = (build.charge_flow or {}).get("Power")
         print(share, flow)

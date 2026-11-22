@@ -327,3 +327,55 @@ def test_virtuous_barrier_draws_on_full_types_are_wasted_in_the_headline():
     """(MECHC51; R44-8) per-type chains hold fewer Motes than the pooled one (the row)."""
     per = sum(a.mote_steady_state(1 / 1.5 / 3, 0.5 * m / 11, m) for m in (5, 3, 3))
     assert per < a.mote_steady_state(1 / 1.5, 0.5, 11)
+
+
+def test_main_share_readers_take_the_main_skill_hit_cut():
+    """(MECHC51, the manager 18:15 / 18:28) main_time_share / with_main_share and Conditions._main_share give the share
+    x build.main_hit_cut (clamped to [0, 1]); hits=False (Conditions.evidence, time readers) leaves it out; a cut mod on
+    another skill isn't the main skill's."""
+    from types import SimpleNamespace
+
+    class Objective:
+        press_scales = {"Main": 0.8}
+
+        def busy(self):
+            return 0.0
+
+    build = SimpleNamespace(objective=Objective(), main_hit_cut=0.5)
+    main = SimpleNamespace(name="Main")
+    assert a.main_time_share(build, main) == pytest.approx(0.4)
+    assert a.main_time_share(build, main, hits=False) == pytest.approx(0.8)
+    assert a.with_main_share(build, {}, main)["_main_share"] == pytest.approx(0.4)
+    build.main_hit_cut = 3.0
+    assert a.main_time_share(build, main) == pytest.approx(0.8)
+    build.main_hit_cut = None
+    cut = a.main_skill_cut(build, [models.raw_mod("DPS", "MORE", -50, "Main"), models.raw_mod("DPS", "MORE", -90, "Side")],
+                           "Main")
+    assert cut == pytest.approx(0.5)
+    assert a.main_skill_cut(build, [models.raw_mod("DPS", "MORE", -90, "Side")], "Main") is None
+    conds = conditions.Conditions.__new__(conditions.Conditions)
+    conds.build, conds.main_skill = SimpleNamespace(objective=Objective(), main_hit_cut=0.5), "Main"
+    assert conds._main_share() == pytest.approx(0.4) and conds._main_share(hits=False) == pytest.approx(0.8)
+
+
+def test_probe_temper_weapons_channel_cut_reaches_main_hit_cut(engine):
+    """(MECHC51, the manager 18:15) Temper Weapon's channel time off the main attack (its "DPS" MORE on the main skill)
+    now also sets build.main_hit_cut to the same factor, so the ailment and Glory readers count the hits that happen."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.call("addSkillGroup", text="Temper Weapon 20/0 1")
+    search.settle()
+    mods, notes = search.assumptions.wanted()
+    temper = [m for m in mods if m.get("tag") == "TemperWeapon" and m.get("name") == "DPS"]
+    print("PROBE temper cut", temper, build.main_hit_cut, [n.get("value") for n in notes if "Temper" in str(n.get("label"))])
+    if not temper:
+        pytest.skip("Temper Weapon took no channel time on this build")
+    assert build.main_hit_cut == pytest.approx(1 + temper[0]["value"] / 100, rel=1e-3)

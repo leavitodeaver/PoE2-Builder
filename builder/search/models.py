@@ -5613,7 +5613,12 @@ def abyssal_apparition_model(texts: list[str], main: Skill | None, main_types: s
     less = APPARITION_LESS_BY_LEVEL[level - 1]
     each = 1 + less / 100
     factor, low = 1 + share * each, 1 + share * (1 + APPARITION_LESS[1] / 100)
-    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], [{
+    # (MECHC51, the manager 18:15: a MIXED model split for the hit cut: the Apparition's casts add hits, 1 + share of
+    # them, each at its less damage; its "hit_cut" key names the hit part for MECHB52's hit_cut_of. Above 1: the
+    # readers' clamp keeps PoB's rate, the lower reading)
+    mod = raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)
+    mod["hit_cut"] = _round(1 + share)
+    return [mod], [{
         "label": label, "value": f"x{factor:.3f}", "confidence": "LOW", "entry": APPARITION_ENTRY,
         "basis": (f"{gains:.2f} Power Charges a second ({gains_how or 'the build lines'}) over {casts:.2f} casts a second "
                   f"of {main.name}: {share:.0%} of casts find one and are cast again by the Apparition at "

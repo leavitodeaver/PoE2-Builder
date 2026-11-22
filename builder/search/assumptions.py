@@ -1976,7 +1976,23 @@ def _skill_hits(build: Build, group: dict, position: int, press: dict) -> tuple[
     return models.number(row.get("speed")) * chance * models.number(press.get(row.get("name"), 1.0)) * (1.0 - busy), row
 
 
-def main_time_share(build: Build, main: models.Skill | None) -> float:
+def main_skill_cut(build: Build, mods: list[dict], main: str | None) -> float | None:
+    """(MECHC51) build.main_hit_cut times the hit factor of the "DPS" MORE mods in `mods` tagged to the main skill
+    `main` (models.hit_cut_of; a mod on another skill is not the main skill's hits). Unchanged without one. (MECHB52's
+    assumptions.hit_cut does the same once it lands: this then defers to it.)"""
+    own = [m for m in mods if m.get("skill") == main] if main else []
+    return models.hit_cut_of(own, getattr(build, "main_hit_cut", None)) if own else getattr(build, "main_hit_cut", None)
+
+
+def hit_cut_share(build: Build, share: float) -> float:
+    """(MECHC51, the manager 18:28, as MECH99's 3c266dbc for MECH-A's readers) `share` (the main skill's share of the
+    fight) x build.main_hit_cut clamped to [0, 1] (Conditions.evidence's own clamp): the share of the fight's hits that
+    happen, for a reader of the main skill's hits. Unset: `share`."""
+    cut = getattr(build, "main_hit_cut", None)
+    return share if cut is None else share * max(0.0, min(1.0, models.number(cut)))
+
+
+def main_time_share(build: Build, main: models.Skill | None, hits: bool = True) -> float:
     """The main skill's share of the fight as objective.dps scores it (GEM22): its press-model scale (objective.
     press_scales: the time the pressed side skills leave it in Full DPS) x (1 - objective.busy()) (the search's chosen
     presses outside Full DPS, Glory presses). objective.dps adds the added sources whole (added_dps), so a source tied
@@ -1988,7 +2004,10 @@ def main_time_share(build: Build, main: models.Skill | None) -> float:
     if main is not None:
         own = next((models.number(v) for k, v in press.items() if k == main.name or str(k).startswith(f"{main.name} ")
                     or str(k).startswith(f"{main.name}:")), 1.0)
-    return max(0.0, min(1.0, own * (1.0 - objective.busy())))
+    share = max(0.0, min(1.0, own * (1.0 - objective.busy())))
+    # (MECHC51, the manager 18:28: its readers count the main skill's hits or uses, so the main-skill hit cut too;
+    # `hits=False` for a time reader, and for Conditions.evidence, which applies the cut itself)
+    return hit_cut_share(build, share) if hits else share
 
 
 def with_main_share(build: Build, stats: dict, main: models.Skill | None) -> dict:
@@ -4077,6 +4096,8 @@ class Assumptions:
                 texts, pool_es, recovery_mod.corrupted_items(build.call("equipped").get("slots") or {}),
                 number(costs.get("ManaPerSecondCost")), number(costs.get("LifePerSecondCost")), name)
             hand_mods, hand_notes = hand_mods + div_mods, hand_notes + div_rows
+            # (MECHC51, the manager 18:15: a HIT-CUT: uses held to what Divinity pays)
+            build.main_hit_cut = main_skill_cut(build, div_mods, name)
         if any(recovery_mod.VIGOUR_FIRST.match(t.strip()) for t in texts):  # (MECHC38, COV41: Emergent Vigour)
             vigour, vigour_row = recovery_mod.emergent_vigour(
                 texts, build.call("stats", fields=[*recovery_mod.VIGOUR_FIELDS, recovery_mod.VIGOUR_OFFHAND_FIELD]),
@@ -6232,6 +6253,9 @@ class Assumptions:
         mods, notes = mods + apocalypse_mods, notes + apocalypse_notes
         temper_mods, temper_notes = self.temper_weapon(skills)  # (GEM19: Temper Weapon's Combust, Smith of Kitava)
         mods, notes = mods + temper_mods, notes + temper_notes
+        # (MECHC51, the manager 18:15: a HIT-CUT, the channel time off the main attack: its "DPS" MORE on the main skill
+        # also cuts the hits the ailment readers count)
+        self.build.main_hit_cut = main_skill_cut(self.build, temper_mods, main)
         wave_mods, wave_notes = self.shield_waves(skills)  # (MECHB46: Fortifying Cry's Shield Waves)
         mods, notes = mods + wave_mods, notes + wave_notes
         if glory is None:
