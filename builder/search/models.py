@@ -7958,11 +7958,75 @@ def unscale_own(sets: list[dict], previous: list[dict] | None, entry: str) -> di
 # A set's applications a use x duration = its StackPotential / (its Speed x its DpsMultiplier) (5254-5262).
 STRONG_ENTRY = "model-gem22-strongest-ailment-mix"
 STRONG_AILMENTS = ("Ignite", "Bleed")
+# (GEM34; the manager 08:00 / 08:25 from MECHC53's POE2T7000, probe POE2T7205: an OVERCOUNT) PoB sizes the one Ignite /
+# Bleed at a ROLL AVERAGE of its source hit's range, RA = S / (S + 1) when its stacks S > 1, else 50% (CalcOffence
+# 5140-5147; hitAvg = min + (max - min) x RA, 5168), and S carries the DpsMultiplier (5089). A mix's skill-wide DPS line
+# k sits on every set row of setRates, so a weak scored set under a big k drifts every row's ailment toward its max
+# roll, and the strongest part's "full" reading came out high: Whirling Slash scored on its Melee set (k 3.34) read the
+# Whirlwind's Bleed at S 8.70 (RA 90%), the game's 148 DPS, against 106 with the Whirlwind scored (S 1.25, RA 56%); the
+# score 231.5 vs 189.6. Whirlwind Lance's weak Spear set (k 2.44) out-scored its Whirlwind set by the same drift (173.6
+# vs 153.1). Now each row's full strength is moved from PoB's RA(S) to RA of the set's OWN stacks (its applications a
+# use x duration x its share x the skill's uses: the model's own uptime before the cap), by the hit range's ratio
+# r = min / max of the ailment's source hit (PoB's <ailment><type>Min / Max, the scored set's, summed over the damage
+# types; taken for every set of the skill: MEDIUM-LOW, the sets share the weapon or the gem's 2:3-style spread):
+# x size(own S) / size(PoB's S). PoB's second stack-driven term (CalcOffence 5186, "Over-stacking stacks increases
+# the chance a critical is present"): the ailment's crit share c = 1 - (1 - crit)^max(S, 1), its base = the hit's and
+# the crit's sizes weighted by h (1 - c) and k c (calcAilmentDamage 4947-4957: h / k its chance on hit / on crit), the
+# crit's size M x the hit's (PoB's StoredCrit / StoredHit). So size(S) = (r + (1 - r) RA(S)) x (h (1 - c) + M k c) /
+# (h (1 - c) + k c). Probe POE2T7207 (Whirling Slash's Whirlwind row, S 8.70 vs 1.25, crit 3.95%, r 0.66): roll x1.137
+# and crit x1.235 (M 2.0) = the rows' x1.404. The crit chance and M are the scored set's, taken for every set
+# (MEDIUM-LOW). With no range read: as before (no correction).
+STRONG_RANGE_FIELDS = sorted({f"{hand}{field}" for hand in ("", "MainHand.") for field in
+                              [f"{a}{t}{end}" for a in STRONG_AILMENTS for t in DAMAGE_TYPES for end in ("Min", "Max")]
+                              + [f"{t}Stored{kind}Max" for t in DAMAGE_TYPES for kind in ("Hit", "Crit")]
+                              + [f"{a}ChanceOn{kind}" for a in STRONG_AILMENTS for kind in ("Hit", "Crit")]
+                              + ["CritChance"]})
+
+
+def ailment_roll(stacks: float) -> float:
+    """PoB's roll average for one ailment instance (maxStacks 1) at `stacks` applications a duration (CalcOffence
+    5140-5147): S / (S + 1) above 1, else 0.5."""
+    stacks = number(stacks)
+    return stacks / (stacks + 1.0) if stacks > 1.0 else 0.5
+
+
+def ailment_ranges(stats: dict) -> dict[str, dict]:
+    """{ailment: its size profile} from PoB's outputs (the main hand's for an attack, else the skill's): r = min / max
+    of its source hit (<ailment><type>Min / Max summed over the types), crit (CritChance, 0-1), mult (the crit's size
+    over the hit's: <type>StoredCritMax / StoredHitMax over the types it takes), on_hit / on_crit (its chances). An
+    ailment with no range read is left out."""
+    out: dict[str, dict] = {}
+    for a in STRONG_AILMENTS:
+        for hand in ("", "MainHand."):
+            types = [t for t in DAMAGE_TYPES if number(stats.get(f"{hand}{a}{t}Max")) > 0]
+            hi = sum(number(stats.get(f"{hand}{a}{t}Max")) for t in types)
+            if hi <= 0:
+                continue
+            lo = sum(number(stats.get(f"{hand}{a}{t}Min")) for t in types)
+            hit = sum(number(stats.get(f"{hand}{t}StoredHitMax")) for t in types)
+            crit = sum(number(stats.get(f"{hand}{t}StoredCritMax")) for t in types)
+            on_hit = number(stats.get(f"{hand}{a}ChanceOnHit") or stats.get(f"{a}ChanceOnHit"))
+            on_crit = number(stats.get(f"{hand}{a}ChanceOnCrit") or stats.get(f"{a}ChanceOnCrit"))
+            out[a] = {"r": min(1.0, max(0.0, lo / hi)), "mult": crit / hit if hit > 0 and crit > 0 else 1.0,
+                      "crit": min(1.0, max(0.0, number(stats.get(f"{hand}CritChance") or stats.get("CritChance")) / 100)),
+                      "on_hit": on_hit if on_hit > 0 else 1.0, "on_crit": on_crit if on_crit > 0 else 1.0}
+            break
+    return out
+
+
+def ailment_size(profile: dict, stacks: float) -> float:
+    """PoB's one-instance ailment size at `stacks`, up to a constant (see STRONG_RANGE_FIELDS): the roll average over
+    the hit's range times the crit weighting whose crit share grows with the stacks."""
+    r, mult, crit = number(profile.get("r")), number(profile.get("mult")) or 1.0, number(profile.get("crit"))
+    h, k = number(profile.get("on_hit")) or 1.0, number(profile.get("on_crit")) or 1.0
+    c = 1.0 - (1.0 - crit) ** max(number(stacks), 1.0)
+    weight = (h * (1 - c) + mult * k * c) / (h * (1 - c) + k * c) if h * (1 - c) + k * c > 0 else 1.0
+    return (r + (1 - r) * ailment_roll(stacks)) * weight
 
 
 def strongest_ailment_model(main: Skill | None, sets: list[dict], shares: dict[str, float], uses: float,
                             previous: list[dict] | None = None, forbidden: set[str] = frozenset(),
-                            how: str = "") -> tuple[list[dict], list[dict]]:
+                            how: str = "", ranges: dict[str, dict] | None = None) -> tuple[list[dict], list[dict]]:
     """AilmentMagnitude MORE lines (Ignite / Bleed) that turn PoB's reading of the scored set's ailment into the
     strongest-wins mix of the sets the skill really uses (comment above). `sets`: setRates for its group; `shares`:
     {set label: uses of that set a use of the skill}; `uses`: the skill's uses a second; `previous`: the last pass's
@@ -7994,7 +8058,11 @@ def strongest_ailment_model(main: Skill | None, sets: list[dict], shares: dict[s
             if potential <= 0 or dps <= 0 or speed <= 0 or number(row.get(f"{ailment}StacksMax")) > 1:
                 continue
             full = dps / min(1.0, potential)
-            up = min(1.0, potential / (speed * multiplier) * share * uses)
+            own_stacks = potential / (speed * multiplier) * share * uses
+            r = (ranges or {}).get(ailment)
+            if r is not None:  # (GEM34: from PoB's drifted roll to the set's own, see STRONG_RANGE_FIELDS)
+                full *= ailment_size(r, own_stacks) / ailment_size(r, potential)
+            up = min(1.0, own_stacks)
             found.append((full, up, label))
         if not found:
             continue
@@ -8007,7 +8075,11 @@ def strongest_ailment_model(main: Skill | None, sets: list[dict], shares: dict[s
             continue
         mods.append(raw_mod("AilmentMagnitude", "MORE", 100 * (factor - 1), main.name, tag=tag, keywords=[ailment]))
         parts.append(f"{ailment}: PoB {pob:,.0f} DPS on its {main.stat_set} set, the game's {game:,.0f} ("
-                     + "; ".join(f"{label} {full:,.0f} up {up:.0%}" for full, up, label in found) + ")")
+                     + "; ".join(f"{label} {full:,.0f} up {up:.0%}" for full, up, label in found) + ")"
+                     + (f", each part's size at its own applications' roll and crit share (hit range min/max "
+                        f"{(ranges or {})[ailment]['r']:.2f}, crit {(ranges or {})[ailment]['crit']:.1%} x"
+                        f"{(ranges or {})[ailment]['mult']:.2f}; PoB's rows take the DPS line's)"
+                        if ailment in (ranges or {}) else ""))
     if not mods:
         return [], []
     return mods, [{"label": f"{main.name}: the strongest Ignite / Bleed of its parts, at each part's own uptime*",

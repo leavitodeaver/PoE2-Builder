@@ -2088,3 +2088,39 @@ def test_gated_steer_never_raises_a_weaker_gated_set():
     sets[2]["TotalDPS"] = 400.0  # (a stronger Beam is still steered down to 0.9 x the Projectile)
     mods, _ = models.gated_set_model(Skill("Ember Fusillade", 1), "Beam", sets, 0.0, "none")
     assert mods[0]["value"] == pytest.approx(100 * (261.34 * 0.9 / 400.0 - 1), abs=0.01)
+
+
+def _whirl_rows(melee, whirl, potential, mult):
+    return [{"label": "Melee", "Speed": 0.659, "BleedDPS": melee, "BleedStackPotential": potential, "BleedStacksMax": 1,
+             "DpsMultiplier": mult},
+            {"label": "Whirlwind", "Speed": 0.659, "BleedDPS": whirl, "BleedStackPotential": potential,
+             "BleedStacksMax": 1, "DpsMultiplier": mult}]
+
+
+def test_strongest_ailment_reads_each_part_at_its_own_roll():
+    # (GEM34, probe POE2T7205) Whirling Slash scored on its weak Melee set (DPS line x3.34) vs its Whirlwind set: PoB's
+    # rows roll at the line's stacks, so the game's Bleed read 148 vs 106; at each part's own stacks both agree
+    assert models.ailment_roll(0.8) == 0.5 and models.ailment_roll(3.0) == pytest.approx(0.75)
+    shares, uses = {"Melee": 1.0, "Whirlwind": 1 / 3}, 0.659
+
+    def game(scored, rows, ranges):
+        ws = Skill("Whirling Slash", 1, attack=True, melee=True)
+        ws.stat_set = scored
+        mods, _ = models.strongest_ailment_model(ws, rows, shares, uses, ranges=ranges)
+        pob = next(r["BleedDPS"] for r in rows if r["label"] == scored)
+        return pob * (1 + mods[0]["value"] / 100) if mods else pob
+
+    weak, strong = _whirl_rows(41.3, 164.5, 8.698, 3.34), _whirl_rows(29.4, 117.2, 1.25, 0.48)
+    assert game("Melee", weak, None) / game("Whirlwind", strong, None) > 1.3  # (the drift, as before)
+    # (probe POE2T7207's profile: range 146-220 (r 0.66), crit 3.95% at a 2.0 crit size: the roll x1.137 and the crit
+    # share x1.235 make the rows' x1.404 between S 8.70 and 1.25)
+    profile = {"Bleed": {"r": 146 / 220, "crit": 0.0395, "mult": 2.0, "on_hit": 1.0, "on_crit": 1.0}}
+    ratio = models.ailment_size(profile["Bleed"], 8.698) / models.ailment_size(profile["Bleed"], 1.25)
+    assert ratio == pytest.approx(164.5 / 117.2, rel=0.01)
+    a, b = game("Melee", weak, profile), game("Whirlwind", strong, profile)
+    assert a == pytest.approx(b, rel=0.03) and a < game("Melee", weak, None)
+    got = models.ailment_ranges({"MainHand.BleedPhysicalMin": 146, "MainHand.BleedPhysicalMax": 220,
+                                 "MainHand.PhysicalStoredHitMax": 220, "MainHand.PhysicalStoredCritMax": 440,
+                                 "CritChance": 3.95, "BleedChanceOnHit": 100, "BleedChanceOnCrit": 100})["Bleed"]
+    assert got["r"] == pytest.approx(0.6636, abs=1e-3) and got["mult"] == 2.0 and got["crit"] == pytest.approx(0.0395)
+    assert models.ailment_ranges({}) == {}
