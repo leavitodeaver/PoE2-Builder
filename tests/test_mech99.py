@@ -151,13 +151,30 @@ def test_armour_break_and_stacked_ailments_count_hits_added_a_use_but_exposure_d
     assert conditions._exposure_events("hits", {**base, "_hits_per_use": 0.5})[0] == 1.0
 
 
-def test_a_non_number_in_the_hits_a_use_key_never_reads_as_no_hits():
+def test_a_non_number_in_the_hits_a_use_key_never_reads_as_no_hits(monkeypatch):
     """MECH99 (the manager 02:52, MECHC52's find): MECHC44's (hits a use, how) tuple in "_hits_per_use" read as 0 cut every
-    hit reader to nothing; a non-number is now no factor (1)."""
+    hit reader to nothing; a non-number is now no factor (1) outside pytest (the strict test-time check is the next test)."""
     from builder.search import models
 
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
     stats = {"Speed": 2.0, "_hits_per_use": (3.0, "Twister's whirlwinds")}
     assert models.per_use_factor(stats) == 1.0 and models.hits_raise(stats) == 1.0
     assert models.at_main_share(stats)["Speed"] == 2.0
     assert models.per_use_factor({"_hits_per_use": True}) == 1.0
     assert models.per_use_factor({"_hits_per_use": 0.5}) == 0.5
+
+
+def test_a_non_number_in_the_hits_a_use_key_raises_under_pytest():
+    """MECH100 (the manager 02:52's second half): under pytest a non-number that isn't None in "_hits_per_use" raises, so
+    a new writer sharing the key fails the suite; None and numbers read as before."""
+    import pytest
+    from builder.search import models
+
+    for bad in ((3.0, "Twister's whirlwinds"), True, "2"):
+        with pytest.raises(TypeError):
+            models.per_use_factor({"_hits_per_use": bad})
+        with pytest.raises(TypeError):
+            models.at_main_share({"Speed": 2.0, "_hits_per_use": bad})
+    assert models.per_use_factor({"_hits_per_use": None}) == 1.0
+    assert models.per_use_factor({"_hits_per_use": 0.5}) == 0.5
+    assert models.hits_raise({"_hits_per_use": 3}) == 3.0

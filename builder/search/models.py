@@ -20,6 +20,7 @@ Energy node shows its worth without a real trial. Inputs on items count from the
 from __future__ import annotations
 
 import math
+import os
 import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
@@ -294,9 +295,15 @@ HITS_PER_USE_MAX = 1.0
 def _hits_a_use(stats: dict) -> float | None:
     """stats["_hits_per_use"] as a number, or None. (MECH99, the manager 02:52: MECHC44's (hits a use, how) tuple once
     shared this key, and number() reads a tuple as 0, so every hit reader saw no hits on Twister / Galvanic Field: an
-    UNDERCOUNT. A value that isn't a number is read as no factor (None: 1), never as 0.)"""
+    UNDERCOUNT. A value that isn't a number is read as no factor (None: 1), never as 0.) Under pytest (MECH100, the
+    manager 02:52's second half) a value that is neither None nor a number RAISES a TypeError, so a new writer that
+    shares the key fails the suite instead of reading quietly as no factor."""
     got = stats.get("_hits_per_use")
-    return float(got) if isinstance(got, (int, float)) and not isinstance(got, bool) else None
+    if isinstance(got, (int, float)) and not isinstance(got, bool):
+        return float(got)
+    if got is not None and os.environ.get("PYTEST_CURRENT_TEST"):
+        raise TypeError(f'stats["_hits_per_use"] must be a number or None, got {got!r} (models._hits_a_use)')
+    return None
 
 
 def per_use_factor(stats: dict) -> float:
