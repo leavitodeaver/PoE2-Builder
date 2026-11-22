@@ -4583,13 +4583,17 @@ class Assumptions:
         stampede_groups: set[int] = set()  # (MECHB52: Vivid Stampede's group, counted through Full DPS)
         stampede = next((s_ for s_ in found if s_.name == models.VIVID_STAMPEDE and s_.group is not None), None)
         if stampede is not None:  # (MECHB52: Spirit Walker's Stags at the rate the build feeds them)
-            from builder.search import bosses as bosses_mod
+            from builder.search import boss_hits, bosses as bosses_mod
 
-            vs_every = bosses_mod.benefit_skill_time(build.call("stats", fields=list(dict.fromkeys(
-                ["enemySkillTime", *models.MODEL_FIELDS]))))
+            vs_stats = {**build.call("stats", fields=list(dict.fromkeys(["enemySkillTime", *models.MODEL_FIELDS]))),
+                        "_boss": getattr(getattr(build.ctx, "request", None), "boss", None) or bosses_mod.DEFAULT}
+            vs_every = bosses_mod.benefit_skill_time(vs_stats)  # (MECHB55: the request's boss, was the default's)
+            # (MECHB55: the boss's forced moves are each one dodge roll too, boss_hits.RED_FLASH_AVOID_HOW; the
+            # dodge share above already rolls for dodge x of them, so (1 - dodge) x their rate is added, no double)
+            vs_forced = boss_hits.red_flash_rate(vs_stats)[0] * (1.0 - dodge_share()[0])
             vs_mods, vs_notes = models.vivid_stampede_model(
                 main, stampede, [e["text"] for e in source_lines], dodge_share()[0] / vs_every if vs_every > 0 else 0.0,
-                number(stats.get("Speed")), forbidden)
+                number(stats.get("Speed")), forbidden, forced=vs_forced)
             hand_mods, hand_notes = hand_mods + vs_mods, hand_notes + vs_notes
             if any(m.get("key") == "triggerRate" and number(m.get("value")) > 0 for m in vs_mods):
                 stampede_groups.add(stampede.group)

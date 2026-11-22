@@ -23450,7 +23450,8 @@ def icestorm_overlap_note(main: Skill | None, speed: float, duration: float) -> 
 # Stampede ends" and "Stags deal 20% more damage per leap" (vivid_stag_damage_%_final_per_cascade 20). None read by
 # PoB (checked: grep -i "vivid_stag|cascade_number_of_damaging" over SkillStatMap.lua and Modules: none).
 # Stags a second = the movement Wisps (the dodge rolls the build makes anyway: the user's rate / the boss's attack gap,
-# x DODGE_ROLL_METRES / 10; walking not counted, an UNDERCOUNT) + with the node one a Stampede, a Stampede every
+# x DODGE_ROLL_METRES / 10; MECHB55: + the boss's forced moves, one roll each, x (1 - the dodge rate) so none is
+# rolled twice; walking not counted, an UNDERCOUNT) + with the node one a Stampede, a Stampede every
 # max(0.3 s, T_end + the next attack): T_end, how long a Stampede takes to end, is in no file; RESEARCH45 R45-10
 # (MECHB54; MEDIUM-LOW): about 2.0 s from the trigger to the 4th leap (the 4 leaps end it, about 0.5 s apart; the stag
 # animation's leaping loop lands at 0.59 s and 1.13 s; GGG's Spirit Walker showcase times one at ~1.75-2.0 s; the stat's
@@ -23468,9 +23469,10 @@ MORRIGAN = re.compile(r"^Gain a Vivid Wisp when Vivid Stampede ends$", re.I)
 
 
 def vivid_stampede_model(main: Skill | None, stampede: Skill | None, texts: list[str], rolls: float, attack_rate: float,
-                         forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+                         forbidden: set[str] = frozenset(), forced: float = 0.0) -> tuple[list[dict], list[dict]]:
     """Vivid Stampede's Stags a second (see above) as its trigger rate (landings a second) and the per-leap more.
-    `rolls` the dodge rolls a second the build makes anyway, `attack_rate` the main skill's uses a second."""
+    `rolls` the dodge rolls a second the build makes anyway, `attack_rate` the main skill's uses a second, `forced`
+    (MECHB55) the dodge rolls a second out of the boss's forced moves not already among `rolls`."""
     if stampede is None or stampede.group is None or VIVID_ENTRY in forbidden:
         return [], []
     if main is None or not main.attack or attack_rate <= 0:
@@ -23479,7 +23481,7 @@ def vivid_stampede_model(main: Skill | None, stampede: Skill | None, texts: list
                      "basis": "\"Expend all Vivid Wisps to trigger Vivid Stampede when you Attack\": the main skill isn't "
                               "an Attack, so no Stampede is counted"}]
     node = any(MORRIGAN.match(t.strip()) for t in texts)
-    moved = max(0.0, rolls) * DODGE_ROLL_METRES / VIVID_METRES_PER_WISP
+    moved = (max(0.0, rolls) + max(0.0, forced)) * DODGE_ROLL_METRES / VIVID_METRES_PER_WISP
 
     def stags(end: float) -> float:
         return moved + (1.0 / max(VIVID_COOLDOWN, end + 1.0 / attack_rate) if node else 0.0)
@@ -23499,8 +23501,11 @@ def vivid_stampede_model(main: Skill | None, stampede: Skill | None, texts: list
     return mods, [{
         "label": f"{VIVID_STAMPEDE}: {head:.3f} Stags a second, {VIVID_LANDINGS} landings each*",
         "value": f"{head * VIVID_LANDINGS:.3f} hits/s", "confidence": "LOW", "entry": VIVID_ENTRY,
-        "basis": (f"Wisps from movement: {rolls:.3f} dodge rolls a second made anyway (the user's rate) x "
-                  f"{DODGE_ROLL_METRES:g} m / {VIVID_METRES_PER_WISP:g} m a Wisp = {moved:.3f} (walking not counted)"
+        "basis": (f"Wisps from movement: {rolls:.3f} dodge rolls a second made anyway (the user's rate)"
+                  + (f" + {forced:.3f} out of the boss's forced moves (one roll each, those the dodge rate doesn't "
+                     f"already roll for, MECHB55)" if forced > 0 else "")
+                  + f" x {DODGE_ROLL_METRES:g} m / {VIVID_METRES_PER_WISP:g} m a Wisp = {moved:.3f} (walking not "
+                  "counted)"
                   + (f"; The Mórrigan's Guidance: a Wisp each time a Stampede ends, one every max({VIVID_COOLDOWN:g} s, "
                      f"{VIVID_END:g} s to end (MEDIUM-LOW: RESEARCH45 R45-10, timed on video; no game number) + {1 / attack_rate:.2f} s to the next "
                      f"attack), and 20% more a leap, x{leap:.2f} over the 4 landings (additive, the lower reading)"

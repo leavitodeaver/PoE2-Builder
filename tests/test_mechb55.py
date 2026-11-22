@@ -70,3 +70,17 @@ def test_skill_infused_matches_arcs_reading_and_shares_the_supply():
     stub = _stub("Lightning Arrow", [["Lightning Arrow"], ["Flame Wall"]], {"Flame Wall": 0.2}, {}, 0.5, ["x"])
     share, how = conditions.Conditions._skill_infused(stub, [], {"Speed": 2.0}, "Flame Wall", "Lightning")
     assert share > 0.5 and "Flame Wall's 0.20 casts/s" in how
+
+
+def test_vivid_stampede_counts_the_forced_move_rolls_the_dodge_rate_leaves_out():
+    """(MECHB55, MECHB54's next step (d)) each boss forced move is one 4.6 m dodge roll (RED_FLASH_AVOID_HOW); the ones
+    the dodge rate doesn't already roll for add Wisps."""
+    from builder.search import models
+
+    main = models.Skill("Twister", 1, attack=True)
+    vs = models.Skill("Vivid Stampede", 7, attack=True)
+    plain = models.vivid_stampede_model(main, vs, [], 0.3, 2.0)[0][0]["value"]
+    mods, notes = models.vivid_stampede_model(main, vs, [], 0.3, 2.0, forced=0.02)
+    assert mods[0]["value"] == pytest.approx(plain + 0.02 * 4.6 / 10 * 4)
+    assert "forced moves" in notes[0]["basis"]
+    assert models.vivid_stampede_model(main, vs, [], 0.0, 2.0, forced=0.02)[0]  # (forced moves alone feed it)
