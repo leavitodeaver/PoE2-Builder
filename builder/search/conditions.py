@@ -7044,9 +7044,12 @@ def no_hit_ignite(stats: dict, damage: float | None, window: float) -> tuple[flo
 # a piece under it `up` of the fight for `seconds` each covers min(1, up x (seconds + 8) / seconds) of it, the part
 # beyond the ground at the main skill's time share (its Whirlwinds made only while it is used; MEDIUM). The ground's
 # source rate keeps it topped up (each piece's own rate, never a flat one). The no-ground "goes infinite after ~8 s"
-# claim contradicts the game text and is UNVERIFIED (R47-2): not modelled. Not counted (labelled): lit Oil Ground carried
-# by the Whirlwind (its Exposure / outright Ignite: oil_ignite_share counts it under the boss only), a companion's Trail
-# of Fire (no companion ground model).
+# claim contradicts the game text and is UNVERIFIED (R47-2): not modelled. Lit Oil Ground counts as Ignited Ground here
+# (0.3.0: "Fixed a bug where Ignited Oil Ground wasn't igniting Whirlwinds"): oil_ground adds each lit Oil Ground to the
+# same pieces (OIL_PIECE), so it is carried too, at the Oil's own use and light rates (the guides' Oil Barrage +
+# Flameblast route), into both ground_ignite's state and oil_ignite_model's lit share (the Oil's outright Ignite of an
+# Oil-covered boss stays under the Oil only: the Whirlwind carries the ground's debuff, not the Oil on the boss).
+# Not counted (labelled): a companion's Trail of Fire (no companion ground model).
 WHIRLWIND_CARRY = 8.0  # s (KeywordPopups Whirlwind)
 
 
@@ -7132,6 +7135,7 @@ OIL_ADDED = {"Oil Grenade": 1.5, "Oil Barrage": 1.0}  # the permyriad stat / 100
 OIL_GROUND_SKILLS = {name: 1.0 + added for name, added in OIL_ADDED.items()}  # the set's own Fire + the added share
 OIL_GROUND_SET = 2  # PoB's "Oil Ground" stat set of both (act_str.lua OilBarragePlayer / OilGrenadePlayer statSets[2])
 OIL_GROUND_SECONDS = 6.0  # s, both skills' Oil Ground (game files above; duration modifiers not read)
+OIL_PIECE = "'s lit Oil Ground"  # (the label oil_ground gives its pieces; MECH100 keys the Oil ones on it)
 DETONATOR = "Detonator"  # PoB's skill type for "Detonator Skills" (KeywordPopups Detonator)
 
 
@@ -7172,7 +7176,7 @@ def oil_ground(makers: dict[str, tuple[float, float, str]], lighters: list[tuple
         if lit > 0 and damage > 0:
             out.append((name, lit, damage, uses * chance))
             if pieces is not None:
-                pieces.append((f"{name}'s lit Oil Ground", lit, OIL_GROUND_SECONDS, damage))
+                pieces.append((f"{name}{OIL_PIECE}", lit, OIL_GROUND_SECONDS, damage))
     return out, "; ".join(parts)
 
 
@@ -10494,14 +10498,21 @@ class Conditions:
         # (MECH83: the Ignite damage of grounds that name their Fire, Beira's Anguish / Birth of Fury: models.
         # ground_life_ignite_model) (label, share the ground Ignites the boss, its Ignite's DPS, how)
         stats["_ground_life_ignite"] = []
-        for label, up, seconds, damage in carried:  # (MECH100: with the Whirlwind's carry, as the Ignited share)
+        # (MECH100: with the Whirlwind's carry, as the Ignited share. A lit Oil Ground's Ignite is models.oil_ignite_model's
+        # (below): it was added here too, the same Ignite twice, an OVERCOUNT; its piece stays in ground_ignite's state)
+        for label, up, seconds, damage in carried:
+            if label.endswith(OIL_PIECE):
+                continue
             if up > 0 and damage:
                 reach, how = no_hit_ignite(stats, damage, seconds)
                 stats["_ground_life_ignite"].append((
                     label, up * reach, models.IGNITE_BASE * damage,
                     f"{label} under the boss {up:.0%} of the fight, as though dealing {damage:,.0f} Fire; {how}"))
         stats["_oil_ignite"] = []  # (MECH82: models.oil_ignite_model) (skill, share Ignited by it, its Ignite's DPS, how)
+        oil_carried = {label[:-len(OIL_PIECE)]: up for label, up, _, _ in carried if label.endswith(OIL_PIECE)}
         for name, lit, damage, oilings in oil:
+            if oil_carried.get(name, lit) > lit:  # (MECH100: a main Whirlwind carries the lit Oil's debuff 8 s past it)
+                lit = oil_carried[name]
             reach, how = no_hit_ignite(stats, damage, OIL_GROUND_SECONDS)
             seconds = number(stats.get("IgniteDuration")) or AILMENT_DURATION["Ignite"]
             share, outright = oil_ignite_share(lit, oilings, reach, seconds)  # (MECH83, R28-12)

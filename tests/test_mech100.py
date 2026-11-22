@@ -107,3 +107,15 @@ def test_a_main_whirlwind_carries_the_ignited_grounds_debuff_8_s_past_it():
     assert conditions.whirlwind_carry([("Incinerate", 0.8, 8.0, None)], "Whirlwind Lance", 1.0)[0][0][1] == 1.0
     assert conditions.whirlwind_carry(pieces, "Spark", 1.0) == (pieces, "")
     assert conditions.whirlwind_carry([("none", 0.0, 4.0, None)], "Whirling Slash", 1.0)[1] == ""
+
+
+def test_a_lit_oil_grounds_ignite_is_counted_once_and_carried_by_a_main_whirlwind():
+    """MECH100 (the manager 14:05, R47-2's follow-on): lit Oil Ground counts as Ignited Ground for a Whirlwind (0.3.0's
+    fix), so a main Whirling Slash carries it 8 s past it like any ground piece; its Ignite damage is oil_ignite_model's
+    alone (the ground-life list used to add the same Ignite again: an OVERCOUNT)."""
+    from builder.search import conditions
+
+    piece = ("Oil Barrage" + conditions.OIL_PIECE, 0.3, conditions.OIL_GROUND_SECONDS, 2000.0)
+    out, how = conditions.whirlwind_carry([piece], "Whirling Slash", 1.0)
+    assert out[0][1] == pytest.approx(min(1.0, 0.3 * (6.0 + 8.0) / 6.0)) and "Oil Barrage's lit Oil Ground" in how
+    assert piece[0] == "Oil Barrage's lit Oil Ground"  # (the label oil_ground gives its pieces)
