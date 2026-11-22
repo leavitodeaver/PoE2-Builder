@@ -6972,7 +6972,9 @@ def _as_though_life(text: str, stats: dict) -> float | None:
 def flammability_sources(stats: dict) -> list[tuple[str, float, float]]:
     """[(source, applications per second, Flammability % each)]: the main skill's landing hits and the other groups'
     Ignites (see the note above)."""
-    stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
+    # (MECH93: at its share of the fight; MECH99: each landing hit adds its own Flammability instance, its own duration,
+    # so hits a use above 1 count as more applications: raise_hits, AT_MAIN_SHARE's step-3 note)
+    stats = models.at_main_share(stats, raise_hits=True)
     out = []
     hits = number(stats.get("Speed")) * min(number(stats.get("HitChance")) or 100.0, 100.0) / 100.0
     each = min(number(stats.get("IgniteChancePerHit")), 100.0)

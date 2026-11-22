@@ -123,3 +123,14 @@ def test_hits_added_a_use_raise_the_uses_chance_not_its_rate():
     assert models.at_main_share(sure)["Speed"] == 0.1  # (capped for an unchecked reader)
     assert abs(models.at_main_share(sure, raise_hits=True)["Speed"] - 0.3) < 1e-12  # (a linear reader's opt-in)
     assert models.hits_raise({"_hits_per_use": 0.4}) == 1.0 and models.hits_raise({}) == 1.0
+
+
+def test_flammability_counts_each_hit_added_a_use_as_an_application():
+    """MECH99 (step 3, reader by reader): Flammability stacks one instance a landing hit, so a hits-a-use factor above 1
+    raises its applications a second; below 1 it cuts them; untagged, as before."""
+    from builder.search import conditions
+
+    base = {"Speed": 2.0, "HitChance": 50, "IgniteChancePerHit": 10}
+    assert conditions.flammability_sources(base) == [("the main skill's hits", 1.0, 10)]
+    assert conditions.flammability_sources({**base, "_hits_per_use": 3.0})[0][1] == 3.0
+    assert conditions.flammability_sources({**base, "_hits_per_use": 0.25})[0][1] == 0.25
