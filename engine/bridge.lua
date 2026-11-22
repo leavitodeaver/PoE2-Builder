@@ -2205,6 +2205,26 @@ local function installCorpseExplosionHits()
 	end
 end
 
+-- Fist of Kalguur's Aftershock (MECH-B, MECHB53): TriggeredFistOfKalguurPlayer ("Fist of Kalguur", the rune that
+-- "erupts in an Aftershock after a duration"; 490% of attack damage at level 20) is an Attack / Area / Melee / Slam skill
+-- in PoB's skill types, but its one stat set has empty baseFlags, so PoB computes no damage for it (probe POE2T4803:
+-- AverageDamage 0). Its set gets baseFlags attack / area / melee from its own skill types (nothing else changed); its
+-- rate comes from the model (models.kalguur_rune_model: the boosted Slams' hits, its rune limit and duration).
+local ATTACK_SET_FLAGS = { TriggeredFistOfKalguurPlayer = { attack = true, area = true, melee = true } }
+local function installAttackSetFlags()
+	if not (data and data.skills) then
+		return
+	end
+	for id, flags in pairs(ATTACK_SET_FLAGS) do
+		for _, set in pairs((data.skills[id] or { }).statSets or { }) do
+			set.baseFlags = set.baseFlags or { }
+			for flag, on in pairs(flags) do
+				set.baseFlags[flag] = on
+			end
+		end
+	end
+end
+
 -- A `share:` line's parsed modifiers counted at the share (COV17; COV32 made it shared by installLedgerShare and
 -- installLedgerBonded): each at value / 100 x Multiplier:LedgerShare<share>, the share in whole percent.
 local function ledgerShareMods(list, share)
@@ -2660,6 +2680,7 @@ local function installDerived()
 	installCannotChill()
 	installAreaDamageFlag()
 	installCorpseExplosionHits()
+	installAttackSetFlags()
 	installBossSlow()
 	installNoCritReroll()
 	installBaseChanceSwap()

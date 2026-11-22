@@ -46,11 +46,13 @@
   model: channel_release
   stats: ["channel_end_duration_as_%_of_attack_time", "channel_start_lock_cancelling_of_attack_time_%",
           "channel_skill_end_animation_duration_multiplier_permyriad"]
-  skill: [Perfect Strike, Gathering Storm, Snipe]
+  skill: [Perfect Strike, Gathering Storm, Snipe, Plasma Blast]
   confidence: theory
   notes: >-
     MECHB52 (RESEARCH44 R44-1; the manager 16:42, a LARGE OVERCOUNT). PoB scores a use as attack time x the end share
     (act_dex 7276-7279, act_int 10496-10499, act_str 15069-15072), nothing for the channel; the game files make the
     channel and the end separate animations. Headline AT x (1 + end x the end animation multiplier): Perfect Strike 1.35
     (x0.26), Gathering Storm 1.85 (x0.46), Snipe 1.33 (PoB's, x1; row 2.33 with the end unscaled). Floor row AT x (start
-    lock + end). The ailment readers' cut is AT / the game's time (they count PoB's Speed, 1 / AT).
+    lock + end). The ailment readers' cut is AT / the game's time (they count PoB's Speed, 1 / AT). MECHB53 (RESEARCH44
+    R44-14): Load Plasma Blast's shot the same, a full charge (PoB's attack time with its +2 s) then its 35% firing,
+    1.35 AT (x0.74, MEDIUM); row: the end cut by a dodge roll made anyway (x1).

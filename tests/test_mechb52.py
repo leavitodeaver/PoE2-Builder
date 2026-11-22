@@ -134,6 +134,16 @@ def test_a_channel_and_release_use_is_its_channel_plus_its_end():
     assert models.channel_release_model(models.Skill("Spark", 1), level, 1.0, 1.0) == ([], [])
 
 
+def test_plasma_blasts_use_is_its_full_charge_plus_its_firing():
+    """R44-14 (MECHB53): PoB times Plasma Blast's use as the attack time (with its +2 s) and nothing for its 35% end;
+    the game the full charge then the firing: 1.35 AT, x0.74; row: the end cut by a roll, x1."""
+    pb = models.Skill("Plasma Blast", 1, attack=True)
+    mods, notes = models.channel_release_model(pb, {models.CHANNEL_END_STAT: 35}, 1 / 2.8, 1 / 2.8)
+    assert mods[0]["value"] == pytest.approx(100 * (1 / 1.35 - 1), abs=0.01)
+    assert mods[0]["hit_cut"] == pytest.approx(1 / 1.35) and notes[0]["confidence"] == "MEDIUM"
+    assert "R44-14" in notes[0]["basis"] and "x1.000" in notes[0]["basis"] and "fully charged" in notes[0]["play"]
+
+
 def test_skittering_stones_come_only_from_add_kills():
     """GEM32 via the manager 17:20: a stone a 5 deaths near the object, 10 s (I) / 20 s and 2 a hatch (II); PoB makes no
     minion: 0 scored, the count from the preset's kills in the note."""

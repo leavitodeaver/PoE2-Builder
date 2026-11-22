@@ -21907,9 +21907,9 @@ def eye_shards_model(main: Skill | None, stats: dict, radius: float, distance: f
 # - Wolf Pack: the pack is one Companion (its text: "treated as a single Companion for effects that count or limit
 #   Companions"), with skill_wolf_pack_size wolves (3 at levels 1-6, 4 at 7-12, 5 at 13+, 6 at 20: PoB act_str / poe2db;
 #   the gem's level row read; quality's +0.05 a point not read, the lower reading).
-# - Temporary minions with a duration (Raise Zombie: limit 10, 20 s) need a corpse or a Power Charge a raise, so how many
-#   stand is the build's corpse / charge supply: not counted here (PoB's one kept, labelled; UNVERIFIED, an undercount
-#   where the supply is there). Skills with their own count model are left to it (Unearth; meta-triggered minions).
+# - Temporary minions with a duration need what pays a raise, so how many stand is the build's supply: Raise Zombie (limit
+#   10, 20 s; a corpse or a Power Charge a raise) since MECHB53 from zombie_alive_count; others PoB's one kept, labelled
+#   (UNVERIFIED, an undercount where the supply is there). Skills with their own count model are left to it (Unearth; meta-triggered minions).
 # Only the hits multiply: several minions' Ignites / Bleeds don't add on one boss (the strongest counts, KeywordPopups
 # Debuff), so the minion's damage over time (PoB's CombinedDPS - TotalDPS) is taken once (the lower reading; Poison, which
 # stacks, is an undercount there, labelled). The entry is scaled through Objective.entry_scales.
@@ -21923,7 +21923,7 @@ def minion_alive_count(skill: Skill, pack: float = 0.0) -> tuple[float, str, str
     summon = skill.summon or {}
     if skill.minion is not None or skill.name in MINION_OWN_COUNT:
         return 1.0, "counted by its own model", "-"
-    if number(summon.get("duration")) > 0 or not summon.get("persistent"):
+    if number(summon.get("duration")) > 0 or not summon.get("persistent"):  # (Raise Zombie: zombie_alive_count)
         return 1.0, (f"Temporary minions ({number(summon.get('duration')):g} s, limit {number(summon.get('limit')):g}): "
                      "how many stand is the build's corpse / charge supply, not counted (PoB's one kept; UNVERIFIED, an "
                      "undercount where the supply is there)"), "UNVERIFIED"
@@ -21937,6 +21937,65 @@ def minion_alive_count(skill: Skill, pack: float = 0.0) -> tuple[float, str, str
     if desired >= 1:
         return desired, f"the gem's {desired:g} (skill_desired_initial_amount)", "HIGH (all in reach: MEDIUM)"
     return 1.0, "no count given: PoB's one", "-"
+
+
+# Raise Zombie's zombies alive (MECHB53; RESEARCH44 R44-7, research/rq51-staff-leylines-zombie-mote-r44.md; the manager
+# 16:56; was PoB's one, UNVERIFIED). Its text: "Consume a Corpse or Power Charge to create a short-lived Zombie. Zombies
+# created from Power Charges are Empowered and also create two additional non-empowered Zombies" (RaiseZombiePlayer,
+# game 26650308: base_number_of_zombies_allowed 10, base_skill_effect_duration 20000; Empowered gives
+# power_charged_zombie_movement_speed_+%_final 25, _damage_taken_-%_final 30 and, per level (GrantedEffectStatSetsPerLevel),
+# power_charged_zombie_hit_damage_+%_final 100 at level 1 to 253 at 20: "Empowered Zombies deal (100-253)% more damage
+# with Hits" (poe2db, read 21 Nov). PoB has no statMap for the last (act_int.lua 16690: listed, not mapped), so the
+# Empowered one's hits count x(1 + that) here: the count is in hit-weighted zombies, the cap taken off pro rata). A raise
+# with neither makes nothing. So zombies made a second = 3 x raises paid by a Power Charge + raises paid by a corpse, and
+# alive = min(limit, that x the duration), from the build's own supply (CLAUDE.md: no flat rate):
+# - presses a second: its group's use rate (conditions.skill_use_rate: once per its duration, or the search's chosen rate
+#   up to its limit / duration);
+# - Power Charges reaching it: conditions.charges_reaching(build, "Power", "Raise Zombie") (MECHC51; the charge model's
+#   split among the consumers);
+# - corpses: the boss preset's killed adds and the build's own sources (corpse_supply), its even share with the build's
+#   other corpse users; on a lone boss none.
+# Which is spent when both are there isn't stated (R44-7, checked: every Stats id holding zombie, and charge / corpse
+# priority ids; Odealo's guide implies the charge): headline Power Charge first (LOW), row corpse first. No raise paid
+# (no Power Charge source, no corpse): 0 zombies, the note says so. raise_zombie_does_not_use_corpses ("does not require
+# a corpse") has no carrier (checked: Mods, PassiveSkills, GrantedEffectStatSets / PerLevel, GrantedEffectQualityStats,
+# SoulCoreStats by stat row, 26650308; poe2db not checked: UNVERIFIED there), so it isn't read.
+RAISE_ZOMBIE = "Raise Zombie"
+ZOMBIES_PER_CHARGE = 3  # (the Empowered one + two more: its text)
+ZOMBIE_EMPOWERED_STAT = "power_charged_zombie_hit_damage_+%_final"
+
+
+def zombie_alive_count(presses: float, charges: float, corpses: float, limit: float, duration: float,
+                       empowered_more: float = 0.0) -> tuple[float, str, str]:
+    """(zombies alive, hit-weighted; how; confidence) for Raise Zombie (see above): `presses` its uses a second,
+    `charges` the Power Charges a second reaching it, `corpses` its corpses a second, `limit` / `duration` PoB's (the
+    build's lines in), `empowered_more` the Empowered zombie's % more hit damage (power_charged_zombie_hit_damage_+%_final)."""
+    presses, charges, corpses = max(number(presses), 0.0), max(number(charges), 0.0), max(number(corpses), 0.0)
+    limit, duration = max(number(limit), 0.0) or 10.0, max(number(duration), 0.0)
+
+    more = max(number(empowered_more), 0.0) / 100
+
+    def alive(paid_charge: float, paid_corpse: float) -> tuple[float, float]:
+        made = ZOMBIES_PER_CHARGE * paid_charge + paid_corpse
+        weight = (made + more * paid_charge) / made if made > 0 else 1.0  # (the Empowered one's hits x(1 + more))
+        return min(limit, made * duration) * weight, made
+    c = min(charges, presses)
+    k = min(corpses, presses - c)
+    head, made = alive(c, k)
+    k2 = min(corpses, presses)
+    row, _ = alive(min(charges, presses - k2), k2)
+    how = (f"{presses:.3f} raises/s, {c:.3f} paid by a Power Charge ({ZOMBIES_PER_CHARGE} zombies each: the Empowered one "
+           f"+ 2) and {k:.3f} by a corpse (1 each): {made:.3f} zombies/s x {duration:g} s, at most {limit:g}"
+           + (f", the Empowered ones' hits x{1 + more:g} (power_charged_zombie_hit_damage_+%_final, PoB 0)" if more and c
+              else "")
+           + f" = {head:.2f} zombies' hits (a Power Charge spent first whenever held: R44-7, LOW); row, a corpse first: "
+           f"{row:.2f}")
+    if presses <= 0:
+        how = "its raises aren't rated (no press rate): 0 zombies"
+    elif head <= 0:
+        how = (f"{presses:.3f} raises/s, but no Power Charge reaches it and no corpse is there (nothing dies on a "
+               "single boss without killable adds): each raise makes nothing, 0 zombies (no flat rate)")
+    return head, how, "LOW" if c > 0 and k2 > 0 else "MEDIUM"
 
 
 def minion_count_scale(count: float, hit_dps: float, combined_dps: float) -> float:
@@ -22993,7 +23052,15 @@ def primal_bounty_model(main: Skill | None, main_types: set[str], texts: list[st
 # 0.85 AT, Gathering Storm 1.35 AT. An early release is shorter but loses the Perfect Timing payoff (MECHB50's label).
 # The hits removed reach the ailment readers through main_hit_cut: they count PoB's Speed (1 / AT), so the cut there is
 # the game's uses / Speed, not the DPS factor (PoB's DPS uses HitSpeed).
-CHANNEL_RELEASE = {"Perfect Strike": "HIGH", "Gathering Storm": "MEDIUM-HIGH", "Snipe": "MEDIUM-LOW"}
+# Load Plasma Blast's shot, Plasma Blast (MECHB53; RESEARCH44 R44-14, research/plasma-blast-end-time-r44.md): the same
+# structure, a charge then an end. PoB times a use as the attack time with its +2 s (total_attack_time_+_ms 2000) and
+# never reads its channel_end_duration_as_%_of_attack_time 35 (its preDamageFunc sets only channelTimeMultiplier,
+# act_str 11584-11660). The timeline (power_shot.atl): the charge runs the whole attack time to its Max-charge event
+# ("cannot be fired at all unless fully charged"), then the fire animation (the ordinary aimed crossbow shot, contact
+# on its first frame). Headline 1.35 AT (x0.74, MEDIUM); row: the end cut by a dodge roll the build makes anyway, 1.0 AT
+# (PoB's). It has no start-lock stat, so no files' floor row; its charge can't be released early.
+CHANNEL_RELEASE = {"Perfect Strike": "HIGH", "Gathering Storm": "MEDIUM-HIGH", "Snipe": "MEDIUM-LOW", "Plasma Blast": "MEDIUM"}
+CHANNEL_CHARGED = {"Plasma Blast"}  # (a full charge, then the end: R44-14)
 CHANNEL_RELEASE_ENTRY = "model-mechb52-channel-plus-end"
 CHANNEL_END_STAT = "channel_end_duration_as_%_of_attack_time"
 CHANNEL_LOCK_STAT = "channel_start_lock_cancelling_of_attack_time_%"
@@ -23027,6 +23094,9 @@ def channel_release_model(main: Skill | None, level_stats: dict, speed: float, h
     if lock > 0:
         rows.append(f"the files' floor, the {lock:.0%} start lock + the end ({lock + end * mult:.2f} AT): "
                     f"x{factor(at * (lock + end * mult)):.3f}")
+    charged = main.name in CHANNEL_CHARGED
+    if charged:
+        rows.append(f"the end cut by a dodge roll the build makes anyway ({pob_time / at:.2f} AT, PoB's): x1.000")
     mods = []
     if head < 1 - 1e-9:
         mod = raw_mod("DPS", "MORE", 100 * (head - 1), main.name, tag=CHANNEL_RELEASE_ENTRY)
@@ -23039,14 +23109,195 @@ def channel_release_model(main: Skill | None, level_stats: dict, speed: float, h
     return mods, [{
         "label": f"{main.name}: a use is its channel plus its end ({head_time / at:.2f} attack times)*",
         "value": f"x{head:.3f}", "confidence": CHANNEL_RELEASE[main.name], "entry": CHANNEL_RELEASE_ENTRY,
-        "basis": (f"PoB charges a use only the end, {pob_time:.3f} s ({end:.0%} of the {at:.3f} s attack time"
+        "basis": (f"PoB charges a use its attack time, {pob_time:.3f} s (the charge, with its +2 s), nothing for the "
+                  f"{end:.0%} end. The game files (RESEARCH44 R44-14): the charge runs the whole attack time (it can't fire "
+                  f"until fully charged), then the fire animation, {end:.0%} of it: {head_time:.3f} s a use: x{head:.3f}. "
+                  "Rows: " + "; ".join(rows) + ". UNVERIFIED: any reload time between uses (not counted), the fire "
+                  "animation's true length (the stat's share taken), anything besides a dodge roll cutting the end"
+                  ) if charged else
+                 (f"PoB charges a use only the end, {pob_time:.3f} s ({end:.0%} of the {at:.3f} s attack time"
                   + (f", at least its {least:g} s minimum channel" if least else "")
                   + "), nothing for the channel. The game files make the channel (holding the Perfect Timing moment) and "
                   "the end (the hit after release) separate animations (RESEARCH44 R44-1): channel to the perfect moment "
                   f"at the attack time (patch 0.2.0's wording, MEDIUM) + the end{f' x {mult:g}' if mult != 1.0 else ''} = "
                   f"{head_time:.3f} s: x{head:.3f}. Rows: " + "; ".join(rows or ["none"])),
-        "play": (f"Release {main.name} at the Perfect Timing moment: each use is the channel to it plus the end; a roll "
+        "play": (f"Fire {main.name} as soon as it's fully charged: each use is the charge plus the firing; a roll after "
+                 "the shot cuts the firing only when you dodge anyway." if charged else
+                 f"Release {main.name} at the Perfect Timing moment: each use is the channel to it plus the end; a roll "
                  "after the hit can cut the end's unlocked part only when you dodge anyway.")}]
+
+
+# PoB's "while Channelling" lines at the share of the fight you channel (MECHB53; plans/kw-channelling.md; the manager
+# 12:05 21 Nov: MECH-C writes conditions.channelling_share, MECH-B scales the lines to it). PoB turns Condition:Channelling
+# on all fight when the main skill has the Channel type and isn't triggered, a trap, a mine or a totem (CalcPerform
+# 371-395), and never otherwise (its conditionChannelling box is off in the optimizer). So these lines count 100% for a
+# channelled main skill (an OVERCOUNT of the release / end time and of the presses between channels: Snipe, Perfect
+# Strike, Gathering Storm) and 0 beside a side channel (an UNDERCOUNT). The PoB lines conditioned on Channelling (checked:
+# grep of ModCache.lua for var="Channelling": 8 lines, all below; ModParser 1817-1818 "while channelling" and 5381 / 5385
+# the Chill / Shock immunities; the gem stat maps' Burgeon (GEM10's burgeon_model) and Crackling Barrier's Thorns are
+# skill-side, not lines) are all defences, so this moves no DPS. Each is added again unconditioned at (share - 1) of its
+# value when PoB counts it, at share when it doesn't: its time average (linear: BASE / INC sums; the immunities' MORE -100
+# as their expected effect, MEDIUM; under PoB's all-fight count they stay whole, a 100% less can't be scaled back by a
+# MORE: an OVERCOUNT of a defence, said). Steadfast's support stat is COV-E's ledger row (supported_main), not here.
+CHANNELLING_LINES = [
+    (re.compile(r"^(\d+(?:\.\d+)?)% of Damage taken Recouped as Life while Channelling$", re.I), (("LifeRecoup", "BASE"),)),
+    (re.compile(r"^(\d+(?:\.\d+)?)% increased Stun Threshold while Channelling$", re.I), (("StunThreshold", "INC"),)),
+    (re.compile(r"^(\d+(?:\.\d+)?)% increased Armour, Evasion and Energy Shield while Channelling$", re.I),
+     (("Armour", "INC"), ("Evasion", "INC"), ("EnergyShield", "INC"))),
+    (re.compile(r"^Unaffected by (Chill) while Channelling$", re.I), (("SelfChillEffect", "MORE"),)),
+    (re.compile(r"^Unaffected by (Shock) while Channelling$", re.I), (("SelfShockEffect", "MORE"),)),
+]
+CHANNELLING_LINES_ENTRY = "model-mechb53-channelling-lines"
+
+
+def channelling_lines_model(texts: list[str], share: float, pob_on: bool, how: str,
+                            forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """PoB's "while Channelling" lines (`texts`, the build's) at `share` of the fight (conditions.channelling_share,
+    `how` its note); `pob_on` whether PoB counts them all fight (a channelled, self-used main skill). See above."""
+    if CHANNELLING_LINES_ENTRY in forbidden:
+        return [], []
+    share = max(0.0, min(1.0, number(share)))
+    factor = share - (1.0 if pob_on else 0.0)
+    mods, found, kept = [], [], []
+    for text in texts:
+        for pattern, targets in CHANNELLING_LINES:
+            m = pattern.match(text.strip())
+            if not m:
+                continue
+            value = -100.0 if m.group(1).isalpha() else float(m.group(1))
+            if pob_on and any(kind == "MORE" for _, kind in targets):  # (a MORE -100 can't be undone by a MORE)
+                kept.append(text.strip())
+                break
+            found.append(text.strip())
+            if abs(factor) > 1e-9:
+                mods += [raw_mod(name, kind, value * factor, tag=CHANNELLING_LINES_ENTRY) for name, kind in targets]
+            break
+    if not found and not kept:
+        return [], []
+    return mods, [{
+        "label": f"'while Channelling' lines at the {share:.0%} of the fight you channel*", "value": f"{share:.0%}",
+        "confidence": "MEDIUM", "entry": CHANNELLING_LINES_ENTRY,
+        "basis": (f"PoB counts {len(found)} line{'s' if len(found) != 1 else ''} ("
+                  + "; ".join(sorted(set(found)))[:240] + ") "
+                  + ("all fight: its main skill channels, so the release / end and the presses between channels count "
+                     "too" if pob_on else "never: its main skill doesn't channel")
+                  + f". Counted at {share:.0%}: {how}"
+                  + (f"; kept at PoB's all fight (a 100% less can't be scaled back): {'; '.join(kept)}" if kept else "")
+                  + ". Defences only: no DPS moves")}]
+
+
+# Fist of Kalguur's boosted Slams are Empowered (MECHB53; MECHC51's routed item, an UNDERCOUNT). The support's text
+# (SupportFistOfKalguurPlayer, PoB other.lua 6822): "Runically Boosted Slams are Empowered with extra Physical damage and
+# create a rune the first time they hit an enemy". MECH-C's Assumptions.kalguur_boost gives the boosted share b of the
+# main Slam's uses (the Runic Ward left for them) and the 20% gain; PoB never makes them Empowered (no statMap for the
+# support's stats: MECHB51's probe POE2T4763). So the build's Empowered-only lines count on them too, above what PoB and
+# the other Empowering skills already count, the shares taken independent: "Empowered Attacks deal N% increased Damage"
+# (PoB's EmpoweredIncrease, counted only at its own Warcry uptime ExertedAttackUptimeRatio) on b x (1 - that uptime) of
+# uses, and "Empowered Attacks Gain N% of ... as Extra ..." (EMPOWERED_GAIN, PoB 0; empowered_gain_model counts it at the
+# other Empowering skills' share e) on b x (1 - e). MEDIUM (the boosted share is MECH-C's). The rune's Aftershock is
+# kalguur_rune_model's (below).
+KALGUUR_EMPOWERED_ENTRY = "model-mechb53-kalguur-empowered"
+
+
+def kalguur_empowered_model(texts: list[str], main: str, boosted: float, pob_up: float, other: float,
+                            forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """The Empowered-only lines on Fist of Kalguur's boosted share `boosted` of `main`'s uses (see above); `pob_up` PoB's
+    own Empowered uptime (ExertedAttackUptimeRatio / 100), `other` the other Empowering skills' share of uses."""
+    if KALGUUR_EMPOWERED_ENTRY in forbidden or boosted <= 0:
+        return [], []
+    boosted = min(1.0, boosted)
+    inc = sum(int(m.group(1)) for t in texts if (m := EMPOWERED_LINE.match(t.strip())))
+    gains = empowered_gain(texts)
+    if not inc and not gains:
+        return [], []
+    extra_inc = boosted * (1 - max(0.0, min(1.0, pob_up)))
+    extra_gain = boosted * (1 - max(0.0, min(1.0, other)))
+    mods = [line("1% increased Attack Damage", inc * extra_inc, skill=main)] if inc and extra_inc > 0 else []
+    mods += [line(f"Gain 1% of {of}Damage as Extra {kind} Damage", pct * extra_gain, skill=main)
+             for (of, kind), pct in gains.items() if extra_gain > 0]
+    parts = ([f"{inc}% increased Empowered Attack damage on {extra_inc:.0%} more of its uses (PoB's own Empowered "
+              f"uptime {pob_up:.0%})"] if inc else []) + [
+        f"Empowered Attacks gain {pct:g}% of {of.lower()}damage as {kind} on {extra_gain:.0%} more (the other "
+        f"Empowering skills' {other:.0%})" for (of, kind), pct in gains.items()]
+    return mods, [{"label": f"Fist of Kalguur: its boosted {main} uses are Empowered*", "value": f"{boosted:.0%} boosted",
+                   "confidence": "MEDIUM", "entry": KALGUUR_EMPOWERED_ENTRY,
+                   "basis": ("Runically Boosted Slams are Empowered (the support's text); PoB never makes them so. "
+                             + "; ".join(parts) + ". Without Runic Ward for the boosts: none")}]
+
+
+# Charged Staff's shockwave (MECHB53; MECHC51's routed item, an UNDERCOUNT). "Consume all Power Charges to charge your
+# Quarterstaff with electricity, adding Lightning damage and a Lightning shockwave to your Quarterstaff Attacks"
+# (ChargedStaffPlayer; patch 0.5.4f: "the energy waves created by Charged Staff ... triggering"). The shockwave is the
+# gem's second effect, ChargedStaffShockwavePlayer ("Charged Shockwave": a 5 m cone Attack, 80% Physical to Lightning,
+# 66% of attack damage at level 20; triggered_by_charged_staff), which PoB makes an active skill of the Charged Staff
+# group but never triggers (hidden, no rate: 0). One shockwave a Quarterstaff Attack use while the buff is up (the text:
+# added to each Attack; per use, not per hit, UNVERIFIED), the buff up whenever at least one stack is: min(1, S) of the
+# time, S = MECH-C's average stacks (Assumptions.charged_staff: the Power Charges it spends a second x 6 s; the
+# share with at least one stack is at most S, the upper side, MEDIUM-LOW). Only the main skill's uses counted (other
+# Quarterstaff Attacks the build presses would add more: the lower reading). Its group then counts through Full DPS at
+# that rate (models.trigger_rate).
+CHARGED_SHOCKWAVE = "Charged Shockwave"
+CHARGED_SHOCKWAVE_ENTRY = "model-mechb53-charged-shockwave"
+
+
+def charged_shockwave_model(main: Skill | None, staff_main: bool, uses: float, stacks: float, how: str,
+                            forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): Charged Staff's shockwave a Quarterstaff Attack use of `main` (`uses` a second, at its share of the
+    fight) while its buff is up, min(1, `stacks`) of the time (see above); `how` the stacks' note."""
+    if CHARGED_SHOCKWAVE_ENTRY in forbidden or main is None:
+        return [], []
+    up = max(0.0, min(1.0, number(stacks)))
+    rate = max(number(uses), 0.0) * up if staff_main else 0.0
+    why = (f"{main.name}'s {number(uses):.2f} uses a second x the buff up {up:.0%} of the time (min(1, {number(stacks):.2f} "
+           f"stacks): {how})" if staff_main else f"{main.name} isn't a Quarterstaff Attack: no shockwave from it")
+    return trigger_rate(CHARGED_SHOCKWAVE, rate), [{
+        "label": "Charged Staff: its Lightning shockwave on your Quarterstaff Attacks*", "value": f"{rate:.3g} a second",
+        "confidence": "MEDIUM-LOW" if rate > 0 else "MEDIUM", "entry": CHARGED_SHOCKWAVE_ENTRY,
+        "basis": ("PoB makes the shockwave (Charged Shockwave, 66% of attack damage at level 20) but never triggers it: "
+                  f"one a Quarterstaff Attack use while the buff is up: {why} = {rate:.3g} a second. Other Quarterstaff "
+                  "Attacks the build presses not counted (the lower reading)"),
+        "play": "Keep Charged Staff's buff up (spend Power Charges on it): each Quarterstaff Attack adds a shockwave."}]
+
+
+# Fist of Kalguur's rune and its Aftershock (MECHB53; MECHC51's routed item, an UNDERCOUNT). The support: "Runically
+# Boosted Slams ... create a rune the first time they hit an enemy. The rune erupts in an Aftershock after a duration"
+# (SupportFistOfKalguurPlayer: base_number_of_runic_aftershocks_allowed 1, "Limit {0} active rune"); the eruption is the
+# gem's second effect TriggeredFistOfKalguurPlayer ("Fist of Kalguur": a 2.4 m Slam Attack, 490% of attack damage at
+# level 20, base_skill_effect_duration 4000, cooldown 0.5 s), an active skill of the supported group that PoB never
+# triggers (0). Eruptions a second = min(the boosted uses that hit, limit / the rune's duration, 1 / its cooldown):
+# the boosted share b is MECH-C's (Assumptions.kalguur_boost), the uses PoB's Speed x HitChance at the main skill's share.
+# What a boosted Slam does when the rune limit is full (no new rune, or the oldest replaced before it erupts) isn't
+# stated (UNVERIFIED, a research question): the headline takes no new rune until it erupts (one every 4 s at most);
+# row: the oldest replaced, so only a boosted hit with no later one within 4 s erupts (Poisson spacing: b u x
+# e^(-b u D)). The rune is made where the Slam first hits the boss and erupts 4 s later in 2.4 m: the boss taken still in
+# it (LOW-MEDIUM).
+KALGUUR_RUNE = "Fist of Kalguur"
+KALGUUR_RUNE_ENTRY = "model-mechb53-kalguur-rune"
+KALGUUR_LIMIT_STAT = "base_number_of_runic_aftershocks_allowed"
+
+
+def kalguur_rune_model(main: Skill | None, boosted: float, hits: float, duration: float, limit: float,
+                       cooldown: float, forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): Fist of Kalguur's Aftershocks a second (see above): `boosted` the boosted share of `main`'s uses,
+    `hits` its hitting uses a second at its share of the fight, the rune's `duration`, `limit` and `cooldown`."""
+    if KALGUUR_RUNE_ENTRY in forbidden or main is None or boosted <= 0:
+        return [], []
+    duration = number(duration) or 4.0
+    limit = number(limit) or 1.0
+    made = min(1.0, boosted) * max(number(hits), 0.0)
+    caps = [limit / duration] + ([1 / cooldown] if cooldown > 0 else [])
+    rate = min([made] + caps)
+    replaced = made * math.exp(-made * duration / limit)
+    return trigger_rate(KALGUUR_RUNE, rate), [{
+        "label": f"Fist of Kalguur: its runes' Aftershock after {main.name}'s boosted hits*", "value": f"{rate:.3g} a second",
+        "confidence": "LOW", "entry": KALGUUR_RUNE_ENTRY,
+        "basis": (f"PoB makes the Aftershock but never triggers it. A rune a boosted hit: {min(1.0, boosted):.0%} of "
+                  f"{number(hits):.2f} hits a second = {made:.3f}; at most {limit:g} rune at a time, each erupting after "
+                  f"{duration:g} s" + (f", its {cooldown:g} s cooldown" if cooldown > 0 else "")
+                  + f": {rate:.3f} a second (no new rune while the limit is full: UNVERIFIED). Row, the oldest rune "
+                  f"replaced before it erupts: {replaced:.3f} a second. The boss taken still within its 2.4 m when it "
+                  "erupts (LOW-MEDIUM)"),
+        "play": f"Fist of Kalguur: a boosted {main.name} hit leaves a rune that erupts {duration:g} s later; keep the boss in it."}]
 
 
 # Skittering Stone I / II (MECHB52; GEM32 via the manager 17:20). SupportSkitteringStonePlayer(Two):

@@ -1,0 +1,46 @@
+- id: model-mechb53-channelling-lines
+  title: "PoB's 'while Channelling' lines at the share of the fight you channel (models.channelling_lines_model)"
+  kind: model
+  model: channelling_lines
+  stats: ["x%_of_damage_taken_while_channelling_recouped_as_life", "stun_threshold_+%_while_channelling",
+          "armour_evasion_energy_shield_+%_while_channelling"]
+  confidence: theory
+  notes: >-
+    MECHB53 (plans/kw-channelling.md; the manager 12:05 21 Nov). PoB turns Condition:Channelling on all fight for a
+    channelled, self-used main skill (CalcPerform 371-395) and never otherwise, so its Recoup / Stun Threshold /
+    Armour-Evasion-ES "while Channelling" lines (ModCache's 8, all defences) counted 100% or 0. Each is added again
+    unconditioned at (share - 1) / share of its value, share = MECH-C's conditions.channelling_share. Moves no DPS.
+- id: model-mechb53-kalguur-empowered
+  title: "Fist of Kalguur's Runically Boosted Slams are Empowered: the Empowered-only lines on them (models.kalguur_empowered_model)"
+  kind: model
+  model: kalguur_empowered
+  stats: ["support_slam_spend_%_supported_skill_cost_as_ward_for_runic_boost"]
+  skill: [Fist Of Kalguur]
+  confidence: theory
+  notes: >-
+    MECHB53 (MECHC51's routed item; an UNDERCOUNT). "Runically Boosted Slams are Empowered with extra Physical damage"
+    (SupportFistOfKalguurPlayer). On MECH-C's boosted share b (Assumptions.kalguur_boost): "Empowered Attacks deal N%
+    increased Damage" on b x (1 - PoB's own Empowered uptime), "Empowered Attacks Gain N% ... as Extra ..." on b x (1 -
+    the other Empowering skills' share); the shares taken independent (MEDIUM).
+- id: model-mechb53-charged-shockwave
+  title: "Charged Staff's Lightning shockwave on each Quarterstaff Attack while its buff is up (models.charged_shockwave_model)"
+  kind: model
+  model: charged_shockwave
+  stats: ["triggered_by_charged_staff"]
+  skill: [Charged Staff]
+  confidence: theory
+  notes: >-
+    MECHB53 (MECHC51's routed item; an UNDERCOUNT: PoB makes Charged Shockwave an active skill but never triggers it).
+    One a use of the main Quarterstaff Attack while the buff is up, min(1, S) of the time, S MECH-C's average stacks
+    (Power Charges spent a second x 6 s). Its group counts through Full DPS at that rate. MEDIUM-LOW.
+- id: model-mechb53-kalguur-rune
+  title: "Fist of Kalguur's rune erupting in an Aftershock after a boosted Slam's hit (models.kalguur_rune_model)"
+  kind: model
+  model: kalguur_rune
+  stats: ["base_number_of_runic_aftershocks_allowed", "triggered_by_fist_of_kalguur_support_%"]
+  skill: [Fist Of Kalguur]
+  confidence: theory
+  notes: >-
+    MECHB53 (MECHC51's routed item; an UNDERCOUNT: PoB never triggers the Aftershock). Eruptions a second = min(boosted
+    hits a second, limit / the rune's 4 s, 1 / its 0.5 s cooldown); what a boosted Slam does at the rune limit is
+    UNVERIFIED (headline: no new rune; row: the oldest replaced). LOW.

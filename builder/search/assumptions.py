@@ -3622,6 +3622,8 @@ class Assumptions:
         serpent_mods, serpent_notes = self.wind_serpent(main)  # (MECHC52: WIND_SERPENT's note)
         hand_mods, hand_notes = hand_mods + serpent_mods, hand_notes + serpent_notes
         hit_cut(build, serpent_mods, main.name if main else None)  # (its thrusts and Serpents: the hit part)
+        wave_mods, wave_notes, shockwave_groups = self.charged_shockwave(found, main, stats)  # (MECHB53: its shockwave)
+        hand_mods, hand_notes = hand_mods + wave_mods, hand_notes + wave_notes
         barrier_mods, barrier_notes = self.virtuous_barrier(skills)  # (MECHC51: VIRTUOUS_BARRIER's note)
         hand_mods, hand_notes = hand_mods + barrier_mods, hand_notes + barrier_notes
         impatience_mods, impatience_notes = self.impatience_loss(skills, main, stats)  # (MECHC50: IMPATIENCE's note)
@@ -3874,7 +3876,7 @@ class Assumptions:
                 (metres, [models.Skill.of(s) for s in skills if s["disabled"]], build.trigger_rates))
             hand_mods, hand_notes = hand_mods + siphon_mods, hand_notes + siphon_notes
         build.objective.entry_scales = {k: v for n in mark_notes for k, v in (n.get("full_dps") or {}).items()}
-        hand_notes = hand_notes + self.minion_counts(found)  # (MECHB50: PoB scores one minion a skill)
+        hand_notes = hand_notes + self.minion_counts(found, stats)  # (MECHB50: PoB scores one minion a skill)
         self.entry_cuts = {}  # (MECHB45: DPS taken off same-named Full DPS entries, models.entry_cut_scale)
         curses = curse_uses(build, stats, [e["text"] for e in source_lines])
         if curses or any(models.CURSED_UNSCALED.search(e["text"]) or p.search(e["text"])
@@ -4450,10 +4452,19 @@ class Assumptions:
             cr_level = next((x.get("levelStats") or {} for x in build.call("activeSkills", levelStats=[main.name])["skills"]
                              if x["name"] == main.name), {})
             cr_stats = build.call("stats", fields=["Speed", "HitSpeed"])
-            cr_mods, cr_notes = models.channel_release_model(main, cr_level, number(cr_stats.get("Speed")),
-                                                             number(cr_stats.get("HitSpeed")), forbidden)
+            cr_mods, cr_notes = models.channel_release_model(  # (no HitSpeed: PoB's DPS uses Speed, MECHB53's probe)
+                main, cr_level, number(cr_stats.get("Speed")),
+                number(cr_stats.get("HitSpeed")) or number(cr_stats.get("Speed")), forbidden)
             hand_mods, hand_notes = hand_mods + cr_mods, hand_notes + cr_notes
             hit_cut(build, cr_mods, main.name)
+        if getattr(build, "channelling_share", None) is not None:  # (MECHB53: PoB's "while Channelling" lines)
+            ch_share, ch_how = build.channelling_share
+            ch_types = set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or []) if main is not None else set()
+            ch_on = (main is not None and "Channel" in ch_types and not main.triggered and not main.by_totem
+                     and not ({"Trapped", "Mined"} & ch_types))  # (CalcPerform 378: not triggered / trap / mine / totem)
+            ch_mods, ch_notes = models.channelling_lines_model([e["text"] for e in source_lines], ch_share, ch_on,
+                                                               ch_how, forbidden)
+            hand_mods, hand_notes = hand_mods + ch_mods, hand_notes + ch_notes
         if main is not None and main.attack and main.group is not None and models.SPECTRAL_VOLLEY in supports.get(
                 main.group, []):  # (MECHB51: R41-15, its volleys every 3 s)
             sv_stats = build.call("stats", fields=["Speed", "TotalDPS", "ProjectileCount"])
@@ -5367,7 +5378,7 @@ class Assumptions:
         vessel_groups = models.spirit_vessel_groups(skills)  # (its companion's damage is in Full DPS only)
         return mods, notes, {**{g: None for g in energy_groups | mirage_groups | vessel_groups | toad_groups | doom_groups
                                                     | annihilation_groups | tawhoa_groups | chayula_groups
-                                                    | verisium_groups | stampede_groups},
+                                                    | verisium_groups | stampede_groups | shockwave_groups},
                              **expression_groups, **storm_groups}
 
     def orb_stand(self, rates: list[dict], main: int | None) -> tuple[float, str]:
@@ -6390,6 +6401,11 @@ class Assumptions:
         notes += ward_notes
         boost_mods, boost_notes = self.kalguur_boost(skills, main)  # (MECHC51: FIST_OF_KALGUUR's note)
         mods, notes = mods + boost_mods, notes + boost_notes
+        r_mods, r_notes = self.kalguur_rune(boost_mods, main, skills)  # (MECHB53: its runes' Aftershock, always rated)
+        mods, notes = mods + r_mods, notes + r_notes
+        if boost_mods:  # (MECHB53: the boosted Slams are Empowered, models.kalguur_empowered_model)
+            k_mods, k_notes = self.kalguur_empowered(boost_mods, main)
+            mods, notes = mods + k_mods, notes + k_notes
         notes += self.child_entry_cuts()  # (MECHB45, GEM26: a Ward-held or unpressed skill's granted children too)
         notes += self.side_trigger_cuts()  # (MECHB46, GEM26's sweep: Warcries' flat-rate triggered skills)
         texts = [e["text"] for e in self.build.call("sourceLines")["lines"]]
@@ -9242,6 +9258,77 @@ class Assumptions:
                      "recovery, none")}
         return mods, [note]
 
+    def charged_shockwave(self, found: list[models.Skill], main: models.Skill | None, stats: dict
+                          ) -> tuple[list[dict], list[dict], set[int]]:
+        """(MECHB53, models.charged_shockwave_model) Charged Staff's shockwave on the main Quarterstaff Attack's uses while
+        its buff is up (MECH-C's stacks: the Power Charges it spends a second x its 6 s a stack); its group's index."""
+        build = self.build
+        wave = next((s for s in found if s.name == models.CHARGED_SHOCKWAVE and s.group is not None), None)
+        if wave is None or main is None:
+            return [], [], set()
+        level = next((s.get("levelStats") or {} for s in build.call("activeSkills", levelStats=[CHARGED_STAFF])["skills"]
+                      if s.get("name") == CHARGED_STAFF and s.get("levelStats")), {})
+        seconds = (number(level.get(CHARGED_STAFF_MS)) or 6000.0) / 1000
+        spent, _presses, how = ((getattr(build, "consume_all", None) or {}).get("Power") or {}).get(
+            CHARGED_STAFF, (0.0, 0.0, "no Power Charge source, or Charged Staff has no press rate"))
+        staff = main.attack and not main.triggered and "Staff" in ((build.ctx.gems.get(main.name) or {}).get(
+            "weaponTypes") or [])
+        uses = number(stats.get("Speed")) * main_time_share(build, main)
+        mods, notes = models.charged_shockwave_model(main, staff, uses, number(spent) * seconds, how,
+                                                     set(build.ctx.request.forbid_ledger_entries))
+        live = any(m.get("key") == "triggerRate" and number(m.get("value")) > 0 for m in mods)
+        return mods, notes, ({wave.group} if live else set())
+
+    def kalguur_rune(self, boost_mods: list[dict], main: str | None, skills: list[dict]) -> tuple[list[dict], list[dict]]:
+        """(MECHB53, models.kalguur_rune_model) Fist of Kalguur's Aftershocks from the boosted share of the main Slam's
+        hits (kalguur_boost's gain / its 20%); the eruption is an active skill of the supported group (Full DPS). Always
+        rated where it exists: with the bridge's attack flags (installAttackSetFlags) PoB would otherwise count it at its
+        own speed in a Full DPS group (probe POE2T4804: 98.8 DPS from nothing)."""
+        build = self.build
+        if not any(s.get("name") == models.KALGUUR_RUNE and not s.get("disabled") for s in skills):
+            return [], []
+        boosted = sum(number(m.get("value")) for m in boost_mods
+                      if m.get("name") == "DamageGainAsPhysical") / FIST_OF_KALGUUR_GAIN
+        group = build.main_group()
+        spot = self.skill_spot(group["index"], models.KALGUUR_RUNE) if group else None
+        if boosted <= 0 or spot is None or main is None:
+            return models.trigger_rate(models.KALGUUR_RUNE, 0.0), [{
+                "label": "Fist of Kalguur: its runes' Aftershock*", "value": "0 a second", "confidence": "MEDIUM",
+                "entry": models.KALGUUR_RUNE_ENTRY,
+                "basis": ("a rune comes only from a Runically Boosted Slam: "
+                          + ("no Runic Ward left for the boosts (kalguur_boost)" if spot is not None and main
+                             else "it supports no main Slam here (the boost is read on the main skill only: the lower "
+                                  "reading)") + "; 0 Aftershocks (PoB alone would count it at its own speed)")}]
+        row = next(iter(build.call("useRates", indices=[spot[0]], actives=[spot[1]])["rates"]), {})
+        level = next((s.get("supportStats") or {} for s in build.call(
+            "activeSkills", supportStats=[models.KALGUUR_LIMIT_STAT])["skills"] if s.get("name") == main
+            and s.get("group") == group["index"]), {})
+        stats = build.call("stats", fields=["Speed", "HitChance"])
+        hits = (number(stats.get("Speed")) * min(number(stats.get("HitChance")) or 100.0, 100.0) / 100
+                * main_time_share(build, models.Skill(name=main)))
+        return models.kalguur_rune_model(models.Skill(name=main), boosted, hits, number(row.get("duration")),
+                                         number(level.get(models.KALGUUR_LIMIT_STAT)), number(row.get("cooldown")),
+                                         set(build.ctx.request.forbid_ledger_entries))
+
+    def kalguur_empowered(self, boost_mods: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
+        """(MECHB53) Fist of Kalguur's boosted share (kalguur_boost's gain / its 20%) as Empowered uses of the main Slam:
+        the Empowered-only lines on it (models.kalguur_empowered_model)."""
+        boosted = sum(number(m.get("value")) for m in boost_mods
+                      if m.get("name") == "DamageGainAsPhysical") / FIST_OF_KALGUUR_GAIN
+        texts = [e["text"] for e in self.build.call("sourceLines")["lines"]]
+        if main is None or boosted <= 0 or not any(models.EMPOWERED_LINE.match(t.strip())
+                                                   or models.EMPOWERED_GAIN.match(t.strip()) for t in texts):
+            return [], []
+        stats = self.build.call("stats", fields=["Speed", "ExertedAttackUptimeRatio"])
+        other = 0.0
+        if models.empowered_gain(texts):
+            uses, _ = self.empowered_uses(stats, None)
+            speed = number(stats.get("Speed"))
+            other = min(1.0, uses / speed) if speed > 0 else 0.0
+        return models.kalguur_empowered_model(texts, main, boosted,
+                                              number(stats.get("ExertedAttackUptimeRatio")) / 100, other,
+                                              set(self.build.ctx.request.forbid_ledger_entries))
+
     def virtuous_barrier(self, skills: list[dict]) -> tuple[list[dict], list[dict]]:
         """(mods, notes) for Virtuous Barrier's Motes at their steady state under the boss's landed hits
         (VIRTUOUS_BARRIER's note). `skills`: the bridge's activeSkills."""
@@ -9666,7 +9753,31 @@ class Assumptions:
             return missing, f"missing Runic Ward {missing:.0%} of the fight: {how}"
         return 1.0 - missing, f"on full Runic Ward {1.0 - missing:.0%} of the fight (missing it {missing:.0%}): {how}"
 
-    def minion_counts(self, found: list[models.Skill]) -> list[dict]:
+    def zombies_alive(self, skill: models.Skill, found: list[models.Skill], stats: dict | None) -> tuple[float, str, str]:
+        """(MECHB53, models.zombie_alive_count) Raise Zombie's zombies alive from its presses, the Power Charges reaching
+        it (conditions.charges_reaching, MECHC51) and its share of the corpses (models.corpse_supply)."""
+        build = self.build
+        summon = skill.summon or {}
+        row = next((r for r in build.call("useRates", indices=[skill.group])["rates"]
+                    if str(r.get("name") or "").startswith(skill.name)), None)
+        presses, why = (conditions_mod.skill_use_rate(row, models.press_choices(build))[:2] if row
+                        else (0.0, "no use rate"))
+        charges, charge_how = conditions_mod.charges_reaching(build, "Power", skill.name)
+        stats = stats or {}
+        present = {x.name for x in found}
+        sharers = (1 + len({x.name for x in found if x.corpses and not x.wrong_weapon} - set(models.CORPSE_OPTIONAL))
+                   + (1 if any(x.name == models.UNEARTH and x.corpses for x in found) else 0))
+        supply = models.corpse_supply(present, stats)
+        level = next((x.get("levelStats") or {} for x in build.call("activeSkills", levelStats=[skill.name])["skills"]
+                      if x["name"] == skill.name and x.get("group") == skill.group), {})
+        count, how, confidence = models.zombie_alive_count(presses, charges, supply / sharers,
+                                                           number(summon.get("limit")), number(summon.get("duration")),
+                                                           number(level.get(models.ZOMBIE_EMPOWERED_STAT)))
+        return count, (f"{how} [presses: {why}; Power Charges: {charge_how}; corpses: {supply / sharers:.3g}/s of "
+                       f"{supply:.3g}/s shared by {sharers} corpse user{'s' if sharers != 1 else ''}, "
+                       f"{models.add_corpses_note(stats)}]"), confidence
+
+    def minion_counts(self, found: list[models.Skill], stats: dict | None = None) -> list[dict]:
         """(MECHB50, models.minion_alive_count) Each minion skill's Full DPS entry x the minions it keeps alive (PoB
         scores one): its hits x the count, its damage over time once (Objective.entry_scales); notes."""
         build = self.build
@@ -9686,10 +9797,15 @@ class Assumptions:
                     "activeSkills", levelStats=[s.name])["skills"] if x["name"] == s.name and x.get("group") == s.group),
                     {}).get(models.WOLF_PACK_STAT))
             count, how, confidence = models.minion_alive_count(s, pack)
+            if s.name == models.RAISE_ZOMBIE:  # (MECHB53: R44-7, from its Power Charge / corpse supply)
+                count, how, confidence = self.zombies_alive(s, found, stats)
             if confidence == "-":
                 continue
             scale, hit, combined = 1.0, 0.0, 0.0
-            if count > 1:
+            if count < 1:  # (under one alive on average: all its damage scaled, a zombie's damage over time with it)
+                scale = max(count, 0.0)
+                objective.entry_scales[s.name] = objective.entry_scales.get(s.name, 1.0) * scale
+            elif count > 1:
                 types = build.call("minionTypes", index=s.group).get("types") or []
                 chosen = types[0] if len(types) == 1 else None
                 hit, combined = (models.number(chosen.get("TotalDPS")), models.number(chosen.get("CombinedDPS"))) \
@@ -9698,10 +9814,10 @@ class Assumptions:
                 objective.entry_scales[s.name] = objective.entry_scales.get(s.name, 1.0) * scale
             dot = (f"; its damage over time ({combined - hit:,.1f} of {combined:,.1f}) taken once (several minions' "
                    "Ignites / Bleeds don't add on one boss; Poison would: an undercount)") if combined > hit > 0 else ""
-            notes.append({"label": f"{s.name}: {count:g} minions dealing damage*", "value": f"x{scale:.3f}",
+            notes.append({"label": f"{s.name}: {count:.3g} minions dealing damage*", "value": f"x{scale:.3f}",
                           "confidence": confidence, "entry": models.MINION_COUNT_ENTRY,
                           "basis": (f"PoB's Full DPS scores one minion (the gem count 1); the build keeps {how}: "
-                                    f"its hits x{count:g}{dot}; all of them taken to reach the boss")})
+                                    f"its hits x{count:.3g}{dot}; all of them taken to reach the boss")})
         return notes
 
     def cut_entries(self, cuts: dict[str, float]) -> None:
