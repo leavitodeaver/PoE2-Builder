@@ -133,3 +133,56 @@ def test_every_skill_amulet_granted_skill_reserves_no_spirit(search, base, skill
     with_skill, without_skill, as_gem = measure(search, base, skill)
     assert as_gem > without_skill + 1e-6
     assert with_skill == pytest.approx(without_skill)
+
+
+# THE USER's in-game test (22 Nov ~04:00, the manager's 04:05 note), verbatim: "socketing 'warm blooded' into a cheap
+# absent amulet with rhoa mount did cost me 15 spirit". The granted skill's OWN reservation is 0; a support socketed on
+# it still costs its Spirit (PoB: the support's level spiritReservationFlat -> an ExtraSpirit BASE mod on the skill's mod
+# list, CalcActiveSkill.lua 758-759, read in CalcDefence.lua's pool.Spirit.baseFlat; engine/bridge.lua
+# installNoReservation zeroes only the skill's own level-table / skillData fields). (checked: the user's in-game test,
+# 22 Nov; Warm Blooded's 15 and Deadly Herald's 20 are PoB's Data/Skills/sup_dex.lua levels; no PoE2 support sets a
+# reservation PERCENT or a skillData reservation field: grep of every support in Data/Skills, 0 hits)
+# Herald of Ash on the mace skeleton (attack_search): on the Spark skeleton's wand PoB DISABLES it ("Main Hand weapon is
+# not usable with this skill"), and buildActiveSkillModList's disabled branch (CalcActiveSkill.lua 731-742) returns before
+# it merges the supports, so neither the Herald's nor Deadly Herald's Spirit is charged there (focused real POE2T4998:
+# supported 0.0). Whether the game reserves for a Persistent skill your weapon can't use is RESEARCH's RQ52-4.
+SUPPORT_CASES = [("spell", "Absent Amulet", "Rhoa Mount", "Warm Blooded", 15.0),
+                 ("spell", "Lament Amulet", "Arctic Armour", "Warm Blooded", 15.0),
+                 ("attack", "Lament Amulet", "Herald of Ash", "Deadly Herald", 20.0)]
+
+
+@pytest.fixture(scope="module")
+def attack_search(engine):
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"], require=Choices()))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    found = Search(engine, None, payload, skeleton.as_dict(), 0)
+    found.setup(quests=False)
+    return found
+
+
+def granted_group(search, skill: str) -> dict:
+    return next(g for g in search.build.call("groups")["groups"] if g["fromItem"]
+                and (any(s["name"] == skill for s in g["skills"]) or any(gem["name"] == skill for gem in g["gems"])))
+
+
+@pytest.mark.parametrize("which, base, skill, support, cost", SUPPORT_CASES)
+def test_a_support_on_a_skill_amulets_granted_skill_still_costs_its_spirit(request, which, base, skill, support, cost):
+    search = request.getfixturevalue("search" if which == "spell" else "attack_search")
+    build, gear = search.build, search.gear
+    variant = next(v for v, line in implicit_variants(search.ctx.bases_by_name[base]["implicit"]) if line.endswith(skill))
+    item = gear.build_rare("Amulet", clock.now() + 120, base_name=base, variant=variant)
+    gear.put("Amulet", dataclasses.replace(item, raw=without_granted(item.raw)))
+    without_skill = reserved(build)
+    gear.put("Amulet", item)
+    alone = reserved(build)
+    group = granted_group(search, skill)
+    build.call("setGroup", index=group["index"], gems=[{"name": skill}, {"name": support}], fields=[])
+    supported = reserved(build)
+    after = granted_group(search, skill)
+    disabled = [s["name"] for s in build.call("activeSkills")["skills"] if s["name"] == skill and s["disabled"]]
+    gear.put("Amulet", None)
+    print("PROBE", base, skill, support, "without", without_skill, "alone", alone, "supported", supported,
+          "group", [(gem["name"], gem.get("enabled")) for gem in after["gems"]], "skills", after["skills"])
+    assert not disabled  # (the main path: the skill usable with this skeleton's weapon)
+    assert alone == pytest.approx(without_skill)
+    assert supported == pytest.approx(without_skill + cost)

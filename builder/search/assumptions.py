@@ -4073,8 +4073,11 @@ class Assumptions:
                 texts, build.call("stats", fields=list(recovery_mod.PER_POISON_FIELDS)))
             hand_mods, hand_notes = hand_mods + poison_mods, hand_notes + poison_rows
         config_in = build.call("getConfig")["input"]  # (PoB's Shocked box ticked: its Shock already counts all fight)
+        removals = ({"Ignite": self.warcry_uses()}  # (MECHC53: boss_hits.REMOVE_IGNITE_ON_WARCRY's note)
+                    if any(boss_hits.REMOVE_IGNITE_ON_WARCRY.match(t.strip()) for t in texts) else None)
         on_you = boss_hits.boss_ailments_on_you(seen, bool(config_in.get("conditionShocked")
-                                                           or config_in.get("conditionOnShockedGround")), texts)
+                                                           or config_in.get("conditionOnShockedGround")), texts,
+                                                removals)
         if models.COMMISERATE in main_gems:  # (MECH98, R42-13: Commiserate's boost and removal)
             reflected = ({"Ignite"} if any(conditions_mod.SELF_IMMOLATION_LINE.match(t.strip()) for t in texts) else set()) | (
                 {"Poison"} if any(recovery_mod.REFLECT_POISON.match(t.strip()) for t in texts) else set()) | (
@@ -9576,6 +9579,18 @@ class Assumptions:
         if uses <= 0:
             return [], []
         factor = (thrusts * thrust + spent * serpent) / (uses * pob)
+        # (MECHC53, GEM33's mixed-model split, MECHC52's (a2)) PoB builds Bleed / Ignite from the SCORED set's hit and holds
+        # one, the strongest (CalcOffence 5229 maxStacks = 1 without a *CanStack line; 5399 min(stacks, maxStacks)); this
+        # DPS MORE reaches only its stack count (5254). Scored on the Thrust (the strongest hit: 598% vs 199% at gem
+        # level 20) the note's set_shares hand both parts to GEM22's models.strongest_ailment_model: the Thrust's
+        # Ignite / Bleed at the thrusts' own uptime (short of Frenzy Charges: below PoB's), the Serpents' under it.
+        # Scored on the Serpent, nothing: there the DPS MORE (x3.5 on probe POE2T7000's skeleton) inflates PoB's stack
+        # potential, whose roll average (CalcOffence 5305-5309: (stacks - (max - 1) / 2) / (stacks + 1) of the range above
+        # 100%) then reads the Thrust's Bleed ~30% high (POE2T7000: 110.3 vs 85.3 Thrust-scored, an OVERCOUNT), and a
+        # per-hit "Damage" MORE overshoots through armour (POE2T4999: the sets' post-armour DPS ratio 4.26 vs their hit
+        # ratio 598 / 199 = 3.0). The search's chooser tries every stat set (gems.choose_active_skill), and the Thrust
+        # scoring reads the same hits and the right ailment (POE2T7000: Bleed 85.3 vs the Serpent's 36.7), so it wins
+        # wherever the ailment counts.
         mod = models.raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)
         # (MECHC52, MECH99's split, MIXED: the thrusts the charges allow are a USE cut ("hit_cut"); the Serpents a thrust
         # add HITS A USE (models.HIT_CUT_PER_USE: 1 + Serpents / thrust, capped at 1 by the readers until MECH99's
@@ -9595,6 +9610,9 @@ class Assumptions:
             "play": (f"Wind Serpent's Fury: feed it Frenzy Charges; {per_use:.1f} Serpents a thrust; without charges "
                      "it can't be used" if spent > 0 else
                      "Wind Serpent's Fury needs a Frenzy Charge a use: with no Frenzy Charge source it can't be used")}
+        if scored == "Thrust":  # (GEM22: strongest_ailment_model; the comment above)
+            note["set_shares"] = {"Thrust": thrusts / uses, "Serpent": spent / uses}
+            note["set_uses"] = uses
         return [mod], [note]
 
     def _side_rows(self, main_index: int, pick) -> list[tuple[dict, float, str]]:

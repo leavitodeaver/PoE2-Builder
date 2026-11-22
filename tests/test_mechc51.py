@@ -495,7 +495,11 @@ def test_probe_wind_serpents_fury_thrusts_at_its_frenzy_supply_and_a_serpent_per
     def factor(spent: float) -> tuple[float, dict, dict]:
         build.consume_all = {"Frenzy": {a.WIND_SERPENT: (spent, speed, "stand-in")}}
         mods, notes = search.assumptions.wind_serpent(main)
-        return 1 + mods[0]["value"] / 100, mods[0], notes[0]
+        dps = next(m for m in mods if m["name"] == "DPS")  # (MECHC53: a Damage MORE first where PoB scores the Serpent)
+        product = 1.0
+        for m in mods:
+            product *= 1 + m["value"] / 100
+        return product, dps, notes[0]
 
     half, mod, note = factor(speed / 2)
     assert half == pytest.approx((0.5 * sets["Thrust"] + 0.5 * sets["Serpent"]) / scored, rel=0.01)
@@ -507,6 +511,59 @@ def test_probe_wind_serpents_fury_thrusts_at_its_frenzy_supply_and_a_serpent_per
     none, mod, note = factor(0.0)
     assert none == pytest.approx(0.0, abs=1e-6) and mod["hit_cut"] == 0 and mod[models.HIT_CUT_PER_USE] == 0
     assert "can't be used" in note["play"]
+
+
+def test_probe_wind_serpents_fury_ailments_are_the_thrusts_whichever_set_pob_scores(engine):
+    """MECHC53 (GEM33's mixed-model split; WIND_SERPENT's note): PoB builds Bleed from the scored set's hit and holds one
+    Bleed, the strongest. Wind Serpent's note hands its set shares to GEM22's strongest_ailment_model. Probe with a 100%
+    Bleed chance stand-in and a charge a use: scored on the Serpent set (POE2T4999: PoB's default here), PoB's Bleed is a
+    Serpent's, far below the Thrust-scored one; with both models the two scorings read the same Bleed and the same hits."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill=a.WIND_SERPENT, ascendancies=["Ritualist"]))
+    skeleton = enumerate_skeletons(Context(payload), [a.WIND_SERPENT])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    bleed = [models.raw_mod("BleedChance", "BASE", 100, skill=a.WIND_SERPENT, tag="Probe")]
+    group = build.main_group()
+    active = group.get("mainActiveSkill") or 1
+    labels = [x["label"] for x in build.call("setRates", index=group["index"], active=active)["sets"]]
+    speed = models.number(build.call("stats", fields=["Speed"])["Speed"])
+
+    def scored_on(label: str) -> dict:
+        build.call("setGroup", index=group["index"], statSet=labels.index(label) + 1, fields=[])
+        build.call("setAssumptions", mods=bleed, fields=[])
+        skills = build.call("activeSkills")["skills"]
+        main = next(models.Skill.of(s) for s in skills if not s["disabled"] and s["group"] == group["index"]
+                    and s["name"] == a.WIND_SERPENT)
+        before = build.call("stats", fields=["TotalDPS", "BleedDPS"])
+        build.consume_all = {"Frenzy": {a.WIND_SERPENT: (speed, speed, "stand-in")}}  # (a charge a use)
+        mods, notes = search.assumptions.wind_serpent(main)
+        build.call("setAssumptions", mods=bleed + mods, fields=[])
+        sets = build.call("setRates", index=group["index"], active=active)["sets"]
+        shares = notes[0].get("set_shares")
+        strong, strong_notes = (models.strongest_ailment_model(main, sets, shares, notes[0]["set_uses"]) if shares
+                                else ([], []))
+        build.call("setAssumptions", mods=bleed + mods + strong, fields=[])
+        after = build.call("stats", fields=["TotalDPS", "BleedDPS"])
+        print("PROBE wind serpent ailments", label, main.stat_set, before, after, mods, strong,
+              [n["basis"] for n in strong_notes])
+        return {"set": main.stat_set, "before": before, "after": after, "shares": shares}
+
+    thrust, serpent = scored_on("Thrust"), scored_on("Serpent")
+    assert thrust["set"] == "Thrust" and serpent["set"] == "Serpent"
+    shares = thrust["shares"]
+    assert shares and shares["Thrust"] == pytest.approx(shares["Serpent"]) and 0 < shares["Thrust"] <= 1  # (one each)
+    assert serpent["shares"] is None  # (scored on the Serpent: not handed over, POE2T7000's roll-average overcount)
+    assert models.number(serpent["before"]["BleedDPS"]) < 0.5 * models.number(thrust["before"]["BleedDPS"])
+    # (the chooser's two options: the same hits, the Thrust's Bleed higher, so it keeps the Thrust where Bleed counts)
+    assert models.number(serpent["after"]["TotalDPS"]) == pytest.approx(models.number(thrust["after"]["TotalDPS"]),
+                                                                          rel=0.02)
+    assert models.number(serpent["after"]["BleedDPS"]) < models.number(thrust["after"]["BleedDPS"])
 
 
 def test_boss_pool_note_gives_the_headline_pool_and_the_other_readings_as_rows():
@@ -715,3 +772,22 @@ def test_charge_hits_a_use_no_longer_clashes_with_the_per_use_cut():
     assert conditions._charge_rate(line, "Frenzy", stats)[0] == pytest.approx(5.0)  # (2 hits/s x 2.5 a use)
     cut = {**stats, "_charge_hits_a_use": None, "_multi_charge": None, "_hits_per_use": 0.5}
     assert conditions._charge_rate(line, "Frenzy", cut)[0] == pytest.approx(1.0)  # (MECH99's per-use cut: half)
+
+
+def test_remove_ignite_when_you_warcry_shortens_the_bosss_ignite_on_you_at_the_builds_warcry_rate():
+    """MECHC53 (boss_hits.REMOVE_IGNITE_ON_WARCRY's note): Extinguishing Exhalation ends each Ignite on you at your next
+    Warcry, at the build's own Warcry rate (periodic: min(L, U) on average, U uniform up to the gap); no Warcry, no cut."""
+    from builder.search import boss_hits
+
+    assert boss_hits.removed_length(4.0, 0.0) == 4.0
+    assert boss_hits.removed_length(4.0, 0.5) == pytest.approx(1.0)  # (a Warcry every 2 s, shorter than the Ignite)
+    assert boss_hits.removed_length(1.0, 0.25) == pytest.approx(1.0 - 1.0 / 8.0)  # (every 4 s: 1 - 1 / (2 x 4))
+    base = {"enemySkillTime": 1.0, "Life": 4000.0, "AilmentThreshold": 2000.0, "FireTakenHit": 2000.0,
+            "_boss": "Arbiter of Ash"}
+    plain = boss_hits.boss_ailments_on_you(base)
+    cut = boss_hits.boss_ailments_on_you(base, removals={"Ignite": (0.5, "stand-in 0.5/s")})
+    none = boss_hits.boss_ailments_on_you(base, removals={"Ignite": (0.0, "no Warcry")})
+    assert 0 < cut["ignited"] < plain["ignited"] and cut["ignite"] < plain["ignite"]
+    assert none["ignited"] == pytest.approx(plain["ignited"])
+    assert "next Warcry" in cut["notes"][0]["basis"] and "without it: Ignited" in cut["notes"][0]["basis"]
+    assert boss_hits.REMOVE_IGNITE_ON_WARCRY.match("Remove Ignite when you Warcry")

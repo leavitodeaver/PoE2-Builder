@@ -1195,10 +1195,35 @@ def own_shock_chance(stats: dict, name: str | None = None) -> float:
                * afflicted_scale(stats))
 
 
-def boss_ailments_on_you(stats: dict, shocked_box: bool = False, texts: list[str] | None = None) -> dict:
+# (MECHC53, MECHC52's ailment-removal list) Lines that end an ailment on you when the build does something, at the build's
+# own rate of that event (CLAUDE.md: no flat rate; no source, 0). The removal lines a player can get (checked: game
+# 26650308 Stats ids holding remove / cleanse with an ailment word, 34, mapped to every Mods row (Stat1-8) and
+# PassiveSkills row: 27 have no source; the flask suffixes "of Damping" / "of Sealing" / "of Warding" have spawn weight 0
+# in Mods and weightVal 0 in PoB's ModFlask.lua (PoE1 leftovers, memory poe1-leftovers); left: the Warcry notable
+# Extinguishing Exhalation (PassiveSkills warcries47, remove_ignite_on_warcry), the Vaal unique mutation
+# UniqueMutatedVaalRemoveBleedOnLifeFlaskUse (Bleed: not in this model, no number to cut), the curse removals Warding
+# Potions / Draiocht Cleansing (R39-1: no boss curses you; nothing to cut). Second source: PoB's tree 0_5 has the notable,
+# "Remove Ignite when you Warcry", which PoB leaves unparsed (ModCache nil). So the one wired here: Ignite ends at each
+# Warcry. With Warcries every T = 1 / rate (periodic, the lower reading: the press isn't timed to the Ignite) and an
+# Ignite of length L starting at a uniform point between two, it lasts min(L, U) on average, U uniform on (0, T):
+# T / 2 when L >= T, else L - L^2 / (2T). Row: without the line.
+REMOVE_IGNITE_ON_WARCRY = re.compile(r"^Remove Ignite when you Warcry$", re.I)
+
+
+def removed_length(length: float, rate: float) -> float:
+    """An ailment's average length on you when something removes it `rate` times a second (periodic; see above)."""
+    if rate <= 0 or length <= 0:
+        return max(length, 0.0)
+    every = 1 / rate
+    return every / 2 if length >= every else length - length * length / (2 * every)
+
+
+def boss_ailments_on_you(stats: dict, shocked_box: bool = False, texts: list[str] | None = None,
+                         removals: dict[str, tuple[float, str]] | None = None) -> dict:
     """The boss's own Ignite and Shock on you (the comment above): {"ignite": Fire damage a second before your damage-over-
     time modifiers, "ignited": its share of the fight, "shock": increased damage taken % on average, "shocked": its share,
-    "shock_full": % while Shocked, "notes": play-guide rows}. `shocked_box`: PoB's Shocked box already ticked."""
+    "shock_full": % while Shocked, "notes": play-guide rows}. `shocked_box`: PoB's Shocked box already ticked.
+    `removals`: {"Ignite": (the build's removal events a second, how)} (REMOVE_IGNITE_ON_WARCRY's note)."""
     name = boss_name(stats)
     every = number(stats.get("enemySkillTime")) or 0.7
     land = land_share(stats) / every
@@ -1217,6 +1242,10 @@ def boss_ailments_on_you(stats: dict, shocked_box: bool = False, texts: list[str
         length = _self_seconds(stats, "Ignite", IGNITE_SECONDS)
         rate = land * fire * chance * kept
         ignite_immune = immune_after(texts, "Ignited")
+        removal, removal_how = (removals or {}).get("Ignite", (0.0, ""))
+        unremoved = up(rate, length, ignite_immune)
+        if removal > 0:
+            length = removed_length(length, removal)
         ignited = up(rate, length, ignite_immune)
         hit = mean_hits(name).get("Fire", 0.0)
         out["ignite"], out["ignited"] = ignited * IGNITE_SHARE_PER_SECOND * hit, ignited
@@ -1232,7 +1261,9 @@ def boss_ailments_on_you(stats: dict, shocked_box: bool = False, texts: list[str
             "basis": (f"{name}'s {land:.2f} landed hits/s (the defence cadence) x {fire:.0%} Fire x {chance:.0%} to "
                       f"Ignite ({how}) x {kept:.0%} not avoided = {rate * 60:.1f} Ignites a minute, {length:g} s each"
                       + (f", then no Ignite for {ignite_immune:g} s after each (without that: Ignited "
-                         f"{up(rate, length):.0%})" if ignite_immune else "") + ": "
+                         f"{up(rate, length):.0%})" if ignite_immune else "")
+                      + (f"; each removed at your next Warcry (Extinguishing Exhalation; {removal_how}): "
+                         f"{length:.2f} s on average (without it: Ignited {unremoved:.0%})" if removal > 0 else "") + ": "
                       f"Ignited {ignited:.0%} of the fight; an Ignite burns {IGNITE_SHARE_PER_SECOND:.0%} of the Igniting "
                       f"hit's Fire damage a second (KeywordPopups Ignite), the boss's average Fire hit {hit:,.0f} before "
                       f"your mitigation (the lower reading: bigger hits Ignite more and only the strongest burns) = "
