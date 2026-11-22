@@ -3470,6 +3470,8 @@ class Assumptions:
         stat_notes = stat_notes + sacrifice_life(build, found, main, stats)[1]  # (GEM30: Life Sacrificed on use)
         rep_mods, rep_notes = models.repeat_interval_model(found, main, stats, build.call("getConfig")["input"], forbidden)
         stat_mods, stat_notes = stat_mods + rep_mods, stat_notes + rep_notes  # (GEM30: Ravenous Swarm, Hollow Focus)
+        hit_cut(build, [m for m in stat_mods if "hit_cut" in m] + rep_mods, main.name if main else None)  # (GEM33:
+        # Salvo, the Nova circle, Ratha, Trickster's Shard, Ember Fusillade, Rake, the repeat interval: hits a second)
         if any(s.name == models.MIRROR_OF_REFRACTION for s in found):  # (GEM31: its copies from spare projectiles)
             mir_mods, mir_notes = models.mirror_of_refraction_model(
                 found, main, {**stats, **build.call("stats", fields=["ProjectileCount", "Speed"])},
@@ -4685,6 +4687,7 @@ class Assumptions:
                                                                   up.get("Shock") if up else None, up_how,
                                                                   bosses.hit_radius(stats)[0])  # (MECHB35, R28-1)
             hand_mods, hand_notes = hand_mods + combo_mods, hand_notes + combo_notes
+            hit_cut(build, combo_mods, main.name)  # (GEM33: its hit part, the mod's hit_cut)
         if main is not None and group and main.name == models.FROST_DARTS:  # (MECHB35: Frost Darts' whole cast)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             up, _ = models.ailment_up_of(build)
@@ -4710,6 +4713,7 @@ class Assumptions:
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             whirl_mods, whirl_notes = models.whirlwind_stage_model(main, sets, forbidden, previous=self.mods)
             hand_mods, hand_notes = hand_mods + whirl_mods, hand_notes + whirl_notes
+            hit_cut(build, whirl_mods, main.name)  # (GEM33: its hit part, the mod's hit_cut)
         short = (mana_short(build, models.METEOR_BUFF.get(main.name, "The Stars Answer"))
                  if main is not None and group and main.name in models.METEOR_SKILLS else None)
         if short is not None:  # (MECHB47, R36-12: its buff can't be cast without the Mana: 0, not PoB's always-on)
@@ -4725,6 +4729,7 @@ class Assumptions:
                 up_how = f"{uses:.3f} uses a second x its {models.GLORY_INSTANCE.get(buff, 0.0):g} s; {up_how}"
             meteor_mods, meteor_notes = models.meteor_rate_model(main, sets, up, up_how, forbidden)
             hand_mods, hand_notes = hand_mods + meteor_mods, hand_notes + meteor_notes
+            hit_cut(build, meteor_mods, main.name)  # (GEM33: its hit part, the mod's hit_cut)
         side_meteors, side_meteor_notes = self.side_meteors(skills, group, forbidden)  # (MECHB47: a side group's too)
         hand_notes = hand_notes + side_meteor_notes
         hand_notes = hand_notes + self.side_sparks(skills, main, forbidden)  # (MECHB49: R36-5's cap on a side Spark)
@@ -4741,6 +4746,7 @@ class Assumptions:
             shares = {e: self.infusion_share(e, ailments, casts) for e in ("Fire", "Cold", "Lightning")}
             storm_mods, storm_notes = models.firestorm_infusion_model(main, main.stat_set, sets, shares, forbidden)
             hand_mods, hand_notes = hand_mods + storm_mods, hand_notes + storm_notes
+            hit_cut(build, storm_mods, main.name)  # (GEM33: its hit part, the mod's hit_cut)
         if main is not None and group and main.name == models.FALLING_THUNDER:  # (GEM16: projectiles need Power Charges)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             charges = number(build.call("stats", fields=["RemovablePowerCharges"]).get("RemovablePowerCharges"))
@@ -4749,6 +4755,7 @@ class Assumptions:
                 hand_notes = hand_notes + [self.inhibited_note(main.name, "its uses fire no Power-Charge projectiles")]
             thunder_mods, thunder_notes = models.falling_thunder_model(main, main.stat_set, sets, charges, forbidden)
             hand_mods, hand_notes = hand_mods + thunder_mods, hand_notes + thunder_notes
+            hit_cut(build, thunder_mods, main.name)  # (GEM33: its hit part, the mod's hit_cut)
         if main is not None and group and main.name == models.ICESTORM:  # (GEM17: improved bolts need Chill / Freeze)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             up, up_how = models.ailment_up_of(build)
@@ -4791,6 +4798,7 @@ class Assumptions:
             ail_mods, ail_notes = models.ailment_set_model(main, main.stat_set, sets, up, up_how, forbidden,
                                                              previous=self.mods)
             hand_mods, hand_notes = hand_mods + ail_mods, hand_notes + ail_notes
+            hit_cut(build, ail_mods, main.name)  # (GEM33: its hit part, the mod's hit_cut)
         det_split = None  # (MECHB48: the detonated share, for the Fissure count below)
         if main is not None and group and main.name in models.DETONATED_SETS:  # (GEM17: detonations need a Detonator)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
@@ -4926,6 +4934,7 @@ class Assumptions:
                 main, main.stat_set, sets, number(stats.get("Speed")), breaks, boss,
                 f"{breaks_how}; {boss_how}", forbidden)
             hand_mods, hand_notes = hand_mods + fl_mods, hand_notes + fl_notes
+            hit_cut(build, fl_mods, main.name)  # (GEM33: its explosions a second)
         if main is not None and group and main.name == models.MAGNETIC_SALVO:  # (GEM20: explosions need lingering arrows)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             arrows, row_arrows, arrows_how, feeder = self.lingering_arrows(group["index"])
@@ -4957,6 +4966,7 @@ class Assumptions:
             sw_mods, sw_notes = models.shield_wall_model(main, main.stat_set, sets, number(stats.get("Speed")), own,
                                                          boss, more, f"{own_how}; {boss_how}", forbidden)
             hand_mods, hand_notes = hand_mods + sw_mods, hand_notes + sw_notes
+            hit_cut(build, sw_mods, main.name)  # (GEM33: its hit part, the mod's hit_cut)
         if main is not None and main.name == models.ENERVATING_NOVA:  # (GEM20: its damage by the boss's distance)
             radii = build.call("stats", fields=["AreaOfEffectRadius", "AreaOfEffectRadiusSecondary"])
             got = next((x.get("levelStats") or {} for x in build.call(
@@ -4980,6 +4990,7 @@ class Assumptions:
             gf_mods, gf_notes = models.galvanic_field_model(main, main.stat_set, number(stats.get("Speed")), shocks,
                                                             shocks_how, forbidden)
             hand_mods, hand_notes = hand_mods + gf_mods, hand_notes + gf_notes
+            hit_cut(build, gf_mods, main.name)  # (GEM33: its Orb's hits a second)
         if main is not None and group and main.name in models.HERALD_EXPLOSIONS:  # (GEM20 / GEM25: an explosion only on a kill)
             from builder.search import bosses
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
@@ -4987,6 +4998,7 @@ class Assumptions:
             kills, kills_how = bosses.kills_per_second(bosses.of({"_boss": getattr(request, "boss", None)}).name)
             hb_mods, hb_notes = models.herald_of_blood_model(main, main.stat_set, sets, kills, kills_how, forbidden)
             hand_mods, hand_notes = hand_mods + hb_mods, hand_notes + hb_notes
+            hit_cut(build, hb_mods, main.name)  # (GEM33: an explosion a kill)
         mix = next((n for n in hand_notes if n.get("set_shares")), None) if main is not None and group else None
         if mix is not None:  # (GEM22: one Ignite / Bleed counts, the strongest, at its own set's uptime)
             got = build.call("stats", fields=["IgniteDPS", "BleedDPS", "Speed"])

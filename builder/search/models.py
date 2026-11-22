@@ -5460,7 +5460,7 @@ def salvo_model(skills: list[Skill], stats: dict, main: Skill | None, config: di
                      "Pierce, Chain, Fork and Return not counted",
             "play": (f"Salvo fires {main.name} in random directions: fight close. Without Salvo's directions (PoB, aimed):"
                      f" x1.000; at {metres:g} m: x{factor:.3f}; at {MELEE_DISTANCE:g} m: x{near:.3f}.")}
-    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], notes + [note]
+    return [with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name), factor)], notes + [note]
 
 
 # Nova Projectiles I / II (GEM29, 20 Nov 2026; an OVERCOUNT): "Supported Skills fire [Projectile|Projectiles] in a circle"
@@ -5544,7 +5544,7 @@ def nova_projectiles_model(main: Skill | None, stats: dict, config: dict | None 
     near, large = nova_circle_hits(count, radius, MELEE_DISTANCE), nova_circle_hits(count, big, MELEE_DISTANCE)
     factor = hits / count
     unaimed = nova_unaimed_hits(count, radius, metres)
-    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], [{
+    return [with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name), factor)], [{
         "label": label, "value": f"x{factor:.3f}", "confidence": "LOW", "entry": NOVA_ENTRY,
         "basis": (f"{count:g} projectiles a use ({whose} count, every one on the boss) fired evenly round a circle with one "
                   f"aimed (RESEARCH31 R31-11 (b), MEDIUM-LOW): {hits:g} reach a boss {radius:g} m in radius {metres:g} m "
@@ -6060,7 +6060,7 @@ def ratha_model(skills: list[Skill], stats: dict, main: Skill | None, texts: lis
                      "(4 always fit)",
             "play": (f"{main.name} can't reload: Dodge roll as soon as the bolts run out. PoB (normal reloads): "
                      f"x1.000; rolling to reload: x{factor:.3f}.")}
-    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], notes + [note]
+    return [with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name), factor)], notes + [note]
 
 # Bhatair's Vengeance's Cold infusion on Freeze (GEM11; PATCH_CHECK H1-10 row 11, an UNDERCOUNT). Bhatair's Vengeance
 # (sup_int.lua SupportBhatairsVengeancePlayer; gem_stat_descriptions.csd): "When you [Freeze] a target with Supported
@@ -6160,7 +6160,7 @@ def trickster_model(skills: list[Skill], stats: dict, main: Skill | None,
                      f"once and all cast it. Slower: x1.000; at that rate: x{1 + (1 + less / 100):.3f}.")}
     if factor <= 1:
         return [], notes + [note]
-    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], notes + [note]
+    return [with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name), 2.0)], notes + [note]  # (cast twice)
 
 
 
@@ -6250,7 +6250,9 @@ def combo_sequence_model(main: str | None, scored: str | None, sets: list[dict],
                       "text) taken at the set's per-use damage each (UNVERIFIED)"),
             "play": (f"Keep using {main} so its combo runs to the end. PoB's {scored} set alone: x1.000; the full "
                      f"combo: x{factor:.3f}.")}
-    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main)], [note]
+    # (the combo's Strikes a second over PoB's uses of its scored set)
+    hits = sum(strikes.values()) / seconds / rows[scored][1] if rows[scored][1] > 0 else 1.0
+    return [with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main), hits)], [note]
 
 
 def primal_spirits(rows: dict, shocked: float | None, how: str = "",
@@ -6563,7 +6565,8 @@ def whirlwind_stage_model(main: Skill | None, sets: list[dict], forbidden: set[s
             "play": (f"Use {main.name} {stages} times on the same Whirlwind, then cross its edge to collapse it. "
                      f"PoB's {scored} set at every use: {pob:,.0f} DPS; {stages} stages first: {average:,.0f} DPS.")}
     return [raw_mod(WHIRL_MULTIPLIER, "BASE", stages - 1, main.name),
-            raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], [note]
+            with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name),
+                         (stages + 1) / (stages / speed) / (rows[scored][1] or speed))], [note]  # (k uses + 1 collapse)
 
 
 # Ember Fusillade's Fusillade (GEM12; an OVERCOUNT for fast casters, an undercount with extra projectiles). act_int.lua
@@ -6636,7 +6639,8 @@ def ember_fusillade_model(main: Skill | None, stats: dict,
                       f"time; every {unit} hits the lone boss"),
             "play": (f"Cast {skill} {casts} times, then stop for {wait:.1f} s so the Fusillade fires (recasting "
                      f"resets the wait). Casting without pause: no {unit}s fire; this rhythm: x{factor:.3f} of PoB's number.")}
-    return [raw_mod("DPS", "MORE", 100 * (factor - 1), skill)], [note]
+    hits = n / (casts / speed + wait) / speed  # (the Embers a second over PoB's one a cast)
+    return [with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), skill), hits)], [note]
 
 
 # Meteors of The Stars Answer (Starfall) and Walking Calamity (GEM12). The game's stats (TheStarsAnswerPlayer /
@@ -6703,7 +6707,9 @@ def meteor_rate_model(main: Skill | None, sets: list[dict], uptime: float | None
             "play": (f"Keep {buff} up: its meteors fall {rate:.1f} times a second on the boss. "
                      f"PoB's {scored} set: x1.000; the game's meteor mix" + (" and uptime" if uptime is not None else "")
                      + f": x{factor:.3f}.")}
-    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], [note]
+    pob_hits = rows[scored][0] / rows[scored][1] if rows[scored][1] > 0 else 0.0  # (PoB's hits/s: DPS / AverageDamage)
+    hits = rate * up / pob_hits if pob_hits > 0 else 1.0
+    return [with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name), hits)], [note]
 
 
 # Rake's dash distance (GEM12 turn 2; an UNDERCOUNT where the build plays for it). Rake (act_dex.lua RakePlayer; "Dash
@@ -6749,7 +6755,7 @@ def rake_distance_model(main: Skill | None, stats: dict,
                      "using it from melee range: x1.000.")}
     if not stepped:
         return [], [note]
-    return [raw_mod("DPS", "MORE", 100 * (factor - 1), RAKE_SKILL)], [note]
+    return [with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), RAKE_SKILL), far / (1 + more / 100))], [note]
 
 
 # Shield Charge's distance bonus (GEM14; the manager 20:28: research it, then model with a labelled assumption). The game
@@ -7532,7 +7538,9 @@ def firestorm_infusion_model(main: Skill | None, scored: str | None, sets: list[
         # no stat-set tag, so a mod can't zero that set alone): the storm's total, kept FIRESTORM_BOLTS_MARGIN under, so
         # the search keeps the fire set (whose element and ailments the storm has); if ever kept, its number is low
         low, high = low * FIRESTORM_BOLTS_MARGIN, high * FIRESTORM_BOLTS_MARGIN
-    mods = [raw_mod("DPS", "MORE", 100 * (low - 1), FIRESTORM)] if abs(low - 1) > 1e-9 else []
+    mods = ([with_hit_cut(raw_mod("DPS", "MORE", 100 * (low - 1), FIRESTORM),
+                          firestorm_rate_scale(s["Fire"], extra, True))]  # (the storm's hits a second: its rate)
+            if abs(low - 1) > 1e-9 else [])
     if s["Fire"] > 0:
         mods.append(raw_mod("Damage", "INC", FIRESTORM_INC * s["Fire"], FIRESTORM))
     how = "; ".join(f"{e} {s[e]:.0%} ({(shares.get(e) or (0, 'not read'))[1]})" for e in ("Fire", "Cold", "Lightning"))
@@ -7587,7 +7595,8 @@ def falling_thunder_model(main: Skill | None, scored: str | None, sets: list[dic
     factor = total / dps[scored]
     if charges <= 0 and scored != "Melee":
         factor *= FIRESTORM_BOLTS_MARGIN  # (steer the search to the slam set)
-    mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), FALLING_THUNDER)] if abs(factor - 1) > 1e-9 else []
+    mods = ([with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), FALLING_THUNDER), 1.0)]  # (the same uses)
+            if abs(factor - 1) > 1e-9 else [])
     what = (f"the slam ({slam:,.0f}) plus the projectiles from {charges:g} Power Charge(s) ({bolts:,.0f})" if charges > 0
             else f"the slam alone ({slam:,.0f}): no Power Charge to consume, so no projectiles")
     return mods, [{
@@ -7899,6 +7908,19 @@ def lone_boss_set_model(main: Skill | None, scored: str | None, sets: list[dict]
                  f"({hit:,.0f}; PoB's {other_label} {other:,.0f}).")}]
 
 
+# The hit cut on GEM's models (GEM33; the manager 16:00 / 18:15 from MECH99's hit-cut survey, MECHB52's helper): a model
+# whose "DPS" MORE changes the main skill's HITS a second hands that factor to the ailment readers (assumptions.hit_cut,
+# models.hit_cut_of). Each GEM model's mod carries "hit_cut", its hit part: the whole factor where the factor is hits
+# (salvo_model, nova_projectiles_model, ratha_model; assumptions passes frozen_locus / galvanic_field / herald_of_blood /
+# repeat_interval whole), only the hits where it mixes hits and damage per hit (trickster, combo, whirlwind, Ember
+# Fusillade, meteors, Rake, Firestorm, Falling Thunder, Snipe / Sundering, Supercharged Slam, Shield Wall). A raise
+# (more hits) is clamped at 1 by the reader.
+def with_hit_cut(mod: dict, part: float) -> dict:
+    """`mod` with its hit part (hits a second over PoB's; the rest of its factor is damage per hit) as "hit_cut"."""
+    mod["hit_cut"] = max(0.0, number(part))
+    return mod
+
+
 # Shield Charge's two parts on the enemy it crashes into (GEM33; RESEARCH44 R44-10, MEDIUM-HIGH,
 # research/two-part-skills-frostbolt-r44.md; an UNDERCOUNT). The current gem text (poe2db, read 21 Nov): "You will crash
 # into enemies on your path, stopping your charge and dealing damage to enemies in an area, and extra damage to the
@@ -8111,7 +8133,9 @@ def ailment_set_model(main: Skill | None, scored: str | None, sets: list[dict], 
     # 1%, not less: PoB rounds a MORE product to two decimals (ModDB.lua MoreInternal, round(modResult, 2)), so x0.001
     # read as x0.00: probe POE2T2193)
     factor = max(factor, AILMENT_FLOOR)
-    mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=entry)] if abs(factor - 1) > 1e-9 else []
+    hits = 1.0 if main.name == "Snipe" else max(sum(mix.values()), AILMENT_FLOOR)  # (Sundering: one blast an ailment)
+    mods = ([with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=entry), hits)]
+            if abs(factor - 1) > 1e-9 else [])
     return mods, [{
         "label": f"{main.name}: its parts need ailments on the boss to consume*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM", "entry": entry, "set_shares": mix,
@@ -8409,7 +8433,8 @@ def supercharged_slam_model(main: Skill | None, scored: str | None, sets: list[d
     if stages != 1:
         mods.append(raw_mod(f"Multiplier:{SLAM.replace(' ', '')}Stage", "BASE", stages - 1, main.name))
     if abs(factor - 1) > 1e-9:
-        mods.append(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name))
+        mods.append(with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name),
+                                 hold(stages) / (hold(stages) + end)))  # (the end animation: time without hits)
     pob1 = (1 + more) * 2 / hold(1)  # (PoB's own reading at stage 1, in the same units as value())
     scored_one = 1.0 if scored == "Impact" else ratio
     return mods, [{
@@ -9197,7 +9222,9 @@ def shield_wall_model(main: Skill | None, scored: str | None, sets: list[dict], 
     factor = max(rate * per / speed, AILMENT_FLOOR)
     row = locus_explosions(cast, own_breaks, SHIELD_WALL_SECONDS)  # (the row: no boss breaks)
     row_dps = row * (1.0 + more / 100.0) * shield_wall_hits(cast, own_breaks) * dps[scored] / speed
-    mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9 else []
+    hits = max(rate * (mine * walls + 1.0 - mine) / speed, AILMENT_FLOOR)  # (walls hitting a second over casts)
+    mods = ([with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name), hits)]
+            if abs(factor - 1) > 1e-9 else [])
     blast = dps[scored] / speed
     return mods, [{
         "label": f"{main.name}: an explosion only when it's shattered, {more:g}% more by your skills*",

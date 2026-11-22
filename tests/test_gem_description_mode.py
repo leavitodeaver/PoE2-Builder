@@ -1991,3 +1991,20 @@ def test_frostbolt_frost_wall_row():
     want = (104.6 + 166.8) * (1 - 0.125 / 1.25) / 104.6  # (one wall a wall's 8 s is enough)
     assert row[0]["value"].startswith(f"x{want:.3f}") and "play" in row[0]
     assert models.frostbolt_wall_row(Skill("Spark", 1), sets, 0.2, 1.25, "") == []
+
+
+def test_gem_models_carry_their_hit_cut():
+    # (GEM33; the manager 18:15: a mixed model's mod names its hit part, models.hit_cut_of reads it)
+    rake = Skill("Rake", 1, attack=True)
+    mods, _ = models.rake_distance_model(rake, {"Speed": 0.5, "MovementSpeedMod": 1.0})
+    if mods:  # (stepping back pays at this speed: the hit part is the uses' cut alone, the rest the dash's more)
+        assert 0 < mods[0]["hit_cut"] < 1
+        assert models.hit_cut_of(mods, None, "Rake") == pytest.approx(mods[0]["hit_cut"])
+    sets = [{"label": "Arrow", "TotalDPS": 45.6}, {"label": "Explosion", "TotalDPS": 308.8},
+            {"label": "Icy Blast", "TotalDPS": 945.1}]
+    snipe, _ = models.ailment_set_model(Skill("Snipe", 1, attack=True), "Icy Blast", sets, {"Freeze": 0.0}, "")
+    assert snipe[0]["hit_cut"] == 1.0  # (the same releases: the Icy Blast's loss is damage per hit, not hits)
+    cold = [{"label": "Pulse", "TotalDPS": 0.0}, {"label": "Cold", "TotalDPS": 634.4}, {"label": "Fire", "TotalDPS": 500.0},
+            {"label": "Lightning", "TotalDPS": 400.0}]
+    sund, _ = models.ailment_set_model(Skill("Elemental Sundering", 1), "Cold", cold, {"Shock": 0.5}, "")
+    assert sund[0]["hit_cut"] == pytest.approx(0.5)  # (one explosion a use, while the boss is Shocked)
