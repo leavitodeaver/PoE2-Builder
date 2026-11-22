@@ -5103,6 +5103,22 @@ def _uptime(stats: dict, chance_field: str) -> bool:
     return 1.0 - (1.0 - min(chance, 1.0)) ** (rate * AILMENT_WINDOW) >= UPTIME
 
 
+# (MECH99; the manager 21:52, GEM33's Rake probe) The boss's share of the fight WITHOUT an ailment, from `n` = hits a
+# second x its duration (the hits landing within one duration) at `chance` each. The old (1 - c)^n treated n as a count
+# even below 1, so a 100% chance read always-on at any hit rate (a 4 s Ignite from one hit every 10 s: 100%, the game
+# 40%): an OVERCOUNT for slow or cooldown-gated hits (Flameblast's releases, channels in a cooldown, hit-cut skills).
+# Hits are taken as evenly spaced (a steady attacker, MEDIUM): at a random moment the last duration holds k = floor(n)
+# hits or k + 1 (with chance frac(n)), so absent = (1 - f)(1 - c)^k + f (1 - c)^(k + 1): min(1, n) up at c = 1, and
+# within a hair of (1 - c)^n once several hits land a duration (no change there).
+def periodic_absent(chance: float, n: float) -> float:
+    """The share of the fight without the ailment (see above): `n` hits within its duration, `chance` each."""
+    chance, n = min(max(chance, 0.0), 1.0), max(n, 0.0)
+    k = math.floor(n)
+    frac = n - k
+    miss = 1.0 - chance
+    return (1.0 - frac) * miss ** k + frac * miss ** (k + 1)
+
+
 def ailment_uptime(stats: dict, ailment: str) -> float:
     """Share of the fight the boss has the ailment: the chance that at least one hit applied it within its own duration
     (hits that land: uses per second x hit chance). A main skill that consumes it: consumed_share. The build's other
@@ -5128,9 +5144,9 @@ def ailment_uptime(stats: dict, ailment: str) -> float:
         chance = min(1.0, chance + live) if own else chance
         others = [(n, h, min(1.0, c + live), d) for n, h, c, d in others]
         extra = sum(h * c for _, h, c, _ in others)
-    absent = ((1.0 - chance) ** (hits * duration) if own else 1.0) * (1.0 - ground)
+    absent = (periodic_absent(chance, hits * duration) if own else 1.0) * (1.0 - ground)  # (MECH99: periodic_absent)
     for _, h, c, d in others:
-        absent *= (1.0 - c) ** (h * d)
+        absent *= periodic_absent(c, h * d)
     # (side_consumed's wait to reapply, 1 / (hits x chance), over every source's applications)
     return side_consumed(1.0 - absent, stats, ailment, hits * chance + extra, 1.0, ground)
 
@@ -5171,7 +5187,7 @@ def flammability_ignite_scale(stats: dict) -> tuple[float, str]:
     pob = min(1.0, potential) if potential > 0 else min(1.0, hits * chance * duration)
     others = [o for o in (stats.get("_ailment_others") or {}).get("Ignite") or () if o[1] > 0 and o[2] > 0]
     eff, live = stacked_ignite_chance(chance, hits, sum(o[1] * o[2] for o in others))
-    up = 1.0 - (1.0 - eff) ** (hits * duration)
+    up = 1.0 - periodic_absent(eff, hits * duration)  # (MECH99: periodic_absent, as ailment_uptime)
     if pob <= 0 or abs(up / pob - 1.0) < 1e-3:
         return 1.0, ""
     return up / pob, (f"Flammability stacks (KeywordPopups: a hit's Ignite chance is all the Flammability on the boss, "
@@ -7551,7 +7567,7 @@ def shock_share(stats: dict) -> float:
         hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
         chance = min(number(stats.get("ShockChancePerHit")) / 100.0, 1.0)
         duration = number(stats.get("ShockDuration")) or AILMENT_DURATION["Shock"]
-        by_hits = 1.0 - (1.0 - chance) ** (hits * duration) if hits > 0 and chance > 0 else 0.0
+        by_hits = 1.0 - periodic_absent(chance, hits * duration) if hits > 0 and chance > 0 else 0.0  # (MECH99)
         return side_consumed(1.0 - (1.0 - by_hits) * (1.0 - ground), stats, "Shock", hits, chance, ground)
     return 1.0 - (1.0 - ailment_uptime(stats, "Shock")) * (1.0 - ground)
 

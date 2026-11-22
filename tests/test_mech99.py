@@ -90,3 +90,19 @@ def test_a_per_use_cut_reaches_the_hit_readers_only():
     assert both.main_hit_cut == 0.5 and both.main_hits_per_use == 0.6
     # a raise (factor > 1) stays capped at 1 for now (the manager's step 3)
     assert models.per_use_factor({"_hits_per_use": 2.5}) == models.HITS_PER_USE_MAX == 1.0
+
+
+def test_a_sure_ailment_from_slow_hits_is_up_only_while_a_hit_lasts():
+    """MECH99 (the manager 21:52, GEM33's Rake probe): (1 - c)^n read a 100% chance as always on at any hit rate; the
+    evenly spaced reading gives min(1, n) at c = 1 and keeps the old value once several hits land a duration."""
+    from builder.search import conditions
+
+    assert conditions.periodic_absent(1.0, 0.4) == 0.6  # (one hit every 10 s, a 4 s ailment: up 40%)
+    assert conditions.periodic_absent(1.0, 2.5) == 0.0
+    assert conditions.periodic_absent(0.0, 3.0) == 1.0 and conditions.periodic_absent(0.5, 0.0) == 1.0
+    assert abs(conditions.periodic_absent(0.3, 10.0) - 0.7 ** 10) < 1e-12  # (whole n: as before)
+    assert abs(conditions.periodic_absent(0.3, 10.5) - 0.7 ** 10.5) < 1e-3  # (several a duration: a hair off)
+    slow = {"Speed": 0.1, "HitChance": 100, "ShockChancePerHit": 100, "ShockDuration": 4}
+    assert abs(conditions.ailment_uptime(slow, "Shock") - 0.4) < 1e-9  # (was 1.0)
+    fast = {**slow, "Speed": 2.0, "ShockChancePerHit": 30}
+    assert abs(conditions.ailment_uptime(fast, "Shock") - (1 - 0.7 ** 8)) < 1e-9  # (unchanged)
