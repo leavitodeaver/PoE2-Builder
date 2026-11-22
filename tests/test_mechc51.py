@@ -844,3 +844,32 @@ def test_probe_a_main_concoction_is_capped_at_its_own_throw_rate_not_its_trigger
     again, note2 = assume.flask_main(skills, name)
     assert note2["value"] == pytest.approx(own, rel=0.01)
     assert models.number(build.call("stats", fields=["Speed"])["Speed"]) == pytest.approx(50.0, rel=0.01)  # (put back)
+
+
+def test_probe_a_side_fireball_or_ember_fusillade_shares_the_main_skills_infusions(engine):
+    """MECHC53 (GEM34's find; other_infusion_users): a consumer is found by its own stat
+    active_skill_consumes_a_<element>_infusion, not only an "<Element>-Infused" set label. A side Fireball takes Fire
+    Infusions, a side Ember Fusillade Lightning ones, each at its press rate; neither takes Cold."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build, assume = search.build, search.assumptions
+    setattr(build.objective, models.PRESS_CHOICES, {"Fireball": 0.5, "Ember Fusillade": 0.25})
+    for name in ("Fireball", "Ember Fusillade"):
+        build.call("setGroup", gems=[{"name": name, "level": 20, "quality": 0}], fullDPS=True, fields=[])
+    raw = {s["name"]: s for s in build.call("activeSkills", levelStats=["Fireball", "Ember Fusillade"])["skills"]}
+    print("PROBE infusion stats", {n: {k: v for k, v in (raw[n].get("levelStats") or {}).items() if "infusion" in k}
+                                   for n in ("Fireball", "Ember Fusillade") if n in raw})
+    fire, fire_how = assume.other_infusion_users("Fire")
+    lightning, lightning_how = assume.other_infusion_users("Lightning")
+    cold, _ = assume.other_infusion_users("Cold")
+    print("PROBE infusion users", fire, fire_how, lightning, lightning_how, cold)
+    assert fire > 0 and "Fireball" in fire_how and "Ember" not in fire_how
+    assert lightning > 0 and "Ember Fusillade" in lightning_how and "Fireball" not in lightning_how
+    assert cold == 0

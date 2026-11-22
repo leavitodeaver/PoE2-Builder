@@ -8394,10 +8394,28 @@ class Assumptions:
         main = groups["mainSocketGroup"]
         want = re.compile(rf"\b{element}-infused\b", re.I)
         blocked = conditions_mod.inhibited_skills(groups["groups"])  # (MECHC49: an Inhibitor-supported skill takes none)
-        users = {g["index"] for g in groups["groups"]
-                 if g["index"] != main and g["enabled"] and pressed_group({**g, "fullDPS": True}, build.ctx.gems)
-                 and not any(n["name"] in blocked for n in g.get("gems") or [])
-                 and any(want.search(label) for skill in g.get("skills") or [] for label in skill.get("statSets") or [])}
+        pressed = [g for g in groups["groups"]
+                   if g["index"] != main and g["enabled"] and pressed_group({**g, "fullDPS": True}, build.ctx.gems)
+                   and not any(n["name"] in blocked for n in g.get("gems") or [])]
+        users = {g["index"] for g in pressed
+                 if any(want.search(label) for skill in g.get("skills") or [] for label in skill.get("statSets") or [])}
+        # (MECHC53; GEM34's find, the manager 08:25, an OVERCOUNT of the main skill's Infused share) A consumer is a skill
+        # whose own stat sets carry active_skill_consumes_a_<element>_infusion (INFUSION_CAP's note: every consumer's
+        # sets carry it), not only one with an "<Element>-Infused" set label: Fireball ("The explosion Consumes a Fire
+        # Infusion if possible") and Ember Fusillade (Lightning) carry the stat under plain labels, so a side one wasn't
+        # counted as sharing the main skill's Infusions. PoB's skill data (Data/Skills act_*.lua, every skill with the stat
+        # or an "-Infused" set label): the label test found Ball Lightning, Comet, Frost Wall, Ice Nova (stat and label)
+        # and Spark (label only: its Cold-Infused set carries no consume stat), and missed Arc, Ember Fusillade, Fireball,
+        # Firestorm, Flame Wall, Frost Darts and Incinerate (stat only). The label test stays beside it, for Spark.
+        stat = f"active_skill_consumes_a_{element.lower()}_infusion"
+        indices = {g["index"] for g in pressed}
+        names = sorted({skill["name"] for g in pressed if g["index"] not in users for skill in g.get("skills") or []
+                        if skill.get("name")})
+        if names:
+            for skill in build.call("activeSkills", levelStats=names)["skills"]:
+                if (skill.get("group") in indices and not skill.get("disabled")
+                        and number((skill.get("levelStats") or {}).get(stat)) > 0):
+                    users.add(skill["group"])
         if not users:
             return 0.0, ""
         rates = build.call("useRates", indices=sorted(users | {main}))["rates"]
