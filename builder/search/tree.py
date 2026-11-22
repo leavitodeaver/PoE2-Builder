@@ -18,6 +18,7 @@ Forbidden passives never appear as targets or on a path; required passives are n
 
 from __future__ import annotations
 
+import contextlib
 import math
 import random
 import re
@@ -472,24 +473,91 @@ class Tree:
         """One regrow of the tree: `clear` "all" (Tree.reset) or "weak:<points>" (the weakest branches per point, about
         that many points), then grow, the floors repaired to `target`, grow again into what's left, and the attribute
         choices; the conditions re-resolved (a cleared passive may have been a condition's source)."""
-        if clear == "all":
-            self.reset()
-        else:
-            size = int(clear.split(":")[1])
-            removed: set[int] = set()
-            for _, branch in self.weakest_branches():
-                if len(removed) >= size:
-                    break
-                if not branch & removed and len(branch) <= size - len(removed) + 3:
-                    self.remove_branch(branch)
-                    removed |= branch
-            self.candidates.clear()
+        self.clear_variant(clear)
         self.grow(deadline)
         self.repair_floors(deadline, target)
         self.grow(deadline)
         self.attributes_round()
         if self.resolve is not None:
             self.resolve()
+
+    def clear_variant(self, clear: str) -> None:
+        """regrow_variant's clear: "all" (Tree.reset) or "weak:<points>" (the weakest branches per point, about that many
+        points)."""
+        if clear == "all":
+            self.reset()
+            return
+        size = int(clear.split(":")[1])
+        removed: set[int] = set()
+        for _, branch in self.weakest_branches():
+            if len(removed) >= size:
+                break
+            if not branch & removed and len(branch) <= size - len(removed) + 3:
+                self.remove_branch(branch)
+                removed |= branch
+        self.candidates.clear()
+
+    @contextlib.contextmanager
+    def offence_only(self):
+        """The build scored with the user's soft floors off (resistances, Life, max hit, the defence style) and the game's
+        hard limits kept (the deficits Objective flags hard: attribute requirements, skill costs, passive points,
+        Spirit), so a grow inside ranks passives by damage alone. The real score comes back after, and the candidates'
+        values (measured on the other score) are dropped. A search move only: whatever it builds is judged on the
+        real score (joint_regrow's keep rule), so no floor is relaxed in a delivered build."""
+        objective = self.build.objective
+        objective.penalty = lambda stats: objective._weight([d for d in objective.deficits(stats) if d[2]])
+        try:
+            self.build.refresh()
+            self.candidates.clear()
+            yield
+        finally:
+            del objective.penalty
+            self.build.refresh()
+            self.candidates.clear()
+            self.round += 1
+            self.allocations_since_full = FULL_EVERY
+
+    JOINT_GEAR_SHARE = 0.6  # of a joint_regrow's time its gear round may take (LOW, a search-effort setting)
+
+    def joint_regrow(self, deadline: float, gear_round: Callable[[float, bool], bool], clear: str = "weak:30",
+                     reweigh: Callable[[], None] | None = None) -> dict:
+        """The joint tree + gear move (SEARCHB2's design, Step 2(c); SEARCHB1's G0b: the reference trees trimmed to the
+        budget keep x2.03 / x2.09 but meet ES, Lightning resistance and Physical max hit with ITEMS; each block alone
+        holds the other fixed, so with a floor miss costing >= 3.0 in the score neither takes the first step). One
+        all-or-nothing trial from a snapshot:
+        1. clear `clear` (clear_variant) and grow for damage (offence_only: the soft floors off, the hard limits on);
+        2. a full gear round (`gear_round`, the search's Gear.gear_round) on that tree, on the real score, whose floor
+           penalty now ranks the items that close the floors first, for up to JOINT_GEAR_SHARE of the time;
+        3. the floors repaired back to the shortfall the build had before (repair_floors), grow, attributes, resolve;
+        4. kept only if no further from the request (the shortfall) and scoring higher (final_regrow's rule).
+        Returns {"clear", "score", "gain", "shortfall", "kept", "seconds"} like final_regrow's rows."""
+        build = self.build
+        started = clock.now()
+        best_score, best_short = build.score, self.shortfall()
+        snap = build.snapshot()
+        self.clear_variant(clear)
+        with self.offence_only():
+            self.grow(deadline)
+        now = clock.now()
+        gear_round(min(deadline, now + self.JOINT_GEAR_SHARE * max(0.0, deadline - now)), True)
+        self.repair_floors(deadline, best_short)
+        self.grow(deadline)
+        self.attributes_round()
+        if self.resolve is not None:
+            self.resolve()
+        if reweigh is not None:
+            reweigh()
+        score, short = build.score, self.shortfall()
+        kept = self.points_left() >= 0 and short <= best_short + EPSILON and score > best_score + EPSILON
+        row = {"clear": f"joint {clear}", "score": round(score, 4), "gain": round(score - best_score, 4),
+               "shortfall": round(short, 4), "kept": kept}
+        if not kept:
+            build.restore(snap)
+            self.candidates.clear()
+            self.round += 1
+            self.allocations_since_full = FULL_EVERY
+        row["seconds"] = round(clock.now() - started, 1)
+        return row
 
     FINAL_CLEARS = ("all", "weak:30", "weak:15", "weak:8")
     SWAP_MIN_GAIN = 1e-3  # (ln units: 0.1% of the score's DPS) a final swap gaining less ends the swaps

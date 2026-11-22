@@ -171,3 +171,77 @@ def test_a_final_regrow_on_a_real_build_never_ends_lower_or_shorter(engine):
     print("PROBE final_regrow", before, short, rows)
     assert rows and rows[0]["clear"] == "weak:8"
     assert search.build.score >= before - 1e-6 and tree.shortfall() <= short + 1e-6 and tree.points_left() >= 0
+
+
+# The joint tree + gear move (Tree.joint_regrow; SEARCHB3, SEARCHB2's design Step 2(c)) -----------------------------
+
+class WeighingObjective:
+    """deficits: a soft floor ("short") and a hard limit ("over"); penalty from _weight, as Objective's."""
+
+    def deficits(self, stats):
+        found = []
+        if stats.get("short", 0.0) > 0:
+            found.append(("Physical max hit", stats["short"], False))
+        if stats.get("over", 0.0) > 0:
+            found.append(("Spirit", stats["over"], True))
+        return found
+
+    def _weight(self, deficits):
+        return sum((30.0 if hard else 6.0) * amount for _, amount, hard in deficits)
+
+    def penalty(self, stats):
+        return self._weight(self.deficits(stats))
+
+
+def test_offence_only_drops_the_soft_floors_keeps_the_hard_limits_and_puts_the_score_back():
+    build = FakeBuild()
+    build.objective = WeighingObjective()
+    refreshed = []
+    build.refresh = lambda: refreshed.append(build.objective.penalty({"short": 1.0, "over": 0.1}))
+    tree = make_tree(build)
+    with tree.offence_only():
+        assert build.objective.penalty({"short": 1.0, "over": 0.1}) == pytest.approx(3.0)  # (the Spirit only)
+    assert build.objective.penalty({"short": 1.0, "over": 0.1}) == pytest.approx(9.0)
+    assert refreshed == [pytest.approx(3.0), pytest.approx(9.0)] and "penalty" not in vars(build.objective)
+
+
+def _joint_tree(monkeypatch, after_gear):
+    """A tree whose clear / grow / repair only record; the gear round sets the build to `after_gear` (score, short)."""
+    build = FakeBuild(score=10.0, short=0.0)
+    build.objective = WeighingObjective()
+    build.refresh = lambda: None
+    tree = make_tree(build)
+    calls = []
+    monkeypatch.setattr(Tree, "clear_variant", lambda self, clear: calls.append(("clear", clear)))
+    monkeypatch.setattr(Tree, "grow", lambda self, deadline: calls.append(
+        ("grow", build.objective.penalty({"short": 1.0}))))
+    monkeypatch.setattr(Tree, "repair_floors", lambda self, deadline, target: calls.append(("repair", target)))
+    monkeypatch.setattr(Tree, "attributes_round", lambda self: False)
+
+    def gear_round(deadline, full):
+        calls.append(("gear", full))
+        build.score, build.stats = after_gear[0], {"short": after_gear[1]}
+        return True
+
+    return tree, build, calls, gear_round
+
+
+def test_a_joint_regrow_grows_for_damage_then_gears_and_is_kept_when_higher_with_the_floors_met(monkeypatch):
+    tree, build, calls, gear_round = _joint_tree(monkeypatch, (12.0, 0.0))
+    row = tree.joint_regrow(float("inf"), gear_round, "weak:30")
+    assert calls == [("clear", "weak:30"), ("grow", 0.0), ("gear", True), ("repair", 0.0), ("grow", 6.0)]
+    assert row["kept"] and row["gain"] == pytest.approx(2.0) and build.score == 12.0 and build.restores == 0
+
+
+def test_a_joint_regrow_the_gear_cant_bring_back_to_the_floors_goes_back(monkeypatch):
+    tree, build, calls, gear_round = _joint_tree(monkeypatch, (14.0, 0.3))  # (higher, but short on a floor)
+    row = tree.joint_regrow(float("inf"), gear_round)
+    assert not row["kept"] and build.restores == 1 and build.score == 10.0 and build.stats["short"] == 0.0
+
+
+def test_a_joint_regrows_gear_round_gets_its_share_of_the_time(monkeypatch):
+    tree, build, calls, _ = _joint_tree(monkeypatch, (9.0, 0.0))
+    now = clock.now()
+    seen = []
+    tree.joint_regrow(now + 100.0, lambda deadline, full: seen.append(deadline - now) or False)
+    assert seen and seen[0] <= tree.JOINT_GEAR_SHARE * 100.0 + 1.0 and build.restores == 1
