@@ -17230,6 +17230,27 @@ def returned_hit_factor(main: Skill, group_gems: list[dict]) -> tuple[float, lis
     return factor, why
 
 
+def return_share(texts: list[str], main: Skill | None, main_types: set[str], group_gems: list[dict],
+                 weapon_types: set[str]) -> tuple[float, str]:
+    """(MECHB55; the manager 12:00, the Witchhunter Frostbolt loop: GEM's mirror_of_refraction_model the mirror side,
+    MECH-B the return side) (the share of the main skill's projectiles that Return, why): each one that returns flies
+    back to you, a second pass through the space your Mirrors of Refraction appear in (your Presence). The same sources
+    as return_model: Soaring Midnight 1, Breachlord's Amalgam 1 (a Cold / Lightning, self-used skill), Cadiro's Gambit's
+    Reversing Arrows 1 in 6 (UNVERIFIED odds). Ironbound's (only on a Fully Broken target) left out: 0 there."""
+    if main is None or "Projectile" not in main_types:
+        return 0.0, ""
+    names = {g.get("name") for g in group_gems if g.get("enabled", True)}
+    if main.name == SOARING_MIDNIGHT:
+        return 1.0, "Soaring Midnight returns at the end of its flight"
+    if (BREACHLORDS_AMALGAM in names and {"Cold", "Lightning"} & main_types
+            and not {"Triggered", "Persistent"} & main_types):
+        return 1.0, "Breachlord's Amalgam makes its projectiles return"
+    if main.attack and "Bow" in weapon_types and any(CADIRO_ARROWS.search(t.strip()) for t in texts):
+        return CADIRO_REVERSING_SHARE, ("Cadiro's Gambit: 1 arrow in 6 is a Reversing Arrow, which Pierces all targets "
+                                        "and Returns (the six kinds assumed equally likely, UNVERIFIED)")
+    return 0.0, ""
+
+
 def return_model(texts: list[str], stats: dict, main: Skill | None, main_types: set[str], group_gems: list[dict],
                  weapon_types: set[str]) -> tuple[list[dict], list[dict]]:
     """Returning projectiles' second boss hit (the rule above): `1% more Damage` on the main skill for the share of its

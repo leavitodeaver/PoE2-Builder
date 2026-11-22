@@ -146,3 +146,17 @@ def test_flame_wall_with_fortress_is_a_ring_and_falling_projectiles_get_a_zero_r
     stub.main_types = {"ProjectileNoCollision", "Attack"}
     share, how = conditions.Conditions._flame_wall(stub, {"Speed": 2.0})
     assert share < 0.64 and "R47-4" in how and "0%" in how
+
+
+def test_return_share_for_the_mirror_loop():
+    """(MECHB55) the share of the main skill's projectiles that Return (for GEM's Mirror of Refraction loop)."""
+    from builder.search import models
+
+    bolt = models.Skill("Frostbolt", 1, spell=True)
+    amalgam = [{"name": "Frostbolt"}, {"name": "Breachlord's Amalgam"}]
+    assert models.return_share([], bolt, {"Projectile", "Cold", "Spell"}, amalgam, set())[0] == 1.0
+    assert models.return_share([], bolt, {"Projectile", "Cold", "Spell"}, [{"name": "Frostbolt"}], set()) == (0.0, "")
+    assert models.return_share([], bolt, {"Spell", "Cold"}, amalgam, set()) == (0.0, "")  # (not a projectile skill)
+    arrow = models.Skill("Lightning Arrow", 1, attack=True)
+    cadiro = ["Each Arrow fired is a Crescendo, Splinter, Reversing, Diamond, Covetous, or Blunt Arrow"]
+    assert models.return_share(cadiro, arrow, {"Projectile", "Attack"}, [], {"Bow"})[0] == models.CADIRO_REVERSING_SHARE
