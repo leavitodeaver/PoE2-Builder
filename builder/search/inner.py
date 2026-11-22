@@ -167,6 +167,9 @@ class Search:
         self.tree.fill_granted = self.gems.fill_granted
         self.gear.fill_granted = self.gems.granted_meta_round
         self.gear.refill_main = self.gems.refill_main_supports
+        # (SEARCH36, for SEARCHB3's Shrine Sceptre trials, POE2_SEARCH_PURITY_TRIALS: an item group's supports filled
+        # before the item is judged; Gear.fill_group is None, nothing filled, until gear.py reads it)
+        self.gear.fill_group = self.gems.fill_granted_supports
         self.gear.fit_requirements = self.tree.fit_requirements
         self.gear.resolve = self.resolve
         self.gear.relevant_skill = self.assumptions.relevant
