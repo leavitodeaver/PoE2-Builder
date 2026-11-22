@@ -8328,6 +8328,12 @@ def _corpse_consumed_recently(lines: list[str], stats: dict) -> tuple[object, st
 # reading). Projectiles that fall from above (Hailstorm Rounds' bolts, Rain of Arrows): whether they pass "through" a
 # wall they land in is UNVERIFIED; counted at the same share (not zeroed on an unverified claim).
 FLAME_WALL = "Flame Wall"
+# (RESEARCH47 R47-4 / R47-5, the manager 12:10) Fortress I / II make the wall a circle ("Walls from Supported Skills are
+# created in a Circle instead", wall_is_created_in_a_circle_instead; PoB sup_int.lua 4987 / 5024): cast on the boss,
+# there's no line to lose, so the share is the plain uptime. A main skill typed ProjectileNoCollision (lobbed / rained:
+# Hailstorm Rounds, Rain of Arrows, ...) probably never crosses the wall: a 0 row, the headline left as it is.
+FLAME_WALL_RING = frozenset({"Fortress I", "Fortress II"})
+FLAME_WALL_FALLING = "ProjectileNoCollision"
 
 
 def flame_wall_line(uses: float, duration: float, moves: float) -> float:
@@ -9310,12 +9316,23 @@ class Conditions:
         duration = number(row.get("duration"))
         if each <= 0 or duration <= 0:
             return 0.0, f"{FLAME_WALL} isn't cast (no use rate) or has no duration read: 0"
+        plain = min(1.0, each * duration)
+        falling = ("; row: falling projectiles (your main skill is ProjectileNoCollision: they rain down) are probably "
+                   "not 'fired through' the wall, 0% (RESEARCH47 R47-4, LOW-MEDIUM)"
+                   if FLAME_WALL_FALLING in (self.main_types or ()) else "")
+        ring = sorted({n["name"] for g in groups if g["index"] in where for n in g.get("gems") or []
+                       if n.get("enabled", True) and n["name"] in FLAME_WALL_RING})
+        if ring:  # (RESEARCH47 R47-5: a ring around the boss, no line to lose)
+            return plain, (f"{whose} {each:.3f} a second, each wall {duration:.2f} s: up {plain:.0%}, a ring around the "
+                           f"boss ({', '.join(ring)}: 'Walls ... are created in a Circle instead'), so your shots at it "
+                           "cross the wall wherever a forced move puts you (R47-5, MEDIUM-LOW); the boss leaving the "
+                           "ring before the next cast not read (UNVERIFIED, the upper side)" + falling)
         moves, moves_how = boss_hits.red_flash_rate(stats)
         share = flame_wall_line(each, duration, moves)
-        plain = min(1.0, each * duration)
         return share, (f"{whose} {each:.3f} a second, each wall {duration:.2f} s (up {plain:.0%}); each put in your line "
                        f"of fire and moved off it by the boss's forced moves, {moves * 60:.1f} a minute ({moves_how}), "
-                       f"until the next cast (MEDIUM-LOW; if forced moves don't break the line: {plain:.0%})")
+                       f"until the next cast (MEDIUM-LOW: players mostly recast it after a move, R47-5; if forced moves "
+                       f"don't break the line: {plain:.0%})" + falling)
 
     def _skill_infused(self, lines: list[dict], stats: dict, skill: str, element: str) -> tuple[float, str]:
         """(MECHB55) (share of `skill`'s casts that consume an `element` Infusion, how): _arc_infused's reading for any

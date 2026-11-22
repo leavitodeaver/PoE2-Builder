@@ -34,7 +34,7 @@ def _stub(main, groups, uses, rows, lightning=0.0, made=()):
     build = SimpleNamespace(call=lambda name, **_: (
         {"groups": [{"index": i + 1, "gems": [{"name": n} for n in names]} for i, names in enumerate(groups)]}
         if name == "groups" else {"rates": list(rows.values())}))
-    stub = SimpleNamespace(build=build, main_skill=main)
+    stub = SimpleNamespace(build=build, main_skill=main, main_types=set())
 
     def group_uses(groups_, names, rows_=None):
         if rows_ is not None:
@@ -132,3 +132,17 @@ def test_midnight_zenith_crystals_from_crits_broken_by_area_hits():
     notes = models.midnight_zenith_model(0.5, "x", 0.0, 0.0, 0.5, "a consumer", 300.0, level, 10.0, 0.0)[1]
     assert notes[0]["value"] == pytest.approx(round(300.0 * (1 - math.exp(-5.0)), 1))
     assert models.midnight_explosions(1.0, None, 0.1, 10.0, 10) == pytest.approx(1 - math.exp(-1.0))
+
+
+def test_flame_wall_with_fortress_is_a_ring_and_falling_projectiles_get_a_zero_row(monkeypatch):
+    """(MECHB55; RESEARCH47 R47-5) Fortress makes the wall a circle on the boss: the plain uptime, no forced-move break;
+    (R47-4) a ProjectileNoCollision main skill gets a 0 row, the headline unchanged."""
+    monkeypatch.setattr(conditions.boss_hits, "red_flash_rate", lambda stats, reading="uses": (1 / 6, "moves"))
+    rows = {2: {"index": 2, "duration": 6.4}}
+    stub = _stub("Rain of Arrows", [["Rain of Arrows"], ["Flame Wall", "Fortress I"]], {"Flame Wall": 0.1}, rows)
+    share, how = conditions.Conditions._flame_wall(stub, {"Speed": 2.0})
+    assert share == pytest.approx(0.64) and "ring around the boss" in how
+    stub = _stub("Rain of Arrows", [["Rain of Arrows"], ["Flame Wall"]], {"Flame Wall": 0.1}, rows)
+    stub.main_types = {"ProjectileNoCollision", "Attack"}
+    share, how = conditions.Conditions._flame_wall(stub, {"Speed": 2.0})
+    assert share < 0.64 and "R47-4" in how and "0%" in how
