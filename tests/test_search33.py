@@ -53,6 +53,8 @@ def test_a_restore_keeps_a_config_input_at_pobs_own_default(ctx, engine):
 
 def test_a_side_group_gets_its_supports_and_the_score_never_falls(ctx, engine, monkeypatch):
     from builder.search import gems as gems_mod
+
+    monkeypatch.setattr(gems_mod, "SIDE_SUPPORTS", True)  # (off by default since SEARCH35: the manager's 19:58)
     from builder.search.inner import Search
     from builder.search.skeletons import enumerate_skeletons
 

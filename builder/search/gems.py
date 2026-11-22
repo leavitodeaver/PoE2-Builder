@@ -98,7 +98,10 @@ META_TRIALS = 3  # spells per meta gem tried for real (trigger rates show only a
 # score must move before a side group whose last full sweep found nothing is swept again (a sweep is ~one what-if per
 # offered support: ~200-300 a group)
 SIDE_SUPPORT_ROUNDS = 4
-SIDE_SUPPORTS = os.environ.get("POE2_SEARCH_SIDE_SUPPORTS", "1") != "0"  # on; POE2_SEARCH_SIDE_SUPPORTS=0 for an A/B run
+# OFF by default until a gate set gives it a verdict (the manager's 19:58, 21 Nov: SEARCH33's ON lead came from the main
+# group's supports, no delivered ON build kept a side support, and SEARCH34's pair was lost to the drop):
+# POE2_SEARCH_SIDE_SUPPORTS=1 turns it on
+SIDE_SUPPORTS = os.environ.get("POE2_SEARCH_SIDE_SUPPORTS", "0") == "1"
 SIDE_RESWEEP = 0.05
 # (SEARCH34; the user, 20 Nov: "having empty support sockets is a HUGE loss in power", corrected: an empty socket is a red
 # flag to justify by score, not automatically wrong: Uhtred's Augury, Spirit kept for the other Spirit skills, ...)
