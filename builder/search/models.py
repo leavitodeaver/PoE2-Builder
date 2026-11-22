@@ -291,10 +291,18 @@ HIT_CUT_PER_USE = "hit_cut_per_use"
 HITS_PER_USE_MAX = 1.0
 
 
+def _hits_a_use(stats: dict) -> float | None:
+    """stats["_hits_per_use"] as a number, or None. (MECH99, the manager 02:52: MECHC44's (hits a use, how) tuple once
+    shared this key, and number() reads a tuple as 0, so every hit reader saw no hits on Twister / Galvanic Field: an
+    UNDERCOUNT. A value that isn't a number is read as no factor (None: 1), never as 0.)"""
+    got = stats.get("_hits_per_use")
+    return float(got) if isinstance(got, (int, float)) and not isinstance(got, bool) else None
+
+
 def per_use_factor(stats: dict) -> float:
     """The main skill's hits-per-use factor in `stats` (1 without one; clamped to [0, HITS_PER_USE_MAX])."""
-    got = stats.get("_hits_per_use")
-    return 1.0 if got is None else max(0.0, min(HITS_PER_USE_MAX, number(got)))
+    got = _hits_a_use(stats)
+    return 1.0 if got is None else max(0.0, min(HITS_PER_USE_MAX, got))
 
 
 # (MECH99, step 3 of the split, the manager 22:20: the cap lifts for models that ADD hits) Hits a use above 1 (Spell
@@ -306,13 +314,13 @@ def per_use_factor(stats: dict) -> float:
 # at 1 (the lower reading) until checked.
 def hits_raise(stats: dict) -> float:
     """The main skill's hits a use beyond one (>= 1; 1 without a raise): the factor above HITS_PER_USE_MAX's cap."""
-    got = stats.get("_hits_per_use")
-    return 1.0 if got is None else max(1.0, number(got))
+    got = _hits_a_use(stats)
+    return 1.0 if got is None else max(1.0, got)
 
 
 def at_main_share(stats: dict, per_use: bool = True, raise_hits: bool = False) -> dict:
     share = stats.get("_main_share")
-    hits = stats.get("_hits_per_use") if per_use else None
+    hits = _hits_a_use(stats) if per_use else None
     if share is None and hits is None:
         return stats
     speed = number(stats.get("Speed")) * (1.0 if share is None else max(0.0, min(1.0, number(share))))

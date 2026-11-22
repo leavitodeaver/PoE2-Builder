@@ -149,3 +149,15 @@ def test_armour_break_and_stacked_ailments_count_hits_added_a_use_but_exposure_d
     base = {"Speed": 2.0, "HitChance": 100, "ShockChancePerHit": 50}
     assert conditions._exposure_events("hits", {**base, "_hits_per_use": 3.0})[0] == 2.0
     assert conditions._exposure_events("hits", {**base, "_hits_per_use": 0.5})[0] == 1.0
+
+
+def test_a_non_number_in_the_hits_a_use_key_never_reads_as_no_hits():
+    """MECH99 (the manager 02:52, MECHC52's find): MECHC44's (hits a use, how) tuple in "_hits_per_use" read as 0 cut every
+    hit reader to nothing; a non-number is now no factor (1)."""
+    from builder.search import models
+
+    stats = {"Speed": 2.0, "_hits_per_use": (3.0, "Twister's whirlwinds")}
+    assert models.per_use_factor(stats) == 1.0 and models.hits_raise(stats) == 1.0
+    assert models.at_main_share(stats)["Speed"] == 2.0
+    assert models.per_use_factor({"_hits_per_use": True}) == 1.0
+    assert models.per_use_factor({"_hits_per_use": 0.5}) == 0.5
