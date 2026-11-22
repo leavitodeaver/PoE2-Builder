@@ -38,3 +38,20 @@
             "C:/PROJECTS/PoE2 Builder/scratch/manager/research/cluster-grenade-burst-spread-r45.md (R45-1)"]
   test_in_game: "Cluster Grenade thrown at a lone boss's feet: how many mini blasts hit it (with and without a short Detonation Time)?"
   status: proposed
+
+- id: model-gem33-per-hit-more-reaches-ailments
+  title: "Rake's distance more and Ember Fusillade's per-Ember more reach their Bleed / Ignite (an UNDERCOUNT before: Rake 81.8 -> 142.1)"
+  kind: model
+  model: hit_and_damage_mods
+  skill: [Rake, Ember Fusillade, His Scattering Calamity]
+  confidence: MEDIUM
+  notes: >-
+    PoB builds an ailment's damage from the hit before DpsMultiplier (MECH99's probe POE2T5197; the manager 23:12), so a
+    mixed model's "more damage per hit" kept inside its DPS MORE never reached the skill's Bleed or Ignite.
+    models.hit_and_damage_mods splits the factor: the per-hit part a Damage MORE, the hit part a DPS MORE carrying
+    hit_cut. Probe POE2T5866 (level-90 searches): Rake 81.82 -> 142.14 (Bleed 56.6 -> 114.2), Ember Fusillade 262.27 ->
+    263.84 (Ignite 1.44 -> 2.49); Tempest Flurry and Supercharged Slam (stat-set mixes, no damaging ailment there)
+    unchanged. Set-mix models keep their ailments in GEM22's strongest_ailment_model; Trickster's Shard isn't split
+    (the strongest ailment is the player's own full-damage cast).
+  sources: ["builder/search/models.py (hit_and_damage_mods)", "scratch/gem33/probe5866.log"]
+  status: proposed

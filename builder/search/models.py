@@ -6653,7 +6653,7 @@ def ember_fusillade_model(main: Skill | None, stats: dict,
             "play": (f"Cast {skill} {casts} times, then stop for {wait:.1f} s so the Fusillade fires (recasting "
                      f"resets the wait). Casting without pause: no {unit}s fire; this rhythm: x{factor:.3f} of PoB's number.")}
     hits = n / (casts / speed + wait) / speed  # (the Embers a second over PoB's one a cast)
-    return [with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), skill), hits)], [note]
+    return hit_and_damage_mods(skill, factor, hits), [note]  # (each Ember's more: its hit and its Ignite)
 
 
 # Meteors of The Stars Answer (Starfall) and Walking Calamity (GEM12). The game's stats (TheStarsAnswerPlayer /
@@ -6768,7 +6768,7 @@ def rake_distance_model(main: Skill | None, stats: dict,
                      "using it from melee range: x1.000.")}
     if not stepped:
         return [], [note]
-    return [with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), RAKE_SKILL), far / (1 + more / 100))], [note]
+    return hit_and_damage_mods(RAKE_SKILL, factor, far / (1 + more / 100)), [note]  # (the dash's more: hit and Bleed)
 
 
 # Shield Charge's distance bonus (GEM14; the manager 20:28: research it, then model with a labelled assumption). The game
@@ -7953,6 +7953,28 @@ def with_hit_cut(mod: dict, part: float) -> dict:
     """`mod` with its hit part (hits a second over PoB's; the rest of its factor is damage per hit) as "hit_cut"."""
     mod["hit_cut"] = max(0.0, number(part))
     return mod
+
+
+# A mixed model's per-hit part as a "Damage" MORE (GEM33; the manager 23:12 from MECH99's probe POE2T5197): PoB builds an
+# ailment's damage from the hit BEFORE DpsMultiplier, so a "more damage per hit" kept inside the "DPS" MORE never reached
+# the skill's Bleed / Ignite (an UNDERCOUNT; probe POE2T5866, level-90 searches: Rake 81.82 -> 142.14, its Bleed 56.6 ->
+# 114.2 with the dash's 100% more; Ember Fusillade 262.27 -> 263.84, Ignite 1.44 -> 2.49). Used where the per-hit part
+# IS a more on each hit: Rake's distance more, Ember Fusillade's per-Ember more. Not where it is a mix of stat sets
+# (combo, Whirlwind, meteors, Falling Thunder, Snipe / Sundering, Firestorm, Supercharged Slam: their ailments are
+# GEM22's strongest_ailment_model's, by set_shares) nor Trickster's Shard (its mimics' 50% less: the strongest Ignite /
+# Bleed is the player's own full cast's, so lowering every hit's ailment by the average would be wrong); probe
+# POE2T5866: Tempest Flurry 89.24 / 89.22, Supercharged Slam 267.78 both ways (no damaging ailment there).
+def hit_and_damage_mods(skill: str, factor: float, hits: float) -> list[dict]:
+    """[Damage MORE (the per-hit part, factor / hits), DPS MORE (the hit part, hit_cut)] for a mixed model's `factor`."""
+    hits = max(0.0, number(hits))
+    if hits <= 0:
+        return [with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), skill), 0.0)]
+    mods = []
+    if abs(factor / hits - 1) > 1e-9:
+        mods.append(raw_mod("Damage", "MORE", 100 * (factor / hits - 1), skill))
+    if abs(hits - 1) > 1e-9:
+        mods.append(with_hit_cut(raw_mod("DPS", "MORE", 100 * (hits - 1), skill), hits))
+    return mods
 
 
 # Shield Charge's two parts on the enemy it crashes into (GEM33; RESEARCH44 R44-10, MEDIUM-HIGH,

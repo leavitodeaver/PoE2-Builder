@@ -463,11 +463,11 @@ def test_ember_fusillade_fires_as_a_fusillade_after_the_casts_not_one_ember_a_ca
     stats = {"Speed": 2.5, "Duration": 1.3, "ProjectileCount": 1}
     best = 10 * (1 + 0.05 * 9 / 2) / (10 / 2.5 + 1.3)  # ten casts, then the wait
     mods, notes = models.ember_fusillade_model(ember, stats)
-    assert [m["value"] for m in mods] == [pytest.approx(100 * (best / 2.5 - 1), abs=0.01)]  # an overcount cut
+    assert _more_product(mods) == pytest.approx(best / 2.5, abs=1e-4)  # an overcount cut (GEM33: Damage x DPS MORE)
     assert notes[0]["entry"] == models.EMBER_ENTRY and "10 casts" in notes[0]["basis"]
     # (three Embers a cast: four casts reach the cap, more than PoB's one a cast)
     mods, _ = models.ember_fusillade_model(ember, {**stats, "ProjectileCount": 3})
-    assert mods[0]["value"] > 0
+    assert _more_product(mods) > 1
     assert models.ember_fusillade_model(Skill("Spark", 1), stats) == ([], [])
 
 
@@ -531,7 +531,7 @@ def test_rake_steps_back_for_its_dash_only_when_that_beats_staying_close():
     slow = {"Speed": 0.5, "MovementSpeedMod": 1.0}  # 2 s a use: 5 m back costs ~1.3 s, doubling the hit pays
     far = 2 / (2 + 5 / walk) / 0.5
     mods, notes = models.rake_distance_model(rake, slow)
-    assert [m["value"] for m in mods] == [pytest.approx(100 * (far - 1), abs=0.01)] and far > 1
+    assert _more_product(mods) == pytest.approx(far, abs=1e-4) and far > 1
     mods, notes = models.rake_distance_model(rake, {"Speed": 2.0, "MovementSpeedMod": 1.0})  # fast: stay close
     assert mods == [] and notes[0]["value"] == "x1.000" and notes[0]["entry"] == models.RAKE_ENTRY
 
@@ -576,7 +576,7 @@ def test_his_scattering_calamity_fires_its_wellsprites_as_a_fusillade_like_ember
     speed, wait = 2.5, 0.7
     best = max((min(8, k) * (1 + 0.10 * (min(8, k) - 1) / 2) / (k / speed + wait), k) for k in range(1, 9))
     mods, notes = models.ember_fusillade_model(hsc, {"Speed": speed, "Duration": wait, "ProjectileCount": 1})
-    assert [m["value"] for m in mods] == [pytest.approx(100 * (best[0] / speed - 1), abs=0.01)]
+    assert _more_product(mods) == pytest.approx(best[0] / speed, abs=1e-4)
     assert mods[0]["skill"] == "His Scattering Calamity" and "Wellsprites" in notes[0]["label"]
     assert notes[0]["entry"] == "model-gem13-scattering-calamity-fusillade"
     assert models.ember_fusillade_model(hsc, {"Speed": speed}, forbidden={notes[0]["entry"]}) == ([], [])
@@ -2007,9 +2007,12 @@ def test_gem_models_carry_their_hit_cut():
     # (GEM33; the manager 18:15: a mixed model's mod names its hit part, models.hit_cut_of reads it)
     rake = Skill("Rake", 1, attack=True)
     mods, _ = models.rake_distance_model(rake, {"Speed": 0.5, "MovementSpeedMod": 1.0})
-    if mods:  # (stepping back pays at this speed: the hit part is the uses' cut alone, the rest the dash's more)
-        assert 0 < mods[0]["hit_cut"] < 1
-        assert models.hit_cut_of(mods, None, "Rake") == pytest.approx(mods[0]["hit_cut"])
+    # (stepping back pays at this speed: the dash's more as a Damage MORE, which reaches the Bleed (probe POE2T5866),
+    # the uses' cut as the DPS MORE's hit_cut)
+    damage, dps = mods
+    assert damage["name"] == "Damage" and damage["type"] == "MORE" and dps["name"] == "DPS" and 0 < dps["hit_cut"] < 1
+    assert (1 + damage["value"] / 100) * (1 + dps["value"] / 100) == pytest.approx(1.206, abs=0.001)
+    assert models.hit_cut_of(mods, None, "Rake") == pytest.approx(dps["hit_cut"])
     sets = [{"label": "Arrow", "TotalDPS": 45.6}, {"label": "Explosion", "TotalDPS": 308.8},
             {"label": "Icy Blast", "TotalDPS": 945.1}]
     snipe, _ = models.ailment_set_model(Skill("Snipe", 1, attack=True), "Icy Blast", sets, {"Freeze": 0.0}, "")
@@ -2018,3 +2021,12 @@ def test_gem_models_carry_their_hit_cut():
             {"label": "Lightning", "TotalDPS": 400.0}]
     sund, _ = models.ailment_set_model(Skill("Elemental Sundering", 1), "Cold", cold, {"Shock": 0.5}, "")
     assert sund[0]["hit_cut"] == pytest.approx(0.5)  # (one explosion a use, while the boss is Shocked)
+
+
+def _more_product(mods):
+    """(GEM33) the product of a model's MORE mods (a mixed model's Damage MORE x its DPS MORE)."""
+    out = 1.0
+    for m in mods:
+        if m.get("type") == "MORE":
+            out *= 1 + m["value"] / 100
+    return out
