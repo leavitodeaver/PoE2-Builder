@@ -3540,11 +3540,54 @@ function bridge.radiusTransformBaseOnly(args)
 	return { stats = stats }
 end
 
+-- (SEARCH35; MECHB53's POE2T4809 / 4810, RESEARCH45 R45-8 HIGH / R45-9 MEDIUM-HIGH) A stat set whose own stats carry
+-- base_deal_no_damage deals no damage in the game, but PoB maps no such stat and scores it ("Load Hailstorm Rounds" with
+-- the crossbow's damage, and in Full DPS beside the firing skill). Per SET, never per skill: the flag sits on the first
+-- set of a multi-set skill whose later sets carry the hits (Rolling Slam, Tempest Bell). A minion skill keeps its
+-- damage: PoB reports its minion's (Raising / Summoning sets carry the flag; the minion deals the hits). Checked: the
+-- Ballistas' "Ballista" sets carry it, their bolts are the separate Artillery / Siege BallistaProjectilePlayer effects
+-- (no flag), so they keep their damage
+local noDamageSetsOn = true  -- (bridge.setNoDamageSets: off only for a with / without probe or test)
+local function noDamageSet(activeSkill, statSet)
+	if not noDamageSetsOn or not statSet or (activeSkill and activeSkill.minion) then
+		return false
+	end
+	return effectCarries({ statSets = { statSet } }, "base_deal_no_damage")
+end
+-- Full DPS (calcs.calcFullDPS skips a skill getActiveSkillCount calls not enabled): such a set adds nothing; its count
+-- is kept (the other two callers, reservation in CalcDefence and Umbral Well in CalcPerform, read the count only)
+local wrappedActiveSkillCount
+local function installNoDamageSets()
+	local calcs = require("Modules.CalcBase")
+	if calcs.getActiveSkillCount == wrappedActiveSkillCount or not calcs.getActiveSkillCount then
+		return
+	end
+	local original = calcs.getActiveSkillCount
+	wrappedActiveSkillCount = function(activeSkill, ...)
+		local count, enabled = original(activeSkill, ...)
+		local effect = activeSkill and activeSkill.activeEffect
+		local current = effect and effect.statSet and (effect.statSet.statSet
+			or (effect.grantedEffect and effect.grantedEffect.statSets or { })[effect.statSet.index or 1])
+		if enabled and current and noDamageSet(activeSkill, current) then
+			return count, false
+		end
+		return count, enabled
+	end
+	calcs.getActiveSkillCount = wrappedActiveSkillCount
+end
+
+function bridge.setNoDamageSets(args)
+	noDamageSetsOn = args.on ~= false
+	recalc()
+	return { on = noDamageSetsOn }
+end
+
 -- Installed before every bridge call: PoB defines calcs.initEnv again whenever it loads its
 -- calculation modules (a new build's CalcsTab)
 local wrappedInitEnv
 installRadiusModel = function()
 	installRadiusTransforms()  -- (COV49: the radius damage transforms, above; PoB redefines it with CalcSetup too)
+	installNoDamageSets()  -- (SEARCH35: no-damage stat sets out of Full DPS)
 	local calcs = require("Modules.CalcBase")
 	if calcs.initEnv == wrappedInitEnv or not calcs.initEnv then
 		return
@@ -4019,11 +4062,20 @@ local function describeGroup(index, group)
 		for _, part in ipairs(effect.grantedEffect.parts or { }) do
 			parts[#parts + 1] = part.name
 		end
-		local statSets = { }
-		for _, statSet in ipairs(effect.grantedEffect.statSets or { }) do
+		local statSets, noDamageSets = { }, { }
+		local currentSet = effect.statSet and effect.statSet.index or nil  -- (SEARCH35: the set PoB calculates it on)
+		for setIndex, statSet in ipairs(effect.grantedEffect.statSets or { }) do
 			statSets[#statSets + 1] = statSet.label or ""
+			-- (SEARCH35; MECHB53's POE2T4809 / 4810, RESEARCH45 R45-8 / R45-9) the sets whose own stats carry
+			-- base_deal_no_damage: the game deals no damage from that set (PoB maps no such stat and scores it, e.g.
+			-- "Load Hailstorm Rounds" with the crossbow's damage). Per SET: the flag sits on the first set of a
+			-- multi-set skill (Rolling Slam, Tempest Bell) whose later sets carry the hits
+			if noDamageSet(activeSkill, statSet) then
+				noDamageSets[#noDamageSets + 1] = setIndex
+			end
 		end
 		skills[#skills + 1] = { name = effect.grantedEffect.name, parts = parts, statSets = statSets,
+			noDamageSets = noDamageSets, statSet = currentSet,
 			part = effect.srcInstance and effect.srcInstance.skillPart,
 			-- (MECHB51, Spectre step 3: Assumptions.choose_monsters) the granted effect's id and a Spectre / Tamed
 			-- Companion gem's chosen monster

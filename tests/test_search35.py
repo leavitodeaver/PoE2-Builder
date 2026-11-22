@@ -4,6 +4,8 @@ deliver; "Score references within the search's own budget, or show that reading 
 
 import importlib.util
 import types
+
+import pytest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -85,3 +87,81 @@ def test_a_reference_within_the_limits_has_no_legal_reading():
     search, calls = _search(groups, {"dps": 1000.0, "over": 0, "SpiritUnreserved": 5, "Str": -1})
     assert gate4.legal_reference(search) is None  # (an attribute requirement alone stays in the raw reading's "short")
     assert calls == []
+
+
+@pytest.fixture(scope="module")
+def engine():
+    import faulthandler
+
+    from builder.data import GameData
+
+    try:
+        GameData()
+    except FileNotFoundError:
+        pytest.skip("no game-data dump; run `uv run python -m builder.data dump`")
+    from builder.pob.engine import PobEngine
+
+    enabled = faulthandler.is_enabled()
+    faulthandler.disable()
+    yield PobEngine()
+    if enabled:
+        faulthandler.enable()
+
+
+def _real_search(engine, main_skill, **body):
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill=main_skill, level=90, objective="boss", **body))
+    skeleton = enumerate_skeletons(Context(payload), [main_skill])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 1)
+    search.setup(quests=False)
+    return search
+
+
+def test_a_no_damage_set_is_never_the_calculated_one_but_a_later_set_of_its_skill_is(engine):
+    """SEARCH35 (the manager's 22:20 / 23:05: MECHB53's POE2T4809 / 4810, RESEARCH45 R45-8 / R45-9): a stat set whose own
+    stats carry base_deal_no_damage (the bridge's noDamageSets) is never a main-skill choice, per SET: Rolling Slam's
+    first set is flagged and its two slams still are choices; a minion skill keeps its sets."""
+    from builder.search.gems import Gems
+
+    search = _real_search(engine, "Rolling Slam", ascendancies=["Titan"])
+    group = next(g for g in search.build.groups() if g["main"])
+    skill = next(s for s in group["skills"] if s["name"] == "Rolling Slam")
+    position = group["skills"].index(skill) + 1
+    assert skill["statSets"] == ["Rolling Slam", "First Slam", "Second Slam"] and skill["noDamageSets"] == [1]
+    assert sorted(s for a, _, s, _ in Gems.active_options(group) if a == position) == [2, 3]
+
+
+def test_a_load_ammunition_skill_scores_nothing_and_the_firing_skill_is_chosen(engine):
+    """SEARCH35: "Load Hailstorm Rounds" (PoB: a plain crossbow attack from its one set, which carries
+    base_deal_no_damage) was chosen over Hailstorm Rounds on a non-Full-DPS objective (MECHB53's POE2T4810). Now its set
+    is no choice, the chooser lands on Hailstorm Rounds, and Full DPS counts no Load damage (the bridge's
+    getActiveSkillCount wrapper; bridge.setNoDamageSets off shows what PoB alone counted)."""
+    search = _real_search(engine, "Hailstorm Rounds")
+    build = search.build
+    # (MECHB53's probe 3 amulet: flat added attack damage, which PoB gives the Load skill's crossbow attack: 120 DPS)
+    build.call("equip", slot="Amulet", raw=chr(10).join([
+        "Rarity: Rare", "Probe Amulet", "Gold Amulet", "Item Level: 82", "Implicits: 0",
+        "Adds 1 to 400 Lightning Damage to Attacks", "Adds 100 to 200 Fire Damage to Attacks"]), fields=[])
+    group = next(g for g in build.groups() if g["main"])
+    names = [s["name"] for s in group["skills"]]
+    load = next(i for i, s in enumerate(group["skills"], start=1) if s["name"].startswith("Load "))
+    assert group["skills"][load - 1]["noDamageSets"] == [1], group["skills"]
+    assert all(a != load for a, _, _, _ in search.gems.active_options(group))
+    build.call("setGroup", index=group["index"], mainActiveSkill=load, fullDPS=True)
+    assert search.gems.on_no_damage_set(next(g for g in build.groups() if g["main"]))
+    with_rule = build.call("stats", fields=["FullDPS"])["FullDPS"]
+    build.call("setNoDamageSets", on=False)
+    try:
+        without = build.call("stats", fields=["FullDPS"])["FullDPS"]
+    finally:
+        build.call("setNoDamageSets", on=True)
+    print("Full DPS with the rule", with_rule, "without", without, names)
+    assert with_rule < without  # (PoB alone counts the Load skill's crossbow attack)
+    build.refresh()
+    search.gems.choose_active_skill(settle=False)
+    group = next(g for g in build.groups() if g["main"])
+    assert group["skills"][group["mainActiveSkill"] - 1]["name"] == "Hailstorm Rounds"

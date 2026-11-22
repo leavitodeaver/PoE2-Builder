@@ -991,9 +991,27 @@ class Gems:
         for i, skill in enumerate(group["skills"], start=1):
             parts = list(range(1, len(skill["parts"]) + 1)) or [None]
             labels = skill.get("statSets") or []
-            stat_sets = list(range(1, len(labels) + 1)) or [None]
+            # (SEARCH35; MECHB53's POE2T4809 / 4810, RESEARCH45 R45-8 / R45-9) a stat set whose own stats carry
+            # base_deal_no_damage (bridge noDamageSets; a minion skill's never) deals no damage in the game, but PoB
+            # scores it ("Load Hailstorm Rounds" with the crossbow's damage, chosen over Hailstorm Rounds): never a
+            # choice. Per SET: a multi-set skill's later sets (Rolling Slam's slams, Tempest Bell's) stay
+            no_damage = set(skill.get("noDamageSets") or [])
+            stat_sets = [n for n in range(1, len(labels) + 1) if n not in no_damage] if labels else [None]
+            if labels and not stat_sets:
+                continue
             options += [(i, part, s, labels[s - 1] if s else None) for part in parts for s in stat_sets]
         return options
+
+    @staticmethod
+    def on_no_damage_set(group: dict) -> bool:
+        """(SEARCH35) Whether the group's calculated skill is on a stat set that deals no damage (bridge noDamageSets)."""
+        skills = group.get("skills") or []
+        index = group.get("mainActiveSkill") or 1
+        if not 0 < index <= len(skills):
+            return False
+        skill = skills[index - 1]
+        current = skill.get("statSet") or 1
+        return current in (skill.get("noDamageSets") or [])
 
     def choose_active_skill(self, settle: bool = True, assume: tuple[str, ...] = ()) -> None:
         """Pick which of the main group's skills, skill parts and stat sets PoB calculates (e.g. the
@@ -1019,6 +1037,13 @@ class Gems:
             kept = [o for o in options if skills[o[0] - 1]["name"] == current]
             if kept and main_dps(build.stats) > 0:
                 options = kept
+        if len(options) == 1 and self.on_no_damage_set(group):
+            # (SEARCH35) the calculated set deals no damage and one choice is left: it becomes the calculated one
+            active, part, stat_set, _ = options[0]
+            build.set_group(index=group["index"], mainActiveSkill=active, skillPart=part, statSet=stat_set)
+            if settle:
+                self.settle()
+            return
         if len(options) <= 1:
             return
         settle_fn = self.settle if settle else None
