@@ -4516,6 +4516,14 @@ class Assumptions:
         hand_notes = hand_notes + models.behead_note(main, supports.get(main.group, []) if main else [])  # (R42-18)
         hand_notes = hand_notes + models.knockback_note(main, number(build.call("stats", fields=[
             "KnockbackChanceOnHit"]).get("KnockbackChanceOnHit")))  # (MECHB51: R42-26, a LOW row)
+        if main is not None:  # (MECHB54: the user's check, POE2T4834: a main skill whose damage is another skill's)
+            gem_name = next((g["name"] for g in (group or {}).get("gems") or [] if not g.get("support")), main.name)
+            main_gem = build.ctx.gems.get(main.name) or build.ctx.gems.get(gem_name) or {}
+            own = build.call("stats", fields=["TotalDPS", "FullDPS"])
+            hand_notes = hand_notes + models.needs_another_skill_note(
+                main, set(main_gem.get("skillTypes") or ()), str(main_gem.get("description") or ""),
+                number(own.get("TotalDPS")), number(own.get("FullDPS")),
+                gem_name if main.name not in build.ctx.gems else None)
         if main is not None and main.spell and any(s.name == models.ALIGN_FATE for s in found):  # (MECHB51: R41-9)
             def visage_can(s: models.Skill) -> bool:
                 kinds = set((build.ctx.gems.get(s.name) or {}).get("skillTypes") or ())

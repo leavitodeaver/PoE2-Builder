@@ -23862,3 +23862,33 @@ def skittering_stone_note(supports: dict[int, list[str]], kills: float, boss: st
                                 "damage 0, probe POE2T4796): 0 counted"),
                       "play": f"{found} needs kills next to your stones: nothing against a lone boss."})
     return notes
+
+
+# A main skill whose damage comes through ANOTHER skill (MECHB54; the manager 03:55, THE USER'S CHECK: "a skill that
+# can't be a main skill must say why, never return 0 silently"). Probe POE2T4834 (max_buttons 1): Barrage, Rain of
+# Blades (EmpowersOtherSkill), Herald of Ash / Ice / Plague (Herald) and Plague Bearer (a Persistent Buff storing another
+# skill's Poison) scored 0 with no note. Their gem text says the damage needs another skill's hits, kills or attacks
+# ("Empowering your next Repeatable Bow or Projectile Spear Attack", "enemies you sufficiently Overkill with non-Herald
+# Attacks", "stores a portion of the Poison Damage you deal"). A note, HIGH, when PoB gives the main skill no damage
+# of its own here (TotalDPS 0) and its types are one of these; nothing changes in the score.
+NEEDS_ANOTHER_TYPES = frozenset({"EmpowersOtherSkill", "Herald", "Persistent"})
+
+
+def needs_another_skill_note(main: Skill | None, types: set[str], description: str, total_dps: float,
+                             full_dps: float = 0.0, gem: str | None = None) -> list[dict]:
+    """A note (see above) for a main skill that deals its damage through another skill; [] otherwise. `gem` the main
+    group's gem where the chosen active is one of its parts (Rain of Blades' Falling Blade); `full_dps` PoB's Full DPS
+    (a minion skill's damage is there, not in TotalDPS: probe POE2T4836, Raging Spirits)."""
+    if main is None or total_dps > 0 or full_dps > 0 or not (set(types) & NEEDS_ANOTHER_TYPES):
+        return []
+    kind = ("Empowers another skill" if "EmpowersOtherSkill" in types else "is a Herald" if "Herald" in types
+            else "is a Persistent buff")
+    name = gem or main.name
+    return [{"label": f"{name}: its damage comes through another skill*", "value": "0 as the main skill",
+             "confidence": "HIGH",
+             "basis": (f"{name} {kind} (its gem types); its text: \"{description.strip()}\". PoB gives "
+                       + (f"its {main.name} " if name != main.name else "it ")
+                       + "no damage of its own in this build (TotalDPS and Full DPS 0), so as the main skill alone it "
+                       "scores 0"),
+             "play": (f"Choose the skill that deals the damage as the main skill and require {name} beside it "
+                      "(one more button where it is pressed).")}]

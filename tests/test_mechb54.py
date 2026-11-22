@@ -42,3 +42,23 @@ def test_extra_projectiles_hitting_are_hits_a_use():
     assert per_use(mods, "Explosive Shot") == (None, pytest.approx(3.0))  # (its attack time: PoB's SkillAttackTime)
     # (the readers: a use's chance from 3 hits, MECH99's hits_raise; the time readers keep the cap at 1)
     assert models.hits_raise({"_hits_per_use": 3.0}) == 3.0 and models.per_use_factor({"_hits_per_use": 3.0}) == 1.0
+
+
+def test_a_main_skill_whose_damage_is_another_skills_says_so():
+    """The user's check (POE2T4834): Barrage / Rain of Blades / the Heralds / Plague Bearer as the main skill alone score
+    0; a note says why (their gem text), only when PoB gives them no damage of their own."""
+    barrage = Skill("Barrage", group=1, spell=True)
+    text = "Ready a volley of arrows or spears, Empowering your next Repeatable Bow or Projectile Spear Attack"
+    notes = models.needs_another_skill_note(barrage, {"Buff", "EmpowersOtherSkill", "Spell"}, text, 0.0)
+    assert notes and notes[0]["confidence"] == "HIGH" and "Empowers another skill" in notes[0]["basis"]
+    assert text in notes[0]["basis"] and "require Barrage beside it" in notes[0]["play"]
+    assert models.needs_another_skill_note(barrage, {"EmpowersOtherSkill"}, text, 12.0) == []  # (it has damage)
+    assert models.needs_another_skill_note(Skill("Spark", group=1, spell=True), {"Spell"}, "", 0.0) == []
+    herald = models.needs_another_skill_note(Skill("Herald of Ash", group=1), {"Herald", "Persistent"}, "x", 0.0)
+    assert "is a Herald" in herald[0]["basis"]
+    # (a minion skill's damage sits in Full DPS: no note, probe POE2T4836's Raging Spirits)
+    assert models.needs_another_skill_note(Skill("Raging Spirits", group=1), {"Persistent"}, "x", 0.0, 96.5) == []
+    # (a part of the gem chosen: Rain of Blades' Falling Blade, named by its gem)
+    rain = models.needs_another_skill_note(Skill("Falling Blade", group=1), {"EmpowersOtherSkill"}, "x", 0.0, 0.0,
+                                           "Rain of Blades")
+    assert rain[0]["label"].startswith("Rain of Blades") and "its Falling Blade" in rain[0]["basis"]
