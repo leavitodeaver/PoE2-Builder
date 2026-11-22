@@ -3182,13 +3182,15 @@ def test_witchtoads_explode_at_their_curse_areas_share_and_count_as_minions_dyin
     by_hand = models.CurseUse("Despair", 1.0, "cast by hand", True)
     mods, notes, groups, died = models.toad_model([despair, toad], [by_hand])
     rate = next(m for m in mods if m["key"] == "triggerRate")
-    assert rate["skill"] == models.DARK_CONSEQUENCES and rate["value"] == pytest.approx(1.0)
-    assert groups == {4} and died == pytest.approx(4.0) and notes[0]["value"] == pytest.approx(4.0)
-    # (MECHB28, GEM7: the Limit of 4 live toads would cap this below 4/s if a toad takes over 1 s; no source gives the time)
-    assert notes[0]["confidence"] == "LOW" and "Limit of 4" in notes[0]["basis"] and "OVERCOUNT" in notes[0]["basis"]
+    # (MECHB52, RESEARCH44 R44-13: a toad takes ~1.2 s to explode, so the Limit of 4 holds an area to 4 / 1.2 a second)
+    assert rate["skill"] == models.DARK_CONSEQUENCES and rate["value"] == pytest.approx(0.25 * 4 / 1.2, abs=1e-3)
+    assert groups == {4} and died == pytest.approx(4 / 1.2) and notes[0]["value"] == pytest.approx(4 / 1.2, abs=1e-3)
+    assert notes[0]["confidence"] == "MEDIUM-LOW" and "Limit of 4" in notes[0]["basis"] and "R44-13" in notes[0]["basis"]
+    assert "OVERCOUNT" not in notes[0]["basis"] and "1.1 s a toad, 3.64" in notes[0]["basis"]
     meta = models.CurseUse("Despair", 0.25, "triggered")
     mods, _, groups, died = models.toad_model([despair, toad], [meta])
-    assert next(m for m in mods if m["key"] == "triggerRate")["value"] == pytest.approx(0.25) and died == pytest.approx(1.0)
+    assert next(m for m in mods if m["key"] == "triggerRate")["value"] == pytest.approx(0.25 * 0.25 * 4 / 1.2, abs=1e-3)
+    assert died == pytest.approx(0.25 * 4 / 1.2)
     mods, _, groups, died = models.toad_model([despair, toad], [])
     assert groups == set() and died == 0.0  # no curse applied: no area, no toads
     assert models.toad_model([despair], [by_hand]) == ([], [], set(), 0.0)
@@ -4511,26 +4513,27 @@ def test_rolling_slam_counts_both_slams_of_a_use():
 
 def test_glory_shares_never_count_a_glory_skill_faster_than_it_can_be_used(monkeypatch):
     """COV16 (COV14's Handover item 3): Call Upon the Deep's share (20% penetration per Glory skill use in the past 6 s)
-    read models.glory_uses uncapped, so a Glory skill whose cost one gain pays (Molten Blast: 2 uses a second) read 240%.
+    read models.glory_uses uncapped, so a Glory skill whose cost one gain pays (2 uses a second) read 240%. (MECHB52: the
+    sample skill is Hammer of the Gods; Molten Blast is no Glory skill.)
     Each Glory skill is now capped at its own use speed (the bridge's useRates); a skill with no rate keeps its count."""
     from builder.search.assumptions import Assumptions
 
     class Build:
         def groups(self):
-            return [{"index": 1, "gems": [{"name": "Molten Blast"}]}, {"index": 2, "gems": [{"name": "War Banner"}]}]
+            return [{"index": 1, "gems": [{"name": "Hammer of the Gods"}]}, {"index": 2, "gems": [{"name": "War Banner"}]}]
 
         def call(self, name, **kw):
             assert name == "useRates"
             return {"rates": [{"index": 1, "speed": 0.8}, {"index": 2, "speed": 0.0}]}
 
-    uses = {"Molten Blast": (2.0, "Molten Blast: one per 0.5 s"), "War Banner": (0.1, "War Banner: one per 10.0 s")}
+    uses = {"Hammer of the Gods": (2.0, "Hammer of the Gods: one per 0.5 s"), "War Banner": (0.1, "War Banner: one per 10.0 s")}
     monkeypatch.setattr(models, "glory_uses", lambda names, stats, main, *more: (
         sum(uses.get(n, (0.0, ""))[0] for n in names), "; ".join(uses[n][1] for n in names if n in uses)))
     a = Assumptions.__new__(Assumptions)
     a.build = Build()
-    total, how = a.glory_uses_capped(["Molten Blast", "War Banner", "Fireball"], {}, None)
+    total, how = a.glory_uses_capped(["Hammer of the Gods", "War Banner", "Fireball"], {}, None)
     assert total == pytest.approx(0.8 + 0.1)
-    assert "Molten Blast capped at its own 0.80 uses/s (not 2.00)" in how and "War Banner capped" not in how
+    assert "Hammer of the Gods capped at its own 0.80 uses/s (not 2.00)" in how and "War Banner capped" not in how
 
 
 

@@ -10,7 +10,7 @@ from builder.search import models
 from builder.search.assumptions import Assumptions
 from builder.search.objective import Objective
 
-GEMS = {"Molten Blast": {"skillTypes": ["Attack", "Area"], "support": False},
+GEMS = {"Hammer of the Gods": {"skillTypes": ["Attack", "Area"], "support": False},
         "Fireball": {"skillTypes": ["Spell", "Projectile"], "support": False},
         "Cast on Ignite": {"skillTypes": ["Meta", "Triggers"], "support": False}}
 
@@ -23,7 +23,7 @@ class Build:
     def __init__(self, full=False, meta=False, choices=None):
         self.objective = SimpleNamespace(full=full, press_choices=dict(choices or {}), glory_busy=0.0)
         self.ctx = SimpleNamespace(gems=GEMS)
-        blast = [gem("Molten Blast")] + ([gem("Cast on Ignite")] if meta else [])
+        blast = [gem("Hammer of the Gods")] + ([gem("Cast on Ignite")] if meta else [])
         self._groups = [{"index": 1, "main": False, "enabled": True, "fullDPS": full, "fromItem": False, "gems": blast},
                         {"index": 2, "main": True, "enabled": True, "fullDPS": True, "fromItem": False,
                          "gems": [gem("Fireball")]}]
@@ -37,10 +37,10 @@ class Build:
 
 
 def busy(monkeypatch, **kw) -> float:
-    monkeypatch.setattr(models, "glory_uses", lambda names, *more: (2.0 if "Molten Blast" in names else 0.0, "x"))
+    monkeypatch.setattr(models, "glory_uses", lambda names, *more: (2.0 if "Hammer of the Gods" in names else 0.0, "x"))
     a = Assumptions.__new__(Assumptions)
     a.build = Build(**kw)
-    total, how = a.glory_uses_capped(["Molten Blast", "Fireball"], {}, models.Skill(name="Fireball"))
+    total, how = a.glory_uses_capped(["Hammer of the Gods", "Fireball"], {}, models.Skill(name="Fireball"))
     assert total == pytest.approx(2.0)
     return a.build.objective.glory_busy
 
@@ -51,7 +51,7 @@ def test_pressing_a_glory_skill_takes_the_main_skills_time(monkeypatch):
 
 def test_glory_press_time_is_never_charged_twice_or_for_a_skill_nobody_presses(monkeypatch):
     assert busy(monkeypatch, full=True) == 0.0  # (a pressed Full DPS group: press_model charges it)
-    assert busy(monkeypatch, choices={"Molten Blast": 1.0}) == 0.0  # (a chosen rate: press_sync charges it)
+    assert busy(monkeypatch, choices={"Hammer of the Gods": 1.0}) == 0.0  # (a chosen rate: press_sync charges it)
     assert busy(monkeypatch, meta=True) == 0.0  # (a meta skill uses it: no press)
 
 
@@ -70,10 +70,10 @@ def test_a_pressed_glory_skill_is_held_to_the_uses_its_glory_pays_for(monkeypatc
     from builder.search import assumptions as assumptions_mod
 
     monkeypatch.setattr(assumptions_mod, "usage_rules", lambda build: {})
-    monkeypatch.setattr(Assumptions, "glory_caps", lambda self: {"Molten Blast": (0.4, "one per 2.5 s")})
+    monkeypatch.setattr(Assumptions, "glory_caps", lambda self: {"Hammer of the Gods": (0.4, "one per 2.5 s")})
     a = Assumptions.__new__(Assumptions)
     a.build = Build(full=True)
-    a.build._groups[1]["gems"].append(gem("Molten Blast"))
+    a.build._groups[1]["gems"].append(gem("Hammer of the Gods"))
     caps = a.press_caps(a.build._groups, {1, 2})
     assert set(caps) == {1} and caps[1].uses == pytest.approx(0.4) and caps[1].how.startswith("Glory")
     real, how, _ = models.press_group_rate({"speed": 4.0}, cap=caps[1], chosen=2.0)
@@ -96,18 +96,18 @@ def test_the_main_skills_glory_events_count_at_its_share_of_the_fight():
 
 
 def test_glory_presses_and_the_main_skills_share_are_solved_together(monkeypatch):
-    """(MECHC45) Molten Blast's Glory comes from the main skill's hits (2 uses a second at the whole fight, here
+    """(MECHC45) Hammer of the Gods's Glory comes from the main skill's hits (2 uses a second at the whole fight, here
     proportional to the main skill's share), and each press takes 1 / 4 s from it: the busy share g = 2 (1 - g) / 4,
     so g = 1/3 and 4/3 uses a second (before: g = 1/2 at the main skill's full Speed, 2 uses a second)."""
     monkeypatch.setattr(models, "glory_uses", lambda names, stats, *more: (
-        2.0 * (1.0 if stats.get("_main_share") is None else stats["_main_share"]) if "Molten Blast" in names else 0.0,
+        2.0 * (1.0 if stats.get("_main_share") is None else stats["_main_share"]) if "Hammer of the Gods" in names else 0.0,
         "x"))
     a = Assumptions.__new__(Assumptions)
     a.build = Build()
     o = SimpleNamespace(full=False, press_choices={}, press_busy=0.0, glory_busy=0.0, press_scales={})
     o.busy = lambda: min(o.press_busy + o.glory_busy, 1.0)  # (as Objective.busy)
     a.build.objective = o
-    total, how = a.glory_uses_capped(["Molten Blast", "Fireball"], {}, models.Skill(name="Fireball"))
+    total, how = a.glory_uses_capped(["Hammer of the Gods", "Fireball"], {}, models.Skill(name="Fireball"))
     assert o.glory_busy == pytest.approx(1 / 3, abs=1e-5)
     assert total == pytest.approx(4 / 3, abs=1e-4) and "33.3% of the fight" in how
 

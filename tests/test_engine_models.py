@@ -1690,7 +1690,7 @@ def test_doedres_witchtoads_count_in_full_dps_at_their_curse_areas_share(engine)
     group = build.groups()[-1]["index"]
     search.assumptions.apply()
     assert group in search.assumptions.extra_groups
-    assert build.minion_died[0] == pytest.approx(4.0)  # a hand-cast curse kept up: a toad every 0.25 s
+    assert build.minion_died[0] == pytest.approx(4 / 1.2)  # a hand-cast curse kept up: 4 live toads, ~1.2 s each (R44-13)
     stats = build.call("stats", fields=["CombinedDPS", "FullDPS"])
     assert stats["FullDPS"] > 2 * stats["CombinedDPS"]
     build.call("setAssumptions", mods=models.trigger_rate(models.DARK_CONSEQUENCES, 0.5), fields=[])

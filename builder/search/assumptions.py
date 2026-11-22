@@ -4359,6 +4359,16 @@ class Assumptions:
                 number(build.call("stats", fields=["Speed"]).get("Speed")))
             hand_mods, hand_notes = hand_mods + volcano_mods, hand_notes + volcano_notes
             hit_cut(build, volcano_mods, main.name)  # (MECHB52: its eruptions, 1 / (2 + k) of PoB's casts)
+        hand_notes = hand_notes + models.skittering_stone_note(  # (MECHB52: GEM32's, add kills only; 0 on a lone boss)
+            supports, number(stats.get(bosses.KILLS_STAT)), str(stats.get("_boss") or ""))
+        if main is not None and main.name in models.CHANNEL_RELEASE:  # (MECHB52: R44-1, the channel plus the end)
+            cr_level = next((x.get("levelStats") or {} for x in build.call("activeSkills", levelStats=[main.name])["skills"]
+                             if x["name"] == main.name), {})
+            cr_stats = build.call("stats", fields=["Speed", "HitSpeed"])
+            cr_mods, cr_notes = models.channel_release_model(main, cr_level, number(cr_stats.get("Speed")),
+                                                             number(cr_stats.get("HitSpeed")), forbidden)
+            hand_mods, hand_notes = hand_mods + cr_mods, hand_notes + cr_notes
+            hit_cut(build, cr_mods, main.name)
         if main is not None and main.attack and main.group is not None and models.SPECTRAL_VOLLEY in supports.get(
                 main.group, []):  # (MECHB51: R41-15, its volleys every 3 s)
             sv_stats = build.call("stats", fields=["Speed", "TotalDPS", "ProjectileCount"])

@@ -15179,8 +15179,15 @@ GLORY_SKILLS = {  # skill: (Glory per use, {event: Glory per event on a boss})
     "Spear of Solaris": (20, {"freeze": 20, "ignite": 1, "shock": 1}), "Starborn Onslaught": (20, {"freeze": 20}),
     "Ancestral Cry": (100, {"ignite": 20}), "Apocalypse": (100, {"elemental hit": 20}),
     "Archon of Chayula": (100, {"chaos hit": 20}), "Hammer of the Gods": (20, {"heavy stun": 20}),
-    "Molten Blast": (20, {"ignite": 20}), "Walking Calamity": (50, {}), "Skyfall": (270, {}),
+    "Walking Calamity": (50, {}), "Skyfall": (270, {}),
 }
+# (MECHB52; GEM32's find via the manager 17:20: Molten Blast scored 0, PoB alone 60 DPS) Molten Blast is NOT a Glory skill:
+# the player gem's sets carry no Glory stat (checked: MoltenBlastPlayer / MoltenBlastSecondaryPlayer constant, implicit and
+# per-level stats, game 26650308; PoB's Molten Blast none, act_str 13761-; patch notes --history "Molten Blast": no
+# Glory). The 20-Glory, Ignite / Armour Break-fed version is a separate granted effect, NgamahuMoltenBlast (its stats:
+# active_skill_requires_X_glory 20, ..._glory_per_ignite 100, ..._per_armour_break 200), which no player gem grants (the only
+# related ActiveSkills row is "[DNT] Hammer of Ngamahu", unreleased; poe2db not checked: UNVERIFIED there). Keyed by
+# name here it gated the gem's uses to Ignite-fed Glory (0 without an Ignite source): removed.
 # The per-event Glory above is mp_% of the boss's 20 Power (every event but Spear of Solaris' Ignite and Shock, which are
 # active_skill_hundred_times_generates_glory_per_ignite / _shock: flat; checked: GrantedEffectStatSets of each skill, game
 # 26476662), so with the build's Power lines (boss_power, MECH67) those scale with the boss's Power.
@@ -19278,6 +19285,16 @@ DARK_CONSEQUENCES = "Dark Consequences"
 TOAD_SPAWN_SECONDS = 0.25  # doedre_cursed_ground_toad_spawn_interval_ms 250
 TOADS_PER_AREA = 4  # max_toads_per_doedre_cursed_ground
 CURSE_AREAS = 2  # maximum_curse_zones_allowed (on Doedre's Undoing; Cursed Ground and Hayoxi's Binding carry it too)
+# (MECHB52; RESEARCH44 R44-13, research/witchtoad-timing-r44.md, MEDIUM-LOW; the manager 17:27, a small OVERCOUNT) a toad
+# takes about 1.1-1.2 s from spawning to exploding (it rises 0.833 s, then its leap hits at 0.265 s; Despair's 3.1 m area
+# means little running), so with the Limit of 4 an area makes min(4, 4 / T) a second: T = 1.2 s the headline (3.33, x0.83
+# on the flat 4), 1.1 s a row (3.64); two areas kept on the boss a row (twice that).
+TOAD_SECONDS, TOAD_SECONDS_ROW = 1.2, 1.1
+
+
+def toads_per_second(seconds: float = TOAD_SECONDS) -> float:
+    """Explosions a second from one cursed area: a toad every TOAD_SPAWN_SECONDS, at most TOADS_PER_AREA alive."""
+    return min(1 / TOAD_SPAWN_SECONDS, TOADS_PER_AREA / seconds)
 
 
 def toad_model(skills: list[Skill], curses: list[CurseUse]) -> tuple[list[dict], list[dict], set[int], float]:
@@ -19295,8 +19312,8 @@ def toad_model(skills: list[Skill], curses: list[CurseUse]) -> tuple[list[dict],
         curse = next((shares[s.name] for s in skills if s.group == toad.group and s.name in shares), None)
         share = curse.share if curse is not None else 0.0
         how = f"{curse.name} {curse.how}" if curse is not None else "no curse in its group is applied (0)"
-        per_second = share / TOAD_SPAWN_SECONDS
-        mods += trigger_rate(DARK_CONSEQUENCES, share)
+        per_second = share * toads_per_second()
+        mods += trigger_rate(DARK_CONSEQUENCES, per_second * TOAD_SPAWN_SECONDS)  # (PoB: 4 hits a second per unit rate)
         if share > 0:
             groups.add(toad.group)
         died += per_second
@@ -19304,15 +19321,16 @@ def toad_model(skills: list[Skill], curses: list[CurseUse]) -> tuple[list[dict],
                       "value": round(per_second, 3),
                       "basis": (f"a Witchtoad every {TOAD_SPAWN_SECONDS:g} s in the cursed area while the boss stands in it: "
                                 f"{share:.0%} of the fight ({how}); every toad leaps at the boss and explodes (the toads "
-                                f"'leap at enemies that get close'). LOW: the Limit of {TOADS_PER_AREA} live toads caps "
-                                f"this at {TOADS_PER_AREA} / a toad's seconds from spawn to explosion, and no source gives "
-                                f"that time (game files, PoB, poe2db, patch notes): kept at one per spawn, an OVERCOUNT if a "
-                                f"toad takes over {TOADS_PER_AREA * TOAD_SPAWN_SECONDS:g} s (2 s: half); a second area (the support allows "
-                                f"{CURSE_AREAS}) isn't counted, an undercount (UNVERIFIED whether both areas' toads reach "
-                                "the boss); PoB alone counts 4 a second whether or not an area is up"),
+                                f"'leap at enemies that get close'), about {TOAD_SECONDS:g} s from spawn to explosion "
+                                f"(RESEARCH44 R44-13: it rises 0.833 s, its leap hits at 0.265 s), so the Limit of "
+                                f"{TOADS_PER_AREA} live toads holds an area to {toads_per_second():.2f} a second (PoB alone: "
+                                f"4 a second whether or not an area is up). Rows: {TOAD_SECONDS_ROW:g} s a toad, "
+                                f"{share * toads_per_second(TOAD_SECONDS_ROW):.2f} a second; {CURSE_AREAS} areas kept on the "
+                                f"boss, {CURSE_AREAS * per_second:.2f} (a second cast each duration; UNVERIFIED whether both "
+                                "areas' toads reach it)"),
                       "play": (f"Keep the cursed area under the boss: recast the curse as it runs out. Casting it twice "
                                f"each duration keeps {CURSE_AREAS} areas up: up to {CURSE_AREAS}x the toads (not counted)."),
-                      "confidence": "LOW"})
+                      "confidence": "MEDIUM-LOW"})
     return mods, notes, groups, died
 
 
@@ -22889,3 +22907,106 @@ def primal_bounty_model(main: Skill | None, main_types: set[str], texts: list[st
                      f"On a lone boss only one projectile a use hits: 0 counted. Row: every projectile hitting, "
                      f"x{1 + gain:.3f}")),
         "play": f"Dodge as each Owl Feather comes so {main.name}'s next use is Empowered."}]
+
+
+# A channel-and-release use is the channel PLUS its end (MECHB52; RESEARCH44 R44-1, research/channel-plus-end-time-r44.md;
+# the manager 16:42, a LARGE DPS OVERCOUNT). In the game files the channel (start / loop animation, holding the Perfect
+# Timing moment: leeway / max_stage) and the end (played after release, the hit at or near its start) are separate
+# animations, so one use = the channel up to the release + the end. PoB scores a use as HitTime = attack time x
+# channel_end_duration_as_%_of_attack_time (act_dex 7276-7279, act_int 10496-10499, act_str 15069-15072; CalcOffence
+# 3146-3155), nothing for the channel; it reads that stat (channelPercentOfAttackTime) for these three skills only
+# (checked by RESEARCH44: grep of vendor PoB). Game time per use, headline: AT x (1 + end% x the end animation's
+# multiplier, channel_skill_end_animation_duration_multiplier_permyriad, default 1), the perfect release taken at the
+# attack time (patch 0.2.0 for Snipe; MEDIUM for the other two): Perfect Strike 1.35 AT (x0.26, HIGH that it overcounts),
+# Gathering Storm 1.85 AT (x0.46, MEDIUM-HIGH), Snipe 1.33 AT (its 2500 permyriad end: PoB's own number, x1; row with
+# the end unscaled, 2.33 AT, x0.57). Floor row (the files' hard lower bound): AT x (start lock % + the end), Perfect Strike
+# 0.85 AT, Gathering Storm 1.35 AT. An early release is shorter but loses the Perfect Timing payoff (MECHB50's label).
+# The hits removed reach the ailment readers through main_hit_cut: they count PoB's Speed (1 / AT), so the cut there is
+# the game's uses / Speed, not the DPS factor (PoB's DPS uses HitSpeed).
+CHANNEL_RELEASE = {"Perfect Strike": "HIGH", "Gathering Storm": "MEDIUM-HIGH", "Snipe": "MEDIUM-LOW"}
+CHANNEL_RELEASE_ENTRY = "model-mechb52-channel-plus-end"
+CHANNEL_END_STAT = "channel_end_duration_as_%_of_attack_time"
+CHANNEL_LOCK_STAT = "channel_start_lock_cancelling_of_attack_time_%"
+CHANNEL_END_MULT_STAT = "channel_skill_end_animation_duration_multiplier_permyriad"
+CHANNEL_MIN_STAT = "base_minimum_channel_time_ms"
+
+
+def channel_release_model(main: Skill | None, level_stats: dict, speed: float, hit_speed: float,
+                          forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """A Snipe / Gathering Storm / Perfect Strike use as channel + end (see above). `speed` PoB's Speed (1 / attack time),
+    `hit_speed` its HitSpeed (the uses it scores); `level_stats` the gem's stats."""
+    if main is None or main.name not in CHANNEL_RELEASE or CHANNEL_RELEASE_ENTRY in forbidden or main.triggered:
+        return [], []
+    end = number(level_stats.get(CHANNEL_END_STAT)) / 100
+    if speed <= 0 or hit_speed <= 0 or end <= 0:
+        return [], [{"label": f"{main.name}: its channel time (not counted)", "value": "PoB's", "confidence": "UNVERIFIED",
+                     "entry": CHANNEL_RELEASE_ENTRY,
+                     "basis": "PoB gave no attack rate or end share: its uses a second stand (the DPS may be too high, R44-1)"}]
+    at, pob_time = 1 / speed, 1 / hit_speed
+    mult = number(level_stats.get(CHANNEL_END_MULT_STAT)) / 10000 or 1.0
+    lock = number(level_stats.get(CHANNEL_LOCK_STAT)) / 100
+    least = number(level_stats.get(CHANNEL_MIN_STAT)) / 1000
+
+    def factor(time: float) -> float:
+        return min(1.0, pob_time / max(time, least, 1e-9))
+    head_time = at * (1 + end * mult)
+    head = factor(head_time)
+    rows = []
+    if mult != 1.0:
+        rows.append(f"the end unscaled by its {mult:g} animation multiplier ({1 + end:.2f} AT): x{factor(at * (1 + end)):.3f}")
+    if lock > 0:
+        rows.append(f"the files' floor, the {lock:.0%} start lock + the end ({lock + end * mult:.2f} AT): "
+                    f"x{factor(at * (lock + end * mult)):.3f}")
+    mods = []
+    if head < 1 - 1e-9:
+        mod = raw_mod("DPS", "MORE", 100 * (head - 1), main.name, tag=CHANNEL_RELEASE_ENTRY)
+        mod["hit_cut"] = min(1.0, at / max(head_time, least, 1e-9))  # (the readers count Speed, 1 / AT: MECH99's hook)
+        mods.append(mod)
+    elif mult != 1.0:  # (Snipe's headline is PoB's own time; its readers still count 1 / AT for 1 / 1.33 AT)
+        mod = raw_mod("DPS", "MORE", 0.0, main.name, tag=CHANNEL_RELEASE_ENTRY)
+        mod["hit_cut"] = min(1.0, at / max(head_time, least, 1e-9))
+        mods.append(mod)
+    return mods, [{
+        "label": f"{main.name}: a use is its channel plus its end ({head_time / at:.2f} attack times)*",
+        "value": f"x{head:.3f}", "confidence": CHANNEL_RELEASE[main.name], "entry": CHANNEL_RELEASE_ENTRY,
+        "basis": (f"PoB charges a use only the end, {pob_time:.3f} s ({end:.0%} of the {at:.3f} s attack time"
+                  + (f", at least its {least:g} s minimum channel" if least else "")
+                  + "), nothing for the channel. The game files make the channel (holding the Perfect Timing moment) and "
+                  "the end (the hit after release) separate animations (RESEARCH44 R44-1): channel to the perfect moment "
+                  f"at the attack time (patch 0.2.0's wording, MEDIUM) + the end{f' x {mult:g}' if mult != 1.0 else ''} = "
+                  f"{head_time:.3f} s: x{head:.3f}. Rows: " + "; ".join(rows or ["none"])),
+        "play": (f"Release {main.name} at the Perfect Timing moment: each use is the channel to it plus the end; a roll "
+                 "after the hit can cut the end's unlocked part only when you dodge anyway.")}]
+
+
+# Skittering Stone I / II (MECHB52; GEM32 via the manager 17:20). SupportSkitteringStonePlayer(Two):
+# support_hatching_elementals_hatch_after_X_deaths_in_radius 5, _base_radius 40 (4 m): an object the supported skill
+# makes (Earthshatter / Forge Hammer / Shield Wall: PoB's CanCreateStoneElementals) hatches after 5 deaths around it;
+# TriggeredSkitteringStonePlayer(Two): 1 / 2 minions a hatch, 10 / 20 s, at most 8 / 12. So only killed adds feed it
+# (the boss's death ends the fight): stones alive = min(limit, kills a second / 5 x per hatch x duration), the kills
+# the boss preset's add kills (bosses.kill_stats; every one taken to die by an object: LOW, the upper side). PoB makes
+# no minion for it (probe POE2T4796: its set AverageDamage 0, no summon data), so nothing is scored: 0 with this note
+# (an UNDERCOUNT only where a fight has many adds).
+SKITTERING = "Skittering Stone"
+SKITTERING_SUPPORTS = {"Skittering Stone I": (1, 10.0, 8), "Skittering Stone II": (2, 20.0, 12)}
+SKITTERING_DEATHS = 5
+
+
+def skittering_stone_note(supports: dict[int, list[str]], kills: float, boss: str = "") -> list[dict]:
+    """A labelled note for each Skittering Stone support (see above): the stones the boss preset's add kills keep."""
+    notes = []
+    for names in supports.values():
+        found = next((n for n in names if n in SKITTERING_SUPPORTS), None)
+        if found is None:
+            continue
+        each, duration, limit = SKITTERING_SUPPORTS[found]
+        alive = min(float(limit), max(0.0, kills) / SKITTERING_DEATHS * each * duration)
+        notes.append({"label": f"{found}: {alive:.2f} Skittering Stones alive (not scored)*", "value": "0",
+                      "confidence": "LOW",
+                      "basis": (f"a stone hatches after {SKITTERING_DEATHS} deaths within 4 m of the supported skill's "
+                                f"object, {each} a hatch for {duration:g} s (at most {limit}); only killed adds feed it: "
+                                f"{kills * 60:.2f} add kills a minute{f' against {boss}' if boss else ''} (the preset's, each "
+                                f"taken to die by an object, LOW) keep {alive:.2f} alive. PoB makes no minion for it (its "
+                                "damage 0, probe POE2T4796): 0 counted"),
+                      "play": f"{found} needs kills next to your stones: nothing against a lone boss."})
+    return notes

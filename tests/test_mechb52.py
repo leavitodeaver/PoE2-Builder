@@ -110,3 +110,35 @@ def test_volcanos_hit_cut_is_its_eruptions_not_its_stages():
     mods, _ = models.volcano_channel_model(volcano, "Eruption", [{"label": "Eruption", "AverageDamage": 100.0}])
     assert mods and 0 < mods[0]["hit_cut"] < 1
     assert models.hit_cut_of(mods, None, "Volcano") == pytest.approx(mods[0]["hit_cut"])
+
+
+def test_a_channel_and_release_use_is_its_channel_plus_its_end():
+    """R44-1: PoB charges only the end (attack time x end %); the game the channel to the perfect moment (the attack
+    time) plus the end: Perfect Strike 1.35 AT (x0.26), Gathering Storm 1.85 AT (x0.46), Snipe 1.33 AT (x1, row 2.33)."""
+    ps = models.Skill("Perfect Strike", 1, attack=True)
+    level = {models.CHANNEL_END_STAT: 35, models.CHANNEL_LOCK_STAT: 50}
+    mods, notes = models.channel_release_model(ps, level, 1.0, 1 / 0.35)
+    assert mods[0]["value"] == pytest.approx(100 * (0.35 / 1.35 - 1), abs=0.01)
+    assert mods[0]["hit_cut"] == pytest.approx(1 / 1.35) and notes[0]["confidence"] == "HIGH"
+    assert "x0.412" in notes[0]["basis"]  # (the floor row, 0.85 AT)
+    gs = models.Skill("Gathering Storm", 1, attack=True)
+    mods, _ = models.channel_release_model(gs, {models.CHANNEL_END_STAT: 85, models.CHANNEL_LOCK_STAT: 50}, 0.5, 0.5 / 0.85)
+    assert mods[0]["value"] == pytest.approx(100 * (0.85 / 1.85 - 1), abs=0.01)
+    snipe = models.Skill("Snipe", 1, attack=True)
+    level = {models.CHANNEL_END_STAT: 133, models.CHANNEL_END_MULT_STAT: 2500, models.CHANNEL_LOCK_STAT: 16,
+             models.CHANNEL_MIN_STAT: 300}
+    mods, notes = models.channel_release_model(snipe, level, 1.0, 1 / 1.33)
+    assert mods[0]["value"] == pytest.approx(0.0, abs=0.3) and mods[0]["hit_cut"] == pytest.approx(1 / 1.3325, abs=1e-3)
+    assert "x0.571" in notes[0]["basis"]  # (the end unscaled: 2.33 AT)
+    assert models.hit_cut_of(mods, None, "Snipe") == pytest.approx(1 / 1.3325, abs=1e-3)
+    assert models.channel_release_model(models.Skill("Spark", 1), level, 1.0, 1.0) == ([], [])
+
+
+def test_skittering_stones_come_only_from_add_kills():
+    """GEM32 via the manager 17:20: a stone a 5 deaths near the object, 10 s (I) / 20 s and 2 a hatch (II); PoB makes no
+    minion: 0 scored, the count from the preset's kills in the note."""
+    notes = models.skittering_stone_note({4: ["Earthshatter", "Skittering Stone I"]}, 0.0172, "The King in the Mists")
+    assert notes[0]["value"] == "0" and "0.03 Skittering Stones" in notes[0]["label"]
+    notes = models.skittering_stone_note({4: ["Shield Wall", "Skittering Stone II"]}, 10.0)
+    assert "12.00 Skittering Stones" in notes[0]["label"]  # (the limit)
+    assert models.skittering_stone_note({1: ["Earthshatter"]}, 1.0) == []

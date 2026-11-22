@@ -40,3 +40,17 @@
     as each comes, as MECH-C's Sacred Unity reader). +2 Projectiles counted on the Crossbow shotgun skills (their
     fragments Merge at point-blank); other Projectile skills 0 on a lone boss, with a row. The Mhacha's two-feather spend
     adds nothing beyond its faster feathers (UNVERIFIED whether effect scales the count).
+- id: model-mechb52-channel-plus-end
+  title: "A Snipe / Gathering Storm / Perfect Strike use is its channel plus its end (models.channel_release_model)"
+  kind: model
+  model: channel_release
+  stats: ["channel_end_duration_as_%_of_attack_time", "channel_start_lock_cancelling_of_attack_time_%",
+          "channel_skill_end_animation_duration_multiplier_permyriad"]
+  skill: [Perfect Strike, Gathering Storm, Snipe]
+  confidence: theory
+  notes: >-
+    MECHB52 (RESEARCH44 R44-1; the manager 16:42, a LARGE OVERCOUNT). PoB scores a use as attack time x the end share
+    (act_dex 7276-7279, act_int 10496-10499, act_str 15069-15072), nothing for the channel; the game files make the
+    channel and the end separate animations. Headline AT x (1 + end x the end animation multiplier): Perfect Strike 1.35
+    (x0.26), Gathering Storm 1.85 (x0.46), Snipe 1.33 (PoB's, x1; row 2.33 with the end unscaled). Floor row AT x (start
+    lock + end). The ailment readers' cut is AT / the game's time (they count PoB's Speed, 1 / AT).
