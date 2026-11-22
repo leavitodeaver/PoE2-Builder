@@ -5124,8 +5124,11 @@ def ailment_uptime(stats: dict, ailment: str) -> float:
     (hits that land: uses per second x hit chance). A main skill that consumes it: consumed_share. The build's other
     groups' applications (stats["_ailment_others"], MECH75: Ignite, ignite_others) are added, each source taken as
     independent; a consumer then waits for the next application from any of them."""
+    together = models.hits_raise(stats)  # (MECH99: hits a use beyond one land together: the use's chance, hits_raise)
     stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     chance = min(number(stats.get(f"{ailment}ChancePerHit")) / 100.0, 1.0)
+    if together > 1.0 and chance > 0:
+        chance = 1.0 - (1.0 - chance) ** together
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
     duration = number(stats.get(f"{ailment}Duration")) or AILMENT_DURATION[ailment]
     others = [o for o in (stats.get("_ailment_others") or {}).get(ailment) or () if o[1] > 0 and o[2] > 0 and o[3] > 0]

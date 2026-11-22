@@ -297,14 +297,27 @@ def per_use_factor(stats: dict) -> float:
     return 1.0 if got is None else max(0.0, min(HITS_PER_USE_MAX, number(got)))
 
 
-def at_main_share(stats: dict, per_use: bool = True) -> dict:
+# (MECH99, step 3 of the split, the manager 22:20: the cap lifts for models that ADD hits) Hits a use above 1 (Spell
+# Cascade's areas, Freezing Salvo's and Zarokh's Repeats, Lightning Conduit's bolts, extra projectiles all hitting) land
+# TOGETHER within a use. A reader that counts hits linearly (a buildup or a stack per hit) may take them as more hits:
+# at_main_share(stats, raise_hits=True). A duration ailment can't: three hits at once raise the use's chance to apply
+# it (1 - (1 - c)^k), not how often it is applied (a sure Shock from one cast every 10 s with three areas is up 40%,
+# not min(1, 3 x 0.4)): ailment_uptime reads hits_raise(stats) as that per-use chance. Every other reader keeps the cap
+# at 1 (the lower reading) until checked.
+def hits_raise(stats: dict) -> float:
+    """The main skill's hits a use beyond one (>= 1; 1 without a raise): the factor above HITS_PER_USE_MAX's cap."""
+    got = stats.get("_hits_per_use")
+    return 1.0 if got is None else max(1.0, number(got))
+
+
+def at_main_share(stats: dict, per_use: bool = True, raise_hits: bool = False) -> dict:
     share = stats.get("_main_share")
     hits = stats.get("_hits_per_use") if per_use else None
     if share is None and hits is None:
         return stats
     speed = number(stats.get("Speed")) * (1.0 if share is None else max(0.0, min(1.0, number(share))))
-    return {**stats, "Speed": speed * (per_use_factor(stats) if per_use else 1.0), "_main_share": None,
-            "_hits_per_use": None}
+    factor = (per_use_factor(stats) * (hits_raise(stats) if raise_hits else 1.0)) if per_use else 1.0
+    return {**stats, "Speed": speed * factor, "_main_share": None, "_hits_per_use": None}
 
 
 def hits_per_second(stats: dict) -> float:

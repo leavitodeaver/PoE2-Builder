@@ -106,3 +106,20 @@ def test_a_sure_ailment_from_slow_hits_is_up_only_while_a_hit_lasts():
     assert abs(conditions.ailment_uptime(slow, "Shock") - 0.4) < 1e-9  # (was 1.0)
     fast = {**slow, "Speed": 2.0, "ShockChancePerHit": 30}
     assert abs(conditions.ailment_uptime(fast, "Shock") - (1 - 0.7 ** 8)) < 1e-9  # (unchanged)
+
+
+def test_hits_added_a_use_raise_the_uses_chance_not_its_rate():
+    """MECH99 (step 3, the manager 22:20): a hits-a-use factor above 1 lands its hits together: ailment_uptime takes it
+    as the use's chance 1 - (1 - c)^k; linear readers opt in with raise_hits; the rest stay capped at 1."""
+    from builder.search import conditions, models
+
+    sure = {"Speed": 0.1, "HitChance": 100, "ShockChancePerHit": 100, "ShockDuration": 4, "_hits_per_use": 3.0}
+    assert abs(conditions.ailment_uptime(sure, "Shock") - 0.4) < 1e-9  # (not min(1, 1.2))
+    low = {**sure, "ShockChancePerHit": 20}
+    use = 1 - 0.8 ** 3
+    assert abs(conditions.ailment_uptime(low, "Shock") - (1 - conditions.periodic_absent(use, 0.4))) < 1e-9
+    plain = {**low, "_hits_per_use": None}
+    assert conditions.ailment_uptime(plain, "Shock") < conditions.ailment_uptime(low, "Shock")  # (an undercount fixed)
+    assert models.at_main_share(sure)["Speed"] == 0.1  # (capped for an unchecked reader)
+    assert abs(models.at_main_share(sure, raise_hits=True)["Speed"] - 0.3) < 1e-12  # (a linear reader's opt-in)
+    assert models.hits_raise({"_hits_per_use": 0.4}) == 1.0 and models.hits_raise({}) == 1.0
