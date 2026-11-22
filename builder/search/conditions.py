@@ -9230,7 +9230,7 @@ class Conditions:
         """(Burning Inscriptions a second, how) (MECH84, ignited_ground): the casts of the active skills in each enabled
         group Burning Inscription supports (the main skill at its speed, another at its group's rate, else the chosen
         rate, else 0)."""
-        stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
+        stats = models.at_main_share(stats, per_use=False)  # (MECH93; MECH99: casts, not hits)
         gems = self.build.ctx.gems
         held = {n["name"] for g in groups
                 if any(x.get("enabled", True) and x["name"] == BURNING_INSCRIPTION for x in g.get("gems") or [])
@@ -9334,7 +9334,7 @@ class Conditions:
         power = _charges_held("Power")(texts, stats)[0] if "Oil Barrage" in where else 0.0
         makers = {}
         for name, index in where.items():
-            rate = (number(models.at_main_share(stats).get("Speed")) if name == self.main_skill  # (MECH93)
+            rate = (number(models.at_main_share(stats, per_use=False).get("Speed")) if name == self.main_skill  # (uses)
                     else uses.get(name, self._chosen_use(name)))
             how = f"{rate:.2f} uses/s"
             if name == "Oil Barrage" and power > 0:
@@ -9452,11 +9452,11 @@ class Conditions:
 
     def _compounding(self, stats: dict, fuel: tuple[float, float, str] | None) -> tuple[float, str]:
         """(Compounding Ignite's more Ignite Magnitude factor, how) for the main skill (MECH79, compounding_factor)."""
-        raw_speed = number(stats.get("Speed"))
+        raw_speed, stats_in = number(stats.get("Speed")), stats
         stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
         speed = number(stats.get("Speed"))
         if self.main_skill != INCINERATE:  # (MECH99: Flame Breath's Ignites land during its channel at PoB's own rate)
-            speed = raw_speed
+            speed = raw_speed * models.per_use_factor(stats_in)
         rate = speed * min(number(stats.get("IgniteChancePerHit")), 100.0) / 100.0 * min(
             number(stats.get("HitChance")) or 100.0, 100.0) / 100.0
         duration = (number(self.build.call("stats", fields=["IgniteDuration"]).get("IgniteDuration"))
@@ -9687,6 +9687,8 @@ class Conditions:
         time_share = stats["_main_share"]  # (MECHC51: the time share, before any hit cut, for channelling_share)
         if (cut := getattr(self.build, "main_hit_cut", None)) is not None:
             stats["_main_share"] = number(stats["_main_share"]) * max(0.0, min(1.0, number(cut)))
+        # (MECH99, models.AT_MAIN_SHARE's split note: the hits a use, read only by the hit readers; None: no change)
+        stats["_hits_per_use"] = getattr(self.build, "main_hits_per_use", None)
         # (MECHC51: leyline_cycle's note) the Ward pool, the Leylines drain and the Ward recovery, with Leylines only
         if any(line["source"] == f"gem:{LEYLINES}" for line in lines):
             stats["_leyline"] = self._leyline_inputs()

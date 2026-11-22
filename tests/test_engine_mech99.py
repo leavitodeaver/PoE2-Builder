@@ -63,3 +63,31 @@ def test_the_main_hit_cut_reaches_the_readers_late_in_evidence(engine, monkeypat
     search.build.main_hit_cut = None
     print("PROBE", seen)
     assert len(seen) == 2 and seen[0] > 0 and abs(seen[1] - 0.4 * seen[0]) < 1e-9, seen
+
+
+def test_the_hits_per_use_factor_reaches_the_hit_readers_beside_the_time_share(engine, monkeypatch):
+    """MECH99 (the manager 20:50): build.main_hits_per_use goes to stats["_hits_per_use"] for the hit readers; the time
+    share ("_main_share", the uses readers') doesn't take it."""
+    from builder.search import conditions as conditions_mod
+    from builder.search import models
+
+    payload = make_payload(BuildRequest(main_skill="Lightning Warp", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Lightning Warp"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    seen = []
+    real = conditions_mod.shocked_ground
+    monkeypatch.setattr(conditions_mod, "shocked_ground", lambda stats, texts: (seen.append(dict(stats)),
+                                                                               real(stats, texts))[1])
+    search.build.main_hit_cut, search.build.main_hits_per_use = None, None
+    search.conditions.evidence()
+    search.build.main_hits_per_use = 0.5
+    search.conditions.evidence()
+    search.build.main_hits_per_use = None
+    off, on = seen
+    print("PROBE", off.get("_main_share"), off.get("_hits_per_use"), on.get("_main_share"), on.get("_hits_per_use"))
+    assert off.get("_hits_per_use") is None and on["_hits_per_use"] == 0.5
+    assert on["_main_share"] == off["_main_share"]  # (the time share untouched)
+    hits = models.at_main_share(on)["Speed"]
+    assert abs(hits - 0.5 * models.at_main_share(off)["Speed"]) < 1e-9
+    assert abs(models.at_main_share(on, per_use=False)["Speed"] - models.at_main_share(off)["Speed"]) < 1e-9

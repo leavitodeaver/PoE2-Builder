@@ -45,3 +45,48 @@ def test_flameblasts_release_rate_is_its_hit_cut_and_its_stages_are_not():
     other = SimpleNamespace(main_hit_cut=None)
     hit_cut(other, mods, "Spark")
     assert other.main_hit_cut is None
+
+
+def test_an_untagged_model_reads_exactly_as_before_the_per_use_split():
+    """MECH99 (the manager 20:50): without a HIT_CUT_PER_USE mod nothing moves: no hits-a-use factor, the same time
+    cut, the same at_main_share for hit and uses readers."""
+    from types import SimpleNamespace
+
+    from builder.search import models
+    from builder.search.assumptions import hit_cut
+
+    plain = [models.raw_mod("DPS", "MORE", -60, "Flame Breath")]
+    assert models.hits_per_use_of(plain, None, "Flame Breath") is None
+    build = SimpleNamespace(main_hit_cut=None, main_hits_per_use=None)
+    hit_cut(build, plain, "Flame Breath")
+    assert abs(build.main_hit_cut - 0.4) < 1e-12 and build.main_hits_per_use is None
+    stats = {"Speed": 5.0, "HitChance": 80, "_main_share": 0.5}
+    for per_use in (True, False):
+        assert models.at_main_share(stats, per_use=per_use) == {"Speed": 2.5, "HitChance": 80, "_main_share": None,
+                                                               "_hits_per_use": None}
+    assert models.at_main_share({"Speed": 5.0}) == {"Speed": 5.0}  # (no share, no factor: the same dict)
+    assert models.at_main_share({"Speed": 5.0, "_main_share": None, "_hits_per_use": None})["Speed"] == 5.0
+
+
+def test_a_per_use_cut_reaches_the_hit_readers_only():
+    from types import SimpleNamespace
+
+    from builder.search import models
+    from builder.search.assumptions import hit_cut
+
+    bolts = [dict(models.raw_mod("DPS", "MORE", -72, "Hailstorm Rounds"), **{models.HIT_CUT_PER_USE: 0.28})]
+    build = SimpleNamespace(main_hit_cut=None, main_hits_per_use=None)
+    hit_cut(build, bolts, "Hailstorm Rounds")
+    assert build.main_hit_cut is None and abs(build.main_hits_per_use - 0.28) < 1e-12  # (not a time cut)
+    stats = {"Speed": 5.0, "HitChance": 100, "_main_share": 0.5, "_hits_per_use": build.main_hits_per_use}
+    assert abs(models.at_main_share(stats)["Speed"] - 5.0 * 0.5 * 0.28) < 1e-12  # (hits: time x hits a use)
+    assert abs(models.at_main_share(stats, per_use=False)["Speed"] - 2.5) < 1e-12  # (uses: time only)
+    twice = models.at_main_share(models.at_main_share(stats))
+    assert abs(twice["Speed"] - 0.7) < 1e-12  # (applied once)
+    # a MIXED mod: its time part ("hit_cut") and its hits a use, each to its own factor
+    mixed = [dict(models.raw_mod("DPS", "MORE", 50, "Volcano"), hit_cut=0.5, **{models.HIT_CUT_PER_USE: 0.6})]
+    both = SimpleNamespace(main_hit_cut=None, main_hits_per_use=None)
+    hit_cut(both, mixed, "Volcano")
+    assert both.main_hit_cut == 0.5 and both.main_hits_per_use == 0.6
+    # a raise (factor > 1) stays capped at 1 for now (the manager's step 3)
+    assert models.per_use_factor({"_hits_per_use": 2.5}) == models.HITS_PER_USE_MAX == 1.0

@@ -280,11 +280,31 @@ class Skill:
 # fight. at_main_share gives the stats with Speed x the share and "_main_share" blanked (MECHC45's own convention, so a
 # reader called inside another, or a MECH-C reader, never scales twice); unchanged where no share is set (1 with no
 # presses; readers called from Assumptions with PoB's plain stats: not scaled, UNVERIFIED there).
-def at_main_share(stats: dict) -> dict:
+# (MECH99; the manager 20:50, the approved split) Two kinds of cut on the main skill: TIME off it (a channel in its
+# cooldown, a wind-up, a pause, a cooldown-gated release: build.main_hit_cut, in "_main_share", read by every reader of
+# its uses and hits) and HITS A USE (bolts or projectiles landing per use: build.main_hits_per_use, in "_hits_per_use",
+# read only by readers of its HITS: the skill is used as often). A model tags the second with HIT_CUT_PER_USE on its
+# "DPS" MORE mod (the first keeps MECHB52's "hit_cut" key, or the mod's whole value). at_main_share(stats) is the hit
+# readers' view; at_main_share(stats, per_use=False) a uses reader's. HITS_PER_USE_MAX caps the factor at 1 for now
+# (the lower reading; a model that ADDS hits is the manager's step 3, reader by reader). Untagged: None, no change.
+HIT_CUT_PER_USE = "hit_cut_per_use"
+HITS_PER_USE_MAX = 1.0
+
+
+def per_use_factor(stats: dict) -> float:
+    """The main skill's hits-per-use factor in `stats` (1 without one; clamped to [0, HITS_PER_USE_MAX])."""
+    got = stats.get("_hits_per_use")
+    return 1.0 if got is None else max(0.0, min(HITS_PER_USE_MAX, number(got)))
+
+
+def at_main_share(stats: dict, per_use: bool = True) -> dict:
     share = stats.get("_main_share")
-    if share is None:
+    hits = stats.get("_hits_per_use") if per_use else None
+    if share is None and hits is None:
         return stats
-    return {**stats, "Speed": number(stats.get("Speed")) * max(0.0, min(1.0, number(share))), "_main_share": None}
+    speed = number(stats.get("Speed")) * (1.0 if share is None else max(0.0, min(1.0, number(share))))
+    return {**stats, "Speed": speed * (per_use_factor(stats) if per_use else 1.0), "_main_share": None,
+            "_hits_per_use": None}
 
 
 def hits_per_second(stats: dict) -> float:
@@ -22670,8 +22690,20 @@ def hit_cut_of(mods: list[dict], cut: float | None = None, skill: str | None = N
         if mod.get("name") == "DPS" and mod.get("type") == "MORE" and (skill is None or mod.get("skill") == skill):
             # (a MIXED model's mod names its hit part: "hit_cut", the rest of its factor being damage per hit)
             part = number(mod["hit_cut"]) if "hit_cut" in mod else 1 + number(mod.get("value")) / 100
+            if HIT_CUT_PER_USE in mod and "hit_cut" not in mod:  # (MECH99: its whole factor is hits a use, not time)
+                continue
             cut = (1.0 if cut is None else cut) * max(0.0, part)
     return cut
+
+
+def hits_per_use_of(mods: list[dict], factor: float | None = None, skill: str | None = None) -> float | None:
+    """(MECH99, AT_MAIN_SHARE's split note) The hits-per-use factor of a model's "DPS" MORE mods tagged HIT_CUT_PER_USE,
+    times `factor` (an earlier model's); None with no such mod. `skill`: only the mods tagged to that skill."""
+    for mod in mods:
+        if (mod.get("name") == "DPS" and mod.get("type") == "MORE" and HIT_CUT_PER_USE in mod
+                and (skill is None or mod.get("skill") == skill)):
+            factor = (1.0 if factor is None else factor) * max(0.0, number(mod[HIT_CUT_PER_USE]))
+    return factor
 
 
 # Knockback pushing the boss out of a melee skill's reach (MECHB51; RESEARCH42 R42-26, MEDIUM-HIGH; the manager 08:07).
