@@ -547,8 +547,12 @@ CHARGED_STAFF_IGNORES = ("Frozen Locus",)
 # each press spends the maximum M (it can't be used below it), so the presses a second are the Power Charges it spends
 # (conditions.consume_all_split: what the others leave, at most its cooldown rate x M) / M, each holding the buff
 # 5 s x M x its Skill Effect Duration (PoB's DurationMod, its useRates row): uptime u = min(1, spent x 5 s x DurationMod),
-# at 15% x M more Elemental Damage (the text: Elemental Damage, of any skill; PoB's mod was all Damage of the typed
-# skills). PoB's held-count buff taken back on a typed main skill. Rows: PoB's reading (held count, all fight); pressing
+# at 15% x M more Elemental Damage (RESEARCH45 R45-3, MEDIUM-HIGH: the Fire, Cold and Lightning damage of EVERY skill,
+# no skill-type condition; PoB's mod was all Damage, of the typed skills only: an OVERCOUNT of their Physical / Chaos,
+# an UNDERCOUNT of untyped skills with elemental damage). PoB's held-count buff taken back on a typed main skill.
+# (R45-4, MEDIUM: copies don't stack, "only the copy with the strongest effect applies"; a re-press needs full charges
+# and only resets the timer: uptime = min(1, 5 s x M x DurationMod / the time between presses) = the formula above;
+# faster presses add nothing.) Rows: PoB's reading (held count, all fight); pressing
 # on its cooldown spends more charges than once a buff (the charges held for other lines a little low: the lower
 # reading). ConsumedPowerChargeEffect (PoB's scalar on both) not read (UNVERIFIED: no source of it seen on the build).
 PINNACLE_OF_POWER = "Pinnacle of Power"
@@ -568,8 +572,9 @@ PINNACLE_TAG = "PinnacleOfPower"
 # (U x Thrust + spent x Serpent) / (its uses x the scored set), the sets' per-use damage from PoB's setRates; its hit
 # part (U + spent) / its uses for the ailment readers ("hit_cut"). No Frenzy Charge reaching it: no use (0; no source,
 # 0). Each Serpent taken as hitting the boss (they follow the thrust's line: LOW-MEDIUM). The game's third set,
-# WindSerpentsFuryKnockbackExplosionPlayer (a 2 m shockwave, 172% at 20, cannot_knockback; not in PoB): its trigger is
-# UNVERIFIED (a knocked-back enemy hitting something?), not counted, said. Frenzy gains on the skill's own hits read at
+# WindSerpentsFuryKnockbackExplosionPlayer (a 2 m shockwave, 172% at 20, cannot_knockback; not in PoB): deals nothing in
+# 0.5, not counted (checked: R45-5, HIGH: patch 0.3.0 "No longer causes shockwaves when enemies are hit into walls or
+# larger enemies"; no skill uses the set; poe2db shows none). Frenzy gains on the skill's own hits read at
 # the hits the charge model sees (the cut's next round): LOW.
 WIND_SERPENT = "Wind Serpent's Fury"
 WIND_SERPENT_SETS = ("Thrust", "Serpent")
@@ -9506,8 +9511,10 @@ class Assumptions:
             "basis": (f"{how}; each press spends your maximum {most:g} (it can't be used below it) for {per:g}% more "
                       f"Elemental Damage each, the buff {seconds:g} s a charge x its Skill Effect Duration x{scale:.2f}: "
                       f"{number(spent):.2f}/s x {seconds * scale:.2f} s = {up:.0%} up. Rows: PoB's reading at the "
-                      f"{held:g} Power Charges held: {pob}; pressed once a buff instead of on its cooldown, more charges "
-                      "held for other lines (not counted). Increased effect of consumed charges not read (UNVERIFIED)"),
+                      f"{held:g} Power Charges held: {pob}; the buff doesn't stack, a re-press only resets it (R45-4); "
+                      "pressed once a buff instead of on its cooldown, more charges held for other lines (not counted). "
+                      "More Elemental Damage of any skill (R45-3). Increased effect of consumed charges not read "
+                      "(UNVERIFIED)"),
             "confidence": "MEDIUM (game numbers; the uptime as charges spent x 5 s)",
             "play": (f"Pinnacle of Power: press it at maximum Power Charges ({most:g}) as soon as it's ready: "
                      f"{per * most:.0f}% more Elemental Damage {up:.0%} of the fight; without it, none" if up > 0 else "")}
@@ -9550,7 +9557,7 @@ class Assumptions:
                       f"{uses:.2f} PoB's rate allows at its share of the fight, {spent:.2f} Serpents a second "
                       f"({per_use:.1f} a thrust); PoB's sets: Thrust {thrust:,.0f} and Serpent {serpent:,.0f} DPS at "
                       f"its full rate, PoB scoring the {scored} alone. Each Serpent taken as hitting the boss "
-                      "(LOW-MEDIUM). Not counted: the game's third set, a knockback shockwave (its trigger UNVERIFIED)"),
+                      "(LOW-MEDIUM). Not counted: the game's third set, a knockback shockwave, which deals nothing in 0.5 (checked: R45-5)"),
             "confidence": "MEDIUM (game text: a charge to use, a Serpent per charge; PoB's per-set numbers)",
             "play": (f"Wind Serpent's Fury: feed it Frenzy Charges; {per_use:.1f} Serpents a thrust; without charges "
                      "it can't be used" if spent > 0 else

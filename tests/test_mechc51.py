@@ -584,3 +584,47 @@ def test_release_end_share_reads_the_gems_own_stats(engine):
     share, how = conditions._release_end_share(search.build, "Perfect Strike")
     print("PROBE release end", share, how)
     assert share == pytest.approx(0.35) and "R44-1" in how
+
+
+def test_probe_pinnacle_of_power_reaches_only_the_elemental_part_of_an_untagged_skill(engine):
+    """MECHC52 (RESEARCH45 R45-3, MEDIUM-HIGH: more Elemental Damage of EVERY skill, no skill-type condition). Probe on
+    Boneshatter (an Attack with no Cold / Fire / Lightning type) with added Fire: PoB's buff gives it nothing (its
+    SkillType condition); the model at full uptime raises its Fire part x(1 + 15% x max) and leaves its Physical part,
+    with nothing taken back (PoB gave nothing)."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    main = build.main_group()
+    most = models.number(build.call("stats", fields=["PowerChargesMax"])["PowerChargesMax"])
+    build.set_config({"usePowerCharges": True, "overridePowerCharges": int(most)})
+    fire = [models.raw_mod("FireMin", "BASE", 50, skill="Boneshatter", tag="Probe"),
+            models.raw_mod("FireMax", "BASE", 100, skill="Boneshatter", tag="Probe")]
+
+    def read(mods: list, added: list | None = None) -> float:
+        build.call("setAssumptions", mods=(fire if added is None else added) + mods, fields=[])
+        return build.call("stats", fields=["TotalDPS"])["TotalDPS"]
+
+    physical = read([], [])  # (no added Fire: the Physical part)
+    plain = read([])
+    build.set_group(gems=[{"name": a.PINNACLE_OF_POWER, "level": 20, "quality": 0}])
+    pob = read([])
+    build.call("setAssumptions", mods=fire, fields=[])
+    build.consume_all = {"Power": {a.PINNACLE_OF_POWER: (1.0, 0.25, "stand-in")}}
+    skills = build.call("activeSkills")["skills"]
+    found = [models.Skill.of(s) for s in skills if not s["disabled"]]
+    skill = next(s for s in found if s.group == main["index"])
+    mods, notes = search.assumptions.pinnacle_of_power(skills, skill)
+    modelled = read(mods)
+    print("PROBE pinnacle untagged", most, physical, plain, pob, modelled, mods)
+    assert plain > physical > 0
+    assert pob == pytest.approx(plain, rel=1e-6)  # (PoB: no buff on an untagged skill)
+    assert [m["name"] for m in mods] == ["ElementalDamage"]  # (nothing taken back)
+    more = 1 + 15 * most / 100
+    assert modelled == pytest.approx(physical + (plain - physical) * more, rel=0.01)  # (the Fire part only)
