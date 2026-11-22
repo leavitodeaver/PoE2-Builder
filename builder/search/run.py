@@ -81,8 +81,11 @@ FINALIZE_WRAP = 10.0
 # the finished gear, finalize turns the tree rebuild off; SEARCHB2's probe on the delivered builds, every floor met:
 # 2b75d x1.39, 2b75b x2.40) finalize's last tree regrow gets its own time, taken from the search: FINAL_REGROW_SHARE of the
 # run, at most FINAL_REGROW_MAX (SEARCHB2's probe: 178-240 s on real PoB). LOW, a time budget (on a 600 s gate: 150 s);
-# a gate pair measures it. POE2_SEARCH_FINAL_REGROW=0 turns the regrow off
-FINAL_REGROW = os.environ.get("POE2_SEARCH_FINAL_REGROW", "1") != "0"
+# a gate pair measures it. MEASURED LOWER, so OFF by default (POE2_SEARCH_FINAL_REGROW=1 turns it on): 2b75b seed 0, 600 s
+# (the default run's length too), ON 10,335 vs OFF 38,066 (POE2T5552 / 5553): the regrow runs on one worker while the
+# others wait, so its 150 s cost ~28% of the search's task time, the lines' last focus round (where the gear fills) was
+# lost, and every line ended with 5-6 empty gear slots
+FINAL_REGROW = os.environ.get("POE2_SEARCH_FINAL_REGROW", "0") == "1"
 FINAL_REGROW_SHARE = 0.25
 FINAL_REGROW_MAX = 240.0
 FINAL_REGROW_MIN = 30.0  # (under this, a cleared tree can't grow back: a run under 120 s gets no regrow)

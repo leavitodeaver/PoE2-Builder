@@ -3,6 +3,7 @@ reference is 3 passives over the budget and Spirit short, so its ratio compares 
 deliver; "Score references within the search's own budget, or show that reading beside the raw one")."""
 
 import importlib.util
+import os
 import types
 
 import pytest
@@ -230,7 +231,7 @@ def test_a_step_that_keeps_finding_nothing_is_skipped_on_the_line_unless_kicked(
 
 def test_finalize_gets_its_own_time_for_the_final_tree_regrow(monkeypatch):
     """SEARCH35 (the manager's 17:48: wire SEARCHB2's Tree.final_regrow; it took 178-240 s, finalize has at most 60 s):
-    the plan gives finalize FINAL_REGROW_SHARE of the run on top of its polish, at most FINAL_REGROW_MAX, taken from the
+    with POE2_SEARCH_FINAL_REGROW=1 (off by default: measured lower on 2b75b, POE2T5552 / 5553) the plan gives finalize FINAL_REGROW_SHARE of the run on top of its polish, at most FINAL_REGROW_MAX, taken from the
     search; none under FINAL_REGROW_MIN (a short run) or with POE2_SEARCH_FINAL_REGROW=0."""
     from builder.search import run as run_module
 
@@ -246,3 +247,5 @@ def test_finalize_gets_its_own_time_for_the_final_tree_regrow(monkeypatch):
     assert plan(1200) == (60.0 + 240.0, 240.0)
     assert plan(45) == (15.0, 0.0)  # (45 x 0.25 under 30 s: no regrow)
     assert plan(600, on=False) == (60.0, 0.0)
+    monkeypatch.undo()
+    assert run_module.FINAL_REGROW is (os.environ.get("POE2_SEARCH_FINAL_REGROW") == "1")  # (off unless asked for)
