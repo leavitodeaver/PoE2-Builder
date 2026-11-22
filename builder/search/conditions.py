@@ -1883,13 +1883,31 @@ CHANNEL_PRESS_SECONDS = 1.0
 # the channel (one attack time, MECHB52's headline) THEN its end animation (channel_end_duration_as_%_of_attack_time x
 # channel_skill_end_animation_duration_multiplier_permyriad, the gem's own stats: Perfect Strike 35%, Gathering Storm 85%,
 # Snipe 133% x 0.25, Plasma Blast 35%; RESEARCH44 R44-1 / R44-14), and you aren't channelling during the end: its share
-# of the fight counts as channelling x 1 / (1 + end share). Other skills carrying the end stat (Fury of the Mountain,
-# Hollow Form, Oil Barrage) are not in R44-1's reading: left whole (UNVERIFIED for them).
+# of the fight counts as channelling x 1 / (1 + end share). (The manager 22:28: the other skills with an end read
+# models.py's own constants, one source.) Volcano (models.volcano_channel_model): an eruption is the 0.5 wind-up, 1 + k
+# stage times and the 0.5 end (models.CHANNEL_WINDUP_END's 50%, of the cast time), so its channel is (1.5 + k) / (2 + k)
+# of its time at the model's best k. Fury of the Mountain and Hollow Form (models.channel_windup_model, LOW): a held
+# channel whose end the dodge cuts off in the headline, so nothing is left out; the end paid at each restart is that
+# model's row, named here. Oil Barrage (models.oil_barrage_volley_model): its 1000% end (OIL_CHANNEL_END) is only that
+# model's row: the headline left whole, named.
 RELEASE_SKILLS = ("Perfect Strike", "Gathering Storm", "Snipe", "Plasma Blast")
 
 
 def _release_end_share(build, name: str) -> tuple[float, str]:
     """(the end animation as a share of the attack time, how) for a RELEASE_SKILLS main skill; (0, "") otherwise."""
+    if name == models.VOLCANO:
+        k = max(range(models.VOLCANO_STAGES), key=lambda n: (1 + models.VOLCANO_MORE * n) / (2 + n))
+        end = models.CHANNEL_WINDUP_END[name] / 100
+        windup = models.CHANNEL_WINDUP[name][0] / 100
+        share = end / (windup + 1 + k)  # (the end over the wind-up + 1 + k stage times)
+        return share, (f"channelling only before each eruption's {end:.0%} end: {1 + k} stage times + the wind-up of "
+                       f"{2 + k} cast times, volcano_channel_model's best k = {k} (MEDIUM)")
+    if name in models.CHANNEL_WINDUP_END:
+        return 0.0, (f"its {models.CHANNEL_WINDUP_END[name]}% end cut off by the dodge in channel_windup_model's "
+                     "headline: none left out; the end paid at each restart is that model's row (LOW)")
+    if name == models.OIL_BARRAGE:
+        return 0.0, (f"its {models.OIL_CHANNEL_END:.0%} end only in oil_barrage_volley_model's row: none left out in "
+                     "the headline")
     if name not in RELEASE_SKILLS or not callable(getattr(build, "call", None)):
         return 0.0, ""
     try:
@@ -1913,7 +1931,7 @@ def channelling_share(build, main_skill: str | None, main_share: float = 1.0) ->
         end, end_how = _release_end_share(build, main_skill)
         if end > 0:  # (MECHC52, MECHB53 via the manager 21:16: not channelling during the end)
             share /= 1 + end
-        parts.append(f"{main_skill} (the main skill) {share:.0%} of the fight" + (f" ({end_how})" if end > 0 else ""))
+        parts.append(f"{main_skill} (the main skill) {share:.0%} of the fight" + (f" ({end_how})" if end_how else ""))
     try:
         result = build.call("groups")
         groups, index = result["groups"], result.get("mainSocketGroup")

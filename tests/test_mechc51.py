@@ -628,3 +628,55 @@ def test_probe_pinnacle_of_power_reaches_only_the_elemental_part_of_an_untagged_
     assert [m["name"] for m in mods] == ["ElementalDamage"]  # (nothing taken back)
     more = 1 + 15 * most / 100
     assert modelled == pytest.approx(physical + (plain - physical) * more, rel=0.01)  # (the Fire part only)
+
+
+def test_channelling_share_reads_models_end_constants_for_the_other_channels():
+    """MECHC52 (the manager 22:28: one source): Volcano's eruption channels (1.5 + k) / (2 + k) of its time at
+    volcano_channel_model's best k (3: 0.9); Fury of the Mountain / Hollow Form (end cut off by the dodge in
+    channel_windup_model's headline) and Oil Barrage (its end a row only) are left whole, each named."""
+    from types import SimpleNamespace
+
+    end, how = conditions._release_end_share(SimpleNamespace(), models.VOLCANO)
+    assert 1 / (1 + end) == pytest.approx(4.5 / 5) and "k = 3" in how
+    for name in ("Fury of the Mountain", "Hollow Form", models.OIL_BARRAGE):
+        end, how = conditions._release_end_share(SimpleNamespace(), name)
+        assert end == 0.0 and "row" in how
+
+
+def test_fist_of_kalguur_shares_the_ward_with_a_supported_side_slam(engine, monkeypatch):
+    """MECHC52 (the manager 21:16 from MECHB53: the boost was read on the main Slam only): every Slam Fist of Kalguur
+    supports asks 150% of its cost a use; one share of uses boosted for all (build.kalguur_boosted, for MECH-B's
+    Empowered / Aftershock readers); the main Slam's gain at that share. A side Slam with no use rate asks nothing."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Sunder", ascendancies=["Warbringer"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Sunder"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    main = build.main_group()
+    old = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} for g in main["gems"]]
+    build.set_group(index=main["index"], gems=[*old, {"name": a.FIST_OF_KALGUUR, "level": 1, "quality": 0}])
+    side = build.set_group(gems=[{"name": "Rolling Slam", "level": 20, "quality": 0},
+                                 {"name": a.FIST_OF_KALGUUR, "level": 1, "quality": 0}])
+    build.call("setAssumptions", mods=[], fields=[])
+    skills = build.call("activeSkills")["skills"]
+    assert any(s["name"] == "Rolling Slam" and s.get("slam") for s in skills)
+    pools = build.call("stats", fields=["ManaCost", "Speed"])
+    row = build.call("useRates", indices=[side["index"]])["rates"][0]
+    need_main = pools["Speed"] * pools["ManaCost"] * 1.5
+    need_side = 1.0 * models.number(row.get("manaCost")) * 1.5
+    assert need_side > 0
+    build.ward_sustain = {"WardRecoveryPerSecond": need_main / 2, "_share": 1.0}
+    monkeypatch.setattr(conditions, "skill_use_rate", lambda r, c: (0.0, "no rate", True))
+    mods, _ = search.assumptions.kalguur_boost(skills, "Sunder")
+    assert mods[0]["value"] == pytest.approx(10.0, rel=0.05) and build.kalguur_boosted["Rolling Slam"] == 0.0
+    monkeypatch.setattr(conditions, "skill_use_rate", lambda r, c: (1.0, "stand-in", False))
+    mods, notes = search.assumptions.kalguur_boost(skills, "Sunder")
+    share = (need_main / 2) / (need_main + need_side)
+    print("PROBE kalguur side", pools, row.get("manaCost"), mods, build.kalguur_boosted, notes[0]["basis"])
+    assert mods[0]["value"] == pytest.approx(20 * share, rel=0.05)
+    assert build.kalguur_boosted["Rolling Slam"] == pytest.approx(share, rel=0.05) == build.kalguur_boosted["Sunder"]

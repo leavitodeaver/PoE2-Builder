@@ -6644,9 +6644,15 @@ class Assumptions:
 
     def _ward_income_wanted(self, skills: list[dict], main: str | None) -> bool:
         """(MECHC51) whether a Ward reader beside ward_paid needs the build's Ward income: Leylines on the build, or a
-        Slam main skill (Fist of Kalguur's boosts; kalguur_boost checks the support)."""
-        return any(s.get("name") == conditions_mod.LEYLINES and not s.get("disabled") for s in skills) or any(
-            s.get("name") == main and not s.get("disabled") and s.get("slam") for s in skills)
+        Slam main skill (Fist of Kalguur's boosts; kalguur_boost checks the support). (MECHC52: any Slam, the main or a
+        side one, with Fist of Kalguur on the build.)"""
+        if any(s.get("name") == conditions_mod.LEYLINES and not s.get("disabled") for s in skills):
+            return True
+        if any(s.get("name") == main and not s.get("disabled") and s.get("slam") for s in skills):
+            return True
+        groups = getattr(self.build, "groups", None)
+        return callable(groups) and any(not s.get("disabled") and s.get("slam") for s in skills) and any(
+            x.get("name", "").lower() == FIST_OF_KALGUUR.lower() for g in groups() for x in g.get("gems") or [])
 
     def _ward_income(self, skills: list[dict], mods: list[dict], main: str | None, uses: list
                      ) -> tuple[float, list[str], list[str], float]:
@@ -9245,17 +9251,22 @@ class Assumptions:
         return mods, [note]
 
     def kalguur_boost(self, skills: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
-        """(mods, notes) for Fist of Kalguur's Runic Boost on the main Slam at the share of its uses the leftover Runic
-        Ward pays for (FIST_OF_KALGUUR's note). `main`: the main skill's name."""
+        """(mods, notes) for Fist of Kalguur's Runic Boost on every Slam it supports, at the share of their uses the
+        leftover Runic Ward pays for (FIST_OF_KALGUUR's note); the main one's gain as a mod, every one's share published
+        as build.kalguur_boosted {Slam: share} (MECHC52: a supported side Slam's boosts, for MECH-B's Empowered and
+        Aftershock readers; the manager 21:16, MECHB53). `main`: the main skill's name."""
         build = self.build
-        # (only for a Slam main skill: no bridge call on other builds, the search's hot path)
-        slam = next((s for s in skills if s.get("name") == main and not s.get("disabled") and s.get("slam")), None)
-        group = build.main_group() if slam is not None else None
-        if group is None or not any(g.get("name", "").lower() == FIST_OF_KALGUUR.lower() and g.get("enabled", True)
-                                    for g in group.get("gems") or []):
+        build.kalguur_boosted = {}
+        # (only with a Slam on the build: no bridge call on other builds, the search's hot path)
+        slams = [s for s in skills if not s.get("disabled") and s.get("slam")]
+        if not slams:
             return [], []
-        if not any(s.get("name") == main and not s.get("disabled") and s.get("group") == group["index"] for s in skills):
+        fist = {g["index"] for g in build.groups() if g.get("enabled", True) and any(
+            x.get("name", "").lower() == FIST_OF_KALGUUR.lower() and x.get("enabled", True) for x in g.get("gems") or [])}
+        supported = [s for s in slams if s.get("group") in fist]
+        if not supported:
             return [], []
+        main_group = (build.main_group() or {}).get("index")
         pools = build.call("stats", fields=["ManaCost", "Speed", "WardRegenRecovery", "Ward"])
         sustain = getattr(build, "ward_sustain", None) or {}
         if "WardRecoveryPerSecond" in sustain:
@@ -9270,24 +9281,43 @@ class Assumptions:
             source = (f"{income:.1f} Ward/s (PoB's regeneration and the Ward lines; Remnants of Kalguur and other feeds "
                       "read only beside a Ward-cost skill: the lower reading)")
         left = max(income - spent, 0.0)
-        # (MECHC52: its USES pay the Ward, not its hits: hits=False, as a hit-only cut (Hailstorm's bolts, Volcano's
-        # eruptions) leaves the uses; a use cut (Temper Weapon's channel) not read here: more Ward asked, the lower boost)
-        share = (main_time_share(build, models.Skill(name=main), hits=False)
-                 if callable(getattr(getattr(build, "objective", None), "busy", None)) else 1.0)
-        uses = number(pools.get("Speed")) * share
-        cost = number(pools.get("ManaCost")) * FIST_OF_KALGUUR_WARD_PCT / 100
-        need = uses * cost
-        boosted = min(1.0, left / need) if need > 0 else (1.0 if left > 0 and uses > 0 else 0.0)
+        # each supported Slam: (name, uses a second, PoB's Mana cost a use, how)
+        rated = []
+        for s in supported:
+            if s.get("name") == main and s.get("group") == main_group:
+                # (MECHC52: its USES pay the Ward, not its hits: hits=False, as a hit-only cut (Hailstorm's bolts,
+                # Volcano's eruptions) leaves the uses; a use cut (Temper Weapon's channel) not read here: more Ward
+                # asked, the lower boost)
+                share = (main_time_share(build, models.Skill(name=main), hits=False)
+                         if callable(getattr(getattr(build, "objective", None), "busy", None)) else 1.0)
+                rated.append((main, number(pools.get("Speed")) * share, number(pools.get("ManaCost")),
+                              "the main skill" + (f", {share:.0%} of the fight" if share < 1 else "")))
+        side = sorted({s["group"] for s in supported if s.get("group") != main_group})
+        if side:
+            choices = models.press_choices(build)
+            for row in build.call("useRates", indices=side)["rates"]:
+                uses, why, _ = ((number(row.get("speed")), "PoB's trigger rate", False) if row.get("triggered")
+                                else conditions_mod.skill_use_rate(row, choices))
+                rated.append((row.get("name") or "a side Slam", uses, number(row.get("manaCost")), why))
+        need = sum(u * c * FIST_OF_KALGUUR_WARD_PCT / 100 for _, u, c, _ in rated)
+        any_use = any(u > 0 for _, u, _, _ in rated)
+        # (one share for every supported Slam: a use is boosted whenever the Ward is there, the uses interleaved)
+        boosted = min(1.0, left / need) if need > 0 else (1.0 if left > 0 and any_use else 0.0)
+        build.kalguur_boosted = {n: (boosted if u > 0 else 0.0) for n, u, _, _ in rated}
+        on_main = next((r for r in rated if r[0] == main), None)
         mods = ([models.raw_mod("DamageGainAsPhysical", "BASE", FIST_OF_KALGUUR_GAIN * boosted, skill=main,
-                                tag=FIST_OF_KALGUUR_TAG)] if boosted > 0 else [])
+                                tag=FIST_OF_KALGUUR_TAG)] if boosted > 0 and on_main is not None else [])
+        parts = "; ".join(f"{n} {u:.2f} uses/s ({how}) x {FIST_OF_KALGUUR_WARD_PCT:g}% of its {c:.0f} cost"
+                          for n, u, c, how in rated)
+        value = (f"{boosted:.0%} of the supported Slams' uses boosted"
+                 + (f": {FIST_OF_KALGUUR_GAIN * boosted:.1f}% of {main}'s damage as extra Physical" if on_main
+                    else " (no supported Slam is the main skill: no gain on the headline)"))
         note = {
             "label": "Fist of Kalguur: Runically Boosted Slams at the Runic Ward left for them*",
-            "value": f"{boosted:.0%} of {main}'s uses boosted: {FIST_OF_KALGUUR_GAIN * boosted:.1f}% of its damage as extra Physical",
-            "basis": (f"{source}: {left:.1f}/s left; each boost spends {FIST_OF_KALGUUR_WARD_PCT:g}% of its "
-                      f"{number(pools.get('ManaCost')):.0f} cost = {cost:.0f} Ward, at {uses:.2f} uses/s"
-                      + (f" ({share:.0%} of the fight)" if share < 1 else "") + f" = {need:.1f} Ward/s wanted. PoB "
-                      "reads neither stat (an UNDERCOUNT before). Not counted: the boosted Slams' Empowered lines and the "
-                      "rune's Aftershock (MECH-B's), the full Ward pool at the fight's start"),
+            "value": value,
+            "basis": (f"{source}: {left:.1f}/s left; {parts} = {need:.1f} Ward/s wanted. PoB reads neither stat (an "
+                      "UNDERCOUNT before). Not counted here: the boosted Slams' Empowered lines and the rune's "
+                      "Aftershock (MECH-B's, at build.kalguur_boosted), the full Ward pool at the fight's start"),
             "confidence": "MEDIUM (game numbers; the cost read as PoB's Mana cost, LOW)",
             "play": (f"Fist of Kalguur: keep Runic Ward up for the boosts ({boosted:.0%} of your Slams); without Ward "
                      "recovery, none")}
