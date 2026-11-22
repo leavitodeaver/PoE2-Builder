@@ -2056,10 +2056,25 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     # SEARCHB1's regrow probe read every regrow short on Physical max hit without it), and after each variant. Its own
     # time (run.py FINAL_REGROW_SHARE, `regrow`), not finalize's polish
     regrow_rows: list[dict] = []
-    if regrow > 0:
+    from builder.search.run import FINAL_REGROW, joint_regrow_on
+
+    joint = joint_regrow_on()
+    share = regrow / max(1, int(joint) + int(FINAL_REGROW))  # (run.plan gives each regrow step that is on its time)
+    # (SEARCH36; the manager's 11:50, SEARCHB3's joint move via SEARCHB4, its exact call) the tree and the gear regrown
+    # together under the floors, just before the final regrow; OFF by default (POE2_SEARCH_JOINT_REGROW=1); its row has
+    # final_regrow's keys and joins the same result list
+    if joint and share > 0:
         try:
             search.weigh_uptimes()
-            regrow_rows = search.tree.final_regrow(clock.now() + regrow, reweigh=search.weigh_uptimes)
+            search.step("joint regrow", lambda d: regrow_rows.append(
+                search.tree.joint_regrow(d, search.gear.gear_round, reweigh=search.weigh_uptimes)), clock.now() + share)
+            trace.append(["joint regrow", round(build.score, 4)])
+        except Cancelled:
+            pass
+    if FINAL_REGROW and share > 0:
+        try:
+            search.weigh_uptimes()
+            regrow_rows += search.tree.final_regrow(clock.now() + share, reweigh=search.weigh_uptimes)
             trace.append(["final regrow", round(build.score, 4)])
         except Cancelled:
             pass

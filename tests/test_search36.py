@@ -204,3 +204,30 @@ def test_requiem_is_granted_by_the_last_lament_and_a_default_attack_gets_a_true_
     main = search.build.main_group()
     assert main is not None and any(s["name"] == "Requiem" for s in main["skills"]), main
     print("Requiem main group", [g["name"] for g in main["gems"]], search.build.stats.get("FullDPS"))
+
+
+def test_the_joint_move_is_off_by_default_and_takes_finalize_regrow_time_when_on(monkeypatch):
+    """SEARCH36 (the manager's 11:50 22 Nov: SEARCHB3's joint move, its call site behind a switch, OFF by default): run.
+    joint_regrow_on follows Tree.joint_enabled (POE2_SEARCH_JOINT_REGROW) and is False while the tree has no joint move;
+    switched on, the plan gives finalize the final regrow's time for it, and twice that with the final regrow on too."""
+    from builder.search import run as run_module
+    from builder.search.tree import Tree
+
+    monkeypatch.delenv("POE2_SEARCH_JOINT_REGROW", raising=False)
+    if not hasattr(Tree, "joint_enabled"):
+        assert run_module.joint_regrow_on() is False  # (the joint move not on main yet: never on)
+    monkeypatch.setattr(Tree, "joint_enabled", staticmethod(lambda: False), raising=False)
+    monkeypatch.setattr(Tree, "joint_regrow", lambda self, *a, **k: {}, raising=False)
+    assert run_module.joint_regrow_on() is False
+
+    def plan(seconds, final, joint):
+        monkeypatch.setattr(run_module, "FINAL_REGROW", final)
+        monkeypatch.setattr(Tree, "joint_enabled", staticmethod(lambda: joint))
+        r = run_module.Run.__new__(run_module.Run)
+        r.seconds, r.workers = seconds, 5
+        r.remaining = lambda: seconds
+        return r.plan(1)[1], r.regrow_seconds
+
+    assert plan(600, False, False) == (60.0, 0.0)
+    assert plan(600, False, True) == (60.0 + 150.0, 150.0)
+    assert plan(600, True, True) == (60.0 + 300.0, 300.0)

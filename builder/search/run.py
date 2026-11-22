@@ -89,6 +89,17 @@ FINAL_REGROW = os.environ.get("POE2_SEARCH_FINAL_REGROW", "0") == "1"
 FINAL_REGROW_SHARE = 0.25
 FINAL_REGROW_MAX = 240.0
 FINAL_REGROW_MIN = 30.0  # (under this, a cleared tree can't grow back: a run under 120 s gets no regrow)
+
+
+def joint_regrow_on() -> bool:
+    """(SEARCH36; the manager's 11:50 22 Nov) SEARCHB3's joint move (Tree.joint_regrow, landing via SEARCHB4) switched on:
+    POE2_SEARCH_JOINT_REGROW=1, read at call time by Tree.joint_enabled; False while that isn't on main. OFF by default.
+    It takes finalize's regrow time as the final regrow does (FINAL_REGROW_SHARE of the run, at most FINAL_REGROW_MAX;
+    each regrow step that is on gets that much)."""
+    from builder.search.tree import Tree
+
+    enabled = getattr(Tree, "joint_enabled", None)
+    return callable(enabled) and hasattr(Tree, "joint_regrow") and bool(enabled())
 MIN_PROBE = 15.0
 MAX_PROBE = 60.0
 SHORTLIST_SKILLS = 4
@@ -440,8 +451,9 @@ class Run:
     def plan(self, count: int) -> tuple[float, float]:
         """(probe seconds, finalize seconds) for `count` skeletons in the time left."""
         finalize = min(FINALIZE_MAX, max(FINALIZE_SHARE * self.seconds, FINALIZE_WRAP + 5.0))
-        regrow = min(FINAL_REGROW_MAX, FINAL_REGROW_SHARE * self.seconds) if FINAL_REGROW else 0.0
-        self.regrow_seconds = regrow if regrow >= FINAL_REGROW_MIN else 0.0  # (a short run: no regrow)
+        steps = int(FINAL_REGROW) + int(joint_regrow_on())  # (SEARCH36: the joint move's time, as the final regrow's)
+        regrow = min(FINAL_REGROW_MAX, FINAL_REGROW_SHARE * self.seconds)
+        self.regrow_seconds = steps * regrow if regrow >= FINAL_REGROW_MIN else 0.0  # (a short run: no regrow)
         finalize += self.regrow_seconds  # (finalize's polish, then the final tree regrow: finalize_task's `regrow`)
         search = max(self.remaining() - finalize, 10.0)
         waves = math.ceil(count / self.workers)
