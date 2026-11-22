@@ -13448,7 +13448,9 @@ def critical_weakness_mods(stacks: tuple[float, str]) -> tuple[list[dict], list[
 # IgniteDuration, IgniteChancePerHit, HitChance) at its own use rate (conditions.skill_use_rate: its cooldown, duration,
 # or the search's chosen press rate, else 0). Where several do, the one with the most IgniteDPS x applications counts
 # (PoB counts the strongest Ignite; the others' Ignites between its applications aren't added: a lower reading, MEDIUM).
-# The boss is Ignited 1 - (1 - c)^(h x D) of the fight from that skill (conditions.ailment_uptime's formula), cut by His
+# The boss is Ignited 1 - conditions.periodic_absent(c, h x D) of the fight from that skill (MECHB54, MECH99's evenly
+# spaced hits, ailment_uptime's formula since train 119: the old 1 - (1 - c)^(h x D) read a 100% chance as always on at
+# any hit rate, an OVERCOUNT for slow hits: one hit every 10 s, a 4 s Ignite, 40% not 100%), cut by His
 # Winnowing Flame Consuming it u times a second (conditions.side_consumed's formula: share / (1 + share x u x (1 s
 # immune + 1 / (h x c) to Ignite again))). Labelled: the main skill's Speed is taken as its whole use rate while the
 # igniting skill is also pressed (the presses' time isn't taken off His Winnowing Flame's uses here, as MECH37 takes
@@ -13460,8 +13462,9 @@ def grisly_pyre_other_ignite(uses: float, hits: float, chance: float, duration: 
     `duration` s) that His Winnowing Flame Consumes `uses` times a second (see the note above)."""
     if hits <= 0 or chance <= 0 or duration <= 0:
         return 0.0, "the skill doesn't Ignite the boss"
+    from builder.search import conditions
     chance = min(chance, 1.0)
-    alone = 1.0 - (1.0 - chance) ** (hits * duration)
+    alone = 1.0 - conditions.periodic_absent(chance, hits * duration)
     wait = 1.0 / (hits * chance)
     share = alone / (1.0 + alone * max(uses, 0.0) * (CONSUME_IMMUNE + wait))
     return share, (f"Ignited {alone:.0%} of the fight by it alone ({hits:.2f} hits/s x {chance:.0%}, {duration:.2f} s "
@@ -23335,16 +23338,18 @@ def icestorm_overlap_note(main: Skill | None, speed: float, duration: float) -> 
 # PoB (checked: grep -i "vivid_stag|cascade_number_of_damaging" over SkillStatMap.lua and Modules: none).
 # Stags a second = the movement Wisps (the dodge rolls the build makes anyway: the user's rate / the boss's attack gap,
 # x DODGE_ROLL_METRES / 10; walking not counted, an UNDERCOUNT) + with the node one a Stampede, a Stampede every
-# max(0.3 s, T_end + the next attack): T_end, how long a Stampede takes to end, is in no file (R40-9: 0.3-4 s): a LOW
-# flat 1 s, FOR THE MANAGER, rows 0.3 and 4 s. The per-leap more: additive over the 4 landings, x1.30 (leap 0 first,
+# max(0.3 s, T_end + the next attack): T_end, how long a Stampede takes to end, is in no file; RESEARCH45 R45-10
+# (MECHB54; MEDIUM-LOW): about 2.0 s from the trigger to the 4th leap (the 4 leaps end it, about 0.5 s apart; the stag
+# animation's leaping loop lands at 0.59 s and 1.13 s; GGG's Spirit Walker showcase times one at ~1.75-2.0 s; the stat's
+# 4 s is the Shocked Ground's duration, not the Stampede's): 2.0 s, rows 1.75 s and 2.3 s (was MECHB52's LOW 1 s). The per-leap more: additive over the 4 landings, x1.30 (leap 0 first,
 # the lower reading; compounding x1.342 a row). No Attack main skill: no Stampede (0, said).
 VIVID_STAMPEDE = "Vivid Stampede"
 VIVID_ENTRY = "model-mechb52-vivid-stampede"
 VIVID_LANDINGS = 4
 VIVID_METRES_PER_WISP = 10.0
 VIVID_COOLDOWN = 0.3
-VIVID_END = 1.0  # s, LOW (R40-9: 0.3-4 s; no game number): the time a Stampede takes to end
-VIVID_END_ROWS = (0.3, 4.0)
+VIVID_END = 2.0  # s, MEDIUM-LOW (RESEARCH45 R45-10: trigger to the 4th leap, range 1.75-2.3 s): a Stampede's length
+VIVID_END_ROWS = (1.75, 2.3)
 VIVID_PER_LEAP = 0.20
 MORRIGAN = re.compile(r"^Gain a Vivid Wisp when Vivid Stampede ends$", re.I)
 
@@ -23384,7 +23389,7 @@ def vivid_stampede_model(main: Skill | None, stampede: Skill | None, texts: list
         "basis": (f"Wisps from movement: {rolls:.3f} dodge rolls a second made anyway (the user's rate) x "
                   f"{DODGE_ROLL_METRES:g} m / {VIVID_METRES_PER_WISP:g} m a Wisp = {moved:.3f} (walking not counted)"
                   + (f"; The Mórrigan's Guidance: a Wisp each time a Stampede ends, one every max({VIVID_COOLDOWN:g} s, "
-                     f"{VIVID_END:g} s to end (LOW: no game number, R40-9) + {1 / attack_rate:.2f} s to the next "
+                     f"{VIVID_END:g} s to end (MEDIUM-LOW: RESEARCH45 R45-10, timed on video; no game number) + {1 / attack_rate:.2f} s to the next "
                      f"attack), and 20% more a leap, x{leap:.2f} over the 4 landings (additive, the lower reading)"
                      if node else "")
                   + f". Each Stag lands {VIVID_LANDINGS} times on a boss in its path (R42-5, MEDIUM-LOW); PoB scores one "

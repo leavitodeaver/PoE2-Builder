@@ -52,7 +52,7 @@ def test_icestorms_overlapping_storms_are_a_row_only():
 
 def test_vivid_stampede_runs_at_the_wisps_the_build_makes():
     """un-morrigans-guidance: Stags = movement Wisps (rolls x 4.6 m / 10 m) + with The Mórrigan's Guidance one a
-    Stampede every max(0.3 s, 1 s to end + the next attack); 4 landings a Stag; 20% more a leap (additive, x1.30)."""
+    Stampede every max(0.3 s, 2.0 s to end (R45-10) + the next attack); 4 landings a Stag; 20% more a leap (additive, x1.30)."""
     main = models.Skill("Twister", 1, attack=True)
     vs = models.Skill("Vivid Stampede", 7, attack=True)
     mods, notes = models.vivid_stampede_model(main, vs, [], 0.3, 2.0)
@@ -60,9 +60,9 @@ def test_vivid_stampede_runs_at_the_wisps_the_build_makes():
     assert mods[0]["key"] == "triggerRate" and mods[0]["value"] == pytest.approx(moved * 4, abs=1e-3)
     assert len(mods) == 2 and notes[0]["confidence"] == "LOW"
     mods, notes = models.vivid_stampede_model(main, vs, ["Gain a Vivid Wisp when Vivid Stampede ends"], 0.3, 2.0)
-    assert mods[0]["value"] == pytest.approx((moved + 1 / 1.5) * 4, abs=1e-3)
+    assert mods[0]["value"] == pytest.approx((moved + 1 / 2.5) * 4, abs=1e-3)
     assert mods[2]["name"] == "Damage" and mods[2]["value"] == pytest.approx(30.0, abs=0.01)
-    assert "0.3 s:" in notes[0]["basis"] and "compounding: x1.342" in notes[0]["basis"]
+    assert "1.75 s:" in notes[0]["basis"] and "2.3 s:" in notes[0]["basis"] and "compounding: x1.342" in notes[0]["basis"]
     assert models.vivid_stampede_model(models.Skill("Spark", 1, spell=True), vs, [], 0.3, 2.0)[0] == []
     assert models.vivid_stampede_model(main, vs, [], 0.0, 2.0)[0] == []  # (no Wisps: 0, said)
     assert models.vivid_stampede_model(main, None, [], 0.3, 2.0) == ([], [])

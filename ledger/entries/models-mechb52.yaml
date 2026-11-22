@@ -24,8 +24,8 @@
   notes: >-
     MECHB52 (plans/un-morrigans-guidance.md; RESEARCH42 R42-5, RESEARCH40 R40-9; an UNDERCOUNT: PoB's tree-granted group
     is outside Full DPS). Stags a second = Wisps from the dodge rolls the build makes anyway (x 4.6 m / 10 m; walking not
-    counted) + with The Mórrigan's Guidance one a Stampede every max(0.3 s, T_end + the next attack), T_end a LOW 1 s
-    (no game number; rows 0.3 and 4 s). 4 landings a Stag (MEDIUM-LOW); the 20% more a leap additive (x1.30; compounding
+    counted) + with The Mórrigan's Guidance one a Stampede every max(0.3 s, T_end + the next attack), T_end 2.0 s
+    (MECHB54: RESEARCH45 R45-10, MEDIUM-LOW, timed on video, no game number; rows 1.75 and 2.3 s; was a LOW 1 s). 4 landings a Stag (MEDIUM-LOW); the 20% more a leap additive (x1.30; compounding
     x1.342 a row). Its group counts through Full DPS at that rate. No Attack main skill: 0.
 - id: model-mechb52-primal-bounty
   title: "Primal Bounty's Owl-Feather Empowerment, +2 Projectiles on the main skill's Empowered uses (models.primal_bounty_model)"
