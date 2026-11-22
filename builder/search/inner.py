@@ -30,7 +30,7 @@ from builder.search.conditions import (
     moving_candidates,
 )
 from builder.search.context import GEM_LEVEL, GEM_QUALITY, Context, ItemOption, context_for
-from builder.search.gear import CHARM_SLOTS, Gear, SlotSpec, extra_ring_passive, is_flask_slot
+from builder.search.gear import CHARM_SLOTS, Gear, SlotSpec, extra_ring_passive, is_flask_slot, owned_option
 from builder.search.gems import META_LABEL, Gems
 from builder.search.jewels import Jewels
 from builder.search import flasks, play_guide
@@ -340,7 +340,13 @@ class Search:
             kept[slot] = ItemOption(item["name"], item["base"], item["type"], base.get("subType"), raw, unique,
                                     None if ctx.ssf else price, "ssf" if ctx.ssf else confidence,
                                     (base.get("req") or {}).get("level") or 0, rare=item["rarity"] in ("RARE", "MAGIC"))
+        # (SEARCH36; the manager's 08:05 22 Nov) the user's own items in a seed run too, as Gear.setup does for a new
+        # build (SEARCHB3's owned-gear feature): a unique the code holds that the user owns (owned_uniques) at price 0,
+        # then each pasted item (owned_items) in its slot, locked, before the budget trim below
+        owned = set(getattr(ctx.request, "owned_uniques", None) or [])
+        kept = {slot: owned_option(o) if o.unique and o.name in owned else o for slot, o in kept.items()}
         build.equipped = kept
+        self.problems += self.gear.setup_owned()
         # (dearest first; equal prices by slot name, not PoB's per-process slot order: PERF12)
         for slot, option in sorted(kept.items(), key=lambda x: (-(x[1].price or 0.0), x[0])):
             if build.spent() <= ctx.budget + 1e-9:
@@ -352,6 +358,8 @@ class Search:
                                   + ([ctx.request.weapon_unique] if ctx.request.weapon_unique else [])):
             held = next((s for s, o in build.equipped.items() if o.name == name), None)
             option = ctx.unique_option(name)
+            if option is not None and name in owned:
+                option = owned_option(option)  # (SEARCH36: the user owns it: price 0, as Gear.setup)
             slot = held or (self.gear.slot_for(option) if option else None)
             if slot is None:
                 self.problems.append(f"required unique {name} fits no slot of this skeleton")

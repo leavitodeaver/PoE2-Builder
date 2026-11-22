@@ -151,3 +151,33 @@ def test_a_curse_whose_rescore_gains_nothing_is_taken_back_and_frees_its_spirit(
     gems.relevel_added = lambda: False
     assert gems.persistent_round() is False
     assert calls == [("add", BLASPHEMY_LABEL), ("remove", 5)], calls
+
+
+def test_a_seed_run_honours_the_users_own_items(engine):
+    """SEARCH36 (the manager's 08:05 22 Nov, from SEARCHB3's owned-gear feature): a run started from a PoB code (setup_seed)
+    takes the user's own items too: a unique the code holds that the user owns costs 0 (gear.OWNED), and a pasted item
+    goes in its slot, locked, at no cost, as on a new build (Gear.setup)."""
+    from builder.pob import codes
+    from builder.search.gear import OWNED
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    ring = "\n".join(["Rarity: RARE", "Woe Loop", "Amethyst Ring", "Item Level: 80", "+30% to Cold Resistance"])
+    first = BuildRequest(main_skill="Boneshatter", weapon_unique="Brain Rattler")
+    ctx = Context(make_payload(first))
+    skeleton = enumerate_skeletons(ctx, ["Boneshatter"])[0][0]
+    made = Search(engine, None, make_payload(first), skeleton.as_dict(), 0)
+    made.setup(quests=False)
+    assert made.build.equipped["Weapon 1"].name == "Brain Rattler"
+    code = codes.encode(made.build.call("exportXml")["xml"])
+
+    seeded = BuildRequest(main_skill="Boneshatter", weapon_unique="Brain Rattler", owned_uniques=["Brain Rattler"],
+                          owned_items=[{"text": ring, "slot": "Ring 2"}], seed_code=code)
+    search = Search(engine, None, make_payload(seeded), skeleton.as_dict(), 0)
+    search.setup_seed(quests=False)
+    build = search.build
+    held = build.equipped["Weapon 1"]
+    assert held.name == "Brain Rattler" and held.price == 0.0 and held.confidence == OWNED
+    pasted = build.equipped["Ring 2"]
+    assert pasted.name == "Woe Loop" and pasted.price == 0.0 and pasted.confidence == OWNED
+    assert {"Weapon 1", "Ring 2"} <= build.locked_slots
