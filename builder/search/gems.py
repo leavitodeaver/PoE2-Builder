@@ -1312,7 +1312,10 @@ class Gems:
             added = build.set_group(gems=gems, label=label)
             if self.resolve is not None:
                 self.resolve()
-            if build.worse(before):
+            # (SEARCH36; the manager's 08:45 22 Nov, MECH100's probe POE2T6419) kept only if the full rescore is HIGHER: a
+            # Blasphemy curse's what-if gained (-65.016 vs -65.212) before its gem-level cap was read, the rescore gave
+            # exactly nothing, and the group stayed and took spare Spirit
+            if build.worse(before) or build.score <= before + EPSILON:
                 build.remove_group(added["index"])
                 if self.resolve is not None:
                     self.resolve()

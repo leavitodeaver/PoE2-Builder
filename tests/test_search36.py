@@ -108,3 +108,46 @@ def test_an_item_granted_spirit_group_is_switched_off_when_that_scores_higher(en
     assert gems.item_spirit_off(float("inf")) is True
     assert not next(g for g in build.groups() if g["index"] == group["index"])["enabled"]
     assert gems.item_spirit_offs == [group["index"]]
+
+
+def test_a_curse_whose_rescore_gains_nothing_is_taken_back_and_frees_its_spirit():
+    """SEARCH36 (the manager's 08:45 22 Nov, MECH100's probe POE2T6419): the persistent step's Blasphemy trial credited a
+    curse with a small what-if gain before its gem-level cap was read; the full rescore gave it exactly nothing, and the
+    group stayed and took spare Spirit. Now an added group is kept only if the rescore is higher."""
+    from types import SimpleNamespace
+
+    from builder.search.gems import BLASPHEMY_LABEL, Gems
+
+    calls = []
+
+    class FakeBuild:
+        score = -65.212
+        stats = {"Spirit": 100}
+        reverts: dict = {}
+
+        def groups(self):
+            return []
+
+        def gem_deltas(self, cases, skip_ehp=False):
+            return []
+
+        def set_group(self, **kw):
+            calls.append(("add", kw["label"]))
+            return {"index": 5}
+
+        def remove_group(self, index):
+            calls.append(("remove", index))
+
+        def worse(self, before):
+            return self.score < before - 1e-9
+
+    gems = Gems.__new__(Gems)
+    gems.build = FakeBuild()
+    gems.ctx = SimpleNamespace(request=SimpleNamespace(floors=SimpleNamespace(spare_spirit=None)), persistent_candidates=[])
+    gems.resolve, gems.assumptions = None, None
+    gems.budget_left = lambda: 10.0
+    gems.blasphemy_option = lambda present, left, floor: (-65.016, "Despair")  # (the what-if's small gain)
+    gems.blasphemy_gems = lambda name: [{"name": "Blasphemy"}, {"name": name}]
+    gems.relevel_added = lambda: False
+    assert gems.persistent_round() is False
+    assert calls == [("add", BLASPHEMY_LABEL), ("remove", 5)], calls

@@ -639,18 +639,21 @@ def test_the_spirit_step_puts_a_curse_in_blasphemy(engine, monkeypatch):
     option = search.gems.blasphemy_option(present, search.gems.budget_left(), 0)
     print("PROBE", option, before)
     assert option is not None and option[0] > before
+    # MECH100: this bare build's 25 Intelligence holds the curse at a low gem level, whose level cap (under 18) is below
+    # the level-82 boss's: never on the boss (PoB applies it anyway; probe POE2T6418: Elemental Weakness level 4, cap 29).
+    # The what-if above reads no cap; the full rescore gives the capped curse nothing (POE2T6419), so the persistent step
+    # doesn't keep it to take Spirit (SEARCH36, the manager's 08:45)
     while search.gems.persistent_round():
         pass
+    assert not [g for g in build.groups() if g["label"] == BLASPHEMY_LABEL]
+    # MECH33: the Aura reaches the boss only inside your Presence, so a caster at range gains once it stands close
+    # (checked with the level cap off, as for a curse at gem level 18 or more; the Blasphemy group the trial found put in
+    # by hand, as the persistent step keeps it only once it pays)
+    monkeypatch.setattr(models, "curse_level_capped", lambda use, stats: use)
+    build.set_group(gems=search.gems.blasphemy_gems(option[1]), label=BLASPHEMY_LABEL)
+    search.resolve()
     cursed = [g for g in build.groups() if g["label"] == BLASPHEMY_LABEL]
     assert len(cursed) == 1 and [g["name"] for g in cursed[0]["gems"]][0] == "Blasphemy"
-    # MECH100: this bare build's 25 Intelligence holds the curse at a low gem level, whose level cap (under 18) is below
-    # the level-82 boss's: never on the boss (PoB applies it anyway; probe POE2T6418: Elemental Weakness level 4, cap 29)
-    from builder.search import conditions
-
-    assert all(u.share == 0 for u in conditions.curse_uses(build, {"Speed": 1.0}, []))
-    # MECH33: the Aura reaches the boss only inside your Presence, so a caster at range gains once it stands close
-    # (checked with the level cap off, as for a curse at gem level 18 or more)
-    monkeypatch.setattr(models, "curse_level_capped", lambda use, stats: use)
     search.choose_distance()
     assert search.conditions.distance and search.conditions.distance[0] <= 2.0
     assert build.score > before
