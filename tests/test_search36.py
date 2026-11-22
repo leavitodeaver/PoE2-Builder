@@ -83,3 +83,28 @@ def test_a_purity_groups_supports_cost_no_spirit_and_it_is_filled_on_every_reque
     assert len(plain.gems.free_groups()) == 1
     assert any(kind == "free" for _, _, kind in plain.gems.fill_targets())
 
+
+def test_an_item_granted_spirit_group_is_switched_off_when_that_scores_higher(engine, monkeypatch):
+    """SEARCH36 (the manager's 02:45 22 Nov, R45-6b): PoB reserves an item-granted Herald's Spirit whenever its group is
+    enabled, the game only while the player switches it on. With a spare-Spirit floor of 100 (the build has 100, no
+    quests), the Herald a body armour grants breaks the floor; item_spirit_off (POE2_SEARCH_ITEM_SPIRIT_OFF=1) switches
+    its group off."""
+    from builder.search import gems as gems_module
+
+    search = _search(engine, False, sceptre=False, spare=100)
+    build, gems = search.build, search.gems
+    # (a PoE2 base, the line an implicit as on The Coming Calamity: "Simple Robe" is no PoE2 base, POE2T5591 / 5593)
+    armour = "\n".join(["Rarity: Rare", "Probe Coat", "Heroic Armour", "Item Level: 82", "Implicits: 1",
+                        "Grants Skill: Level 20 Herald of Ice"])
+    build.call("equip", slot="Body Armour", raw=armour, fields=[])
+    build.refresh()
+    group = next(g for g in build.groups() if g["gems"] and g["gems"][0]["name"] == "Herald of Ice")
+    assert group["fromItem"] and group["slot"] == "Body Armour"
+    assert group["skills"][0]["spiritReserved"] > 0, group["skills"]
+    print("Spirit", build.call("stats", fields=["Spirit", "SpiritUnreserved"]), "score", build.score)
+    monkeypatch.setattr(gems_module, "ITEM_SPIRIT_OFF", False)
+    assert gems.optimize_persistent(float("inf"), rounds=0) is False  # (off by default)
+    assert next(g for g in build.groups() if g["index"] == group["index"])["enabled"]
+    assert gems.item_spirit_off(float("inf")) is True
+    assert not next(g for g in build.groups() if g["index"] == group["index"])["enabled"]
+    assert gems.item_spirit_offs == [group["index"]]

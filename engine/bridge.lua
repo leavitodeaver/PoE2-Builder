@@ -4132,6 +4132,8 @@ local function describeGroup(index, group)
 		skills[#skills + 1] = { name = effect.grantedEffect.name, parts = parts, statSets = statSets,
 			noDamageSets = noDamageSets, statSet = currentSet,
 			reservationMultiplier = reservationMultiplier, extraSpirit = extraSpirit,
+			-- (SEARCH36, R45-6b) the Spirit PoB reserves for it (CalcDefence's skillData.SpiritReservedBase)
+			spiritReserved = activeSkill.skillData and activeSkill.skillData.SpiritReservedBase or 0,
 			part = effect.srcInstance and effect.srcInstance.skillPart,
 			-- (MECHB51, Spectre step 3: Assumptions.choose_monsters) the granted effect's id and a Spectre / Tamed
 			-- Companion gem's chosen monster

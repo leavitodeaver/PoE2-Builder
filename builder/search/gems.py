@@ -115,6 +115,13 @@ SIDE_RESWEEP = 0.05
 FREE_DEFENCE_FIELDS = ("Life", "EnergyShield", "Mana", "Armour", "Evasion", "LifeRegenRecovery",
                        "EnergyShieldRegenRecovery", "ManaRegenRecovery", "PhysicalMaximumHitTaken", "FireMaximumHitTaken",
                        "ColdMaximumHitTaken", "LightningMaximumHitTaken", "ChaosMaximumHitTaken")
+# (SEARCH36; the manager's 02:45 22 Nov, R45-6b) item_spirit_off: an item-granted group PoB reserves Spirit for is
+# tried switched off, kept off if that scores higher. OFF until a gate measures it: POE2_SEARCH_ITEM_SPIRIT_OFF=1 turns
+# it on. ITEM_SPIRIT_KEPT: the skill-amulet bases it never switches off (the manager: their skills reserve no Spirit in
+# the game, the user's rule 21 Nov ~23:58 and MECH-C's c32508b3, while the supports socketed with them do; PoB's
+# grantedSkillsHaveNoReservation sits on these three bases in its Data/Bases, checked by grep there; game files UNVERIFIED)
+ITEM_SPIRIT_OFF = os.environ.get("POE2_SEARCH_ITEM_SPIRIT_OFF", "0") == "1"
+ITEM_SPIRIT_KEPT = frozenset({"Absent Amulet", "Lament Amulet", "Portent Amulet"})
 # (SEARCH34; the user, 20 Nov: "having empty support sockets is a HUGE loss in power", corrected: an empty socket is a red
 # flag to justify by score, not automatically wrong: Uhtred's Augury, Spirit kept for the other Spirit skills, ...)
 # fill_open gives each open socket of each fillable group REAL trials (commit + resolve, the score with every model) of
@@ -210,6 +217,7 @@ class Gems:
         self.build = build
         self.ctx = build.ctx
         self.required_supports = set(self.ctx.compiled.request.require.supports)
+        self.item_spirit_offs: list[int] = []  # (SEARCH36, item_spirit_off) the item groups it switched off
         self.shortlist: list[str] | None = None  # best supports at the last full sweep
         self.census: dict = {}  # the main group's last supports round (supports_round)
         self.failed: dict[int, tuple[tuple, dict]] = {}  # group -> (its gems, {failed move: the score it failed at})
@@ -1548,12 +1556,47 @@ class Gems:
 
     def optimize_persistent(self, deadline: float, rounds: int = 6) -> bool:
 
-        improved = False
+        improved = self.item_spirit_off(deadline) if ITEM_SPIRIT_OFF else False
         for _ in range(rounds):
             if clock.now() > deadline or not self.persistent_round():
                 break
             improved = True
         return improved
+
+    def item_spirit_off(self, deadline: float) -> bool:
+        """(SEARCH36; the manager's 02:45 22 Nov, R45-6b) An item-granted group PoB reserves Spirit for (a unique's
+        Herald) reserves it in PoB whenever the group is enabled, in the game only while the player switches it on: each
+        such group (not the main one, not on an ITEM_SPIRIT_KEPT amulet base) is switched off for real, and the best off
+        that scores higher is kept (its freed Spirit is then the persistent rounds' to spend). One group per call."""
+        build = self.build
+        before, snap = build.score, build.snapshot()
+        best: tuple[float, int] | None = None
+        for g in build.groups():
+            if clock.now() > deadline:
+                break
+            if not g["fromItem"] or not g["enabled"] or g["main"] or g["label"] == META_LABEL:
+                continue
+            if not any(float(s.get("spiritReserved") or 0) > 0 for s in g["skills"]):
+                continue
+            item = build.equipped.get(g.get("slot")) if g.get("slot") else None
+            if item is not None and item.base in ITEM_SPIRIT_KEPT:
+                continue
+            build.set_group(index=g["index"], enabled=False)
+            if self.resolve is not None:
+                self.resolve()
+            if build.score > before + EPSILON and (best is None or build.score > best[0]):
+                best = (build.score, g["index"])
+            build.restore(snap)
+        if best is None:
+            return False
+        build.set_group(index=best[1], enabled=False)
+        if self.resolve is not None:
+            self.resolve()
+        if build.score <= before + EPSILON:
+            build.restore(snap)
+            return False
+        self.item_spirit_offs.append(best[1])
+        return True
 
     # Meta gems the search picks by itself (PLAN.md "Meta-gem set-ups", first slice) -------------------------------
 
