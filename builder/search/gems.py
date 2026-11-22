@@ -113,7 +113,8 @@ SIDE_RESWEEP = 0.05
 FILL_TRIALS = 4
 FILL_SIDE_TRIALS = 2
 FILL_SECONDS = 90.0
-FILL_KINDS = ("main",)
+# (SEARCH35) POE2_SEARCH_FILL=0 turns the finalize fill off (FILL_KINDS empty), for a fill on / off gate set on one commit
+FILL_KINDS = ("main",) if os.environ.get("POE2_SEARCH_FILL", "1") != "0" else ()
 SIDE_GAP = ("not tried: a side group's support what-ifs all read 0 (its buff or debuff counts only after a resolve), so "
             "nothing ranks its candidates yet; the fill covers the main group only (the manager's 06:58)")
 COUNT_RULE = re.compile(r"provided exactly (\w+) other supports", re.I)
@@ -934,6 +935,7 @@ class Gems:
             if kind not in FILL_KINDS:
                 out.append({"group": group["index"], "kind": kind, "skill": names[0], "supports": names[first:],
                             "open": open_, "reasons": [SIDE_GAP if kind == "side" else
+                                                       "not tried: the fill is off (POE2_SEARCH_FILL=0)" if not FILL_KINDS else
                                                        "not tried: the fill covers the main group only (the manager's 06:58)"]})
                 continue
             for n in names[first:]:
