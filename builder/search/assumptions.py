@@ -4662,6 +4662,10 @@ class Assumptions:
                 main, main.stat_set, sets, number(stats.get("Speed")), ground, frozen, models.power_of(stats),
                 f"Chilled Ground {ground:.0%}: {ground_how}; Frozen {frozen:.0%}: {up_how}", forbidden)
             hand_mods, hand_notes = hand_mods + ice_mods, hand_notes + ice_notes
+        if main is not None and group and main.name in models.LONE_BOSS_SETS:  # (GEM32: Lightning Arrow's beams, R44-11)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            lone_mods, lone_notes = models.lone_boss_set_model(main, main.stat_set, sets, forbidden, previous=self.mods)
+            hand_mods, hand_notes = hand_mods + lone_mods, hand_notes + lone_notes
         if main is not None and group and main.name in models.GATED_SETS:  # (GEM17: Enraged / Empowered need a resource)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             gate_share, gate_how = self.gated_set_share(main.name, texts, main_types)

@@ -7799,6 +7799,39 @@ def strongest_ailment_model(main: Skill | None, sets: list[dict], shares: dict[s
                              + "; ".join(parts) + ". Only the strongest counts: the game's rule (KeywordPopups Debuff; RESEARCH33 R33-2), HIGH")}]
 
 
+# Lightning Arrow's beams on a lone boss (GEM32; RESEARCH44 R44-11, MEDIUM, research/two-part-skills-frostbolt-r44.md; an
+# OVERCOUNT). ActiveSkills lightning_arrow (26650308): "On hitting an enemy or wall, the arrow will fire Chaining
+# Lightning beams at nearby enemies"; R44-11: the beams go to additional enemies near the target, none to the struck one.
+# PoB scores each set alone and the search kept the Beam set (probe POE2T5822: Beam 92.75 vs Projectile 87.13 DPS). On a
+# lone boss the use's damage is the arrow's hit: an Arrow-scored set stays, a Beam-scored one is scaled to the Projectile
+# set's (setRates), a "Damage" MORE (damage per hit; the hits a second are the same). Rows (UNVERIFIED): a beam chaining
+# back from an add, an arrow hitting a wall beside the boss. The main skill only.
+LONE_BOSS_SETS = {"Lightning Arrow": ("Projectile", "Beam", "model-gem32-lightning-arrow-beams")}
+
+
+def lone_boss_set_model(main: Skill | None, scored: str | None, sets: list[dict],
+                        forbidden: set[str] = frozenset(), previous: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
+    """A LONE_BOSS_SETS main skill scored on a part that only hits OTHER enemies: scaled to the part that hits the boss."""
+    if main is None or main.name not in LONE_BOSS_SETS:
+        return [], []
+    hit_label, other_label, entry = LONE_BOSS_SETS[main.name]
+    if entry in forbidden or scored != other_label:
+        return [], []
+    dps = unscale_own(sets, previous, entry)
+    hit, other = dps.get(hit_label, 0.0), dps.get(other_label, 0.0)
+    if hit <= 0 or other <= 0:
+        return [], []
+    factor = hit / other
+    return [raw_mod("Damage", "MORE", 100 * (factor - 1), main.name, tag=entry)], [{
+        "label": f"{main.name}: its {other_label} part hits only other enemies*", "value": f"x{factor:.3f}",
+        "confidence": "MEDIUM", "entry": entry,
+        "basis": (f"PoB scored the {other_label} set ({other:,.0f} DPS); its beams go to additional enemies near the target "
+                  f"(RESEARCH44 R44-11, MEDIUM), none to the struck boss, so a lone boss takes the {hit_label} hit: "
+                  f"{hit:,.0f}. Rows (UNVERIFIED): a beam chaining back from an add; an arrow hitting a wall beside the boss"),
+        "play": (f"Against a lone boss {main.name}'s beams find no other target: its arrow's hit is what counts "
+                 f"({hit:,.0f}; PoB's {other_label} {other:,.0f}).")}]
+
+
 def gated_set_model(main: Skill | None, scored: str | None, sets: list[dict], share: float, how: str,
                     forbidden: set[str] = frozenset(), previous: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
     """A GATED_SETS skill's use as the game makes it (see above): `sets` the bridge's setRates for its group, `share` of

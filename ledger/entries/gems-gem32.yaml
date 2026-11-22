@@ -282,3 +282,20 @@
             "scratch/gem32/probe5822.log", "https://poe2db.tw/us/Frostbolt"]
   test_in_game: "Cast Frostbolt at a boss in the open and at a boss against a wall: does the open one take an explosion?"
   status: proposed
+
+- id: model-gem32-lightning-arrow-beams
+  title: "Lightning Arrow's beams hit only other enemies: a lone boss takes the arrow's hit (an OVERCOUNT of x1.065 before)"
+  kind: model
+  model: lone_boss_set_model
+  skill: [Lightning Arrow]
+  confidence: MEDIUM
+  notes: >-
+    ActiveSkills lightning_arrow (26650308): "On hitting an enemy or wall, the arrow will fire Chaining Lightning beams at
+    nearby enemies"; RESEARCH44 R44-11 (MEDIUM): the beams go to additional enemies near the target, none to the struck
+    one. PoB scores each set alone and the search kept the Beam set (probe POE2T5822: Beam 92.75 vs Projectile 87.13).
+    models.lone_boss_set_model scales a Beam-scored use to the Projectile set's DPS (a Damage MORE). Rows UNVERIFIED: a
+    beam chaining back from an add, an arrow hitting a wall beside the boss.
+  sources: ["builder/search/models.py (LONE_BOSS_SETS, lone_boss_set_model)", "scratch/gem32/probe5822.log",
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/two-part-skills-frostbolt-r44.md (R44-11)"]
+  test_in_game: "Lightning Arrow on a lone dummy: does a beam ever hit the struck dummy?"
+  status: proposed

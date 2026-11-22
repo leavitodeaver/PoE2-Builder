@@ -1939,3 +1939,14 @@ def test_frostbolt_explosion_only_where_the_bolt_meets_terrain():
     assert notes[0]["entry"] == "model-gem32-frostbolt-terrain-explosion"
     assert f"{104.62 + 166.81:,.0f}" in notes[0]["play"]  # the "boss against a wall" reading
     assert models.gated_set_model(fb, "Projectile", sets, 0.0, "none")[0] == []  # the hit alone: nothing to change
+
+
+def test_lightning_arrow_beams_hit_only_other_enemies():
+    # (GEM32, R44-11) probe POE2T5822: Beam 92.75 vs Projectile 87.13, the Beam scored; on a lone boss the arrow's hit
+    sets = [{"label": "Projectile", "TotalDPS": 87.13}, {"label": "Beam", "TotalDPS": 92.75}]
+    la = Skill("Lightning Arrow", 1, attack=True)
+    mods, notes = models.lone_boss_set_model(la, "Beam", sets)
+    assert mods[0]["name"] == "Damage" and mods[0]["value"] == pytest.approx(100 * (87.13 / 92.75 - 1), abs=0.01)
+    assert notes[0]["entry"] == "model-gem32-lightning-arrow-beams"
+    assert models.lone_boss_set_model(la, "Projectile", sets) == ([], [])
+    assert models.lone_boss_set_model(la, "Beam", sets, {"model-gem32-lightning-arrow-beams"}) == ([], [])
