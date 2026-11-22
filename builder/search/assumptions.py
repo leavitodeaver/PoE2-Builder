@@ -4761,6 +4761,7 @@ class Assumptions:
         if main is not None and main.name == models.FLAMEBLAST:  # (GEM18: its stages and its channel + cooldown cycle)
             fb_mods, fb_notes = models.flameblast_model(main, stats, forbidden)
             hand_mods, hand_notes = hand_mods + fb_mods, hand_notes + fb_notes
+            hit_cut(build, fb_mods, main.name)  # (MECH99: one release a cycle; its stages are Multiplier, damage per hit)
         staged = {models.SLAM: models.supercharged_slam_model, models.DETONATING: models.detonating_arrow_model}
         if main is not None and group and main.name in staged:  # (GEM19: stages PoB leaves at 1, and the end animation)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
