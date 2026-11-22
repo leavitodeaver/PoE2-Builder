@@ -2491,6 +2491,52 @@ local function installGrantedLevel()
 	end
 end
 
+-- The skill amulets' granted skills reserve nothing on every path (MECHC52; THE USER, 21 Nov ~23:58: "make sure this
+-- applies to absent/lament/portent amulets as well. those all grant spirit reservation skills, but don't cost spirit";
+-- RESEARCH45 R45-6a, HIGH: the game flag on exactly these three bases, PoB's own Data/Bases/amulet.lua
+-- grantedSkillsHaveNoReservation). PoB passes the flag to the granted gem instance (Classes/Item.lua 2852 ->
+-- CalcSetup 1962 srcInstance.noReservation) and zeroes the reservation in calcs.buildActiveSkillModList's main path
+-- (CalcActiveSkill 822-826), but 9 of the 51 granted skills (the five Lament Heralds, Wind Dancer, Shard Scavenger,
+-- Portent's Mirage Archer and Feral Invocation; SEARCHB2's POE2T6253) still reserved 30 / 60 Spirit: MECHC52's probes
+-- POE2T4989 / 4990 / 4993 read their activeEffect.srcInstance.noReservation TRUE but their grantedEffectLevel unzeroed
+-- (spiritReservationFlat 30 / 60, manaReservationFlat absent), against Arctic Armour's zeroed one. THE PATH: on a build
+-- whose weapon the skill can't use (the probe's wand: "Main Hand weapon is not usable with this skill"), PoB disables the
+-- skill, and buildActiveSkillModList's disabled branch (CalcActiveSkill 731-742) copies the level table WITHOUT the
+-- noReservation zero and returns; CalcDefence 205-225 still reserves for a disabled skill. So after PoB builds each
+-- active skill, an effect whose source instance carries the
+-- flag has every Mana / Life / Spirit reservation field zeroed in its level table and its skillData (the keys CalcDefence
+-- reads first), whatever path built it. Supports the player sockets on the granted skill keep their own added
+-- reservation (ExtraSpirit: UNVERIFIED whether the game waives it too; PoB's left).
+local noReservationInstalled = false
+local function installNoReservation()
+	if noReservationInstalled then
+		return
+	end
+	local calcs = require("Modules.CalcBase")
+	local original = calcs.buildActiveSkillModList
+	if not original then
+		return
+	end
+	noReservationInstalled = true
+	calcs.buildActiveSkillModList = function(env, activeSkill, ...)
+		local results = { original(env, activeSkill, ...) }
+		local effect = activeSkill and activeSkill.activeEffect
+		if effect and effect.srcInstance and effect.srcInstance.noReservation then
+			for _, resource in ipairs({ "mana", "life", "spirit" }) do
+				for _, kind in ipairs({ "ReservationFlat", "ReservationPercent" }) do
+					if effect.grantedEffectLevel then
+						effect.grantedEffectLevel[resource .. kind] = 0
+					end
+					if activeSkill.skillData and activeSkill.skillData[resource .. kind] then
+						activeSkill.skillData[resource .. kind] = 0
+					end
+				end
+			end
+		end
+		return unpack(results)
+	end
+end
+
 -- One stat set, two stats, one skillData slot (PERF21). PoB merges a stat set's stats in `pairs(stats)`
 -- (CalcActiveSkill.lua mergeStatSet, line 87), a text-keyed table whose order LuaJIT picks anew in each Lua state, and
 -- skillData keeps the LAST SkillData mod of a key (CalcActiveSkill.lua 919-920). So where two stats of one set map to
@@ -2685,6 +2731,7 @@ local function installDerived()
 	installNoCritReroll()
 	installBaseChanceSwap()
 	installGrantedLevel()
+	installNoReservation()  -- (MECHC52: the skill amulets' granted skills reserve nothing)
 	installConcoctionsNotUnarmed()
 	local calcs = require("Modules.CalcBase")
 	if calcs.perform == wrappedPerform or not calcs.perform then
