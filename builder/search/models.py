@@ -6689,6 +6689,27 @@ EMBER_SKILLS = {EMBER_SKILL: (EMBER_ENTRY, EMBER_DURATION, EMBER_MORE, EMBER_CAP
                 "His Scattering Calamity": ("model-gem13-scattering-calamity-fusillade", 0.7, 10.0, 8)}
 
 
+def ember_fusillades_a_second(main: Skill | None, stats: dict) -> tuple[float, str]:
+    """(Fusillades a second, how) at ember_fusillade_model's rhythm (k casts to the cap, then the wait), for the share
+    of Fusillades that consume a Lightning Infusion (GEM34; one Infusion a Fusillade, MECHC29's K2-11)."""
+    speed = number(stats.get("Speed"))
+    if main is None or main.name not in EMBER_SKILLS or speed <= 0:
+        return 0.0, "no casts"
+    _, base_wait, base_more, base_cap = EMBER_SKILLS[main.name]
+    cap = int(number(main.level_stats.get(EMBER_CAP_STAT)) or base_cap)
+    more = number(main.level_stats.get(EMBER_MORE_STAT)) or base_more
+    wait = number(stats.get("Duration")) or base_wait
+    each = max(1, int(number(stats.get("ProjectileCount")) or 1))
+    best = None
+    for casts in range(1, -(-cap // each) + 1):
+        n = min(cap, casts * each)
+        rate = n * (1 + more / 100 * (n - 1) / 2) / (casts / speed + wait)
+        if best is None or rate > best[0]:
+            best = (rate, casts)
+    per = 1.0 / (best[1] / speed + wait)
+    return per, f"{best[1]} casts at {speed:.2f}/s then {wait:.2f} s: {per:.2f} Fusillades/s, one Infusion each"
+
+
 def ember_fusillade_model(main: Skill | None, stats: dict,
                           forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
     """Ember Fusillade (or His Scattering Calamity) as Fusillades (comment above): (mods, notes)."""
@@ -7801,8 +7822,30 @@ GATED_SETS = {"Furious Slam": ("Base", "Enraged", "Rage", "model-gem17-furious-s
               "Oil Barrage": ("Base", "Empowered", "Power Charges", "model-gem17-oil-barrage-power-charges"),
               "Glacial Lance": ("Spear", "Explosion", "Frenzy Charges", "model-gem19-glacial-lance-frenzy-charge"),
               "Frostbolt": ("Projectile", "Explosion", "terrain within 2.4 m of the boss (fight it against a wall)",
-                            "model-gem32-frostbolt-terrain-explosion")}
-GATED_ADDS = {"Glacial Lance", "Frostbolt"}
+                            "model-gem32-frostbolt-terrain-explosion"),
+              "Fireball": ("Projectile", "Firebolts", "a Fire Infusion", "model-gem34-fireball-firebolts-fire-infusion"),
+              "Ember Fusillade": ("Projectile", "Beam", "a Lightning Infusion",
+                                  "model-gem34-ember-fusillade-beam-lightning-infusion")}
+GATED_ADDS = {"Glacial Lance", "Frostbolt", "Fireball", "Ember Fusillade"}
+# (GEM34) Infused parts PoB labels without "-Infused", so gems.py's Infused gate (assumptions.INFUSED_ELEMENT: "fire-,
+# cold-, lightning-infused") left them a free choice the search could score with no Infusion (an OVERCOUNT exposure, as
+# Firestorm's Bolts and Frost Darts' were). The game (ActiveSkills, 26650308):
+# - fireball: "The explosion Consumes a Fire Infusion if possible to launch a ring of smaller firebolts"; PoB's
+#   "Firebolts" set (act_int 7583: 12 projectiles, active_skill_consumes_a_fire_infusion).
+# - ember_fusillade: "Consumes a Lightning Infusion if possible to cause the entire Fusillade to create beams that Chain
+#   to enemies"; PoB's "Beam" set (act_int 6292, active_skill_consumes_a_lightning_infusion). One Infusion a Fusillade,
+#   not a cast (MECHC29, PATCH_CHECK K2-11): the share is read at Fusillades a second (ember_fusillades_a_second).
+# Both ADD to the cast (the impact still happens; the firebolts / beams come from it): Projectile + Infused x share,
+# where share = the casts (Fusillades) that find an Infusion of that element (Assumptions.infusion_share: the build's
+# Remnants etc., Inhibitor, the cap and timer). PoB's Infused set is one projectile's (one beam's) hit, so the headline
+# takes ONE firebolt / beam hitting the lone boss (LOW: whether the ring launched from the explosion, or a beam that
+# Chains to enemies, hits the struck boss at all, and how many, is a RESEARCH question; R44-10 kept Fireball one part
+# and named the Firebolts Infusion-only). With no Infusion the Infused set scored gets the Projectile x
+# FIRESTORM_BOLTS_MARGIN as a Damage line (GEM19's steer), so the search keeps the Projectile set. Not gated here (other
+# owners): Incinerate's and Ball Lightning's "Ignited Ground" (never the main set, conditions' MECH79 no-hit sets);
+# Flame Wall's Lightning to projectiles (PoB's config flameWallInfused, which nothing sets: its fire and lightning
+# projectile buff both count 0, an UNDERCOUNT lead).
+INFUSED_GATED = {"Fireball": "Fire", "Ember Fusillade": "Lightning"}
 FROSTBOLT = "Frostbolt"  # (the gated part comes on top of the base set, not instead of it)
 FURIOUS_RAGE_A_SLAM = 10.0  # bear_slam_spend_X_rage_for_stronger_slam
 OIL_CHARGE_SECONDS = 1.5  # electric_spit_empowered_channel_consume_power_charge_per_X_ms 1500
@@ -8207,14 +8250,21 @@ def gated_set_model(main: Skill | None, scored: str | None, sets: list[dict], sh
     factor = total / dps[scored]
     steer = scored == gated_label and share <= 0
     if steer:
-        factor *= FIRESTORM_BOLTS_MARGIN  # (steer the search to the base set)
+        # (steer the search to the base set; GEM34: only ever DOWN: a gated set already weaker than the base x the
+        # margin was RAISED to it, probe POE2T5899: Ember Fusillade's Beam 174 tried with no Infusion got a Damage MORE
+        # +35.1% to 235, and the uptime weighing's off / on reads, taken in such a trial, left the score x1.0875)
+        factor = min(factor * FIRESTORM_BOLTS_MARGIN, 1.0)
     # (GEM19: a steered additive part as a Damage line, so its ailments shrink too, as detonated_set_model: POE2T2199)
     mods = ([raw_mod("Damage" if steer and adds else "DPS", "MORE", 100 * (factor - 1), main.name, tag=entry)]
             if abs(factor - 1) > 1e-9 else [])
+    # (GEM34: an INFUSED_GATED skill on its plain set with no Infusion is left exactly as it was: no set mix, so GEM22's
+    # strongest_ailment_model isn't switched on for it (probe POE2T5888: Ember Fusillade 263.83 -> 288.95 from that alone)
+    mix = not (main.name in INFUSED_GATED and share <= 0 and scored == base_label)
     return mods, [{
         "label": f"{main.name}: its {gated_label} part needs {resource}*", "value": f"x{factor:.3f}",
-        "confidence": "MEDIUM", "entry": entry,
-        "set_shares": ({base_label: 1.0, gated_label: share} if adds else {base_label: 1 - share, gated_label: share}),  # (GEM22: strongest_ailment_model)
+        "confidence": "LOW" if main.name in INFUSED_GATED else "MEDIUM", "entry": entry,
+        **({"set_shares": ({base_label: 1.0, gated_label: share} if adds
+                           else {base_label: 1 - share, gated_label: share})} if mix else {}),  # (GEM22: strongest_ailment_model)
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; {base_label} {base:,.0f}, {gated_label} "
                   f"{gated:,.0f}) and reads no gate. The game uses the {gated_label} part only with {resource}: {share:.0%} "
                   f"({how}), so {total:,.0f} DPS"

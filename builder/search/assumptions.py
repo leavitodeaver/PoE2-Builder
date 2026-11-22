@@ -4844,7 +4844,7 @@ class Assumptions:
             hit_cut(build, cg_mods, main.name)  # (GEM33: Cluster Grenade's primary + minis a use, hit_cut_per_use)
         if main is not None and group and main.name in models.GATED_SETS:  # (GEM17: Enraged / Empowered need a resource)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
-            gate_share, gate_how = self.gated_set_share(main.name, texts, main_types)
+            gate_share, gate_how = self.gated_set_share(main.name, texts, main_types, main=main)
             gate_mods, gate_notes = models.gated_set_model(main, main.stat_set, sets, gate_share, gate_how, forbidden,
                                                            previous=self.mods)
             hand_mods, hand_notes = hand_mods + gate_mods, hand_notes + gate_notes
@@ -9910,7 +9910,8 @@ class Assumptions:
                 "basis": (f"Inhibitor supports {skill}: it cannot consume Power, Frenzy or Endurance Charges "
                           f"(cannot_consume_power_frenzy_endurance_charges, R40-2 HIGH; PoB reads no such stat), so {what}")}
 
-    def gated_set_share(self, skill: str, texts: list[str], main_types: set[str]) -> tuple[float, str]:
+    def gated_set_share(self, skill: str, texts: list[str], main_types: set[str],
+                        main: models.Skill | None = None) -> tuple[float, str]:
         """(share, how) of a models.GATED_SETS skill's uses its resource covers (GEM17): Furious Slam's Rage from the
         build's Rage gains (conditions._rage_gain, the reader rage_held uses) over 10 a slam; Oil Barrage's Power Charges
         from the build's gains (conditions._charge_rate) x 1.5 s each; High Velocity Rounds' Fully Broken share (GEM21)."""
@@ -9928,6 +9929,17 @@ class Assumptions:
             share = min(max(number(share), 0.0), 1.0)
             return share, (f"the boss's Armour Fully Broken {share:.0%} of the fight ({how or 'no Armour Break source in the build'}"
                            "; MECH-A's Armour Broken cycle, build.full_break_up); the bolt doesn't consume it")
+        if skill in models.INFUSED_GATED:  # (GEM34: Fireball's Firebolts / Ember Fusillade's Beam need an Infusion)
+            element = models.INFUSED_GATED[skill]
+            up, _ = models.ailment_up_of(self.build)
+            ailments = {f"conditionEnemy{models.DISCHARGE_UPTIMES[k]}": v for k, v in up.items()
+                        if k in models.DISCHARGE_UPTIMES}
+            casts, casts_how = None, ""
+            if skill in models.EMBER_SKILLS:  # (one Infusion a Fusillade, not a cast: MECHC29's K2-11)
+                casts, casts_how = models.ember_fusillades_a_second(
+                    main, {**stats, **self.build.call("stats", fields=["ProjectileCount", "Duration"])})
+            share, how = self.infusion_share(element, ailments, casts)
+            return share, (f"{casts_how}; " if casts_how else "") + how
         if skill == "Furious Slam":
             gain = 0.0
             for t in texts:

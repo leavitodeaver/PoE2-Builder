@@ -1,0 +1,43 @@
+# GEM34 (22 Nov 2026): gem stats and multi-part skills, the GEM lane.
+- id: model-gem34-fireball-firebolts-fire-infusion
+  title: "Fireball's Firebolts only on the casts that consume a Fire Infusion (an OVERCOUNT exposure before: a free choice with no Infusion)"
+  kind: model
+  model: gated_set
+  stats: ["active_skill_consumes_a_fire_infusion"]
+  skill: [Fireball]
+  confidence: LOW
+  notes: >-
+    ActiveSkills fireball (26650308): "The explosion Consumes a Fire Infusion if possible to launch a ring of smaller
+    firebolts". PoB's "Firebolts" set (12 projectiles, active_skill_consumes_a_fire_infusion) has no "-Infused" label,
+    so gems.py's Infused gate (fire- / cold- / lightning-infused) never reached it and the search could score it with no
+    Infusion source. models.gated_set_model via GATED_SETS / GATED_ADDS / INFUSED_GATED (GEM34), the share from
+    Assumptions.infusion_share("Fire") (the build's Remnants and other sources, Inhibitor, the cap and timer): Projectile
+    + Firebolts x share; with none the Firebolts set gets the Projectile x 0.9 so the search keeps the Projectile set.
+    The headline takes ONE firebolt (PoB's one-set number) hitting the lone boss: LOW (whether the ring launched from
+    the explosion hits the struck boss, and how many, is a RESEARCH question; R44-10 kept Fireball one part). The
+    Explosion set, if scored, is left as it was (R44-10).
+  sources: ["builder/search/models.py (GATED_SETS, INFUSED_GATED, gated_set_model)",
+            "data/game-26650308/tables/ActiveSkills.json (fireball)", "vendor/PathOfBuilding-PoE2-v0.23.1/src/Data/Skills/act_int.lua (FireballPlayer Firebolts)",
+            "scratch/gem34/probe5886.log"]
+  test_in_game: "A Fire-Infused Fireball on a lone boss: how many firebolts from the ring hit the boss it exploded on?"
+  status: proposed
+
+- id: model-gem34-ember-fusillade-beam-lightning-infusion
+  title: "Ember Fusillade's Beams only on the Fusillades that consume a Lightning Infusion (an OVERCOUNT exposure before: a free choice with no Infusion)"
+  kind: model
+  model: gated_set
+  stats: ["active_skill_consumes_a_lightning_infusion"]
+  skill: [Ember Fusillade]
+  confidence: LOW
+  notes: >-
+    ActiveSkills ember_fusillade (26650308): "Consumes a Lightning Infusion if possible to cause the entire Fusillade to
+    create beams that Chain to enemies"; one Infusion a Fusillade (MECHC29, PATCH_CHECK K2-11). PoB's "Beam" set has no
+    "-Infused" label, so the search could score it with no Infusion. models.gated_set_model (GEM34): Projectile + Beam x
+    share, the share of Fusillades finding a Lightning Infusion (Assumptions.infusion_share at
+    models.ember_fusillades_a_second, ember_fusillade_model's rhythm); with none the Beam set gets the Projectile x 0.9.
+    ONE beam hit on the lone boss per Ember (PoB's number): LOW (a beam that Chains to enemies may miss the struck boss:
+    RESEARCH question).
+  sources: ["builder/search/models.py (GATED_SETS, INFUSED_GATED, ember_fusillades_a_second, gated_set_model)",
+            "data/game-26650308/tables/ActiveSkills.json (ember_fusillade)", "scratch/gem34/probe5886.log"]
+  test_in_game: "A Lightning-Infused Fusillade on a lone boss: does each Ember's beam hit the boss the Ember struck?"
+  status: proposed

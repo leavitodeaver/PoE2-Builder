@@ -2039,3 +2039,52 @@ def _more_product(mods):
         if m.get("type") == "MORE":
             out *= 1 + m["value"] / 100
     return out
+
+
+def test_fireball_firebolts_and_ember_beam_need_their_infusion():
+    # (GEM34) PoB labels these Infused parts without "-Infused", so gems.py's gate left them a free choice: gated here
+    fb = Skill("Fireball", 1)
+    sets = [{"label": "Projectile", "TotalDPS": 100.0}, {"label": "Explosion", "TotalDPS": 100.0},
+            {"label": "Firebolts", "TotalDPS": 160.0}]
+    mods, notes = models.gated_set_model(fb, "Firebolts", sets, 0.0, "no Fire Infusion")
+    assert mods[0]["name"] == "Damage" and mods[0]["value"] == pytest.approx(100 * (100 * 0.9 / 160 - 1), abs=0.01)
+    assert notes[0]["entry"] == "model-gem34-fireball-firebolts-fire-infusion"
+    mods, _ = models.gated_set_model(fb, "Projectile", sets, 0.25, "Remnants")
+    assert mods[0]["name"] == "DPS" and mods[0]["value"] == pytest.approx(100 * ((100 + 160 * 0.25) / 100 - 1), abs=0.01)
+    assert models.gated_set_model(fb, "Explosion", sets, 0.25, "Remnants") == ([], [])  # (R44-10: left as it was)
+    ef = Skill("Ember Fusillade", 1)
+    sets = [{"label": "Projectile", "TotalDPS": 50.0}, {"label": "Explosion", "TotalDPS": 40.0},
+            {"label": "Beam", "TotalDPS": 90.0}]
+    mods, notes = models.gated_set_model(ef, "Beam", sets, 0.0, "none")
+    assert mods[0]["name"] == "Damage" and notes[0]["entry"] == "model-gem34-ember-fusillade-beam-lightning-infusion"
+    assert models.INFUSED_GATED == {"Fireball": "Fire", "Ember Fusillade": "Lightning"}
+    # one Infusion a Fusillade: 10 Embers at 1 a cast and 2 casts/s -> the rhythm's casts / 2 + 1.3 s a Fusillade
+    ef.level_stats = {models.EMBER_CAP_STAT: 10, models.EMBER_MORE_STAT: 5}
+    per, how = models.ember_fusillades_a_second(ef, {"Speed": 2.0, "Duration": 1.3, "ProjectileCount": 1})
+    assert 0 < per < 2.0 and "Fusillades/s" in how
+    assert models.ember_fusillades_a_second(ef, {"Speed": 0}) == (0.0, "no casts")
+
+
+def test_infused_gate_leaves_the_plain_set_alone_with_no_infusion():
+    # (GEM34, probe POE2T5888) no set mix on the plain set at 0%: strongest_ailment_model stays off, as before the gate
+    sets = [{"label": "Projectile", "TotalDPS": 261.3}, {"label": "Explosion", "TotalDPS": 261.3},
+            {"label": "Beam", "TotalDPS": 174.1}]
+    mods, notes = models.gated_set_model(Skill("Ember Fusillade", 1), "Projectile", sets, 0.0, "none")
+    assert mods == [] and "set_shares" not in notes[0]
+    _, notes = models.gated_set_model(Skill("Ember Fusillade", 1), "Projectile", sets, 0.3, "Remnants")
+    assert notes[0]["set_shares"] == {"Projectile": 1.0, "Beam": 0.3}
+    _, notes = models.gated_set_model(Skill("Furious Slam", 1, attack=True), "Base",
+                                      [{"label": "Base", "TotalDPS": 52.4}, {"label": "Enraged", "TotalDPS": 111.0}],
+                                      0.0, "none")
+    assert "set_shares" in notes[0]  # (the older gated skills keep theirs)
+
+
+def test_gated_steer_never_raises_a_weaker_gated_set():
+    # (GEM34, probe POE2T5899) Ember Fusillade's Beam 174.09 tried with no Infusion was raised to 0.9 x 261.34
+    sets = [{"label": "Projectile", "TotalDPS": 261.34}, {"label": "Explosion", "TotalDPS": 261.34},
+            {"label": "Beam", "TotalDPS": 174.09}]
+    mods, _ = models.gated_set_model(Skill("Ember Fusillade", 1), "Beam", sets, 0.0, "none")
+    assert mods == []
+    sets[2]["TotalDPS"] = 400.0  # (a stronger Beam is still steered down to 0.9 x the Projectile)
+    mods, _ = models.gated_set_model(Skill("Ember Fusillade", 1), "Beam", sets, 0.0, "none")
+    assert mods[0]["value"] == pytest.approx(100 * (261.34 * 0.9 / 400.0 - 1), abs=0.01)
