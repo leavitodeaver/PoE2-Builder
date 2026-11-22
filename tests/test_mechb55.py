@@ -84,3 +84,24 @@ def test_vivid_stampede_counts_the_forced_move_rolls_the_dodge_rate_leaves_out()
     assert mods[0]["value"] == pytest.approx(plain + 0.02 * 4.6 / 10 * 4)
     assert "forced moves" in notes[0]["basis"]
     assert models.vivid_stampede_model(main, vs, [], 0.0, 2.0, forced=0.02)[0]  # (forced moves alone feed it)
+
+
+def test_arctic_armour_bursts_at_the_bosss_landed_melee_hits(monkeypatch):
+    """(MECHB55) bursts = landed hits x the melee share, capped by the cooldown and the stage gain; 0 with no melee."""
+    from builder.search import boss_hits, bosses, models
+
+    monkeypatch.setattr(bosses, "benefit_skill_time", lambda stats: 2.0)
+    monkeypatch.setattr(boss_hits, "land_share", lambda stats: 0.5)
+    monkeypatch.setattr(boss_hits, "block_share", lambda stats: 0.2)
+    monkeypatch.setattr(models, "boss_melee_share", lambda boss, gain=True: (0.6, "a test share"))
+    level = {models.ARCTIC_STAGES_STAT: 5, models.ARCTIC_GAIN_STAT: 725}
+    mods, notes = models.arctic_armour_model({"_boss": "x"}, 0.25, level)
+    assert mods[0]["key"] == "triggerRate" and mods[0]["value"] == pytest.approx(0.25 * 0.6, abs=1e-3)
+    assert "Blocked" in notes[0]["basis"] and "per Stage" in notes[0]["basis"]
+    monkeypatch.setattr(models, "boss_melee_share", lambda boss, gain=True: (0.0, "no melee"))
+    mods, notes = models.arctic_armour_model({"_boss": "x"}, 0.25, level)
+    assert mods[0]["value"] == 0 and notes[0]["value"] == "0 a second"
+    # capped by one burst a stage gained
+    monkeypatch.setattr(models, "boss_melee_share", lambda boss, gain=True: (1.0, "all"))
+    monkeypatch.setattr(boss_hits, "land_share", lambda stats: 100.0)
+    assert models.arctic_armour_model({"_boss": "x"}, 0.25, level)[0][0]["value"] == pytest.approx(1 / 0.725, abs=1e-3)

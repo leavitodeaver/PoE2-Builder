@@ -3653,6 +3653,8 @@ class Assumptions:
         hit_cut(build, serpent_mods, main.name if main else None)  # (its thrusts and Serpents: the hit part)
         wave_mods, wave_notes, shockwave_groups = self.charged_shockwave(found, main, stats)  # (MECHB53: its shockwave)
         hand_mods, hand_notes = hand_mods + wave_mods, hand_notes + wave_notes
+        arctic_mods, arctic_notes, arctic_groups = self.arctic_armour(found)  # (MECHB55: ARCTIC_ARMOUR's note)
+        hand_mods, hand_notes = hand_mods + arctic_mods, hand_notes + arctic_notes
         barrier_mods, barrier_notes = self.virtuous_barrier(skills)  # (MECHC51: VIRTUOUS_BARRIER's note)
         hand_mods, hand_notes = hand_mods + barrier_mods, hand_notes + barrier_notes
         impatience_mods, impatience_notes = self.impatience_loss(skills, main, stats)  # (MECHC50: IMPATIENCE's note)
@@ -5467,7 +5469,8 @@ class Assumptions:
         vessel_groups = models.spirit_vessel_groups(skills)  # (its companion's damage is in Full DPS only)
         return mods, notes, {**{g: None for g in energy_groups | mirage_groups | vessel_groups | toad_groups | doom_groups
                                                     | annihilation_groups | tawhoa_groups | chayula_groups
-                                                    | verisium_groups | stampede_groups | shockwave_groups},
+                                                    | verisium_groups | stampede_groups | shockwave_groups
+                                                    | arctic_groups},
                              **expression_groups, **storm_groups}
 
     def orb_stand(self, rates: list[dict], main: int | None) -> tuple[float, str]:
@@ -9445,6 +9448,24 @@ class Assumptions:
                                                      set(build.ctx.request.forbid_ledger_entries), hits=hits)
         live = any(m.get("key") == "triggerRate" and number(m.get("value")) > 0 for m in mods)
         return mods, notes, ({wave.group} if live else set())
+
+    def arctic_armour(self, found: list[models.Skill]) -> tuple[list[dict], list[dict], set[int]]:
+        """(MECHB55, models.arctic_armour_model) Arctic Armour's bursts at the boss's melee hits that land on you; its
+        group's index while it bursts (always rated where it exists: the bridge gives it damage, so PoB would otherwise
+        count it at its own speed in a Full DPS group)."""
+        build = self.build
+        armour = next((s for s in found if s.name == models.ARCTIC_ARMOUR and s.group is not None), None)
+        if armour is None:
+            return [], [], set()
+        level = next((s.get("levelStats") or {} for s in build.call("activeSkills", levelStats=[models.ARCTIC_ARMOUR])
+                      ["skills"] if s.get("name") == models.ARCTIC_ARMOUR and s.get("levelStats")), {})
+        row = next(iter(build.call("useRates", indices=[armour.group])["rates"]), {})
+        boss = getattr(getattr(build.ctx, "request", None), "boss", None)
+        seen = {**build.call("stats", fields=models.THORNS_FIELDS), **({"_boss": boss} if boss else {})}
+        mods, notes = models.arctic_armour_model(seen, number(row.get("cooldown")), level,
+                                                 set(build.ctx.request.forbid_ledger_entries))
+        live = any(m.get("key") == "triggerRate" and number(m.get("value")) > 0 for m in mods)
+        return mods, notes, ({armour.group} if live else set())
 
     def kalguur_rune(self, boost_mods: list[dict], main: str | None, skills: list[dict]) -> tuple[list[dict], list[dict]]:
         """(MECHB53, models.kalguur_rune_model) Fist of Kalguur's Aftershocks from the boosted share of the main Slam's

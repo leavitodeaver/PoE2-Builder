@@ -2149,6 +2149,18 @@ local function installCannotChill()
 	end
 end
 
+-- Arctic Armour's burst (MECHB55; the manager 10:15 22 Nov, an UNDERCOUNT): "Deals {0} to {1} Cold Damage per Stage"
+-- (arctic_armour_minimum / maximum_added_cold_damage_per_stack, its one stat set ArcticArmourPlayer, game 26650308) has no
+-- entry in PoB's SkillStatMap or the set's statMap (checked: act_int.lua ArcticArmourPlayer, SkillStatMap.lua), so PoB
+-- gave the burst no damage. Mapped as the skill's base Cold damage (spell_minimum / maximum_base_cold_damage's own
+-- mods): PoB then scores one burst (one stage's damage) as a Cold Spell hit; its rate is models.arctic_armour_model's.
+local function installArcticArmourBurst()
+	if data and data.skillStatMap and not data.skillStatMap.arctic_armour_minimum_added_cold_damage_per_stack then
+		data.skillStatMap.arctic_armour_minimum_added_cold_damage_per_stack = data.skillStatMap.spell_minimum_base_cold_damage
+		data.skillStatMap.arctic_armour_maximum_added_cold_damage_per_stack = data.skillStatMap.spell_maximum_base_cold_damage
+	end
+end
+
 -- The game's is_area_damage on a stat set (GEM2, 14 Nov 2026; an UNDERCOUNT): PoB maps no is_area_damage (checked: grep
 -- of SkillStatMap.lua and Modules/*.lua finds none) and gives a set ModFlag.Area only from its baseFlags.area
 -- (CalcActiveSkill 601; CalcOffence 581 sets skillFlags.area later from a radius, after the mod flags are built), so
@@ -2724,6 +2736,7 @@ local function installDerived()
 	installLedgerSkill()
 	installSpiritVessel()
 	installCannotChill()
+	installArcticArmourBurst()
 	installAreaDamageFlag()
 	installCorpseExplosionHits()
 	installAttackSetFlags()

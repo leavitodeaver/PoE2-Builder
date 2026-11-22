@@ -20,3 +20,20 @@
             "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua (FlameWallPlayer statSets[2])",
             "vendor/PathOfBuilding-PoE2/src/Modules/ConfigOptions.lua (flameWallAddedDamage, flameWallInfused)"]
   status: proposed
+- id: model-mechb55-arctic-armour-burst
+  title: "Arctic Armour's ice burst on the boss when its melee attacks hit you (models.arctic_armour_model)"
+  kind: model
+  model: arctic_armour_burst
+  stats: ["arctic_armour_minimum_added_cold_damage_per_stack", "arctic_armour_maximum_added_cold_damage_per_stack"]
+  skill: [Arctic Armour]
+  confidence: LOW
+  notes: >-
+    MECHB55 (the manager 10:15 22 Nov, MECHC53's find; an UNDERCOUNT). PoB has no statMap for the burst's "Deals X to Y
+    Cold Damage per Stage" (checked: act_int.lua ArcticArmourPlayer, SkillStatMap.lua), so it scored the burst 0. The
+    bridge maps the two stats as the skill's base Cold damage (installArcticArmourBurst); the model rates its group at the
+    boss's melee hits that land on you (Thorns' machinery: benefit_skill_time, land_share, boss_melee_share's lower
+    bound), at most one per its 0.25 s cooldown and one per stage gained. One stage's damage a burst (the lower reading;
+    "x the stages held" a row, R-B17); Blocked hits left out (a row, UNVERIFIED).
+  sources: ["builder/search/models.py (ARCTIC_ARMOUR, arctic_armour_model)", "builder/search/assumptions.py (Assumptions.arctic_armour)",
+            "engine/bridge.lua (installArcticArmourBurst)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua (ArcticArmourPlayer)"]
+  status: proposed

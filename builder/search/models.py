@@ -23907,3 +23907,71 @@ def needs_another_skill_note(main: Skill | None, types: set[str], description: s
                        "scores 0"),
              "play": (f"Choose the skill that deals the damage as the main skill and require {name} beside it "
                       "(one more button where it is pressed).")}]
+
+
+# Arctic Armour's burst on the boss (MECHB55; the manager 10:15 22 Nov, MECHC53's find; an UNDERCOUNT: it counted 0).
+# "While active, conjures an icy barrier that gains stages over time. While the barrier has stages, Melee Attacks that
+# hit you will remove a stage to cause a burst of ice that deals Cold Spell damage to the attacker" (ActiveSkills
+# new_new_arctic_armour, game 26650308). Its one stat set (GrantedEffectStatSets ArcticArmourPlayer) holds
+# arctic_armour_minimum / maximum_added_cold_damage_per_stack ("Deals {0} to {1} Cold Damage per Stage", 101-152 at level
+# 20: patch 0.4.0, the newest entry), maximum_number_of_arctic_armour_stationary_stacks (5 at 20) and
+# base_active_skill_buff_stack_gain_frequency_ms (725 at 20); PoB's ArcticArmourPlayer has no statMap for the damage
+# stats, so it scored the burst 0 (checked: act_int.lua's set and SkillStatMap.lua hold no arctic_armour entry). The
+# bridge (installArcticArmourBurst) maps them as the skill's base Cold damage, so PoB computes one burst's hit with the
+# build's Spell / Cold modifiers, its crit and the boss's mitigation, and this model sets its rate (models.trigger_rate,
+# its group through Full DPS):
+#   - bursts a second = the boss's melee hits that land on you (Thorns' machinery: bosses.benefit_skill_time one hit a
+#     damaging use, boss_hits.land_share, boss_melee_share's lower bound: 0 on the worst-case preset, whose Zarokh has no
+#     Melee-typed hits), at most one per its cooldown (the useRates row's, 0.25 s) and, held up, one per stage gained;
+#   - Blocked hits: whether a Blocked melee attack "hits you" for the burst is UNVERIFIED (Thorns' Retaliation counts
+#     them, the user 14 Nov, but this text says "hit you"): left out (the lower reading), a row with them;
+#   - one stage's damage a burst (the lower reading of "per Stage": a burst removes one stage); the row "x the stages
+#     held when hit" (the barrier refills between the boss's hits, so near the maximum) is the other reading (UNVERIFIED,
+#     RESEARCH R-B17). Stage-gain and maximum-stage modifiers aren't read (the base values: the lower reading).
+# The burst's Freeze buildup and Chill on the boss (its 100% more Freeze buildup / Chill magnitude) aren't fed to the
+# ailment readers (an UNDERCOUNT, named). Arctic Armour's armour per stage is MECH-C's (MECHC53, LOW).
+ARCTIC_ARMOUR = "Arctic Armour"
+ARCTIC_ENTRY = "model-mechb55-arctic-armour-burst"
+ARCTIC_STAGES_STAT = "maximum_number_of_arctic_armour_stationary_stacks"
+ARCTIC_GAIN_STAT = "base_active_skill_buff_stack_gain_frequency_ms"
+ARCTIC_COOLDOWN = 0.25  # s, its level rows' cooldown (when the useRates row gives none)
+
+
+def arctic_armour_model(stats: dict, cooldown: float, level_stats: dict, forbidden: set[str] = frozenset()
+                        ) -> tuple[list[dict], list[dict]]:
+    """Arctic Armour's bursts a second (see above) as its trigger rate. `stats`: _boss and THORNS_FIELDS; `cooldown`
+    its useRates row's (s); `level_stats` its gem level's stats (the stage maximum and gain interval)."""
+    if ARCTIC_ENTRY in forbidden:
+        return [], []
+    boss = boss_hits.boss_name(stats)
+    every = bosses.benefit_skill_time(stats)
+    landed = boss_hits.land_share(stats) / every if every > 0 else 0.0
+    blocked = boss_hits.block_share(stats) / every if every > 0 else 0.0
+    share, share_how = boss_melee_share(boss, gain=True)
+    stages = number(level_stats.get(ARCTIC_STAGES_STAT)) or 5.0
+    gain = (number(level_stats.get(ARCTIC_GAIN_STAT)) or 725.0) / 1000
+    cooldown = cooldown if cooldown > 0 else ARCTIC_COOLDOWN
+    cap = min(1.0 / cooldown, 1.0 / gain)
+
+    def bursts(hits: float) -> float:
+        return min(hits * share, cap)
+    head, with_blocked = bursts(landed), bursts(landed + blocked)
+    held = min(stages, max(1.0, 1.0 / (head * gain))) if head > 0 else stages
+    label = f"{ARCTIC_ARMOUR}: its ice bursts on the boss*"
+    rows = (f"Rows: Blocked melee hits bursting too (UNVERIFIED): {with_blocked:.3f} a second; \"per Stage\" as x the "
+            f"stages held when hit (about {held:.1f} of {stages:g}, the barrier refilling one every {gain:g} s between "
+            f"the boss's hits; UNVERIFIED, R-B17): x{held:.2f} of the headline")
+    base = (f"{boss}'s hits landing on you {landed:.3g} a second (one a damaging use, LOW), {share:.0%} melee "
+            f"({share_how}); a burst at most every {cooldown:g} s (its cooldown) and one a stage gained ({gain:g} s)")
+    if head <= 0:
+        return trigger_rate(ARCTIC_ARMOUR, 0.0), [{
+            "label": label, "value": "0 a second", "confidence": "MEDIUM", "entry": ARCTIC_ENTRY,
+            "basis": base + ": no melee attack of the boss's lands on you, so no burst (0). " + rows}]
+    return trigger_rate(ARCTIC_ARMOUR, head), [{
+        "label": label, "value": f"{head:.3f} a second", "confidence": "LOW", "entry": ARCTIC_ENTRY,
+        "basis": (base + f": {head:.3f} bursts a second, each one stage's damage (\"Deals X to Y Cold Damage per Stage\", "
+                  "the lower reading), PoB's hit for it with the build's Spell / Cold modifiers (the bridge maps the "
+                  "per-Stage damage; PoB scored the burst 0). Its Freeze / Chill on the boss not fed to the ailment "
+                  "readers (an UNDERCOUNT). " + rows),
+        "play": (f"Keep {ARCTIC_ARMOUR} up and take the boss's melee hits: each one bursts it for Cold damage "
+                 f"({head:.2f} a second here); without the boss's melee hits landing: 0.")}]
