@@ -18,7 +18,7 @@
   status: proposed
 
 - id: model-gem33-cluster-grenade-minis
-  title: "Cluster Grenade's mini grenades reaching the boss: about 7 of 18 at the headline (an UNDERCOUNT before: PoB scores one set)"
+  title: "Cluster Grenade's mini grenades reaching the boss: about 3.2 of 18 on a 0.3 m boss at the headline (an UNDERCOUNT before: PoB scores one set)"
   kind: model
   model: cluster_grenade_model
   stats: ["projectiles_nova", "base_number_of_projectiles", "projectile_distance_variance"]
@@ -26,14 +26,15 @@
   confidence: LOW
   notes: >-
     ActiveSkills cluster_grenade (26650308): "throwing out a ring of mini Grenades that explode when they come to a
-    stop"; the Mini Grenades set: 18 projectiles (cannot be modified), projectiles_nova, each a 1.4 m area blast, thrown
-    over the Primary set's hidden 2.4 m secondary radius; Area modifiers widen the ring and the blasts. PoB scores one
-    set (probe POE2T5821: Primary 10.89, one Mini 7.24 DPS). RESEARCH44 R44-9: the count is geometry that the play
-    decides (where the bouncing primary bursts). The manager's call (21 Nov 17:30): headline the lower defensible count,
-    about 7 on a pinnacle-size boss: models.cluster_grenade_model puts the burst 1.6 m from the boss (LOW), the minis
-    spread evenly over the ring's disc, the boss's hit radius from bosses.hit_radius. Rows: the primary at the boss's
-    edge (9-11), point-blank with a short Detonation Time (9-18). The play line says how to feed it.
+    stop"; the Mini Grenades set: 18 projectiles (cannot be modified), projectiles_nova, each a 1.4 m area blast, a 3 s
+    fuse of their own; Area modifiers widen their flight and their blasts. PoB scores one set (probe POE2T5821: Primary
+    10.89, one Mini 7.24 DPS). RESEARCH45 R45-1 (correcting R44-9's 2.4 m ring): the minis land over a filled disc 1-4.5
+    m x A from the burst (LOW-MEDIUM), stopped short by their fuse (6 m/s x A x 3 s x the Detonation Time multiplier: a
+    hard cut keeps all 18 together). models.cluster_grenade_model puts the burst 1 m from the boss (LOW, the player's
+    positioning), the boss's hit radius from bosses.hit_radius. Rows: 2.5 m and point-blank. Adhesive Grenades /
+    Explosive Fervour are said when present (the same spread, UNVERIFIED).
   sources: ["builder/search/models.py (CLUSTER_*, cluster_grenade_model)", "scratch/gem32/probe5821.log",
-            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/cluster-grenade-minis-r44.md (R44-9)"]
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/cluster-grenade-minis-r44.md (R44-9)",
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/cluster-grenade-burst-spread-r45.md (R45-1)"]
   test_in_game: "Cluster Grenade thrown at a lone boss's feet: how many mini blasts hit it (with and without a short Detonation Time)?"
   status: proposed

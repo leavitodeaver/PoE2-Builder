@@ -1966,30 +1966,40 @@ def test_shield_charge_hits_the_boss_with_both_parts():
 
 
 def test_cluster_grenade_minis_reach_the_boss():
-    # (GEM33, R44-9, LOW) probe POE2T5821: Primary 10.89, one Mini 7.24; the headline about 7 minis on a 0.4 m boss
-    assert 6.5 < models.cluster_minis_on_boss(0.4, 1.0, models.CLUSTER_OFFSET) < 8.0
-    assert models.cluster_minis_on_boss(0.4, 1.0, 0.4) == pytest.approx(18 * (1.8 / 2.4) ** 2)  # the edge row: 10.1
-    assert models.cluster_minis_on_boss(1.0, 1.0, 0.0) == pytest.approx(18)
-    assert models.cluster_minis_on_boss(0.3, 4.0, 0.0) < models.cluster_minis_on_boss(0.3, 1.0, 0.0)  # Area can lower it
+    # (GEM33, R44-9 / R45-1, LOW) probe POE2T5821: Primary 10.89, one Mini 7.24; R45-1's table (minis landing 1-4.5 m
+    # from the burst over a filled disc): about 3.2 on a 0.3 m boss at the 1 m headline, 6.6 on a 1 m boss
+    assert models.cluster_minis_on_boss(0.3, 1.0, models.CLUSTER_OFFSET) == pytest.approx(3.2, abs=0.15)
+    assert models.cluster_minis_on_boss(1.0, 1.0, 1.0) == pytest.approx(6.6, abs=0.2)
+    assert models.cluster_minis_on_boss(0.3, 2.25, 1.0) < models.cluster_minis_on_boss(0.3, 1.0, 1.0)  # (Area spreads them)
+    assert models.cluster_minis_on_boss(0.3, 1.0, 0.0, 0.05) == pytest.approx(18)  # (a hard Detonation Time cut: shotgun)
     sets = [{"label": "Primary Grenade", "TotalDPS": 10.89}, {"label": "Mini Grenades", "TotalDPS": 7.24}]
     cg = Skill("Cluster Grenade", 1, attack=True)
     stats = {"AreaOfEffectMod": 1.0}
     n = models.cluster_minis_on_boss(models.bosses.hit_radius(stats)[0], 1.0, models.CLUSTER_OFFSET)
-    mods, notes = models.cluster_grenade_model(cg, "Primary Grenade", sets, stats)
+    mods, notes = models.cluster_grenade_model(cg, "Primary Grenade", sets, stats, fuse=2.0)
     assert mods[0]["name"] == "DPS" and mods[0]["value"] == pytest.approx(100 * (7.24 * n / 10.89), abs=0.01)
     assert notes[0]["confidence"] == "LOW" and "play" in notes[0]
+    _, stop = models.cluster_grenade_model(cg, "Primary Grenade", sets, stats, stoppers=["Adhesive Grenades"])
+    assert "Adhesive Grenades" in stop[0]["basis"]
     assert models.cluster_grenade_model(cg, "Primary Grenade", sets, stats, {models.CLUSTER_ENTRY}) == ([], [])
 
 
 def test_frostbolt_frost_wall_row():
-    # (GEM33, R44-12) a row only: probe POE2T5823's sets (Projectile 104.6, Explosion 166.8)
-    sets = [{"label": "Projectile", "TotalDPS": 104.6}, {"label": "Explosion", "TotalDPS": 166.8}]
+    # (GEM33, R44-12 / R45-2) a row only: probe POE2T5823's sets; a bolt explodes on a segment until it breaks it
+    sets = [{"label": "Projectile", "TotalDPS": 104.6, "AverageDamage": 80.0, "Speed": 1.3},
+            {"label": "Explosion", "TotalDPS": 166.8, "AverageDamage": 128.0, "Speed": 1.3}]
     fb = Skill("Frostbolt", 1)
     none = models.frostbolt_wall_row(fb, sets, 0.0, 0.0, "no Frost Wall group")
     assert none[0]["value"] == "not in the build"
-    row = models.frostbolt_wall_row(fb, sets, 0.2, 1.25, "its 5.00 s cooldown")
-    want = (104.6 + 166.8) * (1 - 0.125 / 1.25) / 104.6  # (one wall a wall's 8 s is enough)
+    row = models.frostbolt_wall_row(fb, sets, 0.2, 1.25, "its 5.00 s cooldown", life=400.0, segment_hit=50.0)
+    k = 2  # (ceil(400 / (80 + 128))): broken by its second bolt, then its segment explodes
+    want = (104.6 * 0.84 + 0.2 * (k * 128.0 + 50.0)) / 104.6
     assert row[0]["value"].startswith(f"x{want:.3f}") and "play" in row[0]
+    strong = models.frostbolt_wall_row(fb, sets, 0.2, 1.25, "", life=100.0)
+    assert strong[0]["value"].startswith(f"x{(104.6 * 0.84 + 0.2 * 128.0) / 104.6:.3f}")  # (one explosion a wall)
+    weak = models.frostbolt_wall_row(fb, sets, 0.2, 1.25, "", life=1e6, segment_hit=50.0)  # (never broken)
+    bolts = 1.3 * 0.84  # (every bolt explodes while a wall stands, walls up all the time; no segment explosion)
+    assert weak[0]["value"].startswith(f"x{(104.6 * 0.84 + bolts * 128.0) / 104.6:.3f}")
     assert models.frostbolt_wall_row(Skill("Spark", 1), sets, 0.2, 1.25, "") == []
 
 

@@ -7727,48 +7727,69 @@ FURIOUS_RAGE_A_SLAM = 10.0  # bear_slam_spend_X_rage_for_stronger_slam
 OIL_CHARGE_SECONDS = 1.5  # electric_spit_empowered_channel_consume_power_charge_per_X_ms 1500
 
 
-# Frostbolt fired through the boss into the build's own Frost Wall (GEM33; RESEARCH44 R44-12, MEDIUM-LOW: "a build can
-# make the terrain itself"): Frost Wall's segments are blocking objects (metadata/effects/spells/frostwall/frostwall.ot
-# blocking = true), its walls last 8 s (base_skill_effect_duration 8000) on a 5 s cooldown with 3 stored uses, and
-# 0.1-era guides name "Frostbolts exploding on Frost Wall" as a Sorceress combo (not confirmed for 0.5: UNVERIFIED). A
-# ROW, not the headline (the manager, 21 Nov 17:30: "a build-fed row"): with a wall placed just behind the boss (within
-# the 2.4 m Explosion) every bolt that pierces the boss meets it while a wall stands. The build's own rate: its Frost
-# Wall group's uses a second (Assumptions._side_rows: its cooldown, duration or the search's press), the walls up
-# min(1, uses x 8 s), and its casts (one a wall's 8 s at most, each 1 / PoB's CastRate) taken off the bolts' time. No Frost Wall in the
-# build: the row says so (0). Not counted: whether a bolt's explosion breaks the wall segment (its Life: UNVERIFIED).
+# Frostbolt fired into the build's own Frost Wall (GEM33; RESEARCH44 R44-12, corrected by RESEARCH45 R45-2,
+# research/frostbolt-frost-wall-05-r45.md, MEDIUM): the 0.5 wall's segments are Ice Crystals (blocking, attackable, with
+# Life: PoB's IceCrystalLife, 12,714 at gem 20); a bolt explodes on a standing segment, and a segment its damage breaks
+# loses its collision (later bolts pass through) and explodes itself (Frost Wall's own Cold explosion, 2 m; the 0.3.0
+# "80% less" applies only to breaks by others). A strong bolt's 2.4 m explosion breaks most of a wall, so about one bolt
+# explosion a wall: k = ceil(Life / (the bolt's hit + its explosion's)), capped by the bolts within a wall's 8 s
+# (MEDIUM-LOW; the crystal's own damage taken is UNVERIFIED: the hit as PoB gives it). A ROW, not the headline (the
+# manager, 21 Nov 17:30 / 22:05): walls at the build's rate (Assumptions.frost_wall_uses: its group's uses, at most its
+# 5 s cooldown's 0.2 a second after the first three), each cast (1 / PoB's CastRate) taken off the bolts' time, each
+# wall adding k bolt explosions and ONE segment explosion on the boss (its AverageDamage from the wall's group; LOW: the
+# lower reading, more segments may reach the boss). Not counted: the boss breaking walls by walking through them (LOW).
 FROST_WALL = "Frost Wall"
 FROST_WALL_SECONDS = 8.0  # FrostWallPlayer base_skill_effect_duration 8000
 
 
 def frostbolt_wall_row(main: Skill | None, sets: list[dict], wall_uses: float, wall_speed: float, how: str,
-                       previous: list[dict] | None = None) -> list[dict]:
+                       previous: list[dict] | None = None, life: float = 0.0, segment_hit: float = 0.0) -> list[dict]:
     """The "with Frost Wall" row for Frostbolt (above): `wall_uses` the build's Frost Wall uses a second, `wall_speed`
-    its PoB casts a second before the cooldown cap (useRates castRate), `how` their basis. A note only."""
+    its PoB casts a second before the cooldown cap (useRates castRate), `how` their basis, `life` its crystal's Life
+    (useRates iceCrystalLife), `segment_hit` its own explosion's average hit. A note only."""
     if main is None or main.name != FROSTBOLT:
         return []
     dps = unscale_own(sets, previous, GATED_SETS[FROSTBOLT][3])
+    rows = {x.get("label"): x for x in sets}
     bolt, blast = dps.get("Projectile", 0.0), dps.get("Explosion", 0.0)
-    if bolt <= 0 or blast <= 0:
+    bolt_hit = number((rows.get("Projectile") or {}).get("AverageDamage"))
+    blast_hit = number((rows.get("Explosion") or {}).get("AverageDamage"))
+    speed = number((rows.get("Projectile") or {}).get("Speed"))
+    if bolt <= 0 or blast <= 0 or blast_hit <= 0:
         return []
-    label = f"{FROSTBOLT}: fired through the boss into your own {FROST_WALL}*"
+    label = f"{FROSTBOLT}: fired into your own {FROST_WALL}*"
     if wall_uses <= 0 or wall_speed <= 0:
         return [{"label": label, "value": "not in the build", "confidence": "MEDIUM-LOW",
-                 "basis": (f"No {FROST_WALL} in the build ({how}), so no bolt meets a wall: x1.000. With a wall just "
-                           f"behind the boss every bolt would also explode (Explosion {blast:,.1f} beside the "
-                           f"bolt's {bolt:,.1f} DPS), less the wall's casts")}]
-    up = min(1.0, wall_uses * FROST_WALL_SECONDS)
-    casting = min(1.0, min(wall_uses, 1 / FROST_WALL_SECONDS) / wall_speed)  # (a wall as it ends is enough)
-    factor = (bolt + blast * up) * (1 - casting) / bolt
+                 "basis": (f"No {FROST_WALL} in the build ({how}): x1.000. With one, a bolt explodes on a wall segment "
+                           f"(Explosion {blast_hit:,.0f} a hit) until its damage breaks the segment (RESEARCH45 R45-2), "
+                           "about one explosion a wall, plus the segment's own explosion, less the wall's casts")}]
+    walls = wall_uses  # (pressed at its rate, at most its cooldown's 0.2 a second)
+    each = bolt_hit + blast_hit
+    k = max(1, math.ceil(life / each)) if life > 0 and each > 0 else 1  # (bolts to break a wall)
+    casting = min(1.0, walls / wall_speed)
+    bolts = speed * (1 - casting)  # (the bolts a second, less the walls' casts)
+    reach = bolts * FROST_WALL_SECONDS  # (the bolts a wall can meet before it expires)
+    broken = k <= reach
+    # (each bolt explodes while a wall stands; a wall takes k bolts and then breaks, or all it meets and expires; walls
+    # overlap while up, so never more explosions than bolts: min(bolts x up, walls x min(k, reach)))
+    up = min(1.0, walls * (k / bolts if broken and bolts > 0 else FROST_WALL_SECONDS))
+    blasts = min(bolts * up, walls * min(k, reach))
+    gain = blasts * blast_hit + (walls * max(segment_hit, 0.0) if broken else 0.0)
+    factor = (bolt * (1 - casting) + gain) / bolt
     return [{"label": label, "value": f"x{factor:.3f} (a row, not the headline)", "confidence": "MEDIUM-LOW",
-             "basis": (f"{FROST_WALL} {wall_uses:.2f} uses/s ({how}), walls up {up:.0%} of the fight ({FROST_WALL_SECONDS:g} s "
-                       f"each), {casting:.1%} of the time casting it ({1 / wall_speed:.2f} s a cast): with the wall just "
-                       f"behind the boss every bolt that pierces it explodes there (Explosion {blast:,.1f} beside the bolt's "
-                       f"{bolt:,.1f} DPS). Without it x1.000 (the headline: no terrain). R44-12 MEDIUM-LOW (the combo is "
-                       "0.1-era guide play, UNVERIFIED for 0.5)"),
-             "play": (f"Cast {FROST_WALL} just behind the boss and fire {FROSTBOLT} through it: the bolts explode on the "
-                      f"wall (with it x{factor:.3f}; without it x1.000).")}]
-
-
+             "basis": (f"{FROST_WALL} {walls:.2f} walls a second ({how}), {casting:.1%} of the time casting it "
+                       f"({1 / wall_speed:.2f} s a cast). A bolt explodes on a standing segment and breaks it once its "
+                       f"damage beats the crystal's {life:,.0f} Life (RESEARCH45 R45-2, MEDIUM): {k} bolt(s) to break "
+                       f"one (the bolt {bolt_hit:,.0f} + its explosion {blast_hit:,.0f} a hit; MEDIUM-LOW), "
+                       + (f"so {blasts:.2f} bolt explosions a second, plus one segment's own explosion a wall "
+                          f"({segment_hit:,.0f}; LOW, the lower reading)" if broken else
+                          f"more than the {reach:.1f} bolts a wall meets in its {FROST_WALL_SECONDS:g} s: unbroken, every "
+                          f"bolt explodes while a wall stands ({blasts:.2f} a second), no segment explosion")
+                       + f": +{gain:,.1f} DPS on the "
+                       f"bolts' {bolt:,.1f}. Without it x1.000 (the headline: no terrain). The boss walking through a "
+                       "wall isn't counted (LOW)"),
+             "play": (f"Cast {FROST_WALL} on the boss and fire {FROSTBOLT} into it: the bolt explodes on the wall and "
+                      f"breaks it (with it x{factor:.3f}; without it x1.000).")}]
 def furious_slam_share(gain: float, uses: float, maximum: float) -> float:
     """The share of Furious Slams that spend Rage: `gain` Rage a second, `uses` slams a second, Maximum Rage `maximum`."""
     if maximum < FURIOUS_RAGE_A_SLAM or gain <= 0 or uses <= 0:
@@ -7958,56 +7979,63 @@ def both_parts_model(main: Skill | None, scored: str | None, sets: list[dict],
         "play": f"{main.name} into the boss: the crash's area and its collision both hit it ({parts} DPS)."}]
 
 
-# Cluster Grenade's mini grenades on the boss (GEM33; RESEARCH44 R44-9, research/cluster-grenade-minis-r44.md; an
-# UNDERCOUNT, the whole model LOW). ActiveSkills cluster_grenade (26650308): "Fire a bouncing Grenade that explodes when
-# its fuse expires, throwing out a ring of mini Grenades that explode when they come to a stop". The Mini Grenades set:
-# base_number_of_projectiles 18 with number_of_projectiles_cannot_be_modified (so 18 always), each its own area
-# explosion (is_area_damage, active_skill_base_area_of_effect_radius 14: 1.4 m), thrown over the Primary set's hidden
-# active_skill_base_secondary_area_of_effect_radius 24 (2.4 m; patch 0.3.0 "fired over a ~17% increased radius"), and
-# area_of_effect_radius_modifiers_apply_to_projectile_speed: Area modifiers widen the ring AND the blasts (A =
-# sqrt(PoB's AreaOfEffectMod)). PoB scores one set alone (probe POE2T5821: Primary Grenade 10.89, Mini Grenades 7.24 DPS,
-# one mini). A mini hits a boss of hit radius R (bosses.hit_radius) when it lands within 1.4 A + R of its centre; the
-# landing taken as spread evenly over the 2.4 A m disc (MEDIUM-LOW: projectile_distance_variance's unit is in no file),
-# the disc centred where the primary bursts, o metres from the boss: minis on the boss = 18 x the disc's share within
-# reach. o is where the bouncing primary rests: a play choice (point-blank throws, short Detonation Time) no data gives.
-# The headline (the manager's call, 21 Nov 17:30: "headline the LOWER defensible count, about 7 minis on a pinnacle-size
-# boss", accuracy above all): o = CLUSTER_OFFSET 1.6 m (LOW, a flat play distance: about 7.3 minis on a 0.4 m boss at
-# A 1; more Area can lower the count on a small boss, as R44-9 says). Rows: the primary bursting at the boss's edge (o =
-# R: 9-11 on pinnacle bosses) and point-blank (o = 0, short Detonation Time: 9-18). A "DPS" MORE (Primary + N x Mini) /
-# scored (more hits, not bigger ones). The primary's own 2.5 m blast reaches the boss at every o used here. The main skill.
+# Cluster Grenade's mini grenades on the boss (GEM33; RESEARCH44 R44-9 then RESEARCH45 R45-1, research/cluster-grenade-
+# burst-spread-r45.md, which corrects R44-9's 2.4 m ring; an UNDERCOUNT, the whole model LOW). ActiveSkills cluster_grenade
+# (26650308): "Fire a bouncing Grenade that explodes when its fuse expires, throwing out a ring of mini Grenades that
+# explode when they come to a stop". The Mini Grenades set: base_number_of_projectiles 18 with
+# number_of_projectiles_cannot_be_modified (so 18), each its own area explosion (active_skill_base_area_of_effect_radius
+# 14: 1.4 m), area_of_effect_radius_modifiers_apply_to_projectile_speed (A = sqrt(PoB's AreaOfEffectMod) widens their
+# flight and their blasts), their own base_skill_detonation_time 3000 that Detonation Time modifiers shorten too. PoB
+# scores one set alone (probe POE2T5821: Primary 10.89, one Mini 7.24 DPS). R45-1 (the guide clip's frames, MEDIUM on
+# the shape, LOW-MEDIUM on the size): the minis land over a FILLED DISC, at a distance uniform over CLUSTER_NEAR 1.0 A to
+# CLUSTER_FAR 4.5 A from the burst point, a uniform angle; a mini whose fuse ends first stops short: its flight is cut at
+# dmax = CLUSTER_MINI_SPEED 6 m/s x A x 3 s x the build's Detonation Time multiplier (PoB's DetonationTime over the
+# primary's base 2 s), so a hard Detonation Time cut keeps them in a tight cluster ("shotgun"). A mini hits a boss of hit
+# radius R (bosses.hit_radius) when it lands within 1.4 A + R of its centre. Where the primary bursts is the player's
+# positioning (R45-1: a fixed arc, not the cursor, MEDIUM-HIGH): the headline CLUSTER_OFFSET 1.0 m from the boss (LOW;
+# about 3.2 minis on a 0.3 m boss at the base fuse); rows at 2.5 m and point-blank. Adhesive Grenades / Explosive
+# Fervour (the grenade halts where it lands) are said when present, read as the same spread (UNVERIFIED). A "DPS" MORE
+# (Primary + N x Mini) / scored (more hits, not bigger ones). The main skill.
 CLUSTER_GRENADE = "Cluster Grenade"
 CLUSTER_SETS = ("Primary Grenade", "Mini Grenades")
 CLUSTER_MINIS = 18  # base_number_of_projectiles, number_of_projectiles_cannot_be_modified
-CLUSTER_RING = 2.4  # metres: the Primary set's active_skill_base_secondary_area_of_effect_radius 24
+CLUSTER_NEAR, CLUSTER_FAR = 1.0, 4.5  # metres x A: the minis' landing band (R45-1, LOW-MEDIUM)
 CLUSTER_BLAST = 1.4  # metres: the Mini set's active_skill_base_area_of_effect_radius 14
-CLUSTER_OFFSET = 1.6  # metres, LOW: where the primary bursts from the boss's centre (the headline, above)
+CLUSTER_MINI_SPEED, CLUSTER_MINI_FUSE, CLUSTER_FUSE = 6.0, 3.0, 2.0  # m/s (600), the minis' and the primary's fuses (s)
+CLUSTER_OFFSET = 1.0  # metres, LOW: where the primary bursts from the boss's centre (the headline, R45-1)
+CLUSTER_STOPPERS = ("Adhesive Grenades", "Explosive Fervour")  # (the grenade halts where it first lands)
 CLUSTER_ENTRY = "model-gem33-cluster-grenade-minis"
 
 
-def circle_overlap(r1: float, r2: float, d: float) -> float:
-    """The area two circles of radii r1, r2 with centres d apart share (m2)."""
-    if r1 <= 0 or r2 <= 0 or d >= r1 + r2:
+def ring_share(r: float, reach: float, offset: float) -> float:
+    """The share of a circle of radius `r` (around the burst point) within `reach` of a point `offset` m away."""
+    if r + offset <= reach:
+        return 1.0
+    if abs(r - offset) >= reach or r <= 0 or offset <= 0:
         return 0.0
-    if d <= abs(r1 - r2):
-        return math.pi * min(r1, r2) ** 2
-    a = r1 * r1 * math.acos((d * d + r1 * r1 - r2 * r2) / (2 * d * r1))
-    b = r2 * r2 * math.acos((d * d + r2 * r2 - r1 * r1) / (2 * d * r2))
-    c = 0.5 * math.sqrt((-d + r1 + r2) * (d + r1 - r2) * (d - r1 + r2) * (d + r1 + r2))
-    return a + b - c
+    return math.acos(max(-1.0, min(1.0, (r * r + offset * offset - reach * reach) / (2 * r * offset)))) / math.pi
 
 
-def cluster_minis_on_boss(radius: float, area_mod: float, offset: float) -> float:
-    """Cluster Grenade's minis that reach a boss of hit radius `radius` (m), the primary bursting `offset` m from it."""
+def cluster_minis_on_boss(radius: float, area_mod: float, offset: float, fuse_mult: float = 1.0) -> float:
+    """Cluster Grenade's minis that reach a boss of hit radius `radius` (m), the primary bursting `offset` m from it, the
+    build's Detonation Time multiplier `fuse_mult` (comment above)."""
     scale = math.sqrt(max(number(area_mod) or 1.0, 0.0))
-    ring, blast = CLUSTER_RING * scale, CLUSTER_BLAST * scale
-    if ring <= 0:
+    near, far, reach = CLUSTER_NEAR * scale, CLUSTER_FAR * scale, CLUSTER_BLAST * scale + radius
+    reach_max = CLUSTER_MINI_SPEED * scale * CLUSTER_MINI_FUSE * max(number(fuse_mult), 0.0)
+    if far <= near:
         return 0.0
-    return CLUSTER_MINIS * circle_overlap(ring, blast + radius, offset) / (math.pi * ring * ring)
+    steps, share = 400, 0.0
+    for i in range(steps):  # (landing distance uniform over [near, far], each cut at reach_max)
+        r = near + (far - near) * (i + 0.5) / steps
+        share += ring_share(min(r, reach_max), reach, offset) / steps
+    return CLUSTER_MINIS * share
 
 
 def cluster_grenade_model(main: Skill | None, scored: str | None, sets: list[dict], stats: dict,
-                          forbidden: set[str] = frozenset(), previous: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
-    """Cluster Grenade: the primary's blast plus the minis that reach the boss (comment above), PoB scoring one set."""
+                          forbidden: set[str] = frozenset(), previous: list[dict] | None = None,
+                          fuse: float = 0.0, stoppers: Iterable[str] = ()) -> tuple[list[dict], list[dict]]:
+    """Cluster Grenade: the primary's blast plus the minis that reach the boss (comment above), PoB scoring one set.
+    `fuse`: PoB's DetonationTime for the primary (s; 0: not read, the base); `stoppers`: CLUSTER_STOPPERS in the build."""
     if main is None or main.name != CLUSTER_GRENADE or CLUSTER_ENTRY in forbidden or scored not in CLUSTER_SETS:
         return [], []
     dps = unscale_own(sets, previous, CLUSTER_ENTRY)
@@ -8016,26 +8044,30 @@ def cluster_grenade_model(main: Skill | None, scored: str | None, sets: list[dic
         return [], []
     radius, radius_how = bosses.hit_radius(stats)
     area = number(stats.get("AreaOfEffectMod")) or 1.0
-    head = cluster_minis_on_boss(radius, area, CLUSTER_OFFSET)
-    factor = (primary + head * mini) / dps[scored] * (PART_STEER if dps[scored] < max(primary, mini) else 1.0)
+    mult = number(fuse) / CLUSTER_FUSE if number(fuse) > 0 else 1.0
+    scale = math.sqrt(area)
+    reach_max = CLUSTER_MINI_SPEED * scale * CLUSTER_MINI_FUSE * mult
+    head = cluster_minis_on_boss(radius, area, CLUSTER_OFFSET, mult)
+    steer = PART_STEER if dps[scored] < max(primary, mini) else 1.0
+    factor = (primary + head * mini) / dps[scored] * steer
     rows = []
-    for label, offset in (("bursting at the boss's edge", radius), ("point-blank (short Detonation Time)", 0.0)):
-        n = cluster_minis_on_boss(radius, area, offset)
-        rows.append(f"{label}: {n:.1f} minis, x{(primary + n * mini) / dps[scored]:.3f}")
+    for label, offset in (("bursting 2.5 m from the boss", 2.5), ("point-blank", 0.0)):
+        n = cluster_minis_on_boss(radius, area, offset, mult)
+        rows.append(f"{label}: {n:.1f} minis, x{(primary + n * mini) / dps[scored] * steer:.3f}")
+    stop = [x for x in stoppers if x in CLUSTER_STOPPERS]
     return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=CLUSTER_ENTRY)], [{
         "label": f"{CLUSTER_GRENADE}: its mini grenades on the boss*", "value": f"x{factor:.3f}",
         "confidence": "LOW", "entry": CLUSTER_ENTRY,
         "basis": (f"PoB scores the {scored} set alone (Primary {primary:,.1f}, one Mini {mini:,.1f} DPS). Each use throws "
-                  f"{CLUSTER_MINIS} minis over {CLUSTER_RING * math.sqrt(area):.2f} m, each a "
-                  f"{CLUSTER_BLAST * math.sqrt(area):.2f} m blast (Area x{math.sqrt(area):.2f} on both); {radius_how}; "
-                  f"the primary bursting {CLUSTER_OFFSET:g} m from the boss (LOW, the lower defensible reading): "
-                  f"{head:.1f} minis hit it. Rows: " + "; ".join(rows) + ". Landing spread evenly (LOW: no file gives "
-                  "the spread's unit)"),
-        "play": (f"Throw {CLUSTER_GRENADE} at the boss's feet from close range, and shorten its Detonation Time, so the "
-                 f"primary bursts on the boss and the minis land on it: without it about {head:.0f} of {CLUSTER_MINIS} "
-                 f"minis hit; {rows[1]}.")}]
-
-
+                  f"{CLUSTER_MINIS} minis landing {CLUSTER_NEAR * scale:.2f}-{CLUSTER_FAR * scale:.2f} m from the burst "
+                  f"(a filled disc, RESEARCH45 R45-1, LOW-MEDIUM), each a {CLUSTER_BLAST * scale:.2f} m blast (Area "
+                  f"x{scale:.2f} on both); their 3 s fuse x{mult:.2f} (Detonation Time) stops them by {reach_max:.2f} m; "
+                  f"{radius_how}; the primary bursting {CLUSTER_OFFSET:g} m from the boss (LOW, your positioning): "
+                  f"{head:.1f} minis hit it. Rows: " + "; ".join(rows) + "."
+                  + (f" {' / '.join(stop)} in the build: the grenade halts where it lands, read as the same spread "
+                     "(UNVERIFIED)" if stop else "")),
+        "play": (f"Stand close and throw {CLUSTER_GRENADE} so it bursts at the boss, and cut its Detonation Time so the "
+                 f"minis stay together: here about {head:.0f} of {CLUSTER_MINIS} hit; {rows[1]}.")}]
 def gated_set_model(main: Skill | None, scored: str | None, sets: list[dict], share: float, how: str,
                     forbidden: set[str] = frozenset(), previous: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
     """A GATED_SETS skill's use as the game makes it (see above): `sets` the bridge's setRates for its group, `share` of
