@@ -1139,7 +1139,6 @@ class Search:
             # swept before it scored all alike; a line's one pass of focus round 1 then ended support-less, POE2T220)
             ("ascendancy", self.tree.ascendancy_round, ()),
             ("supports", self.gems.optimize_supports, (deadline, 12, sweep or "supports" in self.kicked)),
-            ("socket fill", self.socket_fill_round, (deadline,)),
             ("tree rebuild", self.tree_rebuild, (deadline,)),
             ("tree", self.tree.grow, (deadline,)),
             ("attributes", self.tree.attributes_round, ()),
@@ -1157,6 +1156,8 @@ class Search:
             ("roar", self.gems.roar_round, (deadline,)),
             ("prune and regrow", self.tree.swap_round, (deadline,)),
         ]
+        if FILL_IN_SEARCH:  # (SEARCH35: after the supports step; off, the steps are as before)
+            steps.insert(3, ("socket fill", self.socket_fill_round, (deadline,)))
         if self.skeleton.swap:
             steps.insert(3, ("weapon sets", self.weapon_set_round, ()))
         improved = False
@@ -1173,7 +1174,7 @@ class Search:
                 pass  # a meta kick took the group out: the meta round re-chooses it now, not at the next sweep
             elif phase in ("ascendancy", "condition sources", "meta gems", "meta spells", "totems", "marks", "mirages", "roar") and not sweep:
                 continue
-            if self.idle_skip(phase):
+            if IDLE_SKIP and self.idle_skip(phase):
                 continue
             gained = self.step(phase, fn, *args)
             if IDLE_SKIP and phase in IDLE_STEPS:
