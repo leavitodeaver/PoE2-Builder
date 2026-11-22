@@ -3920,6 +3920,13 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + hex_mods, hand_notes + hex_notes
         doom_mods, doom_notes, doom_groups = models.doom_blast_model(found, curses, models.press_choices(build))  # (MECHB12: Impending Doom's expiries)
         item_mods, item_notes, item_groups = models.item_trigger_model(texts, stats, found, main)  # (MECHB36: item triggers)
+        if any("Gemini Surge" in t for t in texts):  # (MECHB53: Double Vision's Surging Blasts at the reloads it makes)
+            dv_stats = build.call("stats", fields=["FiringRate", "BoltCount", "ChanceToNotConsumeAmmo", "Speed",
+                                                   "ForkCountMax", "SplitCount", "PierceCount"])
+            dv_types = set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or []) if main is not None else set()
+            dv_mods, dv_notes, dv_groups = models.double_vision_model(
+                texts, dv_stats, found, main, dv_types, conditions_mod.surge_rate, forbidden)
+            item_mods, item_notes, item_groups = item_mods + dv_mods, item_notes + dv_notes, item_groups | dv_groups
         doom_mods, doom_notes, doom_groups = doom_mods + item_mods, doom_notes + item_notes, doom_groups | item_groups
         # (MECHB37: Dusk Vigil's Embers in a pause from casting; Tempest Caller's storms at the main spell's crits)
         dusk_mods, dusk_notes, dusk_groups = self.dusk_vigil(texts, stats, found, main)

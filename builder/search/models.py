@@ -18342,6 +18342,85 @@ def item_trigger_model(texts: list[str], stats: dict, skills: list[Skill], main:
     return mods, notes, groups
 
 
+# Double Vision's Gemini Surge (MECHB53; plans/un-double-vision-surges.md, PLANS6; an UNDERCOUNT: its blasts counted 0).
+# The unique crossbow (Mods UniqueColdFireSurgeOnReload: gain_X_instilling_cold_on_reload / _fire_on_reload, 2-6; PoB
+# parses its line to nothing, ModCache 9794-9796, and splits it in two: neighbouring lines are read joined) "When you
+# reload, triggers Gemini Surge to alternately gain N Cold Surges or N Fire Surges", and grants Gemini Surge
+# (GeminiSurgePlayer: Cold Surge / Fire Surge sets, maximum_number_of_instilling_stacks 10, 15 s,
+# surge_can_apply_to_X_number_of_projectiles_per_skill_use 1), which PoB makes but never rates. KeywordPopups Surge:
+# Surges "are consumed when you use a non-Melee Projectile Attack to suffuse the Projectiles fired by that Attack,
+# causing them to trigger a Surging Blast when they reach the end of their flight ... Projectiles which Split or Fork do
+# not gain the benefits". So:
+# - reloads a second R = FiringRate x (1 - its chance not to consume a bolt) / BoltCount (PoB's clip cycle, the inputs
+#   reloaded_recently_model reads); a main skill that doesn't reload (no FiringRate): 0, said;
+# - alternating, so each type gains N every other reload: R / 2 events of N, at most its cap 10 (R40-11, HIGH: Gemini's
+#   own maximum_number_of_instilling_stacks; the default 6 a row) a batch, MECH-C's conditions.surge_rate;
+# - qualifying uses: the main skill's uses if it is a non-Melee Projectile Attack (other such skills not counted: the
+#   lower reading); one Surge a use (UNVERIFIED whether a use takes one of each type present: the upper reading a row);
+#   so blasts a second = min(uses, Cold supply + Fire supply), one projectile a use carrying it (HIGH);
+# - Split / Fork: a main skill with a Fork or Split count from PoB (ForkCountMax / SplitCount) gets none (the text);
+# - the blast (1.6 m) goes off at the projectile's end of flight: taken at the boss for a projectile that stops on hit
+#   (MEDIUM), LOW for one that Pierces (PierceCount > 0: it flies on; counted, labelled).
+# Gemini Surge's group counts through Full DPS at that rate, its Cold set PoB's default scored for every blast (the Fire
+# set is the same blast with Fire instead of Cold: the build's Fire-only scaling not read, LOW).
+GEMINI_SURGE = "Gemini Surge"
+GEMINI_LINE = re.compile(r"^When you reload, triggers Gemini Surge to alternately gain (\d+) Cold Surges? or (\d+) Fire "
+                         r"Surges?$", re.I)
+GEMINI_CAP = 10
+GEMINI_ENTRY = "model-mechb53-gemini-surge"
+
+
+def double_vision_model(texts: list[str], stats: dict, skills: list[Skill], main: Skill | None, main_types: set[str],
+                        surge_rate: Callable, forbidden: set[str] = frozenset()
+                        ) -> tuple[list[dict], list[dict], set[int]]:
+    """Double Vision's Gemini Surge blasts a second (see above): (lines, notes, groups to count in Full DPS). `stats` the
+    main skill's PoB output (FiringRate, BoltCount, ChanceToNotConsumeAmmo, Speed, ForkCountMax, SplitCount,
+    PierceCount); `surge_rate` conditions.surge_rate (MECH-C's)."""
+    texts = [t.strip() for t in texts]
+    joined = texts + [f"{x} {y}" for x, y in zip(texts, texts[1:])]
+    match = next((m for t in joined if (m := GEMINI_LINE.search(t))), None)
+    granted = next((s for s in skills if s.name == GEMINI_SURGE and s.group is not None), None)
+    if match is None or granted is None or GEMINI_ENTRY in forbidden:
+        return [], [], set()
+    cold, fire = float(match.group(1)), float(match.group(2))
+    rate, bolts = number(stats.get("FiringRate")), number(stats.get("BoltCount"))
+    keep = min(1.0, max(number(stats.get("ChanceToNotConsumeAmmo")) / 100, 0.0))
+    reloads = rate * (1 - keep) / bolts if rate > 0 and bolts > 0 else 0.0
+    qualifies = (main is not None and main.attack and not main.melee and "Projectile" in main_types)
+    forks = number(stats.get("ForkCountMax")) > 0 or number(stats.get("SplitCount")) > 0
+    uses = number(stats.get("Speed")) if qualifies and not forks else 0.0
+    c_rate, c_how = surge_rate(reloads / 2, cold, uses, 0.0, GEMINI_CAP)
+    f_rate, f_how = surge_rate(reloads / 2, fire, uses, 0.0, GEMINI_CAP)
+    supply = (reloads / 2) * (min(cold, GEMINI_CAP) + min(fire, GEMINI_CAP))
+    blasts = min(uses, supply)
+    upper = c_rate + f_rate
+    six = min(uses, (reloads / 2) * (min(cold, 6) + min(fire, 6)))
+    if reloads <= 0:
+        why = "the main skill doesn't reload a crossbow (no FiringRate / BoltCount from PoB): no Surges, 0"
+    elif not qualifies:
+        why = (f"{main.name if main else 'the main skill'} isn't a non-Melee Projectile Attack: nothing consumes the "
+               "Surges, 0 (other such skills not counted)")
+    elif forks:
+        why = "its projectiles Fork or Split, which gain no Surge benefit (the keyword): 0"
+    else:
+        why = (f"{reloads:.3f} reloads a second (FiringRate {rate:.2f} x (1 - {keep:.0%}) / {bolts:g} bolts), alternately "
+               f"{cold:g} Cold / {fire:g} Fire Surges (cap {GEMINI_CAP}): {supply:.2f} Surges a second against "
+               f"{uses:.2f} uses a second, one a use: {blasts:.3f} blasts a second. Rows: a use taking one of each type "
+               f"present, {upper:.3f} (Cold: {c_how}; Fire: {f_how}); the default cap 6, {six:.3f}")
+    pierce = number(stats.get("PierceCount")) > 0
+    mods = trigger_rate(GEMINI_SURGE, blasts)
+    groups = {granted.group} if blasts > 0 else set()
+    return mods, [{
+        "label": "Double Vision: Gemini Surge's Surging Blasts, per second*", "value": round(blasts, 3),
+        "confidence": ("LOW" if pierce else "MEDIUM") if blasts > 0 else "HIGH", "entry": GEMINI_ENTRY,
+        "basis": (why + ". PoB grants Gemini Surge but never rates it (0 before); each blast scored as its Cold set "
+                  "(the Fire set's Fire-only scaling not read, LOW); the blast goes off at the projectile's end of flight, "
+                  + ("which a piercing projectile carries past the boss (LOW)" if pierce
+                     else "taken at the boss for a projectile that stops on hit (MEDIUM)")),
+        "play": (f"Reload Double Vision as you go: each reload gives Surges, and your next {main.name if main else ''} "
+                 f"shots blast at the end of their flight ({blasts:.2f} a second)" if blasts > 0 else "")}], groups
+
+
 # Spell Cascade's side areas on a boss (MECHB36; the manager 01:43 / 02:08, RESEARCH29 turns 4-5, an UNDERCOUNT). The
 # support (SupportSpellCascadePlayer, game files 26650308): support_spell_cascade_number_of_cascades_per_side 1, 20% less
 # Area and 30% less Damage on every area (PoB applies both, sup_int.lua), the Cascades 20% less Area again

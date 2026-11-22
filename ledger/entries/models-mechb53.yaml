@@ -46,3 +46,16 @@
     is replaced (RESEARCH44 R44-15, the Limit keyword): eruptions a second = boosted hits a second x P(fewer than limit
     newer within the rune's 4 s), Poisson, at most 1 / its 0.5 s cooldown; rows: no new rune at the limit, evenly
     spaced hits. Whether a replaced rune erupts UNVERIFIED (counted not to). LOW.
+- id: model-mechb53-gemini-surge
+  title: "Double Vision's Gemini Surge: Surging Blasts at the reloads the main crossbow skill makes (models.double_vision_model)"
+  kind: model
+  model: gemini_surge
+  stats: ["gain_X_instilling_cold_on_reload", "gain_X_instilling_fire_on_reload", "maximum_number_of_instilling_stacks",
+          "surge_can_apply_to_X_number_of_projectiles_per_skill_use"]
+  skill: [Gemini Surge]
+  confidence: theory
+  notes: >-
+    MECHB53 (plans/un-double-vision-surges.md; an UNDERCOUNT: PoB grants Gemini Surge but never rates it). Reloads a
+    second = FiringRate x (1 - not-consume) / BoltCount; alternately N Cold / N Fire Surges, cap 10 (R40-11); blasts a
+    second = min(the main non-Melee Projectile Attack's uses, the Surges a second), one a use (MECH-C's
+    conditions.surge_rate); none when it Forks / Splits. Its group in Full DPS at that rate, the Cold set scored.

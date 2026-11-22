@@ -79,3 +79,22 @@ def test_fist_of_kalguurs_rune_erupts_once_a_rune_life_at_most():
     assert {m["key"]: m["value"] for m in mods}["triggerRate"] == pytest.approx(0.1 * math.exp(-0.4) * 1.4, rel=1e-3)
     assert "replaced" in notes[0]["basis"] and notes[0]["confidence"] == "LOW"
     assert models.kalguur_rune_model(slam, 0.0, 1.0, 4.0, 1, 0.5) == ([], [])
+
+
+def test_double_vision_blasts_at_the_reloads_it_makes():
+    """Reloads = FiringRate x (1 - keep) / bolts; alternately N Cold / N Fire (cap 10); one Surge a use; Fork: none."""
+    from builder.search import conditions
+    texts = ["When you reload, triggers Gemini Surge to alternately", "gain 6 Cold Surges or 6 Fire Surges"]
+    gemini = models.Skill("Gemini Surge", 3)
+    main = models.Skill("Galvanic Shards", 1, attack=True)
+    stats = {"FiringRate": 2.0, "BoltCount": 4, "ChanceToNotConsumeAmmo": 0, "Speed": 2.0}
+    mods, notes, groups = models.double_vision_model(texts, stats, [gemini, main], main, {"Projectile", "Attack"},
+                                                     conditions.surge_rate)
+    rate = {m["key"]: m["value"] for m in mods}["triggerRate"]
+    assert rate == pytest.approx(min(2.0, 0.25 * 12)) and groups == {3}  # (0.5 reloads/s: 0.25 x (6 + 6) = 3/s)
+    stats["ForkCountMax"] = 1
+    mods, notes, groups = models.double_vision_model(texts, stats, [gemini, main], main, {"Projectile", "Attack"},
+                                                     conditions.surge_rate)
+    assert {m["key"]: m["value"] for m in mods}["triggerRate"] == 0 and "Fork" in notes[0]["basis"] and not groups
+    assert models.double_vision_model(["10% increased Damage"], stats, [gemini, main], main, set(),
+                                      conditions.surge_rate) == ([], [], set())
