@@ -4300,6 +4300,7 @@ class Assumptions:
             bow = "Bow" in set((build.ctx.gems.get(name) or {}).get("weaponTypes") or []) if name else False
             lion_mods, lion_notes = models.lioneye_model(texts, stats, main, metres, bow)
             hand_mods, hand_notes = hand_mods + lion_mods, hand_notes + lion_notes
+            hit_cut(build, lion_mods, main.name if main else None)  # (MECHB54: its hits a use, models.with_hits_per_use)
         if any(conditions_mod.DARK_ENTROPY.match(t.strip()) for t in texts):  # (MECH87: per Withered stack, R30-8)
             de_mods, de_notes = conditions_mod.dark_entropy_mods(
                 texts, models.number(build.call("getConfig")["input"].get("multiplierWitheredStackCount")))
@@ -4453,12 +4454,14 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + early_mods, hand_notes + early_notes
         cascade_mods, cascade_notes = models.spell_cascade_model(main, stats, *bosses.hit_radius(stats))  # (MECHB36)
         hand_mods, hand_notes = hand_mods + cascade_mods, hand_notes + cascade_notes
+        hit_cut(build, cascade_mods, main.name if main else None)  # (MECHB54: its hits a use, models.with_hits_per_use)
         count_mods, count_notes = models.hazard_count_model(main, stats)  # (MECHB33: a use's hazards on the boss)
         hand_mods, hand_notes = hand_mods + count_mods, hand_notes + count_notes
         comp_mods, comp_notes = self.companions(skills, [e["text"] for e in source_lines], main)  # (MECHB33: the limit)
         hand_mods, hand_notes = hand_mods + comp_mods, hand_notes + comp_notes
         zarokh_mods, zarokh_notes = models.zarokh_model(main, supports.get(main.group, []) if main else [], stats)  # (MECHB33)
         hand_mods, hand_notes = hand_mods + zarokh_mods, hand_notes + zarokh_notes
+        hit_cut(build, zarokh_mods, main.name if main else None)  # (MECHB54: its hits a use, models.with_hits_per_use)
         if main is not None and main.name in models.CHANNEL_WINDUP:  # (MECHB50: a wind-up each dodged boss attack)
             from builder.search import bosses as bosses_mod
 
@@ -4568,6 +4571,7 @@ class Assumptions:
                 main, set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or ()), [e["text"] for e in source_lines],
                 number(pb_stats.get("Speed")), number(pb_stats.get("ProjectileCount")), forbidden)
             hand_mods, hand_notes = hand_mods + pb_mods, hand_notes + pb_notes
+            hit_cut(build, pb_mods, main.name)  # (MECHB54: its hits a use, models.with_hits_per_use)
         stampede_groups: set[int] = set()  # (MECHB52: Vivid Stampede's group, counted through Full DPS)
         stampede = next((s_ for s_ in found if s_.name == models.VIVID_STAMPEDE and s_.group is not None), None)
         if stampede is not None:  # (MECHB52: Spirit Walker's Stags at the rate the build feeds them)
@@ -4747,6 +4751,7 @@ class Assumptions:
             bolt_mods, bolt_notes = models.crossbow_sequence_model(
                 main, {**stats, **build.call("stats", fields=["ProjectileCount"])}, forbidden)
             hand_mods, hand_notes = hand_mods + bolt_mods, hand_notes + bolt_notes
+            hit_cut(build, bolt_mods, main.name)  # (MECHB54: its hits a use, models.with_hits_per_use)
         if main is not None and group and main.name in models.WHIRL_SKILLS:  # (GEM12: Whirlwind stages, then collapse)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             whirl_mods, whirl_notes = models.whirlwind_stage_model(main, sets, forbidden, previous=self.mods)
@@ -5071,6 +5076,7 @@ class Assumptions:
                 main, {**stats, **build.call("stats", fields=["Speed", "ProjectileCount"])},
                 [e["text"] for e in source_lines], level)
             hand_mods, hand_notes = hand_mods + salvo_mods, hand_notes + salvo_notes
+            hit_cut(build, salvo_mods, main.name)  # (MECHB54: its hits a use, models.with_hits_per_use)
         mirage_mods, mirage_notes, mirage_groups = models.mirage_model(
             found, main, {g["name"]: (g["level"], g.get("quality") or 0) for grp in build.groups() for g in grp["gems"]
                           if g.get("level")}, rolling=any(s.name == "Cast on Dodge" for s in found))

@@ -4764,17 +4764,21 @@ def test_freezing_salvo_breaks_the_seals_gained_since_its_last_use():
     mods, notes = models.freezing_salvo_model(salvo, {"Speed": 1.0, "ProjectileCount": 1}, [], SALVO_L20)
     seals = (1 / 0.75) / (1 - 0.05 / 0.75)  # (s = g t0 (1 + 0.05 s))
     factor = (1 + seals) / (1 + 0.05 * seals)
-    assert mods == [models.raw_mod("DPS", "MORE", 100 * (factor - 1), "Freezing Salvo")], mods
+    assert mods == [models.with_hits_per_use(models.raw_mod("DPS", "MORE", 100 * (factor - 1), "Freezing Salvo"), 1 + seals,
+                                              1 / (1 + 0.05 * seals))], mods  # (MECHB54: hits a use, time)
     # (a slow use fills all 10 Seals; the build's "+1 to maximum Seals" line makes it 11)
     mods, notes = models.freezing_salvo_model(salvo, {"Speed": 0.1, "ProjectileCount": 1},
                                               ["Sealed Skills have +1 to maximum Seals"], SALVO_L20)
-    assert mods == [models.raw_mod("DPS", "MORE", 100 * (12 / 1.55 - 1), "Freezing Salvo")], mods
+    assert mods == [models.with_hits_per_use(models.raw_mod("DPS", "MORE", 100 * (12 / 1.55 - 1), "Freezing Salvo"), 12,
+                                              1 / 1.55)], mods
     # (extra projectiles become Repeats; increased Seal gain frequency shortens the interval)
     mods, _ = models.freezing_salvo_model(salvo, {"Speed": 1.0, "ProjectileCount": 3},
                                           ["Sealed Skills have 25% increased Seal gain frequency"], SALVO_L20)
     gain = 1.25 / 0.75
     seals = gain * (1 + 0.1) / (1 - 0.05 * gain)
-    assert mods == [models.raw_mod("DPS", "MORE", 100 * ((3 + seals) / (1 + 0.05 * (2 + seals)) - 1), "Freezing Salvo")]
+    assert mods == [models.with_hits_per_use(models.raw_mod(
+        "DPS", "MORE", 100 * ((3 + seals) / (1 + 0.05 * (2 + seals)) - 1), "Freezing Salvo"), 3 + seals,
+        1 / (1 + 0.05 * (2 + seals)))]
     triggered = models.Skill.of({"name": "Freezing Salvo", "attack": True, "triggered": True, "group": 1})
     mods, notes = models.freezing_salvo_model(triggered, {"Speed": 1.0}, [], SALVO_L20)
     assert mods == [] and "triggered" in notes[0]["value"]
@@ -5758,7 +5762,7 @@ def test_zarokhs_revolt_breaks_every_seal_gained_in_its_cooldown_each_cast():
     spark = Skill("Spark", group=1, spell=True)
     stats = {"SealCooldown": 0.35, "SealMax": 5, "Cooldown": 10.032, "CastRate": 1.4285714}
     mods, notes = models.zarokh_model(spark, ["Zarokh's Revolt"], stats)
-    assert mods == [models.raw_mod("DPS", "MORE", (5 / 2.45 - 1) * 100, skill="Spark")]
+    assert mods == [models.with_hits_per_use(models.raw_mod("DPS", "MORE", (5 / 2.45 - 1) * 100, skill="Spark"), 6)]
     assert "wait for Max Seals" in notes[0]["play"]
     short = {**stats, "Cooldown": 1.05}  # (a cooldown shorter than 5 Seals' fill: 3 Seals)
     assert models.zarokh_model(spark, ["Zarokh's Revolt"], short)[0][0]["value"] == pytest.approx(

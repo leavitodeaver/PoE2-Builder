@@ -11716,7 +11716,7 @@ def zarokh_model(main: Skill | None, supports: list[str], stats: dict) -> tuple[
             "confidence": "MEDIUM (the game files' stats; Seals taken to keep filling through the cooldown)"}
     if abs(factor - 1) < 1e-6:
         return [], [note]
-    return [raw_mod("DPS", "MORE", (factor - 1) * 100, skill=main.name)], [note]
+    return [with_hits_per_use(raw_mod("DPS", "MORE", (factor - 1) * 100, skill=main.name), 1 + seals)], [note]
 
 
 # Zarokh's Revolt (MECHB33; GEM14's find, the manager 22:15): a lineage support (sup_int.lua SupportZarokhsRevoltPlayer:
@@ -15249,7 +15249,8 @@ def freezing_salvo_model(main: Skill | None, stats: dict, texts: list[str],
     seals = most if denominator <= 0 else min(most, gain * t0 * (1 + REPEAT_TIME * extra) / denominator)
     repeats = seals * per_seal + extra
     factor = (1 + repeats) / (1 + REPEAT_TIME * repeats)
-    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], [{
+    return [with_hits_per_use(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name), 1 + repeats,
+                              1 / (1 + REPEAT_TIME * repeats))], [{
         "label": label,
         "value": f"{seals:.2f} Seals and {extra:g} extra projectiles a use: {1 + repeats:.2f} arrows in "
                  f"{1 + REPEAT_TIME * repeats:.2f}x the use time, x{factor:.3f}",
@@ -18421,6 +18422,20 @@ def double_vision_model(texts: list[str], stats: dict, skills: list[Skill], main
                  f"shots blast at the end of their flight ({blasts:.2f} a second)" if blasts > 0 else "")}], groups
 
 
+# (MECHB54; MECH99's step 3, 1d621062 on main since train 119, the manager 01:28) A MECH-B model whose "DPS" MORE ADDS
+# hits a use that land on the boss within the use (Spell Cascade's areas, Zarokh's / Freezing Salvo's / Lioneye's
+# Repeats, crossbow shots in sequence, Primal Bounty's Empowered projectiles)
+# tags it HIT_CUT_PER_USE = those hits a use (over PoB's one), so ailment_uptime reads the use's chance 1 - (1 - c)^k
+# (MECH99's hits_raise) and the readers that opt in (raise_hits=True) count them; `time` (a use made longer by its
+# Repeats, KeywordPopups Repeat: 5% each) goes on as its "hit_cut" (time) part where PoB's Speed doesn't already hold it.
+def with_hits_per_use(mod: dict, hits: float, time: float | None = None) -> dict:
+    """`mod` tagged with its hits a use (`hits`) and, if given, its time part (see above)."""
+    mod[HIT_CUT_PER_USE] = max(0.0, number(hits))
+    if time is not None:
+        mod["hit_cut"] = max(0.0, number(time))
+    return mod
+
+
 # Spell Cascade's side areas on a boss (MECHB36; the manager 01:43 / 02:08, RESEARCH29 turns 4-5, an UNDERCOUNT). The
 # support (SupportSpellCascadePlayer, game files 26650308): support_spell_cascade_number_of_cascades_per_side 1, 20% less
 # Area and 30% less Damage on every area (PoB applies both, sup_int.lua), the Cascades 20% less Area again
@@ -18461,7 +18476,7 @@ def spell_cascade_model(main: Skill | None, stats: dict, boss_radius: float, bos
             "confidence": "MEDIUM"}
     if hits <= 1:
         return [], [note]
-    return [raw_mod("DPS", "MORE", 100 * (hits - 1), main.name)], [note] + part_notes
+    return [with_hits_per_use(raw_mod("DPS", "MORE", 100 * (hits - 1), main.name), hits)], [note] + part_notes
 
 
 # Dusk Vigil's Ember Fusillade (MECHB37; the catalog's "Skills triggered by items and passives", the coverage ranking's
@@ -18686,7 +18701,8 @@ def lioneye_model(texts: list[str], stats: dict, main: Skill | None, metres: flo
                       "doesn't read the line (0 before); adds in the Presence would switch it off (one boss taken)"),
             "play": (f"Keep the boss more than {radius:.1f} m away (no enemy in your Presence): without it x1; with it "
                      f"x{factor:.3f}")}
-    return [raw_mod("RepeatCount", "BASE", repeats, main.name), raw_mod("DPS", "MORE", 100 * repeats, main.name),
+    return [raw_mod("RepeatCount", "BASE", repeats, main.name),
+            with_hits_per_use(raw_mod("DPS", "MORE", 100 * repeats, main.name), 1 + repeats),
             raw_mod("Speed", "MORE", 100 * (1 / (1 + REPEAT_TIME * repeats) - 1), main.name)], [note]
 
 
@@ -21483,7 +21499,7 @@ def crossbow_sequence_model(main: Skill | None, stats: dict,
                                f"Velocity Rounds and Crossbow Shot, RESEARCH36 R36-5). Row: at its sibling skills' 10% each, x{row:.3f}. PoB counts none of them "
                                "(its sequence path needs the Barrageable type: probe POE2T4663)")}]
     factor = count / (1 + ratio / 100 * extra)
-    return ([raw_mod("DPS", "MORE", 100 * extra, main.name),
+    return ([with_hits_per_use(raw_mod("DPS", "MORE", 100 * extra, main.name), count),
              raw_mod("SkillAttackTime", "MORE", ratio * extra, main.name)],
             [{"label": label, "value": f"x{factor:.3f}", "confidence": "MEDIUM", "entry": CROSSBOW_SEQUENCE_ENTRY,
               "basis": (f"{count:g} projectiles a use fired in sequence, all hitting one target (KeywordPopups 122), each "
@@ -23516,7 +23532,8 @@ def primal_bounty_model(main: Skill | None, main_types: set[str], texts: list[st
     gain = share * PRIMAL_EXTRA / count
     shotgun = main.name in SHOTGUN_SKILLS and main.name != "Ice Fragments"
     head = 1 + gain if shotgun else 1.0
-    mods = [raw_mod("DPS", "MORE", 100 * gain, main.name, tag=PRIMAL_ENTRY)] if shotgun and gain > 0 else []
+    mods = ([with_hits_per_use(raw_mod("DPS", "MORE", 100 * gain, main.name, tag=PRIMAL_ENTRY), head)]
+            if shotgun and gain > 0 else [])
     return mods, [{
         "label": f"{PRIMAL_BOUNTY}: {share:.0%} of {main.name}'s uses Empowered (+{PRIMAL_EXTRA} Projectiles)*",
         "value": f"x{head:.3f}", "confidence": "LOW" if shotgun else "MEDIUM", "entry": PRIMAL_ENTRY,
