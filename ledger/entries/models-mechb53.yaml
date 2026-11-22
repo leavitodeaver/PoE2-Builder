@@ -31,8 +31,9 @@
   confidence: theory
   notes: >-
     MECHB53 (MECHC51's routed item; an UNDERCOUNT: PoB makes Charged Shockwave an active skill but never triggers it).
-    One a use of the main Quarterstaff Attack while the buff is up, min(1, S) of the time, S MECH-C's average stacks
-    (Power Charges spent a second x 6 s). Its group counts through Full DPS at that rate. MEDIUM-LOW.
+    One a HIT of the main Quarterstaff Attack (RESEARCH44 R44-16: multi-hit skills send one each hit; cooldown 0) while
+    the buff is up, min(1, S) of the time, S MECH-C's average stacks (Power Charges spent a second x 6 s); one a use a
+    row. Its group counts through Full DPS at that rate. MEDIUM-LOW.
 - id: model-mechb53-kalguur-rune
   title: "Fist of Kalguur's rune erupting in an Aftershock after a boosted Slam's hit (models.kalguur_rune_model)"
   kind: model
@@ -41,6 +42,7 @@
   skill: [Fist Of Kalguur]
   confidence: theory
   notes: >-
-    MECHB53 (MECHC51's routed item; an UNDERCOUNT: PoB never triggers the Aftershock). Eruptions a second = min(boosted
-    hits a second, limit / the rune's 4 s, 1 / its 0.5 s cooldown); what a boosted Slam does at the rune limit is
-    UNVERIFIED (headline: no new rune; row: the oldest replaced). LOW.
+    MECHB53 (MECHC51's routed item; an UNDERCOUNT: PoB never triggers the Aftershock). At the rune limit the oldest rune
+    is replaced (RESEARCH44 R44-15, the Limit keyword): eruptions a second = boosted hits a second x P(fewer than limit
+    newer within the rune's 4 s), Poisson, at most 1 / its 0.5 s cooldown; rows: no new rune at the limit, evenly
+    spaced hits. Whether a replaced rune erupts UNVERIFIED (counted not to). LOW.

@@ -60,6 +60,8 @@ def test_charged_staffs_shockwave_comes_on_each_quarterstaff_attack_while_buffed
     assert {m["key"]: m["value"] for m in mods}["triggerRate"] == pytest.approx(1.0)
     mods, _ = models.charged_shockwave_model(ft, True, 2.0, 3.0, "a")
     assert {m["key"]: m["value"] for m in mods}["triggerRate"] == pytest.approx(2.0)
+    mods, notes = models.charged_shockwave_model(ft, True, 2.0, 3.0, "a", hits=6.0)  # (R44-16: one a hit)
+    assert {m["key"]: m["value"] for m in mods}["triggerRate"] == pytest.approx(6.0) and "one a use: 2" in notes[0]["basis"]
     mods, notes = models.charged_shockwave_model(ft, False, 2.0, 3.0, "a")
     assert {m["key"]: m["value"] for m in mods}["triggerRate"] == 0 and "isn't a Quarterstaff" in notes[0]["basis"]
 
@@ -67,9 +69,13 @@ def test_charged_staffs_shockwave_comes_on_each_quarterstaff_attack_while_buffed
 def test_fist_of_kalguurs_rune_erupts_once_a_rune_life_at_most():
     """A rune a boosted hit, at most `limit` at a time each erupting after 4 s, its 0.5 s cooldown; row: replaced."""
     slam = models.Skill("Earthshatter", 1, attack=True)
-    mods, notes = models.kalguur_rune_model(slam, 0.5, 2.0, 4.0, 1, 0.5)
-    assert {m["key"]: m["value"] for m in mods}["triggerRate"] == pytest.approx(0.25)
+    import math
+    mods, notes = models.kalguur_rune_model(slam, 0.5, 2.0, 4.0, 1, 0.5)  # (R44-15: the oldest replaced)
+    assert {m["key"]: m["value"] for m in mods}["triggerRate"] == pytest.approx(1.0 * math.exp(-4.0), rel=1e-3)
+    assert "no new rune while the limit is full, 0.250" in notes[0]["basis"]
     mods, _ = models.kalguur_rune_model(slam, 0.1, 1.0, 4.0, 1, 0.5)
-    assert {m["key"]: m["value"] for m in mods}["triggerRate"] == pytest.approx(0.1)
+    assert {m["key"]: m["value"] for m in mods}["triggerRate"] == pytest.approx(0.1 * math.exp(-0.4), rel=1e-3)
+    mods, _ = models.kalguur_rune_model(slam, 0.1, 1.0, 4.0, 2, 0.5)  # (two runes: fewer than 2 newer within 4 s)
+    assert {m["key"]: m["value"] for m in mods}["triggerRate"] == pytest.approx(0.1 * math.exp(-0.4) * 1.4, rel=1e-3)
     assert "replaced" in notes[0]["basis"] and notes[0]["confidence"] == "LOW"
     assert models.kalguur_rune_model(slam, 0.0, 1.0, 4.0, 1, 0.5) == ([], [])

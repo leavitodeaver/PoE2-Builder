@@ -23459,8 +23459,11 @@ def kalguur_empowered_model(texts: list[str], main: str, boosted: float, pob_up:
 # (ChargedStaffPlayer; patch 0.5.4f: "the energy waves created by Charged Staff ... triggering"). The shockwave is the
 # gem's second effect, ChargedStaffShockwavePlayer ("Charged Shockwave": a 5 m cone Attack, 80% Physical to Lightning,
 # 66% of attack damage at level 20; triggered_by_charged_staff), which PoB makes an active skill of the Charged Staff
-# group but never triggers (hidden, no rate: 0). One shockwave a Quarterstaff Attack use while the buff is up (the text:
-# added to each Attack; per use, not per hit, UNVERIFIED), the buff up whenever at least one stack is: min(1, S) of the
+# group but never triggers (hidden, no rate: 0). One shockwave a Quarterstaff Attack HIT while the buff is up (RESEARCH44
+# R44-16, MEDIUM, the manager 21:18: poe2wiki, multi-hit skills "launch a shockwave with each hit"; cooldown 0 at every
+# level; Frozen Locus the only exclusion, CHARGED_STAFF_IGNORES), the hits PoB's Speed x HitChance x the main skill's
+# repeats (other multi-hit counts not read: an UNDERCOUNT there); one a use a floor row; whether triggered Quarterstaff
+# attacks send one is UNVERIFIED (not counted). The buff up whenever at least one stack is: min(1, S) of the
 # time, S = MECH-C's average stacks (Assumptions.charged_staff: the Power Charges it spends a second x 6 s; the
 # share with at least one stack is at most S, the upper side, MEDIUM-LOW). Only the main skill's uses counted (other
 # Quarterstaff Attacks the build presses would add more: the lower reading). Its group then counts through Full DPS at
@@ -23470,22 +23473,24 @@ CHARGED_SHOCKWAVE_ENTRY = "model-mechb53-charged-shockwave"
 
 
 def charged_shockwave_model(main: Skill | None, staff_main: bool, uses: float, stacks: float, how: str,
-                            forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
-    """(mods, notes): Charged Staff's shockwave a Quarterstaff Attack use of `main` (`uses` a second, at its share of the
-    fight) while its buff is up, min(1, `stacks`) of the time (see above); `how` the stacks' note."""
+                            forbidden: set[str] = frozenset(), hits: float | None = None) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): Charged Staff's shockwave a Quarterstaff Attack hit of `main` (`hits` a second, else `uses`; both at
+    its share of the fight) while its buff is up, min(1, `stacks`) of the time (see above); `how` the stacks' note."""
     if CHARGED_SHOCKWAVE_ENTRY in forbidden or main is None:
         return [], []
     up = max(0.0, min(1.0, number(stacks)))
-    rate = max(number(uses), 0.0) * up if staff_main else 0.0
-    why = (f"{main.name}'s {number(uses):.2f} uses a second x the buff up {up:.0%} of the time (min(1, {number(stacks):.2f} "
-           f"stacks): {how})" if staff_main else f"{main.name} isn't a Quarterstaff Attack: no shockwave from it")
+    hits = max(number(uses if hits is None else hits), 0.0)
+    rate = hits * up if staff_main else 0.0
+    why = (f"{main.name}'s {hits:.2f} hits a second (one shockwave a hit, R44-16) x the buff up {up:.0%} of the time "
+           f"(min(1, {number(stacks):.2f} stacks): {how}); row, one a use: {max(number(uses), 0.0) * up:.3g} a second"
+           if staff_main else f"{main.name} isn't a Quarterstaff Attack: no shockwave from it")
     return trigger_rate(CHARGED_SHOCKWAVE, rate), [{
         "label": "Charged Staff: its Lightning shockwave on your Quarterstaff Attacks*", "value": f"{rate:.3g} a second",
         "confidence": "MEDIUM-LOW" if rate > 0 else "MEDIUM", "entry": CHARGED_SHOCKWAVE_ENTRY,
         "basis": ("PoB makes the shockwave (Charged Shockwave, 66% of attack damage at level 20) but never triggers it: "
-                  f"one a Quarterstaff Attack use while the buff is up: {why} = {rate:.3g} a second. Other Quarterstaff "
-                  "Attacks the build presses not counted (the lower reading)"),
-        "play": "Keep Charged Staff's buff up (spend Power Charges on it): each Quarterstaff Attack adds a shockwave."}]
+                  f"one a Quarterstaff Attack hit while the buff is up: {why}; = {rate:.3g} a second. Other Quarterstaff "
+                  "Attacks the build presses, and triggered ones (UNVERIFIED), not counted (the lower reading)"),
+        "play": "Keep Charged Staff's buff up (spend Power Charges on it): each Quarterstaff Attack hit adds a shockwave."}]
 
 
 # Fist of Kalguur's rune and its Aftershock (MECHB53; MECHC51's routed item, an UNDERCOUNT). The support: "Runically
@@ -23495,11 +23500,15 @@ def charged_shockwave_model(main: Skill | None, staff_main: bool, uses: float, s
 # level 20, base_skill_effect_duration 4000, cooldown 0.5 s), an active skill of the supported group that PoB never
 # triggers (0). Eruptions a second = min(the boosted uses that hit, limit / the rune's duration, 1 / its cooldown):
 # the boosted share b is MECH-C's (Assumptions.kalguur_boost), the uses PoB's Speed x HitChance at the main skill's share.
-# What a boosted Slam does when the rune limit is full (no new rune, or the oldest replaced before it erupts) isn't
-# stated (UNVERIFIED, a research question): the headline takes no new rune until it erupts (one every 4 s at most);
-# row: the oldest replaced, so only a boosted hit with no later one within 4 s erupts (Poisson spacing: b u x
-# e^(-b u D)). The rune is made where the Slam first hits the boss and erupts 4 s later in 2.4 m: the boss taken still in
-# it (LOW-MEDIUM).
+# At the rune limit the OLDEST rune is replaced (RESEARCH44 R44-15, MEDIUM-HIGH, the manager 21:18; an OVERCOUNT in
+# MECHB53's first headline): KeywordPopups Limit, "If a new effect is created while at the maximum number of effects,
+# the oldest effect will dissapear"; a rune erupts only "after a duration", and nothing says a displaced one erupts
+# (UNVERIFIED in play). Slams boost "if possible", so a frequent Slam keeps replacing its own rune. Headline: a rune
+# erupts when fewer than `limit` newer runes come within its duration, boosted hits taken as random (Poisson): b u x
+# P(N < limit), N ~ Poisson(b u D), at most 1 / its 0.5 s cooldown. Rows: no new rune while the limit is full (the old
+# headline, min(b u, limit / D)); evenly spaced boosted hits (none erupts when they come faster than limit / D). Less
+# Skill Effect Duration may shorten the rune (UNVERIFIED): PoB's duration for it is used. The rune is made where the
+# Slam first hits the boss and erupts in 2.4 m: the boss taken still in it (LOW-MEDIUM).
 KALGUUR_RUNE = "Fist of Kalguur"
 KALGUUR_RUNE_ENTRY = "model-mechb53-kalguur-rune"
 KALGUUR_LIMIT_STAT = "base_number_of_runic_aftershocks_allowed"
@@ -23514,18 +23523,23 @@ def kalguur_rune_model(main: Skill | None, boosted: float, hits: float, duration
     duration = number(duration) or 4.0
     limit = number(limit) or 1.0
     made = min(1.0, boosted) * max(number(hits), 0.0)
-    caps = [limit / duration] + ([1 / cooldown] if cooldown > 0 else [])
-    rate = min([made] + caps)
-    replaced = made * math.exp(-made * duration / limit)
+    lam = made * duration
+    survive = math.exp(-lam) * sum(lam ** k / math.factorial(k) for k in range(max(int(round(limit)), 1)))
+    rate = made * survive
+    if cooldown > 0:
+        rate = min(rate, 1 / cooldown)
+    blocked = min([made, limit / duration] + ([1 / cooldown] if cooldown > 0 else []))
+    even = made if made <= limit / duration else 0.0
     return trigger_rate(KALGUUR_RUNE, rate), [{
         "label": f"Fist of Kalguur: its runes' Aftershock after {main.name}'s boosted hits*", "value": f"{rate:.3g} a second",
         "confidence": "LOW", "entry": KALGUUR_RUNE_ENTRY,
         "basis": (f"PoB makes the Aftershock but never triggers it. A rune a boosted hit: {min(1.0, boosted):.0%} of "
-                  f"{number(hits):.2f} hits a second = {made:.3f}; at most {limit:g} rune at a time, each erupting after "
-                  f"{duration:g} s" + (f", its {cooldown:g} s cooldown" if cooldown > 0 else "")
-                  + f": {rate:.3f} a second (no new rune while the limit is full: UNVERIFIED). Row, the oldest rune "
-                  f"replaced before it erupts: {replaced:.3f} a second. The boss taken still within its 2.4 m when it "
-                  "erupts (LOW-MEDIUM)"),
+                  f"{number(hits):.2f} hits a second = {made:.3f}; at most {limit:g} rune at a time, the oldest replaced "
+                  f"by a new one (the Limit keyword, R44-15), so one erupts only if fewer than {limit:g} newer come "
+                  f"within its {duration:g} s ({survive:.0%}, boosted hits taken as random)"
+                  + (f", its {cooldown:g} s cooldown" if cooldown > 0 else "") + f": {rate:.3f} a second. Rows: no new "
+                  f"rune while the limit is full, {blocked:.3f}; evenly spaced boosted hits, {even:.3f}. Whether a "
+                  "replaced rune erupts is UNVERIFIED (counted not to). The boss taken still within its 2.4 m (LOW-MEDIUM)"),
         "play": f"Fist of Kalguur: a boosted {main.name} hit leaves a rune that erupts {duration:g} s later; keep the boss in it."}]
 
 

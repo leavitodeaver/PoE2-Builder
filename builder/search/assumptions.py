@@ -9303,9 +9303,14 @@ class Assumptions:
             CHARGED_STAFF, (0.0, 0.0, "no Power Charge source, or Charged Staff has no press rate"))
         staff = main.attack and not main.triggered and "Staff" in ((build.ctx.gems.get(main.name) or {}).get(
             "weaponTypes") or [])
-        uses = number(stats.get("Speed")) * main_time_share(build, main)
+        share = main_time_share(build, main)
+        uses = number(stats.get("Speed")) * share
+        hit = build.call("stats", fields=["Speed", "HitChance"])
+        row = next(iter(build.call("useRates", indices=[main.group])["rates"]), {}) if main.group is not None else {}
+        hits = (number(hit.get("Speed")) * min(number(hit.get("HitChance")) or 100.0, 100.0) / 100
+                * max(number(row.get("repeats")) or 1.0, 1.0) * share)  # (R44-16: one a hit)
         mods, notes = models.charged_shockwave_model(main, staff, uses, number(spent) * seconds, how,
-                                                     set(build.ctx.request.forbid_ledger_entries))
+                                                     set(build.ctx.request.forbid_ledger_entries), hits=hits)
         live = any(m.get("key") == "triggerRate" and number(m.get("value")) > 0 for m in mods)
         return mods, notes, ({wave.group} if live else set())
 
