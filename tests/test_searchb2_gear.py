@@ -140,3 +140,77 @@ def test_quick_fill_gives_each_empty_slot_its_best_option_that_beats_empty():
     assert gear.quick_fill(float("inf"))
     assert build.equipped["Gloves"].name == "g2" and "Boots" not in build.equipped and "Belt" not in build.equipped
     assert build.equipped["Helmet"].name == "worn helmet"
+
+
+# Shrine Sceptres (Gear.purity_trials; SEARCHB3, the manager 03:05, RESEARCH46 R46-1 / R46-2) -------------------------
+
+def test_the_free_support_skills_are_the_four_shrine_sceptre_ones_only():
+    from builder.search.gear import FREE_SUPPORT_LINE
+
+    for line in ("Grants Skill: Level 10 Purity of Fire", "Grants Skill: Level (1-20) Purity of Ice",
+                 "Grants Skill: Level 20 Purity of Lightning", "Grants Skill: Level (1-20) Impurity"):
+        assert FREE_SUPPORT_LINE.search(line)
+    for line in ("Grants Skill: Level 10 Malice", "Grants Skill: Level 10 Discipline", "Grants Skill: Level 10 Heart of Ice",
+                 "Grants Skill: Level 10 Fulmination", "Grants Skill: Level (1-20) Skeletal Warrior Minion"):
+        assert not FREE_SUPPORT_LINE.search(line)
+
+
+def test_purity_trials_try_each_shrine_option_for_real_with_its_group_filled_and_keep_a_gain(monkeypatch):
+    from builder.search import gear as gear_module
+    from builder.search.gear import Gear
+
+    class Option:
+        def __init__(self, name, raw, unique=False, base=None):
+            self.name, self.raw, self.unique, self.base, self.price, self.rare = name, raw, unique, base or name, 0.0, False
+
+    shrine = Option("Shrine Sceptre (Purity of Fire)", "Rarity: Normal\nShrine Sceptre (Purity of Fire)\nGrants Skill: Level 10 Purity of Fire")
+    omen = Option("Omen Sceptre", "Rarity: Normal\nOmen Sceptre\nGrants Skill: Level 10 Malice")
+    palm = Option("Sacred Flame", "Rarity: Unique\nSacred Flame\nGrants Skill: Level (1-20) Purity of Fire", unique=True,
+                  base="Shrine Sceptre")
+    rare = Option("rare shrine", shrine.raw.replace("Normal", "Rare"), base=shrine.base)
+
+    class Build:
+        locked_slots: set = set()
+
+        def __init__(self):
+            self.score, self.equipped, self.filled = 10.0, {"Weapon 2": omen}, []
+
+        def snapshot(self):
+            return (self.score, dict(self.equipped))
+
+        def restore(self, snap):
+            self.score, self.equipped = snap[0], dict(snap[1])
+
+        def groups(self):
+            held = self.equipped.get("Weapon 2")
+            name = gear_module.FREE_SUPPORT_LINE.search(held.raw).group(1) if held and gear_module.FREE_SUPPORT_LINE.search(held.raw) else "Malice"
+            return [{"index": 3, "fromItem": True, "enabled": True, "gems": [{"name": name}]}]
+
+    build = Build()
+    gear = Gear.__new__(Gear)
+    gear.build, gear.lam, gear.fit_requirements = build, 0.0, None
+    gear.slots = {"Weapon 1": gear_module.SlotSpec("Wand"), "Weapon 2": gear_module.SlotSpec("Sceptre")}
+    gear.settle = lambda: None
+    gear.allowed = lambda slot, option: True
+    gear.left_for = lambda slot: 100.0
+    gear.candidates = lambda slot: [palm] if slot == "Weapon 2" else []
+    gear.options = lambda slot: [shrine, omen] if slot == "Weapon 2" else []
+    gear.build_rare = lambda slot, deadline, base_name=None, variant=None: rare if base_name == shrine.base else None
+    tried = []
+    # The bare sceptres score under the Omen; with the Purity group filled, the rare scores higher, the unique doesn't
+    after_fill = {"rare shrine": 11.0, "Sacred Flame": 9.5}
+
+    def put(slot, option):
+        build.equipped[slot] = option
+        tried.append(option.name)
+        build.score = 9.0
+
+    def fill(index, deadline):
+        build.filled.append((index, build.equipped["Weapon 2"].name))
+        build.score = after_fill[build.equipped["Weapon 2"].name]
+        return True
+
+    gear.put, gear.fill_group = put, fill
+    assert gear.purity_trials(float("inf"))
+    assert tried == ["Sacred Flame", "rare shrine"] and build.filled == [(3, "Sacred Flame"), (3, "rare shrine")]
+    assert build.equipped["Weapon 2"].name == "rare shrine" and build.score == 11.0

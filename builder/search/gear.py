@@ -143,6 +143,14 @@ RESIST_SWAP_ATTEMPTS = 4  # slot pairs one resist_swap_round tries (two rare bui
 RESIST_RECEIVERS = ("Boots", "Helmet", "Body Armour", "Weapon 2", "Belt", "Gloves", "Amulet", "Ring 1", "Ring 2", "Ring 3")
 SWITCH_QUICK_FILL = "POE2_SEARCH_QUICK_FILL"  # "1": a full round's quick pick for every empty slot first (OFF by default)
 SWITCH_RESIST_SWAP = "POE2_SEARCH_RESIST_SWAP"  # "1": gear_round's full rounds try resist_swap_round (OFF by default)
+SWITCH_PURITY = "POE2_SEARCH_PURITY_TRIALS"  # "1": full rounds try Shrine Sceptres for real (purity_trials; OFF by default)
+# The skills whose Cost & Reservation Multiplier is 0%, so every support in their group reserves no Spirit (RESEARCH46
+# R46-1, HIGH: GrantedEffectsPerLevel ReservationMultiplier 0 at all 40 levels on PurityOfFirePlayer, PurityOfIcePlayer,
+# PurityOfLightningPlayer and ImpurityPlayer; checked by RESEARCH46 on every GrantedEffects row with per-level rows, 8,350
+# effects, and the five forum threads, the newest 2026; NOT the other sceptre skills: Discipline, Malice, Heart of Ice,
+# Fulmination and Skeletal Warrior are 100%). All four come only on Shrine Sceptres (ItemInherentSkills, R46-2)
+FREE_SUPPORT_SKILLS = ("Purity of Fire", "Purity of Ice", "Purity of Lightning", "Impurity")
+FREE_SUPPORT_LINE = re.compile(r"Grants Skill: (?:Level \S+ )?(%s)\s*$" % "|".join(FREE_SUPPORT_SKILLS), re.M)
 RESIST_LINE = re.compile(r"^\+?[\d.()\-]+%? to (.+?) Resistances?$")
 RESIST_ELEMENTS = ("Fire", "Cold", "Lightning", "Chaos")
 
@@ -240,6 +248,8 @@ class Gear:
     refill_main = None  # refills the main group's supports (gems.refill_main_supports); set by the search
     fit_requirements = None  # re-routes the tree to new gear's attribute requirements (tree.fit_requirements); set by the search
     relevant_skill = None  # would a granted skill change an assumption (Assumptions.relevant)? set by the search
+    purity_rows: list  # (purity_trials) one row per Shrine Sceptre tried: before / after / kept
+    fill_group = None  # fills an item-granted group's supports (gems.fill_granted_supports(index, deadline)); set by the search
 
     def flask_rate(self, pool: str) -> tuple[float, float]:
         """(charges generated per second, maximum charges) of the equipped flask for this pool, for
@@ -1240,6 +1250,8 @@ class Gear:
             improved = any(row["kept"] for row in self.resist_swap_round(deadline)) or improved
         if full and self.fill_granted is not None:
             improved = self.granted_meta_trials(deadline) or improved
+        if full and os.environ.get(SWITCH_PURITY, "0") == "1":
+            improved = self.purity_trials(deadline) or improved
         if full:
             self.update_lambda()
         return improved
@@ -1568,6 +1580,62 @@ class Gear:
                     self.variant_failed[plain[id(option)]] = before
                 build.restore(snap)
                 self.settle()
+        return improved
+
+    def purity_trials(self, deadline: float) -> bool:
+        """Shrine Sceptres, tried for real where a slot takes a Sceptre (the manager, 03:05; RESEARCH46): their Purity
+        (or Impurity) has a 0% Cost & Reservation Multiplier, so every Spirit-costly support in its group is free, DPS
+        ones included (Precision, Direstrike, Mysticism, Upwelling, Her Declaration). A plain what-if sees only the
+        sceptre's own lines, its group empty, so its free supports never show and the slot's ranking never picks it.
+        Each option: a rare built on each Shrine Sceptre base (one per Purity; a normal drop base, level 26) and each
+        Purity unique the build can afford (the Guiding Palms, Sacred Flame, Palm of the Dreamer: candidates, priced as
+        usual). Equipped, settled, the tree re-routed to its requirements (fit_requirements), its granted group's
+        supports filled (fill_supports), kept if the build scores higher, else put back."""
+        build = self.build
+        improved = False
+        if "purity_rows" not in vars(self):
+            self.purity_rows = []
+        for slot, spec in self.slots.items():
+            if "Sceptre" not in spec.types or slot in build.locked_slots or clock.now() > deadline:
+                continue
+            current = build.equipped.get(slot)
+            options = [o for o in self.candidates(slot) if o.unique and FREE_SUPPORT_LINE.search(o.raw)]
+            for base in self.options(slot):
+                if (base.unique or not FREE_SUPPORT_LINE.search(base.raw) or clock.now() > deadline
+                        or (current is not None and not current.unique and current.base == base.base)):
+                    continue
+                options.append(self.build_rare(slot, deadline, base_name=base.base) or base)
+            for option in options:
+                if clock.now() > deadline or (current is not None and option.raw == current.raw):
+                    continue
+                if not self.allowed(slot, option) or (option.price or 0.0) > self.left_for(slot) + 1e-9:
+                    continue
+                snap, before = build.snapshot(), build.score
+                self.put(slot, option)
+                self.settle()
+                if self.fit_requirements is not None:
+                    self.fit_requirements(min(deadline, clock.now() + REQUIREMENT_FIT_SECONDS))
+                self.fill_supports(FREE_SUPPORT_LINE.search(option.raw).group(1), deadline)
+                kept = build.score > before + EPSILON and self.adjusted(build.score, option) > self.adjusted(before, current)
+                self.purity_rows.append({"slot": slot, "option": option.name, "base": option.base, "unique": option.unique,
+                                         "before": round(before, 4), "after": round(build.score, 4), "kept": kept})
+                if kept:
+                    improved, current = True, option
+                    continue
+                build.restore(snap)
+                self.settle()
+        return improved
+
+    def fill_supports(self, skill: str, deadline: float) -> bool:
+        """The supports of each enabled group an item grants with `skill` first, filled by the search's support round
+        (fill_group: gems.fill_granted_supports). Without the hook, nothing is filled (the trial judges the bare item)."""
+        if self.fill_group is None:
+            return False
+        improved = False
+        for group in self.build.groups():
+            if (group["fromItem"] and group["enabled"] and group["gems"] and group["gems"][0]["name"] == skill
+                    and clock.now() < deadline):
+                improved = self.fill_group(group["index"], min(deadline, clock.now() + REQUIREMENT_FIT_SECONDS)) or improved
         return improved
 
     def variant_options(self, slot: str, current: ItemOption | None, deadline: float) -> list[tuple[ItemOption, tuple[str, str, str]]]:
