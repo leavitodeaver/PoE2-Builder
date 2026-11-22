@@ -256,7 +256,7 @@ def test_volcanos_end_is_skipped_by_the_rolls_made_anyway_as_a_row():
     volcano = models.Skill("Volcano", 1, spell=True)
     sets = [{"label": "Eruption", "AverageDamage": 100.0}]
     mods, notes = models.volcano_channel_model(volcano, "Eruption", sets, dodges=0.2, cast_rate=1.0)
-    assert mods[0]["value"] == pytest.approx(100 * (5.5 / 5 - 1))  # (the headline unchanged: k = 3)
+    assert (1 + mods[0]["value"] / 100) * (1 + mods[1]["value"] / 100) == pytest.approx(5.5 / 5)  # (headline: k = 3)
     rolled = min(1.0, 0.2 * 5 / 1.0)
     assert f"x{5.5 / (4.5 + 0.5 * (1 - rolled)):.3f} (a row, MEDIUM)" in notes[0]["basis"]
 

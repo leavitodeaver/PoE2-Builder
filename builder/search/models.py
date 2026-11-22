@@ -22678,11 +22678,16 @@ def volcano_channel_model(main: Skill | None, scored: str | None, sets: list[dic
         rows += (f"; the end skipped by the dodge rolls you make anyway ({rolled:.0%} of releases followed by one: "
                  f"R42-25, its end isn't locked; a roll only to skip it loses time, 0.75 s against ~0.5 cast time) "
                  f"x{skip:.3f} (a row, MEDIUM)")
-    mod = raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=VOLCANO_ENTRY)
+    mod = raw_mod("DPS", "MORE", 100 * (1 / (2 + best) - 1), main.name, tag=VOLCANO_ENTRY)
     mod["hit_cut"] = 1 / (2 + best)  # (MECHB52: the hit part, one eruption per 2 + k cast times; the rest is its stages)
     # (MECHB53, MECH99's split: a TIME cut, kept on "hit_cut": each eruption costs 2 + k cast times of channel, so its
     # uses are fewer, not its hits a use)
-    return [mod], [{
+    # (MECHB54; GEM33's 29f15646, the manager 02:50: PoB builds an ailment from the hit BEFORE DpsMultiplier, so the
+    # stages' more inside the "DPS" MORE never reached Volcano's Ignite, an UNDERCOUNT) the per-eruption more x (1 + 1.5 k)
+    # as a "Damage" MORE (PoB carries it into the hit's ailments), the eruptions' rate as the "DPS" MORE: their product is
+    # the old factor exactly
+    mods = [mod] + ([raw_mod("Damage", "MORE", 100 * VOLCANO_MORE * best, main.name, tag=VOLCANO_ENTRY)] if best else [])
+    return mods, [{
         "label": f"{main.name}: each eruption channelled to {best + 1} stages*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM-LOW", "entry": VOLCANO_ENTRY,
         "basis": (f"PoB scores one Eruption hit a cast time and reads none of the channel stats. The game: a 50% wind-up, "

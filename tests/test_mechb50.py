@@ -45,7 +45,10 @@ def test_volcano_channels_to_its_last_stage():
     volcano = Skill("Volcano", 1, spell=True)
     sets = [{"label": "Eruption", "AverageDamage": 100.0}, {"label": "Projectiles", "AverageDamage": 20.0}]
     mods, notes = models.volcano_channel_model(volcano, "Eruption", sets)
-    assert mods[0]["value"] == pytest.approx(100 * (5.5 / 5 - 1), abs=0.01)  # (3 stages: 1 + 4.5 over 5 cast times)
+    # (3 stages: 1 + 4.5 over 5 cast times; MECHB54: the stages' more as a "Damage" MORE, the eruptions' rate the DPS one)
+    assert (1 + mods[0]["value"] / 100) * (1 + mods[1]["value"] / 100) == pytest.approx(5.5 / 5, abs=1e-3)
+    assert mods[0]["name"] == "DPS" and mods[0]["value"] == pytest.approx(-80) and mods[0]["hit_cut"] == pytest.approx(0.2)
+    assert mods[1]["name"] == "Damage" and mods[1]["value"] == pytest.approx(450)
     assert "a tap (no stage) x0.500" in notes[0]["basis"] and "x1.167" in notes[0]["basis"]
     assert models.volcano_channel_model(volcano, "Projectiles", sets) == ([], [])
     assert models.channel_windup_model(volcano, 1.0, 4.0, 2.0, 0.5) == ([], [])  # (left to the Volcano model)
