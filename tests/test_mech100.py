@@ -93,3 +93,17 @@ def test_a_tagged_uses_raise_reaches_the_readers_past_the_time_cuts_clamp():
     assert models.immobilise_period({**shock, "_uses_raise": 3.0}, "Electrocute") < \
         models.immobilise_period(shock, "Electrocute")
 
+
+def test_a_main_whirlwind_carries_the_ignited_grounds_debuff_8_s_past_it():
+    """MECH100 (the manager 12:00, RESEARCH47 R47-2): Whirling Slash's Whirlwind over the build's own Ignited Ground keeps
+    the ground's debuff on the boss 8 s past each ground (KeywordPopups Whirlwind), at the main skill's share; other main
+    skills, and no ground, change nothing (the no-ground "infinite" claim is not modelled)."""
+    from builder.search import conditions
+
+    pieces = [("Birth of Fury's trail", 0.25, 8.0, 500.0), ("none", 0.0, 4.0, None)]
+    out, how = conditions.whirlwind_carry(pieces, "Whirling Slash", 1.0)
+    assert out[0][1] == pytest.approx(0.5) and out[1] == pieces[1] and "8 s past" in how
+    assert conditions.whirlwind_carry(pieces, "Whirling Slash", 0.5)[0][0][1] == pytest.approx(0.375)
+    assert conditions.whirlwind_carry([("Incinerate", 0.8, 8.0, None)], "Whirlwind Lance", 1.0)[0][0][1] == 1.0
+    assert conditions.whirlwind_carry(pieces, "Spark", 1.0) == (pieces, "")
+    assert conditions.whirlwind_carry([("none", 0.0, 4.0, None)], "Whirling Slash", 1.0)[1] == ""

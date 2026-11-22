@@ -7034,6 +7034,42 @@ def no_hit_ignite(stats: dict, damage: float | None, window: float) -> tuple[flo
                    f"{NO_HIT_TICK:g} s, LOW): at 50% or more {reach:.0%} of the time")
 
 
+# A Whirlwind carrying your Ignited Ground's debuff (MECH100; the manager 12:00 from RESEARCH47 R47-2, the "infinite
+# Ignite" Whirling Slash Gemling; an UNDERCOUNT). KeywordPopups Whirlwind (26650308): a Whirlwind "that overlaps an allied
+# Elemental Ground Surface takes on that element ... and applying the Ground Surface's debuff to enemies inside the
+# Whirlwind for 8 seconds" (0.4.0: 8 s, was 4; 0.3.0 fixed lit Oil Ground not igniting Whirlwinds; nothing since,
+# grep_notes "whirlwind"); KeywordPopups IgnitedGround: its debuff "repeatedly inflicts Flammability ... Igniting them
+# when it reaches 50%". So with Whirling Slash / Whirlwind Lance the main skill, used at the boss over the build's own
+# Ignited Ground (made at the boss: ignited_ground's pieces), the boss keeps the ground's debuff 8 s past each ground:
+# a piece under it `up` of the fight for `seconds` each covers min(1, up x (seconds + 8) / seconds) of it, the part
+# beyond the ground at the main skill's time share (its Whirlwinds made only while it is used; MEDIUM). The ground's
+# source rate keeps it topped up (each piece's own rate, never a flat one). The no-ground "goes infinite after ~8 s"
+# claim contradicts the game text and is UNVERIFIED (R47-2): not modelled. Not counted (labelled): lit Oil Ground carried
+# by the Whirlwind (its Exposure / outright Ignite: oil_ignite_share counts it under the boss only), a companion's Trail
+# of Fire (no companion ground model).
+WHIRLWIND_CARRY = 8.0  # s (KeywordPopups Whirlwind)
+
+
+def whirlwind_carry(pieces: list, skill: str, share: float) -> tuple[list, str]:
+    """(`pieces` with each Ignited Ground's cover stretched by the main Whirlwind's 8 s, how) (the note above); the
+    pieces unchanged when `skill` isn't a Whirlwind skill."""
+    if skill not in WHIRLWINDS or share <= 0:
+        return pieces, ""
+    out, parts = [], []
+    for label, up, seconds, damage in pieces:
+        if up <= 0 or seconds <= 0:
+            out.append((label, up, seconds, damage))
+            continue
+        carried = up + (min(1.0, up * (seconds + WHIRLWIND_CARRY) / seconds) - up) * min(1.0, share)
+        out.append((label, carried, seconds, damage))
+        parts.append(f"{label} {up:.0%} -> {carried:.0%}")
+    if not parts:
+        return pieces, ""
+    return out, (f"{skill}'s Whirlwind takes the ground's debuff and keeps it on the boss {WHIRLWIND_CARRY:g} s past "
+                 f"each ground (KeywordPopups Whirlwind; at its {min(1.0, share):.0%} share of the fight, MEDIUM): "
+                 + "; ".join(parts) + " (without it: the ground's own share)")
+
+
 def ground_ignite(pieces: list, stats: dict) -> tuple[float, str]:
     """(share of the fight your Ignited Ground keeps the boss Ignited, how) from ignited_ground's `pieces`: each source's
     share x the share of it the boss holds 50% Flammability (no_hit_ignite), sources independent."""
@@ -9806,6 +9842,7 @@ class Conditions:
             stats["_main_share"] = number(stats["_main_share"]) * max(0.0, min(1.0, number(cut)))
         # (MECH99, models.AT_MAIN_SHARE's split note: the hits a use, read only by the hit readers; None: no change)
         stats["_hits_per_use"] = getattr(self.build, "main_hits_per_use", None)
+        stats["_uses_raise"] = getattr(self.build, "main_uses_raise", None)  # (MECH100: models.USES_RAISE)
         # (MECHC51: leyline_cycle's note) the Ward pool, the Leylines drain and the Ward recovery, with Leylines only
         if any(line["source"] == f"gem:{LEYLINES}" for line in lines):
             stats["_leyline"] = self._leyline_inputs()
@@ -9842,7 +9879,6 @@ class Conditions:
                             if types == main_types or (hollow and name == HOLLOW_FORM)
                             else None)  # (None: rated from its group below)
                     consumers.setdefault(kind, {})[name] = uses
-        stats["_uses_raise"] = getattr(self.build, "main_uses_raise", None)  # (MECH100: models.USES_RAISE)
         if CREEPING_CHILL in gem_types:  # (MECH93: the support makes its crystal skill spend Power Charges; see
             # CREEPING_CHILL's note: PoB adds SkillConsumesPowerChargesOnUse at run time, the gem data above lacks it)
             for name in self._creeping_chill_skills():
@@ -10318,11 +10354,16 @@ class Conditions:
                 t.strip() for t in texts if PRESENCE_IGNITE.match(t.strip()))).group(1)), FLAMMABILITY_SECONDS)
             aura = (aura[0] * reach, f"{aura[1]}; it Ignites only at 50% Flammability: {how}")
         legion = self.minion_ignite(names)
-        burning = ground_ignite(ground_pieces, stats)
+        # (MECH100, R47-2: a main Whirlwind skill carries the ground's debuff 8 s past it: whirlwind_carry)
+        carried, carry_how = whirlwind_carry(ground_pieces, self.main_skill,
+                                             1.0 if time_share is None else number(time_share))
+        burning = ground_ignite(carried, stats)
+        if carry_how:
+            burning = (burning[0], f"{burning[1]}; {carry_how}")
         # (MECH83: the Ignite damage of grounds that name their Fire, Beira's Anguish / Birth of Fury: models.
         # ground_life_ignite_model) (label, share the ground Ignites the boss, its Ignite's DPS, how)
         stats["_ground_life_ignite"] = []
-        for label, up, seconds, damage in ground_pieces:
+        for label, up, seconds, damage in carried:  # (MECH100: with the Whirlwind's carry, as the Ignited share)
             if up > 0 and damage:
                 reach, how = no_hit_ignite(stats, damage, seconds)
                 stats["_ground_life_ignite"].append((
