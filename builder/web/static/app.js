@@ -886,8 +886,7 @@ async function start() {
   // (the manager, 18 Nov 14:50) the default is a setting, not poe.ninja's first league; say what's wrong with it
   const leagueWarnings = options.default_league_warnings || [];
   fillSelect($("league"), options.leagues, `Default (${options.default_league ?? "unknown"})${leagueWarnings.length ? " ⚠" : ""}`);
-  $("league").title = leagueWarnings.join("
-");
+  $("league").title = leagueWarnings.join("\n");
   fillSelect($("weapon_type"), options.weapon_types, "Any");
   for (const [id, values] of [["offhand", options.enums.offhand], ["weapon_swap", options.enums.weapon_swap],
     ["defence", options.enums.defence], ["gear_tier", options.enums.gear_tier], ["objective", options.enums.objective]]) {
