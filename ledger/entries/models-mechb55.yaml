@@ -1,0 +1,22 @@
+- id: model-mechb55-flame-wall-projectiles
+  title: "Flame Wall's added Fire (and, Infused, Lightning) on projectiles fired through it (conditions._flame_wall / _flame_wall_infused)"
+  kind: model
+  model: flame_wall_projectiles
+  stats: ["flame_wall_minimum_added_fire_damage", "flame_wall_maximum_added_fire_damage",
+          "flame_wall_minimum_added_lightning_damage_to_add_to_projectile",
+          "flame_wall_maximum_added_lightning_damage_to_add_to_projectile"]
+  skill: [Flame Wall]
+  confidence: MEDIUM-LOW
+  notes: >-
+    MECHB55 (GEM34's finding via the manager 08:25 22 Nov; an UNDERCOUNT). PoB maps the four stats onto ModFlag.Projectile
+    buffs gated on its "Projectile Travelled through?" (flameWallAddedDamage) and "Lightning Infused?" (flameWallInfused)
+    boxes, which nothing set (checked: every flameWall / FlameWall in builder/, engine/ and ledger/ before
+    MECHB55: none sets either box). Now the first box carries the share of the fight a wall stands in your line of fire: the
+    build's own Flame Wall casts and wall duration (useRates), each wall moved off the line by the boss's forced moves
+    (boss_hits.red_flash_rate) until the next cast, (1 - e^(-m D)) / (m T); the second the share of Flame Wall's casts
+    that find a Lightning Infusion (the build's supply shared among its consumers, as Arc's). Both weighed by
+    Search.weigh_uptimes (with / without rows in the play guide). 0 with no cast rate or no Infusion source.
+  sources: ["builder/search/conditions.py (FLAME_WALL, flame_wall_line, Conditions._flame_wall, Conditions._skill_infused)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua (FlameWallPlayer statSets[2])",
+            "vendor/PathOfBuilding-PoE2/src/Modules/ConfigOptions.lua (flameWallAddedDamage, flameWallInfused)"]
+  status: proposed

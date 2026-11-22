@@ -8306,6 +8306,58 @@ def _corpse_consumed_recently(lines: list[str], stats: dict) -> tuple[object, st
                     "source: 0")
 
 
+# Flame Wall's projectile buff (MECHB55; GEM34's finding via the manager 08:25 22 Nov, an UNDERCOUNT). "Any Projectiles
+# fired through the wall by you and Allies deal added Fire damage. Consumes a Lightning Infusion if possible to also add
+# Lightning damage to the Projectiles" (FlameWallPlayer's description; its "Projectile Damage" set:
+# flame_wall_minimum / maximum_added_fire_damage and flame_wall_minimum / maximum_added_lightning_damage_to_add_to_
+# projectile, plus active_skill_consumes_a_lightning_infusion). PoB gates both on its boxes "Projectile Travelled
+# through?" (flameWallAddedDamage, Condition:FlameWallAddedDamage) and "Lightning Infused?" (flameWallInfused, only with
+# the first), which nothing set (checked: every flameWall / FlameWall in builder/, engine/ and ledger/ before this
+# change: none sets either box): every projectile build casting Flame Wall counted 0 of it. Now:
+#   - flameWallAddedDamage at the share of the fight a wall stands between you and the boss (Conditions._flame_wall):
+#     its uptime from the build's own casts (the bridge's useRates row: uses a second x the wall's duration with the
+#     build's duration modifiers), each wall taken as put in your line of fire (in front of you, or on the boss) until
+#     the boss's next forced move (boss_hits.red_flash_rate) moves you off it, then back in line at the next cast. With
+#     casts every T s, a wall lasting D (D <= T) and forced moves at m a second (Poisson): (1 - e^(-m D)) / (m T)
+#     (m = 0: D / T, the plain uptime). MEDIUM-LOW: every forced move taken to break the line (a lower reading; the row
+#     "forced moves don't break it" is the plain uptime), dodge rolls taken to keep it (UNVERIFIED either way).
+#   - flameWallInfused at the share of Flame Wall's casts that consume a Lightning Infusion (the build's own supply,
+#     shared among its Lightning consumers, as Arc's: Conditions._skill_infused). 0 with no source.
+# PoB applies the buff to every projectile skill of the build (ModFlag.Projectile): Search.weigh_uptimes weighs the two
+# boxes as independent, which reads a little under the exact (1 - u) x r_off + u x (v + (1 - v) x r_fire) (a lower
+# reading). Projectiles that fall from above (Hailstorm Rounds' bolts, Rain of Arrows): whether they pass "through" a
+# wall they land in is UNVERIFIED; counted at the same share (not zeroed on an unverified claim).
+FLAME_WALL = "Flame Wall"
+
+
+def flame_wall_line(uses: float, duration: float, moves: float) -> float:
+    """The share of the fight a Flame Wall stands in your line of fire: casts `uses` a second, each wall lasting
+    `duration` s, put back in line at each cast and moved off it by the boss's forced moves (`moves` a second)."""
+    if uses <= 0 or duration <= 0:
+        return 0.0
+    every = 1.0 / uses
+    up = min(duration, every)
+    if moves <= 0:
+        return up / every
+    return (1.0 - math.exp(-moves * up)) / (moves * every)
+
+
+def _flame_wall(lines: list[str], stats: dict) -> tuple[object, str]:
+    if "_flame_wall" not in stats:
+        return 0.0, ""
+    share, how = stats["_flame_wall"]
+    return _box(share, f"your projectiles fired through your {FLAME_WALL} {share:.0%} of the fight ({shared(share)}): "
+                       f"{how}")
+
+
+def _flame_wall_infused(lines: list[str], stats: dict) -> tuple[object, str]:
+    if "_flame_wall_infused" not in stats:
+        return 0.0, ""
+    share, how = stats["_flame_wall_infused"]
+    return _box(share, f"{FLAME_WALL}'s casts consuming a Lightning Infusion {share:.0%} ({how}; its added Lightning "
+                       f"only on projectiles that pass a wall, the box above)")
+
+
 @dataclass(frozen=True)
 class Condition:
     var: str
@@ -8464,6 +8516,8 @@ CONDITIONS: list[Condition] = [
     Condition("conditionMinionsDiedRecently", "A minion of yours died recently", value_fn=_minion_died_recently, fields=()),
     Condition("conditionConsumedCorpseRecently", "Consumed a corpse recently (MECHB38)",
               value_fn=_corpse_consumed_recently, fields=()),
+    Condition("flameWallAddedDamage", "Projectiles through your Flame Wall (MECHB55)", value_fn=_flame_wall, fields=()),
+    Condition("flameWallInfused", "Flame Wall Lightning-Infused (MECHB55)", value_fn=_flame_wall_infused, fields=()),
     Condition("bannerPlanted", "Banner placed (its share of the fight from Glory)", value_fn=_banner_planted, fields=()),
     Condition("conditionInfusionConsumedRecently", "Infusion consumed recently", value_fn=_infusion_recently, fields=("Speed",)),
     Condition("buffDivinity", "Divinity (on reaching maximum Divine Charges)", value_fn=_divinity, fields=("Speed", "HitChance")),
@@ -9232,6 +9286,63 @@ class Conditions:
         return share, (f"{have:.2f} Lightning Infusions/s from {', '.join(made) or 'nothing'}"
                        + (f", shared with {', '.join(sorted(users - {ARC}))}" if users - {ARC} else "")
                        + f": {mine:.2f}/s for {ARC}'s {arc:.2f} casts/s"
+                       + (f" ({keep:.0%} keeping theirs)" if keep else "")
+                       + f"; at most {cap} held, pickups at random: {share:.0%} of casts find one (MEDIUM-LOW)")
+
+    def _flame_wall(self, stats: dict) -> tuple[float, str]:
+        """(MECHB55) (the share of the fight a Flame Wall stands in your line of fire, how): FLAME_WALL's note. Its uses
+        a second: the main skill's at its share of the fight, else its group's rate (_group_uses: skill_use_rate, else
+        the search's chosen rate), else 0; its duration the bridge's useRates row's (the build's modifiers in it)."""
+        groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
+        where = [g["index"] for g in groups for n in g.get("gems") or []
+                 if n.get("enabled", True) and n["name"] == FLAME_WALL]
+        if not where:
+            return 0.0, f"{FLAME_WALL} isn't in an enabled group: 0"
+        rows: dict = {}
+        uses = self._group_uses(groups, {FLAME_WALL}, rows)
+        if not rows:  # (the main skill's own group: its row all the same, for the duration)
+            rows = {r.get("index"): r for r in self.build.call("useRates", indices=sorted(set(where)))["rates"]}
+        if self.main_skill == FLAME_WALL:
+            each, whose = number(stats.get("Speed")) * _main_share(stats), "the main skill's casts"
+        else:
+            each, whose = uses.get(FLAME_WALL, self._chosen_use(FLAME_WALL)), "its casts"
+        row = next((rows[i] for i in where if i in rows), {})
+        duration = number(row.get("duration"))
+        if each <= 0 or duration <= 0:
+            return 0.0, f"{FLAME_WALL} isn't cast (no use rate) or has no duration read: 0"
+        moves, moves_how = boss_hits.red_flash_rate(stats)
+        share = flame_wall_line(each, duration, moves)
+        plain = min(1.0, each * duration)
+        return share, (f"{whose} {each:.3f} a second, each wall {duration:.2f} s (up {plain:.0%}); each put in your line "
+                       f"of fire and moved off it by the boss's forced moves, {moves * 60:.1f} a minute ({moves_how}), "
+                       f"until the next cast (MEDIUM-LOW; if forced moves don't break the line: {plain:.0%})")
+
+    def _skill_infused(self, lines: list[dict], stats: dict, skill: str, element: str) -> tuple[float, str]:
+        """(MECHB55) (share of `skill`'s casts that consume an `element` Infusion, how): _arc_infused's reading for any
+        skill: the build's Infusions of it (and Verisium's), shared among its consumers by their uses, over the skill's
+        casts less those that keep the Infusion, capped and with their expiry (assumptions.infusion_found)."""
+        from builder.search.assumptions import KEEP_INFUSION, infusion_cap, infusion_found, infusion_seconds
+
+        groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
+        names = {n["name"] for g in groups for n in g.get("gems") or [] if n.get("enabled", True)} | {self.main_skill}
+        users = {n for n in names if element in INFUSION_CONSUMERS.get(n, ())} - inhibited_skills(groups)
+        others = self._group_uses(groups, users - {self.main_skill})
+        uses = {n: number(stats.get("Speed")) * _main_share(stats) if n == self.main_skill
+                else others.get(n, self._chosen_use(n)) for n in users}
+        mine = uses.get(skill, 0.0)
+        if mine <= 0:
+            return 0.0, f"{skill} isn't cast (no use rate): 0"
+        supply, made = self._infusion_supply(lines, bomb=True)
+        have = supply[element] + supply["Any"]
+        texts = [line["text"].strip() for line in lines]
+        keep = min(1.0, sum(float(m.group(1)) for t in texts if (m := KEEP_INFUSION.search(t))) / 100.0)
+        total = sum(uses.values())
+        cap = infusion_cap(texts, element, supply["Any"] > 0)
+        share = infusion_found(have, total, keep, cap, infusion_seconds(texts, element))
+        part = have * mine / total if total > 0 else 0.0
+        return share, (f"{have:.2f} {element} Infusions/s from {', '.join(made) or 'nothing'}"
+                       + (f", shared with {', '.join(sorted(users - {skill}))}" if users - {skill} else "")
+                       + f": {part:.2f}/s for {skill}'s {mine:.2f} casts/s"
                        + (f" ({keep:.0%} keeping theirs)" if keep else "")
                        + f"; at most {cap} held, pickups at random: {share:.0%} of casts find one (MEDIUM-LOW)")
 
@@ -10012,6 +10123,9 @@ class Conditions:
             stats["_infusion_consumed"] = self._infusion_consumed(lines, stats)
         if ARC in gem_types:  # (MECH77, MA-1: the share of Arc's casts the build's Lightning Infusions cover)
             stats["_arc_infused"] = self._arc_infused(lines, stats)
+        if FLAME_WALL in gem_types:  # (MECHB55: Flame Wall's projectile buff, FLAME_WALL's note)
+            stats["_flame_wall"] = self._flame_wall(stats)
+            stats["_flame_wall_infused"] = self._skill_infused(lines, stats, FLAME_WALL, "Lightning")
         if bypass := self._bypass_skills(gem_types):  # (MECHC40, K2-9: cooldowns a charge bypasses, _charges_held)
             stats["_bypass"] = bypass
         # (MECHC45: the main skill as a Warcry / Totem / Mark event source at its share of the fight)
