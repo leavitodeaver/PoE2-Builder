@@ -37,3 +37,24 @@
   sources: ["builder/search/models.py (ARCTIC_ARMOUR, arctic_armour_model)", "builder/search/assumptions.py (Assumptions.arctic_armour)",
             "engine/bridge.lua (installArcticArmourBurst)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua (ArcticArmourPlayer)"]
   status: proposed
+- id: model-mechb55-midnight-zenith-crystals
+  title: "Midnight Zenith's Ice Crystals (Eventide Petals) from your crits, broken on the boss (models.midnight_zenith_model)"
+  kind: model
+  model: midnight_zenith_crystals
+  stats: ["midnight_star_gain_x_ice_seeds_when_you_critically_hit_a_rare_or_unique_enemy",
+          "midnight_star_attempt_to_consume_x_ice_seeds_to_create_an_ice_crystal_each_time_you_gain_ice_seeds",
+          "unique_nattblom_crystals_per_trigger", "midnight_star_max_ice_crystals"]
+  skill: [Midnight Zenith]
+  confidence: MEDIUM-LOW
+  notes: >-
+    MECHB55 (RESEARCH47 R47-2, the manager 12:00 22 Nov; plans/kw-ice-crystals.md item B; an UNDERCOUNT: not counted).
+    Petals = the main skill's crits on the boss x 4 (gem 20); 10 petals make 5 Ice Crystals, at most 10 alive, 10 s
+    each. They explode when broken: by the main skill's Area hits ceil(Life / its hit) hits after each is made (none
+    if that's past 10 s), and by the build's Freeze consumers / crystal-breaking skills (locus_breaks, random, each
+    breaking all); the crystals made held to Limit / their mean lifetime; each PoB's Crystal-set hit, an added source. No self-feeding on a lone boss: "You cannot gain Arctic Petals from this
+    Skill's Critical Hits" (base_skill_cannot_generate_midnight_star_petals, both sets). With the Oracle's Forced Outcome
+    ("Inevitable Critical Hits", PoB CalcOffence 3909-3931) PoB's crit chance is 100% with its re-roll crit-damage penalty.
+  sources: ["builder/search/models.py (MIDNIGHT_ZENITH, midnight_zenith_model)", "builder/search/assumptions.py (Assumptions.midnight_zenith)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (MidnightStarPlayer)",
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/infinite-builds-r47.md (R47-2 item 4)"]
+  status: proposed

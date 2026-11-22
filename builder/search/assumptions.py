@@ -5141,6 +5141,10 @@ class Assumptions:
         effigy_mods, effigy_notes = dark_effigy(build)  # (MECHB43: a Vile Effusion projectile per Chaos-DoT debuff, R34-7)
         hand_mods, hand_notes = hand_mods + effigy_mods, hand_notes + effigy_notes
         hit_cut(build, effigy_mods, name)  # (MECHB52: Vile Effusion's projectiles a volley, when it is the main skill)
+        zenith_mods, zenith_notes = self.midnight_zenith(found, main, stats)  # (MECHB55: MIDNIGHT_ZENITH's note)
+        hand_mods, hand_notes = hand_mods + zenith_mods, hand_notes + zenith_notes
+        for note in zenith_notes:
+            build.objective.entry_scales.update(note.get("full_dps") or {})
         lightning, lightning_notes = living_lightning(build)  # (MECHB42: 3 Zaps a minion; PoB's own entry out of Full DPS)
         hand_mods += [models.added_input("LivingLightning", lightning)] if lightning > 0 else []
         hand_notes += lightning_notes
@@ -9448,6 +9452,35 @@ class Assumptions:
                                                      set(build.ctx.request.forbid_ledger_entries), hits=hits)
         live = any(m.get("key") == "triggerRate" and number(m.get("value")) > 0 for m in mods)
         return mods, notes, ({wave.group} if live else set())
+
+    def midnight_zenith(self, found: list[models.Skill], main: models.Skill | None, stats: dict
+                        ) -> tuple[list[dict], list[dict]]:
+        """(MECHB55, models.midnight_zenith_model) Midnight Zenith's crystals from the main skill's crits, broken by its
+        Area hits and the build's breakers (locus_breaks), each explosion PoB's Crystal-set hit."""
+        build = self.build
+        zenith = next((s for s in found if s.name == models.MIDNIGHT_ZENITH and s.group is not None), None)
+        if zenith is None or main is None or main.name == models.MIDNIGHT_ZENITH:
+            return [], []
+        level = next((s.get("levelStats") or {} for s in build.call("activeSkills", levelStats=[models.MIDNIGHT_ZENITH])
+                      ["skills"] if s.get("name") == models.MIDNIGHT_ZENITH and s.get("levelStats")), {})
+        spot = (self.skill_spot(zenith.group, models.MIDNIGHT_ZENITH) or (None, 1))[1]
+        sets = build.call("setRates", index=zenith.group, active=spot)["sets"]
+        crystal = next((s for s in sets if s.get("label") == "Crystal"), {})
+        row = next(iter(build.call("useRates", indices=[zenith.group])["rates"]), {})
+        share = hit_cut_share(build, main_time_share(build, main))
+        per_use = getattr(build, "main_hits_per_use", None)
+        hits = models.hits_per_second(stats) * share * (number(per_use) if per_use is not None else 1.0)
+        crit = min(max(number(stats.get("CritChance")), 0.0), 100.0) / 100
+        area = "Area" in ((build.ctx.gems.get(main.name) or {}).get("skillTypes") or ())
+        read = build.call("stats", fields=["AverageHit", "MainHandAverageHit"])
+        hit = number(read.get("AverageHit")) or number(read.get("MainHandAverageHit"))
+        group = build.main_group()
+        breakers, breakers_how = self.locus_breaks(group["index"], main.name) if group else (0.0, "no main group")
+        mods, notes = models.midnight_zenith_model(
+            hits * crit, f"{main.name}'s {hits:.3f} hits a second x {crit:.0%} crit chance", hits if area else 0.0, hit,
+            breakers, breakers_how, number(crystal.get("AverageDamage")), level, number(crystal.get("Duration")),
+            number(row.get("iceCrystalLife")), set(build.ctx.request.forbid_ledger_entries))
+        return mods, notes
 
     def arctic_armour(self, found: list[models.Skill]) -> tuple[list[dict], list[dict], set[int]]:
         """(MECHB55, models.arctic_armour_model) Arctic Armour's bursts at the boss's melee hits that land on you; its

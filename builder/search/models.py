@@ -23975,3 +23975,113 @@ def arctic_armour_model(stats: dict, cooldown: float, level_stats: dict, forbidd
                   "readers (an UNDERCOUNT). " + rows),
         "play": (f"Keep {ARCTIC_ARMOUR} up and take the boss's melee hits: each one bursts it for Cold damage "
                  f"({head:.2f} a second here); without the boss's melee hits landing: 0.")}]
+
+
+# Midnight Zenith's Ice Crystals (MECHB55; RESEARCH47 R47-2, the manager 12:00 22 Nov, "the biggest gap of six community
+# 'infinite' builds"; plans/kw-ice-crystals.md item B; an UNDERCOUNT: not counted at all). Granted by the Eventide Petals
+# amulet (PoB Uniques amulet.lua: "Grants Skill: Level (1-20) Midnight Zenith"). The game (26650308, MidnightStarPlayer;
+# specific_skill_stat_descriptions/midnight_star/statset_0 / _1): "While active, Critical Hits with other skills that kill
+# targets, or hit powerful targets cause you to gain Arctic Petals. Once you have enough Arctic Petals they will be
+# Consumed to create Ice Crystals near the most recent target"; "{0:+d} Arctic Petals on Critically Hitting Rare or Unique
+# targets" (midnight_star_gain_x_ice_seeds_when_you_critically_hit_a_rare_or_unique_enemy: 2 at gem 1-10, 3 at 11-19, 4 at
+# 20); "Consumes {0} Arctic Petals to create {1} Ice Crystals when able" (10 and unique_nattblom_crystals_per_trigger 5);
+# "Limit {0} Ice Crystals" (midnight_star_max_ice_crystals 10, +0.1 per quality); "Ice Crystal duration is 10 seconds";
+# "Ice Crystals have {0} maximum Life" (frost_wall_maximum_life 4,768 at 20); "Explosion radius is 2.2 metres"; "You
+# cannot gain Arctic Petals from this Skill's Critical Hits" (base_skill_cannot_generate_midnight_star_petals, on both
+# sets). KeywordPopups IceCrystals: "When destroyed, Ice Crystals will deal Cold damage in an area ... Skills which Consume
+# Freeze will instantly shatter Ice Crystals, causing them to deal more damage in a larger area."
+# So the loop does NOT feed itself on a lone boss: the crystals' own crits give no petals (that stat, HIGH); the
+# "infinite" loop of the guides is other skills' crits (Tempest Bell's shockwaves) making crystals that those hits then
+# break. Modelled from the build's own numbers (no flat rate):
+#   - petals a second = the main skill's crits on the boss (PoB's Speed x HitChance x CritChance at the main skill's
+#     share of the fight, x its hits a use where a model tags one) x the gem's petals a crit; other skills' crits not
+#     counted (the lower reading, named). With "Inevitable Critical Hits" (the Oracle's Forced Outcome) PoB's CritChance
+#     is 100% and its crit damage carries the re-roll penalty (CalcOffence 3909-3931), so the rate runs at its fastest.
+#   - crystals made a second = petals / 10 x 5, "when able": at most the Limit alive;
+#   - breaks: the main skill's Area hits break the crystals near the boss (all of them: placed "near the most recent
+#     target", 0.8 m, unique_nattblom_crystal_radius 8; MEDIUM-LOW) after ceil(Life / its hit) hits (its hit PoB's
+#     AverageHit on the boss, the boss's mitigation in it: the lower reading); and the build's Freeze consumers and
+#     crystal-breaking skills (Assumptions.locus_breaks, GEM20's), each use breaking them all; a non-Area main skill
+#     breaks none itself. Break events at R a second (taken as random): a crystal breaks before its duration D with
+#     q = 1 - e^(-R D), so explosions a second = min(made x q, R x Limit). Expiring crystals: no explosion (UNVERIFIED,
+#     as R30-2 left it for Frozen Locus).
+#   - each explosion = PoB's own hit for the gem's "Crystal" set (setRates' AverageDamage: the build's Cold / area /
+#     crit modifiers in it), all reaching the boss (a 2.2 m blast 0.8 m from it: MEDIUM); a shattered crystal's "more
+#     damage in a larger area" not counted (no value in the files read: the lower reading, a row to settle).
+# Added as its own damage source (models.added_input); PoB's own Midnight Zenith entry, if any, taken out of Full DPS.
+MIDNIGHT_ZENITH = "Midnight Zenith"
+MIDNIGHT_ENTRY = "model-mechb55-midnight-zenith-crystals"
+MIDNIGHT_PETALS_STAT = "midnight_star_gain_x_ice_seeds_when_you_critically_hit_a_rare_or_unique_enemy"
+MIDNIGHT_NEED_STAT = "midnight_star_attempt_to_consume_x_ice_seeds_to_create_an_ice_crystal_each_time_you_gain_ice_seeds"
+MIDNIGHT_PER_STAT = "unique_nattblom_crystals_per_trigger"
+MIDNIGHT_LIMIT_STAT = "midnight_star_max_ice_crystals"
+MIDNIGHT_LIFE_STAT = "frost_wall_maximum_life"
+MIDNIGHT_DEFAULTS = {MIDNIGHT_PETALS_STAT: 4.0, MIDNIGHT_NEED_STAT: 10.0, MIDNIGHT_PER_STAT: 5.0, MIDNIGHT_LIMIT_STAT: 10.0,
+                     MIDNIGHT_LIFE_STAT: 4768.0}  # (gem 20, when the level stats aren't read)
+MIDNIGHT_SECONDS = 10.0
+
+
+def midnight_explosions(made: float, hit_time: float | None, breakers: float, seconds: float, limit: float) -> float:
+    """Ice Crystal explosions a second: `made` crystals a second; your Area hits break each one `hit_time` s after it is
+    made (None: they never do); the breaker uses come at `breakers` a second (random), each breaking every crystal alive;
+    a crystal lasts `seconds`; at most `limit` alive (made x its mean lifetime <= limit, Little's law)."""
+    if made <= 0:
+        return 0.0
+    seconds = max(seconds, 0.0)
+    by_hits = hit_time is not None and hit_time <= seconds
+    life = hit_time if by_hits else seconds  # (the most a crystal lives)
+    if breakers > 0:
+        explode = 1.0 if by_hits else 1.0 - math.exp(-breakers * seconds)
+        mean = (1.0 - math.exp(-breakers * life)) / breakers
+    else:
+        explode, mean = (1.0 if by_hits else 0.0), life
+    if explode <= 0:
+        return 0.0
+    if mean > 0:
+        made = min(made, max(limit, 1.0) / mean)
+    return made * explode
+
+
+def midnight_zenith_model(crits: float, crits_how: str, area_hits: float, hit: float, breakers: float, breakers_how: str,
+                          crystal_hit: float, level: dict, seconds: float, life: float,
+                          forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Midnight Zenith's crystal explosions on the boss (see above) as an added source: `crits` the main skill's crits on
+    the boss a second, `area_hits` its Area hits a second (0 for a non-Area skill), `hit` its hit on the boss, `breakers`
+    the build's other breaker uses a second, `crystal_hit` PoB's Crystal-set hit, `level` the gem's level stats,
+    `seconds` a crystal's duration, `life` its Life (0: the level's)."""
+    if MIDNIGHT_ENTRY in forbidden:
+        return [], []
+    get = lambda k: number(level.get(k)) or MIDNIGHT_DEFAULTS[k]
+    gain, need, per, limit = get(MIDNIGHT_PETALS_STAT), get(MIDNIGHT_NEED_STAT), get(MIDNIGHT_PER_STAT), get(MIDNIGHT_LIMIT_STAT)
+    life = life if life > 0 else get(MIDNIGHT_LIFE_STAT)
+    seconds = seconds if seconds > 0 else MIDNIGHT_SECONDS
+    made = max(crits, 0.0) * gain / need * per
+    k = math.ceil(life / hit) if hit > 0 else 0
+    hit_time = k / area_hits if area_hits > 0 and k > 0 else None  # (a crystal's k Area hits, s after it is made)
+    rate = midnight_explosions(made, hit_time, max(breakers, 0.0), seconds, limit)
+    dps = rate * max(crystal_hit, 0.0)
+    label = f"{MIDNIGHT_ZENITH}: Ice Crystals from your crits, broken on the boss*"
+    base = (f"{crits:.3f} crits a second on the boss ({crits_how}) x {gain:g} Arctic Petals, {need:g} petals make {per:g} "
+            f"Ice Crystals: {made:.3f} crystals a second (at most {limit:g} alive, {seconds:g} s each; its own crystals "
+            "give no petals: no self-feeding on a lone boss). Breaks: "
+            + (f"your Area hits, {area_hits:.3f} a second at {hit:,.0f} a hit against {life:,.0f} crystal Life: {k} hits, "
+               f"{hit_time:.1f} s after a crystal is made" + ("" if hit_time <= seconds else
+                                                             f", longer than its {seconds:g} s, so hits alone break none")
+               if hit_time is not None else "your main skill doesn't break them itself (not an Area skill, or no hit "
+               "read)")
+            + f"; {breakers_how} ({breakers:.3f} a second)")
+    if dps <= 0:
+        why = ("no crit on the boss" if made <= 0 else "nothing breaks them before they expire (no explosion)"
+               if rate <= 0 else "PoB gave the Crystal set no hit")
+        return [], [{"label": label, "value": 0, "confidence": "MEDIUM", "entry": MIDNIGHT_ENTRY,
+                     "basis": base + f": {why}, +0"}]
+    return [added_input("MidnightZenith", dps)], [{
+        "label": label, "value": round(dps, 1), "confidence": "MEDIUM-LOW", "entry": MIDNIGHT_ENTRY,
+        "full_dps": {MIDNIGHT_ZENITH: 0.0},
+        "basis": (base + f": {rate:.3f} explosions a second (the breaker uses taken as random, each breaking every "
+                  f"crystal alive; at most {limit:g} alive) x {crystal_hit:,.1f} (PoB's Crystal-set hit, all 2.2 m "
+                  f"blasts reaching the boss: MEDIUM) = {dps:,.1f} DPS. Not counted: other skills' crits (petals) and "
+                  "hits (breaks), a shattered crystal's more damage (lower readings)"),
+        "play": (f"Keep {MIDNIGHT_ZENITH} up and crit the boss: every {need / gain:g} crits make {per:g} Ice Crystals at "
+                 "its feet; break them with area hits or a Freeze consumer before they expire. Without it: +0; with it: "
+                 f"+{dps:,.0f} DPS.")}]

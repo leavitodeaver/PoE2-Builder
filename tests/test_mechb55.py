@@ -105,3 +105,30 @@ def test_arctic_armour_bursts_at_the_bosss_landed_melee_hits(monkeypatch):
     monkeypatch.setattr(models, "boss_melee_share", lambda boss, gain=True: (1.0, "all"))
     monkeypatch.setattr(boss_hits, "land_share", lambda stats: 100.0)
     assert models.arctic_armour_model({"_boss": "x"}, 0.25, level)[0][0]["value"] == pytest.approx(1 / 0.725, abs=1e-3)
+
+
+def test_midnight_zenith_crystals_from_crits_broken_by_area_hits():
+    """(MECHB55) 4 petals a crit, 10 petals -> 5 crystals; Area hits break each ceil(Life / hit) hits after it is made
+    (none if that's past its 10 s); breakers random; at most the Limit alive (Little's law)."""
+    import math
+    from builder.search import models
+
+    level = {models.MIDNIGHT_PETALS_STAT: 4, models.MIDNIGHT_NEED_STAT: 10, models.MIDNIGHT_PER_STAT: 5,
+             models.MIDNIGHT_LIMIT_STAT: 10, models.MIDNIGHT_LIFE_STAT: 4768}
+    # 2 hits a second, 25% crit: 0.5 crits -> 2 petals -> 1 crystal a second; 2,500 a hit: broken 2 hits (1 s) after
+    mods, notes = models.midnight_zenith_model(0.5, "x", 2.0, 2500.0, 0.0, "none", 300.0, level, 10.0, 0.0)
+    assert notes[0]["value"] == pytest.approx(300.0)
+    assert "no self-feeding" in notes[0]["basis"] and notes[0]["full_dps"] == {"Midnight Zenith": 0.0}
+    # at 100% crit (Forced Outcome): 4 crystals a second, each broken 0.5 s after: all 4 (2 alive on average)
+    assert models.midnight_zenith_model(2.0, "x", 2.0, 5000.0, 0.0, "none", 300.0, level, 10.0, 0.0)[1][0]["value"]         == pytest.approx(1200.0)
+    # the Limit binds: 20 crystals a second, each living 1 s: at most 10 a second
+    assert models.midnight_explosions(20.0, 1.0, 0.0, 10.0, 10) == pytest.approx(10.0)
+    # hits too weak (probe POE2T4860: ~150 a hit on 4,768 Life, ~37 s): none broken before 10 s, no breaker: 0, said
+    mods, notes = models.midnight_zenith_model(0.5, "x", 0.87, 150.0, 0.0, "none", 300.0, level, 10.0, 0.0)
+    assert mods == [] and "hits alone break none" in notes[0]["basis"] and "expire" in notes[0]["basis"]
+    # nothing breaks them (a non-Area main skill, no breaker): 0
+    assert models.midnight_zenith_model(0.5, "x", 0.0, 2500.0, 0.0, "none", 300.0, level, 10.0, 0.0)[0] == []
+    # a Freeze consumer at 0.5 a second breaks a projectile build's crystals: 1 - e^(-5) of them
+    notes = models.midnight_zenith_model(0.5, "x", 0.0, 0.0, 0.5, "a consumer", 300.0, level, 10.0, 0.0)[1]
+    assert notes[0]["value"] == pytest.approx(round(300.0 * (1 - math.exp(-5.0)), 1))
+    assert models.midnight_explosions(1.0, None, 0.1, 10.0, 10) == pytest.approx(1 - math.exp(-1.0))
