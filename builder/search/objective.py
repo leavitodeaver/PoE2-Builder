@@ -36,6 +36,15 @@ HARD_OFFSET = 8.0
 # several moves that each lose DPS before the floor is met, which a fixed weight never pays for.
 ESCALATION = 4.0
 MAX_MULTIPLIER = 64.0
+# A build that deals NO damage scores below every build that deals any (SEARCHB3's 0.0 trap, the manager's ruling 22 Nov
+# 05:35: "a build with 0 DPS must never outscore one with damage, in every step that compares scores"). Without it a
+# 0-DPS build meeting every floor scored log1p(0) - 0 = 0.0, above a damaging build short on resistances (273 DPS,
+# penalty 7.88: -2.27), so 2b75b's gear round swapped The Covenant (its Explosive Transmutation's Remnant source) for
+# a resistance rare and ended at 0 DPS with 6 slots empty (POE2T6262-6264), and every Shrine Sceptre trial in its off
+# hand read 0.0 (POE2T6270). Far above any penalty the weights reach (64 x 15 per unit of a hard deficit), so all
+# 0-damage builds rank below all damaging ones, and among themselves still by their penalty. Search-time only: the
+# delivered results rank by the shortfall first (rank_key), so the floors stay binding on what is delivered.
+NO_DAMAGE_OFFSET = 1e6
 MAIN_DPS_FIELDS = ["CombinedDPS", "Minion.CombinedDPS"]
 # For a skill PoB shows per use (ShowAverage, the bridge's flag: Sunder, Earthquake, other slams) its CombinedDPS is the
 # average damage per use (CalcOffence.lua 6265), blind to attack speed and DPS multipliers (COVD6: the Hymn's Aftershock
@@ -834,7 +843,10 @@ class Objective:
         return raised
 
     def score(self, stats: dict) -> float:
-        return math.log1p(max(self.value(stats), 0.0)) - self.penalty(stats)
+        value = self.value(stats)
+        if not value > 0.0:  # (NO_DAMAGE_OFFSET: a build with no damage never outscores one with any; NaN counts as none)
+            return -NO_DAMAGE_OFFSET - self.penalty(stats)
+        return math.log1p(value) - self.penalty(stats)
 
 
 RESIST_FIELDS = {"FireResist", "ColdResist", "LightningResist", "ChaosResist"}

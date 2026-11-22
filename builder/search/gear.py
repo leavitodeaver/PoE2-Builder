@@ -34,6 +34,7 @@ from builder.search.rares import (
     MAGIC_LIMIT, RUNE_KEEP, SCREEN_KEEP, Affix, AffixPools, RuneCatalog, magic_price, magic_text, rare_price, rare_text,
     socket_count, unique_text, with_runes,
 )
+from builder.search.objective import NO_DAMAGE_OFFSET
 from builder.search.state import EPSILON, Build
 from builder.search.conditions import FULL_UPTIME, SWITCH_ON
 
@@ -401,7 +402,8 @@ class Gear:
             _, stats = out[i]
             up = shares[i]
             value = up * max(objective.value(stats), 0.0) + (1.0 - up) * max(objective.value(off_stats), 0.0)
-            out[i] = (math.log1p(value) - max(objective.penalty(stats), objective.penalty(off_stats)), stats)
+            penalty = max(objective.penalty(stats), objective.penalty(off_stats))
+            out[i] = ((math.log1p(value) if value > 0.0 else -NO_DAMAGE_OFFSET) - penalty, stats)  # (Objective.score's rule)
         return out
 
     def put(self, slot: str, option: ItemOption | None) -> float:
