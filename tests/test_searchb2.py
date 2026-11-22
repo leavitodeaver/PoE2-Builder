@@ -245,3 +245,14 @@ def test_a_joint_regrows_gear_round_gets_its_share_of_the_time(monkeypatch):
     seen = []
     tree.joint_regrow(now + 100.0, lambda deadline, full: seen.append(deadline - now) or False)
     assert seen and seen[0] <= tree.JOINT_GEAR_SHARE * 100.0 + 1.0 and build.restores == 1
+
+
+def test_the_joint_regrow_switch_is_off_by_default_and_read_at_call_time(monkeypatch):
+    """POE2_SEARCH_JOINT_REGROW (SEARCHB4; the manager, 22 Nov: land it OFF, the call site is SEARCH's)."""
+    monkeypatch.delenv(Tree.SWITCH_JOINT, raising=False)
+    assert Tree.SWITCH_JOINT == "POE2_SEARCH_JOINT_REGROW"
+    assert not Tree.joint_enabled()
+    monkeypatch.setenv(Tree.SWITCH_JOINT, "1")
+    assert Tree.joint_enabled()
+    monkeypatch.setenv(Tree.SWITCH_JOINT, "0")
+    assert not Tree.joint_enabled()

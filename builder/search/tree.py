@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import contextlib
 import math
+import os
 import random
 import re
 from collections import Counter, deque
@@ -516,6 +517,14 @@ class Tree:
             self.candidates.clear()
             self.round += 1
             self.allocations_since_full = FULL_EVERY
+
+    SWITCH_JOINT = "POE2_SEARCH_JOINT_REGROW"  # "1": the search's call site runs joint_regrow (OFF by default)
+
+    @classmethod
+    def joint_enabled(cls) -> bool:
+        """POE2_SEARCH_JOINT_REGROW=1 turns the joint tree + gear move on (OFF by default, until a gate pair measures
+        it: the manager, 22 Nov). Read at call time, so a probe or a gate arm can set it per run."""
+        return os.environ.get(cls.SWITCH_JOINT, "0") == "1"
 
     JOINT_GEAR_SHARE = 0.6  # of a joint_regrow's time its gear round may take (LOW, a search-effort setting)
 
