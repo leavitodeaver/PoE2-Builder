@@ -326,7 +326,7 @@ def main() -> None:
                      "play_guide": result.get("play_guide"), "evaluations": result.get("evaluations"),
                      "wall_seconds": result.get("wall_seconds"), "workers": result.get("workers"),
                      "checks": result.get("checks"), "reapply_drift": result.get("reapply_drift"),
-                     "open_sockets": result.get("open_sockets")})  # (each floor's row: the sustain and recovery rows' delivered values)
+                     "open_sockets": result.get("open_sockets"), "final_regrow": result.get("final_regrow")})  # (each floor's row: the sustain and recovery rows' delivered values)
         rows[-1].update({"reference_dps_fair": fair["dps"], "ratio_fair": dps / fair["dps"] if fair["dps"] else None,
                          "reference_fair_short": fair["short"], "reference_fair_conditions": fair["conditions"],
                          "floors_from": "fair", "reference_pob_floors": fair["pob_floors"]})
@@ -348,6 +348,9 @@ def main() -> None:
                         for o in result.get("open_sockets") or [] if o["kind"] != "side")
               + (f"; {n} side-group open sockets" if (n := sum(o["open"] for o in result.get("open_sockets") or []
                                                             if o["kind"] == "side")) else "")
+              + (f"; final regrow kept {', '.join(r['clear'] for r in kept)}" if (kept := [
+                  r for r in result.get("final_regrow") or [] if r["kept"]]) else
+                 ("; final regrow kept nothing" if result.get("final_regrow") else ""))
               + f"; {result.get('evaluations', 0):,} evaluations, {result.get('wall_seconds', 0):,.0f} s wall"
               + (" (processor-time clock)" if args.cpu else ""), flush=True)
     RESULT_DIR.mkdir(parents=True, exist_ok=True)

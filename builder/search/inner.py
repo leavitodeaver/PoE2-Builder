@@ -1953,7 +1953,8 @@ def reapply_drift(search: Any, fresh: Callable[[], float] | None = None) -> dict
     return {"delivered": delivered, "after": after, "fresh": again, "worst": worst, "flagged": worst > REAPPLY_TOLERANCE}
 
 
-def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state: dict, seconds: float) -> dict:
+def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state: dict, seconds: float,
+                  regrow: float = 0.0) -> dict:
     """Switch to Full DPS, include damaging non-main groups in it, polish briefly, then export
     the build and reload the exported code to prove it reproduces the same numbers."""
     from builder.pob.pool import Cancelled
@@ -2003,6 +2004,18 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         trace.append(["polish", round(build.score, 4)])
     except Cancelled:
         pass
+    # (SEARCH35; SEARCHB2's Tree.final_regrow, the manager's 17:48) the tree regrown on the finished gear, the floors
+    # never given up: the uptimes weighed first (the floors' part-time deltas belong to the tree they were measured on:
+    # SEARCHB1's regrow probe read every regrow short on Physical max hit without it), and after each variant. Its own
+    # time (run.py FINAL_REGROW_SHARE, `regrow`), not finalize's polish
+    regrow_rows: list[dict] = []
+    if regrow > 0:
+        try:
+            search.weigh_uptimes()
+            regrow_rows = search.tree.final_regrow(clock.now() + regrow, reweigh=search.weigh_uptimes)
+            trace.append(["final regrow", round(build.score, 4)])
+        except Cancelled:
+            pass
     # (SEARCH34; the user, 20 Nov: an empty support socket is a red flag to justify by score) every open socket of the
     # MAIN group gets real trials of its legal supports, and a support needing an exact count (Uhtred's Augury) the group
     # without it filled; empty stays only when it scores higher (Gems.fill_open). Its own FILL_SECONDS past whatever is
@@ -2095,7 +2108,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         "assumptions": assumptions, "flasks": search.gear.flask_report(),
         "verified": not mismatched, "verify_mismatch": mismatched,
         "tree_check": tree_check, "radius_jewels": reloaded["radiusJewels"], "left_out": {**search.jewels.left_out, **search.gems.left_out},
-        "open_sockets": open_sockets,
+        "open_sockets": open_sockets, "final_regrow": regrow_rows,
     }
     # The search's config inputs the reload dropped come back first, so the check below re-settles the build as delivered
     # (SEARCH33, probe POE2T5455): PoB writes an input equal to its own default as a Placeholder, so the chosen "Boss at

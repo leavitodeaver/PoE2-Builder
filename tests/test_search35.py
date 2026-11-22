@@ -226,3 +226,23 @@ def test_a_step_that_keeps_finding_nothing_is_skipped_on_the_line_unless_kicked(
     monkeypatch.setattr(inner, "IDLE_SKIP", False)
     search.idle["persistent"] = [3, 0]
     assert not search.idle_skip("persistent")  # (off by default)
+
+
+def test_finalize_gets_its_own_time_for_the_final_tree_regrow(monkeypatch):
+    """SEARCH35 (the manager's 17:48: wire SEARCHB2's Tree.final_regrow; it took 178-240 s, finalize has at most 60 s):
+    the plan gives finalize FINAL_REGROW_SHARE of the run on top of its polish, at most FINAL_REGROW_MAX, taken from the
+    search; none under FINAL_REGROW_MIN (a short run) or with POE2_SEARCH_FINAL_REGROW=0."""
+    from builder.search import run as run_module
+
+    def plan(seconds, on=True):
+        monkeypatch.setattr(run_module, "FINAL_REGROW", on)
+        r = run_module.Run.__new__(run_module.Run)
+        r.seconds, r.workers = seconds, 5
+        r.remaining = lambda: seconds
+        probe, finalize = r.plan(1)
+        return finalize, r.regrow_seconds
+
+    assert plan(600) == (60.0 + 150.0, 150.0)  # (a 600 s gate: 150 s of regrow beside the 60 s polish)
+    assert plan(1200) == (60.0 + 240.0, 240.0)
+    assert plan(45) == (15.0, 0.0)  # (45 x 0.25 under 30 s: no regrow)
+    assert plan(600, on=False) == (60.0, 0.0)

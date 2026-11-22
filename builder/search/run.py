@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import math
+import os
 import random
 from collections.abc import Callable
 from typing import Any
@@ -76,6 +77,15 @@ FINALIZE_MAX = 60.0
 # What finalize does after its polish (export, reload check, blind spots, facts): 3-10 s in the gate runs of 8 Nov, so
 # the polish ends this much before the run's time is up and the whole run fits the time the user gave it
 FINALIZE_WRAP = 10.0
+# (SEARCH35; SEARCHB2's Tree.final_regrow, the manager's 17:48 "YOUR NEXT TOP ITEM": the search never regrew the tree on
+# the finished gear, finalize turns the tree rebuild off; SEARCHB2's probe on the delivered builds, every floor met:
+# 2b75d x1.39, 2b75b x2.40) finalize's last tree regrow gets its own time, taken from the search: FINAL_REGROW_SHARE of the
+# run, at most FINAL_REGROW_MAX (SEARCHB2's probe: 178-240 s on real PoB). LOW, a time budget (on a 600 s gate: 150 s);
+# a gate pair measures it. POE2_SEARCH_FINAL_REGROW=0 turns the regrow off
+FINAL_REGROW = os.environ.get("POE2_SEARCH_FINAL_REGROW", "1") != "0"
+FINAL_REGROW_SHARE = 0.25
+FINAL_REGROW_MAX = 240.0
+FINAL_REGROW_MIN = 30.0  # (under this, a cleared tree can't grow back: a run under 120 s gets no regrow)
 MIN_PROBE = 15.0
 MAX_PROBE = 60.0
 SHORTLIST_SKILLS = 4
@@ -137,6 +147,8 @@ SEED_STRIDE = 1_000_003  # (Run.seed_base: well past every task seed a run makes
 
 
 class Run:
+    regrow_seconds = 0.0  # (plan: finalize's final tree regrow time)
+
     def __init__(self, request: BuildRequest, prices: Any = None, workers: int | None = None,
                  seconds: float | None = None, on_event: Callable[[dict], None] | None = None,
                  should_cancel: Callable[[], bool] | None = None, cpu_clock: bool = False,
@@ -425,6 +437,9 @@ class Run:
     def plan(self, count: int) -> tuple[float, float]:
         """(probe seconds, finalize seconds) for `count` skeletons in the time left."""
         finalize = min(FINALIZE_MAX, max(FINALIZE_SHARE * self.seconds, FINALIZE_WRAP + 5.0))
+        regrow = min(FINAL_REGROW_MAX, FINAL_REGROW_SHARE * self.seconds) if FINAL_REGROW else 0.0
+        self.regrow_seconds = regrow if regrow >= FINAL_REGROW_MIN else 0.0  # (a short run: no regrow)
+        finalize += self.regrow_seconds  # (finalize's polish, then the final tree regrow: finalize_task's `regrow`)
         search = max(self.remaining() - finalize, 10.0)
         waves = math.ceil(count / self.workers)
         probe = min(MAX_PROBE, max(MIN_PROBE, 0.4 * search / waves))
@@ -532,13 +547,16 @@ class Run:
             self.emit("status", message=f"Finalizing {best['label']} on Full DPS")
             final = None
             for attempt in range(2):  # a worker the watchdog replaced gets one retry
-                polish = (5.0 if attempt or self.should_cancel()
-                          else max(5.0, min(finalize, self.remaining()) - FINALIZE_WRAP))
+                base = finalize - self.regrow_seconds  # (the polish's own share: plan)
+                quick = attempt or self.should_cancel()
+                regrow = 0.0 if quick else min(self.regrow_seconds, max(0.0, self.remaining() - base))
+                polish = 5.0 if quick else max(5.0, min(base, self.remaining() - regrow) - FINALIZE_WRAP)
                 final = pool.run_tasks([("builder.search.inner:finalize_task", {
-                    "payload": self.payload, "skeleton": best["skeleton"], "state": best["state"], "seconds": polish})],
+                    "payload": self.payload, "skeleton": best["skeleton"], "state": best["state"], "seconds": polish,
+                    "regrow": regrow})],
                     on_progress=self._progress())[0]
                 if self.cpu_clock:
-                    self.handed_out += polish
+                    self.handed_out += polish + regrow
                 if not isinstance(final, WorkerError):
                     break
                 self.notes.append(f"finalizing failed once: {str(final).strip().splitlines()[-1][:200]}")
@@ -733,6 +751,7 @@ class Run:
             "radius_jewels": final.get("radius_jewels") or [], "tree_check": final.get("tree_check"),
             "reapply_drift": final.get("reapply_drift"),  # (SEARCH32: inner.reapply_drift)
             "open_sockets": final.get("open_sockets") or [],  # (SEARCH34: Gems.open_sockets)
+            "final_regrow": final.get("final_regrow") or [],  # (SEARCH35: Tree.final_regrow's tries, what it kept)
         })
         result["shopping"] = shopping_list(result, self.ctx.data, self.report_prices(), TradeClient().stats(offline=True),
                                            self.variant)
