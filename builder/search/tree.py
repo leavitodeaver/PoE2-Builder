@@ -507,20 +507,23 @@ class Tree:
         `reweigh` (the search's weigh_uptimes) is called after each variant, before it is judged: the floors are read
         with the part-time effects off (objective.floor_deltas), and those deltas belong to the tree they were measured
         on (SEARCHB1's G0b probe regrew before they were set and read every regrow as short on Phys max hit).
-        Returns one row per try: {"clear", "score", "shortfall", "kept"}."""
+        Returns one row per try: {"clear", "score", "gain" (over the best before it), "shortfall", "kept", "seconds"
+        (the try's clock time, its restore included: SEARCH35 sizes the clears by it)}."""
         build = self.build
         best_score, best_short = build.score, self.shortfall()
         rows: list[dict] = []
         for clear in clears:
             if clock.now() > deadline:
                 break
+            started = clock.now()
             snap = build.snapshot()
             self.regrow_variant(deadline, clear, best_short)
             if reweigh is not None:
                 reweigh()
             score, short = build.score, self.shortfall()
             kept = (self.points_left() >= 0 and short <= best_short + EPSILON and score > best_score + EPSILON)
-            rows.append({"clear": clear, "score": round(score, 4), "shortfall": round(short, 4), "kept": kept})
+            rows.append({"clear": clear, "score": round(score, 4), "gain": round(score - best_score, 4),
+                         "shortfall": round(short, 4), "kept": kept})
             if kept:
                 best_score, best_short = score, short
             else:
@@ -528,7 +531,9 @@ class Tree:
                 self.candidates.clear()
                 self.round += 1
                 self.allocations_since_full = FULL_EVERY
+            rows[-1]["seconds"] = round(clock.now() - started, 1)
         while clock.now() < deadline:
+            started = clock.now()
             snap = build.snapshot()
             if not self.swap_round(deadline):
                 break
@@ -543,9 +548,9 @@ class Tree:
                 else:
                     best_score = build.score
                 break
+            rows.append({"clear": "swap", "score": round(build.score, 4), "gain": round(build.score - best_score, 4),
+                         "shortfall": round(self.shortfall(), 4), "kept": True, "seconds": round(clock.now() - started, 1)})
             best_score = build.score
-            rows.append({"clear": "swap", "score": round(best_score, 4), "shortfall": round(self.shortfall(), 4),
-                         "kept": True})
         return rows
 
     # Attribute nodes ---------------------------------------------------------------------------

@@ -131,6 +131,7 @@ RESIST_SWAP_ATTEMPTS = 4  # slot pairs one resist_swap_round tries (two rare bui
 # The slots resist_swap_round moves resistances into, in order (LOW: SEARCHB1's references put theirs on boots, shield
 # and helmet; Weapon 1, the damage slot, never takes them)
 RESIST_RECEIVERS = ("Boots", "Helmet", "Body Armour", "Weapon 2", "Belt", "Gloves", "Amulet", "Ring 1", "Ring 2", "Ring 3")
+SWITCH_QUICK_FILL = "POE2_SEARCH_QUICK_FILL"  # "1": a full round's quick pick for every empty slot first (OFF by default)
 SWITCH_RESIST_SWAP = "POE2_SEARCH_RESIST_SWAP"  # "1": gear_round's full rounds try resist_swap_round (OFF by default)
 RESIST_LINE = re.compile(r"^\+?[\d.()\-]+%? to (.+?) Resistances?$")
 RESIST_ELEMENTS = ("Fire", "Cold", "Lightning", "Chaos")
@@ -1121,8 +1122,10 @@ class Gear:
             # to REQUIREMENT_FIT_SECONDS, and on 2b75d they took the whole share, so the slot loop never reached a
             # slot and six slots stayed empty through round 2 (SEARCH21)
             if self.resume is None:
+                if os.environ.get(SWITCH_QUICK_FILL, "0") == "1":
+                    improved = self.quick_fill(deadline) or improved
                 now = clock.now()
-                improved = self.assumption_trials(min(deadline, now + TRIAL_SHARE * max(0.0, deadline - now)))
+                improved = self.assumption_trials(min(deadline, now + TRIAL_SHARE * max(0.0, deadline - now))) or improved
             start = slots.index(self.resume) if self.resume in slots else 0
             slots = slots[start:] + slots[:start]
             self.resume = None
@@ -1202,6 +1205,37 @@ class Gear:
             improved = self.granted_meta_trials(deadline) or improved
         if full:
             self.update_lambda()
+        return improved
+
+    # A quick pick for every empty slot before the deep work (SEARCHB2; the manager's 19:08 item) ----------------
+
+    def quick_fill(self, deadline: float) -> bool:
+        """Each empty gear slot gets the best affordable item of its options by one what-if batch (bases and uniques,
+        no rare built), if it beats the slot empty. A full round runs the source-item trials first (up to TRIAL_SHARE
+        of its time) and the slots after them in order, so on a short round the last slots stayed empty (SEARCH35: 4-6
+        on 2b75b: Gloves, Boots, Amulet, Rings, Belt); probe POE2T6242: the trials took 63 s and 122 s of two 240 s
+        rounds on a fresh 2b75b search. The deep per-slot work replaces these picks as it reaches them."""
+        build = self.build
+        improved = False
+        for slot in self.slots:
+            if (clock.now() > deadline or slot in build.locked_slots or build.equipped.get(slot) is not None
+                    or is_flask_slot(slot) or slot in CHARM_SLOTS):
+                continue
+            options = [o for o in self.candidates(slot) if self.allowed(slot, o)]
+            if not options:
+                continue
+            scored = self.deltas(slot, [o.raw for o in options])
+            best_value, best = max(((self.adjusted(s, o), o) for (s, _), o in zip(scored, options)), key=lambda x: x[0])
+            if best_value <= build.score + EPSILON:
+                continue
+            before = build.score
+            self.put(slot, best)
+            self.settle()
+            if build.worse(before):
+                self.put(slot, None)
+                self.settle()
+                continue
+            improved = True
         return improved
 
     # Resistances moved off an offence slot (SEARCHB2, SEARCHB1's G5) --------------------------------

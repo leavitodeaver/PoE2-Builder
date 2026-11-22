@@ -101,3 +101,42 @@ def test_a_resist_swap_is_kept_only_when_it_scores_higher_with_the_floors_met(mo
     assert [r["to"] for r in first] == ["Boots", "Ring 2"] and [r["kept"] for r in first] == [False, True]
     assert gear.rares == {"Ring 2": "rare Ring 2", "Gloves": "rare Gloves"} and build.restores >= 1
     assert asked[0] == ("Boots", 1 + 5)  # (the boots' own Lightning + all five of the gloves' resistance lines)
+
+
+def test_quick_fill_gives_each_empty_slot_its_best_option_that_beats_empty():
+    """The manager's 19:08 item (SEARCH35: 4-6 slots empty on 2b75b when a full round ran out): each empty gear slot
+    takes its best option by one what-if batch if it beats the slot empty; a filled, locked, flask or charm slot is left
+    alone, and an option worse than empty isn't put in."""
+    from builder.search.gear import Gear
+
+    class Option:
+        def __init__(self, name):
+            self.name, self.raw, self.price = name, name, 0.0
+
+    class Build:
+        def __init__(self):
+            self.score, self.locked_slots = 10.0, {"Belt"}
+            self.equipped = {"Helmet": Option("worn helmet")}
+
+        def worse(self, before):
+            return self.score < before
+
+    build = Build()
+    gear = Gear.__new__(Gear)
+    gear.build, gear.lam = build, 0.0
+    gear.slots = {s: None for s in ("Helmet", "Gloves", "Boots", "Belt", "Flask 1", "Charm 1")}
+    gear.settle = lambda: None
+    gear.allowed = lambda slot, option: True
+    options = {"Gloves": [Option("g1"), Option("g2")], "Boots": [Option("b1")]}
+    gear.candidates = lambda slot: options.get(slot, [])
+    values = {"g1": 10.2, "g2": 10.5, "b1": 9.0}
+    gear.deltas = lambda slot, raws: [(values[r], {}) for r in raws]
+
+    def put(slot, option):
+        build.equipped[slot] = option
+        build.score = values[option.name] if option else 10.0
+
+    gear.put = put
+    assert gear.quick_fill(float("inf"))
+    assert build.equipped["Gloves"].name == "g2" and "Boots" not in build.equipped and "Belt" not in build.equipped
+    assert build.equipped["Helmet"].name == "worn helmet"
