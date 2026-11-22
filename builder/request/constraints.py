@@ -90,6 +90,7 @@ class CompiledRequest:
     filters: Filters
     penalties: list[Penalty]
     checks: list[Check]
+    owned: list = field(default_factory=list)  # OwnedRead per request.owned_items (builder/request/owned.py), read
 
     @property
     def errors(self) -> list[Issue]:
@@ -521,4 +522,63 @@ def compile_request(request: BuildRequest, data: GameData) -> CompiledRequest:
         checks.append(lambda f: CheckResult("Budget", f"≤ {request.budget.divines:g} divine", "not priced yet", None,
                                             "item pricing arrives in Phase 3"))
 
-    return CompiledRequest(request, issues, filters, penalties, checks)
+    owned = owned_items(request, data, issues, filters, weapon_unique)
+    if owned:
+        def owned_check(f: dict) -> CheckResult:
+            missing = [o.name for o in owned if (lambda i: not i or i["name"] != o.name)(slot_item(f, o.slot))]
+            return CheckResult("Your own items", "in their slots: " + listing([f"{o.name} ({o.slot})" for o in owned]),
+                               "missing: " + listing(missing) if missing else "all in place", not missing,
+                               "owned, not counted in the budget")
+        checks.append(owned_check)
+    return CompiledRequest(request, issues, filters, penalties, checks, owned)
+
+
+def owned_items(request: BuildRequest, data: GameData, issues: list[Issue], filters: Filters,
+                weapon_unique: str | None) -> list:
+    """The request's owned items read (builder/request/owned.py), each problem an error naming why: an item PoB's
+    data can't read, a slot two items claim, and an item the request rules out (a banned unique or item class, the
+    weapon type or weapon unique asked for, the off-hand rule, an off hand beside a two-handed weapon)."""
+    from builder.request.owned import read_item
+
+    reads = []
+    for n, item in enumerate(request.owned_items, start=1):
+        read = read_item(item.text, data, item.slot)
+        label = read.name or f"owned item {n}"
+        where = f"owned_items.{n - 1}"
+        if read.error:
+            issues.append(Issue("error", where, f"{label}: {read.error}."))
+            continue
+        problems = []
+        if read.unique and read.name in filters.forbidden_uniques:
+            problems.append("it's a banned unique")
+        if read.type in filters.forbidden_item_classes:
+            problems.append(f"{read.type} is a banned item class")
+        if read.slot == "Weapon 1":
+            if request.weapon_type and read.type != request.weapon_type:
+                problems.append(f"the request asks for a {request.weapon_type}, this is a {read.type}")
+            if weapon_unique and read.name != weapon_unique:
+                problems.append(f"the request's weapon is {weapon_unique}")
+            if read.two_handed and read.type != "Bow" and request.offhand not in (Offhand.ANY, Offhand.NONE):
+                problems.append(f"a two-handed {read.type} holds no off hand, and the request asks for one "
+                                f"({request.offhand})")
+        if read.slot == "Weapon 2":
+            offhand = Offhand(request.offhand)
+            if offhand == Offhand.NONE:
+                problems.append("the request asks for no off hand")
+            elif offhand == Offhand.WEAPON and read.type not in data.weapon_types:
+                problems.append("the request asks for an off-hand weapon")
+            elif offhand in OFFHAND_TYPES and read.type not in OFFHAND_TYPES[offhand]:
+                problems.append(f"the request asks for a {offhand} off hand")
+        if any(r.slot == read.slot for r in reads):
+            problems.append(f"another owned item already takes {read.slot}")
+        if problems:
+            issues.append(Issue("error", where, f"{label} ({read.slot}): " + "; ".join(problems) + "."))
+            continue
+        reads.append(read)
+    main = next((r for r in reads if r.slot == "Weapon 1"), None)
+    off = next((r for r in reads if r.slot == "Weapon 2"), None)
+    if main and off and main.two_handed and not (main.type == "Bow" and off.type == "Quiver"):
+        issues.append(Issue("error", "owned_items", f"{off.name} can't go beside {main.name}: a two-handed {main.type} "
+                                                    "holds no off hand (a Bow holds a Quiver)."))
+        reads.remove(off)
+    return reads

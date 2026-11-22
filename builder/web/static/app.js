@@ -9,6 +9,11 @@ const FLOORS = ["life", "energy_shield", "mana", "ward", "block", "evade", "spar
 let options = null;
 let currentId = null;
 let choices = emptyChoices();
+// The user's own items (the user, 22 Nov): required uniques they own, and exact items pasted in
+let ownedUniques = new Set();
+let ownedItems = [];  // [{text, slot, read}]
+let ownedPending = null;
+const OWNED_SLOTS = ["Weapon 1", "Weapon 2", "Helmet", "Body Armour", "Gloves", "Boots", "Amulet", "Belt", "Ring 1", "Ring 2", "Ring 3"];
 
 const $ = (id) => document.getElementById(id);
 
@@ -94,7 +99,13 @@ function renderChoices() {
     for (const mode of ["require", "forbid"]) {
       const cell = el("div", { class: "chip-cell" });
       for (const name of choices[mode][key]) {
-        cell.append(el("span", { class: `chip ${mode}` }, name,
+        const own = mode === "require" && key === "uniques"
+          ? el("label", { class: "own", title: "You already have it: not counted in the budget" },
+            el("input", { type: "checkbox", checked: ownedUniques.has(name), "aria-label": `I own ${name}`,
+              onchange: (event) => { if (event.target.checked) ownedUniques.add(name); else ownedUniques.delete(name); } }),
+            "I own it")
+          : null;
+        cell.append(el("span", { class: `chip ${mode}` }, name, own,
           el("button", { type: "button", "aria-label": `Remove ${name}`, onclick: () => {
             choices[mode][key] = choices[mode][key].filter((n) => n !== name);
             renderChoices();
@@ -152,6 +163,12 @@ function readForm() {
     forbid: choices.forbid,
     weapon_type: text("weapon_type"),
     weapon_unique: text("weapon_unique"),
+    owned_uniques: [
+      ...choices.require.uniques.filter((name) => ownedUniques.has(name)),
+      ...(text("weapon_unique") && $("weapon_unique_owned").checked && !choices.require.uniques.includes(text("weapon_unique"))
+        ? [text("weapon_unique")] : []),
+    ],
+    owned_items: ownedItems.map((item) => ({ text: item.text, slot: item.slot })),
     offhand: $("offhand").value,
     weapon_swap: $("weapon_swap").value,
     defence: $("defence").value,
@@ -183,6 +200,12 @@ function writeForm(request) {
   renderChoices();
   set("weapon_type", request.weapon_type);
   set("weapon_unique", request.weapon_unique);
+  ownedUniques = new Set(request.owned_uniques ?? []);
+  $("weapon_unique_owned").checked = Boolean(request.weapon_unique && ownedUniques.has(request.weapon_unique));
+  renderChoices();
+  ownedItems = (request.owned_items ?? []).map((item) => ({ ...item, read: null }));
+  renderOwned();
+  ownedItems.forEach((item) => readOwned(item.text, item.slot).then((read) => { item.read = read; renderOwned(); }).catch(() => {}));
   set("offhand", request.offhand);
   set("weapon_swap", request.weapon_swap);
   set("defence", request.defence);
@@ -200,6 +223,62 @@ function writeForm(request) {
   set("seed_code", request.seed_code);
   set("effort_minutes", request.effort_minutes);
   showIssues(null);
+}
+
+// Your own items -------------------------------------------------------------------------------
+
+function readOwned(text, slot) {
+  return api("/api/owned/read", { method: "POST", body: { text, slot: slot || null } });
+}
+
+function describeOwned(read) {
+  if (!read) return "reading...";
+  if (read.error) return `Can't use it: ${read.error}`;
+  return `${read.name}${read.name !== read.base ? ` (${read.base})` : ""}, ${read.rarity.toLowerCase()} ${read.type}, in ${read.slot}`;
+}
+
+function renderOwned() {
+  const list = $("owned-list");
+  list.replaceChildren();
+  ownedItems.forEach((item, index) => {
+    list.append(el("li", { class: item.read?.error ? "error" : "" }, describeOwned(item.read), " ",
+      el("button", { type: "button", class: "icon", "aria-label": "Remove this item", onclick: () => {
+        ownedItems.splice(index, 1);
+        renderOwned();
+      } }, "×")));
+  });
+}
+
+function setupOwned() {
+  fillSelect($("owned-slot"), OWNED_SLOTS, "Auto (from the item)");
+  const preview = (message, ok) => {
+    $("owned-preview").textContent = message;
+    $("owned-preview").hidden = false;
+    $("owned-add").disabled = !ok;
+  };
+  const reset = () => { ownedPending = null; $("owned-add").disabled = true; };
+  $("owned-text").addEventListener("input", reset);
+  $("owned-slot").addEventListener("change", reset);
+  $("owned-read").addEventListener("click", async () => {
+    const text = $("owned-text").value.trim();
+    if (!text) return preview("Paste an item first.", false);
+    try {
+      const read = await readOwned(text, $("owned-slot").value);
+      ownedPending = read.error ? null : { text, slot: read.slot, read };
+      preview(read.error ? `Can't use it: ${read.error}` : `Read: ${describeOwned(read)}. Not counted in the budget.`, !read.error);
+    } catch (error) {
+      preview(`Couldn't read it: ${error.message}`, false);
+    }
+  });
+  $("owned-add").addEventListener("click", () => {
+    if (!ownedPending) return;
+    ownedItems.push(ownedPending);
+    ownedPending = null;
+    $("owned-text").value = "";
+    $("owned-add").disabled = true;
+    $("owned-preview").hidden = true;
+    renderOwned();
+  });
 }
 
 function showIssues(issues, savedMessage) {
@@ -548,8 +627,8 @@ function craftBlock(shopping, item) {
 }
 
 function itemCell(item, shopping) {
-  const kind = { unique: "unique", rare: "rare", magic: "magic", normal: "white base", gem: "lineage gem" }[item.kind] || item.kind;
-  const title = item.kind === "rare" || item.kind === "magic" ? `${pretty(item.kind)} ${item.type} · ${item.base}`
+  const kind = { unique: "unique", rare: "rare", magic: "magic", normal: "white base", gem: "lineage gem", owned: "yours" }[item.kind] || item.kind;
+  const title = item.kind === "owned" ? `${item.name} · ${item.base} (yours)` : item.kind === "rare" || item.kind === "magic" ? `${pretty(item.kind)} ${item.type} · ${item.base}`
     : item.kind === "unique" ? `${item.name} · ${item.base}${item.variant ? ` (${item.variant})` : ""}`
       : item.kind === "gem" ? item.name : `${item.base} (${kind})`;
   return el("div", {}, el("strong", {}, title),
@@ -636,7 +715,7 @@ function shoppingSection(shopping) {
     heading.textContent = `Shopping list · ${formatPrice(shopping.total)} divine${budget}`;
   };
   for (const item of shopping.items) {
-    const priceCell = el("td", { class: "num" }, item.kind === "normal" ? "found" : formatPrice(item.price));
+    const priceCell = el("td", { class: "num" }, item.kind === "normal" ? "found" : item.kind === "owned" ? "owned" : formatPrice(item.price));
     const confidenceCell = el("td", {}, item.confidence || "–");
     const cell = itemCell(item, shopping);
     // A Trade click that prices a unique's chosen version replaces the feed's any-version price
@@ -654,7 +733,7 @@ function shoppingSection(shopping) {
       confidenceCell.textContent = `trade, this version (${version.listed} listed, today)`;
       showTotal();
     };
-    const trade = shopping.ssf || item.kind === "normal" ? "–" : tradeButton(shopping, item, "item", onVersion);
+    const trade = shopping.ssf || item.kind === "normal" || item.kind === "owned" ? "–" : tradeButton(shopping, item, "item", onVersion);
     rows.push(el("tr", {}, el("td", {}, item.slot), el("td", {}, cell), priceCell, confidenceCell, el("td", {}, trade)));
     for (const rune of item.runes || []) {
       rows.push(el("tr", { class: "socket" }, el("td", {}, "socket"), el("td", {}, rune.name),
@@ -893,6 +972,7 @@ async function start() {
     fillSelect($(id), values);
   }
   renderDamageInputs();
+  setupOwned();
   $("class_name").addEventListener("change", () => renderAscendancies(readForm().ascendancies));
   $("league").addEventListener("change", () => { loadPrices(); loadCalibration(); loadVersionPricing(); });
   $("new-request").addEventListener("click", newRequest);

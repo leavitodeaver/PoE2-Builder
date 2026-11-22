@@ -183,3 +183,9 @@ tr.total td { font-weight: 600; border-bottom: 0; }
 .craft-steps { margin: 4px 0; padding-left: 16px; }
 .craft-steps li { margin: 2px 0; }
 .craft-steps button { padding: 1px 8px; font-size: 0.78rem; }
+/* The user's own items (SEARCHB3, 22 Nov) */
+.chip .own { display: inline-flex; align-items: center; gap: 0.2em; margin-left: 0.4em; font-size: 0.85em; }
+.owned-list { list-style: none; padding-left: 0; }
+.owned-list li.error { color: var(--error, #b3261e); }
+label.wide { grid-column: 1 / -1; }
+label.wide textarea { width: 100%; font-family: monospace; }

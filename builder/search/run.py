@@ -26,6 +26,7 @@ from builder.report.shopping import shopping_list
 from builder.request.constraints import fmt
 from builder.request.schema import BuildRequest
 from builder.search.context import Context, make_payload
+from builder.search.gear import OWNED  # (SEARCHB3: the user's own items, listed apart from the budget)
 from builder.search.objective import (PACK_SIZE, SUSTAIN_FLOOR, SUSTAIN_LEFT_OUT, boss_recovery, goal_value, number, rank_key,
                                       shortfall, sustain)
 from builder.search.skeletons import Skeleton, candidate_skills, enumerate_skeletons, weapon_archetypes
@@ -599,14 +600,24 @@ class Run:
         checks = [c.__dict__ for c in self.ctx.compiled.check(facts)]
         spent = final["spent"]
         budget = self.ctx.budget
+        owned = []  # (SEARCHB3, the user 22 Nov) the user's own items: listed apart, never in the budget (gear.OWNED)
         for slot, gear in final["gear"].items():
+            if gear.get("confidence") == OWNED:
+                entry = self.ctx.unique_prices.get(gear["name"]) if gear.get("unique") else None
+                gear["owned"], gear["market_price"] = True, (round(entry[0], 2) if entry else None)
+                owned.append({"slot": slot, "name": gear["name"], "base": gear["base"], "market_price": gear["market_price"],
+                              "note": "owned, not counted in the budget; " + (
+                                  f"market price {gear['market_price']} divine (poe.ninja, for information)" if entry
+                                  else "not priced" if not gear.get("unique") else "no market price found")})
+                continue
             if gear.get("rare") and gear.get("price") is not None and gear["type"] not in ("Flask", "Charm"):
                 gear["confidence"] = self.ctx.rare_model.confidence(slot)  # labels follow the price model
         for check in checks:
             if check["label"] == "Budget":
                 low = [g["name"] for g in final["gear"].values() if g["confidence"] in ("low", "unknown")]
                 check.update(delivered=f"{spent:.2f} divine", ok=spent <= budget + 1e-9,
-                             note="poe.ninja prices" + (f"; low-confidence: {', '.join(low)}" if low else ""))
+                             note="poe.ninja prices" + (f"; low-confidence: {', '.join(low)}" if low else "")
+                             + (f"; your own items not counted: {', '.join(o['name'] for o in owned)}" if owned else ""))
         # The sustain and recovery rows read the worse of the build as it is and the build with its part-time effects
         # off (floor_deltas, as the search's deficits and floors_at_full_uptime do; SEARCH22): with a part-time Enduring
         # Elixirs Life flask (or Melting Maelstrom) the stats as they are hold PoB's whole flask recovery plus ours
@@ -711,7 +722,7 @@ class Run:
                       "basis": f"monster life cleared per second in a map pack of {PACK_SIZE} (PLAN.md §5.5); "
                                "PoB doesn't model clear speed"},
             "stats": facts["stats"], "checks": checks, "code": final["code"], "verified": final["verified"],
-            "gear": final["gear"], "spent": spent, "groups": final["groups"], "conditions": final["conditions"],
+            "gear": final["gear"], "spent": spent, "owned": owned, "groups": final["groups"], "conditions": final["conditions"],
             "play_guide": final.get("play_guide") or [],
             "quests": final["quests"], "warnings": facts["warnings"], "skeleton_problems": problems,
             "assumptions": final.get("assumptions") or [], "flasks": final.get("flasks") or [],

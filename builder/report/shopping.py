@@ -362,6 +362,16 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
         entry = {"slot": slot, "kind": kind, "name": gear["name"], "base": gear["base"], "type": gear["type"],
                  "category": trade_category(base), "price": price, "confidence": gear.get("confidence"),
                  "runes": runes, "anoints": instilled, "affixes": []}
+        if gear.get("owned") or gear.get("confidence") == "owned":
+            # (SEARCHB3, the user 22 Nov) the user's own item: nothing to buy, never counted in the budget; its market
+            # price only for information (run.py), and the oils / runes the search adds to it are still bought
+            market = gear.get("market_price")
+            entry.update(kind="owned", owned=True, price=0.0, confidence="owned", market_price=market,
+                         note="Yours: owned, not counted in the budget" + (
+                             f" (market price about {market} divine, for information)" if market is not None
+                             else " (not priced)" if not gear.get("unique") else ""))
+            items.append(entry)
+            continue
         if kind == "unique":
             entry["variant"] = variants(gear["name"]) if variants else None
             if gear.get("variants"):

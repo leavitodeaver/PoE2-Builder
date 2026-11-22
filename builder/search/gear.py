@@ -121,6 +121,15 @@ def extra_ring_passive(ctx, ascendancy: str) -> str | None:
     return None
 
 
+OWNED = "owned"  # an ItemOption's confidence for the user's own item: price 0, never counted in the budget
+
+
+def owned_option(option: ItemOption) -> ItemOption:
+    """A required unique the user owns (request.owned_uniques): the same item at price 0; its market price is read
+    again for the report (run.py)."""
+    return dataclasses.replace(option, price=0.0, confidence=OWNED)
+
+
 def is_normal(option: ItemOption) -> bool:
     """A Normal-rarity item (a plain base, with or without augments in its sockets)."""
     first = option.raw.split("\n", 1)[0].strip()
@@ -293,16 +302,22 @@ class Gear:
         """Equip required uniques (locked) and a starting base in each weapon slot; the gear round
         fills the rest by score. Returns problems (a required unique that fits no slot)."""
         build = self.build
-        problems = []
+        problems = self.setup_owned()
         wanted = list(self.ctx.compiled.request.require.uniques) + list(extra_uniques)
         if self.ctx.request.weapon_unique:
             wanted.insert(0, self.ctx.request.weapon_unique)
+        pasted = {build.equipped[s].name for s in build.locked_slots if build.equipped.get(s) is not None}
+        owned = set(getattr(self.ctx.request, "owned_uniques", None) or [])
         for name in dict.fromkeys(wanted):
+            if name in pasted:
+                continue  # (the user's own copy is in already)
             option = self.ctx.unique_option(name)
             slot = self.slot_for(option) if option else None
             if slot is None:
                 problems.append(f"required unique {name} fits no slot of this skeleton")
                 continue
+            if name in owned:
+                option = owned_option(option)
             self.put(slot, option)
             build.locked_slots.add(slot)
         for slot in self.slots:
@@ -311,6 +326,26 @@ class Gear:
             bases = [o for o in self.options(slot) if not o.unique]
             if bases:
                 build.equip(slot, max(bases, key=lambda o: o.level))
+        return problems
+
+    def setup_owned(self) -> list[str]:
+        """The user's own pasted items (request.owned_items, read by builder/request/owned.py at compile time): each
+        equipped as pasted in its slot, LOCKED (no gear round replaces it) and priced 0, so the budget never counts it
+        (OWNED). Returns problems: a slot this skeleton doesn't have, or a main / off hand it doesn't hold."""
+        build, problems = self.build, []
+        for read in getattr(self.ctx.compiled, "owned", None) or []:
+            spec = self.slots.get(read.slot)
+            if spec is None:
+                problems.append(f"your {read.name} needs {read.slot}, which this skeleton doesn't have")
+                continue
+            if read.type not in spec.types or (spec.sub_type is not None and (read.sub_type or "") != spec.sub_type):
+                problems.append(f"your {read.name} ({read.type}) doesn't fit this skeleton's {read.slot} "
+                                f"({' / '.join(spec.types)})")
+                continue
+            option = ItemOption(read.name, read.base, read.type, read.sub_type, read.text, read.unique, 0.0, OWNED,
+                                read.level, rare=read.rarity in ("RARE", "MAGIC"))
+            self.put(read.slot, option)
+            build.locked_slots.add(read.slot)
         return problems
 
     def slot_for(self, option: ItemOption) -> str | None:

@@ -109,6 +109,18 @@ class Budget(Model):
     ssf: bool = False
 
 
+OWNED_SLOTS = ("Weapon 1", "Weapon 2", "Helmet", "Body Armour", "Gloves", "Boots", "Amulet", "Belt", "Ring 1", "Ring 2",
+               "Ring 3")
+
+
+class OwnedItem(Model):
+    """An exact item the user owns (builder/request/owned.py): its text as the game copies it (Ctrl+C) or PoB exports
+    it, and the slot it goes in (None: the item's class decides; a ring or a one-hand weapon must say which)."""
+
+    text: str = Field(min_length=1)
+    slot: str | None = None
+
+
 class BuildRequest(Model):
     schema_version: int = SCHEMA_VERSION
     name: str = "Untitled request"
@@ -128,6 +140,10 @@ class BuildRequest(Model):
 
     weapon_type: str | None = None  # an item class, e.g. "Bow"
     weapon_unique: str | None = None
+    # The user's own items (the user, 22 Nov): never counted in the budget. owned_uniques: required uniques (or the
+    # weapon unique) the user has; owned_items: exact items pasted in, locked in their slot and built around
+    owned_uniques: list[str] = []
+    owned_items: list[OwnedItem] = []
     offhand: Offhand = Offhand.ANY
     weapon_swap: WeaponSwap = WeaponSwap.MAY
 
@@ -158,6 +174,12 @@ class BuildRequest(Model):
             problems.append(f"main skill {self.main_skill} is forbidden")
         if self.weapon_unique and ("uniques", self.weapon_unique) in set(self.forbid.items()):
             problems.append(f"weapon {self.weapon_unique} is forbidden")
+        for name in self.owned_uniques:
+            if name not in self.require.uniques and name != self.weapon_unique:
+                problems.append(f"{name} is marked owned but isn't a required unique or the weapon unique")
+        for item in self.owned_items:
+            if item.slot is not None and item.slot not in OWNED_SLOTS:
+                problems.append(f"an owned item's slot {item.slot!r} isn't one of: {', '.join(OWNED_SLOTS)}")
         if self.boss:
             from builder.search import bosses
 

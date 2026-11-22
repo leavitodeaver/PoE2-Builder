@@ -79,9 +79,22 @@
         <div class="grid">
           <label>Weapon type <select id="weapon_type"></select></label>
           <label>Specific unique weapon <input id="weapon_unique" list="list-uniques" placeholder="Any"></label>
+          <label class="check" title="You already have this weapon: the search builds around it and doesn't count its price in the budget."><input id="weapon_unique_owned" type="checkbox"> I own it (don't count its price)</label>
           <label>Offhand <select id="offhand"></select></label>
           <label>Weapon swap <select id="weapon_swap"></select></label>
         </div>
+      </section>
+
+      <section>
+        <h3>Your own items <span class="hint">items you already have: kept in their slot, never counted in the budget</span></h3>
+        <p class="hint">Copy an item in the game (hover it, press Ctrl+C) or from PoB, paste it here and press Read. A ring or a one-handed weapon needs its slot.</p>
+        <div class="grid">
+          <label class="wide">Item text <textarea id="owned-text" rows="6" placeholder="Rarity: Rare&#10;Doom Crusher&#10;Temple Maul&#10;..."></textarea></label>
+          <label>Slot <select id="owned-slot"></select></label>
+        </div>
+        <p><button type="button" id="owned-read">Read</button> <button type="button" id="owned-add" disabled>Add to my items</button></p>
+        <p id="owned-preview" class="notice" role="status" hidden></p>
+        <ul id="owned-list" class="owned-list"></ul>
       </section>
 
       <section>

@@ -270,6 +270,20 @@ def validate(body: dict) -> dict:
     return {"issues": issues_of(parse_request(body))}
 
 
+class OwnedBody(BaseModel):
+    text: str
+    slot: str | None = None
+
+
+@app.post("/api/owned/read")
+def read_owned(body: OwnedBody) -> dict:
+    """What an item the user pasted reads as (its name, base, class and slots, or why it can't be read): the page's
+    "Your own items" box (builder/request/owned.py)."""
+    from builder.request.owned import read_item
+
+    return read_item(body.text, data, body.slot or None).describe()
+
+
 class InspectBody(BaseModel):
     code: str
     request: dict | None = None

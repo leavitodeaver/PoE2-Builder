@@ -86,7 +86,19 @@ def weapon_archetypes(ctx: Context, skill: str, weapon_unique: str | None = None
     rules = game_rules()
     forbidden = ctx.compiled.filters.forbidden_item_classes
     offhand_choice = Offhand.ANY if swap else Offhand(ctx.request.offhand)
-    return _with_offhands(skill, mains, problems, rules, forbidden, offhand_choice)
+    archetypes, problems = _with_offhands(skill, mains, problems, rules, forbidden, offhand_choice)
+    off = None if swap else owned_in(ctx, "Weapon 2")
+    if off is not None and archetypes:  # (SEARCHB3) the user's own off hand fixes it
+        archetypes = [a for a in archetypes if a[2] == off.type]
+        if not archetypes:
+            problems.append(f"{skill}'s weapon setups hold no {off.type} beside the main hand, so your {off.name} can't "
+                            "be used")
+    return archetypes, problems
+
+
+def owned_in(ctx: Context, slot: str):
+    """The user's own item for a slot (request.owned_items, read at compile time: builder/request/owned.py), if any."""
+    return next((r for r in getattr(ctx.compiled, "owned", None) or [] if r.slot == slot), None)
 
 
 def main_hands(ctx: Context, skill: str, weapon_unique: str | None = None, swap: bool = False
@@ -122,6 +134,12 @@ def main_hands(ctx: Context, skill: str, weapon_unique: str | None = None, swap:
             ([(fixed[0], fixed[1] or None)] if not (attack or types) else [])
         if not mains:
             problems.append(f"{skill} can't be used with {weapon_unique} ({option.type})")
+    owned = None if swap else owned_in(ctx, "Weapon 1")
+    if owned is not None:  # (SEARCHB3) the user's own weapon fixes the main hand, as a weapon unique does
+        fixed = (owned.type, owned.sub_type or "") if owned.type == "Staff" else (owned.type, None)
+        mains = [m for m in mains if m[0] == fixed[0] and (m[1] is None or m[1] == fixed[1])] or             ([(fixed[0], fixed[1] or None)] if not (attack or types) else [])
+        if not mains:
+            problems.append(f"{skill} can't be used with your {owned.name} ({owned.type})")
     rules = game_rules()
     if request.weapon_type and not swap:
         if not rules.weapon_in_game(request.weapon_type):
