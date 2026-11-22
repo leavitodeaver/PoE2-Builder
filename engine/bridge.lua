@@ -5589,10 +5589,14 @@ function bridge.activeSkills(args)
 				or types[SkillType.CanTargetUnusableCorpse]) and true or nil,
 			triggered = types[SkillType.Triggered] and true or false,
 			-- (MECHB37, models.cannons_ready_model) used by a totem (PoB's totem flag or UsedByTotem), and an Attack the
-			-- player fires projectiles with (Projectile, CrossbowAmmoSkill or GroundTargetedProjectile: "Totems only use
-			-- Skills when you fire an Attack Projectile"; patch 0.2.1 / 0.5.0: skills firing upwards count)
+			-- player fires projectiles with (Projectile, CrossbowSkill or GroundTargetedProjectile: "Totems only use
+			-- Skills when you fire an Attack Projectile"; patch 0.2.1 / 0.5.0: skills firing upwards count). (MECHB54;
+			-- RESEARCH46 R46-6, an OVERCOUNT) Not CrossbowAmmoSkill: that type marks only the LOAD parts ("Load X", Basic
+			-- Bolt), which fire nothing ("The Ammunition Skill itself does not fire the Ammunition, only load it"); every
+			-- crossbow firing effect carries CrossbowSkill, the three without Projectile (Hailstorm Rounds, Siege Cascade,
+			-- Stormblast Bolts) firing upwards (checked: every PoB Skills/*.lua effect's skillTypes)
 			byTotem = ((activeSkill.skillFlags and activeSkill.skillFlags.totem) or types[SkillType.UsedByTotem]) and true or false,
-			projectileAttack = (types[SkillType.Attack] and (types[SkillType.Projectile] or types[SkillType.CrossbowAmmoSkill]
+			projectileAttack = (types[SkillType.Attack] and (types[SkillType.Projectile] or types[SkillType.CrossbowSkill]
 				or types[SkillType.GroundTargetedProjectile])) and true or false,
 			hitsOnUse = hitsOnUse(effect, types),
 			-- (MECHB12, AUDIT25 A25-41) a curse's own duration with the build's modifiers ("curse duration" is Duration

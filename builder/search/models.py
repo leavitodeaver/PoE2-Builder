@@ -18357,11 +18357,14 @@ def item_trigger_model(texts: list[str], stats: dict, skills: list[Skill], main:
 # - alternating, so each type gains N every other reload: R / 2 events of N, at most its cap 10 (R40-11, HIGH: Gemini's
 #   own maximum_number_of_instilling_stacks; the default 6 a row) a batch, MECH-C's conditions.surge_rate;
 # - qualifying uses: the main skill's uses if it is a non-Melee Projectile Attack (other such skills not counted: the
-#   lower reading); one Surge a use (UNVERIFIED whether a use takes one of each type present: the upper reading a row);
+#   lower reading); one Surge a use (RESEARCH46 R46-7, MEDIUM: Gemini Surge's stat reads "No more than once per Skill
+#   use", players saw them spent in turn; one of each type present a row, the reading R46-7 disfavours);
 #   so blasts a second = min(uses, Cold supply + Fire supply), one projectile a use carrying it (HIGH);
 # - Split / Fork: a main skill with a Fork or Split count from PoB (ForkCountMax / SplitCount) gets none (the text);
-# - the blast (1.6 m) goes off at the projectile's end of flight: taken at the boss for a projectile that stops on hit
-#   (MEDIUM), LOW for one that Pierces (PierceCount > 0: it flies on; counted, labelled).
+# - the blast (1.6 m) goes off where the projectile's flight ends (R46-8, MEDIUM): at the boss for a bolt that stops on
+#   hit; a bolt that Pierces (PierceCount > 0) flies on past a lone boss: 0 (MECHB54, R46-8: unconfirmed in game, so the
+#   old count is a LOW row, "if it stops within the 1.6 m"; an OVERCOUNT fixed). Which type a use spends first when
+#   both are held is unconfirmed (R46-7: about half each, LOW): the Cold set is scored for every blast.
 # Gemini Surge's group counts through Full DPS at that rate, its Cold set PoB's default scored for every blast (the Fire
 # set is the same blast with Fire instead of Cold: the build's Fire-only scaling not read, LOW).
 GEMINI_SURGE = "Gemini Surge"
@@ -18388,7 +18391,7 @@ def double_vision_model(texts: list[str], stats: dict, skills: list[Skill], main
     keep = min(1.0, max(number(stats.get("ChanceToNotConsumeAmmo")) / 100, 0.0))
     reloads = rate * (1 - keep) / bolts if rate > 0 and bolts > 0 else 0.0
     # (MECHB54, probe POE2T4826: a crossbow skill's gem types hold CrossbowAmmoSkill, not Projectile; the bridge's
-    # projectileAttack flag, Attack with Projectile / CrossbowAmmoSkill / GroundTargetedProjectile, is the test)
+    # projectileAttack flag, Attack with Projectile / CrossbowSkill / GroundTargetedProjectile, is the test)
     qualifies = (main is not None and main.attack and not main.melee
                  and (main.projectile_attack or bool({"Projectile", "CrossbowAmmoSkill"} & set(main_types))))
     forks = number(stats.get("ForkCountMax")) > 0 or number(stats.get("SplitCount")) > 0
@@ -18396,7 +18399,9 @@ def double_vision_model(texts: list[str], stats: dict, skills: list[Skill], main
     c_rate, c_how = surge_rate(reloads / 2, cold, uses, 0.0, GEMINI_CAP)
     f_rate, f_how = surge_rate(reloads / 2, fire, uses, 0.0, GEMINI_CAP)
     supply = (reloads / 2) * (min(cold, GEMINI_CAP) + min(fire, GEMINI_CAP))
-    blasts = min(uses, supply)
+    pierce = number(stats.get("PierceCount")) > 0
+    stopped = min(uses, supply)  # (a bolt that stops on hit: the blast at the boss)
+    blasts = 0.0 if pierce else stopped  # (MECHB54, R46-8: a piercing bolt's flight ends past a lone boss)
     upper = c_rate + f_rate
     six = min(uses, (reloads / 2) * (min(cold, 6) + min(fire, 6)))
     if reloads <= 0:
@@ -18410,17 +18415,20 @@ def double_vision_model(texts: list[str], stats: dict, skills: list[Skill], main
         why = (f"{reloads:.3f} reloads a second (FiringRate {rate:.2f} x (1 - {keep:.0%}) / {bolts:g} bolts), alternately "
                f"{cold:g} Cold / {fire:g} Fire Surges (cap {GEMINI_CAP}): {supply:.2f} Surges a second against "
                f"{uses:.2f} uses a second, one a use: {blasts:.3f} blasts a second. Rows: a use taking one of each type "
-               f"present, {upper:.3f} (Cold: {c_how}; Fire: {f_how}); the default cap 6, {six:.3f}")
-    pierce = number(stats.get("PierceCount")) > 0
+               f"present, {upper:.3f} (R46-7: unlikely; Cold: {c_how}; Fire: {f_how}); the default cap 6, {six:.3f}")
+        if pierce:
+            why += (f". Its bolts Pierce (PierceCount {number(stats.get('PierceCount')):g}): the blast goes off where the "
+                    f"flight ends, past a lone boss (R46-8, MEDIUM; unconfirmed in game): 0 counted; row, a piercing bolt "
+                    f"stopping within the blast's 1.6 m of the boss: {stopped:.3f} (LOW)")
     mods = trigger_rate(GEMINI_SURGE, blasts)
     groups = {granted.group} if blasts > 0 else set()
     return mods, [{
         "label": "Double Vision: Gemini Surge's Surging Blasts, per second*", "value": round(blasts, 3),
-        "confidence": ("LOW" if pierce else "MEDIUM") if blasts > 0 else "HIGH", "entry": GEMINI_ENTRY,
+        "confidence": ("MEDIUM" if blasts > 0 or pierce else "HIGH"), "entry": GEMINI_ENTRY,
         "basis": (why + ". PoB grants Gemini Surge but never rates it (0 before); each blast scored as its Cold set "
                   "(the Fire set's Fire-only scaling not read, LOW); the blast goes off at the projectile's end of flight, "
-                  + ("which a piercing projectile carries past the boss (LOW)" if pierce
-                     else "taken at the boss for a projectile that stops on hit (MEDIUM)")),
+                  + ("which a piercing bolt carries past the boss (R46-8: 0 counted)" if pierce
+                     else "at the boss for a bolt that stops on hit (R46-8, MEDIUM)")),
         "play": (f"Reload Double Vision as you go: each reload gives Surges, and your next {main.name if main else ''} "
                  f"shots blast at the end of their flight ({blasts:.2f} a second)" if blasts > 0 else "")}], groups
 
@@ -18717,11 +18725,13 @@ def lioneye_model(texts: list[str], stats: dict, main: Skill | None, metres: flo
 # Falling Thunder) not setting them off: so any Attack the player fires a projectile with counts. Model: each totem uses
 # its skill at most once per player projectile attack, so a totem skill's uses a second = min(its own, P), P = the
 # player's projectile attacks a second: the fastest such skill the build has (useRates; item-granted ones included: a
-# crossbow's Basic Bolt, a bow's Bow Shot), which the player is taken to use between placements (a play strategy; its own
+# crossbow's Crossbow Shot, a bow's Bow Shot; MECHB54, RESEARCH46 R46-6: never a crossbow's LOAD part, Basic Bolt or
+# "Load X", which fires nothing: the bridge's flag reads CrossbowSkill, not CrossbowAmmoSkill), which the player is taken to use between placements (a play strategy; its own
 # damage counted only if it's in Full DPS). A totem skill: PoB's totem flag or UsedByTotem (Artillery Ballista's damage is
-# its "Ballista Bolt"); an "attack projectile" skill: PoB's types Attack and Projectile, CrossbowAmmoSkill or
+# its "Ballista Bolt"); an "attack projectile" skill: PoB's types Attack and Projectile, CrossbowSkill or
 # GroundTargetedProjectile, not used by a totem, not triggered (bridge activeSkills byTotem / projectileAttack). Probe
-# POE2T3329 (Artillery Ballista, a crossbow): Ballista Bolt 1.07 a second, Basic Bolt 2 a second. None: the totems never
+# POE2T3329 (Artillery Ballista, a crossbow): Ballista Bolt 1.07 a second, Basic Bolt 2 a second (Basic Bolt, a LOAD
+# part, was the player's rate there: an OVERCOUNT, R46-6, fixed by MECHB54; probe POE2T4843 / 4844). None: the totems never
 # act (0, said). As a Speed
 # "less" on each totem skill (its rate, ailments and all), divided back out on the next pass (tag cannons_ready).
 # Labelled: a totem busy mid-use when the player fires is taken to catch the next one (the lower of the two rates);

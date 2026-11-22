@@ -62,3 +62,20 @@ def test_a_main_skill_whose_damage_is_another_skills_says_so():
     rain = models.needs_another_skill_note(Skill("Falling Blade", group=1), {"EmpowersOtherSkill"}, "x", 0.0, 0.0,
                                            "Rain of Blades")
     assert rain[0]["label"].startswith("Rain of Blades") and "its Falling Blade" in rain[0]["basis"]
+
+
+def test_double_vision_piercing_bolts_blast_past_a_lone_boss():
+    """RESEARCH46 R46-8: the blast goes off where the flight ends; a piercing bolt flies on past a lone boss: 0, the
+    old count a LOW row. R46-7: one Surge a use (the headline unchanged for a bolt that stops)."""
+    from builder.search import conditions
+    texts = ["When you reload, triggers Gemini Surge to alternately", "gain 6 Cold Surges or 6 Fire Surges"]
+    gemini, main = Skill("Gemini Surge", 3), Skill("Galvanic Shards", 1, attack=True)
+    stats = {"FiringRate": 2.0, "BoltCount": 4, "ChanceToNotConsumeAmmo": 0, "Speed": 2.0}
+    crossbow = {"Attack", "CrossbowAmmoSkill"}
+    mods, notes, groups = models.double_vision_model(texts, stats, [gemini, main], main, crossbow, conditions.surge_rate)
+    assert {m["key"]: m["value"] for m in mods}["triggerRate"] == pytest.approx(2.0) and groups == {3}
+    assert "R46-7" in notes[0]["basis"]
+    mods, notes, groups = models.double_vision_model(texts, {**stats, "PierceCount": 1}, [gemini, main], main, crossbow,
+                                                     conditions.surge_rate)
+    assert {m["key"]: m["value"] for m in mods}["triggerRate"] == 0 and not groups
+    assert "R46-8" in notes[0]["basis"] and "2.000 (LOW)" in notes[0]["basis"] and notes[0]["confidence"] == "MEDIUM"
