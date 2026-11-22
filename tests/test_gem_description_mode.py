@@ -2020,7 +2020,16 @@ def test_gem_models_carry_their_hit_cut():
     cold = [{"label": "Pulse", "TotalDPS": 0.0}, {"label": "Cold", "TotalDPS": 634.4}, {"label": "Fire", "TotalDPS": 500.0},
             {"label": "Lightning", "TotalDPS": 400.0}]
     sund, _ = models.ailment_set_model(Skill("Elemental Sundering", 1), "Cold", cold, {"Shock": 0.5}, "")
-    assert sund[0]["hit_cut"] == pytest.approx(0.5)  # (one explosion a use, while the boss is Shocked)
+    assert sund[0][models.HIT_CUT_PER_USE] == pytest.approx(0.5) and "hit_cut" not in sund[0]  # (blasts a use: hits a use)
+    # (GEM33, the manager 23:45: HITS-A-USE cuts and raises on HIT_CUT_PER_USE, TIME cuts on "hit_cut")
+    sc = Skill("Shield Charge", 1, attack=True)
+    both, _ = models.both_parts_model(sc, "Collision", [{"label": "Area of Effect", "TotalDPS": 21.76},
+                                                       {"label": "Collision", "TotalDPS": 96.87}])
+    assert models.hits_per_use_of(both, None, "Shield Charge") == 2 and models.hit_cut_of(both, None, "Shield Charge") is None
+    ember = Skill("Ember Fusillade", 1, spell=True, level_stats={models.EMBER_CAP_STAT: 10, models.EMBER_MORE_STAT: 5})
+    em, _ = models.ember_fusillade_model(ember, {"Speed": 2.5, "Duration": 1.3, "ProjectileCount": 1})
+    dps = next(m for m in em if m["name"] == "DPS")
+    assert dps[models.HIT_CUT_PER_USE] == pytest.approx(1.0) and dps["hit_cut"] == pytest.approx(10 / (10 / 2.5 + 1.3) / 2.5)
 
 
 def _more_product(mods):

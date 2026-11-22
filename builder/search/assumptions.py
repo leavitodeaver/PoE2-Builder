@@ -3493,7 +3493,8 @@ class Assumptions:
         stat_notes = stat_notes + sacrifice_life(build, found, main, stats)[1]  # (GEM30: Life Sacrificed on use)
         rep_mods, rep_notes = models.repeat_interval_model(found, main, stats, build.call("getConfig")["input"], forbidden)
         stat_mods, stat_notes = stat_mods + rep_mods, stat_notes + rep_notes  # (GEM30: Ravenous Swarm, Hollow Focus)
-        hit_cut(build, [m for m in stat_mods if "hit_cut" in m] + rep_mods, main.name if main else None)  # (GEM33:
+        hit_cut(build, [m for m in stat_mods if "hit_cut" in m or models.HIT_CUT_PER_USE in m] + rep_mods,
+                main.name if main else None)  # (GEM33:
         # Salvo, the Nova circle, Ratha, Trickster's Shard, Ember Fusillade, Rake, the repeat interval: hits a second)
         if any(s.name == models.MIRROR_OF_REFRACTION for s in found):  # (GEM31: its copies from spare projectiles)
             mir_mods, mir_notes = models.mirror_of_refraction_model(
@@ -4731,6 +4732,7 @@ class Assumptions:
             spark_mods, spark_notes = models.group_exception_model(
                 main, {**stats, **build.call("stats", fields=["ProjectileCount", "Duration"])}, forbidden)
             hand_mods, hand_notes = hand_mods + spark_mods, hand_notes + spark_notes
+            hit_cut(build, spark_mods, main.name)  # (GEM33: the Spark / Freezing Shards hits a cast, hit_cut_per_use)
         if main is not None and group and main.name in models.CROSSBOW_SEQUENCE_RATIO:  # (MECHB45, R35-15)
             bolt_mods, bolt_notes = models.crossbow_sequence_model(
                 main, {**stats, **build.call("stats", fields=["ProjectileCount"])}, forbidden)
@@ -4799,6 +4801,7 @@ class Assumptions:
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             both_mods, both_notes = models.both_parts_model(main, main.stat_set, sets, forbidden, previous=self.mods)
             hand_mods, hand_notes = hand_mods + both_mods, hand_notes + both_notes
+            hit_cut(build, both_mods, main.name)  # (GEM33: Shield Charge's two parts a use, hit_cut_per_use)
         if main is not None and group and main.name == models.CLUSTER_GRENADE:  # (GEM33: its minis, R44-9 / R45-1, LOW)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             cg_rate = (build.call("useRates", indices=[group["index"]])["rates"] or [{}])[0]
@@ -4809,6 +4812,7 @@ class Assumptions:
                                                              previous=self.mods, fuse=number(cg_rate.get("detonationTime")),
                                                              stoppers=cg_stop)
             hand_mods, hand_notes = hand_mods + cg_mods, hand_notes + cg_notes
+            hit_cut(build, cg_mods, main.name)  # (GEM33: Cluster Grenade's primary + minis a use, hit_cut_per_use)
         if main is not None and group and main.name in models.GATED_SETS:  # (GEM17: Enraged / Empowered need a resource)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             gate_share, gate_how = self.gated_set_share(main.name, texts, main_types)
@@ -4902,6 +4906,7 @@ class Assumptions:
             shard_mods, shard_notes = models.eye_shards_model(main, shard_stats, bosses.hit_radius(stats)[0],
                                                               eye_metres, first, forbidden)
             hand_mods, hand_notes = hand_mods + shard_mods, hand_notes + shard_notes
+            hit_cut(build, shard_mods, main.name)  # (GEM33: Eye of Winter's shards a cast, hit_cut_per_use)
         if main is not None and main.name == models.BONESTORM:  # (GEM19: a full channel of spikes, not PoB's one)
             bs_mods, bs_notes = models.bonestorm_circle(  # (MECHB45, R31-11: Spells' Projectiles in a circle)
                 [e["text"] for e in source_lines], *models.bonestorm_model(main, forbidden))

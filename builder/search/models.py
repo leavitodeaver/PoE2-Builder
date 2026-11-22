@@ -5524,7 +5524,7 @@ def salvo_model(skills: list[Skill], stats: dict, main: Skill | None, config: di
                      "Pierce, Chain, Fork and Return not counted",
             "play": (f"Salvo fires {main.name} in random directions: fight close. Without Salvo's directions (PoB, aimed):"
                      f" x1.000; at {metres:g} m: x{factor:.3f}; at {MELEE_DISTANCE:g} m: x{near:.3f}.")}
-    return [with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name), factor)], notes + [note]
+    return [with_per_use(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name), factor)], notes + [note]
 
 
 # Nova Projectiles I / II (GEM29, 20 Nov 2026; an OVERCOUNT): "Supported Skills fire [Projectile|Projectiles] in a circle"
@@ -5608,7 +5608,7 @@ def nova_projectiles_model(main: Skill | None, stats: dict, config: dict | None 
     near, large = nova_circle_hits(count, radius, MELEE_DISTANCE), nova_circle_hits(count, big, MELEE_DISTANCE)
     factor = hits / count
     unaimed = nova_unaimed_hits(count, radius, metres)
-    return [with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name), factor)], [{
+    return [with_per_use(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name), factor)], [{
         "label": label, "value": f"x{factor:.3f}", "confidence": "LOW", "entry": NOVA_ENTRY,
         "basis": (f"{count:g} projectiles a use ({whose} count, every one on the boss) fired evenly round a circle with one "
                   f"aimed (RESEARCH31 R31-11 (b), MEDIUM-LOW): {hits:g} reach a boss {radius:g} m in radius {metres:g} m "
@@ -6224,7 +6224,7 @@ def trickster_model(skills: list[Skill], stats: dict, main: Skill | None,
                      f"once and all cast it. Slower: x1.000; at that rate: x{1 + (1 + less / 100):.3f}.")}
     if factor <= 1:
         return [], notes + [note]
-    return [with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name), 2.0)], notes + [note]  # (cast twice)
+    return [with_per_use(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name), 2.0)], notes + [note]  # (cast twice)
 
 
 
@@ -6315,8 +6315,9 @@ def combo_sequence_model(main: str | None, scored: str | None, sets: list[dict],
             "play": (f"Keep using {main} so its combo runs to the end. PoB's {scored} set alone: x1.000; the full "
                      f"combo: x{factor:.3f}.")}
     # (the combo's Strikes a second over PoB's uses of its scored set)
-    hits = sum(strikes.values()) / seconds / rows[scored][1] if rows[scored][1] > 0 else 1.0
-    return [with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main), hits)], [note]
+    uses = len(steps) / seconds / rows[scored][1] if rows[scored][1] > 0 else 1.0  # (uses a second: time)
+    return [with_per_use(with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main), uses),
+                         sum(strikes.values()) / len(steps))], [note]  # (Strikes a use)
 
 
 def primal_spirits(rows: dict, shocked: float | None, how: str = "",
@@ -6629,8 +6630,8 @@ def whirlwind_stage_model(main: Skill | None, sets: list[dict], forbidden: set[s
             "play": (f"Use {main.name} {stages} times on the same Whirlwind, then cross its edge to collapse it. "
                      f"PoB's {scored} set at every use: {pob:,.0f} DPS; {stages} stages first: {average:,.0f} DPS.")}
     return [raw_mod(WHIRL_MULTIPLIER, "BASE", stages - 1, main.name),
-            with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name),
-                         (stages + 1) / (stages / speed) / (rows[scored][1] or speed))], [note]  # (k uses + 1 collapse)
+            with_per_use(with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name), speed / (rows[scored][1] or speed)),
+                         (stages + 1) / stages)], [note]  # (k uses at its speed; + 1 collapse a cycle)
 
 
 # Ember Fusillade's Fusillade (GEM12; an OVERCOUNT for fast casters, an undercount with extra projectiles). act_int.lua
@@ -6704,7 +6705,7 @@ def ember_fusillade_model(main: Skill | None, stats: dict,
             "play": (f"Cast {skill} {casts} times, then stop for {wait:.1f} s so the Fusillade fires (recasting "
                      f"resets the wait). Casting without pause: no {unit}s fire; this rhythm: x{factor:.3f} of PoB's number.")}
     hits = n / (casts / speed + wait) / speed  # (the Embers a second over PoB's one a cast)
-    return hit_and_damage_mods(skill, factor, hits), [note]  # (each Ember's more: its hit and its Ignite)
+    return hit_and_damage_mods(skill, factor, hits, n / casts), [note]  # (each Ember's more: hit and Ignite)
 
 
 # Meteors of The Stars Answer (Starfall) and Walking Calamity (GEM12). The game's stats (TheStarsAnswerPlayer /
@@ -7602,7 +7603,7 @@ def firestorm_infusion_model(main: Skill | None, scored: str | None, sets: list[
         # no stat-set tag, so a mod can't zero that set alone): the storm's total, kept FIRESTORM_BOLTS_MARGIN under, so
         # the search keeps the fire set (whose element and ailments the storm has); if ever kept, its number is low
         low, high = low * FIRESTORM_BOLTS_MARGIN, high * FIRESTORM_BOLTS_MARGIN
-    mods = ([with_hit_cut(raw_mod("DPS", "MORE", 100 * (low - 1), FIRESTORM),
+    mods = ([with_per_use(raw_mod("DPS", "MORE", 100 * (low - 1), FIRESTORM),
                           firestorm_rate_scale(s["Fire"], extra, True))]  # (the storm's hits a second: its rate)
             if abs(low - 1) > 1e-9 else [])
     if s["Fire"] > 0:
@@ -8001,8 +8002,20 @@ def lone_boss_set_model(main: Skill | None, scored: str | None, sets: list[dict]
 # Fusillade, meteors, Rake, Firestorm, Falling Thunder, Snipe / Sundering, Supercharged Slam, Shield Wall). A raise
 # (more hits) is clamped at 1 by the reader.
 def with_hit_cut(mod: dict, part: float) -> dict:
-    """`mod` with its hit part (hits a second over PoB's; the rest of its factor is damage per hit) as "hit_cut"."""
+    """`mod` with its TIME hit part (uses a second over PoB's; the rest of its factor is damage per hit) as "hit_cut"."""
     mod["hit_cut"] = max(0.0, number(part))
+    return mod
+
+
+# (GEM33; the manager 23:45 from MECH99's split, 4b05cdd2 / 1d621062) the HITS-A-USE part goes on HIT_CUT_PER_USE: the
+# skill used as often, more or fewer of a use's hits landing (Salvo's and the Nova circle's projectiles, Sundering's
+# blasts, Firestorm's bolts a storm; above 1 for the models that ADD hits within a use: Shield Charge's two parts,
+# Cluster Grenade's 1 + minis, the Spark / Freezing Shards exceptions, Eye of Winter's shards, Trickster's mimics, the
+# combo's Strikes, the Whirlwind's collapse, Ember Fusillade's Embers a cast). TIME parts keep "hit_cut" (Rake, meteors,
+# Ratha, the repeat interval, Frozen Locus, Galvanic Field, Herald of Blood, Supercharged Slam, Shield Wall).
+def with_per_use(mod: dict, part: float) -> dict:
+    """`mod` with its hits-a-use part (models.HIT_CUT_PER_USE: hit readers only, the uses kept)."""
+    mod[HIT_CUT_PER_USE] = max(0.0, number(part))
     return mod
 
 
@@ -8015,8 +8028,9 @@ def with_hit_cut(mod: dict, part: float) -> dict:
 # GEM22's strongest_ailment_model's, by set_shares) nor Trickster's Shard (its mimics' 50% less: the strongest Ignite /
 # Bleed is the player's own full cast's, so lowering every hit's ailment by the average would be wrong); probe
 # POE2T5866: Tempest Flurry 89.24 / 89.22, Supercharged Slam 267.78 both ways (no damaging ailment there).
-def hit_and_damage_mods(skill: str, factor: float, hits: float) -> list[dict]:
-    """[Damage MORE (the per-hit part, factor / hits), DPS MORE (the hit part, hit_cut)] for a mixed model's `factor`."""
+def hit_and_damage_mods(skill: str, factor: float, hits: float, per_use: float | None = None) -> list[dict]:
+    """[Damage MORE (the per-hit part, factor / hits), DPS MORE (the hit part: "hit_cut" its time part, hits / per_use,
+    and HIT_CUT_PER_USE `per_use` when given)] for a mixed model's `factor`."""
     hits = max(0.0, number(hits))
     if hits <= 0:
         return [with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), skill), 0.0)]
@@ -8024,7 +8038,11 @@ def hit_and_damage_mods(skill: str, factor: float, hits: float) -> list[dict]:
     if abs(factor / hits - 1) > 1e-9:
         mods.append(raw_mod("Damage", "MORE", 100 * (factor / hits - 1), skill))
     if abs(hits - 1) > 1e-9:
-        mods.append(with_hit_cut(raw_mod("DPS", "MORE", 100 * (hits - 1), skill), hits))
+        if per_use is None or number(per_use) <= 0:
+            mods.append(with_hit_cut(raw_mod("DPS", "MORE", 100 * (hits - 1), skill), hits))
+        else:
+            mods.append(with_per_use(with_hit_cut(raw_mod("DPS", "MORE", 100 * (hits - 1), skill), hits / per_use),
+                                     per_use))
     return mods
 
 
@@ -8056,7 +8074,7 @@ def both_parts_model(main: Skill | None, scored: str | None, sets: list[dict],
     if dps[scored] < max(dps[label] for label in labels):
         factor *= PART_STEER  # (the search keeps the strongest part, whose hits set the ailments: probe POE2T5845)
     parts = " + ".join(f"{label} {dps[label]:,.1f}" for label in labels)
-    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=entry)], [{
+    return [with_per_use(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=entry), len(labels))], [{
         "label": f"{main.name}: one use hits the boss with {' and '.join(labels)}*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM-HIGH", "entry": entry,
         "basis": (f"PoB scores the {scored} set alone ({dps[scored]:,.1f} DPS); the crash deals area damage and extra "
@@ -8141,7 +8159,7 @@ def cluster_grenade_model(main: Skill | None, scored: str | None, sets: list[dic
         n = cluster_minis_on_boss(radius, area, offset, mult)
         rows.append(f"{label}: {n:.1f} minis, x{(primary + n * mini) / dps[scored] * steer:.3f}")
     stop = [x for x in stoppers if x in CLUSTER_STOPPERS]
-    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=CLUSTER_ENTRY)], [{
+    return [with_per_use(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=CLUSTER_ENTRY), 1 + head)], [{
         "label": f"{CLUSTER_GRENADE}: its mini grenades on the boss*", "value": f"x{factor:.3f}",
         "confidence": "LOW", "entry": CLUSTER_ENTRY,
         "basis": (f"PoB scores the {scored} set alone (Primary {primary:,.1f}, one Mini {mini:,.1f} DPS). Each use throws "
@@ -8252,7 +8270,8 @@ def ailment_set_model(main: Skill | None, scored: str | None, sets: list[dict], 
     # read as x0.00: probe POE2T2193)
     factor = max(factor, AILMENT_FLOOR)
     hits = 1.0 if main.name == "Snipe" else max(sum(mix.values()), AILMENT_FLOOR)  # (Sundering: one blast an ailment)
-    mods = ([with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=entry), hits)]
+    mods = ([(with_hit_cut if main.name == "Snipe" else with_per_use)(  # (Sundering: blasts a use)
+        raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=entry), hits)]
             if abs(factor - 1) > 1e-9 else [])
     return mods, [{
         "label": f"{main.name}: its parts need ailments on the boss to consume*", "value": f"x{factor:.3f}",
@@ -21272,7 +21291,7 @@ def group_exception_model(main: Skill | None, stats: dict,
     if hits <= 1:
         return [], [{"label": label, "value": "x1", "confidence": "LOW", "entry": GROUP_EXCEPTION_ENTRY,
                      "basis": basis + ": nothing to add"}]
-    return [raw_mod("DPS", "MORE", 100 * (hits - 1), main.name)], [{
+    return [with_per_use(raw_mod("DPS", "MORE", 100 * (hits - 1), main.name), hits)], [{  # (GEM33: hits a cast)
         "label": label, "value": f"x{hits:g}", "confidence": "LOW", "entry": GROUP_EXCEPTION_ENTRY,
         "basis": basis, "play": play}]
 
@@ -22191,7 +22210,8 @@ def eye_shards_model(main: Skill | None, stats: dict, radius: float, distance: f
     value, past_value = factor(shards), factor(past)
     if value <= 1 + 1e-9:
         return [], []
-    return [raw_mod("DPS", "MORE", 100 * (value - 1), main.name, tag=EYE_SHARDS_ENTRY)], [{
+    return [with_per_use(raw_mod("DPS", "MORE", 100 * (value - 1), main.name, tag=EYE_SHARDS_ENTRY),
+                         max(1.0, shards))], [{  # (GEM33: the shards a cast landing, MECH99's survey)
         "label": f"{main.name}: about {shards:.0f} shards a cast hit the boss*", "value": f"x{value:.3f}",
         "confidence": "LOW", "entry": EYE_SHARDS_ENTRY,
         "basis": (f"PoB counts one shard a use. The Eye flies through the boss (it hits nothing itself) at {EYE_SPEED:g} "
