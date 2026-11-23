@@ -137,3 +137,19 @@ def test_charged_staffs_shockwave_counts_nothing_with_a_talisman_equipped():
     mods, notes = models.charged_shockwave_model(staff, True, 2.0, 3.0, "x", hits=2.0, talisman="Weapon 1 Swap")
     assert mods[0]["value"] == 0 and "Talisman" in notes[0]["basis"] and "if it works: 2" in notes[0]["basis"]
     assert "Take the Talisman out" in notes[0]["play"]
+
+
+def test_surges_are_spent_a_projectile_but_blast_the_boss_once_a_use():
+    """RESEARCH48 R48-14: one Surge a projectile, up to those held; on a lone boss one projectile a use ends at it.
+    R48-13: one trigger a charge consumed (the per-use reading a row)."""
+    gains = {"Lightning": 3.0}
+    # short supply: 0.1 charges/s x 3 = 0.3 Surges/s, 2 projectiles a use: 0.15 boss blasts/s x 300
+    mods, notes = models.charge_surge_model(gains, 0.1, "x", 2.0, "x", 2, HITS, {}, False, BOTH)
+    assert models.added_total(mods) == pytest.approx(0.15 * 300.0, abs=0.01)
+    assert "every projectile's blast landing" in notes[0]["basis"] and "+90.0 DPS" in notes[0]["basis"]
+    # plenty: one blast a use reaches the boss
+    mods, _ = models.charge_surge_model(gains, 2.0, "x", 1.0, "x", 3, HITS, {}, False, BOTH)
+    assert models.added_total(mods) == pytest.approx(1.0 * 300.0, abs=0.01)
+    # per-use row: 4 charges/s over 1 use/s = one batch of 12, capped at 6: 6 Surges/s, 3 a use: 1 blast/s
+    mods, notes = models.charge_surge_model(gains, 4.0, "x", 1.0, "x", 3, HITS, {}, False, BOTH)
+    assert "one trigger a consuming use" in notes[0]["basis"]

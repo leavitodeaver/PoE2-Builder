@@ -24516,7 +24516,8 @@ MIDNIGHT_SECONDS = 10.0
 # IceCrystalLife INC lines it parses: Shattered Crystal -60%, Ice Walls +200%), plus Eventide Petals' own "Ice Crystals
 # have (-3-3)% reduced maximum Life per 5% Cold Resistance you have" (PoB parses it to nil, ModCache 8260-8261), added to
 # the same increases (-45% to +45% at 75%). The player's hit on a crystal takes no resistance or armour but no boss-only
-# bonus either (R48-1 (b)): PoB's hit on the boss can read either side.
+# bonus either (R48-1 (b)): PoB's hit on the boss can read either side. The Cold Resistance read is the CAPPED one
+# (RESEARCH48 R48-15 / R39-2, MEDIUM-HIGH; PoB's ColdResist is min(total, max), CalcDefence 963-967).
 MIDNIGHT_RES_LIFE = re.compile(r"^Ice Crystals have (-?\d+(?:\.\d+)?)% (reduced|increased) maximum Life per 5% Cold "
                                r"Resistance you have$", re.I)
 
@@ -24622,12 +24623,12 @@ def midnight_zenith_model(crits: float, crits_how: str, area_hits: float, hit: f
 # cap stat as Gemini Surge has) but never rates them. KeywordPopups Surge: consumed by a non-Melee Projectile Attack with
 # the weapon, its projectiles blast at the end of their flight; Split / Forked projectiles gain nothing. So:
 # - events: the charges consumed a second (MECH-C's build.charge_flow, Power + Frenzy + Endurance; each charge consumed
-#   one trigger, its batch capped at 6 a type: where one use spends several at once the batch cap binds sooner, LOW);
+#   one trigger, RESEARCH48 R48-13 MEDIUM, its batch capped at 6 a type; one a consuming use a LOW row);
 #   no charge consumer: 0, said (CLAUDE.md: the build feeds it; the search may pick a charge spender);
 # - uses: the main skill's uses if it is a non-Melee Projectile Attack whose projectiles neither Fork nor Split (other
-#   such skills not counted: lower); one Surge a use (RESEARCH46 R46-7, MEDIUM: one type a projectile; one projectile
-#   a use the headline, the lower reading; row: one a projectile, as 0.4.0b's fix "more projectiles than the number of
-#   stacks you had" implies a use can spend several, LOW on a lone boss);
+#   such skills not counted: lower); one Surge a PROJECTILE, up to those held (RESEARCH48 R48-14, MEDIUM-HIGH: 0.4.0b's
+#   fix; one type a projectile, R46-7), but on a lone boss one projectile a use ends at it (MEDIUM): Surges spent at the
+#   projectiles a use, the boss blasted once a use (an OVERCOUNT before where the Surges ran short: one spent a use);
 # - types: Lightning before Chaos (R46-7's forum report, LOW); Cold / Fire / Lightning in proportion to their supply (no
 #   source on the order, LOW); a blast scored at its own set's PoB hit (AverageDamage, hit chance in);
 # - where it lands: at the boss for a projectile that stops on it; a piercing one flies past a lone boss: 0, the stopping
@@ -24669,22 +24670,38 @@ def charge_surge_model(gains: dict[str, float], charges: float, charges_how: str
         return [], []
     names = sorted({SURGE_SETS[k][0] for k in gains})
     label = " / ".join(names) + ": Surging Blasts from charges consumed*"
-    supply = {k: max(charges, 0.0) * min(n, caps.get(k) or SURGE_CAP_DEFAULT) for k, n in gains.items()}
-    elemental = sum(v for k, v in supply.items() if k != "Chaos")
+    n_proj = max(number(projectiles), 1.0)
 
-    def blasts(per_use: float) -> dict[str, float]:
-        room = max(uses, 0.0) * max(per_use, 1.0)
+    def supply_of(events: float) -> dict[str, float]:
+        """Surges a second of each type at `events` triggers a second (the charges spread over them, each batch capped)."""
+        if events <= 0:
+            return {k: 0.0 for k in gains}
+        each = max(charges, 0.0) / events
+        return {k: events * min(n * each, caps.get(k) or SURGE_CAP_DEFAULT) for k, n in gains.items()}
+
+    def blasts(supply: dict[str, float], all_hit: bool) -> dict[str, float]:
+        """(MECHB56, RESEARCH48 R48-14, MEDIUM-HIGH) each projectile of a use takes one Surge, up to those held, and blasts
+        at the end of its flight. On a lone boss only one projectile of a use ends at it (a use's projectiles can't hit
+        the same target twice; only projectiles_can_shotgun skills can, see SHOTGUN_PLAY): Surges are SPENT at
+        `n_proj` a use, the boss blasted once a use whose boss-hitting projectile got one (supply / n_proj, the lower
+        reading where the Surges run short). `all_hit`: every projectile's blast lands (a shotgun / Merge skill, LOW)."""
+        elemental = sum(v for k, v in supply.items() if k != "Chaos")
+        room = max(uses, 0.0) * n_proj  # (Surges the uses can take a second)
         taken = min(room, elemental)
         out = {k: (taken * v / elemental if elemental > 0 else 0.0) for k, v in supply.items() if k != "Chaos"}
         if "Chaos" in supply:  # (Lightning before Chaos, R46-7's forum report, LOW)
             out["Chaos"] = min(room - taken, supply["Chaos"])
-        return out
+        return out if all_hit else {k: v / n_proj for k, v in out.items()}
 
     def dps_of(got: dict[str, float]) -> float:
         return sum(r * max(hits.get(k, 0.0), 0.0) for k, r in got.items())
 
-    head, many = blasts(1.0), blasts(projectiles)
-    stopped, row = dps_of(head), dps_of(many)
+    # (MECHB56, R48-13, MEDIUM) one trigger a charge consumed (no once-a-use limit, unlike Gemini Surge's); the row: one a
+    # consuming use, at most one a main-skill use (the charges a use spends arrive as one batch, capped at 6 a type; LOW)
+    supply = supply_of(max(charges, 0.0))
+    head, many = blasts(supply, False), blasts(supply, True)
+    per_use = blasts(supply_of(min(max(charges, 0.0), max(uses, 0.0))), False)
+    stopped, row, row_use = dps_of(head), dps_of(many), dps_of(per_use)
     dps = 0.0 if pierce else stopped
     scales = {s: 0.0 for s in names}  # (PoB's own entries out of Full DPS: rated here)
     gain_text = ", ".join(f"{n:g} {k}" for k, n in sorted(gains.items()))
@@ -24705,10 +24722,13 @@ def charge_surge_model(gains: dict[str, float], charges: float, charges_how: str
                      "basis": base + f": {why}, +0"}]
     return [added_input("ChargeSurges", dps)], [{
         "label": label, "value": round(dps, 1), "confidence": "MEDIUM-LOW", "entry": SURGE_ENTRY, "full_dps": scales,
-        "basis": (base + ": one Surge a use (R46-7, MEDIUM), "
+        "basis": (base + f": one Surge a projectile, {n_proj:g} a use, the boss blasted by the one projectile a use that "
+                  "ends at it (R48-14, MEDIUM-HIGH / MEDIUM), "
                   + ", ".join(f"{k} {r:.3f} blasts/s x {hits.get(k, 0.0):,.1f}" for k, r in sorted(head.items()))
                   + f" (each its own set's PoB hit) = {dps:,.1f} DPS. Lightning before Chaos (LOW), Cold / Fire / "
-                  f"Lightning in proportion to their supply (LOW). Row, one Surge a projectile ({projectiles:g} a use): "
-                  f"+{row:,.1f} DPS (LOW). Not counted: other projectile attacks' uses (lower)"),
+                  f"Lightning in proportion to their supply (LOW). Rows: every projectile's blast landing (a shotgun / "
+                  f"Merge skill, LOW): +{row:,.1f} DPS; one trigger a consuming use, not a charge (R48-13's other "
+                  f"reading, LOW): +{0.0 if pierce else row_use:,.1f} DPS. Not counted: other projectile attacks' uses "
+                  "(lower)"),
         "play": ("Spend charges to feed the Surges and fire your projectile attack at the boss: each use spends one and "
                  f"blasts where it lands. Without a charge spender: +0; with this build's: +{dps:,.0f} DPS.")}]
