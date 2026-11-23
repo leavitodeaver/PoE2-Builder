@@ -28,7 +28,16 @@ from builder.data import GameData, rare_prices, unique_versions
 from builder.data.trade import TradeClient
 from builder.search.radius import TAG, variants_of
 from builder.search import anoints, granted_rolls, models
+from builder.report import bonded
 from builder.search.rares import EFFECT, JEWEL_CRAFTS, RANGE, TIER_RULES, boosted, rare_rules_tier, conflicts, mod_lines, pool_tags, roll
+
+# (SEARCHC1; THE USER 23 Nov: never an empty rune socket, "quality of life runes (reduced curse duration, item rarity, cost
+# efficiency, the 'emergent' augments, etc.)") a socket nothing scored for holds a filler the player may swap
+def filler_note(why: str) -> str:
+    """What the shopping list says of a socket filler (Gear.fill_sockets' class)."""
+    return (f"Socket filler ({why or 'quality of life'}): no rune raised the build's score in this socket, so this pick "
+            "is the player's choice; swap it freely for any augment you prefer")
+
 
 NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
 SLOT_ORDER = ["Weapon 1", "Weapon 2", "Helmet", "Body Armour", "Gloves", "Boots", "Amulet", "Ring 1", "Ring 2", "Ring 3", "Belt"]
@@ -342,11 +351,22 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
     stats = stats or {}
     index = None  # trade stats by text, for uniques' chosen variants
     bases = {b["name"]: b for b in data.bases}
+    bonded_unlocked = bonded.result_unlocks(result, data)
     items = []
     for slot, gear in sorted((result.get("gear") or {}).items(), key=lambda kv: slot_key(kv[0])):
         base = bases.get(gear["base"]) or {"type": gear["type"], "name": gear["base"]}
         runes = [{"name": name, "price": augments.get(name), "confidence": "poe.ninja exchange"}
                  for name in gear.get("runes") or []]
+        # (SEARCHC1) each augment's own lines and its Bonded lines, each marked active or "(inactive: no Bonded source)"
+        # (bonded.py: the build's Wisdom of the Maji, a Fox Idol in the item); a filler the score didn't choose is the
+        # player's to swap (Gear.socketed's quality-of-life fill)
+        fillers = {f["name"]: f.get("why") or "" for f in gear.get("filler_runes") or []}
+        for rune, effects in zip(runes, bonded.rune_effects([r["name"] for r in runes], bases.get(gear["base"]),
+                                                            bonded_unlocked)):
+            rune["lines"] = effects["lines"]
+            rune["bonded"] = [{**b, "text": b["line"] + ("" if b["active"] else bonded.INACTIVE)} for b in effects["bonded"]]
+            if rune["name"] in fillers:
+                rune["choice"] = filler_note(fillers[rune["name"]])
         # Each anoint: its three Liquid Emotions (builder/search/anoints.py), bought on the currency exchange
         instilled = [{"name": name, "emotions": [anoints.EMOTIONS[e] for e in recipes.get(name, ())],
                       "price": anoints.cost(recipes[name], emotions) if name in recipes else None,

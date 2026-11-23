@@ -32,7 +32,7 @@ from builder.search.flasks import (
 )
 from builder.search.rares import (
     MAGIC_LIMIT, RUNE_KEEP, SCREEN_KEEP, Affix, AffixPools, RuneCatalog, magic_price, magic_text, rare_price, rare_text,
-    socket_count, unique_text, with_runes,
+    NOT_IN_SEALED, socket_count, unique_text, with_runes,
 )
 from builder.search.objective import NO_DAMAGE_OFFSET
 from builder.search.state import EPSILON, Build
@@ -143,6 +143,39 @@ RESIST_SWAP_ATTEMPTS = 4  # slot pairs one resist_swap_round tries (two rare bui
 RESIST_RECEIVERS = ("Boots", "Helmet", "Body Armour", "Weapon 2", "Belt", "Gloves", "Amulet", "Ring 1", "Ring 2", "Ring 3")
 SWITCH_QUICK_FILL = "POE2_SEARCH_QUICK_FILL"  # "1": a full round's quick pick for every empty slot first (OFF by default)
 SWITCH_RESIST_SWAP = "POE2_SEARCH_RESIST_SWAP"  # "1": gear_round's full rounds try resist_swap_round (OFF by default)
+# (SEARCHC1) "0": a socket no rune scored for stays empty, as before (Gear.fill_sockets; ON by default: THE USER 23 Nov,
+# never an empty rune socket; a filler never lowers the score)
+SWITCH_FILL_SOCKETS = "POE2_SEARCH_FILL_SOCKETS"
+
+
+def fill_sockets_enabled() -> bool:
+    return os.environ.get(SWITCH_FILL_SOCKETS, "1") != "0"
+
+
+# (SEARCHC1; THE USER 23 Nov: "it's usually within a budget to go for gear with more sockets") "1": a rare or normal item
+# also tries one more socket than an Artificer's Orb gives (a natural drop) and two more (that copy corrupted), each priced
+# by its route (Gear.extra_socket_trial). OFF by default until gated
+SWITCH_EXTRA_SOCKETS = "POE2_SEARCH_EXTRA_SOCKETS"
+# The natural extra socket's price: the item's x this (LOW, uncalibrated: RESEARCH50 R50-1 found the bare items cheap,
+# 1 chaos to 5 ex, but a copy with the chosen affixes AND the socket is rarer; a trade search of the same affixes with
+# and without rune_sockets min calibrates it: a research question), at least EXTRA_SOCKET_FLOOR divine
+NATURAL_SOCKET_PREMIUM = 2.0
+EXTRA_SOCKET_FLOOR = 0.01
+# A Vaal Orb's chance to add the socket (MEDIUM-LOW, R50-1 3: four outcomes about equally likely, wiki and guide summaries,
+# no file gives the weights); one corruption per item, so a miss costs the copy (the upper bound: no resale counted)
+CORRUPT_SOCKET_CHANCE = 0.25
+
+
+def extra_sockets_enabled() -> bool:
+    return os.environ.get(SWITCH_EXTRA_SOCKETS, "0") == "1"
+
+
+def only_fillers(option: ItemOption | None) -> bool:
+    """(SEARCHC1) every rune it holds past its bound ones is a filler (Gear.fill_sockets), none chosen by score."""
+    return bool(option is not None and option.filler_runes
+                and len(option.runes) - len(option.bound) == len(option.filler_runes))
+
+
 SWITCH_PURITY = "POE2_SEARCH_PURITY_TRIALS"  # "1": full rounds try Shrine Sceptres for real (purity_trials; OFF by default)
 # The skills whose Cost & Reservation Multiplier is 0%, so every support in their group reserves no Spirit (RESEARCH46
 # R46-1, HIGH: GrantedEffectsPerLevel ReservationMultiplier 0 at all 40 levels on PurityOfFirePlayer, PurityOfIcePlayer,
@@ -1048,20 +1081,27 @@ class Gear:
                           "ssf" if ssf else "estimate (craft route: Desecration)", base_option.level, rare=True,
                           affixes=tuple(line for a in affixes for line in a.lines), craft_route=(note, *steps))
 
-    def socketed(self, slot: str, option: ItemOption, deadline: float) -> ItemOption:
-        """The option with its sockets filled by the runes that score best (its socket-bound runes stay: SEARCH30)."""
+    def socketed(self, slot: str, option: ItemOption, deadline: float, trial: bool = False) -> ItemOption:
+        """The option with its sockets filled by the runes that score best (its socket-bound runes stay: SEARCH30).
+        Its socket count: the option's own (`sockets`, an extra-socket route's) or the base's. With
+        POE2_SEARCH_EXTRA_SOCKETS=1, then the extra-socket routes are tried (extra_socket_trial; `trial` is that call)."""
         build = self.build
+        given = option  # (returned as it came when there's no time or nothing to fill)
+        if only_fillers(option):  # (SEARCHC1) filled again from scratch: the build may want a scoring rune there now
+            cost = sum(self.runes.price(n) or 0.0 for n, _ in option.filler_runes)
+            option = dataclasses.replace(option, raw=with_runes(option.raw, list(option.bound)), runes=option.bound,
+                                         filler_runes=(), price=None if option.price is None else option.price - cost)
         base = self.ctx.bases_by_name.get(option.base)
-        count = socket_count(base, option.unique, unique_text(self.ctx, option)) if base else 0
+        count = option.sockets or (socket_count(base, option.unique, unique_text(self.ctx, option)) if base else 0)
         bound = list(option.bound)
         if count <= len(bound) or clock.now() > deadline:
-            return option
+            return given
         raw = with_runes(option.raw, bound)
         left = self.left_for(slot) - (option.price or 0.0)
         names = [n for n in self.runes.candidates(base, option.unique, option.raw)
                  if (self.runes.price(n) or 0.0) <= left]
         if not names:
-            return option
+            return given
         scored = build.item_deltas([{"slot": slot, "raw": with_runes(raw, bound + [n])} for n in names])
         top = [n for _, n in sorted(zip((s for s, _ in scored), names), key=lambda x: -x[0])[:RUNE_KEEP]]
         chosen: list[str] = list(bound)
@@ -1093,10 +1133,151 @@ class Gear:
                 break
             chosen.append(best)
             current = best_value + self.lam * (self.runes.price(best) or 0.0)
+        fillers: list[tuple[str, str]] = []
+        if len(chosen) < count and fill_sockets_enabled():  # (SEARCHC1: never an empty socket; appends to `chosen`)
+            fillers = self.fill_sockets(slot, base, raw, chosen, len(bound), count, current, left, names, within_limit,
+                                        deadline)
         if len(chosen) == len(bound):
-            return option
-        price = option.price if option.price is None else             option.price + sum(self.runes.price(n) or 0.0 for n in chosen[len(bound):])
-        return dataclasses.replace(option, raw=with_runes(raw, chosen), runes=tuple(chosen), price=price)
+            filled = option
+        else:
+            price = option.price if option.price is None else                 option.price + sum(self.runes.price(n) or 0.0 for n in chosen[len(bound):])
+            filled = dataclasses.replace(option, raw=with_runes(raw, chosen), runes=tuple(chosen), price=price,
+                                         filler_runes=tuple(fillers))
+        if not trial and not option.sockets and extra_sockets_enabled():
+            return self.extra_socket_trial(slot, filled, base, count, deadline)
+        return filled
+
+    # (SEARCHC1; THE USER 23 Nov ~01:15: "it's usually within a budget to go for gear with more sockets, which is a great
+    # way to free up resistance on other pieces or add quality of life runes (reduced curse duration, item rarity, cost
+    # efficiency, the 'emergent' augments, etc.)"; a delivered build with an empty rune socket is a defect) the classes a
+    # socket no rune scored for is filled from, first match first, as SEARCHB5's affix fill (Gear.UTILITY_CLASSES):
+    # movement speed (the default 25% floor), defence (the build's maximum hit taken), resistances, then quality of life
+    # in the user's order. Each read from the candidate's what-if stats where PoB has the stat, else its own lines.
+    FILL_QOL = (
+        ("quality of life: curses and debuffs on you", re.compile(r"(?:Curses?|Debuffs?)\b.*\bon you\b", re.I)),
+        ("quality of life: item rarity", re.compile(r"Rarity of Items", re.I)),
+        ("quality of life: cost efficiency", re.compile(r"(?:Cost|Reservation) Efficiency", re.I)),
+        ("quality of life: flask and charm sustain", re.compile(r"\b(?:Flasks?|Charms?)\b", re.I)),
+    )
+    # Never a filler (RESEARCH50 R50-2, HIGH: game SoulCores.Limit / SoulCoreLimits, PoB limitId): an Ancient Augment
+    # (16 of them, the 4 Emergent Runes among them: ONE per character in total, "You may not have more than one Augment
+    # of this type socketed at a time", so a filler would take the slot a scoring one elsewhere needs) and a Legacy rune
+    # (one per character, made from a unique with Aldur's Legacy, not on the exchange)
+    FILL_SKIP_GROUPS = frozenset({"AncientAugment", "AldursLegacyLimit1"})
+    FILL_MOVEMENT = re.compile(r"^\d+% increased Movement Speed$")
+    FILL_HIT_TYPES = ("Physical", "Fire", "Cold", "Lightning", "Chaos")
+    FILL_RESISTS = ("FireResist", "ColdResist", "LightningResist", "ChaosResist")
+
+    def fill_sockets(self, slot: str, base: dict, raw: str, chosen: list[str], bound: int, count: int, current: float,
+                     left: float, names: list[str], within_limit: Callable[[str], bool],
+                     deadline: float) -> list[tuple[str, str]]:
+        """Augments for the sockets the scoring fill left empty, one socket at a time, appended to `chosen` (which
+        `within_limit` reads, so the per-character limits hold); returns [(name, why)]. Every affordable candidate within
+        its limit is scored on the item (one what-if call a socket); only those that don't lower the score qualify (a
+        rune with a drawback the build feels stays out). Of those, the first class that has any (_fill_pick): movement
+        speed, defence, resistance, then quality of life. None qualifies (nothing affordable, or every one lowers the
+        score): the socket stays empty (the item's runes are fewer than its sockets)."""
+        from builder.ledger.items import rune_lines
+
+        build = self.build
+        fillers: list[tuple[str, str]] = []
+        names = [n for n in names if (self.runes.limit(n) or ("",))[0] not in self.FILL_SKIP_GROUPS]
+        lines = {n: rune_lines([n], base) for n in names}
+        before = build.item_deltas([{"slot": slot, "raw": with_runes(raw, chosen)}])[0][1]
+        while len(chosen) < count and clock.now() <= deadline:
+            spend = sum(self.runes.price(n) or 0.0 for n in chosen[bound:])
+            options = [n for n in names if within_limit(n) and spend + (self.runes.price(n) or 0.0) <= left + 1e-9]
+            if not options:
+                break
+            scored = build.item_deltas([{"slot": slot, "raw": with_runes(raw, chosen + [n])} for n in options])
+            fit = [(stats, n) for (s, stats), n in zip(scored, options) if s >= current - EPSILON]
+            pick = self._fill_pick(fit, before, lines)
+            if pick is None:
+                break
+            chosen.append(pick[0])
+            fillers.append(pick)
+            before = next(stats for stats, n in fit if n == pick[0])
+        return fillers
+
+    def extra_socket_trial(self, slot: str, filled: ItemOption, base: dict | None, count: int,
+                           deadline: float) -> ItemOption:
+        """(SEARCHC1, POE2_SEARCH_EXTRA_SOCKETS=1) the item with more sockets than an Artificer's Orb gives, if its runes
+        pay for the route (RESEARCH50 R50-1, HIGH: PoB's socketLimit is the corrupted maximum; uncorrupted drops reach
+        socketLimit - 1, patch 0.3.0 "a very low chance of generating with 3 Sockets in high tier Maps", trade 10,000+
+        such rares; rares.socket_count gives socketLimit - 2):
+        - "natural": socketLimit - 1, a copy that dropped with the extra socket, priced at NATURAL_SOCKET_PREMIUM x the
+          item (LOW), at least EXTRA_SOCKET_FLOOR;
+        - "corrupted": socketLimit, that copy Vaal-corrupted for the socket: (the copy + a Vaal Orb) / CORRUPT_SOCKET_CHANCE
+          (MEDIUM-LOW odds; the upper bound, no resale of a miss). The item is Corrupted after: no rune NOT_IN_SEALED can
+          go in (RuneCatalog.candidates reads the line), and none already chosen may be one (the route is skipped).
+        Rares and normal items only (a unique's own sockets: own_sockets; its corruption is cultivated.py's); not in SSF
+        (nothing is priced) nor for an unpriced item. Each route's sockets are filled from scratch (socketed with the
+        route's count) and the route is kept when its score, less lam x its extra price, beats the item as filled."""
+        if (base is None or filled.unique or self.ctx.ssf or filled.price is None or clock.now() > deadline
+                or not base.get("socketLimit") or count != max(base["socketLimit"] - 2, 0) or count < 1):
+            return filled
+        build = self.build
+        rune_cost = sum(self.runes.price(n) or 0.0 for n in filled.runes[len(filled.bound):])
+        item_price = filled.price - rune_cost  # (the item alone, its bound runes in it)
+        vaal = (self.ctx.payload.get("cultivation_prices") or {}).get("vaal")
+        natural = max(item_price * NATURAL_SOCKET_PREMIUM, item_price + EXTRA_SOCKET_FLOOR)
+        routes = [("natural", base["socketLimit"] - 1, natural,
+                   f"buy a copy that dropped with {base['socketLimit'] - 1} sockets (one more than an Artificer's Orb "
+                   f"gives; rarer: priced at {NATURAL_SOCKET_PREMIUM:g}x the item, LOW, uncalibrated)")]
+        if vaal is not None and not any(n in NOT_IN_SEALED for n in filled.bound):
+            routes.append(("corrupted", base["socketLimit"], (natural + vaal) / CORRUPT_SOCKET_CHANCE,
+                           f"that {base['socketLimit'] - 1}-socket copy corrupted with a Vaal Orb for one more socket "
+                           f"(about {CORRUPT_SOCKET_CHANCE:.0%} a try, MEDIUM-LOW; a miss costs the copy: "
+                           f"(copy + Vaal Orb) / {CORRUPT_SOCKET_CHANCE:g})"))
+        best, best_value = filled, self.adjusted(build.item_deltas([{"slot": slot, "raw": filled.raw}])[0][0], filled)
+        for route, sockets, price, note in routes:
+            if clock.now() > deadline or price > self.left_for(slot) + 1e-9:
+                continue
+            raw = with_runes(filled.raw, list(filled.bound))
+            if route == "corrupted":
+                raw = raw.rstrip() + "\nCorrupted"
+            bare = dataclasses.replace(filled, raw=raw, runes=filled.bound, filler_runes=(), price=price, sockets=sockets,
+                                       craft_route=(*filled.craft_route, f"Sockets ({route}): {note}"))
+            trial = self.socketed(slot, bare, deadline, trial=True)
+            value = self.adjusted(build.item_deltas([{"slot": slot, "raw": trial.raw}])[0][0], trial)
+            if value > best_value + EPSILON:
+                best, best_value = trial, value
+        return best
+
+    def _fill_pick(self, fit: list[tuple[dict, str]], before: dict, lines: dict[str, list[str]]) -> tuple[str, str] | None:
+        """(name, why) of the filler to use among `fit` (what-if stats, name), by FILL classes (fill_sockets)."""
+        if not fit:
+            return None
+        price = lambda n: self.runes.price(n) or 0.0  # noqa: E731
+        value = lambda stats, key: float(stats.get(key) or 0.0)  # noqa: E731
+        if "MovementSpeedMod" in before:
+            moving = [(value(st, "MovementSpeedMod"), n) for st, n in fit
+                      if value(st, "MovementSpeedMod") > value(before, "MovementSpeedMod") + 1e-9]
+        else:
+            moving = [(1.0, n) for st, n in fit if any(self.FILL_MOVEMENT.match(l) for l in lines.get(n, []))]
+        if moving:
+            return max(moving, key=lambda x: (x[0], -price(x[1])))[1], "movement speed"
+
+        def hits(st: dict) -> float:  # the maximum hit taken, summed over the five damage types
+            return sum(value(st, f"{t}MaximumHitTaken") for t in self.FILL_HIT_TYPES)
+
+        def pool(st: dict) -> float:
+            return value(st, "Life") + value(st, "EnergyShield")
+        gains = [(hits(st) - hits(before), pool(st) - pool(before), n) for st, n in fit]
+        gains = [g for g in gains if g[0] > 1e-9 or g[1] > 1e-9]
+        if gains:  # the cheapest within 10% of the best gain (maximum hit first, else Life + ES)
+            at = 0 if max(g[0] for g in gains) > 1e-9 else 1
+            best = max(g[at] for g in gains)
+            near = [g for g in gains if g[at] >= 0.9 * best]
+            return min(near, key=lambda g: (price(g[2]), -g[0], -g[1]))[2], "defence"
+        resisting = [(st, n) for st, n in fit if any(value(st, k) > value(before, k) + 1e-9 for k in self.FILL_RESISTS)]
+        if resisting:
+            return min(resisting, key=lambda x: (-sum(value(x[0], k) for k in self.FILL_RESISTS), price(x[1])))[1],                 "resistance"
+        for why, pattern in self.FILL_QOL:
+            hit = [n for _, n in fit if any(pattern.search(l) for l in lines.get(n, []))]
+            if hit:
+                return min(hit, key=price), why
+        return min((n for _, n in fit), key=price), "quality of life: the cheapest that doesn't lower the score"
 
     # Anoints ---------------------------------------------------------------------------------
 
@@ -1277,7 +1458,8 @@ class Gear:
             if full:
                 # Sockets, on the new choice or on what's there now
                 target = choice or current
-                if target is not None and tuple(target.runes) == tuple(target.bound):  # (bound runes: SEARCH30)
+                if target is not None and (tuple(target.runes) == tuple(target.bound)  # (bound runes: SEARCH30)
+                                           or only_fillers(target)):  # (SEARCHC1: fillers are re-chosen every full round)
                     filled = self.socketed(slot, target, deadline)
                     if filled is not target:
                         choice = filled
@@ -1522,6 +1704,73 @@ class Gear:
                           f"adds defence or movement speed, put in only because the score, every floor and the budget "
                           f"stay as they are: swap it for anything you like"),
                  "dps_with": dps, "dps_without": dps, "change": 0.0, "confidence": "theory"} for f in getattr(self, "fillers", [])]
+
+    WHY_DPS = 0.005  # (LOW, a wording threshold only) a DPS change under 0.5% is reported as "no DPS change"
+
+    def why_items(self) -> dict[str, dict]:
+        """(SEARCHC1; the user asked why The Vertex was chosen) for each equipped item, what it does for the build: the
+        DPS and every floor with it and with the same base plain (no affixes, sockets or anoints: what the item's own
+        lines and runes give), the best other candidate the gear rounds shortlisted for the slot, rescored now, and the
+        main reason in words. Item what-ifs (PoB, plus the models' real-trial rescore where Build.item_deltas wires one):
+        MEDIUM. Flasks and charms have their own report (flask_report). {slot: row}."""
+        from builder.search.context import normal_item
+
+        build = self.build
+        objective = build.objective
+        rows: dict[str, dict] = {}
+        for slot, option in sorted(build.equipped.items()):
+            if option is None or is_flask_slot(slot) or slot in CHARM_SLOTS or option.raw is None:
+                continue
+            base = self.ctx.bases_by_name.get(option.base)
+            plain = normal_item(base) if base else None
+            others = [o for o in self.candidates(slot) if o.name in set(self.shortlist.get(slot) or ())
+                      and o.name != option.name][:SHORTLIST]
+            cases = [{"slot": slot, "raw": option.raw}] + ([{"slot": slot, "raw": plain}] if plain else [])
+            cases += [{"slot": slot, "raw": o.raw} for o in others]
+            try:
+                scored = build.item_deltas(cases)
+            except Exception as e:  # (never lose the result for its explanation)
+                rows[slot] = {"item": option.name, "reason": f"not worked out ({type(e).__name__})"}
+                continue
+            (score, stats), rest = scored[0], scored[1:]
+            row: dict = {"item": option.name, "base": option.base, "dps_with": round(objective.dps(stats), 1)}
+            floors = []
+            if plain:
+                plain_score, plain_stats = rest[0]
+                rest = rest[1:]
+                row["without_is"] = f"a plain {option.base} (no affixes, sockets or anoints)"
+                row["dps_without"] = round(objective.dps(plain_stats), 1)
+                row["dps_change"] = (row["dps_with"] / row["dps_without"] - 1.0) if row["dps_without"] > 0 else None
+                for penalty in objective.penalties:
+                    have, lack = float(stats.get(penalty.stat) or 0.0), float(plain_stats.get(penalty.stat) or 0.0)
+                    if abs(have - lack) > 1e-9:
+                        floors.append({"label": penalty.label, "with": round(have, 2), "without": round(lack, 2),
+                                       "floor": penalty.floor, "held": have >= penalty.floor > lack})
+                row["floors"] = floors
+            if rest:
+                best = max(zip(rest, others), key=lambda x: self.adjusted(x[0][0], x[1]))
+                (other_score, other_stats), other = best
+                row["runner_up"] = {"name": other.name, "price": other.price, "dps": round(objective.dps(other_stats), 1),
+                                    "score_vs_chosen": round(self.adjusted(other_score, other) - self.adjusted(score, option), 4)}
+            held = [f for f in floors if f["held"]]
+            change = row.get("dps_change")
+            if held:
+                reason = "holds the " + ", ".join(f"{f['label']} floor ({f['with']:g} with it, {f['without']:g} without, "
+                                                  f"floor {f['floor']:g})" for f in held)
+                if change is not None and abs(change) >= self.WHY_DPS:
+                    reason += f"; {change:+.1%} DPS"
+            elif change is not None and abs(change) >= self.WHY_DPS:
+                reason = f"{change:+.1%} DPS over a plain {option.base}"
+            elif floors:
+                reason = "no DPS change; it raises " + ", ".join(f["label"] for f in floors) + " (each floor met either way)"
+            else:
+                reason = "no DPS or floor change over a plain base: a filler or a base pick (its price, its sockets)"
+            if option.filler_runes:
+                reason += "; its socket filler" + ("s" if len(option.filler_runes) > 1 else "") + " " + ", ".join(
+                    f"{name} ({why})" for name, why in option.filler_runes) + " are the player's choice"
+            row["reason"] = reason
+            rows[slot] = row
+        return rows
 
     def assumption_trials(self, deadline: float) -> bool:
         """A unique (or a rare on a base whose implicit grants it: source_bases) granting a skill an assumption counts (Assumptions.relevant: a Remnant source while Explosive

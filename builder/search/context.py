@@ -207,6 +207,12 @@ class ItemOption:
     rare: bool = False
     affixes: tuple[str, ...] = ()  # a rare's modifier lines
     runes: tuple[str, ...] = ()  # what's in its sockets
+    # (SEARCHC1; THE USER 23 Nov: never an empty rune socket) the augments put in sockets no rune scored for, each with
+    # why (Gear.fill_sockets): (name, "movement speed" / "defence" / "resistance" / "quality of life ..."), in `runes` too
+    filler_runes: tuple[tuple[str, str], ...] = ()
+    # (SEARCHC1) an extra-socket route's socket count (Gear.extra_socket_trial: the natural extra socket, or corrupted
+    # for one more); 0 = the base's own count (rares.socket_count)
+    sockets: int = 0
     anoints: tuple[str, ...] = ()  # notables it allocates by instilling (builder/search/anoints.py)
     variants: tuple[str, ...] = ()  # a unique's chosen variants, when the search chose them (radius.py)
     granted_assumed: int | None = None  # a rolled granted level assumed, not priced (granted_rolls.ENDGAME_LEVEL)
@@ -242,6 +248,10 @@ class ItemOption:
                      "runes": list(self.runes)}
         if self.anoints:
             described["anoints"] = list(self.anoints)
+        if self.filler_runes:
+            described["filler_runes"] = [{"name": name, "why": why} for name, why in self.filler_runes]
+        if self.sockets:
+            described["sockets"] = self.sockets
         if self.variants:
             described["variants"] = list(self.variants)
         if self.granted_assumed:

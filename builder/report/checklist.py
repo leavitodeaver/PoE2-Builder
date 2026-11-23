@@ -58,6 +58,16 @@ def checklist(result: dict) -> list[dict]:
                        f"(confidence: {b.get('confidence', 'unknown')}).",
                 "how": "Check that the in-game character sheet or skill tooltip shows that effect at that size.",
             })
+    for slot, gear in (result.get("gear") or {}).items():
+        # (SEARCHC1; THE USER 23 Nov: never an empty rune socket) a socket no rune raised the score in holds a filler
+        for filler in gear.get("filler_runes") or []:
+            items.append({
+                "kind": "your choice", "title": f"{slot}: {filler['name']} (socket filler)",
+                "why": (f"No augment raised the build's score in this socket, so the search put in {filler['name']} for "
+                        f"{filler.get('why') or 'quality of life'}; it changes no number in this result."),
+                "how": "Keep it, or socket any augment you prefer (reduced curse effect, item rarity, cost efficiency, an "
+                       "Emergent augment, movement speed): this socket is yours to use.",
+            })
     labels = [a["label"] for a in assumptions]
     for note in result.get("notes") or []:
         # Asterisked notes that aren't the assumptions above (e.g. the clear-speed estimate)

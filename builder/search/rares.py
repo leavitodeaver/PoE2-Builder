@@ -396,6 +396,15 @@ def socket_count(base: dict, unique: bool, raw: str | None = None) -> int:
         return int(m.group(1))  # (a copy's row implicit: Runemastered Keeper of the Arc's "Has 3 Sockets" row)
     if m := BASE_SOCKETS.search(base.get("implicit") or ""):
         return int(m.group(1))
+    if base.get("type") in ("Amulet", "Ring", "Belt") and any(
+            AS_THOUGH.match(line.strip()) for line in (base.get("implicit") or "").splitlines()):
+        # (SEARCHC1; RESEARCH50 R50-1 5, MEDIUM-HIGH: trade 1,468 / 406 / 78 one-socket listings, none with 2; poe2wiki "1
+        # Augment Socket (Hidden)"; game Mods AmuletImplicitHelmetSocket1 / RingImplicitGloveSocket /
+        # BeltImplicitBootsSocket1) the bases Corona Amulet, Grasping Ring and Stalking Belt (where they drop: UNVERIFIED,
+        # R50-1's turn-3 correction; no other non-unique amulet / ring / belt has one, by trade) have one augment
+        # socket, which PoB's base data doesn't give (no socketLimit), so it counted 0: an UNDERCOUNT. Its augment counts
+        # as a Helmet's / Gloves' / Boots' (augment_types)
+        return 1
     limit = base.get("socketLimit")
     if not limit:
         return 0
@@ -502,6 +511,10 @@ def only_augment(raw: str | None) -> str | None:
 def rune_categories(base: dict) -> set[str]:
     kind = base["type"]
     sub = base.get("subType")
+    if kind in ("Amulet", "Ring", "Belt"):  # (SEARCHC1: a Genesis Tree base's socket counts as its implicit's type)
+        override = next((m.group(1).strip().lower() for line in (base.get("implicit") or "").splitlines()
+                         if (m := AS_THOUGH.match(line.strip()))), None)
+        return {"armour", override} if override else {kind.lower()}
     if kind in ("Helmet", "Body Armour", "Gloves", "Boots"):
         return {"armour", kind.lower()}
     if kind in ("Shield", "Focus"):

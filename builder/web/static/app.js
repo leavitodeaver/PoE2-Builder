@@ -560,6 +560,14 @@ function renderResult(result) {
               g.anoints?.length ? el("div", { class: "note" }, `Anointed: ${g.anoints.join(", ")}`) : null),
             g.base, formatPrice(g.price), g.confidence]))));
     }
+    if (result.why_items && Object.keys(result.why_items).length) {
+      // (SEARCHC1) what each item does for the build: DPS and floors with it vs a plain base, and the runner-up
+      const pct = (v) => (v == null ? "–" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`);
+      parts.push(el("div", { class: "result-section" }, el("h3", {}, "Why each item"),
+        simpleTable(["Slot", "Item", "Why", { label: "DPS vs plain base", num: true }, "Best other candidate"],
+          Object.entries(result.why_items).sort().map(([slot, w]) => [slot, w.item, w.reason, pct(w.dps_change),
+            w.runner_up ? `${w.runner_up.name} (score ${w.runner_up.score_vs_chosen >= 0 ? "+" : ""}${w.runner_up.score_vs_chosen})` : "–"]))));
+    }
     parts.push(el("div", { class: "result-section" }, el("h3", {}, "Skills"),
       el("ul", { class: "gem-groups" }, result.groups.filter((g) => g.enabled).map((g) => {
         const names = g.gems.map((x) => x.name).join(" + ");
@@ -746,7 +754,13 @@ function shoppingSection(shopping) {
     const trade = shopping.ssf || item.kind === "normal" || item.kind === "owned" ? "–" : tradeButton(shopping, item, "item", onVersion);
     rows.push(el("tr", {}, el("td", {}, item.slot), el("td", {}, cell), priceCell, confidenceCell, el("td", {}, trade)));
     for (const rune of item.runes || []) {
-      rows.push(el("tr", { class: "socket" }, el("td", {}, "socket"), el("td", {}, rune.name),
+      // (SEARCHC1) the augment's lines, its Bonded lines marked "(inactive: no Bonded source)" without an unlock, and a
+      // quality-of-life filler's note (the player's choice)
+      const runeLines = [...(rune.lines || []), ...(rune.bonded || []).map((b) => `Bonded: ${b.text || b.line}`)];
+      const runeCell = el("td", {}, rune.name,
+        runeLines.length ? el("div", { class: "note" }, runeLines.join(" · ")) : null,
+        rune.choice ? el("div", { class: "note" }, rune.choice) : null);
+      rows.push(el("tr", { class: "socket" }, el("td", {}, "socket"), runeCell,
         el("td", { class: "num" }, formatPrice(rune.price)), el("td", {}, rune.price == null ? "unpriced" : rune.confidence),
         el("td", {}, shopping.ssf ? "–" : tradeButton(shopping, item, `rune:${rune.name}`))));
     }
