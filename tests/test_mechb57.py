@@ -51,3 +51,15 @@ def test_spectral_volleys_projectiles_are_hits_spread_over_the_attacks():
                                                                      "ProjectileCount": 1})
     assert models.hits_per_use_of(mods, skill="Lightning Arrow") == pytest.approx(1 + 5 / 3 / 2.0)
     assert models.hit_cut_of(mods, skill="Lightning Arrow") is None
+
+
+def test_focused_thrusts_spear_projectile_line_reads_the_boss_distance():
+    """Item 4 (coverage section B): PoB drops the line for its condition; on a lone boss it is PoB's own "further than"
+    tag on the boss distance (probes POE2T4888: the replacement parses whole; POE2T4895: the node 68.48 -> 89.62 TotalDPS
+    at 5 m with it, as a ring carrying the replacement; 0 without it)."""
+    from builder.ledger import translate
+
+    line = "40% increased Projectile Damage with Spears while there are no Enemies within 3m"
+    found = translate(line)
+    assert found[0].id == "lines-mechb57-spear-projectiles-no-enemies-within"
+    assert found[1] == ["40% increased Projectile Damage with Spears against enemies further than 3m"]

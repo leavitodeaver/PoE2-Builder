@@ -1,0 +1,26 @@
+- id: lines-mechb57-spear-projectiles-no-enemies-within
+  title: "Focused Thrust: Projectile Damage with Spears while no enemy is within N m (PoB drops it for its condition)"
+  kind: pob_gap
+  match: '^(\d+)% increased Projectile Damage with Spears while there are no Enemies within (\d+(?:\.\d+)?)m$'
+  replace: ['{1}% increased Projectile Damage with Spears against enemies further than {2}m']
+  confidence: MEDIUM
+  notes: >-
+    MECHB57 (the manager's MECHB57 brief item 4, coverage section B, an UNDERCOUNT for spear projectile builds). The notable
+    Focused Thrust (PassiveSkills spear9, node 9227, game 26650308) holds
+    projectile_damage_+%_with_spears_while_there_no_enemies_surrounding_you 40, printed "40% increased Projectile Damage
+    with Spears while there are no Enemies within 3m". PoB's ModCache parses the damage (Damage INC 40, Projectile + Spear
+    + Hit flags) with "while there are no Enemies within 3m" left over, and PassiveTree.lua applies no line with leftover
+    text, so it counted nothing. On a lone boss the only enemy is the boss, so "no enemies within 3 m" is "the boss
+    further than 3 m": PoB's own "against enemies further than (N)m" tag (ModParser 2166: MultiplierThreshold on
+    enemyDistance), read against the distance the search stands at (conditions.distance_candidates: a ranged build's 5 m
+    natural distance, 2 m for melee; the original line's "within 3m" already makes the search try close range too). A
+    boss preset's adds inside 3 m would switch it off (not read: the upper reading where adds close in, LOW). The notable's
+    other stat (melee_damage_+%_with_spears_while_surrounded 75, "while Surrounded") stays 0 on a lone boss
+    (models.py's Surrounded note: 5 enemies within 3 m). Probe POE2T4895 (Lightning Spear, level 90, 5 m): node 9227
+    takes TotalDPS 68.48 -> 89.62 with this entry (a ring carrying the replacement line gives the same 89.62), 0
+    without it (POE2T4892 / 4893; and at 2 m, under the 3 m, none either way); POE2T4888: the replacement parses whole.
+  sources: ["data/game-26650308 PassiveSkills spear9 (Stats 21703 / 21702, values 75 / 40)",
+            "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua (the line with its leftover condition)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua 2166 (against enemies further than (%d+)m)"]
+  test_in_game: "Not needed: the condition is the player's own distance from the boss."
+  status: proposed
