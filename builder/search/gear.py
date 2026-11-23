@@ -34,7 +34,7 @@ from builder.search.rares import (
     MAGIC_LIMIT, RUNE_KEEP, SCREEN_KEEP, Affix, AffixPools, RuneCatalog, magic_price, magic_text, rare_price, rare_text,
     NOT_IN_SEALED, exclusion_group, is_elemental_resistance, socket_count, unique_text, with_runes, FLUX_NAMES, fluxed,
     ALDUR_RUNES, AldurConverter, aldur_weapon, CATALYSTS, CATALYST_TYPES, CATALYSTS_PER_20, CATALYST_QUALITY,
-    catalyst_matches, catalysed_text, implicit_tags, aldur_implicit_row,
+    catalyst_matches, catalysed_text, catalyst_quality, implicit_tags, aldur_implicit_row,
 )
 from builder.search.objective import NO_DAMAGE_OFFSET
 from builder.search.state import EPSILON, Build
@@ -965,9 +965,9 @@ class Gear:
 
     def catalyst_trial(self, slot: str, base: dict, base_option: ItemOption, level: int, chosen: list, current: float,
                        left: float, deadline: float) -> ItemOption | None:
-        """(SEARCHC2, POE2_SEARCH_CATALYST=1; R51-10 #3) The rare Ring / Amulet `chosen` (score `current`) with 20%
-        quality of one catalyst: every catalyst whose tag one of its affixes carries is scored (rares.catalysed_text:
-        PoB scales the matching lines x1.2), priced as the rare + CATALYSTS_PER_20 x the catalyst (exchange); the best
+        """(SEARCHC2, POE2_SEARCH_CATALYST=1; R51-10 #3) The rare Ring / Amulet `chosen` (score `current`) with its
+        maximum quality (20%, or a Breach Ring's 40 / 45: rares.catalyst_quality) of one catalyst: every catalyst whose tag one of its affixes carries is scored (rares.catalysed_text:
+        PoB scales the matching lines), priced as the rare + CATALYSTS_PER_20 per 20% x the catalyst (exchange); the best
         kept when it beats the plain rare after prices. Deterministic (a catalyst adds 1% quality each, R52-5)."""
         prices = self.ctx.payload.get("catalyst_prices") or {}
         if clock.now() > deadline or not chosen or (not prices and not self.ctx.ssf):
@@ -978,14 +978,15 @@ class Gear:
                  and (any(catalyst_matches(n, a, tags) for a in chosen)
                       or any(set(CATALYSTS[n][1]) & set(t) for t in own))]
         plain_text = rare_text(slot, base, level, chosen)
+        quality = catalyst_quality(base)  # (20, or the ring's own maximum: Breach Ring 40, Refined Breach Ring 45)
         cases = []
         for name in names:
-            cost = 0.0 if self.ctx.ssf else CATALYSTS_PER_20 * prices[name]
+            cost = 0.0 if self.ctx.ssf else CATALYSTS_PER_20 * quality / CATALYST_QUALITY * prices[name]
             if rare_price(slot, chosen) + cost <= left + 1e-9:
                 cases.append((name, cost))
         if not cases:
             return None
-        scored = self.deltas(slot, [catalysed_text(plain_text, chosen, tags, n, implicit=own) for n, _ in cases])
+        scored = self.deltas(slot, [catalysed_text(plain_text, chosen, tags, n, quality, own) for n, _ in cases])
         plain = current - self.lam * rare_price(slot, chosen)
         value, name, cost = max(((s - self.lam * (rare_price(slot, chosen) + c), n, c)
                                  for (s, _), (n, c) in zip(scored, cases)), key=lambda x: x[0])
@@ -993,12 +994,13 @@ class Gear:
             return None
         raised = sum(1 for a in chosen if catalyst_matches(name, a, tags)) \
             + sum(1 for t in own if set(CATALYSTS[name][1]) & set(t))
-        note = (f"{name} x{CATALYSTS_PER_20}: {CATALYST_QUALITY}% quality raises the {raised} modifier"
-                f"{'s' if raised != 1 else ''} with its tag ({'/'.join(CATALYSTS[name][1])}) by {CATALYST_QUALITY}% "
+        count = CATALYSTS_PER_20 * quality // CATALYST_QUALITY
+        note = (f"{name} x{count}: {quality}% quality raises the {raised} modifier"
+                f"{'s' if raised != 1 else ''} with its tag ({'/'.join(CATALYSTS[name][1])}) by {quality}% "
                 f"({cost:.3g} div; {CATALYSTS_PER_20} per {CATALYST_QUALITY}% is LOW-MEDIUM, R52-5; deterministic)")
         price = None if self.ctx.ssf else rare_price(slot, chosen) + cost
         return ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
-                          catalysed_text(plain_text, chosen, tags, name, implicit=own), False, price,
+                          catalysed_text(plain_text, chosen, tags, name, quality, own), False, price,
                           "ssf" if self.ctx.ssf else "estimate (craft route: catalysts)", base_option.level, rare=True,
                           affixes=tuple(line for a in chosen for line in a.lines), craft_route=(note,))
 

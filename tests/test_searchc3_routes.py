@@ -15,7 +15,7 @@ from builder.search.gear import (
     AUGMENT_EFFECT_MOD, HORROR, OMEN_SUFFIX, SERLE, augment_effect_enabled, serle_enabled, serle_loop,
 )
 from builder.search.rares import (
-    AffixPools, Affix, aldur_implicit_row, catalysed_text, implicit_tags, rare_price, rare_text, socket_count,
+    AffixPools, Affix, aldur_implicit_row, catalysed_text, catalyst_quality, implicit_tags, rare_price, rare_text, socket_count,
     with_runes,
 )
 
@@ -219,10 +219,51 @@ def test_a_catalyst_scales_the_implicit_in_pob(engine):
 
 
 def test_aldur_implicit_row_names_only_another_element():
-    assert aldur_implicit_row("Striking Spear", "Lightning") == ()
+    assert aldur_implicit_row("Arcing Quarterstaff", "Lightning") == ()
     assert aldur_implicit_row("Plain Wand", "Fire") == ()
-    row = aldur_implicit_row("Runemastered Torment Club", "Fire")
-    assert len(row) == 1 and "Cold and Lightning" in row[0] and "UNVERIFIED" in row[0]
+    assert aldur_implicit_row("Striking Spear", "Fire") == ()  # (a hidden % of base damage: on none of the 78 rows)
+    assert aldur_implicit_row("Energy Blade One Handed", "Fire") == ()  # (never offered)
+    row = aldur_implicit_row("Crackling Quarterstaff", "Fire")
+    assert len(row) == 1 and "flat Lightning" in row[0] and "UNVERIFIED" in row[0]
+
+
+def test_the_flat_lightning_row_lists_exactly_what_the_search_offers(ctx):
+    from builder.search.rares import ALDUR_FLAT_IMPLICIT
+    flat = ("Energy Blade One Handed", "Energy Blade Two Handed", "Arcing Quarterstaff", "Bolting Quarterstaff",
+            "Crackling Quarterstaff")
+    offered = {o.base for options in ctx.item_options.values() for o in options if not o.unique and o.base in flat}
+    assert offered == set(ALDUR_FLAT_IMPLICIT)
+
+
+def test_catalyst_quality_reads_the_rings_own_maximum(ctx):
+    by_name = ctx.bases_by_name
+    assert catalyst_quality(by_name["Breach Ring"]) == 40 and catalyst_quality(by_name["Refined Breach Ring"]) == 45
+    assert catalyst_quality(by_name["Lazuli Ring"]) == 20
+    assert catalyst_quality({"implicit": "+7% to Maximum Quality"}) == 27  # (read from the line, no names)
+
+
+def test_a_breach_ring_takes_40_percent_priced_by_catalyst_count(engine):
+    ctx, gear = spark_gear(engine, "Wand")
+    ctx.payload["catalyst_prices"] = {"Neural Catalyst": 0.03}
+    base = ctx.bases_by_name["Breach Ring"]
+    level, pool = gear.pools.item_level, gear.pools.pool(base["name"])
+    mana = next(a for a in sorted(pool, key=lambda a: a.tier) if any(l.endswith("to maximum Mana") for l in a.lines))
+    plain = rare_text("Ring 1", base, level, [mana])
+    rolled = int(next(l for l in mana.lines if l.endswith("to maximum Mana")).split()[0].lstrip("+"))
+    tagged = catalysed_text(plain, [mana], gear.catalyst_tags(), "Neural Catalyst", catalyst_quality(base))
+    written = plain.replace(f"+{rolled} to maximum Mana", f"+{int(rolled * 1.4)} to maximum Mana")
+    (_, read), (_, same) = gear.deltas("Ring 1", [tagged, written])
+    print("PROBE breach ring", rolled, read["Mana"], same["Mana"])
+    assert read["Mana"] == same["Mana"], "PoB takes 40% on a Breach Ring"
+    option = ItemOption(base["name"], base["name"], "Ring", None, normal_item(base), False, 0.0, "found", 1)
+    ctx.payload["catalyst_prices"] = {"Esh's Catalyst": 0.03}  # (a line this Spark build's score feels)
+    light = next(a for a in sorted(pool, key=lambda a: a.tier) if any("increased Lightning Damage" in l for l in a.lines))
+    current = gear.deltas("Ring 1", [rare_text("Ring 1", base, level, [light])])[0][0]
+    gear.lam = 0.0
+    out = gear.catalyst_trial("Ring 1", base, option, level, [light], current, 1e6, clock.now() + 300)
+    print("PROBE breach trial", out and out.price, out and out.craft_route)
+    assert out is not None and "CatalystQuality: 40" in out.raw and "x40: 40% quality" in out.craft_route[0]
+    assert out.price == pytest.approx(rare_price("Ring 1", [light]) + 40 * 0.03)
 
 
 def test_the_flux_route_says_a_fractured_modifier_stays(engine):

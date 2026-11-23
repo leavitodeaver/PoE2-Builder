@@ -692,6 +692,18 @@ def catalyst_matches(catalyst: str, affix: Affix, tags_by_id: dict[str, tuple[st
     return bool(set(CATALYSTS[catalyst][1]) & set(tags_by_id.get(affix.id.split("+")[0], ())))
 
 
+MAXIMUM_QUALITY = re.compile(r"^\+(\d+)% to Maximum Quality$")
+
+
+def catalyst_quality(base: dict) -> int:
+    """(SEARCHC3; the manager's ruling, 23 Nov 16:36) The catalyst quality this ring or amulet reaches: the usual 20 plus
+    its own "+N% to Maximum Quality" implicit (game stat local_maximum_quality_+: Breach Ring 20, Refined Breach Ring 25),
+    read from the line. The 60% / 75% listings need further steps not settled yet (R55-5): not offered."""
+    extra = sum(int(m.group(1)) for line in (base.get("implicit") or "").splitlines()
+                if (m := MAXIMUM_QUALITY.match(line.strip())))
+    return CATALYST_QUALITY + extra
+
+
 @cache
 def implicit_tags(base_name: str) -> tuple[tuple[str, ...], ...]:
     """(SEARCHC3) The modifier tags of a Ring / Amulet base's implicit, per line, from PoB's own base files (GameData's
@@ -738,29 +750,19 @@ def catalysed_text(text: str, affixes: list[Affix], tags_by_id: dict[str, tuple[
     return "\n".join(lines)
 
 
-# (SEARCHC3; R55-4, UNVERIFIED) The weapon bases the search can offer whose IMPLICIT carries an element (hidden
-# "% of base damage is X" or added damage: game BaseItemTypes -> Mods -> Stats, build 26650308, every base in PoB's list;
-# 24 of R55-4's ~30, the rest aren't in PoB's bases). The headline leaves it unconverted; aldur_implicit_row says so.
-ALDUR_IMPLICIT_ELEMENTS = {
-    "Arcing Quarterstaff": ("Lightning",), "Ashbark Talisman": ("Fire",), "Bolting Quarterstaff": ("Lightning",),
-    "Calescent Hammer": ("Fire",), "Cinderbark Talisman": ("Fire",), "Crackling Quarterstaff": ("Lightning",),
-    "Ember Greataxe": ("Fire",), "Icicle Flail": ("Cold",), "Molten Hammer": ("Fire",), "Moon Dagger": ("Cold",),
-    "Runeforged Barbed Spear": ("Fire",), "Runeforged Makeshift Crossbow": ("Cold",), "Runeforged Morning Star": ("Fire",),
-    "Runeforged Slim Mace": ("Cold",), "Runeforged Studded Greatclub": ("Lightning",),
-    "Runeforged Sturdy Crossbow": ("Lightning",), "Runeforged Winged Spear": ("Lightning",),
-    "Runemastered Aberrant Sledge": ("Cold",), "Runemastered Studded Greatclub": ("Lightning",),
-    "Runemastered Torment Club": ("Cold", "Lightning"), "Smithing Hammer": ("Fire",), "Striking Spear": ("Lightning",),
-    "Thunder Talisman": ("Lightning",), "Voltfang Talisman": ("Lightning",),
-}
+# (SEARCHC3; R55-4, UNVERIFIED; the manager's ruling, 23 Nov 16:36) The bases the search can offer whose implicit holds
+# FLAT added Lightning (hidden added-damage stats). The bases with a hidden "% of base damage is X" implicit need no row:
+# that stat is on none of poe2db's 78 equivalence rows (R55-4). Energy Blade also has flat Lightning, but Context.item_options
+# never offers it (checked 23 Nov on a Spark request: of the five flat-Lightning bases, only these three are offered).
+ALDUR_FLAT_IMPLICIT = frozenset({"Arcing Quarterstaff", "Bolting Quarterstaff", "Crackling Quarterstaff"})
 
 
 def aldur_implicit_row(base_name: str, target: str) -> tuple[str, ...]:
-    """The result's row on a base whose implicit holds another element than the rune's target (empty otherwise)."""
-    others = [e for e in ALDUR_IMPLICIT_ELEMENTS.get(base_name, ()) if e != target]
-    if not others:
+    """The result's row on a base whose implicit adds flat Lightning, under another element's rune (empty otherwise)."""
+    if base_name not in ALDUR_FLAT_IMPLICIT or target == "Lightning":
         return ()
-    return (f"Row: {base_name}'s own implicit carries {' and '.join(others)} damage. The headline leaves it as it is; if "
-            f"the rune converts implicits too (UNVERIFIED, R55-4) that share becomes {target}",)
+    return (f"Row: {base_name}'s own implicit adds flat Lightning damage. The headline leaves it as it is; if the rune "
+            f"converts implicits too (UNVERIFIED, R55-4) that damage becomes {target}",)
 
 
 class AldurConverter:
