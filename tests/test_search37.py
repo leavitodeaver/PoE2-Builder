@@ -208,3 +208,37 @@ def test_the_oracles_hidden_passives_are_offered_only_after_the_unseen_path():
     assert not before & hidden
     assert len(after & hidden) > 100  # (every one the frontier can show: nodes with stat lines, not path-only images)
 
+
+def test_a_chosen_megalomaniac_is_priced_by_its_roll_never_the_feeds_any_version_price():
+    """SEARCH37 (THE USER, 23 Nov: a 3-notable Megalomaniac "would run at least 100div"; RESEARCH49 R49-10: poe.ninja
+    prices every Megalomaniac at ~0.1 div): the search prices the chosen version at its exact trade price when a Trade
+    click found one, else the user's labelled estimate; another versioned unique keeps the feed price marked UNKNOWN."""
+    import time
+    from types import SimpleNamespace
+
+    from builder.data import unique_versions
+    from builder.search.context import ItemOption
+    from builder.search.jewels import Jewels
+    from builder.search.radius import Variants
+
+    names = ("Cooked", "Marked for Sickness", "Melting Flames")
+    variants = Variants(names=names, slots=("a", "b", "c"), selected=(1, 2, 3), usable=(1, 2, 3))
+    mega = ItemOption("Megalomaniac", "Diamond", "Jewel", None, "raw", True, 0.097, "low", 1, variants=names)
+    jewels = Jewels.__new__(Jewels)
+    jewels.ctx = SimpleNamespace(ssf=False, unique_versions={})
+    est = jewels.rolled_price(mega, variants)
+    assert est.price == 100.0 and est.confidence == "estimate (HIGH)" and "not searched yet" in est.price_note
+    unlisted = {unique_versions.key("Megalomaniac", names): {"listed": 0, "price": None, "priced_at": time.time()}}
+    jewels.ctx = SimpleNamespace(ssf=False, unique_versions=unlisted)
+    assert "not listed when last searched" in jewels.rolled_price(mega, variants).price_note
+    listed = {unique_versions.key("Megalomaniac", names): {"listed": 2, "price": 140.0, "priced_at": time.time()}}
+    jewels.ctx = SimpleNamespace(ssf=False, unique_versions=listed)
+    exact = jewels.rolled_price(mega, variants)
+    assert exact.price == 140.0 and exact.confidence.startswith("trade, this version (2 listed")
+    other = ItemOption("Against the Darkness", "Time-Lost Diamond", "Jewel", None, "raw", True, 1.0, "low", 1,
+                       variants=names[:2])
+    jewels.ctx = SimpleNamespace(ssf=False, unique_versions={})
+    kept = jewels.rolled_price(other, variants)
+    assert kept.price == 1.0 and "price UNKNOWN" in kept.price_note
+    jewels.ctx = SimpleNamespace(ssf=True, unique_versions={})
+    assert jewels.rolled_price(mega, variants) is mega

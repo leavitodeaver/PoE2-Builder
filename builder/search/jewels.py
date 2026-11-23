@@ -46,6 +46,17 @@ JEWEL_BASES = ("Ruby", "Emerald", "Sapphire")
 RADIUS_BASES = ("Time-Lost Ruby", "Time-Lost Emerald", "Time-Lost Sapphire")  # rares with a radius (Small)
 JEWEL_LIMIT = {"Prefix": 2, "Suffix": 2}
 SOCKET_REACH = 4
+# (SEARCH37; THE USER, 23 Nov, on the Oracle build's Megalomaniac budgeted at the feed's 0.10 div: "a megalomaniac with 3
+# notables is pretty expensive usually ... I'm guessing a megalomaniac like that would run at least 100div"; and "an
+# estimated price is fine when the utility is pricing the build at runtime, and then it can provide a trade search link
+# afterward") A unique whose versions the search chooses (Jewels.version) costs, during the search: the price a Trade
+# click or the versions job found for that exact version (unique_versions); else, for the uniques below, the user's
+# labelled HIGH estimate (never the price feed's one any-version price: poe.ninja prices every Megalomaniac at ~0.1 div,
+# the floor of junk copies, RESEARCH49 R49-10; live floors 23 Nov: Cooked 15-49 div, Marked for Sickness / Melting Flames
+# a few chaos, Cooked + Marked for Sickness not listed). No trade call inside the search; the result's Trade button
+# searches the exact roll (shopping.version_filters: one stat per line the version adds). Other such uniques (Against the
+# Darkness) keep the feed's price, marked UNKNOWN in price_note: no data or user number yet (a question for the manager).
+ROLLED_ESTIMATE = {"Megalomaniac": 100.0}
 VARIANT_SCREEN = 24  # variants rescored for a unique's later selections (Megalomaniac has 874 each)
 UNLOCK_TRIALS = 2  # socket and variant pairs grown for real per full round
 UNLOCK_SCREENS = 12  # socket and variant pairs screened per full round (each socketed for real)
@@ -132,7 +143,30 @@ class Jewels:
         key = (option.name, slot if traits.get("radius") else None)
         if key not in self.versions or self.versions[key][0] != self.full_rounds:
             self.versions[key] = (self.full_rounds, self.best_version(slot, option, variants, deadline))
-        return self.versions[key][1]
+        return self.rolled_price(self.versions[key][1], variants)
+
+    def rolled_price(self, option: ItemOption, variants: Variants) -> ItemOption:
+        """(SEARCH37, ROLLED_ESTIMATE) This version's price for the search: its exact trade price if one was found, else
+        the user's estimate for the unique, else the feed's any-version price marked UNKNOWN."""
+        if self.ctx.ssf:
+            return option
+        chosen = option.variants or variants.label(variants.selected)
+        priced = unique_versions.lookup(self.ctx.unique_versions, option.name, chosen)
+        if priced is not None and priced.get("listed") and priced.get("price") is not None:
+            day = time.strftime("%Y-%m-%d", time.localtime(priced["priced_at"]))
+            return dataclasses.replace(option, price=priced["price"],
+                                       confidence=f"trade, this version ({priced['listed']} listed, {day})")
+        feed = option.price or 0.0
+        estimate = ROLLED_ESTIMATE.get(option.name)
+        if estimate is None:
+            return dataclasses.replace(option, price_note=(
+                f"price UNKNOWN for this version ({', '.join(chosen)}): the price feed's {feed:g} div is any version's "
+                "floor; the Trade button prices this one"))
+        searched = "not listed when last searched" if priced is not None else "not searched yet"
+        return dataclasses.replace(option, price=max(estimate, feed), confidence="estimate (HIGH)", price_note=(
+            f"estimate: at least {estimate:g} div for a {option.name} with {', '.join(chosen)} (the user's estimate, 23 "
+            f"Nov; this version {searched}; the price feed's {feed:g} div is any copy's floor); the Trade button "
+            "searches this exact roll"))
 
     def best_version(self, slot: str, option: ItemOption, variants: Variants, deadline: float) -> ItemOption:
         """Choose each selection in turn with the others held, among the variants a real item can
@@ -312,7 +346,9 @@ class Jewels:
                 rare = self.build_rare(slot, deadline)
                 if rare is not None:
                     self.rare = rare
-            options = [self.version(slot, o, deadline) for o in self.uniques(slot)]
+            left = self.gear.left_for(slot)  # (SEARCH37: a chosen version's own price, ROLLED_ESTIMATE, may not fit)
+            options = [v for v in (self.version(slot, o, deadline) for o in self.uniques(slot))
+                       if (v.price or 0.0) <= left + 1e-9]
             options, rare = [o for o in options if o != current], self.rare
         if rare is not None and rare != current and (rare.price or 0.0) <= self.gear.left_for(slot) + 1e-9:
             options.append(rare)
@@ -570,13 +606,16 @@ class Jewels:
         for i in variants.usable:
             label = variants.label((i,))
             version = dataclasses.replace(option, raw=with_variants(option.raw, variants, (i,)), variants=label,
-                                          confidence="low")
+                                          confidence="low", price_note=(  # (SEARCH37: never silently the feed's price)
+                                              f"price UNKNOWN for this version ({', '.join(label)}): the price feed's "
+                                              f"{option.price or 0.0:g} div is any version's floor; the Price unique "
+                                              "versions job or the Trade button prices this one"))
             priced = None if self.ctx.ssf else unique_versions.lookup(self.ctx.unique_versions, option.name, label)
             if priced is not None and not priced["listed"]:
                 continue
             if priced is not None and priced.get("price") is not None:
                 day = time.strftime("%Y-%m-%d", time.localtime(priced["priced_at"]))
-                version = dataclasses.replace(version, price=priced["price"],
+                version = dataclasses.replace(version, price=priced["price"], price_note="",
                                               confidence=f"trade, this version ({priced['listed']} listed, {day})")
             found.append(version)
         return found
