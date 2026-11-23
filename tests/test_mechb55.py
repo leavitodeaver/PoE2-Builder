@@ -96,7 +96,8 @@ def test_arctic_armour_bursts_at_the_bosss_landed_melee_hits(monkeypatch):
     monkeypatch.setattr(models, "boss_melee_share", lambda boss, gain=True: (0.6, "a test share"))
     level = {models.ARCTIC_STAGES_STAT: 5, models.ARCTIC_GAIN_STAT: 725}
     mods, notes = models.arctic_armour_model({"_boss": "x"}, 0.25, level)
-    assert mods[0]["key"] == "triggerRate" and mods[0]["value"] == pytest.approx(0.25 * 0.6, abs=1e-3)
+    # (MECHB56, RESEARCH48 R48-2: Blocked hits burst it too) (0.5 landed + 0.2 blocked) / 2 s x 0.6 melee
+    assert mods[0]["key"] == "triggerRate" and mods[0]["value"] == pytest.approx(0.35 * 0.6, abs=1e-3)
     assert "Blocked" in notes[0]["basis"] and "per Stage" in notes[0]["basis"]
     monkeypatch.setattr(models, "boss_melee_share", lambda boss, gain=True: (0.0, "no melee"))
     mods, notes = models.arctic_armour_model({"_boss": "x"}, 0.25, level)

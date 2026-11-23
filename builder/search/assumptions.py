@@ -5208,7 +5208,8 @@ class Assumptions:
         effigy_mods, effigy_notes = dark_effigy(build)  # (MECHB43: a Vile Effusion projectile per Chaos-DoT debuff, R34-7)
         hand_mods, hand_notes = hand_mods + effigy_mods, hand_notes + effigy_notes
         hit_cut(build, effigy_mods, name)  # (MECHB52: Vile Effusion's projectiles a volley, when it is the main skill)
-        zenith_mods, zenith_notes = self.midnight_zenith(found, main, stats)  # (MECHB55: MIDNIGHT_ZENITH's note)
+        zenith_mods, zenith_notes = self.midnight_zenith(  # (MECHB55: MIDNIGHT_ZENITH's note)
+            found, main, stats, [e["text"] for e in source_lines])
         hand_mods, hand_notes = hand_mods + zenith_mods, hand_notes + zenith_notes
         for note in zenith_notes:
             build.objective.entry_scales.update(note.get("full_dps") or {})
@@ -9535,8 +9536,8 @@ class Assumptions:
         live = any(m.get("key") == "triggerRate" and number(m.get("value")) > 0 for m in mods)
         return mods, notes, ({wave.group} if live else set())
 
-    def midnight_zenith(self, found: list[models.Skill], main: models.Skill | None, stats: dict
-                        ) -> tuple[list[dict], list[dict]]:
+    def midnight_zenith(self, found: list[models.Skill], main: models.Skill | None, stats: dict,
+                        texts: list[str] = ()) -> tuple[list[dict], list[dict]]:
         """(MECHB55, models.midnight_zenith_model) Midnight Zenith's crystals from the main skill's crits, broken by its
         Area hits and the build's breakers (locus_breaks), each explosion PoB's Crystal-set hit."""
         build = self.build
@@ -9558,6 +9559,11 @@ class Assumptions:
         hit = number(read.get("AverageHit")) or number(read.get("MainHandAverageHit"))
         group = build.main_group()
         breakers, breakers_how = self.locus_breaks(group["index"], main.name) if group else (0.0, "no main group")
+        # (MECHB56, R48-1: the crystal's Life with the build's modifiers and the amulet's Cold Resistance line)
+        base_life = number(level.get(models.MIDNIGHT_LIFE_STAT)) or models.MIDNIGHT_DEFAULTS[models.MIDNIGHT_LIFE_STAT]
+        cold = number(build.call("stats", fields=["ColdResist"]).get("ColdResist"))
+        life, life_how = models.midnight_crystal_life(
+            number(crystal.get("IceCrystalLife")) or number(row.get("iceCrystalLife")), base_life, list(texts), cold)
         mods, notes = models.midnight_zenith_model(
             hits * crit, f"{main.name}'s {hits:.3f} hits a second x {crit:.0%} crit chance", hits if area else 0.0, hit,
             breakers, breakers_how, number(crystal.get("AverageDamage")), level, number(crystal.get("Duration")),

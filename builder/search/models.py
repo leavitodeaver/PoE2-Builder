@@ -24395,8 +24395,9 @@ def needs_another_skill_note(main: Skill | None, types: set[str], description: s
 #   - bursts a second = the boss's melee hits that land on you (Thorns' machinery: bosses.benefit_skill_time one hit a
 #     damaging use, boss_hits.land_share, boss_melee_share's lower bound: 0 on the worst-case preset, whose Zarokh has no
 #     Melee-typed hits), at most one per its cooldown (the useRates row's, 0.25 s) and, held up, one per stage gained;
-#   - Blocked hits: whether a Blocked melee attack "hits you" for the burst is UNVERIFIED (Thorns' Retaliation counts
-#     them, the user 14 Nov, but this text says "hit you"): left out (the lower reading), a row with them;
+#   - Blocked hits COUNT (MECHB56, RESEARCH48 R48-2, MEDIUM: a block is a hit with its damage prevented; Thorns fires on
+#     blocked hits): in the headline, the row without them; Evaded hits don't (HIGH: not hits); Deflected ones do
+#     (MEDIUM-HIGH: a Deflected hit lands with less damage, and boss_hits.land_share keeps them as landed);
 #   - one stage's damage a burst (the lower reading of "per Stage": a burst removes one stage); the row "x the stages
 #     held when hit" (the barrier refills between the boss's hits, so near the maximum) is the other reading (UNVERIFIED,
 #     RESEARCH R-B17). Stage-gain and maximum-stage modifiers aren't read (the base values: the lower reading).
@@ -24427,18 +24428,19 @@ def arctic_armour_model(stats: dict, cooldown: float, level_stats: dict, forbidd
 
     def bursts(hits: float) -> float:
         return min(hits * share, cap)
-    head, with_blocked = bursts(landed), bursts(landed + blocked)
+    head, without_blocked = bursts(landed + blocked), bursts(landed)  # (MECHB56, R48-2: Blocked hits burst it)
     held = min(stages, max(1.0, 1.0 / (head * gain))) if head > 0 else stages
     label = f"{ARCTIC_ARMOUR}: its ice bursts on the boss*"
-    rows = (f"Rows: Blocked melee hits bursting too (UNVERIFIED): {with_blocked:.3f} a second; \"per Stage\" as x the "
-            f"stages held when hit (about {held:.1f} of {stages:g}, the barrier refilling one every {gain:g} s between "
-            f"the boss's hits; UNVERIFIED, R-B17): x{held:.2f} of the headline")
-    base = (f"{boss}'s hits landing on you {landed:.3g} a second (one a damaging use, LOW), {share:.0%} melee "
+    rows = (f"Rows: Blocked melee hits not bursting it: {without_blocked:.3f} a second (R48-2 says they do, MEDIUM); "
+            f"\"per Stage\" as x the stages held when hit (about {held:.1f} of {stages:g}, the barrier refilling one "
+            f"every {gain:g} s between the boss's hits; R48-2: unsettled, LOW-MEDIUM): x{held:.2f} of the headline")
+    base = (f"{boss}'s hits reaching you {landed + blocked:.3g} a second (landed {landed:.3g}, Deflected ones in it, "
+            f"+ Blocked {blocked:.3g}: R48-2; evaded ones not; one a damaging use, LOW), {share:.0%} melee "
             f"({share_how}); a burst at most every {cooldown:g} s (its cooldown) and one a stage gained ({gain:g} s)")
     if head <= 0:
         return trigger_rate(ARCTIC_ARMOUR, 0.0), [{
             "label": label, "value": "0 a second", "confidence": "MEDIUM", "entry": ARCTIC_ENTRY,
-            "basis": base + ": no melee attack of the boss's lands on you, so no burst (0). " + rows}]
+            "basis": base + ": no melee attack of the boss's reaches you, so no burst (0). " + rows}]
     return trigger_rate(ARCTIC_ARMOUR, head), [{
         "label": label, "value": f"{head:.3f} a second", "confidence": "LOW", "entry": ARCTIC_ENTRY,
         "basis": (base + f": {head:.3f} bursts a second, each one stage's damage (\"Deals X to Y Cold Damage per Stage\", "
@@ -24491,6 +24493,33 @@ MIDNIGHT_LIFE_STAT = "frost_wall_maximum_life"
 MIDNIGHT_DEFAULTS = {MIDNIGHT_PETALS_STAT: 4.0, MIDNIGHT_NEED_STAT: 10.0, MIDNIGHT_PER_STAT: 5.0, MIDNIGHT_LIMIT_STAT: 10.0,
                      MIDNIGHT_LIFE_STAT: 4768.0}  # (gem 20, when the level stats aren't read)
 MIDNIGHT_SECONDS = 10.0
+# (MECHB56, RESEARCH48 R48-1) the crystal's Life with the build: PoB's Crystal-set IceCrystalLife (setRates; the
+# IceCrystalLife INC lines it parses: Shattered Crystal -60%, Ice Walls +200%), plus Eventide Petals' own "Ice Crystals
+# have (-3-3)% reduced maximum Life per 5% Cold Resistance you have" (PoB parses it to nil, ModCache 8260-8261), added to
+# the same increases (-45% to +45% at 75%). The player's hit on a crystal takes no resistance or armour but no boss-only
+# bonus either (R48-1 (b)): PoB's hit on the boss can read either side.
+MIDNIGHT_RES_LIFE = re.compile(r"^Ice Crystals have (-?\d+(?:\.\d+)?)% (reduced|increased) maximum Life per 5% Cold "
+                               r"Resistance you have$", re.I)
+
+
+def midnight_crystal_life(pob_life: float, base: float, texts: list[str], cold_res: float) -> tuple[float, str]:
+    """(an Ice Crystal's Life, how): PoB's Life with the build's increases (`pob_life`, 0: `base`), plus the amulet's
+    per-5%-Cold-Resistance line at the player's `cold_res`, added to the same increases."""
+    base = max(base, 0.0)
+    life = pob_life if pob_life > 0 else base
+    inc = (life / base - 1.0) if base > 0 else 0.0
+    per = 0.0
+    for text in texts:
+        if m := MIDNIGHT_RES_LIFE.match(text.strip()):
+            per += float(m.group(1)) * (-1.0 if m.group(2).lower() == "reduced" else 1.0)
+    steps = math.floor(max(cold_res, 0.0) / 5.0)
+    if per == 0 or base <= 0:
+        return life, (f"{life:,.0f} crystal Life (PoB's, the build's increases {inc:+.0%})" if abs(inc) > 1e-9
+                      else f"{life:,.0f} crystal Life")
+    total = inc + per * steps / 100.0
+    out = max(base * (1.0 + total), 1.0)
+    return out, (f"{out:,.0f} crystal Life ({base:,.0f} base, the build's increases {inc:+.0%} and Eventide Petals' "
+                 f"{per:+g}% per 5% Cold Resistance x {steps} ({cold_res:g}%): {total:+.0%})")
 
 
 def midnight_explosions(made: float, hit_time: float | None, breakers: float, seconds: float, limit: float) -> float:
@@ -24516,7 +24545,7 @@ def midnight_explosions(made: float, hit_time: float | None, breakers: float, se
 
 def midnight_zenith_model(crits: float, crits_how: str, area_hits: float, hit: float, breakers: float, breakers_how: str,
                           crystal_hit: float, level: dict, seconds: float, life: float,
-                          forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+                          forbidden: set[str] = frozenset(), life_how: str = "") -> tuple[list[dict], list[dict]]:
     """Midnight Zenith's crystal explosions on the boss (see above) as an added source: `crits` the main skill's crits on
     the boss a second, `area_hits` its Area hits a second (0 for a non-Area skill), `hit` its hit on the boss, `breakers`
     the build's other breaker uses a second, `crystal_hit` PoB's Crystal-set hit, `level` the gem's level stats,
@@ -24536,7 +24565,9 @@ def midnight_zenith_model(crits: float, crits_how: str, area_hits: float, hit: f
     base = (f"{crits:.3f} crits a second on the boss ({crits_how}) x {gain:g} Arctic Petals, {need:g} petals make {per:g} "
             f"Ice Crystals: {made:.3f} crystals a second (at most {limit:g} alive, {seconds:g} s each; its own crystals "
             "give no petals: no self-feeding on a lone boss). Breaks: "
-            + (f"your Area hits, {area_hits:.3f} a second at {hit:,.0f} a hit against {life:,.0f} crystal Life: {k} hits, "
+            + (f"your Area hits, {area_hits:.3f} a second at {hit:,.0f} a hit (PoB's hit on the boss: on a crystal "
+               f"no resistance or armour, but no boss-only bonus either, so either side, R48-1) against "
+               f"{life_how or f'{life:,.0f} crystal Life'}: {k} hits, "
                f"{hit_time:.1f} s after a crystal is made" + ("" if hit_time <= seconds else
                                                              f", longer than its {seconds:g} s, so hits alone break none")
                if hit_time is not None else "your main skill doesn't break them itself (not an Area skill, or no hit "

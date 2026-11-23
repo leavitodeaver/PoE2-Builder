@@ -33,7 +33,7 @@
     bridge maps the two stats as the skill's base Cold damage (installArcticArmourBurst); the model rates its group at the
     boss's melee hits that land on you (Thorns' machinery: benefit_skill_time, land_share, boss_melee_share's lower
     bound), at most one per its 0.25 s cooldown and one per stage gained. One stage's damage a burst (the lower reading;
-    "x the stages held" a row, R-B17); Blocked hits left out (a row, UNVERIFIED).
+    "x the stages held" a row, R-B17); Blocked hits counted (MECHB56, RESEARCH48 R48-2, MEDIUM; the row without them), evaded ones not.
   sources: ["builder/search/models.py (ARCTIC_ARMOUR, arctic_armour_model)", "builder/search/assumptions.py (Assumptions.arctic_armour)",
             "engine/bridge.lua (installArcticArmourBurst)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua (ArcticArmourPlayer)"]
   status: proposed
