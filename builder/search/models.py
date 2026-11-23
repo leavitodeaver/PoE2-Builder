@@ -8701,8 +8701,9 @@ def midnight_breaks(crits: float, area_hits: float, hit: float, breakers: float,
 # (more hits), which raises PoB's hit rate but leaves its Ignite / Bleed at the ordinary hit's size. Only the strongest
 # Ignite / Bleed deals damage (STRONG_AILMENTS, GEM22's reading: PoB's maxStacks 1), and its size is linear in the hit,
 # so while one from a stronger hit is active the boss takes `strength` x PoB's. Uptime: E stronger events a second, each
-# of n hits, PoB's chance c a hit (ChancePerHit; a stronger hit's higher chance from its size not counted: the lower
-# reading), duration D (PoB's): up = min(1, E x (1 - (1 - c)^n) x D) (strongest_ailment_model's own-stacks cap). The
+# of n hits, PoB's chance c a hit (ChancePerHit), x `strength` for Ignite (GEM36, RESEARCH49 R49-1, HIGH: an Ignite's
+# chance is the Flammability its Fire damage adds, linear in the hit; Bleed's chance doesn't follow damage, R49-1;
+# Bleed strongest-only, R49-2, HIGH), at most 1, duration D (PoB's): up = min(1, E x (1 - (1 - c)^n) x D) (strongest_ailment_model's own-stacks cap). The
 # ailment x (1 + (strength - 1) x up), an AilmentMagnitude MORE on the main skill, Ignite / Bleed each. MEDIUM-LOW.
 STRONGER_ENTRY = "model-gem36-stronger-hits-ailment"
 STRONGER_FIELDS = [f"{a}{f}" for a in STRONG_AILMENTS for f in ("DPS", "Duration", "ChancePerHit", "StacksMax")]
@@ -8729,6 +8730,8 @@ def stronger_hits_ailment_model(main: Skill | None, stats: dict, source: str, st
         if number(stats.get(f"{ailment}DPS")) <= 0 or number(stats.get(f"{ailment}StacksMax")) > 1:
             continue
         c = min(max(number(stats.get(f"{ailment}ChancePerHit")), 0.0), 100.0) / 100
+        if ailment == "Ignite":  # (R49-1, HIGH: Ignite chance follows the hit's Fire damage, Flammability; Bleed's doesn't)
+            c = min(1.0, strength * c)  # (the stacked pool not added on top: the lower reading)
         duration = number(stats.get(f"{ailment}Duration"))
         up = min(1.0, events * (1.0 - (1.0 - c) ** per_event) * duration)
         factor = 1.0 + (strength - 1.0) * up
@@ -8746,7 +8749,8 @@ def stronger_hits_ailment_model(main: Skill | None, stats: dict, source: str, st
         "basis": (f"{source}'s hits are {strength:.2f}x PoB's ordinary hit ({how}), {events:.3f} a second x {per_event:g} "
                   "hits; only the strongest Ignite / Bleed deals damage and its size follows the hit, so while one of "
                   "theirs is up the boss takes theirs (PoB scores the ordinary hit's): " + "; ".join(parts)
-                  + ". Not counted: the stronger hit's higher chance to apply (the lower reading)"),
+                  + ". An Ignite's chance taken x the hit's strength (R49-1: Flammability follows the Fire damage; the "
+                  "stacked pool not added, the lower reading); Bleed's chance unchanged (R49-1)"),
         "play": (f"Let {source}'s stronger hits land on the boss: their Ignite / Bleed replaces the ordinary one "
                  f"(without them x1; with them {', '.join(parts)}).")}]
 
@@ -8946,9 +8950,10 @@ DETONATED_SETS = {
     # occurs because the enemy is Ignited"; GGG's Dec 2024 hotfix on Flame Wall + Gas Cloud; Gas Arrow's "an Ignited enemy
     # touches it") by the boss Ignited inside the cloud: GEM20's Gas Arrow reading (Assumptions.gas_arrow_share with
     # GAS_GRENADE_CLOUD: the other groups' Ignites and Ignite grounds as the resolver counts them, the Impact's own at
-    # every use, the Explosion's own at the share exploding, a fixed point from 0), once a cloud. Not counted (named): Fire
-    # DoT on the boss that isn't an Ignite (MEDIUM: it Burns too), Ignited Ground under the cloud with nothing Burning
-    # (LOW-MEDIUM, R48-5); the Ignite's size scaling the explosion (UNVERIFIED: the Explosion set's own damage kept). The
+    # every use, the Explosion's own at the share exploding, a fixed point from 0), once a cloud; and any other Fire DoT
+    # on the boss (R48-5 MEDIUM: it Burns too; Assumptions.fire_dot_uptime: side skills with the game's CausesBurning
+    # skill type or Fire + DamageOverTime, e.g. Flame Wall, at their own uptime). Not counted (named): Ignited Ground
+    # under the cloud with nothing Burning (LOW-MEDIUM, R48-5); the Ignite's size scaling the explosion (UNVERIFIED: the Explosion set's own damage kept). The
     # plain part is PoB's best plain set (the cloud's DoT or the impact).
     "Gas Grenade": (("Impact", "Poison Cloud"), "Explosion", 6, 6.0, "model-gem35-gas-grenade-cloud-explosion"),
     # (MECHB48) Forge Hammer: "Hurl a fiery hammer that Slams into the ground and lodges there. While the hammer is
@@ -8964,7 +8969,7 @@ DETONATED_SETS = {
     "Forge Hammer": (("Impact",), "Fissures", 1, 12.0, "model-mechb48-forge-hammer-warcry-shatter"),
 }
 GAS_GRENADE_CLOUD = {"Gas Grenade": (6, 6.0)}  # (GEM36: its cloud limit / seconds, the Poison Cloud set's stats above)
-DETONATED_TEXT = {"Gas Grenade": ("the boss is Ignited inside the cloud or a Detonator skill hits it",
+DETONATED_TEXT = {"Gas Grenade": ("the boss is Ignited or Burning inside the cloud or a Detonator skill hits it",
                                   "an Ignite on the boss in the cloud (a Fire skill that Ignites) or a Detonator skill "
                                   "(Explosive Grenade, Explosive Shot, ...)")}
 DETONATED_WORD = {"Stormblast Bolts": "bolts", "Earthshatter": "spikes", "Forge Hammer": "hammers", "Gas Grenade": "clouds"}

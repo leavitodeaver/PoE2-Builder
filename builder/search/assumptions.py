@@ -4997,7 +4997,7 @@ class Assumptions:
             if main.name in models.GAS_GRENADE_CLOUD:  # (GEM36, R48-5: an Ignited boss in the cloud sets it off too)
                 det_share, det_how, _ = self.gas_arrow_share(group["index"], main.stat_set,
                                                              cloud=models.GAS_GRENADE_CLOUD[main.name],
-                                                             every_use=("Impact",))
+                                                             every_use=("Impact",), burning=True)
             det_mods, det_notes = models.detonated_set_model(main, main.stat_set, sets, number(stats.get("Speed")),
                                                              det_rate, det_how, forbidden, per_spike,
                                                              previous=self.mods, share=det_share)
@@ -9295,7 +9295,7 @@ class Assumptions:
                        f"the resolver's share {base:.0%} ({up_how})")
 
     def gas_arrow_share(self, main_index: int, scored: str | None, cloud: tuple[int, float] | None = None,
-                        every_use: tuple[str, ...] = ("Arrow",)) -> tuple[float, str, float]:
+                        every_use: tuple[str, ...] = ("Arrow",), burning: bool = False) -> tuple[float, str, float]:
         """(share of Gas Arrow's clouds that explode, how) for models.gas_arrow_model (GEM20): a Detonator use sets off
         every cloud lying there (detonator_rate, as detonated_share); the boss Ignited at some moment of a cloud's life
         (models.gas_ignite_within) with Ignites as the resolver counts them (conditions.ailment_uptime over the other
@@ -9303,7 +9303,8 @@ class Assumptions:
         skill's own: the Explosion set's at its uses x the share that explode (a fixed point from 0: no seed, no
         explosion), the Arrow set's at every use; the Poison Cloud set's fake hit taken to Ignite nothing. (GEM36, R48-5:
         Gas Grenade too) `cloud` (limit, seconds) for another skill's clouds (Gas Arrow's by default), `every_use` its
-        sets that come with every use."""
+        sets that come with every use; `burning`: any Burning on the boss sets a cloud off, not only an Ignite (Gas
+        Grenade's "Burning effects": the build's Fire DoT skills, fire_dot_uptime)."""
         build = self.build
         stats = dict(build.call("stats", fields=["Speed", "HitChance", "IgniteChancePerHit", "IgniteDuration"]))
         uses = number(stats.get("Speed"))
@@ -9319,6 +9320,10 @@ class Assumptions:
         ground = dict(getattr(build, "ailment_ground", None) or {})
         own = scored in ("Explosion",) + tuple(every_use) and number(stats.get("IgniteChancePerHit")) > 0
         share, up, within = detonated, 0.0, 0.0
+        burn, burn_d, burn_how = self.fire_dot_uptime(main_index) if burning else (0.0, 0.0, "")
+        burn_within = models.gas_ignite_within(burn, burn_d, life) if burn > 0 else 0.0
+        detonated = 1.0 - (1.0 - detonated) * (1.0 - burn_within)
+        share = detonated
         for _ in range(40):  # (the fixed point, from the share Detonators alone give)
             own_uses = (uses * share if scored == "Explosion" else uses) if own else 0.0
             read = {"Speed": own_uses, "HitChance": stats.get("HitChance"),
@@ -9343,7 +9348,38 @@ class Assumptions:
                   f"the {scored}'s own Ignites" if own else "no own Ignite read")
         return share, (f"the boss Ignited {up:.1%} of the fight ({others_n} other Ignite source(s); {source}; "
                        f"{duration:.1f} s each), so at some moment of a cloud's {life:.1f} s {within:.1%}; "
-                       f"Detonators set off {detonated:.0%} ({det_how}); a cloud lives {alive:.1f} s on average"), poisons
+                       f"Detonators" + (" and Fire DoT" if burning else "") + f" set off {detonated:.0%} ({det_how}"
+                       + (f"; {burn_how}: Burning {burn:.0%} of the fight, at some moment of a cloud {burn_within:.0%}"
+                          if burning else "") + f"); a cloud lives {alive:.1f} s on average"), poisons
+
+    def fire_dot_uptime(self, main_index: int) -> tuple[float, float, str]:
+        """(GEM36, R48-5: "Enemies taking Fire damage over time are Burning", MEDIUM; GGG's Flame Wall + Gas Cloud
+        hotfix) (the share of the fight the boss is Burning from the build's Fire DoT skills, their longest duration, how):
+        side groups whose active gem carries the game's CausesBurning skill type, or Fire + DamageOverTime, with a DoT
+        set (setRates TotalDot > 0), each up min(1, uses x its Duration) on the boss (its wall / ground placed under the
+        boss: MEDIUM), combined as independent. An Ignite from them is the resolver's, counted apart."""
+        gems = getattr(self.build.ctx, "all_gems", None) or self.build.ctx.gems
+
+        def burns(g):
+            for x in g.get("gems") or []:
+                types = set((gems.get(x["name"]) or {}).get("skillTypes") or ())
+                if x.get("enabled", True) and not x.get("support") and (
+                        "CausesBurning" in types or {"Fire", "DamageOverTime"} <= types):
+                    return True
+            return False
+        free, longest, parts = 1.0, 0.0, []
+        for row, uses, why in self._side_rows(main_index, burns):
+            sets = self.build.call("setRates", index=row.get("index"), active=row.get("active") or 1).get("sets") or []
+            dot = [x for x in sets if number(x.get("TotalDot")) > 0]
+            seconds = max((number(x.get("Duration")) for x in dot), default=0.0) or number(row.get("duration"))
+            if not dot or uses <= 0 or seconds <= 0:
+                parts.append(f"{row.get('name')} not counted ({'no uses: ' + why if uses <= 0 else 'no Fire DoT read'})")
+                continue
+            up = min(1.0, uses * seconds)
+            free *= 1.0 - up
+            longest = max(longest, seconds)
+            parts.append(f"{row.get('name')} {uses:.2f} uses/s x {seconds:.1f} s: up {up:.0%} ({why})")
+        return 1.0 - free, longest, "; ".join(parts) or "no Fire DoT skill beside it"
 
     def supported_uses(self, support: str, main, stats: dict) -> tuple[list[tuple[int, float, str]], set[int]]:
         """([(group index, the supported skill's uses a second, how)], the groups holding `support`): the main skill at

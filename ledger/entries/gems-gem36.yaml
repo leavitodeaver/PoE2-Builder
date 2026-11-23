@@ -12,7 +12,9 @@
     more) add their hits as a "DPS" MORE: PoB's hit rate rises but its Ignite / Bleed stays the ordinary hit's size. Only
     the strongest Ignite / Bleed deals damage (PoB's maxStacks 1, GEM22's reading) and its size follows the hit: x(1 +
     (strength - 1) x up), up = min(1, events x (1 - (1 - c)^n) x duration) from PoB's ChancePerHit and Duration. The
-    stronger hit's higher chance to apply (from its size) is not counted (the lower reading). Their stats are MECHB51's
+    stronger hit's Ignite chance is PoB's x its strength (RESEARCH49 R49-1, HIGH: Flammability follows the Fire damage;
+    the stacked pool not added, the lower reading); Bleed's chance unchanged (R49-1) and Bleed strongest-only (R49-2,
+    HIGH). Their stats are MECHB51's
     entries (models-mechb51.yaml, supports-parts.yaml): none listed here.
   sources: ["builder/search/models.py (stronger_hits_ailment_model, spectral_strength)",
             "builder/search/assumptions.py (the Spectral Volley and Align Fate hooks)",

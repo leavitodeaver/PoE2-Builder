@@ -61,8 +61,9 @@ def test_stronger_hits_carry_the_strongest_ignite():
     mods, notes = models.stronger_hits_ailment_model(sv, stats, "Spectral Volley", 3.0, 1 / 3, 5, "t")
     assert len(mods) == 1 and mods[0]["value"] == pytest.approx(200.0) and mods[0]["keywordFlags"] == ["Ignite"]
     # Align Fate: 0.1 Empowered casts a second, 1 hit at 50%, 4 s: up 20%, x(1 + 0.3 x 0.2)
+    # Align Fate: 0.1 Empowered casts a second, 1 hit at 50% x 1.3 (R49-1) = 65%, 4 s: up 26%, x(1 + 0.3 x 0.26)
     mods, _ = models.stronger_hits_ailment_model(sv, stats, "Align Fate", 1.3, 0.1, 1, "t")
-    assert mods[0]["value"] == pytest.approx(6.0)
+    assert mods[0]["value"] == pytest.approx(7.8)
     stacking = {**stats, "IgniteStacksMax": 3}
     assert models.stronger_hits_ailment_model(sv, stacking, "x", 3.0, 1.0, 1, "t") == ([], [])
     assert models.stronger_hits_ailment_model(sv, stats, "x", 3.0, 1.0, 1, "t", {models.STRONGER_ENTRY}) == ([], [])

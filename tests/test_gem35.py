@@ -134,7 +134,7 @@ def test_gas_grenade_cloud_explodes_only_when_detonated():
     mods, notes = models.detonated_set_model(gas, "Explosion", sets, 0.4, 0.0, "no Detonator")
     assert mods[0]["name"] == "Damage" and mods[0]["value"] < 0  # (steered down to the cloud's DoT)
     assert "clouds" in notes[0]["basis"] or "set it off" in notes[0]["label"]
-    assert "Ignited inside the cloud" in notes[0]["basis"]  # (GEM36, R48-5)
+    assert "Ignited or Burning inside the cloud" in notes[0]["basis"]  # (GEM36, R48-5)
     lit, _ = models.detonated_set_model(gas, "Explosion", sets, 0.4, 0.0, "the boss Ignited", share=0.5)
     assert lit[0]["name"] == "DPS" and lit[0]["value"] == pytest.approx(100 * ((101.9 + 153.9 * 0.5) / 153.9 - 1), abs=1e-3)
     fed, _ = models.detonated_set_model(gas, "Explosion", sets, 0.4, 0.5, "a Detonator")
