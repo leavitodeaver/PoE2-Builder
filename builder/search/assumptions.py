@@ -3472,11 +3472,20 @@ class Assumptions:
                for t in texts):  # (MECHC55: Archon of Undeath, racing an Elemental Archon source for the one slot)
             current = next((s for s in models.archon_sources(with_main_share(build, stats, main), main_gems)
                             if s.flag is None or inputs.has(s.flag)), None)
+            chayula = (self.chayula_gain(inputs, stats) if any(s.name == models.ARCHON_OF_CHAYULA for s in found)
+                       else (0.0, ""))
+            others = [o for o in (models.archon_gain_rate(current), chayula) if o[0] > 0]
             und_mods, und_notes = models.archon_of_undeath_model(
                 found, texts, {k: inputs.total(k) for k in models.ARCHON_TIMING}, inputs.total("ArchonEffect"),
                 inputs.has("ArchonNoRecovery"), (stats.get("_buff_expiry") or (1.0, ""))[0],
-                models.archon_gain_rate(current))
+                (sum(o[0] for o in others), "; ".join(o[1] for o in others)),
+                getattr(self, "undeath_command", 1.0))
+            self.undeath_command = next((n.get(models.UNDEATH_COMMAND_STAT) for n in und_notes
+                                         if n.get(models.UNDEATH_COMMAND_STAT)), 1.0)
+            und_notes = [{k: v for k, v in n.items() if k != models.UNDEATH_COMMAND_STAT} for n in und_notes]
             mods, notes = mods + und_mods, notes + und_notes
+        else:
+            self.undeath_command = 1.0
         # (MECH96) Gruelling Madness's Slowing Potency on the boss (PoB parses none of its lines)
         madness_mods, madness_notes = models.madness_slow_mods(texts, stats, distance, bool(main and main.attack))
         mods, notes = mods + madness_mods, notes + madness_notes
@@ -9777,6 +9786,20 @@ class Assumptions:
             "play": (f"Blazing Critical: keep the supported skill critting; up {counted:.0%}, without it 0" if attack
                      else "")}
         return mods, [note]
+
+    def chayula_gain(self, inputs, stats: dict) -> tuple[float, str]:
+        """(MECHC55) (gains a second, how) of Archon of Chayula for Archon of Undeath's race (models.archon_race), from
+        MECH101's last cycle (self.chayula: models.chayula_cycle, a round behind): its Glory refill left after the shared
+        recovery period, taken as its wait (LOW: pressed as soon as its Glory is full)."""
+        got = getattr(self, "chayula", None)
+        if not got or number(got[0]) <= 0:
+            return 0.0, ""
+        expiry = (stats.get("_buff_expiry") or (1.0, ""))[0]
+        lasts = models.ARCHON_BUFF_SECONDS * max(0.0, 1 + inputs.total("ArchonDuration") / 100) * expiry
+        recovery = (0.0 if inputs.has("ArchonNoRecovery")
+                    else models.ARCHON_RECOVERY / max(1 + inputs.total("ArchonRecovery") / 100, 1e-9))
+        wait = max(1 / number(got[0]) - lasts - recovery, 1e-3)
+        return 1 / wait, f"Archon of Chayula (its Glory full {wait:.3g} s after the recovery; LOW)"
 
     def kalguur_boost(self, skills: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
         """(mods, notes) for Fist of Kalguur's Runic Boost on every Slam it supports, at the share of their uses the

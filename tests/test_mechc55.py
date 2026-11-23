@@ -45,16 +45,43 @@ def test_archon_of_undeath_from_commands_on_their_cooldowns():
     assert "Enrage every 4 s" in notes[0]["basis"] and "UNDERCOUNTS" in notes[0]["basis"]
 
 
-def test_archon_of_undeath_from_offerings_kept_up_with_the_shared_archon_lines():
-    """Bone Offering re-cast every 8 s x 50% = 0.0625/s (wait 16 s); +100% duration, no recovery (Dominion), 50% effect."""
-    skills = [reaver(), models.Skill(name="Bone Offering", group=2)]
+def test_archon_of_undeath_from_offerings_cast_as_the_skeletons_allow():
+    """(R49-7) Each Offering cast creates one: Bone Offering cast back to back (1 s), each needing a Skeleton: 2
+    Skeletons reviving in 7.5 s hold it to 0.267 casts/s x 50% = 0.133 gains/s; the shared Archon lines; the row where
+    re-casts don't count (one per 8 s spike)."""
+    skills = [reaver(), models.Skill(name="Bone Offering", group=2, cast_time=1.0)]
+    revive, _ = models.revive_seconds([skills[0]])
+    rate = 0.5 * min(1.0, 2 / revive)
     _, notes = models.archon_of_undeath_model(skills, [BELT])
-    assert notes[0]["value"] == pytest.approx(round(25 * 10 / (10 + 20 + 16), 2))
+    assert notes[0]["value"] == pytest.approx(round(25 * 10 / (10 + 20 + 1 / rate), 2))
+    row = 10 / (10 + 20 + 1 / (0.5 / 8))
+    assert f"re-casts while a spike stands didn't count, up {row:.0%}" in notes[0]["basis"]
     _, notes = models.archon_of_undeath_model(skills, [BELT], {"ArchonDuration": 100, "ArchonRecovery": 0}, 50,
                                               no_recovery=True)
-    assert notes[0]["value"] == pytest.approx(round(25 * 1.5 * 20 / (20 + 16), 2))
+    assert notes[0]["value"] == pytest.approx(round(25 * 1.5 * 20 / (20 + 1 / rate), 2))
     _, notes = models.archon_of_undeath_model([reaver()], [BELT])  # (no Offering: nothing gains it)
     assert notes[0]["value"] == 0
+
+
+def test_archon_of_undeath_speeds_the_commands_and_reads_its_gains_without_that():
+    """The Commands' 200% more Cooldown Recovery at the Archon's average (1 + 2 up) on the Command-bearing minion skill
+    (a PoB CooldownRecovery MORE, so every Command reader follows); the gains read the Commands at their base rate
+    (`command_prior`, the factor PoB already carries, taken back out)."""
+    mods, notes = models.archon_of_undeath_model([reaver()], [NOTABLE])
+    up = 10 / (10 + 20 + 1 / (0.15 / 4))
+    speed = next(m for m in mods if m.get("name") == "CooldownRecovery")
+    assert speed["type"] == "MORE" and speed["skill"] == reaver().name and speed["value"] == pytest.approx(200 * up,
+                                                                                                         rel=1e-3)
+    assert notes[0][models.UNDEATH_COMMAND_STAT] == pytest.approx(1 + 2 * up, rel=1e-3)
+    sped = models.Skill(name=reaver().name, group=1, summon=reaver().summon, cooldown_recovery=1 + 2 * up)
+    _, again = models.archon_of_undeath_model([sped], [NOTABLE], command_prior=1 + 2 * up)
+    assert again[0]["value"] == notes[0]["value"]  # (the same gains: the Archon's own speed-up taken back out)
+
+
+def test_archon_of_undeath_without_minions_adds_no_damage():
+    skills = [models.Skill(name="Bone Offering", group=2)]
+    mods, notes = models.archon_of_undeath_model(skills, [BELT])
+    assert mods == [] and notes[0]["value"] == 0  # (no Skeleton for the Offering, and no minions)
 
 
 def test_archon_of_undeath_races_another_archon_kind_for_the_one_slot():
@@ -64,12 +91,6 @@ def test_archon_of_undeath_races_another_archon_kind_for_the_one_slot():
     assert notes[0]["value"] == pytest.approx(round(25 * 0.5 * 10 / (10 + 20 + 1 / (2 * rate)), 2))
     assert "racing Elemental Archon" in notes[0]["basis"]
     assert models.archon_race(1.0, 0.0) == 1.0 and models.archon_race(0.0, 1.0) == 0.0
-
-
-def test_archon_of_undeath_without_minions_adds_no_damage():
-    skills = [models.Skill(name="Bone Offering", group=2)]
-    mods, notes = models.archon_of_undeath_model(skills, [BELT])
-    assert mods == [] and notes[0]["value"] == 0 and "no minions" in notes[0]["basis"]
 
 
 def test_needs_a_target_note_only_for_a_corpse_main_skill_held_to_zero():

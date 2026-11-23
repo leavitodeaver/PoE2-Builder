@@ -516,6 +516,9 @@ def natures_archon_uptime(texts: list[str], overgrows: float, x: dict | None = N
 # (labelled, UNDERCOUNTS): the Commands' 200% more Cooldown Recovery while up (Command damage is scored apart), the
 # Temporary minions' doubled limit, the revive on each gain.
 ARCHON_UNDEATH_MORE = 25.0  # KeywordPopups UndeadArchon: 25% more Minion Damage
+ARCHON_UNDEATH_COMMAND = 200.0  # KeywordPopups UndeadArchon: 200% more Cooldown Recovery Rate for Command Skills
+UNDEATH_COMMAND_TAG = "ArchonOfUndeathCommands"
+UNDEATH_COMMAND_STAT = "_undeath_command"  # (the note's key: the Command recovery factor its mods give PoB)
 UNDEATH_ON_COMMAND = re.compile(r"^(\d+(?:\.\d+)?)% chance to gain Archon of Undeath when you use a Command skill$", re.I)
 UNDEATH_ON_OFFERING = re.compile(r"^(\d+(?:\.\d+)?)% (?:chance )?to gain Archon of Undeath when you create an Offering"
                                  r"(?: Minion)?$", re.I)  # (poe2db's belt text ends "Offering Minion"; PoB's "Offering")
@@ -530,27 +533,30 @@ def archon_race(own: float, others: float) -> float:
 
 def archon_of_undeath_model(skills: list[Skill], texts: list[str], x: dict | None = None, effect: float = 0.0,
                             no_recovery: bool = False, expiry: float = 1.0,
-                            others: tuple[float, str] = (0.0, "")) -> tuple[list[dict], list[dict]]:
+                            others: tuple[float, str] = (0.0, ""),
+                            command_prior: float = 1.0) -> tuple[list[dict], list[dict]]:
     """(MECHC55) (mods, notes) for Archon of Undeath (see above). `x`: ArchonDuration / ArchonRecovery totals (%);
-    `effect`: ArchonEffect (%); `others`: (gains a second of another Archon kind the build has, how)."""
+    `effect`: ArchonEffect (%); `others`: (gains a second of the other Archon kinds the build has, how);
+    `command_prior`: the Command Cooldown Recovery factor this model's last mods gave PoB (UNDEATH_COMMAND_STAT's note),
+    taken back out of the Commands' rate for the gains. The note carries UNDEATH_COMMAND_STAT: the factor of these mods."""
     texts = [t.strip() for t in texts]
     on_command = min(100.0, sum(float(m.group(1)) for t in texts if (m := UNDEATH_ON_COMMAND.match(t))))
     on_offering = min(100.0, sum(float(m.group(1)) for t in texts if (m := UNDEATH_ON_OFFERING.match(t))))
     if on_command <= 0 and on_offering <= 0:
         return [], []
     label = "Archon of Undeath: 25% more Minion Damage at its share of the fight*"
-    commands, command_parts = command_uses(skills) if on_command > 0 else (0.0, [])
-    offered = [n for n in dict.fromkeys(s.name for s in skills if s.name in OFFERING_SECONDS and s.group is not None)]
-    offerings = sum(1 / OFFERING_SECONDS[n] for n in offered) if on_offering > 0 else 0.0
+    prior = max(number(command_prior), 1.0)
+    base = [replace(k, cooldown_recovery=(k.cooldown_recovery or 1.0) / prior) if k.summon and prior != 1.0 else k
+            for k in skills]  # (the gains come outside the Archon: its own Command speed-up taken back out)
+    commands, command_parts = command_uses(base) if on_command > 0 else (0.0, [])
+    offerings, offering_how, recast_row = offering_casts(skills) if on_offering > 0 else (0.0, "", 0.0)
     rate = on_command / 100 * commands + on_offering / 100 * offerings
     parts = []
     if on_command > 0:
         parts.append(f"{on_command:g}% a Command use x {commands:.3g}/s ("
                      + (", ".join(command_parts) if command_parts else "no Command this model maps") + ")")
     if on_offering > 0:
-        parts.append(f"{on_offering:g}% an Offering created x {offerings:.3g}/s ("
-                     + (", ".join(f"{n} re-cast every {OFFERING_SECONDS[n]:g} s" for n in offered) if offered
-                        else "no Offering in the build") + ")")
+        parts.append(f"{on_offering:g}% an Offering created x {offerings:.3g}/s ({offering_how})")
     minions = any(s.summon for s in skills)
     if rate <= 0:
         return [], [{"label": label, "value": 0, "confidence": "MEDIUM",
@@ -568,6 +574,19 @@ def archon_of_undeath_model(skills: list[Skill], texts: list[str], x: dict | Non
         up = up_alone
     scale = max(0.0, 1 + effect / 100)
     more = ARCHON_UNDEATH_MORE * scale * up if minions else 0.0
+    # (the Commands' 200% more Cooldown Recovery Rate while it's up: the time average, 1 + 2 x effect x up, on every
+    # Command-bearing minion skill (COMMANDS), so each reader of its cooldown_recovery (the Command rates: Death Storm,
+    # Explosive Demise, Shattering Roar, Puppet Master, different Commands) uses them that much more often)
+    command_more = ARCHON_UNDEATH_COMMAND * scale * up
+    commanders = sorted({k.name for k in skills if k.summon and any(m in k.name for m in COMMANDS)})
+    command_mods = [raw_mod("CooldownRecovery", "MORE", command_more, skill=n, tag=UNDEATH_COMMAND_TAG)
+                    for n in commanders] if command_more > 0 else []
+    if on_offering > 0 and recast_row > 0 and recast_row != offerings:  # (R49-7's row: re-casts don't count)
+        row_rate = on_command / 100 * commands + on_offering / 100 * recast_row
+        row_up = archon_uptime(number((x or {}).get("ArchonDuration")), number((x or {}).get("ArchonRecovery")),
+                               1 / row_rate, no_recovery, expiry) if row_rate > 0 else 0.0
+    else:
+        row_up = None
     duration = ARCHON_DURATION * max(0.0, 1 + duration_inc / 100) * expiry
     recovery = 0.0 if no_recovery else ARCHON_RECOVERY / max(1 + faster / 100, 1e-9)
     basis = (f"gains: {'; '.join(parts)} = {rate:.3g} a second, taken as random (MEDIUM): a mean {1 / rate:.3g} s "
@@ -576,14 +595,45 @@ def archon_of_undeath_model(skills: list[Skill], texts: list[str], x: dict | Non
                 if other_rate > 0 else "")
              + (f"; effect x{scale:.2f}" if scale != 1 else "")
              + (f": {more:.2f}% more Minion Damage averaged" if minions else ": the build has no minions, so no damage")
-             + ". Not counted (UNDERCOUNTS): the Commands' 200% more Cooldown Recovery while it's up, the Temporary "
-               "minions' doubled limit, the Persistent Undead minions revived on each gain; not raced: a Nature's "
-               "Archon or Archon of Chayula source (one slot for every kind: an OVERCOUNT where the build has one)")
+             + (f"; the Commands' 200% more Cooldown Recovery while it's up: x{1 + command_more / 100:.3f} on "
+                f"{', '.join(commanders)}'s Commands on average" if command_mods else "")
+             + (f". Row (R49-7, MEDIUM: each cast creates one): if re-casts while a spike stands didn't count, up "
+                f"{row_up:.0%}" if row_up is not None else "")
+             + ". Not counted (UNDERCOUNTS): the Temporary minions' doubled limit, the Persistent Undead minions "
+               "revived on each gain; not raced: a Nature's Archon source (one slot for every kind: an OVERCOUNT where "
+               "the build has one)")
     play = (f"Archon of Undeath: press your Commands on cooldown / keep your Offerings up to gain it; without it +0%, "
             f"with it {more:.1f}% more Minion Damage averaged (up {up:.0%})")
     note = {"label": label, "value": round(more, 2), "basis": basis, "play": play,
-            "confidence": "MEDIUM (game text: the chances, the 25%, the Archon cycle; the gains taken as random)"}
-    return ([line("Minions deal 1% more Damage", more)] if more > 0 else []), [note]
+            "confidence": "MEDIUM (game text: the chances, the 25%, the Archon cycle; the gains taken as random)",
+            UNDEATH_COMMAND_STAT: 1 + command_more / 100}
+    return ([line("Minions deal 1% more Damage", more)] if more > 0 else []) + command_mods, [note]
+
+
+def offering_casts(skills: list[Skill]) -> tuple[float, str, float]:
+    """(MECHC55; RESEARCH49 R49-7, MEDIUM: each Offering cast creates an Offering, re-casts too) (Offerings created a
+    second while the build feeds Archon of Undeath, how, the row's rate if re-casts didn't count): the build's Offering
+    skills cast back to back (their PoB cast time), each needing an active Skeleton (KeywordPopups Offering: "Offering
+    Skills target an active Skeleton Minion"; the skewered one revives: revive_seconds, as danse_macabre_model), so at
+    most its Persistent Skeletons / their revive time. Cast only while waiting for the next Archon (the build plays to
+    feed it): their cast time is a small share of the fight (not charged, LOW). No Skeleton: 0."""
+    offerings = [k for k in skills if k.name in OFFERING_SECONDS and k.group is not None]
+    if not offerings:
+        return 0.0, "no Offering in the build", 0.0
+    recast_row = sum(1 / OFFERING_SECONDS[n] for n in dict.fromkeys(k.name for k in offerings))
+    skeletons = [k for k in skills if k.summon and k.summon.get("persistent") and "Skelet" in k.name
+                 and not number(k.summon.get("duration"))]
+    count = sum(number(k.summon.get("limit")) for k in skeletons)
+    if count <= 0:
+        return 0.0, "no Persistent Skeleton for an Offering to target: 0", recast_row
+    revive, revive_how = revive_seconds(skeletons)
+    cast = min((k.cast_time or 1.0) for k in offerings)
+    supply = count / revive if revive > 0 else math.inf
+    casts = min(1 / cast, supply)
+    names = ", ".join(dict.fromkeys(k.name for k in offerings))
+    return casts, (f"{names} cast back to back while waiting for it: one per {cast:.2g} s cast"
+                   + (f", held to {count:g} Skeletons / {revive:.3g} s to revive ({revive_how})" if supply < 1 / cast
+                      else f" ({count:g} Skeletons, {revive:.3g} s to revive, enough)")), recast_row
 
 
 def archon_gain_rate(source: ArchonSource | None) -> tuple[float, str]:
