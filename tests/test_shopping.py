@@ -374,9 +374,17 @@ def test_jewel_craft_prices_the_base_and_each_material_step() -> None:
 def test_jewel_budget_uses_crafting_while_market_data_is_thin() -> None:
     affixes = [craft_affix("Suffix"), craft_affix("Suffix"), craft_affix("Prefix"), craft_affix("Prefix")]
     thin = rare_prices.RarePriceModel(materials=MATERIALS)
-    priced = thin.jewel("Jewel 1", affixes)
-    assert priced["basis"] == "crafting" and priced["price"] == pytest.approx(priced["craft"]["total"])
+    priced = thin.jewel("Jewel 1", affixes)  # (JEWEL1, 23 Nov: thin data, a PLAIN jewel: the cheaper of market and craft)
+    assert priced["market"] < priced["craft"]["total"]
+    assert priced["basis"] == "market" and priced["price"] == pytest.approx(max(rare_prices.MIN_PRICE, priced["market"]))
     assert thin.price("Jewel 1", affixes) == pytest.approx(priced["price"])
+    dear = rare_prices.RarePriceModel(materials=MATERIALS)
+    dear.params["base"]["jewel"] = 9.0  # a market model far above the craft: still the cheaper one
+    costly = dear.jewel("Jewel 1", affixes)
+    assert costly["basis"] == "crafting" and costly["price"] == pytest.approx(costly["craft"]["total"])
+    full = affixes[:3] + [craft_affix("Prefix"), craft_affix("Prefix", crafted=True)]  # a crafted jewel keeps its route
+    made = thin.jewel("Jewel 1", full)
+    assert made["basis"] == "crafting" and made["price"] == pytest.approx(made["craft"]["total"])
     calibrated = rare_prices.RarePriceModel(samples={"jewel": 5}, fitted_at=1.0, materials=MATERIALS)
     calibrated.params["base"]["jewel"] = -9.0  # a market far cheaper than crafting
     assert calibrated.jewel("Jewel 1", affixes)["basis"] == "market"

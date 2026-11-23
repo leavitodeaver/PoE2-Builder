@@ -211,6 +211,22 @@ def test_a_jewel_in_an_item_socket_counts_only_while_the_item_holds_it(search, d
     build.restore(snap)
 
 
+def test_a_jewel_in_an_item_socket_is_not_in_your_tree():
+    """(JEWEL2, the manager's 23 Nov ruling) "while you have a <X> and a <Y> socketed in your tree" reads tree sockets:
+    of the bridge's facts items, Conditions._tree_jewels keeps slots "Jewel <node id>" and leaves out an item's socket."""
+    from types import SimpleNamespace
+
+    from builder.search.conditions import Conditions
+
+    items = [{"slot": "Jewel 26196", "base": "Sapphire", "type": "Jewel"},
+             {"slot": "Jewel 11184", "base": "Emerald", "type": "Jewel"},  # (a Sinister socket: read as in the tree)
+             {"slot": "Body Armour Jewel Socket 1", "base": "Ruby", "type": "Jewel"},
+             {"slot": "Ring 2 Jewel Socket 1", "base": "Ruby", "type": "Jewel"},
+             {"slot": "Body Armour", "base": "Simple Robe", "type": "Body Armour"}]
+    read = SimpleNamespace(build=SimpleNamespace(call=lambda *_, **__: {"items": items}))
+    assert Conditions._tree_jewels(read) == ["Emerald", "Sapphire"]
+
+
 def test_a_jewel_in_an_item_socket_is_priced_as_a_jewel():
     from builder.data.rare_prices import category
 

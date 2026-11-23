@@ -161,10 +161,11 @@ class RarePriceModel:
         return max(MIN_PRICE, math.exp(min(log_price, 20.0)))
 
     def jewel(self, slot: str, affixes, roll: float = 0.7) -> dict:
-        """A rare jewel's budget price and what it rests on: the crafting estimate while the
-        market data for jewels is thin (a specific four- or five-line jewel rarely has listings, and
-        those that do sell far above a model fitted on two-line ones), else the cheaper of the market
-        model and crafting."""
+        """A rare jewel's budget price and what it rests on. While the market data for jewels is thin,
+        a crafted jewel (4 + the effect line) takes the crafting estimate (a specific five-line jewel
+        rarely has listings, and those that do sell far above a model fitted on two-line ones) and a
+        plain one the cheaper of the market model and crafting (JEWEL1); with enough data, every
+        jewel takes the cheaper of the two."""
         market = self.price(slot, affixes, craft=False)
         craft = jewel_craft(affixes, self.materials, lambda keep: self.price(slot, keep, craft=False), roll)
         if craft is None:

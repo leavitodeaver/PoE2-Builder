@@ -105,6 +105,9 @@ def rooted_subsets(root: int, adjacency: dict[int, list[int]], limit: int) -> li
 
 
 class Tree:
+    socket_value: Callable[[], float] | None = None  # (JEWEL2: class defaults, for a Tree made without __init__)
+    fill_socket: Callable[[int, float], bool] | None = None
+
     def restricting(self, adjacency: dict[int, list[int]]) -> dict[int, str]:
         """The nodes here whose lines restrict an equipment slot (gear.SLOT_RESTRICTIONS), with that slot."""
         from builder.search.gear import SLOT_RESTRICTIONS

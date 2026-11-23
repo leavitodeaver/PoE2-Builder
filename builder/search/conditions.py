@@ -9729,9 +9729,12 @@ class Conditions:
 
     def _tree_jewels(self) -> list[str]:
         """(MECH92) The base names of the jewels in the build's allocated passive-tree sockets (bridge facts' items: PoB's
-        item slots that aren't inactive, type Jewel)."""
+        item slots that aren't inactive, type Jewel). (JEWEL2, the manager's 23 Nov ruling, an OVERCOUNT) A tree socket's
+        slot is "Jewel <node id>", Sinister ones included (a granted Sinister socket read as in the tree: UNVERIFIED); a
+        jewel in an item's socket ("<item slot> Jewel Socket <n>": Tabula Rasa, the rings) isn't in the tree."""
         items = self.build.call("facts", fields=[]).get("items") or []
-        return sorted(str(i.get("base") or "") for i in items if i.get("type") == "Jewel")
+        return sorted(str(i.get("base") or "") for i in items
+                      if i.get("type") == "Jewel" and str(i.get("slot") or "").startswith("Jewel "))
 
     def _kills(self) -> tuple[float, float, str]:
         """models.kill_rate's (enemies/s, all/s, how) for the request's boss: its preset's add kills (bosses.kill_stats,
