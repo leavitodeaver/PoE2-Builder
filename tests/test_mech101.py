@@ -94,3 +94,39 @@ def test_the_new_curse_is_capped_in_curse_uses_first_pass():
     groups = [{"gems": [{"name": "Despair"}]}, {"gems": [{"name": "Fireball"}], "main": True}]
     capped = {u.name: u for u in models.curse_uses(groups, _Ctx.gems, stats, 3.0)}["Despair"]
     assert capped.share == 0.0
+
+
+# MECH101, the flat-rate sweep: a curse a Spell Totem casts is up while a totem stands (models.totem_curse_up), not 100%
+CURSE_GEMS = {"Despair": {"skillTypes": ["AppliesCurse", "Spell"]}, "Spell Totem": {"skillTypes": ["Meta", "SummonsTotem"]},
+              "Fireball": {"skillTypes": ["Spell"]}}
+TOTEM_STATS = {"Speed": 2.0, "HitChance": 100, "PowerChargesMax": 3, "EnduranceChargesMax": 3}
+
+
+def _totem_curse(texts):
+    skills = [models.Skill("Spell Totem", group=1), models.Skill("Despair", group=1, spell=True),
+              models.Skill("Fireball", group=2, spell=True)]
+    return models.totem_curse_up(skills, TOTEM_STATS, texts, {"Spell Totem": 20}, CURSE_GEMS)
+
+
+def test_a_spell_totems_curse_follows_the_totems_the_build_charges_place():
+    # a Power Charge every 4 s: 0.25/s x 8 s / 3 = 0.67 totems up on average
+    up = _totem_curse(["Gain a Power Charge every 4 seconds"])
+    assert up["Despair"][0] == pytest.approx(0.67, abs=0.01)
+    # no charge source: no totem, no curse
+    assert _totem_curse([])["Despair"][0] == 0.0
+    # a curse cast by hand isn't a totem's
+    skills = [models.Skill("Despair", group=1, spell=True)]
+    assert models.totem_curse_up(skills, TOTEM_STATS, [], {}, CURSE_GEMS) == {}
+
+
+def test_curse_uses_reads_the_totems_share_instead_of_always_on():
+    groups = [{"gems": [{"name": "Spell Totem"}, {"name": "Despair"}]}, {"gems": [{"name": "Fireball"}], "main": True}]
+    stats = {"Speed": 1.0, "HitChance": 100}
+    old = {u.name: u for u in models.curse_uses(groups, CURSE_GEMS, stats, 3.0)}["Despair"]
+    assert old.share == 1.0  # (not read: the old labelled reading stays)
+    got = {u.name: u for u in models.curse_uses(groups, CURSE_GEMS, {**stats, "_totem_curse_up": {"Despair": (0.4, "x")}},
+                                                3.0)}["Despair"]
+    assert got.share == pytest.approx(0.4) and "Spell Totem" in got.how
+    none = {u.name: u for u in models.curse_uses(groups, CURSE_GEMS, {**stats, "_totem_curse_up": {"Despair": (0.0, "x")}},
+                                                 3.0)}["Despair"]
+    assert none.share == 0.0

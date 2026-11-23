@@ -1489,6 +1489,30 @@ def cast_by_totem(skills: list[Skill], skill: Skill | None) -> bool:
     return skill is not None and any(s.name in TOTEM_METAS and s.group == skill.group for s in skills)
 
 
+# A curse a Spell Totem casts (MECH101, the manager's 21:30 flat-rate sweep; an OVERCOUNT: curse_uses read any curse in a
+# meta group with no Energy rate as "assumed applied when needed", 100% of the fight, so a curse in a side Spell Totem
+# group cursed the boss all fight even when the build makes no Power / Endurance Charges to place a totem). A Spell Totem
+# casts its socketed spell over and over while it stands (models.TOTEM_METAS' "a totem that casts the main Spell"), so
+# its curse is up while a totem is: totem_model's own totems up on average (the build's charges, 3 a totem, the totem's
+# duration, its limit, Ancestral Bond), with the curse as the totem's spell, taken as min(1, totems up) (MEDIUM: the
+# totems taken as placed one after another; the curse lasting past a totem's end not counted, the lower reading).
+# No charges, no totem: 0. Only curse gems (AppliesCurse) in a group with a TOTEM_METAS skill.
+def totem_curse_up(skills: list[Skill], stats: dict, texts: list[str], levels: dict[str, int], gems: dict,
+                   inhibited: set[str] = frozenset()) -> dict[str, tuple[float, str]]:
+    """{curse: (totems up on average, how)} for each curse a totem meta casts (the note above)."""
+    curses = set(curse_gem_names(gems))
+    out: dict[str, tuple[float, str]] = {}
+    for curse in (s for s in skills if s.name in curses and s.group is not None):
+        if not cast_by_totem(skills, curse) or curse.name in out:
+            continue
+        _, notes = totem_model(skills, stats, texts, levels, replace(curse, spell=True), inhibited)
+        if notes:
+            up = number(notes[0].get("value"))
+            out[curse.name] = (up, f"{up:.2f} totems up on average ({str(notes[0].get('basis', '')).split(';')[0]}), each casting the "
+                                   f"curse while it stands: {min(1.0, up):.0%} of the fight (MEDIUM)")
+    return out
+
+
 def totem_model(skills: list[Skill], stats: dict, texts: list[str], levels: dict[str, int],
                 main: Skill | None, inhibited: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
     """Spell Totem with the main spell socketed: how many totems are up, from the Power and Endurance Charges the build
@@ -3032,6 +3056,9 @@ def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
                 up = min(1.0, rate * duration)
                 uses.append(CurseUse(name, up, f"triggered by {meta} {rate:.3f} times/s (its Energy), "
                                                f"{lasts} each: {up:.0%} of the fight", duration=duration))
+            elif meta in TOTEM_METAS and name in (stats.get("_totem_curse_up") or {}):
+                up, how = stats["_totem_curse_up"][name]  # (MECH101: TOTEM_CURSE's note)
+                uses.append(CurseUse(name, min(1.0, max(0.0, up)), f"cast by {meta}: {how}", duration=duration))
             elif meta is not None:
                 uses.append(CurseUse(name, 1.0, f"triggered by {meta}: assumed applied when needed (LOW: no model gives "
                                                 "its trigger rate)"))

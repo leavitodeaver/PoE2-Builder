@@ -3600,6 +3600,7 @@ def curse_uses(build: Build, stats: dict, texts: list[str], metres: float | None
     stats = {"_curse_durations": getattr(build, "curse_durations", {}), **stats}  # (MECHB12, A25-41: Assumptions.models')
     stats = {"_curse_delays": getattr(build, "curse_delays", {}), **stats}  # (MECH86: each curse's own delay)
     stats = {"_curse_radii": getattr(build, "curse_radii", {}), **stats}  # (MECH96, R38-2: a Blasphemy aura's reach)
+    stats = {"_totem_curse_up": getattr(build, "totem_curse_up", {}), **stats}  # (MECH101: a Spell Totem's curse)
     caps, boss_level = curse_caps_now(build)  # (MECH100: a curse gem's level cap; MECH101: read for a new curse)
     stats = {"_curse_level_caps": caps, "_boss_level": boss_level, **stats}
     # (MECH75) the hand-cast curses the search chose to let run out before each recast (models.CURSE_LAPSE)

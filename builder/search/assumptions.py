@@ -3520,6 +3520,10 @@ class Assumptions:
                                if m.get("kind") == "SkillData" and m.get("key") == "triggerRate"}
         expression_mods, expression_notes, expression_groups = models.expression_model(found, stats, main)
         levels = {g["name"]: g["level"] for grp in build.groups() for g in grp["gems"] if g.get("level")}
+        # (MECH101: a curse a Spell Totem casts, up while a totem is: models.totem_curse_up, for curse_uses)
+        build.totem_curse_up = models.totem_curse_up(found, stats, [e["text"] for e in source_lines], levels,
+                                                     build.ctx.gems if getattr(build, "ctx", None) else {},
+                                                     conditions_mod.inhibited_skills(build.groups()))
         totem_mods, totem_notes = models.totem_model(found, stats, [e["text"] for e in source_lines], levels, main,
                                                      conditions_mod.inhibited_skills(build.groups()))  # (MECHB51)
         energy_mods, energy_notes = energy_mods + totem_mods, energy_notes + totem_notes
