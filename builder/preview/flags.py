@@ -2,11 +2,14 @@
 result, never a number change (the brief: "never change current-game numbers"); the 0.5.5 numbers stay until the
 release-day swap (PLAN.md). Sources: RESEARCH53 R53-1 (research/poe2-1-0-preview-r53.md), sections A and H.
 
-Shown on a result whatever the preview switch says: a build planned on 0.5.5 numbers should know which of its parts
-1.0 is announced to change.
+The manager's ruling (23 Nov 11:18): these are notes about CURRENT-game models, so they show with the preview switch on
+or off, but only WHERE THE CHANGE TOUCHES THE BUILD (each flag's "applies"; notes() below). The general balance note
+names no part of a build, so it shows only with the switch on.
 """
 
 from __future__ import annotations
+
+import re
 
 FLAGS: list[dict] = [
     {
@@ -14,7 +17,7 @@ FLAGS: list[dict] = [
         "what": "the passive tree",
         "note": "1.0 overhauls the passive tree ('hundreds of new stats'); critical hit chance is reported to leave the "
                 "ordinary tree (crit multiplier stays)",
-        "applies": "always",
+        "applies": "crit_passives",
         "confidence": "HIGH for the overhaul (GGG); LIKELY for crit (third parties, scope UNVERIFIED)",
         "sources": ["GGG press release 7 Nov 2026 (poe2db Version_1.0.0)", "ExpCarry 16 Nov, Elyxir 8 Nov, aoeah 10 Nov"],
     },
@@ -23,7 +26,7 @@ FLAGS: list[dict] = [
         "what": "jewel sockets",
         "note": "1.0 moves every jewel socket into the passive clusters (~60 sockets, each behind a Notable cluster): "
                 "today's socket positions and their path costs change",
-        "applies": "jewels",
+        "applies": "tree_jewels",
         "confidence": "HIGH that they move (GGG); MEDIUM for ~60 (Maxroll, read off the keynote)",
         "sources": ["GGG press release 7 Nov 2026: 'We've also moved all Jewel Sockets into the clusters'",
                     "Maxroll 7 Nov 2026"],
@@ -34,7 +37,7 @@ FLAGS: list[dict] = [
         "note": "1.0 'massively rebalanced Support Gems': every support's numbers may move (named: Fire / Cold / "
                 "Lightning Penetration merged into Elemental Penetration; Chain no longer penalises the first hit; "
                 "Brutality reworked; Living Lightning deals Attack or Spell damage)",
-        "applies": "always",
+        "applies": "named_supports",
         "confidence": "HIGH for the rebalance (GGG); MEDIUM for the named examples (keynote, third parties)",
         "sources": ["GGG's official overview (quoted by kami-labs)", "Maxroll, Output Lag 6 Nov, ExpCarry 19 Nov"],
     },
@@ -43,7 +46,7 @@ FLAGS: list[dict] = [
         "what": "the 4-mod + increased-effect jewel craft",
         "note": "no 1.0 statement found on the Liquid Emotion jewel craft; third parties say jewels give 'less "
                 "excessive critical power' and the 5-mod case is disputed: re-check at the patch notes (~4 Dec)",
-        "applies": "jewels",
+        "applies": "crafted_jewels",
         "confidence": "UNVERIFIED (checked: GGG press release, poe2db league page, Maxroll, Output Lag, Elyxir, "
                       "ExpCarry, poebuilds)",
         "sources": ["RESEARCH53 R53-1 H 'Jewels'"],
@@ -52,7 +55,7 @@ FLAGS: list[dict] = [
         "key": "balance",
         "what": "game balance",
         "note": "GGG: 'game balance is the biggest change' from 0.5; every 0.5.5 number is provisional for 1.0",
-        "applies": "always",
+        "applies": "preview_on",
         "confidence": "HIGH (Rogers, Inven Global 18 Nov 2026, verbatim)",
         "sources": ["Inven Global 18 Nov 2026"],
     },
@@ -79,11 +82,37 @@ def for_ascendancy(name: str | None) -> str | None:
             "(GGG press release 7 Nov 2026; details third-party, MEDIUM / LOW)")
 
 
-def notes(ascendancy: str | None = None, uses_jewels: bool = False) -> list[str]:
-    """Every '1.0 changes pending' note for a result: the always-on ones, jewels' when it socketed any, and its
-    ascendancy's rework."""
-    out = [f"1.0 changes pending ({f['what']}): {f['note']} [{f['confidence']}]" for f in FLAGS
-           if f["applies"] == "always" or (f["applies"] == "jewels" and uses_jewels)]
+# The supports 1.0's reveal names (RESEARCH53 R53-1 H: keynote examples, third parties, MEDIUM), matched without their
+# tier numeral. Every support's numbers may move, but these are the ones with a named change to point a build at.
+NAMED_SUPPORTS = frozenset({"Fire Penetration", "Cold Penetration", "Lightning Penetration", "Chain", "Brutality",
+                            "Living Lightning"})
+_TIER = re.compile(r"\s+(?:I{1,3}|IV|V)$")
+# A passive line about crits landing ON the player is defence, not the crit 1.0 is reported to move
+_CRIT = re.compile(r"critical", re.I)
+_CRIT_ON_YOU = re.compile(r"against you|you take|taken from", re.I)
+
+
+def named_supports(gem_names) -> list[str]:
+    """The build's gems (by name) that are supports 1.0's reveal names."""
+    return sorted(n for n in set(gem_names) if n and _TIER.sub("", n) in NAMED_SUPPORTS)
+
+
+def is_crit_passive(node: dict) -> bool:
+    """Whether an ordinary (non-ascendancy) passive has an offensive critical-hit line."""
+    if node.get("ascendancy"):
+        return False
+    return any(_CRIT.search(s) and not _CRIT_ON_YOU.search(s) for s in node.get("stats") or [])
+
+
+def notes(ascendancy: str | None = None, tree_jewels: bool = False, crafted_jewels: bool = False,
+          crit_passives: int = 0, supports: tuple | list = (), preview_on: bool = False) -> list[str]:
+    """The '1.0 changes pending' notes that touch this build (the manager's ruling, 23 Nov 11:18)."""
+    touches = {"tree_jewels": tree_jewels, "crafted_jewels": crafted_jewels, "crit_passives": crit_passives > 0,
+               "named_supports": bool(supports), "preview_on": preview_on}
+    these = {"crit_passives": f" (this build: {crit_passives} passive(s) with critical-hit lines)",
+             "named_supports": f" (this build: {', '.join(supports)})"}
+    out = [f"1.0 changes pending ({f['what']}): {f['note']}{these.get(f['applies'], '')} [{f['confidence']}]"
+           for f in FLAGS if touches[f["applies"]]]
     asc = for_ascendancy(ascendancy)
     if asc:
         out.append(asc)

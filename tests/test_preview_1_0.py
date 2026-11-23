@@ -135,10 +135,43 @@ def test_the_checklist_marks_preview_gems_and_pending_changes():
     rows = [i for i in items if i["kind"] == "1.0 preview *"]
     assert [r["title"] for r in rows] == [f"Charged Slash{preview.ASTERISK}", f"Elemental Penetration{preview.ASTERISK}"]
     pending = [i["why"] for i in items if i["kind"] == "1.0 changes pending"]
-    assert any("Acolyte of Chayula" in p for p in pending) and any("passive tree" in p for p in pending)
-    # the switch off: no pending row; a 0.5.5 build gets no 1.0 row at all (its checklist as before)
-    assert not [i for i in checklist({"groups": result["groups"]}) if i["kind"] == "1.0 changes pending"]
-    assert not [i for i in checklist({"groups": [{"gems": [{"name": "Brutality"}]}]}) if i["kind"].startswith("1.0")]
+    assert any("Acolyte of Chayula" in p for p in pending) and any("game balance" in p for p in pending)
+    assert not any("passive tree" in p for p in pending)  # (no crit passive in this result)
+    assert not [i for i in checklist({"groups": [{"gems": [{"name": "Ice Nova"}]}]}) if i["kind"].startswith("1.0")]
+
+
+def _pending(result):
+    from builder.report.checklist import checklist
+
+    return [i["why"] for i in checklist(result) if i["kind"] == "1.0 changes pending"]
+
+
+def test_pending_notes_show_only_where_the_change_touches_the_build_with_the_switch_off():
+    from builder.data import GameData
+    from builder.pob.codes import encode
+
+    assert _pending({"summary": {"ascendClassName": "Titan"}, "groups": [{"gems": [{"name": "Ice Nova"}]}]}) == []
+    assert len(_pending({"summary": {"ascendClassName": "Infernalist"}})) == 1
+    supports = _pending({"groups": [{"gems": [{"name": "Brutality II"}]}]})
+    assert len(supports) == 1 and "support gems" in supports[0] and "this build: Brutality II" in supports[0]
+    # a unique tree jewel: the socket note, not the craft note; a rare one: both
+    unique = _pending({"gear": {"Jewel 1": {"name": "Megalomaniac", "unique": True, "rare": False}}})
+    assert len(unique) == 1 and "jewel sockets" in unique[0]
+    rare = _pending({"gear": {"Jewel 1": {"name": "Rare Jewel", "unique": False, "rare": True}}})
+    assert len(rare) == 2 and any("jewel craft" in p for p in rare)
+    # crit passives, read from the build code; a passive with no crit line and a defensive crit line don't count
+    nodes = GameData().tree["nodes"]
+    crit = next(n for n in nodes if flags.is_crit_passive(n))
+    plain = next(n for n in nodes if not n.get("ascendancy") and "ritical" not in str(n.get("stats")))
+    assert not flags.is_crit_passive({"stats": ["Hits against you have 20% reduced Critical Damage Bonus"]})
+
+    def code(ids):
+        return encode(f'<PathOfBuilding2><Tree activeSpec="1"><Spec nodes="{ids}"/></Tree></PathOfBuilding2>')
+
+    assert not _pending({"code": code(plain["id"])})
+    tree = _pending({"code": code(f"{plain['id']},{crit['id']}")})
+    assert len(tree) == 1 and "passive tree" in tree[0] and "1 passive(s)" in tree[0]
+    assert _pending({"code": "not a build code"}) == []
 
 
 def test_preview_uniques_join_only_with_the_switch():

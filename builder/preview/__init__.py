@@ -95,9 +95,8 @@ def on_in(result: dict) -> bool:
 
 def checklist_items(result: dict) -> list[dict]:
     """The test-in-game checklist's rows for a result (builder/report/checklist.py): one '1.0 preview *' row for each
-    preview gem the build uses (its asterisk and what is left out), and the '1.0 changes pending' notes (flags.py:
-    the tree, supports, balance, jewels when it socketed any, its ascendancy's rework), the latter while the request has
-    the preview switch on."""
+    preview gem the build uses (its asterisk and what is left out), and the '1.0 changes pending' notes that touch
+    this build, with the switch on or off (flags.notes; the manager's ruling, 23 Nov 11:18)."""
     from builder.preview import flags
 
     items: list[dict] = []
@@ -117,15 +116,45 @@ def checklist_items(result: dict) -> list[dict]:
                               "why": unique_note(row),
                               "how": "Not in the game in this form until 1.0 (11 Dec 2026); its lines come from GGG's "
                                      "reveal and may change. Re-check after the release-day update."})
-    if not on_in(result):
-        return items  # (the pending notes only with the switch on, for now: a question for the manager, PREVIEW1)
     summary = result.get("summary") or {}
-    jewels = bool(result.get("radius_jewels")) or any("Jewel" in slot for slot in gear)
-    for text in flags.notes(summary.get("ascendClassName"), uses_jewels=jewels):
+    jewels = [item or {} for slot, item in gear.items() if "Jewel" in slot]
+    crafted = any(j.get("rare") and not j.get("unique") for j in jewels)
+    gem_names = [gem.get("name") for group in result.get("groups") or [] for gem in group.get("gems") or []]
+    for text in flags.notes(summary.get("ascendClassName"), tree_jewels=bool(jewels or result.get("radius_jewels")),
+                            crafted_jewels=crafted, crit_passives=_crit_passives(result.get("code")),
+                            supports=flags.named_supports(gem_names), preview_on=on_in(result)):
         items.append({"kind": "1.0 changes pending", "title": text.split(": ", 1)[0], "why": text,
                       "how": "Nothing to check now: the numbers are 0.5.5's. Re-plan after the 1.0 patch notes "
                              "(about 4 Dec 2026) and the release-day data update."})
     return items
+
+
+@cache
+def _crit_node_ids() -> frozenset[int]:
+    from builder.data import GameData
+    from builder.preview import flags
+
+    return frozenset(n["id"] for n in GameData().tree["nodes"] if flags.is_crit_passive(n))
+
+
+def _crit_passives(code: str | None) -> int:
+    """How many of the build code's allocated passives have an offensive critical-hit line (a result carries only the
+    count of its passives). 0 when the code can't be read: the note is then not shown; no number depends on it."""
+    if not code:
+        return 0
+    import binascii
+    import zlib
+    from xml.etree import ElementTree
+
+    from builder.pob.codes import decode
+
+    try:
+        tree = ElementTree.fromstring(decode(code)).find("Tree")
+        spec = tree.findall("Spec")[int(tree.get("activeSpec") or 1) - 1]
+        allocated = {int(n) for n in (spec.get("nodes") or "").split(",") if n}
+    except (ValueError, IndexError, AttributeError, ElementTree.ParseError, binascii.Error, zlib.error):
+        return 0
+    return len(allocated & _crit_node_ids())
 
 
 def add_gems(data: Any) -> Any:
