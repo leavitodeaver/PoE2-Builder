@@ -104,12 +104,19 @@ LINE_REGROW = os.environ.get("POE2_SEARCH_LINE_REGROW", "0") == "1"
 # (gear.resume) runs that round on first, from the slot it stopped at, under GEAR_SHARE as a full round. OFF until a
 # gate pair measures it
 GEAR_FIRST_MODE = os.environ.get("POE2_SEARCH_GEAR_FIRST", "0")
-GEAR_FIRST = GEAR_FIRST_MODE in ("1", "empty")
+GEAR_FIRST = GEAR_FIRST_MODE in ("1", "empty", "last")
 # (SEARCH37, the manager's ruling on the 2b75e loss) POE2_SEARCH_GEAR_FIRST=empty: the narrow form. The round that goes on
 # first works only the slots still empty (Gear.gear_round's `only`), and the cut full round keeps its place for the
 # line's next gear step, so the resumed pass reaches supports (on 2b75e seed 1 the full form's round-2 tasks each ran a
 # whole cut round, gear 97-101 s a task, and never reached supports: POE2T7423)
 GEAR_FIRST_EMPTY = GEAR_FIRST_MODE == "empty"
+# (SEARCH37) POE2_SEARCH_GEAR_FIRST=last: the gear goes LAST, and only when it must. The resumed pass runs as with gear-first
+# off, but its steps stop GEAR_SHARE of the task early; if the pass ends before then, the line's next pass starts with
+# its gear step anyway (nothing changes), and if not, the cut round goes on in the time kept back. Why: with gear-first
+# off, 2b75b's round-2 tasks never got back to the gear step (passes 1, done 0, 6 slots empty at t 390: POE2T7410) while
+# 2b75e's finished the pass and its next gear round filled every slot (passes 2, done 1: POE2T7422 / 7434), and both
+# the full and the narrow forms lost 2b75e by ~x0.5 (POE2T7423 / 7435 / 7436) by running the gear before that pass
+GEAR_FIRST_LAST = GEAR_FIRST_MODE == "last"
 LINE_REGROW_SHARE = 0.3
 LINE_REGROW_CLEARS = ("weak:30", "weak:15", "weak:8")  # (the variants 2b75b kept in POE2T5552; "all" was refused)
 IDLE_STEPS = ("persistent", "condition sources", "meta gems")
@@ -1200,10 +1207,15 @@ class Search:
             steps.insert(3, ("weapon sets", self.weapon_set_round, ()))
         improved = False
         finished = True
+        limit = deadline  # (the steps' own stop; GEAR_FIRST_LAST moves it earlier)
         if resume is not None and resume in [phase for phase, _, _ in steps]:
             steps = steps[[phase for phase, _, _ in steps].index(resume):]
             empty = self.gear_census()["empty"] if GEAR_FIRST and resume != "gear" and self.gear.resume is not None else []
-            if empty:
+            if empty and GEAR_FIRST_LAST:  # (SEARCH37: the steps stop early; the gear may get the time kept back)
+                now = clock.now()
+                limit = max(now, deadline - GEAR_SHARE * max(0.0, deadline - now))
+                steps = [(phase, fn, tuple(limit if a is deadline else a for a in args)) for phase, fn, args in steps]
+            elif empty:
                 now = clock.now()
                 cut = min(deadline, now + GEAR_SHARE * max(0.0, deadline - now))
                 if GEAR_FIRST_EMPTY:  # (SEARCH37: only the empty slots; the cut round waits for the next gear step)
@@ -1211,7 +1223,7 @@ class Search:
                 else:  # (SEARCH35: the cut round goes on first)
                     steps.insert(0, ("gear", self.gear.gear_round, (cut, True)))
         for phase, fn, args in steps:
-            if clock.now() > deadline:
+            if clock.now() > limit:
                 finished = False
                 self.resume_step = phase  # (M1: the next task of this line starts here)
                 break
@@ -1227,6 +1239,10 @@ class Search:
                 entry = self.idle.setdefault(phase, [0, 0])
                 entry[0] = 0 if gained else entry[0] + 1
             improved = gained or improved
+        if limit < deadline and not finished and clock.now() <= deadline:  # (SEARCH37 GEAR_FIRST_LAST: the pass
+            # didn't end in time, so it won't reach its gear step this task: the cut round goes on in the time kept back)
+            self.current_step = "gear"
+            improved = self.step("gear", self.gear.gear_round, deadline, True) or improved
         self.current_step = None
         self.kicked.clear()
         self.passes_done += finished
