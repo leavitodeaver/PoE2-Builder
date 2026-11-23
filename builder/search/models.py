@@ -20023,8 +20023,12 @@ def aftershock_model(texts: list[str], stats: dict, main: Skill | None, main_typ
                    "the other chances, MEDIUM-LOW)")
     mods: list[dict] = []
     correction = target / applied - 1
-    if abs(correction) > 1e-6:
-        mods.append(raw_mod("DPS", "MORE", 100 * correction, main.name))
+    if abs(correction) > 1e-6 or abs(target - 1) > 1e-9:
+        # (MECHB57, the manager's MECHB57 brief item 1, an UNDERCOUNT for the hit readers: the slam's Aftershocks are
+        # hits landing with the slam, `target` a use against PoB's one; the readers saw one. models.HIT_CUT_PER_USE:
+        # the hit readers count them (Shock / Chill chance a use, buildup), the uses kept. The one-slot ailments'
+        # duration mores below stay: they correct PoB's own count, which reads DpsMultiplier (x target / damage).)
+        mods.append(with_per_use(raw_mod("DPS", "MORE", 100 * correction, main.name), target))
     whose = "used by you" if yourself else "triggered or a totem's, so only the \"Slam Skills\" lines count"
     notes = [{"label": f"Aftershock chance, summed ({main.name})",
               "value": f"{a:.0%}" + (f" + {extra:.2f} Aftershocks (Tremors)" if extra else ""),
@@ -22797,6 +22801,12 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
     factor, one = scale(count * share * along), scale(base * along)
     if fissure > 0 and abs(factor - 1.0) < 1e-9:
         return [], []
+    # (MECHB57, the brief's item 1, an UNDERCOUNT for the hit readers: each Fissure at the boss is a hit, so a use lands
+    # `hits` against PoB's one: the Fissures, plus the use's other set's hit beside them (Molten Crash's slam) and the
+    # stars that land (Starborn Onslaught); models.HIT_CUT_PER_USE, the skill used as often. Not counted as hits (the
+    # lower reading): Entangle's vines (hits a second, not a use) and a detonated set's set-off part.)
+    hits = (count * share * along + (1.0 if main.name in FISSURE_BESIDE else 0.0)
+            + (stars[0] if stars is not None else 0.0))
     parts = [f"{base:g} base"] + ([f"+{extra:g} from supports (Upheaval / Kaom's Madness)"] if extra else []) + (
         [f"+{rage:.2f} from its 10 Rage a use ({rage_how})"] if main.name in FISSURE_RAGE else []) + (
         [f"+{chance:.0%} chance of one more ({' + '.join(f'{x:g}%' for x in lines + ([own] if own else []))}"
@@ -22826,7 +22836,7 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
                          f"x{with_stars(stars[2]):.3f}; no star counted, x{with_stars(0.0):.3f}")
         else:
             star_part = f". The Fissures are {fissure / total:.0%} of the {scored} DPS scored: x{factor:.3f}"
-        return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=FISSURE_ENTRY)], [{
+        return [with_per_use(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=FISSURE_ENTRY), hits)], [{
             "label": f"{main.name}: {count:.2f} Fissures a use at the boss*"
                      + (f" + {stars[0]:.2f} stars" if stars is not None else ""), "value": f"x{factor:.3f}",
             "confidence": "MEDIUM" if stars is None else "MEDIUM-LOW", "entry": FISSURE_ENTRY,
@@ -22845,7 +22855,7 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
     rows += f"; at range only the one aimed at the boss: x{one:.3f}" + (
         f"; at {FISSURE_ROW_METRES:g} m {row_share:.0%} of them: x{scale(count * row_share * along):.3f}"
         if row_share is not None else "")
-    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=FISSURE_ENTRY)], [{
+    return [with_per_use(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=FISSURE_ENTRY), hits)], [{
         "label": f"{main.name}: {count:.2f} Fissures a use at the boss*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM-LOW", "entry": FISSURE_ENTRY,
         "basis": (f"PoB counts one Fissure a use. The game makes {count:.2f}: {'; '.join(parts)}; {how}. "
@@ -23781,7 +23791,14 @@ def spectral_volley_model(main: Skill | None, supports: list[str], stats: dict,
     def factor(cycle: float) -> float:
         return 1.0 + SPECTRAL_MAX * one / cycle / hits
     head, row = factor(SPECTRAL_WAIT), factor(SPECTRAL_WAIT + SPECTRAL_MAX / speed)
-    return [raw_mod("DPS", "MORE", 100 * (head - 1), main.name, tag=SPECTRAL_ENTRY)], [{
+    # (MECHB57, the brief's item 1, an UNDERCOUNT for the hit readers: the volley's projectiles are hits on the boss,
+    # SPECTRAL_MAX every SPECTRAL_WAIT s over the attack's uses a second, beside each use's one; HIT_CUT_PER_USE, the
+    # attack used as often. They land 0.1 s apart in a volley, not with every use: read as spread over the uses (LOW;
+    # a duration ailment's chance a use 1 - (1 - c)^(1 + f)). Their stronger hits for the strongest Ignite / Bleed are
+    # GEM36's stronger_hits_ailment_model.)
+    extra_hits = SPECTRAL_MAX / SPECTRAL_WAIT / speed
+    return [with_per_use(raw_mod("DPS", "MORE", 100 * (head - 1), main.name, tag=SPECTRAL_ENTRY),
+                         1.0 + extra_hits)], [{
         "label": f"{main.name}: Spectral Volley's {SPECTRAL_MAX:g} Spectral Projectiles every {SPECTRAL_WAIT:g} s*",
         "value": f"x{head:.3f}", "confidence": "MEDIUM", "entry": SPECTRAL_ENTRY,
         "basis": (f"PoB counts none of them (the attack's own projectiles at {100 + own:g}% are counted). One stored a "
@@ -24672,7 +24689,10 @@ def needs_another_skill_note(main: Skill | None, types: set[str], description: s
 #     held when hit" (the barrier refills between the boss's hits, so near the maximum) is the other reading (UNVERIFIED,
 #     RESEARCH R-B17). Stage-gain and maximum-stage modifiers aren't read (the base values: the lower reading).
 # The burst's Freeze buildup and Chill on the boss (its 100% more Freeze buildup / Chill magnitude) aren't fed to the
-# ailment readers (an UNDERCOUNT, named). Arctic Armour's armour per stage is MECH-C's (MECHC53, LOW).
+# ailment readers: sized at 0 (MECHB57, probe POE2T4886, Ice Nova + Arctic Armour 20 on Arbiter of Ash: PoB's burst row
+# builds 0.0051% of the boss's Freeze bar a burst at 0.066 bursts a second, a Freeze every ~80 hours; a Chill needs a hit
+# of 30% of the boss's Ailment Threshold, some 6,000-12,000x the burst's 145; x5 stages held changes neither).
+# Arctic Armour's armour per stage is MECH-C's (MECHC53, LOW).
 ARCTIC_ARMOUR = "Arctic Armour"
 ARCTIC_ENTRY = "model-mechb55-arctic-armour-burst"
 ARCTIC_STAGES_STAT = "maximum_number_of_arctic_armour_stationary_stacks"
@@ -24716,7 +24736,8 @@ def arctic_armour_model(stats: dict, cooldown: float, level_stats: dict, forbidd
         "basis": (base + f": {head:.3f} bursts a second, each one stage's damage (\"Deals X to Y Cold Damage per Stage\", "
                   "the lower reading), PoB's hit for it with the build's Spell / Cold modifiers (the bridge maps the "
                   "per-Stage damage; PoB scored the burst 0). Its Freeze / Chill on the boss not fed to the ailment "
-                  "readers (an UNDERCOUNT). " + rows),
+                  "readers: far too small to count (a burst fills ~0.005% of a boss's Freeze bar; a Chill needs 30% "
+                  "of its Ailment Threshold in one hit). " + rows),
         "play": (f"Keep {ARCTIC_ARMOUR} up and take the boss's melee hits: each one bursts it for Cold damage "
                  f"({head:.2f} a second here); without the boss's melee hits landing: 0.")}]
 

@@ -2841,23 +2841,25 @@ def test_aftershock_chances_add_up_and_their_ailments_land_together():
     stats = {"IgniteChanceOnHit": 50, "IgniteStacksMax": 1}
     mods, notes = models.aftershock_model(hymn, stats, sunder, slam, [], {"Two Hand Mace"})
     # Hymn alone: the ledger's "100% more DPS" is right for hits; Ignite x(2 - 0.5)/2
-    assert mods == [models.raw_mod("EnemyIgniteDuration", "MORE", -25.0, "Sunder")]
+    # (MECHB57: the slam's 2 hits a use reach the hit readers, a 0% DPS more carrying models.HIT_CUT_PER_USE)
+    assert mods == [models.with_per_use(models.raw_mod("DPS", "MORE", 0.0, "Sunder"), 2.0),
+                    models.raw_mod("EnemyIgniteDuration", "MORE", -25.0, "Sunder")]
     assert notes[0]["value"] == "100%" and "x0.750" == notes[1]["value"]
     # Hymn + Earthbreaker's 25% ("more Damage" form): capped at x2, not x2.5
     both = hymn + ["25% chance for Slam Skills you use yourself to cause an additional Aftershock"]
     mods, _ = models.aftershock_model(both, {}, sunder, slam, [], {"Two Hand Mace"})
-    assert mods == [models.raw_mod("DPS", "MORE", 100 * (2 / 2.5 - 1), "Sunder")]
+    assert mods == [models.with_per_use(models.raw_mod("DPS", "MORE", 100 * (2 / 2.5 - 1), "Sunder"), 2.0)]
     # Aftershock II alone (PoB reads nothing): +35% hits; Ignite at 100% chance gains no applications
     mods, _ = models.aftershock_model([], {"IgniteChanceOnHit": 100}, sunder, slam, [{"name": "Aftershock II"}], set())
-    assert mods == [models.raw_mod("DPS", "MORE", 35.0, "Sunder"),
+    assert mods == [models.with_per_use(models.raw_mod("DPS", "MORE", 35.0, "Sunder"), 1.35),
                     models.raw_mod("EnemyIgniteDuration", "MORE", 100 * (1 / 1.35 - 1), "Sunder")]
     # two Poison slots: both applications count
     mods, _ = models.aftershock_model(hymn, {"PoisonChanceOnHit": 50, "PoisonStacksMax": 2}, sunder, slam, [], set())
-    assert mods == []
+    assert mods == [models.with_per_use(models.raw_mod("DPS", "MORE", 0.0, "Sunder"), 2.0)]
     # a triggered slam: "you use yourself" lines and supports don't count, so the ledger's x2 comes off
     fired = replace(sunder, triggered=True)
     mods, _ = models.aftershock_model(hymn, {}, fired, slam, [{"name": "Aftershock I"}], set())
-    assert mods == [models.raw_mod("DPS", "MORE", -50.0, "Sunder")]
+    assert mods == [models.with_per_use(models.raw_mod("DPS", "MORE", -50.0, "Sunder"), 1.0)]
     # a mace line without a mace: nothing
     mace = ["20% chance for Mace Slam Skills you use yourself to cause an additional Aftershock"]
     assert models.aftershock_model(mace, {}, sunder, slam, [], {"Talisman"}) == ([], [])
@@ -3057,14 +3059,14 @@ def test_reverberate_and_aftershock_iii_raise_the_summed_aftershock_chance_by_at
     gems = [{"name": "Aftershock I"}, {"name": "Reverberate"}]
     # 1 attack/s: 4 quarters x 15% = 60% increased: 25% -> 40%
     mods, notes = models.aftershock_model([], {"Speed": 1.0}, sunder, slam, gems, set())
-    assert mods == [models.raw_mod("DPS", "MORE", 40.0, "Sunder")]
+    assert mods == [models.with_per_use(models.raw_mod("DPS", "MORE", 40.0, "Sunder"), 1.4)]
     assert "Reverberate" in notes[0]["basis"]
     # Reverberate alone gives no chance, so nothing
     assert models.aftershock_model([], {"Speed": 1.0}, sunder, slam, [{"name": "Reverberate"}], set()) == ([], [])
     # Aftershock III's own 15%, its 15% per quarter and Reverberate's: 15% x (1 + 8 x 30%) at 2 s per attack = 51%
     gems = [{"name": "Aftershock III"}, {"name": "Reverberate"}]
     mods, _ = models.aftershock_model([], {"Speed": 0.5}, sunder, slam, gems, set())
-    assert mods == [models.raw_mod("DPS", "MORE", 15 * (1 + 8 * 0.30), "Sunder")]
+    assert mods == [models.with_per_use(models.raw_mod("DPS", "MORE", 15 * (1 + 8 * 0.30), "Sunder"), 1.51)]
     # a triggered slam: Aftershock III doesn't support it, Reverberate does (only the "Slam Skills" line's chance)
     fired = replace(sunder, triggered=True)
     any_slam = ["50% chance for Slam Skills to cause an additional Aftershock"]
@@ -3341,12 +3343,12 @@ def test_tremors_adds_its_expected_aftershocks_and_lands_ailments_once_per_slam(
     mods, notes = models.aftershock_model([], {"IgniteChanceOnHit": 50, "IgniteStacksMax": 1}, quake, slam, [], set())
     miss = 0.45 + 0.30 * 0.5 + 0.15 * 0.25 + 0.10 * 0.125  # no Ignite from Tremors' extra hits
     real = (1 - 0.5 * miss) / 0.5
-    assert mods == [models.raw_mod("DPS", "MORE", 90.0, "Earthquake"),
+    assert mods == [models.with_per_use(models.raw_mod("DPS", "MORE", 90.0, "Earthquake"), 1.9),
                     models.raw_mod("EnemyIgniteDuration", "MORE", round(100 * (real / 1.9 - 1), 3), "Earthquake")]
     assert "Tremors" in notes[0]["value"] and "UNVERIFIED" in notes[0]["basis"]
     # with Aftershock II's 35% as well: 1 + 0.35 + 0.9 hits
     mods, _ = models.aftershock_model([], {}, quake, slam, [{"name": "Aftershock II"}], set())
-    assert mods == [models.raw_mod("DPS", "MORE", 125.0, "Earthquake")]
+    assert mods == [models.with_per_use(models.raw_mod("DPS", "MORE", 125.0, "Earthquake"), 2.25)]
 
 
 def test_kills_keep_enemies_apart_from_your_own_minions_killed():

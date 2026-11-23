@@ -4581,6 +4581,7 @@ class Assumptions:
                 main.group, []):  # (MECHB51: R41-15, its volleys every 3 s)
             sv_stats = build.call("stats", fields=["Speed", "TotalDPS", "ProjectileCount"])
             sv_mods, sv_notes = models.spectral_volley_model(main, supports.get(main.group, []), sv_stats, forbidden)
+            hit_cut(build, sv_mods, main.name)  # (MECHB57: its Spectral Projectiles' hits, models.HIT_CUT_PER_USE)
             hand_mods, hand_notes = hand_mods + sv_mods, hand_notes + sv_notes
             if sv_mods:  # (GEM36: the Spectral Projectiles' stronger hits carry the strongest Ignite / Bleed)
                 st_mods, st_notes = models.stronger_hits_ailment_model(
@@ -4817,6 +4818,7 @@ class Assumptions:
                 texts, stats, main, set(gem.get("skillTypes") or []), group["gems"] if group else [],
                 set(gem.get("weaponTypes") or []), models.cast_by_totem(found, main), forbidden)
             hand_mods, hand_notes = hand_mods + shock_mods, hand_notes + shock_notes
+            hit_cut(build, shock_mods, main.name)  # (MECHB57: the Aftershocks' hits a slam, models.HIT_CUT_PER_USE)
         if main is not None and group and main.name in models.MULTI_SET_SKILLS:  # (MECH-B: Rolling Slam's two slams)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             slam_mods, slam_notes = models.multi_set_model(main.name, main.stat_set, sets)
@@ -5019,6 +5021,7 @@ class Assumptions:
                 [e["text"] for e in source_lines], bosses.hit_radius(stats)[0], det_split, forbidden,
                 previous=self.mods, rage_paid=getattr(build, "rage_paid", None))  # (MECHB50: Molten Crash's Rage, MECHC48)
             hand_mods, hand_notes = hand_mods + fis_mods, hand_notes + fis_notes
+            hit_cut(build, fis_mods, main.name)  # (MECHB57: the Fissures' hits a use, models.HIT_CUT_PER_USE)
         if main is not None and main.name == models.EYE:  # (GEM19: its first hit a use, 900% more, never read by PoB)
             eye_stats = build.call("stats", fields=["AverageDamage", "Speed", "TotalDPS"])
             eye_own = sum(number(m.get("value")) for m in self.mods or []
