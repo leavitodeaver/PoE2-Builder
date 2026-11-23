@@ -6832,7 +6832,7 @@ class Assumptions:
 
         from builder.search import boss_hits  # (MECHC6: how hard it hits, per damage type)
         boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
-        return mods, [bosses.note(boss), boss_pool_note(boss), boss_hits.hits_note(boss)] + notes + condition_notes + self.unbuilt_grants(skills)  # (the boss first)
+        return mods, [bosses.note(boss), boss_pool_note(boss), boss_hits.hits_note(boss)] + notes + condition_notes + self.unbuilt_grants(skills, notes)  # (the boss first)
 
     def zero_use_ailments(self, mods: list[dict]) -> list[dict]:
         """MECH88 (models.zero_use_ailment_scales): a "Best <ailment> DPS" row whose source the models use 0 times a second
@@ -8305,19 +8305,26 @@ class Assumptions:
                 mods, notes = mods + got_mods, notes + got_notes
         return mods, notes
 
-    def unbuilt_grants(self, skills: list[dict]) -> list[dict]:
+    def unbuilt_grants(self, skills: list[dict], rows: list[dict] = ()) -> list[dict]:
         """A note for each skill the build's passives or items grant ("Grants Skill: ...") that PoB built no skill for
         (MECH49; FIX_QUEUE "COV3's skills PoB has no data for": Dark Staff's Dark Pact, Ritualist's Queen's Procession,
         the Unborn Lich's His Dark Horizon and His Grave Command have no skill file in PoB): it counts 0 in our numbers,
-        an undercount, said rather than dropped silently. Not modelled yet."""
+        an undercount, said rather than dropped silently. Not modelled yet.
+        `rows` (COV54, from MECH104: build 18 showed Kelari's Deception at 7.2M DPS and also "not counted"): the notes so
+        far. A djinn Command is a minion's skill, so PoB builds no player skill of its name, but djinn_commands_model
+        scores it through the djinn: with its row present, that row says what it counts (0 included, with the reason)
+        and this note would contradict it. A Command with no row (no live djinn) keeps this note."""
         built = {s["name"] for s in skills}
         notes, seen = [], set()
+        scored = {str(row.get("label")) for row in rows}
         lines = self.build.call("sourceLines")["lines"]
         for line in lines:
             m = GRANTED_SKILL.search(line["text"])
             if not m or m.group(1) in built or m.group(1) in seen:
                 continue
             seen.add(m.group(1))
+            if f"{m.group(1)} (a djinn Command, added to the boss DPS)*" in scored:  # (djinn_commands_model's label)
+                continue
             if m.group(1) == models.QUEENS_PROCESSION:  # (MECH88: its stacks and unscaled swarm against the main skill)
                 from builder.search.objective import main_dps
 
