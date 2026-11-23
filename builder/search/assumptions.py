@@ -557,12 +557,17 @@ CHARGED_STAFF_WEAPON_SLOTS = ("Weapon 1", "Weapon 2", "Weapon 1 Swap", "Weapon 2
 # - Bells eaten e = min(the eaters' uses a second, B): the main skill at its share of the fight, a side one at its
 #   group's use rate (conditions.skill_use_rate: its cooldown, duration, else the search's chosen press rate, else 0).
 #   A player who takes both eats bells on purpose (CLAUDE.md: the build feeds its own mechanic).
-# - Charges a bell: 1 (UNVERIFIED: whether a bell counts as an "enemy" with Devour's 2 extra "Corpses"; Killing Palm's
-#   "higher Rarity" extra charges: a bell taken as Normal, UNVERIFIED). Tempest Bell's bell "can be Hit" but its text
-#   never says Culled: not counted (UNVERIFIED; a forum reply says Killing Palm culls it).
-# - The trade: a bell Devoured isn't Hit, so it makes no shockwave: Hollow Focus's shockwaves (GEM30: min(B, PoB's
-#   rate)) fall to min(B - e_devour, PoB's rate), a DPS MORE on Hollow Focus. Killing Palm Hits the bell it Culls ("Your
-#   Hits immediately destroy the bells, creating a shockwave"): its shockwave kept (MEDIUM-LOW; row: none).
+# - Charges a bell (RESEARCH48 R48-4, research/bells-devour-killing-palm-r48.md, game build 26744644; the manager 19:45
+#   22 Nov): Devour 1 Power Charge a bell (HIGH-MEDIUM; bells leave no corpse, so its 2 extra "Corpses" eat no more
+#   bells; its quality is a Flask / Charm charge chance in the game files, not a Power Charge). Killing Palm: 1, kept,
+#   but UNVERIFIED (0.3.0's "1 Power Charge when Culling a Normal or Magic monster" vs the bell's
+#   set_ignore_on_kill_effects_on_self 1): a 0 row, said in the play guide. Tempest Bell's bell can't be Culled
+#   (R48-4, HIGH-MEDIUM: its object file inherits cannot-be-culled / cannot-grant-charges): not counted.
+# - Bells: one every 2.05 s at gem level 20 (faster with Cooldown Recovery), limit 3, 21 s each (R48-4): a bell waits
+#   far longer than the gap, so the eaters take up to 1 / I (the limit binds only when nothing uses them).
+# - The trade: a close-range Devour isn't a Hit, so a Devoured bell most likely makes no shockwave (R48-4, LOW-MEDIUM):
+#   Hollow Focus's shockwaves (GEM30: min(B, PoB's rate)) fall to min(B - e_devour, PoB's rate), a DPS MORE on Hollow
+#   Focus. Killing Palm's strike is a Hit, so its Culled bell most likely still makes its shockwave (R48-4, MEDIUM): kept.
 # - Handed to the charge reader as build.bell_charges (a round behind, as consume_gains; conditions reads
 #   stats["_bell_charges"] for Devour's and Killing Palm's descriptions). Row: not eating bells (no charge, every
 #   shockwave).
@@ -5642,6 +5647,10 @@ class Assumptions:
                                      or totem_notes) and RESCORE_MODELS
         mods += energy_mods + expression_mods + ward_mods + stat_mods + harmony_mods + ring_mods + hand_mods + exposure_flags
         notes += energy_notes + expression_notes + ward_notes + stat_notes + harmony_notes + ring_notes + hand_notes + pulse_notes
+        bell_targets = {n: v for n, v in (getattr(build, "bell_charges", None) or {}).items()
+                        if n in BELL_EATER_NO_WAVE and number(v[0]) > 0}  # (MECHC54: models.CORPSE_EXTRA_TARGETS_STAT)
+        if bell_targets:
+            stats = {**stats, models.CORPSE_EXTRA_TARGETS_STAT: bell_targets}
         mods, corpse_notes = models.corpse_model(found, mods, stats, main)  # last: it overrides the trigger rates above (MECHB11: the adds' corpses)
         if any(models.DECOMPOSE_TRAVEL.match(e["text"].strip()) for e in source_lines):  # (MECHB49: Corpsewade, a row)
             from builder.search import bosses as bosses_mod
@@ -10117,7 +10126,12 @@ class Assumptions:
         choices = models.press_choices(build)
         uses = {}
         for name, skill in eaters.items():
-            if main is not None and skill is main:
+            if name in BELL_EATER_NO_WAVE and skill.corpses:
+                # (MECHC54) Devour is a corpse user: its PoB Speed is corpse_model's corpse share (0 on a lone boss), so
+                # it is taken as used on every bell (its own attack rate, ~2 a second at gem 20, is far above a bell
+                # every 2 s: MEDIUM), and corpse_model adds these uses (CORPSE_EXTRA_TARGETS_STAT)
+                uses[name] = (bells, "used on every bell (a corpse user: its uses are its corpses + the bells)")
+            elif main is not None and skill is main:
                 uses[name] = (number(stats.get("Speed")) * main_time_share(build, main), "the main skill's uses")
             else:
                 rows = build.call("useRates", indices=[skill.group])["rates"] if skill.group else []
@@ -10147,11 +10161,16 @@ class Assumptions:
                       + (f". A Devoured bell isn't Hit, so it makes no shockwave: Hollow Focus's shockwaves x"
                          f"{min(bells - devoured, pob_rate) / min(bells, pob_rate):.3f}" if devoured > 0 and pob_rate > 0
                          else "")
-                      + (". Killing Palm Hits the bell it Culls: its shockwave kept (MEDIUM-LOW; row: none)"
+                      + (". Killing Palm Hits the bell it Culls: its shockwave kept (R48-4, MEDIUM). Whether its Cull of a "
+                         "bell grants the charge is UNVERIFIED (the bell ignores on-kill effects on itself): row 0, "
+                         f"{gained - eaten['Killing Palm']:.2f} Power Charges a second"
                          if eaten.get("Killing Palm", 0) > 0 else "")
                       + ". Row: not eating bells: no Power Charge from them, every bell a shockwave"),
             "play": (f"Use {' / '.join(eaters)} on your Hollow Focus bells (they can be Culled): "
-                     f"{gained:.2f} Power Charges a second; without it, none from bells on a lone boss.")}
+                     f"{gained:.2f} Power Charges a second; without it, none from bells on a lone boss."
+                     + (" Killing Palm's charge from a bell is unconfirmed (the bell may ignore on-kill effects): "
+                        "check that your Power Charges rise when it Culls one." if eaten.get("Killing Palm", 0) > 0
+                        else ""))}
         return mods, [note]
 
     def pinnacle_of_power(self, skills: list[dict], main) -> tuple[list[dict], list[dict]]:

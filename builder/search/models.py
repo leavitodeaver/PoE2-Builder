@@ -2232,6 +2232,15 @@ def corpse_explosion_mods(skills: list[Skill]) -> list[dict]:
     return out
 
 
+# (MECHC54; the manager 19:45 22 Nov, item 2: "Devour's Speed read as 0 ... find why") A corpse user that can also take
+# another target: Devour "devour a Corpse or Cullable enemy", and Hollow Focus's bells "can be Culled" (RESEARCH47 R47-2,
+# R48-4). corpse_model sets each corpse user's rate to its corpse share (0 on a lone boss), so a Devour main skill read
+# PoB Speed 0 and 0 DPS (probe POE2T7046: 2.125 uses/s and 110 DPS without our assumption mods, 0 with them). Each user
+# in stats[CORPSE_EXTRA_TARGETS_STAT] ({skill: (targets a second, how)}, from assumptions.hollow_focus_bells: the bells
+# it eats) is used that much more a second.
+CORPSE_EXTRA_TARGETS_STAT = "_corpse_extra_targets"
+
+
 def corpse_model(skills: list[Skill], mods: list[dict], stats: dict | None = None,
                  main: Skill | None = None) -> tuple[list[dict], list[dict]]:
     """Corpses per second for each skill that needs them, from the build's own sources (CORPSE_SOURCES) and the boss
@@ -2268,7 +2277,12 @@ def corpse_model(skills: list[Skill], mods: list[dict], stats: dict | None = Non
     speed = number((stats or {}).get("Speed"))
     for name in users:  # (a main skill is never used faster than PoB's own Speed for it: MECHB19)
         main_user = main is not None and main.name == name and speed > 0
-        mods += trigger_rate(name, min(each, speed) if main_user else each)
+        extra, _ = ((stats or {}).get(CORPSE_EXTRA_TARGETS_STAT) or {}).get(name, (0.0, ""))  # (MECHC54)
+        mods += trigger_rate(name, (min(each, speed) if main_user else each) + max(number(extra), 0.0))
+    for name, (extra, extra_how) in ((stats or {}).get(CORPSE_EXTRA_TARGETS_STAT) or {}).items():
+        if name in users and number(extra) > 0:
+            notes.append({"label": f"{name}: other targets a second (not corpses)*", "value": round(number(extra), 4),
+                          "basis": extra_how, "confidence": "LOW"})
     notes.append({
         "label": f"Corpses per second for {', '.join(users)}", "value": round(supply, 4),
         "basis": "they need a corpse each use; " + add_corpses_note(stats) + "; "

@@ -446,6 +446,19 @@ def _incision_consumed(lines: list[str], stats: dict) -> tuple:
 # up), Mist Raven's Culls (kill_events), a Power Charge per Mana spent, an item's own "on use" line on an item not in
 # use (0), and, at 0 here: Lingering Illusion's Remnant (a copy destroyed by the boss: no rate, UNVERIFIED), a trap
 # thrown / triggered and an enemy knocked back (no rate modelled).
+# (MECHC54; the manager 19:45 22 Nov; an OVERCOUNT where kills exist) The radius-jewel lines "Passives granting Cold /
+# Fire / Lightning Resistance or all Elemental Resistances in Radius also grant an equal chance to gain a Frenzy /
+# Endurance / Power Charge on Kill" (Mods ColdResistAlsoGrantsFrenzyChargeOnKillJewelUnique__1 and its Fire / Lightning
+# twins, game 26650308 rows 10066-10068, RadiusJewelType 3) read as a 100% chance on kill. The chance is the Resistance
+# the allocated passives in the jewel's radius grant, which the bridge doesn't read (bridge.jewelSockets gives no nodes in
+# radius): so 0, noted, until it does. No PoE2 unique carries the lines (checked: PoB Data/Uniques and uniques.json
+# by text, the game files' other tables by mod id, the patch archive: no hit; poe2db not checked, UNVERIFIED), so no
+# build the search makes holds them today.
+RADIUS_EQUAL_CHANCE = re.compile(r"\bpassives granting [\w ,]+? in radius also grant an equal chance\b", re.I)
+RADIUS_EQUAL_NOTE = ("its chance equals the Resistance the allocated passives in the jewel's radius grant, which isn't "
+                     "read: 0 (was a 100% chance; no PoE2 unique carries the line, UNVERIFIED on poe2db)")
+
+
 # (MECHC54) the descriptions of the skills that eat Hollow Focus bells for a Power Charge (assumptions.BELL_EATERS)
 BELL_EATER_TEXT = {"Devour": "devour a corpse or cullable enemy", "Killing Palm": "each enemy killed by this strike"}
 
@@ -913,6 +926,8 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
         return None
     if NOT_A_GAIN.match(text[m.start():]) or re.search(r"\bcannot generate\b", m.group(0), re.I):
         return None  # (MECHC38: "Spells granted by items ... consume a Power Charge", Ferocity's "cannot generate")
+    if RADIUS_EQUAL_CHANCE.search(text):  # (MECHC54: RADIUS_EQUAL_CHANCE's note; was a 100% chance, an OVERCOUNT)
+        return 0.0, RADIUS_EQUAL_NOTE
     chance = float(m.group(1)) / 100 if m.group(1) else 1.0
     chance *= float(m.group("count") or 1)  # ("Gain 3 Power Charges on use": three per event; MECH48, was one)
     when = m.group(3).lower()
@@ -1036,6 +1051,14 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
         return endurance_support_rate(support, stats)
     if (support := POWER_SUPPORT_TEXT.get(text.strip())) is not None:  # (MECHC54: POWER_SUPPORTS' note)
         return power_support_rate(support, stats)
+    if "destroyed by an enemy will drop a remnant" in full:
+        # (MECHC54; THE USER'S RULING, 9 Nov, reconfirmed 20 Nov for Void Illusion "Yes, same 5 s", via the manager 19:45
+        # 22 Nov: the boss destroys a dodge-roll copy every 5 s) Lingering Illusion's Power Charge Remnants, as
+        # assumptions.REMNANT_SOURCES reads them (GEM's Empowered Sparks code too): 1.76 Remnants a copy, LOW
+        from builder.search.assumptions import REMNANT_SOURCES
+
+        rate, why = REMNANT_SOURCES["Lingering Illusion"]
+        return rate, f"{rate:.3f}/s: {why} (LOW, the user's ruling; each Remnant picked up)"
     if re.search(r"\bculls?\b", when):
         # (MECHC54, was the flat fallback) Mist Raven's "grants you a Frenzy Charge for each enemy it Culls": the
         # build's kills of enemies (the boss preset's adds; 0 on a lone boss, whose death ends the fight)

@@ -89,7 +89,7 @@ def test_the_two_lineage_supports_gain_where_they_work():
     assert conditions._charge_rate(guat, "Power", on)[0] == pytest.approx(0.25)
 
 
-def test_mist_raven_culls_at_the_builds_kills_and_lingering_illusion_at_zero():
+def test_mist_raven_culls_at_the_builds_kills_and_lingering_illusion_at_the_users_5_s():
     raven = ("Summons a mysterious undamageable Mist Raven that can be Commanded to dive at target location, crashing "
              "through an otherworldly mirror and damaging enemies in an area. The raven grants you a Frenzy Charge for "
              "each enemy it Culls.")
@@ -99,8 +99,8 @@ def test_mist_raven_culls_at_the_builds_kills_and_lingering_illusion_at_zero():
     illusion = ("While active, creates a short-lived illusory copy of yourself whenever you dodge roll. The copy can be "
                 "damaged by enemies, and copies that are destroyed by an enemy will drop a Remnant that grants you a "
                 "Power Charge on pickup.")
-    rate, how = conditions._charge_rate(illusion, "Power", adds)
-    assert rate == 0 and "one per 4 s" not in how
+    rate, how = conditions._charge_rate(illusion, "Power", STATS)  # (the user's ruling: a copy destroyed every 5 s)
+    assert rate == pytest.approx(0.352) and "5 s" in how and "the user" in how
 
 
 def test_probe_ailith_and_guatelitzi_reach_the_power_charge_model(engine):
@@ -246,3 +246,40 @@ def test_the_devouring_diadem_races_the_corpse_skills_only_when_they_use_every_c
     full = models.corpse_supply({models.SACRIFICE}, stats)
     raced = models.corpse_supply({models.SACRIFICE}, {**stats, models.DIADEM_RACE_STAT: (3.0, 1.5)})
     assert raced == pytest.approx(full - 1 / 9)
+
+
+@pytest.mark.parametrize("kind,element", [("Frenzy", "Cold"), ("Endurance", "Fire"), ("Power", "Lightning")])
+def test_the_radius_jewels_equal_chance_on_kill_is_not_a_full_chance(kind, element):
+    """The chance equals the radius' Resistance, which isn't read: 0 with a note, not 100% (an OVERCOUNT with adds)."""
+    article = "an" if kind == "Endurance" else "a"
+    text = (f"Passives granting {element} Resistance or all Elemental Resistances in Radius also grant an equal chance "
+            f"to gain {article} {kind} Charge on Kill")
+    adds = {**STATS, "_kills": (0.5, 0.5, "the preset's adds")}
+    rate, how = conditions._charge_rate(text, kind, adds)
+    assert rate == 0 and "radius" in how
+
+
+def test_probe_devour_main_skill_is_used_on_hollow_focus_bells_not_zero(engine):
+    """The manager 19:45 item 2: corpse_model held a Devour main skill to its corpse share, 0 on a lone boss (POE2T7046:
+    PoB Speed 2.125 and 110 DPS without our mods, 0 with them). With Hollow Focus, Devour is used on every bell (one every
+    2.05 s at gem 20): Speed ~ the bells a second, DPS above 0, the bells as Power Charges, Hollow Focus's shockwaves cut."""
+    from builder.request.schema import BuildRequest
+    from builder.search import models
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Devour"))
+    skeleton = enumerate_skeletons(Context(payload), ["Devour"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    before = build.call("stats", fields=["Speed", "TotalDPS"])
+    build.call("setGroup", gems=[{"name": models.HOLLOW_FOCUS, "level": 20, "quality": 0}], fields=[])
+    for _ in range(3):  # (the bells reach corpse_model a round behind)
+        search.assumptions.apply()
+    after = build.call("stats", fields=["Speed", "TotalDPS"])
+    eaten = (build.bell_charges.get("Devour") or (0.0, ""))[0]
+    print("PROBE devour", before, after, build.bell_charges)
+    assert before["Speed"] == 0 and eaten == pytest.approx(1 / 2.05, rel=0.05)
+    assert after["Speed"] == pytest.approx(eaten, rel=0.05) and after["TotalDPS"] > 0
