@@ -283,7 +283,42 @@ def hit_table(name: str | None) -> tuple[float, dict[str, int]]:
     return HIT_TABLE.get(name or DEFAULT_BOSS, HIT_TABLE[DEFAULT_BOSS])
 
 
+# (SEARCHB6, PROPOSAL 0 of SPEED1 on the manager's loan, 23 Nov) _biggest, hit_sizes and mean_hits are pure functions of
+# (boss, reading) and of tables set once at start-up, but rebuilt every call: mean_hits for the worst-case pinnacle (the
+# default survive floor's boss) cost ~5 ms a call (SPEED1; SEARCHB6's profile POE2T6325: ~28% of a search, through
+# objective.prepare). Cached by (function, boss, reading) and a fingerprint of everything they read (the hit tables'
+# entries, the skill table, the constants, bosses' worst-case sources), so a test that changes a preset or a constant
+# misses the cache; each hit hands back a copy.
+_CACHE: dict = {}
+
+
+def _fingerprint() -> tuple:
+    try:
+        from builder.search import bosses
+        worst = (id(bosses.WORST_HIT_FROM), tuple(bosses.WORST_HIT_FROM.items()), id(bosses.REAL), len(bosses.REAL))
+    except (ImportError, AttributeError):
+        worst = None
+    return (UNIQUE_LESS, tuple(LEVEL_MORE.items()), BASE_DAMAGE, id(_SKILL_HITS),
+            id(HIT_TABLE), tuple((n, id(v)) for n, v in HIT_TABLE.items()),
+            tuple((n, id(v)) for n, v in _SKILL_HITS.items()) if _SKILL_HITS is not None else None, worst)
+
+
+def _cached(kind: str, read, *key):
+    """read(*key) through _CACHE (a copy of the cached dict)."""
+    _worst()  # (adds the worst case's table rows on the first call: before the fingerprint, so it isn't stale)
+    skill_hits()  # (loads the skill table: likewise)
+    full = (kind, *key, _fingerprint())
+    found = _CACHE.get(full)
+    if found is None:
+        found = _CACHE[full] = read(*key)
+    return dict(found)
+
+
 def _biggest(name: str, reading: str, nukes: bool) -> dict[str, tuple[float, str]]:
+    return _cached("biggest", _biggest_read, name, reading, nukes)
+
+
+def _biggest_read(name: str, reading: str, nukes: bool) -> dict[str, tuple[float, str]]:
     """{type: (the biggest part of that type under the reading, the skill)} over the preset's ordinary hits (or nukes)."""
     out: dict[str, tuple[float, str]] = {}
     for row in skill_hits(name):
@@ -297,6 +332,11 @@ def _biggest(name: str, reading: str, nukes: bool) -> dict[str, tuple[float, str
 
 
 def hit_sizes(name: str | None = None, reading: str = "headline") -> dict[str, float]:
+    """(hit_sizes_read, cached: _cached)"""
+    return _cached("sizes", hit_sizes_read, name, reading)
+
+
+def hit_sizes_read(name: str | None = None, reading: str = "headline") -> dict[str, float]:
     """The biggest ordinary hit of each damage type the boss deals, before your mitigation (0 for the types it doesn't
     deal; red-flash nukes not counted: nuke_hits). The worst-case pinnacle: each type at the biggest any real preset
     deals (bosses.WORST_HIT_FROM, picked by these sizes)."""
@@ -318,6 +358,11 @@ def hit_sizes(name: str | None = None, reading: str = "headline") -> dict[str, f
 
 
 def mean_hits(name: str | None = None, reading: str = "headline") -> dict[str, float]:
+    """(mean_hits_read, cached: _cached)"""
+    return _cached("means", mean_hits_read, name, reading)
+
+
+def mean_hits_read(name: str | None = None, reading: str = "headline") -> dict[str, float]:
     """Each damage type's AVERAGE ordinary hit (each of the boss's skills that deals the type counted once: LOW, no use
     rates; nukes left out: walked out of), what PoB gets as the boss's hit (config_vars), so readings of one average
     hit (damage taken, Heavy Stun and ailment buildup, flasks' Life lost) don't take every hit at the biggest. The
