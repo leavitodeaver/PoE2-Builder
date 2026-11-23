@@ -32,6 +32,17 @@ PREVIEW_OFF_HANDS = {
 }
 
 
+# Announced 1.0 skills that can't be scored yet, and why (a request naming one is told; none is scored as 0 or guessed).
+# Traps: "Attack Damage N%" needs a damage value to scale. Checked: the game's WeaponTypes table has no row for any of the
+# 13 trap bases (build 26650308); PoB's trap bases carry no weapon data; poe2db's Traps, Refined Trap, Fire Trap and Null
+# Trap pages (read 23 Nov 2026) show no damage range and don't say what the percentage scales. UNVERIFIED until the 1.0
+# files or patch notes say.
+TRAP_SKILLS = frozenset({"Freezing Trap", "Concussive Trap", "Fire Trap", "Poison Trap", "Electrocution Trap",
+                         "Null Trap", "Cluster Trap", "Shrapnel Trap", "Detonate"})
+TRAP_HOLD = ("It is announced 1.0 content, but can't be scored yet: 1.0 hasn't published the damage its trap weapons' "
+             "skills scale from.")
+
+
 def on(request: Any) -> bool:
     """Whether a request (BuildRequest, or anything with preview_1_0) asks for 1.0 preview content."""
     return bool(getattr(request, "preview_1_0", False))
@@ -214,6 +225,29 @@ def unique_rows() -> list[dict]:
     return list(_uniques_file()["uniques"])
 
 
+def base_rows() -> list[dict]:
+    """The bases preview uniques need and PoB lacks (uniques.json 'bases', each derived from its unique's card)."""
+    return list(_uniques_file().get("bases") or [])
+
+
+def add_bases(data: Any) -> Any:
+    """Put the preview bases into a GameData's base list, hidden: they carry their uniques and are never offered as
+    rares (their real mods and drop rules are unpublished). Returns it."""
+    there = {base["name"]: base for base in data.bases}
+    new = []
+    for row in base_rows():
+        if row["name"] in there:
+            continue
+        base = {key: value for key, value in there[row["like"]].items() if key != "implicit"}
+        base.update(name=row["name"], type=row["type"], req=row["req"], hidden=True, preview=True)
+        if row.get("weapon"):
+            base["weapon"] = {**base["weapon"], **row["weapon"]}
+        new.append(base)
+    if new:
+        data.__dict__["bases"] = list(data.bases) + new  # (this copy's list only, as add_gems does)
+    return data
+
+
 def unique_names() -> frozenset[str]:
     return frozenset(row["name"] for row in unique_rows())
 
@@ -221,6 +255,7 @@ def unique_names() -> frozenset[str]:
 def add_uniques(data: Any) -> Any:
     """Put the preview uniques into a GameData's unique list (in place): a new one is added, a changed one's 1.0 text
     replaces its 0.5.5 text (the row says what changed). Returns it."""
+    add_bases(data)
     rows = {row["name"]: row for row in unique_rows()}
     out = []
     for unique in data.uniques:

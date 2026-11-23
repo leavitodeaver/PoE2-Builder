@@ -7009,7 +7009,7 @@ SHOCKED_GROUND_RADIUS = 2.0  # m, for "you on it" (UNVERIFIED: the definition gi
 # LOW) and Vivid Stampede 2.0 m (its shockwave's: LOW). The rest (Invoker's, the trail) keep SHOCKED_GROUND_RADIUS,
 # UNVERIFIED. Area of Effect modifiers aren't read (a smaller reach than the truth for "you on it": an undercount).
 SHOCKED_GROUND_RADII = {"Lightning Warp": 3.0, "Gathering Storm": 3.2, "Shocking Leap": 2.0, "Storm Lance": 3.0,
-                        "Vivid Stampede": 2.0}
+                        "Vivid Stampede": 2.0, "Blade Conduit": 3.0}  # (Blade Conduit: PREVIEW2, a 1.0 preview skill, only with its switch on)
 # When each skill makes its ground (MECH58; research/shocked-ground-sources.md, FIX_QUEUE RESEARCH1, an OVERCOUNT: before,
 # every use made it): Lightning Warp only when it explodes, which needs the target under the Cull threshold (HIGH: "If
 # targeting an enemy, the explosion also creates Shocked Ground"); Storm Lance only from a lance that consumed a Frenzy
@@ -7042,8 +7042,9 @@ GROUND_SURFACE_DURATION_STAT = "ground_effect_duration_+%"
 SHOCKED_GROUND_DURATION_STAT = {"Lightning Warp": "base_secondary_skill_effect_duration",
                                 "Storm Lance": "base_secondary_skill_effect_duration",
                                 "Vivid Stampede": "base_skill_effect_duration",
-                                "Gathering Storm": "base_skill_effect_duration"}
-SHOCKED_GROUND_SKILLS = ("Storm Lance", "Lightning Warp", "Vivid Stampede", "Gathering Storm")
+                                "Gathering Storm": "base_skill_effect_duration",
+                                "Blade Conduit": "base_skill_effect_duration"}
+SHOCKED_GROUND_SKILLS = ("Storm Lance", "Lightning Warp", "Vivid Stampede", "Gathering Storm", "Blade Conduit")
 SHOCKED_GROUND_SUPPORT = "Shocking Leap"
 SHOCKED_GROUND_SUPPORT_STATS = ("support_shocking_leap_shocked_ground_duration_ms",)
 SHOCK_MAKES_GROUND = re.compile(r"(\d+)% chance on shocking enemies to creat\w* shocked ground", re.I)

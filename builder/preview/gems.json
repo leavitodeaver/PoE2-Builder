@@ -88,8 +88,8 @@
    },
    "assumptions": ["attack speed 125% of base x 0.9: the combo's third (Final) strike has 25% less attack speed, so three strikes take 1 + 1 + 1/0.75 = 3.33 swings' time (x0.9 on the rate), MEDIUM"],
    "not_modelled": [
-    "Rupture (a Bleeding target's Bleeding equal to 200% of the Physical hit, 400% on the Final Strike) and the gore explosion (250%, 1.4 m): an UNDERCOUNT for a Bleed build; it needs MECH-A's Bleed model",
-    "the Final Strike's own damage is read as the other strikes' (poe2db shows no separate damage line for it)"
+    "Rupture (Bleeding equal to 200% of the Physical hit, 400% on the Final Strike): poe2db says it causes the Bleeding damage to be dealt more quickly, so it is read as moving Bleed damage earlier, not adding to its total, and counts 0 on sustained DPS (UNVERIFIED; no game definition found: KeywordPopups has no Rupture entry, poe2db's Rupture page is a support gem)",
+    "the gore explosion (250%, 1.4 m, when hitting a Bleeding target): an UNDERCOUNT for a Bleed build", "the Final Strike's own damage is read as the other strikes' (poe2db shows no separate damage line for it)"
    ],
    "sources": ["https://poe2db.tw/us/Haemorrhage (read 23 Nov 2026: Level 20 (Max), tier 3, 30 Mana, Attack Speed 125% of base, Attack Damage 103%, req 90 / 86 Str / 86 Dex; Final Strike 25% less Attack Speed; dual wielding 20% less)", "RESEARCH53 R53-1 section C"],
    "confidence": "MEDIUM; other levels LOW"
@@ -115,11 +115,11 @@
     "cooldown": 6,
     "storedUses": 1,
     "baseFlags": ["attack", "area"],
-    "constantStats": [["active_skill_base_physical_damage_%_to_convert_to_lightning", 100], ["active_skill_base_area_of_effect_radius", 30]],
+    "constantStats": [["active_skill_base_physical_damage_%_to_convert_to_lightning", 100], ["active_skill_base_area_of_effect_radius", 30], ["base_skill_effect_duration", 4000]],
     "stats": ["is_area_damage"]
    },
    "not_modelled": [
-    "the Shocked Ground it leaves (radius 3 m, 4 s): an UNDERCOUNT; MECH-A's ground model can read it next",
+    "the Shocked Ground it leaves (radius 3 m, 4 s) IS counted through MECH-A's shocked_ground model, at the skill's own uses a second; the boss is taken to stay in it (that model's LOW assumption)",
     "stored uses: poe2db shows a 6 s cooldown and no use count, read as 1 (UNVERIFIED)"
    ],
    "sources": ["https://poe2db.tw/us/Blade_Conduit (read 23 Nov 2026: Level 13, tier 9, 54 Mana, Cooldown 6.00 s, Attack Speed 65% of base, Attack Damage 288%, One or Two Hand Sword; 100% Physical to Lightning; radius 3 m; Shocked Ground 4 s)", "RESEARCH53 R53-1 section C"],

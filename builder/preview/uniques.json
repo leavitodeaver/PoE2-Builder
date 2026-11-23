@@ -1,5 +1,30 @@
 {
- "about": "PoE2 1.0 PREVIEW uniques (every line '1.0 preview, subject to change'). Read only with a request's preview_1_0 switch (builder/preview add_uniques). Lines are poe2db's reveal cards (read 23 Nov 2026), in PoB's raw item text. The reveal shows ONE roll of each line and no ranges: each line is that roll, fixed (MEDIUM; the real ranges are unpublished). 'changed': true = a 0.5.5 unique whose 1.0 text replaces its 0.5.5 text while the switch is on (its 0.5.5 market price kept). New uniques have no market: offered only without a divine cap or in SSF (preview.unique_price). Only uniques on bases PoB already has are here (Oro's Sacrifice, Agnar: Twilight / Vampiric Longsword; Ashcaller: Searing Wand; none in PoB's bases.json bb52d6b368). Granted skills (Perfect Squall, Frostflame, Tasalio's Charge ...) are in no data yet: their lines grant nothing (an UNDERCOUNT, each row's not_modelled).",
+ "about": "PoE2 1.0 PREVIEW uniques (every line '1.0 preview, subject to change'). Read only with a request's preview_1_0 switch (builder/preview add_uniques). Lines are poe2db's reveal cards (read 23 Nov 2026), in PoB's raw item text. The reveal shows ONE roll of each line and no ranges: each line is that roll, fixed (MEDIUM; the real ranges are unpublished). 'changed': true = a 0.5.5 unique whose 1.0 text replaces its 0.5.5 text while the switch is on (its 0.5.5 market price kept). New uniques have no market: offered only without a divine cap or in SSF (preview.unique_price). Three bases PoB lacks are in 'bases', derived from their uniques' cards. Granted skills (Perfect Squall, Frostflame, Tasalio's Charge ...) are in no data yet: their lines grant nothing (an UNDERCOUNT, each row's not_modelled).",
+ "bases": [
+  {
+   "name": "Twilight Longsword",
+   "like": "Ultra Greatsword",
+   "type": "Two Hand Sword",
+   "weapon": {"PhysicalMin": 1, "PhysicalMax": 1, "CritChanceBase": 5, "AttackRateBase": 1.25},
+   "req": {"level": 54, "str": 62, "dex": 44},
+   "basis": "No base page (poe2db 404). From Oro's Sacrifice's card: 1.51 attacks a second with its 21% increased Attack Speed = 1.25 base (LOW, rounded); crit 5%; its physical is unused (the unique has No Physical Damage); range and sockets as Ultra Greatsword's (LOW)"
+  },
+  {
+   "name": "Vampiric Longsword",
+   "like": "Ultra Greatsword",
+   "type": "Two Hand Sword",
+   "weapon": {"PhysicalMin": 15, "PhysicalMax": 25, "CritChanceBase": 5, "AttackRateBase": 1.25},
+   "req": {"level": 9, "str": 14, "dex": 11},
+   "basis": "No base page (poe2db 404). From Agnar's card: 15-25 Physical, 1.25 attacks a second, crit 10.01% with its +5.01% = 5% base; range and sockets as Ultra Greatsword's (LOW)"
+  },
+  {
+   "name": "Searing Wand",
+   "like": "Withered Wand",
+   "type": "Wand",
+   "req": {"level": 45, "int": 80},
+   "basis": "No base page (poe2db 404). Ashcaller's card shows only Wand and its requirement; socket limit as Withered Wand's, without its granted skill (LOW)"
+  }
+ ],
  "uniques": [
   {
    "name": "Windripper",
@@ -53,11 +78,40 @@
    "not_modelled": ["the 'Every Rage also grants' lines count only if PoB parses them (Rage itself is MECH-C's model)"],
    "sources": ["https://poe2db.tw/us/Abyssus (read 23 Nov 2026; the PoE1 name reused, 1.0 text)", "RESEARCH53 R53-1 E"],
    "confidence": "MEDIUM"
+  },
+  {
+   "name": "Oro's Sacrifice",
+   "base": "Twilight Longsword",
+   "type": "Two Hand Sword",
+   "key": "Oro's Sacrifice, Twilight Longsword",
+   "raw": "Oro's Sacrifice\nTwilight Longsword\nLevelReq: 54\nImplicits: 0\nGrants Skill: Level 19 Infernal Step\nNo Physical Damage\nAdds 248 to 384 Fire Damage\n21% increased Attack Speed\nHits with this Weapon always Ignite targets that are on Full Life\nGain 12% of Damage as Extra Fire Damage per Sacrificial Flame\nGain 1 Frenzy Charge every 1 second while at maximum Sacrificial Flame\n",
+   "not_modelled": ["Infernal Step (a granted skill with no data yet)", "Hits with this Weapon always Ignite targets on Full Life: PoB reads nothing from it (probe, 23 Nov), an UNDERCOUNT on the opening hit", "Sacrificial Flame: what gains it and its maximum are unpublished, so its extra Fire and Frenzy Charges count 0 (an UNDERCOUNT; no flat stack guess)"],
+   "sources": ["https://poe2db.tw/us/Oros_Sacrifice (read 23 Nov 2026; top block; the '###' block shows Level 13, 250-343 and 4% per Flame)", "RESEARCH53 R53-1 E"],
+   "confidence": "MEDIUM (one roll shown per line)"
+  },
+  {
+   "name": "Agnar",
+   "base": "Vampiric Longsword",
+   "type": "Two Hand Sword",
+   "key": "Agnar, Vampiric Longsword",
+   "raw": "Agnar\nVampiric Longsword\nLevelReq: 9\nImplicits: 0\nGrants Skill: Level 19 Fangs of Agnar\nLeeches 8.08% of Physical Damage as Life\nHits with this Weapon have 3 to 5 Added Cold Damage per Player Level\n+5.01% to Critical Hit Chance\n+10% to Critical Damage Bonus\nHits with this Weapon Penetrate 50% Cold Resistance against Frozen Enemies\n62% increased Immobilisation Buildup\nLife Leech recovers based on your Cold damage as well as Physical damage\n",
+   "not_modelled": ["Fangs of Agnar (a granted skill with no data yet)"],
+   "sources": ["https://poe2db.tw/us/Agnar (read 23 Nov 2026; top block; the '###' block lacks the Leech line)", "RESEARCH53 R53-1 E"],
+   "confidence": "MEDIUM (one roll shown per line)"
+  },
+  {
+   "name": "Ashcaller",
+   "base": "Searing Wand",
+   "type": "Wand",
+   "key": "Ashcaller, Searing Wand",
+   "raw": "Ashcaller\nSearing Wand\nLevelReq: 45\nImplicits: 0\nGrants Skill: Level 14 Burning Effigy\nGrants Skill: Level 14 Spirits of Ngamahu\nGain 50% of Damage as Extra Fire Damage\n118% increased Fire Damage\nThe next 3 Fire Spells you cast after gaining a Fire Infusion are Ancestrally Boosted\nAncestral Boost has 20% increased effect on your skills per summoned Spirit of Ngamahu\n+1 to maximum Fire Infusions\n",
+   "not_modelled": ["Burning Effigy and Spirits of Ngamahu (granted skills with no data yet)", "the Fire Infusion Ancestral Boost lines: an UNDERCOUNT until the build's Infusion cadence feeds them"],
+   "sources": ["https://poe2db.tw/us/Ashcaller (read 23 Nov 2026; top block; the '###' block shows Level 12 grants)", "RESEARCH53 R53-1 E"],
+   "confidence": "MEDIUM (one roll shown per line)"
   }
  ],
  "left_out_for_now": {
   "Benevolence": "its 'Keystone: Chaos Incarnate' has no published text (PoB knows no such keystone; checked: PoB ModCache.lua, poe2db's page shows only the name): a keystone's drawback unknown could make it an OVERCOUNT, so it waits for the keystone's text (UNVERIFIED either way)",
-  "Oro's Sacrifice, Agnar, Ashcaller": "their bases (Twilight Longsword, Vampiric Longsword, Searing Wand) aren't in PoB's base data; they need preview bases first (next turn)",
   "the other 10 new / 12 changed uniques": "not read yet (RESEARCH53 R53-1 E / F list them)"
  }
 }

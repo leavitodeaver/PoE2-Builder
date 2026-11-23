@@ -35,7 +35,14 @@ curve (gems.json curve_reference: Lightning Spear; 20/13 = 1.406, the median of 
 2. DONE (PREVIEW2): Perforate (strikes; the drill, waves and disks still left out), Sand Scour / Bloodied Blade (the
    added attack time after speed as the headline, the scaled reading as a row: readings.py), Worldcutter (held to the
    payoff stage its own data gives, 3; 2.67 s a stage as the headline, the whole-hold reading as a row).
-   NEXT: Molten Forge, the 8 traps (needs a
+   HELD: the 8 traps + Detonate. Their 'Attack Damage N%' has no published damage to scale (no WeaponTypes row for any
+   trap base; PoB's bases have no weapon data; poe2db's trap pages show none: UNVERIFIED until 1.0's files). A request
+   naming one is told why; none is scored from a guessed number. When the damage is known they need a
+   TrapTool weapon type too (below).
+   DONE: Blade Conduit's Shocked Ground, through MECH-A's shocked_ground (three table rows in conditions.py, inert
+   unless it is the main skill). Haemorrhage's Rupture is labelled and counts 0: poe2db says it deals Bleeding more
+   quickly, read as moving damage earlier, not adding to the total (UNVERIFIED).
+   NEXT: Molten Forge, the traps once unblocked (needs a
    TrapTool weapon type in PoB's weaponTypeInfo and a throw / cooldown cycle), Ethereal Knives / Whirling Blades
    (shotgun overlap like R51-4).
 3. Supports: Overchannel, Impaling Blade II / Rending Blade (a periodic extra hit), Galvanising Blades, Sandstorm,
@@ -44,7 +51,8 @@ curve (gems.json curve_reference: Lightning Spear; 20/13 = 1.406, the median of 
    Darkness (x(1 + 0.03 D) on Ambush hits, D from the build's sources per Stealth cycle); Shades (1 + 0.5 x Shades in
    range on an Ambush); Stealth (a cycle from Shroud's cooldown / Duplicity / kills, no flat rate); Engulf in Darkness
    (fed by MECH-A's Immobilise cycles); Spectral Impale (LOW).
-5. Uniques (as item data, PoB-parseable lines first): Windripper, Blueflame Bracers (changed), Oro's Sacrifice,
+5. Uniques (as item data, PoB-parseable lines first; Oro's Sacrifice, Agnar, Ashcaller DONE on hidden bases derived
+   from their cards): Windripper, Blueflame Bracers (changed), Oro's Sacrifice,
    Molten Tenet, Agnar, Riptide ... Each needs its base; granted skills have no data yet.
 6. Classes / ascendancies: the Knight's 10 nodes (text published); Shadow / Duelist starts wait for the 1.0 tree.
 
@@ -57,6 +65,8 @@ curve (gems.json curve_reference: Lightning Spear; 20/13 = 1.406, the median of 
 3. For each row in builder/preview/gems.json: if PoB 1.0 has the gem, delete the row (PoB's real data wins; lua.py
    skips any id PoB has). If PoB lacks it, rebuild the row from the game files (real per-level tables) and keep it
    as a tool gem (builder/data/tool_gems.json + bridge.lua, the Untether pattern), no longer "preview".
+   Re-export the real gem text from the game files (11 Dec): this layer's stat lines are paraphrased, numbers exact.
+   Replace uniques.json's derived 'bases' with the real ones, and give traps their real weapon data.
    Settle readings.py's open readings from the real stats: which stat is "Added Attack Time", and Worldcutter's time per
    stage; then delete the row for the reading that lost.
 4. Remove PREVIEW_WEAPON_CLASSES from rules (game_rules.yaml's `released` gets the 1.0 classes, patch "1.0.0").

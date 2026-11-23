@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from functools import cache
 
-from builder.preview import _gems_file, gem_rows
+from builder.preview import _gems_file, base_rows, gem_rows
 from builder.preview.readings import payoff_stage, stage_damage
 
 
@@ -158,6 +158,24 @@ if not PREVIEW_1_0_INSTALLED then
 			end
 		end
 	end
+	for _, row in ipairs(%(bases)s) do
+		-- a base PoB already has wins (release day); else a copy of its nearest base with the card's numbers
+		if not data.itemBases[row.name] then
+			local like = data.itemBases[row.like]
+			if not like then
+				error("preview_1_0: no base " .. row.like)
+			end
+			local base = copyTable(like)
+			base.implicit = nil
+			base.req = row.req
+			if row.weapon then
+				for key, value in pairs(row.weapon) do
+					base.weapon[key] = value
+				end
+			end
+			data.itemBases[row.name] = base
+		end
+	end
 	PREVIEW_1_0_INSTALLED = true
 end
 """
@@ -195,4 +213,6 @@ def _lua_row(row: dict) -> dict:
 def installer() -> str:
     """The Lua chunk that installs every preview gem (idempotent per Lua state)."""
     rows = [_lua_row(row) for row in gem_rows()]
-    return INSTALLER % {"ref": lua_value(_gems_file()["curve_reference"]["skill"]), "rows": lua_value(rows)}
+    bases = [{k: base[k] for k in ("name", "like", "req", "weapon") if k in base} for base in base_rows()]
+    return INSTALLER % {"ref": lua_value(_gems_file()["curve_reference"]["skill"]), "rows": lua_value(rows),
+                        "bases": lua_value(bases)}

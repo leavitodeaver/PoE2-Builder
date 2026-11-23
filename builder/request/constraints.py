@@ -340,6 +340,8 @@ def compile_request(request: BuildRequest, data: GameData) -> CompiledRequest:
             if not preview.on(request) and name in preview.names() | preview.unique_names():
                 hint = (" It is announced 1.0 content (*subject to change): tick 'Include 1.0 preview content' "
                         "(preview_1_0) to use it.")
+            if name in preview.TRAP_SKILLS:
+                hint = f" {preview.TRAP_HOLD}"
             issues.append(Issue("error", field_name, f"Unknown {category.replace('_', ' ').rstrip('s')} '{name}'.{hint}"))
         return found
 

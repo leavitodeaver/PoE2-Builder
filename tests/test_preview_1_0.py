@@ -260,3 +260,53 @@ def test_pob_scores_the_four_sword_skills(engine):
     assert (_dps(engine, "Worldcutter 13/0 1").get("TotalDPS") or 0) == 0  # (two-handed only: off on a one-hand sword)
     cut = _dps(engine, "Worldcutter 13/0 1", great)
     assert cut["TotalDPS"] > 0 and cut["Speed"] == pytest.approx(1 / (2.67 * 3), rel=0.02)
+
+
+def test_the_preview_bases_carry_their_uniques_and_stay_out_of_a_plain_request():
+    ctx = _context(main_skill="Charged Slash", preview_1_0=True)
+    bases = {b["name"]: b for b in ctx.data.bases}
+    assert bases["Vampiric Longsword"]["hidden"] and bases["Vampiric Longsword"]["weapon"]["AttackRateBase"] == 1.25
+    assert {"Oro's Sacrifice", "Agnar", "Ashcaller"} <= {u["name"] for u in ctx.data.uniques}
+    plain = _context(main_skill="Boneshatter")
+    assert not {"Twilight Longsword", "Vampiric Longsword", "Searing Wand"} & {b["name"] for b in plain.data.bases}
+    assert not {"Oro's Sacrifice", "Agnar", "Ashcaller"} & {u["name"] for u in plain.data.uniques}
+
+
+def test_a_request_naming_a_trap_skill_is_told_why_it_cant_be_scored():
+    assert "Fire Trap" in preview.TRAP_SKILLS and "damage" in preview.TRAP_HOLD
+    assert "Fire Trap" not in preview.names()  # (no row: nothing scores it as 0 or from a guessed damage)
+
+
+def test_pob_reads_agnars_cold_per_level_and_the_card_numbers(engine):
+    preview.install(engine, BuildRequest(preview_1_0=True))
+    raw = next(r for r in preview.unique_rows() if r["name"] == "Agnar")["raw"]
+    engine.call("newBuild")
+    engine.call("setLevel", level=90)
+    engine.call("addItem", raw=raw)
+    engine.call("addSkillGroup", text="Charged Slash 20/0 1", main=True)
+    whole = engine.call("stats", fields=["MainHand.AverageHit", "Speed"])
+    assert whole["Speed"] == pytest.approx(1.25 * 1.15, rel=0.01)
+    engine.call("newBuild")
+    engine.call("setLevel", level=90)
+    engine.call("addItem", raw=raw.replace("Hits with this Weapon have 3 to 5 Added Cold Damage per Player Level\n", ""))
+    engine.call("addSkillGroup", text="Charged Slash 20/0 1", main=True)
+    assert whole["MainHand.AverageHit"] > 10 * engine.call("stats", fields=["MainHand.AverageHit"])["MainHand.AverageHit"]
+
+
+def test_blade_conduits_ground_goes_through_the_shocked_ground_model(engine):
+    from builder.search import conditions
+
+    preview.install(engine, BuildRequest(preview_1_0=True))
+    assert _dps(engine, "Blade Conduit 13/0 1")["Speed"] == pytest.approx(1 / 6, rel=0.03)  # (its cooldown)
+    got = engine.call("activeSkills", levelStats=["Blade Conduit"])["skills"]
+    stats = next(s for s in got if s["name"] == "Blade Conduit")["levelStats"]
+    assert stats[conditions.SHOCKED_GROUND_DURATION_STAT["Blade Conduit"]] == 4000
+    share, how = conditions.shocked_ground({"Speed": 1 / 6, "HitChance": 100, "_sg_skill": ("Blade Conduit", 4000),
+                                            "_sg_feed": {}}, [])
+    assert share == pytest.approx(4 / 6, rel=0.01) and "Blade Conduit" in how
+
+
+def test_haemorrhages_rupture_is_labelled_not_counted():
+    row = next(r for r in preview.gem_rows() if r["name"] == "Haemorrhage")
+    text = " ".join(row["not_modelled"])
+    assert "dealt more quickly" in text and "UNVERIFIED" in text
