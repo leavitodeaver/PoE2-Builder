@@ -4488,7 +4488,7 @@ class Assumptions:
             main is not None and main.group is not None) else set()  # (MECH103: Rupture / Rusted Spikes on the main)
         if agg_supports or any(p.match(t.strip()) for t in texts for p in (
                 models.AGGRAVATE_HIT, models.AGGRAVATE_CRIT, models.AGGRAVATE_OLDER, models.AGGRAVATE_EMPOWERED,
-                models.BEETLEBITE)):
+                models.BEETLEBITE, models.PERFORATION)):
             # (MECH66: Aggravated Bleeding at the main skill's own hits, crits and Bleed duration)
             agg_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if name else set()
             moving = bool(build.call("getConfig")["input"].get("conditionEnemyMoving"))
@@ -4506,9 +4506,13 @@ class Assumptions:
                 if getattr(getattr(build.ctx, "request", None), "boss", None):
                     agg_stats["_boss"] = build.ctx.request.boss
                 agg_cycles = models.aggravate_cycles(agg_supports, agg_stats)
+            agg_jagged = None  # (MECH104, R54-1: Perforation's per-Bleed roll at the build's own Jagged Ground share)
+            if any(models.PERFORATION.match(t.strip()) for t in texts):
+                agg_jagged = self.jagged_ground_share(name, agg_types, build.main_group())
             agg_mods, agg_notes = models.aggravate_model(
-                texts, {**stats, **build.call("stats", fields=["BleedDuration", "BleedChancePerHit"])}, agg_types,
-                moving, empowered, entries, agg_cycles)  # (MECH80: Bleeds a second, R26-14)
+                texts, {**stats, **build.call("stats", fields=["BleedDuration", "BleedChancePerHit",
+                                                               "PhysicalHitAverage", "PhysicalCritAverage"])}, agg_types,
+                moving, empowered, entries, agg_cycles, agg_jagged)  # (MECH80: Bleeds a second, R26-14)
             hand_mods, hand_notes = hand_mods + agg_mods, hand_notes + agg_notes
         passive_mods, passive_notes = passive_models.build_models(build, inputs, texts, found, main, supports)  # (COV-B)
         hand_mods, hand_notes = hand_mods + passive_mods, hand_notes + passive_notes

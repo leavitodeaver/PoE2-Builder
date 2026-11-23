@@ -10,7 +10,7 @@ def test_a_pin_every_10_s_aggravates_the_bleeds_live_at_it():
     own, live = models.aggravate_cycle_shares(5.0, 10.0, 0.0, 0.0, True, 0.0, None, 2.0, 10.0)
     assert own == pytest.approx(0.25, abs=0.01)
     # some live Bleed Aggravated from each Pin until the last Bleed before it ends: about half the cycle
-    assert 0.45 < live <= 0.5
+    assert 0.44 < live <= 0.5  # (MECH104: the last Bleed before a Pin comes one hit, 0.5 s, before it: ~4.5 s of 10)
 
 
 def test_rupture_aggravates_while_the_boss_is_heavy_stunned_not_all_fight():

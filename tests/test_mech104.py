@@ -63,3 +63,66 @@ def test_spacing_deception_past_the_clones_life_loses_its_sequence():
     whole = 100000.0 * models.blades_on_boss(0.3) / 3.9
     # Deception gets the 0.9 s left of each 3.9 s: one use every 13 s, past the clone's 4 s, so x1.5 and not x4
     assert dps == pytest.approx(whole + 1000 * 1.5 / 13.0)
+
+
+# Aggravated Bleeding (MECH104; RESEARCH54 R54-1, the manager 13:37)
+def _sim(hits, duration, chance, p, crit, k, rolled, n=120000, seed=11):
+    """Even hits: each may Bleed (a crit's k x as strong) and be an event Aggravating the Bleeds already live."""
+    import random
+
+    rng, life, live, some, top = random.Random(seed), round(hits * duration), [], 0.0, 0.0
+    for i in range(n):
+        if rng.random() < p:
+            for bleed in live:
+                bleed[2] = True
+        if rng.random() < chance:
+            live.append([i + life, k if rng.random() < crit else 1.0, rng.random() < rolled])
+        live = [b for b in live if b[0] > i]
+        got = [b[1] for b in live if b[2]]
+        some, top = some + bool(got), top + max(got, default=0.0)
+    return some / n, top / n
+
+
+@pytest.mark.parametrize("hits, duration, chance, p, crit, k, rolled", [
+    (2, 5, 1.0, 0.1, 0.0, 1.0, 0.0), (2, 5, 1.0, 0.2, 0.0, 1.0, 0.0), (1, 10, 1.0, 0.05, 0.0, 1.0, 0.0),
+    (2, 5, 0.5, 0.1, 0.0, 1.0, 0.0), (2, 5, 1.0, 0.1, 0.3, 3.0, 0.0), (4, 4, 0.4, 0.1, 0.2, 2.5, 0.0),
+    (2, 5, 1.0, 0.0, 0.2, 2.5, 0.2), (2, 5, 1.0, 0.1, 0.2, 2.5, 0.1)])
+def test_the_aggravated_share_and_size_match_a_discrete_fight(hits, duration, chance, p, crit, k, rolled):
+    some, top = _sim(hits, duration, chance, p, crit, k, rolled)
+    still = lambda u: models.aggravate_no_event(u, hits * p, hits)  # noqa: E731
+    assert models.aggravated_top(still, duration, hits, chance, rolled) == pytest.approx(some, abs=0.03)
+    assert models.aggravated_top(still, duration, hits, chance, rolled, crit, k) == pytest.approx(top, rel=0.05)
+
+
+def test_one_event_aggravates_the_live_bleeds_together():
+    # the manager's case: 10% at 2 hits/s on 5 s Bleeds: the independent form read 97.5%, the fight 61-65%
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 0, "BleedDuration": 5.0, "BleedChancePerHit": 100}
+    mods, notes = models.aggravate_model(["10% chance to Aggravate Bleeding on Hit"], stats, {"Attack"})
+    assert 60 < mods[0]["scale"] < 63 and "together" in notes[0]["basis"]
+
+
+def test_the_extra_is_sized_by_the_strongest_aggravated_bleed_with_the_full_size_as_a_row():
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 30, "BleedDuration": 5.0, "BleedChancePerHit": 100,
+             "PhysicalHitAverage": 100.0, "PhysicalCritAverage": 300.0}
+    mods, notes = models.aggravate_model(["10% chance to Aggravate Bleeding on Hit"], stats, {"Attack"})
+    assert mods[0]["scale"] < 61.2  # (below the share of time some Bleed is Aggravated)
+    assert "strongest AGGRAVATED" in notes[0]["basis"] and "full size" in notes[0]["basis"]
+
+
+PERFORATION_LINE = "20% chance for Bleeding to be Aggravated when Inflicted against Enemies on Jagged Ground"
+BLEEDER = {"Speed": 2.0, "HitChance": 100, "CritChance": 0, "BleedDuration": 5.0, "BleedChancePerHit": 100}
+
+
+def test_perforation_rolls_per_bleed_at_the_builds_jagged_ground_share():
+    assert models.aggravate_model([PERFORATION_LINE], BLEEDER, {"Attack"}, jagged=(0.0, "none"))[0] == []
+    mods, notes = models.aggravate_model([PERFORATION_LINE], BLEEDER, {"Attack"}, jagged=(0.5, "Earthquake"))
+    assert mods[0]["scale"] == pytest.approx(100 * (1 - 0.9 ** 10), abs=0.5)  # (10 live Bleeds, each 20% x 50%)
+    assert "Perforation" in notes[0]["basis"] and "Earthquake" in notes[0]["basis"]
+
+
+def test_perforation_is_not_counted_twice_beside_a_live_ledger_line(monkeypatch):
+    from builder import ledger
+
+    live = (type("E", (), {"raw": {}})(), ["share:JaggedGround 20% more Magnitude of Bleeding you inflict"])
+    monkeypatch.setattr(ledger, "translate", lambda text: live)
+    assert models.aggravate_model([PERFORATION_LINE], BLEEDER, {"Attack"}, jagged=(1.0, "Earthquake")) == ([], [])

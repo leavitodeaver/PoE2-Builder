@@ -502,8 +502,9 @@ def test_aggravated_extra_runs_while_any_live_bleed_is_aggravated():
     own = models.aggravated_share(5.0, 2.0 * 0.1 * 0.2, None, 2.0)
     assert models.aggravate_model([crit], stats, {"Attack"})[0][0]["scale"] == pytest.approx(100 * own, rel=1e-3)  # (no chance read)
     mods, notes = models.aggravate_model([crit], {**stats, "BleedChancePerHit": 100}, {"Attack"})
-    want = 1 - math.exp(-2.0 * 5.0 * own)  # (2 Bleeds a second, 5 s each)
-    assert mods[0]["scale"] == pytest.approx(100 * want, rel=1e-3) and want > own
+    # (MECH104, R54-1: one event Aggravates every live Bleed together, not 1 - exp(-Bleeds x D x own))
+    want = models.aggravated_top(lambda u: models.aggravate_no_event(u, 2.0 * 0.1 * 0.2, 2.0), 5.0, 2.0, 1.0)
+    assert mods[0]["scale"] == pytest.approx(100 * want, rel=1e-3) and own < want < 1 - math.exp(-2.0 * 5.0 * own)
     assert notes[0]["confidence"] == "MEDIUM-LOW" and f"{own:.0%}" in notes[0]["play"]
 
 
