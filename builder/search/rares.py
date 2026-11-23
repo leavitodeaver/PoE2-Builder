@@ -243,6 +243,30 @@ class AffixPools:
             return [affix.lower]
         return [affix, affix.lower]
 
+    def exalt_share(self, base_name: str, target: Affix, chosen: list[Affix]) -> float:
+        """(SEARCHC3) One Exalted Orb with the side's Exaltation Omen on an item holding `chosen`: the chance it adds
+        `target` at its tier or better. The side's rows this base rolls at this item level, less the groups the item
+        already holds and rows its affixes' tags forbid. PoB's weights, which R33-23 found are 1 / 0 in the client: so
+        equal weights per row (LOW; the real spawn weights can't be read from any source)."""
+        key = (base_name, target.type)
+        rows = self.__dict__.setdefault("_side_rows", {}).get(key)
+        if rows is None:
+            tags = pool_tags(self.ctx.bases_by_name[base_name])
+            rows = []
+            for mod in self.mods:
+                if mod["type"] != target.type or mod.get("level", 0) > self.item_level:
+                    continue
+                weight = next((v for t, v in zip(mod.get("weightKey") or [], mod.get("weightVal") or []) if t in tags), 0)
+                if weight > 0:
+                    rows.append((mod["group"], int(mod.get("level") or 0), weight, excluded_by(mod)))
+            self._side_rows[key] = rows
+        taken = {a.group for a in chosen}
+        forbidden = {tag for a in chosen for tag in a.adds}
+        open_rows = [r for r in rows if r[0] not in taken and not forbidden & r[3]]
+        total = sum(r[2] for r in open_rows)
+        hit = sum(r[2] for r in open_rows if r[0] == target.group and r[1] >= target.level)
+        return hit / total if total else 0.0
+
     def crafted(self, kind: str) -> tuple[Affix, float] | None:
         """For a jewel with three `kind` modifiers: the crafted one that boosts them, and the boost in
         percent (None if this game data lacks the crafts that make such a jewel)."""

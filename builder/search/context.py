@@ -863,6 +863,10 @@ def make_payload(request: BuildRequest, prices=None) -> dict:
         # (SEARCHC2) the plain catalysts' exchange prices (Gear.catalyst_trial); {} without price data
         "catalyst_prices": {} if prices is None else {name: prices.exchange[name].divine for name in
                                                       catalyst_names() if name in prices.exchange},
+        # (SEARCHC3) the augment-effect route's two materials (Gear.augment_effect_trial); {} without price data
+        "augment_effect_prices": {} if prices is None else {name: prices.exchange[name].divine for name in
+                                                            ("Essence of Horror", "Omen of Dextral Crystallisation")
+                                                            if name in prices.exchange},
         "league": league,
         "rare_model": rare_prices.RarePriceModel.load(league).payload(),
         "craft_prices": craft_prices(prices),

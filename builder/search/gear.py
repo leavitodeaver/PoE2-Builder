@@ -194,6 +194,31 @@ def catalyst_enabled() -> bool:
     return os.environ.get(SWITCH_CATALYST, "0") == "1"
 
 
+# (SEARCHC3) "1": a rare with a full suffix side also tries Serle's Triumph and a fourth suffix (Gear.serle_trial). OFF
+# by default until gated
+SWITCH_SERLE = "POE2_SEARCH_SERLE"
+SERLE = "Serle's Triumph"
+
+
+def serle_enabled() -> bool:
+    return os.environ.get(SWITCH_SERLE, "0") == "1"
+
+
+# (SEARCHC3; THE USER 23 Nov: "craft your own with the '60% increased augment' mod") "1": rare Gloves / Boots also try
+# Essence of Horror's "60% increased effect of Socketed Augment Items" (Gear.augment_effect_trial). OFF by default until
+# gated. The mod's game id; Gloves and Boots only (checked by R50-5: game EssenceMods' one row for this mod; poe2db's
+# Essence of Horror page; the 0.4.0 note; trade 23 Nov: 0 helmets / body armours listed with the stat)
+SWITCH_AUGMENT_EFFECT = "POE2_SEARCH_AUGMENT_EFFECT"
+AUGMENT_EFFECT_MOD = "EssenceLocalRuneAndSoulCoreEffect1"
+AUGMENT_EFFECT_TYPES = ("Gloves", "Boots")
+HORROR = "Essence of Horror"
+OMEN_SUFFIX = essences.OMENS["Suffix"]
+
+
+def augment_effect_enabled() -> bool:
+    return os.environ.get(SWITCH_AUGMENT_EFFECT, "0") == "1"
+
+
 # Seconds Gear.fill_empty gives each filler item's socket fill (LOW: a search-effort setting; a fill is 1-3 what-if calls)
 FILL_EMPTY_SOCKET_SECONDS = 20.0
 
@@ -785,6 +810,14 @@ class Gear:
             catalysed = self.catalyst_trial(slot, base, base_option, level, chosen, current, left, deadline)
             if catalysed is not None:
                 return catalysed
+        if not magic and augment_effect_enabled() and base["type"] in AUGMENT_EFFECT_TYPES:  # (SEARCHC3: Essence of Horror)
+            effect = self.augment_effect_trial(slot, base, base_option, level, pools, chosen, left, deadline)
+            if effect is not None:
+                return effect
+        if not magic and serle_enabled():  # (SEARCHC3: Serle's Triumph and a fourth suffix)
+            serle = self.serle_trial(slot, base, base_option, level, pools, limits, chosen, current, left, deadline)
+            if serle is not None:
+                return serle
         price = None if self.ctx.ssf else price_of(slot, chosen)
         confidence = "ssf" if self.ctx.ssf else "estimate (magic)" if magic else "estimate (uncalibrated)"
         return ItemOption(f"{'Magic' if magic else 'Rare'} {base['type']}", base["name"], base["type"],
@@ -1043,6 +1076,158 @@ class Gear:
                           "ssf" if ssf else f"estimate (craft route: {rune})", base_option.level, rare=True,
                           affixes=tuple(line for a in converted for line in a.lines), runes=(rune,), bound=(rune,),
                           craft_route=(note,))
+
+    def serle_trial(self, slot: str, base: dict, base_option: ItemOption, level: int, pools, limits: dict, chosen: list,
+                    current: float, left: float, deadline: float) -> ItemOption | None:
+        """(SEARCHC3, POE2_SEARCH_SERLE=1; R51-10 #3, R52-5) The rare with a full suffix side, Serle's Triumph ("+1 Suffix
+        Modifier allowed", socket-bound, limit 1, rares only, never Corrupted / Sanctified) and a fourth suffix. R50-6 lists
+        no route that chooses that suffix (UNVERIFIED that none exists: RQ-D, with RESEARCH54), so it is priced by its
+        odds, influence.routes' Exalt loop: per try an Exalted Orb +
+        Omen of Dextral Exaltation; a miss cleared by an Orb of Annulment (with or without the side's Omen, the cheaper),
+        which takes a wanted suffix m / (m + 1) of the time, counted as a fresh copy of the rare with its rune. The chance
+        a try lands: AffixPools.exalt_share, the target at its tier or better among the rows still open (equal weights:
+        LOW). Kept when it beats the plain rare with its best ordinary rune in that socket, after prices."""
+        suffixes = sum(1 for a in chosen if a.type == "Suffix")
+        if clock.now() > deadline or socket_count(base, False) < 1 or not limits.get("Suffix") \
+                or suffixes < limits["Suffix"] or SERLE in self.ctx.compiled.filters.forbidden_augments:
+            return None
+        ssf = self.ctx.ssf
+        rune_price = 0.0 if ssf else self.runes.price(SERLE)
+        used = self.runes_used(slot)
+        limit = self.runes.limit(SERLE)
+        names = self.runes.candidates(base, False)
+        if rune_price is None or SERLE not in names or (limit and used.get(limit[0], 0) >= limit[1]):
+            return None
+        prices = {m: 0.0 for m in influence.MATERIALS} if ssf else self.ctx.influence_prices
+        market = rare_price(slot, chosen) + rune_price
+        groups = {a.group for a in chosen}
+        cases = []  # (affix, total price, the route, its chance a try)
+        for affix in pools.pool(base["name"]):
+            if affix.type != "Suffix" or affix.group in groups or affix.influence or affix.desecrated or affix.crafted:
+                continue
+            for option in pools.choices(affix, chosen):
+                share = pools.exalt_share(base["name"], option, chosen)
+                if share <= 0:
+                    continue
+                routes = [r for r in influence.routes(dataclasses.replace(option, side_odds=share), chosen, market, prices)
+                          if "Exalted" in r[1]]
+                if not routes:
+                    continue
+                cost, how = min(routes)
+                if market + cost <= left + 1e-9:
+                    cases.append((option, market + cost, how, share))
+        if not cases:
+            return None
+        scored = self.deltas(slot, [rare_text(slot, base, level, chosen + [c[0]], runes=[SERLE]) for c in cases])
+        value, best = max(((s - self.lam * c[1], c) for (s, _), c in zip(scored, cases)), key=lambda x: x[0])
+        plain = current - self.lam * rare_price(slot, chosen)
+        others = [n for n in names if n != SERLE and self.runes.price(n) is not None
+                  and not ((lim := self.runes.limit(n)) and used.get(lim[0], 0) >= lim[1])
+                  and rare_price(slot, chosen) + self.runes.price(n) <= left + 1e-9]
+        if others and clock.now() < deadline:
+            socketed = self.deltas(slot, [rare_text(slot, base, level, chosen, runes=[n]) for n in others])
+            plain = max([plain] + [s - self.lam * (rare_price(slot, chosen) + self.runes.price(n))
+                                   for (s, _), n in zip(socketed, others)])
+        if value <= plain + EPSILON:
+            return None
+        affix, price, how, share = best
+        affixes = chosen + [affix]
+        note = (f"{SERLE}: buy the rare with its three suffixes ({rare_price(slot, chosen):.3g} div, the rare price model), "
+                f"socket {SERLE} ({rune_price:.3g} div, socket-bound), then roll a fourth suffix, "
+                f"\"{'; '.join(affix.lines)}\" or a better tier: {how}, about {share:.1%} a try (equal weights per "
+                f"modifier row: LOW; a miss can cost a wanted suffix, counted as a fresh copy), {price - market:.3g} div "
+                f"expected. Do this before any corruption: {SERLE} can't go in a Corrupted or Sanctified item")
+        return ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
+                          rare_text(slot, base, level, affixes, runes=[SERLE]), False, None if ssf else price,
+                          "ssf" if ssf else f"estimate (craft route: {SERLE})", base_option.level, rare=True,
+                          affixes=tuple(line for a in affixes for line in a.lines), runes=(SERLE,), bound=(SERLE,),
+                          craft_route=(note,))
+
+    def augment_effect_trial(self, slot: str, base: dict, base_option: ItemOption, level: int, pools, chosen: list,
+                             left: float, deadline: float) -> ItemOption | None:
+        """(SEARCHC3, POE2_SEARCH_AUGMENT_EFFECT=1; THE USER 23 Nov; R50-5, R51-8) Rare Gloves / Boots with Essence of
+        Horror's suffix, "60% increased effect of Socketed Augment Items" (every number of every socketed augment line
+        x1.6, floored; PoB scales them). The essence removes a random modifier first, or a random suffix with Omen of
+        Dextral Crystallisation, so each is scored over which modifier is lost, by the Alloys' ruling (the manager, 18 Nov:
+        DPS at the mean, the floors at the worst outcome; the item shown is the worst). The value is all in the runes, so
+        both sides are scored with their sockets filled, and the route is kept when it beats the plain rare as filled,
+        after prices. Priced as the rare + the essence (+ the Omen)."""
+        if clock.now() > deadline or socket_count(base, False) < 1 or not chosen:
+            return None
+        mod = next((m for m in self.ctx.data.mods.get("Item", []) if m["id"] == AUGMENT_EFFECT_MOD), None)
+        if mod is None or mod.get("level", 0) > level or mod["group"] in {a.group for a in chosen}:
+            return None
+        ssf = self.ctx.ssf
+        prices = self.ctx.payload.get("augment_effect_prices") or {}
+        essence = 0.0 if ssf else prices.get(HORROR)
+        if essence is None:
+            return None
+        build = self.build
+        objective = build.objective
+        affix = pools.affix(mod, mod["group"], mod["type"], 1, 1, (0.0, 0.0))
+        bought = rare_price(slot, chosen)
+        plain = ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
+                           rare_text(slot, base, level, chosen), False, None if ssf else bought,
+                           "ssf" if ssf else "estimate (uncalibrated)", base_option.level, rare=True,
+                           affixes=tuple(line for a in chosen for line in a.lines))
+        plain_filled = self.socketed(slot, plain, deadline, trial=True)
+        plain_value = self.adjusted(self.deltas(slot, [plain_filled.raw])[0][0], plain_filled)
+        trials = [(None, essence)]
+        omen = 0.0 if ssf else prices.get(OMEN_SUFFIX)
+        if omen is not None and any(a.type == "Suffix" for a in chosen):
+            trials.append(("Suffix", essence + omen))
+        best = None  # (value, option)
+        for side, cost in trials:
+            price = bought + cost
+            if price > left + 1e-9 or clock.now() > deadline:
+                continue
+            losable = [a for a in chosen if side is None or a.type == side]
+            outcomes = [[a for a in chosen if a is not lost] + [affix] for lost in losable]
+            texts = [rare_text(slot, base, level, o) for o in outcomes]
+            # The runes for the worst outcome: found with the plain rare's runes, then refilled on it
+            first = [with_runes(t, list(plain_filled.runes)) for t in texts]
+            screened = [s for s, _ in self.deltas(slot, first)]
+            at = min(range(len(first)), key=lambda n: (screened[n], n))
+            shell = dataclasses.replace(plain, raw=texts[at], price=None if ssf else price,
+                                        affixes=tuple(line for a in outcomes[at] for line in a.lines))
+            filled = self.socketed(slot, shell, deadline, trial=True)
+            if not filled.runes:
+                continue
+            with_them = [with_runes(t, list(filled.runes)) for t in texts]
+            scored = [(objective.score(bare), bare) for bare in
+                      (self.without_registered(t, stats) for t, (_, stats) in zip(with_them, self.deltas(slot, with_them)))]
+            dps = [objective.dps(stats) for _, stats in scored]
+            worst = min(range(len(scored)), key=lambda n: (scored[n][0], n))
+            scale = alloys.mean_scale(dps, worst)
+            stats = dict(scored[worst][1])
+            stats[alloys.ALLOY_FIELD] = build.alloy_product(slot) * scale
+            value = objective.score(stats) - self.lam * (filled.price or 0.0)
+            if value <= plain_value + EPSILON or (best is not None and value <= best[0]):
+                continue
+            typical = alloys.typical(dps)
+            lost = lambda n: "; ".join(losable[n].lines)  # noqa: E731
+            how = f" with {OMEN_SUFFIX} (a suffix only)" if side else ""
+            report = (f"{HORROR}{how}: removes a random modifier ({len(losable)} outcomes) and adds "
+                      f"\"{'; '.join(affix.lines)}\"; the floors read the worst outcome (shown in the build), DPS the mean "
+                      f"over all {len(losable)} (x{scale:.3f} of the worst's) (the manager's ruling, 18 Nov)",
+                      f"Typical outcome: loses \"{lost(typical)}\" (DPS {dps[typical]:,.0f})",
+                      f"Worst case: loses \"{lost(worst)}\" (DPS {dps[worst]:,.0f}; mean {sum(dps) / len(dps):,.0f})")
+            note = (f"{HORROR}{how}: buy the rare ({bought:.3g} div, the rare price model), use the essence "
+                    f"({cost:.3g} div with any Omen): every socketed augment's numbers x1.6, rounded down (R51-8). Socket "
+                    f"the runes after it. A +1 or a line with no number gains nothing")
+            best = (value, ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
+                                      texts[worst], False, None if ssf else price,
+                                      "ssf" if ssf else "estimate (craft route: Essence of Horror)", base_option.level,
+                                      rare=True, affixes=tuple(line for a in outcomes[worst] for line in a.lines),
+                                      alloy=HORROR, alloy_scale=scale, alloy_report=report, augment="essence",
+                                      craft_route=(note,)))
+        if best is None:
+            return None
+        option = best[1]
+        if not hasattr(build, "alloy_raws") or build.alloy_raws is None:
+            build.alloy_raws = {}
+        build.alloy_raws[alloys.alloy_key(option.raw)] = option.alloy_scale
+        return option
 
     ALLOY_KEEP = 2  # Alloy candidates (by a what-if with no modifier lost) whose outcomes are all scored
 
