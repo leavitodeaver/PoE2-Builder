@@ -15,6 +15,12 @@ from builder.search.context import Context
 # Weapons a spell or minion caster might hold: (item type, sub-type; "" = plain caster staff)
 CASTER_WEAPONS = [("Wand", None), ("Sceptre", None), ("Staff", "")]
 MELEE_FALLBACK = ["One Hand Mace", "Two Hand Mace", "Spear", "Staff"]
+# (SEARCHB7; COV52's group A, the manager's 09:50 23 Nov) CASTER_WEAPONS is where the open search looks, not a game rule:
+# of the 218 current non-attack gems with no PoB weaponTypes, 215 have ActiveSkills.WeaponRequirements None (Frostbolt and
+# Supporting Fire among them; game 26650308, through GrantedEffects.ActiveSkill; tests/test_searchb7_weapon_rule.py
+# rescans it). So a request that names a weapon type can hold such a skill on it. These three DO carry a requirement PoB's
+# gem data doesn't list, and keep the old rule.
+WEAPON_BOUND_NO_TYPES = frozenset({"Fortifying Cry", "Magma Barrier", "The Stars Answer"})
 
 
 @dataclass(frozen=True)
@@ -144,7 +150,8 @@ def main_hands(ctx: Context, skill: str, weapon_unique: str | None = None, swap:
     if request.weapon_type and not swap:
         if not rules.weapon_in_game(request.weapon_type):
             problems.append(f"{request.weapon_type}s aren't in the game in patch {rules.patch}")
-        mains = [m for m in mains if m[0] == request.weapon_type]
+        free = not (attack or types) and gem.get("name") not in WEAPON_BOUND_NO_TYPES  # (no weapon requirement in the game)
+        mains = [m for m in mains if m[0] == request.weapon_type] or ([(request.weapon_type, None)] if free else [])
         if not mains:
             problems.append(f"{skill} can't be used with a {request.weapon_type}")
     # Weapon classes PoB has bases for but the game doesn't drop yet are never a skeleton's weapons
