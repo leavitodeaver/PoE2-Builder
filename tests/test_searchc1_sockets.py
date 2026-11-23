@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import faulthandler
+import re
 import random
 
 import pytest
@@ -306,3 +307,113 @@ def test_movement_speed_comes_first_when_it_doesnt_lower_the_score(boots_base):
     fillers = gear.fill_sockets("Boots", BOOTS, "Rarity: Normal\nDaggerfoot Shoes", chosen, 0, 1, 1.0, 10.0,
                                 ["Perfect Body Rune", "Farrul's Rune of the Chase"], lambda n: True, float("inf"))
     assert fillers == [("Farrul's Rune of the Chase", "movement speed")]
+
+
+def test_one_emergent_rune_may_fill_a_socket_but_no_other_ancient(boots_base):
+    """The manager's ruling (23 Nov 05:00): a filler MAY be one Emergent rune when the build has no Ancient Augment."""
+    ancient = {"Emergent Vigour": ("AncientAugment", 1), "Kurgal's Gaze": ("AncientAugment", 1)}
+    gear = _stub_gear({"Emergent Vigour": 2.0, "Kurgal's Gaze": 0.01}, lambda raw: 1.0, lambda raw: {"Life": 1000},
+                      limits=ancient)
+    raw = "Rarity: Normal\nDaggerfoot Shoes"
+    chosen: list[str] = []
+    fillers = gear.fill_sockets("Boots", boots_base, raw, chosen, 0, 1, 1.0, 10.0, ["Kurgal's Gaze", "Emergent Vigour"],
+                                lambda n: True, float("inf"))
+    assert fillers == [("Emergent Vigour", "quality of life: an Emergent augment (the build's one Ancient Augment)")]
+    # the build already holds an Ancient Augment: the limit check says no, so nothing (never a second one)
+    chosen = []
+    assert gear.fill_sockets("Boots", boots_base, raw, chosen, 0, 1, 1.0, 10.0, ["Emergent Vigour"],
+                             lambda n: n not in ancient, float("inf")) == []
+
+
+def test_a_scoring_pick_evicts_a_filler_holding_its_limit():
+    from builder.search.gear import Gear
+
+    class Build:
+        def __init__(self):
+            self.equipped = {}
+
+        def equip(self, slot, option):
+            self.equipped[slot] = option
+            return 1.0
+
+    gear = Gear.__new__(Gear)
+    gear.runes = _StubRunes({"Emergent Vigour": 2.0, "Kurgal's Gaze": 1.0},
+                            {"Emergent Vigour": ("AncientAugment", 1), "Kurgal's Gaze": ("AncientAugment", 1)})
+    gear.build = Build()
+    helmet = ItemOption("h", "Iron Greathelm", "Helmet", None, "Rarity: Normal\nIron Greathelm\nSockets: S\nRune: Emergent Vigour",
+                        False, 2.5, "found", 1, runes=("Emergent Vigour",),
+                        filler_runes=(("Emergent Vigour", "quality of life"),))
+    gear.build.equipped["Helmet"] = helmet
+    boots = ItemOption("b", "Daggerfoot Shoes", "Boots", None, "Rarity: Normal\nDaggerfoot Shoes\nSockets: S\nRune: Kurgal's Gaze",
+                       False, 1.0, "found", 1, runes=("Kurgal's Gaze",))
+    gear.build.equipped["Boots"] = boots
+    gear.evict_fillers("Boots", boots, 1.0)
+    left = gear.build.equipped["Helmet"]
+    assert left.runes == () and left.filler_runes == () and left.price == pytest.approx(0.5)
+    assert "Emergent Vigour" not in left.raw and gear.build.equipped["Boots"] is boots
+
+
+def test_fill_empty_sockets_the_items_it_adds(engine, monkeypatch):
+    from builder.search.gear import Gear, SlotSpec
+    from builder.search.objective import Objective
+    from builder.search.state import Build
+
+    monkeypatch.setenv("POE2_SEARCH_FILL_SOCKETS", "1")
+    ctx = Context(make_payload(BuildRequest(main_skill="Spark")))
+    for rune in ctx.data.runes:
+        ctx.augment_prices.setdefault(rune["name"], 0.01)
+    engine.call("newBuild")
+    build = Build(engine, ctx, Objective(ctx))
+    gear = Gear(build, SlotSpec("Wand"), None, random.Random(0))
+    gear.slots = {"Boots": gear.slots["Boots"]}  # (one slot, for time)
+    build.refresh()
+    filled = gear.fill_empty()
+    print("PROBE fill_empty", filled, build.equipped.get("Boots") and build.equipped["Boots"].runes)
+    if not filled:
+        pytest.skip("no boots filler on a fresh Spark build")
+    boots = build.equipped["Boots"]
+    base = ctx.bases_by_name[boots.base]
+    assert len(boots.runes) == socket_count(base, False), "the filler item's sockets are filled"
+
+
+def test_void_flux_lines_follow_poe2dbs_table():
+    from builder.search.rares import Affix, void_flux_line, void_fluxed
+
+    assert void_flux_line("+44% to Fire Resistance") == "+26% to Chaos Resistance"  # (41-45 -> 24-27)
+    assert void_flux_line("+28% to Lightning Resistance") == "+18% to Chaos Resistance"  # (26-30 -> 16-19)
+    assert void_flux_line("+6% to Cold Resistance") == "+4% to Chaos Resistance"
+    assert void_flux_line("+15% to Fire and Chaos Resistances") == "+26% to Chaos Resistance"
+    assert void_flux_line("+2% to Maximum Cold Resistance") == "+2% to Maximum Chaos Resistance"
+    assert void_flux_line("30% increased Movement Speed") == "30% increased Movement Speed"
+    assert void_flux_line("+50% to Fire Resistance") is None  # (out of the table: no guess)
+    assert void_flux_line("+12% to Fire and Cold Resistances") is None
+    fire = Affix("FireResist8", "FireResistance", "Suffix", 1, ("+44% to Fire Resistance",))
+    speed = Affix("MovementVelocity5", "MovementVelocity", "Prefix", 1, ("30% increased Movement Speed",))
+    out = void_fluxed([speed, fire])
+    assert out[0] is speed and out[1].lines == ("+26% to Chaos Resistance",) and out[1].id == "FireResist8+VoidFlux"
+    assert void_fluxed([speed]) is None
+
+
+def test_the_flux_trial_prices_the_route_and_turns_every_elemental_resistance(engine, monkeypatch):
+    from builder.search.gear import Gear, SlotSpec, affix_limits
+    from builder.search.objective import Objective
+    from builder.search.rares import rare_price, rare_text
+    from builder.search.state import Build
+
+    ctx = Context(make_payload(BuildRequest(main_skill="Spark")))
+    ctx.payload["flux_prices"] = {"Void Flux": 0.13}
+    engine.call("newBuild")
+    build = Build(engine, ctx, Objective(ctx))
+    gear = Gear(build, SlotSpec("Wand"), None, random.Random(0))
+    base = ctx.bases_by_name["Daggerfoot Shoes"]
+    level = gear.pools.item_level
+    current = gear.deltas("Boots", [rare_text("Boots", base, level, [])])[0][0]
+    option = ItemOption("Daggerfoot Shoes", "Daggerfoot Shoes", "Boots", None, normal_item(base), False, 0.0, "found", 1)
+    fluxed = gear.flux_trial("Boots", base, option, level, gear.pools, affix_limits(base), [], current, 1e6,
+                             clock.now() + 300)
+    print("PROBE flux", fluxed and fluxed.affixes, fluxed and fluxed.price)
+    if fluxed is None:
+        pytest.skip("the route didn't beat a plain rare on a fresh Spark build")
+    assert any("Chaos Resistance" in line for line in fluxed.affixes)
+    assert not any(re.search(r"(Fire|Cold|Lightning) Resistance", line) for line in fluxed.affixes)
+    assert fluxed.craft_route and fluxed.craft_route[0].startswith("Void Flux")

@@ -373,6 +373,64 @@ def rare_price(slot: str, affixes: list[Affix]) -> float:
     return rare_prices.active().price(slot, affixes)
 
 
+
+# Void Flux (SEARCHC1; THE USER 23 Nov: "buy some cheap boots with triple resistances, use a void flux on them, and get all
+# the chaos resistance you'd need on one item, AND still get movement speed"). RESEARCH50 R50-4 (HIGH): "Transforms all
+# Fire, Cold and Lightning Resistance modifiers on an item to equivalent Chaos resistance modifiers" (poe2db Void_Flux),
+# magic or rare items, not corrupted ones, fractured mods untouched; converted mods coexist (trade: three "of Exile" on one
+# pair of boots). The tier map is poe2db's "Mod Equivalencies" table (read 23 Nov, 15 rows; the game tables we extract
+# hold no flux table): each elemental range -> the chaos range below, the roll kept at the same fraction of its range.
+# Not in the table, so NOT converted (UNVERIFIED either way): "to all Elemental Resistances" and two-element hybrids.
+FLUX_SINGLE = ((6, 10, 4, 7), (11, 15, 8, 11), (16, 20, 12, 15), (21, 25, 16, 19), (26, 30, 16, 19), (31, 35, 20, 23),
+               (36, 40, 20, 23), (41, 45, 24, 27))
+FLUX_HYBRID = ((13, 17, 24, 27),)  # "+(13-17)% to Fire and Chaos Resistances" -> "+(24-27)% to Chaos Resistance"
+FLUX_NAMES = {"Chaos": "Void Flux", "Fire": "Blazing Flux", "Cold": "Chilling Flux", "Lightning": "Crackling Flux"}
+_FLUX_RES = re.compile(r"^\+(\d+)% to (Fire|Cold|Lightning) Resistance$")
+_FLUX_HYBRID = re.compile(r"^\+(\d+)% to (Fire|Cold|Lightning) and Chaos Resistances$")
+_FLUX_MAX = re.compile(r"^\+(\d+)% to Maximum (Fire|Cold|Lightning) Resistance$")
+_ELEMENTAL_RES = re.compile(r"\b(Fire|Cold|Lightning)\b.*Resistance", re.I)
+
+
+def _flux_value(value: int, table) -> int | None:
+    for lo, hi, out_lo, out_hi in table:
+        if lo <= value <= hi:
+            return round(out_lo + (value - lo) / max(hi - lo, 1) * (out_hi - out_lo))
+    return None
+
+
+def void_flux_line(line: str) -> str | None:
+    """The line a Void Flux makes of an elemental resistance line, the line itself if it isn't one, or None when it is
+    an elemental resistance line the table doesn't cover (the item then isn't fluxed: no guess)."""
+    if m := _FLUX_RES.match(line):
+        value = _flux_value(int(m.group(1)), FLUX_SINGLE)
+        return None if value is None else f"+{value}% to Chaos Resistance"
+    if m := _FLUX_HYBRID.match(line):
+        value = _flux_value(int(m.group(1)), FLUX_HYBRID)
+        return None if value is None else f"+{value}% to Chaos Resistance"
+    if m := _FLUX_MAX.match(line):
+        return f"+{m.group(1)}% to Maximum Chaos Resistance"
+    return None if _ELEMENTAL_RES.search(line) else line
+
+
+def void_fluxed(affixes: list[Affix]) -> list[Affix] | None:
+    """The affixes after a Void Flux (their lines converted, ids marked), or None if nothing converts or a line can't."""
+    out, changed = [], False
+    for affix in affixes:
+        lines = [void_flux_line(line) for line in affix.lines]
+        if any(line is None for line in lines):
+            return None
+        if tuple(lines) != affix.lines:
+            changed = True
+            affix = dataclasses.replace(affix, id=f"{affix.id}+VoidFlux", lines=tuple(lines))
+        out.append(affix)
+    return out if changed else None
+
+
+def is_elemental_resistance(affix: Affix) -> bool:
+    """A single-element resistance affix (what a Void Flux turns into chaos resistance)."""
+    return bool(affix.lines) and all(_FLUX_RES.match(line) for line in affix.lines)
+
+
 # Sockets ------------------------------------------------------------------------------------
 
 # A base whose implicit fixes its sockets (COV40; an UNDERCOUNT before: the socketLimit - 2 rule gave Kalguuran Forgehammer

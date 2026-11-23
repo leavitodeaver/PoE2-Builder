@@ -2171,6 +2171,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         "clear_estimate": build.objective.clear(build.stats),
         "blind_spots": blind_spots,
         "gear": {slot: option.describe() for slot, option in equipped.items()}, "spent": spent,
+        "why_items": search.gear.why_items(),  # (SEARCHC1, on loan: what each item does for the build; Gear.why_items)
         "assumptions": assumptions, "flasks": search.gear.flask_report(),
         "verified": not mismatched, "verify_mismatch": mismatched,
         "tree_check": tree_check, "radius_jewels": reloaded["radiusJewels"], "left_out": {**search.jewels.left_out, **search.gems.left_out},

@@ -832,6 +832,10 @@ def make_payload(request: BuildRequest, prices=None) -> dict:
         "essence_prices": essences.payload_prices(prices),  # (SEARCHB1)
         "desecration_prices": desecrated.payload_prices(prices),  # (SEARCH30)
         "influence_prices": influence.payload_prices(prices),  # (SEARCH30)
+        # (SEARCHC1) the four Fluxes' exchange prices (Gear.flux_trial); {} without price data
+        "flux_prices": {} if prices is None else {name: prices.exchange[name].divine for name in
+                                                  ("Void Flux", "Blazing Flux", "Chilling Flux", "Crackling Flux")
+                                                  if name in prices.exchange},
         "league": league,
         "rare_model": rare_prices.RarePriceModel.load(league).payload(),
         "craft_prices": craft_prices(prices),

@@ -32,7 +32,7 @@ from builder.search.flasks import (
 )
 from builder.search.rares import (
     MAGIC_LIMIT, RUNE_KEEP, SCREEN_KEEP, Affix, AffixPools, RuneCatalog, magic_price, magic_text, rare_price, rare_text,
-    NOT_IN_SEALED, socket_count, unique_text, with_runes,
+    NOT_IN_SEALED, is_elemental_resistance, socket_count, unique_text, void_fluxed, with_runes,
 )
 from builder.search.objective import NO_DAMAGE_OFFSET
 from builder.search.state import EPSILON, Build
@@ -164,6 +164,18 @@ EXTRA_SOCKET_FLOOR = 0.01
 # A Vaal Orb's chance to add the socket (MEDIUM-LOW, R50-1 3: four outcomes about equally likely, wiki and guide summaries,
 # no file gives the weights); one corruption per item, so a miss costs the copy (the upper bound: no resale counted)
 CORRUPT_SOCKET_CHANCE = 0.25
+
+
+# (SEARCHC1) "1": a rare also tries the Void Flux route (Gear.flux_trial). OFF by default until gated
+SWITCH_FLUX = "POE2_SEARCH_FLUX"
+
+
+def flux_enabled() -> bool:
+    return os.environ.get(SWITCH_FLUX, "0") == "1"
+
+
+# Seconds Gear.fill_empty gives each filler item's socket fill (LOW: a search-effort setting; a fill is 1-3 what-if calls)
+FILL_EMPTY_SOCKET_SECONDS = 20.0
 
 
 def extra_sockets_enabled() -> bool:
@@ -453,10 +465,42 @@ class Gear:
     def put(self, slot: str, option: ItemOption | None) -> float:
         """Equip (or empty) a slot; a flask or charm slot is switched on only if its effect is sustained."""
         if not is_flask_slot(slot):
-            return self.build.equip(slot, option)
+            result = self.build.equip(slot, option)
+            if option is not None and len(option.runes) > len(option.filler_runes):
+                result = self.evict_fillers(slot, option, result)
+            return result
         info = self.flask_info([option.raw])[0] if option else {}
         self.build.extra_stats = self.recovery_stats({slot: info}, {slot: option.raw} if option else None)
         return self.build.equip(slot, option, active=option is not None and self.counts(slot, info, option.raw))
+
+    def evict_fillers(self, slot: str, option: ItemOption, result: float) -> float:
+        """(SEARCHC1; the manager's ruling, 23 Nov 05:00: a filler never holds a per-character limit a scoring pick
+        wants) after `option` is equipped, each limit group its scoring runes take past the limit gives up fillers of
+        that group in the other items (their sockets are re-filled while they hold only fillers: only_fillers)."""
+        build = self.build
+        scored = [n for n in option.runes if n not in {f for f, _ in option.filler_runes}]
+        for group in {g[0] for n in scored if (g := self.runes.limit(n))}:
+            cap = next(g[1] for n in scored if (g := self.runes.limit(n)) and g[0] == group)
+            held = [(s, n) for s, o in build.equipped.items() if o is not None for n in o.runes
+                    if (self.runes.limit(n) or ("",))[0] == group]
+            over = len(held) - cap
+            for other_slot, other in list(build.equipped.items()):
+                if over <= 0:
+                    break
+                if other_slot == slot or other is None:
+                    continue
+                for name, why in list(other.filler_runes):
+                    if over > 0 and (self.runes.limit(name) or ("",))[0] == group:
+                        runes = list(other.runes)
+                        runes.remove(name)
+                        fillers = list(other.filler_runes)
+                        fillers.remove((name, why))  # (one of them)
+                        price = None if other.price is None else other.price - (self.runes.price(name) or 0.0)
+                        other = dataclasses.replace(other, raw=with_runes(other.raw, runes), runes=tuple(runes),
+                                                    filler_runes=tuple(fillers), price=price)
+                        result = build.equip(other_slot, other)
+                        over -= 1
+        return result
 
     # Restrictions from the build's own lines (SLOT_RESTRICTIONS; COV-B) ---------------------------
 
@@ -684,6 +728,10 @@ class Gear:
         if not magic:  # (SEARCHB5; THE USER 23 Nov: no empty affix slots)
             utility, current = self.fill_utility(slot, base, level, pools, limits, chosen, current, left, deadline)
             chosen = chosen + utility
+        if not magic and flux_enabled():  # (SEARCHC1: the rare's elemental resistances turned to chaos by a Void Flux)
+            fluxed = self.flux_trial(slot, base, base_option, level, pools, limits, chosen, current, left, deadline)
+            if fluxed is not None:
+                return fluxed
         if not magic and influence.enabled():  # (SEARCH30: an influence rune and the affixes it lets roll, influence.py)
             influenced = self.influence_trial(slot, base, base_option, level, pools, limits, chosen, current, left,
                                               deadline)
@@ -768,6 +816,53 @@ class Gear:
             return [], current
         full = self.deltas(slot, [rare_text(slot, base, level, chosen + added)])[0][0]
         return ([], current) if full < current - EPSILON else (added, full)
+
+    def flux_trial(self, slot: str, base: dict, base_option: ItemOption, level: int, pools, limits: dict, chosen: list,
+                   current: float, left: float, deadline: float) -> ItemOption | None:
+        """(SEARCHC1, POE2_SEARCH_FLUX=1; THE USER 23 Nov: cheap triple-resistance boots + a Void Flux = the chaos
+        resistance the build needs on one item, movement speed kept) the rare `chosen` (score `current`) bought with
+        elemental resistance affixes and turned by a Void Flux (rares.void_fluxed: every Fire / Cold / Lightning
+        resistance line to its chaos equivalent, poe2db's table). Tried: the rare as it is fluxed (if it has elemental
+        resistances), and the rare with 1, 2, 3... of its open suffixes given the best elemental resistance affixes (a
+        different element each, as bought) and then fluxed: converted chaos mods coexist (R50-4), which no plain rare can
+        roll. Priced as the input rare (the rare price model) + 1 Void Flux (exchange); kept when it beats the plain rare
+        after prices. Deterministic: no odds. Not for a Corrupted item (none is built here)."""
+        flux = (self.ctx.payload.get("flux_prices") or {}).get("Void Flux")
+        if clock.now() > deadline or (flux is None and not self.ctx.ssf):
+            return None
+        flux = 0.0 if self.ctx.ssf else flux
+        groups = {a.group for a in chosen}
+        open_suffixes = limits.get("Suffix", 0) - sum(1 for a in chosen if a.type == "Suffix")
+        extras = []  # the best affix of each elemental resistance group the base rolls, best tier first
+        for affix in pools.pool(base["name"]):
+            if is_elemental_resistance(affix) and affix.type == "Suffix" and affix.group not in groups:
+                pick = next(iter(pools.choices(affix, chosen)), None)
+                if pick is not None and pick.group not in {e.group for e in extras}:
+                    extras.append(pick)
+        trials = [list(chosen)] + [list(chosen) + extras[:k] for k in range(1, min(open_suffixes, len(extras)) + 1)]
+        cases = []
+        for bought in trials:
+            fluxed = void_fluxed(bought)
+            if fluxed is not None and rare_price(slot, bought) + flux <= left + 1e-9:
+                cases.append((bought, fluxed))
+        if not cases:
+            return None
+        scored = self.deltas(slot, [rare_text(slot, base, level, fluxed) for _, fluxed in cases])
+        plain = current - self.lam * rare_price(slot, chosen)
+        best = max(((s - self.lam * (rare_price(slot, bought) + flux), bought, fluxed)
+                    for (s, _), (bought, fluxed) in zip(scored, cases)), key=lambda x: x[0])
+        if best[0] <= plain + EPSILON:
+            return None
+        _, bought, fluxed = best
+        price = None if self.ctx.ssf else rare_price(slot, bought) + flux
+        note = (f"Void Flux: buy the rare with {sum(1 for a in bought if is_elemental_resistance(a))} elemental "
+                f"resistance affix(es) ({rare_price(slot, bought):.3g} div, the rare price model), then use a Void Flux "
+                f"({flux:.3g} div) to turn every Fire / Cold / Lightning resistance into chaos resistance (deterministic; "
+                "poe2db's tier map, R50-4 HIGH)")
+        return ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
+                          rare_text(slot, base, level, fluxed), False, price,
+                          "ssf" if self.ctx.ssf else "estimate (craft route: Void Flux)", base_option.level, rare=True,
+                          affixes=tuple(line for a in fluxed for line in a.lines), craft_route=(note,))
 
     ALLOY_KEEP = 2  # Alloy candidates (by a what-if with no modifier lost) whose outcomes are all scored
 
@@ -1107,18 +1202,31 @@ class Gear:
         chosen: list[str] = list(bound)
         current = build.item_deltas([{"slot": slot, "raw": raw}])[0][0]
         used: dict[str, int] = {}  # per-character augment limits, across every other item
+        scored_used: dict[str, int] = {}  # (SEARCHC1) the same without other items' fillers: a scoring pick may take
+        # the limit a filler holds elsewhere (Gear.put then evicts that filler: the manager's ruling, 23 Nov 05:00)
         for other_slot, other in build.equipped.items():
             if other_slot != slot:
+                fillers = [n for n, _ in other.filler_runes]
                 for name in other.runes:
                     if limit := self.runes.limit(name):
                         used[limit[0]] = used.get(limit[0], 0) + 1
+                        if name in fillers:
+                            fillers.remove(name)
+                        else:
+                            scored_used[limit[0]] = scored_used.get(limit[0], 0) + 1
 
-        def within_limit(name: str) -> bool:
+        def within(counts: dict[str, int], name: str) -> bool:
             limit = self.runes.limit(name)
             if not limit:
                 return True
-            taken = used.get(limit[0], 0) + sum(1 for n in chosen if (self.runes.limit(n) or ("",))[0] == limit[0])
+            taken = counts.get(limit[0], 0) + sum(1 for n in chosen if (self.runes.limit(n) or ("",))[0] == limit[0])
             return taken < limit[1]
+
+        def within_limit(name: str) -> bool:  # (a scoring pick)
+            return within(scored_used, name)
+
+        def filler_within_limit(name: str) -> bool:  # (a filler: every augment in the build counts)
+            return within(used, name)
 
         top = [n for n in top if within_limit(n)]
         for _ in range(count - len(bound)):
@@ -1135,8 +1243,8 @@ class Gear:
             current = best_value + self.lam * (self.runes.price(best) or 0.0)
         fillers: list[tuple[str, str]] = []
         if len(chosen) < count and fill_sockets_enabled():  # (SEARCHC1: never an empty socket; appends to `chosen`)
-            fillers = self.fill_sockets(slot, base, raw, chosen, len(bound), count, current, left, names, within_limit,
-                                        deadline)
+            fillers = self.fill_sockets(slot, base, raw, chosen, len(bound), count, current, left, names,
+                                        filler_within_limit, deadline)
         if len(chosen) == len(bound):
             filled = option
         else:
@@ -1164,6 +1272,11 @@ class Gear:
     # of this type socketed at a time", so a filler would take the slot a scoring one elsewhere needs) and a Legacy rune
     # (one per character, made from a unique with Aldur's Legacy, not on the exchange)
     FILL_SKIP_GROUPS = frozenset({"AncientAugment", "AldursLegacyLimit1"})
+    # (the manager's ruling, 23 Nov 05:00: the user named "the emergent augments" as quality-of-life ideas) the exception: a
+    # filler MAY be ONE Emergent rune when the build holds no other Ancient Augment anywhere (fill_sockets' limit check
+    # counts every augment, fillers included), never two; a scoring pick elsewhere still takes the slot (socketed ignores
+    # other items' fillers for scoring picks, and Gear.put evicts the filler). The last quality-of-life class but one
+    FILL_ANCIENT_OK = frozenset({"Emergent Instinct", "Emergent Possibility", "Emergent Protection", "Emergent Vigour"})
     FILL_MOVEMENT = re.compile(r"^\d+% increased Movement Speed$")
     FILL_HIT_TYPES = ("Physical", "Fire", "Cold", "Lightning", "Chaos")
     FILL_RESISTS = ("FireResist", "ColdResist", "LightningResist", "ChaosResist")
@@ -1181,7 +1294,8 @@ class Gear:
 
         build = self.build
         fillers: list[tuple[str, str]] = []
-        names = [n for n in names if (self.runes.limit(n) or ("",))[0] not in self.FILL_SKIP_GROUPS]
+        names = [n for n in names if (self.runes.limit(n) or ("",))[0] not in self.FILL_SKIP_GROUPS
+                 or n in self.FILL_ANCIENT_OK]
         lines = {n: rune_lines([n], base) for n in names}
         before = build.item_deltas([{"slot": slot, "raw": with_runes(raw, chosen)}])[0][1]
         while len(chosen) < count and clock.now() <= deadline:
@@ -1246,7 +1360,9 @@ class Gear:
 
     def _fill_pick(self, fit: list[tuple[dict, str]], before: dict, lines: dict[str, list[str]]) -> tuple[str, str] | None:
         """(name, why) of the filler to use among `fit` (what-if stats, name), by FILL classes (fill_sockets)."""
-        if not fit:
+        ancient = [n for _, n in fit if n in self.FILL_ANCIENT_OK]  # (only in their own class, next to last)
+        fit = [(st, n) for st, n in fit if n not in self.FILL_ANCIENT_OK]
+        if not fit and not ancient:
             return None
         price = lambda n: self.runes.price(n) or 0.0  # noqa: E731
         value = lambda stats, key: float(stats.get(key) or 0.0)  # noqa: E731
@@ -1272,11 +1388,14 @@ class Gear:
             return min(near, key=lambda g: (price(g[2]), -g[0], -g[1]))[2], "defence"
         resisting = [(st, n) for st, n in fit if any(value(st, k) > value(before, k) + 1e-9 for k in self.FILL_RESISTS)]
         if resisting:
-            return min(resisting, key=lambda x: (-sum(value(x[0], k) for k in self.FILL_RESISTS), price(x[1])))[1],                 "resistance"
+            best = min(resisting, key=lambda x: (-sum(value(x[0], k) for k in self.FILL_RESISTS), price(x[1])))
+            return best[1], "resistance"
         for why, pattern in self.FILL_QOL:
             hit = [n for _, n in fit if any(pattern.search(l) for l in lines.get(n, []))]
             if hit:
                 return min(hit, key=price), why
+        if ancient:
+            return min(ancient, key=price), "quality of life: an Emergent augment (the build's one Ancient Augment)"
         return min((n for _, n in fit), key=price), "quality of life: the cheapest that doesn't lower the score"
 
     # Anoints ---------------------------------------------------------------------------------
@@ -1684,6 +1803,21 @@ class Gear:
                     reweigh()
                 if (build.score >= before - EPSILON and build.spent() <= max(self.ctx.budget, spent) + 1e-9
                         and objective._weight(objective.deficits(build.stats)) <= weight + 1e-12):
+                    # (SEARCHC1, on loan: the manager 23 Nov 05:00) its sockets filled too, kept on the same checks
+                    socketed = self.socketed(slot, option, clock.now() + FILL_EMPTY_SOCKET_SECONDS)
+                    if socketed is not option:
+                        self.put(slot, socketed)
+                        self.settle()
+                        if reweigh is not None:
+                            reweigh()
+                        if (build.score >= before - EPSILON and build.spent() <= max(self.ctx.budget, spent) + 1e-9
+                                and objective._weight(objective.deficits(build.stats)) <= weight + 1e-12):
+                            option = socketed
+                        else:
+                            self.put(slot, option)
+                            self.settle()
+                            if reweigh is not None:
+                                reweigh()
                     filled.append({"slot": slot, "name": option.name, "price": option.price or 0.0})
                     break
                 self.put(slot, None)  # (worse once committed: the next cheapest)
