@@ -17,7 +17,7 @@ import re
 from collections import Counter
 from typing import Callable
 
-from builder import clock
+from builder import clock, preview
 from builder.search.assumptions import INFUSED_ELEMENT, INFUSED_NOTE
 from builder.search.context import GEM_LEVEL, GEM_QUALITY, MAX_GEM_GROUPS, SUPPORT_SLOTS
 from builder.search.objective import main_dps
@@ -216,6 +216,9 @@ class Gems:
     def __init__(self, build: Build) -> None:
         self.build = build
         self.ctx = build.ctx
+        # (PREVIEW1, a hook on loan from SEARCH) the 1.0 preview gems into this engine's PoB, when the request asks
+        # for them (builder/preview: off by default; once per engine)
+        preview.install(build.engine, self.ctx.request)
         self.required_supports = set(self.ctx.compiled.request.require.supports)
         self.item_spirit_offs: list[int] = []  # (SEARCH36, item_spirit_off) the item groups it switched off
         self.shortlist: list[str] | None = None  # best supports at the last full sweep

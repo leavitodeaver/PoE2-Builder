@@ -1,0 +1,214 @@
+{
+ "about": "PoE2 1.0 PREVIEW gems (announced for the 11 Dec 2026 release; every number '1.0 preview, subject to change'). Read only when a request sets preview_1_0 (builder/preview/__init__.py). Numbers are poe2db's reveal pages (GGG's 1.0 reveal site, not a client datamine), shown at ONE gem level each; other levels follow a 0.5.5 attack's level curve (curve_reference, LOW). 'model' is what builder/preview/lua.py writes into PoB; 'not_modelled' lists each part of the skill left out (an UNDERCOUNT unless it says otherwise). Release day: replace this file with the re-exported game data and PoB's update (builder/preview/PLAN.md, 'Release day').",
+ "curve_reference": {
+  "skill": "LightningSpearPlayer",
+  "why": "The 109 PoB-PoE2 attacks with damage at levels 1, 13, 20, 21 and 40 fall in three level curves: level 20 / level 13 damage 1.27-1.42 (the median, 1.412), ~1.54 and ~1.64. Lightning Spear's 1.406 is the median family. A gem shown at level 13 is scaled by the reference's damage and cost ratio at each level; one shown at level 20 is scaled only above or below 20. LOW: 1.0's own curves are unpublished (checked: poe2db pages show one level; RESEARCH53 R53-1 'Searched, found nothing': per-level gem tables). Rows either side: a level-20 gem shown at 13 reads x1.54 / x1.64 on the other two curves (+9% / +16% over the reference)."
+ },
+ "gems": [
+  {
+   "name": "Charged Slash",
+   "grantedEffectId": "PreviewChargedSlashPlayer",
+   "id": "Metadata/Items/Gems/Preview/SkillGemChargedSlash",
+   "gemType": "Attack",
+   "support": false,
+   "tags": ["attack", "area", "melee", "strike", "projectile", "lightning", "strength", "dexterity", "grants_active_skill"],
+   "tagString": "AoE, Melee, Strike, Projectile, Lightning",
+   "skillTypes": ["Attack", "Melee", "MeleeSingleTarget", "Area", "Lightning"],
+   "weaponTypes": ["One Hand Sword", "Two Hand Sword"],
+   "reqStr": 50, "reqDex": 50, "reqInt": 0,
+   "tier": 1,
+   "description": "Slash in front of you for Shocking Hits; from Ready Stance a spinning slash with chaining lightning Projectiles (1.0 preview).",
+   "model": {
+    "shown_level": 13,
+    "damage_pct": 133,
+    "attack_speed_pct": 115,
+    "mana": 18,
+    "baseFlags": ["attack", "melee", "area"],
+    "constantStats": [["active_skill_base_physical_damage_%_to_convert_to_lightning", 75], ["active_skill_shock_chance_+%_final", 325], ["active_skill_damage_+%_final_while_dual_wielding", -30]],
+    "stats": ["is_area_damage"]
+   },
+   "not_modelled": [
+    "Ready Stance's spin (60% attack speed, 133%, 2 more hits dual wielding at 20% less) and its 5 chaining Projectiles (129%, all Lightning, chain 3): an UNDERCOUNT for a build that plays from Ready Stance (Stances are the next mechanic; the search will pick the stance as a play strategy)",
+    "charging Buried Blades on Hit (Earthrend's blades)",
+    "'Projectile' is left off the slash's skill types so projectile supports don't apply to the melee slash in PoB (the projectiles aren't modelled yet)"
+   ],
+   "sources": ["https://poe2db.tw/us/Charged_Slash (read 23 Nov 2026: Level 13, tier 1, 18 Mana, Attack Speed 115% of base, Attack Damage 133%, req level 52 / 51 Str / 51 Dex, One or Two Hand Sword; 75% Physical to Lightning, 325% more chance to Shock, dual wielding 30% less damage per separate hit)", "RESEARCH53 R53-1 section C"],
+   "confidence": "MEDIUM (reveal numbers at one level); other levels LOW"
+  },
+  {
+   "name": "Engage",
+   "grantedEffectId": "PreviewEngagePlayer",
+   "id": "Metadata/Items/Gems/Preview/SkillGemEngage",
+   "gemType": "Attack",
+   "support": false,
+   "tags": ["attack", "area", "melee", "strike", "strength", "dexterity", "grants_active_skill"],
+   "tagString": "AoE, Melee, Strike",
+   "skillTypes": ["Attack", "Melee", "MeleeSingleTarget", "Area"],
+   "weaponTypes": ["One Hand Sword", "Two Hand Sword"],
+   "reqStr": 50, "reqDex": 50, "reqInt": 0,
+   "tier": 1,
+   "description": "Stab forward with Knockback and Stun buildup; a Parried target is consumed for an explosion and a Frenzy Charge (1.0 preview).",
+   "model": {
+    "shown_level": 13,
+    "damage_pct": 144,
+    "attack_speed_pct": 100,
+    "mana": 38,
+    "baseFlags": ["attack", "melee", "area"],
+    "constantStats": [["active_skill_hit_damage_stun_multiplier_+%_final", 100], ["active_skill_damage_+%_final_while_dual_wielding", -30]],
+    "stats": ["is_area_damage"]
+   },
+   "not_modelled": [
+    "the explosion on a Parried target (249%, radius 2 m) and its Frenzy Charge: an UNDERCOUNT for a build that Parries (the existing parry plan can feed it next)",
+    "the attack speed: poe2db shows no speed line, read as 100% of base (UNVERIFIED)"
+   ],
+   "sources": ["https://poe2db.tw/us/Engage (read 23 Nov 2026: Level 13, tier 1, 38 Mana, Attack Damage 144%, no speed line, One or Two Hand Sword; 100% more Stun buildup, dual wielding 30% less)", "RESEARCH53 R53-1 section C"],
+   "confidence": "MEDIUM; other levels LOW"
+  },
+  {
+   "name": "Haemorrhage",
+   "grantedEffectId": "PreviewHaemorrhagePlayer",
+   "id": "Metadata/Items/Gems/Preview/SkillGemHaemorrhage",
+   "gemType": "Attack",
+   "support": false,
+   "tags": ["attack", "area", "melee", "strike", "physical", "payoff", "strength", "dexterity", "grants_active_skill"],
+   "tagString": "AoE, Melee, Strike, Physical, Payoff",
+   "skillTypes": ["Attack", "Melee", "MeleeSingleTarget", "Area", "Physical"],
+   "weaponTypes": ["One Hand Sword", "Two Hand Sword"],
+   "reqStr": 50, "reqDex": 50, "reqInt": 0,
+   "tier": 3,
+   "description": "Three extended slashes; Bleeding targets are Ruptured; a gore explosion on Bleeding targets (1.0 preview).",
+   "model": {
+    "shown_level": 20,
+    "damage_pct": 103,
+    "attack_speed_pct": 112.5,
+    "mana": 30,
+    "baseFlags": ["attack", "melee", "area"],
+    "constantStats": [["active_skill_damage_+%_final_while_dual_wielding", -20]],
+    "stats": ["is_area_damage"]
+   },
+   "assumptions": ["attack speed 125% of base x 0.9: the combo's third (Final) strike has 25% less attack speed, so three strikes take 1 + 1 + 1/0.75 = 3.33 swings' time (x0.9 on the rate), MEDIUM"],
+   "not_modelled": [
+    "Rupture (a Bleeding target's Bleeding equal to 200% of the Physical hit, 400% on the Final Strike) and the gore explosion (250%, 1.4 m): an UNDERCOUNT for a Bleed build; it needs MECH-A's Bleed model",
+    "the Final Strike's own damage is read as the other strikes' (poe2db shows no separate damage line for it)"
+   ],
+   "sources": ["https://poe2db.tw/us/Haemorrhage (read 23 Nov 2026: Level 20 (Max), tier 3, 30 Mana, Attack Speed 125% of base, Attack Damage 103%, req 90 / 86 Str / 86 Dex; Final Strike 25% less Attack Speed; dual wielding 20% less)", "RESEARCH53 R53-1 section C"],
+   "confidence": "MEDIUM; other levels LOW"
+  },
+  {
+   "name": "Blade Conduit",
+   "grantedEffectId": "PreviewBladeConduitPlayer",
+   "id": "Metadata/Items/Gems/Preview/SkillGemBladeConduit",
+   "gemType": "Attack",
+   "support": false,
+   "tags": ["attack", "area", "lightning", "duration", "nova", "strength", "dexterity", "grants_active_skill"],
+   "tagString": "AoE, Lightning, Duration, Nova",
+   "skillTypes": ["Attack", "Area", "Lightning", "Duration", "Nova", "Cooldown"],
+   "weaponTypes": ["One Hand Sword", "Two Hand Sword"],
+   "reqStr": 50, "reqDex": 50, "reqInt": 0,
+   "tier": 9,
+   "description": "Use the sword as a conduit for a Lightning Nova that leaves Shocked Ground (1.0 preview).",
+   "model": {
+    "shown_level": 13,
+    "damage_pct": 288,
+    "attack_speed_pct": 65,
+    "mana": 54,
+    "cooldown": 6,
+    "storedUses": 1,
+    "baseFlags": ["attack", "area"],
+    "constantStats": [["active_skill_base_physical_damage_%_to_convert_to_lightning", 100], ["active_skill_base_area_of_effect_radius", 30]],
+    "stats": ["is_area_damage"]
+   },
+   "not_modelled": [
+    "the Shocked Ground it leaves (radius 3 m, 4 s): an UNDERCOUNT; MECH-A's ground model can read it next",
+    "stored uses: poe2db shows a 6 s cooldown and no use count, read as 1 (UNVERIFIED)"
+   ],
+   "sources": ["https://poe2db.tw/us/Blade_Conduit (read 23 Nov 2026: Level 13, tier 9, 54 Mana, Cooldown 6.00 s, Attack Speed 65% of base, Attack Damage 288%, One or Two Hand Sword; 100% Physical to Lightning; radius 3 m; Shocked Ground 4 s)", "RESEARCH53 R53-1 section C"],
+   "confidence": "MEDIUM; other levels LOW"
+  },
+  {
+   "name": "Shadow Assault",
+   "grantedEffectId": "PreviewShadowAssaultPlayer",
+   "id": "Metadata/Items/Gems/Preview/SkillGemShadowAssault",
+   "gemType": "Attack",
+   "support": false,
+   "tags": ["attack", "area", "melee", "strike", "dexterity", "intelligence", "grants_active_skill"],
+   "tagString": "AoE, Melee, Strike",
+   "skillTypes": ["Attack", "Melee", "MeleeSingleTarget", "Area"],
+   "weaponTypes": ["Dagger"],
+   "reqStr": 0, "reqDex": 50, "reqInt": 50,
+   "tier": 5,
+   "description": "Three rapid strikes; the Final Strike makes a Shade that dashes through enemies (1.0 preview).",
+   "model": {
+    "shown_level": 13,
+    "damage_pct": 78,
+    "attack_speed_pct": 110,
+    "mana": 17,
+    "baseFlags": ["attack", "melee", "area"],
+    "constantStats": [],
+    "stats": ["is_area_damage"]
+   },
+   "not_modelled": [
+    "the Shade's dash (177%, 90% speed) and the other Shades repeating it: an UNDERCOUNT; Shades are a later mechanic in this lane",
+    "the Ambush version (dash and Final Strike at once): Stealth / Ambush come later",
+    "dual wielding: the first and third strikes hit with both weapons (PoB's own dual-wield alternation is used, UNVERIFIED against the game)"
+   ],
+   "sources": ["https://poe2db.tw/us/Shadow_Assault (read 23 Nov 2026: Level 13, tier 5, 17 Mana, Attack Speed 110% of base, Attack Damage 78%, req 52 / 51 Dex / 51 Int, Dagger; Shade Dash 177% at 90%)", "RESEARCH53 R53-1 section C"],
+   "confidence": "MEDIUM; other levels LOW"
+  },
+  {
+   "name": "Viper Strike",
+   "grantedEffectId": "PreviewViperStrikePlayer",
+   "id": "Metadata/Items/Gems/Preview/SkillGemViperStrike",
+   "gemType": "Attack",
+   "support": false,
+   "tags": ["attack", "area", "melee", "strike", "chaos", "dexterity", "intelligence", "grants_active_skill"],
+   "tagString": "AoE, Melee, Strike, Chaos",
+   "skillTypes": ["Attack", "Melee", "MeleeSingleTarget", "Area", "Chaos"],
+   "weaponTypes": ["Dagger"],
+   "reqStr": 0, "reqDex": 50, "reqInt": 50,
+   "tier": 1,
+   "description": "A noxious stab that Poisons; Ambushing empowers the next 3 melee attacks to trigger Virulent Burst (1.0 preview).",
+   "model": {
+    "shown_level": 13,
+    "damage_pct": 164,
+    "attack_speed_pct": 85,
+    "mana": 22,
+    "baseFlags": ["attack", "melee", "area"],
+    "constantStats": [["base_chance_to_poison_on_hit_%", 100], ["active_skill_poison_effect_+%_final", 100], ["active_skill_damage_+%_final_while_dual_wielding", -25]],
+    "stats": ["is_area_damage"]
+   },
+   "not_modelled": [
+    "dual wielding's '+1 Poison on a target at a time from this skill': an UNDERCOUNT for dual daggers (the Poison stack limit is MECH-A's)",
+    "Virulent Burst after an Ambush: no numbers published (poe2db shows the heading only), Ambush comes later"
+   ],
+   "sources": ["https://poe2db.tw/us/Viper_Strike (read 23 Nov 2026: Level 13, tier 1, 22 Mana, Attack Speed 85% of base, Attack Damage 164%, req 52 / 51 Dex / 51 Int, Dagger; Hits inflict Poison, 100% more Magnitude of Poison, dual wielding 25% less)", "RESEARCH53 R53-1 section C"],
+   "confidence": "MEDIUM; other levels LOW"
+  },
+  {
+   "name": "Elemental Penetration",
+   "grantedEffectId": "PreviewSupportElementalPenetrationPlayer",
+   "id": "Metadata/Items/Gems/Preview/SkillGemElementalPenetrationSupport",
+   "gemType": "Support",
+   "support": true,
+   "tags": ["fire", "cold", "lightning", "support"],
+   "tagString": "Lightning, Cold, Fire",
+   "skillTypes": [],
+   "families": ["FirePenetration", "ColdPenetration", "LightningPenetration"],
+   "reqStr": 0, "reqDex": 0, "reqInt": 100,
+   "tier": 2,
+   "description": "Supports any skill that Hits enemies, making those Hits Penetrate enemy Elemental resistances (1.0 preview).",
+   "model": {
+    "manaMultiplier": 20,
+    "requireSkillTypes": ["Damage", "Attack", "CrossbowAmmoSkill"],
+    "constantStats": [["base_penetrate_elemental_resistances_%", 30]]
+   },
+   "assumptions": [
+    "Whether Fire / Cold / Lightning Penetration stay in 1.0 is UNVERIFIED (RESEARCH53 R53-1 D; third parties say they merge). They are NOT dropped (CLAUDE.md: never drop on an unverified claim); instead Elemental Penetration shares their three support families, so a skill takes at most one of the four and the 30% never stacks with a single-element one (the merge reading; no overcount either way)",
+    "requirements and support types as Cold Penetration's today (Damage, Attack or Crossbow Ammo skills); tier 2 as the single-element ones (UNVERIFIED)"
+   ],
+   "not_modelled": [],
+   "sources": ["https://poe2db.tw/us/Elemental_Penetration (read 23 Nov 2026: support, Cost Multiplier 120%, +5 Int; 'Supported Skills Penetrate 30% of Enemy Elemental Resistances')", "RESEARCH53 R53-1 section D and H (support rebalance: Maxroll, Output Lag, ExpCarry 19 Nov)"],
+   "confidence": "MEDIUM-HIGH that it exists; 30% MEDIUM"
+  }
+ ]
+}

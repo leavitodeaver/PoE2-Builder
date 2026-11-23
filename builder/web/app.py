@@ -26,6 +26,7 @@ from builder.data.rare_prices import RarePriceModel
 from builder.data.trade import RateLimited, TradeClient, TradeError
 from builder.pob import codes
 from builder.request import schema
+from builder import preview
 from builder.request.constraints import FACT_FIELDS, compile_request, main_skill, passive_names, passive_rules, player_buttons
 from builder.report.calibrate import Calibration
 from builder.report.checklist import checklist
@@ -147,6 +148,9 @@ def options() -> dict:
             "mechanics": mechanics,
         },
         "weapon_types": data.weapon_types,
+        # (PREVIEW1) 1.0 preview names, offered by the form while its "1.0 preview" box is ticked (builder/preview)
+        "preview_lists": preview.option_lists(),
+        "preview_note": preview.ASTERISK,
         "enums": {
             "offhand": [e.value for e in schema.Offhand], "weapon_swap": [e.value for e in schema.WeaponSwap],
             "defence": [e.value for e in schema.DefenceStyle], "gear_tier": [e.value for e in schema.GearTier],
@@ -167,7 +171,7 @@ def parse_request(body: dict) -> BuildRequest:
 
 
 def issues_of(request: BuildRequest) -> list[dict]:
-    return [issue.__dict__ for issue in compile_request(request, data).issues]
+    return [issue.__dict__ for issue in compile_request(request, preview.data_for(request, data)).issues]
 
 
 # The passive tree page (interactive tree for the request form and for results) ------------------
@@ -318,7 +322,7 @@ def inspect(body: InspectBody) -> dict:
         "checks": None,
     }
     if body.request is not None:
-        compiled = compile_request(parse_request(body.request), data)
+        compiled = compile_request(parse_request(body.request), preview.data_for(parse_request(body.request), data))
         result["checks"] = [check.__dict__ for check in compiled.check(facts)]
         result["issues"] = [issue.__dict__ for issue in compiled.issues]
     return result
@@ -348,7 +352,7 @@ class RunBody(BaseModel):
 @app.post("/api/runs")
 def start_run(body: RunBody) -> dict:
     request = parse_request(body.request)
-    errors = [i for i in compile_request(request, data).issues if i.level == "error"]
+    errors = [i for i in compile_request(request, preview.data_for(request, data)).issues if i.level == "error"]
     if errors:
         raise HTTPException(422, detail=[{"field": i.field, "message": i.message} for i in errors])
     try:
@@ -376,7 +380,7 @@ def get_run(run_id: int, since: int = 0) -> dict:
 def update_run_request(run_id: int, body: dict) -> dict:
     """An edit to the request of a run in progress: the search continues from its best build with it."""
     request = parse_request(body)
-    errors = [i for i in compile_request(request, data).issues if i.level == "error"]
+    errors = [i for i in compile_request(request, preview.data_for(request, data)).issues if i.level == "error"]
     if errors:
         raise HTTPException(422, detail=[{"field": i.field, "message": i.message} for i in errors])
     try:

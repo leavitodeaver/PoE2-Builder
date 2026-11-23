@@ -170,6 +170,10 @@ class BuildRequest(Model):
     boss: str | None = None
     dps_gate: float | None = Field(None, ge=0)  # below this, report infeasible with the closest result
 
+    # (PREVIEW1; the user, 23 Nov 2026: announced 1.0 content, asterisked, OFF BY DEFAULT) offer the 1.0 preview gems
+    # and weapon classes (builder/preview): every number they touch is "1.0 preview, subject to change"
+    preview_1_0: bool = False
+
     allow_exploits: bool = True
     forbid_ledger_entries: list[str] = []
 

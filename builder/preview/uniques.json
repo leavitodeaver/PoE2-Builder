@@ -1,0 +1,63 @@
+{
+ "about": "PoE2 1.0 PREVIEW uniques (every line '1.0 preview, subject to change'). Read only with a request's preview_1_0 switch (builder/preview add_uniques). Lines are poe2db's reveal cards (read 23 Nov 2026), in PoB's raw item text. The reveal shows ONE roll of each line and no ranges: each line is that roll, fixed (MEDIUM; the real ranges are unpublished). 'changed': true = a 0.5.5 unique whose 1.0 text replaces its 0.5.5 text while the switch is on (its 0.5.5 market price kept). New uniques have no market: offered only without a divine cap or in SSF (preview.unique_price). Only uniques on bases PoB already has are here (Oro's Sacrifice, Agnar: Twilight / Vampiric Longsword; Ashcaller: Searing Wand; none in PoB's bases.json bb52d6b368). Granted skills (Perfect Squall, Frostflame, Tasalio's Charge ...) are in no data yet: their lines grant nothing (an UNDERCOUNT, each row's not_modelled).",
+ "uniques": [
+  {
+   "name": "Windripper",
+   "base": "Greatbow",
+   "type": "Bow",
+   "key": "Windripper, Greatbow",
+   "raw": "Windripper\nGreatbow\nLevelReq: 54\nImplicits: 0\nGrants Skill: Level 19 Perfect Squall\n100% increased Physical Damage\nGain 30% of Damage as Extra Lightning Damage\nGain 30% of Damage as Extra Cold Damage\n12% increased Attack Speed\nHits with this weapon Penetrate infinite Lightning Resistance of Shocked monsters\nHits with this weapon Penetrate infinite Cold Resistance of Chilled monsters\n43% increased Magnitude of Non-Damaging Ailments you inflict\n",
+   "not_modelled": ["Perfect Squall (a granted skill with no data yet)", "the two 'Penetrate infinite ... Resistance of Shocked / Chilled monsters' lines count only if PoB parses them; otherwise they show as blind spots (the audit's list) until a model reads them"],
+   "sources": ["https://poe2db.tw/us/Windripper (read 23 Nov 2026; Release Version: Conquerors of Wraeclast; the '###' block is the plain Greatbow 40-82 / 1.15 / 6.5%, PoB's own base numbers)", "RESEARCH53 R53-1 E"],
+   "confidence": "MEDIUM (one roll shown per line)"
+  },
+  {
+   "name": "Blueflame Bracers",
+   "changed": true,
+   "base": "Goldcast Cuffs",
+   "type": "Gloves",
+   "key": "Blueflame Bracers, Goldcast Cuffs",
+   "raw": "Rarity: UNIQUE\nBlueflame Bracers\nGoldcast Cuffs\nQuality: 20\nLevelReq: 33\nImplicits: 0\nGrants Skill: Level 19 Frostflame\n134% increased Armour and Energy Shield\n100% of Fire Damage Converted to Cold Damage\n+23% to Fire Resistance\n+21% to Cold Resistance\nCold Damage from Hits also Contributes to Flammability and Ignite Magnitudes\n",
+   "was": "0.5.5: +20 to maximum Energy Shield, +(10-20) to Intelligence, +(5-15)% to Fire and Cold Resistance, 100% of Fire Damage Converted to Cold Damage",
+   "not_modelled": ["Frostflame (a granted skill with no data yet)", "'Cold Damage from Hits also Contributes to Flammability and Ignite Magnitudes' counts only if PoB parses it (it has no such line today: a blind spot until a model reads it; the big DPS line for converted cold / ignite builds, RESEARCH53 R53-1 F)"],
+   "sources": ["https://poe2db.tw/us/Blueflame_Bracers (read 23 Nov 2026: the top card; the 'Version 0.5.5' card is today's)", "RESEARCH53 R53-1 F"],
+   "confidence": "MEDIUM"
+  },
+  {
+   "name": "Molten Tenet",
+   "base": "Plate Belt",
+   "type": "Belt",
+   "key": "Molten Tenet, Plate Belt",
+   "raw": "Molten Tenet\nPlate Belt\nLevelReq: 31\nImplicits: 2\n+160 to Armour\nHas 2 Charm Slots\nGain 10% of Physical Damage as Extra Fire Damage\n+14 to Strength\n+42% to Fire Resistance\n+45% of Armour also applies to Fire Damage\nEnemies in your Presence Gain 10% of their Physical Damage as Extra Fire Damage\n10% of Fire Damage prevented Recouped as Life\n",
+   "assumptions": ["+(140-180) to Armour and Has (1-3) Charm Slots are the Plate Belt's own implicits (PoB bases.json), shown as ranges: the middle (+160, 2) taken, LOW", "level requirement 31 (the card's stat table: 'Req. level 31 (Effective: 24)')"],
+   "not_modelled": ["the Presence line (enemies gain Physical as extra Fire): a drawback for defence only, counted if PoB parses it"],
+   "sources": ["https://poe2db.tw/us/Molten_Tenet (read 23 Nov 2026; one card)", "RESEARCH53 R53-1 E"],
+   "confidence": "MEDIUM"
+  },
+  {
+   "name": "Riptide",
+   "base": "Seaglass Spear",
+   "type": "Spear",
+   "key": "Riptide, Seaglass Spear",
+   "raw": "Riptide\nSeaglass Spear\nLevelReq: 51\nImplicits: 1\nGrants Skill: Spear Throw\nGrants Skill: Level 19 Tasalio's Charge\nAdds 121 to 237 Cold Damage\nGain 25% of Damage as Extra Cold Damage against Frozen targets\n+5.88% to Critical Hit Chance\n+26 to Dexterity\n246% increased Freeze Buildup inflicted on Parried targets\n",
+   "not_modelled": ["Tasalio's Charge (a granted skill with no data yet)"],
+   "sources": ["https://poe2db.tw/us/Riptide (read 23 Nov 2026; the '###' card is the plain Seaglass Spear, PoB's base numbers)", "RESEARCH53 R53-1 E"],
+   "confidence": "MEDIUM"
+  },
+  {
+   "name": "Abyssus",
+   "base": "Goliath Greathelm",
+   "type": "Helmet",
+   "key": "Abyssus, Goliath Greathelm",
+   "raw": "Abyssus\nGoliath Greathelm\nLevelReq: 58\nImplicits: 0\n250% increased Armour\n50% increased Critical Hit Chance\n+15 to all Attributes\nEvery Rage also grants 2 to 3 Added Physical Damage to Melee Attacks\nEvery Rage also grants 1% increased Damage Taken\nEvery Rage also grants 1 Life gained per enemy killed\nExtra gore\n",
+   "not_modelled": ["the 'Every Rage also grants' lines count only if PoB parses them (Rage itself is MECH-C's model)"],
+   "sources": ["https://poe2db.tw/us/Abyssus (read 23 Nov 2026; the PoE1 name reused, 1.0 text)", "RESEARCH53 R53-1 E"],
+   "confidence": "MEDIUM"
+  }
+ ],
+ "left_out_for_now": {
+  "Benevolence": "its 'Keystone: Chaos Incarnate' has no published text (PoB knows no such keystone; checked: PoB ModCache.lua, poe2db's page shows only the name): a keystone's drawback unknown could make it an OVERCOUNT, so it waits for the keystone's text (UNVERIFIED either way)",
+  "Oro's Sacrifice, Agnar, Ashcaller": "their bases (Twilight Longsword, Vampiric Longsword, Searing Wand) aren't in PoB's base data; they need preview bases first (next turn)",
+  "the other 10 new / 12 changed uniques": "not read yet (RESEARCH53 R53-1 E / F list them)"
+ }
+}

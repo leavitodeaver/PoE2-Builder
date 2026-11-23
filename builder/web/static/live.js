@@ -272,7 +272,7 @@ const snapshot = () => JSON.stringify(readForm());
 const FIELD_NAMES = {
   require: "requirements", forbid: "bans", floors: "defence floors", main_skill: "main skill", class_name: "class",
   effort_minutes: "search time", dps_gate: "minimum DPS", seed_code: "PoB code", max_buttons: "max buttons",
-  allow_exploits: "known exploits", weapon_unique: "weapon", weapon_type: "weapon type", weapon_swap: "weapon swap",
+  allow_exploits: "known exploits", preview_1_0: "1.0 preview content", weapon_unique: "weapon", weapon_type: "weapon type", weapon_swap: "weapon swap",
 };
 
 function showNotice(text) {

@@ -71,8 +71,14 @@ function fillSelect(select, values, anyLabel) {
 
 function buildDatalists() {
   const holder = $("datalists");
+  // (PREVIEW1) 1.0 preview names join the lists marked "1.0 preview*"; a request uses them only with its
+  // "Include 1.0 preview content" box ticked (the server says so otherwise)
+  const preview = options.preview_lists || {};
   for (const [key, list] of Object.entries(options.lists)) {
-    holder.append(el("datalist", { id: `list-${key}` }, list.map((name) => el("option", { value: name }))));
+    const extra = (preview[key] || []).filter((name) => !list.includes(name));
+    holder.append(el("datalist", { id: `list-${key}` }, list.map((name) => el("option", { value: name })),
+      extra.map((name) => el("option", { value: name, label: `${name} (${options.preview_note || "*1.0 preview"})` }))));
+    options.lists[key] = list.concat(extra);
   }
 }
 
@@ -177,6 +183,7 @@ function readForm() {
     objective: $("objective").value,
     dps_gate: num("dps_gate"),
     allow_exploits: $("allow_exploits").checked,
+    preview_1_0: $("preview_1_0").checked,
     seed_code: text("seed_code"),
     effort_minutes: num("effort_minutes") ?? 10,
   };
@@ -220,6 +227,7 @@ function writeForm(request) {
   set("objective", request.objective);
   set("dps_gate", request.dps_gate);
   $("allow_exploits").checked = request.allow_exploits;
+  $("preview_1_0").checked = !!request.preview_1_0;
   set("seed_code", request.seed_code);
   set("effort_minutes", request.effort_minutes);
   showIssues(null);

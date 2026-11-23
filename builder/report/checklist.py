@@ -96,4 +96,8 @@ def checklist(result: dict) -> list[dict]:
         if "isn't modeled" in reason or "not modeled" in reason:
             items.append({"kind": "not modeled", "title": "Main skill damage", "why": reason,
                           "how": "Test the skill's damage in game before buying anything for it."})
+    # (PREVIEW1) 1.0 preview gems the build uses (asterisked) and the '1.0 changes pending' notes (builder/preview)
+    from builder import preview
+
+    items += preview.checklist_items(result)
     return items

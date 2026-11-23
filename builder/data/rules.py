@@ -48,8 +48,37 @@ class GameRules:
         return not (set(base.get("tags") or []) & self.unique_only_tags) and self.weapon_in_game(base.get("type"))
 
 
-@cache
+# (PREVIEW1) The 1.0 preview switch (builder/preview): while a request with preview_1_0 is in force (Context sets it), the
+# weapon classes 1.0 releases count as in the game. Off by default; a request without the switch puts it back.
+_preview = False
+
+
+def set_preview(on: bool) -> None:
+    global _preview
+    _preview = bool(on)
+
+
 def rules(path: Path = RULES_FILE) -> GameRules:
+    """The patch's rules; with the 1.0 preview switch on, the 1.0 weapon classes (builder/preview) are released."""
+    return _preview_rules(path) if _preview else _load(path)
+
+
+@cache
+def _preview_rules(path: Path) -> GameRules:
+    from dataclasses import replace
+
+    from builder.preview import PREVIEW_OFF_HANDS, PREVIEW_WEAPON_CLASSES
+
+    base = _load(path)
+    off_hand = dict(base.off_hand)
+    for main, offs in PREVIEW_OFF_HANDS.items():
+        off_hand.setdefault(main, offs)
+    return replace(base, patch=f"{base.patch} + 1.0 preview", released=base.released | PREVIEW_WEAPON_CLASSES,
+                   unreleased=base.unreleased - PREVIEW_WEAPON_CLASSES, off_hand=off_hand)
+
+
+@cache
+def _load(path: Path = RULES_FILE) -> GameRules:
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     classes = data["weapon_classes"]
     return GameRules(

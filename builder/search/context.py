@@ -20,6 +20,7 @@ from functools import cached_property
 
 from builder.data import GameData, liveness, rare_prices, unique_versions
 from builder.data.rules import rules as game_rules
+from builder.data.rules import set_preview
 from builder.ledger import gap_list, item_lines, translate, wrong
 from builder.request.constraints import PRESSED_PERSISTENT, CompiledRequest, compile_request
 from builder.request.schema import BuildRequest, DefenceStyle, GearTier
@@ -310,6 +311,18 @@ def normal_item(base: dict) -> str:
 
 
 
+def preview_data(request: BuildRequest) -> GameData:
+    """(PREVIEW1, a hook on loan from SEARCH) The game data a request sees: with the 1.0 preview switch on
+    (request.preview_1_0, off by default), the preview gems join its gem list and the 1.0 weapon classes count as
+    released (builder/preview; builder/data/rules.py set_preview). Every Context sets the switch, so a request without
+    it puts the 0.5.5 rules back in this process."""
+    from builder import preview
+
+    data = GameData()
+    set_preview(preview.on(request))
+    return preview.add_uniques(preview.add_gems(data)) if preview.on(request) else data
+
+
 def gem_of(ctx, name: str | None, skill_id: str | None = None) -> dict:
     """Context.gem_for for any context-like object (a test's stand-in may carry all_gems only): by the granted effect
     id first (gems_by_skill_id), else by name (all_gems); {} when neither finds one (COV31)."""
@@ -321,7 +334,7 @@ class Context:
     def __init__(self, payload: dict) -> None:
         self.payload = payload
         self.request = BuildRequest.model_validate(payload["request"])
-        self.data = GameData()
+        self.data = preview_data(self.request)
         self.unique_prices: dict[str, list] = payload.get("unique_prices") or {}
         # (SEARCH25) Runeforged / Runemastered copies' prices, {copy_key: [divine, listings, confidence, how]} (copy_prices)
         self.copy_prices: dict[str, list] = payload.get("copy_prices") or {}
@@ -598,6 +611,11 @@ class Context:
         if self.ssf:
             return None, "ssf"
         entry = self.unique_prices.get(name)
+        if not entry and self.request.preview_1_0:  # (PREVIEW1) a new 1.0 unique: no market yet (builder/preview)
+            from builder import preview
+
+            if name in preview.unique_names():
+                return preview.unique_price(self.request)
         if not entry:
             return None
         divine, listings = entry
