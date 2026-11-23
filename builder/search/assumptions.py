@@ -5659,6 +5659,39 @@ class Assumptions:
                                                     | arctic_groups},
                              **expression_groups, **storm_groups}
 
+    def shifted_share(self, main: str | None) -> tuple[float, str]:
+        """(MECHB58, for Rallying Form) (share of the fight you are Shapeshifted, how), from the build's presses
+        (conditions.human_shifts, as conditions' _human_shifts builds them: each other pressed skill at its group's rate,
+        skill_use_rate at the search's press choices, else 0). An animal-form main skill: Shapeshifted but for each
+        shift back, Human until the main skill's next use (1 / its Speed); a Human-form main skill: Shapeshifted from
+        each press of a form's skill until its next use. 0 without a form (models.rallying_form_model's note)."""
+        from builder.request.constraints import presses
+
+        build = self.build
+        gems = build.ctx.gems
+        types = set((gems.get(main or "") or {}).get("skillTypes") or [])
+        speed = number(build.call("stats", fields=["Speed"]).get("Speed"))
+        if speed <= 0:
+            return 0.0, "the main skill isn't used: 0"
+        groups = [g for g in build.call("groups")["groups"] if g.get("enabled") is not False]
+        where = {n["name"]: g["index"] for g in groups for n in g.get("gems") or [] if n.get("enabled", True)
+                 and n["name"] != main and (gem := gems.get(n["name"])) and not gem.get("support") and presses(gem)}
+        rows = {r.get("index"): r for r in (build.call("useRates", indices=sorted(set(where.values())))["rates"]
+                                            if where else [])}
+        choices = models.press_choices(build)
+        others = {n: (set(gems[n].get("skillTypes") or []),
+                      conditions_mod.skill_use_rate(rows[i], choices)[0] if i in rows else 0.0)
+                  for n, i in where.items()}
+        rate, how = conditions_mod.human_shifts(types, others, speed)
+        form = "Shapeshift" in types and any(f in types for f in conditions_mod.ANIMAL_FORMS)
+        if form:
+            share = max(0.0, 1.0 - rate / speed)
+            return share, (f"{how}; Human until {main}'s next use ({1 / speed:.2f} s) after each" if rate > 0 else how)
+        if rate > 0:
+            share = min(1.0, rate / speed)
+            return share, f"{how}; in the form until {main}'s next use ({1 / speed:.2f} s)"
+        return 0.0, how
+
     def orb_stand(self, rates: list[dict], main: int | None) -> tuple[float, str]:
         """(share, how) of the fight the player casts standing in a side Orb of Storms' radius (models.orb_stand_share,
         MECHB44): its own dodge roll, its distance to the boss (PoB's enemyDistance, else its natural distance), the
@@ -6704,6 +6737,9 @@ class Assumptions:
             low, _, how = ward_shares(self.build)
             guard_mods, guard_notes = models.bodyguards_model(texts, low, how)
             mods, notes = mods + guard_mods, notes + guard_notes
+        if any(models.RALLYING_FORM.search(t.strip()) for t in texts):  # (MECHB58: Rallying Form, at the shifted share)
+            rally_mods, rally_notes = models.rallying_form_model(texts, *self.shifted_share(main))
+            mods, notes = mods + rally_mods, notes + rally_notes
         self.full_guard_mods = []  # (MECHC38: Guard up all fight, set by life_mana_income: the manager's ruling (ii))
         notes += self.life_mana_income(skills, main)  # (MECH-C: Life / Mana from kills, Remnants, charms, events; MECHC12)
         mods += self.full_guard_mods

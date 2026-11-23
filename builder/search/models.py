@@ -12654,6 +12654,35 @@ def bodyguards_model(texts: list[str], low: float, how: str) -> tuple[list[dict]
     return ([line("Minions have 1% increased Skill Speed", speed)] if speed > 0 else []), [note]
 
 
+# Rallying Form (MECHB58; the manager's MECHB58 brief item 3, MECH-B's coverage row: PassiveSkills companions28, stat
+# 24065 = 1, "Companions in your Presence have Onslaught while you are Shapeshifted"; PoB parses the "Companions" part
+# but no Onslaught for minions, PROBE_NOTE: 0 before). Onslaught: "20% increased Skill Speed and 10% increased movement
+# speed" (KeywordPopups Onslaught; ONSLAUGHT_SKILL_SPEED, as bodyguards_model counts the Warding Rune's minion
+# Onslaught). Counted as "Companions have N% increased Skill Speed" (PoB's "Companions" prefix: minion mods tagged
+# CreatesCompanion) at 20% x the share of the fight you are Shapeshifted (skill speed's increased sum is linear in its
+# uptime), from the build's own presses (Assumptions.shifted_share: conditions.human_shifts, the shifts MECH-C's Rage
+# code reads): an animal-form main skill keeps you Shapeshifted but for each press of a skill not usable in that form,
+# which shifts you back until the main skill's next use (1 / its Speed); a Human-form main skill is Shapeshifted from
+# each press of a form's skill until its own next use. Companions taken as in your Presence (MEDIUM, as
+# bodyguards_model); the movement speed and the companions' own Onslaught-effect modifiers not counted.
+RALLYING_FORM = re.compile(r"^Companions in your Presence have Onslaught while you are Shapeshifted$", re.I)
+
+
+def rallying_form_model(texts: list[str], shifted: float, how: str) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): Rallying Form's companion Onslaught at the share of the fight you're Shapeshifted (see above)."""
+    if not any(RALLYING_FORM.search(t.strip()) for t in texts):
+        return [], []
+    share = max(0.0, min(1.0, shifted))
+    speed = ONSLAUGHT_SKILL_SPEED * share
+    note = {"label": "Rallying Form: Companions' Onslaught while Shapeshifted*", "value": round(share, 3),
+            "confidence": "MEDIUM",
+            "basis": f"Shapeshifted {share:.0%} of the fight ({how}): Onslaught's {ONSLAUGHT_SKILL_SPEED:g}% Skill Speed "
+                     f"counts as {speed:.3g}% for your Companions (taken as in your Presence, MEDIUM; the movement speed "
+                     "not counted; PoB gives minions no Onslaught from the line: 0 before)",
+            "play": ("Stay in your animal form: your Companions have Onslaught while you are Shapeshifted"
+                     if share > 0 else "")}
+    return ([line("Companions have 1% increased Skill Speed", speed)] if speed > 0 else []), [note]
+
 BARRAGE = "Barrage"
 BARRAGE_COOLDOWN = 2.0  # s (its level cooldown)
 BARRAGE_MAX_COOLDOWN = 30.0  # s (empowered_barrage_maximum_cooldown_ms 30000)

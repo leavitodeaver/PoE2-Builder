@@ -1,5 +1,5 @@
 """MECHB58: a side Orb of Storms' bolts as its hits (models.side_orb_hits); Spell Echo's Echoes and Mystic
-Avalanche (models.spell_echo_model)."""
+Avalanche (models.spell_echo_model); Rallying Form (models.rallying_form_model)."""
 import pytest
 
 from builder.search import conditions as c, models
@@ -81,3 +81,14 @@ def test_mystic_avalanche_adds_two_side_hits_on_the_final_echo():
     # nothing Echoes: not counted
     assert models.spell_echo_model(spark(), CASC, stats, [MA])[0] == []
 
+
+RALLY = "Companions in your Presence have Onslaught while you are Shapeshifted"
+
+
+def test_rallying_form_gives_companions_onslaught_at_the_shifted_share():
+    mods, notes = models.rallying_form_model([RALLY], 0.75, "test")
+    assert mods[0]["line"].startswith("Companions have") and mods[0]["scale"] == pytest.approx(15.0)
+    assert notes[0]["value"] == 0.75
+    mods, notes = models.rallying_form_model([RALLY], 0.0, "no form")
+    assert mods == [] and notes[0]["value"] == 0.0
+    assert models.rallying_form_model(["Minions have Onslaught"], 1.0, "") == ([], [])
