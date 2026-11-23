@@ -17,7 +17,8 @@ import dataclasses
 import re
 from typing import Any
 from dataclasses import dataclass
-from functools import cached_property
+from functools import cache, cached_property
+from pathlib import Path
 
 from builder.data import rare_prices
 from builder.search import desecrated
@@ -243,29 +244,47 @@ class AffixPools:
             return [affix.lower]
         return [affix, affix.lower]
 
-    def exalt_share(self, base_name: str, target: Affix, chosen: list[Affix]) -> float:
-        """(SEARCHC3) One Exalted Orb with the side's Exaltation Omen on an item holding `chosen`: the chance it adds
-        `target` at its tier or better. The side's rows this base rolls at this item level, less the groups the item
-        already holds and rows its affixes' tags forbid. PoB's weights, which R33-23 found are 1 / 0 in the client: so
-        equal weights per row (LOW; the real spawn weights can't be read from any source)."""
-        key = (base_name, target.type)
-        rows = self.__dict__.setdefault("_side_rows", {}).get(key)
-        if rows is None:
+    def _side_rows(self, base_name: str, kind: str) -> list[tuple[dict, int]]:
+        """(mod, spawn weight) of every row of this side the base rolls at this item level."""
+        key = (base_name, kind)
+        cache = self.__dict__.setdefault("_side_row_cache", {})
+        if key not in cache:
             tags = pool_tags(self.ctx.bases_by_name[base_name])
-            rows = []
+            found = []
             for mod in self.mods:
-                if mod["type"] != target.type or mod.get("level", 0) > self.item_level:
+                if mod["type"] != kind or mod.get("level", 0) > self.item_level:
                     continue
                 weight = next((v for t, v in zip(mod.get("weightKey") or [], mod.get("weightVal") or []) if t in tags), 0)
                 if weight > 0:
-                    rows.append((mod["group"], int(mod.get("level") or 0), weight, excluded_by(mod)))
-            self._side_rows[key] = rows
+                    found.append((mod, weight))
+            cache[key] = found
+        return cache[key]
+
+    def _open_rows(self, base_name: str, kind: str, chosen: list[Affix], min_level: int) -> list[tuple[dict, int]]:
+        """The side's rows an Exalt can add to an item holding `chosen`: no group it holds, none its tags forbid. With a
+        Greater / Perfect orb's `min_level`, rows at or above it, or a group's best row where none reaches it (R50)."""
         taken = {a.group for a in chosen}
         forbidden = {tag for a in chosen for tag in a.adds}
-        open_rows = [r for r in rows if r[0] not in taken and not forbidden & r[3]]
-        total = sum(r[2] for r in open_rows)
-        hit = sum(r[2] for r in open_rows if r[0] == target.group and r[1] >= target.level)
+        rows = [(m, w) for m, w in self._side_rows(base_name, kind)
+                if m["group"] not in taken and not forbidden & excluded_by(m)]
+        best: dict[str, int] = {}
+        for mod, _ in rows:
+            best[mod["group"]] = max(best.get(mod["group"], 0), int(mod.get("level") or 0))
+        return [(m, w) for m, w in rows if int(m.get("level") or 0) >= min(min_level, best[m["group"]])]
+
+    def exalt_share(self, base_name: str, target: Affix, chosen: list[Affix], min_level: int = 0) -> float:
+        """(SEARCHC3) One Exalted Orb landing on this side of an item holding `chosen`: the chance it adds `target` at its
+        tier or better. PoB's weights, which R33-23 found are 1 / 0 in the client: so equal weights per row (LOW; the
+        real spawn weights can't be read from any source)."""
+        rows = self._open_rows(base_name, target.type, chosen, min_level)
+        total = sum(w for _, w in rows)
+        hit = sum(w for m, w in rows if m["group"] == target.group and int(m.get("level") or 0) >= target.level)
         return hit / total if total else 0.0
+
+    def side_outcomes(self, base_name: str, kind: str, chosen: list[Affix], min_level: int = 0) -> list[tuple[Affix, int]]:
+        """(SEARCHC3) Every affix one Exalted Orb can add on this side, with its weight (Gear.serle_trial's random fill)."""
+        return [(self.affix(m, m["group"], kind, 1, 1, (0.0, 0.0)), w)
+                for m, w in self._open_rows(base_name, kind, chosen, min_level)]
 
     def crafted(self, kind: str) -> tuple[Affix, float] | None:
         """For a jewel with three `kind` modifiers: the crafted one that boosts them, and the boost in
@@ -673,15 +692,39 @@ def catalyst_matches(catalyst: str, affix: Affix, tags_by_id: dict[str, tuple[st
     return bool(set(CATALYSTS[catalyst][1]) & set(tags_by_id.get(affix.id.split("+")[0], ())))
 
 
+@cache
+def implicit_tags(base_name: str) -> tuple[tuple[str, ...], ...]:
+    """(SEARCHC3) The modifier tags of a Ring / Amulet base's implicit, per line, from PoB's own base files (GameData's
+    bases don't carry implicitModTypes). Empty for a base with none."""
+    root = Path(__file__).resolve().parents[2] / "vendor" / "PathOfBuilding-PoE2" / "src" / "Data" / "Bases"
+    for name in ("ring.lua", "amulet.lua"):
+        path = root / name
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        found = re.search(r'itemBases\["' + re.escape(base_name) + r'"\] = \{(.*?)\n\}', text, re.S)
+        if found:
+            kinds = re.search(r"implicitModTypes = \{(.*?)\},\n", found.group(1), re.S)
+            groups = re.findall(r"\{([^{}]*)\}", kinds.group(1) + "}") if kinds else []
+            return tuple(tuple(re.findall(r'"([^"]+)"', g)) for g in groups)
+    return ()
+
+
 def catalysed_text(text: str, affixes: list[Affix], tags_by_id: dict[str, tuple[str, ...]], catalyst: str,
-                   quality: int = CATALYST_QUALITY) -> str:
+                   quality: int = CATALYST_QUALITY, implicit: tuple[tuple[str, ...], ...] = ()) -> str:
     """An item text (rare_text) with `quality`% of the catalyst: the Catalyst lines after "Item Level:" and each affix
     line prefixed with its mod's tags, so PoB scales the matching ones (the affix lines are found after "Implicits:")."""
     lines = text.split("\n")
     at = next(i for i, l in enumerate(lines) if l.startswith("Item Level:")) + 1
     lines[at:at] = [f"Catalyst: {CATALYSTS[catalyst][0]}", f"CatalystQuality: {quality}"]
     start = next((i for i, l in enumerate(lines) if l.startswith("Implicits:")), at)
-    start += 1 + (int(lines[start].split(":", 1)[1]) if lines[start].startswith("Implicits:") else 0)
+    count = int(lines[start].split(":", 1)[1]) if lines[start].startswith("Implicits:") else 0
+    # (SEARCHC3) `implicit`: its lines' tags. A catalyst scales the implicit too: trade search 23 Nov, Forbidden Rites,
+    # uncorrupted Lazuli Rings (implicit 20-30 Mana) with more than 30: 165 listed; the 10 cheapest all have Mana quality
+    # and fit floor(roll x (1 + quality)): +42 at 40%, +34 at 20%, +31 at 4%. Checked for Mana only; other kinds by the
+    # same rule (MEDIUM)
+    for offset, tags in enumerate(implicit[:count]):
+        if tags:
+            lines[start + 1 + offset] = "{tags:" + ",".join(tags) + "}" + lines[start + 1 + offset]
+    start += 1 + count
     done: set[int] = set()
     for affix in affixes:
         tags = tags_by_id.get(affix.id.split("+")[0])
@@ -693,6 +736,31 @@ def catalysed_text(text: str, affixes: list[Affix], tags_by_id: dict[str, tuple[
                 lines[i] = "{tags:" + ",".join(tags) + "}" + line
                 done.add(i)
     return "\n".join(lines)
+
+
+# (SEARCHC3; R55-4, UNVERIFIED) The weapon bases the search can offer whose IMPLICIT carries an element (hidden
+# "% of base damage is X" or added damage: game BaseItemTypes -> Mods -> Stats, build 26650308, every base in PoB's list;
+# 24 of R55-4's ~30, the rest aren't in PoB's bases). The headline leaves it unconverted; aldur_implicit_row says so.
+ALDUR_IMPLICIT_ELEMENTS = {
+    "Arcing Quarterstaff": ("Lightning",), "Ashbark Talisman": ("Fire",), "Bolting Quarterstaff": ("Lightning",),
+    "Calescent Hammer": ("Fire",), "Cinderbark Talisman": ("Fire",), "Crackling Quarterstaff": ("Lightning",),
+    "Ember Greataxe": ("Fire",), "Icicle Flail": ("Cold",), "Molten Hammer": ("Fire",), "Moon Dagger": ("Cold",),
+    "Runeforged Barbed Spear": ("Fire",), "Runeforged Makeshift Crossbow": ("Cold",), "Runeforged Morning Star": ("Fire",),
+    "Runeforged Slim Mace": ("Cold",), "Runeforged Studded Greatclub": ("Lightning",),
+    "Runeforged Sturdy Crossbow": ("Lightning",), "Runeforged Winged Spear": ("Lightning",),
+    "Runemastered Aberrant Sledge": ("Cold",), "Runemastered Studded Greatclub": ("Lightning",),
+    "Runemastered Torment Club": ("Cold", "Lightning"), "Smithing Hammer": ("Fire",), "Striking Spear": ("Lightning",),
+    "Thunder Talisman": ("Lightning",), "Voltfang Talisman": ("Lightning",),
+}
+
+
+def aldur_implicit_row(base_name: str, target: str) -> tuple[str, ...]:
+    """The result's row on a base whose implicit holds another element than the rune's target (empty otherwise)."""
+    others = [e for e in ALDUR_IMPLICIT_ELEMENTS.get(base_name, ()) if e != target]
+    if not others:
+        return ()
+    return (f"Row: {base_name}'s own implicit carries {' and '.join(others)} damage. The headline leaves it as it is; if "
+            f"the rune converts implicits too (UNVERIFIED, R55-4) that share becomes {target}",)
 
 
 class AldurConverter:

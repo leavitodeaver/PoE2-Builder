@@ -34,7 +34,7 @@ from builder.search.rares import (
     MAGIC_LIMIT, RUNE_KEEP, SCREEN_KEEP, Affix, AffixPools, RuneCatalog, magic_price, magic_text, rare_price, rare_text,
     NOT_IN_SEALED, exclusion_group, is_elemental_resistance, socket_count, unique_text, with_runes, FLUX_NAMES, fluxed,
     ALDUR_RUNES, AldurConverter, aldur_weapon, CATALYSTS, CATALYST_TYPES, CATALYSTS_PER_20, CATALYST_QUALITY,
-    catalyst_matches, catalysed_text,
+    catalyst_matches, catalysed_text, implicit_tags, aldur_implicit_row,
 )
 from builder.search.objective import NO_DAMAGE_OFFSET
 from builder.search.state import EPSILON, Build
@@ -198,6 +198,25 @@ def catalyst_enabled() -> bool:
 # by default until gated
 SWITCH_SERLE = "POE2_SEARCH_SERLE"
 SERLE = "Serle's Triumph"
+# The orbs that can fill its slot and their minimum modifier level (R50 / R55-6, poe2wiki via search: MEDIUM)
+SERLE_EXALTS = (("Exalted Orb", 0), ("Greater Exalted Orb", 35), ("Perfect Exalted Orb", 50))
+
+
+def serle_loop(share: float, per_try: float, others: list, market: float, prices: dict) -> tuple[float, str] | None:
+    """The expected cost of landing one chosen suffix at `share` a try, `per_try` div a try (Gear.serle_trial): a miss is
+    cleared by an Orb of Annulment, plain (any of the item's modifiers) or with Omen of Dextral Annulment (a suffix only),
+    the cheaper; with m others it can hit, it takes a wanted one m / (m + 1) of the time: a fresh copy (`market`)."""
+    annul = prices.get(influence.ANNUL)
+    if share <= 0 or annul is None:
+        return None
+    tries = 1 / share
+    clears = [(annul, len(others), "an Orb of Annulment")]
+    omen = prices.get(influence.ANNULMENT["Suffix"])
+    if omen is not None:
+        clears.append((annul + omen, sum(1 for a in others if a.type == "Suffix"),
+                       f"an Orb of Annulment + {influence.ANNULMENT['Suffix']}"))
+    return min((tries * per_try + (tries - 1) * (clear + m / (m + 1) * market), f"each miss cleared by {how}")
+               for clear, m, how in clears)
 
 
 def serle_enabled() -> bool:
@@ -813,6 +832,10 @@ class Gear:
         if not magic and augment_effect_enabled() and base["type"] in AUGMENT_EFFECT_TYPES:  # (SEARCHC3: Essence of Horror)
             effect = self.augment_effect_trial(slot, base, base_option, level, pools, chosen, left, deadline)
             if effect is not None:
+                if serle_enabled():  # (the manager 23 Nov 14:26: left out for now, said where it applies)
+                    effect = dataclasses.replace(effect, craft_route=(*effect.craft_route, (
+                        f"Not tried: {SERLE} on this item as well. The search takes the {HORROR} route first on Gloves "
+                        f"and Boots, so a fourth suffix beside it is an open upgrade it hasn't priced")))
                 return effect
         if not magic and serle_enabled():  # (SEARCHC3: Serle's Triumph and a fourth suffix)
             serle = self.serle_trial(slot, base, base_option, level, pools, limits, chosen, current, left, deadline)
@@ -929,7 +952,7 @@ class Gear:
                                           "poe2db's table, SEARCHC2)")
         note = (f"{name}: buy the rare with {sum(1 for a in bought if is_elemental_resistance(a))} elemental "
                 f"resistance affix(es) ({rare_price(slot, bought):.3g} div, the rare price model), then use a {name} "
-                f"({flux:.3g} div) to turn {into} (deterministic)")
+                f"({flux:.3g} div) to turn {into} (deterministic). A Fractured modifier is not transformed (0.5.1 Hotfix 8): buy a copy with none among the lines it must change")
         return ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
                           rare_text(slot, base, level, out), False, price,
                           "ssf" if self.ctx.ssf else f"estimate (craft route: {name})", base_option.level, rare=True,
@@ -950,8 +973,10 @@ class Gear:
         if clock.now() > deadline or not chosen or (not prices and not self.ctx.ssf):
             return None
         tags = self.catalyst_tags()
-        names = [n for n in CATALYSTS if (self.ctx.ssf or n in prices) and any(catalyst_matches(n, a, tags)
-                                                                               for a in chosen)]
+        own = implicit_tags(base["name"])  # (SEARCHC3: a catalyst scales the implicit too, Lazuli Ring trade search)
+        names = [n for n in CATALYSTS if (self.ctx.ssf or n in prices)
+                 and (any(catalyst_matches(n, a, tags) for a in chosen)
+                      or any(set(CATALYSTS[n][1]) & set(t) for t in own))]
         plain_text = rare_text(slot, base, level, chosen)
         cases = []
         for name in names:
@@ -960,19 +985,20 @@ class Gear:
                 cases.append((name, cost))
         if not cases:
             return None
-        scored = self.deltas(slot, [catalysed_text(plain_text, chosen, tags, n) for n, _ in cases])
+        scored = self.deltas(slot, [catalysed_text(plain_text, chosen, tags, n, implicit=own) for n, _ in cases])
         plain = current - self.lam * rare_price(slot, chosen)
         value, name, cost = max(((s - self.lam * (rare_price(slot, chosen) + c), n, c)
                                  for (s, _), (n, c) in zip(scored, cases)), key=lambda x: x[0])
         if value <= plain + EPSILON:
             return None
-        raised = sum(1 for a in chosen if catalyst_matches(name, a, tags))
+        raised = sum(1 for a in chosen if catalyst_matches(name, a, tags)) \
+            + sum(1 for t in own if set(CATALYSTS[name][1]) & set(t))
         note = (f"{name} x{CATALYSTS_PER_20}: {CATALYST_QUALITY}% quality raises the {raised} modifier"
                 f"{'s' if raised != 1 else ''} with its tag ({'/'.join(CATALYSTS[name][1])}) by {CATALYST_QUALITY}% "
                 f"({cost:.3g} div; {CATALYSTS_PER_20} per {CATALYST_QUALITY}% is LOW-MEDIUM, R52-5; deterministic)")
         price = None if self.ctx.ssf else rare_price(slot, chosen) + cost
         return ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
-                          catalysed_text(plain_text, chosen, tags, name), False, price,
+                          catalysed_text(plain_text, chosen, tags, name, implicit=own), False, price,
                           "ssf" if self.ctx.ssf else "estimate (craft route: catalysts)", base_option.level, rare=True,
                           affixes=tuple(line for a in chosen for line in a.lines), craft_route=(note,))
 
@@ -1070,23 +1096,28 @@ class Gear:
                 f"{moved} of them in an element the rune transforms), then socket {rune} first "
                 f"({0.0 if ssf else self.runes.price(rune):.3g} div, socket-bound): every such damage modifier becomes "
                 f"its equivalent, tier for tier (deterministic; poe2db's 78-row table). Modifiers added after socketing "
-                f"are not transformed. The base's implicit is assumed untouched (UNVERIFIED, R52-5)")
+                f"are not transformed. The base's implicit is assumed untouched (UNVERIFIED, R52-5, R55-4). A Fractured modifier is not transformed (0.5.1 Hotfix 8): buy a copy with none among the lines it must change")
+        implicit = aldur_implicit_row(base["name"], target)
         return ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
                           rare_text(slot, base, level, converted, runes=[rune]), False, None if ssf else price,
                           "ssf" if ssf else f"estimate (craft route: {rune})", base_option.level, rare=True,
                           affixes=tuple(line for a in converted for line in a.lines), runes=(rune,), bound=(rune,),
-                          craft_route=(note,))
+                          craft_route=(note, *implicit))
 
     def serle_trial(self, slot: str, base: dict, base_option: ItemOption, level: int, pools, limits: dict, chosen: list,
                     current: float, left: float, deadline: float) -> ItemOption | None:
-        """(SEARCHC3, POE2_SEARCH_SERLE=1; R51-10 #3, R52-5) The rare with a full suffix side, Serle's Triumph ("+1 Suffix
-        Modifier allowed", socket-bound, limit 1, rares only, never Corrupted / Sanctified) and a fourth suffix. R50-6 lists
-        no route that chooses that suffix (UNVERIFIED that none exists: RQ-D, with RESEARCH54), so it is priced by its
-        odds, influence.routes' Exalt loop: per try an Exalted Orb +
-        Omen of Dextral Exaltation; a miss cleared by an Orb of Annulment (with or without the side's Omen, the cheaper),
-        which takes a wanted suffix m / (m + 1) of the time, counted as a fresh copy of the rare with its rune. The chance
-        a try lands: AffixPools.exalt_share, the target at its tier or better among the rows still open (equal weights:
-        LOW). Kept when it beats the plain rare with its best ordinary rune in that socket, after prices."""
+        """(SEARCHC3, POE2_SEARCH_SERLE=1; R51-10 #3, R52-5, R55-6; the manager 23 Nov 14:26) The rare with a full suffix
+        side, Serle's Triumph ("+1 Suffix Modifier allowed", socket-bound, limit 1, rares only, never Corrupted /
+        Sanctified) and a fourth suffix. Two routes, the score picks:
+        - RANDOM FILL (R55-6): one Exalted, Greater or Perfect Exalted Orb, keep what lands. Valued as the Alloys are (the
+          manager, 18 Nov): DPS at the mean over every suffix row still open, the floors at the worst (the item shown).
+        - TARGETED: repeat until a chosen suffix at its tier or better lands; a miss is cleared by an Orb of Annulment
+          (with or without Omen of Dextral Annulment, the cheaper), which takes a wanted modifier m / (m + 1) of the time,
+          counted as a fresh copy of the rare with its rune.
+        With the prefixes full the Exalt can only land on the open suffix, so no Omen of Dextral Exaltation is priced
+        (R55-6: a reading of the affix rules, UNVERIFIED for this slot; the Omen version is a row). With a prefix open the
+        Omen is priced in. Odds: equal weight per modifier row (LOW; R33-23). The rune costs the socket: kept only when it
+        beats the plain rare with its best ordinary rune there, after prices."""
         suffixes = sum(1 for a in chosen if a.type == "Suffix")
         if clock.now() > deadline or socket_count(base, False) < 1 or not limits.get("Suffix") \
                 or suffixes < limits["Suffix"] or SERLE in self.ctx.compiled.filters.forbidden_augments:
@@ -1099,27 +1130,77 @@ class Gear:
         if rune_price is None or SERLE not in names or (limit and used.get(limit[0], 0) >= limit[1]):
             return None
         prices = {m: 0.0 for m in influence.MATERIALS} if ssf else self.ctx.influence_prices
-        market = rare_price(slot, chosen) + rune_price
-        groups = {a.group for a in chosen}
-        cases = []  # (affix, total price, the route, its chance a try)
-        for affix in pools.pool(base["name"]):
-            if affix.type != "Suffix" or affix.group in groups or affix.influence or affix.desecrated or affix.crafted:
-                continue
-            for option in pools.choices(affix, chosen):
-                share = pools.exalt_share(base["name"], option, chosen)
-                if share <= 0:
-                    continue
-                routes = [r for r in influence.routes(dataclasses.replace(option, side_odds=share), chosen, market, prices)
-                          if "Exalted" in r[1]]
-                if not routes:
-                    continue
-                cost, how = min(routes)
-                if market + cost <= left + 1e-9:
-                    cases.append((option, market + cost, how, share))
-        if not cases:
+        orbs = {n: 0.0 for n, _ in SERLE_EXALTS} if ssf else (self.ctx.payload.get("serle_prices") or {})
+        exalts = [(n, floor, orbs[n]) for n, floor in SERLE_EXALTS if n in orbs]
+        omen_price = prices.get(influence.EXALTATION["Suffix"])
+        prefixes_full = sum(1 for a in chosen if a.type == "Prefix") >= limits.get("Prefix", 0)
+        if not exalts or (not prefixes_full and omen_price is None):
             return None
-        scored = self.deltas(slot, [rare_text(slot, base, level, chosen + [c[0]], runes=[SERLE]) for c in cases])
-        value, best = max(((s - self.lam * c[1], c) for (s, _), c in zip(scored, cases)), key=lambda x: x[0])
+        omen = 0.0 if prefixes_full else omen_price
+        market = rare_price(slot, chosen) + rune_price
+        build, objective = self.build, self.build.objective
+
+        def text(extra) -> str:
+            return rare_text(slot, base, level, chosen + [extra], runes=[SERLE])
+
+        # What each open suffix row does: the top row of each group first; a group whose top row moves nothing has
+        # lower tiers that move nothing either (lower tiers of a group never score higher: AffixPools.pool)
+        rows = pools.side_outcomes(base["name"], "Suffix", chosen)
+        if not rows:
+            return None
+        bare = self.deltas(slot, [rare_text(slot, base, level, chosen, runes=[SERLE])])[0][0]
+        tops: dict[str, Affix] = {}
+        for affix, _ in rows:
+            if affix.group not in tops or affix.level > tops[affix.group].level:
+                tops[affix.group] = affix
+        heads = list(tops.values())
+        read: dict[str, tuple[float, dict]] = {}
+        for affix, (s, stats) in zip(heads, self.deltas(slot, [text(a) for a in heads])):
+            read[affix.id] = (s, self.without_registered(text(affix), stats))
+        moved = {a.group for a in heads if abs(read[a.id][0] - bare) > EPSILON}
+        rest = [a for a, _ in rows if a.id not in read and a.group in moved]
+        if rest and clock.now() < deadline:
+            for affix, (s, stats) in zip(rest, self.deltas(slot, [text(a) for a in rest])):
+                read[affix.id] = (s, self.without_registered(text(affix), stats))
+        for affix, _ in rows:
+            read.setdefault(affix.id, read[tops[affix.group].id])
+
+        fill = None  # (value, orb, price, the worst row, scale, the rows, their DPS)
+        for orb, floor, orb_price in exalts:
+            price = market + orb_price + omen
+            if price > left + 1e-9:
+                continue
+            landed = pools.side_outcomes(base["name"], "Suffix", chosen, floor)
+            scored = [(objective.score(read[a.id][1]), n) for n, (a, _) in enumerate(landed)]
+            worst = min(scored)[1]
+            dps = [objective.dps(read[a.id][1]) for a, _ in landed]
+            weights = [w for _, w in landed]
+            mean = sum(d * w for d, w in zip(dps, weights)) / sum(weights)
+            scale = mean / dps[worst] if dps[worst] > 0 else 1.0
+            stats = dict(read[landed[worst][0].id][1])
+            stats[alloys.ALLOY_FIELD] = build.alloy_product(slot) * scale
+            value = objective.score(stats) - self.lam * price
+            if fill is None or value > fill[0]:
+                fill = (value, orb, price, landed[worst][0], scale, landed, dps)
+
+        aimed = None  # (value, affix, price, orb, share, how, the Omen version's price)
+        for group_affix in pools.pool(base["name"]):
+            if group_affix.type != "Suffix" or group_affix.group in {a.group for a in chosen} or group_affix.influence \
+                    or group_affix.desecrated or group_affix.crafted:
+                continue
+            for option in pools.choices(group_affix, chosen):
+                if option.id not in read:
+                    continue
+                for orb, floor, orb_price in exalts:
+                    share = pools.exalt_share(base["name"], option, chosen, floor)
+                    found = serle_loop(share, orb_price + omen, chosen, market, prices)
+                    if found is None or market + found[0] > left + 1e-9:
+                        continue
+                    value = read[option.id][0] - self.lam * (market + found[0])
+                    if aimed is None or value > aimed[0]:
+                        row = None if omen or omen_price is None else \
+                            serle_loop(share, orb_price + omen_price, chosen, market, prices)
+                        aimed = (value, option, market + found[0], orb, share, found[1], row and market + row[0])
         plain = current - self.lam * rare_price(slot, chosen)
         others = [n for n in names if n != SERLE and self.runes.price(n) is not None
                   and not ((lim := self.runes.limit(n)) and used.get(lim[0], 0) >= lim[1])
@@ -1128,20 +1209,48 @@ class Gear:
             socketed = self.deltas(slot, [rare_text(slot, base, level, chosen, runes=[n]) for n in others])
             plain = max([plain] + [s - self.lam * (rare_price(slot, chosen) + self.runes.price(n))
                                    for (s, _), n in zip(socketed, others)])
-        if value <= plain + EPSILON:
+        best_value = max([r[0] for r in (fill, aimed) if r is not None], default=None)
+        if best_value is None or best_value <= plain + EPSILON:
             return None
-        affix, price, how, share = best
+        head = (f"{SERLE}: buy the rare at its full suffixes ({rare_price(slot, chosen):.3g} div, the rare price model), "
+                f"socket {SERLE} ({rune_price:.3g} div, socket-bound: it takes this socket's rune), then ")
+        tail = ("Odds: equal weight per modifier row (LOW). Do all this before any corruption: "
+                f"{SERLE} can't go in a Corrupted or Sanctified item")
+        side = ("the prefixes are full, so no Omen of Dextral Exaltation is priced (UNVERIFIED for this slot, R55-6)"
+                if prefixes_full else f"a prefix is open, so Omen of Dextral Exaltation ({omen:.3g} div) is priced in")
+        if aimed is not None and (fill is None or aimed[0] > fill[0]):
+            _, affix, price, orb, share, how, row = aimed
+            note = (f"{head}aim for \"{'; '.join(affix.lines)}\" or a better tier: {orb} each try, about {share:.1%} a try, "
+                    f"{how}, {price - market:.3g} div expected; {side}. {tail}")
+            rows_text = () if row is None else (f"Row: with Omen of Dextral Exaltation on every try: {row:.3g} div",)
+            if fill is not None:
+                rows_text += (f"Row: one {fill[1]} and keep what lands instead: {fill[2]:.3g} div",)
+            affixes = chosen + [affix]
+            return ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
+                              rare_text(slot, base, level, affixes, runes=[SERLE]), False, None if ssf else price,
+                              "ssf" if ssf else f"estimate (craft route: {SERLE}, targeted)", base_option.level, rare=True,
+                              affixes=tuple(line for a in affixes for line in a.lines), runes=(SERLE,), bound=(SERLE,),
+                              craft_route=(note, *rows_text))
+        _, orb, price, affix, scale, landed, dps = fill
+        typical = alloys.typical(dps)
+        note = (f"{head}one {orb} and keep what lands: {len(landed)} possible suffixes; {side}. The build shows the worst "
+                f"outcome for the floors, DPS at the mean. {tail}")
+        report = (f"{SERLE} + one {orb}: a random fourth suffix ({len(landed)} outcomes); the floors read the worst (shown), "
+                  f"DPS the mean (x{scale:.3f} of the worst's) (the manager's ruling, 18 Nov)",
+                  f"Typical outcome: \"{'; '.join(landed[typical][0].lines)}\" (DPS {dps[typical]:,.0f})",
+                  f"Worst case: \"{'; '.join(affix.lines)}\"")
+        rows_text = () if aimed is None else (f"Row: aim for \"{'; '.join(aimed[1].lines)}\" instead: {aimed[2]:.3g} div",)
         affixes = chosen + [affix]
-        note = (f"{SERLE}: buy the rare with its three suffixes ({rare_price(slot, chosen):.3g} div, the rare price model), "
-                f"socket {SERLE} ({rune_price:.3g} div, socket-bound), then roll a fourth suffix, "
-                f"\"{'; '.join(affix.lines)}\" or a better tier: {how}, about {share:.1%} a try (equal weights per "
-                f"modifier row: LOW; a miss can cost a wanted suffix, counted as a fresh copy), {price - market:.3g} div "
-                f"expected. Do this before any corruption: {SERLE} can't go in a Corrupted or Sanctified item")
-        return ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
-                          rare_text(slot, base, level, affixes, runes=[SERLE]), False, None if ssf else price,
-                          "ssf" if ssf else f"estimate (craft route: {SERLE})", base_option.level, rare=True,
-                          affixes=tuple(line for a in affixes for line in a.lines), runes=(SERLE,), bound=(SERLE,),
-                          craft_route=(note,))
+        option = ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
+                            rare_text(slot, base, level, affixes, runes=[SERLE]), False, None if ssf else price,
+                            "ssf" if ssf else f"estimate (craft route: {SERLE}, random fill)", base_option.level, rare=True,
+                            affixes=tuple(line for a in affixes for line in a.lines), runes=(SERLE,), bound=(SERLE,),
+                            craft_route=(note, *rows_text), alloy=SERLE, alloy_scale=scale, alloy_report=report,
+                            augment="serle_fill")
+        if not hasattr(build, "alloy_raws") or build.alloy_raws is None:
+            build.alloy_raws = {}
+        build.alloy_raws[alloys.alloy_key(option.raw)] = scale
+        return option
 
     def augment_effect_trial(self, slot: str, base: dict, base_option: ItemOption, level: int, pools, chosen: list,
                              left: float, deadline: float) -> ItemOption | None:

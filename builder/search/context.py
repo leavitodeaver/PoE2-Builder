@@ -867,6 +867,10 @@ def make_payload(request: BuildRequest, prices=None) -> dict:
         "augment_effect_prices": {} if prices is None else {name: prices.exchange[name].divine for name in
                                                             ("Essence of Horror", "Omen of Dextral Crystallisation")
                                                             if name in prices.exchange},
+        # (SEARCHC3) the orbs that can fill Serle's Triumph's slot (Gear.serle_trial); {} without price data
+        "serle_prices": {} if prices is None else {name: prices.exchange[name].divine for name in
+                                                   ("Exalted Orb", "Greater Exalted Orb", "Perfect Exalted Orb")
+                                                   if name in prices.exchange},
         "league": league,
         "rare_model": rare_prices.RarePriceModel.load(league).payload(),
         "craft_prices": craft_prices(prices),
