@@ -216,3 +216,71 @@ def test_a_jewel_in_an_item_socket_is_priced_as_a_jewel():
 
     assert category("Body Armour Jewel Socket 1") == "jewel" and category("Ring 2 Jewel Socket 1") == "jewel"
     assert category("Jewel 26725") == "jewel" and category("Ring 2") == "ring" and category("Body Armour") == "body"
+
+
+def test_the_effect_line_is_not_applied_a_second_time(search):
+    """(RESEARCH51 R51-11, the manager's priority zero) The search writes the boosted values into the jewel and keeps the
+    "N% increased Effect of Prefixes" line; PoB applies that line only to a "Crafted" / advanced-copy item's prefix- or
+    suffix-tagged lines (Item.lua 1649-1650, 1686), which our text has none of: the line must change nothing."""
+    from builder.search.rares import AffixPools, rare_text
+
+    jewels, build = search.jewels, search.build
+    slot = jewels.slot(jewels.sockets()[0])
+    pools = AffixPools(search.ctx, "Jewel")
+    base = search.ctx.bases_by_name["Sapphire"]
+    prefixes = [a for a in pools.pool("Sapphire") if a.type == "Prefix"][:3]
+    effect, _ = pools.crafted("Prefix")
+    without, with_line = build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, pools.item_level, chosen)}
+                                            for chosen in (prefixes, prefixes + [effect])])
+    assert with_line[0] == pytest.approx(without[0], abs=1e-9)
+
+
+def test_a_helmet_takes_zarokhs_gift_through_a_raven_touched_shard(search, monkeypatch):
+    from builder.search import anoints as anoint_module
+
+    build, gear, jewels = search.build, search.gear, search.jewels
+    # (this test's request has no price data, so the rune catalog offers nothing: the shard is offered here)
+    monkeypatch.setattr(gear.runes, "candidates", lambda *a, **k: [anoint_module.SHARD])
+    monkeypatch.setattr(gear.runes, "price", lambda name: 0.5)
+    snap = build.snapshot()
+    helmet = gear.build_rare("Helmet", clock.now() + 300)
+    if helmet is None:
+        pytest.skip("no rare helmet on this build")
+    build.equip("Helmet", helmet)
+    shard = jewels.shard_helmet("Helmet", build.equipped["Helmet"])
+    if shard is None:
+        build.restore(snap)
+        pytest.skip("this helmet takes no Raven-Touched Shard")
+    assert anoint_module.SHARD in shard.runes and anoint_module.capacity(shard) == 1
+    build.restore(snap)
+
+
+def test_lazy_steps_pick_what_the_full_scan_picks(search, monkeypatch):
+    from builder.search import jewels as module
+
+    jewels = search.jewels
+    slot = jewels.slot(jewels.sockets()[0])
+    picks = {}
+    for lazy in (False, True):
+        monkeypatch.setattr(module, "LAZY_JEWELS", lazy)
+        jewels._ranked.clear()
+        rare = jewels.build_rare(slot, clock.now() + 300, bases=("Sapphire",))
+        picks[lazy] = (sorted(rare.affixes) if rare else None)
+    print("PROBE lazy", picks)
+    assert picks[True] == picks[False]
+
+
+def test_voices_versions_cost_their_own_trade_floor(search, data):
+    from builder.search.context import ItemOption
+    from builder.search.jewels import VERSION_FLOORS, granted_sockets
+    from builder.search.radius import variants_of, with_variants
+
+    voices = next((u for u in data.uniques if u["name"] == "Voices"), None)
+    if voices is None:
+        pytest.skip("no Voices in this game data")
+    variants = variants_of(voices["raw"])
+    for i in variants.usable:
+        raw = with_variants(voices["raw"], variants, (i,))
+        option = ItemOption("Voices", "Sapphire", "Jewel", None, raw, True, 1370.0, "high", 0)
+        priced = search.jewels.version_floor(option)
+        assert priced.price == max(1370.0, VERSION_FLOORS["Voices"][granted_sockets(raw)])

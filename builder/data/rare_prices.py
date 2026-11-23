@@ -169,6 +169,16 @@ class RarePriceModel:
         craft = jewel_craft(affixes, self.materials, lambda keep: self.price(slot, keep, craft=False), roll)
         if craft is None:
             return {"price": market, "basis": "market", "market": market, "craft": None}
+        crafted = any(getattr(a, "crafted", False) for a in affixes)
+        if self.samples.get("jewel", 0) < CALIBRATED_SAMPLES and not crafted and market < craft["total"]:
+            # (JEWEL1, the user 23 Nov: "it thinks a jewel can only have two mods that increase damage?") A plain jewel's
+            # craft estimate Chaos-spams every chosen mod from scratch (1 / its spawn odds: ~58 Chaos, ~5.7 div a mod), but
+            # finished plain jewels sell far below that (trade, Forbidden Rites, 23 Nov, instant buyout: 3 of "increased
+            # Spell / Elemental Damage / Critical Spell Damage Bonus" from 0.4-0.5 div, 1,310 listed; 3 of the Oracle's
+            # ailment-magnitude family from 0.7 / 10 / 35 div, 16 listed; scratch/jewel1/jewel_market_plain.json). So with
+            # thin jewel samples a plain jewel costs the cheaper of the two. A crafted one (4 + the effect line) keeps the
+            # craft route: its ~52 div sits inside what such jewels sell for (35-100 div for 2 of a family, 580 for 3 of 3)
+            return {"price": max(MIN_PRICE, market), "basis": "market", "market": market, "craft": craft}
         if self.samples.get("jewel", 0) < CALIBRATED_SAMPLES or craft["total"] < market:
             return {"price": max(MIN_PRICE, craft["total"]), "basis": "crafting", "market": market, "craft": craft}
         return {"price": market, "basis": "market", "market": market, "craft": craft}

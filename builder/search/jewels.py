@@ -41,7 +41,8 @@ from builder.data import unique_versions
 from builder.search import anoints, desecrated
 from builder.search.context import ItemOption
 from builder.search.radius import Variants, compact, miscalculated, tree_changing, unlocks, variants_of, with_variants
-from builder.search.rares import SCREEN_KEEP, Affix, AffixPools, active_lines, boosted, rare_price, rare_text
+from builder.search.rares import (SCREEN_KEEP, Affix, AffixPools, active_lines, boosted, rare_price, rare_text, socket_count,
+                                  unique_text, with_runes)
 from builder.search.state import EPSILON, Build
 from builder.search.tree import FULL_EVERY
 
@@ -71,6 +72,12 @@ UNLOCK_POINTS = 8  # newly takeable nodes a screen counts, and points a trial ma
 RADIUS_MODEL_ENTRY = "baryanic-leylines"  # the ledger entry for the bridge's larger Time-Lost radius model
 FULL_JEWELS = True  # (JEWEL1) every rare jewel filled to its last affix slot (build_rare, greedy's `full`)
 GRANTS_SOCKETS = re.compile(r"^(?:\{[^}]*\})*Allocates (\d+) Sinister Jewel sockets?", re.M | re.I)  # (JEWEL1) Voices
+LAZY_JEWELS = True  # (JEWEL1, SPEED1's profile: the jewel step was 24% of task time) cached rankings + lazy greedy steps
+LAZY_BATCH = 8  # affixes re-scored first in a lazy greedy step (doubling while a stale one could still win)
+# (JEWEL1) Trade floors (divines) of versions the price feed lumps together, by Sinister sockets: RESEARCH52 R52-4
+# (Forbidden Rites, 23 Nov 2026, instant buyout, LOW): Voices 2 sockets from 1,400 div, 3 sockets from 3 mirrors (the
+# cheapest divine-priced at 14,500), 4 sockets 25-30 mirrors (taken at 25 x 4,833 div, the 3-socket's divine rate)
+VERSION_FLOORS = {"Voices": {2: 1400.0, 3: 14500.0, 4: 120800.0}}
 ZAROKH = "Zarokh's Gift"  # (JEWEL1) the anoint that grants a Sinister Jewel Socket (zarokh_trial)
 # (JEWEL1) Items with jewel sockets ("Sockets: J ..."): PoB's slots "<item slot> Jewel Socket <n>" (ItemsTab.lua 217-262,
 # on these item slots), a jewel counting while its parent item has that many jewel sockets (CalcSetup 1446-1453, scaled by
@@ -115,7 +122,8 @@ class Jewels:
         # (JEWEL1) the tree values a reachable jewel socket at what a filled one adds (Tree.socket_value / fill_socket,
         # behind POE2_SEARCH_JEWEL_SOCKETS); cached per full jewel round: (full round, value)
         self._socket_value: tuple[int, float] | None = None
-        self.item_rares: dict[tuple[int, tuple[str, ...]], ItemOption | None] = {}  # (JEWEL1) item jewel sockets' rares
+        self.item_rares: dict[tuple[int, tuple[str, ...]], ItemOption | None] = {}
+        self._ranked: dict = {}  # (JEWEL1) base (and slot for radius bases) -> (full round, affixes best first alone)  # (JEWEL1) item jewel sockets' rares
         tree.socket_value = self.socket_value
         tree.fill_socket = self.fill_new_socket
         # The larger Time-Lost radius model is on unless the request forbids its ledger entry
@@ -320,8 +328,7 @@ class Jewels:
             pool = self.pools.pool(base_name) if base else []
             if not pool or clock.now() > deadline:
                 continue
-            scored = self.build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, [a])} for a in pool])
-            ranked = [a for _, a in sorted(zip((s for s, _ in scored), pool), key=lambda x: -x[0])]
+            ranked = self.ranked(slot, base, pool)
             forced = None
             if required is not None:
                 forced = next((a for a in ranked if required(a)), None)
@@ -349,18 +356,29 @@ class Jewels:
                 if found and (best is None or found[0] > best[0]):
                     value, chosen, priced = found
                     price = None if self.ctx.ssf else rare_price("Jewel", priced)
-                    fillers = [line for a in chosen if a not in priced for line in a.lines]
                     best = (value, ItemOption(
                         "Rare Jewel", base_name, "Jewel", None, rare_text("Jewel", base, level, chosen), False, price,
                         "ssf" if self.ctx.ssf else "estimate (uncalibrated)", 0, rare=True,
-                        affixes=tuple(line for a in chosen for line in a.lines),
-                        **({"price_note": "not priced (any roll will do; this one scores best): " + "; ".join(fillers)}
-                           if fillers else {})))
+                        affixes=tuple(line for a in chosen for line in a.lines)))
                     if required is None and not boost and desecrated.cranium_enabled():
                         crafted = self.cranium_trial(slot, base, chosen, value, left, deadline)
                         if crafted is not None and crafted[0] > best[0]:
                             best = crafted
         return best[1] if best else None
+
+    def ranked(self, slot: str, base: dict, pool: list) -> list:
+        """The base's affixes best first, each scored alone in this slot. (JEWEL1, LAZY_JEWELS) Kept for the full jewel
+        round: a plain jewel's ranking doesn't depend on the socket (no radius), a radius base's is kept per socket; the
+        greedy re-scores every pick on the live build, so a slightly stale ranking only orders the shortlist."""
+        key = base["name"] if base["name"] in JEWEL_BASES else (base["name"], slot)
+        cached = self._ranked.get(key)
+        if LAZY_JEWELS and cached is not None and cached[0] == self.full_rounds:
+            return cached[1]
+        level = self.pools.item_level
+        scored = self.build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, [a])} for a in pool])
+        ranked = [a for _, a in sorted(zip((s for s, _ in scored), pool), key=lambda x: -x[0])]
+        self._ranked[key] = (self.full_rounds, ranked)
+        return ranked
 
     CRANIUM_KEEP = 3  # jewel Desecrated affixes (by a screen what-if) fully tried (SEARCH31; a search budget)
 
@@ -424,15 +442,16 @@ class Jewels:
         """Add affixes to `fixed` while one pays: (score less the price's weight, affixes, the affixes priced), or None
         when nothing beyond `fixed` fits the budget or pays (unless `fixed_only` allows that). With `full` (JEWEL1), go on
         to the shape's last slot even when no affix pays any more (the user, 23 Nov 2026: "having empty mods on an item is
-        stupid and wasteful"): each further slot takes the best-scoring affix left as a FILLER, not priced (a bought or
-        crafted jewel has that slot rolled anyway; the price model charges every chosen mod as a targeted roll, which would
-        put ~5.7 div of Chaos rolls on a mod worth nothing: MEDIUM, the filler is "any roll, this one best")."""
+        stupid and wasteful"; the manager 06:15: "fill all slots ... with the best-value mods, priced"): each further slot
+        takes the affordable affix with the best score less its price's weight, priced like the rest.
+        """
         build, lam, level = self.build, self.gear.lam, self.pools.item_level
         chosen, priced = list(fixed), list(fixed)
         if rare_price("Jewel", chosen) > left + 1e-9:
             return None
         current = build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, chosen)}])[0][0]
         current -= lam * rare_price("Jewel", priced)
+        gains: dict = {}  # affix -> its gain when last scored (lazy steps)
         while clock.now() < deadline:
             groups = {a.group for a in chosen}
             counts = {k: sum(1 for a in chosen if a.type == k and not a.crafted) for k in limits}
@@ -441,10 +460,7 @@ class Jewels:
             options = [a for a in candidates if rare_price("Jewel", priced + [a]) <= left + 1e-9]
             if not options:
                 break  # (only the budget stops a full jewel)
-            scored = build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, chosen + [a])}
-                                        for a in options])
-            paying = [(s - lam * rare_price("Jewel", priced + [a]), a) for (s, _), a in zip(scored, options)]
-            value, affix = max(paying, key=lambda x: x[0]) if paying else (-float("inf"), None)
+            value, affix = self.best_step(slot, base, chosen, priced, options, current, gains)
             if value > current + EPSILON:
                 chosen.append(affix)
                 priced.append(affix)
@@ -452,13 +468,40 @@ class Jewels:
                 continue
             if not full:
                 break
-            # a filler: the best score with the price as it is, among the affordable affixes that didn't pay (each gains
-            # less than its price's weight, so leaving its price out can't buy in an affix the budget refused)
-            unpriced = lam * rare_price("Jewel", priced)
-            value, affix = max(((s - unpriced, a) for (s, _), a in zip(scored, options)), key=lambda x: x[0])
+            # a filler: the best value left, priced (it costs more than it adds, the least of the affordable ones)
             chosen.append(affix)
+            priced.append(affix)
             current = value
         return (current, chosen, priced) if len(chosen) > len(fixed) or (fixed_only and fixed) else None
+
+    def best_step(self, slot: str, base: dict, chosen: list, priced: list, options: list, current: float,
+                  gains: dict) -> tuple[float, Affix]:
+        """(value, affix) of the best next affix: score with it less the price's weight. (JEWEL1, LAZY_JEWELS) Lazy, as
+        the tree's growth: the affixes whose last gain was highest are scored first, LAZY_BATCH at a time (doubling),
+        until the best fresh value beats every unscored affix's last gain (gains shrink as a jewel fills: increased lines
+        add, so the next copy of a stat is worth no more than the last). Affixes never scored go in the first batch."""
+        build, lam, level = self.build, self.gear.lam, self.pools.item_level
+
+        def score(batch: list) -> list[tuple[float, Affix]]:
+            scored = build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, chosen + [a])}
+                                        for a in batch])
+            found = [(s - lam * rare_price("Jewel", priced + [a]), a) for (s, _), a in zip(scored, batch)]
+            for value, a in found:
+                gains[a] = value - current
+            return found
+
+        if not LAZY_JEWELS:
+            return max(score(options), key=lambda x: x[0])
+        fresh = [a for a in options if a not in gains]
+        stale = sorted((a for a in options if a in gains), key=lambda a: -gains[a])
+        batch = LAZY_BATCH
+        found = score(fresh + stale[:batch])
+        stale = stale[batch:]
+        while stale and max(v for v, _ in found) - current < gains[stale[0]]:
+            batch *= 2
+            found += score(stale[:batch])
+            stale = stale[batch:]
+        return max(found, key=lambda x: x[0])
 
     def fill(self, socket: int, deadline: float, rebuild: bool) -> bool:
         build = self.build
@@ -621,6 +664,45 @@ class Jewels:
             improved = self.granting_trial(deadline) or improved
         return improved
 
+    def shard_helmet(self, slot: str, option: ItemOption) -> ItemOption | None:
+        """(JEWEL1) The helmet with a Raven-Touched Shard in a free socket or in place of its last rune, so it takes an
+        anoint (anoints.capacity; RESEARCH52 R52-6: 9 of the user's 14 example builds with Zarokh's Gift anoint it on a
+        helmet, 17 of 20 helmets carry the shard). Built as Gear.shard_trial builds it (its rules: no Corrupted /
+        Sanctified helmet, a socket-bound rune never replaced, one shard per character, the rune catalog's price), or
+        None when the helmet can't take one."""
+        gear, ctx = self.gear, self.ctx
+        if anoints.SHARD in option.runes or anoints.SEALED.search(option.raw):
+            return None
+        base = ctx.bases_by_name.get(option.base)
+        count = socket_count(base, option.unique, unique_text(ctx, option)) if base else 0
+        if count == 0 or anoints.SHARD not in gear.runes.candidates(base, option.unique, option.raw):
+            return None
+        limit = gear.runes.limit(anoints.SHARD)
+        if limit and sum(1 for s, o in self.build.equipped.items() if s != slot and o is not None
+                         for n in o.runes if (gear.runes.limit(n) or ("",))[0] == limit[0]) >= limit[1]:
+            return None
+        runes = list(option.runes)
+        dropped = runes[count - 1:] if len(runes) >= count else []
+        if any(n in option.bound for n in dropped):
+            return None
+        new = runes[:count - 1] + [anoints.SHARD] if dropped else runes + [anoints.SHARD]
+        price = option.price
+        if price is not None:
+            price += (gear.runes.price(anoints.SHARD) or 0.0) - sum(gear.runes.price(n) or 0.0 for n in dropped)
+        return dataclasses.replace(option, raw=with_runes(option.raw, new), runes=tuple(new), price=price)
+
+    def version_floor(self, version: ItemOption) -> ItemOption:
+        """(JEWEL1) A version the price feed can't tell apart priced at its own trade floor where one is known: Voices'
+        3- and 4-socket copies cost far more than the feed's one price (its cheapest, the 2-socket). VERSION_FLOORS,
+        RESEARCH52 R52-4 (trade, Forbidden Rites, 23 Nov, LOW). A version the Price unique versions job priced keeps that."""
+        floors = VERSION_FLOORS.get(version.name)
+        if self.ctx.ssf or not floors or (version.confidence or "").startswith("trade, this version"):
+            return version
+        floor = floors.get(granted_sockets(version.raw))
+        if floor is None or (version.price or 0.0) >= floor:
+            return version
+        return dataclasses.replace(version, price=floor, confidence="low (this version's trade floor, RESEARCH52 23 Nov)")
+
     def weakest_socket(self) -> int | None:
         """(JEWEL1) The allocated socket that takes a unique and whose jewel gives least (an empty one first)."""
         build, level = self.build, self.pools.item_level
@@ -649,7 +731,7 @@ class Jewels:
             return False
         slot = self.slot(socket)
         options = [o for o in self.uniques(slot) if GRANTS_SOCKETS.search(o.raw)]
-        versions = [v for o in options for v in self.unlock_versions(o)]
+        versions = [self.version_floor(v) for o in options for v in self.unlock_versions(o)]
         current = build.equipped.get(slot)
         versions = [v for v in versions if v != current and (v.price or 0.0) <= gear.left_for(slot) + 1e-9]
         # most sockets first: a version that adds more gives more, so the first kept is the best affordable one
@@ -688,8 +770,12 @@ class Jewels:
         cost = gear.anoint_cost(ZAROKH)
         trials = []  # (slot, the item with Zarokh's Gift anointed)
         for slot, option in list(build.equipped.items()):
-            if option is None or slot.startswith("Jewel "):
+            if option is None or slot.startswith("Jewel ") or " Jewel Socket " in slot:
                 continue
+            if slot == "Helmet" and anoints.capacity(option) == 0:
+                option = self.shard_helmet(slot, option)  # (a Raven-Touched Shard makes it anointable)
+                if option is None:
+                    continue
             cap = anoints.capacity(option)
             if cap == 0:
                 continue
