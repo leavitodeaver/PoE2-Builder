@@ -5192,7 +5192,7 @@ def test_aggravated_bleeding_is_counted_at_the_builds_own_hits_crits_and_bleed_d
     assert ledger.translate(crit)[0].raw.get("model") == models.AGGRAVATE_MODEL  # (not the flat-50% entry)
     mods, notes = models.aggravate_model([crit], stats, {"Attack"})
     share = models.aggravated_share(5.0, 2.0 * 0.1 * 0.2, None, 2.0)  # (2 hits/s x 10% crit x 20%)
-    assert mods == [models.line("1% more Damage with Bleeding", 100 * share)] and notes[0]["value"] == round(share, 3)
+    assert mods == [models.line(models.AGGRAVATE_LINE, 100 * share)] and notes[0]["value"] == round(share, 3)
     assert share < 0.1  # (the old entry: 3 x 20 / (100 + 3 x 20) = 37.5% more, at half of hits critical)
     deep = "Attack Hits Aggravate any Bleeding on targets which is older than 4 seconds"
     mods, _ = models.aggravate_model([deep], stats, {"Attack"})

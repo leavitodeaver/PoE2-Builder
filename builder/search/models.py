@@ -15150,8 +15150,12 @@ def immobilised_share(stats: dict, ailment: str) -> tuple[float, str]:
 # A Bleed of duration D is Aggravated from the first aggravating hit after it is inflicted to its end, so its extra
 # damage is E[(D - A)+] / D, A the wait (hits random in time: Poisson at the main skill's hits/s, MEDIUM); the hit that
 # inflicts a Bleed is taken not to Aggravate that same Bleed (the lower reading, UNVERIFIED). Only the main skill's Attack
-# hits count (other skills' hits: an undercount, LOW). Counted as "X% more Damage with Bleeding" (the ledger's form; PoB's
-# own Aggravated / Moving bonus is AilmentMagnitude MORE 100 for Bleed, CalcSetup 1000). Other Aggravate sources (on Pin,
+# hits count (other skills' hits: an undercount, LOW). Counted as "X% more Magnitude of Bleeding you inflict", PoB's own
+# Aggravated / Moving bonus being AilmentMagnitude MORE 100 for Bleed (CalcSetup 1000). MECH103, an UNDERCOUNT before:
+# it was "X% more Damage with Bleeding" (the ledger's form), which PoB parses to Damage + KeywordFlag.Bleed (ModParser
+# 750) and its Bleed never reads: probe POE2T6497 (real PoB, a Rolling Slam Bleeding 1,423 DPS): "1% more Damage with
+# Bleeding" x100 left BleedDPS at 1,423.0; "1% more Magnitude of Bleeding you inflict" x100 gave 2,846.0, exactly PoB's
+# own "Is the Bleed Aggravated?" box (2,846.0). So every Aggravate source this model reads added 0 until then. Other Aggravate sources (on Pin,
 # Knockback, Empowered Attacks, Heavy Stunned enemies, Jagged Ground, Cursed / Pinned targets, Presence) aren't read here.
 AGGRAVATE_HIT = re.compile(r"^(\d+(?:\.\d+)?)% chance to Aggravate Bleeding on (?:targets you Hit with Attacks|Hit)$", re.I)
 AGGRAVATE_CRIT = re.compile(r"^(?:(\d+(?:\.\d+)?)% chance to )?Aggravate Bleeding on targets you Critically Hit with "
@@ -15190,6 +15194,7 @@ def presence_reentries(texts: list[str], stats: dict, metres: float) -> tuple[fl
                          f"{DODGE_EVERY:g} s, the boss {metres:g} m away): it enters once every {every:g} s (a way to "
                          "play the build: MEDIUM)")
 AGGRAVATE_MODEL = "aggravate"  # (custom-models.yaml entries feeding these lines to aggravate_model)
+AGGRAVATE_LINE = "1% more Magnitude of Bleeding you inflict"  # (MECH103: PoB's Aggravated box, probe POE2T6497)
 
 
 def aggravated_share(duration: float, rate: float, older: float | None, hits: float) -> float:
@@ -15206,9 +15211,109 @@ def aggravated_share(duration: float, rate: float, older: float | None, hits: fl
     return total / steps
 
 
+# Rupture and Rusted Spikes (MECH103; MECH-A's coverage rows 615 / 558, an UNDERCOUNT: neither was read, so the search
+# could never pick them). Game files (gem_stat_descriptions, PoB sup_str.lua 6423-6475, 26650308 BaseItemTypes
+# SupportGemRupture / SupportGemRustedSpikes): Rupture "Supported skills Aggravate Bleeding on Hitting Heavily Stunned
+# Enemies" (support_rupture_aggravate_bleeding_on_hitting_heavy_stunned_enemy); Rusted Spikes "When Supported Skills Pin
+# an Enemy, they also Aggravate Bleeding on that Enemy" (aggravate_bleeding_on_pin_chance_% 100). PoB reads neither
+# (checked: grep of both stat ids over PoB's Modules / SkillStatMap: none). Both on the MAIN skill only (its supports;
+# another group's supported hits: an undercount, LOW). The rate is the build's own (no flat rate, CLAUDE.md): Rupture's
+# aggravating hits are the main skill's hits while the boss is Heavy Stunned (heavy_stun_rate's cycle, the boss preset's
+# heavy_stun_s: MECH-D's readers, read only); Rusted Spikes' event is each Pin the main skill's own buildup finishes
+# (immobilise_period "Pin", its share of the bar's fill), every live Bleed Aggravated at once. Worked out over the
+# cycle (aggravate_cycle_shares), not as a Poisson rate: the Aggravated Bleeds bunch after each stun / Pin, so "some
+# live Bleed Aggravated" (R26-14's rule) is near (window + Bleed duration) / cycle, far under the stationary form's.
+# The hit that Heavy Stuns / Pins isn't taken to hit a Heavily Stunned enemy for Rupture (the lower reading,
+# UNVERIFIED); Rusted Spikes' Pin hit Aggravates the Bleeds live before it (its own new Bleed: the lower reading, not).
+# Both on one build: the higher one counted, the other a row (the cycles' phases unknown: the lower reading).
+RUPTURE, RUSTED_SPIKES = "Rupture", "Rusted Spikes"
+
+
+def aggravate_cycle_shares(duration: float, period: float, window: float, in_window: float, at_start: bool,
+                           rate: float, older: float | None, hits: float, bleeds: float) -> tuple[float, float]:
+    """(share of a Bleed's time it is Aggravated, share of the fight some live Bleed is Aggravated) with a cycle source:
+    every `period` s, Aggravating hits at `in_window`/s for `window` s (Rupture), or (`at_start`) one certain event
+    Aggravating every live Bleed (Rusted Spikes); plus the stationary sources (`rate`/s from the start, any of `hits`/s
+    once older than `older`, as aggravated_share). Bleeds of `duration` s inflicted at `bleeds`/s, Poisson."""
+    d = duration
+    if d <= 0 or period <= 0:
+        return 0.0, 0.0
+
+    def stunned(x: float) -> float:  # (the stunned time in (-inf, x] up to a constant, windows [kP, kP + w))
+        k = math.floor(x / period)
+        return k * window + min(x - k * period, window)
+
+    def unaggravated(t: float, s: float) -> float:  # (a Bleed inflicted at t still un-Aggravated at s)
+        u = s - t
+        late = math.exp(-hits * (u - older)) if older is not None and u >= older else 1.0
+        if at_start and math.floor(s / period) > math.floor(t / period):
+            return 0.0
+        return math.exp(-rate * u - in_window * (stunned(s) - stunned(t))) * late
+
+    inner = 24
+    step = d / inner
+
+    def own_at(t: float) -> float:
+        return sum(1.0 - unaggravated(t, t + (j + 0.5) * step) for j in range(inner)) / inner
+
+    def any_at(tau: float) -> float:
+        mean = bleeds * step * sum(1.0 - unaggravated(tau - (j + 0.5) * step, tau) for j in range(inner))
+        return 1.0 - math.exp(-mean)
+
+    own_still = aggravated_share(d, rate, older, hits)  # (away from the cycle's events: the stationary values)
+    any_still = 1.0 - math.exp(-bleeds * d * own_still) if bleeds > 0 else own_still
+    span = window + d  # (t in [-d, window) and tau in [0, window + d) feel the event at 0)
+    grid = min(d, window if window > 0 else d) / 8
+    if period <= span + d or period / grid <= 400:  # (dense: the whole cycle on a grid)
+        n = max(40, min(400, math.ceil(period / grid)))
+        ts = [(i + 0.5) * period / n for i in range(n)]
+        own = sum(own_at(t) for t in ts) / n
+        live = sum(any_at(t) for t in ts) / n if bleeds > 0 else own
+        return own, live
+    n = max(40, min(400, math.ceil(span / grid)))  # (sparse: the span around one event, the rest stationary)
+    own = (sum(own_at(-d + (i + 0.5) * span / n) for i in range(n)) / n * span + own_still * (period - span)) / period
+    live = ((sum(any_at((i + 0.5) * span / n) for i in range(n)) / n * span + any_still * (period - span)) / period
+            if bleeds > 0 else own)
+    return own, live
+
+
+def aggravate_cycles(supports: set[str], stats: dict) -> list[tuple[str, float, float, float, bool, str]]:
+    """[(name, period s, window s, aggravating hits/s in the window, one event at the start, how)] for Rupture / Rusted
+    Spikes on the main skill (see RUPTURE's note): the build's own Heavy Stun / Pin cycle; period 0 (nothing counted,
+    said) where the build never stuns / Pins the boss."""
+    out = []
+    hits = hits_per_second(stats)
+    if RUPTURE in supports:
+        stuns, how = heavy_stun_rate(stats)
+        stun_s = bosses.of(stats).heavy_stun_s
+        if stuns > 0 and stun_s > 0:
+            out.append((RUPTURE, 1.0 / stuns, stun_s, hits,
+                        False, f"the boss Heavy Stunned {stun_s:g} s every {1 / stuns:.1f} s ({how}), the main "
+                        f"skill's {hits:.2f} hits/s while it is Aggravate every live Bleed"))
+        else:
+            out.append((RUPTURE, 0.0, 0.0, 0.0, False, f"no Heavy Stun of the boss ({how}): Rupture adds nothing"))
+    if RUSTED_SPIKES in supports:
+        period = immobilise_period(stats, "Pin")
+        main = at_main_share(stats)
+        own = hits_per_second(main) * number(main.get("PinBuildupAvg")) / 100
+        total = own + thorns_fill(stats, "Pin") + others_fill(stats, "Pin")
+        part = own / total if total > 0 else 0.0
+        if period > 0 and part > 0:
+            out.append((RUSTED_SPIKES, period / part, 0.0, 0.0, True,
+                        f"the boss Pinned every {period:.1f} s, {part:.0%} of the bar filled by the main skill's own "
+                        f"hits (only its own Pins Aggravate): one every {period / part:.1f} s, each Aggravating every "
+                        "live Bleed"))
+        else:
+            out.append((RUSTED_SPIKES, 0.0, 0.0, 0.0, True,
+                        "the main skill's hits never Pin the boss (no Pin buildup): Rusted Spikes adds nothing"))
+    return out
+
+
 def aggravate_model(texts: list[str], stats: dict, main_types: set[str], moving: bool = False,
                     empowered: tuple[float, str] | None = None,
-                    entries: tuple[float, str] | None = None) -> tuple[list[dict], list[dict]]:
+                    entries: tuple[float, str] | None = None,
+                    cycles: list[tuple[str, float, float, float, bool, str]] | None = None
+                    ) -> tuple[list[dict], list[dict]]:
     """The main skill's Bleeding damage x (1 + its Aggravated share) from the build's Aggravate lines, at its own hits/s,
     crit chance and Bleed duration (PoB's BleedDuration). Lines another ledger entry already translates are left to it."""
     from builder import ledger
@@ -15232,13 +15337,14 @@ def aggravate_model(texts: list[str], stats: dict, main_types: set[str], moving:
         else:
             continue
         used.append(text)
-    if not used:
+    cycles = [c for c in cycles or () if c[1] > 0]  # (MECH103: Rupture / Rusted Spikes, the build's own cycle)
+    if not used and not cycles:
         return [], []
     label = "Aggravated Bleeding from Attack hits"
     beetle = entries is not None and any(BEETLEBITE.match(t) for t in used)
     entry_rate, entry_how = entries if beetle else (0.0, "")
-    if "Attack" not in main_types and beetle:
-        on_hit, on_crit, older, on_emp = [], [], [], []  # (only the entries Aggravate: the hit lines need Attacks)
+    if "Attack" not in main_types and (beetle or cycles):
+        on_hit, on_crit, older, on_emp = [], [], [], []  # (only the entries / cycles Aggravate: the hit lines need Attacks)
     elif "Attack" not in main_types:
         return [], [{"label": label, "value": 0, "confidence": "MEDIUM",
                      "basis": f"{'; '.join(used)}: the main skill isn't an Attack, so its hits Aggravate nothing (other "
@@ -15260,6 +15366,20 @@ def aggravate_model(texts: list[str], stats: dict, main_types: set[str], moving:
     rate += entry_rate  # (MECH82: Beetlebite, each entry into your Presence Aggravates every live Bleed)
     gap = min(older) if older else None
     share = aggravated_share(duration, rate, gap, hits)
+    bleeds = hits * min(max(number(stats.get("BleedChancePerHit")), 0.0), 100.0) / 100.0
+    cycle_how, cycle_live = "", None
+    if cycles:  # (MECH103: the higher of Rupture's / Rusted Spikes' cycle; the other a row)
+        tried = []
+        for name, period, window, in_window, at_start, why in cycles:
+            own_c, live_c = aggravate_cycle_shares(duration, period, window, in_window, at_start, rate, gap, hits,
+                                                   bleeds)
+            tried.append((live_c, own_c, name, why))
+        tried.sort(reverse=True)
+        cycle_live, share, _, _ = tried[0]
+        cycle_how = "; ".join(f"{name}: {why}" for _, _, name, why in tried[:1]) + "".join(
+            f"; {name} (not counted beside it, the cycles' phases unknown: the lower reading): {why}, some live Bleed "
+            f"Aggravated {live_c:.0%} of the time alone" for live_c, _, name, why in tried[1:])
+        used = used + [t for t in (c[0] for c in cycles) if t not in used]
     # (MECH80; the manager 21:16, RESEARCH26 R26-14, MEDIUM-LOW: a GGG answer for PoE1, Mark_GGG thread 3537253, Aug 2024:
     # "'Base Bleeding Damage' and 'Extra Bleeding Damage' are distinct things. You can only be affected by one of each, but
     # they don't have to be from the same bleeding, just the highest in each category"; PoE2's KeywordPopups Bleeding /
@@ -15269,15 +15389,17 @@ def aggravate_model(texts: list[str], stats: dict, main_types: set[str], moving:
     # 1 - exp(-mean) of the time (its size taken as a typical Bleed's, PoB's: LOW, the aggravated one may be smaller than
     # the top one). The share alone (each Bleed's own extra only) is the "without it" row; without a Bleed chance read,
     # the share alone is kept.
-    bleeds = hits * min(max(number(stats.get("BleedChancePerHit")), 0.0), 100.0) / 100.0
     own = share
-    if bleeds > 0 and share > 0:
+    if cycle_live is not None:  # (MECH103: over the cycle, not the stationary form: the Aggravated Bleeds bunch)
+        share = cycle_live
+    elif bleeds > 0 and share > 0:
         share = 1.0 - math.exp(-bleeds * duration * own)
     how = (f"{'; '.join(used)}: the main skill's {hits:.2f} Attack hits/s, {crit:.0%} critical, Aggravate a hit's Bleeds "
            f"with {1 - miss:.0%} chance ({rate:.2f}/s)" + (f", and any hit once a Bleed is {gap:g} s old" if older else "")
            + (f"; {emp_hits:.3f} Empowered hits/s ({emp_how or 'no skill of the build Empowers it'})" if on_emp else "")
            + (f"; Beetlebite: {entry_how} ({entry_rate:.2f} entries/s; without that play: none)" if entry_how else "")
-           + f"; a {duration:.2f} s Bleed is Aggravated {share:.0%} of its time (from the first such hit after it is "
+           + (f"; {cycle_how}" if cycle_how else "")
+           + f"; a {duration:.2f} s Bleed is Aggravated {own:.0%} of its time (from the first such hit after it is "
            "inflicted, hits random in time; the hit that inflicts it taken not to Aggravate it: UNVERIFIED, the lower "
            "reading)" + (f"; {bleeds:.2f} Bleeds/s live {duration:.2f} s each, so some live Bleed is Aggravated "
                          f"{share:.0%} of the time, and the boss takes the strongest Bleed's base plus an Aggravated "
@@ -15288,10 +15410,17 @@ def aggravate_model(texts: list[str], stats: dict, main_types: set[str], moving:
             "basis": how,
             "play": ("Keep attacking: each Bleed is Aggravated only by a hit after it was inflicted"
                      + (f". With the extra from any Aggravated Bleed (assumed): {share:.0%} of the time; without it (each "
-                        f"Bleed's own extra only): {own:.0%}" if share != own else ""))}
+                        f"Bleed's own extra only): {own:.0%}" if share != own else "")
+                     + ("" if not cycles else
+                        f". {tried[0][2]}: " + ("Heavy Stun the boss and keep hitting while it is stunned (its Bleeds "
+                                                "are Aggravated then)" if tried[0][2] == RUPTURE else
+                                                "Pin the boss with this skill's own hits (each Pin Aggravates its live "
+                                                "Bleeds)")
+                        + f": with it, some Bleed Aggravated {share:.0%} of the fight; without it, "
+                        f"{aggravated_share(duration, rate, gap, hits) if not bleeds else 1 - math.exp(-bleeds * duration * aggravated_share(duration, rate, gap, hits)):.0%}"))}
     if share <= 0:
         return [], [note]
-    return [line("1% more Damage with Bleeding", 100 * share)], [note]
+    return [line(AGGRAVATE_LINE, 100 * share)], [note]
 
 
 # Electrocuting Arrow's Rods (MECH40, 11 Nov 2026; RULE_AUDIT 13). Game files / PoB act_dex.lua: "Hitting an enemy will

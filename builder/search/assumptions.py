@@ -4484,9 +4484,11 @@ class Assumptions:
             cw_mods, cw_notes = models.critical_weakness_mods(
                 models.critical_weakness_stacks(texts, found, stats, main, cw_metres, cries))
             hand_mods, hand_notes = hand_mods + cw_mods, hand_notes + cw_notes
-        if any(p.match(t.strip()) for t in texts for p in (models.AGGRAVATE_HIT, models.AGGRAVATE_CRIT,
-                                                            models.AGGRAVATE_OLDER, models.AGGRAVATE_EMPOWERED,
-                                                            models.BEETLEBITE)):
+        agg_supports = set(supports.get(main.group) or ()) & {models.RUPTURE, models.RUSTED_SPIKES} if (
+            main is not None and main.group is not None) else set()  # (MECH103: Rupture / Rusted Spikes on the main)
+        if agg_supports or any(p.match(t.strip()) for t in texts for p in (
+                models.AGGRAVATE_HIT, models.AGGRAVATE_CRIT, models.AGGRAVATE_OLDER, models.AGGRAVATE_EMPOWERED,
+                models.BEETLEBITE)):
             # (MECH66: Aggravated Bleeding at the main skill's own hits, crits and Bleed duration)
             agg_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if name else set()
             moving = bool(build.call("getConfig")["input"].get("conditionEnemyMoving"))
@@ -4497,9 +4499,16 @@ class Assumptions:
                 agg_metres = (models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10
                               or natural_distance(agg_types, name or ""))
                 entries = models.presence_reentries(texts, stats, agg_metres)
+            agg_cycles = None
+            if agg_supports:  # (MECH103: the build's own Heavy Stun / Pin cycle, MECH-D's stun readers read only)
+                agg_stats = {**build.call("stats", fields=[*models.MODEL_FIELDS, *models.IMMOBILISE_FIELDS]),
+                             **models.dazed_stats(build)}
+                if getattr(getattr(build.ctx, "request", None), "boss", None):
+                    agg_stats["_boss"] = build.ctx.request.boss
+                agg_cycles = models.aggravate_cycles(agg_supports, agg_stats)
             agg_mods, agg_notes = models.aggravate_model(
                 texts, {**stats, **build.call("stats", fields=["BleedDuration", "BleedChancePerHit"])}, agg_types,
-                moving, empowered, entries)  # (MECH80: Bleeds a second, R26-14)
+                moving, empowered, entries, agg_cycles)  # (MECH80: Bleeds a second, R26-14)
             hand_mods, hand_notes = hand_mods + agg_mods, hand_notes + agg_notes
         passive_mods, passive_notes = passive_models.build_models(build, inputs, texts, found, main, supports)  # (COV-B)
         hand_mods, hand_notes = hand_mods + passive_mods, hand_notes + passive_notes
