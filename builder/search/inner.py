@@ -103,7 +103,13 @@ LINE_REGROW = os.environ.get("POE2_SEARCH_LINE_REGROW", "0") == "1"
 # With POE2_SEARCH_GEAR_FIRST=1, a task that resumes a pass while gear slots are empty and a full gear round was cut
 # (gear.resume) runs that round on first, from the slot it stopped at, under GEAR_SHARE as a full round. OFF until a
 # gate pair measures it
-GEAR_FIRST = os.environ.get("POE2_SEARCH_GEAR_FIRST", "0") == "1"
+GEAR_FIRST_MODE = os.environ.get("POE2_SEARCH_GEAR_FIRST", "0")
+GEAR_FIRST = GEAR_FIRST_MODE in ("1", "empty")
+# (SEARCH37, the manager's ruling on the 2b75e loss) POE2_SEARCH_GEAR_FIRST=empty: the narrow form. The round that goes on
+# first works only the slots still empty (Gear.gear_round's `only`), and the cut full round keeps its place for the
+# line's next gear step, so the resumed pass reaches supports (on 2b75e seed 1 the full form's round-2 tasks each ran a
+# whole cut round, gear 97-101 s a task, and never reached supports: POE2T7423)
+GEAR_FIRST_EMPTY = GEAR_FIRST_MODE == "empty"
 LINE_REGROW_SHARE = 0.3
 LINE_REGROW_CLEARS = ("weak:30", "weak:15", "weak:8")  # (the variants 2b75b kept in POE2T5552; "all" was refused)
 IDLE_STEPS = ("persistent", "condition sources", "meta gems")
@@ -1196,10 +1202,14 @@ class Search:
         finished = True
         if resume is not None and resume in [phase for phase, _, _ in steps]:
             steps = steps[[phase for phase, _, _ in steps].index(resume):]
-            if GEAR_FIRST and resume != "gear" and self.gear.resume is not None and self.gear_census()["empty"]:
+            empty = self.gear_census()["empty"] if GEAR_FIRST and resume != "gear" and self.gear.resume is not None else []
+            if empty:
                 now = clock.now()
                 cut = min(deadline, now + GEAR_SHARE * max(0.0, deadline - now))
-                steps.insert(0, ("gear", self.gear.gear_round, (cut, True)))  # (SEARCH35: the cut round goes on first)
+                if GEAR_FIRST_EMPTY:  # (SEARCH37: only the empty slots; the cut round waits for the next gear step)
+                    steps.insert(0, ("gear", self.gear.gear_round, (cut, True, list(empty))))
+                else:  # (SEARCH35: the cut round goes on first)
+                    steps.insert(0, ("gear", self.gear.gear_round, (cut, True)))
         for phase, fn, args in steps:
             if clock.now() > deadline:
                 finished = False

@@ -2026,14 +2026,22 @@ class Gear:
 
     # Rounds ----------------------------------------------------------------------------------
 
-    def gear_round(self, deadline: float, full: bool = True) -> bool:
+    def gear_round(self, deadline: float, full: bool = True, only: list[str] | None = None) -> bool:
         """Best affordable item per slot. A full round scores every option, builds a rare and
-        fills sockets, and remembers the top few per slot; other rounds rescore only those."""
+        fills sockets, and remembers the top few per slot; other rounds rescore only those.
+        With `only` (SEARCH37, the narrow gear-first: the slots still empty when a task resumes its pass), the round
+        does a full round's work on those slots alone and leaves the round's own state alone: the cut full round's
+        resume slot, the source-item trials, the rune / meta / Purity trials after the slots and the lambda update all
+        wait for the next full round (on 2b75e seed 1 a whole cut round, ~100 s a task, crowded out supports:
+        POE2T7423)."""
         build = self.build
         improved = False
         self.sync_flasks()
         slots = list(self.slots)
-        if full:  # a full round that ran out of time last task goes on from the slot it stopped at
+        whole = full and only is None  # (the round-level work: only a full round over every slot)
+        if only is not None:
+            slots = [s for s in slots if s in only]
+        if whole:  # a full round that ran out of time last task goes on from the slot it stopped at
             self._anoint_screen = None
             self.rare_tried.clear()
             # The source-item trials run when a full round starts, not again when a cut round goes on (they ran then),
@@ -2050,7 +2058,7 @@ class Gear:
             self.resume = None
         for slot in slots:
             if clock.now() > deadline:
-                if full and self.resume is None:
+                if whole and self.resume is None:
                     self.resume = slot
                 continue
             if slot in build.locked_slots:
@@ -2117,15 +2125,15 @@ class Gear:
                 self.settle()
                 continue
             improved = improved or build.score > before + EPSILON
-        if full:
+        if whole:
             improved = self.character_rune_round(deadline) or improved
-        if full and os.environ.get(SWITCH_RESIST_SWAP, "0") == "1":
+        if whole and os.environ.get(SWITCH_RESIST_SWAP, "0") == "1":
             improved = any(row["kept"] for row in self.resist_swap_round(deadline)) or improved
-        if full and self.fill_granted is not None:
+        if whole and self.fill_granted is not None:
             improved = self.granted_meta_trials(deadline) or improved
-        if full and os.environ.get(SWITCH_PURITY, "0") == "1":
+        if whole and os.environ.get(SWITCH_PURITY, "0") == "1":
             improved = self.purity_trials(deadline) or improved
-        if full:
+        if whole:
             self.update_lambda()
         return improved
 
