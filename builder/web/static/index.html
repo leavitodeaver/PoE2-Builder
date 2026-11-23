@@ -126,8 +126,8 @@
       <section>
         <h3>Budget and goal</h3>
         <div class="grid">
-          <label>Budget (divines) <input id="divines" type="number" min="0" step="any" placeholder="No cap"></label>
-          <label>Gear tier <select id="gear_tier"></select></label>
+          <label title="The whole build's spend. Any one item may take all of it. Leave it empty for the best build with costs ignored.">Budget (divines) <input id="divines" type="number" min="0" step="any" placeholder="None: costs ignored"></label>
+          <label title="Solo self-found only: how far your own crafted gear goes (no trade prices). When trading, the budget decides the gear.">Gear tier, solo self-found only <select id="gear_tier"></select></label>
           <label class="check"><input id="ssf" type="checkbox"> Solo self-found</label>
           <label>Optimize for <select id="objective"></select></label>
           <label>Minimum DPS <input id="dps_gate" type="number" min="0" placeholder="None"></label>

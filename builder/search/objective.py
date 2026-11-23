@@ -476,6 +476,15 @@ def with_life_es(stats: dict) -> dict:
     return stats
 
 
+def with_movement(stats: dict) -> dict:
+    """MovementSpeedIncrease: the movement speed floor's stat (Floors.movement_speed, THE USER 23 Nov): increased movement
+    speed net of armour penalties, (PoB's MovementSpeedMod - 1) x 100; not the fight's Chill- / action-speed-adjusted
+    EffectiveMovementSpeedMod. Nothing without the field."""
+    if "MovementSpeedMod" in stats:
+        stats["MovementSpeedIncrease"] = round((number(stats.get("MovementSpeedMod")) - 1.0) * 100.0, 2)
+    return stats
+
+
 def with_boss_recovery(stats: dict) -> dict:
     """BossRecoveryPercent: the recovery floor's stat (capped at 1000%, also when the boss's hits never land)."""
     stats["BossRecoveryPercent"] = min(boss_recovery(stats)["share"] * 100, 1000.0)
@@ -659,7 +668,10 @@ class Objective:
         if any(p.stat == "BossRecoveryPercent" for p in self.penalties):
             fields |= set(RECOVERY_INPUTS)
         fields |= {"Missing" + p.stat for p in self.penalties if p.stat in RESIST_FIELDS}  # (maximum_resist)
-        self._fields = sorted(fields | {p.stat for p in self.penalties} - {"BossRecoveryPercent", "LifePlusEnergyShield"})
+        if any(p.stat == "MovementSpeedIncrease" for p in self.penalties):
+            fields.add("MovementSpeedMod")  # (with_movement)
+        self._fields = sorted(fields | {p.stat for p in self.penalties}
+                              - {"BossRecoveryPercent", "LifePlusEnergyShield", "MovementSpeedIncrease"})
         self.on_death = {name for name, gem in ctx.gems.items() if ON_DEATH.search(gem.get("description") or "")}
         # Points over the budget a screen may use without the hard deficit (Jewels.unlock_round: a socket's path is
         # opened past a full tree to price what it unlocks; the real trial frees the points first). 0 otherwise
@@ -676,7 +688,7 @@ class Objective:
     @staticmethod
     def prepare(stats: dict) -> dict:
         """Corrections to PoB's stats that every score and check sees (Darkness in max hit, recovery against a boss)."""
-        return with_life_es(with_boss_recovery(with_darkness(stats)))
+        return with_movement(with_life_es(with_boss_recovery(with_darkness(stats))))
 
     def set_added(self, parts: dict[str, float]) -> None:
         """The build's damage computed outside PoB, by source (Assumptions.models at each resolve): added_dps is their sum

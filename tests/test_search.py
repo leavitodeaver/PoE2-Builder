@@ -351,8 +351,12 @@ def test_uniques_and_gems_a_new_league_character_cant_get_are_not_offered():
 # Objective -------------------------------------------------------------------------------------
 
 
+# (the user's default floors of 23 Nov, movement speed and survive the boss's hits, off where a test pins its own floors)
+NO_NEW_DEFAULTS = {"movement_speed": None, "survive_boss_hits": False}
+
+
 def test_objective_prefers_feasible_builds():
-    ctx = context(main_skill="Ice Shot", floors={"life": 2000, "resists": {}})
+    ctx = context(main_skill="Ice Shot", floors={"life": 2000, "resists": {}, **NO_NEW_DEFAULTS})
     objective = Objective(ctx)
     base = {"CombinedDPS": 100000, "Life": 2000, "Str": 50, "ReqStr": 40, "Spirit": 100, "SpiritUnreserved": 0}
     assert objective.deficits(base) == []
@@ -368,7 +372,7 @@ def test_a_resistance_floor_above_the_maximum_counts_as_fully_short():
     """2b75e (POE2T294): a Rune of the Prism (+20% to all Elemental Resistances, -10% to all Maximum) held fire's maximum at
     70 under a 72 floor, and dropping it alone cost 20% resistance, so every single-item trial kept it. A floor the
     maximum can't reach now counts as fully short on top, so the build without the rune scores better."""
-    ctx = context(main_skill="Ice Shot", floors={"life": 0, "resists": {"fire": 72}})
+    ctx = context(main_skill="Ice Shot", floors={"life": 0, "resists": {"fire": 72}, **NO_NEW_DEFAULTS})
     objective = Objective(ctx)
     assert "MissingFireResist" in objective.fields
     base = {"CombinedDPS": 100000, "Spirit": 100, "SpiritUnreserved": 0}
@@ -689,8 +693,8 @@ def test_ranges_roll_where_asked():
 def test_affix_pools_respect_tags_groups_and_tier_caps():
     from builder.search.rares import AffixPools
 
-    endgame = AffixPools(context(main_skill="Ice Shot", budget={"gear_tier": "endgame"}))
-    league = AffixPools(context(main_skill="Ice Shot", budget={"gear_tier": "league_start"}))
+    endgame = AffixPools(context(main_skill="Ice Shot", budget={"divines": 100.0}))
+    league = AffixPools(context(main_skill="Ice Shot", budget={"ssf": True, "gear_tier": "league_start"}))  # (SSF only)
     ring = next(b["name"] for b in endgame.ctx.data.bases if b["type"] == "Ring" and not b.get("hidden"))
     pool = endgame.pool(ring)
     assert pool and len({(a.group, a.type) for a in pool}) == len(pool)  # one affix per group
@@ -1610,7 +1614,7 @@ def test_an_uptime_is_counted_at_its_share():
 
 
 def test_floors_are_checked_without_a_partial_effect():
-    ctx = context(main_skill="Ice Shot", floors={"life": 2000, "resists": {}})
+    ctx = context(main_skill="Ice Shot", floors={"life": 2000, "resists": {}, **NO_NEW_DEFAULTS})
     objective = Objective(ctx)
     base = {"CombinedDPS": 100000, "Life": 2000, "Str": 50, "ReqStr": 40, "Spirit": 100, "SpiritUnreserved": 0}
     full = objective.score(base)

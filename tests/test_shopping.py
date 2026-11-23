@@ -286,7 +286,9 @@ def pools_for(tier: str, source: str = "Item"):
     from builder.search.context import Context, make_payload
     from builder.search.rares import AffixPools
 
-    return AffixPools(Context(make_payload(BuildRequest(main_skill="Ice Shot", budget={"gear_tier": tier}))), source)
+    # (THE USER 22 Nov: no gear tier but SSF's) "endgame" = a budget's market-availability row, "mirror" = no number
+    budget = {"divines": 100.0} if tier == "endgame" else {} if tier == "mirror" else {"ssf": True, "gear_tier": tier}
+    return AffixPools(Context(make_payload(BuildRequest(main_skill="Ice Shot", budget=budget))), source)
 
 
 def test_endgame_rares_take_four_tier_one_affixes_then_tier_two() -> None:
@@ -332,7 +334,7 @@ def test_crafted_jewels_have_four_mods_and_the_effect_line(data) -> None:
     assert raw.count("\n") >= 5
     item = {"name": "Rare Jewel", "base": "Emerald", "type": "Jewel", "rare": True, "unique": False, "price": 1.0,
             "confidence": "estimate", "affixes": [l for a in chosen for l in a.lines], "runes": []}
-    shop = shopping_list({"request": {"budget": {"gear_tier": "endgame"}}, "gear": {"Jewel 1": item}}, data, {}, STATS)
+    shop = shopping_list({"request": {"budget": {"gear_tier": "endgame", "divines": 100}}, "gear": {"Jewel 1": item}}, data, {}, STATS)
     affixes = shop["items"][0]["affixes"]
     assert [a.get("boosted") is not None for a in affixes] == [True, True, True, False, False]
     assert affixes[-1].get("crafted") and all(a.get("tier") == 1 for a in affixes[:4])

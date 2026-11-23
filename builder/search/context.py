@@ -25,8 +25,6 @@ from builder.request.constraints import PRESSED_PERSISTENT, CompiledRequest, com
 from builder.request.schema import BuildRequest, DefenceStyle, GearTier
 from builder.search import alloys, anoints, base_variants, cultivated, desecrated, essences, granted_rolls, influence
 
-# Most a single unique may cost at each gear tier (divine), on top of the request's divine cap
-TIER_UNIQUE_CAP = {GearTier.LEAGUE_START: 1.0, GearTier.MID: 20.0, GearTier.ENDGAME: 300.0, GearTier.MIRROR: math.inf}
 SUPPORT_SLOTS = 5  # support sockets on a fully socketed skill gem
 MAX_GEM_GROUPS = 9  # non-item gem groups the game allows
 GEM_LEVEL = 20
@@ -229,6 +227,9 @@ class ItemOption:
     # they stay first in `runes` and are never replaced; `craft_route`: how its price was found (the craft route's steps)
     bound: tuple[str, ...] = ()
     craft_route: tuple[str, ...] = ()
+    # (SEARCHB5; THE USER 23 Nov: "having empty mods on an item is stupid and wasteful") a rare's lines put in the affix
+    # slots no scoring affix wanted (Gear.fill_utility): movement speed, defences, resistances, quality of life
+    utility: tuple[str, ...] = ()
 
     @property
     def granted_basis(self) -> str:
@@ -250,6 +251,8 @@ class ItemOption:
             described["price_note"] = self.price_note
         if self.bound:
             described["bound_runes"] = list(self.bound)
+        if self.utility:
+            described["utility_affixes"] = list(self.utility)
         if self.craft_route:
             described["craft_route"] = list(self.craft_route)
         if self.alloy:
@@ -341,11 +344,12 @@ class Context:
 
     @cached_property
     def price_cap(self) -> float:
-        """Most any single purchase may cost."""
-        cap = TIER_UNIQUE_CAP[GearTier(self.request.budget.gear_tier)]
-        if self.request.budget.divines is not None and not self.ssf:
-            cap = min(cap, self.request.budget.divines)
-        return cap
+        """Most any single purchase may cost: the whole budget (one item may take all of it), or no cap without a number.
+        THE USER (22 Nov ~23:50): "don't put any caps on budget, if I want to spend 1600div on a build, the tool should
+        build for that. if I don't put a number in for the budget, it should make me the best possible build without
+        looking at costs". No per-item or tier cap (the old one held each item to 1 / 20 / 300 div by gear tier, so a
+        lineage support such as Her Declaration, 339 div, was never offered at the default tier)."""
+        return self.budget
 
     @property
     def budget(self) -> float:

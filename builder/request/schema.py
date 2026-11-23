@@ -101,11 +101,24 @@ class Floors(Model):
     # the build's sustained recovery (Life, Energy Shield and Mana regeneration, leech, on-hit recovery, flasks at the
     # rate a boss fight refills them, and recoup, less what skill costs use) gives back (objective.boss_recovery)
     recovery: int | None = Field(None, ge=0, le=1000)
+    # (THE USER, 23 Nov ~01:00: "I (as well as other people I've played with) won't play a build that doesn't have at least
+    # 25% inc move speed outside of the campaign") increased movement speed, net of armour penalties (PoB's
+    # MovementSpeedMod, not the fight's Chill-adjusted one), DEFAULT 25 for a request at ENDGAME_LEVEL or above; None: no
+    # floor. The request can lower it
+    movement_speed: int | None = Field(25, ge=-100, le=500)
+    # (THE USER, 23 Nov ~01:00: "even if someone doesn't specifically put in a 'survivable hit' floor value, it should still
+    # strive to make the build tanky enough to survive endgame maps and pinnacle fights") a floor by default: survive one
+    # of each ordinary hit type the request's boss deals (boss_hits.hit_sizes, headline reading; the red-flash nukes stay
+    # a reported row, made to be walked out of). False: glass cannon allowed
+    survive_boss_hits: bool = True
 
 
 class Budget(Model):
-    divines: float | None = Field(None, ge=0)  # None: no currency cap
-    gear_tier: GearTier = GearTier.ENDGAME
+    # (THE USER, 22 Nov ~23:50: "don't put any caps on budget ... if I don't put a number in for the budget, it should
+    # make me the best possible build without looking at costs") the whole build's spend, any one item may take all of
+    # it; None: costs ignored (rares.rare_rules_tier, Context.price_cap)
+    divines: float | None = Field(None, ge=0)
+    gear_tier: GearTier = GearTier.ENDGAME  # solo self-found only (no prices); ignored when trading
     ssf: bool = False
 
 

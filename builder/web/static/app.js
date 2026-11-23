@@ -351,11 +351,21 @@ function formatNumber(value) {
   return Math.abs(value) >= 1000 ? Math.round(value).toLocaleString() : String(Math.round(value * 10) / 10);
 }
 
+// A granted group's source (PoB's group.source): an ascendancy or passive grants "Tree:<node>" (Align Fate, Moment of
+// Vulnerability), not an item (the user, 23 Nov)
+function grantedFrom(g) {
+  const source = String(g.source || "");
+  if (source.startsWith("Tree")) return " (from a passive)";
+  if (source === "Default Attack") return " (default attack)";
+  return " (from an item)";
+}
+
 function statTiles(stats, dps, clear) {
   const tiles = [
     ["DPS (PoB)", dps], ...(clear === undefined ? [] : [["Clear score (approx.)", clear]]), ["Life", stats.Life], ["Energy shield", stats.EnergyShield], ["Mana", stats.Mana],
     ["Phys max hit", stats.PhysicalMaximumHitTaken], ["Fire/Cold/Light res", null], ["Chaos res", stats.ChaosResist],
     ["Spare spirit", stats.SpiritUnreserved],
+    ["Move speed (% inc.)", typeof stats.MovementSpeedMod === "number" ? (stats.MovementSpeedMod - 1) * 100 : null],
   ];
   return el("div", { class: "stats" }, tiles.map(([label, value]) => el("div", { class: "stat" },
     el("div", { class: "k" }, label),
@@ -554,7 +564,7 @@ function renderResult(result) {
       el("ul", { class: "gem-groups" }, result.groups.filter((g) => g.enabled).map((g) => {
         const names = g.gems.map((x) => x.name).join(" + ");
         return el("li", {}, g.main ? el("strong", {}, names) : names,
-          g.fromItem ? " (from an item)" : "", g.fullDPS && !g.main ? " (counted in Full DPS)" : "",
+          g.fromItem ? grantedFrom(g) : "", g.fullDPS && !g.main ? " (counted in Full DPS)" : "",
           g.set1 === false ? " (weapon set 2)" : "");
       }))));
     if (result.checklist) parts.push(checklistSection(result));

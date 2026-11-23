@@ -26,10 +26,9 @@ from types import SimpleNamespace
 
 from builder.data import GameData, rare_prices, unique_versions
 from builder.data.trade import TradeClient
-from builder.request.schema import GearTier
 from builder.search.radius import TAG, variants_of
 from builder.search import anoints, granted_rolls, models
-from builder.search.rares import EFFECT, JEWEL_CRAFTS, RANGE, TIER_RULES, boosted, conflicts, mod_lines, pool_tags, roll
+from builder.search.rares import EFFECT, JEWEL_CRAFTS, RANGE, TIER_RULES, boosted, rare_rules_tier, conflicts, mod_lines, pool_tags, roll
 
 NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
 SLOT_ORDER = ["Weapon 1", "Weapon 2", "Helmet", "Body Armour", "Gloves", "Boots", "Amulet", "Ring 1", "Ring 2", "Ring 3", "Belt"]
@@ -331,7 +330,7 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
     (TradeClient.stats) for the trade filters."""
     request = result.get("request") or {}
     budget = request.get("budget") or {}
-    item_level, _, fraction = TIER_RULES[GearTier(budget.get("gear_tier") or GearTier.ENDGAME)]
+    item_level, _, fraction = TIER_RULES[rare_rules_tier(budget)]  # (the search's own row: THE USER 22 Nov, no tier caps)
     model = rare_prices.RarePriceModel.from_payload(prices.get("rare_model"))
     model.materials = dict(prices.get("materials") or {})
     augments = prices.get("augments") or {}

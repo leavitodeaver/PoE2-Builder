@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import dataclasses
 import re
+from typing import Any
 from dataclasses import dataclass
 from functools import cached_property
 
@@ -41,6 +42,24 @@ BUY_RULES = {
     GearTier.ENDGAME: 4,
     GearTier.MIRROR: None,
 }
+
+
+def rare_rules_tier(budget: Any) -> GearTier:
+    """Which TIER_RULES / BUY_RULES row a request's rares use (THE USER, 22 Nov ~23:50: "don't put any caps on budget, if
+    I want to spend 1600div on a build, the tool should build for that. if I don't put a number in for the budget, it
+    should make me the best possible build without looking at costs"). No gear tier from the request any more, except SSF
+    (no prices: its rows stay the player's own pick, unchanged):
+    - no number: costs ignored, the best rares (MIRROR: item level 86, top tiers, perfect rolls, any number of tier-1
+      affixes);
+    - a number: what the market sells, the price routes deciding the rest within the budget. ENDGAME's row there is
+      MARKET AVAILABILITY, not a spending cap: a rare people sell carries at most 4 tier-1 affixes (the user's market rule,
+      memory poe2-crafting-market-rules; more have no listings), rolls about 70% into each range (the rare price model
+      prices tier counts, not rolls, so perfect rolls under a budget would be bought at a 70% roll's price), item level 82.
+    `budget`: the request's Budget, or its dict (the shopping list's)."""
+    get = budget.get if isinstance(budget, dict) else (lambda key, default=None: getattr(budget, key, default))
+    if get("ssf"):
+        return GearTier(get("gear_tier") or GearTier.ENDGAME)
+    return GearTier.MIRROR if get("divines") is None else GearTier.ENDGAME
 # Jewel crafting in 0.5 (the user, 2026-10-24; recheck at the 1.0 refresh): craft "+1 Prefix
 # Modifier allowed" (a suffix) onto a jewel, add a third prefix, then replace the +1 with "(40-60)%
 # increased Effect of Prefixes" (also a suffix). The finished jewel has three prefixes, one suffix
@@ -115,8 +134,9 @@ class AffixPools:
         self.ctx = ctx
         self.source = source
         self.route = route
-        self.item_level, self.best_tier, self.roll = TIER_RULES[GearTier(ctx.request.budget.gear_tier)]
-        self.top_cap = BUY_RULES[GearTier(ctx.request.budget.gear_tier)]
+        tier = rare_rules_tier(ctx.request.budget)  # (THE USER 22 Nov: no gear tier but SSF's; rare_rules_tier)
+        self.item_level, self.best_tier, self.roll = TIER_RULES[tier]
+        self.top_cap = BUY_RULES[tier]
         self._pools: dict[str, list[Affix]] = {}
 
     @cached_property

@@ -22,6 +22,7 @@ FACT_FIELDS = [
     "FireResist", "ColdResist", "LightningResist", "ChaosResist", "PhysicalMaximumHitTaken",
     "FireMaximumHitTaken", "ColdMaximumHitTaken", "LightningMaximumHitTaken", "ChaosMaximumHitTaken",
     "EffectiveBlockChance", "EvadeChance", "SpiritUnreserved", "Str", "Dex", "Int", "ReqStr", "ReqDex", "ReqInt",
+    "MovementSpeedMod",  # (the movement speed floor, THE USER 23 Nov: objective.with_movement)
 ]
 RESIST_STAT = {d: f"{d.value.capitalize()}Resist" for d in DamageType}
 MAX_HIT_STAT = {d: f"{d.value.capitalize()}MaximumHitTaken" for d in DamageType}
@@ -104,6 +105,22 @@ class CompiledRequest:
 
 
 # Facts helpers ---------------------------------------------------------------------------------
+
+
+# (THE USER 23 Nov ~01:00) the default movement speed floor's stat: increased movement speed net of armour penalties,
+# (PoB's MovementSpeedMod - 1) x 100 (objective.with_movement); applied from this level up ("outside of the campaign":
+# the campaign ends around level 60-65; LOW, a reading of the user's words)
+MOVEMENT_STAT = "MovementSpeedIncrease"
+ENDGAME_LEVEL = 65
+
+
+def survive_floors(request: BuildRequest) -> dict[DamageType, float]:
+    """The survive floor's max-hit floors: one ordinary hit of each type the request's boss deals, headline reading
+    (boss_hits.hit_sizes; the default boss is the Pinnacle worst case). The red-flash nukes are not in it."""
+    from builder.search import boss_hits, bosses
+
+    sizes = boss_hits.hit_sizes(request.boss or bosses.DEFAULT)
+    return {DamageType(t.lower()): round(hit) for t, hit in sizes.items() if hit > 0}
 
 
 def main_skill(facts: dict) -> str | None:
@@ -387,8 +404,16 @@ def compile_request(request: BuildRequest, data: GameData) -> CompiledRequest:
             penalties.append(Penalty(label, stat_name, floor))
     for damage, floor in floors.resists.items():
         penalties.append(Penalty(f"{damage.capitalize()} resistance", RESIST_STAT[DamageType(damage)], floor))
+    survive = survive_floors(request) if floors.survive_boss_hits else {}
     for damage, floor in floors.max_hit.items():
+        if survive.get(DamageType(damage), 0.0) > floor:
+            continue  # (the survive floor asks more of this type)
         penalties.append(Penalty(f"{damage.capitalize()} max hit", MAX_HIT_STAT[DamageType(damage)], floor))
+    for damage, hit in survive.items():
+        if hit > (floors.max_hit.get(damage) or 0):
+            penalties.append(Penalty(f"Survives the boss's {damage.capitalize()} hit", MAX_HIT_STAT[damage], hit))
+    if floors.movement_speed is not None and request.level >= ENDGAME_LEVEL:
+        penalties.append(Penalty("Movement speed (% increased)", MOVEMENT_STAT, floors.movement_speed))
 
     # Layer 3: checks
     checks: list[Check] = []
@@ -508,7 +533,11 @@ def compile_request(request: BuildRequest, data: GameData) -> CompiledRequest:
     # unique rarity's 35% less and the converted-only low bound are in the row's text
     def boss_hit_check(f: dict) -> CheckResult:
         from builder.search import boss_hits
-        return CheckResult("Survives the boss's hits", *boss_hits.survival_text(f["stats"]))
+        requested, delivered, ok, note = boss_hits.survival_text(f["stats"])
+        if floors.survive_boss_hits:  # (THE USER 23 Nov: a default floor now; the request can opt out)
+            ok = not boss_hits.survival(f["stats"])["fails"]["headline"]
+            note = "a floor by default (the request's survive_boss_hits; off = glass cannon). " + note
+        return CheckResult("Survives the boss's hits", requested, delivered, ok, note)
     checks.append(boss_hit_check)
 
     if request.dps_gate:

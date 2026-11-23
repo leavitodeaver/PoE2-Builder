@@ -244,7 +244,9 @@ def disciple(engine):
     from builder.search.inner import Search
     from builder.search.skeletons import enumerate_skeletons
 
-    request = BuildRequest(main_skill="Spark", ascendancies=["Disciple of Varashta"], budget={"divines": 50})
+    # (the user's default floors of 23 Nov off: this tests the radius model, on the tree a floor-free search grows)
+    request = BuildRequest(main_skill="Spark", ascendancies=["Disciple of Varashta"], budget={"divines": 50},
+                           floors={"movement_speed": None, "survive_boss_hits": False})
     ctx = Context(make_payload(request))
     skeleton = enumerate_skeletons(ctx, ["Spark"])[0][0]
     search = Search(engine, None, make_payload(request), skeleton.as_dict(), 0)

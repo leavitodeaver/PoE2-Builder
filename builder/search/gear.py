@@ -646,6 +646,11 @@ class Gear:
             current = best_value + self.lam * price_of(slot, chosen)
         if not chosen:
             return None
+        utility: list = []
+        if not magic:  # (SEARCHB5; THE USER 23 Nov: no empty affix slots)
+            utility = self.fill_utility(slot, base, level, pools, limits, chosen, current, left, deadline)
+            chosen = chosen + utility
+            current = self.deltas(slot, [text(slot, base, level, chosen)])[0][0] if utility else current
         if not magic and influence.enabled():  # (SEARCH30: an influence rune and the affixes it lets roll, influence.py)
             influenced = self.influence_trial(slot, base, base_option, level, pools, limits, chosen, current, left,
                                               deadline)
@@ -674,7 +679,60 @@ class Gear:
         confidence = "ssf" if self.ctx.ssf else "estimate (magic)" if magic else "estimate (uncalibrated)"
         return ItemOption(f"{'Magic' if magic else 'Rare'} {base['type']}", base["name"], base["type"],
                           base.get("subType"), text(slot, base, level, chosen), False, price, confidence,
-                          base_option.level, rare=True, affixes=tuple(line for a in chosen for line in a.lines))
+                          base_option.level, rare=True, affixes=tuple(line for a in chosen for line in a.lines),
+                          utility=tuple(line for a in utility for line in a.lines))
+
+    # (SEARCHB5; THE USER 23 Nov: "having empty mods on an item is stupid and wasteful") the utility classes an empty affix
+    # slot is filled from, first match first: movement speed (the default 25% floor; boots roll it), the defences, the
+    # resistances (they free other slots), then anything else the base rolls (quality of life)
+    UTILITY_CLASSES = (
+        ("movement speed", re.compile(r"increased Movement Speed", re.I)),
+        ("defence", re.compile(r"maximum (Life|Energy Shield)|increased (Armour|Evasion|Energy Shield)|to (Armour|Evasion"
+                               r" Rating)|Life Regeneration|Ward", re.I)),
+        ("resistance", re.compile(r"Resistances?\b", re.I)),
+        ("quality of life", re.compile(r".")),
+    )
+
+    def fill_utility(self, slot: str, base: dict, level: int, pools, limits: dict, chosen: list, current: float,
+                     left: float, deadline: float) -> list:
+        """The affixes for every prefix / suffix slot the scoring affixes left empty (a bought rare has those slots
+        filled anyway). The candidates the base rolls (no group taken, the tier-1 cap kept, within the budget at the rare
+        model's price: a fuller item costs more there, x1.05 a low-tier affix, x4 a tier-1) are scored once, each alone
+        on the item; then each empty slot in turn takes the first UTILITY_CLASSES class with any candidate that doesn't
+        lower the item's score, its best by that what-if. One what-if call for the lot (a rare is built many times a run),
+        and the full item is checked once: if the fills together lower its score, none is kept."""
+        if clock.now() > deadline:
+            return []
+        groups = {a.group for a in chosen}
+        counts = {kind: sum(1 for a in chosen if a.type == kind) for kind in limits}
+        if all(counts[kind] >= limits[kind] for kind in limits):
+            return []
+        options = [c for a in pools.pool(base["name"]) if counts.get(a.type, 0) < limits.get(a.type, 0)
+                   and a.group not in groups and not a.influence and not a.desecrated and not a.crafted
+                   for c in pools.choices(a, chosen) if rare_price(slot, chosen + [c]) <= left + 1e-9]
+        if not options:
+            return []
+        scored = [s for s, _ in self.deltas(slot, [rare_text(slot, base, level, chosen + [a]) for a in options])]
+        added: list = []
+        while True:
+            taken = chosen + added
+            used = {a.group for a in taken}
+            have = {kind: sum(1 for a in taken if a.type == kind) for kind in limits}
+            open_ones = [(s, a) for s, a in zip(scored, options) if a.group not in used and have[a.type] < limits[a.type]
+                         and s >= current - EPSILON and rare_price(slot, taken + [a]) <= left + 1e-9
+                         and (not a.top or a in pools.choices(a, taken))]
+            pick = None
+            for _, pattern in self.UTILITY_CLASSES:
+                fitting = [(s, a) for s, a in open_ones if any(pattern.search(line) for line in a.lines)]
+                if fitting:
+                    pick = max(fitting, key=lambda x: (x[0], -rare_price(slot, taken + [x[1]])))[1]
+                    break
+            if pick is None:
+                break
+            added.append(pick)
+        if added and self.deltas(slot, [rare_text(slot, base, level, chosen + added)])[0][0] < current - EPSILON:
+            return []
+        return added
 
     ALLOY_KEEP = 2  # Alloy candidates (by a what-if with no modifier lost) whose outcomes are all scored
 
