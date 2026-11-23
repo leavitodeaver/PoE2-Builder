@@ -109,3 +109,14 @@ def test_midnight_crystal_life_reads_the_builds_increases_and_the_amulets_cold_r
     assert models.midnight_crystal_life(4768.0 * 3, 4768.0, [up], 74.0)[0] == pytest.approx(4768.0 * (3 + 0.42))
     neg = "Ice Crystals have -3% reduced maximum Life per 5% Cold Resistance you have"
     assert models.midnight_crystal_life(0.0, 4768.0, [neg], 75.0)[0] == pytest.approx(4768.0 * 1.45)
+
+
+def test_the_main_skills_combo_cut_reaches_the_hit_readers():
+    """(MECHB56, the Oracle test's find) main_cap's DPS MORE (fewer uses a second: Combo / walking) goes to
+    build.main_hit_cut, so the hit readers see the capped rate (Tempest Bell x0.185 of its at-will uses)."""
+    cap = [models.raw_mod("DPS", "MORE", 100 * (0.185 - 1), "Tempest Bell")]
+    build = SimpleNamespace()
+    assumptions.hit_cut(build, cap, "Tempest Bell")
+    assert build.main_hit_cut == pytest.approx(0.185) and build.main_uses_raise is None
+    assert assumptions.hit_cut_share(build, 1.0) == pytest.approx(0.185)
+    assert "hit_cut(build, cap_mods, name)" in open(assumptions.__file__, encoding="utf-8").read()

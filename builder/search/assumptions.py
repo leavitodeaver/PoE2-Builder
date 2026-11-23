@@ -5147,6 +5147,10 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + side_mods, hand_notes + side_notes
         cap_mods, cap_notes = self.main_cap(group, name)  # (MECH-B: the press hook on the main skill, MECHB5)
         hand_mods, hand_notes = hand_mods + cap_mods, hand_notes + cap_notes
+        # (MECHB56, an OVERCOUNT found in the user's Oracle test: the Combo / walking cut is fewer USES a second, each its
+        # hits, but it never reached build.main_hit_cut, so every hit reader (Midnight Zenith's crits, Flammability,
+        # Shock, kills...) counted Tempest Bell at PoB's at-will 1.17 uses a second against the 0.217 its Combo allows)
+        hit_cut(build, cap_mods, name)
         spore_mods, spore_notes = self.pustule_cap(found)  # (MECH-B: Poison Spores' one Pustule a fuse, MECHB10)
         hand_mods, hand_notes = hand_mods + spore_mods, hand_notes + spore_notes
         tornado_mods, tornado_notes = self.tornado_copies(found, main, stats)  # (MECH-B, MECHB17: Tornado Shot's copies)
