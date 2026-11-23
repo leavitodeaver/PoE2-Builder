@@ -1,0 +1,188 @@
+# COV52 (23 Nov 2026): trains 110-129's readers in the audit (the manager's held notes, msg_COV52_pending.txt; COV43's
+# rule: a line counts model-read only if the model's own pattern reads it, checked here for each one against origin/main
+# 4c545564 = train 129). Each `model:` entry adds nothing to PoB: it says which model reads the line (no second count).
+
+# MECHB56 (on main): models.SURGE_GAIN_LINE, read by models.surge_gains over the build's lines in
+# Assumptions.charge_surges (assumptions.py ~9689) -> models.charge_surge_model (ledger model-mechb56-charge-surges).
+- id: model-read-cov52-charge-surge-gain
+  title: '"When you Consume a Charge(,) Trigger Elemental / Chaotic Surge to gain N <type> Surges" (Elemental Surge, Surging Avatar, Spire of Ire) (models.surge_gains)'
+  kind: pob_gap
+  model: charge_surges
+  match: '^When you Consume a Charge,? Trigger (Elemental|Chaotic) Surge to gain (\(\d+-\d+\)|\d+) (Cold|Fire|Lightning|Chaos) Surges?$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.SURGE_GAIN_LINE (MECHB56, an UNDERCOUNT before: PoB parses the lines to nil, ModCache 9781-9789): N Surges of
+    the type each charge consumed (MECH-C's build.charge_flow), spent by the main non-Melee Projectile Attack, each blast
+    its own set's PoB hit, as an added source (see model-mechb56-charge-surges). This entry only says a model reads the
+    line.
+  sources: ["builder/search/models.py (SURGE_GAIN_LINE, surge_gains, charge_surge_model)", "builder/search/assumptions.py (charge_surges)"]
+  status: proposed
+
+- id: model-read-cov52-charge-surge-fewer
+  title: 'Surging Avatar, "Gain N fewer Lightning Surge from Triggering Elemental Surge" (models.surge_gains)'
+  kind: pob_gap
+  model: charge_surges
+  match: '^Gain (\(\d+-\d+\)|\d+) fewer (Cold|Fire|Lightning) Surges? from Triggering Elemental Surge$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.SURGE_FEWER_LINE (MECHB56; PoB parses it to nothing, ModCache 7515): N taken off that type's gain a charge
+    (at least 0). This entry only says a model reads the line.
+  sources: ["builder/search/models.py (SURGE_FEWER_LINE, surge_gains)"]
+  status: proposed
+
+# MECHB53 (on main): models.GEMINI_LINE over the build's lines and each adjacent pair joined (the unique's text is two
+# lines), in models.double_vision_model (ledger model-mechb53-gemini-surge).
+- id: model-read-cov52-gemini-surge
+  title: 'Double Vision, "When you reload, triggers Gemini Surge to alternately / gain N Cold Surges or N Fire Surges" (models.double_vision_model)'
+  kind: pob_gap
+  model: gemini_surge
+  match: '^(When you reload, triggers Gemini Surge to alternately|gain (\(\d+-\d+\)|\d+) Cold Surges? or (\(\d+-\d+\)|\d+) Fire Surges?)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.GEMINI_LINE (MECHB53, an UNDERCOUNT before: PoB grants Gemini Surge and never rates it) matched over the two
+    lines joined: alternately N Cold / N Fire Surges a reload, blasts at min(the main Projectile Attack's uses, the
+    Surges a second). This entry only says a model reads the lines.
+  sources: ["builder/search/models.py (GEMINI_LINE, double_vision_model)"]
+  status: proposed
+
+# MECHB52 (on main): models.PRIMAL_FEATHER gates and rates Primal Bounty (assumptions.py ~4660), models.PRIMAL_FASTER
+# speeds it (The Mhacha's Gift).
+- id: model-read-cov52-primal-feather
+  title: 'Primal Bounty, "Gain a Primal Owl Feather every N seconds, up to a maximum of M" and The Mhacha''s Gift, "Gain Owl Feathers N% faster" (models.primal_bounty_model)'
+  kind: pob_gap
+  model: primal_bounty
+  match: '^(Gain a Primal Owl Feather every (\(\d+-\d+\)|\d+(?:\.\d+)?) seconds, up to a maximum of (\(\d+-\d+\)|\d+)|Gain Owl Feathers (\(\d+-\d+\)|\d+(?:\.\d+)?)% faster)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.PRIMAL_FEATHER / PRIMAL_FASTER (MECHB52, an UNDERCOUNT before): feathers a second = (1 + faster) / N, each an
+    Empowered use of the main skill (+2 Projectiles on the Crossbow shotgun skills), at most its uses. The maximum M is
+    not read (a feather is spent as it comes). This entry only says a model reads the lines.
+  sources: ["builder/search/models.py (PRIMAL_FEATHER, PRIMAL_FASTER, primal_bounty_model)"]
+  status: proposed
+
+# MECHB52 (on main): models.MORRIGAN in vivid_stampede_model.
+- id: model-read-cov52-morrigan-wisp
+  title: 'The Mórrigan''s Guidance, "Gain a Vivid Wisp when Vivid Stampede ends" (models.vivid_stampede_model)'
+  kind: pob_gap
+  model: vivid_stampede
+  match: '^Gain a Vivid Wisp when Vivid Stampede ends$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.MORRIGAN (MECHB52 / MECHB54): with the node, one Stag a Stampede, a Stampede every max(0.3 s, 2.0 s + the next
+    attack) (R45-10, MEDIUM-LOW). This entry only says a model reads the line.
+  sources: ["builder/search/models.py (MORRIGAN, vivid_stampede_model)"]
+  status: proposed
+
+# MECHC49 (on main): boss_hits.AVATAR_ADAPT / AVATAR_DOUBLE over the build's source lines in Assumptions' Reactive Growth
+# condition (assumptions.py ~8692-8698) -> boss_hits.adaptations_held(seconds, double).
+- id: model-read-cov52-avatar-of-evolution
+  title: 'Avatar of Evolution, "Adaptations have a duration of N seconds" and "Double Adaptation Effect" (boss_hits.adaptations_held)'
+  kind: pob_gap
+  model: boss_hits
+  match: '^(Adaptations have a duration of (\(\d+-\d+\)|\d+(?:\.\d+)?) seconds|Double Adaptation Effect)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    boss_hits.AVATAR_ADAPT / AVATAR_DOUBLE (MECHC49, RESEARCH40 R40-3 MEDIUM; an OVERCOUNT at a slow boss before): with
+    the N s duration the 3 slots hold E[min(Poisson(N x adapting hits a second), 3)], each at double effect. This entry
+    only says a model reads the lines.
+  sources: ["builder/search/boss_hits.py (AVATAR_ADAPT, AVATAR_DOUBLE, adaptations_held)", "builder/search/assumptions.py (Reactive Growth condition)"]
+  status: proposed
+
+# MECH97 (on main, train 109): conditions.BREAK_INC_STAT read from the main skill's levelStats (conditions.py ~10673,
+# stats["_break_inc_gem"]) and added to the "Break N% increased Armour" lines' increase (~4878).
+- id: model-cov52-link-armour-break-amount
+  title: "armour_break_amount_+% (Armour Breaker, Armour Piercing Rounds, Resonating Shield quality) read by conditions' Armour Break model (MECH97)"
+  kind: model
+  model: armour_break
+  stats: ["armour_break_amount_+%"]
+  skill: [Armour Breaker, Armour Piercing Rounds, Resonating Shield]
+  confidence: theory
+  notes: >-
+    conditions.BREAK_INC_STAT (MECH97, GEM29's routing; an UNDERCOUNT before): the main skill's own quality stat at its
+    level and quality, an increase added to the Break lines' increase on the Armour each hit breaks. A link only.
+  sources: ["builder/search/conditions.py (BREAK_INC_STAT, _break_inc_gem)"]
+  status: proposed
+
+# MECHC51 (on main): recovery.PACT_SELF_HIT in recovery.pact_self_hit, called from Assumptions (assumptions.py ~4046) on
+# the build's source lines: Fire damage taken a second + one Recharge-stopping event a cycle. NOT marked: the same
+# node's "Gain Infernal Flame instead of spending Mana for Skill costs" (recovery.PACT_NO_MANA): it only sets
+# build.cost_pools_replaced, which nothing on main reads (checked: grep over builder/, 4c545564), so it stays open.
+- id: model-read-cov52-pyromantic-pact-self-hit
+  title: 'Pyromantic Pact, "Take maximum Life and Energy Shield as Fire Damage when Infernal Flame reaches maximum" (recovery.pact_self_hit)'
+  kind: pob_gap
+  model: recovery
+  match: '^Take maximum Life and Energy Shield as Fire Damage when Infernal Flame reaches maximum$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.PACT_SELF_HIT (MECHC51, an OVERCOUNT of survival before: PoB parses it only in part, ModCache 7778): a hit
+    of maximum Life + ES every 2 x Mana / ManaPerSecondCost s, as Fire damage taken a second (a play row: pausing near the
+    top avoids it). This entry only says a model reads the line.
+  sources: ["builder/search/recovery.py (PACT_SELF_HIT, pact_self_hit)"]
+  status: proposed
+
+# MECHC53 (on main): boss_hits.REMOVE_IGNITE_ON_WARCRY over the build's lines (assumptions.py ~4175): the build's Warcry
+# uses a second as Ignite removals in the boss's Ignite on you.
+- id: model-read-cov52-remove-ignite-on-warcry
+  title: 'Extinguishing Exhalation, "Remove Ignite when you Warcry" (boss_hits ignite removals)'
+  kind: pob_gap
+  model: boss_hits
+  match: '^Remove Ignite when you Warcry$'
+  replace: []
+  confidence: theory
+  notes: >-
+    boss_hits.REMOVE_IGNITE_ON_WARCRY (MECHC53): the build's Warcry uses a second (Assumptions.warcry_uses) end the
+    boss's Ignite on you that often. This entry only says a model reads the line.
+  sources: ["builder/search/boss_hits.py (REMOVE_IGNITE_ON_WARCRY)", "builder/search/assumptions.py (removals)"]
+  status: proposed
+
+# MECH98 (on main): models.HAZARD_SLOW in models.hazard_slow_mods (assumptions.py ~5416).
+- id: model-read-cov52-hazard-slow
+  title: 'Hindering Obstacles, "Debuffs inflicted by Hazards have N% increased Slow Magnitude" (models.hazard_slow_mods)'
+  kind: pob_gap
+  model: hazard_slow
+  match: '^Debuffs inflicted by Hazards have (\(\d+-\d+\)|\d+(?:\.\d+)?)% (increased|reduced) Slow Magnitude$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.HAZARD_SLOW (MECH98, MEDIUM-LOW): on a Hazard main skill that Chills (Ice Shards, Permafrost Bolts) the N% goes
+    to the boss's Slow Magnitude (the bridge's installBossSlow); other mains 0, labelled (Maim slows movement only). This
+    entry only says a model reads the line.
+  sources: ["builder/search/models.py (HAZARD_SLOW, hazard_slow_mods)"]
+  status: proposed
+
+# MECHC44 (on main): models.NATURES_ARCHON_GAIN in models.natures_archon_share and Assumptions' natures_archon_effects
+# (assumptions.py ~2856).
+- id: model-read-cov52-natures-archon-gain
+  title: '"N% chance to gain Nature''s Archon when your Plants Overgrow" (models.natures_archon_share)'
+  kind: pob_gap
+  model: natures_archon
+  match: '^(\(\d+-\d+\)|\d+(?:\.\d+)?)% chance to gain Nature''s Archon when your Plants Overgrow$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.NATURES_ARCHON_GAIN (MECHC44): Nature's Archon's share of the fight from the chance and the build's Overgrows
+    a second; its 25% more Damage with Plant Skills on a Plant main skill at that share. This entry only says a model
+    reads the line.
+  sources: ["builder/search/models.py (NATURES_ARCHON_GAIN)", "builder/search/assumptions.py (natures_archon_effects)"]
+  status: proposed
+
+# MECHC50 (on main): conditions.THAUMATURGY in conditions._charge_rate -> _thaumaturgy_rate.
+- id: model-read-cov52-thaumaturgical-dynamism
+  title: 'Thaumaturgic Generator, "Grants Thaumaturgical Dynamism" (conditions._thaumaturgy_rate)'
+  kind: pob_gap
+  model: charges
+  match: '^Grants Thaumaturgical Dynamism$'
+  replace: []
+  confidence: theory
+  notes: >-
+    conditions.THAUMATURGY (MECHC50, MEDIUM): a random charge every 5 s, each type at the Str / Dex / Int share of the
+    socketed skill gems' attribute requirements (supports in a row). This entry only says a model reads the line.
+  sources: ["builder/search/conditions.py (THAUMATURGY, _thaumaturgy_rate)"]
+  status: proposed

@@ -1689,7 +1689,9 @@ def test_cov49_train104_readers_are_model_read():
         entry, out = translate(line)
         assert entry.id == entry_id and out == [] and entry.raw["model"], line
         assert pattern(line), line
-    assert translate("Debuffs inflicted by Hazards have 30% increased Slow Magnitude") is None
+    # (COV52: MECH98's models.HAZARD_SLOW reads it now: model-read-cov52-hazard-slow)
+    hazard = translate("Debuffs inflicted by Hazards have 30% increased Slow Magnitude")
+    assert hazard is not None and hazard[0].id == "model-read-cov52-hazard-slow" and hazard[1] == []
     for line in ("Increases and Reductions to", " Cold and Fire Damage in Radius are transformed to apply to Lightning Damage",
                  "Fire and Lightning Damage in Radius are transformed to apply to Cold Damage"):
         entry, out = translate(line)
@@ -1895,3 +1897,82 @@ def test_cov51_the_catalog_keeps_unlinked_lines_visible():
         assert all(x["category"] == "gem-stat" for x in by_id["unlinked-gem-stats"]["all_lines"])
     if "unlinked-lines" in by_id:
         assert all(x["category"] != "gem-stat" for x in by_id["unlinked-lines"]["all_lines"])
+
+
+def test_cov52_cov53_readers_are_model_read():
+    """COV52 / COV53 (trains 110-129's readers; COV43's rule): each marked line matches its model's own pattern, and each
+    marked gem stat is the model's own stat id; the stats left open (counted 0, a detector only, no reader) stay open."""
+    from builder.ledger import translate
+    from builder.search import assumptions, boss_hits, conditions, models, recovery
+
+    for line, entry_id, pattern in (
+            ("When you Consume a Charge, Trigger Elemental Surge to gain 2 Cold Surges", "model-read-cov52-charge-surge-gain",
+             models.SURGE_GAIN_LINE.match),
+            ("When you Consume a Charge Trigger Chaotic Surge to gain 1 Chaos Surge", "model-read-cov52-charge-surge-gain",
+             models.SURGE_GAIN_LINE.match),
+            ("Gain 1 fewer Lightning Surge from Triggering Elemental Surge", "model-read-cov52-charge-surge-fewer",
+             models.SURGE_FEWER_LINE.match),
+            ("Gain a Primal Owl Feather every 4 seconds, up to a maximum of 3", "model-read-cov52-primal-feather",
+             models.PRIMAL_FEATHER.match),
+            ("Gain Owl Feathers 20% faster", "model-read-cov52-primal-feather", models.PRIMAL_FASTER.match),
+            ("Gain a Vivid Wisp when Vivid Stampede ends", "model-read-cov52-morrigan-wisp", models.MORRIGAN.match),
+            ("Adaptations have a duration of 8 seconds", "model-read-cov52-avatar-of-evolution", boss_hits.AVATAR_ADAPT.match),
+            ("Double Adaptation Effect", "model-read-cov52-avatar-of-evolution", boss_hits.AVATAR_DOUBLE.match),
+            ("Take maximum Life and Energy Shield as Fire Damage when Infernal Flame reaches maximum",
+             "model-read-cov52-pyromantic-pact-self-hit", recovery.PACT_SELF_HIT.search),
+            ("Remove Ignite when you Warcry", "model-read-cov52-remove-ignite-on-warcry",
+             boss_hits.REMOVE_IGNITE_ON_WARCRY.match),
+            ("Debuffs inflicted by Hazards have 30% increased Slow Magnitude", "model-read-cov52-hazard-slow",
+             models.HAZARD_SLOW.match),
+            ("25% chance to gain Nature's Archon when your Plants Overgrow", "model-read-cov52-natures-archon-gain",
+             models.NATURES_ARCHON_GAIN.match),
+            ("Grants Thaumaturgical Dynamism", "model-read-cov52-thaumaturgical-dynamism", conditions.THAUMATURGY.match),
+            ("Enemies killed by your Hits are destroyed", "model-read-cov53-kills-destroyed", models.KILLS_DESTROYED.match)):
+        entry, out = translate(line)
+        assert entry.id == entry_id and out == [] and entry.raw["model"], line
+        assert pattern(line), line
+    # Double Vision's two lines: the ledger takes each, the model reads them joined.
+    for line in ("When you reload, triggers Gemini Surge to alternately", "gain 3 Cold Surges or 3 Fire Surges"):
+        entry, out = translate(line)
+        assert entry.id == "model-read-cov52-gemini-surge" and out == [], line
+    assert models.GEMINI_LINE.match("When you reload, triggers Gemini Surge to alternately gain 3 Cold Surges or 3 Fire Surges")
+    # Gem stats: each is the reader's own stat id (or, for the level-constant ones, the constant's stat).
+    assert conditions.FLAME_BREATH_FREE_STAT == "channelled_skill_suppress_ongoing_rage_cost_for_first_X_ms"
+    assert assumptions.CHARGED_STAFF_MS == "charged_staff_buff_duration_per_stack_ms"
+    assert models.UNTETHER_STATS == ("living_bomb_damage_threshold_%_of_ailment_threshold", "living_bomb_base_number_of_bombs_allowed")
+    assert models.ZOMBIE_EMPOWERED_STAT == "power_charged_zombie_hit_damage_+%_final"
+    assert models.ARCTIC_GAIN_STAT == assumptions.VIRTUOUS_GAIN_STAT == "base_active_skill_buff_stack_gain_frequency_ms"
+    assert models.ARCTIC_STAGES_STAT == "maximum_number_of_arctic_armour_stationary_stacks"
+    assert (models.FISSURE_BASE_STAT, models.FISSURE_EXTRA_STAT, models.FISSURE_CHANCE_STAT) == (
+        "base_number_of_fissures", "base_number_of_additional_fissures", "skill_additional_fissure_chance_%")
+    assert models.STAR_COUNT_STAT == "empyrean_descent_number_of_explosions"
+    assert models.SEAL_REPEATS_STAT == "skill_rapid_fire_repeats_per_broken_seal"
+    assert recovery.TIME_OF_NEED_LIFE == "skill_time_of_need_gain_x_life"
+    assert assumptions.TOXIC_HEAL_STAT == "toxic_domain_healing_per_minute_+"
+    assert assumptions.IMPATIENCE_STAT == "lose_%_of_life_es_and_mana_when_skill_is_used"
+    assert (models.SHIELD_WAVE_PER, models.SHIELD_WAVE_CAP) == (5.0, 50.0)
+    assert set(models.ICE_BREAKERS) == {"Fragmentation Rounds", "Glacial Cascade", "Gelid Palm", "Embrace The Fall"}
+    assert models.WING_BLAST_POWER_CHANCE == 0.15
+    covered = coverage.stat_entries()
+    for stat, skill, entry_id in (
+            ("armour_break_amount_+%", "Armour Breaker", "model-cov52-link-armour-break-amount"),
+            ("channelled_skill_suppress_ongoing_rage_cost_for_first_X_ms", "Rampage", "model-read-cov53-flame-breath-free-window"),
+            ("charged_staff_buff_duration_per_stack_ms", "Charged Staff", "model-read-cov53-charged-staff-duration"),
+            ("living_bomb_base_number_of_bombs_allowed", "Untether", "model-read-cov53-untether"),
+            ("power_charged_zombie_hit_damage_+%_final", "Raise Zombie", "model-read-cov53-zombie-empowered"),
+            ("base_active_skill_buff_stack_gain_frequency_ms", "Virtuous Barrier", "model-read-cov53-buff-stack-gain"),
+            ("base_number_of_additional_fissures", "Upheaval II", "model-read-cov53-fissure-counts"),
+            ("empyrean_descent_secondary_explosions_outer_radius", "Starborn Onslaught", "model-read-cov53-star-fall"),
+            ("skill_rapid_fire_repeats_per_broken_seal", "Zarokh's Revolt", "model-read-cov53-seal-repeats"),
+            ("skill_time_of_need_gain_x_life", "Time of Need", "model-read-cov53-time-of-need-life"),
+            ("toxic_domain_healing_per_minute_+", "Toxic Domain", "model-read-cov53-toxic-domain-heal"),
+            ("lose_%_of_life_es_and_mana_when_skill_is_used", "Atziri's Impatience", "model-read-cov53-atziris-impatience"),
+            ("shielding_cry_an_additional_empowered_attack_per_X_mp_mp_cap", "Fortifying Cry",
+             "model-read-cov53-fortifying-cry-shield-wave"),
+            ("destroy_frost_wall_segment_on_hit", "Gelid Palm", "model-read-cov53-ice-breakers"),
+            ("wing_blast_chance_to_gain_power_charge_on_stun_%", "Wing Blast", "model-read-cov53-wing-blast-power")):
+        assert coverage.stat_covered(covered, stat, skill) == ("model", entry_id), stat
+    for stat, skill in (("number_of_branching_fissures", "Volcanic Fissure"), ("daze_on_hit_vs_enemies_at_full_life", "Opening Move"),
+                        ("support_active_skill_consume_enemy_freeze_to_apply_chill", "Biting Frost II"),
+                        ("generic_ongoing_trigger_maximum_energy", "Feral Invocation")):
+        assert coverage.stat_covered(covered, stat, skill) is None, stat

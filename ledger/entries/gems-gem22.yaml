@@ -22,7 +22,15 @@
     strongest counts: the game's rule, HIGH (KeywordPopups Debuff: "Unless otherwise stated, Debuffs of the same type do
     not stack - only the copy with the strongest effect applies"; RESEARCH33 R33-2: weaker copies stay and take over
     when the strongest expires, MEDIUM-HIGH; no 0.5.5 source grants multiple Ignites / Bleeds).
-  sources: ["builder/search/models.py (strongest_ailment_model, the four set models' set_shares)", "engine/bridge.lua (setRates fields, Raw keywordFlags)",
+    GEM34 (63680422, train 125; an OVERCOUNT fixed): each part is sized at its OWN stacks S, not PoB's DPS-line-drifted
+    ones: PoB's two S-driven terms, the roll average S / (S + 1) of the source hit's range (CalcOffence 5140-5147) and
+    the crit share 1 - (1 - crit)^max(S, 1) (5186, calcAilmentDamage 4947-4957), carry the mix's DpsMultiplier on every
+    setRates row, so each row is taken x ailment_size(own S) / ailment_size(PoB's S), the profile (range min / max, crit
+    chance and size, chances on hit / crit) read from the main skill's PoB outputs (models.ailment_ranges,
+    STRONG_RANGE_FIELDS; the scored set's profile for every set, MEDIUM-LOW); none read: as before. Probes POE2T7205 /
+    7207 / 7208: Whirling Slash 231.5 -> 186.5 (= its strong-set scoring 187.3), Whirlwind Lance 154.8 / 154.3 on its
+    two scorings.
+  sources: ["builder/search/models.py (strongest_ailment_model, ailment_ranges, STRONG_RANGE_FIELDS, the four set models' set_shares)", "engine/bridge.lua (setRates fields, Raw keywordFlags)",
             "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua (4065, 5206-5262, 5353, 5399)",
             "data/game-26650308/tables/KeywordPopups.json (Ignite, Bleeding, Debuff)", "scratch/manager/research (RESEARCH33 R33-2)", "scratch/gem22/probe_ail2.json"]
   test_in_game: "Optional: a Boneshatter with Bleed and a rare Heavy Stun: the Shockwave's Bleed should fall off between Heavy Stuns."

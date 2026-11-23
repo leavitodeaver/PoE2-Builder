@@ -1379,7 +1379,10 @@ MODELED_SKILLS = {"Iron Ward": "iron-ward-store", "Elemental Expression": "eleme
                   # skill of the same gem, which the search scores and a model on main rates (game 26650308
                   # GrantedEffects / GrantedEffectStatSets, per set: scratch/cov47/zero_sets2.py; PoB Gems.lua the same):
                   # FrostflameNovaPlayer, FrozenLocusPlayer, ElementalSunderingPlayer carry base_deal_no_damage and their
-                  # FrostflameNovaColdHit / FrozenLocusExplode / ElementalSundering{Cold,Fire,Lightning} sets deal it
+                  # FrostflameNovaColdHit / FrozenLocusExplode / ElementalSundering{Cold,Fire,Lightning} sets deal it.
+                  # (COV53, after SEARCH35's fc0f9efa, train 121: the bridge now skips a base_deal_no_damage SET in Full
+                  # DPS and the chooser never picks one; the sweep's reading is unchanged, as it reads any of
+                  # DAMAGE_STATS and the rule only wraps Full DPS's skill count, so these reasons still hold.)
                   "Frostflame Nova": "model-gem8-frostflame-volatile-ice",
                   "Frozen Locus": "model-gem20-frozen-locus-crystal-breaks",
                   "Elemental Sundering": "model-gem17-elemental-sundering-ailments",

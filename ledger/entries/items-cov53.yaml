@@ -1,0 +1,217 @@
+# COV53 (23 Nov 2026): gem stats a model on main reads by its own stat id (COV43's rule: marked only where the model's own
+# code reads the stat from the skill's level / support stats and the result reaches a number; a stat named only in a
+# comment, counted 0, or used only to detect another mechanic stays open). Checked against origin/main 4c545564 (train
+# 129). Each entry adds nothing to PoB: it says which model reads the stat (a link only, no second count).
+#
+# Left open on purpose (each grepped): base_is_projectile (bridge.lua sets it on a granted skill's definition, no reader);
+# number_of_branching_fissures (fissure_count_model reads it only to say the branches are 0 at the boss, LOW: counted 0);
+# daze_on_hit_vs_enemies_at_full_life (conditions' Daze model lists Opening Move at 0, "only the fight's opening hit");
+# pillar_of_flame_consume_ignite_to_create_X_pillars (conditions.CONSUME_STATS uses it to see the Ignite consumed; the
+# pillars themselves aren't counted, and Flame Pillar is "never obtainable", context.py) and
+# support_active_skill_consume_enemy_freeze_to_apply_chill (Biting Frost II: the consumption is read, the Chill it applies
+# isn't, by that id).
+
+- id: model-read-cov53-flame-breath-free-window
+  title: "channelled_skill_suppress_ongoing_rage_cost_for_first_X_ms (Rampage) read by conditions' Rage model (FLAME_BREATH_FREE_STAT)"
+  kind: model
+  model: rage
+  stats: ["channelled_skill_suppress_ongoing_rage_cost_for_first_X_ms"]
+  skill: [Rampage]
+  confidence: theory
+  notes: >-
+    conditions.FLAME_BREATH_FREE_STAT, read from the skill's levelStats in conditions (~10134) and assumptions (~4627):
+    the channel's Rage-free window (4 s + quality), in which the skill can't gain Rage. A link only.
+  sources: ["builder/search/conditions.py (FLAME_BREATH_FREE_STAT)", "builder/search/assumptions.py (~4627)"]
+  status: proposed
+
+- id: model-read-cov53-charged-staff-duration
+  title: "charged_staff_buff_duration_per_stack_ms (Charged Staff) read by assumptions' Charged Staff stacks (CHARGED_STAFF_MS)"
+  kind: model
+  model: charged_staff
+  stats: ["charged_staff_buff_duration_per_stack_ms"]
+  skill: [Charged Staff]
+  confidence: theory
+  notes: >-
+    assumptions.CHARGED_STAFF_MS from the skill's level stats (~9630, ~9873): each spent charge is one stack for that
+    duration (Little's law), the buff's stacks a second. PoB maps it but no calculation reads ChargedStaffBuffDuration.
+    A link only.
+  sources: ["builder/search/assumptions.py (CHARGED_STAFF_MS)"]
+  status: proposed
+
+- id: model-read-cov53-untether
+  title: "Untether's living_bomb_damage_threshold_%_of_ailment_threshold and living_bomb_base_number_of_bombs_allowed read by the Untether model (models.UNTETHER_STATS)"
+  kind: model
+  model: untether
+  stats: ["living_bomb_damage_threshold_%_of_ailment_threshold", "living_bomb_base_number_of_bombs_allowed"]
+  skill: [Untether]
+  confidence: theory
+  notes: >-
+    models.UNTETHER_STATS read from the skill's level stats in assumptions (~6408-6409): the explosion threshold as a %
+    of PoB's EnemyAilmentThreshold and the seeds allowed. A link only.
+  sources: ["builder/search/models.py (UNTETHER_STATS)", "builder/search/assumptions.py (~6402-6410)"]
+  status: proposed
+
+- id: model-read-cov53-zombie-empowered
+  title: "power_charged_zombie_hit_damage_+%_final (Raise Zombie) read by the Empowered zombie model (models.ZOMBIE_EMPOWERED_STAT)"
+  kind: model
+  model: raise_zombie
+  stats: ["power_charged_zombie_hit_damage_+%_final"]
+  skill: [Raise Zombie]
+  confidence: theory
+  notes: >-
+    models.ZOMBIE_EMPOWERED_STAT (MECHB53) read from the skill's level stats (assumptions ~10458): the Empowered
+    zombie's hits x(1 + more), PoB 0. A link only.
+  sources: ["builder/search/models.py (ZOMBIE_EMPOWERED_STAT)", "builder/search/assumptions.py (~10458)"]
+  status: proposed
+
+- id: model-read-cov53-buff-stack-gain
+  title: "base_active_skill_buff_stack_gain_frequency_ms (Arctic Armour, Virtuous Barrier) and maximum_number_of_arctic_armour_stationary_stacks read by their stack models"
+  kind: model
+  model: buff_stacks
+  stats: ["base_active_skill_buff_stack_gain_frequency_ms", "maximum_number_of_arctic_armour_stationary_stacks"]
+  skill: [Arctic Armour, Virtuous Barrier]
+  confidence: theory
+  notes: >-
+    models.ARCTIC_GAIN_STAT / ARCTIC_STAGES_STAT (MECHB55, models ~24729-24730: the stationary stacks' gain time and
+    their cap) and assumptions.VIRTUOUS_GAIN_STAT (~9810: one Mote stack every N s). A link only.
+  sources: ["builder/search/models.py (ARCTIC_GAIN_STAT, ARCTIC_STAGES_STAT)", "builder/search/assumptions.py (VIRTUOUS_GAIN_STAT)"]
+  status: proposed
+
+- id: model-read-cov53-fissure-counts
+  title: "base_number_of_fissures, base_number_of_additional_fissures, skill_additional_fissure_chance_% read by models.fissure_count_model"
+  kind: model
+  model: fissure_count
+  stats: ["base_number_of_fissures", "base_number_of_additional_fissures", "skill_additional_fissure_chance_%"]
+  skill: [Forge Hammer, Starborn Onslaught, Entangle, "Kaom's Madness", Upheaval I, Upheaval II]
+  confidence: theory
+  notes: >-
+    models.FISSURE_BASE_STAT / FISSURE_EXTRA_STAT / FISSURE_CHANCE_STAT (MECHB48, models ~22764-22767): base (the main
+    skill's level stats) + the supports' extra + min(1, chance), the Fissures a use at the boss (ledger
+    model-mechb48-fissures-at-boss). A link only.
+  sources: ["builder/search/models.py (fissure_count_model)"]
+  status: proposed
+
+- id: model-read-cov53-star-fall
+  title: "Starborn Onslaught's empyrean_descent_number_of_explosions / _inner_radius / _outer_radius read by models.star_fall_hits"
+  kind: model
+  model: fissure_count
+  stats: ["empyrean_descent_number_of_explosions", "empyrean_descent_secondary_explosions_inner_radius", "empyrean_descent_secondary_explosions_outer_radius"]
+  skill: [Starborn Onslaught]
+  confidence: theory
+  notes: >-
+    models.STAR_COUNT_STAT / STAR_INNER_STAT / STAR_OUTER_STAT (MECHB50, models ~22699-22701): the stars a use and the
+    ring they land on, giving the stars that reach the boss. A link only.
+  sources: ["builder/search/models.py (STAR_FALL, star_fall_hits)"]
+  status: proposed
+
+- id: model-read-cov53-seal-repeats
+  title: "skill_rapid_fire_repeats_per_broken_seal (Unleash, Zarokh's Revolt) read by the Seal model (models.SEAL_REPEATS_STAT)"
+  kind: model
+  model: seals
+  stats: ["skill_rapid_fire_repeats_per_broken_seal"]
+  skill: [Unleash, "Zarokh's Revolt"]
+  confidence: theory
+  notes: >-
+    models.SEAL_REPEATS_STAT (models ~15882): the repeats each broken Seal adds to the sealed spell's use. A link only.
+  sources: ["builder/search/models.py (SEAL_REPEATS_STAT)"]
+  status: proposed
+
+- id: model-read-cov53-time-of-need-life
+  title: "skill_time_of_need_gain_x_life (Time of Need) read by recovery.time_of_need_income"
+  kind: model
+  model: recovery
+  stats: ["skill_time_of_need_gain_x_life"]
+  skill: [Time of Need]
+  confidence: theory
+  notes: >-
+    recovery.TIME_OF_NEED_LIFE: a Blessing's Life over its interval (cooldown-recovery scaled) into LifeOnEventRecovery
+    (called from assumptions ~7400). A link only.
+  sources: ["builder/search/recovery.py (time_of_need_income)", "builder/search/assumptions.py (~7400)"]
+  status: proposed
+
+- id: model-read-cov53-toxic-domain-heal
+  title: "toxic_domain_healing_per_minute_+ (Toxic Domain) read by assumptions' Toxic Domain recovery (TOXIC_HEAL_STAT)"
+  kind: model
+  model: recovery
+  stats: ["toxic_domain_healing_per_minute_+"]
+  skill: [Toxic Domain]
+  confidence: theory
+  notes: >-
+    assumptions.TOXIC_HEAL_STAT (~9435): the skill's healing a minute from its level stats (with the 0.4.0 patch-note
+    factor its own comment names). A link only.
+  sources: ["builder/search/assumptions.py (TOXIC_HEAL_STAT)"]
+  status: proposed
+
+- id: model-read-cov53-atziris-impatience
+  title: "lose_%_of_life_es_and_mana_when_skill_is_used (Atziri's Impatience) read by assumptions (IMPATIENCE_STAT)"
+  kind: model
+  model: recovery
+  stats: ["lose_%_of_life_es_and_mana_when_skill_is_used"]
+  skill: ["Atziri's Impatience"]
+  confidence: theory
+  notes: >-
+    assumptions.IMPATIENCE_STAT (~9465) from the support's stats: the Life / ES / Mana lost a use, a drain on the pools.
+    A link only.
+  sources: ["builder/search/assumptions.py (IMPATIENCE_STAT)"]
+  status: proposed
+
+# Readers that hold the game's number as a constant (COV49's precedent: chance_to_trigger_hunters_mark_explosion_% as a
+# constant 100). Marked only where the stat is the same at every gem level (PoB's Data/Skills constantStats, checked
+# each), so the constant is the stat; the level-varying ones stay open (COV52's open question for the manager).
+- id: model-read-cov53-fortifying-cry-shield-wave
+  title: "Fortifying Cry's shielding_cry_an_additional_empowered_attack_per_X_mp and _mp_cap read as models.SHIELD_WAVE_PER / SHIELD_WAVE_CAP"
+  kind: model
+  model: warcry_empowers
+  stats: ["shielding_cry_an_additional_empowered_attack_per_X_mp", "shielding_cry_an_additional_empowered_attack_per_X_mp_mp_cap"]
+  skill: [Fortifying Cry]
+  confidence: theory
+  notes: >-
+    models.SHIELD_WAVE_PER 5 / SHIELD_WAVE_CAP 50 (models ~22448: one Shield Wave a cry per 5 enemy Power, up to 50).
+    Both are constantStats in PoB's act_str.lua (6118-6119), the same at every level, so the constants are the stats.
+    A link only.
+  sources: ["builder/search/models.py (SHIELD_WAVE_PER, SHIELD_WAVE_CAP)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua:6118-6119"]
+  status: proposed
+
+- id: model-read-cov53-ice-breakers
+  title: "destroy_frost_wall_segment_on_hit (Glacial Cascade, Fragmentation Rounds, Gelid Palm, Embrace The Fall) read as models.ICE_BREAKERS"
+  kind: model
+  model: ice_crystals
+  stats: ["destroy_frost_wall_segment_on_hit"]
+  skill: [Glacial Cascade, Fragmentation Rounds, Gelid Palm, Embrace The Fall]
+  confidence: theory
+  notes: >-
+    models.ICE_BREAKERS names exactly the four skills carrying the flag (the audit's carriers; GEM36's wall-break
+    model, assumptions ~10105 / ~10222: the segments a break takes, Glacial Cascade's spike 2, the others 1 UNVERIFIED).
+    Keyed on names, not the flag: a new carrier would be missed. A link only.
+  sources: ["builder/search/models.py (ICE_BREAKERS)", "builder/search/assumptions.py (~10098-10222)"]
+  status: proposed
+
+- id: model-read-cov53-wing-blast-power
+  title: "wing_blast_chance_to_gain_power_charge_on_stun_% (Wing Blast) read as models.WING_BLAST_POWER_CHANCE + its quality"
+  kind: model
+  model: charges
+  stats: ["wing_blast_chance_to_gain_power_charge_on_stun_%"]
+  skill: [Wing Blast]
+  confidence: theory
+  notes: >-
+    models.WING_BLAST_POWER_CHANCE 0.15 + WING_BLAST_CHANCE_A_QUALITY x the gem's quality (models ~11125): PoB's
+    act_str.lua holds 15 at every level (21193, 21261) and 0.25 a quality (21125), so the constant is the stat. A link only.
+  sources: ["builder/search/models.py (WING_BLAST_POWER_CHANCE)", "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua:21125-21261"]
+  status: proposed
+
+# MECHB50 (on main since train 109): models.KILLS_DESTROYED, read over the build's lines in assumptions (~3405) into
+# stats["_kills_destroyed"], which models.add_corpse_rate turns into 0 corpses from the adds the build kills.
+- id: model-read-cov53-kills-destroyed
+  title: 'The rare gloves line "Enemies killed by your Hits are destroyed" (models.KILLS_DESTROYED -> add_corpse_rate)'
+  kind: pob_gap
+  model: corpses
+  match: '^Enemies killed by your Hits are destroyed$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.KILLS_DESTROYED (MECHB50, an OVERCOUNT before: PoB leaves the line unparsed, ModCache 7326): a destroyed enemy
+    leaves no corpse, so the adds the build kills give none (all its add kills taken as by Hits, UNVERIFIED share,
+    labelled there); the explosion's own damage to the boss isn't counted (an undercount, labelled). This entry only
+    says a model reads the line.
+  sources: ["builder/search/models.py (KILLS_DESTROYED, add_corpse_rate)", "builder/search/assumptions.py (~3405)"]
+  status: proposed

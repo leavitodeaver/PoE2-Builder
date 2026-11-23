@@ -20,6 +20,17 @@
 (the app manifest's StateFlags must be 4). The install is `C:\Program Files (x86)\Steam\steamapps\common\Path of Exile 2`
 (`POE2_PATH` overrides it). The old October 2025 copy under `C:\PROJECTS\SteamLibrary` is not used.
 
+## Columns the community schema misnames (read these by PoB's names)
+
+The dat-schema names a few columns wrongly; `tables/*.json` keep its names, so read them as PoB's exporter does
+(vendor `Export/spec.lua` and `Export/Scripts/*.lua`):
+
+| Table | Our (schema) name | Really | Evidence |
+|---|---|---|---|
+| ItemInherentSkills | `IsWeapon` | `NoReservation`: the base's granted skills reserve no Spirit | true on exactly 3 of 253 rows (Absent, Lament, Portent Amulet), false on every weapon row; PoB's bases.lua 172-175 reads it as NoReservation (RESEARCH45 R45-6) |
+| GrantedEffectsPerLevel | `Reservation` | `SpiritReservation`: the skill's own flat Spirit | PoB's spec.lua grantedeffectsperlevel block (RESEARCH46 R46-2) |
+| GrantedEffectsPerLevel | `EffectOnPlayer` | `ReservationMultiplier` (100 = 100%) | the same block; Purity of Fire / Ice / Lightning and Impurity hold 0 at all 40 levels (RESEARCH46 R46-1 / R46-2) |
+
 ## Liveness rules
 
 The files keep removed content, and they also hold content that isn't released yet. The rules, with the tables they
