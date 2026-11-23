@@ -4940,6 +4940,12 @@ class Assumptions:
         if main is not None and group and models.VERGLAS in supports.get(main.group, []):  # (GEM35: R47-3)
             vg_mods, vg_notes = self.verglas(main, group["index"], forbidden, found, stats)
             hand_mods, hand_notes = hand_mods + vg_mods, hand_notes + vg_notes
+        if main is not None and group and main.name == models.REND:  # (GEM37: its Power Charge buff, the gain read by nothing)
+            rend_share, rend_row, rend_how = self.rend_share(texts, main_types)
+            rend_sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            rend_mods, rend_notes = models.rend_buff_model(main, main.stat_set, rend_sets, rend_share, rend_row, rend_how,
+                                                           forbidden, previous=self.mods)
+            hand_mods, hand_notes = hand_mods + rend_mods, hand_notes + rend_notes
         if main is not None and group and main.name in models.GATED_SETS:  # (GEM17: Enraged / Empowered need a resource)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             gate_share, gate_how = self.gated_set_share(main.name, texts, main_types, main=main)
@@ -10329,6 +10335,21 @@ class Assumptions:
         return {"label": f"Inhibitor: {skill} consumes no charges*", "value": "0 charges", "confidence": "HIGH",
                 "basis": (f"Inhibitor supports {skill}: it cannot consume Power, Frenzy or Endurance Charges "
                           f"(cannot_consume_power_frenzy_endurance_charges, R40-2 HIGH; PoB reads no such stat), so {what}")}
+
+    def rend_share(self, texts: list[str], main_types: set[str]) -> tuple[float, float, str]:
+        """(headline, row, how) shares of the fight Rend's Power Charge buff is up (GEM37, models.rend_buff_model): the
+        build's Power Charges gained a second (conditions._charge_rate over its lines, as gated_set_share reads Oil
+        Barrage's), consumed at min(gains, Rend's uses)."""
+        stats = {**self.build.call("stats", fields=models.MODEL_FIELDS), "_main_types": main_types}
+        gains, found = 0.0, []
+        for t in texts:
+            if (r := conditions_mod._charge_rate(t, "Power", stats)) is not None:
+                gains += r[0]
+                found.append(f"{t[:50]} ({r[0]:.2g}/s)")
+        uses = number(stats.get("Speed"))
+        share, row = models.rend_buff_share(gains, uses)
+        return share, row, (f"{gains:.2f} Power Charges/s gained ({'; '.join(found[:3]) or 'no source: 0'}), Rend used "
+                            f"{uses:.2f}/s; other Power Charge spenders not taken off")
 
     def gated_set_share(self, skill: str, texts: list[str], main_types: set[str],
                         main: models.Skill | None = None) -> tuple[float, str]:

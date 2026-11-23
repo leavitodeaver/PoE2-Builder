@@ -1,0 +1,23 @@
+# GEM37 (23 Nov 2026): gem stats and multi-part skills, the GEM lane.
+- id: model-gem37-rend-power-charge-buff
+  title: "Rend's Power Charge buff: 50% of damage gained as Lightning while it's up, Rends 20% slower (an UNDERCOUNT before: read by nothing)"
+  kind: model
+  model: rend_buff
+  stats: ["wyvern_devour_base_all_damage_%_to_gain_as_lightning"]
+  skill: [Rend]
+  confidence: MEDIUM-LOW
+  notes: >-
+    The game (26650308): Rend "Consumes a Power Charge if possible to grant you a Buff that gives you extra Lightning
+    damage. While you have the Buff, Rend covers a much larger area but is slower"; WyvernRendPlayer
+    wyvern_devour_base_all_damage_%_to_gain_as_lightning 50 ("[Buff] grants {0}% of damage Gained as Lightning",
+    rend.csd), base_skill_effect_duration 10000; WyvernRendEmpoweredPlayer (PoB's Lightning-Charged set)
+    supplementary_stat_container_attack_speed_+%_final -20. PoB scores either set alone, neither with the gain. The buff
+    is up 1 - e^(-rate x 10 s), rate = min(Power Charges gained a second, Rend's uses a second) (consumes random in
+    time, the lower reading; the evenly spaced min(1, rate x 10) a row); other Power Charge spenders not taken off.
+    While up, Rends are the slower Lightning-Charged ones with the gain. Not counted: the buff's gain on other skills,
+    Duration modifiers, the larger area.
+  sources: ["builder/search/models.py (rend_buff_model, rend_buff_share)",
+            "builder/search/assumptions.py (Assumptions.rend_share and its hook)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (Rend: Normal Strikes / Lightning-Charged)"]
+  test_in_game: "Rend with a Power Charge: does the buff last 10 s and add about 50% of the hit as Lightning?"
+  status: proposed

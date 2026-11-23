@@ -68,3 +68,30 @@ def test_r51_4_breakers_segments():
     seg = models.BREAK_SEGMENTS
     assert seg["Fragmentation Rounds"] == 2.0 and seg["Gelid Palm"] == 4.0 and seg["Embrace The Fall"] == models.WALL_SEGMENTS
     assert set(models.ICE_BREAKERS) <= set(seg) and models.VERGLAS_SEGMENT_ROWS == (1, 3, 5, 9)
+
+
+def test_rend_buff_mods_multiply_to_the_mix():
+    """Rend's buff (GEM37): on either scored set, the DPS MORE and the gain multiply to s x C x (1 + 0.5 k) + (1 - s) x N
+    for any Lightning scaling k (C, N PoB's set DPS: POE2T7283's 79.7 / 74.6); with no buff a scored Lightning-Charged
+    set is steered 10% under Normal Strikes (the probe's OVERCOUNT: it was scored with no Power Charge source)."""
+    import math
+    from builder.search import models
+    from builder.search.models import Skill
+    rend = Skill("Rend", 1, attack=True, melee=True)
+    C, N = 79.7, 74.6
+    sets = [{"label": "Normal Strikes", "TotalDPS": N}, {"label": "Lightning-Charged", "TotalDPS": C}]
+    for scored, S in (("Normal Strikes", N), ("Lightning-Charged", C)):
+        for s in (0.3, 0.7, 1.0) + ((0.0,) if scored == "Normal Strikes" else ()):
+            mods, notes = models.rend_buff_model(rend, scored, sets, s, s, "test")
+            more = 1 + sum(m["value"] for m in mods if m["name"] == "DPS") / 100
+            gain = sum(m["value"] for m in mods if m["name"] == "DamageGainAsLightning") / 100
+            for k in (0.5, 1.0, 2.0):
+                assert abs(S * more * (1 + gain * k) - (s * C * (1 + 0.5 * k) + (1 - s) * N)) < 1e-3  # (raw_mod rounds)
+    mods, notes = models.rend_buff_model(rend, "Lightning-Charged", sets, 0.0, 0.0, "no source")
+    assert abs(C * (1 + mods[0]["value"] / 100) - N * models.FIRESTORM_BOLTS_MARGIN) < 1e-3 and len(mods) == 1
+    assert "held 10% under Normal Strikes" in notes[0]["basis"]
+    assert models.rend_buff_model(rend, "Normal Strikes", sets, 0.5, 0.5, "t", {models.REND_ENTRY}) == ([], [])
+    assert models.rend_buff_model(Skill("Rake", 1), "Normal Strikes", sets, 0.5, 0.5, "t") == ([], [])
+    head, row = models.rend_buff_share(0.05, 1.2)
+    assert abs(head - (1 - math.exp(-0.5))) < 1e-12 and row == 0.5
+    assert models.rend_buff_share(0.0, 1.0) == (0.0, 0.0) and models.rend_buff_share(5.0, 0.05)[1] == 0.5

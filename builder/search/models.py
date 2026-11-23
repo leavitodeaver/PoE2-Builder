@@ -8841,6 +8841,80 @@ def gated_set_model(main: Skill | None, scored: str | None, sets: list[dict], sh
                  f"{base:,.0f}; with this build's: {total:,.0f}; always: {base + gated if adds else gated:,.0f}.")}]
 
 
+
+# Rend's Power Charge buff (GEM37; the coverage audit's gem-stat row wyvern_devour_base_all_damage_%_to_gain_as_lightning,
+# read by nothing in PoB or here: an UNDERCOUNT). The game (26650308): ActiveSkills / PoB's Rend "Consumes a Power Charge
+# if possible to grant you a Buff that gives you extra Lightning damage. While you have the Buff, Rend covers a much
+# larger area but is slower"; WyvernRendPlayer wyvern_devour_base_all_damage_%_to_gain_as_lightning 50 ("[Buff] grants
+# {0}% of damage Gained as Lightning", rend.csd), base_skill_effect_duration 10000; WyvernRendEmpoweredPlayer (PoB's
+# "Lightning-Charged" set) supplementary_stat_container_attack_speed_+%_final -20. PoB scores either set alone, neither
+# with the 50% gain, and scores whichever set is higher: probe POE2T7283 (scratch/gem37/probe7283.log, a level-90
+# search) scored Lightning-Charged 79.7 (PoB's hit x1.33 the Normal one at x0.805 its speed) over Normal Strikes 74.6
+# with NO Power Charge source: an OVERCOUNT where nothing feeds the buff. The buff's share of the fight:
+# each Rend use consumes a Power Charge when there is one, so charges
+# are consumed at min(gains, Rend uses) a second (gains: conditions._charge_rate over the build's lines, as Oil Barrage's
+# share reads them; other Power Charge spenders not taken off: an overcount where a build has one, labelled) and the
+# 10 s buff is up 1 - e^(-rate x 10) (the consumes taken as random in time: the lower reading, MEDIUM-LOW); the row, evenly
+# spaced: min(1, rate x 10). While up, every Rend is the Lightning-Charged one with the gain: DPS = s x C x (1 + 0.5 k)
+# + (1 - s) x N (C, N PoB's two sets' DPS, our own previous line taken out; k the build's Lightning scaling on the gained
+# part, which PoB works out): given to PoB on the scored set S as a DPS MORE M = (s C + (1 - s) N) / S and
+# DamageGainAsLightning BASE 50 x s C / (s C + (1 - s) N), which multiply to exactly that for any k. With no buff, a
+# scored Lightning-Charged set is held 10% under Normal Strikes (FIRESTORM_BOLTS_MARGIN, as gated_set_model steers).
+# Not counted: the buff's gain on the build's other skills (it's a buff on you: an UNDERCOUNT where another skill deals
+# damage), the larger area (no number against one boss), the Duration modifiers on the buff (the base 10 s, LOW).
+REND = "Rend"
+REND_ENTRY = "model-gem37-rend-power-charge-buff"
+REND_SETS = ("Normal Strikes", "Lightning-Charged")
+REND_GAIN, REND_SECONDS = 50.0, 10.0  # (the stats above)
+
+
+def rend_buff_share(gains: float, uses: float, seconds: float = REND_SECONDS) -> tuple[float, float]:
+    """(headline, row) shares of the fight Rend's buff is up: consumes at min(gains, uses) a second, random in time /
+    evenly spaced."""
+    rate = max(0.0, min(gains, uses))
+    return 1.0 - math.exp(-rate * seconds), min(1.0, rate * seconds)
+
+
+def rend_buff_model(main: Skill | None, scored: str | None, sets: list[dict], share: float, row: float, how: str,
+                    forbidden: set[str] = frozenset(), previous: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
+    """Rend's Power Charge buff (see above): `sets` the bridge's setRates for its group, the buff up `share` of the fight
+    (`row` the evenly spaced one)."""
+    if main is None or main.name != REND or REND_ENTRY in forbidden or scored not in REND_SETS:
+        return [], []
+    dps = unscale_own(sets, previous, REND_ENTRY)
+    normal, charged = dps.get(REND_SETS[0], 0.0), dps.get(REND_SETS[1], 0.0)
+    if normal <= 0 or charged <= 0 or dps.get(scored, 0.0) <= 0:
+        return [], []
+    s = min(1.0, max(0.0, number(share)))
+    mix = s * charged + (1.0 - s) * normal
+    more = mix / dps[scored]
+    gain = REND_GAIN * s * charged / mix if mix > 0 else 0.0
+    steer = scored == REND_SETS[1] and s <= 0
+    if steer:
+        more = min(more * FIRESTORM_BOLTS_MARGIN, 1.0)
+    mods = []
+    if abs(more - 1) > 1e-9:
+        mods.append(raw_mod("DPS", "MORE", 100 * (more - 1), main.name, tag=REND_ENTRY))
+    if gain > 0:
+        mods.append(raw_mod("DamageGainAsLightning", "BASE", gain, main.name, tag=REND_ENTRY))
+    even = (f"; evenly spaced consumes: up {row:.0%}" if abs(row - s) > 1e-9 else "")
+    return mods, [{
+        "label": f"{main.name}: its Lightning-Charged strikes need its Power Charge buff ({REND_GAIN:g}% of damage gained "
+                 "as Lightning)*",
+        "value": f"up {s:.0%}", "confidence": "MEDIUM-LOW", "entry": REND_ENTRY,
+        "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; Normal Strikes {normal:,.0f}, "
+                  f"Lightning-Charged {charged:,.0f}) and reads no buff. Each Rend consumes a Power Charge if there is "
+                  f"one for a {REND_SECONDS:g} s buff ({how}): up {s:.0%} of the fight (consumes random in time{even}); "
+                  f"while up, Rends are the Lightning-Charged ones with {REND_GAIN:g}% of damage gained as Lightning: "
+                  f"x{more:.3f} and {gain:.1f}% gained as Lightning on the {scored} set"
+                  + ("; with no buff, Lightning-Charged is held 10% under Normal Strikes so the search keeps it"
+                     if steer else "")
+                  + " (the buff's gain on your other skills and its Duration modifiers not counted)"),
+        "play": (f"Feed Rend Power Charges so its buff stays up ({REND_GAIN:g}% of damage gained as Lightning, "
+                 f"Lightning-Charged strikes): this build {s:.0%} of the fight; without a Power Charge source: Normal "
+                 f"Strikes only, {normal:,.0f}.")}]
+
+
 # Stat sets that need an ailment on the boss to consume (GEM17; OVERCOUNTS: PoB scores each set alone with no ailment
 # check, and the search kept the strongest; probe POE2T2190, level-90 searches):
 # - Snipe: "Releasing with Perfect Timing causes the arrow to explode on impact and Consume Freeze on directly Hitting.
