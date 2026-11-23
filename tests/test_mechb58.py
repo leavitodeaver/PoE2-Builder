@@ -92,3 +92,23 @@ def test_rallying_form_gives_companions_onslaught_at_the_shifted_share():
     mods, notes = models.rallying_form_model([RALLY], 0.0, "no form")
     assert mods == [] and notes[0]["value"] == 0.0
     assert models.rallying_form_model(["Minions have Onslaught"], 1.0, "") == ([], [])
+
+
+def test_tempest_bell_counts_shockwaves_from_area_strikes_on_the_bell():
+    # 0.19 Bells a second (Combo), PoB at will 1.1; Quarterstaff Strike 0.92/s at 79%, an Area Strike
+    builder = ("Quarterstaff Strike", 0.92, 79.0, True)
+    mods, notes = models.tempest_bell_model(0.19, 1.1, builder, 98.6, 23.5, 6.0, [])
+    strikes = 0.92 * (1 - 0.19 / 1.1) * 0.79
+    assert mods[0]["value"] == pytest.approx(100 * strikes * 23.5 / (0.19 * 98.6), abs=0.01)
+    assert mods[0][models.HIT_CUT_PER_USE] == pytest.approx(1 + strikes / 0.19)
+    # the hit limit binds for a fast feeder; the alloy raises it
+    fast = ("Ice Strike", 10.0, 100.0, True)
+    capped = models.tempest_bell_model(0.19, 1.1, fast, 98.6, 23.5, 6.0, [])[0][0]
+    assert capped[models.HIT_CUT_PER_USE] == pytest.approx(1 + 10)
+    alloy = models.tempest_bell_model(0.19, 1.1, fast, 98.6, 23.5, 6.0,
+                                      ["Tempest Bells are destroyed after an additional 5 Hits"])[0][0]
+    assert alloy[models.HIT_CUT_PER_USE] == pytest.approx(1 + 15)
+    # not an Area Strike, or no builder: the Impact only
+    mods, notes = models.tempest_bell_model(0.19, 1.1, ("Killing Palm", 0.92, 79.0, False), 98.6, 23.5, 6.0, [])
+    assert mods == [] and "x1.000" == notes[0]["value"]
+    assert models.tempest_bell_model(0.19, 1.1, None, 98.6, 23.5, 6.0, [])[0] == []

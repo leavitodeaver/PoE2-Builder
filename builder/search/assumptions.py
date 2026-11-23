@@ -5253,6 +5253,10 @@ class Assumptions:
         # hits, but it never reached build.main_hit_cut, so every hit reader (Midnight Zenith's crits, Flammability,
         # Shock, kills...) counted Tempest Bell at PoB's at-will 1.17 uses a second against the 0.217 its Combo allows)
         hit_cut(build, cap_mods, name)
+        if name == models.TEMPEST_BELL and group is not None:  # (MECHB58: its shockwaves from your Strikes on the Bell)
+            bell_mods, bell_notes = self.tempest_bell_shockwaves(group, name, [e["text"] for e in source_lines])
+            hand_mods, hand_notes = hand_mods + bell_mods, hand_notes + bell_notes
+            hit_cut(build, bell_mods, name)
         spore_mods, spore_notes = self.pustule_cap(found)  # (MECH-B: Poison Spores' one Pustule a fuse, MECHB10)
         hand_mods, hand_notes = hand_mods + spore_mods, hand_notes + spore_notes
         tornado_mods, tornado_notes = self.tornado_copies(found, main, stats)  # (MECH-B, MECHB17: Tornado Shot's copies)
@@ -6268,6 +6272,36 @@ class Assumptions:
             "basis": f"PoB counts it used at will ({speed:.2f}/s); {cap.how} hold it to {cap.uses:.3g} uses/s "
                      "(the time between uses included)",
             "confidence": cap.confidence}]
+
+    def tempest_bell_shockwaves(self, group: dict, name: str, texts: list[str]) -> tuple[list[dict], list[dict]]:
+        """(MECHB58) A main Tempest Bell's shockwaves from the Combo builder's Strikes on the Bell
+        (models.tempest_bell_model): the Bells a second from the Combo cut (press_caps, as main_cap), the builder's
+        useRates row, the Impact / Shockwave sets' AverageDamage and the Bell's duration (setRates)."""
+        import re
+
+        from builder.search.usage import Usage
+
+        build = self.build
+        cap = self.press_caps([group], {group["index"]}).get(group["index"])
+        own = next(iter(build.call("useRates", indices=[group["index"]])["rates"]), None) or {}
+        at_will = number(own.get("speed"))
+        bells = min(cap.uses, at_will) if cap is not None else at_will
+        sets = {str(x.get("label")): x for x in build.call("setRates", index=group["index"])["sets"]}
+        impact = number((sets.get("Impact") or {}).get("AverageDamage"))
+        wave = number((sets.get("Shockwave") or {}).get("AverageDamage"))
+        duration = number((sets.get(models.TEMPEST_BELL) or {}).get("Duration"))
+        m = re.search(r"Combo: (\d+(?:\.\d+)?)", cap.how) if cap is not None else None
+        found = Usage(build, None).combo_rate(name, float(m.group(1))) if m else None
+        builder = None
+        if found:
+            where = next((g["index"] for g in build.call("groups")["groups"] if g.get("enabled") is not False
+                          and any(x["name"] == found[2] and x.get("enabled", True) for x in g["gems"])), None)
+            row = next(iter(build.call("useRates", indices=[where])["rates"]), None) if where is not None else None
+            if row:
+                every = getattr(build.ctx, "all_gems", None) or build.ctx.gems  # (a builder the request didn't name)
+                types = set(((every.get(found[2]) or build.ctx.gems.get(found[2])) or {}).get("skillTypes") or [])
+                builder = (found[2], number(row.get("speed")), number(row.get("HitChance")) or 100.0, "Area" in types)
+        return models.tempest_bell_model(bells, at_will, builder, impact, wave, duration, texts)
 
     def remnant_supply(self, skills: list[dict], skip: tuple[str, ...] = ()) -> tuple[float, list[str]]:
         """Remnants per second the build makes on the request's boss, before the build's "additional Remnant" /
