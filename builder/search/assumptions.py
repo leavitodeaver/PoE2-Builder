@@ -3555,8 +3555,10 @@ class Assumptions:
         if any(s.name == models.MIRROR_OF_REFRACTION for s in found):  # (GEM31: its copies from spare projectiles)
             mir_mods, mir_notes = models.mirror_of_refraction_model(
                 found, main, {**stats, **build.call("stats", fields=["ProjectileCount", "Speed"])},
-                build.call("getConfig")["input"], forbidden)
-            stat_mods, stat_notes = stat_mods + mir_mods, stat_notes + mir_notes
+                build.call("getConfig")["input"], forbidden,
+                loop=models.mirror_loop_source(main, set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or [])
+                                               if main is not None else set(), (group or {}).get("gems") or []))
+            stat_mods, stat_notes = stat_mods + mir_mods, stat_notes + mir_notes  # (GEM35: the loop, R47-2)
         # (MECHC43) a main skill that spends the Combo other Strikes build (Culmination / Vruun's Inevitability,
         # skill_maximum_number_of_combo_stacks): its Combo on use from the build's own Strikes and the press model's
         # shares (models.vruun_combo_share's math), for PoB's Combo count (conditions.Conditions._combo_on_use, a round
@@ -4895,6 +4897,16 @@ class Assumptions:
                                                              stoppers=cg_stop)
             hand_mods, hand_notes = hand_mods + cg_mods, hand_notes + cg_notes
             hit_cut(build, cg_mods, main.name)  # (GEM33: Cluster Grenade's primary + minis a use, hit_cut_per_use)
+        if main is not None and group and main.name in models.GRENADE_BURST_SETS:  # (GEM35: every grenade a throw, R46-12)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            gr_mods, gr_notes = models.grenade_count_model(main, main.stat_set, sets, stats, forbidden)
+            hand_mods, hand_notes = hand_mods + gr_mods, hand_notes + gr_notes
+            hit_cut(build, gr_mods, main.name)  # (GEM35: the bursts a throw, hit_cut_per_use)
+        vt_mods, vt_notes = models.valako_threshold_model(main, forbidden)  # (GEM35: from MECH100, LOW)
+        hand_mods, hand_notes = hand_mods + vt_mods, hand_notes + vt_notes
+        if main is not None and group and models.VERGLAS in supports.get(main.group, []):  # (GEM35: R47-3)
+            vg_mods, vg_notes = self.verglas(main, group["index"], forbidden)
+            hand_mods, hand_notes = hand_mods + vg_mods, hand_notes + vg_notes
         if main is not None and group and main.name in models.GATED_SETS:  # (GEM17: Enraged / Empowered need a resource)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             gate_share, gate_how = self.gated_set_share(main.name, texts, main_types, main=main)
@@ -9915,6 +9927,41 @@ class Assumptions:
                 uses, why, _ = conditions_mod.skill_use_rate(row, choices)
                 out.append((row, uses, why))
         return out
+
+    def verglas(self, main, main_index, forbidden):
+        """(mods, notes) for models.verglas_model (GEM35): the build's Frost Walls and Frozen Loci outside the main group,
+        what breaks their crystals (ICE_BREAKERS, Freeze consumers, Vruun's Aftermath, the main skill's own hits within
+        the crystal's duration)."""
+        build = self.build
+        walls, _, wall_how, wall_life, _ = self.frost_wall_uses(main_index)
+        hit = number(build.call("stats", fields=["TotalDPS"]).get("TotalDPS"))
+        on = lambda g: [x["name"] for x in g.get("gems") or [] if x.get("enabled", True)]
+        names = {n for g in build.groups() if g.get("enabled", True) for n in on(g)}
+        breakers = sorted(n for n in names if n in models.ICE_BREAKERS) + (
+            [models.ICE_WARCRY_SUPPORT + " Warcries"] if models.ICE_WARCRY_SUPPORT in names else [])
+        freeze = (conditions_mod.side_consumes(build, main.name).get("Freeze") or (0.0, "", ""))
+        if number(freeze[0]) > 0:
+            breakers.append("a Freeze consumer")
+        def own_hits(life, seconds):  # (the main skill's hits dealing a crystal's Life within its duration)
+            return (f"{main.name}'s hits ({hit:,.0f} DPS: {life / hit:.1f} s a crystal)"
+                    if hit > 0 and life > 0 and hit * seconds >= life else "")
+
+        def can_break(life, seconds):
+            return ", ".join(breakers) if breakers else own_hits(life, seconds)
+        locus_rows = self._side_rows(main_index, lambda g: models.FROZEN_LOCUS in on(g))
+        locus, locus_life, locus_how = 0.0, 0.0, "no Frozen Locus group"
+        if locus_rows:
+            breaks, breaks_how = self.locus_breaks(main_index, main.name)
+            locus_life = max(number(r.get("iceCrystalLife")) for r, _, _ in locus_rows)
+            uses = sum(u for _, u, _ in locus_rows)
+            mine = own_hits(locus_life, models.FROZEN_LOCUS_SECONDS)
+            q = 1.0 if mine else 1.0 - math.exp(-max(breaks, 0.0) * models.FROZEN_LOCUS_SECONDS)
+            locus = uses * q
+            locus_how = (f"{uses:.2f} uses a second, {q:.0%} broken within its {models.FROZEN_LOCUS_SECONDS:g} s by "
+                         + (mine if mine else breaks_how))
+        return models.verglas_model(main, [models.VERGLAS], walls, wall_life, wall_how,
+                                    can_break(wall_life, models.FROST_WALL_SECONDS), locus, locus_life, locus_how,
+                                    forbidden)
 
     def frost_wall_uses(self, main_index: int) -> tuple[float, float, str, float, float]:
         """(the build's Frost Wall uses a second, its PoB CastRate (before the cooldown cap), how, its crystal's Life, its

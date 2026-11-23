@@ -1,0 +1,85 @@
+# GEM35 (22 Nov 2026): gem stats and multi-part skills, the GEM lane.
+- id: model-gem35-grenades-a-throw
+  title: "Every grenade of a throw bursts on a lone boss (an UNDERCOUNT before: PoB scores one burst whatever the projectile count)"
+  kind: model
+  model: grenade_count
+  stats: ["fixed_projectile_spread", "active_skill_projectile_speed_+%_variation_final_if_multiple_projectiles"]
+  skill: [Grenade, Explosive Grenade, Flash Grenade, Gas Grenade, Oil Grenade, Voltaic Grenade, Cluster Grenade]
+  confidence: MEDIUM-LOW
+  notes: >-
+    RESEARCH46 R46-12 (research/fireball-ember-grenade-hits-r46.md). Every grenade stat set carries fixed_projectile_spread
+    (30; Cluster Grenade 50), read as a total arc in degrees (MEDIUM: monster sets show it, no text gives the unit), so a
+    throw's N grenades (PoB's ProjectileCount) land within ~1.16 m (Cluster 1.9 m) sideways of the middle one at R45-1's
+    ~4.5 m throw (LOW), +-15% along it with several (the variation stat). Each grenade hits nothing in flight and bursts
+    in its own area, so the projectile group rule (KeywordPopups Projectile) doesn't cap the bursts. models.grenade_count_model:
+    the bursts whose area (PoB's AreaOfEffectRadius of the scored set + the boss's hit radius) reaches the boss with the
+    spread's middle on it, as a DPS MORE with HIT_CUT_PER_USE; rows at N - 1 (LOW) and the throw 2 m short. Sets with no
+    hit (Oil Ground, Gas Grenade's Poison Cloud) taken as one ground (whether they stack UNVERIFIED, the lower reading).
+    Cluster Grenade: cluster_grenade_model's primaries (cluster_throw), each with its own minis. Run and Gun's chance on a
+    grenade goes to PoB's ProjectileCount (run_and_gun_model).
+  sources: ["builder/search/models.py (GRENADE_BURST_SETS, grenade_count_model, cluster_throw, run_and_gun_model)",
+            "data/game-26650308/tables/GrantedEffectStatSets.json (fixed_projectile_spread rows)",
+            "vendor/PathOfBuilding-PoE2-v0.23.1/src/Modules/CalcOffence.lua (1297-1305: ProjectileCount an output; 968-973 Barrage only)",
+            "scratch/gem35/probe7224.log"]
+  test_in_game: "Explosive Grenade at 20% quality (3 grenades) thrown with the spread's middle on a lone boss: do all three bursts hit it?"
+  status: proposed
+
+- id: model-gem35-verglas-crystal-shatter
+  title: "Verglas: Damage Gained as extra Cold from the Ice Crystals you destroy (an UNDERCOUNT before: PoB maps none of its stats)"
+  kind: model
+  model: verglas
+  stats: ["support_crystalshatter_buff_damage_%_gained_as_extra_cold_per_2000_crystal_life", "support_crystalshatter_buff_duration",
+          "support_crystalshatter_buff_crystal_life_destroyed_in_past_duration"]
+  skill: [Verglas]
+  confidence: MEDIUM-LOW
+  notes: >-
+    RESEARCH47 R47-3. gem_stat_descriptions.csd: "Destroying an Ice Crystal grants Supported Skills {0}% of Damage Gained
+    as extra Cold for {1} seconds, per two thousand maximum Life of the destroyed Ice Crystal" (1%, 6 s). PoB has the gem
+    and maps neither stat. The game's runtime stat support_crystalshatter_buff_crystal_life_destroyed_in_past_duration is
+    read as the buff summing the Life destroyed in the past 6 s (MEDIUM-LOW; a row with one crystal at a time). The
+    build's own crystals: Frost Wall's side groups (one segment a wall, the lower reading; the segment count is a RESEARCH
+    question) when something breaks it (ICE_BREAKERS, a Freeze consumer, Vruun's Aftermath Warcries, or the main skill's
+    hits dealing its Life within 8 s), Frozen Locus's side groups (broken before its 10 s). Not counted: Glacial Bolt's
+    wall, Grim Pillars, Midnight Star's crystals, the Ice Seeds line, crystals the boss breaks, a main-skill Frost Wall's
+    own. A DamageGainAsCold BASE on the main skill at the fight's average.
+  sources: ["builder/search/models.py (verglas_model)", "builder/search/assumptions.py (Assumptions.verglas)",
+            "data/game-26650308/tables/Stats.json", "data/game-26650308/files/data/statdescriptions/gem_stat_descriptions.csd (38220-38222)",
+            "vendor/PathOfBuilding-PoE2-v0.23.1/src/Data/Skills/sup_int.lua (SupportVerglasPlayer)"]
+  test_in_game: "Verglas on Frostbolt, two Frost Wall segments destroyed within 6 s: does the Cold gain double (summed) or stay one crystal's?"
+  status: proposed
+
+- id: model-gem35-valako-electrocute-threshold
+  title: "Valako's Charge's Arc builds Electrocute against its doubled threshold (an OVERCOUNT before, as the main skill; the stat's direction UNVERIFIED)"
+  kind: model
+  model: valako_threshold
+  stats: ["electrocute_threshold_+%_final"]
+  skill: ["Valako's Charge"]
+  confidence: LOW
+  notes: >-
+    The manager 14:05 from MECH100 (plans/kw-electrocute-threshold.md). ValakosChargeArcPlayer carries
+    electrocute_threshold_+%_final 100, with no description text; PoB reads it nowhere. Two readings, the lower the
+    headline (the manager's ruling): the boss's threshold doubled against the Arc (EnemyElectrocuteBuildup MORE -50 on the
+    skill); a row with the stat not acting on the boss (x1). Valako's Charge as the main skill only.
+  sources: ["builder/search/models.py (valako_threshold_model)", "data/game-26650308/tables/GrantedEffectStatSets.json (ValakosChargeArcPlayer)",
+            "vendor/PathOfBuilding-PoE2-v0.23.1/src/Modules/CalcOffence.lua (5405-5410)"]
+  test_in_game: "Valako's Charge on a boss: count the Arc hits to Electrocute against another Lightning skill of the same hit size."
+  status: proposed
+
+- id: model-gem35-gas-grenade-cloud-explosion
+  title: "Gas Grenade's cloud explodes only when a Detonator sets it off (an OVERCOUNT before: the search scored the Explosion with nothing to set it off)"
+  kind: model
+  model: detonated_set
+  stats: ["number_of_poison_cloud_allowed", "base_skill_effect_duration"]
+  skill: [Gas Grenade]
+  confidence: MEDIUM-LOW
+  notes: >-
+    ActiveSkills toxic_grenade (26650308): "Burning effects or Detonator skills will cause the cloud to explode in a fiery
+    blast". Probe POE2T7224: with neither in the build the search scored the Explosion set (153.9 DPS vs Impact 18.6,
+    Poison Cloud 101.9). models.DETONATED_SETS (GEM17's detonated_set_model): the best plain set + the Explosion x the
+    share of clouds the build's Detonators set off (limit 6, 6 s); with none, the Explosion kept 10% under the plain
+    set. Burning effects on the boss (its Ignite, a fire ground) not read: an UNDERCOUNT where the build Ignites the
+    boss, named (the lower reading).
+  sources: ["builder/search/models.py (DETONATED_SETS)", "data/game-26650308/tables/ActiveSkills.json (toxic_grenade)",
+            "vendor/PathOfBuilding-PoE2-v0.23.1/src/Data/Skills/act_str.lua (ToxicGrenadePlayer)", "scratch/gem35/probe7224.log"]
+  test_in_game: "Gas Grenade alone on a boss with no fire: does the cloud ever explode?"
+  status: proposed

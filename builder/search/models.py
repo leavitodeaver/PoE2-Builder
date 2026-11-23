@@ -5970,9 +5970,31 @@ MIRROR_COPIES_STAT = "base_number_of_projectiles"
 MIRROR_ENTRY = "model-gem31-mirror-of-refraction-copies"
 
 
+# (GEM35; RESEARCH47 R47-2, research/infinite-builds-r47.md item 5, the manager 12:00: the Witchhunter / Ritualist
+# Frostbolt loop, the mirror side; MECH-B's return_model keeps the returned hits) With projectiles that Return and always
+# Pierce (Breachlord's Amalgam on a Cold / Lightning main skill used by you, Soaring Midnight: return_model's sources),
+# the copies keep flying back through the mirrors that appear and are copied again ("Copied Projectiles may be copied
+# again when colliding with other mirrors"), so every mirror is shattered whatever the cast rate: s = 1 / I, the loop's
+# ceiling (MEDIUM-LOW: the guides' loop, note.com 23 Sep 2026 / kami-labs 16 Jul 2026; the mirror rate caps it, each
+# nova at most one boss hit). The chain row is then inside the cap (each mirror shatters once), so not given.
+def mirror_loop_source(main: Skill | None, main_types: set[str], group_gems: list[dict]) -> str:
+    """What keeps the main skill's projectiles flying back through the mirrors ("" none; return_model's always-return
+    sources)."""
+    if main is None:
+        return ""
+    names = {g.get("name") for g in group_gems if g.get("enabled", True)}
+    if main.name == SOARING_MIDNIGHT:
+        return "Soaring Midnight returns at the end of its flight"
+    if (BREACHLORDS_AMALGAM in names and {"Cold", "Lightning"} & main_types
+            and not {"Triggered", "Persistent"} & main_types):
+        return "Breachlord's Amalgam makes its projectiles return, always piercing"
+    return ""
+
+
 def mirror_of_refraction_model(skills: list[Skill], main: Skill | None, stats: dict, config: dict | None = None,
-                               forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
-    """Mirror of Refraction's copies on the boss from the main Spell's projectiles, which pierce the mirror (see above)."""
+                               forbidden: set[str] = frozenset(), loop: str = "") -> tuple[list[dict], list[dict]]:
+    """Mirror of Refraction's copies on the boss from the main Spell's projectiles, which pierce the mirror (see above).
+    `loop`: mirror_loop_source's words (the copies return and shatter every mirror)."""
     from builder.search.conditions import MELEE_DISTANCE, RANGED_DISTANCE  # (conditions imports models)
 
     mirror = next((s for s in skills if s.name == MIRROR_OF_REFRACTION), None)
@@ -5997,7 +6019,7 @@ def mirror_of_refraction_model(skills: list[Skill], main: Skill | None, stats: d
         where = "the main skill's natural distance"
     radius = bosses.hit_radius(stats)[0]
     interval = base / (mirror.cooldown_recovery or 1.0)
-    shatters = min(1 / interval, casts * count)
+    shatters = 1 / interval if loop else min(1 / interval, casts * count)
     p = min(1.0, nova_unaimed_hits(copies, radius, metres))
     p_near = min(1.0, nova_unaimed_hits(copies, radius, MELEE_DISTANCE))
     factor = 1 + shatters * p / casts
@@ -6009,13 +6031,15 @@ def mirror_of_refraction_model(skills: list[Skill], main: Skill | None, stats: d
         "basis": (f"a mirror every {base:g} s / {mirror.cooldown_recovery or 1.0:.2f} Cooldown Recovery = {interval:.2f} s; "
                   f"{main.name} fires {count:g} projectile(s) a cast at {casts:.2f} casts a second; a mirror lets every "
                   f"projectile pierce it (R44-2, MEDIUM-HIGH), so the one that shatters it still hits the boss: "
-                  f"{shatters:.2f} shatters a second. Each copies the "
+                  f"{shatters:.2f} shatters a second" + (f" ({loop}: the copies come back through every "
+                  f"mirror and are copied again, so every mirror shatters, the loop's ceiling; R47-2, MEDIUM-LOW)"
+                  if loop else "") + ". Each copies the "
                   f"projectile {copies:g} times in a nova, of which at most one can hit the boss (one source, one time: "
                   f"R35-15, MEDIUM); a mirror {metres:g} m from the boss ({where}; mirrors appear in your Presence, LOW), "
                   f"radius {radius:g} m: one hits {p:.0%} of the time (k x 2 asin(r / d) / 360). +{shatters * p:.2f} hits a "
-                  f"second on {casts:.2f}: x{factor:.3f}. Rows: fighting at {MELEE_DISTANCE:g} m x{near:.3f}; each nova's "
-                  f"copies chaining into one more mirror (the game's text; the rate LOW, R44-2) x{chain:.3f}; mirrors "
-                  "not fed x1"),
+                  f"second on {casts:.2f}: x{factor:.3f}. Rows: fighting at {MELEE_DISTANCE:g} m x{near:.3f}; "
+                  + ("" if loop else f"each nova's copies chaining into one more mirror (the game's text; the rate "
+                     f"LOW, R44-2) x{chain:.3f}; ") + "mirrors not fed x1"),
         "play": (f"{MIRROR_OF_REFRACTION}: fire {main.name} through the mirrors that appear around "
                  f"you; closer to the boss, more copies reach it. Without it: x1; at this distance x{factor:.2f}; at "
                  f"{MELEE_DISTANCE:g} m x{near:.2f}.")}]
@@ -7879,6 +7903,18 @@ GATED_ADDS = {"Glacial Lance", "Frostbolt", "Fireball", "Ember Fusillade"}
 # Flame Wall's Lightning to projectiles (PoB's config flameWallInfused, which nothing sets: its fire and lightning
 # projectile buff both count 0, an UNDERCOUNT lead).
 INFUSED_GATED = {"Fireball": "Fire", "Ember Fusillade": "Lightning"}
+# (GEM35; RESEARCH46 R46-10 / R46-11, research/fireball-ember-grenade-hits-r46.md) the Infused part's headline and its 0
+# row: Fireball's ring of 12 firebolts is one group from one source (KeywordPopups Projectile: "only one Projectile in the
+# group can hit each target unless otherwise specified"; 0.3.0: "Secondary projectiles can now hit the same target as
+# the primary projectile"), so ONE firebolt a cast (MEDIUM), none a LOW row (whether the ring's start makes one collide);
+# Ember Fusillade's beam "Chains to enemies" from the struck enemy: PoB's one beam hit an Ember kept (no zeroing on an
+# unverified reading, CLAUDE.md), none on a lone boss a LOW row (R46-11: UNVERIFIED either way).
+INFUSED_ROWS = {"Fireball": ("one firebolt of the ring's 12 on the boss a cast (RESEARCH46 R46-10, MEDIUM: one "
+                             "projectile of a group a target; 0.3.0 lets secondary projectiles hit the primary's "
+                             "target)", "no firebolt hits the boss"),
+                "Ember Fusillade": ("each Ember's beam taken to hit the struck boss once (PoB's one; RESEARCH46 R46-11, "
+                                    "LOW: whether the struck enemy is the chain's first hit is UNVERIFIED)",
+                                    "no beam hits a lone boss (the chain starting from it)")}
 FROSTBOLT = "Frostbolt"  # (the gated part comes on top of the base set, not instead of it)
 FURIOUS_RAGE_A_SLAM = 10.0  # bear_slam_spend_X_rage_for_stronger_slam
 OIL_CHARGE_SECONDS = 1.5  # electric_spit_empowered_channel_consume_power_charge_per_X_ms 1500
@@ -8269,6 +8305,7 @@ CLUSTER_SETS = ("Primary Grenade", "Mini Grenades")
 CLUSTER_MINIS = 18  # base_number_of_projectiles, number_of_projectiles_cannot_be_modified
 CLUSTER_NEAR, CLUSTER_FAR = 1.0, 4.5  # metres x A: the minis' landing band (R45-1, LOW-MEDIUM)
 CLUSTER_BLAST = 1.4  # metres: the Mini set's active_skill_base_area_of_effect_radius 14
+CLUSTER_PRIMARY_BLAST = 2.5  # metres: the Primary set's active_skill_base_area_of_effect_radius 25 (when PoB's radius is unread)
 CLUSTER_MINI_SPEED, CLUSTER_MINI_FUSE, CLUSTER_FUSE = 6.0, 3.0, 2.0  # m/s (600), the minis' and the primary's fuses (s)
 CLUSTER_OFFSET = 1.0  # metres, LOW: where the primary bursts from the boss's centre (the headline, R45-1)
 CLUSTER_STOPPERS = ("Adhesive Grenades", "Explosive Fervour")  # (the grenade halts where it first lands)
@@ -8299,11 +8336,36 @@ def cluster_minis_on_boss(radius: float, area_mod: float, offset: float, fuse_mu
     return CLUSTER_MINIS * share
 
 
+def cluster_throw(radius: float, area: float, offset: float, fuse_mult: float, primaries: float,
+                  blast: float) -> tuple[float, float]:
+    """(primaries whose `blast` m burst reaches the boss, minis that reach it) for a throw of `primaries` Cluster Grenades
+    (GEM35, R46-12: spread evenly over GRENADE_SPREAD's 50 degrees at GRENADE_THROW, each `offset` m short of the boss
+    along the throw and its sideways offset across; a fraction mixes the two whole counts; the travel variation not
+    read here, LOW), each primary's minis as cluster_minis_on_boss at its own distance from the boss."""
+    def whole(n: int) -> tuple[float, float]:
+        hits = minis = 0.0
+        for lat in grenade_laterals(n, GRENADE_SPREAD[CLUSTER_GRENADE]):
+            away = math.hypot(lat, offset)
+            hits += 1.0 if away <= blast + radius else 0.0
+            minis += cluster_minis_on_boss(radius, area, away, fuse_mult)
+        return hits, minis
+    count = max(number(primaries), 1.0)
+    low = int(math.floor(count))
+    part = count - low
+    a = whole(low)
+    if part <= 1e-9:
+        return a
+    b = whole(low + 1)
+    return a[0] * (1 - part) + b[0] * part, a[1] * (1 - part) + b[1] * part
+
+
 def cluster_grenade_model(main: Skill | None, scored: str | None, sets: list[dict], stats: dict,
                           forbidden: set[str] = frozenset(), previous: list[dict] | None = None,
                           fuse: float = 0.0, stoppers: Iterable[str] = ()) -> tuple[list[dict], list[dict]]:
     """Cluster Grenade: the primary's blast plus the minis that reach the boss (comment above), PoB scoring one set.
-    `fuse`: PoB's DetonationTime for the primary (s; 0: not read, the base); `stoppers`: CLUSTER_STOPPERS in the build."""
+    `fuse`: PoB's DetonationTime for the primary (s; 0: not read, the base); `stoppers`: CLUSTER_STOPPERS in the build.
+    (GEM35, R46-12) A throw of several primaries (the Primary set's ProjectileCount): each primary with its own minis,
+    cluster_throw."""
     if main is None or main.name != CLUSTER_GRENADE or CLUSTER_ENTRY in forbidden or scored not in CLUSTER_SETS:
         return [], []
     dps = unscale_own(sets, previous, CLUSTER_ENTRY)
@@ -8315,15 +8377,25 @@ def cluster_grenade_model(main: Skill | None, scored: str | None, sets: list[dic
     mult = number(fuse) / CLUSTER_FUSE if number(fuse) > 0 else 1.0
     scale = math.sqrt(area)
     reach_max = CLUSTER_MINI_SPEED * scale * CLUSTER_MINI_FUSE * mult
-    head = cluster_minis_on_boss(radius, area, CLUSTER_OFFSET, mult)
+    prow = next((x for x in sets if x.get("label") == CLUSTER_SETS[0]), None) or {}
+    primaries = max(number(prow.get("ProjectileCount")), 1.0)
+    blast = number(prow.get("AreaOfEffectRadius")) / 10 or CLUSTER_PRIMARY_BLAST * scale
+    bursts, head = cluster_throw(radius, area, CLUSTER_OFFSET, mult, primaries, blast)
     steer = PART_STEER if dps[scored] < max(primary, mini) else 1.0
-    factor = (primary + head * mini) / dps[scored] * steer
+    factor = (bursts * primary + head * mini) / dps[scored] * steer
     rows = []
     for label, offset in (("bursting 2.5 m from the boss", 2.5), ("point-blank", 0.0)):
-        n = cluster_minis_on_boss(radius, area, offset, mult)
-        rows.append(f"{label}: {n:.1f} minis, x{(primary + n * mini) / dps[scored] * steer:.3f}")
+        b, n = cluster_throw(radius, area, offset, mult, primaries, blast)
+        rows.append(f"{label}: {n:.1f} minis, x{(b * primary + n * mini) / dps[scored] * steer:.3f}")
+    if primaries > 1:
+        b, n = cluster_throw(radius, area, CLUSTER_OFFSET, mult, primaries - 1, blast)
+        rows.append(f"one primary fewer on the boss ({primaries - 1:g}; LOW): {n:.1f} minis, "
+                    f"x{(b * primary + n * mini) / dps[scored] * steer:.3f}")
     stop = [x for x in stoppers if x in CLUSTER_STOPPERS]
-    return [with_per_use(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=CLUSTER_ENTRY), 1 + head)], [{
+    throw = (f"; a throw of {primaries:g} primaries over a fixed {GRENADE_SPREAD[CLUSTER_GRENADE]:g} degree arc "
+             f"(fixed_projectile_spread; RESEARCH46 R46-12, MEDIUM-LOW): {bursts:.2f} primary bursts on the boss, each "
+             "with its own minis" if primaries > 1 else "")
+    return [with_per_use(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=CLUSTER_ENTRY), bursts + head)], [{
         "label": f"{CLUSTER_GRENADE}: its mini grenades on the boss*", "value": f"x{factor:.3f}",
         "confidence": "LOW", "entry": CLUSTER_ENTRY,
         "basis": (f"PoB scores the {scored} set alone (Primary {primary:,.1f}, one Mini {mini:,.1f} DPS). Each use throws "
@@ -8331,11 +8403,210 @@ def cluster_grenade_model(main: Skill | None, scored: str | None, sets: list[dic
                   f"(a filled disc, RESEARCH45 R45-1, LOW-MEDIUM), each a {CLUSTER_BLAST * scale:.2f} m blast (Area "
                   f"x{scale:.2f} on both); their 3 s fuse x{mult:.2f} (Detonation Time) stops them by {reach_max:.2f} m; "
                   f"{radius_how}; the primary bursting {CLUSTER_OFFSET:g} m from the boss (LOW, your positioning): "
-                  f"{head:.1f} minis hit it. Rows: " + "; ".join(rows) + "."
+                  f"{head:.1f} minis hit it{throw}. Rows: " + "; ".join(rows) + "."
                   + (f" {' / '.join(stop)} in the build: the grenade halts where it lands, read as the same spread "
                      "(UNVERIFIED)" if stop else "")),
         "play": (f"Stand close and throw {CLUSTER_GRENADE} so it bursts at the boss, and cut its Detonation Time so the "
                  f"minis stay together: here about {head:.0f} of {CLUSTER_MINIS} hit; {rows[1]}.")}]
+
+
+# The grenades of one throw on a lone boss (GEM35; RESEARCH46 R46-12, research/fireball-ember-grenade-hits-r46.md, MEDIUM-
+# LOW; an UNDERCOUNT). Every grenade stat set carries fixed_projectile_spread (game 26650308 GrantedEffectStatSets: 30 on
+# the launcher's basic Grenade, Explosive, Flash, Gas (ToxicGrenadePlayer), Oil and Voltaic (ShockGrenadePlayer) Grenade,
+# 50 on Cluster Grenade; checked: every GrantedEffectStatSets row holding the stat, the rest monster sets and Toxic
+# Growth, whose number_of_projectiles_override 1 keeps it to one), a TOTAL arc in degrees (monster sets show it: a
+# 30-projectile radial smoke 130, a ring of rubble 270; MEDIUM, no text gives the unit), so the N grenades of a throw
+# (PoB's ProjectileCount: the set's base, Explosive Grenade's quality at 0.1 a point, supports, passives, Run and Gun's
+# chance) fly evenly over that arc to R45-1's ~GRENADE_THROW 4.5 m (LOW: one clip), the outer one L sin 15 deg ~ 1.16 m
+# sideways of the middle, each up to +-15% along the throw when there are several
+# (active_skill_projectile_speed_+%_variation_final_if_multiple_projectiles 15; 0.2.0's "small amount of random variation
+# in travel distance"), and bursts in its own area. A grenade hits nothing in flight (ballistic_projectiles_always_bounce,
+# projectiles_cannot_fork): KeywordPopups Projectile's "only one Projectile in the group can hit each target" limits
+# projectile hits, and each burst is its own area hit, as Cluster Grenade's minis (GEM33). PoB scores ONE burst
+# (CalcOffence 1297-1305: ProjectileCount is an output; its Barrage repeats, 968-973, need SkillType.Barrageable, which no
+# grenade has; probe POE2T7224). Headline: the bursts whose area reaches the boss (the scored set's AreaOfEffectRadius,
+# PoB's, + the boss's hit radius, bosses.hit_radius), the middle of the spread aimed at the boss's centre (the player's
+# positioning, as PoB takes the one grenade to hit): N for every grenade but the launcher's small 1.5 m basic Grenade on
+# a small boss. Rows: N - 1 (the outer grenade off the boss, LOW) and point-blank / 2 m short. Not multiplied (said, the
+# lower reading): a set with no hit (Oil Ground, Gas Grenade's Poison Cloud: N overlapping grounds of one skill taken as
+# one, whether they stack UNVERIFIED). A "DPS" MORE on the main skill, HIT_CUT_PER_USE the bursts (each its own hit and
+# ailment roll). Cluster Grenade's primaries: cluster_grenade_model (each primary with its own minis).
+GRENADE_BURST_SETS = {"Grenade": ("Grenade",), "Explosive Grenade": ("Explosive Grenade",),
+                      "Flash Grenade": ("Flash Grenade",), "Gas Grenade": ("Impact", "Explosion"),
+                      "Oil Grenade": ("Primary Grenade",), "Voltaic Grenade": ("Voltaic Grenade",)}
+GRENADE_SPREAD = {CLUSTER_GRENADE: 50.0}  # fixed_projectile_spread (degrees, a total arc); 30 for the rest
+GRENADE_SPREAD_BASE = 30.0
+GRENADE_THROW = 4.5  # metres, LOW: where a grenade bursts from the player (R45-1's clip)
+GRENADE_VARIATION = 0.15  # +-15% of the throw, along it, with several grenades (the stat above; uniform, LOW)
+GRENADE_ENTRY = "model-gem35-grenades-a-throw"
+
+
+def grenade_laterals(n: int, spread: float, throw: float = GRENADE_THROW) -> list[float]:
+    """The sideways offsets (m) of a throw's `n` grenades spread evenly over a total arc of `spread` degrees."""
+    if n <= 1:
+        return [0.0] * max(n, 0)
+    half = math.radians(spread) / 2
+    return [throw * math.sin(-half + 2 * half * i / (n - 1)) for i in range(n)]
+
+
+def grenade_hits(count: float, spread: float, reach: float, offset: float = 0.0,
+                 throw: float = GRENADE_THROW) -> float:
+    """The bursts of a throw of `count` grenades (PoB's ProjectileCount; a fraction mixes the two whole counts) landing
+    within `reach` m of the boss's centre, the middle of the spread `offset` m short of it."""
+    def whole(n: int) -> float:
+        if n <= 0:
+            return 0.0
+        swing = GRENADE_VARIATION * throw if n > 1 else 0.0
+        steps, total = 40, 0.0
+        for lat in grenade_laterals(n, spread, throw):
+            for j in range(steps):  # (the along-throw variation, uniform over +-swing)
+                along = offset + (-swing + 2 * swing * (j + 0.5) / steps if swing > 0 else 0.0)
+                total += (1.0 if math.hypot(lat, along) <= reach else 0.0) / steps
+        return total
+    count = max(number(count), 0.0)
+    low = int(math.floor(count))
+    part = count - low
+    return whole(low) if part <= 1e-9 else whole(low) * (1 - part) + whole(low + 1) * part
+
+
+def grenade_count_model(main: Skill | None, scored: str | None, sets: list[dict], stats: dict,
+                        forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """A grenade skill's throw on a lone boss (comment above): every burst that reaches it, PoB scoring one. `sets` the
+    bridge's setRates for the main group (ProjectileCount, AreaOfEffectRadius of the scored set), `stats` with the boss."""
+    if main is None or main.name not in GRENADE_BURST_SETS or GRENADE_ENTRY in forbidden:
+        return [], []
+    row = next((x for x in sets if x.get("label") == scored), None) or {}
+    count = number(row.get("ProjectileCount")) or number(stats.get("ProjectileCount"))
+    label = f"{main.name}: every grenade of a throw on the boss*"
+    if scored not in GRENADE_BURST_SETS[main.name]:
+        return [], ([{"label": label, "value": "x1", "confidence": "LOW", "entry": GRENADE_ENTRY,
+                      "basis": (f"PoB scores the {scored} set, which has no hit: the {count:g} grenades' grounds / clouds "
+                                "taken as one (whether they stack UNVERIFIED, the lower reading)")}] if count > 1 else [])
+    if count <= 1:
+        return [], []
+    radius, radius_how = bosses.hit_radius(stats)
+    blast = number(row.get("AreaOfEffectRadius")) / 10
+    if blast <= 0:
+        return [], []
+    spread = GRENADE_SPREAD.get(main.name, GRENADE_SPREAD_BASE)
+    reach = blast + radius
+    head = grenade_hits(count, spread, reach)
+    if head <= 1 + 1e-9:
+        return [], []
+    outer = max(1.0, count - 1)
+    short = grenade_hits(count, spread, reach, offset=2.0)
+    lats = grenade_laterals(int(math.ceil(count)), spread)
+    return [with_per_use(raw_mod("DPS", "MORE", 100 * (head - 1), main.name, tag=GRENADE_ENTRY), head)], [{
+        "label": label, "value": f"x{head:.2f}", "confidence": "MEDIUM-LOW", "entry": GRENADE_ENTRY,
+        "basis": (f"PoB scores one burst a throw; {main.name} throws {count:g} grenades (PoB's ProjectileCount) over a "
+                  f"fixed {spread:g} degree arc (fixed_projectile_spread, a total arc: MEDIUM), at ~{GRENADE_THROW:g} m "
+                  f"(RESEARCH45 R45-1, LOW) the outer one {max(abs(x) for x in lats):.2f} m sideways and up to "
+                  f"+-{GRENADE_VARIATION:.0%} along the throw; each bursts {blast:.2f} m wide ({scored}, PoB's radius) "
+                  f"and the boss's {radius_how}: {head:.2f} bursts reach it with the spread's middle on it (RESEARCH46 "
+                  f"R46-12, MEDIUM-LOW). Rows: the outer grenade off the boss, {outer:.2f} (LOW); the throw landing 2 m "
+                  f"short, {short:.2f}"),
+        "play": (f"Throw {main.name} so the middle of the spread lands on the boss: all {count:g} grenades burst on it "
+                 f"(about {head:.1f} here).")}]
+
+
+# The Verglas support (GEM35; RESEARCH47 R47-3, research/build-interactions-r47.md; an UNDERCOUNT for every Ice Crystal
+# build that takes it). Game 26650308: SupportVerglasPlayer's support_crystalshatter_buff_damage_%_gained_as_extra_cold_
+# per_2000_crystal_life 1 and support_crystalshatter_buff_duration 6000; gem_stat_descriptions.csd 38222: "Destroying an
+# Ice Crystal grants Supported Skills {0}% of Damage Gained as extra Cold for {1} seconds, per two thousand maximum Life of
+# the destroyed Ice Crystal". PoB has the gem (sup_int.lua SupportVerglasPlayer) and maps neither stat (checked:
+# SkillStatMap.lua and Modules/*.lua for both ids: no reader; ModCache: no line), so it scores the support as nothing.
+# Stacking: the game keeps a runtime stat support_crystalshatter_buff_crystal_life_destroyed_in_past_duration (Stats.json,
+# beside its track_ twin; on no stat set, Mod or passive), so the buff reads the Life destroyed in the past 6 s, summed
+# (MEDIUM-LOW: the stat's name; the text says "per two thousand maximum Life of the destroyed Ice Crystal", one crystal's
+# words): the average over the fight is (Life destroyed a second) x 6 s / 2000 %, each crystal's Life counted in whole 2000s
+# (the lower reading; whether the sum or each crystal is floored is UNVERIFIED). A row with one crystal at a time (the
+# buff not summing: the largest crystal's floor(Life / 2000) % while one was destroyed in the past 6 s).
+# The build's own crystals (checked: every Stats id holding crystal / frost_wall / ice_wall across GrantedEffectStatSets,
+# Mods, PassiveSkills, GrantedEffectQualityStats; makers: Frost Wall, Frozen Locus, Glacial Bolt's wall, Grim Pillars,
+# Midnight Star's (Nattblom), the Ice Seeds line (attempt_to_consume_x_ice_seeds_to_create_an_ice_crystal...)):
+# - Frost Wall (its side groups, Assumptions.frost_wall_uses: walls a second, its segment's Life, PoB's IceCrystalLife):
+#   one segment destroyed a wall (the lower reading: R45-2's bolt breaks the segments in its path; how many segments a
+#   wall has is not in the tables, a RESEARCH question) when the build can break it: a skill that destroys a segment on
+#   hit (ICE_BREAKERS) or consumes Freeze (KeywordPopups IceCrystals: "Skills which Consume Freeze will instantly shatter
+#   Ice Crystals"), or the main skill's hits dealing its Life within the wall's 8 s (PoB's hit DPS; the crystal's own
+#   damage taken UNVERIFIED, as R45-2). A row with the whole wall's segments is a RESEARCH question (the count).
+# - Frozen Locus (its side groups): uses a second x the share broken before its 10 s (1 - e^(-10 R), R its breakers a
+#   second, Assumptions.locus_breaks; GEM20's reading), its crystal's Life (PoB's IceCrystalLife on its group).
+# - Not counted (an UNDERCOUNT, named): Glacial Bolt's wall, Grim Pillars, Midnight Star's crystals, the Ice Seeds line,
+#   crystals the boss's hits break; a main-skill Frost Wall / Frozen Locus's own crystals.
+# Given as DamageGainAsCold BASE on the supported main skill at the fight's average (Gain is linear in the hit). MEDIUM-LOW.
+VERGLAS = "Verglas"
+VERGLAS_PER, VERGLAS_LIFE, VERGLAS_SECONDS = 1.0, 2000.0, 6.0  # % per 2000 crystal Life, 6000 ms (the stats above)
+VERGLAS_ENTRY = "model-gem35-verglas-crystal-shatter"
+
+
+def verglas_model(main: Skill | None, supports: list[str], walls: float, wall_life: float, wall_how: str,
+                  can_break: str, locus: float, locus_life: float, locus_how: str,
+                  forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Verglas on the main skill (comment above): `walls` Frost Walls a second whose segment the build breaks, `wall_life`
+    a segment's Life, `can_break` what breaks it ("" none), `locus` Frozen Locus crystals destroyed a second, `locus_life`
+    its crystal's Life, the `how`s their bases."""
+    if main is None or VERGLAS not in supports or VERGLAS_ENTRY in forbidden:
+        return [], []
+    label = f"{VERGLAS}: Damage Gained as extra Cold from the Ice Crystals you destroy*"
+    sources = []  # (name, crystals destroyed a second, Life each, how)
+    if walls > 0 and wall_life > 0:
+        if can_break:
+            sources.append((FROST_WALL, walls, wall_life, f"{wall_how}; one segment a wall broken by {can_break}"))
+        else:
+            sources.append((FROST_WALL, 0.0, wall_life, f"{wall_how}; nothing in the build breaks its {wall_life:,.0f}-Life "
+                                                         "segment within its 8 s"))
+    if locus > 0 and locus_life > 0:
+        sources.append((FROZEN_LOCUS, locus, locus_life, locus_how))
+    whole = lambda life: math.floor(life / VERGLAS_LIFE) * VERGLAS_PER
+    gain = sum(rate * whole(life) * VERGLAS_SECONDS for _, rate, life, _ in sources)
+    live = [(name, rate, life) for name, rate, life, _ in sources if rate > 0 and whole(life) > 0]
+    single = max((whole(life) * min(1.0, rate * VERGLAS_SECONDS) for _, rate, life in live), default=0.0)
+    parts = "; ".join(f"{name}: {rate:.2f} crystals a second of {life:,.0f} Life ({how})" for name, rate, life, how
+                      in sources) or ("no Ice Crystal maker in the build (Frost Wall / Frozen Locus counted; Glacial "
+                                      "Bolt's wall, Grim Pillars, Midnight Star's, the Ice Seeds line not)")
+    note = {"label": label, "value": f"+{gain:.1f}%", "confidence": "MEDIUM-LOW", "entry": VERGLAS_ENTRY,
+            "basis": (f"PoB maps none of {VERGLAS}'s stats. {VERGLAS_PER:g}% of Damage Gained as extra Cold per 2,000 "
+                      f"Life of each Ice Crystal you destroy, for {VERGLAS_SECONDS:g} s, the Life destroyed in the past "
+                      f"{VERGLAS_SECONDS:g} s summed (the game's support_crystalshatter_buff_crystal_life_destroyed_in_"
+                      f"past_duration, MEDIUM-LOW): {parts}: +{gain:.1f}% on average. Row (the buff not summing, one "
+                      f"crystal at a time): +{single:.1f}%. Not counted: Glacial Bolt's wall, Grim Pillars, Midnight "
+                      "Star's crystals, the Ice Seeds line, crystals the boss breaks"),
+            "play": (f"Keep destroying your own Ice Crystals: each one feeds {main.name} with {VERGLAS} (without them "
+                     f"+0%; with this build's: +{gain:.1f}% of Damage as extra Cold).")}
+    if gain <= 0:
+        return [], [note]
+    return [raw_mod("DamageGainAsCold", "BASE", gain, main.name, tag=VERGLAS_ENTRY)], [note]
+
+
+# Valako's Charge's Electrocute threshold (GEM35; the manager 14:05 from MECH100, plans/kw-electrocute-threshold.md; a
+# small OVERCOUNT as the main skill). Game 26650308: GrantedEffectStatSets ValakosChargeArcPlayer carries
+# electrocute_threshold_+%_final 100, which has no stat description text (so its direction is UNVERIFIED) and is the one
+# set using the _final stat (checked by PLANS6: Stats.json's electrocute_threshold ids, their stat-set, Mod and passive
+# users: this set alone). PoB maps it nowhere (no SkillStatMap entry; CalcOffence 5405 builds the threshold from enemyDB
+# only), so it builds the Arc's Electrocute up against the boss's normal threshold. Two readings, the lower one the
+# headline (the manager's ruling): the boss's threshold x (1 + 100%) against the Arc's hits, its buildup x 1 / 2, as
+# PoB's EnemyElectrocuteBuildup MORE on the skill (CalcOffence 5408-5410: buildup = scale / threshold x more); a row
+# with the stat not acting on the boss (x1, PoB's). Valako's Charge as the main skill only (MECHB38's model keeps its
+# side use).
+VALAKO_ARC_THRESHOLD = 100.0  # electrocute_threshold_+%_final on ValakosChargeArcPlayer
+VALAKO_THRESHOLD_ENTRY = "model-gem35-valako-electrocute-threshold"
+
+
+def valako_threshold_model(main: Skill | None, forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """The Arc's Electrocute buildup against its doubled threshold (comment above), Valako's Charge as the main skill."""
+    if main is None or main.name != VALAKO_SKILL or VALAKO_THRESHOLD_ENTRY in forbidden:
+        return [], []
+    more = 100.0 / (1 + VALAKO_ARC_THRESHOLD / 100) - 100.0
+    return [raw_mod("EnemyElectrocuteBuildup", "MORE", more, main.name, tag=VALAKO_THRESHOLD_ENTRY)], [{
+        "label": f"{main.name}: its Arc's Electrocute threshold +{VALAKO_ARC_THRESHOLD:g}% (final)*",
+        "value": f"x{1 + more / 100:.2f} buildup", "confidence": "LOW", "entry": VALAKO_THRESHOLD_ENTRY,
+        "basis": (f"electrocute_threshold_+%_final {VALAKO_ARC_THRESHOLD:g} on the Arc set has no description text and PoB "
+                  f"reads it nowhere. Headline (the lower reading): the boss's threshold x{1 + VALAKO_ARC_THRESHOLD / 100:g} "
+                  f"against the Arc, its Electrocute buildup x{1 + more / 100:.2f}. Row: the stat not acting on the "
+                  "boss, x1 (PoB's). Which is right is UNVERIFIED (a RESEARCH question)")}]
+
+
 def gated_set_model(main: Skill | None, scored: str | None, sets: list[dict], share: float, how: str,
                     forbidden: set[str] = frozenset(), previous: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
     """A GATED_SETS skill's use as the game makes it (see above): `sets` the bridge's setRates for its group, `share` of
@@ -8374,7 +8645,9 @@ def gated_set_model(main: Skill | None, scored: str | None, sets: list[dict], sh
                   f"{gated:,.0f}) and reads no gate. The game uses the {gated_label} part only with {resource}: {share:.0%} "
                   f"({how}), so {total:,.0f} DPS"
                   + (f"; with none, the {gated_label} set is kept 10% under the {base_label} so the search keeps it"
-                     if steer else "")),
+                     if steer else "")
+                  + (f"; {INFUSED_ROWS[main.name][0]}. Row (LOW): {INFUSED_ROWS[main.name][1]}: "
+                     f"{base if adds else base * (1 - share):,.0f} DPS" if main.name in INFUSED_ROWS and share > 0 else "")),
         "play": (f"{main.name}'s {gated_label} part runs on {resource}: feed it to keep it up. Without {resource}: "
                  f"{base:,.0f}; with this build's: {total:,.0f}; always: {base + gated if adds else gated:,.0f}.")}]
 
@@ -8492,6 +8765,14 @@ DETONATED_SETS = {
     # used beside them: MEDIUM-LOW, as the spears'); one spike a slam (more fissures not read); the limit 6 (patch
     # 0.4.0 made it a modifiable Limit, Overabundance: a raised limit not read, an UNDERCOUNT there, UNVERIFIED).
     "Earthshatter": (("Slam",), "Explosion", 6, 6.0, "model-gem19-earthshatter-warcry-shatter"),
+    # (GEM35; an OVERCOUNT found by probe POE2T7224: the search scored Gas Grenade's Explosion, 153.9 DPS against Impact
+    # 18.6, with no Detonator or Burning effect in the build) Gas Grenade: "a burst of Poison gas when its fuse expires
+    # ... leaving behind a growing Poison cloud. Burning effects or Detonator skills will cause the cloud to explode in a
+    # fiery blast" (ActiveSkills toxic_grenade, 26650308); ToxicGrenadePlayer's Poison Cloud set: number_of_poison_cloud_
+    # allowed 6, base_skill_effect_duration 6000 (PoB act_str.lua). Set off here by the build's Detonators only: a Burning
+    # effect on the boss inside the cloud (its Ignite, a fire ground) isn't read (an UNDERCOUNT where the build Ignites
+    # the boss, named; the lower reading). The plain part is PoB's best plain set (the cloud's DoT or the impact).
+    "Gas Grenade": (("Impact", "Poison Cloud"), "Explosion", 6, 6.0, "model-gem35-gas-grenade-cloud-explosion"),
     # (MECHB48) Forge Hammer: "Hurl a fiery hammer that Slams into the ground and lodges there. While the hammer is
     # lodged in the ground, reusing this Skill recalls the hammer and resets the Skill's cooldown. Alternatively, using a
     # Warcry near the lodged hammer causes it to shatter, releasing a number of Molten Fissures in a spiral" (ActiveSkills
@@ -8504,7 +8785,7 @@ DETONATED_SETS = {
     # read: PoB's Impact on every use (UNVERIFIED, a RESEARCH question: up to x2 over).
     "Forge Hammer": (("Impact",), "Fissures", 1, 12.0, "model-mechb48-forge-hammer-warcry-shatter"),
 }
-DETONATED_WORD = {"Stormblast Bolts": "bolts", "Earthshatter": "spikes", "Forge Hammer": "hammers"}
+DETONATED_WORD = {"Stormblast Bolts": "bolts", "Earthshatter": "spikes", "Forge Hammer": "hammers", "Gas Grenade": "clouds"}
 # (GEM20) Earthshatter's quality stat earthshatter_damage_+%_final_per_spike, "{0}% more Damage with [Hit|Hits] for each
 # Spike" (0.3% a quality, GrantedEffectQualityStats 90; came in 0.3.0 in place of "+0-3 to maximum Spikes"; PoB doesn't
 # read it: act_str.lua's qualityStats, no SkillStatMap entry). RESEARCH30 R30-5 (2), UNVERIFIED, best reading
@@ -14562,7 +14843,8 @@ def run_and_gun_model(texts: list[str], stats: dict, main: Skill | None, main_ty
     if not chance or main is None:
         return [], []
     label = f"Run and Gun ({chance:g}% chance of two more projectiles while moving)"
-    if main.name not in SHOTGUN_SKILLS | SEQUENCE_SKILLS:
+    grenade = main.name in GRENADE_BURST_SETS or main.name == CLUSTER_GRENADE  # (GEM35: every grenade bursts, R46-12)
+    if main.name not in SHOTGUN_SKILLS | SEQUENCE_SKILLS and not grenade:
         sure, words = group_rule_label(main_types)
         count = max(number(stats.get("ProjectileCount")), 1.0)
         return [], [{"label": label, "value": 0, "confidence": sure,
@@ -14572,6 +14854,12 @@ def run_and_gun_model(texts: list[str], stats: dict, main: Skill | None, main_ty
         why = "the build stands still while using it" if standing else f"{main.name} isn't used while moving"
         return [], [{"label": label, "value": 0, "confidence": "theory", "basis": f"{why}: none"}]
     play = "fire while walking (a way to play the build; standing still loses it)"
+    if grenade:  # (GEM35: the two more grenades go to PoB's ProjectileCount, which grenade_count_model counts)
+        return [raw_mod("TwoAdditionalProjectilesChance", "BASE", chance, main.name)], [{
+            "label": label, "value": chance, "confidence": "MEDIUM-LOW",
+            "basis": f"{main.name}'s grenades each burst in their own area (RESEARCH46 R46-12): the chance goes to PoB as "
+                     f"its TwoAdditionalProjectilesChance (its ProjectileCount), and grenade_count_model / "
+                     f"cluster_grenade_model count the bursts that reach the boss; {play}"}]
     if main.name in SEQUENCE_SKILLS:
         return [raw_mod("TwoAdditionalProjectilesChance", "BASE", chance, main.name)], [{
             "label": label, "value": chance, "confidence": "theory",
