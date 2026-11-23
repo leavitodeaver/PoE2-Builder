@@ -59,3 +59,14 @@ def test_ailment_feed_counts_shocks_and_the_ignites_share():
 
 def test_no_feeder_gives_no_energy():
     assert M.energy_feed("crit", [], {"EnemyAilmentThreshold": 1000.0, "_boss_power": (20.0, "")})[0] == 0.0
+
+
+def test_tempest_shockwave_is_held_to_the_bells():
+    """AUDIT37 W3 (patch 0.5.0): the set's hit comes once per Bell a Perfect dash explodes."""
+    storm = M.Skill("Gathering Storm", 1, attack=True, melee=True)
+    none = M.gathering_shockwave_model(storm, "Tempest Shockwave", 1.2, {"rate": 0.0, "how": "no Bell"})
+    assert none[0][0]["value"] == pytest.approx(-100.0)
+    some = M.gathering_shockwave_model(storm, "Tempest Shockwave", 1.2, {"rate": 0.3, "how": "Bells"})
+    assert some[0][0]["value"] == pytest.approx(-75.0) and some[0][0][M.HIT_CUT_PER_USE] == pytest.approx(0.25)
+    assert M.gathering_shockwave_model(storm, "Tempest Shockwave", 1.2, {"rate": 9.0, "how": "Bells"})[0][0]["value"] == 0
+    assert M.gathering_shockwave_model(storm, "Perfect Dash", 1.2, {"rate": 0.0, "how": ""}) == ([], [])

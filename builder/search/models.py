@@ -24062,6 +24062,36 @@ def perfect_timing_note(main: Skill | None, scored: str | None, sets: list[dict]
                       f"plain set{f' (x{plain / perfect:.3f})' if perfect > 0 else ''}.")}]
 
 
+# Gathering Storm's Tempest Shockwave set (MECHB59; AUDIT37 W3, a latent OVERCOUNT: the set could be scored with no Bell,
+# and at every use with one). Patch 0.5.0: "Now causes Perfectly Timed dash to explode any Tempest Bell on hit, creating a
+# massive shockwave"; the skill text: the Perfect dash "also explodes Tempest Bells on hit creating a shockwave". So the
+# set's hits come once per Bell exploded: at most the Bells a second (conditions.bell_feed, the rate its Shocked Ground
+# already reads), none with no Bell. Only the shockwave is counted while this set is scored (the dash's own hit is the
+# Perfect Dash set's: the search compares the two).
+GATHERING_STORM, GATHERING_ENTRY = "Gathering Storm", "model-mechb59-gathering-shockwave"
+TEMPEST_SHOCKWAVE = "Tempest Shockwave"
+
+
+def gathering_shockwave_model(main: Skill | None, scored: str | None, speed: float, feed: dict,
+                              forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """The Tempest Shockwave set held to the Bells the build explodes (see above). `speed` PoB's uses a second, `feed`
+    conditions.bell_feed's {rate, how}."""
+    if main is None or main.name != GATHERING_STORM or scored != TEMPEST_SHOCKWAVE or GATHERING_ENTRY in forbidden \
+            or speed <= 0:
+        return [], []
+    rate = min(max(number(feed.get("rate")), 0.0), speed)
+    factor = rate / speed
+    mod = raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=GATHERING_ENTRY)
+    mod[HIT_CUT_PER_USE] = factor
+    return [mod], [{
+        "label": f"{main.name}: {rate:.2f} Tempest Shockwaves a second*", "value": f"x{factor:.3f}",
+        "confidence": "MEDIUM", "entry": GATHERING_ENTRY,
+        "basis": (f"PoB scores a shockwave on each of its {speed:.2f} uses a second; the game makes one only when a "
+                  f"Perfectly Timed dash explodes a Tempest Bell (patch 0.5.0): {feed.get('how')}"),
+        "play": ("Place a Tempest Bell at the boss and dash through it with a Perfectly Timed release; without a Bell "
+                 "this shockwave never happens.")}]
+
+
 # Volcano's channel (MECHB50; PLANS7 gs-volcano-channel.md: an OVERCOUNT on a tap, an UNDERCOUNT on a full channel).
 # VolcanoPlayer (GrantedEffectStatSets 26650308, the same in PoB act_str): cast time 0.8 s, channel_start / channel_end_
 # duration_as_%_of_cast_time 50 / 50, volcano_gain_stage_every_%_of_cast_time 100 (a stage each cast time channelled),

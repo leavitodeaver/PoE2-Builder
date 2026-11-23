@@ -5745,6 +5745,24 @@ def presence_ignite(texts: list[str], stats: dict) -> tuple[float, str]:
                  "the search's distance choice)")
 
 
+def bell_feed(build, names: set[str]) -> dict:
+    """{"rate": Perfectly Timed dashes a second that explode a Tempest Bell, "how"}: Gathering Storm's Shocked Ground
+    (Conditions.ground_feed, MECH58) and its Tempest Shockwave set (models.gathering_shockwave_model, MECHB59)."""
+    if "Tempest Bell" not in names:
+        return {"rate": 0.0, "how": "only a Perfectly Timed dash that explodes a Tempest Bell makes it, and the "
+                                    "build has no Tempest Bell (HIGH)"}
+    from builder.search.usage import Usage, requirements, usage_rules
+    rules = usage_rules(build).get("Tempest Bell")
+    need = next((n for n in requirements("Tempest Bell", rules) if n.kind == "combo"), None) if rules else None
+    found = Usage(build, None).combo_rate("Tempest Bell", need.amount) if need else None
+    if not found:
+        return {"rate": 0.0, "how": "only a Perfectly Timed dash that explodes a Tempest Bell makes it, and no "
+                                    "Combo rate for the Bell was read (0, MEDIUM)"}
+    return {"rate": found[0], "how": (f"one Perfectly Timed dash per Tempest Bell, {found[0]:.2f} Bells/s "
+                                      f"({need.amount:g} {found[2]} Strikes a Bell; every dash Perfectly Timed "
+                                      "as a way to play, MEDIUM)")}
+
+
 def ignite_others(rows: dict, groups: list[dict], hitters: set[str], main_index,
                   choices: dict[str, float] | None = None) -> tuple[list[tuple[str, float, float, float]], str]:
     """([(name, hits per second, chance per hit, Ignite duration in s)], how) for the build's other groups that Ignite
@@ -10338,19 +10356,7 @@ class Conditions:
                                           + "; ".join(f"{t[:50]}: {r[1]}" for t, r in found[:3]) + "; charges other "
                                           "skills spend not taken off, extra-charge lines not added), MEDIUM-HIGH")}
         if kind == "bell":
-            if "Tempest Bell" not in names:
-                return {"rate": 0.0, "how": "only a Perfectly Timed dash that explodes a Tempest Bell makes it, and the "
-                                            "build has no Tempest Bell (HIGH)"}
-            from builder.search.usage import Usage, requirements, usage_rules
-            rules = usage_rules(self.build).get("Tempest Bell")
-            need = next((n for n in requirements("Tempest Bell", rules) if n.kind == "combo"), None) if rules else None
-            found = Usage(self.build, None).combo_rate("Tempest Bell", need.amount) if need else None
-            if not found:
-                return {"rate": 0.0, "how": "only a Perfectly Timed dash that explodes a Tempest Bell makes it, and no "
-                                            "Combo rate for the Bell was read (0, MEDIUM)"}
-            return {"rate": found[0], "how": (f"one Perfectly Timed dash per Tempest Bell, {found[0]:.2f} Bells/s "
-                                              f"({need.amount:g} {found[2]} Strikes a Bell; every dash Perfectly Timed "
-                                              "as a way to play, MEDIUM)")}
+            return bell_feed(self.build, names)
         return {}
 
     def presence_seconds(self, texts: list[str], stats: dict) -> tuple[float, str]:

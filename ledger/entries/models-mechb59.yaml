@@ -1,0 +1,11 @@
+- id: model-mechb59-gathering-shockwave
+  title: "Gathering Storm's Tempest Shockwave set held to the Tempest Bells the build explodes (models.gathering_shockwave_model)"
+  kind: model
+  model: gathering_shockwave
+  stats: []
+  skill: [Gathering Storm]
+  confidence: theory
+  notes: >-
+    MECHB59 (AUDIT37 W3; an OVERCOUNT, live: probe POE2T4924's default build scored this set with no Bell). Patch 0.5.0:
+    a Perfectly Timed dash explodes a Tempest Bell on hit, creating this shockwave. Its hits a second are at most the
+    Bells a second (conditions.bell_feed, the rate its Shocked Ground reads); no Bell, 0.

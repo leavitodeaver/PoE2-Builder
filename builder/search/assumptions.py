@@ -4566,6 +4566,12 @@ class Assumptions:
         if main is not None and group and main.name in models.PERFECT_SETS:  # (MECHB50: the perfect set, labelled)
             perfect_sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             hand_notes = hand_notes + models.perfect_timing_note(main, main.stat_set, perfect_sets)
+            if main.stat_set == models.TEMPEST_SHOCKWAVE:  # (MECHB59, AUDIT37 W3: one shockwave per Bell exploded)
+                storm_mods, storm_notes = models.gathering_shockwave_model(
+                    main, main.stat_set, number(build.call("stats", fields=["Speed"]).get("Speed")),
+                    conditions_mod.bell_feed(build, {s_.name for s_ in found if s_.group is not None}), forbidden)
+                hand_mods, hand_notes = hand_mods + storm_mods, hand_notes + storm_notes
+                hit_cut(build, storm_mods, main.name)
         if main is not None and group and main.name == models.VOLCANO:  # (MECHB50: its channel and stages)
             volcano_sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             from builder.search import bosses as bosses_mod  # (MECHB51: R42-25's row, the rolls made anyway)
