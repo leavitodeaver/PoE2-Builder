@@ -158,10 +158,11 @@ def fill_sockets_enabled() -> bool:
 # also tries one more socket than an Artificer's Orb gives (a natural drop) and two more (that copy corrupted), each priced
 # by its route (Gear.extra_socket_trial). OFF by default until gated
 SWITCH_EXTRA_SOCKETS = "POE2_SEARCH_EXTRA_SOCKETS"
-# The natural extra socket's price: the item's x this (LOW, uncalibrated: RESEARCH50 R50-1 found the bare items cheap,
-# 1 chaos to 5 ex, but a copy with the chosen affixes AND the socket is rarer; a trade search of the same affixes with
-# and without rune_sockets min calibrates it: a research question), at least EXTRA_SOCKET_FLOOR divine
+# The natural extra socket's price (RESEARCH51 R51-5, 16 paired trade searches, LOW-MEDIUM; the manager 05:40): mostly a
+# FLAT premium (+0.1 div common mods, +0.3-1 div good boots / gloves / triple-res bodies, +1-2.5 div better mod sets; the
+# Oracle staff x1.7): max(the item + NATURAL_SOCKET_FLAT, the item x NATURAL_SOCKET_PREMIUM)
 NATURAL_SOCKET_PREMIUM = 2.0
+NATURAL_SOCKET_FLAT = 1.0
 EXTRA_SOCKET_FLOOR = 0.01
 # A Vaal Orb's chance to add the socket (MEDIUM-LOW, R50-1 3: four outcomes about equally likely, wiki and guide summaries,
 # no file gives the weights); one corruption per item, so a miss costs the copy (the upper bound: no resale counted)
@@ -1488,8 +1489,8 @@ class Gear:
         pay for the route (RESEARCH50 R50-1, HIGH: PoB's socketLimit is the corrupted maximum; uncorrupted drops reach
         socketLimit - 1, patch 0.3.0 "a very low chance of generating with 3 Sockets in high tier Maps", trade 10,000+
         such rares; rares.socket_count gives socketLimit - 2):
-        - "natural": socketLimit - 1, a copy that dropped with the extra socket, priced at NATURAL_SOCKET_PREMIUM x the
-          item (LOW), at least EXTRA_SOCKET_FLOOR;
+        - "natural": socketLimit - 1, a copy that dropped with the extra socket, priced at the higher of the item x
+          NATURAL_SOCKET_PREMIUM and the item + NATURAL_SOCKET_FLAT (R51-5, LOW-MEDIUM);
         - "corrupted": socketLimit, that copy Vaal-corrupted for the socket: (the copy + a Vaal Orb) / CORRUPT_SOCKET_CHANCE
           (MEDIUM-LOW odds; the upper bound, no resale of a miss). The item is Corrupted after: no rune NOT_IN_SEALED can
           go in (RuneCatalog.candidates reads the line), and none already chosen may be one (the route is skipped).
@@ -1503,10 +1504,11 @@ class Gear:
         rune_cost = sum(self.runes.price(n) or 0.0 for n in filled.runes[len(filled.bound):])
         item_price = filled.price - rune_cost  # (the item alone, its bound runes in it)
         vaal = (self.ctx.payload.get("cultivation_prices") or {}).get("vaal")
-        natural = max(item_price * NATURAL_SOCKET_PREMIUM, item_price + EXTRA_SOCKET_FLOOR)
+        natural = max(item_price * NATURAL_SOCKET_PREMIUM, item_price + NATURAL_SOCKET_FLAT)
         routes = [("natural", base["socketLimit"] - 1, natural,
                    f"buy a copy that dropped with {base['socketLimit'] - 1} sockets (one more than an Artificer's Orb "
-                   f"gives; rarer: priced at {NATURAL_SOCKET_PREMIUM:g}x the item, LOW, uncalibrated)")]
+                   f"gives; priced at the item x{NATURAL_SOCKET_PREMIUM:g} or + {NATURAL_SOCKET_FLAT:g} div, the higher: "
+                   f"R51-5's trade pairs, LOW-MEDIUM)")]
         if vaal is not None and not any(n in NOT_IN_SEALED for n in filled.bound):
             routes.append(("corrupted", base["socketLimit"], (natural + vaal) / CORRUPT_SOCKET_CHANCE,
                            f"that {base['socketLimit'] - 1}-socket copy corrupted with a Vaal Orb for one more socket "
