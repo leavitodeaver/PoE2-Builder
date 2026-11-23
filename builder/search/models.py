@@ -5978,17 +5978,11 @@ MIRROR_ENTRY = "model-gem31-mirror-of-refraction-copies"
 # ceiling (MEDIUM-LOW: the guides' loop, note.com 23 Sep 2026 / kami-labs 16 Jul 2026; the mirror rate caps it, each
 # nova at most one boss hit). The chain row is then inside the cap (each mirror shatters once), so not given.
 def mirror_loop_source(main: Skill | None, main_types: set[str], group_gems: list[dict]) -> str:
-    """What keeps the main skill's projectiles flying back through the mirrors ("" none; return_model's always-return
-    sources)."""
-    if main is None:
-        return ""
-    names = {g.get("name") for g in group_gems if g.get("enabled", True)}
-    if main.name == SOARING_MIDNIGHT:
-        return "Soaring Midnight returns at the end of its flight"
-    if (BREACHLORDS_AMALGAM in names and {"Cold", "Lightning"} & main_types
-            and not {"Triggered", "Persistent"} & main_types):
-        return "Breachlord's Amalgam makes its projectiles return, always piercing"
-    return ""
+    """What keeps the main skill's projectiles flying back through the mirrors ("" none): MECHB55's return_share (the
+    agreed split: MECH-B the return side, GEM the mirror side), when every projectile returns (Breachlord's Amalgam and
+    Soaring Midnight always pierce too; Cadiro's 1 in 6 is a bow's, never a Spell's, so not a mirror loop)."""
+    share, why = return_share([], main, main_types, group_gems, set())
+    return why if share >= 1 else ""
 
 
 def mirror_of_refraction_model(skills: list[Skill], main: Skill | None, stats: dict, config: dict | None = None,
