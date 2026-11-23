@@ -32,7 +32,9 @@ from builder.search.flasks import (
 )
 from builder.search.rares import (
     MAGIC_LIMIT, RUNE_KEEP, SCREEN_KEEP, Affix, AffixPools, RuneCatalog, magic_price, magic_text, rare_price, rare_text,
-    NOT_IN_SEALED, is_elemental_resistance, socket_count, unique_text, void_fluxed, with_runes,
+    NOT_IN_SEALED, is_elemental_resistance, socket_count, unique_text, with_runes, FLUX_NAMES, fluxed,
+    ALDUR_RUNES, AldurConverter, aldur_weapon, CATALYSTS, CATALYST_TYPES, CATALYSTS_PER_20, CATALYST_QUALITY,
+    catalyst_matches, catalysed_text,
 )
 from builder.search.objective import NO_DAMAGE_OFFSET
 from builder.search.state import EPSILON, Build
@@ -172,6 +174,23 @@ SWITCH_FLUX = "POE2_SEARCH_FLUX"
 
 def flux_enabled() -> bool:
     return os.environ.get(SWITCH_FLUX, "0") == "1"
+
+
+# (SEARCHC2) "1": a rare weapon also tries the Aldur rune routes (Gear.aldur_trial: Passion / Breath / Ire / Betrayal of
+# Aldur turn every elemental damage modifier into the target element, tier for tier). OFF by default until gated
+SWITCH_ALDUR = "POE2_SEARCH_ALDUR"
+
+
+def aldur_enabled() -> bool:
+    return os.environ.get(SWITCH_ALDUR, "0") == "1"
+
+
+# (SEARCHC2) "1": a rare Ring / Amulet also tries catalyst quality (Gear.catalyst_trial). OFF by default until gated
+SWITCH_CATALYST = "POE2_SEARCH_CATALYST"
+
+
+def catalyst_enabled() -> bool:
+    return os.environ.get(SWITCH_CATALYST, "0") == "1"
 
 
 # Seconds Gear.fill_empty gives each filler item's socket fill (LOW: a search-effort setting; a fill is 1-3 what-if calls)
@@ -728,6 +747,11 @@ class Gear:
         if not magic:  # (SEARCHB5; THE USER 23 Nov: no empty affix slots)
             utility, current = self.fill_utility(slot, base, level, pools, limits, chosen, current, left, deadline)
             chosen = chosen + utility
+        if not magic and aldur_enabled() and aldur_weapon(base):  # (SEARCHC2: an Aldur rune's element transform)
+            transformed = self.aldur_trial(slot, base, base_option, level, pools, limits, shortlist, chosen, current,
+                                           left, deadline)
+            if transformed is not None:
+                return transformed
         if not magic and flux_enabled():  # (SEARCHC1: the rare's elemental resistances turned to chaos by a Void Flux)
             fluxed = self.flux_trial(slot, base, base_option, level, pools, limits, chosen, current, left, deadline)
             if fluxed is not None:
@@ -756,6 +780,10 @@ class Gear:
             return augmented[max(range(len(augmented)), key=lambda i: (self.adjusted(scored[i][0], augmented[i]), -i))]
         if augmented:
             return augmented[0]
+        if not magic and catalyst_enabled() and base["type"] in CATALYST_TYPES:  # (SEARCHC2: catalyst quality)
+            catalysed = self.catalyst_trial(slot, base, base_option, level, chosen, current, left, deadline)
+            if catalysed is not None:
+                return catalysed
         price = None if self.ctx.ssf else price_of(slot, chosen)
         confidence = "ssf" if self.ctx.ssf else "estimate (magic)" if magic else "estimate (uncalibrated)"
         return ItemOption(f"{'Magic' if magic else 'Rare'} {base['type']}", base["name"], base["type"],
@@ -826,11 +854,11 @@ class Gear:
         resistances), and the rare with 1, 2, 3... of its open suffixes given the best elemental resistance affixes (a
         different element each, as bought) and then fluxed: converted chaos mods coexist (R50-4), which no plain rare can
         roll. Priced as the input rare (the rare price model) + 1 Void Flux (exchange); kept when it beats the plain rare
-        after prices. Deterministic: no odds. Not for a Corrupted item (none is built here)."""
-        flux = (self.ctx.payload.get("flux_prices") or {}).get("Void Flux")
-        if clock.now() > deadline or (flux is None and not self.ctx.ssf):
+        after prices. Deterministic: no odds. Not for a Corrupted item (none is built here). (SEARCHC2) Blazing / Chilling /
+        Crackling Flux the same way, each priced from the exchange (rares.flux_line)."""
+        prices = self.ctx.payload.get("flux_prices") or {}
+        if clock.now() > deadline:
             return None
-        flux = 0.0 if self.ctx.ssf else flux
         groups = {a.group for a in chosen}
         open_suffixes = limits.get("Suffix", 0) - sum(1 for a in chosen if a.type == "Suffix")
         extras = []  # the best affix of each elemental resistance group the base rolls, best tier first
@@ -840,29 +868,167 @@ class Gear:
                 if pick is not None and pick.group not in {e.group for e in extras}:
                     extras.append(pick)
         trials = [list(chosen)] + [list(chosen) + extras[:k] for k in range(1, min(open_suffixes, len(extras)) + 1)]
-        cases = []
-        for bought in trials:
-            fluxed = void_fluxed(bought)
-            if fluxed is not None and rare_price(slot, bought) + flux <= left + 1e-9:
-                cases.append((bought, fluxed))
+        cases = []  # (target, flux price, bought, fluxed)
+        # (SEARCHC2) the three elemental Fluxes too, behind the same switch: all of an item's other elemental
+        # resistances into one element (poe2db: same numbers, the element word changed: rares.flux_line)
+        for target, name in FLUX_NAMES.items():
+            flux = 0.0 if self.ctx.ssf else prices.get(name)
+            if flux is None:
+                continue
+            for bought in trials:
+                out = fluxed(bought, target)
+                if out is not None and rare_price(slot, bought) + flux <= left + 1e-9:
+                    cases.append((target, flux, bought, out))
         if not cases:
             return None
-        scored = self.deltas(slot, [rare_text(slot, base, level, fluxed) for _, fluxed in cases])
+        scored = self.deltas(slot, [rare_text(slot, base, level, out) for *_, out in cases])
         plain = current - self.lam * rare_price(slot, chosen)
-        best = max(((s - self.lam * (rare_price(slot, bought) + flux), bought, fluxed)
-                    for (s, _), (bought, fluxed) in zip(scored, cases)), key=lambda x: x[0])
+        best = max(((s - self.lam * (rare_price(slot, bought) + flux), target, flux, bought, out)
+                    for (s, _), (target, flux, bought, out) in zip(scored, cases)), key=lambda x: x[0])
         if best[0] <= plain + EPSILON:
             return None
-        _, bought, fluxed = best
+        _, target, flux, bought, out = best
+        name = FLUX_NAMES[target]
         price = None if self.ctx.ssf else rare_price(slot, bought) + flux
-        note = (f"Void Flux: buy the rare with {sum(1 for a in bought if is_elemental_resistance(a))} elemental "
-                f"resistance affix(es) ({rare_price(slot, bought):.3g} div, the rare price model), then use a Void Flux "
-                f"({flux:.3g} div) to turn every Fire / Cold / Lightning resistance into chaos resistance (deterministic; "
-                "poe2db's tier map, R50-4 HIGH)")
+        into = ("every Fire / Cold / Lightning resistance into chaos resistance (poe2db's tier map, R50-4 HIGH)"
+                if target == "Chaos" else f"every other elemental resistance into {target} resistance (same numbers; "
+                                          "poe2db's table, SEARCHC2)")
+        note = (f"{name}: buy the rare with {sum(1 for a in bought if is_elemental_resistance(a))} elemental "
+                f"resistance affix(es) ({rare_price(slot, bought):.3g} div, the rare price model), then use a {name} "
+                f"({flux:.3g} div) to turn {into} (deterministic)")
         return ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
-                          rare_text(slot, base, level, fluxed), False, price,
-                          "ssf" if self.ctx.ssf else "estimate (craft route: Void Flux)", base_option.level, rare=True,
-                          affixes=tuple(line for a in fluxed for line in a.lines), craft_route=(note,))
+                          rare_text(slot, base, level, out), False, price,
+                          "ssf" if self.ctx.ssf else f"estimate (craft route: {name})", base_option.level, rare=True,
+                          affixes=tuple(line for a in out for line in a.lines), craft_route=(note,))
+
+    def catalyst_tags(self) -> dict[str, tuple[str, ...]]:
+        if getattr(self, "_catalyst_tags", None) is None:
+            self._catalyst_tags = {m["id"]: tuple(m.get("modTags") or ()) for m in self.ctx.data.mods.get("Item", [])}
+        return self._catalyst_tags
+
+    def catalyst_trial(self, slot: str, base: dict, base_option: ItemOption, level: int, chosen: list, current: float,
+                       left: float, deadline: float) -> ItemOption | None:
+        """(SEARCHC2, POE2_SEARCH_CATALYST=1; R51-10 #3) The rare Ring / Amulet `chosen` (score `current`) with 20%
+        quality of one catalyst: every catalyst whose tag one of its affixes carries is scored (rares.catalysed_text:
+        PoB scales the matching lines x1.2), priced as the rare + CATALYSTS_PER_20 x the catalyst (exchange); the best
+        kept when it beats the plain rare after prices. Deterministic (a catalyst adds 1% quality each, R52-5)."""
+        prices = self.ctx.payload.get("catalyst_prices") or {}
+        if clock.now() > deadline or not chosen or (not prices and not self.ctx.ssf):
+            return None
+        tags = self.catalyst_tags()
+        names = [n for n in CATALYSTS if (self.ctx.ssf or n in prices) and any(catalyst_matches(n, a, tags)
+                                                                               for a in chosen)]
+        plain_text = rare_text(slot, base, level, chosen)
+        cases = []
+        for name in names:
+            cost = 0.0 if self.ctx.ssf else CATALYSTS_PER_20 * prices[name]
+            if rare_price(slot, chosen) + cost <= left + 1e-9:
+                cases.append((name, cost))
+        if not cases:
+            return None
+        scored = self.deltas(slot, [catalysed_text(plain_text, chosen, tags, n) for n, _ in cases])
+        plain = current - self.lam * rare_price(slot, chosen)
+        value, name, cost = max(((s - self.lam * (rare_price(slot, chosen) + c), n, c)
+                                 for (s, _), (n, c) in zip(scored, cases)), key=lambda x: x[0])
+        if value <= plain + EPSILON:
+            return None
+        raised = sum(1 for a in chosen if catalyst_matches(name, a, tags))
+        note = (f"{name} x{CATALYSTS_PER_20}: {CATALYST_QUALITY}% quality raises the {raised} modifier"
+                f"{'s' if raised != 1 else ''} with its tag ({'/'.join(CATALYSTS[name][1])}) by {CATALYST_QUALITY}% "
+                f"({cost:.3g} div; {CATALYSTS_PER_20} per {CATALYST_QUALITY}% is LOW-MEDIUM, R52-5; deterministic)")
+        price = None if self.ctx.ssf else rare_price(slot, chosen) + cost
+        return ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
+                          catalysed_text(plain_text, chosen, tags, name), False, price,
+                          "ssf" if self.ctx.ssf else "estimate (craft route: catalysts)", base_option.level, rare=True,
+                          affixes=tuple(line for a in chosen for line in a.lines), craft_route=(note,))
+
+    ALDUR_KEEP = 6  # converted affixes of each kind (by a what-if alone) the Aldur route's greedy fill tries (a budget)
+
+    def aldur_trial(self, slot: str, base: dict, base_option: ItemOption, level: int, pools, limits: dict,
+                    shortlist: list, chosen: list, current: float, left: float, deadline: float) -> ItemOption | None:
+        """(SEARCHC2, POE2_SEARCH_ALDUR=1; THE USER 23 Nov: "the breath/ire/passion/betrayal of aldur augments that change
+        a weapon's elemental types around") The rare weapon built for an Aldur rune: affixes picked as they roll on the
+        base (their own groups and spawn tags, so added Fire, Cold and Lightning may sit side by side), scored as the
+        rune leaves them (rares.AldurConverter: poe2db's 78-row table, tier for tier; the implicit untouched, UNVERIFIED),
+        the rune socket-bound in one socket. For each rune: the converted affixes screened alone, the best ALDUR_KEEP of
+        each kind plus the plain shortlist's affixes the rune leaves alone, then a greedy fill while the score after
+        prices rises. Priced as the rare bought with the SOURCE affixes (the rare price model) + the rune (exchange).
+        Kept when it beats the plain rare with its best ordinary rune in that socket (the rune takes it for good). PoB
+        ignores the rune's transform line (R51-10 HIGH), so this rewrite is what scores it; the rune's Bonded line
+        counts only with an unlock (PoB's own switch)."""
+        if clock.now() > deadline or socket_count(base, False) < 1:
+            return None
+        converters = self.__dict__.setdefault("_aldur_converters", {})
+        if pools.roll not in converters:
+            converters[pools.roll] = AldurConverter(self.ctx, pools.roll)
+        converter = converters[pools.roll]
+        used = self.runes_used(slot)
+        pool = pools.pool(base["name"])
+        ssf = self.ctx.ssf
+        best = None  # (value, rune, bought, converted, price)
+        for target, rune in ALDUR_RUNES.items():
+            rune_price = 0.0 if ssf else self.runes.price(rune)
+            if rune_price is None or clock.now() > deadline \
+                    or rune in self.ctx.compiled.filters.forbidden_augments \
+                    or ((limit := self.runes.limit(rune)) and used.get(limit[0], 0) >= limit[1]):
+                continue
+            convert = {a.id: converter.convert(a, target) for a in pool}
+            changed = [a for a in pool if convert[a.id] is not None and convert[a.id] is not a]
+            if not changed:
+                continue
+            screen = self.deltas(slot, [rare_text(slot, base, level, [convert[a.id]], runes=[rune]) for a in changed])
+            ranked = [a for _, a in sorted(zip((s for s, _ in screen), changed), key=lambda x: -x[0])]
+            trial = [a for kind in limits for a in [x for x in ranked if x.type == kind][:self.ALDUR_KEEP]]
+            trial += [a for a in shortlist if convert.get(a.id) is a]  # (affixes the rune leaves as they are)
+
+            def text(affixes, convert=convert, rune=rune):
+                return rare_text(slot, base, level, [convert[a.id] for a in affixes], runes=[rune])
+
+            def cost(affixes, rune_price=rune_price):
+                return rare_price(slot, affixes) + rune_price
+
+            picked: list = []
+            value = None
+            while clock.now() < deadline:
+                groups = {a.group for a in picked}
+                counts = {kind: sum(1 for a in picked if a.type == kind) for kind in limits}
+                options = [c for a in trial if a.group not in groups and counts.get(a.type, 0) < limits.get(a.type, 0)
+                           for c in pools.choices(a, picked) if convert.get(c.id) is not None
+                           and cost(picked + [c]) <= left + 1e-9]
+                if not options:
+                    break
+                scored = self.deltas(slot, [text(picked + [c]) for c in options])
+                gain, pick = max(((s - self.lam * cost(picked + [c]), c) for (s, _), c in zip(scored, options)),
+                                 key=lambda x: x[0])
+                if value is not None and gain <= value + EPSILON:
+                    break
+                picked, value = picked + [pick], gain
+            if value is not None and (best is None or value > best[0]):
+                best = (value, rune, picked, [convert[a.id] for a in picked], cost(picked))
+        if best is None:
+            return None
+        value, rune, bought, converted, price = best
+        plain = current - self.lam * rare_price(slot, chosen)
+        others = [n for n in self.runes.candidates(base, False) if self.runes.price(n) is not None
+                  and not ((limit := self.runes.limit(n)) and used.get(limit[0], 0) >= limit[1])
+                  and rare_price(slot, chosen) + self.runes.price(n) <= left + 1e-9]
+        if others and clock.now() < deadline:
+            socketed = self.deltas(slot, [rare_text(slot, base, level, chosen, runes=[n]) for n in others])
+            plain = max([plain] + [s - self.lam * (rare_price(slot, chosen) + self.runes.price(n))
+                                   for (s, _), n in zip(socketed, others)])
+        if value <= plain + EPSILON:
+            return None
+        moved = sum(1 for a, c in zip(bought, converted) if c is not a)
+        note = (f"{rune}: buy the rare with these affixes ({rare_price(slot, bought):.3g} div, the rare price model; "
+                f"{moved} of them in an element the rune transforms), then socket {rune} first "
+                f"({0.0 if ssf else self.runes.price(rune):.3g} div, socket-bound): every such damage modifier becomes "
+                f"its equivalent, tier for tier (deterministic; poe2db's 78-row table). Modifiers added after socketing "
+                f"are not transformed. The base's implicit is assumed untouched (UNVERIFIED, R52-5)")
+        return ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
+                          rare_text(slot, base, level, converted, runes=[rune]), False, None if ssf else price,
+                          "ssf" if ssf else f"estimate (craft route: {rune})", base_option.level, rare=True,
+                          affixes=tuple(line for a in converted for line in a.lines), runes=(rune,), bound=(rune,),
+                          craft_route=(note,))
 
     ALLOY_KEEP = 2  # Alloy candidates (by a what-if with no modifier lost) whose outcomes are all scored
 
@@ -1294,8 +1460,11 @@ class Gear:
 
         build = self.build
         fillers: list[tuple[str, str]] = []
-        names = [n for n in names if (self.runes.limit(n) or ("",))[0] not in self.FILL_SKIP_GROUPS
-                 or n in self.FILL_ANCIENT_OK]
+        names = [n for n in names if ((self.runes.limit(n) or ("",))[0] not in self.FILL_SKIP_GROUPS
+                                      or n in self.FILL_ANCIENT_OK)
+                 # (SEARCHC2) never a socket-bound augment: it can't be swapped ("the player's choice; swap it freely"
+                 # would be false) and its effect is a craft step (a shard's anoint, an influence rune's affixes), not QoL
+                 and n not in getattr(self.runes, "socket_bound", frozenset())]
         lines = {n: rune_lines([n], base) for n in names}
         before = build.item_deltas([{"slot": slot, "raw": with_runes(raw, chosen)}])[0][1]
         while len(chosen) < count and clock.now() <= deadline:

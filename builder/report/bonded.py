@@ -81,7 +81,11 @@ def mark_text(raw: str, base: dict | None, build_unlocked: bool) -> str:
     """The item text with each Bonded line that doesn't count marked INACTIVE."""
     lines = raw.splitlines()
     names = [m.group(1).strip() for line in lines if (m := RUNE_LINE.match(line.strip()))]
-    idols = bool(base) and idol_unlock(names, base)
+    # (SEARCHC2: the unlock is read from the LINE wherever it shows, the item's own text included, e.g. an imported
+    # Morior Invictus / Hyrri's Ire whose export lists a socketed Fox Idol's line among the item's lines; R52's 20
+    # builds; not from item names)
+    idols = (bool(base) and idol_unlock(names, base)) or any(
+        IDOL_UNLOCK.search(line) and not BONDED_LINE.match(line.strip()) for line in lines)
     kinds: dict[str, str] = {}
     if base:
         for kind, line in bonded_rune_lines(names, base):

@@ -232,6 +232,7 @@ def test_the_extra_socket_routes_are_tried_only_when_switched_on(engine, monkeyp
 class _StubRunes:
     def __init__(self, prices, limits=None):
         self.prices, self.limits = prices, limits or {}
+        self.socket_bound = frozenset({"Raven-Touched Shard"})
 
     def price(self, name):
         return self.prices.get(name, 0.0)

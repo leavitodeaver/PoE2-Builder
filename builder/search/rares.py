@@ -412,6 +412,42 @@ def void_flux_line(line: str) -> str | None:
     return None if _ELEMENTAL_RES.search(line) else line
 
 
+def flux_line(line: str, target: str) -> str | None:
+    """(SEARCHC2) The line after the Flux of `target` ("Chaos": Void Flux, rares.void_flux_line; "Fire" / "Cold" /
+    "Lightning": Blazing / Chilling / Crackling Flux, "Transforms all <A> and <B> Resistance modifiers on an item to
+    equivalent <C> Resistance modifiers", poe2db, read 23 Nov through a helper: the SAME 15-row table on all three pages,
+    whose Fire / Cold / Lightning columns hold the same numbers in every row, so an elemental Flux changes only the element
+    word: single resistances, "+N% to <E> and Chaos Resistances", "+N% to Maximum <E> Resistance"). The line itself where
+    the Flux leaves it; None for an elemental resistance line outside the table (a two-element "Fire and Cold" line, no row:
+    the item isn't fluxed, no guess)."""
+    if target == "Chaos":
+        return void_flux_line(line)
+    for pattern in (_FLUX_RES, _FLUX_HYBRID, _FLUX_MAX):
+        if m := pattern.match(line):
+            value = int(m.group(1))
+            if pattern is _FLUX_RES and _flux_value(value, FLUX_SINGLE) is None:
+                return None
+            if pattern is _FLUX_HYBRID and _flux_value(value, FLUX_HYBRID) is None:
+                return None
+            return line[:m.start(2)] + target + line[m.end(2):]
+    return None if _ELEMENTAL_RES.search(line) and not re.search(r"\ball Elemental\b", line) else line
+
+
+def fluxed(affixes: list[Affix], target: str) -> list[Affix] | None:
+    """The affixes after the Flux of `target` (lines converted, ids marked), or None if nothing changes or a line can't."""
+    out, changed = [], False
+    for affix in affixes:
+        lines = [flux_line(line, target) for line in affix.lines]
+        if any(line is None for line in lines):
+            return None
+        if tuple(lines) != affix.lines:
+            changed = True
+            affix = dataclasses.replace(affix, id=f"{affix.id}+{FLUX_NAMES[target].replace(' ', '')}",
+                                        lines=tuple(lines))
+        out.append(affix)
+    return out if changed else None
+
+
 def void_fluxed(affixes: list[Affix]) -> list[Affix] | None:
     """The affixes after a Void Flux (their lines converted, ids marked), or None if nothing converts or a line can't."""
     out, changed = [], False
@@ -429,6 +465,224 @@ def void_fluxed(affixes: list[Affix]) -> list[Affix] | None:
 def is_elemental_resistance(affix: Affix) -> bool:
     """A single-element resistance affix (what a Void Flux turns into chaos resistance)."""
     return bool(affix.lines) and all(_FLUX_RES.match(line) for line in affix.lines)
+
+
+# The Aldur runes (SEARCHC2; THE USER 23 Nov: "the breath/ire/passion/betrayal of aldur augments that change a weapon's
+# elemental types around"; RESEARCH51 R51-10, the catalogue's #1 DPS lever). Each is socket-bound, rare weapons only
+# (PoB ModRunes: "weapon" / "caster" slots), and "Transforms all <A> and <B> modifiers on the item into equivalent <C>
+# modifiers" (Passion: Cold + Lightning -> Fire; Breath: Fire + Lightning -> Cold; Ire: Fire + Cold -> Lightning;
+# Betrayal: Fire, Cold and Lightning -> Chaos). PoB has NO parse for that line (no ModCache entry; R51-10 HIGH), so the
+# search rewrites the weapon's lines before PoB scores it. Converted mods coexist (an item with added Fire, Cold and
+# Lightning, each its own group, ends with three added-Lightning lines under Ire), which no plain rare can roll.
+# The map is poe2db's "Mod Equivalencies" table on the four rune pages (read 23 Nov through a helper, 78 rows, the same
+# table on all four pages): one row per equivalence, a column per element. Rows whose numbers are the same in every column
+# (damage gained as extra, % increased, +spell levels, penetration, the Runic Ward rows) only change the element word;
+# the added-damage rows (one-hand 46-55, two-hand 56-65) and the Allies rows (66-74) and the ailment rows (41-45) change
+# numbers too, matched by the source column's exact ranges, the roll kept at the same fraction (rares.roll).
+# NOT converted (no table row): resistances (no resistance rows; R51-10), lines without an element word, and the base's
+# IMPLICIT (the rune text doesn't say; R52-5 leans "not converted", MEDIUM-LOW, like Void Flux: UNVERIFIED, so implicits
+# stay as they are). A damage line with an element word that matches no row makes its affix UNAVAILABLE to the route (no
+# guess); an ailment row has no Chaos column (blank on poe2db): such an affix isn't offered under Betrayal.
+ALDUR_RUNES = {"Fire": "Passion of Aldur", "Cold": "Breath of Aldur", "Lightning": "Ire of Aldur",
+               "Chaos": "Betrayal of Aldur"}
+ALDUR_SET = frozenset(ALDUR_RUNES.values())
+ALDUR_ELEMENTS = ("Fire", "Cold", "Lightning", "Chaos")
+# Families whose numbers are the same in every column (poe2db rows 1-40, 76-78): the allowed source ranges
+ALDUR_SAME = {
+    "extra": {(13, 15), (16, 18), (19, 21), (22, 24), (25, 27), (28, 30), (26, 30), (31, 36), (37, 42), (43, 48),
+              (49, 54), (55, 60), (15, 20), (25, 33)},
+    "increased": {(25, 34), (35, 44), (45, 54), (55, 64), (65, 74), (75, 89), (90, 104), (105, 119), (50, 68), (69, 88),
+                  (89, 108), (109, 128), (129, 148), (149, 188), (189, 208), (209, 238)},
+    "level": {(1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (3, 4), (5, 6), (7, 7)},
+    "penetration": {(15, 25)},
+    "runic_ward": {(21, 26), (42, 52)},
+}
+# Rows with per-element numbers: ((low lo, low hi), (high lo, high hi)) per column Fire, Cold, Lightning, Chaos
+_R = lambda a, b, c, d: ((a, b), (c, d))  # noqa: E731
+ALDUR_ADDS = (  # rows 46-65: "Adds (a-b) to (c-d) <E> Damage" (one-hand 46-55, two-hand 56-65)
+    (_R(1, 2, 3, 5), _R(1, 2, 3, 4), _R(1, 1, 4, 6), _R(1, 3, 3, 5)),
+    (_R(4, 6, 7, 10), _R(3, 5, 6, 9), _R(1, 1, 13, 19), _R(3, 5, 7, 11)),
+    (_R(7, 11, 13, 19), _R(6, 9, 10, 16), _R(1, 2, 20, 30), _R(5, 11, 13, 19)),
+    (_R(13, 19, 21, 29), _R(11, 15, 17, 24), _R(1, 2, 36, 52), _R(11, 19, 23, 29)),
+    (_R(20, 24, 32, 37), _R(17, 20, 26, 32), _R(1, 3, 55, 60), _R(19, 23, 31, 37)),
+    (_R(25, 33, 38, 54), _R(22, 29, 34, 44), _R(1, 4, 63, 82), _R(23, 31, 41, 53)),
+    (_R(35, 44, 56, 71), _R(31, 38, 47, 59), _R(1, 6, 85, 107), _R(31, 43, 59, 71)),
+    (_R(47, 59, 74, 97), _R(40, 53, 62, 80), _R(1, 8, 111, 152), _R(43, 59, 73, 97)),
+    (_R(62, 85, 101, 129), _R(55, 69, 83, 106), _R(1, 10, 157, 196), _R(59, 83, 101, 131)),
+    (_R(88, 101, 133, 154), _R(72, 81, 110, 123), _R(1, 12, 202, 234), _R(83, 101, 137, 157)),
+    (_R(2, 4, 5, 7), _R(2, 3, 4, 6), _R(1, 1, 7, 10), _R(2, 3, 5, 7)),
+    (_R(6, 9, 10, 16), _R(5, 8, 9, 14), _R(1, 2, 19, 27), _R(5, 9, 11, 17)),
+    (_R(11, 17, 19, 28), _R(10, 14, 15, 23), _R(1, 3, 31, 43), _R(11, 17, 19, 29)),
+    (_R(19, 27, 30, 42), _R(16, 23, 25, 35), _R(1, 4, 53, 76), _R(19, 29, 31, 41)),
+    (_R(30, 37, 45, 56), _R(25, 30, 38, 46), _R(1, 4, 80, 88), _R(31, 37, 43, 53)),
+    (_R(39, 53, 59, 80), _R(32, 43, 49, 66), _R(1, 6, 93, 122), _R(41, 53, 59, 79)),
+    (_R(56, 70, 84, 107), _R(46, 57, 70, 88), _R(1, 8, 128, 162), _R(59, 71, 83, 107)),
+    (_R(73, 97, 112, 149), _R(60, 80, 92, 121), _R(1, 13, 168, 231), _R(73, 97, 113, 149)),
+    (_R(102, 130, 155, 198), _R(84, 107, 126, 161), _R(1, 16, 239, 300), _R(101, 131, 151, 197)),
+    (_R(135, 156, 205, 236), _R(112, 124, 168, 189), _R(1, 19, 310, 358), _R(137, 157, 199, 239)),
+)
+ALDUR_ALLIES = (  # rows 66-74: "Allies in your Presence deal (a-b) to (c-d) added Attack <E> Damage"
+    (_R(1, 2, 3, 4), _R(1, 2, 3, 4), _R(1, 1, 5, 7), _R(1, 2, 3, 5)),
+    (_R(3, 5, 6, 9), _R(3, 4, 5, 8), _R(1, 1, 10, 15), _R(3, 5, 6, 7)),
+    (_R(6, 8, 10, 13), _R(5, 6, 9, 11), _R(1, 1, 16, 22), _R(6, 7, 11, 13)),
+    (_R(9, 11, 14, 17), _R(7, 8, 12, 14), _R(1, 1, 23, 27), _R(8, 11, 14, 17)),
+    (_R(12, 13, 18, 20), _R(9, 10, 15, 17), _R(1, 1, 28, 32), _R(12, 13, 19, 23)),
+    (_R(14, 16, 21, 26), _R(11, 13, 18, 21), _R(1, 2, 33, 40), _R(14, 17, 21, 29)),
+    (_R(17, 19, 27, 30), _R(14, 15, 22, 24), _R(1, 2, 41, 47), _R(17, 19, 30, 31)),
+    (_R(20, 24, 31, 38), _R(16, 20, 25, 31), _R(1, 3, 48, 59), _R(20, 23, 32, 37)),
+    (_R(25, 29, 39, 45), _R(21, 24, 32, 37), _R(1, 4, 60, 71), _R(24, 29, 38, 47)),
+)
+del _R
+# Rows 41-45: the caster suffixes, Fire "increased Flammability Magnitude", Cold "increased Freeze Buildup", Lightning
+# "increased chance to Shock"; the Chaos column is blank (no equivalent: not converted under Betrayal, no guess)
+ALDUR_AILMENT_TEXT = {"Fire": "increased Flammability Magnitude", "Cold": "increased Freeze Buildup",
+                      "Lightning": "increased chance to Shock"}
+ALDUR_AILMENT = ((51, 60, 31, 40, 51, 60), (61, 70, 41, 50, 61, 70), (71, 80, 51, 60, 71, 80),
+                 (81, 90, 61, 70, 81, 90), (91, 100, 71, 80, 91, 100))
+_NUM = r"(\d+|\(\d+-\d+\))"
+_ALDUR_ADDS = re.compile(rf"^Adds {_NUM} to {_NUM} (Fire|Cold|Lightning) Damage$")
+_ALDUR_ALLIES = re.compile(rf"^Allies in your Presence deal {_NUM} to {_NUM} added Attack (Fire|Cold|Lightning) Damage$")
+_ALDUR_AILMENT = re.compile(r"^\((\d+)-(\d+)\)% (increased Flammability Magnitude|increased Freeze Buildup|"
+                            r"increased chance to Shock)$")
+_ALDUR_SAME = (
+    ("extra", re.compile(rf"^Gain {_NUM}% of Damage as Extra (Fire|Cold|Lightning) Damage$")),
+    ("runic_ward", re.compile(rf"^Gain {_NUM}% of Damage as Extra (Fire|Cold|Lightning) Damage while you are missing "
+                              r"Runic Ward$")),
+    ("increased", re.compile(rf"^{_NUM}% increased (Fire|Cold|Lightning) Damage$")),
+    ("level", re.compile(rf"^\+{_NUM} to Level of all (Fire|Cold|Lightning) Spell Skills$")),
+    ("penetration", re.compile(rf"^Damage Penetrates {_NUM}% (Fire|Cold|Lightning) Resistance$")),
+)
+_ALDUR_ELEMENT = re.compile(r"\b(Fire|Cold|Lightning)\b")
+
+
+def _aldur_span(token: str) -> tuple[int, int]:
+    if token.startswith("("):
+        lo, hi = token[1:-1].split("-")
+        return int(lo), int(hi)
+    return int(token), int(token)
+
+
+def _aldur_token(span: tuple[int, int]) -> str:
+    return str(span[0]) if span[0] == span[1] else f"({span[0]}-{span[1]})"
+
+
+def aldur_line(line: str, target: str) -> str | None:
+    """The line in its RANGE form (the mod's "(a-b)" text) after the Aldur rune of `target` (Fire / Cold / Lightning /
+    Chaos), the line itself where the rune leaves it (no element word, the target's own element, resistances), or None
+    for an elemental damage line poe2db's table has no row for (its affix then isn't offered: no guess)."""
+    if m := _ALDUR_AILMENT.match(line):  # (no element word: the ailment names the element)
+        source = next(e for e, t in ALDUR_AILMENT_TEXT.items() if t == m.group(3))
+        if source == target:
+            return line
+        if target == "Chaos":
+            return None
+        span, col, out = (int(m.group(1)), int(m.group(2))), ("Fire", "Cold", "Lightning").index(source), \
+            ("Fire", "Cold", "Lightning").index(target)
+        row = next((r for r in ALDUR_AILMENT if (r[2 * col], r[2 * col + 1]) == span), None)
+        return None if row is None else f"({row[2 * out]}-{row[2 * out + 1]})% {ALDUR_AILMENT_TEXT[target]}"
+    found = _ALDUR_ELEMENT.search(line)
+    if found is None or found.group(1) == target:
+        return line
+    if m := _ALDUR_ADDS.match(line) or _ALDUR_ALLIES.match(line):
+        source, rows = m.group(3), ALDUR_ADDS if line.startswith("Adds") else ALDUR_ALLIES
+        spans = (_aldur_span(m.group(1)), _aldur_span(m.group(2)))
+        col, out = ALDUR_ELEMENTS.index(source), ALDUR_ELEMENTS.index(target)
+        row = next((r for r in rows if r[col] == spans), None)
+        if row is None:
+            return None
+        low, high = row[out]
+        return line[:m.start(1)] + _aldur_token(low) + line[m.end(1):m.start(2)] + _aldur_token(high) + \
+            line[m.end(2):m.start(3)] + target + line[m.end(3):]
+    for family, pattern in _ALDUR_SAME:
+        if (m := pattern.match(line)) and _aldur_span(m.group(1)) in ALDUR_SAME[family]:
+            return line[:m.start(2)] + target + line[m.end(2):]
+    if "Resistance" in line and "Penetrates" not in line:  # (resistances: no rows; Void Flux's job)
+        return line
+    return None if "Damage" in line else line
+
+
+# Catalysts (SEARCHC2; RESEARCH51 R51-10 #3, R52-5): quality on a Ring or Amulet that raises its modifiers carrying the
+# catalyst's tag, x(100 + quality)% (PoB Classes/Item.lua getCatalystScalar: the tag lists below are PoB's catalystTags;
+# the game file text says only "<kind> modifiers": PoB's tags taken, MEDIUM). PoB applies it only to lines that carry their
+# mod's tags ("{tags:...}" prefixes) on an item with "Catalyst:" / "CatalystQuality:" lines, which the search's text had
+# neither of: catalysed_text writes both. 20% quality = CATALYSTS_PER_20 catalysts (R52-5: no per-use number anywhere;
+# 1% each at item level 75+, LOW-MEDIUM). The +20% maximum (40%: Essence of the Breach / a Breach Ring) isn't offered
+# yet (the Essence removes a random modifier: an odds route).
+CATALYSTS = {  # exchange name -> (PoB's name, the tags it raises)
+    "Flesh Catalyst": ("Flesh", ("life",)), "Neural Catalyst": ("Neural", ("mana",)),
+    "Carapace Catalyst": ("Carapace", ("defences", "armour", "evasion", "energyshield")),
+    "Uul-Netol's Catalyst": ("Uul-Netol's", ("physical",)), "Xoph's Catalyst": ("Xoph's", ("fire",)),
+    "Tul's Catalyst": ("Tul's", ("cold",)), "Esh's Catalyst": ("Esh's", ("lightning",)),
+    "Chayula's Catalyst": ("Chayula's", ("chaos",)), "Reaver Catalyst": ("Reaver", ("attack",)),
+    "Sibilant Catalyst": ("Sibilant", ("caster",)), "Skittering Catalyst": ("Skittering", ("speed",)),
+    "Adaptive Catalyst": ("Adaptive", ("attribute",)), "Necrotic Catalyst": ("Necrotic", ("minion",)),
+}
+CATALYST_TYPES = frozenset({"Ring", "Amulet"})
+CATALYST_QUALITY = 20
+CATALYSTS_PER_20 = 20  # (LOW-MEDIUM, R52-5)
+
+
+def catalyst_matches(catalyst: str, affix: Affix, tags_by_id: dict[str, tuple[str, ...]]) -> bool:
+    return bool(set(CATALYSTS[catalyst][1]) & set(tags_by_id.get(affix.id.split("+")[0], ())))
+
+
+def catalysed_text(text: str, affixes: list[Affix], tags_by_id: dict[str, tuple[str, ...]], catalyst: str,
+                   quality: int = CATALYST_QUALITY) -> str:
+    """An item text (rare_text) with `quality`% of the catalyst: the Catalyst lines after "Item Level:" and each affix
+    line prefixed with its mod's tags, so PoB scales the matching ones (the affix lines are found after "Implicits:")."""
+    lines = text.split("\n")
+    at = next(i for i, l in enumerate(lines) if l.startswith("Item Level:")) + 1
+    lines[at:at] = [f"Catalyst: {CATALYSTS[catalyst][0]}", f"CatalystQuality: {quality}"]
+    start = next((i for i, l in enumerate(lines) if l.startswith("Implicits:")), at)
+    start += 1 + (int(lines[start].split(":", 1)[1]) if lines[start].startswith("Implicits:") else 0)
+    done: set[int] = set()
+    for affix in affixes:
+        tags = tags_by_id.get(affix.id.split("+")[0])
+        if not tags:
+            continue
+        for line in affix.lines:
+            i = next((j for j in range(start, len(lines)) if j not in done and lines[j] == line), None)
+            if i is not None:
+                lines[i] = "{tags:" + ",".join(tags) + "}" + line
+                done.add(i)
+    return "\n".join(lines)
+
+
+class AldurConverter:
+    """Each pool affix's lines after an Aldur rune, from the mod's range text (ctx.data.mods), rolled at the pools'
+    fraction like the affix itself."""
+
+    def __init__(self, ctx: Context, fraction: float) -> None:
+        self.fraction = fraction
+        self.ranges = {m["id"]: mod_lines(m) for m in ctx.data.mods.get("Item", [])}
+        self._memo: dict[tuple[str, str], Affix | None] = {}
+
+    def convert(self, affix: Affix, target: str) -> Affix | None:
+        """The affix after the rune (id marked), the affix itself when the rune leaves it as it is, or None when a line
+        can't be converted (or the mod's range text is unknown and a line has an element word)."""
+        key = (affix.id, target)
+        if key not in self._memo:
+            ranges = self.ranges.get(affix.id)
+            if ranges is None or len(ranges) != len(affix.lines):
+                self._memo[key] = affix if not any(_ALDUR_ELEMENT.search(x) for x in affix.lines) else None
+            else:
+                lines = [aldur_line(x, target) for x in ranges]
+                if any(x is None for x in lines):
+                    self._memo[key] = None
+                elif lines == ranges:
+                    self._memo[key] = affix
+                else:
+                    self._memo[key] = dataclasses.replace(
+                        affix, id=f"{affix.id}+{ALDUR_RUNES[target].split()[0]}", lower=None,
+                        lines=tuple(roll(x, self.fraction) for x in lines))
+        return self._memo[key]
+
+
+def aldur_weapon(base: dict) -> bool:
+    """A weapon an Aldur rune can go in (rare weapons only: martial and caster weapons; not a Shield / Focus / Quiver,
+    whose rune categories include "caster" for other augments)."""
+    return base["type"] not in ("Shield", "Focus", "Quiver", "Amulet", "Ring", "Belt", "Helmet", "Body Armour", "Gloves",
+                                "Boots", "Jewel", "Flask", "Charm") and bool(rune_categories(base) & {"weapon", "caster"})
 
 
 # Sockets ------------------------------------------------------------------------------------
@@ -613,6 +867,13 @@ class RuneCatalog:
                     break
         return found
 
+    @cached_property
+    def socket_bound(self) -> frozenset[str]:
+        """(SEARCHC2) augments that can't be removed once socketed (PoB isSocketBound: 17 in runes.json, the Aldur
+        runes, influence runes, Serle's / Astrid's kin, the Raven-Touched Shard, Atziri's Soul Cores, Cadigan's)"""
+        return frozenset(r["name"] for r in self.ctx.data.runes
+                         if any(isinstance(e, dict) and e.get("isSocketBound") for e in r["slots"].values()))
+
     def limit(self, name: str) -> tuple[str, int] | None:
         """(limit group, how many a character may use) for runes with a per-character limit."""
         return self.limits.get(name)
@@ -635,6 +896,8 @@ class RuneCatalog:
         for rune in self.ctx.data.runes:
             if rune["name"] in self.ctx.compiled.filters.forbidden_augments or (sealed and rune["name"] in NOT_IN_SEALED):
                 continue
+            if rune["name"] in ALDUR_SET:  # (SEARCHC2: an Aldur rune only through Gear.aldur_trial, which rewrites the
+                continue                   # weapon's lines; in a plain fill PoB would score its transform as nothing)
             slots = rune["slots"]
             entries = [slots[c] for c in categories if c in slots]
             entries += [slots[c] for c in cores - categories if c in slots and slots[c].get("type") == "SoulCore"]

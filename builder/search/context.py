@@ -803,6 +803,12 @@ def context_for(payload: dict) -> Context:
     return _cache[key]
 
 
+def catalyst_names() -> tuple[str, ...]:
+    """(SEARCHC2) the catalysts the search prices (rares.CATALYSTS; imported here, rares imports this module)."""
+    from builder.search.rares import CATALYSTS
+    return tuple(CATALYSTS)
+
+
 def make_payload(request: BuildRequest, prices=None) -> dict:
     """Plain data for workers: the request and the prices it may spend on (`prices` is a
     builder.data.prices.PriceTable, or None when there's no price data)."""
@@ -836,6 +842,9 @@ def make_payload(request: BuildRequest, prices=None) -> dict:
         "flux_prices": {} if prices is None else {name: prices.exchange[name].divine for name in
                                                   ("Void Flux", "Blazing Flux", "Chilling Flux", "Crackling Flux")
                                                   if name in prices.exchange},
+        # (SEARCHC2) the plain catalysts' exchange prices (Gear.catalyst_trial); {} without price data
+        "catalyst_prices": {} if prices is None else {name: prices.exchange[name].divine for name in
+                                                      catalyst_names() if name in prices.exchange},
         "league": league,
         "rare_model": rare_prices.RarePriceModel.load(league).payload(),
         "craft_prices": craft_prices(prices),

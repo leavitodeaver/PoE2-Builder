@@ -3432,8 +3432,9 @@ def test_augments_the_game_keeps_out_of_corrupted_items_stay_out_of_them():
                                 compiled=types.SimpleNamespace(filters=types.SimpleNamespace(forbidden_augments=set())))
     catalog = RuneCatalog(ctx, {n["name"]: 1.0 for n in runes})
     base = {"type": "Body Armour"}
+    # (SEARCHC2: an Aldur rune is never a plain socket pick, sealed or not: only Gear.aldur_trial socket-binds one)
     assert catalog.candidates(base, True, "Rarity: UNIQUE\nSome Unique\nSome Base\n+10 to Strength") == \
-        ["Kolr's Hunt", "Breath of Aldur", "Desert Rune"]
+        ["Kolr's Hunt", "Desert Rune"]
     for seal in ("Corrupted", "Sanctified"):
         assert catalog.candidates(base, True, f"Rarity: UNIQUE\nSome Unique\nSome Base\n+10 to Strength\n{seal}") == \
             ["Desert Rune"]
