@@ -121,6 +121,18 @@ def test_the_key_moves_with_the_objectives_weights(engine, monkeypatch):
     assert gems.choice_key(False, ()) != gems.choice_key(True, ())
 
 
+def test_the_key_reads_any_dict_keys_and_sets_in_a_fixed_order():
+    """POE2T7805: the scoring state's uptime_floor has frozenset keys, which json.dumps refuses (the memo's check mode
+    stopped a gate run's reference scoring)."""
+    from builder.search.gems import canonical
+    import json
+
+    a = {"uptime_floor": {frozenset({"b", "a"}): 1.0, frozenset({"c"}): 2.0}, "s": {3, 1, 2}, "t": (1, 2)}
+    b = {"t": (1, 2), "s": {2, 3, 1}, "uptime_floor": {frozenset({"c"}): 2.0, frozenset({"a", "b"}): 1.0}}
+    assert json.dumps(canonical(a)) == json.dumps(canonical(b))
+    assert json.dumps(canonical({**a, "t": (2, 1)})) != json.dumps(canonical(a))
+
+
 # Proposal 4 (run.FULL_LAST): only the last focus round scores Full DPS -------------------------------------------------
 
 

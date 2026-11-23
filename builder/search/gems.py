@@ -68,6 +68,23 @@ ADDED_LABELS = (PERSISTENT_LABEL, BLASPHEMY_LABEL, META_LABEL, MARK_LABEL, MIRAG
 # remembered end (choice and score): Gems.choice_memo counts hits, agreements and disagreements.
 CHOICE_MEMO = os.environ.get("POE2_SEARCH_CHOICE_MEMO", "0")
 CHOICE_MEMO_SIZE = 64  # remembered states (each a build snapshot), oldest dropped first
+
+
+def canonical(value):
+    """(CHOICE_MEMO) A value as plain JSON in a fixed order: dict keys of any type (the scoring state's uptime_floor has
+    frozenset keys) and sets become sorted lists of their reprs; other objects their repr."""
+    import json
+
+    if isinstance(value, dict):
+        return sorted(([k if isinstance(k, str) else json.dumps(canonical(k)), canonical(v)] for k, v in value.items()),
+                      key=lambda kv: kv[0])
+    if isinstance(value, (list, tuple)):
+        return [canonical(v) for v in value]
+    if isinstance(value, (set, frozenset)):
+        return sorted(json.dumps(canonical(v)) for v in value)
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return repr(value)
 GRANTED_SUPPORT_ROUNDS = 6  # support changes a granted meta group gets right after its spell (fill_granted_supports)
 GRANTED_FILL_SECONDS = 60.0  # time a granted meta's fill (fill_granted) may take within one ascendancy trial
 MIRAGE_TRIALS = 3  # ranged Attacks per Mirage tried for real (ranked by what PoB says each adds to Full DPS)
@@ -1142,7 +1159,10 @@ class Gems:
         parts = self.choice_parts(settle, assume)
         if parts is None:
             return None
-        text = json.dumps(parts, sort_keys=True, default=repr)
+        try:
+            text = json.dumps(canonical(parts))
+        except (TypeError, ValueError, RecursionError):
+            return None  # (an unreadable state: the choice runs as without the memo)
         return hashlib.blake2b(text.encode("utf-8", "replace"), digest_size=16).hexdigest()
 
     def choose_active_skill(self, settle: bool = True, assume: tuple[str, ...] = ()) -> None:
