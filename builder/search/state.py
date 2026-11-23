@@ -6,6 +6,7 @@ evaluations and streams progress.
 from __future__ import annotations
 
 import math
+import os
 from collections.abc import Callable
 from typing import Any
 
@@ -17,6 +18,72 @@ from builder.search.objective import CLEAR_FIELDS, COST_WARNINGS, EHP_FIELDS_PRE
 EPSILON = 1e-6  # smallest score gain worth committing
 PROGRESS_INTERVAL = 1.0
 DELTA_CHUNK = 150  # what-ifs per engine call
+
+# (SEARCHB5, the manager's ruling 22 Nov: SEARCHB4's plan, on a loan of this path) A support our models value (GEM's
+# gem_stat supports, the condition sources, the meta Energy supports, any support a model names) reads only its PoB part in
+# a gem what-if (_scored adds the build's CURRENT model output to every case), often +0: on S2 Cadence and Blazing
+# Critical read +0 and about +5% for real, Her Declaration +0 and +8.5%; the models also cut (Fist of Kalguur: what-if
+# +0.90, real +0.025; POE2T6304 / 6295). With the switch on, gem_deltas gives the model-valued support cases (put in or
+# taken out) and the best few by what-if a real trial: the group set, the conditions and models settled, scored, the group
+# put back
+GEM_RESCORE_SWITCH = "POE2_SEARCH_GEM_RESCORE"  # "1" on; OFF by default until its gate pair
+RESCORE_GEMS = 4  # LOW, a search-effort setting: the best what-if support cases per call that get a real trial
+MODEL_GEMS = 8  # LOW, the same: model-valued support cases per call that get one (the best by what-if first)
+GEM_RESCORE_SECONDS = 15.0  # LOW, the same: the real trials' time per call (a trial took 0.9-3.9 s, POE2T6304)
+
+
+def gem_rescore_enabled() -> bool:
+    """The switch, read at call time (a gate arm sets it per run)."""
+    return os.environ.get(GEM_RESCORE_SWITCH, "0") == "1"
+
+
+_MODEL_SOURCE: list[str] = []  # the models, conditions and assumptions modules' source, read once a process
+
+
+def _model_named_supports(ctx: Context) -> set[str]:
+    """The supports model_valued_supports names without the live condition check."""
+    import inspect
+
+    from builder.ledger import gem_stat_entries
+    from builder.search import assumptions as assumptions_module
+    from builder.search import conditions as conditions_module
+    from builder.search import models
+
+    named: set[str] = set(models.META_SUPPORTS)
+    for entry in gem_stat_entries():
+        if entry.raw.get("support"):
+            skills = entry.raw.get("skill") or []
+            named.update([skills] if isinstance(skills, str) else skills)
+    if not _MODEL_SOURCE:
+        _MODEL_SOURCE.append("".join(inspect.getsource(m) for m in (models, conditions_module, assumptions_module)))
+    text = _MODEL_SOURCE[0]
+    for name, gem in ctx.gems.items():
+        effect = gem.get("grantedEffectId")
+        if gem.get("support") and (f'"{name}"' in text or (effect and f'"{effect}"' in text)):
+            named.add(name)
+    named.add("")  # (never empty once read)
+    return named
+
+
+def model_valued_supports(ctx: Context, conditions: Any = None) -> Callable[[str], bool]:
+    """Whether our models may value a support gem past its PoB part: GEM's gem_stat support entries (the ledger), the meta
+    Energy supports (models.META_SUPPORTS), any support whose name or granted effect id the models, conditions or
+    assumptions code names (a support-name constant such as CADENCE_SUPPORTS, conditions.HER_DECLARATION; also a name in
+    a comment there: a wider net costs only a trial), and, live, a support whose description could turn on a condition
+    that is off now or raise a charge count (conditions.would_enable, as Gems.discover). LABELLED: a search-effort net,
+    not a list of every model; the RESCORE_GEMS best what-ifs are tried whatever it says."""
+    named: set[str] = set()
+
+    def valued(name: str) -> bool:
+        if not named:  # (once, at the first rescore: the scan reads the three modules' source)
+            named.update(_model_named_supports(ctx))
+        if name in named:
+            return True
+        if conditions is None:
+            return False
+        return bool(conditions.would_enable((ctx.gems.get(name) or {}).get("description") or ""))
+
+    return valued
 
 
 class OutOfTime(Exception):
@@ -78,6 +145,15 @@ class Build:
         # The what-if limit: re-scoring item moves a model reads (set by the search; see item_deltas)
         self.reassume: Callable[[], Any] | None = None  # re-applies the custom models to the current build
         self.rescored = 0  # item candidates re-scored with a real trial
+        # (SEARCHB5) The support what-ifs' real trials (gem_deltas, GEM_RESCORE_SWITCH): `model_gem(name)` says whether a
+        # model values the gem, `gem_settle()` settles the conditions and models after a change (Search.settle); both set
+        # by the search. Counts and the last trials (gem, what-if, real) for reading a run
+        self.model_gem: Callable[[str], bool] | None = None
+        self.gem_settle: Callable[[], Any] | None = None
+        self.gem_rescored = 0
+        self.gem_rescore_restores = 0
+        self.gem_rescore_log: list[dict] = []
+        self._gem_trial = False
         self._model_texts: tuple[int, list[str]] = (-1, [])
         # The hard stop (Search.run sets it a little past the task's deadline): every step used to
         # finish its own trials first, so a 600 s gate run took about 966 s (MECH15's runs, 8 Nov)
@@ -213,7 +289,101 @@ class Build:
         return self._deltas("nodeDeltas", cases)
 
     def gem_deltas(self, cases: list[dict], skip_ehp: bool = True) -> list[tuple[float, dict]]:
-        return self._deltas("gemDeltas", cases, fill_from_base=skip_ehp, skipEHP=skip_ehp)
+        scored = self._deltas("gemDeltas", cases, fill_from_base=skip_ehp, skipEHP=skip_ehp)
+        if (cases and self.model_gem is not None and self.gem_settle is not None and not self._gem_trial
+                and gem_rescore_enabled()):
+            scored = self._rescore_model_gems(cases, scored)
+        return scored
+
+    def _support_cases(self, cases: list[dict], groups: dict[int, dict]) -> dict[int, str]:
+        """{case index: the support it puts in or takes out} for the cases that change one support slot of a group."""
+        found = {}
+        for i, case in enumerate(cases):
+            group = groups.get(case.get("group")) if "newGroup" not in case else None
+            slot = case.get("slot")
+            if group is None or not isinstance(slot, int) or not 1 <= slot <= len(group["gems"]) + 1:
+                continue
+            if case.get("remove"):
+                if slot <= len(group["gems"]) and group["gems"][slot - 1]["support"]:
+                    found[i] = group["gems"][slot - 1]["name"]
+            elif case.get("gem") and (self.ctx.gems.get(case["gem"]) or {}).get("support"):
+                found[i] = case["gem"]
+        return found
+
+    @staticmethod
+    def _group_gems(group: dict) -> list[dict]:
+        """A group's gems as setGroup takes them, exactly as they are (level, quality, on or off, the granted effect)."""
+        return [{"name": g["name"], "level": g["level"], "quality": g["quality"], "enabled": g["enabled"],
+                 **({"skillId": g["skillId"]} if g.get("skillId") else {})} for g in group["gems"]]
+
+    @classmethod
+    def _trial_gems(cls, group: dict, case: dict) -> list[dict]:
+        """The group's gems with the case's change, as gemDeltas makes it (a gem put in an existing slot keeps that slot's
+        quality, a new slot's has none, a removed one is disabled; the case's level, else the gem's own default)."""
+        gems = cls._group_gems(group)
+        slot = case["slot"]
+        level = {"level": case["level"]} if case.get("level") else {}
+        if case.get("remove"):
+            gems[slot - 1]["enabled"] = False
+        elif slot == len(gems) + 1:
+            gems.append({"name": case["gem"], **level})
+        else:
+            gems[slot - 1] = {"name": case["gem"], "quality": gems[slot - 1]["quality"], **level}
+        return gems
+
+    def _rescore_model_gems(self, cases: list[dict], scored: list[tuple[float, dict]]) -> list[tuple[float, dict]]:
+        """The RESCORE_GEMS best support cases by what-if, and the model-valued ones (at most MODEL_GEMS more, the best by
+        what-if first), get a real trial: the group set with the change, the conditions and models settled (gem_settle),
+        scored, and the group put back as it was. `remove` cases too (weakest_slot read a model-valued support as free to
+        take out). At most GEM_RESCORE_SECONDS of trials a call, none in the last GEM_RESCORE_SECONDS before the hard
+        stop; a trial PoB refuses keeps its what-if. The build ends where it began: settled again after the last put-back,
+        and the snapshot restored if the score moved."""
+        groups = {g["index"]: g for g in self.groups()}
+        support = self._support_cases(cases, groups)
+        if not support:
+            return scored
+        by_whatif = sorted(support, key=lambda i: -scored[i][0])
+        picks = by_whatif[:RESCORE_GEMS]
+        model = [i for i in by_whatif if i not in picks and self.model_gem(support[i])][:MODEL_GEMS]
+        picks += model
+        started = clock.now()
+        before = self.score
+        snap = self.snapshot()
+        self._gem_trial = True
+        try:
+            for i in picks:
+                now = clock.now()
+                if now - started > GEM_RESCORE_SECONDS or (self.stop_at is not None
+                                                           and now > self.stop_at - GEM_RESCORE_SECONDS):
+                    break
+                case, group = cases[i], groups[cases[i]["group"]]
+                whatif = scored[i][0]
+                row: dict = {"gem": support[i], "remove": bool(case.get("remove")), "model": i in model,
+                             "whatif": round(whatif - before, 4)}
+                try:
+                    self.call("setGroup", index=group["index"], gems=self._trial_gems(group, case), fields=[])
+                    self.gem_settle()
+                    stats = self.objective.prepare({**self.call("stats", fields=self.objective.fields),
+                                                    **self.added_stats()})
+                    scored[i] = (self.objective.score(stats), stats)
+                    self.gem_rescored += 1
+                    row["real"] = round(scored[i][0] - before, 4)
+                except OutOfTime:
+                    raise
+                except Exception as error:  # (a trial PoB refuses: its what-if stays)
+                    row["error"] = repr(error)[:160]
+                finally:
+                    self.call("setGroup", index=group["index"], gems=self._group_gems(group), fields=[])
+                self.gem_rescore_log.append(row)
+                del self.gem_rescore_log[:-200]
+        finally:
+            self._gem_trial = False
+            self.gem_settle()
+            self.refresh()
+            if abs(self.score - before) > EPSILON:
+                self.gem_rescore_restores += 1
+                self.restore(snap)
+        return scored
 
     def item_deltas(self, cases: list[dict]) -> list[tuple[float, dict]]:
         # (SEARCH29) an item what-if replaces its slot's Alloy factor: the others' product x the candidate's own

@@ -43,7 +43,7 @@ from builder.search.objective import (
 )
 from builder.search.skeletons import Skeleton, is_button, offhand_non_unique, offhand_types, seed_skeleton, slot_bases, swap_skills
 from builder.search.sources import Sources
-from builder.search.state import EPSILON, Build, OutOfTime
+from builder.search.state import EPSILON, Build, OutOfTime, model_valued_supports
 from builder.search.tree import Tree
 from builder.search.usage import Usage
 
@@ -158,6 +158,10 @@ class Search:
         self.gems.conditions = self.conditions
         self.assumptions = Assumptions(self.build)
         self.build.reassume = self.assumptions.apply  # item what-ifs a model reads get a real trial (Build.item_deltas)
+        # (SEARCHB5, on the manager's loan of the gem_deltas path) support what-ifs a model values get a real trial
+        # (Build.gem_deltas, POE2_SEARCH_GEM_RESCORE, off by default)
+        self.build.model_gem = model_valued_supports(self.ctx, self.conditions)
+        self.build.gem_settle = self.settle
         self.gems.resolve = self.resolve
         self.gems.settle = self.settle
         self.gems.assumptions = self.assumptions
