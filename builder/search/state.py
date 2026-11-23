@@ -33,6 +33,32 @@ GEM_RESCORE_SECONDS = 15.0  # LOW, the same: the real trials' time per call (a t
 GEM_RESCORE_SHARE = 0.1  # LOW, the same: the trials' share of a task's time so far (gate POE2T6312 without it: x0.77)
 
 
+# (SEARCHB6; the manager's 08:30 23 Nov, after MECHB58's 65c921c0) Supports whose whole value lives in OUR models, which a
+# PoB what-if reads as a loss: PoB adds no hit for a spell's Echo (it maps support_spell_echo_number_of_echo_cascades to
+# RepeatCount and only averages modifiers, CalcOffence 3008 / 1229-1231), so Spell Echo reads as its 30% less cast speed
+# and Zarokh's Refrain as no change, while models.spell_echo_model counts the Echoes as hits (Comet: PoB 188 -> 375).
+# Without a real trial the support rounds never pick them and weakest_slot takes them out. The wide rescore
+# (GEM_RESCORE_SWITCH) would, but it costs a timed run x0.41 (POE2T6316). This narrow one trials only these supports'
+# cases, only on a group whose active skill has the types the model needs, and only within GEM_RESCORE_SHARE.
+# Granted effect -> the active skill types the model needs (all of them). The supports that grant the stat (checked:
+# support_spell_echo_number_of_echo_cascades, Stats row 17810, in GrantedEffectStatSets' constant and per-level stats,
+# mapped through GrantedEffects' StatSet / AdditionalStatSets, game build 26650308: exactly SupportSpellEchoPlayer and
+# SupportZarokhsRefrainPlayer; tests/test_searchb6_hooked.py rescans the tables; poe2db's support list, 23 Nov: only Spell
+# Echo "Echo 1 times" and Zarokh's Refrain "Echo 3 times" make spells Echo, Echoing Cry being the warcry kind; its list
+# page read truncated at the very end). Add a support here when a model gives
+# it value PoB's what-if can't see.
+MODEL_HOOKED_SUPPORTS: dict[str, tuple[str, ...]] = {
+    "SupportSpellEchoPlayer": ("Spell", "Cascadable"),
+    "SupportZarokhsRefrainPlayer": ("Spell", "Cascadable"),
+}
+HOOKED_SWITCH = "POE2_SEARCH_HOOKED_RESCORE"  # "0" off; ON by default (it does nothing for a build no hooked support fits)
+HOOKED_GEMS = 3  # LOW, a search-effort setting: hooked support cases per call that get a real trial
+
+
+def hooked_rescore_enabled() -> bool:
+    return os.environ.get(HOOKED_SWITCH, "1") == "1"
+
+
 def gem_rescore_enabled() -> bool:
     """The switch, read at call time (a gate arm sets it per run)."""
     return os.environ.get(GEM_RESCORE_SWITCH, "0") == "1"
@@ -294,10 +320,38 @@ class Build:
 
     def gem_deltas(self, cases: list[dict], skip_ehp: bool = True) -> list[tuple[float, dict]]:
         scored = self._deltas("gemDeltas", cases, fill_from_base=skip_ehp, skipEHP=skip_ehp)
-        if (cases and self.model_gem is not None and self.gem_settle is not None and not self._gem_trial
-                and gem_rescore_enabled()):
-            scored = self._rescore_model_gems(cases, scored)
+        if cases and self.model_gem is not None and self.gem_settle is not None and not self._gem_trial:
+            if gem_rescore_enabled():
+                scored = self._rescore_model_gems(cases, scored)
+            elif hooked_rescore_enabled():
+                scored = self._rescore_model_gems(cases, scored, hooked=True)
         return scored
+
+    def _hooked_picks(self, cases: list[dict], groups: dict[int, dict], support: dict[int, str],
+                      scored: list[tuple[float, dict]]) -> list[int]:
+        """The cases a MODEL_HOOKED_SUPPORTS support is put in or taken out of a group whose enabled active skill has the
+        types its model needs: for each (support, group), its best put-in case by what-if and its take-out case; at most
+        HOOKED_GEMS, put-ins first."""
+        def fits(name: str, group: dict) -> bool:
+            need = MODEL_HOOKED_SUPPORTS.get((self.ctx.gems.get(name) or {}).get("grantedEffectId") or "")
+            if not need:
+                return False
+            actives = [self.ctx.gems.get(g["name"]) or {} for g in group["gems"] if g["enabled"] and not g["support"]]
+            return any(set(need) <= set(a.get("skillTypes") or ()) for a in actives)
+
+        adds: dict[tuple[str, int], int] = {}
+        removes: list[int] = []
+        for i, name in support.items():
+            group = groups[cases[i]["group"]]
+            if not fits(name, group):
+                continue
+            if cases[i].get("remove"):
+                removes.append(i)
+            else:
+                key = (name, group["index"])
+                if key not in adds or scored[i][0] > scored[adds[key]][0]:
+                    adds[key] = i
+        return [*adds.values(), *removes][:HOOKED_GEMS]
 
     def _support_cases(self, cases: list[dict], groups: dict[int, dict]) -> dict[int, str]:
         """{case index: the support it puts in or takes out} for the cases that change one support slot of a group."""
@@ -335,15 +389,19 @@ class Build:
             gems[slot - 1] = {"name": case["gem"], "quality": gems[slot - 1]["quality"], **level}
         return gems
 
-    def _rescore_model_gems(self, cases: list[dict], scored: list[tuple[float, dict]]) -> list[tuple[float, dict]]:
+    def _rescore_model_gems(self, cases: list[dict], scored: list[tuple[float, dict]],
+                            hooked: bool = False) -> list[tuple[float, dict]]:
         """The RESCORE_GEMS best support cases by what-if, and the model-valued ones (at most MODEL_GEMS more, the best by
         what-if first), get a real trial: the group set with the change, the conditions and models settled (gem_settle),
         scored, and the group put back as it was. `remove` cases too (weakest_slot read a model-valued support as free to
         take out). At most GEM_RESCORE_SECONDS of trials a call, none in the last GEM_RESCORE_SECONDS before the hard
         stop; a trial PoB refuses keeps its what-if. The build ends where it began: settled again after the last put-back,
-        and the snapshot restored if the score moved."""
+        and the snapshot restored if the score moved. `hooked` (SEARCHB6): only the MODEL_HOOKED_SUPPORTS cases
+        (_hooked_picks), with the same time guards."""
         groups = {g["index"]: g for g in self.groups()}
         support = self._support_cases(cases, groups)
+        if hooked:
+            support = {i: support[i] for i in self._hooked_picks(cases, groups, support, scored)}
         if not support:
             return scored
         # (the time guards, gate POE2T6312: with only the per-call cap the trials took 2b75d's probe tasks' tree time and
@@ -355,8 +413,8 @@ class Build:
             return scored
         limit = min(GEM_RESCORE_SECONDS, left)
         by_whatif = sorted(support, key=lambda i: -scored[i][0])
-        picks = by_whatif[:RESCORE_GEMS]
-        model = [i for i in by_whatif if i not in picks and self.model_gem(support[i])][:MODEL_GEMS]
+        picks = by_whatif[:RESCORE_GEMS] if not hooked else list(support)
+        model = [] if hooked else [i for i in by_whatif if i not in picks and self.model_gem(support[i])][:MODEL_GEMS]
         picks += model
         before = self.score
         snap = self.snapshot()
