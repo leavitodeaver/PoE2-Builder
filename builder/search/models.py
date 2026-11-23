@@ -19,6 +19,7 @@ Energy node shows its worth without a real trial. Inputs on items count from the
 
 from __future__ import annotations
 
+import functools
 import itertools
 import math
 import os
@@ -12612,8 +12613,9 @@ def hazard_count_model(main: Skill | None, stats: dict) -> tuple[list[dict], lis
 #   - additional_companions_from_wolf_packs / _hyena_cackles: no Mod, passive or stat set grants them (the same search);
 #     Wolf Pack and Cackling Companions are one Companion each "for effects that count or limit Companions" (their texts).
 # What takes a slot: every skill the game types Companion / CreatesCompanion (the bridge's `companion`), except Wild
-# Protector ("The Bear Spirit does not count toward your Companion limit") and His Grave Command (it commands, it summons
-# nothing). Rhoa Mount and Summon Companion count (their texts call them Companions; no exemption line: MEDIUM). A
+# Protector ("The Bear Spirit does not count toward your Companion limit") and His Grave Command (it Hinders a Rare Undead; one defeated is
+# captured into a Soul Crystal skill, and THAT skill summons it as a Reviving Companion: AUDIT37 P4; the crystal's 0-20%
+# more Minion Life is on SoulCrystalPlayer, which PoB doesn't build, so that Companion counts 0: an undercount). Rhoa Mount and Summon Companion count (their texts call them Companions; no exemption line: MEDIUM). A
 # group is one Companion; its type is its Companion skill's name ("Companion: <beast>" for Tame Beast, so two different
 # beasts are two types: HIGH, patch 0.2.1 "Fixed a bug on gamepad where you could not enable more than one Tamed Beast
 # companion of a different monster type", and a player report of a Cerberic Bat and a Riverdrake out together; RESEARCH28
@@ -12623,7 +12625,7 @@ def hazard_count_model(main: Skill | None, stats: dict) -> tuple[list[dict], lis
 COMPANION_TWO = re.compile(r"^You can have two Companions of different types$", re.I)
 COMPANION_ANY = re.compile(r"^You can have any number of Companions of different types$", re.I)
 COMPANION_FREE = {"Wild Protector": "its Bear Spirit does not count toward your Companion limit (its text)",
-                  "His Grave Command": "it commands your Companions; it summons none"}
+                  "His Grave Command": "it summons no Companion itself; its Soul Crystal skill summons what it captures"}
 COMPANION_PER_TYPE = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) Damage per each different Companion in your "
                                 r"Presence$", re.I)
 
@@ -14246,12 +14248,56 @@ def blades_on_boss(radius: float) -> float:
     return KNIVES * min(1.0, ((BLADE_RADIUS + max(radius, 0.0)) / BLADE_SPREAD) ** 2)
 
 
+# The spaced chain (MECH104; RESEARCH54 R54-3, a likely UNDERCOUNT at a cooldown over the clone's 4 s): the old reading spent
+# the stored uses together (x1.5 with 3). A player can instead use it again just before the clone expires, drawing the
+# store down while it refills, so one chain runs ~11 uses at the base 5 s (x2.95): the same uses a second, a higher bonus.
+# A play strategy within the button cap (CLAUDE.md), MEDIUM-LOW. UNVERIFIED: that one stored use refills per cooldown, and
+# what resets "consecutively" (no source defines it: reading A, the chain lasts while the last clone lives, is the
+# headline; reading B, while Kelari is summoned, x4, one player guide, and the bunched x1.5 are rows).
+DECEPTION_SPACING = 0.98  # of the clone's life between uses: "just before it expires" (R54-3's script)
+
+
+@functools.lru_cache(maxsize=1024)
+def deception_chain(cooldown: float, clone: float = DECEPTION_CLONE, uses: int = DECEPTION_USES,
+                    steps: int = 2000) -> tuple[float, float, float]:
+    """(mean sequence bonus a use, clone explosions a use, mean of bonus x explosion a use) played greedily: each use just
+    inside the last clone's life while a stored use is there, else wait for a full store and start a new chain."""
+    t, stock, refill, chain, last = 0.0, uses, None, 0, None
+    bonus = booms = both = 0.0
+    done = 0
+
+    def refilled(now: float) -> None:
+        nonlocal stock, refill
+        while refill is not None and refill <= now:
+            stock += 1
+            refill = refill + cooldown if stock < uses else None
+
+    while True:
+        refilled(t)
+        chained = last is not None and t - last <= clone
+        if done >= steps and not chained:  # (whole chains only: a cut-off last chain would skew the mean)
+            break
+        done += 1
+        chain = chain + 1 if chained else 0
+        factor = 1 + min(DECEPTION_PER * chain, DECEPTION_CAP)
+        bonus += factor
+        booms += chained
+        both += factor * chained
+        last, stock = t, stock - 1
+        if refill is None:
+            refill = t + cooldown
+        after = t + DECEPTION_SPACING * clone
+        refilled(after)
+        t = after if stock >= 1 else refill + cooldown * (uses - 1 - stock)
+    return bonus / done, booms / done, both / done
+
+
 def clone_explosions(cooldown: float, clone: float = DECEPTION_CLONE, uses: int = DECEPTION_USES) -> float:
-    """Kelari's Deception's clone explosions a use: every use with the cooldown within the clone's life; else, with the
-    stored uses spent together, all but the first of each burst (the last clone runs out unexploded)."""
+    """Kelari's Deception's clone explosions a use: every use with the cooldown within the clone's life; else those of
+    the spaced chain (deception_chain: every use but each chain's first)."""
     if cooldown <= clone:
         return 1.0
-    return max(uses - 1, 0) / max(uses, 1)
+    return deception_chain(cooldown, clone, uses)[1]
 
 
 def deception_factor(cooldown: float, clone: float = DECEPTION_CLONE, uses: int = DECEPTION_USES) -> tuple[float, str]:
@@ -14261,9 +14307,12 @@ def deception_factor(cooldown: float, clone: float = DECEPTION_CLONE, uses: int 
                                    f"breaks, at the cap (+{DECEPTION_CAP:.0%}) from use "
                                    f"{int(DECEPTION_CAP / DECEPTION_PER) + 1} on (the climb not taken off, MEDIUM)")
     steps = [1 + min(DECEPTION_PER * k, DECEPTION_CAP) for k in range(max(uses, 1))]
-    mean = sum(steps) / len(steps)
-    return mean, (f"its {uses} stored uses spent together as they refill (each within the last clone's {clone:g} s): "
-                  f"x{mean:.2f} a use (x1 if used one at a time)")
+    bunched = sum(steps) / len(steps)
+    mean = deception_chain(cooldown, clone, uses)[0]
+    return mean, (f"used again just before each clone expires, so the chain runs on as the store refills: x{mean:.2f} a "
+                  f"use (R54-3, MEDIUM-LOW; one stored use refilling per cooldown and what resets the sequence: "
+                  f"UNVERIFIED; its {uses} stored uses spent together: x{bunched:.2f}; the sequence lasting while Kelari "
+                  f"is summoned, one player guide: x{1 + DECEPTION_CAP:g})")
 
 
 # A djinn's own time (MECH104; a possible OVERCOUNT: Kelari's Brutality and Deception, 0.8 s casts each every ~1.58 s on
@@ -14306,7 +14355,7 @@ def djinn_commands_model(rows: list[tuple[DjinnCommand, dict]], player_dps: floa
                                    "Commands (one Command at a time: UNVERIFIED): not used (0)")}, None, 0.0
         found = [number(h.get("Cooldown")) for h in hits.values() if number(h.get("Cooldown")) > 0]
         cooldown = min(found) if found else command.cooldown
-        factor, how, more = 1.0, "", ""
+        factor, how, more, rows, spaced = 1.0, "", "", "", ""
         cost = DJINN_COMMAND_CAST if command.pressed else 0.0
         if command.skill == "KnifeThrowSandDjinn":
             factor = blades_on_boss(radius[0])
@@ -14319,13 +14368,21 @@ def djinn_commands_model(rows: list[tuple[DjinnCommand, dict]], player_dps: floa
             period = cooldown / share  # (the djinn's time can space its uses past the clone's life)
             seq, seq_how = deception_factor(period)
             booms = clone_explosions(period)
-            each = blast + clone * booms
+            # (MECH104: a chain's first use has neither the bonus nor an explosion, so they are weighed together)
+            each = blast + clone * (deception_chain(period)[2] / seq if period > DECEPTION_CLONE else booms)
             factor = seq
+            if period > DECEPTION_CLONE:
+                bunched = sum(1 + min(DECEPTION_PER * n, DECEPTION_CAP) for n in range(DECEPTION_USES)) / DECEPTION_USES
+                rows = (f"; its stored uses spent together: "
+                        f"{(blast + clone * (DECEPTION_USES - 1) / DECEPTION_USES) * bunched / period:,.1f} DPS; the "
+                        f"sequence lasting while Kelari is summoned: {(blast + clone) * (1 + DECEPTION_CAP) / period:,.1f} DPS")
+                spaced = (f"Use {command.name} again just before each clone expires (about every "
+                          f"{DECEPTION_SPACING * DECEPTION_CLONE:.2f} s while a use is stored). ")
             how = (f"its blast {blast:,.0f} + the clone's explosion {clone:,.0f} (PoB's \"Hidden\" set) x {booms:.2f} a use "
                    f"(a use while the last clone lives explodes it: RESEARCH29 R29-3, HIGH), both {seq_how}")
             more = (f"; the sequence bonus on the blast only: "
                     f"{(blast * seq + clone * booms) / max(period, 0.1):,.1f} DPS before the cast cost"
-                    + ("" if clone > 0 else "; PoB gave the clone's set no hit (0, labelled)"))
+                    + ("" if clone > 0 else "; PoB gave the clone's set no hit (0, labelled)") + rows)
         elif command.skill == "HandSlamSandDjinn":
             factor = 1 + JUDGMENT_PER_STAGE * (JUDGMENT_STAGES - 1)
             cost += JUDGMENT_STAGES * JUDGMENT_STAGE_SECONDS
@@ -14371,7 +14428,7 @@ def djinn_commands_model(rows: list[tuple[DjinnCommand, dict]], player_dps: floa
         busy = 0.0 if dps <= 0 else djinn_use_seconds(command, hits) * (
             chilled if command.skill == "ChilledGroundBurstWaterDjinn" else 1.0) / every
         return dps, {"label": label, "value": round(dps, 1), "basis": basis, "confidence": "LOW",
-                     "play": ((f"Command {command.name} each time it is up" if command.pressed else command.name)
+                     "play": (spaced + (f"Command {command.name} each time it is up" if command.pressed else command.name)
                               + f" (every {every:.3g} s): with it +{dps:,.1f} DPS; without it +0.")}, press, busy
 
     free = {command.name: score(command, hits, 1.0) for command, hits in rows}

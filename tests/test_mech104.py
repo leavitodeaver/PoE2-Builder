@@ -126,3 +126,30 @@ def test_perforation_is_not_counted_twice_beside_a_live_ledger_line(monkeypatch)
     live = (type("E", (), {"raw": {}})(), ["share:JaggedGround 20% more Magnitude of Bleeding you inflict"])
     monkeypatch.setattr(ledger, "translate", lambda text: live)
     assert models.aggravate_model([PERFORATION_LINE], BLEEDER, {"Attack"}, jagged=(1.0, "Earthquake")) == ([], [])
+
+
+# Kelari's Deception's spaced chain (MECH104; RESEARCH54 R54-3)
+@pytest.mark.parametrize("cooldown, mean", [(4.2, 3.65), (4.5, 3.34), (5.0, 2.95), (6.0, 2.25), (8.0, 1.75)])
+def test_spacing_uses_inside_the_clones_life_keeps_the_chain(cooldown, mean):
+    assert models.deception_chain(cooldown)[0] == pytest.approx(mean, abs=0.02)  # (R54-3's table)
+    assert models.deception_factor(cooldown)[0] == pytest.approx(models.deception_chain(cooldown)[0])
+
+
+def test_a_long_cooldown_falls_back_to_the_three_stored_uses():
+    bonus, booms, _ = models.deception_chain(30.0)
+    assert bonus == pytest.approx(1.5) and booms == pytest.approx(2 / 3)
+
+
+def test_deception_shows_the_bunched_and_summoned_readings_and_says_how_to_play_it():
+    command, hits = deception(damage=1000.0, cooldown=5.0, rate=2.0)
+    hits[2]["AverageDamage"] = 300.0
+    dps, _, notes, _ = models.djinn_commands_model([(command, hits)], 0.0)
+    seq, _, both = models.deception_chain(5.0)
+    assert dps == pytest.approx((1000 * seq + 300 * both) / 5.0)
+    assert f"{(1000 + 300 * 2 / 3) * 1.5 / 5.0:,.1f} DPS" in notes[0]["basis"]  # (the bunched row)
+    assert f"{(1000 + 300) * 4 / 5.0:,.1f} DPS" in notes[0]["basis"]  # (reading B, while Kelari is summoned)
+    assert "UNVERIFIED" in notes[0]["basis"] and "just before each clone expires" in notes[0]["play"]
+
+
+def test_his_grave_command_still_takes_no_companion_slot():
+    assert "His Grave Command" in models.COMPANION_FREE and "Soul Crystal" in models.COMPANION_FREE["His Grave Command"]

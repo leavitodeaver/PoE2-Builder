@@ -1010,8 +1010,9 @@ def test_kelaris_deception_climbs_to_its_300_percent_cap_only_when_the_chain_hol
     from builder.search import models
 
     assert models.deception_factor(4.0)[0] == 4.0  # (a use within the clone's 4 s: the chain never breaks, the cap)
-    assert models.deception_factor(5.0)[0] == pytest.approx((1 + 1.5 + 2.0) / 3)  # (3 stored uses spent together)
-    assert models.deception_factor(5.0, uses=9)[0] == pytest.approx((1 + 1.5 + 2 + 2.5 + 3 + 3.5 + 4 + 4 + 4) / 9)
+    # (MECH104, R54-3: past the clone's life the uses are spaced inside it; bunched, x1.5, is the row)
+    assert models.deception_factor(5.0)[0] == pytest.approx(2.95, abs=0.02) and "x1.50" in models.deception_factor(5.0)[1]
+    assert models.deception_factor(30.0)[0] == pytest.approx((1 + 1.5 + 2.0) / 3)  # (a chain of its 3 stored uses)
 
 
 def test_each_djinn_command_adds_its_hit_a_cooldown_less_the_presses_time():
@@ -1054,8 +1055,9 @@ def test_djinn_hits_per_use_follow_research29():
     assert chained[0] == pytest.approx((1000 + 300) * 4.0 / 4.0)  # (within the clone's life: every use explodes one)
     burst = models.djinn_commands_model(
         [(by["Kelari's Deception"], {1: {"AverageDamage": 1000.0, "Cooldown": 5.0}, 2: {"AverageDamage": 300.0}})], 0.0)
-    assert burst[0] == pytest.approx((1000 + 300 * 2 / 3) * 1.5 / 5.0)
-    assert models.clone_explosions(5.0) == pytest.approx(2 / 3) and models.clone_explosions(3.0) == 1.0
+    seq, booms, both = models.deception_chain(5.0)  # (MECH104, R54-3: spaced just inside the clone's life, not bunched)
+    assert burst[0] == pytest.approx((1000 * seq + 300 * both) / 5.0)
+    assert models.clone_explosions(5.0) == pytest.approx(booms) and models.clone_explosions(3.0) == 1.0
 
 
 def test_explosive_spears_frenzy_charged_throws_make_ignited_ground_at_their_rate():
