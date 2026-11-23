@@ -70,3 +70,14 @@ def test_tempest_shockwave_is_held_to_the_bells():
     assert some[0][0]["value"] == pytest.approx(-75.0) and some[0][0][M.HIT_CUT_PER_USE] == pytest.approx(0.25)
     assert M.gathering_shockwave_model(storm, "Tempest Shockwave", 1.2, {"rate": 9.0, "how": "Bells"})[0][0]["value"] == 0
     assert M.gathering_shockwave_model(storm, "Perfect Dash", 1.2, {"rate": 0.0, "how": ""}) == ([], [])
+
+
+def test_tempest_bell_all_bells_is_a_row_and_keeps_the_headline():
+    """R55-2: one Strike hitting every Bell alive is a LOW row, capped per Bell; the headline stays one Bell a Strike."""
+    args = (0.2, 1.0, ("Quarterstaff Strike", 1.0, 100.0, True), 100.0, 25.0, 15.0, [])
+    one, one_note = M.tempest_bell_model(*args, allowed=1.0)
+    three, three_note = M.tempest_bell_model(*args, allowed=3.0)
+    assert three[0]["value"] == pytest.approx(one[0]["value"])  # the headline doesn't move
+    # 0.8 Strikes a second x 3 Bells alive = 2.4 shockwaves, held to 0.2 Bells a second x 10 hits a Bell = 2.0
+    assert "3.00 of at most 3" in three_note[0]["basis"] and "x3.500" in three_note[0]["basis"]
+    assert "1.00 of at most 1" in one_note[0]["basis"] and "x2.000" in one_note[0]["basis"]

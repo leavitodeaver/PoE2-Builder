@@ -6327,7 +6327,10 @@ class Assumptions:
                 every = getattr(build.ctx, "all_gems", None) or build.ctx.gems  # (a builder the request didn't name)
                 types = set(((every.get(found[2]) or build.ctx.gems.get(found[2])) or {}).get("skillTypes") or [])
                 builder = (found[2], number(row.get("speed")), number(row.get("HitChance")) or 100.0, "Area" in types)
-        return models.tempest_bell_model(bells, at_will, builder, impact, wave, duration, texts)
+        level = next((x.get("levelStats") or {} for x in build.call("activeSkills", levelStats=[name])["skills"]
+                      if x["name"] == name), {})  # (MECHB59: the all-Bells row, R55-2)
+        return models.tempest_bell_model(bells, at_will, builder, impact, wave, duration, texts,
+                                         allowed=number(level.get("base_number_of_tempest_bells_allowed")) or 1.0)
 
     def remnant_supply(self, skills: list[dict], skip: tuple[str, ...] = ()) -> tuple[float, list[str]]:
         """Remnants per second the build makes on the request's boss, before the build's "additional Remnant" /

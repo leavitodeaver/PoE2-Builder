@@ -6057,12 +6057,14 @@ def repeat_interval_model(skills: list[Skill], main: Skill | None, stats: dict, 
 # - the hits on a Bell: the builder's Strikes in the rotation, builder speed x (1 - B / PoB's at-will rate) (each cycle
 #   is the Strikes, then the Bell: usage.combo_rotation), x their HitChance. Tempest Bell gains Combo "when you Strike
 #   Enemies" (KeywordPopups Combo) and the Bell isn't an enemy, so the Strikes are aimed at the boss: they also hit the
-#   Bell lying at the boss when the builder has the Area type (LOW, UNVERIFIED: no source says a Strike at the boss
-#   also hits a Bell beside it; PLANS' reading), else 0 (a row says what aiming Strikes at the Bell would give);
+#   Bell lying at the boss when the builder has the Area type (LOW-MEDIUM: RESEARCH55 R55-2, old player reports that area
+#   size decides it; a small-area Strike on a big boss can miss the Bell), else 0 (a row says what aiming Strikes at the
+#   Bell would give);
 # - shockwaves a second S = min(those hits, B x min(L, D / 0.3 s)), L = bell_hit_limit (10) + the build's "Tempest Bells
 #   are destroyed after an additional N Hits" lines, D = the Bell's duration (PoB's, with the build's modifiers); each
-#   Strike feeds one Bell (with several Bells alive under the boss, one Strike hitting each of them: UNVERIFIED, the lower
-#   reading, a row);
+#   Strike feeds one Bell, the headline. The row (R55-2, LOW: one untested guide, "Three simultaneous bell hits = 3
+#   shockwave events per TF strike"): one Strike hits every Bell alive, min(the gem's Bell limit
+#   base_number_of_tempest_bells_allowed, B x D) of them, each still at most one shockwave per 0.3 s and L a Bell;
 # - damage: S x the Shockwave set's AverageDamage (PoB's, hit chance included) added to the Impact's B x its
 #   AverageDamage, as a DPS MORE on the main skill over the Impact count PoB and the Combo cut give, tagged
 #   HIT_CUT_PER_USE (1 + S / B hits a Bell for the hit readers). Not counted (lower, said): the quality's "more Damage per
@@ -6076,11 +6078,12 @@ BELL_EXTRA_HITS = re.compile(r"^Tempest Bells are destroyed after an additional 
 
 
 def tempest_bell_model(bells: float, at_will: float, builder: tuple[str, float, float, bool] | None,
-                       impact: float, wave: float, duration: float, texts: list[str], limit: float = 0.0
-                       ) -> tuple[list[dict], list[dict]]:
+                       impact: float, wave: float, duration: float, texts: list[str], limit: float = 0.0,
+                       allowed: float = 1.0) -> tuple[list[dict], list[dict]]:
     """Tempest Bell's shockwaves on the boss (see above). `bells`: Bells a second (the Combo cut); `at_will`: PoB's
     Speed; `builder`: (name, uses a second, HitChance %, has the Area type) of the Combo builder; `impact` / `wave`: the
-    Impact's and the Shockwave's AverageDamage; `duration`: the Bell's (s); `limit`: its bell_hit_limit (0: the base 10)."""
+    Impact's and the Shockwave's AverageDamage; `duration`: the Bell's (s); `limit`: its bell_hit_limit (0: the base 10);
+    `allowed`: the gem's Bell limit (the all-Bells row only)."""
     label = f"{TEMPEST_BELL}: its shockwaves from your Strikes on the Bell*"
     if bells <= 0 or impact <= 0 or wave <= 0 or builder is None:
         return [], [{"label": label, "value": "0", "confidence": "LOW",
@@ -6097,17 +6100,20 @@ def tempest_bell_model(bells: float, at_will: float, builder: tuple[str, float, 
     aimed = min(landed, bells * per_bell)  # (the row: Strikes aimed at the Bell; what they'd cost in Combo not read)
     gain = waves * wave / (bells * impact)
     factor = 1 + gain
+    alive = max(1.0, min(max(allowed, 1.0), bells * duration)) if duration > 0 else 1.0
+    every = min(fed * alive, bells * per_bell, alive / BELL_WAVE_EVERY)  # (the all-Bells row, R55-2)
     basis = (f"{bells:.3f} Bells a second (the Combo cut); between Bells, {name} Strikes {strikes:.2f} times a second "
              f"({landed:.2f} landing), aimed at the boss: "
-             + (f"an Area Strike, taken to hit the Bell lying at the boss too (LOW, UNVERIFIED)" if area else
+             + (f"an Area Strike, taken to hit the Bell lying at the boss too (LOW-MEDIUM, R55-2)" if area else
                 f"not an Area Strike, so the Bell isn't hit (the lower reading)")
              + f"; a Bell makes at most min({cap:g} Hits"
              + (f" (10 + {extra:g} from your 'destroyed after an additional' lines)" if extra else "")
              + f", {duration:.2f} s / {BELL_WAVE_EVERY:g} s) = {per_bell:.3g} shockwaves: {waves:.2f} shockwaves a "
              f"second x {wave:.1f} (PoB's Shockwave set) beside the Impact's {bells:.3f} x {impact:.1f}: x{factor:.3f}. "
              f"Rows: Strikes don't reach the Bell x1; every Strike aimed at the Bell x{1 + aimed * wave / (bells * impact):.3f} "
-             "(their Combo lost not counted). Not counted: the quality's per-Hit ramp, Ailments on the Bell, other "
-             "skills' hits on it, one Strike hitting several Bells")
+             f"(their Combo lost not counted); one Strike hitting every Bell alive ({alive:.2f} of at most {allowed:g}; "
+             f"R55-2, LOW: one untested guide) x{1 + every * wave / (bells * impact):.3f}. Not counted: the quality's "
+             "per-Hit ramp, Ailments on the Bell, other skills' hits on it")
     note = {"label": label, "value": f"x{factor:.3f}", "confidence": "LOW", "basis": basis,
             "play": (f"Drop the Bell at the boss and keep Striking with {name} beside it: each Strike that hits the Bell "
                      f"makes a shockwave (up to {cap:g} a Bell)" if waves > 0 else "")}
