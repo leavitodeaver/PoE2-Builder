@@ -25,6 +25,29 @@ from builder.ledger.items import corrected_item  # ledger translations on affix,
 from builder.request.schema import GearTier
 from builder.search.context import Context, ItemOption, implicit_variant
 
+# (SEARCHB7; RESEARCH R54-9, the manager's 14:00 23 Nov) PoB's mod groups are finer than the game's families for skill
+# levels: "+ all Spell Skills" and "+ Fire Spell Skills" are two PoB groups but one game family, IncreaseSocketedGemLevel
+# (Mods.Families, game 26650308), so one item can't roll both as ordinary suffixes. These are that family's PoB groups in
+# the Item and Desecrated pools (tests/test_searchb7_mod_family.py rescans the tables). Outside it, in their own families:
+# the Alloy hybrid AlloySpellLevelManaHybrid1 (family IncreasedMana) and HandWrapsGlobalMeleeSkillGemLevel2. Runes and
+# corruption enchants aren't affixes. Live check (scratch/SEARCHB7/family_check3.py): on the 20 example builds' 260 rares
+# the only pairs in this family are two wands holding that Alloy hybrid. Other families stay on PoB's groups: PoB splits
+# 65 of the 390 rollable families and only this one is verified.
+SKILL_LEVEL_FAMILY = "IncreaseSocketedGemLevel"
+SKILL_LEVEL_GROUPS = frozenset({
+    "EssenceAttackSkillLevel", "EssenceSpellSkillLevel", "GlobalSkillGemLevel", "MarkSkillGemLevels",
+    *(f"GlobalIncrease{kind}SkillGemLevel{suffix}"
+      for kind in ("ChaosSpell", "ColdSpell", "FireSpell", "LightningSpell", "Melee", "MinionSpell", "PhysicalSpell",
+                   "Projectile", "Spell", "Trap")
+      for suffix in ("", "Weapon")),
+})
+
+
+def exclusion_group(group: str) -> str:
+    """The key "one modifier per group" holds an affix to: the game's family for skill levels, else PoB's group."""
+    return SKILL_LEVEL_FAMILY if group in SKILL_LEVEL_GROUPS else group
+
+
 # (item level, best affix tier allowed: 1 = top, roll within each range 0..1) per gear tier
 TIER_RULES = {
     GearTier.LEAGUE_START: (68, 4, 0.3),
@@ -201,7 +224,7 @@ class AffixPools:
 
     def affix(self, mod: dict, group: str, kind: str, tier: int, tiers: int, odds: tuple[float, float],
               lower: Affix | None = None) -> Affix:
-        return Affix(mod["id"], group, kind, tier, tuple(roll(line, self.roll) for line in mod_lines(mod)), tiers, lower,
+        return Affix(mod["id"], exclusion_group(group), kind, tier, tuple(roll(line, self.roll) for line in mod_lines(mod)), tiers, lower,
                      odds=odds[0], side_odds=odds[1], ranged=any(RANGE.search(line) for line in mod_lines(mod)),
                      adds=tuple(mod.get("tags") or ()), excluded_by=excluded_by(mod), level=int(mod.get("level") or 0))
 

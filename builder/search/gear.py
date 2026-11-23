@@ -32,7 +32,7 @@ from builder.search.flasks import (
 )
 from builder.search.rares import (
     MAGIC_LIMIT, RUNE_KEEP, SCREEN_KEEP, Affix, AffixPools, RuneCatalog, magic_price, magic_text, rare_price, rare_text,
-    NOT_IN_SEALED, is_elemental_resistance, socket_count, unique_text, with_runes, FLUX_NAMES, fluxed,
+    NOT_IN_SEALED, exclusion_group, is_elemental_resistance, socket_count, unique_text, with_runes, FLUX_NAMES, fluxed,
     ALDUR_RUNES, AldurConverter, aldur_weapon, CATALYSTS, CATALYST_TYPES, CATALYSTS_PER_20, CATALYST_QUALITY,
     catalyst_matches, catalysed_text,
 )
@@ -1104,7 +1104,7 @@ class Gear:
         trials = []  # (alloy, its Affix, kept, price, the side an Omen limits the loss to (None: any modifier))
         for alloy, mod in rows:
             cost = None if ssf else prices.get(alloy)
-            if (cost is None and not ssf) or mod["group"] in groups or mod["type"] not in limits:
+            if (cost is None and not ssf) or exclusion_group(mod["group"]) in groups or mod["type"] not in limits:
                 continue
             affix = pools.affix(mod, mod["group"], mod["type"], 1, 1, (0.0, 0.0))
             if sum(1 for a in chosen if a.type == mod["type"]) < limits[mod["type"]]:
