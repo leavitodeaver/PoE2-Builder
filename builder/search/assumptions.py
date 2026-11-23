@@ -9218,8 +9218,15 @@ class Assumptions:
         up, up_how = models.ailment_up_of(build)
         base = up.get("Shock", 0.0)
         hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
-        applied, others = self.other_shocks(main_index)
-        share, how = self._shocked_hits(base, up_how, hits, applied, others, consumes, stats)
+        if (getattr(build, "ailment_others", None) or {}).get("Shock"):
+            # (MECH102: the resolver's Shocked share already holds the other groups' Shocks, conditions.shock_others,
+            # consumed or not as shock_share reads it: joining them again here would count them twice)
+            share = base
+            names = ", ".join(o[0] for o in build.ailment_others["Shock"])
+            how = f"the resolver's Shocked share {base:.0%} ({up_how}), {names}'s Shocks in it (conditions.shock_others)"
+        else:
+            applied, others = self.other_shocks(main_index)
+            share, how = self._shocked_hits(base, up_how, hits, applied, others, consumes, stats)
         if main_skill in ("Siphoning Strike", models.LIGHTNING_CONDUIT):  # (Shock alone; the other two any Lightning
             # Ailment; GEM30: Lightning Conduit's bolts need "a Shocked enemy")
             return share, how

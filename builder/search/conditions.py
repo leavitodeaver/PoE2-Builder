@@ -5759,6 +5759,109 @@ def ignite_others(rows: dict, groups: list[dict], hitters: set[str], main_index,
     return out, how
 
 
+# The other groups' Shocks on the boss (MECH102; MECH101's sizing, probe POE2T6459, an UNDERCOUNT: the boss's Shocked
+# share, conditionEnemyShocked, was the main skill's own Shocks and your Shocked Ground only; other skills' Shocks reached
+# only the Shock consumers' share, Assumptions.shock_set_share, and the side Galvanic Field cycle, and their magnitude was
+# never read: a main skill that doesn't Shock beside Orb of Storms / a triggered Lightning spell / a Herald counted the
+# boss never Shocked, -20% to -40% FullDPS at PoB's 20% / 40% Shock). As ignite_others: each hitting group's useRates row
+# (PoB's trigger rate, else skill_use_rate at the press choices), its hits a second x its Shock chance a hit (the
+# bridge's ShockChancePerHit), each Shock lasting its own ShockDuration (8 s on non-players by default, KeywordPopups
+# Shock), the sources independent (ailment_uptime). Its magnitude: the base 20% (KeywordPopups Shock; PoB's
+# BaseShockMagnitude) x the group's own ShockEffectMod (PoB's Enemy/SelfShockMagnitude for that skill, its supports
+# included: KeywordPopups BuffMagnitude, magnitude modifiers "come from whoever applies it"), capped at the Shock maximum.
+# One Shock at a time, the strongest applying (HIGH; checked: KeywordPopups Debuff, 26650308: "Unless otherwise stated,
+# Debuffs of the same type do not stack - only the copy with the strongest effect applies", and KeywordPopups Ailments:
+# "Ailments are a family of common Debuffs"; KeywordPopups Shock / Ailments / NonDamagingAilments / LightningAilment
+# state no exception; can_apply_additional_shock / Strike Twice, "Targets can be affected by two of your Shocks at the
+# same time", is the stated exception (STACKS_TWO); PoB agrees: CalcPerform 3364 takes the max over sources and its box;
+# patch notes: no hit for "strongest / highest ... Shock", which is not evidence either way): shock_effect_box. Labelled: one hit per use, as ignite_others; a side Shock as Strike Twice's second Shock
+# isn't counted (STACKS_TWO's note, the lower reading).
+SHOCK_BASE_MAGNITUDE = 20.0  # % (KeywordPopups Shock: "causes targets to take 20% increased damage"; PoB BaseShockMagnitude)
+# The Mórrigan's Guidance (MECH102; MECH101's coverage row 50; PassiveSkills AscendancyHuntress2Notable2, 26650308:
+# vivid_stag_shock_effect_%_final_per_cascade 20, "Stags have 20% more Shock Magnitude per leap"; PoB maps no vivid_stag
+# stat, MECHB52's check). Each of a Stag's 4 landings (models.VIVID_LANDINGS) 20% more per leap before it, read additively
+# as MECHB52 reads the node's damage line (models.VIVID_PER_LEAP): the Stampede's Shocks at the landings' mean, x1.3
+# (MEDIUM-LOW: whether "per leap" counts from the first landing or compounds is unsettled, as for the damage line; the
+# strongest-only rule would favour the 4th landing's x1.6 while it lives: the higher row, said).
+STAG_SHOCK_LEAP = re.compile(r"^Stags have (\d+)% more Shock Magnitude per leap$", re.I)
+
+
+def stag_shock_scale(texts: list[str]) -> tuple[float, str]:
+    """(x on Vivid Stampede's Shock magnitude, how) from The Mórrigan's Guidance's line (see above); (1.0, "") without it."""
+    pct = max((float(m.group(1)) for t in texts if (m := STAG_SHOCK_LEAP.match(t.strip()))), default=0.0)
+    if pct <= 0:
+        return 1.0, ""
+    n = models.VIVID_LANDINGS
+    mean = sum(1 + pct / 100 * i for i in range(n)) / n
+    last = 1 + pct / 100 * (n - 1)
+    return mean, (f"The Mórrigan's Guidance: {pct:g}% more Shock Magnitude per leap, x{mean:.2f} over a Stag's {n} "
+                  f"landings (MEDIUM-LOW; the {n}th landing's x{last:.2f}: the higher row)")
+
+
+def shock_others(rows: dict, groups: list[dict], hitters: set[str], main_index,
+                 choices: dict[str, float] | None = None, top: float = 100.0, texts: list[str] | None = None
+                 ) -> tuple[list[tuple[str, float, float, float]], dict[str, float], str]:
+    """([(name, hits per second, chance per hit, Shock duration in s)], {name: its Shock's magnitude %}, how) for the
+    build's other groups that Shock the boss (see the note above). `rows` as ignite_others; `top` the Shock maximum;
+    `texts` the build's lines (stag_shock_scale)."""
+    stag, stag_how = stag_shock_scale(texts or [])
+    names = {g["index"]: [n["name"] for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in hitters]
+             for g in groups if g.get("enabled") is not False}
+    out, mags, parts = [], {}, []
+    for index, row in sorted(rows.items(), key=lambda kv: str(kv[0])):
+        if index == main_index or not names.get(index):
+            continue
+        chance = min(number(row.get("ShockChancePerHit")), 100.0) / 100.0
+        if chance <= 0:
+            continue
+        if row.get("triggered"):
+            uses, why = number(row.get("speed")), "PoB's trigger rate"
+        else:
+            uses, why, _ = skill_use_rate(row, choices)
+        hits = uses * min(number(row.get("HitChance")) or 100.0, 100.0) / 100.0
+        name = row.get("name") or names[index][0]
+        if hits <= 0:
+            parts.append(f"{name} not counted (no uses: no cooldown, duration or press chosen)")
+            continue
+        duration = number(row.get("ShockDuration")) or AILMENT_DURATION["Shock"]
+        effect = row.get("ShockEffectMod")
+        leap = stag if name == models.VIVID_STAMPEDE else 1.0
+        mag = max(0.0, min(top, SHOCK_BASE_MAGNITUDE * (number(effect) if effect is not None else 1.0) * leap))
+        out.append((name, hits, chance, duration))
+        mags[name] = mag
+        parts.append(f"{name}'s Shocks ({hits:.2f} hits/s at {why}, {chance:.2%} a hit, {duration:.1f} s each, "
+                     f"{mag:.0f}% Shock" + ("" if effect is not None else ", its magnitude not read: the base 20%")
+                     + (f"; {stag_how}" if leap != 1.0 else "") + ")")
+    how = ("; ".join(parts) + " (MECH102: each as PoB scores it as the main skill, the sources taken as independent; "
+           "one hit per use)") if parts else ""
+    return out, mags, how
+
+
+def shock_effect_box(sources: list[tuple[str, float, float]], floor: float) -> tuple[float, str]:
+    """(PoB's "Effect of Shock" box, how): the strongest live Shock's magnitude averaged over the Shocked time (see
+    shock_others' note). `sources`: [(label, share of the fight that source alone keeps the boss Shocked, its magnitude
+    %)], taken as independent; `floor`: what PoB applies with no box (the base Shock x the main skill's own magnitude
+    modifiers, CalcPerform 3346 / 3364). 0 (unset) where the average is below the floor: PoB applies max(floor, box),
+    so the box can't lower it (an OVERCOUNT where a weaker source than the floor holds the Shock, labelled)."""
+    live = sorted(((label, min(1.0, max(0.0, share)), mag) for label, share, mag in sources if share > 0),
+                  key=lambda s: -s[2])
+    if not live:
+        return 0.0, ""
+    off, total, parts = 1.0, 0.0, []
+    for label, share, mag in live:
+        top_share = off * share  # (the share of the fight this one is the strongest live Shock)
+        total += top_share * mag
+        off *= 1.0 - share
+        parts.append(f"{label} {mag:g}% (alone {share:.0%}, the strongest {top_share:.0%})")
+    shocked = 1.0 - off
+    value = round(total / shocked, 1) if shocked > 0 else 0.0
+    how = (f"the strongest live Shock over the Shocked {shocked:.0%} of the fight averages {value:g}%: "
+           + "; ".join(parts) + " (one Shock at a time, the strongest applying: KeywordPopups Debuff, HIGH)")
+    if value < floor - 0.05:
+        return 0.0, how + f"; below the {floor:g}% PoB applies with no box (left unset)"
+    return value, how
+
+
 BUILDUP_SHARED = ("Freeze", "Electrocute", "Pin")  # (MECH87: the bars every hit fills; models.others_fill)
 
 
@@ -7867,16 +7970,24 @@ def shock_share(stats: dict) -> float:
     debuff: _ground_shocked), taken as independent."""
     stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     ground = _ground_shocked(stats)[0]
+    # (MECH102: the other groups' Shocks, shock_others; ailment_uptime below reads them itself)
+    others = [o for o in (stats.get("_ailment_others") or {}).get("Shock") or () if o[1] > 0 and o[2] > 0 and o[3] > 0]
     if "Shock" in (stats.get("_consumes") or {}):  # (consumed: the ground reapplies it after the 1 s immunity too)
         chance = min(number(stats.get("ShockChancePerHit")) / 100.0, 1.0)
         return consumed_share(number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0, chance, ground,
+                              extra=sum(h * c for _, h, c, _ in others),  # (MECH102: they reapply it too)
                               kept=consume_reapply(stats, "Shock"))  # (MECH85: Endless Circuit)
     if (stats.get("_side_consumes") or {}).get("Shock"):  # (consumed beside: on the combined share, the ground reapplying)
         hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
         chance = min(number(stats.get("ShockChancePerHit")) / 100.0, 1.0)
         duration = number(stats.get("ShockDuration")) or AILMENT_DURATION["Shock"]
         by_hits = 1.0 - periodic_absent(chance, hits * duration) if hits > 0 and chance > 0 else 0.0  # (MECH99)
-        return side_consumed(1.0 - (1.0 - by_hits) * (1.0 - ground), stats, "Shock", hits, chance, ground)
+        absent = 1.0 - by_hits
+        for _, h, c, d in others:  # (MECH102)
+            absent *= periodic_absent(c, h * d)
+        extra = sum(h * c for _, h, c, _ in others)
+        # (the wait to reapply over every source's applications, as ailment_uptime's side_consumed call)
+        return side_consumed(1.0 - absent * (1.0 - ground), stats, "Shock", hits * chance + extra, 1.0, ground)
     return 1.0 - (1.0 - ailment_uptime(stats, "Shock")) * (1.0 - ground)
 
 
@@ -7956,14 +8067,49 @@ def ailment_stacks(kind: str) -> Callable[[list[str], dict], tuple[object, str]]
     return stacks
 
 
-def _ground_shock_effect(lines: list[str], stats: dict) -> tuple[object, str]:
-    """PoB's "Effect of Shock" box at the ground's base Shock: PoB applies the strongest of it and the hits' own, as the game
-    does. Set only with a ground; PoB gates it on the Shocked box, which carries the combined share (shock_share)."""
-    share, how = _ground_shocked(stats)
-    if share < MIN_UPTIME:
+def _shock_effect(lines: list[str], stats: dict) -> tuple[object, str]:
+    """PoB's "Effect of Shock" box (MECH102): the strongest live Shock averaged over the Shocked time (shock_effect_box)
+    over your Shocked Ground's Shock (ground_shock_magnitude, MECH45), the main skill's own Shocks (20% x its
+    ShockEffectMod, the floor PoB applies with no box) and the other groups' (shock_others). Before MECH102 the box held
+    the ground's Shock alone whenever the ground was up, also over the Shocked time only the main skill's weaker Shock held
+    (an OVERCOUNT where both Shock: PoB applies the box at every Shocked moment): now each at the share it is the
+    strongest. PoB gates the box on the Shocked box, which carries the combined share (shock_share)."""
+    ground, ground_how = _ground_shocked(stats)
+    mags = stats.get("_shock_mags") or {}
+    if ground < MIN_UPTIME and not mags:
         return 0.0, ""
-    value, basis = ground_shock_magnitude(stats.get("_sg_magnitude"))
-    return value, f"the boss under your Shocked Ground's Shock {share:.0%} of the fight: {how}; its Shock {basis}"
+    mag = stats.get("_sg_magnitude")
+    top = number((mag or {}).get("max")) or 100.0
+    main_mod = stats.get("_main_shock_effect")
+    if number(main_mod) <= 0 or number(stats.get("ShockChancePerHit")) <= 0:
+        main_mod = None  # (PoB writes ShockEffectMod only for a skill that can Shock, CalcOffence 5717-5731)
+    if main_mod is not None:  # (the main skill Shocks: PoB applies 20% x its ShockEffectMod with no box)
+        floor = max(0.0, min(top, SHOCK_BASE_MAGNITUDE * number(main_mod)))
+    elif mag:  # (it doesn't: PoB's ShockBase x the main skill's magnitude modifiers, the bridge's shockMagnitude)
+        floor = max(0.0, min(top, SHOCK_BASE_MAGNITUDE * (1 + number(mag.get("inc")) / 100)
+                             * number(mag.get("more", 1)) * number(mag.get("enemy", 1))))
+    else:
+        floor = SHOCK_BASE_MAGNITUDE
+    sources: list[tuple[str, float, float]] = []
+    if ground >= MIN_UPTIME:
+        sources.append(("your Shocked Ground", ground, ground_shock_magnitude(mag)[0]))
+    if main_mod is not None:
+        own = ailment_uptime({k: v for k, v in stats.items() if k not in ("_ailment_others", "_ailment_ground")},
+                             "Shock")
+        if own > 0:
+            sources.append(("the main skill's own Shocks", own, floor))
+    for name, h, c, d in (stats.get("_ailment_others") or {}).get("Shock") or ():
+        if name in mags:
+            sources.append((f"{name}'s Shocks", 1.0 - periodic_absent(c, h * d), mags[name]))
+    shocked = 1.0
+    for _, share, _ in sources:
+        shocked *= 1.0 - min(1.0, max(0.0, share))
+    if 1.0 - shocked < MIN_UPTIME:  # (PoB reads the box only with the Shocked box on, which is off under MIN_UPTIME)
+        return 0.0, ""
+    value, how = shock_effect_box(sources, floor)
+    if ground >= MIN_UPTIME:
+        how = f"{how}; your Shocked Ground {ground_how}; its Shock {ground_shock_magnitude(mag)[1]}"
+    return value, how
 
 
 def _ground_shocked(stats: dict) -> tuple[float, str]:
@@ -8649,7 +8795,8 @@ CONDITIONS: list[Condition] = [
               value_fn=_non_crit_recently, fields=("CritChance", "Speed", "HitChance")),
     Condition("conditionEnemyShocked", "Shocked", stat=lambda s: shock_share(s) >= MIN_UPTIME, uptime_fn=shock_share,
               fields=("ShockChancePerHit", "Speed", "HitChance", "ShockDuration", "CritChance")),
-    Condition("conditionShockEffect", "Shock from your Shocked Ground", value_fn=_ground_shock_effect, fields=()),
+    Condition("conditionShockEffect", "the strongest Shock: your Shocked Ground's, the main skill's, other skills' (MECH102)",
+              value_fn=_shock_effect, fields=()),
     Condition("conditionOnShockedGround", "You on your Shocked Ground", value_fn=_on_shocked_ground, fields=()),
     Condition("conditionOnChilledGround", "You on your Chilled Ground (MECH85: Frostwalker)",
               value_fn=_on_own_ground("Chilled"), fields=()),
@@ -10610,6 +10757,8 @@ class Conditions:
             stats["_enemy_full_life"] = self._enemy_full_life()
         if _ground_shocked(stats)[0] >= MIN_UPTIME:  # its Shock's magnitude (ground_shock_magnitude)
             stats["_sg_magnitude"] = self.build.call("shockMagnitude")
+            # (MECH102: the main skill's own Shock magnitude, for the strongest-Shock box, _shock_effect)
+            stats["_main_shock_effect"] = self.build.call("stats", fields=["ShockEffectMod"]).get("ShockEffectMod")
         self.parry_plan = None
         if any(n in gem_types for n in models.PARRY_SKILLS) or any(PARRY_GRANT.search(t) for t in texts):  # (Parried)
             raw = self.build.call("activeSkills")
@@ -10731,6 +10880,24 @@ class Conditions:
             stats["_ailment_others"] = {"Ignite": others}
             said = stats.setdefault("_ailment_others_how", {})  # (Radiant Grief's aura may be said already)
             said["Ignite"] = "; ".join(filter(None, [others_how, said.get("Ignite")]))
+        # (MECH102) the other groups' Shocks on the boss, from the same rows (shock_others' note): ailment_uptime /
+        # shock_share add them to the main skill's, and their magnitudes join the Effect of Shock box (_shock_effect)
+        if hitters and any(number(r.get("ShockChancePerHit")) > 0 for r in group_rows.values()):
+            if stats.get("_sg_magnitude") is None:
+                stats["_sg_magnitude"] = self.build.call("shockMagnitude")
+            top = number((stats.get("_sg_magnitude") or {}).get("max")) or 100.0
+            shocks, shock_mags, shocks_how = shock_others(group_rows, groups_now, hitters,
+                                                          groups_all.get("mainSocketGroup"),
+                                                          models.press_choices(self.build), top, texts)
+            if shocks:
+                stats.setdefault("_ailment_others", {})["Shock"] = shocks
+                stats["_shock_mags"] = shock_mags
+                said = stats.setdefault("_ailment_others_how", {})
+                said["Shock"] = "; ".join(filter(None, [shocks_how, said.get("Shock")]))
+                if "_main_shock_effect" not in stats:
+                    stats["_main_shock_effect"] = self.build.call("stats", fields=["ShockEffectMod"]).get("ShockEffectMod")
+            elif shocks_how:
+                stats.setdefault("_ailment_others_how", {})["Shock"] = shocks_how
         # (MECH75: Radiant Grief's aura; MECH76: MECHB30's Infernal Legion, routed; MECH80: your Ignited Ground) the
         # Ignited share from sources that don't Hit, after the other groups' Ignites: the aura and the ground Ignite
         # only while the boss holds 50% Flammability (no_hit_ignite, ground_ignite)

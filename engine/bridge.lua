@@ -4993,7 +4993,11 @@ function bridge.useRates(args)
 					-- models.stun_uncold: Cold hits build none; conditions.buildup_others, models.heavy_stun_rate)
 					"PhysicalHitAverage", "PhysicalCritAverage", "FireHitAverage", "FireCritAverage", "ColdHitAverage",
 					"ColdCritAverage", "LightningHitAverage", "LightningCritAverage", "ChaosHitAverage",
-					"ChaosCritAverage" }) do
+					"ChaosCritAverage",
+					-- (MECH102: each group's own Shock magnitude multiplier and duration, PoB's ShockEffectMod / ShockDuration
+					-- (CalcOffence 5729-5731: Enemy/SelfShockMagnitude, the group's own supports included), for its Shocks
+					-- on the boss beside the main skill's: conditions.shock_others, the strongest live Shock applying)
+					"ShockEffectMod", "ShockDuration" }) do
 				if type(output[field]) == "number" then
 					entry[field] = jsonNumber(output[field])
 				end
