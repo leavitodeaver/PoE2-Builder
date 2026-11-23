@@ -65,6 +65,11 @@ class Penalty:
     label: str
     stat: str
     floor: float
+    # A floor the search strives for without requiring it (the manager's ruling on THE USER's survive default, 23 Nov:
+    # "should still STRIVE to make the build tanky enough", with an exception for builds that kill "faster than they
+    # can retaliate"): it scores as a floor (objective.Objective.soft_deficits) but never makes a build infeasible, and
+    # its row warns instead of failing (soft_check). CompiledRequest.soft_penalties holds them
+    soft: bool = False
 
     def deficit(self, stats: dict) -> float:
         value = stats.get(self.stat)
@@ -77,8 +82,9 @@ class CheckResult:
     label: str
     requested: str
     delivered: str
-    ok: bool | None  # None: not checked yet
+    ok: bool | None  # None: not checked yet (or a soft floor not met: `warning` says by how much)
     note: str = ""
+    warning: str = ""  # a soft floor's plain warning when it isn't met (soft_check); the result is still delivered
 
 
 Check = Callable[[dict], CheckResult]
@@ -92,6 +98,7 @@ class CompiledRequest:
     penalties: list[Penalty]
     checks: list[Check]
     owned: list = field(default_factory=list)  # OwnedRead per request.owned_items (builder/request/owned.py), read
+    soft_penalties: list[Penalty] = field(default_factory=list)  # (Penalty.soft: scored, never required)
 
     @property
     def errors(self) -> list[Issue]:
@@ -121,6 +128,26 @@ def survive_floors(request: BuildRequest) -> dict[DamageType, float]:
 
     sizes = boss_hits.hit_sizes(request.boss or bosses.DEFAULT)
     return {DamageType(t.lower()): round(hit) for t, hit in sizes.items() if hit > 0}
+
+
+SOFT_NOTE = ("A default the search strives for, not a requirement (the request's survive_boss_hits; off = glass cannon; "
+             "an explicit max-hit floor is a hard one): a build that can't meet it is still delivered, with this warning.")
+
+
+def short_text(label: str, have: float, want: float) -> str:
+    """'Fire max hit 4,200 of 8,993 (4,793 short, 53%)': a soft floor not met, and by how much."""
+    return f"{label} max hit {fmt(have)} of {fmt(want)} ({fmt(want - have)} short, {(want - have) / max(want, 1.0):.0%})"
+
+
+def soft_check(penalty: Penalty, have: float) -> CheckResult:
+    """A soft floor's row (Penalty.soft): ok when met; else ok None (not a failure: the result is still delivered and
+    no requirement counts as broken) with a plain warning naming the type and how far short it is."""
+    requested = f"≥ {fmt(penalty.floor)} (strived for)"
+    if have >= penalty.floor:
+        return CheckResult(penalty.label, requested, fmt(have), True, SOFT_NOTE)
+    kind = penalty.label.removeprefix("Survives the boss's ").removesuffix(" hit")
+    warning = "WARNING: " + short_text(kind, have, penalty.floor) + ": one such hit kills the build"
+    return CheckResult(penalty.label, requested, f"{fmt(have)}: {warning}", None, SOFT_NOTE, warning)
 
 
 def main_skill(facts: dict) -> str | None:
@@ -409,9 +436,9 @@ def compile_request(request: BuildRequest, data: GameData) -> CompiledRequest:
         if survive.get(DamageType(damage), 0.0) > floor:
             continue  # (the survive floor asks more of this type)
         penalties.append(Penalty(f"{damage.capitalize()} max hit", MAX_HIT_STAT[DamageType(damage)], floor))
-    for damage, hit in survive.items():
-        if hit > (floors.max_hit.get(damage) or 0):
-            penalties.append(Penalty(f"Survives the boss's {damage.capitalize()} hit", MAX_HIT_STAT[damage], hit))
+    # (the manager's ruling, 23 Nov: the DEFAULT survive floor is SOFT, an explicit max_hit floor stays hard)
+    soft_penalties = [Penalty(f"Survives the boss's {damage.capitalize()} hit", MAX_HIT_STAT[damage], hit, soft=True)
+                      for damage, hit in survive.items() if hit > (floors.max_hit.get(damage) or 0)]
     if floors.movement_speed is not None and request.level >= ENDGAME_LEVEL:
         penalties.append(Penalty("Movement speed (% increased)", MOVEMENT_STAT, floors.movement_speed))
 
@@ -517,6 +544,8 @@ def compile_request(request: BuildRequest, data: GameData) -> CompiledRequest:
 
     for penalty in penalties:
         checks.append(lambda f, p=penalty: CheckResult(p.label, f"≥ {fmt(p.floor)}", fmt(stat(f, p.stat)), stat(f, p.stat) >= p.floor))
+    for penalty in soft_penalties:
+        checks.append(lambda f, p=penalty: soft_check(p, stat(f, p.stat)))
 
     # Always checked: things the game itself enforces, which PoB only warns about
     checks.append(lambda f: (lambda short: CheckResult(
@@ -534,10 +563,16 @@ def compile_request(request: BuildRequest, data: GameData) -> CompiledRequest:
     def boss_hit_check(f: dict) -> CheckResult:
         from builder.search import boss_hits
         requested, delivered, ok, note = boss_hits.survival_text(f["stats"])
-        if floors.survive_boss_hits:  # (THE USER 23 Nov: a default floor now; the request can opt out)
-            ok = not boss_hits.survival(f["stats"])["fails"]["headline"]
-            note = "a floor by default (the request's survive_boss_hits; off = glass cannon). " + note
-        return CheckResult("Survives the boss's hits", requested, delivered, ok, note)
+        warning = ""
+        if floors.survive_boss_hits:  # (THE USER 23 Nov: a default floor; the manager's ruling: one the search strives
+            fails = boss_hits.survival(f["stats"])["fails"]["headline"]  # for, a warning when not met, not a failure)
+            sizes = boss_hits.hit_sizes(boss_hits.boss_name(f["stats"]))
+            ok = True if not fails else None
+            if fails:
+                warning = "WARNING: one hit of these kills the build: " + "; ".join(
+                    short_text(t, stat(f, f"{t}MaximumHitTaken"), sizes[t]) for t in fails)
+            note = (SOFT_NOTE + " " + note)
+        return CheckResult("Survives the boss's hits", requested, delivered, ok, note, warning)
     checks.append(boss_hit_check)
 
     if request.dps_gate:
@@ -559,7 +594,7 @@ def compile_request(request: BuildRequest, data: GameData) -> CompiledRequest:
                                "missing: " + listing(missing) if missing else "all in place", not missing,
                                "owned, not counted in the budget")
         checks.append(owned_check)
-    return CompiledRequest(request, issues, filters, penalties, checks, owned)
+    return CompiledRequest(request, issues, filters, penalties, checks, owned, soft_penalties)
 
 
 def owned_items(request: BuildRequest, data: GameData, issues: list[Issue], filters: Filters,

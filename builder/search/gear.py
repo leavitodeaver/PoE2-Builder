@@ -208,7 +208,8 @@ def is_unique_text(raw: str) -> bool:
 
 def shortfall_of(build: Build) -> float:
     """objective.shortfall over the build's deficits (a game limit counts ten times a floor)."""
-    return sum(amount * (10.0 if hard else 1.0) for _, amount, hard in build.objective.deficits(build.stats))
+    return sum(amount * (10.0 if hard else 1.0) for _, amount, hard in build.objective.deficits(build.stats)
+               if hard is not None)  # (soft floors are no shortfall: objective.soft_cost's note)
 
 
 class Gear:
@@ -648,9 +649,8 @@ class Gear:
             return None
         utility: list = []
         if not magic:  # (SEARCHB5; THE USER 23 Nov: no empty affix slots)
-            utility = self.fill_utility(slot, base, level, pools, limits, chosen, current, left, deadline)
+            utility, current = self.fill_utility(slot, base, level, pools, limits, chosen, current, left, deadline)
             chosen = chosen + utility
-            current = self.deltas(slot, [text(slot, base, level, chosen)])[0][0] if utility else current
         if not magic and influence.enabled():  # (SEARCH30: an influence rune and the affixes it lets roll, influence.py)
             influenced = self.influence_trial(slot, base, base_option, level, pools, limits, chosen, current, left,
                                               deadline)
@@ -694,24 +694,25 @@ class Gear:
     )
 
     def fill_utility(self, slot: str, base: dict, level: int, pools, limits: dict, chosen: list, current: float,
-                     left: float, deadline: float) -> list:
+                     left: float, deadline: float) -> tuple[list, float]:
         """The affixes for every prefix / suffix slot the scoring affixes left empty (a bought rare has those slots
         filled anyway). The candidates the base rolls (no group taken, the tier-1 cap kept, within the budget at the rare
         model's price: a fuller item costs more there, x1.05 a low-tier affix, x4 a tier-1) are scored once, each alone
         on the item; then each empty slot in turn takes the first UTILITY_CLASSES class with any candidate that doesn't
         lower the item's score, its best by that what-if. One what-if call for the lot (a rare is built many times a run),
-        and the full item is checked once: if the fills together lower its score, none is kept."""
+        and the full item is checked once: if the fills together lower its score, none is kept. Returns (the fills,
+        the item's score with them: `current` when none is kept; SEARCHB6: build_rare scored it again before)."""
         if clock.now() > deadline:
-            return []
+            return [], current
         groups = {a.group for a in chosen}
         counts = {kind: sum(1 for a in chosen if a.type == kind) for kind in limits}
         if all(counts[kind] >= limits[kind] for kind in limits):
-            return []
+            return [], current
         options = [c for a in pools.pool(base["name"]) if counts.get(a.type, 0) < limits.get(a.type, 0)
                    and a.group not in groups and not a.influence and not a.desecrated and not a.crafted
                    for c in pools.choices(a, chosen) if rare_price(slot, chosen + [c]) <= left + 1e-9]
         if not options:
-            return []
+            return [], current
         scored = [s for s, _ in self.deltas(slot, [rare_text(slot, base, level, chosen + [a]) for a in options])]
         added: list = []
         while True:
@@ -730,9 +731,10 @@ class Gear:
             if pick is None:
                 break
             added.append(pick)
-        if added and self.deltas(slot, [rare_text(slot, base, level, chosen + added)])[0][0] < current - EPSILON:
-            return []
-        return added
+        if not added:
+            return [], current
+        full = self.deltas(slot, [rare_text(slot, base, level, chosen + added)])[0][0]
+        return ([], current) if full < current - EPSILON else (added, full)
 
     ALLOY_KEEP = 2  # Alloy candidates (by a what-if with no modifier lost) whose outcomes are all scored
 

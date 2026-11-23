@@ -25,7 +25,8 @@ def data():
 
 
 def labels(request: BuildRequest, data) -> dict[str, float]:
-    return {p.label: p.floor for p in compile_request(request, data).penalties}
+    compiled = compile_request(request, data)  # (the survive floor's rows are soft since SEARCHB6: soft_penalties)
+    return {p.label: p.floor for p in [*compiled.penalties, *compiled.soft_penalties]}
 
 
 def test_movement_speed_and_survive_are_floors_by_default(data):
@@ -81,7 +82,7 @@ def test_empty_affix_slots_are_filled_movement_speed_first_then_defences():
     pools = SimpleNamespace(pool=lambda name: pool, choices=lambda a, taken: [a])
     gear = SimpleNamespace(deltas=deltas, UTILITY_CLASSES=Gear.UTILITY_CLASSES)
     base = {"name": "Boots", "type": "Boots", "implicit": None}
-    added = Gear.fill_utility(gear, "Boots", base, 82, pools, {"Prefix": 3, "Suffix": 3}, chosen, 1.0, 1e9, 1e18)
+    added, _ = Gear.fill_utility(gear, "Boots", base, 82, pools, {"Prefix": 3, "Suffix": 3}, chosen, 1.0, 1e9, 1e18)
     names = [a.id for a in added]
     assert names[0] == "ms"  # movement speed first, though Life scores higher alone
     assert set(names) == {"ms", "life", "rarity", "fire"}  # every slot filled, nothing that lowers the score

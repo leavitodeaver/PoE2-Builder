@@ -429,8 +429,12 @@ def life_reserved_open(stats: dict, hits: float) -> float | None:
     return math.exp(-max(hits, 0.0) * window)
 
 
-def boss_recovery(stats: dict) -> dict:
-    """Recovery per second against a boss, the boss's damage per second after mitigation, and the share recovered."""
+def boss_recovery(stats: dict, rows: bool = True) -> dict:
+    """Recovery per second against a boss, the boss's damage per second after mitigation, and the share recovered.
+    `rows` False: without the report's two extra readings (no_deflect_share stays the share, no biggest_share), which
+    with_boss_recovery doesn't read: SEARCHB6's profile (POE2T6325) found them ~28% of the profiled processor time
+    (cProfile inflates Python calls), run at every score (boss_hits.biggest_reading's mean_hits rebuilds every real
+    preset's hit tables for the worst-case pinnacle)."""
     taken, hits, deflect = boss_taken(stats)
     own = max(number(stats.get(BUILD_DEGEN)), 0.0) + self_bleed_taken(stats)  # (MECHC32: your own item's Bleed)
     incoming = sum(taken.values()) + own + boss_ignite_taken(stats)  # (MECHC37: the boss's Ignites on you)
@@ -460,12 +464,12 @@ def boss_recovery(stats: dict) -> dict:
               "recharge_stopped": [name for pool, name, field in (("EnergyShield", "Energy Shield", "EnergyShieldRecharge"),
                                                                   ("Life", "Life", "LifeRecharge"))
                                    if number(stats.get(field)) > 0 and own_loss(stats)[pool] > 0]}
-    if deflect < 1 and not stats.get("_biggest"):
+    if rows and deflect < 1 and not stats.get("_biggest"):
         bare = boss_recovery({**stats, "DeflectChance": 0, "_biggest": True})
         result["no_deflect_share"] = bare["share"]
     # (MECHC32; the manager's 03:28 ruling) the share with every landed hit at its type's biggest ordinary hit, a harsh
     # bound beside the headline's average hit (boss_hits.biggest_reading; None when no type's biggest differs)
-    if not stats.get("_biggest") and (big := boss_hits.biggest_reading(stats)) is not None:
+    if rows and not stats.get("_biggest") and (big := boss_hits.biggest_reading(stats)) is not None:
         result["biggest_share"] = boss_recovery(big)["share"]
     return result
 
@@ -487,7 +491,7 @@ def with_movement(stats: dict) -> dict:
 
 def with_boss_recovery(stats: dict) -> dict:
     """BossRecoveryPercent: the recovery floor's stat (capped at 1000%, also when the boss's hits never land)."""
-    stats["BossRecoveryPercent"] = min(boss_recovery(stats)["share"] * 100, 1000.0)
+    stats["BossRecoveryPercent"] = min(boss_recovery(stats, rows=False)["share"] * 100, 1000.0)  # (the share alone)
     return stats
 
 
@@ -659,7 +663,9 @@ class Objective:
         # an effect only at full uptime, so a defence that leans on them counts only with them off (deficits takes the worst)
         self.floor_deltas: list[dict[str, float]] = []
         self.multipliers: dict[str, float] = dict(multipliers or {})  # requirement label -> weight factor
-        self.penalties = ctx.compiled.penalties
+        # every floor, the soft ones included (Penalty.soft: the DEFAULT survive floor, a deficit with hard None: scored,
+        # never a shortfall; the manager's ruling 23 Nov)
+        self.penalties = [*ctx.compiled.penalties, *getattr(ctx.compiled, "soft_penalties", [])]
         self.style = DefenceStyle(ctx.request.defence)
         # The request's goal unless overridden: balanced runs some searches on boss DPS (run.py)
         self.goal = Goal(goal or ctx.request.objective)
@@ -778,9 +784,10 @@ class Objective:
                 names.append(entry["name"] if source == entry.get("name") else f"{entry['name']} from {source}")
         return amount, names
 
-    def deficits(self, stats: dict) -> list[tuple[str, float, bool]]:
+    def deficits(self, stats: dict) -> list[tuple[str, float, bool | None]]:
         """(label, normalized deficit, hard) for everything currently short: the worst of the build as it is and the
-        build without the effects it keeps up for only part of the fight (floor_deltas: all of them off at once)."""
+        build without the effects it keeps up for only part of the fight (floor_deltas: all of them off at once).
+        `hard`: True a game limit, False a request floor, None a SOFT floor (Penalty.soft: the note at soft_cost)."""
         found = self._deficits(stats)
         for deltas in self.floor_deltas:
             without = self._deficits({**stats, **{k: number(stats.get(k)) + d for k, d in deltas.items()}})
@@ -788,12 +795,18 @@ class Objective:
                 found = without
         return found
 
-    def _weight(self, deficits: list[tuple[str, float, bool]]) -> float:
+    def soft_deficits(self, stats: dict) -> list[tuple[str, float, None]]:
+        """The soft floors short (deficits' entries with hard None)."""
+        return [d for d in self.deficits(stats) if d[2] is None]
+
+    def _weight(self, deficits: list[tuple[str, float, bool | None]]) -> float:
         total = sum((HARD_WEIGHT if hard else FLOOR_WEIGHT) * self.multipliers.get(label, 1.0) * amount
                     for label, amount, hard in deficits)
         if any(hard for _, _, hard in deficits):
             total += HARD_OFFSET
-        if any(not hard for _, _, hard in deficits):
+        if any(hard is False for _, _, hard in deficits):
+            total += FLOOR_OFFSET
+        if any(hard is None for _, _, hard in deficits):  # (a soft floor short: its own fixed cost, soft_cost's note)
             total += FLOOR_OFFSET
         return total
 
@@ -802,7 +815,7 @@ class Objective:
         for penalty in self.penalties:
             amount = max(0.0, penalty.floor - number(stats.get(penalty.stat))) / max(penalty.floor, 1.0)
             if amount > 0:
-                found.append((penalty.label, amount, False))
+                found.append((penalty.label, amount, None if getattr(penalty, "soft", False) else False))
             # A resistance floor above the maximum can't be met by any amount of resistance, so it counts as fully short
             # on top: else a modifier that trades maximum for resistance wins every single-item trial. 2b75e, 9 Nov:
             # a Rune of the Prism (+20% to all Elemental Resistances, -10% to all Maximum) held fire at a 70% maximum
@@ -874,10 +887,27 @@ def maximum_resist(stats: dict, stat: str) -> float | None:
 
 def shortfall(deficits: list[dict]) -> float:
     """How far a result is from feasible, for ranking results whose scores used different weights:
-    game limits count ten times a request floor."""
-    return sum(d["amount"] * (10.0 if d["hard"] else 1.0) for d in deficits)
+    game limits count ten times a request floor; soft floors (hard None: soft_cost's note) not at all."""
+    return sum(d["amount"] * (10.0 if d["hard"] else 1.0) for d in deficits if d["hard"] is not None)
+
+
+# (SEARCHB6; the manager's ruling 23 Nov on THE USER's survive default: "should still STRIVE to make the build tanky
+# enough to survive endgame maps and pinnacle fights", with an exception for builds that kill "faster than they can
+# retaliate") A SOFT floor (Penalty.soft: the default survive floor; a deficit with hard None) costs the score as a
+# floor does (FLOOR_OFFSET + FLOOR_WEIGHT x its escalation x the amount: e^3 = 20x DPS for being short at all), so the
+# search strives for it; but it never counts in a shortfall, so it never makes a build infeasible, keep_feasible never
+# trades it away, and a build that can't meet it is delivered with a warning (constraints.soft_check). Ranking results
+# (rank_key) charges it at its base weight after feasibility.
+
+
+def soft_cost(deficits: list[dict]) -> float:
+    """A result's soft floors' cost at their base weight (no escalation: results' weights differ), in log-value units."""
+    soft = [d["amount"] for d in deficits if d.get("hard", False) is None]
+    return FLOOR_OFFSET + FLOOR_WEIGHT * sum(soft) if soft else 0.0
 
 
 def rank_key(result: dict) -> tuple[float, float]:
     """Feasibility first (smallest shortfall), then the request's goal (boss DPS, clear or both)."""
-    return round(shortfall(result["deficits"]), 6), -result.get("value", result["dps"])
+    # (log1p is monotonic: with no soft floor short, results rank exactly as by -value before)
+    value = number(result.get("value", result["dps"]))
+    return round(shortfall(result["deficits"]), 6), soft_cost(result["deficits"]) - math.log1p(max(value, 0.0))

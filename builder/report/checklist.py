@@ -64,6 +64,24 @@ def checklist(result: dict) -> list[dict]:
         if note.startswith("* ") and not any(note.startswith(f"* {label}:") for label in labels):
             items.append({"kind": "estimate *", "title": note[2:].split(". ")[0], "why": note[2:],
                           "how": "Play a few maps and compare with what the result expects; treat it as approximate."})
+    for check in result.get("checks") or []:
+        # (SEARCHB6) a soft floor not met: the build is delivered, with this warning (constraints.soft_check)
+        if check.get("warning"):
+            items.append({"kind": "warning", "title": check["label"], "why": f"{check['warning']}. {check.get('note', '')}".strip(),
+                          "how": "Dodge those hits in play, or trade some damage for more maximum hit (Life, Energy "
+                                 "Shield, resistances, Armour against Physical) if they keep killing you."})
+    for slot, gear in (result.get("gear") or {}).items():
+        # (SEARCHB6; THE USER 23 Nov: "having empty mods on an item is stupid and wasteful") the affix slots no scoring
+        # affix wanted, filled with utility (Gear.fill_utility); the damage doesn't depend on which roll they get
+        if isinstance(gear, dict) and gear.get("utility_affixes"):
+            items.append({
+                "kind": "utility affixes", "title": f"{slot}: {gear.get('name', '')}",
+                "why": "These open affix slots are filled with utility, not damage: " + "; ".join(gear["utility_affixes"])
+                       + ". Movement speed first, then Life / Energy Shield / defences, then resistances, then quality of "
+                         "life, each only where it doesn't lower the build's score.",
+                "how": "When buying or crafting, the item's damage affixes matter; for these slots any roll of the same "
+                       "kind will do (movement speed counts toward the request's movement speed floor).",
+            })
     for reason in result.get("reasons") or []:
         if "isn't modeled" in reason or "not modeled" in reason:
             items.append({"kind": "not modeled", "title": "Main skill damage", "why": reason,

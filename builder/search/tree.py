@@ -422,7 +422,8 @@ class Tree:
 
     def shortfall(self) -> float:
         """How far the build is from meeting the request (objective.shortfall: a game limit counts ten times a floor)."""
-        return sum(amount * (10.0 if hard else 1.0) for _, amount, hard in self.build.objective.deficits(self.build.stats))
+        return sum(amount * (10.0 if hard else 1.0) for _, amount, hard in self.build.objective.deficits(self.build.stats)
+                   if hard is not None)  # (soft floors are no shortfall: objective.soft_cost's note)
 
     def floor_step(self, deadline: float) -> bool:
         """Allocate the target (with its path) that cuts the build's penalty for the request's floors and game limits

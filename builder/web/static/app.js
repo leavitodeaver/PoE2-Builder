@@ -379,7 +379,7 @@ function checksTable(checks) {
   return [el("h3", {}, "Requested vs delivered"), el("div", { class: "table-wrap" }, el("table", { class: "checks" },
     el("thead", {}, el("tr", {}, el("th", {}, ""), el("th", {}, "Requirement"), el("th", {}, "Requested"), el("th", {}, "Delivered"))),
     el("tbody", {}, checks.map((check) => {
-      const [cls, symbol] = mark(check.ok);
+      const [cls, symbol] = check.warning ? ["bad", "⚠"] : mark(check.ok);  // (a soft floor not met: delivered, warned)
       return el("tr", {}, el("td", { class: `status ${cls}` }, symbol), el("td", {}, check.label,
         check.note ? el("div", { class: "note" }, check.note) : null), el("td", {}, check.requested), el("td", {}, check.delivered));
     }))))];
