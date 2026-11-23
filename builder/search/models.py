@@ -3439,13 +3439,66 @@ def minion_count(spell: Skill, rate: float) -> tuple[float, str]:
                      "minion casting nonstop")
 
 
+# Cast on Critical / Cast on Elemental Ailment fed by ANOTHER skill (MECHB59; the manager 09:50 23 Nov from COV52's
+# calibration, group B2, the user's example builds 4, 7, 15; an UNDERCOUNT: energy_model zeroed a main skill socketed in
+# the meta gem). KeywordPopups Energy (26650308): "Energy cannot be gained from direct effects of Triggered Skills", so
+# the spell the meta triggers feeds nothing and a skill YOU use does. The feeders: the build's other groups' skills that
+# hit on use, not triggered, not by a totem, not a minion's (Assumptions.energy_feeders, from their useRates rows).
+# Skills with a cooldown, a duration or a press rate the search chose run at that rate; the time they leave goes to the
+# best at-will feeder (the player plays to feed the meta: the no-flat-rates rule), MEDIUM. Each hit's Energy as
+# energy_gain's: a crit Power x min(1, the crit / the Ailment Threshold); an ailment Power for a Shock, Power x the
+# Ignite's share for an Ignite. A feeder's Freezes aren't counted (buildup is read for the main skill only: lower).
+FEED_KINDS = ("crit", "ailment")
+
+
+def energy_feed(kind: str, feeders: list[dict], stats: dict) -> tuple[float, float, str]:
+    """(Energy a second, crits a second, how) the build's self-used skills give a `kind` meta gem (see the note above).
+    `feeders`: [{name, uses (0: at will), speed, why, row, final}]."""
+    power, threshold = power_of(stats), number(stats.get("EnemyAilmentThreshold"))
+
+    def each(f: dict) -> tuple[float, float]:  # (Energy a use, crits a use)
+        row = f["row"]
+        hit = min(number(row.get("HitChance")) or 100.0, 100.0) / 100.0
+        crit = min(max(number(row.get("CritChance")), 0.0), 100.0) / 100.0
+        scale = max(0.0, 1.0 + number(f.get("final")) / 100.0)
+        if kind == "crit":
+            crit_hit = sum(number(row.get(f"{t}CritAverage")) for t in DAMAGE_TYPES)
+            share = min(1.0, crit_hit / threshold) if threshold > 0 else 1.0
+            return hit * crit * power * share * scale, hit * crit
+        shock = min(number(row.get("ShockChancePerHit")), 100.0) / 100.0
+        ignite = min(number(row.get("IgniteChancePerHit")), 100.0) / 100.0
+        burn = number(row.get("IgniteDPS")) * number(row.get("IgniteDuration"))
+        share = min(1.0, burn / threshold) if threshold > 0 else 1.0
+        return hit * (shock + ignite * share) * power * scale, hit * crit
+
+    gain = crits = busy = 0.0
+    parts: list[str] = []
+    for f in (x for x in feeders if x["uses"] > 0):
+        energy, crit = each(f)
+        gain, crits = gain + f["uses"] * energy, crits + f["uses"] * crit
+        busy += f["uses"] / f["speed"] if f["speed"] > 0 else 0.0
+        parts.append(f"{f['name']} {f['uses']:.2f} uses/s ({f['why']}) for {energy:.2f} Energy a use")
+    filler = max((x for x in feeders if x["uses"] <= 0 and x["speed"] > 0),
+                 key=lambda x: x["speed"] * each(x)[0], default=None)
+    if filler is not None and each(filler)[0] > 0:
+        uses = filler["speed"] * max(0.0, 1.0 - busy)
+        energy, crit = each(filler)
+        gain, crits = gain + uses * energy, crits + uses * crit
+        parts.append(f"{filler['name']} used at will in the time left, {uses:.2f} uses/s for {energy:.2f} Energy a use")
+    how = ("fed by the skills you use (a Triggered Skill's own effects give no Energy, KeywordPopups Energy): "
+           + "; ".join(parts) + f"; the boss's Power {power:g} (MEDIUM)") if parts else ""
+    return gain, crits, how
+
+
 def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill | None,
                  supports: dict[int, list[str]] | None = None, qualities: dict[int, float] | None = None,
-                 choices: dict[str, float] | None = None) -> tuple[list, list, set[int]]:
+                 choices: dict[str, float] | None = None,
+                 feeders: dict[int, list[dict]] | None = None) -> tuple[list, list, set[int]]:
     """Trigger rates for the spells socketed in meta skills that gain Energy, fed by the main skill. Every spell in a meta
     group triggers once per round, and a round costs all their Energy: a second spell halves (about) the first's rate.
     `supports` ({group: support names}) adds the meta group's own Energy supports (META_SUPPORTS). `qualities` ({group:
     the meta gem's quality}) and `choices` (press_choices) set an Invocation's store and press rate (invocation_release).
+    `feeders` ({meta group: its self-used feeders}, energy_feed) feed a meta gem whose triggered spell is the main skill.
     Returns (mods, notes, groups whose damage counts)."""
     mods: list[dict] = []
     notes: list[dict] = []
@@ -3453,13 +3506,19 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
     x0 = {k: inputs.total(k) for k in ENERGY_INPUTS}
     passive = {k: inputs.passive.get(k, 0.0) for k in ENERGY_INPUTS}
     doubled = inputs.has("EnergyDoubled")
-    crits_recently = crits_per_second(stats) * RECENTLY >= 1
+    main_crits_recently = crits_per_second(stats) * RECENTLY >= 1
     for meta in (s for s in skills if s.energy and s.group is not None):
+        crits_recently = main_crits_recently
         spells = [s for s in skills if s.group == meta.group and s.spell and s.triggered and not s.energy]
         if not spells:
             continue
         names = ", ".join(s.name for s in spells)
-        if meta.name not in META_GEMS or main is None or main.group == meta.group:
+        feeding = None  # (MECHB59: the main skill is the meta's own spell, so the skills you use feed it: energy_feed)
+        if (meta.name in META_GEMS and main is not None and main.group == meta.group
+                and META_GEMS[meta.name]["gain"] in FEED_KINDS and (feeders or {}).get(meta.group)):
+            feeding = energy_feed(META_GEMS[meta.name]["gain"], feeders[meta.group], stats)
+            feeding = feeding if feeding[0] > 0 else None
+        if meta.name not in META_GEMS or main is None or (main.group == meta.group and feeding is None):
             for spell in spells:  # PoB would count them as if cast by hand
                 mods += trigger_rate(spell.name, 0.0)
             notes.append({"label": f"{meta.name} triggers per second ({names}; not counted)", "value": 0,
@@ -3490,14 +3549,20 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
             continue
         names = ", ".join(s.name for s in spells)
         cost = sum(energy_cost(s) for s in spells)
-        gain, gain_basis = energy_gain(meta.name, stats, main.name, main)
-        if gain > 0 and main.energy_final and META_GEMS[meta.name]["gain"] in OWN_USE_GAINS:
+        if feeding is not None:
+            gain, gain_basis = feeding[0], feeding[2]
+            crits_recently = feeding[1] * RECENTLY >= 1
+        else:
+            gain, gain_basis = energy_gain(meta.name, stats, main.name, main)
+        if feeding is None and gain > 0 and main.energy_final and META_GEMS[meta.name]["gain"] in OWN_USE_GAINS:
             gain *= max(0.0, 1 + main.energy_final / 100)
             gain_basis += (f"; x{max(0.0, 1 + main.energy_final / 100):g}: {main.name}'s own "
                            f"{main.energy_final:g}% final Energy generated (active_skill_energy_generated_+%_final, game "
                            "files; PoB reads nothing of it). It has no game text, so whether it reaches every way this "
                            "skill feeds Energy (hits, crits, ailments, casts) is UNVERIFIED: applied to all of them")
-        if cast_by_totem(skills, main) and META_GEMS[meta.name]["gain"] in OWN_USE_GAINS:
+        if feeding is not None:
+            pass  # (the feeders are already the skills you use yourself: Assumptions.energy_feeders)
+        elif cast_by_totem(skills, main) and META_GEMS[meta.name]["gain"] in OWN_USE_GAINS:
             gain, gain_basis = 0.0, f"{main.name} is cast by a totem, and the totem's hits and casts aren't yours (assumed)"
         elif main.name in CANNOT_GENERATE_ENERGY and META_GEMS[meta.name]["gain"] in OWN_USE_GAINS:
             gain, gain_basis = 0.0, (f"{main.name} \"cannot cause Meta Skills to generate Energy\" "

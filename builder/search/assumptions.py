@@ -3518,7 +3518,8 @@ class Assumptions:
         if full_mana:
             inputs.items["MetaEnergy"] = inputs.items.get("MetaEnergy", 0.0) + full_mana
         energy_mods, energy_notes, energy_groups = models.energy_model(inputs, stats, found, main, supports, qualities,
-                                                                       models.press_choices(build))
+                                                                       models.press_choices(build),
+                                                                       self.energy_feeders(found, main))
         energy_notes = energy_notes + full_mana_notes
         # (the meta gems' trigger rates, for the curses and Marks they trigger: MECH46, FLAT_RATES A5)
         build.trigger_rates = {m["skill"]: m["value"] for m in energy_mods
@@ -10236,6 +10237,38 @@ class Assumptions:
             note["set_shares"] = {"Thrust": thrusts / uses, "Serpent": spent / uses}
             note["set_uses"] = uses
         return [mod], [note]
+
+    def energy_feeders(self, found: list, main) -> dict[int, list[dict]]:
+        """(MECHB59: models.energy_feed's note) {meta group: [{name, uses, speed, why, row, final}]} for a Cast on Critical /
+        Elemental Ailment group holding the main skill: the skills in other groups that you use and that hit. `uses` 0 is
+        an at-will skill (no cooldown, duration or chosen press rate)."""
+        metas = [s.group for s in found if s.energy and s.group is not None and main is not None and s.group == main.group
+                 and (models.META_GEMS.get(s.name) or {}).get("gain") in models.FEED_KINDS]
+        if not metas:
+            return {}
+        build = self.build
+        gems = getattr(build.ctx, "all_gems", None) or build.ctx.gems
+        raw = {e["name"]: e for e in build.call("activeSkills")["skills"] if not e.get("disabled")}
+        can = [s for s in found if s.group is not None and s.group not in metas and not s.triggered and not s.energy
+               and not s.by_totem and s.summon is None and s.minion is None
+               and s.name not in models.CANNOT_GENERATE_ENERGY
+               and conditions_mod.daze_hitter(gems.get(s.name), [raw[s.name]] if s.name in raw else None)]
+        if not can:
+            return {}
+        rows = {r.get("index"): r for r in build.call("useRates", indices=sorted({s.group for s in can}))["rates"]}
+        choices, out = models.press_choices(build), []
+        for s in can:
+            row = rows.get(s.group)
+            if not row or not str(row.get("name") or "").startswith(s.name) or row.get("triggered"):
+                continue  # (a group's row is its selected active skill)
+            if str(row.get("name") or "").startswith((models.ORB_OF_STORMS, models.GALVANIC_FIELD)):
+                continue  # (their casts aren't their hits: side_hit_rows' rule; not counted here, a lower reading)
+            # (a duration doesn't limit a skill you spam to feed the meta, Spark say: only a cooldown or a chosen rate does)
+            timed = models.number(row.get("cooldown")) > 0 or models.press_choice(row, choices) is not None
+            uses, why, _ = conditions_mod.skill_use_rate(row, choices) if timed else (0.0, "", False)
+            out.append({"name": s.name, "uses": uses, "speed": conditions_mod.use_ceiling(row),
+                        "why": why, "row": row, "final": s.energy_final})
+        return {g: out for g in metas} if out else {}
 
     def _side_rows(self, main_index: int, pick) -> list[tuple[dict, float, str]]:
         """[(useRates row, uses a second, how)] for the build's enabled groups outside the main one that `pick(group)`
