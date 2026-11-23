@@ -1804,7 +1804,8 @@ class Gear:
                 if (build.score >= before - EPSILON and build.spent() <= max(self.ctx.budget, spent) + 1e-9
                         and objective._weight(objective.deficits(build.stats)) <= weight + 1e-12):
                     # (SEARCHC1, on loan: the manager 23 Nov 05:00) its sockets filled too, kept on the same checks
-                    socketed = self.socketed(slot, option, clock.now() + FILL_EMPTY_SOCKET_SECONDS)
+                    socketed = (self.socketed(slot, option, clock.now() + FILL_EMPTY_SOCKET_SECONDS)
+                                if isinstance(option, ItemOption) else option)
                     if socketed is not option:
                         self.put(slot, socketed)
                         self.settle()
