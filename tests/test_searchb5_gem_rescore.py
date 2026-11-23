@@ -89,7 +89,15 @@ def test_gem_rescore(engine, monkeypatch):
     monkeypatch.setenv(state.GEM_RESCORE_SWITCH, "1")
     monkeypatch.setattr(state, "RESCORE_GEMS", 1)
     build.model_gem = lambda name: name in (flagged, offered[1])
+    # The time guards: no share of the task's time left, or the hard stop fired: no trial
+    monkeypatch.setattr(state, "GEM_RESCORE_SHARE", 0.0)
+    assert [s for s, _ in build.gem_deltas(cases)] == pytest.approx(off) and build.gem_rescored == 0
+    monkeypatch.setattr(state, "GEM_RESCORE_SHARE", 1e9)
+    build.stopped = True
+    assert [s for s, _ in build.gem_deltas(cases)] == pytest.approx(off) and build.gem_rescored == 0
+    build.stopped = False
     on = [s for s, _ in build.gem_deltas(cases)]
+    assert build.gem_rescore_seconds > 0
     tried = {row["gem"]: row for row in build.gem_rescore_log}
     assert flagged in tried and tried[flagged]["model"] and "real" in tried[flagged]
     assert offered[1] in tried and tried[offered[1]]["remove"]  # (a model-valued support's removal gets one too)

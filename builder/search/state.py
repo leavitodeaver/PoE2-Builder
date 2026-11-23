@@ -30,6 +30,7 @@ GEM_RESCORE_SWITCH = "POE2_SEARCH_GEM_RESCORE"  # "1" on; OFF by default until i
 RESCORE_GEMS = 4  # LOW, a search-effort setting: the best what-if support cases per call that get a real trial
 MODEL_GEMS = 8  # LOW, the same: model-valued support cases per call that get one (the best by what-if first)
 GEM_RESCORE_SECONDS = 15.0  # LOW, the same: the real trials' time per call (a trial took 0.9-3.9 s, POE2T6304)
+GEM_RESCORE_SHARE = 0.1  # LOW, the same: the trials' share of a task's time so far (gate POE2T6312 without it: x0.77)
 
 
 def gem_rescore_enabled() -> bool:
@@ -153,7 +154,9 @@ class Build:
         self.gem_rescored = 0
         self.gem_rescore_restores = 0
         self.gem_rescore_log: list[dict] = []
+        self.gem_rescore_seconds = 0.0  # the trials' time so far (GEM_RESCORE_SHARE)
         self._gem_trial = False
+        self.stopped = False  # the hard stop has fired (tick): no rescore trials in the wrap-up after it
         self._model_texts: tuple[int, list[str]] = (-1, [])
         # The hard stop (Search.run sets it a little past the task's deadline): every step used to
         # finish its own trials first, so a 600 s gate run took about 966 s (MECH15's runs, 8 Nov)
@@ -233,6 +236,7 @@ class Build:
         now = clock.now()
         if self.stop_at is not None and now > self.stop_at:
             self.stop_at = None  # once: what the search does next to wrap up runs to its end
+            self.stopped = True
             raise OutOfTime()
         if self.report is None:
             return
@@ -342,18 +346,25 @@ class Build:
         support = self._support_cases(cases, groups)
         if not support:
             return scored
+        # (the time guards, gate POE2T6312: with only the per-call cap the trials took 2b75d's probe tasks' tree time and
+        # ran 35-100 s past each task's end, 182,059 vs 235,907 off) none once the hard stop has fired (its wrap-up runs
+        # with no stop), and all of a task's trials within GEM_RESCORE_SHARE of its time so far
+        started = clock.now()
+        left = GEM_RESCORE_SHARE * (started - self.started) - self.gem_rescore_seconds
+        if self.stopped or left <= 0:
+            return scored
+        limit = min(GEM_RESCORE_SECONDS, left)
         by_whatif = sorted(support, key=lambda i: -scored[i][0])
         picks = by_whatif[:RESCORE_GEMS]
         model = [i for i in by_whatif if i not in picks and self.model_gem(support[i])][:MODEL_GEMS]
         picks += model
-        started = clock.now()
         before = self.score
         snap = self.snapshot()
         self._gem_trial = True
         try:
             for i in picks:
                 now = clock.now()
-                if now - started > GEM_RESCORE_SECONDS or (self.stop_at is not None
+                if now - started > limit or (self.stop_at is not None
                                                            and now > self.stop_at - GEM_RESCORE_SECONDS):
                     break
                 case, group = cases[i], groups[cases[i]["group"]]
@@ -383,6 +394,7 @@ class Build:
             if abs(self.score - before) > EPSILON:
                 self.gem_rescore_restores += 1
                 self.restore(snap)
+            self.gem_rescore_seconds += clock.now() - started
         return scored
 
     def item_deltas(self, cases: list[dict]) -> list[tuple[float, dict]]:
