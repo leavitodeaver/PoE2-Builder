@@ -4394,7 +4394,11 @@ end
 function bridge.gemDeltas(args)
 	local calcFunc = calculator()
 	local useFullDPS = args.fullDPS == true
-	local fast = { nodeAlloc = true, requirementsItems = true, skipEHP = args.skipEHP ~= false }
+	-- (SEARCHB4, 22 Nov) no requirementsItems: with it PoB's misc calculator skips CalcSetup's item block on a reused
+	-- environment, and an item's Spirit (CalcSetup 1692: a Sceptre's) and Charm limit (1689) are written into env.modDB,
+	-- which wipeEnv clears every call: every gem what-if after the first read a Sceptre build 100 Spirit short
+	-- (POE2T6297), a false hard deficit on the supports and Spirit skills. No measurable time cost (POE2T6298)
+	local fast = { nodeAlloc = true, skipEHP = args.skipEHP ~= false }
 	local list = build.skillsTab.socketGroupList
 	local results = { }
 	local start = os.clock()
