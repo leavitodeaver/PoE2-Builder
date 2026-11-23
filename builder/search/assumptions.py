@@ -3518,6 +3518,15 @@ class Assumptions:
         # (the meta gems' trigger rates, for the curses and Marks they trigger: MECH46, FLAT_RATES A5)
         build.trigger_rates = {m["skill"]: m["value"] for m in energy_mods
                                if m.get("kind") == "SkillData" and m.get("key") == "triggerRate"}
+        # (MECH102: a triggered Mark alone in its group, models.mark_use: PoB's trigger rate for its group, the bridge's
+        # useRates row; none read: models.mark_use counts it never applied, not "applied when needed")
+        lone = {s.group: s.name for s in found if s.name in models.MARKS and s.triggered and s.group is not None
+                and s.name not in build.trigger_rates
+                and not any(o.group == s.group and o.name != s.name for o in found)}
+        if lone:
+            for row in build.call("useRates", indices=sorted(lone))["rates"]:
+                if row.get("triggered") and models.number(row.get("speed")) > 0 and row.get("index") in lone:
+                    build.trigger_rates[lone[row["index"]]] = models.number(row.get("speed"))
         expression_mods, expression_notes, expression_groups = models.expression_model(found, stats, main)
         levels = {g["name"]: g["level"] for grp in build.groups() for g in grp["gems"] if g.get("level")}
         # (MECH101: a curse a Spell Totem casts, up while a totem is: models.totem_curse_up, for curse_uses)

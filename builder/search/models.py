@@ -2442,7 +2442,16 @@ def mark_use(mark: Skill, skills: list[Skill], disabled: list[Skill] | None = No
         return MarkUse(max(own, mark.cast_time), "cast by you", mark)
     trigger = next((s for s in skills if s.group == mark.group and s.name != mark.name), None)
     if trigger is None:
-        return MarkUse(own, "triggered by a skill the model doesn't know: assumed applied when needed, at no cost (LOW)")
+        # (MECH102; MECH101's flat-rate sweep: was "assumed applied when needed, at no cost (LOW)", a flat rate where the
+        # trigger decides it. The user's rule (CLAUDE.md, 11 Nov): the build's own rate, else 0. The rate: PoB's trigger
+        # rate for the Mark's group (the bridge's useRates row, Assumptions.lone_mark_rates), handed in as `rates`)
+        rate = number((rates or {}).get(mark.name))
+        if rate > 0:
+            return MarkUse(max(own, 1 / rate), f"triggered {rate:.3f} times/s (PoB's trigger rate for its group)",
+                           on_demand=False)
+        return MarkUse(math.inf, "triggered by a source the model doesn't read, with no trigger rate from PoB: never "
+                                 "applied (0, the user's no-flat-rate rule; an UNDERCOUNT if the source fires)",
+                       on_demand=False)
     if trigger.energy and rates is not None and mark.name in rates:  # (MECH46, FLAT_RATES A5: was "when needed")
         rate = number(rates[mark.name])
         if rate <= 0:

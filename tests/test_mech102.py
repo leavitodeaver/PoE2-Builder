@@ -110,3 +110,12 @@ def test_shocked_ground_alone_keeps_its_magnitude_and_weighs_against_the_main_sk
     half = {**ground, "_shocked_ground": (0.5, "x"), "ShockChancePerHit": 100.0, "_main_shock_effect": 1.0}
     value, _ = c._shock_effect([], half)
     assert 20.0 < value < 30.0
+
+
+def test_a_lone_triggered_mark_takes_pobs_trigger_rate_or_none():
+    mark = models.Skill("Voltaic Mark", group=5, triggered=True)
+    # (before MECH102: "assumed applied when needed, at no cost (LOW)", a flat rate)
+    use = models.mark_use(mark, [mark])
+    assert use.period == float("inf") and not use.on_demand and "never applied" in use.how
+    use = models.mark_use(mark, [mark], rates={"Voltaic Mark": 0.25})
+    assert use.period == pytest.approx(4.0) and not use.on_demand and "PoB's trigger rate" in use.how
