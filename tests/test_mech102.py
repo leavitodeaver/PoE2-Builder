@@ -135,3 +135,35 @@ def test_dominion_halves_archon_of_chayulas_more_as_well_as_ending_the_recovery(
     mods, notes = models.chayula_more_model(up, "Dominion", inputs.total("ArchonEffect"))
     # 20% x 0.5 = 10% more while up, x 2/3 of the fight
     assert mods[0]["scale"] == pytest.approx(10.0 * 2 / 3, abs=1e-3) and "x0.50 Archon effect" in notes[0]["basis"]
+
+
+def test_moment_of_vulnerability_visages_are_walked_through_the_fight():
+    # a 6 s Freeze cycle (4 s Frozen, 2 s refill, Primed from 1.4 s until it fills): visages at 1.4, 13.4, 25.4, ...
+    # (each the first Primed moment 10 s after the last): 5 in 60 s, 4 s each
+    assert models.mov_visages(6.0, 4.0, 60.0) == (pytest.approx(20 / 60), 5)
+    # a slow 20 s cycle: one a cycle once the window opens (11.2 s, then 31.2 s, ...)
+    assert models.mov_visages(20.0, 4.0, 120.0) == (pytest.approx(0.2), 6)
+    # buildup too slow to Prime the boss within the fight: none (probe POE2T6483's 4,000,000 s cycle counted 40% before)
+    assert models.mov_visages(4002590.9, 4.0, 1800.0) == (0.0, 0)
+    assert models.mov_visages(0.0, 4.0, 60.0) == (0.0, 0)
+
+
+def test_moment_of_vulnerability_needs_a_primed_boss_and_hits_that_reach_the_visage():
+    freeze = {"Speed": 2.0, "HitChance": 100.0, "FreezeBuildupAvg": 20.0}
+    mods, notes = models.moment_of_vulnerability_model(models.Skill("Ice Nova"), freeze, True,
+                                                       {"time_rip_damage_share_%": 98, "rip_from_time_immunity_duration_ms": 10000},
+                                                       0.65)
+    period = models.immobilise_period(freeze, "Freeze")
+    up, made = models.mov_visages(period, models.immobilise_duration(freeze, "Freeze"), None)
+    every = models.MOV_FIGHT_CAP / made
+    expected = (1 + 0.98 * up) * (1 - 0.65 / every) - 1
+    assert mods and mods[0]["scale"] == pytest.approx(100 * expected, abs=1e-3) and "Primed by Freeze" in notes[0]["basis"]
+    # not an Area skill: its hits taken to reach only the boss (the lower reading), the reaching-both row said
+    mods, notes = models.moment_of_vulnerability_model(models.Skill("Spark"), freeze, False)
+    assert mods == [] and "if they reach both" in notes[0]["basis"]
+    # nothing builds Freeze / Electrocute / Heavy Stun: never Primed, 0 (no flat rate)
+    mods, notes = models.moment_of_vulnerability_model(models.Skill("Fireball"), {"Speed": 2.0, "HitChance": 100.0}, True)
+    assert mods == [] and "never Primed" in notes[0]["basis"]
+    # buildup too slow to Prime the boss within a 60 s fight: none
+    slow = {"Speed": 1.0, "HitChance": 100.0, "FreezeBuildupAvg": 0.005}
+    assert models.moment_of_vulnerability_model(models.Skill("Ice Nova"), slow, True, fight=60.0)[0] == []

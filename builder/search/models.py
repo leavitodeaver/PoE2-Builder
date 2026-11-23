@@ -18811,6 +18811,122 @@ def chayula_more_model(up: float, how: str, effect_inc: float = 0.0) -> tuple[li
     return [line("1% more Physical Damage", scale), line("1% more Chaos Damage", scale)], [note]
 
 
+# Moment of Vulnerability (MECH102; the manager 01:15, THE USER's Oracle build review: "ascendancy skills must be used";
+# RESEARCH49 R49-8, research/oracle-skills-notables-megalomaniac-r49.md: numbers HIGH, the boss model MEDIUM-LOW). The
+# Oracle's Converging Paths grants it; nothing read it, so it added nothing (an UNDERCOUNT). The game's text: "Hitting
+# enemies that are Primed for Stun, Electrocution, or Freeze causes a visage of them to appear, lasting as long as the
+# original target would have been affected by the form of Immobilisation used to create the visage. A portion of the
+# damage dealt to visages is also dealt to the original" (MomentOfVulnerabilityPlayer: cooldown 1 s, cast 0.65 s, a 4 m
+# Nova, its own hit negligible; time_rip_damage_share_% 98 at gem 20; rip_from_time_immunity_duration_ms 10000, "10
+# second delay before enemy can be affected again"). Primed (KeywordPopups PrimedStun / PrimedFreeze /
+# PrimedElectrocution): 70% buildup for Unique enemies (PRIMED_FREEZE_UNIQUE). Model, per kind (Freeze, Electrocute,
+# Heavy Stun), from the build's OWN buildup (no flat rate: the user's rule): its cycle P and duration D (immobilise_period
+# / immobilise_duration; heavy_stun_rate and the boss preset's heavy_stun_s, MECH-D's, read only); in a cycle the boss is
+# Primed from 70% of the refill (P - D, taken as linear: MEDIUM, the x6 window after a real one makes it uneven) until the
+# bar fills; a visage at the first Primed moment, the next at the first Primed moment after the 10 s immunity
+# (mov_visages, walked through the fight: boss_pool / FullDPS, at most 30 min; a bar that never reaches 70% in it makes
+# none). The visage up (visages x D) / the fight; the best kind counts (the immunity is the skill's, whatever kind: mixing kinds
+# not counted, the lower reading). The boss takes x(1 + share x up x b), b the share of the build's damage that hits
+# both: 1 for an Area main skill, else 0 (where the visage stands isn't in any file: the lower reading, with the b = 1 row).
+# Less its cast time once per visage (you press it when the boss is Primed). Labelled, UNVERIFIED (R49-8): whether making
+# the visage spends the buildup or stops the real immobilisation (neither taken), whether the visage has the boss's
+# resistances (taken as the same), buildup decay (not modelled, as everywhere).
+MOV = "Moment of Vulnerability"
+MOV_SHARE_STAT = "time_rip_damage_share_%"
+MOV_IMMUNE_STAT = "rip_from_time_immunity_duration_ms"
+MOV_SHARE = 98.0  # % at gem 20 (R49-8), when the level stats aren't read
+MOV_IMMUNE = 10.0  # s
+MOV_CAST = 0.65  # s (PoB's castTime), when the skill's own isn't read
+MOV_ENTRY = "model-mech102-moment-of-vulnerability"
+
+
+MOV_FIGHT_CAP = 1800.0  # s, the longest fight read (as Assumptions' fight readers)
+
+
+def mov_visages(period: float, duration: float, fight: float | None, immune: float = MOV_IMMUNE,
+                primed: float = PRIMED_FREEZE_UNIQUE) -> tuple[float, int]:
+    """(the share of the fight a visage is up, visages made) (see the note above): the bar refills from empty at each
+    cycle's start (k x `period`, the refill `period` - `duration`), the boss Primed from `primed` of the refill until it
+    fills (then the real immobilisation); a visage at the first Primed moment at least `immune` s after the last, each
+    lasting `duration`, within a `fight` of that many s (None: MOV_FIGHT_CAP). A bar that doesn't reach `primed` within
+    the fight makes none (MECH102's probe POE2T6483: a 4,000,000 s cycle counted a visage every 10 s before, an
+    OVERCOUNT, since buildup that slow never Primes a boss in a real fight)."""
+    fight = min(fight, MOV_FIGHT_CAP) if fight and fight > 0 else MOV_FIGHT_CAP
+    if period <= 0 or not math.isfinite(period):
+        return 0.0, 0
+    refill = max(period - duration, 0.0)
+    total, made, last, k = 0.0, 0, -math.inf, 0
+    while k < 100000:
+        start, end = k * period + primed * refill, k * period + refill
+        if start >= fight:
+            break
+        t = max(start, last + immune)
+        while t <= min(end, fight):
+            total += min(duration, fight - t)
+            made, last = made + 1, t
+            t += immune
+        k += 1
+    return min(1.0, total / fight), made
+
+
+def moment_of_vulnerability_model(main: Skill | None, stats: dict, area: bool, level_stats: dict | None = None,
+                                  cast_time: float = 0.0, fight: float | None = None) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): the visage's repeated damage on the boss (see the note above). `area`: the main skill is an Area
+    skill (its hits reach the visage too); `level_stats`: Moment of Vulnerability's (the bridge's levelStats)."""
+    level_stats = level_stats or {}
+    share = number(level_stats.get(MOV_SHARE_STAT)) or MOV_SHARE
+    immune = number(level_stats.get(MOV_IMMUNE_STAT)) / 1000 or MOV_IMMUNE
+    cast = cast_time if cast_time > 0 else MOV_CAST
+    kinds = []
+    for kind in ("Freeze", "Electrocute"):
+        period = immobilise_period(stats, kind)
+        if period > 0:
+            kinds.append((kind, period, immobilise_duration(stats, kind)))
+    stuns, _ = heavy_stun_rate(stats)
+    if stuns > 0:
+        kinds.append(("Heavy Stun", 1.0 / stuns, bosses.of(stats).heavy_stun_s))
+    seconds = min(fight, MOV_FIGHT_CAP) if fight and fight > 0 else MOV_FIGHT_CAP
+    rows = []
+    for kind, period, duration in kinds:
+        up, made = mov_visages(period, duration, fight, immune)
+        rows.append((up, kind, period, duration, seconds / made if made else math.inf))
+    note = {"label": f"{MOV}: the boss's visage takes your damage too*", "entry": MOV_ENTRY,
+            "confidence": "MEDIUM-LOW (R49-8)"}
+    if not rows or max(r[0] for r in rows) <= 0:
+        return [], [{**note, "value": "+0%",
+                     "basis": ("the build's Freeze, Electrocute and Heavy Stun buildup doesn't bring the boss to 70% (Primed, "
+                               f"a Unique enemy) within the {seconds:.0f} s fight, so it is never Primed and no visage "
+                               "appears: 0 (the user's no-flat-rate rule)"),
+                     "play": f"Build Freeze, Electrocute or Heavy Stun on the boss to Prime it, then use {MOV}"}]
+    up, kind, period, duration, every = max(rows)
+    reach = 1.0 if area else 0.0
+    gain = share / 100 * up * reach
+    cost = min(1.0, cast / every) if gain > 0 else 0.0
+    total = (1 + gain) * (1 - cost) - 1
+    row_hit = (1 + share / 100 * up) * (1 - min(1.0, cast / every)) - 1
+    # (the other reading of R49-8's open point: making the visage spends the buildup, so one visage a cycle at most)
+    spent = mov_visages(period, duration, fight, max(period, immune))[0]
+    row_spent = (1 + share / 100 * spent * reach) * (1 - (min(1.0, cast * spent / duration) if spent > 0 and reach else 0.0)) - 1
+    others = "; ".join(f"{k}: every {e:.1f} s, up {u:.0%}" for u, k, _, _, e in sorted(rows, reverse=True)[1:])
+    basis = (f"Primed by {kind}: the build's own cycle {period:.1f} s ({duration:g} s each, the boss Primed from 70% of "
+             f"the refill), so a visage every {every:.1f} s on average over the {seconds:.0f} s fight (its {immune:g} s "
+             f"immunity), up {up:.0%} of the fight, "
+             f"{share:g}% of the damage dealt to it also dealt to the boss"
+             + (f"; the other kinds: {others}" if others else "")
+             + (f"; the main skill is an Area skill, taken to reach both (MEDIUM-LOW)" if area else
+                f"; the main skill isn't an Area skill: its hits taken to reach only the boss (where the visage stands "
+                f"isn't in the game files: the lower reading; if they reach both, {row_hit:+.1%})")
+             + f"; less one {cast:g} s cast every {every:.1f} s. Whether the visage spends the buildup (taken: it doesn't, so a "
+               f"Primed boss allows one every {immune:g} s until its bar fills; if it does, one a cycle: up {spent:.0%}, "
+               f"{row_spent:+.1%}) or stops the real immobilisation, and its resistances: UNVERIFIED")
+    play = (f"Keep the boss Primed for {kind} and use {MOV} when it is (once every {every:.1f} s); without it: +0%, "
+            f"with it: {total:+.1%}")
+    out = [{**note, "value": f"{total:+.1%}", "basis": basis, "play": play}]
+    if abs(total) < 1e-9:
+        return [], out
+    return [line("1% more Damage", 100 * total)], out
+
+
 # "Empowered Attacks Gain N% of [Physical] Damage as Extra <Type> Damage" (MECHB41, an UNDERCOUNT; the coverage audit's
 # notables Hail "16% of Damage as Extra Cold" and Cremating Cries "15% of Physical Damage as Extra Fire"). PoB leaves both
 # unparsed (ModCache 7252-7253: nil), so they counted nothing. Now the same gain on the main skill at the share of its

@@ -4751,6 +4751,23 @@ class Assumptions:
             _, chayula_up, _, chayula_how = getattr(self, "chayula", None) or (0.0, 0.0, 0.0, "its Glory wasn't read")
             more_mods, more_notes = models.chayula_more_model(chayula_up, chayula_how, inputs.total("ArchonEffect"))
             hand_mods, hand_notes = hand_mods + more_mods, hand_notes + more_notes
+        mov = next((s for s in found if s.name == models.MOV), None)
+        if mov is not None and main is not None and mov is not main:
+            # (MECH102: Moment of Vulnerability's visage, the Oracle's Converging Paths; R49-8, models.MOV's note: Primed
+            # from the build's own Freeze / Electrocute / Heavy Stun buildup, MECH-D's stun readers read only)
+            mov_raw = next((x for x in build.call("activeSkills", levelStats=[models.MOV])["skills"]
+                            if x["name"] == models.MOV and not x.get("disabled")), None)
+            if mov_raw is not None:
+                mov_stats = {**build.call("stats", fields=[*models.MODEL_FIELDS, *models.IMMOBILISE_FIELDS,
+                                                           "FreezeDurationMod"]), **models.dazed_stats(build)}
+                if getattr(getattr(build.ctx, "request", None), "boss", None):
+                    mov_stats["_boss"] = build.ctx.request.boss
+                area = "Area" in ((build.ctx.gems.get(main.name) or {}).get("skillTypes") or ())
+                full = models.number(mov_stats.get("FullDPS"))  # (the fight, as the other fight readers)
+                mov_fight = conditions_mod.boss_pool(bosses.of(mov_stats).name) / full if full > 0 else None
+                mov_mods, mov_notes = models.moment_of_vulnerability_model(
+                    main, mov_stats, area, mov_raw.get("levelStats") or {}, mov.cast_time, mov_fight)
+                hand_mods, hand_notes = hand_mods + mov_mods, hand_notes + mov_notes
         warcries ={s.name for s in found if "Warcry" in ((build.ctx.gems.get(s.name) or {}).get("skillTypes") or [])}
         if warcries:  # (MECH-B: Echoing Cry's Echoes; COV-E's support_part_scale "warcry_echo")
             echo_mods, echo_notes = models.warcry_echo_model(found, supports, warcries, models.support_part_scale)
