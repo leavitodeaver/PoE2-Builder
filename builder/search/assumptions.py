@@ -6035,9 +6035,12 @@ class Assumptions:
                         found = usage.travel_rate(name)
                         if found and found[0] > 0:
                             moving = found[2] / found[0]
+                            own = usage.own_travel_rate(name) if hasattr(usage, "own_travel_rate") else None
+                            mine = (f"; if {own[2]}'s own {own[1]:g} m counts toward it (UNVERIFIED, R49-6): "
+                                    f"{own[0]:.2f} uses/s vs {found[0]:.2f}") if own else ""
                             cap = models.PressCap(found[0], f"walking 10 m before each use ({moving:.2f} s at the build's "
                                                   f"movement speed and a base {BASE_RUN:g} m/s*, MEDIUM; COV-C's "
-                                                  "travel_rate)", moving, "MEDIUM")
+                                                  f"travel_rate{mine})", moving, "MEDIUM")
                     elif need.kind == "anguish" and hasattr(usage, "anguish_rate"):  # (COVC11: Compose Requiem)
                         if found := usage.anguish_rate(name):
                             cap = models.PressCap(found[0], f"anguish: the Requiem up {found[1]:.0%} of the fight "

@@ -192,7 +192,7 @@ from dataclasses import dataclass
 from builder.search.conditions import UPTIME
 from builder.search.context import gem_of
 from builder.search.flasks import THROW_CHARGES, THROW_POOL
-from builder.search.models import DODGE_ROLL_SECONDS
+from builder.search.models import DODGE_ROLL_SECONDS, SHIELD_CHARGE, SHIELD_CHARGE_MIN_TRAVEL
 from builder.search.objective import number
 
 # Stats that mention a requirement but don't gate a use
@@ -216,6 +216,50 @@ MOVED = "skill_unusable_until_moved_X_distance"
 UNITS_PER_METRE = 10  # (the stat text's divide_by_ten; HIGH)
 BASE_RUN = 3.7  # metres a second at 0% increased movement speed (MEDIUM: Character.ot base_speed 37, unit inferred; module docstring)
 ROLL_METRES = 4.6  # a dodge roll's distance (DodgeRollPlayer dodge_roll_base_travel_distance 46)
+# A skill's OWN travel a use, in units (GEM37; RESEARCH49 R49-6, UNVERIFIED, leaning yes, MEDIUM-LOW): whether the
+# supported skill's own movement counts toward "moved 10 metres" isn't settled (no file says when the counter resets;
+# Momentum's text, the engine's other distance tracker, counts movement during a use and excludes only teleports). The
+# headline stays the lower reading (the full 10 m walked); travel_rate's own-travel row walks max(0, 10 m - d) instead.
+# d per use, read by stat from the skills' stat sets (game 26650308 GrantedEffectStatSets *Player, the stats with a
+# distance in their id; skills with a cooldown left out: Hit and Run's ExcludedActiveSkillTypes holds Cooldown):
+# - base_melee_dash_range ("Dash towards an enemy": the dash to the target; the player steps back and dashes in);
+# - attack_maximum_action_distance_+ only on skills that move the player (types Travel / Jumping, or their text:
+#   Rolling Slam "continue forward", Whirling Assault "Advance"); on other attacks it's reach, not travel;
+# - Stampede: the lower of its shield_charge_extra_distance 53 and attack_maximum_action_distance_+ 45;
+# - Leap Slam / Molten Crash: no range stat (the leap's time grows with distance: skill_added_attack_time_by_distance_ms);
+#   leap_slam_animation_distance_threshold 30 (3 m) as the leap's length, LOW;
+# - Shield Charge: its shield_charge_extra_distance 80 is "80% increased maximum travel distance" (channel_shield_charge.csd),
+#   NOT 8 m (R49-6 read it as 8 m); the charge's base distance is in no file (GEM14), so d = its 1.3 s minimum channel at
+#   walking speed (models.SHIELD_CHARGE_MIN_TRAVEL, LOW): a longer charge moves at about walking speed
+#   (display_charge_speed_is_move_speed), so channelling the rest gives about the walking row;
+# - Escape Shot ("Leap backwards"): no distance stat: 0 (not counted, an UNDERCOUNT at most).
+OWN_TRAVEL: dict[str, tuple[float, str]] = {
+    "Rake": (50, "its 5 m dash (base_melee_dash_range 50)"),
+    "Blood Hunt": (50, "its 5 m lunge (base_melee_dash_range 50)"),
+    "Crushing Fear": (65, "its 6.5 m dash (base_melee_dash_range 65)"),
+    "Cull the Weak": (75, "its 7.5 m dash (base_melee_dash_range 75)"),
+    "Gathering Storm": (75, "its 7.5 m dash (base_melee_dash_range 75; the flip back not counted)"),
+    "Hand of Chayula": (65, "its 6.5 m dash (base_melee_dash_range 65)"),
+    "Ice Strike": (30, "its 3 m dash (base_melee_dash_range 30)"),
+    "Killing Palm": (65, "its 6.5 m dash (base_melee_dash_range 65)"),
+    "Shattering Palm": (65, "its 6.5 m dash (base_melee_dash_range 65)"),
+    "Siphoning Strike": (65, "its 6.5 m dash (base_melee_dash_range 65)"),
+    "Staggering Palm": (65, "its 6.5 m dash (base_melee_dash_range 65)"),
+    "Shred": (40, "its 4 m dash (base_melee_dash_range 40)"),
+    "Devour": (40, "its 4 m leap (base_melee_dash_range 40)"),
+    "Rend": (20, "its 2 m dash (base_melee_dash_range 20)"),
+    "Vaulting Impact": (42, "its 4.2 m vault (attack_maximum_action_distance_+ 42)"),
+    "Thunderous Leap": (60, "its 6 m leap (attack_maximum_action_distance_+ 60)"),
+    "Rolling Slam": (20, "its 2 m roll forward (attack_maximum_action_distance_+ 20; R49-6: 2-4 m, the lower end)"),
+    "Whirling Assault": (42, "its 4.2 m advance (attack_maximum_action_distance_+ 42)"),
+    "Stampede": (45, "its 4.5 m charge (the lower of attack_maximum_action_distance_+ 45 and "
+                     "shield_charge_extra_distance 53)"),
+    SHIELD_CHARGE: (SHIELD_CHARGE_MIN_TRAVEL * UNITS_PER_METRE,
+                    f"its {SHIELD_CHARGE_MIN_TRAVEL:.1f} m minimum charge (1.3 s channel at walking speed; no file gives "
+                    "the charge's distance: LOW)"),
+    "Leap Slam": (30, "its leap, taken as 3 m (leap_slam_animation_distance_threshold 30; no range stat: LOW)"),
+    "Molten Crash": (30, "its leap, taken as 3 m (leap_slam_animation_distance_threshold 30; no range stat: LOW)"),
+}
 # "N% chance to build an additional Combo on Hit" (module docstring; A13-2)
 COMBO_CHANCE = re.compile(r"^(?:(\d+(?:\.\d+)?)% chance to build|build) an additional combo on hit$", re.I)
 ANCESTRAL_BOND = "Ancestral Bond"  # the keystone (module docstring: totems' charges)
@@ -461,15 +505,21 @@ class Usage:
                         "uses: none; with it: that share)")
             if need.kind == "travel" and (found := self.travel_rate(name)):
                 uses, share, walking, rolled = found
+                own = self.own_travel_rate(name)
+                mine = (f"; if {own[2]}'s own travel counts toward the 10 m (UNVERIFIED, R49-6; {own[3]}): walk "
+                        f"{max(0.0, 10 - own[1]):g} m, {own[0]:.2f} a second") if own else ""
                 return (f"{name}: walk 10 m between uses ({walking:.0%} of the fight spent walking, no skill used then): "
                         f"about {uses:.2f} uses a second, x{share:.3f} of PoB's at-will damage (standing still: none; "
-                        f"with dodge rolls counted as moving, UNVERIFIED: {rolled:.2f} a second)")
+                        f"with dodge rolls counted as moving, UNVERIFIED: {rolled:.2f} a second{mine})")
             if need.kind == "anguish" and (found := self.anguish_rate(name)):
                 uses, share = found
                 return (f"{name}: compose the Requiem each time anguish is full ({need.label}), then fire the Requiem "
                         f"shot for its whole duration: about {uses:.2f} shots a second over the fight, x{share:.3f} of "
                         "PoB's at-will damage (without the Requiem: none; with it: that share; x0.400 if anguish also "
-                        "builds while it's up, UNVERIFIED; what you fire during the fill isn't counted)")
+                        "builds while it's up, UNVERIFIED). A second button: the other "
+                        f"{1 - share:.0%} of the fight (the fill) is free for another skill; its damage then isn't "
+                        "counted here (an UNDERCOUNT: about that skill's own DPS x "
+                        f"{1 - share:.2f} would add)")
         return ""
 
     def anguish_rate(self, name: str) -> tuple[float, float] | None:
@@ -546,6 +596,16 @@ class Usage:
         rolls count) of the skill in the first enabled group holding `name` with a travel requirement (module
         docstring), at the build's movement speed; None when `name` has none or isn't in an enabled group. For the
         hook that will scale its Full DPS and the main skill's time (module docstring)."""
+        found = self.travel_inputs(name)
+        if found is None:
+            return None
+        distance, movement, speed, cooldown, _ = found
+        uses, share, walking = travel_rotation(distance, movement, speed, cooldown)
+        rolled = travel_rotation(distance, movement, speed, cooldown, rolls=True)[0]
+        return uses, share, walking, rolled
+
+    def travel_inputs(self, name: str) -> tuple[float, float, float, float, dict] | None:
+        """(units to move, movement speed mod, uses a second at will, cooldown, the group) for travel_rate."""
         rule = self.rules.get(name)
         need = next((r for r in requirements(name, rule) if r.kind == "travel"), None) if rule else None
         mine = self.combo_groups(name)
@@ -557,10 +617,23 @@ class Usage:
             return None
         movement = number(self.build.call("stats", fields=["EffectiveMovementSpeedMod"]).get(
             "EffectiveMovementSpeedMod")) or 1.0
-        cooldown = number(rate.get("cooldown"))
-        uses, share, walking = travel_rotation(need.amount, movement, speed, cooldown)
-        rolled = travel_rotation(need.amount, movement, speed, cooldown, rolls=True)[0]
-        return uses, share, walking, rolled
+        return need.amount, movement, speed, number(rate.get("cooldown")), mine[0]
+
+    def own_travel_rate(self, name: str) -> tuple[float, float, str, str] | None:
+        """The row where the supported skill's own travel counts toward the distance (OWN_TRAVEL; R49-6, UNVERIFIED):
+        (uses a second, metres of its own travel a use, the skill, how), walking only the rest; None when the group's
+        skill has no travel of its own in OWN_TRAVEL (the headline then stands alone)."""
+        found = self.travel_inputs(name)
+        if found is None:
+            return None
+        distance, movement, speed, cooldown, group = found
+        skill = next((g["name"] for g in group["gems"] if g["name"] in OWN_TRAVEL and g.get("enabled", True)
+                      and not g.get("support")), None)
+        if skill is None:
+            return None
+        own, how = OWN_TRAVEL[skill]
+        uses = travel_rotation(max(0.0, distance - own), movement, speed, cooldown)[0]
+        return uses, min(own, distance) / UNITS_PER_METRE, skill, how
 
     def gem(self, name: str, skill_id: str | None = None) -> dict:
         """The gem's data: by its granted effect id when the caller has it (a group's gem: COV31), else by name."""

@@ -9979,10 +9979,18 @@ def magnetic_salvo_model(main: Skill | None, scored: str | None, sets: list[dict
 # The two compete for each wall (breaks random in time): your share own / (own + boss) deals the "more"; a boss break
 # first costs it (and takes MECH-B's hazard_early_model first-0.5 s penalty where the build has no breaker), so the boss
 # counts only for walls your breakers wouldn't reach first. The row: no boss breaks. One Slam / Warcry / Shield Charge
-# shatters every segment of every wall (HIGH), each wall's explosion hitting the boss once (MEDIUM; 0.5.0 "Shockwaves
-# from a single Shield Wall cannot hit the same enemy multiple times"): up to SHIELD_WALL_LIMIT (2) a shatter: the
+# shatters every segment of every wall (HIGH), each wall's explosion hitting the boss once (PoB's one explosion a cast;
+# the lower reading, UNVERIFIED: GEM37 found that the 0.5.0 line once cited here, "Fortifying Cry Shockwaves from a
+# single Shield Wall cannot hit the same enemy multiple times", is about Fortifying Cry's shockwaves, not the segments'
+# own explosions): up to SHIELD_WALL_LIMIT (2) a shatter: the
 # second wall stands at a shatter if no break came in the cast time it took (e^(-R x cast)); a boss break takes one
-# wall. MEDIUM-LOW.
+# wall. MEDIUM-LOW. Rows (GEM37; RESEARCH47 row 32's check): "The segments explode when shattered, damaging enemies in
+# front of and around them" (ActiveSkills shield_wall), each segment's explosion 1.4 m (ShieldWallPlayer
+# active_skill_base_secondary_area_of_effect_radius 14), the wall 4 m (active_skill_base_area_of_effect_radius 40); the
+# segment count and spacing are in no file, nor whether several segments' explosions hit one enemy (UNVERIFIED), so a
+# boss beside the wall may take SHIELD_WALL_SEGMENT_ROWS explosions a wall: rows only. Ahn's Citadel
+# (SupportAhnsCitadelPlayer: wall_is_created_along_a_fissure_instead, wall_maximum_length_+% 65; Wall skills only) makes
+# the wall a longer fissure: whether more of it lies under a lone boss is the same open question (the rows cover it).
 SHIELD_WALL = "Shield Wall"
 SHIELD_WALL_ENTRY = "model-gem20-shield-wall-shatter"
 SHIELD_WALL_SECONDS = 6.0
@@ -9990,6 +9998,7 @@ SHIELD_WALL_STAT = "shield_wall_damage_+%_final_when_slammed"
 SHIELD_WALL_BREAK_TYPES = ("Slam", "Warcry")
 SHIELD_WALL_CHARGE = "Shield Charge"
 SHIELD_WALL_LIMIT = 2  # (base_number_of_shield_walls_allowed; Overabundance's raised Limit not read)
+SHIELD_WALL_SEGMENT_ROWS = (3, 5)  # segments' explosions hitting the boss a wall: rows only (comment above; UNVERIFIED)
 
 
 def shield_wall_hits(cast: float, breaks: float, limit: int = SHIELD_WALL_LIMIT) -> float:
@@ -10032,7 +10041,12 @@ def shield_wall_model(main: Skill | None, scored: str | None, sets: list[dict], 
                   f"every wall, R31-6), the rest the boss's through a wall between you (one wall, no more): x{per:.2f} "
                   f"a break, {rate * per * blast:,.0f} DPS"
                   + ("; nothing breaks it: held at 1%" if rate <= 0 else "")
-                  + f". The row, no boss breaks: {row:.2f} a second, {row_dps:,.0f} DPS"),
+                  + f". The row, no boss breaks: {row:.2f} a second, {row_dps:,.0f} DPS. One segment's explosion a "
+                  f"wall hits the boss (the lower reading); if " + " / ".join(f"{k}" for k in SHIELD_WALL_SEGMENT_ROWS)
+                  + " segments' explosions each hit it (UNVERIFIED: no file gives the segments or whether they stack "
+                  "on one enemy; Ahn's Citadel's fissure the same question): "
+                  + " / ".join(f"{k * rate * per * blast:,.0f}"
+                               for k in SHIELD_WALL_SEGMENT_ROWS) + " DPS"),
         "play": (f"Raise Shield Wall between you and the boss and shatter it with a Slam, a Warcry or Shield Charge for "
                  f"{more:g}% more damage, both walls at once; a boss swing through it first breaks it without the more. "
                  f"This build: {rate * per * blast:,.0f}; if the boss never breaks it: {row_dps:,.0f}; one a cast: "

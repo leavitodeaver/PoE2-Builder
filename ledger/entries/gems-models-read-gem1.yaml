@@ -297,7 +297,7 @@
   stats: ["skill_unusable_until_moved_X_distance", "additional_combo_gain_chance_%"]
   skill: [Hit and Run, Echoing Cry, Practiced Combo]
   confidence: datamined
-  notes: usage.MOVED (a "travel" requirement) and the bridge's additional_combo_gain_chance_% read for the Combo per use.
+  notes: usage.MOVED (a "travel" requirement) and the bridge's additional_combo_gain_chance_% read for the Combo per use. GEM37 (RESEARCH49 R49-6, UNVERIFIED) adds a row where the supported skill's own travel (usage.OWN_TRAVEL, by stat from the skills' stat sets, the dash range or a leap / advance's action distance) counts toward the 10 m, and the headline still walks the full 10 m (the lower reading).
   sources: ["builder/search/usage.py (MOVED)", "engine/bridge.lua (additional_combo_gain_chance_%)"]
   test_in_game: "Not needed for the shape."
   status: proposed
