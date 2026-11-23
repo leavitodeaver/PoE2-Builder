@@ -24257,24 +24257,34 @@ CHARGED_SHOCKWAVE_ENTRY = "model-mechb53-charged-shockwave"
 
 
 def charged_shockwave_model(main: Skill | None, staff_main: bool, uses: float, stacks: float, how: str,
-                            forbidden: set[str] = frozenset(), hits: float | None = None) -> tuple[list[dict], list[dict]]:
+                            forbidden: set[str] = frozenset(), hits: float | None = None,
+                            talisman: str | None = None) -> tuple[list[dict], list[dict]]:
     """(mods, notes): Charged Staff's shockwave a Quarterstaff Attack hit of `main` (`hits` a second, else `uses`; both at
-    its share of the fight) while its buff is up, min(1, `stacks`) of the time (see above); `how` the stacks' note."""
+    its share of the fight) while its buff is up, min(1, `stacks`) of the time (see above); `how` the stacks' note.
+    `talisman`: the weapon slot holding a Talisman (MECHB56, MECHC54's gate on the buff: the live bug "appears to be
+    active, but provides no damage or buffs", maxroll 4 Sep; UNVERIFIED on 0.5.5h): 0, the working rate a row."""
     if CHARGED_SHOCKWAVE_ENTRY in forbidden or main is None:
         return [], []
     up = max(0.0, min(1.0, number(stacks)))
     hits = max(number(uses if hits is None else hits), 0.0)
-    rate = hits * up if staff_main else 0.0
+    works = hits * up if staff_main else 0.0
+    rate = 0.0 if talisman else works
     why = (f"{main.name}'s {hits:.2f} hits a second (one shockwave a hit, R44-16) x the buff up {up:.0%} of the time "
            f"(min(1, {number(stacks):.2f} stacks): {how}); row, one a use: {max(number(uses), 0.0) * up:.3g} a second"
            if staff_main else f"{main.name} isn't a Quarterstaff Attack: no shockwave from it")
+    if talisman and staff_main:
+        why += (f". A Talisman is equipped ({talisman}): maxroll (4 Sep) reports Charged Staff with a Talisman \"appears "
+                "to be active, but provides no damage or buffs\" and no patch line fixes it (UNVERIFIED on 0.5.5h), so "
+                f"no shockwave counts (as its buff, MECHC54); if it works: {works:.3g} a second")
     return trigger_rate(CHARGED_SHOCKWAVE, rate), [{
         "label": "Charged Staff: its Lightning shockwave on your Quarterstaff Attacks*", "value": f"{rate:.3g} a second",
         "confidence": "MEDIUM-LOW" if rate > 0 else "MEDIUM", "entry": CHARGED_SHOCKWAVE_ENTRY,
         "basis": ("PoB makes the shockwave (Charged Shockwave, 66% of attack damage at level 20) but never triggers it: "
                   f"one a Quarterstaff Attack hit while the buff is up: {why}; = {rate:.3g} a second. Other Quarterstaff "
                   "Attacks the build presses, and triggered ones (UNVERIFIED), not counted (the lower reading)"),
-        "play": "Keep Charged Staff's buff up (spend Power Charges on it): each Quarterstaff Attack hit adds a shockwave."}]
+        "play": "Keep Charged Staff's buff up (spend Power Charges on it): each Quarterstaff Attack hit adds a shockwave."
+                + (f" Take the Talisman out of {talisman}: with one equipped it is reported to do nothing (a live bug, "
+                   "UNVERIFIED on 0.5.5h)" if talisman and staff_main else "")}]
 
 
 # Fist of Kalguur's rune and its Aftershock (MECHB53; MECHC51's routed item, an UNDERCOUNT). The support: "Runically

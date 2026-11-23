@@ -127,3 +127,13 @@ def test_midnight_zenith_reads_the_hit_cut_once():
     (hits=True) already applies build.main_hit_cut; Assumptions.midnight_zenith must not wrap it in hit_cut_share again."""
     src = open(assumptions.__file__, encoding="utf-8").read()
     assert "hit_cut_share(build, main_time_share(" not in src
+
+
+def test_charged_staffs_shockwave_counts_nothing_with_a_talisman_equipped():
+    """(MECHB56; MECHC54's gate on the buff) the live bug "no damage or buffs": no shockwave, the working rate a row."""
+    staff = Skill("Quarterstaff Strike", 1, attack=True, melee=True)
+    mods, _ = models.charged_shockwave_model(staff, True, 2.0, 3.0, "x", hits=2.0)
+    assert mods[0]["value"] == pytest.approx(2.0)
+    mods, notes = models.charged_shockwave_model(staff, True, 2.0, 3.0, "x", hits=2.0, talisman="Weapon 1 Swap")
+    assert mods[0]["value"] == 0 and "Talisman" in notes[0]["basis"] and "if it works: 2" in notes[0]["basis"]
+    assert "Take the Talisman out" in notes[0]["play"]

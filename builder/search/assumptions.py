@@ -9543,8 +9543,11 @@ class Assumptions:
         row = next(iter(build.call("useRates", indices=[main.group])["rates"]), {}) if main.group is not None else {}
         hits = (number(hit.get("Speed")) * min(number(hit.get("HitChance")) or 100.0, 100.0) / 100
                 * max(number(row.get("repeats")) or 1.0, 1.0) * share)  # (R44-16: one a hit)
+        talisman = next((slot for slot in CHARGED_STAFF_WEAPON_SLOTS if getattr(  # (MECHB56: MECHC54's gate on the buff)
+            (getattr(build, "equipped", None) or {}).get(slot), "type", None) == CHARGED_STAFF_TALISMAN), None)
         mods, notes = models.charged_shockwave_model(main, staff, uses, number(spent) * seconds, how,
-                                                     set(build.ctx.request.forbid_ledger_entries), hits=hits)
+                                                     set(build.ctx.request.forbid_ledger_entries), hits=hits,
+                                                     talisman=talisman)
         live = any(m.get("key") == "triggerRate" and number(m.get("value")) > 0 for m in mods)
         return mods, notes, ({wave.group} if live else set())
 
