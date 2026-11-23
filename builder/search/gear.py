@@ -1005,10 +1005,23 @@ class Gear:
                     break
                 picked, value = picked + [pick], gain
             if value is not None and (best is None or value > best[0]):
-                best = (value, rune, picked, [convert[a.id] for a in picked], cost(picked))
+                best = (value, rune, picked, [convert[a.id] for a in picked], cost(picked), target)
         if best is None:
             return None
-        value, rune, bought, converted, price = best
+        value, rune, bought, converted, price, target = best
+        # (THE USER 23 Nov: no empty affix slots) SEARCHB5's fill on the SOURCE affixes (what the bought rare rolls),
+        # each fill then converted like the rest; kept when the converted item with the rune scores no worse after prices
+        rune_price = price - rare_price(slot, bought)
+        source = self.deltas(slot, [rare_text(slot, base, level, bought)])[0][0]
+        utility, _ = self.fill_utility(slot, base, level, pools, limits, bought, source, left - rune_price, deadline)
+        utility = [a for a in utility if converters[pools.roll].convert(a, target) is not None]
+        if utility and clock.now() < deadline:
+            filled = converted + [converters[pools.roll].convert(a, target) for a in utility]
+            s = self.deltas(slot, [rare_text(slot, base, level, filled, runes=[rune])])[0][0]
+            filled_price = rare_price(slot, bought + utility) + rune_price
+            if s - self.lam * filled_price >= value - EPSILON:
+                bought, converted, price = bought + utility, filled, filled_price
+                value = s - self.lam * filled_price
         plain = current - self.lam * rare_price(slot, chosen)
         others = [n for n in self.runes.candidates(base, False) if self.runes.price(n) is not None
                   and not ((limit := self.runes.limit(n)) and used.get(limit[0], 0) >= limit[1])
