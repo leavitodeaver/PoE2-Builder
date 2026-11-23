@@ -185,6 +185,150 @@
    "confidence": "MEDIUM; other levels LOW"
   },
   {
+   "name": "Perforate",
+   "grantedEffectId": "PreviewPerforatePlayer",
+   "id": "Metadata/Items/Gems/Preview/SkillGemPerforate",
+   "gemType": "Attack",
+   "support": false,
+   "tags": ["attack", "area", "melee", "strike", "sustained", "physical", "strength", "dexterity", "grants_active_skill"],
+   "tagString": "AoE, Melee, Strike, Sustained, Physical",
+   "skillTypes": ["Attack", "Melee", "MeleeSingleTarget", "Area", "Sustained", "Physical"],
+   "weaponTypes": ["One Hand Sword", "Two Hand Sword"],
+   "reqStr": 50,
+   "reqDex": 50,
+   "reqInt": 0,
+   "tier": 5,
+   "description": "Strike with a sword in a three-hit combo that drills the target (1.0 preview).",
+   "model": {
+    "shown_level": 20,
+    "damage_pct": 140,
+    "attack_speed_pct": 130,
+    "mana": 29,
+    "baseFlags": ["attack", "melee", "area"],
+    "constantStats": [["active_skill_damage_+%_final_while_dual_wielding", -33.333]],
+    "stats": ["is_area_damage"],
+    "dual_wield": "20% less damage; the second and third hits land with both weapons: 5 weapon hits per 3 attacks. PoB's stat doubles every attack, so its value is 0.8 x 5/6 - 1 = -33.333% (LOW: equal hits)"
+   },
+   "not_modelled": [
+    "the Drill (56%, a hit every 0.15 s, Bleeding with 400% more magnitude): an UNDERCOUNT",
+    "Blood Waves (312%, 5 waves, Bleeding) and Sand Disks (326%): stance variants, an UNDERCOUNT until Stances",
+    "Ready Stance's Final Strike: no numbers published"
+   ],
+   "sources": [
+    "https://poe2db.tw/us/Perforate (read 23 Nov 2026: Level 20, tier 5, 29 Mana, Attack Speed 130% of base, Attack Damage 140%, One or Two Hand Sword; 20% less while Dual Wielding; Drill 56%, Blood Waves 312%, Sand Disks 326%; text paraphrased)",
+    "RESEARCH53 R53-1 section C"
+   ],
+   "confidence": "MEDIUM; other levels LOW"
+  },
+  {
+   "name": "Worldcutter",
+   "grantedEffectId": "PreviewWorldcutterPlayer",
+   "id": "Metadata/Items/Gems/Preview/SkillGemWorldcutter",
+   "gemType": "Attack",
+   "support": false,
+   "tags": ["attack", "area", "melee", "strike", "duration", "channelling", "staged", "strength", "dexterity", "grants_active_skill"],
+   "tagString": "AoE, Melee, Strike, Duration, Channelling, Staged",
+   "skillTypes": ["Attack", "Melee", "MeleeSingleTarget", "Area", "Duration", "Channel"],
+   "weaponTypes": ["Two Hand Sword"],
+   "reqStr": 50,
+   "reqDex": 50,
+   "reqInt": 0,
+   "tier": 11,
+   "description": "Channel a two-handed sword through stages, then release one great strike (1.0 preview).",
+   "model": {
+    "shown_level": 13,
+    "damage_pct": 282,
+    "mana": 15,
+    "baseFlags": ["attack", "melee", "area"],
+    "constantStats": [],
+    "stats": ["is_area_damage"],
+    "held_stages": {"maximum": 3, "more_per_additional_pct": 200, "attack_time_ms": 2670}
+   },
+   "not_modelled": [
+    "Blood-Enhanced (72.2 Physical a second, Blood Ground 8 s) and Sand-Enhanced (111%, Sandstorm 1.2 s) variants: an UNDERCOUNT until Stances",
+    "the mana cost is counted once a release; whether it is paid per stage is UNVERIFIED"
+   ],
+   "sources": [
+    "https://poe2db.tw/us/Worldcutter (read 23 Nov 2026: Level 13, tier 11, 15 Mana, its own Attack Time 2.67 s, Attack Damage 282%, Two Hand Sword; maximum 3 Stages; 200% more Damage per additional Stage; channelling ends 1 s after maximum Stages; no time per stage shown; text paraphrased)",
+    "RESEARCH53 R53-1 section C"
+   ],
+   "confidence": "MEDIUM; other levels LOW"
+  },
+  {
+   "name": "Sand Scour",
+   "grantedEffectId": "PreviewSandScourPlayer",
+   "id": "Metadata/Items/Gems/Preview/SkillGemSandScour",
+   "gemType": "Attack",
+   "support": false,
+   "tags": ["attack", "area", "melee", "strike", "sustained", "channelling", "strength", "dexterity", "grants_active_skill"],
+   "tagString": "AoE, Melee, Strike, Sustained, Channelling",
+   "skillTypes": ["Attack", "Melee", "MeleeSingleTarget", "Area", "Sustained", "Channel"],
+   "weaponTypes": ["One Hand Sword", "Two Hand Sword"],
+   "reqStr": 50,
+   "reqDex": 50,
+   "reqInt": 0,
+   "tier": 1,
+   "description": "Scour with a sword, blinding what it hits and sending out sand disks (1.0 preview).",
+   "model": {
+    "shown_level": 20,
+    "damage_pct": 218,
+    "attack_speed_pct": 100,
+    "mana": 54,
+    "added_attack_time_ms": 250,
+    "baseFlags": ["attack", "melee", "area"],
+    "constantStats": [["total_attack_time_+_ms", 250], ["active_skill_damage_+%_final_while_dual_wielding", -35]],
+    "stats": ["is_area_damage"]
+   },
+   "not_modelled": [
+    "Sand Disks (91%, 3 disks, a hit every 0.15 s): an UNDERCOUNT",
+    "Blind and Heavy Stun on Primed targets",
+    "the held Ready / Sand Stance: an UNDERCOUNT until Stances",
+    "attack speed: poe2db shows none beside the added time, read as 100% of base (UNVERIFIED)"
+   ],
+   "sources": [
+    "https://poe2db.tw/us/Sand_Scour (read 23 Nov 2026: Level 20, tier 1, 54 Mana, Added Attack Time +0.25 s, Attack Damage 218%, One or Two Hand Sword; both weapons hit separately at 35% less while Dual Wielding; Sand Disks 91%; text paraphrased)",
+    "RESEARCH53 R53-1 section C"
+   ],
+   "confidence": "MEDIUM; other levels LOW"
+  },
+  {
+   "name": "Bloodied Blade",
+   "grantedEffectId": "PreviewBloodiedBladePlayer",
+   "id": "Metadata/Items/Gems/Preview/SkillGemBloodiedBlade",
+   "gemType": "Attack",
+   "support": false,
+   "tags": ["attack", "area", "melee", "strike", "physical", "channelling", "strength", "dexterity", "grants_active_skill"],
+   "tagString": "AoE, Melee, Strike, Physical, Channelling",
+   "skillTypes": ["Attack", "Melee", "MeleeSingleTarget", "Area", "Physical", "Channel"],
+   "weaponTypes": ["One Hand Sword", "Two Hand Sword"],
+   "reqStr": 50,
+   "reqDex": 50,
+   "reqInt": 0,
+   "tier": 1,
+   "description": "Strike with a sword; a Parried target explodes in blood (1.0 preview).",
+   "model": {
+    "shown_level": 20,
+    "damage_pct": 187,
+    "attack_speed_pct": 100,
+    "mana": 62,
+    "added_attack_time_ms": 500,
+    "baseFlags": ["attack", "melee", "area"],
+    "constantStats": [["total_attack_time_+_ms", 500]],
+    "stats": ["is_area_damage"]
+   },
+   "not_modelled": [
+    "the Explosion (235%, Bleeding) on a Parried target or on consuming a Frenzy Charge: an UNDERCOUNT until the build's Parry / Frenzy sources feed it",
+    "the additional main hand hit while Dual Wielding: an UNDERCOUNT",
+    "the held Ready Stance: no numbers published",
+    "attack speed: poe2db shows none beside the added time, read as 100% of base (UNVERIFIED)"
+   ],
+   "sources": [
+    "https://poe2db.tw/us/Bloodied_Blade (read 23 Nov 2026: Level 20, tier 1, 62 Mana, Added Attack Time +0.50 s, Attack Damage 187%, One or Two Hand Sword; an additional main hand Hit while Dual Wielding; Explosion 235%; text paraphrased)",
+    "RESEARCH53 R53-1 section C"
+   ],
+   "confidence": "MEDIUM; other levels LOW"
+  },
+  {
    "name": "Elemental Penetration",
    "grantedEffectId": "PreviewSupportElementalPenetrationPlayer",
    "id": "Metadata/Items/Gems/Preview/SkillGemElementalPenetrationSupport",

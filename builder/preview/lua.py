@@ -13,6 +13,7 @@ import json
 from functools import cache
 
 from builder.preview import _gems_file, gem_rows
+from builder.preview.readings import payoff_stage, stage_damage
 
 
 def lua_value(value) -> str:
@@ -97,7 +98,7 @@ if not PREVIEW_1_0_INSTALLED then
 			local cost = math.max(1, math.floor(m.mana * r.cost.Mana / shown.cost.Mana + 0.5))
 			levels[level] = {
 				baseMultiplier = m.damage_pct / 100 * r.baseMultiplier / shown.baseMultiplier,
-				attackSpeedMultiplier = m.attack_speed_pct - 100,
+				attackSpeedMultiplier = m.attack_speed_pct and (m.attack_speed_pct - 100) or nil,
 				levelRequirement = r.levelRequirement,
 				cost = { Mana = cost },
 				cooldown = m.cooldown, storedUses = m.storedUses,
@@ -107,7 +108,7 @@ if not PREVIEW_1_0_INSTALLED then
 		local skill = {
 			name = row.name, baseTypeName = row.name, color = row.color, description = row.description,
 			skillTypes = types(row.skillTypes), weaponTypes = keyset(row.weaponTypes or { }),
-			castTime = 1, preview = true,
+			castTime = m.attack_time_ms and (m.attack_time_ms / 1000) or 1, preview = true,
 			qualityStats = { }, levels = levels,
 			statSets = {
 				[1] = {
@@ -176,6 +177,14 @@ def _lua_row(row: dict) -> dict:
     reqs = {"str": row.get("reqStr", 0), "dex": row.get("reqDex", 0), "int": row.get("reqInt", 0)}
     out["color"] = COLORS[max(reqs, key=reqs.get)]
     model = dict(row["model"])
+    held = model.pop("held_stages", None)
+    if held:  # a staged channel, as one release at its payoff stage (readings.py): the hold's damage over the hold's time
+        stage = payoff_stage(held["maximum"], held["more_per_additional_pct"])
+        model["damage_pct"] = model["damage_pct"] * stage_damage(stage, held["more_per_additional_pct"])
+        model["attack_time_ms"] = held["attack_time_ms"] * stage
+        # (PoB reads a skill's own attack time from castTime under this stat, CalcOffence 2737-2739; level.attackTime is
+        # only read on its off-hand path, so a Worldcutter using it scored at the weapon's speed)
+        model["stats"] = [*model["stats"], "cast_time_overrides_attack_duration"]
     if "constantStats" in model:
         model["constantStats"] = [list(pair) for pair in model["constantStats"]]
     out["model"] = model

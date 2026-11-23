@@ -213,3 +213,50 @@ def test_a_preview_name_without_the_switch_says_how_to_use_it():
 
     issues = compile_request(BuildRequest(main_skill="Viper Strike"), GameData()).issues
     assert any("Include 1.0 preview content" in i.message for i in issues if i.field == "main_skill")
+
+
+def test_worldcutters_hold_comes_from_its_own_data():
+    from builder.preview.readings import payoff_stage, stage_rows
+
+    assert payoff_stage(3, 200) == 3
+    assert [round(share, 2) for _, share in stage_rows(3, 200)] == [0.6, 0.9, 1.0]
+    assert payoff_stage(3, 50) == 1  # (a weak per-stage bonus: releasing early pays more, so 3 is never assumed)
+
+
+def test_the_added_attack_time_reading_row():
+    from builder.preview.readings import rows, scaled_reading_ratio
+
+    # a 1.55 weapon with 50% more speed: base 0.645 / 1.5 + 0.25 = 0.680 s; the other reading (0.645 + 0.25) / 1.5
+    speed = 1 / (1 / 1.55 / 1.5 + 0.25)
+    assert scaled_reading_ratio(speed, 1.55, 0.25) == pytest.approx((1 / speed) / ((1 / 1.55 + 0.25) / 1.5))
+    assert scaled_reading_ratio(speed, 1.55, 0.25) > 1
+    assert scaled_reading_ratio(1 / (1 / 1.55 + 0.25), 1.55, 0.25) == pytest.approx(1.0)  # no speed bonus: no gap
+    gem = next(r for r in preview.gem_rows() if r["name"] == "Sand Scour")
+    result = {"summary": {"mainSkill": "Sand Scour"}, "stats": {"Speed": speed},
+              "gear": {"Weapon 1": {"base": "Dark Blade", "type": "One Hand Sword"}}}
+    bases = {"Dark Blade": {"weapon": {"AttackRateBase": 1.55}}}
+    assert "x1.1" in rows(gem, result, bases)[0]
+    dual = {**result, "gear": {**result["gear"], "Weapon 2": {"base": "Dark Blade", "type": "One Hand Sword"}}}
+    assert " on this build" not in rows(gem, dual, bases)[0]  # (two weapon times: no number is claimed)
+
+
+def test_the_checklist_shows_the_reading_rows_with_the_asterisk():
+    from builder.report.checklist import checklist
+
+    why = next(i["why"] for i in checklist({"groups": [{"gems": [{"name": "Worldcutter"}]}]})
+               if i["kind"] == "1.0 preview *")
+    assert "Held to 3 stages" in why and "if it is the whole hold, DPS is x3" in why and preview.ASTERISK in why
+
+
+def test_pob_scores_the_four_sword_skills(engine):
+    preview.install(engine, BuildRequest(preview_1_0=True))
+    great = "Rarity: Normal\nUltra Greatsword\n"
+    plain = _dps(engine, "Perforate 20/0 1")
+    assert plain["TotalDPS"] > 0 and plain["Speed"] == pytest.approx(1.55 * 1.3, rel=0.02)
+    scour = _dps(engine, "Sand Scour 20/0 1")  # the added time isn't shortened or scaled: 1 / (1 / 1.55 + 0.25)
+    assert scour["Speed"] == pytest.approx(1 / (1 / 1.55 + 0.25), rel=0.02)
+    blade = _dps(engine, "Bloodied Blade 20/0 1")
+    assert blade["Speed"] == pytest.approx(1 / (1 / 1.55 + 0.5), rel=0.02)
+    assert (_dps(engine, "Worldcutter 13/0 1").get("TotalDPS") or 0) == 0  # (two-handed only: off on a one-hand sword)
+    cut = _dps(engine, "Worldcutter 13/0 1", great)
+    assert cut["TotalDPS"] > 0 and cut["Speed"] == pytest.approx(1 / (2.67 * 3), rel=0.02)

@@ -93,16 +93,27 @@ def on_in(result: dict) -> bool:
     return bool((result.get("request") or {}).get("preview_1_0"))
 
 
+def _bases(row: dict) -> dict:
+    """The item bases by name, loaded only for a gem whose reading needs its weapon's attack time."""
+    if not (row.get("model") or {}).get("added_attack_time_ms"):
+        return {}
+    from builder.data import GameData
+
+    return {b["name"]: b for b in GameData().bases}
+
+
 def checklist_items(result: dict) -> list[dict]:
     """The test-in-game checklist's rows for a result (builder/report/checklist.py): one '1.0 preview *' row for each
     preview gem the build uses (its asterisk and what is left out), and the '1.0 changes pending' notes that touch
     this build, with the switch on or off (flags.notes; the manager's ruling, 23 Nov 11:18)."""
-    from builder.preview import flags
+    from builder.preview import flags, readings
 
     items: list[dict] = []
     used = {gem.get("name") for group in result.get("groups") or [] for gem in group.get("gems") or []}
     for name in sorted(used & names()):
-        items.append({"kind": "1.0 preview *", "title": f"{name}{ASTERISK}", "why": note(name),
+        row = next(r for r in gem_rows() if r["name"] == name)
+        why = " ".join([note(name), *(f"{text}{ASTERISK}." for text in readings.rows(row, result, _bases(row)))])
+        items.append({"kind": "1.0 preview *", "title": f"{name}{ASTERISK}", "why": why,
                       "how": "Not in the game until 1.0 (11 Dec 2026). Every number this skill touches comes from "
                              "GGG's reveal at one gem level and may change; re-check after the release-day update."})
     gear = result.get("gear") or {}
