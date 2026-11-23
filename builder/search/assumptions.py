@@ -5672,6 +5672,7 @@ class Assumptions:
         build.objective.whole_scales, build.objective.cull_scale = {}, 1.0
         build.orb_presses = {}  # (MECHB29, for MECH-C's orb_remnants: {skill: (Orbs a second, how)}, set below)
         build.orb_bolts = None  # (MECHC44: a side Orb's bolts a second for the on-hit charge lines, set below)
+        build.orb_bolt_groups = {}  # (MECHB58: {group: its bolts a second}, models.side_orb_hits)
         if not pressed:
             build.objective.press_scales = {}
             return self.consume_ignite(groups, []) + self.cull_window()
@@ -5722,6 +5723,7 @@ class Assumptions:
         # (MECHC44, for conditions' on-hit charge lines: a side Orb's bolts a second, the same cycle; a round behind)
         bolts = models.side_orbs(rates, main, pressed, paced, caps, models.press_choices(build), near)
         build.orb_bolts = (sum(b for _, b, _ in bolts.values()), "MECH-B's side-Orb cycle (models.side_orbs)") if bolts else None
+        build.orb_bolt_groups = {index: b for index, (_, b, _) in bolts.items()}  # (MECHB58)
         if orbs:
             build.orb_presses = {models.ORB_OF_STORMS: (sum(orbs.values()), (
                 "MECH-B's side-Orb cycle, models.orbs_per_second: each Orb ends at its maximum hits, fed by the Spells "

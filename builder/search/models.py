@@ -20526,6 +20526,38 @@ def orb_cycle(orb: dict, main: dict | None, others: float, pace: float | None = 
     return presses, bolts, note
 
 
+
+# A side Orb of Storms' bolts as its hits for the other groups' hit readers (MECHB58; the manager 03:20 23 Nov from
+# MECH102, an UNDERCOUNT, LOW-MEDIUM): conditions' side readers (ignite_others, shock_others, buildup_others,
+# break_others, overcharge_sources, Galvanic Field's Shock feed) take a group's hits a second as its uses (PoB's trigger
+# rate, else skill_use_rate: an Orb's duration, one cast per Orb life), so a side Orb read one bolt per Orb (~1 per 12 s)
+# and its Shocks / Ignites / buildup stayed under every cut-off. Its hits are its bolts: the side-Orb cycle press_model
+# scores (side_orbs / orb_cycle: the timer bolts plus the casts near it, to its maximum hits), published per group by
+# Assumptions.rate_presses as build.orb_bolt_groups and read a round behind (MEDIUM, as MECHC44's build.orb_bolts). PoB's
+# useRates row for the Orb is one bolt per cast (COVC9's grep; MECHB28), so its ShockChancePerHit, buildup and hit
+# chance are a bolt's. The row's rate becomes the bolts a second, flagged as a set rate as Crackling Palm's is; its
+# PoisonDPS (PoB's at its own Speed: one bolt a cast) is cut to the bolts' rate where that is lower. The charge readers
+# (side_hit_rows) skip an Orb by name and count its bolts in _side_orb_gains already: unchanged. No cycle read yet
+# (the first round, or no pressed side Orb): the row stays as it was.
+def side_orb_hits(rows: dict, bolt_groups: dict | None, main_index=None) -> list[str]:
+    """Set each side Orb of Storms row's rate in `rows` ({group index: useRates row}) to its bolts a second from
+    `bolt_groups` ({group index: bolts/s}, Assumptions' build.orb_bolt_groups); [how] per row changed (see above)."""
+    said = []
+    for index, row in rows.items():
+        if index == main_index or not str(row.get("name") or "").startswith(ORB_OF_STORMS):
+            continue
+        bolts = number((bolt_groups or {}).get(index))
+        if bolts <= 0:
+            continue
+        own = number(row.get("speed"))
+        if own > 0 and bolts < own and number(row.get("PoisonDPS")) > 0:
+            row["PoisonDPS"] = number(row.get("PoisonDPS")) * bolts / own
+        row["speed"], row["triggered"] = bolts, True
+        row["how"] = (f"{ORB_OF_STORMS}'s {bolts:.2f} bolts a second, each a hit (MECH-B's side-Orb cycle, "
+                      "models.side_orbs: its timer bolts plus the Spells cast near it; a round behind, MEDIUM)")
+        said.append(row["how"])
+    return said
+
 # Danse Macabre's second skeleton (MECHB6; RESEARCH22 #133, research/danse-macabre-skeleton-use.md) -------------------------
 # The gem (GemEffects DanseMacabreSupport, PoB's copy of it): Supported Offerings "will target an additional skeletal Minion
 # when cast. If there is not an additional skeletal Minion to target, no damage or Buff effect will be granted"

@@ -10891,6 +10891,9 @@ class Conditions:
             for row in group_rows.values():
                 if str(row.get("name") or "").startswith(CRACKLING_PALM):
                     row["speed"], row["triggered"], row["how"] = palm[0], True, palm[1]
+        # (MECHB58: a side Orb of Storms' hits are its bolts, MECH-B's side-Orb cycle, for every reader of the rows)
+        models.side_orb_hits(group_rows, getattr(self.build, "orb_bolt_groups", None),
+                             groups_all.get("mainSocketGroup"))
         # (MECH75: Overcharge's reflected Shocks, _self_shocked: the supported groups' Shocks, from the same rows)
         if any(n["name"] == OVERCHARGE for g in groups_now for n in g.get("gems") or []):
             stats["_overcharge"] = overcharge_sources(groups_all, self.main_skill, stats, group_rows,
