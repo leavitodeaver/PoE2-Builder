@@ -152,18 +152,45 @@ def test_moment_of_vulnerability_needs_a_primed_boss_and_hits_that_reach_the_vis
     freeze = {"Speed": 2.0, "HitChance": 100.0, "FreezeBuildupAvg": 20.0}
     mods, notes = models.moment_of_vulnerability_model(models.Skill("Ice Nova"), freeze, True,
                                                        {"time_rip_damage_share_%": 98, "rip_from_time_immunity_duration_ms": 10000},
-                                                       0.65)
+                                                       0.65, radius=4.0)
     period = models.immobilise_period(freeze, "Freeze")
     up, made = models.mov_visages(period, models.immobilise_duration(freeze, "Freeze"), None)
     every = models.MOV_FIGHT_CAP / made
     expected = (1 + 0.98 * up) * (1 - 0.65 / every) - 1
     assert mods and mods[0]["scale"] == pytest.approx(100 * expected, abs=1e-3) and "Primed by Freeze" in notes[0]["basis"]
-    # not an Area skill: its hits taken to reach only the boss (the lower reading), the reaching-both row said
+    # not an Area skill nor a piercing projectile: its hits don't reach the visage (R52-3), the rows said
     mods, notes = models.moment_of_vulnerability_model(models.Skill("Spark"), freeze, False)
-    assert mods == [] and "if they reach both" in notes[0]["basis"]
+    assert mods == [] and "other reach rows 1:" in notes[0]["basis"]
     # nothing builds Freeze / Electrocute / Heavy Stun: never Primed, 0 (no flat rate)
     mods, notes = models.moment_of_vulnerability_model(models.Skill("Fireball"), {"Speed": 2.0, "HitChance": 100.0}, True)
     assert mods == [] and "never Primed" in notes[0]["basis"]
     # buildup too slow to Prime the boss within a 60 s fight: none
     slow = {"Speed": 1.0, "HitChance": 100.0, "FreezeBuildupAvg": 0.005}
     assert models.moment_of_vulnerability_model(models.Skill("Ice Nova"), slow, True, fight=60.0)[0] == []
+
+
+def test_moment_of_vulnerability_reach_follows_area_size_and_pierce():
+    # MECH103 (R52-3): the visage stands beside the boss, never on it
+    assert models.mov_reach(True, 4.0, False)[0] == 1.0
+    assert models.mov_reach(True, 2.0, False)[0] == 0.5
+    assert models.mov_reach(True, 0.0, False)[0] == 0.5
+    assert models.mov_reach(False, 0.0, True)[0] == 1.0
+    assert models.mov_reach(False, 0.0, False)[0] == 0.0
+
+
+def test_moment_of_vulnerability_visage_dies_to_the_hits_its_life_takes():
+    # MECH103 (R52-3): a monster with its own Life; 5,000 Life against 20,000 hits: one hit kills it, 0.5 s at 2 hits/s
+    assert models.mov_visage_life(5000.0, 20000.0, 2.0, 4.0) == (pytest.approx(0.5), pytest.approx(0.125), pytest.approx(
+        models.mov_visage_life(5000.0, 20000.0, 2.0, 4.0)[2]))
+    assert models.mov_visage_life(0.0, 20000.0, 2.0, 4.0)[:2] == (4.0, 4.0)  # (not read: its whole duration)
+    assert models.mov_visage_life(100000.0, 1000.0, 2.0, 4.0)[0] == 4.0  # (100 hits outlast it)
+    freeze = {"Speed": 2.0, "HitChance": 100.0, "FreezeBuildupAvg": 20.0, "AverageHit": 20000.0}
+    full = models.moment_of_vulnerability_model(models.Skill("Ice Nova"), freeze, True, radius=4.0)[0][0]["scale"]
+    dies = models.moment_of_vulnerability_model(models.Skill("Ice Nova"), freeze, True, radius=4.0, life=5000.0)
+    # one 20,000 hit kills it: 0.98 x 0.5 s of hits shared a visage, less than its 0.65 s cast: not pressed (0)
+    assert full > 0 and dies[0] == [] and "kill it" in dies[1][0]["basis"] and "isn't pressed" in dies[1][0]["basis"]
+    # a sturdier visage (60,000 Life: 3 hits, 1.5 s) pays, below the whole-duration reading
+    sturdy = models.moment_of_vulnerability_model(models.Skill("Ice Nova"), freeze, True, radius=4.0, life=60000.0)
+    assert 0 < sturdy[0][0]["scale"] < full
+    # the visage made only while visages last: lasts shortens each one, not the cycle
+    assert models.mov_visages(6.0, 4.0, 60.0, lasts=1.0) == (pytest.approx(5 / 60), 5)

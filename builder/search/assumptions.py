@@ -4759,14 +4759,22 @@ class Assumptions:
                             if x["name"] == models.MOV and not x.get("disabled")), None)
             if mov_raw is not None:
                 mov_stats = {**build.call("stats", fields=[*models.MODEL_FIELDS, *models.IMMOBILISE_FIELDS,
-                                                           "FreezeDurationMod"]), **models.dazed_stats(build)}
+                                                           "FreezeDurationMod", "AverageHit", "AreaOfEffectRadius",
+                                                           "PierceCount", "ChainMax"]), **models.dazed_stats(build)}
                 if getattr(getattr(build.ctx, "request", None), "boss", None):
                     mov_stats["_boss"] = build.ctx.request.boss
                 area = "Area" in ((build.ctx.gems.get(main.name) or {}).get("skillTypes") or ())
                 full = models.number(mov_stats.get("FullDPS"))  # (the fight, as the other fight readers)
                 mov_fight = conditions_mod.boss_pool(bosses.of(mov_stats).name) / full if full > 0 else None
+                # (MECH103, R52-3: reach by the main skill's area radius / pierce / chain; the visage's own Life, a
+                # normal monster's at the boss's level)
+                mov_types = set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or ())
+                mov_passes = "Projectile" in mov_types and (models.number(mov_stats.get("PierceCount")) > 0
+                                                             or models.number(mov_stats.get("ChainMax")) > 0)
                 mov_mods, mov_notes = models.moment_of_vulnerability_model(
-                    main, mov_stats, area, mov_raw.get("levelStats") or {}, mov.cast_time, mov_fight)
+                    main, mov_stats, area, mov_raw.get("levelStats") or {}, mov.cast_time, mov_fight,
+                    radius=models.number(mov_stats.get("AreaOfEffectRadius")) / 10, passes=mov_passes,
+                    life=models.pob_monster_life(enemy_level(build)))
                 hand_mods, hand_notes = hand_mods + mov_mods, hand_notes + mov_notes
         warcries ={s.name for s in found if "Warcry" in ((build.ctx.gems.get(s.name) or {}).get("skillTypes") or [])}
         if warcries:  # (MECH-B: Echoing Cry's Echoes; COV-E's support_part_scale "warcry_echo")

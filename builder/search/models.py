@@ -18844,14 +18844,16 @@ MOV_FIGHT_CAP = 1800.0  # s, the longest fight read (as Assumptions' fight reade
 
 
 def mov_visages(period: float, duration: float, fight: float | None, immune: float = MOV_IMMUNE,
-                primed: float = PRIMED_FREEZE_UNIQUE) -> tuple[float, int]:
+                primed: float = PRIMED_FREEZE_UNIQUE, lasts: float | None = None) -> tuple[float, int]:
     """(the share of the fight a visage is up, visages made) (see the note above): the bar refills from empty at each
     cycle's start (k x `period`, the refill `period` - `duration`), the boss Primed from `primed` of the refill until it
     fills (then the real immobilisation); a visage at the first Primed moment at least `immune` s after the last, each
     lasting `duration`, within a `fight` of that many s (None: MOV_FIGHT_CAP). A bar that doesn't reach `primed` within
     the fight makes none (MECH102's probe POE2T6483: a 4,000,000 s cycle counted a visage every 10 s before, an
-    OVERCOUNT, since buildup that slow never Primes a boss in a real fight)."""
+    OVERCOUNT, since buildup that slow never Primes a boss in a real fight). `lasts` (MECH103): how long a visage takes
+    damage, if not the immobilisation's `duration` (it dies sooner: mov_visage_life)."""
     fight = min(fight, MOV_FIGHT_CAP) if fight and fight > 0 else MOV_FIGHT_CAP
+    each = duration if lasts is None else max(0.0, min(lasts, duration))
     if period <= 0 or not math.isfinite(period):
         return 0.0, 0
     refill = max(period - duration, 0.0)
@@ -18862,17 +18864,68 @@ def mov_visages(period: float, duration: float, fight: float | None, immune: flo
             break
         t = max(start, last + immune)
         while t <= min(end, fight):
-            total += min(duration, fight - t)
+            total += min(each, fight - t)
             made, last = made + 1, t
             t += immune
         k += 1
     return min(1.0, total / fight), made
 
 
+# MECH103 (the manager 06:50, PRIORITY; RESEARCH52 R52-3, research/moment-of-vulnerability-visage-r52.md: two possible
+# OVERCOUNTS in MECH102's model). (1) WHERE IT STANDS: never on the boss (HIGH: patch 0.4.0b "could fail to create
+# Visages if there's no unoccupied area nearby"); it falls away behind the boss (players, MEDIUM: "builds with large
+# amounts of aoe ... will hit the visage the moment it spawns"; "Projectile builds that aren't piercing will be
+# completely unable to use moment of vulnerability more often than not"). So "every Area main skill reaches both" was
+# the HIGH reading: now b = 1 for an Area main skill of radius >= MOV_REACH_RADIUS (PoB's AreaOfEffectRadius) or a
+# projectile that pierces or chains (PierceCount / ChainMax: it passes the boss into the visage), 0.5 for a smaller
+# area (LOW: in reach about half the time), else 0; rows at 1 / 0.5 / 0. (2) IT CAN DIE: the visage is a monster
+# (Metadata/Monsters/Clone/RipFromTimeClone.ot, "Life { on_death = {Delete();} }"; MonsterVarieties "Vision"
+# LifeMultiplier 100; its MonsterType no resistances, no armour): a normal monster's Life at the boss's level
+# (pob_monster_life; whether the skill raises it: UNVERIFIED, taken: no), so it takes damage only until the hits that
+# kill it land: ceil(Life / the main skill's hit) hits at its hits a second (mov_visage_life), the damage of those hits
+# shared (overkill counted, "only that hit is shared": R52-3's one-hit row; without the overkill, its Life only: a row).
+# Its resistances: none by its own data, so the hit on it is the unmitigated one; whether the boss's resistances cut the
+# shared part again is UNVERIFIED (taken: yes, the lower reading; without it x 1 / (1 - the boss's resistance), a row in
+# words). Whether making it spends the buildup: still UNVERIFIED (the one-a-cycle row kept).
+MOV_REACH_RADIUS = 3.0  # m (R52-3: an area of ~3 m centred on the boss reaches the visage beside it; LOW)
+MOV_SMALL_REACH = 0.5  # (R52-3, LOW: a smaller area reaches it about half the time)
+
+
+def mov_reach(area: bool, radius: float, passes: bool) -> tuple[float, str]:
+    """(the share of the main skill's damage that also hits the visage, why) (see MECH103's note above): `radius` the
+    main skill's area radius in m (0 unread), `passes` its projectiles pierce or chain."""
+    if passes:
+        return 1.0, "its projectiles pierce or chain, passing the boss into the visage behind it (R52-3)"
+    if area and radius >= MOV_REACH_RADIUS:
+        return 1.0, f"an Area skill of {radius:.1f} m radius around the boss reaches the visage beside it (R52-3)"
+    if area:
+        return MOV_SMALL_REACH, (f"an Area skill of {radius:.1f} m radius (under {MOV_REACH_RADIUS:g} m) reaches the "
+                                 "visage about half the time (R52-3, LOW)" if radius > 0 else
+                                 "an Area skill, its radius not read: in reach about half the time (R52-3, LOW)")
+    return 0.0, ("neither an Area skill nor a piercing / chaining projectile: the visage falls away behind the boss, out "
+                 "of its reach (R52-3)")
+
+
+def mov_visage_life(life: float, hit: float, hits: float, duration: float) -> tuple[float, float, str]:
+    """(seconds a visage takes damage with the overkill counted, without it, why): it dies after ceil(`life` / `hit`)
+    hits at `hits` a second (MECH103's note); `duration` if the Life or the hit isn't read."""
+    if life <= 0 or hit <= 0 or hits <= 0:
+        return duration, duration, "its Life or the main skill's hit not read: up for the immobilisation's duration"
+    needed = math.ceil(life / hit)
+    with_over = min(duration, needed / hits)
+    without = min(duration, life / hit / hits)
+    plural = "s" if needed > 1 else ""
+    return with_over, without, (f"a normal monster's {life:,.0f} Life at the boss's level (no resistances, R52-3): "
+                                f"{needed} hit{plural} of {hit:,.0f} kill it, {with_over:.2f} s of its {duration:g} s "
+                                f"at {hits:.2f} hits/s")
+
+
 def moment_of_vulnerability_model(main: Skill | None, stats: dict, area: bool, level_stats: dict | None = None,
-                                  cast_time: float = 0.0, fight: float | None = None) -> tuple[list[dict], list[dict]]:
+                                  cast_time: float = 0.0, fight: float | None = None, radius: float = 0.0,
+                                  passes: bool = False, life: float = 0.0) -> tuple[list[dict], list[dict]]:
     """(mods, notes): the visage's repeated damage on the boss (see the note above). `area`: the main skill is an Area
-    skill (its hits reach the visage too); `level_stats`: Moment of Vulnerability's (the bridge's levelStats)."""
+    skill; `level_stats`: Moment of Vulnerability's (the bridge's levelStats); MECH103: `radius` its area radius in m,
+    `passes` its projectiles pierce or chain (mov_reach), `life` the visage's Life (mov_visage_life; 0 unread)."""
     level_stats = level_stats or {}
     share = number(level_stats.get(MOV_SHARE_STAT)) or MOV_SHARE
     immune = number(level_stats.get(MOV_IMMUNE_STAT)) / 1000 or MOV_IMMUNE
@@ -18898,29 +18951,42 @@ def moment_of_vulnerability_model(main: Skill | None, stats: dict, area: bool, l
                                f"a Unique enemy) within the {seconds:.0f} s fight, so it is never Primed and no visage "
                                "appears: 0 (the user's no-flat-rate rule)"),
                      "play": f"Build Freeze, Electrocute or Heavy Stun on the boss to Prime it, then use {MOV}"}]
-    up, kind, period, duration, every = max(rows)
-    reach = 1.0 if area else 0.0
+    up_full, kind, period, duration, every = max(rows)
+    reach, reach_why = mov_reach(area, radius, passes)
+    hits = hits_per_second(stats)
+    lasts, lasts_bare, life_why = mov_visage_life(life, number(stats.get("AverageHit")), hits, duration)
+    up = mov_visages(period, duration, fight, immune, lasts=lasts)[0]  # (MECH103: until it dies)
     gain = share / 100 * up * reach
     cost = min(1.0, cast / every) if gain > 0 else 0.0
     total = (1 + gain) * (1 - cost) - 1
-    row_hit = (1 + share / 100 * up) * (1 - min(1.0, cast / every)) - 1
+
+    def at(b: float, u: float) -> float:
+        return (1 + share / 100 * u * b) * (1 - (min(1.0, cast / every) if u * b > 0 else 0.0)) - 1
+    reach_rows = ", ".join(f"{b:g}: {at(b, up):+.1%}" for b in (1.0, MOV_SMALL_REACH, 0.0) if b != reach)
+    up_bare = mov_visages(period, duration, fight, immune, lasts=lasts_bare)[0]
     # (the other reading of R49-8's open point: making the visage spends the buildup, so one visage a cycle at most)
-    spent = mov_visages(period, duration, fight, max(period, immune))[0]
-    row_spent = (1 + share / 100 * spent * reach) * (1 - (min(1.0, cast * spent / duration) if spent > 0 and reach else 0.0)) - 1
+    spent = mov_visages(period, duration, fight, max(period, immune), lasts=lasts)[0]
+    row_spent = at(reach, spent)
     others = "; ".join(f"{k}: every {e:.1f} s, up {u:.0%}" for u, k, _, _, e in sorted(rows, reverse=True)[1:])
     basis = (f"Primed by {kind}: the build's own cycle {period:.1f} s ({duration:g} s each, the boss Primed from 70% of "
              f"the refill), so a visage every {every:.1f} s on average over the {seconds:.0f} s fight (its {immune:g} s "
-             f"immunity), up {up:.0%} of the fight, "
-             f"{share:g}% of the damage dealt to it also dealt to the boss"
+             f"immunity), up {up_full:.0%} of the fight if it lived its whole {duration:g} s; it dies sooner: "
+             f"{life_why} (R52-3: a monster with its own Life, deleted when it dies; whether the skill raises its Life: "
+             f"UNVERIFIED), so it takes damage {up:.1%} of the fight; {share:g}% of the damage dealt to it also dealt "
+             f"to the boss (its overkill counted, 'only that hit is shared'; without the overkill: "
+             f"{at(reach, up_bare):+.1%}; if it lived its whole duration: {at(reach, up_full):+.1%})"
              + (f"; the other kinds: {others}" if others else "")
-             + (f"; the main skill is an Area skill, taken to reach both (MEDIUM-LOW)" if area else
-                f"; the main skill isn't an Area skill: its hits taken to reach only the boss (where the visage stands "
-                f"isn't in the game files: the lower reading; if they reach both, {row_hit:+.1%})")
-             + f"; less one {cast:g} s cast every {every:.1f} s. Whether the visage spends the buildup (taken: it doesn't, so a "
-               f"Primed boss allows one every {immune:g} s until its bar fills; if it does, one a cycle: up {spent:.0%}, "
-               f"{row_spent:+.1%}) or stops the real immobilisation, and its resistances: UNVERIFIED")
+             + f"; reach {reach:g}: {reach_why} (other reach rows {reach_rows})"
+             + f"; less one {cast:g} s cast every {every:.1f} s. Its resistances: none by its own data (R52-3), so the "
+               "hit on it is unmitigated; the boss's resistances taken to cut the shared part again (UNVERIFIED; if "
+               "not, higher by 1 / (1 - the boss's resistance)). Whether the visage spends the buildup (taken: it "
+               f"doesn't, so a Primed boss allows one every {immune:g} s until its bar fills; if it does, one a cycle: "
+               f"{row_spent:+.1%}) or stops the real immobilisation: UNVERIFIED")
     play = (f"Keep the boss Primed for {kind} and use {MOV} when it is (once every {every:.1f} s); without it: +0%, "
             f"with it: {total:+.1%}")
+    if total <= 0 < gain:  # (MECH103: the cast costs more than the visage gives back: a player doesn't press it)
+        return [], [{**note, "value": "+0%", "basis": basis + f"; net {total:+.1%}, so it isn't pressed: 0",
+                     "play": f"Don't press {MOV} here: its cast costs more than the visage gives back ({total:+.1%})"}]
     out = [{**note, "value": f"{total:+.1%}", "basis": basis, "play": play}]
     if abs(total) < 1e-9:
         return [], out
