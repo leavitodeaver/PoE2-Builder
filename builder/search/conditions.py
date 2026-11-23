@@ -5780,22 +5780,71 @@ SHOCK_BASE_MAGNITUDE = 20.0  # % (KeywordPopups Shock: "causes targets to take 2
 # The Mórrigan's Guidance (MECH102; MECH101's coverage row 50; PassiveSkills AscendancyHuntress2Notable2, 26650308:
 # vivid_stag_shock_effect_%_final_per_cascade 20, "Stags have 20% more Shock Magnitude per leap"; PoB maps no vivid_stag
 # stat, MECHB52's check). Each of a Stag's 4 landings (models.VIVID_LANDINGS) 20% more per leap before it, read additively
-# as MECHB52 reads the node's damage line (models.VIVID_PER_LEAP): the Stampede's Shocks at the landings' mean, x1.3
-# (MEDIUM-LOW: whether "per leap" counts from the first landing or compounds is unsettled, as for the damage line; the
-# strongest-only rule would favour the 4th landing's x1.6 while it lives: the higher row, said).
+# as MECHB52 reads the node's damage line (models.VIVID_PER_LEAP): landing k (from 0) x(1 + 0.2 k), x1.0 / 1.2 / 1.4 /
+# 1.6 (RESEARCH51 R51-2: additive MEDIUM-HIGH, one stat scaled by the leap index; k from 0 MEDIUM, GGG numbers cascades
+# from 0; rows: k from 1, x1.2-1.8; compounding, to x1.728). MECH103: the boss carries the STRONGEST live Shock
+# (KeywordPopups Debuff, HIGH) and a Stag's 4 landings come within ~1.5 s of an 8 s Shock, so the boss holds the
+# highest-index landing that Shocked, not the landings' mean x1.3 (MECH102's, an UNDERCOUNT of up to x1.23):
+# stag_shock_scale's E, R51-2's formula per Stag (x1.6 at a 100% chance, ~x1.45 at 50%), raised further where several
+# Stags' Shocks live at once (the strongest over them). The DAMAGE line keeps the mean (each landing hits once).
+# MECH103, an OVERCOUNT beside it: shock_others counted the Stampede's landings as evenly spread hits (periodic_absent),
+# so 4 landings every 20 s read as 1.6 hits in each 8 s Shock, Shocked all fight at a 100% chance where the boss is
+# Shocked ~45% of it. Now one application a STAG: chance 1 - (1 - c)^4, lasting the Shock's duration plus the expected
+# gap from the first to the last Shocking landing (VIVID_LEAP_GAP apart: RESEARCH45 R45-10, ~0.5 s, MEDIUM-LOW).
 STAG_SHOCK_LEAP = re.compile(r"^Stags have (\d+)% more Shock Magnitude per leap$", re.I)
+VIVID_LEAP_GAP = 0.5  # s between a Stag's landings (RESEARCH45 R45-10: "about 0.5 s apart", MEDIUM-LOW)
 
 
-def stag_shock_scale(texts: list[str]) -> tuple[float, str]:
-    """(x on Vivid Stampede's Shock magnitude, how) from The Mórrigan's Guidance's line (see above); (1.0, "") without it."""
+def stag_landing_odds(chance: float) -> list[float]:
+    """[P(a Stag's highest-index Shocking landing is k), k = 0..3]: landing k Shocks and none after it."""
+    c, n = min(max(chance, 0.0), 1.0), models.VIVID_LANDINGS
+    return [c * (1.0 - c) ** (n - 1 - k) for k in range(n)]
+
+
+def stag_shock_spread(chance: float) -> float:
+    """Expected seconds from a Stag's first Shocking landing to its last, given one Shocks (landings VIVID_LEAP_GAP
+    apart, each Shocking at `chance`)."""
+    c, n = min(max(chance, 0.0), 1.0), models.VIVID_LANDINGS
+    if c <= 0:
+        return 0.0
+    total = weight = 0.0
+    for i in range(n):
+        for j in range(i, n):  # (i the first Shocking landing, j the last)
+            p = (1.0 - c) ** i * c * (c if j > i else 1.0) * (1.0 - c) ** (n - 1 - j)
+            total += p * (j - i) * VIVID_LEAP_GAP
+            weight += p
+    return total / weight if weight > 0 else 0.0
+
+
+def stag_shock_scale(texts: list[str], chance: float = 1.0, stags: float = 0.0) -> tuple[float, str]:
+    """(x on Vivid Stampede's Shock magnitude while it Shocks the boss, how) from The Mórrigan's Guidance's line (see
+    above); (1.0, "") without it. `chance` a landing's Shock chance (0-1); `stags` the Stags landing within one
+    Shock's duration. The boss holds the strongest live Shock: over the Stags alive (periodic_absent, as the uptime),
+    the highest landing index any of them Shocked with."""
     pct = max((float(m.group(1)) for t in texts if (m := STAG_SHOCK_LEAP.match(t.strip()))), default=0.0)
     if pct <= 0:
         return 1.0, ""
     n = models.VIVID_LANDINGS
-    mean = sum(1 + pct / 100 * i for i in range(n)) / n
-    last = 1 + pct / 100 * (n - 1)
-    return mean, (f"The Mórrigan's Guidance: {pct:g}% more Shock Magnitude per leap, x{mean:.2f} over a Stag's {n} "
-                  f"landings (MEDIUM-LOW; the {n}th landing's x{last:.2f}: the higher row)")
+    scale = [1 + pct / 100 * k for k in range(n)]
+    odds = stag_landing_odds(chance)
+    window = max(stags, 0.0)
+    if window < 1e-9 or sum(odds) <= 0:  # (one Stag at a time: R51-2's E)
+        best = odds
+    else:
+        # P(no live Stag Shocked with landing >= k), k = 0..n; best[k] = P(the highest live is k)
+        below = [periodic_absent(sum(odds[k:]), window) for k in range(n)] + [1.0]
+        best = [below[k + 1] - below[k] for k in range(n)]
+    shocked = sum(best)
+    if shocked <= 0:
+        return scale[-1], ""
+    value = sum(s * b for s, b in zip(scale, best)) / shocked
+    mean = sum(scale) / n
+    return value, (f"The Mórrigan's Guidance: {pct:g}% more Shock Magnitude per leap (x"
+                   + " / ".join(f"{s:.1f}" for s in scale) + f" over a Stag's {n} landings, added, RESEARCH51 R51-2 "
+                   f"MEDIUM-HIGH); the boss holds the strongest live Shock, the highest landing that Shocked: "
+                   f"x{value:.2f} at a {min(max(chance, 0.0), 1.0):.0%} chance a landing with {window:.2f} Stags a "
+                   f"Shock (the landings' mean x{mean:.2f}, MECH102's reading: the lower row; the first landing as leap "
+                   f"1: up to x{1 + pct / 100 * n:.1f})")
 
 
 def shock_others(rows: dict, groups: list[dict], hitters: set[str], main_index,
@@ -5804,8 +5853,7 @@ def shock_others(rows: dict, groups: list[dict], hitters: set[str], main_index,
     """([(name, hits per second, chance per hit, Shock duration in s)], {name: its Shock's magnitude %}, how) for the
     build's other groups that Shock the boss (see the note above). `rows` as ignite_others; `top` the Shock maximum;
     `texts` the build's lines (stag_shock_scale)."""
-    stag, stag_how = stag_shock_scale(texts or [])
-    names = {g["index"]: [n["name"] for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in hitters]
+    names ={g["index"]: [n["name"] for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in hitters]
              for g in groups if g.get("enabled") is not False}
     out, mags, parts = [], {}, []
     for index, row in sorted(rows.items(), key=lambda kv: str(kv[0])):
@@ -5825,13 +5873,26 @@ def shock_others(rows: dict, groups: list[dict], hitters: set[str], main_index,
             continue
         duration = number(row.get("ShockDuration")) or AILMENT_DURATION["Shock"]
         effect = row.get("ShockEffectMod")
-        leap = stag if name == models.VIVID_STAMPEDE else 1.0
+        leap, stag_how = 1.0, ""
+        if name == models.VIVID_STAMPEDE:  # (MECH103: one application a Stag, its landings together; see the note)
+            landing = chance * min(number(row.get("HitChance")) or 100.0, 100.0) / 100.0
+            stags = uses / models.VIVID_LANDINGS  # (its trigger rate is landings a second: models.vivid_stampede_model)
+            hits = stags
+            chance = 1.0 - (1.0 - landing) ** models.VIVID_LANDINGS
+            spread = stag_shock_spread(landing)
+            leap, stag_how = stag_shock_scale(texts or [], landing, stags * duration)
+            stag_how = "; ".join(filter(None, [
+                f"one application a Stag ({stags:.3f} Stags/s: {models.VIVID_LANDINGS} landings at {landing:.2%} each "
+                f"= {chance:.2%} a Stag, lasting {duration:.1f} s + {spread:.2f} s from its first Shocking landing to "
+                f"its last, {VIVID_LEAP_GAP:g} s apart, R45-10 MEDIUM-LOW)", stag_how]))
+            duration += spread
         mag = max(0.0, min(top, SHOCK_BASE_MAGNITUDE * (number(effect) if effect is not None else 1.0) * leap))
         out.append((name, hits, chance, duration))
         mags[name] = mag
-        parts.append(f"{name}'s Shocks ({hits:.2f} hits/s at {why}, {chance:.2%} a hit, {duration:.1f} s each, "
-                     f"{mag:.0f}% Shock" + ("" if effect is not None else ", its magnitude not read: the base 20%")
-                     + (f"; {stag_how}" if leap != 1.0 else "") + ")")
+        parts.append(f"{name}'s Shocks ({hits:.2f} {'Stags' if stag_how else 'hits'}/s at {why}, {chance:.2%} a "
+                     f"{'Stag' if stag_how else 'hit'}, {duration:.1f} s each, {mag:.0f}% Shock"
+                     + ("" if effect is not None else ", its magnitude not read: the base 20%")
+                     + (f"; {stag_how}" if stag_how else "") + ")")
     how = ("; ".join(parts) + " (MECH102: each as PoB scores it as the main skill, the sources taken as independent; "
            "one hit per use)") if parts else ""
     return out, mags, how
@@ -7821,8 +7882,12 @@ def shocked_ground(stats: dict, texts: list[str]) -> tuple[float, str]:
                 parts.append(f"{name}'s ground from {rate:.2f} of its {uses:.2f} uses/s ({how}; {ms / 1000:g} s, "
                              f"{radius:g} m): {up:.0%}")
             else:
-                up = _covered(uses, 1.0, ms / 1000)
-                where = "; at the end of a Stag's full path, taken to be at the boss, LOW" if name == "Vivid Stampede" else ""
+                # (MECH103: Vivid Stampede's rate is its landings, 4 a Stag; the ground comes once a Stag, at its path's
+                # end: an OVERCOUNT x4 in grounds made before)
+                each = uses / models.VIVID_LANDINGS if name == models.VIVID_STAMPEDE else uses
+                up = _covered(each, 1.0, ms / 1000)
+                where = (f"; once a Stag ({models.VIVID_LANDINGS} landings), at the end of its full path, taken to be "
+                         "at the boss, LOW" if name == models.VIVID_STAMPEDE else "")
                 parts.append(f"{name}'s own ground on each use ({ms / 1000:g} s, {uses:.2f} uses/s, {radius:g} m{where}): "
                              f"{up:.0%}")
             off *= 1 - up

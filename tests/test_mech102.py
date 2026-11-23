@@ -34,16 +34,39 @@ def test_side_shocks_are_listed_with_their_own_magnitude_and_duration():
 
 
 def test_the_morrigans_guidance_scales_the_stags_shocks():
-    scale, how = c.stag_shock_scale(["Stags have 20% more Shock Magnitude per leap"])
-    assert scale == pytest.approx((1 + 1.2 + 1.4 + 1.6) / 4) and "x1.60" in how
+    line = ["Stags have 20% more Shock Magnitude per leap"]
+    # MECH103 (RESEARCH51 R51-2): the strongest landing that Shocked holds: x1.6 at a 100% chance, ~x1.45 at 50%
+    scale, how = c.stag_shock_scale(line)
+    assert scale == pytest.approx(1.6) and "R51-2" in how and "x1.30" in how
+    half = c.stag_shock_scale(line, 0.5)[0]
+    expect = (0.5 * 1.6 + 0.25 * 1.4 + 0.125 * 1.2 + 0.0625 * 1.0) / (1 - 0.5 ** 4)
+    assert half == pytest.approx(expect) and 1.44 < half < 1.46
+    # more Stags alive at once: the strongest over them rises toward x1.6
+    assert half < c.stag_shock_scale(line, 0.5, 3.0)[0] < 1.6
+    assert c.stag_shock_scale(line, 0.5, 0.5)[0] == pytest.approx(half)  # (under one Stag a Shock: one at a time)
     assert c.stag_shock_scale(["Stags deal 20% more damage per leap"]) == (1.0, "")
-    row = orb_row(name=models.VIVID_STAMPEDE, ShockEffectMod=1.0)
-    _, mags, how = c.shock_others({4: row}, GROUPS, {"Vivid Stampede"}, 1,
-                                  texts=["Stags have 20% more Shock Magnitude per leap"])
-    assert mags == {"Vivid Stampede": pytest.approx(26.0)} and "Mórrigan" in how
+    row = orb_row(name=models.VIVID_STAMPEDE, ShockEffectMod=1.0, ShockChancePerHit=100.0)
+    _, mags, how = c.shock_others({4: row}, GROUPS, {"Vivid Stampede"}, 1, texts=line)
+    assert mags == {"Vivid Stampede": pytest.approx(32.0)} and "Mórrigan" in how
     # not on another skill's Shocks
-    assert c.shock_others({2: orb_row(ShockEffectMod=1.0)}, GROUPS, {"Orb of Storms"}, 1,
-                          texts=["Stags have 20% more Shock Magnitude per leap"])[1] == {"Orb of Storms": 20.0}
+    assert c.shock_others({2: orb_row(ShockEffectMod=1.0)}, GROUPS, {"Orb of Storms"}, 1, texts=line)[1] == {
+        "Orb of Storms": 20.0}
+
+
+def test_a_stags_landings_shock_the_boss_once_not_four_spread_hits():
+    # MECH103, an OVERCOUNT before: 0.2 landings/s (a Stag every 20 s) at 100% read as 1.6 hits in each 8 s Shock,
+    # Shocked all fight; now one application a Stag lasting 8 s + the 1.5 s from its first landing to its last
+    row = orb_row(name=models.VIVID_STAMPEDE, speed=0.2, ShockEffectMod=1.0, ShockChancePerHit=100.0)
+    out, _, how = c.shock_others({4: row}, GROUPS, {"Vivid Stampede"}, 1)
+    assert out == [("Vivid Stampede", pytest.approx(0.05), pytest.approx(1.0), pytest.approx(9.5))]
+    assert 1.0 - c.periodic_absent(1.0, 0.05 * 9.5) == pytest.approx(0.475)
+    assert "one application a Stag" in how
+    # the spread: certain landings span 1.5 s; one landing at a low chance spans little
+    assert c.stag_shock_spread(1.0) == pytest.approx(1.5)
+    assert c.stag_shock_spread(0.01) < 0.05
+    # a 10% landing: a Stag Shocks at 1 - 0.9^4
+    out = c.shock_others({4: orb_row(name=models.VIVID_STAMPEDE, speed=0.4)}, GROUPS, {"Vivid Stampede"}, 1)[0]
+    assert out[0][1] == pytest.approx(0.1) and out[0][2] == pytest.approx(1 - 0.9 ** 4)
 
 
 def test_a_side_shock_shocks_the_boss_when_the_main_skill_doesnt():
@@ -167,6 +190,14 @@ def test_moment_of_vulnerability_needs_a_primed_boss_and_hits_that_reach_the_vis
     # buildup too slow to Prime the boss within a 60 s fight: none
     slow = {"Speed": 1.0, "HitChance": 100.0, "FreezeBuildupAvg": 0.005}
     assert models.moment_of_vulnerability_model(models.Skill("Ice Nova"), slow, True, fight=60.0)[0] == []
+
+
+def test_a_stag_makes_its_shocked_ground_once_not_on_each_landing():
+    # MECH103: Vivid Stampede's rate is its landings (4 a Stag); its ground comes once a Stag (an OVERCOUNT x4 before)
+    stats = {"Speed": 0.4, "HitChance": 100.0, "_sg_skill": (models.VIVID_STAMPEDE, 4000.0)}
+    stag = c.shocked_ground(stats, [])
+    lance = c.shocked_ground({**stats, "Speed": 0.1, "_sg_skill": ("Kinetic Thing", 4000.0)}, [])
+    assert stag[0] == pytest.approx(lance[0]) and 0 < stag[0] < 0.5 and "once a Stag" in stag[1]
 
 
 def test_moment_of_vulnerability_reach_follows_area_size_and_pierce():

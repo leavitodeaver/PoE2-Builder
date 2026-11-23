@@ -1176,7 +1176,8 @@ def test_shocked_ground_shocks_the_boss_and_counts_you_standing_in_it():
     assert ground_shock_magnitude(None)[0] == 20
     # the main skill's own ground on each use, and Shocking Leap on the first crit of a use
     own, _ = shocked_ground({"Speed": 0.25, "_sg_skill": ("Vivid Stampede", 2000)}, [])
-    assert own == pytest.approx(0.5)
+    # (MECH103: Vivid Stampede's rate is its landings, 4 a Stag, and its ground comes once a Stag: 0.0625 x 2 s)
+    assert own == pytest.approx(0.125)
     # MECH58 (an OVERCOUNT): Storm Lance only from Frenzy-consuming lances, Gathering Storm only from exploded Tempest
     # Bells, Lightning Warp only in the last Cull threshold of the pool; nothing feeding them makes no ground
     assert shocked_ground({"Speed": 0.5, "_sg_skill": ("Storm Lance", 2000)}, [])[0] == 0.0
