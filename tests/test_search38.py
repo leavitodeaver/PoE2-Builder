@@ -95,3 +95,32 @@ def test_the_result_carries_why_items():
     # (a wiring check on Run.result's key-by-key copy: a whole search is too heavy for one key)
     source = (Path(__file__).resolve().parents[1] / "builder" / "search" / "run.py").read_text(encoding="utf-8")
     assert '"why_items": final.get("why_items") or {}' in source
+
+
+def test_the_ascendancy_unlock_trial_runs_only_behind_its_switch(engine, monkeypatch):
+    """(the manager, 23 Nov 15:45) POE2_SEARCH_ASCEND_UNLOCK: OFF (the default) never calls unlock_trial; ON reaches it on
+    an Oracle build, whose The Unseen Path unlocks the Oracle-only passives."""
+    from builder import clock
+    from builder.request.schema import BuildRequest
+    from builder.search.context import make_payload
+    from builder.search.inner import Search, seed_task
+    from builder.search.tree import Tree
+
+    row = json.loads(ORACLE.read_text(encoding="utf-8"))["rows"][0]
+    request = BuildRequest.model_validate({**row["request"], "seed_code": row["code"]})
+    payload = make_payload(request)
+    search = Search(engine, None, payload, seed_task(engine, None, payload)["skeleton"], 0)
+    search.setup_seed(quests=False)
+    calls = []
+    monkeypatch.setattr(Tree, "unlock_trial", lambda self, ids, *a: calls.append(ids) or False)
+
+    monkeypatch.delenv(Tree.SWITCH_UNLOCK, raising=False)
+    assert Tree.unlock_enabled() is False
+    snap = search.build.snapshot()
+    search.tree.ascendancy_round(clock.now() + 600)
+    assert calls == []
+
+    search.build.restore(snap)
+    monkeypatch.setenv(Tree.SWITCH_UNLOCK, "1")
+    search.tree.ascendancy_round(clock.now() + 600)
+    assert calls, "the Oracle build offers no unlocking notable"

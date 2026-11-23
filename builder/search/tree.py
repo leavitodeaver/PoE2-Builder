@@ -543,6 +543,14 @@ class Tree:
         it: the manager, 22 Nov). Read at call time, so a probe or a gate arm can set it per run."""
         return os.environ.get(cls.SWITCH_JOINT, "0") == "1"
 
+    SWITCH_UNLOCK = "POE2_SEARCH_ASCEND_UNLOCK"  # "1": ascendancy_round runs unlock_trial (OFF by default)
+
+    @classmethod
+    def unlock_enabled(cls) -> bool:
+        """POE2_SEARCH_ASCEND_UNLOCK=1 turns the ascendancy unlock trials on (OFF until a gate set of at least 3 seeds per
+        arm measures them higher: the manager, 23 Nov 15:45). Read at call time, so a gate arm can set it per run."""
+        return os.environ.get(cls.SWITCH_UNLOCK, "0") == "1"
+
     JOINT_GEAR_SHARE = 0.6  # of a joint_regrow's time its gear round may take (LOW, a search-effort setting)
 
     def joint_regrow(self, deadline: float, gear_round: Callable[[float, bool], bool], clear: str = "weak:30",
@@ -769,7 +777,8 @@ class Tree:
             if with_traveller and not missing_required and self.traveller_trial(
                     max(with_traveller, key=lambda x: x[0])[1], current):
                 return True
-        if deadline is not None and not missing_required:  # (SEARCH37: notables whose worth is what they unlock)
+        # (SEARCH37: notables whose worth is what they unlock; behind its switch, the manager 23 Nov 15:45)
+        if deadline is not None and not missing_required and self.unlock_enabled():
             for node in sorted(adjacency):
                 if node in current or node in best_ids or clock.now() > deadline:
                     continue
