@@ -10121,7 +10121,7 @@ class Assumptions:
         sets = build.call("setRates", index=zenith.group, active=spot)["sets"]
         crystal = next((s for s in sets if s.get("label") == "Crystal"), {})
         row = next(iter(build.call("useRates", indices=[zenith.group])["rates"]), {})
-        share = hit_cut_share(build, main_time_share(build, main))
+        share = main_time_share(build, main)  # (the manager, train 128: the hit cut is already in it, as MECHB56's 4393e5e5 in midnight_zenith)
         per_use = getattr(build, "main_hits_per_use", None)
         hits = models.hits_per_second(stats) * share * (number(per_use) if per_use is not None else 1.0)
         crit = min(max(number(stats.get("CritChance")), 0.0), 100.0) / 100
