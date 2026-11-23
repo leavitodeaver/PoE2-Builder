@@ -1672,7 +1672,13 @@ end
 local function setPointsOver(env)
 	local output = env and env.player and env.player.output
 	if output then
-		local over, overAscendancy = pointsOver(env.allocNodes or build.spec.allocNodes, output, env.grantedPassives)
+		-- (SEARCH38, R53-3, probe POE2T7454: PoB fills output.ExtraPoints / PassivePointsToWeaponSetPoints only in
+		-- buildOutput's MAIN block, Calcs.lua 562-564, after perform: here they are still nil. Read as that block does)
+		local granted = {
+			ExtraPoints = env.modDB:Sum("BASE", nil, "ExtraPoints"),
+			PassivePointsToWeaponSetPoints = env.modDB:Sum("BASE", nil, "PassivePointsToWeaponSetPoints"),
+		}
+		local over, overAscendancy = pointsOver(env.allocNodes or build.spec.allocNodes, granted, env.grantedPassives)
 		output.PassivePointsOver = over + overAscendancy
 	end
 end

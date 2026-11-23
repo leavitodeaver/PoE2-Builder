@@ -216,6 +216,20 @@ def verdict(dps: float, feasible: bool, toggled: float, fair: float, author_togg
             "reference_dps_toggled": toggled, "ratio_toggled": dps / toggled if toggled else 0.0}
 
 
+DEFAULT_FLOOR_LABELS = ("Movement speed (% increased)", "Survives the boss's ")
+
+
+def default_floors_note(short: list[str]) -> dict:
+    """(SEARCH38, the manager's 05:15 23 Nov) THE USER's default floors (25% movement speed, survive the boss's hits)
+    against a reference. Every gate request carries them (Floors' defaults), and the search's builds are held to them,
+    but a reference is a finished build: its DPS is read as it stands. Which it misses, and what that does to the ratio."""
+    missed = [label for label in short if label.startswith(DEFAULT_FLOOR_LABELS)]
+    note = ("the reference meets the default floors: the ratio compares like with like" if not missed else
+            "the reference misses " + ", ".join(missed) + " while the search's build is held to them: the ratio "
+            "understates the search's build by whatever those floors cost it")
+    return {"met": not missed, "missed": missed, "note": note}
+
+
 def commit() -> str | None:
     """The checkout's commit, so gate_median.py can group a set of runs."""
     try:
@@ -308,6 +322,7 @@ def main() -> None:
                   f"({'; '.join(legal['changes']) or 'nothing the search could change'}) it reads {legal['dps']:,.0f} "
                   f"(x{legal['dps'] / fair['dps'] if fair['dps'] else 0:.2f} of the raw fair reading)"
                   + ("; short: " + ", ".join(legal["short"]) if legal["short"] else ""), flush=True)
+        print(f"{path.stem}: default floors: {default_floors_note(fair['short'])['note']}", flush=True)
         print(f"{path.stem}: floors from the fair scoring {request.floors.model_dump(mode='json', exclude_none=True)}; "
               f"PoB's own (before our models) were {fair['pob_floors']}", flush=True)
         references.append((path.stem, request, reference_dps, fair))
@@ -339,7 +354,8 @@ def main() -> None:
                      "open_sockets": result.get("open_sockets"), "final_regrow": result.get("final_regrow")})  # (each floor's row: the sustain and recovery rows' delivered values)
         rows[-1].update({"reference_dps_fair": fair["dps"], "ratio_fair": dps / fair["dps"] if fair["dps"] else None,
                          "reference_fair_short": fair["short"], "reference_fair_conditions": fair["conditions"],
-                         "floors_from": "fair", "reference_pob_floors": fair["pob_floors"]})
+                         "floors_from": "fair", "reference_pob_floors": fair["pob_floors"],
+                         "reference_default_floors": default_floors_note(fair["short"])})
         if legal := fair.get("legal"):  # (SEARCH35: the reference within the search's own limits, beside the raw one)
             rows[-1].update({"reference_dps_legal": legal["dps"], "ratio_legal": dps / legal["dps"] if legal["dps"] else None,
                              "reference_legal_broken": legal["broken"], "reference_legal_changes": legal["changes"],

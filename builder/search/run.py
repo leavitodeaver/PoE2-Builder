@@ -774,6 +774,7 @@ class Run:
             "radius_jewels": final.get("radius_jewels") or [], "tree_check": final.get("tree_check"),
             "reapply_drift": final.get("reapply_drift"),  # (SEARCH32: inner.reapply_drift)
             "open_sockets": final.get("open_sockets") or [],  # (SEARCH34: Gems.open_sockets)
+            "why_items": final.get("why_items") or {},  # (SEARCHC1: Gear.why_items, the per-slot "why this item")
             "final_regrow": final.get("final_regrow") or [],  # (SEARCH35: Tree.final_regrow's tries, what it kept)
         })
         result["shopping"] = shopping_list(result, self.ctx.data, self.report_prices(), TradeClient().stats(offline=True),
