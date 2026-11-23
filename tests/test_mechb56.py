@@ -120,3 +120,10 @@ def test_the_main_skills_combo_cut_reaches_the_hit_readers():
     assert build.main_hit_cut == pytest.approx(0.185) and build.main_uses_raise is None
     assert assumptions.hit_cut_share(build, 1.0) == pytest.approx(0.185)
     assert "hit_cut(build, cap_mods, name)" in open(assumptions.__file__, encoding="utf-8").read()
+
+
+def test_midnight_zenith_reads_the_hit_cut_once():
+    """(MECHB56, the rerun Oracle test: Tempest Bell's x0.187 Combo cut read twice, 0.042 hits/s for 0.225) main_time_share
+    (hits=True) already applies build.main_hit_cut; Assumptions.midnight_zenith must not wrap it in hit_cut_share again."""
+    src = open(assumptions.__file__, encoding="utf-8").read()
+    assert "hit_cut_share(build, main_time_share(" not in src
