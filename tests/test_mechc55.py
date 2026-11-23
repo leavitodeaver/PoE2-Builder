@@ -133,3 +133,55 @@ def test_probe_archon_of_undeath_reaches_a_skeletal_brute_build(engine):
         assert after <= before * (1 + 2 * mods[0]["scale"] / 100)
     finally:
         build.call = real
+
+
+def test_banner_glory_counts_every_attack_hit_not_only_the_main_skills():
+    """(MECHC55; the manager 00:10 23 Nov, the user's Oracle build) War Banner's Glory: "While active, Attacking
+    enemies builds Glory", so the build's other Attacks' hits (models.OTHER_ATTACK_HITS) add to the main skill's."""
+    main = models.Skill(name="Tempest Bell", group=1, attack=True)
+    stats = {"Speed": 0.2, "HitChance": 100, "_texts": []}
+    alone, _ = models.glory_plan(["War Banner"], stats, main, [], [])
+    both, how = models.glory_plan(["War Banner"], {**stats, models.OTHER_ATTACK_HITS: (1.0, "Quarterstaff Strike 1.00 "
+                                                                                            "hits/s")}, main, [], [])
+    assert both["War Banner"][0] > 3 * alone["War Banner"][0]
+    assert "the build's other Attacks' 1.00" in how and "Quarterstaff Strike" in how
+    other, _ = models.glory_plan(["Ancestral Cry"], {**stats, models.OTHER_ATTACK_HITS: (1.0, "x")}, main, [], [])
+    assert other == models.glory_plan(["Ancestral Cry"], stats, main, [], [])[0]  # (its Glory isn't attack hits)
+
+
+def test_probe_war_banner_glory_takes_the_combo_builders_strikes(engine):
+    """(MECHC55; the manager 00:10 23 Nov, the user's Oracle result 20261122-215105: the box read 14% from Tempest Bell's
+    hits alone; probe POE2T7064 on that result: 84% with Quarterstaff Strike's 0.90 Strikes/s) Real PoB: a Tempest Bell
+    main skill (Combo from the Quarterstaff's Quarterstaff Strike) with War Banner: the Banner placed box's Glory counts
+    the builder's Strikes (assumptions.COMBO_FEED), and the aura's Attack Speed sits behind PoB's BannerPlanted."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Tempest Bell", ascendancies=["Oracle"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Tempest Bell"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.set_group(gems=[{"name": "War Banner", "level": 20, "quality": 0}])
+    for _ in range(2):  # (the feed is published a round behind)
+        search.settle()
+    feed = getattr(build, "combo_feed", None)
+    box = next((c for c in search.conditions.describe() if c["var"] == "bannerPlanted"), None)
+    print("PROBE banner feed", feed, box)
+    assert feed is not None and feed[0] == "Quarterstaff Strike" and feed[1] > 0
+    assert box is not None and "the build's other Attacks'" in box["evidence"] and "Quarterstaff Strike" in box["evidence"]
+    assert any(m.get("when") == [{"pob": "BannerPlanted"}] for m in search.assumptions.mods)
+
+
+def test_her_declaration_shows_the_fed_and_never_leaving_rows():
+    """(MECHC55; the manager 23:20 22 Nov, R49-3) Intimidated 4 s on each entry of the boss into your Presence: the
+    headline stays the random-entries reading, with the rows "fed on purpose: 100%" and "never leaving: ~0%"."""
+    from builder.search import conditions
+
+    groups = [{"enabled": True, "gems": [{"name": "Herald of Ash"}, {"name": conditions.HER_DECLARATION}]}]
+    gems = {"Herald of Ash": {"skillTypes": ["Persistent", "Buff"]}, conditions.HER_DECLARATION: {"support": True}}
+    got = conditions.her_declaration(groups, gems, [], {}, 0.0)
+    assert got is not None
+    assert "fed on purpose, rolling out and back in every 4 s: 100%" in got[1] and "~0%" in got[1]

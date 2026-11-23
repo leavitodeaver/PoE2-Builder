@@ -464,6 +464,12 @@ IMPATIENCE_TAG = "AtzirisImpatience"
 # lanes' tests that pin a fixed use speed (test_engine_items' Freezing Salvo seals, test_engine_uniques' Hrimnor's Hymn
 # Poison stacking), so their ratios read PoB's speed as before.
 BOSS_TIME_CUTS = True
+# (MECHC55; the manager 00:10 23 Nov, the user's Oracle build) The main skill's Combo builder Strikes for the time its uses
+# leave: a Combo-capped main skill (main_cap: "Combo: N <builder> Strikes a use") publishes build.combo_feed = (builder,
+# Strikes a second, how) = its PoB speed x (1 - the main skill's share), the same rotation usage.combo_rotation sizes
+# (uses = 1 / (N / (gain x speed) + 1 / own)), one hit a Strike. Read by the banners' Glory (models.OTHER_ATTACK_HITS),
+# as the side rows don't rate a builder the search never chose a press for.
+COMBO_FEED = re.compile(r"^Combo: [\d.]+ (.+) Strikes a use$")
 WAR_BANNER, WAR_BANNER_SPEED = "War Banner", 25.0  # (MECHC50: gs-war-banner-speed, Assumptions.models)
 BLAZING_CRITICAL = "Blazing Critical"
 BLAZING_GAIN_STAT = "support_blazing_crits_gain_%_fire_damage_with_attacks_on_critical_hit"
@@ -3756,17 +3762,22 @@ class Assumptions:
         # same share the BannerPlanted box reads). Aura effect on it not read (the lower reading).
         if any(n.get("name") == WAR_BANNER and n.get("enabled", True)
                for g in build.groups() if g.get("enabled", True) for n in g.get("gems") or []):
-            up, banner_how = conditions_mod.Conditions(build, name)._banner_share([WAR_BANNER])
-            if up > 0:
-                hand_mods = hand_mods + [models.line("1% increased Attack Speed", WAR_BANNER_SPEED * up)]
+            # (MECHC55, the manager 00:10 23 Nov: ONE reader) PoB's own BannerPlanted condition gates the line, so the
+            # box's uptime (Conditions' bannerPlanted from _banner_share, weighed by the objective) counts it together
+            # with the banner's damage. Before, its own _banner_share call here ran at another point of the search and
+            # read another share (the user's Oracle build, 22 Nov 21:51: 97% here, 14% in the box: an OVERCOUNT of
+            # +24.1% Attack Speed against the box's 14%).
+            hand_mods = hand_mods + [models.line("1% increased Attack Speed", WAR_BANNER_SPEED,
+                                                 when=[{"pob": "BannerPlanted"}])]
             hand_notes = hand_notes + [{
                 "label": "War Banner: its aura's 25% increased Attack Speed*",
-                "value": f"+{WAR_BANNER_SPEED * up:.1f}% Attack Speed ({up:.0%} of the fight under a placed banner)",
-                "basis": (f"{banner_how}; PoB applies the banner's damage and Accuracy, not its Attack Speed (an "
-                          "UNDERCOUNT before); aura effect not read on it"),
+                "value": f"+{WAR_BANNER_SPEED:g}% Attack Speed while a placed banner stands",
+                "basis": ("counted under PoB's Banner placed box, at the share of the fight its Glory gives (the 'Banner "
+                          "placed' condition: one share for the banner's damage, Accuracy and this); PoB applies the "
+                          "banner's damage and Accuracy, not its Attack Speed (an UNDERCOUNT before); aura effect not "
+                          "read on it"),
                 "confidence": "MEDIUM (the banner share's)",
-                "play": (f"War Banner: fight inside the placed banner for +25% Attack Speed (without it: "
-                         f"{WAR_BANNER_SPEED * up:.1f}% less)" if up > 0 else "")}]
+                "play": "War Banner: fight inside the placed banner for +25% Attack Speed"}]
         # (MECHC50; RESEARCH42 R42-12, MEDIUM-HIGH: "exerted" in a stat id is the text's "Empowered", e.g.
         # warcry_grant_damage_+%_to_exerted_attacks "Empowered Attacks deal {0}% increased Damage") Righteous Descent's
         # Empowered set (RighteousDescentPlayerBoosted, the only set with base_skill_exerted_itself: other.lua 14417) IS an
@@ -6317,6 +6328,7 @@ class Assumptions:
         Concoction is capped by flask_main instead."""
         from builder.search.flasks import THROW_CHARGES
 
+        self.build.combo_feed = None  # (MECHC55: COMBO_FEED's note; set below for a Combo-capped main skill)
         if group is None or main is None or main in THROW_CHARGES:
             return [], []
         cap = self.press_caps([group], {group["index"]}).get(group["index"])
@@ -6327,6 +6339,8 @@ class Assumptions:
         if speed <= 0 or cap.uses >= speed:
             return [], []
         share = cap.uses / speed
+        if (feeder := COMBO_FEED.match(cap.how)) and cap.uses > 0:
+            self.build.combo_feed = self.combo_feed(feeder.group(1), share)
         return [models.raw_mod("DPS", "MORE", 100 * (share - 1), main)], [{
             "label": f"{main}: used as often as {cap.how.split(':')[0].split(' (')[0]} allows*", "value": f"x{share:.3f}",
             "basis": f"PoB counts it used at will ({speed:.2f}/s); {cap.how} hold it to {cap.uses:.3g} uses/s "
@@ -6365,6 +6379,20 @@ class Assumptions:
                       if x["name"] == name), {})  # (MECHB59: the all-Bells row, R55-2)
         return models.tempest_bell_model(bells, at_will, builder, impact, wave, duration, texts,
                                          allowed=number(level.get("base_number_of_tempest_bells_allowed")) or 1.0)
+
+
+    def combo_feed(self, builder: str, share: float) -> tuple[str, float, str] | None:
+        """(MECHC55: COMBO_FEED's note) (the Combo builder, its Strikes a second, how): the builder used for the share
+        of the time the main skill's uses leave (1 - `share`), at PoB's speed for it."""
+        where = [g["index"] for g in self.build.groups() if g.get("enabled", True)
+                 and any(n["name"] == builder and n.get("enabled", True) for n in g.get("gems") or [])]
+        row = next(iter(self.build.call("useRates", indices=where[:1])["rates"]), None) if where else None
+        speed = number((row or {}).get("speed"))
+        if speed <= 0:
+            return None
+        strikes = speed * max(0.0, 1.0 - share)
+        return builder, strikes, (f"{builder} {strikes:.2f} Strikes/s building the main skill's Combo ({speed:.2f}/s for "
+                                  f"the {1 - share:.0%} of the time its uses leave)")
 
     def remnant_supply(self, skills: list[dict], skip: tuple[str, ...] = ()) -> tuple[float, list[str]]:
         """Remnants per second the build makes on the request's boss, before the build's "additional Remnant" /

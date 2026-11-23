@@ -17082,6 +17082,16 @@ def brambles_model(slam: str, slam_rate: float, slam_basis: str, row: dict) -> l
 # hit). Not counted (undercounts, labelled): Glory from other skills' hits, armour breaks (Molten Blast), Ward spent
 # (Skyfall; MECHC54: counted since, GLORY_FROM_WARD), Walking Calamity's own source, increased Glory generation and Daresso's Passion's lower cost.
 BOSS_POWER = 20
+# (MECHC55; the manager 00:10 23 Nov, the user's Oracle build: War Banner's Glory read from the main skill's hits alone,
+# 0.18 a second with Tempest Bell used 19% of the fight, though Quarterstaff Strike attacks the rest) The banners' Glory
+# comes from EVERY Attack hit you land: their buff skill's description "While active, Attacking enemies builds Glory"
+# (ActiveSkills war_banner_reservation / defiance_banner_reservation / dread_banner_reservation, game 26650308; the stat
+# active_skill_generates_mp_%_glory_per_attack_hit, no skill named). So stats[OTHER_ATTACK_HITS] = (the build's other
+# Attack skills' hits a second at their pressed rates, how) (Conditions._banner_share, from the last resolve's
+# side_hit_rows) is added to the main skill's attack hits for a Glory skill fed by "attack hit". Minions' attacks aren't
+# yours (not counted). Other Glory skills' events ("elemental hit", "chaos hit", Freezes, Ignites) still read the main
+# skill alone (an UNDERCOUNT where their text is the same "while active", not checked here).
+OTHER_ATTACK_HITS = "_other_attack_hits"
 GLORY_SKILLS = {  # skill: (Glory per use, {event: Glory per event on a boss})
     "War Banner": (200, {"attack hit": 20}), "Defiance Banner": (200, {"attack hit": 20}),
     "Dread Banner": (200, {"attack hit": 20}),
@@ -17325,11 +17335,19 @@ def glory_plan(names: list[str], stats: dict, main: Skill | None, skills: list[S
             cost, gains = GLORY_SKILLS[name]
             if power != BOSS_POWER:
                 gains = {e: g if (name, e) in GLORY_FLAT_EVENTS else g * power / BOSS_POWER for e, g in gains.items()}
-            rate = sum(events[e] for e in gains)
-            glory = sum(events[e] * g for e, g in gains.items())
-            how = " + ".join(f"{events[e]:.2f} {e}s/s x {g:g}" for e, g in gains.items()) or "no source counted"
+            own = events
+            other, other_how = stats.get(OTHER_ATTACK_HITS) or (0.0, "")
+            if "attack hit" in gains and number(other) > 0:  # (MECHC55: OTHER_ATTACK_HITS' note)
+                own = {**events, "attack hit": events["attack hit"] + number(other)}
+            rate = sum(own[e] for e in gains)
+            glory = sum(own[e] * g for e, g in gains.items())
+            how = " + ".join(f"{own[e]:.2f} {e}s/s x {g:g}" for e, g in gains.items()) or "no source counted"
+            if own is not events:
+                how += (f" (the main skill's {events['attack hit']:.2f} + the build's other Attacks' {number(other):.2f}: "
+                        f"{other_how})")
             if rate > 0:  # one gain per 0.5 s per monster
-                kept = glory_gains(rate, number(stats.get("Speed"))) / rate
+                uses_all = number(stats.get("Speed")) + (number(other) if own is not events else 0.0)  # (MECHC55: the
+                kept = glory_gains(rate, uses_all) / rate  # other Attacks' uses join the stream, one hit a use)
                 glory *= kept
                 how += f", at most one gain per {GLORY_GAIN_EVERY:g} s on the boss ({kept:.0%} of them count)"
             if name in GLORY_FROM_WARD:  # (MECHC54: GLORY_FROM_WARD's note)

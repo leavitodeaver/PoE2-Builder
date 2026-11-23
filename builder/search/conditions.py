@@ -4590,7 +4590,9 @@ def her_declaration(groups: list[dict], gems: dict, texts: list[str], stats: dic
     up = 1 - math.exp(-rate * duration) if rate > 0 else 0.0
     return up, (f"Her Declaration on {', '.join(sorted(set(buffs)))}: the boss Intimidated {duration:g} s each time it "
                 f"enters your Presence ({how}): {up:.0%} of the fight (entries taken as random in time, the lower "
-                "reading)")
+                f"reading); rows (MECHC55, RESEARCH49 R49-3, MEDIUM-HIGH: 4 s on each ENTRY, not all fight): fed on "
+                f"purpose, rolling out and back in every {duration:g} s: 100%; never leaving the boss in your Presence: "
+                "~0%. The boss's own leaps and forced moves add entries not counted (LOW)")
 
 
 # Dazed (MECH70; plans/term-dazed-enemies.md, an UNDERCOUNT before: nothing set PoB's conditionEnemyDazed box, so every
@@ -9618,6 +9620,16 @@ class Conditions:
         texts = [line["text"] for line in self.build.call("sourceLines")["lines"]]  # (the Glory lines, MECHC13)
         stats = {**stats, "_main_share": self._main_share(),  # (MECHC45: the main skill's hits at its share of the fight)
                  **boss_in_presence(self.build, texts)}  # (MECHC50: the Presence Glory line)
+        # (MECHC55: models.OTHER_ATTACK_HITS' note) PoB's attack flag on the build's skills (a weapon-granted Quarterstaff
+        # Strike has no gem entry)
+        attack_names = {s.name for s in found if s.attack and (main is None or s.name != main.name)}
+        attacks = [r for r in getattr(self.build, "side_rows", None) or []
+                   if number(r.get("hits")) > 0 and r.get("name") in attack_names]
+        feed = getattr(self.build, "combo_feed", None)  # (MECHC55: assumptions.COMBO_FEED's note, the Combo builder)
+        if feed and feed[0] in attack_names:
+            attacks = [r for r in attacks if r.get("name") != feed[0]] + [{"hits": feed[1], "how": feed[2]}]
+        if attacks:
+            stats[models.OTHER_ATTACK_HITS] = (sum(number(r["hits"]) for r in attacks), "; ".join(r["how"] for r in attacks))
         for name in banners:
             uses, how = models.glory_uses([name], stats, main, found, texts)
             duration = number((rates.get(where.get(name)) or {}).get("duration")) or BANNER_SECONDS

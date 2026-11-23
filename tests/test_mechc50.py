@@ -196,7 +196,10 @@ def test_war_banners_attack_speed_pob_never_applies_comes_at_the_banner_share(en
     search.assumptions.apply()
     note = next(n for n in search.assumptions.active if n["label"].startswith("War Banner: its aura"))
     print("PROBE war banner note", note)
-    assert "of the fight under a placed banner" in note["value"]
+    assert "while a placed banner stands" in note["value"]  # (MECHC55: under the BannerPlanted box's share)
+    line = next(m for m in search.assumptions.mods if m.get("line") == "1% increased Attack Speed"
+                and m.get("when") == [{"pob": "BannerPlanted"}])
+    assert line["scale"] == pytest.approx(a.WAR_BANNER_SPEED)
 
 
 def test_thaumaturgical_dynamism_splits_a_charge_every_5_s_by_the_skill_gems_requirements():
