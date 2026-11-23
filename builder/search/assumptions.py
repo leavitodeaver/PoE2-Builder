@@ -4573,6 +4573,12 @@ class Assumptions:
             sv_stats = build.call("stats", fields=["Speed", "TotalDPS", "ProjectileCount"])
             sv_mods, sv_notes = models.spectral_volley_model(main, supports.get(main.group, []), sv_stats, forbidden)
             hand_mods, hand_notes = hand_mods + sv_mods, hand_notes + sv_notes
+            if sv_mods:  # (GEM36: the Spectral Projectiles' stronger hits carry the strongest Ignite / Bleed)
+                st_mods, st_notes = models.stronger_hits_ailment_model(
+                    main, build.call("stats", fields=models.STRONGER_FIELDS), models.SPECTRAL_VOLLEY,
+                    models.spectral_strength(main), 1.0 / models.SPECTRAL_WAIT, models.SPECTRAL_MAX,
+                    "a Spectral Projectile over the attack's own projectile, spectral_volley_model's reading", forbidden)
+                hand_mods, hand_notes = hand_mods + st_mods, hand_notes + st_notes
         hand_notes = hand_notes + models.ice_shards_note(main)  # (MECHB51: R41-13, rows only)
         hand_notes = hand_notes + models.behead_note(main, supports.get(main.group, []) if main else [])  # (R42-18)
         hand_notes = hand_notes + models.knockback_note(main, number(build.call("stats", fields=[
@@ -4596,6 +4602,13 @@ class Assumptions:
                 if x["name"] == models.ALIGN_FATE), {})
             al_mods, al_notes = models.align_fate_model(main, valid, align_level, number(stats.get("Speed")), forbidden)
             hand_mods, hand_notes = hand_mods + al_mods, hand_notes + al_notes
+            if al_mods:  # (GEM36: the Empowered casts carry the strongest Ignite / Bleed; the share from the mod)
+                al_more = (number(align_level.get(models.ALIGN_MORE_STAT)) or 30.0) / 100
+                al_events = number(al_mods[0]["value"]) / 100 / al_more * number(stats.get("Speed"))
+                st_mods, st_notes = models.stronger_hits_ailment_model(
+                    main, build.call("stats", fields=models.STRONGER_FIELDS), models.ALIGN_FATE, 1.0 + al_more,
+                    al_events, 1.0, "an Empowered cast's more damage, align_fate_model's reading; one hit a cast", forbidden)
+                hand_mods, hand_notes = hand_mods + st_mods, hand_notes + st_notes
         if main is not None and main.spell and main.group is not None:  # (MECHB51: R42-9, a labelled 0 with rows)
             hand_notes = hand_notes + models.wildshards_note(main, supports.get(main.group, []),
                                                              number(stats.get("ProjectileCount")) or 1.0)
@@ -4914,7 +4927,7 @@ class Assumptions:
         vt_mods, vt_notes = models.valako_threshold_model(main, forbidden)  # (GEM35: from MECH100, LOW)
         hand_mods, hand_notes = hand_mods + vt_mods, hand_notes + vt_notes
         if main is not None and group and models.VERGLAS in supports.get(main.group, []):  # (GEM35: R47-3)
-            vg_mods, vg_notes = self.verglas(main, group["index"], forbidden)
+            vg_mods, vg_notes = self.verglas(main, group["index"], forbidden, found, stats)
             hand_mods, hand_notes = hand_mods + vg_mods, hand_notes + vg_notes
         if main is not None and group and main.name in models.GATED_SETS:  # (GEM17: Enraged / Empowered need a resource)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
@@ -5045,6 +5058,7 @@ class Assumptions:
             shock, shock_how = self.shock_set_share(group["index"], main.name, False)
             lc_mods, lc_notes = models.lightning_conduit_model(main, shock, shock_how, forbidden)
             hand_mods, hand_notes = hand_mods + lc_mods, hand_notes + lc_notes
+            hit_cut(build, lc_mods, main.name)  # (GEM36: its extra bolts a cast, hit_cut_per_use; MECH100's list)
         if main is not None and group and main.name in models.CONCOCTIONS:  # (GEM31: R42-28f's 1.19 a second row)
             hand_notes = hand_notes + models.concoction_speed_note(
                 main, number(build.call("stats", fields=["Speed"]).get("Speed")), forbidden)
@@ -10014,10 +10028,10 @@ class Assumptions:
                 out.append((row, uses, why))
         return out
 
-    def verglas(self, main, main_index, forbidden):
+    def verglas(self, main, main_index, forbidden, found=None, stats=None):
         """(mods, notes) for models.verglas_model (GEM35): the build's Frost Walls and Frozen Loci outside the main group,
         what breaks their crystals (ICE_BREAKERS, Freeze consumers, Vruun's Aftermath, the main skill's own hits within
-        the crystal's duration)."""
+        the crystal's duration); Midnight Zenith's crystals (GEM36, zenith_crystals) with `found` / `stats`."""
         build = self.build
         walls, _, wall_how, wall_life, _ = self.frost_wall_uses(main_index)
         hit = number(build.call("stats", fields=["TotalDPS"]).get("TotalDPS"))
@@ -10045,9 +10059,38 @@ class Assumptions:
             locus = uses * q
             locus_how = (f"{uses:.2f} uses a second, {q:.0%} broken within its {models.FROZEN_LOCUS_SECONDS:g} s by "
                          + (mine if mine else breaks_how))
+        zenith = self.zenith_crystals(found, main, stats) if found is not None and stats is not None else None
         return models.verglas_model(main, [models.VERGLAS], walls, wall_life, wall_how,
                                     can_break(wall_life, models.FROST_WALL_SECONDS), locus, locus_life, locus_how,
-                                    forbidden)
+                                    forbidden, others=(zenith,) if zenith else ())
+
+    def zenith_crystals(self, found, main, stats):
+        """(GEM36) Midnight Zenith's Ice Crystals for Verglas: (name, destroyed a second, Life, how), or None without a
+        Zenith group. The inputs Assumptions.midnight_zenith (MECHB55's) gives midnight_zenith_model, read the same way
+        (not changed), then models.midnight_breaks."""
+        build = self.build
+        zenith = next((s for s in found if s.name == models.MIDNIGHT_ZENITH and s.group is not None), None)
+        if zenith is None or main is None or main.name == models.MIDNIGHT_ZENITH:
+            return None
+        level = next((s.get("levelStats") or {} for s in build.call("activeSkills", levelStats=[models.MIDNIGHT_ZENITH])
+                      ["skills"] if s.get("name") == models.MIDNIGHT_ZENITH and s.get("levelStats")), {})
+        spot = (self.skill_spot(zenith.group, models.MIDNIGHT_ZENITH) or (None, 1))[1]
+        sets = build.call("setRates", index=zenith.group, active=spot)["sets"]
+        crystal = next((s for s in sets if s.get("label") == "Crystal"), {})
+        row = next(iter(build.call("useRates", indices=[zenith.group])["rates"]), {})
+        share = hit_cut_share(build, main_time_share(build, main))
+        per_use = getattr(build, "main_hits_per_use", None)
+        hits = models.hits_per_second(stats) * share * (number(per_use) if per_use is not None else 1.0)
+        crit = min(max(number(stats.get("CritChance")), 0.0), 100.0) / 100
+        area = "Area" in ((build.ctx.gems.get(main.name) or {}).get("skillTypes") or ())
+        read = build.call("stats", fields=["AverageHit", "MainHandAverageHit"])
+        hit = number(read.get("AverageHit")) or number(read.get("MainHandAverageHit"))
+        group = build.main_group()
+        breakers, breakers_how = self.locus_breaks(group["index"], main.name) if group else (0.0, "no main group")
+        rate, life, how = models.midnight_breaks(hits * crit, hits if area else 0.0, hit, breakers, level,
+                                                 number(crystal.get("Duration")), number(row.get("iceCrystalLife")))
+        return (models.MIDNIGHT_ZENITH, rate, life, f"{how}; {main.name}'s {hits:.3f} hits a second x {crit:.0%} crit "
+                f"chance; breakers: {breakers_how}")
 
     def frost_wall_uses(self, main_index: int) -> tuple[float, float, str, float, float]:
         """(the build's Frost Wall uses a second, its PoB CastRate (before the cooldown cap), how, its crystal's Life, its

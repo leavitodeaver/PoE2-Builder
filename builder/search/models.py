@@ -5833,7 +5833,10 @@ def lightning_conduit_model(main: Skill | None, share: float, how: str,
                      "basis": f"its level stats carry no {CONDUIT_BOLTS_STAT} (not read from the bridge)"}]
     share = min(1.0, max(0.0, share))
     factor = 1.0 + bolts * share
-    mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=CONDUIT_ENTRY)] if share > 0 else []
+    # (GEM36, MECH100's hit-raise list: the bolts are more hits a cast, so the hit readers take them: HIT_CUT_PER_USE at
+    # the mean bolts a cast, 1 + bolts x share; the skill cast as often)
+    mods = [with_per_use(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=CONDUIT_ENTRY), factor)
+            ] if share > 0 else []
     return mods, [{
         "label": label, "value": f"x{factor:.3f}", "confidence": "MEDIUM-HIGH", "entry": CONDUIT_ENTRY,
         "basis": (f"{bolts:g} additional bolt(s) a cast when a Shocked enemy is in the area (its gem level's stat, with "
@@ -8553,8 +8556,12 @@ def grenade_count_model(main: Skill | None, scored: str | None, sets: list[dict]
 #   damage taken UNVERIFIED, as R45-2). A row with the whole wall's segments is a RESEARCH question (the count).
 # - Frozen Locus (its side groups): uses a second x the share broken before its 10 s (1 - e^(-10 R), R its breakers a
 #   second, Assumptions.locus_breaks; GEM20's reading), its crystal's Life (PoB's IceCrystalLife on its group).
-# - Not counted (an UNDERCOUNT, named): Glacial Bolt's wall, Grim Pillars, Midnight Star's crystals, the Ice Seeds line,
-#   crystals the boss's hits break; a main-skill Frost Wall / Frozen Locus's own crystals.
+# - Midnight Zenith (Eventide Petals; GEM36, the manager's GEM36 brief item 1): the crystals MECHB55's
+#   midnight_zenith_model has the build break a second (midnight_breaks: the same inputs, its midnight_explosions; an
+#   expiring crystal isn't destroyed, so it gives nothing), each at its Life (PoB's IceCrystalLife on the Zenith group,
+#   Eventide Petals' Life-per-resistance line in it; else the gem's frost_wall_maximum_life, 4,768 at 20).
+# - Not counted (an UNDERCOUNT, named): Glacial Bolt's wall, Grim Pillars, the Ice Seeds line, crystals the boss's hits
+#   break; a main-skill Frost Wall / Frozen Locus's own crystals.
 # Given as DamageGainAsCold BASE on the supported main skill at the fight's average (Gain is linear in the hit). MEDIUM-LOW.
 VERGLAS = "Verglas"
 VERGLAS_PER, VERGLAS_LIFE, VERGLAS_SECONDS = 1.0, 2000.0, 6.0  # % per 2000 crystal Life, 6000 ms (the stats above)
@@ -8563,10 +8570,11 @@ VERGLAS_ENTRY = "model-gem35-verglas-crystal-shatter"
 
 def verglas_model(main: Skill | None, supports: list[str], walls: float, wall_life: float, wall_how: str,
                   can_break: str, locus: float, locus_life: float, locus_how: str,
-                  forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+                  forbidden: set[str] = frozenset(), others: tuple = ()) -> tuple[list[dict], list[dict]]:
     """Verglas on the main skill (comment above): `walls` Frost Walls a second whose segment the build breaks, `wall_life`
     a segment's Life, `can_break` what breaks it ("" none), `locus` Frozen Locus crystals destroyed a second, `locus_life`
-    its crystal's Life, the `how`s their bases."""
+    its crystal's Life, the `how`s their bases; `others` more makers as (name, crystals destroyed a second, Life, how)
+    (GEM36: Midnight Zenith's, midnight_breaks)."""
     if main is None or VERGLAS not in supports or VERGLAS_ENTRY in forbidden:
         return [], []
     label = f"{VERGLAS}: Damage Gained as extra Cold from the Ice Crystals you destroy*"
@@ -8579,25 +8587,103 @@ def verglas_model(main: Skill | None, supports: list[str], walls: float, wall_li
                                                          "segment within its 8 s"))
     if locus > 0 and locus_life > 0:
         sources.append((FROZEN_LOCUS, locus, locus_life, locus_how))
-    whole = lambda life: math.floor(life / VERGLAS_LIFE) * VERGLAS_PER
+    sources += [(name, max(rate, 0.0), life, how) for name, rate, life, how in others if life > 0]
+    whole =lambda life: math.floor(life / VERGLAS_LIFE) * VERGLAS_PER
     gain = sum(rate * whole(life) * VERGLAS_SECONDS for _, rate, life, _ in sources)
     live = [(name, rate, life) for name, rate, life, _ in sources if rate > 0 and whole(life) > 0]
     single = max((whole(life) * min(1.0, rate * VERGLAS_SECONDS) for _, rate, life in live), default=0.0)
     parts = "; ".join(f"{name}: {rate:.2f} crystals a second of {life:,.0f} Life ({how})" for name, rate, life, how
-                      in sources) or ("no Ice Crystal maker in the build (Frost Wall / Frozen Locus counted; Glacial "
-                                      "Bolt's wall, Grim Pillars, Midnight Star's, the Ice Seeds line not)")
+                      in sources) or ("no Ice Crystal maker in the build (Frost Wall / Frozen Locus / Midnight Zenith "
+                                      "counted; Glacial Bolt's wall, Grim Pillars, the Ice Seeds line not)")
     note = {"label": label, "value": f"+{gain:.1f}%", "confidence": "MEDIUM-LOW", "entry": VERGLAS_ENTRY,
             "basis": (f"PoB maps none of {VERGLAS}'s stats. {VERGLAS_PER:g}% of Damage Gained as extra Cold per 2,000 "
                       f"Life of each Ice Crystal you destroy, for {VERGLAS_SECONDS:g} s, the Life destroyed in the past "
                       f"{VERGLAS_SECONDS:g} s summed (the game's support_crystalshatter_buff_crystal_life_destroyed_in_"
                       f"past_duration, MEDIUM-LOW): {parts}: +{gain:.1f}% on average. Row (the buff not summing, one "
-                      f"crystal at a time): +{single:.1f}%. Not counted: Glacial Bolt's wall, Grim Pillars, Midnight "
-                      "Star's crystals, the Ice Seeds line, crystals the boss breaks"),
+                      f"crystal at a time): +{single:.1f}%. Not counted: Glacial Bolt's wall, Grim Pillars, the Ice "
+                      "Seeds line, crystals the boss breaks"),
             "play": (f"Keep destroying your own Ice Crystals: each one feeds {main.name} with {VERGLAS} (without them "
                      f"+0%; with this build's: +{gain:.1f}% of Damage as extra Cold).")}
     if gain <= 0:
         return [], [note]
     return [raw_mod("DamageGainAsCold", "BASE", gain, main.name, tag=VERGLAS_ENTRY)], [note]
+
+
+def midnight_breaks(crits: float, area_hits: float, hit: float, breakers: float, level: dict, seconds: float,
+                    life: float) -> tuple[float, float, str]:
+    """(Midnight Zenith's Ice Crystals destroyed a second, a crystal's Life, how) for verglas_model's `others` (GEM36):
+    midnight_zenith_model's own steps on the same inputs (MECHB55's model, read, not changed): petals from the main
+    skill's crits, crystals made, broken by its Area hits after ceil(Life / hit) hits or by the build's breakers
+    (midnight_explosions; an expiring crystal isn't destroyed)."""
+    get = lambda k: number(level.get(k)) or MIDNIGHT_DEFAULTS[k]
+    gain, need, per, limit = get(MIDNIGHT_PETALS_STAT), get(MIDNIGHT_NEED_STAT), get(MIDNIGHT_PER_STAT), get(MIDNIGHT_LIMIT_STAT)
+    life = life if life > 0 else get(MIDNIGHT_LIFE_STAT)
+    seconds = seconds if seconds > 0 else MIDNIGHT_SECONDS
+    made = max(crits, 0.0) * gain / need * per
+    k = math.ceil(life / hit) if hit > 0 else 0
+    hit_time = k / area_hits if area_hits > 0 and k > 0 else None
+    rate = midnight_explosions(made, hit_time, max(breakers, 0.0), seconds, limit)
+    how = (f"{made:.3f} made a second from {crits:.3f} crits on the boss, " + (
+        f"broken by {k} Area hits each ({hit_time:.1f} s)" if hit_time is not None and hit_time <= seconds else
+        "not broken by the main skill's own hits") + f", {breakers:.3f} breaker uses a second; at most {limit:g} alive, "
+        f"{seconds:g} s each ({MIDNIGHT_ENTRY}'s reading)")
+    return rate, life, how
+
+
+# Stronger hits carry the strongest Ignite / Bleed (GEM36; the manager's 12:00 (22 Nov) LOW item from MECHB55, GEM22's
+# reader; an UNDERCOUNT). Spectral Volley's Spectral Projectiles (MECHB51: each a projectile of the attack x (1 + 20%) /
+# (1 - 60%) = 3x the attack's own projectile) and Align Fate's Empowered casts (MECHB51: 30% more) come in as a "DPS" MORE
+# (more hits), which raises PoB's hit rate but leaves its Ignite / Bleed at the ordinary hit's size. Only the strongest
+# Ignite / Bleed deals damage (STRONG_AILMENTS, GEM22's reading: PoB's maxStacks 1), and its size is linear in the hit,
+# so while one from a stronger hit is active the boss takes `strength` x PoB's. Uptime: E stronger events a second, each
+# of n hits, PoB's chance c a hit (ChancePerHit; a stronger hit's higher chance from its size not counted: the lower
+# reading), duration D (PoB's): up = min(1, E x (1 - (1 - c)^n) x D) (strongest_ailment_model's own-stacks cap). The
+# ailment x (1 + (strength - 1) x up), an AilmentMagnitude MORE on the main skill, Ignite / Bleed each. MEDIUM-LOW.
+STRONGER_ENTRY = "model-gem36-stronger-hits-ailment"
+STRONGER_FIELDS = [f"{a}{f}" for a in STRONG_AILMENTS for f in ("DPS", "Duration", "ChancePerHit", "StacksMax")]
+
+
+def spectral_strength(main: Skill) -> float:
+    """A Spectral Projectile's hit over the attack's own projectile's (spectral_volley_model's own reading, MECHB51)."""
+    own = number((main.support_stats or {}).get(SPECTRAL_OWN_STAT)) or -60.0
+    more_stat = number((main.support_stats or {}).get(SPECTRAL_MORE_STAT)) or 20.0
+    scale, _ = support_part_scale(main, "spectral")
+    return scale.get("Damage", 1.0 + more_stat / 100.0) / max(1.0 + own / 100.0, 1e-6)
+
+
+def stronger_hits_ailment_model(main: Skill | None, stats: dict, source: str, strength: float, events: float,
+                                per_event: float, how: str, forbidden: set[str] = frozenset()
+                                ) -> tuple[list[dict], list[dict]]:
+    """AilmentMagnitude MORE lines for the strongest Ignite / Bleed from `source`'s stronger hits (comment above):
+    `strength` their hit over PoB's ordinary one, `events` a second of `per_event` hits each; `stats` the main skill's
+    PoB output ({a}DPS, {a}Duration, {a}ChancePerHit, {a}StacksMax)."""
+    if main is None or STRONGER_ENTRY in forbidden or strength <= 1.0 or events <= 0 or per_event <= 0:
+        return [], []
+    mods, parts = [], []
+    for ailment in STRONG_AILMENTS:
+        if number(stats.get(f"{ailment}DPS")) <= 0 or number(stats.get(f"{ailment}StacksMax")) > 1:
+            continue
+        c = min(max(number(stats.get(f"{ailment}ChancePerHit")), 0.0), 100.0) / 100
+        duration = number(stats.get(f"{ailment}Duration"))
+        up = min(1.0, events * (1.0 - (1.0 - c) ** per_event) * duration)
+        factor = 1.0 + (strength - 1.0) * up
+        if factor <= 1.005:
+            continue
+        mods.append(raw_mod("AilmentMagnitude", "MORE", 100 * (factor - 1), main.name, tag=f"{STRONGER_ENTRY}:{ailment}",
+                            keywords=[ailment]))
+        parts.append(f"{ailment}: {c:.0%} a hit, {duration:.2f} s: up {up:.0%}, x{factor:.3f}")
+    if not mods:
+        return [], []
+    return mods, [{
+        "label": f"{main.name}: {source}'s stronger hits carry the strongest Ignite / Bleed*",
+        "value": ", ".join(f"{m['keywordFlags'][0]} x{1 + m['value'] / 100:.3f}" for m in mods),
+        "confidence": "MEDIUM-LOW", "entry": STRONGER_ENTRY,
+        "basis": (f"{source}'s hits are {strength:.2f}x PoB's ordinary hit ({how}), {events:.3f} a second x {per_event:g} "
+                  "hits; only the strongest Ignite / Bleed deals damage and its size follows the hit, so while one of "
+                  "theirs is up the boss takes theirs (PoB scores the ordinary hit's): " + "; ".join(parts)
+                  + ". Not counted: the stronger hit's higher chance to apply (the lower reading)"),
+        "play": (f"Let {source}'s stronger hits land on the boss: their Ignite / Bleed replaces the ordinary one "
+                 f"(without them x1; with them {', '.join(parts)}).")}]
 
 
 # Valako's Charge's Electrocute threshold (GEM35; the manager 14:05 from MECH100, plans/kw-electrocute-threshold.md; a

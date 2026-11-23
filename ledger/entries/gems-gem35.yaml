@@ -39,9 +39,10 @@
     read as the buff summing the Life destroyed in the past 6 s (MEDIUM-LOW; a row with one crystal at a time). The
     build's own crystals: Frost Wall's side groups (one segment a wall, the lower reading; the segment count is a RESEARCH
     question) when something breaks it (ICE_BREAKERS, a Freeze consumer, Vruun's Aftermath Warcries, or the main skill's
-    hits dealing its Life within 8 s), Frozen Locus's side groups (broken before its 10 s). Not counted: Glacial Bolt's
-    wall, Grim Pillars, Midnight Star's crystals, the Ice Seeds line, crystals the boss breaks, a main-skill Frost Wall's
-    own. A DamageGainAsCold BASE on the main skill at the fight's average.
+    hits dealing its Life within 8 s), Frozen Locus's side groups (broken before its 10 s), Midnight Zenith's crystals the
+    build breaks (GEM36: MECHB55's midnight_zenith_model steps, models.midnight_breaks; an expiring one gives nothing).
+    Not counted: Glacial Bolt's wall, Grim Pillars, the Ice Seeds line, crystals the boss breaks, a main-skill Frost
+    Wall's own. A DamageGainAsCold BASE on the main skill at the fight's average.
   sources: ["builder/search/models.py (verglas_model)", "builder/search/assumptions.py (Assumptions.verglas)",
             "data/game-26650308/tables/Stats.json", "data/game-26650308/files/data/statdescriptions/gem_stat_descriptions.csd (38220-38222)",
             "vendor/PathOfBuilding-PoE2-v0.23.1/src/Data/Skills/sup_int.lua (SupportVerglasPlayer)"]
