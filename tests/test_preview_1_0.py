@@ -55,6 +55,20 @@ def test_lua_literals():
     assert "PREVIEW_1_0_INSTALLED" in installer() and "PreviewChargedSlashPlayer" in installer()
 
 
+def test_the_installer_compiles_in_pobs_luajit():
+    """PoB's own LuaJIT (no PoB loaded: only the chunk's syntax) compiles the installer: POE2T8100 caught a quote
+    slip only on the real engine."""
+    from builder.pob.engine import POB_DIR
+    from builder.pob.lua import LuaState
+
+    lua = LuaState(POB_DIR / "runtime")
+    try:
+        (ok,) = lua.run("local f, err = loadstring(...); return f and 'ok' or err", "check", installer())
+    finally:
+        lua.close()
+    assert ok == b"ok", ok
+
+
 def test_the_pending_flags_name_their_sources():
     for flag in flags.FLAGS:
         assert flag["what"] and flag["sources"] and flag["confidence"]
@@ -88,7 +102,8 @@ def _dps(engine, skill: str, sword: str = SWORD) -> dict:
     engine.call("setLevel", level=90)
     engine.call("addItem", raw=sword)
     engine.call("addSkillGroup", text=skill, main=True)
-    return engine.call("stats", fields=["TotalDPS", "AverageHit", "Speed"])
+    engine.call("setConfig", vars={"enemyLightningResist": 50}, fields=[])
+    return engine.call("stats", fields=["TotalDPS", "MainHand.AverageHit", "Speed"])
 
 
 def test_pob_scores_the_preview_skills_only_once_installed(engine):
@@ -101,13 +116,13 @@ def test_pob_scores_the_preview_skills_only_once_installed(engine):
     at20 = _dps(engine, "Charged Slash 20/0 1")
     assert at13["TotalDPS"] > 0
     # the level curve is Lightning Spear's (3.43 / 2.44 at 20 / 13), the speed 115% of base on a 1.55 sword
-    assert at20["AverageHit"] / at13["AverageHit"] == pytest.approx(3.43 / 2.44, rel=0.02)
+    assert at20["MainHand.AverageHit"] / at13["MainHand.AverageHit"] == pytest.approx(3.43 / 2.44, rel=0.02)
     assert at13["Speed"] == pytest.approx(1.55 * 1.15, rel=0.02)
-    # Elemental Penetration supports it (the slash is 75% Lightning)
+    # Elemental Penetration supports it (the slash is 75% Lightning; the enemy at 50% Lightning resistance)
     pen = _dps(engine, "Charged Slash 20/0 1\nElemental Penetration 1/0 1")
     assert pen["TotalDPS"] > at20["TotalDPS"]
     # a dagger skill needs a dagger: on a sword PoB disables it
-    assert _dps(engine, "Viper Strike 20/0 1")["TotalDPS"] == 0
+    assert (_dps(engine, "Viper Strike 20/0 1").get("TotalDPS") or 0) == 0  # (PoB leaves it out: the skill is disabled)
     assert _dps(engine, "Viper Strike 20/0 1", "Rarity: Normal\nCinquedea\n")["TotalDPS"] > 0
 
 
@@ -157,3 +172,11 @@ def test_pob_reads_the_preview_uniques_text(engine):
     plain = _dps(engine, "Lightning Arrow 20/0 1", "Rarity: Normal\nGreatbow\n")
     ripper = _dps(engine, "Lightning Arrow 20/0 1", "Rarity: UNIQUE\n" + raw)
     assert ripper["TotalDPS"] > 1.5 * plain["TotalDPS"]  # 100% increased Physical, 30% + 30% extra, 12% speed
+
+
+def test_a_preview_name_without_the_switch_says_how_to_use_it():
+    from builder.data import GameData
+    from builder.request.constraints import compile_request
+
+    issues = compile_request(BuildRequest(main_skill="Viper Strike"), GameData()).issues
+    assert any("Include 1.0 preview content" in i.message for i in issues if i.field == "main_skill")

@@ -32,9 +32,10 @@ def lua_value(value) -> str:
 
 INSTALLER = r"""
 if not PREVIEW_1_0_INSTALLED then
-	local ref = data.skills[%(ref)s]
+	local refName = %(ref)s
+	local ref = data.skills[refName]
 	if not ref then
-		error("preview_1_0: the curve reference skill %(ref)s is missing from PoB's data")
+		error("preview_1_0: the curve reference skill " .. refName .. " is missing from PoB's data")
 	end
 	local refSet = ref.statSets[1]
 	local function setUp(skill, id)

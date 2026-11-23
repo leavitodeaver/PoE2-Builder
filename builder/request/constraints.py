@@ -335,6 +335,11 @@ def compile_request(request: BuildRequest, data: GameData) -> CompiledRequest:
         if found is None:
             suggestions = lookups[category].suggest(name)
             hint = f" Did you mean {', '.join(suggestions)}?" if suggestions else ""
+            from builder import preview  # (PREVIEW1) a 1.0 preview name asked for without the switch
+
+            if not preview.on(request) and name in preview.names() | preview.unique_names():
+                hint = (" It is announced 1.0 content (*subject to change): tick 'Include 1.0 preview content' "
+                        "(preview_1_0) to use it.")
             issues.append(Issue("error", field_name, f"Unknown {category.replace('_', ' ').rstrip('s')} '{name}'.{hint}"))
         return found
 
