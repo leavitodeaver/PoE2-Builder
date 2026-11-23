@@ -519,6 +519,16 @@ ARCHON_UNDEATH_MORE = 25.0  # KeywordPopups UndeadArchon: 25% more Minion Damage
 ARCHON_UNDEATH_COMMAND = 200.0  # KeywordPopups UndeadArchon: 200% more Cooldown Recovery Rate for Command Skills
 UNDEATH_COMMAND_TAG = "ArchonOfUndeathCommands"
 UNDEATH_COMMAND_STAT = "_undeath_command"  # (the note's key: the Command recovery factor its mods give PoB)
+# (MECHC56) "Temporary Minion Skills have 100% more Limit of Minions summoned" (KeywordPopups UndeadArchon; the stat
+# temporary_minion_limit_+%_final_from_archon_of_undeath; a Temporary minion is one "that does not revive after it dies",
+# KeywordPopups TemporaryMinion: Raise Zombie's 20 s zombies). PoB reads neither. The note carries UNDEATH_LIMIT_STAT =
+# (the share of the fight it's up, the limit's factor while up: 1 + 100% x the Archon effect); a temporary minion count
+# whose limit binds is then the time mix (undeath_limit_mix): (1 - up) x count(limit) + up x count(limit x factor). The
+# minions standing when it ends are taken to stay until their duration runs out (LOW: whether the extra ones die then
+# is UNVERIFIED; the mix is the lower reading where they would stay). Hooked: Raise Zombie (Assumptions.zombie_count).
+# Not hooked (labelled): Wardbound Minions' count (minion_count, inside energy_model), Skyfall's minion.
+UNDEATH_LIMIT_STAT = "_undeath_limit"
+UNDEATH_LIMIT_MORE = 100.0
 UNDEATH_ON_COMMAND = re.compile(r"^(\d+(?:\.\d+)?)% chance to gain Archon of Undeath when you use a Command skill$", re.I)
 UNDEATH_ON_OFFERING = re.compile(r"^(\d+(?:\.\d+)?)% (?:chance )?to gain Archon of Undeath when you create an Offering"
                                  r"(?: Minion)?$", re.I)  # (poe2db's belt text ends "Offering Minion"; PoB's "Offering")
@@ -599,15 +609,34 @@ def archon_of_undeath_model(skills: list[Skill], texts: list[str], x: dict | Non
                 f"{', '.join(commanders)}'s Commands on average" if command_mods else "")
              + (f". Row (R49-7, MEDIUM: each cast creates one): if re-casts while a spike stands didn't count, up "
                 f"{row_up:.0%}" if row_up is not None else "")
-             + ". Not counted (UNDERCOUNTS): the Temporary minions' doubled limit, the Persistent Undead minions "
-               "revived on each gain; not raced: a Nature's Archon source (one slot for every kind: an OVERCOUNT where "
-               "the build has one)")
+             + (f"; Temporary minion limits x{1 + UNDEATH_LIMIT_MORE / 100 * scale:.2f} while it's up (Raise Zombie's "
+                f"count at that mix, undeath_limit_mix)" if minions else "")
+             + ". Not counted (UNDERCOUNTS): the Persistent Undead minions revived on each gain, the doubled limit on "
+               "Wardbound Minions and Skyfall's minion; not raced: a Nature's Archon source (one slot for every kind: "
+               "an OVERCOUNT where the build has one)")
     play = (f"Archon of Undeath: press your Commands on cooldown / keep your Offerings up to gain it; without it +0%, "
             f"with it {more:.1f}% more Minion Damage averaged (up {up:.0%})")
     note = {"label": label, "value": round(more, 2), "basis": basis, "play": play,
             "confidence": "MEDIUM (game text: the chances, the 25%, the Archon cycle; the gains taken as random)",
-            UNDEATH_COMMAND_STAT: 1 + command_more / 100}
+            UNDEATH_COMMAND_STAT: 1 + command_more / 100,
+            UNDEATH_LIMIT_STAT: (up, 1 + UNDEATH_LIMIT_MORE / 100 * scale)}
     return ([line("Minions deal 1% more Damage", more)] if more > 0 else []) + command_mods, [note]
+
+
+def undeath_limit_mix(count_at, limit: float, mix: tuple[float, float] | None) -> tuple[float, str]:
+    """(MECHC56, UNDEATH_LIMIT_STAT's note) (a Temporary minion count with Archon of Undeath's limit mixed in, how).
+    `count_at(limit)` gives the count at a limit; `mix` = (the share of the fight it's up, the limit's factor)."""
+    base = count_at(limit)
+    up, factor = mix or (0.0, 1.0)
+    if up <= 0 or factor <= 1 or limit <= 0:
+        return base, ""
+    raised = count_at(limit * factor)
+    if raised <= base:
+        return base, ""
+    count = (1 - up) * base + up * raised
+    return count, (f"Archon of Undeath up {up:.0%}: its limit x{factor:.2f} ({limit:g} -> {limit * factor:g}) "
+                   f"lets {raised:.3g} stand then, {base:.3g} otherwise: {count:.3g} on average (LOW: the extra ones "
+                   f"taken to stay out their duration)")
 
 
 def offering_casts(skills: list[Skill]) -> tuple[float, str, float]:
@@ -17139,13 +17168,49 @@ BOSS_POWER = 20
 # active_skill_generates_mp_%_glory_per_attack_hit, no skill named). So stats[OTHER_ATTACK_HITS] = (the build's other
 # Attack skills' hits a second at their pressed rates, how) (Conditions._banner_share, from the last resolve's
 # side_hit_rows) is added to the main skill's attack hits for a Glory skill fed by "attack hit". Minions' attacks aren't
-# yours (not counted). Other Glory skills' events ("elemental hit", "chaos hit", Freezes, Ignites) still read the main
-# skill alone (an UNDERCOUNT where their text is the same "while active", not checked here).
-OTHER_ATTACK_HITS = "_other_attack_hits"
+# yours (not counted).
+# (MECHC56; the manager 03:20 23 Nov, an UNDERCOUNT before) EVERY Glory skill takes every skill's events of its kind, not
+# the main skill's alone. KeywordPopups Glory (game 26650308): "actions taken against enemies will generate Glory equal
+# to the monster's Power ... different Skills can generate Glory from the same Glorious action"; each skill's description
+# names an event, never a skill: Apocalypse "Hitting enemies with Elemental damage", Archon of Chayula "dealing Chaos
+# damage", Spear of Solaris "inflicting Freeze, Shock or Ignite", Ancestral Cry "Igniting", Hammer of the Gods "Heavy
+# Stunning", Starborn Onslaught "Freezing or Chilling" (ActiveSkills descriptions; PoB's Skills/*.lua carry the same
+# text). (checked: all 52 Stats ids holding "glory" over GrantedEffectStatSets' constant stats: each Glory stat is
+# active_skill_generates_mp_%_glory_per_<event>, named by event only; poe2db not fetched for it, UNVERIFIED there.)
+# So stats[GLORY_ROWS] = the build's other hitting skills' rows (conditions.glory_feed / glory_rows: the last resolve's
+# side_hit_rows at their own rates, PoB's trigger rate or the press choices, x hit chance; the Combo builder at its
+# Strikes), each with its hits a second, "attack", "types" (its hit's damage types), and its chance a hit to Ignite,
+# Shock and Chill the boss (glory_row_events). Freezes and Heavy Stuns of the other groups come through the boss's one
+# bar (stats["_buildup_others"], which buildup_rate and heavy_stun_rate already add). A row's uses join the gain stream
+# (glory_gains) when it feeds the skill. A Glory skill's own hits never feed it: "You cannot gain Glory for a Skill while
+# any instance of that Skill is active" (the same popup), and its granted hits come while it is up, so rows in its own
+# group or named for it (GLORY_OWN_HITS: Apocalypse's disasters, Chayula's Will) are left out of its feed.
+# RESEARCH51 R51-3 (HIGH; research/glory-from-every-hit-r51.md, its sources: the keyword, odealo's Chayula guide, the
+# 0.4.0 note "when you inflict Freeze, Shock or Ignite") agrees: every qualifying event of yours, any skill. Two more
+# from it, with one change: (1) Archon of Chayula's stat text "on dealing Chaos Hit damage to an enemy or inflicting a Chaos damage over
+# time Debuff": a Poisoning hit counts too (KeywordPopups Poison: "deals Chaos damage over time"), so its "chaos hit"
+# event is a hit carrying Chaos damage, else a hit that Poisons (PoB's PoisonChanceOnHit / OnCrit); a chaos DoT skill
+# that never hits (Contagion-like) isn't read (an UNDERCOUNT, labelled). (2) The merged stream of several skills isn't
+# one rhythm (R51-3 proposes the random form E / (1 + 0.5 E) for it). But that form alone dropped the main skill's own
+# rhythm, so adding a side skill LOWERED the gains (probe POE2T7084: Volcano's 0.78 regular gains/s alone, 0.64 with
+# Frost Bomb's 0.17 hits/s added). merged_gains instead: the main skill's gains g0 at its rhythm (glory_gains), and
+# the other skills' events E arriving at random, each gaining only outside the 0.5 s lock: g = g0 + E (1 - 0.5 g), so
+# g = (g0 + E) / (1 + 0.5 E). It is the rhythm form with no side events, R51-3's random form with no main skill, never
+# lower than either, and never above 2 a second (MEDIUM). Not counted
+# (labelled): minions' and totems' hits (R51-3: UNVERIFIED, kept out).
+# Starborn Onslaught's Chill: its description says "Freezing or Chilling", but its only Glory stat is per_freeze (the one
+# Spear of Solaris has, whose description says Freeze). Headline: Chills count, 20 Glory each as a Freeze (the
+# skill's own text, the manager's brief); the Freezes-only reading is given beside it (MEDIUM-LOW; to RESEARCH).
+OTHER_ATTACK_HITS = "_other_attack_hits"  # (the legacy single-figure form: an Attack row, when GLORY_ROWS isn't given)
+GLORY_ROWS = "_glory_rows"
+GLORY_OWN_HITS = {"Apocalypse": ("Hailstorm", "Meteor", "Crash Lightning"),  # (APOCALYPSE_SUBS)
+                  "Archon of Chayula": ("Chayula's Will",)}  # (CHAYULAS_WILL)
+GLORY_STATED = {"chill": "Starborn Onslaught's description says 'Freezing or Chilling', its stat per_freeze only"}
 GLORY_SKILLS = {  # skill: (Glory per use, {event: Glory per event on a boss})
     "War Banner": (200, {"attack hit": 20}), "Defiance Banner": (200, {"attack hit": 20}),
     "Dread Banner": (200, {"attack hit": 20}),
-    "Spear of Solaris": (20, {"freeze": 20, "ignite": 1, "shock": 1}), "Starborn Onslaught": (20, {"freeze": 20}),
+    "Spear of Solaris": (20, {"freeze": 20, "ignite": 1, "shock": 1}),
+    "Starborn Onslaught": (20, {"freeze": 20, "chill": 20}),  # (MECHC56: GLORY_STATED's Chill)
     "Ancestral Cry": (100, {"ignite": 20}), "Apocalypse": (100, {"elemental hit": 20}),
     "Archon of Chayula": (100, {"chaos hit": 20}), "Hammer of the Gods": (20, {"heavy stun": 20}),
     "Walking Calamity": (50, {}), "Skyfall": (270, {}),
@@ -17186,6 +17251,14 @@ GLORY_FROM_WARD = {"Skyfall": 1.0}
 # one use counted once: they land together), so gains/s = 1 / ((k + (1 - p) / p) / U) (glory_gains; the random form when
 # U isn't known). Events of a use taken as independent of the use before (MEDIUM).
 GLORY_GAIN_EVERY = 0.5
+
+
+def merged_gains(main_events: float, uses: float, side_events: float) -> float:
+    """(MECHC56; GLORY_ROWS' note) Glory gains per second on one boss from the main skill's `main_events` a second
+    (used `uses` times a second, glory_gains' rhythm) and the other skills' `side_events` a second at random."""
+    base = glory_gains(main_events, uses) if main_events > 0 else 0.0
+    side = max(0.0, side_events)
+    return (base + side) / (1.0 + GLORY_GAIN_EVERY * side)
 
 
 def glory_gains(events: float, uses: float) -> float:
@@ -17229,15 +17302,38 @@ def glory_events(stats: dict, main: Skill | None) -> dict[str, float]:
     hit = {t: max(number(stats.get(f"{p}{t}HitAverage")) for p in ("", "MainHand.", "OffHand.")) > 0
            for t in DAMAGE_TYPES}
     chance = lambda a: (number(stats.get(f"{a}ChanceOnHit")) * (1 - crit) + number(stats.get(f"{a}ChanceOnCrit")) * crit) / 100
+    poison = min(chance("Poison"), 1.0)  # (MECHC56, R51-3: a Chaos damage over time Debuff feeds Chayula)
     return {
         "attack hit": hits if main is not None and main.attack else 0.0,
         "elemental hit": hits if any(hit[t] for t in ("Fire", "Cold", "Lightning")) else 0.0,
-        "chaos hit": hits if hit["Chaos"] else 0.0,
+        "chaos hit": hits if hit["Chaos"] else hits * poison,
         "heavy stun": heavy_stun_rate(stats)[0],
         "freeze": buildup_rate(stats, "Freeze"),
         "ignite": hits * min(chance("Ignite"), 1.0),
         "shock": hits * min(chance("Shock"), 1.0),
+        "chill": hits * _chill_chance(stats),  # (MECHC56: Starborn Onslaught, GLORY_STATED)
     }
+
+
+def _chill_chance(stats: dict) -> float:
+    """The chance a main-skill hit Chills the boss (conditions._chill_per_hit: PoB's ChillChanceOnHit, the 30% floor);
+    0 when the stats don't carry the Chill fields."""
+    if number(stats.get("ChillChanceOnHit")) <= 0:
+        return 0.0
+    from builder.search import conditions
+    return conditions._chill_per_hit(stats)
+
+
+def glory_row_events(row: dict) -> dict[str, float]:
+    """(MECHC56, GLORY_ROWS' note) Glory events a second from one of the build's other skills' rows."""
+    hits = max(0.0, number(row.get("hits")))
+    types = set(row.get("types") or ())
+    return {"attack hit": hits if row.get("attack") else 0.0,
+            "elemental hit": hits if types & {"Fire", "Cold", "Lightning"} else 0.0,
+            "chaos hit": hits if "Chaos" in types else hits * min(max(number(row.get("poison")), 0.0), 1.0),
+            "ignite": hits * min(max(number(row.get("ignite")), 0.0), 1.0),
+            "shock": hits * min(max(number(row.get("shock")), 0.0), 1.0),
+            "chill": hits * min(max(number(row.get("chill")), 0.0), 1.0)}
 
 
 MANA_FLARE = "Mana Flare"  # the support's triggered spell (game files: TriggeredManaFlarePlayer, GrantedEffects 734)
@@ -17355,6 +17451,36 @@ def glory_spent(names: list[str], stats: dict, main: Skill | None, skills: list[
     return sum(uses * spent for uses, spent in plan.values()), how
 
 
+def _glory_with_rows(events: dict, gains: dict, stats: dict, name: str = "",
+                     skills: list[Skill] | None = None) -> tuple[dict, float, str]:
+    """(MECHC56, GLORY_ROWS' note) (the main skill's events plus the other skills' rows that feed `gains`, those rows'
+    uses a second, how). Without GLORY_ROWS, the legacy OTHER_ATTACK_HITS figure as one Attack row. The Glory skill
+    `name`'s own rows (its group in `skills`, GLORY_OWN_HITS) are left out."""
+    rows = stats.get(GLORY_ROWS)
+    if rows is None:
+        other, other_how = stats.get(OTHER_ATTACK_HITS) or (0.0, "")
+        rows = [{"hits": number(other), "attack": True, "how": other_how}] if number(other) > 0 else []
+    groups = {s.group for s in skills or [] if s.name == name and s.group is not None}
+    mine = {name, *GLORY_OWN_HITS.get(name, ())}
+    rows = [r for r in rows if str(r.get("name") or "") not in mine
+            and not (groups and r.get("index") is not None and r.get("index") in groups)]
+    own, uses, parts = dict(events), 0.0, []
+    for row in rows:
+        got = {e: v for e, v in glory_row_events(row).items() if e in gains and v > 0}
+        if not got:
+            continue
+        for e, v in got.items():
+            own[e] = own.get(e, 0.0) + v
+        uses += max(0.0, number(row.get("hits")))
+        parts.append(f"{row.get('how') or row.get('name') or 'another skill'}: "
+                     + ", ".join(f"{v:.2f} {e}s/s" for e, v in got.items()))
+    if not parts:
+        return own, 0.0, ""
+    return own, uses, ("the main skill's " + ", ".join(f"{events.get(e, 0.0):.2f} {e}s/s" for e in gains)
+                       + " + the build's other skills' (every skill's events build Glory, KeywordPopups Glory): "
+                       + "; ".join(parts))
+
+
 def glory_plan(names: list[str], stats: dict, main: Skill | None, skills: list[Skill] | None = None,
                texts: list[str] | None = None) -> tuple[dict[str, tuple[float, float]], str]:
     """({Glory skill: (uses per second, Glory a use consumes)}, how) on a boss. `skills`: the build's skills, for each
@@ -17385,21 +17511,29 @@ def glory_plan(names: list[str], stats: dict, main: Skill | None, skills: list[S
             cost, gains = GLORY_SKILLS[name]
             if power != BOSS_POWER:
                 gains = {e: g if (name, e) in GLORY_FLAT_EVENTS else g * power / BOSS_POWER for e, g in gains.items()}
-            own = events
-            other, other_how = stats.get(OTHER_ATTACK_HITS) or (0.0, "")
-            if "attack hit" in gains and number(other) > 0:  # (MECHC55: OTHER_ATTACK_HITS' note)
-                own = {**events, "attack hit": events["attack hit"] + number(other)}
+            own, side_uses, side_how = _glory_with_rows(events, gains, stats, name, skills)
             rate = sum(own[e] for e in gains)
             glory = sum(own[e] * g for e, g in gains.items())
             how = " + ".join(f"{own[e]:.2f} {e}s/s x {g:g}" for e, g in gains.items()) or "no source counted"
-            if own is not events:
-                how += (f" (the main skill's {events['attack hit']:.2f} + the build's other Attacks' {number(other):.2f}: "
-                        f"{other_how})")
+            if side_how:
+                how += f" ({side_how})"
             if rate > 0:  # one gain per 0.5 s per monster
-                uses_all = number(stats.get("Speed")) + (number(other) if own is not events else 0.0)  # (MECHC55: the
-                kept = glory_gains(rate, uses_all) / rate  # other Attacks' uses join the stream, one hit a use)
+                # (MECHC56: merged_gains, the main skill's rhythm plus the other skills' events at random)
+                speed = number(stats.get("Speed"))
+                main_rate = sum(events.get(e, 0.0) for e in gains)
+                kept = merged_gains(main_rate, speed, rate - main_rate) / rate
                 glory *= kept
-                how += f", at most one gain per {GLORY_GAIN_EVERY:g} s on the boss ({kept:.0%} of them count)"
+                how += (f", at most one gain per {GLORY_GAIN_EVERY:g} s on the boss ({kept:.0%} of them count"
+                        + ("; the other skills' events at random beside the main skill's rhythm, merged_gains" if side_uses > 0 else "") + ")")
+                stated = [e for e in gains if e in GLORY_STATED and own[e] > 0]
+                if stated:  # (MECHC56: the reading without that event, beside the headline)
+                    alt = {e: g for e, g in gains.items() if e not in stated}
+                    alt_rate = sum(own[e] for e in alt)
+                    alt_main = sum(events.get(e, 0.0) for e in alt)
+                    alt_glory = (sum(own[e] * g for e, g in alt.items()) * merged_gains(alt_main, speed, alt_rate - alt_main)
+                                 / alt_rate if alt_rate > 0 else 0.0)
+                    how += (f"; {'; '.join(GLORY_STATED[e] for e in stated)}: counted (the skill's own text); without "
+                            f"them {alt_glory:.2f} Glory/s instead of {glory:.2f} (MEDIUM-LOW)")
             if name in GLORY_FROM_WARD:  # (MECHC54: GLORY_FROM_WARD's note)
                 spent, spent_how = stats.get("_ward_spent") or (0.0, "no Ward-cost skill paid")
                 glory += GLORY_FROM_WARD[name] * number(spent)

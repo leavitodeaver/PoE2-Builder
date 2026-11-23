@@ -883,10 +883,14 @@ def side_hits(rows: dict, groups: list[dict], hitters: set[str], main_index,
 
 
 def side_hit_rows(rows: dict, groups: list[dict], hitters: set[str], main_index, choices: dict[str, float] | None = None,
-                  melee: set[str] | None = None, flagged: set[str] | None = None) -> list[dict]:
+                  melee: set[str] | None = None, flagged: set[str] | None = None, threshold: float = 0.0) -> list[dict]:
     """(MECHC46) [{name, hits, crits, melee, flagged, how}] for the build's other hitting groups (the rows ignite_others
     reads): PoB's trigger rate, else skill_use_rate at the press choices, x hit chance; crits x its CritChance; `melee` /
-    `flagged`: the hitter names that are Melee / carry MULTI_CHARGE_STAT (GENERIC_HIT's note)."""
+    `flagged`: the hitter names that are Melee / carry MULTI_CHARGE_STAT (GENERIC_HIT's note).
+    (MECHC56, models.GLORY_ROWS' note) Each row also says what its hits do for Glory: "types" (the damage types its hit
+    carries, PoB's <Type>HitAverage at the top level or either hand), "ignite" / "shock" / "poison" (PoB's chance a hit, the
+    Ignite one only where the row has IgniteDPS, as ignite_others) and "chill" (the chance a hit Chills the boss:
+    _chill_per_hit with the boss's `threshold`, the game's 30% floor)."""
     names = {g["index"]: [n["name"] for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in hitters]
              for g in groups if g.get("enabled") is not False}
     out = []
@@ -911,9 +915,59 @@ def side_hit_rows(rows: dict, groups: list[dict], hitters: set[str], main_index,
         crit = min(max(number(row.get("CritChance")), 0.0), 100.0) / 100.0
         label = str(row.get("name") or names[index][0])
         name = next((n for n in names[index] if label.startswith(n)), names[index][0])
+        types = sorted(t for t in models.DAMAGE_TYPES if max(number(row.get(f"{p}{t}HitAverage"))
+                                                            for p in ("", "MainHand.", "OffHand.")) > 0)
+        ignite = min(number(row.get("IgniteChancePerHit")), 100.0) / 100.0 if number(row.get("IgniteDPS")) > 0 else 0.0
+        poison = min(max((1 - crit) * number(row.get("PoisonChanceOnHit")) + crit * number(row.get("PoisonChanceOnCrit")),
+                         0.0), 100.0) / 100.0
         out.append({"name": name, "index": index, "hits": landed, "crits": landed * crit, "melee": name in (melee or ()),
-                    "flagged": name in (flagged or ()),
+                    "flagged": name in (flagged or ()), "types": types, "ignite": ignite, "poison": poison,
+                    "shock": min(max(number(row.get("ShockChancePerHit")), 0.0), 100.0) / 100.0,
+                    "chill": _chill_per_hit({**row, "EnemyAilmentThreshold": threshold}) if threshold > 0 else 0.0,
                     "how": f"{label} {landed:.2f} hits/s ({why}, {crit:.0%} critical)"})
+    return out
+
+
+def glory_rows(build, main) -> list[dict]:
+    """(MECHC56, models.GLORY_ROWS' note) The build's other skills' hit rows that can feed Glory: the last resolve's
+    side_hit_rows (build.side_rows), each with "attack" (PoB's attack flag on the skill), the main skill left out; the
+    main skill's Combo builder (build.combo_feed, assumptions.COMBO_FEED's note) at its Strikes a second. [] for a
+    stand-in build."""
+    rows = list(getattr(build, "side_rows", None) or [])
+    feed = getattr(build, "combo_feed", None)
+    if not rows and not feed:
+        return []
+    try:
+        found = [models.Skill.of(s) for s in build.call("activeSkills")["skills"] if not s["disabled"]]
+    except (AttributeError, KeyError, TypeError):
+        return []
+    skip = getattr(main, "name", None)
+    attacks = {s.name for s in found if s.attack and s.name != skip}
+    out = [{**r, "attack": r.get("name") in attacks} for r in rows
+           if number(r.get("hits")) > 0 and r.get("name") != skip]
+    if feed and feed[0] in attacks:  # (MECHC55: the Combo builder's Strikes replace its own row)
+        base = next((r for r in out if r.get("name") == feed[0]), {})
+        out = [r for r in out if r.get("name") != feed[0]] + [{**base, "name": feed[0], "hits": number(feed[1]),
+                                                                "how": feed[2], "attack": True}]
+    return out
+
+
+def glory_feed(build, main, stats: dict) -> dict:
+    """(MECHC56) What every Glory reader adds to its stats: the other skills' rows (glory_rows, under models.GLORY_ROWS),
+    the other groups' Freeze / Heavy Stun buildup (build.buildup_others, which models.buildup_rate and heavy_stun_rate
+    add to the main skill's) when the stats don't hold it, and the main skill's Chill fields (CHILL_FIELDS) when a Glory
+    skill of the build is fed by Chills."""
+    if getattr(build, "side_rows", None) is None and not getattr(build, "combo_feed", None):
+        return {}  # (no resolve has run: a stand-in build)
+    out: dict = {models.GLORY_ROWS: glory_rows(build, main)}
+    if "_buildup_others" not in stats and getattr(build, "buildup_others", None):
+        out["_buildup_others"] = dict(build.buildup_others)
+    chilled = {n for n, (_, gains) in models.GLORY_SKILLS.items() if "chill" in gains}
+    try:
+        if any(s["name"] in chilled and not s["disabled"] for s in build.call("activeSkills")["skills"]):
+            out.update({k: v for k, v in build.call("stats", fields=list(CHILL_FIELDS)).items() if k not in stats})
+    except (AttributeError, KeyError, TypeError):  # (a stand-in build in a unit test)
+        pass
     return out
 
 
@@ -9620,16 +9674,10 @@ class Conditions:
         texts = [line["text"] for line in self.build.call("sourceLines")["lines"]]  # (the Glory lines, MECHC13)
         stats = {**stats, "_main_share": self._main_share(),  # (MECHC45: the main skill's hits at its share of the fight)
                  **boss_in_presence(self.build, texts)}  # (MECHC50: the Presence Glory line)
-        # (MECHC55: models.OTHER_ATTACK_HITS' note) PoB's attack flag on the build's skills (a weapon-granted Quarterstaff
-        # Strike has no gem entry)
-        attack_names = {s.name for s in found if s.attack and (main is None or s.name != main.name)}
-        attacks = [r for r in getattr(self.build, "side_rows", None) or []
-                   if number(r.get("hits")) > 0 and r.get("name") in attack_names]
-        feed = getattr(self.build, "combo_feed", None)  # (MECHC55: assumptions.COMBO_FEED's note, the Combo builder)
-        if feed and feed[0] in attack_names:
-            attacks = [r for r in attacks if r.get("name") != feed[0]] + [{"hits": feed[1], "how": feed[2]}]
-        if attacks:
-            stats[models.OTHER_ATTACK_HITS] = (sum(number(r["hits"]) for r in attacks), "; ".join(r["how"] for r in attacks))
+        # (MECHC55 / MECHC56: models.GLORY_ROWS' note) the build's other skills' hits, by PoB's attack flag (a
+        # weapon-granted Quarterstaff Strike has no gem entry) and the Combo builder's Strikes: the one reader every
+        # Glory skill's readers share (glory_feed)
+        stats.update(glory_feed(self.build, main, stats))
         for name in banners:
             uses, how = models.glory_uses([name], stats, main, found, texts)
             duration = number((rates.get(where.get(name)) or {}).get("duration")) or BANNER_SECONDS
@@ -10023,10 +10071,10 @@ class Conditions:
         group = self.build.main_group()
         main = next((s for s in found if group and s.group == group["index"] and s.name == self.main_skill), None)
         texts = [line["text"] if isinstance(line, dict) else line for line in lines]
-        uses, how = models.glory_uses([SPEAR_OF_SOLARIS], {**self.build.call("stats", fields=models.MODEL_FIELDS),
-                                                           "_main_share": self._main_share(),  # (MECHC45)
-                                                           **boss_in_presence(self.build, texts)},  # (MECHC50)
-                                      main, found, texts)
+        stats = {**self.build.call("stats", fields=models.MODEL_FIELDS), "_main_share": self._main_share(),  # (MECHC45)
+                 **boss_in_presence(self.build, texts)}  # (MECHC50)
+        stats.update(glory_feed(self.build, main, stats))  # (MECHC56: every skill's Freezes / Ignites / Shocks)
+        uses, how = models.glory_uses([SPEAR_OF_SOLARIS], stats, main, found, texts)
         return uses, f"{uses:.3f} uses/s ({how})"
 
     def _inscriptions(self, groups: list[dict], stats: dict) -> tuple[float, str]:
@@ -10974,7 +11022,8 @@ class Conditions:
         self.build.side_rows = None  # (MECH95: published below for Repulsion's hold, repulsion_minion_hits)
         stats["_gem_attr_reqs"] = gem_attribute_reqs(groups_now, self.build.ctx.gems)  # (MECHC50: THAUMATURGY)
         stats["_side_rows"] = side_hit_rows(group_rows, groups_now, hitters, groups_all.get("mainSocketGroup"),
-                                            models.press_choices(self.build), melee, flagged)
+                                            models.press_choices(self.build), melee, flagged,
+                                            number(stats.get("EnemyAilmentThreshold")))  # (MECHC56: their Chills)
         self._side_twisters(stats["_side_rows"])  # (MECHC47: SIDE_TWISTER's note)
         self._side_galvanic(stats["_side_rows"], group_rows, stats, groups_all.get("mainSocketGroup"))  # (MECHC48: SIDE_GALVANIC's note)
         self.build.side_rows = list(stats["_side_rows"] or [])

@@ -165,7 +165,7 @@ def test_banner_glory_counts_every_attack_hit_not_only_the_main_skills():
     both, how = models.glory_plan(["War Banner"], {**stats, models.OTHER_ATTACK_HITS: (1.0, "Quarterstaff Strike 1.00 "
                                                                                             "hits/s")}, main, [], [])
     assert both["War Banner"][0] > 3 * alone["War Banner"][0]
-    assert "the build's other Attacks' 1.00" in how and "Quarterstaff Strike" in how
+    assert "the build's other skills'" in how and "Quarterstaff Strike 1.00 hits/s: 1.00 attack hits/s" in how
     other, _ = models.glory_plan(["Ancestral Cry"], {**stats, models.OTHER_ATTACK_HITS: (1.0, "x")}, main, [], [])
     assert other == models.glory_plan(["Ancestral Cry"], stats, main, [], [])[0]  # (its Glory isn't attack hits)
 
@@ -192,7 +192,7 @@ def test_probe_war_banner_glory_takes_the_combo_builders_strikes(engine):
     box = next((c for c in search.conditions.describe() if c["var"] == "bannerPlanted"), None)
     print("PROBE banner feed", feed, box)
     assert feed is not None and feed[0] == "Quarterstaff Strike" and feed[1] > 0
-    assert box is not None and "the build's other Attacks'" in box["evidence"] and "Quarterstaff Strike" in box["evidence"]
+    assert box is not None and "the build's other skills'" in box["evidence"] and "Quarterstaff Strike" in box["evidence"]
     assert any(m.get("when") == [{"pob": "BannerPlanted"}] for m in search.assumptions.mods)
 
 

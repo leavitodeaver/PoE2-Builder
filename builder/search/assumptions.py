@@ -3482,10 +3482,14 @@ class Assumptions:
                 getattr(self, "undeath_command", 1.0))
             self.undeath_command = next((n.get(models.UNDEATH_COMMAND_STAT) for n in und_notes
                                          if n.get(models.UNDEATH_COMMAND_STAT)), 1.0)
-            und_notes = [{k: v for k, v in n.items() if k != models.UNDEATH_COMMAND_STAT} for n in und_notes]
+            self.undeath_limit = next((n.get(models.UNDEATH_LIMIT_STAT) for n in und_notes
+                                       if n.get(models.UNDEATH_LIMIT_STAT)), None)  # (MECHC56: zombie_count)
+            und_notes = [{k: v for k, v in n.items() if k not in (models.UNDEATH_COMMAND_STAT, models.UNDEATH_LIMIT_STAT)}
+                         for n in und_notes]
             mods, notes = mods + und_mods, notes + und_notes
         else:
             self.undeath_command = 1.0
+            self.undeath_limit = None
         # (MECH96) Gruelling Madness's Slowing Potency on the boss (PoB parses none of its lines)
         madness_mods, madness_notes = models.madness_slow_mods(texts, stats, distance, bool(main and main.attack))
         mods, notes = mods + madness_mods, notes + madness_notes
@@ -9223,6 +9227,7 @@ class Assumptions:
         Runic Ward the build's Ward-cost skills pay a second (build.ward_sustain, ward_paid's: paid uses x Ward a use; a
         round behind), Skyfall's own left out."""
         out = with_main_share(self.build, stats, main_skill)
+        out = {**out, **self._glory_feed(out, main_skill)}  # (MECHC56: every skill's Glory events, models.GLORY_ROWS)
         sustain = getattr(self.build, "ward_sustain", None) or {}
         paid = [(name, number(v[1]) * number(v[2])) for name, v in sustain.items()
                 if isinstance(v, tuple) and len(v) == 3 and name not in models.GLORY_FROM_WARD]
@@ -9230,6 +9235,24 @@ class Assumptions:
             out = {**out, "_ward_spent": (sum(w for _, w in paid),
                                           ", ".join(f"{n} {w:.1f}/s" for n, w in paid if w > 0) or "none paid")}
         return out
+
+    def _glory_feed(self, stats: dict, main_skill) -> dict:
+        """(MECHC56) conditions.glory_feed (the other skills' Glory rows, the other groups' buildup, the main skill's
+        Chill fields), kept while the resolve's rows, the Combo feed and the main skill stay the same (glory_uses_capped
+        asks up to 30 times in a row)."""
+        key = (id(getattr(self.build, "side_rows", None)), len(getattr(self.build, "side_rows", None) or ()),
+               repr(getattr(self.build, "combo_feed", None)), getattr(main_skill, "name", None),
+               "_buildup_others" in stats,  # (and the main skill's own stats: a what-if between resolves moves them)
+               tuple(stats.get(f) for f in ("Speed", "HitChance", "CritChance", "ColdHitAverage", "EnemyAilmentThreshold")))
+        cached = getattr(self, "_glory_feed_cache", None)
+        if cached and cached[0] == key:
+            return cached[1]
+        try:
+            feed = conditions_mod.glory_feed(self.build, main_skill, stats)
+        except (AttributeError, KeyError, TypeError):  # (a stand-in build in a unit test)
+            feed = {}
+        self._glory_feed_cache = (key, feed)
+        return feed
 
     def glory_presence(self, texts: list[str]) -> dict:
         """(MECHC50) conditions.boss_in_presence for models.glory_plan's "in your Presence" Glory line ({} without one)."""
@@ -10808,6 +10831,14 @@ class Assumptions:
         count, how, confidence = models.zombie_alive_count(presses, charges, supply / sharers,
                                                            number(summon.get("limit")), number(summon.get("duration")),
                                                            number(level.get(models.ZOMBIE_EMPOWERED_STAT)))
+        # (MECHC56: Archon of Undeath's doubled Temporary minion limit while it's up, models.UNDEATH_LIMIT_STAT's note;
+        # its value from the last apply, a round behind)
+        mixed, mix_how = models.undeath_limit_mix(
+            lambda lim: models.zombie_alive_count(presses, charges, supply / sharers, lim, number(summon.get("duration")),
+                                                  number(level.get(models.ZOMBIE_EMPOWERED_STAT)))[0],
+            number(summon.get("limit")) or 10.0, getattr(self, "undeath_limit", None))
+        if mix_how:
+            count, how = mixed, f"{how}; {mix_how}"
         return count, (f"{how} [presses: {why}; Power Charges: {charge_how}; corpses: {supply / sharers:.3g}/s of "
                        f"{supply:.3g}/s shared by {sharers} corpse user{'s' if sharers != 1 else ''}, "
                        f"{models.add_corpses_note(stats)}]"), confidence

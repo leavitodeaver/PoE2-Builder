@@ -5011,9 +5011,29 @@ function bridge.useRates(args)
 					-- (MECH102: each group's own Shock magnitude multiplier and duration, PoB's ShockEffectMod / ShockDuration
 					-- (CalcOffence 5729-5731: Enemy/SelfShockMagnitude, the group's own supports included), for its Shocks
 					-- on the boss beside the main skill's: conditions.shock_others, the strongest live Shock applying)
-					"ShockEffectMod", "ShockDuration" }) do
+					"ShockEffectMod", "ShockDuration",
+					-- (MECHC56: each group's own Chill, for the Glory of a skill fed by Chills, conditions.side_hit_rows:
+					-- PoB's ChillChanceOnHit and ChillEffectMod, and setChillDamage's ChillHitDamage / ChillCritDamage for
+					-- the game's 30% floor, conditions._chill_per_hit)
+					"ChillChanceOnHit", "ChillEffectMod", "ChillHitDamage", "ChillCritDamage",
+					-- (MECHC56, RESEARCH51 R51-3: a Poison is a Chaos damage over time Debuff, which builds Archon of
+					-- Chayula's Glory: each group's chance to Poison)
+					"PoisonChanceOnHit", "PoisonChanceOnCrit" }) do
 				if type(output[field]) == "number" then
 					entry[field] = jsonNumber(output[field])
+				end
+			end
+			-- (MECHC56: the damage types an Attack's hit carries, for Glory fed by Elemental or Chaos hits, conditions.
+			-- side_hit_rows' "types": PoB keeps an Attack's <Type>HitAverage per hand and leaves the top level empty, as
+			-- MECHB44's AverageHit below; given under their own keys, so the top-level readers are unchanged)
+			for _, hand in ipairs({ "MainHand", "OffHand" }) do
+				if type(output[hand]) == "table" then
+					for _, t in ipairs(CHILL_TYPES) do
+						local v = output[hand][t .. "HitAverage"]
+						if type(v) == "number" and v > 0 then
+							entry[hand .. "." .. t .. "HitAverage"] = jsonNumber(v)
+						end
+					end
 				end
 			end
 			-- (MECHB44: models.ll_hits_a_use) an Attack keeps its average hit per hand (output.MainHand / OffHand.AverageHit),
