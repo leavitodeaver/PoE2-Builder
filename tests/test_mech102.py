@@ -119,3 +119,19 @@ def test_a_lone_triggered_mark_takes_pobs_trigger_rate_or_none():
     assert use.period == float("inf") and not use.on_demand and "never applied" in use.how
     use = models.mark_use(mark, [mark], rates={"Voltaic Mark": 0.25})
     assert use.period == pytest.approx(4.0) and not use.on_demand and "PoB's trigger rate" in use.how
+
+
+def test_dominion_halves_archon_of_chayulas_more_as_well_as_ending_the_recovery():
+    # (the manager 00:15, R49-5: Dominion's "50% reduced effect of Archon Buffs on you" must shrink the Archon of
+    # Chayula's 20% more, not only remove the recovery period; the lines as the tree gives them)
+    inputs = models.read_inputs([{"text": "50% reduced effect of Archon Buffs on you", "source": "passive:Dominion"},
+                                 {"text": "Archon Buffs have no recovery period after you lose one",
+                                  "source": "passive:Dominion"}])
+    assert inputs.total("ArchonEffect") == pytest.approx(-50.0) and inputs.has("ArchonNoRecovery")
+    # Glory refills in 5 s: with the 20 s recovery one Archon per 30 s (1/3 up); Dominion: 10 / 15 (2/3 up)
+    _, up, _, _ = models.chayula_cycle(1 / 15, inputs.total("ArchonDuration"), inputs.total("ArchonRecovery"),
+                                       no_recovery=inputs.has("ArchonNoRecovery"))
+    assert up == pytest.approx(2 / 3)
+    mods, notes = models.chayula_more_model(up, "Dominion", inputs.total("ArchonEffect"))
+    # 20% x 0.5 = 10% more while up, x 2/3 of the fight
+    assert mods[0]["scale"] == pytest.approx(10.0 * 2 / 3, abs=1e-3) and "x0.50 Archon effect" in notes[0]["basis"]
