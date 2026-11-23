@@ -546,8 +546,9 @@ def test_probe_wind_serpents_fury_ailments_are_the_thrusts_whichever_set_pob_sco
         build.call("setAssumptions", mods=bleed + mods, fields=[])
         sets = build.call("setRates", index=group["index"], active=active)["sets"]
         shares = notes[0].get("set_shares")
-        strong, strong_notes = (models.strongest_ailment_model(main, sets, shares, notes[0]["set_uses"]) if shares
-                                else ([], []))
+        ranges = models.ailment_ranges(build.call("stats", fields=models.STRONG_RANGE_FIELDS))  # (GEM34, as the flow)
+        strong, strong_notes = (models.strongest_ailment_model(main, sets, shares, notes[0]["set_uses"], ranges=ranges)
+                                if shares else ([], []))
         build.call("setAssumptions", mods=bleed + mods + strong, fields=[])
         after = build.call("stats", fields=["TotalDPS", "BleedDPS"])
         print("PROBE wind serpent ailments", label, main.stat_set, before, after, mods, strong,
@@ -558,12 +559,13 @@ def test_probe_wind_serpents_fury_ailments_are_the_thrusts_whichever_set_pob_sco
     assert thrust["set"] == "Thrust" and serpent["set"] == "Serpent"
     shares = thrust["shares"]
     assert shares and shares["Thrust"] == pytest.approx(shares["Serpent"]) and 0 < shares["Thrust"] <= 1  # (one each)
-    assert serpent["shares"] is None  # (scored on the Serpent: not handed over, POE2T7000's roll-average overcount)
+    assert serpent["shares"] == pytest.approx(shares)  # (MECHC55: handed on both scorings since GEM34's own stacks)
     assert models.number(serpent["before"]["BleedDPS"]) < 0.5 * models.number(thrust["before"]["BleedDPS"])
-    # (the chooser's two options: the same hits, the Thrust's Bleed higher, so it keeps the Thrust where Bleed counts)
+    # (both scorings now read the same hits and the same Bleed: re-probe POE2T7056, 82.5 vs 82.8)
     assert models.number(serpent["after"]["TotalDPS"]) == pytest.approx(models.number(thrust["after"]["TotalDPS"]),
                                                                           rel=0.02)
-    assert models.number(serpent["after"]["BleedDPS"]) < models.number(thrust["after"]["BleedDPS"])
+    assert models.number(serpent["after"]["BleedDPS"]) == pytest.approx(models.number(thrust["after"]["BleedDPS"]),
+                                                                          rel=0.03)
 
 
 def test_boss_pool_note_gives_the_headline_pool_and_the_other_readings_as_rows():

@@ -490,6 +490,116 @@ def natures_archon_uptime(texts: list[str], overgrows: float, x: dict | None = N
                 "(KeywordPopups Archon: one Archon at a time, one recovery period for all kinds)")
 
 
+# Archon of Undeath (MECHC55; MECHC54's item 3, coverage rows 95 / 300; plans/kw-archon-of-undeath.md; an UNDERCOUNT: every
+# effect counted 0). KeywordPopups UndeadArchon (game 26650308): "Archon of Undeath is a type of Archon Buff. It grants:
+# 25% more Minion Damage; 200% more Cooldown Recovery Rate for Command Skills; Temporary Minion Skills have 100% more Limit
+# of Minions summoned. When you gain Archon of Undeath all of your Persistent Undead Minions are revived." KeywordPopups
+# Archon: 10 s by default, none gained while you have one or in the 20 s recovery period after one (one period for every
+# kind). Its gains (checked: game files 26650308, every Stats id holding undeath (9: have_archon_undeath, the two
+# chances, Brequel's crafted roll, the four effect stats, puppet_master_does_not_expire_while_you_have_archon_of_undeath)
+# over Mods, PassiveSkills, GrantedEffectStatSets / PerLevel, SoulCoreStats, UtilityFlaskBuffs and the ascendancy /
+# class overrides: chance_%_to_gain_archon_of_undeath_on_using_command_skill 15 on the notable Archon of Undeath
+# (PassiveSkills archon23) and chance_%_to_gain_archon_of_undeath_when_you_create_an_offering (35-50) on the Genesis Tree
+# belt mods GenesisTreeBeltArchonUndeathOnOfferingUse / ...Crafted are the only gains; Beyond Death: Unending (+5) only
+# raises the crafted roll; the effect stats and the Puppet Master one are on no carrier in these tables (the buff's own
+# definition isn't extracted); PoB's ModCache 2215 / 4295 hold both gain lines with leftover text (never applied) and no
+# Module reads an Undeath buff; second source: poe2db 22 Nov, /us/Archon_of_Undeath (the notable archon23, also anointable,
+# the buff's 25 / 200 / 100, 10 s) and /us/The_Genesis_Tree (the belt suffix "of Unending", (35-50)%), no other source.)
+# The rate, from the build (CLAUDE.md, no flat rates): a build that takes either line plays to feed it,
+# so its Commands pressed on their cooldowns (command_uses, as Puppet Master's) and its Offerings kept up, re-cast as each
+# spike ends (OFFERING_SECONDS, their base durations; the three player Offerings: checked, ActiveSkills with the Offering
+# type, Dark / Grave Offering [DNT-UNUSED]). Gains a second outside the Archon and its recovery: lambda = chance_c x
+# Commands/s + chance_o x Offerings/s, taken as random arrivals (MEDIUM): a mean wait 1 / lambda; archon_uptime gives the
+# share (the shared Archon duration / recovery / effect lines, Dominion's no recovery, buffs expiring slower). Another
+# Archon kind the build gains races it for the one slot (archon_race: the first gain after the recovery wins). Counted:
+# the 25% more Minion Damage x effect x uptime (as "Minions deal N% more Damage", the whole minion pool). Not counted
+# (labelled, UNDERCOUNTS): the Commands' 200% more Cooldown Recovery while up (Command damage is scored apart), the
+# Temporary minions' doubled limit, the revive on each gain.
+ARCHON_UNDEATH_MORE = 25.0  # KeywordPopups UndeadArchon: 25% more Minion Damage
+UNDEATH_ON_COMMAND = re.compile(r"^(\d+(?:\.\d+)?)% chance to gain Archon of Undeath when you use a Command skill$", re.I)
+UNDEATH_ON_OFFERING = re.compile(r"^(\d+(?:\.\d+)?)% (?:chance )?to gain Archon of Undeath when you create an Offering"
+                                 r"(?: Minion)?$", re.I)  # (poe2db's belt text ends "Offering Minion"; PoB's "Offering")
+
+
+def archon_race(own: float, others: float) -> float:
+    """(MECHC55) The share of an Archon's cycles that are this kind's when another kind's gains (`others` a second)
+    race it for the one slot after the shared recovery period (KeywordPopups Archon): own / (own + others)."""
+    total = max(own, 0.0) + max(others, 0.0)
+    return max(own, 0.0) / total if total > 0 else 0.0
+
+
+def archon_of_undeath_model(skills: list[Skill], texts: list[str], x: dict | None = None, effect: float = 0.0,
+                            no_recovery: bool = False, expiry: float = 1.0,
+                            others: tuple[float, str] = (0.0, "")) -> tuple[list[dict], list[dict]]:
+    """(MECHC55) (mods, notes) for Archon of Undeath (see above). `x`: ArchonDuration / ArchonRecovery totals (%);
+    `effect`: ArchonEffect (%); `others`: (gains a second of another Archon kind the build has, how)."""
+    texts = [t.strip() for t in texts]
+    on_command = min(100.0, sum(float(m.group(1)) for t in texts if (m := UNDEATH_ON_COMMAND.match(t))))
+    on_offering = min(100.0, sum(float(m.group(1)) for t in texts if (m := UNDEATH_ON_OFFERING.match(t))))
+    if on_command <= 0 and on_offering <= 0:
+        return [], []
+    label = "Archon of Undeath: 25% more Minion Damage at its share of the fight*"
+    commands, command_parts = command_uses(skills) if on_command > 0 else (0.0, [])
+    offered = [n for n in dict.fromkeys(s.name for s in skills if s.name in OFFERING_SECONDS and s.group is not None)]
+    offerings = sum(1 / OFFERING_SECONDS[n] for n in offered) if on_offering > 0 else 0.0
+    rate = on_command / 100 * commands + on_offering / 100 * offerings
+    parts = []
+    if on_command > 0:
+        parts.append(f"{on_command:g}% a Command use x {commands:.3g}/s ("
+                     + (", ".join(command_parts) if command_parts else "no Command this model maps") + ")")
+    if on_offering > 0:
+        parts.append(f"{on_offering:g}% an Offering created x {offerings:.3g}/s ("
+                     + (", ".join(f"{n} re-cast every {OFFERING_SECONDS[n]:g} s" for n in offered) if offered
+                        else "no Offering in the build") + ")")
+    minions = any(s.summon for s in skills)
+    if rate <= 0:
+        return [], [{"label": label, "value": 0, "confidence": "MEDIUM",
+                     "basis": "; ".join(parts) + ": nothing gains it, so 0 (no source, never a flat guess)",
+                     "play": "Archon of Undeath needs Command skills pressed or Offerings created: without them it "
+                             "never comes."}]
+    x = x or {}
+    duration_inc, faster = number(x.get("ArchonDuration")), number(x.get("ArchonRecovery"))
+    other_rate, other_how = others
+    up_alone = archon_uptime(duration_inc, faster, 1 / rate, no_recovery, expiry)
+    if other_rate > 0:  # (one slot: the first gain after the recovery wins; the wait is the joint stream's)
+        total = rate + other_rate
+        up = archon_race(rate, other_rate) * archon_uptime(duration_inc, faster, 1 / total, no_recovery, expiry)
+    else:
+        up = up_alone
+    scale = max(0.0, 1 + effect / 100)
+    more = ARCHON_UNDEATH_MORE * scale * up if minions else 0.0
+    duration = ARCHON_DURATION * max(0.0, 1 + duration_inc / 100) * expiry
+    recovery = 0.0 if no_recovery else ARCHON_RECOVERY / max(1 + faster / 100, 1e-9)
+    basis = (f"gains: {'; '.join(parts)} = {rate:.3g} a second, taken as random (MEDIUM): a mean {1 / rate:.3g} s "
+             f"after the {recovery:.3g} s recovery; it lasts {duration:.3g} s: up {up_alone:.0%}"
+             + (f"; racing {other_how} ({other_rate:.3g} gains a second) for the one Archon slot: up {up:.0%}"
+                if other_rate > 0 else "")
+             + (f"; effect x{scale:.2f}" if scale != 1 else "")
+             + (f": {more:.2f}% more Minion Damage averaged" if minions else ": the build has no minions, so no damage")
+             + ". Not counted (UNDERCOUNTS): the Commands' 200% more Cooldown Recovery while it's up, the Temporary "
+               "minions' doubled limit, the Persistent Undead minions revived on each gain; not raced: a Nature's "
+               "Archon or Archon of Chayula source (one slot for every kind: an OVERCOUNT where the build has one)")
+    play = (f"Archon of Undeath: press your Commands on cooldown / keep your Offerings up to gain it; without it +0%, "
+            f"with it {more:.1f}% more Minion Damage averaged (up {up:.0%})")
+    note = {"label": label, "value": round(more, 2), "basis": basis, "play": play,
+            "confidence": "MEDIUM (game text: the chances, the 25%, the Archon cycle; the gains taken as random)"}
+    return ([line("Minions deal 1% more Damage", more)] if more > 0 else []), [note]
+
+
+def archon_gain_rate(source: ArchonSource | None) -> tuple[float, str]:
+    """(MECHC55) (gains a second, how) of an Elemental Archon source (archon_sources), for archon_race: 1 / its wait
+    after the recovery; Seething Body's Flame cycle at the wait that gives its base uptime (archon_sources' rank)."""
+    if source is None:
+        return 0.0, ""
+    wait = source.wait
+    if source.flame > 0:
+        share = flame_uptime(source.flame, 0.0)[0]
+        wait = ARCHON_DURATION / share - ARCHON_DURATION - ARCHON_RECOVERY if share > 0 else math.inf
+    if not math.isfinite(wait):
+        return 0.0, ""
+    return 1 / max(wait, 1e-3), f"Elemental Archon ({source.name})"
+
+
 @dataclass
 class ArchonSource:
     name: str
@@ -2239,6 +2349,25 @@ def corpse_explosion_mods(skills: list[Skill]) -> list[dict]:
 # in stats[CORPSE_EXTRA_TARGETS_STAT] ({skill: (targets a second, how)}, from assumptions.hollow_focus_bells: the bells
 # it eats) is used that much more a second.
 CORPSE_EXTRA_TARGETS_STAT = "_corpse_extra_targets"
+
+
+def needs_a_target_note(main: Skill | None, mods: list[dict]) -> list[dict]:
+    """(MECHC55; the manager's ruling on MECHC54's question: "a Devour build with no bells or corpses scores 0 on a lone
+    boss" is correct behaviour, nothing to target; show a note saying why) A note for a main skill that corpse_model
+    held to 0 uses a second (no corpse and no other target in this build, e.g. Devour without Hollow Focus); []
+    otherwise."""
+    if main is None or not main.corpses:
+        return []
+    rates = [number(m.get("value")) for m in mods if m.get("kind") == "SkillData" and m.get("skill") == main.name
+             and m.get("key") == "triggerRate"]
+    if not rates or rates[-1] > 0:
+        return []
+    return [{"label": f"{main.name}: nothing to target*", "value": "0 as the main skill", "confidence": "HIGH",
+             "basis": (f"{main.name} needs a corpse (or another target it can take) for each use. On a lone boss this "
+                       "build has no corpse source and no other target it can use it on (Devour can also take a "
+                       "Cullable enemy such as a Hollow Focus bell), so it is used 0 times a second and scores 0"),
+             "play": (f"Give {main.name} something to use: a corpse source, or for Devour the Hollow Focus bells; or "
+                      "choose another main skill.")}]
 
 
 def corpse_model(skills: list[Skill], mods: list[dict], stats: dict | None = None,

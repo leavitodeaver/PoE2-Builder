@@ -456,7 +456,15 @@ def _incision_consumed(lines: list[str], stats: dict) -> tuple:
 # build the search makes holds them today.
 RADIUS_EQUAL_CHANCE = re.compile(r"\bpassives granting [\w ,]+? in radius also grant an equal chance\b", re.I)
 RADIUS_EQUAL_NOTE = ("its chance equals the Resistance the allocated passives in the jewel's radius grant, which isn't "
-                     "read: 0 (was a 100% chance; no PoE2 unique carries the line, UNVERIFIED on poe2db)")
+                     "read: 0 (was a 100% chance; no league-obtainable PoE2 item carries the line, so no bridge read "
+                     "of the radius is built)")
+# (MECHC55) "no PoE2 item carries it" (checked: the game files 26650308: stats 5088-5090
+# local_unique_jewel_{fire,cold,lightning}_resistance_also_grants_*_charge_on_kill_chance are used only by Mods rows
+# 10066-10068 (*AlsoGrants*ChargeOnKillJewelUnique__1), and no other of the 59 extracted tables names them; PoB's lua
+# (Data/Uniques, ModCache) has no "equal chance to gain" text; the patch-notes archive: no "equal chance to gain" /
+# "Charge on Kill" hit (no hit isn't proof of absence); poe2db 22 Nov: its 18 current unique jewels (/us/Jewels, read in
+# full), Time-Lost jewels and search have no such line, and the mod-id pages 404. The unique-to-mod link isn't in the
+# extracted tables, so an unlisted item can't be ruled out from the game files alone. Most likely PoE1 leftovers.)
 
 
 # (MECHC54) the descriptions of the skills that eat Hollow Focus bells for a Power Charge (assumptions.BELL_EATERS)

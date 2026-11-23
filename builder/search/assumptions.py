@@ -3462,6 +3462,15 @@ class Assumptions:
         if any(conditions_mod.BUFF_EXPIRY.search(e["text"]) for e in source_lines):  # (MECHC35, RESEARCH29)
             stats = {**stats, "_buff_expiry": conditions_mod.buff_expiry([e["text"] for e in source_lines])}
         mods, notes = models.archon_model(inputs, with_main_share(build, stats, main), main, main_gems)  # (MECHC45)
+        if any(models.UNDEATH_ON_COMMAND.match(t.strip()) or models.UNDEATH_ON_OFFERING.match(t.strip())
+               for t in texts):  # (MECHC55: Archon of Undeath, racing an Elemental Archon source for the one slot)
+            current = next((s for s in models.archon_sources(with_main_share(build, stats, main), main_gems)
+                            if s.flag is None or inputs.has(s.flag)), None)
+            und_mods, und_notes = models.archon_of_undeath_model(
+                found, texts, {k: inputs.total(k) for k in models.ARCHON_TIMING}, inputs.total("ArchonEffect"),
+                inputs.has("ArchonNoRecovery"), (stats.get("_buff_expiry") or (1.0, ""))[0],
+                models.archon_gain_rate(current))
+            mods, notes = mods + und_mods, notes + und_notes
         # (MECH96) Gruelling Madness's Slowing Potency on the boss (PoB parses none of its lines)
         madness_mods, madness_notes = models.madness_slow_mods(texts, stats, distance, bool(main and main.attack))
         mods, notes = mods + madness_mods, notes + madness_notes
@@ -5652,6 +5661,7 @@ class Assumptions:
         if bell_targets:
             stats = {**stats, models.CORPSE_EXTRA_TARGETS_STAT: bell_targets}
         mods, corpse_notes = models.corpse_model(found, mods, stats, main)  # last: it overrides the trigger rates above (MECHB11: the adds' corpses)
+        corpse_notes = corpse_notes + models.needs_a_target_note(main, mods)  # (MECHC55: a 0-use corpse main skill)
         if any(models.DECOMPOSE_TRAVEL.match(e["text"].strip()) for e in source_lines):  # (MECHB49: Corpsewade, a row)
             from builder.search import bosses as bosses_mod
 
@@ -10250,13 +10260,12 @@ class Assumptions:
         # DPS MORE reaches only its stack count (5254). Scored on the Thrust (the strongest hit: 598% vs 199% at gem
         # level 20) the note's set_shares hand both parts to GEM22's models.strongest_ailment_model: the Thrust's
         # Ignite / Bleed at the thrusts' own uptime (short of Frenzy Charges: below PoB's), the Serpents' under it.
-        # Scored on the Serpent, nothing: there the DPS MORE (x3.5 on probe POE2T7000's skeleton) inflates PoB's stack
-        # potential, whose roll average (CalcOffence 5305-5309: (stacks - (max - 1) / 2) / (stacks + 1) of the range above
-        # 100%) then reads the Thrust's Bleed ~30% high (POE2T7000: 110.3 vs 85.3 Thrust-scored, an OVERCOUNT), and a
-        # per-hit "Damage" MORE overshoots through armour (POE2T4999: the sets' post-armour DPS ratio 4.26 vs their hit
-        # ratio 598 / 199 = 3.0). The search's chooser tries every stat set (gems.choose_active_skill), and the Thrust
-        # scoring reads the same hits and the right ailment (POE2T7000: Bleed 85.3 vs the Serpent's 36.7), so it wins
-        # wherever the ailment counts.
+        # Scored on the Serpent too (MECHC55, the manager's item 2 after GEM34's 26738dfa: the mix sizes each part at its
+        # OWN stacks, not PoB's DPS-line-drifted ones). Before GEM34 the x3.5 DPS MORE there inflated PoB's stack potential
+        # and its roll average (CalcOffence 5305-5309) read the Thrust's Bleed ~30% high (POE2T7000: 110.3 vs 85.3), so the
+        # shares were held back and a Serpent scoring kept PoB's Serpent Bleed (36.7, an UNDERCOUNT). Re-probe POE2T7056:
+        # with the shares on both scorings, Serpent-scored Bleed 82.5 vs Thrust-scored 82.8, TotalDPS 67.2 vs 67.1, so
+        # both scorings now read the same. (A per-hit "Damage" MORE still overshoots through armour, POE2T4999: not used.)
         mod = models.raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)
         # (MECHC52, MECH99's split, MIXED: the thrusts the charges allow are a USE cut ("hit_cut"); the Serpents a thrust
         # add HITS A USE (models.HIT_CUT_PER_USE: 1 + Serpents / thrust, capped at 1 by the readers until MECH99's
@@ -10276,9 +10285,8 @@ class Assumptions:
             "play": (f"Wind Serpent's Fury: feed it Frenzy Charges; {per_use:.1f} Serpents a thrust; without charges "
                      "it can't be used" if spent > 0 else
                      "Wind Serpent's Fury needs a Frenzy Charge a use: with no Frenzy Charge source it can't be used")}
-        if scored == "Thrust":  # (GEM22: strongest_ailment_model; the comment above)
-            note["set_shares"] = {"Thrust": thrusts / uses, "Serpent": spent / uses}
-            note["set_uses"] = uses
+        note["set_shares"] = {"Thrust": thrusts / uses, "Serpent": spent / uses}  # (GEM22's model; the comment above)
+        note["set_uses"] = uses
         return [mod], [note]
 
     def energy_feeders(self, found: list, main) -> dict[int, list[dict]]:
