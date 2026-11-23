@@ -3716,10 +3716,10 @@ class Assumptions:
         # (MECH69) PoB's CanApply flags for Exposure lines it doesn't parse ("N% chance to inflict Exposure on Hit"): the
         # -20% comes from the condition box at the line's uptime (conditions._exposure_uptime)
         exposure_flags = conditions_mod.exposure_source_flags(texts, main_types)
-        exposure_flags += conditions_mod.wither_source_flags(texts, main_types)  # (MECH72: partly parsed Withered lines)
+        wither_gems = {g["name"] for grp in build.groups() for g in grp["gems"] if grp["enabled"] and g.get("enabled", True)}
+        exposure_flags += conditions_mod.wither_source_flags(texts, main_types, wither_gems)  # (MECH72; MECH101: Chayula)
         wither_mods, wither_how = conditions_mod.minion_wither_magnitude(  # (MECH82: COV37, your Magnitude on minions')
-            texts, main.name if main else "", {g["name"] for grp in build.groups() for g in grp["gems"]
-                                               if grp["enabled"] and g.get("enabled", True)})
+            texts, main.name if main else "", wither_gems)
         exposure_flags += wither_mods
         if wither_how:
             hand_notes.append({"label": "Withered from your minions: its magnitude*", "value": "5% a stack" if wither_mods

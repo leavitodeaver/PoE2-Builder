@@ -183,6 +183,36 @@ def withering_hex_rate(uses: list) -> tuple[float, str]:
                  "on purpose is a search choice, models.CURSE_LAPSE, not taken here)")
 
 
+# Archon of Chayula's Withered (MECH101; MECHC53's coverage row, ranking score 12, an UNDERCOUNT: no reader before). Its
+# stat set (ArchonOfChayulaPlayer, game 26650308; PoB other.lua 1591) has archon_of_chayula_withered_on_hit_for_4_seconds_
+# %_chance 25, skill_stat_descriptions "Grants {0}% chance to Wither enemies for 4 seconds on Hit" (a text WITHER_CHANCE
+# never matched; PoB maps no such stat: SkillStatMap / Modules have no archon_of_chayula id), granted while you are the
+# Archon. So the main skill's hits Wither the boss at that chance for 4 s, only for the share of the fight the Archon is up
+# (no flat rate: the build's own Archons a second, Assumptions.glory_caps on its Chaos hits, MECH-C's glory_plan). One
+# cycle: the Archon lasts D (10 s x the build's Archon duration lines x "Buffs on you expire slower": KeywordPopups Archon,
+# "By default, each Archon Buff lasts 10 seconds"), then the next one comes after the Glory refill (no Glory while the
+# 10 s instance is up: models.GLORY_INSTANCE, so refill = 1 / Archons - 10) or the Archon recovery period ("You cannot
+# gain any Archon Buff ... during a recovery period after you lose one, which lasts 20 seconds by default", with the
+# build's ArchonRecovery lines), whichever ends later: share = D / (D + max(refill, recovery)). Archon of Chayula taken as
+# an Archon Buff (its name, its have_archon_of_chayula stat beside have_archon_fire / _undeath, and its 10 s from the same
+# keyword: MEDIUM; whether the recovery applies to it: UNVERIFIED, the lower reading; row: no recovery period). Stacks:
+# during the Archon min(10, the other sources + chance x hits/s x 4), the rest of the fight the other sources alone, the
+# time average (each stack lives 4 s, so a stack from a hit late in the Archon outlives it: the average still holds).
+# Not counted (labelled): Chayula's Will's tornado hits (the player's triggered skill; whether its hits count as "on Hit"
+# for the Archon's grant: UNVERIFIED, the lower reading).
+CHAYULA_WITHER_STAT = "archon_of_chayula_withered_on_hit_for_4_seconds_%_chance"
+CHAYULA_WITHER_SECONDS = 4.0  # (the stat id's and its text's "for 4 seconds")
+
+
+def chayula_archon_share(archons: float, lasts: float, recovery: float) -> float:
+    """Share of the fight Archon of Chayula is up (the note above): `archons` a second its Glory pays for (glory_caps),
+    each lasting `lasts` s, then the later of the Glory refill and the `recovery` period."""
+    if archons <= 0 or lasts <= 0:
+        return 0.0
+    refill = max(0.0, 1.0 / archons - models.GLORY_INSTANCE.get(models.ARCHON_OF_CHAYULA, 0.0))
+    return lasts / (lasts + max(refill, max(0.0, recovery)))
+
+
 def curse_lapse_candidates(build, texts: list[str]) -> list[str]:
     """The hand-cast curses the search may play to run out before each recast (models.CURSE_LAPSE), for Withering Hex:
     none without its line. For SEARCH's toggle (each tried on and off, the higher score kept, as Raise Shield's taps)."""
@@ -271,6 +301,17 @@ def _withered_stacks(lines: list[str], stats: dict) -> tuple:
                            f"Presence ({radius:.1f} m, the boss {metres:g} m away)")
         else:
             idle.append(f"{WITHERING_PRESENCE} (the boss {metres:g} m away, outside your {radius:.1f} m Presence)")
+    if chayula := stats.get("_chayula_wither"):  # (MECH101: Archon of Chayula's Withered, CHAYULA_WITHER_STAT's note)
+        chance, seconds, up, row, how = chayula
+        during = chance / 100 * rate * seconds
+        if up > 0 and during > 0:
+            alone, with_it = min(float(WITHERED_MAX), stacks), min(float(WITHERED_MAX), stacks + during)
+            sources.append(f"Archon of Chayula: {chance:g}% chance to Wither for {seconds:g} s on Hit while the Archon "
+                           f"({during:.1f} stacks during it, {how}: up {up:.0%} of the fight, MEDIUM; row, no Archon "
+                           f"recovery period: up {row:.0%}, {row * with_it + (1 - row) * alone:.1f} stacks on average)")
+            stacks = up * with_it + (1 - up) * alone
+        else:
+            idle.append(f"Archon of Chayula's {chance:g}% chance to Wither on Hit ({how})")
     entry_up, entry_how = 0.0, ""
     if entry_seconds:  # (MECH83: Wither Away, WITHER_ENTRY's note)
         rate, how = models.presence_reentries(lines, stats, _boss_distance(lines, stats)[0] / 10)
@@ -5116,8 +5157,11 @@ def exposure_source_flags(texts: list[str], main_types: set[str]) -> list[dict]:
 # stacks did nothing in PoB (an UNDERCOUNT to 0). Each "N% chance to inflict Withered for N seconds on Hit" line
 # _withered_stacks counts sets the flag (a no-op where PoB parsed it: it sets the same flag). Minions' and the Wasting
 # lines are left to PoB's own handling.
-def wither_source_flags(texts: list[str], main_types: set[str]) -> list[dict]:
-    """PoB's Condition:CanWither for the main skill's counted Withered chance lines (see the note above)."""
+def wither_source_flags(texts: list[str], main_types: set[str], gem_names: set[str] | None = None) -> list[dict]:
+    """PoB's Condition:CanWither for the main skill's counted Withered chance lines (see the note above), and for Archon
+    of Chayula's Withered on Hit (MECH101: PoB maps none of its stats, so its stacks need the flag too)."""
+    if models.ARCHON_OF_CHAYULA in (gem_names or set()):
+        return [models.raw_mod("Condition:CanWither", "FLAG", 1)]
     spell = "Spell" in main_types
     # (MECH75: Withering Hex's line too; PoB doesn't parse it (checked: ModCache.lua and ModParser.lua for its words,
     # no hit; the patch notes have no Withering Hex entry), so its stacks need the flag)
@@ -5144,7 +5188,7 @@ def minion_wither_magnitude(texts: list[str], main: str, gem_names: set[str]) ->
         return [], ""
     own = ([t for t in texts if WITHER_CHANCE.search(t) or WITHER_HEX.match(t.strip()) or WITHER_WASTING.match(t.strip())
             or re.search(r"withered .*when they enter your presence", t, re.I)]
-           + [n for n in ({main} | gem_names) if n in WITHER_ON_HIT_SKILLS or n in (WITHERING_PRESENCE, "Withering Touch")])
+           + [n for n in ({main} | gem_names) if n in WITHER_ON_HIT_SKILLS or n in (WITHERING_PRESENCE, "Withering Touch", models.ARCHON_OF_CHAYULA)])
     total = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
                 for t in texts if (m := WITHER_MAGNITUDE.match(t.strip())))
     if not total:
@@ -9122,6 +9166,27 @@ class Conditions:
         return bolts * up / speed, (f"its Orb's {bolts:.2f} bolts/s (PoB's HitSpeed) x attached {up:.0%} of the fight "
                                     f"(GEM20's cycle; Shocks: {how}) / {speed:.2f} casts/s")
 
+    def _chayula_wither(self, lines: list[dict], stats: dict) -> tuple | None:
+        """(MECH101) (chance %, seconds, Archon share, the no-recovery row's share, how) for Archon of Chayula's Withered
+        on Hit (CHAYULA_WITHER_STAT's note), or None when its stat isn't read."""
+        from builder.search.assumptions import Assumptions
+
+        raw = self.build.call("activeSkills", levelStats=[models.ARCHON_OF_CHAYULA])["skills"]
+        got = next(((s.get("levelStats") or {}) for s in raw
+                    if s["name"] == models.ARCHON_OF_CHAYULA and not s.get("disabled")), None)
+        chance = number((got or {}).get(CHAYULA_WITHER_STAT))
+        if got is None or chance <= 0:
+            return None
+        archons, how = Assumptions(self.build).glory_caps().get(models.ARCHON_OF_CHAYULA, (0.0, "its Glory wasn't read"))
+        inputs = models.read_inputs(lines)
+        expiry = (stats.get("_buff_expiry") or (1.0, ""))[0]
+        lasts = models.ARCHON_BUFF_SECONDS * max(0.0, 1 + inputs.total("ArchonDuration") / 100) * expiry
+        recovery = models.ARCHON_RECOVERY / max(1 + inputs.total("ArchonRecovery") / 100, 1e-9)
+        up, row = chayula_archon_share(archons, lasts, recovery), chayula_archon_share(archons, lasts, 0.0)
+        return (chance, CHAYULA_WITHER_SECONDS, up, row,
+                f"{archons:.4f} Archons a second ({how}), each {lasts:g} s, then the later of the Glory refill and a "
+                f"{recovery:.1f} s Archon recovery period")
+
     def _tree_jewels(self) -> list[str]:
         """(MECH92) The base names of the jewels in the build's allocated passive-tree sockets (bridge facts' items: PoB's
         item slots that aren't inactive, type Jewel)."""
@@ -10292,6 +10357,8 @@ class Conditions:
                                   for g in grp["gems"] if g.get("enabled", True)}
         if set(PRESENCE_SECONDS_GEMS) & names or any(PRESENCE_SECONDS_LINE.search(t) for t in texts):
             stats["_presence_seconds"] = self.presence_seconds(texts, stats)  # (MECH59: Attrition, the ramps)
+        if models.ARCHON_OF_CHAYULA in names:  # (MECH101: its Withered on Hit, CHAYULA_WITHER_STAT's note)
+            stats["_chayula_wither"] = self._chayula_wither(lines, stats)
         if self.main_skill in WITHER_ON_HIT_SKILLS or "Withering Touch" in main_gems or WITHERING_PRESENCE in names:
             # (Withered from gems, _withered_stacks: the main skill's own, Withering Touch on it, Withering Presence)
             raw = self.build.call("activeSkills", levelStats=[self.main_skill, WITHERING_PRESENCE],
