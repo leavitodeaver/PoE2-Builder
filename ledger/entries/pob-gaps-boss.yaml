@@ -575,8 +575,11 @@
     aggravation covers), which is models.py / conditions.py work, routed to MECH-A (FIX_QUEUE "the Aggravate share
     model"). The on-crit, always-on-crit and Empowered entries below carry the same flat rate plus a fixed crit
     share (50%) or Empowered share (10%): the same model should take the build's crit chance and Empowered rate.
+    RETIRED (COV54, the manager's ruling 23 Nov 12:20): superseded by custom-models.yaml's aggravate-bleed-on-attack-hit-model,
+    which loads first and wins ledger.translate on this line (checked: scratch/cov54/winners.py over every Aggravate line in
+    PoB's ModCache plus rolled forms). Its flat rates are banned (CLAUDE.md), so its line must never go live.
   sources: ["https://poe2db.tw/us/Aggravated_Bleeding", "https://poe2db.tw/us/Bleeding"]
-  status: proposed
+  status: retired  # COV54: superseded by aggravate-bleed-on-attack-hit-model (the build's own hits/s and Bleed duration)
 
 - id: aggravate-bleed-on-crit
   title: Chance to Aggravate Bleeding on critical hit
@@ -584,9 +587,9 @@
   match: '^(\(\d+-\d+\)|\d+)% chance to Aggravate Bleeding on targets you Critically Hit with Attacks$'
   replace: ['{300*g1/(100+3*g1)}% more Damage with Bleeding']
   confidence: theory
-  notes: "As the on-hit chance, with half of hits assumed critical. LOW: flat hit rate and crit share (see aggravate-bleed-on-hit; model routed to MECH-A)."
+  notes: "As the on-hit chance, with half of hits assumed critical. LOW: flat hit rate and crit share (see aggravate-bleed-on-hit; model routed to MECH-A). RETIRED (COV54, the manager's ruling 23 Nov 12:20): superseded by aggravate-bleed-on-attack-crit-model, which wins ledger.translate on this line (checked: scratch/cov54/winners.py)."
   sources: ["https://poe2db.tw/us/Aggravated_Bleeding"]
-  status: proposed
+  status: retired  # COV54: superseded by aggravate-bleed-on-attack-crit-model (the build's own crit chance)
 
 - id: aggravate-bleed-always-on-crit
   title: Aggravate Bleeding on critical hit
@@ -594,9 +597,9 @@
   match: '^Aggravate Bleeding on targets you Critically Hit with Attacks$'
   replace: ['75% more Damage with Bleeding']
   confidence: theory
-  notes: "As the on-hit chance with p = 50% (half of hits assumed critical). LOW: flat hit rate and crit share (see aggravate-bleed-on-hit; model routed to MECH-A)."
+  notes: "As the on-hit chance with p = 50% (half of hits assumed critical). LOW: flat hit rate and crit share (see aggravate-bleed-on-hit; model routed to MECH-A). RETIRED (COV54, the manager's ruling 23 Nov 12:20): superseded by aggravate-bleed-on-attack-crit-model, whose optional 'chance to' covers this line and wins ledger.translate (checked: scratch/cov54/winners.py)."
   sources: ["https://poe2db.tw/us/Aggravated_Bleeding"]
-  status: proposed
+  status: retired  # COV54: superseded by aggravate-bleed-on-attack-crit-model (the build's own crit chance)
 
 - id: aggravate-bleed-empowered
   title: Chance to Aggravate Bleeding with Empowered attacks
@@ -604,9 +607,9 @@
   match: '^(\d+)% chance to Aggravate Bleeding on targets you Hit with Empowered Attacks$'
   replace: ['{60*g1/(100+0.6*g1)}% more Damage with Bleeding']
   confidence: theory
-  notes: "As the on-hit chance, with about 10% of attacks empowered against a single boss. LOW: flat hit rate and Empowered share (see aggravate-bleed-on-hit; model routed to MECH-A)."
+  notes: "As the on-hit chance, with about 10% of attacks empowered against a single boss. LOW: flat hit rate and Empowered share (see aggravate-bleed-on-hit; model routed to MECH-A). RETIRED (COV54, the manager's ruling 23 Nov 12:20): superseded by aggravate-bleed-empowered-model, which wins ledger.translate on this line (checked: scratch/cov54/winners.py)."
   sources: ["https://poe2db.tw/us/Aggravated_Bleeding", "https://poe2db.tw/Empowered_Skills"]
-  status: proposed
+  status: retired  # COV54: superseded by aggravate-bleed-empowered-model (the build's own Empowered uses)
 
 - id: aggravate-bleed-jagged-ground
   title: Bleeding aggravated against enemies on Jagged Ground
