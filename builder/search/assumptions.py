@@ -4525,6 +4525,19 @@ class Assumptions:
         cascade_mods, cascade_notes = models.spell_cascade_model(main, stats, *bosses.hit_radius(stats))  # (MECHB36)
         hand_mods, hand_notes = hand_mods + cascade_mods, hand_notes + cascade_notes
         hit_cut(build, cascade_mods, main.name if main else None)  # (MECHB54: its hits a use, models.with_hits_per_use)
+        if main is not None and main.spell:  # (MECHB58: Spell Echo's Echoes as hits; Mystic Avalanche's side areas)
+            echo_types = set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or [])
+            echo_supports = set(supports.get(main.group, [])) if main.group is not None else set()
+            echo_texts = [e["text"] for e in source_lines]
+            echo_totem = models.cast_by_totem(found, main)
+            echo_mods, echo_notes = models.spell_echo_model(
+                main, echo_types, stats, echo_texts,
+                passive_models.echo_chance(main, echo_types, echo_supports, echo_texts, echo_totem,
+                                           passive_models.main_quality(build, main)),
+                passive_models.seal_rate(main, echo_types, echo_supports, stats, echo_totem),
+                bosses.hit_radius(stats))
+            hand_mods, hand_notes = hand_mods + echo_mods, hand_notes + echo_notes
+            hit_cut(build, echo_mods, main.name)
         count_mods, count_notes = models.hazard_count_model(main, stats)  # (MECHB33: a use's hazards on the boss)
         hand_mods, hand_notes = hand_mods + count_mods, hand_notes + count_notes
         comp_mods, comp_notes = self.companions(skills, [e["text"] for e in source_lines], main)  # (MECHB33: the limit)
@@ -6513,7 +6526,7 @@ class Assumptions:
             KALGUUR, models.TAWHOA, models.ARCTIC_HOWL, models.ETERNAL_MARCH, *models.gem_stat_skills(),
             *models.curse_gem_names(getattr(getattr(self.build, "ctx", None), "gems", None))],  # (MECH100: each curse's level cap)
             supportStats=[*models.gem_stat_support_stats(), models.TOTEM_ONE_STAT,
-                          models.CASCADES_PER_SIDE, models.ECHO_POWER_STAT])["skills"]  # (MECH-B: A23-3; MECHB36 Spell Cascade)
+                          models.CASCADES_PER_SIDE, models.ECHO_POWER_STAT, models.ECHO_COUNT_STAT])["skills"]  # (MECH-B: A23-3; MECHB36 Spell Cascade)
         mods, notes, self.extra_groups = self.models(skills)
         explosion = next((s for s in skills if s["name"] == "Transmutation Explosion"), None)
         if explosion is not None:

@@ -19502,6 +19502,105 @@ def spell_cascade_model(main: Skill | None, stats: dict, boss_radius: float, bos
     return [with_hits_per_use(raw_mod("DPS", "MORE", 100 * (hits - 1), main.name), hits)], [note] + part_notes
 
 
+# Spell Echo's Echoes as hits, and Mystic Avalanche's side areas (MECHB58; the manager's MECHB58 brief item 2, RESEARCH51
+# R-B23, research/mystic-avalanche-r51.md; an UNDERCOUNT). An Echo affects "the same targeted location again after a
+# delay" (KeywordPopups Cascadable, 26650308): one more hit of the cast on a boss in the area. Spell Echo
+# (SupportSpellEchoPlayer: support_spell_echo_number_of_echo_cascades 1, 30% less cast speed, Echoes 40% increased Area)
+# and Zarokh's Refrain (3 Echoes, a 5 s Cooldown). PoB maps the stat to RepeatCount (SkillStatMap 290) and then only
+# averages the repeat-scaled modifiers (area, "Repeat" damage) and, for a skill with a Cooldown, caps its Speed at
+# (1 + Echoes) / Cooldown (CalcOffence 3008); it adds an Echo's hit to the DPS of traps and mines only (CalcOffence
+# 1229-1231). PROBE_NOTE. So a Spell Echo spell (no Cooldown) is scored one hit a cast at 30% less cast speed (the
+# Echo's hit missing), and Zarokh's Refrain at min(cast rate, 4 / 5 s) hits a second, which is the real 4 hits a
+# Cooldown only while the cast rate is at least 0.8 a second. Counted: real hits a second = min(cast rate, 1 /
+# Cooldown) x (1 + Echoes) (cast rate = PoB's CastRate, before the Cooldown cap) over PoB's Speed, as hits a use (a
+# "DPS" MORE tagged HIT_CUT_PER_USE: the Echo is part of the same use, no extra cast). An Echo counted as a full hit of
+# the cast (MEDIUM: no less-damage stat on either support; PoB's own average of the Echo's larger area kept).
+# Mystic Avalanche (Delirium anoint, PassiveSkills DeliriumAnoint_MysticAvalanche:
+# cascadable_spells_final_echo_also_cascades_to_sides 1, "Final Echo of Cascadable Spells also Cascades to either side of
+# the targeted Area along a random axis"; PoB ignores the line): the last Echo of a cast also lands two side areas,
+# each the Echo's own size and damage (R-B23 2, MEDIUM: no area or damage stat for the cascade), centred one radius from
+# the target (R-B23 3, R29-5's spacing, MEDIUM-LOW), so a boss on the target is inside both: two more hits for each cast
+# that Echoes. A cast Echoes with Spell Echo / Zarokh's Refrain always; else at the chance lines (Now and Again, Comet /
+# Skyfall quality: passive_models.echo_chance) and Tul's Avalanche's Seals (passive_models.seal_rate). The side hits are
+# taken over the hits a cast already counted (1 + support Echoes; a chance Echo as the ledger's now-and-again-echo 0.95;
+# Tul's Echoes as seal_echo_share), a chance Echo's side areas at the same 0.95. Rows: areas edge to edge (the side
+# areas miss unless the area's radius is at most the boss's hit radius); not counted with Spell Cascade on the same
+# spell (R-B23: whether its final Echo adds sides twice is UNVERIFIED; the lower reading, said).
+ECHO_COUNT_STAT = "support_spell_echo_number_of_echo_cascades"
+MYSTIC_AVALANCHE = re.compile(r"^Final Echo of Cascadable Spells also Cascades to either side of the targeted Area "
+                              r"along a random axis$", re.I)
+ECHO_CHANCE_WEIGHT = 0.95  # (the ledger's now-and-again-echo: a chance Echo as 0.95 of a hit)
+ECHO_PLAY = "Target the boss's centre so the Echo and its side areas land on it"
+
+
+def spell_echo_model(main: Skill | None, main_types: set[str], stats: dict, texts: list[str],
+                     chance: tuple[float, str] = (0.0, ""), seals: float = 0.0, boss: tuple[float, str] = (0.0, "")
+                     ) -> tuple[list[dict], list[dict]]:
+    """Spell Echo's / Zarokh's Refrain's Echoes as hits and Mystic Avalanche's side areas (see above). `chance`: the
+    main spell's chance a cast Echoes and from what (passive_models.echo_chance); `seals`: Tul's Avalanche's Seals a
+    second (passive_models.seal_rate); `boss`: (hit radius in m, how) for the edge-to-edge row."""
+    if main is None or not main.spell or "Cascadable" not in main_types:
+        return [], []
+    echoes = max(0.0, number(main.support_stats.get(ECHO_COUNT_STAT)))
+    speed = number(stats.get("Speed"))
+    if speed <= 0:
+        return [], []
+    cooldown = number(stats.get("Cooldown"))
+    cast = number(stats.get("CastRate")) or speed
+    casts = min(cast, 1 / cooldown) if cooldown > 0 else cast
+    notes: list[dict] = []
+    factor = 1.0
+    if echoes > 0:
+        factor = casts * (1 + echoes) / speed
+        how = (f"{echoes:g} Echo{'es' if echoes != 1 else ''} a cast"
+               + (f", one cast per its {cooldown:.2f} s Cooldown" if cooldown > 0 else "")
+               + f": {casts:.3f} casts/s x {1 + echoes:g} hits = {casts * (1 + echoes):.3f} hits/s against PoB's "
+               f"{speed:.3f} (PoB adds no Echo hit for a spell: RepeatCount only averages modifiers"
+               + (" and caps its Speed at the Cooldown" if cooldown > 0 else "") + ")")
+        if factor > 1.0 + 1e-6:
+            notes.append({"label": f"{main.name}: its Echoes as hits*", "value": f"x{factor:.3f}", "confidence": "MEDIUM",
+                          "basis": how + ". An Echo counted as a full hit of the cast (no less-damage stat on the "
+                                         "support); the boss taken to stay in the area for the Echo's delay"})
+        else:
+            factor = 1.0
+    if any(MYSTIC_AVALANCHE.search(t.strip()) for t in texts):
+        label = f"{main.name}: Mystic Avalanche's side areas on the final Echo*"
+        p_chance, chance_how = max(0.0, min(1.0, number(chance[0]))), chance[1]
+        tul = min(1.0, max(0.0, seals) / casts) if casts > 0 else 0.0
+        p = 1.0 if echoes > 0 else p_chance + (1 - p_chance) * tul
+        cascade = number(main.support_stats.get(CASCADES_PER_SIDE)) > 0
+        radius = number(stats.get("AreaOfEffectRadius")) / 10
+        edge = 0 < radius <= boss[0]
+        if cascade or p <= 0:
+            notes.append({"label": label, "value": "not counted", "confidence": "MEDIUM",
+                          "basis": ("Spell Cascade on the same spell: whether its final Echo adds side areas twice is "
+                                    "UNVERIFIED (R-B23), the lower reading, 0" if cascade else
+                                    "nothing makes the main spell Echo (Spell Echo, Zarokh's Refrain, a chance to "
+                                    "Echo, Tul's Avalanche's Seals): no final Echo")})
+        else:
+            if echoes > 0:
+                counted, side = 1 + echoes, 2.0
+            else:  # (a chance Echo at the ledger's 0.95, its side areas too; Tul's Echoes as seal_echo_share's 1)
+                counted = 1 + ECHO_CHANCE_WEIGHT * p_chance + (1 - p_chance) * tul
+                side = 2 * (ECHO_CHANCE_WEIGHT * p_chance + (1 - p_chance) * tul)
+            gain = 1 + side / counted
+            factor *= gain
+            source = ("Spell Echo / Zarokh's Refrain" if echoes > 0 else
+                      "; ".join(x for x in (chance_how if p_chance > 0 else "",
+                                            f"Tul's Avalanche {seals:.3f} Seals/s" if tul > 0 else "") if x))
+            notes.append({"label": label, "value": f"x{gain:.3f}", "confidence": "MEDIUM-LOW",
+                          "basis": (f"{p:.0%} of casts Echo ({source}); the final Echo also lands 2 side areas, each the "
+                                    f"Echo's size and damage, centred one radius from the target (R-B23, RESEARCH51: "
+                                    f"MEDIUM-LOW spacing), so a boss on the target is inside both: +{side:.2f} hits over "
+                                    f"the {counted:.2f} a cast already counted. Row, areas edge to edge: the side areas "
+                                    + (f"still reach the boss ({radius:.2f} m area, {boss[1]})" if edge else
+                                       f"miss ({radius:.2f} m area, {boss[1]}): x1")),
+                          "play": f"{ECHO_PLAY}: with Mystic Avalanche x{gain:.2f}; areas edge to edge x"
+                                  + (f"{gain:.2f}" if edge else "1")})
+    if factor <= 1.0 + 1e-6:
+        return [], notes
+    return [with_hits_per_use(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name), factor)], notes
+
 # Dusk Vigil's Ember Fusillade (MECHB37; the catalog's "Skills triggered by items and passives", the coverage ranking's
 # #103, an UNDERCOUNT: 0 before). Dusk Vigil (Ashen Staff, PoB Uniques/staff.lua) "Grants Skill: Level (1-20) Ember
 # Fusillade" (PoB ModCache ExtraSkill EmberFusilladePlayer, its own group fromItem) and "Trigger Ember Fusillade Skill on
