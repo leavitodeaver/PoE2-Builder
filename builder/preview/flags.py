@@ -44,8 +44,9 @@ FLAGS: list[dict] = [
     {
         "key": "jewel_craft",
         "what": "the 4-mod + increased-effect jewel craft",
-        "note": "no 1.0 statement found on the Liquid Emotion jewel craft; third parties say jewels give 'less "
-                "excessive critical power' and the 5-mod case is disputed: re-check at the patch notes (~4 Dec)",
+        "note": "applies IF a rare jewel in this build uses the 0.5 craft (a bought or dropped rare may not): no 1.0 "
+                "statement found on the Liquid Emotion jewel craft; third parties say jewels give 'less excessive "
+                "critical power' and the 5-mod case is disputed: re-check at the patch notes (~4 Dec)",
         "applies": "crafted_jewels",
         "confidence": "UNVERIFIED (checked: GGG press release, poe2db league page, Maxroll, Output Lag, Elyxir, "
                       "ExpCarry, poebuilds)",
