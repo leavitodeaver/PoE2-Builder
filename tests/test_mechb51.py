@@ -294,3 +294,26 @@ def test_an_inhibitor_supported_hollow_form_makes_no_power_charge_images():
     mods, notes = models.hollow_model([strike, hollow], {"Speed": 2.0, "PowerChargesMax": 3}, [], strike,
                                       {"Hollow Form", "Quarterstaff Strike"})
     assert mods == [] and notes[0]["value"] == 1 and "Inhibitor" in notes[0]["basis"]
+
+
+def test_hailstorm_rounds_counts_the_chance_not_to_spend_a_bolt_within_its_limits():
+    """MECHB59 (AUDIT37 W2; patch 0.3.0c, the chance rolls per ammo spent): bolts fired = made / (1 - p), at most a full
+    clip a use and one boss hit per 0.2 s; a Reloaded Recently line is a row only (UNVERIFIED for passive loading)."""
+    hail = models.Skill("Hailstorm Rounds", 1, attack=True)
+    stats = {"Speed": 0.5, "ReloadTime": 0.4, "BoltCount": 50, "FiringRate": 0.5, "AreaOfEffectRadius": 10,
+             "AreaOfEffectRadiusSecondary": 40}
+
+    def factor(extra, texts=()):
+        return 1 + models.hailstorm_rounds_model(hail, {**stats, **extra}, (0.3, "a"), (0.3, "b"), texts=texts)[0][0][
+            "value"] / 100
+    plain = factor({})
+    assert factor({"ChanceToNotConsumeAmmo": 20}) / plain == pytest.approx(1.25, rel=1e-3)
+    assert factor({"ChanceToNotConsumeAmmo": 30}) / plain == pytest.approx(1 / 0.7, rel=1e-3)
+    line = "Bolts fired by Crossbow Attacks have 30% chance to not expend Ammunition if you've Reloaded Recently"
+    assert factor({}, [line]) == pytest.approx(plain, rel=1e-3)
+    assert "+30% not spent" in models.hailstorm_rounds_model(hail, stats, (0.3, "a"), (0.3, "b"), texts=[line])[1][0]["basis"]
+    # the clip limit: one bolt a use at most, however high the chance
+    assert factor({"ChanceToNotConsumeAmmo": 99, "BoltCount": 1}) / plain == pytest.approx(0.5 / 2.5, rel=1e-3)
+    # the boss's limit: one hit per 0.2 s, on a boss covering the whole rain
+    big = models.hailstorm_rounds_model(hail, {**stats, "ReloadTime": 0.01, "BoltCount": 1000}, (4.0, "a"), (4.0, "b"))
+    assert big[0][0]["value"] == pytest.approx(100 * (5.0 / 0.5 - 1), rel=1e-3)

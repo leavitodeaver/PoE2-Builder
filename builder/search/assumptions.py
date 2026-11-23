@@ -4672,7 +4672,8 @@ class Assumptions:
                 ["Speed", "ReloadTime", "BoltCount", "AreaOfEffectRadius", "AreaOfEffectRadiusSecondary",
                  *models.MODEL_FIELDS])))
             hail_mods, hail_notes = models.hailstorm_rounds_model(
-                main, hail_stats, bosses_mod.hit_radius(hail_stats), bosses_mod.hit_radius(hail_stats, "upper"), forbidden)
+                main, hail_stats, bosses_mod.hit_radius(hail_stats), bosses_mod.hit_radius(hail_stats, "upper"), forbidden,
+                [e["text"] for e in source_lines])  # (MECHB59: its Reloaded Recently row)
             hand_mods, hand_notes = hand_mods + hail_mods, hand_notes + hail_notes
             hit_cut(build, hail_mods, main.name)  # (MECHB53: its bolts landing, a hits-a-use cut: MECH99's split)
         if main is not None and main.name == models.TORNADO:  # (MECHB52: R42-10, its absorbed elemental grounds)
@@ -5640,7 +5641,8 @@ class Assumptions:
         mayhem_mods, mayhem_notes = models.escalating_mayhem_model([e["text"] for e in source_lines], stats, main,
                                                                    triggered)  # (MECHB31, MB-10)
         mods, notes = mods + mayhem_mods, notes + mayhem_notes
-        reload_mods, reload_notes = models.reloaded_recently_model([e["text"] for e in source_lines], stats)  # (MECHB31, MB-6)
+        reload_mods, reload_notes = ([], []) if main is not None and main.name == models.HAILSTORM_ROUNDS else (
+            models.reloaded_recently_model([e["text"] for e in source_lines], stats))  # (MECHB31, MB-6; MECHB59: Hailstorm's row)
         mods, notes = mods + reload_mods, notes + reload_notes
         ally_mods, ally_notes = models.ally_in_presence_model([e["text"] for e in source_lines], found)  # (MECHB31, MB-9)
         mods, notes = mods + ally_mods, notes + ally_notes

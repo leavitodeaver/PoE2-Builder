@@ -24284,12 +24284,19 @@ def monster_best(rates: list[dict], total_spirit: float, room: float, kind: str,
 # PoB's radii (AreaOfEffectRadius / ...Secondary, with the build's area) and the preset's hit radius
 # (bosses.hit_radius); rows: the upper boss radius, and every landing a hit. A DPS more by target / PoB's rate (both
 # ways: PoB's rate follows the attack speed, the game's the reload); the ailments keep PoB's hit rate (named for MECH-A).
+# The chance not to spend ammunition (MECHB59; AUDIT37 W2, an UNDERCOUNT: bolts made / PoB's Speed, which holds the chance,
+# cancelled it). Patch 0.3.0c: the chance now rolls "per ammo spent instead of once per skill use, meaning they interact
+# correctly with the Hailstorm Rounds skill": a bolt kept stays loaded and falls again with the next use, so bolts fired a
+# second = made / (1 - p), at most the bolts held x the uses a second (FiringRate), and the boss's hits at most one per
+# 0.2 s across overlapping rains (rain_hit_delay_ms; shared between rains: UNVERIFIED, the lower reading). "if you've
+# Reloaded Recently" lines: whether Hailstorm's passive loading is a reload is UNVERIFIED, so the headline leaves them out
+# (reloaded_recently_model is skipped for this skill: its clip cycle isn't this skill's) and a row counts them.
 HAILSTORM_ROUNDS, HAILSTORM_ENTRY = "Hailstorm Rounds", "model-mechb51-hailstorm-rounds"
 HAILSTORM_BOLT_INTERVAL, HAILSTORM_HIT_DELAY = 0.1, 0.2  # s (patch 0.3.0; rain_hit_delay_ms 200)
 
 
 def hailstorm_rounds_model(main: Skill | None, stats: dict, boss: tuple[float, str], boss_upper: tuple[float, str],
-                           forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+                           forbidden: set[str] = frozenset(), texts: list[str] = ()) -> tuple[list[dict], list[dict]]:
     """Hailstorm Rounds held to the bolts the build makes and the share that hits one boss (see above). `stats` the main
     skill's PoB output (Speed, ReloadTime, BoltCount, AreaOfEffectRadius, AreaOfEffectRadiusSecondary); `boss` /
     `boss_upper` (hit radius in metres, how)."""
@@ -24304,13 +24311,26 @@ def hailstorm_rounds_model(main: Skill | None, stats: dict, boss: tuple[float, s
                      "basis": "PoB gave no reload time or rate to hold its bolts to: the DPS may be too high"}]
     made = 1 / reload
     cap = min(1.0, HAILSTORM_BOLT_INTERVAL / HAILSTORM_HIT_DELAY)
+    kept = min(max(number(stats.get("ChanceToNotConsumeAmmo")), 0.0), 100.0) / 100
+    held = number(stats.get("BoltCount")) * number(stats.get("FiringRate"))  # (the most a second: a full clip each use)
+    lines = [t.strip() for t in texts]
+    recent = sum(float(m.group(1)) for t in lines + [f"{x} {y}" for x, y in zip(lines, lines[1:])]
+                 if (m := RELOADED_RECENTLY.search(t))) / 100
+
+    def fired(chance: float) -> float:
+        most = held if held > 0 else float("inf")
+        return min(made / (1 - chance), most) if chance < 1 else (most if held > 0 else made)
+
+    def landing(chance: float, radius: float) -> float:
+        return min(fired(chance) * share(radius) * cap, 1 / HAILSTORM_HIT_DELAY)
 
     def share(r: float) -> float:
         return min(1.0, ((r + impact) / rain) ** 2)
-    target = made * share(boss[0]) * cap
+    target = landing(kept, boss[0])
     factor = target / speed
-    upper = made * share(boss_upper[0]) * cap
-    uncapped = made * share(boss[0])
+    upper = landing(kept, boss_upper[0])
+    uncapped = fired(kept) * share(boss[0])
+    with_recent = landing(min(1.0, kept + recent), boss[0])
     mod = raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=HAILSTORM_ENTRY)
     mod[HIT_CUT_PER_USE] = factor  # (MECHB53, MECH99's split: bolts landing a use, the skill used as often)
     return [mod], [{
@@ -24319,11 +24339,16 @@ def hailstorm_rounds_model(main: Skill | None, stats: dict, boss: tuple[float, s
         "basis": (f"PoB scores one bolt hit per attack ({speed:.3f} a second: {number(stats.get('BoltCount')):g} bolts "
                   f"fired one an attack, then a {reload:.2f} s reload). The game: one bolt made every {reload:.2f} s "
                   f"({made:.2f} a second; a use fires all those made since the last, up to the bolt count: R42-11), "
+                  f"{kept:.0%} not spent (patch 0.3.0c: each stays loaded and falls again): {fired(kept):.2f} fired a "
+                  "second, "
                   f"raining one every {HAILSTORM_BOLT_INTERVAL:g} s outward over {rain:.2f} m with a {impact:.2f} m "
                   f"impact; {share(boss[0]):.0%} land on the boss ({boss[1]}; spread evenly by area, LOW) and it is hit "
                   f"at most once every {HAILSTORM_HIT_DELAY:g} s, every other one (x{cap:g}, R41-4, HIGH): "
                   f"{target:.3f} a second, x{factor:.3f} on PoB's. Rows: {boss_upper[1]}: {upper:.3f} a second, "
-                  f"x{upper / speed:.3f}; every landing a hit (no cap): x{uncapped / speed:.3f}. The ailment readers take "
+                  f"x{upper / speed:.3f}; every landing a hit (no cap): x{uncapped / speed:.3f}"
+                  + (f"; its passive loading counted as Reloaded Recently (UNVERIFIED), +{recent:.0%} not spent: "
+                     f"x{with_recent / speed:.3f}" if recent > 0 else "")
+                  + ". The ailment readers take "
                   "the same cut (build.main_hit_cut; above x1 they keep PoB's rate)"),
         "play": (f"Fire {main.name} at least every {number(stats.get('BoltCount')) * reload:.0f} s (before it holds its "
                  "most bolts), aimed at the boss's centre.")}]
