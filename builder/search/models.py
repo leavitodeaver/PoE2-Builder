@@ -1967,7 +1967,40 @@ def corpse_supply(present: set[str], stats: dict | None = None) -> float:
     SACRIFICE_CORPSES_STAT from sacrifice_corpses, when Sacrifice is present) plus the boss preset's killed adds (one
     corpse each, LOW; see above; none when the build's Hits destroy them)."""
     own = number((sacrifice_rate(stats))) if SACRIFICE in present else 0.0
-    return add_corpse_rate(stats) + max(own, 0.0)
+    supply = add_corpse_rate(stats) + max(own, 0.0)
+    race = (stats or {}).get(DIADEM_RACE_STAT)  # (MECHC54: DIADEM_RACE_STAT's note)
+    if race:
+        supply -= diadem_take(supply, number(race[1]), number(race[0]))[0]
+    return max(supply, 0.0)
+
+
+# (MECHC54; RESEARCH48 R48-3, LOW-MEDIUM; the manager 16:35 22 Nov; a small OVERCOUNT of corpse-skill DPS before) The
+# Devouring Diadem "Every 3 seconds, Consume a nearby Corpse to Recover 20% of maximum Life" (Stats 16690, its only
+# stat): a fixed tick that takes a corpse only if one lies nearby then, never waiting, at full Life too (R48-3, UNVERIFIED:
+# no test or developer word). So it RACES the build's corpse skills:
+# - press-limited (their uses U below the supply S): corpses lie spare, the skills find one each use, and the Diadem eats
+#   the leftovers, min(1 / N, S - U) (no cut to the skills);
+# - supply-limited (U >= S): each corpse lies from when it is made until the next skill use, about 1 / (2 U) on average,
+#   and a tick lands in that gap with chance min(1, 1 / (2 U N)): the Diadem takes min(1 / N, S x min(1, 1 / (2 U N))) a
+#   second, and the skills lose that many (R48-3's example: U 1.5, S 1, N 3: 0.11 a second, 11% of the corpses).
+# Rows: "skills first" (before: the upper side of corpse-skill DPS) and "the Diadem first" (min(1 / N, S), the lower
+# side). Published by assumptions.spent_rates as build.diadem_race = (N, U), a round behind; Assumptions.models puts it
+# in stats[DIADEM_RACE_STAT] while the build wears the line, and corpse_supply hands every corpse user S less the take.
+DIADEM_RACE_STAT = "_diadem_race"  # stats key: (seconds between ticks, the corpse skills' uses a second)
+
+
+def diadem_take(supply: float, uses: float, every: float) -> tuple[float, str]:
+    """(corpses a second the Devouring Diadem takes from the corpse skills, how): the race above (0 when they leave
+    corpses spare)."""
+    supply, uses, every = max(number(supply), 0.0), max(number(uses), 0.0), number(every)
+    if every <= 0 or supply <= 0 or uses < supply:
+        return 0.0, "the corpse skills leave corpses spare: the Diadem eats the leftovers, no cut to them"
+    take = min(1 / every, supply * min(1.0, 1 / (2 * uses * every)))
+    return take, (f"the corpse skills ({uses:.2f} uses/s) would use every corpse ({supply:.3f}/s): a corpse lies "
+                  f"~{1 / (2 * uses):.2f} s before the next use, the Diadem's {every:g} s tick lands in that gap "
+                  f"{min(1.0, 1 / (2 * uses * every)):.0%} of the time: it takes {take:.3f}/s ({take / supply:.0%} of "
+                  f"them; RESEARCH48 R48-3, LOW-MEDIUM). Rows: skills first, a cut of 0; the Diadem first, "
+                  f"{min(1 / every, supply):.3f}/s")
 
 
 # Sacrifice's corpses (MECHB19; AUDIT27 A27-4, for MECH-C's "recover when you Consume a corpse" and every corpse user).

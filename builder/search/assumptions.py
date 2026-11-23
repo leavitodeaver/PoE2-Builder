@@ -3416,6 +3416,20 @@ class Assumptions:
         if any(s.name == models.SACRIFICE for s in found):  # (MECH-B, MECHB19, A27-4: Sacrifice's corpses, the build's own
             # undead Reviving minion deaths, for models.corpse_supply's readers)
             stats = {**stats, models.SACRIFICE_CORPSES_STAT: models.sacrifice_corpses(found, main, stats)}
+        diadem_note = None
+        race = getattr(build, "diadem_race", None)  # (MECHC54: models.DIADEM_RACE_STAT's note; a round behind)
+        if race and any(recovery_mod.DIADEM.search(t) for t in line_texts):
+            stats = {**stats, models.DIADEM_RACE_STAT: race}
+            take, take_how = models.diadem_take(models.corpse_supply({s.name for s in found},
+                                                                     {**stats, models.DIADEM_RACE_STAT: None}),
+                                                race[1], race[0])
+            if take > 0:
+                diadem_note = {"label": "The Devouring Diadem's share of your corpses*",
+                                     "value": f"{take:.3f} corpses a second", "confidence": "LOW",
+                                     "basis": f"its 3 s tick races your corpse skills for each corpse lying there: {take_how}",
+                                     "play": ("The Devouring Diadem eats a nearby corpse every 3 s, even at full Life: "
+                                              "with your corpse skills using every corpse it takes "
+                                              f"{take:.3f}/s from them; without the Diadem they keep them all.")}
         if any(s.name == models.UNEARTH for s in found):  # (MECHB21, A28-5: Unearth's Bone Constructs from any dead
             # Reviving minion, with or without Sacrifice: models.reviving_extra / unearth_constructs)
             stats = {**stats, models.REVIVING_DEATHS_STAT: models.minion_deaths(found, main, stats)}
@@ -3441,6 +3455,7 @@ class Assumptions:
         # (MECH96) Gruelling Madness's Slowing Potency on the boss (PoB parses none of its lines)
         madness_mods, madness_notes = models.madness_slow_mods(texts, stats, distance, bool(main and main.attack))
         mods, notes = mods + madness_mods, notes + madness_notes
+        notes += [diadem_note] if diadem_note else []  # (MECHC54: models.DIADEM_RACE_STAT's note)
         fear_mods_, fear_notes = models.fear_mods(texts, stats)  # (MECH96: Fear Incarnate / Overwhelming on Culls)
         mods, notes = mods + fear_mods_, notes + fear_notes
         shock_mods, shock_notes = models.electrocute_attack_mods(texts)  # (MECH97: Stonefist's all-Attack Electrocute)
@@ -7966,12 +7981,18 @@ class Assumptions:
                                                   f"most the corpses there are: {models.add_corpses_note(stats)}"
                                                   + sacrifice))
             every = max((float(m.group(1)) for t in lowered for m in recovery.DIADEM.finditer(t)), default=0.0)
-            if every > 0:  # (MECHC53: recovery.DIADEM's note: the corpses the corpse skills leave, one every N s at most)
+            build.diadem_race = (every, uses) if every > 0 else None  # (MECHC54: models.DIADEM_RACE_STAT's note)
+            if every > 0:  # (MECHC53: recovery.DIADEM's note; MECHC54: R48-3's race when the skills use every corpse)
                 left = max(supply - min(uses, supply), 0.0)
-                out["diadem"] = (min(1 / every, left), (
-                    f"one corpse every {every:g} s at most, from the {left:.3f}/s the corpse skills leave of "
-                    f"{supply:.3f}/s ({models.add_corpses_note(stats)}{sacrifice}); if it takes first: "
-                    f"{min(1 / every, supply):.3f}/s"))
+                race, race_how = models.diadem_take(supply, uses, every)
+                if race > 0:
+                    out["diadem"] = (race, f"one corpse every {every:g} s at most: {race_how} "
+                                           f"({models.add_corpses_note(stats)}{sacrifice})")
+                else:
+                    out["diadem"] = (min(1 / every, left), (
+                        f"one corpse every {every:g} s at most, from the {left:.3f}/s the corpse skills leave of "
+                        f"{supply:.3f}/s ({models.add_corpses_note(stats)}{sacrifice}); if it takes first: "
+                        f"{min(1 / every, supply):.3f}/s"))
         if has(recovery.MINION_REVIVED):  # (MECHC18) the build's Reviving minions Killed a second, from its own sources
             found = [models.Skill.of(s) for s in present.values()]
             group = build.main_group()

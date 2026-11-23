@@ -231,3 +231,18 @@ def test_skyfall_builds_glory_from_the_ward_other_skills_spend():
     assert plan["Skyfall"][0] == pytest.approx(1 / 30) and "Runic Ward spent" in how
     plan, how = models.glory_plan(["Skyfall"], {"Speed": 1.0}, None, [], [])
     assert "Skyfall" not in plan and "never" in how
+
+
+def test_the_devouring_diadem_races_the_corpse_skills_only_when_they_use_every_corpse():
+    """RESEARCH48 R48-3: a 3 s tick taking a corpse lying there; supply-limited skills lose min(1/3, S min(1, 1/(6U)))."""
+    from builder.search import models
+
+    take, how = models.diadem_take(1.0, 1.5, 3.0)  # R48-3's example: 0.11 a second, 11%
+    assert take == pytest.approx(1 / 9) and "R48-3" in how
+    assert models.diadem_take(1.0, 0.5, 3.0)[0] == 0  # press-limited: corpses spare, no cut
+    assert models.diadem_take(2.0, 2.0, 3.0)[0] == pytest.approx(1 / 6)
+    assert models.diadem_take(0.0, 1.0, 3.0)[0] == 0
+    stats = {models.SACRIFICE_CORPSES_STAT: (1.0, "test")}
+    full = models.corpse_supply({models.SACRIFICE}, stats)
+    raced = models.corpse_supply({models.SACRIFICE}, {**stats, models.DIADEM_RACE_STAT: (3.0, 1.5)})
+    assert raced == pytest.approx(full - 1 / 9)
