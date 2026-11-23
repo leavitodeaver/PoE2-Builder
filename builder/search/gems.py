@@ -11,6 +11,7 @@ not buttons, so they never touch the button cap.
 
 from __future__ import annotations
 
+import copy
 import os
 import math
 import re
@@ -57,6 +58,16 @@ CURSE_SCREEN_KEEP = 2  # curses (screened with every seed in) whose seed variant
 CURSE_DAMAGE = re.compile(r"^Supports Curse.*\b(trigger|spawns?|damag\w*|erupt\w*)\b", re.S | re.I)
 # Groups the search adds whole: their skill and meta gems are raised as the attributes grow (relevel_added)
 ADDED_LABELS = (PERSISTENT_LABEL, BLASPHEMY_LABEL, META_LABEL, MARK_LABEL, MIRAGE_LABEL, ROAR_LABEL, CURSE_LABEL)
+# (SPEED1, the manager 23 Nov 07:30: proposal 3) The calculated skill's choice is remembered by the state it was asked in:
+# PoB's XML (the groups' calculated skill, part and stat set, the Configuration tab), the search's scoring state outside
+# the XML (Build.snapshot_state: the objective's weights, the assumptions, the uptimes), the condition resolver's active
+# set, and the call's own arguments. A state asked again (a trial taken back, a revert: 2b75b POE2T7802 had 28-42% of
+# setGroup / equip calls land on a state seen before) gets the build the first choice ended on, restored from its
+# snapshot (~0.4 s), instead of every option scored and settled again (2.3 s a call, 18% of 2b75b's task time).
+# "0" (default): off. "1": on. "check": the choice runs as before and, on a remembered state, is compared with the
+# remembered end (choice and score): Gems.choice_memo counts hits, agreements and disagreements.
+CHOICE_MEMO = os.environ.get("POE2_SEARCH_CHOICE_MEMO", "0")
+CHOICE_MEMO_SIZE = 64  # remembered states (each a build snapshot), oldest dropped first
 GRANTED_SUPPORT_ROUNDS = 6  # support changes a granted meta group gets right after its spell (fill_granted_supports)
 GRANTED_FILL_SECONDS = 60.0  # time a granted meta's fill (fill_granted) may take within one ascendancy trial
 MIRAGE_TRIALS = 3  # ranged Attacks per Mirage tried for real (ranked by what PoB says each adds to Full DPS)
@@ -1088,7 +1099,102 @@ class Gems:
         current = skill.get("statSet") or 1
         return current in (skill.get("noDamageSets") or [])
 
+    def choice_parts(self, settle: bool, assume: tuple[str, ...]) -> dict | None:
+        """(CHOICE_MEMO) The state choose_active_skill reads, part by part; None when it can't be read whole."""
+        build = self.build
+        if build.snapshot_state is None:
+            return None
+        try:
+            return {"xml": build.call("exportXml")["xml"], "config": build.call("getConfig")["input"],
+                    "scoring": build.snapshot_state[0](),
+                    # (the resolver's and the assumptions' own state outside the XML and the scoring state: the active
+                    # conditions, the distance and movement choices, ... ; a test showed `active` moving across a choice)
+                    "conditions": self.plain_state(self.conditions), "assumptions": self.plain_state(self.assumptions),
+                    # (the objective whole: its weights move at each escalation, and the choice is the best score)
+                    "objective": {k: v for k, v in vars(build.objective).items() if not k.startswith("_")},
+                    "call": [settle, list(assume), self.scouting]}
+        except Exception:
+            return None
+
+    @staticmethod
+    def plain_state(owner) -> dict | None:
+        """(CHOICE_MEMO) An object's attributes that are plain data (JSON-able as they are), deep-copied: what a
+        remembered choice keys on and puts back; references to other objects (the build, the context) are left out."""
+        import copy
+        import json
+
+        if owner is None:
+            return None
+        out = {}
+        for k, v in vars(owner).items():
+            try:
+                json.dumps(v, sort_keys=True)
+            except (TypeError, ValueError):
+                continue
+            out[k] = copy.deepcopy(v)
+        return out
+
+    def choice_key(self, settle: bool, assume: tuple[str, ...]) -> str | None:
+        """(CHOICE_MEMO) choice_parts as a digest."""
+        import hashlib
+        import json
+
+        parts = self.choice_parts(settle, assume)
+        if parts is None:
+            return None
+        text = json.dumps(parts, sort_keys=True, default=repr)
+        return hashlib.blake2b(text.encode("utf-8", "replace"), digest_size=16).hexdigest()
+
     def choose_active_skill(self, settle: bool = True, assume: tuple[str, ...] = ()) -> None:
+        """The calculated skill's choice (_choose_active_skill), remembered by state under CHOICE_MEMO."""
+        if CHOICE_MEMO not in ("1", "check") or self.build.main_group() is None:
+            self._choose_active_skill(settle, assume)
+            return
+        memo = self.__dict__.setdefault("_choices", {})
+        stats = self.__dict__.setdefault("choice_memo", {"asked": 0, "hits": 0, "agree": 0, "disagree": 0,
+                                                         "unkeyed": 0, "seconds_saved": 0.0, "differences": []})
+        stats["asked"] += 1
+        key = self.choice_key(settle, assume)
+        if key is None:
+            stats["unkeyed"] += 1
+            self._choose_active_skill(settle, assume)
+            return
+        if key in memo and CHOICE_MEMO == "1":
+            started = clock.now()
+            stats["hits"] += 1
+            snap, seconds = memo[key]
+            for owner, saved in ((self.conditions, snap.get("conditions")), (self.assumptions, snap.get("assumptions"))):
+                for k, v in (saved or {}).items():
+                    setattr(owner, k, copy.deepcopy(v))
+            self.build.restore(snap)
+            stats["seconds_saved"] += max(seconds - (clock.now() - started), 0.0)
+            return
+        started = clock.now()
+        self._choose_active_skill(settle, assume)
+        seconds = clock.now() - started
+        group = self.build.main_group() or {}
+        # (the calculated skill, and each skill's part and stat set: bridge.groups keeps them per skill)
+        end = (group.get("mainActiveSkill"), *((k.get("part"), k.get("statSet")) for k in group.get("skills") or []))
+        if key in memo:  # (check: the choice ran; compare it with the remembered end)
+            stats["hits"] += 1
+            snap, _ = memo[key]
+            was = snap.get("choice")
+            if tuple(was or ()) == end and abs(snap["score"] - self.build.score) <= EPSILON:
+                stats["agree"] += 1
+            else:
+                stats["disagree"] += 1
+                if len(stats["differences"]) < 20:
+                    stats["differences"].append({"was": repr(was), "now": repr(end), "score_was": snap["score"],
+                                                 "score_now": self.build.score})
+            return
+        snap = self.build.snapshot()
+        snap["choice"] = end
+        snap["conditions"], snap["assumptions"] = self.plain_state(self.conditions), self.plain_state(self.assumptions)
+        memo[key] = (snap, seconds)
+        while len(memo) > CHOICE_MEMO_SIZE:
+            memo.pop(next(iter(memo)))
+
+    def _choose_active_skill(self, settle: bool = True, assume: tuple[str, ...] = ()) -> None:
         """Pick which of the main group's skills, skill parts and stat sets PoB calculates (e.g. the
         triggered skill a persistent gem grants, or Explosive Spear's explosion). Each option is
         scored with conditions and assumptions settled for it, since a stat set can be a condition's

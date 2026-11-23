@@ -121,6 +121,12 @@ RESTART_BELOW = 0.5  # of the best line's value
 # OFF: one 2b75d run with it on gave x1.77 (lines within 30%, two of them stalled in the second round), against x2.91
 # with the restarts alone (POE2T190-191); a Full DPS what-if costs about twice as much. Needs more runs per build
 FOCUS_FULL_DPS = False
+# (SPEED1, the manager 23 Nov 07:30: proposal 4) Only the LAST focus round scores Full DPS: a multi-fidelity schedule (the
+# main skill's DPS, the cheap score, for the probe and round 1; the delivered score where the line ends). Finalize's
+# Full DPS supports sweep alone moved 2b75d POE2T6320 by x2.6 and finalize adds x1.22 (median of 99 gate runs) over the
+# search's last best, because the search picks supports on the main skill; with the last round on Full DPS that round's
+# passes build on the supports the delivered score values. OFF by default (POE2_SEARCH_FULL_LAST=1)
+FULL_LAST = os.environ.get("POE2_SEARCH_FULL_LAST", "0") == "1"
 
 
 def replica_goals(goal: str, count: int) -> list[str | None]:
@@ -544,7 +550,7 @@ class Run:
                         "payload": self.payload, "skeleton": s.as_dict(), "seconds": seconds,
                         "seed": self.task_seed(7919 * (r + 1) + i + 104729 * focus_round),
                         "state": self.line_state(lines, states, s.label, r, goals[r]), "goal": goals[r],
-                        "full": FOCUS_FULL_DPS,
+                        "full": FOCUS_FULL_DPS or (FULL_LAST and focus_round == FOCUS_ROUNDS - 1),
                         # (SEARCH29: the seeded curse trial, gems.CURSE_SEEDS, once per run: the first focus task only)
                         "curses": focus_round == 0 and i == 0 and r == 0,
                         "last": focus_round == FOCUS_ROUNDS - 1})  # (SEARCH35: inner.LINE_REGROW in the line's last task)
