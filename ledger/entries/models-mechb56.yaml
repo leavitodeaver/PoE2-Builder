@@ -1,0 +1,21 @@
+- id: model-mechb56-charge-surges
+  title: "Elemental Surge / Chaotic Surge blasts from the charges the build consumes (models.charge_surge_model)"
+  kind: model
+  model: charge_surges
+  stats: ["gain_X_instilling_cold_when_charge_is_consumed", "gain_X_instilling_fire_when_charge_is_consumed",
+          "gain_X_instilling_lightning_when_charge_is_consumed", "gain_X_instilling_chaos_when_any_charge_is_consumed"]
+  skill: [Elemental Surge, Chaotic Surge]
+  confidence: MEDIUM-LOW
+  notes: >-
+    MECHB56 (MECHC53's find via the manager 15:20 22 Nov; an UNDERCOUNT: the lines had no reader). The Elemental Surge and
+    Surging Avatar notables (Amazon) and Spire of Ire gain Surges on each charge consumed (PoB parses the lines to nil and
+    never rates the granted skills). Charges consumed a second from MECH-C's charge model (build.charge_flow: Power,
+    Frenzy, Endurance; none, 0), at most 6 a type a batch; spent one a use by the main skill when it is a non-Melee
+    Projectile Attack whose projectiles don't Fork / Split (R46-7, MEDIUM); a piercing projectile's blast lands past a
+    lone boss, 0 (R46-8). Each blast its own set's PoB hit, as an added source; PoB's own entries out of Full DPS. Rows:
+    one Surge a projectile (LOW); a piercing projectile stopping within the blast (LOW).
+  sources: ["builder/search/models.py (SURGE_GAIN_LINE, surge_gains, charge_surge_model)",
+            "builder/search/assumptions.py (Assumptions.charge_surges)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (AmazonTriggerElementalSurgePlayer, ChaosSpearTriggerChaosSurgePlayer)",
+            "scratch/manager/research/double-vision-surges-r46.md (R46-7, R46-8)"]
+  status: proposed

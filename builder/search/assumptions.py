@@ -4972,6 +4972,7 @@ class Assumptions:
                     main, number(stats.get("Speed")), number(row.get("castRate")),
                     number(row.get("cooldown")) or number(main.cooldown), det_rate, forbidden)
                 hand_mods, hand_notes = hand_mods + loop_mods, hand_notes + loop_notes
+                hit_cut(build, loop_mods, main.name)  # (MECHB56: its loop's Impacts, models.USES_RAISE)
         if main is not None and group and main.name in models.FISSURE_SETS:  # (MECHB48, R37-16: PoB counts one a use)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             got = next((x for x in build.call("activeSkills", levelStats=[main.name], supportStats=[
@@ -5213,6 +5214,11 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + zenith_mods, hand_notes + zenith_notes
         for note in zenith_notes:
             build.objective.entry_scales.update(note.get("full_dps") or {})
+        surge_mods, surge_notes = self.charge_surges(  # (MECHB56: models.charge_surge_model's note)
+            found, main, [e["text"] for e in source_lines], main_types)
+        hand_mods, hand_notes = hand_mods + surge_mods, hand_notes + surge_notes
+        for note in surge_notes:
+            build.objective.entry_scales.update(note.get("full_dps") or {})
         lightning, lightning_notes = living_lightning(build)  # (MECHB42: 3 Zaps a minion; PoB's own entry out of Full DPS)
         hand_mods += [models.added_input("LivingLightning", lightning)] if lightning > 0 else []
         hand_notes += lightning_notes
@@ -5439,6 +5445,7 @@ class Assumptions:
                 main, rhythm_texts, row, number(info.get("cooldownRecovery")) or 1.0,
                 number(build.call("stats", fields=["ProjectileCount"]).get("ProjectileCount")), grenades, forbidden)
             hand_mods, hand_notes = hand_mods + rhythm_mods, hand_notes + rhythm_notes
+            hit_cut(build, rhythm_mods, main.name)  # (MECHB56: Fervour's uses, models.USES_RAISE; a cycle under 1 a cut)
         lament_texts = [e["text"] for e in source_lines if models.LAMENT_LINE.match(e["text"].strip())]
         if lament_texts and main is not None:  # (MECHB48: The Last Lament's last bolt for Life; PoB never applies it)
             from builder.search import objective as objective_mod
@@ -5450,6 +5457,7 @@ class Assumptions:
             lament_mods, lament_notes = models.last_bolt_sacrifice_model(
                 main, lament_texts, lament_stats, recovery_mod.life_flows(lament_stats), forbidden)
             hand_mods, hand_notes = hand_mods + lament_mods, hand_notes + lament_notes
+            hit_cut(build, lament_mods, main.name)  # (MECHB56: the shots with no reload, models.USES_RAISE)
         binding_texts = [e["text"] for e in source_lines if models.BINDING_LINE.match(e["text"].strip())]
         if binding_texts and main is not None:  # (MECHB48: The Unleashed's Runic Bindings; PoB reads neither line)
             binding_stats = build.call("stats", fields=["Speed", "HitChance"])
@@ -9567,8 +9575,57 @@ class Assumptions:
         mods, notes = models.midnight_zenith_model(
             hits * crit, f"{main.name}'s {hits:.3f} hits a second x {crit:.0%} crit chance", hits if area else 0.0, hit,
             breakers, breakers_how, number(crystal.get("AverageDamage")), level, number(crystal.get("Duration")),
-            number(row.get("iceCrystalLife")), set(build.ctx.request.forbid_ledger_entries))
+            life, set(build.ctx.request.forbid_ledger_entries), life_how)
         return mods, notes
+
+    def charge_surges(self, found: list[models.Skill], main: models.Skill | None, texts: list[str],
+                      main_types: set[str]) -> tuple[list[dict], list[dict]]:
+        """(MECHB56, models.charge_surge_model) Elemental / Chaotic Surge blasts: the charges the build consumes a second
+        (build.charge_flow, MECH-C's) give Surges; the main skill's non-Melee Projectile Attack uses spend them; each
+        blast its own set's PoB hit."""
+        build = self.build
+        gains = models.surge_gains(texts)
+        granted = {s.name: s for s in found if s.name in (models.ELEMENTAL_SURGE, models.CHAOTIC_SURGE)
+                   and s.group is not None}
+        if not gains or not granted:
+            return [], []
+        flow = getattr(build, "charge_flow", None) or {}
+        charges, parts = 0.0, []
+        for kind in models.SURGE_CHARGES:
+            rate, how = (flow.get(kind) or (0.0, ""))[:2]
+            if models.number(rate) > 0:
+                charges += models.number(rate)
+                parts.append(f"{kind} {models.number(rate):.3f}/s: {how}")
+        charges_how = "; ".join(parts) or "no skill of the build consumes Power, Frenzy or Endurance Charges"
+        hits, caps = {}, {}
+        for kind, (skill, label) in models.SURGE_SETS.items():
+            if skill not in granted:
+                continue
+            spot = (self.skill_spot(granted[skill].group, skill) or (None, 1))[1]
+            sets = build.call("setRates", index=granted[skill].group, active=spot)["sets"]
+            got = next((x for x in sets if x.get("label") == label), sets[0] if len(sets) == 1 else {})
+            hits[kind] = models.number(got.get("AverageDamage"))
+            caps[kind] = models.SURGE_CAP_DEFAULT  # (each set's maximum_number_of_instilling_stacks 6; its modifiers unread)
+        uses, uses_how, projectiles, pierce = 0.0, "no main skill", 1.0, False
+        if main is not None:
+            read = build.call("stats", fields=["Speed", "ProjectileCount", "ForkCountMax", "SplitCount", "PierceCount"])
+            qualifies = (main.attack and not main.melee
+                         and (main.projectile_attack or bool({"Projectile", "CrossbowAmmoSkill"} & set(main_types))))
+            forks = models.number(read.get("ForkCountMax")) > 0 or models.number(read.get("SplitCount")) > 0
+            projectiles = max(1.0, models.number(read.get("ProjectileCount")))
+            pierce = models.number(read.get("PierceCount")) > 0
+            if not qualifies:
+                uses_how = (f"{main.name} isn't a non-Melee Projectile Attack: nothing spends the Surges, 0 (other such "
+                            "skills not counted)")
+            elif forks:
+                uses_how = f"{main.name}'s projectiles Fork or Split, which gain no Surge (the keyword): 0"
+            else:
+                raise_ = models.number(getattr(build, "main_uses_raise", None) or 1.0) or 1.0
+                share = main_time_share(build, main, hits=False)
+                uses = models.number(read.get("Speed")) * share * max(1.0, raise_)
+                uses_how = f"{main.name}'s {uses:.3f} uses a second ({share:.0%} of the fight)"
+        return models.charge_surge_model(gains, charges, charges_how, uses, uses_how, projectiles, hits, caps, pierce,
+                                         set(granted), set(build.ctx.request.forbid_ledger_entries))
 
     def arctic_armour(self, found: list[models.Skill]) -> tuple[list[dict], list[dict], set[int]]:
         """(MECHB55, models.arctic_armour_model) Arctic Armour's bursts at the boss's melee hits that land on you; its

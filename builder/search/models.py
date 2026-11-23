@@ -22317,7 +22317,14 @@ def explosive_rhythm_model(main: Skill | None, texts: list[str], row: dict, reco
         fervour_uses = seconds * uncapped * attack_speed
         return (every * stacks + fervour_uses * extra) / ((build_time + seconds) * speed)
     low, high = factor(1.0), factor(1 + FERVOUR_SPEED * max(grenades, 1))
-    return [raw_mod("DPS", "MORE", 100 * (low - 1), main.name)], [{
+    # (MECHB56; MECH100's USES_RAISE) the uses part (Fervour's uncapped uses, no extra projectile) is more uses a second,
+    # each one hit: tagged so the ailment readers see them (a factor at or under 1 stays a time cut, as before). The
+    # extra projectile (hits a use) stays in the DPS value only (the lower reading for the readers).
+    uses = (every * stacks + seconds * uncapped) / ((build_time + seconds) * speed)
+    mod = raw_mod("DPS", "MORE", 100 * (low - 1), main.name)
+    if uses > 1 + 1e-9 and low > 1 + 1e-9:
+        mod[USES_RAISE] = min(uses, low)
+    return [mod], [{
         "label": f"{main.name}: Explosive Rhythm / Fervour cycle*", "value": f"x{low:.3f}", "confidence": "MEDIUM-LOW",
         "entry": RHYTHM_ENTRY,
         "basis": (f"PoB reads neither line. A Rhythm every {every} uses, +{RHYTHM_CDR:.0%} Cooldown Recovery each: "
@@ -22660,7 +22667,8 @@ def last_bolt_sacrifice_model(main: Skill | None, texts: list[str], stats: dict,
                      f"Without it: x1; with this build's recovery: x{factor:.3f}.")}
     if factor <= 1 + 1e-9:
         return [], [note]
-    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=LAMENT_ENTRY)], [note]
+    # (MECHB56; MECH100's USES_RAISE) the skipped reloads are more shots a second, each one hit: the whole factor
+    return [{**raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=LAMENT_ENTRY), USES_RAISE: factor}], [note]
 
 
 # Runic Bindings (MECHB48; COV48's lane row 12.9, The Unleashed, Revered Vestments: "Gain 1 Runic Binding on Hit with
@@ -22801,7 +22809,8 @@ def forge_hammer_loop_model(main: Skill | None, speed: float, cast_rate: float, 
                      "basis": rows + ("; the build has a Warcry to shatter it, so it's left lodged: PoB's rate with the "
                                       "shatter share stays the headline" if cries > 0 else "")}]
     factor = loop / speed
-    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=FORGE_LOOP_ENTRY)], [{
+    # (MECHB56; MECH100's USES_RAISE) the loop's Impacts are more uses a second, each one hit: the whole factor
+    return [{**raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=FORGE_LOOP_ENTRY), USES_RAISE: factor}], [{
         "label": label, "value": f"x{factor:.3f}", "confidence": "MEDIUM", "entry": FORGE_LOOP_ENTRY,
         "basis": rows + ": with no Warcry in the build, the loop is the headline (a play strategy, RESEARCH38 R38-6)",
         "play": (f"Throw Forge Hammer, then press it again at once to recall it, and repeat: {loop:.2f} Impacts a second "
@@ -24588,3 +24597,108 @@ def midnight_zenith_model(crits: float, crits_how: str, area_hits: float, hit: f
         "play": (f"Keep {MIDNIGHT_ZENITH} up and crit the boss: every {need / gain:g} crits make {per:g} Ice Crystals at "
                  "its feet; break them with area hits or a Freeze consumer before they expire. Without it: +0; with it: "
                  f"+{dps:,.0f} DPS.")}]
+
+
+# Elemental Surge and Chaotic Surge from charges consumed (MECHB56; MECHC53's find via the manager 15:20, an UNDERCOUNT:
+# the lines had no reader; plans/term-trigger-elemental-surge.md). Game files 26650308: PassiveSkills Elemental Surge
+# (AscendancyHuntress1Notable6, Amazon) gain_X_instilling_lightning_when_charge_is_consumed 3, "When you Consume a Charge,
+# Trigger Elemental Surge to gain 3 Lightning Surges"; Surging Avatar (AscendancyHuntress1Notable5) cold 2, fire 2,
+# lightning -1 ("Gain 1 fewer Lightning Surge from Triggering Elemental Surge"); Mods UniqueChaosInfusionFromCharge1
+# (Spire of Ire) gain_X_instilling_chaos_when_any_charge_is_consumed 2, "When you Consume a Charge Trigger Chaotic Surge to
+# gain 2 Chaos Surges" (checked: every Stats row holding "instilling" and its uses in PassiveSkills and Mods: these three
+# carry the charge stats; PoB parses the Surging Avatar -1 to nothing, ModCache 7515, and the gain lines to nil, ModCache
+# 9781-9789). PoB grants both skills (AmazonTriggerElementalSurgePlayer: Cold / Fire / Lightning Surge sets;
+# ChaosSpearTriggerChaosSurgePlayer: one Chaotic Surge set; each maximum_number_of_instilling_stacks 6, 15 s, no per-use
+# cap stat as Gemini Surge has) but never rates them. KeywordPopups Surge: consumed by a non-Melee Projectile Attack with
+# the weapon, its projectiles blast at the end of their flight; Split / Forked projectiles gain nothing. So:
+# - events: the charges consumed a second (MECH-C's build.charge_flow, Power + Frenzy + Endurance; each charge consumed
+#   one trigger, its batch capped at 6 a type: where one use spends several at once the batch cap binds sooner, LOW);
+#   no charge consumer: 0, said (CLAUDE.md: the build feeds it; the search may pick a charge spender);
+# - uses: the main skill's uses if it is a non-Melee Projectile Attack whose projectiles neither Fork nor Split (other
+#   such skills not counted: lower); one Surge a use (RESEARCH46 R46-7, MEDIUM: one type a projectile; one projectile
+#   a use the headline, the lower reading; row: one a projectile, as 0.4.0b's fix "more projectiles than the number of
+#   stacks you had" implies a use can spend several, LOW on a lone boss);
+# - types: Lightning before Chaos (R46-7's forum report, LOW); Cold / Fire / Lightning in proportion to their supply (no
+#   source on the order, LOW); a blast scored at its own set's PoB hit (AverageDamage, hit chance in);
+# - where it lands: at the boss for a projectile that stops on it; a piercing one flies past a lone boss: 0, the stopping
+#   count a LOW row (R46-8, as Gemini Surge's).
+SURGE_GAIN_LINE = re.compile(r"^When you Consume a Charge,? Trigger (Elemental|Chaotic) Surge to gain (\d+) "
+                             r"(Cold|Fire|Lightning|Chaos) Surges?$", re.I)
+SURGE_FEWER_LINE = re.compile(r"^Gain (\d+) fewer (Cold|Fire|Lightning) Surges? from Triggering Elemental Surge$", re.I)
+ELEMENTAL_SURGE, CHAOTIC_SURGE = "Elemental Surge", "Chaotic Surge"
+SURGE_SETS = {"Cold": (ELEMENTAL_SURGE, "Cold Surge"), "Fire": (ELEMENTAL_SURGE, "Fire Surge"),
+              "Lightning": (ELEMENTAL_SURGE, "Lightning Surge"), "Chaos": (CHAOTIC_SURGE, "Chaotic Surge")}
+SURGE_CHARGES = ("Power", "Frenzy", "Endurance")
+SURGE_CAP_DEFAULT = 6
+SURGE_ENTRY = "model-mechb56-charge-surges"
+
+
+def surge_gains(texts: list[str]) -> dict[str, float]:
+    """{type: Surges gained a charge consumed} from the build's lines (a "fewer" line taken off its type, at least 0)."""
+    gains: dict[str, float] = {}
+    for text in texts:
+        if m := SURGE_GAIN_LINE.match(text.strip()):
+            kind = m.group(3).title()
+            gains[kind] = gains.get(kind, 0.0) + float(m.group(2))
+    for text in texts:
+        if (m := SURGE_FEWER_LINE.match(text.strip())) and m.group(2).title() in gains:
+            kind = m.group(2).title()
+            gains[kind] = max(0.0, gains[kind] - float(m.group(1)))
+    return {k: v for k, v in gains.items() if v > 0}
+
+
+def charge_surge_model(gains: dict[str, float], charges: float, charges_how: str, uses: float, uses_how: str,
+                       projectiles: float, hits: dict[str, float], caps: dict[str, float], pierce: bool,
+                       granted: set[str], forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Elemental / Chaotic Surge blasts on the boss (see above) as an added source: `gains` surge_gains', `charges` the
+    charges consumed a second, `uses` the main skill's qualifying uses a second (0 when it doesn't qualify, said in
+    `uses_how`), `projectiles` its ProjectileCount, `hits` {type: its set's PoB hit}, `caps` {type: Surges held at
+    most}, `granted` the Surge skills the build has."""
+    gains = {k: v for k, v in gains.items() if SURGE_SETS[k][0] in granted}
+    if not gains or SURGE_ENTRY in forbidden:
+        return [], []
+    names = sorted({SURGE_SETS[k][0] for k in gains})
+    label = " / ".join(names) + ": Surging Blasts from charges consumed*"
+    supply = {k: max(charges, 0.0) * min(n, caps.get(k) or SURGE_CAP_DEFAULT) for k, n in gains.items()}
+    elemental = sum(v for k, v in supply.items() if k != "Chaos")
+
+    def blasts(per_use: float) -> dict[str, float]:
+        room = max(uses, 0.0) * max(per_use, 1.0)
+        taken = min(room, elemental)
+        out = {k: (taken * v / elemental if elemental > 0 else 0.0) for k, v in supply.items() if k != "Chaos"}
+        if "Chaos" in supply:  # (Lightning before Chaos, R46-7's forum report, LOW)
+            out["Chaos"] = min(room - taken, supply["Chaos"])
+        return out
+
+    def dps_of(got: dict[str, float]) -> float:
+        return sum(r * max(hits.get(k, 0.0), 0.0) for k, r in got.items())
+
+    head, many = blasts(1.0), blasts(projectiles)
+    stopped, row = dps_of(head), dps_of(many)
+    dps = 0.0 if pierce else stopped
+    scales = {s: 0.0 for s in names}  # (PoB's own entries out of Full DPS: rated here)
+    gain_text = ", ".join(f"{n:g} {k}" for k, n in sorted(gains.items()))
+    base = (f"{charges:.3f} charges consumed a second ({charges_how}), each gaining {gain_text} Surges (at most "
+            f"{SURGE_CAP_DEFAULT:g} held a type, 15 s): " + ", ".join(f"{k} {v:.2f}/s" for k, v in sorted(supply.items()))
+            + f"; against {uses_how}")
+    if dps <= 0:
+        if charges <= 0:
+            why = "no skill of the build consumes charges (or none are made)"
+        elif uses <= 0:
+            why = "nothing consumes the Surges"
+        elif pierce:
+            why = (f"its projectiles Pierce: the blast goes off where the flight ends, past a lone boss (R46-8, MEDIUM; "
+                   f"row, stopping within the blast: +{stopped:,.1f} DPS, LOW)")
+        else:
+            why = "PoB gave the Surge sets no hit"
+        return [], [{"label": label, "value": 0, "confidence": "MEDIUM", "entry": SURGE_ENTRY, "full_dps": scales,
+                     "basis": base + f": {why}, +0"}]
+    return [added_input("ChargeSurges", dps)], [{
+        "label": label, "value": round(dps, 1), "confidence": "MEDIUM-LOW", "entry": SURGE_ENTRY, "full_dps": scales,
+        "basis": (base + ": one Surge a use (R46-7, MEDIUM), "
+                  + ", ".join(f"{k} {r:.3f} blasts/s x {hits.get(k, 0.0):,.1f}" for k, r in sorted(head.items()))
+                  + f" (each its own set's PoB hit) = {dps:,.1f} DPS. Lightning before Chaos (LOW), Cold / Fire / "
+                  f"Lightning in proportion to their supply (LOW). Row, one Surge a projectile ({projectiles:g} a use): "
+                  f"+{row:,.1f} DPS (LOW). Not counted: other projectile attacks' uses (lower)"),
+        "play": ("Spend charges to feed the Surges and fire your projectile attack at the boss: each use spends one and "
+                 f"blasts where it lands. Without a charge spender: +0; with this build's: +{dps:,.0f} DPS.")}]
