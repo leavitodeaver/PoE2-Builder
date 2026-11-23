@@ -19,6 +19,7 @@ Energy node shows its worth without a real trial. Inputs on items count from the
 
 from __future__ import annotations
 
+import itertools
 import math
 import os
 import re
@@ -14265,6 +14266,26 @@ def deception_factor(cooldown: float, clone: float = DECEPTION_CLONE, uses: int 
                   f"x{mean:.2f} a use (x1 if used one at a time)")
 
 
+# A djinn's own time (MECH104; a possible OVERCOUNT: Kelari's Brutality and Deception, 0.8 s casts each every ~1.58 s on
+# build 18, fill ~101% of its time at base cast speed; at that build's own minion cast rate, 2.31 a second, they fill 55%
+# and nothing is cut: probe POE2T6508, its headline 9,557,266.1 with and without this cap). Whether a djinn performs one
+# Command at a time is UNVERIFIED (the patch notes' "Djinn" entries don't say; command_minion_does_not_interrupt only says
+# a Command doesn't cut the djinn's skill off, R29-3; RESEARCH question): the lower reading is the headline, the overlapping one a row in
+# the Command's note. A use's time is 1 / PoB's minion CastRate (the rate before the cooldown cap, with the build's
+# minion cast speed); Judgment's channel is its stages at that rate. Over 100%, the order of Commands worth the most DPS
+# gets the time. Base cast times (PoB Data/Skills/minion.lua castTime) only where PoB returned no rate.
+DJINN_CAST_TIMES = {"KnifeThrowSandDjinn": 0.8, "ExplosiveTeleportSandDjinn": 0.8, "HandSlamSandDjinn": 0.5,
+                    "LivingBombFireDjinn": 0.6, "FireRuneFireDjinn": 1.0, "MeteorFireDjinn": 2.3,
+                    "MassFusilladeFireDjinn": 2.3, "FlameSliceFireDjinn": 1.0, "ChilledGroundBurstWaterDjinn": 1.2}
+
+
+def djinn_use_seconds(command: DjinnCommand, hits: dict) -> float:
+    """The seconds of the djinn's own time one use of `command` takes, at the build's minion cast speed."""
+    rates = [number(h.get("CastRate")) for h in hits.values() if number(h.get("CastRate")) > 0]
+    seconds = 1 / max(rates) if rates else DJINN_CAST_TIMES[command.skill]
+    return seconds * (JUDGMENT_STAGES if command.skill == "HandSlamSandDjinn" else 1)
+
+
 def djinn_commands_model(rows: list[tuple[DjinnCommand, dict]], player_dps: float, chilled: float = 0.0,
                          radius: tuple[float, str] = (0.3, "the worst-case 0.3 m")
                          ) -> tuple[float, list[dict], list[dict], dict]:
@@ -14272,14 +14293,17 @@ def djinn_commands_model(rows: list[tuple[DjinnCommand, dict]], player_dps: floa
     the build has with {stat set: the bridge's minionSkillHit with it}; `player_dps`: the main skill's DPS a press's
     0.4 s costs (0 for a minion main skill); `chilled`: the share of the fight the boss stands on your Chilled Ground;
     `radius`: the scored boss's hit radius (bosses.hit_radius), for Brutality's blades."""
-    total, notes, presses = 0.0, [], {}
-    for command, hits in rows:
+    def score(command: DjinnCommand, hits: dict, share: float) -> tuple[float, dict, tuple | None, float]:
+        """(DPS, note, press, the share of the djinn's time it fills) at `share` of the Command's free use rate."""
         label = f"{command.name} (a djinn Command, added to the boss DPS)*"
         each = sum(number(h.get("AverageDamage")) or number(h.get("AverageHit")) for h in hits.values())
         if each <= 0:
-            notes.append({"label": label, "value": 0, "confidence": "LOW",
-                          "basis": f"PoB gave no hit for the djinn with {command.name} chosen: not counted (0)"})
-            continue
+            return 0.0, {"label": label, "value": 0, "confidence": "LOW",
+                         "basis": f"PoB gave no hit for the djinn with {command.name} chosen: not counted (0)"}, None, 0.0
+        if share <= 0:
+            return 0.0, {"label": label, "value": 0, "confidence": "LOW",
+                         "basis": (f"{command.name}: no time left on {command.djinn.split(',')[0]} after its better "
+                                   "Commands (one Command at a time: UNVERIFIED): not used (0)")}, None, 0.0
         found = [number(h.get("Cooldown")) for h in hits.values() if number(h.get("Cooldown")) > 0]
         cooldown = min(found) if found else command.cooldown
         factor, how, more = 1.0, "", ""
@@ -14292,14 +14316,15 @@ def djinn_commands_model(rows: list[tuple[DjinnCommand, dict]], player_dps: floa
         elif command.skill == "ExplosiveTeleportSandDjinn":
             blast = number(hits.get(1, {}).get("AverageDamage")) or number(hits.get(1, {}).get("AverageHit"))
             clone = number(hits.get(2, {}).get("AverageDamage")) or number(hits.get(2, {}).get("AverageHit"))
-            seq, seq_how = deception_factor(cooldown)
-            booms = clone_explosions(cooldown)
+            period = cooldown / share  # (the djinn's time can space its uses past the clone's life)
+            seq, seq_how = deception_factor(period)
+            booms = clone_explosions(period)
             each = blast + clone * booms
             factor = seq
             how = (f"its blast {blast:,.0f} + the clone's explosion {clone:,.0f} (PoB's \"Hidden\" set) x {booms:.2f} a use "
                    f"(a use while the last clone lives explodes it: RESEARCH29 R29-3, HIGH), both {seq_how}")
             more = (f"; the sequence bonus on the blast only: "
-                    f"{(blast * seq + clone * booms) / max(cooldown, 0.1):,.1f} DPS before the cast cost"
+                    f"{(blast * seq + clone * booms) / max(period, 0.1):,.1f} DPS before the cast cost"
                     + ("" if clone > 0 else "; PoB gave the clone's set no hit (0, labelled)"))
         elif command.skill == "HandSlamSandDjinn":
             factor = 1 + JUDGMENT_PER_STAGE * (JUDGMENT_STAGES - 1)
@@ -14312,10 +14337,10 @@ def djinn_commands_model(rows: list[tuple[DjinnCommand, dict]], player_dps: floa
             how = (f"no cooldown: up to {BRAND_LIMIT} brands live, each exploding after {BRAND_DETONATION:g} s, so one "
                    f"press every {cooldown:g} s at most (LOW)")
         elif command.skill == "FireRuneFireDjinn":
-            notes.append({"label": label, "value": 0, "confidence": "LOW",
-                          "basis": ("its runes erupt only when an enemy steps on one; a boss standing still at the target "
-                                    "isn't taken to walk onto them (0, labelled: a moving boss would trigger them)")})
-            continue
+            return 0.0, {"label": label, "value": 0, "confidence": "LOW",
+                         "basis": ("its runes erupt only when an enemy steps on one; a boss standing still at the target "
+                                   "isn't taken to walk onto them (0, labelled: a moving boss would trigger them)")
+                         }, None, 0.0
         elif command.skill == "MeteorFireDjinn":
             how = "its Emergence and its Fire Wave, one hit each"
         elif command.skill == "MassFusilladeFireDjinn":
@@ -14328,23 +14353,56 @@ def djinn_commands_model(rows: list[tuple[DjinnCommand, dict]], player_dps: floa
         elif command.skill == "ChilledGroundBurstWaterDjinn":
             factor = chilled
             how = f"only with the boss on your Chilled Ground, {chilled:.0%} of the fight"
-        every = max(cooldown, cost, 0.1)
+        every = max(cooldown, cost, 0.1) / share
         lost = player_dps * cost / every
         dps = each * factor / every - lost
         basis = (f"{command.name}: {each:,.0f} a use's hit (PoB's {command.djinn.split(',')[0]} with it chosen), {how}; "
                  f"one use every {every:.3g} s (its cooldown with your recovery"
+                 + (", spaced to the djinn's free time" if share < 1 else "")
                  + (", a press under the button cap" if command.pressed else "")
                  + f"), less {lost:,.1f} DPS for your {cost:g} s of it ({player_dps:,.0f} main-skill DPS; a Command "
                    f"stops your skill for its cast: RESEARCH29 R29-3, MEDIUM): {dps:,.1f} DPS{more}")
+        press = None
         if dps <= 0:
             basis += "; a net loss, so not used (0)"
             dps = 0.0
         elif command.pressed:
-            presses[command.name] = (1 / every, f"Command {command.name} every {every:.3g} s")
+            press = (1 / every, f"Command {command.name} every {every:.3g} s")
+        busy = 0.0 if dps <= 0 else djinn_use_seconds(command, hits) * (
+            chilled if command.skill == "ChilledGroundBurstWaterDjinn" else 1.0) / every
+        return dps, {"label": label, "value": round(dps, 1), "basis": basis, "confidence": "LOW",
+                     "play": ((f"Command {command.name} each time it is up" if command.pressed else command.name)
+                              + f" (every {every:.3g} s): with it +{dps:,.1f} DPS; without it +0.")}, press, busy
+
+    free = {command.name: score(command, hits, 1.0) for command, hits in rows}
+    shares: dict[str, float] = {}
+    for djinn in {command.djinn for command, _ in rows}:
+        mine = [(c, h) for c, h in rows if c.djinn == djinn and free[c.name][3] > 0]
+        if sum(free[c.name][3] for c, _ in mine) <= 1:
+            continue
+        best = -1.0  # (each order of priority tried: Deception's worth isn't linear in its rate)
+        for order in itertools.permutations(mine):
+            left, trial = 1.0, {}
+            for c, _ in order:
+                trial[c.name] = min(1.0, left / free[c.name][3])
+                left = max(0.0, left - trial[c.name] * free[c.name][3])
+            worth = sum(score(c, h, trial[c.name])[0] for c, h in mine)
+            if worth > best:
+                best, chosen = worth, trial
+        shares.update(chosen)
+    total, notes, presses = 0.0, [], {}
+    for command, hits in rows:
+        share = shares.get(command.name, 1.0)
+        dps, note, press, _ = score(command, hits, share) if share < 1 else free[command.name]
+        if share < 1:
+            note["basis"] += (f"; {command.djinn.split(',')[0]}'s Commands would fill "
+                              f"{sum(free[c.name][3] for c, _ in rows if c.djinn == command.djinn):.0%} of its time, so "
+                              f"this one runs at {share:.0%} of its rate (one Command at a time: UNVERIFIED, the lower "
+                              f"reading; if a djinn could overlap them: {free[command.name][0]:,.1f} DPS)")
         total += dps
-        notes.append({"label": label, "value": round(dps, 1), "basis": basis, "confidence": "LOW",
-                      "play": ((f"Command {command.name} each time it is up" if command.pressed else command.name)
-                               + f" (every {every:.3g} s): with it +{dps:,.1f} DPS; without it +0.")})
+        notes.append(note)
+        if press:
+            presses[command.name] = press
     return total, ([added_input("DjinnCommands", total)] if total > 0 else []), notes, presses
 
 

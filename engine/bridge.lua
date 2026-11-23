@@ -5096,7 +5096,8 @@ function bridge.minionSkillHit(args)
 	if ok and env and pcall(calcs.perform, env, true) and env.minion then
 		result.reason = nil
 		local output = env.minion.output or { }
-		for _, field in ipairs({ "AverageHit", "AverageDamage", "Speed", "Cooldown", "TotalDPS", "HitChance" }) do
+		-- (MECH104: CastRate is the use rate BEFORE the cooldown cap, CalcOffence 2983-3010; Speed is after it)
+		for _, field in ipairs({ "AverageHit", "AverageDamage", "Speed", "CastRate", "Cooldown", "TotalDPS", "HitChance" }) do
 			if type(output[field]) == "number" then
 				result[field] = jsonNumber(output[field])
 			end
@@ -5106,6 +5107,9 @@ function bridge.minionSkillHit(args)
 		local hand = output.MainHand or output.OffHand
 		if result.AverageHit == nil and hand and type(hand.AverageHit) == "number" then
 			result.AverageHit = jsonNumber(hand.AverageHit)
+		end
+		if result.CastRate == nil and hand and type(hand.CastRate) == "number" then
+			result.CastRate = jsonNumber(hand.CastRate)
 		end
 		result.name = env.minion.mainSkill and env.minion.mainSkill.activeEffect.grantedEffect.name or nil
 		local set = env.minion.mainSkill and env.minion.mainSkill.activeEffect.statSet
