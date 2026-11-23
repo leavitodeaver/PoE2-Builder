@@ -3515,13 +3515,45 @@ def curse_uses(build: Build, stats: dict, texts: list[str], metres: float | None
     stats = {"_curse_durations": getattr(build, "curse_durations", {}), **stats}  # (MECHB12, A25-41: Assumptions.models')
     stats = {"_curse_delays": getattr(build, "curse_delays", {}), **stats}  # (MECH86: each curse's own delay)
     stats = {"_curse_radii": getattr(build, "curse_radii", {}), **stats}  # (MECH96, R38-2: a Blasphemy aura's reach)
-    stats = {"_curse_level_caps": getattr(build, "curse_level_caps", {}),  # (MECH100: a curse gem's level cap)
-             "_boss_level": getattr(build, "curse_boss_level", 0), **stats}
+    caps, boss_level = curse_caps_now(build)  # (MECH100: a curse gem's level cap; MECH101: read for a new curse)
+    stats = {"_curse_level_caps": caps, "_boss_level": boss_level, **stats}
     # (MECH75) the hand-cast curses the search chose to let run out before each recast (models.CURSE_LAPSE)
     stats["_curse_lapse"] = set(getattr(getattr(build, "objective", None), models.CURSE_LAPSE, None) or ())
     if any(n.get("name") == models.REPULSION for g in build.groups() for n in g.get("gems") or []):
         stats["_repulsion_minion_hits"] = repulsion_minion_hits(build, stats)  # (MECH94, R36-2)
     return models.curse_uses(build.groups(), build.ctx.gems, stats, metres, texts, getattr(build, "trigger_rates", None))
+
+
+def curse_caps_now(build: Build) -> tuple[dict[str, float], int]:
+    """(MECH101; MECH100's open lag, a possible OVERCOUNT) (curse gem level caps, the boss's level) for curse_uses. The
+    caps Assumptions.models saved on the build come from its last pass, so a curse gem added since (the search's Spirit
+    step, a new hand-cast curse) had no cap in this pass and counted uncapped. Each enabled curse gem missing from the
+    saved caps is read now (the bridge's levelStats, assumptions.curse_level_caps) and saved beside them (a gem with no
+    cap stat as 0, no cap, so it isn't read again); the boss's level is read once a cap exists. Not caught: a gem whose
+    level changed since the last pass keeps its saved cap until the next (labelled)."""
+    saved = dict(getattr(build, "curse_level_caps", None) or {})
+    boss_level = getattr(build, "curse_boss_level", 0) or 0
+    gems = getattr(getattr(build, "ctx", None), "gems", None) or {}
+    curses = set(models.curse_gem_names(gems)) if gems else set()
+    if not curses:
+        return saved, boss_level
+    try:
+        groups = build.groups()
+    except (AttributeError, TypeError):
+        return saved, boss_level
+    missing = sorted({g.get("name") for grp in groups if grp.get("enabled") is not False for g in grp.get("gems") or []
+                      if g.get("enabled", True) and g.get("name") in curses} - set(saved))
+    if not missing:
+        return saved, boss_level
+    from builder.search.assumptions import curse_level_caps, enemy_level
+
+    skills = build.call("activeSkills", levelStats=missing)["skills"]
+    fresh = curse_level_caps([x for x in skills if x.get("name") in missing])
+    saved.update({name: fresh.get(name, 0.0) for name in missing})
+    if not boss_level and any(saved.values()):
+        boss_level = enemy_level(build)
+    build.curse_level_caps, build.curse_boss_level = saved, boss_level
+    return saved, boss_level
 
 
 def repulsion_minion_hits(build: Build, stats: dict) -> tuple[float, str]:

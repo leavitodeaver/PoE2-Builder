@@ -3361,7 +3361,11 @@ class Assumptions:
         build.curse_radii = {s["name"]: s["curseRadius"] for s in skills if s.get("curseRadius") is not None}
         # (MECH100: each curse gem's level cap at its level, 0 from level 18; the boss's level, for models.curse_uses)
         build.curse_level_caps = curse_level_caps(skills)
-        build.curse_boss_level = enemy_level(build) if build.curse_level_caps else 0
+        # (MECH101: every curse gem read, a gem with no cap stat as 0 = no cap, so conditions.curse_caps_now finds it)
+        curse_names = set(models.curse_gem_names(getattr(getattr(build, "ctx", None), "gems", None) or {}))
+        build.curse_level_caps = {**{s["name"]: 0.0 for s in skills if s.get("name") in curse_names
+                                     and not s.get("disabled")}, **build.curse_level_caps}
+        build.curse_boss_level = enemy_level(build) if any(build.curse_level_caps.values()) else 0
         source_lines = build.call("sourceLines")["lines"]  # (one call: the models below all read the build's lines)
         build.minion_deathless = minion_deathless(build)  # (MECHB39: Umbilicus Immortalis, for models.minion_deaths)
         line_texts = [e["text"] for e in source_lines]

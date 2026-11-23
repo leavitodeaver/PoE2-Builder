@@ -47,3 +47,50 @@ def test_the_archon_gives_pob_its_can_wither_flag():
     assert c.wither_source_flags([], {"Attack"}, {"Quarterstaff Strike"}) == []
     assert c.wither_source_flags([], {"Attack"}) == []
 
+
+class _Ctx:
+    gems = {"Despair": {"skillTypes": ["AppliesCurse", "Spell"]}, "Fireball": {"skillTypes": ["Spell"]},
+            "Enfeeble": {"skillTypes": ["AppliesCurse"]}}
+
+
+class _Build:
+    """A stand-in: Despair (gem level 15, cap 74) just added by the search, Assumptions' saved caps from before it."""
+    ctx = _Ctx()
+
+    def __init__(self, saved, boss=0):
+        self.curse_level_caps, self.curse_boss_level, self.calls = saved, boss, []
+
+    def groups(self):
+        return [{"gems": [{"name": "Despair"}, {"name": "Enfeeble"}]}, {"gems": [{"name": "Fireball"}]},
+                {"enabled": False, "gems": [{"name": "Vulnerability"}]}]
+
+    def call(self, what, **kw):
+        self.calls.append((what, kw))
+        if what == "activeSkills":
+            return {"skills": [{"name": "Despair", "disabled": False, "levelStats": {models.CURSE_LEVEL_STAT: 74}},
+                               {"name": "Enfeeble", "disabled": False, "levelStats": {}}]}
+        if what == "stats":
+            return {"LedgerEnemyLevel": 82}
+        raise KeyError(what)
+
+
+def test_a_curse_new_since_the_last_assumptions_pass_has_its_cap_read_at_once():
+    build = _Build({})
+    caps, boss = c.curse_caps_now(build)
+    assert caps == {"Despair": 74.0, "Enfeeble": 0.0} and boss == 82
+    assert build.calls[0] == ("activeSkills", {"levelStats": ["Despair", "Enfeeble"]})
+    assert build.curse_level_caps == caps and build.curse_boss_level == 82  # (saved: not read again this pass)
+    build.calls.clear()
+    assert c.curse_caps_now(build) == (caps, 82) and build.calls == []
+
+
+def test_saved_caps_for_every_curse_need_no_call():
+    build = _Build({"Despair": 74.0, "Enfeeble": 0.0}, 82)
+    assert c.curse_caps_now(build) == ({"Despair": 74.0, "Enfeeble": 0.0}, 82) and build.calls == []
+
+
+def test_the_new_curse_is_capped_in_curse_uses_first_pass():
+    stats = {"Speed": 1.0, "HitChance": 100, "_curse_level_caps": {"Despair": 74.0}, "_boss_level": 82}
+    groups = [{"gems": [{"name": "Despair"}]}, {"gems": [{"name": "Fireball"}], "main": True}]
+    capped = {u.name: u for u in models.curse_uses(groups, _Ctx.gems, stats, 3.0)}["Despair"]
+    assert capped.share == 0.0
