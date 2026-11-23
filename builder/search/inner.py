@@ -1182,7 +1182,7 @@ class Search:
             ("gear", self.gear.gear_round, (gear_deadline, full_gear)),
             # (ascendancy before supports: an ascendancy can grant a Remnant source (that build's: Into the Breach), and supports
             # swept before it scored all alike; a line's one pass of focus round 1 then ended support-less, POE2T220)
-            ("ascendancy", self.tree.ascendancy_round, ()),
+            ("ascendancy", self.tree.ascendancy_round, (deadline,)),  # (SEARCH37: the unlock trials' time)
             ("supports", self.gems.optimize_supports, (deadline, 12, sweep or "supports" in self.kicked)),
             ("tree rebuild", self.tree_rebuild, (deadline,)),
             ("tree", self.tree.grow, (deadline,)),

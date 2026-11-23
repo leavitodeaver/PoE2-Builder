@@ -49,6 +49,22 @@ TRIALS = 2  # ascendancy allocations tried for real when they grant a skill an a
 # Evasion and Energy Shield / Cost Efficiency" (bridge attribute options 4-6). It is worth nothing
 # until the attribute nodes choose, so the ascendancy round tries it for real.
 TRAVELLERS_WISDOM = "Traveller's Wisdom"
+# (SEARCH37; THE USER, 23 Nov, on the Oracle build: "ascendancies are very powerful ... it should either do that or figure
+# out a way to use the nodes it chooses to take") Ascendancy notables whose whole worth is the main-tree passives they let
+# the tree take: they score 0 alone, so the round never chose them. Which (checked: every ascendancy node's lines in PoB's
+# TreeData 0_5 tree.json against "allocat|paths not taken|without being connected|unlock", and every unlockConstraint:
+# only Oracle's 197 nodes hang on an ascendancy node; RESEARCH49 R49-9 for Oracle's two; Pathfinder's two by the tree's
+# text and PoB's ModCache AlternateClassStart only, game files UNVERIFIED): Oracle's The Unseen Path ("Walk the Paths Not
+# Taken": 197 Oracle-only nodes, PoB's unlockConstraint) and Entwined Realities (non-keystone passives in Medium radius of
+# allocated keystones without a connection: PoB's AllocateFromNodeRadius, offered by bridge.frontier at one point), and
+# Pathfinder's Path of the Sorceress / Path of the Warrior (PoB's AlternateClassStart). Each gets a real trial: the best
+# allocation holding it, then the tree's prune-and-regrow for UNLOCK_SHARE of the step's time (at most UNLOCK_SECONDS),
+# kept only if it ends higher than the same regrow on the best allocation without it (a fair control: the regrow alone
+# may gain). LOW: the two time numbers.
+UNLOCK_LINE = re.compile(r"Walk the Paths Not Taken|can be allocated without being connected to your tree"
+                         r"|Can Allocate Passive(?: Skill)?s from the \w+'s starting point", re.IGNORECASE)
+UNLOCK_SHARE = 0.25
+UNLOCK_SECONDS = 90.0
 TRAVELLER_OPTIONS = (4, 5, 6)
 
 
@@ -675,10 +691,11 @@ class Tree:
 
     # Ascendancy --------------------------------------------------------------------------------
 
-    def ascendancy_round(self) -> bool:
+    def ascendancy_round(self, deadline: float | None = None) -> bool:
         """Score every full allocation of the ascendancy points and keep the best. Large
         ascendancies are first narrowed to their strongest notables (each scored alone), then
-        enumerated exactly within that set."""
+        enumerated exactly within that set. With a deadline, a notable that unlocks main-tree passives (UNLOCK_LINE)
+        gets a real trial with the tree regrown (unlock_trial)."""
         build = self.build
         facts = build.call("facts", fields=[])
         ascendancy = facts["ascendClassName"]
@@ -752,6 +769,20 @@ class Tree:
             if with_traveller and not missing_required and self.traveller_trial(
                     max(with_traveller, key=lambda x: x[0])[1], current):
                 return True
+        if deadline is not None and not missing_required:  # (SEARCH37: notables whose worth is what they unlock)
+            for node in sorted(adjacency):
+                if node in current or node in best_ids or clock.now() > deadline:
+                    continue
+                if not any(UNLOCK_LINE.search(line) for line in (nodes[node].get("stats") or [])):
+                    continue
+                holding = self.narrowed_allocations(start, core, options, required | {node}, adjacency, current)
+                holding = [ids for ids in holding if node in ids and not locked & set(ids)]
+                if not holding:
+                    continue
+                ids = max(zip((s for s, _ in build.node_deltas([{"add": a, "remove": current} for a in holding])),
+                              holding), key=lambda x: x[0])[1]
+                if self.unlock_trial(ids, best_ids, current, deadline):
+                    return True
         if sorted(best_ids) == current or (best_score <= build.score + EPSILON and not missing_required):
             return False
         before = build.score
@@ -810,6 +841,47 @@ class Tree:
             return True
         build.restore(snap)
         return False
+
+    def unlock_trial(self, ids: list[int], control: list[int], current: list[int], deadline: float) -> bool:
+        """(SEARCH37) Take the ascendancy allocation `ids` (it holds a notable that unlocks main-tree passives), regrow the
+        tree for UNLOCK_SHARE of the time left (at most UNLOCK_SECONDS), and keep it only if it ends higher than the
+        build did and than the same regrow on `control` (the best allocation without it); a control that ends higher
+        than the build is kept instead (the regrow's own gain)."""
+        build = self.build
+        snap, before = build.snapshot(), build.score
+        now = clock.now()
+        spend = min(UNLOCK_SECONDS, UNLOCK_SHARE * max(0.0, deadline - now))
+        if spend <= 0:
+            return False
+        build.allocate(remove=current, add=ids)
+        if self.resolve is not None:
+            self.resolve()
+        self.regrow_until(now + spend)
+        trial = build.score
+        if trial <= before + EPSILON:
+            build.restore(snap)
+            return False
+        won = build.snapshot()
+        build.restore(snap)
+        if sorted(control) != current:
+            build.allocate(remove=current, add=control)
+            if self.resolve is not None:
+                self.resolve()
+        self.regrow_until(clock.now() + spend)
+        self.round += 1
+        if build.score >= trial:
+            if build.score > before + EPSILON:
+                return True
+            build.restore(snap)
+            return False
+        build.restore(won)
+        return True
+
+    def regrow_until(self, stop: float) -> None:
+        """(SEARCH37, unlock_trial) Spend free points, then prune-and-regrow while it pays, until `stop`."""
+        self.grow(stop)
+        while clock.now() < stop and self.swap_round(stop):
+            pass
 
     def traveller_trial(self, ids: list[int], current: list[int]) -> bool:
         """Take an ascendancy allocation with Traveller's Wisdom, let the attribute passives choose,

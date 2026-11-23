@@ -113,3 +113,98 @@ def test_the_gear_goes_last_only_when_the_resumed_pass_runs_out(monkeypatch):
     assert "gear" not in [p for p, _ in ran] and search.passes_done == 1
     ran, _ = run(25.0, empty=())  # (nothing empty: as gear-first off, the steps keep the whole task)
     assert ran[0][1][0] == 100.0 and "gear" not in [p for p, _ in ran]
+
+
+class _UnlockBuild:
+    """A fake build: the score is a table of (ascendancy node set, regrown) -> score."""
+
+    def __init__(self, table, alloc=(3,)):
+        self.table, self.alloc, self.grown = table, frozenset(alloc), False
+        self.score = self.real()
+
+    def real(self):
+        return self.table.get((self.alloc, self.grown), self.table.get((self.alloc, False), 10.0))
+
+    def allocate(self, remove=(), add=()):
+        self.alloc = (self.alloc - set(remove)) | frozenset(add)
+        self.score = self.real()
+
+    def snapshot(self):
+        return (self.alloc, self.grown, self.score)
+
+    def restore(self, snap):
+        self.alloc, self.grown, self.score = snap
+
+
+def _unlock_tree(build):
+    from builder.search.tree import Tree
+
+    tree = Tree.__new__(Tree)
+    tree.build, tree.round, tree.resolve = build, 0, None
+
+    def regrow_until(stop):
+        build.grown = True
+        build.score = build.real()
+
+    tree.regrow_until = regrow_until
+    return tree
+
+
+def test_an_unlocking_ascendancy_notable_is_kept_only_if_its_regrow_beats_the_same_regrow_without_it(monkeypatch):
+    """SEARCH37 (THE USER on the Oracle build, 23 Nov: The Unseen Path / Entwined Realities score 0 alone): the trial
+    takes the allocation with the unlocking notable (2), regrows the tree, and keeps it only above both the build and the
+    same regrow on the best allocation without it (3)."""
+    from builder import clock
+
+    monkeypatch.setattr(clock, "now", lambda: 0.0)
+    U, C = frozenset({2}), frozenset({3})
+    build = _UnlockBuild({(U, False): 10.0, (U, True): 20.0, (C, False): 10.0, (C, True): 12.0})
+    assert _unlock_tree(build).unlock_trial([2], [3], [3], 100.0) is True
+    assert build.alloc == U and build.score == 20.0  # (the unlock's regrow wins)
+    build = _UnlockBuild({(U, True): 20.0, (C, True): 25.0})
+    assert _unlock_tree(build).unlock_trial([2], [3], [3], 100.0) is True
+    assert build.alloc == C and build.score == 25.0  # (the control's own regrow gains more: it is kept, not the unlock)
+    build = _UnlockBuild({(U, True): 9.0})
+    assert _unlock_tree(build).unlock_trial([2], [3], [3], 100.0) is False
+    assert build.alloc == C and build.score == 10.0 and not build.grown  # (lower: all put back)
+    build = _UnlockBuild({(U, True): 20.0})
+    assert _unlock_tree(build).unlock_trial([2], [3], [3], 0.0) is False and build.alloc == C  # (no time left)
+
+
+def test_the_unlock_line_finds_the_tree_unlocking_ascendancy_notables():
+    from builder.search.tree import UNLOCK_LINE
+
+    assert UNLOCK_LINE.search("Walk the Paths Not Taken")
+    assert UNLOCK_LINE.search("Non-Keystone Passive Skills in Medium Radius of allocated Keystone Passive Skills can be "
+                              "allocated without being connected to your tree")
+    assert UNLOCK_LINE.search("Can Allocate Passive Skills from the Warrior's starting point")
+    assert not UNLOCK_LINE.search("+200 to Armour for each Connected Notable Passive Skill Allocated")
+    assert not UNLOCK_LINE.search("Grants Skill: Align Fate")
+
+
+def test_the_oracles_hidden_passives_are_offered_only_after_the_unseen_path():
+    """SEARCH37 (RESEARCH49 R49-9's open check): Oracle's 197 main-tree passives with PoB's unlockConstraint (The Unseen
+    Path, node 5571) are on the tree's frontier only once The Unseen Path is allocated; so the tree step can take them
+    after the ascendancy's unlock trial allocates it."""
+    import json
+    from pathlib import Path
+
+    from builder.pob.engine import PobEngine
+
+    tree = json.loads((Path(__file__).resolve().parents[1] / "vendor" / "PathOfBuilding-PoE2" / "src" / "TreeData" / "0_5"
+                       / "tree.json").read_text(encoding="utf-8"))["nodes"]
+    hidden = {int(k) for k, n in tree.items() if (n.get("unlockConstraint") or {}).get("ascendancy") == "Oracle"}
+    assert len(hidden) == 197
+    engine = PobEngine()
+    try:
+        engine.call("newBuild")
+        engine.call("setClass", className="Druid", ascendancy="Oracle")
+        reach = {"maxDistance": 400, "maxDistanceByType": {"Notable": 400, "Keystone": 400}}
+        before = {n["id"] for n in engine.call("frontier", **reach)["nodes"]}
+        engine.call("allocate", add=[5571])
+        after = {n["id"] for n in engine.call("frontier", **reach)["nodes"]}
+    finally:
+        engine.close()
+    assert not before & hidden
+    assert len(after & hidden) > 100  # (every one the frontier can show: nodes with stat lines, not path-only images)
+
