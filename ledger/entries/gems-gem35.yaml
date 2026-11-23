@@ -45,7 +45,8 @@
     (MEDIUM-LOW; models.verglas_expected, the breaks random in time), each crystal floored on its own a row; Frost Wall's
     12,714 is each segment's Life (R48-7, HIGH-MEDIUM); a break takes the segments its breaker reaches (R49-4,
     HIGH-MEDIUM: Glacial Cascade's spike 2, a Freeze consumer or own hits 1, a Vruun's Aftermath Warcry the wall, ~7 at
-    gem 20 LOW), rows at 1 / 3 / 5 / 9 segments a break; Glacial Bolt's two walls a bolt counted (R48-8, HIGH-MEDIUM; Ice Shards, Permafrost
+    gem 20 LOW; GEM37, R51-4, LOW: Fragmentation Rounds 2, Gelid Palm 4, Embrace The Fall the wall), rows at 1 / 3 /
+    5 / 9 segments a break; Glacial Bolt's two walls a bolt counted (R48-8, HIGH-MEDIUM; Ice Shards, Permafrost
     Bolts and Hailstorm Rounds make no crystals). Not counted: Grim Pillars, the Ice Seeds line, crystals the boss
     breaks, a main-skill Frost Wall's own. A DamageGainAsCold BASE on the main skill at the fight's average.
   sources: ["builder/search/models.py (verglas_model)", "builder/search/assumptions.py (Assumptions.verglas)",

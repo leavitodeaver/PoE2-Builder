@@ -5133,11 +5133,14 @@ class Assumptions:
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             own, own_how = self.wall_shatters(group["index"])
             boss, boss_how = self.boss_hit_rate()
-            got = next((x.get("levelStats") or {} for x in build.call(
-                "activeSkills", levelStats=[models.SHIELD_WALL])["skills"] if x["name"] == models.SHIELD_WALL), {})
+            sw_got = next((x for x in build.call(
+                "activeSkills", levelStats=[models.SHIELD_WALL], supportStats=[models.FISSURE_EXTRA_STAT])["skills"]
+                if x["name"] == models.SHIELD_WALL), {})
+            got = sw_got.get("levelStats") or {}
             more = number(got.get(models.SHIELD_WALL_STAT)) or 100.0
-            sw_mods, sw_notes = models.shield_wall_model(main, main.stat_set, sets, number(stats.get("Speed")), own,
-                                                         boss, more, f"{own_how}; {boss_how}", forbidden)
+            sw_mods, sw_notes = models.shield_wall_model(  # (GEM37, R52-1: the extra Fissures a row only)
+                main, main.stat_set, sets, number(stats.get("Speed")), own, boss, more, f"{own_how}; {boss_how}",
+                forbidden, number((sw_got.get("supportStats") or {}).get(models.FISSURE_EXTRA_STAT)))
             hand_mods, hand_notes = hand_mods + sw_mods, hand_notes + sw_notes
             hit_cut(build, sw_mods, main.name)  # (GEM33: its hit part, the mod's hit_cut)
         if main is not None and main.name == models.ENERVATING_NOVA:  # (GEM20: its damage by the boss's distance)
@@ -10129,7 +10132,7 @@ class Assumptions:
                          + (mine if mine else breaks_how))
         zenith = self.zenith_crystals(found, main, stats) if found is not None and stats is not None else None
         # (GEM36, R49-4) segments a wall break takes: the build's breaker that takes the most (BREAK_SEGMENTS; 1 for a
-        # Freeze consumer, the main skill's own hits and the other ICE_BREAKERS)
+        # Freeze consumer and the main skill's own hits; GEM37, R51-4: Fragmentation Rounds 2, Gelid Palm 4, Embrace The Fall the wall)
         seg = max((models.BREAK_SEGMENTS.get(b, 1.0) for b in breakers), default=1.0)
         glacial = self.glacial_walls(main, main_index, can_break, seg)
         return models.verglas_model(main, [models.VERGLAS], walls, wall_life, wall_how,

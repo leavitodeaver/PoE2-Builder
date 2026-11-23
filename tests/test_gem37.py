@@ -43,31 +43,28 @@ def test_own_travel_table():
     assert all(0 < d < 100 for d, _ in OWN_TRAVEL.values())
 
 
-def test_shield_wall_segment_rows():
-    """Shield Wall: the headline stays one explosion a wall (PoB's one a cast, the lower reading); rows at 3 / 5
-    segments' explosions a wall scale the whole break value (UNVERIFIED: the segment count and stacking are in no file;
-    the 0.5.0 one-hit line is Fortifying Cry's, not the segments')."""
+def test_shield_wall_one_hit_a_wall_and_kaoms_row():
+    """Shield Wall: one hit a wall on the boss however many segments reach it (0.3.0, RESEARCH52 R52-1, HIGH: no segment
+    rows); Kaom's Madness's extra Fissures a row only, (1 + extra) hits a wall (UNVERIFIED, LOW)."""
     from builder.search import models
     from builder.search.models import Skill
     sets = [{"label": "Shield Wall", "TotalDPS": 100.0, "AverageDamage": 100.0, "Speed": 1.0}]
     sw = Skill("Shield Wall", 1, attack=True)
     mods, notes = models.shield_wall_model(sw, "Shield Wall", sets, 1.0, 0.5, 0.0, 100.0, "slams")
     basis = notes[0]["basis"]
-    assert models.SHIELD_WALL_SEGMENT_ROWS == (3, 5)
-    assert "if 3 / 5 segments' explosions each hit it (UNVERIFIED" in basis
-    head = float(notes[0]["value"][1:])
-    rows = basis.rsplit("): ", 1)[1].removesuffix(" DPS").split(" / ")
-    assert [round(float(r.replace(",", "")) / (head * 100), 1) for r in rows] == [3.0, 5.0]
+    assert not hasattr(models, "SHIELD_WALL_SEGMENT_ROWS")
+    assert "One hit a wall on the boss however many segments reach it" in basis and "Kaom" not in basis
+    mods3, notes3 = models.shield_wall_model(sw, "Shield Wall", sets, 1.0, 0.5, 0.0, 100.0, "slams", fissures=3)
+    assert notes3[0]["value"] == notes[0]["value"] and mods3 == mods  # (the headline unchanged)
+    head = float(notes[0]["value"][1:]) * 100
+    row = float(notes3[0]["basis"].rsplit("x4, ", 1)[1].removesuffix(" DPS").replace(",", ""))
+    assert "3 extra Fissure(s) (Kaom's Madness)" in notes3[0]["basis"] and abs(row - 4 * head) < 1
 
 
-def test_requiem_second_button_share(fresh_rules, monkeypatch):
-    """Compose Requiem's play line names the fill's free share for a second button (an UNDERCOUNT row, text only:
-    the other skill's DPS is the search's)."""
-    monkeypatch.setattr(Usage, "talisman_blockers", lambda self, name: [])
-    rules = {"Requiem": {"usageCondition": True, "stats": {
-        "rapidshot_requiem_base_buff_count_requirement": 100, "rapidshot_requiem_number_of_stacks_per_minute": 200,
-        "rapidshot_requiem_active_duration_ms": 12000}}}
-    build = ComboBuild(rules, {"Requiem": ["Attack", "Projectile"]},
-                       [{"index": 0, "enabled": True, "gems": [{"name": "Requiem", "support": False}]}], {"Requiem": 4.2})
-    note = Usage(build, FakeConditions()).play_note("Requiem")
-    assert "the other 71% of the fight (the fill) is free for another skill" in note and "x 0.71 would add" in note
+def test_r51_4_breakers_segments():
+    """RESEARCH51 R51-4: Fragmentation Rounds ~2, Gelid Palm ~4, Embrace The Fall the whole wall (GEM36 took them at 1);
+    the rows 1 / 3 / 5 / 9 cover R51-4's (1 / 3, 3 / 5, 5 / 9)."""
+    from builder.search import models
+    seg = models.BREAK_SEGMENTS
+    assert seg["Fragmentation Rounds"] == 2.0 and seg["Gelid Palm"] == 4.0 and seg["Embrace The Fall"] == models.WALL_SEGMENTS
+    assert set(models.ICE_BREAKERS) <= set(seg) and models.VERGLAS_SEGMENT_ROWS == (1, 3, 5, 9)

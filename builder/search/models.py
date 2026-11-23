@@ -8590,10 +8590,13 @@ VERGLAS_SEGMENT_ROWS = (1, 3, 5, 9)  # (segments a break, the rows: R49-4's 1 / 
 # (GEM36, RESEARCH49 R49-4, HIGH-MEDIUM) A break takes only the segments the breaker reaches (each segment its own
 # object): Glacial Cascade's final spike ~2 (destroy_frost_wall_segment_on_hit; rows 1 and 3), a single-target Freeze
 # consumer or the main skill's own hits 1, a Vruun's Aftermath Warcry the whole wall (~7 at gem 20, LOW; rows 5 / 9).
-# The other ICE_BREAKERS (Fragmentation Rounds, Gelid Palm, Embrace The Fall) are taken at 1 (UNVERIFIED, the lower
-# reading). The build's breaker breaking the most sets the headline.
+# The other ICE_BREAKERS (GEM37, RESEARCH51 R51-4; all three carry destroy_frost_wall_segment_on_hit): Fragmentation
+# Rounds ~2 (10 shotgun bolts, Pierce 4, its spread's units a guess: LOW; rows 1 / 3), Gelid Palm ~4 (its 1.8 m area
+# about 1 m from the wall: MEDIUM-LOW; rows 3 / 5), Embrace The Fall the whole wall (a 3.7 m Slam covers the 6-7 m
+# wall: WALL_SEGMENTS, LOW; rows 5 / 9); GEM36 took them at 1. The build's breaker breaking the most sets the headline.
 WALL_SEGMENTS = 7.0
-BREAK_SEGMENTS = {"Glacial Cascade": 2.0, "Vruun's Aftermath Warcries": WALL_SEGMENTS}
+BREAK_SEGMENTS = {"Glacial Cascade": 2.0, "Vruun's Aftermath Warcries": WALL_SEGMENTS, "Fragmentation Rounds": 2.0,
+                  "Gelid Palm": 4.0, "Embrace The Fall": WALL_SEGMENTS}
 GLACIAL_BOLT, GLACIAL_BOLT_WALLS, GLACIAL_BOLT_WALL_SECONDS = "Glacial Bolt", 2, 8.0  # ("creates two walls"; 8000 ms)
 
 
@@ -9980,17 +9983,19 @@ def magnetic_salvo_model(main: Skill | None, scored: str | None, sets: list[dict
 # first costs it (and takes MECH-B's hazard_early_model first-0.5 s penalty where the build has no breaker), so the boss
 # counts only for walls your breakers wouldn't reach first. The row: no boss breaks. One Slam / Warcry / Shield Charge
 # shatters every segment of every wall (HIGH), each wall's explosion hitting the boss once (PoB's one explosion a cast;
-# the lower reading, UNVERIFIED: GEM37 found that the 0.5.0 line once cited here, "Fortifying Cry Shockwaves from a
-# single Shield Wall cannot hit the same enemy multiple times", is about Fortifying Cry's shockwaves, not the segments'
-# own explosions): up to SHIELD_WALL_LIMIT (2) a shatter: the
+# HIGH: patch 0.3.0, "When the wall is destroyed by your own skills, the entire wall is destroyed at once rather than
+# only nearby segments. However, this can only deal damage to each enemy once", never reversed (RESEARCH52 R52-1:
+# grep_notes 0.1.0-0.5.5f, a forum player and maxroll's 0.5.5 guide agree); so several segments can't add hits: not
+# possible, one hit per enemy a wall. 0.5.0's "Fortifying Cry Shockwaves from a single Shield Wall cannot hit the same
+# enemy multiple times" is Fortifying Cry's own, the same rule): up to SHIELD_WALL_LIMIT (2) a shatter: the
 # second wall stands at a shatter if no break came in the cast time it took (e^(-R x cast)); a boss break takes one
-# wall. MEDIUM-LOW. Rows (GEM37; RESEARCH47 row 32's check): "The segments explode when shattered, damaging enemies in
-# front of and around them" (ActiveSkills shield_wall), each segment's explosion 1.4 m (ShieldWallPlayer
-# active_skill_base_secondary_area_of_effect_radius 14), the wall 4 m (active_skill_base_area_of_effect_radius 40); the
-# segment count and spacing are in no file, nor whether several segments' explosions hit one enemy (UNVERIFIED), so a
-# boss beside the wall may take SHIELD_WALL_SEGMENT_ROWS explosions a wall: rows only. Ahn's Citadel
-# (SupportAhnsCitadelPlayer: wall_is_created_along_a_fissure_instead, wall_maximum_length_+% 65; Wall skills only) makes
-# the wall a longer fissure: whether more of it lies under a lone boss is the same open question (the rows cover it).
+# wall. MEDIUM-LOW. The wall is 7 m (wall_maximum_length 70); active_skill_base_area_of_effect_radius 40 is the
+# explosion's length, 4 m (shield_wall.csd: "Explosion length"), not the wall (R52-1's correction of GEM37). Ahn's
+# Citadel (SupportAhnsCitadelPlayer: wall_is_created_along_a_fissure_instead, wall_maximum_length_+% 65) reshapes and
+# lengthens the same wall: no extra hit (R52-1, MEDIUM-HIGH). Kaom's Madness and other extra-Fissure supports
+# (base_number_of_additional_fissures; Kaom's Madness 3, 20% less damage, which PoB already applies): whether each extra
+# Fissure is its own wall hitting the boss once is UNVERIFIED (R52-1), so the headline stays one hit a wall and a row
+# shows (1 + extra Fissures) hits a wall (Kaom's Madness: x4 the headline, x3.2 a wall without it; LOW).
 SHIELD_WALL = "Shield Wall"
 SHIELD_WALL_ENTRY = "model-gem20-shield-wall-shatter"
 SHIELD_WALL_SECONDS = 6.0
@@ -9998,7 +10003,6 @@ SHIELD_WALL_STAT = "shield_wall_damage_+%_final_when_slammed"
 SHIELD_WALL_BREAK_TYPES = ("Slam", "Warcry")
 SHIELD_WALL_CHARGE = "Shield Charge"
 SHIELD_WALL_LIMIT = 2  # (base_number_of_shield_walls_allowed; Overabundance's raised Limit not read)
-SHIELD_WALL_SEGMENT_ROWS = (3, 5)  # segments' explosions hitting the boss a wall: rows only (comment above; UNVERIFIED)
 
 
 def shield_wall_hits(cast: float, breaks: float, limit: int = SHIELD_WALL_LIMIT) -> float:
@@ -10009,9 +10013,10 @@ def shield_wall_hits(cast: float, breaks: float, limit: int = SHIELD_WALL_LIMIT)
 
 def shield_wall_model(main: Skill | None, scored: str | None, sets: list[dict], speed: float, own_breaks: float,
                       boss_breaks: float, more: float, how: str,
-                      forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+                      forbidden: set[str] = frozenset(), fissures: float = 0.0) -> tuple[list[dict], list[dict]]:
     """Shield Wall's explosions at the rate it's shattered (see above): `own_breaks` the build's Slam / Warcry / Shield
-    Charge uses a second, `boss_breaks` the boss's damaging uses a second, `more` the gem's "when slammed" %."""
+    Charge uses a second, `boss_breaks` the boss's damaging uses a second, `more` the gem's "when slammed" %,
+    `fissures` its supports' base_number_of_additional_fissures (Kaom's Madness: a row only)."""
     if main is None or main.name != SHIELD_WALL or SHIELD_WALL_ENTRY in forbidden or scored != SHIELD_WALL:
         return [], []
     dps = set_dps_unscaled(sets)
@@ -10041,12 +10046,11 @@ def shield_wall_model(main: Skill | None, scored: str | None, sets: list[dict], 
                   f"every wall, R31-6), the rest the boss's through a wall between you (one wall, no more): x{per:.2f} "
                   f"a break, {rate * per * blast:,.0f} DPS"
                   + ("; nothing breaks it: held at 1%" if rate <= 0 else "")
-                  + f". The row, no boss breaks: {row:.2f} a second, {row_dps:,.0f} DPS. One segment's explosion a "
-                  f"wall hits the boss (the lower reading); if " + " / ".join(f"{k}" for k in SHIELD_WALL_SEGMENT_ROWS)
-                  + " segments' explosions each hit it (UNVERIFIED: no file gives the segments or whether they stack "
-                  "on one enemy; Ahn's Citadel's fissure the same question): "
-                  + " / ".join(f"{k * rate * per * blast:,.0f}"
-                               for k in SHIELD_WALL_SEGMENT_ROWS) + " DPS"),
+                  + f". The row, no boss breaks: {row:.2f} a second, {row_dps:,.0f} DPS. One hit a wall on the boss "
+                  "however many segments reach it (0.3.0: 'this can only deal damage to each enemy once'; HIGH)"
+                  + (f". With {fissures:g} extra Fissure(s) (Kaom's Madness), if each is its own wall hitting the boss "
+                     f"once (UNVERIFIED, LOW): x{1 + fissures:g}, {(1 + fissures) * rate * per * blast:,.0f} DPS"
+                     if fissures > 0 else "")),
         "play": (f"Raise Shield Wall between you and the boss and shatter it with a Slam, a Warcry or Shield Charge for "
                  f"{more:g}% more damage, both walls at once; a boss swing through it first breaks it without the more. "
                  f"This build: {rate * per * blast:,.0f}; if the boss never breaks it: {row_dps:,.0f}; one a cast: "
