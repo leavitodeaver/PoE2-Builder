@@ -6,17 +6,43 @@ BASE = {"Speed": 2.0, "HitChance": 100.0}
 
 
 
-def test_the_archons_share_takes_the_later_of_the_glory_refill_and_the_recovery_period():
+def test_the_archon_cycle_takes_the_later_of_the_glory_refill_and_the_recovery_period():
     instance = models.GLORY_INSTANCE[models.ARCHON_OF_CHAYULA]
     assert instance == 10.0
-    # Glory refills in 30 s, past the 20 s recovery: 10 / 40
-    assert c.chayula_archon_share(1 / 40, 10.0, 20.0) == pytest.approx(0.25)
-    # Glory refills in 5 s: the 20 s recovery period decides (10 / 30); without it (the row) 10 / 15
-    assert c.chayula_archon_share(1 / 15, 10.0, 20.0) == pytest.approx(1 / 3)
-    assert c.chayula_archon_share(1 / 15, 10.0, 0.0) == pytest.approx(2 / 3)
-    # a longer Archon (duration lines) lasts longer; no Archons, nothing
-    assert c.chayula_archon_share(1 / 15, 15.0, 20.0) == pytest.approx(15 / 35)
-    assert c.chayula_archon_share(0.0, 10.0, 20.0) == 0.0
+    # Glory refills in 30 s, past the 20 s recovery: one Archon per 40 s, up 10 / 40
+    rate, up, row, _ = models.chayula_cycle(1 / 40)
+    assert rate == pytest.approx(1 / 40) and up == pytest.approx(0.25) and row == pytest.approx(0.25)
+    # Glory refills in 5 s: the 20 s recovery decides (R48-10): one per 30 s, 1/3; without it (the row) 10 / 15
+    rate, up, row, how = models.chayula_cycle(1 / 15)
+    assert rate == pytest.approx(1 / 30) and up == pytest.approx(1 / 3) and row == pytest.approx(2 / 3)
+    assert "recovery period" in how
+    # the build's Archon lines: 50% longer, recovery 100% faster (10 s), no recovery period at all
+    assert models.chayula_cycle(1 / 15, 50.0)[1] == pytest.approx(15 / 35)
+    assert models.chayula_cycle(1 / 15, 0.0, 100.0)[1] == pytest.approx(10 / 20)
+    assert models.chayula_cycle(1 / 15, no_recovery=True)[1] == pytest.approx(2 / 3)
+    assert models.chayula_cycle(0.0)[:3] == (0.0, 0.0, 0.0)
+
+
+def test_chayulas_will_hits_while_the_archon_is_up():
+    # a 10 s Archon: tornadoes at 3, 6 and 9 s live 7 + 4 + 1 = 12 s of it, an attack every 0.2 s: 60 in 10 s
+    assert c.chayula_will_hits_during(10.0) == pytest.approx(6.0)
+    # a 20 s Archon: 6 tornadoes (3..18 s): 8 + 8 + 8 + 8 + 5 + 2 = 39 s, 195 attacks in 20 s
+    assert c.chayula_will_hits_during(20.0) == pytest.approx(195 / 20)
+    assert c.chayula_will_hits_during(0.0) == 0.0
+
+
+def test_the_archons_more_damage_at_its_share_of_the_fight():
+    mods, notes = models.chayula_more_model(1 / 3, "test")
+    assert [(m["line"], m["scale"]) for m in mods] == [("1% more Physical Damage", pytest.approx(6.667, abs=1e-3)),
+                                                        ("1% more Chaos Damage", pytest.approx(6.667, abs=1e-3))]
+    assert "20% more" in notes[0]["basis"]
+    assert models.chayula_more_model(1 / 3, "x", 50.0)[0][0]["scale"] == pytest.approx(10.0)
+    assert models.chayula_more_model(0.0, "no Archon")[0] == []
+
+
+def test_the_tornados_hits_wither_too():
+    with_will = c._withered_stacks([], {**BASE, "_chayula_wither": (25.0, 4.0, 1.0, 1.0, "test", 6.0)})
+    assert with_will[0] == 8.0  # (25% x (2 + 6) hits/s x 4 s)
 
 
 def test_the_archon_withers_the_boss_only_while_it_is_up():

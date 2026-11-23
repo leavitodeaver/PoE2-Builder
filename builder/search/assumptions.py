@@ -4723,6 +4723,11 @@ class Assumptions:
                 tornado, archons, archons_how, models.number((rows or [{}])[0].get("duration")), lasts,
                 bosses.moving_ceiling({"_boss": boss}))  # (the boss preset's moving ceiling, a row: R34-3)
             hand_mods, hand_notes = hand_mods + will_mods, hand_notes + will_notes
+        if any(s.name == models.ARCHON_OF_CHAYULA for s in found):  # (MECH101, R48-12: the Archon's 20% more)
+            self.glory_caps()
+            _, chayula_up, _, chayula_how = getattr(self, "chayula", None) or (0.0, 0.0, 0.0, "its Glory wasn't read")
+            more_mods, more_notes = models.chayula_more_model(chayula_up, chayula_how, inputs.total("ArchonEffect"))
+            hand_mods, hand_notes = hand_mods + more_mods, hand_notes + more_notes
         warcries ={s.name for s in found if "Warcry" in ((build.ctx.gems.get(s.name) or {}).get("skillTypes") or [])}
         if warcries:  # (MECH-B: Echoing Cry's Echoes; COV-E's support_part_scale "warcry_echo")
             echo_mods, echo_notes = models.warcry_echo_model(found, supports, warcries, models.support_part_scale)
@@ -6047,13 +6052,20 @@ class Assumptions:
                      and s.name in {g.get("name") for g in main_group.get("gems") or []}), None)
         stats = build.call("stats", fields=models.MODEL_FIELDS)
         stats.update(models.dazed_stats(build))  # (MECH70: heavy_stun_rate)
-        texts = [line["text"] for line in build.call("sourceLines")["lines"]]
+        lines = build.call("sourceLines")["lines"]
+        texts = [line["text"] for line in lines]
         stats.update(self.glory_presence(texts))  # (MECHC50: the Presence Glory line)
         out = {}
         for s in skills:
             if (s.name in models.GLORY_SKILLS or s.name in models.GLORY_FROM_LIFE) and s.name not in out:
                 plan, how = models.glory_plan([s.name], self.glory_stats(stats, main), main, skills, texts)
                 out[s.name] = (plan.get(s.name, (0.0, 0.0))[0], how)
+        if models.ARCHON_OF_CHAYULA in out:  # (MECH101, R48-10: the Archon recovery period, models.chayula_cycle)
+            uses, how = out[models.ARCHON_OF_CHAYULA]
+            inputs = models.read_inputs(lines)
+            self.chayula = models.chayula_cycle(uses, inputs.total("ArchonDuration"), inputs.total("ArchonRecovery"),
+                                                conditions_mod.buff_expiry(texts)[0], inputs.has("ArchonNoRecovery"))
+            out[models.ARCHON_OF_CHAYULA] = (self.chayula[0], f"{self.chayula[3]}; its Glory: {how}")
         return out
 
     def pustule_cap(self, found: list["models.Skill"]) -> tuple[list[dict], list[dict]]:

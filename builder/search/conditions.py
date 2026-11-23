@@ -187,30 +187,27 @@ def withering_hex_rate(uses: list) -> tuple[float, str]:
 # stat set (ArchonOfChayulaPlayer, game 26650308; PoB other.lua 1591) has archon_of_chayula_withered_on_hit_for_4_seconds_
 # %_chance 25, skill_stat_descriptions "Grants {0}% chance to Wither enemies for 4 seconds on Hit" (a text WITHER_CHANCE
 # never matched; PoB maps no such stat: SkillStatMap / Modules have no archon_of_chayula id), granted while you are the
-# Archon. So the main skill's hits Wither the boss at that chance for 4 s, only for the share of the fight the Archon is up
-# (no flat rate: the build's own Archons a second, Assumptions.glory_caps on its Chaos hits, MECH-C's glory_plan). One
-# cycle: the Archon lasts D (10 s x the build's Archon duration lines x "Buffs on you expire slower": KeywordPopups Archon,
-# "By default, each Archon Buff lasts 10 seconds"), then the next one comes after the Glory refill (no Glory while the
-# 10 s instance is up: models.GLORY_INSTANCE, so refill = 1 / Archons - 10) or the Archon recovery period ("You cannot
-# gain any Archon Buff ... during a recovery period after you lose one, which lasts 20 seconds by default", with the
-# build's ArchonRecovery lines), whichever ends later: share = D / (D + max(refill, recovery)). Archon of Chayula taken as
-# an Archon Buff (its name, its have_archon_of_chayula stat beside have_archon_fire / _undeath, and its 10 s from the same
-# keyword: MEDIUM; whether the recovery applies to it: UNVERIFIED, the lower reading; row: no recovery period). Stacks:
-# during the Archon min(10, the other sources + chance x hits/s x 4), the rest of the fight the other sources alone, the
-# time average (each stack lives 4 s, so a stack from a hit late in the Archon outlives it: the average still holds).
-# Not counted (labelled): Chayula's Will's tornado hits (the player's triggered skill; whether its hits count as "on Hit"
-# for the Archon's grant: UNVERIFIED, the lower reading).
+# Archon. So your hits Wither the boss at that chance for 4 s, only while the Archon is up (no flat rate: the build's own
+# Archons, models.chayula_cycle: its Glory plan and the Archon recovery period, RESEARCH48 R48-10 MEDIUM-HIGH; row: no
+# recovery period). The hits: the main skill's, and Chayula's Will's while the Archon is up (R48-11, MEDIUM-HIGH: the
+# tornado is your own triggered Attack; chayula_will_hits_during, at its PoB hit chance; its hits after the Archon ends
+# don't Wither, the grant being the Archon's). Stacks: during the Archon min(10, the other sources + 25% x those hits/s x
+# 4 s), the rest of the fight the other sources alone, the time average (each stack lives 4 s, so a stack from a hit
+# late in the Archon outlives it: the average still holds).
 CHAYULA_WITHER_STAT = "archon_of_chayula_withered_on_hit_for_4_seconds_%_chance"
 CHAYULA_WITHER_SECONDS = 4.0  # (the stat id's and its text's "for 4 seconds")
 
 
-def chayula_archon_share(archons: float, lasts: float, recovery: float) -> float:
-    """Share of the fight Archon of Chayula is up (the note above): `archons` a second its Glory pays for (glory_caps),
-    each lasting `lasts` s, then the later of the Glory refill and the `recovery` period."""
-    if archons <= 0 or lasts <= 0:
+def chayula_will_hits_during(lasts: float, tornado_seconds: float = 0.0) -> float:
+    """Chayula's Will's attacks a second while an Archon of `lasts` s is up (MECH101, R48-11: only those Wither, the grant
+    being the Archon's): a tornado every 3 s from 3 s on (models.chayulas_will_model's reading), each attacking every
+    0.2 s for its `tornado_seconds` (PoB's; 0: the base 8 s) or until the Archon ends."""
+    seconds = tornado_seconds if tornado_seconds > 0 else models.CHAYULA_TORNADO_SECONDS
+    if lasts <= 0:
         return 0.0
-    refill = max(0.0, 1.0 / archons - models.GLORY_INSTANCE.get(models.ARCHON_OF_CHAYULA, 0.0))
-    return lasts / (lasts + max(refill, max(0.0, recovery)))
+    count = math.floor(lasts / models.CHAYULA_TORNADO_EVERY + 1e-9)
+    alive = sum(min(seconds, lasts - models.CHAYULA_TORNADO_EVERY * k) for k in range(1, count + 1))
+    return alive / models.CHAYULA_TORNADO_ATTACK / lasts
 
 
 def curse_lapse_candidates(build, texts: list[str]) -> list[str]:
@@ -302,8 +299,8 @@ def _withered_stacks(lines: list[str], stats: dict) -> tuple:
         else:
             idle.append(f"{WITHERING_PRESENCE} (the boss {metres:g} m away, outside your {radius:.1f} m Presence)")
     if chayula := stats.get("_chayula_wither"):  # (MECH101: Archon of Chayula's Withered, CHAYULA_WITHER_STAT's note)
-        chance, seconds, up, row, how = chayula
-        during = chance / 100 * rate * seconds
+        chance, seconds, up, row, how, will = (*chayula, 0.0)[:6]
+        during = chance / 100 * (rate + will) * seconds
         if up > 0 and during > 0:
             alone, with_it = min(float(WITHERED_MAX), stacks), min(float(WITHERED_MAX), stacks + during)
             sources.append(f"Archon of Chayula: {chance:g}% chance to Wither for {seconds:g} s on Hit while the Archon "
@@ -9288,8 +9285,9 @@ class Conditions:
                                     f"(GEM20's cycle; Shocks: {how}) / {speed:.2f} casts/s")
 
     def _chayula_wither(self, lines: list[dict], stats: dict) -> tuple | None:
-        """(MECH101) (chance %, seconds, Archon share, the no-recovery row's share, how) for Archon of Chayula's Withered
-        on Hit (CHAYULA_WITHER_STAT's note), or None when its stat isn't read."""
+        """(MECH101) (chance %, seconds, Archon share, the no-recovery row's share, how, Chayula's Will's hits a second
+        while the Archon is up) for Archon of Chayula's Withered on Hit (CHAYULA_WITHER_STAT's note), or None when its
+        stat isn't read."""
         from builder.search.assumptions import Assumptions
 
         raw = self.build.call("activeSkills", levelStats=[models.ARCHON_OF_CHAYULA])["skills"]
@@ -9298,15 +9296,21 @@ class Conditions:
         chance = number((got or {}).get(CHAYULA_WITHER_STAT))
         if got is None or chance <= 0:
             return None
-        archons, how = Assumptions(self.build).glory_caps().get(models.ARCHON_OF_CHAYULA, (0.0, "its Glory wasn't read"))
-        inputs = models.read_inputs(lines)
-        expiry = (stats.get("_buff_expiry") or (1.0, ""))[0]
-        lasts = models.ARCHON_BUFF_SECONDS * max(0.0, 1 + inputs.total("ArchonDuration") / 100) * expiry
-        recovery = models.ARCHON_RECOVERY / max(1 + inputs.total("ArchonRecovery") / 100, 1e-9)
-        up, row = chayula_archon_share(archons, lasts, recovery), chayula_archon_share(archons, lasts, 0.0)
-        return (chance, CHAYULA_WITHER_SECONDS, up, row,
-                f"{archons:.4f} Archons a second ({how}), each {lasts:g} s, then the later of the Glory refill and a "
-                f"{recovery:.1f} s Archon recovery period")
+        assumptions = Assumptions(self.build)
+        assumptions.glory_caps()  # (sets .chayula: models.chayula_cycle, R48-10's recovery period)
+        archons, up, row, how = getattr(assumptions, "chayula", None) or (0.0, 0.0, 0.0, "its Glory wasn't read")
+        tornado = next((s for s in raw if s["name"] == models.CHAYULAS_WILL and not s.get("disabled")
+                        and s.get("group") is not None), None)
+        will = 0.0
+        if tornado is not None and up > 0:  # (R48-11: its hits are yours, so they Wither while the Archon is up)
+            rows = self.build.call("useRates", indices=[tornado["group"]])["rates"]
+            hit = (number((rows or [{}])[0].get("HitChance")) or 100.0) / 100.0
+            inputs = models.read_inputs(lines)
+            lasts = models.ARCHON_BUFF_SECONDS * max(0.0, 1 + inputs.total("ArchonDuration") / 100) * (
+                (stats.get("_buff_expiry") or (1.0, ""))[0])
+            will = chayula_will_hits_during(lasts, number((rows or [{}])[0].get("duration"))) * min(hit, 1.0)
+            how += f"; Chayula's Will's {will:.2f} hits a second while it is up ({hit:.0%} hit chance; R48-11)"
+        return chance, CHAYULA_WITHER_SECONDS, up, row, how, will
 
     def _tree_jewels(self) -> list[str]:
         """(MECH92) The base names of the jewels in the build's allocated passive-tree sockets (bridge facts' items: PoB's

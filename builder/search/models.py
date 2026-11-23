@@ -18480,6 +18480,66 @@ def chayulas_will_model(tornado: Skill, archons: float, archons_how: str, durati
     return trigger_rate(CHAYULAS_WILL, hits), [note], {tornado.group}
 
 
+# Archon of Chayula's cycle (MECH101, on loan from MECH-B / MECH-C: the manager 21:55 from RESEARCH48 R48-10..12; an
+# OVERCOUNT before: glory_plan took one Archon per (its 10 s instance + the Glory refill), so the tornadoes and every
+# reader of the Archon's uses skipped the Archon recovery period). R48-10 (MEDIUM-HIGH): Archon of Chayula is an Archon
+# Buff (BuffDefinitions archon_of_chayula, built as the other six; KeywordPopups Archon: "You cannot gain any Archon Buff
+# while you already have one, or during a recovery period after you lose one, which lasts 20 seconds by default", the
+# "Archon Recovery" buff archon_delay; nothing exempts it). One cycle: the Archon lasts D (10 s x the build's Archon
+# duration lines x "Buffs on you expire slower"), then the next comes after the later of the Glory refill (no Glory while
+# the Archon is up: refill = 1 / the Glory plan's uses - its 10 s instance) and the recovery period (20 s, faster with
+# "Archon Recovery expires N% faster" lines; none with "Archon Buffs have no recovery period", ArchonNoRecovery). The
+# Archon-wide modifiers taken to apply to it (R48-10, MEDIUM). Readers: Assumptions.glory_caps caps Archon of Chayula's
+# uses with it (so press_caps, chayulas_will_model's tornadoes and the Withered reader all take the capped rate); the
+# Withered reader and the 20% more reader (chayula_more_model) take its uptime.
+def chayula_cycle(glory_uses: float, duration_inc: float = 0.0, recovery_faster: float = 0.0, expiry: float = 1.0,
+                  no_recovery: bool = False) -> tuple[float, float, float, str]:
+    """(Archons a second, the share of the fight it is up, that share with no recovery period (a row), how) from the
+    Glory plan's `glory_uses` a second and the build's Archon modifiers (the note above)."""
+    lasts = ARCHON_BUFF_SECONDS * max(0.0, 1 + duration_inc / 100) * expiry
+    if glory_uses <= 0 or lasts <= 0:
+        return 0.0, 0.0, 0.0, "no Archon of Chayula (its Glory never fills)"
+    refill = max(0.0, 1.0 / glory_uses - GLORY_INSTANCE.get(ARCHON_OF_CHAYULA, 0.0))
+    recovery = 0.0 if no_recovery else ARCHON_RECOVERY / max(1 + recovery_faster / 100, 1e-9)
+    cycle = lasts + max(refill, recovery)
+    row = lasts / (lasts + refill)
+    how = (f"one Archon of Chayula every {cycle:.1f} s: it lasts {lasts:g} s, then the later of its Glory refill "
+           f"({refill:.1f} s) and the Archon recovery period ("
+           + ("none: 'Archon Buffs have no recovery period'" if no_recovery else f"{recovery:.1f} s")
+           + "; RESEARCH48 R48-10, MEDIUM-HIGH): up "
+           f"{lasts / cycle:.0%} of the fight (without the recovery period: {row:.0%})")
+    return 1.0 / cycle, lasts / cycle, row, how
+
+
+# The Archon's own damage (MECH101 on loan, the manager 21:55 from RESEARCH48 R48-12, HIGH; an UNDERCOUNT: no reader, PoB
+# maps no archon_of_chayula stat): archon_of_chayula_physical_and_chaos_damage_+%_final 20 becomes the buff's
+# physical_damage_+%_final_from_archon_buff and chaos_damage_+%_final_from_archon_buff, "You deal more Physical and Chaos
+# Damage" (the buff's text): 20% more Physical and 20% more Chaos damage with all your damage while it is up. Counted at
+# the Archon's share of the fight (chayula_cycle): x(1 + 0.2 up) on each, exact as a time average for a more multiplier
+# on damage dealt (the ailments' and the tornado's timing within the Archon not weighed: Chayula's Will deals half its
+# hits during it at the defaults, so its share is undercounted, the lower reading). Scaled by the build's "increased
+# effect of Archon Buffs on you" lines (ArchonEffect; an Archon-wide modifier, MEDIUM).
+CHAYULA_MORE = 20.0
+
+
+def chayula_more_model(up: float, how: str, effect_inc: float = 0.0) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): the Archon of Chayula's 20% more Physical and Chaos damage at its share of the fight `up`."""
+    more = CHAYULA_MORE * max(0.0, 1 + effect_inc / 100)
+    scale = more * max(0.0, min(1.0, up))
+    note = {"label": "Archon of Chayula: 20% more Physical and Chaos damage while it is up*",
+            "value": f"{scale:.1f}% more on average",
+            "basis": (f"{more:g}% more Physical and Chaos damage (RESEARCH48 R48-12: the buff's physical_ / "
+                      f"chaos_damage_+%_final_from_archon_buff" + (f", x{1 + effect_inc / 100:.2f} Archon effect" if
+                                                                   effect_inc else "")
+                      + f") for the {up:.0%} of the fight it is up ({how}): without the Archon +0%, while it is up "
+                      f"+{more:g}%"),
+            "play": "Become the Archon whenever your Glory is full and the recovery period has passed",
+            "confidence": "MEDIUM-HIGH"}
+    if scale <= 0:
+        return [], [note]
+    return [line("1% more Physical Damage", scale), line("1% more Chaos Damage", scale)], [note]
+
+
 # "Empowered Attacks Gain N% of [Physical] Damage as Extra <Type> Damage" (MECHB41, an UNDERCOUNT; the coverage audit's
 # notables Hail "16% of Damage as Extra Cold" and Cremating Cries "15% of Physical Damage as Extra Fire"). PoB leaves both
 # unparsed (ModCache 7252-7253: nil), so they counted nothing. Now the same gain on the main skill at the share of its
