@@ -75,6 +75,7 @@ class Candidate:
     value: float = -math.inf  # score gain per point when last evaluated
     gain: float = -math.inf
     stamp: int = -1  # evaluation round; values from older rounds are stale
+    socket: bool = False  # (JEWEL1) the target is an empty jewel socket: its what-if adds Tree.socket_value
 
     @property
     def cost(self) -> int:
@@ -147,6 +148,22 @@ class Tree:
         # Nodes kept as a condition's source (builder/search/sources.py): a what-if removing one
         # can't see the condition go, so pruning leaves them alone until a reset or kick
         self.sources: set[int] = set()
+        # (JEWEL1, the tree's jewel-socket valuation, on loan from SEARCH-B) What one more filled jewel socket adds to the
+        # score (Jewels.socket_value), and filling a socket the tree just took (Jewels.fill_new_socket); both set by Jewels.
+        # A socket's what-if counts only its travel nodes (an empty socket gives nothing), so the tree never reached for
+        # sockets it would fill: with POE2_SEARCH_JEWEL_SOCKETS on, sockets join the frontier at the notables' reach and
+        # their what-if adds this value; a taken socket is filled at once and kept only if the build really gains
+        self.socket_value: Callable[[], float] | None = None
+        self.fill_socket: Callable[[int, float], bool] | None = None
+
+    @staticmethod
+    def jewel_sockets_enabled() -> bool:
+        """(JEWEL1) Jewel sockets valued at the jewel they would hold, in grow: POE2_SEARCH_JEWEL_SOCKETS, OFF by default
+        (read at call time, so a gate arm sets it per run)."""
+        return os.environ.get("POE2_SEARCH_JEWEL_SOCKETS", "0") not in ("", "0", "false", "off")
+
+    def sockets_valued(self) -> bool:
+        return self.socket_value is not None and self.fill_socket is not None and self.jewel_sockets_enabled()
 
     # Setup -------------------------------------------------------------------------------------
 
@@ -203,8 +220,12 @@ class Tree:
 
     def frontier(self, limit: int) -> list[Candidate]:
         reach = min(FAR_REACH, limit)
-        nodes = self.build.call("frontier", maxDistance=min(SMALL_REACH, limit),
-                                maxDistanceByType={"Notable": reach, "Keystone": reach})["nodes"]
+        by_type = {"Notable": reach, "Keystone": reach}
+        sockets = self.sockets_valued()
+        if sockets:
+            by_type["Socket"] = reach
+        nodes = self.build.call("frontier", maxDistance=min(SMALL_REACH, limit), maxDistanceByType=by_type,
+                                **({"sockets": True} if sockets else {}))["nodes"]
         forbidden = self.forbidden
         current: dict[int, Candidate] = {}
         for node in nodes:
@@ -213,15 +234,16 @@ class Tree:
                 continue
             known = self.candidates.get(node["id"])
             if known is None or known.path != path:
-                known = Candidate(node["id"], path)
+                known = Candidate(node["id"], path, socket=sockets and node.get("type") == "Socket")
             current[node["id"]] = known
         self.candidates = current
         return list(current.values())
 
     def evaluate(self, candidates: list[Candidate]) -> None:
         cases = [{"add": [c.id], "addPaths": True, "attribute": self.attribute} for c in candidates]
+        jewel = self.socket_value() if self.sockets_valued() and any(c.socket for c in candidates) else 0.0
         for candidate, (score, _) in zip(candidates, self.build.node_deltas(cases)):
-            candidate.gain = score - self.build.score
+            candidate.gain = score - self.build.score + (jewel if candidate.socket else 0.0)
             candidate.value = candidate.gain / max(candidate.cost, 1)
             candidate.stamp = self.round
 
@@ -289,6 +311,8 @@ class Tree:
             restricting = (set(self.restricting({c.id for c in candidates} | set(self.conquered_lines()))) - allocated
                            if self.enforce is not None else set())  # (the frontier and conquered nodes: grow takes no ascendancy)
             snap = self.build.snapshot() if restricting else None
+            socket_ids = [c.id for c in fresh if c.socket and c.id in choice] if self.sockets_valued() else []
+            socket_snap = self.build.snapshot() if socket_ids else None
             self.build.allocate(add=choice, attribute=self.attribute)
             self.round += 1
             self.allocations_since_full += 1
@@ -301,6 +325,17 @@ class Tree:
                 runner_up = max((c.value for c in fresh if c.id not in choice), default=EPSILON)
                 if self.build.worse(before) or (self.build.score - before) / max(len(added), 1) < runner_up:
                     self.build.restore(snap)
+                    for node_id in choice:
+                        self.candidates.pop(node_id, None)
+                    rejected.update(choice)
+                    self.allocations_since_full = FULL_EVERY
+                    continue
+            if socket_snap is not None:
+                # (JEWEL1) its value was the jewel it would hold: fill it now, and keep it only for a real gain
+                for socket in socket_ids:
+                    self.fill_socket(socket, deadline)
+                if self.build.score <= before + EPSILON:
+                    self.build.restore(socket_snap)
                     for node_id in choice:
                         self.candidates.pop(node_id, None)
                     rejected.update(choice)

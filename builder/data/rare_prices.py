@@ -52,6 +52,8 @@ LUCKY, UNLUCKY = 0.4, 2.3
 
 def category(slot: str) -> str:
     """Model category for an equipment slot ("Ring 2", "Jewel 26725", "Weapon 1", ...)."""
+    if " Jewel Socket " in slot:  # (JEWEL1) a jewel in an item's socket: PoB's "Body Armour Jewel Socket 1", ...
+        return "jewel"
     if slot.startswith("Weapon 1"):
         return "weapon"
     if slot.startswith("Weapon 2"):

@@ -25,7 +25,7 @@ emotions each, all different combinations), 17 of
 them anoint-only (not on the tree's graph: Bastion of Light, Paragon, Magnum Opus, ...). Source: PoB's
 TreeData/<version>/tree.lua (MEDIUM: the game's BlightCraftingRecipes tables are added to the game-file export, but
 Steam was updating the game on 11 Nov and the export refused, so they aren't cross-checked yet). Zarokh's Gift (a
-Sinister Jewel Socket) is left out, labelled: the search puts no jewel in a socket an item grants.
+Sinister Jewel Socket) is anointed by the jewel search's own trial with the socket filled (JEWEL1: jewels.zarokh_trial).
 
 Prices: each emotion's poe.ninja exchange price (Delirium overview), summed over the recipe. The "Ancient" emotions
 (Metadata ...TimeLost) are not taken as substitutes (UNVERIFIED whether recipes accept them).
@@ -47,9 +47,12 @@ EMOTIONS = {
     "Isolation": "Concentrated Liquid Isolation",
     "Melancholy": "Potent Liquid Melancholy", "Ferocity": "Potent Liquid Ferocity", "Contempt": "Potent Liquid Contempt",
 }
-# (SEARCH34: a Sinister socket that IS allocated, by an import or a request, now gets a plain rare (jewels.sockets); the
-# anoint's own trial still scores the socket empty, so it would never win one: left out until that trial fills it)
-LEFT_OUT = {"Zarokh's Gift": "grants a Sinister Jewel Socket; the anoint's trial doesn't fill the socket it grants yet"}
+# (SEARCH34: a Sinister socket that IS allocated, by an import or a request, gets a plain rare (jewels.sockets).) Zarokh's
+# Gift was left out here while no trial filled the socket it grants; JEWEL1's Jewels.zarokh_trial now anoints it with
+# the socket filled, and gear's own anoint trial then scores it with the jewel in place (PoB counts a jewel only while its
+# socket node is allocated, CalcSetup 1264). Gear's screen still scores it with the socket empty, so it never adds it
+# itself: the jewel trial does
+LEFT_OUT: dict[str, str] = {}
 TWO_ANOINT_BASES = {"Twisted Amulet", "Distorted Amulet"}  # 0.5.0 patch notes (MEDIUM)
 # Tagged lines too: PoB's text of Strugglescream holds both variants' ({variant:1} 2, {variant:2} 3), and PoB takes the
 # last variant (Current) when none is selected, so the last such line counts
