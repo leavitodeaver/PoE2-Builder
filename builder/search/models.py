@@ -8567,7 +8567,7 @@ def grenade_count_model(main: Skill | None, scored: str | None, sets: list[dict]
 #   Ice Crystals"), or the main skill's hits dealing its Life within the wall's 8 s (PoB's hit DPS; the crystal's own
 #   damage taken UNVERIFIED, as R45-2). (GEM36, R48-7: the 12,714 is each segment's Life, HIGH-MEDIUM; the count is
 #   unsettled, ~7 at gem 20 LOW) The headline keeps ONE segment a wall (the lower honest reading: what a breaker's hit
-#   destroys of a wall is not in the files); rows with the whole wall broken at 5 / 7 / 9 segments (VERGLAS_SEGMENT_ROWS).
+#   destroys of a wall is not in the files); superseded by R49-4 (BREAK_SEGMENTS below: segments a break by breaker).
 # - Frozen Locus (its side groups): uses a second x the share broken before its 10 s (1 - e^(-10 R), R its breakers a
 #   second, Assumptions.locus_breaks; GEM20's reading), its crystal's Life (PoB's IceCrystalLife on its group).
 # - Midnight Zenith (Eventide Petals; GEM36, the manager's GEM36 brief item 1): the crystals MECHB55's
@@ -8586,7 +8586,14 @@ VERGLAS_PER, VERGLAS_LIFE, VERGLAS_SECONDS = 1.0, 2000.0, 6.0  # % per 2000 crys
 VERGLAS_ENTRY = "model-gem35-verglas-crystal-shatter"
 
 
-VERGLAS_SEGMENT_ROWS = (5, 7, 9)  # (RESEARCH48 R48-7: a Frost Wall's segments, ~7 at gem 20 LOW, rows 5 and 9)
+VERGLAS_SEGMENT_ROWS = (1, 3, 5, 9)  # (segments a break, the rows: R49-4's 1 / 3 for a spike, R48-7's 5 / 9 a wall)
+# (GEM36, RESEARCH49 R49-4, HIGH-MEDIUM) A break takes only the segments the breaker reaches (each segment its own
+# object): Glacial Cascade's final spike ~2 (destroy_frost_wall_segment_on_hit; rows 1 and 3), a single-target Freeze
+# consumer or the main skill's own hits 1, a Vruun's Aftermath Warcry the whole wall (~7 at gem 20, LOW; rows 5 / 9).
+# The other ICE_BREAKERS (Fragmentation Rounds, Gelid Palm, Embrace The Fall) are taken at 1 (UNVERIFIED, the lower
+# reading). The build's breaker breaking the most sets the headline.
+WALL_SEGMENTS = 7.0
+BREAK_SEGMENTS = {"Glacial Cascade": 2.0, "Vruun's Aftermath Warcries": WALL_SEGMENTS}
 GLACIAL_BOLT, GLACIAL_BOLT_WALLS, GLACIAL_BOLT_WALL_SECONDS = "Glacial Bolt", 2, 8.0  # ("creates two walls"; 8000 ms)
 
 
@@ -8620,8 +8627,10 @@ def verglas_expected(events: list[tuple[float, float]]) -> float:
 
 def verglas_model(main: Skill | None, supports: list[str], walls: float, wall_life: float, wall_how: str,
                   can_break: str, locus: float, locus_life: float, locus_how: str,
-                  forbidden: set[str] = frozenset(), others: tuple = ()) -> tuple[list[dict], list[dict]]:
-    """Verglas on the main skill (comment above): `walls` Frost Walls a second whose segment the build breaks, `wall_life`
+                  forbidden: set[str] = frozenset(), others: tuple = (),
+                  segments: float = 1.0) -> tuple[list[dict], list[dict]]:
+    """(GEM36, R49-4: `segments` a Frost Wall break destroys; an `others` wall's as a 6th element) Verglas on the main
+    skill (comment above): `walls` Frost Walls a second whose segment the build breaks, `wall_life`
     a segment's Life, `can_break` what breaks it ("" none), `locus` Frozen Locus crystals destroyed a second, `locus_life`
     its crystal's Life, the `how`s their bases; `others` more makers as (name, crystals destroyed a second, Life, how) or
     (..., True) for a wall broken one segment at a time (GEM36: Midnight Zenith's, midnight_breaks; Glacial Bolt's walls).
@@ -8634,37 +8643,38 @@ def verglas_model(main: Skill | None, supports: list[str], walls: float, wall_li
     sources = []  # (name, crystals destroyed a second, Life each, how, a wall)
     if walls > 0 and wall_life > 0:
         if can_break:
-            sources.append((FROST_WALL, walls, wall_life, f"{wall_how}; one segment a wall broken by {can_break}", True))
+            sources.append((FROST_WALL, walls, wall_life, f"{wall_how}; {segments:g} segment(s) a wall broken by "
+                                                          f"{can_break} (R49-4)", True, segments))
         else:
             sources.append((FROST_WALL, 0.0, wall_life, f"{wall_how}; nothing in the build breaks its {wall_life:,.0f}-Life "
-                                                         "segment within its 8 s", True))
+                                                         "segment within its 8 s", True, 1.0))
     if locus > 0 and locus_life > 0:
-        sources.append((FROZEN_LOCUS, locus, locus_life, locus_how, False))
+        sources.append((FROZEN_LOCUS, locus, locus_life, locus_how, False, 1.0))
     for other in others:
         name, rate, life, how = other[:4]
         if life > 0:
-            sources.append((name, max(rate, 0.0), life, how, bool(other[4]) if len(other) > 4 else False))
+            sources.append((name, max(rate, 0.0), life, how, bool(other[4]) if len(other) > 4 else False,
+                            float(other[5]) if len(other) > 5 else 1.0))
     whole = lambda life: math.floor(life / VERGLAS_LIFE) * VERGLAS_PER
-    gain = verglas_expected([(rate, life) for _, rate, life, _, _ in sources])
-    each = sum(rate * whole(life) * VERGLAS_SECONDS for _, rate, life, _, _ in sources)
-    live = [(name, rate, life) for name, rate, life, _, _ in sources if rate > 0 and whole(life) > 0]
+    gain = verglas_expected([(rate, life * n) for _, rate, life, _, _, n in sources])
+    each = sum(rate * n * whole(life) * VERGLAS_SECONDS for _, rate, life, _, _, n in sources)
+    live = [(name, rate, life) for name, rate, life, _, _, _ in sources if rate > 0 and whole(life) > 0]
     single = max((whole(life) * min(1.0, rate * VERGLAS_SECONDS) for _, rate, life in live), default=0.0)
     wall_rows = ""
-    if any(wall and rate > 0 for _, rate, _, _, wall in sources):
-        wall_rows = "; each wall broken whole (R48-7: the segment count unsettled, ~7 at gem 20 LOW): " + ", ".join(
-            f"{n} segments +" + format(verglas_expected([(rate, life * (n if wall else 1))
-                                                       for _, rate, life, _, wall in sources]), ".1f") + "%"
-            for n in VERGLAS_SEGMENT_ROWS)
-    parts = "; ".join(f"{name}: {rate:.2f} crystals a second of {life:,.0f} Life ({how})" for name, rate, life, how, _
-                      in sources) or ("no Ice Crystal maker in the build (Frost Wall / Frozen Locus / Midnight Zenith / "
+    if any(wall and rate > 0 for _, rate, _, _, wall, _ in sources):
+        wall_rows = ("; segments a wall break takes (R49-4: a spike 1-3, a Warcry the wall, ~7 LOW): " + ", ".join(
+            f"{k} segments +" + format(verglas_expected([(rate, life * (k if wall else n))
+                                                       for _, rate, life, _, wall, n in sources]), ".1f") + "%"
+            for k in VERGLAS_SEGMENT_ROWS))
+    parts = "; ".join(f"{name}: {rate:.2f} breaks a second x {n:g} crystal(s) of {life:,.0f} Life ({how})"
+                      for name, rate, life, how, _, n in sources) or ("no Ice Crystal maker in the build (Frost Wall / Frozen Locus / Midnight Zenith / "
                                       "Glacial Bolt counted; Grim Pillars, the Ice Seeds line not)")
     note = {"label": label, "value": f"+{gain:.1f}%", "confidence": "MEDIUM-LOW", "entry": VERGLAS_ENTRY,
             "basis": (f"PoB maps none of {VERGLAS}'s stats. {VERGLAS_PER:g}% of Damage Gained as extra Cold per 2,000 "
                       f"of the maximum Life of the Ice Crystals you destroyed in the past {VERGLAS_SECONDS:g} s, summed "
                       f"(RESEARCH48 R48-6, MEDIUM: the running-total stat pair support_crystalshatter_buff_crystal_life_"
                       f"destroyed_in_past_duration / its track_ twin) and the total floored (MEDIUM-LOW), the breaks "
-                      f"taken as random in time: {parts}: +{gain:.1f}% on average (one segment a wall broken, the lower "
-                      f"reading). Rows: each crystal floored on its own +{each:.1f}%; one crystal at a time "
+                      f"taken as random in time: {parts}: +{gain:.1f}% on average. Rows: each crystal floored on its own +{each:.1f}%; one crystal at a time "
                       f"+{single:.1f}%{wall_rows}. Not counted: Grim Pillars, the Ice Seeds line, crystals the boss "
                       "breaks"),
             "play": (f"Keep destroying your own Ice Crystals: each one feeds {main.name} with {VERGLAS} (without them "

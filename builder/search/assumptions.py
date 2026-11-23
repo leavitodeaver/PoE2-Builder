@@ -10125,12 +10125,16 @@ class Assumptions:
             locus_how = (f"{uses:.2f} uses a second, {q:.0%} broken within its {models.FROZEN_LOCUS_SECONDS:g} s by "
                          + (mine if mine else breaks_how))
         zenith = self.zenith_crystals(found, main, stats) if found is not None and stats is not None else None
-        glacial = self.glacial_walls(main, main_index, can_break)
+        # (GEM36, R49-4) segments a wall break takes: the build's breaker that takes the most (BREAK_SEGMENTS; 1 for a
+        # Freeze consumer, the main skill's own hits and the other ICE_BREAKERS)
+        seg = max((models.BREAK_SEGMENTS.get(b, 1.0) for b in breakers), default=1.0)
+        glacial = self.glacial_walls(main, main_index, can_break, seg)
         return models.verglas_model(main, [models.VERGLAS], walls, wall_life, wall_how,
                                     can_break(wall_life, models.FROST_WALL_SECONDS), locus, locus_life, locus_how,
-                                    forbidden, others=tuple(x for x in (zenith, glacial) if x))
+                                    forbidden, others=tuple(x for x in (zenith, glacial) if x),
+                                    segments=seg if breakers else 1.0)
 
-    def glacial_walls(self, main, main_index, can_break):
+    def glacial_walls(self, main, main_index, can_break, segments=1.0):
         """(GEM36, R48-8) Glacial Bolt's Ice Crystal walls for Verglas: (name, walls broken a second (one segment each),
         a segment's Life, how, True), or None without Glacial Bolt: its side groups (_side_rows) and the main skill's own
         bolts (PoB's Speed x its share of the fight), 2 walls a bolt, broken by `can_break` within the walls' 8 s."""
@@ -10157,10 +10161,11 @@ class Assumptions:
             return None
         walls = bolts * models.GLACIAL_BOLT_WALLS
         by = can_break(life, models.GLACIAL_BOLT_WALL_SECONDS)
-        how = "; ".join(hows) + (f"; {models.GLACIAL_BOLT_WALLS} walls a bolt, one segment a wall broken by {by}" if by
+        how = "; ".join(hows) + (f"; {models.GLACIAL_BOLT_WALLS} walls a bolt, broken by {by}" if by
                                  else f"; nothing in the build breaks its {life:,.0f}-Life segment within its "
                                       f"{models.GLACIAL_BOLT_WALL_SECONDS:g} s")
-        return (models.GLACIAL_BOLT, walls if by else 0.0, life, how, True)
+        own_only = by and by.endswith("a crystal)")  # (the main skill's own hits: one segment, R49-4)
+        return (models.GLACIAL_BOLT, walls if by else 0.0, life, how, True, 1.0 if own_only else segments)
 
     def zenith_crystals(self, found, main, stats):
         """(GEM36) Midnight Zenith's Ice Crystals for Verglas: (name, destroyed a second, Life, how), or None without a

@@ -29,7 +29,7 @@ def test_verglas_reads_zenith_crystals():
     mods, notes = models.verglas_model(fb, ["Verglas"], 0.0, 0.0, "", "", 0.0, 0.0, "",
                                        others=((models.MIDNIGHT_ZENITH, 1.0, 4768.0, "test"),))
     want = sum(math.exp(-6) * 6 ** k / math.factorial(k) * math.floor(k * 4768 / 2000) for k in range(80))
-    assert mods[0]["value"] == pytest.approx(want, abs=1e-3) and "Midnight Zenith: 1.00 crystals" in notes[0]["basis"]
+    assert mods[0]["value"] == pytest.approx(want, abs=1e-3) and "Midnight Zenith: 1.00 breaks a second x 1 crystal(s)" in notes[0]["basis"]
     assert "each crystal floored on its own +12.0%" in notes[0]["basis"]
     assert "Midnight Star" not in notes[0]["basis"]
     # beside a Frost Wall: the two add
@@ -76,7 +76,7 @@ def test_verglas_glacial_bolt_walls_and_rows():
                                        others=((models.GLACIAL_BOLT, 0.5, 12714.0, "test", True),))
     want = sum(math.exp(-3) * 3 ** k / math.factorial(k) * math.floor(k * 12714 / 2000) for k in range(80))
     assert mods[0]["value"] == pytest.approx(want, abs=1e-3)
-    assert "5 segments +" in notes[0]["basis"] and "9 segments +" in notes[0]["basis"]
+    assert "3 segments +" in notes[0]["basis"] and "9 segments +" in notes[0]["basis"]
     assert "Glacial Bolt's wall" not in notes[0]["basis"]  # (no longer "not counted")
 
 
@@ -84,3 +84,14 @@ def test_gas_grenade_cloud_life():
     assert models.gas_cloud_life(0.5, *models.GAS_GRENADE_CLOUD["Gas Grenade"]) == pytest.approx(6.0)
     assert models.gas_cloud_life(2.0, *models.GAS_GRENADE_CLOUD["Gas Grenade"]) == pytest.approx(3.0)
     assert models.gas_cloud_life(2.0) == pytest.approx(3.0)  # (Gas Arrow's default 6 / 4 s, unchanged)
+
+
+def test_verglas_segments_a_break():
+    """(R49-4) a wall break takes the segments its breaker reaches: 2 for Glacial Cascade's spike, the wall for a Warcry."""
+    fb = Skill("Frostbolt", 1)
+    one, _ = models.verglas_model(fb, ["Verglas"], 0.2, 12714.0, "cd", "x", 0.0, 0.0, "")
+    two, notes = models.verglas_model(fb, ["Verglas"], 0.2, 12714.0, "cd", "Glacial Cascade", 0.0, 0.0, "", segments=2.0)
+    want = sum(math.exp(-1.2) * 1.2 ** k / math.factorial(k) * math.floor(k * 2 * 12714 / 2000) for k in range(80))
+    assert two[0]["value"] == pytest.approx(want, abs=1e-3) and two[0]["value"] > one[0]["value"]
+    assert "2 segment(s) a wall" in notes[0]["basis"]
+    assert models.BREAK_SEGMENTS["Glacial Cascade"] == 2.0 and models.BREAK_SEGMENTS["Vruun's Aftermath Warcries"] == 7.0
