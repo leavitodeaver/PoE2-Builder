@@ -219,7 +219,9 @@ def test_align_fate_empowers_one_cast_a_visage_and_the_visage_cast_is_a_row():
     mods, notes = models.align_fate_model(spark, ["Spark", "Fireball"], level, 2.0)
     mine = 1 / (9.15 / 1.5) / 2
     assert mods[0]["value"] == pytest.approx(100 * 0.3 * mine / 2.0, abs=0.01)
-    assert f"x{1 + 1.3 * mine / 2.0:.3f} (a row)" in notes[0]["basis"]
+    # (MECHB57, R49-8: the visage's own cast is now in the headline, a USES_RAISE more; Fireball's hit not given: 0)
+    assert mods[1][models.USES_RAISE] == pytest.approx(1 + mine / 2.0, abs=1e-6)
+    assert f"x{1 + 0.3 * mine / 2.0:.3f}" in notes[0]["basis"]  # (the Empowers-only row)
     assert models.align_fate_model(spark, ["Fireball"], level, 2.0)[0] == []
 
 

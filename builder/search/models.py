@@ -24142,6 +24142,13 @@ def ice_shards_note(main: Skill | None) -> list[dict]:
 # than the visages come: one Empowered cast per visage). Whether a visage's own cast uses your stats is UNVERIFIED (a
 # 0.5.0 fix hints it does, LOW): the headline counts the Empowered casts only (the lower reading), the visage's own cast
 # at your damage a row. Cooldown recovery on the interval is not read (the lower reading).
+# (MECHB57; the manager 01:15 23 Nov from the user's Oracle review, "ascendancy skills must be used"; RESEARCH49 R49-8)
+# The model above scored only the main Spell's Empower, so an Attack main skill (the Oracle's Tempest Bell) read 0. Now:
+# visages a second = (1 + 25% x S) x the build's Cooldown Recovery Rate (it applies since 0.5.0) / the gem's interval;
+# each casts one of the S valid Spells at random (UNVERIFIED; "always the main Spell" a row), a free cast at your damage
+# (MEDIUM-LOW) for EVERY valid Spell (the main Spell's as more uses, models.USES_RAISE; the others' as added sources at
+# their PoB hit), plus the main Spell's Empower on its picked share. The rate by S is in the note for SEARCH37 (filler
+# Spells as a play strategy); 1.25^S (stacked) a row.
 ALIGN_FATE, ALIGN_FATE_ENTRY = "Align Fate", "model-mechb51-align-fate"
 ALIGN_INTERVAL_STAT = "base_cooldown_modifiable_repeat_interval_ms"
 ALIGN_PER_SPELL_STAT, ALIGN_MORE_STAT = ("spellflux_frequency_+%_final_per_socketed_valid_spell",
@@ -24149,38 +24156,99 @@ ALIGN_PER_SPELL_STAT, ALIGN_MORE_STAT = ("spellflux_frequency_+%_final_per_socke
 ALIGN_QUALITY_STAT = "spellflux_frequency_+%_final"
 
 
-def align_fate_model(main: Skill | None, valid: list[str], level: dict, speed: float,
-                     forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
-    """Align Fate's Empowered casts of the main Spell (see above). `valid` the build's spells a visage may cast, `level`
-    Align Fate's level stats, `speed` the main Spell's casts a second."""
-    if main is None or not main.spell or ALIGN_FATE_ENTRY in forbidden or speed <= 0:
-        return [], []
-    if main.name not in valid:
-        return [], [{"label": f"{main.name}: Align Fate's visages don't cast it*", "value": "x1.000",
-                     "confidence": "MEDIUM", "entry": ALIGN_FATE_ENTRY,
-                     "basis": ("visages cast only damaging, non-Channelling, non-Buff Spells with no cooldown: "
-                               f"{main.name} isn't one, so none of its casts is Empowered")}]
-    n = len(valid)
+ALIGN_STACKED_PER = 1.25  # (R49-8's other reading of "25% more per Spell": stacked, 1.25^S, UNVERIFIED; a row)
+
+
+def align_fate_rate(level: dict, n: int, recovery: float = 1.0, stacked: bool = False) -> tuple[float, float]:
+    """(visages a second, the interval in s) for `n` valid Spells: the gem's interval / (1 + 25% x n) (stacked:
+    / 1.25^n)
+    / (1 + quality) / the build's Cooldown Recovery Rate (cooldown_recovery_modifiers_also_apply_to_repeat_interval,
+    0.5.0; R49-8)."""
     base = number(level.get(ALIGN_INTERVAL_STAT)) / 1000 or 12.0
     per = number(level.get(ALIGN_PER_SPELL_STAT)) or 25.0
-    more = number(level.get(ALIGN_MORE_STAT)) or 30.0
     quality = number(level.get(ALIGN_QUALITY_STAT))
-    interval = base / (1 + per / 100 * n) / (1 + quality / 100)
-    mine = 1 / interval / n  # (visages a second that pick the main Spell)
-    empowered = min(mine, speed) / speed
-    head = 1 + more / 100 * empowered
-    row = head + min(mine, speed) / speed
-    return [raw_mod("DPS", "MORE", 100 * (head - 1), main.name, tag=ALIGN_FATE_ENTRY)], [{
-        "label": f"{main.name}: Align Fate Empowers one cast a visage*", "value": f"x{head:.3f}", "confidence": "LOW",
-        "entry": ALIGN_FATE_ENTRY,
-        "basis": (f"PoB counts none of Align Fate. A visage every {interval:.2f} s ({base:g} s / (1 + {per:g}% x {n} "
-                  f"valid Spells: {', '.join(valid)})" + (f" / {1 + quality / 100:.2f} quality" if quality else "")
-                  + f"; cooldown recovery not read), each casting one of them at random (RESEARCH41 R41-9, MEDIUM-HIGH): "
-                  f"{mine:.3f} a second cast {main.name}, each Empowering your next cast of it ({more:g}% more) of your "
-                  f"{speed:.2f} a second: x{head:.3f}. Whether the visage's own cast uses your stats is UNVERIFIED "
-                  f"(R41-9, LOW that it does): not counted; with it at your damage, x{row:.3f} (a row)"),
-        "play": (f"Keep casting {main.name}: each visage that casts it Empowers your next one. Fewer valid Spells means "
-                 f"more of the visages cast {main.name}.")}]
+    more = (1 + per / 100) ** n if stacked else 1 + per / 100 * n
+    interval = base / more / (1 + quality / 100) / max(recovery, 1e-6)
+    return (1 / interval if n > 0 else 0.0), interval
+
+
+def align_fate_model(main: Skill | None, valid: list[str], level: dict, speed: float,
+                     forbidden: set[str] = frozenset(), recovery: float = 1.0,
+                     hits: dict[str, float] | None = None) -> tuple[list[dict], list[dict]]:
+    """Align Fate's visages (see above; MECHB57, the manager 01:15 23 Nov, RESEARCH49 R49-8). `valid` the build's
+    Spells a
+    visage may cast, `level` Align Fate's level stats, `speed` the main skill's uses a second, `recovery` Align Fate's
+    Cooldown Recovery Rate (PoB's multiplier), `hits` each valid Spell's PoB hit a cast (AverageDamage of its scored
+    set). Mods: [the main Spell's Empower (a "DPS" MORE), its free visage casts (a "DPS" MORE tagged USES_RAISE), each
+    other valid Spell's free visage casts (an added source)]; the Empower mod first when there is one."""
+    if ALIGN_FATE_ENTRY in forbidden or main is None:
+        return [], []
+    n = len(valid)
+    label = "Align Fate's visages*"
+    if n == 0:
+        return [], [{"label": label, "value": "0", "confidence": "MEDIUM", "entry": ALIGN_FATE_ENTRY,
+                     "basis": ("visages cast only damaging, non-Channelling, non-Buff Spells with no cooldown, and the "
+                               "build has none: no visage casts anything (0)"),
+                     "play": "Align Fate needs a damaging Spell with no cooldown in the build to do anything."}]
+    hits = hits or {}
+    rate, interval = align_fate_rate(level, n, recovery)
+    stacked_rate = align_fate_rate(level, n, recovery, stacked=True)[0]
+    more = number(level.get(ALIGN_MORE_STAT)) or 30.0
+    each = rate / n  # (visages a second that pick one given Spell: at random, R49-8 UNVERIFIED, the headline)
+    own = main.spell and main.name in valid and speed > 0
+    mods: list[dict] = []
+    parts = []
+    head = 1.0
+    if own:
+        empowered = min(each, speed) / speed
+        free = each / speed
+        # (its hit part 1: the Empower is damage, not hits, for hit_cut_of)
+        mods.append({**raw_mod("DPS", "MORE", 100 * more / 100 * empowered, main.name, tag=ALIGN_FATE_ENTRY),
+                     "hit_cut": 1.0})
+        mods.append({**raw_mod("DPS", "MORE", 100 * free, main.name, tag=ALIGN_FATE_ENTRY), USES_RAISE: 1 + free})
+        head = (1 + more / 100 * empowered) * (1 + free)
+        parts.append(f"{main.name}: {each:.3f} visage casts a second of your {speed:.2f} (x{1 + free:.3f}), each "
+                     f"Empowering your next cast ({more:g}% more: x{1 + more / 100 * empowered:.3f})")
+    added = 0.0
+    for name in valid:
+        if own and name == main.name:
+            continue
+        hit = number(hits.get(name))
+        if hit <= 0:
+            parts.append(f"{name}: its hit not read, 0")
+            continue
+        dps = each * hit
+        added += dps
+        mods.append(added_input(f"AlignFate{re.sub(r'[^A-Za-z]', '', name)}", dps))
+        parts.append(f"{name}: {each:.3f} free casts a second x its {hit:,.1f} hit = {dps:,.1f} DPS (its Empower needs "
+                     "your own casts of it: not counted)")
+    if own:
+        always_e = min(rate, speed) / speed
+        always = (1 + more / 100 * always_e) * (1 + rate / speed)
+        always_row = f"every visage casting {main.name}: x{always:.3f} on it and nothing from the others"
+    else:
+        always_row = (f"{main.name} isn't a Spell a visage casts (a cooldown, Channelling or Buff Spell): only the "
+                      "other Spells' free casts count" if main.spell else
+                      f"{main.name} is an Attack: only the Spells' free casts count, the main skill none")
+    by_s = "; ".join(f"S {s}: {align_fate_rate(level, s, recovery)[0]:.3f} visages/s, "
+                     f"{align_fate_rate(level, s, recovery)[0] / s:.3f} a Spell" for s in range(1, 6))
+    value = (f"x{head:.3f}" if own else "x1.000") + (f" + {added:,.1f} DPS" if added else "")
+    return mods, [{
+        "label": label, "value": value, "confidence": "LOW", "entry": ALIGN_FATE_ENTRY,
+        "basis": (f"PoB counts none of Align Fate. A visage every {interval:.2f} s ({rate:.3f} a second: the gem's "
+                  f"interval / (1 + 25% x {n} valid Spells: {', '.join(valid)}; one combined more, MEDIUM) x Cooldown "
+                  f"Recovery Rate x{recovery:.2f} (it applies since 0.5.0; RESEARCH49 R49-8)), each casting one of "
+                  f"them at random (UNVERIFIED, the headline): {each:.3f} a second each. The visage's cast taken at "
+                  f"your damage "
+                  f"(MEDIUM-LOW: no file says whose stats it uses). " + "; ".join(parts)
+                  + f". Rows: {always_row}; the per-Spell more stacked (1.25^{n}, UNVERIFIED): {stacked_rate:.3f} "
+                  f"visages a second; without the visages' own casts (Empowers only): "
+                  + (f"x{1 + more / 100 * min(each, speed) / speed:.3f}" if own else "0")
+                  + f". By the number of valid Spells (for adding filler Spells): {by_s}"),
+        "play": (f"Keep Align Fate up with {n} valid Spell{'s' if n != 1 else ''} in the build: each visage casts one "
+                 "for free, and your next cast of that Spell is Empowered. More Spells mean more visages but fewer of "
+                 "them "
+                 "on any one Spell.")}]
 
 
 # Mantra of Destruction's Purple Flames of Chayula (MECHB51; RESEARCH41 R41-11, HIGH on 7% / 10 stacks; the manager:

@@ -4601,7 +4601,8 @@ class Assumptions:
                 main, set(main_gem.get("skillTypes") or ()), str(main_gem.get("description") or ""),
                 number(own.get("TotalDPS")), number(own.get("FullDPS")),
                 gem_name if main.name not in build.ctx.gems else None)
-        if main is not None and main.spell and any(s.name == models.ALIGN_FATE for s in found):  # (MECHB51: R41-9)
+        # (MECHB51: R41-9; MECHB57, R49-8: any main skill, the visages' free casts of every valid Spell)
+        if main is not None and any(s.name == models.ALIGN_FATE for s in found):
             def visage_can(s: models.Skill) -> bool:
                 kinds = set((build.ctx.gems.get(s.name) or {}).get("skillTypes") or ())
                 return (s.spell and not s.triggered and not s.cooldown and s.group is not None
@@ -4610,9 +4611,22 @@ class Assumptions:
             align_level = next((x.get("levelStats") or {} for x in build.call(
                 "activeSkills", levelStats=[models.ALIGN_FATE])["skills"]
                 if x["name"] == models.ALIGN_FATE), {})
-            al_mods, al_notes = models.align_fate_model(main, valid, align_level, number(stats.get("Speed")), forbidden)
+            al_skill = next(s for s in found if s.name == models.ALIGN_FATE)
+            al_hits = {}
+            for spell in found:
+                if spell.name in valid and spell.name != main.name and spell.name not in al_hits:
+                    spot = (self.skill_spot(spell.group, spell.name) or (None, 1))[1]
+                    sets = build.call("setRates", index=spell.group, active=spot)["sets"]
+                    got = next((x for x in sets if x.get("label") == spell.stat_set), sets[0] if sets else {})
+                    al_hits[spell.name] = number(got.get("AverageDamage"))
+            al_mods, al_notes = models.align_fate_model(main, valid, align_level, number(stats.get("Speed")), forbidden,
+                                                        al_skill.cooldown_recovery or 1.0, al_hits)
             hand_mods, hand_notes = hand_mods + al_mods, hand_notes + al_notes
-            if al_mods:  # (GEM36: the Empowered casts carry the strongest Ignite / Bleed; the share from the mod)
+            hit_cut(build, al_mods, main.name)  # (MECHB57: the main Spell's free visage casts, models.USES_RAISE)
+            # (GEM36: the Empowered casts carry the strongest Ignite / Bleed; the share from the mod. MECHB57: only when
+            # the first mod is the main Spell's Empower, a "DPS" MORE: an Attack main skill gets only the Spells'
+            # added sources)
+            if al_mods and al_mods[0].get("name") == "DPS" and models.USES_RAISE not in al_mods[0]:
                 al_more = (number(align_level.get(models.ALIGN_MORE_STAT)) or 30.0) / 100
                 al_events = number(al_mods[0]["value"]) / 100 / al_more * number(stats.get("Speed"))
                 st_mods, st_notes = models.stronger_hits_ailment_model(

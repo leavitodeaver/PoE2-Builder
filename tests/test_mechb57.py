@@ -63,3 +63,32 @@ def test_focused_thrusts_spear_projectile_line_reads_the_boss_distance():
     found = translate(line)
     assert found[0].id == "lines-mechb57-spear-projectiles-no-enemies-within"
     assert found[1] == ["40% increased Projectile Damage with Spears against enemies further than 3m"]
+
+
+ALIGN_LEVEL = {models.ALIGN_INTERVAL_STAT: 9150, models.ALIGN_PER_SPELL_STAT: 25, models.ALIGN_MORE_STAT: 30}
+
+
+def test_align_fate_scores_every_valid_spells_free_casts_and_the_main_spells_empower():
+    """The manager 01:15 (RESEARCH49 R49-8): visages = (1 + 0.25 S) x Cooldown Recovery / 9.15 s, one of the S Spells at
+    random each; the main Spell's free casts (more uses) and Empower on its 1 / S, the fillers' free casts at their
+    hit."""
+    spark = Skill("Spark", 1, spell=True)
+    mods, notes = models.align_fate_model(spark, ["Fireball", "Spark", "Frostbolt"], ALIGN_LEVEL, 2.0, recovery=1.2,
+                                          hits={"Fireball": 1000.0, "Frostbolt": 500.0})
+    rate = 1.75 * 1.2 / 9.15
+    each = rate / 3
+    assert mods[0]["value"] == pytest.approx(30 * each / 2.0, abs=0.01) and mods[0]["hit_cut"] == 1.0
+    assert mods[1][models.USES_RAISE] == pytest.approx(1 + each / 2.0, abs=1e-6)
+    assert models.added_total(mods) == pytest.approx(each * 1500.0, rel=1e-3)
+    assert models.hit_cut_of(mods, skill="Spark") == pytest.approx(1.0)  # (the Empower isn't hits)
+    assert "S 1: 0.164 visages/s" in notes[0]["basis"]  # (1.25 x 1.2 / 9.15, the rate by S for SEARCH37)
+
+
+def test_align_fate_on_an_attack_main_skill_counts_the_spells_free_casts():
+    """The Oracle's Tempest Bell: no Empower or free cast of its own, only the valid Spells' visage casts (it read
+    0)."""
+    bell = Skill("Tempest Bell", 1, attack=True)
+    mods, notes = models.align_fate_model(bell, ["Fireball"], ALIGN_LEVEL, 0.25, hits={"Fireball": 800.0})
+    assert len(mods) == 1 and models.added_total(mods) == pytest.approx(1.25 / 9.15 * 800.0, rel=1e-3)
+    assert "is an Attack" in notes[0]["basis"]
+    assert models.align_fate_model(bell, [], ALIGN_LEVEL, 0.25)[0] == []
