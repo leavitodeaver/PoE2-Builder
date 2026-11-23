@@ -5382,6 +5382,19 @@ def periodic_absent(chance: float, n: float) -> float:
     return (1.0 - frac) * miss ** k + frac * miss ** (k + 1)
 
 
+def ignite_events(others: list[tuple[str, float, float, float]]) -> list[tuple[float, float, float]]:
+    """[(applications a second, chance each, duration)] for the other groups' Ignites: a hit each, but one burst a Stag
+    for Vivid Stampede (models.stag_burst)."""
+    out = []
+    for name, h, c, d in others:
+        if name == models.VIVID_STAMPEDE:
+            stags, each, spread = models.stag_burst(h, c)
+            out.append((stags, each, d + spread))
+        else:
+            out.append((h, c, d))
+    return out
+
+
 def ailment_uptime(stats: dict, ailment: str) -> float:
     """Share of the fight the boss has the ailment: the chance that at least one hit applied it within its own duration
     (hits that land: uses per second x hit chance). A main skill that consumes it: consumed_share. The build's other
@@ -5400,18 +5413,20 @@ def ailment_uptime(stats: dict, ailment: str) -> float:
     own = chance > 0 and hits > 0
     if not own and not others and ground <= 0:
         return 0.0
-    extra = sum(h * c for _, h, c, _ in others)  # (the other groups' applications a second)
+    landed = sum(h * c for _, h, c, _ in others)  # (each landing hit's Flammability counts: stacked_ignite_chance below)
+    # (MECHB59: a Stag's landings come together, so it Ignites once: models.stag_burst's note)
+    extra = sum(h * c for h, c, _ in ignite_events(others)) if ailment == "Ignite" else landed
     if ailment in (stats.get("_consumes") or {}):
         return consumed_share(hits, chance, ground, extra=extra, kept=consume_reapply(stats, ailment))
     if ailment == "Ignite" and ailment not in (stats.get("_side_consumes") or {}):
         # (MECH81: a hit's chance is all the live Flammability on the boss, stacked_ignite_chance; a consumer beside the
         # main skill clears it with each Ignite it consumes, patch 0.3.0, so the per-hit chance stays there)
-        live = stacked_ignite_chance(chance if own else 0.0, hits, extra)[1]
+        live = stacked_ignite_chance(chance if own else 0.0, hits, landed)[1]
         chance = min(1.0, chance + live) if own else chance
         others = [(n, h, min(1.0, c + live), d) for n, h, c, d in others]
-        extra = sum(h * c for _, h, c, _ in others)
+        extra = sum(h * c for h, c, _ in ignite_events(others))
     absent = (periodic_absent(chance, hits * duration) if own else 1.0) * (1.0 - ground)  # (MECH99: periodic_absent)
-    for _, h, c, d in others:
+    for h, c, d in (ignite_events(others) if ailment == "Ignite" else [o[1:] for o in others]):
         absent *= periodic_absent(c, h * d)
     # (side_consumed's wait to reapply, 1 / (hits x chance), over every source's applications)
     return side_consumed(1.0 - absent, stats, ailment, hits * chance + extra, 1.0, ground)

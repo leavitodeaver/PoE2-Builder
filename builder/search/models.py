@@ -24916,6 +24916,27 @@ VIVID_END = 2.0  # s, MEDIUM-LOW (RESEARCH45 R45-10: trigger to the 4th leap, ra
 VIVID_END_ROWS = (1.75, 2.3)
 VIVID_PER_LEAP = 0.20
 MORRIGAN = re.compile(r"^Gain a Vivid Wisp when Vivid Stampede ends$", re.I)
+# A Stag's Ignite (MECHB59; the manager 11:25 23 Nov from MECH103's Shock fix 29dd5cf3; a possible OVERCOUNT).
+# conditions.ignite_others carries the Stampede at its landings a second, and ailment_uptime read them as evenly spread
+# hits: 4 landings every 20 s at a 100% chance read as 1 hit each 5 s, Ignited 80% of a 4 s Ignite's fight where the
+# landings, ~0.5 s apart (RESEARCH45 R45-10, MEDIUM-LOW), Ignite it for ~5.5 s of each 20 s (27.5%). So the UPTIME counts
+# one application a Stag: chance 1 - (1 - c)^4, lasting the Ignite's duration plus the expected time from its first
+# Igniting landing to its last. FLAMMABILITY stays per landing: "Multiple instances of Flammability stack" and "Each
+# instance of Flammability has its own independent duration" (KeywordPopups Flammability, 26650308), and each landing is
+# a Hit, so conditions.flammability_sources and the live Flammability keep all 4.
+VIVID_LANDING_GAP = 0.5  # s (RESEARCH45 R45-10, MEDIUM-LOW)
+
+
+def stag_burst(landings: float, chance: float) -> tuple[float, float, float]:
+    """(Stags a second, the chance a Stag applies the ailment, the expected seconds from its first applying landing to
+    its last) for `landings` a second at `chance` each (see the note above)."""
+    c, n = min(max(chance, 0.0), 1.0), VIVID_LANDINGS
+    each = 1.0 - (1.0 - c) ** n
+    total = 0.0
+    for i in range(n):
+        for j in range(i, n):  # (i the first applying landing, j the last)
+            total += (1.0 - c) ** i * c * (c if j > i else 1.0) * (1.0 - c) ** (n - 1 - j) * (j - i) * VIVID_LANDING_GAP
+    return max(landings, 0.0) / n, each, total / each if each > 0 else 0.0
 
 
 def vivid_stampede_model(main: Skill | None, stampede: Skill | None, texts: list[str], rolls: float, attack_rate: float,
