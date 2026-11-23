@@ -10145,7 +10145,7 @@ class Assumptions:
         hows = [f"{r.get('name')} {u:.2f} uses/s ({why})" for r, u, why in rows]
         lives = [number(r.get("iceCrystalLife")) for r, _, _ in rows]
         if main is not None and main.name == models.GLACIAL_BOLT:
-            own = number(build.call("stats", fields=["Speed"]).get("Speed")) * main_time_share(build, main)
+            own = number(build.call("stats", fields=["Speed"]).get("Speed")) * main_time_share(build, main, hits=False)  # (walls a bolt fired, not a hit: no hit cut)
             bolts += own
             hows.append(f"{main.name} as the main skill, {own:.2f} bolts a second")
             row = next(iter(build.call("useRates", indices=[main_index])["rates"]), {})
