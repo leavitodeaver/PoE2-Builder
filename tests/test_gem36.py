@@ -1,6 +1,8 @@
 """GEM36: Midnight Zenith's Ice Crystals feed Verglas (a third source beside Frost Wall and Frozen Locus)."""
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from builder.search import models
@@ -26,12 +28,14 @@ def test_verglas_reads_zenith_crystals():
     # 1 crystal a second of 4,768 Life: floor(4,768 / 2,000) = 2% each, 6 s summed: +12%
     mods, notes = models.verglas_model(fb, ["Verglas"], 0.0, 0.0, "", "", 0.0, 0.0, "",
                                        others=((models.MIDNIGHT_ZENITH, 1.0, 4768.0, "test"),))
-    assert mods[0]["value"] == pytest.approx(12.0) and "Midnight Zenith: 1.00 crystals" in notes[0]["basis"]
+    want = sum(math.exp(-6) * 6 ** k / math.factorial(k) * math.floor(k * 4768 / 2000) for k in range(80))
+    assert mods[0]["value"] == pytest.approx(want, abs=1e-3) and "Midnight Zenith: 1.00 crystals" in notes[0]["basis"]
+    assert "each crystal floored on its own +12.0%" in notes[0]["basis"]
     assert "Midnight Star" not in notes[0]["basis"]
     # beside a Frost Wall: the two add
     both, _ = models.verglas_model(fb, ["Verglas"], 0.2, 12714.0, "cd", "x", 0.0, 0.0, "",
                                    others=((models.MIDNIGHT_ZENITH, 1.0, 4768.0, "test"),))
-    assert both[0]["value"] == pytest.approx(0.2 * 6 * 6.0 + 12.0)
+    assert both[0]["value"] > want  # (the two add, into one floored total)
     # crystals that only expire give nothing
     none, notes = models.verglas_model(fb, ["Verglas"], 0.0, 0.0, "", "", 0.0, 0.0, "",
                                        others=((models.MIDNIGHT_ZENITH, 0.0, 4768.0, "test"),))
@@ -62,3 +66,20 @@ def test_stronger_hits_carry_the_strongest_ignite():
     stacking = {**stats, "IgniteStacksMax": 3}
     assert models.stronger_hits_ailment_model(sv, stacking, "x", 3.0, 1.0, 1, "t") == ([], [])
     assert models.stronger_hits_ailment_model(sv, stats, "x", 3.0, 1.0, 1, "t", {models.STRONGER_ENTRY}) == ([], [])
+
+
+def test_verglas_glacial_bolt_walls_and_rows():
+    """(R48-8) Glacial Bolt's walls as a wall source (one segment a wall headline; R48-7's whole-wall rows)."""
+    gb = Skill("Glacial Bolt", 1, attack=True)
+    mods, notes = models.verglas_model(gb, ["Verglas"], 0.0, 0.0, "", "", 0.0, 0.0, "",
+                                       others=((models.GLACIAL_BOLT, 0.5, 12714.0, "test", True),))
+    want = sum(math.exp(-3) * 3 ** k / math.factorial(k) * math.floor(k * 12714 / 2000) for k in range(80))
+    assert mods[0]["value"] == pytest.approx(want, abs=1e-3)
+    assert "5 segments +" in notes[0]["basis"] and "9 segments +" in notes[0]["basis"]
+    assert "Glacial Bolt's wall" not in notes[0]["basis"]  # (no longer "not counted")
+
+
+def test_gas_grenade_cloud_life():
+    assert models.gas_cloud_life(0.5, *models.GAS_GRENADE_CLOUD["Gas Grenade"]) == pytest.approx(6.0)
+    assert models.gas_cloud_life(2.0, *models.GAS_GRENADE_CLOUD["Gas Grenade"]) == pytest.approx(3.0)
+    assert models.gas_cloud_life(2.0) == pytest.approx(3.0)  # (Gas Arrow's default 6 / 4 s, unchanged)

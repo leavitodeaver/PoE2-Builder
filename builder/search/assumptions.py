@@ -4982,11 +4982,17 @@ class Assumptions:
                 got = next((x.get("levelStats") or {} for x in build.call(
                     "activeSkills", levelStats=[main.name])["skills"] if x["name"] == main.name), {})
                 per_spike = number(got.get(models.EARTHSHATTER_SPIKE_STAT))
+            det_share = None
+            if main.name in models.GAS_GRENADE_CLOUD:  # (GEM36, R48-5: an Ignited boss in the cloud sets it off too)
+                det_share, det_how, _ = self.gas_arrow_share(group["index"], main.stat_set,
+                                                             cloud=models.GAS_GRENADE_CLOUD[main.name],
+                                                             every_use=("Impact",))
             det_mods, det_notes = models.detonated_set_model(main, main.stat_set, sets, number(stats.get("Speed")),
                                                              det_rate, det_how, forbidden, per_spike,
-                                                             previous=self.mods)
+                                                             previous=self.mods, share=det_share)
             hand_mods, hand_notes = hand_mods + det_mods, hand_notes + det_notes
-            det_split = models.detonated_share(main.name, number(stats.get("Speed")), det_rate)
+            det_split = (models.detonated_share(main.name, number(stats.get("Speed")), det_rate) if det_share is None
+                         else det_share)
             if main.name == models.FORGE_HAMMER:  # (MECHB49, R38-6: the throw-recall loop)
                 row = next(iter(build.call("useRates", indices=[group["index"]],
                                            actives=[group.get("mainActiveSkill") or 1])["rates"]), {})
@@ -9269,26 +9275,30 @@ class Assumptions:
         return share, (f"{others}: Shocked {by_others:.0%} of the fight ({duration:.2f} s each, random in time); "
                        f"the resolver's share {base:.0%} ({up_how})")
 
-    def gas_arrow_share(self, main_index: int, scored: str | None) -> tuple[float, str, float]:
+    def gas_arrow_share(self, main_index: int, scored: str | None, cloud: tuple[int, float] | None = None,
+                        every_use: tuple[str, ...] = ("Arrow",)) -> tuple[float, str, float]:
         """(share of Gas Arrow's clouds that explode, how) for models.gas_arrow_model (GEM20): a Detonator use sets off
         every cloud lying there (detonator_rate, as detonated_share); the boss Ignited at some moment of a cloud's life
         (models.gas_ignite_within) with Ignites as the resolver counts them (conditions.ailment_uptime over the other
         groups' Ignites and Ignite grounds the resolver published, build.ailment_others / ailment_ground) plus the main
         skill's own: the Explosion set's at its uses x the share that explode (a fixed point from 0: no seed, no
-        explosion), the Arrow set's at every use; the Poison Cloud set's fake hit taken to Ignite nothing."""
+        explosion), the Arrow set's at every use; the Poison Cloud set's fake hit taken to Ignite nothing. (GEM36, R48-5:
+        Gas Grenade too) `cloud` (limit, seconds) for another skill's clouds (Gas Arrow's by default), `every_use` its
+        sets that come with every use."""
         build = self.build
         stats = dict(build.call("stats", fields=["Speed", "HitChance", "IgniteChancePerHit", "IgniteDuration"]))
         uses = number(stats.get("Speed"))
         if uses <= 0:
             return 0.0, "Gas Arrow isn't used", 1.0
-        life = models.gas_cloud_life(uses)
-        lying = min(float(models.GAS_CLOUD_LIMIT), uses * life)
+        limit, seconds = cloud or (models.GAS_CLOUD_LIMIT, models.GAS_CLOUD_SECONDS)
+        life = models.gas_cloud_life(uses, limit, seconds)
+        lying = min(float(limit), uses * life)
         det_rate, det_how = self.detonator_rate(main_index)
         detonated = min(1.0, det_rate * lying / uses) if det_rate > 0 else 0.0
         duration = number(stats.get("IgniteDuration")) or conditions_mod.AILMENT_DURATION["Ignite"]
         others = dict(getattr(build, "ailment_others", None) or {})
         ground = dict(getattr(build, "ailment_ground", None) or {})
-        own = scored in ("Explosion", "Arrow") and number(stats.get("IgniteChancePerHit")) > 0
+        own = scored in ("Explosion",) + tuple(every_use) and number(stats.get("IgniteChancePerHit")) > 0
         share, up, within = detonated, 0.0, 0.0
         for _ in range(40):  # (the fixed point, from the share Detonators alone give)
             own_uses = (uses * share if scored == "Explosion" else uses) if own else 0.0
@@ -9311,7 +9321,7 @@ class Assumptions:
         poisons = models.gas_cloud_poisons(alive)
         others_n = len([o for o in others.get("Ignite") or () if o])
         source = ("the explosions' own Ignites" if own and scored == "Explosion" else
-                  "the arrow's own Ignites" if own else "no own Ignite read")
+                  f"the {scored}'s own Ignites" if own else "no own Ignite read")
         return share, (f"the boss Ignited {up:.1%} of the fight ({others_n} other Ignite source(s); {source}; "
                        f"{duration:.1f} s each), so at some moment of a cloud's {life:.1f} s {within:.1%}; "
                        f"Detonators set off {detonated:.0%} ({det_how}); a cloud lives {alive:.1f} s on average"), poisons
@@ -10060,9 +10070,42 @@ class Assumptions:
             locus_how = (f"{uses:.2f} uses a second, {q:.0%} broken within its {models.FROZEN_LOCUS_SECONDS:g} s by "
                          + (mine if mine else breaks_how))
         zenith = self.zenith_crystals(found, main, stats) if found is not None and stats is not None else None
+        glacial = self.glacial_walls(main, main_index, can_break)
         return models.verglas_model(main, [models.VERGLAS], walls, wall_life, wall_how,
                                     can_break(wall_life, models.FROST_WALL_SECONDS), locus, locus_life, locus_how,
-                                    forbidden, others=(zenith,) if zenith else ())
+                                    forbidden, others=tuple(x for x in (zenith, glacial) if x))
+
+    def glacial_walls(self, main, main_index, can_break):
+        """(GEM36, R48-8) Glacial Bolt's Ice Crystal walls for Verglas: (name, walls broken a second (one segment each),
+        a segment's Life, how, True), or None without Glacial Bolt: its side groups (_side_rows) and the main skill's own
+        bolts (PoB's Speed x its share of the fight), 2 walls a bolt, broken by `can_break` within the walls' 8 s."""
+        build = self.build
+        on = lambda g: [x["name"] for x in g.get("gems") or [] if x.get("enabled", True)]
+        rows = self._side_rows(main_index, lambda g: models.GLACIAL_BOLT in on(g))
+        bolts = sum(u for _, u, _ in rows)
+        hows = [f"{r.get('name')} {u:.2f} uses/s ({why})" for r, u, why in rows]
+        lives = [number(r.get("iceCrystalLife")) for r, _, _ in rows]
+        if main is not None and main.name == models.GLACIAL_BOLT:
+            own = number(build.call("stats", fields=["Speed"]).get("Speed")) * main_time_share(build, main)
+            bolts += own
+            hows.append(f"{main.name} as the main skill, {own:.2f} bolts a second")
+            row = next(iter(build.call("useRates", indices=[main_index])["rates"]), {})
+            lives.append(number(row.get("iceCrystalLife")))
+        if bolts <= 0 and not rows:
+            return None
+        life = max(lives, default=0.0)
+        if life <= 0:
+            level = next((x.get("levelStats") or {} for x in build.call("activeSkills", levelStats=[models.GLACIAL_BOLT])
+                          ["skills"] if x.get("name") == models.GLACIAL_BOLT and x.get("levelStats")), {})
+            life = number(level.get(models.MIDNIGHT_LIFE_STAT))  # (frost_wall_maximum_life, GlacialBoltWallPlayer's)
+        if life <= 0:
+            return None
+        walls = bolts * models.GLACIAL_BOLT_WALLS
+        by = can_break(life, models.GLACIAL_BOLT_WALL_SECONDS)
+        how = "; ".join(hows) + (f"; {models.GLACIAL_BOLT_WALLS} walls a bolt, one segment a wall broken by {by}" if by
+                                 else f"; nothing in the build breaks its {life:,.0f}-Life segment within its "
+                                      f"{models.GLACIAL_BOLT_WALL_SECONDS:g} s")
+        return (models.GLACIAL_BOLT, walls if by else 0.0, life, how, True)
 
     def zenith_crystals(self, found, main, stats):
         """(GEM36) Midnight Zenith's Ice Crystals for Verglas: (name, destroyed a second, Life, how), or None without a

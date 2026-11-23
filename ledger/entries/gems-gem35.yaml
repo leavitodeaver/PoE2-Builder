@@ -41,8 +41,12 @@
     question) when something breaks it (ICE_BREAKERS, a Freeze consumer, Vruun's Aftermath Warcries, or the main skill's
     hits dealing its Life within 8 s), Frozen Locus's side groups (broken before its 10 s), Midnight Zenith's crystals the
     build breaks (GEM36: MECHB55's midnight_zenith_model steps, models.midnight_breaks; an expiring one gives nothing).
-    Not counted: Glacial Bolt's wall, Grim Pillars, the Ice Seeds line, crystals the boss breaks, a main-skill Frost
-    Wall's own. A DamageGainAsCold BASE on the main skill at the fight's average.
+    GEM36, RESEARCH48: the buff SUMS every crystal destroyed in the past 6 s (R48-6, MEDIUM) and the total is floored
+    (MEDIUM-LOW; models.verglas_expected, the breaks random in time), each crystal floored on its own a row; Frost Wall's
+    12,714 is each segment's Life (R48-7, HIGH-MEDIUM), one segment a wall the headline with whole-wall rows at 5 / 7 /
+    9 segments (~7 at gem 20, LOW); Glacial Bolt's two walls a bolt counted (R48-8, HIGH-MEDIUM; Ice Shards, Permafrost
+    Bolts and Hailstorm Rounds make no crystals). Not counted: Grim Pillars, the Ice Seeds line, crystals the boss
+    breaks, a main-skill Frost Wall's own. A DamageGainAsCold BASE on the main skill at the fight's average.
   sources: ["builder/search/models.py (verglas_model)", "builder/search/assumptions.py (Assumptions.verglas)",
             "data/game-26650308/tables/Stats.json", "data/game-26650308/files/data/statdescriptions/gem_stat_descriptions.csd (38220-38222)",
             "vendor/PathOfBuilding-PoE2-v0.23.1/src/Data/Skills/sup_int.lua (SupportVerglasPlayer)"]
@@ -67,7 +71,7 @@
   status: proposed
 
 - id: model-gem35-gas-grenade-cloud-explosion
-  title: "Gas Grenade's cloud explodes only when a Detonator sets it off (an OVERCOUNT before: the search scored the Explosion with nothing to set it off)"
+  title: "Gas Grenade's cloud explodes only when a Detonator or an Ignite on the boss sets it off (an OVERCOUNT before: the search scored the Explosion with nothing to set it off)"
   kind: model
   model: detonated_set
   stats: ["number_of_poison_cloud_allowed", "base_skill_effect_duration"]
@@ -78,8 +82,11 @@
     blast". Probe POE2T7224: with neither in the build the search scored the Explosion set (153.9 DPS vs Impact 18.6,
     Poison Cloud 101.9). models.DETONATED_SETS (GEM17's detonated_set_model): the best plain set + the Explosion x the
     share of clouds the build's Detonators set off (limit 6, 6 s); with none, the Explosion kept 10% under the plain
-    set. Burning effects on the boss (its Ignite, a fire ground) not read: an UNDERCOUNT where the build Ignites the
-    boss, named (the lower reading).
+    set. GEM36, RESEARCH48 R48-5 (MEDIUM-HIGH): an Ignited boss in the cloud sets it off too (KeywordPopups Burning;
+    GGG's Dec 2024 hotfix on Flame Wall + Gas Cloud; Gas Arrow's "an Ignited enemy touches it"): GEM20's Gas Arrow
+    share (Assumptions.gas_arrow_share with Gas Grenade's 6 clouds / 6 s), the other groups' Ignites and Ignite grounds,
+    the Impact's own every use, the Explosion's own at its share, once a cloud. Not counted: non-Ignite Fire DoT on the
+    boss (MEDIUM), Ignited Ground with nothing Burning (LOW-MEDIUM), the Ignite's size scaling the blast (UNVERIFIED).
   sources: ["builder/search/models.py (DETONATED_SETS)", "data/game-26650308/tables/ActiveSkills.json (toxic_grenade)",
             "vendor/PathOfBuilding-PoE2-v0.23.1/src/Data/Skills/act_str.lua (ToxicGrenadePlayer)", "scratch/gem35/probe7224.log"]
   test_in_game: "Gas Grenade alone on a boss with no fire: does the cloud ever explode?"

@@ -8545,6 +8545,9 @@ def grenade_count_model(main: Skill | None, scored: str | None, sets: list[dict]
 # words): the average over the fight is (Life destroyed a second) x 6 s / 2000 %, each crystal's Life counted in whole 2000s
 # (the lower reading; whether the sum or each crystal is floored is UNVERIFIED). A row with one crystal at a time (the
 # buff not summing: the largest crystal's floor(Life / 2000) % while one was destroyed in the past 6 s).
+# (GEM36, RESEARCH48 R48-6, MEDIUM: it sums; floor of the TOTAL, MEDIUM-LOW) The headline is now E[floor(T / 2,000)] %,
+# T the Life destroyed in the past 6 s with the breaks random in time (verglas_expected); each crystal floored on its
+# own is a row.
 # The build's own crystals (checked: every Stats id holding crystal / frost_wall / ice_wall across GrantedEffectStatSets,
 # Mods, PassiveSkills, GrantedEffectQualityStats; makers: Frost Wall, Frozen Locus, Glacial Bolt's wall, Grim Pillars,
 # Midnight Star's (Nattblom), the Ice Seeds line (attempt_to_consume_x_ice_seeds_to_create_an_ice_crystal...)):
@@ -8553,19 +8556,57 @@ def grenade_count_model(main: Skill | None, scored: str | None, sets: list[dict]
 #   wall has is not in the tables, a RESEARCH question) when the build can break it: a skill that destroys a segment on
 #   hit (ICE_BREAKERS) or consumes Freeze (KeywordPopups IceCrystals: "Skills which Consume Freeze will instantly shatter
 #   Ice Crystals"), or the main skill's hits dealing its Life within the wall's 8 s (PoB's hit DPS; the crystal's own
-#   damage taken UNVERIFIED, as R45-2). A row with the whole wall's segments is a RESEARCH question (the count).
+#   damage taken UNVERIFIED, as R45-2). (GEM36, R48-7: the 12,714 is each segment's Life, HIGH-MEDIUM; the count is
+#   unsettled, ~7 at gem 20 LOW) The headline keeps ONE segment a wall (the lower honest reading: what a breaker's hit
+#   destroys of a wall is not in the files); rows with the whole wall broken at 5 / 7 / 9 segments (VERGLAS_SEGMENT_ROWS).
 # - Frozen Locus (its side groups): uses a second x the share broken before its 10 s (1 - e^(-10 R), R its breakers a
 #   second, Assumptions.locus_breaks; GEM20's reading), its crystal's Life (PoB's IceCrystalLife on its group).
 # - Midnight Zenith (Eventide Petals; GEM36, the manager's GEM36 brief item 1): the crystals MECHB55's
 #   midnight_zenith_model has the build break a second (midnight_breaks: the same inputs, its midnight_explosions; an
 #   expiring crystal isn't destroyed, so it gives nothing), each at its Life (PoB's IceCrystalLife on the Zenith group,
 #   Eventide Petals' Life-per-resistance line in it; else the gem's frost_wall_maximum_life, 4,768 at 20).
-# - Not counted (an UNDERCOUNT, named): Glacial Bolt's wall, Grim Pillars, the Ice Seeds line, crystals the boss's hits
-#   break; a main-skill Frost Wall / Frozen Locus's own crystals.
+# - Glacial Bolt (GEM36, R48-8, HIGH-MEDIUM: of poe2db's four Verglas skills only Glacial Bolt makes Ice Crystals; Ice
+#   Shards, Permafrost Bolts and Hailstorm Rounds are Verglas users only): "creates two walls of Ice Crystals"
+#   (GlacialBoltWallPlayer: 8 s, frost_wall_maximum_life 12,714 at 20), its bolts a second x 2 walls, as the main skill
+#   too (its own bolts or the build's breakers break them), one segment a wall (as Frost Wall's, with the rows).
+# - Not counted (an UNDERCOUNT, named): Grim Pillars, the Ice Seeds line, crystals the boss's hits break; a main-skill
+#   Frost Wall / Frozen Locus's own crystals.
 # Given as DamageGainAsCold BASE on the supported main skill at the fight's average (Gain is linear in the hit). MEDIUM-LOW.
 VERGLAS = "Verglas"
 VERGLAS_PER, VERGLAS_LIFE, VERGLAS_SECONDS = 1.0, 2000.0, 6.0  # % per 2000 crystal Life, 6000 ms (the stats above)
 VERGLAS_ENTRY = "model-gem35-verglas-crystal-shatter"
+
+
+VERGLAS_SEGMENT_ROWS = (5, 7, 9)  # (RESEARCH48 R48-7: a Frost Wall's segments, ~7 at gem 20 LOW, rows 5 and 9)
+GLACIAL_BOLT, GLACIAL_BOLT_WALLS, GLACIAL_BOLT_WALL_SECONDS = "Glacial Bolt", 2, 8.0  # ("creates two walls"; 8000 ms)
+
+
+def verglas_expected(events: list[tuple[float, float]]) -> float:
+    """(GEM36, R48-6) The fight's average Verglas %: E[floor(T / 2,000)] x 1%, T the Life destroyed in the past 6 s, each
+    (events a second, Life an event) source's events in the window taken as Poisson (random in time: MEDIUM-LOW)."""
+    dist = {0: 1.0}
+    for rate, life in events:
+        lam = max(rate, 0.0) * VERGLAS_SECONDS
+        if lam <= 0 or life <= 0:
+            continue
+        pmf, k, p, total = [], 0, math.exp(-lam), 0.0
+        while k < 400 and (total < 1 - 1e-9 or k <= lam):
+            pmf.append(p)
+            total += p
+            k += 1
+            p *= lam / k
+        out: dict[int, float] = {}
+        for t, q in dist.items():
+            for k, pk in enumerate(pmf):
+                key = int(round(t + k * life))
+                out[key] = out.get(key, 0.0) + q * pk
+        if len(out) > 50000:  # (merge into 50-Life steps: the floor moves at 2,000s)
+            merged: dict[int, float] = {}
+            for t, q in out.items():
+                merged[50 * (t // 50)] = merged.get(50 * (t // 50), 0.0) + q
+            out = merged
+        dist = out
+    return sum(q * math.floor(t / VERGLAS_LIFE) for t, q in dist.items()) * VERGLAS_PER
 
 
 def verglas_model(main: Skill | None, supports: list[str], walls: float, wall_life: float, wall_how: str,
@@ -8573,35 +8614,50 @@ def verglas_model(main: Skill | None, supports: list[str], walls: float, wall_li
                   forbidden: set[str] = frozenset(), others: tuple = ()) -> tuple[list[dict], list[dict]]:
     """Verglas on the main skill (comment above): `walls` Frost Walls a second whose segment the build breaks, `wall_life`
     a segment's Life, `can_break` what breaks it ("" none), `locus` Frozen Locus crystals destroyed a second, `locus_life`
-    its crystal's Life, the `how`s their bases; `others` more makers as (name, crystals destroyed a second, Life, how)
-    (GEM36: Midnight Zenith's, midnight_breaks)."""
+    its crystal's Life, the `how`s their bases; `others` more makers as (name, crystals destroyed a second, Life, how) or
+    (..., True) for a wall broken one segment at a time (GEM36: Midnight Zenith's, midnight_breaks; Glacial Bolt's walls).
+    (GEM36, R48-6) The headline sums the Life destroyed in the past 6 s and floors the total (verglas_expected); rows:
+    each crystal floored on its own (GEM35's headline), one crystal at a time, and (R48-7) each wall broken whole at 5 /
+    7 / 9 segments."""
     if main is None or VERGLAS not in supports or VERGLAS_ENTRY in forbidden:
         return [], []
     label = f"{VERGLAS}: Damage Gained as extra Cold from the Ice Crystals you destroy*"
-    sources = []  # (name, crystals destroyed a second, Life each, how)
+    sources = []  # (name, crystals destroyed a second, Life each, how, a wall)
     if walls > 0 and wall_life > 0:
         if can_break:
-            sources.append((FROST_WALL, walls, wall_life, f"{wall_how}; one segment a wall broken by {can_break}"))
+            sources.append((FROST_WALL, walls, wall_life, f"{wall_how}; one segment a wall broken by {can_break}", True))
         else:
             sources.append((FROST_WALL, 0.0, wall_life, f"{wall_how}; nothing in the build breaks its {wall_life:,.0f}-Life "
-                                                         "segment within its 8 s"))
+                                                         "segment within its 8 s", True))
     if locus > 0 and locus_life > 0:
-        sources.append((FROZEN_LOCUS, locus, locus_life, locus_how))
-    sources += [(name, max(rate, 0.0), life, how) for name, rate, life, how in others if life > 0]
-    whole =lambda life: math.floor(life / VERGLAS_LIFE) * VERGLAS_PER
-    gain = sum(rate * whole(life) * VERGLAS_SECONDS for _, rate, life, _ in sources)
-    live = [(name, rate, life) for name, rate, life, _ in sources if rate > 0 and whole(life) > 0]
+        sources.append((FROZEN_LOCUS, locus, locus_life, locus_how, False))
+    for other in others:
+        name, rate, life, how = other[:4]
+        if life > 0:
+            sources.append((name, max(rate, 0.0), life, how, bool(other[4]) if len(other) > 4 else False))
+    whole = lambda life: math.floor(life / VERGLAS_LIFE) * VERGLAS_PER
+    gain = verglas_expected([(rate, life) for _, rate, life, _, _ in sources])
+    each = sum(rate * whole(life) * VERGLAS_SECONDS for _, rate, life, _, _ in sources)
+    live = [(name, rate, life) for name, rate, life, _, _ in sources if rate > 0 and whole(life) > 0]
     single = max((whole(life) * min(1.0, rate * VERGLAS_SECONDS) for _, rate, life in live), default=0.0)
-    parts = "; ".join(f"{name}: {rate:.2f} crystals a second of {life:,.0f} Life ({how})" for name, rate, life, how
-                      in sources) or ("no Ice Crystal maker in the build (Frost Wall / Frozen Locus / Midnight Zenith "
-                                      "counted; Glacial Bolt's wall, Grim Pillars, the Ice Seeds line not)")
+    wall_rows = ""
+    if any(wall and rate > 0 for _, rate, _, _, wall in sources):
+        wall_rows = "; each wall broken whole (R48-7: the segment count unsettled, ~7 at gem 20 LOW): " + ", ".join(
+            f"{n} segments +" + format(verglas_expected([(rate, life * (n if wall else 1))
+                                                       for _, rate, life, _, wall in sources]), ".1f") + "%"
+            for n in VERGLAS_SEGMENT_ROWS)
+    parts = "; ".join(f"{name}: {rate:.2f} crystals a second of {life:,.0f} Life ({how})" for name, rate, life, how, _
+                      in sources) or ("no Ice Crystal maker in the build (Frost Wall / Frozen Locus / Midnight Zenith / "
+                                      "Glacial Bolt counted; Grim Pillars, the Ice Seeds line not)")
     note = {"label": label, "value": f"+{gain:.1f}%", "confidence": "MEDIUM-LOW", "entry": VERGLAS_ENTRY,
             "basis": (f"PoB maps none of {VERGLAS}'s stats. {VERGLAS_PER:g}% of Damage Gained as extra Cold per 2,000 "
-                      f"Life of each Ice Crystal you destroy, for {VERGLAS_SECONDS:g} s, the Life destroyed in the past "
-                      f"{VERGLAS_SECONDS:g} s summed (the game's support_crystalshatter_buff_crystal_life_destroyed_in_"
-                      f"past_duration, MEDIUM-LOW): {parts}: +{gain:.1f}% on average. Row (the buff not summing, one "
-                      f"crystal at a time): +{single:.1f}%. Not counted: Glacial Bolt's wall, Grim Pillars, the Ice "
-                      "Seeds line, crystals the boss breaks"),
+                      f"of the maximum Life of the Ice Crystals you destroyed in the past {VERGLAS_SECONDS:g} s, summed "
+                      f"(RESEARCH48 R48-6, MEDIUM: the running-total stat pair support_crystalshatter_buff_crystal_life_"
+                      f"destroyed_in_past_duration / its track_ twin) and the total floored (MEDIUM-LOW), the breaks "
+                      f"taken as random in time: {parts}: +{gain:.1f}% on average (one segment a wall broken, the lower "
+                      f"reading). Rows: each crystal floored on its own +{each:.1f}%; one crystal at a time "
+                      f"+{single:.1f}%{wall_rows}. Not counted: Grim Pillars, the Ice Seeds line, crystals the boss "
+                      "breaks"),
             "play": (f"Keep destroying your own Ice Crystals: each one feeds {main.name} with {VERGLAS} (without them "
                      f"+0%; with this build's: +{gain:.1f}% of Damage as extra Cold).")}
     if gain <= 0:
@@ -8876,9 +8932,15 @@ DETONATED_SETS = {
     # 18.6, with no Detonator or Burning effect in the build) Gas Grenade: "a burst of Poison gas when its fuse expires
     # ... leaving behind a growing Poison cloud. Burning effects or Detonator skills will cause the cloud to explode in a
     # fiery blast" (ActiveSkills toxic_grenade, 26650308); ToxicGrenadePlayer's Poison Cloud set: number_of_poison_cloud_
-    # allowed 6, base_skill_effect_duration 6000 (PoB act_str.lua). Set off here by the build's Detonators only: a Burning
-    # effect on the boss inside the cloud (its Ignite, a fire ground) isn't read (an UNDERCOUNT where the build Ignites
-    # the boss, named; the lower reading). The plain part is PoB's best plain set (the cloud's DoT or the impact).
+    # allowed 6, base_skill_effect_duration 6000 (PoB act_str.lua). Set off by the build's Detonators and (GEM36,
+    # RESEARCH48 R48-5, MEDIUM-HIGH: KeywordPopups Burning "Enemies taking Fire damage over time are Burning. Usually this
+    # occurs because the enemy is Ignited"; GGG's Dec 2024 hotfix on Flame Wall + Gas Cloud; Gas Arrow's "an Ignited enemy
+    # touches it") by the boss Ignited inside the cloud: GEM20's Gas Arrow reading (Assumptions.gas_arrow_share with
+    # GAS_GRENADE_CLOUD: the other groups' Ignites and Ignite grounds as the resolver counts them, the Impact's own at
+    # every use, the Explosion's own at the share exploding, a fixed point from 0), once a cloud. Not counted (named): Fire
+    # DoT on the boss that isn't an Ignite (MEDIUM: it Burns too), Ignited Ground under the cloud with nothing Burning
+    # (LOW-MEDIUM, R48-5); the Ignite's size scaling the explosion (UNVERIFIED: the Explosion set's own damage kept). The
+    # plain part is PoB's best plain set (the cloud's DoT or the impact).
     "Gas Grenade": (("Impact", "Poison Cloud"), "Explosion", 6, 6.0, "model-gem35-gas-grenade-cloud-explosion"),
     # (MECHB48) Forge Hammer: "Hurl a fiery hammer that Slams into the ground and lodges there. While the hammer is
     # lodged in the ground, reusing this Skill recalls the hammer and resets the Skill's cooldown. Alternatively, using a
@@ -8892,6 +8954,10 @@ DETONATED_SETS = {
     # read: PoB's Impact on every use (UNVERIFIED, a RESEARCH question: up to x2 over).
     "Forge Hammer": (("Impact",), "Fissures", 1, 12.0, "model-mechb48-forge-hammer-warcry-shatter"),
 }
+GAS_GRENADE_CLOUD = {"Gas Grenade": (6, 6.0)}  # (GEM36: its cloud limit / seconds, the Poison Cloud set's stats above)
+DETONATED_TEXT = {"Gas Grenade": ("the boss is Ignited inside the cloud or a Detonator skill hits it",
+                                  "an Ignite on the boss in the cloud (a Fire skill that Ignites) or a Detonator skill "
+                                  "(Explosive Grenade, Explosive Shot, ...)")}
 DETONATED_WORD = {"Stormblast Bolts": "bolts", "Earthshatter": "spikes", "Forge Hammer": "hammers", "Gas Grenade": "clouds"}
 # (GEM20) Earthshatter's quality stat earthshatter_damage_+%_final_per_spike, "{0}% more Damage with [Hit|Hits] for each
 # Spike" (0.3% a quality, GrantedEffectQualityStats 90; came in 0.3.0 in place of "+0-3 to maximum Spikes"; PoB doesn't
@@ -8932,8 +8998,10 @@ def detonated_share(skill: str, uses: float, detonations: float) -> float:
 
 def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict], uses: float, detonations: float,
                         how: str, forbidden: set[str] = frozenset(),
-                        per_spike: float = 0.0, previous: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
-    """Storm Lance's / Rapid Assault's use with the detonations the build's Detonators give (see above): `sets` the
+                        per_spike: float = 0.0, previous: list[dict] | None = None,
+                        share: float | None = None) -> tuple[list[dict], list[dict]]:
+    """(GEM36: `share`, when given, the share set off, in place of the Detonators-only detonated_share: Gas Grenade's
+    Ignite route, R48-5) Storm Lance's / Rapid Assault's use with the detonations the build's Detonators give (see above): `sets` the
     bridge's setRates, `uses` the main skill's uses a second, `detonations` the build's Detonator uses a second,
     `per_spike` Earthshatter's "% more Damage with Hits for each Spike" (GEM20, spike_standing)."""
     if main is None or main.name not in DETONATED_SETS:
@@ -8948,7 +9016,7 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
     plain, det = dps.get(plain_label, 0.0), dps.get(det_label, 0.0)
     if plain <= 0:
         return [], []
-    s = detonated_share(main.name, number(uses), number(detonations))
+    s = detonated_share(main.name, number(uses), number(detonations)) if share is None else min(1.0, max(0.0, share))
     word = DETONATED_WORD.get(main.name, "spears")
     standing = spike_standing(main.name, number(uses), number(detonations)) if per_spike > 0 else 0.0
     spikes_more = 1.0 + per_spike / 100.0 * standing
@@ -8961,11 +9029,11 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
     # POE2T2199, Rapid Assault's Explosion set kept its Bleed under a DPS line and stayed the search's choice)
     mods = ([raw_mod("Damage" if steer else "DPS", "MORE", 100 * (factor - 1), main.name, tag=entry)] if abs(factor - 1) > 1e-9
             else [])
-    _, by_note, by_play = DETONATED_BY.get(main.name, ("", "a Detonator skill hits the " + word,
-                                                       "a Detonator skill (Detonating Arrow, Explosive Spear, a grenade, ...)"))
+    _, by_note, by_play = DETONATED_BY.get(main.name, ("",) + DETONATED_TEXT.get(main.name, (
+        "a Detonator skill hits the " + word, "a Detonator skill (Detonating Arrow, Explosive Spear, a grenade, ...)")))
     return mods, [{
         "label": (f"{main.name}: its {det_label} needs another skill to "
-                  + ("set it off*" if main.name in DETONATED_BY else "Detonate it*")), "value": f"x{factor:.3f}",
+                  + ("set it off*" if main.name in DETONATED_BY or main.name in DETONATED_TEXT else "Detonate it*")), "value": f"x{factor:.3f}",
         "confidence": "MEDIUM-LOW", "entry": entry,
         "set_shares": {plain_label: 1.0, det_label: s},  # (GEM22: strongest_ailment_model)
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; {plain_label} {plain:,.0f}, {det_label} "
@@ -9609,11 +9677,12 @@ def gas_cloud_poisons(alive: float) -> float:
     return max(alive, 0.0) / GAS_POISON_EVERY + 0.5
 
 
-def gas_cloud_life(uses: float) -> float:
-    """Seconds a Gas Arrow cloud waits on the boss: its 4 s, or less when the 6-cloud limit replaces the oldest."""
+def gas_cloud_life(uses: float, limit: float = GAS_CLOUD_LIMIT, seconds: float = GAS_CLOUD_SECONDS) -> float:
+    """Seconds a Gas Arrow cloud waits on the boss: its 4 s, or less when the 6-cloud limit replaces the oldest (GEM36:
+    another skill's `limit` / `seconds`, Gas Grenade's 6 / 6 s)."""
     if uses <= 0:
-        return GAS_CLOUD_SECONDS
-    return min(GAS_CLOUD_SECONDS, GAS_CLOUD_LIMIT / uses)
+        return seconds
+    return min(seconds, limit / uses)
 
 
 def gas_ignite_within(up: float, duration: float, window: float) -> float:

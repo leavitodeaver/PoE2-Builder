@@ -79,17 +79,24 @@ def test_infused_gate_zero_rows():
     assert "R46-10" not in (none[0]["basis"] if none else "")
 
 
+def _floor_sum(lam, life):
+    import math
+    return sum(math.exp(-lam) * lam ** k / math.factorial(k) * math.floor(k * life / 2000) for k in range(80))
+
+
 def test_verglas_model():
     fb = Skill("Frostbolt", 1)
     mods, notes = models.verglas_model(fb, ["Verglas"], 0.2, 12714.0, "its cooldown", "Frostbolt's hits", 0.0, 0.0, "")
-    want = 0.2 * 6 * 6.0  # (walls a second x floor(12,714 / 2,000) % x 6 s)
-    assert mods[0]["name"] == "DamageGainAsCold" and mods[0]["value"] == pytest.approx(want)
+    want = _floor_sum(1.2, 12714.0)  # (GEM36, R48-6: E[floor(K x 12,714 / 2,000)], K ~ Poisson(0.2 x 6 s))
+    assert mods[0]["name"] == "DamageGainAsCold" and mods[0]["value"] == pytest.approx(want, abs=1e-3)
+    assert "each crystal floored on its own +7.2%" in notes[0]["basis"]  # (GEM35's old headline, now a row)
+    assert "7 segments +" in notes[0]["basis"]  # (R48-7's whole-wall rows)
     assert mods[0]["tag"] == models.VERGLAS_ENTRY and notes[0]["confidence"] == "MEDIUM-LOW"
     assert "+6.0%" in notes[0]["basis"]  # (the one-crystal row: 6% while one was destroyed, up all fight)
     broken_by_none, notes = models.verglas_model(fb, ["Verglas"], 0.2, 12714.0, "", "", 0.0, 0.0, "")
     assert broken_by_none == [] and notes[0]["value"] == "+0.0%"
     locus, _ = models.verglas_model(fb, ["Verglas"], 0.0, 0.0, "", "", 0.5, 9536.0, "test")
-    assert locus[0]["value"] == pytest.approx(0.5 * 4 * 6.0)
+    assert locus[0]["value"] == pytest.approx(_floor_sum(3.0, 9536.0), abs=1e-3)
     assert models.verglas_model(fb, [], 0.2, 12714.0, "", "x", 0.0, 0.0, "") == ([], [])
     assert models.verglas_model(fb, ["Verglas"], 0.2, 12714.0, "", "x", 0.0, 0.0, "", {models.VERGLAS_ENTRY}) == ([], [])
 
@@ -126,6 +133,9 @@ def test_gas_grenade_cloud_explodes_only_when_detonated():
             {"label": "Explosion", "TotalDPS": 153.9}]
     mods, notes = models.detonated_set_model(gas, "Explosion", sets, 0.4, 0.0, "no Detonator")
     assert mods[0]["name"] == "Damage" and mods[0]["value"] < 0  # (steered down to the cloud's DoT)
-    assert "clouds" in notes[0]["basis"] or "Detonat" in notes[0]["label"]
+    assert "clouds" in notes[0]["basis"] or "set it off" in notes[0]["label"]
+    assert "Ignited inside the cloud" in notes[0]["basis"]  # (GEM36, R48-5)
+    lit, _ = models.detonated_set_model(gas, "Explosion", sets, 0.4, 0.0, "the boss Ignited", share=0.5)
+    assert lit[0]["name"] == "DPS" and lit[0]["value"] == pytest.approx(100 * ((101.9 + 153.9 * 0.5) / 153.9 - 1), abs=1e-3)
     fed, _ = models.detonated_set_model(gas, "Explosion", sets, 0.4, 0.5, "a Detonator")
     assert fed[0]["value"] > mods[0]["value"]
