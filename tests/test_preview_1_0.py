@@ -476,3 +476,92 @@ def test_the_knife_skills_from_stealth(engine):
     without = _knife_build(engine, "Whirling Blades 13/0 1", extra="Shroud 20/0 1")
     _, plain = ambush_model(Build(), SimpleNamespace(name="Whirling Blades"), without)
     assert "knives for the Darkness" not in plain[0]["basis"]
+
+
+# (PREVIEW4) each 1.0 support offered exactly where its "Supports ..." text allows and refused elsewhere (the user, 24 Nov:
+# "be careful with what mods are allowed with others"), on real PoB's own support check (bridge.supportCandidates)
+ALLOWED = {
+    "Overchannel": ({"Sand Scour", "Worldcutter", "Incinerate", "Snipe"}, {"Viper Strike", "Boneshatter", "Ethereal Knives"}),
+    "Impaling Blade II": ({"Viper Strike", "Perforate", "Boneshatter", "Ice Strike"},
+                          {"Ethereal Knives", "Shroud", "Incinerate", "Frost Bomb"}),
+    "Rending Blade": ({"Viper Strike", "Boneshatter"}, {"Ethereal Knives", "Whirling Blades", "Incinerate"}),
+    "Sandstorm": ({"Sand Scour", "Perforate"}, {"Viper Strike", "Worldcutter", "Boneshatter"}),
+    "Volatile Shades": ({"Shroud", "Shadow Assault"}, {"Viper Strike", "Ethereal Knives", "Boneshatter"}),
+    "Abundant Remnants I": ({"Frost Bomb"}, {"Viper Strike", "Shroud", "Boneshatter"}),
+    "Galvanising Blades": (set(), {"Charged Slash", "Viper Strike", "Sand Scour", "Boneshatter", "Perforate"}),
+}
+
+
+def test_the_preview_supports_go_exactly_where_their_text_allows(engine):
+    preview.install(engine, BuildRequest(preview_1_0=True))
+    skills = sorted({name for yes, no in ALLOWED.values() for name in yes | no})
+    engine.call("newBuild")
+    engine.call("setLevel", level=90)
+    engine.call("equip", slot="Weapon 1", fields=[], raw=DAGGER)
+    for name in skills:
+        engine.call("addSkillGroup", text=f"{name} 20/0 1", main=name == skills[0])
+    groups = {s["name"]: g["index"] for g in engine.call("groups")["groups"] for s in g["skills"]}
+    offered = {name: set(engine.call("supportCandidates", group=groups[name])["names"]) for name in skills}
+    assert all(offered[name] for name in skills)  # (each group's skill is there for PoB's check)
+    for support, (yes, no) in ALLOWED.items():
+        for name in yes:
+            assert support in offered[name], (support, name)
+        for name in no:
+            assert support not in offered[name], (support, name)
+    rows = {r["name"]: r for r in preview.gem_rows()}
+    assert rows["Impaling Blade II"]["families"] == rows["Rending Blade"]["families"]  # (the lower reading: not together)
+
+
+def test_the_preview_supports_models():
+    from builder.preview.supports import overchannel_hold
+
+    hold, why = overchannel_hold("Worldcutter", {"Channel"})
+    assert hold == pytest.approx(8.01) and "payoff" in why  # (its 2.67 s x 3 stages: past 1.5 s)
+    assert overchannel_hold("Snipe", {"Channel", "PerfectTiming"})[0] == 0  # (Perfect Timing not read: 0, labelled)
+    assert overchannel_hold("Incinerate", {"Channel"})[0] is None  # (kept up: counted, LOW)
+
+
+def test_the_giant_sword_and_the_shade_blasts(engine):
+    from types import SimpleNamespace
+
+    from builder.preview.supports import FIELDS, support_model
+
+    preview.install(engine, BuildRequest(preview_1_0=True))
+    gems = {g["name"]: g for g in preview.gems()}
+
+    class Build:
+        ctx = SimpleNamespace(gems=gems, request=BuildRequest(preview_1_0=True))
+        objective = None
+        call = staticmethod(engine.call)
+
+    engine.call("newBuild")
+    engine.call("setLevel", level=90)
+    engine.call("equip", slot="Weapon 1", fields=[], raw=DAGGER)
+    engine.call("addSkillGroup", text="Viper Strike 13/0 1\nImpaling Blade II 1/0 1", main=True)
+    stats = engine.call("stats", fields=FIELDS)
+    mods, notes, added = support_model(Build(), SimpleNamespace(name="Viper Strike"), stats)
+    sword = next(n for n in notes if "giant sword" in n["label"])
+    # one sword a 5 s on hitting, 343% against Viper Strike's 164%, plus its Impale Extracted by the next strike
+    hit = (stats.get("AverageHit") or stats["MainHand.AverageHit"]) * 343 / 164
+    physical = stats.get("PhysicalHitAverage") or stats.get("MainHand.PhysicalHitAverage") or 0  # (an attack's: per hand)
+    assert physical > 0 and added == pytest.approx(0.2 * hit + 0.2 * 0.3 * physical * 343 / 164, rel=0.01)
+    assert added > 0 and preview.ASTERISK in sword["label"] and mods[-1]["fn"] == "added"
+    engine.call("addSkillGroup", text="Shroud 20/0 1\nVolatile Shades 1/0 1", main=False)
+    _, notes, more = support_model(Build(), SimpleNamespace(name="Viper Strike"), stats)
+    blast = next(n for n in notes if n["label"].startswith("Volatile Shades on Shroud"))
+    assert more > added and "Row: 0" in blast["basis"], blast
+
+
+def test_the_knights_nodes_are_held_ready_with_their_source(engine):
+    """(PREVIEW4) The Knight's nodes as data: not allocatable until the 1.0 tree has the Duelist; each line labelled, and
+    the lines written for PoB's parser are read by it (the rest need a model, said per node)."""
+    knight = json.loads((preview.HERE / "knight.json").read_text(encoding="utf-8"))
+    assert "poe2db.tw/us/Knight" in knight["source"] and "NOT allocatable" in knight["about"]
+    nodes = knight["nodes"]
+    assert len(nodes) == 14 and sum(n["kind"] == "notable" for n in nodes) == 7
+    names = {n["name"] for n in nodes}
+    assert all(n.get("after") in names for n in nodes if n["kind"] == "notable")
+    assert all(n["lines"] and n["confidence"] and n["dps"] for n in nodes)
+    texts = [t for n in nodes for t in n.get("pob_text") or []]
+    parsed = engine.call("parseLines", lines=texts)["results"]
+    assert all(r["supported"] for r in parsed), [r["line"] for r in parsed if not r["supported"]]

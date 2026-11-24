@@ -41,14 +41,18 @@ if not PREVIEW_1_0_INSTALLED then
 	local refSet = ref.statSets[1]
 	-- (PREVIEW3) "skills that enter Stealth" (Conceal's requirement): PoB has no such skill type, so the preview adds one
 	-- past PoB's last number, carried only by preview skills that enter Stealth (gems.json: Shroud)
-	if not SkillType.PreviewStealth then
-		local last = 0
-		for _, number in pairs(SkillType) do
-			if type(number) == "number" and number > last then
-				last = number
+	-- (PREVIEW4) likewise the skills that create Shades (Volatile Shades), Sand Disks (Sandstorm) and Buried Blades
+	-- (Galvanising Blades), carried only by the preview skills whose text says so (gems.json)
+	for _, name in ipairs({ "PreviewStealth", "PreviewShades", "PreviewSandDisks", "PreviewBuriedBlades" }) do
+		if not SkillType[name] then
+			local last = 0
+			for _, number in pairs(SkillType) do
+				if type(number) == "number" and number > last then
+					last = number
+				end
 			end
+			SkillType[name] = last + 1
 		end
-		SkillType.PreviewStealth = last + 1
 	end
 	local function setUp(skill, id)
 		-- as Data.lua 929-965 sets up every skill it loads
@@ -136,12 +140,24 @@ if not PREVIEW_1_0_INSTALLED then
 		setUp(skill, row.grantedEffectId)
 		addGem(row, skill)
 	end
+	local function typeList(list)
+		-- (a support's require / exclude lists in PoB's form: SkillType numbers, any of them)
+		local out = { }
+		for _, name in ipairs(list) do
+			if not SkillType[name] then
+				error("preview_1_0: no SkillType " .. name)
+			end
+			table.insert(out, SkillType[name])
+		end
+		return out
+	end
 	local function addSupport(row)
 		local m = row.model
 		local skill = {
 			name = row.name, description = row.description, color = row.color, support = true, preview = true,
-			requireSkillTypes = (function() local t = { } for _, n in ipairs(m.requireSkillTypes) do table.insert(t, SkillType[n]) end return t end)(),
-			addSkillTypes = { }, excludeSkillTypes = { }, gemFamily = row.families,
+			requireSkillTypes = typeList(m.requireSkillTypes),
+			addSkillTypes = { }, excludeSkillTypes = typeList(m.excludeSkillTypes or { }), gemFamily = row.families,
+			ignoreMinionTypes = m.ignoreMinionTypes,
 			levels = { [1] = { levelRequirement = 0, manaMultiplier = m.manaMultiplier }, },
 			statSets = {
 				[1] = {

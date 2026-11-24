@@ -5770,6 +5770,7 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + eldritch_mods, hand_notes + eldritch_notes  # (MECHB30, MB-1: PoB's box unset)
         agony, agony_rate, agony_mods, agony_notes = inevitable_agony(build, main)  # (MECHB30: PoB scores it 0)
         hand_mods, hand_notes = hand_mods + agony_mods, hand_notes + agony_notes
+        preview_added = 0.0  # (PREVIEW4: the 1.0 preview supports' added hits, set below only with the switch on)
         if main is not None and getattr(getattr(getattr(build, "ctx", None), "request", None), "preview_1_0", False):
             from builder.preview.stealth import ambush_model  # (PREVIEW2, on loan: only with the 1.0 switch on)
 
@@ -5789,6 +5790,13 @@ class Assumptions:
                            "_boss": getattr(build.ctx.request, "boss", None)}
             knife_mods, knife_notes = knives.knife_model(build, main, knife_stats)
             hand_mods, hand_notes = hand_mods + knife_mods, hand_notes + knife_notes
+            from builder.preview import supports as preview_supports  # (PREVIEW4: the 1.0 supports' effects)
+
+            support_stats = build.call("stats", fields=preview_supports.FIELDS)
+            if getattr(build, "objective", None) is not None:
+                support_stats["_main_share"] = main_time_share(build, main)
+            support_mods, support_notes, preview_added = preview_supports.support_model(build, main, support_stats)
+            hand_mods, hand_notes = hand_mods + support_mods, hand_notes + support_notes
         if agony_rate > 0:  # (a press: the button cap counts it, as Bastion of Light's taps: models.ITEM_PRESSES)
             presses = getattr(build, models.ITEM_PRESSES, None)
             if isinstance(presses, dict):
@@ -5801,6 +5809,7 @@ class Assumptions:
                                    "Briarpatch": briar, "Ice-Tipped Fragments": frost, "Oil Ground": oil,
                                    "Ignited Ground's Ignite": burn, "Djinn Commands": djinn,
                                    "Meteors (side group)": side_meteors,
+                                   "1.0 preview supports*": preview_added,
                                    # (GEM21: Gas Arrow's cloud Poison beside its Arrow / Explosion set, gas_arrow_model)
                                    "Gas Arrow's cloud Poison": sum(number(m.get("value")) / 100 for m in hand_mods
                                                                    if m.get("name") == "AddedGasArrowCloud")})

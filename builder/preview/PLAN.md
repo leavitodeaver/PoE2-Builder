@@ -45,11 +45,24 @@ curve (gems.json curve_reference: Lightning Spear; 20/13 = 1.406, the median of 
    replaced Bleed is recovered, up to the strikes' limit; rows at 0 and the upper case (each strike adds its limit).
    DONE (PREVIEW3): Molten Forge's anvil, once a cooldown (level 1 shown; its shockwave, Forged in Flame and the
    Ignited Anvil have no numbers: NOT counted, an UNDERCOUNT for Slam builds).
+   DONE (PREVIEW4): Ethereal Knives / Whirling Blades (knives.py): several knives of a use hit one boss (their poe2db
+   text says so), each its own hit, Impale and Extraction (DPS MORE with its hits a use, so the Impale model counts
+   each knife). Ethereal Knives' fan: all knives point-blank (the shotgun ruling, LOW; rows one / half); Whirling
+   Blades' spiral: the boss's share of an unaimed circle (models.nova_unaimed_hits, LOW; rows aimed / all). Dual
+   wielding's 35% more knives rounded down. From Stealth: Ethereal Knives doesn't hit (those uses deal no damage;
+   Spectral Impale undefined: an upper row only); Whirling Blades throws a knife more per Darkness spent.
    NEXT: the traps once unblocked (needs a
-   TrapTool weapon type in PoB's weaponTypeInfo and a throw / cooldown cycle), Ethereal Knives / Whirling Blades
-   (shotgun overlap like R51-4).
-3. Supports: Overchannel, Impaling Blade II / Rending Blade (a periodic extra hit), Galvanising Blades, Sandstorm,
-   Abundant Remnants I (Remnant sources), Conceal / Volatile Shades with the mechanics.
+   TrapTool weapon type in PoB's weaponTypeInfo and a throw / cooldown cycle).
+3. Supports. DONE (PREVIEW4, supports.py; each offered exactly where its "Supports ..." text allows, tested both ways
+   on PoB's own support check): Overchannel (Channel; 15% more on a channel held 1.5 s+ by its own payoff, or its
+   Empower on the next non-channelled skill at the side channel's own rate), Impaling Blade II / Rending Blade (Strikes
+   you use yourself; a sword a 5 s cooldown on hitting, scored against a preview main skill's own damage %; a 0.5.5
+   main skill's isn't published by the bridge: 0, an UNDERCOUNT; one family here, UNVERIFIED), Volatile Shades
+   (skills that make Shades: Shroud's Shades exploding at 125% at its own use rate; Shadow Assault's not modelled),
+   Sandstorm (Sand Disks: Sand Scour, Perforate; 0 until Stances), Galvanising Blades (Buried Blades: no carrier yet,
+   offered nowhere), Abundant Remnants I (GeneratesRemnants; counted by the Remnant models from its description's "25% chance to
+   create an additional Remnant", on all the build's Remnants: LOW, an OVERCOUNT beside other Remnant sources). Preview skill types: PreviewStealth,
+   PreviewShades, PreviewSandDisks, PreviewBuriedBlades (lua.py).
 4. Mechanics. DONE (PREVIEW2): the Stealth cycle (stealth.py: Shroud's own use rate -> Ambushes; Conceal's 10 Darkness;
    Shades in range, LOW, with a row without them; no source = 0 with a note). Conceal supports only skills that enter
    Stealth (PREVIEW3: a preview skill type, PreviewStealth, that only Shroud carries; lua.py adds it to PoB's SkillType). Stances: their published parts are rows,
@@ -62,7 +75,10 @@ curve (gems.json curve_reference: Lightning Spear; 20/13 = 1.406, the median of 
    from their cards): Windripper, Blueflame Bracers (changed), Oro's Sacrifice,
    Molten Tenet, Agnar, Riptide ... Each needs its base; granted skills have no data yet. Sacrificial Flame (PREVIEW3,
    flames.py): counted 0 Flames with a per-Flame table at 12% and 4% (poe2db's two blocks); its Frenzy Charge at maximum 0.
-6. Classes / ascendancies: the Knight's 10 nodes (text published); Shadow / Duelist starts wait for the 1.0 tree.
+6. Classes / ascendancies: the Knight's nodes held as data (knight.json, PREVIEW4: 14 node texts from poe2db on 24 Nov,
+   10 HIGH and 4 LOW with garbled wording; the lines PoB parses checked by a test); NOT allocatable until the 1.0
+   tree adds the Duelist's start (Shadow / Duelist starts wait for the 1.0 tree). Then: its Valour / Glory lines through
+   MECH-C's models, the "15% more damage while a Rare or Unique enemy is present" notable's two readings as rows.
 
 ## Release day (~11 Dec 2026; patch notes ~4 Dec)
 1. ~4 Dec: read the full patch notes into the patch-notes archive (NOTES lane) and check every preview row and every
@@ -70,7 +86,9 @@ curve (gems.json curve_reference: Lightning Spear; 20/13 = 1.406, the median of 
    jewel sockets / craft: JEWEL; ascendancies: MECH lanes; tree: SEARCH-B).
    Re-check first (the manager, 23 Nov 14:53): Rupture's definition (rupture.py's reading: same total sooner, or added);
    Sacrificial Flame's maximum, duration and removal, and which per-Flame block (12% / 4%) is current (flames.py); and
-   trap damage. For traps, check first poe2db's Traps page's two unlabelled weapon-style entries, Miracle Apparatus
+   trap damage. (PREVIEW4) Also: Ethereal Knives' fan angle and Whirling Blades' spiral spacing (knives on a boss),
+   "Spectral" Impale, the rounding of "35% more Projectiles", the Knight's node list and costs, and the support gems'
+   cost multipliers (none shown but Galvanising Blades' 130%). For traps, check first poe2db's Traps page's two unlabelled weapon-style entries, Miracle Apparatus
    (Physical 32-54, Fire 7-10, crit 10%, 1.85 a second) and Rune Gear (Physical 19-32, crit 10%, 1.70), not in
    BaseItemTypes (RESEARCH55 R55-9): if they are trap weapons at release, trap skills likely scale from them.
 2. Release: re-export the game files (`python -m builder.data.gamefiles`), update the PoB checkout (vendor\) to its
