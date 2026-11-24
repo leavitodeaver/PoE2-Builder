@@ -15523,8 +15523,9 @@ def aggravate_model(texts: list[str], stats: dict, main_types: set[str], moving:
                               "skills' hits aren't counted: an undercount if they Attack and Bleed the boss)"}]
     if moving or any(AGGRAVATE_ALWAYS.match(t.strip()) for t in texts):
         return [], [{"label": label, "value": 0, "confidence": "HIGH",
-                     "basis": f"{'; '.join(used)}: the build's Bleeding is already Aggravated (or the boss set as moving) "
-                              "in PoB, which gives it the 100% extra; nothing more to add"}]
+                     "basis": f"{'; '.join(used)}: PoB already gives the build's Bleeding the 100% extra (Aggravated, or "
+                              "the boss set as moving), or the build's Bleeding takes no such extra; nothing more to "
+                              "add (a further line would multiply it: COV54's probe POE2T8010)"}]
     hits, crit = hits_per_second(stats), min(max(number(stats.get("CritChance")) / 100, 0.0), 1.0)
     duration = number(stats.get("BleedDuration"))
     miss = math.prod(1 - p for p in on_hit) * ((1 - crit) + crit * math.prod(1 - q for q in on_crit))
@@ -15595,7 +15596,10 @@ def aggravate_model(texts: list[str], stats: dict, main_types: set[str], moving:
                          "strongest Bleed's base plus the strongest AGGRAVATED Bleed's extra (Mark_GGG's PoE1 rule, "
                          f"R54-1: LOW-MEDIUM for PoE2): +{share:.1%} Bleeding damage (at the strongest Bleed's full "
                          f"size, the other reading: +{some:.1%})" if share != own else
-                         ": 100% extra Bleeding damage for that share") + " (KeywordPopups Aggravate)")
+                         ": 100% extra Bleeding damage for that share") + " (KeywordPopups Aggravate)"
+           + (f". Perforation's two readings: the extra from ANY live Aggravated Bleed (R54-1, the headline): +{share:.1%} "
+              f"Bleeding damage; it Aggravates only the Bleed it inflicts, so each Bleed's own extra counts (RESEARCH21, "
+              f"index row 18s, about chance x Jagged Ground share): +{own:.1%}" if perforation else ""))
     note = {"label": label, "value": round(share, 3), "confidence": "MEDIUM-LOW" if share != own else "MEDIUM",
             "basis": how,
             "play": ("Keep attacking: each Bleed is Aggravated only by a hit after it was inflicted"

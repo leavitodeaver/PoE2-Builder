@@ -153,3 +153,41 @@ def test_deception_shows_the_bunched_and_summoned_readings_and_says_how_to_play_
 
 def test_his_grave_command_still_takes_no_companion_slot():
     assert "His Grave Command" in models.COMPANION_FREE and "Soul Crystal" in models.COMPANION_FREE["His Grave Command"]
+
+
+# COV54's probe POE2T8010: a "more Magnitude of Bleeding" line multiplies PoB's own Aggravated bonus
+@pytest.mark.parametrize("line", ["10% chance to Aggravate Bleeding on Hit",
+                                  "Aggravate Bleeding on targets you Critically Hit with Attacks",
+                                  "Attack Hits Aggravate any Bleeding on targets which is older than 4 seconds",
+                                  PERFORATION_LINE])
+def test_a_bleed_pob_already_aggravates_gains_nothing(line):
+    assert models.aggravate_model([line], BLEEDER, {"Attack"}, moving=True, jagged=(1.0, "Earthquake"))[0] == []
+    always = [line, "Bleeding you inflict is Aggravated"]
+    assert models.aggravate_model(always, BLEEDER, {"Attack"}, jagged=(1.0, "Earthquake"))[0] == []
+
+
+def test_a_cycle_source_adds_nothing_to_a_bleed_already_aggravated():
+    cycle = [(models.RUPTURE, 20.0, 2.0, 2.0, False, "stunned 2 s every 20 s")]
+    assert models.aggravate_model([], BLEEDER, {"Attack"}, moving=True, cycles=cycle)[0] == []
+
+
+def test_two_aggravate_sources_join_into_one_share():
+    hit, crit = "10% chance to Aggravate Bleeding on Hit", "50% chance to Aggravate Bleeding on targets you Critically Hit with Attacks"
+    stats = {**BLEEDER, "CritChance": 20}
+    alone = [models.aggravate_model([x], stats, {"Attack"})[0][0]["scale"] / 100 for x in (hit, crit)]
+    both = models.aggravate_model([hit, crit], stats, {"Attack"})[0]
+    assert len(both) == 1  # (one line, so nothing multiplies)
+    assert max(alone) < both[0]["scale"] / 100 < min(1.0, sum(alone)) and both[0]["scale"] / 100 < (1 + alone[0]) * (1 + alone[1]) - 1
+
+
+def test_perforation_shows_its_own_bleed_reading_beside_the_headline():
+    _, notes = models.aggravate_model([PERFORATION_LINE], BLEEDER, {"Attack"}, jagged=(1.0, "Earthquake"))
+    assert "row 18s" in notes[0]["basis"] and "+20.0%" in notes[0]["basis"]
+
+
+def test_the_dead_jagged_ground_ledger_entry_does_not_stop_perforation():
+    from builder import ledger
+
+    found = ledger.translate(PERFORATION_LINE)
+    assert found is None or not any("Magnitude of Bleeding" in t for t in found[1])  # (COV54 dropped its live line)
+    assert models.aggravate_model([PERFORATION_LINE], BLEEDER, {"Attack"}, jagged=(1.0, "Earthquake"))[0]

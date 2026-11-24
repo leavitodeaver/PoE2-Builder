@@ -4491,7 +4491,9 @@ class Assumptions:
                 models.BEETLEBITE, models.PERFORATION)):
             # (MECH66: Aggravated Bleeding at the main skill's own hits, crits and Bleed duration)
             agg_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if name else set()
-            moving = bool(build.call("getConfig")["input"].get("conditionEnemyMoving"))
+            # (MECH104: PoB's own Aggravated bonus on, or a Bleed that takes no such extra: the model's line would multiply it)
+            bleed_extra = build.call("bleedExtra")
+            moving = bool(bleed_extra.get("aggravated") or bleed_extra.get("blocked"))
             empowered = self.empowered_uses(stats, None) if any(
                 models.AGGRAVATE_EMPOWERED.match(t.strip()) for t in texts) else None
             entries = None

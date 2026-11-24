@@ -2935,6 +2935,20 @@ function bridge.stats(args)
 	return pickStats(build.calcsTab.mainOutput, args.fields)
 end
 
+-- (MECH104; COV54's probe POE2T8010) Whether PoB's own Aggravated / Moving bonus is on in the scored build (its
+-- AilmentMagnitude MORE 100, CalcSetup 1000: the enemy Moving or BleedAggravated, from the config boxes or a
+-- "Bleeding you inflict ... is Aggravated" line whose condition holds), and whether the build's Bleed can take no such
+-- extra at all (NoExtraBleedDamageToMovingEnemy). A model's "more Magnitude of Bleeding" line would multiply that bonus.
+function bridge.bleedExtra()
+	local env = build.calcsTab and build.calcsTab.mainEnv
+	if not (env and env.enemy and env.player) then
+		return { aggravated = false, blocked = false }
+	end
+	local enemy = env.enemy.modDB
+	return { aggravated = (enemy:GetCondition("Moving") or enemy:GetCondition("BleedAggravated")) and true or false,
+		blocked = env.player.modDB:GetCondition("NoExtraBleedDamageToMovingEnemy") and true or false }
+end
+
 function bridge.recalc(args)
 	local start = os.clock()
 	recalc()
