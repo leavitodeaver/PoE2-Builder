@@ -4248,8 +4248,10 @@ def _debuff_pattern(var: str) -> re.Pattern:
 # POE2T5023; PoB parses none, ModCache 6739 / 7166 / 8345). Before, the Blind and Debilitate lines read 0 and the
 # Exposure line counted on every hit whether or not both jewels were socketed (an OVERCOUNT). Now each counts only
 # when the build's allocated tree sockets hold both named jewels (Conditions._tree_jewels: their base names; the
-# jewel carrying the line counts as one of them). A Time-Lost Ruby / Emerald / Sapphire is taken as NOT the named jewel
-# (UNVERIFIED: the lower reading). The search offers none of these crafts (rares.JEWEL_CRAFTS): imported builds only.
+# jewel carrying the line would count as one of them, but Potent Liquid Melancholy puts each line on the third colour:
+# Exposure on a Sapphire, Blind on an Emerald, Debilitate on a Ruby, PoB Data/LiquidEmotions.lua, RESEARCH51 R51-11). A
+# Time-Lost Ruby / Emerald / Sapphire is taken as NOT the named jewel (UNVERIFIED: the lower reading). (JEWEL3) The search
+# offers the Exposure Sapphire (jewels.exposure_trial); Blind and Debilitate: imported builds only.
 SOCKETED_PAIR = re.compile(r"\s*\bwhile you have an? (\w+) and an? (\w+) socketed in your tree\b", re.I)
 
 

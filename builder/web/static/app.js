@@ -641,7 +641,11 @@ function renderResult(result) {
 
 function craftBlock(shopping, item) {
   const c = item.craft;
-  const basis = item.basis === "crafting" ? "the crafting estimate (jewel market data is thin)" : "the market model (cheaper)";
+  // (JEWEL3; THE USER 24 Nov 00:45) a crafted jewel (4 mods + the effect line) is always priced at its crafting cost,
+  // with what it asks bought finished beside it (item.market_ask) and the Trade button for today's asks
+  const ask = item.market_ask;
+  const basis = ask ? "the crafting cost (a crafted jewel is always priced by how you make it)"
+    : item.basis === "crafting" ? "the crafting estimate (jewel market data is thin)" : "the market model (cheaper)";
   return el("div", { class: "craft" },
     el("div", {}, el("strong", {}, "Crafting it: "),
       `about ${formatPrice(c.total)} div expected (lucky ~${formatPrice(c.low)}, unlucky ~${formatPrice(c.high)})`),
@@ -652,7 +656,10 @@ function craftBlock(shopping, item) {
         + `${formatPrice(step.cost)} div: ${step.step}`)),
       c.roll_divines ? el("li", { class: "range" }, `Then about ${c.roll_divines.toLocaleString()} Divine Orbs to bring `
         + `every line to the modeled ${Math.round(c.roll * 100)}% roll (not in the total; far fewer if lower rolls will do)`) : null),
-    el("div", { class: "note" }, `Market model: ${formatPrice(item.market_estimate)} div (fitted on two-line jewels; `
+    ask ? el("div", { class: "note" }, `Bought finished: asks a median ${formatPrice(ask.median)} div `
+      + `(${formatPrice(ask.low)}-${formatPrice(ask.high)}) across ${ask.packages} searched mod packages on ${ask.date} `
+      + `(${ask.kind}); Trade, above, shows today's asks for these mods. The budget uses ${basis}.`)
+      : el("div", { class: "note" }, `Market model: ${formatPrice(item.market_estimate)} div (fitted on two-line jewels; `
       + `Trade shows what similar jewels ask). The budget uses ${basis}.`));
 }
 

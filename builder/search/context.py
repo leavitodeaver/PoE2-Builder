@@ -871,6 +871,14 @@ def make_payload(request: BuildRequest, prices=None) -> dict:
         # (SEARCHC2) the plain catalysts' exchange prices (Gear.catalyst_trial); {} without price data
         "catalyst_prices": {} if prices is None else {name: prices.exchange[name].divine for name in
                                                       catalyst_names() if name in prices.exchange},
+        # (JEWEL3) the Ancient (Time-Lost jewel) emotions' exchange prices (Jewels.radius_route); {} without price data
+        "ancient_emotion_prices": {} if prices is None else {name: prices.exchange[name].divine for name in
+                                                             ("Ancient Potent Liquid Melancholy", "Ancient Potent Liquid Contempt",
+                                                              "Ancient Potent Liquid Ferocity") if name in prices.exchange},
+        # (JEWEL3) the Refined (jewel) catalysts' exchange prices (Jewels.catalysed_jewel); {} without price data
+        "jewel_catalyst_prices": {} if prices is None else {"Refined " + name: prices.exchange["Refined " + name].divine
+                                                            for name in catalyst_names()
+                                                            if "Refined " + name in prices.exchange},
         # (SEARCHC3) the augment-effect route's two materials (Gear.augment_effect_trial); {} without price data
         "augment_effect_prices": {} if prices is None else {name: prices.exchange[name].divine for name in
                                                             ("Essence of Horror", "Omen of Dextral Crystallisation")

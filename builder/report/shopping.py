@@ -29,7 +29,7 @@ from builder.data.trade import TradeClient
 from builder.search.radius import TAG, variants_of
 from builder.search import anoints, granted_rolls, models
 from builder.report import bonded
-from builder.search.rares import EFFECT, JEWEL_CRAFTS, RANGE, TIER_RULES, boosted, rare_rules_tier, conflicts, mod_lines, pool_tags, roll
+from builder.search.rares import EFFECT, JEWEL_CRAFTS, MELANCHOLY_CRAFTS, RANGE, TIER_RULES, boosted, rare_rules_tier, conflicts, mod_lines, pool_tags, roll
 
 # (SEARCHC1; THE USER 23 Nov: never an empty rune socket, "quality of life runes (reduced curse duration, item rarity, cost
 # efficiency, the 'emergent' augments, etc.)") a socket nothing scored for holds a filler the player may swap
@@ -130,7 +130,7 @@ def identify(item: dict, data: GameData, fraction: float) -> list[tuple[dict | N
         return [(None, None, [line]) for line in item["affixes"]]
     # A crafted 0.5 jewel (builder/search/rares.py JEWEL_CRAFTS): its effect line boosts one kind
     effect = next(((float(m.group(1)), m.group(2)[:-2]) for line in item["affixes"] if (m := EFFECT.search(line))), None)
-    crafts = {mod_id for ids in JEWEL_CRAFTS.values() for mod_id in ids}
+    crafts = {mod_id for ids in JEWEL_CRAFTS.values() for mod_id in ids} | set(MELANCHOLY_CRAFTS)
     candidates = list(ranked_affixes(data, item["base"], pool))
     if pool == "Jewel":
         candidates += [(m, 1) for m in data.mods.get("Jewel", []) if m["id"] in crafts]
@@ -376,7 +376,8 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
         price = gear.get("price")
         if price is not None:
             price = max(price - rune_cost, rare_prices.MIN_PRICE if gear.get("rare") else 0.0)
-        kind = ("unique" if gear.get("unique") else "magic" if gear["type"] in MAGIC_TYPES and gear.get("affixes")
+        magic_jewel = gear["type"] == "Jewel" and not gear.get("rare") and bool(gear.get("affixes"))  # (JEWEL3: The Adorned's)
+        kind = ("unique" if gear.get("unique") else "magic" if (gear["type"] in MAGIC_TYPES or magic_jewel) and gear.get("affixes")
                 else "rare" if gear.get("rare") else "normal")
         entry = {"slot": slot, "kind": kind, "name": gear["name"], "base": gear["base"], "type": gear["type"],
                  "category": trade_category(base), "price": price, "confidence": gear.get("confidence"),
@@ -410,7 +411,7 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
                 entry["model_category"] = rare_prices.category(slot)
                 if gear.get("price") is not None:
                     entry["confidence"] = model.confidence(slot)
-            crafted_ids = {mod_id for ids in JEWEL_CRAFTS.values() for mod_id in ids}
+            crafted_ids = {mod_id for ids in JEWEL_CRAFTS.values() for mod_id in ids} | set(MELANCHOLY_CRAFTS)
             effect = next(((m.group(1), m.group(2)) for line in gear["affixes"] if (m := EFFECT.search(line))), None)
             mods = []  # (affix entry, mod) for the crafting estimate
             for mod, tier, lines in identify(gear, data, fraction):
@@ -442,7 +443,7 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
                                        f"\"{mod_lines(blocked)[0]}\" from rolling on the same item. Rerun the "
                                        "optimizer; it now keeps such mods apart.")
             if gear["type"] == "Jewel" and kind == "rare" and gear.get("price") is not None:
-                jewel_prices(entry, slot, mods, model, data, item_level, fraction)
+                jewel_prices(entry, slot, mods, model, data, item_level, fraction, route=gear.get("craft_route"))
         else:
             entry["note"] = "a white base: any copy from drops or a vendor works"
         items.append(entry)
@@ -489,10 +490,24 @@ def rare_stats(affixes: list[dict], level: str, slack: int = 0) -> list[dict]:
     return [{"type": "and", "filters": filters}]
 
 
+# (JEWEL2 / COV54, POE2T8021) What a finished crafted jewel (4 mods + the effect line) asks on trade: 6 searched mod
+# packages, 36 listings, 23 Nov 2026, Forbidden Rites; asking prices, not sales (COV54's jewel_samples.json)
+CRAFTED_JEWEL_ASK = {"median": 375.0, "low": 160.0, "high": 800.0, "packages": 6, "date": "23 Nov 2026",
+                     "kind": "asking prices, not sales; nearly every listing also had a Desecrated mod"}
+
+
 def jewel_prices(entry: dict, slot: str, mods: list[tuple[dict, dict]], model, data: GameData, item_level: int,
-                 fraction: float) -> None:
+                 fraction: float, route: list | tuple | None = None) -> None:
     """A rare jewel's two prices: the market model's, and crafting it from a bought jewel (base
     plus materials, as a range), and which one the budget uses."""
+    if any(mod["id"] in MELANCHOLY_CRAFTS for _, mod in mods):
+        # (JEWEL3) A Potent Liquid Melancholy jewel (jewels.exposure_rare): the search priced its own route (the jewel +
+        # the emotion, about two tries); the 0.5 effect-craft estimate below doesn't apply to it, so its price stands
+        entry["basis"] = "crafting"
+        entry["confidence"] = "crafting estimate (LOW: about two tries of Potent Liquid Melancholy)"
+        if route:
+            entry["note"] = " ".join(route)
+        return
     odds = mod_odds(data, entry["base"], "Jewel", item_level)
     affixes = [SimpleNamespace(type=mod["type"], crafted=bool(affix.get("crafted")),
                                lines=[roll(line, fraction) for line in mod_lines(mod)],
@@ -500,6 +515,7 @@ def jewel_prices(entry: dict, slot: str, mods: list[tuple[dict, dict]], model, d
                                odds=odds.get(mod["id"], (0.0, 0.0))[0], side_odds=odds.get(mod["id"], (0.0, 0.0))[1],
                                tier=affix.get("tier") or 1, top=False, index=i)
                for i, (affix, mod) in enumerate(mods)]
+    searched = entry["price"]  # (JEWEL3) the search's own price, before the model's
     priced = model.jewel(slot, affixes, fraction)
     entry["market_estimate"] = priced["market"]
     entry["basis"] = priced["basis"]
@@ -507,14 +523,23 @@ def jewel_prices(entry: dict, slot: str, mods: list[tuple[dict, dict]], model, d
     if priced["basis"] == "crafting":
         entry["confidence"] = "crafting estimate (rough: chaos spam and 50/50s vary)"
     if any(a.crafted for a in affixes):  # (JEWEL2, the manager's 19:12 ruling: the market ask as a labelled row)
+        # (JEWEL3; THE USER 24 Nov 00:45: the crafting cost is the budget price, the market ask shown beside it with a
+        # trade link) the ask as its own field, so the craft block shows it in place of the market model's number (the
+        # model has no term for this shape: ~0.7 div against asks of hundreds); the Trade button gives today's asks
+        entry["market_ask"] = dict(CRAFTED_JEWEL_ASK)
         entry["note"] = (entry.get("note", "") + " " if entry.get("note") else "") + ("Bought finished, this crafted shape asks far more: a median 375 div (160-800) across 6 "
                                 "searched mod packages on 23 Nov 2026 (asking prices, not sales; nearly every listing "
-                                "also had a Desecrated mod). The budget uses the craft route; Trade shows today's asks.")
+                                "also had a Desecrated mod). The budget uses " + ("the craft route" if priced["basis"] == "crafting" else "the market model (no material prices to cost the craft)") + "; Trade shows today's asks.")
     craft = priced["craft"]
     if craft:
         keep = [a for a in affixes if " / ".join(a.lines) in craft["base"]["mods"]]
         craft["base"]["affixes"] = [mods[a.index][0] for a in keep]
         entry["craft"] = craft
+    if route and searched is not None:
+        # (JEWEL3) the search priced this jewel by a route of its own on top (catalysts, Jewels.catalysed_jewel; a Preserved
+        # Cranium's Desecration): its price stands, the route shown
+        entry["price"] = searched
+        entry["note"] = (entry.get("note", "") + " " if entry.get("note") else "") + " ".join(route)
 
 
 def ladder(entry: dict, part: str = "item", status: str = LINK_STATUS) -> list[tuple[str, dict]]:

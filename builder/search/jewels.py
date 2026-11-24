@@ -32,17 +32,20 @@ Jewels that change the tree (PLAN.md "Radius jewels") are classified by PoB's pa
 from __future__ import annotations
 
 import dataclasses
+import os
 import re
 import time
 from collections.abc import Callable
 
 from builder import clock
-from builder.data import unique_versions
+from builder.data import rare_prices, unique_versions
 from builder.search import anoints, desecrated
 from builder.search.context import ItemOption
 from builder.search.radius import Variants, compact, miscalculated, tree_changing, unlocks, variants_of, with_variants
-from builder.search.rares import (SCREEN_KEEP, Affix, AffixPools, active_lines, boosted, rare_price, rare_text, socket_count,
-                                  unique_text, with_runes)
+from builder.search.rares import (CATALYST_QUALITY, CATALYSTS, CATALYSTS_PER_20, MELANCHOLY_CRAFTS, RADIUS_CRAFT,
+                                  SCREEN_KEEP, Affix, magic_text,
+                                  AffixPools, active_lines, boosted, catalysed_text, catalyst_matches, mod_lines,
+                                  rare_price, rare_text, socket_count, unique_text, with_runes)
 from builder.search.state import EPSILON, Build
 from builder.search.tree import FULL_EVERY
 
@@ -86,6 +89,60 @@ ZAROKH = "Zarokh's Gift"  # (JEWEL1) the anoint that grants a Sinister Jewel Soc
 CADIGAN = "Cadigan's Epiphany"
 CADIGAN_SLOT = "Gloves Jewel Socket 1"
 SEALED = re.compile(r"^(?:Corrupted|Sanctified)\s*$", re.M)
+# (JEWEL3; RESEARCH51 R51-11, the manager's 24 Nov order; DPS: gross x1.000-1.159 on the gate references, POE2T7956) Potent
+# Liquid Melancholy on a basic jewel: "Removes a random modifer and Augments a Rare Basic Jewel with a new guaranteed Crafted
+# modifier", fixed by the jewel's colour (PoB Data/LiquidEmotions.lua EndgameDistilledEmotion1: Ruby -> Debilitate, SAPPHIRE
+# -> "Inflict Elemental Exposure on Hit while you have a Ruby and an Emerald socketed in your tree", Emerald -> Blind;
+# RESEARCH51's table from poe2db agrees; the game tables we extract hold the emotion item, BaseItemTypes 1131, not the
+# colour map). So the Exposure jewel is a Sapphire and needs a Ruby AND an Emerald in other tree sockets (it is neither).
+# One crafted mod per jewel (R-J1, HIGH): no effect line beside it, so the shape is 2 prefixes + 1 suffix + the crafted
+# suffix (the emotion removes a mod first; from the side it adds to by the guides, R52-4: UNVERIFIED). Conditions reads the
+# line (MECH92's socketed_pair), so a plain what-if can't see it: exposure_trial scores it by a real trial (equip, settle)
+EXPOSURE_CRAFT = MELANCHOLY_CRAFTS[0]
+EXPOSURE_BASE = "Sapphire"
+EXPOSURE_PAIR = ("Ruby", "Emerald")
+EXPOSURE_SHAPE = {"Prefix": 2, "Suffix": 1}
+MELANCHOLY = "Potent Liquid Melancholy"
+# (LOW) Tries the route takes: the emotion removes a random modifier, so a jewel bought with the 3 chosen mods + any 4th
+# suffix keeps the chosen suffix about half the time (if it removes from the suffix side: UNVERIFIED); a lost try is a new
+# jewel. Expected cost = EXPOSURE_TRIES x (that jewel + one emotion)
+EXPOSURE_TRIES = 2.0
+EXPOSURE_LINE = "Inflict Elemental Exposure on Hit while you have a Ruby and an Emerald socketed in your tree"
+EXPOSURE_JEWEL = os.environ.get("POE2_SEARCH_EXPOSURE_JEWEL", "1") != "0"  # (JEWEL3) exposure_trial in full jewel rounds
+# (JEWEL3; RESEARCH57 R57-9) The 13 Refined catalysts put quality on a jewel: "Adds quality that enhances <X> modifiers on a
+# jewel", "Replaces other quality types" (poe2db, 23 Nov; 0.5.0 / 0.5.2 notes; BaseItemTypes CurrencyJewelQuality*):
+# one category per jewel, its lines x(1 + quality) (MEDIUM-HIGH, as the jewellery catalysts), up to 20% (MEDIUM: the
+# general item maximum, no jewel source found), 1% a catalyst (UNVERIFIED, LOW: CATALYSTS_PER_20). PoB scales any item
+# carrying "Catalyst:" lines by its lines' tags (Classes/Item.lua getCatalystScalar: no item-type check), so the jewel's
+# text is scored as written (rares.catalysed_text). Where the 0.5 effect line also raises a line, the two are read as ADDING
+# (the lower reading: the line written at effect + quality, not scaled again; multiplying them is the other reading,
+# UNVERIFIED, named in the item's route). Exchange name -> rares.CATALYSTS key (same tags as the jewellery ones)
+JEWEL_CATALYSTS = {"Refined " + name: name for name in CATALYSTS}
+# (JEWEL3; RESEARCH53 R-J2 / R-J3, AUDIT38 F9) A Time-Lost rare's crafts are the Ancient emotions, one crafted mod per jewel:
+# Ancient Potent Liquid Melancholy "Upgrades Radius to Very Large" (CraftedJewelRadiusExtraLargeSize, a PREFIX by the game's
+# GenerationType, all four colours; PoB ModParser 5619 timeLostJewelRadiusOverride 4). Two shapes, both whole: 1 prefix +
+# 2 suffixes + the craft (the emotion alone: it removes a random modifier and adds its own), and 1 prefix + 3 suffixes + the
+# craft by the 0.5 route with Ancient Potent Liquid Contempt's "+1 Suffix Modifier allowed" first (the same steps as the
+# effect craft: AUDIT38 F9 #222, a real listing of that shape; rare_prices.jewel_craft with the Ancient materials)
+RADIUS_SHAPES = ({"Prefix": 1, "Suffix": 3}, {"Prefix": 1, "Suffix": 2})
+ANCIENT_MELANCHOLY, ANCIENT_CONTEMPT = "Ancient Potent Liquid Melancholy", "Ancient Potent Liquid Contempt"
+RADIUS_TRIES = 2.0  # (LOW) the lone emotion keeps the chosen mods about half the time: which one it removes is random
+JEWEL_CATALYST = os.environ.get("POE2_SEARCH_JEWEL_CATALYST", "0") == "1"  # (JEWEL3) OFF until gated
+RADIUS_JEWEL = os.environ.get("POE2_SEARCH_RADIUS_CRAFT", "0") == "1"  # (JEWEL3) the Very Large radius shapes; OFF until gated
+# (JEWEL3; RESEARCH52 R52-4) The Adorned, a unique Diamond (Limited to 1; Current version): "(0-150)% increased Effect of Jewel
+# Socket Passive Skills containing Corrupted Magic Jewels" (PoB ModParser 5644: corruptedMagicJewelIncEffect, so PoB scores
+# it). Worth it only beside corrupted MAGIC jewels (1 prefix + 1 suffix, cheap) in the other sockets: a budget's option (with
+# no budget, whole crafted rares give more per socket). Rolls offered at the trade floors R52-4 read (Forbidden Rites,
+# 23 Nov 2026: 20 div at 100%+, 60 div at 130%+; MEDIUM-LOW), or the feed's price when higher. A Sinister socket takes no
+# Jewel Socket effect (KeywordPopups: "modifiers to the effect of Jewel Sockets do not apply"): its jewel stays. The
+# magic jewels are corrupted with a Vaal Orb assumed to leave them as they are (UNVERIFIED: a Vaal Orb's jewel outcomes),
+# priced as a 2-mod jewel by the rare model + one Vaal Orb (when priced), x ADORNED_TRIES (LOW)
+ADORNED = "The Adorned"
+ADORNED_ROLLS = {100: 20.0, 130: 60.0}
+ADORNED_TRIES = 2.0
+ADORNED_JEWEL = os.environ.get("POE2_SEARCH_ADORNED", "0") == "1"  # (JEWEL3) adorned_trial; OFF until gated
+MAGIC_JEWEL = {"Prefix": 1, "Suffix": 1}
+ADORNED_RANGE = re.compile(r"\((\d+)-(\d+)\)% increased Effect of Jewel Socket Passive Skills")
 # (JEWEL1) Items with jewel sockets ("Sockets: J ..."): PoB's slots "<item slot> Jewel Socket <n>" (ItemsTab.lua 217-262,
 # on these item slots), a jewel counting while its parent item has that many jewel sockets (CalcSetup 1446-1453, scaled by
 # the parent's "increased effect of Socketed Jewels"). Tabula Rasa (6), Eshtera's Path / Safrin's Resolve / Zaida's
@@ -133,6 +190,8 @@ class Jewels:
         self.versions: dict[tuple[str, str | None], tuple[int, ItemOption]] = {}
         self.full_rounds = 0
         self.unfinished: dict[str, dict] = {}  # (JEWEL3) jewel text -> what its slots lack and why (unfinished_notes)
+        self.cadigan_kept: dict | None = None  # (JEWEL3) cadigan_record of the last Cadigan's Epiphany kept, for the note
+        self.exposure_kept: dict | None = None  # (JEWEL3) what exposure_trial last kept, for the note
         self.left_out: dict[str, str] = {}  # unique -> why it's never proposed (for the result)
         self.screened: set[tuple[str, int, tuple[str, ...]]] = set()  # unlock screens since the last full cycle
         # (JEWEL1) the tree values a reachable jewel socket at what a filled one adds (Tree.socket_value / fill_socket,
@@ -364,8 +423,22 @@ class Jewels:
                 if crafted := self.pools.crafted(kind):
                     other = next(k for k in JEWEL_LIMIT if k != kind)
                     shapes.append(({kind: 3, other: 1}, [crafted[0]] + ([forced] if forced else []), (kind, crafted[1])))
+            radius = self.radius_affix() if base_name in RADIUS_BASES and RADIUS_JEWEL else None
+            for limits in RADIUS_SHAPES if radius is not None else ():
+                shapes.append((limits, [radius] + ([forced] if forced else []), "radius"))
             for limits, fixed, boost in shapes:
                 shortlist = [a for kind in limits for a in [x for x in ranked if x.type == kind][:SCREEN_KEEP]]
+                if boost == "radius":  # (JEWEL3) the Very Large radius craft: its own route's price, a whole shape only
+                    found = self.greedy(slot, base, shortlist, limits, fixed, left, deadline, required is not None,
+                                        full=True, free=(radius,))
+                    option = self.radius_rare(base, limits, found) if found else None
+                    if option is not None and not shape_full(found[1], limits):  # (kept, with the note: THE USER 24 Nov)
+                        self.mark_unfinished(option[1].raw, found[1], limits, deadline)
+                    if option is not None and (option[0] <= left + 1e-9 or self.ctx.ssf):
+                        value = found[0] + self.gear.lam * (rare_price("Jewel", found[2]) - (option[0] or 0.0))
+                        if best is None or value > best[0]:
+                            best = (value, option[1])
+                    continue
                 if boost:
                     shortlist = [dataclasses.replace(a, lines=tuple(boosted(l, boost[1]) for l in a.lines))
                                  if a.type == boost[0] else a for a in shortlist]
@@ -378,7 +451,13 @@ class Jewels:
                     # out of time when it's actively working on something like that, it should leave a note to indicate that
                     # it wasn't finished") A jewel short of its slots is kept, and the result says it isn't finished
                     self.mark_unfinished(rare_text("Jewel", base, level, found[1]), found[1], limits, deadline)
-                if found and (best is None or found[0] > best[0]):
+                catalysed = self.catalysed_jewel(slot, base, found[1], found[2], found[0], boost, pool, left) \
+                    if found and JEWEL_CATALYST else None
+                if catalysed is not None and (best is None or catalysed[0] > best[0]):
+                    best = catalysed
+                    if rare_text("Jewel", base, level, found[1]) in self.unfinished:
+                        self.unfinished[catalysed[1].raw] = self.unfinished[rare_text("Jewel", base, level, found[1])]
+                elif found and (best is None or found[0] > best[0]):
                     value, chosen, priced = found
                     price = None if self.ctx.ssf else rare_price("Jewel", priced)
                     best = (value, ItemOption(
@@ -390,6 +469,110 @@ class Jewels:
                         if crafted is not None and crafted[0] > best[0]:
                             best = crafted
         return best[1] if best else None
+
+    def radius_affix(self) -> Affix | None:
+        """(JEWEL3) The Ancient Potent Liquid Melancholy craft as an affix (None if this game data lacks it)."""
+        mod = next((m for m in self.pools.mods if m["id"] == RADIUS_CRAFT), None)
+        if mod is None:
+            return None
+        return Affix(mod["id"], mod["group"], mod["type"], 1, tuple(mod_lines(mod)), crafted=True)
+
+    def radius_rare(self, base: dict, limits: dict[str, int], found: tuple) -> tuple[float | None, ItemOption] | None:
+        """(JEWEL3) (price, the jewel) for a whole Very Large radius shape greedy filled: 1 prefix + 3 suffixes by the 0.5
+        route (rare_prices.jewel_craft with Ancient Potent Liquid Contempt and Melancholy in place of the basic emotions),
+        1 prefix + 2 suffixes by the emotion alone (RADIUS_TRIES x (the jewel + one Ancient Potent Liquid Melancholy)).
+        None without the emotions' prices (outside SSF)."""
+        _, chosen, priced = found
+        prices = self.ctx.payload.get("ancient_emotion_prices") or {}
+        level = self.pools.item_level
+        if self.ctx.ssf:
+            price, route = None, "the Ancient Potent Liquid Melancholy craft (SSF: unpriced)"
+        elif ANCIENT_MELANCHOLY not in prices or (limits["Suffix"] == 3 and ANCIENT_CONTEMPT not in prices):
+            return None
+        elif limits["Suffix"] == 3:
+            materials = {**rare_prices.active().materials, "Potent Liquid Contempt": prices[ANCIENT_CONTEMPT],
+                         "Potent Liquid Ferocity": prices[ANCIENT_MELANCHOLY]}
+            craft = rare_prices.jewel_craft(chosen, materials, lambda keep: rare_price("Jewel", keep))
+            # (without the route's other materials priced (Chaos Orbs, the Erasure Omen): the jewel and both emotions,
+            # about two tries, LOW)
+            price = craft["total"] if craft is not None else RADIUS_TRIES * (
+                rare_price("Jewel", priced) + prices[ANCIENT_CONTEMPT] + prices[ANCIENT_MELANCHOLY])
+            route = (f"the 0.5 route with Ancient emotions: Ancient Potent Liquid Contempt's \"+1 Suffix Modifier allowed\", a "
+                     "third suffix, the +1 line removed, then Ancient Potent Liquid Melancholy (\"Upgrades Radius to Very "
+                     f"Large\"); about {price:.3g} div (LOW, as the effect craft's route"
+                     + ("" if craft is not None else "; the route's Chaos Orbs and Omen unpriced: the jewel and both "
+                                                     "emotions, about two tries") + ")")
+        else:
+            price = RADIUS_TRIES * (rare_price("Jewel", priced) + prices[ANCIENT_MELANCHOLY])
+            route = (f"buy the jewel with these 3 mods and any fourth, then Ancient Potent Liquid Melancholy (it removes a "
+                     f"random modifier and adds \"Upgrades Radius to Very Large\"); about two tries, {price:.3g} div (LOW)")
+        return price, ItemOption("Rare Jewel", base["name"], "Jewel", None, rare_text("Jewel", base, level, chosen), False,
+                                 price, "ssf" if self.ctx.ssf else "estimate (craft route: Ancient emotions)", 0, rare=True,
+                                 affixes=tuple(line for a in chosen for line in a.lines),
+                                 craft_route=(f"Crafted: {route}.",))
+
+    @property
+    def jewel_tags(self) -> dict[str, tuple[str, ...]]:
+        """(JEWEL3) Each jewel mod's tags (game data's modTags), for the catalysts."""
+        if self.__dict__.get("_jewel_tags") is None:
+            self._jewel_tags = {m["id"]: tuple(m.get("modTags") or ()) for m in self.ctx.data.mods.get("Jewel", [])}
+        return self._jewel_tags
+
+    def catalysed_jewel(self, slot: str, base: dict, chosen: list, priced: list, value: float, boost, pool: list,
+                        left: float) -> tuple[float, ItemOption] | None:
+        """(JEWEL3, POE2_SEARCH_JEWEL_CATALYST=1; R57-9) This whole rare jewel (`chosen`, score less price's weight `value`)
+        with 20% quality of one Refined catalyst: every catalyst whose tag one of its affixes carries is scored, priced as
+        the jewel + CATALYSTS_PER_20 x the catalyst (exchange); the best kept when it beats the plain jewel after prices.
+        A line the effect line also raises (`boost`: (kind, percent)) is written at effect + quality and not tagged (the
+        lower, adding reading); the others are tagged for PoB's own scaling."""
+        prices = self.ctx.payload.get("jewel_catalyst_prices") or {}
+        tags, level, lam = self.jewel_tags, self.pools.item_level, self.gear.lam
+        names = [n for n, plain in JEWEL_CATALYSTS.items() if (self.ctx.ssf or n in prices)
+                 and any(not a.crafted and catalyst_matches(plain, a, tags) for a in chosen)]
+        if not names:
+            return None
+        original = {a.id: a for a in pool}
+        cases = []  # (exchange name, affixes as written, the text, cost)
+        for name in names:
+            plain = JEWEL_CATALYSTS[name]
+            written, scaled = [], []
+            for a in chosen:
+                hit = not a.crafted and catalyst_matches(plain, a, tags)
+                if hit and boost and a.type == boost[0]:
+                    source = original.get(a.id, a)
+                    written.append(dataclasses.replace(a, lines=tuple(boosted(line, boost[1] + CATALYST_QUALITY)
+                                                                      for line in source.lines)))
+                    continue
+                written.append(a)
+                if hit:
+                    scaled.append(a)
+            text = catalysed_text(rare_text("Jewel", base, level, written), scaled, tags, plain, CATALYST_QUALITY)
+            cost = 0.0 if self.ctx.ssf else CATALYSTS_PER_20 * prices[name]
+            if self.ctx.ssf or rare_price("Jewel", priced) + cost <= left + 1e-9:
+                cases.append((name, written, text, cost))
+        if not cases:
+            return None
+        scored = self.build.item_deltas([{"slot": slot, "raw": text} for _, _, text, _ in cases])
+        found, _, i = max(((s - lam * (rare_price("Jewel", priced) + c[3]), -c[3], i)
+                           for i, ((s, _), c) in enumerate(zip(scored, cases))), key=lambda x: x[:2])
+        if found <= value + EPSILON:
+            return None
+        name, written, text, cost = cases[i]
+        plain = JEWEL_CATALYSTS[name]
+        raised = sum(1 for a in chosen if not a.crafted and catalyst_matches(plain, a, tags))
+        note = (f"{name} x{CATALYSTS_PER_20}: {CATALYST_QUALITY}% quality raises the {raised} modifier"
+                f"{'s' if raised != 1 else ''} with its tag ({'/'.join(CATALYSTS[plain][1])}) by {CATALYST_QUALITY}% "
+                f"({cost:.3g} div; {CATALYSTS_PER_20} per {CATALYST_QUALITY}% is LOW and UNVERIFIED, R57-9; the jewel "
+                "maximum of 20% is MEDIUM)")
+        if boost and any(a.type == boost[0] and not a.crafted and catalyst_matches(plain, a, tags) for a in chosen):
+            note += (f". The {boost[0].lower()}es it raises also take the effect line's {boost[1]:g}%: counted as adding "
+                     f"(x{1 + (boost[1] + CATALYST_QUALITY) / 100:.2f}); if the two multiply (UNVERIFIED) they read "
+                     f"x{(1 + boost[1] / 100) * (1 + CATALYST_QUALITY / 100):.2f}")
+        price = None if self.ctx.ssf else rare_price("Jewel", priced) + cost
+        return found, ItemOption("Rare Jewel", base["name"], "Jewel", None, text, False, price,
+                                 "ssf" if self.ctx.ssf else "estimate (craft route: catalysts)", 0, rare=True,
+                                 # (the lines as bought: the quality goes on after, so the trade search is the plain jewel's)
+                                 affixes=tuple(line for a in chosen for line in a.lines), craft_route=(note,))
 
     def ranked(self, slot: str, base: dict, pool: list) -> list:
         """The base's affixes best first, each scored alone in this slot. (JEWEL1, LAZY_JEWELS) Kept for the full jewel
@@ -463,15 +646,17 @@ class Jewels:
                                  craft_route=(note, *steps))
 
     def greedy(self, slot: str, base: dict, shortlist: list, limits: dict[str, int], fixed: list, left: float,
-               deadline: float, fixed_only: bool = False, full: bool = False) -> tuple[float, list, list] | None:
+               deadline: float, fixed_only: bool = False, full: bool = False,
+               free: tuple = ()) -> tuple[float, list, list] | None:
         """Add affixes to `fixed` while one pays: (score less the price's weight, affixes, the affixes priced), or None
         when nothing beyond `fixed` fits the budget or pays (unless `fixed_only` allows that). With `full` (JEWEL1), go on
         to the shape's last slot even when no affix pays any more (the user, 23 Nov 2026: "having empty mods on an item is
         stupid and wasteful"; the manager 06:15: "fill all slots ... with the best-value mods, priced"): each further slot
-        takes the affordable affix with the best score less its price's weight, priced like the rest.
+        takes the affordable affix with the best score less its price's weight, priced like the rest. `free` (JEWEL3):
+        affixes of `fixed` left out of the market price (a crafted line its caller prices by its own route).
         """
         build, lam, level = self.build, self.gear.lam, self.pools.item_level
-        chosen, priced = list(fixed), list(fixed)
+        chosen, priced = list(fixed), [a for a in fixed if a not in free]
         if rare_price("Jewel", chosen) > left + 1e-9:
             return None
         current = build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, chosen)}])[0][0]
@@ -614,8 +799,9 @@ class Jewels:
 
     def radius_notes(self) -> list[dict]:
         """The larger Time-Lost radius and the radius damage transforms, for the result's assumptions (asterisked), and
-        (JEWEL3) the "not finished" notes (unfinished_notes)."""
-        notes = self.transform_notes() + self.unfinished_notes()
+        (JEWEL3) Cadigan's Epiphany's and Melancholy's Exposure's notes (cadigan_notes, exposure_notes) and the "not
+        finished" notes (unfinished_notes)."""
+        notes = self.transform_notes() + self.cadigan_notes() + self.exposure_notes() + self.unfinished_notes()
         model = self.build.call("radiusModel")
         if model["increase"] <= 0:
             return notes
@@ -721,6 +907,10 @@ class Jewels:
             improved = self.item_socket_trial(deadline) or improved
         if full and clock.now() < deadline:
             improved = self.cadigan_trial(deadline) or improved
+        if full and clock.now() < deadline and EXPOSURE_JEWEL:
+            improved = self.exposure_trial(deadline) or improved
+        if full and clock.now() < deadline and ADORNED_JEWEL:
+            improved = self.adorned_trial(deadline) or improved
         if full and clock.now() < deadline:
             improved = self.try_new_socket(deadline) or improved
         if full and clock.now() < deadline:
@@ -765,13 +955,282 @@ class Jewels:
         if trial is None or (trial.price or 0.0) > gear.left_for("Gloves") + 1e-9:
             return False
         snap, before = build.snapshot(), build.score - gear.lam * build.spent()
+        before_stats = dict(build.stats)
         build.equip("Gloves", trial)
         gear.settle()
         self.fill_item_socket(CADIGAN_SLOT, JEWEL_BASES, deadline)
         if build.score - gear.lam * build.spent() > before + EPSILON:
+            self.cadigan_kept = self.cadigan_record(before_stats, build.stats)
             return True
         build.restore(snap)
         return False
+
+    def cadigan_record(self, before: dict, after: dict) -> dict:
+        """(JEWEL3) What Cadigan's Epiphany did when the search kept it, for the result's note: DPS after / before and
+        each request floor or game limit whose shortfall it closed or opened (label -> (short before, short after), the
+        normalized deficits of Objective.deficits; 0 = met), with the floor's stat values before and after."""
+        from builder.search.objective import number
+
+        objective = self.build.objective
+        dps_before, dps_after = objective.dps(before), objective.dps(after)
+        short_before = {label: amount for label, amount, _ in objective.deficits(before)}
+        short_after = {label: amount for label, amount, _ in objective.deficits(after)}
+        floors = {}
+        for label in sorted(set(short_before) | set(short_after)):
+            was, now = short_before.get(label, 0.0), short_after.get(label, 0.0)
+            if abs(was - now) > 1e-9:
+                penalty = next((p for p in objective.penalties if p.label == label), None)
+                values = None if penalty is None else (number(before.get(penalty.stat)), number(after.get(penalty.stat)),
+                                                       penalty.floor)
+                floors[label] = (was, now, values)
+        gloves, jewel = self.build.equipped.get("Gloves"), self.build.equipped.get(CADIGAN_SLOT)
+        return {"ratio": dps_after / dps_before if dps_before > 0 else None, "floors": floors,
+                "gloves": gloves.name if gloves is not None else "the gloves",
+                "jewel": tuple(getattr(jewel, "affixes", None) or ())}
+
+    def cadigan_notes(self) -> list[dict]:
+        """(JEWEL3; the manager, 24 Nov 00:46) The result's note for Cadigan's Epiphany on the delivered gloves, in plain
+        words: what it traded (the gloves' runes for a jewel socket), DPS after / before at the trial, and, when DPS fell,
+        the floor it was kept for (2b75e, POE2T7956: x0.950 DPS for the user's default 25% movement speed floor)."""
+        gloves = self.build.equipped.get("Gloves")
+        record = getattr(self, "cadigan_kept", None)
+        if gloves is None or CADIGAN not in gloves.runes or not record:
+            return []
+        ratio = record["ratio"]
+        jewel = ", ".join(record["jewel"]) or "a rare jewel"
+        met, worse = [], []
+        for label, (was, now, values) in record["floors"].items():
+            seen = "" if values is None else f" ({values[0]:g} -> {values[1]:g}, floor {values[2]:g})"
+            if now < was:
+                met.append(f"{label}: {'met' if now <= 0 else 'closer'}{seen}")
+            else:
+                worse.append(f"{label}: {'now short' if was <= 0 else 'further short'}{seen}")
+        traded = ("The gloves' augment sockets and the runes in them were given up for one jewel socket, filled with "
+                  f"{jewel}.")
+        if ratio is not None and ratio < 1.0 - 1e-4:
+            label = f"Cadigan's Epiphany on {record['gloves']}: DPS x{ratio:.3f}, kept to meet a floor"
+            why = (f" That lowers DPS to x{ratio:.3f} of the gloves with their runes, but it "
+                   + ("closes " + "; ".join(met) if met else "changes no floor that was short")
+                   + ". The search ranks a build short of a request floor below one that meets it, so it took the DPS "
+                     "loss: this is the floor doing its job (the default 25% movement speed floor is the user's). "
+                     "Lower or remove that floor in the request to keep the runes and the DPS.")
+        else:
+            label = f"Cadigan's Epiphany on {record['gloves']}: DPS x{ratio:.3f}" if ratio is not None else (
+                f"Cadigan's Epiphany on {record['gloves']}")
+            why = " The jewel adds more than the runes did." + (" It also closes " + "; ".join(met) + "." if met else "")
+        if worse:
+            why += " It leaves short: " + "; ".join(worse) + "."
+        return [{"label": label, "value": f"x{ratio:.3f}" if ratio is not None else "",
+                 "basis": traded + why + " (DPS measured when the search tried it, on the build as it was then.)",
+                 "confidence": "HIGH"}]
+
+    # The Adorned (JEWEL3) --------------------------------------------------------------------------
+
+    def adorned_versions(self) -> list[ItemOption]:
+        """The Adorned at each offered roll (ADORNED_ROLLS), its Current version's lines with the roll written in."""
+        found = next((o for o in self.ctx.item_options.get("Jewel", []) if o.unique and o.name == ADORNED), None)
+        if found is None or ADORNED in {o.name for o in self.build.equipped.values() if o is not None}:
+            return []
+        variants = variants_of(found.raw)
+        raw = found.raw
+        if variants is not None and variants.usable:
+            raw = compact(with_variants(found.raw, variants, (variants.usable[-1],) * len(variants.slots)),
+                          (variants.usable[-1],) * len(variants.slots))
+        out = []
+        for roll, floor in ADORNED_ROLLS.items():
+            text = ADORNED_RANGE.sub(f"{roll}% increased Effect of Jewel Socket Passive Skills", raw)
+            if text == raw:
+                continue
+            price = None if self.ctx.ssf else max(found.price or 0.0, floor)
+            out.append(dataclasses.replace(found, raw=text, price=price, price_note=(
+                f"rolled {roll}%: the trade floor for {roll}%+ ({floor:g} div, R52-4, 23 Nov 2026; MEDIUM-LOW)")))
+        return out
+
+    def magic_jewel(self, slot: str, deadline: float) -> ItemOption | None:
+        """(JEWEL3) The best corrupted magic jewel (1 prefix + 1 suffix, both filled) for this socket on a basic base."""
+        best = None
+        left = self.gear.left_for(slot) / ADORNED_TRIES
+        vaal = 0.0 if self.ctx.ssf else ((self.ctx.payload.get("craft_prices") or {}).get("Vaal Orb") or 0.0)
+        for name in JEWEL_BASES:
+            base = self.ctx.bases_by_name.get(name)
+            pool = self.pools.pool(name) if base else []
+            if not pool or clock.now() > deadline:
+                continue
+            ranked = self.ranked(slot, base, pool)
+            shortlist = [a for kind in MAGIC_JEWEL for a in [x for x in ranked if x.type == kind][:SCREEN_KEEP]]
+            found = self.greedy(slot, base, shortlist, MAGIC_JEWEL, [], left - vaal, deadline, full=True)
+            if not found:
+                continue
+            value, chosen, priced = found
+            if best is None or value > best[0]:
+                price = None if self.ctx.ssf else ADORNED_TRIES * (rare_price("Jewel", priced) + vaal)
+                text = magic_text("Jewel", base, self.pools.item_level, chosen) + "\nCorrupted"
+                if not shape_full(chosen, MAGIC_JEWEL):  # (kept, with the note: THE USER 24 Nov)
+                    self.mark_unfinished(text, chosen, MAGIC_JEWEL, deadline)
+                best = (value, ItemOption("Magic Jewel", name, "Jewel", None, text, False, price,
+                                          "ssf" if self.ctx.ssf else "estimate (magic jewel + Vaal Orb, LOW)", 0,
+                                          affixes=tuple(line for a in chosen for line in a.lines),
+                                          craft_route=("A magic jewel with these two mods, corrupted with a Vaal Orb "
+                                                       "(assumed to leave it as it is: UNVERIFIED; about two tries, "
+                                                       "LOW)" + ("" if vaal else "; the Vaal Orb unpriced") + ".",)))
+        return best[1] if best else None
+
+    def adorned_trial(self, deadline: float) -> bool:
+        """(JEWEL3, POE2_SEARCH_ADORNED=1) The Adorned in the weakest socket that takes a unique, corrupted magic jewels in
+        every other normal tree socket (not Sinister, not one the tree holds nodes through), each roll tried; equipped
+        together and settled (a real trial), kept only if score less the budget weight x spend rises."""
+        build, gear = self.build, self.gear
+        versions = self.adorned_versions()
+        target = self.weakest_socket()
+        if not versions or target is None:
+            return False
+        others = [s for s in self.sockets() if s != target and s not in self.restricted and not self.holds(s)]
+        if len(others) < 2:
+            return False
+        magic = self.magic_jewel(self.slot(others[0]), deadline)
+        if magic is None:
+            return False
+        improved = False
+        for version in versions:
+            if clock.now() > deadline:
+                break
+            plan = [(self.slot(target), version)] + [(self.slot(s), magic) for s in others]
+            if any((o.price or 0.0) > gear.left_for(slot) + 1e-9 for slot, o in plan):
+                continue
+            snap, before = build.snapshot(), build.score - gear.lam * build.spent()
+            for slot, option in plan:
+                build.equip(slot, option)
+            gear.settle()
+            if build.score - gear.lam * build.spent() > before + EPSILON:
+                improved = True
+                continue  # (the next roll is tried against this one)
+            build.restore(snap)
+        return improved
+
+    # Melancholy's Exposure (JEWEL3) ---------------------------------------------------------------
+
+    def exposure_affix(self) -> Affix | None:
+        """The crafted Exposure suffix as an affix (None if this game data lacks it)."""
+        mod = next((m for m in self.pools.mods if m["id"] == EXPOSURE_CRAFT), None)
+        if mod is None:
+            return None
+        return Affix(mod["id"], mod["group"], mod["type"], 1, tuple(mod_lines(mod)), crafted=True)
+
+    def exposure_price(self, priced: list) -> float | None:
+        """The Exposure jewel's expected cost: EXPOSURE_TRIES x (the jewel with its chosen mods, by the market / craft
+        model, plus one Potent Liquid Melancholy from the exchange; 0 with no price for it). None in SSF."""
+        if self.ctx.ssf:
+            return None
+        return EXPOSURE_TRIES * (rare_price("Jewel", priced) + (self.ctx.emotion_prices.get(MELANCHOLY) or 0.0))
+
+    def exposure_rare(self, slot: str, deadline: float) -> ItemOption | None:
+        """The best Sapphire for this socket with the crafted Exposure suffix: 2 prefixes + 1 suffix filled by greedy (full;
+        the crafted line fixed and left out of the market price, exposure_price adding its route), within the slot's
+        budget. None when it can't be made whole (the empty-slot red flag)."""
+        base = self.ctx.bases_by_name.get(EXPOSURE_BASE)
+        affix = self.exposure_affix()
+        pool = self.pools.pool(EXPOSURE_BASE) if base else []
+        if affix is None or not pool:
+            return None
+        left = self.gear.left_for(slot)
+        if not self.ctx.ssf:  # (greedy prices one jewel: the route's tries and emotions come off the budget first)
+            left = left / EXPOSURE_TRIES - (self.ctx.emotion_prices.get(MELANCHOLY) or 0.0)
+        ranked = self.ranked(slot, base, pool)
+        shortlist = [a for kind in EXPOSURE_SHAPE for a in [x for x in ranked if x.type == kind][:SCREEN_KEEP]]
+        found = self.greedy(slot, base, shortlist, EXPOSURE_SHAPE, [affix], left, deadline, full=True, free=(affix,))
+        if not found:
+            return None
+        if not shape_full(found[1], EXPOSURE_SHAPE):  # (kept, with the note: THE USER 24 Nov)
+            self.mark_unfinished(rare_text("Jewel", base, self.pools.item_level, found[1]), found[1], EXPOSURE_SHAPE,
+                                 deadline)
+        _, chosen, priced = found
+        route = (f"Buy a {EXPOSURE_BASE} with " + " + ".join(" / ".join(a.lines) for a in priced)
+                 + " and any fourth suffix, then use a Potent Liquid Melancholy: it removes a random modifier and adds "
+                 "the crafted Exposure suffix (fixed for a Sapphire). Priced at about two tries (LOW: if it removes the "
+                 "chosen suffix, start again; which side it removes from is UNVERIFIED).",)
+        return ItemOption("Rare Jewel", EXPOSURE_BASE, "Jewel", None,
+                          rare_text("Jewel", base, self.pools.item_level, chosen), False, self.exposure_price(priced),
+                          "ssf" if self.ctx.ssf else "estimate (craft route: Potent Liquid Melancholy)", 0, rare=True,
+                          affixes=tuple(line for a in chosen for line in a.lines), craft_route=route)
+
+    def exposure_plan(self, deadline: float) -> list[tuple[str, ItemOption]] | None:
+        """Which tree sockets change for Melancholy's Exposure: the Exposure Sapphire in the weakest socket, and the best
+        Ruby / Emerald rare (build_rare on that base) in the next weakest for each colour the tree lacks. Tree sockets
+        only (Conditions._tree_jewels reads "Jewel <node>" slots, Sinister ones included); a socket the tree holds nodes
+        through (holds) or the last tree jewel of a needed colour is never taken. None when there aren't enough
+        sockets, or a jewel of the plan can't be made."""
+        build, level = self.build, self.pools.item_level
+        tree = {slot: o for slot, o in build.equipped.items() if slot.startswith("Jewel ") and o is not None}
+        if any(EXPOSURE_CRAFT in (o.raw or "") or any(EXPOSURE_LINE in line for line in o.affixes) for o in tree.values()):
+            return None  # (one is in already: the fills and gear rounds keep it on its worth)
+        bases = [o.base for o in tree.values()]
+        missing = [c for c in EXPOSURE_PAIR if c not in bases]
+        sockets = [s for s in self.sockets() if not self.holds(s)]
+        held = {s: build.equipped.get(self.slot(s)) for s in sockets}
+
+        def sole(s: int) -> bool:  # the last tree jewel of a needed colour
+            return held[s] is not None and held[s].base in EXPOSURE_PAIR and bases.count(held[s].base) == 1
+
+        free = [s for s in sockets if not sole(s)]
+        if len(free) < 1 + len(missing):
+            return None
+        filled = [s for s in free if held[s] is not None and held[s].base in self.ctx.bases_by_name]
+        emptied = build.item_deltas([{"slot": self.slot(s), "raw": rare_text(
+            "Jewel", self.ctx.bases_by_name[held[s].base], level, [])} for s in filled]) if filled else []
+        scored = {s: v for s, (v, _) in zip(filled, emptied)}
+        # weakest first: empty sockets, then those whose jewel adds least (the build's score with it emptied: highest)
+        free.sort(key=lambda s: (held[s] is not None, -scored.get(s, -1e9)))
+        target = self.slot(free[0])
+        sapphire = self.exposure_rare(target, deadline)
+        if sapphire is None:
+            return None
+        plan = [(target, sapphire)]
+        for colour, socket in zip(missing, free[1:]):
+            rare = self.build_rare(self.slot(socket), deadline, bases=(colour,))
+            if rare is None or clock.now() > deadline:
+                return None
+            plan.append((self.slot(socket), rare))
+        return plan
+
+    def exposure_trial(self, deadline: float) -> bool:
+        """(JEWEL3) Melancholy's Exposure: the plan's jewels equipped together and settled (Conditions reads the line,
+        so this is a real trial, not a what-if), kept only if score less the budget weight x spend rises."""
+        build, gear = self.build, self.gear
+        if self.exposure_affix() is None:
+            return False
+        plan = self.exposure_plan(deadline)
+        if not plan or any((o.price or 0.0) > gear.left_for(slot) + 1e-9 for slot, o in plan):
+            return False
+        before_stats = dict(build.stats)
+        snap, before = build.snapshot(), build.score - gear.lam * build.spent()
+        for slot, option in plan:
+            build.equip(slot, option)
+        gear.settle()
+        if build.score - gear.lam * build.spent() > before + EPSILON:
+            d0, d1 = build.objective.dps(before_stats), build.objective.dps(build.stats)
+            self.exposure_kept = {"ratio": d1 / d0 if d0 > 0 else None, "slots": [slot for slot, _ in plan],
+                                  "sapphire": plan[0][0]}
+            return True
+        build.restore(snap)
+        return False
+
+    def exposure_notes(self) -> list[dict]:
+        """(JEWEL3) The result's note for a delivered Exposure Sapphire: what it needs kept socketed, DPS at its trial."""
+        record = self.exposure_kept
+        jewel = self.build.equipped.get(record["sapphire"]) if record else None
+        if jewel is None or not any(EXPOSURE_LINE in line for line in jewel.affixes):
+            return []
+        ratio = record["ratio"]
+        pair = [f"{o.base} ({slot})" for slot, o in self.build.equipped.items()
+                if slot.startswith("Jewel ") and o is not None and o.base in EXPOSURE_PAIR]
+        return [{"label": f"Melancholy's Exposure on the Sapphire in {record['sapphire']}"
+                          + (f": DPS x{ratio:.3f} when the search took it" if ratio else "") + " (custom model)",
+                 "value": f"x{ratio:.3f}" if ratio else "",
+                 "basis": ("Its crafted line inflicts Elemental Exposure on Hit only while a Ruby and an Emerald are "
+                           "socketed in the passive tree: keep " + (", ".join(pair) or "a Ruby and an Emerald")
+                           + " there. PoB doesn't read the line; the search's conditions do. DPS measured with the jewels "
+                           "changed together, on the build as it was then; the craft's price is LOW (about two tries)."),
+                 "confidence": "MEDIUM"}]
 
     def shard_helmet(self, slot: str, option: ItemOption) -> ItemOption | None:
         """(JEWEL1) The helmet with a Raven-Touched Shard in a free socket or in place of its last rune, so it takes an

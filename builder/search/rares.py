@@ -93,6 +93,11 @@ def rare_rules_tier(budget: Any) -> GearTier:
 # your tree" line can't sit beside the effect line.
 JEWEL_CRAFTS = {"Prefix": ("CraftedJewelAdditionalPrefixAllowed", "CraftedJewelPrefixEffect"),
                 "Suffix": ("CraftedJewelAdditionalSuffixAllowed", "CraftedJewelSuffixEffect")}
+# (JEWEL3) Potent Liquid Melancholy's crafted suffixes, one per jewel colour (PoB Data/LiquidEmotions.lua, RESEARCH51
+# R51-11): Sapphire -> Exposure (jewels.exposure_rare offers it), Emerald -> Blind, Ruby -> Debilitate
+RADIUS_CRAFT = "CraftedJewelRadiusExtraLargeSize"  # (JEWEL3) Ancient Potent Liquid Melancholy, a prefix, Time-Lost only
+MELANCHOLY_CRAFTS = ("CraftedJewelExposureOnHitWhileRubyEmeraldSocketed", "CraftedJewelBlindOnHitWhileRubySapphireSocketed",
+                     "CraftedJewelDebilitateOnHitWhileEmeraldSapphireSocketed")
 EFFECT = re.compile(r"(\d+(?:\.\d+)?)% increased Effect of (Prefixes|Suffixes)")
 MAGNITUDE = re.compile(r"(?<!per )(?<![\d.])(\d+(?:\.\d+)?)")
 SCREEN_KEEP = 18  # affixes per prefix/suffix kept after scoring each alone
@@ -399,8 +404,10 @@ def rare_text(slot: str, base: dict, item_level: int, affixes: list[Affix], rune
     lines = ["Rarity: Rare", f"Optimizer {slot}", base["name"], f"Item Level: {item_level}", *quality_lines(base)]
     if base.get("subType") == "Radius":
         # Time-Lost jewels: PoB applies "in Radius" lines only with a radius (Small unless a mod
-        # upgrades it), and a parsed item without this line has none
-        lines.append("Radius: Small")
+        # upgrades it), and a parsed item without this line has none. (JEWEL3) The Ancient Potent Liquid Melancholy craft
+        # (RADIUS_CRAFT, "Upgrades Radius to Very Large") is written as the radius it gives, as the game shows the item
+        very_large = any(a.id == RADIUS_CRAFT for a in affixes)
+        lines.append("Radius: Very Large" if very_large else "Radius: Small")
     lines += socket_lines(runes)
     implicits = implicit_lines(base, item_level=item_level)
     lines += [f"Implicits: {len(implicits)}", *implicits]

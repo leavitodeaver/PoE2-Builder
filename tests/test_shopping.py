@@ -443,6 +443,32 @@ def test_jewel_entries_carry_the_crafting_breakdown_and_a_base_search(data) -> N
     assert entry["price"] == pytest.approx(shop["total"])
     base_query = ladder(entry, "base")[0][1]["query"]
     assert base_query["type"] == "Emerald" and len(base_query["stats"][0]["filters"]) == 2
+    # (JEWEL3; THE USER 24 Nov 00:45) both numbers and the trade link: the crafting cost is the price, the finished
+    # shape's ask sits beside it, and the line's own Trade search asks for its mods on the jewel's base
+    assert entry["market_ask"]["median"] == 375.0 and entry["market_ask"]["low"] < entry["market_ask"]["high"]
+    assert "craft route" in entry["note"]
+    steps = ladder(entry, "item")
+    assert steps and steps[0][1]["query"]["type"] == "Emerald" and steps[0][1]["query"]["stats"][0]["filters"]
+
+
+def test_a_melancholy_exposure_jewel_keeps_the_searchs_route_price(data) -> None:
+    """(JEWEL3) The Exposure Sapphire (jewels.exposure_rare) is priced by the search's own route (the jewel + Potent Liquid
+    Melancholy, about two tries): the shopping list keeps that price, shows the crafted line as crafted and the route as
+    its note, instead of re-pricing it as a 0.5 effect craft."""
+    from builder.search.jewels import EXPOSURE_LINE
+
+    pool = pools_for("endgame", "Jewel").pool("Sapphire")
+    prefixes = [a for a in pool if a.type == "Prefix"][:2]
+    suffix = next(a for a in pool if a.type == "Suffix")
+    lines = [l for a in prefixes + [suffix] for l in a.lines] + [EXPOSURE_LINE]
+    item = {"name": "Rare Jewel", "base": "Sapphire", "type": "Jewel", "rare": True, "unique": False, "price": 3.0,
+            "confidence": "estimate", "affixes": lines, "runes": [], "craft_route": ["Buy a Sapphire ... Melancholy"]}
+    shop = shopping_list({"request": {"budget": {"divines": 20}}, "gear": {"Jewel 1": item}}, data,
+                         {"materials": MATERIALS}, {})
+    entry = shop["items"][0]
+    assert entry["price"] == pytest.approx(3.0) and entry["basis"] == "crafting"
+    assert entry["note"] == "Buy a Sapphire ... Melancholy" and "Melancholy" in entry["confidence"]
+    assert any(a.get("crafted") and a["text"] == EXPOSURE_LINE for a in entry["affixes"])
 
 
 def test_a_focus_takes_one_spell_element(data) -> None:

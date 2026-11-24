@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import dataclasses
 import faulthandler
+import re
 
 import pytest
 
@@ -509,6 +510,167 @@ def test_voices_versions_cost_their_own_trade_floor(search, data):
         option = ItemOption("Voices", "Sapphire", "Jewel", None, raw, True, 1370.0, "high", 0)
         priced = search.jewels.version_floor(option)
         assert priced.price == max(1370.0, VERSION_FLOORS["Voices"][granted_sockets(raw)])
+
+
+def test_melancholys_exposure_sapphire_is_scored_by_a_real_trial(search):
+    """(JEWEL3) Melancholy's Exposure: the crafted line goes on a Sapphire (PoB LiquidEmotions.lua) and needs a Ruby and an
+    Emerald in other tree sockets. exposure_trial builds the Sapphire whole (2 prefixes + 1 suffix + the crafted suffix, no
+    effect line), puts a Ruby and an Emerald where the tree lacks them, and scores it all by a real trial (Conditions reads
+    the line); the same jewels without the line score lower, so the trial sees the Exposure."""
+    from builder.search import jewels as module
+    from builder.search.context import ItemOption
+
+    build, jewels = search.build, search.jewels
+    snap = build.snapshot()
+    for _ in range(3):
+        if len(jewels.sockets()) >= 3:
+            break
+        near = build.call("frontier", maxDistance=14, sockets="only")["nodes"]
+        if not near:
+            break
+        build.allocate(add=[min(near, key=lambda n: n["distance"])["id"]])
+        jewels.sync()
+    if len(jewels.sockets()) < 3:
+        build.restore(snap)
+        pytest.skip("fewer than 3 jewel sockets within reach")
+    for socket in jewels.sockets():
+        build.equip(jewels.slot(socket), None)
+    search.gear.settle()
+    before = build.score
+    assert jewels.exposure_trial(clock.now() + 600)
+    record = jewels.exposure_kept
+    sapphire = build.equipped[record["sapphire"]]
+    print("PROBE exposure", before, "->", build.score, record, sapphire.affixes, sapphire.price)
+    assert sapphire.base == "Sapphire" and module.EXPOSURE_LINE in sapphire.affixes
+    assert not any(EFFECT.search(line) for line in sapphire.affixes)
+    standard = [line for line in sapphire.affixes if line != module.EXPOSURE_LINE]
+    assert len(standard) >= 3 and sapphire.craft_route  # (a mod's lines may be two: 3 affixes, never short)
+    bases = sorted(o.base for slot, o in build.equipped.items() if slot.startswith("Jewel ") and o is not None)
+    assert "Ruby" in bases and "Emerald" in bases and build.score > before
+    kept = build.score
+    stripped = ItemOption("Rare Jewel", "Sapphire", "Jewel", None, sapphire.raw.replace(module.EXPOSURE_LINE + "\n", "")
+                          .replace("\n" + module.EXPOSURE_LINE, ""), False, 0.0, "t", 0, rare=True,
+                          affixes=tuple(standard))
+    build.equip(record["sapphire"], stripped)
+    search.gear.settle()
+    print("PROBE exposure without the line", build.score)
+    assert build.score < kept - 1e-6
+    build.restore(snap)
+
+
+def test_a_refined_catalyst_raises_a_jewels_lines_and_is_priced(search, monkeypatch):
+    """(JEWEL3, POE2_SEARCH_JEWEL_CATALYST=1; R57-9) A rare jewel tries 20% quality of each Refined catalyst whose tag one
+    of its affixes carries: PoB scales the tagged lines (no item-type check in getCatalystScalar), the jewel keeps the best
+    when it pays, priced as the jewel + 20 catalysts, its lines as bought (no quality) for the trade search. The catalysed
+    jewel scores above the same jewel without the quality."""
+    from builder.search import jewels as module
+
+    jewels, build = search.jewels, search.build
+    monkeypatch.setattr(module, "JEWEL_CATALYST", True)
+    monkeypatch.setitem(search.ctx.payload, "jewel_catalyst_prices", {n: 0.05 for n in module.JEWEL_CATALYSTS})
+    jewels._ranked.clear()
+    slot = jewels.slot(jewels.sockets()[0])
+    rare = jewels.build_rare(slot, clock.now() + 300, bases=module.JEWEL_BASES)
+    print("PROBE catalyst", rare.base if rare else None, rare.raw if rare else None, rare.craft_route if rare else None)
+    assert rare is not None and "CatalystQuality: 20" in rare.raw and rare.craft_route
+    assert "x20" in rare.craft_route[0] and "Refined" in rare.craft_route[0]
+    plain = "\n".join(["Rarity: Rare", "Optimizer Jewel", rare.base, f"Item Level: {jewels.pools.item_level}",
+                       "Implicits: 0", *rare.affixes])
+    (with_quality, _), (without, _) = build.item_deltas([{"slot": slot, "raw": rare.raw}, {"slot": slot, "raw": plain}])
+    print("PROBE catalyst scores", with_quality, without)
+    assert with_quality > without
+    if any(EFFECT.search(line) for line in rare.affixes) and "adding" in rare.craft_route[0]:
+        assert "multiply" in rare.craft_route[0]  # (the other reading named)
+    jewels._ranked.clear()
+
+
+def test_the_very_large_radius_craft_makes_a_whole_time_lost_rare(search, monkeypatch):
+    """(JEWEL3, POE2_SEARCH_RADIUS_CRAFT=1; R-J2 / R-J3, AUDIT38 F9) Ancient Potent Liquid Melancholy's "Upgrades Radius to
+    Very Large" on a Time-Lost rare: the 1 prefix + 3 suffixes shape is whole, priced by the Ancient emotions' route, written
+    "Radius: Very Large"; PoB reaches at least as many passives with it as the same jewel at Small."""
+    from builder.search import jewels as module
+    from builder.search.rares import rare_text
+
+    jewels, build = search.jewels, search.build
+    monkeypatch.setattr(module, "RADIUS_JEWEL", True)
+    monkeypatch.setitem(search.ctx.payload, "ancient_emotion_prices",
+                        {module.ANCIENT_MELANCHOLY: 0.2, module.ANCIENT_CONTEMPT: 0.3})
+    slot = next((jewels.slot(s) for s in jewels.sockets() if not jewels.plain_only(s)), None)
+    if slot is None:
+        pytest.skip("no socket that takes a radius jewel")
+    radius = jewels.radius_affix()
+    assert radius is not None and radius.type == "Prefix"
+    base = search.ctx.bases_by_name["Time-Lost Sapphire"]
+    ranked = jewels.ranked(slot, base, jewels.pools.pool(base["name"]))
+    limits = module.RADIUS_SHAPES[0]
+    shortlist = [a for kind in limits for a in [x for x in ranked if x.type == kind][:module.SCREEN_KEEP]]
+    found = jewels.greedy(slot, base, shortlist, limits, [radius], 1e9, clock.now() + 300, full=True, free=(radius,))
+    assert found and module.shape_full(found[1], limits)
+    price, option = jewels.radius_rare(base, limits, found)
+    print("PROBE radius", option.affixes, price, option.craft_route)
+    assert "Radius: Very Large" in option.raw and "Upgrades Radius to Very Large" in option.raw
+    assert price > 0 and "Ancient Potent Liquid Contempt" in option.craft_route[0]
+    snap = build.snapshot()
+    reached = {}
+    for size, raw in (("very large", option.raw), ("small", rare_text("Jewel", base, jewels.pools.item_level,
+                                                                       [a for a in found[1] if not a.crafted]))):
+        build.equip(slot, dataclasses.replace(option, raw=raw))
+        jewel = next(j for j in build.call("radiusJewels")["jewels"] if f"Jewel {j['socket']}" == slot)
+        reached[size] = len(jewel.get("affected") or [])
+    build.restore(snap)
+    print("PROBE radius reached", reached)
+    assert reached["very large"] >= reached["small"]
+    picked = jewels.build_rare(slot, clock.now() + 300, bases=module.RADIUS_BASES)
+    print("PROBE radius picked", picked.affixes if picked else None, picked.price if picked else None)
+
+
+def test_the_adorned_raises_corrupted_magic_jewels_in_a_real_trial(search, data, monkeypatch):
+    """(JEWEL3, POE2_SEARCH_ADORNED=1; R52-4) The Adorned in the weakest socket and corrupted magic jewels (1 prefix + 1
+    suffix, both filled) in the other normal sockets, scored together: PoB reads "increased Effect of Jewel Socket Passive
+    Skills containing Corrupted Magic Jewels" (ModParser 5644), so taking The Adorned out again lowers the score."""
+    from builder.search import jewels as module
+    from builder.search.context import ItemOption
+
+    raw = next((u["raw"] for u in data.uniques if u["name"] == module.ADORNED), None)
+    if raw is None:
+        pytest.skip("no The Adorned in this game data")
+    build, jewels = search.build, search.jewels
+    adorned = ItemOption(module.ADORNED, "Diamond", "Jewel", None, raw, True, 1.0, "high", 0)
+    monkeypatch.setitem(search.ctx.item_options, "Jewel", [*search.ctx.item_options.get("Jewel", []), adorned])
+    snap = build.snapshot()
+    for _ in range(3):
+        if len([s for s in jewels.sockets() if not jewels.plain_only(s)]) >= 3:
+            break
+        near = build.call("frontier", maxDistance=14, sockets="only")["nodes"]
+        if not near:
+            break
+        build.allocate(add=[min(near, key=lambda n: n["distance"])["id"]])
+        jewels.sync()
+    normal = [s for s in jewels.sockets() if not jewels.plain_only(s)]
+    if len(normal) < 3:
+        build.restore(snap)
+        pytest.skip("fewer than 3 normal jewel sockets within reach")
+    for socket in jewels.sockets():
+        build.equip(jewels.slot(socket), None)
+    search.gear.settle()
+    versions = jewels.adorned_versions()
+    assert versions and all("Variant" not in v.raw for v in versions)
+    assert {int(m.group(1)) for v in versions for m in [re.search(r"(\d+)% increased Effect of Jewel Socket", v.raw)]} \
+        == set(module.ADORNED_ROLLS)
+    before = build.score
+    assert jewels.adorned_trial(clock.now() + 600)
+    held = {slot: o for slot, o in build.equipped.items() if slot.startswith("Jewel ") and o is not None}
+    where = next(slot for slot, o in held.items() if o.name == module.ADORNED)
+    magic = [o for slot, o in held.items() if slot != where]
+    print("PROBE adorned", before, "->", build.score, where, [o.affixes for o in magic], held[where].raw.splitlines()[-2:])
+    assert magic and all(o.raw.startswith("Rarity: Magic") and o.raw.rstrip().endswith("Corrupted")
+                         and len(o.affixes) >= 2 for o in magic)
+    kept = build.score
+    build.equip(where, None)
+    search.gear.settle()
+    print("PROBE adorned out", build.score)
+    assert build.score < kept - 1e-6
+    build.restore(snap)
 
 
 def test_a_jewel_left_short_is_kept_with_a_not_finished_note(search, monkeypatch):
