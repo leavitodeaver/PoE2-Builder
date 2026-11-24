@@ -1,0 +1,59 @@
+# COV55, turn 4 (the manager's 23:23 order, item 1): rows "already read" checked against the model that names them; marked only
+# where the model's own code reads the line or stat and it reaches a number (COV43's rule). Checked against db8a4ccb + 6df2f106.
+# Left open on purpose: "Unique Tamed Beasts are Possessed by random Azmeri Spirits ..." (no reader); Pyromantic Pact's
+# "Maximum Mana is replaced by twice as much Maximum Infernal Flame", "Lose all Infernal Flame on reaching maximum Infernal
+# Flame" and "N% of Infernal Flame lost per second ..." (models' Infernal Flame cycle assumes its reset and decay as constants
+# for Seething Body's Archon, but no code reads these lines).
+
+- id: model-read-cov55-daze-duration
+  title: '"N% increased / reduced Daze Duration" read by conditions._dazed (models.duration_scale(lines, "Daze"))'
+  kind: pob_gap
+  model: daze
+  match: '^(\(\d+-\d+\)|\d+(?:\.\d+)?)% (increased|reduced) Daze Duration$'
+  replace: []
+  confidence: theory
+  notes: >-
+    MECH70's Dazed box: Daze lasts 8 s x duration_scale(lines, "Daze") (models.DURATION_LINE), which sets the boss's Dazed
+    share and so every "against Dazed Enemies" line. A link only.
+  sources: ["builder/search/conditions.py (_dazed, ~4725)", "builder/search/models.py (duration_scale, DURATION_LINE)"]
+  status: proposed
+
+- id: model-read-cov55-natural-order-unique-beasts
+  title: "The Natural Order's Unique Beast lines, read through the notable by the search's beast choice (models.NATURAL_ORDER)"
+  kind: pob_gap
+  model: monster_choice
+  match: '^(Tame Beast can capture Unique Beasts|Can have up to one Unique Tamed Beast summoned)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Assumptions (~11538) offers Tamed Companion the Unique Beasts (models.UNIQUE_BEASTS) only when the build holds the notable
+    The Natural Order, and scores the chosen beast. The reader keys on the notable's name, not the line text. The third line
+    (Azmeri Spirits' possession) stays open. A link only.
+  sources: ["builder/search/assumptions.py (~11538)", "builder/search/models.py (NATURAL_ORDER, UNIQUE_BEASTS)"]
+  status: proposed
+
+- id: model-read-cov55-pyromantic-pact-cost
+  title: '"Gain Infernal Flame instead of spending Mana for Skill costs" read by recovery.PACT_NO_MANA (the cost pool)'
+  kind: pob_gap
+  model: recovery
+  match: '^Gain Infernal Flame instead of spending Mana for Skill costs$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Assumptions (~4049) sets build.cost_pools_replaced, so the objective's sustain check takes skill costs off Mana (MECHC51).
+    A sustain number, not a DPS one. A link only.
+  sources: ["builder/search/recovery.py (PACT_NO_MANA)", "builder/search/assumptions.py (~4049)"]
+  status: proposed
+
+- id: model-read-cov55-elemental-storm-trigger
+  title: "is_triggerable_elemental_storm (Elemental Storm) applied by MECHB37's Elemental Storm model (models.STORM_SKILL)"
+  kind: model
+  model: elemental_storm
+  stats: ["is_triggerable_elemental_storm"]
+  skill: [Elemental Storm]
+  confidence: theory
+  notes: >-
+    A flag the skill always carries: the model triggers Elemental Storm from the main spell's crits at its cooldown and puts
+    its storms into the DPS (models ~19970). A link only.
+  sources: ["builder/search/models.py (STORM_SKILL, ~19970)"]
+  status: proposed
