@@ -6279,6 +6279,10 @@ class Assumptions:
             if (s.name in models.GLORY_SKILLS or s.name in models.GLORY_FROM_LIFE) and s.name not in out:
                 plan, how = models.glory_plan([s.name], self.glory_stats(stats, main), main, skills, texts)
                 out[s.name] = (plan.get(s.name, (0.0, 0.0))[0], how)
+        calamity = out.get("Walking Calamity")  # (MECHC57: conditions.CALAMITY_REGEN's note)
+        build.calamity_up = ((min(1.0, calamity[0] * models.GLORY_INSTANCE["Walking Calamity"]),
+                              f"{calamity[0]:.3f} uses/s x its {models.GLORY_INSTANCE['Walking Calamity']:g} s, from its Glory")
+                             if calamity else None)
         if models.ARCHON_OF_CHAYULA in out:  # (MECH101, R48-10: the Archon recovery period, models.chayula_cycle)
             uses, how = out[models.ARCHON_OF_CHAYULA]
             inputs = models.read_inputs(lines)

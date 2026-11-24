@@ -47,7 +47,7 @@ AILMENT_DURATION = {"Ignite": 4.0, "Bleed": 5.0, "Poison": 2.0, "Shock": 8.0}
 EVIDENCE_FIELDS = [
     "CritChance", "Speed", "ShockChancePerHit", "IgniteChancePerHit", "PoisonChancePerHit", "BleedChancePerHit",
     *(f"{a}Duration" for a in AILMENT_DURATION),
-    "ChillChanceOnHit", "MaximumRage", "EnergyShield", "EvadeChance", "EffectiveBlockChance", "enemySkillTime",
+    "ChillChanceOnHit", "MaximumRage", "RageRegenRecovery", "EnergyShield", "EvadeChance", "EffectiveBlockChance", "enemySkillTime",
     "HitChance", *(f"{c}Charges{f}" for c in ("Power", "Frenzy", "Endurance") for f in ("Max", "Duration")),
     "PresenceRadius", "Ward", "Mana", "ManaPerSecondCost", "ManaRegenRecovery", "Devotion", *models.IMMOBILISE_FIELDS,
     "ChaosHitAverage", "MainHand.ChaosHitAverage", "EnemyAilmentThreshold",  # (Withering Touch, _withered_stacks)
@@ -2746,6 +2746,44 @@ def rage_on_shift(held: float, net: float, shifts: float, bonus: float = 0.0, sh
     return min(held, top * (gap - fill / 2) / gap), spent * shifts
 
 
+# Rage regeneration from PoB's total (MECHC57; COV52 B1 and RESEARCH53 R53-4, UNDERCOUNTS). The text lines below miss Eternal
+# Rage (its ceaseless_rage_base_rage_regeneration_per_minute is a per-level stat with no line; PoB: RageRegen BASE / 60,
+# act_str.lua) and Furious Wellspring's "Increases and Reductions to Mana Regeneration Rate also apply to Rage Regeneration
+# Rate" (PoB: CalcPerform's ManaRegenAppliesToRageRegen). PoB's RageRegenRecovery holds both, so it replaces the regeneration
+# lines. Not with Primal Hunger: PoB reads its "per 4 Rage spent Recently" as per 4 Rage HELD (ModCache, Multiplier:Rage),
+# so the line reader stays there and Eternal Rage / the Mana increases go uncounted on that build (an UNDERCOUNT, said).
+# Regeneration stops the decay: patch 0.4.0, Player Changes, "Rage regeneration now pauses rage decay similarly to other
+# means of gaining rage. This means that your rage will never decay while it is regenerating."
+# UNVERIFIED: whether "Cannot gain Rage while using this Skill" (skill_cannot_gain_rage_during_use: Rampage, Flame Breath)
+# also stops regeneration. Regeneration stays counted while they're used, as before, and the reading says so.
+RAGE_REGEN_FIELD = "RageRegenRecovery"
+# Walking Calamity's buff (MECHC57; AUDIT37's find): walking_calamity_base_rage_regeneration_per_minute 300, a constant stat
+# of WalkingCalamityPlayer (5 Rage a second; PoB has no statMap entry for it, so its total never holds it), during the buff
+# only. Its uptime is its Glory uses x its 10 s (Assumptions.glory_caps publishes build.calamity_up). While up, Rage climbs
+# at the net gain + 5/s to the maximum; outside it Rage is at its usual reading (the fall back after the buff isn't
+# followed, LOW). Rage regeneration increases aren't applied to it (an UNDERCOUNT, small). Its own Glory source, Rage gained
+# at maximum Rage, is still uncounted, so only a build with another Glory line has uptime here (models.glory_plan).
+CALAMITY_REGEN = 300 / 60
+
+
+def calamity_rage(held: float, most: float, net: float, up: float, duration: float) -> float:
+    """Average Rage with Walking Calamity's regeneration during `up` of the fight, in buffs of `duration` s."""
+    rate = net + CALAMITY_REGEN
+    if up <= 0 or most <= held or rate <= 0 or duration <= 0:
+        return held
+    top = min(most, held + rate * duration)
+    fill = (top - held) / rate
+    during = (fill * (held + top) / 2 + (duration - fill) * top) / duration
+    return (1 - min(up, 1.0)) * held + min(up, 1.0) * during
+
+
+def rage_regen_total(lines: list[str], stats: dict) -> float:
+    """PoB's Rage regenerated a second, or 0 when the text lines must be read instead (RAGE_REGEN_FIELD's note)."""
+    if any(RAGE_PER_SPENT.search(t) for t in lines):
+        return 0.0
+    return max(number(stats.get(RAGE_REGEN_FIELD)), 0.0)
+
+
 def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
     stats["_rage_max_reaches"] = None  # (MECHC47: (reaches of the maximum a second, how), RAGE_MAX_CHARGE's note)
     stats["_rage_spent_real"] = None  # (MECHC47: (Rage spent a second, how), DRUIDIC_PROWESS's note)
@@ -2754,6 +2792,11 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
     spend = stats.get("_rage_spend") or {}
     own_hits = not (stats.get("_main_channel_rage") or False)
     gain, events, how, refund = 0.0, 0.0, [], 0.0
+    regen_total = rage_regen_total(lines, stats)  # (MECHC57: RAGE_REGEN_FIELD's note)
+    regenerating, regen_gain = regen_total > 0, regen_total
+    if regenerating:
+        gain, events = regen_total, 1.0
+        how.append(f"{regen_total:.2f} Rage/s regenerated (PoB's total, with its increases)")
     for name, uses, amount, said in stats.get("_raging_cry") or ():  # (MECHC43: Raging Cry, RAGING_CRY_STAT's note)
         gain, events = gain + uses * amount, events + uses
         how.append(f"{name} with Raging Cry ({amount:g} Rage a use, {said}; {uses:.3f} uses/s)")
@@ -2769,11 +2812,17 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
             refund += share
             how.append(f"{text[:60]} (regenerates {share:.0%} of the Rage spent, taken as steady)")
             continue
+        is_regen = RAGE_REGEN.search(text) is not None
+        if is_regen and regen_total > 0:
+            continue  # (MECHC57: already inside PoB's total)
         if (r := _rage_gain(text, stats, own_hits)) is None:
             continue
+        regenerating = regenerating or (is_regen and r[0] > 0)
+        regen_gain += r[0] if is_regen else 0.0
         gain, events = gain + r[0], events + r[1]
         how.append(f"{text[:60]} ({r[2]})")
-    if not how:
+    calamity = stats.get("_calamity_up") or (0.0, "")  # (MECHC57: CALAMITY_REGEN's note)
+    if not how and number(calamity[0]) <= 0:
         return 0.0, ""
     most = number(stats.get("MaximumRage"))
     spent = sum(spend.values())
@@ -2792,6 +2841,14 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
         basis += f" (Rage loss waits {pause:.2g} s, then {decay:.2g}/s: {loss_how})"
     if spent:
         basis += f", {spent:.2f}/s spent by " + ", ".join(f"{n} {v:.2f}/s" for n, v in spend.items())
+    if regenerating and not own_hits:
+        share = _main_share(stats)  # (the other reading, a row until RESEARCH55 settles it)
+        other = gain - regen_gain * share
+        basis += (" (regeneration counted while the channelled main skill is used, which says it \"cannot gain Rage\": "
+                  f"UNVERIFIED; if that stops regeneration for its {share:.0%} of the fight: {other:.2f} Rage/s gained, "
+                  + ("none held" if other <= spent else f"{other - spent:.2f}/s net") + ")")
+    if not regen_total and number(stats.get(RAGE_REGEN_FIELD)) > 0:
+        basis += " (PoB's regeneration total not used beside Primal Hunger: other regeneration may be undercounted)"
     net = gain - spent
     if asked > 0:  # (MECHC47: what the spenders really spend: all they ask while Rage keeps up, else all that comes)
         real = asked if net > 0 else max(0.0, gain + (asked - spent))
@@ -2805,6 +2862,9 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
     elif any(RAGE_NO_LOSS.search(t) for t in lines):
         held = most  # (MECHC4: Blood of the Warrior; its line reaches here only while the flask's slot counts, sourceLines)
         basis += ", no inherent loss of Rage (a line of the build): the maximum"
+    elif regenerating:  # (MECHC57: patch 0.4.0, RAGE_REGEN_FIELD's note)
+        held = most
+        basis += ", regenerating, so it never decays (patch 0.4.0): the maximum"
     elif events * pause >= 1:
         held = most
         basis += f", its loss paused (gains {events:.2f}/s, one per {pause:.2g} s needed): the maximum"
@@ -2870,6 +2930,11 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
         if consumed > 0:
             basis += (f"; all Rage consumed on each shift back to Human form ({shift_how}): it builds from 0 again, "
                       f"{held:.1f} held on average (was {before:.1f})")
+    if number(calamity[0]) > 0 and most > 0:  # (MECHC57: CALAMITY_REGEN's note)
+        before = held
+        held = calamity_rage(held, most, net, number(calamity[0]), models.GLORY_INSTANCE["Walking Calamity"])
+        basis += (f"; Walking Calamity's buff regenerates {CALAMITY_REGEN:g} Rage/s while up ({number(calamity[0]):.0%} of "
+                  f"the fight: {calamity[1]}): {before:.1f} -> {held:.1f} on average (LOW)")
     held = float(int(held))
     return held, f"{basis} = {held:.0f} held, at most {most:g}: " + "; ".join(how[:3])
 
@@ -3289,7 +3354,7 @@ def demon_form_uptime(lines: list[str], stats: dict) -> tuple[object, str, float
 # "On dealing Elemental Damage with a Hit, gain {0} Affinity of the highest Elemental Damage type and lose {1} Affinity of
 # the other types" (trinity_resonance_to_grant by level, trinity_loss_per_hit 3); KeywordPopups Affinity: "a maximum of
 # 100 of each type ... You lose 10 Affinity per second of specific types if you haven't gained Affinity of that type in
-# the past 8 seconds". (No patch-note line for Trinity or Affinity: grep_notes --history; not proof of no change.)
+# the past 8 seconds". (Patch-note lines for Trinity and Affinity: 0.2.0g, 0.3.0, 0.5.0, AUDIT37 P1; the model matches them.)
 # Model: the main skill's hits (others' hits not counted, either way: labelled); the share of hits whose highest type is
 # each element from PoB's per-type hit averages, read under each "Random element mode" (physMode FIRE / COLD / LIGHTNING:
 # a random-element conversion, e.g. Trinity's own, picks one element per hit, a third each); each type a random walk on
@@ -8965,7 +9030,7 @@ CONDITIONS: list[Condition] = [
               fields=("Speed", "HitChance", "CritChance", "Mana", "ManaPerSecondCost", "Devotion")),
     Condition("multiplierCombo", "Combo on use", value_fn=combo_on_use, fields=()),  # (MECHC43)
     Condition("multiplierRage", "Rage held", value_fn=lambda lines, stats: rage_held(lines, stats),
-              fields=("Speed", "HitChance", "CritChance", "MaximumRage", "enemySkillTime", "EvadeChance")),
+              fields=("Speed", "HitChance", "CritChance", "MaximumRage", "RageRegenRecovery", "enemySkillTime", "EvadeChance")),
     Condition("conditionLeeching", "Leeching", value_fn=leeching_uptime(None), fields=()),
     Condition("conditionLeechingLife", "Leeching Life", value_fn=leeching_uptime("Life"), fields=()),
     Condition("conditionLeechingMana", "Leeching Mana", value_fn=leeching_uptime("Mana"), fields=()),
@@ -10656,6 +10721,8 @@ class Conditions:
             marks = {n for n, types in gem_types.items() if "Mark" in types}
             uses = self._group_uses(self.build.call("groups")["groups"], marks) if marks else {}
             stats["_mark_uses"] = sum(uses.get(n, self._chosen_use(n)) for n in marks)
+        if "Walking Calamity" in gem_types:  # (MECHC57: its buff's Rage regeneration, a round behind; CALAMITY_REGEN)
+            stats["_calamity_up"] = getattr(self.build, "calamity_up", None)
         if KURGAL in gem_types:  # (MECHC27: Unholy Might on Command, unholy_might_uptime)
             stats["_kurgal"] = self._kurgal_commands()
         if any(g.get("name") == "Demon Form" for grp in self.build.groups() for g in grp.get("gems") or []):
