@@ -258,6 +258,18 @@ PERFECT_FLUX_LEVEL = 20
 GRANTED_SKILL_LINE = re.compile(r"^((?:\{[^}]*\})*)Grants Skill: Level (\d+) (.+)$", re.M)  # (a ledger tag may lead it)
 
 
+# (SEARCHC4; R51-10 #4, R52-5) "1": a rare also tries Astrid's Creativity ("Can have 1 additional Crafted Modifier") with
+# two Alloys. An item holds one crafted modifier (0.5.0 notes), and the 0.5.0 notes call the Alloys' lines "crafted", so
+# the rune is what lets a second Alloy line stay. OFF by default until gated.
+SWITCH_ASTRID = "POE2_SEARCH_ASTRID"
+ASTRID = "Astrid's Creativity"
+ASTRID_KEEP = 3  # Alloy lines (best by a what-if with nothing lost) whose pairs are scored: a search-effort setting
+
+
+def astrid_enabled() -> bool:
+    return os.environ.get(SWITCH_ASTRID, "0") == "1"
+
+
 def perfect_flux_enabled() -> bool:
     return os.environ.get(SWITCH_PERFECT_FLUX, "0") == "1"
 
@@ -917,6 +929,10 @@ class Gear:
             serle = self.serle_trial(slot, base, base_option, level, pools, limits, chosen, current, left, deadline)
             if serle is not None:
                 return serle
+        if not magic and astrid_enabled():  # (SEARCHC4: Astrid's Creativity and two Alloys)
+            astrid = self.astrid_trial(slot, base, base_option, level, pools, limits, chosen, current, left, deadline)
+            if astrid is not None:
+                return astrid
         price = None if self.ctx.ssf else price_of(slot, chosen)
         confidence = "ssf" if self.ctx.ssf else "estimate (magic)" if magic else "estimate (uncalibrated)"
         return ItemOption(f"{'Magic' if magic else 'Rare'} {base['type']}", base["name"], base["type"],
@@ -1493,6 +1509,108 @@ class Gear:
         if not hasattr(build, "alloy_raws") or build.alloy_raws is None:
             build.alloy_raws = {}
         build.alloy_raws[alloys.alloy_key(option.raw)] = option.alloy_scale
+        return option
+
+    def astrid_trial(self, slot: str, base: dict, base_option: ItemOption, level: int, pools, limits: dict, chosen: list,
+                     current: float, left: float, deadline: float) -> ItemOption | None:
+        """(SEARCHC4, POE2_SEARCH_ASTRID=1) The rare with Astrid's Creativity in a socket and two Alloy lines. Each Alloy
+        removes a random modifier, and the second may remove the first's line (the text says "a random modifier"; LOW,
+        no source settles it), so every sequence of the two removals is an outcome. By the Alloys' ruling (the manager,
+        18 Nov): DPS at the mean over the sequences, the floors at the worst (the item shown). Each line needs a free
+        slot of its own side, so a full side starts from the rare with its least useful modifiers left out. The rune
+        stays in its socket (taking it out would leave one crafted line too many). Kept only when it beats the plain rare
+        with its best ordinary rune there, after prices. Priced as the rare + the rune + both Alloys."""
+        if clock.now() > deadline or socket_count(base, False) < 1 or not chosen \
+                or ASTRID in self.ctx.compiled.filters.forbidden_augments:
+            return None
+        ssf = self.ctx.ssf
+        rune_price = 0.0 if ssf else self.runes.price(ASTRID)
+        used = self.runes_used(slot)
+        limit = self.runes.limit(ASTRID)
+        names = self.runes.candidates(base, False)
+        if rune_price is None or ASTRID not in names or (limit and used.get(limit[0], 0) >= limit[1]):
+            return None
+        groups = {a.group for a in chosen}
+        rows = [(name, pools.affix(mod, mod["group"], mod["type"], 1, 1, (0.0, 0.0)), 0.0 if ssf else self.ctx.alloy_prices[name])
+                for name, mod in alloys.rows_for(base, level, self.alloy_mods)
+                if mod["type"] in limits and mod["group"] not in groups and (ssf or name in self.ctx.alloy_prices)]
+        if len(rows) < 2:
+            return None
+        screen = self.deltas(slot, [rare_text(slot, base, level, chosen + [r[1]], runes=[ASTRID]) for r in rows])
+        ranked = [r for _, _, r in sorted(((s, -n, r) for n, ((s, _), r) in enumerate(zip(screen, rows))),
+                                          key=lambda x: x[:2], reverse=True)][:ASTRID_KEEP]
+        plain = current - self.lam * rare_price(slot, chosen)
+        others = [n for n in names if n != ASTRID and self.runes.price(n) is not None
+                  and not ((lim := self.runes.limit(n)) and used.get(lim[0], 0) >= lim[1])
+                  and rare_price(slot, chosen) + self.runes.price(n) <= left + 1e-9]
+        if others:
+            socketed = self.deltas(slot, [rare_text(slot, base, level, chosen, runes=[n]) for n in others])
+            plain = max([plain] + [s - self.lam * (rare_price(slot, chosen) + self.runes.price(n))
+                                   for (s, _), n in zip(socketed, others)])
+        build, objective = self.build, self.build.objective
+        best = None  # (value, price, kept, first, second, worst outcome, scale, dps, the sequences' outcomes)
+        for i, (name_a, first, cost_a) in enumerate(ranked):
+            for name_b, second, cost_b in ranked[i + 1:]:
+                if first.group == second.group or clock.now() > deadline:
+                    continue
+                kept = list(chosen)
+                for side in {first.type, second.type}:
+                    extra = sum(1 for a in (first, second) if a.type == side)
+                    while sum(1 for a in kept if a.type == side) + extra > limits[side]:
+                        cuts = [[a for a in kept if a is not out] for out in kept if out.type == side]
+                        if not cuts:
+                            break
+                        cut_scores = self.deltas(slot, [rare_text(slot, base, level, c, runes=[ASTRID]) for c in cuts])
+                        kept = cuts[max(range(len(cuts)), key=lambda n: (cut_scores[n][0], -n))]
+                if len(kept) < 2 or any(sum(1 for a in kept if a.type == s)
+                                        + sum(1 for a in (first, second) if a.type == s) > limits[s] for s in limits):
+                    continue
+                price = rare_price(slot, kept) + rune_price + cost_a + cost_b
+                if price > left + 1e-9:
+                    continue
+                sequences = []  # one outcome per (first removal, second removal): the second may take the first's line
+                for lost in kept:
+                    after = [a for a in kept if a is not lost] + [first]
+                    sequences += [[a for a in after if a is not gone] + [second] for gone in after]
+                unique: dict[tuple, list] = {}
+                for outcome in sequences:
+                    unique.setdefault(tuple(sorted(a.id for a in outcome)), outcome)
+                keys = list(unique)
+                texts = [rare_text(slot, base, level, unique[k], runes=[ASTRID]) for k in keys]
+                read = [self.without_registered(t, st) for t, (_, st) in zip(texts, self.deltas(slot, texts))]
+                scores = [objective.score(st) for st in read]
+                each = {k: objective.dps(st) for k, st in zip(keys, read)}
+                dps = [each[tuple(sorted(a.id for a in o))] for o in sequences]
+                at = min(range(len(keys)), key=lambda n: (scores[n], n))
+                worst_dps = each[keys[at]]
+                mean = sum(dps) / len(dps)
+                scale = mean / worst_dps if worst_dps > 0 else 1.0
+                stats = dict(read[at])
+                stats[alloys.ALLOY_FIELD] = build.alloy_product(slot) * scale
+                value = objective.score(stats) - self.lam * price
+                if value > plain + EPSILON and (best is None or value > best[0]):
+                    best = (value, price, kept, (name_a, first), (name_b, second), unique[keys[at]], scale, worst_dps, mean,
+                            len(sequences))
+        if best is None:
+            return None
+        _, price, kept, (name_a, first), (name_b, second), worst, scale, worst_dps, mean, count = best
+        raw = rare_text(slot, base, level, worst, runes=[ASTRID])
+        report = (f"{ASTRID} with {name_a} and {name_b}: each removes a random modifier ({count} sequences; the second may "
+                  f"remove the first's line, LOW); the floors read the worst outcome (shown in the build), DPS the mean "
+                  f"(x{scale:.3f} of the worst's) (the manager's ruling, 18 Nov)",
+                  f"Worst outcome DPS {worst_dps:,.0f}; mean {mean:,.0f}",)
+        note = (f"{ASTRID}: buy the rare ({rare_price(slot, kept):.3g} div, the rare price model), socket {ASTRID} "
+                f"({rune_price:.3g} div; keep it there: without it the item can't hold two crafted lines), then use {name_a} "
+                f"(\"{'; '.join(first.lines)}\") and {name_b} (\"{'; '.join(second.lines)}\"). That the rune allows two Alloy "
+                f"lines reads the 0.5.0 notes, which call Alloy lines crafted (MEDIUM); the order and odds of the removals are "
+                f"LOW. Not on a Corrupted or Sanctified item (0.5.4)")
+        option = ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"), raw, False,
+                            None if ssf else price, "ssf" if ssf else f"estimate (craft route: {ASTRID})", base_option.level,
+                            rare=True, affixes=tuple(line for a in worst for line in a.lines), runes=(ASTRID,), bound=(ASTRID,),
+                            alloy=ASTRID, alloy_scale=scale, alloy_report=report, augment="alloy", craft_route=(note,))
+        if getattr(build, "alloy_raws", None) is None:
+            build.alloy_raws = {}
+        build.alloy_raws[alloys.alloy_key(raw)] = scale
         return option
 
     ALLOY_KEEP = 2  # Alloy candidates (by a what-if with no modifier lost) whose outcomes are all scored

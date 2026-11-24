@@ -11,8 +11,9 @@ from builder import clock
 from builder.data import GameData
 from builder.request.schema import BuildRequest
 from builder.search.context import Context, ItemOption, make_payload, normal_item
+from builder.search import alloys
 from builder.search.gear import (
-    AUGMENT_EFFECT_MOD, HORROR, OMEN_SUFFIX, SERLE, augment_effect_enabled, augment_effect_source, serle_enabled, serle_loop,
+    ASTRID, AUGMENT_EFFECT_MOD, HORROR, OMEN_SUFFIX, SERLE, augment_effect_enabled, augment_effect_source, serle_enabled, serle_loop,
 )
 from builder.search.rares import (
     AffixPools, Affix, aldur_implicit_row, catalysed_text, catalyst_matches, catalyst_quality, implicit_tags, rare_price, rare_text, socket_count,
@@ -603,3 +604,55 @@ def test_a_corrupted_socket_keeps_the_horror_items_dps_factor_and_says_the_order
     assert gear.build.alloy_raws.get(key) == 1.1, "the corrupted copy's what-if keeps the mean-DPS factor"
     if "Corrupted" in out.raw:
         assert any(f"Use the {HORROR} BEFORE the Vaal Orb" in row for row in out.craft_route)
+
+
+def astrid_case(engine):
+    from builder.search.gear import affix_limits
+
+    ctx, gear = spark_gear(engine, "Wand")
+    base = next(b for b in ctx.data.bases if b["type"] == "Gloves" and socket_count(b, False) >= 1)
+    rows = alloys.rows_for(base, gear.pools.item_level, gear.alloy_mods)
+    ctx.alloy_prices = {name: 0.5 for name, _ in rows}
+    level, pool = gear.pools.item_level, gear.pools.pool(base["name"])
+    chosen: list = []
+    for kind in ("Prefix", "Suffix", "Suffix"):
+        chosen.append(next(a for a in sorted(pool, key=lambda a: a.tier) if a.type == kind
+                           and a.group not in {c.group for c in chosen} and gear.pools.choices(a, chosen)))
+    option = ItemOption(base["name"], base["name"], "Gloves", None, normal_item(base), False, 0.0, "found", 1)
+    return ctx, gear, base, level, affix_limits(base), chosen, option
+
+
+def test_astrid_scores_two_alloys_over_every_removal_and_prices_all_of_it(engine, monkeypatch):
+    ctx, gear, base, level, limits, chosen, option = astrid_case(engine)
+    gear.lam = 0.0
+    monkeypatch.setattr(gear.runes, "candidates", lambda *a, **k: [ASTRID])  # (no ordinary rune to beat: the route's fields)
+    out = gear.astrid_trial("Gloves", base, option, level, gear.pools, limits, chosen, -1e9, 1e6, clock.now() + 300)
+    print("PROBE astrid", out and out.price, out and out.alloy_report)
+    assert out is not None and out.alloy == ASTRID and out.bound == (ASTRID,) and ASTRID in out.raw
+    assert "sequences" in out.alloy_report[0] and "LOW" in out.craft_route[0] and "MEDIUM" in out.craft_route[0]
+    kept_price = out.price - 0.5 - 0.5 - gear.runes.price(ASTRID)  # (the rare it started from, a full side cut or not)
+    assert 0 < kept_price <= rare_price("Gloves", chosen) + 1e-9
+    assert gear.build.alloy_raws[alloys.alloy_key(out.raw)] == out.alloy_scale
+
+
+def test_astrid_needs_two_priced_alloys(engine):
+    ctx, gear, base, level, limits, chosen, option = astrid_case(engine)
+    ctx.alloy_prices = dict(list(ctx.alloy_prices.items())[:0])
+    assert gear.astrid_trial("Gloves", base, option, level, gear.pools, limits, chosen, -1e9, 1e6, clock.now() + 300) is None
+
+
+def test_astrid_is_not_bought_when_it_scores_nothing(engine, monkeypatch):
+    ctx, gear, base, level, limits, chosen, option = astrid_case(engine)
+    gear.lam = 1.0
+    monkeypatch.setattr(gear, "deltas", lambda slot, texts: [(0.0, {}) for _ in texts])
+    assert gear.astrid_trial("Gloves", base, option, level, gear.pools, limits, chosen, 0.0, 1e6, clock.now() + 300) is None
+
+
+def test_build_rare_tries_astrid_only_with_its_switch(engine, monkeypatch):
+    ctx, gear = spark_gear(engine, "Wand")
+    calls = []
+    monkeypatch.setattr(gear, "astrid_trial", lambda *a, **k: calls.append(a) or None)
+    monkeypatch.delenv("POE2_SEARCH_ASTRID", raising=False)
+    assert gear.build_rare("Gloves", clock.now() + 120) is not None and not calls
+    monkeypatch.setenv("POE2_SEARCH_ASTRID", "1")
+    assert gear.build_rare("Gloves", clock.now() + 120) is not None and len(calls) == 1
