@@ -3952,6 +3952,13 @@ def arcane_surge_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
 # labelled). "X% increased <Debuff> Duration" lines scale each line's duration (models.duration_scale: Hinder and Blind
 # have them in the game files, MECH44); Blind / Maim effect isn't read.
 DEBUFF_DURATION = 4.0
+# The Maim support (MECH105; COV55's open row maim_on_hit_%, RESEARCH57 R57-8): "Supported Attacks Maim on Hit"
+# (SupportMaimPlayer maim_on_hit_% 100). PoB has no SkillStatMap entry for the stat (checked: exact key over SkillStatMap.lua),
+# so nothing set its Maimed box from it; PoB's own Maim is "Evasion INC -15" on a Maimed actor (CalcSetup 70-71, the 30%
+# slow beside it). Maim in PoE2 adds no damage taken (R57-8: game files + poe2db; the old support's line has no current
+# carrier), so the gain is the boss's 15% less Evasion against your attack hits (and "against Maimed Enemies" lines). Read
+# from the main skill's supports only: a minion's or a side skill's own Maim isn't read (an UNDERCOUNT, named).
+MAIM_STAT = "maim_on_hit_%"
 DEBUFFS = {  # var: (the verb, the participle)
     "conditionEnemyBlinded": ("blind", "blinded"),
     "conditionEnemyMaimed": ("maim", "maimed"),
@@ -9806,6 +9813,23 @@ class Conditions:
                  f"into the supported form ({how}), kept {kept:.0%} (no other change in its soak; without that loss: "
                  f"{shifts:.2f}/s); a lump, so the Rage maximum caps it")]
 
+    def _support_maim(self, stats: dict, main_types: set[str], texts: list[str]) -> tuple[float, str] | None:
+        """(MECH105) (share of the fight the boss is Maimed by the main skill's supports' maim_on_hit_%, how), or None
+        (MAIM_STAT's note)."""
+        if "Attack" not in main_types or not self.main_skill:
+            return None
+        chance = sum(number((s.get("supportStats") or {}).get(MAIM_STAT)) for s in self.build.call(
+            "activeSkills", supportStats=[MAIM_STAT])["skills"] if s["name"] == self.main_skill and not s.get("disabled"))
+        chance = min(max(chance, 0.0), 100.0) / 100.0
+        if chance <= 0:
+            return None
+        own = models.at_main_share(stats)
+        hits = number(own.get("Speed")) * min(number(own.get("HitChance")) or 100.0, 100.0) / 100.0
+        duration = DEBUFF_DURATION * models.duration_scale(list(texts), "maim")
+        up = 1.0 - (1.0 - chance) ** (hits * duration) if hits > 0 else 0.0
+        return up, (f"the Maim support on {self.main_skill}: {chance:.0%} a hit, {hits:.2f} hits/s, {duration:g} s each: "
+                    f"{up:.0%} up (MECH105; PoB's Maimed enemy takes -15% Evasion, CalcSetup 71)")
+
     def _leap_ground(self, stats: dict) -> tuple[float, float, str] | None:
         """(MECH105) (Leaps a second that Detonate a Spear, chance, how) for shocked_ground, or None with no quality chance
         (THUNDEROUS_LEAP's note): the Leap beside a SPEAR_MAKERS main skill, or the main Leap beside their groups."""
@@ -11360,6 +11384,8 @@ class Conditions:
         stats["_debuff_extra"] = ({"conditionEnemyIntimidated": (
             1 - math.prod(1 - min(max(u, 0.0), 1.0) for u, _ in intimidated), "; ".join(h for _, h in intimidated))}
             if intimidated else {})
+        if maimed := self._support_maim(stats, main_types, texts):  # (MECH105: the Maim support, MAIM_STAT's note)
+            stats["_debuff_extra"]["conditionEnemyMaimed"] = maimed
         stats["_stationary"] = (not self.stationary_off and not self.moving
                                 and any(STATIONARY_LINE.search(t) for t in texts))
         # (MECH67) the boss's Power with the build's Power lines (models.boss_power): Glory, the roar's Empowers
