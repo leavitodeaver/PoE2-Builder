@@ -1,0 +1,60 @@
+# COV56 (24 Nov 2026; COV43's rule, "plainly already read by a model on main"): gem stats a model on main holds as its own
+# constant, each the same at every level (GrantedEffectStatSets / PerLevel, game 26650308) and each reaching a number.
+# Checked against cov 95c41666 (origin/main 6d268642 + TRAIN 138's COV55 commits) and fd5ab8d9 (TRAIN 137). Links only.
+
+- id: model-read-cov56-spear-of-solaris-glory-shock
+  title: "Spear of Solaris: 1 Glory per Shock (Glory model, a flat event)"
+  kind: model
+  model: glory_plan
+  stats: ["active_skill_hundred_times_generates_glory_per_shock"]
+  skill: [Spear of Solaris]
+  confidence: MEDIUM
+  notes: >-
+    100 at every level (SpearOfSolarisImpactPlayer), "hundred times" = 1 Glory a Shock = models GLORY_SKILLS "Spear of
+    Solaris" shock 1, flat (GLORY_FLAT_EVENTS, not scaled by the boss's Power), with the 0.5 s per-skill Glory window.
+    The Ignite twin is model-gem14-spear-of-solaris-glory-read. A link only.
+  sources: ["builder/search/models.py (GLORY_SKILLS, GLORY_FLAT_EVENTS, glory_plan)"]
+  status: proposed
+
+- id: model-read-cov56-skyfall-ward-glory
+  title: "Skyfall: Glory from 100% of Runic Ward spent (models.GLORY_FROM_WARD)"
+  kind: model
+  model: glory_plan
+  stats: ["active_skill_generates_%_of_ward_spent_as_glory"]
+  skill: [Skyfall]
+  confidence: MEDIUM
+  notes: >-
+    100 at every level (SkyfallPlayer) = GLORY_FROM_WARD "Skyfall" 1.0 (MECHC54): Glory a second = the Ward the build's other
+    Ward-cost skills pay a second (assumptions.glory_stats' _ward_spent), feeding Skyfall's uses. A link only.
+  sources: ["builder/search/models.py (GLORY_FROM_WARD, glory_plan)"]
+  status: proposed
+
+- id: model-read-cov56-walking-calamity-rage-regen
+  title: "Walking Calamity's 300 Rage regenerated a minute held by conditions.CALAMITY_REGEN"
+  kind: model
+  model: rage
+  stats: ["walking_calamity_base_rage_regeneration_per_minute"]
+  skill: [Walking Calamity]
+  confidence: LOW
+  notes: >-
+    300 at every level (WalkingCalamityPlayer) = CALAMITY_REGEN 300 / 60 (MECHC57): Rage climbs at the net gain + 5/s during
+    the buff's uptime (calamity_rage, the Rage resolver). The model's own note: Rage regeneration increases aren't applied
+    (small undercount) and the buff's own Glory source is uncounted. A link only.
+  sources: ["builder/search/conditions.py (CALAMITY_REGEN, calamity_rage, rage resolver)"]
+  status: proposed
+
+# TRAIN 138's reader (MECH105, on origin/main 8181913f): the model reads the stat itself from PoB's levelStats.
+- id: model-read-cov56-thunderous-leap-ground
+  title: "Thunderous Leap's quality chance to leave Shocked Ground when Detonating Spears (conditions' Shocked Ground model)"
+  kind: model
+  model: shocked_ground
+  stats: ["thunderous_leap_%_chance_for_shocked_ground_when_detonating"]
+  skill: [Thunderous Leap]
+  confidence: MEDIUM
+  notes: >-
+    1.5% a quality (PoB's qualityStats, applied to nothing by PoB). MECH105 (R54-6): conditions reads the gem's own value
+    (THUNDEROUS_LEAP_STAT from activeSkills levelStats) and counts the ground at the Leaps a second that find a Spear at the
+    boss (leap_ground_rate), into the Shocked Ground share. The model's own labels: other Detonators clearing Spears first
+    (a small overcount), the ground's radius and magnitude not in any file. A link only.
+  sources: ["builder/search/conditions.py (THUNDEROUS_LEAP_STAT, leap_ground_rate, _leap_ground)"]
+  status: proposed

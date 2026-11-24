@@ -368,6 +368,21 @@ BUFF_MAKING_STATS = {
         "buff Power from the enemies, Empowers and uptime (CalcPerform 2197-2284); probe POE2T3939: Infernal Cry with it has "
         "the Warcry buff, without it none"),
 }
+# (COV56, the calibration's build 6) Names PoB maps a gem stat to that only show a Configuration box. Malice's
+# critical_chance_against_aura_apply_brittle_every_x_ms ("Applies Critical Weakness to enemies every {0} seconds", PoB's
+# malice.lua stat description; "brittle" is the game files' id for Critical Weakness) maps to flag ApplyCriticalWeakness
+# (act_int.lua MalicePlayer statMap). Its only readers: CalcPerform 2592-2593 (copies the skill's flag to the player)
+# and ConfigOptions 1908-1912 (ifFlag shows "Is the enemy Critically Weak"; the +0.5% crit a stack sits under
+# Condition:ApplyCriticalWeakness, which only that box sets; no default). The audit called it read because ConfigOptions
+# is among calc_reads' files. Checked both ways: grep of "ApplyCriticalWeakness" over PoB's Modules, Classes and Data
+# (vendor PathOfBuilding-PoE2): those two places and the flag's writers (ModParser 4636-4640, the statMap). Other
+# ifFlag-gated names are NOT listed: several are read another way (UsesWarcryPower by its tag, above; the ailments'
+# "CanStack" and "inflict" flags by concatenation, CalcOffence 5230-5637), so each needs its own check.
+CONFIG_BOX_ONLY = {
+    "ApplyCriticalWeakness": (
+        "PoB only shows its Configuration box from it (ConfigOptions 1908-1912, ifFlag; no default): nothing counts the "
+        "Critical Weakness unless the box is ticked"),
+}
 
 
 # Mods with no league carrier found, not shown unobtainable (UNVERIFIED): a label only, nothing dropped (CLAUDE.md rule 5)
@@ -1155,6 +1170,8 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                         status, entry, reason = "pob", None, f"PoB sets the skill flag {flag!r} from it"
                     elif not names:
                         status, entry, reason = "none", None, "PoB maps the stat to nothing"
+                    elif names and all(n in CONFIG_BOX_ONLY for n in names):
+                        status, entry, reason = "none", None, CONFIG_BOX_ONLY[names[0]]
                     elif name in BUFF_MAKING_STATS:
                         status, entry, reason = "pob", None, BUFF_MAKING_STATS[name]
                     elif missing := unread(names, reads):
