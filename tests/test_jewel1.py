@@ -75,6 +75,28 @@ def test_a_rare_jewel_fills_every_affix_slot(search):
     assert standard == 4 and effect in (0, 1)
 
 
+def test_a_jewel_the_clock_cuts_off_still_fills_every_slot(search):
+    """(JEWEL2, the empty-slot red flag: POE2T6363's Ruby held the effect line and 2 mods) With the deadline already past, no
+    scored step runs, yet the greedy's full fill gives every slot an affordable affix; and a crafted shape short of its
+    slots is no craft's output (shape_full)."""
+    from types import SimpleNamespace
+
+    from builder.search.jewels import SCREEN_KEEP, shape_full
+
+    jewels = search.jewels
+    slot = jewels.slot(jewels.sockets()[0])
+    base = jewels.ctx.bases_by_name["Ruby"]
+    ranked = jewels.ranked(slot, base, jewels.pools.pool("Ruby"))
+    limits = {"Prefix": 2, "Suffix": 2}
+    shortlist = [a for kind in limits for a in [x for x in ranked if x.type == kind][:SCREEN_KEEP]]
+    found = jewels.greedy(slot, base, shortlist, limits, [], float("inf"), clock.now() - 1.0, full=True)
+    assert found is not None and shape_full(found[1], limits)
+    mod = lambda kind, crafted=False: SimpleNamespace(type=kind, crafted=crafted)  # noqa: E731
+    craft = {"Prefix": 3, "Suffix": 1}
+    assert not shape_full([mod("Suffix", True), mod("Prefix"), mod("Prefix")], craft)  # (POE2T6363's Ruby)
+    assert shape_full([mod("Suffix", True), mod("Prefix"), mod("Prefix"), mod("Prefix"), mod("Suffix")], craft)
+
+
 def test_the_old_greedy_stop_is_one_switch_away(search, monkeypatch):
     from builder.search import jewels as module
 
@@ -487,3 +509,36 @@ def test_voices_versions_cost_their_own_trade_floor(search, data):
         option = ItemOption("Voices", "Sapphire", "Jewel", None, raw, True, 1370.0, "high", 0)
         priced = search.jewels.version_floor(option)
         assert priced.price == max(1370.0, VERSION_FLOORS["Voices"][granted_sockets(raw)])
+
+
+def test_a_jewel_left_short_is_kept_with_a_not_finished_note(search, monkeypatch):
+    """(JEWEL3; THE USER 24 Nov 2026: "a jewel with 2 mods is better than an empty jewel slot. if the optimizer runs out of
+    time when it's actively working on something like that, it should leave a note to indicate that it wasn't finished")
+    A jewel the fill leaves short of its slots (here every shape stops after two affixes, as a clock cut would) is kept
+    and goes into the socket, never left empty, and the result's notes say which jewel isn't finished and by how much."""
+    jewels, build = search.jewels, search.build
+    real = jewels.greedy
+
+    def cut(slot, base, shortlist, limits, fixed, *args, **kwargs):
+        found = real(slot, base, shortlist, limits, fixed, *args, **kwargs)
+        if not found:
+            return found
+        value, chosen, priced = found
+        short = list(fixed) + [a for a in chosen if a not in fixed and not a.crafted][:2]
+        return value, short, [a for a in priced if a in short]
+
+    monkeypatch.setattr(jewels, "greedy", cut)
+    snap = build.snapshot()
+    socket = jewels.sockets()[0]
+    slot = jewels.slot(socket)
+    build.equip(slot, None)
+    jewels.unfinished.clear()
+    assert jewels.fill(socket, clock.now() + 300, rebuild=True)
+    held = build.equipped.get(slot)
+    assert held is not None and held.raw in jewels.unfinished
+    notes = [n for n in jewels.unfinished_notes() if slot in n["label"]]
+    print("PROBE unfinished", held.affixes, notes)
+    assert len(notes) == 1 and notes[0]["label"].startswith("Not finished") and "Continue" in notes[0]["basis"]
+    info = jewels.unfinished[held.raw]
+    assert info["filled"] < info["slots"] and notes[0]["value"] == f"{info['filled']}/{info['slots']}"
+    build.restore(snap)

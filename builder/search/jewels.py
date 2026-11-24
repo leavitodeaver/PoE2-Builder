@@ -104,6 +104,14 @@ def item_jewel_sockets(raw: str) -> tuple[int, tuple[str, ...]]:
     return count, (only,) if only else JEWEL_BASES
 
 
+def shape_full(chosen: list, limits: dict[str, int]) -> bool:
+    """(JEWEL2) Every slot of the shape holds an affix (crafted lines aside). The 0.5 craft only ever makes the full shape: it
+    adds a third affix of the boosted kind while "+1 ... Modifier allowed" is on, then replaces that line with the effect
+    line (the user's note, 24 Oct 2026; RESEARCH53 R53-2's route), so an effect line beside fewer affixes is no craft's output.
+    (JEWEL3; THE USER 24 Nov) A jewel that is short anyway is kept, with a "not finished" note (Jewels.mark_unfinished)."""
+    return all(sum(1 for a in chosen if a.type == kind and not a.crafted) == count for kind, count in limits.items())
+
+
 def granted_sockets(raw: str) -> int:
     """(JEWEL1) Sinister Jewel Sockets the item's active lines allocate (PoB's variant rule: rares.active_lines)."""
     return max((int(m.group(1)) for line in active_lines(raw) if (m := GRANTS_SOCKETS.match(line))), default=0)
@@ -124,6 +132,7 @@ class Jewels:
         # best variants then): rescored once per full round
         self.versions: dict[tuple[str, str | None], tuple[int, ItemOption]] = {}
         self.full_rounds = 0
+        self.unfinished: dict[str, dict] = {}  # (JEWEL3) jewel text -> what its slots lack and why (unfinished_notes)
         self.left_out: dict[str, str] = {}  # unique -> why it's never proposed (for the result)
         self.screened: set[tuple[str, int, tuple[str, ...]]] = set()  # unlock screens since the last full cycle
         # (JEWEL1) the tree values a reachable jewel socket at what a filled one adds (Tree.socket_value / fill_socket,
@@ -364,6 +373,11 @@ class Jewels:
                              if a.type == boost[0] and not a.crafted else a for a in fixed]
                 found = self.greedy(slot, base, shortlist, limits, fixed, left, deadline, required is not None,
                                     full=FULL_JEWELS)
+                if found and FULL_JEWELS and not shape_full(found[1], limits):
+                    # (JEWEL3; THE USER 24 Nov: "a jewel with 2 mods is better than an empty jewel slot. if the optimizer runs
+                    # out of time when it's actively working on something like that, it should leave a note to indicate that
+                    # it wasn't finished") A jewel short of its slots is kept, and the result says it isn't finished
+                    self.mark_unfinished(rare_text("Jewel", base, level, found[1]), found[1], limits, deadline)
                 if found and (best is None or found[0] > best[0]):
                     value, chosen, priced = found
                     price = None if self.ctx.ssf else rare_price("Jewel", priced)
@@ -483,6 +497,24 @@ class Jewels:
             chosen.append(affix)
             priced.append(affix)
             current = value
+        if full and clock.now() >= deadline:
+            # (JEWEL2, the empty-slot red flag: SEARCHB7's POE2T6363 delivered a Ruby with the effect line and 2 mods) The
+            # clock stops the scored steps, not the jewel: its open slots take the shortlist's best-ranked affordable affixes
+            # unscored, and the finished jewel is scored once
+            added = False
+            for a in shortlist:
+                counts = {k: sum(1 for c in chosen if c.type == k and not c.crafted) for k in limits}
+                if a.group in {c.group for c in chosen} or counts[a.type] >= limits[a.type]:
+                    continue
+                pick = next((c for c in self.pools.choices(a, chosen)
+                             if rare_price("Jewel", priced + [c]) <= left + 1e-9), None)
+                if pick is not None:
+                    chosen.append(pick)
+                    priced.append(pick)
+                    added = True
+            if added:
+                current = build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, chosen)}])[0][0] \
+                    - lam * rare_price("Jewel", priced)
         return (current, chosen, priced) if len(chosen) > len(fixed) or (fixed_only and fixed) else None
 
     def best_step(self, slot: str, base: dict, chosen: list, priced: list, options: list, current: float,
@@ -557,9 +589,33 @@ class Jewels:
             return False
         return True
 
+    def mark_unfinished(self, raw: str, chosen: list, limits: dict[str, int], deadline: float) -> None:
+        """(JEWEL3) Remember a jewel left short of its shape's slots (crafted lines aside) and why, for unfinished_notes."""
+        filled = sum(1 for a in chosen if not a.crafted)
+        why = ("the search's time for it ran out first" if clock.now() >= deadline
+               else "no affix it could still add fitted (the budget, or none left that can roll beside these)")
+        self.unfinished[raw] = {"filled": filled, "slots": sum(limits.values()), "why": why}
+
+    def unfinished_notes(self) -> list[dict]:
+        """(JEWEL3; THE USER 24 Nov) A "not finished" note for each delivered jewel short of its slots: which jewel, how many
+        slots it fills, why it stopped, and that a Continue run can finish it (SEARCH-D's record takes these over)."""
+        notes = []
+        for slot, option in sorted(self.build.equipped.items()):
+            info = self.unfinished.get(option.raw) if option is not None else None
+            if info:
+                notes.append({
+                    "label": f"Not finished: the {option.base} jewel in {slot} fills {info['filled']} of its "
+                             f"{info['slots']} affix slots",
+                    "value": f"{info['filled']}/{info['slots']}",
+                    "basis": f"It stopped because {info['why']}. A part-filled jewel beats an empty socket (the user, 24 Nov "
+                             "2026), so it is kept as it is; a Continue run can finish it",
+                    "confidence": "HIGH"})
+        return notes
+
     def radius_notes(self) -> list[dict]:
-        """The larger Time-Lost radius and the radius damage transforms, for the result's assumptions (asterisked)."""
-        notes = self.transform_notes()
+        """The larger Time-Lost radius and the radius damage transforms, for the result's assumptions (asterisked), and
+        (JEWEL3) the "not finished" notes (unfinished_notes)."""
+        notes = self.transform_notes() + self.unfinished_notes()
         model = self.build.call("radiusModel")
         if model["increase"] <= 0:
             return notes
