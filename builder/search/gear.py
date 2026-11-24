@@ -24,6 +24,7 @@ from dataclasses import dataclass
 
 from builder import clock
 from builder.search import alloys, anoints, cultivated, desecrated, essences, influence
+from builder.search import unfinished  # (SEARCHD1 hook: the "Not finished" record)
 from builder.search.context import ARMOUR_SLOTS, JEWELLERY_SLOTS, SLOT_TYPE, ItemOption, implicit_variant, implicit_variants
 from builder.search.flasks import (
     CHARM_SLOTS, FLASK_SLOTS, RECOVERY_FIELDS, Charges, charges_per_second, is_flask_slot,
@@ -859,6 +860,7 @@ class Gear:
                 return None
             chosen.append(forced)
         current = self.deltas(slot, [text(slot, base, level, chosen)])[0][0]
+        cut = False  # (SEARCHD1 hook: True when the deadline, not the affixes, ended the fill)
         while clock.now() < deadline:
             groups = {a.group for a in chosen}
             counts = {kind: sum(1 for a in chosen if a.type == kind) for kind in limits}
@@ -874,8 +876,18 @@ class Gear:
                 break
             chosen.append(best)
             current = best_value + self.lam * price_of(slot, chosen)
+        else:
+            cut = True
         if not chosen:
             return None
+        # (SEARCHD1 hook) the rare keeps the affixes it has either way; a cut one is said in the result, a finished one
+        # clears its slot's row
+        if cut and len(chosen) < sum(limits.values()):
+            unfinished.note(self, "gear", slot, len(chosen), sum(limits.values()), "affixes",
+                            "the item built for this slot stopped adding affixes when time ran out; the slot keeps the "
+                            "best item found")
+        else:
+            unfinished.done(self, "gear", slot)
         utility: list = []
         if not magic:  # (SEARCHB5; THE USER 23 Nov: no empty affix slots)
             utility, current = self.fill_utility(slot, base, level, pools, limits, chosen, current, left, deadline)
@@ -961,6 +973,9 @@ class Gear:
         and the full item is checked once: if the fills together lower its score, none is kept. Returns (the fills,
         the item's score with them: `current` when none is kept; SEARCHB6: build_rare scored it again before)."""
         if clock.now() > deadline:
+            if len(chosen) < sum(limits.values()):  # (SEARCHD1 hook: the open affix slots stay open, said in the result)
+                unfinished.note(self, "gear", slot, len(chosen), sum(limits.values()), "affixes",
+                                "time ran out before its empty affix slots were filled; the item keeps the affixes it has")
             return [], current
         groups = {a.group for a in chosen}
         counts = {kind: sum(1 for a in chosen if a.type == kind) for kind in limits}
@@ -2075,6 +2090,11 @@ class Gear:
             chosen.append(pick[0])
             fillers.append(pick)
             before = next(stats for stats, n in fit if n == pick[0])
+        if len(chosen) < count and clock.now() > deadline:  # (SEARCHD1 hook: the item keeps the runes it has)
+            unfinished.note(self, "runes", slot, len(chosen), count, "sockets filled",
+                            "time ran out before its empty rune sockets were tried")
+        else:
+            unfinished.done(self, "runes", slot)
         return fillers
 
     def extra_socket_trial(self, slot: str, filled: ItemOption, base: dict | None, count: int,
@@ -2325,6 +2345,9 @@ class Gear:
             if clock.now() > deadline:
                 if whole and self.resume is None:
                     self.resume = slot
+                    # (SEARCHD1 hook: each slot keeps its item; the next whole round starts here)
+                    unfinished.note(self, "gear round", f"{slot} and the slots after it", detail=(
+                        "the last full gear round ran out of time before these slots; each kept the item it had"))
                 continue
             if slot in build.locked_slots:
                 if full and (locked := build.equipped.get(slot)) is not None:  # a required unique is still anointed
@@ -2400,6 +2423,8 @@ class Gear:
             improved = self.purity_trials(deadline) or improved
         if whole:
             self.update_lambda()
+            if self.resume is None:  # (SEARCHD1 hook: a whole round that reached every slot)
+                unfinished.done(self, "gear round")
         return improved
 
     # A quick pick for every empty slot before the deep work (SEARCHB2; the manager's 19:08 item) ----------------

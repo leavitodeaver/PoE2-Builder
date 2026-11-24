@@ -65,7 +65,7 @@ def test_run_rows_from_stages_state_finalize_and_sockets():
     by = {(r["step"], r["part"]): r for r in rows}
     assert by[("skill screen", "main skill choice")]["done"] == 12
     assert "'jewels' step" in by[("search pass", "the whole build")]["text"]  # (finalize's own pass wasn't cut: the line's)
-    assert ("gear", "Ring 2 and the slots after it") in by
+    assert ("gear round", "Ring 2 and the slots after it") in by
     assert by[("jewels", "Jewel 3")]["done"] == 3  # (finalize's row wins over the line's older one)
     assert ("supports", "Spark's group") in by and ("supports", "Arc's group") not in by
     assert all(r["text"].endswith("Continue can finish it.") for r in rows)

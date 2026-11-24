@@ -48,6 +48,7 @@ from builder.search.sources import Sources
 from builder.search.state import EPSILON, Build, OutOfTime, model_valued_supports
 from builder.search.tree import Tree
 from builder.search.usage import Usage
+from builder.search import unfinished  # (SEARCHD1 hook: the "Not finished" record)
 
 KICK_TREE_POINTS = (6, 16)
 SWEEP_EVERY = 3
@@ -461,6 +462,7 @@ class Search:
             "curse_lapse": sorted(getattr(self.build.objective, "curse_lapse", None) or ()),  # (choose_curse_lapse)
             "infused": self.assumptions.infused, "infused_skipped": self.assumptions.infused_skipped,
             "problems": self.problems,
+            "unfinished": unfinished.rows(self.build),  # (SEARCHD1 hook: what a deadline cut, carried with the line)
             "press_choices": press_choices(self.build), "press_rows": copy.deepcopy(self.press_rows),
             "line": {"passes": self.line_passes, "step": self.resume_step, "sweep": self.resume_sweep,
                      "short": self.line_short,
@@ -503,6 +505,7 @@ class Search:
         self.correct_passives()
         self.build.equipped = dict(state["equipped"])
         self.build.locked_slots = set(state["locked"])
+        unfinished.load(self.build, state.get("unfinished"))  # (SEARCHD1 hook: the line's rows go on with it)
         self.build.objective.multipliers = dict(state.get("multipliers") or {})
         self.escalations = state.get("escalations", 0)
         self.assumptions.mods = list(state.get("assumed_mods") or [])
@@ -2340,6 +2343,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         "tree_check": tree_check, "radius_jewels": reloaded["radiusJewels"], "left_out": {**search.jewels.left_out, **search.gems.left_out},
         "open_sockets": open_sockets, "final_regrow": regrow_rows,
         "free_supports": search.gems.free_notes(),  # (SEARCH36: a Purity / Impurity group's free supports, a plain note)
+        "unfinished": unfinished.rows(build),  # (SEARCHD1 hook: the delivered build's rows, run.unfinished_rows)
     }
     # The search's config inputs the reload dropped come back first, so the check below re-settles the build as delivered
     # (SEARCH33, probe POE2T5455): PoB writes an input equal to its own default as a Placeholder, so the chosen "Boss at

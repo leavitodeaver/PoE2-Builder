@@ -935,7 +935,7 @@ class Run:
                                     "the steps after it didn't run again on this build"})
         gear_resume = (best.get("gear") or {}).get("resume") if isinstance(best.get("gear"), dict) else None
         if gear_resume:
-            found.append({"step": "gear", "part": f"{gear_resume} and the slots after it", "done": None, "of": None,
+            found.append({"step": "gear round", "part": f"{gear_resume} and the slots after it", "done": None, "of": None,
                           "unit": "", "detail": "the last full gear round ran out of time before these slots; each kept "
                                                 "the item it had"})
         focus = getattr(self.request, "focus", None)
