@@ -704,3 +704,45 @@ def test_a_jewel_left_short_is_kept_with_a_not_finished_note(search, monkeypatch
     info = jewels.unfinished[held.raw]
     assert info["filled"] < info["slots"] and notes[0]["value"] == f"{info['filled']}/{info['slots']}"
     build.restore(snap)
+
+
+def test_a_desecrated_line_sits_on_the_crafted_jewel_with_nothing_removed(search, monkeypatch):
+    """(JEWEL4; AUDIT38 F9 (b), MEDIUM-LOW) Real listings hold the crafted 3 + 1 + effect jewel PLUS a Desecrated line, 6 lines
+    with nothing lost (#219 / #221 / #333). With the Cranium trial and POE2_SEARCH_CRANIUM_CRAFTED on, the Cranium trial on
+    a crafted jewel keeps all five of its lines, adds one Desecrated line, and prices the crafted route plus the
+    Desecration. OFF by default."""
+    from builder.search import desecrated, jewels as jewels_mod
+    from builder.search.jewels import JEWEL_LIMIT, SCREEN_KEEP
+    from builder.search.rares import boosted, rare_price
+
+    assert not jewels_mod.CRANIUM_CRAFTED  # (OFF until gated)
+    monkeypatch.setenv("POE2_SEARCH_DESECRATED_JEWEL", "1")
+    monkeypatch.setattr(jewels_mod, "CRANIUM_CRAFTED", True)
+    jewels = search.jewels
+    jewels.ctx.desecration_prices = {name: 0.001 for name in desecrated.MATERIALS}
+    slot = jewels.slot(jewels.sockets()[0])
+    base = jewels.ctx.bases_by_name["Sapphire"]
+    ranked = jewels.ranked(slot, base, jewels.pools.pool("Sapphire"))
+    effect, percent = jewels.pools.crafted("Suffix")
+    limits = {"Suffix": 3, "Prefix": 1}
+    shortlist = [a for kind in limits for a in [x for x in ranked if x.type == kind][:SCREEN_KEEP]]
+    shortlist = [dataclasses.replace(a, lines=tuple(boosted(l, percent) for l in a.lines)) if a.type == "Suffix" else a
+                 for a in shortlist]
+    found = jewels.greedy(slot, base, shortlist, limits, [effect], 1e9, clock.now() + 300, full=True)
+    assert found is not None
+    _, chosen, priced = found
+    assert len(chosen) == 5
+    trial = jewels.cranium_trial(slot, base, chosen, float("-inf"), 1e9, clock.now() + 300, ("Suffix", percent))
+    if trial is None:
+        pytest.skip("no Cranium row on a Sapphire here")
+    _, option = trial
+    print("PROBE crafted cranium", option.affixes, option.price, option.craft_route)
+    kept = [line for a in chosen for line in a.lines]
+    assert option.affixes[:len(kept)] == tuple(kept)  # nothing removed
+    cranium = {l for a in jewels.cranium_pools.pool("Sapphire") for l in a.lines}
+    added = option.affixes[len(kept):]
+    assert len(added) >= 1 and sum(1 for a in chosen if not a.crafted) == sum(JEWEL_LIMIT.values())  # 4 + effect + 1
+    plain = [l for a in jewels.cranium_pools.pool("Sapphire") for l in a.lines]
+    assert all(l in cranium or any(boosted(p, percent) == l for p in plain) for l in added)
+    assert "MEDIUM-LOW" in option.craft_route[0] and "0.5 route" in option.craft_route[1]
+    assert option.price > rare_price("Jewel", priced)

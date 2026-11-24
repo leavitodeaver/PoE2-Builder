@@ -142,6 +142,14 @@ ADORNED_ROLLS = {100: 20.0, 130: 60.0}
 ADORNED_TRIES = 2.0
 ADORNED_JEWEL = os.environ.get("POE2_SEARCH_ADORNED", "0") == "1"  # (JEWEL3) adorned_trial; OFF until gated
 MAGIC_JEWEL = {"Prefix": 1, "Suffix": 1}
+# (JEWEL4; AUDIT38 F9 (b)) A Preserved Cranium's Desecrated line on the CRAFTED 3 + 1 + effect jewel, nothing removed: real
+# listings hold 6 lines (#221 / #333: a basic Sapphire / Emerald with 2 + 2 natural mods, the effect craft and a Desecrated
+# suffix; #219: a Time-Lost Sapphire with 4 suffixes, one Desecrated, beside the crafted line, nothing lost). MEDIUM-LOW: no
+# source says when a Desecration on this jewel removes a modifier (poe2db's Desecrated Modifiers page: "If modifiers are full
+# then a random modifier is also removed"; what "full" means for a crafted jewel is UNVERIFIED). A side holds at most 4
+# (AUDIT38's proposed limit, #219). Needs POE2_SEARCH_DESECRATED_JEWEL=1 too (the Cranium trial itself); OFF until gated
+CRANIUM_CRAFTED = os.environ.get("POE2_SEARCH_CRANIUM_CRAFTED", "0") == "1"
+CRANIUM_SIDE_MAX = 4
 ADORNED_RANGE = re.compile(r"\((\d+)-(\d+)\)% increased Effect of Jewel Socket Passive Skills")
 # (JEWEL1) Items with jewel sockets ("Sockets: J ..."): PoB's slots "<item slot> Jewel Socket <n>" (ItemsTab.lua 217-262,
 # on these item slots), a jewel counting while its parent item has that many jewel sockets (CalcSetup 1446-1453, scaled by
@@ -464,8 +472,8 @@ class Jewels:
                         "Rare Jewel", base_name, "Jewel", None, rare_text("Jewel", base, level, chosen), False, price,
                         "ssf" if self.ctx.ssf else "estimate (uncalibrated)", 0, rare=True,
                         affixes=tuple(line for a in chosen for line in a.lines)))
-                    if required is None and not boost and desecrated.cranium_enabled():
-                        crafted = self.cranium_trial(slot, base, chosen, value, left, deadline)
+                    if required is None and desecrated.cranium_enabled() and (not boost or CRANIUM_CRAFTED):
+                        crafted = self.cranium_trial(slot, base, chosen, value, left, deadline, boost or None)
                         if crafted is not None and crafted[0] > best[0]:
                             best = crafted
         return best[1] if best else None
@@ -597,15 +605,29 @@ class Jewels:
         return self._cranium_pools
 
     def cranium_trial(self, slot: str, base: dict, chosen: list, value: float, left: float,
-                      deadline: float) -> tuple[float, ItemOption] | None:
+                      deadline: float, boost: tuple[str, float] | None = None) -> tuple[float, ItemOption] | None:
         """(SEARCH31) The plain-shape rare jewel `chosen` (score less price's weight: `value`) with one Desecrated jewel
         affix by a Preserved Cranium (desecrated.py "cranium"; RESEARCH34 R33-22, MEDIUM-HIGH), added where its side has
         room or in place of each affix of its side (a full side loses a random mod: the jewel is bought with that slot
-        open), priced by the craft route; (value, option) if it beats `value`, else None."""
+        open), priced by the craft route; (value, option) if it beats `value`, else None.
+        (JEWEL4, CRANIUM_CRAFTED; AUDIT38 F9 (b)) With `boost` ((kind, percent) of the effect line), `chosen` is the crafted
+        3 + 1 + effect jewel: the Desecrated line goes on either side with nothing removed (6 lines, as real listings show;
+        MEDIUM-LOW), a side at most CRANIUM_SIDE_MAX; one on the boosted side is written under the effect line too (a
+        Desecrated suffix is a suffix: UNVERIFIED that the effect line reaches it); priced as the crafted jewel's route plus
+        the Desecration's."""
         build, lam, level, name = self.build, self.gear.lam, self.pools.item_level, base["name"]
         pool = self.cranium_pools.pool(name)
         groups = {a.group for a in chosen}
         fresh = [a for a in pool if a.group not in groups and a.type in JEWEL_LIMIT]
+        if boost:
+            sides = {k: sum(1 for x in chosen if x.type == k and not x.crafted) for k in JEWEL_LIMIT}
+            fresh = [a for a in fresh if sides[a.type] < CRANIUM_SIDE_MAX]
+
+        def written(a):  # (JEWEL4) the line as it sits on the jewel: raised by the effect line on its side
+            if boost and a.type == boost[0]:
+                return dataclasses.replace(a, lines=tuple(boosted(line, boost[1]) for line in a.lines))
+            return a
+
         if not fresh or clock.now() > deadline:
             return None
         ssf = self.ctx.ssf
@@ -614,12 +636,13 @@ class Jewels:
         for a in self.pools.pool(name):
             if a.side_odds > 0:
                 ordinary[a.type] = round(1 / a.side_odds)
-        screen = build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, chosen + [a])} for a in fresh])
+        screen = build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, chosen + [written(a)])}
+                                    for a in fresh])
         top = [a for s, a in sorted(((s, a) for (s, _), a in zip(screen, fresh)), key=lambda x: -x[0])][:self.CRANIUM_KEEP]
         trials = []  # (affixes, the Desecrated affix, price, steps)
         for a in top:
             for c in self.cranium_pools.choices(a, chosen):
-                if sum(1 for x in chosen if x.type == c.type) < JEWEL_LIMIT[c.type]:
+                if boost or sum(1 for x in chosen if x.type == c.type) < JEWEL_LIMIT[c.type]:
                     variants = [list(chosen)]
                 else:
                     variants = [[x for x in chosen if x is not out] for out in chosen if out.type == c.type]
@@ -630,7 +653,11 @@ class Jewels:
                     price, steps = desecrated.craft_price("Jewel", market, c, 0, n_side, ordinary.get(c.type, 0),
                                                           prices, "cranium")
                     if price is not None and price <= left + 1e-9:
-                        trials.append((kept + [c], c, price, steps))
+                        if boost:  # (JEWEL4) step 1 is the 0.5 craft, and nothing is removed (MEDIUM-LOW)
+                            steps = [f"1. craft the jewel by the 0.5 route ({market:.3f} div, its craft route's price); "
+                                     "the Desecration adds a sixth line with nothing removed, as real 6-line listings "
+                                     "show (MEDIUM-LOW, AUDIT38 F9 #219 / #221 / #333)", *steps[1:]]
+                        trials.append((kept + [written(c)], c, price, steps))
         if not trials or clock.now() > deadline:
             return None
         scored = build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, t[0])} for t in trials])
@@ -640,6 +667,13 @@ class Jewels:
         affixes, affix, price, steps = trials[i]
         note = (f"one Desecrated modifier ({affix.desecrated}, {affix.type}) by a Preserved Cranium; priced by the cheapest "
                 f"repeat-until-hit craft route (LOW: no Omen names a jewel row; desecrated.py)")
+        if boost:
+            note += (f", on the crafted 3 + 1 + effect jewel with nothing removed (MEDIUM-LOW: 6-line listings exist, AUDIT38 "
+                     "F9; no source says when a Desecration here removes a modifier: if it removes one, this jewel can't "
+                     "be made and the 5-line one stands)")
+            if affix.type == boost[0]:
+                note += (f"; the effect line's {boost[1]:g}% is counted on the Desecrated {affix.type.lower()} too "
+                         "(UNVERIFIED)")
         return found, ItemOption("Rare Jewel", name, "Jewel", None, rare_text("Jewel", base, level, affixes), False,
                                  None if ssf else price, "ssf" if ssf else "estimate (craft route: Desecration)", 0,
                                  rare=True, affixes=tuple(line for a in affixes for line in a.lines),
