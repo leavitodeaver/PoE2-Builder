@@ -380,3 +380,11 @@ def test_stance_parts_are_rows_and_never_in_the_headline():
     row = next(r for r in preview.gem_rows() if r["name"] == "Worldcutter")
     assert any("NOT counted" in text and "Sandstorm" in text for text in rows(row))
     assert "stance_parts" not in row["model"]
+
+
+def test_molten_forges_anvil_falls_once_a_cooldown(engine):
+    preview.install(engine, BuildRequest(preview_1_0=True))
+    got = _dps(engine, "Molten Forge 1/0 1", sword="Rarity: Normal\nWooden Club\n")
+    assert got["TotalDPS"] > 0 and got["Speed"] == pytest.approx(1 / 6, rel=0.03)  # (its 6 s cooldown)
+    row = next(r for r in preview.gem_rows() if r["name"] == "Molten Forge")
+    assert any("UNDERCOUNT" in text for text in row["not_modelled"])

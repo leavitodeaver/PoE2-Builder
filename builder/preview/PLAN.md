@@ -43,7 +43,9 @@ curve (gems.json curve_reference: Lightning Spear; 20/13 = 1.406, the median of 
    unless it is the main skill). Haemorrhage's Rupture (PREVIEW3, rupture.py; the manager's ruling, 23 Nov 14:53):
    a labelled model on R55-10's reading, the same total dealt sooner (MEDIUM-LOW): Bleeds don't stack, so the rest of a
    replaced Bleed is recovered, up to the strikes' limit; rows at 0 and the upper case (each strike adds its limit).
-   NEXT: Molten Forge, the traps once unblocked (needs a
+   DONE (PREVIEW3): Molten Forge's anvil, once a cooldown (level 1 shown; its shockwave, Forged in Flame and the
+   Ignited Anvil have no numbers: NOT counted, an UNDERCOUNT for Slam builds).
+   NEXT: the traps once unblocked (needs a
    TrapTool weapon type in PoB's weaponTypeInfo and a throw / cooldown cycle), Ethereal Knives / Whirling Blades
    (shotgun overlap like R51-4).
 3. Supports: Overchannel, Impaling Blade II / Rending Blade (a periodic extra hit), Galvanising Blades, Sandstorm,
