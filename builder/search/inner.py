@@ -1206,6 +1206,9 @@ class Search:
         ]
         if FILL_IN_SEARCH:  # (SEARCH35: after the supports step; off, the steps are as before)
             steps.insert(3, ("socket fill", self.socket_fill_round, (deadline,)))
+        if gems_module.META_MAIN:  # (SEARCH38: after the meta spells; off, the steps are as before)
+            at = next(i for i, step in enumerate(steps) if step[0] == "meta spells") + 1
+            steps.insert(at, ("meta main spell", self.gems.meta_main_round, (deadline,)))
         if self.skeleton.swap:
             steps.insert(3, ("weapon sets", self.weapon_set_round, ()))
         improved = False

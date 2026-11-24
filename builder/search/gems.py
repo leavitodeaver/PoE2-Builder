@@ -182,6 +182,9 @@ RETRY_MOVE = math.log(1.10)
 META_GEMS_TRIED = 2  # meta gems tried, those the build feeds most Energy first
 # A spell triggered less often than this can't pay through its own damage; what PoB counts of it besides (a buff it
 # grants, at full) would be the only gain: such a meta group isn't kept (Profane Ritual at 0.0001 triggers/s gave +4%)
+# (SEARCH38) meta_main_round: the main spell inside Cast on Critical / Elemental Ailment, fed by a skill you use
+META_MAIN = os.environ.get("POE2_SEARCH_META_MAIN", "0") == "1"
+META_FEEDER_LABEL = "auto: meta feeder"
 META_MIN_RATE = 1 / 30
 # Spells per meta gem the search tries. A meta gem's spells and supports share its sockets (SUPPORT_SLOTS): assumed, the
 # cautious reading (PoB doesn't limit it); three spells leave two sockets for supports.
@@ -1813,6 +1816,114 @@ class Gems:
                 self.resolve()
             return False
         return build.score > before + EPSILON
+
+    def meta_main_round(self, deadline: float) -> bool:
+        """(SEARCH38, the manager's 17:21 23 Nov from MECHB59) The main spell triggered INSIDE a Cast on Critical / Cast on
+        Elemental Ailment group, fed by a skill the player uses in another group (models.energy_feed). meta_round can't
+        reach this shape: it adds [meta, side spell] beside an untriggered main skill. With no side skill that hits, the
+        search picks one as the feeder on purpose (the main spell stops being a button, the feeder takes its place). Each
+        pair gets a real trial (commit, resolve, read, undo); kept only if higher. POE2_SEARCH_META_MAIN=1 (OFF until a
+        gate of at least 3 seeds per arm measures it)."""
+        if not META_MAIN:
+            return False
+        from builder.search import models
+
+        build = self.build
+        group = build.main_group()
+        if group is None or group["fromItem"]:
+            return False
+        actives = [g for g in group["gems"] if not g["support"]]
+        types = set((self.ctx.gems.get(actives[0]["name"]) or {}).get("skillTypes") or []) if len(actives) == 1 else set()
+        if not {"Spell", "Triggerable"} <= types or {"Meta", "Persistent"} & types:
+            return False
+        groups = build.groups()
+        present = {g["name"] for grp in groups for g in grp["gems"]}
+        left, usage = self.budget_left(), self.usage_stats()
+        metas = [n for n in self.meta_candidates() if n not in present and self._offered(n, left, usage)
+                 and (models.META_GEMS.get(n) or {}).get("gain") in models.FEED_KINDS][:META_GEMS_TRIED]
+        if not metas:
+            return False
+        feeders: list[str | None] = [None] if self.has_feeder(group, groups) else self.feeder_options(present, left, usage)
+        before = build.score
+        best: tuple[float, str, str | None] | None = None
+        for meta in metas:
+            for feeder in feeders:
+                if clock.now() > deadline:
+                    break
+                score = self.trial_meta_main(group, meta, feeder)
+                if score is not None and score > before + EPSILON and (best is None or score > best[0]):
+                    best = (score, meta, feeder)
+        if best is None:
+            return False
+        snap = build.snapshot()
+        self.apply_meta_main(group, best[1], best[2])
+        if build.worse(before):
+            build.restore(snap)
+            if self.resolve is not None:
+                self.resolve()
+            return False
+        return build.score > before + EPSILON
+
+    def has_feeder(self, main_group: dict, groups: list[dict]) -> bool:
+        """Whether another enabled group holds a skill the player uses that can hit (the models' feeders decide its rate)."""
+        for group in groups:
+            if group["index"] == main_group["index"] or not group["enabled"]:
+                continue
+            for gem in group["gems"]:
+                types = set((self.ctx.gems.get(gem["name"]) or {}).get("skillTypes") or [])
+                if not gem["support"] and types & {"Attack", "Spell"} and not types & {"Meta", "Persistent"}:
+                    return True
+        return False
+
+    def feeder_options(self, present: set[str], left: float, usage: dict | None) -> list[str]:
+        """The spells that add most Full DPS as a group of their own (PoB's what-if, only a ranking): META_TRIALS of them."""
+        if len([g for g in self.build.groups() if not g["fromItem"]]) >= gem_group_limit(self.build):
+            return []
+        spells = self.meta_spells(present, left, usage)
+        if not spells:
+            return []
+        cases = [{"newGroup": [n], "level": GEM_LEVEL, "quality": GEM_QUALITY, "fullDPS": True} for n in spells]
+        full = []
+        for start in range(0, len(cases), 50):
+            full += self.build.call("gemDeltas", cases=cases[start:start + 50], fields=["FullDPS"], fullDPS=True,
+                                    skipEHP=True)["results"]
+        ranked = sorted(zip((float(r.get("FullDPS") or 0) for r in full), spells), reverse=True)
+        return [name for _, name in ranked[:META_TRIALS]]
+
+    def apply_meta_main(self, group: dict, meta: str, feeder: str | None) -> bool:
+        """Put `meta` in the main group around the main spell, and `feeder` in a group of its own. False if unusable."""
+        level = self.usable_level(meta)
+        feeder_level = self.usable_level(feeder) if feeder else None
+        if level is None or (feeder and feeder_level is None):
+            return False
+        kept = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} for g in group["gems"]]
+        self.build.set_group(index=group["index"], gems=[{"name": meta, "level": level, "quality": GEM_QUALITY}, *kept])
+        if feeder:
+            self.build.set_group(gems=[{"name": feeder, "level": feeder_level, "quality": GEM_QUALITY}],
+                                 label=META_FEEDER_LABEL)
+        self.choose_active_skill()
+        if self.resolve is not None:
+            self.resolve()
+        return True
+
+    def trial_meta_main(self, group: dict, meta: str, feeder: str | None) -> float | None:
+        """The score with the main spell inside `meta`, then put back. None unless the meta really triggers it at
+        META_MIN_RATE or more (the Energy model's rate, from the feeder)."""
+        build = self.build
+        spell = next(g["name"] for g in group["gems"] if not g["support"])
+        snap = build.snapshot()
+        score = None
+        if self.apply_meta_main(group, meta, feeder):
+            triggered = any(s["name"] == spell and s.get("group") == group["index"] and s.get("triggered")
+                            for s in build.call("activeSkills")["skills"])
+            rates = [m["value"] for m in (self.assumptions.mods if self.assumptions is not None else [])
+                     if m.get("kind") == "SkillData" and m.get("skill") == spell and m.get("key") == "triggerRate"]
+            if triggered and rates and max(rates) >= META_MIN_RATE:
+                score = build.score
+        build.restore(snap)
+        if self.resolve is not None:
+            self.resolve()
+        return score
 
     def granted_meta_groups(self) -> list[dict]:
         """Groups an item grants holding only a meta skill with an Energy model (Mjolner's Thundergod's Wrath, Svalinn's

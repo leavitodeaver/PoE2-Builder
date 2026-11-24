@@ -257,3 +257,41 @@ def test_the_build_reads_its_real_skill_slots(engine):
     assert not [d for d in judge.deficits({**stats, objective.SKILL_SLOTS: 10, objective.GEM_GROUPS: 10}) if d[0] == label]
     judge.groups_enforced = False
     assert not [d for d in judge.deficits({**stats, objective.SKILL_SLOTS: 9, objective.GEM_GROUPS: 13}) if d[0] == label]
+
+
+def test_the_meta_screen_tries_the_main_spell_inside_cast_on_critical(engine, monkeypatch):
+    """(the manager's 17:21 from MECHB59) OFF changes nothing; ON, the main spell goes inside Cast on Critical with a skill
+    the player uses as its feeder, and the trial reads a real trigger rate from that feeder."""
+    from builder.request.schema import BuildRequest, Choices
+    from builder.search import gems as gems_module
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"], require=Choices()))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build, gems = search.build, search.gems
+    group = build.main_group()
+    before = [g["name"] for g in group["gems"]]
+
+    monkeypatch.setattr(gems_module, "META_MAIN", False)
+    assert gems.meta_main_round(float("inf")) is False
+    assert [g["name"] for g in build.main_group()["gems"]] == before
+
+    monkeypatch.setattr(gems_module, "META_MAIN", True)
+    assert not gems.has_feeder(group, [group])
+    snap = build.snapshot()
+    assert gems.apply_meta_main(group, "Cast on Critical", "Frostbolt")
+    skills = {s["name"]: s for s in build.call("activeSkills")["skills"]}
+    assert skills["Spark"]["triggered"] and skills["Spark"]["group"] == group["index"]
+    assert not skills["Frostbolt"]["triggered"]  # (the feeder, used by the player)
+    rates = [m["value"] for m in search.assumptions.mods if m.get("skill") == "Spark" and m.get("key") == "triggerRate"]
+    # (MECHB59's feed gives a rate above 0; this bare build crits too little to reach META_MIN_RATE: probe POE2T7479 read
+    # 5.4e-6 a second, so the trial rejects it, as it should)
+    assert rates and max(rates) > 0
+    build.restore(snap)
+    search.resolve()
+    assert gems.trial_meta_main(group, "Cast on Critical", "Frostbolt") is None
+    assert [g["name"] for g in build.main_group()["gems"]] == before  # (the trial puts everything back)
