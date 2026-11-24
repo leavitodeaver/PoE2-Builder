@@ -5123,9 +5123,13 @@ class Assumptions:
             frozen = up.get("Freeze", 0.0)
             aura, aura_how = getattr(build, "heart_of_ice_up", None) or (0.0, "")  # (MECH105, R55-1: its Chill feeds the bolts)
             chilled = 1.0 - (1.0 - ground) * (1.0 - min(max(number(aura), 0.0), 1.0))
+            # (MECH106, R58-2: a consumed Chill leaves the boss immune to Chill for 1 s, from every source, so fast casts
+            # find no Chill to consume: an OVERCOUNT above one cast a second before)
+            ready, ready_how = conditions_mod.consume_ready(number(stats.get("Speed")))
             ice_mods, ice_notes = models.icestorm_model(
-                main, main.stat_set, sets, number(stats.get("Speed")), chilled, frozen, models.power_of(stats),
+                main, main.stat_set, sets, number(stats.get("Speed")), chilled * ready, frozen, models.power_of(stats),
                 f"Chilled Ground {ground:.0%}: {ground_how}; " + (f"{aura_how}; " if aura_how else "")
+                + (f"a Chill to consume on {ready:.0%} of casts ({ready_how}); " if ready_how and chilled > 0 else "")
                 + f"Frozen {frozen:.0%}: {up_how}", forbidden)
             hand_mods, hand_notes = hand_mods + ice_mods, hand_notes + ice_notes
         if main is not None and group and main.name in models.LONE_BOSS_SETS:  # (GEM32: Lightning Arrow's beams, R44-11)

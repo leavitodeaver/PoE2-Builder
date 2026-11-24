@@ -70,3 +70,23 @@ def test_main_ledger_leaves_every_aggravate_line_to_the_model():
                  "20% chance to Aggravate Bleeding on targets you Hit with Empowered Attacks",
                  "Aggravate Bleeding on Enemies when they Enter your Presence"):
         assert not models.aggravate_ledger_counts(line), line
+
+
+def test_a_consumer_finds_the_debuff_only_past_the_consume_immunity():
+    from builder.search import conditions
+
+    assert conditions.consume_ready(0.8)[0] == 1.0 and conditions.consume_ready(1.0)[0] == 1.0  # (one a second or slower)
+    assert conditions.consume_ready(1.2)[0] == 0.5 and conditions.consume_ready(2.5)[0] == 1 / 3  # (evenly spaced)
+    assert "83%" in conditions.consume_ready(1.2)[1]  # (RESEARCH58's min(1, gap / 1 s) shown beside it)
+    assert conditions.consume_ready(0.0) == (1.0, "")
+
+
+def test_an_icestorm_main_skill_leaves_the_boss_unchilled_after_each_consume():
+    from builder.search import conditions
+
+    aura = {"_heart_of_ice": (1.0, "")}
+    assert conditions.chilled_share(aura) == 1.0  # (no consumer: Chilled all the fight)
+    assert abs(conditions.chilled_share({**aura, conditions.CHILL_CONSUMES: 0.8}) - 0.2) < 1e-9  # (1 s un-Chilled each)
+    assert conditions.chilled_share({**aura, conditions.CHILL_CONSUMES: 1.5}) == 0.0
+    ground = {"_chilled_ground": (0.5, ""), conditions.CHILL_CONSUMES: 0.5}
+    assert abs(conditions.chilled_share(ground) - 0.25) < 1e-9

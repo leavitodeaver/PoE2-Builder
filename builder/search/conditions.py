@@ -4478,6 +4478,9 @@ def chill_share(stats: dict) -> float:
     return side_consumed(share, stats, "Chill", hits, chill)
 
 
+CHILL_CONSUMES = "_chill_consumes"  # (MECH106) the main Icestorm's Chill consumes a second (Conditions.evidence)
+
+
 def chilled_share(stats: dict) -> float:
     """(MECH93) Share of the fight the boss is Chilled: the main skill's hits (chill_share) or your Chilled Ground under
     it (KeywordPopups ChilledGround: "Chilled Ground Chills those standing in it"; the share conditions.chilled_ground
@@ -4488,7 +4491,11 @@ def chilled_share(stats: dict) -> float:
     got = stats.get("_chilled_ground_chills") or stats.get("_chilled_ground") or (0.0, "")
     ground = min(max(number(got[0]), 0.0), 1.0)
     aura = min(max(number((stats.get("_heart_of_ice") or (0.0, ""))[0]), 0.0), 1.0)  # (MECH105: Heart of Ice's Chill)
-    return 1.0 - (1.0 - chill_share(stats)) * (1.0 - ground) * (1.0 - aura)
+    # (MECH106, R58-2) a main Icestorm consumes the ground's / aura's Chill and the boss is immune to Chill for 1 s after
+    # each consume (KeywordPopups Consume), so it is un-Chilled that long per consume: CHILL_CONSUMES' consumes a second
+    lull = min(1.0, max(0.0, number(stats.get(CHILL_CONSUMES))) * models.CONSUME_IMMUNE)
+    standing = 1.0 - (1.0 - ground) * (1.0 - aura)
+    return 1.0 - (1.0 - chill_share(stats)) * (1.0 - standing * (1.0 - lull))
 
 
 # Heart of Ice (MECH105; RESEARCH55 R55-1, a likely DPS UNDERCOUNT for The Whispering Ice, which grants it and Icestorm).
@@ -4497,10 +4504,32 @@ def chilled_share(stats: dict) -> float:
 # Here: its mean base at PoB's level x the build's increased / more Spell and Cold damage (MEDIUM, R55-1) x its Chill
 # Magnitude with quality (HIGH / MEDIUM-HIGH) against the boss's threshold, PoB's linear formula as chill_effect; at or over
 # the game's 30% floor (HIGH) the boss is Chilled while inside your Presence, else 0.
-# Labelled readings: the boss's Cold resistance doesn't cut it (UNVERIFIED, R55-1: the note gives the figure with it); the
-# aura re-Chills at once after a consume (UNVERIFIED: the other row is one Chill, so only the first cast makes an improved
-# bolt); aura-magnitude lines aren't added (skill_chill_magnitude_is_aura_magnitude's effect is UNVERIFIED).
+# Labelled readings: the boss's Cold resistance doesn't cut it (UNVERIFIED, R55-1; RESEARCH58 R58-2 (b): keep it the headline;
+# the note gives the figure with the resistance PoB reads for the boss, and the staff's own Elemental Exposure lowers that
+# resistance after the first hit, so the cut reading is a little STRONGER, not weaker, once Exposure is on); aura-magnitude
+# lines aren't added (skill_chill_magnitude_is_aura_magnitude's effect is UNVERIFIED). After a consume (MECH106, R58-2 (a),
+# MEDIUM-HIGH): KeywordPopups Consume "causes the enemy to be immune to that [Debuff] for 1 seconds" (26650308; patch 0.3.0:
+# only on a successful consume), and the standing aura Chills the boss again when the immunity ends (the exact re-apply
+# tick UNVERIFIED): consume_ready gives the share of a consumer's casts that find a Chill.
 HEART_OF_ICE = "Heart of Ice"
+
+
+def consume_ready(casts: float, immune: float | None = None) -> tuple[float, str]:
+    """(MECH106, R58-2) (share of a consumer's evenly spaced casts, `casts` a second, that find the boss past the 1 s
+    immunity a consume leaves (models.CONSUME_IMMUNE), with the debuff back on it at once, how). After a consume at 0
+    the first cast at or after the immunity's end consumes again: one in ceil(casts x immune) (MEDIUM: evenly spaced
+    casts). RESEARCH58's own reading, min(1, the time between casts / 1 s), is shown beside it."""
+    immune = models.CONSUME_IMMUNE if immune is None else immune
+    if casts <= 0 or immune <= 0:
+        return 1.0, ""
+    every = max(1, math.ceil(casts * immune - 1e-9))
+    rough = min(1.0, 1.0 / (casts * immune))
+    if every == 1:
+        return 1.0, (f"{casts:.2f} casts/s: each finds the boss past the {immune:g} s consume immunity (KeywordPopups "
+                     "Consume)")
+    return 1.0 / every, (f"{casts:.2f} casts/s against the {immune:g} s immunity a consume leaves (KeywordPopups "
+                         f"Consume): 1 cast in {every} finds the debuff (evenly spaced, MEDIUM; RESEARCH58's "
+                         f"min(1, gap / 1 s): {rough:.0%})")
 
 
 def heart_of_ice(read: dict | None, texts: list[str], stats: dict) -> tuple[float, str]:
@@ -4524,9 +4553,8 @@ def heart_of_ice(read: dict | None, texts: list[str], stats: dict) -> tuple[floa
     metres, radius = _boss_distance(texts, stats)[0] / 10, number(stats.get("PresenceRadius")) / 10
     if radius < metres:
         return 0.0, sized + f". The boss {metres:g} m away, outside your {radius:.1f} m Presence: 0"
-    return 1.0, sized + (f". The boss {metres:g} m away, inside your {radius:.1f} m Presence: Chilled all the fight, taking "
-                         "the aura to re-Chill at once after a consume (UNVERIFIED; if it doesn't, only the first cast "
-                         "finds a Chill)")
+    return 1.0, sized + (f". The boss {metres:g} m away, inside your {radius:.1f} m Presence: Chilled all the fight; after "
+                         "a consume, again once the 1 s consume immunity ends (R58-2, MEDIUM-HIGH: consume_ready)")
 
 
 def target_ailment_share(stats: dict, participle: str) -> float:
@@ -11603,6 +11631,9 @@ class Conditions:
         if any(n["name"] == HEART_OF_ICE and n.get("enabled", True) for g in groups_now if g.get("enabled") is not False
                for n in g.get("gems") or []):  # (MECH105: its Chill, for chilled_share and Icestorm's improved bolts)
             stats["_heart_of_ice"] = heart_of_ice(self.build.call("heartOfIce"), texts, stats)
+        if self.main_skill == models.ICESTORM:  # (MECH106, R58-2: its consumes leave the boss un-Chilled 1 s each)
+            casts = number(models.at_main_share(stats).get("Speed"))
+            stats[CHILL_CONSUMES] = casts * consume_ready(casts)[0]
         # (MECH75, AUDIT35 A35-2: every gem, item- and tree-granted skills too: Black Powder Blitz's explosion)
         every = self.build.ctx.all_gems
         beside = {n["name"] for g in groups_now if g.get("enabled") is not False for n in g.get("gems") or []
