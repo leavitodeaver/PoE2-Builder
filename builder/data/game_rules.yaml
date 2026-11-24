@@ -64,6 +64,14 @@ off_hand:
       # The off-hand slot then takes no unique (gear.py SlotSpec.non_unique, set by inner.py from this
       # flag): the 9 unique sceptres stay out of that hand, as the game requires.
       sources: ["tree.json node 61942 stats", "PoB ModParser.lua:2621, ItemsTab.lua:2714-2715"]
+    - main_hand: Two Hand Mace
+      off_hand: Sceptre
+      passive: Giant's Blood  # keystone: "You can wield Two-Handed Axes, Maces and Swords in one hand"
+      named_only: true  # only for a request or code that names this pair: the open search's weapons don't change
+      # (SEARCHB7) Only the pair live builds prove: example builds 6, 13 and 17 allocate Giant's Blood and hold a Two Hand
+      # Mace + Sceptre. PoB also allows a Shield, a Focus and one- or two-handed martial weapons beside it; those aren't
+      # offered here (UNVERIFIED in the game).
+      sources: ["tree.json Giant's Blood stats", "PoB ModParser.lua:2619, ItemsTab.lua:2718-2721", "the user's example builds 6, 13, 17"]
 
 floor_blockers:
   # Item lines that pin a stat, so a request's floor on that stat can never be met while the item
