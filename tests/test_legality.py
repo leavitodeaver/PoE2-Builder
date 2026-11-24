@@ -85,9 +85,15 @@ def test_two_alloy_lines_need_astrid_and_one_does_not(check):
     for line in (first, second):
         assert all(r.kind == "alloy" for r in check.index["Item"][(legality.template(line),)])
     assert "crafted_limit" not in broken(check.check(rare(belt, "Belt", [first])))
-    two = rare(belt, "Belt", [first, second])
+    two = rare(belt, "Belt", [first, second], price=1.0)  # (an entry the search wrote: its route is its whole history)
     assert "crafted_limit" in broken(check.check(two)), two["affixes"]
     assert "crafted_limit" not in broken(check.check({**two, "runes": [legality.ASTRID]}))
+    assert "crafted_limit" not in broken(check.check({**two, "craft_route": [f"... {legality.ASTRID} ..."]}))
+    # (AUDIT38 F2) a listed item: Astrid's isn't socket-bound and may have been replaced, so UNVERIFIED, never ILLEGAL
+    listed = {k: v for k, v in two.items() if k != "price"}
+    assert [(f.rule, f.status) for f in check.check(listed)] == [("crafted_limit", UNVERIFIED)]
+    three = rare("Chiming Staff", "Staff", STAFF[2:4] + STAFF[5:7] + [first], price=1.0)
+    assert "crafted_limit" in broken(check.check({**three, "runes": [legality.ASTRID]})) or         "base_allowed" in broken(check.check({**three, "runes": [legality.ASTRID]}))
 
 
 def test_an_item_text_reads_back_as_its_entry(check):
@@ -139,11 +145,14 @@ def test_the_users_listed_staff_is_legal_with_and_without_its_aldur_rune(check, 
 
 
 def test_the_staffs_alloy_pair_is_never_hidden_as_an_unread_line(check):
-    """Without Astrid's, every reading of all eight lines breaks a rule (two Alloy lines, or the Celestial pair read as
-    two natural mods and four suffixes): said, not dropped behind the unread Cold line."""
-    found = check.check(rare("Chiming Staff", "Staff", STAFF, ("Passion of Aldur", "Thrud's Might"), corrupted=True))
+    """(AUDIT38 F3) Every line is read: the Transcendent Alloy pair as one hybrid, a second crafted line. Without Astrid's
+    socketed that is UNVERIFIED on a listed item (F2) and ILLEGAL on one the search built without it."""
+    staff = rare("Chiming Staff", "Staff", STAFF, ("Passion of Aldur", "Thrud's Might"), corrupted=True)
+    found = check.check(staff)
     assert not [f for f in found if f.status == ILLEGAL], found
-    assert [f.rule for f in found if f.rule in ("unread", "full_reading")] == ["unread", "full_reading"], found
+    assert "unread" not in {f.rule for f in found}
+    assert [f.status for f in found if f.rule == "crafted_limit"] == [UNVERIFIED]
+    assert broken(check.check({**staff, "price": 1.0})), "every reading of a search-built copy breaks a rule"
 
 
 def test_two_natural_skill_level_affixes_stay_illegal_beside_the_staffs_lines(check):
@@ -309,3 +318,67 @@ def test_the_pruned_reading_walk_finds_what_trying_every_reading_finds(check, mo
     pruned = [check.check(i) for i in items]
     monkeypatch.setattr(legality, "PRUNE", False)
     assert pruned == [check.check(i) for i in items]
+
+
+def test_every_perfect_essence_row_is_allowed_on_each_class_it_names(check):
+    """(AUDIT38 F8) The Essence table names PoB's Warstaff "Warstaff"; the check once compared it with "Quarterstaff",
+    so every Perfect Essence line on a Quarterstaff read ILLEGAL (9 real listings)."""
+    from builder.search import essences
+
+    by_class: dict[str, dict] = {}
+    for base in check.data.bases:
+        by_class.setdefault(essences.item_class(base), base)
+    rows = {r.id: r for table in check.index.values() for group in table.values() for r in group}
+    tried = 0
+    for mod_id, (_, classes) in essences.ESSENCES.items():
+        row = rows.get(mod_id)
+        if row is None:
+            continue
+        for kind in classes:
+            base = by_class.get(kind)
+            if base is None:
+                continue
+            item = rare(base["name"], base["type"], [])
+            assert check.allowed(row, item, check.tags(item)) is True, (mod_id, kind, base["name"])
+            tried += 1
+    assert tried > 20 and "Warstaff" in by_class
+
+
+def test_two_lord_rows_on_a_corrupted_listing_are_unverified_and_on_a_search_item_illegal(check):
+    """(AUDIT38 F4) An Omen of Putrefaction reveal makes up to 6 Desecrated modifiers and corrupts the item."""
+    desecrated = [r for r in check.index["Desecrated"].items() if len(r[0]) == 1 and r[1][0].type in ("Prefix", "Suffix")]
+    wand = next(b["name"] for b in check.data.bases if b.get("type") == "Wand")
+    pre = next(k[0] for k, rows in desecrated if rows[0].type == "Prefix" and "#" in k[0])
+    suf = next(k[0] for k, rows in desecrated if rows[0].type == "Suffix" and "#" in k[0])
+    lines = [pre.replace("#", "10"), suf.replace("#", "10")]
+    item = rare(wand, "Wand", lines, corrupted=True)
+    found = [(f.rule, f.status) for f in check.check(item) if f.rule == "desecrated_limit"]
+    assert found == [("desecrated_limit", UNVERIFIED)], check.check(item)
+    assert "desecrated_limit" in broken(check.check({**item, "price": 1.0}))
+    assert "desecrated_limit" in broken(check.check({**item, "corrupted": False}))
+
+
+@pytest.mark.parametrize("extra, verdict", [(0, None), (1, None), (2, UNVERIFIED), (3, ILLEGAL)])
+def test_a_crafted_jewel_over_two_a_side_is_unverified_up_to_what_a_route_makes(check, extra, verdict):
+    """(AUDIT38 F9) "Effect of Suffixes" stands where a "+1 Suffix allowed" stood: 3 suffixes (the user's recipe, 24 Oct);
+    a fourth beside it is UNVERIFIED (a Desecration above the shape, 2 listings); over 4 a side no route reaches."""
+    sapphire = "Sapphire"
+    suffixes = [key[0] for key, rows in check.index["Jewel"].items() if len(key) == 1
+                for line in key if rows[0].type == "Suffix" and rows[0].kind == "natural" and "#" in line
+                and check.allowed(rows[0], rare(sapphire, "Jewel", []), check.tags(rare(sapphire, "Jewel", []))) is True]
+    groups, picked = set(), []
+    for line in suffixes:
+        group = check.index["Jewel"][(line,)][0].group
+        if group not in groups:
+            groups.add(group)
+            picked.append(line.replace("#", "5"))
+    effect = "50% increased Effect of Suffixes"  # (CraftedJewelSuffixEffect, a prefix row)
+    lines = [effect] + picked[:2 + extra]
+    found = check.check(rare(sapphire, "Jewel", lines))
+    rules = {(f.rule, f.status) for f in found if f.rule in ("affix_count", "jewel_shape")}
+    if verdict is None:
+        assert not rules, found
+    elif verdict == UNVERIFIED:
+        assert rules == {("jewel_shape", UNVERIFIED)}, found
+    else:
+        assert ("affix_count", ILLEGAL) in rules, found

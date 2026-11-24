@@ -1517,9 +1517,12 @@ class Gear:
         removes a random modifier, and the second may remove the first's line (the text says "a random modifier"; LOW,
         no source settles it), so every sequence of the two removals is an outcome. By the Alloys' ruling (the manager,
         18 Nov): DPS at the mean over the sequences, the floors at the worst (the item shown). Each line needs a free
-        slot of its own side, so a full side starts from the rare with its least useful modifiers left out. The rune
-        stays in its socket (taking it out would leave one crafted line too many). Kept only when it beats the plain rare
-        with its best ordinary rune there, after prices. Priced as the rare + the rune + both Alloys."""
+        slot of its own side, so a full side starts from the rare with its least useful modifiers left out. Then the
+        socket takes the build's best ordinary rune in Astrid's place (SEARCHC5; AUDIT38 F2: Astrid's isn't socket-bound,
+        SoulCores IsSocketBound false, poe2db "can be replaced by other Augment items", and 8 listings hold both crafted
+        lines with another augment socketed; before, the route kept Astrid's there, a LOW guess that cost the rune).
+        Kept only when it beats the plain rare with its best ordinary rune there, after prices. Priced as the rare + the
+        rune + both Alloys + the rune that replaces it."""
         if clock.now() > deadline or socket_count(base, False) < 1 or not chosen \
                 or ASTRID in self.ctx.compiled.filters.forbidden_augments:
             return None
@@ -1545,10 +1548,14 @@ class Gear:
         others = [n for n in names if n != ASTRID and self.runes.price(n) is not None
                   and not ((lim := self.runes.limit(n)) and used.get(lim[0], 0) >= lim[1])
                   and rare_price(slot, chosen) + self.runes.price(n) <= left + 1e-9]
+        swap: list[str] = []  # (the rune that replaces Astrid's: the best ordinary one on the plain rare)
         if others:
             socketed = self.deltas(slot, [rare_text(slot, base, level, chosen, runes=[n]) for n in others])
-            plain = max([plain] + [s - self.lam * (rare_price(slot, chosen) + self.runes.price(n))
-                                   for (s, _), n in zip(socketed, others)])
+            values = [s - self.lam * (rare_price(slot, chosen) + self.runes.price(n)) for (s, _), n in zip(socketed, others)]
+            at = max(range(len(others)), key=lambda n: (values[n], -n))
+            swap = [others[at]]
+            plain = max(plain, values[at])
+        swap_price = sum(self.runes.price(n) or 0.0 for n in swap) if not ssf else 0.0
         build, objective = self.build, self.build.objective
         best = None  # (value, price, kept, first, second, worst outcome, scale, dps, the sequences' outcomes)
         for i, (name_a, first, cost_a) in enumerate(ranked):
@@ -1567,7 +1574,7 @@ class Gear:
                 if len(kept) < 2 or any(sum(1 for a in kept if a.type == s)
                                         + sum(1 for a in (first, second) if a.type == s) > limits[s] for s in limits):
                     continue
-                price = rare_price(slot, kept) + rune_price + cost_a + cost_b
+                price = rare_price(slot, kept) + rune_price + cost_a + cost_b + swap_price
                 if price > left + 1e-9:
                     continue
                 sequences = []  # one outcome per (first removal, second removal): the second may take the first's line
@@ -1578,7 +1585,7 @@ class Gear:
                 for outcome in sequences:
                     unique.setdefault(tuple(sorted(a.id for a in outcome)), outcome)
                 keys = list(unique)
-                texts = [rare_text(slot, base, level, unique[k], runes=[ASTRID]) for k in keys]
+                texts = [rare_text(slot, base, level, unique[k], runes=swap) for k in keys]
                 read = [self.without_registered(t, st) for t, (_, st) in zip(texts, self.deltas(slot, texts))]
                 scores = [objective.score(st) for st in read]
                 each = {k: objective.dps(st) for k, st in zip(keys, read)}
@@ -1596,19 +1603,22 @@ class Gear:
         if best is None:
             return None
         _, price, kept, (name_a, first), (name_b, second), worst, scale, worst_dps, mean, count = best
-        raw = rare_text(slot, base, level, worst, runes=[ASTRID])
+        raw = rare_text(slot, base, level, worst, runes=swap)
         report = (f"{ASTRID} with {name_a} and {name_b}: each removes a random modifier ({count} sequences; the second may "
                   f"remove the first's line, LOW); the floors read the worst outcome (shown in the build), DPS the mean "
                   f"(x{scale:.3f} of the worst's) (the manager's ruling, 18 Nov)",
                   f"Worst outcome DPS {worst_dps:,.0f}; mean {mean:,.0f}",)
+        in_place = (f"then socket {swap[0]} in its place ({swap_price:.3g} div; {ASTRID} isn't socket-bound: it is "
+                    f"replaced, and both crafted lines stay, as on 8 listed items, AUDIT38 F2)" if swap else
+                    f"then replace it with any augment (nothing here scores; {ASTRID} isn't socket-bound, AUDIT38 F2)")
         note = (f"{ASTRID}: buy the rare ({rare_price(slot, kept):.3g} div, the rare price model), socket {ASTRID} "
-                f"({rune_price:.3g} div; keep it there: without it the item can't hold two crafted lines), then use {name_a} "
-                f"(\"{'; '.join(first.lines)}\") and {name_b} (\"{'; '.join(second.lines)}\"). That the rune allows two Alloy "
-                f"lines reads the 0.5.0 notes, which call Alloy lines crafted (MEDIUM); the order and odds of the removals are "
-                f"LOW. Not on a Corrupted or Sanctified item (0.5.4)")
+                f"({rune_price:.3g} div), use {name_a} (\"{'; '.join(first.lines)}\") and {name_b} "
+                f"(\"{'; '.join(second.lines)}\"), {in_place}. That the rune allows two Alloy lines reads the 0.5.0 notes, "
+                f"which call Alloy lines crafted (MEDIUM); the order and odds of the removals are LOW. Not on a Corrupted or "
+                f"Sanctified item (0.5.4)")
         option = ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"), raw, False,
                             None if ssf else price, "ssf" if ssf else f"estimate (craft route: {ASTRID})", base_option.level,
-                            rare=True, affixes=tuple(line for a in worst for line in a.lines), runes=(ASTRID,), bound=(ASTRID,),
+                            rare=True, affixes=tuple(line for a in worst for line in a.lines), runes=tuple(swap),
                             alloy=ASTRID, alloy_scale=scale, alloy_report=report, augment="alloy", craft_route=(note,))
         if getattr(build, "alloy_raws", None) is None:
             build.alloy_raws = {}

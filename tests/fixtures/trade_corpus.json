@@ -1,0 +1,7618 @@
+{
+"note": "AUDIT38's frozen corpus (24 Nov 2026): 323 real current-league rare / magic trade listings (Forbidden Rites, Runes of Aldur) rebuilt as the gear entries legality.check reads; scrubbed (no account, whisper or item ids). 'xfail' was each item's open finding at fd5ab8d9 (findings F1 / F8 / F9, scratch/audit38/findings.md); SEARCHC5 fixed all three, so the test expects a legal reading of every item.",
+"items": [
+{
+"n": 1,
+"league": "Forbidden Rites",
+"listed": "2026-11-18T02:48:03Z",
+"gear": {
+"name": "Rare item",
+"base": "Molten Hammer",
+"type": "One Hand Mace",
+"unique": false,
+"rare": true,
+"affixes": [
+"(110-134)% increased Physical Damage",
+"Adds (16-24) to (28-42) Physical Damage",
+"Adds (22-29) to (34-44) Cold Damage",
+"+(20-22)% to Critical Damage Bonus",
+"(17-19)% increased Attack Speed",
+"+2 to Level of all Attack Skills"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 2,
+"league": "Forbidden Rites",
+"listed": "2026-11-22T16:42:26Z",
+"gear": {
+"name": "Rare item",
+"base": "Fortified Hammer",
+"type": "One Hand Mace",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (55-69) to (83-106) Cold Damage",
+"+(41-60) to Accuracy Rating",
+"15% increased Light Radius",
+"+(451-550) to Accuracy Rating",
+"Gain (41-53) Life per enemy killed",
+"Leeches (8-8.9)% of Physical Damage as Mana",
+"(15-19)% increased Physical Damage",
+"+(16-20) to Accuracy Rating"
+],
+"runes": [
+"Greater Iron Rune",
+"Greater Iron Rune",
+"Greater Iron Rune"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 3,
+"league": "Forbidden Rites",
+"listed": "2026-10-07T23:26:20Z",
+"gear": {
+"name": "Rare item",
+"base": "Marauding Mace",
+"type": "One Hand Mace",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (21-31) to (36-53) Physical Damage",
+"(87-100)% increased Elemental Damage with Attacks",
+"+(4.41-5)% to Critical Hit Chance",
+"+(17-19)% to Critical Damage Bonus",
+"+(21-24) to Strength",
+"(110-154)% increased Physical Damage",
+"15% reduced Attack Speed"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 4,
+"league": "Forbidden Rites",
+"listed": "2026-09-19T12:15:38Z",
+"gear": {
+"name": "Rare item",
+"base": "Crown Mace",
+"type": "One Hand Mace",
+"unique": false,
+"rare": true,
+"affixes": [
+"(65-84)% increased Physical Damage",
+"(20-24)% increased Physical Damage",
+"+(21-46) to Accuracy Rating",
+"Adds (13-19) to (21-29) Fire Damage",
+"(11-13)% increased Attack Speed",
+"+1 to Level of all Melee Skills",
+"Gain (19-28) Life per enemy killed"
+],
+"runes": [
+"Greater Iron Rune"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 5,
+"league": "Forbidden Rites",
+"listed": "2026-09-16T00:47:15Z",
+"gear": {
+"name": "Rare item",
+"base": "Crown Mace",
+"type": "One Hand Mace",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (13-20) to (23-35) Physical Damage",
+"Adds (22-29) to (34-44) Cold Damage",
+"+(4.41-5)% to Critical Hit Chance",
+"+(20-22)% to Critical Damage Bonus",
+"+3 to Level of all Melee Skills",
+"Adds (1-3) to (55-60) Lightning Damage"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 6,
+"league": "Forbidden Rites",
+"listed": "2026-11-21T17:53:33Z",
+"gear": {
+"name": "Rare item",
+"base": "Soaring Spear",
+"type": "Spear",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(1.01-1.5)% to Critical Hit Chance",
+"(23-25)% increased Attack Speed"
+],
+"runes": [
+"Soul Core of Quipolatl",
+"Soul Core of Quipolatl",
+"Spear Throw"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 7,
+"league": "Forbidden Rites",
+"listed": "2026-10-08T15:49:11Z",
+"gear": {
+"name": "Rare item",
+"base": "Orichalcum Spear",
+"type": "Spear",
+"unique": false,
+"rare": true,
+"affixes": [
+"(135-154)% increased Physical Damage",
+"+(3.81-4.4)% to Critical Hit Chance",
+"Leeches (7-7.9)% of Physical Damage as Life",
+"Leeches (6-6.9)% of Physical Damage as Mana",
+"Adds (16-24) to (28-42) Physical Damage",
+"Projectiles have (25-35)% chance to Chain an additional time from terrain"
+],
+"runes": [
+"Greater Iron Rune",
+"Spear Throw"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 8,
+"league": "Forbidden Rites",
+"listed": "2026-09-27T18:03:22Z",
+"gear": {
+"name": "Rare item",
+"base": "Akoyan Spear",
+"type": "Spear",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (47-59) to (74-97) Fire Damage",
+"Adds (1-10) to (157-196) Lightning Damage",
+"+(41-60) to Accuracy Rating",
+"15% increased Light Radius",
+"Leeches (8-8.9)% of Physical Damage as Mana",
+"+(3.11-3.8)% to Critical Hit Chance",
+"Adds (22-29) to (34-44) Cold Damage"
+],
+"runes": [
+"Saqawal's Rune of the Sky",
+"Spear Throw"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 9,
+"league": "Forbidden Rites",
+"listed": "2026-09-15T13:43:59Z",
+"gear": {
+"name": "Rare item",
+"base": "Akoyan Spear",
+"type": "Spear",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (10-15) to (18-26) Physical Damage",
+"Adds (88-101) to (133-154) Fire Damage",
+"+(28-30) to Dexterity",
+"Causes (51-60)% increased Stun Buildup",
+"+(3.11-3.8)% to Critical Hit Chance",
+"(110-134)% increased Physical Damage"
+],
+"runes": [
+"Greater Iron Rune",
+"Spear Throw"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 10,
+"league": "Forbidden Rites",
+"listed": "2026-11-05T01:10:03Z",
+"gear": {
+"name": "Rare item",
+"base": "Flying Spear",
+"type": "Spear",
+"unique": false,
+"rare": true,
+"affixes": [
+"(20-25)% chance to gain Onslaught on Killing Hits with this Weapon",
+"+3.13% to Critical Hit Chance",
+"Adds (47-59) to (74-97) Fire Damage",
+"+(237-346) to Accuracy Rating",
+"+3 to Level of all Projectile Skills",
+"Adds (26-39) to (44-66) Physical Damage"
+],
+"runes": [
+"Farrul's Rune of the Hunt",
+"Spear Throw"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 11,
+"league": "Forbidden Rites",
+"listed": "2026-10-16T06:46:33Z",
+"gear": {
+"name": "Rare item",
+"base": "Ruination Maul",
+"type": "Two Hand Mace",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (29-44) to (50-75) Physical Damage",
+"Adds (11-17) to (19-28) Fire Damage",
+"+(61-84) to Accuracy Rating",
+"+(3.11-3.8)% to Critical Hit Chance",
+"(11-13)% increased Attack Speed",
+"Causes (71-80)% increased Stun Buildup"
+],
+"runes": [
+"Greater Iron Rune",
+"Greater Iron Rune",
+"Greater Iron Rune"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 12,
+"league": "Forbidden Rites",
+"listed": "2026-10-11T21:28:01Z",
+"gear": {
+"name": "Rare item",
+"base": "Ironwood Greathammer",
+"type": "Two Hand Mace",
+"unique": false,
+"rare": true,
+"affixes": [
+"+5 to Level of all Melee Skills",
+"(135-154)% increased Physical Damage",
+"35% reduced Attribute Requirements",
+"Causes (51-60)% increased Stun Buildup",
+"Adds (29-44) to (50-75) Physical Damage",
+"Gain (25-33)% of Damage as Extra Physical Damage"
+],
+"runes": [
+"Perfect Iron Rune",
+"Greater Iron Rune",
+"Greater Iron Rune"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 13,
+"league": "Forbidden Rites",
+"listed": "2026-11-19T21:19:10Z",
+"gear": {
+"name": "Rare item",
+"base": "Tawhoan Greatclub",
+"type": "Two Hand Mace",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (102-130) to (155-198) Fire Damage",
+"Adds (46-57) to (70-88) Cold Damage",
+"Adds (1-16) to (239-300) Lightning Damage",
+"+(3.81-4.4)% to Critical Hit Chance",
+"(23-25)% increased Attack Speed",
+"30% reduced Attribute Requirements"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 14,
+"league": "Forbidden Rites",
+"listed": "2026-09-20T10:42:30Z",
+"gear": {
+"name": "Rare item",
+"base": "Crumbling Maul",
+"type": "Two Hand Mace",
+"unique": false,
+"rare": true,
+"affixes": [
+"(20-24)% increased Physical Damage",
+"+(21-46) to Accuracy Rating",
+"Adds (11-17) to (20-30) Physical Damage",
+"Adds (1-3) to (31-43) Lightning Damage",
+"+(14-16)% to Critical Damage Bonus",
+"25% reduced Attribute Requirements",
+"Causes (51-60)% increased Stun Buildup"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 15,
+"league": "Forbidden Rites",
+"listed": "2026-10-22T13:38:23Z",
+"gear": {
+"name": "Rare item",
+"base": "Anvil Maul",
+"type": "Two Hand Mace",
+"unique": false,
+"rare": true,
+"affixes": [
+"(110-134)% increased Physical Damage",
+"Adds (11-17) to (20-30) Physical Damage",
+"+4 to Level of all Melee Skills",
+"Leeches (9-9.9)% of Physical Damage as Life",
+"(20-25)% chance to gain Onslaught on Killing Hits with this Weapon",
+"Adds (11-17) to (19-28) Fire Damage"
+],
+"runes": [
+"Greater Iron Rune",
+"Greater Iron Rune"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 16,
+"league": "Runes of Aldur",
+"listed": "2026-07-23T22:14:46Z",
+"gear": {
+"name": "Rare item",
+"base": "Rabid Talisman",
+"type": "Talisman",
+"unique": false,
+"rare": true,
+"affixes": [
+"(48-71)% increased Elemental Damage with Attacks",
+"(25-34)% increased Physical Damage",
+"+(47-72) to Accuracy Rating",
+"Adds (5-8) to (9-14) Cold Damage",
+"(14-16)% increased Attack Speed",
+"+2 to Level of all Melee Skills",
+"Leeches (7-7.9)% of Physical Damage as Life"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 17,
+"league": "Runes of Aldur",
+"listed": "2026-06-29T13:05:28Z",
+"gear": {
+"name": "Rare item",
+"base": "Spiny Talisman",
+"type": "Talisman",
+"unique": false,
+"rare": true,
+"affixes": [
+"30% reduced Attribute Requirements",
+"(45-54)% increased Physical Damage",
+"+(98-123) to Accuracy Rating",
+"Adds (37-55) to (63-94) Physical Damage",
+"Adds (46-57) to (70-88) Cold Damage",
+"Gain (36-45) Mana per enemy killed"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 18,
+"league": "Runes of Aldur",
+"listed": "2026-06-05T13:21:13Z",
+"gear": {
+"name": "Rare item",
+"base": "Ashbark Talisman",
+"type": "Talisman",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (28-35) Mana per enemy killed",
+"(155-169)% increased Physical Damage",
+"Adds (2-3) to (4-6) Cold Damage",
+"+(41-60) to Accuracy Rating",
+"15% increased Light Radius"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 19,
+"league": "Runes of Aldur",
+"listed": "2026-06-23T23:22:34Z",
+"gear": {
+"name": "Rare item",
+"base": "Thunder Talisman",
+"type": "Talisman",
+"unique": false,
+"rare": true,
+"affixes": [
+"(23-25)% increased Attack Speed",
+"Adds (19-27) to (30-42) Fire Damage",
+"+(11-32) to Accuracy Rating",
+"(120-139)% increased Elemental Damage with Attacks",
+"+(1.01-1.5)% to Critical Hit Chance",
+"+(17-20) to Intelligence"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 20,
+"league": "Runes of Aldur",
+"listed": "2026-08-30T11:13:15Z",
+"gear": {
+"name": "Rare item",
+"base": "Jade Talisman",
+"type": "Talisman",
+"unique": false,
+"rare": true,
+"affixes": [
+"(155-169)% increased Physical Damage",
+"(45-54)% increased Physical Damage",
+"+(98-123) to Accuracy Rating",
+"+5 to Level of all Melee Skills",
+"Leeches (7-7.9)% of Physical Damage as Mana",
+"Adds (19-29) to (33-49) Physical Damage",
+"(20-25)% chance to gain Onslaught on Killing Hits with this Weapon"
+],
+"runes": [
+"Fenumus' Rune of Agony",
+"Farrul's Rune of the Hunt"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 21,
+"league": "Forbidden Rites",
+"listed": "2026-10-04T23:06:44Z",
+"gear": {
+"name": "Rare item",
+"base": "Warmonger Bow",
+"type": "Bow",
+"unique": false,
+"rare": true,
+"affixes": [
+"(45-54)% increased Physical Damage",
+"+(98-123) to Accuracy Rating",
+"+(168-236) to Accuracy Rating",
+"+3 to Level of all Projectile Skills",
+"Leeches (6-6.9)% of Physical Damage as Mana",
+"(14-16)% increased Attack Speed",
+"(30-40)% increased bonuses gained from Equipped Quiver"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 22,
+"league": "Forbidden Rites",
+"listed": "2026-10-19T09:10:26Z",
+"gear": {
+"name": "Rare item",
+"base": "Obliterator Bow",
+"type": "Bow",
+"unique": false,
+"rare": true,
+"affixes": [
+"(85-109)% increased Physical Damage",
+"Adds (22-29) to (34-44) Cold Damage",
+"(87-100)% increased Elemental Damage with Attacks",
+"(8-10)% increased Attack Speed",
+"+(28-30) to Dexterity",
+"Leeches (8-8.9)% of Physical Damage as Mana"
+],
+"runes": [
+"Greater Iron Rune",
+"Greater Iron Rune",
+"Greater Iron Rune"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 23,
+"league": "Forbidden Rites",
+"listed": "2026-09-16T10:59:24Z",
+"gear": {
+"name": "Rare item",
+"base": "Twin Bow",
+"type": "Bow",
+"unique": false,
+"rare": true,
+"affixes": [
+"(135-154)% increased Physical Damage",
+"Adds (1-3) to (55-60) Lightning Damage",
+"+(2.11-2.7)% to Critical Hit Chance",
+"Leeches (9-9.9)% of Physical Damage as Life",
+"Leeches (7-7.9)% of Physical Damage as Mana",
+"(36-52)% increased Elemental Damage with Attacks"
+],
+"runes": [
+"Greater Iron Rune",
+"Greater Iron Rune"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 24,
+"league": "Forbidden Rites",
+"listed": "2026-11-19T11:15:32Z",
+"gear": {
+"name": "Rare item",
+"base": "Zealot Bow",
+"type": "Bow",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (40-53) to (62-80) Cold Damage",
+"Adds (1-3) to (55-60) Lightning Damage",
+"+(17-19)% to Critical Damage Bonus",
+"(11-13)% increased Attack Speed",
+"+(17-20) to Dexterity",
+"(65-74)% increased Physical Damage",
+"+(150-174) to Accuracy Rating"
+],
+"runes": [
+"Greater Iron Rune",
+"Greater Iron Rune"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 25,
+"league": "Forbidden Rites",
+"listed": "2026-09-28T11:07:34Z",
+"gear": {
+"name": "Rare item",
+"base": "Warmonger Bow",
+"type": "Bow",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (25-33) to (38-54) Fire Damage",
+"+(21-40) to Accuracy Rating",
+"10% increased Light Radius",
+"(87-100)% increased Elemental Damage with Attacks",
+"+(125-150)% Surpassing chance to fire an additional Arrow",
+"(14-16)% increased Attack Speed",
+"Projectiles have (25-35)% chance to Chain an additional time from terrain"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 26,
+"league": "Forbidden Rites",
+"listed": "2026-11-01T20:33:14Z",
+"gear": {
+"name": "Rare item",
+"base": "Flexed Crossbow",
+"type": "Crossbow",
+"unique": false,
+"rare": true,
+"affixes": [
+"+5 to Level of all Projectile Skills",
+"(14-16)% increased Attack Speed",
+"(15-20)% chance when you Reload a Crossbow to be immediate"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 27,
+"league": "Forbidden Rites",
+"listed": "2026-09-25T11:06:38Z",
+"gear": {
+"name": "Rare item",
+"base": "Siege Crossbow",
+"type": "Crossbow",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (39-53) to (59-80) Fire Damage",
+"Adds (112-124) to (168-189) Cold Damage",
+"(120-139)% increased Elemental Damage with Attacks",
+"+(25-27) to Dexterity",
+"Gain (2-3) Mana per enemy killed",
+"+3 to Level of all Attack Skills"
+],
+"runes": [
+"Greater Desert Rune",
+"Greater Desert Rune"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 28,
+"league": "Forbidden Rites",
+"listed": "2026-09-30T11:38:57Z",
+"gear": {
+"name": "Rare item",
+"base": "Trarthan Cannon",
+"type": "Crossbow",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (102-130) to (155-198) Fire Damage",
+"Adds (1-4) to (80-88) Lightning Damage",
+"(120-139)% increased Elemental Damage with Attacks",
+"+(31-33) to Strength",
+"+3 to Level of all Attack Skills",
+"(11-13)% increased Attack Speed"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 29,
+"league": "Forbidden Rites",
+"listed": "2026-11-21T16:03:53Z",
+"gear": {
+"name": "Rare item",
+"base": "Siege Crossbow",
+"type": "Crossbow",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (60-80) to (92-121) Cold Damage",
+"(17-19)% increased Attack Speed",
+"+(21-24) to Strength",
+"Leeches (8-8.9)% of Physical Damage as Life",
+"(101-121)% increased Grenade Damage",
+"(20-30)% increased Grenade Duration",
+"+(327-427) to Accuracy Rating",
+"(5-8)% increased Attack Speed"
+],
+"runes": [
+"Soul Core of Azcapa",
+"Soul Core of Jiquani"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 30,
+"league": "Forbidden Rites",
+"listed": "2026-09-30T15:31:34Z",
+"gear": {
+"name": "Rare item",
+"base": "Siege Crossbow",
+"type": "Crossbow",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (102-130) to (155-198) Fire Damage",
+"Adds (1-6) to (93-122) Lightning Damage",
+"+(347-450) to Accuracy Rating",
+"+4 to Level of all Projectile Skills",
+"(14-16)% increased Attack Speed",
+"Grenades have (15-25)% chance to activate a second time"
+],
+"runes": [
+"Greater Storm Rune",
+"Greater Storm Rune"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 31,
+"league": "Forbidden Rites",
+"listed": "2026-10-11T14:54:41Z",
+"gear": {
+"name": "Rare item",
+"base": "Galvanic Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"+4 to Level of all Spell Skills",
+"Gain (25-27)% of Damage as Extra Fire Damage",
+"(30-34)% increased Critical Spell Damage Bonus",
+"+(142-188) to maximum Mana",
+"+1 to Level of all Spell Skills",
+"(26-31)% increased Cast Speed",
+"Gain (7-11)% of Elemental Damage as Extra Cold Damage",
+"Gain (28-30)% of Damage as Extra Cold Damage"
+],
+"runes": [
+"Hedgewitch Assandra's Rune of Wisdom",
+"Galvanic Field"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 32,
+"league": "Forbidden Rites",
+"listed": "2026-11-13T20:15:43Z",
+"gear": {
+"name": "Rare item",
+"base": "Galvanic Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"(75-89)% increased Lightning Damage",
+"+5 to Level of all Lightning Spell Skills",
+"(61-70)% increased chance to Shock",
+"+(142-188) to maximum Mana",
+"+1 to Level of all Spell Skills",
+"(26-31)% increased Cast Speed",
+"Gain (7-11)% of Elemental Damage as Extra Cold Damage",
+"(55-64)% increased Spell Damage",
+"Minions deal (55-64)% increased Damage"
+],
+"runes": [
+"Hedgewitch Assandra's Rune of Wisdom",
+"Galvanic Field"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 33,
+"league": "Forbidden Rites",
+"listed": "2026-11-23T12:07:38Z",
+"gear": {
+"name": "Rare item",
+"base": "Dueling Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (28-30)% of Damage as Extra Fire Damage",
+"Gain (28-30)% of Damage as Extra Cold Damage",
+"+5 to Level of all Cold Spell Skills",
+"(47-53)% increased Critical Hit Chance for Spells",
+"(26-31)% increased Cast Speed",
+"Gain (7-11)% of Elemental Damage as Extra Cold Damage",
+"Gain (28-30)% of Damage as Extra Lightning Damage"
+],
+"runes": [
+"Greater Vision Rune",
+"Spellslinger"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 34,
+"league": "Forbidden Rites",
+"listed": "2026-11-09T03:19:52Z",
+"gear": {
+"name": "Rare item",
+"base": "Dueling Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"(26-31)% increased Cast Speed",
+"Gain (7-11)% of Elemental Damage as Extra Cold Damage",
+"(75-89)% increased Cold Damage",
+"+5 to Level of all Cold Spell Skills",
+"Gain (36-45) Mana per enemy killed",
+"+136 to maximum Mana",
+"+1 to Level of all Spell Skills",
+"Gain (28-30)% of Damage as Extra Cold Damage"
+],
+"runes": [
+"Hedgewitch Assandra's Rune of Wisdom",
+"Spellslinger"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 35,
+"league": "Forbidden Rites",
+"listed": "2026-09-21T12:50:06Z",
+"gear": {
+"name": "Rare item",
+"base": "Attuned Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"(45-49)% increased Spell Damage",
+"+(42-45) to maximum Mana",
+"+4 to Level of all Lightning Spell Skills",
+"(60-73)% increased Critical Hit Chance for Spells",
+"+(142-188) to maximum Mana",
+"+1 to Level of all Spell Skills",
+"(26-31)% increased Cast Speed",
+"Gain (7-11)% of Elemental Damage as Extra Cold Damage",
+"Gain (28-30)% of Damage as Extra Lightning Damage"
+],
+"runes": [
+"Hedgewitch Assandra's Rune of Wisdom",
+"Mana Drain"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 36,
+"league": "Runes of Aldur",
+"listed": "2026-08-30T17:47:02Z",
+"gear": {
+"name": "Rare item",
+"base": "Rattling Sceptre",
+"type": "Sceptre",
+"unique": false,
+"rare": true,
+"affixes": [
+"Allies in your Presence have (14-16)% increased Attack Speed",
+"(61-65)% increased Spirit",
+"(35-38)% increased Spirit",
+"+(42-45) to maximum Mana",
+"Allies in your Presence deal (105-119)% increased Damage",
+"Allies in your Presence have (35-39)% increased Critical Damage Bonus",
+"+4 to Level of all Minion Skills",
+"+(4-5) maximum stacks of Puppet Master"
+],
+"runes": [
+"Serle's Triumph",
+"Rabbit Idol",
+"Skeletal Warrior"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 37,
+"league": "Forbidden Rites",
+"listed": "2026-09-19T15:05:45Z",
+"gear": {
+"name": "Rare item",
+"base": "Voltaic Staff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (26-30)% of Damage as Extra Fire Damage",
+"+2 to Level of all Spell Skills",
+"+(5-8) to Intelligence",
+"Gain (2-3) Mana per enemy killed"
+],
+"runes": [
+"Lesser Storm Rune",
+"Lightning Bolt"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 38,
+"league": "Forbidden Rites",
+"listed": "2026-09-25T10:11:05Z",
+"gear": {
+"name": "Rare item",
+"base": "Roaring Staff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (37-42)% of Damage as Extra Lightning Damage",
+"(89-108)% increased Chaos Damage",
+"15% reduced Attribute Requirements",
+"+(13-16) to Intelligence"
+],
+"runes": [
+"Unleash"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 39,
+"league": "Forbidden Rites",
+"listed": "2026-09-12T17:09:35Z",
+"gear": {
+"name": "Rare item",
+"base": "Gelid Staff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"(79-88)% increased Spell Damage",
+"+(75-82) to maximum Mana",
+"+(20-28) to maximum Mana",
+"+(25-27) to Intelligence",
+"Gain (29-40) Life per enemy killed"
+],
+"runes": [
+"Freezing Shards"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 40,
+"league": "Forbidden Rites",
+"listed": "2026-09-24T15:30:29Z",
+"gear": {
+"name": "Rare item",
+"base": "Ashen Staff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (26-30)% of Damage as Extra Fire Damage",
+"(69-88)% increased Fire Damage",
+"+1 to Level of all Fire Spell Skills",
+"(8-12)% increased Mana Regeneration Rate",
+"5% increased Light Radius",
+"Gain (2-3) Mana per enemy killed"
+],
+"runes": [
+"Firebolt"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 41,
+"league": "Forbidden Rites",
+"listed": "2026-09-25T12:53:39Z",
+"gear": {
+"name": "Rare item",
+"base": "Ashen Staff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (49-54)% of Damage as Extra Cold Damage",
+"(13-17)% increased Mana Regeneration Rate",
+"10% increased Light Radius",
+"(75-89)% increased Mana Regeneration Rate",
+"Gain (6-9) Mana per enemy killed"
+],
+"runes": [
+"Firebolt"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 42,
+"league": "Forbidden Rites",
+"listed": "2026-11-22T22:26:34Z",
+"gear": {
+"name": "Rare item",
+"base": "Ancestral Tiara",
+"type": "Helmet",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(61-73) to maximum Energy Shield",
+"(92-100)% increased Energy Shield",
+"(39-42)% increased Energy Shield",
+"+(42-49) to maximum Life",
+"(15-18)% increased Rarity of Items found",
+"(30-34)% increased Critical Hit Chance",
+"(4-8)% increased Spirit Reservation Efficiency"
+],
+"runes": [
+"Raven-Touched Shard",
+"Legacy of Starkonja's Head",
+"Tzamoto's Soul Core of Ferocity"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 43,
+"league": "Forbidden Rites",
+"listed": "2026-10-28T13:39:33Z",
+"gear": {
+"name": "Rare item",
+"base": "Ancestral Tiara",
+"type": "Helmet",
+"unique": false,
+"rare": true,
+"affixes": [
+"(92-100)% increased Energy Shield",
+"(27-32)% increased Energy Shield",
+"+(26-32) to maximum Life",
+"35% reduced Attribute Requirements",
+"+(11-15)% to Cold Resistance",
+"(15-18)% increased Rarity of Items found",
+"+(25-30) to maximum Energy Shield"
+],
+"runes": [
+"Greater Iron Rune"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 44,
+"league": "Forbidden Rites",
+"listed": "2026-11-23T19:27:57Z",
+"gear": {
+"name": "Rare item",
+"base": "Ancestral Tiara",
+"type": "Helmet",
+"unique": false,
+"rare": true,
+"affixes": [
+"(92-100)% increased Energy Shield",
+"+(61-73) to maximum Energy Shield",
+"(39-42)% increased Energy Shield",
+"+(42-49) to maximum Life",
+"(30-34)% increased Critical Hit Chance",
+"+(41-45)% to Fire Resistance",
+"(4-8)% increased Spirit Reservation Efficiency"
+],
+"runes": [
+"Raven-Touched Shard",
+"Perfect Iron Rune",
+"Perfect Iron Rune"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 45,
+"league": "Forbidden Rites",
+"listed": "2026-11-24T02:36:24Z",
+"gear": {
+"name": "Rare item",
+"base": "Kamasan Tiara",
+"type": "Helmet",
+"unique": false,
+"rare": true,
+"affixes": [
+"(15-18)% increased Rarity of Items found",
+"(92-100)% increased Energy Shield",
+"(16-19)% increased Rarity of Items found",
+"+(36-40)% to Fire Resistance",
+"+(36-40)% to Cold Resistance",
+"+(61-73) to maximum Energy Shield"
+],
+"runes": [
+"Raven-Touched Shard",
+"Legacy of Crown of Thorns",
+"Perfect Iron Rune"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 46,
+"league": "Forbidden Rites",
+"listed": "2026-11-08T22:42:53Z",
+"gear": {
+"name": "Rare item",
+"base": "Kamasan Tiara",
+"type": "Helmet",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(61-73) to maximum Energy Shield",
+"(92-100)% increased Energy Shield",
+"+(125-149) to maximum Mana",
+"(30-34)% increased Critical Hit Chance",
+"+(20-23)% to Chaos Resistance",
+"(6-10)% increased Mana Cost Efficiency"
+],
+"runes": [
+"Perfect Iron Rune",
+"Raven-Touched Shard",
+"Perfect Iron Rune"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 47,
+"league": "Forbidden Rites",
+"listed": "2026-09-09T13:52:39Z",
+"gear": {
+"name": "Rare item",
+"base": "Sacrificial Regalia",
+"type": "Body Armour",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(61-73) to maximum Energy Shield",
+"(92-100)% increased Armour, Evasion and Energy Shield",
+"+(21-25)% to Cold Resistance",
+"+(26-30)% to Lightning Resistance",
+"(6.1-9) Life Regeneration per second",
+"+(51-53) to Spirit"
+],
+"runes": [
+"Perfect Body Rune",
+"Greater Iron Rune"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 48,
+"league": "Runes of Aldur",
+"listed": "2026-06-30T18:55:53Z",
+"gear": {
+"name": "Rare item",
+"base": "Secured Wraps",
+"type": "Gloves",
+"unique": false,
+"rare": true,
+"affixes": [
+"(31-40)% increased Projectile Speed",
+"(25-39)% increased Effect of your Mark Skills",
+"+(37-50)% Surpassing chance to fire an additional Projectile",
+"(25-50)% chance to Pierce an Enemy"
+],
+"runes": [
+"Kolr's Hunt"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 49,
+"league": "Runes of Aldur",
+"listed": "2026-06-10T18:19:22Z",
+"gear": {
+"name": "Rare item",
+"base": "Secured Wraps",
+"type": "Gloves",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (12-13) to (18-20) Fire damage to Attacks",
+"+2 to Level of all Melee Skills",
+"Leech (8-8.9)% of Physical Attack Damage as Life"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 50,
+"league": "Runes of Aldur",
+"listed": "2026-07-11T12:26:23Z",
+"gear": {
+"name": "Rare item",
+"base": "Adorned Wraps",
+"type": "Gloves",
+"unique": false,
+"rare": true,
+"affixes": [
+"Leech (9-9.9)% of Physical Attack Damage as Life",
+"(56-67)% increased Evasion and Energy Shield",
+"Adds (25-29) to (37-45) Fire damage to Attacks",
+"Gain Deflection Rating equal to (21-23)% of Evasion Rating",
+"Gain (21-27) Mana per enemy killed",
+"+(120-149) to maximum Life"
+],
+"runes": [
+"Cadigan's Epiphany"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 51,
+"league": "Runes of Aldur",
+"listed": "2026-06-12T03:26:35Z",
+"gear": {
+"name": "Rare item",
+"base": "Cultist Gauntlets",
+"type": "Gloves",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(105-124) to maximum Mana",
+"+2 to Level of all Melee Skills",
+"+(31-35)% to Cold Resistance"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 52,
+"league": "Runes of Aldur",
+"listed": "2026-06-28T03:53:44Z",
+"gear": {
+"name": "Rare item",
+"base": "Sirenscale Gloves",
+"type": "Gloves",
+"unique": false,
+"rare": true,
+"affixes": [
+"+2 to Level of all Melee Skills",
+"+(48-60) to maximum Energy Shield",
+"Adds (25-29) to (37-45) Fire damage to Attacks",
+"+(237-346) to Accuracy Rating",
+"(20-24)% increased Critical Damage Bonus",
+"(10-15)% chance to Gain Arcane Surge when you deal a Critical Hit"
+],
+"runes": [
+"Idol of Sirrius"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 53,
+"league": "Forbidden Rites",
+"listed": "2026-09-19T16:23:16Z",
+"gear": {
+"name": "Rare item",
+"base": "Bound Sandals",
+"type": "Boots",
+"unique": false,
+"rare": true,
+"affixes": [
+"(56-67)% increased Energy Shield",
+"(33-38)% increased Energy Shield",
+"+(64-94) to Stun Threshold",
+"+(100-119) to maximum Life",
+"+(41-45)% to Lightning Resistance",
+"(15-19)% increased Skill Effect Duration",
+"Debuffs on you expire (70-89)% faster"
+],
+"runes": [
+"Uhtred's Sidereus",
+"Greater Iron Rune"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 54,
+"league": "Forbidden Rites",
+"listed": "2026-09-14T01:16:51Z",
+"gear": {
+"name": "Rare item",
+"base": "Quickslip Shoes",
+"type": "Boots",
+"unique": false,
+"rare": true,
+"affixes": [
+"(92-100)% increased Evasion and Energy Shield",
+"+(85-99) to maximum Life",
+"+(36-40)% to Cold Resistance",
+"Gain Deflection Rating equal to (21-23)% of Evasion Rating",
+"(46-50)% reduced Chill Duration on you",
+"(33-38)% increased Evasion and Energy Shield",
+"+(64-94) to Stun Threshold"
+],
+"runes": [
+"Greater Iron Rune"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 55,
+"league": "Forbidden Rites",
+"listed": "2026-10-08T13:43:13Z",
+"gear": {
+"name": "Rare item",
+"base": "Quickslip Shoes",
+"type": "Boots",
+"unique": false,
+"rare": true,
+"affixes": [
+"(80-91)% increased Evasion and Energy Shield",
+"(39-42)% increased Evasion and Energy Shield",
+"+(95-136) to Stun Threshold",
+"+(55-64) to maximum Mana",
+"+(36-40)% to Fire Resistance",
+"+(31-35)% to Lightning Resistance",
+"Gain Deflection Rating equal to (8-11)% of Evasion Rating"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 56,
+"league": "Forbidden Rites",
+"listed": "2026-09-10T03:57:40Z",
+"gear": {
+"name": "Rare item",
+"base": "Wanderer Shoes",
+"type": "Boots",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(65-78) to Evasion Rating",
+"+(22-25) to maximum Energy Shield",
+"(21-26)% increased Evasion and Energy Shield",
+"+(25-40) to Stun Threshold",
+"+(85-99) to maximum Life",
+"+(26-30)% to Fire Resistance",
+"+(36-40)% to Cold Resistance",
+"+(12-15)% to Chaos Resistance"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 57,
+"league": "Forbidden Rites",
+"listed": "2026-09-08T11:35:46Z",
+"gear": {
+"name": "Rare item",
+"base": "Bound Sandals",
+"type": "Boots",
+"unique": false,
+"rare": true,
+"affixes": [
+"(33-38)% increased Energy Shield",
+"+(64-94) to Stun Threshold",
+"+(90-104) to maximum Mana",
+"+(28-30) to Intelligence",
+"+(4-7)% to Chaos Resistance",
+"+(10-15) to Spirit",
+"(92-100)% increased Energy Shield"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 58,
+"league": "Forbidden Rites",
+"listed": "2026-10-17T17:32:55Z",
+"gear": {
+"name": "Rare item",
+"base": "Visceral Quiver",
+"type": "Quiver",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (7-11) to (14-20) Physical Damage to Attacks",
+"Adds (1-4) to (60-71) Lightning damage to Attacks",
+"(30-34)% increased Critical Damage Bonus for Attack Damage",
+"(14-16)% increased Attack Speed",
+"(24-26)% chance to Pierce an Enemy",
+"(43-50)% increased Damage with Bow Skills"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 59,
+"league": "Forbidden Rites",
+"listed": "2026-11-06T08:19:15Z",
+"gear": {
+"name": "Rare item",
+"base": "Visceral Quiver",
+"type": "Quiver",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (12-19) to (22-32) Physical Damage to Attacks",
+"Adds (1-4) to (60-71) Lightning damage to Attacks",
+"(25-29)% increased Critical Hit Chance for Attacks",
+"+(31-33) to Dexterity",
+"+(25-40)% Surpassing chance to fire an additional Arrow",
+"(43-50)% increased Damage with Bow Skills"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 60,
+"league": "Forbidden Rites",
+"listed": "2026-09-21T03:18:36Z",
+"gear": {
+"name": "Rare item",
+"base": "Primed Quiver",
+"type": "Quiver",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (10-15) to (18-26) Physical Damage to Attacks",
+"Adds (16-20) to (25-31) Cold damage to Attacks",
+"(30-34)% increased Critical Damage Bonus for Attack Damage",
+"+(25-27) to Dexterity",
+"(43-50)% increased Damage with Bow Skills",
+"(14-16)% increased Attack Speed"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 61,
+"league": "Forbidden Rites",
+"listed": "2026-09-10T13:35:55Z",
+"gear": {
+"name": "Rare item",
+"base": "Visceral Quiver",
+"type": "Quiver",
+"unique": false,
+"rare": true,
+"affixes": [
+"(34-41)% increased Projectile Speed",
+"(35-39)% increased Critical Damage Bonus for Attack Damage",
+"+(31-33) to Dexterity",
+"(24-26)% chance to Pierce an Enemy",
+"Projectiles deal (20-30)% increased Damage with Hits against Enemies within 2m",
+"(43-50)% increased Damage with Bow Skills"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 62,
+"league": "Forbidden Rites",
+"listed": "2026-09-12T03:13:41Z",
+"gear": {
+"name": "Rare item",
+"base": "Visceral Quiver",
+"type": "Quiver",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (25-29) to (37-45) Fire damage to Attacks",
+"Adds (21-24) to (32-37) Cold damage to Attacks",
+"(14-16)% increased Attack Speed",
+"+(25-27) to Dexterity",
+"+(237-346) to Accuracy Rating",
+"Projectiles have (18-26)% increased Critical Damage Bonus against Enemies within 2m"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 63,
+"league": "Forbidden Rites",
+"listed": "2026-10-06T16:51:55Z",
+"gear": {
+"name": "Rare item",
+"base": "Blacksteel Crest Shield",
+"type": "Shield",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(128-149) to Armour",
+"+(37-42) to maximum Energy Shield",
+"(101-110)% increased Armour and Energy Shield",
+"+(41-45)% to Fire Resistance",
+"+(16-19)% to Chaos Resistance",
+"+(207-253) to Stun Threshold",
+"(15-19)% increased Block chance"
+],
+"runes": [
+"Greater Iron Rune",
+"Raise Shield"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 64,
+"league": "Forbidden Rites",
+"listed": "2026-11-06T12:13:27Z",
+"gear": {
+"name": "Rare item",
+"base": "Tawhoan Tower Shield",
+"type": "Shield",
+"unique": false,
+"rare": true,
+"affixes": [
+"(39-42)% increased Armour",
+"+(95-136) to Stun Threshold",
+"(92-100)% increased Armour",
+"+(28-30) to Strength",
+"5% additional Physical Damage Reduction",
+"+(44-50)% of Armour also applies to Elemental Damage",
+"+(249-277) to Armour"
+],
+"runes": [
+"Ancient Rune of Retaliation",
+"Perfect Iron Rune",
+"Raise Shield"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 65,
+"league": "Forbidden Rites",
+"listed": "2026-10-16T12:06:25Z",
+"gear": {
+"name": "Rare item",
+"base": "Fortress Tower Shield",
+"type": "Shield",
+"unique": false,
+"rare": true,
+"affixes": [
+"(25-30)% increased Block chance",
+"+(222-248) to Armour",
+"(101-110)% increased Armour",
+"7% additional Physical Damage Reduction",
+"+(38-43)% of Armour also applies to Elemental Damage",
+"+(23-31)% of Armour also applies to Chaos Damage"
+],
+"runes": [
+"Raise Shield"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 66,
+"league": "Forbidden Rites",
+"listed": "2026-11-12T09:58:59Z",
+"gear": {
+"name": "Rare item",
+"base": "Tawhoan Tower Shield",
+"type": "Shield",
+"unique": false,
+"rare": true,
+"affixes": [
+"(39-42)% increased Armour",
+"+(95-136) to Stun Threshold",
+"(101-110)% increased Armour",
+"+(31-33) to Strength",
+"6% additional Physical Damage Reduction",
+"+(24-27)% to Chaos Resistance",
+"+(249-277) to Armour"
+],
+"runes": [
+"Perfect Iron Rune",
+"Perfect Iron Rune",
+"Raise Shield"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 67,
+"league": "Forbidden Rites",
+"listed": "2026-11-03T03:04:33Z",
+"gear": {
+"name": "Rare item",
+"base": "Tawhoan Tower Shield",
+"type": "Shield",
+"unique": false,
+"rare": true,
+"affixes": [
+"8% additional Physical Damage Reduction",
+"(39-42)% increased Armour",
+"+(95-136) to Stun Threshold",
+"(101-110)% increased Armour",
+"+(41-45)% to Cold Resistance",
+"+(207-253) to Stun Threshold",
+"+(249-277) to Armour"
+],
+"runes": [
+"Perfect Iron Rune",
+"Perfect Iron Rune",
+"Raise Shield"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 68,
+"league": "Runes of Aldur",
+"listed": "2026-11-18T00:23:14Z",
+"gear": {
+"name": "Rare item",
+"base": "Tasalian Focus",
+"type": "Focus",
+"unique": false,
+"rare": true,
+"affixes": [
+"(92-100)% increased Energy Shield",
+"+(81-90) to maximum Energy Shield",
+"+(150-164) to maximum Mana",
+"(60-69)% increased Mana Regeneration Rate",
+"+2 to Level of all Spell Skills",
+"(39-47)% increased Cast Speed",
+"Gain (11-16)% of Elemental Damage as Extra Cold Damage"
+],
+"runes": [
+"Perfect Mind Rune",
+"Perfect Mind Rune"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 69,
+"league": "Forbidden Rites",
+"listed": "2026-11-20T14:01:46Z",
+"gear": {
+"name": "Rare item",
+"base": "Laminate Buckler",
+"type": "Shield",
+"unique": false,
+"rare": true,
+"affixes": [
+"(6-13)% increased Evasion Rating",
+"+(8-13) to Stun Threshold",
+"+(9-12) to Dexterity",
+"+(11-15)% to Cold Resistance",
+"(11-16) to (17-23) Physical Thorns damage"
+],
+"runes": [
+"Parry"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 70,
+"league": "Forbidden Rites",
+"listed": "2026-11-07T12:11:34Z",
+"gear": {
+"name": "Rare item",
+"base": "Ringed Buckler",
+"type": "Shield",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(67-87) to Evasion Rating",
+"(43-55)% increased Evasion Rating",
+"+(21-25)% to Fire Resistance",
+"+(16-20)% to Cold Resistance",
+"+(16-20)% to Lightning Resistance",
+"(11-16) to (17-23) Physical Thorns damage"
+],
+"runes": [
+"Parry"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 71,
+"league": "Forbidden Rites",
+"listed": "2026-10-21T22:10:09Z",
+"gear": {
+"name": "Rare item",
+"base": "Pearl Buckler",
+"type": "Shield",
+"unique": false,
+"rare": true,
+"affixes": [
+"(6-13)% increased Evasion Rating",
+"+(8-13) to Stun Threshold",
+"+(11-15)% to Cold Resistance",
+"+(26-30)% to Lightning Resistance",
+"+(98-124) to Stun Threshold"
+],
+"runes": [
+"Parry"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 72,
+"league": "Forbidden Rites",
+"listed": "2026-11-05T13:48:21Z",
+"gear": {
+"name": "Rare item",
+"base": "Spikeward Buckler",
+"type": "Shield",
+"unique": false,
+"rare": true,
+"affixes": [
+"(15-19)% increased Block chance",
+"+(11-15)% to Cold Resistance",
+"+(12-15)% to Chaos Resistance",
+"+(30-49) to Stun Threshold"
+],
+"runes": [
+"Parry"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 73,
+"league": "Forbidden Rites",
+"listed": "2026-09-12T00:35:10Z",
+"gear": {
+"name": "Rare item",
+"base": "Bladeguard Buckler",
+"type": "Shield",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(100-119) to maximum Life",
+"30% reduced Attribute Requirements",
+"+(31-35)% to Fire Resistance",
+"+(16-20)% to Lightning Resistance"
+],
+"runes": [
+"Parry"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 74,
+"league": "Forbidden Rites",
+"listed": "2026-11-08T10:21:11Z",
+"gear": {
+"name": "Rare item",
+"base": "Gold Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"(21-26)% increased Evasion Rating",
+"(33-38)% increased maximum Energy Shield",
+"+(60-69) to maximum Life",
+"(13-15)% increased Cast Speed",
+"+(5-8) to Dexterity",
+"+(26-30)% to Fire Resistance"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 75,
+"league": "Forbidden Rites",
+"listed": "2026-09-26T13:32:49Z",
+"gear": {
+"name": "Rare item",
+"base": "Amber Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"(33-38)% increased Armour",
+"(45-50)% increased Evasion Rating",
+"+(15-20) to maximum Energy Shield",
+"(15-19)% increased Critical Damage Bonus",
+"+(21-25)% to Cold Resistance",
+"(60-69)% increased Mana Regeneration Rate"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 76,
+"league": "Forbidden Rites",
+"listed": "2026-11-07T15:51:37Z",
+"gear": {
+"name": "Rare item",
+"base": "Gold Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(90-104) to maximum Mana",
+"+(5-7) to all Attributes",
+"+(31-33) to Strength"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 77,
+"league": "Forbidden Rites",
+"listed": "2026-10-31T06:12:30Z",
+"gear": {
+"name": "Rare item",
+"base": "Amber Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(52-61) to maximum Energy Shield",
+"+(60-69) to maximum Life",
+"+(47-50) to Spirit",
+"+(21-24) to Intelligence",
+"(40-49)% increased Mana Regeneration Rate",
+"+3 to Level of all Melee Skills"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 78,
+"league": "Forbidden Rites",
+"listed": "2026-10-11T06:34:34Z",
+"gear": {
+"name": "Rare item",
+"base": "Absent Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(237-346) to Accuracy Rating",
+"+2 to Level of all Projectile Skills",
+"+(24-27)% to Chaos Resistance",
+"+20% to Maximum Quality"
+],
+"runes": [
+"Archmage"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 79,
+"league": "Forbidden Rites",
+"listed": "2026-09-27T08:05:13Z",
+"gear": {
+"name": "Rare item",
+"base": "Mail Belt",
+"type": "Belt",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(70-84) to maximum Life",
+"+(80-89) to maximum Mana",
+"+(31-33) to Strength",
+"+(41-45)% to Fire Resistance",
+"+(41-45)% to Lightning Resistance",
+"(20-30)% increased Explicit Resistance Modifier magnitudes"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 80,
+"league": "Forbidden Rites",
+"listed": "2026-09-19T13:29:44Z",
+"gear": {
+"name": "Rare item",
+"base": "Utility Belt",
+"type": "Belt",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(100-119) to maximum Life",
+"+(105-124) to maximum Mana",
+"(35-40)% increased Flask Life Recovery rate",
+"+(36-40)% to Lightning Resistance",
+"On Corruption, Item gains two Enchantments"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 81,
+"league": "Runes of Aldur",
+"listed": "2026-07-26T19:42:07Z",
+"gear": {
+"name": "Rare item",
+"base": "Ruby Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"(15-18)% increased Rarity of Items found",
+"Adds (25-29) to (37-45) Fire damage to Attacks",
+"(23-26)% increased Lightning Damage",
+"+(15-16)% to all Elemental Resistances",
+"Leech (6-6.9)% of Physical Attack Damage as Mana",
+"Adds (5-7) to (9-13) Physical Damage to Attacks"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 82,
+"league": "Runes of Aldur",
+"listed": "2026-06-15T15:34:30Z",
+"gear": {
+"name": "Rare item",
+"base": "Mnemonic Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(142-174) to Evasion Rating",
+"Adds (11-16) to (21-26) Fire damage to Attacks",
+"(23-26)% increased Mana Cost Efficiency of Spells"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 83,
+"league": "Runes of Aldur",
+"listed": "2026-06-26T16:18:43Z",
+"gear": {
+"name": "Rare item",
+"base": "Breach Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"(18-22)% increased Fire Damage",
+"Adds (1-4) to (60-71) Lightning damage to Attacks",
+"+(142-174) to Evasion Rating"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 84,
+"league": "Runes of Aldur",
+"listed": "2026-06-22T11:01:57Z",
+"gear": {
+"name": "Rare item",
+"base": "Gold Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"(15-18)% increased Rarity of Items found",
+"Adds (4-6) to (8-11) Physical Damage to Attacks"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 85,
+"league": "Runes of Aldur",
+"listed": "2026-09-01T20:18:34Z",
+"gear": {
+"name": "Rare item",
+"base": "Grasping Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"(30-34)% increased Spell Damage",
+"(7-9)% increased Attack Speed"
+],
+"runes": [
+"Tecrod's Gaze"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 86,
+"league": "Forbidden Rites",
+"listed": "2026-10-25T06:14:34Z",
+"gear": {
+"name": "Rare item",
+"base": "Emerald",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"(6-16)% increased Critical Hit Chance for Attacks",
+"(6-16)% increased Damage with Bows",
+"(5-15)% increased Projectile Damage",
+"(5-10)% increased Duration of Damaging Ailments on Enemies"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 87,
+"league": "Forbidden Rites",
+"listed": "2026-09-14T07:01:00Z",
+"gear": {
+"name": "Rare item",
+"base": "Sapphire",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"(2-3)% of Damage taken Recouped as Life",
+"(4-6)% increased Area of Effect",
+"Minions have (15-25)% increased Critical Damage Bonus",
+"(5-15)% increased Damage with Plant Skills"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 88,
+"league": "Forbidden Rites",
+"listed": "2026-10-09T03:23:24Z",
+"gear": {
+"name": "Rare item",
+"base": "Diamond",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"(5-15)% increased Mana Regeneration Rate",
+"(3-7)% increased Block chance",
+"Damage Penetrates (5-10)% Lightning Resistance",
+"(5-10)% increased Flask Charges gained"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 89,
+"league": "Forbidden Rites",
+"listed": "2026-09-10T18:23:04Z",
+"gear": {
+"name": "Rare item",
+"base": "Sapphire",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"(2-4)% increased Cast Speed",
+"(10-20)% increased Flammability Magnitude",
+"Minions deal (5-15)% increased Damage",
+"(5-15)% increased Damage with Plant Skills"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 90,
+"league": "Forbidden Rites",
+"listed": "2026-09-21T10:10:57Z",
+"gear": {
+"name": "Rare item",
+"base": "Sapphire",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"(5-15)% increased Critical Hit Chance",
+"(5-15)% increased Critical Hit Chance for Spells",
+"(10-20)% increased Damage if you have Consumed a Corpse Recently"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 91,
+"league": "Forbidden Rites",
+"listed": "2026-09-24T20:15:29Z",
+"gear": {
+"name": "Rare item",
+"base": "Flying Spear",
+"type": "Spear",
+"unique": false,
+"rare": true,
+"affixes": [
+"(155-169)% increased Physical Damage",
+"Adds (1-4) to (63-82) Lightning Damage",
+"Gain (54-68) Life per enemy killed",
+"+2 to Level of all Attack Skills",
+"(20-25)% chance to gain Onslaught on Killing Hits with this Weapon",
+"Companions deal (40-59)% increased Damage",
+"(40-59)% increased Damage while your Companion is in your Presence"
+],
+"runes": [
+"Astrid's Creativity",
+"Spear Throw"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 92,
+"league": "Forbidden Rites",
+"listed": "2026-11-11T04:09:12Z",
+"gear": {
+"name": "Rare item",
+"base": "Gemini Crossbow",
+"type": "Crossbow",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (19-29) to (33-49) Physical Damage",
+"Adds (1-16) to (239-300) Lightning Damage",
+"+(23-25)% to Critical Damage Bonus",
+"+(3.11-3.8)% to Critical Hit Chance",
+"+3 to Level of all Attack Skills",
+"Adds (84-107) to (126-161) Cold Damage"
+],
+"runes": [
+"Saqawal's Rune of the Sky",
+"Farrul's Rune of the Hunt",
+"Astrid's Creativity"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 93,
+"league": "Forbidden Rites",
+"listed": "2026-10-27T19:56:23Z",
+"gear": {
+"name": "Rare item",
+"base": "Dragonscale Boots",
+"type": "Boots",
+"unique": false,
+"rare": true,
+"affixes": [
+"30% increased Movement Speed",
+"+(25-27) to Dexterity",
+"+(36-40)% to Lightning Resistance",
+"+(10-15) to Spirit"
+],
+"runes": [
+"Farrul's Rune of the Chase",
+"Astrid's Creativity"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 94,
+"league": "Forbidden Rites",
+"listed": "2026-11-01T00:14:56Z",
+"gear": {
+"name": "Rare item",
+"base": "Stoic Sceptre",
+"type": "Sceptre",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(65-79) to maximum Mana",
+"Allies in your Presence have (14-16)% increased Attack Speed",
+"Allies in your Presence have +(9-11)% to all Elemental Resistances",
+"Minions have (36-40)% increased maximum Life",
+"Allies in your Presence deal (75-89)% increased Damage",
+"Allies in your Presence deal (21-24) to (32-37) added Attack Cold Damage"
+],
+"runes": [
+"Astrid's Creativity",
+"Discipline"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 95,
+"league": "Forbidden Rites",
+"listed": "2026-10-08T02:37:39Z",
+"gear": {
+"name": "Rare item",
+"base": "Adherent Cuffs",
+"type": "Gloves",
+"unique": false,
+"rare": true,
+"affixes": [
+"(68-79)% increased Armour and Energy Shield",
+"+(100-119) to maximum Life",
+"+(34-36) to Dexterity",
+"+(6-10)% to Lightning Resistance",
+"Gain (28-35) Mana per enemy killed",
+"(25-50)% chance to Pierce an Enemy",
+"(31-40)% increased Projectile Damage"
+],
+"runes": [
+"Kolr's Hunt",
+"Serle's Triumph"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 96,
+"league": "Forbidden Rites",
+"listed": "2026-11-14T23:13:31Z",
+"gear": {
+"name": "Rare item",
+"base": "Elegant Wraps",
+"type": "Gloves",
+"unique": false,
+"rare": true,
+"affixes": [
+"(80-91)% increased Evasion and Energy Shield",
+"Adds (7-11) to (14-20) Physical Damage to Attacks",
+"(11-20)% increased Projectile Speed",
+"(15-18)% increased Rarity of Items found",
+"(5-7)% increased Attack Speed",
+"+(31-33) to Intelligence",
+"Projectiles have (20-32)% chance to Chain an additional time from terrain"
+],
+"runes": [
+"Kolr's Hunt",
+"Serle's Triumph"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 97,
+"league": "Forbidden Rites",
+"listed": "2026-09-23T00:46:55Z",
+"gear": {
+"name": "Rare item",
+"base": "Sacrificial Regalia",
+"type": "Body Armour",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(262-300) to Evasion Rating",
+"(27-42)% increased Armour, Evasion and Energy Shield",
+"+(38-42) to Spirit",
+"+(6-10)% to Cold Resistance",
+"+(26-30)% to Lightning Resistance",
+"+(32-37)% of Armour also applies to Elemental Damage",
+"(18.1-23) Life Regeneration per second"
+],
+"runes": [
+"Serle's Triumph"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 98,
+"league": "Forbidden Rites",
+"listed": "2026-09-07T04:24:39Z",
+"gear": {
+"name": "Rare item",
+"base": "Siege Crossbow",
+"type": "Crossbow",
+"unique": false,
+"rare": true,
+"affixes": [
+"(65-74)% increased Physical Damage",
+"+(150-174) to Accuracy Rating",
+"(40-49)% increased Physical Damage",
+"Adds (1-13) to (168-231) Lightning Damage",
+"+(3.11-3.8)% to Critical Hit Chance",
+"25% reduced Attribute Requirements",
+"+2 to Level of all Projectile Skills",
+"Gain (10-18) Life per enemy killed"
+],
+"runes": [
+"Saqawal's Rune of the Sky",
+"Serle's Triumph"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 99,
+"league": "Forbidden Rites",
+"listed": "2026-10-17T21:53:21Z",
+"gear": {
+"name": "Rare item",
+"base": "Chiming Staff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (26-30)% of Damage as Extra Fire Damage",
+"Gain (43-48)% of Damage as Extra Fire Damage",
+"+2 to Level of all Fire Spell Skills",
+"Gain (41-53) Life per enemy killed",
+"(91-100)% increased Flammability Magnitude",
+"(69-88)% increased Spell Damage"
+],
+"runes": [
+"Passion of Aldur",
+"Sigil of Power"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 100,
+"league": "Forbidden Rites",
+"listed": "2026-09-29T14:00:51Z",
+"gear": {
+"name": "Rare item",
+"base": "Trarthan Cannon",
+"type": "Crossbow",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (56-70) to (84-107) Fire Damage",
+"Adds (39-53) to (59-80) Fire Damage",
+"Adds (30-37) to (45-56) Fire Damage",
+"+(20-22)% to Critical Damage Bonus",
+"+3 to Level of all Attack Skills",
+"(17-25)% increased Reload Speed"
+],
+"runes": [
+"Passion of Aldur",
+"Greater Desert Rune"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 101,
+"league": "Forbidden Rites",
+"listed": "2026-09-16T11:58:00Z",
+"gear": {
+"name": "Rare item",
+"base": "Sanctified Staff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (43-48)% of Damage as Extra Fire Damage",
+"Gain (55-60)% of Damage as Extra Fire Damage",
+"(50-68)% increased Fire Damage",
+"Gain (29-40) Life per enemy killed",
+"Gain (4-5) Mana per enemy killed",
+"+5 to Level of all Spell Skills"
+],
+"runes": [
+"Passion of Aldur",
+"Consecrate"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 102,
+"league": "Forbidden Rites",
+"listed": "2026-10-06T10:12:58Z",
+"gear": {
+"name": "Rare item",
+"base": "Ashen Staff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (55-60)% of Damage as Extra Fire Damage",
+"(69-88)% increased Spell Damage",
+"15% reduced Attribute Requirements",
+"(51-60)% increased Flammability Magnitude",
+"+5 to Level of all Spell Skills"
+],
+"runes": [
+"Passion of Aldur",
+"Firebolt"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 103,
+"league": "Forbidden Rites",
+"listed": "2026-09-09T21:12:27Z",
+"gear": {
+"name": "Rare item",
+"base": "Secured Wraps",
+"type": "Gloves",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (12-19) to (22-32) Physical Damage to Attacks",
+"+(100-119) to maximum Life",
+"35% reduced Attribute Requirements",
+"+(36-40)% to Fire Resistance",
+"+(36-40)% to Cold Resistance",
+"(56-67)% increased Evasion and Energy Shield"
+],
+"runes": [
+"Kolr's Hunt"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 104,
+"league": "Forbidden Rites",
+"listed": "2026-11-01T11:38:48Z",
+"gear": {
+"name": "Rare item",
+"base": "Massive Mitts",
+"type": "Gloves",
+"unique": false,
+"rare": true,
+"affixes": [
+"(80-91)% increased Armour",
+"Adds 1 to (23-27) Lightning damage to Attacks",
+"+(120-149) to maximum Life",
+"+(28-30) to Strength",
+"+(20-25)% of Armour also applies to Elemental Damage",
+"+(37-50)% Surpassing chance to fire an additional Projectile"
+],
+"runes": [
+"Kolr's Hunt"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 105,
+"league": "Forbidden Rites",
+"listed": "2026-10-06T12:20:10Z",
+"gear": {
+"name": "Rare item",
+"base": "Polished Bracers",
+"type": "Gloves",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(117-146) to Evasion Rating",
+"Adds (25-29) to (37-45) Fire damage to Attacks",
+"Adds (7-8) to (12-14) Cold damage to Attacks",
+"+(26-30)% to Cold Resistance",
+"Gain 5 Life per Enemy Hit with Attacks",
+"Projectiles have (10-19)% chance to Chain an additional time from terrain"
+],
+"runes": [
+"Kolr's Hunt"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 106,
+"league": "Forbidden Rites",
+"listed": "2026-10-02T18:42:13Z",
+"gear": {
+"name": "Rare item",
+"base": "Runeforged Grand Bracers",
+"type": "Gloves",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (11-16) to (21-26) Fire damage to Attacks",
+"Adds (1-3) to (48-59) Lightning damage to Attacks",
+"+(40-59) to maximum Life",
+"+(21-24) to Dexterity",
+"+(26-30)% to Cold Resistance",
+"Gain Deflection Rating equal to (18-20)% of Evasion Rating"
+],
+"runes": [
+"Kolr's Hunt"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 107,
+"league": "Forbidden Rites",
+"listed": "2026-09-18T20:22:30Z",
+"gear": {
+"name": "Rare item",
+"base": "Quickslip Shoes",
+"type": "Boots",
+"unique": false,
+"rare": true,
+"affixes": [
+"(27-29)% increased Movement Speed",
+"(16-20)% reduced Slowing Potency of Debuffs on You",
+"+(65-78) to Evasion Rating",
+"+(22-25) to maximum Energy Shield",
+"+(70-84) to maximum Life",
+"(6-10)% increased Rarity of Items found",
+"+(16-20)% to Fire Resistance",
+"Skills have (11-15)% chance to not remove Charges but still count as consuming them"
+],
+"runes": [
+"Uhtred's Sidereus"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 108,
+"league": "Forbidden Rites",
+"listed": "2026-10-07T06:10:47Z",
+"gear": {
+"name": "Rare item",
+"base": "Daggerfoot Shoes",
+"type": "Boots",
+"unique": false,
+"rare": true,
+"affixes": [
+"(21-26)% increased Evasion and Energy Shield",
+"+(25-40) to Stun Threshold",
+"(56-67)% increased Evasion and Energy Shield",
+"+(120-149) to maximum Life",
+"+(26-30)% to Cold Resistance",
+"Gain Deflection Rating equal to (18-20)% of Evasion Rating",
+"(51-55)% reduced Shock duration on you"
+],
+"runes": [
+"Uhtred's Sidereus"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 109,
+"league": "Forbidden Rites",
+"listed": "2026-11-18T16:05:28Z",
+"gear": {
+"name": "Rare item",
+"base": "Sekhema Sandals",
+"type": "Boots",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(48-60) to maximum Energy Shield",
+"(68-79)% increased Energy Shield",
+"+(65-79) to maximum Mana",
+"+(21-25)% to Fire Resistance",
+"+(31-35)% to Cold Resistance",
+"(20-29)% increased Skill Effect Duration"
+],
+"runes": [
+"Uhtred's Sidereus"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 110,
+"league": "Forbidden Rites",
+"listed": "2026-09-13T17:10:46Z",
+"gear": {
+"name": "Rare item",
+"base": "Daggerfoot Shoes",
+"type": "Boots",
+"unique": false,
+"rare": true,
+"affixes": [
+"(27-29)% increased Movement Speed",
+"(16-20)% reduced Slowing Potency of Debuffs on You",
+"(56-67)% increased Evasion and Energy Shield",
+"+(70-84) to maximum Life",
+"+(21-25)% to Fire Resistance",
+"+(11-15)% to Cold Resistance",
+"+(6-10)% to Lightning Resistance"
+],
+"runes": [
+"Uhtred's Sidereus"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 111,
+"league": "Forbidden Rites",
+"listed": "2026-11-05T05:41:53Z",
+"gear": {
+"name": "Rare item",
+"base": "Spiked Spear",
+"type": "Spear",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (1-8) to (111-152) Lightning Damage",
+"(87-100)% increased Elemental Damage with Attacks",
+"+(3.11-3.8)% to Critical Hit Chance",
+"20% reduced Attribute Requirements",
+"+3 to Level of all Melee Skills",
+"Attacks with this Weapon Penetrate (15-25)% Fire Resistance"
+],
+"runes": [
+"Thrud's Might",
+"Spear Throw"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 112,
+"league": "Forbidden Rites",
+"listed": "2026-11-22T16:54:41Z",
+"gear": {
+"name": "Rare item",
+"base": "Massive Greathammer",
+"type": "Two Hand Mace",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (46-57) to (70-88) Cold Damage",
+"(100-119)% increased Elemental Damage with Attacks",
+"30% reduced Attribute Requirements",
+"Leeches (9-9.9)% of Physical Damage as Life",
+"Gain (28-35) Mana per enemy killed",
+"(86-99)% increased Damage while you have a Totem"
+],
+"runes": [
+"Thrud's Might"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 113,
+"league": "Forbidden Rites",
+"listed": "2026-09-13T23:32:27Z",
+"gear": {
+"name": "Rare item",
+"base": "Roaring Staff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (55-60)% of Damage as Extra Fire Damage",
+"Gain (26-30)% of Damage as Extra Cold Damage",
+"(149-188)% increased Fire Damage",
+"+(3-4) to Level of all Fire Spell Skills",
+"(20-25)% increased Cast Speed",
+"Gain (10-14) Mana per enemy killed"
+],
+"runes": [
+"Thrud's Might",
+"Unleash"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 114,
+"league": "Forbidden Rites",
+"listed": "2026-09-28T02:43:19Z",
+"gear": {
+"name": "Rare item",
+"base": "Chiming Staff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (49-54)% of Damage as Extra Fire Damage",
+"+(5-6) to Level of all Fire Spell Skills",
+"(75-89)% increased Mana Regeneration Rate",
+"Gain (28-35) Mana per enemy killed",
+"(149-188)% increased Spell Damage",
+"(40-64)% increased Magnitude of Damaging Ailments you inflict"
+],
+"runes": [
+"Passion of Aldur",
+"Thrud's Might",
+"Sigil of Power"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 115,
+"league": "Forbidden Rites",
+"listed": "2026-09-23T19:29:15Z",
+"gear": {
+"name": "Rare item",
+"base": "Feathered Raiment",
+"type": "Body Armour",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(4-7) to maximum Energy Shield",
+"(6-13)% increased Energy Shield",
+"(68-79)% increased Energy Shield",
+"(6-52)% increased Energy Shield",
+"+(1-24) to Spirit",
+"+(31-35)% to Fire Resistance",
+"+(26-30)% to Cold Resistance",
+"+(21-25)% to Lightning Resistance"
+],
+"runes": [
+"Medved's Tending"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 116,
+"league": "Forbidden Rites",
+"listed": "2026-11-13T11:58:21Z",
+"gear": {
+"name": "Rare item",
+"base": "Conjurer Mantle",
+"type": "Body Armour",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(103-127) to Armour",
+"+(30-36) to maximum Energy Shield",
+"+(17-23) to Armour",
+"+(7-8) to maximum Energy Shield",
+"(21-26)% increased Armour and Energy Shield",
+"+(120-149) to maximum Life",
+"+(6-10)% to Cold Resistance",
+"(33.1-36) Life Regeneration per second",
+"(46-50)% reduced Ignite Duration on you"
+],
+"runes": [
+"Medved's Tending"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 117,
+"league": "Forbidden Rites",
+"listed": "2026-11-11T12:09:43Z",
+"gear": {
+"name": "Rare item",
+"base": "Vile Robe",
+"type": "Body Armour",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(81-90) to maximum Energy Shield",
+"(21-26)% increased Energy Shield",
+"+(20-25) to maximum Life",
+"+(34-37) to Spirit",
+"+(31-33) to Intelligence",
+"+(36-40)% to Fire Resistance",
+"+(20-23)% to Chaos Resistance"
+],
+"runes": [
+"Medved's Tending",
+"Greater Iron Rune"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 118,
+"league": "Forbidden Rites",
+"listed": "2026-11-19T05:26:01Z",
+"gear": {
+"name": "Rare item",
+"base": "Vile Robe",
+"type": "Body Armour",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(85-99) to maximum Life",
+"(9.1-13) Life Regeneration per second",
+"+(3-31)% to Cold and Chaos Resistances",
+"(51-55)% reduced Duration of Bleeding on You",
+"(24-35) to (36-53) Physical Thorns damage",
+"(80-91)% increased Energy Shield"
+],
+"runes": [
+"Medved's Tending",
+"Greater Iron Rune"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 119,
+"league": "Runes of Aldur",
+"listed": "2026-11-21T18:48:52Z",
+"gear": {
+"name": "Rare item",
+"base": "Dueling Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"(39-47)% increased Cast Speed",
+"Gain (11-16)% of Elemental Damage as Extra Cold Damage",
+"(13-17)% increased Mana Regeneration Rate",
+"10% increased Light Radius",
+"Gain (15-20) Mana per enemy killed"
+],
+"runes": [
+"Astrid's Creativity",
+"Legacy of Lifesprig",
+"Spellslinger"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 120,
+"league": "Runes of Aldur",
+"listed": "2026-07-27T14:28:43Z",
+"gear": {
+"name": "Rare item",
+"base": "Sinister Quarterstaff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"(120-139)% increased Elemental Damage with Attacks",
+"Adds (102-130) to (155-198) Fire Damage",
+"Gain (36-45) Mana per enemy killed",
+"(27-30)% increased Stun Duration",
+"+3 to Level of all Attack Skills",
+"(20-25)% chance to gain Onslaught on Killing Hits with this Weapon",
+"(86-99)% increased Fire Damage",
+"(14-23)% increased Ignite Magnitude"
+],
+"runes": [
+"Serle's Triumph",
+"Astrid's Creativity"
+],
+"corrupted": false
+},
+"xfail": [
+"F8"
+]
+},
+{
+"n": 121,
+"league": "Runes of Aldur",
+"listed": "2026-06-12T22:03:14Z",
+"gear": {
+"name": "Rare item",
+"base": "Soaring Spear",
+"type": "Spear",
+"unique": false,
+"rare": true,
+"affixes": [
+"(27-30)% increased Stun Duration",
+"(50-64)% increased Physical Damage",
+"Adds (7-11) to (13-19) Fire Damage",
+"Adds 1 to (13-19) Lightning Damage",
+"+(12-13)% to Critical Damage Bonus",
+"Gain (10-14) Mana per enemy killed"
+],
+"runes": [
+"Thrud's Might",
+"Astrid's Creativity",
+"Spear Throw"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 122,
+"league": "Runes of Aldur",
+"listed": "2026-06-12T12:32:54Z",
+"gear": {
+"name": "Rare item",
+"base": "Dueling Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"+5 to Level of all Lightning Spell Skills",
+"Gain (25-27)% of Damage as Extra Cold Damage",
+"Gain (28-30)% of Damage as Extra Lightning Damage",
+"+(142-188) to maximum Mana",
+"+1 to Level of all Spell Skills",
+"(39-47)% increased Cast Speed",
+"Gain (11-16)% of Elemental Damage as Extra Cold Damage",
+"Gain (36-45) Mana per enemy killed"
+],
+"runes": [
+"Astrid's Creativity",
+"Spellslinger"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 123,
+"league": "Runes of Aldur",
+"listed": "2026-06-22T16:14:29Z",
+"gear": {
+"name": "Rare item",
+"base": "Sanctified Staff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (55-60)% of Damage as Extra Fire Damage",
+"Gain (54-68) Life per enemy killed",
+"Gain (28-35) Mana per enemy killed",
+"(71-80)% increased Flammability Magnitude",
+"(189-208)% increased Fire Damage"
+],
+"runes": [
+"Passion of Aldur",
+"Rune of Vitality",
+"Consecrate"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 124,
+"league": "Runes of Aldur",
+"listed": "2026-08-01T13:52:09Z",
+"gear": {
+"name": "Rare item",
+"base": "Shrine Sceptre",
+"type": "Sceptre",
+"unique": false,
+"rare": true,
+"affixes": [
+"Allies in your Presence deal (12-19) to (22-32) added Attack Physical Damage",
+"Allies in your Presence deal (25-29) to (39-45) added Attack Fire Damage",
+"Allies in your Presence have (35-38)% increased Critical Hit Chance",
+"Allies in your Presence have (35-39)% increased Critical Damage Bonus",
+"(66-80)% increased Presence Area of Effect"
+],
+"runes": [
+"Passion of Aldur",
+"Purity of Ice"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 125,
+"league": "Runes of Aldur",
+"listed": "2026-09-04T06:41:15Z",
+"gear": {
+"name": "Rare item",
+"base": "Roaring Staff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (55-60)% of Damage as Extra Fire Damage",
+"+7 to Level of all Fire Spell Skills",
+"(38-43)% increased Cast Speed",
+"+(31-33) to Intelligence",
+"Gain (49-54)% of Damage as Extra Fire Damage"
+],
+"runes": [
+"Passion of Aldur",
+"Hedgewitch Assandra's Rune of Wisdom",
+"Unleash"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 126,
+"league": "Runes of Aldur",
+"listed": "2026-06-29T22:31:22Z",
+"gear": {
+"name": "Rare item",
+"base": "Chiming Staff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"(15-20)% increased Explicit Fire Modifier magnitudes",
+"Gain (55-60)% of Damage as Extra Fire Damage",
+"(209-238)% increased Fire Damage",
+"+7 to Level of all Fire Spell Skills",
+"Gain (69-84) Life per enemy killed"
+],
+"runes": [
+"Thrud's Might",
+"Passion of Aldur",
+"Hedgewitch Assandra's Rune of Wisdom",
+"Sigil of Power"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 127,
+"league": "Forbidden Rites",
+"listed": "2026-09-27T16:13:59Z",
+"gear": {
+"name": "Magic item",
+"base": "Gold Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (1-2) to 3 Fire damage to Attacks",
+"Leech (7-7.9)% of Physical Attack Damage as Life"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 128,
+"league": "Forbidden Rites",
+"listed": "2026-09-22T09:17:02Z",
+"gear": {
+"name": "Magic item",
+"base": "Topaz Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (1-2) to (33-40) Lightning damage to Attacks",
+"+(41-45)% to Cold Resistance"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 129,
+"league": "Forbidden Rites",
+"listed": "2026-10-14T13:49:41Z",
+"gear": {
+"name": "Magic item",
+"base": "Gold Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"(23-26)% increased Cold Damage",
+"Gain (21-27) Mana per enemy killed"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 130,
+"league": "Forbidden Rites",
+"listed": "2026-09-09T16:32:13Z",
+"gear": {
+"name": "Magic item",
+"base": "Iron Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"(10-19)% increased Mana Regeneration Rate"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 131,
+"league": "Forbidden Rites",
+"listed": "2026-10-21T19:22:54Z",
+"gear": {
+"name": "Magic item",
+"base": "Solar Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"(45-50)% increased maximum Energy Shield"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 132,
+"league": "Forbidden Rites",
+"listed": "2026-10-08T21:05:16Z",
+"gear": {
+"name": "Magic item",
+"base": "Gold Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"(60-69)% increased Mana Regeneration Rate"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 133,
+"league": "Forbidden Rites",
+"listed": "2026-11-10T13:36:58Z",
+"gear": {
+"name": "Magic item",
+"base": "Distorted Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(80-89) to maximum Energy Shield"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 134,
+"league": "Forbidden Rites",
+"listed": "2026-11-01T17:43:17Z",
+"gear": {
+"name": "Magic item",
+"base": "Azure Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(31-33) to Dexterity"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 135,
+"league": "Forbidden Rites",
+"listed": "2026-11-07T19:53:16Z",
+"gear": {
+"name": "Magic item",
+"base": "Mail Belt",
+"type": "Belt",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(40-59) to maximum Life",
+"+(125-163) to Stun Threshold"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 136,
+"league": "Forbidden Rites",
+"listed": "2026-10-12T03:12:12Z",
+"gear": {
+"name": "Magic item",
+"base": "Linen Belt",
+"type": "Belt",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(65-79) to maximum Mana"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 137,
+"league": "Forbidden Rites",
+"listed": "2026-09-24T14:19:30Z",
+"gear": {
+"name": "Magic item",
+"base": "Wide Belt",
+"type": "Belt",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(80-89) to maximum Mana"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 138,
+"league": "Forbidden Rites",
+"listed": "2026-11-08T07:53:18Z",
+"gear": {
+"name": "Magic item",
+"base": "Plate Belt",
+"type": "Belt",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(65-79) to maximum Mana"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 139,
+"league": "Forbidden Rites",
+"listed": "2026-09-17T01:52:33Z",
+"gear": {
+"name": "Magic item",
+"base": "Ruby",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"(10-20)% increased Damage with Warcries"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 140,
+"league": "Forbidden Rites",
+"listed": "2026-10-22T07:38:38Z",
+"gear": {
+"name": "Magic item",
+"base": "Ruby",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"(10-20)% increased Warcry Speed",
+"(10-20)% increased Thorns damage"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 141,
+"league": "Forbidden Rites",
+"listed": "2026-09-14T18:39:36Z",
+"gear": {
+"name": "Magic item",
+"base": "Ruby",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 142,
+"league": "Forbidden Rites",
+"listed": "2026-09-24T15:05:15Z",
+"gear": {
+"name": "Magic item",
+"base": "Time-Lost Ruby",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"Small Passive Skills in Radius also grant (2-3)% increased Armour",
+"Notable Passive Skills in Radius also grant (8-12)% increased Glory generation for Banner Skills"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 143,
+"league": "Forbidden Rites",
+"listed": "2026-10-27T15:45:21Z",
+"gear": {
+"name": "Magic item",
+"base": "Grand Life Flask",
+"type": "Flask",
+"unique": false,
+"rare": true,
+"affixes": [],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 144,
+"league": "Forbidden Rites",
+"listed": "2026-11-05T17:06:27Z",
+"gear": {
+"name": "Magic item",
+"base": "Ultimate Life Flask",
+"type": "Flask",
+"unique": false,
+"rare": true,
+"affixes": [
+"(93-100)% increased Life Recovered",
+"Removes 15% of Life Recovered from Mana when used",
+"(27-29)% reduced Charges per use"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 145,
+"league": "Forbidden Rites",
+"listed": "2026-10-20T08:38:40Z",
+"gear": {
+"name": "Magic item",
+"base": "Ultimate Life Flask",
+"type": "Flask",
+"unique": false,
+"rare": true,
+"affixes": [
+"(51-60)% more Recovery if used while on Low Life"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 146,
+"league": "Forbidden Rites",
+"listed": "2026-11-08T00:55:02Z",
+"gear": {
+"name": "Magic item",
+"base": "Transcendent Life Flask",
+"type": "Flask",
+"unique": false,
+"rare": true,
+"affixes": [
+"(69-76)% increased Life Recovered",
+"Removes 15% of Life Recovered from Mana when used"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 147,
+"league": "Forbidden Rites",
+"listed": "2026-09-13T17:06:01Z",
+"gear": {
+"name": "Magic item",
+"base": "Ultimate Mana Flask",
+"type": "Flask",
+"unique": false,
+"rare": true,
+"affixes": [
+"(91-100)% more Recovery if used while on Low Mana",
+"(27-29)% reduced Charges per use"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 148,
+"league": "Forbidden Rites",
+"listed": "2026-09-22T23:59:40Z",
+"gear": {
+"name": "Magic item",
+"base": "Grand Mana Flask",
+"type": "Flask",
+"unique": false,
+"rare": true,
+"affixes": [
+"(51-60)% more Recovery if used while on Low Mana",
+"(23-30)% increased Charges gained"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 149,
+"league": "Forbidden Rites",
+"listed": "2026-10-23T11:30:48Z",
+"gear": {
+"name": "Magic item",
+"base": "Ultimate Mana Flask",
+"type": "Flask",
+"unique": false,
+"rare": true,
+"affixes": [
+"(28-30)% of Recovery applied Instantly"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 150,
+"league": "Forbidden Rites",
+"listed": "2026-11-21T00:03:17Z",
+"gear": {
+"name": "Magic item",
+"base": "Ultimate Mana Flask",
+"type": "Flask",
+"unique": false,
+"rare": true,
+"affixes": [
+"(56-60)% increased Amount Recovered",
+"(55-62)% increased Charges gained"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 151,
+"league": "Forbidden Rites",
+"listed": "2026-09-06T19:27:45Z",
+"gear": {
+"name": "Magic item",
+"base": "Golden Charm",
+"type": "Charm",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gains 0.2 Charges per Second",
+"Recover (285-350) Life when Used"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 152,
+"league": "Forbidden Rites",
+"listed": "2026-10-14T09:54:32Z",
+"gear": {
+"name": "Magic item",
+"base": "Antidote Charm",
+"type": "Charm",
+"unique": false,
+"rare": true,
+"affixes": [
+"Also grants (355-500) Guard",
+"(31-38)% increased Charges gained"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 153,
+"league": "Forbidden Rites",
+"listed": "2026-11-16T08:27:03Z",
+"gear": {
+"name": "Magic item",
+"base": "Dousing Charm",
+"type": "Charm",
+"unique": false,
+"rare": true,
+"affixes": [
+"(39-46)% increased Charges"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 154,
+"league": "Forbidden Rites",
+"listed": "2026-09-18T20:27:02Z",
+"gear": {
+"name": "Magic item",
+"base": "Golden Charm",
+"type": "Charm",
+"unique": false,
+"rare": true,
+"affixes": [
+"Also grants (265-350) Guard",
+"(31-35)% Chance to gain a Charge when you kill an enemy"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 155,
+"league": "Forbidden Rites",
+"listed": "2026-10-18T10:37:13Z",
+"gear": {
+"name": "Magic item",
+"base": "Withered Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"(25-34)% increased Chaos Damage"
+],
+"runes": [
+"Chaos Bolt"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 156,
+"league": "Forbidden Rites",
+"listed": "2026-10-12T06:56:40Z",
+"gear": {
+"name": "Magic item",
+"base": "Volatile Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"(71-80)% increased Flammability Magnitude"
+],
+"runes": [
+"Volatile Dead"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 157,
+"league": "Forbidden Rites",
+"listed": "2026-09-24T11:49:12Z",
+"gear": {
+"name": "Magic item",
+"base": "Siphoning Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"(25-34)% increased Spell Damage",
+"+2 to Level of all Chaos Spell Skills"
+],
+"runes": [
+"Power Siphon"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 158,
+"league": "Forbidden Rites",
+"listed": "2026-11-21T18:08:47Z",
+"gear": {
+"name": "Magic item",
+"base": "Attuned Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"(51-60)% increased chance to Shock"
+],
+"runes": [
+"Mana Drain"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 159,
+"league": "Forbidden Rites",
+"listed": "2026-11-12T19:01:23Z",
+"gear": {
+"name": "Magic item",
+"base": "Keth Raiment",
+"type": "Body Armour",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(20-29) to maximum Life",
+"(4.1-6) Life Regeneration per second"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 160,
+"league": "Forbidden Rites",
+"listed": "2026-09-26T20:15:48Z",
+"gear": {
+"name": "Magic item",
+"base": "Sacrificial Regalia",
+"type": "Body Armour",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(10-19) to maximum Life"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 161,
+"league": "Forbidden Rites",
+"listed": "2026-10-02T03:37:16Z",
+"gear": {
+"name": "Magic item",
+"base": "Leather Vest",
+"type": "Body Armour",
+"unique": false,
+"rare": true,
+"affixes": [
+"(2.1-3) Life Regeneration per second"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 162,
+"league": "Forbidden Rites",
+"listed": "2026-09-23T14:51:23Z",
+"gear": {
+"name": "Magic item",
+"base": "Dastard Armour",
+"type": "Body Armour",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(190-199) to maximum Life",
+"+(254-304) to Stun Threshold"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 163,
+"league": "Forbidden Rites",
+"listed": "2026-11-06T20:50:35Z",
+"gear": {
+"name": "Magic item",
+"base": "Bastion Sabatons",
+"type": "Boots",
+"unique": false,
+"rare": true,
+"affixes": [
+"(80-91)% increased Armour and Evasion",
+"+(6-10)% to Fire Resistance"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 164,
+"league": "Forbidden Rites",
+"listed": "2026-09-28T09:06:30Z",
+"gear": {
+"name": "Magic item",
+"base": "Dunerunner Sandals",
+"type": "Boots",
+"unique": false,
+"rare": true,
+"affixes": [
+"35% increased Movement Speed",
+"(18.1-23) Life Regeneration per second"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 165,
+"league": "Forbidden Rites",
+"listed": "2026-10-12T22:01:00Z",
+"gear": {
+"name": "Magic item",
+"base": "Elegant Slippers",
+"type": "Boots",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(80-89) to maximum Mana",
+"+(6-10)% to Fire Resistance"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 166,
+"league": "Forbidden Rites",
+"listed": "2026-10-13T15:51:30Z",
+"gear": {
+"name": "Magic item",
+"base": "Charmed Shoes",
+"type": "Boots",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(65-78) to Evasion Rating",
+"+(22-25) to maximum Energy Shield",
+"+(41-45)% to Fire Resistance"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 199,
+"league": "Forbidden Rites",
+"listed": "2026-09-13T06:21:20Z",
+"gear": {
+"name": "Rare item",
+"base": "Sinister Quarterstaff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"(20-24)% increased Physical Damage",
+"+(21-46) to Accuracy Rating",
+"Adds (5-8) to (10-15) Physical Damage",
+"(86-99)% increased Elemental Damage with Attacks",
+"+(3.11-3.8)% to Critical Hit Chance",
+"(14-16)% increased Attack Speed",
+"+4 to Level of all Melee Skills"
+],
+"runes": [
+"Greater Glacial Rune",
+"Greater Storm Rune"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 200,
+"league": "Forbidden Rites",
+"listed": "2026-10-05T02:19:23Z",
+"gear": {
+"name": "Rare item",
+"base": "Lunar Quarterstaff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"(170-179)% increased Physical Damage",
+"Adds (1-8) to (128-162) Lightning Damage",
+"+(28-30) to Dexterity",
+"(23-25)% increased Attack Speed",
+"+3 to Level of all Attack Skills",
+"Adds (23-35) to (39-59) Physical Damage"
+],
+"runes": [
+"Soul Core of Ticaba",
+"Fenumus' Rune of Agony",
+"Astrid's Creativity"
+],
+"corrupted": true
+},
+"xfail": [
+"F1",
+"F8"
+]
+},
+{
+"n": 201,
+"league": "Forbidden Rites",
+"listed": "2026-11-05T13:18:45Z",
+"gear": {
+"name": "Rare item",
+"base": "Sinister Quarterstaff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(4.41-5)% to Critical Hit Chance",
+"Adds (112-124) to (168-189) Cold Damage",
+"Adds (1-19) to (310-358) Lightning Damage",
+"(120-139)% increased Elemental Damage with Attacks",
+"(26-28)% increased Attack Speed",
+"+5 to Level of all Melee Skills",
+"+(23-25)% to Critical Damage Bonus"
+],
+"runes": [
+"Saqawal's Rune of the Sky",
+"Serle's Triumph",
+"Fenumus' Rune of Agony"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 202,
+"league": "Forbidden Rites",
+"listed": "2026-11-16T13:43:37Z",
+"gear": {
+"name": "Rare item",
+"base": "Aegis Quarterstaff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"(75-79)% increased Physical Damage",
+"+(175-200) to Accuracy Rating",
+"Adds (23-35) to (39-59) Physical Damage",
+"Adds (32-43) to (49-66) Cold Damage",
+"+(23-25)% to Critical Damage Bonus",
+"+5 to Level of all Melee Skills",
+"+(41-60) to Accuracy Rating",
+"15% increased Light Radius"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 203,
+"league": "Forbidden Rites",
+"listed": "2026-10-08T18:01:19Z",
+"gear": {
+"name": "Rare item",
+"base": "Prismatic Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (1-2) to 3 Fire damage to Attacks",
+"+(18-38) to Evasion Rating",
+"+(55-64) to maximum Mana",
+"+(16-20)% to Lightning Resistance",
+"(2.1-3) Life Regeneration per second",
+"(30-39)% increased Mana Regeneration Rate"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 204,
+"league": "Forbidden Rites",
+"listed": "2026-09-14T13:13:23Z",
+"gear": {
+"name": "Rare item",
+"base": "Lazuli Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds 1 to (23-27) Lightning damage to Attacks",
+"+(8-17) to Evasion Rating",
+"(13-15)% increased Cast Speed",
+"+(9-12) to Intelligence",
+"Gain (4-6) Life per enemy killed"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 205,
+"league": "Forbidden Rites",
+"listed": "2026-09-14T03:36:17Z",
+"gear": {
+"name": "Rare item",
+"base": "Topaz Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"(3-7)% increased Lightning Damage",
+"+(8-17) to Evasion Rating",
+"+(30-39) to maximum Life",
+"+(9-12) to Intelligence"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 206,
+"league": "Forbidden Rites",
+"listed": "2026-09-11T14:49:32Z",
+"gear": {
+"name": "Rare item",
+"base": "Ruby Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds 1 to (10-15) Lightning damage to Attacks",
+"(3-7)% increased Lightning Damage",
+"+(10-19) to maximum Life",
+"(9-12)% increased Cast Speed",
+"+(5-8) to Dexterity",
+"(10-19)% increased Mana Regeneration Rate"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 207,
+"league": "Forbidden Rites",
+"listed": "2026-09-28T16:15:55Z",
+"gear": {
+"name": "Rare item",
+"base": "Rambler Jacket",
+"type": "Body Armour",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(40-50) to Evasion Rating",
+"+(13-15) to maximum Energy Shield",
+"(39-42)% increased Evasion and Energy Shield",
+"(101-110)% increased Evasion and Energy Shield",
+"(39-42)% increased Evasion and Energy Shield",
+"+(42-49) to maximum Life",
+"+(31-33) to Intelligence",
+"+(36-40)% to Cold Resistance",
+"+(21-25)% to Lightning Resistance"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 208,
+"league": "Forbidden Rites",
+"listed": "2026-10-04T13:39:18Z",
+"gear": {
+"name": "Rare item",
+"base": "Soldier Cuirass",
+"type": "Body Armour",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(222-248) to Armour",
+"+(25-27) to Strength",
+"+(38-43)% of Armour also applies to Elemental Damage",
+"(33.1-36) Life Regeneration per second"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 209,
+"league": "Forbidden Rites",
+"listed": "2026-11-19T12:17:10Z",
+"gear": {
+"name": "Rare item",
+"base": "Flowing Raiment",
+"type": "Body Armour",
+"unique": false,
+"rare": true,
+"affixes": [
+"(1-20)% increased Spirit",
+"(1-20)% increased maximum Mana",
+"+(81-90) to maximum Energy Shield",
+"+(41-45)% to Fire Resistance",
+"+(31-35)% to Cold Resistance",
+"(6-12)% increased Spirit Reservation Efficiency"
+],
+"runes": [
+"Medved's Tending",
+"Perfect Iron Rune",
+"Perfect Iron Rune"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 210,
+"league": "Forbidden Rites",
+"listed": "2026-09-29T06:51:30Z",
+"gear": {
+"name": "Rare item",
+"base": "Rambler Jacket",
+"type": "Body Armour",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(95-119) to Evasion Rating",
+"+(30-36) to maximum Energy Shield",
+"(101-110)% increased Evasion and Energy Shield",
+"+(57-61) to Spirit",
+"+(28-30) to Intelligence",
+"+(41-45)% to Fire Resistance",
+"+(13-17)% to Lightning and Chaos Resistances"
+],
+"runes": [
+"Greater Iron Rune",
+"Greater Iron Rune"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 211,
+"league": "Runes of Aldur",
+"listed": "2026-06-28T11:10:40Z",
+"gear": {
+"name": "Rare item",
+"base": "Amber Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"(45-50)% increased maximum Energy Shield",
+"+(35-54) to maximum Mana",
+"+(41-45)% to Lightning Resistance",
+"(16-18)% of Damage taken Recouped as Life"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 212,
+"league": "Runes of Aldur",
+"listed": "2026-06-21T09:29:19Z",
+"gear": {
+"name": "Rare item",
+"base": "Absent Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(120-149) to maximum Life",
+"(45-50)% increased Evasion Rating",
+"+3 to Level of all Spell Skills"
+],
+"runes": [
+"Cast on Critical"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 213,
+"league": "Runes of Aldur",
+"listed": "2026-07-19T17:44:51Z",
+"gear": {
+"name": "Rare item",
+"base": "Absent Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(80-89) to maximum Energy Shield",
+"+3 to Level of all Projectile Skills",
+"(30-34)% increased Critical Hit Chance",
+"(20-30)% increased Global Armour, Evasion and Energy Shield"
+],
+"runes": [
+"Trinity"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 214,
+"league": "Runes of Aldur",
+"listed": "2026-06-27T19:43:33Z",
+"gear": {
+"name": "Rare item",
+"base": "Lunar Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(100-119) to maximum Life",
+"+(65-79) to maximum Mana",
+"(16-19)% increased Rarity of Items found",
+"(20-24)% increased Critical Damage Bonus",
+"+(15-16)% to all Elemental Resistances",
+"+(31-35)% to Lightning Resistance"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 215,
+"league": "Forbidden Rites",
+"listed": "2026-11-23T15:22:47Z",
+"gear": {
+"name": "Rare item",
+"base": "Runeforged Grand Bracers",
+"type": "Gloves",
+"unique": false,
+"rare": true,
+"affixes": [
+"+2 to Level of all Projectile Skills",
+"Adds (1-4) to (60-71) Lightning damage to Attacks",
+"(25-29)% increased Critical Damage Bonus",
+"Adds (16-20) to (25-31) Cold damage to Attacks",
+"Gain (28-35) Mana per enemy killed",
+"(25-39)% increased Effect of your Mark Skills"
+],
+"runes": [
+"Kolr's Hunt",
+"Idol of Sirrius"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 216,
+"league": "Forbidden Rites",
+"listed": "2026-11-23T02:17:53Z",
+"gear": {
+"name": "Rare item",
+"base": "Runeforged Sirenscale Gloves",
+"type": "Gloves",
+"unique": false,
+"rare": true,
+"affixes": [
+"(28-34)% increased Critical Hit Chance",
+"(92-100)% increased Energy Shield",
+"+2 to Level of all Projectile Skills",
+"(31-40)% increased Projectile Damage",
+"(25-29)% increased Critical Damage Bonus",
+"+(48-60) to maximum Energy Shield"
+],
+"runes": [
+"Kolr's Hunt",
+"Snake Idol"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 217,
+"league": "Forbidden Rites",
+"listed": "2026-10-19T12:49:38Z",
+"gear": {
+"name": "Rare item",
+"base": "Ancient Cuffs",
+"type": "Gloves",
+"unique": false,
+"rare": true,
+"affixes": [
+"(80-91)% increased Armour and Energy Shield",
+"+(40-59) to maximum Life",
+"+2 to Level of all Melee Skills",
+"+(38-43)% of Armour also applies to Elemental Damage",
+"(10-15)% increased Area of Effect for Attacks"
+],
+"runes": [
+"Atziri's Soul Core of Alacrity"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 218,
+"league": "Forbidden Rites",
+"listed": "2026-11-23T16:03:10Z",
+"gear": {
+"name": "Rare item",
+"base": "Runeforged Blacksteel Gauntlets",
+"type": "Gloves",
+"unique": false,
+"rare": true,
+"affixes": [
+"(31-40)% increased Projectile Damage",
+"(31-40)% increased Projectile Speed",
+"+2 to Level of all Projectile Skills",
+"(51-100)% chance to Pierce an Enemy",
+"(24-30)% increased Runic Ward",
+"(25-29)% increased Critical Damage Bonus",
+"(10-20)% increased Magnitude of Ailments you inflict"
+],
+"runes": [
+"Serle's Triumph",
+"Kolr's Hunt",
+"Thane Grannell's Rune of Mastery"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 219,
+"league": "Forbidden Rites",
+"listed": "2026-11-12T01:38:02Z",
+"gear": {
+"name": "Rare item",
+"base": "Time-Lost Sapphire",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"Notable Passive Skills in Radius also grant (5-10)% increased Critical Damage Bonus",
+"Notable Passive Skills in Radius also grant (3-7)% increased Critical Hit Chance for Spells",
+"Notable Passive Skills in Radius also grant (15-25)% increased Energy Shield from Equipped Focus",
+"Notable Passive Skills in Radius also grant (5-10)% increased Critical Spell Damage Bonus",
+"Upgrades Radius to Very Large",
+"Small Passive Skills in Radius also grant (1-2)% increased Mana Regeneration Rate"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": [
+"F9"
+]
+},
+{
+"n": 220,
+"league": "Forbidden Rites",
+"listed": "2026-11-10T01:39:08Z",
+"gear": {
+"name": "Rare item",
+"base": "Time-Lost Diamond",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"Notable Passive Skills in Radius also grant (5-10)% increased Critical Damage Bonus for Attack Damage",
+"Notable Passive Skills in Radius also grant (3-7)% increased Critical Hit Chance for Attacks",
+"Notable Passive Skills in Radius also grant +1 to Maximum Rage",
+"Notable Passive Skills in Radius also grant (2-3)% increased Mana Cost Efficiency",
+"Upgrades Radius to Very Large"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": [
+"F9"
+]
+},
+{
+"n": 221,
+"league": "Forbidden Rites",
+"listed": "2026-11-12T03:05:23Z",
+"gear": {
+"name": "Rare item",
+"base": "Sapphire",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"(10-20)% increased Critical Damage Bonus",
+"(5-15)% increased Cold Damage",
+"(10-20)% increased maximum Energy Shield",
+"(10-20)% increased Critical Spell Damage Bonus",
+"(5-15)% increased Critical Hit Chance for Spells",
+"(40-60)% increased Effect of Suffixes"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": [
+"F9"
+]
+},
+{
+"n": 222,
+"league": "Forbidden Rites",
+"listed": "2026-11-14T04:20:42Z",
+"gear": {
+"name": "Rare item",
+"base": "Time-Lost Sapphire",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"Notable Passive Skills in Radius also grant (3-7)% increased Critical Hit Chance for Spells",
+"Notable Passive Skills in Radius also grant (5-10)% increased Critical Damage Bonus",
+"Notable Passive Skills in Radius also grant (5-10)% increased Critical Spell Damage Bonus",
+"Upgrades Radius to Very Large",
+"Notable Passive Skills in Radius also grant 1% increased maximum Mana"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": [
+"F9"
+]
+},
+{
+"n": 236,
+"league": "Forbidden Rites",
+"listed": "2026-11-20T16:12:13Z",
+"gear": {
+"name": "Rare item",
+"base": "Sinister Quarterstaff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (73-97) to (112-149) Fire Damage",
+"Adds (1-19) to (310-358) Lightning Damage",
+"Leeches (8-8.9)% of Physical Damage as Mana",
+"(23-25)% increased Attack Speed",
+"+3 to Level of all Attack Skills",
+"(86-99)% increased Cold Damage",
+"(14-23)% increased Freeze Buildup"
+],
+"runes": [
+"Astrid's Creativity"
+],
+"corrupted": false
+},
+"xfail": [
+"F8"
+]
+},
+{
+"n": 237,
+"league": "Forbidden Rites",
+"listed": "2026-11-22T21:30:48Z",
+"gear": {
+"name": "Rare item",
+"base": "Skullcrusher Quarterstaff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"(85-109)% increased Physical Damage",
+"+(237-346) to Accuracy Rating",
+"Leeches (7-7.9)% of Physical Damage as Mana",
+"Gain (28-35) Mana per enemy killed",
+"+3 to Level of all Attack Skills",
+"Adds (14-21) to (25-37) Physical Damage"
+],
+"runes": [
+"Greater Iron Rune",
+"Greater Iron Rune"
+],
+"corrupted": false
+},
+"xfail": [
+"F8"
+]
+},
+{
+"n": 238,
+"league": "Forbidden Rites",
+"listed": "2026-11-15T20:50:16Z",
+"gear": {
+"name": "Rare item",
+"base": "Skullcrusher Quarterstaff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (46-57) to (70-88) Cold Damage",
+"+(347-450) to Accuracy Rating",
+"(100-119)% increased Elemental Damage with Attacks",
+"Leeches (9-9.9)% of Physical Damage as Life",
+"+3 to Level of all Attack Skills",
+"+(13-16) to Dexterity"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": [
+"F8"
+]
+},
+{
+"n": 239,
+"league": "Forbidden Rites",
+"listed": "2026-09-22T08:05:28Z",
+"gear": {
+"name": "Rare item",
+"base": "Aegis Quarterstaff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (19-27) to (30-42) Fire Damage",
+"Adds (1-8) to (128-162) Lightning Damage",
+"Leeches (8-8.9)% of Physical Damage as Life",
+"Causes (61-70)% increased Stun Buildup",
+"+3 to Level of all Attack Skills"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": [
+"F8"
+]
+},
+{
+"n": 240,
+"league": "Runes of Aldur",
+"listed": "2026-06-09T22:53:59Z",
+"gear": {
+"name": "Rare item",
+"base": "Bolting Quarterstaff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"(40-49)% increased Physical Damage",
+"(55-64)% increased Physical Damage",
+"+(124-149) to Accuracy Rating",
+"Adds (14-21) to (25-37) Physical Damage",
+"+2 to Level of all Melee Skills",
+"Causes (31-40)% increased Stun Buildup",
+"(23-25)% increased Attack Speed"
+],
+"runes": [
+"Greater Iron Rune",
+"Greater Iron Rune"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 241,
+"league": "Runes of Aldur",
+"listed": "2026-06-20T10:44:26Z",
+"gear": {
+"name": "Rare item",
+"base": "Bladed Quarterstaff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (29-44) to (50-75) Physical Damage",
+"Adds (10-14) to (15-23) Cold Damage",
+"Adds (1-13) to (168-231) Lightning Damage",
+"Leeches (7-7.9)% of Physical Damage as Mana",
+"Causes (71-80)% increased Stun Buildup",
+"+3 to Level of all Attack Skills"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": [
+"F8"
+]
+},
+{
+"n": 242,
+"league": "Runes of Aldur",
+"listed": "2026-08-31T18:24:46Z",
+"gear": {
+"name": "Rare item",
+"base": "Striking Quarterstaff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (1-19) to (310-358) Lightning Damage",
+"(100-119)% increased Elemental Damage with Attacks",
+"+5 to Level of all Melee Skills",
+"Leeches (8-8.9)% of Physical Damage as Mana",
+"(23-25)% increased Attack Speed",
+"Adds (84-107) to (126-161) Cold Damage"
+],
+"runes": [
+"Perfect Storm Rune",
+"Farrul's Rune of the Hunt"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 243,
+"league": "Runes of Aldur",
+"listed": "2026-10-06T10:21:07Z",
+"gear": {
+"name": "Rare item",
+"base": "Bolting Quarterstaff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (84-107) to (126-161) Cold Damage",
+"(100-119)% increased Elemental Damage with Attacks",
+"30% reduced Attribute Requirements",
+"(20-22)% increased Stun Duration",
+"Adds (1-2) to (19-27) Lightning Damage",
+"+3 to Level of all Attack Skills"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": [
+"F8"
+]
+},
+{
+"n": 244,
+"league": "Forbidden Rites",
+"listed": "2026-09-23T16:47:34Z",
+"gear": {
+"name": "Rare item",
+"base": "Skullcrusher Quarterstaff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"(45-54)% increased Physical Damage",
+"+(98-123) to Accuracy Rating",
+"30% reduced Attribute Requirements",
+"+4 to Level of all Melee Skills",
+"+(28-30) to Intelligence",
+"Adds (23-35) to (39-59) Physical Damage",
+"(86-99)% increased Elemental Damage with Attacks"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 245,
+"league": "Forbidden Rites",
+"listed": "2026-10-08T19:10:42Z",
+"gear": {
+"name": "Rare item",
+"base": "Bolting Quarterstaff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"(15-19)% increased Physical Damage",
+"+(16-20) to Accuracy Rating",
+"(40-49)% increased Physical Damage",
+"Adds (1-16) to (239-300) Lightning Damage",
+"+(17-20) to Dexterity",
+"Gain (21-27) Mana per enemy killed",
+"+(3.11-3.8)% to Critical Hit Chance"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 246,
+"league": "Forbidden Rites",
+"listed": "2026-09-10T16:08:18Z",
+"gear": {
+"name": "Rare item",
+"base": "Sinister Quarterstaff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"(35-44)% increased Physical Damage",
+"+(73-97) to Accuracy Rating",
+"Adds (56-70) to (84-107) Fire Damage",
+"Adds (1-4) to (80-88) Lightning Damage",
+"+4 to Level of all Melee Skills",
+"Gain (21-27) Mana per enemy killed",
+"(23-25)% increased Attack Speed"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 247,
+"league": "Forbidden Rites",
+"listed": "2026-10-26T09:47:30Z",
+"gear": {
+"name": "Rare item",
+"base": "Bolting Quarterstaff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"(55-64)% increased Physical Damage",
+"+(124-149) to Accuracy Rating",
+"Adds (39-53) to (59-80) Fire Damage",
+"Adds (32-43) to (49-66) Cold Damage",
+"(14-16)% increased Attack Speed",
+"(27-30)% increased Stun Duration",
+"+3 to Level of all Attack Skills"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": [
+"F8"
+]
+},
+{
+"n": 248,
+"league": "Forbidden Rites",
+"listed": "2026-09-17T09:31:34Z",
+"gear": {
+"name": "Rare item",
+"base": "Dueling Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (28-30)% of Damage as Extra Fire Damage",
+"Gain (16-18)% of Damage as Extra Lightning Damage",
+"(35-44)% increased Spell Physical Damage",
+"(35-39)% increased Critical Spell Damage Bonus",
+"(13-17)% increased Mana Regeneration Rate",
+"10% increased Light Radius",
+"+3 to Level of all Spell Skills"
+],
+"runes": [
+"Spellslinger"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 249,
+"league": "Forbidden Rites",
+"listed": "2026-11-21T08:57:08Z",
+"gear": {
+"name": "Rare item",
+"base": "Dueling Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (28-30)% of Damage as Extra Cold Damage",
+"Gain (28-30)% of Damage as Extra Lightning Damage",
+"+4 to Level of all Spell Skills",
+"+(142-188) to maximum Mana",
+"+1 to Level of all Spell Skills",
+"(26-31)% increased Cast Speed",
+"Gain (7-11)% of Elemental Damage as Extra Cold Damage",
+"(60-73)% increased Critical Hit Chance for Spells"
+],
+"runes": [
+"Astrid's Creativity",
+"Spellslinger"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 250,
+"league": "Forbidden Rites",
+"listed": "2026-09-26T11:30:32Z",
+"gear": {
+"name": "Rare item",
+"base": "Withered Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (22-24)% of Damage as Extra Cold Damage",
+"(75-89)% increased Spell Damage",
+"+(80-89) to maximum Mana",
+"+3 to Level of all Spell Skills",
+"(54-59)% increased Critical Hit Chance for Spells",
+"(33-35)% increased Cast Speed"
+],
+"runes": [
+"Hedgewitch Assandra's Rune of Wisdom",
+"Chaos Bolt"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 251,
+"league": "Forbidden Rites",
+"listed": "2026-11-05T21:56:56Z",
+"gear": {
+"name": "Rare item",
+"base": "Dueling Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"+4 to Level of all Spell Skills",
+"Gain (28-30)% of Damage as Extra Fire Damage",
+"(47-53)% increased Critical Hit Chance for Spells",
+"+(142-188) to maximum Mana",
+"+1 to Level of all Spell Skills",
+"(26-31)% increased Cast Speed",
+"Gain (7-11)% of Elemental Damage as Extra Cold Damage",
+"(90-104)% increased Spell Damage"
+],
+"runes": [
+"Hedgewitch Assandra's Rune of Wisdom",
+"Legacy of Lifesprig",
+"Spellslinger"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 252,
+"league": "Forbidden Rites",
+"listed": "2026-09-27T11:32:56Z",
+"gear": {
+"name": "Rare item",
+"base": "Voltaic Staff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"(189-208)% increased Spell Damage",
+"+(159-178) to maximum Mana",
+"+(25-27) to Intelligence",
+"Gain (69-84) Life per enemy killed",
+"+5 to Level of all Spell Skills",
+"(59-68)% increased Spell Damage",
+"+(57-66) to maximum Mana"
+],
+"runes": [
+"Greater Vision Rune",
+"Greater Vision Rune",
+"Greater Vision Rune",
+"Lightning Bolt"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 253,
+"league": "Forbidden Rites",
+"listed": "2026-11-21T23:27:24Z",
+"gear": {
+"name": "Rare item",
+"base": "Ashen Staff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (55-60)% of Damage as Extra Fire Damage",
+"(50-68)% increased Spell Damage",
+"(50-68)% increased Fire Damage",
+"+(5-6) to Level of all Fire Spell Skills",
+"(80-89)% increased Critical Hit Chance for Spells",
+"(26-31)% increased Cast Speed"
+],
+"runes": [
+"Firebolt"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 254,
+"league": "Forbidden Rites",
+"listed": "2026-11-04T10:46:44Z",
+"gear": {
+"name": "Rare item",
+"base": "Ashen Staff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"(15-20)% increased Explicit Fire Modifier magnitudes",
+"Gain (55-60)% of Damage as Extra Fire Damage",
+"+7 to Level of all Fire Spell Skills",
+"+(142-188) to maximum Mana",
+"+1 to Level of all Spell Skills",
+"(39-47)% increased Cast Speed",
+"Gain (11-16)% of Elemental Damage as Extra Cold Damage",
+"(209-238)% increased Fire Damage"
+],
+"runes": [
+"Thrud's Might",
+"Jiquani's Soul Core of Rippling",
+"Hedgewitch Assandra's Rune of Wisdom",
+"Firebolt"
+],
+"corrupted": true
+},
+"xfail": [
+"F1"
+]
+},
+{
+"n": 255,
+"league": "Forbidden Rites",
+"listed": "2026-09-19T11:56:54Z",
+"gear": {
+"name": "Rare item",
+"base": "Roaring Staff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(299-328) to maximum Mana",
+"35% reduced Attribute Requirements",
+"(40-49)% increased Critical Hit Chance for Spells",
+"(26-31)% increased Cast Speed"
+],
+"runes": [
+"Unleash"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 256,
+"league": "Forbidden Rites",
+"listed": "2026-10-23T05:12:00Z",
+"gear": {
+"name": "Rare item",
+"base": "Absent Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"(7-8)% increased maximum Mana",
+"+20% to Maximum Quality"
+],
+"runes": [
+"Cast on Critical"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 257,
+"league": "Forbidden Rites",
+"listed": "2026-11-11T03:16:37Z",
+"gear": {
+"name": "Rare item",
+"base": "Solar Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(47-50) to Spirit",
+"+2 to Level of all Spell Skills",
+"+(26-30)% to Cold Resistance",
+"(20-30)% increased Global Armour, Evasion and Energy Shield",
+"+(3-5)% to Quality of all Skills"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 258,
+"league": "Forbidden Rites",
+"listed": "2026-11-03T14:56:47Z",
+"gear": {
+"name": "Rare item",
+"base": "Absent Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"+3 to Level of all Minion Skills",
+"+(13-17)% to Cold and Chaos Resistances",
+"+(47-50) to Spirit",
+"+20% to Maximum Quality"
+],
+"runes": [
+"Trinity"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 259,
+"league": "Forbidden Rites",
+"listed": "2026-10-08T06:53:02Z",
+"gear": {
+"name": "Rare item",
+"base": "Lapis Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(237-346) to Accuracy Rating",
+"+(21-22) to all Attributes",
+"+(9-12) to Dexterity",
+"(18.1-23) Life Regeneration per second"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 260,
+"league": "Forbidden Rites",
+"listed": "2026-11-15T22:47:46Z",
+"gear": {
+"name": "Rare item",
+"base": "Topaz Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(108-141) to Evasion Rating",
+"+(150-164) to maximum Mana",
+"+(25-27) to Dexterity",
+"+(36-40)% to Cold Resistance",
+"(13-17)% increased Mana Regeneration Rate",
+"10% increased Light Radius"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 261,
+"league": "Forbidden Rites",
+"listed": "2026-11-13T16:10:34Z",
+"gear": {
+"name": "Rare item",
+"base": "Prismatic Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (10-15) to (18-26) Physical Damage to Attacks",
+"Adds (1-2) to 3 Fire damage to Attacks",
+"+(17-20) to Strength",
+"+(31-33) to Dexterity",
+"+(36-40)% to Lightning Resistance",
+"Adds (5-6) to (9-11) Cold damage to Attacks"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 262,
+"league": "Forbidden Rites",
+"listed": "2026-09-13T04:29:49Z",
+"gear": {
+"name": "Rare item",
+"base": "Gold Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (6-8) to (10-13) Fire damage to Attacks",
+"+(85-123) to Accuracy Rating",
+"+(105-124) to maximum Mana",
+"(11-14)% increased Rarity of Items found",
+"+(13-16) to Dexterity",
+"(18-22)% increased Mana Regeneration Rate",
+"15% increased Light Radius"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 263,
+"league": "Forbidden Rites",
+"listed": "2026-11-24T10:01:40Z",
+"gear": {
+"name": "Rare item",
+"base": "Gold Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"(35-39)% increased Spell Damage",
+"(15-18)% increased Rarity of Items found",
+"(16-19)% increased Rarity of Items found",
+"(19-21)% increased Cast Speed",
+"+(15-16)% to all Elemental Resistances",
+"Gain (8-12)% of Damage as Extra Cold Damage with Spells"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 324,
+"league": "Forbidden Rites",
+"listed": "2026-09-20T10:18:55Z",
+"gear": {
+"name": "Rare item",
+"base": "Emerald",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"(6-16)% increased Damage with Bows",
+"(5-15)% increased Life Recovery from Flasks",
+"(10-15)% increased Magnitude of Shock you inflict"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 325,
+"league": "Forbidden Rites",
+"listed": "2026-09-05T19:09:13Z",
+"gear": {
+"name": "Rare item",
+"base": "Ruby",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"Banner Skills have (15-25)% increased Duration",
+"(15-25)% increased Damage against Enemies with Fully Broken Armour",
+"Gain (1-3) Rage when Hit by an Enemy",
+"(18-32)% increased Armour, Evasion and Energy Shield from Equipped Shield"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 326,
+"league": "Forbidden Rites",
+"listed": "2026-09-08T11:36:56Z",
+"gear": {
+"name": "Rare item",
+"base": "Emerald",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 327,
+"league": "Forbidden Rites",
+"listed": "2026-09-20T08:00:38Z",
+"gear": {
+"name": "Rare item",
+"base": "Emerald",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"(2-4)% increased Attack Speed",
+"Companions deal (10-20)% increased Damage",
+"(5-15)% increased Magnitude of Poison you inflict"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 328,
+"league": "Forbidden Rites",
+"listed": "2026-09-30T07:03:01Z",
+"gear": {
+"name": "Rare item",
+"base": "Emerald",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"(6-16)% increased Critical Hit Chance for Attacks",
+"(5-15)% increased Elemental Damage",
+"Companions have (10-20)% increased maximum Life",
+"(10-20)% increased Pin Buildup"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 329,
+"league": "Forbidden Rites",
+"listed": "2026-09-20T08:07:11Z",
+"gear": {
+"name": "Rare item",
+"base": "Emerald",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"(4-8)% increased Projectile Speed",
+"(5-10)% increased Accuracy Rating",
+"Mark Skills have (5-15)% increased Use Speed",
+"(10-15)% increased Crossbow Reload Speed"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 330,
+"league": "Forbidden Rites",
+"listed": "2026-09-13T15:54:34Z",
+"gear": {
+"name": "Rare item",
+"base": "Ruby",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"(5-15)% increased Fire Damage",
+"(5-15)% increased Attack Damage",
+"(6-16)% increased Stun Threshold"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 331,
+"league": "Forbidden Rites",
+"listed": "2026-09-20T20:44:15Z",
+"gear": {
+"name": "Rare item",
+"base": "Time-Lost Ruby",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"Small Passive Skills in Radius also grant (1-2)% increased Melee Damage",
+"Small Passive Skills in Radius also grant (2-4)% increased Damage against Enemies with Fully Broken Armour",
+"Notable Passive Skills in Radius also grant (2-3)% of Skill Mana Costs Converted to Life Costs"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 332,
+"league": "Runes of Aldur",
+"listed": "2026-07-09T14:18:56Z",
+"gear": {
+"name": "Rare item",
+"base": "Emerald",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"(5-15)% increased Lightning Damage",
+"(2-4)% increased Attack Speed",
+"(5-15)% increased Life Recovery from Flasks"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 333,
+"league": "Runes of Aldur",
+"listed": "2026-09-27T04:12:41Z",
+"gear": {
+"name": "Rare item",
+"base": "Emerald",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"(5-15)% increased Attack Damage",
+"(5-15)% increased Lightning Damage",
+"(6-16)% increased Critical Hit Chance for Attacks",
+"(2-4)% increased Attack Speed",
+"(10-20)% increased Critical Damage Bonus for Attack Damage",
+"(40-60)% increased Effect of Suffixes"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": [
+"F9"
+]
+},
+{
+"n": 334,
+"league": "Runes of Aldur",
+"listed": "2026-09-05T17:01:50Z",
+"gear": {
+"name": "Rare item",
+"base": "Time-Lost Emerald",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"Small Passive Skills in Radius also grant (1-2)% increased Elemental Damage",
+"Notable Passive Skills in Radius also grant (1-3)% increased Cooldown Recovery Rate",
+"Upgrades Radius to Medium",
+"Notable Passive Skills in Radius also grant (5-10)% increased Critical Damage Bonus for Attack Damage"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 335,
+"league": "Runes of Aldur",
+"listed": "2026-07-15T03:12:11Z",
+"gear": {
+"name": "Rare item",
+"base": "Sapphire",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"(5-10)% increased Duration of Damaging Ailments on Enemies",
+"Offerings have (15-25)% increased Maximum Life",
+"(10-15)% increased Magnitude of Shock you inflict"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 336,
+"league": "Runes of Aldur",
+"listed": "2026-06-05T05:23:57Z",
+"gear": {
+"name": "Magic item",
+"base": "Emerald",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"(5-15)% increased Magnitude of Poison you inflict"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 337,
+"league": "Runes of Aldur",
+"listed": "2026-06-10T21:19:59Z",
+"gear": {
+"name": "Magic item",
+"base": "Emerald",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"(10-20)% increased Evasion Rating",
+"(2-4)% increased Attack Speed with Spears"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 338,
+"league": "Runes of Aldur",
+"listed": "2026-07-03T19:58:55Z",
+"gear": {
+"name": "Magic item",
+"base": "Ruby",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"(10-18)% increased Totem Damage"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 339,
+"league": "Runes of Aldur",
+"listed": "2026-09-20T00:59:28Z",
+"gear": {
+"name": "Magic item",
+"base": "Ruby",
+"type": "Jewel",
+"unique": false,
+"rare": true,
+"affixes": [
+"(10-20)% increased Armour",
+"(5-10)% increased Life Regeneration rate"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 340,
+"league": "Runes of Aldur",
+"listed": "2026-08-28T17:20:55Z",
+"gear": {
+"name": "Magic item",
+"base": "Golden Charm",
+"type": "Charm",
+"unique": false,
+"rare": true,
+"affixes": [
+"(21-25)% Chance to gain a Charge when you kill an enemy"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 341,
+"league": "Runes of Aldur",
+"listed": "2026-06-26T08:57:07Z",
+"gear": {
+"name": "Magic item",
+"base": "Thawing Charm",
+"type": "Charm",
+"unique": false,
+"rare": true,
+"affixes": [
+"Recover (8-12) Life when Used"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 342,
+"league": "Runes of Aldur",
+"listed": "2026-08-02T04:03:03Z",
+"gear": {
+"name": "Magic item",
+"base": "Silver Charm",
+"type": "Charm",
+"unique": false,
+"rare": true,
+"affixes": [
+"Also grants (205-260) Guard",
+"(39-46)% increased Charges"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 343,
+"league": "Runes of Aldur",
+"listed": "2026-08-03T21:09:46Z",
+"gear": {
+"name": "Magic item",
+"base": "Thawing Charm",
+"type": "Charm",
+"unique": false,
+"rare": true,
+"affixes": [
+"Recover (8-12) Life when Used"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 344,
+"league": "Runes of Aldur",
+"listed": "2026-06-18T12:23:10Z",
+"gear": {
+"name": "Rare item",
+"base": "Kamasan Tiara",
+"type": "Helmet",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(48-60) to maximum Energy Shield",
+"(80-91)% increased Energy Shield",
+"+(120-149) to maximum Life",
+"(15-18)% increased Rarity of Items found",
+"+(36-40)% to Lightning Resistance",
+"(16-19)% increased Energy Shield Recharge Rate"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 345,
+"league": "Runes of Aldur",
+"listed": "2026-06-16T21:04:32Z",
+"gear": {
+"name": "Rare item",
+"base": "Noble Greathelm",
+"type": "Helmet",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(191-221) to Armour",
+"(68-79)% increased Armour",
+"+(150-174) to maximum Life",
+"+(28-30) to Intelligence"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 346,
+"league": "Runes of Aldur",
+"listed": "2026-06-16T14:51:32Z",
+"gear": {
+"name": "Rare item",
+"base": "Kamasan Tiara",
+"type": "Helmet",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(42-47) to maximum Energy Shield",
+"+(347-450) to Accuracy Rating",
+"+(90-104) to maximum Mana",
+"(30-34)% increased Critical Hit Chance",
+"+(41-45)% to Fire Resistance",
+"+(26-30)% to Cold Resistance"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 347,
+"league": "Runes of Aldur",
+"listed": "2026-08-03T17:03:55Z",
+"gear": {
+"name": "Rare item",
+"base": "Ancestral Tiara",
+"type": "Helmet",
+"unique": false,
+"rare": true,
+"affixes": [
+"(68-79)% increased Energy Shield",
+"+(41-60) to Accuracy Rating",
+"15% increased Light Radius",
+"+(100-119) to maximum Life",
+"+(90-104) to maximum Mana",
+"+2 to Level of all Minion Skills",
+"+(34-36) to Intelligence"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 348,
+"league": "Runes of Aldur",
+"listed": "2026-07-03T14:05:34Z",
+"gear": {
+"name": "Rare item",
+"base": "Falconer's Jacket",
+"type": "Body Armour",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(120-141) to Evasion Rating",
+"+(37-42) to maximum Energy Shield",
+"+(54-56) to Spirit",
+"(16-19)% increased Energy Shield Recharge Rate",
+"+(125-163) to Stun Threshold",
+"(41-45)% reduced Poison Duration on you",
+"(68-79)% increased Evasion and Energy Shield"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 349,
+"league": "Runes of Aldur",
+"listed": "2026-06-10T15:43:58Z",
+"gear": {
+"name": "Rare item",
+"base": "Sleek Jacket",
+"type": "Body Armour",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(40-50) to Evasion Rating",
+"+(13-15) to maximum Energy Shield",
+"(39-42)% increased Evasion and Energy Shield",
+"+(28-30) to Intelligence"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 350,
+"league": "Runes of Aldur",
+"listed": "2026-06-16T17:06:19Z",
+"gear": {
+"name": "Rare item",
+"base": "Swiftstalker Coat",
+"type": "Body Armour",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(54-70) to Evasion Rating",
+"(33-38)% increased Evasion Rating",
+"+(235-261) to Evasion Rating",
+"+(190-199) to maximum Life",
+"Gain Deflection Rating equal to (24-26)% of Evasion Rating",
+"(13.1-18) Life Regeneration per second",
+"(12-18)% increased Reservation Efficiency of Companion Skills"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 351,
+"league": "Runes of Aldur",
+"listed": "2026-06-28T16:44:02Z",
+"gear": {
+"name": "Rare item",
+"base": "Warlord Cuirass",
+"type": "Body Armour",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(249-277) to Armour",
+"(68-79)% increased Armour",
+"+(100-119) to maximum Life",
+"+(36-40)% to Cold Resistance"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 352,
+"league": "Runes of Aldur",
+"listed": "2026-06-17T15:55:35Z",
+"gear": {
+"name": "Rare item",
+"base": "Ornate Mitts",
+"type": "Gloves",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (6-10) to (12-17) Physical Damage to Attacks",
+"+(36-40)% to Fire Resistance",
+"+(31-35)% to Cold Resistance",
+"+(31-35)% to Lightning Resistance"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 353,
+"league": "Runes of Aldur",
+"listed": "2026-06-01T01:41:04Z",
+"gear": {
+"name": "Rare item",
+"base": "Stalking Bracers",
+"type": "Gloves",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(117-146) to Evasion Rating",
+"Adds (7-11) to (14-20) Physical Damage to Attacks",
+"+(31-35)% to Fire Resistance",
+"+(36-40)% to Lightning Resistance"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 354,
+"league": "Runes of Aldur",
+"listed": "2026-06-13T13:36:46Z",
+"gear": {
+"name": "Rare item",
+"base": "Refined Bracers",
+"type": "Gloves",
+"unique": false,
+"rare": true,
+"affixes": [
+"(15-26)% increased Evasion Rating",
+"Adds (6-10) to (12-17) Physical Damage to Attacks",
+"Adds 1 to (28-32) Lightning damage to Attacks",
+"(8-10)% increased Attack Speed",
+"+(16-20)% to Cold Resistance",
+"Gain Deflection Rating equal to (12-14)% of Evasion Rating"
+],
+"runes": [
+"Greater Iron Rune",
+"Greater Iron Rune"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 355,
+"league": "Runes of Aldur",
+"listed": "2026-06-24T00:44:08Z",
+"gear": {
+"name": "Rare item",
+"base": "Polished Bracers",
+"type": "Gloves",
+"unique": false,
+"rare": true,
+"affixes": [
+"(39-42)% increased Evasion Rating",
+"+(42-49) to maximum Life",
+"Adds (5-7) to (9-13) Physical Damage to Attacks",
+"Gain Deflection Rating equal to (8-11)% of Evasion Rating",
+"Gain 5 Life per Enemy Hit with Attacks",
+"Leech (7-7.9)% of Physical Attack Damage as Mana",
+"(68-79)% increased Evasion Rating"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 356,
+"league": "Runes of Aldur",
+"listed": "2026-06-18T19:03:46Z",
+"gear": {
+"name": "Rare item",
+"base": "Wanderer Shoes",
+"type": "Boots",
+"unique": false,
+"rare": true,
+"affixes": [
+"35% increased Movement Speed",
+"(56-67)% increased Evasion and Energy Shield",
+"+(105-124) to maximum Mana",
+"+(25-27) to Dexterity",
+"(9.1-13) Life Regeneration per second",
+"Gain Deflection Rating equal to (8-11)% of Evasion Rating"
+],
+"runes": [
+"Greater Storm Rune"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 357,
+"league": "Runes of Aldur",
+"listed": "2026-06-08T15:46:28Z",
+"gear": {
+"name": "Rare item",
+"base": "Cavalry Boots",
+"type": "Boots",
+"unique": false,
+"rare": true,
+"affixes": [
+"30% increased Movement Speed",
+"+(55-64) to maximum Mana",
+"35% reduced Attribute Requirements",
+"+(41-45)% to Cold Resistance",
+"+(36-40)% to Lightning Resistance",
+"+(100-119) to maximum Life"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 358,
+"league": "Runes of Aldur",
+"listed": "2026-07-21T03:17:43Z",
+"gear": {
+"name": "Rare item",
+"base": "Tasalian Greaves",
+"type": "Boots",
+"unique": false,
+"rare": true,
+"affixes": [
+"30% increased Movement Speed",
+"(80-91)% increased Armour",
+"+(80-89) to maximum Mana",
+"+(28-30) to Strength",
+"+(31-35)% to Lightning Resistance",
+"+(38-43)% of Armour also applies to Elemental Damage"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 359,
+"league": "Runes of Aldur",
+"listed": "2026-06-18T14:54:41Z",
+"gear": {
+"name": "Rare item",
+"base": "Daggerfoot Shoes",
+"type": "Boots",
+"unique": false,
+"rare": true,
+"affixes": [
+"30% increased Movement Speed",
+"(92-100)% increased Evasion and Energy Shield",
+"+(120-149) to maximum Life",
+"+(20-23)% to Chaos Resistance",
+"(46-50)% reduced Chill Duration on you"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 360,
+"league": "Runes of Aldur",
+"listed": "2026-06-20T03:21:00Z",
+"gear": {
+"name": "Rare item",
+"base": "Breach Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(165-179) to maximum Mana",
+"+(16-20)% to Cold Resistance",
+"Leech (6-6.9)% of Physical Attack Damage as Mana",
+"(13-15)% increased Mana Cost Efficiency of Spells"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 361,
+"league": "Runes of Aldur",
+"listed": "2026-06-06T05:23:38Z",
+"gear": {
+"name": "Rare item",
+"base": "Gold Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"(27-30)% increased Lightning Damage",
+"+(175-202) to Evasion Rating",
+"+(85-99) to maximum Life",
+"+(21-24) to Intelligence",
+"+(31-35)% to Lightning Resistance"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 362,
+"league": "Runes of Aldur",
+"listed": "2026-06-26T23:22:04Z",
+"gear": {
+"name": "Rare item",
+"base": "Sapphire Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (10-15) to (18-26) Physical Damage to Attacks",
+"Adds (14-15) to (22-24) Cold damage to Attacks",
+"(27-30)% increased Lightning Damage",
+"+(25-27) to Strength",
+"Gain (4-5) Mana per enemy killed",
+"(15-18)% increased Rarity of Items found"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 363,
+"league": "Runes of Aldur",
+"listed": "2026-07-06T13:18:44Z",
+"gear": {
+"name": "Rare item",
+"base": "Iron Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (14-15) to (22-24) Cold damage to Attacks",
+"+(203-233) to Evasion Rating",
+"+(70-84) to maximum Life",
+"+(21-24) to Strength",
+"+(31-33) to Dexterity",
+"(18-22)% increased Mana Regeneration Rate",
+"15% increased Light Radius"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 364,
+"league": "Runes of Aldur",
+"listed": "2026-06-20T05:31:29Z",
+"gear": {
+"name": "Rare item",
+"base": "Crimson Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"(3-7)% increased Spell Damage",
+"(21-26)% increased Evasion Rating",
+"(5-6)% increased maximum Life",
+"+(41-45)% to Cold Resistance",
+"+(11-15)% to Lightning Resistance",
+"(4.1-6) Life Regeneration per second"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 365,
+"league": "Runes of Aldur",
+"listed": "2026-08-17T02:42:10Z",
+"gear": {
+"name": "Rare item",
+"base": "Solar Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"(33-38)% increased maximum Energy Shield",
+"+(25-34) to maximum Mana",
+"(35-39)% increased Critical Damage Bonus",
+"+(21-24) to Intelligence",
+"(23.1-29) Life Regeneration per second",
+"+(85-99) to maximum Life"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 366,
+"league": "Runes of Aldur",
+"listed": "2026-07-11T14:49:06Z",
+"gear": {
+"name": "Rare item",
+"base": "Lapis Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"(27-30)% increased Spell Damage",
+"+(85-123) to Accuracy Rating",
+"+(34-37) to Spirit",
+"+(21-24) to Dexterity",
+"+(15-16)% to all Elemental Resistances",
+"(30-39)% increased Mana Regeneration Rate"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 367,
+"league": "Runes of Aldur",
+"listed": "2026-06-29T03:34:01Z",
+"gear": {
+"name": "Rare item",
+"base": "Stellar Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"(21-26)% increased Armour",
+"(39-44)% increased Evasion Rating",
+"+(150-164) to maximum Mana",
+"+(28-30) to Intelligence",
+"+(12-14)% to all Elemental Resistances"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 368,
+"league": "Runes of Aldur",
+"listed": "2026-06-30T23:45:48Z",
+"gear": {
+"name": "Rare item",
+"base": "Ornate Belt",
+"type": "Belt",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(85-99) to maximum Life",
+"(29-34)% increased Flask Mana Recovery rate",
+"+(31-35)% to Fire Resistance",
+"+(20-23)% to Chaos Resistance",
+"(23-28)% increased Charm Charges gained",
+"(5-7) to (7-10) Physical Thorns damage"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 369,
+"league": "Runes of Aldur",
+"listed": "2026-06-23T12:08:06Z",
+"gear": {
+"name": "Rare item",
+"base": "Mail Belt",
+"type": "Belt",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(100-119) to maximum Life",
+"+(15-24) to maximum Mana",
+"+(36-40)% to Fire Resistance",
+"+(36-40)% to Lightning Resistance",
+"+(254-304) to Stun Threshold"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 370,
+"league": "Runes of Aldur",
+"listed": "2026-07-19T13:48:40Z",
+"gear": {
+"name": "Rare item",
+"base": "Utility Belt",
+"type": "Belt",
+"unique": false,
+"rare": true,
+"affixes": [
+"(17-22)% increased Flask Mana Recovery rate",
+"(16-21)% increased Charm Effect Duration",
+"(3.1-4) Life Regeneration per second",
+"(8-10)% reduced Charm Charges used"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 371,
+"league": "Runes of Aldur",
+"listed": "2026-06-02T13:51:31Z",
+"gear": {
+"name": "Rare item",
+"base": "Heavy Belt",
+"type": "Belt",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(69-107) to Armour",
+"+(26-30)% to Cold Resistance",
+"+(254-304) to Stun Threshold",
+"(17-22)% increased Flask Charges gained"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 372,
+"league": "Runes of Aldur",
+"listed": "2026-08-10T13:51:13Z",
+"gear": {
+"name": "Rare item",
+"base": "Gemini Bow",
+"type": "Bow",
+"unique": false,
+"rare": true,
+"affixes": [
+"(75-79)% increased Physical Damage",
+"+(175-200) to Accuracy Rating",
+"Adds (35-44) to (56-71) Fire Damage",
+"Adds (17-20) to (26-32) Cold Damage",
+"+(31-33) to Dexterity",
+"+(75-100)% Surpassing chance to fire an additional Arrow",
+"+2 to Level of all Attack Skills"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 373,
+"league": "Runes of Aldur",
+"listed": "2026-06-26T21:37:25Z",
+"gear": {
+"name": "Rare item",
+"base": "Gemini Bow",
+"type": "Bow",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (13-20) to (23-35) Physical Damage",
+"Adds (1-8) to (111-152) Lightning Damage",
+"+(237-346) to Accuracy Rating",
+"Gain (54-68) Life per enemy killed",
+"Leeches (7-7.9)% of Physical Damage as Mana",
+"Gain (28-35) Mana per enemy killed"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 374,
+"league": "Runes of Aldur",
+"listed": "2026-06-30T09:13:07Z",
+"gear": {
+"name": "Rare item",
+"base": "Guardian Bow",
+"type": "Bow",
+"unique": false,
+"rare": true,
+"affixes": [
+"(110-134)% increased Physical Damage",
+"Adds (26-39) to (44-66) Physical Damage",
+"Adds (1-6) to (85-107) Lightning Damage",
+"+(25-27) to Dexterity"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 375,
+"league": "Runes of Aldur",
+"listed": "2026-06-21T21:10:18Z",
+"gear": {
+"name": "Rare item",
+"base": "Obliterator Bow",
+"type": "Bow",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (25-33) to (38-54) Fire Damage",
+"+(20-22)% to Critical Damage Bonus",
+"25% reduced Attribute Requirements",
+"+3 to Level of all Projectile Skills"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 376,
+"league": "Runes of Aldur",
+"listed": "2026-06-27T14:52:51Z",
+"gear": {
+"name": "Rare item",
+"base": "Ashen Staff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (26-30)% of Damage as Extra Fire Damage",
+"Gain (26-30)% of Damage as Extra Cold Damage",
+"(69-88)% increased Spell Damage",
+"(15-21)% increased Critical Spell Damage Bonus",
+"(14-19)% increased Cast Speed",
+"Gain (2-3) Mana per enemy killed"
+],
+"runes": [
+"Firebolt"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 377,
+"league": "Runes of Aldur",
+"listed": "2026-09-13T07:51:53Z",
+"gear": {
+"name": "Rare item",
+"base": "Ashen Staff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(249-298) to maximum Mana",
+"+7 to Level of all Fire Spell Skills",
+"(149-188)% increased Spell Damage"
+],
+"runes": [
+"Firebolt"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 378,
+"league": "Runes of Aldur",
+"listed": "2026-06-03T19:23:56Z",
+"gear": {
+"name": "Rare item",
+"base": "Sanctified Staff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (43-48)% of Damage as Extra Fire Damage",
+"Gain (49-54)% of Damage as Extra Lightning Damage",
+"(109-128)% increased Spell Damage",
+"Gain (29-40) Life per enemy killed",
+"(45-59)% increased Mana Regeneration Rate",
+"+(3-4) to Level of all Physical Spell Skills"
+],
+"runes": [
+"Consecrate"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 379,
+"league": "Runes of Aldur",
+"listed": "2026-07-14T02:03:40Z",
+"gear": {
+"name": "Rare item",
+"base": "Voltaic Staff",
+"type": "Staff",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (49-54)% of Damage as Extra Fire Damage",
+"Gain (49-54)% of Damage as Extra Cold Damage",
+"+(209-248) to maximum Mana",
+"+(21-24) to Intelligence",
+"(81-90)% increased chance to Shock",
+"+5 to Level of all Spell Skills"
+],
+"runes": [
+"Lightning Bolt"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 380,
+"league": "Runes of Aldur",
+"listed": "2026-08-09T21:44:30Z",
+"gear": {
+"name": "Rare item",
+"base": "Withered Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (13-15)% of Damage as Extra Lightning Damage",
+"(35-44)% increased Spell Damage",
+"+(125-149) to maximum Mana",
+"+(28-30) to Intelligence",
+"Gain (54-68) Life per enemy killed",
+"(18-22)% increased Mana Regeneration Rate",
+"15% increased Light Radius"
+],
+"runes": [
+"Chaos Bolt"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 381,
+"league": "Runes of Aldur",
+"listed": "2026-06-15T18:17:55Z",
+"gear": {
+"name": "Rare item",
+"base": "Dueling Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (25-27)% of Damage as Extra Cold Damage",
+"(75-89)% increased Spell Damage",
+"+4 to Level of all Cold Spell Skills",
+"+(31-33) to Intelligence",
+"Gain (69-84) Life per enemy killed",
+"Gain (13-15)% of Damage as Extra Fire Damage"
+],
+"runes": [
+"Spellslinger"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 382,
+"league": "Runes of Aldur",
+"listed": "2026-06-05T12:41:48Z",
+"gear": {
+"name": "Rare item",
+"base": "Withered Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"+5 to Level of all Chaos Spell Skills",
+"+(28-30) to Intelligence"
+],
+"runes": [
+"Chaos Bolt"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 383,
+"league": "Runes of Aldur",
+"listed": "2026-06-09T17:09:12Z",
+"gear": {
+"name": "Rare item",
+"base": "Dueling Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"(15-19)% increased Spell Damage",
+"+(17-20) to maximum Mana",
+"+(10-14) to maximum Mana",
+"15% reduced Attribute Requirements",
+"+(5-8) to Intelligence",
+"(51-60)% increased chance to Shock"
+],
+"runes": [
+"Spellslinger"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 384,
+"league": "Forbidden Rites",
+"listed": "2026-09-05T21:29:50Z",
+"gear": {
+"name": "Rare item",
+"base": "Rattling Sceptre",
+"type": "Sceptre",
+"unique": false,
+"rare": true,
+"affixes": [
+"(10-14)% increased Spirit",
+"+(17-20) to maximum Mana",
+"(20-26)% increased Spirit",
+"Minions have (21-25)% increased maximum Life",
+"(10-19)% increased Mana Regeneration Rate"
+],
+"runes": [
+"Skeletal Warrior"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 385,
+"league": "Forbidden Rites",
+"listed": "2026-11-02T08:57:15Z",
+"gear": {
+"name": "Rare item",
+"base": "Omen Sceptre",
+"type": "Sceptre",
+"unique": false,
+"rare": true,
+"affixes": [
+"(19-22)% increased Spirit",
+"+(25-28) to maximum Mana",
+"Allies in your Presence have (10-14)% increased Critical Hit Chance",
+"+(25-27) to Intelligence",
+"(36-45)% increased Presence Area of Effect"
+],
+"runes": [
+"Malice"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 386,
+"league": "Forbidden Rites",
+"listed": "2026-09-26T08:18:26Z",
+"gear": {
+"name": "Rare item",
+"base": "Rattling Sceptre",
+"type": "Sceptre",
+"unique": false,
+"rare": true,
+"affixes": [],
+"runes": [
+"Skeletal Warrior"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 387,
+"league": "Forbidden Rites",
+"listed": "2026-09-16T08:35:53Z",
+"gear": {
+"name": "Rare item",
+"base": "Omen Sceptre",
+"type": "Sceptre",
+"unique": false,
+"rare": true,
+"affixes": [
+"(15-18)% increased Spirit",
+"+(21-24) to maximum Mana",
+"+(35-54) to maximum Mana",
+"Allies in your Presence deal (5-7) to (9-13) added Attack Physical Damage",
+"Allies in your Presence have (20-24)% increased Critical Hit Chance",
+"Allies in your Presence have (8-10)% increased Attack Speed",
+"Allies in your Presence have +(6-8)% to all Elemental Resistances"
+],
+"runes": [
+"Malice"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 388,
+"league": "Forbidden Rites",
+"listed": "2026-10-18T07:08:29Z",
+"gear": {
+"name": "Rare item",
+"base": "Pronged Spear",
+"type": "Spear",
+"unique": false,
+"rare": true,
+"affixes": [
+"(35-44)% increased Physical Damage",
+"+(73-97) to Accuracy Rating",
+"(40-49)% increased Physical Damage",
+"Adds (6-9) to (10-16) Cold Damage",
+"+2 to Level of all Melee Skills",
+"Leeches (5-5.9)% of Physical Damage as Mana",
+"(23-26)% increased Stun Duration"
+],
+"runes": [
+"Spear Throw"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 389,
+"league": "Forbidden Rites",
+"listed": "2026-09-23T16:11:49Z",
+"gear": {
+"name": "Rare item",
+"base": "Akoyan Spear",
+"type": "Spear",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (31-38) to (47-59) Cold Damage",
+"(53-62)% increased Elemental Damage with Attacks",
+"+3 to Level of all Projectile Skills",
+"+(25-27) to Dexterity",
+"Leeches (8-8.9)% of Physical Damage as Mana"
+],
+"runes": [
+"Spear Throw"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 390,
+"league": "Forbidden Rites",
+"listed": "2026-09-10T11:11:14Z",
+"gear": {
+"name": "Rare item",
+"base": "Helix Spear",
+"type": "Spear",
+"unique": false,
+"rare": true,
+"affixes": [
+"(50-64)% increased Physical Damage",
+"(15-19)% increased Physical Damage",
+"+(16-20) to Accuracy Rating",
+"+(21-40) to Accuracy Rating",
+"10% increased Light Radius",
+"Gain (10-14) Mana per enemy killed"
+],
+"runes": [
+"Spear Throw"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 391,
+"league": "Forbidden Rites",
+"listed": "2026-09-05T12:45:17Z",
+"gear": {
+"name": "Rare item",
+"base": "War Spear",
+"type": "Spear",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (1-2) to (3-5) Fire Damage",
+"+(11-32) to Accuracy Rating",
+"(19-35)% increased Elemental Damage with Attacks",
+"+(10-11)% to Critical Damage Bonus",
+"(8-10)% increased Attack Speed",
+"Grants 2 Life per Enemy Hit"
+],
+"runes": [
+"Spear Throw"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 392,
+"league": "Forbidden Rites",
+"listed": "2026-09-06T08:09:01Z",
+"gear": {
+"name": "Rare item",
+"base": "Twin Crossbow",
+"type": "Crossbow",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(124-167) to Accuracy Rating",
+"(100-119)% increased Elemental Damage with Attacks",
+"+3 to Level of all Projectile Skills",
+"Grants 5 Life per Enemy Hit"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 393,
+"league": "Forbidden Rites",
+"listed": "2026-09-16T13:23:57Z",
+"gear": {
+"name": "Rare item",
+"base": "Construct Crossbow",
+"type": "Crossbow",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (30-37) to (45-56) Fire Damage",
+"+(61-84) to Accuracy Rating",
+"(34-47)% increased Elemental Damage with Attacks",
+"20% reduced Attribute Requirements",
+"+2 to Level of all Projectile Skills",
+"Leeches (7-7.9)% of Physical Damage as Life"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 394,
+"league": "Forbidden Rites",
+"listed": "2026-09-13T08:34:37Z",
+"gear": {
+"name": "Rare item",
+"base": "Stout Crossbow",
+"type": "Crossbow",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (2-3) to (5-7) Physical Damage",
+"Adds 1 to (7-10) Lightning Damage",
+"+2 to Level of all Projectile Skills",
+"Leeches (7-7.9)% of Physical Damage as Life"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 395,
+"league": "Forbidden Rites",
+"listed": "2026-09-22T15:56:04Z",
+"gear": {
+"name": "Rare item",
+"base": "Twin Crossbow",
+"type": "Crossbow",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (19-29) to (33-49) Physical Damage",
+"Adds (10-14) to (15-23) Cold Damage",
+"+(17-19)% to Critical Damage Bonus",
+"(8-10)% increased Attack Speed",
+"Leeches (7-7.9)% of Physical Damage as Life"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 396,
+"league": "Forbidden Rites",
+"listed": "2026-09-08T23:33:22Z",
+"gear": {
+"name": "Rare item",
+"base": "Baroque Targe",
+"type": "Shield",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(72-85) to Armour",
+"+(65-78) to Evasion Rating",
+"(80-91)% increased Armour and Evasion",
+"+3% to Maximum Lightning Resistance",
+"+(41-45)% to Cold Resistance",
+"+(207-253) to Stun Threshold"
+],
+"runes": [
+"Raise Shield"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 397,
+"league": "Forbidden Rites",
+"listed": "2026-11-02T23:46:06Z",
+"gear": {
+"name": "Rare item",
+"base": "Goldworked Tower Shield",
+"type": "Shield",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(57-77) to Armour",
+"+(11-15)% to Fire Resistance",
+"+(21-25)% to Lightning Resistance",
+"+(14-19)% of Armour also applies to Elemental Damage"
+],
+"runes": [
+"Raise Shield"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 398,
+"league": "Forbidden Rites",
+"listed": "2026-09-12T17:09:27Z",
+"gear": {
+"name": "Rare item",
+"base": "Intricate Crest Shield",
+"type": "Shield",
+"unique": false,
+"rare": true,
+"affixes": [
+"(15-19)% increased Block chance",
+"+(17-20) to Intelligence",
+"+(31-35)% to Fire Resistance",
+"(40-60) to (61-92) Physical Thorns damage"
+],
+"runes": [
+"Raise Shield"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 399,
+"league": "Forbidden Rites",
+"listed": "2026-09-15T11:05:10Z",
+"gear": {
+"name": "Rare item",
+"base": "Seer Crest Shield",
+"type": "Shield",
+"unique": false,
+"rare": true,
+"affixes": [],
+"runes": [
+"Raise Shield"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 400,
+"league": "Forbidden Rites",
+"listed": "2026-09-08T18:01:57Z",
+"gear": {
+"name": "Rare item",
+"base": "Runed Focus",
+"type": "Focus",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(31-35) to maximum Energy Shield",
+"(35-44)% increased Spell Damage",
+"+(21-25)% to Cold Resistance",
+"(16-19)% increased Energy Shield Recharge Rate"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 401,
+"league": "Forbidden Rites",
+"listed": "2026-10-04T19:50:49Z",
+"gear": {
+"name": "Rare item",
+"base": "Leyline Focus",
+"type": "Focus",
+"unique": false,
+"rare": true,
+"affixes": [
+"(21-26)% increased Energy Shield",
+"+(17-20) to maximum Mana",
+"(15-26)% increased Energy Shield",
+"(55-64)% increased Chaos Damage",
+"(10-14)% increased Critical Spell Damage Bonus"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 402,
+"league": "Forbidden Rites",
+"listed": "2026-09-13T02:41:32Z",
+"gear": {
+"name": "Rare item",
+"base": "Arrayed Focus",
+"type": "Focus",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(42-47) to maximum Energy Shield",
+"(15-26)% increased Energy Shield",
+"(55-64)% increased Spell Physical Damage",
+"+(5-8) to Intelligence",
+"+(11-15)% to Fire Resistance",
+"+(31-35)% to Cold Resistance"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 403,
+"league": "Forbidden Rites",
+"listed": "2026-09-10T11:54:56Z",
+"gear": {
+"name": "Rare item",
+"base": "Voodoo Focus",
+"type": "Focus",
+"unique": false,
+"rare": true,
+"affixes": [
+"(27-42)% increased Energy Shield",
+"(35-44)% increased Spell Physical Damage",
+"(27-33)% increased Critical Hit Chance for Spells",
+"+(6-10)% to Cold Resistance"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 404,
+"league": "Forbidden Rites",
+"listed": "2026-10-11T05:15:22Z",
+"gear": {
+"name": "Rare item",
+"base": "Dueling Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (25-27)% of Damage as Extra Cold Damage",
+"Gain (25-27)% of Damage as Extra Lightning Damage",
+"+5 to Level of all Lightning Spell Skills",
+"+(142-188) to maximum Mana",
+"+1 to Level of all Spell Skills",
+"(26-31)% increased Cast Speed",
+"Gain (7-11)% of Elemental Damage as Extra Cold Damage",
+"(5-10)% increased Cost Efficiency",
+"(15-25)% of Spell Mana Cost Converted to Life Cost"
+],
+"runes": [
+"Astrid's Creativity",
+"Hedgewitch Assandra's Rune of Wisdom",
+"Spellslinger"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 405,
+"league": "Forbidden Rites",
+"listed": "2026-09-19T08:21:51Z",
+"gear": {
+"name": "Rare item",
+"base": "Volatile Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"+5 to Level of all Cold Spell Skills",
+"Gain (25-27)% of Damage as Extra Cold Damage",
+"(40-44)% increased Spell Damage",
+"+(38-41) to maximum Mana",
+"(54-59)% increased Critical Hit Chance for Spells",
+"+(142-188) to maximum Mana",
+"+1 to Level of all Spell Skills",
+"(5-10)% increased Cost Efficiency",
+"(15-25)% of Spell Mana Cost Converted to Life Cost"
+],
+"runes": [
+"Breath of Aldur",
+"Volatile Dead"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 406,
+"league": "Forbidden Rites",
+"listed": "2026-11-22T12:39:47Z",
+"gear": {
+"name": "Rare item",
+"base": "Dueling Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"(35-39)% increased Spell Damage",
+"+(34-37) to maximum Mana",
+"(55-64)% increased Spell Damage",
+"(55-64)% increased Lightning Damage",
+"(15-19)% increased Critical Spell Damage Bonus",
+"(50-59)% increased Mana Regeneration Rate",
+"(5-10)% increased Cost Efficiency",
+"(15-25)% of Spell Mana Cost Converted to Life Cost"
+],
+"runes": [
+"Spellslinger"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 407,
+"league": "Forbidden Rites",
+"listed": "2026-09-30T02:43:19Z",
+"gear": {
+"name": "Rare item",
+"base": "Dueling Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (25-27)% of Damage as Extra Cold Damage",
+"Gain (28-30)% of Damage as Extra Lightning Damage",
+"(105-119)% increased Spell Damage",
+"(25-28)% increased Cast Speed",
+"+3 to Level of all Spell Skills",
+"(5-10)% increased Cost Efficiency",
+"(15-25)% of Spell Mana Cost Converted to Life Cost"
+],
+"runes": [
+"Spellslinger"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 408,
+"league": "Forbidden Rites",
+"listed": "2026-11-20T00:48:02Z",
+"gear": {
+"name": "Rare item",
+"base": "Siphoning Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (22-24)% of Damage as Extra Cold Damage",
+"Gain (22-24)% of Damage as Extra Lightning Damage",
+"(65-74)% increased Spell Damage",
+"+3 to Level of all Spell Skills",
+"(61-70)% increased Freeze Buildup",
+"(5-10)% increased Cost Efficiency",
+"(15-25)% of Spell Mana Cost Converted to Life Cost"
+],
+"runes": [
+"Hedgewitch Assandra's Rune of Wisdom",
+"Greater Iron Rune",
+"Power Siphon"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 409,
+"league": "Runes of Aldur",
+"listed": "2026-07-05T17:37:21Z",
+"gear": {
+"name": "Rare item",
+"base": "Dueling Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (22-24)% of Damage as Extra Fire Damage",
+"(45-49)% increased Spell Damage",
+"+(42-45) to maximum Mana",
+"(90-104)% increased Spell Damage",
+"(25-28)% increased Cast Speed",
+"+3 to Level of all Spell Skills",
+"(5-10)% increased Cost Efficiency",
+"(15-25)% of Spell Mana Cost Converted to Life Cost"
+],
+"runes": [
+"Hedgewitch Assandra's Rune of Wisdom",
+"Spellslinger"
+],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 410,
+"league": "Runes of Aldur",
+"listed": "2026-06-27T06:15:44Z",
+"gear": {
+"name": "Rare item",
+"base": "Dueling Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (16-18)% of Damage as Extra Fire Damage",
+"(30-34)% increased Spell Damage",
+"+(29-33) to maximum Mana",
+"(25-34)% increased Spell Damage",
+"+5 to Level of all Fire Spell Skills",
+"Gain (29-40) Life per enemy killed",
+"(5-10)% increased Cost Efficiency",
+"(15-25)% of Spell Mana Cost Converted to Life Cost"
+],
+"runes": [
+"Spellslinger"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 411,
+"league": "Runes of Aldur",
+"listed": "2026-07-17T10:03:11Z",
+"gear": {
+"name": "Rare item",
+"base": "Galvanic Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"Gain (28-30)% of Damage as Extra Lightning Damage",
+"(75-89)% increased Spell Damage",
+"+4 to Level of all Spell Skills",
+"+(142-188) to maximum Mana",
+"+1 to Level of all Spell Skills",
+"(26-31)% increased Cast Speed",
+"Gain (7-11)% of Elemental Damage as Extra Cold Damage",
+"(5-10)% increased Cost Efficiency",
+"(15-25)% of Spell Mana Cost Converted to Life Cost"
+],
+"runes": [
+"Hedgewitch Assandra's Rune of Wisdom",
+"Galvanic Field"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 412,
+"league": "Runes of Aldur",
+"listed": "2026-07-06T06:08:42Z",
+"gear": {
+"name": "Rare item",
+"base": "Dueling Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(150-164) to maximum Mana",
+"Gain (28-30)% of Damage as Extra Fire Damage",
+"(30-34)% increased Spell Damage",
+"+(29-33) to maximum Mana",
+"+5 to Level of all Fire Spell Skills",
+"(26-31)% increased Cast Speed",
+"Gain (7-11)% of Elemental Damage as Extra Cold Damage",
+"(5-10)% increased Cost Efficiency",
+"(15-25)% of Spell Mana Cost Converted to Life Cost"
+],
+"runes": [
+"Saqawal's Rune of the Sky",
+"Hedgewitch Assandra's Rune of Wisdom",
+"Spellslinger"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 413,
+"league": "Runes of Aldur",
+"listed": "2026-07-16T03:22:22Z",
+"gear": {
+"name": "Rare item",
+"base": "Dueling Wand",
+"type": "Wand",
+"unique": false,
+"rare": true,
+"affixes": [
+"(90-104)% increased Spell Damage",
+"Gain (22-24)% of Damage as Extra Lightning Damage",
+"35% reduced Attribute Requirements",
+"+3 to Level of all Fire Spell Skills",
+"+(142-188) to maximum Mana",
+"+1 to Level of all Spell Skills",
+"(5-10)% increased Cost Efficiency",
+"(15-25)% of Spell Mana Cost Converted to Life Cost"
+],
+"runes": [
+"Hedgewitch Assandra's Rune of Wisdom",
+"Spellslinger"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 414,
+"league": "Runes of Aldur",
+"listed": "2026-06-12T13:59:49Z",
+"gear": {
+"name": "Rare item",
+"base": "Topaz Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(85-99) to maximum Life",
+"(15-18)% increased Rarity of Items found",
+"+(16-19)% to Chaos Resistance"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 415,
+"league": "Runes of Aldur",
+"listed": "2026-09-08T05:27:52Z",
+"gear": {
+"name": "Rare item",
+"base": "Unset Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (11-16) to (21-26) Fire damage to Attacks",
+"Adds (1-4) to (60-71) Lightning damage to Attacks",
+"(27-30)% increased Fire Damage",
+"+(17-20) to Strength",
+"+(17-20) to Dexterity",
+"(30-39)% increased Mana Regeneration Rate"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 416,
+"league": "Runes of Aldur",
+"listed": "2026-08-23T07:49:50Z",
+"gear": {
+"name": "Rare item",
+"base": "Ruby Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds 1 to (4-6) Lightning damage to Attacks",
+"+(20-29) to maximum Life",
+"(9-12)% increased Cast Speed",
+"+(11-15)% to Lightning Resistance",
+"(10-19)% increased Mana Regeneration Rate"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 417,
+"league": "Runes of Aldur",
+"listed": "2026-07-14T12:03:22Z",
+"gear": {
+"name": "Rare item",
+"base": "Unset Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (11-13) to (18-21) Cold damage to Attacks",
+"+(142-174) to Evasion Rating",
+"+(28-30) to Strength",
+"+(31-35)% to Cold Resistance"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 418,
+"league": "Runes of Aldur",
+"listed": "2026-09-23T11:42:27Z",
+"gear": {
+"name": "Rare item",
+"base": "Topaz Ring",
+"type": "Ring",
+"unique": false,
+"rare": true,
+"affixes": [
+"Adds (12-19) to (22-32) Physical Damage to Attacks",
+"(27-30)% increased Fire Damage",
+"+(237-346) to Accuracy Rating",
+"+(31-33) to Intelligence",
+"+(31-35)% to Fire Resistance",
+"+(41-45)% to Cold Resistance"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 419,
+"league": "Runes of Aldur",
+"listed": "2026-09-23T11:17:42Z",
+"gear": {
+"name": "Rare item",
+"base": "Absent Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"+3 to Level of all Spell Skills",
+"(39-44)% increased maximum Energy Shield",
+"+(31-35)% to Lightning Resistance",
+"+(71-79) to maximum Energy Shield"
+],
+"runes": [
+"Rhoa Mount"
+],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 420,
+"league": "Runes of Aldur",
+"listed": "2026-06-26T05:30:08Z",
+"gear": {
+"name": "Rare item",
+"base": "Lapis Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(11-32) to Accuracy Rating",
+"(39-44)% increased Evasion Rating",
+"+(20-29) to maximum Life",
+"+(25-27) to Dexterity",
+"+(31-35)% to Fire Resistance",
+"+(31-35)% to Cold Resistance"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 421,
+"league": "Runes of Aldur",
+"listed": "2026-06-27T17:50:59Z",
+"gear": {
+"name": "Rare item",
+"base": "Lapis Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"(16-19)% increased Rarity of Items found",
+"+3 to Level of all Projectile Skills",
+"+(28-30) to Dexterity",
+"+(31-35)% to Fire Resistance"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 422,
+"league": "Runes of Aldur",
+"listed": "2026-08-27T18:09:26Z",
+"gear": {
+"name": "Rare item",
+"base": "Amber Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(11-32) to Accuracy Rating",
+"+1 to Level of all Spell Skills",
+"+(6-10)% to Fire Resistance",
+"(40-49)% increased Mana Regeneration Rate"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 423,
+"league": "Runes of Aldur",
+"listed": "2026-10-06T10:02:40Z",
+"gear": {
+"name": "Rare item",
+"base": "Tenebrous Amulet",
+"type": "Amulet",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(41-45)% to Cold Resistance",
+"(20-30)% increased Explicit Resistance Modifier magnitudes"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 424,
+"league": "Runes of Aldur",
+"listed": "2026-06-29T05:13:51Z",
+"gear": {
+"name": "Rare item",
+"base": "Double Belt",
+"type": "Belt",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(226-267) to Armour",
+"+(17-20) to Strength",
+"+(26-30)% to Fire Resistance",
+"+(36-40)% to Cold Resistance"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 425,
+"league": "Runes of Aldur",
+"listed": "2026-06-01T00:56:13Z",
+"gear": {
+"name": "Rare item",
+"base": "Mail Belt",
+"type": "Belt",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(25-34) to maximum Mana",
+"(5-10)% increased Flask Life Recovery rate",
+"+(17-20) to Strength",
+"(64-97) to (98-145) Physical Thorns damage"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 426,
+"league": "Runes of Aldur",
+"listed": "2026-07-23T23:24:34Z",
+"gear": {
+"name": "Rare item",
+"base": "Plate Belt",
+"type": "Belt",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(120-149) to maximum Life",
+"+(90-104) to maximum Mana",
+"(16-21)% increased Charm Effect Duration",
+"+(17-20) to Strength",
+"+(36-40)% to Fire Resistance",
+"+(20-23)% to Chaos Resistance"
+],
+"runes": [],
+"corrupted": true
+},
+"xfail": []
+},
+{
+"n": 427,
+"league": "Runes of Aldur",
+"listed": "2026-10-01T20:37:00Z",
+"gear": {
+"name": "Rare item",
+"base": "Rawhide Belt",
+"type": "Belt",
+"unique": false,
+"rare": true,
+"affixes": [
+"+2 to Level of all Minion Skills",
+"+(36-40)% to Fire Resistance",
+"(18.1-23) Life Regeneration per second",
+"Minions deal (53-61)% increased Damage with Command Skills",
+"(20-30)% increased Explicit Resistance Modifier magnitudes",
+"(20-39)% increased effect of Archon Buffs on you"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+},
+{
+"n": 428,
+"league": "Runes of Aldur",
+"listed": "2026-08-22T23:11:32Z",
+"gear": {
+"name": "Rare item",
+"base": "Mail Belt",
+"type": "Belt",
+"unique": false,
+"rare": true,
+"affixes": [
+"+(226-267) to Armour",
+"+(60-69) to maximum Life",
+"(11-16)% increased Flask Life Recovery rate",
+"+(34-36) to Strength",
+"+(26-30)% to Fire Resistance",
+"+(73-97) to Stun Threshold"
+],
+"runes": [],
+"corrupted": false
+},
+"xfail": []
+}
+]
+}

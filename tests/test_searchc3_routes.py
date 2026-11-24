@@ -628,11 +628,37 @@ def test_astrid_scores_two_alloys_over_every_removal_and_prices_all_of_it(engine
     monkeypatch.setattr(gear.runes, "candidates", lambda *a, **k: [ASTRID])  # (no ordinary rune to beat: the route's fields)
     out = gear.astrid_trial("Gloves", base, option, level, gear.pools, limits, chosen, -1e9, 1e6, clock.now() + 300)
     print("PROBE astrid", out and out.price, out and out.alloy_report)
-    assert out is not None and out.alloy == ASTRID and out.bound == (ASTRID,) and ASTRID in out.raw
+    # (SEARCHC5, AUDIT38 F2: Astrid's isn't socket-bound, so the route replaces it; here no ordinary rune scores)
+    assert out is not None and out.alloy == ASTRID and out.bound == () and out.runes == () and ASTRID not in out.raw
     assert "sequences" in out.alloy_report[0] and "LOW" in out.craft_route[0] and "MEDIUM" in out.craft_route[0]
+    assert ASTRID in out.craft_route[0] and "replace" in out.craft_route[0]
     kept_price = out.price - 0.5 - 0.5 - gear.runes.price(ASTRID)  # (the rare it started from, a full side cut or not)
     assert 0 < kept_price <= rare_price("Gloves", chosen) + 1e-9
     assert gear.build.alloy_raws[alloys.alloy_key(out.raw)] == out.alloy_scale
+
+
+def test_astrid_is_replaced_by_the_best_ordinary_rune_and_priced(engine, monkeypatch):
+    """(SEARCHC5, AUDIT38 F2) The socket Astrid's leaves takes the rune that scores best on the plain rare."""
+    ctx, gear, base, level, limits, chosen, option = astrid_case(engine)
+    gear.lam = 0.0
+    names = [n for n in gear.runes.candidates(base, False) if n != ASTRID and gear.runes.price(n) is not None]
+    assert names
+    rune = names[0]
+    monkeypatch.setattr(gear.runes, "candidates", lambda *a, **k: [ASTRID, rune])
+    real = gear.deltas
+    lines = {line for _, mod in alloys.rows_for(base, level, gear.alloy_mods)
+             for line in gear.pools.affix(mod, mod["group"], mod["type"], 1, 1, (0.0, 0.0)).lines}
+
+    def deltas(slot, texts):  # (the plain rare, with no Alloy line, scores nothing: the route wins)
+        return [(s if any(x in t for x in lines) else -1e9, st) for (s, st), t in zip(real(slot, texts), texts)]
+
+    monkeypatch.setattr(gear, "deltas", deltas)
+    out = gear.astrid_trial("Gloves", base, option, level, gear.pools, limits, chosen, -1e9, 1e6, clock.now() + 300)
+    assert out is not None, (rune, len(lines))
+    assert out.runes == (rune,) and out.bound == () and f"Rune: {rune}" in out.raw and ASTRID not in out.raw
+    assert rune in out.craft_route[0]
+    kept_price = out.price - 0.5 - 0.5 - gear.runes.price(ASTRID) - gear.runes.price(rune)
+    assert 0 < kept_price <= rare_price("Gloves", chosen) + 1e-9
 
 
 def test_astrid_needs_two_priced_alloys(engine):

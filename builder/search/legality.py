@@ -46,10 +46,14 @@ RULES = {
                    "is verified; 65 of 390 families span several PoB groups)",
     "crafted_limit": "One crafted modifier per item, two with Astrid's Creativity (0.5.0: 'items can only have 1 crafted "
                      "modifier at a time'; Alloys add 'crafted modifiers', 0.5.0; game stat "
-                     "local_can_have_additional_crafted_mods)",
+                     "local_can_have_additional_crafted_mods). Astrid's isn't socket-bound (AUDIT38 F2), so two crafted "
+                     "lines without it socketed are UNVERIFIED on an item of unknown history, ILLEGAL on one the search "
+                     "built without it in its route",
     "essence_crafted": "UNVERIFIED: an Essence line beside another crafted line (whether a Perfect / Corrupted Essence's line "
                        "counts as crafted is open, RQ-F)",
-    "desecrated_limit": "One Desecrated modifier per item (0.5.0: 'items are limited to 1 Desecrated modifier')",
+    "desecrated_limit": "One Desecrated modifier per item (0.5.0: 'items are limited to 1 Desecrated modifier'); on a "
+                        "Corrupted item of unknown history UNVERIFIED (AUDIT38 F4: an Omen of Putrefaction reveal makes up "
+                        "to 6 and corrupts the item; poe2db)",
     "base_allowed": "The modifier can appear on this base: its spawn weights for the base's tags (PoB ModItem, from the "
                     "game's Mods), or the item classes of its Alloy (alloys.ALLOYS) or Perfect Essence (essences.ESSENCES)",
     "sealed_rune": "No augment the game bars from sealed items (SoulCores CanSocketInCorruptedSanctified false: Serle's, "
@@ -59,8 +63,9 @@ RULES = {
                    "24 Nov). ILLEGAL only where the item's route socketed it after its Vaal Orb; an item read without its "
                    "route order (imports, saved results, item texts) is UNVERIFIED",
     "unread": "UNVERIFIED: a line that fits no mod row in the tables read here, so nothing is claimed about it",
-    "full_reading": "UNVERIFIED: every line fits a mod row only in readings that break a rule; the reading kept leaves a "
-                    "line unread instead (a line our tables miss, or a real break: both are said)",
+    "jewel_shape": "UNVERIFIED: a crafted jewel over 2 + 2 within 6 modifiers and 4 a side (AUDIT38 F9: a '+1 allowed' "
+                   "craft may have stood where the crafted line is, and a Desecration above it; 5 listings, MEDIUM-LOW; "
+                   "no source states a jewel's limits). Over that: affix_count ILLEGAL",
 }
 
 NUMBER = re.compile(r"\(-?\d+(?:\.\d+)?--?\d+(?:\.\d+)?\)|-?\d+(?:\.\d+)?")
@@ -80,6 +85,8 @@ def aldur_shape(line: str, target: str) -> bool:
         return False
     probe = re.sub(rf"\b{target}\b", "Cold" if target == "Fire" else "Fire", line)
     return bool(_ALDUR_ADDS.match(probe) or _ALDUR_ALLIES.match(probe) or any(p.match(probe) for _, p in _ALDUR_SAME))
+JEWEL_MOST = 6  # (AUDIT38 F9: the most modifiers a crafted jewel route makes; MEDIUM-LOW)
+JEWEL_SIDE_MOST = 4
 PRUNE = True  # (False: every reading tried, as before SEARCHC5; the test compares the two)
 MAX_READINGS = 20000  # how many complete readings one item may try (never reached by a 3 + 3 rare; a safety limit)
 
@@ -183,7 +190,8 @@ class Checker:
         kinds = {alloys.item_class(b) for b in self.bases.get(item.get("base"), [])}
         if row.kind == "alloy":
             return bool(kinds & set(alloys.ALLOYS[row.id][1]))
-        if row.kind == "essence":
+        if row.kind == "essence":  # (AUDIT38 F8: the Essence table's own class names, "Warstaff" for a Quarterstaff)
+            kinds = {essences.item_class(b) for b in self.bases.get(item.get("base"), [])}
             if row.id == HORROR_MOD:
                 return bool(kinds & set(HORROR_CLASSES))
             entry = essences.ESSENCES.get(row.id)
@@ -252,7 +260,11 @@ class Checker:
         aldur = {element for element, name in ALDUR_RUNES.items() if name in runes}  # (the elements its runes turn lines to)
         flux = "Flux" in route
         influenced = bool(runes & INFLUENCE_RUNES)
-        crafted_limit = 2 if ASTRID in runes else 1
+        crafted_limit = 2 if ASTRID in runes or ASTRID in route else 1
+        # (SEARCHC5) the search wrote this entry (ItemOption.describe always gives "price"), so its route says everything
+        # done to it; an item read from elsewhere (an import, a trade listing, an item text) has no known history
+        known = "price" in item
+        crafted_jewel = item.get("type") == "Jewel"
         tag_sets = self.tags(item)
         choices = [{size: self.distinct(rows, lambda r: self.allowed(r, item, tag_sets)) for size, rows in here.items()}
                    for here in fits]
@@ -274,10 +286,18 @@ class Checker:
 
         def breaks(reading: list[tuple[Row, bool | None, list[str]]]) -> list[Finding]:
             out: list[Finding] = []
+            # (AUDIT38 F9) a crafted jewel's sides can't be judged from the finished jewel: a "+1 Prefix / Suffix allowed"
+            # craft may have stood in the crafted line's place, and a Desecration may sit above it. ILLEGAL only past what
+            # no route makes (over 6 modifiers, or a side over 4), UNVERIFIED in between (MEDIUM-LOW: 5 listings)
+            shaped_jewel = crafted_jewel and any(row.kind == "crafted" for row, _, _ in reading)
             for side, limit in limits.items():
                 held = sum(1 for row, _, _ in reading if row.type == side)
                 if held > limit:
-                    out.append(Finding("affix_count", ILLEGAL, f"{held} {side.lower()}es, the limit here is {limit}"))
+                    if shaped_jewel and held <= JEWEL_SIDE_MOST and len(reading) <= JEWEL_MOST:
+                        out.append(Finding("jewel_shape", UNVERIFIED, f"{held} {side.lower()}es beside a crafted jewel "
+                                           f"line (a +1 craft may have stood in its place; the plain limit is {limit})"))
+                    else:
+                        out.append(Finding("affix_count", ILLEGAL, f"{held} {side.lower()}es, the limit here is {limit}"))
             groups: dict[str, list[str]] = {}
             for row, _, text in reading:
                 if not converted(row, text):
@@ -286,8 +306,12 @@ class Checker:
                 if len(held) > 1:
                     out.append(Finding("mod_group", ILLEGAL, f"{len(held)} modifiers of group {group}: {' / '.join(held)}"))
             alloy = sum(1 for row, _, _ in reading if row.kind in ("alloy", "crafted"))
-            if alloy > crafted_limit:
-                need = "" if ASTRID in runes else f", and no {ASTRID}"
+            if alloy == 2 and crafted_limit == 1 and not known:  # (AUDIT38 F2: Astrid's may have been replaced since)
+                out.append(Finding("crafted_limit", UNVERIFIED, f"2 crafted lines and no {ASTRID} socketed now: it isn't "
+                                   "socket-bound (SoulCores IsSocketBound false; poe2db 'can be replaced'), so it may have "
+                                   "been socketed and replaced"))
+            elif alloy > crafted_limit:
+                need = "" if crafted_limit > 1 else f", and no {ASTRID}"
                 out.append(Finding("crafted_limit", ILLEGAL, f"{alloy} crafted lines, the limit here is {crafted_limit}{need}"))
             for row, _, text in reading:
                 if row.kind != "natural" or converted(row, text) or influenced:
@@ -296,38 +320,40 @@ class Checker:
                 if by:
                     out.append(Finding("tag_conflict", ILLEGAL, f'"{"; ".join(text)}" ({row.id}) cannot roll beside {by[0]}'))
             desecrated = sum(1 for row, _, _ in reading if row.kind == "desecrated")
-            if desecrated > 1:
+            if desecrated > 1 and item.get("corrupted") and not known:  # (AUDIT38 F4: Omen of Putrefaction)
+                out.append(Finding("desecrated_limit", UNVERIFIED, f"{desecrated} Desecrated modifiers on a Corrupted item "
+                                   "(an Omen of Putrefaction reveal makes up to 6; none listed with two lord rows)"))
+            elif desecrated > 1:
                 out.append(Finding("desecrated_limit", ILLEGAL, f"{desecrated} Desecrated modifiers"))
             for row, state, text in reading:
                 if state is False and not converted(row, text) and not influenced:
                     out.append(Finding("base_allowed", ILLEGAL, f'"{"; ".join(text)}" ({row.id}) on {item.get("base")}'))
             return out
 
-        best: tuple[int, list[Finding], list, list[str]] | None = None  # (unread lines, breaks, the reading, unread)
-        full: list[Finding] | None = None  # (the fewest breaks of a reading that reads every line)
+        best: tuple[tuple[int, int, int], list[Finding], list, list[str]] | None = None  # (rank, breaks, reading, unread)
         tried = 0
-        # (SEARCHC5, test cost) the fewest lines any reading from each position must leave unread: a line no row fits,
-        # alone or as a hybrid's first line, is unread in every reading through it. Readings that leave more unread are
-        # tried only when none with the fewest is free of breaks (the same best reading as trying them all: fewest
-        # breaks first, then fewest unread). Before, an item with one unreadable line tried every reading (up to
-        # MAX_READINGS), ~45 ms an item: 17,883 route-test items took 799 s (POE2T7656).
+        # (AUDIT38 F3) the best reading reads the most lines, then breaks the fewest rules: a hybrid's second line is
+        # never left unread to dodge a break (before, fewest breaks came first, and a real break could read UNVERIFIED).
+        # (SEARCHC5, test cost) so only readings leaving the fewest lines unread are tried: `least` is that number from
+        # each position (a line no row fits, alone or as a hybrid's first line, is unread in every reading through it).
+        # Before, an item with one unreadable line tried every reading (up to MAX_READINGS), ~45 ms an item: 17,883
+        # route-test items took 799 s (POE2T7656).
         least = [0] * (len(lines) + 1)
         for at in range(len(lines) - 1, -1, -1):
             least[at] = min((least[at + size] for size in choices[at]), default=1 + least[at + 1])
         cap = least[0] if PRUNE else len(lines)
 
         def walk(at: int, reading: list, unread: list[str]) -> bool:
-            nonlocal best, full, tried
+            nonlocal best, tried
             if len(unread) + least[at] > cap:
                 return False
             if at >= len(lines):
                 tried += 1
                 found = breaks(reading)
-                if best is None or (len(found), len(unread)) < (len(best[1]), best[0]):
-                    best = (len(unread), found, list(reading), list(unread))
-                if not unread and (full is None or len(found) < len(full)):
-                    full = found
-                return (not found and len(unread) == least[0]) or tried >= MAX_READINGS
+                rank = (len(unread), sum(f.status == ILLEGAL for f in found), len(found))
+                if best is None or rank < best[0]:
+                    best = (rank, found, list(reading), list(unread))
+                return rank[:2] == (least[0], 0) and not found or tried >= MAX_READINGS
             if not choices[at]:  # (no row fits this line, alone or as a hybrid's first line)
                 return walk(at + 1, reading, unread + [lines[at]])
             for size, options in choices[at].items():
@@ -339,15 +365,10 @@ class Checker:
                         return True
             return False
 
-        if not walk(0, [], []) and best is not None and best[1] and tried < MAX_READINGS:
-            cap = len(lines)  # (no reading with the fewest unread lines is free of breaks: try leaving more unread)
-            walk(0, [], [])
+        walk(0, [], [])
         if best is None:
             return findings
         findings += [Finding("unread", UNVERIFIED, f'"{line}"') for line in best[3]]
-        if best[3] and full:  # (SEARCHC5: the staff's Alloy hybrid read as a natural Cast Speed line + an unread line)
-            findings.append(Finding("full_reading", UNVERIFIED, "reading every line breaks: "
-                                    + "; ".join(f"{f.rule}: {f.detail}" for f in full)))
         findings += best[1]
         reading = best[2]
         if not any(f.status == ILLEGAL and f.rule == "mod_group" for f in best[1]):
