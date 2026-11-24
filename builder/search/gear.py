@@ -2413,6 +2413,8 @@ class Gear:
                 self.settle()
                 continue
             improved = improved or build.score > before + EPSILON
+            if build.score > before + EPSILON and (checkpoint := getattr(self, "checkpoint", None)) is not None:
+                checkpoint()  # (SEARCHD1 hook, F1: a hard stop later in the round keeps this slot's kept item)
         if whole:
             improved = self.character_rune_round(deadline) or improved
         if whole and os.environ.get(SWITCH_RESIST_SWAP, "0") == "1":

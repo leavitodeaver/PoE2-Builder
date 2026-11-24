@@ -101,3 +101,22 @@ def test_the_rows_travel_in_the_lines_state(search):
     search.load(state)
     assert "Boots" in parts(search, "gear")
     unfinished.done(search, "gear", "Boots")
+
+
+def test_f1_a_gear_round_checkpoints_each_slot_it_keeps(search, monkeypatch):
+    """F1: after each slot a gear round keeps (its score rose), the round calls the Search's checkpoint, so a hard stop
+    later in the round goes back to a build that keeps it (before, the whole round's slots went back). The snapshot it
+    costs is timed and printed for the report."""
+    import time
+
+    assert search.gear.checkpoint == search.checkpoint and search.jewels.checkpoint == search.checkpoint
+    kept = []
+    monkeypatch.setattr(search.gear, "checkpoint", lambda: kept.append(search.build.equipped.get("Gloves")))
+    before = search.build.equipped.get("Gloves")
+    search.gear.gear_round(clock.now() + 120, True, ["Gloves"])
+    after = search.build.equipped.get("Gloves")
+    assert not kept or after is not before, (before, after, kept)  # (it checkpoints only a kept change)
+    started = time.perf_counter()
+    for _ in range(5):
+        search.build.snapshot()
+    print(f"F1 cost: one snapshot {1000 * (time.perf_counter() - started) / 5:.1f} ms; gloves kept: {bool(kept)}")

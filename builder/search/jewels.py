@@ -958,11 +958,17 @@ class Jewels:
         for index, socket in enumerate(sockets):
             if clock.now() > deadline:
                 break
-            improved = self.fill(socket, deadline, rebuild=full and index == 0) or improved
+            if self.fill(socket, deadline, rebuild=full and index == 0):
+                improved = True
+                if (checkpoint := getattr(self, "checkpoint", None)) is not None:
+                    checkpoint()  # (SEARCHD1 hook, F1: a hard stop later in the round keeps this socket's jewel)
         for slot, bases in self.item_sockets():
             if clock.now() > deadline:
                 break
-            improved = self.fill_item_socket(slot, bases, deadline) or improved
+            if self.fill_item_socket(slot, bases, deadline):
+                improved = True
+                if (checkpoint := getattr(self, "checkpoint", None)) is not None:
+                    checkpoint()  # (SEARCHD1 hook, F1: as above, an item's jewel socket)
         if full and clock.now() < deadline:
             improved = self.item_socket_trial(deadline) or improved
         if full and clock.now() < deadline:
