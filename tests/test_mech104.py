@@ -123,8 +123,12 @@ def test_perforation_rolls_per_bleed_at_the_builds_jagged_ground_share():
 def test_perforation_is_not_counted_twice_beside_a_live_ledger_line(monkeypatch):
     from builder import ledger
 
-    live = (type("E", (), {"raw": {}})(), ["share:JaggedGround 20% more Magnitude of Bleeding you inflict"])
-    monkeypatch.setattr(ledger, "translate", lambda text: live)
+    import re
+
+    line = "share:JaggedGround 20% more Magnitude of Bleeding you inflict"
+    live = ledger.Entry("live", "live", "pob_gap", re.compile("Aggravated when Inflicted", re.I), (line,), "theory",
+                        "proposed", (), "", {"id": "live", "replace": [line]})
+    monkeypatch.setattr(ledger, "entries", lambda *a, **k: (live,))  # (MECH106: the guard reads every entry)
     assert models.aggravate_model([PERFORATION_LINE], BLEEDER, {"Attack"}, jagged=(1.0, "Earthquake")) == ([], [])
 
 
@@ -189,5 +193,6 @@ def test_the_dead_jagged_ground_ledger_entry_does_not_stop_perforation():
     from builder import ledger
 
     found = ledger.translate(PERFORATION_LINE)
-    assert found is None or not any("Magnitude of Bleeding" in t for t in found[1])  # (COV54 dropped its live line)
+    assert found is None or not any(found[1])  # (COV55 retired the live line; MECH106: the guard goes by the source line)
+    assert not models.aggravate_ledger_counts(PERFORATION_LINE)
     assert models.aggravate_model([PERFORATION_LINE], BLEEDER, {"Attack"}, jagged=(1.0, "Earthquake"))[0]

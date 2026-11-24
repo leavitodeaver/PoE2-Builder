@@ -15879,6 +15879,31 @@ AGGRAVATE_MODEL = "aggravate"  # (custom-models.yaml entries feeding these lines
 AGGRAVATE_LINE = "1% more Magnitude of Bleeding you inflict"  # (MECH103: PoB's Aggravated box, probe POE2T6497)
 
 
+# The ledger guard (MECH106; COV55's ~01:00 Handover part 7, the manager 24 Nov 02:46). aggravate_model reads each Aggravate
+# source line itself, so a ledger entry that also turns the SAME line into lines PoB counts would count it twice. Until
+# MECH106 Perforation's guard looked for one wording ("Magnitude of Bleeding") in the first entry's lines, so the
+# aggravate-bleed-jagged-ground entry ("share:JaggedGround N% more Damage with Bleeding") and the model both counted it
+# on main until COV55 retired the entry (95c41666). Now the guard goes by the source line: EVERY active pob_gap / pob_wrong
+# entry that matches it (not only the first one ledger.translate returns), and the model leaves the line alone when any of
+# them puts lines of its own in (whatever their wording) or names another model as its reader. A model link (model
+# "aggravate", no lines) is the model's own and doesn't stop it; a pob_wrong entry that only switches the item line off
+# (no lines) adds nothing, so it doesn't either.
+def aggravate_ledger_counts(text: str) -> bool:
+    """Whether an active ledger entry other than this model's own link already counts the Aggravate line `text`."""
+    from builder import ledger
+
+    for entry in ledger.entries():
+        if entry.kind not in ("pob_gap", "pob_wrong"):
+            continue
+        lines = entry.translate(text)
+        if lines is None:
+            continue
+        model = entry.raw.get("model")
+        if any(line for line in lines) or (model and model != AGGRAVATE_MODEL):
+            return True
+    return False
+
+
 def aggravated_share(duration: float, rate: float, older: float | None, hits: float) -> float:
     """Share of a Bleed's duration it is Aggravated: aggravating hits at `rate`/s from the start, and (Deep Wounds) any
     Attack hit (`hits`/s) once the Bleed is older than `older` s. E[(D - A)+] / D = (1 / D) x the integral over
@@ -16047,20 +16072,13 @@ def aggravate_model(texts: list[str], stats: dict, main_types: set[str], moving:
     """The main skill's Bleeding damage x (1 + its Aggravated extra) from the build's Aggravate lines, at its own hits/s,
     crit chance and Bleed duration (PoB's BleedDuration). Lines another ledger entry already translates are left to it.
     `jagged`: (the share of the fight the boss stands on your Jagged Ground, how), for Perforation's per-Bleed roll."""
-    from builder import ledger
-
-    def ours(text: str) -> bool:
-        found = ledger.translate(text)
-        return found is None or found[0].raw.get("model") == AGGRAVATE_MODEL
-
-    def ledger_counts(text: str) -> bool:  # (a live ledger line for it: COV54's lower bound. Never counted twice)
-        found = ledger.translate(text)
-        return found is not None and any("Magnitude of Bleeding" in t for t in found[1])
+    def ours(text: str) -> bool:  # (MECH106: by the source line, not one wording; see aggravate_ledger_counts)
+        return not aggravate_ledger_counts(text)
 
     on_hit, on_crit, older, on_emp, used, perforation = [], [], [], [], [], []
     for text in (t.strip() for t in texts):
         if (m := PERFORATION.match(text)):
-            if jagged is None or ledger_counts(text):
+            if jagged is None or not ours(text):
                 continue
             perforation.append(float(m.group(1)) / 100)
         elif (m := AGGRAVATE_EMPOWERED.match(text)) and ours(text):
