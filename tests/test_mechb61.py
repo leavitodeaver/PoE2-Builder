@@ -60,3 +60,15 @@ def test_the_archon_of_undeath_raises_a_binding_temporary_minion_limit():
     assert mixed == pytest.approx(3.0) and "Archon of Undeath up 50%" in how
     loose = _wardbound(40)
     assert M.undeath_limit_mix(lambda lim: M.minion_count(loose, 1.0, lim)[0], 40, (0.5, 2.0)) == (15.0, "")
+
+
+def test_tempest_bell_quality_ramp_lifts_its_shockwaves():
+    """(MECHB61, COV55 row 14) "Shockwave deals 3% more Damage per Hit taken by Bell" at quality 20: 5 shockwaves a Bell
+    average 1 + 3% x (5 - 1) / 2 = x1.06 of their damage."""
+    builder = ("Killing Palm", 10.0, 100.0, True)
+    plain, _ = M.tempest_bell_model(0.2, 1.0, builder, 100.0, 20.0, 6.0, [])
+    ramped, notes = M.tempest_bell_model(0.2, 1.0, builder, 100.0, 20.0, 6.0, [], ramp=3.0)
+    waves = min(10.0 * (1 - 0.2), 0.2 * 10)  # (8 Strikes a second, held to 10 a Bell x 0.2 Bells)
+    assert waves / 0.2 == pytest.approx(10.0)
+    assert ramped[0]["value"] == pytest.approx(round(100 * waves * 20.0 * (1 + 0.03 * 9 / 2) / (0.2 * 100.0), 4), rel=1e-3)
+    assert plain[0]["value"] < ramped[0]["value"] and "3% more a Hit the Bell has taken" in notes[0]["basis"]

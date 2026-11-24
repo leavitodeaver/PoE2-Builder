@@ -6516,7 +6516,8 @@ class Assumptions:
         level = next((x.get("levelStats") or {} for x in build.call("activeSkills", levelStats=[name])["skills"]
                       if x["name"] == name), {})  # (MECHB59: the all-Bells row, R55-2)
         return models.tempest_bell_model(bells, at_will, builder, impact, wave, duration, texts,
-                                         allowed=number(level.get("base_number_of_tempest_bells_allowed")) or 1.0)
+                                         allowed=number(level.get("base_number_of_tempest_bells_allowed")) or 1.0,
+                                         ramp=number(level.get(models.BELL_RAMP_STAT)))  # (MECHB61: quality's ramp)
 
 
     def combo_feed(self, builder: str, share: float) -> tuple[str, float, str] | None:
