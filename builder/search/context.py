@@ -879,6 +879,9 @@ def make_payload(request: BuildRequest, prices=None) -> dict:
         "breach_quality_prices": {} if prices is None else {name: prices.exchange[name].divine for name in
                                                             ("Essence of the Breach", "Vaal Catalysing Infuser")
                                                             if name in prices.exchange},
+        # (SEARCHC4) Perfect Flux's exchange price (Gear.perfect_flux_trial); None without price data
+        "perfect_flux_price": prices.exchange["Perfect Flux"].divine
+        if prices is not None and "Perfect Flux" in prices.exchange else None,
         # (SEARCHC3) the orbs that can fill Serle's Triumph's slot (Gear.serle_trial); {} without price data
         "serle_prices": {} if prices is None else {name: prices.exchange[name].divine for name in
                                                    ("Exalted Orb", "Greater Exalted Orb", "Perfect Exalted Orb")

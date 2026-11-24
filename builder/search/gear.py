@@ -34,7 +34,8 @@ from builder.search.rares import (
     MAGIC_LIMIT, RUNE_KEEP, SCREEN_KEEP, Affix, AffixPools, RuneCatalog, magic_price, magic_text, rare_price, rare_text,
     NOT_IN_SEALED, exclusion_group, is_elemental_resistance, socket_count, unique_text, with_runes, FLUX_NAMES, fluxed,
     ALDUR_RUNES, AldurConverter, aldur_weapon, CATALYSTS, CATALYST_TYPES, CATALYSTS_PER_20, CATALYST_QUALITY,
-    catalyst_matches, catalysed_text, catalyst_quality, implicit_tags, aldur_implicit_row,
+    catalyst_matches, catalysed_text, catalyst_quality, implicit_tags, aldur_implicit_row, mod_lines, roll,
+    INHERENT_SKILL,
 )
 from builder.search.objective import NO_DAMAGE_OFFSET
 from builder.search.state import EPSILON, Build
@@ -241,8 +242,36 @@ HORROR = "Essence of Horror"
 OMEN_SUFFIX = essences.OMENS["Suffix"]
 
 
+# (SEARCHC4) The same stat on weapons: Sovereign Alloy's suffix, "(20-30)% increased effect of Socketed Augment Items"
+# (game Mods AlloyEffectOfSocketedAugments1, local_socketed_items_effect_+%, family 3894 like Horror's; its classes are
+# alloys.ALLOYS'). Its roll can't be chosen, so it is scored at the middle (25, MEDIUM) with rows at 20 and 30.
+AUGMENT_EFFECT_ALLOY_MOD = "AlloyEffectOfSocketedAugments1"
+AUGMENT_EFFECT_ALLOY_ROLL = 0.5
+
+
+# (SEARCHC4; R51-10 #5) "1": a rare whose base grants a skill also tries Perfect Flux ("Upgrades the Skills on an item to
+# Level 20", game id CurrencyUpgradeInherentTo20, drop level 75). OFF by default until gated. Uniques with a granted skill
+# are priced by their listed level (granted_rolls.py) and are not offered this route yet (an undercount, said here).
+SWITCH_PERFECT_FLUX = "POE2_SEARCH_PERFECT_FLUX"
+PERFECT_FLUX = "Perfect Flux"
+PERFECT_FLUX_LEVEL = 20
+GRANTED_SKILL_LINE = re.compile(r"^((?:\{[^}]*\})*)Grants Skill: Level (\d+) (.+)$", re.M)  # (a ledger tag may lead it)
+
+
+def perfect_flux_enabled() -> bool:
+    return os.environ.get(SWITCH_PERFECT_FLUX, "0") == "1"
+
+
 def augment_effect_enabled() -> bool:
     return os.environ.get(SWITCH_AUGMENT_EFFECT, "0") == "1"
+
+
+def augment_effect_source(base: dict) -> tuple[str, str] | None:
+    """(the material, its mod id) that gives this base the augment-effect suffix; None when neither takes it."""
+    if base["type"] in AUGMENT_EFFECT_TYPES:
+        return HORROR, AUGMENT_EFFECT_MOD
+    row = alloys.ALLOYS.get(AUGMENT_EFFECT_ALLOY_MOD)
+    return (row[0], AUGMENT_EFFECT_ALLOY_MOD) if row and alloys.item_class(base) in row[1] else None
 
 
 # Seconds Gear.fill_empty gives each filler item's socket fill (LOW: a search-effort setting; a fill is 1-3 what-if calls)
@@ -727,6 +756,46 @@ class Gear:
     def build_rare(self, slot: str, deadline: float,
                    required: Callable[[Affix], bool] | list[Callable[[Affix], bool]] | None = None,
                    base_name: str | None = None, variant: int | None = None) -> ItemOption | None:
+        """_build_rare's item, with Perfect Flux on its granted skill when that pays (SEARCHC4, OFF by default)."""
+        option = self._build_rare(slot, deadline, required, base_name, variant)
+        if option is None or not perfect_flux_enabled():
+            return option
+        return self.perfect_flux_trial(slot, option, deadline) or option
+
+    def perfect_flux_trial(self, slot: str, option: ItemOption, deadline: float) -> ItemOption | None:
+        """(SEARCHC4, POE2_SEARCH_PERFECT_FLUX=1) The rare `option` with its base's granted skill at level 20, kept when
+        the score after the Flux's price beats it. Deterministic. PoB scores a granted skill at the highest level the
+        character meets (test_item_grants), so a character who can't use level 20 gains nothing and the Flux isn't bought."""
+        if not option.rare or clock.now() > deadline:
+            return None
+        implicit = self.ctx.bases_by_name[option.base].get("implicit") or ""
+        if not any(INHERENT_SKILL.match(re.sub(r"^(?:\{[^}]*\})*", "", line.strip())) for line in implicit.splitlines()):
+            return None
+        if not any(int(m.group(2)) < PERFECT_FLUX_LEVEL for m in GRANTED_SKILL_LINE.finditer(option.raw)):
+            return None
+        flux = 0.0 if self.ctx.ssf else self.ctx.payload.get("perfect_flux_price")
+        if flux is None or (option.price or 0.0) + flux > self.left_for(slot) + 1e-9:
+            return None
+        raw = GRANTED_SKILL_LINE.sub(lambda m: f"{m.group(1)}Grants Skill: Level {PERFECT_FLUX_LEVEL} {m.group(3)}", option.raw)
+        build = self.build
+        key = alloys.alloy_key(raw)
+        if option.alloy:  # (the item's DPS factor follows its new text, as in the what-if below)
+            if getattr(build, "alloy_raws", None) is None:
+                build.alloy_raws = {}
+            build.alloy_raws[key] = option.alloy_scale
+        (before, _), (after, _) = self.deltas(slot, [option.raw, raw])
+        if after - self.lam * flux <= before + EPSILON:
+            if option.alloy:
+                build.alloy_raws.pop(key, None)
+            return None
+        note = (f"{PERFECT_FLUX} ({flux:.3g} div): sets the item's granted skill to level {PERFECT_FLUX_LEVEL} "
+                f"(deterministic, R51-10). The character must meet that level's requirements")
+        return dataclasses.replace(option, raw=raw, price=None if option.price is None else option.price + flux,
+                                   craft_route=(*option.craft_route, note))
+
+    def _build_rare(self, slot: str, deadline: float,
+                    required: Callable[[Affix], bool] | list[Callable[[Affix], bool]] | None = None,
+                    base_name: str | None = None, variant: int | None = None) -> ItemOption | None:
         """The best rare for this slot within its budget, affix by affix (for a flask or charm, the
         best magic item: one prefix and one suffix). With `required`, the rare starts from the best
         affix that passes it (a condition's source, builder/search/sources.py), on the best base
@@ -836,13 +905,13 @@ class Gear:
             catalysed = self.catalyst_trial(slot, base, base_option, level, chosen, current, left, deadline)
             if catalysed is not None:
                 return catalysed
-        if not magic and augment_effect_enabled() and base["type"] in AUGMENT_EFFECT_TYPES:  # (SEARCHC3: Essence of Horror)
+        if not magic and augment_effect_enabled() and augment_effect_source(base):  # (SEARCHC3 / 4: Horror, the Alloy)
             effect = self.augment_effect_trial(slot, base, base_option, level, pools, chosen, left, deadline)
             if effect is not None:
-                if serle_enabled():  # (the manager 23 Nov 14:26: left out for now, said where it applies)
+                if serle_enabled() and SERLE not in effect.bound:  # (said where the pair wasn't the better route)
                     effect = dataclasses.replace(effect, craft_route=(*effect.craft_route, (
-                        f"Not tried: {SERLE} on this item as well. The search takes the {HORROR} route first on Gloves "
-                        f"and Boots, so a fourth suffix beside it is an open upgrade it hasn't priced")))
+                        f"Not tried: {SERLE} on this item as well. The search takes the {effect.alloy} route first on "
+                        f"this item, so a fourth suffix beside it is an open upgrade it hasn't priced")))
                 return effect
         if not magic and serle_enabled():  # (SEARCHC3: Serle's Triumph and a fourth suffix)
             serle = self.serle_trial(slot, base, base_option, level, pools, limits, chosen, current, left, deadline)
@@ -986,13 +1055,14 @@ class Gear:
                       or any(set(CATALYSTS[n][1]) & set(t) for t in own))]
         plain_text = rare_text(slot, base, level, chosen)
         top = catalyst_quality(base)  # (20, or the ring's own maximum: Breach Ring 40, Refined Breach Ring 45)
-        # (SEARCHC3; R55-12, the manager 23 Nov 17:52) A Breach Ring also takes the Essence of the Breach route, +20 more
-        # (60 / 65): the quality stays after the Essence's prefix is removed, so the finished ring keeps all its affixes.
-        # Materials: the Essence + BREACH_ANNULS Orbs of Annulment (the line off a 3-mod ring, early: at most 3 tries)
+        # (SEARCHC3; R55-12, the manager 23 Nov 17:52) The Essence of the Breach route, +20 more: the quality stays after
+        # the Essence's prefix is removed, so the finished item keeps all its affixes. (SEARCHC4, the manager's YES) Plain
+        # Rings and Amulets too (40%; poe2db: the Essence works on Rings and Amulets), Breach Rings 60 / 65.
+        # Materials: the Essence + BREACH_ANNULS Orbs of Annulment (the line off a 3-mod item, early: at most 3 tries)
         extra = (self.ctx.payload.get("breach_quality_prices") or {}).get(BREACH_ESSENCE)
         annul = self.ctx.influence_prices.get(influence.ANNUL)
         routes = [(top, 0.0)]
-        if top > CATALYST_QUALITY and (self.ctx.ssf or (extra is not None and annul is not None)):
+        if self.ctx.ssf or (extra is not None and annul is not None):
             routes.append((top + BREACH_ESSENCE_QUALITY, 0.0 if self.ctx.ssf else extra + BREACH_ANNULS * annul))
         cases = []
         for name in names:
@@ -1021,9 +1091,11 @@ class Gear:
             whittle = [self.ctx.influence_prices.get(n) for n in ("Omen of Whittling", influence.CHAOS)]
             note += (f". Order: on a Rare {base['name']} with few modifiers, use {BREACH_ESSENCE} (its prefix raises the "
                      f"maximum by {BREACH_ESSENCE_QUALITY}), add the catalysts up to {quality}%, remove the Essence's line "
-                     f"with Orbs of Annulment (at most {BREACH_ANNULS} on a 3-mod ring; the quality stays, R55-12 HIGH), "
-                     f"then craft the rest, so no affix slot is lost. Don't use Omen of Catalysing Exaltation afterwards "
-                     f"(it consumes the quality). The ring base's own price is UNVERIFIED (not on the exchange)")
+                     f"with Orbs of Annulment (at most {BREACH_ANNULS} on a 3-mod {base['type'].lower()}; the quality "
+                     f"stays, R55-12 HIGH), then craft the rest, so no affix slot is lost. Don't use Omen of Catalysing "
+                     f"Exaltation afterwards (it consumes the quality)")
+            if top > CATALYST_QUALITY:
+                note += ". The ring base's own price is UNVERIFIED (not on the exchange)"
             if None not in whittle:
                 rows += (f"Row: removing the line from a finished ring instead: Omen of Whittling + Chaos Orb, "
                          f"{sum(whittle):.3g} div (MEDIUM)",)
@@ -1294,47 +1366,80 @@ class Gear:
         Dextral Crystallisation, so each is scored over which modifier is lost, by the Alloys' ruling (the manager, 18 Nov:
         DPS at the mean, the floors at the worst outcome; the item shown is the worst). The value is all in the runes, so
         both sides are scored with their sockets filled, and the route is kept when it beats the plain rare as filled,
-        after prices. Priced as the rare + the essence (+ the Omen)."""
-        if clock.now() > deadline or socket_count(base, False) < 1 or not chosen:
+        after prices. Priced as the rare + the essence (+ the Omen). (SEARCHC4) Weapons take the same suffix from Sovereign
+        Alloy (20-30%: augment_effect_source). The new suffix must fit whichever modifier is lost: with the suffixes full,
+        the route without an Omen starts from the rare made with its least useful suffix left out (alloys.py's rule)."""
+        source = augment_effect_source(base)
+        if source is None or clock.now() > deadline or socket_count(base, False) < 1 or not chosen:
             return None
-        mod = next((m for m in self.ctx.data.mods.get("Item", []) if m["id"] == AUGMENT_EFFECT_MOD), None)
+        material, mod_id = source
+        mod = next((m for m in self.ctx.data.mods.get("Item", []) if m["id"] == mod_id), None)
         if mod is None or mod.get("level", 0) > level or mod["group"] in {a.group for a in chosen}:
             return None
         ssf = self.ctx.ssf
         prices = self.ctx.payload.get("augment_effect_prices") or {}
-        essence = 0.0 if ssf else prices.get(HORROR)
-        if essence is None:
+        essence = 0.0 if ssf else (prices.get(HORROR) if material == HORROR else self.ctx.alloy_prices.get(material))
+        room = affix_limits(base).get("Suffix", 0)
+        if essence is None or room < 1:
             return None
         build = self.build
         objective = build.objective
         affix = pools.affix(mod, mod["group"], mod["type"], 1, 1, (0.0, 0.0))
-        bought = rare_price(slot, chosen)
+        if material != HORROR:  # (the Alloy's roll can't be chosen: the middle, with rows at its two ends)
+            affix = dataclasses.replace(affix, lines=tuple(roll(x, AUGMENT_EFFECT_ALLOY_ROLL) for x in mod_lines(mod)))
         plain = ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
-                           rare_text(slot, base, level, chosen), False, None if ssf else bought,
+                           rare_text(slot, base, level, chosen), False, None if ssf else rare_price(slot, chosen),
                            "ssf" if ssf else "estimate (uncalibrated)", base_option.level, rare=True,
                            affixes=tuple(line for a in chosen for line in a.lines))
         plain_filled = self.socketed(slot, plain, deadline, trial=True)
         plain_value = self.adjusted(self.deltas(slot, [plain_filled.raw])[0][0], plain_filled)
-        trials = [(None, essence)]
-        omen = 0.0 if ssf else prices.get(OMEN_SUFFIX)
-        if omen is not None and any(a.type == "Suffix" for a in chosen):
-            trials.append(("Suffix", essence + omen))
+        suffixes = [a for a in chosen if a.type == "Suffix"]
+        open_rare = list(chosen)
+        if len(suffixes) >= room:  # (no free suffix: a lost prefix would leave one suffix too many)
+            cuts = [[a for a in chosen if a is not out] for out in suffixes]
+            cut_scores = self.deltas(slot, [rare_text(slot, base, level, c) for c in cuts])
+            open_rare = cuts[max(range(len(cuts)), key=lambda n: (cut_scores[n][0], -n))]
+        trials = [(None, essence, open_rare, False)] if open_rare else []
+        # (the Crystallisation Omens name Perfect and Corrupted Essences, so the Alloy route takes none)
+        omen = None if material != HORROR else 0.0 if ssf else prices.get(OMEN_SUFFIX)
+        if omen is not None and suffixes:
+            trials.append(("Suffix", essence + omen, list(chosen), False))
+        # (SEARCHC4; the manager's item 4) Serle's Triumph first: its extra suffix slot holds the new line, so a full rare
+        # needs no suffix left out. It takes a socket for good, so the pair needs two: a copy that dropped with the extra
+        # socket when the base's usual count is one, priced as extra_socket_trial's "natural" route. Whether the Essence
+        # treats Serle's slot as open is a reading of the affix rules (UNVERIFIED), said in the route.
+        serle_price = 0.0 if ssf else self.runes.price(SERLE)
+        usual = socket_count(base, False)
+        serle_limit = self.runes.limit(SERLE)
+        pair_sockets = max(usual, 2)
+        if serle_enabled() and len(suffixes) >= room and serle_price is not None \
+                and pair_sockets <= (base.get("socketLimit") or 0) - 1 \
+                and SERLE not in self.ctx.compiled.filters.forbidden_augments \
+                and SERLE in self.runes.candidates(base, False) \
+                and not (serle_limit and self.runes_used(slot).get(serle_limit[0], 0) >= serle_limit[1]):
+            item = rare_price(slot, chosen) + essence
+            premium = 0.0 if ssf or usual >= 2 else \
+                max(item * NATURAL_SOCKET_PREMIUM, item + NATURAL_SOCKET_FLAT) - item
+            trials.append((None, essence + serle_price + premium, list(chosen), True))
         best = None  # (value, option)
-        for side, cost in trials:
+        for side, cost, kept, with_serle in trials:
+            held = (SERLE,) if with_serle else ()
+            bought = rare_price(slot, kept)
             price = bought + cost
             if price > left + 1e-9 or clock.now() > deadline:
                 continue
-            losable = [a for a in chosen if side is None or a.type == side]
-            outcomes = [[a for a in chosen if a is not lost] + [affix] for lost in losable]
+            losable = [a for a in kept if side is None or a.type == side]
+            outcomes = [[a for a in kept if a is not lost] + [affix] for lost in losable]
             texts = [rare_text(slot, base, level, o) for o in outcomes]
             # The runes for the worst outcome: found with the plain rare's runes, then refilled on it
-            first = [with_runes(t, list(plain_filled.runes)) for t in texts]
+            first = [with_runes(t, [*held, *plain_filled.runes][:pair_sockets if with_serle else None]) for t in texts]
             screened = [s for s, _ in self.deltas(slot, first)]
             at = min(range(len(first)), key=lambda n: (screened[n], n))
-            shell = dataclasses.replace(plain, raw=texts[at], price=None if ssf else price,
+            shell = dataclasses.replace(plain, raw=texts[at], price=None if ssf else price, runes=held, bound=held,
+                                        sockets=pair_sockets if with_serle else plain.sockets,
                                         affixes=tuple(line for a in outcomes[at] for line in a.lines))
             filled = self.socketed(slot, shell, deadline, trial=True)
-            if not filled.runes:
+            if len(filled.runes) <= len(held):  # (nothing for the line to raise but a rune with no number)
                 continue
             with_them = [with_runes(t, list(filled.runes)) for t in texts]
             scored = [(objective.score(bare), bare) for bare in
@@ -1350,20 +1455,38 @@ class Gear:
             typical = alloys.typical(dps)
             lost = lambda n: "; ".join(losable[n].lines)  # noqa: E731
             how = f" with {OMEN_SUFFIX} (a suffix only)" if side else ""
-            report = (f"{HORROR}{how}: removes a random modifier ({len(losable)} outcomes) and adds "
+            rolls: tuple[str, ...] = ()
+            if material != HORROR:  # (the same outcome at the roll's two ends)
+                ends = [dataclasses.replace(affix, lines=tuple(roll(x, r) for x in mod_lines(mod))) for r in (0.0, 1.0)]
+                end_texts = [with_runes(rare_text(slot, base, level, [a for a in outcomes[worst] if a is not affix] + [e]),
+                                        list(filled.runes)) for e in ends]
+                end_dps = [objective.dps(self.without_registered(t, st))
+                           for t, (_, st) in zip(end_texts, self.deltas(slot, end_texts))]
+                rolls = (f"Row: the Alloy's roll is random; scored at the middle ({affix.lines[0]}). Worst outcome's DPS "
+                         f"at the lowest roll {end_dps[0]:,.0f}, at the highest {end_dps[1]:,.0f} (MEDIUM)",)
+            report = (f"{material}{how}: removes a random modifier ({len(losable)} outcomes) and adds "
                       f"\"{'; '.join(affix.lines)}\"; the floors read the worst outcome (shown in the build), DPS the mean "
                       f"over all {len(losable)} (x{scale:.3f} of the worst's) (the manager's ruling, 18 Nov)",
                       f"Typical outcome: loses \"{lost(typical)}\" (DPS {dps[typical]:,.0f})",
-                      f"Worst case: loses \"{lost(worst)}\" (DPS {dps[worst]:,.0f}; mean {sum(dps) / len(dps):,.0f})")
-            note = (f"{HORROR}{how}: buy the rare ({bought:.3g} div, the rare price model), use the essence "
-                    f"({cost:.3g} div with any Omen): every socketed augment's numbers x1.6, rounded down (R51-8). Socket "
-                    f"the runes after it. A +1 or a line with no number gains nothing")
+                      f"Worst case: loses \"{lost(worst)}\" (DPS {dps[worst]:,.0f}; mean {sum(dps) / len(dps):,.0f})",
+                      *rolls)
+            scaling = "x1.6" if material == HORROR else "raised by the Alloy's 20-30%"
+            note = (f"{material}{how}: buy the rare ({bought:.3g} div, the rare price model), use the "
+                    f"{'essence' if material == HORROR else 'Alloy'} ({cost:.3g} div with any Omen): every socketed "
+                    f"augment's numbers {scaling}, rounded down (R51-8). Socket the runes after it. A +1 or a line with "
+                    f"no number gains nothing")
+            if with_serle:
+                note += (f". {SERLE} goes in first (socket-bound, {serle_price:.3g} div) so its extra suffix slot holds the "
+                         f"new line; this needs a {pair_sockets}-socket copy (priced in). Whether the {material} treats "
+                         f"that slot as open is UNVERIFIED. Do all this before any corruption")
             best = (value, ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
-                                      texts[worst], False, None if ssf else price,
-                                      "ssf" if ssf else "estimate (craft route: Essence of Horror)", base_option.level,
+                                      with_runes(texts[worst], list(held)) if with_serle else texts[worst],
+                                      False, None if ssf else price,
+                                      "ssf" if ssf else f"estimate (craft route: {material})", base_option.level,
                                       rare=True, affixes=tuple(line for a in outcomes[worst] for line in a.lines),
-                                      alloy=HORROR, alloy_scale=scale, alloy_report=report, augment="essence",
-                                      craft_route=(note,)))
+                                      alloy=material, alloy_scale=scale, alloy_report=report,
+                                      augment="essence" if material == HORROR else "alloy", runes=held, bound=held,
+                                      sockets=pair_sockets if with_serle else 0, craft_route=(note,)))
         if best is None:
             return None
         option = best[1]
@@ -1862,6 +1985,11 @@ class Gear:
             raw = with_runes(filled.raw, list(filled.bound))
             if route == "corrupted":
                 raw = raw.rstrip() + "\nCorrupted"
+                if filled.alloy:  # (SEARCHC4) the "Corrupted" line changes the text its DPS factor is registered under
+                    if getattr(build, "alloy_raws", None) is None:
+                        build.alloy_raws = {}
+                    build.alloy_raws[alloys.alloy_key(raw)] = filled.alloy_scale
+                    note += f". Use the {filled.alloy} BEFORE the Vaal Orb: a Corrupted item can't be changed"
             bare = dataclasses.replace(filled, raw=raw, runes=filled.bound, filler_runes=(), price=price, sockets=sockets,
                                        craft_route=(*filled.craft_route, f"Sockets ({route}): {note}"))
             trial = self.socketed(slot, bare, deadline, trial=True)

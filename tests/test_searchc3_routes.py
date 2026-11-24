@@ -12,10 +12,10 @@ from builder.data import GameData
 from builder.request.schema import BuildRequest
 from builder.search.context import Context, ItemOption, make_payload, normal_item
 from builder.search.gear import (
-    AUGMENT_EFFECT_MOD, HORROR, OMEN_SUFFIX, SERLE, augment_effect_enabled, serle_enabled, serle_loop,
+    AUGMENT_EFFECT_MOD, HORROR, OMEN_SUFFIX, SERLE, augment_effect_enabled, augment_effect_source, serle_enabled, serle_loop,
 )
 from builder.search.rares import (
-    AffixPools, Affix, aldur_implicit_row, catalysed_text, catalyst_quality, implicit_tags, rare_price, rare_text, socket_count,
+    AffixPools, Affix, aldur_implicit_row, catalysed_text, catalyst_matches, catalyst_quality, implicit_tags, rare_price, rare_text, socket_count,
     with_runes,
 )
 
@@ -308,16 +308,56 @@ def test_a_high_budget_weight_keeps_the_cheaper_quality(engine):
     assert out is not None and "CatalystQuality: 40" in out.raw
 
 
-def test_a_plain_ring_gets_no_essence_route(engine):
+def plain_ring_case(engine):
     ctx, gear, _, level, _, _, _ = breach_case(engine, "Breach Ring")
     base = ctx.bases_by_name["Pearl Ring"]
     pool = gear.pools.pool(base["name"])
     light = next(a for a in sorted(pool, key=lambda a: a.tier) if any("increased Lightning Damage" in l for l in a.lines))
     option = ItemOption(base["name"], base["name"], "Ring", None, normal_item(base), False, 0.0, "found", 1)
     current = gear.deltas("Ring 1", [rare_text("Ring 1", base, level, [light])])[0][0]
+    return ctx, gear, base, level, light, option, current
+
+
+def test_a_plain_ring_takes_the_essence_route_to_40_priced_and_read_by_pob(engine):
+    ctx, gear, base, level, light, option, current = plain_ring_case(engine)
+    gear.lam = 0.0
+    out = gear.catalyst_trial("Ring 1", base, option, level, [light], current, 1e6, clock.now() + 300)
+    print("PROBE plain ring", out and out.price, out and out.craft_route)
+    assert out is not None and "CatalystQuality: 40" in out.raw and out.affixes == light.lines
+    assert out.price == pytest.approx(rare_price("Ring 1", [light]) + 40 * 0.03 + 0.9941 + 3 * 0.2913)
+    route = " ".join(out.craft_route)
+    assert "Essence of the Breach" in route and "ring base's own price" not in route and "NOT counted: 75%" not in route
+    rolled = next(l for l in light.lines if "increased Lightning Damage" in l)
+    number = int(rolled.split("%")[0])
+    written = rare_text("Ring 1", base, level, [light]).replace(f"{number}% increased Lightning Damage",
+                                                                f"{int(number * 140 / 100)}% increased Lightning Damage")
+    (scored, _), (same, _) = gear.deltas("Ring 1", [out.raw, written])
+    assert scored == pytest.approx(same), "PoB reads 40% on a plain ring as the scaled line"
+
+
+def test_a_plain_ring_stays_at_20_without_the_essence_price(engine):
+    ctx, gear, base, level, light, option, current = plain_ring_case(engine)
+    ctx.payload["breach_quality_prices"] = {}
     gear.lam = 0.0
     out = gear.catalyst_trial("Ring 1", base, option, level, [light], current, 1e6, clock.now() + 300)
     assert out is not None and "CatalystQuality: 20" in out.raw
+
+
+def test_an_amulet_takes_the_essence_route_to_40(engine):
+    ctx, gear, _, level, _, _, _ = breach_case(engine, "Breach Ring")
+    base = next(b for b in ctx.data.bases if b["type"] == "Amulet" and b["name"] == "Gold Amulet")
+    pool = gear.pools.pool(base["name"])
+    tags = gear.catalyst_tags()
+    ctx.payload["catalyst_prices"] = {"Sibilant Catalyst": 0.03}  # (amulets roll Spell Damage, a line Spark's score feels)
+    line = next(a for a in sorted(pool, key=lambda a: a.tier) if catalyst_matches("Sibilant Catalyst", a, tags)
+                and any("increased Spell Damage" in l for l in a.lines))
+    option = ItemOption(base["name"], base["name"], "Amulet", None, normal_item(base), False, 0.0, "found", 1)
+    current = gear.deltas("Amulet", [rare_text("Amulet", base, level, [line])])[0][0]
+    gear.lam = 0.0
+    out = gear.catalyst_trial("Amulet", base, option, level, [line], current, 1e6, clock.now() + 300)
+    print("PROBE amulet", out and out.price, out and out.craft_route)
+    assert out is not None and "CatalystQuality: 40" in out.raw and "3-mod amulet" in out.craft_route[0]
+    assert out.price == pytest.approx(rare_price("Amulet", [line]) + 40 * 0.03 + 0.9941 + 3 * 0.2913)
 
 
 def test_the_flux_route_says_a_fractured_modifier_stays(engine):
@@ -393,3 +433,173 @@ def test_the_horror_route_scores_over_the_lost_modifier_and_prices_its_materials
     bought = rare_price("Gloves", chosen)
     assert out.price in (pytest.approx(bought + 1.52), pytest.approx(bought + 1.52 + 0.43))
     assert out.craft_route and out.craft_route[0].startswith(HORROR)
+
+
+def test_the_augment_effect_source_follows_the_base(engine):
+    ctx, _ = spark_gear(engine, "Wand")
+    pick = lambda kind: next(b for b in ctx.data.bases if b["type"] == kind)  # noqa: E731
+    assert augment_effect_source(pick("Gloves")) == (HORROR, AUGMENT_EFFECT_MOD)
+    assert augment_effect_source(pick("Boots")) == (HORROR, AUGMENT_EFFECT_MOD)
+    assert augment_effect_source(pick("Wand")) == ("Sovereign Alloy", "AlloyEffectOfSocketedAugments1")
+    assert augment_effect_source(pick("Ring")) is None and augment_effect_source(pick("Helmet")) is None
+
+
+def test_the_horror_route_never_writes_a_fourth_suffix(engine, monkeypatch):
+    """With three suffixes, an essence that removes a prefix must not leave 3 + the new one."""
+    ctx, gear = spark_gear(engine, "Wand")
+    ctx.payload["augment_effect_prices"] = {HORROR: 1.52}  # (no Omen priced: the route without one)
+    base = next(b for b in ctx.data.bases if b["type"] == "Gloves" and socket_count(b, False) >= 1)
+    level, pool = gear.pools.item_level, gear.pools.pool(base["name"])
+    chosen: list = []
+    for kind, count in (("Prefix", 1), ("Suffix", 3)):
+        for _ in range(count):
+            chosen.append(next(a for a in sorted(pool, key=lambda a: a.tier) if a.type == kind
+                               and a.group not in {c.group for c in chosen} and gear.pools.choices(a, chosen)))
+    suffix_lines = {l for a in chosen if a.type == "Suffix" for l in a.lines}
+    seen: list[str] = []
+    real = gear.deltas
+    monkeypatch.setattr(gear, "deltas", lambda slot, texts: seen.extend(texts) or real(slot, texts))
+    option = ItemOption(base["name"], base["name"], "Gloves", None, normal_item(base), False, 0.0, "found", 1)
+    gear.augment_effect_trial("Gloves", base, option, level, gear.pools, chosen, 1e6, clock.now() + 300)
+    with_line = [t for t in seen if "increased effect of Socketed Augment Items" in t]
+    assert with_line, "the route was scored"
+    for text in with_line:
+        assert sum(line in suffix_lines for line in text.splitlines()) + 1 <= 3, text
+
+
+def test_the_alloy_gives_a_weapon_the_augment_effect_at_its_middle_roll(engine):
+    ctx, gear = spark_gear(engine, "Wand")
+    ctx.alloy_prices = {"Sovereign Alloy": 2.0}
+    ctx.payload["augment_effect_prices"] = {OMEN_SUFFIX: 0.43}
+    base = next(b for b in ctx.data.bases if b["type"] == "Wand" and socket_count(b, False) >= 1)
+    level, pool = gear.pools.item_level, gear.pools.pool(base["name"])
+    names = [n for n in gear.runes.candidates(base, False) if n not in gear.runes.socket_bound]
+    plain_score = gear.deltas("Weapon 1", [rare_text("Weapon 1", base, level, [])])[0][0]
+    scored = [s for s, _ in gear.deltas("Weapon 1", [rare_text("Weapon 1", base, level, [], runes=[n]) for n in names])]
+    best_rune = max(zip(scored, names))
+    print("PROBE alloy runes: best", best_rune, "plain", plain_score)
+    chosen: list = []
+    for kind in ("Prefix", "Suffix"):
+        chosen.append(next(a for a in sorted(pool, key=lambda a: a.tier) if a.type == kind
+                           and a.group not in {c.group for c in chosen} and gear.pools.choices(a, chosen)))
+    gear.lam = 0.0
+    option = ItemOption(base["name"], base["name"], "Wand", None, normal_item(base), False, 0.0, "found", 1)
+    out = gear.augment_effect_trial("Weapon 1", base, option, level, gear.pools, chosen, 1e6, clock.now() + 300)
+    print("PROBE alloy trial", out and out.affixes, out and out.price, out and out.alloy_scale, out and out.alloy_report)
+    assert best_rune[0] > plain_score + 1e-6, "a rune must score on this wand for the test to mean anything"
+    assert out is not None and out.alloy == "Sovereign Alloy" and out.augment == "alloy"
+    assert "25% increased effect of Socketed Augment Items" in out.raw
+    assert out.price == pytest.approx(rare_price("Weapon 1", chosen) + 2.0)  # (no Omen on an Alloy)
+    assert not any(OMEN_SUFFIX in row for row in out.alloy_report)
+    assert any("lowest roll" in row for row in out.alloy_report)
+
+
+def flux_case(engine):
+    ctx, gear = spark_gear(engine, "Wand")
+    ctx.payload["perfect_flux_price"] = 34.0
+    base = ctx.bases_by_name["Voltaic Staff"]
+    level = gear.pools.item_level
+    raw = rare_text("Weapon 1", base, level, [])
+    assert raw.splitlines()[-1].endswith("Grants Skill: Level 19 Lightning Bolt")  # (item level 86; a ledger tag leads it)
+    option = ItemOption("Rare Staff", base["name"], base["type"], base.get("subType"), raw, False, 5.0, "x", 1, rare=True)
+    return ctx, gear, option
+
+
+def test_perfect_flux_sets_the_granted_skill_to_20_and_pob_reads_it(engine, monkeypatch):
+    ctx, gear, option = flux_case(engine)
+    gear.lam = 0.001
+    monkeypatch.setattr(gear, "deltas", lambda slot, texts: [(100.0 if "Level 20" in t else 1.0, {}) for t in texts])
+    out = gear.perfect_flux_trial("Weapon 1", option, clock.now() + 60)
+    monkeypatch.undo()
+    assert out is not None and out.raw.splitlines()[-1].endswith("Grants Skill: Level 20 Lightning Bolt")
+    assert out.raw.splitlines()[-1].startswith("{tags:")  # (the ledger tag stays on the line)
+    assert out.price == pytest.approx(39.0) and "Perfect Flux (34 div)" in out.craft_route[-1]
+    engine.call("setLevel", level=90)
+    engine.call("equip", slot="Weapon 1", raw=out.raw + "\n+200 to Intelligence", fields=[])
+    found = [g.get("level") for group in engine.call("groups")["groups"] if group.get("fromItem")
+             for g in group.get("gems") or [] if g.get("name") == "Lightning Bolt"]
+    engine.call("equip", slot="Weapon 1", fields=[])
+    print("PROBE perfect flux level", found)
+    assert found == [20]
+
+
+def test_perfect_flux_is_not_bought_when_the_level_moves_nothing(engine, monkeypatch):
+    ctx, gear, option = flux_case(engine)
+    gear.lam = 0.001
+    monkeypatch.setattr(gear, "deltas", lambda slot, texts: [(1.0, {}) for _ in texts])
+    assert gear.perfect_flux_trial("Weapon 1", option, clock.now() + 60) is None
+
+
+def test_perfect_flux_needs_a_price_and_a_granted_skill(engine):
+    ctx, gear, option = flux_case(engine)
+    ctx.payload["perfect_flux_price"] = None
+    assert gear.perfect_flux_trial("Weapon 1", option, clock.now() + 60) is None
+    ctx.payload["perfect_flux_price"] = 34.0
+    ring = ctx.bases_by_name["Pearl Ring"]
+    plain = ItemOption("Rare Ring", ring["name"], "Ring", None, rare_text("Ring 1", ring, 82, []), False, 1.0, "x", 1, rare=True)
+    assert gear.perfect_flux_trial("Ring 1", plain, clock.now() + 60) is None
+
+
+def test_build_rare_tries_perfect_flux_only_with_its_switch(engine, monkeypatch):
+    ctx, gear = spark_gear(engine, "Wand")
+    calls = []
+    monkeypatch.setattr(gear, "perfect_flux_trial", lambda *a, **k: calls.append(a) or None)
+    monkeypatch.delenv("POE2_SEARCH_PERFECT_FLUX", raising=False)
+    assert gear.build_rare("Gloves", clock.now() + 120) is not None and not calls
+    monkeypatch.setenv("POE2_SEARCH_PERFECT_FLUX", "1")
+    assert gear.build_rare("Gloves", clock.now() + 120) is not None and len(calls) == 1
+
+
+def horror_full_case(engine):
+    ctx, gear = spark_gear(engine, "Wand")
+    ctx.payload["augment_effect_prices"] = {HORROR: 1.52}
+    base = next(b for b in ctx.data.bases if b["type"] == "Gloves" and socket_count(b, False) >= 1)
+    level, pool = gear.pools.item_level, gear.pools.pool(base["name"])
+    chosen: list = []
+    for kind, count in (("Prefix", 1), ("Suffix", 3)):
+        for _ in range(count):
+            chosen.append(next(a for a in sorted(pool, key=lambda a: a.tier) if a.type == kind
+                               and a.group not in {c.group for c in chosen} and gear.pools.choices(a, chosen)))
+    option = ItemOption(base["name"], base["name"], "Gloves", None, normal_item(base), False, 0.0, "found", 1)
+    return ctx, gear, base, level, chosen, option
+
+
+def test_horror_with_serle_keeps_all_three_suffixes_beside_the_line(engine, monkeypatch):
+    ctx, gear, base, level, chosen, option = horror_full_case(engine)
+    monkeypatch.setenv("POE2_SEARCH_SERLE", "1")
+    suffix_lines = {l for a in chosen if a.type == "Suffix" for l in a.lines}
+    seen: list[str] = []
+    real = gear.deltas
+    monkeypatch.setattr(gear, "deltas", lambda slot, texts: seen.extend(texts) or real(slot, texts))
+    gear.augment_effect_trial("Gloves", base, option, level, gear.pools, chosen, 1e6, clock.now() + 300)
+    paired = [t for t in seen if SERLE in t and "increased effect of Socketed Augment Items" in t]
+    assert paired, "the pair was scored"
+    assert any(sum(l in suffix_lines for l in t.splitlines()) == 3 for t in paired), "a lost prefix keeps all three"
+    assert all(sum(l in suffix_lines for l in t.splitlines()) + 1 <= 4 for t in paired)
+    alone = [t for t in seen if SERLE not in t and "increased effect of Socketed Augment Items" in t]
+    assert all(sum(l in suffix_lines for l in t.splitlines()) + 1 <= 3 for t in alone)
+
+
+def test_horror_without_the_serle_switch_never_tries_the_pair(engine, monkeypatch):
+    ctx, gear, base, level, chosen, option = horror_full_case(engine)
+    monkeypatch.delenv("POE2_SEARCH_SERLE", raising=False)
+    seen: list[str] = []
+    real = gear.deltas
+    monkeypatch.setattr(gear, "deltas", lambda slot, texts: seen.extend(texts) or real(slot, texts))
+    gear.augment_effect_trial("Gloves", base, option, level, gear.pools, chosen, 1e6, clock.now() + 300)
+    assert seen and not any(SERLE in t for t in seen)
+
+
+def test_a_corrupted_socket_keeps_the_horror_items_dps_factor_and_says_the_order(engine):
+    from builder.search import alloys
+
+    ctx, gear, base, level, chosen, _ = horror_full_case(engine)
+    ctx.payload["cultivation_prices"] = {"vaal": 0.01}
+    raw = rare_text("Gloves", base, level, chosen)
+    filled = ItemOption("Rare Gloves", base["name"], "Gloves", None, raw, False, 5.0, "x", 1, rare=True,
+                        alloy=HORROR, alloy_scale=1.1, augment="essence", craft_route=("route",))
+    out = gear.extra_socket_trial("Gloves", filled, base, socket_count(base, False), clock.now() + 120)
+    key = alloys.alloy_key(with_runes(raw, []).rstrip() + "\nCorrupted")
+    assert gear.build.alloy_raws.get(key) == 1.1, "the corrupted copy's what-if keeps the mean-DPS factor"
+    if "Corrupted" in out.raw:
+        assert any(f"Use the {HORROR} BEFORE the Vaal Orb" in row for row in out.craft_route)

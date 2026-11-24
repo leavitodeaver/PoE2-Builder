@@ -698,7 +698,7 @@ MAXIMUM_QUALITY = re.compile(r"^\+(\d+)% to Maximum Quality$")
 def catalyst_quality(base: dict) -> int:
     """(SEARCHC3; the manager's ruling, 23 Nov 16:36) The catalyst quality this ring or amulet reaches: the usual 20 plus
     its own "+N% to Maximum Quality" implicit (game stat local_maximum_quality_+: Breach Ring 20, Refined Breach Ring 25),
-    read from the line. The 60% / 75% listings need further steps not settled yet (R55-5): not offered."""
+    read from the line. Gear.catalyst_trial's Essence of the Breach route adds 20 more on top of this (R55-12)."""
     extra = sum(int(m.group(1)) for line in (base.get("implicit") or "").splitlines()
                 if (m := MAXIMUM_QUALITY.match(line.strip())))
     return CATALYST_QUALITY + extra
