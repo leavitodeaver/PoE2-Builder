@@ -5783,6 +5783,12 @@ class Assumptions:
 
             rupture_mods, rupture_notes = rupture_model(build, main)
             hand_mods, hand_notes = hand_mods + rupture_mods, hand_notes + rupture_notes + flame_note(build)
+            from builder.preview import knives  # (PREVIEW4, the same loan: several knives of a use on the boss)
+
+            knife_stats = {**build.call("stats", fields=knives.FIELDS),
+                           "_boss": getattr(build.ctx.request, "boss", None)}
+            knife_mods, knife_notes = knives.knife_model(build, main, knife_stats)
+            hand_mods, hand_notes = hand_mods + knife_mods, hand_notes + knife_notes
         if agony_rate > 0:  # (a press: the button cap counts it, as Bastion of Light's taps: models.ITEM_PRESSES)
             presses = getattr(build, models.ITEM_PRESSES, None)
             if isinstance(presses, dict):

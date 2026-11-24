@@ -388,3 +388,91 @@ def test_molten_forges_anvil_falls_once_a_cooldown(engine):
     assert got["TotalDPS"] > 0 and got["Speed"] == pytest.approx(1 / 6, rel=0.03)  # (its 6 s cooldown)
     row = next(r for r in preview.gem_rows() if r["name"] == "Molten Forge")
     assert any("UNDERCOUNT" in text for text in row["not_modelled"])
+
+
+def test_the_knife_counts_and_the_boss_share():
+    from builder.preview.knives import knife_count, knife_row, knives_on_boss
+
+    ek, wb = knife_row("Ethereal Knives"), knife_row("Whirling Blades")
+    assert knife_row("Viper Strike") is None
+    assert knife_count(12, False, ek) == 12 and knife_count(12, True, ek) == 16  # (x1.35 dual wielding, rounded down)
+    assert knife_count(20, True, wb) == 27
+    fan = knives_on_boss(12, "fan", 1.5, 2.0)
+    assert fan["headline"] == 12 and fan["one"] == 1  # (point-blank: the whole fan; the group rule's one a row)
+    spiral = knives_on_boss(20, "spiral", 1.5, 2.0)
+    assert 1 < spiral["headline"] < 20 and spiral["all"] == 20  # (the boss's share of the circle, never a flat count)
+    assert knives_on_boss(20, "spiral", 3.0, 2.0)["headline"] == pytest.approx(10)  # (inside the boss: half the circle)
+
+
+DAGGER = "Rarity: Normal\nCinquedea\n"
+
+
+def _knife_build(engine, skill: str, dual: bool = False, extra: str = "") -> dict:
+    from builder.preview.knives import FIELDS
+
+    engine.call("newBuild")
+    engine.call("setLevel", level=90)
+    engine.call("equip", slot="Weapon 1", fields=[], raw=DAGGER)
+    if dual:
+        engine.call("equip", slot="Weapon 2", fields=[], raw=DAGGER)
+    engine.call("addSkillGroup", text=skill, main=True)
+    if extra:
+        engine.call("addSkillGroup", text=extra, main=False)
+    return engine.call("stats", fields=[*FIELDS, "TotalDPS", "LedgerImpaleChance", "Speed", "HitChance"])
+
+
+def test_the_knife_skills_hit_impale_and_count_their_knives(engine):
+    from types import SimpleNamespace
+
+    from builder.preview.knives import knife_model
+
+    preview.install(engine, BuildRequest(preview_1_0=True))
+    one = _knife_build(engine, "Ethereal Knives 20/0 1")
+    assert one["TotalDPS"] > 0 and one["ProjectileCount"] == pytest.approx(12)
+    assert one["LedgerImpaleChance"] == 100 and one["LedgerImpaleEffect"] == pytest.approx(3.5)  # (250% more)
+    mods, notes = knife_model(None, SimpleNamespace(name="Ethereal Knives"), one)
+    assert mods[0]["value"] == pytest.approx(1100) and notes[0]["value"] == "x12.00"
+    assert preview.ASTERISK in notes[0]["label"] and "UNVERIFIED" not in notes[0]["value"]
+    two = _knife_build(engine, "Ethereal Knives 20/0 1", dual=True)
+    assert two["OffHand.AverageHit"] > 0
+    assert knife_model(None, SimpleNamespace(name="Ethereal Knives"), two)[1][0]["value"] == "x16.00"
+    wb = _knife_build(engine, "Whirling Blades 13/0 1")
+    assert wb["TotalDPS"] > 0 and wb["ProjectileCount"] == pytest.approx(20) and wb["LedgerImpaleChance"] == 100
+    mods, notes = knife_model(None, SimpleNamespace(name="Whirling Blades"), wb)
+    # (the spiral: the boss's share of the circle at 2 m; the worst-case boss's 0.3 m takes ~1 knife, the 1 m Fell
+    # Serpent ~3.3: never a flat count; every knife is a row)
+    assert float(notes[0]["value"][1:]) == pytest.approx(1.0) and "every knife, 20" in notes[0]["basis"]
+    mods, notes = knife_model(None, SimpleNamespace(name="Whirling Blades"), {**wb, "_boss": "Atziri, the Fell Serpent"})
+    assert float(notes[0]["value"][1:]) == pytest.approx(20 / 6, rel=0.01) and mods[0]["value"] > 0
+    # a dagger skill: on a sword PoB disables it
+    engine.call("equip", slot="Weapon 1", fields=[], raw=SWORD)
+    assert (engine.call("stats", fields=["TotalDPS"]).get("TotalDPS") or 0) == 0
+    # not a knife skill: nothing
+    assert knife_model(None, SimpleNamespace(name="Viper Strike"), one) == ([], [])
+
+
+def test_the_knife_skills_from_stealth(engine):
+    from types import SimpleNamespace
+
+    from builder.preview.stealth import ambush_model
+
+    preview.install(engine, BuildRequest(preview_1_0=True))
+    gems = {g["name"]: g for g in preview.gems()}
+
+    class Build:
+        ctx = SimpleNamespace(gems=gems, request=BuildRequest(preview_1_0=True))
+        objective = None
+        call = staticmethod(engine.call)
+
+    # Ethereal Knives from Stealth doesn't hit: the Stealth uses cost damage, and its Spectral Impales are a row only
+    stats = _knife_build(engine, "Ethereal Knives 20/0 1", extra="Shroud 20/0 1\nConceal 1/0 1")
+    mods, notes = ambush_model(Build(), SimpleNamespace(name="Ethereal Knives"), stats)
+    assert notes[0]["value"] < 0 and mods[0]["scale"] < 0 and "Spectral" in notes[0]["basis"]
+    assert "UNVERIFIED" in notes[0]["basis"]
+    # Whirling Blades' Ambush throws a knife more for each Darkness spent (Conceal's 10)
+    stats = _knife_build(engine, "Whirling Blades 13/0 1", extra="Shroud 20/0 1\nConceal 1/0 1")
+    mods, notes = ambush_model(Build(), SimpleNamespace(name="Whirling Blades"), stats)
+    assert notes[0]["value"] > 0 and "+10 knives" in notes[0]["basis"]
+    without = _knife_build(engine, "Whirling Blades 13/0 1", extra="Shroud 20/0 1")
+    _, plain = ambush_model(Build(), SimpleNamespace(name="Whirling Blades"), without)
+    assert "knives for the Darkness" not in plain[0]["basis"]

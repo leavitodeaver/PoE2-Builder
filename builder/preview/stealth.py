@@ -37,13 +37,44 @@ def shades_alive(cycle: float, seconds: float = SHADE_SECONDS, limit: int = SHAD
     return min(limit, 1 + math.floor(seconds / cycle - 1e-9))
 
 
-def ambush_more(ambush_rate: float, uses: float, darkness: float, shades: int) -> tuple[float, float, float]:
-    """(average more damage over all the main skill's uses, an Ambush's multiplier, the share of uses that Ambush)."""
+def ambush_more(ambush_rate: float, uses: float, darkness: float, shades: int,
+                knives: float = 1.0) -> tuple[float, float, float]:
+    """(average more damage over all the main skill's uses, an Ambush's multiplier, the share of uses that Ambush).
+    `knives`: an Ambush's knives on the boss over a plain use's (Whirling Blades' knives per Darkness spent)."""
     if ambush_rate <= 0 or uses <= 0:
         return 0.0, 1.0, 0.0
     share = min(1.0, ambush_rate / uses)
-    each = (1 + DARKNESS_MORE * min(darkness, DARKNESS_MAX)) * (1 + SHADE_DAMAGE * shades)
+    each = (1 + DARKNESS_MORE * min(darkness, DARKNESS_MAX)) * (1 + SHADE_DAMAGE * shades) * knives
     return share * (each - 1), each, share
+
+
+def knife_ambush(build: Any, main: Any, stats: dict, darkness: float, ambush_rate: float) -> dict | None:
+    """(PREVIEW4) A knife skill's Ambush (builder/preview/knives.py), else None: {'no_hit': its Stealth use deals no
+    damage (Ethereal Knives), 'row': that use's Spectral Impale row, 'ratio': an Ambush's knives on the boss over a plain
+    use's (Whirling Blades: '+1 projectile for each Darkness spent when Ambushing', before the dual wield 35% more: the
+    order is UNVERIFIED, this one gives more knives)}."""
+    from builder.preview import knives
+    from builder.search import bosses, models
+    from builder.search.conditions import MELEE_DISTANCE
+
+    row = knives.knife_row(main.name)
+    if row is None:
+        return None
+    stats = {**stats, **build.call("stats", fields=knives.FIELDS)}
+    if row["knives"].get("stealth_version", {}).get("hits") is False:
+        return {"no_hit": True, "row": knives.spectral_row(build, main, stats, ambush_rate), "ratio": 0.0}
+    per = row["knives"].get("per_darkness_on_ambush", 0) * min(darkness, DARKNESS_MAX)
+    if per <= 0:
+        return {"no_hit": False, "row": "", "ratio": 1.0}
+    dual = models.number(stats.get("OffHand.AverageHit")) > 0
+    projectiles = max(models.number(stats.get("ProjectileCount")), 1.0)
+    radius, _ = bosses.hit_radius({"_boss": getattr(build.ctx.request, "boss", None)})
+    # (at least one knife a use, as knives.knife_model counts: PoB's one)
+    plain = max(1.0, knives.knives_on_boss(knives.knife_count(projectiles, dual, row), row["knives"]["layout"], radius,
+                                  MELEE_DISTANCE)["headline"])
+    more = max(1.0, knives.knives_on_boss(knives.knife_count(projectiles + per, dual, row), row["knives"]["layout"], radius,
+                                 MELEE_DISTANCE)["headline"])
+    return {"no_hit": False, "row": "", "ratio": more / plain}
 
 
 def ambush_model(build: Any, main: Any, stats: dict) -> tuple[list[dict], list[dict]]:
@@ -80,15 +111,27 @@ def ambush_model(build: Any, main: Any, stats: dict) -> tuple[list[dict], list[d
     conceal = any(g.get("name") == DARKNESS_SUPPORT and g.get("enabled", True) for g in group.get("gems") or [])
     darkness = DARKNESS_ON_STEALTH if conceal else 0
     shades = shades_alive(cycle) if "Melee" in types else 0
-    more, each, share = ambush_more(1 / cycle, uses, darkness, shades)
-    plain, _, _ = ambush_more(1 / cycle, uses, darkness, 0)
+    knife = knife_ambush(build, main, stats, darkness, 1 / cycle)
+    if knife is not None and knife["no_hit"]:  # (PREVIEW4: Ethereal Knives' Stealth version deals no damage)
+        share = min(1.0, (1 / cycle) / uses) if uses > 0 else 0.0
+        basis = (f"Shroud every {cycle:.2f} s puts {share:.0%} of {name}'s uses in Stealth, and {name} used from Stealth "
+                 f"doesn't hit (poe2db: its Stealth version 'Does not Hit'): those uses deal no damage, {-share:+.1%} DPS. "
+                 f"{knife['row']}{ASTERISK}")
+        return ([models.line("1% more Damage", -100 * share, skill=name)],
+                [{"label": LABEL, "value": round(-share, 3), "confidence": "LOW", "basis": basis,
+                  "play": f"Don't use {name} from Stealth for damage: its Stealth throw deals none{ASTERISK}"}])
+    more, each, share = ambush_more(1 / cycle, uses, darkness, shades, knife["ratio"] if knife else 1.0)
+    plain, _, _ = ambush_more(1 / cycle, uses, darkness, 0, knife["ratio"] if knife else 1.0)
     if more <= 0:
         return [], [{"label": LABEL, "value": 0, "confidence": "LOW",
                      "basis": f"Shroud every {cycle:.2f} s, but no Darkness (no Conceal on it) and no Shade repeats this "
                               "skill: 0"}]
     basis = (f"Shroud ({why}) gives an Ambush every {cycle:.2f} s, {share:.0%} of {name}'s uses. Each Ambush: "
              f"{darkness} Darkness ({'Conceal' if conceal else 'no Conceal'}) x{1 + DARKNESS_MORE * darkness:.2f}, "
-             f"{shades} Shade(s) repeating it at 50% less, x{each:.2f} in all. Shades are taken to be in range (LOW: no "
+             f"{shades} Shade(s) repeating it at 50% less"
+             + (f", +{darkness} knives for the Darkness spent (x{knife['ratio']:.2f} the knives on the boss)"
+                if knife and knife["ratio"] != 1.0 else "")
+             + f", x{each:.2f} in all. Shades are taken to be in range (LOW: no "
              f"range is published). Rows: with them {more:+.1%} DPS on average, with none in range {plain:+.1%}. Other "
              f"Darkness sources aren't counted (an UNDERCOUNT){ASTERISK}")
     note = {"label": LABEL, "value": round(more, 3), "confidence": "LOW", "basis": basis,
