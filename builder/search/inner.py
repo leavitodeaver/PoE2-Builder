@@ -863,12 +863,14 @@ class Search:
         # (the others in order of distance, not of the bridge's sourceLines, which walks PoB's per-process order: two
         # "further than N m" distances that score the same keep the nearer one, every run; PERF12)
         candidates = [natural] + sorted(candidates[1:])
-        scores = {}
+        scores, keys = {}, {}
         for metres in candidates:
             conditions.distance = None if metres == natural else (metres, "")
             self.settle()
-            scores[metres] = self.build.score
-        best = max(candidates, key=lambda m: (scores[m], m == natural))
+            scores[metres] = self.build.objective.value(self.build.stats)
+            # (SEARCH39: the choice compares damage, then the hard shortfall, then the rest: Objective.choice_key)
+            keys[metres] = self.build.objective.choice_key(self.build.stats)
+        best = max(candidates, key=lambda m: (keys[m], m == natural))
         tried = ", ".join(f"{m:g} m {scores[m]:,.0f}" for m in candidates)
         if best <= MELEE_DISTANCE:
             why = "close range: the build leans into Presence, close-range or support lines"
@@ -878,10 +880,42 @@ class Search:
             why = f"just beyond its {radius:.1f} m Presence: \"no enemies in your Presence\" lines"
         else:
             why = "beyond its \"further than\" lines"
-        why += f" (score at {tried}, defence floors included)"
+        why += f" (DPS at {tried}; game limits first, then DPS against the defence floors)"
         conditions.distance = None if best == natural else (best, why)
         self.settle()
         return conditions.distance != before
+
+    def final_choices(self) -> bool:
+        """(SEARCH39, the manager's 24 Nov item 1) The main skill's stat set / part and the boss distance chosen once more
+        in the FINISHED state, after the last uptime weighing: each was chosen mid-flow, where the floors' part-time
+        deltas and the conditions were not yet the finished build's. Example build 16 (POE2T7491): chosen mid-flow, Ice
+        Shot's Arrow set at 4 m (61.4M); in the finished state its Shards set at 2 m reads 131.2M and is short less on
+        Physical max hit (0.095 vs 0.198), but nothing chose again. Kept only if the choice key (Objective.choice_key)
+        rises and the shortfall (game limits x10 + request floors) is no worse; else everything is put back. Returns
+        True if kept."""
+        import copy
+
+        build, objective = self.build, self.build.objective
+
+        def shortfall_of(stats: dict) -> float:
+            return round(sum(a * (10.0 if h else 1.0) for _, a, h in objective.deficits(stats) if h is not None), 6)
+
+        before_key, before_short = objective.choice_key(build.stats), shortfall_of(build.stats)
+        snap = build.snapshot()
+        saved = [(owner, self.gems.plain_state(owner)) for owner in (self.conditions, self.assumptions) if owner]
+        self.gems.choose_active_skill()
+        self.choose_distance()
+        self.weigh_uptimes()
+        after_key = objective.choice_key(build.stats)
+        higher = (after_key[:2] > before_key[:2]
+                  or (after_key[:2] == before_key[:2] and after_key[2] > before_key[2] + EPSILON))
+        if higher and shortfall_of(build.stats) <= before_short + 1e-6:
+            return True
+        for owner, state in saved:
+            for k, v in (state or {}).items():
+                setattr(owner, k, copy.deepcopy(v))
+        build.restore(snap)
+        return False
 
     def rolling_share(self) -> float:
         """The share of the fight the build spends dodge rolling, from the dodge-roll notes of the models (Cast on Dodge,
@@ -2218,6 +2252,8 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         trace.append(["granted presses", round(build.score, 4)])
     search.weigh_uptimes()  # exact for the finished build
     trace.append(["uptimes", round(build.score, 4)])
+    if search.final_choices():  # (SEARCH39: the stat set and the distance chosen again in the finished state)
+        trace.append(["choices", round(build.score, 4)])
     # (the user, 14 Nov: an empty slot gets the cheapest item that adds defence or movement speed, score, floors and
     # budget no worse: Gear.fill_empty)
     if search.gear.fill_empty(search.weigh_uptimes):

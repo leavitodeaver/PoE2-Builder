@@ -33,7 +33,9 @@ def test_refresh_infused_measures_the_chosen_infused_set_again_in_the_finished_s
 def _distance_search(lines, radius, scores):
     """A Search stand-in for choose_distance: the score at each distance from `scores` (metres -> score)."""
     conditions = SimpleNamespace(main_types={"Spell"}, main_skill="", distance=None)
-    build = SimpleNamespace(score=0.0, groups=lambda: [])
+    build = SimpleNamespace(score=0.0, groups=lambda: [], stats={})
+    # (SEARCH39: the choice reads Objective.choice_key; no hard deficit here, so it orders as the score)
+    build.objective = SimpleNamespace(value=lambda stats: build.score, choice_key=lambda stats: (True, 0.0, build.score))
 
     def call(name, **kw):
         if name == "sourceLines":

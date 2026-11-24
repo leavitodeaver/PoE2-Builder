@@ -143,6 +143,7 @@ def _score_finished(search) -> None:
     search.resolve()
     search.press_round(float("inf"))
     search.weigh_uptimes()
+    search.final_choices()  # (SEARCH39: the stat set and the distance chosen again in the finished state, as finalize_task)
     if search.gems.refresh_infused():  # (the Infused factor in the finished state, as finalize_task: SEARCH28)
         search.weigh_uptimes()
 

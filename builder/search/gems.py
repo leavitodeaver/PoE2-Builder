@@ -1306,8 +1306,11 @@ class Gems:
                 settle_fn()
             if infused is None and active not in plain:
                 plain[active], plain_set[active] = main_dps(build.stats), (part, stat_set)
-            if best is None or build.score > best[0]:
-                best = (build.score, active, part, stat_set, infused)
+            # (SEARCH39: damage, then the hard shortfall, then DPS against the floors at their base weight:
+            # Objective.choice_key)
+            key = build.objective.choice_key(build.stats)
+            if best is None or key > best[0]:
+                best = (key, active, part, stat_set, infused)
             if infused is not None:
                 tried.append(infused)
                 assumptions.infused = None

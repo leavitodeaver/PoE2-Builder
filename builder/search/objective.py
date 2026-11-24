@@ -876,6 +876,25 @@ class Objective:
                 raised = True
         return raised
 
+    def choice_key(self, stats: dict) -> tuple[bool, float, float]:
+        """(SEARCH39, the manager's 24 Nov item 1) What a CHOICE between ways to play the same build compares (the boss
+        distance, the main skill's stat set and part): any damage first (NO_DAMAGE_OFFSET's rule), then the smallest
+        hard shortfall (game limits: points, attributes, Spirit, costs, skill slots; unweighted), then DPS against the
+        request and soft floors at their BASE weights (FLOOR_OFFSET + FLOOR_WEIGHT x the amount, no escalation: as
+        rank_key charges soft floors), so meeting a floor still counts (e^3 = 20x DPS) but a sliver of one doesn't.
+        Before, the choice compared score, whose floor weights the search escalates (up to MAX_MULTIPLIER = 64x) to push
+        a build toward its floors over many moves, so a play choice could turn on an escalated sliver of a floor. (Example
+        build 16's Arrow-over-Shards pick, MECHC57's POE2T7107-7111, was a STALE choice, not this: Search.final_choices.)"""
+        found = self.deficits(stats)
+        hard = round(sum(amount for _, amount, h in found if h is True), 4)
+        rest = [amount for _, amount, h in found if h is not True]
+        floors = (FLOOR_WEIGHT * sum(rest) + (FLOOR_OFFSET if any(h is False for _, _, h in found) else 0.0)
+                  + (FLOOR_OFFSET if any(h is None for _, _, h in found) else 0.0))
+        value = self.value(stats)
+        if not value > 0.0:
+            return False, -hard, -NO_DAMAGE_OFFSET - floors
+        return True, -hard, math.log1p(value) - floors
+
     def score(self, stats: dict) -> float:
         value = self.value(stats)
         if not value > 0.0:  # (NO_DAMAGE_OFFSET: a build with no damage never outscores one with any; NaN counts as none)
