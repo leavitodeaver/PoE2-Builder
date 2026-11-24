@@ -234,6 +234,9 @@ def main() -> None:
     parser.add_argument("--cpu", action="store_true",
                         help="compare code, not PC load: --seconds is each worker's processor time (Run's cpu_clock, "
                              "SEARCH19); the wall time grows on a busy PC. Every row reports its evaluations either way")
+    parser.add_argument("--work", action="store_true",
+                        help="a reproducible gate (SPEED2): --seconds counts fixed costs per engine call (inner.WorkClock), "
+                             "so the same seed and code do the same work on any PC load; implies --cpu")
     parser.add_argument("--seed-base", type=int, default=None,
                         help="take draw set N (SEARCH20): every task seed moves by run.SEED_STRIDE x N, and the run "
                              "and its workers hash strings with PYTHONHASHSEED=N, so the same N on two commits takes "
@@ -247,6 +250,9 @@ def main() -> None:
                         help="price on this league (default: the configured one, builder.data.prices.configured_league; "
                              "before 18 Nov the default was poe.ninja's first listed league and the only price cache 'Forbidden Rites')")
     args = parser.parse_args()
+    if args.work:
+        args.cpu = True
+        os.environ["POE2_SEARCH_WORK_CLOCK"] = "1"  # (read by the workers when they start)
     if args.seed_base is not None and os.environ.get("PYTHONHASHSEED") != str(args.seed_base):
         # (Python fixes its string hashing at start-up: run again with the hash seed set; the workers inherit it)
         env = {**os.environ, "PYTHONHASHSEED": str(args.seed_base)}
@@ -318,6 +324,10 @@ def main() -> None:
         result = optimize(request, prices=prices, workers=args.workers, seconds=args.seconds, on_event=on_event,
                           cpu_clock=args.cpu, seed_base=args.seed_base or 0)
         dps = (result.get("dps") or {}).get("full", 0.0)
+        if args.work:  # (a reproducibility run: a task that failed changes what the run did, so say it)
+            for note in result.get("notes") or []:
+                if "failed" in note:
+                    print("run note:", note, flush=True)
         failing = [c["label"] for c in result.get("checks", []) if c["ok"] is False]
         judged = verdict(dps, bool(result.get("feasible")), reference_dps, fair["dps"], args.author_toggles)
         passed = judged["passed"]
@@ -352,10 +362,10 @@ def main() -> None:
                   r for r in result.get("final_regrow") or [] if r["kept"]]) else
                  ("; final regrow kept nothing" if result.get("final_regrow") else ""))
               + f"; {result.get('evaluations', 0):,} evaluations, {result.get('wall_seconds', 0):,.0f} s wall"
-              + (" (processor-time clock)" if args.cpu else ""), flush=True)
+              + (" (work clock)" if args.work else " (processor-time clock)" if args.cpu else ""), flush=True)
     RESULT_DIR.mkdir(parents=True, exist_ok=True)
     out = RESULT_DIR / f"gate4-{datetime.now():%Y%m%d-%H%M%S}.json"
-    out.write_text(json.dumps({"seconds": args.seconds, "cpu_clock": args.cpu, "seed_base": args.seed_base,
+    out.write_text(json.dumps({"seconds": args.seconds, "cpu_clock": args.cpu, "work_clock": args.work, "seed_base": args.seed_base,
                                "hash_seed": os.environ.get("PYTHONHASHSEED"), "commit": commit(), "boss": BOSS, "verdict": "toggled" if args.author_toggles else "fair",
                                "priced_on": prices.league, "price_warnings": prices.warnings, "rows": rows}, indent=1), encoding="utf-8")
     print(f"gate 4: {sum(r['passed'] for r in rows)}/{len(rows)} pass; wrote {out.relative_to(ROOT)}")

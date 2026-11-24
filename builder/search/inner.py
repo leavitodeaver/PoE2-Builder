@@ -1805,9 +1805,60 @@ def _all_off(search: Any, infos: dict[str, dict], on_stats: dict) -> dict:
 # The search's deadlines and hard stop all read builder.clock.now, which this swaps in the worker process only.
 CPU_CLOCK = "cpu_clock"
 
+# (SPEED2, on loan from SEARCH; the manager's 10:40 ruling, 23 Nov; OFF by default: POE2_SEARCH_WORK_CLOCK=1, gate4 --work)
+# Why two gates on one seed and one commit differ: a processor second buys a different amount of work on a loaded PC, so
+# each task stops at a different point (2b75d: 118,027 and 97,593, SEARCHB6's gate-6327 / 6331; SPEED1 report 6b). On this
+# clock a task's time is a fixed cost per engine call that reached Lua, so the same calls stop at the same point.
+# The costs are mean seconds from two 300 s profiles (2b75b POE2T7802, 2b75e POE2T7811; their engine seconds are within 6%
+# of the runs' processor seconds). LOW: they set how far a "600 s" gate goes and each step's share, not any score.
+WORK_CLOCK = os.environ.get("POE2_SEARCH_WORK_CLOCK", "0") == "1"
+WORK_COST = {"setAssumptions": 0.127, "setGroup": 0.130, "equip": 0.110, "setConfig": 0.122, "loadXml": 0.400,
+             "allocate": 0.160, "removeGroup": 0.140, "monsterRates": 1.270, "useRates": 0.0087, "exportXml": 0.042,
+             "setRates": 0.008, "setAttributes": 0.145, "groups": 0.0029, "sourceLines": 0.0029, "activeSkills": 0.0010,
+             "stats": 0.0003, "facts": 0.0025, "getConfig": 0.0005, "frontier": 0.019, "minionSkillHit": 0.021}
+WORK_COST_PER_CASE = {"itemDeltas": 0.0164, "nodeDeltas": 0.0120, "gemDeltas": 0.0150}
+WORK_COST_OTHER = 0.002  # (any other method that reaches Lua)
+WORK_READ = 0.0001  # (each clock reading, so a loop that calls no engine still reaches its deadline)
 
-def use_cpu_clock(payload: dict) -> None:
-    if payload.get(CPU_CLOCK) and clock.now is not time.process_time:
+
+class WorkClock:
+    """A worker's search time counted in work done, not seconds passed."""
+
+    def __init__(self) -> None:
+        self.spent = 0.0
+
+    def now(self) -> float:
+        self.spent += WORK_READ
+        return self.spent
+
+    def charge(self, method: str, cases: int) -> None:
+        self.spent += (WORK_COST_PER_CASE[method] * cases if method in WORK_COST_PER_CASE
+                       else WORK_COST.get(method, WORK_COST_OTHER))
+
+    def watch(self, engine: Any) -> None:
+        real = engine.call
+
+        def call(method: str, **args: Any) -> Any:
+            before = engine.lua.calls
+            try:
+                return real(method, **args)
+            finally:
+                if engine.lua.calls != before:  # (a read the engine's cache answered costs nothing)
+                    self.charge(method, len(args.get("cases") or ()))
+
+        engine.call = call
+
+
+def use_cpu_clock(payload: dict, engine: Any = None) -> None:
+    if not payload.get(CPU_CLOCK):
+        return
+    if WORK_CLOCK and engine is not None:
+        if not isinstance(getattr(clock.now, "__self__", None), WorkClock):
+            work = WorkClock()
+            work.watch(engine)
+            clock.now = work.now
+        return
+    if clock.now is not time.process_time:
         clock.now = time.process_time
 
 
@@ -1817,7 +1868,7 @@ def optimize_task(engine: Any, report: Any, payload: dict, skeleton: dict, secon
     """`goal` overrides the request's (a balanced run's boss-DPS searches); the result's `value` is
     on that goal, so the run ranks results on its own goal from `dps` and `clear`. `full`: scored on PoB's Full
     DPS, as the delivered build is, the damaging non-main groups included (the run's focus stage)."""
-    use_cpu_clock(payload)
+    use_cpu_clock(payload, engine)
     deadline = clock.now() + seconds
     wall, left_out = time.perf_counter(), clock.paused()
     search = Search(engine, report, payload, skeleton, seed, goal=goal, full=full)
@@ -1907,7 +1958,7 @@ def seed_task(engine: Any, report: Any, payload: dict) -> dict:
 
 def screen_task(engine: Any, report: Any, payload: dict, skeletons: list[dict], seconds_each: float = 3.0) -> list[dict]:
     """Main-skill DPS with a starting weapon and greedy supports, no tree: a cheap shortlist."""
-    use_cpu_clock(payload)
+    use_cpu_clock(payload, engine)
     from builder.pob.pool import Cancelled
 
     results = []
@@ -2010,7 +2061,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     the build and reload the exported code to prove it reproduces the same numbers."""
     from builder.pob.pool import Cancelled
 
-    use_cpu_clock(payload)
+    use_cpu_clock(payload, engine)
     deadline = clock.now() + seconds
     search = Search(engine, report, payload, skeleton, 1, full=True)
     search.load(state)
