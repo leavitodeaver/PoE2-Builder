@@ -1,0 +1,43 @@
+# COV55, item 3 (the manager's 23:23 order): Train 135's readers, each checked against the model's own pattern or stat
+# (COV43's rule), on origin/main 6d268642. Left open: "Melee Attacks fire N additional Projectiles" (models.MELEE_PROJECTILES
+# feeds a note only: "no number moves"); "Walk the Paths Not Taken" (tree.py's search unlock, not a model number).
+
+- id: model-read-cov55-perforation
+  title: "Perforation's Jagged Ground Aggravate line read by MECH104's aggravate_model (models.PERFORATION)"
+  kind: pob_gap
+  model: aggravate
+  match: '^(\(\d+-\d+\)|\d+(?:\.\d+)?)% chance for Bleeding to be Aggravated when Inflicted against Enemies on Jagged Ground$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Each Bleed rolls the chance x the build's Jagged Ground share, joined with the other Aggravate sources (MECH104). It
+    replaces the retired aggravate-bleed-jagged-ground (pob-gaps-boss.yaml). Its model is AGGRAVATE_MODEL, so aggravate_model's
+    own guards (ours / ledger_counts) still count the line. A link only.
+  sources: ["builder/search/models.py (PERFORATION, aggravate_model)"]
+  status: proposed
+
+- id: model-read-cov55-archon-of-undeath-command
+  title: '"N% chance to gain Archon of Undeath when you use a Command skill" read by models.UNDEATH_ON_COMMAND'
+  kind: pob_gap
+  model: archon
+  match: '^(\(\d+-\d+\)|\d+(?:\.\d+)?)% chance to gain Archon of Undeath when you use a Command skill$'
+  replace: []
+  confidence: theory
+  notes: >-
+    MECHC55: the Archon of Undeath's uptime from the build's Command uses gives its 25% more Minion Damage and 200% more
+    Command Cooldown Recovery (models ~586-590). A link only.
+  sources: ["builder/search/models.py (UNDEATH_ON_COMMAND, ~586)"]
+  status: proposed
+
+- id: model-read-cov55-combat-frenzy-cooldown
+  title: "skill_combat_frenzy_x_ms_cooldown (Combat Frenzy) read by conditions.COMBAT_FRENZY_STAT"
+  kind: model
+  model: charges
+  stats: ["skill_combat_frenzy_x_ms_cooldown"]
+  skill: [Combat Frenzy]
+  confidence: theory
+  notes: >-
+    Read from the skill's level stats (conditions ~10763) as the wait between its Frenzy Charge gains, which caps the
+    charge evidence (conditions ~810). A link only.
+  sources: ["builder/search/conditions.py (COMBAT_FRENZY_STAT, ~810, ~10763)"]
+  status: proposed

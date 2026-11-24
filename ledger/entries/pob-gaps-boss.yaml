@@ -622,8 +622,12 @@
     share of the fight in it (COV11: a `share:` line, x the build's conditions.jagged_ground share, from the main
     skill's own Jagged Ground sources; 0 with none). Before, a flat 40% that switched on only at a share of 40% or more.
     The chance read as that much more Bleeding damage stays LOW (aggravated Bleeding's own value not modelled here).
+    RETIRED (COV55, the manager's 23:23 order on 23 Nov, item 3): superseded by MECH104's models.aggravate_model, which
+    reads the line (models.PERFORATION) per Bleed at the build's Jagged Ground share and joins it with the other Aggravate
+    sources. Its guard (ledger_counts) skips the line only when a live ledger line says "Magnitude of Bleeding", and this
+    entry's "more Damage with Bleeding" didn't, so with it live, both counted it on main (a double count, an OVERCOUNT).
   sources: ["https://poe2db.tw/us/Jagged_Ground", "https://poe2db.tw/us/Aggravated_Bleeding"]
-  status: proposed
+  status: retired  # COV55: superseded by MECH104's aggravate_model (models.PERFORATION at the Jagged Ground share)
 
 - id: spike-pit
   title: Spike Pit, enemies in your Jagged Ground take more damage
