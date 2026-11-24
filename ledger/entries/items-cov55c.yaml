@@ -1,0 +1,81 @@
+# COV55, turn 3 (23 Nov 2026; the manager's 21:41 job allows marking rows "plainly already read by a model on main"):
+# gem stats that a model on main holds as its own constant or flag, each the same at every level (GrantedEffectStatSets /
+# PerLevel, game 26650308), and each reaching a number. COV43's rule; checked against origin/main db8a4ccb. A link only.
+
+- id: model-read-cov55-war-banner-speed
+  title: "base_skill_buff_banner_attack_speed_+%_to_apply (War Banner) held by assumptions.WAR_BANNER_SPEED"
+  kind: model
+  model: war_banner
+  stats: ["base_skill_buff_banner_attack_speed_+%_to_apply"]
+  skill: [War Banner]
+  confidence: theory
+  notes: >-
+    25 at every level (WarBannerPlayer) = WAR_BANNER_SPEED; Assumptions adds "1% increased Attack Speed" x 25 x the share of
+    the fight under a placed banner (MECHC50). A link only.
+  sources: ["builder/search/assumptions.py (WAR_BANNER_SPEED, ~3747)"]
+  status: proposed
+
+- id: model-read-cov55-blazing-critical-duration
+  title: "support_blazing_crits_base_duration_ms (Blazing Critical) held by assumptions.BLAZING_SECONDS"
+  kind: model
+  model: blazing_critical
+  stats: ["support_blazing_crits_base_duration_ms"]
+  skill: [Blazing Critical]
+  confidence: theory
+  notes: >-
+    5000 at every level (SupportBlazingCriticalPlayer) = BLAZING_SECONDS 5.0, the buff's duration in blazing_uptime (MECHC50).
+    A link only.
+  sources: ["builder/search/assumptions.py (BLAZING_SECONDS, blazing_uptime)"]
+  status: proposed
+
+- id: model-read-cov55-her-declaration-duration
+  title: "Her Declaration's Intimidate duration held by conditions.HER_DECLARATION_SECONDS"
+  kind: model
+  model: intimidate
+  stats: ["support_mothers_declaration_intimidate_enemies_when_they_enter_your_presence_base_duration_ms"]
+  skill: [Her Declaration]
+  confidence: theory
+  notes: >-
+    4000 at every level (SupportHerDeclarationPlayer) = HER_DECLARATION_SECONDS 4.0, scaled by the build's Intimidate
+    duration lines, then the boss's Intimidated share from its re-entries into your Presence. A link only.
+  sources: ["builder/search/conditions.py (HER_DECLARATION_SECONDS, ~4558)"]
+  status: proposed
+
+- id: model-read-cov55-archon-of-chayula-more
+  title: "archon_of_chayula_physical_and_chaos_damage_+%_final held by models.CHAYULA_MORE (chayula_more_model)"
+  kind: model
+  model: archon_of_chayula
+  stats: ["archon_of_chayula_physical_and_chaos_damage_+%_final"]
+  skill: [Archon of Chayula]
+  confidence: theory
+  notes: >-
+    20 at every level (ArchonOfChayulaPlayer) = CHAYULA_MORE 20.0, as more Physical and Chaos damage at the Archon's share
+    of the fight (MECH101, R48-12). A link only.
+  sources: ["builder/search/models.py (CHAYULA_MORE, chayula_more_model)", "builder/search/assumptions.py (~4789)"]
+  status: proposed
+
+- id: model-read-cov55-arbiters-ignition-chance
+  title: "gain_archon_elemental_when_you_ignite_enemy_chance_% (Arbiter's Ignition) taken as one Archon source an Ignite"
+  kind: model
+  model: archon
+  stats: ["gain_archon_elemental_when_you_ignite_enemy_chance_%"]
+  skill: [Arbiter's Ignition]
+  confidence: theory
+  notes: >-
+    100 at every level (SupportArbitersIgnitionPlayer): the Archon model takes every Ignite of the main skill as an Archon
+    source (models ~544, a wait of 1 / Ignites a second), which is that 100%. A link only.
+  sources: ["builder/search/models.py (~544, ArchonSource)"]
+  status: proposed
+
+- id: model-read-cov55-charged-mark-ground
+  title: "support_trigger_shocked_ground_on_mark_activate (Charged Mark) applied by conditions' Shocked Ground model"
+  kind: model
+  model: shocked_ground
+  stats: ["support_trigger_shocked_ground_on_mark_activate"]
+  skill: [Charged Mark]
+  confidence: theory
+  notes: >-
+    A flag the support always carries: Conditions.charged_mark gives the Mark's Activations a second, and the ground's
+    share comes from each Activation (MECH61, conditions ~7958). A link only.
+  sources: ["builder/search/conditions.py (charged_mark, ~7958, ~10781)"]
+  status: proposed
