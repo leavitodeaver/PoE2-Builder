@@ -116,7 +116,7 @@ def test_the_continue_route_builds_the_request_from_the_saved_result(tmp_path, m
     monkeypatch.setattr(app_module.runs, "start", lambda request, request_id=None: started.append(request)
                         or SimpleNamespace(view=lambda: {"id": 7}))
     saved = {"request": BuildRequest(name="Spear", main_skill="Explosive Spear").model_dump(mode="json"),
-             "code": "eNoLAAAAAA", "dps": {"full": 1234.0}, "label": "Huntress"}
+             "code": "eNoLAAAAAA", "dps": {"full": 1234.0}, "label": "Huntress", "skeleton": {"main_skill": "Spark"}}
     (tmp_path / "r1.json").write_text(json.dumps(saved), encoding="utf-8")
     (tmp_path / "r2.json").write_text(json.dumps({**saved, "code": None}), encoding="utf-8")
     monkeypatch.setattr(app_module, "compile_request", lambda *a: SimpleNamespace(issues=[]))
@@ -125,6 +125,10 @@ def test_the_continue_route_builds_the_request_from_the_saved_result(tmp_path, m
     request = started[-1]
     assert request.seed_code == "eNoLAAAAAA" and request.effort_minutes == 3 and request.focus is None
     assert request.origin.kind == "continue" and request.origin.dps == 1234.0 and request.name == "Spear (continued)"
+    assert request.main_skill == "Explosive Spear"  # (the request's own; one naming none gets the result's)
+    (tmp_path / "r3.json").write_text(json.dumps({**saved, "request": BuildRequest().model_dump(mode="json")}), encoding="utf-8")
+    post(result="r3.json")
+    assert started[-1].main_skill == "Spark"
     post(result="r1.json", minutes=2, focus={"kind": "slot", "slot": "Boots"})
     request = started[-1]
     assert request.focus.slot == "Boots" and request.origin.kind == "focus" and request.name == "Spear (one part: Boots)"

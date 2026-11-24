@@ -377,6 +377,9 @@ def continued_request(result: dict, name: str, minutes: int, focus: dict | None)
     if not result.get("code"):
         raise HTTPException(422, "that result has no build to continue (no PoB code)")
     request = dict(result["request"])
+    # (the app check POE2T8202: a request naming no main skill re-ran the skill screen, 393 setups, on a Continue run: the
+    # result's own main skill is the build being continued)
+    request["main_skill"] = request.get("main_skill") or (result.get("skeleton") or {}).get("main_skill")
     request.update(seed_code=result["code"], effort_minutes=minutes, focus=focus,
                    origin={"kind": "focus" if focus else "continue", "result": name,
                            "dps": (result.get("dps") or {}).get("full"), "label": result.get("label")})
