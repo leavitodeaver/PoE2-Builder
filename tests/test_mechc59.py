@@ -82,8 +82,9 @@ def test_a_rage_limited_held_rampage_takes_the_recast_play_as_the_headline():
 
 
 def test_flame_breath_and_a_sustained_channel_keep_the_held_reading():
-    rich = {**RAMPAGE, "RageRegenRecovery": 0.0, "_rage_spend": {"Rampage": 0.5}}
-    _, basis = conditions.rage_held(["Gain 3 Rage when Hit by an Enemy"], rich)
+    rich = {**RAMPAGE, "RageRegenRecovery": 0.0, "_rage_spend": {"Rampage": 0.5},
+            "_raging_cry": [("Ferocious Roar", 0.125, 16, "test")]}  # (a Warcry's gain: outside the channel)
+    _, basis = conditions.rage_held([], rich)
     assert "headline, recast play" not in basis
     breath = {**RAMPAGE, "_main_skill": "Flame Breath", "_rage_spend": {"Flame Breath": 6.0}}
     _, basis = conditions.rage_held([], breath)
@@ -139,3 +140,17 @@ def test_charge_regulation_tick_takes_the_builds_chance_not_to_remove_charges():
     stats = {}
     conditions.regulation_held(stats, "Frenzy", 0.1, 0.0, 0.0, 1 / 12.4, 3, 15.0, 0.0)
     assert stats["_regulation_up"]["Frenzy"][0] == pytest.approx(plain) and stats["_regulation_up"]["Frenzy"][3] is None
+
+
+def test_when_hit_rage_gains_stop_during_a_no_gain_channel():
+    """O5 (example build 8): "Cannot gain Rage while using this Skill" blocks gains when Hit during the channel too; held
+    all fight (share 1), Rampage gains none from them; the row says what they were."""
+    fed = {**RAMPAGE, "RageRegenRecovery": 0.0, "_channel_min": 0.0}
+    held, basis = conditions.rage_held(["Gain 3 Rage when Hit by an Enemy"], fed)
+    assert held == 0 and "gained when Hit counted only outside the channelled main skill, 100% of the fight" in basis
+    half = {**fed, "_main_share": 0.5}
+    _, basis = conditions.rage_held(["Gain 3 Rage when Hit by an Enemy"], half)
+    assert "0.36 Rage/s gained" in basis  # (0.73 x (1 - 0.5))
+    walking = {**fed, "_main_channel_rage": False, "_main_skill": "Walking Calamity", "_rage_spend": {}}
+    _, basis = conditions.rage_held(["Gain 3 Rage when Hit by an Enemy"], walking)
+    assert "counted only outside the channelled" not in basis  # (not a no-gain channel: unchanged)

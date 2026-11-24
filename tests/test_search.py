@@ -1001,7 +1001,8 @@ def test_rage_held_from_gains_spends_and_its_decay():
     # A channelled spender as the main skill gains nothing from its own hits; the boss's hits still give Rage
     channel = {**melee, "_main_channel_rage": True, "EvadeChance": 0}
     assert rage_held(["Gain 1 Rage on Melee Hit"], channel)[0] == 0
-    assert rage_held(["Gain 5 Rage when Hit by an Enemy"], channel)[0] == 30
+    # (MECHC59: "Cannot gain Rage while using this Skill" blocks gains when Hit too; the channel held all fight)
+    assert rage_held(["Gain 5 Rage when Hit by an Enemy"], channel)[0] == 0
     # Regeneration gains every second (pause kept); Primal Hunger's regeneration needs Rage spent, so it's no source
     assert rage_held(["Regenerate 5 Rage per second"], melee)[0] == 30
     assert rage_held(["Regenerate 1 Rage per second per 4 Rage spent Recently"], melee) == (0.0, "")

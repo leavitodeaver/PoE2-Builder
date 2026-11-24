@@ -2857,6 +2857,14 @@ CHANNEL_FREE_STAT = "channelled_skill_suppress_ongoing_rage_cost_for_first_X_ms"
 CHANNEL_MIN_STATS = ("base_minimum_channel_time_ms", "shapeshift_minimum_channel_time_ms_+")
 CHANNEL_GAP_STAT = "bear_skills_additional_base_attack_time_when_performing_from_default_stance"
 CHANNEL_RECAST = {"Rampage"}
+# (MECHC59; the manager's O5 trace of example build 8, an OVERCOUNT) "Cannot gain Rage while using this Skill"
+# (skill_cannot_gain_rage_during_use, skill_stat_descriptions; on BearRampagePlayer and WyvernFlameBreathPlayer only,
+# checked by R55-8 over every stat set, per-level table, Mods and PassiveSkills) blocks EVERY Rage gain during the
+# channel, not only the channel's own hits: the R55-8 ruling already drops regeneration there. Gains "when Hit" (the
+# boss's hits land at any time) were still counted all fight; now they count only outside the channel (1 - the main
+# skill's share), and in the recast play's gaps. Gains on another skill's use or hit (Raging Cry, "on Melee Hit" from
+# Pounce) happen while that skill is used, outside the channel: unchanged. Row: the gains counted during the channel.
+RAGE_WHEN_HIT = re.compile(r"\bwhen (?:you are )?hit\b|\bwhen you take\b", re.I)
 
 
 def recast_cycle(own: float, free: float, minimum: float, gap: float, regen: float) -> tuple[float, float, str]:
@@ -3121,6 +3129,7 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
     spend = stats.get("_rage_spend") or {}
     own_hits = not (stats.get("_main_channel_rage") or False)
     gain, events, how, refund = 0.0, 0.0, [], 0.0
+    blocked_gain, blocked_events = 0.0, 0.0  # (MECHC59: "when Hit" gains during a no-gain channel, RAGE_WHEN_HIT)
     regen_total = rage_regen_total(lines, stats)  # (MECHC57: RAGE_REGEN_FIELD's note)
     regenerating, regen_gain, regen_events = regen_total > 0, regen_total, 1.0 if regen_total > 0 else 0.0
     if regenerating:
@@ -3146,6 +3155,8 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
             continue  # (MECHC57: already inside PoB's total)
         if (r := _rage_gain(text, stats, own_hits)) is None:
             continue
+        if not own_hits and not is_regen and RAGE_WHEN_HIT.search(text):  # (MECHC59: RAGE_WHEN_HIT's note)
+            blocked_gain, blocked_events = blocked_gain + r[0], blocked_events + r[1]
         regenerating = regenerating or (is_regen and r[0] > 0)
         regen_gain += r[0] if is_regen else 0.0
         regen_events += r[1] if is_regen else 0.0
@@ -3185,6 +3196,15 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
                   "which says \"Cannot gain Rage while using this Skill\": R55-8, UNVERIFIED; row, if regeneration works during "
                   f"the channel: {during:.2f} Rage/s gained, " + ("none held" if during <= spent else f"{during - spent:.2f}/s net")
                   + "; shorter recast channels regenerate between them)")
+    if blocked_gain > 0:  # (MECHC59: RAGE_WHEN_HIT's note)
+        share = _main_share(stats)
+        before = gain
+        gain -= blocked_gain * share
+        events = max(events - blocked_events * share, 0.0)
+        basis = basis.replace(f"{before:.2f} Rage/s gained", f"{gain:.2f} Rage/s gained", 1)
+        basis += (f" (the {blocked_gain:.2f} Rage/s gained when Hit counted only outside the channelled main skill, "
+                  f"{share:.0%} of the fight: \"Cannot gain Rage while using this Skill\"; row, counted during it: "
+                  f"{before:.2f} Rage/s gained)")
     if (free := number(stats.get("_channel_free"))) > 0 and stats.get("_main_channel_rage"):
         own = number(spend.get(stats.get("_main_skill"), 0.0))
         basis += (f" (play: each channel's first {free:.3g} s costs no Rage; held, it spends {own:.2f} Rage/s after that; "
@@ -3192,12 +3212,13 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
         minimum = number(stats.get("_channel_min"))
         if (gain - spent <= 0 and minimum > 0 and stats.get("_main_skill") in CHANNEL_RECAST and own > 0):
             # (MECHC59: the held channel keeps no Rage, so the headline recasts: CHANNEL_RECAST's note)
-            lost = regen_gain * _main_share(stats)  # (the regeneration R55-8's headline drops during the channel)
+            # (the regeneration R55-8's headline drops during the channel, and the "when Hit" gains, RAGE_WHEN_HIT)
+            lost = (regen_gain + blocked_gain) * _main_share(stats)
             new_own, back, cycle_how = recast_cycle(own, free, minimum, number(stats.get("_channel_gap")), lost)
             held_row = f"{gain:.2f} gained against {spent:.2f} spent, none held"
             spent, asked, gain = spent - own + new_own, asked - own + new_own, gain + back
             spend = {**spend, stats["_main_skill"]: new_own}
-            regenerating = regenerating or back > 0
+            regenerating = regenerating or (back > 0 and regen_gain > 0)  # (when-Hit gains alone don't stop decay)
             basis += (f" (headline, {cycle_how}: {gain:.2f} Rage/s gained against {spent:.2f} spent; row, the channel "
                       f"held: {held_row})")
     if not regen_total and number(stats.get(RAGE_REGEN_FIELD)) > 0:
