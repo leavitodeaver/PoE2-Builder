@@ -537,6 +537,7 @@ function renderResult(result) {
       (result.reasons || []).map((r) => el("li", {}, r)),
       (result.relaxations || []).map((r) => el("li", {}, `Cheapest relaxation: ${r}`)))));
   }
+  if (result.unfinished?.length) parts.push(unfinishedSection(result));
   if (result.summary) {
     const s = result.summary;
     parts.push(el("p", { class: "result-summary" }, el("strong", {}, `${s.ascendClassName}, level ${s.level}`),
@@ -635,6 +636,17 @@ function renderResult(result) {
     + `(${formatNumber(result.evals_per_second)}/s on ${result.workers} workers)`
     + (result.saved_as ? ` · saved as ${result.saved_as}` : "")));
   $("run-result").replaceChildren(...parts);
+}
+
+// (SEARCHD1, the user 24 Nov: partial beats empty, and say what wasn't finished) what the time budget cut off ------------
+
+function unfinishedSection(result) {
+  return el("div", { class: "result-section unfinished" },
+    el("h3", {}, "Not finished"),
+    el("p", { class: "hint" }, "The search's time ran out while it worked on these. The build keeps what each step had "
+      + "reached (a partly filled item beats an empty slot). Continue, below, runs the search again from this exact "
+      + "build, and never returns anything worse than it."),
+    el("ul", {}, result.unfinished.map((row) => el("li", {}, row.text))));
 }
 
 // Shopping list and trade links ------------------------------------------------------------

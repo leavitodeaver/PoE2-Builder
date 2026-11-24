@@ -31,6 +31,7 @@ from builder.search.gear import OWNED  # (SEARCHB3: the user's own items, listed
 from builder.search.objective import (PACK_SIZE, SUSTAIN_FLOOR, SUSTAIN_LEFT_OUT, boss_recovery, goal_value, number, rank_key,
                                       shortfall, sustain)
 from builder.search.skeletons import Skeleton, candidate_skills, enumerate_skeletons, weapon_archetypes
+from builder.search import unfinished
 
 FINALIZE_SHARE = 0.12
 def sustain_only_note(failing: list[str]) -> str | None:
@@ -225,6 +226,9 @@ class Run:
         self.evals_done = 0
         self.seed_start: dict | None = None  # the PoB code's own numbers under this request
         self.best: dict | None = None
+        # (SEARCHD1, the user 24 Nov: partial beats empty, and say what wasn't finished) the run's own stages the deadline
+        # cut (builder/search/unfinished.py); the rounds' rows come in the best line's state and finalize's result
+        self.unfinished: list[dict] = []
 
     def task_seed(self, seed: int) -> int:
         """A task's seed in this run's draw set (seed_base)."""
@@ -429,6 +433,8 @@ class Run:
         if screened < len(screen):
             self.notes.append(f"The skill screen covered {screened} of {len(screen)} skill setups in its time share; "
                               "a longer search time screens them all.")
+            unfinished.note(self, "skill screen", "main skill choice", screened, len(screen), "skill setups",
+                            "the main skill was chosen from the setups screened in time")
         ranked: dict[str, float] = {}
         for chunk in results:
             if isinstance(chunk, list):
@@ -565,6 +571,9 @@ class Run:
                 for focus_round in range(FOCUS_ROUNDS):
                     seconds = (end - self.elapsed()) / (FOCUS_ROUNDS - focus_round)
                     if seconds <= 5 or self.should_cancel():
+                        unfinished.note(self, "search rounds", "the best skeletons", focus_round, FOCUS_ROUNDS, "rounds",
+                                        "the last improvement round" + ("s" if FOCUS_ROUNDS - focus_round > 1 else "")
+                                        + " didn't run")
                         break
                     tasks = [("builder.search.inner:optimize_task", {
                         "payload": self.payload, "skeleton": s.as_dict(), "seconds": seconds,
@@ -796,11 +805,40 @@ class Run:
             "open_sockets": final.get("open_sockets") or [],  # (SEARCH34: Gems.open_sockets)
             "why_items": final.get("why_items") or {},  # (SEARCHC1: Gear.why_items, the per-slot "why this item")
             "final_regrow": final.get("final_regrow") or [],  # (SEARCH35: Tree.final_regrow's tries, what it kept)
+            "unfinished": self.unfinished_rows(final),  # (SEARCHD1: the "Not finished" section, unfinished.py)
         })
         result["shopping"] = shopping_list(result, self.ctx.data, self.report_prices(), TradeClient().stats(offline=True),
                                            self.variant)
         result["checklist"] = checklist(result)
         return result
+
+    def unfinished_rows(self, final: dict) -> list[dict]:
+        """(SEARCHD1) What the time budget cut off in the delivered build, each row with its plain line (`text`): the run's
+        own stages, the delivered line's state and finalize's rows (the rounds' unfinished.note), where the line's last
+        pass and its gear round stopped, and support sockets finalize's fill ran out of time on."""
+        best = self.best or {}
+        state = best.get("state") or {}
+        found = [r for r in self.unfinished]
+        if self.should_cancel():
+            found.append({"step": "search", "part": "the whole build", "done": None, "of": None, "unit": "",
+                          "detail": "the search was stopped before its time was up; this is its best build so far"})
+        resume = (final.get("line") or {}).get("resume") or (best.get("line") or {}).get("resume")
+        if resume:
+            found.append({"step": "search pass", "part": "the whole build", "done": None, "of": None, "unit": "",
+                          "detail": f"the last pass over the build stopped at its '{resume}' step when time ran out, so "
+                                    "the steps after it didn't run again on this build"})
+        gear_resume = (best.get("gear") or {}).get("resume") if isinstance(best.get("gear"), dict) else None
+        if gear_resume:
+            found.append({"step": "gear", "part": f"{gear_resume} and the slots after it", "done": None, "of": None,
+                          "unit": "", "detail": "the last full gear round ran out of time before these slots; each kept "
+                                                "the item it had"})
+        for o in final.get("open_sockets") or []:
+            if any("ran out" in reason for reason in o.get("reasons") or []):
+                found.append({"step": "supports", "part": f"{o['skill']}'s group", "done": None, "of": None, "unit": "",
+                              "detail": f"{o['open']} support socket{'s' if o['open'] > 1 else ''} left open: the fill's "
+                                        "time ran out before it tried everything"})
+        rows = unfinished.merge(found, state.get("unfinished"), final.get("unfinished"))
+        return [{**row, "text": unfinished.describe(row)} for row in rows]
 
     def report_prices(self) -> dict:
         return {"augments": self.ctx.augment_prices, "gems": self.ctx.gem_prices, "league": self.payload["league"],

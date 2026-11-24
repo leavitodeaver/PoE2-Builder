@@ -152,6 +152,8 @@ table.checks .note { color: var(--muted); font-size: 0.8rem; }
 .verdict.ok { background: var(--chip-require); color: var(--ok); }
 .verdict.bad { background: var(--chip-forbid); color: var(--bad); }
 .verdict ul { margin: 6px 0 0; padding-left: 18px; font-weight: 400; color: var(--text); }
+.result-section.unfinished { border-left: 3px solid var(--bad); padding-left: 10px; }
+.focus-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 6px 0; }
 .code-row { display: flex; gap: 8px; align-items: flex-start; }
 .code-row textarea { flex: 1; }
 .badge { display: inline-block; font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: var(--chip-require);
