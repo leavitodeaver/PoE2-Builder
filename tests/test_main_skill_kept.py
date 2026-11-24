@@ -16,7 +16,8 @@ GROUP = {"index": 1, "mainActiveSkill": 2, "skills": [
 
 class StubBuild:
     def __init__(self, full: bool, dps: float = 100.0):
-        self.objective = types.SimpleNamespace(full=full)
+        # (SEARCH39: the choice reads Objective.choice_key; no deficit here, so it orders as the score)
+        self.objective = types.SimpleNamespace(full=full, choice_key=lambda stats: (True, 0.0, self.score))
         self.stats = {"CombinedDPS": dps, "FullDPS": 1000.0}
         self.score, self.tried = 0.0, []
 

@@ -120,6 +120,10 @@ def test_gate4_fair_scores_the_reference_with_the_searchs_own_steps_and_a_reset_
             calls.append("uptimes")
             self.build.stats["dps"] = 621.0
 
+        def final_choices(self):  # (SEARCH39: the stat set and distance chosen again in the finished state)
+            calls.append("choices")
+            return False
+
     monkeypatch.setattr(inner, "Search", Search)
     monkeypatch.setattr(skeletons, "enumerate_skeletons",
                         lambda ctx, names: [[types.SimpleNamespace(as_dict=lambda: {})]])
@@ -131,7 +135,7 @@ def test_gate4_fair_scores_the_reference_with_the_searchs_own_steps_and_a_reset_
     assert fair == {"dps": 621.0, "short": ["Spirit"], "conditions": ["EnemyFrozen"]}
     assert set(floor_stats) == set(gate4.FLOOR_STATS)
     assert calls == ["loadXml", "resetConfig", "refresh", "settle", "settle", "settle", "conditions", "play", "resolve",
-                     "press", "uptimes", "infused"]
+                     "press", "uptimes", "choices", "infused"]
 
 
 def test_gate4_judges_against_the_fair_reference_unless_asked_for_the_authors_toggles():
