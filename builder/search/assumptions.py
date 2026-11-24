@@ -5218,10 +5218,14 @@ class Assumptions:
                     "activeSkills", levelStats=[main.name])["skills"] if x["name"] == main.name), {})
                 per_spike = number(got.get(models.EARTHSHATTER_SPIKE_STAT))
                 det_limit, det_seconds = self.earthshatter_limit(group, texts)
+            elif main.name in models.LIMIT_SET:  # (GEM39: the build's own Limit and duration, COV55's fixed-Limit list)
+                _, _, base_limit, base_seconds, _ = models.DETONATED_SETS[main.name]
+                det_limit, det_seconds = self.set_limit_and_duration(group, sets, models.LIMIT_SET[main.name],
+                                                                     base_limit, base_seconds)
             det_share = None
             if main.name in models.GAS_GRENADE_CLOUD:  # (GEM36, R48-5: an Ignited boss in the cloud sets it off too)
                 det_share, det_how, _ = self.gas_arrow_share(group["index"], main.stat_set,
-                                                             cloud=models.GAS_GRENADE_CLOUD[main.name],
+                                                             cloud=(det_limit, det_seconds),
                                                              every_use=("Impact",), burning=True)
             det_mods, det_notes = models.detonated_set_model(main, main.stat_set, sets, number(stats.get("Speed")),
                                                              det_rate, det_how, forbidden, per_spike,
@@ -5319,7 +5323,9 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + pa_mods, hand_notes + pa_notes
         if main is not None and group and main.name == models.GAS_ARROW:  # (GEM20: clouds explode on Ignite / Detonation)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
-            gas, gas_how, gas_poisons = self.gas_arrow_share(group["index"], main.stat_set)
+            cloud = self.set_limit_and_duration(group, sets, models.LIMIT_SET[models.GAS_ARROW], models.GAS_CLOUD_LIMIT,
+                                                models.GAS_CLOUD_SECONDS)  # (GEM39: the build's own)
+            gas, gas_how, gas_poisons = self.gas_arrow_share(group["index"], main.stat_set, cloud=cloud)
             # (GEM21) the cloud's Poison is an added source, which objective.dps adds whole: scale it by Gas Arrow's own
             # share of the fight (its press-model scale in Full DPS and the time other presses take, objective.busy)
             time_share = main_time_share(build, main)
@@ -9779,7 +9785,7 @@ class Assumptions:
         return share, (f"{others}: Shocked {by_others:.0%} of the fight ({duration:.2f} s each, random in time); "
                        f"the resolver's share {base:.0%} ({up_how})")
 
-    def gas_arrow_share(self, main_index: int, scored: str | None, cloud: tuple[int, float] | None = None,
+    def gas_arrow_share(self, main_index: int, scored: str | None, cloud: tuple[float, float] | None = None,
                         every_use: tuple[str, ...] = ("Arrow",), burning: bool = False) -> tuple[float, str, float]:
         """(share of Gas Arrow's clouds that explode, how) for models.gas_arrow_model (GEM20): a Detonator use sets off
         every cloud lying there (detonator_rate, as detonated_share); the boss Ignited at some moment of a cloud's life
@@ -9835,7 +9841,8 @@ class Assumptions:
                        f"{duration:.1f} s each), so at some moment of a cloud's {life:.1f} s {within:.1%}; "
                        f"Detonators" + (" and Fire DoT" if burning else "") + f" set off {detonated:.0%} ({det_how}"
                        + (f"; {burn_how}: Burning {burn:.0%} of the fight, at some moment of a cloud {burn_within:.0%}"
-                          if burning else "") + f"); a cloud lives {alive:.1f} s on average"), poisons
+                          if burning else "") + f"); a cloud lives {alive:.1f} s on average (up to {limit:g} clouds of "
+                       f"{seconds:.1f} s: the build's Limit and duration)"), poisons
 
     def fire_dot_uptime(self, main_index: int) -> tuple[float, float, str]:
         """(GEM36, R48-5: "Enemies taking Fire damage over time are Burning", MEDIUM; GGG's Flame Wall + Gas Cloud
@@ -10949,6 +10956,18 @@ class Assumptions:
         Effect Duration (with Overabundance's less duration); `limit` / `seconds` where PoB gives none."""
         row = next(iter(self.build.call("useRates", indices=[group["index"]],
                                         actives=[group.get("mainActiveSkill") or 1])["rates"]), {})
+        return number(row.get("instanceLimit")) or limit, number(row.get("duration")) or seconds
+
+    def set_limit_and_duration(self, group: dict, sets: list[dict], label: str | None, limit: float,
+                               seconds: float) -> tuple[float, float]:
+        """(GEM39, models.LIMIT_SET) limit_and_duration read on the group's stat set `label` (by setRates' `sets`, its
+        index), where the skill keeps its Limit stat on a set PoB may not score (Gas Arrow's Poison Cloud); `label` None
+        or not found: the scored set's. `limit` / `seconds` where PoB gives none."""
+        k = next((x.get("index") for x in sets if label and x.get("label") == label), None)
+        if not k:
+            return self.limit_and_duration(group, limit, seconds)
+        row = next(iter(self.build.call("useRates", indices=[group["index"]], actives=[group.get("mainActiveSkill") or 1],
+                                        statSets=[k])["rates"]), {})
         return number(row.get("instanceLimit")) or limit, number(row.get("duration")) or seconds
 
     def earthshatter_limit(self, group: dict, texts: list[str]) -> tuple[float, float]:

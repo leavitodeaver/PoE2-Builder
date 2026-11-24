@@ -9546,6 +9546,21 @@ DETONATED_SETS = {
     "Forge Hammer": (("Impact",), "Fissures", 1, 12.0, "model-mechb48-forge-hammer-warcry-shatter"),
 }
 GAS_GRENADE_CLOUD = {"Gas Grenade": (6, 6.0)}  # (GEM36: its cloud limit / seconds, the Poison Cloud set's stats above)
+# (GEM39, COV55's fixed-Limit list; probe POE2T7318, level 90) The table's limit / seconds above are the base stats; the
+# build's own come from PoB (Assumptions.set_limit_and_duration: the bridge's instanceLimit, the stat + "+N to Limit" /
+# Overabundance's base_limit_+, and useRates' duration, with Overabundance's less Skill Effect Duration and the build's
+# duration lines), read on the stat set that holds the Limit stat, as PoB's scored set may not: Storm Lance's
+# base_number_of_overcharged_spears_allowed 3 is on StormLancePlayer with its quality +0.05 a 1% (GrantedEffectQuality-
+# Stats 50 per mille; PoB act_dex.lua 8291), so 4 at 20% quality (POE2T7318: instanceLimit 4, 5 with Overabundance or a
+# "+1 to Limit" line; the table's 3 was an UNDERCOUNT wherever uses x 6 s passed 3); Gas Arrow's / Gas Grenade's
+# number_of_poison_cloud_allowed 6 is on the Poison Cloud set (GasArrowGasDegenPlayer / ToxicGrenadeCloudPlayer), so the
+# Arrow / Impact set PoB scores reads no Limit or duration (POE2T7318: null): the cloud's 4 s / 6 s stayed fixed under
+# Overabundance's -50% / -40% (an OVERCOUNT) and under the build's duration lines and raised Limit (UNDERCOUNTS). Forge
+# Hammer: forge_hammer_maximum_hammers 1 isn't a "number_of_X_allowed" stat, so the bridge reads no Limit (the table's 1
+# stays, UNVERIFIED whether "+N to Limit" raises it); its duration (the hammer's lying time, UNVERIFIED as above) is the
+# build's (POE2T7318: 12.0 s, 6.0 s with Overabundance I). None: the scored set. Rapid Assault and Stormblast Bolts aren't
+# Limit skills (COV55's limit_table): their table values stay.
+LIMIT_SET = {"Storm Lance": "Projectile", "Gas Grenade": "Poison Cloud", "Gas Arrow": "Poison Cloud", "Forge Hammer": None}
 DETONATED_TEXT = {"Gas Grenade": ("the boss is Ignited or Burning inside the cloud or a Detonator skill hits it",
                                   "an Ignite on the boss in the cloud (a Fire skill that Ignites) or a Detonator skill "
                                   "(Explosive Grenade, Explosive Shot, ...)")}
@@ -10260,7 +10275,7 @@ GAS_ARROW = "Gas Arrow"
 GAS_ARROW_ENTRY = "model-gem20-gas-arrow-ignite-explosion"
 GAS_ARROW_SETS = ("Arrow", "Poison Cloud", "Explosion")
 GAS_CLOUD_SECONDS = 4.0  # (GasArrowGasDegenPlayer base_skill_effect_duration 4000)
-GAS_CLOUD_LIMIT = 6  # (number_of_poison_cloud_allowed)
+GAS_CLOUD_LIMIT = 6  # (number_of_poison_cloud_allowed; GEM39: the build's own where PoB gives it, LIMIT_SET)
 # (GEM20, RESEARCH30 R30-5 (3)) The cloud Poisons the boss standing in it once every 2 s (LOW-MEDIUM: Mobalytics' Poison
 # Cloud guide "Poisoned every 2 seconds as though being Hit"; attack speed doesn't change it, forum thread 3632515; no
 # interval stat in the game files), so 2-3 a full 4 s cloud depending on whether the first comes on landing: taken as

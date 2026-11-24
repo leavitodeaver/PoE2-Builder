@@ -1,0 +1,24 @@
+# GEM39 (24 Nov 2026): the build's own Limit and duration on the stat set that holds the Limit stat, the GEM lane
+# (COV55's fixed-Limit list; probe POE2T7318).
+- id: model-gem39-set-limit-and-duration
+  title: "Storm Lance's spear Limit, Gas Arrow's and Gas Grenade's cloud Limit and duration, Forge Hammer's duration: the build's own, not the table's (an UNDERCOUNT for Storm Lance at 20% quality; an OVERCOUNT under Overabundance's less duration)"
+  kind: model
+  model: set_limit_and_duration
+  stats: ["base_number_of_overcharged_spears_allowed"]  # (number_of_poison_cloud_allowed: gems-gem20 / gem35 entries, now read on the cloud set)
+  skill: [Storm Lance, Gas Arrow, Gas Grenade, Forge Hammer]
+  confidence: MEDIUM
+  notes: >-
+    The game (26650308): StormLancePlayer base_number_of_overcharged_spears_allowed 3, its quality +0.05 a 1%
+    (GrantedEffectQualityStats 50 per mille; PoB act_dex.lua 8291), so 4 at 20% quality, where the table held 3;
+    GasArrowGasDegenPlayer and ToxicGrenadeCloudPlayer number_of_poison_cloud_allowed 6, on the Poison Cloud set, which
+    PoB doesn't score when it scores the Arrow / Impact, so the bridge read no Limit or duration there (probe POE2T7318:
+    null) and the clouds kept 4 s / 6 s under Overabundance's -50% / -40% Skill Effect Duration. Now each is read on the
+    set holding the stat (bridge useRates with that stat set: instanceLimit = the stat + "+N to Limit" / Overabundance's
+    base_limit_+, and the set's duration). Forge Hammer's forge_hammer_maximum_hammers 1 isn't read by the bridge (not a
+    "number_of_X_allowed" stat): its Limit stays 1, UNVERIFIED whether "+N to Limit" raises it; its duration (taken as
+    the hammer's lying time, UNVERIFIED) is the build's.
+  sources: ["builder/search/models.py (LIMIT_SET)",
+            "builder/search/assumptions.py (Assumptions.set_limit_and_duration and its hooks)",
+            "scratch/gem39/probe7318.log"]
+  test_in_game: "Storm Lance at 20% quality: do 4 Overcharged spears stay lodged at once? Gas Arrow with Overabundance: do its clouds last 2 s?"
+  status: proposed
