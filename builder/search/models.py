@@ -23679,19 +23679,48 @@ TORNADO_SHOT = "Tornado Shot"
 TORNADO_HITS_STAT = "tornado_shot_number_of_hits_allowed"
 TORNADO_DAMAGE_STAT = "tornado_shot_projectile_damage_+%_final"
 TORNADO_DURATION_STAT = "base_skill_effect_duration"
+# (MECHB61, an OVERCOUNT found by MECHC57's probes POE2T7109-7111 on example build 16) N is what is FIRED at the Tornado
+# ("Arrows, thrown Spears and Crossbow bolts fired at the Tornado are sucked into it", ActiveSkills Tornado Shot), not the
+# ProjectileCount of whichever set PoB scores: Ice Shot's Shards set counts its 12 shards (14.66 against the Arrow set's
+# 5.75), and Ice Shot "sprays a cone of ice shards when it hits a target" (ActiveSkills Ice Shot), so the shards are made
+# where an arrow hits, never fired at the Tornado. The fired count is the skill's FIRST stat set's (in PoB's data every
+# multi-set projectile attack lists the fired projectile first: scratch/mechb61/sets.py, 39 skills), except a set that is
+# the same fired projectile under a condition (TORNADO_FIRED_VARIANTS: Fragmentation Rounds' "Vs Frozen", High Velocity
+# Rounds' "Vs Armour Broken", Storm Lance / Explosive Spear's "Frenzy-Charged", Oil Barrage's "Empowered"), whose own count
+# is the fired one. The factor still scales the scored set: each copied arrow that hits the boss makes that set's hit
+# (its shards, explosion, beams) as a direct arrow does. And a projectile that is no arrow, thrown spear or bolt (a gem
+# whose weapons hold no Bow, Crossbow or Spear, e.g. Falling Thunder's Quarterstaff bolts) isn't sucked in at all.
+TORNADO_FIRED_VARIANTS = frozenset({"Vs Frozen", "Vs Armour Broken", "Frenzy-Charged", "Empowered"})
+TORNADO_WEAPONS = frozenset({"Bow", "Crossbow", "Spear"})
+
+
+def tornado_fired_count(scored_set: str | None, sets: list[dict], scored_count: float) -> tuple[float, str]:
+    """(projectiles a use fired at the Tornado, how): the scored set's count when it is the fired set (the first, or a
+    TORNADO_FIRED_VARIANTS set), else the first set's (bridge setRates ProjectileCount)."""
+    first = sets[0] if sets else {}
+    label = first.get("label") or ""
+    if not sets or not scored_set or scored_set == label or scored_set in TORNADO_FIRED_VARIANTS:
+        return scored_count, ""
+    fired = max(number(first.get("ProjectileCount")), 1.0)
+    return fired, (f"the scored {scored_set} set's {scored_count:g} projectiles are made where the {label} hits, not fired "
+                   f"at the Tornado, so the {label} set's {fired:g} a use are counted")
 
 
 def tornado_copy_model(main: Skill | None, main_types: set[str], stats: dict, tornado: Skill | None,
-                       tornado_stats: dict, tornado_speed: float) -> tuple[list[dict], list[dict]]:
-    """The main projectile attack fired through Tornado Shot's Tornado, when that out-damages shooting the boss (above)."""
+                       tornado_stats: dict, tornado_speed: float, sets: list[dict] | None = None,
+                       weapons: set[str] | None = None) -> tuple[list[dict], list[dict]]:
+    """The main projectile attack fired through Tornado Shot's Tornado, when that out-damages shooting the boss (above).
+    `sets`: the main skill's bridge setRates sets (for the fired count, tornado_fired_count); `weapons`: its gem's
+    weapon types."""
     if main is None or tornado is None or main.name == TORNADO_SHOT:
         return [], []
     label = f"{TORNADO_SHOT}: {main.name}'s arrows fired through the Tornado*"
-    if not main.attack or "Projectile" not in main_types or main.triggered:
+    if (not main.attack or "Projectile" not in main_types or main.triggered
+            or (weapons and not weapons & TORNADO_WEAPONS)):
         return [], [{"label": label, "value": 0, "confidence": "theory",
                      "basis": f"{main.name} isn't a projectile attack the player fires (arrows, thrown spears, bolts), so "
                               "the Tornado copies nothing of it"}]
-    count = max(number(stats.get("ProjectileCount")), 1.0)
+    count, fired_how = tornado_fired_count(main.stat_set, sets or [], max(number(stats.get("ProjectileCount")), 1.0))
     speed = number(stats.get("Speed"))
     hits = number(tornado_stats.get(TORNADO_HITS_STAT))
     penalty = number(tornado_stats.get(TORNADO_DAMAGE_STAT))
@@ -23704,7 +23733,7 @@ def tornado_copy_model(main: Skill | None, main_types: set[str], stats: dict, to
     uses = min(hits / count, duration * speed)
     firing = uses / speed
     factor = per_use * firing / (firing + 1 / tornado_speed)
-    how = (f"{count:g} arrow(s) a use, each sucked in and copied into a ring of which one copy hits the boss at "
+    how = (f"{count:g} arrow(s) a use" + (f" ({fired_how})" if fired_how else "") + ", each sucked in and copied into a ring of which one copy hits the boss at "
            f"{penalty:+g}% more (one copy of the ring a target: the ring leaves together, KeywordPopups 74; MEDIUM, "
            f"RESEARCH35 R35-15: a ring fired at once is the rule's own case), against {direct:g} direct "
            f"hit(s): x{per_use:.3f} a use; a Tornado takes {hits:g} arrows or lasts {duration:g} s, so {uses:.2f} uses "

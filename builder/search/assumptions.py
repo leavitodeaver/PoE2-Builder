@@ -6436,8 +6436,15 @@ class Assumptions:
         active = next((i for i, s in enumerate(group["skills"], start=1) if s["name"] == models.TORNADO_SHOT), 0) if group else 0
         rates = self.build.call("useRates", indices=[tornado.group], actives=[active])["rates"] if active else []
         speed = number(rates[0].get("speed")) if rates else 0.0
-        types = set((self.build.ctx.gems.get(main.name) or {}).get("skillTypes") or [])
-        return models.tornado_copy_model(main, types, stats, tornado, level, speed)
+        gem = self.build.ctx.gems.get(main.name) or {}
+        types = set(gem.get("skillTypes") or [])
+        sets: list[dict] = []  # (MECHB61: the fired set's count when PoB scores a set made on hit, models.tornado_fired_count)
+        if main.group is not None and main.stat_set and main.stat_set not in models.TORNADO_FIRED_VARIANTS:
+            mine = next((g for g in self.build.groups() if g["index"] == main.group), None)
+            at = next((i for i, s in enumerate(mine["skills"], start=1) if s["name"] == main.name), 0) if mine else 0
+            sets = self.build.call("setRates", index=main.group, active=at)["sets"] if at else []
+        return models.tornado_copy_model(main, types, stats, tornado, level, speed, sets,
+                                         set(gem.get("weaponTypes") or []))
 
     def throw_rate(self, name: str) -> tuple[float, str]:
         """Throws a second of a Concoction (flasks.THROW_CHARGES) the Mana Flask's own charge generation pays for (the
