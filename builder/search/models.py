@@ -23947,6 +23947,45 @@ def projectile_hit_recently_model(texts: list[str], rates: dict[str, tuple[float
                    "confidence": "MEDIUM (LOW where a side skill's rate is the search's chosen press rate)"}]
 
 
+# Pursuit I-III (MECH106; COV56's routed row, an UNDERCOUNT: never counted). "Supported Skills deal more Melee damage if
+# you have struck with a Projectile Attack Hit in the last eight (Pursuit III: two) seconds" (PoB sup_dex.lua
+# SupportAdvancingAssault*: support_advancing_assault_melee_damage_+%_final_if_projectile_attack_damage_hit_in_past_8_seconds
+# 20 / 25, ..._in_past_2_seconds 30; game 26650308 the same stats). PoB puts the MORE behind Condition:HitProjectileRecently,
+# set only by its unticked box (conditionHitProjectileRecently; nothing of ours ticks it: COV35's model above scales its item
+# lines instead, so ticking it would double them). Here: the supported skill gets "N% more Melee Damage" x the share of the
+# fight with a Projectile Attack Hit in the gem's own window, from the build's own Projectile Attacks
+# (Assumptions.projectile_attack_rates, as COV35: 1 - e^(-hits x window), hits evenly random, the lower reading, MEDIUM).
+# A MORE at a time share s is 1 + N x s on average, so N x s % more, on that skill only (line(..., skill=)).
+PURSUIT_STATS = {"support_advancing_assault_melee_damage_+%_final_if_projectile_attack_damage_hit_in_past_8_seconds": 8.0,
+                 "support_advancing_assault_melee_damage_+%_final_if_projectile_attack_damage_hit_in_past_2_seconds": 2.0}
+
+
+def pursuit_model(supported: dict[str, dict[str, float]], rates: dict[str, tuple[float, str]]
+                  ) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for Pursuit (see above). `supported`: {skill: its support stats}; `rates`: the build's Projectile
+    Attacks {name: (hits a second, how)}."""
+    hits = sum(max(0.0, number(r)) for r, _ in rates.values())
+    parts = "; ".join(f"{name}: {number(r):.2f}/s ({how})" for name, (r, how) in sorted(rates.items()))
+    mods, notes = [], []
+    for skill, got in sorted(supported.items()):
+        for stat, window in PURSUIT_STATS.items():
+            more = number(got.get(stat))
+            if more <= 0:
+                continue
+            share = 1 - math.exp(-hits * window)
+            if more * share > 0:
+                mods.append(line("1% more Melee Damage", more * share, skill=skill))
+            notes.append({"label": f"Pursuit on {skill}: Projectile Attack Hit in the past {window:g} s*",
+                          "value": f"{share:.0%} of the fight, {more:g}% more Melee Damage counts as {more * share:.3g}%",
+                          "basis": (f"Projectile Attack hits {hits:.2f}/s ({parts or 'no Projectile Attack in the build: 0'})"
+                                    f", one in the past {window:g} s {share:.0%} of the fight (hits evenly random, the lower "
+                                    "reading); PoB's box is never set (0 before)"),
+                          "play": (f"Hit with a Projectile Attack at least every {window:g} s (a thrown spear, an arrow) "
+                                   f"to keep {skill}'s Pursuit bonus up: without it x1, with it x{1 + more / 100:.2f}"),
+                          "confidence": "MEDIUM (LOW where a side skill's rate is the search's chosen press rate)"})
+    return mods, notes
+
+
 # Projectile skills the group rule doesn't cap (MECHB45; RESEARCH35 R35-15, research/projectile-group-rule-scope.md; an
 # UNDERCOUNT: PoB scores one projectile hit a use for both, checked by reading their skill data (no DPS multiplier, part or
 # config: Data/Skills/act_int.lua SparkPlayer / FreezingShardsPlayer; CalcOffence 1114's projectile-count DPS needs the

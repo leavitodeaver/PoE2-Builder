@@ -99,3 +99,14 @@ def test_malice_holds_duration_over_interval_stacks_inside_the_presence():
     assert models.critical_weakness_stacks([], [], {"PresenceRadius": 40}, None, 6.0, malice=(510, 4.0))[0] == 0.0
     assert models.critical_weakness_stacks([], [], {"PresenceRadius": 40}, None, 2.0, malice=(100, 4.0))[0] == 20.0
     assert models.critical_weakness_stacks([], [], {"PresenceRadius": 40}, None, 2.0, malice=(500, 0.0))[0] == 8.0
+
+
+def test_pursuit_counts_its_more_at_the_builds_projectile_attack_share():
+    eight = "support_advancing_assault_melee_damage_+%_final_if_projectile_attack_damage_hit_in_past_8_seconds"
+    two = "support_advancing_assault_melee_damage_+%_final_if_projectile_attack_damage_hit_in_past_2_seconds"
+    mods, notes = models.pursuit_model({"Rapid Assault": {eight: 20}}, {"Lightning Spear": (0.25, "pressed")})
+    share = 1 - math.exp(-0.25 * 8)
+    assert mods == [models.line("1% more Melee Damage", 20 * share, skill="Rapid Assault")] and "86%" in notes[0]["value"]
+    assert models.pursuit_model({"Rapid Assault": {eight: 20}}, {})[0] == []  # (no Projectile Attack: no source, 0)
+    three = models.pursuit_model({"Rapid Assault": {two: 30}}, {"Lightning Spear": (0.25, "pressed")})[0]
+    assert three[0]["scale"] == round(30 * (1 - math.exp(-0.5)), 3) or abs(three[0]["scale"] - 30 * (1 - math.exp(-0.5))) < 1e-3

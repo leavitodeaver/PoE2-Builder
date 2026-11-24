@@ -5840,6 +5840,13 @@ class Assumptions:
             hit_mods, hit_notes = models.projectile_hit_recently_model(
                 [e["text"] for e in source_lines], self.projectile_attack_rates(main.name if main else None, stats))
             mods, notes = mods + hit_mods, notes + hit_notes
+        pursued = {e["name"]: {k: v for k, v in (e.get("supportStats") or {}).items() if k in models.PURSUIT_STATS}
+                   for e in build.call("activeSkills", supportStats=list(models.PURSUIT_STATS))["skills"]
+                   if not e.get("disabled") and any(models.number(v) > 0 for k, v in (e.get("supportStats") or {}).items()
+                                                    if k in models.PURSUIT_STATS)}
+        if pursued:  # (MECH106, COV56: Pursuit's "Projectile Attack Hit recently", models.PURSUIT_STATS' note)
+            p_mods, p_notes = models.pursuit_model(pursued, self.projectile_attack_rates(main.name if main else None, stats))
+            mods, notes = mods + p_mods, notes + p_notes
         faerie_mods, faerie_notes = faerie_fire(build, found)  # (MECHB31, MB-11: Periphery's Azmerian Swarms)
         mods, notes = mods + faerie_mods, notes + faerie_notes
         notes += corpse_notes + models.spirit_vessel_notes(skills)
