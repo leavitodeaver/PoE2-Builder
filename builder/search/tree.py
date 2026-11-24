@@ -107,6 +107,7 @@ def rooted_subsets(root: int, adjacency: dict[int, list[int]], limit: int) -> li
 class Tree:
     socket_value: Callable[[], float] | None = None  # (JEWEL2: class defaults, for a Tree made without __init__)
     fill_socket: Callable[[int, float], bool] | None = None
+    anchored: dict[int, set[int]] = {}  # (SEARCHB8: the same; only ever replaced, never changed in place)
 
     def restricting(self, adjacency: dict[int, list[int]]) -> dict[int, str]:
         """The nodes here whose lines restrict an equipment slot (gear.SLOT_RESTRICTIONS), with that slot."""
@@ -158,6 +159,9 @@ class Tree:
         # their what-if adds this value; a taken socket is filled at once and kept only if the build really gains
         self.socket_value: Callable[[], float] | None = None
         self.fill_socket: Callable[[int, float], bool] | None = None
+        # (SEARCHB8) {allocated ascendancy node: the main-tree passives that hang off it alone} for the current
+        # ascendancy round (path_anchored)
+        self.anchored: dict[int, set[int]] = {}
 
     @staticmethod
     def jewel_sockets_enabled() -> bool:
@@ -755,6 +759,7 @@ class Tree:
         core = {i: [j for j in adjacency[i] if not nodes[j].get("isMultipleChoiceOption")]
                 for i in adjacency if not nodes[i].get("isMultipleChoiceOption")}
         required = {i for i in adjacency if nodes[i].get("name") in self.required_names}
+        self.anchored = self.path_anchored(facts, adjacency)
 
         allocations = self.narrowed_allocations(start, core, options, required, adjacency, current)
         # A notable restricting an equipment slot (SLOT_RESTRICTIONS: Smith's Masterwork's "Can only use a Normal Body
@@ -764,7 +769,7 @@ class Tree:
         allocations = [ids for ids in allocations if not locked & set(ids)]
         if not allocations:
             return False
-        scored = list(build.node_deltas([{"add": ids, "remove": current} for ids in allocations]))
+        scored = list(build.node_deltas([{"add": ids, "remove": self.removal(current, ids)} for ids in allocations]))
         previous = self.bfs_order(start, set(current) | {start}, adjacency)
         # ... and its what-if is scored with today's gear still on (a rare body armour: an overcount until the next gear
         # round swaps it): the best few such allocations are scored for real with the slot made legal instead
@@ -774,7 +779,7 @@ class Tree:
             trial = sorted(fresh, key=lambda k: -scored[k][0])[:TRIALS]
             snap = build.snapshot()
             for k in trial:
-                build.allocate(remove=current, add=allocations[k])
+                self.swap(current, allocations[k])
                 self.enforce()
                 if self.resolve is not None:
                     self.resolve()
@@ -791,10 +796,14 @@ class Tree:
                 ranked = sorted(((s, ids) for (s, _), ids in zip(scored, allocations) if granting & set(ids)),
                                 key=lambda x: -x[0])
                 for _, ids in ranked[:TRIALS]:
-                    build.allocate(remove=current, add=ids)
+                    snap = build.snapshot() if self.anchored else None
+                    self.swap(current, ids)
                     self.resolve()
                     if build.score > best_score:
                         best_score, best_ids = build.score, ids
+                    if snap is not None:
+                        build.restore(snap)  # (a re-add would leave the passives under a Path node behind)
+                        continue
                     build.allocate(remove=ids, add=previous)
                     self.resolve()
         # A notable granting a meta skill adds nothing until its group holds what it uses (PLAN.md meta slice 8)
@@ -826,7 +835,8 @@ class Tree:
                 holding = [ids for ids in holding if node in ids and not locked & set(ids)]
                 if not holding:
                     continue
-                ids = max(zip((s for s, _ in build.node_deltas([{"add": a, "remove": current} for a in holding])),
+                ids = max(zip((s for s, _ in build.node_deltas([{"add": a, "remove": self.removal(current, a)}
+                                                                for a in holding])),
                               holding), key=lambda x: x[0])[1]
                 if self.unlock_trial(ids, best_ids, current, deadline):
                     return True
@@ -834,8 +844,8 @@ class Tree:
             return False
         before = build.score
         restricts = self.enforce is not None and bool(set(restricting) & set(best_ids))
-        snap = build.snapshot() if restricts else None
-        build.allocate(remove=current, add=best_ids)
+        snap = build.snapshot() if restricts or self.anchored else None
+        self.swap(current, best_ids)
         if restricts:
             self.enforce()
         if self.resolve is not None:
@@ -850,6 +860,59 @@ class Tree:
                 self.resolve()
             return False
         return build.score > before + EPSILON or missing_required
+
+    def path_anchored(self, facts: dict, adjacency: dict[int, list[int]]) -> dict[int, set[int]]:
+        """(SEARCHB8; PREVIEW3's lead, 23 Nov) {allocated ascendancy node: the allocated main-tree passives reachable only
+        through it}. Pathfinder's Path of the Sorceress / Path of the Warrior ("Can Allocate Passive Skills from the
+        <class>'s starting point") link straight onto main-tree passives, and PoB paths across that link
+        (PassiveSpec.lua 1449), so its DeallocNode drops the passives hanging off such a node with it, while a what-if
+        that removes the node alone (bridge.nodeDeltas' removeNodes) keeps them. Read from the tree's links: a passive
+        stays if the class start or another such node still reaches it through allocated main-tree passives."""
+        nodes = self.ctx.nodes
+        held = {p["id"] for p in facts["passives"]}
+        main = {i for i in held if i in nodes and not nodes[i].get("ascendancy")}
+        links = {i: [j for j in nodes[i].get("linked") or () if j in main] for i in held if i in adjacency}
+        links = {i: js for i, js in links.items() if js}
+        if not links:
+            return {}
+        start = next((c["startNode"] for c in self.ctx.data.tree["classes"] if c["name"] == facts.get("className")), None)
+
+        def reach(seeds: set[int]) -> set[int]:
+            seen = {i for i in seeds if i in main}
+            queue = deque(seen | ({start} if start in seeds else set()))
+            while queue:
+                for j in nodes.get(queue.popleft(), {}).get("linked") or ():
+                    if j in main and j not in seen:
+                        seen.add(j)
+                        queue.append(j)
+            return seen
+
+        anchored = {}
+        for node, ends in links.items():
+            kept = reach({start, *(j for other, js in links.items() if other != node for j in js)})
+            lost = reach(set(ends)) - kept
+            if lost:
+                anchored[node] = lost
+        return anchored
+
+    def removal(self, current: list[int], ids: list[int]) -> list[int]:
+        """What a what-if moving the ascendancy from `current` to `ids` takes off: the current ascendancy nodes, and the
+        main-tree passives hanging off any of them `ids` drops (path_anchored; the commit's DeallocNode drops those)."""
+        gone = set().union(*(lost for node, lost in self.anchored.items() if node not in ids))
+        return sorted(set(current) | gone) if gone else current
+
+    def swap(self, current: list[int], ids: list[int]) -> None:
+        """Commit the ascendancy allocation `ids` in place of `current`. With passives hanging off an ascendancy node
+        (path_anchored), only the nodes that change move: taking every current node off would drop the passives under a
+        Path node `ids` keeps (DeallocNode), and re-adding the node brings none of them back. The dropped nodes go first
+        (bridge.allocate removes before it adds), through DeallocNode, which takes their passives with them: adding a
+        sibling option first would take the old option off with PoB's DeallocSingleNode (PassiveSpec.lua 945-960),
+        which leaves its passives allocated with no route. A kept node's route is kept whole: Pathfinder's ascendancy
+        graph is a tree (24 nodes, 23 links, build 26650308's PoB tree), so each node has one route."""
+        if not self.anchored:
+            self.build.allocate(remove=current, add=ids)
+            return
+        self.build.allocate(remove=[i for i in current if i not in ids], add=[i for i in ids if i not in current])
 
     def narrowed_allocations(self, start: int, core: dict[int, list[int]], options: dict[int, list[int]],
                              required: set[int], adjacency: dict[int, list[int]], current: list[int]) -> list[list[int]]:
@@ -876,10 +939,11 @@ class Tree:
         if not allocations:
             return False
         build = self.build
-        ids = max(zip((s for s, _ in build.node_deltas([{"add": a, "remove": current} for a in allocations])),
+        ids = max(zip((s for s, _ in build.node_deltas([{"add": a, "remove": self.removal(current, a)}
+                                                        for a in allocations])),
                       allocations), key=lambda x: x[0])[1]
         snap = build.snapshot()
-        build.allocate(remove=current, add=ids)
+        self.swap(current, ids)
         if self.resolve is not None:
             self.resolve()
         self.fill_granted(skill)
@@ -900,7 +964,7 @@ class Tree:
         spend = min(UNLOCK_SECONDS, UNLOCK_SHARE * max(0.0, deadline - now))
         if spend <= 0:
             return False
-        build.allocate(remove=current, add=ids)
+        self.swap(current, ids)
         if self.resolve is not None:
             self.resolve()
         self.regrow_until(now + spend)
@@ -911,7 +975,7 @@ class Tree:
         won = build.snapshot()
         build.restore(snap)
         if sorted(control) != current:
-            build.allocate(remove=current, add=control)
+            self.swap(current, control)
             if self.resolve is not None:
                 self.resolve()
         self.regrow_until(clock.now() + spend)
@@ -936,7 +1000,7 @@ class Tree:
         build = self.build
         snap = build.snapshot()
         before = build.score
-        build.allocate(remove=current, add=ids)
+        self.swap(current, ids)
         if self.resolve is not None:
             self.resolve()
         self.attributes_round()
