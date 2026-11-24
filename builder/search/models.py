@@ -5242,9 +5242,26 @@ EMERGENCY_RELOAD = "Emergency Reload"
 EMERGENCY_RELOAD_COOLDOWN, EMERGENCY_RELOAD_SECONDS = 45.0, 6.0  # (its level data's cooldown 45, duration 6000 ms)
 
 
+# (GEM39; RESEARCH57 R57-4, MEDIUM; MECHB60's lead) Hailstorm Rounds isn't a clip fired one bolt an attack: Emergency
+# Reload most likely fills its whole stored stock ("Instantly reload all your Crossbow Ammunition clips"; forum 3680278
+# in 0.1: "Emergency Reload only reloads the active crossbow's stacks", widened to all clips in 0.3.0), all Empowered
+# ("Number of each clip's Empowered bolts is equal to the maximum Ammunition of the clip"), once a cooldown. So for
+# Hailstorm the reading above is replaced by hailstorm_rounds_model's refill (its stock N every cooldown, added to the
+# bolts it fires, each of them v% more, under the same per-boss hit limit); the reading above becomes that model's row.
 def emergency_reload_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
     """The main skill's more Damage from Emergency Reload's Empowered bolts and skipped reloads, as a factor of the
-    stat's own value (see above), and how."""
+    stat's own value (see above), and how; (GEM39) 0 on Hailstorm Rounds, whose model counts the refill."""
+    if main is not None and main.name == HAILSTORM_ROUNDS:
+        more, how, play = emergency_reload_clip(skill, stats, main)
+        return 0.0, (f"0 here: {HAILSTORM_ROUNDS}'s own model counts the refill of its whole stock (R57-4, MEDIUM); the "
+                     f"one-clip reading, its row: {how}"), play
+    more, how, play = emergency_reload_clip(skill, stats, main)
+    v = number(skill.level_stats.get("emergency_reload_damage_+%_final"))
+    return (more / v if v > 0 else 0.0), how, play
+
+
+def emergency_reload_clip(skill: Skill, stats: dict, main: Skill | None = None) -> tuple[float, str, str]:
+    """(more Damage %, how, play) of GEM10's reading (see above): one clip Empowered and one reload skipped a cooldown."""
     v = number(skill.level_stats.get("emergency_reload_damage_+%_final"))
     seconds = number(skill.level_stats.get("base_skill_effect_duration")) / 1000 or EMERGENCY_RELOAD_SECONDS
     period = max((skill.cooldown or EMERGENCY_RELOAD_COOLDOWN) / (skill.cooldown_recovery or 1.0), 0.1)
@@ -5265,7 +5282,7 @@ def emergency_reload_share(skill: Skill, stats: dict, main: Skill | None = None,
            f"{f', capped by {seconds:g} s of firing' if not unlimited and empowered < effective else ''}) "
            f"with {v:g}% more, of {fired:.3g} fired, and replaces a {reload:.3g} s reload (LOW: used on cooldown with the "
            "clip empty; one clip, the base duration)")
-    return more / v, how, play + f" Without it: PoB's damage; with it: {more:.3g}% more on {main.name}."
+    return more, how, play + f" Without it: PoB's damage; with it: {more:.3g}% more on {main.name}."
 
 
 # `share: kelari_beetles` (GEM10; an OVERCOUNT on a lone boss, an undercount with many corpses): Kelari's Malediction
@@ -25668,11 +25685,13 @@ HAILSTORM_BOLT_INTERVAL, HAILSTORM_HIT_DELAY = 0.1, 0.2  # s (patch 0.3.0; rain_
 
 def hailstorm_rounds_model(main: Skill | None, stats: dict, boss: tuple[float, str], boss_upper: tuple[float, str],
                            forbidden: set[str] = frozenset(), texts: list[str] = (),
-                           reload_up: tuple[float, str] = (0.0, "")) -> tuple[list[dict], list[dict]]:
+                           reload_up: tuple[float, str] = (0.0, ""),
+                           refill: tuple[float, float, float, str] | None = None) -> tuple[list[dict], list[dict]]:
     """Hailstorm Rounds held to the bolts the build makes and the share that hits one boss (see above). `stats` the main
     skill's PoB output (Speed, ReloadTime, BoltCount, AreaOfEffectRadius, AreaOfEffectRadiusSecondary); `boss` /
     `boss_upper` (hit radius in metres, how); `reload_up` (the share of the fight after one of the build's own reloads,
-    how)."""
+    how); (GEM39, R57-4) `refill` Emergency Reload's (seconds between uses, its Empower %, GEM10's one-clip more % for
+    the row, how), None without it: its whole stock (BoltCount) added every use, all Empowered."""
     if main is None or main.name != HAILSTORM_ROUNDS or HAILSTORM_ENTRY in forbidden or main.triggered:
         return [], []
     speed, reload = number(stats.get("Speed")), number(stats.get("ReloadTime"))
@@ -25704,15 +25723,24 @@ def hailstorm_rounds_model(main: Skill | None, stats: dict, boss: tuple[float, s
 
     def share(r: float) -> float:
         return min(1.0, ((r + impact) / rain) ** 2)
-    bolts = volley(kept)
+    plain_bolts = volley(kept)
+    stock = number(stats.get("BoltCount"))
+    period, empower, one_clip, refill_how = refill if refill else (0.0, 0.0, 0.0, "")
+    extra = stock / period if period > 0 and stock > 0 else 0.0  # (R57-4: the whole stock, once a cooldown)
+    bolts = (min(plain_bolts + (extra / (1 - kept) if kept < 1 else extra), held if held > 0 else float("inf"))
+             if extra > 0 else plain_bolts)
+    powered = min(extra, bolts) / bolts if bolts > 0 else 0.0  # (the share of fired bolts Empowered: the refilled stock)
+    lift = 1 + empower / 100 * powered
+    plain_factor = landing(plain_bolts, boss[0]) / speed
     target = landing(bolts, boss[0])
-    factor = target / speed
-    upper = landing(bolts, boss_upper[0])
-    uncapped = bolts * share(boss[0])
+    factor = target * lift / speed
+    upper = landing(bolts, boss_upper[0]) * lift  # (GEM39: the rows carry the Empowered share too)
+    uncapped = bolts * share(boss[0]) * lift
     with_recent = landing(fired(min(1.0, kept + recent)), boss[0])
-    per_rain = bolts * share(boss[0]) * cap  # (R56-3's row: each rain its own limit, which a rain's 0.1 s bolts never pass)
+    per_rain = bolts * share(boss[0]) * cap * lift  # (R56-3's row: each rain its own limit, which a rain's 0.1 s bolts never pass)
     mod = raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=HAILSTORM_ENTRY)
-    mod[HIT_CUT_PER_USE] = factor  # (MECHB53, MECH99's split: bolts landing a use, the skill used as often)
+    mod[HIT_CUT_PER_USE] = target / speed  # (MECHB53, MECH99's split: bolts landing a use, the skill used as often;
+    # GEM39: the hits only, not Emergency Reload's Empower)
     return [mod], [{
         "label": f"{main.name}: {target:.2f} bolt hits a second on the boss*", "value": f"x{factor:.3f}",
         "confidence": "LOW", "entry": HAILSTORM_ENTRY,
@@ -25731,10 +25759,17 @@ def hailstorm_rounds_model(main: Skill | None, stats: dict, boss: tuple[float, s
                   + (f"; its passive loading counted as Reloaded Recently all fight (UNVERIFIED, leaning yes: R56-2), "
                      f"+{recent:.0%} not spent: x{with_recent / speed:.3f}" if recent > 0 else "")
                   + f"; one 0.2 s limit a rain, not shared (R56-3, LOW): x{per_rain / speed:.3f}"
+                  + (f". Emergency Reload (R57-4, MEDIUM: it most likely refills the whole stock, all Empowered; "
+                     f"{refill_how}): {stock:g} bolts every {period:.1f} s, +{extra:.2f} fired a second, {powered:.0%} "
+                     f"of them {empower:g}% more: x{factor:.3f} against x{plain_factor:.3f} without it; row, its one-"
+                     f"clip reading (GEM10: one clip Empowered, no refill): x{plain_factor * (1 + one_clip / 100):.3f}"
+                     if extra > 0 else "")
                   + ". The ailment readers take "
                   "the same cut (build.main_hit_cut; above x1 they keep PoB's rate)"),
         "play": (f"Fire {main.name} at least every {number(stats.get('BoltCount')) * reload:.0f} s (before it holds its "
-                 "most bolts), aimed at the boss's centre.")}]
+                 "most bolts), aimed at the boss's centre."
+                 + (f" Use Emergency Reload right after a volley and fire again at once: without it x{plain_factor:.3f}, "
+                    f"with it x{factor:.3f}." if extra > 0 else ""))}]
 
 
 # Wildshards' circle novas (MECHB51; PLANS7 gs-wildshards.md; RESEARCH42 R42-9). Wildshards I / II: "N% chance to fire

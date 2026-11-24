@@ -19,6 +19,7 @@ included in it and the objective switches to Full DPS while any exist.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from types import SimpleNamespace
 import os
@@ -4820,7 +4821,8 @@ class Assumptions:
                  *models.MODEL_FIELDS])))
             hail_mods, hail_notes = models.hailstorm_rounds_model(
                 main, hail_stats, bosses_mod.hit_radius(hail_stats), bosses_mod.hit_radius(hail_stats, "upper"), forbidden,
-                [e["text"] for e in source_lines], self.own_reload_share(found))  # (MECHB59: R56-2)
+                [e["text"] for e in source_lines], self.own_reload_share(found),  # (MECHB59: R56-2)
+                self.own_reload_refill(found, main, hail_stats))  # (GEM39: R57-4, the refilled stock)
             hand_mods, hand_notes = hand_mods + hail_mods, hand_notes + hail_notes
             hit_cut(build, hail_mods, main.name)  # (MECHB53: its bolts landing, a hits-a-use cut: MECH99's split)
         if main is not None and main.name == models.TORNADO:  # (MECHB52: R42-10, its absorbed elemental grounds)
@@ -10685,6 +10687,25 @@ class Assumptions:
             return 0.0, ""
         return min(1.0, models.RECENTLY / cooldown), (f"{models.EMERGENCY_RELOAD} on its {cooldown:.1f} s cooldown, "
                                                       f"{models.RECENTLY:g} s after each")
+
+    def own_reload_refill(self, found: list, main, stats: dict) -> tuple[float, float, float, str] | None:
+        """(GEM39, R57-4 MEDIUM; models.hailstorm_rounds_model's `refill`) Emergency Reload refilling the main skill's
+        whole stock: (seconds between uses: PoB's cooldown with the build's Cooldown Recovery, its Empower % at its
+        level, GEM10's one-clip reading's more % for the row, how); None without the skill."""
+        skill = next((s for s in found if s.name == models.EMERGENCY_RELOAD and s.group is not None and not s.triggered), None)
+        if skill is None:
+            return None
+        row = next(iter(self.build.call("useRates", indices=[skill.group])["rates"]), None) or {}
+        cooldown = number(row.get("cooldown"))
+        if cooldown <= 0:
+            return None
+        got = next((x.get("levelStats") or {} for x in self.build.call(
+            "activeSkills", levelStats=[models.EMERGENCY_RELOAD])["skills"] if x["name"] == models.EMERGENCY_RELOAD), {})
+        empower = number(got.get("emergency_reload_damage_+%_final"))
+        clip = dataclasses.replace(skill, level_stats=dict(got), cooldown=cooldown, cooldown_recovery=1.0)
+        one_clip, _, _ = models.emergency_reload_clip(clip, stats, main)
+        return cooldown, empower, one_clip, (f"{models.EMERGENCY_RELOAD} on its {cooldown:.1f} s cooldown, "
+                                             f"{empower:g}% more at its level")
 
     def energy_feeders(self, found: list, main) -> dict[int, list[dict]]:
         """(MECHB59: models.energy_feed's note) {meta group: [{name, uses, speed, why, row, final}]} for a Cast on Critical /

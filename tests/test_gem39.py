@@ -64,3 +64,27 @@ def test_vruun_frozen_locus_reads_the_builds_limit_and_duration():
     _, b = models.vruun_aftermath_model([cry, locus], {}, None, raised)
     assert "1.00 there" in a[0]["basis"] and "2.00 there" in b[0]["basis"]
     assert "2 allowed (the build's Limit and duration)" in b[0]["basis"]
+
+
+def test_hailstorm_emergency_reload_refills_the_whole_stock_all_empowered():
+    """(GEM39, R57-4 MEDIUM) Emergency Reload: the whole stock (55) every 45 s added to the bolts fired, each 31% more,
+    under the same 0.2 s limit; GEM10's one-clip reading is a row, and emergency_reload_share gives 0 on Hailstorm."""
+    import pytest
+    from builder.search.models import Skill
+    hail = Skill("Hailstorm Rounds", 1, attack=True)
+    stats = {"Speed": 0.634, "ReloadTime": 0.3, "BoltCount": 55, "AreaOfEffectRadius": 10,
+             "AreaOfEffectRadiusSecondary": 40}
+    plain, _ = models.hailstorm_rounds_model(hail, stats, (0.3, "a"), (1.5, "b"))
+    mods, notes = models.hailstorm_rounds_model(hail, stats, (0.3, "a"), (1.5, "b"), refill=(45.0, 31.0, 5.58, "ER"))
+    made, extra = 1 / 0.3, 55 / 45.0
+    land = (1.3 / 4) ** 2 * 0.5
+    want = (made + extra) * land * (1 + 0.31 * extra / (made + extra)) / 0.634
+    assert mods[0]["value"] == pytest.approx(100 * (want - 1), abs=0.01)
+    assert mods[0]["value"] > plain[0]["value"]
+    assert "R57-4" in notes[0]["basis"] and f"x{made * land / 0.634 * 1.0558:.3f}" in notes[0]["basis"]
+    assert "Use Emergency Reload right after a volley" in notes[0]["play"]
+    er = Skill("Emergency Reload", 2, level_stats={"emergency_reload_damage_+%_final": 31}, cooldown=45.0)
+    share, how, _ = models.emergency_reload_share(er, {"BoltCount": 55, "Speed": 0.634, "FiringRate": 10}, hail)
+    assert share == 0.0 and "counts the refill" in how
+    other, _, _ = models.emergency_reload_share(er, {"BoltCount": 5, "Speed": 1.0, "FiringRate": 2}, Skill("Basic Bolt", 1))
+    assert other > 0
