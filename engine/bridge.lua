@@ -4745,13 +4745,57 @@ local function lineMods(mod)
 		if mod.skill then
 			copy[#copy + 1] = { type = "SkillName", skillName = mod.skill }
 		end
+		if mod.group then  -- (MECHB62, U1) only that socket group's copy of the skill: installGroupAssumptions
+			copy[#copy + 1] = { type = "Condition", var = "BridgeGroup" .. mod.group }
+		end
 		modLib.setSource(copy, "Assumption")
 		mods[#mods + 1] = copy
 	end
 	return mods
 end
 
+-- (MECHB62, U1 from COV56's calibration, probe POE2T8044) An assumption for ONE socket group's copy of a skill
+-- (models.in_group: a mod with `group`, the group's index in socketGroupList). PoB has no tag for a socket group, and
+-- its SkillName tag reaches every copy of a spell (Comet cast by hand and in two meta gems), keeping the LAST SkillData
+-- of a key (CalcActiveSkill 919-920). So each player skill built in a group gets skillCond["BridgeGroup<index>"]
+-- (ModStore's Condition tag reads cfg.skillCond; weapon1Cfg / weapon2Cfg inherit it through their __index), which a
+-- group's Line / Raw mods are tagged with, and a group's SkillData is set on that copy after PoB's own extraction
+-- (CalcActiveSkill 915-920: so it wins over a name-wide one).
+local function installGroupAssumptions()
+	local calcs = require("Modules.CalcBase")
+	if calcs.ledgerGroupAssumptions or not calcs.buildActiveSkillModList then
+		return
+	end
+	calcs.ledgerGroupAssumptions = true
+	local buildModList = calcs.buildActiveSkillModList
+	calcs.buildActiveSkillModList = function(env, activeSkill, ...)
+		local results = { buildModList(env, activeSkill, ...) }
+		local group = activeSkill and activeSkill.socketGroup
+		local cfg = activeSkill and activeSkill.skillCfg
+		if group and cfg and cfg.skillCond and build and build.skillsTab then
+			local index
+			for i, candidate in ipairs(build.skillsTab.socketGroupList) do
+				if candidate == group then
+					index = i
+					break
+				end
+			end
+			if index then
+				cfg.skillCond["BridgeGroup" .. index] = true
+				local name = (cfg.skillName or ""):lower()
+				for _, mod in ipairs(assumedMods) do
+					if mod.kind == "SkillData" and mod.group == index and (not mod.skill or mod.skill:lower() == name) then
+						activeSkill.skillData[mod.key] = mod.value
+					end
+				end
+			end
+		end
+		return unpack(results)
+	end
+end
+
 local function installAssumptions()
+	installGroupAssumptions()
 	local configTab = build.configTab
 	if not rawget(configTab, "bridgeWrapped") then
 		local original = configTab.BuildModList
@@ -4770,7 +4814,12 @@ local function installAssumptions()
 				if mod.slots then
 					tags[#tags + 1] = { type = "SlotName", slotNameList = mod.slots }
 				end
-				if mod.kind == "SkillData" then
+				if mod.group then  -- (MECHB62, U1) only that socket group's copy of the skill: installGroupAssumptions
+					tags[#tags + 1] = { type = "Condition", var = "BridgeGroup" .. mod.group }
+				end
+				if mod.kind == "SkillData" and mod.group then
+					-- (set on that group's copy by installGroupAssumptions, after PoB's own SkillData)
+				elseif mod.kind == "SkillData" then
 					self.modList:NewMod("SkillData", "LIST", { key = mod.key, value = mod.value }, "Assumption", unpack(tags))
 				elseif mod.kind == "Condition" then  -- a ledger condition the build's skills switch on
 					self.modList:NewMod("Condition:Ledger" .. mod.name, "FLAG", true, "Ledger")

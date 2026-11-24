@@ -3630,8 +3630,7 @@ class Assumptions:
                                                                        getattr(self, "undeath_limit", None))
         energy_notes = energy_notes + full_mana_notes
         # (the meta gems' trigger rates, for the curses and Marks they trigger: MECH46, FLAT_RATES A5)
-        build.trigger_rates = {m["skill"]: m["value"] for m in energy_mods
-                               if m.get("kind") == "SkillData" and m.get("key") == "triggerRate"}
+        build.trigger_rates = models.rates_by_name(energy_mods)  # (MECHB62: summed over a spell's meta groups)
         # (MECH102: a triggered Mark alone in its group, models.mark_use: PoB's trigger rate for its group, the bridge's
         # useRates row; none read: models.mark_use counts it never applied, not "applied when needed")
         lone = {s.group: s.name for s in found if s.name in models.MARKS and s.triggered and s.group is not None
@@ -5847,8 +5846,7 @@ class Assumptions:
                 [e["text"] for e in source_lines], supply, every, VOLCANIC_DODGE_METRES, *dodge_share())
         # (MECHB31, MB-2: "if you've Triggered a Skill Recently" from every trigger rate handed PoB above, and a triggered
         # main skill's own rate)
-        triggered = {m["skill"]: models.number(m.get("value")) for m in mods
-                     if m.get("kind") == "SkillData" and m.get("key") == "triggerRate"}
+        triggered = models.rates_by_name(mods)  # (MECHB62: summed over a spell's meta groups)
         if main is not None and main.triggered and main.name not in triggered:
             triggered[main.name] = models.number(stats.get("Speed"))
         recent_mods, recent_notes = models.triggered_recently_model([e["text"] for e in source_lines], triggered)
@@ -7193,8 +7191,7 @@ class Assumptions:
         objective = getattr(build, "objective", None)
         if objective is None or not getattr(objective, "full", False):
             return []
-        zero = {str(m["skill"]) for m in mods if m.get("kind") == "SkillData" and m.get("key") == "triggerRate"
-                and m.get("skill") and models.number(m.get("value")) <= 0}
+        zero = {str(name) for name, rate in models.rates_by_name(mods).items() if rate <= 0}  # (MECHB62: all groups)
         zero |= {name for name, v in (getattr(objective, "entry_scales", None) or {}).items()
                  if models.number(v) <= 0 and " from " not in name}
         if not zero:

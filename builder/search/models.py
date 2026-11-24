@@ -144,6 +144,37 @@ def trigger_rate(skill: str, rate: float) -> list[dict]:
             {"kind": "SkillData", "skill": skill, "key": "triggered", "value": True}]
 
 
+# (MECHB62, U1 from COV56's calibration, probe POE2T8044) ONE SPELL IN TWO SOCKET GROUPS: PoB tags an assumption by skill
+# NAME (the bridge's SkillName tag), so a trigger rate or a "more" line one meta group's model gives its spell lands on
+# every copy of that spell (cast by hand, or in another meta gem), and PoB keeps the LAST SkillData of a key
+# (CalcActiveSkill 919-920): example build 15's main Comet read Speed 5e-61 from a Cast on Critical group's 0 rate.
+# A mod with "group" (the socket group's index, bridge.groups) reaches only that group's copy (engine/bridge.lua
+# installGroupAssumptions).
+def in_group(mods: list[dict], group: int | None, names: set[str]) -> list[dict]:
+    """`mods`, those for a skill in `names` (and not already given a group) now for socket group `group` only."""
+    if group is None:
+        return mods
+    return [{**m, "group": group} if m.get("skill") in names and "group" not in m else m for m in mods]
+
+
+def rates_by_name(mods: list[dict]) -> dict[str, float]:
+    """{skill: triggers a second} from the trigger-rate mods: the last rate for each (skill, group), summed over a
+    skill's groups (in_group: one spell triggered from two meta gems)."""
+    last: dict[tuple, float] = {}
+    for m in mods:
+        if m.get("kind") == "SkillData" and m.get("key") == "triggerRate" and m.get("skill"):
+            last[(m["skill"], m.get("group"))] = number(m.get("value"))
+    out: dict[str, float] = {}
+    for (name, _), value in last.items():
+        out[name] = out.get(name, 0.0) + value
+    return out
+
+
+def shared_names(skills: list["Skill"], group: int | None, names: set[str]) -> set[str]:
+    """The skills in `names` that also sit in another socket group than `group` (in_group's need)."""
+    return {s.name for s in skills if s.name in names and s.group is not None and s.group != group}
+
+
 def _derivative(f: Callable[[dict], float], x0: dict, key: str) -> float:
     up, down = dict(x0), dict(x0)
     up[key] += 1.0
@@ -3741,7 +3772,18 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
     passive = {k: inputs.passive.get(k, 0.0) for k in ENERGY_INPUTS}
     doubled = inputs.has("EnergyDoubled")
     main_crits_recently = crits_per_second(stats) * RECENTLY >= 1
+    last: tuple[int, int, set[str]] | None = None
+
+    def own_group() -> None:  # (MECHB62, U1: the last meta group's spell mods reach that group's copy only)
+        if last is not None:
+            start, group, names = last
+            mods[start:] = in_group(mods[start:], group, names)
+
     for meta in (s for s in skills if s.energy and s.group is not None):
+        own_group()
+        last = (len(mods), meta.group, shared_names(
+            skills, meta.group, {s.name for s in skills if s.group == meta.group and s.spell and s.triggered
+                                 and not s.energy}))
         crits_recently = main_crits_recently
         spells = [s for s in skills if s.group == meta.group and s.spell and s.triggered and not s.energy]
         if not spells:
@@ -3888,7 +3930,8 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
         if META_GEMS[meta.name]["gain"] == "dodge" and rate > 0:
             roll_seconds = (stats.get("_dodge_roll") or {}).get("seconds", DODGE_ROLL_SECONDS)
             busy = min(roll_seconds / DODGE_EVERY, 0.95)
-            mods.append(line("1% more Attack and Cast Speed", -100 * busy, skill=main.name))
+            mods.append({**line("1% more Attack and Cast Speed", -100 * busy, skill=main.name),
+                         **({"group": main.group} if shared_names(skills, main.group, {main.name}) else {})})
             notes.append({
                 "label": f"Time spent dodge rolling ({main.name})", "value": f"{busy:.1%} less Attack and Cast Speed",
                 "basis": f"a build that counts on {meta.name} rolls every {DODGE_EVERY:g} s (assumed; how often you roll is up "
@@ -3896,6 +3939,7 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
                          f"files" + (", sped up by the build's faster Dodge Roll" if roll_seconds != DODGE_ROLL_SECONDS else "")
                          + f") away from {main.name}",
                 "confidence": "theory"})
+    own_group()
     return mods, notes, groups
 
 
