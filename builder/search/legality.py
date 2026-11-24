@@ -20,7 +20,8 @@ from pathlib import Path
 from builder.data import GameData
 from builder.search import alloys, essences
 from builder.search.context import implicit_variants
-from builder.search.rares import ALDUR_RUNES, NOT_IN_SEALED, excluded_by, exclusion_group, mod_lines, pool_tags
+from builder.search.rares import (_ALDUR_ADDS, _ALDUR_ALLIES, _ALDUR_SAME, ALDUR_AILMENT_TEXT, ALDUR_RUNES, NOT_IN_SEALED,
+                                  excluded_by, exclusion_group, mod_lines, pool_tags)
 
 ILLEGAL = "ILLEGAL"
 UNVERIFIED = "UNVERIFIED"
@@ -51,15 +52,35 @@ RULES = {
     "desecrated_limit": "One Desecrated modifier per item (0.5.0: 'items are limited to 1 Desecrated modifier')",
     "base_allowed": "The modifier can appear on this base: its spawn weights for the base's tags (PoB ModItem, from the "
                     "game's Mods), or the item classes of its Alloy (alloys.ALLOYS) or Perfect Essence (essences.ESSENCES)",
-    "sealed_rune": "No Serle's / Astrid's / influence-type augment on a Corrupted item (0.5.4: they 'can no longer be "
-                   "socketed ... on Corrupted or Sanctified items')",
+    "sealed_rune": "No augment the game bars from sealed items (SoulCores CanSocketInCorruptedSanctified false: Serle's, "
+                   "Astrid's, the influence runes, the Aldur runes, Cadigan's, the Raven-Touched Shard) socketed AFTER "
+                   "the item was Corrupted or Sanctified (0.5.4: they 'can no longer be socketed into' such items; one "
+                   "socketed before stays, as on the user's listed Twice Corrupted Chiming Staff with Passion of Aldur, "
+                   "24 Nov). ILLEGAL only where the item's route socketed it after its Vaal Orb; an item read without its "
+                   "route order (imports, saved results, item texts) is UNVERIFIED",
     "unread": "UNVERIFIED: a line that fits no mod row in the tables read here, so nothing is claimed about it",
+    "full_reading": "UNVERIFIED: every line fits a mod row only in readings that break a rule; the reading kept leaves a "
+                    "line unread instead (a line our tables miss, or a real break: both are said)",
 }
 
 NUMBER = re.compile(r"\(-?\d+(?:\.\d+)?--?\d+(?:\.\d+)?\)|-?\d+(?:\.\d+)?")
 ALLOWED = re.compile(r"^([+-]\d+) (Prefix|Suffix) Modifiers? allowed\s*$", re.M)
 JEWEL_EFFECT = re.compile(r"increased Effect of (Prefix|Suffix)es", re.I)
 RESIST_GROUP = re.compile(r"resist", re.I)
+
+
+def aldur_shape(line: str, target: str) -> bool:
+    """Whether `line` has a shape an Aldur rune of `target` turns lines into (rares.aldur_line's families: extra damage,
+    increased damage, spell levels, penetration, added damage, allies' added damage, the element's ailment line) and
+    names `target`: such a line may have rolled as another element's. Any other line is as it rolled (an Explicit Fire
+    Modifier magnitudes line is a Thrud's Might mod, never an Aldur output)."""
+    if target in ALDUR_AILMENT_TEXT and ALDUR_AILMENT_TEXT[target] in line:
+        return True
+    if not re.search(rf"\b{target}\b", line):
+        return False
+    probe = re.sub(rf"\b{target}\b", "Cold" if target == "Fire" else "Fire", line)
+    return bool(_ALDUR_ADDS.match(probe) or _ALDUR_ALLIES.match(probe) or any(p.match(probe) for _, p in _ALDUR_SAME))
+PRUNE = True  # (False: every reading tried, as before SEARCHC5; the test compares the two)
 MAX_READINGS = 20000  # how many complete readings one item may try (never reached by a 3 + 3 rare; a safety limit)
 
 
@@ -83,7 +104,9 @@ class Row:
 
 
 def template(line: str) -> str:
-    return NUMBER.sub("#", line.strip())
+    """A line's key, numbers as '#', letter case ignored (the trade site writes "Modifier Magnitudes", the game's text
+    "Modifier magnitudes")."""
+    return NUMBER.sub("#", line.strip()).lower()
 
 
 @lru_cache(maxsize=1)
@@ -213,12 +236,20 @@ class Checker:
         runes = set(item.get("runes") or ()) | set(item.get("bound_runes") or ())
         route = " ".join(item.get("craft_route") or ())
         findings: list[Finding] = []
-        if "Sockets (corrupted)" in route or item.get("corrupted"):
-            for name in sorted(runes & set(NOT_IN_SEALED)):
-                findings.append(Finding("sealed_rune", ILLEGAL, f"{name} on a Corrupted item"))
+        if "Sockets (corrupted)" in route:  # (the route's own order: its bound runes in before the Vaal Orb, the rest after)
+            bound = list(item.get("bound_runes") or ())
+            after = [n for n in list(item.get("runes") or ())[len(bound):] if n not in bound]
+            for name in sorted(set(after) & NOT_IN_SEALED):
+                findings.append(Finding("sealed_rune", ILLEGAL, f"{name} socketed after the route's Vaal Orb"))
+        elif item.get("corrupted") or item.get("sanctified"):
+            for name in sorted(runes & NOT_IN_SEALED):
+                findings.append(Finding("sealed_rune", UNVERIFIED,
+                                        f"{name} on a {'Corrupted' if item.get('corrupted') else 'Sanctified'} item: "
+                                        "legal if it was socketed before (0.5.4 'can no longer be socketed into'); "
+                                        "this item's order isn't known"))
         fits = self.fits(lines, item)
         limits = self.limits(item, lines)
-        aldur = bool(runes & set(ALDUR_RUNES.values()))
+        aldur = {element for element, name in ALDUR_RUNES.items() if name in runes}  # (the elements its runes turn lines to)
         flux = "Flux" in route
         influenced = bool(runes & INFLUENCE_RUNES)
         crafted_limit = 2 if ASTRID in runes else 1
@@ -226,8 +257,20 @@ class Checker:
         choices = [{size: self.distinct(rows, lambda r: self.allowed(r, item, tag_sets)) for size, rows in here.items()}
                    for here in fits]
 
-        def converted(row: Row) -> bool:  # (a line a route rewrote: its group and spawn weights no longer bind it)
-            return aldur or (flux and bool(RESIST_GROUP.search(row.group)))
+        shaped: dict[tuple[str, ...], bool] = {}  # (SEARCHC5, test cost: each line's Aldur reading once per item)
+
+        def converted(row: Row, text: list[str] | None = None) -> bool:
+            """A line a route may have rewritten, so its group and spawn weights no longer bind it: under an Aldur rune a
+            line naming the rune's element (what it turns lines into; a line naming none is as it rolled), under a Flux
+            a resistance."""
+            if flux and RESIST_GROUP.search(row.group):
+                return True
+            if not aldur:
+                return False
+            key = tuple(text or ())
+            if key not in shaped:
+                shaped[key] = any(aldur_shape(line, e) for line in key for e in aldur)
+            return shaped[key]
 
         def breaks(reading: list[tuple[Row, bool | None, list[str]]]) -> list[Finding]:
             out: list[Finding] = []
@@ -237,7 +280,7 @@ class Checker:
                     out.append(Finding("affix_count", ILLEGAL, f"{held} {side.lower()}es, the limit here is {limit}"))
             groups: dict[str, list[str]] = {}
             for row, _, text in reading:
-                if not converted(row):
+                if not converted(row, text):
                     groups.setdefault(row.group, []).append("; ".join(text))
             for group, held in groups.items():
                 if len(held) > 1:
@@ -247,30 +290,44 @@ class Checker:
                 need = "" if ASTRID in runes else f", and no {ASTRID}"
                 out.append(Finding("crafted_limit", ILLEGAL, f"{alloy} crafted lines, the limit here is {crafted_limit}{need}"))
             for row, _, text in reading:
-                if row.kind != "natural" or converted(row) or influenced:
+                if row.kind != "natural" or converted(row, text) or influenced:
                     continue
-                by = [o.id for o, _, _ in reading if o is not row and o.adds & row.blocked]
+                by = [o.id for o, _, t in reading if o is not row and o.adds & row.blocked and not converted(o, t)]
                 if by:
                     out.append(Finding("tag_conflict", ILLEGAL, f'"{"; ".join(text)}" ({row.id}) cannot roll beside {by[0]}'))
             desecrated = sum(1 for row, _, _ in reading if row.kind == "desecrated")
             if desecrated > 1:
                 out.append(Finding("desecrated_limit", ILLEGAL, f"{desecrated} Desecrated modifiers"))
             for row, state, text in reading:
-                if state is False and not converted(row) and not influenced:
+                if state is False and not converted(row, text) and not influenced:
                     out.append(Finding("base_allowed", ILLEGAL, f'"{"; ".join(text)}" ({row.id}) on {item.get("base")}'))
             return out
 
         best: tuple[int, list[Finding], list, list[str]] | None = None  # (unread lines, breaks, the reading, unread)
+        full: list[Finding] | None = None  # (the fewest breaks of a reading that reads every line)
         tried = 0
+        # (SEARCHC5, test cost) the fewest lines any reading from each position must leave unread: a line no row fits,
+        # alone or as a hybrid's first line, is unread in every reading through it. Readings that leave more unread are
+        # tried only when none with the fewest is free of breaks (the same best reading as trying them all: fewest
+        # breaks first, then fewest unread). Before, an item with one unreadable line tried every reading (up to
+        # MAX_READINGS), ~45 ms an item: 17,883 route-test items took 799 s (POE2T7656).
+        least = [0] * (len(lines) + 1)
+        for at in range(len(lines) - 1, -1, -1):
+            least[at] = min((least[at + size] for size in choices[at]), default=1 + least[at + 1])
+        cap = least[0] if PRUNE else len(lines)
 
         def walk(at: int, reading: list, unread: list[str]) -> bool:
-            nonlocal best, tried
+            nonlocal best, full, tried
+            if len(unread) + least[at] > cap:
+                return False
             if at >= len(lines):
                 tried += 1
                 found = breaks(reading)
                 if best is None or (len(found), len(unread)) < (len(best[1]), best[0]):
                     best = (len(unread), found, list(reading), list(unread))
-                return (not found and not unread) or tried >= MAX_READINGS
+                if not unread and (full is None or len(found) < len(full)):
+                    full = found
+                return (not found and len(unread) == least[0]) or tried >= MAX_READINGS
             if not choices[at]:  # (no row fits this line, alone or as a hybrid's first line)
                 return walk(at + 1, reading, unread + [lines[at]])
             for size, options in choices[at].items():
@@ -282,25 +339,44 @@ class Checker:
                         return True
             return False
 
-        walk(0, [], [])
+        if not walk(0, [], []) and best is not None and best[1] and tried < MAX_READINGS:
+            cap = len(lines)  # (no reading with the fewest unread lines is free of breaks: try leaving more unread)
+            walk(0, [], [])
         if best is None:
             return findings
         findings += [Finding("unread", UNVERIFIED, f'"{line}"') for line in best[3]]
+        if best[3] and full:  # (SEARCHC5: the staff's Alloy hybrid read as a natural Cast Speed line + an unread line)
+            findings.append(Finding("full_reading", UNVERIFIED, "reading every line breaks: "
+                                    + "; ".join(f"{f.rule}: {f.detail}" for f in full)))
         findings += best[1]
         reading = best[2]
         if not any(f.status == ILLEGAL and f.rule == "mod_group" for f in best[1]):
-            by_family: dict[int, list[Row]] = {}
-            for row, _, _ in reading:
+            by_family: dict[int, list[tuple[Row, list[str]]]] = {}
+            for row, _, text in reading:
                 for family in row.families:
-                    by_family.setdefault(family, []).append(row)
-            for family, rows in by_family.items():
-                if len({r.group for r in rows}) > 1 and not any(converted(r) for r in rows):
+                    by_family.setdefault(family, []).append((row, text))
+            for family, held in by_family.items():
+                rows = [r for r, _ in held]
+                if len({r.group for r in rows}) > 1 and not any(converted(r, t) for r, t in held):
                     findings.append(Finding("game_family", UNVERIFIED,
                                             f"game family {family}: {', '.join(sorted(r.id for r in rows))}"))
         kinds = [row.kind for row, _, _ in reading]
         if "essence" in kinds and len([k for k in kinds if k in ("essence", "alloy", "crafted")]) > crafted_limit:
             findings.append(Finding("essence_crafted", UNVERIFIED, "an Essence line beside another crafted line"))
         return findings
+
+
+def reading_key(item: dict) -> tuple:
+    """Everything Checker.check reads from an item, with the rolled numbers left out: two items with one key break the
+    same rules (only the numbers quoted in a finding's detail differ). The route test checks one item per key."""
+    lines = list(item.get("affixes") or ())
+    runes = tuple(item.get("runes") or ())
+    route = " ".join(item.get("craft_route") or ())
+    targets = [e for e, name in ALDUR_RUNES.items() if name in runes or name in (item.get("bound_runes") or ())]
+    return (bool(item.get("unique")), bool(item.get("rare")), item.get("base"), item.get("type"),
+            str(item.get("name") or "").startswith("Magic"), tuple(NUMBER.sub("#", line.strip()) for line in lines),
+            tuple(aldur_shape(line, e) for line in lines for e in targets), runes, tuple(item.get("bound_runes") or ()),
+            "Sockets (corrupted)" in route, "Flux" in route, bool(item.get("corrupted")), bool(item.get("sanctified")))
 
 
 TAG = re.compile(r"^(?:\{[^}]*\})+")
@@ -322,7 +398,8 @@ def item_from_text(raw: str, using: Checker | None = None) -> dict:
     return {"name": f"{rarity} item", "base": base, "type": next(iter(kinds), None), "unique": rarity == "Unique",
             "rare": rarity in ("Rare", "Magic"), "affixes": affixes,
             "runes": [l.split(":", 1)[1].strip() for l in lines if l.startswith("Rune:")],
-            "corrected": True, "corrupted": any(l.strip() == "Corrupted" for l in lines)}
+            "corrected": True, "corrupted": any(l.strip() == "Corrupted" for l in lines),
+            "sanctified": any(l.strip() == "Sanctified" for l in lines)}
 
 
 _checker: Checker | None = None
