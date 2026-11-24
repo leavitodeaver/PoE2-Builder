@@ -266,6 +266,60 @@ def test_a_breach_ring_takes_40_percent_priced_by_catalyst_count(engine):
     assert out.price == pytest.approx(rare_price("Ring 1", [light]) + 40 * 0.03)
 
 
+def breach_case(engine, ring: str):
+    ctx, gear = spark_gear(engine, "Wand")
+    ctx.payload["catalyst_prices"] = {"Esh's Catalyst": 0.03}
+    ctx.payload["breach_quality_prices"] = {"Essence of the Breach": 0.9941, "Vaal Catalysing Infuser": 4.54}
+    ctx.influence_prices = {"Orb of Annulment": 0.2913, "Omen of Whittling": 13.94, "Chaos Orb": 0.09882}
+    base = ctx.bases_by_name[ring]
+    level, pool = gear.pools.item_level, gear.pools.pool(base["name"])
+    light = next(a for a in sorted(pool, key=lambda a: a.tier) if any("increased Lightning Damage" in l for l in a.lines))
+    option = ItemOption(base["name"], base["name"], "Ring", None, normal_item(base), False, 0.0, "found", 1)
+    current = gear.deltas("Ring 1", [rare_text("Ring 1", base, level, [light])])[0][0]
+    return ctx, gear, base, level, light, option, current
+
+
+@pytest.mark.parametrize("ring, quality, scaled_row", [("Breach Ring", 60, False), ("Refined Breach Ring", 65, True)])
+def test_the_essence_route_reaches_60_and_65_keeps_every_affix_and_is_priced(engine, ring, quality, scaled_row):
+    ctx, gear, base, level, light, option, current = breach_case(engine, ring)
+    gear.lam = 0.0
+    out = gear.catalyst_trial("Ring 1", base, option, level, [light], current, 1e6, clock.now() + 300)
+    print("PROBE breach route", ring, out and out.price, out and out.craft_route)
+    assert out is not None and f"CatalystQuality: {quality}" in out.raw
+    assert "Maximum Quality" not in "".join(out.affixes) and out.affixes == light.lines  # (the Essence's line is gone)
+    materials = quality * 0.03 + 0.9941 + 3 * 0.2913
+    assert out.price == pytest.approx(rare_price("Ring 1", [light]) + materials)
+    route = " ".join(out.craft_route)
+    assert "UNVERIFIED" in route and "Omen of Whittling + Chaos Orb" in route
+    assert ("NOT counted: 75%" in route) == scaled_row
+    rolled = next(l for l in light.lines if "increased Lightning Damage" in l)
+    number = int(rolled.split("%")[0])
+    written = rare_text("Ring 1", base, level, [light]).replace(f"{number}% increased Lightning Damage",
+                                                                f"{int(number * (100 + quality) / 100)}% increased Lightning Damage")
+    (scored, _), (same, _) = gear.deltas("Ring 1", [out.raw, written])
+    assert scored == pytest.approx(same), "PoB reads the raised quality as the scaled line"
+
+
+def test_a_high_budget_weight_keeps_the_cheaper_quality(engine):
+    ctx, gear, base, level, light, option, current = breach_case(engine, "Breach Ring")
+    ctx.payload["breach_quality_prices"] = {"Essence of the Breach": 1e6}  # (the route priced out)
+    gear.lam = 0.001
+    out = gear.catalyst_trial("Ring 1", base, option, level, [light], current, 1e9, clock.now() + 300)
+    assert out is not None and "CatalystQuality: 40" in out.raw
+
+
+def test_a_plain_ring_gets_no_essence_route(engine):
+    ctx, gear, _, level, _, _, _ = breach_case(engine, "Breach Ring")
+    base = ctx.bases_by_name["Pearl Ring"]
+    pool = gear.pools.pool(base["name"])
+    light = next(a for a in sorted(pool, key=lambda a: a.tier) if any("increased Lightning Damage" in l for l in a.lines))
+    option = ItemOption(base["name"], base["name"], "Ring", None, normal_item(base), False, 0.0, "found", 1)
+    current = gear.deltas("Ring 1", [rare_text("Ring 1", base, level, [light])])[0][0]
+    gear.lam = 0.0
+    out = gear.catalyst_trial("Ring 1", base, option, level, [light], current, 1e6, clock.now() + 300)
+    assert out is not None and "CatalystQuality: 20" in out.raw
+
+
 def test_the_flux_route_says_a_fractured_modifier_stays(engine):
     from builder.search.gear import affix_limits
 

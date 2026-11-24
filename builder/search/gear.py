@@ -194,6 +194,13 @@ def catalyst_enabled() -> bool:
     return os.environ.get(SWITCH_CATALYST, "0") == "1"
 
 
+# (SEARCHC3; R55-12) The Breach Ring quality route: game mod EssenceBreach, local_maximum_quality_+ 20, a Level 1 prefix
+BREACH_ESSENCE = "Essence of the Breach"
+BREACH_ESSENCE_QUALITY = 20
+BREACH_ANNULS = 3  # Orbs of Annulment to take its line off a 3-mod ring, the most it needs (R55-12)
+BREACH_INFUSER = "Vaal Catalysing Infuser"  # (75%: a labelled row only, its step and corruption chance UNVERIFIED)
+
+
 # (SEARCHC3) "1": a rare with a full suffix side also tries Serle's Triumph and a fourth suffix (Gear.serle_trial). OFF
 # by default until gated
 SWITCH_SERLE = "POE2_SEARCH_SERLE"
@@ -978,18 +985,28 @@ class Gear:
                  and (any(catalyst_matches(n, a, tags) for a in chosen)
                       or any(set(CATALYSTS[n][1]) & set(t) for t in own))]
         plain_text = rare_text(slot, base, level, chosen)
-        quality = catalyst_quality(base)  # (20, or the ring's own maximum: Breach Ring 40, Refined Breach Ring 45)
+        top = catalyst_quality(base)  # (20, or the ring's own maximum: Breach Ring 40, Refined Breach Ring 45)
+        # (SEARCHC3; R55-12, the manager 23 Nov 17:52) A Breach Ring also takes the Essence of the Breach route, +20 more
+        # (60 / 65): the quality stays after the Essence's prefix is removed, so the finished ring keeps all its affixes.
+        # Materials: the Essence + BREACH_ANNULS Orbs of Annulment (the line off a 3-mod ring, early: at most 3 tries)
+        extra = (self.ctx.payload.get("breach_quality_prices") or {}).get(BREACH_ESSENCE)
+        annul = self.ctx.influence_prices.get(influence.ANNUL)
+        routes = [(top, 0.0)]
+        if top > CATALYST_QUALITY and (self.ctx.ssf or (extra is not None and annul is not None)):
+            routes.append((top + BREACH_ESSENCE_QUALITY, 0.0 if self.ctx.ssf else extra + BREACH_ANNULS * annul))
         cases = []
         for name in names:
-            cost = 0.0 if self.ctx.ssf else CATALYSTS_PER_20 * quality / CATALYST_QUALITY * prices[name]
-            if rare_price(slot, chosen) + cost <= left + 1e-9:
-                cases.append((name, cost))
+            for quality, steps in routes:
+                cost = 0.0 if self.ctx.ssf else CATALYSTS_PER_20 * quality / CATALYST_QUALITY * prices[name] + steps
+                if rare_price(slot, chosen) + cost <= left + 1e-9:
+                    cases.append((name, cost, quality))
         if not cases:
             return None
-        scored = self.deltas(slot, [catalysed_text(plain_text, chosen, tags, n, quality, own) for n, _ in cases])
+        scored = self.deltas(slot, [catalysed_text(plain_text, chosen, tags, n, q, own) for n, _, q in cases])
         plain = current - self.lam * rare_price(slot, chosen)
-        value, name, cost = max(((s - self.lam * (rare_price(slot, chosen) + c), n, c)
-                                 for (s, _), (n, c) in zip(scored, cases)), key=lambda x: x[0])
+        # (ties go to the cheaper case: quality no line feels never wins on a tie)
+        value, _, name, cost, quality = max(((s - self.lam * (rare_price(slot, chosen) + c), -c, n, c, q)
+                                             for (s, _), (n, c, q) in zip(scored, cases)), key=lambda x: x[:2])
         if value <= plain + EPSILON:
             return None
         raised = sum(1 for a in chosen if catalyst_matches(name, a, tags)) \
@@ -997,12 +1014,27 @@ class Gear:
         count = CATALYSTS_PER_20 * quality // CATALYST_QUALITY
         note = (f"{name} x{count}: {quality}% quality raises the {raised} modifier"
                 f"{'s' if raised != 1 else ''} with its tag ({'/'.join(CATALYSTS[name][1])}) by {quality}% "
-                f"({cost:.3g} div; {CATALYSTS_PER_20} per {CATALYST_QUALITY}% is LOW-MEDIUM, R52-5; deterministic)")
+                f"({cost:.3g} div; {CATALYSTS_PER_20} per {CATALYST_QUALITY}% is LOW-MEDIUM and UNVERIFIED, R52-5)")
+        rows: tuple[str, ...] = ()
+        if quality > top:
+            infuser = (self.ctx.payload.get("breach_quality_prices") or {}).get(BREACH_INFUSER)
+            whittle = [self.ctx.influence_prices.get(n) for n in ("Omen of Whittling", influence.CHAOS)]
+            note += (f". Order: on a Rare {base['name']} with few modifiers, use {BREACH_ESSENCE} (its prefix raises the "
+                     f"maximum by {BREACH_ESSENCE_QUALITY}), add the catalysts up to {quality}%, remove the Essence's line "
+                     f"with Orbs of Annulment (at most {BREACH_ANNULS} on a 3-mod ring; the quality stays, R55-12 HIGH), "
+                     f"then craft the rest, so no affix slot is lost. Don't use Omen of Catalysing Exaltation afterwards "
+                     f"(it consumes the quality). The ring base's own price is UNVERIFIED (not on the exchange)")
+            if None not in whittle:
+                rows += (f"Row: removing the line from a finished ring instead: Omen of Whittling + Chaos Orb, "
+                         f"{sum(whittle):.3g} div (MEDIUM)",)
+            if quality == 65 and infuser is not None:
+                rows += (f"Row, NOT counted: 75% with {BREACH_INFUSER} ({infuser:.3g} div each) while the Essence's line "
+                         f"is still on; its step per use and its chance to corrupt the ring are UNVERIFIED",)
         price = None if self.ctx.ssf else rare_price(slot, chosen) + cost
         return ItemOption(f"Rare {base['type']}", base["name"], base["type"], base.get("subType"),
                           catalysed_text(plain_text, chosen, tags, name, quality, own), False, price,
                           "ssf" if self.ctx.ssf else "estimate (craft route: catalysts)", base_option.level, rare=True,
-                          affixes=tuple(line for a in chosen for line in a.lines), craft_route=(note,))
+                          affixes=tuple(line for a in chosen for line in a.lines), craft_route=(note, *rows))
 
     ALDUR_KEEP = 6  # converted affixes of each kind (by a what-if alone) the Aldur route's greedy fill tries (a budget)
 
