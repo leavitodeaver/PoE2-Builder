@@ -246,3 +246,38 @@ def test_the_finished_build_chooses_its_stat_set_and_distance_again():
     lower = {"k": (True, -1.0, 17.0), "d": []}
     search, restored = stand_in(lower)
     assert Search.final_choices(search) is False and restored
+
+
+def test_the_seed_keeps_the_codes_own_main_group_when_it_holds_the_main_skill(engine):
+    """(turn 2; COV56's calibration, example build 7: Comet in a Cast on Critical group and hand-cast in the code's main
+    group) setup_seed made the FIRST group holding the main skill's name the main one."""
+    from builder.pob import codes
+    from builder.request.schema import BuildRequest
+    from builder.search.context import make_payload
+    from builder.search.inner import Search, seed_task
+
+    engine.call("setExtraPoints", points=0, weaponSetPoints=0)
+    row = json.loads(ORACLE.read_text(encoding="utf-8"))["rows"][0]
+    engine.call("loadXml", xml=codes.decode(row["code"]))
+    skill = row["request"]["main_skill"]
+    first = next(g["index"] for g in engine.call("groups")["groups"] if any(s["name"] == skill for s in g["skills"]))
+    engine.call("addSkillGroup", text=f"{skill} 20/0 1", main=True)
+    groups = engine.call("groups")["groups"]
+    second = next(g["index"] for g in groups if g["main"])
+    assert second != first
+    code = codes.encode(engine.call("exportXml")["xml"])
+    payload = make_payload(BuildRequest.model_validate({**row["request"], "seed_code": code}))
+    search = Search(engine, None, payload, seed_task(engine, None, payload)["skeleton"], 0)
+    search.setup_seed(quests=False)
+    main = search.build.main_group()
+    assert main is not None and len(main["gems"]) == 1 and main["gems"][0]["name"] == skill
+
+
+def test_olroths_boon_is_named_under_the_weapon_set_field_only():
+    """(the manager, 24 Nov 12:53, R56-13) its point is a Weapon Set point: out of the main field's help."""
+    from pathlib import Path
+
+    html = (Path(__file__).resolve().parents[1] / "builder" / "web" / "static" / "index.html").read_text(encoding="utf-8")
+    main = re.search(r'<label title="([^"]*)">Extra passive points', html).group(1)
+    weapon = re.search(r'<label title="([^"]*)">Extra weapon-set points', html).group(1)
+    assert "put it in the next field, not here" in main and "Olroth's Boon (a rare" in weapon

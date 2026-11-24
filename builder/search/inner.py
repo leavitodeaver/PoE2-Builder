@@ -324,7 +324,9 @@ class Search:
             else:
                 build.remove_group(group["index"])
         main = None
-        for group in build.groups():
+        # (SEARCH39; COV56's calibration, example build 7: Comet in a Cast on Critical group 3 and hand-cast in group 9,
+        # the code's own main) the code's main group comes first when it holds the main skill, else the first that does
+        for group in sorted(build.groups(), key=lambda g: not g.get("main")):
             for position, active in enumerate(group["skills"], start=1):
                 if main is None and active["name"] == sk.main_skill:
                     main = group["index"]
