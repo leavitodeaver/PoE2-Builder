@@ -147,3 +147,15 @@ def test_every_seeded_run_gets_the_floor(monkeypatch):
     assert run_module.attempt_floor(seeded) and not run_module.attempt_floor(fresh)
     monkeypatch.setattr(run_module, "SEED_FLOOR", False)
     assert not run_module.attempt_floor(seeded)
+
+
+def test_jewel3s_short_jewel_notes_join_the_record():
+    """JEWEL3's Jewels.unfinished_notes (54427fd1) reach the result as assumptions; they become "Not finished" rows."""
+    run = _run()
+    final = {"assumptions": [{"label": "Not finished: the Ruby jewel in Jewel 26725 fills 2 of its 4 affix slots",
+                              "value": "2/4", "basis": "It stopped because the search's time for it ran out first. A "
+                              "part-filled jewel beats an empty socket (the user, 24 Nov 2026), so it is kept as it is; "
+                              "a Continue run can finish it", "confidence": "HIGH"}]}
+    rows = run.unfinished_rows(final)
+    assert [(r["step"], r["part"], r["done"], r["of"]) for r in rows] == [("jewels", "Jewel 26725", 2, 4)]
+    assert "time for it ran out" in rows[0]["text"] and rows[0]["text"].endswith("Continue can finish it.")

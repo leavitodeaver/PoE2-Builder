@@ -946,6 +946,16 @@ class Run:
                 found.append({"step": "supports", "part": f"{o['skill']}'s group", "done": None, "of": None, "unit": "",
                               "detail": f"{o['open']} support socket{'s' if o['open'] > 1 else ''} left open: the fill's "
                                         "time ran out before it tried everything"})
+        # (the manager, 24 Nov 13:48: bridge JEWEL3's short-jewel notes, Jewels.unfinished_notes in 54427fd1, which reach
+        # the result as assumptions labelled "Not finished: the <base> jewel in <slot> fills N of its M affix slots")
+        for note in final.get("assumptions") or []:
+            found_jewel = re.match(r"Not finished: the (.+) jewel in (.+) fills (\d+) of its (\d+) affix slots",
+                                   str(note.get("label") or ""))
+            if found_jewel:
+                base, slot, filled, slots = found_jewel.groups()
+                found.append({"step": "jewels", "part": slot, "done": int(filled), "of": int(slots), "unit": "affix slots",
+                              "detail": f"the {base} jewel is kept as it is; " + str(note.get("basis") or "").split(
+                                  ". A part-filled")[0].replace("It stopped because ", "it stopped because ")})
         rows = unfinished.merge(found, state.get("unfinished"), final.get("unfinished"))
         return [{**row, "text": unfinished.describe(row)} for row in rows]
 
