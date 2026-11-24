@@ -1,0 +1,27 @@
+# COV55, turn 2 (23 Nov 2026; the manager's 20:40 rule): a Limit-style stat is marked only if that skill's own model reads it
+# and it reaches a number; the bridge's generic instanceLimit touching the stat doesn't count. Checked against origin/main
+# db8a4ccb (train 133).
+#
+# Left open on purpose: a model constant on a skill with the game's Limit type (ActiveSkills' ActiveSkillTypes 144, the type
+# Overabundance requires) ignores the build's "+N to Limit", so a mark would hide a possible undercount: Gas Arrow / Gas
+# Grenade's clouds (6), Forge Hammer (10), Entangle's vines (3), Firestorm (1), Galvanic Field (1), Icestorm (3, a row only).
+# Molten Crash's 8 isn't Limit-typed, but the model calls it its Limit and whether "+N to Limit" lines raise it is UNVERIFIED.
+# Train 133's readers add no mark: base_number_of_tempest_bells_allowed feeds one side row only (not the headline), and
+# siege_cascade_fall_time_ms, crossbow_ammo_skill_has_passive_reloading, active_skill_cannot_manually_reload and
+# gathering_storm_perfect_aoe_limit are named by no code.
+
+- id: model-read-cov55-surge-cap
+  title: "maximum_number_of_instilling_stacks (Chaotic Surge, Elemental Surge) held by the Surge supply model's cap"
+  kind: model
+  model: charge_surges
+  stats: ["maximum_number_of_instilling_stacks"]
+  skill: [Chaotic Surge, Elemental Surge]
+  confidence: theory
+  notes: >-
+    A constant reader: ConstantStats 6 on AmazonTriggerColdSurgePlayer and ChaosSpearTriggerChaosSurgePlayer, equal to
+    models.SURGE_CAP_DEFAULT, which caps the Surges each charge event supplies. No item or passive raises it (checked: the
+    stat and its sibling base_maximum_instilling_chaos_stacks over Mods and every table with a stat column, statusers.py,
+    26650308; neither has a Mods carrier; PoB's ModCache has no maximum-Surges line; patch notes: no hit, which proves
+    nothing; no web source read, so UNVERIFIED beyond the game files). Gemini Surge's own 10 is models.GEMINI_CAP. A link only.
+  sources: ["builder/search/models.py (SURGE_CAP_DEFAULT)", "builder/search/assumptions.py (~9882)"]
+  status: proposed
