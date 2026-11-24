@@ -78,3 +78,23 @@ def test_hollow_focus_alloy_row():
     assert note[0]["value"] == "x1.000" and "x4.000" in note[0]["basis"]  # (0.5 bells a second; 2 hits feed 2.5 -> 2)
     assert M.hollow_focus_alloy_note([focus], [], 2.0) == []
     assert M.hollow_focus_alloy_note([], [alloy], 2.0) == []
+
+
+def _twister(**level):
+    return M.Skill.of({"name": "Twister", "group": 1, "levelStats": level})
+
+
+def test_twister_consume_lower_reading_and_rows():
+    main = _twister(**{M.TWISTER_STAGE_STAT: 80})
+    mods, notes = M.twister_consume_model(main, 1.0, 2.0, [("Whirling Slash", 3.0, 3)])
+    # k = 1: 1 consume a cast (capped by the casts), the extra twister x1.8 of one of 2 twisters: x1.9; k = 3: 1 a cast, x3.4 / 2 = x2.7
+    assert notes[0]["value"] == "x2.700"
+    assert mods[0]["value"] == pytest.approx(170.0)
+    assert "every twister of that cast (k = 3) x5.100" in notes[0]["basis"]
+
+
+def test_twister_with_no_whirlwind_source_is_unchanged():
+    main = _twister()
+    assert M.twister_consume_model(main, 1.0, 2.0, [])[0] == []
+    assert M.twister_consume_model(main, 1.0, 2.0, [("Whirling Slash", 0.0, 3)])[0] == []
+    assert M.twister_consume_model(M.Skill.of({"name": "Spark", "group": 1}), 1.0, 2.0, [("Whirling Slash", 3.0, 3)]) == ([], [])

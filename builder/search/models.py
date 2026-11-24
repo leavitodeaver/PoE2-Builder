@@ -13337,6 +13337,65 @@ def hollow_focus_alloy_note(skills: list[Skill], texts: list[str], hits: float) 
                        f"your {hits:.2f} hits: x{row / head if head > 0 else 1:.3f} on Hollow Focus's shockwaves")}]
 
 
+# Twister consuming a Whirlwind (MECHB60; COV55's ranked list item 1, example builds 1 / 2; an UNDERCOUNT: PoB's
+# Multiplier:WhirlwindStages, which its twister_damage_+%_final_per_whirling_slash_stage reads, is set only by the Voltaxic
+# Burst config box, so it is 0). twister.csd: "Consumes Whirlwinds to create an additional twister and deal {0}% more
+# damage per Whirlwind stage" (80); ActiveSkills twister: "If a twister touches a Whirlwind from your other skills, it
+# Consumes the Whirlwind to create additional twisters that deal more damage". The Whirlwinds come from the build's own
+# Whirling Slash / Whirlwind Lance presses (their use rate at the search's press choices; no press, 0: the user's rule),
+# each Whirlwind built to k stages by k uses (KeywordPopups Whirlwind: an overlapping one gains a stage, at most
+# sandstorm_swipe_max_stages), k chosen as the play that gives the most. Consumes a second c = min(the uses / k, Twister's
+# casts). Open (R57-2), so the HEADLINE is the lower reading: only the additional twister deals the (1 + 80% x k) more,
+# one twister's share (1 / N of the N fired) of a cast's hits: x(1 + c / casts x (1 + 0.8 k) / N). Rows: the more on every
+# twister of the cast; "per additional stage" (0.8 (k - 1)). The 660 ms limit stays recovery.twister_hits'. The
+# Whirlwinds' own collapse damage and the presses' time are other models' (the press choices'), not here.
+TWISTER_STAGE_STAT = "twister_damage_+%_final_per_whirling_slash_stage"
+TWISTER_STAGE_MORE = 80.0  # (TwisterPlayer's, when the level stats don't carry it)
+TWISTER_CONSUME_ENTRY = "model-mechb60-twister-whirlwind"
+
+
+def twister_consume_model(main: Skill | None, casts: float, count: float, feeders: list[tuple[str, float, int]],
+                          forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Twister's consumed Whirlwinds (see above). `casts`: Twister's casts a second after the presses' time (its Speed x
+    assumptions.main_time_share, so a consume never outruns a real cast); `count`: twisters a cast (PoB's
+    ProjectileCount); `feeders`: (skill, its uses a second, its maximum Whirlwind stages)."""
+    if main is None or main.name != "Twister" or TWISTER_CONSUME_ENTRY in forbidden:
+        return [], []
+    label = "Twister: consumed Whirlwinds (an additional twister, more damage)*"
+    more = (number(main.level_stats.get(TWISTER_STAGE_STAT)) or TWISTER_STAGE_MORE) / 100
+    uses = sum(max(f[1], 0.0) for f in feeders)
+    top = max([f[2] for f in feeders if f[1] > 0] or [0])
+    n = max(count, 1.0)
+    if casts <= 0 or uses <= 0 or top <= 0:
+        return [], [{"label": label, "value": "x1.000", "confidence": "LOW", "entry": TWISTER_CONSUME_ENTRY,
+                     "basis": ("no Whirling Slash or Whirlwind Lance the build presses makes a Whirlwind for it to consume "
+                               "(no source: 0)" if not feeders or uses <= 0 else "Twister isn't cast: 0"),
+                     "play": ("Press Whirling Slash before Twister so each twister consumes its Whirlwind" if not feeders
+                              else "")}]
+
+    def gain(k: int, stage: float, every: bool) -> float:
+        c = min(uses / k, casts)
+        bonus = 1 + more * stage
+        return c / casts * ((bonus - 1) + bonus / n if every else bonus / n)
+    best = max(range(1, top + 1), key=lambda k: gain(k, k, False))
+    factor = 1 + gain(best, best, False)
+    all_k = max(range(1, top + 1), key=lambda k: gain(k, k, True))
+    lower_k = max(range(1, top + 1), key=lambda k: gain(k, k - 1, False))
+    c = min(uses / best, casts)
+    names = ", ".join(f[0] for f in feeders if f[1] > 0)
+    note = {"label": label, "value": f"x{factor:.3f}", "confidence": "LOW", "entry": TWISTER_CONSUME_ENTRY,
+            "basis": (f"{names} used {uses:.2f} times a second, each Whirlwind built to {best} stage(s) then consumed: "
+                      f"{c:.2f} a second of Twister's {casts:.2f} casts; each adds a twister to the {n:g} fired, dealing "
+                      f"{more * best * 100:.0f}% more ({more * 100:g}% a stage, twister.csd). R57-2 open, so the lower "
+                      f"reading: the more on the additional twister only: x{factor:.3f}. Rows: the more on every twister "
+                      f"of that cast (k = {all_k}) x{1 + gain(all_k, all_k, True):.3f}; per additional stage only "
+                      f"(k = {lower_k}) x{1 + gain(lower_k, lower_k - 1, False):.3f}. The hit readers keep PoB's hits a "
+                      "cast (lower)"),
+            "play": (f"Build a Whirlwind with {best} {names.split(', ')[0]} use(s), then cast Twister through it: "
+                     f"without it x1, with it x{factor:.3f}")}
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=TWISTER_CONSUME_ENTRY)], [note]
+
+
 BARRAGE = "Barrage"
 BARRAGE_COOLDOWN = 2.0  # s (its level cooldown)
 BARRAGE_MAX_COOLDOWN = 30.0  # s (empowered_barrage_maximum_cooldown_ms 30000)

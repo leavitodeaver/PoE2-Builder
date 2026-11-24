@@ -9,3 +9,16 @@
     20% Skill Speed at the boss's Marked share, as a union with the Onslaught already counted (Rallying Form, Warding Rune of
     Bodyguards). Rage from each Companion's own hit rate and the fight's length, under KeywordPopups Rage's rules; that a
     Companion follows the player's rules and 30 maximum is UNVERIFIED. Probe POE2T4942 (Rampage + Azmerian Wolf).
+
+- id: model-mechb60-twister-whirlwind
+  title: "Twister consuming a Whirlwind: an additional twister dealing more damage per stage (models.twister_consume_model)"
+  kind: model
+  model: twister_consume
+  stats: [twister_damage_+%_final_per_whirling_slash_stage, twister_consumes_wind_storm]
+  skill: [Twister]
+  confidence: theory
+  notes: >-
+    MECHB60 (COV55's ranked list item 1; an UNDERCOUNT: PoB's Multiplier:WhirlwindStages is set only by Voltaxic Burst's
+    box). Whirlwinds from the build's own Whirling Slash / Whirlwind Lance presses (no press, 0), built to the best stage
+    count; the lower reading (R57-2 open) puts the more on the additional twister only; rows for every twister and per
+    additional stage. The 660 ms interval stays recovery.twister_hits'.

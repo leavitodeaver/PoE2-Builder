@@ -3872,6 +3872,11 @@ class Assumptions:
                 "confidence": "MEDIUM-LOW (the user's observation; the roam space LOW) / HIGH (the 0.66 s cap)",
                 "play": (f"fire many twisters and fight near walls so they bounce back through the boss: {head:.2f} hits a "
                          f"cast counted (with it); in an open arena 1 a cast (without it)")}]
+            tw_mods, tw_notes = models.twister_consume_model(  # (MECHB60: its consumed Whirlwinds)
+                main, number(build.call("stats", fields=["Speed"]).get("Speed")) * main_time_share(build, main, hits=False),
+                number(seen.get("ProjectileCount")),
+                self.whirlwind_feeders(main), forbidden)
+            hand_mods, hand_notes = hand_mods + tw_mods, hand_notes + tw_notes
         if any(recovery_mod.SPRINT_LINE.search(t) for t in texts):  # (MECHC34, R26-22: the headline sprints 0; a row)
             sprint = recovery_mod.sprint_row(texts, {**build.call("stats", fields=["MovementSpeedMod"]),
                                                      "_buff_expiry": stats.get("_buff_expiry")}, boss)
@@ -5840,6 +5845,23 @@ class Assumptions:
         boss = getattr(getattr(build.ctx, "request", None), "boss", None) or bosses.DEFAULT
         full = number(own.get("FullDPS"))
         return marked, how, others, companions, (conditions_mod.boss_pool(boss) / full if full > 0 else None)
+
+    def whirlwind_feeders(self, main) -> list[tuple[str, float, int]]:
+        """(MECHB60, models.twister_consume_model) [(skill, uses a second, its maximum Whirlwind stages)] for the build's
+        other groups whose selected skill makes a Whirlwind (models.WHIRL_SKILLS), at skill_use_rate (press choices)."""
+        build = self.build
+        raw = [s for s in build.call("activeSkills")["skills"] if not s.get("disabled") and s.get("name") in models.WHIRL_SKILLS
+               and s.get("group") is not None and s.get("group") != getattr(main, "group", None)]
+        if not raw:
+            return []
+        stages = {s["name"]: int(number((s.get("levelStats") or {}).get(models.WHIRL_STAGES_STAT)) or models.WHIRL_STAGES)
+                  for s in build.call("activeSkills", levelStats=[s["name"] for s in raw])["skills"] if s["name"] in models.WHIRL_SKILLS}
+        choices, out = models.press_choices(build), []
+        for row in build.call("useRates", indices=sorted({s["group"] for s in raw}))["rates"]:
+            name = next((n for n in models.WHIRL_SKILLS if str(row.get("name") or "").startswith(n)), None)
+            if name:
+                out.append((name, conditions_mod.skill_use_rate(row, choices)[0], stages.get(name, models.WHIRL_STAGES)))
+        return out
 
     def slam_feed(self, main) -> tuple[float, str]:
         """(MECHB60, models.volcano_channel_model's spray rows) (the Slams a second the build's other groups use, their
