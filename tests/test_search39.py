@@ -190,6 +190,23 @@ def test_the_extra_weapon_set_points_raise_each_sets_allowance(engine):
         engine.call("setExtraPoints", points=0, weaponSetPoints=0)
     assert engine.call("stats", fields=["PassivePointsOver"])["PassivePointsOver"] == before
 
+def test_heart_of_ice_gives_the_distance_choice_a_presence_line(monkeypatch):
+    """(item 5; MECH105) Heart of Ice "Chills all enemies in your Presence": a build holding it tries the Presence edge."""
+    from builder.search import inner
+    from builder.search.conditions import PRESENCE_LINE
+
+    seen = []
+    monkeypatch.setattr(inner, "distance_candidates", lambda lines, *a, **k: seen.append(list(lines)) or [])
+    for gems, wanted in (([{"name": "Heart of Ice"}], True), ([{"name": "Heart of Ice", "enabled": False}], False),
+                         ([{"name": "Spark"}], False)):
+        conditions = SimpleNamespace(main_types={"Spell"}, main_skill="Spark", distance=None)
+        build = SimpleNamespace(groups=lambda gems=gems: [{"enabled": True, "gems": gems}],
+                                call=lambda name, **kw: {"lines": []} if name == "sourceLines" else {"PresenceRadius": 40})
+        Search_ = SimpleNamespace(conditions=conditions, build=build, settle=lambda: True)
+        inner.Search.choose_distance(Search_)
+        assert any(l.startswith("Heart of Ice") and PRESENCE_LINE.search(l) for l in seen[-1]) is wanted
+
+
 def test_the_finished_build_chooses_its_stat_set_and_distance_again():
     """(item 1, POE2T7491) Build 16's Arrow set at 4 m was chosen mid-flow; in the finished state Shards at 2 m scores
     higher on every count. final_choices keeps a better choice and puts a worse one back."""

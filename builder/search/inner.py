@@ -848,6 +848,12 @@ class Search:
                if grp.get("enabled", True) for g in grp["gems"]):
             lines.append("Overwhelming Presence: enemies in your Presence are easier to Stun and inflict Elemental "
                          "Ailments upon (assumptions' OverwhelmingOutside)")
+        # (SEARCH39; MECH105's routed item, low priority) Heart of Ice "Chills all enemies in your Presence" (ActiveSkills
+        # heart_of_ice): a build holding it, not only an Icestorm build (conditions.distance_candidates), tries the
+        # Presence edge; the score decides
+        if any(g["name"] == HEART_OF_ICE and g.get("enabled", True) for grp in self.build.groups()
+               if grp.get("enabled", True) for g in grp["gems"]):
+            lines.append("Heart of Ice: Chills all enemies in your Presence")
         lines += support_distance_lines(self.build.groups())
         # (the Presence radius in metres: the Presence-edge trial for "in your Presence" lines and the just-beyond one for
         # "no enemies are in your Presence" lines, Lioneye's Glare; distance_candidates took 0 m before, so neither was
@@ -2342,6 +2348,9 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     # Last, after everything above has read the build: the same state applied again (SEARCH32, the manager's 09:35 ruling)
     result["reapply_drift"] = reapply_drift(search, lambda: fresh_score(engine, payload, skeleton, codes.decode(code)))
     return result
+
+
+HEART_OF_ICE = "Heart of Ice"  # (SEARCH39: a sceptre's aura, ActiveSkills heart_of_ice; Search.choose_distance)
 
 
 def skill_slot_notes(stats: dict) -> list[dict]:
