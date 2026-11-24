@@ -73,3 +73,22 @@ def test_his_grave_command_gets_its_own_zero_note():
     notes = Assumptions.unbuilt_grants(self, [])
     assert len(notes) == 1 and notes[0]["value"] == 0 and "Soul Crystal" in notes[0]["basis"]
     assert "no data gives it" in notes[0]["basis"] and "UNDERCOUNT" in notes[0]["basis"]
+
+
+def test_earthquakes_jagged_ground_follows_overabundances_shorter_fuse():
+    from builder.search.conditions import jagged_ground
+    full = jagged_ground("Earthquake", {"Slam"}, set(), {"Speed": 0.1})
+    short, how = jagged_ground("Earthquake", {"Slam"}, set(), {"Speed": 0.1}, earthquake=(7.0, 4.0, 2.0))
+    assert full[0] == pytest.approx(0.4) and short == pytest.approx(0.2)
+    assert "Overabundance" in how and "40%" in how and "Limit of 7" in how
+    same, _ = jagged_ground("Earthquake", {"Slam"}, set(), {"Speed": 0.1}, earthquake=(6.0, 4.0, None))
+    assert same == pytest.approx(0.4)
+
+
+def test_a_new_earthquake_patch_waits_for_the_first_use_after_the_eruption():
+    from builder.search.conditions import quake_patch_share
+    assert quake_patch_share(0.71, 2.0) == pytest.approx(1.42 / 2)
+    assert quake_patch_share(0.71, 4.0) == pytest.approx(2.84 / 3)
+    assert quake_patch_share(0.25, 2.0) == pytest.approx(0.5)  # (under one use a fuse: as before)
+    assert quake_patch_share(0.5, 2.0) == pytest.approx(1.0)
+    assert quake_patch_share(0.0, 2.0) == 0.0

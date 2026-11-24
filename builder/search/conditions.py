@@ -8475,8 +8475,17 @@ JAGGED_GROUND_ASSUMED = 0.4  # the share the ledger's "if:JaggedGround" lines ba
 FURIOUS_SLAM_RAGE = 10  # bear_slam_spend_X_rage_for_stronger_slam (RAGE_PER_USE)
 
 
+def quake_patch_share(uses: float, fuse: float) -> float:
+    """(MECH105) Share of the fight one Earthquake spot holds a patch: a patch lasts `fuse` s and the next comes with the
+    first of the evenly spaced uses (`uses` a second) after it erupts, so fuse / (ceil(fuse x uses) / uses)."""
+    if uses <= 0 or fuse <= 0:
+        return 0.0
+    return min(1.0, fuse * uses / max(1, math.ceil(fuse * uses - 1e-9)))
+
+
 def jagged_ground(main: str | None, main_types: set[str], main_gems: set[str], stats: dict, endurance_gains: float = 0.0,
-                  aftershock_pct: float = 0.0, rage: float = 0.0, texts: list[str] | None = None) -> tuple[float, str]:
+                  aftershock_pct: float = 0.0, rage: float = 0.0, texts: list[str] | None = None,
+                  earthquake: tuple[float, float, float | None] | None = None) -> tuple[float, str]:
     """(share of the fight the boss stands in your Jagged Ground, how), from the main skill's own sources. Sources combine as
     independent; a skill other than the main one makes none here (an undercount, said in the note). `texts`: the build's
     lines, for the "N% increased Jagged Ground Duration" lines."""
@@ -8493,9 +8502,21 @@ def jagged_ground(main: str | None, main_types: set[str], main_gems: set[str], s
                      + (", +50% Persistent Ground's Ground Surfaces, MEDIUM" if persistent else "") + ")")
     slam = "Slam" in main_types and "CannotCreateJaggedGround" not in main_types
     if main == "Earthquake":
-        up = min(1.0, uses * seconds)
-        parts.append(f"Earthquake's patch on each use ({uses:.2f}/s; none on an existing patch, {seconds:g} s): "
-                     f"{up:.0%}")
+        # (MECH105, from GEM38's Assumptions.earthquake_patches: `earthquake` = (Limit, patch seconds, the fuse with
+        # Overabundance's less duration, R56-6 MEDIUM). A patch ends when it erupts, so Overabundance's shorter fuse is a
+        # shorter patch under the boss: the headline, the full fuse a row. The Limit caps the patches beside the boss, not
+        # the one under it (a patch can't go on an existing one), so it doesn't change the share: said, not applied.)
+        # (MECH105, an OVERCOUNT before: min(1, uses x fuse)) No patch goes on an existing one, so the next comes with the
+        # first use after the eruption: with evenly spaced uses a patch every ceil(fuse x uses) uses, up fuse / that period
+        limit, own, short = earthquake if earthquake else (0.0, seconds, None)
+        fuse = short if short and short < seconds else seconds
+        up = quake_patch_share(uses, fuse)
+        parts.append(f"Earthquake's patch on each use that finds none ({uses:.2f}/s, evenly spaced: a patch every "
+                     f"{math.ceil(uses * fuse - 1e-9) if uses > 0 else 0:g} use(s), {fuse:g} s"
+                     + (f": Overabundance's less duration on the fuse (R56-6, MEDIUM); with the full {seconds:g} s: "
+                        f"{quake_patch_share(uses, seconds):.0%}" if fuse < seconds else "")
+                     + (f"; its Limit of {limit:g} caps the patches beside the boss, not the one under it" if limit > 0
+                        else "") + f"): {up:.0%}")
         off *= 1 - up
     if main == "Stampede":
         up = min(1.0, uses * 6.0 * factor)

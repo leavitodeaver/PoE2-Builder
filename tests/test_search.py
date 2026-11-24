@@ -2197,7 +2197,8 @@ def test_jagged_ground_from_the_builds_own_sources():
     not from any gem name or description saying "Jagged Ground"."""
     from builder.search.conditions import jagged_ground
 
-    assert jagged_ground("Earthquake", {"Slam"}, set(), {"Speed": 1.2})[0] == 1.0
+    # (MECH105: a patch every ceil(4 s x 1.2) = 5 uses, so 4.8 / 5 of the fight, not all of it)
+    assert jagged_ground("Earthquake", {"Slam"}, set(), {"Speed": 1.2})[0] == pytest.approx(0.96)
     # Jagged Ground I needs an Endurance Charge to consume per patch: none gained, no ground
     none = jagged_ground("Boneshatter", {"Slam"}, {"Jagged Ground I"}, {"Speed": 1.2})
     assert none[0] == 0.0 and "gains none" in none[1]

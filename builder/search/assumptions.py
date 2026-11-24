@@ -11858,7 +11858,10 @@ class Assumptions:
             aftershock = models.aftershock_chance(texts, (main_group or {}).get("gems") or [], True, True,
                                                   any("Shapeshift" in t for t in main_types))[0]
         rage = conditions_mod.rage_held(texts, stats)[0] if main == "Furious Slam" else 0.0
-        return conditions_mod.jagged_ground(main, main_types, main_gems, stats, gains, aftershock, rage, texts)
+        quake = (self.earthquake_patches(main_group, texts)  # (MECH105: GEM38's Limit and Overabundance's fuse)
+                 if main == models.EARTHQUAKE and main_group else None)
+        return conditions_mod.jagged_ground(main, main_types, main_gems, stats, gains, aftershock, rage, texts,
+                                            earthquake=quake)
 
     def staggering_palm(self, found: list[models.Skill], main: models.Skill | None, stats: dict) -> list[dict]:
         """(MECHB51) PoB's Staggering Palm Projectile entry cut to the buff's uptime and the hitting Quarterstaff
