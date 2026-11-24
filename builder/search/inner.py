@@ -1841,15 +1841,26 @@ CPU_CLOCK = "cpu_clock"
 # Why two gates on one seed and one commit differ: a processor second buys a different amount of work on a loaded PC, so
 # each task stops at a different point (2b75d: 118,027 and 97,593, SEARCHB6's gate-6327 / 6331; SPEED1 report 6b). On this
 # clock a task's time is a fixed cost per engine call that reached Lua, so the same calls stop at the same point.
-# The costs are mean seconds from two 300 s profiles (2b75b POE2T7802, 2b75e POE2T7811; their engine seconds are within 6%
-# of the runs' processor seconds). LOW: they set how far a "600 s" gate goes and each step's share, not any score.
+# The costs are each method's mean processor seconds per call (per what-if case for the delta methods), measured in
+# --cpu 600 gates on 2b75b, c, d, e (seed 1, default switches; POE2T7842-7845, SPEED2's scratch fit_costs.py) and scaled by
+# 1.024 so the Python time between calls is spread over them. The first table (two hooked profiles) charged 1.5-2.4x
+# too much, unevenly (2b75d: supports got 2,127 evaluations against 27,911 on --cpu). LOW: they set how far a gate goes and
+# each step's share, not any score.
 WORK_CLOCK = os.environ.get("POE2_SEARCH_WORK_CLOCK", "0") == "1"
-WORK_COST = {"setAssumptions": 0.127, "setGroup": 0.130, "equip": 0.110, "setConfig": 0.122, "loadXml": 0.400,
-             "allocate": 0.160, "removeGroup": 0.140, "monsterRates": 1.270, "useRates": 0.0087, "exportXml": 0.042,
-             "setRates": 0.008, "setAttributes": 0.145, "groups": 0.0029, "sourceLines": 0.0029, "activeSkills": 0.0010,
-             "stats": 0.0003, "facts": 0.0025, "getConfig": 0.0005, "frontier": 0.019, "minionSkillHit": 0.021}
-WORK_COST_PER_CASE = {"itemDeltas": 0.0164, "nodeDeltas": 0.0120, "gemDeltas": 0.0150}
-WORK_COST_OTHER = 0.002  # (any other method that reaches Lua)
+WORK_COST = {"setAssumptions": 0.0905, "setGroup": 0.089, "equip": 0.0672, "setConfig": 0.089, "useRates": 0.0071,
+             "loadXml": 0.2912, "allocate": 0.0974, "monsterRates": 0.5919, "activeSkills": 0.00059,
+             "removeGroup": 0.0885, "sourceLines": 0.0013, "minionSkillHit": 0.0127, "exportXml": 0.0284,
+             "stats": 0.00013, "facts": 0.0018, "groups": 0.00047, "equipped": 0.0033, "frontier": 0.0086,
+             "getConfig": 0.0002, "setAttributes": 0.0691, "setMonster": 0.0922, "syncMonsters": 0.0172,
+             "attributeNodes": 0.00024, "setRates": 0.0079, "resetConfig": 0.087, "allocatedNodes": 0.0013,
+             "jewelTraits": 0.0312, "newBuild": 0.0856, "applyPassiveCorrections": 0.0167, "setClass": 0.0488,
+             "conqueredNodes": 0.00078, "chargeGain": 0.00069, "shockMagnitude": 0.00012, "setLevel": 0.0336,
+             "gemRequirements": 0.00079, "flaskData": 0.0048, "supportCandidates": 0.0012, "pointBudget": 0.00012,
+             "usageRules": 0.0067, "radiusJewels": 0.00051, "radiusModel": 0.00077, "cullSplit": 3e-05,
+             "jewelSockets": 0.00031, "questOptions": 0.00057, "characterRunes": 0.00047, "summary": 0.00067,
+             "unsupportedInBuild": 0.0, "cursesInflicted": 0.0}
+WORK_COST_PER_CASE = {"itemDeltas": 0.0086, "nodeDeltas": 0.008, "gemDeltas": 0.0074}
+WORK_COST_OTHER = 0.004751  # (any other method that reaches Lua: the median call)
 WORK_READ = 0.0001  # (each clock reading, so a loop that calls no engine still reaches its deadline)
 
 
