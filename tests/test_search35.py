@@ -61,6 +61,7 @@ def _search(groups, stats):
         setattr(search, name, lambda: calls.append(name))
     search.settle = lambda: False
     search.press_round = lambda deadline: None
+    search.final_choices = lambda: False  # (SEARCH39: the finished build's re-choice, gate4._score_finished)
     return search, calls
 
 
