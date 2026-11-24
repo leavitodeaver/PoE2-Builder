@@ -14,7 +14,13 @@ weapon_classes:
   released: [Bow, Crossbow, Staff, Talisman, One Hand Mace, Two Hand Mace, Spear, Wand, Sceptre]
   unreleased: [Claw, Dagger, Flail, One Hand Axe, One Hand Sword, Two Hand Axe, Two Hand Sword]
   confidence: high
+  # THE USER, 24 Nov 2026 ~04:45 (card: "Can a player get rare Claws, Daggers, One/Two-Hand Swords, One/Two-Hand Axes or
+  # Flails in the current league (0.5)?"): "Not yet: exclude"; the 1.0 preview option brings 1.0's back, asterisked
+  # (rules._preview_rules). Kept out of skeletons (skeletons.main_hands, code_hands) and item options (normal_base_ok);
+  # tests/test_searchb8_unreleased.py checks both switch states.
   sources:
+    - "the user's card answer, 24 Nov 2026 (above)"
+    - "AUDIT38 F11 (scratch/audit38/findings.md, 24 Nov 2026): 0 RARE listings of the 7 classes in Forbidden Rites or Runes of Aldur (11 trade searches, any state); only mod-less 'INCOMPLETE' placeholder uniques; poe2db's class pages and BaseItemTypes carry no release flag"
     - "https://www.notebookcheck.net/Path-of-Exile-2-is-going-1-0-but-I-m-still-wondering-where-the-rest-of-the-game-is.1379931.0.html"
     - "https://www.aoeah.com/news/4759--poe-2-055-new-ascendancies--class-changes"
     - "https://maxroll.gg/poe2/resources/poe-2-class-overview"
@@ -75,29 +81,33 @@ off_hand:
     # Sceptre, named only) PoB's ItemsTab 2718-2721 is the first source for each. Axes and swords are unreleased (above),
     # so only the Two Hand Mace main hand is offered. Patch notes: 0.2.0 / 0.3.0 change the keystone's costs and Life; 0.3.0c
     # fixes "allocating the same weapon for each weapon set with the Giant's Blood Keystone"; none removes an off-hand kind
-    # (no hit is not proof of no silent change). A Focus stays out: its only second source is the wiki's dual-wielding table,
-    # not specific to two-handers, and an undated guide says the keystone allows no off-hand ability (UNVERIFIED).
+    # (no hit is not proof of no silent change). A Focus stays out: R57-16 rates it MEDIUM-LOW (no page shows a focus beside
+    # a martial weapon; an undated guide says the keystone allows no off-hand ability), and its bonuses are mostly spell /
+    # ES, small for a two-hander's attacks. Never a Quiver (KeywordPopups: "only usable while you have a Bow equipped").
     - main_hand: Two Hand Mace
       off_hand: Two Hand Mace
       passive: Giant's Blood
       named_only: true
-      confidence: medium  # dual two-handed maces: Maxroll's Sunder Totem Titan guide (0.1.1, archived 4 Apr 2025), "+14 to
+      confidence: high  # (RESEARCH57 R57-16, research/giants-blood-offhand-r57.md: HIGH for maces) dual two-handed maces: Maxroll's Sunder Totem Titan guide (0.1.1, archived 4 Apr 2025), "+14 to
       # Melee Skills from dual-wielding 2x Two-Handed Maces using Giant's Blood"; forum thread 3601232 (Dec 2024 - Feb 2025)
-      sources: ["PoB ItemsTab.lua:2718-2721", "maxroll.gg sunder-totem-titan-build-guide", "pathofexile.com forum 3601232"]
+      # 0.3.0c's weapon-set fix ("the same weapon for each weapon set with the Giant's Blood Keystone") shows the pairing
+      # is supported; KeywordPopups DualWield: "using two Martial Weapons, one in each hand"
+      sources: ["PoB ItemsTab.lua:2718-2721", "maxroll.gg sunder-totem-titan-build-guide", "pathofexile.com forum 3601232", "RESEARCH57 R57-16", "patch 0.3.0c"]
     - main_hand: Two Hand Mace
       off_hand: Shield
       passive: Giant's Blood
       named_only: true
-      confidence: medium  # players' early-access forum posts ("go giant's blood and run 2h + shield"); the wiki's keystone
+      confidence: high  # (R57-16) KeywordPopups Shield: "equipped in your off hand", no main-hand restriction; forum 3621333
+      # (Dec 2024): "taking giant's blood to wield a two-hander while equipping a shield"; players' early-access forum posts ("go giant's blood and run 2h + shield"); the wiki's keystone
       # text in search snippets ("another one-handed or two-handed melee weapon or a shield")
-      sources: ["PoB ItemsTab.lua:2718-2721", "poe2wiki Giant's Blood (search snippet)", "pathofexile.com forum (early access)"]
+      sources: ["PoB ItemsTab.lua:2718-2721", "RESEARCH57 R57-16", "KeywordPopups Shield", "pathofexile.com forum 3621333", "poe2wiki Giant's Blood (search snippet)"]
     - main_hand: Two Hand Mace
       off_hand: One Hand Mace
       passive: Giant's Blood
       named_only: true
-      confidence: medium-low  # the wiki's keystone text (search snippet, above); deltiasgaming / sportskeeda: "one
+      confidence: medium  # (R57-16: follows from the keystone + KeywordPopups DualWield; no page shows the exact pair) the wiki's keystone text (search snippet, above); deltiasgaming / sportskeeda: "one
       # two-handed weapon and one one-handed weapon". No live build seen
-      sources: ["PoB ItemsTab.lua:2718-2721", "poe2wiki Giant's Blood (search snippet)", "deltiasgaming.com, sportskeeda.com"]
+      sources: ["PoB ItemsTab.lua:2718-2721", "RESEARCH57 R57-16", "poe2wiki Giant's Blood (search snippet)", "deltiasgaming.com, sportskeeda.com"]
 
 floor_blockers:
   # Item lines that pin a stat, so a request's floor on that stat can never be met while the item
