@@ -89,8 +89,14 @@ def reference_request(name: str, facts: dict, keystones: list[str], stats: dict 
     scoring's, fair_floor_stats) or else PoB's own facts (the first pass, before our models)."""
     floors = floors_from(stats if stats is not None else facts["stats"])
     items = {i["slot"]: i for i in facts["items"]}
-    weapon = items.get("Weapon 1")
-    offhand = items.get("Weapon 2")
+    # (SEARCH39, the manager's 24 Nov item 3; SEARCH-B's refused example builds 3 and 11) a main skill on weapon set 2
+    # only (its group's set1 False) is used with the swap weapons, so the request's weapon is the swap set's
+    main_group = next((g for g in facts.get("skillGroups") or [] if g.get("main")), None)
+    hands = ("Weapon 1", "Weapon 2")
+    if main_group is not None and main_group.get("set1", True) is False and "Weapon 1 Swap" in items:
+        hands = ("Weapon 1 Swap", "Weapon 2 Swap")
+    weapon = items.get(hands[0])
+    offhand = items.get(hands[1])
     offhand_choice = "any"
     if offhand is None:
         offhand_choice = "none"

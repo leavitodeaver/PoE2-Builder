@@ -70,6 +70,28 @@ def test_a_build_with_no_damage_never_wins_a_choice():
     assert key(o, weak) > key(o, none) and key(o, weak) > key(o, nan)
 
 
+def test_a_reference_whose_main_skill_is_on_weapon_set_2_takes_the_swap_weapons():
+    """(item 3; SEARCHB7: example builds 3 and 11 were refused) reference_request read the weapon from Weapon 1 even when
+    the main group is on weapon set 2 only (set1 False)."""
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
+    import gate4
+
+    def facts(set1):
+        return {"className": "Ranger", "ascendClassName": "Deadeye", "level": 90, "stats": {"Life": 3000},
+                "items": [{"slot": "Weapon 1", "type": "Two Hand Mace"}, {"slot": "Weapon 1 Swap", "type": "Bow"},
+                          {"slot": "Weapon 2 Swap", "type": "Quiver"}],
+                "skillGroups": [{"main": True, "set1": set1, "set2": True, "enabled": True,
+                                 "gems": [{"name": "Lightning Arrow", "enabled": True, "support": False}]}]}
+
+    on_two = gate4.reference_request("t", facts(False), [])
+    assert on_two.weapon_type == "Bow" and on_two.offhand == "quiver"
+    on_one = gate4.reference_request("t", facts(True), [])
+    assert on_one.weapon_type == "Two Hand Mace" and on_one.offhand == "none"
+
+
 def test_the_finished_build_chooses_its_stat_set_and_distance_again():
     """(item 1, POE2T7491) Build 16's Arrow set at 4 m was chosen mid-flow; in the finished state Shards at 2 m scores
     higher on every count. final_choices keeps a better choice and puts a worse one back."""
