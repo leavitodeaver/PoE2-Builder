@@ -3999,6 +3999,14 @@ function bridge.equip(args)
 	else
 		slot:SetSelItemId(0)
 	end
+	-- (JEWEL2) The item's jewel sockets open or close with it, as ItemSlotControl:Populate sets them (only a load runs it).
+	-- Before, facts and sourceLines missed a jewel socketed during a search and kept reading one whose item was swapped
+	-- away, while PoB's calculation (CalcSetup's jewelSocketCount check) had it right: probe POE2T7937
+	local equipped = slot.selItemId > 0 and build.itemsTab.items[slot.selItemId]
+	local jewelSockets = equipped and equipped.jewelSocketCount or 0
+	for i, jewelSocket in ipairs(slot.jewelSocketList or { }) do
+		jewelSocket.inactive = i > jewelSockets
+	end
 	if args.active ~= nil then
 		setSlotActive(args.slot, args.active and args.raw ~= nil)
 	end

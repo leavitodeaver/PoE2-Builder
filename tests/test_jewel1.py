@@ -227,6 +227,95 @@ def test_a_jewel_in_an_item_socket_is_not_in_your_tree():
     assert Conditions._tree_jewels(read) == ["Emerald", "Sapphire"]
 
 
+def test_a_sinister_socket_counts_with_the_other_reading_shown():
+    """(JEWEL2, the manager's 23 Nov ruling) A granted Sinister socket stays read as in your tree (UNVERIFIED): the line
+    counts, and its note gives the other reading only where that reading would change the answer."""
+    from types import SimpleNamespace
+
+    from builder.search import conditions
+    from builder.search.conditions import Conditions
+
+    line = "Blind Enemies on Hit while you have a Ruby and a Sapphire socketed in your tree"
+    _, ok, how = conditions.socketed_pair(line, {"_tree_jewels": ["Ruby", "Sapphire"], "_sinister_jewels": ["Sapphire"]})
+    assert ok and "UNVERIFIED" in how and "Sapphire missing" in how
+    _, ok, how = conditions.socketed_pair(line, {"_tree_jewels": ["Ruby", "Sapphire", "Sapphire"],
+                                                 "_sinister_jewels": ["Sapphire"]})
+    assert ok and "UNVERIFIED" not in how  # (a second Sapphire holds the line either way)
+    _, ok, how = conditions.socketed_pair(line, {"_tree_jewels": ["Ruby", "Sapphire"]})
+    assert ok and "UNVERIFIED" not in how
+
+    answers = {"jewelSockets": {"sockets": [{"id": 11184, "nonUnique": True, "basicOnly": False},
+                                            {"id": 26196, "nonUnique": False, "basicOnly": False},
+                                            {"id": 39935, "nonUnique": True, "basicOnly": True}]},
+               "facts": {"items": [{"slot": "Jewel 11184", "base": "Sapphire", "type": "Jewel"},
+                                   {"slot": "Jewel 26196", "base": "Ruby", "type": "Jewel"},
+                                   {"slot": "Jewel 39935", "base": "Emerald", "type": "Jewel"}]}}
+    read = SimpleNamespace(build=SimpleNamespace(call=lambda method, **_: answers[method]))
+    assert Conditions._sinister_jewels(read) == ["Sapphire"]
+
+
+ITEM_SOCKET = "Body Armour Jewel Socket 1"
+ITEM_SOCKET_LINE = "37% increased Spell Damage"
+
+
+def _item_socket_options(data):
+    from builder.search.context import ItemOption
+
+    tabula = next((u for u in data.uniques if u["name"] == "Tabula Rasa"), None)
+    if tabula is None:
+        pytest.skip("no Tabula Rasa in this game data")
+    base = tabula["base"]
+    raw = "\n".join(["Rarity: Rare", "Test Ruby", "Ruby", "Item Level: 82", "Implicits: 0", ITEM_SOCKET_LINE])
+    return (ItemOption("Tabula Rasa", base, "Body Armour", None, tabula["raw"], True, 0.0, "test", 0),
+            ItemOption(base, base, "Body Armour", None, f"Rarity: Normal\n{base}\n{base}", False, 0.0, "test", 0),
+            ItemOption("Test Ruby", "Ruby", ITEM_SOCKET, None, raw, False, 0.0, "test", 0))
+
+
+def _item_socket_reads(build) -> tuple[bool, bool]:
+    """(the bridge's facts list the jewel, sourceLines holds its line)"""
+    listed = any(i.get("slot") == ITEM_SOCKET for i in build.call("facts", fields=[])["items"])
+    return listed, any(ITEM_SOCKET_LINE in line["text"] for line in build.call("sourceLines")["lines"])
+
+
+def test_a_jewel_put_in_an_item_socket_reads_the_same_live_and_reloaded(search, data):
+    """(JEWEL2, probe POE2T7937) Before, facts and sourceLines missed it until a reload while PoB's calculation counted it."""
+    tabula, plain, jewel = _item_socket_options(data)
+    build = search.build
+    snap = build.snapshot()
+    build.equip("Body Armour", plain)
+    build.equip("Body Armour", tabula)
+    empty = build.score
+    build.equip(ITEM_SOCKET, jewel)
+    live, live_score = _item_socket_reads(build), build.score
+    build.restore(build.snapshot())
+    reloaded, reloaded_score = _item_socket_reads(build), build.score
+    build.restore(snap)
+    assert live == (True, True) and reloaded == (True, True)
+    assert live_score > empty and live_score == pytest.approx(reloaded_score, abs=1e-6)
+
+
+def test_a_loaded_item_swapped_away_stops_its_jewels_lines_at_once(search, data):
+    """(JEWEL2, probe POE2T7937) Before, a loaded Tabula's jewel stayed in facts and sourceLines after the swap, though
+    PoB's calculation had dropped it: a model reading the line would count a jewel the build no longer has."""
+    tabula, plain, jewel = _item_socket_options(data)
+    build = search.build
+    snap = build.snapshot()
+    build.equip("Body Armour", plain)
+    without = build.score
+    build.equip("Body Armour", tabula)
+    build.equip(ITEM_SOCKET, jewel)
+    build.restore(build.snapshot())  # (the load is what marks the socket open)
+    assert _item_socket_reads(build) == (True, True)
+    with_jewel = build.score
+    build.equip("Body Armour", plain)
+    gone, gone_score = _item_socket_reads(build), build.score
+    build.equip("Body Armour", tabula)  # the jewel is still in its slot: it counts again with its item
+    back, back_score = _item_socket_reads(build), build.score
+    build.restore(snap)
+    assert gone == (False, False) and gone_score == pytest.approx(without, abs=1e-6)
+    assert back == (True, True) and back_score == pytest.approx(with_jewel, abs=1e-6)
+
+
 def test_a_jewel_in_an_item_socket_is_priced_as_a_jewel():
     from builder.data.rare_prices import category
 

@@ -3893,6 +3893,14 @@ def socketed_pair(text: str, stats: dict) -> tuple[str, bool, str] | None:
     missing = [n for n in need if n.lower() not in have]
     how = (f"needs a {need[0]} and a {need[1]} socketed in your tree: "
            + (f"{', '.join(missing)} missing, so 0" if missing else "both are"))
+    if not missing:  # (JEWEL2, the manager's 23 Nov ruling: the other reading of a granted Sinister socket, as a row)
+        without = list(have)
+        for base in stats.get("_sinister_jewels") or []:
+            if base.lower() in without:
+                without.remove(base.lower())
+        if lost := [n for n in need if n.lower() not in without]:
+            how += (f" (UNVERIFIED: a Sinister socket is read as in your tree; if it isn't, {', '.join(lost)} "
+                    "missing, so this line gives 0)")
     return SOCKETED_PAIR.sub("", text), not missing, how
 
 
@@ -9736,6 +9744,14 @@ class Conditions:
         return sorted(str(i.get("base") or "") for i in items
                       if i.get("type") == "Jewel" and str(i.get("slot") or "").startswith("Jewel "))
 
+    def _sinister_jewels(self) -> list[str]:
+        """(JEWEL2) The base names of the jewels in Sinister sockets (bridge jewelSockets: nonUnique without basicOnly,
+        the Phylactery's being basicOnly), for socketed_pair's row of the other reading."""
+        sinister = {f"Jewel {s['id']}" for s in self.build.call("jewelSockets")["sockets"]
+                    if s.get("nonUnique") and not s.get("basicOnly")}
+        items = self.build.call("facts", fields=[]).get("items") or []
+        return sorted(str(i.get("base") or "") for i in items if i.get("type") == "Jewel" and i.get("slot") in sinister)
+
     def _kills(self) -> tuple[float, float, str]:
         """models.kill_rate's (enemies/s, all/s, how) for the request's boss: its preset's add kills (bosses.kill_stats,
         MECH-D's) and your own minions Killed (self._minion_deaths); MECHC9, A23-4."""
@@ -10782,6 +10798,7 @@ class Conditions:
             stats["_kills"] = self._kills()
         if any(SOCKETED_PAIR.search(t) for t in texts):  # (MECH92: "while you have a <X> and a <Y> socketed in your tree")
             stats["_tree_jewels"] = self._tree_jewels()
+            stats["_sinister_jewels"] = self._sinister_jewels()
         if banners := sorted({n["name"] for g in self.build.call("groups")["groups"] if g.get("enabled") is not False
                               for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in BANNERS}):
             # (MECHC7: the placed banner at its Glory share)
