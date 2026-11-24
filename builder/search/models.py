@@ -8169,6 +8169,57 @@ def falling_thunder_model(main: Skill | None, scored: str | None, sets: list[dic
                  f"{max(charges, 1):g}: slam + projectiles ({slam + bolts:,.0f}, PoB's numbers).")}]
 
 
+# "Melee Attacks fire # additional Projectiles" (MECHB59; RESEARCH56 R56-1; melee_attacks_number_of_additional_projectiles,
+# HandWrapsMarksmanInfluenceProjectileDamage1-3, +1 / 2 / 3). PoB parses nothing. Falling Thunder is the one clear reach
+# (typed Melee + Projectile, MEDIUM-HIGH), only on a use that consumes a Power Charge (zero_projectiles_if_no_power_charges);
+# flat +N a use (+N per charge UNVERIFIED). On ONE boss the extra projectiles add no hit in the headline: its set has no
+# projectiles_can_shotgun and its bolts fire together from the impact, so KeywordPopups 74 applies ("only one Projectile
+# in the group can hit each target unless otherwise specified"; R35-15's rule, MEDIUM, as group_rule_label), and PoB's
+# Projectile set already counts that one hit. A row counts every projectile hitting, at PoB's Projectile set, which
+# has no Melee flag, so no Melee-only scaling reaches it (KeywordPopups Melee: "Any Projectiles these attacks create do
+# not count as Melee damage"). Staggering Palm's, Shred's and Ancestral Cry's projectile skills aren't typed Melee: not
+# reached (MEDIUM-LOW), one row. A melee skill with no projectile gains none (MEDIUM-LOW, UNVERIFIED): nothing defines what
+# such a projectile would deal.
+MELEE_PROJECTILES = re.compile(r"^Melee Attacks fire (an|\d+) additional Projectiles?$", re.I)
+MELEE_PROJECTILE_PARTS = ("Staggering Palm", "Shred", "Ancestral Cry")
+FALLING_THUNDER_PER_CHARGE = 3
+
+
+def melee_projectiles_note(main: Skill | None, texts: list[str], sets: list[dict], charges: float,
+                           names: set[str] = frozenset()) -> list[dict]:
+    """The "Melee Attacks fire N additional Projectiles" line's row (see above): no number moves. `sets` Falling
+    Thunder's setRates, `charges` the Power Charges a use consumes, `names` the build's skills."""
+    extra = sum(1 if m.group(1).lower() == "an" else int(m.group(1)) for t in texts
+                if (m := MELEE_PROJECTILES.match(t.strip())))
+    if extra <= 0 or main is None:
+        return []
+    parts = [n for n in MELEE_PROJECTILE_PARTS if n in names or n == main.name]
+    other = (f" {', '.join(parts)}'s projectile skill isn't typed Melee, so it isn't reached (MEDIUM-LOW, R56-1); if it "
+             f"were, +{extra} on it." if parts else "")
+    label = f"Melee Attacks fire {extra} additional Projectile(s)*"
+    if main.name != FALLING_THUNDER:
+        return [{"label": label, "value": "x1.000", "confidence": "LOW",
+                 "basis": f"{main.name} has no projectile of its own to add to: none gained (MEDIUM-LOW, UNVERIFIED, "
+                          f"R56-1: nothing defines what such a projectile would deal).{other}"}]
+    if charges <= 0:
+        return [{"label": label, "value": "x1.000", "confidence": "MEDIUM",
+                 "basis": f"Falling Thunder fires projectiles only by consuming a Power Charge, and this build's uses "
+                          f"consume none: no projectiles to add to.{other}"}]
+    dps = {s.get("label"): number(s.get("TotalDPS")) for s in sets}
+    slam, bolts = (dps.get(k, 0.0) for k in FALLING_THUNDER_SETS)
+    count = FALLING_THUNDER_PER_CHARGE * charges
+    total = slam + bolts
+    row = (slam + bolts * (count + extra)) / total if total > 0 else 1.0
+    without = (slam + bolts * count) / total if total > 0 else 1.0
+    return [{"label": label, "value": "x1.000", "confidence": "MEDIUM",
+             "basis": (f"Falling Thunder fires {count:g} projectiles from {charges:g} Power Charge(s), {count + extra:g} "
+                       f"with this line (flat +{extra} a use, R56-1 MEDIUM-HIGH; per charge UNVERIFIED). They fire together "
+                       "from the impact with no shotgun stat, so one hits a lone boss (KeywordPopups 74, MEDIUM), which "
+                       f"PoB's Projectile set already counts: no more hits. Row, every projectile hitting (LOW): "
+                       f"x{row:.3f} on the slam + projectiles, against x{without:.3f} for the same reading without "
+                       f"this line (the Projectile set has no Melee flag, so no Melee-only scaling).{other}")}]
+
+
 # Icestorm's improved bolts (GEM17; an OVERCOUNT up to x6). The game: "Conjure a hail of icy bolts over the targeted area.
 # [Chill] and [Freeze] on enemies in front of you are [Consume|Consumed] to fuel the Icestorm by creating improved bolts"
 # (ActiveSkills icestorm, 26650308); IcestormPlayer's stats firestorm_improved_bolts_per_chill_consumed 1 and
@@ -25057,18 +25108,23 @@ def monster_best(rates: list[dict], total_spirit: float, room: float, kind: str,
 # cancelled it). Patch 0.3.0c: the chance now rolls "per ammo spent instead of once per skill use, meaning they interact
 # correctly with the Hailstorm Rounds skill": a bolt kept stays loaded and falls again with the next use, so bolts fired a
 # second = made / (1 - p), at most the bolts held x the uses a second (FiringRate), and the boss's hits at most one per
-# 0.2 s across overlapping rains (rain_hit_delay_ms; shared between rains: UNVERIFIED, the lower reading). "if you've
-# Reloaded Recently" lines: whether Hailstorm's passive loading is a reload is UNVERIFIED, so the headline leaves them out
-# (reloaded_recently_model is skipped for this skill: its clip cycle isn't this skill's) and a row counts them.
+# 0.2 s across overlapping rains (rain_hit_delay_ms; shared between rains: UNVERIFIED, the lower reading, R56-3 LOW; a row
+# has one limit a rain). "if you've Reloaded Recently" lines (R56-2): whether Hailstorm's passive loading is a reload is
+# UNVERIFIED, leaning yes (its ammo set carries active_skill_cannot_manually_reload), so the headline counts them only
+# for the time after the build's OWN reloads: Emergency Reload ("Instantly reload all your Crossbow Ammunition clips")
+# used on its cooldown, RECENTLY / its cooldown of the fight, no such skill 0 (reloaded_recently_model is skipped for
+# this skill: its clip cycle isn't this skill's). A row counts them all fight.
 HAILSTORM_ROUNDS, HAILSTORM_ENTRY = "Hailstorm Rounds", "model-mechb51-hailstorm-rounds"
 HAILSTORM_BOLT_INTERVAL, HAILSTORM_HIT_DELAY = 0.1, 0.2  # s (patch 0.3.0; rain_hit_delay_ms 200)
 
 
 def hailstorm_rounds_model(main: Skill | None, stats: dict, boss: tuple[float, str], boss_upper: tuple[float, str],
-                           forbidden: set[str] = frozenset(), texts: list[str] = ()) -> tuple[list[dict], list[dict]]:
+                           forbidden: set[str] = frozenset(), texts: list[str] = (),
+                           reload_up: tuple[float, str] = (0.0, "")) -> tuple[list[dict], list[dict]]:
     """Hailstorm Rounds held to the bolts the build makes and the share that hits one boss (see above). `stats` the main
     skill's PoB output (Speed, ReloadTime, BoltCount, AreaOfEffectRadius, AreaOfEffectRadiusSecondary); `boss` /
-    `boss_upper` (hit radius in metres, how)."""
+    `boss_upper` (hit radius in metres, how); `reload_up` (the share of the fight after one of the build's own reloads,
+    how)."""
     if main is None or main.name != HAILSTORM_ROUNDS or HAILSTORM_ENTRY in forbidden or main.triggered:
         return [], []
     speed, reload = number(stats.get("Speed")), number(stats.get("ReloadTime"))
@@ -25090,16 +25146,23 @@ def hailstorm_rounds_model(main: Skill | None, stats: dict, boss: tuple[float, s
         most = held if held > 0 else float("inf")
         return min(made / (1 - chance), most) if chance < 1 else (most if held > 0 else made)
 
-    def landing(chance: float, radius: float) -> float:
-        return min(fired(chance) * share(radius) * cap, 1 / HAILSTORM_HIT_DELAY)
+    up = min(max(reload_up[0], 0.0), 1.0) if recent > 0 else 0.0
+
+    def volley(chance: float) -> float:  # (R56-2: the time after your own reloads at the Reloaded Recently chance)
+        return up * fired(min(1.0, chance + recent)) + (1 - up) * fired(chance)
+
+    def landing(bolts: float, radius: float) -> float:
+        return min(bolts * share(radius) * cap, 1 / HAILSTORM_HIT_DELAY)
 
     def share(r: float) -> float:
         return min(1.0, ((r + impact) / rain) ** 2)
-    target = landing(kept, boss[0])
+    bolts = volley(kept)
+    target = landing(bolts, boss[0])
     factor = target / speed
-    upper = landing(kept, boss_upper[0])
-    uncapped = fired(kept) * share(boss[0])
-    with_recent = landing(min(1.0, kept + recent), boss[0])
+    upper = landing(bolts, boss_upper[0])
+    uncapped = bolts * share(boss[0])
+    with_recent = landing(fired(min(1.0, kept + recent)), boss[0])
+    per_rain = bolts * share(boss[0]) * cap  # (R56-3's row: each rain its own limit, which a rain's 0.1 s bolts never pass)
     mod = raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=HAILSTORM_ENTRY)
     mod[HIT_CUT_PER_USE] = factor  # (MECHB53, MECH99's split: bolts landing a use, the skill used as often)
     return [mod], [{
@@ -25108,15 +25171,18 @@ def hailstorm_rounds_model(main: Skill | None, stats: dict, boss: tuple[float, s
         "basis": (f"PoB scores one bolt hit per attack ({speed:.3f} a second: {number(stats.get('BoltCount')):g} bolts "
                   f"fired one an attack, then a {reload:.2f} s reload). The game: one bolt made every {reload:.2f} s "
                   f"({made:.2f} a second; a use fires all those made since the last, up to the bolt count: R42-11), "
-                  f"{kept:.0%} not spent (patch 0.3.0c: each stays loaded and falls again): {fired(kept):.2f} fired a "
-                  "second, "
+                  f"{kept:.0%} not spent (patch 0.3.0c: each stays loaded and falls again)"
+                  + (f", +{recent:.0%} for the {up:.1%} of the fight after your own reloads ({reload_up[1]})" if up > 0
+                     else "")
+                  + f": {bolts:.2f} fired a second, "
                   f"raining one every {HAILSTORM_BOLT_INTERVAL:g} s outward over {rain:.2f} m with a {impact:.2f} m "
                   f"impact; {share(boss[0]):.0%} land on the boss ({boss[1]}; spread evenly by area, LOW) and it is hit "
                   f"at most once every {HAILSTORM_HIT_DELAY:g} s, every other one (x{cap:g}, R41-4, HIGH): "
                   f"{target:.3f} a second, x{factor:.3f} on PoB's. Rows: {boss_upper[1]}: {upper:.3f} a second, "
                   f"x{upper / speed:.3f}; every landing a hit (no cap): x{uncapped / speed:.3f}"
-                  + (f"; its passive loading counted as Reloaded Recently (UNVERIFIED), +{recent:.0%} not spent: "
-                     f"x{with_recent / speed:.3f}" if recent > 0 else "")
+                  + (f"; its passive loading counted as Reloaded Recently all fight (UNVERIFIED, leaning yes: R56-2), "
+                     f"+{recent:.0%} not spent: x{with_recent / speed:.3f}" if recent > 0 else "")
+                  + f"; one 0.2 s limit a rain, not shared (R56-3, LOW): x{per_rain / speed:.3f}"
                   + ". The ailment readers take "
                   "the same cut (build.main_hit_cut; above x1 they keep PoB's rate)"),
         "play": (f"Fire {main.name} at least every {number(stats.get('BoltCount')) * reload:.0f} s (before it holds its "

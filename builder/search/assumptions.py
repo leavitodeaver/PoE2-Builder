@@ -4733,7 +4733,7 @@ class Assumptions:
                  *models.MODEL_FIELDS])))
             hail_mods, hail_notes = models.hailstorm_rounds_model(
                 main, hail_stats, bosses_mod.hit_radius(hail_stats), bosses_mod.hit_radius(hail_stats, "upper"), forbidden,
-                [e["text"] for e in source_lines])  # (MECHB59: its Reloaded Recently row)
+                [e["text"] for e in source_lines], self.own_reload_share(found))  # (MECHB59: R56-2)
             hand_mods, hand_notes = hand_mods + hail_mods, hand_notes + hail_notes
             hit_cut(build, hail_mods, main.name)  # (MECHB53: its bolts landing, a hits-a-use cut: MECH99's split)
         if main is not None and main.name == models.TORNADO:  # (MECHB52: R42-10, its absorbed elemental grounds)
@@ -5018,6 +5018,12 @@ class Assumptions:
                 hand_notes = hand_notes + [self.inhibited_note(main.name, "its uses fire no Power-Charge projectiles")]
             thunder_mods, thunder_notes = models.falling_thunder_model(main, main.stat_set, sets, charges, forbidden)
             hand_mods, hand_notes = hand_mods + thunder_mods, hand_notes + thunder_notes
+            hand_notes = hand_notes + models.melee_projectiles_note(  # (MECHB59: R56-1, a row; no number moves)
+                main, [e["text"] for e in source_lines], sets, charges, {s_.name for s_ in found})
+        elif main is not None:
+            hand_notes = hand_notes + models.melee_projectiles_note(
+                main, [e["text"] for e in source_lines], [], 0.0, {s_.name for s_ in found})
+        if main is not None and group and main.name == models.FALLING_THUNDER:  # (GEM33: its hit part)
             hit_cut(build, thunder_mods, main.name)  # (GEM33: its hit part, the mod's hit_cut)
         if main is not None and group and main.name == models.ICESTORM:  # (GEM17: improved bolts need Chill / Freeze)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
@@ -10366,6 +10372,19 @@ class Assumptions:
         note["set_shares"] = {"Thrust": thrusts / uses, "Serpent": spent / uses}  # (GEM22's model; the comment above)
         note["set_uses"] = uses
         return [mod], [note]
+
+    def own_reload_share(self, found: list) -> tuple[float, str]:
+        """(MECHB59, R56-2) (the share of the fight within RECENTLY of one of the build's own reloads, how): Emergency
+        Reload on its cooldown (PoB's, with Cooldown Recovery); a build without it, 0."""
+        skill = next((s for s in found if s.name == models.EMERGENCY_RELOAD and s.group is not None and not s.triggered), None)
+        if skill is None:
+            return 0.0, ""
+        row = next(iter(self.build.call("useRates", indices=[skill.group])["rates"]), None) or {}
+        cooldown = number(row.get("cooldown"))
+        if cooldown <= 0:
+            return 0.0, ""
+        return min(1.0, models.RECENTLY / cooldown), (f"{models.EMERGENCY_RELOAD} on its {cooldown:.1f} s cooldown, "
+                                                      f"{models.RECENTLY:g} s after each")
 
     def energy_feeders(self, found: list, main) -> dict[int, list[dict]]:
         """(MECHB59: models.energy_feed's note) {meta group: [{name, uses, speed, why, row, final}]} for a Cast on Critical /

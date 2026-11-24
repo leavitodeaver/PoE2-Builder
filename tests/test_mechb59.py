@@ -81,3 +81,31 @@ def test_tempest_bell_all_bells_is_a_row_and_keeps_the_headline():
     # 0.8 Strikes a second x 3 Bells alive = 2.4 shockwaves, held to 0.2 Bells a second x 10 hits a Bell = 2.0
     assert "3.00 of at most 3" in three_note[0]["basis"] and "x3.500" in three_note[0]["basis"]
     assert "1.00 of at most 1" in one_note[0]["basis"] and "x2.000" in one_note[0]["basis"]
+
+
+def test_melee_projectiles_are_a_row_on_falling_thunder():
+    """R56-1: +N on Falling Thunder's Power Charge volley, which KeywordPopups 74 holds to one hit on a lone boss."""
+    thunder = M.Skill("Falling Thunder", 1, attack=True, melee=True)
+    sets = [{"label": "Melee", "TotalDPS": 100.0}, {"label": "Projectile", "TotalDPS": 50.0}]
+    line = ["Melee Attacks fire 3 additional Projectiles"]
+    note = M.melee_projectiles_note(thunder, line, sets, 2.0)[0]
+    assert note["value"] == "x1.000" and "6 projectiles" in note["basis"] and "9 with this line" in note["basis"]
+    assert "x3.667" in note["basis"] and "x2.667" in note["basis"]  # (100 + 50 x 9) / 150; (100 + 50 x 6) / 150
+    assert "no projectiles to add" in M.melee_projectiles_note(thunder, line, sets, 0.0)[0]["basis"]
+    assert "no projectile of its own" in M.melee_projectiles_note(M.Skill("Maul", 1, attack=True), line, [], 0.0)[0]["basis"]
+    assert M.melee_projectiles_note(thunder, [], sets, 2.0) == []
+
+
+def test_hailstorm_counts_reloaded_recently_after_the_builds_own_reloads():
+    """R56-2 / R56-3: the 30% line for the time after Emergency Reload in the headline, all fight and per rain as rows."""
+    hail = M.Skill("Hailstorm Rounds", 1, attack=True)
+    stats = {"Speed": 0.5, "ReloadTime": 0.4, "BoltCount": 50, "FiringRate": 0.5, "AreaOfEffectRadius": 10,
+             "AreaOfEffectRadiusSecondary": 40, "ChanceToNotConsumeAmmo": 25}
+    line = ["Bolts fired by Crossbow Attacks have 30% chance to not expend Ammunition if you've Reloaded Recently"]
+
+    def run(up):
+        return M.hailstorm_rounds_model(hail, stats, (0.3, "a"), (0.3, "b"), texts=line, reload_up=(up, "Emergency Reload"))
+    none, some = run(0.0), run(0.1)
+    ratio = (1 + some[0][0]["value"] / 100) / (1 + none[0][0]["value"] / 100)
+    assert ratio == pytest.approx((0.1 / 0.45 + 0.9 / 0.75) * 0.75, rel=1e-3)
+    assert "after your own reloads" in some[1][0]["basis"] and "one 0.2 s limit a rain" in some[1][0]["basis"]
