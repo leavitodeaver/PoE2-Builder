@@ -1641,6 +1641,10 @@ end
 -- 1053: points used less the smaller weapon set's, over level - 1 + quest points + ExtraPoints; a weapon set over its
 -- own allowance; ascendancy points over 8), from a calculation's own allocated nodes, so a what-if adding nodes counts
 -- them too. treeCheck reports the same numbers for the committed tree.
+-- (SEARCH38, R54-7) the request's extra passive points (0-2: the Martyr of the First Edict, Olroth's Boon), which no
+-- build file records; resetConfig sets them for the request being searched
+local extraPassivePoints = 0
+
 local function pointsOver(allocNodes, output, granted)
 	local used, ascUsed, set1, set2 = 0, 0, 0, 0
 	for id, node in pairs(allocNodes or { }) do
@@ -1661,7 +1665,7 @@ local function pointsOver(allocNodes, output, granted)
 		end
 	end
 	output = output or { }
-	local passives = math.max(build.characterLevel - 1, 0) + build.acts[build.maxActs].questPoints
+	local passives = math.max(build.characterLevel - 1, 0) + build.acts[build.maxActs].questPoints + extraPassivePoints
 	local setPoints = (build.maxWeaponSets or 0) + (output.PassivePointsToWeaponSetPoints or 0)
 	local over = math.max(used - math.min(set1, set2) - passives - (output.ExtraPoints or 0), 0)
 	over = over + math.max(set1 - setPoints, 0) + math.max(set2 - setPoints, 0)
@@ -1680,6 +1684,16 @@ local function setPointsOver(env)
 		}
 		local over, overAscendancy = pointsOver(env.allocNodes or build.spec.allocNodes, granted, env.grantedPassives)
 		output.PassivePointsOver = over + overAscendancy
+		-- (SEARCH38) the build's skill slots (PoB: 9 + SkillSlots mods, CalcSetup 728: Unset Ring, Bursting Decay,
+		-- Augmented Flesh) and the gem groups that use one (the search's own count: not from an item)
+		output.LedgerSkillSlots = env.modDB:Sum("BASE", nil, "SkillSlots")
+		local groups = 0
+		for _, group in ipairs(build.skillsTab.socketGroupList) do
+			if group.source == nil then
+				groups = groups + 1
+			end
+		end
+		output.LedgerGemGroups = groups
 	end
 end
 
@@ -4555,6 +4569,7 @@ local BOSS_HITS_DEFAULT = { enemyPhysicalDamage = 1074, enemyFireDamage = 1282, 
 -- modifiers, and the boss's resistances (args.boss, else BOSS_DEFAULT). Only the campaign quest
 -- choices stay; they're free picks, not conditions. So does the broken-face count (campaign progress, BOSS_FACES_BROKEN).
 function bridge.resetConfig(args)
+	extraPassivePoints = args and args.extraPassivePoints or 0
 	local configTab = build.configTab
 	local id = configTab.activeConfigSetId
 	local old = configTab.configSets[id]
@@ -6719,7 +6734,7 @@ function bridge.pointBudget()
 	local questPoints = build.acts[build.maxActs].questPoints
 	local used, ascUsed = countAllocated()
 	return {
-		passives = math.max(build.characterLevel - 1, 0) + questPoints, ascendancy = 8,
+		passives = math.max(build.characterLevel - 1, 0) + questPoints + extraPassivePoints, ascendancy = 8,
 		used = used, ascendancyUsed = ascUsed, questPoints = questPoints,
 	}
 end

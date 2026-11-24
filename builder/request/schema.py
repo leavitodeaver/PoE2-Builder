@@ -142,6 +142,9 @@ class BuildRequest(Model):
     league: str | None = None  # None: the current challenge league
     hardcore: bool = False
     level: int = Field(95, ge=1, le=100)
+    # (R54-7, the manager's ruling 23 Nov: DEFAULT 0, a new character doesn't have them) passive points beyond level and
+    # quests: the Martyr of the First Edict's and Olroth's Boon's, one each
+    extra_passive_points: int = Field(0, ge=0, le=2)
 
     class_name: str | None = None
     ascendancies: list[str] = []  # empty: any (within class_name, if set)

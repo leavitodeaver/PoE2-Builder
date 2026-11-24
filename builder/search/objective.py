@@ -104,6 +104,11 @@ def cost_short(stats: dict, field: str) -> float:
 # Passive (and ascendancy) points allocated beyond the level's budget (bridge setPointsOver, as PoB's "You have too many
 # passive points allocated" counts them): a hard limit (SEARCH8, Defect C: gate 2b75b delivered a tree 19 points over)
 POINTS_OVER = "PassivePointsOver"
+# (SEARCH38) the build's skill slots and the gem groups using one (bridge setPointsOver): a group past the slots is a
+# hard limit once a slot source can come and go (an Unset Ring swapped out). An imported or reference build is scored
+# as it stands (groups_enforced False): it may list more groups than one character uses at once
+SKILL_SLOTS = "LedgerSkillSlots"
+GEM_GROUPS = "LedgerGemGroups"
 # Damage that only happens when enemies die (Fiery Death's explosions, Plague Burst, ...): PoB's
 # Full DPS counts it as if it were sustained, but a single boss never triggers it
 # (ledger/proposed/pob-full-dps-on-death-damage.yaml). Matched on gem descriptions.
@@ -670,7 +675,7 @@ class Objective:
         # The request's goal unless overridden: balanced runs some searches on boss DPS (run.py)
         self.goal = Goal(goal or ctx.request.objective)
         # Clear fields in every mode, so a boss result can still show its clear estimate
-        fields = set(BASE_FIELDS) | set(DARKNESS_FIELDS) | set(COST_WARNINGS) | set(MAIN_COST_FIELDS) | set(SUSTAIN_FIELDS) | set(CLEAR_FIELDS) | {POINTS_OVER, ADDED_FIELD}
+        fields = set(BASE_FIELDS) | set(DARKNESS_FIELDS) | set(COST_WARNINGS) | set(MAIN_COST_FIELDS) | set(SUSTAIN_FIELDS) | set(CLEAR_FIELDS) | {POINTS_OVER, SKILL_SLOTS, GEM_GROUPS, ADDED_FIELD}
         if any(p.stat == "BossRecoveryPercent" for p in self.penalties):
             fields |= set(RECOVERY_INPUTS)
         fields |= {"Missing" + p.stat for p in self.penalties if p.stat in RESIST_FIELDS}  # (maximum_resist)
@@ -682,6 +687,7 @@ class Objective:
         # Points over the budget a screen may use without the hard deficit (Jewels.unlock_round: a socket's path is
         # opened past a full tree to price what it unlocks; the real trial frees the points first). 0 otherwise
         self.points_slack = 0.0
+        self.groups_enforced = not getattr(ctx.request, "seed_code", None)
 
     @property
     def full(self) -> bool:
@@ -835,6 +841,9 @@ class Objective:
         over = number(stats.get(POINTS_OVER)) - self.points_slack
         if over > 0:
             found.append(("Passive points over the level's budget", over, True))
+        slots = number(stats.get(SKILL_SLOTS))
+        if self.groups_enforced and slots > 0 and number(stats.get(GEM_GROUPS)) > slots:
+            found.append(("Skill groups over the build's skill slots", number(stats.get(GEM_GROUPS)) - slots, True))
         share, pool = sustain(stats)
         if share < SUSTAIN_FLOOR:
             found.append((f"Skill cost sustain: {pool}", (SUSTAIN_FLOOR - share) / SUSTAIN_FLOOR, False))

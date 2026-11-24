@@ -20,7 +20,7 @@ from typing import Callable
 
 from builder import clock, preview
 from builder.search.assumptions import INFUSED_ELEMENT, INFUSED_NOTE
-from builder.search.context import GEM_LEVEL, GEM_QUALITY, MAX_GEM_GROUPS, SUPPORT_SLOTS
+from builder.search.context import GEM_LEVEL, GEM_QUALITY, SUPPORT_SLOTS, gem_group_limit
 from builder.search.objective import main_dps
 from builder.search.state import EPSILON, Build
 from builder.search.tree import GRANTED_METAS
@@ -1404,7 +1404,7 @@ class Gems:
 
         best = None
         # No Spirit at all (Embrace the Darkness: "You have no Spirit"): nothing new can fit
-        if len(player_groups) < MAX_GEM_GROUPS and build.stats.get("Spirit"):
+        if len(player_groups) < gem_group_limit(self.build) and build.stats.get("Spirit"):
             names = [n for n in self.ctx.persistent_candidates
                      if n not in present and self.affordable(n, 0.0, left) and self.usable(n)]
             missing = [n for n in names if n not in self._requirements]
@@ -1483,7 +1483,7 @@ class Gems:
             return False
         groups = build.groups()
         if (any(g["label"] == CURSE_LABEL for g in groups)
-                or len([g for g in groups if not g["fromItem"]]) >= MAX_GEM_GROUPS):
+                or len([g for g in groups if not g["fromItem"]]) >= gem_group_limit(self.build)):
             return False
         seeds = self.curse_damage_supports()
         if not seeds:
@@ -1744,7 +1744,7 @@ class Gems:
 
         build = self.build
         groups = build.groups()
-        if any(g["label"] == META_LABEL for g in groups) or len([g for g in groups if not g["fromItem"]]) >= MAX_GEM_GROUPS:
+        if any(g["label"] == META_LABEL for g in groups) or len([g for g in groups if not g["fromItem"]]) >= gem_group_limit(self.build):
             return False
         present = {g["name"] for group in groups for g in group["gems"]}
         skills = [models.Skill.of(s) for s in build.call("activeSkills")["skills"] if not s["disabled"]]
@@ -2178,7 +2178,7 @@ class Gems:
                 placements.append({"index": called["index"],
                                    "gems": [{"name": g["name"], "level": g["level"], "quality": g["quality"]}
                                             for g in called["gems"]] + [gem]})
-            if len(player_groups) < MAX_GEM_GROUPS:
+            if len(player_groups) < gem_group_limit(self.build):
                 placements.append({"gems": [gem]})
                 for meta in ("Pounce", "Hand of Chayula"):
                     meta_level = self.usable_level(meta)
@@ -2193,7 +2193,7 @@ class Gems:
             tried.append(mark)
         # Pounce with no Mark gem in it triggers its own Predator's Mark (MECH34: models.PREDATORS_MARK prices it)
         pounce_level = self.usable_level("Pounce")
-        if (len(player_groups) < MAX_GEM_GROUPS and clock.now() <= deadline and pounce_level is not None
+        if (len(player_groups) < gem_group_limit(self.build) and clock.now() <= deadline and pounce_level is not None
                 and self._offered("Pounce", left, usage)):
             place = {"gems": [{"name": "Pounce", "level": pounce_level, "quality": GEM_QUALITY}]}
             score = self.trial_mark(place, cap)
@@ -2235,7 +2235,7 @@ class Gems:
         present = {g["name"] for grp in groups for g in grp["gems"]}
         left, usage = self.budget_left(), self.usage_stats()
         deadeye = next((g for g in groups if any(x["name"] == "Mirage Deadeye" for x in g["gems"])), None)
-        if deadeye is None and (len([g for g in build.groups() if not g["fromItem"]]) >= MAX_GEM_GROUPS
+        if deadeye is None and (len([g for g in build.groups() if not g["fromItem"]]) >= gem_group_limit(self.build)
                                 or "Mirage Archer" in present or not self._offered("Mirage Archer", left, usage)
                                 or self.usable_level("Mirage Archer") is None):
             return False
@@ -2356,7 +2356,7 @@ class Gems:
             return False
         if any(g["name"] == name for grp in build.groups() for g in grp["gems"]):
             return False
-        if len([g for g in build.groups() if not g["fromItem"]]) >= MAX_GEM_GROUPS:
+        if len([g for g in build.groups() if not g["fromItem"]]) >= gem_group_limit(self.build):
             return False
         level = self.usable_level(name)
         if level is None or not self._offered(name, self.budget_left(), self.usage_stats()):

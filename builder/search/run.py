@@ -200,6 +200,9 @@ class Run:
         self.notes.append(f"Priced on: {league} (poe.ninja)" if league else "Priced on: no price data (uniques, gems and "
                           "currency unpriced)")
         self.notes += [f"Prices: {warning}." for warning in getattr(prices, "warnings", None) or []]
+        if extra := getattr(self.request, "extra_passive_points", 0):  # (SEARCH38, R54-7)
+            self.notes.append(f"Passive points: {extra} extra counted, as you asked (the Martyr of the First Edict "
+                              "and Olroth's Boon give one each; a new character has neither).")
         self.probes: dict[str, dict] = {}  # skeleton label -> latest result
         self.live: dict[int, dict] = {}  # task index -> latest progress
         self.evals_done = 0

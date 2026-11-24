@@ -1954,16 +1954,17 @@ def boss_config(request: Any) -> dict:
     """resetConfig's `boss` argument when the request names a boss (MECH50's presets, builder/search/bosses.py): {} for
     none, and while bosses.py isn't in this tree, so the bridge writes its own default (the Arbiter of Ash once 95eceb1
     lands, PoB's otherwise)."""
+    extra = {"extraPassivePoints": n} if (n := getattr(request, "extra_passive_points", 0)) else {}  # (SEARCH38, R54-7)
     name = getattr(request, "boss", None)
     if not name:
-        return {}
+        return extra
     try:
         from builder.search import bosses
     except ImportError:
-        return {}
+        return extra
     from builder.search import boss_hits  # (its hits per damage type, MECHC6; resetConfig's default is the default's)
 
-    return {"boss": bosses.config_vars(name), "bossHits": boss_hits.config_vars(name)}
+    return {**extra, "boss": bosses.config_vars(name), "bossHits": boss_hits.config_vars(name)}
 
 
 def boss_stats(request: Any) -> dict:

@@ -27,8 +27,16 @@ from builder.request.schema import BuildRequest, DefenceStyle, GearTier
 from builder.search import alloys, anoints, base_variants, cultivated, desecrated, essences, granted_rolls, influence
 
 SUPPORT_SLOTS = 5  # support sockets on a fully socketed skill gem
-MAX_GEM_GROUPS = 9  # non-item gem groups the game allows
+MAX_GEM_GROUPS = 9  # non-item gem groups the game allows before any "additional Skill Slot" source
 GEM_LEVEL = 20
+
+
+def gem_group_limit(build) -> int:
+    """(SEARCH38) The build's real skill slots: PoB's SkillSlots (9 + an Unset Ring, Bursting Decay, Augmented Flesh),
+    MAX_GEM_GROUPS when the stats don't carry it."""
+    return int((getattr(build, "stats", None) or {}).get("LedgerSkillSlots") or MAX_GEM_GROUPS)
+
+
 GEM_QUALITY = 20
 # PoB-legacy gems the current game still offers, each with its evidence (none since COV24; Context.gems offers them; bridge.supportCandidates
 # returns legacy gems too and the search keeps those Context.allowed_gem allows). live.json's support weight can't tell a

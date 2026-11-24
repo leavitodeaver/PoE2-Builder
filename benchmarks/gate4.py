@@ -119,6 +119,7 @@ def fair_reference(engine: PobEngine, xml: str, request: BuildRequest, legal: bo
     skeleton = enumerate_skeletons(Context(payload), [request.main_skill])[0][0]
     search = Search(engine, None, payload, skeleton.as_dict(), 0, full=True)
     build = search.build
+    build.objective.groups_enforced = False  # (a reference is scored as it stands: SEARCH38)
     build.call("loadXml", xml=xml)
     build.call("resetConfig", **boss_config(request))
     build.boss_stats = boss_stats(request)

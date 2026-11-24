@@ -27,7 +27,7 @@ from dataclasses import dataclass
 
 from builder import clock
 from builder.search.conditions import CHARGE_OVERRIDES, CONDITIONS, EVIDENCE_FIELDS, STAT_SET_NEEDS, Condition, Conditions
-from builder.search.context import GEM_LEVEL, GEM_QUALITY, MAX_GEM_GROUPS
+from builder.search.context import GEM_LEVEL, GEM_QUALITY, gem_group_limit
 from builder.search.flasks import is_flask_slot
 from builder.search.gems import PERSISTENT_LABEL, Gems
 from builder.search.jewels import JEWEL_BASES, Jewels
@@ -102,7 +102,7 @@ class Sources:
     def persistent_trials(self, condition: Condition) -> list[Trial]:
         build, gems = self.build, self.gems
         groups = build.groups()
-        if len([g for g in groups if not g["fromItem"]]) >= MAX_GEM_GROUPS or not build.stats.get("Spirit"):
+        if len([g for g in groups if not g["fromItem"]]) >= gem_group_limit(build) or not build.stats.get("Spirit"):
             return []
         present = {g["name"] for group in groups for g in group["gems"]}
         left = gems.budget_left()
