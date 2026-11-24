@@ -48,12 +48,13 @@ def test_the_tick_joins_the_consumers_and_publishes_each_kinds_share():
     assert held <= before and "_regulation_up" not in plain
 
 
-def test_a_kept_chance_is_a_row_on_the_tick_only():
+def test_a_kept_chance_reaches_the_tick_with_the_strict_reading_a_row():
+    """(MECHC59, R58-6: the global kept line on the tick is now the headline; off the tick is the row.)"""
     stats = {**STATS, "_consumers": {"Power": {conditions.REGULATION: 0.1}}}
     lines = [POWER_ON_HIT, "Skills have 15% chance to not remove Charges but still count as consuming them"]
     conditions._charges_held("Power")(lines, stats)
-    share, _text, _cadence, kept = stats["_regulation_up"]["Power"]
-    assert kept is not None and kept >= share
+    share, _text, _cadence, strict = stats["_regulation_up"]["Power"]
+    assert strict is not None and strict <= share
 
 
 class _Build(SimpleNamespace):

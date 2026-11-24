@@ -1771,15 +1771,21 @@ def charges_with_reset(gains: float, duration: float, most: float, extra: float 
 # - charge_held_share: the share of time >= 1 is held, from the gains (random arrivals, as charges_with_refresh: the lane's
 #   standing reading, MEDIUM), the tick (fixed interval, its phase taken as random after each gain), the other consumers'
 #   spends (random, one a use while a charge is there) and the 15 s all-drop timer (KeywordPopups Charges, "refreshing
-#   whenever you gain another charge of the same type"; all at once, as charges_with_refresh: PoE2 UNVERIFIED, R57-1).
+#   whenever you gain another charge of the same type"; all at once, as charges_with_refresh: MEDIUM since RESEARCH58
+#   R58-6, charge-regulation-tick-expiry-r58.md: one duration per type, refreshed by any gain of it, no per-charge timer
+#   in the popup or any stat (checked there: every stat whose text holds "expire" / "lose" with Charges)).
 #   Worked over the counts just after each gain (a small Markov chain, states 1 .. maximum).
 # - Row (R57-1's steady-cadence form): gains on a fixed rhythm T = 1 / gains: up all fight if T <= the interval between
 #   removals, else min(1, min(D, (k - 0.5) x that interval) / T), k = the charges a gain brings (MEDIUM; no source states
 #   a formula).
 # - Perpetual Charge can't support Charge Regulation (its AllowedActiveSkillTypes = [ConsumesCharges]; Charge Regulation's
 #   types are OngoingSkill, HasReservation, Buff, Persistent, AttackInPlace; R57-1 HIGH), so its 25% never touches the
-#   tick. The global "Skills have N% chance to not remove Charges" lines (CHARGES_KEPT) MAY reach it (UNVERIFIED, R57-1;
-#   RESEARCH57 R57-12 open): headline not applied to the tick, a row with it applied.
+#   tick. The global "N% chance to not remove Charges" lines (CHARGES_KEPT: charge_skip_consume_chance_%; carriers The
+#   Fabled Stag, "of Chronomancy", Idol of Eramir, a Vaal-mutated unique, R58-6) PROBABLY reach it (MECHC59; RESEARCH58
+#   R58-6, MEDIUM-LOW: the gem's own text says the buff "Consumes Charges", and the line is worded per removal, "not
+#   remove Charges but still count as consuming them", not per use): where the build holds such a line, the headline's
+#   tick removes a charge on 1 - p of its ticks (its interval C / (1 - p), each kind rolled on its own), the strict
+#   reading (the line off the tick) a row; a build without one is unchanged.
 # The bonus applied (assumptions.Assumptions.regulation_mods): PoB's own threshold bonus is replaced by the bonus x its
 # share: Speed / WarcrySpeed / TotemPlacementSpeed INC x (share - on), crit and defences MORE (1 + v x share) / (1 + v x on),
 # on = 1 when PoB's count is >= 1; scaled by "increased effect of Buffs on you" lines (PoB: BuffEffectOnSelf, CalcPerform).
@@ -1874,15 +1880,19 @@ def regulation_held(stats: dict, kind: str, gains: float, extra: float, others: 
     charges a second) and the other consumers' removals (`others` a second, kept lines applied), from charge_held_share;
     puts {kind: (share >= 1 held, how, cadence row, kept-on-the-tick row or None)} on stats["_regulation_up"] for the
     bonus (Conditions.evidence -> build.regulation_up -> Assumptions.regulation_mods)."""
-    every = 1 / tick
+    plain = 1 / tick
+    every = plain / (1 - kept) if 0 < kept < 1 else plain  # (MECHC59, R58-6: the build's kept lines on the tick)
     share, count = charge_held_share(gains, others, every, most, duration, extra)
     cadence = cadence_share(gains, others, every, most, duration, extra)
-    kept_row = charge_held_share(gains, others, every / (1 - kept), most, duration, extra)[0] if 0 < kept < 1 else None
-    how = (f"Charge Regulation takes one every {every:.3g} s" + (f" and the others {others:.2f}/s" if others > 0 else "")
-           + f": >= 1 held {share:.0%} of the fight (gains taken as random, the 15 s timer dropping all; MEDIUM), "
+    kept_row = charge_held_share(gains, others, plain, most, duration, extra)[0] if every != plain else None
+    how = (f"Charge Regulation takes one every {every:.3g} s"
+           + (f" (every {plain:.3g} s, {kept:.0%} of them kept by the build's chance not to remove Charges, R58-6, "
+              "MEDIUM-LOW)" if every != plain else "")
+           + (f" and the others {others:.2f}/s" if others > 0 else "")
+           + f": >= 1 held {share:.0%} of the fight (gains taken as random, the 15 s timer dropping all, R58-6 MEDIUM), "
            f"{count:.2f} on average; row, gains on a steady rhythm (R57-1): {cadence:.0%}"
-           + (f"; row, the {kept:.0%} chance not to remove a charge also on its tick (UNVERIFIED, R57-12): "
-              f"{kept_row:.0%}" if kept_row is not None else ""))
+           + (f"; row, the chance not to remove kept off its tick (the strict reading): {kept_row:.0%}"
+              if kept_row is not None else ""))
     stats.setdefault("_regulation_up", {})[kind] = (share, how, cadence, kept_row)
     return count, how
 
@@ -2612,15 +2622,17 @@ def _charges_held(kind: str):
         extra_text = f" x {1 + extra:.2f} per gain ({', '.join(extra_how)})" if extra_how else ""
         if spent:
             kept = charges_kept_chance(lines)  # (MECHC32: consumed but not removed on that chance)
-            tick = number(wanted.get(REGULATION))  # (MECHC58: Charge Regulation's tick; kept lines not on it, R57-12)
+            tick = number(wanted.get(REGULATION))  # (MECHC58: Charge Regulation's tick)
+            tick_removes = tick * (1 - min(kept, 1.0))  # (MECHC59, R58-6: the build's kept lines on it, REGULATION's note)
             own = (stats.get("_own_kept") or {}).get(kind) or {}  # (MECHC58: each consumer's own chance, OWN_KEPT)
             removed = sum(number(u) * (1 - min(OWN_KEPT_CAP.get(n, 1.0), kept + own.get(n, 0.0)))
-                          for n, u in wanted.items() if n != REGULATION) + tick
+                          for n, u in wanted.items() if n != REGULATION) + tick_removes
             net = max(rate - removed, 0.0)
             count = min(most, net * duration)
             share = min(1.0, rate / removed) if removed > 0 else 1.0
             if tick > 0:
-                count, tick_text = regulation_held(stats, kind, gains, extra, removed - tick, tick, most, duration, kept)
+                count, tick_text = regulation_held(stats, kind, gains, extra, removed - tick_removes, tick, most, duration,
+                                                   kept)
             # (MECHC13: the charges consumed a second, for recovery on consuming one: Conditions.evidence puts them on
             # build.charge_flow)
             stats.setdefault("_charge_flow", {})[kind] = (

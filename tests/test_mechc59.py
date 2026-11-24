@@ -123,3 +123,19 @@ def test_walking_calamity_builds_glory_from_rage_gained_at_maximum():
     assert "1 Glory a gain event" in how  # (R58-5's low row: 1.0 Glory/s)
     plan, how = models.glory_plan(["Walking Calamity"], {"Speed": 1.0}, None, [], [])
     assert "Walking Calamity" not in plan and "never" in how
+
+
+def test_charge_regulation_tick_takes_the_builds_chance_not_to_remove_charges():
+    """R58-6 (MEDIUM-LOW): a global "chance to not remove Charges" line reaches the gem's tick, so its interval is
+    C / (1 - p) in the headline where the build holds one; the strict reading (the line off the tick) is the row."""
+    stats = {}
+    count, how = conditions.regulation_held(stats, "Frenzy", 0.1, 0.0, 0.0, 1 / 12.4, 3, 15.0, 0.2)
+    share = stats["_regulation_up"]["Frenzy"][0]
+    plain = conditions.charge_held_share(0.1, 0.0, 12.4, 3, 15.0, 0.0)[0]
+    kept = conditions.charge_held_share(0.1, 0.0, 12.4 / 0.8, 3, 15.0, 0.0)[0]
+    assert share == pytest.approx(kept) and share > plain
+    assert stats["_regulation_up"]["Frenzy"][3] == pytest.approx(plain)
+    assert "every 15.5 s (every 12.4 s, 20% of them kept" in how and "kept off its tick" in how
+    stats = {}
+    conditions.regulation_held(stats, "Frenzy", 0.1, 0.0, 0.0, 1 / 12.4, 3, 15.0, 0.0)
+    assert stats["_regulation_up"]["Frenzy"][0] == pytest.approx(plain) and stats["_regulation_up"]["Frenzy"][3] is None
