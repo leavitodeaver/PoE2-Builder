@@ -52,3 +52,29 @@ def test_rage_goes_on_each_companion_by_its_own_rate():
 
 def test_other_lines_do_nothing():
     assert M.companion_runes_model(["Minions have Onslaught"], 1.0, "", 0.0, [("Wolf", 1.0)], 60.0) == ([], [])
+
+
+def _skill(name, **level):
+    return M.Skill.of({"name": name, "group": 1, "levelStats": level, "cooldownRecovery": 1.0})
+
+
+def test_volcano_spray_rows_keep_the_headline():
+    sets = [{"label": "Eruption", "AverageDamage": 100.0}, {"label": "Projectiles", "AverageDamage": 20.0}]
+    main = _skill(M.VOLCANO)
+    plain = M.volcano_channel_model(main, "Eruption", sets, cast_rate=0.5)
+    fed = M.volcano_channel_model(main, "Eruption", sets, cast_rate=0.5, slams=(5.0, "Boneshatter"), lifetime=8.0)
+    assert [m["value"] for m in plain[0]] == [m["value"] for m in fed[0]]
+    head = float(plain[1][0]["value"][1:])
+    basis = fed[1][0]["basis"]
+    assert f"every 0.5 s x{head + 2 * 20 / 50:.3f}" in basis
+    assert f"1.25 Slams a second on it (at most 10 a 8 s Volcano) x{head + 3.25 * 20 / 50:.3f}" in basis
+    assert "no Slam skill" in plain[1][0]["basis"]
+
+
+def test_hollow_focus_alloy_row():
+    focus = _skill(M.HOLLOW_FOCUS, **{M.REPEAT_STAT: 2000})
+    alloy = "Tempest Bells are destroyed after an additional 4 Hits"
+    note = M.hollow_focus_alloy_note([focus], [alloy], 2.0)
+    assert note[0]["value"] == "x1.000" and "x4.000" in note[0]["basis"]  # (0.5 bells a second; 2 hits feed 2.5 -> 2)
+    assert M.hollow_focus_alloy_note([focus], [], 2.0) == []
+    assert M.hollow_focus_alloy_note([], [alloy], 2.0) == []

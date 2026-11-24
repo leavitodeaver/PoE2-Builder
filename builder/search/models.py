@@ -13313,6 +13313,30 @@ def companion_runes_model(texts: list[str], marked: float, how: str, others: flo
     return mods, notes
 
 
+# Hollow Focus under the Bell-hit Alloy (MECHB60; MECHB58's coverage row, PLANS6 un-tempest-bell-limit.md). The Alloy's
+# "Tempest Bells are destroyed after an additional (4-5) Hits" (AlloyBellLimit1) raises the stat bell_hit_limit, which
+# HollowFocusPlayer's bells also carry (1: one Hit destroys one). Whether the line reaches them is UNVERIFIED (the same
+# stat, but its text says Tempest Bells), so GEM30's headline (one shockwave a bell) stays and this is a ROW: each bell
+# takes 1 + N Hits, so shockwaves a second = min(your hits a second, (1 + N) bells' worth), against min(1, your hits).
+def hollow_focus_alloy_note(skills: list[Skill], texts: list[str], hits: float) -> list[dict]:
+    """A row for the Alloy's extra Bell hits on Hollow Focus (see above); `hits` the main skill's hits a second."""
+    focus = next((s for s in skills if s.name == HOLLOW_FOCUS), None)
+    extra = sum(float(m.group(1)) for t in texts if (m := BELL_EXTRA_HITS.match(t.strip())))
+    base = number(focus.level_stats.get(REPEAT_STAT)) / 1000 if focus is not None else 0.0
+    if focus is None or extra <= 0 or base <= 0:
+        return []
+    bells = (focus.cooldown_recovery or 1.0) / base
+    head = min(bells, hits)
+    row = min(bells * (1 + extra), hits)
+    return [{"label": f"{HOLLOW_FOCUS}: the Alloy's +{extra:g} Hits a bell (not counted)*", "value": "x1.000",
+             "confidence": "UNVERIFIED",
+             "basis": (f"'Tempest Bells are destroyed after an additional {extra:g} Hits' raises bell_hit_limit, the stat "
+                       f"Hollow Focus's bells carry too (1), but its text names Tempest Bells: UNVERIFIED that it reaches "
+                       f"them, so the headline keeps one shockwave a bell ({bells:.2f} bells a second, {head:.2f} "
+                       f"shockwaves). Row, it reaches them: {1 + extra:g} Hits a bell, {row:.2f} shockwaves a second from "
+                       f"your {hits:.2f} hits: x{row / head if head > 0 else 1:.3f} on Hollow Focus's shockwaves")}]
+
+
 BARRAGE = "Barrage"
 BARRAGE_COOLDOWN = 2.0  # s (its level cooldown)
 BARRAGE_MAX_COOLDOWN = 30.0  # s (empowered_barrage_maximum_cooldown_ms 30000)
@@ -25001,13 +25025,22 @@ def gathering_shockwave_model(main: Skill | None, scored: str | None, speed: flo
 # when the Eruption set is the one scored; the generic channel_windup_model leaves Volcano to this.
 VOLCANO, VOLCANO_ENTRY = "Volcano", "model-mechb50-volcano-channel"
 VOLCANO_STAGES, VOLCANO_MORE, VOLCANO_PROJECTILES = 4, 1.5, 4
+# (MECHB60; MECHB58's kw-limit item 1, Volcano's limit) volcano_statset_1: "Fires Projectiles every {0} seconds, or when
+# Slammed" (volcano_fires_projectiles_every_x_ms 500: PoB's Projectiles set hitTimeOverride) and "Volcano is destroyed after
+# {0} Slams" (volcano_slam_unscalable_limit 10), base_skill_effect_duration 8 s, Limit 1. With the Eruption set scored, none
+# of these sprays is counted: how many of a spray's projectiles reach a lone boss, and whether a recast ends the old
+# Volcano's sprays, are open (R-B26), so they stay out of the headline (the lower reading) and are ROWS: a spray every
+# 0.5 s plus one for each Slam the build lands on it (its Slam skills at their use rate, at most 10 a Volcano life), each
+# spray one projectile hit at the Projectiles set's hit (KeywordPopups 74's group rule: one of a spray a target).
+VOLCANO_SPRAY_EVERY, VOLCANO_SLAM_LIMIT, VOLCANO_SECONDS = 0.5, 10.0, 8.0
 
 
 def volcano_channel_model(main: Skill | None, scored: str | None, sets: list[dict],
-                          forbidden: set[str] = frozenset(), dodges: float = 0.0, cast_rate: float = 0.0
-                          ) -> tuple[list[dict], list[dict]]:
+                          forbidden: set[str] = frozenset(), dodges: float = 0.0, cast_rate: float = 0.0,
+                          slams: tuple[float, str] = (0.0, ""), lifetime: float = 0.0) -> tuple[list[dict], list[dict]]:
     """Volcano's eruption channelled to its best stage count against PoB's one hit a cast time (see above). `dodges` the
-    dodge rolls a second the build makes anyway, `cast_rate` its casts a second (R42-25's row)."""
+    dodge rolls a second the build makes anyway, `cast_rate` its casts a second (R42-25's row); `slams` (the build's
+    Slams a second, which), `lifetime` the Volcano's duration (s; 0: its base 8 s) for the spray rows (MECHB60)."""
     if main is None or main.name != VOLCANO or scored != "Eruption" or VOLCANO_ENTRY in forbidden:
         return [], []
 
@@ -25021,6 +25054,17 @@ def volcano_channel_model(main: Skill | None, scored: str | None, sets: list[dic
     if eruption > 0 and projectile > 0:
         all_hit = (eruption * (1 + VOLCANO_MORE * best) + VOLCANO_PROJECTILES * best * projectile) / (eruption * (2 + best))
         rows += f"; its {VOLCANO_PROJECTILES * best} extra projectiles all hitting the boss x{all_hit:.3f} (LOW)"
+        if cast_rate > 0:  # (MECHB60: the sprays, R-B26 open: rows only)
+            life = lifetime if lifetime > 0 else VOLCANO_SECONDS
+            slammed = min(max(slams[0], 0.0), VOLCANO_SLAM_LIMIT / life)
+            timed = 1 / VOLCANO_SPRAY_EVERY
+            per = projectile / (eruption * cast_rate)
+            rows += (f"; its sprays (\"Fires Projectiles every {VOLCANO_SPRAY_EVERY:g} seconds, or when Slammed\"; not in "
+                     f"the headline: how many reach a lone boss is open, R-B26), one projectile of each hitting: every "
+                     f"{VOLCANO_SPRAY_EVERY:g} s x{factor + timed * per:.3f}"
+                     + (f", and with {slams[1]}'s {slammed:.2f} Slams a second on it (at most "
+                        f"{VOLCANO_SLAM_LIMIT:g} a {life:g} s Volcano) x{factor + (timed + slammed) * per:.3f}"
+                        if slammed > 0 else ", no Slam skill to Slam it"))
     if dodges > 0 and cast_rate > 0:  # (MECHB51; RESEARCH42 R42-25, MEDIUM-HIGH: a roll after release skips the end)
         rolled = min(1.0, dodges * (2 + best) / cast_rate)
         skip = (1 + VOLCANO_MORE * best) / (1.5 + best + 0.5 * (1 - rolled))

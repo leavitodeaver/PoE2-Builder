@@ -3601,6 +3601,9 @@ class Assumptions:
         rep_mods, rep_notes = models.repeat_interval_model(found, main, stats, build.call("getConfig")["input"], forbidden)
         bell_mods, bell_notes = self.hollow_focus_bells(found, main, stats)  # (MECHC54: BELL_EATERS' note)
         rep_mods, rep_notes = rep_mods + bell_mods, rep_notes + bell_notes
+        rep_notes = rep_notes + models.hollow_focus_alloy_note(  # (MECHB60: the Alloy's +N Bell hits, a row)
+            found, [e["text"] for e in source_lines], number(stats.get("Speed")) * (
+                number(stats.get("HitChance")) / 100 if stats.get("HitChance") is not None else 1.0))
         stat_mods, stat_notes = stat_mods + rep_mods, stat_notes + rep_notes  # (GEM30: Ravenous Swarm, Hollow Focus)
         hit_cut(build, [m for m in stat_mods if "hit_cut" in m or models.HIT_CUT_PER_USE in m] + rep_mods,
                 main.name if main else None)  # (GEM33:
@@ -4634,7 +4637,8 @@ class Assumptions:
                 ["enemySkillTime", *models.MODEL_FIELDS]))))
             volcano_mods, volcano_notes = models.volcano_channel_model(
                 main, main.stat_set, volcano_sets, forbidden, dodge_share()[0] / v_every if v_every > 0 else 0.0,
-                number(build.call("stats", fields=["Speed"]).get("Speed")))
+                number(build.call("stats", fields=["Speed"]).get("Speed")), self.slam_feed(main),
+                number((next(iter(build.call("useRates", indices=[group["index"]])["rates"]), None) or {}).get("duration")))
             hand_mods, hand_notes = hand_mods + volcano_mods, hand_notes + volcano_notes
             hit_cut(build, volcano_mods, main.name)  # (MECHB52: its eruptions, 1 / (2 + k) of PoB's casts)
         hand_notes = hand_notes + models.skittering_stone_note(  # (MECHB52: GEM32's, add kills only; 0 on a lone boss)
@@ -5836,6 +5840,22 @@ class Assumptions:
         boss = getattr(getattr(build.ctx, "request", None), "boss", None) or bosses.DEFAULT
         full = number(own.get("FullDPS"))
         return marked, how, others, companions, (conditions_mod.boss_pool(boss) / full if full > 0 else None)
+
+    def slam_feed(self, main) -> tuple[float, str]:
+        """(MECHB60, models.volcano_channel_model's spray rows) (the Slams a second the build's other groups use, their
+        names): each group whose selected skill is a Slam, at its use rate (skill_use_rate at the press choices)."""
+        build = self.build
+        raw = [s for s in build.call("activeSkills")["skills"] if not s.get("disabled") and s.get("slam")
+               and not s.get("triggered") and s.get("group") is not None and s.get("group") != getattr(main, "group", None)]
+        if not raw:
+            return 0.0, ""
+        choices, total, names = models.press_choices(build), 0.0, []
+        for row in build.call("useRates", indices=sorted({s["group"] for s in raw}))["rates"]:
+            rate = conditions_mod.skill_use_rate(row, choices)[0]
+            if rate > 0:
+                total += rate
+                names.append(str(row.get("name")))
+        return total, ", ".join(names)
 
     def orb_stand(self, rates: list[dict], main: int | None) -> tuple[float, str]:
         """(share, how) of the fight the player casts standing in a side Orb of Storms' radius (models.orb_stand_share,
