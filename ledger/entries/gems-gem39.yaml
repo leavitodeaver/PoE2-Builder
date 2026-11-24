@@ -14,9 +14,10 @@
     PoB doesn't score when it scores the Arrow / Impact, so the bridge read no Limit or duration there (probe POE2T7318:
     null) and the clouds kept 4 s / 6 s under Overabundance's -50% / -40% Skill Effect Duration. Now each is read on the
     set holding the stat (bridge useRates with that stat set: instanceLimit = the stat + "+N to Limit" / Overabundance's
-    base_limit_+, and the set's duration). Forge Hammer's forge_hammer_maximum_hammers 1 isn't read by the bridge (not a
-    "number_of_X_allowed" stat): its Limit stays 1, UNVERIFIED whether "+N to Limit" raises it; its duration (taken as
-    the hammer's lying time, UNVERIFIED) is the build's.
+    base_limit_+, and the set's duration). Forge Hammer's [Limit] is its Fissures a use (forge_hammer/statset_1.csd
+    "[Limit] {0} Fissure", forge_hammer_base_maximum_number_of_fissures 10), not its hammer (forge_hammer_maximum_hammers
+    1, no Limit tag): the hammer stays 1; its duration (taken as the hammer's lying time, UNVERIFIED) is the build's.
+    (GEM39) Frozen Locus in Vruun's Aftermath: its crystals' Limit and duration from its group's useRates row.
   sources: ["builder/search/models.py (LIMIT_SET)",
             "builder/search/assumptions.py (Assumptions.set_limit_and_duration and its hooks)",
             "scratch/gem39/probe7318.log"]

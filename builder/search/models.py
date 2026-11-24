@@ -6917,6 +6917,11 @@ VRUUN_MAKERS = {
     "Fragments of the Past": (10, 2.5, 10, "its volcano's 2 Ice Fragments every 0.5 s for 8 s, 2.5 s each: about 10 at "
                                            "once while it stands"),
 }
+# (GEM39) Makers whose Limit and duration are the build's: their group's useRates row (instanceLimit: the stat + "+N to
+# Limit" / Overabundance's base_limit_+; duration with Overabundance's less Skill Effect Duration and the build's duration
+# lines; GEM38's probe POE2T7289: Frozen Locus 1 -> 2, 10.0 -> 5.0 s with Overabundance I), the table's where the row has
+# none (the main skill's own group has no row: the table's).
+VRUUN_OWN_LIMIT = {"Frozen Locus"}
 VRUUN_UNCOUNTED = {"Shred": "its Ice Fragments need a Frozen enemy", "Midnight Zenith": "its crystal rate is MECH-B's",
                    "Frozen Spite": "its Ice Fragments need kills of Frozen enemies (none on a lone boss)"}
 
@@ -6950,6 +6955,12 @@ def vruun_aftermath_model(skills: list[Skill], stats: dict, main: Skill | None, 
         share, parts, skipped = 0.0, [], []
         for maker in {s.name: s for s in skills if s.name in VRUUN_MAKERS and not s.triggered}.values():
             each, life, cap, what = VRUUN_MAKERS[maker.name]
+            if maker.name in VRUUN_OWN_LIMIT:  # (GEM39: the build's own Limit and duration)
+                row = groups.get(maker.group) or {}
+                own_cap, own_life = number(row.get("instanceLimit")), number(row.get("duration"))
+                if own_cap > 0 or own_life > 0:
+                    cap, life = own_cap or cap, own_life or life
+                    what = f"one Ice Crystal a use, {life:.1f} s, {cap:g} allowed (the build's Limit and duration)"
             rate, how = _skill_rate(maker, stats, main, groups)
             if every <= 0 or rate <= 0:
                 continue
@@ -9556,9 +9567,11 @@ GAS_GRENADE_CLOUD = {"Gas Grenade": (6, 6.0)}  # (GEM36: its cloud limit / secon
 # number_of_poison_cloud_allowed 6 is on the Poison Cloud set (GasArrowGasDegenPlayer / ToxicGrenadeCloudPlayer), so the
 # Arrow / Impact set PoB scores reads no Limit or duration (POE2T7318: null): the cloud's 4 s / 6 s stayed fixed under
 # Overabundance's -50% / -40% (an OVERCOUNT) and under the build's duration lines and raised Limit (UNDERCOUNTS). Forge
-# Hammer: forge_hammer_maximum_hammers 1 isn't a "number_of_X_allowed" stat, so the bridge reads no Limit (the table's 1
-# stays, UNVERIFIED whether "+N to Limit" raises it); its duration (the hammer's lying time, UNVERIFIED as above) is the
-# build's (POE2T7318: 12.0 s, 6.0 s with Overabundance I). None: the scored set. Rapid Assault and Stormblast Bolts aren't
+# Hammer: its [Limit] is its Fissures a use, not its hammers (forge_hammer/statset_1.csd "[Limit] {0} Fissure" =
+# forge_hammer_base_maximum_number_of_fissures 10; forge_hammer_maximum_hammers 1 carries no Limit tag), so the hammer
+# count stays the table's 1 and a raised Limit lifts FISSURE_MAX_A_USE's 10 (MECH-B's Fissure count, not read here: an
+# UNDERCOUNT only past 10 Fissures a use); its duration (the hammer's lying time, UNVERIFIED as above) is the build's
+# (POE2T7318: 12.0 s, 6.0 s with Overabundance I). None: the scored set. Rapid Assault and Stormblast Bolts aren't
 # Limit skills (COV55's limit_table): their table values stay.
 LIMIT_SET = {"Storm Lance": "Projectile", "Gas Grenade": "Poison Cloud", "Gas Arrow": "Poison Cloud", "Forge Hammer": None}
 DETONATED_TEXT = {"Gas Grenade": ("the boss is Ignited or Burning inside the cloud or a Detonator skill hits it",

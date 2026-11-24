@@ -51,3 +51,16 @@ def test_storm_lance_limit_moves_the_detonated_share():
 def test_limit_set_skills_are_detonated_or_gas():
     for name in models.LIMIT_SET:
         assert name in models.DETONATED_SETS or name == models.GAS_ARROW
+
+
+def test_vruun_frozen_locus_reads_the_builds_limit_and_duration():
+    """(GEM39) Frozen Locus's crystals in Vruun's Aftermath: its group's useRates Limit and duration, not the fixed 1 / 10 s."""
+    from builder.search.models import Skill
+    cry = Skill("Seismic Cry", 2, support_stats={models.VRUUN_STAT: 3})
+    locus = Skill("Frozen Locus", 3)
+    plain = {2: {"name": "Seismic Cry", "speed": 0.1}, 3: {"name": "Frozen Locus", "speed": 1.0}}
+    raised = {2: plain[2], 3: dict(plain[3], instanceLimit=2, duration=5.0)}
+    _, a = models.vruun_aftermath_model([cry, locus], {}, None, plain)
+    _, b = models.vruun_aftermath_model([cry, locus], {}, None, raised)
+    assert "1.00 there" in a[0]["basis"] and "2.00 there" in b[0]["basis"]
+    assert "2 allowed (the build's Limit and duration)" in b[0]["basis"]
