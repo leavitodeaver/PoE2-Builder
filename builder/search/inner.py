@@ -152,7 +152,6 @@ class Search:
         self.tree.class_name, self.tree.ascendancy = self.skeleton.class_name, self.skeleton.ascendancy
         self.tree.checkpoint = self.checkpoint
         self.gems.checkpoint = self.checkpoint
-        self.gear.checkpoint = self.checkpoint  # (SEARCHD1 hook, F1: a gear round's kept slots survive a hard stop)
         sk = self.skeleton
         # Skills only some weapon bases grant (a main skill "bases:<type>", a required one): those hands keep to them
         main_bases, off_bases = slot_bases(self.ctx, sk) or ((), ())
@@ -170,6 +169,7 @@ class Search:
             self.gear.add_ring_slot()
         self.swap_locked = set(swap_skills(self.ctx, sk)) if sk.swap else set()  # skills only set 2 can use
         self.jewels = Jewels(self.build, self.tree, self.gear)
+        self.gear.checkpoint = self.checkpoint  # (SEARCHD1 hook, F1: a gear round's kept slots survive a hard stop)
         self.jewels.checkpoint = self.checkpoint  # (SEARCHD1 hook, F1: a jewel round's filled sockets survive a hard stop)
         self.conditions = Conditions(self.build, self.skeleton.main_skill)
         self.play_notes: dict[str, dict] = {}  # notes from choose_stationary and weigh_life, weigh_uptimes, for the result
