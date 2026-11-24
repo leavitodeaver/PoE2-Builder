@@ -612,6 +612,8 @@ def test_a_skill_tried_on_an_infused_set_and_not_chosen_goes_back_to_its_plain_c
     build.set_group(gems=[{"name": "Frost Bomb", "level": 20, "quality": 0}])
     monkeypatch.setattr(assumptions, "infusion_share", lambda element, ailments: (0.5, "half"))
     monkeypatch.setattr(build.objective, "score", lambda stats: -main_dps(stats))
+    # (SEARCH39: the choice reads Objective.choice_key, so it is inverted the same way)
+    monkeypatch.setattr(build.objective, "choice_key", lambda stats: (True, 0.0, -main_dps(stats)))
     search.gems.choose_active_skill()
     group = build.main_group()
     assert group["mainActiveSkill"] == 2 and assumptions.infused is None and "Cold-Infused" in assumptions.infused_skipped
