@@ -2366,7 +2366,9 @@ class Gear:
         objective = build.objective
         rows: dict[str, dict] = {}
         for slot, option in sorted(build.equipped.items()):
-            if option is None or is_flask_slot(slot) or slot in CHARM_SLOTS or option.raw is None:
+            if option is None or slot not in self.slots or is_flask_slot(slot) or slot in CHARM_SLOTS or option.raw is None:
+                # (hotfix 23 Nov, SPEED2's POE2T7828: a jewel's slot isn't one of the gear rounds', so candidates() raised
+                # KeyError 'Jewel N' and finalize lost the whole build)
                 continue
             base = self.ctx.bases_by_name.get(option.base)
             plain = normal_item(base) if base else None

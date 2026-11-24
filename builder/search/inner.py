@@ -2055,6 +2055,15 @@ def reapply_drift(search: Any, fresh: Callable[[], float] | None = None) -> dict
     return {"delivered": delivered, "after": after, "fresh": again, "worst": worst, "flagged": worst > REAPPLY_TOLERANCE}
 
 
+def why_items_safe(gear: Any) -> tuple[dict, str | None]:
+    """(hotfix 23 Nov) The per-slot "why this item" table and any error making it: an explanation never costs the run
+    its build (SPEED2's POE2T7828: a KeyError here delivered 0 DPS and no code)."""
+    try:
+        return gear.why_items(), None
+    except Exception as error:
+        return {}, f"{type(error).__name__}: {error}"
+
+
 def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state: dict, seconds: float,
                   regrow: float = 0.0) -> dict:
     """Switch to Full DPS, include damaging non-main groups in it, polish briefly, then export
@@ -2213,6 +2222,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     tree_check = reloaded["treeCheck"]
     assumptions += search.jewels.radius_notes()  # the larger Time-Lost radius (custom model)
     assumptions += list(search.play_notes.values())  # standing still not counted, the Low Life weighting
+    why_items, why_items_error = why_items_safe(search.gear)
     result = {
         **summary, "facts": facts, "code": code, "groups": groups, "conditions": conditions, "quests": quests,
         "play_guide": play, "finalize_trace": trace, "finalize_drift": restore_drift(build), "over_budget": build.over_budget,
@@ -2222,7 +2232,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         "clear_estimate": build.objective.clear(build.stats),
         "blind_spots": blind_spots,
         "gear": {slot: option.describe() for slot, option in equipped.items()}, "spent": spent,
-        "why_items": search.gear.why_items(),  # (SEARCHC1, on loan: what each item does for the build; Gear.why_items)
+        "why_items": why_items, "why_items_error": why_items_error,  # (SEARCHC1: what each item does for the build)
         "assumptions": assumptions, "flasks": search.gear.flask_report(),
         "verified": not mismatched, "verify_mismatch": mismatched,
         "tree_check": tree_check, "radius_jewels": reloaded["radiusJewels"], "left_out": {**search.jewels.left_out, **search.gems.left_out},
