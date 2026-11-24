@@ -3318,8 +3318,33 @@ local function unconnectedAllowed()
 	return allowed
 end
 
+-- Whether an allocated ascendancy node's own text lets the tree step from it onto main-tree node `other`: "Can Allocate
+-- Passive Skills from the <class>'s starting point" (Pathfinder's Path of the Sorceress / Warrior; the wordings are
+-- ModParser's AlternateClassStart, 2786-2787), and `other` must be next to that class's start. Never into a class start.
+local function startGrantedTo(node, other)
+	if not node.ascendancyName or other.ascendancyName or other.type == "ClassStart" then
+		return false
+	end
+	local map = build.spec.tree.classStartNodeNameMap or { }
+	for _, line in ipairs(node.sd or { }) do
+		local text = line:lower()
+		local className = text:match("can allocate passive skills from the (%a+)'s starting point")
+			or text:match("can allocate passives from the (%a+)'s starting point")
+		local startId = className and map[className:sub(1, 1):upper() .. className:sub(2)]
+		if startId then
+			for _, linked in ipairs(other.linked or { }) do
+				if linked.id == startId then
+					return true
+				end
+			end
+		end
+	end
+	return false
+end
+
 -- Every allocated node must be reachable under the game's rules: through allocated nodes from the
--- class start (or the ascendancy start, or a class start a jewel adds), or be a node a socketed
+-- class start (or the ascendancy start, or a class start a jewel adds, or an allocated ascendancy node
+-- that grants another class's start: startGrantedTo), or be a node a socketed
 -- jewel lets the tree take without a connection. Nodes reached only that way don't carry a path
 -- on. Returns the nodes that break the rule; with `prune`, deallocates them and recalculates.
 function bridge.treeCheck(args)
@@ -3359,7 +3384,8 @@ function bridge.treeCheck(args)
 		local node = queue[head]
 		head = head + 1
 		for _, other in ipairs(node.linked or { }) do
-			if other.alloc and not connected[other.id] and other.ascendancyName == node.ascendancyName then
+			if other.alloc and not connected[other.id]
+				and (other.ascendancyName == node.ascendancyName or startGrantedTo(node, other)) then
 				connected[other.id] = true
 				queue[#queue + 1] = other
 			end
