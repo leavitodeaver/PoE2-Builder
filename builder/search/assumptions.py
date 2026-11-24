@@ -402,6 +402,7 @@ KEEP_INFUSION = re.compile(r"^(?:Skills have )?(\d+(?:\.\d+)?)% chance to not re
                            r"Infusions) but still count as consuming(?: them| it)?$", re.I)
 VERISIUM_EVERY = re.compile(r"Every (?:(\d+(?:\.\d+)?) )?seconds?, gain an? Verisium Infusion", re.I)
 GRANTED_SKILL = re.compile(r"Grants Skill: (?:Level \S+ )?(.+?)\s*$")  # (context.granted_by's pattern)
+HIS_GRAVE_COMMAND = "His Grave Command"  # (MECH105: the Unborn Lich's; unbuilt_grants' own note for it)
 # (COV51, R39-8) Way of the Stonefist's Life-and-ES form of The Master's Reach (Assumptions.stonefist_recoup_split_rows)
 STONEFIST_RECOUP_SPLIT = re.compile(r"^(\d+(?:\.\d+)?)% of damage taken from enemies with an Open Weakness Recouped as "
                                     r"Life and Energy Shield$")
@@ -8446,6 +8447,19 @@ class Assumptions:
                 notes += models.pact_model(m.group(1), int(level.group(1)) if level else 20,
                                            getattr(self.build, "minion_lives", None) or {}, own,
                                            main_dps(getattr(self.build, "stats", None) or {}))
+                continue
+            if m.group(1) == HIS_GRAVE_COMMAND:  # (MECH105, AUDIT37 P4: why its captured Companion counts 0)
+                notes.append({"label": f"{HIS_GRAVE_COMMAND}: its captured Companion not counted*", "value": 0,
+                              "basis": (f"granted by {line['source']}. The game: it Hinders a Rare Undead, and one defeated "
+                                        "is \"captured and stored into a Soul Crystal Skill Gem\", which summons it \"as a "
+                                        "Reviving Companion\" (ActiveSkills grave_command; poe2db). Its damage is the "
+                                        "captured monster's, which the player picks in the campaign or maps: no data gives "
+                                        "it, and PoB has no Soul Crystal skill (SoulCrystalPlayer), so 0 (CLAUDE.md: no "
+                                        "source, 0): an UNDERCOUNT for a build that keeps such a Companion; the Hinder on "
+                                        "a Rare Undead isn't read either"),
+                              "play": ("Capture a strong Rare Undead with His Grave Command and summon it from its Soul "
+                                       "Crystal: its damage is on top of these numbers (not counted)."),
+                              "confidence": "LOW (an undercount)"})
                 continue
             notes.append({"label": f"{m.group(1)}: not counted", "value": 0,
                           "basis": f"granted by {line['source']}, but PoB built no skill of that name (it has no data for "

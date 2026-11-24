@@ -14645,10 +14645,11 @@ def deception_factor(cooldown: float, clone: float = DECEPTION_CLONE, uses: int 
 
 # A djinn's own time (MECH104; a possible OVERCOUNT: Kelari's Brutality and Deception, 0.8 s casts each every ~1.58 s on
 # build 18, fill ~101% of its time at base cast speed; at that build's own minion cast rate, 2.31 a second, they fill 55%
-# and nothing is cut: probe POE2T6508, its headline 9,557,266.1 with and without this cap). Whether a djinn performs one
-# Command at a time is UNVERIFIED (the patch notes' "Djinn" entries don't say; command_minion_does_not_interrupt only says
-# a Command doesn't cut the djinn's skill off, R29-3; RESEARCH question): the lower reading is the headline, the overlapping one a row in
-# the Command's note. A use's time is 1 / PoB's minion CastRate (the rate before the cooldown cap, with the build's
+# and nothing is cut: probe POE2T6508, its headline 9,557,266.1 with and without this cap). A djinn performs one Command
+# at a time: MEDIUM-LOW (RESEARCH55 R55-3: command_minion_does_not_interrupt is on the 11 djinn Commands and no other, and
+# none of them has play_commanded_additive_animation, the one Command stat for playing on top of the current action;
+# MECH105 narrowed the label): the headline, the overlapping reading a row in the Command's note. Whether a busy djinn
+# queues or drops a new Command is UNVERIFIED and moves no number: the model presses each Command when its djinn is free. A use's time is 1 / PoB's minion CastRate (the rate before the cooldown cap, with the build's
 # minion cast speed); Judgment's channel is its stages at that rate. Over 100%, the order of Commands worth the most DPS
 # gets the time. Base cast times (PoB Data/Skills/minion.lua castTime) only where PoB returned no rate.
 DJINN_CAST_TIMES = {"KnifeThrowSandDjinn": 0.8, "ExplosiveTeleportSandDjinn": 0.8, "HandSlamSandDjinn": 0.5,
@@ -14680,7 +14681,7 @@ def djinn_commands_model(rows: list[tuple[DjinnCommand, dict]], player_dps: floa
         if share <= 0:
             return 0.0, {"label": label, "value": 0, "confidence": "LOW",
                          "basis": (f"{command.name}: no time left on {command.djinn.split(',')[0]} after its better "
-                                   "Commands (one Command at a time: UNVERIFIED): not used (0)")}, None, 0.0
+                                   "Commands (one Command at a time: MEDIUM-LOW, R55-3): not used (0)")}, None, 0.0
         found = [number(h.get("Cooldown")) for h in hits.values() if number(h.get("Cooldown")) > 0]
         cooldown = min(found) if found else command.cooldown
         factor, how, more, rows, spaced = 1.0, "", "", "", ""
@@ -14782,8 +14783,8 @@ def djinn_commands_model(rows: list[tuple[DjinnCommand, dict]], player_dps: floa
         if share < 1:
             note["basis"] += (f"; {command.djinn.split(',')[0]}'s Commands would fill "
                               f"{sum(free[c.name][3] for c, _ in rows if c.djinn == command.djinn):.0%} of its time, so "
-                              f"this one runs at {share:.0%} of its rate (one Command at a time: UNVERIFIED, the lower "
-                              f"reading; if a djinn could overlap them: {free[command.name][0]:,.1f} DPS)")
+                              f"this one runs at {share:.0%} of its rate (one Command at a time: MEDIUM-LOW, R55-3; "
+                              f"the headline; if a djinn could overlap them: {free[command.name][0]:,.1f} DPS)")
         total += dps
         notes.append(note)
         if press:

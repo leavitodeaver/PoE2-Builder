@@ -61,3 +61,15 @@ def test_leap_ground_joins_shocked_ground():
     assert share == pytest.approx(1 - 0.7 ** 3) and "Thunderous Leap" in how
     share, how = shocked_ground({"Speed": 0, "_sg_leap": (0.0, 0.3, "no Spear")}, [])
     assert share == 0.0 and "Thunderous Leap's ground (no Spear: 0)" in how
+
+
+def test_his_grave_command_gets_its_own_zero_note():
+    from types import SimpleNamespace
+    from builder.search.assumptions import Assumptions
+
+    fake = SimpleNamespace(call=lambda method, **kw: {"lines": [
+        {"text": "Grants Skill: Level 20 His Grave Command", "source": "passive:Unborn Lich"}]})
+    self = SimpleNamespace(build=fake)
+    notes = Assumptions.unbuilt_grants(self, [])
+    assert len(notes) == 1 and notes[0]["value"] == 0 and "Soul Crystal" in notes[0]["basis"]
+    assert "no data gives it" in notes[0]["basis"] and "UNDERCOUNT" in notes[0]["basis"]

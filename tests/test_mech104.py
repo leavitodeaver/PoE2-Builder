@@ -1,4 +1,4 @@
-"""MECH104: a djinn's Commands fit in the djinn's own time (one Command at a time: UNVERIFIED, the lower reading)."""
+"""MECH104: a djinn's Commands fit in the djinn's own time (one Command at a time: MEDIUM-LOW, R55-3, the headline)."""
 import pytest
 
 from builder.search import models
@@ -27,7 +27,7 @@ def test_commands_that_fit_the_djinns_time_are_not_cut():
     rows = [deception(rate=2.5), brutality(rate=2.5)]
     dps, _, notes, presses = models.djinn_commands_model(rows, 0.0)
     assert dps == pytest.approx(1000 * 4 / 1.58 + 100 * models.blades_on_boss(0.3) / 1.58)
-    assert not any("UNVERIFIED" in n["basis"] for n in notes)
+    assert not any("R55-3" in n["basis"] for n in notes)
     assert presses["Kelari's Brutality"][0] == pytest.approx(1 / 1.58)
 
 
@@ -39,7 +39,7 @@ def test_commands_over_the_djinns_time_give_it_to_the_better_one_with_the_other_
     assert dps == pytest.approx(1000 * 4 / 1.58 + whole * left / (0.8 / 1.58))
     assert dps < 1000 * 4 / 1.58 + whole
     note = next(n for n in notes if n["label"].startswith("Kelari's Brutality"))
-    assert "UNVERIFIED" in note["basis"] and f"{whole:,.1f} DPS" in note["basis"]
+    assert "R55-3" in note["basis"] and f"{whole:,.1f} DPS" in note["basis"]
     assert presses["Kelari's Brutality"][0] < 1 / 1.58  # (the button cap sees the slower use)
     assert presses["Kelari's Deception"][0] == pytest.approx(1 / 1.58)
 
@@ -47,7 +47,7 @@ def test_commands_over_the_djinns_time_give_it_to_the_better_one_with_the_other_
 def test_each_djinn_has_its_own_time():
     fury = (BY["Ruzhan's Fury"], {2: {"AverageDamage": 100.0, "Cooldown": 2.0, "CastRate": 1 / 1.5}})
     rows = [deception(), brutality(rate=2.5), fury]  # (Kelari ~76%, Ruzhan 75%: neither over, 151% together)
-    assert not any("UNVERIFIED" in n["basis"] for n in models.djinn_commands_model(rows, 0.0)[2])
+    assert not any("R55-3" in n["basis"] for n in models.djinn_commands_model(rows, 0.0)[2])
 
 
 def test_a_single_command_longer_than_its_cooldown_runs_at_its_cast_time():
