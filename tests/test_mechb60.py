@@ -87,10 +87,15 @@ def _twister(**level):
 def test_twister_consume_lower_reading_and_rows():
     main = _twister(**{M.TWISTER_STAGE_STAT: 80})
     mods, notes = M.twister_consume_model(main, 1.0, 2.0, [("Whirling Slash", 3.0, 3)])
-    # k = 1: 1 consume a cast (capped by the casts), the extra twister x1.8 of one of 2 twisters: x1.9; k = 3: 1 a cast, x3.4 / 2 = x2.7
-    assert notes[0]["value"] == "x2.700"
-    assert mods[0]["value"] == pytest.approx(170.0)
-    assert "every twister of that cast (k = 3) x5.100" in notes[0]["basis"]
+    # (MECHB61, R57-14) k = 3: 1 consume a cast, the cast's one hit (its group's) by the empowered twisters: x3.4
+    assert notes[0]["value"] == "x3.400"
+    assert mods[0]["value"] == pytest.approx(240.0)
+    # the extras a new group: one more hit at x3.4, 2 x 3.4 = x6.8
+    assert "one more hit a consume (k = 3) x6.800" in notes[0]["basis"]
+    # 3 hits a cast near walls: the first at x3.4, the other 2 at (1 + 3) / (2 + 3) of the twisters: 1 + (2.4 + 2 x 2.4 x 0.8) / 3
+    mods, notes = M.twister_consume_model(main, 1.0, 2.0, [("Whirling Slash", 3.0, 3)], hits=3.0)
+    assert notes[0]["value"] == "x1.800"
+    assert "x3.080" in notes[0]["basis"]
 
 
 def test_twister_with_no_whirlwind_source_is_unchanged():

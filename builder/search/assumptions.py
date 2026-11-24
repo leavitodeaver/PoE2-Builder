@@ -3875,7 +3875,7 @@ class Assumptions:
             tw_mods, tw_notes = models.twister_consume_model(  # (MECHB60: its consumed Whirlwinds)
                 main, number(build.call("stats", fields=["Speed"]).get("Speed")) * main_time_share(build, main, hits=False),
                 number(seen.get("ProjectileCount")),
-                self.whirlwind_feeders(main), forbidden)
+                self.whirlwind_feeders(main), forbidden, head)  # (MECHB61, R57-14: the cast's hits on the boss)
             hand_mods, hand_notes = hand_mods + tw_mods, hand_notes + tw_notes
         if any(recovery_mod.SPRINT_LINE.search(t) for t in texts):  # (MECHC34, R26-22: the headline sprints 0; a row)
             sprint = recovery_mod.sprint_row(texts, {**build.call("stats", fields=["MovementSpeedMod"]),

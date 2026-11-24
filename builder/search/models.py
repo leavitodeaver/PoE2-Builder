@@ -13355,17 +13355,19 @@ TWISTER_CONSUME_ENTRY = "model-mechb60-twister-whirlwind"
 
 
 def twister_consume_model(main: Skill | None, casts: float, count: float, feeders: list[tuple[str, float, int]],
-                          forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+                          forbidden: set[str] = frozenset(), hits: float = 1.0) -> tuple[list[dict], list[dict]]:
     """Twister's consumed Whirlwinds (see above). `casts`: Twister's casts a second after the presses' time (its Speed x
     assumptions.main_time_share, so a consume never outruns a real cast); `count`: twisters a cast (PoB's
-    ProjectileCount); `feeders`: (skill, its uses a second, its maximum Whirlwind stages)."""
+    ProjectileCount); `feeders`: (skill, its uses a second, its maximum Whirlwind stages); `hits`: hits on the boss a
+    cast (recovery.twister_hits' headline, 1 in the open)."""
     if main is None or main.name != "Twister" or TWISTER_CONSUME_ENTRY in forbidden:
         return [], []
-    label = "Twister: consumed Whirlwinds (an additional twister, more damage)*"
+    label = "Twister: consumed Whirlwinds (the touching twister and its extras deal more)*"
     more = (number(main.level_stats.get(TWISTER_STAGE_STAT)) or TWISTER_STAGE_MORE) / 100
     uses = sum(max(f[1], 0.0) for f in feeders)
     top = max([f[2] for f in feeders if f[1] > 0] or [0])
     n = max(count, 1.0)
+    h = max(hits, 1.0)
     if casts <= 0 or uses <= 0 or top <= 0:
         return [], [{"label": label, "value": "x1.000", "confidence": "LOW", "entry": TWISTER_CONSUME_ENTRY,
                      "basis": ("no Whirling Slash or Whirlwind Lance the build presses makes a Whirlwind for it to consume "
@@ -13373,26 +13375,33 @@ def twister_consume_model(main: Skill | None, casts: float, count: float, feeder
                      "play": ("Press Whirling Slash before Twister so each twister consumes its Whirlwind" if not feeders
                               else "")}]
 
-    def gain(k: int, stage: float, every: bool) -> float:
-        c = min(uses / k, casts)
-        bonus = 1 + more * stage
-        return c / casts * ((bonus - 1) + bonus / n if every else bonus / n)
-    best = max(range(1, top + 1), key=lambda k: gain(k, k, False))
-    factor = 1 + gain(best, best, False)
-    all_k = max(range(1, top + 1), key=lambda k: gain(k, k, True))
-    lower_k = max(range(1, top + 1), key=lambda k: gain(k, k - 1, False))
+    def gain(k: int, reading: str) -> float:
+        share = min(uses / k, casts) / casts
+        bonus = 1 + more * k
+        if reading == "new":  # (the extras a new group: one more hit a consume)
+            return share * (bonus - 1 + bonus) / h
+        if reading == "walls":  # (later windows at the empowered twisters' share of the cast's)
+            return share * ((bonus - 1) + (h - 1) * (bonus - 1) * (1 + k) / (n + k)) / h
+        return share * (bonus - 1) / h
+    best = max(range(1, top + 1), key=lambda k: gain(k, "head"))
+    factor = 1 + gain(best, "head")
+    new_k = max(range(1, top + 1), key=lambda k: gain(k, "new"))
+    wall_k = max(range(1, top + 1), key=lambda k: gain(k, "walls"))
     c = min(uses / best, casts)
     names = ", ".join(f[0] for f in feeders if f[1] > 0)
-    note = {"label": label, "value": f"x{factor:.3f}", "confidence": "LOW", "entry": TWISTER_CONSUME_ENTRY,
+    note = {"label": label, "value": f"x{factor:.3f}", "confidence": "MEDIUM (the more) / UNVERIFIED (the group)",
+            "entry": TWISTER_CONSUME_ENTRY,
             "basis": (f"{names} used {uses:.2f} times a second, each Whirlwind built to {best} stage(s) then consumed: "
-                      f"{c:.2f} a second of Twister's {casts:.2f} casts; each adds a twister to the {n:g} fired, dealing "
-                      f"{more * best * 100:.0f}% more ({more * 100:g}% a stage, twister.csd). R57-2 open, so the lower "
-                      f"reading: the more on the additional twister only: x{factor:.3f}. Rows: the more on every twister "
-                      f"of that cast (k = {all_k}) x{1 + gain(all_k, all_k, True):.3f}; per additional stage only "
-                      f"(k = {lower_k}) x{1 + gain(lower_k, lower_k - 1, False):.3f}. The hit readers keep PoB's hits a "
-                      "cast (lower)"),
-            "play": (f"Build a Whirlwind with {best} {names.split(', ')[0]} use(s), then cast Twister through it: "
-                     f"without it x1, with it x{factor:.3f}")}
+                      f"{c:.2f} a second of Twister's {casts:.2f} casts. The touching twister and its {best} extra(s) deal "
+                      f"{more * best * 100:.0f}% more ({more * 100:g}% a stage, twister.csd; RESEARCH57 R57-14, MEDIUM), "
+                      f"the cast's other twisters of {n:g} don't. The extras taken as the cast's hit group (one hit a "
+                      f"0.66 s window: UNVERIFIED, the lower reading), so of the cast's {h:.2f} hit(s) on the boss the "
+                      f"first is theirs: x{factor:.3f}. Rows: the extras a new group, one more hit a consume (k = {new_k}) "
+                      f"x{1 + gain(new_k, 'new'):.3f}; near walls the later windows at the empowered twisters' share "
+                      f"(1 + k) / ({n:g} + k) (k = {wall_k}) x{1 + gain(wall_k, 'walls'):.3f}. The hit readers keep "
+                      "PoB's hits a cast"),
+            "play": (f"Build a Whirlwind with {best} {names.split(', ')[0]} use(s) on the boss, then cast Twister through "
+                     f"it: without it x1, with it x{factor:.3f}")}
     return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=TWISTER_CONSUME_ENTRY)], [note]
 
 

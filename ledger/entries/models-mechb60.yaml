@@ -20,5 +20,7 @@
   notes: >-
     MECHB60 (COV55's ranked list item 1; an UNDERCOUNT: PoB's Multiplier:WhirlwindStages is set only by Voltaxic Burst's
     box). Whirlwinds from the build's own Whirling Slash / Whirlwind Lance presses (no press, 0), built to the best stage
-    count; the lower reading (R57-2 open) puts the more on the additional twister only; rows for every twister and per
-    additional stage. The 660 ms interval stays recovery.twister_hits'.
+    count. MECHB61 (RESEARCH57 R57-14): the touching twister and its extras deal the more (MEDIUM), the extras in the
+    cast's hit group (UNVERIFIED, the lower reading): the cast's first hit on the boss at x(1 + 0.8 k); rows: the extras a
+    new group, the later windows near walls at the empowered twisters' share. The 660 ms interval stays
+    recovery.twister_hits'.
