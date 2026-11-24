@@ -7330,6 +7330,25 @@ def charged_mark_radius(level: int) -> float:
 
 
 SHOCKED_GROUND_MAGNITUDE = 20  # the base Shock (PoB's BaseShockMagnitude); the strongest Shock applies (PoB: the max)
+# Thunderous Leap's quality ground (MECH105; RESEARCH54 R54-6, MEDIUM): "(0-30)% chance to leave Shocked Ground when
+# Detonating Spears" (thunderous_leap_%_chance_for_shocked_ground_when_detonating, 1.5% a quality; PoB's act_dex.lua
+# qualityStats, which PoB applies to nothing), no duration of its own, so the definition's 6 s. Counted at the build's
+# own rate: the Leaps a second that find a Spear lying at the boss (1 - e^(-spears lying), Poisson), the Spears from the
+# DETONATED_SETS skills that leave them (SPEAR_MAKERS; other Spear sources not read, UNVERIFIED whether any), lying as
+# models.spike_standing gives them with the Leap's own Detonations only (other Detonators clearing them first: a small
+# OVERCOUNT, labelled); the Leap beside such a main skill, or the Leap as the main skill beside them. The ground's
+# radius and magnitude aren't in any file (SHOCKED_GROUND_RADIUS, the base Shock); duration modifiers not read.
+THUNDEROUS_LEAP = "Thunderous Leap"
+THUNDEROUS_LEAP_STAT = "thunderous_leap_%_chance_for_shocked_ground_when_detonating"
+SPEAR_MAKERS = ("Storm Lance", "Rapid Assault")
+
+
+def leap_ground_rate(leaps: float, chance: float, spears: float, how: str) -> tuple[float, float, str]:
+    """(Leaps a second that Detonate a Spear, the chance each leaves ground, how) for Thunderous Leap (above): `leaps` its
+    uses a second, `spears` the Spears lying on average."""
+    find = 1.0 - math.exp(-max(spears, 0.0)) if spears > 0 else 0.0
+    return max(leaps, 0.0) * find, min(max(chance, 0.0), 100.0) / 100.0, (
+        f"{leaps:.2f} Leaps/s, {find:.0%} finding a Spear ({spears:.2f} lying: {how})")
 
 
 # Chilled Ground under the boss (MECH76, for COV-A's "Enemies standing on Chilled Ground take 25% increased Fire Damage",
@@ -8195,6 +8214,16 @@ def shocked_ground(stats: dict, texts: list[str]) -> tuple[float, str]:
             radii.append((up, radius))
         else:
             notes.append(f"{CHARGED_MARK}'s ground ({how}: 0)")
+    if leap := stats.get("_sg_leap"):  # (MECH105, R54-6: Thunderous Leap's quality ground)
+        rate, chance, how = leap
+        up = _covered(rate, chance, SHOCKED_GROUND_DURATION)
+        if up > 0:
+            parts.append(f"{THUNDEROUS_LEAP}'s ground when Detonating Spears ({how}; {chance:.0%} a Leap that Detonates, "
+                         f"{SHOCKED_GROUND_DURATION:g} s by default, MEDIUM): {up:.0%}")
+            off *= 1 - up
+            radii.append((up, SHOCKED_GROUND_RADIUS))
+        else:
+            notes.append(f"{THUNDEROUS_LEAP}'s ground ({how}: 0)")
     if storm := stats.get("_sg_death_storm"):  # (MECH65: counted; MECH61 had it as a note, an undercount)
         rate, chance, how = storm
         up = _covered(rate, chance, models.DEATH_STORM_SECONDS)
@@ -9547,6 +9576,31 @@ class Conditions:
                  f"mitigation, stored over {recovery.HELBRYM_SOAK:g} s, when Helbrym's Composure expires; one per change "
                  f"into the supported form ({how}), kept {kept:.0%} (no other change in its soak; without that loss: "
                  f"{shifts:.2f}/s); a lump, so the Rage maximum caps it")]
+
+    def _leap_ground(self, stats: dict) -> tuple[float, float, str] | None:
+        """(MECH105) (Leaps a second that Detonate a Spear, chance, how) for shocked_ground, or None with no quality chance
+        (THUNDEROUS_LEAP's note): the Leap beside a SPEAR_MAKERS main skill, or the main Leap beside their groups."""
+        got = next((s.get("levelStats") or {} for s in self.build.call("activeSkills", levelStats=[THUNDEROUS_LEAP])["skills"]
+                    if s["name"] == THUNDEROUS_LEAP and not s.get("disabled")), {})
+        chance = number(got.get(THUNDEROUS_LEAP_STAT))
+        if chance <= 0:
+            return None
+        groups = self.build.call("groups")["groups"]
+        main_uses = number(models.at_main_share(stats).get("Speed"))
+        if self.main_skill == THUNDEROUS_LEAP:
+            makers = self._group_uses(groups, set(SPEAR_MAKERS))
+            leaps = main_uses
+            spears = sum(models.spike_standing(n, u, leaps) for n, u in makers.items())
+            how = ("; ".join(f"{n} {u:.2f} uses/s" for n, u in makers.items()) if makers
+                   else "no Storm Lance or Rapid Assault group beside it")
+        else:
+            leaps = self._group_uses(groups, {THUNDEROUS_LEAP}).get(THUNDEROUS_LEAP, self._chosen_use(THUNDEROUS_LEAP))
+            if self.main_skill in SPEAR_MAKERS:
+                spears = models.spike_standing(self.main_skill, main_uses, leaps)
+                how = f"{self.main_skill} {main_uses:.2f} uses/s"
+            else:
+                spears, how = 0.0, f"the main skill, {self.main_skill}, leaves no Spear here"
+        return leap_ground_rate(leaps, chance, spears, how + "; other Detonators clearing them first not taken off")
 
     def _chosen_use(self, name: str) -> float:
         """Uses per second of a skill beside the main one that no group rate covers: the search's chosen press rate for
@@ -11064,6 +11118,8 @@ class Conditions:
             stats["_raging_cry"] = self._raging_cry(models.power_of(stats))
         if HELBRYMS_HIDE in gem_types and self.main_skill:  # (MECHC44: Helbrym's Hide's Rage, rage_held)
             stats["_helbrym_rage"] = self._helbrym_rage(stats.get("_boss"))
+        if THUNDEROUS_LEAP in gem_types:  # (MECH105, R54-6: its quality ground at the Leaps that Detonate a Spear)
+            stats["_sg_leap"] = self._leap_ground(stats)
         stats["_shocked_ground"] = shocked_ground(stats, texts)
         creeping = self._creeping_chill(texts, stats) if CREEPING_CHILL in gem_types else None
         stats["_chilled_ground"] = chilled_ground(  # (MECH76, for COV-A's Desert's Scorn; MECH93: Creeping Chill)

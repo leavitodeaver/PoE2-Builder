@@ -45,3 +45,19 @@ def test_icestorm_tries_the_presence_edge_and_others_do_not():
     assert 4.0 in distance_candidates([], {"Spell"}, presence_radius=4.0, skill="Icestorm")
     assert distance_candidates([], {"Spell"}, presence_radius=4.0, skill="Fireball") == []
     assert conditions.HEART_OF_ICE == "Heart of Ice"
+
+
+def test_leap_ground_rate_needs_a_spear():
+    from builder.search.conditions import leap_ground_rate
+    rate, chance, _ = leap_ground_rate(0.5, 30, 0.0, "none")
+    assert rate == 0.0 and chance == pytest.approx(0.3)
+    rate, _, how = leap_ground_rate(0.5, 30, 3.0, "Storm Lance")
+    assert rate == pytest.approx(0.5 * (1 - 2.718281828 ** -3), rel=1e-6) and "finding a Spear" in how
+
+
+def test_leap_ground_joins_shocked_ground():
+    from builder.search.conditions import shocked_ground
+    share, how = shocked_ground({"Speed": 0, "_sg_leap": (0.5, 0.3, "test")}, [])
+    assert share == pytest.approx(1 - 0.7 ** 3) and "Thunderous Leap" in how
+    share, how = shocked_ground({"Speed": 0, "_sg_leap": (0.0, 0.3, "no Spear")}, [])
+    assert share == 0.0 and "Thunderous Leap's ground (no Spear: 0)" in how
