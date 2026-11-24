@@ -391,6 +391,21 @@ def test_jewel_budget_uses_crafting_while_market_data_is_thin() -> None:
     assert rare_prices.RarePriceModel().jewel("Jewel 1", affixes)["basis"] == "market"  # no materials
 
 
+def test_a_crafted_jewel_keeps_its_craft_route_however_many_samples() -> None:
+    """(JEWEL2, the manager's 23 Nov 19:12 ruling) COV54's trial fit (7 jewel samples, POE2T8021) priced a crafted 4 + effect
+    jewel asking ~375 div at 0.735 div from the market term, under the craft route: the crafted shape never takes the market
+    number now; a plain jewel still takes the cheaper of the two."""
+    plain = [craft_affix("Suffix"), craft_affix("Suffix"), craft_affix("Prefix"), craft_affix("Prefix")]
+    crafted = plain[:3] + [craft_affix("Prefix"), craft_affix("Prefix", crafted=True)]
+    fitted = rare_prices.RarePriceModel(samples={"jewel": 7}, fitted_at=1.0, materials=MATERIALS)
+    fitted.params["base"]["jewel"] = -9.0  # a market term far under the craft route, as the trial fit's
+    made = fitted.jewel("Jewel 1", crafted)
+    assert made["market"] < made["craft"]["total"]
+    assert made["basis"] == "crafting" and made["price"] == pytest.approx(made["craft"]["total"])
+    assert fitted.price("Jewel 1", crafted) == pytest.approx(made["craft"]["total"])
+    assert fitted.jewel("Jewel 1", plain)["basis"] == "market"
+
+
 def test_trade_link_reports_what_listings_ask(tmp_path) -> None:
     class Client:
         def site_unique_name(self, name, offline=False):

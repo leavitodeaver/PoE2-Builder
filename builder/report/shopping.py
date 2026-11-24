@@ -506,6 +506,10 @@ def jewel_prices(entry: dict, slot: str, mods: list[tuple[dict, dict]], model, d
     entry["price"] = priced["price"]
     if priced["basis"] == "crafting":
         entry["confidence"] = "crafting estimate (rough: chaos spam and 50/50s vary)"
+    if any(a.crafted for a in affixes):  # (JEWEL2, the manager's 19:12 ruling: the market ask as a labelled row)
+        entry["note"] = (entry.get("note", "") + " " if entry.get("note") else "") + ("Bought finished, this crafted shape asks far more: a median 375 div (160-800) across 6 "
+                                "searched mod packages on 23 Nov 2026 (asking prices, not sales; nearly every listing "
+                                "also had a Desecrated mod). The budget uses the craft route; Trade shows today's asks.")
     craft = priced["craft"]
     if craft:
         keep = [a for a in affixes if " / ".join(a.lines) in craft["base"]["mods"]]

@@ -79,6 +79,13 @@ LAZY_BATCH = 8  # affixes re-scored first in a lazy greedy step (doubling while 
 # 3 sockets from 3 mirrors (the cheapest divine-priced at 13,900), 4 sockets from 25 mirrors (at ~4,600 div a mirror)
 VERSION_FLOORS = {"Voices": {2: 1418.0, 3: 13900.0, 4: 115000.0}}
 ZAROKH = "Zarokh's Gift"  # (JEWEL1) the anoint that grants a Sinister Jewel Socket (zarokh_trial)
+# (JEWEL2; RESEARCH53 R-J4) Cadigan's Epiphany, a gloves augment: "Destroys all Augment Sockets on the item to create a Jewel
+# Socket" (ModRunes; limit 1, socket-bound, unique gloves allowed, never on Corrupted / Sanctified ones: rares.NOT_IN_SEALED).
+# PoB has no parser line for it: gloves that carry it read "Sockets: J" (Item.lua 817-826), which is the form written here.
+# 6 of the 20 live example builds wear it (R-J4). Sized on the gate references, POE2T7956
+CADIGAN = "Cadigan's Epiphany"
+CADIGAN_SLOT = "Gloves Jewel Socket 1"
+SEALED = re.compile(r"^(?:Corrupted|Sanctified)\s*$", re.M)
 # (JEWEL1) Items with jewel sockets ("Sockets: J ..."): PoB's slots "<item slot> Jewel Socket <n>" (ItemsTab.lua 217-262,
 # on these item slots), a jewel counting while its parent item has that many jewel sockets (CalcSetup 1446-1453, scaled by
 # the parent's "increased effect of Socketed Jewels"). Tabula Rasa (6), Eshtera's Path / Safrin's Resolve / Zaida's
@@ -657,6 +664,8 @@ class Jewels:
         if full and clock.now() < deadline:
             improved = self.item_socket_trial(deadline) or improved
         if full and clock.now() < deadline:
+            improved = self.cadigan_trial(deadline) or improved
+        if full and clock.now() < deadline:
             improved = self.try_new_socket(deadline) or improved
         if full and clock.now() < deadline:
             improved = self.unlock_round(deadline) or improved
@@ -667,6 +676,46 @@ class Jewels:
         if full and clock.now() < deadline:
             improved = self.granting_trial(deadline) or improved
         return improved
+
+    def cadigan_gloves(self, option: ItemOption | None) -> ItemOption | None:
+        """(JEWEL2) These gloves with Cadigan's Epiphany: their augment sockets and runes gone, one jewel socket in their
+        place, priced as the gloves less their runes plus the augment. None when they can't take it (no augment socket,
+        Corrupted / Sanctified, a socket-bound rune in them, a jewel socket already, or the catalog doesn't offer it)."""
+        gear, ctx = self.gear, self.ctx
+        if option is None or option.type != "Gloves" or CADIGAN in option.runes or SEALED.search(option.raw):
+            return None
+        base = ctx.bases_by_name.get(option.base)
+        if base is None or socket_count(base, option.unique, unique_text(ctx, option)) == 0:
+            return None
+        if item_jewel_sockets(option.raw)[0] or any(n in option.bound for n in option.runes):
+            return None
+        if CADIGAN not in gear.runes.candidates(base, option.unique, option.raw):
+            return None
+        lines = with_runes(option.raw, []).splitlines()
+        at = next((i for i, line in enumerate(lines) if line.startswith("Implicits:")), None)
+        if at is None:
+            at = next((i + 1 for i, line in enumerate(lines) if line.startswith("Item Level:")), len(lines))
+        price = option.price
+        if price is not None:
+            price += (gear.runes.price(CADIGAN) or 0.0) - sum(gear.runes.price(n) or 0.0 for n in option.runes)
+        return dataclasses.replace(option, raw="\n".join(lines[:at] + ["Sockets: J"] + lines[at:]), runes=(CADIGAN,),
+                                   price=price)
+
+    def cadigan_trial(self, deadline: float) -> bool:
+        """(JEWEL2) The equipped gloves with Cadigan's Epiphany and their new jewel socket filled with a plain rare (item
+        sockets take no unique jewel: R-J4), kept only if score less the budget weight x spend rises."""
+        build, gear = self.build, self.gear
+        trial = self.cadigan_gloves(build.equipped.get("Gloves"))
+        if trial is None or (trial.price or 0.0) > gear.left_for("Gloves") + 1e-9:
+            return False
+        snap, before = build.snapshot(), build.score - gear.lam * build.spent()
+        build.equip("Gloves", trial)
+        gear.settle()
+        self.fill_item_socket(CADIGAN_SLOT, JEWEL_BASES, deadline)
+        if build.score - gear.lam * build.spent() > before + EPSILON:
+            return True
+        build.restore(snap)
+        return False
 
     def shard_helmet(self, slot: str, option: ItemOption) -> ItemOption | None:
         """(JEWEL1) The helmet with a Raven-Touched Shard in a free socket or in place of its last rune, so it takes an

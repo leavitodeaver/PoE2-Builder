@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import faulthandler
 
 import pytest
@@ -395,6 +396,39 @@ def test_a_helmet_takes_zarokhs_gift_through_a_raven_touched_shard(search, monke
         build.restore(snap)
         pytest.skip("this helmet takes no Raven-Touched Shard")
     assert anoint_module.SHARD in shard.runes and anoint_module.capacity(shard) == 1
+    build.restore(snap)
+
+
+def test_cadigans_epiphany_turns_the_gloves_sockets_into_a_filled_jewel_socket(search, monkeypatch):
+    """(JEWEL2) Cadigan's Epiphany: the gloves lose their augment sockets and runes, PoB reads one jewel socket
+    ("Sockets: J"), the trial fills it with a plain rare and keeps it for a real gain; Corrupted gloves can't take it."""
+    from builder.search import jewels as module
+
+    build, gear, jewels = search.build, search.gear, search.jewels
+    # (this test's request has no price data, so the rune catalog offers nothing: the augment is offered here)
+    monkeypatch.setattr(gear.runes, "candidates", lambda *a, **k: [module.CADIGAN])
+    monkeypatch.setattr(gear.runes, "price", lambda name: 1.0)
+    snap = build.snapshot()
+    gloves = gear.build_rare("Gloves", clock.now() + 300)
+    if gloves is None:
+        pytest.skip("no rare gloves on this build")
+    build.equip("Gloves", gloves)
+    trial = jewels.cadigan_gloves(build.equipped["Gloves"])
+    if trial is None:
+        build.restore(snap)
+        pytest.skip("these gloves have no augment socket")
+    assert trial.runes == (module.CADIGAN,) and "Rune:" not in trial.raw
+    assert module.item_jewel_sockets(trial.raw)[0] == 1
+    assert jewels.cadigan_gloves(dataclasses.replace(trial, runes=(), raw=trial.raw.replace("Sockets: J", ""))
+                                 ) is not None  # (bare gloves with a socket count from their base still qualify)
+    sealed = dataclasses.replace(build.equipped["Gloves"], raw=build.equipped["Gloves"].raw + "\nCorrupted")
+    assert jewels.cadigan_gloves(sealed) is None
+    before = build.score
+    kept = jewels.cadigan_trial(clock.now() + 300)
+    print("PROBE cadigan", kept, before, "->", build.score, build.equipped.get(module.CADIGAN_SLOT))
+    if kept:
+        assert build.score > before and module.CADIGAN in build.equipped["Gloves"].runes
+        assert build.equipped.get(module.CADIGAN_SLOT) is not None
     build.restore(snap)
 
 

@@ -161,17 +161,22 @@ class RarePriceModel:
         return max(MIN_PRICE, math.exp(min(log_price, 20.0)))
 
     def jewel(self, slot: str, affixes, roll: float = 0.7) -> dict:
-        """A rare jewel's budget price and what it rests on. While the market data for jewels is thin,
-        a crafted jewel (4 + the effect line) takes the crafting estimate (a specific five-line jewel
-        rarely has listings, and those that do sell far above a model fitted on two-line ones) and a
-        plain one the cheaper of the market model and crafting (JEWEL1); with enough data, every
-        jewel takes the cheaper of the two."""
+        """A rare jewel's budget price and what it rests on. A crafted jewel (4 + the effect line)
+        always takes the crafting estimate (JEWEL2); a plain one the cheaper of the market model and
+        crafting (JEWEL1)."""
         market = self.price(slot, affixes, craft=False)
         craft = jewel_craft(affixes, self.materials, lambda keep: self.price(slot, keep, craft=False), roll)
         if craft is None:
             return {"price": market, "basis": "market", "market": market, "craft": None}
         crafted = any(getattr(a, "crafted", False) for a in affixes)
-        if self.samples.get("jewel", 0) < CALIBRATED_SAMPLES and not crafted and market < craft["total"]:
+        if crafted:
+            # (JEWEL2, the manager's 23 Nov 19:12 ruling on COV54's sample, POE2T8021) The crafted shape (4 + the effect
+            # line) always takes its craft route, however many jewel samples the model has: the market term has no term for
+            # the shape (fit() credits five top-tier lines with a stacking bonus price() never gives jewels), so COV54's
+            # trial fit priced a ~375 div ask at 0.735 div. Asks for the shape: median 375 div (160-800, 6 packages;
+            # asking prices, 35 of 36 listings with a Desecrated mod; COV54's jewel_samples.json): shown beside, not used
+            return {"price": max(MIN_PRICE, craft["total"]), "basis": "crafting", "market": market, "craft": craft}
+        if self.samples.get("jewel", 0) < CALIBRATED_SAMPLES and market < craft["total"]:
             # (JEWEL1, the user 23 Nov: "it thinks a jewel can only have two mods that increase damage?") A plain jewel's
             # craft estimate Chaos-spams every chosen mod from scratch (1 / its spawn odds: ~58 Chaos, ~5.7 div a mod), but
             # finished plain jewels sell far below that (trade, Forbidden Rites, 23 Nov, instant buyout: 3 of "increased
