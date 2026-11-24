@@ -4704,6 +4704,18 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + agg_mods, hand_notes + agg_notes
         passive_mods, passive_notes = passive_models.build_models(build, inputs, texts, found, main, supports)  # (COV-B)
         hand_mods, hand_notes = hand_mods + passive_mods, hand_notes + passive_notes
+        if main is not None and main.group is not None and models.MOMENTUM in supports.get(main.group, []):
+            # (GEM40: Momentum's 40% more from the build's own walk during a use; COV56's turn 2)
+            mo_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or [])
+            mo_got = next((x.get("levelStats") or {} for x in build.call(
+                "activeSkills", levelStats=[main.name])["skills"] if x["name"] == main.name), {})  # (by skill name)
+            mo_mods, mo_notes = models.momentum_model(
+                main, mo_types, supports.get(main.group, []),
+                {**stats, **build.call("stats", fields=["Speed", "MovementSpeedMod"])},
+                number(mo_got.get(models.MOMENTUM_MOVE_STAT)),
+                bool(build.call("getConfig")["input"].get("conditionStationary")), forbidden,
+                sum(number(mo_got.get(k)) for k in models.MOMENTUM_CHANNEL_STATS) / 1000)
+            hand_mods, hand_notes = hand_mods + mo_mods, hand_notes + mo_notes
         if any(models.RUN_AND_GUN.search(t.strip()) for t in texts):  # (Run and Gun: shotgun and sequence-fired skills)
             main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or [])
             standing = bool(build.call("getConfig")["input"].get("conditionStationary"))
@@ -4926,9 +4938,21 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + vs_mods, hand_notes + vs_notes
             if any(m.get("key") == "triggerRate" and number(m.get("value")) > 0 for m in vs_mods):
                 stampede_groups.add(stampede.group)
+        devour = next((s for s in found if s.name == models.DEVOUR and s.group is not None), None)
+        if devour is not None:  # (GEM40: Devour's near / far target attack speed; COV55's row 5)
+            own = 1.0
+            for mod in self.mods or []:
+                if mod.get("tag") == models.DEVOUR_ENTRY and mod.get("name") == "Speed":
+                    own *= 1 + number(mod.get("value")) / 100
+            row = (build.call("useRates", indices=[devour.group])["rates"] or [{}])[0]
+            dev_mods, dev_notes = models.devour_target_model(found, main, number(row.get("speed")) / (own or 1.0),
+                                                             forbidden)
+            hand_mods, hand_notes = hand_mods + dev_mods, hand_notes + dev_notes
         if main is not None and main.name in models.LEAP_ADDED_TIME:  # (MECHB51: R42-14, the distance leapt)
             leap_metres = (models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10
                            or conditions_mod.natural_distance({"Melee"} if main.melee else set(), main.name))
+            if main.name == models.DEVOUR:  # (GEM40: its damaging uses are far ones, models.DEVOUR_FAR_METRES)
+                leap_metres = max(leap_metres, models.DEVOUR_FAR_METRES)
             leap_mods, leap_notes = models.leap_time_model(main, leap_metres, conditions_mod.MELEE_DISTANCE,
                                                            number(stats.get("Speed")), forbidden)
             hand_mods, hand_notes = hand_mods + leap_mods, hand_notes + leap_notes
@@ -5071,6 +5095,7 @@ class Assumptions:
             spend_mods, spend_notes = models.heat_consumed_model(main, stats, heat, heat_how)
             hand_mods, hand_notes = hand_mods + spend_mods, hand_notes + spend_notes
         hand_notes = hand_notes + models.guided_shrine_notes(texts)  # (MECHB36: Guiding Palm's shrines, a labelled 0)
+        slam_hits = 1.0  # (GEM40: the slam's hits a use from aftershock_model, for detonated_set_model's other part)
         if main is not None:  # (returning projectiles' second boss hit: MECH-B, models.return_model)
             gem = build.ctx.gems.get(name) or {}
             back_mods, back_notes = models.return_model(
@@ -5089,6 +5114,8 @@ class Assumptions:
                 set(gem.get("weaponTypes") or []), models.cast_by_totem(found, main), forbidden)
             hand_mods, hand_notes = hand_mods + shock_mods, hand_notes + shock_notes
             hit_cut(build, shock_mods, main.name)  # (MECHB57: the Aftershocks' hits a slam, models.HIT_CUT_PER_USE)
+            slam_hits = next((number(m.get(models.HIT_CUT_PER_USE)) for m in shock_mods
+                              if m.get("name") == "DPS" and m.get(models.HIT_CUT_PER_USE)), 1.0)
         if main is not None and group and main.name in models.MULTI_SET_SKILLS:  # (MECH-B: Rolling Slam's two slams)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             slam_mods, slam_notes = models.multi_set_model(main.name, main.stat_set, sets)
@@ -5165,6 +5192,10 @@ class Assumptions:
             casts = 1.0 / duration if duration > 0 else None  # (one storm at a time, recast as it ends)
             shares = {e: self.infusion_share(e, ailments, casts) for e in ("Fire", "Cold", "Lightning")}
             storm_mods, storm_notes = models.firestorm_infusion_model(main, main.stat_set, sets, shares, forbidden)
+            storm_notes = storm_notes + models.storm_limit_row(  # (GEM40: a raised Limit, a row)
+                main.name, self.stat_limit(main.name, models.STORM_LIMIT_STATS[main.name], 1.0,
+                                           [e["text"] for e in source_lines]),
+                number((build.call("useRates", indices=[group["index"]])["rates"] or [{}])[0].get("castRate")), duration)
             hand_mods, hand_notes = hand_mods + storm_mods, hand_notes + storm_notes
             hit_cut(build, storm_mods, main.name)  # (GEM33: its hit part, the mod's hit_cut)
         if main is not None and group and main.name == models.FALLING_THUNDER:  # (GEM16: projectiles need Power Charges)
@@ -5300,7 +5331,8 @@ class Assumptions:
             det_mods, det_notes = models.detonated_set_model(main, main.stat_set, sets, number(stats.get("Speed")),
                                                              det_rate, det_how, forbidden, per_spike,
                                                              previous=self.mods, share=det_share,
-                                                             limit=det_limit, seconds=det_seconds)
+                                                             limit=det_limit, seconds=det_seconds,
+                                                             aftershock=slam_hits)
             hand_mods, hand_notes = hand_mods + det_mods, hand_notes + det_notes
             det_split = (models.detonated_share(main.name, number(stats.get("Speed")), det_rate, det_limit, det_seconds)
                          if det_share is None
@@ -5477,6 +5509,9 @@ class Assumptions:
             shocks, shocks_how = self.other_shocks(group["index"])
             gf_mods, gf_notes = models.galvanic_field_model(main, main.stat_set, number(stats.get("Speed")), shocks,
                                                             shocks_how, forbidden)
+            gf_notes = gf_notes + models.storm_limit_row(  # (GEM40: a raised Limit, a row)
+                main.name, self.stat_limit(main.name, models.STORM_LIMIT_STATS[main.name], 1.0,
+                                           [e["text"] for e in source_lines]), 0.0, 0.0)
             hand_mods, hand_notes = hand_mods + gf_mods, hand_notes + gf_notes
             hit_cut(build, gf_mods, main.name)  # (GEM33: its Orb's hits a second)
         if main is not None and group and main.name in models.HERALD_EXPLOSIONS:  # (GEM20 / GEM25: an explosion only on a kill)
@@ -11280,6 +11315,15 @@ class Assumptions:
         added += sum(int(m.group(1)) for t in texts if (m := LIMIT_LINE.match(t.strip())))
         _, seconds = self.limit_and_duration(group, base, 6.0)
         return base + added, seconds
+
+    def stat_limit(self, name: str, stat: str, base: float, texts: list[str]) -> float:
+        """(GEM40, models.storm_limit_row) a skill's Limit from a stat the bridge's instanceLimit misses: the stat, its
+        supports' base_limit_+ and the "+N to Limit" lines, as earthshatter_limit."""
+        got = next((x for x in self.build.call("activeSkills", levelStats=[name], supportStats=["base_limit_+"])["skills"]
+                    if x["name"] == name), {})
+        limit = number((got.get("levelStats") or {}).get(stat)) or base
+        limit += number((got.get("supportStats") or {}).get("base_limit_+"))
+        return limit + sum(int(m.group(1)) for t in texts if (m := LIMIT_LINE.match(t.strip())))
 
     def earthquake_patches(self, group: dict, texts: list[str]) -> tuple[float, float, float | None]:
         """(GEM38, models.earthquake_limit_model) (Limit, patch seconds, the fuse with Overabundance's less duration, R56-6)

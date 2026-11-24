@@ -6488,6 +6488,15 @@ MIRROR_ENTRY = "model-gem31-mirror-of-refraction-copies"
 # again when colliding with other mirrors"), so every mirror is shattered whatever the cast rate: s = 1 / I, the loop's
 # ceiling (MEDIUM-LOW: the guides' loop, note.com 23 Sep 2026 / kami-labs 16 Jul 2026; the mirror rate caps it, each
 # nova at most one boss hit). The chain row is then inside the cap (each mirror shatters once), so not given.
+# (GEM40, COV56's O2 on example build 9 Frostbolt, x3.26 at a mirror every 0.49 s: rechecked, no number changed) More
+# guides agree on the loop and on the rate the builds aim for: Mobalytics "0.5.5 immortal witchhunter frostbolt infinite
+# loop" (cast Frostbolt into the mirror; swapping off the mirror's weapon set stops the spawns and the loop), xthefarmerx's
+# "gemling frost bolt autobomber" (Breachlord's Amalgam "100% REQUIRED", each bolt into a mirror "splitting into 10-12
+# projectiles"), mmoexp's Witchhunter guide (Cooldown Recovery first; about 0.6 s between mirrors comfortable, 2-3 a
+# second the aim), so b09's 0.49 s (1.7 s / 3.44, PoB's own Cooldown Recovery for the skill) is the play those builds
+# reach. Not settled by any source (no boss numbers anywhere): how many of a nova's copies cross the boss (p, the LOW
+# geometry part) and whether a copy deals the full hit; the poe2wiki rule "Projectiles fired at the same time can Hit
+# the same target no more than once every 0.66 seconds" agrees with one copy hit a nova. The model stays LOW overall.
 def mirror_loop_source(main: Skill | None, main_types: set[str], group_gems: list[dict]) -> str:
     """What keeps the main skill's projectiles flying back through the mirrors ("" none): MECHB55's return_share (the
     agreed split: MECH-B the return side, GEM the mirror side), when every projectile returns (Breachlord's Amalgam and
@@ -9658,6 +9667,14 @@ GAS_GRENADE_CLOUD = {"Gas Grenade": (6, 6.0)}  # (GEM36: its cloud limit / secon
 # (POE2T7318: 12.0 s, 6.0 s with Overabundance I). None: the scored set. Rapid Assault and Stormblast Bolts aren't
 # Limit skills (COV55's limit_table): their table values stay.
 LIMIT_SET = {"Storm Lance": "Projectile", "Gas Grenade": "Poison Cloud", "Gas Arrow": "Poison Cloud", "Forge Hammer": None}
+# (GEM40; COV56's calibration O3, example build 13 Earthshatter: an OVERCOUNT) aftershock_model's DPS line (the slam's
+# hits a use, 1 + its summed Aftershock chance) is skill-wide, so it sits on the set-off part's row too, and the mix
+# above took the shattered spikes x1.25 on a 25% Aftershock build. The game: KeywordPopups Aftershock (26650308): "If not
+# otherwise specified, the Aftershock will deal the same damage as the initial impact, in the same area. Only Attack
+# damage can cause Aftershocks": it repeats the slam's impact, and the spikes shatter on another skill's use (a Warcry
+# or a Detonator), not on the slam. So the set-off part is divided by those hits a use (detonated_set_model's
+# `aftershock`); MEDIUM (the keyword's words; whether an Aftershock's own fissure leaves a second spike: UNVERIFIED, and
+# moot while the spikes stand at their Limit, as each shatter is capped by what lies there).
 DETONATED_TEXT = {"Gas Grenade": ("the boss is Ignited or Burning inside the cloud or a Detonator skill hits it",
                                   "an Ignite on the boss in the cloud (a Fire skill that Ignites) or a Detonator skill "
                                   "(Explosive Grenade, Explosive Shot, ...)")}
@@ -9709,11 +9726,13 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
                         how: str, forbidden: set[str] = frozenset(),
                         per_spike: float = 0.0, previous: list[dict] | None = None,
                         share: float | None = None, limit: float | None = None,
-                        seconds: float | None = None) -> tuple[list[dict], list[dict]]:
+                        seconds: float | None = None, aftershock: float = 1.0) -> tuple[list[dict], list[dict]]:
     """(GEM36: `share`, when given, the share set off, in place of the Detonators-only detonated_share: Gas Grenade's
     Ignite route, R48-5) Storm Lance's / Rapid Assault's use with the detonations the build's Detonators give (see above): `sets` the
     bridge's setRates, `uses` the main skill's uses a second, `detonations` the build's Detonator uses a second,
-    `per_spike` Earthshatter's "% more Damage with Hits for each Spike" (GEM20, spike_standing)."""
+    `per_spike` Earthshatter's "% more Damage with Hits for each Spike" (GEM20, spike_standing); `aftershock` (GEM40)
+    the slam's hits a use from aftershock_model, whose DPS line sits on every set row: the set-off part is taken back
+    out of it (GEM40, the comment above DETONATED_TEXT)."""
     if main is None or main.name not in DETONATED_SETS:
         return [], []
     plain_labels, det_label, _, _, entry = DETONATED_SETS[main.name]
@@ -9731,7 +9750,9 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
     word = DETONATED_WORD.get(main.name, "spears")
     standing = spike_standing(main.name, number(uses), number(detonations), limit, seconds) if per_spike > 0 else 0.0
     spikes_more = 1.0 + per_spike / 100.0 * standing
-    total = (plain + det * s) * spikes_more
+    shock = max(1.0, number(aftershock) or 1.0)  # (GEM40: the Aftershocks repeat the plain part only)
+    det_own = det / shock
+    total = (plain + det_own * s) * spikes_more
     factor = total / dps[scored]
     steer = scored == det_label and s <= 0
     if steer:
@@ -9752,13 +9773,17 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
                   f"them ({how}), so {plain_label} + {det_label} x {s:.0%} = {total:,.0f} DPS"
                   + (f"; with none, the {det_label} set is kept 10% under the {plain_label} so the search keeps it"
                      if steer else "")
+                  + (f"; the slam's Aftershocks (x{shock:.2f} on every set's row) repeat the {plain_label} only, so the "
+                     f"{det_label} is taken at {det_own:,.0f} (GEM40, MEDIUM: KeywordPopups Aftershock, \"the same damage "
+                     f"as the initial impact, in the same area\"; the row with them on it too: "
+                     f"{(plain + det * s) * spikes_more:,.0f})" if shock > 1.0 else "")
                   + (f"; its quality's {per_spike:g}% more Damage with Hits for each Spike, {standing:.1f} spikes standing "
                      f"on average (RESEARCH30 R30-5 (2), UNVERIFIED, MEDIUM-LOW: the spikes standing when the hit lands, "
                      f"every hit of the skill): x{spikes_more:.3f} (the row: 0 spikes, x1, "
                      f"{(plain + det * s):,.0f})" if per_spike > 0 else "")),
         "play": (f"Set off {main.name}'s {word} with {by_play} to get the {det_label}. Without one: "
                  f"{plain * (1.0 + per_spike / 100.0 * spike_standing(main.name, number(uses), 0.0, limit, seconds) if per_spike > 0 else plain):,.0f}; with "
-                 f"this build's: {total:,.0f}; every {word[:-1]}: {(plain + det) * spikes_more:,.0f}.")}]
+                 f"this build's: {total:,.0f}; every {word[:-1]}: {(plain + det_own) * spikes_more:,.0f}.")}]
 
 
 # Flameblast's stages and release rate (GEM18; an UNDERCOUNT of about x5 at base, an OVERCOUNT of the releases where the
@@ -25764,6 +25789,179 @@ def leap_time_model(main: Skill | None, metres: float, melee_metres: float, spee
                   + "; ".join(f"{d:g} m {kept(d)}" for d in rows)),
         "play": f"Leap from close by: each metre leapt adds {full / LEAP_FULL_METRES:.2f} s to {main.name}."}]
 
+
+
+# Devour's target distance (GEM40; COV55's row 5 on example build 20, an OVERCOUNT where Devour deals damage beside the
+# boss). The game (ActiveSkills wyvern_devour / PoB act_str.lua 3690, 26650308): "If the target is far enough away, you
+# will leap to them and damage nearby enemies where you land. Targeting nearby enemies or corpses will not perform a leap
+# or a Slam"; WyvernDevourPlayer: wyvern_devour_near_target_attack_speed_+%_final -15, wyvern_devour_far_target_attack_
+# speed_+%_final +20 (no description: hidden stats; poe2db's Devour page lists the same pair), and skill_added_attack_
+# time_by_distance_ms 500 (leap_time_model). Both stats are on WyvernDevourPlayer alone (checked: every GrantedEffect-
+# StatSets row's constant stats; the two Stats ids in Mods, PassiveSkills, GrantedEffectStatSetsPerLevel,
+# GrantedEffectQualityStats and SoulCoreStats: none; builder/, engine/: no reader). PoB reads neither and scores the
+# Slam on every use. So:
+# - Devour dealing damage (the main skill): only a far use leaps and Slams, so its uses are far ones: 20% more Attack
+#   Speed, and the leap's added time at the distance where a use counts as far. That distance is not in the game data
+#   ("far enough away"): Leap Slam's leap_slam_animation_distance_threshold 30 (3 m) is taken (LOW, named), where
+#   leap_time_model's added time is full (+0.5 s). Row: near uses (beside the boss) Slam nothing: 0.
+# - Devour used only to eat (a side skill feeding Power Charges from corpses or Hollow Focus bells): the quicker of a
+#   near use (x0.85 speed, no leap) and a far one (x1.2 and +0.5 s), the player's choice for a target beside them
+#   (MEDIUM-LOW): near unless its attack time is over ~1.5 s.
+DEVOUR = "Devour"
+DEVOUR_NEAR, DEVOUR_FAR = -15.0, 20.0  # (WyvernDevourPlayer's two _+%_final stats, game 26650308)
+DEVOUR_FAR_METRES = 3.0  # (LOW: Leap Slam's leap_slam_animation_distance_threshold 30, Devour's own threshold unknown)
+DEVOUR_ENTRY = "model-gem40-devour-target-distance"
+
+
+def devour_side_near(speed: float) -> bool:
+    """A side Devour that only eats: near (no leap) is quicker than far unless its base attack time is long."""
+    if speed <= 0:
+        return True
+    base = 1.0 / speed
+    return base / (1 + DEVOUR_NEAR / 100) <= base / (1 + DEVOUR_FAR / 100) + LEAP_ADDED_TIME[DEVOUR]
+
+
+def devour_target_model(skills: list[Skill], main: Skill | None, devour_speed: float,
+                        forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Devour's near / far attack speed (see above): a "Speed" MORE on Devour, far when it is the main skill, the
+    quicker one when it's a side skill that only eats. `devour_speed` PoB's Devour uses a second (its own row)."""
+    devour = next((s for s in skills if s.name == DEVOUR), None)
+    if devour is None or DEVOUR_ENTRY in forbidden or devour.triggered:
+        return [], []
+    if main is not None and main.name == DEVOUR:
+        return [raw_mod("Speed", "MORE", DEVOUR_FAR, DEVOUR, tag=DEVOUR_ENTRY)], [{
+            "label": "Devour: only a far target gives the leap and Slam, 20% more Attack Speed*",
+            "value": f"x{1 + DEVOUR_FAR / 100:.2f} speed", "confidence": "MEDIUM-LOW", "entry": DEVOUR_ENTRY,
+            "basis": ("the game: \"If the target is far enough away, you will leap to them and damage nearby enemies "
+                      "where you land. Targeting nearby enemies or corpses will not perform a leap or a Slam\"; "
+                      "WyvernDevourPlayer's far-target +20% / near-target -15% final attack speed (poe2db the same), "
+                      "which PoB doesn't read. The damaging uses are far ones: +20%, and the leap's added time at "
+                      f"{DEVOUR_FAR_METRES:g} m (the far threshold isn't in the data: Leap Slam's 3 m taken, LOW). "
+                      "Row: near uses beside the boss (x0.85 speed) Slam nothing: 0"),
+            "play": ("Devour a corpse or bell a few metres off the boss's far side so you leap onto it; one beside you "
+                     "eats it with no Slam: without the leap 0 damage from Devour")}]
+    near = devour_side_near(devour_speed)
+    # (far: its +20% and the leap's +0.5 s together, as one speed factor on its own use time)
+    value = DEVOUR_NEAR if near or devour_speed <= 0 else 100 * (
+        1 / (1 / (1 + DEVOUR_FAR / 100) + LEAP_ADDED_TIME[DEVOUR] * devour_speed) - 1)
+    return [raw_mod("Speed", "MORE", value, DEVOUR, tag=DEVOUR_ENTRY)], [{
+        "label": "Devour: eating beside you, the target's distance sets its speed*",
+        "value": f"x{1 + value / 100:.2f} speed ({'near' if near else 'far'})", "confidence": "MEDIUM-LOW",
+        "entry": DEVOUR_ENTRY,
+        "basis": ("WyvernDevourPlayer's near-target -15% / far-target +20% final attack speed (hidden stats, poe2db the "
+                  "same), which PoB doesn't read; Devour isn't the main skill here, so it's used to eat (Power Charges), "
+                  f"and the quicker use is taken: {'near (no leap)' if near else 'far (a leap, +0.5 s)'} at PoB's "
+                  f"{devour_speed:.2f} uses/s (the player's choice, MEDIUM-LOW)")}]
+
+
+# Momentum (GEM40; COV56's turn 2, an UNDERCOUNT: PoB applies its 40% only under the unticked "Moved 2m during Skill
+# use?" box, ConfigOptions 484, Condition:Moved2m, and nothing in our code ticks it). The game (26650308,
+# SupportMomentumPlayer): support_momentum_distance_travelled_to_gain_momentum 20 (2 m), support_momnetum_damage_+%_
+# final_with_momentum 40; PoB's description "causing it to deal more damage if you move a sufficient distance while
+# using the skill. Teleportation does not count towards the distance travelled"; poe2wiki: "After moving at least 2
+# metres during a single use of a Supported Skill, the rest of that use deals 40% more Damage" (no patch note: grep_notes
+# --history "Momentum", no hit). So it is the build's own walk during ONE use: a skill usable while moving (the game's
+# UsableWhileMoving type) walks usage.BASE_RUN (3.7 m/s, MEDIUM) x PoB's MovementSpeedMod x (1 + its own
+# movement_speed_+%_final_while_performing_action, e.g. Frostbolt -70) for the use's time (1 / PoB's Speed). A player
+# who sockets Momentum moves while using the skill (the play that feeds it), so the headline counts the 40% on every use
+# when that walk reaches 2 m before the hit, the hit taken at the use's end (MEDIUM-LOW; row: a hit at mid-use needs 2 m
+# in half the time). Not counted (0, PoB's own, named): skills that stop you (no UsableWhileMoving: a melee Strike);
+# travel skills' own dash or leap distance (UNVERIFIED how it counts; a forum report says vertical travel covers less);
+# a channel that doesn't move you (its hold is the channel model's: left at PoB's 0). Rows: standing still x1.
+# A channelled Travel skill (Rampage: "charge forward, Slamming the ground as you run"; its channel lasts at least
+# base_minimum_channel_time_ms 3000 + shapeshift_minimum_channel_time_ms_+ 650, longer with Rage) moves you all through
+# its use, so "the rest of that use" after 2 m is 1 - 2 / (speed x channel) of its damage, at its SHORTEST channel (a
+# lower bound: Rage prolongs it), the charge taken at BASE_RUN x MovementSpeedMod (LOW: Rampage's own
+# bear_rampage_base_movement_speed 55 isn't read, unit UNVERIFIED).
+MOMENTUM = "Momentum"
+MOMENTUM_METRES, MOMENTUM_MORE = 2.0, 40.0  # (SupportMomentumPlayer's two constants, game 26650308)
+MOMENTUM_MOVE_STAT = "movement_speed_+%_final_while_performing_action"
+MOMENTUM_CHANNEL_STATS = ("base_minimum_channel_time_ms", "shapeshift_minimum_channel_time_ms_+")
+MOMENTUM_ENTRY = "model-gem40-momentum-walk-a-use"
+
+
+def momentum_model(main: Skill | None, main_types: set[str], group_supports: list[str], stats: dict,
+                   action_move: float, standing: bool = False,
+                   forbidden: set[str] = frozenset(), channel: float = 0.0) -> tuple[list[dict], list[dict]]:
+    """Momentum's 40% more on the main skill when the build's walk during one use reaches 2 m (see above).
+    `action_move` the skill's movement_speed_+%_final_while_performing_action (0 if none); `channel` a channelled
+    Travel skill's shortest channel, seconds (MOMENTUM_CHANNEL_STATS)."""
+    from builder.search.usage import BASE_RUN
+    if main is None or MOMENTUM not in group_supports or MOMENTUM_ENTRY in forbidden or main.triggered:
+        return [], []
+    label = "Momentum: 40% more Damage after walking 2 m during a use*"
+    speed = number(stats.get("Speed"))
+    move = number(stats.get("MovementSpeedMod")) or 1.0
+    if {"Channel", "Travel"} <= main_types and number(channel) > 0 and not standing:
+        charge = BASE_RUN * move
+        share = max(0.0, 1.0 - MOMENTUM_METRES / (charge * number(channel)))
+        more = MOMENTUM_MORE * share
+        return ([raw_mod("Damage", "MORE", more, main.name, tag=MOMENTUM_ENTRY)] if more > 0 else []), [{
+            "label": label, "value": f"x{1 + more / 100:.3f}", "confidence": "MEDIUM-LOW", "entry": MOMENTUM_ENTRY,
+            "basis": (f"{main.name} charges you forward all through its channel: {BASE_RUN:g} m/s x{move:.2f} movement "
+                      f"speed = {charge:.2f} m/s (LOW: its own charge speed stat not read), 2 m in "
+                      f"{MOMENTUM_METRES / charge:.2f} s of its shortest {number(channel):.2f} s channel, so the rest, "
+                      f"{share:.0%} of its damage, gets the 40% (poe2wiki: \"the rest of that use\"; a longer channel "
+                      "with Rage gives more). Row: standing still x1"),
+            "play": (f"Momentum works by itself on {main.name}'s charge: {share:.0%} of each channel after the first 2 m. "
+                     f"Without it x1, with it x{1 + more / 100:.3f}")}]
+    if "UsableWhileMoving" not in main_types or "Channel" in main_types or speed <= 0 or standing:
+        why = ("the build stands still (its Standing still box)" if standing
+               else f"{main.name} is channelled (the rest-of-the-channel share isn't read, UNVERIFIED)"
+               if "Channel" in main_types
+               else f"{main.name} can't be used while moving (no UsableWhileMoving type)" if speed > 0
+               else "PoB gives the main skill no uses")
+        return [], [{"label": label, "value": "x1", "confidence": "MEDIUM-LOW", "entry": MOMENTUM_ENTRY,
+                     "basis": f"{why}: not counted (PoB's own 0, the box unticked)"}]
+    walk = BASE_RUN * move * max(0.0, 1 + number(action_move) / 100)
+    seconds = 1.0 / speed
+    metres = walk * seconds
+    on = metres >= MOMENTUM_METRES - 1e-9
+    half = walk * seconds / 2 >= MOMENTUM_METRES - 1e-9
+    factor = 1 + MOMENTUM_MORE / 100 if on else 1.0
+    note = {"label": label, "value": f"x{factor:.2f}", "confidence": "MEDIUM-LOW", "entry": MOMENTUM_ENTRY,
+            "basis": (f"walking while using {main.name}: {BASE_RUN:g} m/s x{move:.2f} movement speed x"
+                      f"{1 + number(action_move) / 100:.2f} while performing it = {walk:.2f} m/s over its "
+                      f"{seconds:.2f} s use = {metres:.2f} m ({'at least' if on else 'under'} Momentum's 2 m before "
+                      f"the hit, taken at the use's end; poe2wiki: \"the rest of that use deals 40% more Damage\"). "
+                      f"Rows: standing still x1; the hit at mid-use x{1 + MOMENTUM_MORE / 100 if half else 1.0:.2f}"),
+            "play": (f"Keep walking while you use {main.name}: Momentum's 40% more needs 2 m covered during each use "
+                     f"(you cover {metres:.2f} m). Without it x1, with it x{1 + MOMENTUM_MORE / 100:.2f}"
+                     + ("" if on else " (more movement speed would reach it)"))}
+    if not on:
+        return [], [note]
+    return [raw_mod("Damage", "MORE", MOMENTUM_MORE, main.name, tag=MOMENTUM_ENTRY)], [note]
+
+
+# Firestorm's storms and Galvanic Field's orbs above one (GEM40; GEM39's next step 4, RESEARCH57 R57-7 / R57-13
+# UNVERIFIED: whether two storms / orbs both hit one boss). Their Limits (firestorm_max_number_of_storms 1,
+# galvanic_field_maximum_number_of_spheres 1, game 26650308) aren't "number_of_X_allowed" stats, so the bridge's
+# instanceLimit misses them: read as Assumptions.earthshatter_limit reads its spikes (the stat + Overabundance's
+# base_limit_+ + the "+N to Limit" lines). The headlines stay one: Firestorm's bolts share the boss's per-target hit
+# limit (0.15 s: a second storm adds no hits under it, firestorm_rate_scale's shared reading), Galvanic Field one Orb
+# a Shock. A raised Limit is a ROW (the manager's rule: a raised cap that adds no damage on a lone boss stays a row):
+# Firestorm up to min(Limit, casts x duration) storms, each with its own hit limit (the per-storm reading); Galvanic
+# Field a second Orb from a second Shock with the Buff up (MEDIUM-LOW).
+STORM_LIMIT_STATS = {"Firestorm": "firestorm_max_number_of_storms", "Galvanic Field": "galvanic_field_maximum_number_of_spheres"}
+
+
+def storm_limit_row(name: str, limit: float, casts: float, duration: float) -> list[dict]:
+    """A row note for Firestorm / Galvanic Field when the build's Limit is over one (see above); [] at one."""
+    if limit <= 1:
+        return []
+    if name == FIRESTORM:
+        up = min(limit, max(casts, 0.0) * max(duration, 0.0)) if casts > 0 and duration > 0 else limit
+        return [{"label": f"Firestorm: Limit {limit:g} storms (a row, not the headline)*",
+                 "value": f"up to {up:.2f} storms", "confidence": "LOW",
+                 "basis": (f"the build's Limit {limit:g} (firestorm_max_number_of_storms + base_limit_+ + \"+N to "
+                           f"Limit\"), min(Limit, {casts:.2f} casts/s x {duration:.2f} s) = {up:.2f} storms on the boss. "
+                           "Headline: one storm's bolts, as they share the boss's 0.15 s hit limit (RESEARCH57 R57-7, "
+                           f"UNVERIFIED); if each storm has its own: up to x{up:.2f} the storm's damage")}]
+    return [{"label": f"Galvanic Field: Limit {limit:g} Orbs (a row, not the headline)*", "value": f"up to x{limit:g} the Orb",
+             "confidence": "LOW",
+             "basis": (f"the build's Limit {limit:g} (galvanic_field_maximum_number_of_spheres + base_limit_+ + \"+N "
+                       "to Limit\"): each Orb needs its own Shock with the Buff up (RESEARCH57 R57-13, UNVERIFIED that "
+                       "two attach to one boss); headline one Orb")}]
 
 # Skills the Quarterstaff buffs pass over (MECHB51; PLANS7 gs-frozen-locus-ignored-buffs.md, an OVERCOUNT guard): the
 # game's active_skill_is_ignored_by_mantra_of_destruction / _staggering_palm / _charged_staff, implicit flags with no

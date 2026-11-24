@@ -1,0 +1,37 @@
+# GEM40 (24 Nov 2026): COV56's calibration overcounts and COV55's Devour row, the GEM lane.
+- id: model-gem40-devour-target-distance
+  title: "Devour's near-target 15% less / far-target 20% more attack speed: a damaging Devour is a far use (a leap and Slam); a Devour that only eats takes the quicker use"
+  kind: model
+  model: devour_target_model
+  stats: ["wyvern_devour_near_target_attack_speed_+%_final", "wyvern_devour_far_target_attack_speed_+%_final"]
+  skill: [Devour]
+  confidence: MEDIUM-LOW
+  notes: >-
+    The game (26650308, ActiveSkills wyvern_devour): "If the target is far enough away, you will leap to them and damage
+    nearby enemies where you land. Targeting nearby enemies or corpses will not perform a leap or a Slam".
+    WyvernDevourPlayer near -15 / far +20 (hidden stats; poe2db's Devour page lists the same pair); on that stat set
+    alone (checked: GrantedEffectStatSets, Mods, PassiveSkills, GrantedEffectStatSetsPerLevel, GrantedEffectQualityStats,
+    SoulCoreStats). PoB reads neither. Devour as the main skill: +20% and the leap's added time at 3 m (Leap Slam's
+    animation threshold taken for "far enough", LOW); near uses Slam nothing (row 0). A side Devour (eating corpses or
+    Hollow Focus bells for Power Charges): near (x0.85) unless far's x1.2 + 0.5 s leap is quicker.
+  sources: ["builder/search/models.py (devour_target_model)", "builder/search/assumptions.py (its hook)"]
+  test_in_game: "Devour a corpse beside you vs one 4 m away: does the near one deal no damage, and how long does each take?"
+  status: proposed
+- id: model-gem40-momentum-walk-a-use
+  title: "Momentum's 40% more Damage when the build's walk during one use of the skill reaches 2 m (PoB: only under its unticked box)"
+  kind: model
+  model: momentum_model
+  stats: ["support_momnetum_damage_+%_final_with_momentum", "support_momentum_distance_travelled_to_gain_momentum"]
+  skill: [Momentum]
+  confidence: MEDIUM-LOW
+  notes: >-
+    SupportMomentumPlayer (26650308): 2 m, 40% more. poe2wiki: "After moving at least 2 metres during a single use of a
+    Supported Skill, the rest of that use deals 40% more Damage"; teleports don't count. PoB maps it to Damage MORE
+    under Condition:Moved2m, set only by the "Moved 2m during Skill use?" box (ConfigOptions 484), which nothing ticks.
+    The walk during a use: usage.BASE_RUN 3.7 m/s x MovementSpeedMod x (1 + the skill's movement_speed_+%_final_while_
+    performing_action) x 1 / Speed, for skills usable while moving; the hit taken at the use's end. Not counted
+    (PoB's 0): skills that stop you, travel skills' own dash distance, channels that don't move you, standing still.
+    A channelled Travel skill (Rampage) gets 1 - 2 m / (BASE_RUN x MovementSpeedMod x its shortest channel) of the 40%.
+  sources: ["builder/search/models.py (momentum_model)", "builder/search/assumptions.py (its hook)"]
+  test_in_game: "Frostbolt + Momentum walking while casting: is the 40% shown on the hit at the end of the cast?"
+  status: proposed
