@@ -86,9 +86,8 @@
     "constantStats": [["active_skill_damage_+%_final_while_dual_wielding", -20]],
     "stats": ["is_area_damage"]
    },
-   "assumptions": ["attack speed 125% of base x 0.9: the combo's third (Final) strike has 25% less attack speed, so three strikes take 1 + 1 + 1/0.75 = 3.33 swings' time (x0.9 on the rate), MEDIUM"],
+   "assumptions": ["attack speed 125% of base x 0.9: the combo's third (Final) strike has 25% less attack speed, so three strikes take 1 + 1 + 1/0.75 = 3.33 swings' time (x0.9 on the rate), MEDIUM", "Rupture (200% of the Physical Hit, 400% on the Final Strike): modelled in builder/preview/rupture.py on RESEARCH55 R55-10's working reading, the same Bleed total dealt sooner (MEDIUM-LOW; no game definition, UNVERIFIED): Bleeds don't stack, so the rest of a replaced Bleed is recovered, up to the strikes' limit; rows at 0 and the upper case (each strike adds its limit)"],
    "not_modelled": [
-    "Rupture (Bleeding equal to 200% of the Physical hit, 400% on the Final Strike): poe2db says it causes the Bleeding damage to be dealt more quickly, so it is read as moving Bleed damage earlier, not adding to its total, and counts 0 on sustained DPS (UNVERIFIED; no game definition found: KeywordPopups has no Rupture entry, poe2db's Rupture page is a support gem)",
     "the gore explosion (250%, 1.4 m, when hitting a Bleeding target): an UNDERCOUNT for a Bleed build", "the Final Strike's own damage is read as the other strikes' (poe2db shows no separate damage line for it)"
    ],
    "sources": ["https://poe2db.tw/us/Haemorrhage (read 23 Nov 2026: Level 20 (Max), tier 3, 30 Mana, Attack Speed 125% of base, Attack Damage 103%, req 90 / 86 Str / 86 Dex; Final Strike 25% less Attack Speed; dual wielding 20% less)", "RESEARCH53 R53-1 section C"],

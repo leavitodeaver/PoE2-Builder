@@ -40,15 +40,17 @@ curve (gems.json curve_reference: Lightning Spear; 20/13 = 1.406, the median of 
    naming one is told why; none is scored from a guessed number. When the damage is known they need a
    TrapTool weapon type too (below).
    DONE: Blade Conduit's Shocked Ground, through MECH-A's shocked_ground (three table rows in conditions.py, inert
-   unless it is the main skill). Haemorrhage's Rupture is labelled and counts 0: poe2db says it deals Bleeding more
-   quickly, read as moving damage earlier, not adding to the total (UNVERIFIED).
+   unless it is the main skill). Haemorrhage's Rupture (PREVIEW3, rupture.py; the manager's ruling, 23 Nov 14:53):
+   a labelled model on R55-10's reading, the same total dealt sooner (MEDIUM-LOW): Bleeds don't stack, so the rest of a
+   replaced Bleed is recovered, up to the strikes' limit; rows at 0 and the upper case (each strike adds its limit).
    NEXT: Molten Forge, the traps once unblocked (needs a
    TrapTool weapon type in PoB's weaponTypeInfo and a throw / cooldown cycle), Ethereal Knives / Whirling Blades
    (shotgun overlap like R51-4).
 3. Supports: Overchannel, Impaling Blade II / Rending Blade (a periodic extra hit), Galvanising Blades, Sandstorm,
    Abundant Remnants I (Remnant sources), Conceal / Volatile Shades with the mechanics.
 4. Mechanics. DONE (PREVIEW2): the Stealth cycle (stealth.py: Shroud's own use rate -> Ambushes; Conceal's 10 Darkness;
-   Shades in range, LOW, with a row without them; no source = 0 with a note). Stances: their published parts are rows,
+   Shades in range, LOW, with a row without them; no source = 0 with a note). Conceal supports only skills that enter
+   Stealth (PREVIEW3: a preview skill type, PreviewStealth, that only Shroud carries; lua.py adds it to PoB's SkillType). Stances: their published parts are rows,
    NOT counted, because 1.0 publishes neither when a stance is active nor its buff values. The plan as first written:
    (with the MECH lanes' patterns): Stances (the search picks the stance as a play strategy, per skill);
    Darkness (x(1 + 0.03 D) on Ambush hits, D from the build's sources per Stealth cycle); Shades (1 + 0.5 x Shades in
@@ -56,13 +58,19 @@ curve (gems.json curve_reference: Lightning Spear; 20/13 = 1.406, the median of 
    (fed by MECH-A's Immobilise cycles); Spectral Impale (LOW).
 5. Uniques (as item data, PoB-parseable lines first; Oro's Sacrifice, Agnar, Ashcaller DONE on hidden bases derived
    from their cards): Windripper, Blueflame Bracers (changed), Oro's Sacrifice,
-   Molten Tenet, Agnar, Riptide ... Each needs its base; granted skills have no data yet.
+   Molten Tenet, Agnar, Riptide ... Each needs its base; granted skills have no data yet. Sacrificial Flame (PREVIEW3,
+   flames.py): counted 0 Flames with a per-Flame table at 12% and 4% (poe2db's two blocks); its Frenzy Charge at maximum 0.
 6. Classes / ascendancies: the Knight's 10 nodes (text published); Shadow / Duelist starts wait for the 1.0 tree.
 
 ## Release day (~11 Dec 2026; patch notes ~4 Dec)
 1. ~4 Dec: read the full patch notes into the patch-notes archive (NOTES lane) and check every preview row and every
    flag against them; mark rows that changed; turn flags into tasks for the lanes that own the code (supports: GEM;
    jewel sockets / craft: JEWEL; ascendancies: MECH lanes; tree: SEARCH-B).
+   Re-check first (the manager, 23 Nov 14:53): Rupture's definition (rupture.py's reading: same total sooner, or added);
+   Sacrificial Flame's maximum, duration and removal, and which per-Flame block (12% / 4%) is current (flames.py); and
+   trap damage. For traps, check first poe2db's Traps page's two unlabelled weapon-style entries, Miracle Apparatus
+   (Physical 32-54, Fire 7-10, crit 10%, 1.85 a second) and Rune Gear (Physical 19-32, crit 10%, 1.70), not in
+   BaseItemTypes (RESEARCH55 R55-9): if they are trap weapons at release, trap skills likely scale from them.
 2. Release: re-export the game files (`python -m builder.data.gamefiles`), update the PoB checkout (vendor\) to its
    1.0 release and re-dump `data/pob-*` (`uv run python -m builder.data dump`).
 3. For each row in builder/preview/gems.json: if PoB 1.0 has the gem, delete the row (PoB's real data wins; lua.py

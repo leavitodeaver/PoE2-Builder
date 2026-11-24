@@ -306,10 +306,31 @@ def test_blade_conduits_ground_goes_through_the_shocked_ground_model(engine):
     assert share == pytest.approx(4 / 6, rel=0.01) and "Blade Conduit" in how
 
 
-def test_haemorrhages_rupture_is_labelled_not_counted():
+def test_haemorrhages_rupture_is_a_labelled_model_not_a_zero():
+    from builder.preview.rupture import LIMIT, rupture_gain
+
     row = next(r for r in preview.gem_rows() if r["name"] == "Haemorrhage")
-    text = " ".join(row["not_modelled"])
-    assert "dealt more quickly" in text and "UNVERIFIED" in text
+    assert not any("Rupture" in text for text in row["not_modelled"])
+    assert any("rupture.py" in text and "UNVERIFIED" in text for text in row["assumptions"])
+    # (R55-10's example: 2 hits a second, every hit Bleeds, 5 s Bleeds of 15% of a hit a second, hit 1)
+    headline, adds, bleeds = rupture_gain(0.15, 5.0, 2.0, 1.0, 1.0)
+    assert bleeds == 2.0 and headline == pytest.approx(0.15 * 9) and adds == pytest.approx(2 * LIMIT, rel=1e-3)
+    assert rupture_gain(0.15, 5.0, 0.1, 1.0, 1.0)[0] == 0  # (Bleeds that never overlap lose nothing)
+    assert rupture_gain(10.0, 5.0, 2.0, 1.0, 1.0)[0] == pytest.approx(2 * LIMIT)  # (the strikes' limit binds)
+    assert rupture_gain(0.15, 5.0, 2.0, 0.0, 1.0) == (0.0, 0.0, 0.0)  # (no Bleed chance: 0, never a flat rate)
+
+
+def test_sacrificial_flame_is_a_table_and_counts_zero():
+    from types import SimpleNamespace
+
+    from builder.preview.flames import flame_note, flame_table
+
+    assert flame_table()[:3] == [(1, (12, 4)), (2, (24, 8)), (3, (36, 12))]
+    oro = SimpleNamespace(equipped={"Weapon 1": SimpleNamespace(name="Oro's Sacrifice")})
+    notes = flame_note(oro)
+    assert len(notes) == 1 and notes[0]["value"] == 0 and "12% or 4%" not in notes[0]["label"]
+    assert "3 Flames: 36% or 12%" in notes[0]["basis"] and preview.ASTERISK in notes[0]["basis"]
+    assert flame_note(SimpleNamespace(equipped={})) == []
 
 
 def test_the_ambush_arithmetic():

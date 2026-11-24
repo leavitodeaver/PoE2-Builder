@@ -85,7 +85,7 @@
    "type": "Two Hand Sword",
    "key": "Oro's Sacrifice, Twilight Longsword",
    "raw": "Oro's Sacrifice\nTwilight Longsword\nLevelReq: 54\nImplicits: 0\nGrants Skill: Level 19 Infernal Step\nNo Physical Damage\nAdds 248 to 384 Fire Damage\n21% increased Attack Speed\nHits with this Weapon always Ignite targets that are on Full Life\nGain 12% of Damage as Extra Fire Damage per Sacrificial Flame\nGain 1 Frenzy Charge every 1 second while at maximum Sacrificial Flame\n",
-   "not_modelled": ["Infernal Step (a granted skill with no data yet)", "Hits with this Weapon always Ignite targets on Full Life: PoB reads nothing from it (probe, 23 Nov), an UNDERCOUNT on the opening hit", "Sacrificial Flame: what gains it and its maximum are unpublished, so its extra Fire and Frenzy Charges count 0 (an UNDERCOUNT; no flat stack guess)"],
+   "not_modelled": ["Infernal Step (a granted skill with no data yet)", "Hits with this Weapon always Ignite targets on Full Life: PoB reads nothing from it (probe, 23 Nov), an UNDERCOUNT on the opening hit", "Sacrificial Flame: each Infernal Step use gains 1 (MEDIUM-HIGH as preview data), but its maximum, duration and removal are unpublished, so its extra Fire counts 0 Flames in the headline, with a per-Flame table at 12% and 4% (poe2db's two blocks; builder/preview/flames.py), and the Frenzy Charge at maximum counts 0 (an UNDERCOUNT; no flat stack guess)"],
    "sources": ["https://poe2db.tw/us/Oros_Sacrifice (read 23 Nov 2026; top block; the '###' block shows Level 13, 250-343 and 4% per Flame)", "RESEARCH53 R53-1 E"],
    "confidence": "MEDIUM (one roll shown per line)"
   },

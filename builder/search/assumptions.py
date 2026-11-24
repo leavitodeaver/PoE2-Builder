@@ -5689,6 +5689,11 @@ class Assumptions:
                 ambush_stats["_main_share"] = main_time_share(build, main)
             ambush_mods, ambush_notes = ambush_model(build, main, ambush_stats)
             hand_mods, hand_notes = hand_mods + ambush_mods, hand_notes + ambush_notes
+            from builder.preview.flames import flame_note  # (PREVIEW3, the same loan: Sacrificial Flame's table, 0)
+            from builder.preview.rupture import rupture_model  # (PREVIEW3: Haemorrhage's Rupture, a labelled model)
+
+            rupture_mods, rupture_notes = rupture_model(build, main)
+            hand_mods, hand_notes = hand_mods + rupture_mods, hand_notes + rupture_notes + flame_note(build)
         if agony_rate > 0:  # (a press: the button cap counts it, as Bastion of Light's taps: models.ITEM_PRESSES)
             presses = getattr(build, models.ITEM_PRESSES, None)
             if isinstance(presses, dict):
