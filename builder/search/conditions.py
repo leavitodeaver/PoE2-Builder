@@ -725,6 +725,12 @@ BLIND_LINE = re.compile(r"\bblind", re.I)
 # rate) a line's own cap: "no more than once per second" / "no more than once every N seconds" (combat_frenzy.csd's
 # skill_combat_frenzy_x_ms_cooldown wording; any line saying it is capped the same way)
 ONCE_EVERY = re.compile(r"no more than once (?:per second|every (\d+(?:\.\d+)?) seconds?)", re.I)
+# (MECHC57, an OVERCOUNT on a build that Freezes often) The gem's own description says only "This can only occur once every
+# few seconds", so ONCE_EVERY never capped it: its number is skill_combat_frenzy_x_ms_cooldown (8000 ms at level 1, 6100
+# at 20, a level stat; -50 ms per quality on its alternate quality), read at the gem's level and quality from PoB's
+# levelStats into stats["_combat_frenzy_every"] (Conditions.evidence).
+COMBAT_FRENZY_LINE = re.compile(r"grants you a Frenzy Charge when you Freeze, Electrocute or Pin", re.I)
+COMBAT_FRENZY_STAT = "skill_combat_frenzy_x_ms_cooldown"
 
 
 # (MECHC44, an OVERCOUNT before) The main skill's hits and uses feed the charge lines at its share of the fight as the
@@ -801,6 +807,10 @@ def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
                                f"Charges while used ({stats['_main_no_power']}): its hits make none (without it: "
                                f"{_charge_rate(text, kind, {**stats, '_main_no_power': None})[0]:.2f}/s)")
     got = _charge_rate_uncapped(text, kind, stats)
+    if got is not None and COMBAT_FRENZY_LINE.search(text) and (gap := number(stats.get("_combat_frenzy_every"))) > 0:
+        if got[0] > 1 / gap:  # (MECHC57: COMBAT_FRENZY_LINE's note)
+            return 1 / gap, f"{got[1]}; at most once every {gap:g} s (Combat Frenzy's own cooldown at its level)"
+        return got
     cap = ONCE_EVERY.search(text)
     if got is None or cap is None:
         return got
@@ -1097,10 +1107,14 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
         return chance * rate, f"{chance:.0%} x {how}"
     if "activates the mark" in full and "critical hit" in full:
         marks = number(stats.get("_mark_uses"))
-        rate = min(crits, marks)
+        # (MECHC57; RESEARCH53 R53-4, an UNDERCOUNT: "The next Critical Hit the target receives" names no skill, but only
+        # the main skill's crits were read, so a triggered main skill, whose Speed reads 0, gave none: build 7's Comet)
+        side = _side_sum(stats)
+        side_crits = side[1] + side[3]
+        rate = min(crits + side_crits, marks)
         return chance * rate, (f"{chance:.0%} x {rate:.3f}/s: each Mark Activated by a crit (the main skill's {crits:.2f} "
-                               f"crits/s) and re-applied ({marks:.3f} Mark uses/s: its group's rate, else the chosen "
-                               f"press rate, else 0)")
+                               f"crits/s + the other groups' {side_crits:.2f}) and re-applied ({marks:.3f} Mark uses/s: "
+                               f"its group's rate, else the chosen press rate, else 0)")
     if "corpse" in full:
         kills = stats.get("_kills") or (0.0, 0.0, "")
         corpses = max(number(kills[0]), 0.0)
@@ -5502,9 +5516,12 @@ def _gen(subject: str) -> str:
 
 
 def _consumer(subject: str) -> str:
+    # (MECHC57, an UNDERCOUNT: "Consuming it to deal extra damage and grant you a Frenzy Charge" read as spending the charge,
+    # so Sniper's Mark's box stayed off. The consume clause now stops at "grant": 3 of 10,832 texts change (checked: every
+    # ActiveSkills description + PoB's ModCache), all real generators: Sniper's Mark, Siphoning Strike, Disengage.)
     # "If you would gain Frenzy Charges, you instead gain up to your maximum" and "Gain Power Charges
     # instead of Frenzy Charges" change charges the build already gains; neither is a source
-    return (rf"\bper {subject}|maximum (?:number of )?{subject}|consum\w*[^.;]*{subject}|lose[^.;]*{subject}"
+    return (rf"\bper {subject}|maximum (?:number of )?{subject}|consum\w*(?:(?!\bgrant)[^.;])*{subject}|lose[^.;]*{subject}"
             rf"|when you gain[^.;]*{subject}|while you have[^.;]*{subject}|if you have[^.;]*{subject}"
             rf"|during {subject}|effect of {subject}|{subject}\w* you have"
             rf"|would gain[^.;]*{subject}|instead of {subject}|{subject}\w* instead")
@@ -10721,6 +10738,10 @@ class Conditions:
             marks = {n for n, types in gem_types.items() if "Mark" in types}
             uses = self._group_uses(self.build.call("groups")["groups"], marks) if marks else {}
             stats["_mark_uses"] = sum(uses.get(n, self._chosen_use(n)) for n in marks)
+        if "Combat Frenzy" in gem_types:  # (MECHC57: its cooldown at its level and quality, COMBAT_FRENZY_LINE's note)
+            frenzy = next((r.get("levelStats") or {} for r in self.build.call(
+                "activeSkills", levelStats=["Combat Frenzy"])["skills"] if r.get("name") == "Combat Frenzy"), {})
+            stats["_combat_frenzy_every"] = number(frenzy.get(COMBAT_FRENZY_STAT)) / 1000
         if "Walking Calamity" in gem_types:  # (MECHC57: its buff's Rage regeneration, a round behind; CALAMITY_REGEN)
             stats["_calamity_up"] = getattr(self.build, "calamity_up", None)
         if KURGAL in gem_types:  # (MECHC27: Unholy Might on Command, unholy_might_uptime)
