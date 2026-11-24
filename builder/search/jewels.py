@@ -74,10 +74,10 @@ FULL_JEWELS = True  # (JEWEL1) every rare jewel filled to its last affix slot (b
 GRANTS_SOCKETS = re.compile(r"^(?:\{[^}]*\})*Allocates (\d+) Sinister Jewel sockets?", re.M | re.I)  # (JEWEL1) Voices
 LAZY_JEWELS = True  # (JEWEL1, SPEED1's profile: the jewel step was 24% of task time) cached rankings + lazy greedy steps
 LAZY_BATCH = 8  # affixes re-scored first in a lazy greedy step (doubling while a stale one could still win)
-# (JEWEL1) Trade floors (divines) of versions the price feed lumps together, by Sinister sockets: RESEARCH52 R52-4
-# (Forbidden Rites, 23 Nov 2026, instant buyout, LOW): Voices 2 sockets from 1,400 div, 3 sockets from 3 mirrors (the
-# cheapest divine-priced at 14,500), 4 sockets 25-30 mirrors (taken at 25 x 4,833 div, the 3-socket's divine rate)
-VERSION_FLOORS = {"Voices": {2: 1400.0, 3: 14500.0, 4: 120800.0}}
+# (JEWEL1; JEWEL2: RESEARCH53 R-J5) Trade floors (divines) of versions the price feed lumps together, by Sinister sockets
+# (Forbidden Rites, 23 Nov 2026, instant buyout; listings MEDIUM, the mirror rate LOW): Voices 2 sockets from 1,418 div,
+# 3 sockets from 3 mirrors (the cheapest divine-priced at 13,900), 4 sockets from 25 mirrors (at ~4,600 div a mirror)
+VERSION_FLOORS = {"Voices": {2: 1418.0, 3: 13900.0, 4: 115000.0}}
 ZAROKH = "Zarokh's Gift"  # (JEWEL1) the anoint that grants a Sinister Jewel Socket (zarokh_trial)
 # (JEWEL1) Items with jewel sockets ("Sockets: J ..."): PoB's slots "<item slot> Jewel Socket <n>" (ItemsTab.lua 217-262,
 # on these item slots), a jewel counting while its parent item has that many jewel sockets (CalcSetup 1446-1453, scaled by
@@ -169,7 +169,9 @@ class Jewels:
 
     def fill_item_socket(self, slot: str, bases: tuple[str, ...], deadline: float) -> bool:
         """(JEWEL1) The best plain rare for an item's jewel socket (built once per full round for each set of bases), in
-        if it beats what is there. Uniques are not tried there (UNVERIFIED whether the game takes them: the lower reading)."""
+        if it beats what is there. Uniques are not tried there: the game refuses them (MEDIUM-HIGH, RESEARCH53 R-J4; checked:
+        official forum 3954796's two reports, Gamerant, all 20 live example builds' item-socket jewels are Rare; no game-file
+        rule string was found in KeywordPopups, Stats or stat_descriptions)."""
         build, gear = self.build, self.gear
         key = (self.full_rounds, bases)
         if key not in self.item_rares:
@@ -338,7 +340,9 @@ class Jewels:
             # where the next affix stops paying (the Oracle build of 22 Nov had two two-mod Emeralds). Plain jewels also
             # try the 0.5 craft on both sides (the user, 24 Oct / 23 Nov 2026: 4 chosen mods + the effect line on the side
             # that pays more); the plain two-and-two shape stays a candidate (cheaper under a budget, and the Preserved
-            # Cranium trial builds on it). Time-Lost bases keep the plain shape (no craft named for them: UNVERIFIED)
+            # Cranium trial builds on it). Time-Lost bases can't take the effect line (HIGH, RESEARCH53 R-J2 / R-J3; checked:
+            # every Ancient row of PoB's generated LiquidEmotions.lua, none has CraftedJewel{Prefix,Suffix}Effect; poe2db).
+            # Their own crafts, the Ancient emotions (Very Large radius, radius resistance), aren't offered yet: an UNDERCOUNT
             shapes = [(JEWEL_LIMIT, [forced] if forced else [], None)]
             for kind in JEWEL_LIMIT if base_name in JEWEL_BASES else ():
                 if crafted := self.pools.crafted(kind):

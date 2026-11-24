@@ -316,6 +316,44 @@ def test_a_loaded_item_swapped_away_stops_its_jewels_lines_at_once(search, data)
     assert back == (True, True) and back_score == pytest.approx(with_jewel, abs=1e-6)
 
 
+@pytest.mark.own_pob_engine  # (it loads its own Ritualist build: the module's Spark search keeps its engine)
+def test_a_hidden_third_ring_and_its_jewel_are_not_read(engine, data):
+    """(JEWEL2, probe POE2T7947) Ritualist: the search keeps a free ring in Ring 3 until Unfurled Finger ("+1 Ring Slot") is
+    allocated, and PoB ignores that ring and a jewel in its socket. The bridge's readers now do too, and read them once
+    the passive is taken."""
+    from builder.search.context import ItemOption
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    ring = next((u for u in data.uniques if u["name"] == "Eshtera's Path"), None)
+    if ring is None:
+        pytest.skip("no Eshtera's Path in this game data")
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Ritualist"], require=Choices()))
+    found = Search(engine, None, payload, enumerate_skeletons(Context(payload), ["Spark"])[0][0].as_dict(), 0)
+    found.setup(quests=False)
+    build = found.build
+    taken = lambda: {n["id"] for n in build.call("facts", fields=[])["passives"]}  # (allocatedNodes omits ascendancy nodes)
+    if 34785 in taken():
+        pytest.skip("this skeleton starts with Unfurled Finger")
+    slot, line = "Ring 3 Jewel Socket 1", "37% increased Spell Damage"
+    base = next((l.split()[4] for l in ring["raw"].splitlines() if l.startswith("You can only Socket")), "Sapphire")
+    raw = "\n".join(["Rarity: Rare", "Test", base, "Item Level: 82", "Implicits: 0", line])
+
+    def reads() -> tuple[bool, bool, bool]:
+        items = {i["slot"] for i in build.call("facts", fields=[])["items"]}
+        return "Ring 3" in items, slot in items, any(line in t["text"] for t in build.call("sourceLines")["lines"])
+
+    before = build.score
+    build.equip("Ring 3", ItemOption(ring["name"], ring["base"], "Ring", None, ring["raw"], True, 0.0, "test", 0))
+    build.equip(slot, ItemOption("Test", base, slot, None, raw, False, 0.0, "test", 0))
+    assert reads() == (False, False, False) and build.score == pytest.approx(before, abs=1e-6)
+    build.restore(build.snapshot())
+    assert reads() == (False, False, False)
+    build.allocate(add=[34785])
+    assert 34785 in taken()
+    assert reads() == (True, True, True)
+
+
 def test_a_jewel_in_an_item_socket_is_priced_as_a_jewel():
     from builder.data.rare_prices import category
 

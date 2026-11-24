@@ -6612,6 +6612,17 @@ function bridge.applyPassiveCorrections(args)
 	return { applied = applied, failed = failed }
 end
 
+-- (JEWEL2) A hidden Ring 3, or a jewel in its sockets: PoB's calculation ignores both without a "+1 Ring Slot" (CalcSetup's
+-- AdditionalRingSlot checks), but no slot flag says so, and the search keeps a free ring there until the passive is taken
+-- (Gear.add_ring_slot). The readers below skip them, as PoB does (probe POE2T7947)
+local function inHiddenRing(slot)
+	if (slot.parentSlot and slot.parentSlot.slotName or slot.slotName) ~= "Ring 3" then
+		return false
+	end
+	local env = build.calcsTab.mainEnv
+	return env ~= nil and not env.modDB:Flag(nil, "AdditionalRingSlot")
+end
+
 -- The current build's blind spots: lines on its allocated passives and equipped items that PoB
 -- doesn't calculate
 function bridge.unsupportedInBuild()
@@ -6626,7 +6637,7 @@ function bridge.unsupportedInBuild()
 	end
 	for slotName, slot in pairs(build.itemsTab.slots) do
 		local item = slot.selItemId and build.itemsTab.items[slot.selItemId]
-		if item and not slot.inactive then
+		if item and not slot.inactive and not inHiddenRing(slot) then
 			for _, kind in ipairs({ "enchantModLines", "runeModLines", "implicitModLines", "explicitModLines" }) do
 				for _, modLine in ipairs(item[kind] or { }) do
 					local text = tostring(modLine.line or "")
@@ -6709,7 +6720,7 @@ function bridge.sourceLines()
 		-- counted full-time): PoB applies such an item's mods only while its slot is active
 		local flaskOff = (slotName:match("^Flask") or slotName:match("^Charm")) and not slot.active
 		local toMinions = talisman and slotName == "Amulet" and item and item.type == "Amulet"
-		if item and not slot.inactive and not flaskOff and not toMinions then
+		if item and not slot.inactive and not inHiddenRing(slot) and not flaskOff and not toMinions then
 			for _, kind in ipairs({ "enchantModLines", "runeModLines", "implicitModLines", "explicitModLines" }) do
 				for _, modLine in ipairs(item[kind] or { }) do
 				-- (COV42; MECHB37 item 2) only the equipped variant's lines: a unique's text holds every variant's lines
@@ -7101,7 +7112,7 @@ function bridge.facts(args)
 	local items = { }
 	for slotName, slot in pairs(build.itemsTab.slots) do
 		local item = slot.selItemId and build.itemsTab.items[slot.selItemId]
-		if item and not slot.inactive then
+		if item and not slot.inactive and not inHiddenRing(slot) then
 			items[#items + 1] = {
 				slot = slotName, name = item.title or item.name, base = item.baseName, type = item.type,
 				rarity = item.rarity, runes = plain(item.runes, 2) or { },

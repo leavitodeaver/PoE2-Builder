@@ -88,7 +88,9 @@ def rare_rules_tier(budget: Any) -> GearTier:
 # Modifier allowed" (a suffix) onto a jewel, add a third prefix, then replace the +1 with "(40-60)%
 # increased Effect of Prefixes" (also a suffix). The finished jewel has three prefixes, one suffix
 # and the effect line; the same with suffixes and the prefix-side crafts. PoB ignores the effect
-# line, so the boosted values are written into the item, as the game shows them.
+# line, so the boosted values are written into the item, as the game shows them. A jewel holds one crafted mod (HIGH,
+# RESEARCH53 R-J1; checked: Mods' GenerationType, the 0.5.0 notes, official forum 3967316), so a Melancholy "socketed in
+# your tree" line can't sit beside the effect line.
 JEWEL_CRAFTS = {"Prefix": ("CraftedJewelAdditionalPrefixAllowed", "CraftedJewelPrefixEffect"),
                 "Suffix": ("CraftedJewelAdditionalSuffixAllowed", "CraftedJewelSuffixEffect")}
 EFFECT = re.compile(r"(\d+(?:\.\d+)?)% increased Effect of (Prefixes|Suffixes)")
@@ -374,7 +376,10 @@ def inherent_skill_line(line: str, item_level: int | None) -> str | None:
 # "Quality: 20" (labelled in the result). PoB's bases with a quality value, less Charm: PoB's Item.lua says "charms
 # cannot be modified by quality currency" and poe2db's Glassblower's Bauble "Improves the quality of a flask" only
 # (checked: PoB Data/Bases quality keys; poe2db Glassblowers_Bauble, 12 Nov 2026). Rings, amulets (catalyst quality:
-# held for the user), belts, quivers, jewels and limbs have no quality in PoB's bases.
+# held for the user), belts, quivers, jewels and limbs have no quality in PoB's bases. (JEWEL2, AUDIT37 P8) For jewels
+# that is PoB's data only: 0.5.0 "Added a new set of 12 Catalysts that can add new quality modifiers to Jewels" (poe2db:
+# Refined Catalysts). The search applies none to jewels, an UNDERCOUNT (R51-10 ranks catalysts #2 by DPS swing; the amount
+# per catalyst on a jewel is UNVERIFIED, RESEARCH55 item 5). SEARCH-C's POE2_SEARCH_CATALYST covers rings and amulets only.
 QUALITY = 20
 QUALITY_TYPES = frozenset({
     "One Hand Axe", "Two Hand Axe", "Body Armour", "Boots", "Bow", "Claw", "Crossbow", "Dagger", "Fishing Rod", "Flail",
