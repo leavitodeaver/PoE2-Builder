@@ -1,0 +1,105 @@
+# COV55 (23 Nov 2026): lines and gem stats a model on main reads (COV43's rule: marked only where the model's own code reads
+# the line or stat and the result reaches a number). Checked against origin/main cf2744a7 (train 132). Each entry adds nothing
+# to PoB: it says which model reads it (a link only, no second count).
+#
+# Left open on purpose (each read in the code):
+# - tempest_bell_damage_+%_final_per_time_hit, tempest_bell_physical_damage_%_as_elemental_per_ailment: tempest_bell_model
+#   says they are not counted; bell_hit_limit and bell_shockwave_cooldown_ms on Hollow Focus (its own values 1 and 100, not
+#   this model's);
+# - cooldown_recovery_modifiers_also_apply_to_repeat_interval on Ghost Dance and Time of Need (not checked for a reader here);
+# - base_number_of_tempest_bells_allowed: read only by Train 133's all-Bells row, not on this base and not the headline;
+# - the other number_of_X_allowed rows: the bridge's generic instanceLimit reads them, but whether each reaches a number
+#   (duration_press_rate, only for a pressed duration skill) hasn't been checked skill by skill.
+
+- id: model-read-cov55-tempest-bell-extra-hits
+  title: '"Tempest Bells are destroyed after an additional N Hits" read by the Tempest Bell model (models.BELL_EXTRA_HITS)'
+  kind: pob_gap
+  model: tempest_bell
+  match: '^Tempest Bells are destroyed after an additional (\(\d+-\d+\)|\d+) Hits?$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.tempest_bell_model adds N to the Bell's hit limit, which caps its shockwaves a second, on a main Tempest Bell.
+    A Bell beside another main skill isn't counted (the model's own note). A link only.
+  sources: ["builder/search/models.py (BELL_EXTRA_HITS, tempest_bell_model)"]
+  status: proposed
+
+- id: model-read-cov55-tempest-bell-constants
+  title: "bell_hit_limit and bell_shockwave_cooldown_ms (Tempest Bell) held by the Tempest Bell model's constants"
+  kind: model
+  model: tempest_bell
+  stats: ["bell_hit_limit", "bell_shockwave_cooldown_ms"]
+  skill: [Tempest Bell]
+  confidence: theory
+  notes: >-
+    Constant readers: both are ConstantStats, the same at every level (GrantedEffectStatSets 26650308: TempestBellPlayer
+    bell_hit_limit 10, TempestBellShockwavePlayer bell_shockwave_cooldown_ms 300), and equal models.BELL_LIMIT_BASE and
+    BELL_WAVE_EVERY, which cap the shockwaves a Bell makes. Hollow Focus's own values (1, 100) are not covered. A link only.
+  sources: ["builder/search/models.py (BELL_LIMIT_BASE, BELL_WAVE_EVERY)"]
+  status: proposed
+
+- id: model-read-cov55-moment-of-vulnerability
+  title: "time_rip_damage_share_% and rip_from_time_immunity_duration_ms read by the Moment of Vulnerability model"
+  kind: model
+  model: moment_of_vulnerability
+  stats: ["time_rip_damage_share_%", "rip_from_time_immunity_duration_ms"]
+  skill: [Moment of Vulnerability]
+  confidence: theory
+  notes: >-
+    models.MOV_SHARE_STAT and MOV_IMMUNE_STAT, read from the skill's level stats in moment_of_vulnerability_model: the share
+    of damage passed to the boss and the wait between visages, both in its gain. A link only.
+  sources: ["builder/search/models.py (MOV_SHARE_STAT, MOV_IMMUNE_STAT)", "builder/search/assumptions.py (~4806)"]
+  status: proposed
+
+- id: model-read-cov55-mystic-avalanche
+  title: "Mystic Avalanche's final-Echo side areas read by the Spell Echo model (models.MYSTIC_AVALANCHE)"
+  kind: pob_gap
+  model: spell_echo
+  match: '^Final Echo of Cascadable Spells also Cascades to either side of the targeted Area along a random axis$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.MYSTIC_AVALANCHE: the final Echo's two side areas multiply the main spell's hits, when something makes it Echo
+    and it has no Spell Cascade (that pair stays 0, UNVERIFIED R-B23). A link only.
+  sources: ["builder/search/models.py (MYSTIC_AVALANCHE)"]
+  status: proposed
+
+- id: model-read-cov55-rallying-form
+  title: "Rallying Form's Companion Onslaught read by models.rallying_form_model"
+  kind: pob_gap
+  model: rallying_form
+  match: '^Companions in your Presence have Onslaught while you are Shapeshifted$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.RALLYING_FORM: Onslaught's Skill Speed for Companions at the build's Shapeshifted share of the fight (its movement
+    speed not counted, the model's note). A link only.
+  sources: ["builder/search/models.py (RALLYING_FORM, rallying_form_model)", "builder/search/assumptions.py (~6792)"]
+  status: proposed
+
+- id: model-read-cov55-gem38-limits
+  title: "Shield Wall's, Frozen Locus's and Earthshatter's Limit stats read by GEM38's limit readers"
+  kind: model
+  model: skill_limits
+  stats: ["base_number_of_shield_walls_allowed", "base_number_of_frozen_locus_allowed", "spike_slam_max_spikes"]
+  skill: [Shield Wall, Frozen Locus, Earthshatter]
+  confidence: theory
+  notes: >-
+    Shield Wall and Frozen Locus through the bridge's useRates instanceLimit (Assumptions.limit_and_duration), Earthshatter
+    from its level stats (Assumptions.earthshatter_limit): each Limit caps the instances standing in that skill's model. A
+    link only.
+  sources: ["builder/search/assumptions.py (limit_and_duration, earthshatter_limit)", "engine/bridge.lua (instanceLimit)"]
+  status: proposed
+
+- id: model-read-cov55-align-fate-recovery
+  title: "cooldown_recovery_modifiers_also_apply_to_repeat_interval (Align Fate) applied by models.align_fate_rate"
+  kind: model
+  model: align_fate
+  stats: ["cooldown_recovery_modifiers_also_apply_to_repeat_interval"]
+  skill: [Align Fate]
+  confidence: theory
+  notes: >-
+    A flag the gem always carries (ImplicitStats, AlignFatePlayer): align_fate_rate divides the visage interval by Align Fate's
+    own Cooldown Recovery Rate (al_skill.cooldown_recovery). Ghost Dance and Time of Need stay open. A link only.
+  sources: ["builder/search/models.py (align_fate_rate)", "builder/search/assumptions.py (~4640)"]
+  status: proposed
