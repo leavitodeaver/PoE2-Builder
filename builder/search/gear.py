@@ -2228,35 +2228,42 @@ class Gear:
         socket or replaces the last rune chosen (the greedy fill's weakest), and is kept only if shard + anoint +
         their prices beat the helmet as it is. The catalog gives level 60 and its price (RuneCatalog.candidates);
         a Corrupted or Sanctified helmet takes none; one per character (its limit)."""
-        if (option is None or option.type != "Helmet" or anoints.SHARD in option.runes or clock.now() > deadline
-                or anoints.SEALED.search(option.raw) or anoints.capacity(option) > 0):
+        if (option is None or option.type != "Helmet" or clock.now() > deadline or anoints.capacity(option) > 0):
             return option
-        base = self.ctx.bases_by_name.get(option.base)
-        count = socket_count(base, option.unique, unique_text(self.ctx, option)) if base else 0
-        if count == 0 or anoints.SHARD not in self.runes.candidates(base, option.unique, option.raw):
+        trial = self.shard_version(slot, option)
+        if trial is None or (trial.price is not None and trial.price > self.left_for(slot) + 1e-9):
             return option
-        limit = self.runes.limit(anoints.SHARD)
-        if limit:
-            used = sum(1 for s, o in self.build.equipped.items() if s != slot and o is not None
-                       for n in o.runes if (self.runes.limit(n) or ("",))[0] == limit[0])
-            if used >= limit[1]:
-                return option
-        runes = list(option.runes)
-        dropped = runes[count - 1:] if len(runes) >= count else []
-        if any(n in option.bound for n in dropped):  # (SEARCH30: a socket-bound influence rune is never replaced)
-            return option
-        new = runes[:count - 1] + [anoints.SHARD] if dropped else runes + [anoints.SHARD]
-        price = option.price
-        if price is not None:
-            price += (self.runes.price(anoints.SHARD) or 0.0) - sum(self.runes.price(n) or 0.0 for n in dropped)
-            if price > self.left_for(slot) + 1e-9:
-                return option
-        trial = dataclasses.replace(option, raw=with_runes(option.raw, new), runes=tuple(new), price=price)
         anointed = self.anointed(slot, trial, deadline)
         if not anointed.anoints:
             return option
         (old, _), (new_score, _) = self.deltas(slot, [option.raw, anointed.raw])
         return anointed if self.adjusted(new_score, anointed) > self.adjusted(old, option) + EPSILON else option
+
+    def shard_version(self, slot: str, option: ItemOption) -> ItemOption | None:
+        """(SEARCHB8, JEWEL2's ask) The item with a Raven-Touched Shard (anoints.SHARD) in a free socket or in place of its
+        last rune (the greedy fill's weakest), priced with the shard's catalog price less the dropped rune's; None when it
+        can't take one: it holds one already, it is Corrupted or Sanctified (anoints.SEALED), its base takes no shard
+        (RuneCatalog.candidates: helmets, level 60), the character's shard limit is used elsewhere, or the rune it would
+        replace is socket-bound (SEARCH30). Shared by shard_trial and Jewels.shard_helmet; the budget is the caller's."""
+        if anoints.SHARD in option.runes or anoints.SEALED.search(option.raw):
+            return None
+        base = self.ctx.bases_by_name.get(option.base)
+        count = socket_count(base, option.unique, unique_text(self.ctx, option)) if base else 0
+        if count == 0 or anoints.SHARD not in self.runes.candidates(base, option.unique, option.raw):
+            return None
+        limit = self.runes.limit(anoints.SHARD)
+        if limit and sum(1 for s, o in self.build.equipped.items() if s != slot and o is not None
+                         for n in o.runes if (self.runes.limit(n) or ("",))[0] == limit[0]) >= limit[1]:
+            return None
+        runes = list(option.runes)
+        dropped = runes[count - 1:] if len(runes) >= count else []
+        if any(n in option.bound for n in dropped):  # (SEARCH30: a socket-bound influence rune is never replaced)
+            return None
+        new = runes[:count - 1] + [anoints.SHARD] if dropped else runes + [anoints.SHARD]
+        price = option.price
+        if price is not None:
+            price += (self.runes.price(anoints.SHARD) or 0.0) - sum(self.runes.price(n) or 0.0 for n in dropped)
+        return dataclasses.replace(option, raw=with_runes(option.raw, new), runes=tuple(new), price=price)
 
     def commit_anoints(self, slot: str, option: ItemOption, deadline: float) -> bool:
         """Re-anoint an item the round doesn't otherwise change (a required unique); kept only if it scores better."""
