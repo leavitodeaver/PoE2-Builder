@@ -7270,6 +7270,56 @@ def meteor_rate_model(main: Skill | None, sets: list[dict], uptime: float | None
     return [with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name), hits)], [note]
 
 
+# Walking Calamity's Buff (GEM38; AUDIT37 W1, an UNDERCOUNT: read by nothing). The game (26650308): WalkingCalamityPlayer
+# walking_calamity_non_skill_base_all_damage_%_to_gain_as_fire 30, quality +0.5 a 1% (GrantedEffectQualityStats 500 per
+# mille: 40 at 20%), "[Buff] grants {0}% of damage Gained as Fire damage"; "For the duration of the Skill, meteors rain
+# down around you and you Gain Fire damage and Rage regeneration. This Skill's effects are suppressed if you leave Bear
+# form"; patch 0.4.0c; poe2db the same line. PoB maps the plain non_skill_base_all_damage_%_to_gain_as_fire but not this id
+# (checked: SkillStatMap, Modules). Not the same on the others: ScatteringCalamityPlayer has no gain stat (its quality
+# is ember_fusillade_damage_+%_final_per_ember_fired) and TheStarsAnswerPlayer has none (checked: their stat sets and
+# quality rows). Its uptime: uses a second from the build's Glory (models.glory_plan through Assumptions.glory_caps) x
+# the build's Skill Effect Duration; no Glory source counted reads 0, with a note (Walking Calamity's own source, Rage
+# gained at maximum Rage, is MECH-C's: an UNDERCOUNT until it lands). Which hits it covers isn't spelled out: the
+# headline is the lower reading, the main skill's own Bear-form hits only, and not the meteors or other skills; the wider
+# reading (the meteors too) is a row. A BASE gain of gain x uptime is exactly the time-weighted hit (linear in the gain).
+# Off outside Bear form: a main skill without the game's Bear type gets nothing.
+WALKING_CALAMITY = "Walking Calamity"
+WALKING_CALAMITY_ENTRY = "model-gem38-walking-calamity-fire-buff"
+WALKING_CALAMITY_STAT = "walking_calamity_non_skill_base_all_damage_%_to_gain_as_fire"
+WALKING_CALAMITY_GAIN = 30.0  # (the stat's base, where the gem's own isn't read)
+WALKING_CALAMITY_OWN = (WALKING_CALAMITY, "Meteors")  # (the buff's own meteors: the wider reading only)
+# (the game's Bear skill type, ActiveSkills 26650308, on skills the search's gem table has no types for, so main_types is
+# empty for them; checked: every ActiveSkills row with the Bear type against that table)
+WALKING_CALAMITY_BEAR_NAMES = ("Maul", "Molten Crash")
+
+
+def walking_calamity_buff_model(main: Skill | None, main_types: set[str], gain: float, uptime: float, how: str,
+                                forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Walking Calamity's Buff of damage gained as Fire (see above): `gain` the gem's %, `uptime` its share of the fight."""
+    if main is None or WALKING_CALAMITY_ENTRY in forbidden:
+        return [], []
+    meteors = main.name in WALKING_CALAMITY_OWN
+    if not meteors and "Bear" not in main_types and main.name not in WALKING_CALAMITY_BEAR_NAMES:
+        return [], []
+    gain = number(gain) or WALKING_CALAMITY_GAIN
+    up = min(1.0, max(0.0, number(uptime)))
+    mods = [raw_mod("DamageGainAsFire", "BASE", gain * up, main.name, tag=WALKING_CALAMITY_ENTRY)] if up > 0 and not meteors else []
+    return mods, [{
+        "label": f"{WALKING_CALAMITY}'s Buff: {gain:g}% of damage gained as Fire*",
+        "value": "not on the meteors (row)" if meteors else f"up {up:.0%}", "confidence": "LOW",
+        "entry": WALKING_CALAMITY_ENTRY,
+        "basis": (f"PoB reads no such gain. The Buff lasts while the skill does, in Bear form: up {up:.0%} of the fight "
+                  f"({how}). Which hits it covers isn't spelled out (UNVERIFIED): "
+                  + (f"the headline leaves the meteors out (the lower reading); if it covers them: +{gain * up:.1f}% of "
+                     "their damage gained as Fire" if meteors else
+                     f"the headline counts {main.name}'s own hits, +{gain * up:.1f}% gained as Fire on average; the "
+                     "meteors and other skills are the wider reading, not counted")
+                  + ("; no Glory source counted, so 0 (its own, Rage gained at maximum Rage, isn't counted yet)"
+                     if up <= 0 else "")),
+        "play": (f"Stay in Bear form while {WALKING_CALAMITY} is up: {gain:g}% of damage gained as Fire. This build: up "
+                 f"{up:.0%} of the fight; without it: no gain.")}]
+
+
 # Rake's dash distance (GEM12 turn 2; an UNDERCOUNT where the build plays for it). Rake (act_dex.lua RakePlayer; "Dash
 # towards an enemy and perform a lacerating slash"): base_additional_damage_from_distance_+%_final 100 (+1.5 a quality),
 # base_melee_dash_range 50 (5 m). PoB means to read it as a DistanceRamp {{0, 0}, {50, 1}} on the dash distance, but its
@@ -10500,9 +10550,12 @@ def magnetic_salvo_model(main: Skill | None, scored: str | None, sets: list[dict
 # Citadel (SupportAhnsCitadelPlayer: wall_is_created_along_a_fissure_instead, wall_maximum_length_+% 65) reshapes and
 # lengthens the same wall: no extra hit (R52-1, MEDIUM-HIGH). Kaom's Madness and other extra-Fissure supports
 # (base_number_of_additional_fissures; Kaom's Madness 3, 20% less damage, which PoB already applies): whether each extra
-# Fissure is its own wall is UNVERIFIED (R52-1, RESEARCH53 R53-5, with RESEARCH54), so the headline stays one wall a cast
-# and a row sets the walls at a shatter to max(the headline's, min(1 + extra Fissures, the Limit)): at the base Limit 2,
-# 2 walls x Kaom's 0.8 = x1.6 of a plain wall (R53-5, replacing R52-1's x3.2, which passed the Limit; LOW).
+# Fissure hits a boss is UNVERIFIED. RESEARCH54 R54-5: a use's extra Fissures most likely DON'T count against the Limit
+# (MEDIUM-LOW: forum 3938235, 4 Fissures from one use at a base Limit of 2; shield_wall.csd's Limit counts Shield Walls)
+# and probably don't each hit a boss (LOW-MEDIUM: no source shows a boss hit; 0.3.0's "only deal damage to each enemy
+# once"; Maxroll drops both supports for single target). So the headline stays one hit a wall at Kaom's x0.8, the Limit
+# counts separate uses only, and the row is an upper bound: every one of a use's (1 + extra) Fissures reaching the boss
+# and hitting it once (Kaom's Madness: x4 the headline, x3.2 of a wall without it; how many reach it is unmeasured; LOW).
 # The Limit and duration are the build's (GEM38): shield_wall carries the game's Limit skill type, and patch 0.4.0 "Fixed
 # the following skills having modifiable Limits ... Frozen Locus, Earthquake, Earthshatter, Shield Wall. These skills can
 # also now be supported by Overabundance" (checked: Stats ids holding "limit" over GrantedEffectStatSets and Mods:
@@ -10562,8 +10615,7 @@ def shield_wall_model(main: Skill | None, scored: str | None, sets: list[dict], 
     factor = max(rate * per / speed, AILMENT_FLOOR)
     row = locus_explosions(cast, own_breaks, seconds)  # (the row: no boss breaks)
     row_dps = row * (1.0 + more / 100.0) * shield_wall_hits(cast, own_breaks, limit, seconds) * dps[scored] / speed
-    fissure_walls = max(walls, min(1.0 + fissures, float(limit)))  # (the Kaom's row: never past the Limit, R53-5)
-    fissure_per = mine * (1.0 + more / 100.0) * fissure_walls + (1.0 - mine)
+    fissure_per = mine * (1.0 + more / 100.0) * walls * (1.0 + fissures) + (1.0 - mine)  # (the upper-bound row, R54-5)
     hits = max(rate * (mine * walls + 1.0 - mine) / speed, AILMENT_FLOOR)  # (walls hitting a second over casts)
     mods = ([with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name), hits)]
             if abs(factor - 1) > 1e-9 else [])
@@ -10581,9 +10633,10 @@ def shield_wall_model(main: Skill | None, scored: str | None, sets: list[dict], 
                   + ("; nothing breaks it: held at 1%" if rate <= 0 else "")
                   + f". The row, no boss breaks: {row:.2f} a second, {row_dps:,.0f} DPS. One hit a wall on the boss "
                   "however many segments reach it (0.3.0: 'this can only deal damage to each enemy once'; HIGH)"
-                  + (f". With {fissures:g} extra Fissure(s) (Kaom's Madness), if each is its own wall hitting the boss "
-                     f"once (UNVERIFIED, LOW): {fissure_walls:.2f} walls a shatter (at most the Limit, {limit:g}), "
-                     f"x{fissure_per / per:.2f}, {rate * fissure_per * blast:,.0f} DPS"
+                  + (f". With {fissures:g} extra Fissure(s) (Kaom's Madness): they most likely don't count against the "
+                     "Limit and probably don't each hit a boss (R54-5, LOW-MEDIUM), so they add nothing here. Upper "
+                     f"bound if all {1 + fissures:g} of a use's Fissures reached the boss and each hit it once "
+                     f"(UNVERIFIED, LOW): x{fissure_per / per:.2f}, {rate * fissure_per * blast:,.0f} DPS"
                      if fissures > 0 else "")),
         "play": (f"Raise Shield Wall between you and the boss and shatter it with a Slam, a Warcry or Shield Charge for "
                  f"{more:g}% more damage, every wall at once; a boss swing through it first breaks it without the more. "
@@ -10598,8 +10651,9 @@ def shield_wall_model(main: Skill | None, scored: str | None, sets: list[dict], 
 # base_number_of_earthquakes_allowed (6 at the probe's level, the bridge's instanceLimit with "+N to Limit"),
 # skill_jagged_ground_base_duration_ms 4000. Each patch erupts once, so at most Limit / duration Aftershocks a second: the
 # Aftershock set is held to min(1, that / PoB's attacks a second). Duration: conditions' Jagged Ground modifiers (MECH68).
-# Overabundance's less Skill Effect Duration on this ground is UNVERIFIED (PoB maps the stat to the skill's duration;
-# MECH68 reads it as not one), so the headline leaves it out, the lower cap, with the shorter fuse a row. Not counted:
+# Overabundance's less Skill Effect Duration probably shortens the fuse, 4 s to 2.0 s (I) or 2.4 s (II) (RESEARCH56 R56-6,
+# MEDIUM; PoB maps the ground's duration stat to the skill's duration), so the headline cap is the raised Limit / that
+# fuse, with "fuse unchanged" (the raised Limit / the full duration) a row. Not counted:
 # patches must not overlap, so the cap needs room to place them beside the boss, each Aftershock reaching it (LOW; a row
 # at one spot, 1 / duration); the Impact's own hit beside the Aftershock (PoB scores one set: an UNDERCOUNT).
 EARTHQUAKE, EARTHQUAKE_SET = "Earthquake", "Aftershock"
@@ -10609,15 +10663,16 @@ EARTHQUAKE_ENTRY = "model-gem38-earthquake-patch-limit"
 def earthquake_limit_model(main: Skill | None, scored: str | None, speed: float, limit: float, seconds: float,
                            short_seconds: float | None = None,
                            forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
-    """Earthquake's Aftershock set held to the patches' Limit / duration (see above). `short_seconds`: the patch duration
-    if Overabundance's less duration applies to it (a row)."""
+    """Earthquake's Aftershock set held to the patches' Limit / fuse (see above). `short_seconds`: the fuse with
+    Overabundance's less duration (the headline, R56-6); `seconds` without it (the row)."""
     if main is None or main.name != EARTHQUAKE or EARTHQUAKE_ENTRY in forbidden or scored != EARTHQUAKE_SET:
         return [], []
     if speed <= 0 or limit <= 0 or seconds <= 0:
         return [], []
-    cap = limit / seconds
-    factor = min(1.0, cap / speed)
     shorter = short_seconds if short_seconds and short_seconds < seconds else None
+    fuse = shorter or seconds
+    cap = limit / fuse
+    factor = min(1.0, cap / speed)
     if factor >= 1.0 and shorter is None:
         return [], []
     mods = ([with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=EARTHQUAKE_ENTRY), factor)]
@@ -10626,11 +10681,11 @@ def earthquake_limit_model(main: Skill | None, scored: str | None, speed: float,
         "label": f"{main.name}: Aftershocks capped by its {limit:g} patches*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM-LOW", "entry": EARTHQUAKE_ENTRY,
         "basis": (f"PoB scores an Aftershock on every attack ({speed:.2f} a second). Each Jagged Ground patch erupts once "
-                  f"after {seconds:g} s and at most {limit:g} can be active, so at most {cap:.2f} Aftershocks a second"
-                  + (f". If Overabundance's less duration applies to the patch (UNVERIFIED): {shorter:g} s, x"
-                     f"{min(1.0, limit / shorter / speed):.3f}" if shorter else "")
-                  + f". All at one spot (patches can't overlap): {1 / seconds:.2f} a second, "
-                  f"x{min(1.0, 1 / seconds / speed):.3f}"),
+                  f"after {fuse:g} s and at most {limit:g} can be active, so at most {cap:.2f} Aftershocks a second"
+                  + (f" (Overabundance's less duration on the fuse: R56-6, MEDIUM). If the fuse stays {seconds:g} s: "
+                     f"x{min(1.0, limit / seconds / speed):.3f}" if shorter else "")
+                  + f". All at one spot (patches can't overlap): {1 / fuse:.2f} a second, "
+                  f"x{min(1.0, 1 / fuse / speed):.3f}"),
         "play": (f"Place Earthquake's patches side by side at the boss: a patch can't go on an existing one, and only "
                  f"{limit:g} can be up. This build: {min(speed, cap):.2f} Aftershocks a second; attacking faster than "
                  f"{cap:.2f} a second adds no Aftershocks.")}]

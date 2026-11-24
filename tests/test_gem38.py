@@ -18,16 +18,29 @@ def test_instances_standing_follows_cast_breaks_limit_and_duration():
     assert models.instances_standing(2.0, 0.0, 5, 3.0) == 2.0  # (a 3 s wall: casts 2 s apart keep two up, not five)
 
 
-def test_kaoms_row_never_passes_the_limit():
+def test_kaoms_row_is_the_fissures_reaching_the_boss_not_the_limit():
+    """R54-5: extra Fissures most likely don't count against the Limit, so the Limit doesn't bound the row."""
     sw = Skill("Shield Wall", 1, attack=True)
     _, plain = models.shield_wall_model(sw, "Shield Wall", WALL, 1.0, 0.5, 0.0, 100.0, "slams")
     _, kaom = models.shield_wall_model(sw, "Shield Wall", WALL, 1.0, 0.5, 0.0, 100.0, "slams", fissures=3)
-    assert kaom[0]["value"] == plain[0]["value"]  # (the headline unchanged)
-    assert "UNVERIFIED" in kaom[0]["basis"] and "2.00 walls a shatter (at most the Limit, 2)" in kaom[0]["basis"]
-    walls = models.shield_wall_hits(1.0, 0.5)
-    assert f"x{2.0 / walls:.2f}," in kaom[0]["basis"]  # (all breaks yours: 2 walls over the headline's)
+    assert kaom[0]["value"] == plain[0]["value"]  # (the headline unchanged: one hit a wall at PoB's x0.8)
+    assert "UNVERIFIED" in kaom[0]["basis"] and "Upper bound if all 4" in kaom[0]["basis"] and "x4.00," in kaom[0]["basis"]
     _, raised = models.shield_wall_model(sw, "Shield Wall", WALL, 1.0, 0.5, 0.0, 100.0, "slams", fissures=3, limit=3)
-    assert "3.00 walls a shatter (at most the Limit, 3)" in raised[0]["basis"]
+    assert "x4.00," in raised[0]["basis"]  # (the same bound at any Limit)
+
+
+def test_walking_calamity_buff_counts_own_bear_hits_at_its_uptime():
+    bear = Skill("Maul", 1, attack=True)
+    mods, notes = models.walking_calamity_buff_model(bear, {"Attack", "Bear"}, 40.0, 0.25, "glory")
+    assert mods[0]["name"] == "DamageGainAsFire" and mods[0]["type"] == "BASE" and abs(mods[0]["value"] - 10.0) < 1e-6
+    assert notes[0]["value"] == "up 25%" and "UNVERIFIED" in notes[0]["basis"]
+    assert models.walking_calamity_buff_model(bear, set(), 40.0, 0.25, "glory")[0]  # (Maul: no types in the gem table)
+    spark = Skill("Spark", 1)
+    assert models.walking_calamity_buff_model(spark, {"Spell"}, 40.0, 0.25, "glory") == ([], [])  # (off outside Bear form)
+    none, why = models.walking_calamity_buff_model(bear, {"Bear"}, 40.0, 0.0, "no Glory")
+    assert none == [] and "no Glory source counted" in why[0]["basis"]  # (no source: 0, with a note)
+    meteors, row = models.walking_calamity_buff_model(Skill("Meteors", 1, attack=True), {"Attack"}, 40.0, 0.5, "glory")
+    assert meteors == [] and "+20.0%" in row[0]["basis"]  # (the lower reading: the meteors are a row)
 
 
 def test_a_raised_limit_pays_only_through_the_walls_the_build_keeps_up():
@@ -61,5 +74,7 @@ def test_earthquake_aftershocks_are_capped_by_its_patches():
     mods, notes = models.earthquake_limit_model(eq, "Aftershock", 3.0, 6, 4.0)
     assert mods[0]["hit_cut"] == 0.5 and notes[0]["value"] == "x0.500"
     assert models.earthquake_limit_model(eq, "Impact", 3.0, 6, 4.0) == ([], [])
-    mods2, notes2 = models.earthquake_limit_model(eq, "Aftershock", 3.0, 7, 4.0, 2.0)  # (the shorter fuse is a row only)
-    assert abs(mods2[0]["hit_cut"] - 7 / 4 / 3) < 1e-9 and "UNVERIFIED" in notes2[0]["basis"]
+    # (R56-6: Overabundance I, Limit 7, the fuse 2 s the headline; the fuse unchanged a row)
+    mods2, notes2 = models.earthquake_limit_model(eq, "Aftershock", 5.0, 7, 4.0, 2.0)
+    assert abs(mods2[0]["hit_cut"] - 7 / 2 / 5) < 1e-9 and "If the fuse stays 4 s: x0.350" in notes2[0]["basis"]
+    assert models.earthquake_limit_model(eq, "Aftershock", 3.0, 7, 4.0, 2.0)[0] == []  # (3.5 a second allowed)

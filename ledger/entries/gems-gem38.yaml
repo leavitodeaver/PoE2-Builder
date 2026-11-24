@@ -10,11 +10,30 @@
     The game (26650308, ActiveSkills earthquake), "The Jagged Ground erupts in a powerful Aftershock after a duration.
     Cannot create Jagged Ground on top of an existing patch, or if you already have the maximum number of active
     patches"; base_number_of_earthquakes_allowed, skill_jagged_ground_base_duration_ms 4000. Each patch erupts once, so
-    the Aftershock set is held to min(1, (Limit / duration) / attacks a second). Overabundance's less duration on the
-    ground is UNVERIFIED and a row. Not counted, the Impact's own hit beside the Aftershock. Assumed, patches placed
-    side by side each reach the boss (LOW; a row at one spot).
+    the Aftershock set is held to min(1, (Limit / fuse) / attacks a second). Overabundance probably shortens the fuse to
+    2.0 s (I) or 2.4 s (II) (RESEARCH56 R56-6, MEDIUM), the headline; the fuse unchanged is a row. Not counted, the
+    Impact's own hit beside the Aftershock. Assumed, patches placed side by side each reach the boss (LOW; a row at one
+    spot).
   sources: ["builder/search/models.py (earthquake_limit_model)",
             "builder/search/assumptions.py (Assumptions.earthquake_patches and its hook)",
             "scratch/gem38/probe7289.log"]
   test_in_game: "Earthquake at more than Limit / 4 s attacks a second: do the extra attacks make no patch and no Aftershock?"
+  status: proposed
+- id: model-gem38-walking-calamity-fire-buff
+  title: "Walking Calamity's Buff: 30% of damage gained as Fire (40% at 20% quality) while up in Bear form (an UNDERCOUNT before: read by nothing)"
+  kind: model
+  model: walking_calamity_fire_buff
+  stats: ["walking_calamity_non_skill_base_all_damage_%_to_gain_as_fire"]
+  skill: [Walking Calamity]
+  confidence: LOW
+  notes: >-
+    The game (26650308), WalkingCalamityPlayer 30, quality +0.5 a 1%, "[Buff] grants {0}% of damage Gained as Fire damage",
+    suppressed outside Bear form; patch 0.4.0c; poe2db the same. Uptime is the skill's uses a second from
+    models.glory_plan x the build's duration. The live number is 0 until MECH-C counts its own Glory source (Rage gained
+    at maximum Rage); no uptime is assumed. Headline, the lower reading, the main Bear skill's own hits; the meteors and
+    other skills are the wider reading, a row. ScatteringCalamityPlayer and TheStarsAnswerPlayer hold no such stat
+    (checked, their stat sets and quality rows).
+  sources: ["builder/search/models.py (walking_calamity_buff_model)",
+            "builder/search/assumptions.py (Assumptions.walking_calamity_buff and its hook)"]
+  test_in_game: "In Bear form with Walking Calamity up, does a Maul hit gain 30% (40% at 20% quality) of its damage as Fire, and do the meteors?"
   status: proposed

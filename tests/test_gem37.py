@@ -45,7 +45,7 @@ def test_own_travel_table():
 
 def test_shield_wall_one_hit_a_wall_and_kaoms_row():
     """Shield Wall: one hit a wall on the boss however many segments reach it (0.3.0, RESEARCH52 R52-1, HIGH: no segment
-    rows); Kaom's Madness's extra Fissures a row only, up to the Limit's walls (UNVERIFIED, LOW; R53-5)."""
+    rows); Kaom's Madness's extra Fissures a row only, the upper bound of each one hitting (UNVERIFIED, LOW; R54-5)."""
     from builder.search import models
     from builder.search.models import Skill
     sets = [{"label": "Shield Wall", "TotalDPS": 100.0, "AverageDamage": 100.0, "Speed": 1.0}]
@@ -57,9 +57,8 @@ def test_shield_wall_one_hit_a_wall_and_kaoms_row():
     mods3, notes3 = models.shield_wall_model(sw, "Shield Wall", sets, 1.0, 0.5, 0.0, 100.0, "slams", fissures=3)
     assert notes3[0]["value"] == notes[0]["value"] and mods3 == mods  # (the headline unchanged)
     head = float(notes[0]["value"][1:]) * 100
-    walls = models.shield_wall_hits(1.0, 0.5)  # (GEM38, R53-5: the row stops at the Limit, 2 walls, not x4)
-    row = float(notes3[0]["basis"].rsplit(f"x{2 / walls:.2f}, ", 1)[1].removesuffix(" DPS").replace(",", ""))
-    assert "3 extra Fissure(s) (Kaom's Madness)" in notes3[0]["basis"] and abs(row - 2 / walls * head) < 1
+    row = float(notes3[0]["basis"].rsplit("x4.00, ", 1)[1].removesuffix(" DPS").replace(",", ""))  # (GEM38, R54-5: an upper bound)
+    assert "3 extra Fissure(s) (Kaom's Madness)" in notes3[0]["basis"] and abs(row - 4 * head) < 1
 
 
 def test_r51_4_breakers_segments():

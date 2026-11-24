@@ -4993,6 +4993,11 @@ class Assumptions:
             meteor_mods, meteor_notes = models.meteor_rate_model(main, sets, up, up_how, forbidden)
             hand_mods, hand_notes = hand_mods + meteor_mods, hand_notes + meteor_notes
             hit_cut(build, meteor_mods, main.name)  # (GEM33: its hit part, the mod's hit_cut)
+        wc = next((s for s in found if s.name == models.WALKING_CALAMITY and s.group is not None), None)
+        if main is not None and wc is not None:  # (GEM38, AUDIT37 W1: its Buff of damage gained as Fire)
+            wc_gain, wc_up, wc_how = self.walking_calamity_buff(wc)
+            wc_mods, wc_notes = models.walking_calamity_buff_model(main, main_types, wc_gain, wc_up, wc_how, forbidden)
+            hand_mods, hand_notes = hand_mods + wc_mods, hand_notes + wc_notes
         side_meteors, side_meteor_notes = self.side_meteors(skills, group, forbidden)  # (MECHB47: a side group's too)
         hand_notes = hand_notes + side_meteor_notes
         hand_notes = hand_notes + self.side_sparks(skills, main, forbidden)  # (MECHB49: R36-5's cap on a side Spark)
@@ -10669,6 +10674,19 @@ class Assumptions:
                 "basis": (f"Inhibitor supports {skill}: it cannot consume Power, Frenzy or Endurance Charges "
                           f"(cannot_consume_power_frenzy_endurance_charges, R40-2 HIGH; PoB reads no such stat), so {what}")}
 
+    def walking_calamity_buff(self, skill: models.Skill) -> tuple[float, float, str]:
+        """(GEM38) (the gem's % gained as Fire with its quality, the Buff's share of the fight, how): its uses a second
+        from its Glory (glory_caps) x the build's Skill Effect Duration for it."""
+        build = self.build
+        got = next((x.get("levelStats") or {} for x in build.call("activeSkills", levelStats=[skill.name])["skills"]
+                    if x["name"] == skill.name), {})
+        uses, how = self.glory_caps().get(skill.name, (0.0, f"{skill.name}: its Glory wasn't read"))
+        spot = self.skill_spot(skill.group, skill.name)
+        row = next(iter(build.call("useRates", indices=[spot[0]], actives=[spot[1]])["rates"]), {}) if spot else {}
+        seconds = number(row.get("duration")) or models.GLORY_INSTANCE[skill.name]
+        return (number(got.get(models.WALKING_CALAMITY_STAT)), min(1.0, uses * seconds),
+                f"{uses:.3f} uses a second x its {seconds:.2f} s; {how}")
+
     def limit_and_duration(self, group: dict, limit: float, seconds: float) -> tuple[float, float]:
         """(GEM38) The group's main skill's Limit (useRates' instanceLimit: its allowed stat + "+N to Limit") and Skill
         Effect Duration (with Overabundance's less duration); `limit` / `seconds` where PoB gives none."""
@@ -10692,7 +10710,7 @@ class Assumptions:
         return base + added, seconds
 
     def earthquake_patches(self, group: dict, texts: list[str]) -> tuple[float, float, float | None]:
-        """(GEM38, models.earthquake_limit_model) (Limit, patch seconds, the seconds with Overabundance's less duration)
+        """(GEM38, models.earthquake_limit_model) (Limit, patch seconds, the fuse with Overabundance's less duration, R56-6)
         from the bridge's Limit and conditions' Jagged Ground duration lines."""
         limit, _ = self.limit_and_duration(group, 0.0, 0.0)
         gems = {g["name"] for g in group.get("gems") or [] if g.get("enabled", True)}
