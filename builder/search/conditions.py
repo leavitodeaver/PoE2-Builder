@@ -1659,6 +1659,137 @@ def charges_with_reset(gains: float, duration: float, most: float, extra: float 
     return min(held, most)
 
 
+# Charge Regulation (MECHC58; COV55's ranked list row 1, an OVERCOUNT up to x1.40 on example build 1 with PoB's full
+# charges; RESEARCH57 R57-1, charge-regulation-r57.md). The gem: "Consumes one of each [Charge] every {0} seconds"
+# (consume_frenzy_power_and_endurance_charge_every_x_ms 10000 at every level, +120 ms per 1% quality: 12.4 s at 20%;
+# GrantedEffectQualityStats row 211, poe2db; HIGH), and grants "25% (20-25) increased Skill Speed while you have a Frenzy
+# Charge", "26% (20-26) more Critical Hit Chance while you have a Power Charge", "20% (15-20) more Armour, Evasion and
+# Energy Shield while you have an Endurance Charge" (charge_mastery_*; game files and poe2db agree; HIGH). Each bonus
+# needs at least ONE charge of its kind and doesn't grow with more (PoB: StatThreshold 1 on FrenzyCharges / PowerCharges /
+# EnduranceCharges, act_int.lua's ChargeRegulationPlayer), so each bonus is up for the share of the fight the build holds
+# >= 1 charge of that kind, which its own charge gains decide (no flat rate; no source of a kind = 0 of its bonus).
+# Before, nothing read the tick (checked: the stat id and the gem's name over builder/: no reader), and PoB's threshold
+# gave the whole bonus whenever the resolver's count was >= 1. Now:
+# - The tick joins the kind's consumers (one charge every interval, Conditions.evidence), so the counts held fall too.
+# - charge_held_share: the share of time >= 1 is held, from the gains (random arrivals, as charges_with_refresh: the lane's
+#   standing reading, MEDIUM), the tick (fixed interval, its phase taken as random after each gain), the other consumers'
+#   spends (random, one a use while a charge is there) and the 15 s all-drop timer (KeywordPopups Charges, "refreshing
+#   whenever you gain another charge of the same type"; all at once, as charges_with_refresh: PoE2 UNVERIFIED, R57-1).
+#   Worked over the counts just after each gain (a small Markov chain, states 1 .. maximum).
+# - Row (R57-1's steady-cadence form): gains on a fixed rhythm T = 1 / gains: up all fight if T <= the interval between
+#   removals, else min(1, min(D, (k - 0.5) x that interval) / T), k = the charges a gain brings (MEDIUM; no source states
+#   a formula).
+# - Perpetual Charge can't support Charge Regulation (its AllowedActiveSkillTypes = [ConsumesCharges]; Charge Regulation's
+#   types are OngoingSkill, HasReservation, Buff, Persistent, AttackInPlace; R57-1 HIGH), so its 25% never touches the
+#   tick. The global "Skills have N% chance to not remove Charges" lines (CHARGES_KEPT) MAY reach it (UNVERIFIED, R57-1;
+#   RESEARCH57 R57-12 open): headline not applied to the tick, a row with it applied.
+# The bonus applied (assumptions.Assumptions.regulation_mods): PoB's own threshold bonus is replaced by the bonus x its
+# share: Speed / WarcrySpeed / TotemPlacementSpeed INC x (share - on), crit and defences MORE (1 + v x share) / (1 + v x on),
+# on = 1 when PoB's count is >= 1; scaled by "increased effect of Buffs on you" lines (PoB: BuffEffectOnSelf, CalcPerform).
+REGULATION = "Charge Regulation"
+REGULATION_EVERY_STAT = "consume_frenzy_power_and_endurance_charge_every_x_ms"
+REGULATION_BUFF_STATS = {"Frenzy": "charge_mastery_skill_speed_+%_with_frenzy_charges",
+                         "Power": "charge_mastery_crit_chance_+%_final_with_power_charges",
+                         "Endurance": "charge_mastery_armour_evasion_energy_shield_+%_final_with_endurance_charges"}
+
+
+@lru_cache(maxsize=4096)
+def _held_chain(lam: float, spend: float, tick: float, top: int, duration: float, steps: int = 300) -> tuple[float, float]:
+    dt = duration / steps
+    has_tick = tick > 0 and math.isfinite(tick)
+    held = [0.0] * (top + 1)  # time >= 1 after a gain bringing the count to n0
+    count = [0.0] * (top + 1)  # charge-seconds after it
+    move = [[0.0] * (top + 1) for _ in range(top + 1)]  # P(count before the next gain = j | n0)
+    for i in range(steps + 1):
+        t = i * dt
+        w = dt * (0.5 if i in (0, steps) else 1.0)
+        m = t / tick if has_tick else 0.0
+        lo = int(math.floor(m))
+        f = m - lo
+        mu = spend * t
+        pois = [math.exp(-mu) * mu ** j / math.factorial(j) for j in range(top)]
+        pois.append(max(0.0, 1.0 - sum(pois)))
+        gone = [0.0] * (top + 1)  # charges removed by t (top = all of them)
+        for c, pc in ((lo, 1.0 - f), (lo + 1, f)):
+            if pc > 0:
+                for j, pj in enumerate(pois):
+                    gone[min(top, c + j)] += pc * pj
+        surv = math.exp(-lam * t)
+        for n0 in range(1, top + 1):
+            held[n0] += w * surv * sum(gone[:n0])
+            count[n0] += w * surv * sum(pk * max(0, n0 - k) for k, pk in enumerate(gone))
+            for k, pk in enumerate(gone):
+                move[n0][max(0, n0 - k)] += w * lam * surv * pk
+    tail = math.exp(-lam * duration)  # no gain within the duration: all drop
+    for n0 in range(1, top + 1):
+        move[n0][0] += tail
+        total = sum(move[n0])
+        move[n0] = [x / total for x in move[n0]]
+    pi = [0.0] * (top + 1)
+    pi[1] = 1.0
+    for _ in range(1000):
+        new = [0.0] * (top + 1)
+        for n0 in range(1, top + 1):
+            for j, p in enumerate(move[n0]):
+                new[min(top, j + 1)] += pi[n0] * p
+        done = max(abs(a - b) for a, b in zip(new, pi)) < 1e-12
+        pi = new
+        if done:
+            break
+    share = lam * sum(pi[n] * held[n] for n in range(1, top + 1))
+    mean = lam * sum(pi[n] * count[n] for n in range(1, top + 1))
+    return min(1.0, share), min(float(top), mean)
+
+
+def charge_held_share(gains: float, spend: float, tick: float, most: float, duration: float,
+                      extra: float = 0.0) -> tuple[float, float]:
+    """(MECHC58, REGULATION's note) (share of the fight >= 1 charge is held, charges held on average): gains a second
+    (random arrivals; each brings 1 + `extra` charges on average, taken as that many single gains), a removal every `tick`
+    s (math.inf: none), other spends a second (`spend`, random, while a charge is there), all dropping `duration` s after
+    the last gain, at most `most`."""
+    top = int(round(most))
+    lam = gains * (1 + max(extra, 0.0))
+    if top <= 0 or lam <= 0 or duration <= 0:
+        return 0.0, 0.0
+    return _held_chain(float(f"{lam:.4g}"), float(f"{max(spend, 0.0):.4g}"),
+                       float(f"{tick:.4g}") if math.isfinite(tick) else math.inf, top, float(f"{duration:.4g}"))
+
+
+def cadence_share(gains: float, spend: float, tick: float, most: float, duration: float, extra: float = 0.0) -> float:
+    """(MECHC58, R57-1's steady-cadence row) share of the fight >= 1 charge is held when gains come on a fixed rhythm:
+    1 if the gap between gains is at most the gap between removals (the tick and the other spends together), else
+    min(1, min(duration, (k - 0.5) x that gap) / the gain gap), k = the charges a gain brings, at most `most`."""
+    if gains <= 0 or most < 1 or duration <= 0:
+        return 0.0
+    removals = (1 / tick if tick > 0 and math.isfinite(tick) else 0.0) + max(spend, 0.0)
+    if removals <= 0:
+        return min(1.0, duration * gains)
+    gap, between = 1 / gains, 1 / removals
+    if gap <= between:
+        return 1.0
+    k = min(float(most), 1 + max(extra, 0.0))
+    return min(1.0, min(duration, (k - 0.5) * between) / gap)
+
+
+def regulation_held(stats: dict, kind: str, gains: float, extra: float, others: float, tick: float, most: float,
+                    duration: float, kept: float) -> tuple[float, str]:
+    """(MECHC58, REGULATION's note) (charges of `kind` held on average, how) beside Charge Regulation's tick (`tick`
+    charges a second) and the other consumers' removals (`others` a second, kept lines applied), from charge_held_share;
+    puts {kind: (share >= 1 held, how, cadence row, kept-on-the-tick row or None)} on stats["_regulation_up"] for the
+    bonus (Conditions.evidence -> build.regulation_up -> Assumptions.regulation_mods)."""
+    every = 1 / tick
+    share, count = charge_held_share(gains, others, every, most, duration, extra)
+    cadence = cadence_share(gains, others, every, most, duration, extra)
+    kept_row = charge_held_share(gains, others, every / (1 - kept), most, duration, extra)[0] if 0 < kept < 1 else None
+    how = (f"Charge Regulation takes one every {every:.3g} s" + (f" and the others {others:.2f}/s" if others > 0 else "")
+           + f": >= 1 held {share:.0%} of the fight (gains taken as random, the 15 s timer dropping all; MEDIUM), "
+           f"{count:.2f} on average; row, gains on a steady rhythm (R57-1): {cadence:.0%}"
+           + (f"; row, the {kept:.0%} chance not to remove a charge also on its tick (UNVERIFIED, R57-12): "
+              f"{kept_row:.0%}" if kept_row is not None else ""))
+    stats.setdefault("_regulation_up", {})[kind] = (share, how, cadence, kept_row)
+    return count, how
+
+
 # Charges gained as another kind, or by allies instead (MECHC2, FIX_QUEUE: nothing read either keystone, so the player
 # kept charges of the original kind: an overcount). Resonance (passive_keystone_resonance, KeywordPopups ChargeCycle):
 # "Gain Power Charges instead of Frenzy Charges / Frenzy instead of Endurance / Endurance instead of Power": a source of
@@ -2379,17 +2510,21 @@ def _charges_held(kind: str):
         extra_text = f" x {1 + extra:.2f} per gain ({', '.join(extra_how)})" if extra_how else ""
         if spent:
             kept = charges_kept_chance(lines)  # (MECHC32: consumed but not removed on that chance)
-            removed = spent * (1 - kept)
+            tick = number(wanted.get(REGULATION))  # (MECHC58: Charge Regulation's tick; kept lines not on it, R57-12)
+            removed = (spent - tick) * (1 - kept) + tick
             net = max(rate - removed, 0.0)
             count = min(most, net * duration)
             share = min(1.0, rate / removed) if removed > 0 else 1.0
+            if tick > 0:
+                count, tick_text = regulation_held(stats, kind, gains, extra, removed - tick, tick, most, duration, kept)
             # (MECHC13: the charges consumed a second, for recovery on consuming one: Conditions.evidence puts them on
             # build.charge_flow)
             stats.setdefault("_charge_flow", {})[kind] = (
                 spent * share, f"{rate:.2f}/s made, {spent:.2f}/s wanted by " + ", ".join(stats["_consumers"][kind]))
             basis = (f"{gains:.2f} gains/s{extra_text} = {rate:.2f}/s made, {spent:.2f}/s spent by " +
                      ", ".join(stats["_consumers"][kind]) +
-                     f" (one per use; {share:.0%} of their uses find a charge), {net:.2f}/s left x {duration:g} s")
+                     f" (one per use; {share:.0%} of their uses find a charge), " + (
+                         tick_text if tick > 0 else f"{net:.2f}/s left x {duration:g} s"))
             if kind == "Power" and stats.get("_creeping_per_crystal"):  # (MECHC47, R37-3's row)
                 per = stats["_creeping_per_crystal"]
                 basis += ("; Creeping Chill spends a Power Charge per Ice Crystal (R37-3, LOW-MEDIUM): "
@@ -10788,6 +10923,16 @@ class Conditions:
                         and name not in (consumers.get("Endurance") or {}):
                     consumers.setdefault("Endurance", {})[name] = (
                         number(stats.get("Speed")) * _main_share(stats) if name == self.main_skill else None)
+        self.build.regulation = None
+        if REGULATION in gem_types:  # (MECHC58: its tick consumes one of each kind; REGULATION's note)
+            level = next((r.get("levelStats") or {} for r in self.build.call(
+                "activeSkills", levelStats=[REGULATION])["skills"] if r.get("name") == REGULATION), {})
+            every = number(level.get(REGULATION_EVERY_STAT)) / 1000
+            if every > 0:
+                self.build.regulation = {"every": every,
+                                         **{kind: number(level.get(stat)) for kind, stat in REGULATION_BUFF_STATS.items()}}
+                for kind in CHARGE_KINDS:
+                    consumers.setdefault(kind, {})[REGULATION] = 1 / every
         # Rage spenders (RAGE_PER_USE / RAGE_PER_SECOND): the main skill, or a support in its group, at the main skill's
         # uses per second; any other at its group's rate (a per-second channel held 1 s a press, assumed; MECHC1)
         main_gems = {g["name"] for g in group["gems"]} if group is not None else set()
@@ -11479,6 +11624,8 @@ class Conditions:
         self.found_uptimes = uptimes
         # (MECHC13) charges consumed a second by kind ({kind: (rate, how)}; _charges_held), for recovery.spent_income
         self.build.charge_flow = dict(stats.get("_charge_flow") or {})
+        # (MECHC58) {kind: (share >= 1 held, how, cadence row, kept row)} beside Charge Regulation (regulation_held)
+        self.build.regulation_up = dict(stats.get("_regulation_up") or {})
         # (MECHC51) {kind: {skill: (charges spent a second, presses a second, how)}} for CONSUMES_ALL's skills
         # (Assumptions.charged_staff reads Charged Staff's)
         self.build.consume_all = dict(stats.get("_consume_all") or {})

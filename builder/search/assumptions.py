@@ -3353,6 +3353,11 @@ LIMIT_LINE = re.compile(r"^(?:Fissure )?Skills have \+(\d+) to Limit$", re.I)
 OVERABUNDANCE_DURATION = "support_limit_skill_effect_duration_+%_final"
 
 
+# (MECHC58) Charge Regulation's bonuses at each kind's share (Assumptions.regulation_mods; conditions.REGULATION)
+REGULATION_TAG = "ChargeRegulationShare"
+REGULATION_BUFF_EFFECT = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) effect of Buffs on you$", re.I)
+
+
 class Assumptions:
     def __init__(self, build: Build) -> None:
         self.build = build
@@ -3494,6 +3499,8 @@ class Assumptions:
         # (MECH96) Gruelling Madness's Slowing Potency on the boss (PoB parses none of its lines)
         madness_mods, madness_notes = models.madness_slow_mods(texts, stats, distance, bool(main and main.attack))
         mods, notes = mods + madness_mods, notes + madness_notes
+        reg_mods, reg_notes = self.regulation_mods(texts)  # (MECHC58: Charge Regulation at each kind's share)
+        mods, notes = mods + reg_mods, notes + reg_notes
         notes += [diadem_note] if diadem_note else []  # (MECHC54: models.DIADEM_RACE_STAT's note)
         fear_mods_, fear_notes = models.fear_mods(texts, stats)  # (MECH96: Fear Incarnate / Overwhelming on Culls)
         mods, notes = mods + fear_mods_, notes + fear_notes
@@ -9968,6 +9975,59 @@ class Assumptions:
                     else models.ARCHON_RECOVERY / max(1 + inputs.total("ArchonRecovery") / 100, 1e-9))
         wait = max(1 / number(got[0]) - lasts - recovery, 1e-3)
         return 1 / wait, f"Archon of Chayula (its Glory full {wait:.3g} s after the recovery; LOW)"
+
+    def regulation_mods(self, texts: list[str]) -> tuple[list[dict], list[dict]]:
+        """(MECHC58; conditions.REGULATION's note) (mods, notes): Charge Regulation's three bonuses at the share of the
+        fight the build holds >= 1 charge of each kind (build.regulation_up, a round behind as the other charge readers),
+        in place of PoB's threshold reading (the whole bonus whenever the resolver's count is >= 1, none below)."""
+        from builder.search.conditions import CHARGE_KINDS, REGULATION
+        build = self.build
+        gem = getattr(build, "regulation", None)
+        if not gem:
+            return [], []
+        ups = getattr(build, "regulation_up", None) or {}
+        config = build.call("getConfig")["input"]
+        effect = 1 + sum(float(m.group(1)) * (1 if m.group(2) == "increased" else -1)
+                         for t in texts if (m := REGULATION_BUFF_EFFECT.match(t.strip()))) / 100
+        mods, parts, rows, play = [], [], [], []
+        for kind in CHARGE_KINDS:
+            value = number(gem.get(kind)) * effect
+            if value <= 0:
+                continue
+            share, how, cadence, kept_row = ups.get(kind) or (0.0, f"no {kind} Charge source: 0", 0.0, None)
+            held = config.get(f"override{kind}Charges")
+            on = 1.0 if config.get(f"use{kind}Charges") and (held is None or number(held) >= 1) else 0.0
+            if kind == "Frenzy":
+                if share != on:
+                    mods += [models.raw_mod(name, "INC", value * (share - on), tag=REGULATION_TAG, keywords=keywords)
+                             for name, keywords in (("Speed", None), ("WarcrySpeed", ["Warcry"]),
+                                                    ("TotemPlacementSpeed", None))]
+                what = f"{value:.3g}% increased Skill Speed"
+            else:
+                if share != on:
+                    more = 100 * ((1 + value * share / 100) / (1 + value * on / 100) - 1)
+                    names = ("CritChance",) if kind == "Power" else ("Armour", "Evasion", "EnergyShield")
+                    mods += [models.raw_mod(name, "MORE", more, tag=REGULATION_TAG) for name in names]
+                what = f"{value:.3g}% more " + ("Critical Hit Chance" if kind == "Power" else "Armour, Evasion and Energy Shield")
+            parts.append(f"{what} {share:.0%} of the fight")
+            rows.append(f"{kind}: {how}; PoB's reading: {on:.0%}")
+            play.append(f"{kind} {share:.0%}" + (f" (steady rhythm {cadence:.0%})" if abs(cadence - share) > 0.005 else ""))
+        if not parts:
+            return [], []
+        note = {
+            "label": "Charge Regulation: each bonus while you hold a charge of its kind*",
+            "value": "; ".join(parts),
+            "basis": (f"It consumes one of each Charge every {gem['every']:.3g} s (its stat, quality included), and each "
+                      "bonus needs at least one charge of its kind (\"while you have a ... Charge\"; RESEARCH57 R57-1, HIGH), "
+                      "so each is up for the share of the fight the build's own gains keep one: " + " | ".join(rows)
+                      + (f". Bonuses x{effect:.2f} from increased effect of Buffs on you" if effect != 1 else "")
+                      + ". Perpetual Charge can't support it (R57-1, HIGH)."),
+            "confidence": "MEDIUM (game text and numbers; the share from random charge gains and the all-drop timer)",
+            "play": (f"Charge Regulation takes one charge of each kind every {gem['every']:.3g} s: its bonuses hold only while "
+                     "you keep gaining charges faster than that, so feed each kind from the build's charge sources. "
+                     "With them, up: " + ", ".join(play) + "; without a source of a kind, its bonus is 0."),
+        }
+        return mods, [note]
 
     def kalguur_boost(self, skills: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
         """(mods, notes) for Fist of Kalguur's Runic Boost on every Slam it supports, at the share of their uses the
