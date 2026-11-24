@@ -13255,7 +13255,13 @@ def rallying_form_model(texts: list[str], shifted: float, how: str) -> tuple[lis
 #   stack. The 4 s it outlasts the Mark isn't in the headline (a lower reading); a row gives it through every gap.
 # - "Companions in your Presence gain 1 Rage on hit": KeywordPopups Rage: 1% more Attack damage per Rage, 30 maximum by
 #   default, 1 lost every 0.2 s, the loss paused 4 s on gaining Rage, one Hit every 0.5 s can give Rage. Each Companion keeps
-#   its own, from its own hits. That a Companion follows the player's Rage rules and maximum is an ASSUMPTION (UNVERIFIED).
+#   its own, from its own hits. (MECHB61, RESEARCH57 R57-15, companion-rage-bell-limit-r57.md: MEDIUM) a Companion
+#   follows the same rules: the popup is Rage's only definition, no minion-specific Rage maximum, loss or gain-limit stat
+#   exists (checked by RESEARCH57: every stat id with "rage" and minion / companion / ally, every rage maximum / loss /
+#   regeneration stat and their carriers), and Skeletal Reavers "do more Attack Damage ... based on their Rage" is the
+#   popup's rule on a minion. The 30 maximum for a minion stays UNVERIFIED (the popup's default is the only figure).
+#   (R57-15 lists no current carrier of companions_in_presence_gain_x_rage_on_hit; MECHB60 found it on SoulCoreStats rows
+#   374 / 289 and PoB's ModRunes: both written down, the line is read wherever it appears.)
 COMPANION_MARK_ONSLAUGHT = re.compile(r"^Companions gain Onslaught for (\d+(?:\.\d+)?) seconds? on Hitting your Marked "
                                       r"targets$", re.I)
 COMPANION_RAGE_ON_HIT = re.compile(r"^Companions in your Presence gain (\d+(?:\.\d+)?) Rage on hit$", re.I)
@@ -13306,35 +13312,49 @@ def companion_runes_model(texts: list[str], marked: float, how: str, others: flo
             parts.append(f"{name}: {why}")
             if rage > 0:
                 mods.append(line("Minions deal 1% more Attack Damage", rage, skill=name))
-        notes.append({"label": "Companions' Rage on hit*", "value": f"{per_hit:g} a hit", "confidence": "LOW",
+        notes.append({"label": "Companions' Rage on hit*", "value": f"{per_hit:g} a hit", "confidence": "MEDIUM",
                       "basis": ("; ".join(parts) or "no Companion in the build: 0") + ". 1% more Attack damage per Rage "
-                               "(KeywordPopups Rage). That a Companion follows the player's Rage rules and 30 maximum is "
-                               "UNVERIFIED; PoB gives the line nothing"})
+                               "(KeywordPopups Rage). A Companion follows the player's Rage rules (RESEARCH57 R57-15, "
+                               "MEDIUM); its 30 maximum is UNVERIFIED (the popup's default); PoB gives the line nothing"})
     return mods, notes
 
 
 # Hollow Focus under the Bell-hit Alloy (MECHB60; MECHB58's coverage row, PLANS6 un-tempest-bell-limit.md). The Alloy's
 # "Tempest Bells are destroyed after an additional (4-5) Hits" (AlloyBellLimit1) raises the stat bell_hit_limit, which
-# HollowFocusPlayer's bells also carry (1: one Hit destroys one). Whether the line reaches them is UNVERIFIED (the same
-# stat, but its text says Tempest Bells), so GEM30's headline (one shockwave a bell) stays and this is a ROW: each bell
-# takes 1 + N Hits, so shockwaves a second = min(your hits a second, (1 + N) bells' worth), against min(1, your hits).
-def hollow_focus_alloy_note(skills: list[Skill], texts: list[str], hits: float) -> list[dict]:
-    """A row for the Alloy's extra Bell hits on Hollow Focus (see above); `hits` the main skill's hits a second."""
+# HollowFocusPlayer's bells also carry (1: one Hit destroys one). (MECHB61, RESEARCH57 R57-15: MEDIUM-HIGH) it reaches
+# them: a global line adds to every skill's stat of the same id, and poe2db / outof.games / mobalytics show Hollow Focus's
+# own value under the same "Tempest Bells are destroyed after an additional 1 Hit" text. Each Hit on a bell still alive
+# makes a shockwave (MEDIUM: Tempest Bell's design, and Hollow Focus carries the same per-bell shockwave cooldown, 0.1 s,
+# which matters only if a bell shockwaves more than once). So the HEADLINE: each bell takes 1 + N Hits, shockwaves a
+# second = min(your hits a second, (1 + N) x bells a second), against GEM30's min(your hits, bells a second): a DPS MORE
+# on Hollow Focus of that ratio, on top of GEM30's one-shockwave-a-bell factor. Row: the description's "immediately
+# destroy" ignores the hit limit (UNVERIFIED): x1. One Hit striking several bells at once isn't counted (lower).
+HOLLOW_ALLOY_ENTRY = "model-mechb61-hollow-focus-alloy"
+
+
+def hollow_focus_alloy_note(skills: list[Skill], texts: list[str], hits: float,
+                            forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for the Alloy's extra Bell hits on Hollow Focus (see above); `hits` the main skill's hits a second."""
     focus = next((s for s in skills if s.name == HOLLOW_FOCUS), None)
     extra = sum(float(m.group(1)) for t in texts if (m := BELL_EXTRA_HITS.match(t.strip())))
     base = number(focus.level_stats.get(REPEAT_STAT)) / 1000 if focus is not None else 0.0
-    if focus is None or extra <= 0 or base <= 0:
-        return []
+    if focus is None or extra <= 0 or base <= 0 or HOLLOW_ALLOY_ENTRY in forbidden:
+        return [], []
     bells = (focus.cooldown_recovery or 1.0) / base
     head = min(bells, hits)
     row = min(bells * (1 + extra), hits)
-    return [{"label": f"{HOLLOW_FOCUS}: the Alloy's +{extra:g} Hits a bell (not counted)*", "value": "x1.000",
-             "confidence": "UNVERIFIED",
-             "basis": (f"'Tempest Bells are destroyed after an additional {extra:g} Hits' raises bell_hit_limit, the stat "
-                       f"Hollow Focus's bells carry too (1), but its text names Tempest Bells: UNVERIFIED that it reaches "
-                       f"them, so the headline keeps one shockwave a bell ({bells:.2f} bells a second, {head:.2f} "
-                       f"shockwaves). Row, it reaches them: {1 + extra:g} Hits a bell, {row:.2f} shockwaves a second from "
-                       f"your {hits:.2f} hits: x{row / head if head > 0 else 1:.3f} on Hollow Focus's shockwaves")}]
+    factor = row / head if head > 0 else 1.0
+    mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), focus.name, tag=HOLLOW_ALLOY_ENTRY)] if factor > 1 else []
+    return mods, [{"label": f"{HOLLOW_FOCUS}: the Alloy's +{extra:g} Hits a bell*", "value": f"x{factor:.3f}",
+                   "confidence": "MEDIUM", "entry": HOLLOW_ALLOY_ENTRY,
+                   "basis": (f"'Tempest Bells are destroyed after an additional {extra:g} Hits' raises bell_hit_limit, the "
+                             f"stat Hollow Focus's bells carry (1): it reaches them (RESEARCH57 R57-15, MEDIUM-HIGH), and "
+                             f"each Hit on a live bell is a shockwave (MEDIUM). {bells:.2f} bells a second, {1 + extra:g} "
+                             f"Hits a bell, from your {hits:.2f} hits a second: {row:.2f} shockwaves a second against "
+                             f"{head:.2f}: x{factor:.3f} on Hollow Focus's shockwaves. Row, 'immediately destroy' ignores "
+                             f"the limit (UNVERIFIED): x1"),
+                   "play": (f"Keep hitting each Hollow Focus bell: with the Alloy it takes {1 + extra:g} Hits "
+                            f"(without it x1, with it x{factor:.3f})" if factor > 1 else "")}]
 
 
 # Twister consuming a Whirlwind (MECHB60; COV55's ranked list item 1, example builds 1 / 2; an UNDERCOUNT: PoB's
@@ -13345,10 +13365,17 @@ def hollow_focus_alloy_note(skills: list[Skill], texts: list[str], hits: float) 
 # Whirling Slash / Whirlwind Lance presses (their use rate at the search's press choices; no press, 0: the user's rule),
 # each Whirlwind built to k stages by k uses (KeywordPopups Whirlwind: an overlapping one gains a stage, at most
 # sandstorm_swipe_max_stages), k chosen as the play that gives the most. Consumes a second c = min(the uses / k, Twister's
-# casts). Open (R57-2), so the HEADLINE is the lower reading: only the additional twister deals the (1 + 80% x k) more,
-# one twister's share (1 / N of the N fired) of a cast's hits: x(1 + c / casts x (1 + 0.8 k) / N). Rows: the more on every
-# twister of the cast; "per additional stage" (0.8 (k - 1)). The 660 ms limit stays recovery.twister_hits'. The
-# Whirlwinds' own collapse damage and the presses' time are other models' (the press choices'), not here.
+# casts). (MECHB61, RESEARCH57 R57-14, twister-consume-group-r57.md) The toucher and its k extras deal (1 + 0.8 k) more
+# (MEDIUM: the stat and skill texts, a 0.5 guide's "moving through or created by consuming", a forum count of 4 twisters
+# from a stage-3 Whirlwind); the cast's other twisters don't (MEDIUM). Whether the extras form a new hit group is
+# UNVERIFIED: HEADLINE, the cast's group ("Twisters fired at the same time can Hit the same target no more than once every
+# 0.66 seconds"; the lower reading), so the extras add no hit on a lone boss, and the cast's first window (the boss
+# stands on the Whirlwind) is the empowered twisters' hit: of the H hits a cast recovery.twister_hits counts (1 in the
+# open), one at x(1 + 0.8 k): x(1 + c / casts x 0.8 k / H). Rows: the extras a NEW group (one more hit a consume at
+# x(1 + 0.8 k)); near walls, the later windows landed by the empowered twisters at their share (1 + k) / (N + k) of the
+# cast's twisters. The 660 ms limit stays recovery.twister_hits'. The Whirlwinds' own collapse damage and the presses' time
+# are other models' (the press choices'), not here. (Replaced MECHB60's lower reading, the more on the additional
+# twister only, x(1 + c / casts x (1 + 0.8 k) / N), which R57-14 supersedes.)
 TWISTER_STAGE_STAT = "twister_damage_+%_final_per_whirling_slash_stage"
 TWISTER_STAGE_MORE = 80.0  # (TwisterPlayer's, when the level stats don't carry it)
 TWISTER_CONSUME_ENTRY = "model-mechb60-twister-whirlwind"

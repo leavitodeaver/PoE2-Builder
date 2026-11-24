@@ -47,7 +47,7 @@ def test_rage_goes_on_each_companion_by_its_own_rate():
     mods, notes = M.companion_runes_model([RAGE], 0.0, "", 0.0, [("Wolf", 2.0), ("Bear", 0.0)], 60.0)
     assert [(m["line"], m.get("skill")) for m in mods] == [(MORE, "Wolf")]
     assert mods[0]["scale"] == pytest.approx(30 * (1 - 15 / 120))
-    assert notes[0]["confidence"] == "LOW"
+    assert notes[0]["confidence"] == "MEDIUM"  # (MECHB61, R57-15)
 
 
 def test_other_lines_do_nothing():
@@ -74,10 +74,13 @@ def test_volcano_spray_rows_keep_the_headline():
 def test_hollow_focus_alloy_row():
     focus = _skill(M.HOLLOW_FOCUS, **{M.REPEAT_STAT: 2000})
     alloy = "Tempest Bells are destroyed after an additional 4 Hits"
-    note = M.hollow_focus_alloy_note([focus], [alloy], 2.0)
-    assert note[0]["value"] == "x1.000" and "x4.000" in note[0]["basis"]  # (0.5 bells a second; 2 hits feed 2.5 -> 2)
-    assert M.hollow_focus_alloy_note([focus], [], 2.0) == []
-    assert M.hollow_focus_alloy_note([], [alloy], 2.0) == []
+    mods, note = M.hollow_focus_alloy_note([focus], [alloy], 2.0)
+    # (MECHB61, R57-15: the headline) 0.5 bells a second x 5 Hits = 2.5, held to your 2 hits: x4
+    assert note[0]["value"] == "x4.000" and note[0]["confidence"] == "MEDIUM"
+    assert mods[0]["value"] == pytest.approx(300.0) and mods[0]["skill"] == M.HOLLOW_FOCUS
+    assert M.hollow_focus_alloy_note([focus], [alloy], 2.0, {M.HOLLOW_ALLOY_ENTRY}) == ([], [])
+    assert M.hollow_focus_alloy_note([focus], [], 2.0) == ([], [])
+    assert M.hollow_focus_alloy_note([], [alloy], 2.0) == ([], [])
 
 
 def _twister(**level):

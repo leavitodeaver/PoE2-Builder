@@ -7,8 +7,9 @@
   notes: >-
     MECHB60 (MECH-B's coverage rows; UNDERCOUNTS: probe POE2T4939, each line alone moves PoB's Full DPS x1.0000). Onslaught's
     20% Skill Speed at the boss's Marked share, as a union with the Onslaught already counted (Rallying Form, Warding Rune of
-    Bodyguards). Rage from each Companion's own hit rate and the fight's length, under KeywordPopups Rage's rules; that a
-    Companion follows the player's rules and 30 maximum is UNVERIFIED. Probe POE2T4942 (Rampage + Azmerian Wolf).
+    Bodyguards). Rage from each Companion's own hit rate and the fight's length, under KeywordPopups Rage's rules; a
+    Companion follows the player's rules (MECHB61, RESEARCH57 R57-15: MEDIUM), its 30 maximum UNVERIFIED. Probe POE2T4942
+    (Rampage + Azmerian Wolf).
 
 - id: model-mechb60-twister-whirlwind
   title: "Twister consuming a Whirlwind: an additional twister dealing more damage per stage (models.twister_consume_model)"

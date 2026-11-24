@@ -1,0 +1,10 @@
+- id: model-mechb61-hollow-focus-alloy
+  title: "The Bell-hit Alloy on Hollow Focus's bells: each bell takes 1 + N Hits, a shockwave a Hit (models.hollow_focus_alloy_note)"
+  kind: model
+  model: hollow_focus_alloy
+  skill: [Hollow Focus]
+  confidence: theory
+  notes: >-
+    MECHB61 (RESEARCH57 R57-15: the Alloy's bell_hit_limit reaches Hollow Focus's bells, MEDIUM-HIGH; each Hit on a live
+    bell a shockwave, MEDIUM). Shockwaves a second min(your hits, (1 + N) x bells a second) against GEM30's min(your hits,
+    bells a second), a DPS MORE on Hollow Focus. Row: "immediately destroy" ignores the limit, x1. Was MECHB60's row.

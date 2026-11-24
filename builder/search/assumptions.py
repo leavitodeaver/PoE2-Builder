@@ -3601,9 +3601,10 @@ class Assumptions:
         rep_mods, rep_notes = models.repeat_interval_model(found, main, stats, build.call("getConfig")["input"], forbidden)
         bell_mods, bell_notes = self.hollow_focus_bells(found, main, stats)  # (MECHC54: BELL_EATERS' note)
         rep_mods, rep_notes = rep_mods + bell_mods, rep_notes + bell_notes
-        rep_notes = rep_notes + models.hollow_focus_alloy_note(  # (MECHB60: the Alloy's +N Bell hits, a row)
+        alloy_mods, alloy_notes = models.hollow_focus_alloy_note(  # (MECHB60 / MECHB61, R57-15: the Alloy's +N Hits)
             found, [e["text"] for e in source_lines], number(stats.get("Speed")) * (
-                number(stats.get("HitChance")) / 100 if stats.get("HitChance") is not None else 1.0))
+                number(stats.get("HitChance")) / 100 if stats.get("HitChance") is not None else 1.0), forbidden)
+        rep_mods, rep_notes = rep_mods + alloy_mods, rep_notes + alloy_notes
         stat_mods, stat_notes = stat_mods + rep_mods, stat_notes + rep_notes  # (GEM30: Ravenous Swarm, Hollow Focus)
         hit_cut(build, [m for m in stat_mods if "hit_cut" in m or models.HIT_CUT_PER_USE in m] + rep_mods,
                 main.name if main else None)  # (GEM33:
