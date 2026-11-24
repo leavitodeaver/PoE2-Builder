@@ -10378,9 +10378,9 @@ class Conditions:
         (with Living Bomb's when `bomb`, as Assumptions.infusion_share counts them)."""
         from builder.search.assumptions import (LIVING_BOMB, LIVING_BOMB_FIELDS, ORB_OF_STORMS, SIPHON, infusion_supply,
                                                 living_bomb_rate, orb_remnants, siphon_rates, still_far,
-                                                VERISIUM, verisium_infusions)
+                                                VERISIUM, verisium_infusions, EXTRA_REMNANT_STAT)
 
-        raw = self.build.call("activeSkills")["skills"]
+        raw = self.build.call("activeSkills", supportStats=[EXTRA_REMNANT_STAT])["skills"]  # (MECHC60: Harmonic Remnants II)
         groups = getattr(self.build, "groups", None)  # (MECHC50: SELFLESS_REMNANTS' note; none on a stand-in build)
         selfless = selfless_skills(groups()) if callable(groups) else set()
         present = {s["name"]: s for s in raw if not s["disabled"] and s["name"] not in selfless}

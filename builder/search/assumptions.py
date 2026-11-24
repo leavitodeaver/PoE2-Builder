@@ -900,6 +900,12 @@ def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[st
     uptimes = ailments if isinstance(ailments, dict) else dict.fromkeys(ailments, 1.0)
     used: list[str] = []
     made: dict[str, float] = {}
+    made_by: dict[str, dict[str, float]] = {}  # (MECHC60: each source's own, for its additional-Remnant chance)
+
+    def note(name: str, element: str, rate: float) -> None:
+        made[element] = made.get(element, 0.0) + rate
+        made_by.setdefault(name, {})[element] = made_by.get(name, {}).get(element, 0.0) + rate
+
     for name, element in INFUSION_SOURCES.items():
         skill = present.get(name)
         if skill is None:
@@ -927,25 +933,38 @@ def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[st
                 absent *= 1.0 - up
             found = 1.0 - absent
             for e, up in ups.items():
-                made[e] = made.get(e, 0.0) + rate * found * up / sum(ups.values())
+                note(name, e, rate * found * up / sum(ups.values()))
             shares = "/".join(e if up >= 1.0 else f"{e} {up:.0%} of the fight" for e, up in ups.items())
             used.append(f"{name} {rate * found:.2f}/s ({shares}, its consumed ailment"
                         f"{'s split by uptime' if len(ups) > 1 else ''}"
                         f"{f'; one on the boss at {found:.0%} of its casts' if found < 1.0 else ''})")
         else:
-            made[element] = made.get(element, 0.0) + rate
+            note(name, element, rate)
             used.append(f"{name} {rate:.2f}/s {element}")
     if SIPHON in present and far:
         used.append(f"{SIPHON} 0/s: its Remnants appear at the target, out of reach while you stand still at range")
     elif SIPHON in present:
         split = siphon[2] if len(siphon) > 2 else {"Cold": siphon[0]}  # (MECHC58: Fire and Lightning too)
         for element, rate in split.items():
-            made[element] = made.get(element, 0.0) + rate
+            note(SIPHON, element, rate)
         used.append(f"{SIPHON} {siphon[0]:.2f}/s ({siphon[1]})")
     if far and ORB_OF_STORMS in present:
         used.append(f"{ORB_OF_STORMS}: cast at your feet so its Remnants land within reach while you stand still (LOW)")
     used += [why for name, why in INFUSION_UNCOUNTED.items() if name in present]
     texts = [t.strip() for t in lines]
+    # (MECHC60, U4's support: an UNDERCOUNT) the "chance to create an additional Remnant" stat on each source: its
+    # supports' (Harmonic Remnants II, in supportStats; it supports only GeneratesRemnants skills: Siphon Elements, Frost
+    # Bomb, Orb of Storms, Living Bomb, Snap) plus the build's lines (the same stat; MEDIUM: Infusion Remnants are
+    # Remnants, KeywordPopups Remnant; the Infusion-only "additional Infusion Remnant" lines stay below, rolled apart)
+    general = additional_remnant_chance(texts)
+    for name, chance in made_by.items():
+        support = max((number((s.get("supportStats") or {}).get(EXTRA_REMNANT_STAT)) / 100.0
+                       for s in (present.get(name),) if s), default=0.0)
+        if general + support > 0:
+            for element, rate in chance.items():
+                made[element] += rate * (general + support)
+            used.append(f"{name}: +{general + support:.0%} additional Remnants"
+                        + (f" (its supports' {support:.0%})" if support else ""))
     if any(EQUILIBRIUM.search(t) for t in texts):
         made = {EQUILIBRIUM_SHIFT[e]: r for e, r in made.items()}
         used.append("Elemental Equilibrium shifts each Remnant's element (Fire to Lightning, Lightning to Cold, Cold to Fire)")
@@ -981,6 +1000,56 @@ def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[st
 
 ADDITIONAL_REMNANT = re.compile(r"(\d+(?:\.\d+)?)% chance to create an additional Remnant", re.I)
 REMNANT_CONSUMERS = {"Transmutation Explosion"}
+# (MECHC60, U4: an UNDERCOUNT) Harmonic Remnants II's "chance_%_to_create_additional_remnant" (20, its constantStats;
+# SupportFleetingRemnantsPlayerTwo, game 26650308; PoB sup_int.lua 5253: no statMap entry, so PoB reads none) is the same
+# stat as the passives' "N% chance to create an additional Remnant" lines (Remnant Attraction, Additional Remnant
+# Chance) that remnant_multiplier reads from the text, but a support's stat isn't a source line, so nothing read it
+# (checked: the stat id and "additional Remnant" over builder/ and engine/bridge.lua; its carriers over every table:
+# the support, three passives (text), Lingering Illusion's own level stat and quality (its REMNANT_SOURCES row), one
+# Soul Core (an item line, text)). It adds to the global chance for the supported skill's Remnants only:
+# (1 + g + s) / (1 + g) on that source's rate, where g is the text lines' chance (remnant_multiplier applies 1 + g).
+EXTRA_REMNANT_STAT = "chance_%_to_create_additional_remnant"
+# Into the Breach's flame cadence from its own level (breach_flame_spawn_rate_ms: 1400 ms at level 1 down to 1060 at
+# 40, IntoTheBreachPlayer's GrantedEffectStatSetsPerLevel); REMNANT_SOURCES' 1210 is level 20's, the fallback.
+BREACH_RATE_STAT = "breach_flame_spawn_rate_ms"
+# Lingering Illusion's own 76% (its level-20 chance_%_to_create_additional_remnant, in REMNANT_SOURCES' 1.76 a copy): a
+# support's chance adds to it, so its scale is (1.76 + g + s) / (1.76 + g)
+LINGERING_OWN_CHANCE = 0.76
+
+
+def additional_remnant_chance(texts: list[str]) -> float:
+    """The build's "N% chance to create an additional Remnant" lines, summed (remnant_multiplier's g)."""
+    return sum(float(m.group(1)) for t in texts if (m := ADDITIONAL_REMNANT.search(t))) / 100.0
+
+
+def support_remnant_scale(skills: list[dict], name: str, chance: float) -> tuple[float, float]:
+    """(MECHC60) (scale on `name`'s Remnant rate, its supports' chance) for its supports' additional-Remnant chance
+    (EXTRA_REMNANT_STAT in supportStats) on top of the text lines' `chance`: (1 + chance + s) / (1 + chance). Several
+    enabled copies: the best-supported one (the copy the player uses for its Remnants; MEDIUM)."""
+    support = max((number((s.get("supportStats") or {}).get(EXTRA_REMNANT_STAT)) / 100.0 for s in skills
+                   if s.get("name") == name and not s.get("disabled")), default=0.0)
+    return (1.0 + chance + support) / (1.0 + chance) if support > 0 else 1.0, support
+
+
+def breach_flame_rate(skills: list[dict], chance: float = 0.0) -> tuple[float, str]:
+    """(MECHC60, U4) Flames of Chayula a second from Into the Breach before the text lines' Remnant multiplier: its
+    own breach_flame_spawn_rate_ms at the level PoB gives it (levelStats; level 20's 1210 ms where PoB gives none) x
+    its supports' additional-Remnant scale (support_remnant_scale, over the text lines' `chance`). One Breach at a time
+    (skill_desired_amount_override 1): with two copies (the tree's and a socketed gem), the faster one. Returns (rate,
+    how)."""
+    best, how = 0.0, ""
+    for s in skills:
+        if s.get("name") != BREACH or s.get("disabled"):
+            continue
+        ms = number((s.get("levelStats") or {}).get(BREACH_RATE_STAT))
+        base = 1000.0 / ms if ms > 0 else REMNANT_SOURCES[BREACH][0]
+        if base > best:
+            best, how = base, (f"one flame per {ms / 1000:.2f} s at its level" if ms > 0
+                               else "one flame per 1.21 s (level 20's; no level stat read)")
+    scale, support = support_remnant_scale(skills, BREACH, chance)
+    if support > 0:
+        how += f", its supports' +{support:.0%} additional Remnants (x{scale:.3f} over the build's lines)"
+    return best * scale, how
 
 
 RESCORE_MODELS = os.environ.get("BUILDER_RESCORE_MODELS") == "1"
@@ -6686,13 +6755,18 @@ class Assumptions:
         return builder, strikes, (f"{builder} {strikes:.2f} Strikes/s building the main skill's Combo ({speed:.2f}/s for "
                                   f"the {1 - share:.0%} of the time its uses leave)")
 
-    def remnant_supply(self, skills: list[dict], skip: tuple[str, ...] = ()) -> tuple[float, list[str]]:
+    def remnant_supply(self, skills: list[dict], skip: tuple[str, ...] = (),
+                       chance: float | None = None) -> tuple[float, list[str]]:
         """Remnants per second the build makes on the request's boss, before the build's "additional Remnant" /
         "reappear" / double-pickup lines (remnant_multiplier), and what makes them: every REMNANT_SOURCES skill it has
         (MECHC15: lifted out of the Transmutation Explosion hook so the "when you collect a Remnant" recovery lines read
-        the same supply). `skills`: activeSkills with KALGUUR's levelStats; `skip`: sources the caller counts itself."""
+        the same supply). `skills`: activeSkills with KALGUUR's levelStats; `skip`: sources the caller counts itself.
+        (MECHC60) Each source's own supports' additional-Remnant chance (support_remnant_scale) over the text lines'
+        `chance` (read from the build's lines when not given); Into the Breach at its own level's cadence."""
         present = {s["name"]: s for s in skills if not s.get("disabled")}
         supply, used = 0.0, []
+        if chance is None and any(n in present for n in REMNANT_SOURCES):
+            chance = additional_remnant_chance([line["text"] for line in self.build.call("sourceLines")["lines"]])
         selfless = selfless_of(self.build)  # (MECHC50: SELFLESS_REMNANTS' note)
         for name, (rate, condition) in REMNANT_SOURCES.items():
             skill = present.get(name)
@@ -6713,6 +6787,7 @@ class Assumptions:
                 if rate <= 0:
                     used.append(f"{name} 0/s ({condition})")
                     continue
+            solved_here = False  # (MECHC60: the self-fed chain solved its own rate: no support scale on it)
             if name in COOLDOWN_SOURCES:
                 rate *= skill.get("cooldownRecovery") or 1.0
             if name == KALGUUR:
@@ -6743,6 +6818,7 @@ class Assumptions:
                 if name != next(n for n in HIT_REMNANTS if n in present):
                     continue
                 rate, condition = solved
+                solved_here = True
             elif name in HIT_REMNANTS:
                 rate, condition = hit_remnant_rate(name, with_main_share(  # (MECHC45)
                     self.build, self.build.call("stats", fields=list(HIT_REMNANT_FIELDS)),
@@ -6751,6 +6827,15 @@ class Assumptions:
                 found, how = snap_found(snap_stats(self.build))
                 rate *= found
                 condition = f"on its cooldown, when it finds an ailment to Consume ({found:.0%}: {how})"
+            elif name == BREACH:  # (MECHC60, U4: its own level's cadence and supports; scaled there)
+                rate, flames_how = breach_flame_rate(skills, chance or 0.0)
+                condition = f"{condition}; {flames_how}"
+            if name != BREACH and not solved_here:  # (MECHC60: the source's own supports' additional Remnants)
+                own = LINGERING_OWN_CHANCE if name == "Lingering Illusion" else 0.0  # (already in its row's rate)
+                scale, support = support_remnant_scale(skills, name, (chance or 0.0) + own)
+                if support > 0:
+                    rate *= scale
+                    condition = f"{condition}; its supports' +{support:.0%} additional Remnants"
             supply += rate
             used.append(f"{name} {rate:.2f}/s ({condition})")
         return supply, used
@@ -6973,19 +7058,20 @@ class Assumptions:
     def wanted(self) -> tuple[list[dict], list[dict]]:
         skills = self.build.call("activeSkills", levelStats=[
             models.IRON_WARD, models.FEROCIOUS_ROAR, models.SUMMON_WOLF, models.RAPID_SHOT, models.APOCALYPSE,
-            KALGUUR, models.TAWHOA, models.ARCTIC_HOWL, models.ETERNAL_MARCH, *models.gem_stat_skills(),
+            KALGUUR, models.TAWHOA, models.ARCTIC_HOWL, models.ETERNAL_MARCH, BREACH, *models.gem_stat_skills(),
             *models.curse_gem_names(getattr(getattr(self.build, "ctx", None), "gems", None))],  # (MECH100: each curse's level cap)
             supportStats=[*models.gem_stat_support_stats(), models.TOTEM_ONE_STAT,
-                          models.CASCADES_PER_SIDE, models.ECHO_POWER_STAT, models.ECHO_COUNT_STAT])["skills"]  # (MECH-B: A23-3; MECHB36 Spell Cascade)
+                          models.CASCADES_PER_SIDE, models.ECHO_POWER_STAT, models.ECHO_COUNT_STAT,
+                          EXTRA_REMNANT_STAT])["skills"]  # (MECH-B: A23-3; MECHB36 Spell Cascade; MECHC60: Harmonic Remnants II)
         mods, notes, self.extra_groups = self.models(skills)
         explosion = next((s for s in skills if s["name"] == "Transmutation Explosion"), None)
         if explosion is not None:
             self_fed = self.main_skill() == "Transmutation Explosion" and any(
                 s["name"] in HIT_REMNANTS and not s.get("disabled") for s in skills)
             self.build.remnant_hit_solved = None  # (MECHC45: set below for a self-fed chain; remnant_supply reads it)
-            supply, used = self.remnant_supply(skills, skip=tuple(HIT_REMNANTS) if self_fed else ())
             lines = self.build.call("sourceLines")["lines"]
             extra = sum(float(m.group(1)) for line in lines if (m := ADDITIONAL_REMNANT.search(line["text"]))) / 100.0
+            supply, used = self.remnant_supply(skills, skip=tuple(HIT_REMNANTS) if self_fed else (), chance=extra)
             supply *= 1.0 + extra
             twice = any(REAPPEAR.search(line["text"]) for line in lines)
             if twice:
@@ -7771,7 +7857,9 @@ class Assumptions:
                 found = next((s for s in raw if s["name"] == name and not s.get("disabled")), present[name])
                 pool = "Life" if name == recovery.LIFE_REMNANTS else "Mana"
                 infos[name] = {"gain": number((found.get("remnantGain") or {}).get(pool)),
-                               "levelStats": found.get("levelStats") or {}}
+                               "levelStats": found.get("levelStats") or {},
+                               # (MECHC60: its own supports' additional Remnants, Harmonic Remnants II)
+                               "scale": support_remnant_scale(skills, name, additional_remnant_chance(texts))[0]}
             share, how = 0.0, "no Elemental Ailment on the boss"
             if recovery.MANA_REMNANTS in infos:
                 # (the share of the fight the boss carries at least one: the largest one alone, a lower bound: LOW;
@@ -7790,7 +7878,8 @@ class Assumptions:
             # sources count too: Infusion Remnants, Remnants of Kalguur's Ward Remnants, Breach flames, Power Charge
             # Remnants... (KeywordPopups Remnant: "Walking over a Remnant collects it"); COV17: the build's
             # additional-Remnant / reappear / double-pickup lines on every Remnant, the Life / Mana ones included)
-            others = self.remnant_supply(skills, skip=recovery.REMNANT_SKILLS) if pickup else (0.0, [])
+            others = (self.remnant_supply(skills, skip=recovery.REMNANT_SKILLS, chance=additional_remnant_chance(texts))
+                      if pickup else (0.0, []))
             multiplier, multiplier_how = remnant_multiplier(texts)
             recovery.remnant_income(income, infos, stats, texts, hits=hits, crits=models.crits_per_second(stats) * main_share,
                                     ailment_share=share, ailment_how=how, enemies=enemies,
@@ -7964,9 +8053,10 @@ class Assumptions:
             # (MECHC26, H1-9) Into the Breach's Red / Blue Flames of Chayula leech on collection: at its flame rate and
             # the build's Remnant multiplier lines (remnant_multiplier, as the pickup lines read them)
             multiplier, multiplier_how = remnant_multiplier(texts)
-            recovery.flame_income(income, {**stats, **leech_stats}, REMNANT_SOURCES[BREACH][0] * multiplier,
+            flames, flames_how = breach_flame_rate(skills, additional_remnant_chance(texts))  # (MECHC60, U4)
+            recovery.flame_income(income, {**stats, **leech_stats}, flames * multiplier,
                                   breach["remnantGain"], texts,
-                                  "one per 1.21 s" + (f", {multiplier_how}" if multiplier_how else ""))
+                                  flames_how + (f", {multiplier_how}" if multiplier_how else ""))
         if hasattr(build, "groups") and (rift := temporal_rift_uses(build)) is not None and rift[0] > 0:
             # (MECHC29; the manager 13:14) Temporal Rift's reset of Life / Mana / ES to 4 s ago, on the net drains with
             # the sources counted so far
@@ -8298,7 +8388,7 @@ class Assumptions:
     def purple_flames(self, skills: list[dict]) -> tuple[list[dict], list[dict]]:
         """Into the Breach's Purple Flame stacks (MECHC26; PATCH_CHECK G1-1, the largest OVERCOUNT found: nothing set
         PoB's purpleFlameStacks, whose default is 10, ConfigOptions 474, so every Into the Breach build had 10 stacks of
-        7% x Remnant effect damage as extra Chaos). The build's own stacks: flames at REMNANT_SOURCES' 1 per 1.21 s x the
+        7% x Remnant effect damage as extra Chaos). The build's own stacks: flames at its own level's cadence and supports (breach_flame_rate, MECHC60) x the
         Remnant multiplier lines, the Purple share (recovery.flame_shares: a third, the user's observation from play,
         16 Nov, MEDIUM; or all / none with a Choice notable),
         each stack 8 s (KeywordPopups FlamesOfChayula: "7% of damage as extra Chaos damage for 8 seconds, and stacks up
@@ -8313,14 +8403,15 @@ class Assumptions:
         texts = [line["text"] for line in build.call("sourceLines")["lines"]]
         multiplier, multiplier_how = remnant_multiplier(texts)
         shares, colour = recovery.flame_shares(texts)
-        rate = REMNANT_SOURCES[BREACH][0] * multiplier * shares["purple"]
+        flames, flames_how = breach_flame_rate(skills, additional_remnant_chance(texts))  # (MECHC60, U4)
+        rate = flames * multiplier * shares["purple"]
         stacks = purple_stacks(rate)
         configured = (build.call("getConfig").get("input") or {}).get("purpleFlameStacks")
         pob = min(number(configured), PURPLE_MAX) if configured is not None else float(PURPLE_MAX)
         mods = [models.raw_mod("Multiplier:PurpleFlamesCount", "BASE", stacks - pob)] if abs(stacks - pob) > 1e-9 else []
         return mods, [{
             "label": "Into the Breach: Purple Flame stacks*", "value": f"{stacks:.2f} of {PURPLE_MAX} (PoB's default {pob:g})",
-            "basis": (f"{rate:.3f} Purple Flames collected a second (one flame per 1.21 s"
+            "basis": (f"{rate:.3f} Purple Flames collected a second ({flames_how}"
                       + (f", {multiplier_how}" if multiplier_how else "") + f"; {colour}), each stack {PURPLE_SECONDS:g} s, "
                       f"at most {PURPLE_MAX}: min({PURPLE_MAX}, {PURPLE_SECONDS:g} s x the rate), each giving PoB's 7% x Remnant "
                       "effect of damage as extra Chaos (with Choice of Power every flame is Purple: HIGH, PoB's flag)"),
@@ -9017,7 +9108,7 @@ class Assumptions:
         up, _ = models.ailment_up_of(build)
         ailments = {var: (up or {}).get(name, 0.0) for var, name in (
             ("conditionEnemyIgnited", "Ignite"), ("conditionEnemyShocked", "Shock"), ("conditionEnemyFrozen", "Freeze"))}
-        raw = build.call("activeSkills")["skills"]
+        raw = build.call("activeSkills", supportStats=[EXTRA_REMNANT_STAT])["skills"]  # (MECHC60: Harmonic Remnants II)
         selfless = selfless_of(build)  # (MECHC50: Selfless Remnants' Remnants go to allies)
         present = {s["name"]: s for s in raw if not s["disabled"] and s["name"] not in selfless}
         lines = [line["text"] for line in build.call("sourceLines")["lines"]]
@@ -9058,7 +9149,7 @@ class Assumptions:
         if self.main_skill() in conditions_mod.inhibited_skills(build.call("groups")["groups"]):
             return 0.0, (f"Inhibitor supports {self.main_skill()}: it cannot consume Infusions, so none of its casts is "
                          "Infused (R40-2, HIGH)")  # (MECHC49: conditions.INHIBITOR)
-        raw = build.call("activeSkills")["skills"]
+        raw = build.call("activeSkills", supportStats=[EXTRA_REMNANT_STAT])["skills"]  # (MECHC60: Harmonic Remnants II)
         selfless = selfless_of(build)  # (MECHC50: Selfless Remnants' Remnants go to allies)
         present = {s["name"]: s for s in raw if not s["disabled"] and s["name"] not in selfless}
         lines = [line["text"] for line in build.call("sourceLines")["lines"]]

@@ -460,7 +460,7 @@ def remnant_income(income: Income, skills: dict[str, dict], stats: dict, texts: 
             trigger_how = f"{crits:.2f} crits/s x the boss carrying an Elemental Ailment {ailment_share:.0%} ({ailment_how})"
         # (the next Remnant waits `every` s, then for the next qualifying hit: 1 / (every + 1 / rate))
         timed = 1.0 / (every + 1.0 / triggers) if triggers > 0 and every > 0 else 0.0
-        rate = (timed + kills) * multiplier
+        rate = (timed + kills) * multiplier * _num(info.get("scale", 1.0))  # (MECHC60: its supports' extra Remnants)
         count += rate
         income.add(f"{pool}RemnantRecovery", rate * gain,
                    f"{name} {rate:.3f} Remnants/s x {gain:,.0f} {pool} (one at most every {every:g} s on {trigger_how}"
