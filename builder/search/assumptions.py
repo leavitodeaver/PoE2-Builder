@@ -4645,7 +4645,9 @@ class Assumptions:
             volcano_mods, volcano_notes = models.volcano_channel_model(
                 main, main.stat_set, volcano_sets, forbidden, dodge_share()[0] / v_every if v_every > 0 else 0.0,
                 number(build.call("stats", fields=["Speed"]).get("Speed")), self.slam_feed(main),
-                number((next(iter(build.call("useRates", indices=[group["index"]])["rates"]), None) or {}).get("duration")))
+                number((next(iter(build.call("useRates", indices=[group["index"]])["rates"]), None) or {}).get("duration")),
+                bosses_mod.hit_radius({"_boss": getattr(getattr(build.ctx, "request", None), "boss", None)})[0],
+                number(build.call("stats", fields=["ProjectileSpeedMod"]).get("ProjectileSpeedMod")) or 1.0)  # (MECHB61)
             hand_mods, hand_notes = hand_mods + volcano_mods, hand_notes + volcano_notes
             hit_cut(build, volcano_mods, main.name)  # (MECHB52: its eruptions, 1 / (2 + k) of PoB's casts)
         hand_notes = hand_notes + models.skittering_stone_note(  # (MECHB52: GEM32's, add kills only; 0 on a lone boss)

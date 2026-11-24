@@ -58,17 +58,19 @@ def _skill(name, **level):
     return M.Skill.of({"name": name, "group": 1, "levelStats": level, "cooldownRecovery": 1.0})
 
 
-def test_volcano_spray_rows_keep_the_headline():
+def test_volcano_sprays_in_the_headline():
+    """(MECHB61, R57-5) x1.1 from 3 stages; an eruption every 5 cast times (0.1 a second) leaves each Volcano its 8 s:
+    1.6 timed sprays a second, 5 x ((0.6 + 0.5) / 3)^2 = 0.672 hits a spray at 20 against the eruption's 100 x 0.5."""
     sets = [{"label": "Eruption", "AverageDamage": 100.0}, {"label": "Projectiles", "AverageDamage": 20.0}]
     main = _skill(M.VOLCANO)
     plain = M.volcano_channel_model(main, "Eruption", sets, cast_rate=0.5)
     fed = M.volcano_channel_model(main, "Eruption", sets, cast_rate=0.5, slams=(5.0, "Boneshatter"), lifetime=8.0)
-    assert [m["value"] for m in plain[0]] == [m["value"] for m in fed[0]]
-    head = float(plain[1][0]["value"][1:])
-    basis = fed[1][0]["basis"]
-    assert f"every 0.5 s x{head + 2 * 20 / 50:.3f}" in basis
-    assert f"1.25 Slams a second on it (at most 10 a 8 s Volcano) x{head + 3.25 * 20 / 50:.3f}" in basis
-    assert "no Slam skill" in plain[1][0]["basis"]
+    hits = 5 * (1.1 / 3) ** 2
+    assert plain[0][2]["value"] == pytest.approx(100 * 1.6 * hits * 0.4 / 1.1, abs=1e-3)
+    # 5 Slams a second while it's up (80% of the time), held to 10 a Volcano: 1 a second
+    assert fed[0][2]["value"] == pytest.approx(100 * 2.6 * hits * 0.4 / 1.1, abs=1e-3)
+    assert "Limit 1, HIGH" in fed[1][0]["basis"] and "no Slam skill" in plain[1][0]["basis"]
+    assert f"x{1.1 + 2.6 * 0.4:.3f}" in fed[1][0]["basis"]  # (the row: one hit a spray)
 
 
 def test_hollow_focus_alloy_row():

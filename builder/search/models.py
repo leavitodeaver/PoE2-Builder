@@ -25178,17 +25178,46 @@ VOLCANO_STAGES, VOLCANO_MORE, VOLCANO_PROJECTILES = 4, 1.5, 4
 # Volcano's sprays, are open (R-B26), so they stay out of the headline (the lower reading) and are ROWS: a spray every
 # 0.5 s plus one for each Slam the build lands on it (its Slam skills at their use rate, at most 10 a Volcano life), each
 # spray one projectile hit at the Projectiles set's hit (KeywordPopups 74's group rule: one of a spray a target).
+# (MECHB61, RESEARCH57 R57-5, research/volcano-sprays-r57.md) The sprays now go in the HEADLINE (LOW):
+# - a recast removes the old Volcano (KeywordPopups Limit: "the oldest effect will dissapear"; Limit 1: HIGH), so each
+#   Volcano lives min(its duration, the time to the next eruption) and sprays every 0.5 s of that;
+# - each Slam the build lands on it sprays too, at most 10 a Volcano (volcano_slam_unscalable_limit);
+# - hits a spray: the projectiles burst in an area, and the group rule caps the projectile's contact, not its burst, so
+#   several can hit (MEDIUM: a 0.5 guide's "These detonations can shotgun"); how many is geometry (LOW): the boss on the
+#   Volcano, landings spread evenly over a disc of radius R: n x min(1, ((rho + r_boss) / R)^2), n the Projectiles set's
+#   ProjectileCount (5 at base), rho its impact radius (PoB's AreaOfEffectRadius, 0.6 m at base), r_boss the preset's hit
+#   radius, R = 3 m (the secondary radius read as the spray's reach: UNVERIFIED) x the projectile speed modifier.
+#   About 0.7 hits a spray at r_boss 0.5 m, 1.4 at 1 m. Rows: one a spray (the group rule read strictly); all n (walls).
+# - the Slam sprays' wider 0.8 m burst isn't used (the timed one's, lower); a second Volcano under "+1 to Limit" isn't.
 VOLCANO_SPRAY_EVERY, VOLCANO_SLAM_LIMIT, VOLCANO_SECONDS = 0.5, 10.0, 8.0
+VOLCANO_SPRAY_REACH, VOLCANO_SPRAY_COUNT, VOLCANO_SPRAY_RADIUS = 3.0, 5.0, 0.6  # m, projectiles, m (R57-5's base values)
+
+
+def volcano_spray_hits(sets: list[dict], boss_radius: float, speed_mod: float = 1.0) -> tuple[float, float, str]:
+    """(hits on the boss a spray, the projectiles a spray, how): R57-5's disc reading (see above)."""
+    got = next((x for x in sets if x.get("label") == "Projectiles"), {})
+    n = number(got.get("ProjectileCount")) or VOLCANO_SPRAY_COUNT
+    rho = number(got.get("AreaOfEffectRadius")) / 10 or VOLCANO_SPRAY_RADIUS
+    reach = VOLCANO_SPRAY_REACH * (speed_mod if speed_mod > 0 else 1.0)
+    hits = n * min(1.0, ((rho + max(boss_radius, 0.0)) / reach) ** 2)
+    return hits, n, (f"{n:g} projectiles a spray landing over a {reach:.2f} m disc around the Volcano under the boss, each "
+                     f"bursting {rho:.2f} m: those within {rho:.2f} + {boss_radius:.2f} m (the boss's radius) hit, "
+                     f"{hits:.2f} a spray (R57-5, LOW: the spray's reach UNVERIFIED)")
 
 
 def volcano_channel_model(main: Skill | None, scored: str | None, sets: list[dict],
                           forbidden: set[str] = frozenset(), dodges: float = 0.0, cast_rate: float = 0.0,
-                          slams: tuple[float, str] = (0.0, ""), lifetime: float = 0.0) -> tuple[list[dict], list[dict]]:
+                          slams: tuple[float, str] = (0.0, ""), lifetime: float = 0.0, boss_radius: float = 0.5,
+                          speed_mod: float = 1.0) -> tuple[list[dict], list[dict]]:
     """Volcano's eruption channelled to its best stage count against PoB's one hit a cast time (see above). `dodges` the
     dodge rolls a second the build makes anyway, `cast_rate` its casts a second (R42-25's row); `slams` (the build's
-    Slams a second, which), `lifetime` the Volcano's duration (s; 0: its base 8 s) for the spray rows (MECHB60)."""
-    if main is None or main.name != VOLCANO or scored != "Eruption" or VOLCANO_ENTRY in forbidden:
+    Slams a second, which), `lifetime` the Volcano's duration (s; 0: its base 8 s) for the sprays (MECHB60; in the
+    headline since MECHB61, R57-5), `boss_radius` (m) and `speed_mod` (its projectile speed modifier) for their hits."""
+    if main is None or main.name != VOLCANO or scored not in ("Eruption", "Projectiles") or VOLCANO_ENTRY in forbidden:
         return [], []
+    speeds = {x.get("label"): number(x.get("Speed")) for x in sets}
+    if scored == "Projectiles":  # (MECHB61: the same play scored from the Projectiles set: the eruptions' cast rate)
+        cast_rate = speeds.get("Eruption", 0.0)
 
     def rate(k: int) -> float:
         return (1 + VOLCANO_MORE * k) / (2 + k)
@@ -25197,20 +25226,28 @@ def volcano_channel_model(main: Skill | None, scored: str | None, sets: list[dic
     avg = {x.get("label"): number(x.get("AverageDamage")) for x in sets}
     eruption, projectile = avg.get("Eruption", 0.0), avg.get("Projectiles", 0.0)
     rows = f"; a tap (no stage) x{rate(0):.3f}; the 4 stages beyond the first (UNVERIFIED) x{rate(VOLCANO_STAGES):.3f}"
+    spray_gain, spray_how = 0.0, ""
     if eruption > 0 and projectile > 0:
         all_hit = (eruption * (1 + VOLCANO_MORE * best) + VOLCANO_PROJECTILES * best * projectile) / (eruption * (2 + best))
         rows += f"; its {VOLCANO_PROJECTILES * best} extra projectiles all hitting the boss x{all_hit:.3f} (LOW)"
-        if cast_rate > 0:  # (MECHB60: the sprays, R-B26 open: rows only)
+        if cast_rate > 0:  # (MECHB60's rows; MECHB61: the headline, R57-5)
             life = lifetime if lifetime > 0 else VOLCANO_SECONDS
-            slammed = min(max(slams[0], 0.0), VOLCANO_SLAM_LIMIT / life)
-            timed = 1 / VOLCANO_SPRAY_EVERY
+            casts = cast_rate / (2 + best)  # (eruptions a second: each recast removes the old Volcano)
+            up = min(life, 1 / casts) if casts > 0 else life
+            timed = casts * up / VOLCANO_SPRAY_EVERY
+            slammed = min(max(slams[0], 0.0) * min(1.0, casts * up), VOLCANO_SLAM_LIMIT * casts)
             per = projectile / (eruption * cast_rate)
-            rows += (f"; its sprays (\"Fires Projectiles every {VOLCANO_SPRAY_EVERY:g} seconds, or when Slammed\"; not in "
-                     f"the headline: how many reach a lone boss is open, R-B26), one projectile of each hitting: every "
-                     f"{VOLCANO_SPRAY_EVERY:g} s x{factor + timed * per:.3f}"
-                     + (f", and with {slams[1]}'s {slammed:.2f} Slams a second on it (at most "
-                        f"{VOLCANO_SLAM_LIMIT:g} a {life:g} s Volcano) x{factor + (timed + slammed) * per:.3f}"
-                        if slammed > 0 else ", no Slam skill to Slam it"))
+            hits, n, hits_how = volcano_spray_hits(sets, boss_radius, speed_mod)
+            spray_gain = (timed + slammed) * hits * per
+            spray_how = (f"; its sprays (\"Fires Projectiles every {VOLCANO_SPRAY_EVERY:g} seconds, or when Slammed\"): "
+                         f"each Volcano lives {up:.2f} s (its {life:g} s, or until the next eruption's recast removes it: "
+                         f"Limit 1, HIGH), {timed:.2f} timed sprays a second"
+                         + (f" + {slammed:.2f} from {slams[1]}'s Slams (at most {VOLCANO_SLAM_LIMIT:g} a Volcano)"
+                            if slammed > 0 else " (no Slam skill to Slam it)")
+                         + f"; {hits_how}: +{spray_gain:.3f} on the eruptions' x{factor:.3f}")
+            rows += (f"; the sprays at one hit each (the group rule read strictly) x{factor + (timed + slammed) * per:.3f}; "
+                     f"all {n:g} of each hitting (walls) x{factor + (timed + slammed) * n * per:.3f}; no sprays "
+                     f"x{factor:.3f}")
     if dodges > 0 and cast_rate > 0:  # (MECHB51; RESEARCH42 R42-25, MEDIUM-HIGH: a roll after release skips the end)
         rolled = min(1.0, dodges * (2 + best) / cast_rate)
         skip = (1 + VOLCANO_MORE * best) / (1.5 + best + 0.5 * (1 - rolled))
@@ -25226,14 +25263,35 @@ def volcano_channel_model(main: Skill | None, scored: str | None, sets: list[dic
     # as a "Damage" MORE (PoB carries it into the hit's ailments), the eruptions' rate as the "DPS" MORE: their product is
     # the old factor exactly
     mods = [mod] + ([raw_mod("Damage", "MORE", 100 * VOLCANO_MORE * best, main.name, tag=VOLCANO_ENTRY)] if best else [])
+    if spray_gain > 0:  # (MECHB61, R57-5: the sprays beside the eruptions, as the eruption hit's equivalent)
+        mods.append(raw_mod("DPS", "MORE", 100 * spray_gain / factor, main.name, tag=VOLCANO_ENTRY))
+    if scored == "Projectiles":
+        # (MECHB61, R57-5) PoB scores this set as one projectile hit a spray at its own rate and no eruption; the play is
+        # the Eruption set's (channelled eruptions, each Volcano spraying until the next one replaces it), so the same
+        # total is expressed over PoB's number, and the search is indifferent between the two sets
+        spray_speed = speeds.get("Projectiles", 0.0)
+        if eruption <= 0 or projectile <= 0 or cast_rate <= 0 or spray_speed <= 0:
+            return [], []
+        total = eruption * cast_rate * (factor + spray_gain)
+        whole = total / (projectile * spray_speed)
+        return [raw_mod("DPS", "MORE", 100 * (whole - 1), main.name, tag=VOLCANO_ENTRY)], [{
+            "label": f"{main.name}: its eruptions and sprays (PoB scores one projectile a spray)*",
+            "value": f"x{whole:.3f}", "confidence": "LOW", "entry": VOLCANO_ENTRY,
+            "basis": (f"PoB scores the Projectiles set: one hit a spray at {spray_speed:.2f} a second ({projectile:.1f} each) "
+                      f"and no eruption. The play (as the Eruption set's model): {best} additional stage(s), x{factor:.3f} "
+                      f"of the Eruption's {eruption:.1f} x {cast_rate:.2f} casts{spray_how}: {total:.1f} against PoB's "
+                      f"{projectile * spray_speed:.1f}: x{whole:.3f}{rows}"),
+            "play": (f"Channel {main.name} to its last stage under the boss; each Volcano sprays until the next "
+                     "replaces it.")}]
     return mods, [{
-        "label": f"{main.name}: each eruption channelled to {best + 1} stages*", "value": f"x{factor:.3f}",
+        "label": f"{main.name}: each eruption channelled to {best + 1} stages, and its sprays*",
+        "value": f"x{factor + spray_gain:.3f}",
         "confidence": "MEDIUM-LOW", "entry": VOLCANO_ENTRY,
         "basis": (f"PoB scores one Eruption hit a cast time and reads none of the channel stats. The game: a 50% wind-up, "
                   f"a stage each cast time, a 50% end, 150% more Eruption damage per additional stage (game files): "
                   f"{best} additional stage{'s' if best != 1 else ''} take {2 + best} cast times for x{1 + VOLCANO_MORE * best:g} "
-                  f"damage: x{factor:.3f}{rows}; the extra projectiles sprayed around the volcano not counted on a "
-                  "lone boss (LOW)"),
+                  f"damage: x{factor:.3f}{spray_how}{rows}; the eruption's extra projectiles sprayed around the "
+                  "volcano not counted on a lone boss (LOW)"),
         "play": (f"Channel {main.name} to its last stage before releasing: x{factor:.3f}; a quick tap is "
                  f"x{rate(0):.3f}.")}]
 

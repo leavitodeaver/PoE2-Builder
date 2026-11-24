@@ -72,3 +72,20 @@ def test_tempest_bell_quality_ramp_lifts_its_shockwaves():
     assert waves / 0.2 == pytest.approx(10.0)
     assert ramped[0]["value"] == pytest.approx(round(100 * waves * 20.0 * (1 + 0.03 * 9 / 2) / (0.2 * 100.0), 4), rel=1e-3)
     assert plain[0]["value"] < ramped[0]["value"] and "3% more a Hit the Bell has taken" in notes[0]["basis"]
+
+
+def test_volcano_scored_from_its_projectiles_set_gets_the_same_total():
+    """(MECHB61, R57-5) The Projectiles set (PoB: one hit a spray at 2 a second, no eruption) is the same play as the
+    Eruption set: both come to the eruptions' 1.1 + the sprays' gain over the Eruption's 100 x 0.5."""
+    sets = [{"label": "Eruption", "AverageDamage": 100.0, "Speed": 0.5},
+            {"label": "Projectiles", "AverageDamage": 20.0, "Speed": 2.0}]
+    main = _skill(M.VOLCANO)
+    erupt, _ = M.volcano_channel_model(main, "Eruption", sets, cast_rate=0.5)
+    proj, notes = M.volcano_channel_model(main, "Projectiles", sets, cast_rate=2.0)
+    total = 1.0
+    for m in erupt:
+        if m["name"] == "DPS":
+            total *= 1 + m["value"] / 100
+    total *= 1 + 450 / 100  # (the stages' Damage MORE)
+    assert (1 + proj[0]["value"] / 100) * 20.0 * 2.0 == pytest.approx(total * 100.0 * 0.5, rel=1e-3)
+    assert "PoB scores one projectile a spray" in notes[0]["label"]
