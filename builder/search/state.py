@@ -427,9 +427,15 @@ class Build:
         texts = self._build_texts()
         current = self.call("equipped")["slots"]
         on_stats = getattr(self, "models_on_stats", False)
+        # (JEWEL2, on loan: this function only) A what-if replacing an item that holds jewels (Tabula Rasa, a socketed ring,
+        # Cadigan's gloves): PoB drops the jewels, but the models keep what they read from them at the last resolve, so the
+        # candidate is re-scored for real. Probe POE2T7946: up to +0.086 ln too high without it; POE2T7947: the gap closes.
+        # Any jewel counts, model-read or not: the lines that moved there ("Debuffs on you expire faster", "Cooldown Recovery
+        # Rate") are read by the assumptions, which item_read_by_models doesn't see. Cost: within RESCORE_TOP real trials
+        holders = {s.split(" Jewel Socket ")[0] for s in current if " Jewel Socket " in s}
         touched = [i for i, case in enumerate(cases)
                    if on_stats or item_read_by_models(case.get("raw") or "", texts)
-                   or item_read_by_models(current.get(case["slot"]) or "", texts)]
+                   or item_read_by_models(current.get(case["slot"]) or "", texts) or case["slot"] in holders]
         if not touched:
             return scored
         best = sorted(touched, key=lambda i: -scored[i][0])[:self.RESCORE_TOP]

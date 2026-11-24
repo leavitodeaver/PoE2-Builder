@@ -355,6 +355,32 @@ def test_a_hidden_third_ring_and_its_jewel_are_not_read(engine, data):
     assert reads() == (True, True, True)
 
 
+def test_a_what_if_replacing_an_item_that_holds_jewels_is_rescored(search, data):
+    """(JEWEL2, on loan in state.py: Build._rescore_model_items) PoB drops a replaced item's jewels in a what-if, but the
+    models keep their last values (POE2T7946: up to +0.086 ln too high), so such a candidate gets a real trial; one that
+    replaces an item holding no jewel doesn't."""
+    tabula, plain, jewel = _item_socket_options(data)
+    build = search.build
+    if build.reassume is None:
+        pytest.skip("no model re-score on this build")
+    snap = build.snapshot()
+    build.equip("Body Armour", tabula)
+    if getattr(build, "models_on_stats", False):
+        build.restore(snap)
+        pytest.skip("this build re-scores every item what-if already")
+
+    def trials() -> int:
+        was = build.rescored
+        build.item_deltas([{"slot": "Body Armour", "raw": plain.raw}])
+        return build.rescored - was
+
+    empty = trials()  # (Tabula with no jewel in it)
+    build.equip(ITEM_SOCKET, jewel)
+    holding = trials()
+    build.restore(snap)
+    assert empty == 0 and holding == 1
+
+
 def test_a_jewel_in_an_item_socket_is_priced_as_a_jewel():
     from builder.data.rare_prices import category
 
