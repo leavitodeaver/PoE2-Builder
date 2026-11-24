@@ -653,30 +653,47 @@ function unfinishedSection(result) {
 
 // (SEARCHD1) Continue, and optimize one part, from a finished result ---------------------------------------------
 
+// Default minutes for one part (time budgets, not game numbers): loading and settling a build takes 60-90 s on a busy
+// PC (the app check, POE2T8202 / 8207), so each kind gets its rounds' time on top of that; the tree draws on every worker
+const PART_MINUTES = { item: 3, flask: 2, jewel: 3, group: 3, tree: 6 };
+
+function slotKind(slot) {
+  if (/^(Flask|Charm) /.test(slot)) return "flask";
+  if (/^Jewel /.test(slot) || / Jewel Socket /.test(slot)) return "jewel";
+  return "item";
+}
+
 function focusParts(result) {
-  // Every part the page offers: each item slot the build has, each skill group the player fills, and the tree
-  const slots = Object.keys(result.gear || {}).sort().map((slot) => ({
-    label: `${slot}: ${result.gear[slot].name}`, focus: { kind: "slot", slot } }));
+  // Every part the page offers, grouped: the gear slots, flasks and charms, jewel sockets (each by what it holds), each
+  // skill group the player fills, and the tree
+  const kinds = { item: [], flask: [], jewel: [] };
+  for (const slot of Object.keys(result.gear || {}).sort()) {
+    const kind = slotKind(slot);
+    const where = kind === "jewel" ? `jewel socket ${slot.replace(/^Jewel /, "")}` : slot;
+    kinds[kind].push({ label: `${result.gear[slot].name} (${where})`, kind, focus: { kind: "slot", slot } });
+  }
   const groups = (result.groups || []).filter((g) => g.enabled && !g.fromItem && g.gems?.length).map((g) => ({
     label: `${g.gems[0].name}${g.main ? " (main skill)" : ""}: ${g.gems.length - 1} support${g.gems.length === 2 ? "" : "s"}`,
-    focus: { kind: "group", skill: g.gems[0].name, group: g.index } }));
-  return { slots, groups, tree: [{ label: "The passive tree (and ascendancy)", focus: { kind: "tree" } }] };
+    kind: "group", focus: { kind: "group", skill: g.gems[0].name, group: g.index } }));
+  return [["Gear", kinds.item], ["Flasks and charms", kinds.flask], ["Jewels", kinds.jewel],
+    ["A skill's supports", groups],
+    ["The tree", [{ label: "The passive tree (and ascendancy)", kind: "tree", focus: { kind: "tree" } }]]];
 }
 
 function keepWorkingSection(result) {
   const minutes = el("input", { type: "number", min: 1, max: 240, value: Math.min(result.request?.effort_minutes || 5, 240),
     class: "minutes" });
+  const partMinutes = el("input", { type: "number", min: 1, max: 240, class: "minutes" });
   const status = el("span", { class: "hint" });
-  const parts = focusParts(result);
-  const choices = [...parts.slots, ...parts.groups, ...parts.tree];
-  const select = el("select", {},
-    el("optgroup", { label: "An item" }, parts.slots.map((p) => el("option", { value: choices.indexOf(p) }, p.label))),
-    el("optgroup", { label: "A skill's supports" }, parts.groups.map((p) => el("option", { value: choices.indexOf(p) }, p.label))),
-    el("optgroup", { label: "The tree" }, parts.tree.map((p) => el("option", { value: choices.indexOf(p) }, p.label))));
-  const start = async (focus) => {
+  const groups = focusParts(result).filter(([, list]) => list.length);
+  const choices = groups.flatMap(([, list]) => list);
+  const select = el("select", { onchange: () => { partMinutes.value = PART_MINUTES[choices[Number(select.value)].kind]; } },
+    groups.map(([label, list]) => el("optgroup", { label }, list.map((p) => el("option", { value: choices.indexOf(p) }, p.label)))));
+  partMinutes.value = choices.length ? PART_MINUTES[choices[0].kind] : 3;
+  const start = async (focus, chosen) => {
     try {
       const run = await api("/api/runs/continue", { method: "POST",
-        body: { result: result.saved_as, minutes: Number(minutes.value) || 5, focus } });
+        body: { result: result.saved_as, minutes: Number(chosen.value) || 5, focus } });
       $("run-hint").textContent = focus ? "Optimizing one part of this build; everything else is held as it is."
         : "Continuing from this exact build. The result is never worse than it.";
       $("run-log").replaceChildren();
@@ -690,13 +707,14 @@ function keepWorkingSection(result) {
   return el("div", { class: "result-section keep-working" },
     el("h3", {}, "Keep working on this build"),
     el("p", { class: "hint" }, "Both start a new run from this exact build (its PoB code, the same request) and never "
-      + "return anything worse than it: if nothing better turns up, you get this build back."),
-    el("div", { class: "focus-row" }, "Minutes:", minutes),
+      + "return anything worse than it: if nothing better turns up, you get this build back. Loading the build takes "
+      + "a minute or so of the time."),
     el("div", { class: "focus-row" },
-      el("button", { type: "button", onclick: () => start(null) }, "Continue the whole build"),
-      el("span", { class: "hint" }, "searches every part again, starting here")),
+      el("button", { type: "button", onclick: () => start(null, minutes) }, "Continue the whole build"), "for", minutes,
+      "minutes", el("span", { class: "hint" }, "searches every part again, starting here")),
     el("div", { class: "focus-row" }, select,
-      el("button", { type: "button", onclick: () => start(choices[Number(select.value)].focus) }, "Optimize this part only"),
+      el("button", { type: "button", onclick: () => start(choices[Number(select.value)].focus, partMinutes) },
+        "Optimize this part only"), "for", partMinutes, "minutes",
       el("span", { class: "hint" }, "everything else stays exactly as it is")),
     status);
 }
