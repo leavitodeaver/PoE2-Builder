@@ -3553,7 +3553,8 @@ class Assumptions:
             inputs.items["MetaEnergy"] = inputs.items.get("MetaEnergy", 0.0) + full_mana
         energy_mods, energy_notes, energy_groups = models.energy_model(inputs, stats, found, main, supports, qualities,
                                                                        models.press_choices(build),
-                                                                       self.energy_feeders(found, main))
+                                                                       self.energy_feeders(found, main),
+                                                                       getattr(self, "undeath_limit", None))
         energy_notes = energy_notes + full_mana_notes
         # (the meta gems' trigger rates, for the curses and Marks they trigger: MECH46, FLAT_RATES A5)
         build.trigger_rates = {m["skill"]: m["value"] for m in energy_mods

@@ -43,3 +43,20 @@ def test_a_projectile_that_is_no_arrow_spear_or_bolt_is_not_sucked_in():
                                        {"ProjectileCount": 4, "Speed": 2.0}, _skill("Tornado Shot", group=2), L20, 1.5,
                                        [], {"Staff"})
     assert mods == [] and notes[0]["value"] == 0
+
+
+def _wardbound(limit):
+    return M.Skill.of({"name": "Wardbound Minions", "group": 2, "triggered": True,
+                       "minion": {"duration": 15, "limit": limit, "castTime": 1.0, "speed": 1.0}})
+
+
+def test_the_archon_of_undeath_raises_a_binding_temporary_minion_limit():
+    """(MECHB61, step 4) 1 use a second x 15 s = 15 minions, held to the limit 2; Archon of Undeath up half the fight
+    doubles it: (2 + 4) / 2 = 3 on average. A limit that doesn't bind gains nothing."""
+    spell = _wardbound(2)
+    assert M.minion_count(spell, 1.0)[0] == 2
+    assert M.minion_count(spell, 1.0, 4.0)[0] == 4
+    mixed, how = M.undeath_limit_mix(lambda lim: M.minion_count(spell, 1.0, lim)[0], 2, (0.5, 2.0))
+    assert mixed == pytest.approx(3.0) and "Archon of Undeath up 50%" in how
+    loose = _wardbound(40)
+    assert M.undeath_limit_mix(lambda lim: M.minion_count(loose, 1.0, lim)[0], 40, (0.5, 2.0)) == (15.0, "")

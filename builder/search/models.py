@@ -525,8 +525,10 @@ UNDEATH_COMMAND_STAT = "_undeath_command"  # (the note's key: the Command recove
 # (the share of the fight it's up, the limit's factor while up: 1 + 100% x the Archon effect); a temporary minion count
 # whose limit binds is then the time mix (undeath_limit_mix): (1 - up) x count(limit) + up x count(limit x factor). The
 # minions standing when it ends are taken to stay until their duration runs out (LOW: whether the extra ones die then
-# is UNVERIFIED; the mix is the lower reading where they would stay). Hooked: Raise Zombie (Assumptions.zombie_count).
-# Not hooked (labelled): Wardbound Minions' count (minion_count, inside energy_model), Skyfall's minion.
+# is UNVERIFIED; the mix is the lower reading where they would stay). Hooked: Raise Zombie (Assumptions.zombie_count);
+# (MECHB61) the meta-triggered Temporary minions (Wardbound Minions: minion_count, inside energy_model's `undeath`).
+# Not hooked (labelled): Skyfall's minions, which have no count model of their own yet (PoB's one kept,
+# minion_alive_count's Temporary-minion row), so there is no limit for the Archon to raise.
 UNDEATH_LIMIT_STAT = "_undeath_limit"
 UNDEATH_LIMIT_MORE = 100.0
 UNDEATH_ON_COMMAND = re.compile(r"^(\d+(?:\.\d+)?)% chance to gain Archon of Undeath when you use a Command skill$", re.I)
@@ -612,7 +614,7 @@ def archon_of_undeath_model(skills: list[Skill], texts: list[str], x: dict | Non
              + (f"; Temporary minion limits x{1 + UNDEATH_LIMIT_MORE / 100 * scale:.2f} while it's up (Raise Zombie's "
                 f"count at that mix, undeath_limit_mix)" if minions else "")
              + ". Not counted (UNDERCOUNTS): the Persistent Undead minions revived on each gain, the doubled limit on "
-               "Wardbound Minions and Skyfall's minion; not raced: a Nature's Archon source (one slot for every kind: "
+               "Skyfall's minions (no count model yet); not raced: a Nature's Archon source (one slot for every kind: "
                "an OVERCOUNT where the build has one)")
     play = (f"Archon of Undeath: press your Commands on cooldown / keep your Offerings up to gain it; without it +0%, "
             f"with it {more:.1f}% more Minion Damage averaged (up {up:.0%})")
@@ -3640,14 +3642,16 @@ def invocation_release(meta: Skill, x: dict, cost: float, store: float,
                                        f"({store:.0f} Energy stored / {spent:.0f} a round, whole rounds only)")
 
 
-def minion_count(spell: Skill, rate: float) -> tuple[float, str]:
+def minion_count(spell: Skill, rate: float, limit: float | None = None) -> tuple[float, str]:
     """A triggered spell summoning Temporary minions (Wardbound Minions: "Spend all your Runic Ward to summon Temporary
     Wardbound Casters", 15 s, at most 6 casts each, game files and PoB's data): PoB counts one minion casting nonstop
     whatever the trigger rate. The minions alive on average are the rate times each one's life (its duration, or its
     casts at its cast speed, whichever ends first), up to the skill's limit. One minion per use: the Runic Ward each use
-    spends for more isn't counted (assumed none)."""
+    spends for more isn't counted (assumed none). `limit`: another limit than the skill's (Archon of Undeath's raised
+    one, undeath_limit_mix)."""
     info = spell.minion or {}
-    duration, casts, limit = number(info.get("duration")), info.get("maxCasts"), info.get("limit") or float("inf")
+    duration, casts = number(info.get("duration")), info.get("maxCasts")
+    limit = limit if limit is not None else (info.get("limit") or float("inf"))
     cast_time, speed = number(info.get("castTime")), number(info.get("speed")) or 1.0
     life, how = duration, f"its {duration:g} s duration"
     if casts and cast_time > 0 and casts * cast_time / speed < duration:
@@ -3717,12 +3721,14 @@ def energy_feed(kind: str, feeders: list[dict], stats: dict) -> tuple[float, flo
 def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill | None,
                  supports: dict[int, list[str]] | None = None, qualities: dict[int, float] | None = None,
                  choices: dict[str, float] | None = None,
-                 feeders: dict[int, list[dict]] | None = None) -> tuple[list, list, set[int]]:
+                 feeders: dict[int, list[dict]] | None = None,
+                 undeath: tuple[float, float] | None = None) -> tuple[list, list, set[int]]:
     """Trigger rates for the spells socketed in meta skills that gain Energy, fed by the main skill. Every spell in a meta
     group triggers once per round, and a round costs all their Energy: a second spell halves (about) the first's rate.
     `supports` ({group: support names}) adds the meta group's own Energy supports (META_SUPPORTS). `qualities` ({group:
     the meta gem's quality}) and `choices` (press_choices) set an Invocation's store and press rate (invocation_release).
     `feeders` ({meta group: its self-used feeders}, energy_feed) feed a meta gem whose triggered spell is the main skill.
+    `undeath`: Archon of Undeath's (share up, limit factor) for the Temporary minions' limit (UNDEATH_LIMIT_STAT; MECHB61).
     Returns (mods, notes, groups whose damage counts)."""
     mods: list[dict] = []
     notes: list[dict] = []
@@ -3827,6 +3833,11 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
             mods += trigger_rate(spell.name, rate)
             if rate > 0 and spell.minion is not None:
                 count, basis = minion_count(spell, rate)
+                limit = spell.minion.get("limit") or 0.0
+                if undeath and limit:  # (MECHB61: Archon of Undeath doubles a Temporary minion limit while it's up)
+                    mixed, mix_how = undeath_limit_mix(lambda lim: minion_count(spell, rate, lim)[0], limit, undeath)
+                    if mix_how:
+                        count, basis = mixed, f"{basis}; {mix_how}"
                 mods.append(line("Minions deal 1% more Damage", 100 * (count - 1), skill=spell.name))
                 notes.append({"label": f"{spell.name}'s minions alive on average ({meta.name})", "value": round(count, 3),
                               "basis": basis, "confidence": "theory"})
