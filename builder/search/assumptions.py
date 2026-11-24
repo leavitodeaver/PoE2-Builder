@@ -9459,6 +9459,9 @@ class Assumptions:
         if paid:
             out = {**out, "_ward_spent": (sum(w for _, w in paid),
                                           ", ".join(f"{n} {w:.1f}/s" for n, w in paid if w > 0) or "none paid")}
+        at_max = getattr(self.build, "rage_at_max", None)  # (MECHC59: models.GLORY_FROM_RAGE, a round behind)
+        if isinstance(at_max, tuple) and len(at_max) == 3:
+            out = {**out, "_rage_at_max": at_max}
         return out
 
     def _glory_feed(self, stats: dict, main_skill) -> dict:

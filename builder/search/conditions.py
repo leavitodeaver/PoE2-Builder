@@ -3082,6 +3082,25 @@ def rage_regen_total(lines: list[str], stats: dict) -> float:
     return max(number(stats.get(RAGE_REGEN_FIELD)), 0.0)
 
 
+def rage_at_max(held: float, most: float, net: float, events: float, lines: list[str]) -> tuple[float, float, str]:
+    """(MECHC59, models.GLORY_FROM_RAGE's note) (Rage gained a second while already at maximum Rage, gain events a second
+    then, how): Rage sitting at its maximum takes the surplus over the spenders (`net`) at maximum; otherwise only the
+    part of each gain above the maximum (net / events - most a gain: the lower reading, the Rage before the gain taken
+    as the box's level after a gain). A build losing all Rage on reaching the maximum is never already there: 0."""
+    if most <= 0 or net <= 0 or events <= 0:
+        return 0.0, 0.0, "no Rage surplus over the spenders"
+    if any(RAGE_RESET_AT_MAX.search(t) for t in lines):
+        return 0.0, 0.0, "all Rage lost on reaching the maximum (a line of the build): never already at it"
+    if held >= most - 1e-9:
+        return net, events, (f"Rage held at its maximum {most:g}: the {net:.2f}/s surplus over the spenders, "
+                             f"{events:.2f} gains/s")
+    over = net / events - most
+    if over <= 0:
+        return 0.0, 0.0, f"Rage held below its maximum {most:g} ({held:.1f} on average)"
+    return over * events, events, (f"each gain's {over:.1f} above the maximum {most:g} ({events:.2f} gains/s; the lower "
+                                   "reading, MEDIUM-LOW)")
+
+
 def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
     stats["_rage_max_reaches"] = None  # (MECHC47: (reaches of the maximum a second, how), RAGE_MAX_CHARGE's note)
     stats["_rage_spent_real"] = None  # (MECHC47: (Rage spent a second, how), DRUIDIC_PROWESS's note)
@@ -3213,6 +3232,7 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
                    if burn > 0 else "")
         basis += (f", one gain every {gap:.1f} s of {level:.0f} Rage held {pause:.2g} s, then lost {decay:.2g}/s while no "
                   f"boss hit ({land:.2f}/s landing){burning} paused it ({rate:.2g}/s on average): {held:.1f} on average")
+    stats["_rage_at_max"] = rage_at_max(held, most, net, events, lines)  # (MECHC59: models.GLORY_FROM_RAGE)
     if held > 0 and (lost := number(stats.get("_main_rage_lost_on_crit"))) > 0:
         crits = models.crits_per_second(stats) * _main_share(stats) * models.per_use_factor(stats)  # (MECHC45; MECHC52)
         if crits > 0 and net > 0:
@@ -11888,6 +11908,8 @@ class Conditions:
         # (MECHC47, for MECH-B's models.WARD_UNREAD "Runic Ward on reaching Maximum Rage": (reaches of the maximum a
         # second, how) where the build climbs to it and loses all ("Lose all Rage on reaching Maximum Rage"), else None)
         self.build.rage_max_reaches = stats.get("_rage_max_reaches")
+        # (MECHC59, models.GLORY_FROM_RAGE) (Rage gained a second while at maximum, gain events a second, how) or None
+        self.build.rage_at_max = stats.get("_rage_at_max")
         # (MECHC46) Nebuloch: the share of the main Attack's uses that find an Endurance Charge (NEBULOCH_CRIT's note)
         self.build.nebuloch_found = None
         endurance = (stats.get("_consumers") or {}).get("Endurance") or {}

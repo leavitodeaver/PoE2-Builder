@@ -17504,7 +17504,8 @@ def brambles_model(slam: str, slam_rate: float, slam_basis: str, row: dict) -> l
 # (attack, elemental or chaos hits), the boss's Heavy Stuns (heavy_stun_rate), Freezes (PoB's per-hit Freeze buildup, the
 # same boss threshold correction, no re-freeze window: an overcount if one exists), Ignites and Shocks (PoB's chance per
 # hit). Not counted (undercounts, labelled): Glory from other skills' hits, armour breaks (Molten Blast), Ward spent
-# (Skyfall; MECHC54: counted since, GLORY_FROM_WARD), Walking Calamity's own source, increased Glory generation and Daresso's Passion's lower cost.
+# (Skyfall; MECHC54: counted since, GLORY_FROM_WARD), Walking Calamity's own source (MECHC59: counted since,
+# GLORY_FROM_RAGE), increased Glory generation and Daresso's Passion's lower cost.
 BOSS_POWER = 20
 # (MECHC55; the manager 00:10 23 Nov, the user's Oracle build: War Banner's Glory read from the main skill's hits alone,
 # 0.18 a second with Tempest Bell used 19% of the fight, though Quarterstaff Strike attacks the rest) The banners' Glory
@@ -17585,6 +17586,17 @@ GLORY_FROM_LIFE = {"Zerphi's Infamy": (50, 0.05)}  # Glory per use, share of Lif
 # (KeywordPopups Glory; MEDIUM). Ward spent another way (Fist of Kalguur's boost) isn't in ward_sustain: not counted
 # (an undercount, LOW). Ward spent isn't a per-monster event: the 0.5 s rule doesn't apply (as Life spent).
 GLORY_FROM_WARD = {"Skyfall": 1.0}
+# (MECHC59; RESEARCH58 R58-5, research/walking-calamity-glory-r58.md; an UNDERCOUNT: Walking Calamity read "never" and its
+# buff 0) Walking Calamity "Build Glory by gaining Rage while already at maximum Rage" (ActiveSkills; requires 50 Glory,
+# active_skill_requires_X_glory 50). No game file holds an amount (R58-5, checked: WalkingCalamityPlayer's sets have no
+# Glory-generation stat, walking_calamity.csd no Glory line, every "glory" stat id with its carriers; patch notes
+# --history "Walking Calamity": no Glory line). Working reading (R58-5, MEDIUM-LOW, UNVERIFIED): 1 Glory per point of Rage
+# gained while at maximum, not limited per monster (no "MP %" stat; gaining Rage isn't an action against a monster), Rage
+# regeneration at maximum counting. Glory a second = stats["_rage_at_max"]'s Rage a second (conditions.rage_at_max, from
+# the Rage box: the surplus over the spenders while Rage sits at its maximum; a round behind, as the Ward). Its buff's own
+# 5 Rage/s regeneration doesn't count (no Glory while its instance is up, which `every` already waits out). Rows: per gain
+# event (R58-5's low row: Glory a second = Rage gain events a second at maximum). No Rage at maximum: 0, said.
+GLORY_FROM_RAGE = {"Walking Calamity": 1.0}
 # KeywordPopups Glory (build 26476662): "each Skill can only generate Glory once every 0.5 seconds per monster" (MECHC2,
 # RESEARCH4 glory-warcry-flat-rates.md, HIGH for the text; before, every event counted: a Banner at 6 hits/s got a use
 # every 1.7 s). On one boss: a gain, then 0.5 s, then the wait for the skill's next event, so gains/s = E / (1 + 0.5 E)
@@ -17915,6 +17927,16 @@ def glory_plan(names: list[str], stats: dict, main: Skill | None, skills: list[S
                 glory += GLORY_FROM_WARD[name] * number(spent)
                 how = (f"{GLORY_FROM_WARD[name]:.0%} of {number(spent):.1f} Runic Ward spent/s by the build's other "
                        f"Ward-cost skills ({spent_how}; its own cost left out)")
+            if name in GLORY_FROM_RAGE:  # (MECHC59: GLORY_FROM_RAGE's note)
+                at_max, at_max_events, at_max_how = stats.get("_rage_at_max") or (
+                    0.0, 0.0, "no Rage gained while at maximum Rage (the Rage box: none held at its maximum)")
+                glory += GLORY_FROM_RAGE[name] * number(at_max)
+                gain_events += number(at_max_events)
+                low = number(at_max_events)
+                how = (f"{number(at_max):.2f} Rage/s gained while at maximum Rage ({at_max_how}), 1 Glory a point "
+                       "(R58-5, MEDIUM-LOW, UNVERIFIED)" + (
+                           f"; row, 1 Glory a gain event: {low:.2f} Glory/s, one use per "
+                           f"{GLORY_INSTANCE.get(name, 0.0) + cost / low:.1f} s" if 0 < low < number(at_max) else ""))
             inc = lines["inc"] + (lines["banner_inc"] if banner else 0.0)
             if inc and glory > 0:
                 glory *= max(0.0, 1 + inc / 100)

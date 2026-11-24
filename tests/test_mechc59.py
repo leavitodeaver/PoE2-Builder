@@ -96,3 +96,30 @@ def test_a_regenerating_rampage_keeps_its_rage_under_the_recast_play():
     held, basis = conditions.rage_held([], {**RAMPAGE, "RageRegenRecovery": 12.0})
     assert held == 30 and "row, the channel held: 0.00 gained against 5.00 spent, none held" in basis
     assert conditions.rage_held([], {**RAMPAGE, "RageRegenRecovery": 12.0, "_channel_min": 0.0})[0] == 0
+
+
+def test_rage_at_max_is_the_surplus_while_rage_sits_at_its_maximum():
+    """R58-5: Walking Calamity's Glory is the Rage gained while already at maximum Rage."""
+    assert conditions.rage_at_max(30, 30, 2.5, 1.0, [])[:2] == (2.5, 1.0)
+    assert conditions.rage_at_max(12, 30, 2.5, 1.0, [])[0] == 0  # (below the maximum)
+    assert conditions.rage_at_max(20, 30, 40 / 8, 1 / 8, [])[0] == pytest.approx(10 / 8)  # (a 40 Rage Roar, max 30)
+    assert conditions.rage_at_max(30, 30, 2.5, 1.0, ["Lose all Rage on reaching Maximum Rage"])[0] == 0
+    assert conditions.rage_at_max(0, 30, 0.0, 0.0, [])[0] == 0
+
+
+def test_rage_held_reports_the_rage_gained_at_maximum():
+    stats = {**RAMPAGE, "_main_channel_rage": False, "_main_skill": "Walking Calamity", "_rage_spend": {},
+             "RageRegenRecovery": 3.0}
+    held, _ = conditions.rage_held([], stats)
+    assert held == 30 and stats["_rage_at_max"][0] == pytest.approx(3.0)
+
+
+def test_walking_calamity_builds_glory_from_rage_gained_at_maximum():
+    """Before: no source, never used. Now one use per (10 s instance + 50 / Glory a second)."""
+    from builder.search import models
+
+    plan, how = models.glory_plan(["Walking Calamity"], {"_rage_at_max": (2.5, 1.0, "test"), "Speed": 1.0}, None, [], [])
+    assert plan["Walking Calamity"][0] == pytest.approx(1 / (10 + 50 / 2.5)) and "while at maximum Rage" in how
+    assert "1 Glory a gain event" in how  # (R58-5's low row: 1.0 Glory/s)
+    plan, how = models.glory_plan(["Walking Calamity"], {"Speed": 1.0}, None, [], [])
+    assert "Walking Calamity" not in plan and "never" in how
