@@ -92,6 +92,104 @@ def test_a_reference_whose_main_skill_is_on_weapon_set_2_takes_the_swap_weapons(
     assert on_one.weapon_type == "Two Hand Mace" and on_one.offhand == "none"
 
 
+# ---- item 4 (the manager's ruling 24 Nov 01:59; RESEARCH56 R56-13 / R56-14), real PoB ----
+import faulthandler  # noqa: E402
+import json  # noqa: E402
+import re  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+import pytest  # noqa: E402
+
+ORACLE = Path(__file__).resolve().parents[1] / "benchmarks" / "results" / "gate4-20261123-073445.json"
+
+
+@pytest.fixture(scope="module")
+def engine():
+    from builder.data import GameData
+
+    try:
+        GameData()
+    except FileNotFoundError:
+        pytest.skip("no game-data dump; run `uv run python -m builder.data dump`")
+    from builder.pob.engine import PobEngine
+
+    enabled = faulthandler.is_enabled()
+    faulthandler.disable()
+    yield PobEngine()
+    if enabled:
+        faulthandler.enable()
+
+
+def test_kalandras_touch_doesnt_copy_an_unset_rings_skill_slot(engine):
+    """This Oracle build's Ring 2 is Kalandra's Touch: an Unset Ring in Ring 1 is copied by PoB (11 slots, POE2T7468),
+    not by the game (R56-14): 10 counted, PoB's 11 kept as its own field and a result row."""
+    from builder.pob import codes
+    from builder.search import objective
+    from builder.search.inner import skill_slot_notes
+
+    fields = [objective.SKILL_SLOTS, objective.SKILL_SLOTS_POB]
+    row = json.loads(ORACLE.read_text(encoding="utf-8"))["rows"][0]
+    engine.call("loadXml", xml=codes.decode(row["code"]))
+    assert "Kalandra's Touch" in (engine.call("equipped")["slots"].get("Ring 2") or "")
+    ring = "Rarity: RARE\nTest Band\nUnset Ring\nImplicits: 1\nGrants 1 additional Skill Slot"
+    one, two = engine.call("itemDeltas", cases=[{"slot": "Ring 1", "raw": ring}, {"slot": "Ring 2", "raw": ring}],
+                           fields=fields)["results"]
+    assert (one[objective.SKILL_SLOTS], one[objective.SKILL_SLOTS_POB]) == (10, 11)
+    assert (two[objective.SKILL_SLOTS], two[objective.SKILL_SLOTS_POB]) == (10, 10)  # (the Touch replaced: nothing copied)
+    notes = skill_slot_notes(one)
+    assert len(notes) == 1 and notes[0]["value"] == "10 (PoB reads 11)" and not skill_slot_notes(two)
+
+
+def test_the_extra_weapon_set_points_raise_each_sets_allowance(engine):
+    """A request field of its own (Olroth's Boon's Weapon Set point), 0 to 2, default 0: it lowers a weapon set's over-
+    allowance count and leaves the main budget alone. (The tree as SEARCH38's Weapon Master probe POE2T7465 built it:
+    a level 100 Witchhunter with 30 main passives on weapon set 1 read 6 over its allowance.)"""
+    from pydantic import ValidationError
+
+    from builder.pob import codes
+    from builder.request.schema import BuildRequest
+
+    assert BuildRequest().extra_weapon_set_points == 0
+    with pytest.raises(ValidationError):
+        BuildRequest(extra_weapon_set_points=3)
+    engine.call("setExtraPoints", points=0, weaponSetPoints=0)
+    row = json.loads(ORACLE.read_text(encoding="utf-8"))["rows"][0]
+    engine.call("loadXml", xml=codes.decode(row["code"]))
+    engine.call("setClass", className="Mercenary", ascendancy="Witchhunter")
+    engine.call("setLevel", level=100)
+
+    def allocated():
+        return {n["id"] if isinstance(n, dict) else int(n) for n in engine.call("allocatedNodes")["nodes"]}
+
+    mains, tried = [], set()
+    while len(mains) < 30:
+        used, before = engine.call("pointBudget")["used"], allocated()
+        options = [n for n in engine.call("frontier", maxDistance=4)["nodes"] if n["id"] not in tried]
+        assert options
+        node = min(options, key=lambda n: (n["distance"], n["id"]))
+        tried.add(node["id"])
+        engine.call("allocate", add=[node["id"]], fields=[])
+        if engine.call("pointBudget")["used"] > used:
+            mains += sorted(allocated() - before)
+        else:
+            engine.call("allocate", remove=sorted(allocated() - before), fields=[])
+    xml = engine.call("exportXml")["xml"]
+    match = re.search(r"<Spec\b[^>]*?(/?)>", xml)
+    sets = f'<WeaponSet1 nodes="{",".join(map(str, mains[:30]))}"/>'
+    xml = (xml[:match.start()] + match.group(0)[:-2] + ">" + sets + "</Spec>" + xml[match.end():] if match.group(1)
+           else xml[:match.end()] + sets + xml[match.end():])
+    engine.call("loadXml", xml=xml)
+    passives = engine.call("pointBudget")["passives"]
+    before = engine.call("stats", fields=["PassivePointsOver"])["PassivePointsOver"]
+    assert before >= 2  # (POE2T7465: 6)
+    try:
+        engine.call("setExtraPoints", points=0, weaponSetPoints=2)
+        assert engine.call("stats", fields=["PassivePointsOver"])["PassivePointsOver"] == before - 2
+        assert engine.call("pointBudget")["passives"] == passives
+    finally:
+        engine.call("setExtraPoints", points=0, weaponSetPoints=0)
+    assert engine.call("stats", fields=["PassivePointsOver"])["PassivePointsOver"] == before
+
 def test_the_finished_build_chooses_its_stat_set_and_distance_again():
     """(item 1, POE2T7491) Build 16's Arrow set at 4 m was chosen mid-flow; in the finished state Shards at 2 m scores
     higher on every count. final_choices keeps a better choice and puts a worse one back."""

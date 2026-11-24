@@ -162,6 +162,7 @@ function readForm() {
     hardcore: $("hardcore").checked,
     level: num("level") ?? 95,
     extra_passive_points: num("extra_passive_points") ?? 0,
+    extra_weapon_set_points: num("extra_weapon_set_points") ?? 0,
     class_name: text("class_name"),
     ascendancies: [...$("ascendancies").querySelectorAll("input:checked")].map((box) => box.value),
     main_skill: text("main_skill"),
@@ -198,6 +199,7 @@ function writeForm(request) {
   $("hardcore").checked = request.hardcore;
   set("level", request.level);
   set("extra_passive_points", request.extra_passive_points || "");
+  set("extra_weapon_set_points", request.extra_weapon_set_points || "");
   set("class_name", request.class_name);
   renderAscendancies(request.ascendancies);
   set("main_skill", request.main_skill);

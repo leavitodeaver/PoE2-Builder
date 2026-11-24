@@ -145,6 +145,10 @@ class BuildRequest(Model):
     # (R54-7, the manager's ruling 23 Nov: DEFAULT 0, a new character doesn't have them) passive points beyond level and
     # quests: the Martyr of the First Edict's and Olroth's Boon's, one each
     extra_passive_points: int = Field(0, ge=0, le=2)
+    # (SEARCH39, the manager's ruling 24 Nov 01:59; RESEARCH56 R56-13) weapon-set passive points beyond quests: they raise
+    # each weapon set's allowance. Olroth's Boon grants one ("Grants one Weapon Set Passive Skill Point", poe2db: HIGH);
+    # the Martyr's point most likely doesn't (MEDIUM-LOW, UNVERIFIED). DEFAULT 0
+    extra_weapon_set_points: int = Field(0, ge=0, le=2)
 
     class_name: str | None = None
     ascendancies: list[str] = []  # empty: any (within class_name, if set)

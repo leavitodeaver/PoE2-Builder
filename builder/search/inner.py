@@ -38,7 +38,8 @@ from builder.search import flasks, play_guide
 from builder.search import gems as gems_module
 from builder.search.models import GLORY_SKILLS, MARK_CARRIERS, MODEL_FIELDS, PRESS_CHOICES, press_choices, press_use_rate
 from builder.search.objective import (
-    CLEAR_FIELDS, DARKNESS_FIELDS, RECOVERY_INPUTS, SUSTAIN_FIELDS, Objective, main_dps, number, shortfall,
+    CLEAR_FIELDS, DARKNESS_FIELDS, RECOVERY_INPUTS, SKILL_SLOTS, SKILL_SLOTS_POB, SUSTAIN_FIELDS, Objective, main_dps,
+    number, shortfall,
     with_boss_recovery,
     with_life_es,
 )
@@ -141,7 +142,8 @@ class Search:
         self.skeleton = Skeleton(**skeleton)
         self.build = Build(engine, self.ctx, Objective(self.ctx, full, goal=goal), report, self.skeleton.label)
         # (SEARCH38) the point budget's extras, on this engine, for a fresh or a resumed task alike
-        engine.call("setExtraPoints", points=self.ctx.request.extra_passive_points + self.skeleton.import_points)
+        engine.call("setExtraPoints", points=self.ctx.request.extra_passive_points + self.skeleton.import_points,
+                    weaponSetPoints=self.ctx.request.extra_weapon_set_points)  # (SEARCH39)
         self.rng = random.Random(seed)
         self.gems = Gems(self.build)
         self.gems.rng = self.rng
@@ -2031,7 +2033,7 @@ def seed_task(engine: Any, report: Any, payload: dict) -> dict:
     """The skeleton of the request's PoB code, or why it can't be one."""
     ctx = context_for(payload)
     extra = ctx.request.extra_passive_points
-    engine.call("setExtraPoints", points=extra)
+    engine.call("setExtraPoints", points=extra, weaponSetPoints=ctx.request.extra_weapon_set_points)
     engine.call("loadXml", xml=codes.decode(ctx.request.seed_code))
     facts = engine.call("facts", fields=[])
     skeleton, notes = seed_skeleton(ctx, facts)
@@ -2313,6 +2315,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     tree_check = reloaded["treeCheck"]
     assumptions += search.jewels.radius_notes()  # the larger Time-Lost radius (custom model)
     assumptions += list(search.play_notes.values())  # standing still not counted, the Low Life weighting
+    assumptions += skill_slot_notes(build.call("stats", fields=[SKILL_SLOTS, SKILL_SLOTS_POB]))  # (SEARCH39, R56-14)
     why_items, why_items_error = why_items_safe(search.gear)
     result = {
         **summary, "facts": facts, "code": code, "groups": groups, "conditions": conditions, "quests": quests,
@@ -2339,6 +2342,19 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     # Last, after everything above has read the build: the same state applied again (SEARCH32, the manager's 09:35 ruling)
     result["reapply_drift"] = reapply_drift(search, lambda: fresh_score(engine, payload, skeleton, codes.decode(code)))
     return result
+
+
+def skill_slot_notes(stats: dict) -> list[dict]:
+    """(SEARCH39; RESEARCH56 R56-14) PoB's skill-slot reading as a row where the count differs from it: Kalandra's Touch
+    copying an Unset Ring's Skill Slot, which players report the game doesn't do."""
+    ours, pob = number(stats.get(SKILL_SLOTS)), number(stats.get(SKILL_SLOTS_POB))
+    if pob <= 0 or ours == pob:
+        return []
+    return [{"label": "Skill slots", "value": f"{ours:g} (PoB reads {pob:g})",
+             "basis": "Kalandra's Touch copies the other ring's lines but not an Unset Ring's Skill Slot (forum reports "
+                      "3970030, 3974217, 3787840; RESEARCH56 R56-14, MEDIUM-HIGH; no GGG statement): the count leaves "
+                      f"the copy out. On PoB's reading the build would have {pob:g} slots",
+             "confidence": "MEDIUM-HIGH"}]
 
 
 __all__ = ["Search", "optimize_task", "screen_task", "finalize_task", "ItemOption"]

@@ -214,8 +214,12 @@ class Run:
                           "currency unpriced)")
         self.notes += [f"Prices: {warning}." for warning in getattr(prices, "warnings", None) or []]
         if extra := getattr(self.request, "extra_passive_points", 0):  # (SEARCH38, R54-7)
-            self.notes.append(f"Passive points: {extra} extra counted, as you asked (the Martyr of the First Edict "
-                              "and Olroth's Boon give one each; a new character has neither).")
+            self.notes.append(f"Passive points: {extra} extra counted in the main budget, as you asked (the Martyr of the "
+                              "First Edict gives one, most likely a plain point: MEDIUM-LOW; a new character has none).")
+        if weapon := getattr(self.request, "extra_weapon_set_points", 0):  # (SEARCH39, RESEARCH56 R56-13)
+            self.notes.append(f"Weapon-set passive points: {weapon} extra counted in each weapon set's allowance, as you "
+                              "asked (Olroth's Boon grants one Weapon Set Passive Skill Point: HIGH; a new character has "
+                              "none).")
         self.probes: dict[str, dict] = {}  # skeleton label -> latest result
         self.live: dict[int, dict] = {}  # task index -> latest progress
         self.evals_done = 0

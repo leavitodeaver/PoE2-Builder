@@ -1644,6 +1644,9 @@ end
 -- (SEARCH38, R54-7) the extra passive points (0-2: the Martyr of the First Edict, Olroth's Boon), which no build file
 -- records; every Search sets them (bridge.setExtraPoints), so a task resumed on another engine keeps them
 local extraPassivePoints = 0
+-- (SEARCH39, the manager's 24 Nov ruling; RESEARCH56 R56-13) the extra WEAPON-SET passive points (Olroth's Boon:
+-- "Grants one Weapon Set Passive Skill Point", HIGH): they raise each weapon set's allowance, not the main budget
+local extraWeaponSetPoints = 0
 
 local function pointsOver(allocNodes, output, granted)
 	local used, ascUsed, set1, set2 = 0, 0, 0, 0
@@ -1666,7 +1669,7 @@ local function pointsOver(allocNodes, output, granted)
 	end
 	output = output or { }
 	local passives = math.max(build.characterLevel - 1, 0) + build.acts[build.maxActs].questPoints + extraPassivePoints
-	local setPoints = (build.maxWeaponSets or 0) + (output.PassivePointsToWeaponSetPoints or 0)
+	local setPoints = (build.maxWeaponSets or 0) + (output.PassivePointsToWeaponSetPoints or 0) + extraWeaponSetPoints
 	local over = math.max(used - math.min(set1, set2) - passives - (output.ExtraPoints or 0), 0)
 	over = over + math.max(set1 - setPoints, 0) + math.max(set2 - setPoints, 0)
 	return over, math.max(ascUsed - 8, 0)
@@ -1686,7 +1689,28 @@ local function setPointsOver(env)
 		output.PassivePointsOver = over + overAscendancy
 		-- (SEARCH38) the build's skill slots (PoB: 9 + SkillSlots mods, CalcSetup 728: Unset Ring, Bursting Decay,
 		-- Augmented Flesh) and the gem groups that use one (the search's own count: not from an item)
-		output.LedgerSkillSlots = env.modDB:Sum("BASE", nil, "SkillSlots")
+		-- (SEARCH39; RESEARCH56 R56-14, MEDIUM-HIGH: forum reports 3970030 / 3974217 / 3787840) Kalandra's Touch copies
+		-- the other ring's lines but NOT its Skill Slot in the game; PoB copies it (CalcSetup's Kalandra branch), one slot
+		-- too many. The count leaves the copy out; PoB's own reading stays as LedgerSkillSlotsPoB (a row)
+		local pobSlots = env.modDB:Sum("BASE", nil, "SkillSlots")
+		local copied = 0
+		local list = env.player and env.player.itemList or { }
+		for _, pair in ipairs({ { "Ring 1", "Ring 2" }, { "Ring 2", "Ring 1" } }) do
+			local touch, other = list[pair[1]], list[pair[2]]
+			if touch and touch.name and touch.name:match("Kalandra's Touch") and other
+				and not (other.name and other.name:match("Kalandra's Touch")) then
+				-- (as PoB's Kalandra branch reads it: a ring's lines are in slotModList by the Touch's slot number)
+				local slot = build.itemsTab.slots[pair[1]]
+				local mods = other.modList or (other.slotModList and slot and other.slotModList[slot.slotNum]) or { }
+				for _, mod in ipairs(mods) do
+					if mod.name == "SkillSlots" and mod.type == "BASE" then
+						copied = copied + (tonumber(mod.value) or 0)
+					end
+				end
+			end
+		end
+		output.LedgerSkillSlotsPoB = pobSlots
+		output.LedgerSkillSlots = pobSlots - copied
 		local groups = 0
 		for _, group in ipairs(build.skillsTab.socketGroupList) do
 			if group.source == nil then
@@ -6817,11 +6841,12 @@ end
 -- (SEARCH38) The passive points beyond level and quests for the build being searched
 function bridge.setExtraPoints(args)
 	local points = args.points or 0
-	if points ~= extraPassivePoints then
-		extraPassivePoints = points
+	local weaponSet = args.weaponSetPoints or 0
+	if points ~= extraPassivePoints or weaponSet ~= extraWeaponSetPoints then
+		extraPassivePoints, extraWeaponSetPoints = points, weaponSet
 		recalc()
 	end
-	return { points = extraPassivePoints }
+	return { points = extraPassivePoints, weaponSetPoints = extraWeaponSetPoints }
 end
 
 -- Commit an attribute choice (1 Strength, 2 Dexterity, 3 Intelligence, 4-6 Traveller's Wisdom's
@@ -7162,9 +7187,12 @@ function bridge.facts(args)
 	table.sort(items, function(a, b) return a.slot < b.slot end)
 	local warnings = { }
 	-- (SEARCH38) PoB's own limit doesn't know the extra points: its warning stands only if they don't cover the tree
-	local covered = extraPassivePoints > 0 and pointsOver(build.spec.allocNodes, build.calcsTab.mainOutput) == 0
+	local covered = (extraPassivePoints > 0 or extraWeaponSetPoints > 0)
+		and pointsOver(build.spec.allocNodes, build.calcsTab.mainOutput) == 0
 	for _, line in ipairs(build.controls.warnings and build.controls.warnings.lines or { }) do
-		if not (covered and tostring(line):find("too many passive points", 1, true)) then
+		local text = tostring(line)
+		if not (covered and (text:find("too many passive points", 1, true)
+			or (extraWeaponSetPoints > 0 and text:find("too many weapon set", 1, true)))) then
 			warnings[#warnings + 1] = tostring(line)
 		end
 	end

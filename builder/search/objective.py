@@ -108,6 +108,7 @@ POINTS_OVER = "PassivePointsOver"
 # hard limit once a slot source can come and go (an Unset Ring swapped out). An imported or reference build is scored
 # as it stands (groups_enforced False): it may list more groups than one character uses at once
 SKILL_SLOTS = "LedgerSkillSlots"
+SKILL_SLOTS_POB = "LedgerSkillSlotsPoB"  # (SEARCH39, R56-14) PoB's own count: Kalandra's Touch copying an Unset Ring's slot
 GEM_GROUPS = "LedgerGemGroups"
 # Damage that only happens when enemies die (Fiery Death's explosions, Plague Burst, ...): PoB's
 # Full DPS counts it as if it were sustained, but a single boss never triggers it
