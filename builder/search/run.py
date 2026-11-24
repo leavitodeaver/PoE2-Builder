@@ -14,6 +14,7 @@ from __future__ import annotations
 import math
 import os
 import random
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -497,6 +498,8 @@ class Run:
             return self.result_invalid()
         if self.request.seed_code:
             self.resolve_seed()
+        if getattr(self.request, "focus", None) is not None:  # (SEARCHD1: optimize one part of the seed build)
+            return self.execute_focus()
         if self.request.objective != "boss":
             goal = ("clear speed" if self.request.objective == "mapping"
                     else "the geometric mean of boss DPS and clear speed")
@@ -596,16 +599,21 @@ class Run:
                 return self.result_infeasible(problems + ["every search task failed"])
             best = self.best
             self.emit("status", message=f"Finalizing {best['label']} on Full DPS")
-            final = None
+            final = seed_final = None
+            # (SEARCHD1) a Continue run's seed, finalized beside the best on another worker: the floor it never falls below
+            floor = self.floor_task() if attempt_floor(self) else None
             for attempt in range(2):  # a worker the watchdog replaced gets one retry
                 base = finalize - self.regrow_seconds  # (the polish's own share: plan)
                 quick = attempt or self.should_cancel()
                 regrow = 0.0 if quick else min(self.regrow_seconds, max(0.0, self.remaining() - base))
                 polish = 5.0 if quick else max(5.0, min(base, self.remaining() - regrow) - FINALIZE_WRAP)
-                final = pool.run_tasks([("builder.search.inner:finalize_task", {
+                finals = pool.run_tasks([("builder.search.inner:finalize_task", {
                     "payload": self.payload, "skeleton": best["skeleton"], "state": best["state"], "seconds": polish,
-                    "regrow": regrow})],
-                    on_progress=self._progress())[0]
+                    "regrow": regrow})] + ([floor] if floor and attempt == 0 else []),
+                    on_progress=self._progress())
+                final = finals[0]
+                if len(finals) > 1:
+                    seed_final = finals[1]
                 if self.cpu_clock:
                     self.handed_out += polish + regrow
                 if not isinstance(final, WorkerError):
@@ -614,6 +622,7 @@ class Run:
             if pool.replaced:
                 self.notes.append(f"{pool.replaced} PoB worker(s) ran away and were replaced; their "
                                   "searches were lost, the rest continued.")
+            final = self.at_least_seed(final, seed_final)
             if isinstance(final, WorkerError):
                 return self.result_infeasible(problems + [f"finalizing failed: {str(final).strip().splitlines()[-1]}"])
             self.evals_done += final.get("evals", 0)
@@ -633,6 +642,95 @@ class Run:
                     f"scratch ({unsettled['fresh'] or 0:,.0f}): a model reads its own last output or state the search "
                     "carried, so this number depends on how the build was reached; treat it as uncertain")
             return self.result(final, problems)
+
+    # Continue and optimize one part (SEARCHD1; the user, 24 Nov: "options to continue working on the overall build, or to
+    # optimize a single item or skill or the tree") ---------------------------------------------------------------------
+
+    def floor_task(self) -> tuple[str, dict] | None:
+        """The seed build finalized with no polish (focus.seed_finalize_task), for a run with an origin (Continue)."""
+        skeleton = next((r["skeleton"] for r in self.probes.values() if r["skeleton"].get("seeded")), None)
+        if skeleton is None:
+            return None
+        return ("builder.search.focus:seed_finalize_task", {"payload": self.payload, "skeleton": skeleton})
+
+    def floor_key(self, final: dict) -> tuple[float, float]:
+        return rank_key({"dps": final["dps"], "value": self.goal_of(final), "deficits": final["deficits"]})
+
+    def at_least_seed(self, final: Any, seed_final: Any) -> Any:
+        """(SEARCHD1: the seed is the floor) The seed build as delivered if it ranks above the search's (fewer requirements
+        short, then the goal): a Continue or focus run never returns less than the build it started from, scored now."""
+        if seed_final is None:
+            return final
+        if isinstance(seed_final, WorkerError):
+            self.notes.append("The starting build couldn't be finalized for the never-worse check "
+                              f"({str(seed_final).strip().splitlines()[-1][:200]}); the search's result stands.")
+            return final
+        self.seed_final = seed_final
+        kept = isinstance(final, WorkerError) or self.floor_key(seed_final) < self.floor_key(final)
+        chosen = seed_final if kept else final
+        self.floor_check = {"seed_dps": seed_final["dps"], "searched_dps": None if isinstance(final, WorkerError)
+                            else final["dps"], "kept_seed": kept, "seed_key": list(self.floor_key(seed_final)),
+                            "delivered_key": list(self.floor_key(chosen))}
+        if kept:
+            self.notes.append(f"The search found nothing better than the build it started from in this time "
+                              f"({seed_final['dps']:,.0f} DPS), so that build is delivered unchanged (the starting build "
+                              "is the floor).")
+            seed_final["floor_kept"] = True
+            return seed_final
+        return final
+
+    def execute_focus(self) -> dict:
+        """Optimize one part of the seed build (focus.focus_task), everything else held; the seed finalized beside it is
+        the floor; the result says the part's before / after and the whole build's DPS before / after."""
+        from builder.search.focus import part_label
+
+        focus = self.request.focus.model_dump(mode="json")
+        if not self.payload["request"].get("seed_code"):
+            return self.result_infeasible(["optimizing one part needs a build to start from, and its PoB code couldn't "
+                                           "be read"])
+        self.emit("status", message=f"Optimizing {part_label(focus)} only; everything else is held as it is")
+        with EnginePool(self.workers) as pool:
+            self.workers = pool.size
+            skeletons = self.with_seed(pool, [])
+            if not skeletons:
+                return self.result_infeasible(["the build couldn't be loaded to start from: " + "; ".join(self.notes[-1:])])
+            seed = skeletons[0]
+            wrap = min(FINALIZE_MAX, max(FOCUS_WRAP, FINALIZE_SHARE * self.seconds))
+            seconds = max(5.0, self.remaining() - wrap)
+            replicas = self.workers if focus["kind"] == "tree" else 1  # (the tree's rounds draw: several draws, the best)
+            tasks = [("builder.search.focus:focus_task", {"payload": self.payload, "skeleton": seed.as_dict(),
+                                                          "seconds": seconds, "focus": focus, "seed": self.task_seed(r)})
+                     for r in range(replicas)]
+            results = self._record(self._tasks(pool, tasks))
+            if not results or self.best is None:
+                return self.result_infeasible(["the one-part search failed: " + "; ".join(self.notes[-1:])])
+            best = self.best
+            self.emit("status", message=f"Finalizing {best['label']}")
+            finals = pool.run_tasks([
+                ("builder.search.inner:finalize_task", {"payload": self.payload, "skeleton": best["skeleton"],
+                                                         "state": best["state"], "seconds": 0.0}),
+                ("builder.search.focus:seed_finalize_task", {"payload": self.payload, "skeleton": best["skeleton"],
+                                                            "state": best["seed_state"]})], on_progress=self._progress())
+            final = self.at_least_seed(finals[0], finals[1])
+            if isinstance(final, WorkerError):
+                return self.result_infeasible([f"finalizing failed: {str(final).strip().splitlines()[-1]}"])
+            self.evals_done += final.get("evals", 0)
+            self.emit("best", skeleton=final["label"], dps=final["dps"], clear=final.get("clear"),
+                      value=self.goal_of(final), score=final["score"],
+                      deficits=[d["label"] for d in final["deficits"]], final=True)
+            report = best.get("focus") or {}
+            final["unfinished"] = (final.get("unfinished") or []) + (best.get("unfinished") or [])
+            if report.get("problem"):
+                self.notes.insert(0, f"Nothing was optimized: {report['problem']}.")
+            if report.get("overtime"):
+                self.notes.append(f"Loading the build took {report['setup_seconds']:g} s of the time, so the part still got "
+                                  f"its minimum time: the run went {report['overtime']:g} s past the minutes asked.")
+            result = self.result(final, [])
+            result["focus"] = focus_report(focus, report, getattr(self, "seed_final", None), final, self.ctx)
+            if result["focus"]["held_changed"]:
+                result["notes"].insert(0, "WARNING: a part this run should have held changed in the finished build: "
+                                       + ", ".join(result["focus"]["held_changed"]))
+            return result
 
     # Results -----------------------------------------------------------------------------------
 
@@ -806,6 +904,7 @@ class Run:
             "why_items": final.get("why_items") or {},  # (SEARCHC1: Gear.why_items, the per-slot "why this item")
             "final_regrow": final.get("final_regrow") or [],  # (SEARCH35: Tree.final_regrow's tries, what it kept)
             "unfinished": self.unfinished_rows(final),  # (SEARCHD1: the "Not finished" section, unfinished.py)
+            "floor": getattr(self, "floor_check", None),  # (SEARCHD1: a Continue / focus run against its seed)
         })
         result["shopping"] = shopping_list(result, self.ctx.data, self.report_prices(), TradeClient().stats(offline=True),
                                            self.variant)
@@ -832,7 +931,10 @@ class Run:
             found.append({"step": "gear", "part": f"{gear_resume} and the slots after it", "done": None, "of": None,
                           "unit": "", "detail": "the last full gear round ran out of time before these slots; each kept "
                                                 "the item it had"})
+        focus = getattr(self.request, "focus", None)
         for o in final.get("open_sockets") or []:
+            if focus is not None and (focus.kind != "group" or focus.skill != o.get("skill")):
+                continue  # (a focus run's finalize has no fill time: only the focused group's sockets are its business)
             if any("ran out" in reason for reason in o.get("reasons") or []):
                 found.append({"step": "supports", "part": f"{o['skill']}'s group", "done": None, "of": None, "unit": "",
                               "detail": f"{o['open']} support socket{'s' if o['open'] > 1 else ''} left open: the fill's "
@@ -896,6 +998,75 @@ def annotate_blind_spots(lines: list[dict]) -> list[dict]:
                 line["as"] = [f"already counted at its maximum by an assumption: {entry.raw['absorbed_by']}"]
         annotated.append(line)
     return annotated
+
+
+FOCUS_WRAP = 25.0  # (SEARCHD1) a focus run's finalize time: export, reload check, facts, the seed's floor beside it
+
+
+def attempt_floor(run: Run) -> bool:
+    """(SEARCHD1) A run with an origin (Continue) finalizes its seed beside the best: the floor."""
+    return getattr(run.request, "origin", None) is not None and bool(run.payload["request"].get("seed_code"))
+
+
+def tree_nodes(code: str | None) -> set[int]:
+    """The allocated passives in a PoB code (its Spec's nodes)."""
+    if not code:
+        return set()
+    match = re.search(r'<Spec\b[^>]*\bnodes="([^"]*)"', codes.decode(code))
+    return {int(n) for n in match.group(1).split(",") if n.strip().isdigit()} if match else set()
+
+
+def _gear_view(gear: dict | None) -> dict | None:
+    if not gear:
+        return None
+    return {"name": gear.get("name"), "base": gear.get("base"), "affixes": gear.get("affixes") or [],
+            "runes": gear.get("runes") or [], "price": gear.get("price")}
+
+
+def _group_view(groups: list[dict] | None, index: int | None, skill: str | None) -> list[str] | None:
+    group = next((g for g in groups or [] if g.get("index") == index), None) or next(
+        (g for g in groups or [] if g.get("gems") and g["gems"][0].get("name") == skill), None)
+    return [g.get("name") for g in group["gems"]] if group else None
+
+
+def _gem_lists(groups: list[dict] | None, skip: int | None = None) -> list:
+    """The player's own groups' gems, in order (an item- or passive-granted group comes with its item or passive)."""
+    return [[x.get("name") for x in g.get("gems") or []] for g in groups or [] if not g.get("fromItem")
+            and g.get("index") != skip]
+
+
+def focus_report(focus: dict, report: dict, seed_final: dict | None, final: dict, ctx: Any) -> dict:
+    """(SEARCHD1) The part's before / after, the whole build's DPS before / after, and any held part that differs between
+    the seed as finalized and the delivered build (expected: none)."""
+    before = seed_final or {}
+    out = {**focus, **{k: report.get(k) for k in ("part", "passes", "converged", "undone", "rebuild", "kept_start",
+                                                   "problem", "setup_seconds", "overtime")},
+           "dps_before": before.get("dps"), "dps_after": final.get("dps"), "held_changed": []}
+    kind = focus["kind"]
+    index = (report.get("group_index") or focus.get("group")) if kind == "group" else None
+    if kind == "slot":
+        out["before"] = _gear_view((before.get("gear") or {}).get(focus["slot"]))
+        out["after"] = _gear_view((final.get("gear") or {}).get(focus["slot"]))
+    elif kind == "group":
+        out["before"] = _group_view(before.get("groups"), index, focus.get("skill"))
+        out["after"] = _group_view(final.get("groups"), index, focus.get("skill"))
+    old, new = tree_nodes(before.get("code")), tree_nodes(final.get("code"))
+    if kind == "tree":
+        names = {n["id"]: n.get("name") for n in (getattr(getattr(ctx, "data", None), "tree", None) or {}).get("nodes", [])}
+        out["before"], out["after"] = {"passives": len(old)}, {"passives": len(new)}
+        out["added"] = sorted(names.get(i) or str(i) for i in new - old)
+        out["removed"] = sorted(names.get(i) or str(i) for i in old - new)
+    if not before:
+        return out
+    if kind != "tree" and old != new:
+        out["held_changed"].append("passive tree")
+    gear_a, gear_b = before.get("gear") or {}, final.get("gear") or {}
+    for slot in sorted(set(gear_a) | set(gear_b)):
+        if not (kind == "slot" and slot == focus["slot"]) and _gear_view(gear_a.get(slot)) != _gear_view(gear_b.get(slot)):
+            out["held_changed"].append(f"item in {slot}")
+    if _gem_lists(before.get("groups"), index) != _gem_lists(final.get("groups"), index):
+        out["held_changed"].append("skill groups")
+    return out
 
 
 def relaxations(failing: list[dict]) -> list[str]:

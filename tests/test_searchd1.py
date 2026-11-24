@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from builder.request.schema import BuildRequest
 from builder.search import unfinished
 from builder.search.run import Run
 
@@ -46,6 +47,7 @@ def _run(cancelled: bool = False) -> Run:
     run.unfinished = []
     run.should_cancel = lambda: cancelled
     run.best = None
+    run.request = SimpleNamespace(focus=None)
     return run
 
 
@@ -73,3 +75,60 @@ def test_run_rows_empty_when_nothing_was_cut_and_cancel_is_said():
     assert _run().unfinished_rows({}) == []
     rows = _run(cancelled=True).unfinished_rows({})
     assert [r["step"] for r in rows] == ["search"]
+
+
+def _floor_run() -> Run:
+    run = _run()
+    run.notes = []
+    run.request = SimpleNamespace(objective="boss", focus=None)
+    return run
+
+
+def test_the_seed_is_the_floor():
+    """A Continue / focus run's seed, finalized beside it, is delivered when the search's build ranks lower (fewer
+    requirements short first, then the goal); else the search's build stands."""
+    from builder.pob.pool import WorkerError
+
+    run = _floor_run()
+    seed = {"dps": 100.0, "clear": 0.0, "deficits": []}
+    worse = {"dps": 90.0, "clear": 0.0, "deficits": []}
+    assert run.at_least_seed(worse, dict(seed))["dps"] == 100.0 and run.floor_check["kept_seed"]
+    assert run.at_least_seed({"dps": 120.0, "clear": 0.0, "deficits": []}, dict(seed))["dps"] == 120.0
+    assert not run.floor_check["kept_seed"]
+    short = {"dps": 500.0, "clear": 0.0, "deficits": [{"label": "Life", "amount": 0.2, "hard": True}]}
+    assert run.at_least_seed(short, dict(seed))["dps"] == 100.0  # (more DPS but short of a floor the seed met)
+    assert run.at_least_seed(WorkerError("boom"), dict(seed))["dps"] == 100.0
+    assert run.at_least_seed(worse, None) is worse  # (no origin: no floor)
+
+
+def test_the_continue_route_builds_the_request_from_the_saved_result(tmp_path, monkeypatch):
+    """POST /api/runs/continue: the saved result's request, its code as the seed, the minutes chosen, the origin, and a
+    focus when one part is asked for; a result without a code can't be continued."""
+    import json
+
+    import pytest
+    from fastapi import HTTPException
+
+    from builder.web import app as app_module
+
+    started = []
+    monkeypatch.setattr(app_module, "RESULTS_DIR", tmp_path)
+    monkeypatch.setattr(app_module.runs, "start", lambda request, request_id=None: started.append(request)
+                        or SimpleNamespace(view=lambda: {"id": 7}))
+    saved = {"request": BuildRequest(name="Spear", main_skill="Explosive Spear").model_dump(mode="json"),
+             "code": "eNoLAAAAAA", "dps": {"full": 1234.0}, "label": "Huntress"}
+    (tmp_path / "r1.json").write_text(json.dumps(saved), encoding="utf-8")
+    (tmp_path / "r2.json").write_text(json.dumps({**saved, "code": None}), encoding="utf-8")
+    monkeypatch.setattr(app_module, "compile_request", lambda *a: SimpleNamespace(issues=[]))
+    post = lambda **body: app_module.continue_run(app_module.ContinueBody(**body))
+    assert post(result="r1.json", minutes=3) == {"id": 7}
+    request = started[-1]
+    assert request.seed_code == "eNoLAAAAAA" and request.effort_minutes == 3 and request.focus is None
+    assert request.origin.kind == "continue" and request.origin.dps == 1234.0 and request.name == "Spear (continued)"
+    post(result="r1.json", minutes=2, focus={"kind": "slot", "slot": "Boots"})
+    request = started[-1]
+    assert request.focus.slot == "Boots" and request.origin.kind == "focus" and request.name == "Spear (one part: Boots)"
+    for body, code in (({"result": "r2.json"}, 422), ({"result": "nope.json"}, 404), ({"result": "r1.json", "minutes": 0}, 422)):
+        with pytest.raises(HTTPException) as caught:
+            post(**body)
+        assert caught.value.status_code == code

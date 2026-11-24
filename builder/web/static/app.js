@@ -560,6 +560,8 @@ function renderResult(result) {
       : el("span", { class: "badge bad" }, "did not reload identically");
     parts.push(el("div", { class: "result-section" }, el("h3", {}, "PoB code", badge),
       el("div", { class: "code-row" }, el("textarea", { rows: 3, readonly: true }, result.code), copy)));
+    if (result.focus) parts.push(focusSection(result));
+    if (result.code && result.saved_as) parts.push(keepWorkingSection(result));
     if (result.shopping) {
       parts.push(shoppingSection(result.shopping));
     } else {
@@ -647,6 +649,76 @@ function unfinishedSection(result) {
       + "reached (a partly filled item beats an empty slot). Continue, below, runs the search again from this exact "
       + "build, and never returns anything worse than it."),
     el("ul", {}, result.unfinished.map((row) => el("li", {}, row.text))));
+}
+
+// (SEARCHD1) Continue, and optimize one part, from a finished result ---------------------------------------------
+
+function focusParts(result) {
+  // Every part the page offers: each item slot the build has, each skill group the player fills, and the tree
+  const slots = Object.keys(result.gear || {}).sort().map((slot) => ({
+    label: `${slot}: ${result.gear[slot].name}`, focus: { kind: "slot", slot } }));
+  const groups = (result.groups || []).filter((g) => g.enabled && !g.fromItem && g.gems?.length).map((g) => ({
+    label: `${g.gems[0].name}${g.main ? " (main skill)" : ""}: ${g.gems.length - 1} support${g.gems.length === 2 ? "" : "s"}`,
+    focus: { kind: "group", skill: g.gems[0].name, group: g.index } }));
+  return { slots, groups, tree: [{ label: "The passive tree (and ascendancy)", focus: { kind: "tree" } }] };
+}
+
+function keepWorkingSection(result) {
+  const minutes = el("input", { type: "number", min: 1, max: 240, value: Math.min(result.request?.effort_minutes || 5, 240),
+    class: "minutes" });
+  const status = el("span", { class: "hint" });
+  const parts = focusParts(result);
+  const choices = [...parts.slots, ...parts.groups, ...parts.tree];
+  const select = el("select", {},
+    el("optgroup", { label: "An item" }, parts.slots.map((p) => el("option", { value: choices.indexOf(p) }, p.label))),
+    el("optgroup", { label: "A skill's supports" }, parts.groups.map((p) => el("option", { value: choices.indexOf(p) }, p.label))),
+    el("optgroup", { label: "The tree" }, parts.tree.map((p) => el("option", { value: choices.indexOf(p) }, p.label))));
+  const start = async (focus) => {
+    try {
+      const run = await api("/api/runs/continue", { method: "POST",
+        body: { result: result.saved_as, minutes: Number(minutes.value) || 5, focus } });
+      $("run-hint").textContent = focus ? "Optimizing one part of this build; everything else is held as it is."
+        : "Continuing from this exact build. The result is never worse than it.";
+      $("run-log").replaceChildren();
+      $("run-status").textContent = "Starting…";
+      $("run-result").replaceChildren();
+      pollRun(run.id);
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  };
+  return el("div", { class: "result-section keep-working" },
+    el("h3", {}, "Keep working on this build"),
+    el("p", { class: "hint" }, "Both start a new run from this exact build (its PoB code, the same request) and never "
+      + "return anything worse than it: if nothing better turns up, you get this build back."),
+    el("div", { class: "focus-row" }, "Minutes:", minutes),
+    el("div", { class: "focus-row" },
+      el("button", { type: "button", onclick: () => start(null) }, "Continue the whole build"),
+      el("span", { class: "hint" }, "searches every part again, starting here")),
+    el("div", { class: "focus-row" }, select,
+      el("button", { type: "button", onclick: () => start(choices[Number(select.value)].focus) }, "Optimize this part only"),
+      el("span", { class: "hint" }, "everything else stays exactly as it is")),
+    status);
+}
+
+function focusSection(result) {
+  // A one-part run's before / after: the part itself, and the whole build's DPS
+  const f = result.focus;
+  const gearText = (g) => (g ? `${g.name} (${g.base})${g.affixes?.length ? ": " + g.affixes.join(" · ") : ""}` : "empty");
+  const side = (v) => f.kind === "slot" ? gearText(v) : f.kind === "group" ? (v ? v.join(" + ") : "–")
+    : v ? `${v.passives} passives` : "–";
+  const rows = [["The part", side(f.before), side(f.after)],
+    ["Whole build DPS", formatNumber(f.dps_before), formatNumber(f.dps_after)]];
+  if (f.kind === "tree") rows.push(["Passives changed", `removed: ${(f.removed || []).join(", ") || "none"}`,
+    `added: ${(f.added || []).join(", ") || "none"}`]);
+  const notes = [];
+  if (f.problem) notes.push(f.problem);
+  if (f.converged) notes.push(`Finished: a pass over the part found nothing more (${f.passes} pass${f.passes === 1 ? "" : "es"}).`);
+  if (f.undone?.length) notes.push(`${f.undone.length} step${f.undone.length === 1 ? " was" : "s were"} undone because `
+    + "they changed a part this run holds.");
+  if (f.held_changed?.length) notes.push(`WARNING: held parts changed: ${f.held_changed.join(", ")}.`);
+  return el("div", { class: "result-section" }, el("h3", {}, `Optimized one part: ${f.part || f.kind}`),
+    simpleTable(["", "Before", "After"], rows), ...notes.map((n) => el("p", { class: "hint" }, n)));
 }
 
 // Shopping list and trade links ------------------------------------------------------------

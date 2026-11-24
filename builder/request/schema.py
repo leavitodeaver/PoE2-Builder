@@ -134,6 +134,37 @@ class OwnedItem(Model):
     slot: str | None = None
 
 
+class FocusKind(StrEnum):
+    SLOT = "slot"  # one item slot (gear, flask, charm or a jewel socket: "Jewel <node id>")
+    GROUP = "group"  # one skill group's supports (its active gem kept)
+    TREE = "tree"  # the passive tree and the ascendancy (items, jewels and gems kept)
+
+
+class Focus(Model):
+    """(SEARCHD1; the user, 24 Nov: "options to continue working on the overall build, or to optimize a single item or
+    skill or the tree") optimize only this part of the seed build (seed_code); everything else is held exactly as it is."""
+
+    kind: FocusKind
+    slot: str | None = None  # kind slot: PoB's slot name, e.g. "Helmet", "Ring 1", "Jewel 26725"
+    skill: str | None = None  # kind group: the group's first gem (its active skill)
+    group: int | None = None  # kind group: PoB's group index, when it still holds `skill`
+
+
+class OriginKind(StrEnum):
+    CONTINUE = "continue"
+    FOCUS = "focus"
+
+
+class Origin(Model):
+    """(SEARCHD1) Where a Continue or optimize-one-part run started: the result it came from. A run with an origin never
+    delivers less than its seed build (seed_code) scored now: the seed is the floor."""
+
+    kind: OriginKind
+    result: str | None = None  # the saved result's file name (data/results)
+    dps: float | None = None  # that result's delivered DPS, for the before / after
+    label: str | None = None
+
+
 class BuildRequest(Model):
     schema_version: int = SCHEMA_VERSION
     name: str = "Untitled request"
@@ -186,6 +217,8 @@ class BuildRequest(Model):
 
     seed_code: str | None = None  # PoB code to start from
     effort_minutes: int = Field(10, ge=1, le=240)
+    focus: Focus | None = None  # (SEARCHD1) optimize only this part of the seed build
+    origin: Origin | None = None  # (SEARCHD1) a Continue / focus run: the result it started from, its floor
 
     @model_validator(mode="after")
     def _consistent(self) -> BuildRequest:
@@ -209,6 +242,15 @@ class BuildRequest(Model):
 
             if self.boss not in bosses.PRESETS:
                 problems.append(f"boss {self.boss!r} is not a preset (one of: {', '.join(sorted(bosses.PRESETS))})")
+        if self.focus is not None:
+            if not self.seed_code:
+                problems.append("optimizing one part needs a build to start from (a PoB code)")
+            if self.focus.kind == FocusKind.SLOT and not self.focus.slot:
+                problems.append("optimizing one item needs its slot")
+            if self.focus.kind == FocusKind.GROUP and not self.focus.skill:
+                problems.append("optimizing one skill group needs its skill")
+        if self.origin is not None and not self.seed_code:
+            problems.append("a Continue run needs the build it continues (a PoB code)")
         if problems:
             raise ValueError("; ".join(problems))
         return self

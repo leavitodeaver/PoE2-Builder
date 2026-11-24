@@ -362,6 +362,48 @@ def start_run(body: RunBody) -> dict:
     return record.view()
 
 
+class ContinueBody(BaseModel):
+    """(SEARCHD1; the user, 24 Nov: "options to continue working on the overall build, or to optimize a single item or
+    skill or the tree") a new run from a saved result's exact build: its request, its PoB code as the seed (the floor)."""
+
+    result: str  # the saved result's file name (data/results)
+    minutes: int = 5
+    focus: dict | None = None  # None: Continue the whole build; else schema.Focus (a slot, a skill group or the tree)
+
+
+def continued_request(result: dict, name: str, minutes: int, focus: dict | None) -> BuildRequest:
+    """The request a Continue / Optimize-one-part run gets: the result's own request, its code as the seed, the minutes
+    chosen, and where it came from (origin). A focus run starting from a focus result starts afresh on its new part."""
+    if not result.get("code"):
+        raise HTTPException(422, "that result has no build to continue (no PoB code)")
+    request = dict(result["request"])
+    request.update(seed_code=result["code"], effort_minutes=minutes, focus=focus,
+                   origin={"kind": "focus" if focus else "continue", "result": name,
+                           "dps": (result.get("dps") or {}).get("full"), "label": result.get("label")})
+    base = re.sub(r" \((continued|one part: .*)\)$", "", request.get("name") or "Untitled request")
+    request["name"] = f"{base} (continued)" if not focus else f"{base} (one part: {focus.get('slot') or focus.get('skill') or 'tree'})"
+    return parse_request(request)
+
+
+@app.post("/api/runs/continue")
+def continue_run(body: ContinueBody) -> dict:
+    path = RESULTS_DIR / body.result
+    if path.parent != RESULTS_DIR or path.suffix != ".json" or not path.exists():
+        raise HTTPException(404, "no such result")
+    if not 1 <= body.minutes <= 240:
+        raise HTTPException(422, "minutes must be 1-240")
+    result = json.loads(path.read_text(encoding="utf-8"))
+    request = continued_request(result, body.result, body.minutes, body.focus)
+    errors = [i for i in compile_request(request, preview.data_for(request, data)).issues if i.level == "error"]
+    if errors:
+        raise HTTPException(422, detail=[{"field": i.field, "message": i.message} for i in errors])
+    try:
+        record = runs.start(request, None)
+    except RuntimeError as error:
+        raise HTTPException(409, str(error))
+    return record.view()
+
+
 @app.get("/api/runs/current")
 def current_run() -> dict:
     record = runs.current()
@@ -413,6 +455,7 @@ def get_result(name: str) -> dict:
     if path.parent != RESULTS_DIR or path.suffix != ".json" or not path.exists():
         raise HTTPException(404, "no such result")
     result = json.loads(path.read_text(encoding="utf-8"))
+    result["saved_as"] = name  # (SEARCHD1: the page's Continue / Optimize-one-part buttons name the result by it)
     if result.get("gear"):
         # The shopping list at today's prices (the one saved with the run had the prices of its day)
         request = BuildRequest.model_validate(result["request"])
