@@ -5035,9 +5035,12 @@ class Assumptions:
             up, up_how = models.ailment_up_of(build)
             ground, ground_how = self.chilled_ground_share()
             frozen = up.get("Freeze", 0.0)
+            aura, aura_how = getattr(build, "heart_of_ice_up", None) or (0.0, "")  # (MECH105, R55-1: its Chill feeds the bolts)
+            chilled = 1.0 - (1.0 - ground) * (1.0 - min(max(number(aura), 0.0), 1.0))
             ice_mods, ice_notes = models.icestorm_model(
-                main, main.stat_set, sets, number(stats.get("Speed")), ground, frozen, models.power_of(stats),
-                f"Chilled Ground {ground:.0%}: {ground_how}; Frozen {frozen:.0%}: {up_how}", forbidden)
+                main, main.stat_set, sets, number(stats.get("Speed")), chilled, frozen, models.power_of(stats),
+                f"Chilled Ground {ground:.0%}: {ground_how}; " + (f"{aura_how}; " if aura_how else "")
+                + f"Frozen {frozen:.0%}: {up_how}", forbidden)
             hand_mods, hand_notes = hand_mods + ice_mods, hand_notes + ice_notes
         if main is not None and group and main.name in models.LONE_BOSS_SETS:  # (GEM32: Lightning Arrow's beams, R44-11)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]

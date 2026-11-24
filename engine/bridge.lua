@@ -2969,6 +2969,37 @@ function bridge.bleedExtra()
 		blocked = env.player.modDB:GetCondition("NoExtraBleedDamageToMovingEnemy") and true or false }
 end
 
+-- (MECH105, R55-1) Heart of Ice's Chill, which PoB doesn't score: its stat set has no hit flag, so the group's Cold hit is 0
+-- (probe POE2T6527). Its text: "Chills enemies in your Presence as though dealing {0} to {1} Cold damage", on the ordinary
+-- spell base-damage stats. Returned: its base at the level PoB gave it, the build's increased / more Spell and Cold damage
+-- (a Spell config, without the Hit flag: "as though dealing" isn't a hit, so "with Hits" lines aren't taken, the lower
+-- reading), its Chill Magnitude (CalcOffence 5687-5689's sum, with the gem's quality) and the boss's Cold resistance
+-- (calcResistForType's sum, 695-698; no penetration), for conditions.heart_of_ice. found = false without the skill.
+function bridge.heartOfIce()
+	local env = build.calcsTab and build.calcsTab.mainEnv
+	if not (env and env.player) then
+		return { found = false }
+	end
+	for _, skill in ipairs(env.player.activeSkillList or { }) do
+		local effect = skill.activeEffect
+		if effect and effect.grantedEffect and effect.grantedEffect.id == "HeartOfIcePlayer" then
+			local cfg = copyTable(skill.skillCfg or { }, true)
+			cfg.flags = bit.bor(cfg.flags or 0, ModFlag.Spell)
+			local mods, enemy = skill.skillModList, env.enemyDB
+			local base = skill.skillData or { }
+			local resist = enemy:Override(nil, "ColdResist") or (enemy:Sum("BASE", nil, "ColdResist", "ElementalResist")
+				* math.max(calcLib.mod(enemy, nil, "ColdResist", "ElementalResist"), 0))
+			return { found = true, level = effect.level, min = jsonNumber(base.ColdMin or 0), max = jsonNumber(base.ColdMax or 0),
+				inc = jsonNumber(mods:Sum("INC", cfg, "Damage", "ColdDamage", "ElementalDamage")),
+				more = jsonNumber(mods:More(cfg, "Damage", "ColdDamage", "ElementalDamage")),
+				chillInc = jsonNumber(mods:Sum("INC", cfg, "EnemyChillMagnitude", "AilmentMagnitude")),
+				chillMore = jsonNumber(mods:More(cfg, "EnemyChillMagnitude")),
+				resist = jsonNumber(math.max(math.min(resist, data.misc.EnemyMaxResist), data.misc.ResistFloor)) }
+		end
+	end
+	return { found = false }
+end
+
 function bridge.recalc(args)
 	local start = os.clock()
 	recalc()

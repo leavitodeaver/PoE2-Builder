@@ -1382,6 +1382,11 @@ def distance_candidates(lines: list[str], main_types: set[str], presence_radius:
                 and (reach is None or beyond <= reach)):
             found.append(MELEE_DISTANCE)  # (close range stays a candidate, as for any distance line)
             found.append(beyond)
+    # (MECH105) Icestorm's improved bolts can feed on Heart of Ice's Chill, which reaches only your Presence and has no
+    # "in your Presence" source line: an Icestorm build also tries the Presence edge, and the score decides (no gain, no move)
+    edge = math.floor(presence_radius * 10) / 10
+    if skill == "Icestorm" and MELEE_DISTANCE < edge < natural:
+        found.append(edge)
     found = list(dict.fromkeys(found))
     return found if len(found) > 1 else []
 
@@ -4161,7 +4166,46 @@ def chilled_share(stats: dict) -> float:
     # (MECH94, R36-4: a Creeping Chill ground under the 30% floor is ground, but doesn't Chill: "_chilled_ground_chills")
     got = stats.get("_chilled_ground_chills") or stats.get("_chilled_ground") or (0.0, "")
     ground = min(max(number(got[0]), 0.0), 1.0)
-    return 1.0 - (1.0 - chill_share(stats)) * (1.0 - ground)
+    aura = min(max(number((stats.get("_heart_of_ice") or (0.0, ""))[0]), 0.0), 1.0)  # (MECH105: Heart of Ice's Chill)
+    return 1.0 - (1.0 - chill_share(stats)) * (1.0 - ground) * (1.0 - aura)
+
+
+# Heart of Ice (MECH105; RESEARCH55 R55-1, a likely DPS UNDERCOUNT for The Whispering Ice, which grants it and Icestorm).
+# The game: "Chills enemies in your Presence as though dealing {0} to {1} Cold damage" (heart_of_ice.csd), on the ordinary
+# spell base-damage stats; PoB gives the aura no hit (probe POE2T6527: its group's Cold hit 0), so nothing read its Chill.
+# Here: its mean base at PoB's level x the build's increased / more Spell and Cold damage (MEDIUM, R55-1) x its Chill
+# Magnitude with quality (HIGH / MEDIUM-HIGH) against the boss's threshold, PoB's linear formula as chill_effect; at or over
+# the game's 30% floor (HIGH) the boss is Chilled while inside your Presence, else 0.
+# Labelled readings: the boss's Cold resistance doesn't cut it (UNVERIFIED, R55-1: the note gives the figure with it); the
+# aura re-Chills at once after a consume (UNVERIFIED: the other row is one Chill, so only the first cast makes an improved
+# bolt); aura-magnitude lines aren't added (skill_chill_magnitude_is_aura_magnitude's effect is UNVERIFIED).
+HEART_OF_ICE = "Heart of Ice"
+
+
+def heart_of_ice(read: dict | None, texts: list[str], stats: dict) -> tuple[float, str]:
+    """(share of the fight Heart of Ice keeps the boss Chilled, how); `read` is the bridge's heartOfIce (see above)."""
+    if not read or not read.get("found"):
+        return 0.0, ""
+    threshold = number(stats.get("EnemyAilmentThreshold"))
+    base = (number(read.get("min")) + number(read.get("max"))) / 2
+    damage = base * (1 + number(read.get("inc")) / 100) * (number(read.get("more")) or 1.0)
+    chill = (1 + number(read.get("chillInc")) / 100) * (number(read.get("chillMore")) or 1.0)
+    if threshold <= 0 or damage <= 0:
+        return 0.0, f"{HEART_OF_ICE}: no Chilling damage or boss threshold read: 0"
+    magnitude = 100.0 * damage / threshold * chill
+    resisted = magnitude * (1 - number(read.get("resist")) / 100)
+    sized = (f"{HEART_OF_ICE} (level {number(read.get('level')):g}): {base:,.0f} base x the build's Spell / Cold damage = "
+             f"{damage:,.0f} x{chill:.2f} Chill Magnitude against the boss's {threshold:,.0f} threshold: a {magnitude:.1f}% "
+             f"Chill; with the boss's {number(read.get('resist')):g}% Cold resistance (UNVERIFIED) {resisted:.1f}%"
+             + ("" if resisted >= CHILL_FLOOR or magnitude < CHILL_FLOOR else ", under the 30% floor: no Chill on that reading"))
+    if magnitude < CHILL_FLOOR:
+        return 0.0, sized + f". Under the game's {CHILL_FLOOR:g}% floor: it doesn't Chill this boss"
+    metres, radius = _boss_distance(texts, stats)[0] / 10, number(stats.get("PresenceRadius")) / 10
+    if radius < metres:
+        return 0.0, sized + f". The boss {metres:g} m away, outside your {radius:.1f} m Presence: 0"
+    return 1.0, sized + (f". The boss {metres:g} m away, inside your {radius:.1f} m Presence: Chilled all the fight, taking "
+                         "the aura to re-Chill at once after a consume (UNVERIFIED; if it doesn't, only the first cast "
+                         "finds a Chill)")
 
 
 def target_ailment_share(stats: dict, participle: str) -> float:
@@ -11089,6 +11133,9 @@ class Conditions:
         groups_all = self.build.call("groups")
         groups_now = groups_all["groups"]
         gems = self.build.ctx.gems
+        if any(n["name"] == HEART_OF_ICE and n.get("enabled", True) for g in groups_now if g.get("enabled") is not False
+               for n in g.get("gems") or []):  # (MECH105: its Chill, for chilled_share and Icestorm's improved bolts)
+            stats["_heart_of_ice"] = heart_of_ice(self.build.call("heartOfIce"), texts, stats)
         # (MECH75, AUDIT35 A35-2: every gem, item- and tree-granted skills too: Black Powder Blitz's explosion)
         every = self.build.ctx.all_gems
         beside = {n["name"] for g in groups_now if g.get("enabled") is not False for n in g.get("gems") or []
@@ -11430,6 +11477,7 @@ class Conditions:
         self.build.ailment_ground = dict(stats.get("_ailment_ground") or {})  # (MECH75: Radiant Grief's aura)
         # (MECH76, for COV-A: "Enemies standing on Chilled Ground take ..."; (share, how), (0.0, "") without a source)
         self.build.chilled_ground_up = stats.get("_chilled_ground") or (0.0, "")
+        self.build.heart_of_ice_up = stats.get("_heart_of_ice") or (0.0, "")  # (MECH105: Icestorm's improved bolts)
         # (MECH79, for COV-A: Desert's Scorn's "Enemies standing on Ignited Ground take 25% increased Cold Damage")
         self.build.ignited_ground_up = stats.get("_ignited_ground") or (0.0, "")
         # (MECH99, for MECHB52's Tornado via the manager 16:30: the boss's share of the fight in your Shocked Ground,
