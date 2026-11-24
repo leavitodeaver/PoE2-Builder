@@ -39,6 +39,17 @@ if not PREVIEW_1_0_INSTALLED then
 		error("preview_1_0: the curve reference skill " .. refName .. " is missing from PoB's data")
 	end
 	local refSet = ref.statSets[1]
+	-- (PREVIEW3) "skills that enter Stealth" (Conceal's requirement): PoB has no such skill type, so the preview adds one
+	-- past PoB's last number, carried only by preview skills that enter Stealth (gems.json: Shroud)
+	if not SkillType.PreviewStealth then
+		local last = 0
+		for _, number in pairs(SkillType) do
+			if type(number) == "number" and number > last then
+				last = number
+			end
+		end
+		SkillType.PreviewStealth = last + 1
+	end
 	local function setUp(skill, id)
 		-- as Data.lua 929-965 sets up every skill it loads
 		skill.id = id

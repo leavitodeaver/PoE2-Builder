@@ -310,3 +310,52 @@ def test_haemorrhages_rupture_is_labelled_not_counted():
     row = next(r for r in preview.gem_rows() if r["name"] == "Haemorrhage")
     text = " ".join(row["not_modelled"])
     assert "dealt more quickly" in text and "UNVERIFIED" in text
+
+
+def test_the_ambush_arithmetic():
+    from builder.preview.stealth import ambush_more, shades_alive
+
+    assert shades_alive(7.5) == 1 and shades_alive(2.5) == 3 and shades_alive(1.0) == 3 and shades_alive(0) == 0
+    more, each, share = ambush_more(0.125, 1.0, 10, 1)  # an Ambush every 8 s, 1 use a second
+    assert each == pytest.approx(1.3 * 1.5) and share == pytest.approx(0.125) and more == pytest.approx(0.125 * 0.95)
+    assert ambush_more(0.0, 1.0, 10, 1)[0] == 0  # (no Stealth source: 0, never a flat rate)
+    assert ambush_more(0.1, 1.0, 99, 0)[1] == pytest.approx(1.9)  # (Darkness caps at 30)
+
+
+def test_ambush_needs_the_builds_own_stealth_source(engine):
+    from types import SimpleNamespace
+
+    from builder.preview.stealth import ambush_model
+
+    preview.install(engine, BuildRequest(preview_1_0=True))
+    gems = {g["name"]: g for g in preview.gems()}
+
+    class Build:
+        ctx = SimpleNamespace(gems=gems)
+        objective = None
+        call = staticmethod(engine.call)
+
+    dagger = "Rarity: Normal\nCinquedea\n"
+    engine.call("newBuild")
+    engine.call("setLevel", level=90)
+    engine.call("addItem", raw=dagger)
+    engine.call("addSkillGroup", text="Viper Strike 20/0 1", main=True)
+    speed = engine.call("stats", fields=["Speed", "HitChance"])
+    mods, notes = ambush_model(Build(), SimpleNamespace(name="Viper Strike"), speed)
+    assert not mods and notes[0]["value"] == 0 and "no skill counted as entering Stealth" in notes[0]["basis"]
+    engine.call("addSkillGroup", text="Shroud 20/0 1\nConceal 1/0 1", main=False)
+    groups = {s["name"]: g["index"] for g in engine.call("groups")["groups"] for s in g["skills"]}
+    # (PREVIEW3) Conceal supports only skills that enter Stealth: Shroud, not Viper Strike (POE2T8114 socketed it there)
+    assert "Conceal" in engine.call("supportCandidates", group=groups["Shroud"])["names"]
+    assert "Conceal" not in engine.call("supportCandidates", group=groups["Viper Strike"])["names"]
+    mods, notes = ambush_model(Build(), SimpleNamespace(name="Viper Strike"), speed)
+    assert len(mods) == 1 and notes[0]["value"] > 0 and "10 Darkness" in notes[0]["basis"]
+    assert preview.ASTERISK in notes[0]["label"] and preview.ASTERISK in notes[0]["basis"]
+
+
+def test_stance_parts_are_rows_and_never_in_the_headline():
+    from builder.preview.readings import rows
+
+    row = next(r for r in preview.gem_rows() if r["name"] == "Worldcutter")
+    assert any("NOT counted" in text and "Sandstorm" in text for text in rows(row))
+    assert "stance_parts" not in row["model"]

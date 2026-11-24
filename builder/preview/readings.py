@@ -82,6 +82,18 @@ def _stage_row(row: dict) -> str:
             f"if it is the whole hold, DPS is x{best:g}")
 
 
+def _stance_row(row: dict) -> str:
+    """A skill's published stance parts as a row, never in the headline: 1.0 publishes neither how long a stance lasts nor
+    its general buffs' values (poe2db's Blood / Sand Stance pages show no values; its Stance and Ready Stance pages are
+    404), so how often a part fires is unknown and it counts 0 (no flat rate)."""
+    base = row["model"]["damage_pct"]
+    parts = "; ".join(f"{p['stance']} Stance's {p['part']} {p['damage_pct']}%"
+                      + (f" x {p['hits']} hits" if p["hits"] > 1 else "")
+                      + f" (up to +{p['damage_pct'] * p['hits'] / base:.0%} of a {base}% hit, if it fires each use)"
+                      for p in row["stance_parts"])
+    return f"Stance parts, NOT counted (when they fire is unpublished): {parts}"
+
+
 def rows(row: dict, result: dict | None = None, bases: dict | None = None) -> list[str]:
     """The reading rows for a preview gem row (empty for a gem with no open reading)."""
     model: dict[str, Any] = row.get("model") or {}
@@ -90,4 +102,6 @@ def rows(row: dict, result: dict | None = None, bases: dict | None = None) -> li
         out.append(_added_time_row(row, result, bases))
     if model.get("held_stages"):
         out.append(_stage_row(row))
+    if row.get("stance_parts"):
+        out.append(_stance_row(row))
     return out

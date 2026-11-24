@@ -199,6 +199,7 @@
    "reqInt": 0,
    "tier": 5,
    "description": "Strike with a sword in a three-hit combo that drills the target (1.0 preview).",
+   "stance_parts": [{"stance": "Blood", "part": "Blood Waves", "damage_pct": 312, "hits": 1}, {"stance": "Sand", "part": "Sand Disks", "damage_pct": 326, "hits": 1}],
    "model": {
     "shown_level": 20,
     "damage_pct": 140,
@@ -235,6 +236,7 @@
    "reqInt": 0,
    "tier": 11,
    "description": "Channel a two-handed sword through stages, then release one great strike (1.0 preview).",
+   "stance_parts": [{"stance": "Sand", "part": "Sandstorm", "damage_pct": 111, "hits": 8}],
    "model": {
     "shown_level": 13,
     "damage_pct": 282,
@@ -269,6 +271,7 @@
    "reqInt": 0,
    "tier": 1,
    "description": "Scour with a sword, blinding what it hits and sending out sand disks (1.0 preview).",
+   "stance_parts": [{"stance": "Sand", "part": "Sand Disks", "damage_pct": 91, "hits": 3}],
    "model": {
     "shown_level": 20,
     "damage_pct": 218,
@@ -306,6 +309,7 @@
    "reqInt": 0,
    "tier": 1,
    "description": "Strike with a sword; a Parried target explodes in blood (1.0 preview).",
+   "stance_parts": [{"stance": "Blood", "part": "Explosion", "damage_pct": 235, "hits": 1}],
    "model": {
     "shown_level": 20,
     "damage_pct": 187,
@@ -325,6 +329,44 @@
    "sources": [
     "https://poe2db.tw/us/Bloodied_Blade (read 23 Nov 2026: Level 20, tier 1, 62 Mana, Added Attack Time +0.50 s, Attack Damage 187%, One or Two Hand Sword; an additional main hand Hit while Dual Wielding; Explosion 235%; text paraphrased)",
     "RESEARCH53 R53-1 section C"
+   ],
+   "confidence": "MEDIUM; other levels LOW"
+  },
+  {
+   "name": "Shroud",
+   "grantedEffectId": "PreviewShroudPlayer",
+   "id": "Metadata/Items/Gems/Preview/SkillGemShroud",
+   "gemType": "Attack",
+   "support": false,
+   "tags": ["attack", "area", "melee", "dexterity", "intelligence", "grants_active_skill"],
+   "tagString": "Attack, AoE, Melee",
+   "skillTypes": ["Attack", "Melee", "Area", "Cooldown", "PreviewStealth"],
+   "weaponTypes": ["Dagger"],
+   "reqStr": 0,
+   "reqDex": 50,
+   "reqInt": 50,
+   "tier": 1,
+   "description": "Dash, Blind nearby enemies, enter Stealth and leave a Shade behind (1.0 preview).",
+   "model": {
+    "shown_level": 20,
+    "damage_pct": 94,
+    "attack_speed_pct": 80,
+    "mana": 81,
+    "cooldown": 7,
+    "storedUses": 1,
+    "baseFlags": ["attack", "melee", "area"],
+    "constantStats": [],
+    "stats": ["is_area_damage"]
+   },
+   "not_modelled": [
+    "the Blind it inflicts",
+    "its reserved buff (25 Spirit: Stealth after not using Skills or being Hit for a short time; no time published): an UNDERCOUNT",
+    "a kill resetting its cooldown (a single boss gives none)",
+    "stored uses: poe2db shows none, read as 1 (UNVERIFIED)"
+   ],
+   "sources": [
+    "https://poe2db.tw/us/Shroud (read 23 Nov 2026: Level 20, tier 1, 81 Mana, Cooldown 7.00 s, Attack Speed 80% of base, Attack Damage 94%, Dagger; text paraphrased)",
+    "RESEARCH53 R53-1 section B"
    ],
    "confidence": "MEDIUM; other levels LOW"
   },
@@ -353,6 +395,35 @@
    "not_modelled": [],
    "sources": ["https://poe2db.tw/us/Elemental_Penetration (read 23 Nov 2026: support, Cost Multiplier 120%, +5 Int; 'Supported Skills Penetrate 30% of Enemy Elemental Resistances')", "RESEARCH53 R53-1 section D and H (support rebalance: Maxroll, Output Lag, ExpCarry 19 Nov)"],
    "confidence": "MEDIUM-HIGH that it exists; 30% MEDIUM"
+  },
+  {
+   "name": "Conceal",
+   "grantedEffectId": "PreviewConcealSupport",
+   "id": "Metadata/Items/Gems/Preview/SupportGemConceal",
+   "gemType": "Support",
+   "support": true,
+   "tags": ["support", "dexterity"],
+   "tagString": "Support",
+   "skillTypes": [],
+   "families": ["PreviewConceal"],
+   "reqStr": 0,
+   "reqDex": 100,
+   "reqInt": 0,
+   "tier": 1,
+   "description": "Supported skills that enter Stealth gain 10 Darkness (1.0 preview).",
+   "model": {
+    "manaMultiplier": 10,
+    "requireSkillTypes": ["PreviewStealth"],
+    "constantStats": []
+   },
+   "assumptions": ["Supports only skills that enter Stealth (poe2db: supported skills that enter Stealth gain 10 Darkness; paraphrased). PoB has no Stealth skill type, so the preview adds PreviewStealth, carried by Shroud only. Whether other 1.0 gems enter Stealth is UNVERIFIED (of the gem pages read, only Shroud's says so); Shroud's reserved buff, Duplicity and Eclipse are not counted as Stealth sources (stealth.py)", "Cost Multiplier 110% from poe2db; no other line shown there"],
+   "not_modelled": [
+    "its other lines, if any: poe2db shows only the Darkness line"
+   ],
+   "sources": [
+    "https://poe2db.tw/us/Conceal (read 23 Nov 2026: Cost Multiplier 110%; 10 Darkness on entering Stealth with supported skills; text paraphrased)"
+   ],
+   "confidence": "MEDIUM"
   }
  ]
 }

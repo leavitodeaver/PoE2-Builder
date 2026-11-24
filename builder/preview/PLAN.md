@@ -47,7 +47,10 @@ curve (gems.json curve_reference: Lightning Spear; 20/13 = 1.406, the median of 
    (shotgun overlap like R51-4).
 3. Supports: Overchannel, Impaling Blade II / Rending Blade (a periodic extra hit), Galvanising Blades, Sandstorm,
    Abundant Remnants I (Remnant sources), Conceal / Volatile Shades with the mechanics.
-4. Mechanics (with the MECH lanes' patterns): Stances (the search picks the stance as a play strategy, per skill);
+4. Mechanics. DONE (PREVIEW2): the Stealth cycle (stealth.py: Shroud's own use rate -> Ambushes; Conceal's 10 Darkness;
+   Shades in range, LOW, with a row without them; no source = 0 with a note). Stances: their published parts are rows,
+   NOT counted, because 1.0 publishes neither when a stance is active nor its buff values. The plan as first written:
+   (with the MECH lanes' patterns): Stances (the search picks the stance as a play strategy, per skill);
    Darkness (x(1 + 0.03 D) on Ambush hits, D from the build's sources per Stealth cycle); Shades (1 + 0.5 x Shades in
    range on an Ambush); Stealth (a cycle from Shroud's cooldown / Duplicity / kills, no flat rate); Engulf in Darkness
    (fed by MECH-A's Immobilise cycles); Spectral Impale (LOW).
