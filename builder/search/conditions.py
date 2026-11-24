@@ -2829,6 +2829,37 @@ RAGE_PER_SECOND = {"Rampage": 5.0, "Flame Breath": 6.0}
 # headline keeps the channel held, spending its Rage a second; the play guide's row: channels recast inside the free
 # window spend none (the recast's time not counted, and Rage gained only between channels under the ruling).
 CHANNEL_FREE_STAT = "channelled_skill_suppress_ongoing_rage_cost_for_first_X_ms"
+# (MECHC59, an UNDERCOUNT where the held channel can't keep Rage: the headline then read none held) When a held Rampage
+# spends more Rage than comes (the headline above), the player recasts instead: R55-8's favoured play ("minimum-length
+# channels, recast", research/cannot-gain-rage-regen-r55.md) and the user's channel rule (each channel held to its
+# payoff: here the Rage it keeps). Each channel runs its minimum (base_minimum_channel_time_ms 3000 +
+# shapeshift_minimum_channel_time_ms_+ 650: Rampage is a bear form; BearRampagePlayer's ConstantStats, game 26650308),
+# its first free seconds cost nothing, and each recast starts from the default stance (R41-3: Rampage drops the bear),
+# bear_skills_additional_base_attack_time_when_performing_from_default_stance 500 ms, the gap in which Rage regenerates
+# (R55-8's ruling: none during the channel). So the main skill spends own x max(0, minimum - free) / (minimum + gap) a
+# second, and the gaps' share of regeneration comes back. The headline takes the recast play when the held channel nets
+# no Rage (the more Rage of the two; the held channel a row); the recast's time is the bear's default-stance time,
+# charged by models.bear_stance_model (MECH-B's) on PoB's uses, so it isn't charged here a second time. Flame Breath
+# keeps the held reading (its 10 s cooldown sets its recasts; R55-8: "barely moves"). MEDIUM (the minimum as the length:
+# the most Rage kept per channel; a longer channel that still nets Rage is a row the search doesn't take).
+CHANNEL_MIN_STATS = ("base_minimum_channel_time_ms", "shapeshift_minimum_channel_time_ms_+")
+CHANNEL_GAP_STAT = "bear_skills_additional_base_attack_time_when_performing_from_default_stance"
+CHANNEL_RECAST = {"Rampage"}
+
+
+def recast_cycle(own: float, free: float, minimum: float, gap: float, regen: float) -> tuple[float, float, str]:
+    """(the main channel's Rage spent a second, Rage regenerated back a second, how) when each channel runs its
+    `minimum` s with its first `free` s costing nothing, recast after `gap` s in which `regen` Rage/s (the regeneration
+    the held reading drops during the channel) comes back; see CHANNEL_RECAST's note."""
+    cycle = minimum + gap
+    if own <= 0 or cycle <= 0:
+        return own, 0.0, ""
+    paid = max(0.0, minimum - free)
+    spend = own * paid / cycle
+    back = regen * gap / cycle
+    return spend, back, (f"recast play: each channel its minimum {minimum:.3g} s, the first {free:.3g} s free, then "
+                         f"{paid:.3g} s at {own:.2f} Rage/s, recast after {gap:.3g} s from the default stance: "
+                         f"{spend:.2f} Rage/s spent, {back:.2f}/s regenerated in the gaps (MEDIUM)")
 # Raging Cry (MECHC43; the manager's 12:35 from MECHB41's report, an UNDERCOUNT: PoB maps warcry_grant_X_rage_per_5_power
 # to a CanGainRage flag only, SkillStatMap 2955, so the Rage itself was never counted): "Supports Warcry skills, causing
 # them to grant you Rage on use depending on counted monster Power" (SupportRagingCryPlayer, ConstantStats
@@ -3127,6 +3158,17 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
         own = number(spend.get(stats.get("_main_skill"), 0.0))
         basis += (f" (play: each channel's first {free:.3g} s costs no Rage; held, it spends {own:.2f} Rage/s after that; "
                   f"row, recast inside the free {free:.3g} s: {max(spent - own, 0.0):.2f}/s spent, the recast's time not counted)")
+        minimum = number(stats.get("_channel_min"))
+        if (gain - spent <= 0 and minimum > 0 and stats.get("_main_skill") in CHANNEL_RECAST and own > 0):
+            # (MECHC59: the held channel keeps no Rage, so the headline recasts: CHANNEL_RECAST's note)
+            lost = regen_gain * _main_share(stats)  # (the regeneration R55-8's headline drops during the channel)
+            new_own, back, cycle_how = recast_cycle(own, free, minimum, number(stats.get("_channel_gap")), lost)
+            held_row = f"{gain:.2f} gained against {spent:.2f} spent, none held"
+            spent, asked, gain = spent - own + new_own, asked - own + new_own, gain + back
+            spend = {**spend, stats["_main_skill"]: new_own}
+            regenerating = regenerating or back > 0
+            basis += (f" (headline, {cycle_how}: {gain:.2f} Rage/s gained against {spent:.2f} spent; row, the channel "
+                      f"held: {held_row})")
     if not regen_total and number(stats.get(RAGE_REGEN_FIELD)) > 0:
         basis += " (PoB's regeneration total not used beside Primal Hunger: other regeneration may be undercounted)"
     net = gain - spent
@@ -11190,6 +11232,9 @@ class Conditions:
             own = next((r.get("levelStats") or {} for r in self.build.call(
                 "activeSkills", levelStats=[self.main_skill])["skills"] if r.get("name") == self.main_skill), {})
             stats["_channel_free"] = number(own.get(CHANNEL_FREE_STAT)) / 1000
+            if self.main_skill in CHANNEL_RECAST:  # (MECHC59: CHANNEL_RECAST's note)
+                stats["_channel_min"] = sum(number(own.get(k)) for k in CHANNEL_MIN_STATS) / 1000
+                stats["_channel_gap"] = number(own.get(CHANNEL_GAP_STAT)) / 1000
         if "Combat Frenzy" in gem_types:  # (MECHC57: its cooldown at its level and quality, COMBAT_FRENZY_LINE's note)
             frenzy = next((r.get("levelStats") or {} for r in self.build.call(
                 "activeSkills", levelStats=["Combat Frenzy"])["skills"] if r.get("name") == "Combat Frenzy"), {})

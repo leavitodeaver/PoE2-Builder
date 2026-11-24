@@ -52,3 +52,47 @@ def test_nothing_breaks_reads_zero():
     stats = {**BASE, "_full_break_rate": 0.0, "_endurance_side_breaks": [(0.15, "Armour Break II", "Rain of Arrows")]}
     rate, how = conditions._charge_rate(BREAK_TEXT, "Endurance", stats)
     assert rate == 0 and "nothing Fully Breaks" in how
+
+
+RAMPAGE = {"MaximumRage": 30, "_main_channel_rage": True, "_main_skill": "Rampage", "_rage_spend": {"Rampage": 5.0},
+           "_channel_free": 2.5, "_channel_min": 3.65, "_channel_gap": 0.5, "RageRegenRecovery": 3.0,
+           "_main_share": 1.0, "Speed": 1.0, "HitChance": 100, "enemySkillTime": 1.0, "_events": {},
+           "_kills": (0.0, 0.0, "lone boss")}
+
+
+def test_recast_cycle_spends_only_past_the_free_window_and_regenerates_in_the_gaps():
+    spend, back, how = conditions.recast_cycle(5.0, 2.5, 3.65, 0.5, 3.0)
+    assert spend == pytest.approx(5.0 * 1.15 / 4.15)
+    assert back == pytest.approx(3.0 * 0.5 / 4.15)
+    assert "recast play" in how
+
+
+def test_a_rage_limited_held_rampage_takes_the_recast_play_as_the_headline():
+    """Held, Rampage spends 5 Rage/s with regeneration stopped in the channel: none held (before, the headline). The
+    recast play spends 1.39/s against 0.36/s regenerated in the gaps: still short here, so none held, but said; with
+    3 Rage/s gained elsewhere it keeps Rage, where the held channel didn't."""
+    _, basis = conditions.rage_held([], dict(RAMPAGE))
+    assert "headline, recast play" in basis and "row, the channel held" in basis
+    fed = {**RAMPAGE, "RageRegenRecovery": 0.0}
+    line = "Gain 3 Rage when Hit by an Enemy"
+    held_cycle, basis = conditions.rage_held([line], fed)
+    held_hold, _ = conditions.rage_held([line], {**fed, "_channel_min": 0.0})
+    assert held_hold == 0 and "headline, recast play" in basis
+    assert held_cycle >= held_hold
+
+
+def test_flame_breath_and_a_sustained_channel_keep_the_held_reading():
+    rich = {**RAMPAGE, "RageRegenRecovery": 0.0, "_rage_spend": {"Rampage": 0.5}}
+    _, basis = conditions.rage_held(["Gain 3 Rage when Hit by an Enemy"], rich)
+    assert "headline, recast play" not in basis
+    breath = {**RAMPAGE, "_main_skill": "Flame Breath", "_rage_spend": {"Flame Breath": 6.0}}
+    _, basis = conditions.rage_held([], breath)
+    assert "headline, recast play" not in basis
+
+
+def test_a_regenerating_rampage_keeps_its_rage_under_the_recast_play():
+    """12 Rage/s regenerated, none of it during the channel (R55-8): held, none kept; recast, 1.45/s back in the gaps
+    against 1.39/s spent, so the maximum (regeneration never decays)."""
+    held, basis = conditions.rage_held([], {**RAMPAGE, "RageRegenRecovery": 12.0})
+    assert held == 30 and "row, the channel held: 0.00 gained against 5.00 spent, none held" in basis
+    assert conditions.rage_held([], {**RAMPAGE, "RageRegenRecovery": 12.0, "_channel_min": 0.0})[0] == 0
