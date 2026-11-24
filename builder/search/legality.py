@@ -265,6 +265,7 @@ class Checker:
         # done to it; an item read from elsewhere (an import, a trade listing, an item text) has no known history
         known = "price" in item
         crafted_jewel = item.get("type") == "Jewel"
+        plain = self.limits(item, []) if crafted_jewel else limits  # (a jewel's limits before any crafted line's +1)
         tag_sets = self.tags(item)
         choices = [{size: self.distinct(rows, lambda r: self.allowed(r, item, tag_sets)) for size, rows in here.items()}
                    for here in fits]
@@ -290,7 +291,18 @@ class Checker:
             # craft may have stood in the crafted line's place, and a Desecration may sit above it. ILLEGAL only past what
             # no route makes (over 6 modifiers, or a side over 4), UNVERIFIED in between (MEDIUM-LOW: 5 listings)
             shaped_jewel = crafted_jewel and any(row.kind == "crafted" for row, _, _ in reading)
-            for side, limit in limits.items():
+            # (AUDIT38 F9 (a), MEDIUM-LOW) a jewel's crafted line stands where a "+1 <other side> Modifier allowed" craft
+            # of its own side may have stood (game Mods: CraftedJewelAdditionalSuffixAllowed is a PREFIX,
+            # CraftedJewelAdditionalPrefixAllowed a SUFFIX; one crafted modifier at a time, so a later craft replaces
+            # it): the other side may hold one more. Time-Lost #222: Contempt's +1 Suffix, a third suffix, then
+            # Melancholy's radius line (a prefix) in its place. The "Effect of" lines' +1 in limits() is the same rule
+            side_limits = dict(limits)
+            if crafted_jewel:
+                for row, _, _ in reading:
+                    if row.kind == "crafted" and row.type in side_limits:
+                        other = "Suffix" if row.type == "Prefix" else "Prefix"
+                        side_limits[other] = max(side_limits[other], plain[other] + 1)
+            for side, limit in side_limits.items():
                 held = sum(1 for row, _, _ in reading if row.type == side)
                 if held > limit:
                     if shaped_jewel and held <= JEWEL_SIDE_MOST and len(reading) <= JEWEL_MOST:

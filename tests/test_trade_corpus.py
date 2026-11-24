@@ -57,3 +57,26 @@ def test_each_fixed_finding_is_said_where_it_is_open(check, n, finding):
         assert any(f.rule == "sealed_rune" and f.status == legality.UNVERIFIED for f in found)
     if finding == "F9" and len(row["gear"]["affixes"]) > 4:
         assert {f.rule for f in found} <= {"jewel_shape", "unread", "game_family"}, found
+
+
+ES_FOCUS = "Notable Passive Skills in Radius also grant (15-25)% increased Energy Shield from Equipped Focus"  # (#219's)
+EXTRA_SUFFIX = "Notable Passive Skills in Radius also grant (2-3)% increased Mana Cost Efficiency"  # (#220's)
+
+
+@pytest.mark.parametrize("known", [False, True])
+def test_the_time_lost_radius_shape_is_accepted_and_a_fourth_suffix_is_not(check, known):
+    """AUDIT38 F9 (a), real listing #222 (Time-Lost Sapphire): 3 suffixes, a Desecrated prefix and the radius craft (a
+    PREFIX) read clean: Contempt's "+1 Suffix Modifier allowed" (a prefix craft) held the third suffix's place, then
+    Melancholy's radius line replaced it. Both ways: a fourth suffix is not accepted clean (jewel_shape, UNVERIFIED: #219
+    is a real one with a Desecrated fourth), a fifth is ILLEGAL, and the same three suffixes with no crafted line are
+    ILLEGAL."""
+    gear = dict(next(r for r in items() if r["n"] == 222)["gear"])
+    if known:  # (a search entry: ItemOption.describe always writes "price")
+        gear["price"] = 1.0
+    assert check.check(gear) == []
+    four = dict(gear, affixes=gear["affixes"] + [ES_FOCUS])
+    assert [(f.rule, f.status) for f in check.check(four)] == [("jewel_shape", legality.UNVERIFIED)]
+    five = dict(gear, affixes=gear["affixes"] + [ES_FOCUS, EXTRA_SUFFIX])
+    assert any(f.rule == "affix_count" and f.status == legality.ILLEGAL for f in check.check(five))
+    plain = dict(gear, affixes=[a for a in gear["affixes"] if a != "Upgrades Radius to Very Large"])
+    assert any(f.rule == "affix_count" and f.status == legality.ILLEGAL for f in check.check(plain))
