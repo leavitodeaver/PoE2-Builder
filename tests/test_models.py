@@ -1563,7 +1563,7 @@ def test_infusion_supply_counts_each_element_from_the_build_s_sources():
     supply, used = infusion_supply(present, [], {"conditionEnemyIgnited", "conditionEnemyShocked"}, orb=(orb, "test"))
     assert supply["Cold"] == pytest.approx(bomb * 1.5)
     assert supply["Lightning"] == pytest.approx(orb + snap / 2) and supply["Fire"] == pytest.approx(snap / 2)
-    assert any("Siphon Elements" in u and "undercount" in u for u in used)
+    assert any(u.startswith("Siphon Elements 0.00/s") for u in used)  # (MECHC58: its Fire / Lightning now counted)
     assert infusion_supply({"Snap": {}}, [], set())[0]["Fire"] == 0  # no ailment to consume
     # each ailment at its share of the fight (MECH36): Snap finds one when either is up (1 - 0.5 x 0.75), split by uptime
     part, used = infusion_supply({"Snap": {}}, [], {"conditionEnemyIgnited": 0.5, "conditionEnemyShocked": 0.25})
@@ -1593,10 +1593,10 @@ def test_remnant_rates_from_freezes_stuns_and_doubled_pickups(monkeypatch):
     assert kalguur_rate(0.01) == pytest.approx(0.005, rel=0.02)  # rare stuns: 50% of them
     assert kalguur_rate(100.0) < 1 / 3 and kalguur_rate(100.0) == pytest.approx(1 / 3, rel=0.01)  # the cap
     monkeypatch.setattr(assumptions.models, "buildup_rate", lambda stats, ailment: 0.2 if ailment == "Freeze" else 0.0)
-    rate, how = siphon_freezes({})
+    rate, how, _ = siphon_freezes({})
     assert rate == pytest.approx(0.2) and "20 Power" in how
     supply, used = infusion_supply({"Siphon Elements": {}}, [], set(), (rate, how))
-    assert supply["Cold"] == pytest.approx(0.2) and any("Fire and Lightning" in u for u in used)
+    assert supply["Cold"] == pytest.approx(0.2) and any("Siphon Elements" in u for u in used)
     assert infusion_supply({}, [], set(), (rate, how))[0]["Cold"] == 0.0  # only with the skill
     lines = ["20% chance for Remnants you pick up to count as picking up an additional"]  # (PoB's line, split)
     supply, _ = infusion_supply({"Orb of Storms": {}}, lines, set(), orb=(0.08, "test"))

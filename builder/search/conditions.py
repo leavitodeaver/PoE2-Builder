@@ -1576,6 +1576,35 @@ def _extra_charges(lines: list[str], kind: str) -> tuple[float, float, list[str]
     return min(extra, 1.0), fill, how
 
 
+# (MECHC58; MECHC57's open row, an UNDERCOUNT) A RANDOM extra charge lands on any of the three kinds: Charge Profusion II's
+# chance_to_gain_1_more_random_charge_% 15 on its supported skills' gains, and the global "N% chance to gain an additional
+# random Charge when you gain a Charge" (EXTRA_RANDOM_CHARGE). _charges_held counted a third of each on the gaining kind
+# (_extra_charges, the stats["_profusion"] bonus) and lost the other two thirds; now each kind also takes a third of the
+# random extras the OTHER kinds' gains roll (each kind equally likely, MEDIUM). Resonance isn't followed for these.
+def random_from_others(lines: list[str], kind: str, stats: dict) -> tuple[float, str]:
+    """(charges of `kind` a second from the other kinds' random extras, how); see the note above."""
+    profusion = stats.get("_profusion") or {}
+    every = sum((float(m.group(1)) / 100 if m.group(1) else 1.0) for t in lines
+                if (m := EXTRA_RANDOM_CHARGE.search(t)) and "tribute" not in m.group(2).lower())
+    if every <= 0 and not any(more[1] > 0 for more in profusion.values()):
+        return 0.0, ""
+    total, parts = 0.0, []
+    for other in CHARGE_KINDS:
+        if other == kind:
+            continue
+        for text in lines:
+            more = profusion.get(text)
+            chance = every + (more[1] if more else 0.0)
+            if chance <= 0 or (r := _charge_rate(text, other, stats)) is None or r[0] <= 0:
+                continue
+            total += r[0] * min(chance, 1.0) / 3
+            parts.append(f"{other} {r[0]:.3f}/s x {min(chance, 1.0):.0%}")
+    if total <= 0:
+        return 0.0, ""
+    return total, (f"{total:.3f}/s random extra charges from the other kinds' gains, a third each ("
+                   + ", ".join(parts[:4]) + "; MEDIUM)")
+
+
 def _extra_charges_before_resonance(lines: list[str], kind: str, by_kind: dict, gains: float) -> tuple[float, float, list[str]]:
     """_extra_charges for `kind`'s gains when Resonance feeds it from other kinds (PATCH_CHECK G4-2, MECHC29). Patch 0.4.0
     (bug fixes): "Chances to gain additional charges now only rolls before effects that change the type of charge gained
@@ -1635,6 +1664,30 @@ CHARGES_KEPT = re.compile(r"^Skills have (\d+(?:\.\d+)?)% chance to not remove C
 def charges_kept_chance(lines: list[str]) -> float:
     """The chance a consumed Charge isn't removed (CHARGES_KEPT lines, summed, at most 1)."""
     return min(sum(float(m.group(1)) for t in lines if (m := CHARGES_KEPT.match(t.strip()))), 100.0) / 100
+
+
+# A consumer's OWN chance not to remove the charge it consumes (MECHC58; COV55's ranked list row 9, an UNDERCOUNT of the
+# charges held beside a consumer; PoB has no statMap entry for either stat, so it reads none: checked, act_*.lua /
+# sup_int.lua / other.lua list them only as quality / constant stats). The same stat as the global line above,
+# charge_skip_consume_chance_%, on the skill itself: "Supported Skills have {0}% chance to not remove [Charges] but still
+# count as consuming them" (gem_stat_descriptions) on Perpetual Charge (25, a constant stat;
+# GrantedEffectStatSets SupportPerpetualChargePlayer) and "{0}% chance to not remove [Charges] on use"
+# (skill_stat_descriptions) on the ALTERNATE quality of Barrage, Explosive Spear, Glacial Lance, Bonestorm, Charged
+# Staff, Falling Thunder, Flicker Strike and Oil Barrage (GrantedEffectQualityStats AltStats); and Hollow Form's quality,
+# base_power_charge_skip_consume_chance_% ("{0}% chance to not remove a [Charges|Power Charge] but still count as
+# consuming it", 0.5 per 1%), Power only. (checked: every Stats row whose id holds "skip_consume", over
+# GrantedEffectQualityStats, GrantedEffectStatSets / PerLevel, Mods and PassiveSkills, game build 26650308: those carriers
+# plus the global line's Mods (Chronomancy TimeInfluenceCharges1/2, a Vaal-mutated unique) and The Fabled Stag
+# (azmerianimals18); the per-kind power_ / frenzy_ / endurance_charge_skip_consume stats have no carrier; patch notes:
+# 0.3.0 moved Falling Thunder's and Flicker Strike's DEFAULT quality off it, 0.5.0b Hotfix 12 capped Flicker Strike's at
+# 75%.) Read per consumer at its level and quality (the bridge's levelStats follow the quality kind in use) and from its
+# supports (supportStats), added to the global chance (one stat, summed: MEDIUM), at most 100% (Flicker Strike 75%).
+# Charge Regulation is never a consumer here (Perpetual Charge can't support it, R57-1 HIGH; REGULATION's note).
+OWN_KEPT_STATS = {"charge_skip_consume_chance_%": ("Power", "Frenzy", "Endurance"),
+                  "base_power_charge_skip_consume_chance_%": ("Power",),
+                  "base_frenzy_charge_skip_consume_chance_%": ("Frenzy",),
+                  "base_endurance_charge_skip_consume_chance_%": ("Endurance",)}
+OWN_KEPT_CAP = {"Flicker Strike": 0.75}  # (0.5.0b Hotfix 12)
 
 
 CHARGE_RESET_AT_MAX = re.compile(r"\blose all (power|frenzy|endurance) charges on reaching maximum \1 charges\b", re.I)
@@ -2477,6 +2530,11 @@ def _charges_held(kind: str):
             by_kind[source] = by_kind.get(source, 0.0) + r[0]
             bonus += r[0] * plus
             how.append(f"{text[:60]} ({r[1]}" + (f"; Charge Profusion +{plus:.0%} per gain" if more else "") + ")")
+        cross, cross_how = random_from_others(lines, kind, stats)  # (MECHC58: RANDOM_FROM_OTHERS' note)
+        if cross > 0:
+            gains += cross
+            by_kind[kind] = by_kind.get(kind, 0.0) + cross
+            how.append(cross_how)
         if joined:
             how.insert(0, joined)
         steal = next((t for t in lines if STEAL_CHARGES.search(t)), None)
@@ -2511,7 +2569,9 @@ def _charges_held(kind: str):
         if spent:
             kept = charges_kept_chance(lines)  # (MECHC32: consumed but not removed on that chance)
             tick = number(wanted.get(REGULATION))  # (MECHC58: Charge Regulation's tick; kept lines not on it, R57-12)
-            removed = (spent - tick) * (1 - kept) + tick
+            own = (stats.get("_own_kept") or {}).get(kind) or {}  # (MECHC58: each consumer's own chance, OWN_KEPT)
+            removed = sum(number(u) * (1 - min(OWN_KEPT_CAP.get(n, 1.0), kept + own.get(n, 0.0)))
+                          for n, u in wanted.items() if n != REGULATION) + tick
             net = max(rate - removed, 0.0)
             count = min(most, net * duration)
             share = min(1.0, rate / removed) if removed > 0 else 1.0
@@ -2530,9 +2590,10 @@ def _charges_held(kind: str):
                 basis += ("; Creeping Chill spends a Power Charge per Ice Crystal (R37-3, LOW-MEDIUM): "
                           + ", ".join(f"{n} {k:g} a cast" for n, k in per.items())
                           + "; row, one a cast: " + f"{max(rate - (spent - sum(number(stats['_consumers'][kind][n]) * (1 - 1 / k) for n, k in per.items())), 0.0):.2f}/s left")
-            if kept:
-                basis += (f"; {kept:.0%} chance a consumed charge isn't removed (it still counts as consumed): "
-                          f"{removed:.2f}/s removed (MEDIUM); without it: {max(rate - spent, 0.0):.2f}/s left")
+            if kept or own:
+                basis += (f"; {kept:.0%} chance a consumed charge isn't removed (it still counts as consumed)"
+                          + "".join(f", {n} {min(OWN_KEPT_CAP.get(n, 1.0), kept + c):.0%}" for n, c in own.items())
+                          + f": {removed:.2f}/s removed (MEDIUM); without it: {max(rate - spent, 0.0):.2f}/s left")
             if count <= 0 and share >= 0.5:
                 count = 0.1  # (held for an instant before it's spent: enough for PoB to count the charged use)
             if fill:
@@ -2716,6 +2777,14 @@ RAGE_SKIP_CHANCE = {"Rageforged II": 0.30}
 RAGE_PER_USE = {"Molten Crash": 10, "Furious Slam": 10, "Fury of the Mountain": 10, "Rageforged I": 10,
                 "Rageforged II": 10 * (1 - RAGE_SKIP_CHANCE["Rageforged II"])}
 RAGE_PER_SECOND = {"Rampage": 5.0, "Flame Breath": 6.0}
+# (MECHC58; the manager's R55-8 ruling, 23 Nov 14:28: "Rampage has no cooldown and a free window at the start of each
+# channel ... Short recast channels are a play strategy") channelled_skill_suppress_ongoing_rage_cost_for_first_X_ms: no
+# Rage is spent for the first 2.5 s of a Rampage (+50 ms per quality %) and 4 s of a Flame Breath (PoB act_str.lua's
+# constant and quality stats; "Channelling ends after a short amount of time but can be prolonged by spending [Rage]",
+# ActiveSkills bear_rampage / wyvern_flame_breath), read at the gem's level and quality (stats["_channel_free"]). The
+# headline keeps the channel held, spending its Rage a second; the play guide's row: channels recast inside the free
+# window spend none (the recast's time not counted, and Rage gained only between channels under the ruling).
+CHANNEL_FREE_STAT = "channelled_skill_suppress_ongoing_rage_cost_for_first_X_ms"
 # Raging Cry (MECHC43; the manager's 12:35 from MECHB41's report, an UNDERCOUNT: PoB maps warcry_grant_X_rage_per_5_power
 # to a CanGainRage flag only, SkillStatMap 2955, so the Rage itself was never counted): "Supports Warcry skills, causing
 # them to grant you Rage on use depending on counted monster Power" (SupportRagingCryPlayer, ConstantStats
@@ -3010,6 +3079,10 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
                   "which says \"Cannot gain Rage while using this Skill\": R55-8, UNVERIFIED; row, if regeneration works during "
                   f"the channel: {during:.2f} Rage/s gained, " + ("none held" if during <= spent else f"{during - spent:.2f}/s net")
                   + "; shorter recast channels regenerate between them)")
+    if (free := number(stats.get("_channel_free"))) > 0 and stats.get("_main_channel_rage"):
+        own = number(spend.get(stats.get("_main_skill"), 0.0))
+        basis += (f" (play: each channel's first {free:.3g} s costs no Rage; held, it spends {own:.2f} Rage/s after that; "
+                  f"row, recast inside the free {free:.3g} s: {max(spent - own, 0.0):.2f}/s spent, the recast's time not counted)")
     if not regen_total and number(stats.get(RAGE_REGEN_FIELD)) > 0:
         basis += " (PoB's regeneration total not used beside Primal Hunger: other regeneration may be undercounted)"
     net = gain - spent
@@ -10065,20 +10138,21 @@ class Conditions:
         """assumptions.infusion_supply for the build as it stands: Infusions per second by element and what makes them
         (with Living Bomb's when `bomb`, as Assumptions.infusion_share counts them)."""
         from builder.search.assumptions import (LIVING_BOMB, LIVING_BOMB_FIELDS, ORB_OF_STORMS, SIPHON, infusion_supply,
-                                                living_bomb_rate, orb_remnants, siphon_freezes, still_far)
+                                                living_bomb_rate, orb_remnants, siphon_rates, still_far,
+                                                VERISIUM, verisium_infusions)
 
         raw = self.build.call("activeSkills")["skills"]
         groups = getattr(self.build, "groups", None)  # (MECHC50: SELFLESS_REMNANTS' note; none on a stand-in build)
         selfless = selfless_skills(groups()) if callable(groups) else set()
         present = {s["name"]: s for s in raw if not s["disabled"] and s["name"] not in selfless}
-        siphon = (siphon_freezes(self.build.call("stats", fields=models.IMMOBILISE_FIELDS)) if SIPHON in present
-                  else (0.0, ""))
+        siphon = siphon_rates(self.build) if SIPHON in present else (0.0, "")
         orb = orb_remnants(self.build, present[ORB_OF_STORMS]) if ORB_OF_STORMS in present else (0.0, "")
         living = (living_bomb_rate(self.build.call("stats", fields=list(LIVING_BOMB_FIELDS)),
                                    present[LIVING_BOMB].get("castTime") or 0.0)
                   if bomb and LIVING_BOMB in present else (0.0, ""))
         return infusion_supply(present, [line["text"] for line in lines], self.found_uptimes, siphon, living, orb,
-                               far=still_far(self.build.call("getConfig")))
+                               far=still_far(self.build.call("getConfig")),
+                               verisium=verisium_infusions(self.build) if VERISIUM in present else (0.0, ""))
 
     def _open_weakness(self, texts: list[str]) -> tuple[float, str]:
         """(share of the fight's time the boss has an Open Weakness, how): open_weakness_share of PoB's Full DPS with
@@ -10933,6 +11007,18 @@ class Conditions:
                                          **{kind: number(level.get(stat)) for kind, stat in REGULATION_BUFF_STATS.items()}}
                 for kind in CHARGE_KINDS:
                     consumers.setdefault(kind, {})[REGULATION] = 1 / every
+        own_kept: dict[str, dict[str, float]] = {}  # (MECHC58: each consumer's own chance not to remove; OWN_KEPT)
+        spenders = sorted({n for each in consumers.values() for n in each} - {REGULATION})
+        if spenders:
+            for row in self.build.call("activeSkills", levelStats=spenders, supportStats=list(OWN_KEPT_STATS))["skills"]:
+                if row.get("name") in spenders and not row.get("disabled"):
+                    level, support = row.get("levelStats") or {}, row.get("supportStats") or {}
+                    for kind in CHARGE_KINDS:
+                        chance = sum(number(level.get(s)) + number(support.get(s))
+                                     for s, kinds in OWN_KEPT_STATS.items() if kind in kinds) / 100
+                        if chance > 0 and row["name"] in (consumers.get(kind) or {}):
+                            own_kept.setdefault(kind, {})[row["name"]] = max(chance, own_kept.get(kind, {}).get(
+                                row["name"], 0.0))
         # Rage spenders (RAGE_PER_USE / RAGE_PER_SECOND): the main skill, or a support in its group, at the main skill's
         # uses per second; any other at its group's rate (a per-second channel held 1 s a press, assumed; MECHC1)
         main_gems = {g["name"] for g in group["gems"]} if group is not None else set()
@@ -11009,6 +11095,10 @@ class Conditions:
             marks = {n for n, types in gem_types.items() if "Mark" in types}
             uses = self._group_uses(self.build.call("groups")["groups"], marks) if marks else {}
             stats["_mark_uses"] = sum(uses.get(n, self._chosen_use(n)) for n in marks)
+        if self.main_skill in RAGE_PER_SECOND:  # (MECHC58: the channel's free start, CHANNEL_FREE_STAT's note)
+            own = next((r.get("levelStats") or {} for r in self.build.call(
+                "activeSkills", levelStats=[self.main_skill])["skills"] if r.get("name") == self.main_skill), {})
+            stats["_channel_free"] = number(own.get(CHANNEL_FREE_STAT)) / 1000
         if "Combat Frenzy" in gem_types:  # (MECHC57: its cooldown at its level and quality, COMBAT_FRENZY_LINE's note)
             frenzy = next((r.get("levelStats") or {} for r in self.build.call(
                 "activeSkills", levelStats=["Combat Frenzy"])["skills"] if r.get("name") == "Combat Frenzy"), {})
@@ -11078,7 +11168,7 @@ class Conditions:
         # PoB's nonstop hits whatever the cut: MECH98's hook reached only the readers between the two)
         stats = {**stats, "_has_ally": any(t & {"Minion", "CreatesMinion"} for t in gem_types.values()),  # (MECHC31, Conduit)
                  "_minion_gems": {n for n, t in gem_types.items() if "CreatesMinion" in t},  # (MECHC41, minions_in_presence)
-                 "_gem_names": set(gem_types), "_boss": boss, "_events": events, "_item_uses": item_uses, "_texts": texts, "_weapon": getattr(self.build.equipped.get("Weapon 1"), "type", ""), "_consumers": consumers, "_rage_spend": rage_spend, "_consume_gains": dict(getattr(self.build, "consume_gains", None) or {}), "_side_orb_bolts": getattr(self.build, "orb_bolts", None), "_main_share": stats["_main_share"],
+                 "_gem_names": set(gem_types), "_boss": boss, "_events": events, "_item_uses": item_uses, "_texts": texts, "_weapon": getattr(self.build.equipped.get("Weapon 1"), "type", ""), "_consumers": consumers, "_own_kept": own_kept, "_rage_spend": rage_spend, "_consume_gains": dict(getattr(self.build, "consume_gains", None) or {}), "_side_orb_bolts": getattr(self.build, "orb_bolts", None), "_main_share": stats["_main_share"],
                  "_main_channel_rage": self.main_skill in RAGE_PER_SECOND, "_main_types": main_types, "_main_skill": self.main_skill, "_distance_choice": self.distance,
                  "_weapon_types": [o.type for slot in ("Weapon 1", "Weapon 2")
                                    if (o := (getattr(self.build, "equipped", None) or {}).get(slot)) is not None],

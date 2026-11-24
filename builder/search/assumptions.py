@@ -64,9 +64,9 @@ REMNANT_SOURCES = {
                                  "from the build's own buildup and hit size; MECHB13), and 25% per kill at the enemies "
                                  "the build kills (the request's boss preset's adds; 0 on a lone boss; MECHB16)"),
     "Siphon Elements": (0.0, "a Cold Remnant on each Freeze (5% per Power, a boss's 20 Power: 100%), the boss's Freezes "
-                             "from the main skill's buildup (models.buildup_rate); Ignite and Shock make one only on a "
-                             "target without that ailment, which a boss you keep ailing rarely is: not counted, an "
-                             "undercount"),
+                             "from the main skill's buildup (models.buildup_rate); Fire / Lightning at 5% (more with quality) "
+                             "of the main skill's Ignites / Shocks that find the boss without one (MECHC58, "
+                             "SIPHON_NON_AILED)"),
 }
 # Remnants of Kalguur (MetaRemnantsOfKalguurPlayer, build 26476662): ward_remnants_chance_to_spawn_remnant_on_stun_% 50,
 # ward_remnants_spawn_remnant_on_stun_cooldown_ms 3000 ("no more than once every # seconds"): a Remnant every
@@ -75,6 +75,20 @@ KALGUUR, KALGUUR_CHANCE, KALGUUR_COOLDOWN = "Remnants of Kalguur", 0.5, 3.0
 # Siphon Elements (SiphonElementsPlayer): infusion_remnants_%_chance_to_spawn_cold_infusion_on_freezing_an_enemy 5, "per
 # Power" (skill_stat_descriptions); "Unique monsters always have 20 Power" (KeywordPopups Power)
 SIPHON, SIPHON_FREEZE_PER_POWER = "Siphon Elements", 0.05
+# (MECHC58; COV55's ranked list row 8, an UNDERCOUNT: its Fire and Lightning Remnants read 0) Its other two chances are
+# NOT per Power: "{0}% chance to spawn a [Fire] [Remnant] on [Ignite|Igniting] a non-Ignited target" and "... [Lightning]
+# [Remnant] on [Shock|Shocking] a non-Shocked target" (skill_stat_descriptions; constants 5, +0.1 per 1% quality; only the
+# Cold line says "per [Power]"; RESEARCH57 R57-3's "the same for Fire and Lightning" misreads them: checked against the
+# description file). So only an Ignite / Shock landing on a boss carrying none counts: the main skill's applications a
+# second a = hits x chance, and the share that find it bare e^(-a x duration) (applications as random arrivals, each
+# lasting the ailment's duration: MEDIUM); a = 0 without a chance.
+SIPHON_NON_AILED = {
+    "Fire": ("infusion_remnants_%_chance_to_spawn_fire_infusion_on_igniting_an_enemy", "IgniteChancePerHit", "IgniteDuration"),
+    "Lightning": ("infusion_remnants_%_chance_to_spawn_lightning_infusion_on_shocking_an_enemy", "ShockChancePerHit",
+                  "ShockDuration"),
+}
+SIPHON_NON_AILED_DEFAULT = 0.05
+SIPHON_FIELDS = (*models.IMMOBILISE_FIELDS, "IgniteChancePerHit", "ShockChancePerHit", "IgniteDuration", "ShockDuration")
 # Living Bomb (LivingBombPlayer, build 26476662; MECHC1, FLAT_RATES A11: before, one seed every 5 s for any build):
 # living_bomb_base_number_of_bombs_allowed 1, base_skill_effect_duration 15000 ("Seed duration"),
 # living_bomb_damage_threshold_%_of_ailment_threshold 200 ("Explodes after enemy is dealt damage equal to 200% of its
@@ -322,12 +336,59 @@ def kalguur_kill_rate(rate: float, condition: str, level_stats: dict, kills) -> 
     return rate + chance * enemies, condition + f"; {chance:.0%} a kill at {enemies:.3f} kills/s ({how})"
 
 
-def siphon_freezes(stats: dict) -> tuple[float, str]:
-    """Siphon Elements' Cold Remnants per second: the boss's Freezes (models.buildup_rate) x the chance per Freeze."""
+def siphon_freezes(stats: dict, chances: dict[str, float] | None = None) -> tuple[float, str, dict[str, float]]:
+    """Siphon Elements' Remnants per second (total, how, {element: rate}): Cold, the boss's Freezes (models.buildup_rate)
+    x the chance per Freeze (5% per Power, 20 Power: 100%); Fire and Lightning (MECHC58, SIPHON_NON_AILED's note), the
+    main skill's Ignites / Shocks of the boss while it carries none x their chance."""
     freezes = models.buildup_rate(stats, "Freeze")
     chance = min(1.0, SIPHON_FREEZE_PER_POWER * models.BOSS_POWER)
-    return freezes * chance, (f"{chance:.0%} per Freeze (5% per Power, 20 Power), the boss frozen {freezes:.3f}/s by the "
-                              "main skill's buildup; Ignite and Shock Remnants not counted (an undercount)")
+    per = {"Cold": freezes * chance}
+    parts = [f"Cold {chance:.0%} per Freeze (5% per Power, 20 Power), the boss frozen {freezes:.3f}/s by the main skill's "
+             "buildup"]
+    hits = models.hits_per_second(stats)
+    for element, (stat, field, lasts) in SIPHON_NON_AILED.items():
+        each = (chances or {}).get(element, SIPHON_NON_AILED_DEFAULT)
+        inflicted = hits * min(max(number(stats.get(field)), 0.0), 100.0) / 100
+        duration = max(number(stats.get(lasts)), 0.0)
+        fresh = inflicted * math.exp(-inflicted * duration)
+        per[element] = each * fresh
+        if inflicted > 0:
+            parts.append(f"{element} {each:.0%} of the {inflicted:.2f}/s {field[:-len('ChancePerHit')]}s that find the boss "
+                         f"without one ({math.exp(-inflicted * duration):.0%}, {duration:.3g} s each, applications taken as "
+                         "random; MEDIUM)")
+    return sum(per.values()), "; ".join(parts) + " (the main skill's hits only)", per
+
+
+# Powered by Verisium (MECHC58; COV55's ranked list, an UNDERCOUNT: INFUSION_UNCOUNTED said its Infusions weren't counted):
+# "Spends [Ward] to generate [VerisiumInfusion|Verisium Infusions], which can be used in place of any [ElementalInfusion|
+# Elemental Infusions]" (ActiveSkills powered_by_verisium): a cooldown Spell with a Ward cost, granting
+# verisium_infusion_skill_number_of_verisium_infusion_to_grant a cast (a level stat). Its casts a second are the ones its
+# Runic Ward pays for (build.ward_sustain, Assumptions.ward_paid: {skill: (planned, paid uses/s, Ward a use)}, a round
+# behind), so a build that doesn't use it, or can't pay for it, makes none (no flat rate). Taken as not raised by
+# "additional Elemental Infusion" lines (their wording names Elemental Infusions; MEDIUM).
+VERISIUM = "Powered by Verisium"
+VERISIUM_COUNT_STAT = "verisium_infusion_skill_number_of_verisium_infusion_to_grant"
+
+
+def verisium_infusions(build) -> tuple[float, str]:
+    """(MECHC58, VERISIUM's note) (Verisium Infusions a second, how) from Powered by Verisium's Ward-paid uses."""
+    row = (getattr(build, "ward_sustain", None) or {}).get(VERISIUM)
+    if not row or number(row[1]) <= 0:
+        return 0.0, ("its Runic Ward pays for none of its uses" if row else "")
+    level = next((r.get("levelStats") or {} for r in build.call("activeSkills", levelStats=[VERISIUM])["skills"]
+                  if r.get("name") == VERISIUM and r.get("levelStats")), {})
+    count = number(level.get(VERISIUM_COUNT_STAT)) or 1.0
+    return count * number(row[1]), (f"{count:g} a cast x {number(row[1]):.3f} casts/s its Runic Ward pays for "
+                                    f"(of {number(row[0]):.3f} planned)")
+
+
+def siphon_rates(build) -> tuple[float, str, dict[str, float]]:
+    """(MECHC58) siphon_freezes from the build: PoB's stats (SIPHON_FIELDS) and the gem's Fire / Lightning chances at
+    its level and quality (levelStats; 5% each without them)."""
+    level = next((r.get("levelStats") or {} for r in build.call("activeSkills", levelStats=[SIPHON])["skills"]
+                  if r.get("name") == SIPHON and r.get("levelStats")), {})
+    chances = {e: number(level[stat]) / 100 for e, (stat, _f, _d) in SIPHON_NON_AILED.items() if stat in level}
+    return siphon_freezes(build.call("stats", fields=list(SIPHON_FIELDS)), chances)
 
 
 def duplicate_pickups(texts: list[str]) -> float:
@@ -360,15 +421,12 @@ INFUSED_NOTE = ("the Infused cast needs an Elemental Infusion of its element, co
 # Elemental Infusions per second on a single boss, by element (game files, build 26476662: the skills whose description
 # leaves an Infusion Remnant, ActiveSkills search of 9 Nov, MECH19): Frost Bomb Cold, Orb of Storms Lightning, Living Bomb
 # Fire, Snap the element of the ailment it consumes; rates as REMNANT_SOURCES. Siphon Elements' Cold ones on Freeze
-# (siphon_freezes); its Fire and Lightning ones and Powered by Verisium's aren't counted yet (reasons below). The other Remnant sources (Into the Breach, Life, Mana, Power Charge
+# and its Fire / Lightning ones on a bare boss (siphon_freezes, MECHC58); Powered by Verisium's from its Ward-paid uses (verisium_infusions, MECHC58). The other Remnant sources (Into the Breach, Life, Mana, Power Charge
 # Remnants) make no Infusions.
 INFUSION_SOURCES = {
     "Frost Bomb": "Cold", "Orb of Storms": "Lightning", "Living Bomb": "Fire", "Snap": None,
 }
 INFUSION_UNCOUNTED = {
-    "Siphon Elements": "Siphon Elements' Fire and Lightning Infusions (Ignite/Shock of a target without that ailment) "
-                       "aren't counted: an undercount",
-    "Powered by Verisium": "Powered by Verisium's Infusions (from Ward spent) aren't counted yet: an undercount",
 }
 SNAP_AILMENTS = {"conditionEnemyIgnited": "Fire", "conditionEnemyShocked": "Lightning", "conditionEnemyFrozen": "Cold"}
 EQUILIBRIUM = re.compile(r"Create Lightning Infusion Remnants instead of Fire", re.I)  # Elemental Equilibrium
@@ -831,7 +889,8 @@ def infusion_found(supply: float, uses: float, keep: float = 0.0, cap: int = INF
 
 def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[str] | dict[str, float],
                     siphon: tuple[float, str] = (0.0, ""), bomb: tuple[float, str] = (0.0, ""),
-                    orb: tuple[float, str] = (0.0, ""), far: bool = False) -> tuple[dict[str, float], list[str]]:
+                    orb: tuple[float, str] = (0.0, ""), far: bool = False,
+                    verisium: tuple[float, str] = (0.0, "")) -> tuple[dict[str, float], list[str]]:
     """Elemental Infusions per second by element ("Any": Verisium Infusions, usable as any element), and what makes them.
     `present`: the build's enabled skills by name; `lines`: its modifier lines; `ailments`: the resolver's active
     condition vars (which ailment Snap consumes), a set (each always up) or each var's share of the fight; `siphon`: Siphon Elements' Cold Remnants per second and how
@@ -878,8 +937,10 @@ def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[st
     if SIPHON in present and far:
         used.append(f"{SIPHON} 0/s: its Remnants appear at the target, out of reach while you stand still at range")
     elif SIPHON in present:
-        made["Cold"] = made.get("Cold", 0.0) + siphon[0]
-        used.append(f"{SIPHON} {siphon[0]:.2f}/s Cold ({siphon[1]})")
+        split = siphon[2] if len(siphon) > 2 else {"Cold": siphon[0]}  # (MECHC58: Fire and Lightning too)
+        for element, rate in split.items():
+            made[element] = made.get(element, 0.0) + rate
+        used.append(f"{SIPHON} {siphon[0]:.2f}/s ({siphon[1]})")
     if far and ORB_OF_STORMS in present:
         used.append(f"{ORB_OF_STORMS}: cast at your feet so its Remnants land within reach while you stand still (LOW)")
     used += [why for name, why in INFUSION_UNCOUNTED.items() if name in present]
@@ -904,6 +965,10 @@ def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[st
             every = float(m.group(1) or 1.0)
             supply["Any"] += gain / every
             used.append(f"a Verisium Infusion every {every:g} s (any element)")
+    if VERISIUM in present:  # (MECHC58: VERISIUM's note)
+        supply["Any"] += verisium[0]
+        used.append(f"{VERISIUM} {verisium[0]:.2f}/s Verisium ({verisium[1]})" if verisium[1]
+                    else f"{VERISIUM} 0/s (not used: no use rate)")
     if remnants != 1.0:
         used.append(f"x{remnants:g} Infusion Remnants (additional ones, collected twice, or pickups counting twice)")
     if gain != 1.0:
@@ -6588,7 +6653,7 @@ class Assumptions:
             elif name == ORB_OF_STORMS:
                 rate, condition = self.orb_remnants(skill)
             elif name == SIPHON:
-                rate, condition = siphon_freezes(self.build.call("stats", fields=models.IMMOBILISE_FIELDS))
+                rate, condition, _ = siphon_rates(self.build)
             elif name == LIVING_BOMB:
                 rate, condition = living_bomb_rate(self.build.call("stats", fields=list(LIVING_BOMB_FIELDS)),
                                                    skill.get("castTime") or 0.0)
@@ -8876,12 +8941,13 @@ class Assumptions:
         selfless = selfless_of(build)  # (MECHC50: Selfless Remnants' Remnants go to allies)
         present = {s["name"]: s for s in raw if not s["disabled"] and s["name"] not in selfless}
         lines = [line["text"] for line in build.call("sourceLines")["lines"]]
-        siphon = siphon_freezes(build.call("stats", fields=models.IMMOBILISE_FIELDS)) if SIPHON in present else (0.0, "")
+        siphon = siphon_rates(build) if SIPHON in present else (0.0, "")
         bomb = living_bomb_rate(build.call("stats", fields=list(LIVING_BOMB_FIELDS)),
                                 present[LIVING_BOMB].get("castTime") or 0.0) if LIVING_BOMB in present else (0.0, "")
         orb = orb_remnants(build, present[ORB_OF_STORMS]) if ORB_OF_STORMS in present else (0.0, "")
         supply, used = infusion_supply(present, lines, ailments, siphon, bomb, orb,
-                                       far=still_far(build.call("getConfig")))
+                                       far=still_far(build.call("getConfig")),
+                                       verisium=verisium_infusions(build) if VERISIUM in present else (0.0, ""))
         mods, notes = [], []
         for m in found:
             value, element, collected, seconds = float(m.group(1)), m.group(2).capitalize(), m.group(3).capitalize(), \
@@ -8916,12 +8982,13 @@ class Assumptions:
         selfless = selfless_of(build)  # (MECHC50: Selfless Remnants' Remnants go to allies)
         present = {s["name"]: s for s in raw if not s["disabled"] and s["name"] not in selfless}
         lines = [line["text"] for line in build.call("sourceLines")["lines"]]
-        siphon = siphon_freezes(build.call("stats", fields=models.IMMOBILISE_FIELDS)) if SIPHON in present else (0.0, "")
+        siphon = siphon_rates(build) if SIPHON in present else (0.0, "")
         bomb = living_bomb_rate(build.call("stats", fields=list(LIVING_BOMB_FIELDS)),
                                 present[LIVING_BOMB].get("castTime") or 0.0) if LIVING_BOMB in present else (0.0, "")
         orb = orb_remnants(build, present[ORB_OF_STORMS]) if ORB_OF_STORMS in present else (0.0, "")
         supply, used = infusion_supply(present, lines, ailments, siphon, bomb, orb,
-                                       far=still_far(build.call("getConfig")))
+                                       far=still_far(build.call("getConfig")),
+                                       verisium=verisium_infusions(build) if VERISIUM in present else (0.0, ""))
         keep = min(1.0, sum(float(m.group(1)) for t in lines if (m := KEEP_INFUSION.search(t.strip()))) / 100.0)
         if casts is not None:
             uses = max(0.0, float(casts))

@@ -96,3 +96,64 @@ def test_no_charge_regulation_no_mods():
     holder = Assumptions.__new__(Assumptions)
     holder.build = _Build(regulation=None, regulation_up={}, config={})
     assert holder.regulation_mods([]) == ([], [])
+
+
+def test_a_consumers_own_chance_not_to_remove_keeps_more_charges():
+    """Perpetual Charge's 25% (charge_skip_consume_chance_% on the supported skill; conditions.OWN_KEPT_STATS) and
+    Hollow Form's Power-only quality stat: fewer charges removed by that consumer, more held (an UNDERCOUNT before)."""
+    lines = [POWER_ON_HIT]  # (0.2 gains/s at 2 hits/s)
+    base = {**STATS, "_consumers": {"Power": {"Spark": 0.21}}}
+    plain, _ = conditions._charges_held("Power")(lines, {**base})
+    kept, how = conditions._charges_held("Power")(lines, {**base, "_own_kept": {"Power": {"Spark": 0.25}}})
+    assert kept > plain and "Spark 25%" in how
+    flicker = {**STATS, "_consumers": {"Power": {"Flicker Strike": 0.5}}, "_own_kept": {"Power": {"Flicker Strike": 0.9}}}
+    _, capped = conditions._charges_held("Power")(lines, flicker)
+    assert "Flicker Strike 75%" in capped
+    assert set(conditions.OWN_KEPT_STATS["base_power_charge_skip_consume_chance_%"]) == {"Power"}
+
+
+def test_siphon_elements_fire_and_lightning_remnants_come_from_ailments_on_a_bare_boss(monkeypatch):
+    """Its Fire / Lightning chances are flat (not per Power) and need a non-Ignited / non-Shocked target
+    (skill_stat_descriptions): the main skill's applications x e^(-applications x duration) (an UNDERCOUNT before: 0)."""
+    from builder.search import assumptions
+    monkeypatch.setattr(assumptions.models, "buildup_rate", lambda stats, ailment: 0.0)
+    stats = {"Speed": 2.0, "HitChance": 100, "IgniteChancePerHit": 25, "IgniteDuration": 4.0, "ShockChancePerHit": 0}
+    total, how, per = assumptions.siphon_freezes(stats, {"Fire": 0.07})
+    fresh = 0.5 * math.exp(-0.5 * 4.0)
+    assert per["Fire"] == pytest.approx(0.07 * fresh) and per["Lightning"] == 0 and per["Cold"] == 0
+    assert total == pytest.approx(per["Fire"]) and "without one" in how
+    supply, used = assumptions.infusion_supply({"Siphon Elements": {}}, [], set(), (total, how, per))
+    assert supply["Fire"] == pytest.approx(per["Fire"]) and not any("aren't counted" in u for u in used)
+
+
+def test_powered_by_verisium_infusions_come_from_its_ward_paid_uses():
+    from builder.search import assumptions
+
+    class B(SimpleNamespace):
+        def call(self, name, **_):
+            return {"skills": [{"name": assumptions.VERISIUM, "levelStats": {assumptions.VERISIUM_COUNT_STAT: 4}}]}
+
+    rate, how = assumptions.verisium_infusions(B(ward_sustain={assumptions.VERISIUM: (0.2, 0.1, 155)}))
+    assert rate == pytest.approx(0.4) and "4 a cast" in how
+    assert assumptions.verisium_infusions(B(ward_sustain={}))[0] == 0
+    supply, used = assumptions.infusion_supply({assumptions.VERISIUM: {}}, [], set(), verisium=(rate, how))
+    assert supply["Any"] == pytest.approx(0.4) and not any("aren't counted" in u for u in used)
+
+
+def test_a_random_extra_charge_from_the_other_kinds_gains_lands_here_a_third_of_the_time():
+    """Charge Profusion II's random charge and the global random-extra line: a third to each kind (two thirds were lost)."""
+    frenzy = "10% chance to gain a Frenzy Charge on Hit"
+    stats = {**STATS, "FrenzyChargesMax": 3, "FrenzyChargesDuration": 15, "_profusion": {frenzy: (0.30, 0.15)}}
+    cross, how = conditions.random_from_others([frenzy], "Power", stats)
+    assert cross == pytest.approx(0.2 * 0.15 / 3, rel=0.01) and "Frenzy" in how
+    held, basis = conditions._charges_held("Power")([frenzy], {**stats})
+    assert held > 0 and "random extra" in basis
+    assert conditions.random_from_others([frenzy], "Power", {**STATS})[0] == 0
+
+
+def test_the_rampage_rage_box_says_its_free_window_as_a_play_row():
+    stats = {"MaximumRage": 30, "_main_channel_rage": True, "_main_skill": "Rampage", "_rage_spend": {"Rampage": 5.0},
+             "_channel_free": 2.5, "RageRegenRecovery": 6.0, "_main_share": 1.0, "Speed": 1.0, "HitChance": 100,
+             "enemySkillTime": 1.0, "_events": {}, "_kills": (0.0, 0.0, "lone boss")}
+    _, basis = conditions.rage_held([], stats)
+    assert "first 2.5 s costs no Rage" in basis and "recast inside the free 2.5 s: 0.00/s spent" in basis
