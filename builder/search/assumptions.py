@@ -5795,6 +5795,48 @@ class Assumptions:
             return share, f"{how}; in the form until {main}'s next use ({1 / speed:.2f} s)"
         return 0.0, how
 
+    def companion_rune_inputs(self, texts: list[str], main) -> tuple[float, str, float, list[tuple[str, float]], float | None]:
+        """(MECHB60, models.companion_runes_model) (the boss's Marked share, how, the share Companions already have
+        Onslaught, [(Companion skill, its hits a second)], the fight's length from the boss's pool over Full DPS)."""
+        from builder.search import bosses
+
+        build = self.build
+        name = getattr(main, "name", main)
+        raw = build.call("activeSkills")["skills"]
+        found = [models.Skill.of(s) for s in raw if not s.get("disabled")]
+        off = [models.Skill.of(s) for s in raw if s.get("disabled")]
+        group = build.main_group()
+        index = (group or {}).get("index")
+        head = next((s for s in found if s.name == name and s.group == index), None)
+        marked, how = 0.0, "no Mark in the build"
+        if any(s.name in (*models.MARKS, models.PREDATORS_MARK) and s is not head for s in found):
+            metres = None
+            if any(s.name == models.PREDATORS_MARK for s in found):
+                metres = number(build.call("getConfig")["input"].get("enemyDistance")) / 10 or natural_distance(set())
+            _, probe = models.mark_model(found, build.call("stats", fields=models.MODEL_FIELDS), head,
+                                         [{"text": SIPHON_PROBE_LINE}], metres, off,
+                                         rates=getattr(build, "trigger_rates", None))
+            note = next((n for n in probe if str(n.get("label", "")).startswith("Lines while the boss is Marked")), None)
+            # (mark_model writes the note only below 100%: no note is a Mark held all fight, as conditions._marked_share reads it)
+            marked, how = ((float(note["value"]), note["basis"].split(": marked")[0]) if note
+                           else (1.0, "your Mark kept on the boss"))
+        others = 0.0
+        if any(models.RALLYING_FORM.search(t.strip()) for t in texts):
+            others = max(0.0, min(1.0, self.shifted_share(main if isinstance(main, str) or main is None else main.name)[0]))
+        if any(models.BODYGUARDS.search(t.strip()) for t in texts):
+            others = 1 - (1 - others) * (1 - max(0.0, min(1.0, ward_shares(build)[0])))
+        kept = [s for s in raw if s.get("companion") and not s.get("disabled")  # (the bridge's minion table can be absent)
+                and not (s.get("minion") or {}).get("failed") and s.get("group") is not None]
+        side = sorted({s["group"] for s in kept if s["group"] != index})
+        rates = {r.get("index"): number(r.get("minionSpeed")) for r in build.call("useRates", indices=side)["rates"]} if side else {}
+        own = build.call("stats", fields=["Minion.Speed", "Minion.HitChance", "FullDPS"])
+        chance = number(own.get("Minion.HitChance")) / 100 if own.get("Minion.HitChance") is not None else 1.0
+        companions = [(s["name"], number(own.get("Minion.Speed")) * chance if s["group"] == index else rates.get(s["group"], 0.0))
+                      for s in kept]
+        boss = getattr(getattr(build.ctx, "request", None), "boss", None) or bosses.DEFAULT
+        full = number(own.get("FullDPS"))
+        return marked, how, others, companions, (conditions_mod.boss_pool(boss) / full if full > 0 else None)
+
     def orb_stand(self, rates: list[dict], main: int | None) -> tuple[float, str]:
         """(share, how) of the fight the player casts standing in a side Orb of Storms' radius (models.orb_stand_share,
         MECHB44): its own dodge roll, its distance to the boss (PoB's enemyDistance, else its natural distance), the
@@ -6897,6 +6939,10 @@ class Assumptions:
         if any(models.RALLYING_FORM.search(t.strip()) for t in texts):  # (MECHB58: Rallying Form, at the shifted share)
             rally_mods, rally_notes = models.rallying_form_model(texts, *self.shifted_share(main))
             mods, notes = mods + rally_mods, notes + rally_notes
+        if any(models.COMPANION_MARK_ONSLAUGHT.match(t.strip()) or models.COMPANION_RAGE_ON_HIT.match(t.strip())
+               for t in texts):  # (MECHB60: the two companion Idol lines)
+            rune_mods, rune_notes = models.companion_runes_model(texts, *self.companion_rune_inputs(texts, main))
+            mods, notes = mods + rune_mods, notes + rune_notes
         self.full_guard_mods = []  # (MECHC38: Guard up all fight, set by life_mana_income: the manager's ruling (ii))
         notes += self.life_mana_income(skills, main)  # (MECH-C: Life / Mana from kills, Remnants, charms, events; MECHC12)
         mods += self.full_guard_mods

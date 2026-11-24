@@ -1,0 +1,11 @@
+- id: model-mechb60-companion-runes
+  title: "Companion Idol lines: Onslaught on your Marked target and Rage on hit (models.companion_runes_model)"
+  kind: model
+  model: companion_runes
+  stats: [companions_gain_onslaught_on_hitting_enemies_marked_by_you_ms, companions_in_presence_gain_x_rage_on_hit]
+  confidence: theory
+  notes: >-
+    MECHB60 (MECH-B's coverage rows; UNDERCOUNTS: probe POE2T4939, each line alone moves PoB's Full DPS x1.0000). Onslaught's
+    20% Skill Speed at the boss's Marked share, as a union with the Onslaught already counted (Rallying Form, Warding Rune of
+    Bodyguards). Rage from each Companion's own hit rate and the fight's length, under KeywordPopups Rage's rules; that a
+    Companion follows the player's rules and 30 maximum is UNVERIFIED. Probe POE2T4942 (Rampage + Azmerian Wolf).

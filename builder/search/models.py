@@ -13244,6 +13244,75 @@ def rallying_form_model(texts: list[str], shifted: float, how: str) -> tuple[lis
                      if share > 0 else "")}
     return ([line("Companions have 1% increased Skill Speed", speed)] if speed > 0 else []), [note]
 
+
+# The two companion Idol lines (MECHB60; MECH-B's coverage rows; UNDERCOUNTS: probe POE2T4939, Rampage + Azmerian Wolf, each
+# line alone moves PoB's Full DPS x1.0000). The model reads the line's text, whatever carries it. Carriers found: stats 26019
+# and 26482 in SoulCoreStats rows 374 and 289, none in Mods Stat1-4, PassiveSkills, GrantedEffectStatSets or PerLevel (game
+# 26650308); PoB ModRunes: Carved Majesty on gloves, Idol of Silk on a sceptre. poe2db not checked; no patch note names them.
+# - "Companions gain Onslaught for 4 seconds on Hitting your Marked targets": Onslaught's 20% Skill Speed (KeywordPopups) for
+#   the share of the fight the boss carries your Mark (mark_model's), if a Companion hits at all; no Mark, 0. It joins the
+#   Onslaught the tool already counts for them (Rallying Form, Warding Rune of Bodyguards) as a union, since Onslaught doesn't
+#   stack. The 4 s it outlasts the Mark isn't in the headline (a lower reading); a row gives it through every gap.
+# - "Companions in your Presence gain 1 Rage on hit": KeywordPopups Rage: 1% more Attack damage per Rage, 30 maximum by
+#   default, 1 lost every 0.2 s, the loss paused 4 s on gaining Rage, one Hit every 0.5 s can give Rage. Each Companion keeps
+#   its own, from its own hits. That a Companion follows the player's Rage rules and maximum is an ASSUMPTION (UNVERIFIED).
+COMPANION_MARK_ONSLAUGHT = re.compile(r"^Companions gain Onslaught for (\d+(?:\.\d+)?) seconds? on Hitting your Marked "
+                                      r"targets$", re.I)
+COMPANION_RAGE_ON_HIT = re.compile(r"^Companions in your Presence gain (\d+(?:\.\d+)?) Rage on hit$", re.I)
+RAGE_MAXIMUM, RAGE_HELD, RAGE_LOST_PER_SECOND, RAGE_HIT_GAP = 30.0, 4.0, 5.0, 0.5  # (KeywordPopups Rage)
+
+
+def companion_rage(per_hit: float, rate: float, fight: float | None) -> tuple[float, str]:
+    """(the Rage one Companion holds on average over the fight, how) from `per_hit` Rage on its `rate` hits a second."""
+    if per_hit <= 0 or rate <= 0:
+        return 0.0, "it doesn't hit: 0 Rage"
+    step = max(1 / rate, RAGE_HIT_GAP)
+    if step >= RAGE_HELD + per_hit / RAGE_LOST_PER_SECOND:  # (each gain is lost before the next)
+        held = (per_hit * RAGE_HELD + per_hit ** 2 / (2 * RAGE_LOST_PER_SECOND)) / step
+        return min(held, RAGE_MAXIMUM), f"a gain every {step:.2f} s is lost before the next: {held:.2f} Rage on average"
+    fill = RAGE_MAXIMUM * step / per_hit
+    if not fight or fight <= 0:
+        return RAGE_MAXIMUM, f"{RAGE_MAXIMUM:g} Rage after {fill:.1f} s (no fight length: the climb not taken off)"
+    held = RAGE_MAXIMUM * (1 - fill / (2 * fight)) if fight >= fill else per_hit / step * fight / 2
+    return held, f"climbs to {RAGE_MAXIMUM:g} in {fill:.1f} s of a {fight:.0f} s fight: {held:.1f} on average"
+
+
+def companion_runes_model(texts: list[str], marked: float, how: str, others: float, companions: list[tuple[str, float]],
+                          fight: float | None) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for the two companion Idol lines (see above). `marked`, `how`: the boss's Marked share; `others`: the
+    share of the fight Companions already have Onslaught; `companions`: (skill name, its hits a second)."""
+    lines = [t.strip() for t in texts]
+    mods: list[dict] = []
+    notes: list[dict] = []
+    hitting = [c for c in companions if c[1] > 0]
+    if any(COMPANION_MARK_ONSLAUGHT.match(t) for t in lines):
+        share = max(0.0, min(1.0, marked)) if hitting else 0.0
+        held = max(0.0, min(1.0, others))
+        speed = ONSLAUGHT_SKILL_SPEED * share * (1 - held)  # (a union with the Onslaught already counted)
+        if speed > 0:
+            mods.append(line("Companions have 1% increased Skill Speed", speed))
+        notes.append({"label": "Companions' Onslaught on your Marked target*", "value": round(share, 3),
+                      "confidence": "MEDIUM",
+                      "basis": (f"the boss Marked {share:.0%} of the fight ({how if hitting else 'no Companion hits it'}); "
+                                f"{held:.0%} already has Onslaught from another line, so +{speed:.3g}% Skill Speed "
+                                f"(Onslaught's {ONSLAUGHT_SKILL_SPEED:g}%; PoB doesn't apply the line). Row, its 4 s "
+                                f"carried through every gap in the Mark: +{ONSLAUGHT_SKILL_SPEED * (1 - held):.3g}%"),
+                      "play": "Keep your Mark on the boss so your Companions keep Onslaught" if share > 0 else ""})
+    gains = [float(m.group(1)) for t in lines if (m := COMPANION_RAGE_ON_HIT.match(t))]
+    if gains:
+        per_hit, parts = sum(gains), []
+        for name, rate in companions:
+            rage, why = companion_rage(per_hit, rate, fight)
+            parts.append(f"{name}: {why}")
+            if rage > 0:
+                mods.append(line("Minions deal 1% more Attack Damage", rage, skill=name))
+        notes.append({"label": "Companions' Rage on hit*", "value": f"{per_hit:g} a hit", "confidence": "LOW",
+                      "basis": ("; ".join(parts) or "no Companion in the build: 0") + ". 1% more Attack damage per Rage "
+                               "(KeywordPopups Rage). That a Companion follows the player's Rage rules and 30 maximum is "
+                               "UNVERIFIED; PoB gives the line nothing"})
+    return mods, notes
+
+
 BARRAGE = "Barrage"
 BARRAGE_COOLDOWN = 2.0  # s (its level cooldown)
 BARRAGE_MAX_COOLDOWN = 30.0  # s (empowered_barrage_maximum_cooldown_ms 30000)
