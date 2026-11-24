@@ -42,12 +42,26 @@ from builder.pob.lua import LuaError
 RECORDINGS = ROOT / "data" / "pob-recordings"
 FORMAT = 2  # the recording files' layout (Store); part of the fingerprint
 TIMING_KEYS = frozenset({"seconds"})  # the bridge's own stopwatch readings: never equal twice, never a build's number
+MEMORY_WORDS = ("not enough memory", "MemoryError")  # (GEM38) what the PC ran out of, not what PoB answers
 
 
 class ReplayMismatch(AssertionError):
     """The real PoB gave a different answer from the recorded one for the same history: the recording was stale
     (something the fingerprint doesn't cover changed) or PoB isn't deterministic there. Tests before this one may
     have passed on the old answers: rerun with POE2_REAL_POB=1."""
+
+
+def memory_error(answer: str | None) -> bool:
+    """Is this stored answer a PoB / Lua error saying the PC ran out of memory (GEM38, the manager 23 Nov 18:10)? Such an
+    error says nothing about the build: POE2T7294 stored "facts: not enough memory" and POE2T7295 replayed it as PoB's
+    answer, failing the test in that folder on every later replay. It is never kept, and one already in a recording
+    reads as missing, so the real PoB answers it and overwrites it (old recordings heal without being edited). An
+    ordinary answer that merely holds these words isn't one: only the error forms _ask writes are read."""
+    if not answer or not answer.startswith(('{"PobError"', '{"LuaError"')):
+        return False
+    value = json.loads(answer)
+    text = str(value.get("PobError") or value.get("LuaError") or "")
+    return any(word in text for word in MEMORY_WORDS)
 
 
 def _on(name: str) -> bool:
@@ -326,6 +340,8 @@ class Store:
 
     def get(self, chain: str) -> str | None:
         answer = self.entries.get(chain)
+        if memory_error(answer):  # (GEM38: as good as absent, so the real PoB answers and overwrites it)
+            return None
         if answer is not None:
             self.used.add(chain)
         return answer
@@ -399,6 +415,7 @@ class ReplayEngine:
         self._synced = 0  # how many of _log the real engine has run
         self._closed = False
         self._parked: list[tuple] = []  # fork(): the shared history set aside meanwhile
+        self._tainted = False  # (GEM38) the real engine ran out of memory in a call: nothing it says after is recorded
         self.boot_seconds = 0.0
         self.lua = _Lua(self)
         os.chdir(POB_DIR.resolve() / "src")  # as PobEngine does: a test finds the same working directory either way
@@ -426,8 +443,9 @@ class ReplayEngine:
         `live`: every answer until join() comes from the real PoB, booted here and now, as under POE2_REAL_POB=1
         (PERF8: such a test's calls can't replay anyway, and booting the real PoB at its first unrecorded call put
         the ~5 s boot and the catch-up inside the test's own timed step, PERF7's POE2T2643)."""
-        self._parked.append((self._chain, self._log, self._engine, self._synced, self._live_only))
+        self._parked.append((self._chain, self._log, self._engine, self._synced, self._live_only, self._tainted))
         self._chain, self._log, self._engine, self._synced = hashlib.sha256(b"PobEngine()").hexdigest(), [], None, 0
+        self._tainted = False
         self._live_only = self._live_only or live
         if self._live_only:
             self._real()
@@ -436,7 +454,7 @@ class ReplayEngine:
         """End fork(): close its real engine and go back to the history before it."""
         if self._engine:
             self._engine.close()
-        self._chain, self._log, self._engine, self._synced, self._live_only = self._parked.pop()
+        self._chain, self._log, self._engine, self._synced, self._live_only, self._tainted = self._parked.pop()
 
     # -- record / replay --------------------------------------------------------------------
     def _do(self, kind: str, arguments: str) -> Any:
@@ -471,8 +489,20 @@ class ReplayEngine:
             # tens of thousands of calls on a module's shared engine, were kept for the engine's life before; PERF6)
             self._log[self._synced] = None
             self._synced += 1
-            answer = self._ask(engine, kind, arguments)
+            try:
+                answer = self._ask(engine, kind, arguments)
+            except MemoryError:
+                self._tainted = True
+                raise
+            if memory_error(answer):  # (GEM38: to the test, never to the recording)
+                self._tainted = True
+                self._decode(answer)
+            if self._tainted:  # (the call that failed may have left PoB part-way: its later answers can't be trusted)
+                self._store.get(chain)  # (a good stored answer for this history stays in the file)
+                continue
             stored = None if self._live_only else self._store.entries.get(chain)
+            if memory_error(stored):
+                stored = None
             self._store.put(chain, answer)
             if stored is None:
                 self._store.recorded += 1

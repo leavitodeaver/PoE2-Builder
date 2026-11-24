@@ -29,6 +29,7 @@ class FakePob:
 
     boots = 0
     twist = 0  # changes every answer, as an edit the fingerprint missed would
+    out_of_memory = 0  # (GEM38) this many "short" calls run out of memory first
 
     def __init__(self):
         type(self).boots += 1
@@ -38,6 +39,11 @@ class FakePob:
     def call(self, method, **args):
         if method == "broken":
             raise PobError("broken: no such thing")
+        if method == "short" and FakePob.out_of_memory > 0:
+            FakePob.out_of_memory -= 1
+            raise PobError("short: not enough memory")
+        if method == "python_short":
+            raise MemoryError
         self.history.append((method, json.dumps(args)))
         return {"seen": len(self.history), "sum": sum(len(text) for _, text in self.history) + self.twist, "seconds": FakePob.boots}
 
@@ -77,6 +83,66 @@ def test_a_recorded_history_replays_without_booting_pob(pob):
         second.lua.run("error", "chunk")
     assert second.call("stats", fields=["Life"]) == after
     assert FakePob.boots == 1 and store.hits == 6 and store.recorded == 0  # no engine booted for the second run
+
+
+def test_a_memory_error_is_never_kept_and_the_next_run_asks_again(pob, monkeypatch):
+    """(GEM38) POE2T7294's "not enough memory" was stored and replayed as PoB's answer on POE2T7295."""
+    monkeypatch.setattr(FakePob, "out_of_memory", 1)
+    first, store = engine(pob)
+    first.call("loadXml", xml="<a/>")
+    with pytest.raises(PobError, match="not enough memory"):
+        first.call("short")
+    assert not any(replay.memory_error(answer) for answer in store.entries.values())
+    store.save()
+
+    second, store = engine(pob)
+    second.call("loadXml", xml="<a/>")
+    assert second.call("short")["seen"] == 2 and FakePob.boots == 2 and store.recorded == 1  # (the real PoB answered)
+    store.save()
+    third, store = engine(pob)
+    third.call("loadXml", xml="<a/>")
+    assert third.call("short")["seen"] == 2 and FakePob.boots == 2  # (and it replays now)
+
+
+@pytest.mark.parametrize("method, error", [("short", PobError), ("python_short", MemoryError)])
+def test_nothing_is_recorded_after_a_memory_error_on_that_engine(pob, monkeypatch, method, error):
+    """(GEM38) The failed call may have left PoB part-way, so what it says next can't be saved as the true answer."""
+    monkeypatch.setattr(FakePob, "out_of_memory", 1)
+    first, store = engine(pob)
+    first.call("loadXml", xml="<a/>")
+    with pytest.raises(error):
+        first.call(method)
+    held = len(store.entries)
+    first.call("stats", fields=["Life"])  # (still answered, by the real engine)
+    assert len(store.entries) == held
+
+
+def test_a_stored_memory_error_is_asked_again_and_overwritten(pob):
+    """(GEM38) A recording made before the fix heals by itself, with no one editing it."""
+    first, store = engine(pob)
+    first.call("loadXml", xml="<a/>")
+    real = first.call("stats", fields=["Life"])
+    chain = first._chain
+    store.entries[chain] = json.dumps({"PobError": "stats: not enough memory"})
+    store.dirty = True
+    store.save()
+
+    second, store = engine(pob)
+    second.call("loadXml", xml="<a/>")
+    assert second.call("stats", fields=["Life"])["sum"] == real["sum"] and FakePob.boots == 2
+    assert not replay.memory_error(store.entries[chain])
+    store.save()
+    third, store = engine(pob)
+    third.call("loadXml", xml="<a/>")
+    assert third.call("stats", fields=["Life"])["sum"] == real["sum"] and FakePob.boots == 2
+
+
+def test_only_a_memory_error_counts_as_one():
+    assert replay.memory_error(json.dumps({"LuaError": "x: not enough memory"}))
+    assert not replay.memory_error(json.dumps({"PobError": "broken: no such thing"}))
+    assert not replay.memory_error(json.dumps({"LuaError": "lua broke"}))
+    assert not replay.memory_error(json.dumps({"ok": {"text": "not enough memory"}}))  # (an answer holding the words)
+    assert not replay.memory_error(None)
 
 
 def test_a_different_argument_or_order_goes_to_the_real_pob(pob):
