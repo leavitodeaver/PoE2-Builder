@@ -3336,6 +3336,11 @@ def _zerphi_lines() -> tuple:
     return flasks.ZERPHI_TO_LIFE, flasks.ZERPHI_TO_CHARM
 
 
+# (GEM38) "+N to Limit" lines that reach Earthshatter (Assumptions.earthshatter_limit) and Overabundance's duration stat
+LIMIT_LINE = re.compile(r"^(?:Fissure )?Skills have \+(\d+) to Limit$", re.I)
+OVERABUNDANCE_DURATION = "support_limit_skill_effect_duration_+%_final"
+
+
 class Assumptions:
     def __init__(self, build: Build) -> None:
         self.build = build
@@ -5046,11 +5051,12 @@ class Assumptions:
                         f"unsettled; with {event}s only, the description's reading: {cries_only:.0%} of spikes)")
             else:
                 det_rate, det_how = self.detonator_rate(group["index"])
-            per_spike = 0.0
+            per_spike, det_limit, det_seconds = 0.0, None, None
             if main.name == "Earthshatter":  # (GEM20, R30-5 (2): its quality's more Damage for each Spike standing)
                 got = next((x.get("levelStats") or {} for x in build.call(
                     "activeSkills", levelStats=[main.name])["skills"] if x["name"] == main.name), {})
                 per_spike = number(got.get(models.EARTHSHATTER_SPIKE_STAT))
+                det_limit, det_seconds = self.earthshatter_limit(group, texts)
             det_share = None
             if main.name in models.GAS_GRENADE_CLOUD:  # (GEM36, R48-5: an Ignited boss in the cloud sets it off too)
                 det_share, det_how, _ = self.gas_arrow_share(group["index"], main.stat_set,
@@ -5058,9 +5064,11 @@ class Assumptions:
                                                              every_use=("Impact",), burning=True)
             det_mods, det_notes = models.detonated_set_model(main, main.stat_set, sets, number(stats.get("Speed")),
                                                              det_rate, det_how, forbidden, per_spike,
-                                                             previous=self.mods, share=det_share)
+                                                             previous=self.mods, share=det_share,
+                                                             limit=det_limit, seconds=det_seconds)
             hand_mods, hand_notes = hand_mods + det_mods, hand_notes + det_notes
-            det_split = (models.detonated_share(main.name, number(stats.get("Speed")), det_rate) if det_share is None
+            det_split = (models.detonated_share(main.name, number(stats.get("Speed")), det_rate, det_limit, det_seconds)
+                         if det_share is None
                          else det_share)
             if main.name == models.FORGE_HAMMER:  # (MECHB49, R38-6: the throw-recall loop)
                 row = next(iter(build.call("useRates", indices=[group["index"]],
@@ -5161,9 +5169,10 @@ class Assumptions:
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             breaks, breaks_how = self.locus_breaks(group["index"], main.name)
             boss, boss_how = self.boss_hit_rate()
+            fl_limit, fl_seconds = self.limit_and_duration(group, 1.0, models.FROZEN_LOCUS_SECONDS)  # (GEM38)
             fl_mods, fl_notes = models.frozen_locus_model(
                 main, main.stat_set, sets, number(stats.get("Speed")), breaks, boss,
-                f"{breaks_how}; {boss_how}", forbidden)
+                f"{breaks_how}; {boss_how}", forbidden, fl_limit, fl_seconds)
             hand_mods, hand_notes = hand_mods + fl_mods, hand_notes + fl_notes
             hit_cut(build, fl_mods, main.name)  # (GEM33: its explosions a second)
         if main is not None and group and main.name == models.MAGNETIC_SALVO:  # (GEM20: explosions need lingering arrows)
@@ -5196,11 +5205,19 @@ class Assumptions:
                 if x["name"] == models.SHIELD_WALL), {})
             got = sw_got.get("levelStats") or {}
             more = number(got.get(models.SHIELD_WALL_STAT)) or 100.0
+            sw_limit, sw_seconds = self.limit_and_duration(group, models.SHIELD_WALL_LIMIT, models.SHIELD_WALL_SECONDS)
             sw_mods, sw_notes = models.shield_wall_model(  # (GEM37, R52-1: the extra Fissures a row only)
                 main, main.stat_set, sets, number(stats.get("Speed")), own, boss, more, f"{own_how}; {boss_how}",
-                forbidden, number((sw_got.get("supportStats") or {}).get(models.FISSURE_EXTRA_STAT)))
+                forbidden, number((sw_got.get("supportStats") or {}).get(models.FISSURE_EXTRA_STAT)),
+                sw_limit, sw_seconds)
             hand_mods, hand_notes = hand_mods + sw_mods, hand_notes + sw_notes
             hit_cut(build, sw_mods, main.name)  # (GEM33: its hit part, the mod's hit_cut)
+        if main is not None and group and main.name == models.EARTHQUAKE:  # (GEM38: Aftershocks capped by its patches)
+            eq_limit, eq_seconds, eq_short = self.earthquake_patches(group, texts)
+            eq_mods, eq_notes = models.earthquake_limit_model(main, main.stat_set, number(stats.get("Speed")), eq_limit,
+                                                              eq_seconds, eq_short, forbidden)
+            hand_mods, hand_notes = hand_mods + eq_mods, hand_notes + eq_notes
+            hit_cut(build, eq_mods, main.name)
         if main is not None and main.name == models.ENERVATING_NOVA:  # (GEM20: its damage by the boss's distance)
             radii = build.call("stats", fields=["AreaOfEffectRadius", "AreaOfEffectRadiusSecondary"])
             got = next((x.get("levelStats") or {} for x in build.call(
@@ -10255,10 +10272,12 @@ class Assumptions:
             breaks, breaks_how = self.locus_breaks(main_index, main.name)
             locus_life = max(number(r.get("iceCrystalLife")) for r, _, _ in locus_rows)
             uses = sum(u for _, u, _ in locus_rows)
-            mine = own_hits(locus_life, models.FROZEN_LOCUS_SECONDS)
-            q = 1.0 if mine else 1.0 - math.exp(-max(breaks, 0.0) * models.FROZEN_LOCUS_SECONDS)
+            locus_seconds = max((number(r.get("duration")) for r, _, _ in locus_rows),
+                                default=0.0) or models.FROZEN_LOCUS_SECONDS  # (GEM38: Overabundance's less duration)
+            mine = own_hits(locus_life, locus_seconds)
+            q = 1.0 if mine else 1.0 - math.exp(-max(breaks, 0.0) * locus_seconds)
             locus = uses * q
-            locus_how = (f"{uses:.2f} uses a second, {q:.0%} broken within its {models.FROZEN_LOCUS_SECONDS:g} s by "
+            locus_how = (f"{uses:.2f} uses a second, {q:.0%} broken within its {locus_seconds:.2f} s by "
                          + (mine if mine else breaks_how))
         zenith = self.zenith_crystals(found, main, stats) if found is not None and stats is not None else None
         # (GEM36, R49-4) segments a wall break takes: the build's breaker that takes the most (BREAK_SEGMENTS; 1 for a
@@ -10459,6 +10478,44 @@ class Assumptions:
         return {"label": f"Inhibitor: {skill} consumes no charges*", "value": "0 charges", "confidence": "HIGH",
                 "basis": (f"Inhibitor supports {skill}: it cannot consume Power, Frenzy or Endurance Charges "
                           f"(cannot_consume_power_frenzy_endurance_charges, R40-2 HIGH; PoB reads no such stat), so {what}")}
+
+    def limit_and_duration(self, group: dict, limit: float, seconds: float) -> tuple[float, float]:
+        """(GEM38) The group's main skill's Limit (useRates' instanceLimit: its allowed stat + "+N to Limit") and Skill
+        Effect Duration (with Overabundance's less duration); `limit` / `seconds` where PoB gives none."""
+        row = next(iter(self.build.call("useRates", indices=[group["index"]],
+                                        actives=[group.get("mainActiveSkill") or 1])["rates"]), {})
+        return number(row.get("instanceLimit")) or limit, number(row.get("duration")) or seconds
+
+    def earthshatter_limit(self, group: dict, texts: list[str]) -> tuple[float, float]:
+        """(GEM38) Earthshatter's spike Limit and duration: its stat spike_slam_max_spikes isn't a "number_of_X_allowed", so
+        the bridge's instanceLimit misses it: the stat, plus its supports' base_limit_+ (Overabundance) and the "+N to
+        Limit" lines that reach it ("Skills" and, as it creates Fissures, "Fissure Skills") (checked: Stats ids holding
+        "limit" over GrantedEffectStatSets and Mods; ModCache's Limit lines; the elemental / orb / storm / plant / minion
+        ones don't match its types)."""
+        got = next((x for x in self.build.call("activeSkills", levelStats=["Earthshatter"],
+                                               supportStats=["base_limit_+"])["skills"]
+                    if x["name"] == "Earthshatter"), {})
+        base = number((got.get("levelStats") or {}).get("spike_slam_max_spikes")) or 6.0
+        added = number((got.get("supportStats") or {}).get("base_limit_+"))
+        added += sum(int(m.group(1)) for t in texts if (m := LIMIT_LINE.match(t.strip())))
+        _, seconds = self.limit_and_duration(group, base, 6.0)
+        return base + added, seconds
+
+    def earthquake_patches(self, group: dict, texts: list[str]) -> tuple[float, float, float | None]:
+        """(GEM38, models.earthquake_limit_model) (Limit, patch seconds, the seconds with Overabundance's less duration)
+        from the bridge's Limit and conditions' Jagged Ground duration lines."""
+        limit, _ = self.limit_and_duration(group, 0.0, 0.0)
+        gems = {g["name"] for g in group.get("gems") or [] if g.get("enabled", True)}
+        inc = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+                  for t in texts if (m := conditions_mod.JAGGED_DURATION_LINE.search(t)))
+        if gems & set(conditions_mod.PERSISTENT_GROUND_GEMS):
+            inc += conditions_mod.PERSISTENT_GROUND_INC
+        seconds = conditions_mod.JAGGED_GROUND_SECONDS * max(0.0, 1 + inc / 100)
+        got = next((x for x in self.build.call("activeSkills", levelStats=[models.EARTHQUAKE],
+                                               supportStats=[OVERABUNDANCE_DURATION])["skills"]
+                    if x["name"] == models.EARTHQUAKE), {})
+        cut = number((got.get("supportStats") or {}).get(OVERABUNDANCE_DURATION))
+        return limit, seconds, seconds * (1 + cut / 100) if cut < 0 else None
 
     def rend_share(self, texts: list[str], main_types: set[str]) -> tuple[float, float, str]:
         """(headline, row, how) shares of the fight Rend's Power Charge buff is up (GEM37, models.rend_buff_model): the

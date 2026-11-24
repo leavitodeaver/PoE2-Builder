@@ -1,0 +1,20 @@
+# GEM38 (23 Nov 2026): Limits and durations the build sets, the GEM lane.
+- id: model-gem38-earthquake-patch-limit
+  title: "Earthquake's Aftershocks capped by its patches: at most Limit / patch duration a second (an OVERCOUNT before: PoB scores one on every attack)"
+  kind: model
+  model: earthquake_patch_limit
+  stats: ["base_number_of_earthquakes_allowed"]
+  skill: [Earthquake]
+  confidence: MEDIUM-LOW
+  notes: >-
+    The game (26650308, ActiveSkills earthquake), "The Jagged Ground erupts in a powerful Aftershock after a duration.
+    Cannot create Jagged Ground on top of an existing patch, or if you already have the maximum number of active
+    patches"; base_number_of_earthquakes_allowed, skill_jagged_ground_base_duration_ms 4000. Each patch erupts once, so
+    the Aftershock set is held to min(1, (Limit / duration) / attacks a second). Overabundance's less duration on the
+    ground is UNVERIFIED and a row. Not counted, the Impact's own hit beside the Aftershock. Assumed, patches placed
+    side by side each reach the boss (LOW; a row at one spot).
+  sources: ["builder/search/models.py (earthquake_limit_model)",
+            "builder/search/assumptions.py (Assumptions.earthquake_patches and its hook)",
+            "scratch/gem38/probe7289.log"]
+  test_in_game: "Earthquake at more than Limit / 4 s attacks a second: do the extra attacks make no patch and no Aftershock?"
+  status: proposed

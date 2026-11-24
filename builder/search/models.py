@@ -9097,7 +9097,8 @@ DETONATED_SETS = {
     # grep_notes --history "Earthshatter"; the game's description names only Warcries: both written down, both
     # counted). Each use taken to shatter every spike lying there (the slams land on the boss's spot and the cry is
     # used beside them: MEDIUM-LOW, as the spears'); one spike a slam (more fissures not read); the limit 6 (patch
-    # 0.4.0 made it a modifiable Limit, Overabundance: a raised limit not read, an UNDERCOUNT there, UNVERIFIED).
+    # 0.4.0 made it a modifiable Limit, Overabundance; GEM38: the build's Limit and duration are read,
+    # Assumptions.earthshatter_limit, as Overabundance's raise comes with its less duration).
     "Earthshatter": (("Slam",), "Explosion", 6, 6.0, "model-gem19-earthshatter-warcry-shatter"),
     # (GEM35; an OVERCOUNT found by probe POE2T7224: the search scored Gas Grenade's Explosion, 153.9 DPS against Impact
     # 18.6, with no Detonator or Burning effect in the build) Gas Grenade: "a burst of Poison gas when its fuse expires
@@ -9141,9 +9142,12 @@ DETONATED_WORD = {"Stormblast Bolts": "bolts", "Earthshatter": "spikes", "Forge 
 EARTHSHATTER_SPIKE_STAT = "earthshatter_damage_+%_final_per_spike"
 
 
-def spike_standing(skill: str, uses: float, detonations: float) -> float:
-    """The DETONATED_SETS skill's spikes standing on average (see above)."""
-    _, _, limit, seconds, _ = DETONATED_SETS[skill]
+def spike_standing(skill: str, uses: float, detonations: float, limit: float | None = None,
+                   seconds: float | None = None) -> float:
+    """The DETONATED_SETS skill's spikes standing on average (see above); (GEM38) `limit` / `seconds` the build's, where
+    the caller reads them (Earthshatter), else the table's."""
+    _, _, base_limit, base_seconds, _ = DETONATED_SETS[skill]
+    limit, seconds = limit or base_limit, seconds or base_seconds
     if uses <= 0:
         return 0.0
     life = (1.0 - math.exp(-detonations * seconds)) / detonations if detonations > 0 else seconds
@@ -9159,9 +9163,12 @@ DETONATED_BY = {"Earthshatter": ("Warcry", "a Warcry is used near them or a Deto
 DETONATORS_TOO = {"Earthshatter"}
 
 
-def detonated_share(skill: str, uses: float, detonations: float) -> float:
-    """The share of a DETONATED_SETS skill's spears another skill detonates (see above)."""
-    _, _, limit, seconds, _ = DETONATED_SETS[skill]
+def detonated_share(skill: str, uses: float, detonations: float, limit: float | None = None,
+                    seconds: float | None = None) -> float:
+    """The share of a DETONATED_SETS skill's spears another skill detonates (see above); (GEM38) `limit` / `seconds` the
+    build's, where the caller reads them (Earthshatter), else the table's."""
+    _, _, base_limit, base_seconds, _ = DETONATED_SETS[skill]
+    limit, seconds = limit or base_limit, seconds or base_seconds
     if uses <= 0 or detonations <= 0:
         return 0.0
     lying = min(float(limit), uses * seconds)
@@ -9171,7 +9178,8 @@ def detonated_share(skill: str, uses: float, detonations: float) -> float:
 def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict], uses: float, detonations: float,
                         how: str, forbidden: set[str] = frozenset(),
                         per_spike: float = 0.0, previous: list[dict] | None = None,
-                        share: float | None = None) -> tuple[list[dict], list[dict]]:
+                        share: float | None = None, limit: float | None = None,
+                        seconds: float | None = None) -> tuple[list[dict], list[dict]]:
     """(GEM36: `share`, when given, the share set off, in place of the Detonators-only detonated_share: Gas Grenade's
     Ignite route, R48-5) Storm Lance's / Rapid Assault's use with the detonations the build's Detonators give (see above): `sets` the
     bridge's setRates, `uses` the main skill's uses a second, `detonations` the build's Detonator uses a second,
@@ -9188,9 +9196,10 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
     plain, det = dps.get(plain_label, 0.0), dps.get(det_label, 0.0)
     if plain <= 0:
         return [], []
-    s = detonated_share(main.name, number(uses), number(detonations)) if share is None else min(1.0, max(0.0, share))
+    s = (detonated_share(main.name, number(uses), number(detonations), limit, seconds) if share is None
+         else min(1.0, max(0.0, share)))
     word = DETONATED_WORD.get(main.name, "spears")
-    standing = spike_standing(main.name, number(uses), number(detonations)) if per_spike > 0 else 0.0
+    standing = spike_standing(main.name, number(uses), number(detonations), limit, seconds) if per_spike > 0 else 0.0
     spikes_more = 1.0 + per_spike / 100.0 * standing
     total = (plain + det * s) * spikes_more
     factor = total / dps[scored]
@@ -9218,7 +9227,7 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
                      f"every hit of the skill): x{spikes_more:.3f} (the row: 0 spikes, x1, "
                      f"{(plain + det * s):,.0f})" if per_spike > 0 else "")),
         "play": (f"Set off {main.name}'s {word} with {by_play} to get the {det_label}. Without one: "
-                 f"{plain * (1.0 + per_spike / 100.0 * spike_standing(main.name, number(uses), 0.0) if per_spike > 0 else plain):,.0f}; with "
+                 f"{plain * (1.0 + per_spike / 100.0 * spike_standing(main.name, number(uses), 0.0, limit, seconds) if per_spike > 0 else plain):,.0f}; with "
                  f"this build's: {total:,.0f}; every {word[:-1]}: {(plain + det) * spikes_more:,.0f}.")}]
 
 
@@ -9987,17 +9996,21 @@ def locus_explosions(cast: float, breaks: float, seconds: float = FROZEN_LOCUS_S
 
 
 def frozen_locus_model(main: Skill | None, scored: str | None, sets: list[dict], speed: float, breaks: float,
-                       boss_breaks: float, how: str, forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+                       boss_breaks: float, how: str, forbidden: set[str] = frozenset(), limit: float = 1.0,
+                       seconds: float = FROZEN_LOCUS_SECONDS) -> tuple[list[dict], list[dict]]:
     """Frozen Locus's explosions at the rate its crystal is destroyed (see above): `speed` PoB's casts a second, `breaks`
-    the build's breaker uses a second, `boss_breaks` the boss's damaging uses a second."""
+    the build's breaker uses a second, `boss_breaks` the boss's damaging uses a second. (GEM38) `seconds` the build's
+    crystal duration (Overabundance's less duration counts in the headline); `limit` its crystals allowed: whether one
+    break destroys every crystal is UNVERIFIED, so a raised Limit is a row, the headline one crystal a break."""
     if main is None or main.name != FROZEN_LOCUS or FROZEN_LOCUS_ENTRY in forbidden or scored != "Explosion":
         return [], []
     dps = set_dps_unscaled(sets)
     if dps.get(scored, 0.0) <= 0 or speed <= 0:
         return [], []
     cast = 1.0 / speed
-    rate = locus_explosions(cast, breaks)  # (the headline: the build's own breakers, R30-5 (1))
-    with_boss = locus_explosions(cast, breaks + boss_breaks)  # (the LOW row)
+    rate = locus_explosions(cast, breaks, seconds)  # (the headline: the build's own breakers, R30-5 (1))
+    with_boss = locus_explosions(cast, breaks + boss_breaks, seconds)  # (the LOW row)
+    crystals = instances_standing(cast, breaks, limit, seconds)  # (the raised Limit's row)
     factor = max(rate / speed, AILMENT_FLOOR)
     mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)] if abs(factor - 1) > 1e-9 else []
     blast = dps[scored] / speed  # (one explosion's damage)
@@ -10006,13 +10019,15 @@ def frozen_locus_model(main: Skill | None, scored: str | None, sets: list[dict],
         "confidence": "MEDIUM-LOW", "entry": FROZEN_LOCUS_ENTRY,
         "basis": (f"PoB scored an Explosion at every cast ({speed:.2f} a second, {dps[scored]:,.0f} DPS). The game "
                   f"explodes the Ice Crystal only when it's destroyed: {how}; a cast then the wait for the first break "
-                  f"by the build's own breakers (at most its 10 s; expiry and recasts not counted): {rate:.2f} explosions "
+                  f"by the build's own breakers (at most its {seconds:.2f} s; expiry and recasts not counted): {rate:.2f} explosions "
                   f"a second, {rate * blast:,.0f} DPS"
                   + ("; nothing in the build breaks it: held at 1%" if rate <= 0 else "")
                   + f". The boss's hits a LOW row, not counted (RESEARCH30 R30-5: enemies can damage it, but nothing "
                   f"aims at it; with every boss damaging use landing on it: {with_boss:.2f} a second, "
                   f"{with_boss * blast:,.0f}). The player's ordinary hits on the crystal's Life are not counted (an "
-                  "UNDERCOUNT where the build breaks it that way)"),
+                  "UNDERCOUNT where the build breaks it that way)"
+                  + (f". Limit {limit:g}: {crystals:.2f} crystals up at a break; if one break destroys them all "
+                     f"(UNVERIFIED): {rate * crystals * blast:,.0f} DPS" if limit > 1 else "")),
         "play": (f"Place Frozen Locus at the boss and break it: hit it with a Freeze-consuming skill, Fragmentation Rounds, "
                  f"Glacial Cascade's last spike, Gelid Palm or Embrace The Fall, or a Warcry with Vruun's Aftermath; the "
                  f"boss's area hits may break it if they cover it (LOW). Recast as soon as it breaks. With this build's "
@@ -10139,29 +10154,53 @@ def magnetic_salvo_model(main: Skill | None, scored: str | None, sets: list[dict
 # Citadel (SupportAhnsCitadelPlayer: wall_is_created_along_a_fissure_instead, wall_maximum_length_+% 65) reshapes and
 # lengthens the same wall: no extra hit (R52-1, MEDIUM-HIGH). Kaom's Madness and other extra-Fissure supports
 # (base_number_of_additional_fissures; Kaom's Madness 3, 20% less damage, which PoB already applies): whether each extra
-# Fissure is its own wall hitting the boss once is UNVERIFIED (R52-1), so the headline stays one hit a wall and a row
-# shows (1 + extra Fissures) hits a wall (Kaom's Madness: x4 the headline, x3.2 a wall without it; LOW).
+# Fissure is its own wall is UNVERIFIED (R52-1, RESEARCH53 R53-5, with RESEARCH54), so the headline stays one wall a cast
+# and a row sets the walls at a shatter to max(the headline's, min(1 + extra Fissures, the Limit)): at the base Limit 2,
+# 2 walls x Kaom's 0.8 = x1.6 of a plain wall (R53-5, replacing R52-1's x3.2, which passed the Limit; LOW).
+# The Limit and duration are the build's (GEM38): shield_wall carries the game's Limit skill type, and patch 0.4.0 "Fixed
+# the following skills having modifiable Limits ... Frozen Locus, Earthquake, Earthshatter, Shield Wall. These skills can
+# also now be supported by Overabundance" (checked: Stats ids holding "limit" over GrantedEffectStatSets and Mods:
+# base_limit_+ on Overabundance I / II and UniqueBaseLimit1; shield_wall.csd "[Limit] {0} active Shield Walls"). The
+# raise isn't free: Overabundance I / II carry 50% / 40% less Skill Effect Duration, read through useRates' duration
+# (probe POE2T7289: Limit 3, 3.00 s / 3.63 s). Overabundance III (doubled Limit, a random Curse on you) has no gem in
+# PoB's skill data, so the search can't offer it: not modelled. Walls at a shatter: instances_standing, from the build's
+# cast time, breaks, Limit and duration; no flat wall count.
 SHIELD_WALL = "Shield Wall"
 SHIELD_WALL_ENTRY = "model-gem20-shield-wall-shatter"
 SHIELD_WALL_SECONDS = 6.0
 SHIELD_WALL_STAT = "shield_wall_damage_+%_final_when_slammed"
 SHIELD_WALL_BREAK_TYPES = ("Slam", "Warcry")
 SHIELD_WALL_CHARGE = "Shield Charge"
-SHIELD_WALL_LIMIT = 2  # (base_number_of_shield_walls_allowed; Overabundance's raised Limit not read)
+SHIELD_WALL_LIMIT = 2  # (base_number_of_shield_walls_allowed: the fallback; the build's comes from useRates' instanceLimit)
 
 
-def shield_wall_hits(cast: float, breaks: float, limit: int = SHIELD_WALL_LIMIT) -> float:
-    """Walls standing (explosion hits on the boss) when your breaker shatters them (see above): 1, plus a second the
-    share of breaks that come after the time a second cast takes."""
-    return 1.0 + (limit - 1) * math.exp(-max(breaks, 0.0) * max(cast, 0.0)) if limit > 1 else 1.0
+def instances_standing(cast: float, breaks: float, limit: float, seconds: float) -> float:
+    """(GEM38) Instances up when a break clears them, casting one every `cast` s since the last break (breaks random in
+    time at `breaks` a second): the j-th older one is there if no break came in j casts, j below the Limit and j casts
+    shorter than its `seconds`."""
+    cast, breaks = max(cast, 0.0), max(breaks, 0.0)
+    total = 1.0
+    for j in range(1, max(1, int(limit))):
+        if j * cast >= seconds:
+            break
+        total += math.exp(-breaks * j * cast)
+    return total
+
+
+def shield_wall_hits(cast: float, breaks: float, limit: float = SHIELD_WALL_LIMIT,
+                     seconds: float = SHIELD_WALL_SECONDS) -> float:
+    """Walls standing (explosion hits on the boss) when your breaker shatters them (see above)."""
+    return instances_standing(cast, breaks, limit, seconds)
 
 
 def shield_wall_model(main: Skill | None, scored: str | None, sets: list[dict], speed: float, own_breaks: float,
                       boss_breaks: float, more: float, how: str,
-                      forbidden: set[str] = frozenset(), fissures: float = 0.0) -> tuple[list[dict], list[dict]]:
+                      forbidden: set[str] = frozenset(), fissures: float = 0.0, limit: float = SHIELD_WALL_LIMIT,
+                      seconds: float = SHIELD_WALL_SECONDS) -> tuple[list[dict], list[dict]]:
     """Shield Wall's explosions at the rate it's shattered (see above): `own_breaks` the build's Slam / Warcry / Shield
     Charge uses a second, `boss_breaks` the boss's damaging uses a second, `more` the gem's "when slammed" %,
-    `fissures` its supports' base_number_of_additional_fissures (Kaom's Madness: a row only)."""
+    `fissures` its supports' base_number_of_additional_fissures (Kaom's Madness: a row only), `limit` and `seconds` the
+    build's walls allowed and wall duration (GEM38)."""
     if main is None or main.name != SHIELD_WALL or SHIELD_WALL_ENTRY in forbidden or scored != SHIELD_WALL:
         return [], []
     dps = set_dps_unscaled(sets)
@@ -10170,13 +10209,15 @@ def shield_wall_model(main: Skill | None, scored: str | None, sets: list[dict], 
     cast = 1.0 / speed
     own_breaks, boss_breaks = max(own_breaks, 0.0), max(boss_breaks, 0.0)
     both = own_breaks + boss_breaks
-    rate = locus_explosions(cast, both, SHIELD_WALL_SECONDS)  # (the headline: your shatters and the boss's, R31-6)
+    rate = locus_explosions(cast, both, seconds)  # (the headline: your shatters and the boss's, R31-6)
     mine = own_breaks / both if both > 0 else 0.0
-    walls = shield_wall_hits(cast, both)
+    walls = shield_wall_hits(cast, both, limit, seconds)
     per = mine * (1.0 + more / 100.0) * walls + (1.0 - mine)  # (a boss break takes one wall, without the more)
     factor = max(rate * per / speed, AILMENT_FLOOR)
-    row = locus_explosions(cast, own_breaks, SHIELD_WALL_SECONDS)  # (the row: no boss breaks)
-    row_dps = row * (1.0 + more / 100.0) * shield_wall_hits(cast, own_breaks) * dps[scored] / speed
+    row = locus_explosions(cast, own_breaks, seconds)  # (the row: no boss breaks)
+    row_dps = row * (1.0 + more / 100.0) * shield_wall_hits(cast, own_breaks, limit, seconds) * dps[scored] / speed
+    fissure_walls = max(walls, min(1.0 + fissures, float(limit)))  # (the Kaom's row: never past the Limit, R53-5)
+    fissure_per = mine * (1.0 + more / 100.0) * fissure_walls + (1.0 - mine)
     hits = max(rate * (mine * walls + 1.0 - mine) / speed, AILMENT_FLOOR)  # (walls hitting a second over casts)
     mods = ([with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name), hits)]
             if abs(factor - 1) > 1e-9 else [])
@@ -10186,7 +10227,8 @@ def shield_wall_model(main: Skill | None, scored: str | None, sets: list[dict], 
         "value": f"x{factor:.3f}", "confidence": "MEDIUM-LOW", "entry": SHIELD_WALL_ENTRY,
         "basis": (f"PoB scored one explosion a cast ({speed:.2f} a second, {dps[scored]:,.0f} DPS) without the gem's "
                   f"'{more:g}% more Damage if destroyed by your Skills'. The game explodes the segments when shattered: "
-                  f"{how}; a cast then the wait for the first break (at most its 6 s): {rate:.2f} breaks a second, "
+                  f"{how}; a cast then the wait for the first break (at most its {seconds:.2f} s; Limit {limit:g}): "
+                  f"{rate:.2f} breaks a second, "
                   f"{mine:.0%} yours (x{1 + more / 100:.2f}, {walls:.2f} walls' explosions each: one Slam shatters "
                   f"every wall, R31-6), the rest the boss's through a wall between you (one wall, no more): x{per:.2f} "
                   f"a break, {rate * per * blast:,.0f} DPS"
@@ -10194,12 +10236,58 @@ def shield_wall_model(main: Skill | None, scored: str | None, sets: list[dict], 
                   + f". The row, no boss breaks: {row:.2f} a second, {row_dps:,.0f} DPS. One hit a wall on the boss "
                   "however many segments reach it (0.3.0: 'this can only deal damage to each enemy once'; HIGH)"
                   + (f". With {fissures:g} extra Fissure(s) (Kaom's Madness), if each is its own wall hitting the boss "
-                     f"once (UNVERIFIED, LOW): x{1 + fissures:g}, {(1 + fissures) * rate * per * blast:,.0f} DPS"
+                     f"once (UNVERIFIED, LOW): {fissure_walls:.2f} walls a shatter (at most the Limit, {limit:g}), "
+                     f"x{fissure_per / per:.2f}, {rate * fissure_per * blast:,.0f} DPS"
                      if fissures > 0 else "")),
         "play": (f"Raise Shield Wall between you and the boss and shatter it with a Slam, a Warcry or Shield Charge for "
-                 f"{more:g}% more damage, both walls at once; a boss swing through it first breaks it without the more. "
+                 f"{more:g}% more damage, every wall at once; a boss swing through it first breaks it without the more. "
                  f"This build: {rate * per * blast:,.0f}; if the boss never breaks it: {row_dps:,.0f}; one a cast: "
                  f"{dps[scored]:,.0f}.")}]
+
+
+# Earthquake's Aftershocks are capped by its patches (GEM38; an OVERCOUNT: PoB scores the Aftershock set on every attack,
+# probe POE2T7289 Aftershock 322.7 at 0.71 attacks a second, with no limit). The game (26650308, ActiveSkills earthquake):
+# "leaving behind Jagged Ground ... The Jagged Ground erupts in a powerful Aftershock after a duration. Cannot create Jagged
+# Ground on top of an existing patch, or if you already have the maximum number of active patches";
+# base_number_of_earthquakes_allowed (6 at the probe's level, the bridge's instanceLimit with "+N to Limit"),
+# skill_jagged_ground_base_duration_ms 4000. Each patch erupts once, so at most Limit / duration Aftershocks a second: the
+# Aftershock set is held to min(1, that / PoB's attacks a second). Duration: conditions' Jagged Ground modifiers (MECH68).
+# Overabundance's less Skill Effect Duration on this ground is UNVERIFIED (PoB maps the stat to the skill's duration;
+# MECH68 reads it as not one), so the headline leaves it out, the lower cap, with the shorter fuse a row. Not counted:
+# patches must not overlap, so the cap needs room to place them beside the boss, each Aftershock reaching it (LOW; a row
+# at one spot, 1 / duration); the Impact's own hit beside the Aftershock (PoB scores one set: an UNDERCOUNT).
+EARTHQUAKE, EARTHQUAKE_SET = "Earthquake", "Aftershock"
+EARTHQUAKE_ENTRY = "model-gem38-earthquake-patch-limit"
+
+
+def earthquake_limit_model(main: Skill | None, scored: str | None, speed: float, limit: float, seconds: float,
+                           short_seconds: float | None = None,
+                           forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Earthquake's Aftershock set held to the patches' Limit / duration (see above). `short_seconds`: the patch duration
+    if Overabundance's less duration applies to it (a row)."""
+    if main is None or main.name != EARTHQUAKE or EARTHQUAKE_ENTRY in forbidden or scored != EARTHQUAKE_SET:
+        return [], []
+    if speed <= 0 or limit <= 0 or seconds <= 0:
+        return [], []
+    cap = limit / seconds
+    factor = min(1.0, cap / speed)
+    shorter = short_seconds if short_seconds and short_seconds < seconds else None
+    if factor >= 1.0 and shorter is None:
+        return [], []
+    mods = ([with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=EARTHQUAKE_ENTRY), factor)]
+            if factor < 1.0 else [])
+    return mods, [{
+        "label": f"{main.name}: Aftershocks capped by its {limit:g} patches*", "value": f"x{factor:.3f}",
+        "confidence": "MEDIUM-LOW", "entry": EARTHQUAKE_ENTRY,
+        "basis": (f"PoB scores an Aftershock on every attack ({speed:.2f} a second). Each Jagged Ground patch erupts once "
+                  f"after {seconds:g} s and at most {limit:g} can be active, so at most {cap:.2f} Aftershocks a second"
+                  + (f". If Overabundance's less duration applies to the patch (UNVERIFIED): {shorter:g} s, x"
+                     f"{min(1.0, limit / shorter / speed):.3f}" if shorter else "")
+                  + f". All at one spot (patches can't overlap): {1 / seconds:.2f} a second, "
+                  f"x{min(1.0, 1 / seconds / speed):.3f}"),
+        "play": (f"Place Earthquake's patches side by side at the boss: a patch can't go on an existing one, and only "
+                 f"{limit:g} can be up. This build: {min(speed, cap):.2f} Aftershocks a second; attacking faster than "
+                 f"{cap:.2f} a second adds no Aftershocks.")}]
 
 
 # Enervating Nova's damage by distance (GEM20; an open gem-stat row: PoB never reads new_shock_nova_distance_based_damage_
