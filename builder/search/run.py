@@ -600,8 +600,11 @@ class Run:
             best = self.best
             self.emit("status", message=f"Finalizing {best['label']} on Full DPS")
             final = seed_final = None
-            # (SEARCHD1) a Continue run's seed, finalized beside the best on another worker: the floor it never falls below
+            # (SEARCHD1) a seeded run's seed (a pasted code, Continue), finalized beside the best on another worker: the floor
+            # it never falls below (the manager, 24 Nov 13:48: "The user should never get back a build worse than the one
+            # they gave")
             floor = self.floor_task() if attempt_floor(self) else None
+            finalize_started = clock.now()
             for attempt in range(2):  # a worker the watchdog replaced gets one retry
                 base = finalize - self.regrow_seconds  # (the polish's own share: plan)
                 quick = attempt or self.should_cancel()
@@ -622,6 +625,7 @@ class Run:
             if pool.replaced:
                 self.notes.append(f"{pool.replaced} PoB worker(s) ran away and were replaced; their "
                                   "searches were lost, the rest continued.")
+            self.finalize_wall = round(clock.now() - finalize_started, 1)  # (SEARCHD1: the floor's cost, measured)
             final = self.at_least_seed(final, seed_final)
             if isinstance(final, WorkerError):
                 return self.result_infeasible(problems + [f"finalizing failed: {str(final).strip().splitlines()[-1]}"])
@@ -668,13 +672,16 @@ class Run:
         self.seed_final = seed_final
         kept = isinstance(final, WorkerError) or self.floor_key(seed_final) < self.floor_key(final)
         chosen = seed_final if kept else final
-        self.floor_check = {"seed_dps": seed_final["dps"], "searched_dps": None if isinstance(final, WorkerError)
+        self.floor_check = {"finalize_wall": getattr(self, "finalize_wall", None),
+                            "seed_finalize_seconds": round(number(seed_final.get("seconds")), 1),
+                            "seed_dps": seed_final["dps"], "searched_dps": None if isinstance(final, WorkerError)
                             else final["dps"], "kept_seed": kept, "seed_key": list(self.floor_key(seed_final)),
                             "delivered_key": list(self.floor_key(chosen))}
         if kept:
             self.notes.append(f"The search found nothing better than the build it started from in this time "
-                              f"({seed_final['dps']:,.0f} DPS), so that build is delivered unchanged (the starting build "
-                              "is the floor).")
+                              f"({seed_final['dps']:,.0f} DPS, scored here under this request), so that build is delivered "
+                              "as it was (a run never returns a build worse than the one it was given). More time, or "
+                              "Optimize one part, may still improve it.")
             seed_final["floor_kept"] = True
             return seed_final
         return final
@@ -1003,9 +1010,15 @@ def annotate_blind_spots(lines: list[dict]) -> list[dict]:
 FOCUS_WRAP = 25.0  # (SEARCHD1) a focus run's finalize time: export, reload check, facts, the seed's floor beside it
 
 
+# (SEARCHD1; the manager, 24 Nov 13:48: the floor for every seeded run) POE2_SEARCH_SEED_FLOOR=0 turns it off, for measuring
+# its cost only
+SEED_FLOOR = os.environ.get("POE2_SEARCH_SEED_FLOOR", "1") != "0"
+
+
 def attempt_floor(run: Run) -> bool:
-    """(SEARCHD1) A run with an origin (Continue) finalizes its seed beside the best: the floor."""
-    return getattr(run.request, "origin", None) is not None and bool(run.payload["request"].get("seed_code"))
+    """(SEARCHD1) Every run with a readable seed code (a pasted build, Continue) finalizes its seed beside the best: the
+    floor it never falls below."""
+    return SEED_FLOOR and bool(run.payload["request"].get("seed_code"))
 
 
 def tree_nodes(code: str | None) -> set[int]:

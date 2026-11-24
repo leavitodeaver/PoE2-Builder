@@ -136,3 +136,14 @@ def test_the_continue_route_builds_the_request_from_the_saved_result(tmp_path, m
         with pytest.raises(HTTPException) as caught:
             post(**body)
         assert caught.value.status_code == code
+
+
+def test_every_seeded_run_gets_the_floor(monkeypatch):
+    """(the manager, 24 Nov 13:48) a pasted build code, not only Continue: the run finalizes the seed beside its best."""
+    from builder.search import run as run_module
+
+    seeded = SimpleNamespace(payload={"request": {"seed_code": "eNoL"}}, request=SimpleNamespace(origin=None))
+    fresh = SimpleNamespace(payload={"request": {"seed_code": None}}, request=SimpleNamespace(origin=None))
+    assert run_module.attempt_floor(seeded) and not run_module.attempt_floor(fresh)
+    monkeypatch.setattr(run_module, "SEED_FLOOR", False)
+    assert not run_module.attempt_floor(seeded)
