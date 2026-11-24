@@ -1198,6 +1198,18 @@ def power_support_rate(name: str, stats: dict) -> tuple[float, str]:
 # second (stats["_full_break_rate"], the Armour Break model's) x the chance, when the support is on the main skill
 # (stats["_endurance_supports"], set by Conditions.evidence from the main group's gems); on another skill only: 0, said
 # (that skill's own Heavy Stuns / Breaks aren't rated here: an undercount there).
+# (MECHC59, an UNDERCOUNT on a side skill and an OVERCOUNT on the main one) "when Supported Skills Fully Break Armour"
+# counts only the Full Breaks the supported skill completes. The boss's Full Breaks a second come from every source
+# (_armour_broken: the main skill's lines, the other hitting groups' Breaks from break_others, Full Break events); each
+# is credited to a skill at that skill's share of the Armour broken a second (the hit that completes a Full Break falls
+# on a source in proportion to the Armour it breaks; MEDIUM): a side group carrying Armour Break II / III gains chance x
+# Full Breaks x its share (stats["_endurance_side_breaks"]; its row of _break_others over stats["_break_rate_all"], the
+# total _armour_broken saw), the main skill chance x Full Breaks x the rest (its own lines, Rending Apex, Mark for Death /
+# Brittle Armour). Before, the main skill took every Full Break and a side skill none. Without the split (Ferocious
+# Roar's path) the main skill keeps all, as before, and a side skill reads 0, said. The gem's description is one line a
+# copy and II and III share it: the total is split over the copies the build's lines hold
+# (stats["_endurance_text_count"]), so two copies can't double it. Enduring Impact on a side skill stays 0, said (the
+# side skills' Heavy Stuns aren't rated: they share the boss's one stun bar, SIDE_BREAK_SKIP).
 ENDURANCE_SUPPORTS = {"Enduring Impact I": ("stun", 1.0), "Enduring Impact II": ("stun", 3.0),
                       "Armour Break II": ("break", 0.15), "Armour Break III": ("break", 0.20)}
 ENDURANCE_SUPPORT_TEXT = {
@@ -1210,16 +1222,48 @@ ENDURANCE_SUPPORT_TEXT = {
 def endurance_support_rate(kind: str, stats: dict) -> tuple[float, str]:
     """(Endurance Charges a second, how) for an ENDURANCE_SUPPORTS support of `kind` ("stun" / "break"); see above."""
     value, name = (stats.get("_endurance_supports") or {}).get(kind, (0.0, ""))
+    if kind == "break":
+        return _break_endurance(value, name, stats)
     if value <= 0:
-        return 0.0, ("the support isn't on the main skill (another skill's Heavy Stuns / Full Breaks aren't rated here): 0"
-                     if kind else "")
-    if kind == "stun":
-        stuns, how = models.heavy_stun_rate(stats)
-        return value * stuns, (f"{name}: {value:g} a Heavy Stun of the boss (a Unique) x {stuns:.3f} Heavy Stuns/s "
-                               f"({how}); its non-Unique chance needs adds: none on a lone boss")
+        return 0.0, ("the support isn't on the main skill (another skill's Heavy Stuns aren't rated here: they share the "
+                     "boss's one stun bar): 0" if kind else "")
+    stuns, how = models.heavy_stun_rate(stats)
+    return value * stuns, (f"{name}: {value:g} a Heavy Stun of the boss (a Unique) x {stuns:.3f} Heavy Stuns/s "
+                           f"({how}); its non-Unique chance needs adds: none on a lone boss")
+
+
+def _break_endurance(value: float, name: str, stats: dict) -> tuple[float, str]:
+    """(Endurance Charges a second, how) from Armour Break II / III on the main skill (`value`, `name`; 0 if it isn't
+    there) and on the other groups (stats["_endurance_side_breaks"]: [(chance, gem, skill)]); see ENDURANCE_SUPPORTS'
+    note. The result is one copy's part of the total: the build's lines hold the shared description once a copy."""
+    sides = stats.get("_endurance_side_breaks") or []
+    if value <= 0 and not sides:
+        return 0.0, "the support isn't on a skill that Breaks the boss's Armour: 0"
     breaks = number(stats.get("_full_break_rate"))
-    return value * breaks, (f"{name}: {value:.0%} x {breaks:.3f} Full Breaks of the boss's Armour/s (the Armour Break "
-                            "model's)" if breaks > 0 else f"{name}: nothing Fully Breaks the boss's Armour: 0")
+    who = name or ", ".join(sorted({gem for _, gem, _ in sides}))
+    if breaks <= 0:
+        return 0.0, f"{who}: nothing Fully Breaks the boss's Armour: 0"
+    total = number(stats.get("_break_rate_all"))
+    scale = number(stats.get("_break_side_scale")) or 1.0
+    rows = {o[0]: number(o[1]) * scale for o in stats.get("_break_others") or []}
+    rate, parts = 0.0, []
+    for chance, gem, skill in sides:
+        if total <= 0:
+            parts.append(f"{gem} on {skill}: 0 (the other groups' Breaks aren't split out on this path)")
+            continue
+        mine = min(1.0, rows.get(skill, 0.0) / total)
+        rate += chance * breaks * mine
+        parts.append(f"{gem} on {skill}: {chance:.0%} x {breaks:.3f} Full Breaks/s x {mine:.0%} (its share of the "
+                     "Armour broken)")
+    if value > 0:
+        main = max(0.0, 1.0 - sum(rows.values()) / total) if total > 0 else 1.0
+        rate += value * breaks * main
+        parts.append(f"{name} on the main skill: {value:.0%} x {breaks:.3f} Full Breaks of the boss's Armour/s"
+                     + (f" x {main:.0%} (the rest of the Armour broken; the other groups complete the others)"
+                        if main < 1 else ""))
+    copies = max(1, int(number((stats.get("_endurance_text_count") or {}).get("break")) or 1))
+    split = f"; the support's line is held {copies} times, each carrying 1/{copies}" if copies > 1 else ""
+    return rate / copies, "; ".join(parts) + f" (the Armour Break model's, MEDIUM{split})"
 
 
 # Magma Barrier (MECHC36; PATCH_CHECK K2-6, an OVERCOUNT): "imbues your Shield with lava over time. When fully imbued,
@@ -5355,12 +5399,14 @@ def _armour_broken(lines: list[str], stats: dict) -> tuple[float, str]:
     if scaled:
         rate, share = rate * scale, share * scale
         how.insert(0, f"each Break takes x{scale:.2f} Armour ({scaled})")
+    side_scale = 1.0
     if others:  # (their own more is in each; the build's "Break X% increased Armour" lines apply to them too)
         side_scale = break_amount_scale(lines, {})[0]
         rate += sum(o[1] for o in others) * side_scale
         how.append("beside the main skill: " + " | ".join(o[2] for o in others)
                    + (f" (x{side_scale:.2f} from the build's Break lines)" if side_scale != 1 else ""))
     rate += share * armour
+    stats["_break_rate_all"], stats["_break_side_scale"] = rate, side_scale  # (MECHC59: _break_endurance's split)
     to_break = 0.0 if armour <= 0 else (armour / rate if rate > 0 else float("inf"))
     held = models.full_break_duration(lines)  # (12 s x the Armour Break Duration lines)
     up = held / (held + to_break)
@@ -11240,6 +11286,24 @@ class Conditions:
                     found_supports[kind] = (value, gem["name"])
             if found_supports:
                 stats["_endurance_supports"] = found_supports
+        side_breaks = []  # (MECHC59: Armour Break II / III on another group; ENDURANCE_SUPPORTS' note)
+        for each in self.build.groups():
+            if each.get("main") or each.get("enabled") is False or (
+                    main_group is not None and each.get("index") == main_group.get("index")):
+                continue
+            gems = [g for g in each.get("gems") or [] if g.get("enabled", True)]
+            best = max(((ENDURANCE_SUPPORTS[g["name"]][1], g["name"]) for g in gems
+                        if ENDURANCE_SUPPORTS.get(g["name"], ("",))[0] == "break"), default=None)
+            if best:
+                side_breaks += [(best[0], best[1], g["name"]) for g in gems if not g.get("support")]
+        if side_breaks:
+            stats["_endurance_side_breaks"] = side_breaks
+        counts: dict[str, int] = {}
+        for line in lines:
+            if (kind := ENDURANCE_SUPPORT_TEXT.get(line["text"].strip())) is not None:
+                counts[kind] = counts.get(kind, 0) + 1
+        if counts:
+            stats["_endurance_text_count"] = counts
         power_supports = {}  # (MECHC54: POWER_SUPPORTS' note)
         for each in self.build.groups():
             if each.get("enabled") is False:
@@ -11687,6 +11751,9 @@ class Conditions:
             if RIVEN_SKILL not in gem_types and (blades := self.runeforged_uses(gems)):
                 armour_stats["_runeforged_uses"] = blades  # (MECH98: its Attacks Consume the Full Break; RUNEFORGED's note)
             up, basis = _armour_broken(texts, armour_stats)
+            for key in ("_break_rate_all", "_break_side_scale"):  # (MECHC59: _break_endurance's split)
+                if key in armour_stats:
+                    stats[key] = armour_stats[key]
             self.riven_share = number(armour_stats.get("_riven_share"))  # (GEM3's riven_armour_model reads it)
             self.riven_how = basis if self.riven_share > 0 else ""
             if number(armour_stats.get("_battershout_rate")) > 0:  # (models.battershout_model reads it)
