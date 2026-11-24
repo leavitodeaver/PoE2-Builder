@@ -163,6 +163,19 @@ def floors_at_full_uptime(checks: list[dict], penalties: list, stats: dict, floo
                 break
 
 
+def same_state_text(xml: str | None) -> str | None:
+    """(SPEED2, on loan; the work clock only, POE2_SEARCH_WORK_CLOCK=1, read here because gate4 --work sets it after this
+    module is imported) A state's XML as Run.diverge compares it. PoB writes an item's alternative bases in an order LuaJIT
+    picks anew in each process (PERF16; replay.table_order_free), so two workers' copies of one build can read as different
+    states, and whether a duplicate line gets its kick then changes from run to run (2b75d POE2T7818-7820: the same seed
+    kicked different round-1 lines). Off the work clock the comparison stays as it was."""
+    if xml and os.environ.get("POE2_SEARCH_WORK_CLOCK", "0") == "1":
+        from builder.pob.replay import table_order_free
+
+        return table_order_free(xml)
+    return xml
+
+
 SEED_STRIDE = 1_000_003  # (Run.seed_base: well past every task seed a run makes on its own)
 
 
@@ -350,7 +363,7 @@ class Run:
             state = args.get("state")
             if not state:
                 continue
-            key = (Skeleton(**args["skeleton"]).label, args.get("goal") or "", state.get("xml"))
+            key = (Skeleton(**args["skeleton"]).label, args.get("goal") or "", same_state_text(state.get("xml")))
             if key in seen and not state.get("restarted"):
                 args["state"] = {**state, "restarted": True}
                 marked += 1

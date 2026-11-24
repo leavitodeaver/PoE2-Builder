@@ -89,3 +89,28 @@ def test_on_the_workers_clock_is_swapped_once_and_only_on_a_cpu_clock_run(restor
     wrapped = engine.call
     inner.use_cpu_clock({inner.CPU_CLOCK: True}, engine)
     assert clock.now.__self__ is first.__self__ and engine.call is wrapped
+
+
+def _diverge_marks(xmls):
+    from builder.search.run import Run
+    from builder.search.skeletons import Skeleton
+
+    skeleton = Skeleton("Monk", "Acolyte of Chayula", "Explosive Transmutation", "Wand", None, "Shield").as_dict()
+    tasks = [("builder.search.inner:optimize_task", {"skeleton": skeleton, "goal": None, "state": {"xml": x}}) for x in xmls]
+    Run.diverge(tasks)
+    return [bool(args["state"].get("restarted")) for _, args in tasks]
+
+
+ONE_ORDER = "<Item>|{base:1}Tideseer Mantle|{base:3}Runemastered Tideseer Mantle|</Item>".replace("|", chr(10))
+OTHER_ORDER = "<Item>|{base:3}Runemastered Tideseer Mantle|{base:1}Tideseer Mantle|</Item>".replace("|", chr(10))
+ANOTHER_BUILD = "<Item>|{base:1}Tideseer Mantle|{base:2}Runeforged Tideseer Mantle|</Item>".replace("|", chr(10))
+
+
+def test_on_the_work_clock_one_build_in_two_table_orders_is_a_duplicate_line(monkeypatch):
+    monkeypatch.setenv("POE2_SEARCH_WORK_CLOCK", "1")
+    assert _diverge_marks([ONE_ORDER, OTHER_ORDER, ANOTHER_BUILD]) == [False, True, False]
+
+
+def test_off_the_work_clock_the_duplicate_check_is_as_it_was(monkeypatch):
+    monkeypatch.delenv("POE2_SEARCH_WORK_CLOCK", raising=False)
+    assert _diverge_marks([ONE_ORDER, OTHER_ORDER, ONE_ORDER]) == [False, False, True]
