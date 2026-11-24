@@ -251,6 +251,12 @@ def _stats(skill: dict) -> list[dict]:
     return out
 
 
+# (COV56) Flags PoB reads only to show a Configuration box (ConfigOptions' ifFlag; coverage.CONFIG_BOX_ONLY's check, done for
+# each: no other reader in PoB's Modules, Classes or Data). A line's such flag makes nothing count, so never_on doesn't take
+# it for an unconditional modifier (Eldritch Empowerment's flag beside its box-only 30% more).
+BOX_FLAGS = frozenset({"ApplyCriticalWeakness", "EldritchEmpowerment", "UnwillingOffering", "HitsCanInflictHoarfrost"})
+
+
 def never_on(mods: list[dict], setters: Setters) -> list[tuple[str, str, str]]:
     """The needs of a line that can't be met: [(need, status, detail)] for statuses never and config-off, when EVERY
     modifier of the line has one (a line parsed into several modifiers, "for each type of Elemental Ailment", still counts
@@ -269,7 +275,8 @@ def never_on(mods: list[dict], setters: Setters) -> list[tuple[str, str, str]]:
         if blocked:
             blocked_mods += 1
             out += [b for b in blocked if b not in out]
-    unconditional = sum(1 for mod in mods or [] if not [n for n in needs([mod]) if "{" not in n])
+    unconditional = sum(1 for mod in mods or [] if not [n for n in needs([mod]) if "{" not in n]
+                        and not (mod.get("n") in BOX_FLAGS and mod.get("t") == "FLAG"))
     return out if out and blocked_mods == checked and not unconditional else []
 
 

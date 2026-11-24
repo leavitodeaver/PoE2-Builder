@@ -378,6 +378,39 @@ BUFF_MAKING_STATS = {
 # (vendor PathOfBuilding-PoE2): those two places and the flag's writers (ModParser 4636-4640, the statMap). Other
 # ifFlag-gated names are NOT listed: several are read another way (UsesWarcryPower by its tag, above; the ailments'
 # "CanStack" and "inflict" flags by concatenation, CalcOffence 5230-5637), so each needs its own check.
+# (COV56, the manager's 09:13 item 2) Conditions a gem stat's statMap puts its modifier under that only a Configuration box
+# sets, which the optimizer never ticks: the stat's name is read, but under a condition that never holds, so nothing is
+# counted. The coverage dump gives a gem stat's mod names, not their tags, so gem_stat_box_conditions reads the tags from
+# PoB's skill files. Checked both ways (grep over PoB's Modules, Classes and Data, ModCache aside; and builder/ + bridge.lua
+# for the box names): Moved2m is set only by ConfigOptions 499-502 (Momentum's "Moved 2m during Skill use?", ifFlag
+# CanPerformSkillWhileMoving); HitProjectileRecently only by ConfigOptions 1146-1147 (conditionHitProjectileRecently) and
+# the ModParser tag for item lines (which models.projectile_hit_recently_model reads by their text, not by the condition).
+# NOT listed: conditions a model sets or replaces (Elemental Discharge's Freeze / Ignite / ShockConsumed boxes,
+# models.DISCHARGE_BOXES; the Whirlwind buff, bridgeConditionWhirlwindBuff; Innervate's KilledShockedLast3Seconds, which
+# assumptions' crit-uptime model replaces), enemy-side ones the generic check misreads (Enfeeble's Unique) and skill-part
+# ones (ReturningProjectile): scratch/cov56/gemcond.py lists the 25 candidates.
+GEM_BOX_CONDITIONS = {
+    "Moved2m": "Momentum's \"Moved 2m during Skill use?\" box (ConfigOptions 499-502)",
+    "HitProjectileRecently": "\"Have you Hit with a Proj. Att. Recently?\" (ConfigOptions 1146-1147)",
+}
+
+
+@lru_cache(maxsize=1)
+def gem_stat_box_conditions(src: Path = POB_SRC) -> dict[str, str]:
+    """{gem stat: the box} for stats whose every statMap modifier needs a GEM_BOX_CONDITIONS condition (PoB's skill files)."""
+    found: dict[str, str] = {}
+    for path in [src / "Data" / "SkillStatMap.lua", *sorted((src / "Data" / "Skills").glob("*.lua"))]:
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for m in re.finditer(r'\["([^"]+)"\]\s*=\s*\{(.*?)\n\t*\},', text, re.S):
+            mods = re.findall(r'(?:mod|flag|skill)\((.*?)\)\s*,?\s*$', m.group(2), re.M)
+            needs = [set(re.findall(r'type = "Condition", var = "(\w+)"', x)) & set(GEM_BOX_CONDITIONS) for x in mods]
+            if mods and all(needs):
+                found[m.group(1)] = GEM_BOX_CONDITIONS[sorted(needs[0])[0]]
+    return found
+
+
 CONFIG_BOX_ONLY = {
     "ApplyCriticalWeakness": (
         "PoB only shows its Configuration box from it (ConfigOptions 1908-1912, ifFlag; no default): nothing counts the "
@@ -1172,6 +1205,9 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                         status, entry, reason = "none", None, "PoB maps the stat to nothing"
                     elif names and all(n in CONFIG_BOX_ONLY for n in names):
                         status, entry, reason = "none", None, CONFIG_BOX_ONLY[names[0]]
+                    elif box := gem_stat_box_conditions().get(name):
+                        status, entry, reason = "none", None, (f"PoB counts it only under a condition {box} sets, which "
+                                                               "the optimizer never ticks (GEM_BOX_CONDITIONS)")
                     elif name in BUFF_MAKING_STATS:
                         status, entry, reason = "pob", None, BUFF_MAKING_STATS[name]
                     elif missing := unread(names, reads):
@@ -1642,15 +1678,20 @@ def _build_index(data_dir: str) -> dict:
     for skill in raw["skills"]:
         names = skill.get("gems") or []
         names = list(names.values()) if isinstance(names, dict) else names
+        if not names and skill["id"].endswith(("Player", "PlayerTwo", "PlayerThree")):
+            names = [skill["name"]]  # (COV56) an item-granted skill (Malice) is listed by its own name in a build
         for set_ in skill.get("sets") or []:
             stats = set_.get("stats") or []
             for stat in list(stats.values()) if isinstance(stats, dict) else stats:
                 name = stat["stat"]
                 if stat_mechanic(name) in ("flavour", "unclassified") or stat_covered(covered, name, skill["name"]) or gem_stat_pattern_entry(name, skill["name"]):
                     continue
-                if stat.get("mapped") and stat.get("names") and not unread(stat["names"], reads):
+                boxed = bool(stat.get("names") and all(n in CONFIG_BOX_ONLY for n in stat["names"])) or \
+                    name in gem_stat_box_conditions()  # (COV56: the audit's own two rules)
+                if stat.get("mapped") and stat.get("names") and not unread(stat["names"], reads) and not boxed:
                     continue
                 reason = "PoB never reads this gem stat" if not stat.get("mapped") else \
+                    "PoB counts this gem stat only behind a Configuration box nothing ticks" if boxed else \
                     "PoB maps this gem stat to nothing a calculation reads"
                 for gem in names:
                     entry = gems.setdefault(gem, [])

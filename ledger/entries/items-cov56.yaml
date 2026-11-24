@@ -58,3 +58,19 @@
     (a small overcount), the ground's radius and magnitude not in any file. A link only.
   sources: ["builder/search/conditions.py (THUNDEROUS_LEAP_STAT, leap_ground_rate, _leap_ground)"]
   status: proposed
+
+# The manager's 09:13 item 2: parse_audit.BOX_FLAGS stops a box-only flag from making a line look live, which surfaced this
+# line as never-on; a model on main reads it.
+- id: model-read-cov56-eldritch-empowerment-more
+  title: "Eldritch Empowerment's 30% more Spell damage when the sacrifice is fully made (models.eldritch_empowerment_model)"
+  kind: pob_gap
+  model: eldritch_empowerment
+  match: '^Spells for which this Sacrifice was fully made deal (\(\d+-\d+\)|\d+)% more Damage$'
+  replace: []
+  confidence: MEDIUM
+  notes: >-
+    models.EMPOWERMENT_MORE (MECHB30): PoB gives the 30% only under its eldritchEmpowermentSacrifice box
+    (Condition:EldritchEmpowermentSacrifice, ConfigOptions 229-232), which nothing ticks; the model hands it to PoB as
+    "N% more Spell Damage" at 30% x the share of the main Spell's casts the build's ES pays for. A link only.
+  sources: ["builder/search/models.py (EMPOWERMENT_MORE, eldritch_empowerment_model)"]
+  status: proposed
