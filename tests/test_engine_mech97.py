@@ -196,15 +196,24 @@ def test_brinks_flag_reaches_the_supported_main_skill_only(engine):
     """models.brink_mods tags Brink's group's skills; the bridge's Flag:MechBrink reads it on the main skill."""
     from builder.search import models
 
+    # (MECH106: the manager's 24 Nov 12:53 note, one order-dependent failure inside a whole part 3; the engine can be shared
+    # across modules, so the test sets its own state: no assumption mods left from an earlier test, a fresh build and
+    # config; it clears what it set even when it fails, and the assert names the state if it ever fails again)
+    engine.call("setAssumptions", mods=[], fields=[])
     engine.call("newBuild")
+    engine.call("resetConfig")
     engine.call("setLevel", level=90)
     engine.call("addSkillGroup", text="Boneshatter 20/0 1\nBrink II 1/0 1", main=True)
-    groups = engine.call("groups")["groups"]
-    mods, _ = models.brink_mods(groups)
-    engine.call("setAssumptions", mods=mods, fields=[])
-    on = engine.call("stats", fields=[f"Flag:{models.MECH_BRINK}"])[f"Flag:{models.MECH_BRINK}"]
-    engine.call("setAssumptions", mods=[models.raw_mod(models.MECH_BRINK, "FLAG", 1, skill="Leap Slam")], fields=[])
-    off = engine.call("stats", fields=[f"Flag:{models.MECH_BRINK}"])[f"Flag:{models.MECH_BRINK}"]
-    print("PROBE brink flag", [m.get("skill") for m in mods], on, off)
-    engine.call("setAssumptions", mods=[], fields=[])
-    assert on is True and off is False
+    try:
+        groups = engine.call("groups")
+        mods, _ = models.brink_mods(groups["groups"])
+        engine.call("setAssumptions", mods=mods, fields=[])
+        on = engine.call("stats", fields=[f"Flag:{models.MECH_BRINK}"])[f"Flag:{models.MECH_BRINK}"]
+        engine.call("setAssumptions", mods=[models.raw_mod(models.MECH_BRINK, "FLAG", 1, skill="Leap Slam")], fields=[])
+        off = engine.call("stats", fields=[f"Flag:{models.MECH_BRINK}"])[f"Flag:{models.MECH_BRINK}"]
+        state = (groups.get("mainSocketGroup"), [n.get("name") for g in groups["groups"] for n in g.get("gems") or []],
+                 [(s.get("name"), s.get("disabled"), s.get("wrongWeapon")) for s in engine.call("activeSkills")["skills"]])
+        print("PROBE brink flag", [m.get("skill") for m in mods], on, off, state)
+    finally:
+        engine.call("setAssumptions", mods=[], fields=[])
+    assert on is True and off is False, state

@@ -4592,8 +4592,9 @@ class Assumptions:
         rod_mods, rod_notes = models.rod_model(found, stats, main)
         hand_mods, hand_notes = hand_mods + rod_mods, hand_notes + rod_notes
         texts = [e["text"] for e in source_lines]
-        if any(p.match(t.strip()) for t in texts for p in (models.CW_PRESENCE, models.CW_SPELL_CRIT, models.CW_PARRY,
-                                                            models.CW_WARCRY, models.CW_MARK)):  # (MECH81, K3-1)
+        malice = self.malice_rate(build)  # (MECH106, COV56 U2: Malice's aura, models.MALICE's note)
+        if malice or any(p.match(t.strip()) for t in texts for p in (models.CW_PRESENCE, models.CW_SPELL_CRIT,
+                                                                     models.CW_PARRY, models.CW_WARCRY, models.CW_MARK)):
             cries = (0.0, "")
             if any(models.CW_WARCRY.match(t.strip()) for t in texts):
                 cries = conditions_mod.event_rates(
@@ -4603,7 +4604,7 @@ class Assumptions:
             cw_metres = (models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10
                          or natural_distance(main_types, name or ""))
             cw_mods, cw_notes = models.critical_weakness_mods(
-                models.critical_weakness_stacks(texts, found, stats, main, cw_metres, cries))
+                models.critical_weakness_stacks(texts, found, stats, main, cw_metres, cries, malice))
             hand_mods, hand_notes = hand_mods + cw_mods, hand_notes + cw_notes
         agg_supports = set(supports.get(main.group) or ()) & {models.RUPTURE, models.RUSTED_SPIKES} if (
             main is not None and main.group is not None) else set()  # (MECH103: Rupture / Rusted Spikes on the main)
@@ -6161,6 +6162,22 @@ class Assumptions:
         return {"name": best.get("name"), "mult": number(best["cullMultiplier"]),
                 "hits": number(best.get("speed")) * (number(best.get("hitChance")) or 100.0) / 100.0,
                 "hitDps": number(best.get("hitDPS")) * count, "split": best.get("cullSplit") or {}}
+
+    def malice_rate(self, build) -> tuple[float, float] | None:
+        """(MECH106, models.MALICE's note) (Malice's application interval in ms, its duration in s with the build's
+        modifiers: PoB's output.Duration for its group, else the base 4 s) when an enabled Malice runs, else None."""
+        best = None  # (the build's strongest Malice where it has two, e.g. a socketed group and the sceptre's own)
+        for skill in build.call("activeSkills", levelStats=[models.MALICE])["skills"]:
+            every = models.number((skill.get("levelStats") or {}).get(models.MALICE_STAT))
+            if skill["name"] != models.MALICE or skill.get("disabled") or every <= 0:
+                continue
+            rows = build.call("useRates", indices=[skill["group"]])["rates"] if skill.get("group") else []
+            lasts = next((models.number(r.get("duration")) for r in rows
+                          if str(r.get("name") or "").startswith(models.MALICE)), 0.0)
+            held = (lasts or models.CRIT_WEAKNESS_SECONDS) / every
+            if best is None or held > best[0]:
+                best = (held, every, lasts)
+        return best[1:] if best else None
 
     def empowered_uses(self, stats: dict, support: str | None = "Murderous Intent",
                        only: str | None = None) -> tuple[float, str]:

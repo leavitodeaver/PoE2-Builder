@@ -1,4 +1,5 @@
 """MECH106: aggravate_model's ledger guard goes by the source line, not by one wording (COV55's Handover part 7)."""
+import math
 import re
 
 from builder import ledger
@@ -90,3 +91,11 @@ def test_an_icestorm_main_skill_leaves_the_boss_unchilled_after_each_consume():
     assert conditions.chilled_share({**aura, conditions.CHILL_CONSUMES: 1.5}) == 0.0
     ground = {"_chilled_ground": (0.5, ""), conditions.CHILL_CONSUMES: 0.5}
     assert abs(conditions.chilled_share(ground) - 0.25) < 1e-9
+
+
+def test_malice_holds_duration_over_interval_stacks_inside_the_presence():
+    inside = models.critical_weakness_stacks([], [], {"PresenceRadius": 40}, None, 2.0, malice=(510, 4.0))
+    assert abs(inside[0] - 4.0 / 0.51) < 1e-9 and "Malice" in inside[1] and "refreshed" in inside[1]
+    assert models.critical_weakness_stacks([], [], {"PresenceRadius": 40}, None, 6.0, malice=(510, 4.0))[0] == 0.0
+    assert models.critical_weakness_stacks([], [], {"PresenceRadius": 40}, None, 2.0, malice=(100, 4.0))[0] == 20.0
+    assert models.critical_weakness_stacks([], [], {"PresenceRadius": 40}, None, 2.0, malice=(500, 0.0))[0] == 8.0

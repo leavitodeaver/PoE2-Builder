@@ -15057,15 +15057,39 @@ CW_SPELL_CRIT = re.compile(r"^Critical Hits with Spells apply (\d+) Stacks? of C
 CW_PARRY = re.compile(r"^Parrying applies (\d+) Stacks? of Critical Weakness$", re.I)
 CW_WARCRY = re.compile(r"^Warcries inflict (\d+) Critical Weakness on Enemies$", re.I)
 CW_MARK = re.compile(r"^Apply (\d+) Critical Weakness to Enemies when Consuming a Mark on them$", re.I)
+# Malice (MECH106; COV56's U2, an UNDERCOUNT: no reader). ActiveSkills malice "While active, emits an Aura that continuously
+# inflicts Critical Weakness on enemies in your Presence" (the Omen Sceptre's and Font of Power's skill); MalicePlayer
+# critical_chance_against_aura_apply_brittle_every_x_ms 700 (level 1) .. 510 (level 20), base_skill_effect_duration 4000,
+# quality +50 ms a % (PoB act_int.lua MalicePlayer; game 26650308 GrantedEffectStatSets / PerLevel). The game names the
+# stat "brittle", so the "critical_weakness" stat search behind CW_PRESENCE's list missed it (checked by COV56: all 26
+# "brittle" Stats ids over GrantedEffectStatSets / PerLevel, Mods, PassiveSkills). PoB maps it to the ApplyCriticalWeakness
+# flag only, which unlocks the config box nothing ticks. Here: while the boss stands in your Presence, one stack every
+# interval, each lasting the skill's duration with the build's modifiers (PoB's output.Duration for its group), so
+# duration / interval stacks held, capped at 20. Reading (MEDIUM): each application is a new stack on its own timer
+# (BuffDefinitions' Critical Weakness MergeMode 1 / UIStackMode 4 / BuffLimit 0, independent stacks: RESEARCH35 R35-8);
+# the other reading, one stack refreshed, is shown as a row (0.5%).
+MALICE, MALICE_STAT = "Malice", "critical_chance_against_aura_apply_brittle_every_x_ms"
 
 
 def critical_weakness_stacks(texts: list[str], skills: list[Skill], stats: dict, main: Skill | None,
-                             metres: float, warcries: tuple[float, str] = (0.0, "")) -> tuple[float, str]:
-    """(Critical Weakness stacks held on the boss, how) from the build's own sources (see the note above)."""
+                             metres: float, warcries: tuple[float, str] = (0.0, ""),
+                             malice: tuple[float, float] | None = None) -> tuple[float, str]:
+    """(Critical Weakness stacks held on the boss, how) from the build's own sources (see the note above). `malice`:
+    (its application interval in ms, its duration in s) when the build runs Malice (MALICE's note)."""
     def total(pattern: re.Pattern) -> float:
         return sum(float(m.group(1)) for t in texts if (m := pattern.match(t.strip())))
 
     held, parts = 0.0, []
+    if malice and malice[0] > 0:
+        radius = number(stats.get("PresenceRadius")) / 10
+        every, lasts = malice[0] / 1000, malice[1] if malice[1] > 0 else CRIT_WEAKNESS_SECONDS
+        if radius >= metres:
+            held += lasts / every
+            parts.append(f"Malice: a stack every {every:.2f} s while the boss is in your Presence ({radius:.1f} m, the boss "
+                         f"{metres:g} m away), each {lasts:g} s: {lasts / every:.1f} (each a new stack on its own timer, "
+                         "MEDIUM, R35-8; if one stack were refreshed instead: 1)")
+        else:
+            parts.append(f"Malice: your Presence ({radius:.1f} m) doesn't reach the boss {metres:g} m away: 0")
     if n := total(CW_PRESENCE):
         radius = number(stats.get("PresenceRadius")) / 10
         if radius >= metres:
