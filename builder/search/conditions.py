@@ -4063,7 +4063,10 @@ DEBUFF_DURATION = 4.0
 # so nothing set its Maimed box from it; PoB's own Maim is "Evasion INC -15" on a Maimed actor (CalcSetup 70-71, the 30%
 # slow beside it). Maim in PoE2 adds no damage taken (R57-8: game files + poe2db; the old support's line has no current
 # carrier), so the gain is the boss's 15% less Evasion against your attack hits (and "against Maimed Enemies" lines). Read
-# from the main skill's supports only: a minion's or a side skill's own Maim isn't read (an UNDERCOUNT, named).
+# from the main skill's supports and (MECH106) every other group's supported Attack, at its side_hit_rows hits (a Mirage
+# Archer's or a triggered Attack's at PoB's rate). A minion's own Maim isn't read (an UNDERCOUNT, named; checked:
+# bridge.activeSkills lists env.player.activeSkillList only). Maim from item / passive lines isn't read here (whether PoB
+# sets the box from any of them: UNVERIFIED, not probed).
 MAIM_STAT = "maim_on_hit_%"
 DEBUFFS = {  # var: (the verb, the participle)
     "conditionEnemyBlinded": ("blind", "blinded"),
@@ -9949,22 +9952,42 @@ class Conditions:
                  f"into the supported form ({how}), kept {kept:.0%} (no other change in its soak; without that loss: "
                  f"{shifts:.2f}/s); a lump, so the Rage maximum caps it")]
 
-    def _support_maim(self, stats: dict, main_types: set[str], texts: list[str]) -> tuple[float, str] | None:
-        """(MECH105) (share of the fight the boss is Maimed by the main skill's supports' maim_on_hit_%, how), or None
-        (MAIM_STAT's note)."""
-        if "Attack" not in main_types or not self.main_skill:
+    def _support_maim(self, stats: dict, main_types: set[str], texts: list[str],
+                      side_rows: list[dict] | None = None) -> tuple[float, str] | None:
+        """(MECH105; MECH106: the side Attacks too) (share of the fight the boss is Maimed by the build's Attacks whose
+        supports carry maim_on_hit_%, how), or None (MAIM_STAT's note): the main skill at its own hits (when it is an
+        Attack), each other group's supported Attack at its side_hit_rows hits (PoB's trigger rate, else its use rate at
+        the press choices, x hit chance), every hit's roll taken as independent."""
+        if not self.main_skill:
             return None
-        chance = sum(number((s.get("supportStats") or {}).get(MAIM_STAT)) for s in self.build.call(
-            "activeSkills", supportStats=[MAIM_STAT])["skills"] if s["name"] == self.main_skill and not s.get("disabled"))
-        chance = min(max(chance, 0.0), 100.0) / 100.0
-        if chance <= 0:
+        main_index = self.build.call("groups").get("mainSocketGroup")
+        found = [(s["name"], s.get("group"), min(max(number((s.get("supportStats") or {}).get(MAIM_STAT)), 0.0), 100.0) / 100)
+                 for s in self.build.call("activeSkills", supportStats=[MAIM_STAT])["skills"]
+                 if not s.get("disabled") and s.get("attack")]
+        found = [f for f in found if f[2] > 0]
+        if not found:
             return None
-        own = models.at_main_share(stats)
-        hits = number(own.get("Speed")) * min(number(own.get("HitChance")) or 100.0, 100.0) / 100.0
         duration = DEBUFF_DURATION * models.duration_scale(list(texts), "maim")
-        up = 1.0 - (1.0 - chance) ** (hits * duration) if hits > 0 else 0.0
-        return up, (f"the Maim support on {self.main_skill}: {chance:.0%} a hit, {hits:.2f} hits/s, {duration:g} s each: "
-                    f"{up:.0%} up (MECH105; PoB's Maimed enemy takes -15% Evasion, CalcSetup 71)")
+        events, parts = [], []  # ((1 - chance), hits a second)
+        for name, group, chance in found:
+            if name == self.main_skill and group in (main_index, None):
+                if "Attack" not in main_types:
+                    continue
+                own = models.at_main_share(stats)
+                hits = number(own.get("Speed")) * min(number(own.get("HitChance")) or 100.0, 100.0) / 100.0
+                where = f"the main skill, {name}"
+            else:
+                row = next((r for r in side_rows or () if r.get("index") == group and r.get("name") == name), None)
+                hits = number((row or {}).get("hits"))
+                where = f"{name} beside it ({(row or {}).get('how') or 'no hits read for it: 0'})"
+            if hits > 0:
+                events.append((1.0 - chance, hits))
+                parts.append(f"{where}: {chance:.0%} a hit, {hits:.2f} hits/s")
+        if not events:
+            return None
+        up = 1.0 - math.prod(miss ** (hits * duration) for miss, hits in events)
+        return up, (f"the Maim support: {'; '.join(parts)}; {duration:g} s each: {up:.0%} up (MECH105 / MECH106; PoB's "
+                    "Maimed enemy takes -15% Evasion, CalcSetup 71)")
 
     def _leap_ground(self, stats: dict) -> tuple[float, float, str] | None:
         """(MECH105) (Leaps a second that Detonate a Spear, chance, how) for shocked_ground, or None with no quality chance
@@ -11541,8 +11564,6 @@ class Conditions:
         stats["_debuff_extra"] = ({"conditionEnemyIntimidated": (
             1 - math.prod(1 - min(max(u, 0.0), 1.0) for u, _ in intimidated), "; ".join(h for _, h in intimidated))}
             if intimidated else {})
-        if maimed := self._support_maim(stats, main_types, texts):  # (MECH105: the Maim support, MAIM_STAT's note)
-            stats["_debuff_extra"]["conditionEnemyMaimed"] = maimed
         stats["_stationary"] = (not self.stationary_off and not self.moving
                                 and any(STATIONARY_LINE.search(t) for t in texts))
         # (MECH67) the boss's Power with the build's Power lines (models.boss_power): Glory, the roar's Empowers
@@ -11689,6 +11710,9 @@ class Conditions:
         self._side_twisters(stats["_side_rows"])  # (MECHC47: SIDE_TWISTER's note)
         self._side_galvanic(stats["_side_rows"], group_rows, stats, groups_all.get("mainSocketGroup"))  # (MECHC48: SIDE_GALVANIC's note)
         self.build.side_rows = list(stats["_side_rows"] or [])
+        # (MECH105 / MECH106: the Maim support on the main skill and on the side Attacks, MAIM_STAT's note)
+        if maimed := self._support_maim(stats, main_types, texts, stats["_side_rows"]):
+            stats["_debuff_extra"]["conditionEnemyMaimed"] = maimed
         side = side_hits(group_rows, groups_now, hitters, groups_all.get("mainSocketGroup"), models.press_choices(self.build))
         stats["_side_hits"] = side if side[0] > 0 else None
         stats["_gem_line_texts"] = {line["text"] for line in lines if str(line.get("source") or "").startswith("gem:")}
