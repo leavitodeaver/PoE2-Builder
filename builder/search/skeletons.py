@@ -223,7 +223,7 @@ def passive_offhand_archetypes(ctx: Context, skill: str, ascendancy: str, weapon
     """(weapon, sub-type, offhand, passive): off hands a passive lets a main hand hold (game_rules.yaml
     off_hand.passive_exceptions: Instruments of Power, a Disciple of Varashta notable, lets a caster Staff hold a
     Focus), for this ascendancy and request (its offhand choice, banned passives and item classes). A `named_only` rule
-    (Giant's Blood) counts only when the request names both its main-hand type and an off-hand weapon, so the open
+    (Giant's Blood) counts only when the request names both its main-hand type and that off hand's kind, so the open
     search's setups don't multiply; with `named_only=True`, only those rules (for a skill a passive or unique grants)."""
     rules = game_rules()
     choice = Offhand(ctx.request.offhand)
@@ -232,7 +232,10 @@ def passive_offhand_archetypes(ctx: Context, skill: str, ascendancy: str, weapon
     mains = None
     for rule in rules.passive_exceptions:
         passive, offhand = rule["passive"], rule["off_hand"]
-        if (rule.get("named_only") and (choice != Offhand.WEAPON or ctx.request.weapon_type != rule["main_hand"])) \
+        # (a named_only pair is named by the request's main-hand type and its off-hand kind: "weapon" for a Sceptre or a
+        # martial weapon, "shield" for a Shield; SEARCHB8)
+        named_kind = _OFFHAND_CHOICES.get(offhand, (Offhand.ANY, Offhand.WEAPON))[1]
+        if (rule.get("named_only") and (choice != named_kind or ctx.request.weapon_type != rule["main_hand"])) \
                 or (named_only and not rule.get("named_only")):
             continue
         if passive in ctx.compiled.filters.forbidden_passives or offhand in forbidden \

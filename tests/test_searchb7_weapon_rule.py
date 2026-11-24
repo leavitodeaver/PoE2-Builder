@@ -108,3 +108,28 @@ def test_a_seed_whose_main_skill_is_on_weapon_set_two_keeps_both_sets():
     assert skeleton is not None and skeleton.swap_weapon == "Crossbow"
     skeleton, found = seed_skeleton(ctx, facts("Crossbow Shot", "One Hand Mace"))  # (no crossbow held: still refused)
     assert skeleton is None and "default attack" in found[0]
+
+
+def test_giants_blood_offers_each_off_hand_kind_a_second_source_backs_when_named():
+    """(SEARCHB8; the manager's 23:08 ruling) a named Two Hand Mace takes a second two-handed mace or a one-handed mace with
+    the request's "weapon" off hand, and a Shield with "shield"; never a Focus; the open search is unchanged."""
+    weapon = context(main_skill="Earthshatter", ascendancies=["Titan"], weapon_type="Two Hand Mace", offhand="weapon")
+    pairs = {(s.offhand, s.requires_passive) for s in enumerate_skeletons(weapon, ["Earthshatter"])[0]
+             if s.weapon == "Two Hand Mace"}
+    assert {("Sceptre", "Giant's Blood"), ("Two Hand Mace", "Giant's Blood"), ("One Hand Mace", "Giant's Blood")} <= pairs
+    shield = context(main_skill="Earthshatter", ascendancies=["Titan"], weapon_type="Two Hand Mace", offhand="shield")
+    assert {(s.weapon, s.offhand, s.requires_passive) for s in enumerate_skeletons(shield, ["Earthshatter"])[0]} \
+        == {("Two Hand Mace", "Shield", "Giant's Blood")}
+    focus = context(main_skill="Earthshatter", ascendancies=["Titan"], weapon_type="Two Hand Mace", offhand="focus")
+    assert not enumerate_skeletons(focus, ["Earthshatter"])[0]
+    open_search = context(main_skill="Earthshatter", ascendancies=["Titan"])
+    assert not any(s.requires_passive == "Giant's Blood" for s in enumerate_skeletons(open_search, ["Earthshatter"])[0])
+
+
+def test_a_seed_keeps_giants_blood_dual_maces_and_a_shield():
+    ctx = context(ascendancies=["Titan"])
+    for off in ("Two Hand Mace", "Shield", "One Hand Mace"):
+        skeleton, notes = seed_skeleton(ctx, facts("Earthshatter", "Two Hand Mace", off, passives=["Giant's Blood"]))
+        assert (skeleton.weapon, skeleton.offhand, skeleton.requires_passive) == ("Two Hand Mace", off, "Giant's Blood")
+        skeleton, notes = seed_skeleton(ctx, facts("Earthshatter", "Two Hand Mace", off))  # (no keystone: not legal)
+        assert skeleton.offhand != off and notes
