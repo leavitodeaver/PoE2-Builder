@@ -17359,6 +17359,35 @@ GLORY_FROM_WARD = {"Skyfall": 1.0}
 GLORY_GAIN_EVERY = 0.5
 
 
+# Glory's decay (MECHC57; AUDIT37 W4, a latent OVERCOUNT): KeywordPopups Glory, "Skills lose 2 Glory per second if they haven't
+# gained Glory in the past 15 seconds" (patch 0.3.0). The sentence excepts no skill; the Banner exception in the next one is
+# about GAINING while active, so Banners decay too. Worked from the gap between the skill's own gains, taken as regular: the
+# Glory banked between gains decays 2 x (gap - 15) a gap, so a skill whose one gain pays for a use (Hammer of the Gods: 20 a
+# Heavy Stun, 20 a use) never decays, while one that banks several gains does (a Banner's 200). Glory from Life or Ward
+# spent is taken as continuous (no decay).
+GLORY_DECAY_AFTER, GLORY_DECAY_PER_SECOND = 15.0, 2.0
+
+
+def glory_after_decay(glory: float, gains: float, needed: float) -> float:
+    """Glory a second that still pays for uses, from `glory` a second in `gains` regular gains a second, for a use costing
+    `needed` (GLORY_DECAY_AFTER's note); 0 when the decay eats each gain before the bank reaches `needed`."""
+    if glory <= 0 or gains <= 0 or needed <= 0:
+        return glory
+    gap = 1 / gains
+    if gap <= GLORY_DECAY_AFTER:
+        return glory
+    each, lost = glory * gap, GLORY_DECAY_PER_SECOND * (gap - GLORY_DECAY_AFTER)
+    bank, count = 0.0, 0
+    while True:
+        bank += each
+        count += 1
+        if bank >= needed - 1e-9:
+            return needed / (count * gap)
+        bank = max(bank - lost, 0.0)
+        if each <= lost or count > 10000:
+            return 0.0
+
+
 def merged_gains(main_events: float, uses: float, side_events: float) -> float:
     """(MECHC56; GLORY_ROWS' note) Glory gains per second on one boss from the main skill's `main_events` a second
     (used `uses` times a second, glory_gains' rhythm) and the other skills' `side_events` a second at random."""
@@ -17613,6 +17642,7 @@ def glory_plan(names: list[str], stats: dict, main: Skill | None, skills: list[S
     for name in dict.fromkeys(names):
         banner = name.endswith("Banner")
         extra = []
+        gain_events = 0.0  # (MECHC57: the skill's own gains a second, for Glory's decay)
         if name in GLORY_SKILLS:
             cost, gains = GLORY_SKILLS[name]
             if power != BOSS_POWER:
@@ -17629,6 +17659,7 @@ def glory_plan(names: list[str], stats: dict, main: Skill | None, skills: list[S
                 main_rate = sum(events.get(e, 0.0) for e in gains)
                 kept = merged_gains(main_rate, speed, rate - main_rate) / rate
                 glory *= kept
+                gain_events = rate * kept
                 how += (f", at most one gain per {GLORY_GAIN_EVERY:g} s on the boss ({kept:.0%} of them count"
                         + ("; the other skills' events at random beside the main skill's rhythm, merged_gains" if side_uses > 0 else "") + ")")
                 stated = [e for e in gains if e in GLORY_STATED and own[e] > 0]
@@ -17657,20 +17688,24 @@ def glory_plan(names: list[str], stats: dict, main: Skill | None, skills: list[S
             continue
         if lines["flat"]:
             glory += lines["flat"]
+            gain_events += 0.5  # ("every 2 seconds")
             extra.append(f"+{lines['flat']:g}/s ('generate N Glory every 2 seconds')")
         if banner and lines["banner_flat"]:
             glory += lines["banner_flat"]
+            gain_events += 1.0  # ("per second")
             extra.append(f"+{lines['banner_flat']:g}/s ('Banners gain N Glory per second')")
         if lines["presence"] and stats.get("_boss_in_presence") is False:
             # (MECHC50, an OVERCOUNT before for a build standing outside its Presence: counted at any distance)
             extra.append(f"'for each Rare or Unique monster in your Presence': 0, {stats.get('_boss_presence_how') or 'the boss outside your Presence'}")
         elif lines["presence"]:
             glory += lines["presence"]
+            gain_events += 1.0
             extra.append(f"+{lines['presence']:g}/s from the boss in your Presence ("
                          + (stats.get("_boss_presence_how") or "kept in it: a play note, LOW") + ")")
         if marked > 0:  # (MECHC26, H3-4: Quipolatl's Thesis)
             gain = marked / glory_kinds * lines["mark"] * cost
             glory += gain
+            gain_events += marked / glory_kinds
             extra.append(f"+{gain:.2f}/s from Mark Activations ({marked_how}: {marked:.3f}/s, {lines['mark']:.0%} of its "
                          f"{cost} Glory each" + (f", 1 in {glory_kinds} going to it" if glory_kinds > 1 else "")
                          + "; maximum Glory taken as the Glory a use requires, UNVERIFIED)")
@@ -17682,6 +17717,15 @@ def glory_plan(names: list[str], stats: dict, main: Skill | None, skills: list[S
         if needed != cost:
             extra.append(f"{needed:.0f} Glory needed a use (chance not to consume / retain"
                          + (", the Banner's refund on expiry, LOW" if banner and lines["refund"] else "") + ")")
+        if name not in GLORY_FROM_LIFE and name not in GLORY_FROM_WARD:  # (MECHC57: GLORY_DECAY_AFTER's note)
+            kept_glory = glory_after_decay(glory, gain_events, needed)
+            if kept_glory < glory:
+                extra.append(f"one gain every {1 / gain_events:.0f} s, so the banked Glory loses {GLORY_DECAY_PER_SECOND:g} a "
+                             f"second past {GLORY_DECAY_AFTER:g} s without one: {glory:.2f} -> {kept_glory:.2f} Glory/s")
+                if kept_glory <= 0:
+                    parts.append(f"{name}: {how} ({'; '.join(extra)}), never")
+                    continue
+                glory = kept_glory
         held = GLORY_INSTANCE.get(name, 0.0)
         every = held + needed / glory
         cooldown = cooldowns.get(name, 0.0)

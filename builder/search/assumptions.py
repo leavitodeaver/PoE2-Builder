@@ -1042,8 +1042,8 @@ def siphoning_model(found: list, stats: dict, main, groups: list[dict], mark_arg
 # (ModCache 7234-7235, {nil, ...}): "Eat a Soul when you Hit an enemy with an Open Weakness" (UniqueSoulEaterOpenWeakness1,
 # gain_soul_eater_when_hitting_a_rare_or_unique_enemy_that_has_open_weakness) and "Eat a Soul when you Hit a Unique Enemy,
 # no more than once every 0.5 seconds" (the Vaal-cultivated UniqueMutatedVaalGainSoulEaterStackOnHit,
-# gain_soul_eater_stack_on_hit_vs_unique_cooldown_ms 500). (No patch-note line for either: grep_notes --history "Soul
-# Eater|Eat a Soul|Open Weakness"; not proof of no change.) Simulated over the fight: the main skill's hits
+# gain_soul_eater_stack_on_hit_vs_unique_cooldown_ms 500). (Patch notes for Soul Eater: 0.2.0, 0.3.0, 0.4.0, and the newest,
+# 0.5.4 Hotfix 3, "always gives 1%" skill speed per stack, the 1% used here; AUDIT37 P7.) Simulated over the fight: the main skill's hits
 # (models.hits_per_second; other skills' hits not counted, an undercount) eat one each, the Unique line at most one per
 # its cooldown all fight, the Open Weakness line while the boss has one. The boss's Open Weakness (KeywordPopups
 # RevealWeakness: "45% of their maximum Life (but in random segments)"; poe2wiki Open Weakness: "45% of the target's life

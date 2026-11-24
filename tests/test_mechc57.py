@@ -51,22 +51,24 @@ def test_primal_hunger_keeps_the_line_reader():
     assert c.rage_held([PRIMAL], {**STATS, "RageRegenRecovery": 9.0})[0] == 0  # (a refund with nothing gained)
 
 
-def test_a_channelled_main_skill_says_the_reading_is_unverified():
+def test_a_channel_counts_regeneration_only_outside_it():
+    """The manager's ruling (R55-8): headline outside the channel; "works during the channel" is the row."""
     stats = {**STATS, "RageRegenRecovery": 8.0, "_main_channel_rage": True, "_rage_spend": {"Rampage": 5.0}}
-    held, how = c.rage_held([], stats)
-    assert held == 40 and "UNVERIFIED" in how and "0.00 Rage/s gained, none held" in how  # (the other reading)
+    held, how = c.rage_held([], dict(stats))  # (the channel all fight: no regeneration, nothing held)
+    assert held == 0 and "UNVERIFIED" in how and "8.00 Rage/s gained, 3.00/s net" in how
+    held, how = c.rage_held([], {**stats, "_main_share": 0.25, "_rage_spend": {"Rampage": 1.25}})
+    assert held == 40 and "6.00 Rage/s gained" in how and "8.00 Rage/s gained, 6.75/s net" in how
+    assert c.rage_held([], {**stats, "_main_channel_rage": False})[0] == 40  # (no channel: regeneration counts)
 
 
-def test_walking_calamity_regenerates_only_during_its_buff():
-    """AUDIT37: its 300 Rage a minute, while the buff is up (from its Glory uptime); none without uptime."""
-    assert c.CALAMITY_REGEN == 5
-    assert c.calamity_rage(0, 40, 0, 0.0, 10) == 0
-    assert c.calamity_rage(0, 40, 0, 1.0, 10) == pytest.approx((8 * 20 + 2 * 40) / 10)  # (climbs 8 s to 40, stays 2 s)
-    assert c.calamity_rage(0, 40, 0, 0.5, 10) == pytest.approx(12)
-    assert c.calamity_rage(10, 40, -6, 1.0, 10) == 10  # (spending more than it regenerates: no climb)
-    assert c.rage_held([], dict(STATS, _calamity_up=(0.0, "x"))) == (0.0, "")
-    held, how = c.rage_held([], dict(STATS, _calamity_up=(0.5, "from its Glory")))
-    assert held == 12 and "Walking Calamity" in how
+def test_glory_decays_only_while_banked_past_15_seconds_without_a_gain():
+    from builder.search import models as m
+
+    assert m.glory_after_decay(2.0, 1.0, 200) == 2.0  # (gains 1 s apart: no decay)
+    assert m.glory_after_decay(20 / 30, 1 / 30, 20) == pytest.approx(20 / 30)  # (one gain pays for a use: nothing banked)
+    # 100 a gain, 30 s apart, 200 a use: 100, loses 30 -> 70, +100 = 170, loses 30 -> 140, +100 = 240 >= 200: 3 gains
+    assert m.glory_after_decay(100 / 30, 1 / 30, 200) == pytest.approx(200 / 90)
+    assert m.glory_after_decay(10 / 60, 1 / 60, 200) == 0.0  # (each gain decays away before the next)
 
 
 SNIPER = ("Mark a target. The next Critical Hit the target receives Activates the Mark, Consuming it to deal extra "

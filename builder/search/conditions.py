@@ -2807,7 +2807,7 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
     own_hits = not (stats.get("_main_channel_rage") or False)
     gain, events, how, refund = 0.0, 0.0, [], 0.0
     regen_total = rage_regen_total(lines, stats)  # (MECHC57: RAGE_REGEN_FIELD's note)
-    regenerating, regen_gain = regen_total > 0, regen_total
+    regenerating, regen_gain, regen_events = regen_total > 0, regen_total, 1.0 if regen_total > 0 else 0.0
     if regenerating:
         gain, events = regen_total, 1.0
         how.append(f"{regen_total:.2f} Rage/s regenerated (PoB's total, with its increases)")
@@ -2833,6 +2833,7 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
             continue
         regenerating = regenerating or (is_regen and r[0] > 0)
         regen_gain += r[0] if is_regen else 0.0
+        regen_events += r[1] if is_regen else 0.0
         gain, events = gain + r[0], events + r[1]
         how.append(f"{text[:60]} ({r[2]})")
     calamity = stats.get("_calamity_up") or (0.0, "")  # (MECHC57: CALAMITY_REGEN's note)
@@ -2856,11 +2857,19 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
     if spent:
         basis += f", {spent:.2f}/s spent by " + ", ".join(f"{n} {v:.2f}/s" for n, v in spend.items())
     if regenerating and not own_hits:
-        share = _main_share(stats)  # (the other reading, a row until RESEARCH55 settles it)
-        other = gain - regen_gain * share
-        basis += (" (regeneration counted while the channelled main skill is used, which says it \"cannot gain Rage\": "
-                  f"UNVERIFIED; if that stops regeneration for its {share:.0%} of the fight: {other:.2f} Rage/s gained, "
-                  + ("none held" if other <= spent else f"{other - spent:.2f}/s net") + ")")
+        # (THE MANAGER 14:28, R55-8, MEDIUM-LOW, UNVERIFIED: the headline counts regeneration only OUTSIDE the channel; patch
+        # 0.4.0 calls regeneration a means of gaining Rage, and the stat names no exception. "It works during the channel" is
+        # the row. The channel's share is the main skill's share of the fight. A shorter, recast channel is a way to feed it.)
+        share = _main_share(stats)
+        during = gain
+        gain -= regen_gain * share
+        events = max(events - regen_events * share, 0.0)
+        regenerating = regen_gain * (1 - share) > 0
+        basis = basis.replace(f"{during:.2f} Rage/s gained", f"{gain:.2f} Rage/s gained", 1)
+        basis += (f" (regeneration {regen_gain:.2f}/s counted only outside the channelled main skill, {share:.0%} of the fight, "
+                  "which says \"Cannot gain Rage while using this Skill\": R55-8, UNVERIFIED; row, if regeneration works during "
+                  f"the channel: {during:.2f} Rage/s gained, " + ("none held" if during <= spent else f"{during - spent:.2f}/s net")
+                  + "; shorter recast channels regenerate between them)")
     if not regen_total and number(stats.get(RAGE_REGEN_FIELD)) > 0:
         basis += " (PoB's regeneration total not used beside Primal Hunger: other regeneration may be undercounted)"
     net = gain - spent
