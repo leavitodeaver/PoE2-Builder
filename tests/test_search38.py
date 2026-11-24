@@ -128,20 +128,16 @@ def test_the_ascendancy_unlock_trial_runs_only_behind_its_switch(engine, monkeyp
 
 def test_the_requests_extra_passive_points_join_the_budget(engine):
     """(R54-7, the manager's ruling: 0 to 2, default 0) The Martyr of the First Edict's and Olroth's Boon's points."""
-    from types import SimpleNamespace
-
     from pydantic import ValidationError
 
     from builder.request.schema import BuildRequest
-    from builder.search.inner import boss_config
 
     assert BuildRequest().extra_passive_points == 0
     assert BuildRequest(extra_passive_points=2).extra_passive_points == 2
     with pytest.raises(ValidationError):
         BuildRequest(extra_passive_points=3)
-    assert boss_config(SimpleNamespace(extra_passive_points=2)) == {"extraPassivePoints": 2}
-    assert boss_config(SimpleNamespace(extra_passive_points=0)) == {}
 
+    engine.call("setExtraPoints", points=0)
     row = json.loads(ORACLE.read_text(encoding="utf-8"))["rows"][0]
     engine.call("loadXml", xml=codes.decode(row["code"]))
     plain = engine.call("pointBudget")["passives"]
@@ -149,14 +145,80 @@ def test_the_requests_extra_passive_points_join_the_budget(engine):
         add_main_node(engine)
     add_main_node(engine)
     assert over(engine) == 1
+    state = engine.call("exportXml")["xml"]
     try:
-        engine.call("resetConfig", extraPassivePoints=1)
+        engine.call("setExtraPoints", points=1)
         assert engine.call("pointBudget")["passives"] == plain + 1
         assert over(engine) == 0
+        engine.call("loadXml", xml=state)  # (a task resumed from a saved state keeps them)
+        assert engine.call("pointBudget")["passives"] == plain + 1 and over(engine) == 0
     finally:
-        engine.call("resetConfig")  # (a request without the field puts the budget back)
+        engine.call("setExtraPoints", points=0)
     assert engine.call("pointBudget")["passives"] == plain
     assert over(engine) == 1
+
+
+@pytest.mark.parametrize("past, kept", [(2, True), (3, False)])
+def test_an_import_up_to_two_points_over_keeps_its_tree(engine, past, kept):
+    """(the manager, 23 Nov 20:12) Up to 2 points over: a real character's tree isn't trimmed, and the result says why.
+    More than 2: trimmed as before, and said. The allowance is the seed line's alone."""
+    from dataclasses import replace
+
+    from builder.request.schema import BuildRequest
+    from builder.search import objective
+    from builder.search.context import make_payload
+    from builder.search.inner import Search, seed_task
+    from builder.search.skeletons import Skeleton
+
+    engine.call("setExtraPoints", points=0)
+    row = json.loads(ORACLE.read_text(encoding="utf-8"))["rows"][0]
+    engine.call("loadXml", xml=codes.decode(row["code"]))
+    budget = engine.call("pointBudget")["passives"]
+    while engine.call("pointBudget")["used"] < budget + past:
+        add_main_node(engine)
+    code = codes.encode(engine.call("exportXml")["xml"])
+
+    payload = make_payload(BuildRequest.model_validate({**row["request"], "seed_code": code}))
+    found = seed_task(engine, None, payload)
+    skeleton = found["skeleton"]
+    said = [n for n in found["notes"] if "beyond the standard budget" in n]
+    assert skeleton["import_points"] == (past if kept else 0)
+    assert bool(said) is kept
+    if kept:
+        assert f"uses {past} passive point(s)" in said[0] and "Martyr" in said[0] and "Olroth" in said[0]
+
+    search = Search(engine, None, payload, skeleton, 0)
+    search.setup_seed(quests=False)
+    used = search.build.call("pointBudget")["used"]
+    trimmed = [n for n in search.seed_notes if "over a level" in n]
+    if kept:
+        assert used == budget + past and not trimmed
+        assert search.build.stats[objective.POINTS_OVER] == 0
+    else:
+        assert used == budget and trimmed
+
+    # The search's own lines keep the plain budget, on the same engine
+    own = replace(Skeleton(**skeleton), seeded=False, import_points=0).as_dict()
+    Search(engine, None, payload, own, 0)
+    assert engine.call("pointBudget")["passives"] == budget
+
+
+def test_pobs_too_many_points_warning_stands_only_past_the_extra_points(engine):
+    """PoB's own limit (Build.lua: 99 + quest points) doesn't know the extra points."""
+    engine.call("setExtraPoints", points=0)
+    row = json.loads(ORACLE.read_text(encoding="utf-8"))["rows"][0]
+    engine.call("loadXml", xml=codes.decode(row["code"]))
+    engine.call("setLevel", level=100)
+    budget = engine.call("pointBudget")["passives"]
+    while engine.call("pointBudget")["used"] < budget + 1:
+        add_main_node(engine)
+    line = "too many passive points"
+    assert any(line in w for w in engine.call("facts", fields=[])["warnings"])
+    try:
+        engine.call("setExtraPoints", points=1)
+        assert not any(line in w for w in engine.call("facts", fields=[])["warnings"])
+    finally:
+        engine.call("setExtraPoints", points=0)
 
 
 def test_the_build_reads_its_real_skill_slots(engine):

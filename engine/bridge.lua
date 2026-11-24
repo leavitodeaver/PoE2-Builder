@@ -1641,8 +1641,8 @@ end
 -- 1053: points used less the smaller weapon set's, over level - 1 + quest points + ExtraPoints; a weapon set over its
 -- own allowance; ascendancy points over 8), from a calculation's own allocated nodes, so a what-if adding nodes counts
 -- them too. treeCheck reports the same numbers for the committed tree.
--- (SEARCH38, R54-7) the request's extra passive points (0-2: the Martyr of the First Edict, Olroth's Boon), which no
--- build file records; resetConfig sets them for the request being searched
+-- (SEARCH38, R54-7) the extra passive points (0-2: the Martyr of the First Edict, Olroth's Boon), which no build file
+-- records; every Search sets them (bridge.setExtraPoints), so a task resumed on another engine keeps them
 local extraPassivePoints = 0
 
 local function pointsOver(allocNodes, output, granted)
@@ -4603,7 +4603,6 @@ local BOSS_HITS_DEFAULT = { enemyPhysicalDamage = 1074, enemyFireDamage = 1282, 
 -- modifiers, and the boss's resistances (args.boss, else BOSS_DEFAULT). Only the campaign quest
 -- choices stay; they're free picks, not conditions. So does the broken-face count (campaign progress, BOSS_FACES_BROKEN).
 function bridge.resetConfig(args)
-	extraPassivePoints = args and args.extraPassivePoints or 0
 	local configTab = build.configTab
 	local id = configTab.activeConfigSetId
 	local old = configTab.configSets[id]
@@ -6784,6 +6783,16 @@ function bridge.pointBudget()
 	}
 end
 
+-- (SEARCH38) The passive points beyond level and quests for the build being searched
+function bridge.setExtraPoints(args)
+	local points = args.points or 0
+	if points ~= extraPassivePoints then
+		extraPassivePoints = points
+		recalc()
+	end
+	return { points = extraPassivePoints }
+end
+
 -- Commit an attribute choice (1 Strength, 2 Dexterity, 3 Intelligence, 4-6 Traveller's Wisdom's
 -- Damage, defences or Cost Efficiency) on allocated nodes
 function bridge.setAttributes(args)
@@ -7121,8 +7130,12 @@ function bridge.facts(args)
 	end
 	table.sort(items, function(a, b) return a.slot < b.slot end)
 	local warnings = { }
+	-- (SEARCH38) PoB's own limit doesn't know the extra points: its warning stands only if they don't cover the tree
+	local covered = extraPassivePoints > 0 and pointsOver(build.spec.allocNodes, build.calcsTab.mainOutput) == 0
 	for _, line in ipairs(build.controls.warnings and build.controls.warnings.lines or { }) do
-		warnings[#warnings + 1] = tostring(line)
+		if not (covered and tostring(line):find("too many passive points", 1, true)) then
+			warnings[#warnings + 1] = tostring(line)
+		end
 	end
 	local summary = bridge.summary()
 	summary.skillGroups = skillGroups

@@ -41,6 +41,9 @@ class Skeleton:
     swap_sub: str | None = None
     swap_offhand: str | None = None
     seeded: bool = False  # starts from the request's PoB code (the seed) instead of from scratch
+    # (SEARCH38, the manager 23 Nov 20:12) points an imported character holds past the budget, kept up to 2 in all:
+    # R53-3 / R54-7's Martyr of the First Edict and Olroth's Boon
+    import_points: int = 0
     # A passive the off hand needs (game_rules.yaml off_hand.passive_exceptions: Instruments of Power lets a Staff
     # hold a Focus); the search allocates it (inner.Search.setup)
     requires_passive: str | None = None

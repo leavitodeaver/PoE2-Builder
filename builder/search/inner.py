@@ -16,6 +16,7 @@ import os
 import random
 import re
 import time
+from dataclasses import replace
 from typing import Any, Callable
 
 from builder import clock
@@ -139,6 +140,8 @@ class Search:
         self.ctx: Context = context_for(payload)
         self.skeleton = Skeleton(**skeleton)
         self.build = Build(engine, self.ctx, Objective(self.ctx, full, goal=goal), report, self.skeleton.label)
+        # (SEARCH38) the point budget's extras, on this engine, for a fresh or a resumed task alike
+        engine.call("setExtraPoints", points=self.ctx.request.extra_passive_points + self.skeleton.import_points)
         self.rng = random.Random(seed)
         self.gems = Gems(self.build)
         self.gems.rng = self.rng
@@ -1954,17 +1957,16 @@ def boss_config(request: Any) -> dict:
     """resetConfig's `boss` argument when the request names a boss (MECH50's presets, builder/search/bosses.py): {} for
     none, and while bosses.py isn't in this tree, so the bridge writes its own default (the Arbiter of Ash once 95eceb1
     lands, PoB's otherwise)."""
-    extra = {"extraPassivePoints": n} if (n := getattr(request, "extra_passive_points", 0)) else {}  # (SEARCH38, R54-7)
     name = getattr(request, "boss", None)
     if not name:
-        return extra
+        return {}
     try:
         from builder.search import bosses
     except ImportError:
-        return extra
+        return {}
     from builder.search import boss_hits  # (its hits per damage type, MECHC6; resetConfig's default is the default's)
 
-    return {**extra, "boss": bosses.config_vars(name), "bossHits": boss_hits.config_vars(name)}
+    return {"boss": bosses.config_vars(name), "bossHits": boss_hits.config_vars(name)}
 
 
 def boss_stats(request: Any) -> dict:
@@ -1974,12 +1976,24 @@ def boss_stats(request: Any) -> dict:
     return {"_boss": name} if name else {}
 
 
+MAX_EXTRA_POINTS = 2  # (R54-7: the Martyr of the First Edict's and Olroth's Boon's, one each)
+
+
 def seed_task(engine: Any, report: Any, payload: dict) -> dict:
     """The skeleton of the request's PoB code, or why it can't be one."""
     ctx = context_for(payload)
+    extra = ctx.request.extra_passive_points
+    engine.call("setExtraPoints", points=extra)
     engine.call("loadXml", xml=codes.decode(ctx.request.seed_code))
     facts = engine.call("facts", fields=[])
     skeleton, notes = seed_skeleton(ctx, facts)
+    if skeleton is not None:  # (the manager 23 Nov 20:12: trimming a real character's tree makes it another build)
+        budget = engine.call("pointBudget")
+        over = budget["used"] - budget["passives"]
+        if over > 0 and extra + over <= MAX_EXTRA_POINTS:
+            skeleton = replace(skeleton, import_points=over)
+            notes.append(f"uses {extra + over} passive point(s) beyond the standard budget (the Martyr of the First "
+                         "Edict / Olroth's Boon, if this character has them)")
     return {"skeleton": skeleton.as_dict() if skeleton else None, "notes": notes}
 
 
