@@ -34,6 +34,7 @@ from builder.pob.engine import PobEngine
 from builder.request.constraints import FACT_FIELDS, main_skill
 from builder.request.schema import BuildRequest
 from builder.data import GameData
+from builder.search import legality  # (SEARCHC4, on loan: "illegal rares: N")
 from builder.search.assumptions import Assumptions
 from builder.search.context import Context, make_payload
 from builder.search.state import Build
@@ -347,12 +348,14 @@ def main() -> None:
         failing = [c["label"] for c in result.get("checks", []) if c["ok"] is False]
         judged = verdict(dps, bool(result.get("feasible")), reference_dps, fair["dps"], args.author_toggles)
         passed = judged["passed"]
+        rare_check = legality.check_gear(result.get("gear"))
         rows.append({"name": name, "skeleton": result.get("label"), "dps": dps, **judged,
                      "feasible": result.get("feasible"), "failing": failing, "request": request.model_dump(mode="json"), "code": result.get("code"),
                      "play_guide": result.get("play_guide"), "evaluations": result.get("evaluations"),
                      "wall_seconds": result.get("wall_seconds"), "workers": result.get("workers"),
                      "checks": result.get("checks"), "reapply_drift": result.get("reapply_drift"),
-                     "open_sockets": result.get("open_sockets"), "final_regrow": result.get("final_regrow")})  # (each floor's row: the sustain and recovery rows' delivered values)
+                     "open_sockets": result.get("open_sockets"), "final_regrow": result.get("final_regrow"),  # (each floor's row: the sustain and recovery rows' delivered values)
+                     "illegal_rares": rare_check["illegal_rares"], "rare_findings": rare_check["findings"]})
         rows[-1].update({"reference_dps_fair": fair["dps"], "ratio_fair": dps / fair["dps"] if fair["dps"] else None,
                          "reference_fair_short": fair["short"], "reference_fair_conditions": fair["conditions"],
                          "floors_from": "fair", "reference_pob_floors": fair["pob_floors"],
@@ -378,6 +381,7 @@ def main() -> None:
               + (f"; final regrow kept {', '.join(r['clear'] for r in kept)}" if (kept := [
                   r for r in result.get("final_regrow") or [] if r["kept"]]) else
                  ("; final regrow kept nothing" if result.get("final_regrow") else ""))
+              + f"; illegal rares: {rare_check['illegal_rares']}"
               + f"; {result.get('evaluations', 0):,} evaluations, {result.get('wall_seconds', 0):,.0f} s wall"
               + (" (work clock)" if args.work else " (processor-time clock)" if args.cpu else ""), flush=True)
     RESULT_DIR.mkdir(parents=True, exist_ok=True)
@@ -385,7 +389,8 @@ def main() -> None:
     out.write_text(json.dumps({"seconds": args.seconds, "cpu_clock": args.cpu, "work_clock": args.work, "seed_base": args.seed_base,
                                "hash_seed": os.environ.get("PYTHONHASHSEED"), "commit": commit(), "boss": BOSS, "verdict": "toggled" if args.author_toggles else "fair",
                                "priced_on": prices.league, "price_warnings": prices.warnings, "rows": rows}, indent=1), encoding="utf-8")
-    print(f"gate 4: {sum(r['passed'] for r in rows)}/{len(rows)} pass; wrote {out.relative_to(ROOT)}")
+    print(f"gate 4: {sum(r['passed'] for r in rows)}/{len(rows)} pass; illegal rares: "
+          f"{sum(r['illegal_rares'] for r in rows)}; wrote {out.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

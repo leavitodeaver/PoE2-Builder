@@ -267,8 +267,10 @@ class AffixPools:
         Greater / Perfect orb's `min_level`, rows at or above it, or a group's best row where none reaches it (R50)."""
         taken = {a.group for a in chosen}
         forbidden = {tag for a in chosen for tag in a.adds}
+        # (SEARCHC4: the legality check found Serle's fill offering a second skill-level suffix: Affix.group is the
+        # exclusion group, so a row is compared by its exclusion group too)
         rows = [(m, w) for m, w in self._side_rows(base_name, kind)
-                if m["group"] not in taken and not forbidden & excluded_by(m)]
+                if exclusion_group(m["group"]) not in taken and not forbidden & excluded_by(m)]
         best: dict[str, int] = {}
         for mod, _ in rows:
             best[mod["group"]] = max(best.get(mod["group"], 0), int(mod.get("level") or 0))
@@ -280,7 +282,8 @@ class AffixPools:
         real spawn weights can't be read from any source)."""
         rows = self._open_rows(base_name, target.type, chosen, min_level)
         total = sum(w for _, w in rows)
-        hit = sum(w for m, w in rows if m["group"] == target.group and int(m.get("level") or 0) >= target.level)
+        hit = sum(w for m, w in rows if exclusion_group(m["group"]) == target.group
+                  and int(m.get("level") or 0) >= target.level)
         return hit / total if total else 0.0
 
     def side_outcomes(self, base_name: str, kind: str, chosen: list[Affix], min_level: int = 0) -> list[tuple[Affix, int]]:

@@ -1390,7 +1390,7 @@ class Gear:
             return None
         material, mod_id = source
         mod = next((m for m in self.ctx.data.mods.get("Item", []) if m["id"] == mod_id), None)
-        if mod is None or mod.get("level", 0) > level or mod["group"] in {a.group for a in chosen}:
+        if mod is None or mod.get("level", 0) > level or exclusion_group(mod["group"]) in {a.group for a in chosen}:
             return None
         ssf = self.ctx.ssf
         prices = self.ctx.payload.get("augment_effect_prices") or {}
@@ -1533,10 +1533,12 @@ class Gear:
         groups = {a.group for a in chosen}
         rows = [(name, pools.affix(mod, mod["group"], mod["type"], 1, 1, (0.0, 0.0)), 0.0 if ssf else self.ctx.alloy_prices[name])
                 for name, mod in alloys.rows_for(base, level, self.alloy_mods)
-                if mod["type"] in limits and mod["group"] not in groups and (ssf or name in self.ctx.alloy_prices)]
+                if mod["type"] in limits and exclusion_group(mod["group"]) not in groups
+                and (ssf or name in self.ctx.alloy_prices)]
         if len(rows) < 2:
             return None
-        screen = self.deltas(slot, [rare_text(slot, base, level, chosen + [r[1]], runes=[ASTRID]) for r in rows])
+        # (each line screened alone, an item the game can hold: chosen + a line can be one modifier over the limit)
+        screen = self.deltas(slot, [rare_text(slot, base, level, [r[1]], runes=[ASTRID]) for r in rows])
         ranked = [r for _, _, r in sorted(((s, -n, r) for n, ((s, _), r) in enumerate(zip(screen, rows))),
                                           key=lambda x: x[:2], reverse=True)][:ASTRID_KEEP]
         plain = current - self.lam * rare_price(slot, chosen)
