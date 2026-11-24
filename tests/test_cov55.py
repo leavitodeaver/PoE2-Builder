@@ -32,9 +32,9 @@ def test_cov55_stats_are_read_and_scoped_to_their_skills():
             ("spike_slam_max_spikes", "Earthshatter", "model-read-cov55-gem38-limits"),
             ("cooldown_recovery_modifiers_also_apply_to_repeat_interval", "Align Fate", "model-read-cov55-align-fate-recovery")):
         assert coverage.stat_covered(covered, stat, skill) == ("model", entry_id), stat
-    for stat, skill in (("bell_hit_limit", "Hollow Focus"), ("bell_shockwave_cooldown_ms", "Hollow Focus"),
+    # (COV57: Hollow Focus's bell_hit_limit and Tempest Bell's ramp are read since TRAIN 140 (MECHB61): test_cov57)
+    for stat, skill in (("bell_shockwave_cooldown_ms", "Hollow Focus"),
                         ("cooldown_recovery_modifiers_also_apply_to_repeat_interval", "Ghost Dance"),
                         ("cooldown_recovery_modifiers_also_apply_to_repeat_interval", "Time of Need"),
-                        ("base_number_of_tempest_bells_allowed", "Tempest Bell"),
-                        ("tempest_bell_damage_+%_final_per_time_hit", "Tempest Bell")):
+                        ("base_number_of_tempest_bells_allowed", "Tempest Bell")):
         assert coverage.stat_covered(covered, stat, skill) is None, stat

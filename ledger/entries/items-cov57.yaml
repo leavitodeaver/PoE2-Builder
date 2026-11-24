@@ -1,0 +1,159 @@
+# COV57 (24 Nov 2026; COV43's rule: marked only where a model's own code reads the stat and the result reaches a number).
+# TRAIN 140's readers (6772c221..ffa001de, origin/main ffa001de), found by scratch/cov55/cands.py and the brief's list,
+# each checked against the code that names it. Links only: each adds nothing to PoB.
+#
+# Left open on purpose (each checked in the code):
+# - number_of_poison_cloud_allowed on Decompose (Gas Arrow / Gas Grenade are gems-gem35's; no model reads Decompose's);
+# - base_number_of_tempest_bells_allowed: still read by the all-Bells row only (not the headline; COV55's note);
+# - bell_shockwave_cooldown_ms on Hollow Focus (100 ms; no reader);
+# - Twister's twister_hit_interval_ms / twister_%_chance_for_additional_twister, Tornado Shot's
+#   base_number_of_tornado_shots_allowed / tornado_shot_projectile_range, Wardbound Minions' two, Volcano's
+#   volcano_delay_between_slams_ms / volcano_sustains_every_%_of_cast_time / volcano_base_number_of_geysers_allowed:
+#   no reader in TRAIN 140's code (grep of each id over builder/search and engine/bridge.lua: only comments, or nothing);
+# - triggered_by_support_electrocute_lineage_% (Voltaic Fulmination): not checked here.
+
+- id: model-read-cov57-charge-regulation-tick
+  title: "Charge Regulation's tick (one of each Charge every N s) read by conditions' charge resolver (MECHC58)"
+  kind: model
+  model: charge_regulation
+  stats: ["consume_frenzy_power_and_endurance_charge_every_x_ms"]
+  skill: [Charge Regulation]
+  confidence: MEDIUM
+  notes: >-
+    conditions.REGULATION_EVERY_STAT read from the gem's levelStats (10 s, +120 ms a quality %): the tick joins each
+    kind's consumers at 1 / interval, and charge_held_share works out the share of the fight each bonus is up
+    (Assumptions.regulation_mods). A link only.
+  sources: ["builder/search/conditions.py (REGULATION, REGULATION_EVERY_STAT, charge_held_share)"]
+  status: proposed
+
+- id: model-read-cov57-own-kept-charges
+  title: "A consumer's own chance not to remove the charge it consumes (conditions.OWN_KEPT_STATS, MECHC58)"
+  kind: model
+  model: charges
+  stats: ["charge_skip_consume_chance_%", "base_power_charge_skip_consume_chance_%"]
+  skill: [Perpetual Charge, Hollow Form, Barrage, Explosive Spear, Glacial Lance, Bonestorm, Charged Staff,
+          Falling Thunder, Flicker Strike, Oil Barrage]
+  confidence: MEDIUM
+  notes: >-
+    Read for each charge consumer from its levelStats (its own quality, either kind) and supportStats (Perpetual Charge's
+    25%), added to the global line, capped at 100% (Flicker Strike 75%). Hollow Form's Power-only quality counts because
+    Hollow Form holding the main skill is itself the Power consumer (conditions' consumer loop, `hollow and name ==
+    HOLLOW_FORM`). A link only.
+  sources: ["builder/search/conditions.py (OWN_KEPT_STATS, OWN_KEPT_CAP, the own_kept loop)"]
+  status: proposed
+
+- id: model-read-cov57-siphon-elements-fire-lightning
+  title: "Siphon Elements' Fire and Lightning Remnant chances read at the gem's level and quality (assumptions.SIPHON_NON_AILED)"
+  kind: model
+  model: infusions
+  stats: ["infusion_remnants_%_chance_to_spawn_fire_infusion_on_igniting_an_enemy",
+          "infusion_remnants_%_chance_to_spawn_lightning_infusion_on_shocking_an_enemy"]
+  skill: [Siphon Elements]
+  confidence: MEDIUM
+  notes: >-
+    siphon_rates reads both from levelStats (5% each without them) into siphon_freezes: the main skill's Ignites /
+    Shocks a second x the share landing on a boss carrying none (e^(-a x duration)). A link only.
+  sources: ["builder/search/assumptions.py (SIPHON_NON_AILED, siphon_rates)"]
+  status: proposed
+
+- id: model-read-cov57-powered-by-verisium-count
+  title: "Powered by Verisium's Infusions a cast read by assumptions.verisium_infusions (MECHC58)"
+  kind: model
+  model: infusions
+  stats: ["verisium_infusion_skill_number_of_verisium_infusion_to_grant"]
+  skill: [Powered by Verisium]
+  confidence: MEDIUM
+  notes: >-
+    1-5 by level (PoweredByVerisiumPlayer): read from levelStats (VERISIUM_COUNT_STAT) x the casts a second its Runic
+    Ward pays for (build.ward_sustain). A link only.
+  sources: ["builder/search/assumptions.py (VERISIUM_COUNT_STAT, verisium_infusions)"]
+  status: proposed
+
+- id: model-read-cov57-maim-support
+  title: "The Maim support's maim_on_hit_% read by conditions._support_maim (MECH105)"
+  kind: model
+  model: maim
+  stats: ["maim_on_hit_%"]
+  skill: [Maim]
+  confidence: MEDIUM
+  notes: >-
+    The main Attack's supports' maim_on_hit_% (supportStats) -> the Maimed share over Maim's 4 s, set as PoB's Maimed
+    condition (15% less Evasion on the boss). A side skill's own Maim isn't read (the model's own note). A link only.
+  sources: ["builder/search/conditions.py (MAIM_STAT, _support_maim)"]
+  status: proposed
+
+- id: model-read-cov57-tempest-bell-ramp
+  title: "Tempest Bell's quality ramp, N% more shockwave damage per Hit taken by the Bell (MECHB61)"
+  kind: model
+  model: tempest_bell
+  stats: ["tempest_bell_damage_+%_final_per_time_hit"]
+  skill: [Tempest Bell]
+  confidence: LOW
+  notes: >-
+    Read from levelStats (models.BELL_RAMP_STAT, 0.15 a quality point) into tempest_bell_model's ramp: the shockwaves
+    average 1 + r x (n - 1) / 2 of their damage (the lower reading). A link only.
+  sources: ["builder/search/models.py (BELL_RAMP_STAT, tempest_bell_model)", "builder/search/assumptions.py (the call)"]
+  status: proposed
+
+- id: model-read-cov57-hollow-focus-bell-limit
+  title: "Hollow Focus's bells break after 1 Hit (bell_hit_limit 1), held by the Hollow Focus models"
+  kind: model
+  model: hollow_focus
+  stats: ["bell_hit_limit"]
+  skill: [Hollow Focus]
+  confidence: MEDIUM
+  notes: >-
+    1 at every level (HollowFocusPlayer, game 26650308 and PoB other.lua): GEM30's model gives one shockwave a bell
+    (min(1 / repeat interval, PoB's rate)), and MECHB61's hollow_focus_alloy_note takes 1 + the Alloy's N Hits a bell.
+    (Tempest Bell's own bell_hit_limit is items-cov55's.) A link only.
+  sources: ["builder/search/models.py (HOLLOW_FOCUS's note, hollow_focus_alloy_note)"]
+  status: proposed
+
+- id: model-read-cov57-volcano-sprays
+  title: "Volcano's sprays every 0.5 s and its 10-Slam limit held by the Volcano model's constants (MECHB61, R57-5)"
+  kind: model
+  model: volcano
+  stats: ["volcano_fires_projectiles_every_x_ms", "volcano_slam_unscalable_limit"]
+  skill: [Volcano]
+  confidence: LOW
+  notes: >-
+    500 and 10 at every level (VolcanoPlayer, game 26650308) = models.VOLCANO_SPRAY_EVERY 0.5 and VOLCANO_SLAM_LIMIT 10,
+    in the headline since MECHB61 (sprays a second = casts x uptime / 0.5 + the build's Slams on it, at most 10 a
+    Volcano). LOW is the model's (the spray's reach). A link only.
+  sources: ["builder/search/models.py (VOLCANO_SPRAY_EVERY, VOLCANO_SLAM_LIMIT, the spray rows)"]
+  status: proposed
+
+# Blasphemy's support effect: PoB names it SupportBlasphemyPlayer (Gems.lua additionalGrantedEffectId1, hidden), so the
+# audit's rows sit under that name and models-mech97's link (skill: Blasphemy) never closed them. The two stats are the one
+# line "Socketed Curse Skills apply in an Aura around you" (gem_stat_descriptions, one description for both).
+- id: model-read-cov57-blasphemy-support-aura
+  title: "Blasphemy's support effect (SupportBlasphemyPlayer): curses as Auras, read by models.curse_uses' Blasphemy branch"
+  kind: model
+  model: curse_uses
+  stats: ["curse_apply_as_aura", "curse_supported_by_blasphemy"]
+  skill: [SupportBlasphemyPlayer]
+  confidence: MEDIUM
+  notes: >-
+    models.curse_uses reads a curse group holding Blasphemy by the gem's name (MECH96): an Aura up all fight while the
+    boss is inside the curse's own area radius, else 0 at the build's distance. The same reading as
+    model-mech97-blasphemy-curse-aura-read, for the hidden effect's name. A link only.
+  sources: ["builder/search/models.py (curse_uses, the Blasphemy branch)", "ledger/entries/models-mech97.yaml"]
+  status: proposed
+
+# Eonyr's Thunder's explosion can't Electrocute: no number moves (MECH105's check, 24 Nov).
+- id: gem-cov57-voltaic-fulmination-cannot-electrocute
+  title: "Voltaic Fulmination can't Electrocute: nothing of ours gives it Electrocute buildup"
+  kind: gem_stat
+  match: '^cannot_electrocute$'
+  replace: []
+  skill: [Voltaic Fulmination]
+  confidence: datamined
+  notes: >-
+    The flag is on Eonyr's Thunder's triggered explosion (TriggeredLightningDetonateDeadPlayer). PoB has no SkillStatMap
+    entry for it, and no number of ours needs one: PoB rates the explosion at Speed 0 (GEM26), its damage is added by
+    models.voltaic_fulmination_model as damage only, and the explosion sits in the main skill's group, which
+    buildup_others skips, so no Electrocute buildup is ever read from it (checked by MECH105, 24 Nov: SkillStatMap exact
+    key; builder/ for readers). The support's own never_shock is mapped (CannotShock).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_dex.lua (TriggeredLightningDetonateDeadPlayer)",
+            "ledger/entries/gems-gem26.yaml", "MECH105.report.md (b)"]
+  status: proposed
