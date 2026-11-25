@@ -126,15 +126,18 @@ def test_grinning_immolations_burn_costs_at_its_self_ignited_share():
     stats = {"Life": 3000, "EnergyShield": 1000, "CritChance": 50, "Speed": 2.0, "HitChance": 100,
              "IgniteAvoidChance": 0}
     up = conditions.grinning_ignited(stats)[0]
-    assert up == pytest.approx(1.0)  # (no avoidance: every crit Ignites, always Ignited)
+    # (no avoidance: every crit Ignites; MECH109: Ignited while a crit fell in the last 4 s, 8 hits at 50%: 1 - 0.5^8)
+    assert up == pytest.approx(1 - 0.5 ** 8)
+    # (MECH109, the OVERCOUNT fixed: a slow 0.1 crits/s x 4 s = 0.4 a duration: Ignited 40%, not "always")
+    assert conditions.grinning_ignited({**stats, "Speed": 0.1, "CritChance": 100})[0] == pytest.approx(0.4)
     burn, how, plain = conditions.grinning_burn([line], stats)
-    assert burn == pytest.approx(0.15 * 4000) == pytest.approx(plain) and "Fire resistance" in how
+    assert burn == pytest.approx(0.15 * 4000 * up) and plain == pytest.approx(0.15 * 4000 * up) and "Fire resistance" in how
     half = conditions.grinning_burn([line], {**stats, "IgniteAvoidChance": 90, "SelfIgniteEffect": 50})[0]
     assert half == pytest.approx(0.15 * 4000 * 0.5 * conditions.grinning_ignited({**stats, "IgniteAvoidChance": 90})[0])
     assert conditions.grinning_burn([], stats) == (0.0, "", 0.0)
     # R32-7 (6b): the magnitude-scaled headline, the unscaled reading beside it
     scaled = conditions.grinning_burn([line], {**stats, "SelfIgniteEffect": 50})
-    assert scaled[0] == pytest.approx(300.0) and scaled[2] == pytest.approx(600.0)
+    assert scaled[0] == pytest.approx(300.0 * up) and scaled[2] == pytest.approx(600.0 * up)
     assert conditions.grinning_burn([line], {**stats, "IgniteAvoidChance": 100})[0] == 0
 
 

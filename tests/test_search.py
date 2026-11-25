@@ -2578,11 +2578,13 @@ def test_self_ignite_and_debuffs_on_an_ailing_boss_count_at_their_share():
     line = ["Become Ignited when you deal a Critical Hit"]
     stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 10, "IgniteAvoidChance": 0, "SelfIgniteDuration": 100}
     on, basis, up = c._self_ignited(line, stats)
-    assert abs(up - 1.0) < 1e-9 and on  # (no avoidance: the first crit Ignites you)
+    # (no avoidance: every crit Ignites you; MECH109: Ignited while one of the last 4 s's 8 hits crit, 1 - 0.9^8; the old
+    # 1 - avoid^(crits x s) read it as always)
+    assert abs(up - (1 - 0.9 ** 8)) < 1e-9 and on
     on, basis, up = c._self_ignited(line, {**stats, "IgniteAvoidChance": 100})
     assert up == 0.0 and not on and "immune" in basis
     up = c._self_ignited(line, {**stats, "IgniteAvoidChance": 90, "CritChance": 5})[2]
-    assert abs(up - (1 - 0.9 ** (0.1 * 4.0))) < 1e-9
+    assert abs(up - (1 - (1 - 0.05 * 0.1) ** 8)) < 1e-9  # (each hit: 5% crit x 10% not avoided)
     assert c._self_ignited(["something else"], stats) == (0.0, "")
     # the Chilled box from the main skill's hits (8 s each by default)
     assert c.chill_share({"Speed": 2.0, "HitChance": 100, "ChillChanceOnHit": 100}) == 1.0

@@ -4821,7 +4821,11 @@ def grinning_ignited(stats: dict) -> tuple[float, str]:
     crits = models.crits_per_second(stats)
     scale = number(stats.get("SelfIgniteDuration")) / 100 if "SelfIgniteDuration" in stats else 1.0
     seconds = AILMENT_DURATION["Ignite"] * scale
-    up = 1.0 - avoid ** (crits * seconds) if crits > 0 and avoid < 1.0 else 0.0  # (no crit Ignite got through)
+    # (MECH109, an OVERCOUNT: 1 - avoid^(crits x seconds) read any crit rate as always Ignited with no avoidance, e.g. b15's
+    # 0.40 crits/s x 2 s; now periodic_absent over your hits, each Igniting you at its crit chance x not avoided, MECHB54)
+    hits = models.hits_per_second(stats)
+    per = crits / hits if hits > 0 else 0.0
+    up = 1.0 - periodic_absent(per * (1.0 - avoid), hits * seconds) if crits > 0 and avoid < 1.0 else 0.0
     if avoid >= 1.0:
         return 0.0, "you can't be Ignited (PoB's Ignite avoidance 100%: immune)"
     return up, (f"{crits:.2f} crits/s, {1 - avoid:.0%} not avoided, Ignited {seconds:.1f} s each: up {up:.0%} of the "
