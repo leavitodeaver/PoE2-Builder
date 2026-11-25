@@ -59,6 +59,25 @@ def hooked_rescore_enabled() -> bool:
     return os.environ.get(HOOKED_SWITCH, "1") == "1"
 
 
+# (SEARCH40; SEARCH39's item 2, the manager's 24 Nov 12:53 ruling: a close-calls real trial, OFF until a gate) An item
+# what-if keeps the assumption mods of the last resolve: 10 of Tempest Bell's 29 moved on the real swap (the boss's Shock /
+# Chill / Light Stun, the DPS factors, Glory shares; POE2T7490: what-if -0.94 ln, -0.41 for Ice Shot vs the real swap).
+# _rescore_model_items re-scores only candidates whose TEXT a model reads (or a jewel holder). With the switch on, the best
+# CLOSE_CALLS_TOP of the rest whose what-if lies within CLOSE_CALLS_LN of the current score (above or below: where the stale
+# models can flip a decision) get the same real trial (equip, re-apply the models, score, put back). Time-guarded like
+# the gem rescore (CLOSE_CALLS_SECONDS a call, CLOSE_CALLS_SHARE of a task's time so far, none after the hard stop)
+CLOSE_CALLS_SWITCH = "POE2_SEARCH_CLOSE_CALLS"  # "1" on; OFF by default until its gate set
+CLOSE_CALLS_TOP = 2  # LOW, a search-effort setting (the manager: "the best 1-2 candidates")
+CLOSE_CALLS_LN = 1.0  # LOW, the same: the observed what-if gaps were 0.41-0.94 ln (POE2T7490)
+CLOSE_CALLS_SECONDS = 15.0  # LOW, the same as GEM_RESCORE_SECONDS
+CLOSE_CALLS_SHARE = 0.1  # LOW, the same as GEM_RESCORE_SHARE
+
+
+def close_calls_enabled() -> bool:
+    """The switch, read at call time (a gate arm sets it per run)."""
+    return os.environ.get(CLOSE_CALLS_SWITCH, "0") == "1"
+
+
 def gem_rescore_enabled() -> bool:
     """The switch, read at call time (a gate arm sets it per run)."""
     return os.environ.get(GEM_RESCORE_SWITCH, "0") == "1"
@@ -172,6 +191,8 @@ class Build:
         # The what-if limit: re-scoring item moves a model reads (set by the search; see item_deltas)
         self.reassume: Callable[[], Any] | None = None  # re-applies the custom models to the current build
         self.rescored = 0  # item candidates re-scored with a real trial
+        self.close_rescored = 0  # (SEARCH40) of those, the close calls (CLOSE_CALLS_SWITCH)
+        self.close_seconds = 0.0  # (SEARCH40) the close calls' time so far (CLOSE_CALLS_SHARE)
         # (SEARCHB5) The support what-ifs' real trials (gem_deltas, GEM_RESCORE_SWITCH): `model_gem(name)` says whether a
         # model values the gem, `gem_settle()` settles the conditions and models after a change (Search.settle); both set
         # by the search. Counts and the last trials (gem, what-if, real) for reading a run
@@ -466,7 +487,54 @@ class Build:
                                         * raws.get(alloy_key(case.get("raw") or ""), 1.0)}} for case in cases]
         scored = self._deltas("itemDeltas", cases)
         if self.reassume is not None and cases:
+            plain = list(scored)
             scored = self._rescore_model_items(cases, scored)
+            if close_calls_enabled():  # (SEARCH40) the cases it didn't re-score: a new tuple is a re-scored case
+                scored = self._rescore_close_calls(cases, scored, {i for i, s in enumerate(scored) if s is not plain[i]})
+        return scored
+
+    def _rescore_close_calls(self, cases: list[dict], scored: list[tuple[float, dict]],
+                             done: set[int]) -> list[tuple[float, dict]]:
+        """(SEARCH40; CLOSE_CALLS_SWITCH's comment) The best CLOSE_CALLS_TOP cases not yet re-scored whose what-if is
+        within CLOSE_CALLS_LN of the current score get a real trial: equip, re-apply the models, score, put back."""
+        # (a case carrying an Alloy factor isn't tried: a plain equip doesn't carry the factor, so its real score would
+        # be the wrong one)
+        close = [i for i in range(len(cases)) if i not in done and not cases[i].get("extra")
+                 and abs(scored[i][0] - self.score) <= CLOSE_CALLS_LN]
+        if not close:
+            return scored
+        started = clock.now()
+        left = CLOSE_CALLS_SHARE * (started - self.started) - self.close_seconds
+        if self.stopped or left <= 0:
+            return scored
+        limit = min(CLOSE_CALLS_SECONDS, left)
+        best = sorted(close, key=lambda i: -scored[i][0])[:CLOSE_CALLS_TOP]
+        current = self.call("equipped")["slots"]
+        before = (self.score, dict(self.stats))
+        tried = 0
+        try:
+            for i in best:
+                now = clock.now()
+                if now - started > limit or (self.stop_at is not None and now > self.stop_at - CLOSE_CALLS_SECONDS):
+                    break
+                case = cases[i]
+                old = current.get(case["slot"])
+                self.call("equip", slot=case["slot"], raw=case.get("raw"), fields=[])
+                try:
+                    self.reassume()
+                    stats = self.objective.prepare({**self.call("stats", fields=self.objective.fields),
+                                                    **self.added_stats()})
+                    scored[i] = (self.objective.score(stats), stats)
+                finally:
+                    self.call("equip", slot=case["slot"], raw=old, fields=[])
+                tried += 1
+                self.rescored += 1
+                self.close_rescored += 1
+        finally:
+            if tried:
+                self.reassume()
+                self.score, self.stats = before
+            self.close_seconds += clock.now() - started
         return scored
 
     RESCORE_TOP = 3  # model-read candidates per what-if call that get a real trial

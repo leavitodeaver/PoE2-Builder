@@ -121,3 +121,61 @@ def test_no_assumption_reads_a_skills_types_from_the_socketable_gems_alone():
 
     text = (Path(__file__).resolve().parents[1] / "builder" / "search" / "assumptions.py").read_text(encoding="utf-8")
     assert not re.search(r'build\.ctx\.gems\.get\((?:[^()]|\([^()]*\))*\)(?: or \{\}\))?\.get\("skillTypes"', text)
+
+
+def close_build(score=10.0, started_ago=1000.0):
+    """A stand-in Build for _rescore_close_calls: a slot's real score is REAL[raw], the what-if what the caller gives."""
+    from builder.search import state
+
+    calls = []
+    real = {"a": 9.9, "b": 10.5, "c": 8.0, "d": 12.0}
+    b = SimpleNamespace(score=score, stats={"s": 1}, started=state.clock.now() - started_ago, close_seconds=0.0,
+                        stopped=False, stop_at=None, rescored=0, close_rescored=0, equipped_raw={"Ring 1": "own"})
+
+    def call(name, **kw):
+        calls.append((name, kw.get("raw")))
+        if name == "equipped":
+            return {"slots": dict(b.equipped_raw)}
+        if name == "equip":
+            b.equipped_raw[kw["slot"]] = kw["raw"]
+            return {}
+        return {"v": real.get(b.equipped_raw["Ring 1"], score)}
+
+    b.call = call
+    b.reassume = lambda: calls.append(("reassume", None))
+    b.added_stats = lambda: {}
+    b.objective = SimpleNamespace(fields=[], prepare=lambda s: s, score=lambda s: s["v"])
+    return b, calls
+
+
+def test_close_calls_get_a_real_trial_and_the_build_is_put_back():
+    from builder.search.state import Build
+
+    b, calls = close_build()
+    cases = [{"slot": "Ring 1", "raw": r} for r in ("a", "b", "c", "d")]
+    scored = [(10.2, {}), (9.6, {}), (10.1, {}), (11.5, {})]  # (d's what-if is 1.5 above: not a close call)
+    out = Build._rescore_close_calls(b, cases, list(scored), done={0})  # (a: already re-scored by the model rule)
+    assert out[0] == scored[0] and out[3] == scored[3]
+    assert out[2][0] == 8.0 and out[1][0] == 10.5  # (the best two close calls, c then b, scored for real)
+    assert b.close_rescored == 2 and b.equipped_raw["Ring 1"] == "own" and (b.score, b.stats) == (10.0, {"s": 1})
+    assert calls[-1] == ("reassume", None)
+
+
+def test_close_calls_are_off_by_default_and_time_guarded(monkeypatch):
+    from builder.search import state
+    from builder.search.state import Build
+
+    monkeypatch.delenv(state.CLOSE_CALLS_SWITCH, raising=False)
+    assert not state.close_calls_enabled()
+    monkeypatch.setenv(state.CLOSE_CALLS_SWITCH, "1")
+    assert state.close_calls_enabled()
+    b, calls = close_build(started_ago=0.0)  # (no task time yet: no share for trials)
+    cases = [{"slot": "Ring 1", "raw": "b"}]
+    assert Build._rescore_close_calls(b, cases, [(9.6, {})], done=set()) == [(9.6, {})]
+    assert not [c for c in calls if c[0] in ("equip", "reassume")]
+    b, calls = close_build()
+    b.stopped = True  # (after the hard stop: none)
+    assert Build._rescore_close_calls(b, cases, [(9.6, {})], done=set()) == [(9.6, {})] and not calls
+    b, calls = close_build()  # (an Alloy-factor case: a plain equip can't carry the factor)
+    assert Build._rescore_close_calls(b, [{"slot": "Ring 1", "raw": "b", "extra": {"x": 1.2}}], [(9.6, {})],
+                                      done=set()) == [(9.6, {})]
