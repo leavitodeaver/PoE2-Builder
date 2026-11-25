@@ -10673,6 +10673,23 @@ GAS_CLOUD_LIMIT = 6  # (number_of_poison_cloud_allowed; GEM39: the build's own w
 # (AilmentMagnitude MORE on the skill, where the Poison Cloud set is scored; the only ailment that set's fake Physical
 # hit makes). The row: PoB's one a cloud.
 GAS_POISON_EVERY = 2.0
+# The Poison limit (MECH109; RESEARCH60 R60-12, research/poison-cloud-repoison-r60.md, an OVERCOUNT): a target carries at
+# most its Poison limit of your Poisons, ONE by default (MEDIUM-HIGH: every Poison-count line in the game is a change to a
+# cap: number_of_additional_poison_stacks, Overwhelming Toxicity's double_number_of_poison_you_can_inflict; patch 0.2.0's
+# per-target limit fix). PoB caps the set's PoisonDPS at min(its stacks, PoisonStacksMax) (CalcOffence 5064-5067, 5234:
+# activeAilments), its stacks from one Poison a use. The cloud's extra applications (one every 2 s while it lives) were
+# multiplied onto that capped DPS, so with the default limit a second Poison counted as if it stacked. Now the factor is
+# min(stacks x applications, limit) / min(stacks, limit), PoB's stacks = PoisonStackPotential x PoisonStacksMax of the
+# Poison Cloud set (bridge setRates); without those fields (a stand-in), the applications as before.
+def cloud_poison_scale(cloud_set: dict, poisons: float) -> float:
+    """The factor on PoB's Poison Cloud PoisonDPS for `poisons` applications a cloud (see the note above)."""
+    limit = number(cloud_set.get("PoisonStacksMax"))
+    potential = number(cloud_set.get("PoisonStackPotential"))
+    poisons = max(poisons, 0.0)
+    if limit <= 0 or potential <= 0:
+        return poisons
+    stacks = potential * limit
+    return min(stacks * poisons, limit) / min(stacks, limit)
 
 
 def gas_cloud_poisons(alive: float) -> float:
@@ -10730,7 +10747,9 @@ def gas_arrow_model(main: Skill | None, scored: str | None, sets: list[dict], sh
     # (CalcOffence 4065 / 5254), so a DPS line carrying it would raise the very PoisonDPS it reads (probe POE2T3479: 42.3
     # -> 60.5 under a x6.08 line)
     cloud_set = next((x for x in sets if x.get("label") == "Poison Cloud"), {})
-    cloud_poison = (number(cloud_set.get("PoisonDPS")) * max(poisons, 0.0) * min(max(time_share, 0.0), 1.0)
+    applied = poisons
+    poisons = cloud_poison_scale(cloud_set, poisons)  # (MECH109, R60-12: up to the Poison limit)
+    cloud_poison = (number(cloud_set.get("PoisonDPS")) * poisons * min(max(time_share, 0.0), 1.0)
                     if scored != "Poison Cloud" else 0.0)
     factor = total / dps[scored]
     steer = scored == "Explosion" and share <= 0
@@ -10755,12 +10774,14 @@ def gas_arrow_model(main: Skill | None, scored: str | None, sets: list[dict], sh
                   f"{total:,.0f} hit DPS"
                   + ("; the Explosion set's own Ignite stays whole (an OVERCOUNT of it where clouds don't explode)"
                      if scored == "Explosion" and not steer else "")
-                  + (f"; the Poison Cloud set's Poison (the cloud's real damage) at {poisons:.2f} applications a cloud "
+                  + (f"; the Poison Cloud set's Poison (the cloud's real damage) at {applied:.2f} applications a cloud, "
+                     f"x{poisons:.2f} up to your Poison limit ({number(cloud_set.get('PoisonStacksMax')) or 1:g}; R60-12) "
                      f"(one every 2 s while it lives, LOW-MEDIUM, RESEARCH30 R30-5; the row: PoB's one), x{poisons:.2f}"
                      if scored == "Poison Cloud" else
                      f"; plus the cloud's Poison, which the {scored} set PoB scores doesn't hold: the Poison Cloud set's "
-                     f"{number(cloud_set.get('PoisonDPS')):,.1f} Poison DPS (PoB's one a use) x {poisons:.2f} applications a "
-                     f"cloud (one every 2 s while it lives, LOW-MEDIUM, RESEARCH30 R30-5)"
+                     f"{number(cloud_set.get('PoisonDPS')):,.1f} Poison DPS (PoB's one a use) x {poisons:.2f} ({applied:.2f} applications a "
+                     f"cloud, one every 2 s while it lives, LOW-MEDIUM, RESEARCH30 R30-5; up to your Poison limit of "
+                     f"{number(cloud_set.get('PoisonStacksMax')) or 1:g}, R60-12)"
                      + (f" x {time_share:.0%} of the fight it's used (the presses' share)" if time_share < 1 else "")
                      + f" = {cloud_poison:,.1f}, added "
                      f"beside it (GEM21): {total + cloud_poison:,.0f}; the cloud's PoisonDPS carries this skill's DPS line "

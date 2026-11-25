@@ -131,3 +131,13 @@ def test_deceptions_unbroken_chain_is_medium_low_with_the_broken_chain_row():
     assert factor == pytest.approx(1 + models.DECEPTION_CAP)
     assert "MEDIUM-LOW" in how and "x1.50" in how
     assert "in runs" in models.DECEPTION_RUNS and "Brutality before a run" in models.DECEPTION_RUNS
+
+
+def test_cloud_poisons_stack_only_to_the_poison_limit():
+    # (MECH109, R60-12: PoB's cloud PoisonDPS is capped at min(stacks, limit); the cloud's extra applications fill it up
+    # to the limit, no further; before, they multiplied it whole)
+    assert models.cloud_poison_scale({"PoisonStacksMax": 1, "PoisonStackPotential": 0.8}, 2.5) == pytest.approx(1.25)
+    assert models.cloud_poison_scale({"PoisonStacksMax": 1, "PoisonStackPotential": 1.0}, 2.5) == pytest.approx(1.0)
+    assert models.cloud_poison_scale({"PoisonStacksMax": 1, "PoisonStackPotential": 0.2}, 2.5) == pytest.approx(2.5)
+    assert models.cloud_poison_scale({"PoisonStacksMax": 10, "PoisonStackPotential": 0.1}, 2.5) == pytest.approx(2.5)
+    assert models.cloud_poison_scale({}, 2.5) == pytest.approx(2.5)  # (no stack fields: as before)

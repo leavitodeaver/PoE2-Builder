@@ -5779,6 +5779,8 @@ function bridge.setRates(args)
 					"BleedDPS", "IgniteStackPotential", "BleedStackPotential", "IgniteStacksMax", "BleedStacksMax",
 					"DpsMultiplier", "TotalDot", "CorruptingBloodDPS", "Duration", "HitSpeed", "CritChance", "PierceCount",
 					"ChainMax", "ForkCountMax", "SplitCount", "AreaOfEffectRadius", "AreaOfEffectRadiusSecondary",
+					-- (MECH109, R60-12: a set's Poison stacks and the Poison limit, models.cloud_poison_scale)
+					"PoisonStackPotential", "PoisonStacksMax",
 					-- (MECHB56, RESEARCH48 R48-1: an Ice Crystal set's Life with the build's modifiers, CalcOffence 1724-1726:
 					-- Midnight Zenith's Crystal set, models.midnight_zenith_model)
 					"IceCrystalLife" }) do
