@@ -45,3 +45,23 @@
   sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua", "scratch/gem43/probe_melee.log"]
   test_in_game: "Not needed: PoB's flag is the game's reading."
   status: proposed
+
+- id: gem-gem43-second-wind-doubled-uses
+  title: "support_double_number_of_cooldown_uses (Second Wind I-III): the doubled uses refill one at a time, so PoB's steady rate stands"
+  kind: gem_stat
+  match: '^support_double_number_of_cooldown_uses$'
+  replace: []
+  stats: ["support_double_number_of_cooldown_uses"]
+  skill: [Second Wind I, Second Wind II, Second Wind III]
+  confidence: MEDIUM
+  notes: >-
+    RESEARCH60 R60-13 (research/second-wind-refill-r60.md, MEDIUM): "Supported Skills have twice as many Cooldown Uses"
+    (gem_stat_descriptions); the game restores one Cooldown Use at a time (poedb's cooldown notes: 3 uses on an 8 s
+    cooldown back after 24 s; Mobalytics' guide; R56-5 for Kelari's Deception; patch 0.2.0's Second Wind / Demon Form
+    fix: the extra use's cooldown ticks on its own). So the sustained rate is one use per (slower) cooldown, which is
+    what PoB scores (it reads base_cooldown_speed_+%_final, -50 / -40, and not the doubling): no steady-state
+    undercount. Not counted: the doubled starting stock, an extra use or so early in a finite fight (a small UNDERCOUNT
+    on short fights, named). Second Wind III's restore_%_life_on_skill_use_per_#_ms_cooldown (recovery) stays open.
+  sources: ["C:/PROJECTS/PoE2 Builder/scratch/manager/research/second-wind-refill-r60.md (R60-13)"]
+  test_in_game: "Not needed (R60-13)."
+  status: proposed
