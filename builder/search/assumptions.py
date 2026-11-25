@@ -5650,6 +5650,9 @@ class Assumptions:
             gas_mods, gas_notes = models.gas_arrow_model(main, main.stat_set, sets, gas, gas_how, forbidden, gas_poisons,
                                                          time_share)
             hand_mods, hand_notes = hand_mods + gas_mods, hand_notes + gas_notes
+        if any(s.name == models.HERALD_OF_PLAGUE for s in found):  # (MECH110: its Poison spread from killed adds)
+            hp_mods, hp_notes = models.herald_of_plague_model(found, stats, forbidden)
+            hand_mods, hand_notes = hand_mods + hp_mods, hand_notes + hp_notes
         if main is not None and group and main.name == models.FROZEN_LOCUS:  # (GEM20: an explosion when it breaks)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             breaks, breaks_how = self.locus_breaks(group["index"], main.name)

@@ -87,3 +87,22 @@ def test_eshs_prowess_shock_chance_is_the_mean_of_its_two_rolls(engine):
             capped_somewhere = capped_somewhere or s["ShockChancePerHit"] < pob - 1.0
     build.call("setConfig", vars={"enemyLevel": 84}, fields=[])
     assert capped_somewhere  # at some enemy level the maximum roll passes 100% and the mean falls below PoB's
+
+
+# Herald of Plague: Poisons spread from the preset's killed adds, up to the Poison limit -------------------------------
+
+def test_herald_of_plague_spreads_poison_only_from_killed_adds_and_up_to_the_limit():
+    herald = [models.Skill("Herald of Plague", 2)]
+    base = {"PoisonStacksMax": 1, "PoisonStackPotential": 0.4, "PoisonDPS": 1000.0, "PoisonDuration": 2.0,
+            "PoisonChancePerHit": 50.0}
+    # a lone boss: no kills, nothing spread (0 with a note, never a flat kill rate)
+    mods, notes = models.herald_of_plague_model(herald, {**base, "AddKillsPerSecond": 0.0})
+    assert mods == [] and notes[0]["value"] == "0 DPS" and "no enemy dies" in notes[0]["basis"]
+    # 0.2 kills a second x 50% Poisoned x 1 s left = 0.1 Poisons on the boss beside PoB's 0.4: x0.5 / 0.4 = +250
+    mods, notes = models.herald_of_plague_model(herald, {**base, "AddKillsPerSecond": 0.2})
+    assert models.added_total(mods) == pytest.approx(250.0)
+    # the boss already at the limit: a spread Poison adds nothing
+    mods, notes = models.herald_of_plague_model(herald, {**base, "PoisonStackPotential": 1.0, "AddKillsPerSecond": 0.2})
+    assert models.added_total(mods) == pytest.approx(0.0)
+    # no Herald of Plague: nothing at all
+    assert models.herald_of_plague_model([models.Skill("Spark", 1)], {**base, "AddKillsPerSecond": 0.2}) == ([], [])

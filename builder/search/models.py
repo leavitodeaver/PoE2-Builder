@@ -10788,6 +10788,63 @@ def persistent_cloud(seconds: float, base: float, support: dict) -> tuple[float,
     return max(0.0, seconds + base * inc / 100.0), number(support.get(PERSISTENT_GROUND_STAT)) > 0
 
 
+# Herald of Plague (MECH110; COV58's offense row 21: herald_of_agony_poison_spread_on_kill_radius_base_magnitude_to_grant,
+# which nothing read). The game (ActiveSkills herald_of_plague, 26650308): "While active, killing a [Poison|Poisoned] enemy
+# spreads its [Poison] to other nearby enemies, and has a chance to also [Hinder] them"; the newest patch entry, 0.3.0c, only
+# fixed its radius adding to itself (grep_notes --history "Herald of Plague"). PoB maps the stat to PoisonProlifRange and
+# reads that nowhere (no PoB number to take back). The rate, from the build (CLAUDE.md's second rule): kills come only from
+# the boss preset's adds (ADD_KILLS_STAT, MECH-D's bosses.kill_stats; a lone boss: none, so 0 with this note), each add
+# killed carrying your Poison at the main skill's chance a hit (PoisonChancePerHit: one hit's chance, the lower reading;
+# whether the killing hit's own Poison counts is UNVERIFIED), one Poison an add (the lower reading), spread onto the boss
+# with half its duration left on average (MEDIUM-LOW), each add taken to die within the spread radius of the boss
+# (UNVERIFIED; the row: out of reach, 0). A spread Poison is one of yours on the boss, so it counts against your Poison
+# limit (RESEARCH60 R60-12, MEDIUM-HIGH: one by default): the boss's Poison DPS x min(limit, S + A) / min(limit, S), S = PoB's
+# stacks there (PoisonStackPotential x PoisonStacksMax, as cloud_poison_scale), A = the spread stacks. Added beside PoB
+# (added_input), as the cloud Poison. Hinder (a movement Slow) moves no damage: not counted.
+HERALD_OF_PLAGUE = "Herald of Plague"
+HERALD_OF_PLAGUE_ENTRY = "model-mech110-herald-of-plague-spread"
+MODEL_FIELDS.extend(f for f in ("PoisonDPS", "PoisonStackPotential", "PoisonDuration", "PoisonChancePerHit")
+                    if f not in MODEL_FIELDS)  # (herald_of_plague_model)
+
+
+def herald_of_plague_model(found: list[Skill], stats: dict,
+                           forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Herald of Plague's Poisons spread onto the boss from the preset's adds the build kills (see above)."""
+    if HERALD_OF_PLAGUE_ENTRY in forbidden or not any(s.name == HERALD_OF_PLAGUE for s in found):
+        return [], []
+    kills = max(number(stats.get("AddKillsPerSecond")), 0.0)
+    limit = number(stats.get("PoisonStacksMax")) or 1.0
+    stacks = number(stats.get("PoisonStackPotential")) * limit
+    dps = number(stats.get("PoisonDPS"))
+    chance = min(max(number(stats.get("PoisonChancePerHit")), 0.0), 100.0) / 100.0
+    duration = number(stats.get("PoisonDuration"))
+    spread = kills * chance * duration / 2.0
+    label = "Herald of Plague: your Poisons spread onto the boss when a Poisoned add dies*"
+    if kills <= 0 or spread <= 0 or stacks <= 0 or dps <= 0:
+        why = ("no enemy dies in this fight but the boss (the preset has no killable adds: AddKillsPerSecond 0)"
+               if kills <= 0 else
+               "the main skill doesn't Poison (no chance a hit, or no Poison duration)" if spread <= 0 else
+               "none of your Poison is on the boss to add to")
+        return [], [{"label": label, "value": "0 DPS", "confidence": "LOW", "entry": HERALD_OF_PLAGUE_ENTRY,
+                     "basis": f"Herald of Plague spreads a Poisoned enemy's Poison to nearby enemies when it is killed: "
+                              f"{why}, so it adds nothing here",
+                     "play": "Herald of Plague adds damage on a boss only when its adds die Poisoned beside it: without "
+                             "adds, 0."}]
+    scale = min(limit, stacks + spread) / min(limit, stacks)
+    added = dps * (scale - 1.0)
+    mods = [added_input("HeraldOfPlague", added)] if added > 0 else []
+    return mods, [{
+        "label": label, "value": f"{added:,.0f} DPS", "confidence": "LOW", "entry": HERALD_OF_PLAGUE_ENTRY,
+        "basis": (f"the boss preset's {kills:.3f} add kills a second (AddKillsPerSecond, MECH-D's), each Poisoned at "
+                  f"your main skill's {chance:.0%} a hit (the lower reading) and spreading one Poison onto the boss "
+                  f"with half its {duration:.2f} s left (MEDIUM-LOW): {spread:.3f} Poisons on the boss at a time, beside "
+                  f"PoB's {stacks:.2f}, up to your Poison limit of {limit:g} (R60-12): x{scale:.3f} on its "
+                  f"{dps:,.1f} Poison DPS = +{added:,.1f}, added beside it; each add taken to die within the spread "
+                  f"radius of the boss (UNVERIFIED; out of reach: 0)"),
+        "play": (f"Herald of Plague: kill the boss's adds while they're Poisoned and beside it, so their Poison spreads to "
+                 f"it. Without it: +0; with this build's: +{added:,.0f} DPS.")}]
+
+
 def set_dps_unscaled(sets: list[dict]) -> dict[str, float]:
     """{label: DPS} of a skill's sets as PoB scores each before this pass's DPS lines (GEM20): setRates' TotalDPS carries
     the previous pass's DPS MORE lines on the skill, its AverageDamage x Speed doesn't (TotalDPS when either is absent)."""
