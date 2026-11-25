@@ -25340,6 +25340,36 @@ def skyfall_minion_model(uses: float, uses_how: str, limit: float, seconds: floa
                  f"({infused:.1f} stand).")}]
 
 
+# (MECHB63; GEM40's find, the manager 24 Nov 18:50, a DPS OVERCOUNT on every Warcry build) The time a Warcry's own cast
+# takes from the main skill. The Warcry models count each Warcry at its use rate (conditions.skill_use_rate: its cooldown,
+# else once per its duration), but its casts' time was charged only where another model charges it: press_model (a
+# Warcry group pressed in Full DPS), Search.press_sync (a rate the search chose), roar_model (Ferocious Roar used for its
+# own effects), Kaom's embodiment (Ancestral Cry, MECHB29) and glory_busy (a Glory skill's presses). The rest (example
+# build 13's Infernal Cry, 0.162 uses/s) cost the main skill nothing. Assumptions.warcry_presses picks the Warcries none
+# of those charge and hands them here: (name, uses a second, why, seconds a use) each, a use's seconds being
+# press_action's (the bridge's castRate: 1 / WarcryCastTime with the build's warcry speed). The time comes off the main
+# skill as "less Attack and Cast Speed" (as remnant_presses and Kaom's casts do; the lines multiply in PoB, so two such
+# charges come off a little short, LOW). Using a Warcry while moving or between the main skill's uses without losing any
+# of them isn't counted (MEDIUM: a Warcry is a skill use of its own, KeywordPopups Warcry).
+WARCRY_PRESS_MOST = 0.9
+
+
+def warcry_press_model(presses: list[tuple[str, float, str, float]], main: str | None) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): the main skill's time spent casting the Warcries in `presses` ((name, uses/s, why, seconds a use)),
+    as one "less Attack and Cast Speed" line on `main` (at most WARCRY_PRESS_MOST of the fight)."""
+    took = [(name, uses, why, seconds) for name, uses, why, seconds in presses if uses > 0 and seconds > 0]
+    busy = min(sum(uses * seconds for _, uses, _, seconds in took), WARCRY_PRESS_MOST)
+    if busy <= 0 or not main:
+        return [], []
+    parts = "; ".join(f"{name} {uses:.3f}/s ({why}) x {seconds:.2f} s" for name, uses, why, seconds in took)
+    return [line("1% more Attack and Cast Speed", -100 * busy, skill=main)], [{
+        "label": f"Time casting Warcries ({main})*", "value": f"x{1 - busy:.3f}",
+        "basis": (f"{parts}: {busy:.1%} of the fight not spent on {main} (each Warcry at the use rate its models count, "
+                  "its cast time with the build's warcry speed). Without the Warcries: x1"),
+        "play": f"Each Warcry takes its cast time from {main}: {', '.join(n for n, *_ in took)} on cooldown.",
+        "confidence": "MEDIUM (game cooldowns and cast times; using a Warcry costs its whole cast time)"}]
+
+
 # Bear skills' added base attack time from the default stance (MECHB50; PLANS7 gs-bear-stance.md, an OVERCOUNT): the
 # game's bear_skills_additional_base_attack_time_when_performing_from_default_stance, "+{0} seconds to base attack time
 # if not standing" (GrantedEffectStatSets 26650308: Furious Slam 400, Rampage 500, Walking Calamity 300 ms; the mirror

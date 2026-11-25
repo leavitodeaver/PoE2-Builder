@@ -4146,8 +4146,10 @@ class Assumptions:
             up, kaom_busy, kaom_how = models.kaom_uptime(uses, models.number(row.get("duration")),
                                                          models.number(row.get("castTime")) or cry.cast_time, how, charges)
             embodiment = (up, kaom_how)
-            if kaom_busy > 0:  # (its casts take the main skill's time: nothing else charges a Warcry's)
+            if kaom_busy > 0:  # (its casts take the main skill's time; warcry_presses leaves the Glory-paid Ancestral Cry out)
                 hand_mods = hand_mods + [models.line("1% more Attack and Cast Speed", -100 * kaom_busy, skill=main.name)]
+        cry_mods, cry_notes = self.warcry_presses(found, main)  # (MECHB63: the other Warcries' casts, GEM40's find)
+        hand_mods, hand_notes = hand_mods + cry_mods, hand_notes + cry_notes
         if embodiment[0] > 0 or any(models.KAOMS_BLESSING.match(t.strip()) or models.SHAPESHIFT_EVERY_SECOND_SLAM.search(t)
                                     or models.SHAPESHIFT_EVERY_SECOND_STRIKE.search(t)  # (MECHB45)
                                     or models.EMPOWERMENT_EVERY_SECOND_SLAM.match(t.strip()) for t in texts)                 or any(g.startswith("Fist of War") for g in main_gems):  # (MECHB35: Fist of War alone, R26-58 (b))
@@ -11420,6 +11422,58 @@ class Assumptions:
         if objective is not None:  # (its own Full DPS entry x the Comet-Spawn standing, as minion_counts)
             objective.entry_scales[models.SKYFALL_MINION] = objective.entry_scales.get(models.SKYFALL_MINION, 1.0) * scale
         return [], notes
+
+    def warcry_presses(self, found: list[models.Skill], main: models.Skill | None) -> tuple[list[dict], list[dict]]:
+        """(MECHB63, GEM40's find: a DPS OVERCOUNT) the main skill's time spent casting the Warcries no other model
+        charges (models.warcry_press_model), each at conditions.skill_use_rate (the rate warcry_uses and the Warcry
+        models count) x its use time (models.press_action: its castRate). Skipped, as charged elsewhere: a Warcry pressed
+        in Full DPS (press_model), one the search chose a rate for (Search.press_sync), Ferocious Roar used for its own
+        effects (roar_model), the Glory-paid Ancestral Cry (Kaom's casts, glory_busy), a triggered Warcry (Ferocious
+        Roar's socketed one: the Roar is the press) and one in a group the player doesn't press (a meta or totem uses it).
+        The main skill triggered or used by a totem: not charged here (its hits don't come from the player's own uses;
+        the trigger's feeding skill losing the time is NOT counted, a small OVERCOUNT left, LOW)."""
+        build = self.build
+        ctx = build.ctx
+        cries = [s for s in found if s.group is not None and not s.triggered and s is not main and s.name not in
+                 models.GLORY_SKILLS and "Warcry" in (gem_of(ctx, s.name, None).get("skillTypes") or [])]
+        if main is None or not cries:
+            return [], []
+        if main.triggered or main.by_totem:
+            return [], [{"label": "Time casting Warcries: not charged*", "value": "x1",
+                         "basis": (f"{main.name} is {'triggered' if main.triggered else 'used by a totem'}, so the "
+                                   f"Warcries' ({', '.join(sorted({s.name for s in cries}))}) cast time isn't taken off "
+                                   "it; the skill the player uses instead loses that time (not counted: an OVERCOUNT)"),
+                         "confidence": "LOW"}]
+        _, roar_cry = models.roar(found)
+        choices = models.press_choices(build)
+        objective = getattr(build, "objective", None)
+        granted = getattr(ctx, "all_gems", None)
+        groups = {g["index"]: g for g in build.groups()}
+        indices, actives, names = [], [], []
+        for s in cries:
+            group = groups.get(s.group)
+            if (group is None or group.get("enabled") is False or s.name in choices
+                    or s.name == models.FEROCIOUS_ROAR and not roar_cry
+                    or (getattr(objective, "full", False) and s.group != main.group  # (press_model skips the main group)
+                        and pressed_group(group, ctx.gems, granted))
+                    or not pressed_group({**group, "enabled": True, "fullDPS": True}, ctx.gems, granted)):
+                continue
+            position = next((n for n, x in enumerate(group.get("skills") or [], 1) if x["name"] == s.name), 0)
+            if (s.group, position) not in zip(indices, actives):
+                indices.append(s.group); actives.append(position); names.append(s.name)
+        if not indices:
+            return [], []
+        rows = build.call("useRates", indices=indices, actives=actives)["rates"]
+        presses = []
+        for index, position, name in zip(indices, actives, names):
+            row = next((r for r in rows if r.get("index") == index and r.get("active") in (position, None)
+                        and r.get("name") == name), None)
+            if row is None:
+                continue
+            row = {**row, "warcry": True}  # (conditions.use_ceiling: its castRate, not PoB's double-slowed Speed)
+            uses, why, _ = conditions_mod.skill_use_rate(row)
+            presses.append((name, uses, why, models.press_action(row)))
+        return models.warcry_press_model(presses, main.name)
 
     def minion_counts(self, found: list[models.Skill], stats: dict | None = None) -> list[dict]:
         """(MECHB50, models.minion_alive_count) Each minion skill's Full DPS entry x the minions it keeps alive (PoB
