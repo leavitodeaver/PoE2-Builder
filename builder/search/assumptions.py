@@ -5095,7 +5095,8 @@ class Assumptions:
                 if cost > 0 and plan > 0:
                     paid, paid_how = min(plan, regen / cost), f"Runic Ward regeneration {regen:.1f}/s over {cost:g} a summon"
             rune_mods, rune_notes, verisium_groups = models.verisium_model(
-                rune, hits, models.number(row.get("cooldown")), models.number(row.get("duration")), paid, paid_how)
+                rune, hits, models.number(row.get("cooldown")), models.number(row.get("duration")), paid, paid_how,
+                texts)  # (MECHB63, R59-11: its "+N to Limit" lines)
             hand_mods, hand_notes = hand_mods + rune_mods, hand_notes + rune_notes
             for note in rune_notes:
                 build.objective.entry_scales.update(note.get("full_dps") or {})
@@ -11626,9 +11627,11 @@ class Assumptions:
         row = next(iter(build.call("useRates", indices=[spot[0]], actives=[spot[1]])["rates"]), {}) if spot else {}
         types = build.call("minionTypes", index=skill.group, active=spot[1] if spot else None).get("types") or []
         speed = number((types[0] if types else {}).get("Speed"))
-        scale, notes = models.skyfall_minion_model(uses, how, number(row.get("instanceLimit")) or models.SKYFALL_LIMIT,
-                                                   number(row.get("duration")) or models.SKYFALL_SECONDS, speed,
-                                                   getattr(self, "undeath_limit", None))
+        texts = [line["text"] for line in build.call("sourceLines")["lines"]]  # (MECHB63, R59-11: its Limit lines)
+        limit, _, limit_how = models.temporary_minion_limit(
+            texts, number(row.get("instanceLimit")) or models.SKYFALL_LIMIT)
+        scale, notes = models.skyfall_minion_model(uses, how, limit, number(row.get("duration")) or models.SKYFALL_SECONDS,
+                                                   speed, getattr(self, "undeath_limit", None), limit_how)
         objective = getattr(build, "objective", None)
         if objective is not None:  # (its own Full DPS entry x the Comet-Spawn standing, as minion_counts)
             objective.entry_scales[models.SKYFALL_MINION] = objective.entry_scales.get(models.SKYFALL_MINION, 1.0) * scale

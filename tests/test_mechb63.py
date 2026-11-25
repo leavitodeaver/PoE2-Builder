@@ -135,3 +135,16 @@ def test_rampage_pays_its_default_stance_time_once_a_channel():
     fs = models.Skill("Furious Slam", 1, attack=True, melee=True)  # (not a channel: unchanged)
     assert models.bear_stance_model(fs, 2.0, rate=rate)[0][0]["value"] == pytest.approx(0.4)
 
+
+def test_temporary_minion_limit_lines_raise_skyfall_and_manifest_rune():
+    """RESEARCH59 R59-11: 'Temporary Minion Skills have +N to Limit of Minions summoned' (MEDIUM) and 'Skills have +N to
+    Limit' (MEDIUM-LOW, the row without it) raise both caps."""
+    lines = ["Temporary Minion Skills have +2 to Limit of Minions summoned", "Skills have +1 to Limit",
+             "Fissure Skills have +1 to Limit"]
+    assert models.temporary_minion_limit(lines, 10.0)[:2] == (13.0, 12.0)
+    assert models.temporary_minion_limit([], 12.0) == (12.0, 12.0, "")
+    rune = models.Skill(models.MANIFEST_RUNE, 3)
+    _, notes, _ = models.verisium_model(rune, 5.0, 0.5, 8.0, None, "", lines)
+    assert notes[0]["value"] == "13.00 of 13" and "R59-11" in notes[0]["basis"]
+    scale, notes = models.skyfall_minion_model(1.0, "test", 14.0, 20.0, 1.0, None, "Limit 12 +2 (test)")
+    assert "at most 14" in notes[0]["basis"] and "Limit 12 +2" in notes[0]["basis"]

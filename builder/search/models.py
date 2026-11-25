@@ -20413,20 +20413,22 @@ VERISIUM_COOLDOWN = 0.5
 
 
 def verisium_model(rune: Skill, hits: float, cooldown: float, duration: float, paid: float | None,
-                   paid_how: str = "") -> tuple[list[dict], list[dict], set[int]]:
+                   paid_how: str = "", texts: list[str] = ()) -> tuple[list[dict], list[dict], set[int]]:
     """(mods, notes, Full DPS groups) for Manifest Rune: `hits` the main Attack's hits a second, `cooldown` its (s, PoB's),
     `duration` each Manifestation's (s, PoB's), `paid` the summons a second the build's Runic Ward paid for last round
     (ward_paid; None: the planned rate), why `paid_how`."""
     cooldown = cooldown if cooldown > 0 else VERISIUM_COOLDOWN
     seconds = duration if duration > 0 else VERISIUM_SECONDS
     limit = number(rune.level_stats.get("base_number_of_verisium_runes_allowed")) or VERISIUM_LIMIT
+    limit, _, limit_how = temporary_minion_limit(list(texts), limit)  # (MECHB63, R59-11: its "+N to Limit" lines)
     planned = min(max(hits, 0.0), 1 / cooldown)
     made = planned if paid is None else min(planned, max(paid, 0.0))
     alive = min(limit, made * seconds)
     note = {"label": "Verisium Manifestations: Manifestations alive*", "value": f"{alive:.2f} of {limit:g}",
             "basis": (f"one a {cooldown:.3g} s cooldown on an Attack hit ({hits:.2f} hits/s of the main skill): {planned:.2f} "
                       f"a second planned, {made:.2f} paid for by Runic Ward (30 a summon at level 20{'; ' + paid_how if paid_how else ''}), "
-                      f"x {seconds:g} s each = {alive:.2f} alive (limit {limit:g}); PoB scores one Manifestation (the minion "
+                      f"x {seconds:g} s each = {alive:.2f} alive (limit {limit:g}{': ' + limit_how if limit_how else ''}); "
+                      "PoB scores one Manifestation (the minion "
                       "added from the game's rows: Physical x0.70 x1.5, R33-10; a 1.0 s attack, MEDIUM: RESEARCH34 R34-8, "
                       "its attack_01 timeline 1.0 s with the launch at 0.4 s, matching AttackSpeed 1000), its entry x "
                       "that. 0 before (PoB had no minion for it: an UNDERCOUNT). Row: a 0.5 s attack (a LOW what-if, no "
@@ -25440,6 +25442,28 @@ def eye_shards_model(main: Skill | None, stats: dict, radius: float, distance: f
 MINION_COUNT_ENTRY = "model-mechb50-minion-count"
 WOLF_PACK, WOLF_PACK_STAT = "Wolf Pack", "skill_wolf_pack_size"
 MINION_OWN_COUNT = frozenset({"Unearth", "Skyfall"})  # (MECHB62: skyfall_minion_model)
+# (MECHB63; RESEARCH59 R59-11, research/skyfall-manifest-limit-lines-r59.md) "+N to Limit" lines on Skyfall's "[Limit] 12
+# [Temporary Minions]" and Manifest Rune's "[Limit] 10 Summoned Verisium Manifestations" (neither skill has the Limit
+# type; "Temporary Minion" is no skill type, so "Temporary Minion Skills" means skills summoning Temporary Minions by
+# their text): temporary_minion_limit_+ "Temporary Minion Skills have +N to Limit of Minions summoned" raises both
+# (MEDIUM; carriers: the passives Expendable Army / Known by All, a corruption upgrade, the Genesis Tree ring "of
+# Multitudes", the Alloy "of the Stars"); base_limit_+ "Skills have +N to Limit" probably does (MEDIUM-LOW, R58-9's
+# reading of 0.4.0: a cap described as a Limit is modifiable; carrier the unique UniqueBaseLimit1; Overabundance can't
+# socket into them): in the headline, the cap without it a row. They add before Archon of Undeath's 100% more.
+TEMP_MINION_LIMIT_LINE = re.compile(r"^Temporary Minion Skills have \+(\d+) to Limit(?: of Minions summoned)?$", re.I)
+SKILLS_LIMIT_LINE = re.compile(r"^Skills have \+(\d+) to Limit$", re.I)
+
+
+def temporary_minion_limit(texts: list[str], base: float) -> tuple[float, float, str]:
+    """(the Limit with the build's lines, the Limit without the "Skills" line (the row), how) for a skill summoning
+    Temporary Minions whose own cap is `base` (see above)."""
+    temp = sum(int(m.group(1)) for t in texts if (m := TEMP_MINION_LIMIT_LINE.match(t.strip())))
+    skills = sum(int(m.group(1)) for t in texts if (m := SKILLS_LIMIT_LINE.match(t.strip())))
+    if not temp and not skills:
+        return base, base, ""
+    parts = ([f"+{temp:g} from Temporary Minion Skills' Limit lines (MEDIUM)"] if temp else []) + (
+        [f"+{skills:g} from 'Skills have +N to Limit' (MEDIUM-LOW; row without it: {base + temp:g})"] if skills else [])
+    return base + temp + skills, base + temp, f"Limit {base:g} {' '.join(parts)} (RESEARCH59 R59-11)"
 
 
 def minion_alive_count(skill: Skill, pack: float = 0.0) -> tuple[float, str, str]:
@@ -25557,7 +25581,7 @@ SKYFALL_MINION = "Verisium Comet-Spawn"  # (its Full DPS entry's name: engine/br
 
 
 def skyfall_minion_model(uses: float, uses_how: str, limit: float, seconds: float, speed: float,
-                         undeath: tuple[float, float] | None = None) -> tuple[float, list[dict]]:
+                         undeath: tuple[float, float] | None = None, limit_how: str = "") -> tuple[float, list[dict]]:
     """(the Comet-Spawn entry's scale, notes) for Skyfall's Comet-Spawn (see above): `uses` Skyfall's casts a second (its Glory), `limit` /
     `seconds` its Limit and duration, `speed` one minion's attacks a second (PoB's), `undeath` Archon of Undeath's mix."""
     uses, limit = max(number(uses), 0.0), max(number(limit), 0.0) or SKYFALL_LIMIT
@@ -25574,7 +25598,8 @@ def skyfall_minion_model(uses: float, uses_how: str, limit: float, seconds: floa
     centre = 1.0 - slams + slams * SKYFALL_SLAM_MORE * SKYFALL_SLAM_CENTRE
     scale = count * factor
     how = (f"{uses:.3f} casts a second ({uses_how}) x {SKYFALL_PER_CAST} Comet-Spawn a cast x {seconds:.3g} s each, at most "
-           f"{limit:g}{'; ' + mix_how if mix_how else ''} = {count:.2f} alive" if uses > 0 else
+           f"{limit:g}{' (' + limit_how + ')' if limit_how else ''}{'; ' + mix_how if mix_how else ''} = {count:.2f} alive"
+           if uses > 0 else
            f"no cast: {uses_how or 'its Glory comes from Runic Ward spent, and the build spends none'}: 0 Comet-Spawn "
            "(no flat rate)")
     return scale, [{
