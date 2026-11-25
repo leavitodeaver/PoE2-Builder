@@ -2843,6 +2843,18 @@ RAGE_PER_SECOND = {"Rampage": 5.0, "Flame Breath": 6.0}
 # taken as spread out). Only when every spender is a per-use one: a channel's Rage a second (Rampage, Flame Breath)
 # spends continuously, so none held stays there.
 RAGE_SPEND_AT = 10.0
+# (MECHC61) RAGEFORGED_SIDE: the build's Rage spenders were keyed by gem name, so a Rageforged in two groups (the main
+# one and a side one, or two side ones; a support can sit in more than one group, CLAUDE.md's revoked "once per
+# character") spent only once: the other group's Rage a second was lost (an OVERCOUNT of Rage held and of the paid share).
+# Each further group's copy is its own spender now, at its own group's use rate (skill_use_rate), keyed
+# "<gem> (<the group's first active skill>)"; rage_spender gives back the gem's name for its amount and skip chance.
+RAGEFORGED_SIDE = ("Rageforged I", "Rageforged II")
+
+
+def rage_spender(key: str) -> str:
+    """(MECHC61) The gem name behind a Rage spender's key (RAGEFORGED_SIDE's note)."""
+    base = key.split(" (", 1)[0]
+    return base if base in RAGEFORGED_SIDE and key != base else key
 
 
 def rage_sawtooth(gain: float, spend: dict, most: float, uses: int = 3000) -> tuple[float, str] | None:
@@ -2850,9 +2862,10 @@ def rage_sawtooth(gain: float, spend: dict, most: float, uses: int = 3000) -> tu
     (no gain, no spender, a per-second spender, no maximum). A seeded simulation of `uses` uses (after 300 to settle)."""
     import random
 
-    if gain <= 0 or most <= 0 or not spend or any(n not in RAGE_PER_USE for n in spend):
+    if gain <= 0 or most <= 0 or not spend or any(rage_spender(n) not in RAGE_PER_USE for n in spend):
         return None
-    rates = {n: number(v) / RAGE_PER_USE[n] for n, v in spend.items() if number(v) > 0 and RAGE_PER_USE[n] > 0}
+    rates = {n: number(v) / RAGE_PER_USE[rage_spender(n)] for n, v in spend.items()
+             if number(v) > 0 and RAGE_PER_USE[rage_spender(n)] > 0}
     total = sum(rates.values())
     if total <= 0:
         return None
@@ -2868,7 +2881,7 @@ def rage_sawtooth(gain: float, spend: dict, most: float, uses: int = 3000) -> tu
         if n >= 300:
             area, seconds = area + part, seconds + step
         who = names[0] if len(names) == 1 else rng.choices(names, weights)[0]
-        if level >= RAGE_SPEND_AT and rng.random() >= RAGE_SKIP_CHANCE.get(who, 0.0):
+        if level >= RAGE_SPEND_AT and rng.random() >= RAGE_SKIP_CHANCE.get(rage_spender(who), 0.0):
             level -= RAGE_SPEND_AT
     mean = min(area / seconds, most)
     return mean, (f"the spenders take {RAGE_SPEND_AT:g} a use only while {RAGE_SPEND_AT:g} are there: Rage climbs "
@@ -9894,6 +9907,32 @@ class Conditions:
         by_index = {r.get("index"): skill_use_rate(r, choices)[0] for r in raw}
         return {n: by_index[i] for n, i in where.items() if i in by_index}
 
+    def _rageforged_copies(self, rage_spend: dict, main_gems: set) -> dict[str, float]:
+        """(MECHC61: RAGEFORGED_SIDE's note) {key: Rage a second} for every enabled group's Rageforged beyond the copy
+        rage_spend already counts (the main group's where it holds one, else the last enabled group's, as _group_uses
+        finds it), each at its own group's use rate."""
+        groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
+        out: dict[str, float] = {}
+        rows_for: dict[int, tuple[str, str]] = {}
+        for name in [n for n in RAGEFORGED_SIDE if n in rage_spend]:
+            holding = [g for g in groups if any(x.get("name") == name and x.get("enabled", True) and x.get("support")
+                                                 for x in g.get("gems") or [])]
+            counted = next((g for g in holding if g.get("main")), None) if name in main_gems else None
+            counted = counted or (holding[-1] if holding else None)
+            for g in holding:
+                if g is counted:
+                    continue
+                first = next((x.get("name") for x in g.get("skills") or [] if x.get("name")), None) or f"group {g['index']}"
+                rows_for[g["index"]] = (name, first)
+        if not rows_for:
+            return out
+        choices = models.press_choices(self.build)
+        for row in self.build.call("useRates", indices=sorted(rows_for))["rates"]:
+            if (index := row.get("index")) in rows_for:
+                name, first = rows_for[index]
+                out[f"{name} ({first})"] = RAGE_PER_USE[name] * skill_use_rate(row, choices)[0]
+        return out
+
     def _bypass_skills(self, gem_types: dict) -> dict[str, list]:
         """(MECHC40, K2-9) {kind: [(name, the most uses/s it can add above its cooldown, how)]} for the build's skills
         whose cooldown a charge bypasses (bypass_kind). The cooldown rate is read without this model's own Cooldown
@@ -11338,6 +11377,8 @@ class Conditions:
             for n in [n for n, u in rage_spend.items() if u is None]:
                 each = uses.get(n, self._chosen_use(n))
                 rage_spend[n] = RAGE_PER_USE[n] * each if n in RAGE_PER_USE else RAGE_PER_SECOND[n] * min(1.0, each)
+        if any(n in RAGEFORGED_SIDE for n in rage_spend):  # (MECHC61: RAGEFORGED_SIDE's note)
+            rage_spend.update(self._rageforged_copies(rage_spend, main_gems))
         if (any(STEWARD_OF_KULEMAK.match(line["text"].strip()) for line in lines) and "Spell" in main_types
                 and "Damage" in main_types and not main_types & STEWARD_EXCLUDED and self.main_skill
                 and self.main_skill not in (consumers.get("Power") or {})):  # (MECHC49: STEWARD_OF_KULEMAK's note)

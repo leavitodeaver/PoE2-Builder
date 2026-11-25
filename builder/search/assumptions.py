@@ -8411,34 +8411,73 @@ class Assumptions:
         UNDERCOUNT below 10 (build 1: Rage held under 10, none of it), an OVERCOUNT at 10 or more while gains fall short
         of the spend. The share of uses paid is conditions' build.rage_paid (what's gained over what the spenders ask,
         all spenders cut alike; a use that finds 10 pays 10, or skips on 30%, so paid uses / all uses = paid / asked).
-        A MORE line on the main skill moves PoB's reading to 35% x that share. Main group only (a side skill's
-        Rageforged keeps PoB's reading, said)."""
+        A MORE line on the main skill moves PoB's reading to 35% x that share.
+        (MECHC61) A side group's Rageforged too: each of its active skills gets the same line at the same share (the
+        spenders cut alike; conditions counts each group's Rageforged spend, RAGEFORGED_SIDE's note). PoB's all-or-nothing
+        reading was right only where the gains cover every spend (build 21's Snipe), an OVERCOUNT where they fall short
+        with the box at 10+, an UNDERCOUNT where the sawtooth holds under 10. A side skill whose name is the main skill's,
+        or that sits in another enabled group without Rageforged, is left at PoB's reading (a SkillName line would reach
+        both copies), said."""
         build = self.build
         paid = getattr(build, "rage_paid", None)
-        group = build.main_group() if main and paid and hasattr(build, "main_group") else None
-        if not group:
-            return [], []
-        forged = next((g["name"] for g in group.get("gems") or [] if g.get("support") and g.get("enabled", True)
-                       and g.get("name") in RAGEFORGED_MORE), None)
-        if forged is None:
+        if not paid:
             return [], []
         share = min(1.0, max(0.0, number(paid.get("share"))))
         held = number((build.call("getConfig").get("input") or {}).get("multiplierRage"))
-        more = RAGEFORGED_MORE[forged]
-        pob = more if held >= conditions_mod.RAGE_SPEND_AT else 0.0
-        factor = (1 + more * share / 100) / (1 + pob / 100)
-        if abs(factor - 1) < 1e-6:
-            return [], []
-        return [models.raw_mod("Damage", "MORE", (factor - 1) * 100, skill=main)], [{
-            "label": f"{forged}: more damage on the uses that find the Rage*",
-            "value": f"{more * share:.1f}% more on {main} (PoB's box: {pob:g}%)",
-            "basis": (f"{more:g}% more on a use that spends {conditions_mod.RAGE_SPEND_AT:g} Rage (or skips the spend), "
-                      f"none on a use that finds less ('If you don't have enough Rage to spend, the damage bonus will not "
-                      f"apply'): {share:.0%} of uses paid ({number(paid.get('paid')):.2f} Rage/s of the "
-                      f"{number(paid.get('asked')):.2f} asked); PoB gives {more:g}% whenever its Rage box ({held:.1f}) is at "
-                      f"least {conditions_mod.RAGE_SPEND_AT:g}, so x{factor:.3f} on {main}"),
-            "play": "keep using the skill: each use that finds 10 Rage is Enraged (without Rage: no bonus)",
-            "confidence": "MEDIUM (the paid share: gains taken as steady, the spenders cut alike)"}]
+
+        def forged_in(group: dict) -> str | None:
+            return next((g["name"] for g in group.get("gems") or [] if g.get("support") and g.get("enabled", True)
+                         and g.get("name") in RAGEFORGED_MORE), None)
+
+        targets: list[tuple[str, str, bool]] = []  # (skill, its Rageforged, on the main group)
+        group = build.main_group() if main and hasattr(build, "main_group") else None
+        if group and (forged := forged_in(group)):
+            targets.append((main, forged, True))
+        kept: list[str] = []
+        groups = build.groups() if hasattr(build, "groups") else []
+        enabled = [g for g in groups if g.get("enabled") is not False and not g.get("main")]
+        for side in enabled:
+            forged = forged_in(side)
+            if not forged:
+                continue
+            for skill in side.get("skills") or []:
+                name = skill.get("name")
+                if not name or name in {t[0] for t in targets}:
+                    continue
+                elsewhere = [g for g in groups if g is not side and g.get("enabled") is not False
+                             and any(s.get("name") == name for s in g.get("skills") or []) and not forged_in(g)]
+                if name == main or elsewhere:
+                    kept.append(name)
+                    continue
+                targets.append((name, forged, False))
+        mods: list[dict] = []
+        notes: list[dict] = []
+        for name, forged, on_main in targets:
+            more = RAGEFORGED_MORE[forged]
+            pob = more if held >= conditions_mod.RAGE_SPEND_AT else 0.0
+            factor = (1 + more * share / 100) / (1 + pob / 100)
+            if abs(factor - 1) < 1e-6:
+                continue
+            mods.append(models.raw_mod("Damage", "MORE", (factor - 1) * 100, skill=name))
+            notes.append({
+                "label": f"{forged}: more damage on the uses that find the Rage*"
+                         + ("" if on_main else f" ({name}, beside the main skill)"),
+                "value": f"{more * share:.1f}% more on {name} (PoB's box: {pob:g}%)",
+                "basis": (f"{more:g}% more on a use that spends {conditions_mod.RAGE_SPEND_AT:g} Rage (or skips the spend), "
+                          f"none on a use that finds less ('If you don't have enough Rage to spend, the damage bonus will "
+                          f"not apply'): {share:.0%} of uses paid ({number(paid.get('paid')):.2f} Rage/s of the "
+                          f"{number(paid.get('asked')):.2f} asked, every spender cut alike); PoB gives {more:g}% whenever "
+                          f"its Rage box ({held:.1f}) is at least {conditions_mod.RAGE_SPEND_AT:g}, so x{factor:.3f} on "
+                          f"{name}"),
+                "play": f"keep using {name}: each use that finds 10 Rage is Enraged (without Rage: no bonus)",
+                "confidence": "MEDIUM (the paid share: gains taken as steady, the spenders cut alike)"})
+        if kept:
+            notes.append({"label": "Rageforged beside the main skill: PoB's reading kept*",
+                          "value": ", ".join(sorted(set(kept))),
+                          "basis": "the skill also sits in another group (or is the main skill) without Rageforged, so a "
+                                   "line for it would reach both copies: PoB's all-or-nothing reading on its Rage box kept",
+                          "play": "", "confidence": "LOW (an OVERCOUNT where its gains fall short with the box at 10+)"})
+        return mods, notes
 
     def purple_flames(self, skills: list[dict]) -> tuple[list[dict], list[dict]]:
         """Into the Breach's Purple Flame stacks (MECHC26; PATCH_CHECK G1-1, the largest OVERCOUNT found: nothing set
