@@ -12496,6 +12496,48 @@ SET_FLAG_WHY = {("Shockwave Slam", "Jagged Ground Eruption"): (
     "Damage lines missed it", "MEDIUM")}
 
 
+# (GEM43; RESEARCH60 R60-11, research/shockwave-totem-slam-eruption-r60.md, HIGH: an OVERCOUNT where the build lays no
+# Jagged Ground) ActiveSkills shockwave_totem (26650308): "Raise a Totem that Slams the ground around it ... Jagged Ground
+# erupts when hit by this Slam, damaging enemies standing on it. The Totem cannot create Jagged Ground"; patch 0.3.0 gives
+# the Slam and the Eruption separate damage. So every slam deals the Slam set's hit, and the Eruption set's hit comes on
+# top only while the boss stands on Jagged Ground the build makes elsewhere. The search scored the totem on the Eruption
+# alone (GEM43's probe: Slam 12.2, Eruption 44.2 DPS: x3.6 with no ground, x0.78 of both with ground all fight). A DPS
+# "more" on whichever set PoB scores: (Slam + Eruption x share) / the scored set. `share`: the boss's share of the fight
+# on the build's Jagged Ground (Assumptions.totem_jagged_share: side Earthquake / Stampede / Furious Slam groups at the
+# search's chosen press rates, conditions.jagged_ground); none = Slam only, said in the note. Every slam erupts a patch
+# while it lasts (R60-11's reading, MEDIUM-LOW: whether an eruption uses the patch up isn't stated): the headline; the
+# Slam alone is the "no Jagged Ground" row.
+TOTEM_SLAM = ("Shockwave Slam", "Slam", "Jagged Ground Eruption")
+
+
+def totem_slam_model(main: str | None, scored: str | None, sets: list[dict], share: float,
+                     how: str) -> tuple[list[dict], list[dict]]:
+    """(GEM43, R60-11) Shockwave Totem's slam: the Slam hit always, the Eruption at the Jagged Ground `share` (see above)."""
+    name, slam_label, erupt_label = TOTEM_SLAM
+    if main != name or scored not in (slam_label, erupt_label):
+        return [], []
+    dps = {s.get("label"): number(s.get("TotalDPS")) for s in sets}
+    slam, erupt = dps.get(slam_label, 0.0), dps.get(erupt_label, 0.0)
+    if dps.get(scored, 0.0) <= 0 or slam <= 0:
+        return [], []
+    share = min(max(number(share), 0.0), 1.0)
+    total = slam + erupt * share
+    more = total / dps[scored]
+    return [raw_mod("DPS", "MORE", 100 * (more - 1), main)], [{
+        "label": f"{main}: the Slam every time, the Jagged Ground Eruption only on your Jagged Ground*",
+        "value": f"x{more:.3f}",
+        "basis": (f"PoB scores the {scored} alone. Each slam deals the Slam ({slam / erupt if erupt > 0 else 0:.2f} of "
+                  f"an Eruption's damage); the Eruption only where Jagged Ground already lies, which the totem can't "
+                  f"make (RESEARCH60 R60-11, HIGH: the skill's text): the boss on it {share:.0%} of the fight ({how}). "
+                  f"Every slam taken to erupt a patch while it lasts (MEDIUM-LOW). Rows (of this build's slam DPS): "
+                  f"no Jagged Ground x{slam / total:.3f}; ground all fight x{(slam + erupt) / total:.3f}. (Set DPS "
+                  "here as PoB gives them with this line on: only the ratios are meaningful.)"),
+        "confidence": "HIGH" if share <= 0 else "MEDIUM-LOW",
+        "play": (f"Lay Jagged Ground under the boss (Earthquake, Stampede, Furious Slam with Rage, or the Jagged Ground "
+                 f"support on your own slams) for the totem's Eruptions: without it x{slam / total:.2f} of this build's "
+                 f"totem DPS; with it all fight x{(slam + erupt) / total:.2f}.")}]
+
+
 def set_flag_model(main: str | None, scored: str | None, sets: list[dict]) -> tuple[list[dict], list[dict]]:
     """(GEM43) The note for a main skill whose scored stat set got a flag from our reading (SET_FLAG_WHY): PoB's DPS with
     it (the headline) and without it (the row). `sets`: the bridge's setRates for the main group's skill."""

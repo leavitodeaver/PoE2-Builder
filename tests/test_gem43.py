@@ -117,3 +117,46 @@ def test_an_item_limit_line_raises_cursed_grounds_areas(engine):
     build.call("equip", slot="Belt", raw=chr(10).join(["Rarity: RARE", "Probe Cord", "Heavy Belt",
                                                          "Skills have +1 to Limit"]), fields=[])
     assert rate() == pytest.approx(3 / 7 * 6, abs=1e-3)  # probe scratch/gem43/probe_curse.log: 1.714 -> 2.571
+
+
+# (GEM43 turn 4, RESEARCH60 R60-11, HIGH) Shockwave Totem: the Slam every time, the Eruption only on the build's ground
+TOTEM_SETS = [{"label": "Slam", "TotalDPS": 12.2}, {"label": "Jagged Ground Eruption", "TotalDPS": 44.2}]
+
+
+def test_without_jagged_ground_the_totem_scores_the_slam_not_the_eruption():
+    mods, notes = models.totem_slam_model("Shockwave Slam", "Jagged Ground Eruption", TOTEM_SETS, 0.0,
+                                          "no Jagged Ground source in the build")
+    more = next(m for m in mods if m.get("name") == "DPS")
+    assert (1 + more["value"] / 100) * 44.2 == pytest.approx(12.2, rel=1e-4)  # the OVERCOUNT gone: x0.276
+    assert notes[0]["confidence"] == "HIGH" and "R60-11" in notes[0]["basis"]
+
+
+def test_with_jagged_ground_the_eruption_adds_at_its_share_on_either_scored_set():
+    for scored in ("Jagged Ground Eruption", "Slam"):
+        mods, notes = models.totem_slam_model("Shockwave Slam", scored, TOTEM_SETS, 0.5, "Stampede pressed")
+        more = next(m for m in mods if m.get("name") == "DPS")
+        base = 44.2 if scored != "Slam" else 12.2
+        assert (1 + more["value"] / 100) * base == pytest.approx(12.2 + 0.5 * 44.2, rel=1e-4)
+        assert notes[0]["confidence"] == "MEDIUM-LOW" and f"x{56.4 / (12.2 + 0.5 * 44.2):.2f}" in notes[0]["play"]
+    assert models.totem_slam_model("Rolling Slam", "Slam", TOTEM_SETS, 1.0, "") == ([], [])
+
+
+def test_a_pressed_side_stampede_lays_the_ground_the_totems_eruption_needs(engine):
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Shockwave Totem", ascendancies=["Warbringer"], level=90))
+    skeleton = enumerate_skeletons(Context(payload), ["Shockwave Totem"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    main = models.Skill("Shockwave Slam", build.main_group()["index"])
+    assert search.assumptions.totem_jagged_share(main)[0] == 0.0  # no source: no Eruption
+    build.call("addSkillGroup", text="Stampede 20/0 1")
+    share, how = search.assumptions.totem_jagged_share(main)
+    assert share == 0.0 and "no press rate chosen" in how  # a source the search doesn't press lays nothing
+    setattr(build.objective, models.PRESS_CHOICES, {"Stampede": 0.05})
+    share, how = search.assumptions.totem_jagged_share(main)
+    assert share == pytest.approx(0.3, abs=1e-6) and "Stampede pressed 0.05/s" in how  # 0.05/s x 6 s patches

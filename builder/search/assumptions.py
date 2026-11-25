@@ -5228,6 +5228,11 @@ class Assumptions:
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             flag_mods, flag_notes = models.set_flag_model(main.name, main.stat_set, sets)
             hand_mods, hand_notes = hand_mods + flag_mods, hand_notes + flag_notes
+        if main is not None and group and main.name == models.TOTEM_SLAM[0]:  # (GEM43, R60-11: Slam + Eruption on ground)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            share, share_how = self.totem_jagged_share(main)
+            totem_mods, totem_notes = models.totem_slam_model(main.name, main.stat_set, sets, share, share_how)
+            hand_mods, hand_notes = hand_mods + totem_mods, hand_notes + totem_notes
         if main is not None and group and main.name in models.COMBO_SEQUENCES:  # (GEM11: a combo's step sets)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             up, up_how = models.ailment_up_of(build)  # (GEM12: Primal Strikes' spirits need a Shocked boss)
@@ -12521,6 +12526,38 @@ class Assumptions:
                           f"red-flash avoided, {rest:.0%} past your evade / block, {dodge:.0%} dodged"
                           + (f": {boss_hits.ON_YOU_DODGE_HOW}" if dodge else ": the no-dodge row"))
                        + f"): up {share:.0%} of the fight (1 - e^(-4 s x {rate:.3f}/s))")
+
+    def totem_jagged_share(self, main: models.Skill) -> tuple[float, str]:
+        """(GEM43, R60-11; models.totem_slam_model) The boss's share of the fight on the build's Jagged Ground for a
+        Shockwave Totem main skill: each other enabled group's Earthquake / Stampede / Furious Slam at the search's
+        chosen press rate (models.press_choices; none chosen: 0 for it, said), conditions.jagged_ground at that rate,
+        the sources combined as independent. The Jagged Ground supports on side skills and a side Furious Slam's Rage
+        aren't read here (an UNDERCOUNT, said)."""
+        sources = {"Earthquake", "Stampede", "Furious Slam"}
+        choices = models.press_choices(self.build)
+        texts = [line["text"] for line in self.build.call("sourceLines")["lines"]]
+        off, parts, missed = 1.0, [], []
+        for g in self.build.groups():
+            if not g.get("enabled", True) or g.get("index") == main.group:
+                continue
+            gems = {x["name"] for x in g.get("gems") or [] if x.get("enabled", True)}
+            for name in sorted(gems & sources):
+                rate = number(choices.get(name))
+                if rate <= 0:
+                    missed.append(f"{name} (no press rate chosen: 0)")
+                    continue
+                types = set((self.build.ctx.gems.get(name) or {}).get("skillTypes") or ())
+                up, how = conditions_mod.jagged_ground(name, types, gems, {"Speed": rate}, texts=texts)
+                if up > 0:
+                    off *= 1 - up
+                    parts.append(f"{name} pressed {rate:.2f}/s: {how}")
+                else:
+                    missed.append(f"{name}: {how}")
+            if gems & {"Jagged Ground I", "Jagged Ground II"} and not gems & sources:
+                missed.append("a Jagged Ground support on a side skill (not read here: an UNDERCOUNT)")
+        if not parts:
+            return 0.0, "no Jagged Ground source in the build" + (f" ({'; '.join(missed)})" if missed else "")
+        return 1.0 - off, "; ".join(parts + missed)
 
     def jagged_ground_share(self, main: str | None, main_types: set[str], main_group: dict | None) -> tuple[float, str]:
         """conditions.jagged_ground from the build: the main skill's speed, Endurance Charges gained per second (the build's
