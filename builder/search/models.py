@@ -20018,8 +20018,16 @@ AFTER_PIERCE_QUALITY = frozenset({"Frostbolt", "High Velocity Rounds"})  # +1% m
 # support (minion.lua 1404 only resets it); PoB's Modules also set it: CalcMirages 379 (x 1 / cooldown on a mirage's
 # main skill) and ConfigOptions 538-539 (two Blade Vortex spectres' skills), none a Return skill's simultaneous set: the manager,
 # 25 Nov 03:05); Barrage's "DPS" MORE counts sequential repeats, each its own set with its own return: UNVERIFIED). So one
-# return a set. Not checked (UNVERIFIED, a possible OVERCOUNT where it meets this): another model's "DPS" MORE on the
-# same skill that counts more SIMULTANEOUS projectiles on the boss would be multiplied by the return too.
+# return a set. (MECHB65, MECHB63's leftover) the models that count more SIMULTANEOUS projectiles of one use on the boss:
+# the Merging crossbow fragments (shotgun_fragments_share: x N on the hit, the main skill) are the ones a return source
+# meets (Breachlord's Amalgam on Galvanic Shards / Permafrost Bolts, Cold / Lightning; Cadiro's and Ironbound's arrows
+# are Bow attacks, no fragments) (checked: every ProjectileCount reader in models.py, 25 Nov; a model counting
+# projectiles without reading ProjectileCount would be missed: UNVERIFIED past that grep); Salvo's random directions and
+# the Nova circle count at most one projectile a group (the group rule); Frost Darts' / crossbow sequences are fired one
+# after another (each its own set and return, as Barrage's). For the fragments the return's "1% more" multiplied their
+# x N too: N fragments returning merged. Whether returned fragments Merge again is UNVERIFIED (RESEARCH question), so
+# the headline takes R59-1's rule as written, ONE returned fragment for the fragments fired together (the return's more
+# / N, the lower reading), and all N merged on the return the row.
 RETURN_RULE = ("a returned projectile hits the boss again only if it pierced it on the way out, at most one returned hit "
                "for projectiles fired together (MEDIUM: RESEARCH59 R59-1, guides and the PoE1 rule; no game file or GGG "
                "statement says so)")
@@ -20106,10 +20114,18 @@ def return_model(texts: list[str], stats: dict, main: Skill | None, main_types: 
                      "1% more Damage against Enemies with Fully Broken Armour",
                      f"{why}; while the boss's Armour is Fully Broken, Passthrough Rounds makes every projectile pierce it "
                      "(the search weighs that uptime)", 1.0 - pierce))
+    frags = 0.0  # (MECHB65: the Merging fragments' x N, see RETURN_RULE's comment)
+    if main.name in SHOTGUN_SKILLS and main.name != "Ice Fragments":
+        frags = _shotgun_count(main, stats, main)[0]
     for share, label, text, how, pierce in rows:
         if not share:
             continue
         more = 100.0 * share * pierce * factor
+        if frags > 1:
+            how += (f"; one returned fragment for the {frags:g} fired together (R59-1's rule; whether returned "
+                    f"fragments Merge again is UNVERIFIED): the return's more / {frags:g}, all {frags:g} merged on the "
+                    f"return a row: +{more:.1f}%")
+            more /= frags
         if more <= 0:
             notes.append({"label": label, "value": 0, "confidence": "MEDIUM",
                           "basis": f"{how}, but its projectiles don't pierce the boss on the way out: {RETURN_RULE}: none"})

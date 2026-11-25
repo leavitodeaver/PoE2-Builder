@@ -115,3 +115,19 @@ def test_entangles_overgrown_vines_count_at_the_builds_overgrown_share():
     basis = half[1][0]["basis"]
     assert "4.5 vine hits a second" in basis and "Overgrown share 50%" in basis and "a row: x4.000" in basis
     assert "expire 25% slower" in basis and "none of its plants Overgrown" in plain[1][0]["basis"]
+
+
+def test_merging_fragments_get_one_returned_fragment_not_all_of_them():
+    """MECHB63's leftover (RETURN_RULE's UNVERIFIED, a possible OVERCOUNT): the return's "1% more" multiplied the Merging
+    fragments' x N; R59-1's one returned hit for projectiles fired together makes it one fragment: the more / N in the
+    headline, all N merged on the return a row; a plain projectile skill keeps its one return."""
+    shards = models.Skill("Galvanic Shards", group=1, attack=True)
+    types = {"Attack", "Projectile", "Lightning"}
+    gems = [{"name": "Galvanic Shards"}, {"name": "Breachlord's Amalgam"}]
+    mods, notes = models.return_model([], {"PierceCount": 1, "ProjectileCount": 8}, shards, types, gems, {"Crossbow"})
+    assert mods[0]["scale"] == pytest.approx(100.0 / 8)
+    assert "one returned fragment for the 8" in notes[0]["basis"] and "+100.0%" in notes[0]["basis"]
+    frost = models.Skill("Frostbolt", group=1, spell=True)
+    mods, _ = models.return_model([], {"PierceCount": 1, "ProjectileCount": 8}, frost, {"Spell", "Projectile", "Cold"},
+                                  [{"name": "Frostbolt"}, {"name": "Breachlord's Amalgam"}], set())
+    assert mods[0]["scale"] == pytest.approx(100.0)
