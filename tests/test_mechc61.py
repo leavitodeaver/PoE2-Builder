@@ -196,3 +196,57 @@ def test_enraged_warcry_moves_its_warcry_off_the_endurance_bypass():
     assert [r[0] for r in out["Rage"]] == ["Fortifying Cry"] and out["Rage"][0][4] == 15.0
     assert [r[0] for r in out["Endurance"]] == ["Infernal Cry"]
 
+
+def test_ghost_dance_share_follows_the_closed_forms_at_the_ends_and_the_stock_between():
+    """Ghost Dance's 3-Shroud stock (GHOST_STOCK): rare hits -> 1 - e^(-4h) (a Shroud always waiting); fast hits ->
+    4 / interval (each Shroud lost at once); hits about as fast as Shrouds: below both closed forms (losses bunch)."""
+    import math
+
+    from builder.search.recovery import ghost_dance_share
+
+    assert ghost_dance_share(10.1, 0.02) == pytest.approx(1 - math.exp(-4 * 0.02), rel=0.05)
+    assert ghost_dance_share(10.1, 1.0) == pytest.approx(4 / 10.1, rel=0.03)
+    middle = ghost_dance_share(10.1, 0.1)
+    assert 0.25 < middle < 0.35  # (the closed form read 4 / 10.1 = 0.396 here)
+    assert ghost_dance_share(0, 1.0) == 0.0 and ghost_dance_share(10.1, 0) == 0.0
+
+
+def test_blooms_take_the_remnant_multiplier_and_harmonic_remnants():
+    """Wildwood's Gifts' Blooms are Remnants: +20% additional Remnants from a line and Harmonic Remnants II's 20% on
+    the skill: x1.4; nothing, x1."""
+    from builder.search.assumptions import EXTRA_REMNANT_STAT
+    from builder.search.flasks import Charges, bloom_remnants
+
+    class Build:
+        def __init__(self, support):
+            self.support = support
+
+        def call(self, method, **kw):
+            assert method == "activeSkills"
+            return {"skills": [{"name": "Wildwood's Gifts", "supportStats": {EXTRA_REMNANT_STAT: self.support}}]}
+
+    gain = Charges.from_bridge({"blooms": {"rate": 0.8, "life": 5, "mana": 5, "charm": 5}})
+    more = bloom_remnants(Build(20), gain, ["20% chance to create an additional Remnant"])
+    assert more.bloom_rate == pytest.approx(0.8 * 1.4) and "Harmonic Remnants II" in more.bloom_how
+    assert bloom_remnants(Build(0), gain, []).bloom_rate == pytest.approx(0.8)
+
+
+def test_real_pob_blooms_take_an_additional_remnant_line(engine):
+    """Real PoB: The Hollow Mask's Wildwood's Gifts; an amulet's "20% chance to create an additional Remnant" (a text
+    line PoB doesn't apply) raises Charges.of's Bloom rate x1.2 over the bridge's own rate."""
+    from test_engine_models import spark_with  # (tests/ is on sys.path under pytest)
+
+    from builder.search.flasks import Charges
+
+    build = spark_with(engine, []).build
+    mask = chr(10).join(["Rarity: Unique", "The Hollow Mask", "Hewn Mask", "Item Level: 82", "Implicits: 1",
+                         "Grants Skill: Level 20 Wildwood's Gifts"])
+    build.call("equip", slot="Helmet", raw=mask, fields=[])
+    raw = build.call("chargeGain")["blooms"]["rate"]
+    assert raw > 0 and Charges.of(build).bloom_rate == pytest.approx(raw)
+    amulet = chr(10).join(["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82", "Implicits: 0",
+                           "20% chance to create an additional Remnant"])
+    build.call("equip", slot="Amulet", raw=amulet, fields=[])
+    build._model_texts = (None, [])  # (state.Build's per-commit text cache: a raw equip call isn't a commit)
+    gain = Charges.of(build)
+    assert gain.bloom_rate == pytest.approx(raw * 1.2) and "additional Remnants" in gain.bloom_how

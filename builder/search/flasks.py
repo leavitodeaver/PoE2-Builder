@@ -157,6 +157,7 @@ class Charges:
     granted_life: float = 0.0
     granted_charm: float = 0.0
     granted_how: str = ""
+    bloom_how: str = ""  # (MECHC61: BLOOM_REMNANTS' note) the Remnant multiplier and supports on the Bloom rate
 
     @classmethod
     def of(cls, build) -> Charges:
@@ -171,6 +172,8 @@ class Charges:
             texts = cached() if callable(cached) else [line["text"] for line in build.call("sourceLines")["lines"]]
         gain = cls.from_bridge(data, bosses.kill_stats(boss).get(bosses.KILLS_STAT) or 0.0, boss,
                                deflect_stops=deflect_stops(texts or []))
+        if gain.bloom_rate > 0:  # (MECHC61: BLOOM_REMNANTS' note)
+            gain = bloom_remnants(build, gain, texts if texts is not None else _texts(build))
         life_slot = next((k for k, v in FLASK_SLOTS.items() if v == "Life"), None)
         drunk = (getattr(build, "equipped", None) or {}).get(life_slot) is not None
         texts_now = (texts if texts is not None else _texts(build)) if drunk else []
@@ -463,6 +466,33 @@ def trigger_rate(trigger: str, gain: Charges) -> tuple[float, str] | None:
 # Charges a Bloom gives go to every flask of that kind; generation modifiers ("increased Flask Charges gained") taken to
 # apply (MEDIUM: they are charges gained).
 BLOOM_KIND_SHARE = 1 / 3
+# (MECHC61; MECHC60's lead, the manager's LOW item: an UNDERCOUNT of flask / charm charges) "Ancient Blooms are Remnants"
+# (KeywordPopups AncientBlooms), so the build's Remnant multiplier reaches them as it reaches Into the Breach's Flames
+# and the Life / Mana Remnants: "N% chance to create an additional Remnant" (the passives' and Soul Core's lines,
+# remnant_multiplier, with "reappear once" and the double pickups) and Harmonic Remnants II's chance on the supported
+# Wildwood's Gifts (chance_%_to_create_additional_remnant, assumptions.support_remnant_scale: the same stat, adding to
+# the lines' chance). Before, the bridge's rate (one Bloom per breach_flame_spawn_rate_ms) stood alone. MEDIUM (each extra
+# Remnant taken as collected, as the other Remnant readers).
+WILDWOOD = "Wildwood's Gifts"
+
+
+def bloom_remnants(build, gain: "Charges", texts: list[str]) -> "Charges":
+    """(MECHC61: BLOOM_REMNANTS' note) `gain` with its Bloom rate x the build's Remnant multiplier and Wildwood's Gifts'
+    supports' additional-Remnant scale."""
+    from dataclasses import replace
+
+    from builder.search import assumptions
+
+    multiplier, how = assumptions.remnant_multiplier(texts)
+    chance = assumptions.additional_remnant_chance(texts)
+    skills = build.call("activeSkills", supportStats=[assumptions.EXTRA_REMNANT_STAT])["skills"]
+    scale, support = assumptions.support_remnant_scale(skills, WILDWOOD, chance)
+    if multiplier * scale == 1.0:
+        return gain
+    parts = ([how] if how else []) + ([f"+{support:.0%} more from Harmonic Remnants II on Wildwood's Gifts"]
+                                      if support > 0 else [])
+    return replace(gain, bloom_rate=gain.bloom_rate * multiplier * scale,
+                   bloom_how=f"x{multiplier * scale:.2f} as Remnants ({', '.join(parts)}; MEDIUM)")
 
 
 def bloom_fields(blooms: dict) -> dict:
@@ -482,7 +512,8 @@ def bloom_charges(gain: Charges, kind: str | None, effect: bool = False) -> floa
 def bloom_note(gain: Charges) -> str:
     if gain.bloom_rate <= 0:
         return ""
-    return (f"Wildwood's Gifts: {gain.bloom_rate:.2f} Ancient Blooms/s, a third of them each kind (LOW-MEDIUM), "
+    return (f"Wildwood's Gifts: {gain.bloom_rate:.2f} Ancient Blooms/s"
+            + (f" ({gain.bloom_how})" if gain.bloom_how else "") + ", a third of them each kind (LOW-MEDIUM), "
             f"{gain.bloom_mana:g} charges each: {bloom_charges(gain, 'Mana'):.2f} charges/s to each Mana Flask, "
             f"{bloom_charges(gain, 'Life'):.2f} to each Life Flask, {bloom_charges(gain, 'Charm'):.2f} to each Charm, "
             f"every Bloom collected (walk to each); {bloom_charges(gain, 'Mana', True):.2f} each if their "

@@ -1059,12 +1059,13 @@ def test_ghost_dance_regenerates_es_while_a_shroud_was_lost_recently():
     hits each find one waiting (1 - e^(-4h))."""
     from builder.search.recovery import Income, ghost_dance_income, ghost_dance_share
 
-    assert ghost_dance_share(10.1, 1.5) == pytest.approx(4 / 10.1)
-    assert ghost_dance_share(10.1, 0.05) == pytest.approx(1 - math.exp(-0.2))
+    # (MECHC61: GHOST_STOCK's simulation; the closed forms are its ends, within a few percent)
+    assert ghost_dance_share(10.1, 1.5) == pytest.approx(4 / 10.1, rel=0.03)
+    assert ghost_dance_share(10.1, 0.05) == pytest.approx(1 - math.exp(-0.2), rel=0.03)
     assert ghost_dance_share(10.1, 0.0) == 0.0
     income = Income()
     ghost_dance_income(income, {"base_cooldown_modifiable_repeat_interval_ms": 10100}, 10000, 1.5, "1.50/s")
-    assert income.rates["EnergyShieldGhostDanceRegen"] == pytest.approx(0.02 * 10000 * 4 / 10.1)
+    assert income.rates["EnergyShieldGhostDanceRegen"] == pytest.approx(0.02 * 10000 * ghost_dance_share(10.1, 1.5))
     assert income.pool("EnergyShield") == pytest.approx(income.rates["EnergyShieldGhostDanceRegen"])
 
 

@@ -55,6 +55,7 @@ the bridge also zeroes PoB's own Mana leech, on-hit, on-kill, on-block and recou
 
 from __future__ import annotations
 
+import functools
 import math
 import re
 from dataclasses import dataclass, field
@@ -1194,13 +1195,49 @@ GHOST_INTERVAL_STAT = "base_cooldown_modifiable_repeat_interval_ms"
 GHOST_REGEN_STAT = "skill_base_ghost_dance_grants_%_evasion_as_es_regeneration_per_minute_if_have_lost_ghost_dance_shroud_recently"
 
 
+# (MECHC61; GEM41's note, the manager's LOW item) Ghost Dance holds up to 3 Shrouds ("at most 3", GhostDancePlayer's
+# ghost_dance_max_stacks 3). The two closed forms above (each Shroud lost at the next hit; a Shroud always waiting) are
+# the ends; between them, and with the boss's hits bunched at random, the stock decides how many hits find a Shroud and
+# how the losses spread over the fight. ghost_dance_share now averages it: a seeded simulation of Poisson landed hits
+# against a Shroud every `interval` s (the timer taken to run on while 3 are held, the next Shroud then lost: the lower
+# reading, UNVERIFIED), the share of time with a loss in the past `recently` s. MEDIUM. The closed forms are the rows.
+GHOST_STOCK = 3
+
+
 def ghost_dance_share(interval: float, hits: float, recently: float = 4.0) -> float:
-    """Share of the fight you've lost a Ghost Shroud in the past `recently` s: a Shroud every `interval` s, landed hits
-    `hits` a second."""
+    """Share of the fight you've lost a Ghost Shroud in the past `recently` s: a Shroud every `interval` s (at most
+    GHOST_STOCK held), landed hits `hits` a second (GHOST_STOCK's note)."""
     if interval <= 0 or hits <= 0:
         return 0.0
-    gain = 1 / interval
-    return min(1.0, recently * gain) if hits >= gain else 1 - math.exp(-recently * hits)
+    return _ghost_cover(round(interval, 3), round(hits, 4), recently)
+
+
+@functools.lru_cache(maxsize=512)
+def _ghost_cover(interval: float, hits: float, recently: float, shrouds: int = 3000) -> float:
+    import random
+
+    rng = random.Random(61)
+    warm = 20 * interval
+    end = warm + shrouds * interval
+    stock, made, t, covered, last_end = GHOST_STOCK, 1, 0.0, 0.0, warm
+    while True:
+        t += rng.expovariate(hits)
+        if t >= end:
+            break
+        due = int(t / interval)  # (Shrouds made by now, the timer running throughout)
+        if due >= made:
+            stock = min(GHOST_STOCK, stock + due - made + 1)
+            made = due + 1
+        if stock <= 0:
+            continue
+        stock -= 1
+        if t + recently > warm:
+            start = max(t, last_end, warm)
+            stop = min(t + recently, end)
+            if stop > start:
+                covered += stop - start
+            last_end = max(last_end, t + recently)
+    return min(1.0, covered / (end - warm))
 
 
 def ghost_dance_income(income: Income, level_stats: dict, evasion: float, hits: float, hits_how: str,

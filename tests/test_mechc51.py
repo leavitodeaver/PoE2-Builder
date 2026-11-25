@@ -267,7 +267,11 @@ def test_ghost_dance_shrouds_come_faster_with_cooldown_recovery():
     plain, faster = recovery.Income(), recovery.Income()
     recovery.ghost_dance_income(plain, level, 1000, 1.0, "hits")
     recovery.ghost_dance_income(faster, level, 1000, 1.0, "hits", 2.0)
-    assert faster.rates["EnergyShieldGhostDanceRegen"] == pytest.approx(2 * plain.rates["EnergyShieldGhostDanceRegen"])
+    # (MECHC61: GHOST_STOCK's simulation: about twice, the Shrouds' share read at each interval)
+    assert faster.rates["EnergyShieldGhostDanceRegen"] == pytest.approx(
+        plain.rates["EnergyShieldGhostDanceRegen"] * recovery.ghost_dance_share(5.0, 1.0)
+        / recovery.ghost_dance_share(10.0, 1.0))
+    assert faster.rates["EnergyShieldGhostDanceRegen"] > 1.8 * plain.rates["EnergyShieldGhostDanceRegen"]
     assert "every 5.0 s" in faster.parts[0]
 
 
