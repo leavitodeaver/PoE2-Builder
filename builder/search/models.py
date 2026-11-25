@@ -25107,7 +25107,7 @@ def eye_shards_model(main: Skill | None, stats: dict, radius: float, distance: f
 # stacks, is an undercount there, labelled). The entry is scaled through Objective.entry_scales.
 MINION_COUNT_ENTRY = "model-mechb50-minion-count"
 WOLF_PACK, WOLF_PACK_STAT = "Wolf Pack", "skill_wolf_pack_size"
-MINION_OWN_COUNT = frozenset({"Unearth"})
+MINION_OWN_COUNT = frozenset({"Unearth", "Skyfall"})  # (MECHB62: skyfall_minion_model)
 
 
 def minion_alive_count(skill: Skill, pack: float = 0.0) -> tuple[float, str, str]:
@@ -25196,6 +25196,66 @@ def minion_count_scale(count: float, hit_dps: float, combined_dps: float) -> flo
         return 1.0
     hit = min(max(hit_dps, 0.0), combined_dps) if hit_dps > 0 else combined_dps
     return (hit * count + (combined_dps - hit)) / combined_dps
+
+
+# Skyfall's Verisium Comet-Spawn (MECHB62; RESEARCH58 R58-7, research/skyfall-comet-spawn-r58.md, HIGH except the duration;
+# an UNDERCOUNT: PoB had no minion for it, the bridge's installSkyfallMinion adds one). PoB scores ONE minion. How many
+# stand comes from the build (CLAUDE.md: no flat rate): Skyfall needs 270 Glory at gem 20 and makes 100% of the Runic Ward
+# the build spends as Glory (models.GLORY_FROM_WARD, MECH-C's glory_plan from build.ward_sustain), so its casts a second
+# are its Glory's (Assumptions.glory_caps); each cast makes 3 (verisium_comet_number_of_minions_to_create), 6 when it
+# consumes a Verisium Infusion (the Verisium-Infused set adds its own 3); each lives the skill's duration (20 s,
+# base_skill_effect_duration, MEDIUM-HIGH that it times them: no other timed effect, "Temporary" minions), at most its
+# Limit 12 (base_number_of_verisium_octopus_minions_allowed; the bridge's instanceLimit when it reads it). Alive =
+# min(limit, a cast's minions x casts a second x duration), Archon of Undeath's doubled limit mixed in where it binds
+# (undeath_limit_mix). No Ward spent: no cast, 0 minions (said). The Infused share isn't read (3 a cast, the lower
+# reading; 6 a row). The slam PoB lacks (GAExpedition2OctopusSlam: 95% damage, 2 s cooldown; R58-7) takes one of the
+# minion's attacks each cooldown: of its A attacks a second, min(1, 1 / (2 A)) are slams at x0.95 (its 60% Physical as
+# Cold not applied: the boss's armour against its Cold resistance, UNVERIFIED either way; its 15% more at the centre a
+# row). All of them taken to reach the boss (as minion_counts, MEDIUM). The count scales the Comet-Spawn's own Full DPS
+# entry (SKYFALL_MINION, the bridge names it apart from the comet's), as minion_counts does: NOT a "Minions deal N% more
+# Damage" line, which PoB turns into one bigger hit, and armour cuts a big Physical hit far less than many small ones
+# (probe POE2T4975: 100% more gave the Comet-Spawn x3.0 its DPS, 1,070% more x35.2). Its damage over time, if the build
+# gives it any, is multiplied too (a minion Ignite / Bleed doesn't add on one boss: LOW, said).
+SKYFALL = "Skyfall"
+SKYFALL_PER_CAST, SKYFALL_PER_INFUSED_CAST = 3, 6
+SKYFALL_LIMIT, SKYFALL_SECONDS = 12.0, 20.0
+SKYFALL_SLAM_MORE, SKYFALL_SLAM_CENTRE, SKYFALL_SLAM_COOLDOWN = 0.95, 1.15, 2.0
+SKYFALL_ENTRY = "model-mechb62-skyfall-minions"
+SKYFALL_MINION = "Verisium Comet-Spawn"  # (its Full DPS entry's name: engine/bridge.lua's SkillDPS export)
+
+
+def skyfall_minion_model(uses: float, uses_how: str, limit: float, seconds: float, speed: float,
+                         undeath: tuple[float, float] | None = None) -> tuple[float, list[dict]]:
+    """(the Comet-Spawn entry's scale, notes) for Skyfall's Comet-Spawn (see above): `uses` Skyfall's casts a second (its Glory), `limit` /
+    `seconds` its Limit and duration, `speed` one minion's attacks a second (PoB's), `undeath` Archon of Undeath's mix."""
+    uses, limit = max(number(uses), 0.0), max(number(limit), 0.0) or SKYFALL_LIMIT
+    seconds = max(number(seconds), 0.0) or SKYFALL_SECONDS
+
+    def count_at(lim: float, per: float = SKYFALL_PER_CAST) -> float:
+        return min(lim, per * uses * seconds)
+    count, mix_how = undeath_limit_mix(count_at, limit, undeath)
+    if not mix_how:
+        count = count_at(limit)
+    infused = count_at(limit, SKYFALL_PER_INFUSED_CAST)
+    slams = min(1.0, 1.0 / (SKYFALL_SLAM_COOLDOWN * speed)) if speed > 0 else 0.0
+    factor = 1.0 - slams * (1.0 - SKYFALL_SLAM_MORE)
+    centre = 1.0 - slams + slams * SKYFALL_SLAM_MORE * SKYFALL_SLAM_CENTRE
+    scale = count * factor
+    how = (f"{uses:.3f} casts a second ({uses_how}) x {SKYFALL_PER_CAST} Comet-Spawn a cast x {seconds:.3g} s each, at most "
+           f"{limit:g}{'; ' + mix_how if mix_how else ''} = {count:.2f} alive" if uses > 0 else
+           f"no cast: {uses_how or 'its Glory comes from Runic Ward spent, and the build spends none'}: 0 Comet-Spawn "
+           "(no flat rate)")
+    return scale, [{
+        "label": f"{SKYFALL}: {count:.3g} Verisium Comet-Spawn dealing damage*", "value": f"x{scale:.3f}",
+        "confidence": "MEDIUM" if uses > 0 else "HIGH", "entry": SKYFALL_ENTRY,
+        "basis": (f"PoB had no minion for Skyfall (the bridge adds the Comet-Spawn: R58-7) and scores one; {how}. Its slam "
+                  f"(95% damage, 2 s cooldown, a skill PoB lacks) takes {slams:.0%} of its attacks: x{factor:.3f} (the "
+                  f"slam's 15% more at the centre: x{centre:.3f}, a row). Rows: every cast Verisium-Infused (6 a cast), "
+                  f"{infused:.2f} alive (x{infused * factor:.3f}). All taken to reach the boss (MEDIUM); a minion "
+                  "Ignite / Bleed from the build's own lines would be multiplied too (LOW)"),
+        "play": (f"Spend Runic Ward to fill Skyfall's Glory, and cast it whenever it is ready: about {count:.1f} "
+                 f"Comet-Spawn stand (x{scale:.3f} on one); with a Verisium Infusion each cast makes 6 "
+                 f"({infused:.1f} stand).")}]
 
 
 # Bear skills' added base attack time from the default stance (MECHB50; PLANS7 gs-bear-stance.md, an OVERCOUNT): the

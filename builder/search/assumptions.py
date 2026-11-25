@@ -4103,6 +4103,8 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + siphon_mods, hand_notes + siphon_notes
         build.objective.entry_scales = {k: v for n in mark_notes for k, v in (n.get("full_dps") or {}).items()}
         hand_notes = hand_notes + self.minion_counts(found, stats)  # (MECHB50: PoB scores one minion a skill)
+        sky_mods, sky_notes = self.skyfall_minions(found)  # (MECHB62: R58-7)
+        hand_mods, hand_notes = hand_mods + sky_mods, hand_notes + sky_notes
         self.entry_cuts = {}  # (MECHB45: DPS taken off same-named Full DPS entries, models.entry_cut_scale)
         curses = curse_uses(build, stats, [e["text"] for e in source_lines])
         if curses or any(models.CURSED_UNSCALED.search(e["text"]) or p.search(e["text"])
@@ -11232,6 +11234,27 @@ class Assumptions:
         return count, (f"{how} [presses: {why}; Power Charges: {charge_how}; corpses: {supply / sharers:.3g}/s of "
                        f"{supply:.3g}/s shared by {sharers} corpse user{'s' if sharers != 1 else ''}, "
                        f"{models.add_corpses_note(stats)}]"), confidence
+
+    def skyfall_minions(self, found: list[models.Skill]) -> tuple[list[dict], list[dict]]:
+        """(MECHB62, models.skyfall_minion_model) Skyfall's Comet-Spawn alive from its casts a second (its Glory,
+        glory_caps), its Limit and duration (useRates' instanceLimit / duration) and one minion's attacks a second: its
+        Full DPS entry's scale (Objective.entry_scales); (no mods, notes)."""
+        skill = next((s for s in found if s.name == models.SKYFALL and s.summon and s.group is not None), None)
+        if skill is None:
+            return [], []
+        build = self.build
+        uses, how = self.glory_caps().get(models.SKYFALL, (0.0, "its Glory wasn't read"))
+        spot = self.skill_spot(skill.group, skill.name)
+        row = next(iter(build.call("useRates", indices=[spot[0]], actives=[spot[1]])["rates"]), {}) if spot else {}
+        types = build.call("minionTypes", index=skill.group, active=spot[1] if spot else None).get("types") or []
+        speed = number((types[0] if types else {}).get("Speed"))
+        scale, notes = models.skyfall_minion_model(uses, how, number(row.get("instanceLimit")) or models.SKYFALL_LIMIT,
+                                                   number(row.get("duration")) or models.SKYFALL_SECONDS, speed,
+                                                   getattr(self, "undeath_limit", None))
+        objective = getattr(build, "objective", None)
+        if objective is not None:  # (its own Full DPS entry x the Comet-Spawn standing, as minion_counts)
+            objective.entry_scales[models.SKYFALL_MINION] = objective.entry_scales.get(models.SKYFALL_MINION, 1.0) * scale
+        return [], notes
 
     def minion_counts(self, found: list[models.Skill], stats: dict | None = None) -> list[dict]:
         """(MECHB50, models.minion_alive_count) Each minion skill's Full DPS entry x the minions it keeps alive (PoB

@@ -822,7 +822,14 @@ local function pickStats(output, fields)
 			-- Full DPS broken down by skill (and best ailment, with the skill it came from)
 			local skills = { }
 			for _, entry in ipairs(value) do
-				skills[#skills + 1] = { name = entry.name, dps = jsonNumber(entry.dps or 0), count = entry.count or 1,
+				-- (MECHB62) Skyfall's Comet-Spawn under its own name (installSkyfallMinion): PoB names a skill's minion entry
+				-- and its own hit's entry alike (Calcs.lua calcFullDPS), and the count model (models.skyfall_minion_model)
+				-- already holds Skyfall's casts, so a press scale on "Skyfall" (models.press_model) must miss the minions
+				local name = entry.name
+				if type(entry.skillPart) == "string" and entry.skillPart:find("^Verisium Comet%-Spawn: ") then
+					name = "Verisium Comet-Spawn"
+				end
+				skills[#skills + 1] = { name = name, dps = jsonNumber(entry.dps or 0), count = entry.count or 1,
 					source = entry.source ~= "" and entry.source or nil }
 			end
 			picked[field] = skills
@@ -1293,6 +1300,37 @@ local function installSpiritVessel()
 			end
 		end
 	end
+end
+
+-- (MECHB62; RESEARCH58 R58-7, scratch/manager/research/skyfall-comet-spawn-r58.md, HIGH except the duration) Skyfall's
+-- minions, the "Verisium Comet-Spawn" (MonsterVarieties Metadata/Monsters/LeagueExpeditionNew/PlayerSummoned/
+-- OctopusParasitePlayerSummoned, game build 26744644; poe2db Verisium_Comet-Spawn): PoB has no minion for it
+-- (SkyfallPlayer lists minionSkillTypes but no minionList; no Verisium monster in Data/Minions.lua; probe POE2T4961:
+-- summon nil, no SkillDPS entry), so its minions scored 0. Its numbers: damage x1.2, life x1.2, attack time 1 s
+-- (AttackSpeed 1000; its skills use the animation's length: MEDIUM), +-20% spread, 5% crit (its +30% critical damage
+-- bonus not set: the lower reading), evasion +33%, Cold 75 / Fire -30 resistances (they don't move its damage). Skills:
+-- a basic melee attack (MeleeAtAnimationSpeedComboTEMP, PoB's) and GAExpedition2OctopusSlam (95% damage, 2 s cooldown,
+-- 60% Physical as Cold, an area), which PoB lacks: the slam is models.skyfall_minion_model's factor, not a skill here.
+-- Level: PoB's minion rule, data.minionLevelTable at the gem's level (2 x gem level: R58-7, the game's
+-- MinionGemLevelScaling). Damage: PoB's ally damage table x 1.2 (R58-7: level 68, 968.76 x 1.2 = 1,163, poe2db's
+-- figure). Template: PoB's Ylth Grabber (Spectres.lua 20850). How many stand: models.skyfall_minion_model.
+local skyfallInstalled = false
+local function installSkyfallMinion()
+	if skyfallInstalled or not (data and data.skills and data.minions and data.skills.SkyfallPlayer) then
+		return
+	end
+	skyfallInstalled = true
+	data.minions.VerisiumCometSpawn = {
+		name = "Verisium Comet-Spawn", monsterTags = { "beast", "cold_affinity", "crustacean_beast", "medium_movement" },
+		life = 1.2, damage = 1.2, damageSpread = 0.2, attackTime = 1, attackRange = 15, accuracy = 1, critChance = 5,
+		baseDamageIgnoresAttackSpeed = true, evasion = 0.33,
+		fireResist = -30, coldResist = 75, lightningResist = 0, chaosResist = 0,
+		companionFireResist = -30, companionColdResist = 75, companionLightningResist = 0, companionChaosResist = 0,
+		baseMovementSpeed = 32, monsterCategory = "Beast", spawnLocation = { },
+		skillList = { "MeleeAtAnimationSpeedComboTEMP" },
+		modList = { },
+	}
+	data.skills.SkyfallPlayer.minionList = { "VerisiumCometSpawn" }
 end
 
 -- Augments socketed in the equipment (COV-B, COVB3), for the lines PoB parses with a multiplier it never sets:
@@ -2779,6 +2817,7 @@ local function installDerived()
 	installLedgerShare()
 	installLedgerSkill()
 	installSpiritVessel()
+	installSkyfallMinion()
 	installCannotChill()
 	installArcticArmourBurst()
 	installAreaDamageFlag()

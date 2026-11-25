@@ -106,3 +106,32 @@ def test_build_7_the_hand_cast_comet_keeps_its_own_speed(engine):
     wide = models.trigger_rate("Comet", 0.0)  # (before: the Cast on Critical group's 0 stopped the hand-cast Comet)
     assert _speed(engine, wide, 9, 1)["Speed"] < 1e-6
     engine.call("setAssumptions", mods=[], fields=[])
+
+
+# Skyfall's Verisium Comet-Spawn (R58-7): models.skyfall_minion_model; the bridge's installSkyfallMinion.
+def test_skyfall_minions_from_its_glory_casts():
+    # 0.2 casts a second x 3 x 20 s = 12 alive, the limit; one minion attacking once a second: a slam every other attack
+    scale, notes = models.skyfall_minion_model(0.2, "its Glory", 12, 20, 1.0)
+    factor = 1 - 0.5 * 0.05
+    assert scale == pytest.approx(12 * factor)  # (its Full DPS entry's scale, not a "more" line: POE2T4975)
+    assert "12 Verisium Comet-Spawn" in notes[0]["label"]
+    assert models.skyfall_minion_model(0.05, "its Glory", 12, 20, 1.0)[0] == pytest.approx(3 * factor)
+    # no Runic Ward spent: no cast, no minion
+    scale, notes = models.skyfall_minion_model(0.0, "", 12, 20, 1.0)
+    assert scale == 0 and "no cast" in notes[0]["basis"]
+    # Archon of Undeath's doubled limit, up half the fight, where the limit binds
+    assert models.skyfall_minion_model(0.4, "its Glory", 12, 20, 1.0, (0.5, 2.0))[0] > 12 * factor
+
+
+def test_the_bridge_gives_skyfall_its_comet_spawn(engine):
+    engine.call("newBuild")
+    engine.call("setLevel", level=90)
+    engine.call("addSkillGroup", text="Skyfall 20/0 1", main=True, fullDPS=True)
+    engine.call("setAssumptions", mods=[], fields=[])
+    group = engine.call("groups")["groups"][-1]
+    types = engine.call("minionTypes", index=group["index"]).get("types") or []
+    assert [t["name"] for t in types] == ["Verisium Comet-Spawn"]
+    assert types[0]["TotalDPS"] > 0 and types[0]["Speed"] == pytest.approx(1.0, rel=0.2)
+    entries = {e["name"]: e["dps"] for e in engine.call("stats", fields=["SkillDPS"])["SkillDPS"]}
+    # (its own Full DPS entry, apart from the comet's: a press scale on Skyfall misses it, the count scales it alone)
+    assert entries[models.SKYFALL_MINION] == pytest.approx(types[0]["TotalDPS"]) and entries["Skyfall"] > 0
