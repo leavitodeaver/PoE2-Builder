@@ -1973,6 +1973,7 @@ def test_cov52_cov53_readers_are_model_read():
             ("wing_blast_chance_to_gain_power_charge_on_stun_%", "Wing Blast", "model-read-cov53-wing-blast-power")):
         assert coverage.stat_covered(covered, stat, skill) == ("model", entry_id), stat
     for stat, skill in (("number_of_branching_fissures", "Volcanic Fissure"), ("daze_on_hit_vs_enemies_at_full_life", "Opening Move"),
-                        ("support_active_skill_consume_enemy_freeze_to_apply_chill", "Biting Frost II"),
+                        # (COV58: Biting Frost II's consumed-Freeze Chill is read since TRAIN 148, MECH108's
+                        # consume_chill_share: test_cov58b asserts it)
                         ("generic_ongoing_trigger_maximum_energy", "Feral Invocation")):
         assert coverage.stat_covered(covered, stat, skill) is None, stat

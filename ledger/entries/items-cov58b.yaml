@@ -1,0 +1,58 @@
+# COV58 turn 2 (25 Nov 2026; COV43's rule): TRAIN 148's readers (73718d8a..2e94d390, origin/main 2e94d390), each checked
+# against the landed code. Links only: each adds nothing to PoB. cands.py named two literals: Biting Frost II's stat
+# (marked) and attack_is_melee_override (GEM43's own entry on Shockwave Slam; its Fortifying Cry / Shield Charge /
+# Stampede carriers stay open, routed to GEM). Skyfall's three stats are read through constants (found by hand), one of
+# them (the Limit) already since TRAIN 147 (MECHB63's Limit lines). MECHB64's Bonestorm label / one crit roll and Cast on
+# Critical's Energy-overflow row name no open stat. items-cov53's note (Biting Frost II: "the Chill it applies" unread)
+# and gems-active-batch4's (Skyfall's Infused minions not counted) are answered by these readers.
+
+- id: model-read-cov58b-biting-frost-consume-chill
+  title: "Biting Frost II: Freezes consumed by the supported skill Chill the boss (conditions.consume_chill_share, MECH108)"
+  kind: model
+  model: chill
+  stats: ["support_active_skill_consume_enemy_freeze_to_apply_chill"]
+  skill: [Biting Frost II]
+  confidence: MEDIUM-LOW
+  notes: >-
+    The game's text: "Freezes Consumed by Supported Skills Chill the target" (gem_stat_descriptions.csd, 26650308).
+    conditions reads the stat from the main skill's supports (FREEZE_CONSUME_CHILL_STAT -> stats["_freeze_consume_chill"]);
+    consume_chill_share gives each consumed Freeze (models.immobilised_share's consumed period) Chill's default 8 s x
+    PoB's ChillDuration, one more independent term in chilled_share, which sets the boss Chilled for the "vs Chilled"
+    lines. The Chill's magnitude is UNVERIFIED (the model's label). No Freeze source: 0. A link only.
+  sources: ["builder/search/conditions.py (FREEZE_CONSUME_CHILL_STAT, consume_chill_share, chilled_share)"]
+  status: proposed
+
+- id: model-read-cov58b-skyfall-comet-spawn-count
+  title: "Skyfall creates 3 Comet-Spawn a cast, 6 when it consumes a Verisium Infusion (models.SKYFALL_PER_CAST / SKYFALL_PER_INFUSED_CAST, MECHB62 / MECHB64)"
+  kind: model
+  model: skyfall_minions
+  stats: ["verisium_comet_number_of_minions_to_create", "active_skill_consumes_a_verisium_infusion"]
+  skill: [Skyfall]
+  confidence: MEDIUM-LOW
+  notes: >-
+    verisium_comet_number_of_minions_to_create is 3 on SkyfallPlayer and 3 on SkyfallInfusedPlayer (constant stats, game
+    26650308; skyfall.csd "Creates {0} Temporary Minions"); RESEARCH58 R58-7 reads the Infused set as adding its 3
+    (poe2db's Verisium-Infused set: "Creates 6 Temporary Minions"; MEDIUM-HIGH), = SKYFALL_PER_CAST 3 /
+    SKYFALL_PER_INFUSED_CAST 6. active_skill_consumes_a_verisium_infusion (implicit on SkyfallPlayer; ActiveSkills
+    skyfall: "Consumes a Verisium Infusion, if possible, to increase the number of Minions summoned") is
+    Assumptions.skyfall_infused's consumer: the share of casts finding a Verisium Infusion (the build's supply shared
+    evenly with every other consumer, MEDIUM-LOW). skyfall_minion_model: 3 + 3 x share a cast x 20 s, at most the
+    Limit, scales the Comet-Spawn's Full DPS entry. A link only.
+  sources: ["builder/search/models.py (SKYFALL_PER_CAST, SKYFALL_PER_INFUSED_CAST, skyfall_minion_model)", "builder/search/assumptions.py (skyfall_minions, skyfall_infused)"]
+  status: proposed
+
+- id: model-read-cov58b-skyfall-limit
+  title: "Skyfall's Limit of 12 Comet-Spawn, with the build's \"+N to Limit\" lines (models.SKYFALL_LIMIT / temporary_minion_limit, MECHB62 / MECHB63)"
+  kind: model
+  model: skyfall_minions
+  stats: ["base_number_of_verisium_octopus_minions_allowed"]
+  skill: [Skyfall]
+  confidence: MEDIUM
+  notes: >-
+    12 (SkyfallPlayer's constant stats, game 26650308; skyfall.csd "[Limit] {0} Temporary Minions"; R58-7 Limit 12).
+    Assumptions.skyfall_minions takes PoB's instanceLimit for it (SKYFALL_LIMIT 12 the fallback) and adds the build's
+    "Temporary Minion Skills have +N to Limit" (MEDIUM) and "Skills have +N to Limit" (MEDIUM-LOW, a row without it)
+    lines (models.temporary_minion_limit, RESEARCH59 R59-11), the cap on the Comet-Spawn alive. Read since TRAIN 147.
+    A link only.
+  sources: ["builder/search/models.py (SKYFALL_LIMIT, temporary_minion_limit)", "builder/search/assumptions.py (skyfall_minions)"]
+  status: proposed
