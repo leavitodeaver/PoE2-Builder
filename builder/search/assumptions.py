@@ -3794,7 +3794,8 @@ class Assumptions:
         energy_mods, energy_notes, energy_groups = models.energy_model(inputs, stats, found, main, supports, qualities,
                                                                        models.press_choices(build), feeders,
                                                                        getattr(self, "undeath_limit", None))
-        energy_notes = energy_notes + full_mana_notes + self.mana_cap(main, feeders)
+        cap_mods, cap_notes = self.mana_cap(main, feeders)  # (MECHB64, R60-4: the headline)
+        energy_mods, energy_notes = energy_mods + cap_mods, energy_notes + full_mana_notes + cap_notes
         # (the meta gems' trigger rates, for the curses and Marks they trigger: MECH46, FLAT_RATES A5)
         build.trigger_rates = models.rates_by_name(energy_mods)  # (MECHB62: summed over a spell's meta groups)
         # (MECH102: a triggered Mark alone in its group, models.mark_use: PoB's trigger rate for its group, the bridge's
@@ -11115,24 +11116,34 @@ class Assumptions:
         return cooldown, empower, one_clip, (f"{models.EMERGENCY_RELOAD} on its {cooldown:.1f} s cooldown, "
                                              f"{empower:g}% more at its level")
 
-    def mana_cap(self, main, feeders: dict[int, list[dict]]) -> list[dict]:
-        """(MECHB64, models.mana_cap_row) the row for a main skill (and the skills feeding its meta gem) spending more
-        Mana a second than the build's income: the last committed stats (Build.stats: PoB's with the search's added
-        recovery fields), the income the sustain share's own (objective.SUSTAIN_POOLS["Mana"] + hit_recovery_rates)."""
+    def mana_cap(self, main, feeders: dict[int, list[dict]]) -> tuple[list[dict], list[dict]]:
+        """(MECHB64, models.mana_cap_row; R60-4) (mods, notes): the main skill's DPS scaled to the pace its cost pools
+        (Mana, Life) pay, with the skills feeding its meta gem: the last committed stats (Build.stats: PoB's with the
+        search's added recovery fields), each pool's income the sustain share's own (objective.SUSTAIN_POOLS +
+        hit_recovery_rates). A minion main skill isn't capped (its DPS is its minions', not its casts')."""
         from builder.search import objective
 
-        if main is None:
-            return []
+        if main is None or main.summon is not None or main.minion is not None:
+            return [], []
         stats = getattr(self.build, "stats", None) or {}
-        fields = objective.SUSTAIN_POOLS["Mana"][1]
-        got = {f: number(stats.get(f)) for f in fields if number(stats.get(f)) > 0}
-        back = objective.hit_recovery_rates(stats)["Mana"] if stats else 0.0
-        income = sum(got.values()) + back
-        how = ", ".join(f"{k} {v:,.1f}" for k, v in got.items()) + (f", recoup / on block {back:,.1f}" if back > 0 else "")
+        back = objective.hit_recovery_rates(stats) if stats else {}
+        pools = {}
+        for pool, (cost_field, fields) in objective.SUSTAIN_POOLS.items():
+            got = {f: number(stats.get(f)) for f in fields if number(stats.get(f)) > 0}
+            extra = number(back.get(pool))
+            how = ", ".join(f"{k} {v:,.1f}" for k, v in got.items()) + (f", recoup / on block {extra:,.1f}" if extra > 0
+                                                                        else "")
+            pools[pool] = (sum(got.values()) + extra, how or "none", number(stats.get(cost_field)))
         fed = [f for group in (feeders or {}).values() for f in group if number(f.get("used")) > 0]
-        row = models.mana_cap_row(income, how or "none", main.name, number(stats.get("ManaPerSecondCost")), fed,
-                                  bool(main.triggered))
-        return [row] if row else []
+        scale, row = models.mana_cap_row(pools, main.name, fed, bool(main.triggered))
+        if row is None:
+            return [], []
+        if not main.triggered:  # (R60-4 settles triggered spells; a hand-used main's shortfall stays the sustain floor's)
+            row["value"] = f"x1 (the headline: objective.sustain's floor marks the shortfall); row: x{scale:.3f}"
+            row["basis"] += ("; a skill you use yourself: a row, the headline unchanged (MECHB64 turn 3: R60-4 settles "
+                             "spells a meta gem triggers)")
+            return [], [row]
+        return [models.raw_mod("DPS", "MORE", 100 * (scale - 1), main.name)], [row]
 
     def energy_feeders(self, found: list, main) -> dict[int, list[dict]]:
         """(MECHB59: models.energy_feed's note) {meta group: [{name, uses, speed, why, row, final}]} for a Cast on Critical /
@@ -11716,12 +11727,14 @@ class Assumptions:
         return [], notes
 
     def skyfall_infused(self, uses: float, texts: list[str]) -> tuple[float, str]:
-        """(MECHB64; models.skyfall_minion_model's note) (the share of Skyfall's casts that consume a Verisium Infusion,
-        how): the build's Verisium Infusions a second (infusion_supply's "Any": Powered by Verisium's Ward-paid uses,
-        "Every N seconds, gain a Verisium Infusion" lines) over Skyfall's `uses` and every other Infusion consumer's (any
-        element: other_infusion_users, and the main skill when it consumes one), each use finding one with the same
-        chance (infusion_found: the Verisium cap, the largest single Elemental cap; its 20 s timer). MEDIUM-LOW: which
-        consumer a Verisium Infusion goes to first is UNVERIFIED (an even share the reading)."""
+        """(MECHB64; models.skyfall_minion_model's note; RESEARCH60 R60-7, HIGH) (the share of Skyfall's casts that consume
+        a Verisium Infusion, how): the build's Verisium Infusions a second (infusion_supply's "Any": Powered by Verisium's
+        Ward-paid uses, "Every N seconds, gain a Verisium Infusion" lines) over Skyfall's `uses`, each finding one with
+        infusion_found's chance (the Verisium cap, the largest single Elemental cap; its 20 s timer). Skyfall takes them
+        FIRST: "Skills will prioritise using non-Verisium Infusions" (KeywordPopups VerisiumInfusion), so an elemental
+        consumer uses its own element's Infusions before a Verisium, and Skyfall takes only Verisium. An elemental
+        consumer with none of its own element left would take a Verisium too (the first use takes it, MEDIUM): not
+        counted against Skyfall (UNVERIFIED how often; a small OVERCOUNT where the build makes few of that element)."""
         build = self.build
         raw = build.call("activeSkills")["skills"]
         present = {s["name"]: s for s in raw if not s["disabled"]}
@@ -11730,28 +11743,11 @@ class Assumptions:
         have = supply["Any"]
         if have <= 0:
             return 0.0, "the build makes no Verisium Infusion"
-        others, how = 0.0, []
-        for element in ("Fire", "Cold", "Lightning"):
-            n, n_how = self.other_infusion_users(element)
-            if n > 0:
-                others, how = others + n, how + [n_how]
-        main_name, group = self.main_skill(), build.main_group()
-        consume = re.compile(r"\b(?:Fire|Cold|Lightning)-infused\b", re.I)
-        stats = [f"active_skill_consumes_a_{e}_infusion" for e in ("fire", "cold", "lightning")]  # (MECHC53's note)
-        if group and main_name and main_name != models.SKYFALL and (any(
-                consume.search(label) for skill in group.get("skills") or [] if skill.get("name") == main_name
-                for label in skill.get("statSets") or []) or any(
-                number((r.get("levelStats") or {}).get(stat)) > 0
-                for r in build.call("activeSkills", levelStats=[main_name])["skills"]
-                if r.get("name") == main_name and r.get("group") == group["index"] for stat in stats)):
-            speed = number(build.call("stats", fields=["Speed"]).get("Speed"))
-            others, how = others + speed, how + [f"{main_name} {speed:.2f}/s (the main skill)"]
         cap = infusion_cap(texts, "Fire", True) - infusion_cap(texts, "Fire")
-        share = infusion_found(have, uses + others, 0.0, cap, infusion_seconds(texts, "verisium"))
-        return share, (f"{have:.2f} Verisium Infusions/s from {', '.join(used)}, for Skyfall's {uses:.3f} casts/s"
-                       + (f" and the other Infusion consumers' {others:.2f}/s ({'; '.join(how)}), an even share "
-                          "(UNVERIFIED which takes it first)" if others > 0 else "")
-                       + f": {share:.0%} of casts find one (MEDIUM-LOW)")
+        share = infusion_found(have, uses, 0.0, cap, infusion_seconds(texts, "verisium"))
+        return share, (f"{have:.2f} Verisium Infusions/s from {', '.join(used)}, for Skyfall's {uses:.3f} casts/s, Skyfall "
+                       "first (the other consumers prioritise their own element's Infusions: RESEARCH60 R60-7, HIGH): "
+                       f"{share:.0%} of casts find one")
 
     def warcry_presses(self, found: list[models.Skill], main: models.Skill | None,
                        kaom: bool = False) -> tuple[list[dict], list[dict]]:

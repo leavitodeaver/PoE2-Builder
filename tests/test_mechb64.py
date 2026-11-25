@@ -53,12 +53,15 @@ def test_a_bonestorm_feeder_with_pierce_counts_its_own_hit_and_shows_the_explosi
     assert "Pierce on it moves the explosion" in how and f"{row:.2f} Energy a use" in how and "R60-1" in how
 
 
-def test_energy_past_the_maximum_lost_is_a_row():
-    """R60-1's open question (UNVERIFIED): the headline carries Energy past Cast on Critical's maximum; the row loses
-    it, so a round takes the next whole number of crit hits (build 4's shape: 3.18 a round -> 4, x0.796)."""
-    row = models.energy_overflow_row(11.038, 35.15, 11.038)
-    assert "UNVERIFIED" in row and "4 hits a round" in row and "x0.796" in row
-    assert models.energy_overflow_row(10.0, 30.0, 10.0) == ""  # (a whole 3 hits a round: nothing lost either way)
+def test_energy_past_the_maximum_is_lost_in_the_headline():
+    """RESEARCH60 R60-5 (HIGH): Energy past Cast on Critical's maximum is lost, so a round takes the next whole number
+    of crit hits (build 4's shape: 3.18 a round -> 4, x0.796); carried is the row."""
+    assert models.energy_lost(11.038, 35.15) == pytest.approx(35.15 / 4)
+    assert models.energy_lost(10.0, 30.0) == pytest.approx(10.0)  # (a whole 3 hits a round: nothing lost)
+    assert models.energy_lost(5.0, 0.0) == 5.0  # (no crits counted one by one: unchanged)
+    row = models.energy_overflow_row(11.038, 35.15, 35.15 / 4)
+    assert "R60-5" in row and "4 of your Critical Hits a round" in row and "carried: 11.038" in row and "x0.796" in row
+    assert models.energy_overflow_row(10.0, 30.0, 10.0) == ""
     assert models.energy_overflow_row(0.0, 30.0, 0.0) == ""
 
 
@@ -73,9 +76,9 @@ def test_skyfall_makes_six_comet_spawn_on_its_verisium_infused_share():
     assert capped == pytest.approx(12.0)  # (the Limit binds: the share moves nothing)
 
 
-def test_skyfall_shares_the_builds_verisium_infusions_with_the_other_consumers(engine):
+def test_skyfall_takes_the_builds_verisium_infusions_first(engine):
     """Assumptions.skyfall_infused on real PoB: Powered by Verisium's Ward-paid uses make the Verisium Infusions (its
-    count a cast from the gem), shared evenly with the main Fireball's casts (it consumes Fire Infusions)."""
+    count a cast from the gem); Skyfall takes them first, the main Fireball using its own Fire Infusions (R60-7)."""
     from builder.request.schema import BuildRequest
     from builder.search import assumptions
     from builder.search.context import Context, make_payload
@@ -96,23 +99,26 @@ def test_skyfall_shares_the_builds_verisium_infusions_with_the_other_consumers(e
     count = assumptions.verisium_infusions(build)[0]
     share, how = a.skyfall_infused(0.1, texts)
     print(count, share, how)
-    assert count > 0 and 0 < share < 1 and "Fireball" in how and "Skyfall's 0.100 casts/s" in how
+    assert count > 0 and 0 < share <= 1 and "R60-7" in how and "Skyfall's 0.100 casts/s" in how
     alone = assumptions.infusion_found(count, 0.1, 0.0, assumptions.infusion_cap(texts, "Fire", True)
                                        - assumptions.infusion_cap(texts, "Fire"))
-    assert share < alone  # (Fireball's casts take their share)
+    assert share == pytest.approx(alone)  # (Skyfall first: Fireball's casts take none of them)
 
 
-def test_the_mana_cap_row_scales_the_main_skill_and_its_feeders_together():
-    """MECHB64 turn 2 (the manager 07:43; R60-4 open): income over the main skill's and its meta feeders' Mana a second;
-    a row only, and none when the build pays its costs."""
+def test_the_cost_cap_scales_the_main_skill_and_its_feeders_together():
+    """R60-4 (HIGH: meta-triggered spells pay their own costs): each pool's income over the main skill's and its meta
+    feeders' spend; the tighter pool's share scales the main skill's DPS (the headline); none when every pool pays."""
     feeder = {"name": "Bonestorm", "used": 9.0, "speed": 18.0, "row": {"manaPerSecond": 600.0}}
-    row = models.mana_cap_row(390.0, "ManaRegenRecovery 390.0", "Bone Cage", 1000.0, [feeder], True)
-    assert row["label"] == models.MANA_CAP_LABEL and "x0.300" in row["value"] and "x1 (the headline)" in row["value"]
+    scale, row = models.mana_cap_row({"Mana": (390.0, "ManaRegenRecovery 390.0", 1000.0)}, "Bone Cage", [feeder], True)
+    assert scale == pytest.approx(0.3) and row["label"] == models.MANA_CAP_LABEL and row["value"].startswith("x0.300")
     assert "1,300.0 Mana a second" in row["basis"] and "R60-4" in row["basis"] and "50% of the time" in row["basis"]
-    assert models.mana_cap_row(2000.0, "", "Bone Cage", 1000.0, [feeder], True) is None
-    assert models.mana_cap_row(10.0, "", "Bone Cage", 0.0, [], True) is None
-    hand = models.mana_cap_row(100.0, "", "Spark", 400.0, [], False)
-    assert "x0.250" in hand["value"] and "R60-4" not in hand["basis"]
+    assert models.mana_cap_row({"Mana": (2000.0, "", 1000.0)}, "Bone Cage", [feeder], True) == (1.0, None)
+    assert models.mana_cap_row({"Mana": (10.0, "", 0.0)}, "Bone Cage", [], True) == (1.0, None)
+    # Blood Magic: the Life pool binds, the Mana one pays nothing
+    blood = {"name": "Bonestorm", "used": 18.0, "speed": 18.0, "row": {"lifePerSecond": 100.0}}
+    scale, row = models.mana_cap_row({"Mana": (50.0, "", 0.0), "Life": (150.0, "LifeRegenRecovery 150.0", 200.0)},
+                                     "Spark", [blood], False)
+    assert scale == pytest.approx(0.5) and row["label"].startswith("Life paid") and "R60-4" not in row["basis"]
 
 
 def test_a_meta_fed_main_loses_its_warcry_time_from_the_feeder_used_at_will():

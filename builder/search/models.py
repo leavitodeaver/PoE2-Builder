@@ -3738,68 +3738,89 @@ def bonestorm_flight_moves(row: dict) -> list[str]:
             if number(row.get(field)) > 0]
 
 
+def energy_lost(fed: float, crits: float) -> float:
+    """(MECHB64; RESEARCH60 R60-5, HIGH: "Triggers all Socketed Spells and loses all Energy on reaching maximum Energy")
+    Rounds a second when each round's Energy past the maximum is lost: Energy comes a Critical Hit at a time (`crits` a
+    second, energy_feed), each worth cost x fed / crits after the build's Energy modifiers, so a round takes the next
+    whole number of crits / fed hits: crits / ceil(crits / fed) (equal hits, MEDIUM; at most one round a hit). `fed`
+    unchanged without crits (a meta whose hits aren't counted one by one)."""
+    if fed <= 0 or crits <= 0:
+        return fed
+    return crits / math.ceil(crits / fed - 1e-9)
+
+
 def energy_overflow_row(fed: float, crits: float, rate: float) -> str:
-    """(MECHB64; RESEARCH60 R60-1's open question) The row for Energy past the meta's maximum being LOST rather than
-    carried. Energy comes a Critical Hit at a time (the feeders' crits a second, energy_feed), each worth cost x fed /
-    crits after the build's Energy modifiers, so a round takes crits / fed crit hits on the carried reading (the
-    headline: Energy gained is a rate, energy_rate) and the next whole number of them if each round's overflow is lost:
-    rounds = crits / ceil(crits / fed). Whether the game carries it is UNVERIFIED (the game text: "triggers socketed
-    Spells on reaching maximum Energy"; KeywordPopups Energy says nothing of overflow): a row, nothing moved."""
+    """(MECHB64; R60-5) The note's part for the Energy lost past the maximum (energy_lost, the headline since R60-5):
+    `fed` the rounds a second with nothing lost (the row), `rate` the headline's."""
     if fed <= 0 or crits <= 0 or rate <= 0:
         return ""
     hits = crits / fed
     whole = math.ceil(hits - 1e-9)
     if whole <= hits + 1e-9:
         return ""
-    lost = rate * hits / whole
-    return (f"; Energy past the maximum carried to the next round (UNVERIFIED; the game text doesn't say): a round every "
-            f"{hits:.2f} Critical Hits of yours; row, if it's lost: {whole} hits a round, {lost:.3f} triggers a second "
-            f"(x{hits / whole:.3f})")
+    return (f"; Energy past the maximum is lost (RESEARCH60 R60-5, HIGH: \"loses all Energy on reaching maximum\"): "
+            f"{whole} of your Critical Hits a round, not {hits:.2f}, {rate:.3f} triggers a second; row, carried: "
+            f"{fed:.3f} (x{hits / whole:.3f} lost)")
 
 
-# (MECHB64; the manager 07:43, MECHB64's own find, RESEARCH60 R60-4 open) The most Mana a build can pay a second caps
-# how often it uses its Mana-paying skills. PoB scores the main skill at its full rate whatever it costs, and
-# objective.sustain is a FLOOR (its deficit), not a cap on the rate. Here: the build's Mana income from every source the
-# sustain share counts (objective.SUSTAIN_POOLS["Mana"]: PoB's regeneration, leech and on-hit; the flasks; recovery.py's
-# kills, Remnants, charms, events and spending; plus recoup and on-block, objective.hit_recovery_rates: the user's rule,
+# (MECHB64; the manager 07:43 / 10:26, MECHB64's own find; RESEARCH60 R60-4, HIGH) The most of its cost resource a build
+# can pay a second caps how often it uses its paying skills. PoB scores the main skill at its full rate whatever it
+# costs, and objective.sustain is a FLOOR (its deficit), not a cap on the rate. R60-4: spells a meta gem triggers PAY
+# THEIR OWN COSTS (triggered-spell-costs-r60.md; forum 3891799); the exceptions carry the stat no_cost ("Supported
+# Skills Cost nothing": Svalinn's Cast on Block, Thundergod's Wrath, Heat of the Forge's Fire Spell on Hit), which PoB
+# maps to Cost MORE -100 (SkillStatMap 428), so PoB's costs read the stat, never a name. For each pool, Mana and Life
+# (Blood Magic and other Life costs: PoB's LifePerSecondCost): the build's income from every source the sustain share
+# counts (objective.SUSTAIN_POOLS[pool]: PoB's regeneration, leech and on-hit; the flasks; recovery.py's kills,
+# Remnants, charms, events and spending; plus recoup and on-block, objective.hit_recovery_rates: the user's rule,
 # memory recovery-every-source; their functions, not re-derived) over what the main skill and the skills feeding its
-# meta gem spend (PoB's ManaPerSecondCost for the main skill; each feeder's Mana a second used nonstop, useRates'
-# manaPerSecond, x the share of the time it's used): every rate scaled by min(1, income / spend) together (a meta's
-# triggers follow its feeders). A ROW only until R60-4 says whether meta-triggered spells cost Mana (PoB charges them;
-# patches 0.2.1 / 0.4.0 name exceptions that "cost no Mana", which reads as the rule that they do; UNVERIFIED for 0.5).
-# Left out (a lower spend, so a looser cap): the build's other skills' costs; the Mana pool itself spent once over the
-# fight; objective.SUSTAIN_LEFT_OUT's sources (a higher income).
+# meta gem spend (PoB's <pool>PerSecondCost for the main skill; each feeder's per-second cost used nonstop, useRates'
+# manaPerSecond / lifePerSecond, x the share of the time it's used). The tighter pool's min(1, income / spend) scales
+# the main skill's DPS (HEADLINE since R60-4 for a TRIGGERED main skill, the uncapped number the row; a skill you use
+# yourself keeps it as a row, objective.sustain's floor marking its shortfall): every rate together, as a meta's triggers
+# follow its feeders. A "DPS" MORE, not a slower Speed: the cost PoB reads stays the full pace's, so the cap is stable
+# between rounds; models that count the main skill's uses (Energy, ailment stacks) still see the full pace (a small
+# OVERCOUNT left). What happens when a trigger can't pay is UNVERIFIED (R60-4: no PoE2 source; a PoE1 report says the
+# trigger fires and nothing is cast): capped at what the income pays, the lower reading. Left out: the build's other
+# skills' costs (a looser cap); its pool spent once over the fight (a tighter one); objective.SUSTAIN_LEFT_OUT's
+# sources; for Life, the boss's hits that also drain it (a looser cap).
 MANA_CAP_LABEL = "Mana paid a second: the use rate the build can sustain*"
+COST_FEED_FIELDS = {"Mana": "manaPerSecond", "Life": "lifePerSecond"}
 
 
-def mana_cap_row(income: float, income_how: str, main: str, main_cost: float, feeders: list[dict],
-                 triggered: bool) -> dict | None:
-    """(MECHB64, the note above) the row, or None when the build pays every cost (or spends no Mana)."""
-    parts = [f"{main} {main_cost:,.1f}/s"] if main_cost > 0 else []
-    spend = max(main_cost, 0.0)
-    for f in feeders:
-        each = number((f.get("row") or {}).get("manaPerSecond"))
-        used, speed = number(f.get("used")), number(f.get("speed"))
-        if each > 0 and used > 0 and speed > 0:
-            share = min(1.0, used / speed)
-            spend += each * share
-            parts.append(f"{f['name']} {each * share:,.1f}/s ({each:,.1f}/s used {share:.0%} of the time)")
-    if spend <= 0 or income >= spend:
-        return None
-    scale = max(income, 0.0) / spend
-    return {"label": MANA_CAP_LABEL, "value": f"x1 (the headline); row: x{scale:.3f}",
-            "basis": (f"the build spends {spend:,.1f} Mana a second ({'; '.join(parts)}) against {income:,.1f} a second "
-                      f"of Mana income ({income_how}): it can keep up {scale:.1%} of that pace, so "
-                      + ("its feeders and the triggers they make" if triggered and len(parts) > 1 else "its uses")
-                      + f" would run at x{scale:.3f}, and {main}'s DPS with them. "
-                      + ("A ROW: the headline keeps PoB's rate until RESEARCH60 R60-4 settles whether meta-triggered "
-                         "spells cost Mana in 0.5 (PoB charges them). " if triggered else
-                         "A ROW for now (the manager 07:43); objective.sustain's floor already marks the shortfall. ")
-                      + "Not counted: the build's other skills' costs, its Mana pool spent once over the fight"),
-            "confidence": "MEDIUM (the rates and costs PoB's; the income the sustain share's own)",
-            "play": (f"This build spends Mana faster than it recovers it ({spend:,.0f} against {income:,.0f} a second): "
-                     f"add Mana recovery (regeneration, leech, Mana on hit, a Mana flask) or cheaper skills, or expect "
-                     f"about x{scale:.2f} its DPS once the pool runs dry.")}
+def mana_cap_row(pools: dict[str, tuple[float, str, float]], main: str, feeders: list[dict],
+                 triggered: bool) -> tuple[float, dict | None]:
+    """(MECHB64, the note above) (the scale on the main skill's DPS, the note) for `pools` {pool: (income a second,
+    how, the main skill's cost a second)}: (1.0, None) when every pool pays its spend."""
+    worst, found = 1.0, None
+    for pool, (income, income_how, main_cost) in pools.items():
+        parts = [f"{main} {main_cost:,.1f}/s"] if main_cost > 0 else []
+        spend = max(main_cost, 0.0)
+        for f in feeders:
+            each = number((f.get("row") or {}).get(COST_FEED_FIELDS[pool]))
+            used, speed = number(f.get("used")), number(f.get("speed"))
+            if each > 0 and used > 0 and speed > 0:
+                share = min(1.0, used / speed)
+                spend += each * share
+                parts.append(f"{f['name']} {each * share:,.1f}/s ({each:,.1f}/s used {share:.0%} of the time)")
+        if spend > 0 and income < spend and max(income, 0.0) / spend < worst:
+            worst, found = max(income, 0.0) / spend, (pool, income, income_how, spend, parts)
+    if found is None:
+        return 1.0, None
+    pool, income, income_how, spend, parts = found
+    return worst, {
+        "label": MANA_CAP_LABEL if pool == "Mana" else f"{pool} paid a second: the use rate the build can sustain*",
+        "value": f"x{worst:.3f} (row, unpaid costs: x1)",
+        "basis": (f"the build spends {spend:,.1f} {pool} a second ({'; '.join(parts)}) against {income:,.1f} a second of "
+                  f"{pool} income ({income_how}): it can keep up {worst:.1%} of that pace, so "
+                  + ("its feeders and the triggers they make" if triggered and len(parts) > 1 else "its uses")
+                  + f" run at x{worst:.3f}, and {main}'s DPS with them"
+                  + (" (meta-triggered spells pay their own costs: RESEARCH60 R60-4, HIGH; a trigger the build can't "
+                     "pay for taken as not cast, UNVERIFIED)" if triggered else "")
+                  + ". Not counted: the build's other skills' costs, its pool spent once over the fight"),
+        "confidence": "MEDIUM (the rates and costs PoB's; the income the sustain share's own)",
+        "play": (f"This build spends {pool} faster than it recovers it ({spend:,.0f} against {income:,.0f} a second): add "
+                 f"{pool} recovery (regeneration, leech, on hit, a flask) or cheaper skills; as built it keeps up "
+                 f"about x{worst:.2f} its pace.")}
 
 
 def energy_feed(kind: str, feeders: list[dict], stats: dict) -> tuple[float, float, str]:
@@ -3969,7 +3990,14 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
         cadence = inputs.total("InvocationCadence") if invocation else 0.0
         no_gain = inputs.has("InvocationNoGainTriggering")
 
-        def combined(fed: float, most: float, cadence: float = cadence, no_gain: bool = no_gain) -> float:
+        # (MECHB64; RESEARCH60 R60-5, HIGH) Energy past the maximum is LOST: a round takes the next whole number of the
+        # feeders' crit hits (energy_lost), counted where the feeders' crits are known (a crit meta fed by your skills)
+        lost_crits = (feeding[1] if feeding is not None and META_GEMS[meta.name]["gain"] == "crit" and not invocation
+                      else 0.0)
+
+        def combined(fed: float, most: float, cadence: float = cadence, no_gain: bool = no_gain,
+                     lost_crits: float = lost_crits) -> float:
+            fed = energy_lost(fed, lost_crits)
             if cadence > 0:  # (Ritual Cadence: one round each 2 s while triggering; a round the store can't hold, none)
                 return cadence_rate(fed, cadence, no_gain) if most > 0 else 0.0
             return min(fed, most)
@@ -4038,8 +4066,7 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
                                 f"would fill between them above that)" if most < float("inf") else "")
                         if info.get("invocation") else "")
                      + (f"; its spells deal {info['less']:.0f}% less damage" if info.get("less") else "")
-                     + (energy_overflow_row(fed, feeding[1], rate)
-                        if feeding is not None and META_GEMS[meta.name]["gain"] == "crit" and not invocation else ""),
+                     + (energy_overflow_row(fed, lost_crits, rate) if lost_crits > 0 else ""),
             "confidence": "theory"})
         if META_GEMS[meta.name]["gain"] == "dodge" and rate > 0:
             roll_seconds = (stats.get("_dodge_roll") or {}).get("seconds", DODGE_ROLL_SECONDS)
@@ -25734,8 +25761,8 @@ def minion_count_scale(count: float, hit_dps: float, combined_dps: float) -> flo
 # (undeath_limit_mix). No Ward spent: no cast, 0 minions (said). (MECHB64, MECHB63's next (c)) The Infused share: "Consumes
 # a Verisium Infusion, if possible, to increase the number of Minions summoned" (ActiveSkills skyfall), 6 a cast then;
 # the share of casts that find one is Assumptions.skyfall_infused's (the build's Verisium supply, MECH-C's infusion_supply
-# "Any", shared evenly with every other Infusion consumer, as Verisium is "used in place of any Elemental Infusion":
-# MEDIUM-LOW), so 3 + 3 x share a cast; every cast Infused (6) the row. The slam PoB lacks (GAExpedition2OctopusSlam: 95% damage, 2 s cooldown; R58-7) takes one of the
+# "Any"; Skyfall first, as the other consumers "prioritise using non-Verisium Infusions": RESEARCH60 R60-7, HIGH),
+# so 3 + 3 x share a cast; every cast Infused (6) the row. The slam PoB lacks (GAExpedition2OctopusSlam: 95% damage, 2 s cooldown; R58-7) takes one of the
 # minion's attacks each cooldown: of its A attacks a second, min(1, 1 / (2 A)) are slams at x0.95 (its 60% Physical as
 # Cold not applied: the boss's armour against its Cold resistance, UNVERIFIED either way; its 15% more at the centre a
 # row). All of them taken to reach the boss (as minion_counts, MEDIUM). The count scales the Comet-Spawn's own Full DPS
