@@ -4488,11 +4488,26 @@ STUNS_YOU = re.compile(r"\bwhen they stun you\b", re.I)
 SHAPESHIFT_TYPES = {"Shapeshift", "Bear", "Wolf", "Wyvern"}  # (PoB skill types of the forms' skills)
 
 
+# (MECHC63; the manager's 13:27 item 1 from MECH109's ours-vs-author sweep, an OVERCOUNT: Intimidated ON in ours on b01
+# b04 b05 b06 b07 b14 b15, x1.07-1.08 each) Her Declaration's gem description, "Supports Persistent Buff Skills, causing
+# enemies that enter your Presence to become Intimidated while the Skill is active" (a sourceLine of the gem), matched
+# _debuff_pattern's "enemies ... become intimidated" with "that enter your Presence" as its clause, which the
+# "presence" branch reads as always on while the boss is inside your Presence: Intimidated 100% of the fight for every
+# build with the support (calibration records: b01 "Intimidated up 100% ... (the boss 2 m away, your Presence 4.0 m)",
+# from that line alone; b15 the same beside her_declaration's own 63%). An ENTRY gives the debuff, not standing inside:
+# every "enter your Presence" text is an on-entry effect (checked: "enters? your presence" over PoB's StatDescriptions,
+# Data/Skills, ModItem and Uniques, and the game's ActiveSkills / GemEffects (26650308): Aggravate Bleeding "when they
+# Enter your Presence", Plants Overgrowing "when they enter your Presence for the first time", Her Declaration, and
+# Unwithered enemies Withered "when they enter your Presence"), and each has its own entry-rate reader
+# (her_declaration, WITHER_ENTRY, the Aggravate entries; models.presence_reentries). So the generic reader skips them.
+ENTERS_PRESENCE = re.compile(r"\benters? your presence\b", re.I)
+
+
 def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[float, str] | None:
     """(uptime, how) of one line for this debuff, or None if it isn't a source of it."""
     stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     m = _debuff_pattern(var).search(text)
-    if not m or DEBUFF_NOT_SOURCE.search(text):
+    if not m or DEBUFF_NOT_SOURCE.search(text) or ENTERS_PRESENCE.search(text):  # (MECHC63: ENTERS_PRESENCE's note)
         return None
     if pair := socketed_pair(text, stats):  # (MECH92: the crafted jewels' two-jewel condition)
         rest, ok, how = pair

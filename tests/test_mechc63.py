@@ -188,3 +188,15 @@ def test_real_pob_romiras_requital_stats_reach_support_stats(engine):
                                                     recovery.LOYALTY_RECOUP_STAT])["skills"]
     assert (10.0, 200.0, "Wolf Pack") in recovery.companion_recoups(rows), [(r.get("name"), r.get("supportStats"))
                                                                              for r in rows]
+
+
+def test_her_declaration_description_is_not_an_always_on_presence_intimidate():
+    """(ENTERS_PRESENCE; MECH109's sweep, an OVERCOUNT) Her Declaration's description no longer reads as Intimidating the
+    boss all fight while it stands in your Presence (her_declaration counts its entries); a plain "in your Presence"
+    Intimidate line still does."""
+    stats = {"PresenceRadius": 40, "_distance_choice": (2.0, "")}
+    text = ("Supports Persistent Buff Skills, causing enemies that enter your Presence to become Intimidated while the "
+            "Skill is active.")
+    assert c._debuff_source(text, "conditionEnemyIntimidated", [text], stats) is None
+    plain = "Enemies in your Presence are Intimidated"
+    assert c._debuff_source(plain, "conditionEnemyIntimidated", [plain], stats)[0] == 1.0

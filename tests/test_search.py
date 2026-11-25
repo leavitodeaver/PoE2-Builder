@@ -1561,7 +1561,9 @@ def test_debuffs_on_only_when_their_sources_keep_them_up():
     assert intimidated(["Intimidate Enemies on Block for 8 seconds"], stats)[2] >= 0.9
     assert intimidated(["Enemies in your Presence are Intimidated"], stats)[2] >= 0.9  # melee: inside 4 m
     declaration = "Supports Persistent Buff Skills, causing enemies that enter your Presence to become Intimidated"
-    assert intimidated([declaration], {**stats, "PresenceRadius": 0})[2] < 0.9
+    # (MECHC63: ENTERS_PRESENCE: an on-entry line, counted by conditions.her_declaration at its entries, not here)
+    assert intimidated([declaration], {**stats, "PresenceRadius": 0}) == (0.0, "")
+    assert intimidated([declaration], stats) == (0.0, "")
     assert intimidated(["Enemies you Curse are Intimidated"], stats)[2] < 0.9
     assert intimidated(["Enemies you Curse are Intimidated"], {**stats, "_curse_uses": [models.CurseUse("Vulnerability", 1.0, "cast by hand")]})[2] >= 0.9
     stun = intimidated(["Enemies you Heavy Stun while Shapeshifted are Intimidated for 6 seconds"], stats)
