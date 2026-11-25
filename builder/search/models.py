@@ -13169,11 +13169,24 @@ INFERNAL_HOUND = "Summon Infernal Hound"
 HOUND_LIFE_SHARE = 0.20  # infernal_familiar_minion_burns_for_%_max_life 20
 
 
-def infernal_legion_model(minions: list[tuple], fire_resist: float, own_ignite: float) -> tuple[float, dict]:
+# (MECHB65; RESEARCH61 R61-2, research/infernal-legion-single-ignite-r61.md, MEDIUM-HIGH: a possible OVERCOUNT before)
+# THE 50% FLAMMABILITY GATE. Infernal Legion, Catha's Brilliance and the Infernal Hound Ignite "as though dealing" Fire
+# damage, an effect that doesn't Hit: KeywordPopups Flammability (26650308), "Effects which do not Hit targets, but
+# Ignite as if they had, such as Ignited Ground, also inflict Flammability, but do not roll a random chance to Ignite.
+# Such effects will only Ignite once the total Flammability on the target reaches 50%" (0.3.0; 0.4.0: "Igniting aura
+# effects ... apply regular ignites with standard duration"). So the minions' Ignite counts only for the share of the
+# fight the boss holds 50% Flammability: conditions.no_hit_ignite (MECH-A's; reused, not changed) with the build's own
+# Fire hits and other groups' Ignites (build.ailment_others) and the burn's own applications as though dealing its base
+# (Life x share), over the 8 s stacks. The ungated reading is the row. One Ignite on a lone boss, the strongest
+# (R61-2, MEDIUM-HIGH), as before.
+def infernal_legion_model(minions: list[tuple], fire_resist: float, own_ignite: float,
+                          gate=None) -> tuple[float, dict]:
     """(added DPS, note). `minions`: (minion skill, its minion's Life[, its share of Life as base Fire[, its place:
     {"melee", "range", "radius", "minion"} from PoB, MECHB65]]) for each Infernal Legion-supported skill (10%) and
     Summon Infernal Hound (20%, MECHB40); `fire_resist`: the boss's Fire resistance %;
-    `own_ignite`: the build's own Ignite DPS on the boss (PoB's IgniteDPS)."""
+    `own_ignite`: the build's own Ignite DPS on the boss (PoB's IgniteDPS); `gate(damage) -> (share, how)`: the share of
+    the fight a no-Hit Ignite as though dealing `damage` Fire can Ignite the boss (the 50% Flammability gate, above),
+    None for no gate."""
     rows = [(m[0], m[1], m[2] if len(m) > 2 else LEGION_LIFE_SHARE) for m in minions]
     # (MECHB65) each minion's place (4th: {"melee", "range", "radius"}) from PoB, else the name list
     def where(m: tuple) -> tuple[bool, str]:
@@ -13194,14 +13207,20 @@ def infernal_legion_model(minions: list[tuple], fire_resist: float, own_ignite: 
                               "boss: 0" + (f" ({'; '.join(away)})" if away else "")}
     name, life, share = max(near, key=lambda m: m[1] * m[2])
     ignite = IGNITE_BASE * share * life * (1 - fire_resist / 100)
-    added = max(0.0, ignite - own_ignite)
+    ungated = max(0.0, ignite - own_ignite)
+    reach, reach_how = gate(share * life) if gate is not None else (1.0, "")
+    reach = min(max(number(reach), 0.0), 1.0)
+    added = ungated * reach
+    gate_how = (f"; it Ignites only while the boss holds 50% Flammability (an effect that doesn't Hit: KeywordPopups "
+                f"Flammability, RESEARCH61 R61-2, MEDIUM-HIGH): {reach_how}: x{reach:.2f}; row, ungated: "
+                f"+{ungated:,.1f}" if gate is not None else "")
     reach = next(how for r, (ok, how) in zip(rows, places) if r[0] == name and ok)
     basis = (f"{name}'s minions ({life:,.0f} Life) Ignite the boss for 20% x {share:.0%} of their Life a second through "
              f"its {fire_resist:g}% Fire resistance = {ignite:,.1f} DPS; only the strongest Ignite counts, so "
              f"+{added:,.1f} over the build's own {own_ignite:,.1f}. Where it stands ({reach}): its attack range "
              "taken as its distance (MEDIUM)" + (f"; kept away: {'; '.join(away)}" if away else "") +
              "; the minion's own damage and Ignite modifiers not counted (an undercount)"
-             + (f"; PoB reads none of it (0 before)" if hound else ""))
+             + (f"; PoB reads none of it (0 before)" if hound else "") + gate_how)
     return added, {"label": label, "value": round(added, 1), "basis": basis, "confidence": "MEDIUM"}
 
 

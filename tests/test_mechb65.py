@@ -77,9 +77,9 @@ def test_infernal_legion_reads_each_minions_place_from_pob(engine):
     seen = []
     real = models.infernal_legion_model
 
-    def spy(minions, resist, own):
+    def spy(minions, resist, own, gate=None):
         seen.append(minions)
-        return real(minions, resist, own)
+        return real(minions, resist, own, gate)
 
     models.infernal_legion_model = spy
     try:
@@ -211,3 +211,15 @@ def test_a_nova_landing_at_the_target_keeps_the_targeted_cascade_rule():
     burst = models.Skill("Voltaxic Burst", group=1, spell=True)
     named = ["Discharge and Voltaxic Burst are Cast at the targeted location instead of around you"]
     assert models.nova_lands_at_target(burst, {}, named, set()) and not models.nova_lands_at_target(cage, {}, named, set())
+
+
+def test_infernal_legion_ignites_only_while_the_boss_holds_half_flammability():
+    """RESEARCH61 R61-2 (a possible OVERCOUNT): the minions' "as though dealing" burn doesn't Hit, so it Ignites only at
+    50% Flammability: the headline x the gate's share, the ungated reading the row; no gate, as before."""
+    brute = ("Skeletal Brute Minion", 5000.0, 0.1, {"melee": True, "range": 16.0, "radius": 20, "minion": "Brute"})
+    full, _ = models.infernal_legion_model([brute], 30.0, 0.0)
+    seen = []
+    half, note = models.infernal_legion_model([brute], 30.0, 0.0, lambda d: (seen.append(d) or 0.25, "test gate"))
+    assert seen == [500.0] and half == pytest.approx(full * 0.25)
+    assert "50% Flammability" in note["basis"] and "R61-2" in note["basis"] and f"+{full:,.1f}" in note["basis"]
+    assert models.infernal_legion_model([brute], 30.0, 0.0, lambda d: (0.0, "none"))[0] == 0.0

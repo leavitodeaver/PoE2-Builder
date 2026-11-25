@@ -2221,7 +2221,15 @@ def infernal_legion(build: Build, stats: dict) -> tuple[float, list[dict]]:
                 place(rates.get((i, a)) or {}, radius))
                for i, a, name, radius in zip(indices, actives, names, radii)]
     resist = number(build.call("getConfig")["input"].get("enemyFireResist"))
-    added, note = models.infernal_legion_model(minions, resist, number(stats.get("IgniteDPS")))
+    # (MECHB65, R61-2: the 50% Flammability gate, conditions.no_hit_ignite (MECH-A's) with the build's own Fire hits, its
+    # other groups' Ignites (build.ailment_others, conditions' published state) and its Flammability Magnitude lines)
+    gate_stats = {**build.call("stats", fields=["Speed", "HitChance", "IgniteChancePerHit", "EnemyAilmentThreshold"]),
+                  "_ailment_others": dict(getattr(build, "ailment_others", None) or {}),
+                  "_flammability_mod": build.call("flammabilityMagnitude") or {}}
+
+    def gate(damage: float) -> tuple[float, str]:
+        return conditions_mod.no_hit_ignite(gate_stats, damage, conditions_mod.FLAMMABILITY_SECONDS)
+    added, note = models.infernal_legion_model(minions, resist, number(stats.get("IgniteDPS")), gate)
     return added, [note]
 
 def fiery_death(build: Build) -> tuple[float, list[dict]]:
