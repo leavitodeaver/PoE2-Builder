@@ -3851,11 +3851,20 @@ class Assumptions:
                 main.name if main else None)  # (GEM33:
         # Salvo, the Nova circle, Ratha, Trickster's Shard, Ember Fusillade, Rake, the repeat interval: hits a second)
         if any(s.name == models.MIRROR_OF_REFRACTION for s in found):  # (GEM31: its copies from spare projectiles)
+            from builder.search import boss_hits, bosses as bosses_mod
+
+            mir_loop = models.mirror_loop_source(main, set(skill_types_of(build.ctx, main.name))  # (SEARCH40)
+                                                 if main is not None else set(), (group or {}).get("gems") or [])
+            mir_moves, mir_dodges = (0.0, ""), 0.0
+            if mir_loop:  # (GEM44, R60-9: the boss's forced moves break the loop; dodge rolls a row)
+                mir_boss = {**build.call("stats", fields=["enemySkillTime"]),
+                            "_boss": getattr(getattr(build.ctx, "request", None), "boss", None) or bosses_mod.DEFAULT}
+                mir_moves = boss_hits.red_flash_rate(mir_boss)
+                mir_every = bosses_mod.benefit_skill_time(mir_boss)
+                mir_dodges = dodge_share()[0] / mir_every if mir_every > 0 else 0.0
             mir_mods, mir_notes = models.mirror_of_refraction_model(
                 found, main, {**stats, **build.call("stats", fields=["ProjectileCount", "Speed"])},
-                build.call("getConfig")["input"], forbidden,
-                loop=models.mirror_loop_source(main, set(skill_types_of(build.ctx, main.name))  # (SEARCH40: skill_types)
-                                               if main is not None else set(), (group or {}).get("gems") or []))
+                build.call("getConfig")["input"], forbidden, loop=mir_loop, moves=mir_moves, dodges=mir_dodges)
             stat_mods, stat_notes = stat_mods + mir_mods, stat_notes + mir_notes  # (GEM35: the loop, R47-2)
         # (MECHC43) a main skill that spends the Combo other Strikes build (Culmination / Vruun's Inevitability,
         # skill_maximum_number_of_combo_stacks): its Combo on use from the build's own Strikes and the press model's

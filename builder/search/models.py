@@ -6738,6 +6738,17 @@ MIRROR_ENTRY = "model-gem31-mirror-of-refraction-copies"
 # reach. Not settled by any source (no boss numbers anywhere): how many of a nova's copies cross the boss (p, the LOW
 # geometry part) and whether a copy deals the full hit; the poe2wiki rule "Projectiles fired at the same time can Hit
 # the same target no more than once every 0.66 seconds" agrees with one copy hit a nova. The model stays LOW overall.
+# (GEM44; RESEARCH60 R60-9, research/mirror-copies-return-loop-r60.md, the manager's 10:58 order) The loop is NOT always
+# on in a boss fight: the guide (forum 4000271, 5 Nov 2026) says it loops "when you don't teleport too far", that
+# Lightning Warp "breaks the damaging loop often", and calls the build an "autobomber for stationary content". So the
+# loop's share of the fight comes from the build and the boss: each cast of the main skill (PoB's casts a second, T =
+# 1 / casts apart; Breachlord's Amalgam's cooldown is in PoB's rate) restarts it, and the boss preset's forced moves
+# (boss_hits.red_flash_rate, m a second, Poisson) break it until the next cast: u = (1 - e^(-m T)) / (m T), the same
+# law as conditions.flame_wall_line (m = 0: always on). Shatters a second = u / I + (1 - u) x min(1 / I, casts x N).
+# MEDIUM-LOW (R60-9): every forced move taken to break it; dodge rolls of telegraphed hits (the user's 2 in 3) taken
+# NOT to (a few metres; the guide names teleports): a row with them breaking it too; rows always on (GEM35's reading)
+# and no loop. The "0.66 s a target" gate is Spark's own stat (spark_min_time_between_target_clearing_ms, R60-9 (b)), no
+# gate on Frostbolt: none was applied here. R60-9 (b)'s copy-return share (LOW, ~0.5) is MECH-B's return side: named.
 def mirror_loop_source(main: Skill | None, main_types: set[str], group_gems: list[dict]) -> str:
     """What keeps the main skill's projectiles flying back through the mirrors ("" none): MECHB55's return_share (the
     agreed split: MECH-B the return side, GEM the mirror side), when every projectile returns (Breachlord's Amalgam and
@@ -6746,10 +6757,23 @@ def mirror_loop_source(main: Skill | None, main_types: set[str], group_gems: lis
     return why if share >= 1 else ""
 
 
+def mirror_loop_up(casts: float, moves: float) -> float:
+    """(GEM44, R60-9) The share of the fight the mirror loop holds: restarted at each cast (`casts` a second), broken by
+    the boss's forced moves (`moves` a second, Poisson) until the next cast: (1 - e^(-m T)) / (m T), T = 1 / casts."""
+    if casts <= 0:
+        return 0.0
+    if moves <= 0:
+        return 1.0
+    x = moves / casts
+    return (1.0 - math.exp(-x)) / x
+
+
 def mirror_of_refraction_model(skills: list[Skill], main: Skill | None, stats: dict, config: dict | None = None,
-                               forbidden: set[str] = frozenset(), loop: str = "") -> tuple[list[dict], list[dict]]:
+                               forbidden: set[str] = frozenset(), loop: str = "",
+                               moves: tuple[float, str] = (0.0, ""), dodges: float = 0.0) -> tuple[list[dict], list[dict]]:
     """Mirror of Refraction's copies on the boss from the main Spell's projectiles, which pierce the mirror (see above).
-    `loop`: mirror_loop_source's words (the copies return and shatter every mirror)."""
+    `loop`: mirror_loop_source's words (the copies return and shatter every mirror). `moves`: (the boss's forced moves a
+    second, how) that break the loop (GEM44, R60-9); `dodges`: the player's dodge rolls a second (a row only)."""
     from builder.search.conditions import MELEE_DISTANCE, RANGED_DISTANCE  # (conditions imports models)
 
     mirror = next((s for s in skills if s.name == MIRROR_OF_REFRACTION), None)
@@ -6774,26 +6798,40 @@ def mirror_of_refraction_model(skills: list[Skill], main: Skill | None, stats: d
         where = "the main skill's natural distance"
     radius = bosses.hit_radius(stats)[0]
     interval = base / (mirror.cooldown_recovery or 1.0)
-    shatters = 1 / interval if loop else min(1 / interval, casts * count)
+    fed = min(1 / interval, casts * count)
+    move_rate, move_how = max(number(moves[0]), 0.0), moves[1]
+    up = mirror_loop_up(casts, move_rate) if loop else 0.0
+    shatters = up / interval + (1 - up) * fed
     p = min(1.0, nova_unaimed_hits(copies, radius, metres))
     p_near = min(1.0, nova_unaimed_hits(copies, radius, MELEE_DISTANCE))
     factor = 1 + shatters * p / casts
     near = 1 + shatters * p_near / casts
     chain = 1 + 2 * shatters * p / casts
+    loop_words, loop_rows = "", ""
+    if loop:
+        up_dodge = mirror_loop_up(casts, move_rate + max(number(dodges), 0.0))
+        always = 1 + p / interval / casts
+        dodge_row = 1 + (up_dodge / interval + (1 - up_dodge) * fed) * p / casts
+        none_row = 1 + fed * p / casts
+        loop_words = (f" ({loop}: the copies come back through the mirrors and are copied again, so while the loop holds "
+                      f"every mirror shatters (R47-2); it holds {up:.0%} of the fight: each cast ({casts:.2f} a second) "
+                      f"restarts it and the boss's forced moves break it, {move_rate * 60:.1f} a minute"
+                      + (f" ({move_how})" if move_how else "") + ", (1 - e^(-m T)) / (m T) (R60-9: the loop breaks when "
+                      f"you move far, MEDIUM-LOW); the rest of the time only casts feed it, {fed:.2f} a second)")
+        loop_rows = (f"loop always on (GEM35's reading) x{always:.3f}; every dodge roll breaking it too ({up_dodge:.0%} "
+                     f"loop) x{dodge_row:.3f}; no loop x{none_row:.3f}; ")
     mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=MIRROR_ENTRY)] if factor > 1 else []
     return mods, [{
         "label": label, "value": f"x{factor:.3f}", "confidence": "LOW", "entry": MIRROR_ENTRY,
         "basis": (f"a mirror every {base:g} s / {mirror.cooldown_recovery or 1.0:.2f} Cooldown Recovery = {interval:.2f} s; "
                   f"{main.name} fires {count:g} projectile(s) a cast at {casts:.2f} casts a second; a mirror lets every "
                   f"projectile pierce it (R44-2, MEDIUM-HIGH), so the one that shatters it still hits the boss: "
-                  f"{shatters:.2f} shatters a second" + (f" ({loop}: the copies come back through every "
-                  f"mirror and are copied again, so every mirror shatters, the loop's ceiling; R47-2, MEDIUM-LOW)"
-                  if loop else "") + ". Each copies the "
+                  f"{shatters:.2f} shatters a second" + loop_words + ". Each copies the "
                   f"projectile {copies:g} times in a nova, of which at most one can hit the boss (one source, one time: "
                   f"R35-15, MEDIUM); a mirror {metres:g} m from the boss ({where}; mirrors appear in your Presence, LOW), "
                   f"radius {radius:g} m: one hits {p:.0%} of the time (k x 2 asin(r / d) / 360). +{shatters * p:.2f} hits a "
                   f"second on {casts:.2f}: x{factor:.3f}. Rows: fighting at {MELEE_DISTANCE:g} m x{near:.3f}; "
-                  + ("" if loop else f"each nova's copies chaining into one more mirror (the game's text; the rate "
+                  + loop_rows + ("" if loop else f"each nova's copies chaining into one more mirror (the game's text; the rate "
                      f"LOW, R44-2) x{chain:.3f}; ") + "mirrors not fed x1"),
         "play": (f"{MIRROR_OF_REFRACTION}: fire {main.name} through the mirrors that appear around "
                  f"you; closer to the boss, more copies reach it. Without it: x1; at this distance x{factor:.2f}; at "

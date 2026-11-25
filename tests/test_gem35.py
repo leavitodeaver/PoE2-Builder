@@ -118,12 +118,34 @@ def test_mirror_loop_shatters_every_mirror():
     slow = {"ProjectileCount": 1, "Speed": 0.2}  # (0.2 casts a second: fewer than the 0.5 mirrors)
     plain, _ = models.mirror_of_refraction_model([mirror, fb], fb, slow, {"enemyDistance": 50})
     looped, notes = models.mirror_of_refraction_model([mirror, fb], fb, slow, {"enemyDistance": 50}, loop="test")
-    assert looped[0]["value"] == pytest.approx(plain[0]["value"] * 0.5 / 0.2, abs=0.01) and "loop's ceiling" in notes[0]["basis"]
+    assert looped[0]["value"] == pytest.approx(plain[0]["value"] * 0.5 / 0.2, abs=0.01) and "it holds 100% of the fight" in notes[0]["basis"]
     assert "chaining into one more mirror" not in notes[0]["basis"]
     gems = [{"name": "Frostbolt"}, {"name": models.BREACHLORDS_AMALGAM}]
     assert models.mirror_loop_source(fb, {"Cold", "Projectile"}, gems)
     assert not models.mirror_loop_source(fb, {"Cold", "Triggered"}, gems)
     assert not models.mirror_loop_source(fb, {"Cold"}, gems[:1])
+
+
+def test_mirror_loop_broken_by_the_boss_forced_moves():
+    # (GEM44, R60-9) each cast restarts the loop, the boss's forced moves break it: u = (1 - e^(-m T)) / (m T)
+    import math
+    assert models.mirror_loop_up(0.5, 0.0) == 1.0 and models.mirror_loop_up(0.0, 0.1) == 0.0
+    assert models.mirror_loop_up(0.5, 0.1) == pytest.approx((1 - math.exp(-0.2)) / 0.2)
+    mirror = Skill(name="Mirror of Refraction", cooldown_recovery=1.0,
+                   level_stats={models.REPEAT_STAT: 2000, models.MIRROR_COPIES_STAT: 9})
+    fb = Skill(name="Frostbolt", spell=True)
+    slow = {"ProjectileCount": 1, "Speed": 0.2}
+    plain, _ = models.mirror_of_refraction_model([mirror, fb], fb, slow, {"enemyDistance": 50})
+    always, _ = models.mirror_of_refraction_model([mirror, fb], fb, slow, {"enemyDistance": 50}, loop="test")
+    broken, notes = models.mirror_of_refraction_model([mirror, fb], fb, slow, {"enemyDistance": 50}, loop="test",
+                                                      moves=(0.1, "a test boss"), dodges=0.5)
+    u = models.mirror_loop_up(0.2, 0.1)
+    gain_always, gain_plain = always[0]["value"], plain[0]["value"]  # (each a % more: 0.5 vs 0.2 shatters a second)
+    assert broken[0]["value"] == pytest.approx(u * gain_always + (1 - u) * gain_plain, abs=0.01)
+    assert gain_plain < broken[0]["value"] < gain_always
+    basis = notes[0]["basis"]
+    assert f"it holds {u:.0%} of the fight" in basis and "a test boss" in basis and "loop always on" in basis
+    assert "every dodge roll breaking it too" in basis and "no loop x" in basis
 
 
 def test_gas_grenade_cloud_explodes_only_when_detonated():
