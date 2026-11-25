@@ -1,0 +1,100 @@
+# COV58 turn 5 (25 Nov 2026; COV43's rule): TRAIN 149's readers (2e94d390..cac668f1, origin/main cac668f1), the manager's
+# two "already read" sets (13:23 note item 4) and its settled delay rows (item 3), each checked against the landed code.
+# Left open on purpose (checked): Doedre's Undoing / Cursed Ground's maximum_curse_zones_allowed (GEM43 reads the
+# build's Limit into the toad model's ROWS only, "its rows only": COV55's rule for rows); Decompose's
+# number_of_poison_cloud_allowed (GAS_CLOUD_LIMIT is Gas Arrow's); Killing Palm's Rare / Unique Power Charge stats (2 / 3:
+# the reader counts "a Power Charge" a kill at the presets' adds, taken as Normal, R26-55 ASSUMED MEDIUM; they'd matter only
+# for Rare / Unique adds); explosion_delay_ms on Detonate Dead / Fiery Reclamation / Voltaic Fulmination and
+# aftershock_delay_ms on Furious Slam / Supercharged Slam (R59-12 researched only the skills named below).
+
+- id: model-read-cov58c-blind-on-hit
+  title: "Blind on Hit from the skills' own stats (attacks_chance_to_blind_on_hit_%: Twister, Flash Grenade) read by Conditions._skill_blind (MECH109)"
+  kind: model
+  model: blind
+  stats: ["attacks_chance_to_blind_on_hit_%"]
+  confidence: MEDIUM
+  notes: >-
+    conditions.BLIND_HIT_STATS: _skill_blind reads every enabled active skill's level stats and supports for the chance
+    (the attack stat on attacks only; Blindside's cannot_inflict_blind excluded), x its hits on the boss, 4 s each, into
+    the share of the fight the boss is Blinded (the "vs Blinded" lines, Blind's own effects). Every carrier (Twister,
+    Flash Grenade, their stat sets) goes through the same reader, so no skill limit. global_chance_to_blind_on_hit_% is
+    PoB-read already (status pob). A link only.
+  sources: ["builder/search/conditions.py (BLIND_HIT_STATS, Conditions._skill_blind)"]
+  status: proposed
+
+- id: model-read-cov58c-on-cull-recovery
+  title: "Life / Mana on Culling (Killing Palm's quality, Soul Drain, Reap) read by recovery.cull_income at the adds' Culls (MECHC62)"
+  kind: model
+  model: recovery
+  stats: ["recover_%_maximum_mana_on_cull", "active_skill_life_gained_on_cull"]
+  confidence: MEDIUM
+  notes: >-
+    recovery.CULL_STATS: Assumptions.cull_income reads the main and side skills' level / quality stats and supports, and
+    adds the best carrier's Life / Mana a Cull x the boss preset's add Culls a second (bosses.kill_stats'
+    AddCullsPerSecond; 0 on a lone boss: the boss's own Cull ends the fight) as on-event recovery. recover_%_maximum_life
+    _on_cull (Life Drain) is PoB-read already (status pob). A link only.
+  sources: ["builder/search/recovery.py (CULL_STATS, cull_income)", "builder/search/assumptions.py (cull_income)"]
+  status: proposed
+
+- id: model-read-cov58c-corpse-flask-charges
+  title: "Devour's charge chance and Gorge's Flask Charges a corpse read by flasks' corpse charges (MECHC62)"
+  kind: model
+  model: flasks
+  stats: ["wyvern_devour_flask_charm_charge_gain_chance_%", "support_grants_X_life_flask_charges_on_using_corpse",
+          "support_grants_X_mana_flask_charges_on_using_corpse"]
+  confidence: MEDIUM
+  notes: >-
+    flasks.DEVOUR_FLASK_STAT (Devour's quality, 2.5 a point in PoB) and GORGE_STATS (SupportGorgePlayer 10 each, game
+    26650308): the preset's add corpses split over the build's corpse users; Devour's share x its chance becomes extra
+    kills for kill_charges (every flask and charm), a Gorge-supported skill's share x 10 goes to the Life and Mana flasks.
+    No corpses (a lone boss): nothing. A link only.
+  sources: ["builder/search/flasks.py (DEVOUR_FLASK_STAT, GORGE_STATS)"]
+  status: proposed
+
+- id: model-read-cov58c-mark-of-siphoning
+  title: "Mark of Siphoning I / II's leech while the boss is Marked (assumptions.SIPHONING, MECHC28)"
+  kind: model
+  model: recovery
+  stats: ["marked_enemies_leech_physical_attack_damage_taken_as_mana_to_you_permyriad",
+          "marked_enemies_leech_physical_attack_damage_taken_as_life_to_you_permyriad"]
+  skill: [Mark of Siphoning, Mark of Siphoning II]
+  confidence: MEDIUM
+  notes: >-
+    800 permyriad at every level (SupportMarkOfSiphoningPlayer: Mana; PlayerTwo: Mana and Life; game 26650308) =
+    SIPHONING_PERCENT 8: siphoning_model gives "Leech 8% of Physical Attack Damage as Mana / Life" x the boss's Marked
+    share (mark_model's). A link only.
+  sources: ["builder/search/assumptions.py (SIPHONING, SIPHONING_PERCENT, siphoning_model)"]
+  status: proposed
+
+- id: model-read-cov58c-killing-palm-power-charges
+  title: "Killing Palm's Power Charge a kill (Normal / Magic) read from its description at the adds' kills (conditions, MECHC27)"
+  kind: model
+  model: charges
+  stats: ["skill_grant_X_power_charges_against_normal_and_magic_monsters"]
+  skill: [Killing Palm]
+  confidence: MEDIUM
+  notes: >-
+    1 at every level (KillingPalmPlayer, game 26650308). conditions' charge resolver reads "Each enemy killed by this
+    strike grants a Power Charge" at the boss preset's add kills (0 on a lone boss), the adds taken as Normal (RESEARCH26
+    R26-55, ASSUMED MEDIUM), so 1 a kill = this stat. The Rare (2) / Unique (3) stats stay open (see the file's head). A
+    link only.
+  sources: ["builder/search/conditions.py (the description-event charge reader, MECHC27)"]
+  status: proposed
+
+- id: gem-cov58c-delays-keep-the-rate
+  title: "A fixed delay before a hit keeps the hits a second over a fight (Pounce / Cross Slash's shockwave, Decompose's explosion, Rampage's aftershock)"
+  kind: gem_stat
+  match: '^(wolf_pounce_mark_shockwave_delay_ms|explosion_delay_ms|aftershock_delay_ms)$'
+  replace: []
+  skill: [Pounce, Cross Slash, Decompose, Rampage]
+  confidence: theory
+  notes: >-
+    The manager's ruling (25 Nov 13:23, item 3: settled, no change; MECHB63 / MECHB64 with RESEARCH59 R59-12,
+    delayed-hit-cancel-r59.md, MEDIUM-LOW): nothing the player does cancels a queued delayed hit (no game text cancels
+    either; past failures were bugs GGG fixed: 0.2.0 Shattering Palm, 0.5.5 Bitter Dead, 0.3.0 fungus), so a fixed delay
+    (150 ms shockwave, 400 ms explosion, Rampage's aftershock) shifts each hit later and keeps the rate; only the boss
+    leaving the area in the delay or a phase immunity loses one (under ~5% for Decompose at the cloud's edge, not
+    modelled). No model needed; decided, not open. Other carriers of explosion_delay_ms / aftershock_delay_ms weren't
+    researched and stay open.
+  sources: ["scratch/manager/research/delayed-hit-cancel-r59.md (R59-12)", "the manager's 13:23 note, item 3"]
+  status: proposed
