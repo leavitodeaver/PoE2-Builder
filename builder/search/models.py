@@ -12831,6 +12831,64 @@ def flame_breath_empower_model(main: Skill | None, cycle: float, gains: float, g
                  f"Without a Power Charge source: +0%; with this build's: +{gain * share:.1f}%.")}]
 
 
+# Triskelion Cascade (GEM44; GEM's ranked list, the manager's 16:12 order; the FRAME: geometry waits on RESEARCH61
+# R61-10). The game (PoB other.lua TriskelionCascadePlayer = 26650308's numbers; the description): "Empower the next
+# Cascadable Spell you cast. The Empowered Spell becomes centred on your location, and Cascades to six areas around you
+# in a Triskelion pattern"; per level (1 / 20) triskelion_cascade_next_skill_damage_+%_final -30 / -11 and
+# _area_of_effect_+%_final -40 / -31 (the Empowered spell deals LESS per area), number_of_triskelion_cascades_for_next_
+# skill 2, a 1 s cooldown plus triskelion_cascade_cooldown_%_of_cast_time 800 / 300 ("{0}% of Empowered Skill's cast
+# time is added to this Skill's cooldown"), a 0.45 s cast of its own, Ward cost. PoB maps none of it (a Buff with no
+# effect on any number). Against one boss the Empowered cast pays only if n of its 1 + 6 areas land on the boss:
+# DPS x (1 + e / c x ((1 + d) x n - 1)), e = Empowered casts a second = min(the press rate, 1 / (cooldown + cd% x the
+# main skill's cast time) x Cooldown Recovery, c), c = the main skill's casts a second, d = the damage stat. Its own 0.45 s
+# cast is the press model's time cost (not here). n: R61-10 (where the areas sit, how big, whether the cast always lands
+# centred on you; melee vs cast range). Until then NOT HOOKED into the score: the note gives rows n = 0 (cast range: the
+# Empowered cast leaves the boss), 1 (the centre area on a boss in melee range), 3 and 7. The whole group decides where
+# the spell lands (Astral Projection, triggers, totems: not Empowered by your cast, or centred elsewhere): named.
+TRISKELION = "Triskelion Cascade"
+TRISKELION_DAMAGE, TRISKELION_AREA = "triskelion_cascade_next_skill_damage_+%_final", "triskelion_cascade_next_skill_area_of_effect_+%_final"
+TRISKELION_CD_PCT, TRISKELION_BASE_CD = "triskelion_cascade_cooldown_%_of_cast_time", 1.0
+TRISKELION_ROWS = (0, 1, 3, 7)
+TRISKELION_ENTRY = "model-gem44-triskelion-cascade"
+
+
+def triskelion_cascade_factor(casts: float, cast_time: float, presses: float, damage_pct: float, cd_pct: float,
+                              areas: float, cooldown_recovery: float = 1.0) -> tuple[float, float]:
+    """(the DPS factor, Empowered casts a second) for a Cascadable main skill cast `casts` a second (`cast_time` s each)
+    with Triskelion Cascade pressed `presses` a second, `areas` of the Empowered cast's areas on the boss."""
+    if casts <= 0 or presses <= 0:
+        return 1.0, 0.0
+    cooldown = (TRISKELION_BASE_CD + cd_pct / 100 * max(cast_time, 0.0)) / max(cooldown_recovery, 1e-9)
+    empowered = min(presses, 1 / cooldown if cooldown > 0 else presses, casts)
+    return 1 + empowered / casts * ((1 + damage_pct / 100) * areas - 1), empowered
+
+
+def triskelion_cascade_model(main: Skill | None, main_types: set[str], casts: float, cast_time: float,
+                             presses: float, level_stats: dict, cooldown_recovery: float = 1.0,
+                             areas: float | None = None, forbidden: set[str] = frozenset()
+                             ) -> tuple[list[dict], list[dict]]:
+    """Triskelion Cascade on a Cascadable main Spell (see above). `areas` None: a note with rows only (R61-10 pending)."""
+    if main is None or "Cascadable" not in main_types or TRISKELION_ENTRY in forbidden or presses <= 0:
+        return [], []
+    damage, area = number(level_stats.get(TRISKELION_DAMAGE)), number(level_stats.get(TRISKELION_AREA))
+    cd_pct = number(level_stats.get(TRISKELION_CD_PCT))
+    rows = {n: triskelion_cascade_factor(casts, cast_time, presses, damage, cd_pct, n, cooldown_recovery)
+            for n in TRISKELION_ROWS}
+    empowered = rows[1][1]
+    row_text = "; ".join(f"{n} area(s) on the boss x{f:.3f}" for n, (f, _) in rows.items())
+    basis = (f"{main.name} Empowered {empowered:.2f} times a second ({presses:.2f} presses, cooldown {TRISKELION_BASE_CD:g} s "
+             f"+ {cd_pct:g}% of its {cast_time:.2f} s cast; {casts:.2f} casts a second): each Empowered cast deals "
+             f"{damage:+g}% damage ({area:+g}% area) in up to 7 areas centred on you. How many land on the boss is "
+             "RESEARCH61 R61-10's (pending): rows " + row_text + ". Not in the score until then")
+    if areas is None:
+        return [], [{"label": f"{TRISKELION} on {main.name}: Empowered casts (rows only, R61-10 pending)*",
+                     "value": "x1 (not scored)", "confidence": "LOW", "entry": TRISKELION_ENTRY, "basis": basis}]
+    factor = triskelion_cascade_factor(casts, cast_time, presses, damage, cd_pct, areas, cooldown_recovery)[0]
+    mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=TRISKELION_ENTRY)] if factor != 1 else []
+    return mods, [{"label": f"{TRISKELION} on {main.name}: {areas:g} Empowered area(s) on the boss*",
+                   "value": f"x{factor:.3f}", "confidence": "LOW", "entry": TRISKELION_ENTRY, "basis": basis}]
+
+
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
 # "Hit damage is taken from Mana before Life if your current Mana is higher than your current Life" (poe2db): counted as
 # 100% Mind over Matter while the build's unreserved Mana is above its Life, both pools full (the manager's ruling,
