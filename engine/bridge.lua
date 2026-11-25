@@ -1475,6 +1475,85 @@ local function isPlayerStore(store)
 	end
 	return false
 end
+-- (GEM40; the manager's ruling 24 Nov 14:09 on GEM39's proposal) PoB rounds each mod layer's product of "DPS" MORE
+-- mods to two decimals (ModDB / ModList MoreInternal: round(product, 2), per layer; PoB PR #4641, 2022, from PoE1
+-- tooltip screenshots of one flask, "as done ingame"; unsettled for PoE2 damage: RESEARCH R59). Our models' "DPS" MORE
+-- lines (source "Assumption...") are computed factors, so rounding them moves a build by up to 0.005 / the layer's
+-- product (GEM39's probe POE2T7330: Hailstorm Rounds' x0.22494 read as 0.22, +2.24% when exact; Shield Wall's x0.45642
+-- as 0.46, -0.78%). So, for "DPS" only, each layer's PoB-own mods keep PoB's rounding (or its highPrecisionMods floor)
+-- and ours multiply in exact: round(own, 2) x ours. Other names go to PoB's own MoreInternal untouched.
+local moreRoundInstalled = false
+local function installExactDpsMore()
+	if moreRoundInstalled or not common or not common.classes then
+		return
+	end
+	local function layer(isDB, self, context, cfg, flags, keywordFlags, source, modName)
+		local own, ours, ownPrecision, globalLimits = 1, 1, nil, nil
+		local function take(mod)
+			if mod.type == "MORE" and AND64(flags, mod.flags) == mod.flags and MatchKeywordFlags(keywordFlags, mod.keywordFlags)
+					and (not source or mod.source:match("[^:]+") == source) then
+				local value
+				if mod[1] then
+					if isDB then
+						globalLimits = globalLimits or { }
+						value = context:EvalMod(mod, cfg, globalLimits) or 0
+					else
+						value = context:EvalMod(mod, cfg) or 0
+					end
+				else
+					value = mod.value or 0
+				end
+				if type(mod.source) == "string" and mod.source:sub(1, 10) == "Assumption" then
+					ours = ours * (1 + value / 100)
+				else
+					own = own * (1 + value / 100)
+					local precision = data.highPrecisionMods[mod.name] and data.highPrecisionMods[mod.name][mod.type]
+					if precision then
+						ownPrecision = ownPrecision and math.max(ownPrecision, precision) or precision
+					end
+				end
+			end
+		end
+		if isDB then
+			local modList = self.mods[modName]
+			for i = 1, modList and #modList or 0 do
+				take(modList[i])
+			end
+		else
+			for i = 1, #self do
+				if self[i].name == modName then
+					take(self[i])
+				end
+			end
+		end
+		local result
+		if ownPrecision then
+			local power = 10 ^ ownPrecision
+			result = math.floor(own * power) / power
+		else
+			result = round(own, 2)
+		end
+		result = result * ours
+		if self.parent then
+			result = result * self.parent:MoreInternal(context, cfg, flags, keywordFlags, source, modName)
+		end
+		return result
+	end
+	for _, className in ipairs({ "ModList", "ModDB" }) do
+		local class = common.classes[className]
+		if class and class.MoreInternal then
+			local original = class.MoreInternal
+			local isDB = className == "ModDB"
+			class.MoreInternal = function(self, context, cfg, flags, keywordFlags, source, modName)
+				if modName ~= "DPS" then
+					return original(self, context, cfg, flags, keywordFlags, source, modName)
+				end
+				return layer(isDB, self, context, cfg, flags, keywordFlags, source, modName)
+			end
+		end
+	end
+	moreRoundInstalled = true
+end
 local critRerollInstalled = false
 local function installNoCritReroll()
 	if critRerollInstalled or not common or not common.classes then
@@ -2826,6 +2905,7 @@ local function installDerived()
 	installBossSlow()
 	installNoCritReroll()
 	installBaseChanceSwap()
+	installExactDpsMore()  -- (GEM40: our DPS MORE lines exact, PoB's own rounded)
 	installGrantedLevel()
 	installNoReservation()  -- (MECHC52: the skill amulets' granted skills reserve nothing)
 	installConcoctionsNotUnarmed()
