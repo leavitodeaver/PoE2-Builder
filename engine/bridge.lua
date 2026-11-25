@@ -7045,7 +7045,13 @@ function bridge.sourceLines()
 		-- counted full-time): PoB applies such an item's mods only while its slot is active
 		local flaskOff = (slotName:match("^Flask") or slotName:match("^Charm")) and not slot.active
 		local toMinions = talisman and slotName == "Amulet" and item and item.type == "Amulet"
-		if item and not slot.inactive and not inHiddenRing(slot) and not flaskOff and not toMinions then
+		-- (SEARCH40, from MECHC59's question on POE2T7139) the weapon set the main skill isn't using gives no lines either:
+		-- PoB's own calculation skips its items and the jewels in them (CalcSetup 1255: slot.weaponSet ~= env.weaponSet,
+		-- env.weaponSet the main group's set; POE2T7513: a "+100 to Strength" swap wand left the Oracle's Str at 258), so
+		-- before, a model reading such a line counted it on the build (probe POE2T7507: the Oracle's swap wand's lines listed
+		-- on set 1). A group on the other set is calculated in PoB's own weaponSetEnvs; its lines aren't the main skill's
+		local offSet = slot.weaponSet and env and env.weaponSet and slot.weaponSet ~= env.weaponSet
+		if item and not slot.inactive and not inHiddenRing(slot) and not flaskOff and not toMinions and not offSet then
 			for _, kind in ipairs({ "enchantModLines", "runeModLines", "implicitModLines", "explicitModLines" }) do
 				for _, modLine in ipairs(item[kind] or { }) do
 				-- (COV42; MECHB37 item 2) only the equipped variant's lines: a unique's text holds every variant's lines
