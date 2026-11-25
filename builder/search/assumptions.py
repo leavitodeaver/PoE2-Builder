@@ -12540,30 +12540,53 @@ class Assumptions:
         """(GEM43, R60-11; models.totem_slam_model) The boss's share of the fight on the build's Jagged Ground for a
         Shockwave Totem main skill: each other enabled group's Earthquake / Stampede / Furious Slam at the search's
         chosen press rate (models.press_choices; none chosen: 0 for it, said), conditions.jagged_ground at that rate,
-        the sources combined as independent. The Jagged Ground supports on side skills and a side Furious Slam's Rage
-        aren't read here (an UNDERCOUNT, said)."""
+        the sources combined as independent. (GEM44, GEM43's follow-up) Also any side Slam supported by Jagged Ground I
+        (a patch per Endurance Charge consumed, from the build's own charge gains) or II (a patch per Aftershock, the
+        group's chance), and a side Furious Slam's Rage (conditions.rage_held on the build's lines), as
+        jagged_ground_share reads them for a main skill; the side skill's press rate as its uses."""
         sources = {"Earthquake", "Stampede", "Furious Slam"}
+        supports = {"Jagged Ground I", "Jagged Ground II"}
         choices = models.press_choices(self.build)
         texts = [line["text"] for line in self.build.call("sourceLines")["lines"]]
         off, parts, missed = 1.0, [], []
+        base: dict | None = None
         for g in self.build.groups():
             if not g.get("enabled", True) or g.get("index") == main.group:
                 continue
             gems = {x["name"] for x in g.get("gems") or [] if x.get("enabled", True)}
-            for name in sorted(gems & sources):
+            actives = {x["name"] for x in g.get("gems") or [] if x.get("enabled", True) and not x.get("support")}
+            for name in sorted(actives):
+                types = set(skill_types_of(self.build.ctx, name))  # (SEARCH40: skill_types; the manager, TRAIN 149)
+                fed = gems & supports and "Slam" in types and "CannotCreateJaggedGround" not in types
+                if name not in sources and not fed:
+                    continue
                 rate = number(choices.get(name))
                 if rate <= 0:
                     missed.append(f"{name} (no press rate chosen: 0)")
                     continue
-                types = set(skill_types_of(self.build.ctx, name))  # (SEARCH40: skill_types; the manager, TRAIN 149: GEM43's read)
-                up, how = conditions_mod.jagged_ground(name, types, gems, {"Speed": rate}, texts=texts)
+                gains = aftershock = rage = 0.0
+                if fed or name == "Furious Slam":
+                    if base is None:  # (the build's own charge / Rage sources, as jagged_ground_share's)
+                        base = self.build.call("stats", fields=models.MODEL_FIELDS + [
+                            "enemySkillTime", "EvadeChance", "EffectiveBlockChance"])
+                    # (the totem's hits aren't yours: "on Hit" gains read this side skill's own uses only, the
+                    # player's other hits not counted, a lower reading)
+                    own = {**base, "Speed": rate, "_main_types": types, "_main_skill": name}
+                    if "Jagged Ground I" in gems:
+                        gains = sum(r[0] for t in texts
+                                    if (r := conditions_mod._charge_rate(t, "Endurance", dict(own))) is not None)
+                    if "Jagged Ground II" in gems:
+                        aftershock = models.aftershock_chance(texts, g.get("gems") or [], True, True,
+                                                              any("Shapeshift" in t for t in types))[0]
+                    if name == "Furious Slam":
+                        rage = conditions_mod.rage_held(texts, dict(own))[0]
+                up, how = conditions_mod.jagged_ground(name, types, gems, {"Speed": rate}, gains, aftershock, rage,
+                                                       texts=texts)
                 if up > 0:
                     off *= 1 - up
                     parts.append(f"{name} pressed {rate:.2f}/s: {how}")
                 else:
                     missed.append(f"{name}: {how}")
-            if gems & {"Jagged Ground I", "Jagged Ground II"} and not gems & sources:
-                missed.append("a Jagged Ground support on a side skill (not read here: an UNDERCOUNT)")
         if not parts:
             return 0.0, "no Jagged Ground source in the build" + (f" ({'; '.join(missed)})" if missed else "")
         return 1.0 - off, "; ".join(parts + missed)

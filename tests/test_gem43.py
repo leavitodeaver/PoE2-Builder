@@ -160,3 +160,12 @@ def test_a_pressed_side_stampede_lays_the_ground_the_totems_eruption_needs(engin
     setattr(build.objective, models.PRESS_CHOICES, {"Stampede": 0.05})
     share, how = search.assumptions.totem_jagged_share(main)
     assert share == pytest.approx(0.3, abs=1e-6) and "Stampede pressed 0.05/s" in how  # 0.05/s x 6 s patches
+    # (GEM44, GEM43's follow-up) a side Slam with Jagged Ground II lays a patch per Aftershock at its press rate
+    build.call("addSkillGroup", text="Rolling Slam 20/0 1\nJagged Ground II 20/0 1\nAftershock II 20/0 1")
+    setattr(build.objective, models.PRESS_CHOICES, {"Rolling Slam": 0.1})
+    share, how = search.assumptions.totem_jagged_share(main)
+    texts = [line["text"] for line in build.call("sourceLines")["lines"]]
+    chance = models.aftershock_chance(texts, [{"name": "Aftershock II"}], True, True, False)[0]
+    assert chance >= 35.0
+    assert share == pytest.approx(min(1.0, 0.1 * min(1.0, chance / 100) * 4.0), rel=1e-3)  # 4 s patches
+    assert "Rolling Slam pressed 0.10/s" in how and "Jagged Ground II" in how and "Stampede (no press rate" in how
