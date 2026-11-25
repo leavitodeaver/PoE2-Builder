@@ -21568,6 +21568,39 @@ CASCADE_PLAY = "Target the boss's centre with the Spell Cascade spell so its sid
 # ring as its outer line alone (the lower). The main area's own hit: PoB's (at a boss distance past its reach the main
 # ring misses too: the distance is conditions' / inner.choose_distance's, routed).
 CASCADE_NOVA_STEPS = 72  # (the axis and distance grid for the share)
+# (MECHB65, THE USER 25 Nov ~14:05: "the astral projection support lets you cast spells normally at your location
+# anywhere, make sure to take that into account") A Nova that LANDS AT THE TARGET takes the targeted rule above (the
+# boss on the target, every side area overlapping it), not the about-you share: Astral Projection in its group
+# (SupportAstralProjectionPlayer's nova_skills_cast_at_target_location: "Supports Nova Skills, causing those Skills to
+# take place at the targeted location when used instead of around you"; read from the support's stat, never its name),
+# the lines "Nova Spells Cast at the targeted location instead of around you" (nova_spells_cast_at_target_location) and
+# "Discharge and Voltaxic Burst are Cast at the targeted location instead of around you" (for those two), and Ice Nova
+# with a Frostbolt in the build ("Casting Ice Nova targeting near a Frostbolt Projectile will cause it to originate from
+# the Frostbolt instead of you": the play casts it at a Frostbolt on the boss, MEDIUM-LOW). Where a TRIGGERED Nova with
+# one lands (Cast on Critical's: the crit's target or the cursor) is UNVERIFIED (RESEARCH61 R61-6): the boss in the
+# headline, the about-you share a row.
+NOVA_AT_TARGET_STAT = "nova_skills_cast_at_target_location"
+NOVA_AT_TARGET_LINE = re.compile(r"^Nova Spells Cast at the targeted location instead of around you$", re.I)
+NOVA_AT_TARGET_NAMED = re.compile(r"^Discharge and Voltaxic Burst are Cast at the targeted location instead of around "
+                                  r"you$", re.I)
+NOVA_AT_TARGET_SKILLS = ("Discharge", "Voltaxic Burst")
+
+
+def nova_lands_at_target(main: Skill | None, support_stats: dict, texts: list[str], names: set[str],
+                         spell: bool = True) -> str:
+    """Why the main Nova skill lands at the target instead of around you (above), or "" when it lands around you."""
+    if main is None:
+        return ""
+    if number(support_stats.get(NOVA_AT_TARGET_STAT)) > 0:
+        return "a support in its group makes it take place at the targeted location (nova_skills_cast_at_target_location)"
+    lines = [x.strip() for x in texts]
+    if spell and any(NOVA_AT_TARGET_LINE.match(x) for x in lines):
+        return "'Nova Spells Cast at the targeted location instead of around you'"
+    if main.name in NOVA_AT_TARGET_SKILLS and any(NOVA_AT_TARGET_NAMED.match(x) for x in lines):
+        return "'Discharge and Voltaxic Burst are Cast at the targeted location'"
+    if main.name == "Ice Nova" and "Frostbolt" in names:
+        return "cast at a Frostbolt on the boss, it originates from the Frostbolt (MEDIUM-LOW)"
+    return ""
 
 
 def nova_side_share(radius: float, inner: float, boss_radius: float, side_scale: float, spacing: float) -> float:
@@ -21588,10 +21621,11 @@ def nova_side_share(radius: float, inner: float, boss_radius: float, side_scale:
     return hits / total if total else 0.0
 
 
-def spell_cascade_model(main: Skill | None, stats: dict, boss_radius: float, boss_how: str, nova: bool = False
-                        ) -> tuple[list[dict], list[dict]]:
+def spell_cascade_model(main: Skill | None, stats: dict, boss_radius: float, boss_how: str, nova: bool = False,
+                        at_target: str = "") -> tuple[list[dict], list[dict]]:
     """Spell Cascade's side areas as extra hits on a boss at the target (see above); `nova`: the main skill's area is
-    centred on you (PoB SkillType Nova: the side areas on a random axis through you, MECHB65)."""
+    centred on you (PoB SkillType Nova: the side areas on a random axis through you, MECHB65); `at_target`: why that
+    Nova lands at the target instead (nova_lands_at_target; then the targeted rule, a triggered one's about-you a row)."""
     if main is None:
         return [], []
     per_side = number(main.support_stats.get(CASCADES_PER_SIDE))
@@ -21601,6 +21635,15 @@ def spell_cascade_model(main: Skill | None, stats: dict, boss_radius: float, bos
     scale, part_notes = support_part_scale(main, "cascade")
     side_scale = math.sqrt(number(scale.get("Area of Effect")) or 0.8)
     side = radius * side_scale
+    about_row = ""
+    if nova and at_target:  # (the user, 14:05: Astral Projection; the targeted rule below, a triggered one's row here)
+        inner = number(stats.get("AreaOfEffectRadiusSecondary")) / 10
+        inner = inner if 0 < inner < radius else 0.0
+        share = sum(nova_side_share(radius, inner, boss_radius, side_scale, k * radius) for k in range(1, int(per_side) + 1))
+        about_row = (f"; it's a Nova landing at the target ({at_target})"
+                     + (f"; where a triggered one lands is UNVERIFIED (RESEARCH61 R61-6): around you, its side areas "
+                        f"x{1 + 2 * share:.2f} (the row)" if main.triggered else ""))
+        nova = False
     if nova:
         inner = number(stats.get("AreaOfEffectRadiusSecondary")) / 10
         inner = inner if 0 < inner < radius else 0.0
@@ -21632,7 +21675,7 @@ def spell_cascade_model(main: Skill | None, stats: dict, boss_radius: float, bos
                       f"{radius:.2f} m from the target: they cover the boss's centre to within {reach:.2f} m, against "
                       f"{boss_how}: {'all ' + format(1 + 2 * per_side, 'g') + ' areas hit' if hits > 1 else 'only the centre area hits'}"
                       " (MEDIUM: spacing from the user's play observation and Kieren_GGG's PoE1 post; PoB counts the "
-                      "centre only). Row: areas edge to edge, x1"),
+                      "centre only). Row: areas edge to edge, x1" + about_row),
             "play": (f"{CASCADE_PLAY}: with it x{hits:g}; areas edge to edge (the lower reading) x1" if hits > 1 else
                      f"The side areas land too far out for this boss (spell area {radius:.1f} m): x1"),
             "confidence": "MEDIUM"}

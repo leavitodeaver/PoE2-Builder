@@ -4928,8 +4928,7 @@ class Assumptions:
         early_mods, early_notes = models.hazard_early_model(found, stats, forbidden, self.hitters(found))  # (MECH-B)
         hand_mods, hand_notes = hand_mods + early_mods, hand_notes + early_notes
         cascade_mods, cascade_notes = models.spell_cascade_model(  # (MECHB36; MECHB65: a Nova's side areas about you)
-            main, stats, *bosses.hit_radius(stats),
-            nova="Nova" in set(((build.ctx.gems.get(main.name) or {}) if main is not None else {}).get("skillTypes") or []))
+            main, stats, *bosses.hit_radius(stats), **self.cascade_nova(found, main, texts))
         hand_mods, hand_notes = hand_mods + cascade_mods, hand_notes + cascade_notes
         hit_cut(build, cascade_mods, main.name if main else None)  # (MECHB54: its hits a use, models.with_hits_per_use)
         if main is not None and main.spell:  # (MECHB58: Spell Echo's Echoes as hits; Mystic Avalanche's side areas)
@@ -11624,6 +11623,18 @@ class Assumptions:
                 limit = self.stat_limit(curse.name, "maximum_curse_zones_allowed", float(models.CURSE_AREAS), texts)
                 out[curse.name] = (limit, models.CURSE_AREAS_WHY)
         return out
+
+    def cascade_nova(self, found: list, main, texts: list[str]) -> dict:
+        """(MECHB65) spell_cascade_model's `nova` (the main skill's PoB type Nova) and `at_target` (why it lands at the
+        target instead: models.nova_lands_at_target, its group's support stat read through activeSkills)."""
+        types = set(((self.build.ctx.gems.get(main.name) or {}) if main is not None else {}).get("skillTypes") or [])
+        if main is None or "Nova" not in types or not number(main.support_stats.get(models.CASCADES_PER_SIDE)):
+            return {"nova": False}
+        row = next((x for x in self.build.call("activeSkills", supportStats=[models.NOVA_AT_TARGET_STAT])["skills"]
+                    if x["name"] == main.name and x.get("group") == main.group), {})
+        why = models.nova_lands_at_target(main, row.get("supportStats") or {}, texts, {s.name for s in found},
+                                          spell=bool(main.spell))
+        return {"nova": True, "at_target": why}
 
     def fissure_overgrown(self, found: list, main, texts: list[str]) -> tuple[float, str] | None:
         """(MECHB65) The share of a vine Fissure skill's plants Overgrown (models.overgrown_share: the build's

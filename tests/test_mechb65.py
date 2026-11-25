@@ -190,3 +190,24 @@ def test_a_nova_spells_cascades_land_about_you_and_reach_the_boss_part_of_the_ti
     assert line < share < disc < 1.0
     mods, _ = models.spell_cascade_model(cage, stats, 0.3, "a 0.3 m boss")  # (targeted: the boss on the target)
     assert mods[0]["value"] == pytest.approx(200.0)
+
+
+def test_a_nova_landing_at_the_target_keeps_the_targeted_cascade_rule():
+    """THE USER, 25 Nov ~14:05 (Astral Projection): a Nova that lands at the target (its group's support stat, the
+    item / passive line, Ice Nova on a Frostbolt) takes the targeted rule (x3); a triggered one shows the about-you
+    reading as a row (RESEARCH61 R61-6)."""
+    stats = {"AreaOfEffectRadius": 13.0, "AreaOfEffectRadiusSecondary": 7.2}
+    cage = models.Skill("Bone Cage", group=2, spell=True, triggered=True, support_stats={models.CASCADES_PER_SIDE: 1})
+    why = models.nova_lands_at_target(cage, {models.NOVA_AT_TARGET_STAT: 1}, [], set())
+    assert "targeted location" in why
+    mods, notes = models.spell_cascade_model(cage, stats, 0.3, "a 0.3 m boss", nova=True, at_target=why)
+    assert mods[0]["value"] == pytest.approx(200.0)
+    assert "R61-6" in notes[0]["basis"] and "x1.8" in notes[0]["basis"]
+    assert models.nova_lands_at_target(cage, {}, [], set()) == ""
+    line = ["Nova Spells Cast at the targeted location instead of around you"]
+    assert models.nova_lands_at_target(cage, {}, line, set())
+    nova = models.Skill("Ice Nova", group=1, spell=True)
+    assert models.nova_lands_at_target(nova, {}, [], {"Frostbolt"}) and not models.nova_lands_at_target(nova, {}, [], set())
+    burst = models.Skill("Voltaxic Burst", group=1, spell=True)
+    named = ["Discharge and Voltaxic Burst are Cast at the targeted location instead of around you"]
+    assert models.nova_lands_at_target(burst, {}, named, set()) and not models.nova_lands_at_target(cage, {}, named, set())
