@@ -148,3 +148,9 @@ def test_temporary_minion_limit_lines_raise_skyfall_and_manifest_rune():
     assert notes[0]["value"] == "13.00 of 13" and "R59-11" in notes[0]["basis"]
     scale, notes = models.skyfall_minion_model(1.0, "test", 14.0, 20.0, 1.0, None, "Limit 12 +2 (test)")
     assert "at most 14" in notes[0]["basis"] and "Limit 12 +2" in notes[0]["basis"]
+
+
+def test_rampage_note_quotes_the_games_own_number():
+    ramp = models.Skill("Rampage", 1, attack=True, melee=True)
+    _, notes = models.bear_stance_model(ramp, 2.0, rate={"speed": 2.0, "speedMod": 1.0, "TotalDPS": 2000.0}, channel=3.65)
+    assert "'+0.5 seconds to base attack time if not standing'" in notes[0]["basis"]

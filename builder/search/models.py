@@ -25699,6 +25699,7 @@ def bear_stance_model(main: Skill | None, speed: float, forbidden: set[str] = fr
     added = BEAR_DEFAULT_STANCE.get(main.name)
     if added is None:
         return [], []
+    stated = added  # (the game's own number, quoted in the notes; `added` may become a slam's share of it: R59-5)
     m = number((rate or {}).get("speedMod")) or 0.0
     now = number((rate or {}).get("speed"))
     if rate is None or m <= 0 or now <= 0:
@@ -25710,7 +25711,7 @@ def bear_stance_model(main: Skill | None, speed: float, forbidden: set[str] = fr
         return [raw_mod("Speed", "BASE", added, main.name, tag=BEAR_STANCE_ENTRY)], [{
             "label": f"{main.name}: +{added:g} s base attack time from the default stance*", "value": f"+{added:g} s",
             "confidence": "MEDIUM", "entry": BEAR_STANCE_ENTRY,
-            "basis": (f"the game's '+{added:g} seconds to base attack time if not standing' "
+            "basis": (f"the game's '+{stated:g} seconds to base attack time if not standing' "
                       "(bear_skills_additional_base_attack_time_when_performing_from_default_stance), which PoB doesn't "
                       f"read{row}; every use taken from the default stance (no rotation read)")}]
     base_prev = sum(number(x.get("value")) for x in prev if x.get("name") == "Speed" and x.get("type") == "BASE")
@@ -25770,7 +25771,7 @@ def bear_stance_model(main: Skill | None, speed: float, forbidden: set[str] = fr
     return best[3], [{
         "label": f"{main.name}: the bear's stance ({best[0]})*", "value": f"x{best[2] / base:.3f}" if base > 0 else "-",
         "confidence": "MEDIUM-LOW (R59-5: once a channel)" if channel > 0 else "MEDIUM", "entry": BEAR_STANCE_ENTRY,
-        "basis": (f"the game's '+{added:g} seconds to base attack time if not standing' "
+        "basis": (f"the game's '+{stated:g} seconds to base attack time if not standing' "
                   "(bear_skills_additional_base_attack_time_when_performing_from_default_stance; PoB doesn't read it). "
                   "Maul, Ferocious Roar and Walking Calamity leave the bear standing; Slams, Rampage, dodge rolls and "
                   "walking drop it (RESEARCH41 R41-3, HIGH). PoB's one use from standing "
