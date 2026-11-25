@@ -170,6 +170,9 @@ def probe_env(base: dict[str, str], wanted: dict[str, str], slot_set: str) -> di
 
 MEMORY_STOP_MB = int(os.environ.get("POE2_PROBE_MEMORY_STOP_MB") or 2048)  # a run past this is stopped and booked
 TEST_MINUTES_MAX = 10  # a test run the lane expects to take longer goes to the queue
+SERVER_SLOWDOWN = 1.6  # (the manager, 25 Nov 11:20) a test run on the server takes ~1.5x a booking's time (the 25 % CPU
+#   cap, two runs at once: PERF22's proof 5.5 vs 3.6 min): JEWEL4's 7.7-min set (test_engine_items 5.2 min of it) ran past
+#   its 10 minutes and was stopped, its 10 minutes lost; the size check below scales the serial times by this
 SUITE_FILES = ("test_engine_models.py",)  # the train's part 1 alone; the halves / part 3 are refused by size below
 REFUSED_LABELS = ("gate4", "gate ", "train", "calibrat", "whole suite", "full suite", "part 3", "part 1/", "part 2/", "--part")
 PYTEST_VALUE_OPTIONS = {"-p", "-k", "-m", "-c", "-o", "-n", "--tb", "--junitxml", "--basetemp", "--rootdir", "--durations",
@@ -236,9 +239,9 @@ def qualifies(argv: list[str], minutes: float, label: str, cwd: str) -> str | No
             return f"{Path(path).name} is the train's part 1 (12 min alone): it stays in the queue"
     known = [_serial_seconds(t, cwd) for t in targets if "::" not in t]
     total = sum(k for k in known if k)
-    if total > TEST_MINUTES_MAX * 60:
-        return (f"its files took {total / 60:.0f} min in the last serial suite: more than {TEST_MINUTES_MAX} min, "
-                "so it stays in the queue")
+    if total * SERVER_SLOWDOWN > TEST_MINUTES_MAX * 60:
+        return (f"its files took {total / 60:.1f} min in the last serial suite, about {total * SERVER_SLOWDOWN / 60:.0f} min on "
+                f"the server (x{SERVER_SLOWDOWN}): more than {TEST_MINUTES_MAX} min, so it stays in the queue")
     return None
 
 
