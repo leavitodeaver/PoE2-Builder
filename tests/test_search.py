@@ -2639,7 +2639,9 @@ def test_a_chill_under_30_percent_is_ignored():
     # only the critical hits Chill: 25% of hits, 2 hits/s, 8 s
     crit = {**base, "ColdHitAverage": 100.0, "ColdCritAverage": 400.0, "CritChance": 25}
     assert abs(c.chill_share(crit) - (1 - 0.75 ** 16)) < 1e-9
-    assert abs(c.chill_share({**crit, "Speed": 0.05}) - (1 - 0.75 ** 0.4)) < 1e-9
+    # (MECH110: evenly spaced hits, periodic_absent: 0.4 hits a duration, each 25%: Chilled 0.4 x 25% = 10% of the
+    # fight, not 1 - 0.75 ** 0.4)
+    assert abs(c.chill_share({**crit, "Speed": 0.05}) - 0.4 * 0.25) < 1e-9
     # PoB says it can't Chill (Icestorm: cold_damage_cannot_chill, mapped by the bridge): none
     assert c.chill_share({**base, "ColdHitAverage": 900.0, "ChillChanceOnHit": 0}) == 0.0
     # no cold hit but PoB Chills (another type can Chill): every type's hit, an upper bound

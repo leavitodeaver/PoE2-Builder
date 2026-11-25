@@ -106,3 +106,31 @@ def test_herald_of_plague_spreads_poison_only_from_killed_adds_and_up_to_the_lim
     assert models.added_total(mods) == pytest.approx(0.0)
     # no Herald of Plague: nothing at all
     assert models.herald_of_plague_model([models.Skill("Spark", 1)], {**base, "AddKillsPerSecond": 0.2}) == ([], [])
+
+
+# Withered from another group (MECH109's gap) and chill_share's evenly spaced hits ------------------------------------
+
+def test_another_groups_wither_and_withering_touch_add_withered_at_their_own_hits():
+    from builder.search import conditions
+    own = {"active_skill_withered_base_duration_ms": 4000, "apply_x_wither_on_hit": 1}
+    touch = {"support_withered_base_duration_ms": 4000,
+             "withered_on_hit_chance_%_for_every_100%_target_ailment_threshold_dealt_as_chaos_damage": 175}
+    rows = [{"index": 3, "name": "Chaos Bolt", "hits": 0.5, "chaos": 0.0},
+            {"index": 4, "name": "Spark", "hits": 0.5, "chaos": 50000.0}]
+    stats = {"Speed": 1.0, "EnemyAilmentThreshold": 100000.0, "_side_rows": rows,
+             "_wither_side": [(3, "Chaos Bolt", own, {}), (4, "Spark", {}, touch)]}
+    # Chaos Bolt: 1 a hit x 0.5 hits/s x 4 s = 2; Withering Touch on Spark: 175% x 0.5 x 0.5 hits/s x 4 s = 1.75
+    value, basis = conditions._withered_stacks([], stats)[:2]
+    assert value == 3.0 and "Chaos Bolt (another group)" in basis and "Withering Touch on Spark" in basis
+    # a group with no hits on the boss adds none
+    value, basis = conditions._withered_stacks([], {**stats, "_side_rows": []})[:2]
+    assert value == 0.0
+
+
+def test_a_slow_full_chance_chill_is_up_only_its_share_of_the_fight():
+    from builder.search import conditions
+    # one hit every 16 s, each Chilling for 8 s at 100%: Chilled half the fight (was read as always)
+    stats = {"Speed": 1 / 16, "HitChance": 100.0, "ChillChanceOnHit": 100.0, "ChillDuration": 8.0}
+    assert conditions.chill_share(stats) == pytest.approx(0.5)
+    # fast hits: unchanged (always)
+    assert conditions.chill_share({**stats, "Speed": 2.0}) == pytest.approx(1.0)

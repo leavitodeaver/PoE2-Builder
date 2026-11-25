@@ -87,6 +87,12 @@ WITHER_FOREVER = re.compile(r"^Withered you inflict has infinite Duration$", re.
 # Kurgal's (against Abyssal Wasting), Cospri's "infinite Duration". wither_duration_+% is on a monster strongbox skill only
 # among the tables scanned (Mods, PassiveSkills, stat sets), so no duration modifier is read.
 WITHER_ON_HIT_SKILLS = ("Wither", "Chaos Bolt")  # the main skill's own Withered, at its uses per second
+# SIDE_WITHER (MECH110; MECH109's gap, an UNDERCOUNT where another group Withers): Wither / Chaos Bolt and Withering Touch
+# were read on the main skill only. A group other than the main one now adds its Withered at its own hits on the boss
+# (side_hit_rows' "hits": PoB's trigger rate or its use rate at the press choices, x hit chance): its own stacks per hit x
+# duration (WITHER_SKILL_STATS), Withering Touch's chance per 100% of the boss's Ailment Threshold dealt as Chaos x that
+# row's Chaos hit ("chaos", PoB's <hand>ChaosHitAverage) x its duration (WITHER_SUPPORT_STATS), as the main skill's.
+# A group with no hits on the boss (a DoT, a curse, a skill not pressed) adds none (named in the note).
 WITHERING_PRESENCE = "Withering Presence"
 WITHER_SKILL_STATS = ("active_skill_withered_base_duration_ms", "apply_x_wither_on_hit")
 WITHERING_PRESENCE_STATS = ("skill_withering_presence_frequency_ms", "base_skill_effect_duration")
@@ -288,6 +294,27 @@ def _withered_stacks(lines: list[str], stats: dict) -> tuple:
         stacks += each * rate * duration
         sources.append(f"Withering Touch: {chance:g}% chance per 100% of the boss's {threshold:,.0f} Ailment Threshold "
                        f"dealt as Chaos, a {chaos:,.0f} Chaos hit: {each:.2f} Withered per hit for {duration:g} s")
+    for group, side, own_side, support_side in stats.get("_wither_side") or ():  # (MECH110, SIDE_WITHER's note)
+        row = next((r for r in stats.get("_side_rows") or () if r.get("index") == group and r.get("name") == side), None)
+        hits = number((row or {}).get("hits"))
+        if hits <= 0:
+            idle.append(f"{side}'s Withered (no hits on the boss from that group)")
+            continue
+        if (duration := number(own_side.get(WITHER_SKILL_STATS[0])) / 1000) > 0:
+            each = number(own_side.get(WITHER_SKILL_STATS[1])) or 1.0
+            stacks += each * hits * duration
+            sources.append(f"{side} (another group): {each:g} Withered per hit for {duration:g} s at {hits:.2f} hits/s")
+        duration = number(support_side.get(WITHER_SUPPORT_STATS[0])) / 1000
+        if duration > 0 and (chance := number(support_side.get(WITHER_SUPPORT_STATS[1]))):
+            chaos, threshold = number((row or {}).get("chaos")), number(stats.get("EnemyAilmentThreshold"))
+            each = chance / 100 * chaos / threshold if threshold > 0 else 0.0
+            if each > 0:
+                stacks += each * hits * duration
+                sources.append(f"Withering Touch on {side} (another group): {chance:g}% chance per 100% of the boss's "
+                               f"{threshold:,.0f} Ailment Threshold dealt as Chaos, a {chaos:,.0f} Chaos hit: {each:.2f} "
+                               f"Withered per hit for {duration:g} s at {hits:.2f} hits/s")
+            else:
+                idle.append(f"Withering Touch on {side} (its hits deal no Chaos)")
     if presence := stats.get("_wither_presence"):
         every, duration = presence
         metres = _boss_distance(lines, stats)[0] / 10
@@ -954,6 +981,8 @@ def side_hit_rows(rows: dict, groups: list[dict], hitters: set[str], main_index,
                     "flagged": name in (flagged or ()), "types": types, "ignite": ignite, "poison": poison,
                     "shock": min(max(number(row.get("ShockChancePerHit")), 0.0), 100.0) / 100.0,
                     "chill": _chill_per_hit({**row, "EnemyAilmentThreshold": threshold}) if threshold > 0 else 0.0,
+                    # (MECH110: its Chaos hit, for a Withering Touch on it, _withered_stacks' side sources)
+                    "chaos": max(number(row.get(f"{p}ChaosHitAverage")) for p in ("", "MainHand.", "OffHand.")),
                     "how": f"{label} {landed:.2f} hits/s ({why}, {crit:.0%} critical)"})
     return out
 
@@ -4728,7 +4757,9 @@ def chill_share(stats: dict) -> float:
         chill = min(number(stats.get("ChillChanceOnHit")) / 100.0, 1.0)
     if chill <= 0 or hits <= 0:
         return 0.0
-    share = 1.0 - (1.0 - chill) ** (hits * (number(stats.get("ChillDuration")) or CHILL_SECONDS))
+    # (MECH110, MECH109's gap: 1 - (1 - c)^(hD) read a 100% Chill as always on below one hit a duration, an OVERCOUNT
+    # for slow hits; the evenly spaced hits' share instead, periodic_absent, as the boss's other ailments, MECHB54)
+    share = 1.0 - periodic_absent(chill, hits * (number(stats.get("ChillDuration")) or CHILL_SECONDS))
     # (a skill beside the main one that consumes Chill, Icestorm, ends it at its use rate: side_consumed; MECH56)
     return side_consumed(share, stats, "Chill", hits, chill)
 
@@ -12017,13 +12048,27 @@ class Conditions:
             stats["_presence_seconds"] = self.presence_seconds(texts, stats)  # (MECH59: Attrition, the ramps)
         if models.ARCHON_OF_CHAYULA in names:  # (MECH101: its Withered on Hit, CHAYULA_WITHER_STAT's note)
             stats["_chayula_wither"] = self._chayula_wither(lines, stats)
-        if self.main_skill in WITHER_ON_HIT_SKILLS or "Withering Touch" in main_gems or WITHERING_PRESENCE in names:
-            # (Withered from gems, _withered_stacks: the main skill's own, Withering Touch on it, Withering Presence)
-            raw = self.build.call("activeSkills", levelStats=[self.main_skill, WITHERING_PRESENCE],
+        side_wither = sorted(n for n in names if n in WITHER_ON_HIT_SKILLS and n != self.main_skill)
+        if (self.main_skill in WITHER_ON_HIT_SKILLS or "Withering Touch" in names or WITHERING_PRESENCE in names
+                or side_wither):
+            # (Withered from gems, _withered_stacks: the main skill's own, Withering Touch on it, Withering Presence;
+            # MECH110: the other groups' Wither / Chaos Bolt and Withering Touch, at their own hits, SIDE_WITHER's note)
+            main_group = self.build.call("groups").get("mainSocketGroup")
+            raw = self.build.call("activeSkills", levelStats=[self.main_skill, WITHERING_PRESENCE, *side_wither],
                                   supportStats=list(WITHER_SUPPORT_STATS))
+            stats["_wither_side"] = []
             for skill in raw["skills"]:
                 got = skill.get("levelStats") or {}
                 if skill.get("disabled"):
+                    continue
+                if skill.get("group") != main_group and skill["name"] != WITHERING_PRESENCE:
+                    own = ({s: got.get(s) for s in WITHER_SKILL_STATS} if skill["name"] in WITHER_ON_HIT_SKILLS
+                           else {})
+                    support = skill.get("supportStats") or {}
+                    if number(own.get(WITHER_SKILL_STATS[0])) > 0 or (
+                            number(support.get(WITHER_SUPPORT_STATS[0])) > 0
+                            and number(support.get(WITHER_SUPPORT_STATS[1])) > 0):
+                        stats["_wither_side"].append((skill.get("group"), skill["name"], own, support))
                     continue
                 if skill["name"] == self.main_skill:
                     stats["_wither_support"] = skill.get("supportStats") or {}
