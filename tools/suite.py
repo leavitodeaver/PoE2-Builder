@@ -98,6 +98,14 @@ def inner(argv: list[str]) -> int:
     import argparse
     import time
 
+    # (the manager, 25 Nov 11:45, MECHB64's find) the booking points stdout at a file in the PC's code page (cp1252); a test
+    # printing a character it can't encode crashed this loop's sys.stdout.write at the end of POE2T9022, so no SUITE line was
+    # printed and a train chain would read the run as stopped. Write UTF-8, replacing what can't be written.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError, OSError):
+        pass
+
     at = argv.index("--")
     argv, targets = argv[:at], argv[at + 1:]
     parser = argparse.ArgumentParser(prog="suite.py inner")
