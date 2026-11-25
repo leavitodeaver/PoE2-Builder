@@ -3842,8 +3842,9 @@ def energy_feed(kind: str, feeders: list[dict], stats: dict) -> tuple[float, flo
                 f"R60-1, MEDIUM; one crit roll covers the use since 0.5.0 (no Sustained tag), so the two crit together, "
                 f"the same mean as separate rolls; row, its own hit only: {own:.2f} Energy a use)")
 
-    gain = crits = busy = 0.0
-    parts: list[str] = []
+    gain = crits = 0.0
+    busy = min(max(number(stats.get("_warcry_busy")), 0.0), 1.0)  # (MECHB64: the Warcries' time, warcry_presses)
+    parts: list[str] = ([f"Warcries take {busy:.1%} of the time (Assumptions.warcry_presses)"] if busy > 0 else [])
     for f in (x for x in feeders if x["uses"] > 0):
         energy, crit = each(f)
         gain, crits = gain + f["uses"] * energy, crits + f["uses"] * crit

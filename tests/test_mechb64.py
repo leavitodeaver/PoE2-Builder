@@ -113,3 +113,48 @@ def test_the_mana_cap_row_scales_the_main_skill_and_its_feeders_together():
     assert models.mana_cap_row(10.0, "", "Bone Cage", 0.0, [], True) is None
     hand = models.mana_cap_row(100.0, "", "Spark", 400.0, [], False)
     assert "x0.250" in hand["value"] and "R60-4" not in hand["basis"]
+
+
+def test_a_meta_fed_main_loses_its_warcry_time_from_the_feeder_used_at_will():
+    """MECHB63's leftover (a small OVERCOUNT): a triggered main's Warcry time comes off its meta's feeders: energy_feed
+    starts its busy time from stats["_warcry_busy"] (Assumptions.warcry_presses), so the at-will filler gets the rest."""
+    stats = {"EnemyAilmentThreshold": 1000.0, "_boss_power": (20.0, "")}
+    spike = {"HitChance": 100.0, "CritChance": 50.0, "PhysicalCritAverage": 2000.0}
+    feeder = {"name": "Bonestorm", "uses": 0.0, "speed": 8.0, "why": "", "final": 0.0, "row": spike}
+    full, _, _ = models.energy_feed("crit", [dict(feeder)], stats)
+    less, _, how = models.energy_feed("crit", [dict(feeder)], {**stats, "_warcry_busy": 0.25})
+    assert less == pytest.approx(0.75 * full) and "Warcries take 25.0% of the time" in how
+
+
+def test_warcry_time_goes_to_the_feeders_when_the_main_is_meta_fed(engine):
+    """Infernal Cry beside a main taken as triggered and fed by its meta's feeders (energy_fed): no "less speed" on the
+    main; build.warcry_feed_busy carries the same share for energy_feed. Triggered but not fed: the LOW note as before."""
+    import dataclasses
+
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0, full=True)
+    search.setup(quests=False)
+    build = search.build
+    build.call("addSkillGroup", text="Infernal Cry 20/0 1")
+    group = next(g for g in build.groups() if any(x["name"] == "Infernal Cry" for x in g["gems"]))
+    build.set_group(index=group["index"], fullDPS=False)
+    found = [models.Skill.of(s) for s in build.call("activeSkills")["skills"] if not s.get("disabled")]
+    main = next(s for s in found if s.name == "Boneshatter")
+    own_mods, _ = search.assumptions.warcry_presses(found, main)
+    share = -own_mods[0]["scale"] / 100
+    assert share > 0
+    triggered = dataclasses.replace(main, triggered=True)
+    found = [triggered if s is main else s for s in found]
+    build.energy_fed = True
+    mods, notes = search.assumptions.warcry_presses(found, triggered)
+    assert mods == [] and "feeders" in notes[0]["label"]
+    assert build.warcry_feed_busy == pytest.approx(share, abs=1e-3)
+    build.energy_fed = False
+    mods, notes = search.assumptions.warcry_presses(found, triggered)
+    assert mods == [] and notes[0]["confidence"] == "LOW" and build.warcry_feed_busy == 0.0

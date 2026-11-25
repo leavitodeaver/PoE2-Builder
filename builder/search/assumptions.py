@@ -3788,6 +3788,9 @@ class Assumptions:
         if full_mana:
             inputs.items["MetaEnergy"] = inputs.items.get("MetaEnergy", 0.0) + full_mana
         feeders = self.energy_feeders(found, main)
+        build.energy_fed = bool(feeders)  # (MECHB64: warcry_presses takes a fed main's Warcry time off its feeders)
+        # (the Warcries' share warcry_presses set last round: the feeders' time starts there, energy_feed)
+        stats["_warcry_busy"] = number(getattr(build, "warcry_feed_busy", 0.0)) if feeders else 0.0
         energy_mods, energy_notes, energy_groups = models.energy_model(inputs, stats, found, main, supports, qualities,
                                                                        models.press_choices(build), feeders,
                                                                        getattr(self, "undeath_limit", None))
@@ -11766,13 +11769,18 @@ class Assumptions:
         charged twice, UNVERIFIED which). Its uses: the fewer of what its Glory pays for (glory_caps) and its use rate."""
         build = self.build
         ctx = build.ctx
+        build.warcry_feed_busy = 0.0  # (MECHB64: set below for a meta-fed triggered main; energy_feed reads it)
         glory_free = not kaom and not number(getattr(getattr(build, "objective", None), "glory_busy", 0.0))
         cries = [s for s in found if s.group is not None and not s.triggered and s is not main
                  and (s.name not in models.GLORY_SKILLS or s.name == models.ANCESTRAL_CRY and glory_free)
                  and "Warcry" in (gem_of(ctx, s.name, None).get("skillTypes") or [])]
         if main is None or not cries:
             return [], []
-        if main.triggered or main.by_totem:
+        # (MECHB64, MECHB63's leftover, a small OVERCOUNT) a triggered main fed by its meta gem's feeders (the skills you
+        # use: Assumptions.energy_feeders): the Warcries' time comes off the feeders' time instead, through
+        # build.warcry_feed_busy, which energy_feed starts its busy time from (the at-will filler gets what's left)
+        fed = bool(main.triggered and getattr(build, "energy_fed", False))
+        if main.by_totem or main.triggered and not fed:
             return [], [{"label": "Time casting Warcries: not charged*", "value": "x1",
                          "basis": (f"{main.name} is {'triggered' if main.triggered else 'used by a totem'}, so the "
                                    f"Warcries' ({', '.join(sorted({s.name for s in cries}))}) cast time isn't taken off "
@@ -11811,6 +11819,14 @@ class Assumptions:
                 if paid < uses:
                     uses, why = paid, f"its Glory: {paid_how}"
             presses.append((name, uses, why, models.press_action(row)))
+        if fed:  # (the same charge, taken from the feeders' time: no "less speed" on the triggered main itself)
+            mods, notes = models.warcry_press_model(presses, "the skills feeding its meta gem")
+            if mods:
+                build.warcry_feed_busy = -mods[0]["scale"] / 100
+                notes[0]["label"] = f"Time casting Warcries (taken from {main.name}'s feeders)*"
+                notes[0]["basis"] += (f"; {main.name} is triggered by its meta gem, so the time comes off the skills "
+                                      "you use to feed it: the one used at will gets the time left (energy_feed)")
+            return [], notes
         return models.warcry_press_model(presses, main.name)
 
     def minion_counts(self, found: list[models.Skill], stats: dict | None = None) -> list[dict]:
