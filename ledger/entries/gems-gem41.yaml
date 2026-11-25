@@ -27,10 +27,10 @@
   status: proposed
 
 - id: model-gem41-ghost-dance-repeat
-  title: "Ghost Dance: Cooldown Recovery on its Shroud interval (read by recovery.ghost_dance_income, MECHC51); its 3 maximum Shrouds"
+  title: "Ghost Dance: Cooldown Recovery on its Shroud interval (read by recovery.ghost_dance_income, MECHC51)"
   kind: model
   model: recovery
-  stats: ["cooldown_recovery_modifiers_also_apply_to_repeat_interval", "ghost_dance_max_stacks"]
+  stats: ["cooldown_recovery_modifiers_also_apply_to_repeat_interval"]
   skill: [Ghost Dance]
   confidence: MEDIUM
   notes: >-
@@ -38,7 +38,9 @@
     Cooldown Recovery Rate (the bridge's cooldownRecovery), as "Modifiers to Cooldown Recovery Rate also apply" says.
     Its "lost a Shroud recently" share uses the mean rates (a Shroud lost at the next hit when hits come faster than
     Shrouds; else every hit loses one), where the maximum of 3 never binds; a stock of up to 3 matters only for bunched
-    hits after a long gap (an UNDERCOUNT of Energy Shield there, MECH-C's model; defence, not damage).
+    hits after a long gap (an UNDERCOUNT of Energy Shield there, MECH-C's model; defence, not damage). GEM42: so
+    ghost_dance_max_stacks is NOT claimed here (this model never reads it); MECHC61's recovery.GHOST_STOCK /
+    ghost_dance_share (TRAIN 145) reads it, and COV57 marks that reader.
   sources: ["builder/search/recovery.py (ghost_dance_income)"]
   test_in_game: "Not needed."
   status: proposed

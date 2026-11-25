@@ -12,5 +12,7 @@ def test_cov57c_train142_readers_are_marked():
     for stat in models.PURSUIT_STATS:
         for skill in ("Pursuit I", "Pursuit II", "Pursuit III"):
             assert coverage.stat_covered(covered, stat, skill) == ("model", "model-read-cov57c-pursuit-melee-more"), stat
-    # Momentum's box-only stat stays open (no reader)
-    assert coverage.stat_covered(covered, "support_momnetum_damage_+%_final_with_momentum", "Momentum") is None
+    # (GEM42: Momentum's box-only stat is read by GEM40's momentum_model, the build's own walk during a use; COV57c was
+    # written on a tree without GEM40's entry)
+    assert coverage.stat_covered(covered, "support_momnetum_damage_+%_final_with_momentum", "Momentum") == (
+        "model", "model-gem40-momentum-walk-a-use")
