@@ -140,3 +140,40 @@ def test_real_pob_powered_by_verisium_quality_reaches_verisium_infusions(engine)
     build.ward_sustain = {a.VERISIUM: (0.1, 0.05, 100)}
     rate, how, inc = a.verisium_infusions(build)
     assert inc == pytest.approx(50.0) and rate > 0 and "(its quality)" in how
+
+
+def test_romiras_requital_recoups_what_its_companion_takes_for_you():
+    """(recovery.COMPANION_REDIRECT_STAT) 200% of the 10% of hit damage the companion takes comes back as Life: 20% of the
+    damage taken a second; nothing when no hit lands; only supported, enabled skills count, once a group."""
+    from builder.search import recovery
+
+    rows = [{"name": "Tame Beast", "group": 3, "supportStats": {recovery.COMPANION_REDIRECT_STAT: 10,
+                                                                recovery.LOYALTY_RECOUP_STAT: 200}},
+            {"name": "Tame Beast", "group": 3, "supportStats": {recovery.COMPANION_REDIRECT_STAT: 10,
+                                                                recovery.LOYALTY_RECOUP_STAT: 200}},
+            {"name": "Raging Spirits", "group": 4, "supportStats": {}},
+            {"name": "Wolf", "group": 5, "disabled": True, "supportStats": {recovery.LOYALTY_RECOUP_STAT: 200}}]
+    loyal = recovery.companion_recoups(rows)
+    assert loyal == [(10.0, 200.0, "Tame Beast")]
+    income = recovery.Income()
+    recovery.hit_income(income, {"Life": 1000}, [], taken=500.0, companion_recoup=loyal)
+    assert income.rates["LifeOnEventRecovery"] == pytest.approx(100.0)
+    income = recovery.Income()
+    recovery.hit_income(income, {"Life": 1000}, [], taken=0.0, companion_recoup=loyal)
+    assert income.rates["LifeOnEventRecovery"] == 0 and "no boss hit lands" in income.parts[-1]
+
+
+def test_real_pob_romiras_requital_stats_reach_support_stats(engine):
+    """Real PoB: a companion skill supported by Romira's Requital carries its redirect and recoup stats in the bridge's
+    supportStats, which companion_recoups reads."""
+    from test_engine_models import spark_with  # (tests/ is on sys.path under pytest)
+
+    from builder.search import recovery
+
+    build = spark_with(engine, []).build
+    # (Wolf Pack, a Companion skill: in this skeleton PoB gave Summon Wolf no active-skill row: POE2T7174, probe 7177)
+    build.call("addSkillGroup", text="Wolf Pack 20/0 1\nRomira's Requital 1/0 1")
+    rows = build.call("activeSkills", supportStats=[recovery.COMPANION_REDIRECT_STAT,
+                                                    recovery.LOYALTY_RECOUP_STAT])["skills"]
+    assert (10.0, 200.0, "Wolf Pack") in recovery.companion_recoups(rows), [(r.get("name"), r.get("supportStats"))
+                                                                             for r in rows]

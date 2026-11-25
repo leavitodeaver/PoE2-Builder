@@ -8881,6 +8881,12 @@ class Assumptions:
         if recoups:
             out["taken"] = sum(taken.values())
             out["flask_recoup"] = recoups
+        # (MECHC63: recovery.COMPANION_REDIRECT_STAT's note) each enabled companion skill a Romira's Requital supports
+        loyal = recovery.companion_recoups(build.call("activeSkills", supportStats=[
+            recovery.COMPANION_REDIRECT_STAT, recovery.LOYALTY_RECOUP_STAT])["skills"])
+        if loyal:
+            out["taken"] = sum(taken.values())
+            out["companion_recoup"] = loyal
         # (MECHC49: recovery.CHAOS_PREVENTED's note) the usable charms carrying it, each at its own uptime
         gain = flasks.Charges.of(build)
         usable = [o for slot in flasks.CHARM_SLOTS[:max(gain.charm_limit, 0)] if (o := equipped.get(slot)) is not None]

@@ -184,6 +184,20 @@ PREVENTED_LIFE_TRIBUTE = re.compile(rf"^{NUM}% of physical damage prevented reco
 # the second's share). Your recovery-rate modifiers on it: not applied (UNVERIFIED, the lower reading, as Igniferis');
 # your own damage over time not counted as taken (the lower reading).
 FLASK_RECOUP = re.compile(rf"^{NUM}% of Damage taken during effect Recouped as Life$", re.I)
+# Romira's Requital (MECHC63; COV58's offence ranking row 11, example builds 06 / 16 / 17 / 18; an UNDERCOUNT of Life
+# recovery): "Minions created by Supported Skills take a portion of Hit Damage you would otherwise have taken ... A
+# percentage of Damage taken this way is Recouped by you as Life" (PoB sup_int.lua SupportRomirasRequitalPlayer:
+# companion_takes_%_damage_before_you_from_support 10, loyalty_%_of_redirected_damage_recouped_as_life_for_owner 200;
+# gem_stat_descriptions: "You Recoup {0}% of Damage taken from Supported Minion's Life this way as Life"). PoB moves the
+# 10% to the companion's Life (SkillStatMap: TakenFromCompanionBeforeYou, CalcDefence 3154) but reads the recoup stat
+# nowhere (checked: grep loyalty_%_of_redirected over PoB's src: only the skill data and the stat description; none in
+# builder/ before). The boss's damage taken (objective.boss_taken, PoB's {Type}TakenHit: before an ally takes its share)
+# x the support's redirect share is what the companion takes for you; that x the recoup % comes back as Life (recoup
+# returns over 4 s: in a steady fight the second's share, as FLASK_RECOUP). The companion taken as there all fight
+# (MEDIUM: it revives when it dies; its Life cap on the redirect not applied); recovery-rate modifiers not applied
+# (UNVERIFIED, as FLASK_RECOUP).
+COMPANION_REDIRECT_STAT = "companion_takes_%_damage_before_you_from_support"
+LOYALTY_RECOUP_STAT = "loyalty_%_of_redirected_damage_recouped_as_life_for_owner"
 # Damage Blocked Recouped as Mana (MECHC49; COV48 rows 10.2 / 5.0, an UNDERCOUNT before: PoB parses it to nothing,
 # ModCache 7083 {nil, ...}). Stat damage_blocked_%_recouped_as_mana (checked: its users over Mods, PassiveSkills,
 # SoulCoreStats and GrantedEffectStatSets, game 26650308: Alkem Eira's UniqueDamageBlockedRecoupedAsMana1 at 100, "Damage
@@ -630,13 +644,28 @@ def spent_income(income: Income, stats: dict, texts: list[str], *, endurance: tu
                    f"The Devouring Diadem: {pct:g}% of maximum Life a corpse x {rate:.3f} corpses/s ({how})")
 
 
+def companion_recoups(skills: list[dict]) -> list[tuple[float, float, str]]:
+    """(MECHC63: COMPANION_REDIRECT_STAT's note) [(redirect %, recoup %, the skill)] for each enabled skill whose supports
+    carry the recoup (the bridge's activeSkills rows with supportStats)."""
+    out, seen = [], set()
+    for row in skills:
+        support = row.get("supportStats") or {}
+        pct = _num(support.get(LOYALTY_RECOUP_STAT))
+        name = row.get("name") or "a companion"
+        if row.get("disabled") or pct <= 0 or (name, row.get("group")) in seen:
+            continue
+        seen.add((name, row.get("group")))
+        out.append((_num(support.get(COMPANION_REDIRECT_STAT)), pct, name))
+    return out
+
+
 def hit_income(income: Income, stats: dict, texts: list[str], *, landed: float = 0.0, life_per_hit: float = 0.0,
                blocked: float = 0.0, casts: float = 0.0, cast_how: str = "", stunned: float = 0.0,
                stunned_how: str = "", refill: float = 0.0, refill_how: str = "", prevented: float = 0.0,
                prevented_how: str = "", power: float = 0.0, power_how: str = "", taken: float = 0.0,
                flask_recoup: list[tuple[float, float, str]] | None = None, blocked_hit: float = 0.0,
                chaos_recoup: list[tuple[float, float, str]] | None = None, chaos_prevented: float = 0.0,
-               chaos_how: str = "") -> None:
+               chaos_how: str = "", companion_recoup: list[tuple[float, float, str]] | None = None) -> None:
     """Life on the boss's hits, your Blocks and your casts (MECHC14, A27-32), each at the build's own rate: `landed` boss
     hits a second and the Life each takes (`life_per_hit`), `blocked` boss hits a second, `casts` Spells cast a second.
     "Recover N% of Missing Life before being Hit" (MECHC16, AUDIT28 A28-1: before, the last hit's Life alone, an OVERCOUNT
@@ -731,6 +760,15 @@ def hit_income(income: Income, stats: dict, texts: list[str], *, landed: float =
         else:
             income.parts.append(f"{pct:g}% of Damage taken during {what}'s effect Recouped as Life: 0, "
                                 + ("no boss hit lands" if taken <= 0 else "the flask is never up"))
+    for redirect, pct, what in companion_recoup or []:  # (MECHC63: COMPANION_REDIRECT_STAT's note)
+        if taken > 0 and redirect > 0:
+            income.add("LifeOnEventRecovery", pct / 100 * redirect / 100 * taken,
+                       f"{pct:g}% Recouped of the {redirect:g}% of hit damage {what}'s companion takes for you x "
+                       f"{taken:,.1f} damage taken/s from the boss's landed hits (the companion there all fight, MEDIUM; "
+                       "recovery-rate modifiers not applied: UNVERIFIED)")
+        else:
+            income.parts.append(f"{what}: {pct:g}% of the damage its companion takes for you Recouped as Life: 0, "
+                                + ("no boss hit lands" if taken <= 0 else "it takes none"))
     pct = _sum(MISSING_BEFORE_HIT, texts)
     if pct > 0:
         if landed > 0 and life_per_hit > 0:
